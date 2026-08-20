@@ -285,7 +285,7 @@ describe('server-v2 /api/v1 prompts', () => {
     const id = await createSession(home as string);
     await createMainAgent(id);
 
-    const prompts = ['先搭一个 Vite 项目', '加上路由', '现在配一下 ESLint'];
+    const prompts = ['\u5148\u642D\u4E00\u4E2A Vite \u9879\u76EE', '\u52A0\u4E0A\u8DEF\u7531', '\u73B0\u5728\u914D\u4E00\u4E0B ESLint'];
     for (const text of prompts) {
       const submitted = await call<PromptItemWire>('POST', `/api/v1/sessions/${id}/prompts`, {
         content: [{ type: 'text', text }],

@@ -289,7 +289,7 @@ describe('ModelSelectorComponent', () => {
     const picker = new ModelSelectorComponent({
       models: {
         long: model('A Very Long Model Display Name That Should Be Truncated Hard'),
-        cjk: model('超长的中文模型名称需要被正确截断处理'),
+        cjk: model('\u8D85\u957F\u7684\u4E2D\u6587\u6A21\u578B\u540D\u79F0\u9700\u8981\u88AB\u6B63\u786E\u622A\u65AD\u5904\u7406'),
       },
       currentValue: 'long',
       currentThinkingEffort: 'off',

@@ -190,8 +190,8 @@ describe('migrated session loads in real pythinker-core', () => {
       ).toEqual({
         kind: 'todo_list',
         items: expect.arrayContaining([
-          { title: '准备测试环境（创建隔离 work-dir）', status: 'in_progress' },
-          { title: '汇报结论', status: 'pending' },
+          { title: '\u51C6\u5907\u6D4B\u8BD5\u73AF\u5883（\u521B\u5EFA\u9694\u79BB work-dir）', status: 'in_progress' },
+          { title: '\u6C47\u62A5\u7ED3\u8BBA', status: 'pending' },
         ]),
       });
     } finally {

@@ -1,142 +1,142 @@
 /**
  * Integer namespaces:
  *   - 0          success
- *   - 4xxxx      客户端错误 (HTTP-4xx analog)
- *   - 5xxxx      daemon 内部错误
- *   - 6xxxx      工具运行时
- *   - 7xxxx      LLM provider 透传 (msg = original upstream text)
- *   - 8xxxx      MCP server 透传 (msg = original upstream text)
- *   - 9xxxx      预留
+ *   - 4xxxx      client errors (HTTP-4xx analog)
+ *   - 5xxxx      daemon internal errors
+ *   - 6xxxx      tool runtime errors
+ *   - 7xxxx      LLM provider passthrough (msg = original upstream text)
+ *   - 8xxxx      MCP server passthrough (msg = original upstream text)
+ *   - 9xxxx      reserved
  */
 
 export const ErrorCode = {
-  /** 成功 */
+  /** Success. */
   SUCCESS: 0,
 
-  /** Zod 校验失败，`details` 含字段路径列表 */
+  /** Zod validation failed; `details` contains field paths. */
   VALIDATION_FAILED: 40001,
-  /** JSON 解析失败、字段类型错 */
+  /** JSON parsing failed or a field has the wrong type. */
   REQUEST_MALFORMED: 40002,
 
-  /** daemon 没有任何 provider 配置 */
+  /** The daemon has no provider configuration. */
   AUTH_PROVISIONING_REQUIRED: 40110,
-  /** provider 存在但 token / api_key 缺失 */
+  /** The provider exists, but its token or API key is missing. */
   AUTH_TOKEN_MISSING: 40111,
-  /** 刷新 token 收到 401（用户撤销了授权） */
+  /** Token refresh returned 401 because the user revoked access. */
   AUTH_TOKEN_UNAUTHORIZED: 40112,
-  /** 默认 / 请求的 model 解析不到 provider */
+  /** The default or requested model does not resolve to a provider. */
   AUTH_MODEL_NOT_RESOLVED: 40113,
 
-  /** session_id 不存在 */
+  /** The session ID does not exist. */
   SESSION_NOT_FOUND: 40401,
-  /** prompt_id 不存在 */
+  /** The prompt ID does not exist. */
   PROMPT_NOT_FOUND: 40402,
-  /** message_id 不存在 */
+  /** The message ID does not exist. */
   MESSAGE_NOT_FOUND: 40403,
-  /** approval_id 不存在 */
+  /** The approval ID does not exist. */
   APPROVAL_NOT_FOUND: 40404,
-  /** question_id 不存在 */
+  /** The question ID does not exist. */
   QUESTION_NOT_FOUND: 40405,
-  /** task_id 不存在 */
+  /** The task ID does not exist. */
   TASK_NOT_FOUND: 40406,
-  /** file_id 不存在 */
+  /** The file ID does not exist. */
   FILE_NOT_FOUND: 40407,
-  /** mcp_server_id 不存在 */
+  /** The MCP server ID does not exist. */
   MCP_SERVER_NOT_FOUND: 40408,
-  /** fs path 不存在 */
+  /** The file-system path does not exist. */
   FS_PATH_NOT_FOUND: 40409,
-  /** workspace_id 不存在 */
+  /** The workspace ID does not exist. */
   WORKSPACE_NOT_FOUND: 40410,
-  /** fs 路径存在但当前进程无权限读取 */
+  /** The path exists, but the process cannot read it. */
   FS_PERMISSION_DENIED: 40411,
-  /** provider_id 不存在 */
+  /** The provider ID does not exist. */
   PROVIDER_NOT_FOUND: 40412,
-  /** model_id 不存在 */
+  /** The model ID does not exist. */
   MODEL_NOT_FOUND: 40413,
-  /** terminal_id 不存在 */
+  /** The terminal ID does not exist. */
   TERMINAL_NOT_FOUND: 40414,
-  /** skill_name 不存在 */
+  /** The skill name does not exist. */
   SKILL_NOT_FOUND: 40415,
-  /** tool_call_id 不存在，或该调用没有对应的 plan（非 ExitPlanMode） */
+  /** The tool-call ID does not exist or has no matching plan. */
   TOOL_CALL_NOT_FOUND: 40416,
 
-  /** session 有正在进行的 prompt，拒绝新请求 */
+  /** The session has an active prompt and rejects the new request. */
   SESSION_BUSY: 40901,
-  /** approval 已被其他 client 应答 */
+  /** Another client already answered the approval. */
   APPROVAL_ALREADY_RESOLVED: 40902,
-  /** prompt 已结束（abort 幂等返回 0） */
+  /** The prompt already ended; abort remains idempotent. */
   PROMPT_ALREADY_COMPLETED: 40903,
-  /** task 已完结，无法取消 */
+  /** The task already ended and cannot be cancelled. */
   TASK_ALREADY_FINISHED: 40904,
-  /** mcp restart 时若已在 connecting/connected */
+  /** MCP restart was requested while already connecting or connected. */
   MCP_ALREADY_CONNECTED: 40905,
-  /** fs.read 请求 file，但 path 是目录 */
+  /** File read was requested for a directory. */
   FS_IS_DIRECTORY: 40906,
-  /** fs.read 请求 utf-8，但 path 是二进制；client 改走 `:download` */
+  /** UTF-8 read was requested for a binary path; use `:download`. */
   FS_IS_BINARY: 40907,
-  /** fs.git_status 但 session.cwd 不是 git repo */
+  /** Git status was requested outside a Git repository. */
   FS_GIT_UNAVAILABLE: 40908,
-  /** 用户 ESC / 关闭面板放弃整组（client 调 `:dismiss`） */
+  /** The user dismissed the complete question group. */
   QUESTION_DISMISSED: 40909,
-  /** 当前历史没有可 compact 的前缀 */
+  /** The current history has no prefix that can be compacted. */
   COMPACTION_UNABLE: 40910,
-  /** 当前历史没有足够的用户提示词可撤回 */
+  /** The current history has too few user prompts to undo. */
   SESSION_UNDO_UNAVAILABLE: 40911,
-  /** skill 存在但类型不支持用户激活（如 reference 类型） */
+  /** The skill exists, but its type does not permit user activation. */
   SKILL_NOT_ACTIVATABLE: 40912,
 
-  /** 当前会话已存在活跃 goal */
+  /** The current session already has an active goal. */
   GOAL_ALREADY_EXISTS: 40913,
-  /** 目标不存在 */
+  /** The goal does not exist. */
   GOAL_NOT_FOUND: 40914,
-  /** goal 状态不允许该操作 */
+  /** The goal state does not permit this operation. */
   GOAL_STATUS_INVALID: 40915,
-  /** goal 当前状态不可恢复 */
+  /** The current goal state cannot be resumed. */
   GOAL_NOT_RESUMABLE: 40916,
-  /** goal objective 为空 */
+  /** The goal objective is empty. */
   GOAL_OBJECTIVE_EMPTY: 40917,
-  /** goal objective 超过长度限制 */
+  /** The goal objective exceeds the length limit. */
   GOAL_OBJECTIVE_TOO_LONG: 40918,
-  /** fs.mkdir 目标路径已存在（文件或目录） */
+  /** The mkdir target already exists. */
   FS_ALREADY_EXISTS: 40919,
-  /** goal 只允许主 agent 使用 */
+  /** Only the main agent can use goals. */
   GOAL_UNSUPPORTED_AGENT: 40920,
-  /** prompt_id 已在该 agent 的历史中使用 */
+  /** The prompt ID is already present in this agent's history. */
   PROMPT_ID_CONFLICT: 40927,
 
-  /** approval 60s 超时 */
+  /** The approval expired after 60 seconds. */
   APPROVAL_EXPIRED: 41001,
-  /** question 60s 超时 */
+  /** The question expired after 60 seconds. */
   QUESTION_EXPIRED: 41002,
-  /** 临时文件已过期 */
+  /** The temporary file expired. */
   FILE_EXPIRED: 41003,
 
-  /** 文件过大（如 session 导出超限；/files 上传不设上限） */
+  /** The file is too large. */
   FILE_TOO_LARGE: 41301,
-  /** fs.read 超 10MB */
+  /** The file read exceeds 10 MB. */
   FS_TOO_LARGE: 41302,
-  /** fs.list / fs.search / fs.grep 命中超上限 */
+  /** File listing, search, or grep exceeded its result limit. */
   FS_TOO_MANY_RESULTS: 41303,
-  /** path 越出 session cwd 边界 */
+  /** The path escapes the session working-directory boundary. */
   FS_PATH_ESCAPES_SESSION: 41304,
-  /** fs.grep 执行 >30s */
+  /** File grep exceeded 30 seconds. */
   FS_GREP_TIMEOUT: 41305,
 
-  /** WS 单连接 watch_paths > 100 */
+  /** One WebSocket connection requested more than 100 watch paths. */
   FS_WATCH_LIMIT_EXCEEDED: 42902,
 
-  /** 兜底 */
+  /** Unclassified internal error. */
   INTERNAL_ERROR: 50001,
-  /** 写入 session 持久化失败 */
+  /** Writing persistent session state failed. */
   PERSISTENCE_FAILURE: 50003,
 
-  /** tool 执行抛错 */
+  /** Tool execution threw an error. */
   TOOL_EXECUTION_FAILED: 60001,
-  /** tool 在此 session 未启用 */
+  /** The tool is not enabled for this session. */
   TOOL_NOT_AVAILABLE: 60002,
 
-  /** provider.* — provider 原 code 含义保留；`msg` 字段透传上游错误文本。 */
-  /** mcp.* — mcp server 原 code 含义保留；`msg` 字段透传上游错误文本。 */
+  /** provider.* preserves the provider code and upstream message text. */
+  /** mcp.* preserves the MCP server code and upstream message text. */
 } as const;
 
 /**

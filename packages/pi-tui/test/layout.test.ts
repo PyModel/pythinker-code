@@ -191,7 +191,7 @@ describe("viewport layout", () => {
 	});
 
 	it("renders a transient proportional scrollbar without replacing cell content", async () => {
-		const sourceLines = ["abcd界", "abcde2", "abcde3", "abcde4", "abcde5", "abcde6", "abcde7", "abcde8"];
+		const sourceLines = ["abcd\u754C", "abcde2", "abcde3", "abcde4", "abcde5", "abcde6", "abcde7", "abcde8"];
 		const contentBackground = "\x1b[42m";
 		const scrollbarBackground = "\x1b[48;5;1m";
 		const scrollbarStyle = (text: string) => `${scrollbarBackground}${text}\x1b[49m`;

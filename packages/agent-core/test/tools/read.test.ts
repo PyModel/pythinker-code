@@ -846,12 +846,12 @@ describe('ReadTool', () => {
   });
 
   it('reads unicode (CJK + emoji + accented Latin) without loss', async () => {
-    const tool = toolWithContent('Hello 世界 🌍\nUnicode test: café, naïve, résumé');
+    const tool = toolWithContent('Hello \u4E16\u754C 🌍\nUnicode test: café, naïve, résumé');
 
     const result = await executeTool(tool,context({ path: '/tmp/unicode.txt' }));
 
     expect(result.isError).toBeFalsy();
-    expect(result.output).toContain('1\tHello 世界 🌍');
+    expect(result.output).toContain('1\tHello \u4E16\u754C 🌍');
     expect(result.output).toContain('2\tUnicode test: café, naïve, résumé');
   });
 

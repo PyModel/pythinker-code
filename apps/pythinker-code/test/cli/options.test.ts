@@ -156,6 +156,14 @@ describe('CLI options parsing', () => {
       expect(parse(['--resume', 'sess-789']).session).toBe('sess-789');
     });
 
+    it('rejects combining --session with the hidden --resume alias', () => {
+      const opts = parse(['--session', 'sess-123', '--resume', 'sess-456']);
+      expect(opts.session).toBe('sess-123');
+      expect(opts.sessionSelectorConflict).toBe(true);
+      expect(() => validateOptions(opts)).toThrow(OptionConflictError);
+      expect(() => validateOptions(opts)).toThrow('Cannot combine --session with --resume.');
+    });
+
     it('bare -S (no id) yields empty string — triggers the picker', () => {
       expect(parse(['-S']).session).toBe('');
     });

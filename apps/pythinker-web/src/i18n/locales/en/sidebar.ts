@@ -29,7 +29,6 @@ export default {
   signedIn: 'Signed in',
   notSignedIn: 'Not signed in',
   signIn: 'Sign in',
-  language: 'Language',
   daemon: 'Daemon',
   backendTitle: 'Backend {backend} · {endpoint} — click to switch',
   noSessions: 'No conversations yet',

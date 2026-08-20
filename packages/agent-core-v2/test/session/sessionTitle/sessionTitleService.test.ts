@@ -163,7 +163,7 @@ describe('SessionTitleService', () => {
     events = new FakeEventService();
     fetchMock = vi.fn<(url: string, init?: RequestInit) => Promise<Response>>(
       async () =>
-        new Response(JSON.stringify({ title: '生成的标题' }), {
+        new Response(JSON.stringify({ title: '\u751F\u6210\u7684\u6807\u9898' }), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
         }),
@@ -246,18 +246,18 @@ describe('SessionTitleService', () => {
   });
 
   it('replaces the easy title with the generated one', async () => {
-    titlePrompts = ['帮我看一下这个 Go 的 nil pointer 报错'];
+    titlePrompts = ['\u5E2E\u6211\u770B\u4E00\u4E0B\u8FD9\u4E2A Go \u7684 nil pointer \u62A5\u9519'];
 
     const title = await ix.get(ISessionTitleService).generateTitle();
 
-    expect(title).toBe('生成的标题');
-    expect(metadata.meta.title).toBe('生成的标题');
+    expect(title).toBe('\u751F\u6210\u7684\u6807\u9898');
+    expect(metadata.meta.title).toBe('\u751F\u6210\u7684\u6807\u9898');
     expect(metadata.meta.titleKind).toBe('generated');
 
     const [, init] = fetchMock.mock.calls[0]!;
     expect(JSON.parse(init?.body as string)).toEqual({
       method: 'chat_title',
-      params: { chat_content: 'user: 帮我看一下这个 Go 的 nil pointer 报错' },
+      params: { chat_content: 'user: \u5E2E\u6211\u770B\u4E00\u4E0B\u8FD9\u4E2A Go \u7684 nil pointer \u62A5\u9519' },
     });
     expect(new Headers(init?.headers as Record<string, string>).get('authorization')).toBe(
       'Bearer test-token',
@@ -266,13 +266,13 @@ describe('SessionTitleService', () => {
     const rebroadcast = events.published.find(
       (event): event is SessionMetaUpdated =>
         event.type === 'session.meta.updated' &&
-        (event as SessionMetaUpdated).payload.patch.title === '生成的标题',
+        (event as SessionMetaUpdated).payload.patch.title === '\u751F\u6210\u7684\u6807\u9898',
     );
     expect(rebroadcast).toBeDefined();
   });
 
   it('composes the title input from the recorded prompts in order', async () => {
-    titlePrompts = ['先帮我搭一个 Vite 项目', '加上路由', '现在配一下 ESLint'];
+    titlePrompts = ['\u5148\u5E2E\u6211\u642D\u4E00\u4E2A Vite \u9879\u76EE', '\u52A0\u4E0A\u8DEF\u7531', '\u73B0\u5728\u914D\u4E00\u4E0B ESLint'];
 
     await ix.get(ISessionTitleService).generateTitle();
 
@@ -280,19 +280,19 @@ describe('SessionTitleService', () => {
     expect(JSON.parse(init?.body as string)).toEqual({
       method: 'chat_title',
       params: {
-        chat_content: 'user: 先帮我搭一个 Vite 项目\nuser: 加上路由\nuser: 现在配一下 ESLint',
+        chat_content: 'user: \u5148\u5E2E\u6211\u642D\u4E00\u4E2A Vite \u9879\u76EE\nuser: \u52A0\u4E0A\u8DEF\u7531\nuser: \u73B0\u5728\u914D\u4E00\u4E0B ESLint',
       },
     });
   });
 
   it('truncates the composed title input to the total budget, keeping the head', async () => {
-    titlePrompts = ['很长的输入'.repeat(400), '第二条'];
+    titlePrompts = ['\u5F88\u957F\u7684\u8F93\u5165'.repeat(400), '\u7B2C\u4E8C\u6761'];
 
     await ix.get(ISessionTitleService).generateTitle();
 
     const [, init] = fetchMock.mock.calls[0]!;
     const body = JSON.parse(init?.body as string) as { params: { chat_content: string } };
-    expect(body.params.chat_content.startsWith('user: 很长的输入')).toBe(true);
+    expect(body.params.chat_content.startsWith('user: \u5F88\u957F\u7684\u8F93\u5165')).toBe(true);
     expect(body.params.chat_content).toHaveLength(1000);
   });
 
@@ -318,79 +318,79 @@ describe('SessionTitleService', () => {
     titlePrompts = ['hello'];
     const generation = ix.get(ISessionTitleService).generateTitle();
     await pendingFetch.started;
-    await metadata.setTitle('user 取的标题');
+    await metadata.setTitle('user \u53D6\u7684\u6807\u9898');
     pendingFetch.resolve(
-      new Response(JSON.stringify({ title: '生成的标题' }), {
+      new Response(JSON.stringify({ title: '\u751F\u6210\u7684\u6807\u9898' }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
       }),
     );
 
     await expect(generation).resolves.toBeUndefined();
-    expect(metadata.meta.title).toBe('user 取的标题');
+    expect(metadata.meta.title).toBe('user \u53D6\u7684\u6807\u9898');
     expect(metadata.meta.titleKind).toBe('custom');
   });
 
   it('skips generation when the current title was already generated', async () => {
-    await metadata.setGeneratedTitleIfUncustomized('已生成的标题');
+    await metadata.setGeneratedTitleIfUncustomized('\u5DF2\u751F\u6210\u7684\u6807\u9898');
     titlePrompts = ['hello'];
 
     await expect(ix.get(ISessionTitleService).generateTitle()).resolves.toBeUndefined();
     expect(fetchMock).not.toHaveBeenCalled();
-    expect(metadata.meta.title).toBe('已生成的标题');
+    expect(metadata.meta.title).toBe('\u5DF2\u751F\u6210\u7684\u6807\u9898');
   });
 
   it('force regenerates an already-generated title', async () => {
-    await metadata.setGeneratedTitleIfUncustomized('已生成的标题');
+    await metadata.setGeneratedTitleIfUncustomized('\u5DF2\u751F\u6210\u7684\u6807\u9898');
     titlePrompts = ['hello'];
 
     await expect(
       ix.get(ISessionTitleService).generateTitle({ force: true }),
-    ).resolves.toBe('生成的标题');
+    ).resolves.toBe('\u751F\u6210\u7684\u6807\u9898');
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(metadata.meta.title).toBe('生成的标题');
+    expect(metadata.meta.title).toBe('\u751F\u6210\u7684\u6807\u9898');
     expect(metadata.meta.titleKind).toBe('generated');
   });
 
   it('force overwrites a custom title and drops its custom marking', async () => {
-    await metadata.setTitle('user 取的标题');
+    await metadata.setTitle('user \u53D6\u7684\u6807\u9898');
     titlePrompts = ['hello'];
 
     await expect(
       ix.get(ISessionTitleService).generateTitle({ force: true }),
-    ).resolves.toBe('生成的标题');
-    expect(metadata.meta.title).toBe('生成的标题');
+    ).resolves.toBe('\u751F\u6210\u7684\u6807\u9898');
+    expect(metadata.meta.title).toBe('\u751F\u6210\u7684\u6807\u9898');
     expect(metadata.meta.titleKind).toBe('generated');
   });
 
   it('force still degrades when the backend request fails', async () => {
     fetchMock.mockImplementationOnce(async () => new Response('', { status: 500 }));
-    await metadata.setTitle('user 取的标题');
+    await metadata.setTitle('user \u53D6\u7684\u6807\u9898');
     titlePrompts = ['hello'];
 
     await expect(
       ix.get(ISessionTitleService).generateTitle({ force: true }),
     ).resolves.toBeUndefined();
-    expect(metadata.meta.title).toBe('user 取的标题');
+    expect(metadata.meta.title).toBe('user \u53D6\u7684\u6807\u9898');
     expect(metadata.meta.titleKind).toBe('custom');
   });
 
   it('first_turn composes the opening prompt with the first reply, within budget', async () => {
-    turnExcerpt = { user: '最初的问题', assistant: '第一轮的回答' };
+    turnExcerpt = { user: '\u6700\u521D\u7684\u95EE\u9898', assistant: '\u7B2C\u4E00\u8F6E\u7684\u56DE\u7B54' };
 
     await expect(
       ix.get(ISessionTitleService).generateTitle({ source: 'first_turn' }),
-    ).resolves.toBe('生成的标题');
+    ).resolves.toBe('\u751F\u6210\u7684\u6807\u9898');
 
     const [, init] = fetchMock.mock.calls[0]!;
     expect(JSON.parse(init?.body as string)).toEqual({
       method: 'chat_title',
-      params: { chat_content: 'user: 最初的问题\nassistant: 第一轮的回答' },
+      params: { chat_content: 'user: \u6700\u521D\u7684\u95EE\u9898\nassistant: \u7B2C\u4E00\u8F6E\u7684\u56DE\u7B54' },
     });
   });
 
   it('first_turn is strict: no assistant reply yet means unavailable', async () => {
-    turnExcerpt = { user: '只有问题' };
+    turnExcerpt = { user: '\u53EA\u6709\u95EE\u9898' };
 
     await expect(
       ix.get(ISessionTitleService).generateTitle({ source: 'first_turn' }),
@@ -399,40 +399,40 @@ describe('SessionTitleService', () => {
   });
 
   it('first_turn truncates each segment to its budget', async () => {
-    turnExcerpt = { user: '问'.repeat(500), assistant: '答'.repeat(1000) };
+    turnExcerpt = { user: '\u95EE'.repeat(500), assistant: '\u7B54'.repeat(1000) };
 
     await expect(
       ix.get(ISessionTitleService).generateTitle({ source: 'first_turn' }),
-    ).resolves.toBe('生成的标题');
+    ).resolves.toBe('\u751F\u6210\u7684\u6807\u9898');
 
     const [, init] = fetchMock.mock.calls[0]!;
     const content = (JSON.parse(init?.body as string) as { params: { chat_content: string } })
       .params.chat_content;
-    expect(content).toBe(`user: ${'问'.repeat(300)}\nassistant: ${'答'.repeat(600)}`);
+    expect(content).toBe(`user: ${'\u95EE'.repeat(300)}\nassistant: ${'\u7B54'.repeat(600)}`);
   });
 
   it('digest composes head and tail segments, tolerating a missing reply', async () => {
-    digestExcerpt = { firstUser: '开场', lastUser: '最新追问', assistant: '当前进展' };
+    digestExcerpt = { firstUser: '\u5F00\u573A', lastUser: '\u6700\u65B0\u8FFD\u95EE', assistant: '\u5F53\u524D\u8FDB\u5C55' };
 
     await expect(
       ix.get(ISessionTitleService).generateTitle({ source: 'digest' }),
-    ).resolves.toBe('生成的标题');
+    ).resolves.toBe('\u751F\u6210\u7684\u6807\u9898');
 
     let [, init] = fetchMock.mock.calls[0]!;
     expect(JSON.parse(init?.body as string)).toEqual({
       method: 'chat_title',
-      params: { chat_content: 'user: 开场\nuser: 最新追问\nassistant: 当前进展' },
+      params: { chat_content: 'user: \u5F00\u573A\nuser: \u6700\u65B0\u8FFD\u95EE\nassistant: \u5F53\u524D\u8FDB\u5C55' },
     });
 
     fetchMock.mockClear();
-    digestExcerpt = { firstUser: '开场' };
+    digestExcerpt = { firstUser: '\u5F00\u573A' };
     await expect(
       ix.get(ISessionTitleService).generateTitle({ force: true, source: 'digest' }),
-    ).resolves.toBe('生成的标题');
+    ).resolves.toBe('\u751F\u6210\u7684\u6807\u9898');
     [, init] = fetchMock.mock.calls[0]!;
     expect(JSON.parse(init?.body as string)).toEqual({
       method: 'chat_title',
-      params: { chat_content: 'user: 开场' },
+      params: { chat_content: 'user: \u5F00\u573A' },
     });
   });
 
@@ -459,8 +459,8 @@ describe('SessionTitleService', () => {
     fetchMock.mockImplementationOnce(async () => new Response('', { status: 401 }));
     titlePrompts = ['hello'];
 
-    await expect(ix.get(ISessionTitleService).generateTitle()).resolves.toBe('生成的标题');
-    expect(metadata.meta.title).toBe('生成的标题');
+    await expect(ix.get(ISessionTitleService).generateTitle()).resolves.toBe('\u751F\u6210\u7684\u6807\u9898');
+    expect(metadata.meta.title).toBe('\u751F\u6210\u7684\u6807\u9898');
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(tokenCalls).toEqual([false, true]);
   });
@@ -550,13 +550,13 @@ describe('SessionTitleService', () => {
     await pendingFetch.started;
 
     pendingFetch.resolve(
-      new Response(JSON.stringify({ title: '生成的标题' }), {
+      new Response(JSON.stringify({ title: '\u751F\u6210\u7684\u6807\u9898' }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
       }),
     );
-    await expect(first).resolves.toBe('生成的标题');
-    await expect(second).resolves.toBe('生成的标题');
+    await expect(first).resolves.toBe('\u751F\u6210\u7684\u6807\u9898');
+    await expect(second).resolves.toBe('\u751F\u6210\u7684\u6807\u9898');
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 

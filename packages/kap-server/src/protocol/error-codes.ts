@@ -92,8 +92,8 @@ export const ErrorCode = {
  *   - 42901 rate.limited
  *   - 50002 protocol.version_mismatch
  *
- * (`ErrorCodeReason` 不随本表迁移：server 侧没有消费方；数字码到字符串
- * reason 的映射仍由 protocol 包为 v1 链路和 server-e2e 持有。)
+ * `ErrorCodeReason` is not copied here because the server has no consumer.
+ * The protocol package retains number-to-reason mapping for v1 and server E2E.
  */
 
 export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode];

@@ -3,8 +3,8 @@
 //
 // Scans src/** for the rules in the design system (§06 of the DesignSystemView spec):
 //   no-gradient-text, no-glassmorphism (.frost exempt), no-color-glow,
-//   icon-from-registry (hand-written <svg>; Icon/Spinner/MoonSpinner + the
-//   32x22 brand mark exempt), no-emoji-icon (moon in MoonSpinner exempt),
+//   icon-from-registry (hand-written <svg>; Icon/Spinner + the 32x22 brand
+//   mark exempt), no-emoji-icon,
 //   no-hardcoded-hex (DiffView/DiffLines/Terminal domain colors + var()
 //   fallbacks exempt), no-hardcoded-font (token definitions exempt),
 //   radius-from-scale, z-from-scale, weight-from-scale.
@@ -35,7 +35,6 @@ const DOMAIN_HEX_EXEMPT = new Set([
 // is not exempted here.
 const ICON_EXEMPT = new Set([
   'components/ui/Spinner.vue',
-  'components/ui/MoonSpinner.vue',
   'components/ui/ContextRing.vue',
   'components/ui/AuthStateIcon.vue',
   'components/GlobalLoading.vue',

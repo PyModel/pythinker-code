@@ -21,7 +21,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApprovalPanelComponent } from '#/tui/components/dialogs/approval-panel';
 import { EffortSelectorComponent } from '#/tui/components/dialogs/effort-selector';
 import { PYTHINKER_CODE_PLUGIN_MARKETPLACE_URL } from '#/constant/app';
-import { MOON_SPINNER_FRAMES } from '#/tui/constant/rendering';
+import { BRAILLE_SPINNER_FRAMES } from '#/tui/constant/rendering';
 import {
   AgentDynamicWorkflowProgressComponent,
   agentDynamicWorkflowGridHeightForTerminalRows,
@@ -2660,9 +2660,11 @@ command = "vim"
     }
     expect(subscribeOrder).toBeLessThan(snapshotOrder);
     const transcript = renderTranscript(driver);
-    expect(transcript).toContain('MCP server "local-tools" connected');
-    expect(transcript).toContain('2 tools (stdio)');
+    // Connected servers leave no persistent transcript row — success lives in
+    // the welcome banner's MCP summary; only failures stay visible.
+    expect(transcript).not.toContain('MCP server "local-tools" connected');
     expect(transcript).toContain('MCP server "remote-tools" failed: connection refused');
+    expect(driver.state.appState.mcpServersSummary).toContain('1 connected');
   });
 
   it('deduplicates identical MCP status updates while allowing reconnect transitions', async () => {
@@ -2692,7 +2694,7 @@ command = "vim"
     } as Event);
 
     expect(countOccurrences(renderTranscript(driver), 'MCP server "local-tools" connected')).toBe(
-      1,
+      0,
     );
 
     eventListeners[0]?.({
@@ -2705,6 +2707,8 @@ command = "vim"
         toolCount: 0,
       },
     } as Event);
+    // A reconnect transition shows the shared one-line loader...
+    expect(driver.sessionEventHandler.mcpServerStatusSpinner).not.toBeNull();
     eventListeners[0]?.({
       type: 'mcp.server.status',
       agentId: 'main',
@@ -2712,8 +2716,10 @@ command = "vim"
       server: connectedServer,
     } as Event);
 
+    // ...which disappears again on success, leaving no transcript row behind.
+    expect(driver.sessionEventHandler.mcpServerStatusSpinner).toBeNull();
     expect(countOccurrences(renderTranscript(driver), 'MCP server "local-tools" connected')).toBe(
-      2,
+      0,
     );
   });
 
@@ -2764,8 +2770,10 @@ command = "vim"
     await Promise.resolve();
 
     const transcript = renderTranscript(driver);
-    expect(transcript).toContain('MCP server "local-tools" connected');
+    // The live "connected" event wins: no failure row from the stale snapshot,
+    // and connected success itself leaves no transcript row.
     expect(transcript).not.toContain('stale failure');
+    expect(transcript).not.toContain('MCP server "local-tools"');
   });
 
   it('sends normal editor input to the active session and marks the turn as waiting', async () => {
@@ -7898,7 +7906,7 @@ command = "vim"
     expect(stripSgr(renderTranscript(driver))).not.toContain('visible reasoning');
   });
 
-  it('keeps the waiting moon spinner while reasoning streams only empty (encrypted) thinking deltas', async () => {
+  it('keeps the waiting spinner while reasoning streams only empty (encrypted) thinking deltas', async () => {
     const { driver } = await makeDriver();
 
     // Turn begins -> waiting mode shows the moon spinner.
@@ -7927,13 +7935,13 @@ command = "vim"
       );
     }
 
-    // The moon must stay up: still waiting, no orphan thinking component, and
-    // the activity pane still renders a moon frame (no blank, spinner-less gap).
+    // The indicator must stay up: still waiting, no orphan thinking component,
+    // and the activity pane still renders it (no blank, spinner-less gap).
     expect(driver.state.appState.streamingPhase).toBe('waiting');
     expect(driver.state.livePane.mode).toBe('waiting');
     expect(driver.streamingUI.hasActiveThinkingComponent()).toBe(false);
     const activity = stripSgr(renderActivity(driver));
-    expect(MOON_SPINNER_FRAMES.some((frame) => activity.includes(frame))).toBe(true);
+    expect(BRAILLE_SPINNER_FRAMES.some((frame) => activity.includes(frame))).toBe(true);
 
     // Real thinking text finally arrives -> transition into thinking mode.
     driver.sessionEventHandler.handleEvent(

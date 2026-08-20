@@ -72,7 +72,7 @@ const answers = ref<Record<string, QuestionAnswer>>({});
 
 function isRecommendedOption(option: { label: string; description?: string; recommended?: boolean }): boolean {
   if (option.recommended === true) return true;
-  return /\b(?:recommended|recommend)\b|推荐/.test(`${option.label} ${option.description ?? ''}`.toLowerCase());
+  return /\b(?:recommended|recommend)\b/.test(`${option.label} ${option.description ?? ''}`.toLowerCase());
 }
 
 function seedRecommendedAnswers(): void {

@@ -28,6 +28,7 @@ import {
 import type { AppMessage, AppModel, AppTask } from '../src/api/types';
 import { resolveToolRenderer } from '../src/components/chat/tool-calls/toolRegistry';
 import AgentTool from '../src/components/chat/tool-calls/AgentTool.vue';
+import DynamicWorkflowTool from '../src/components/chat/tool-calls/DynamicWorkflowTool.vue';
 import EditTool from '../src/components/chat/tool-calls/EditTool.vue';
 import GenericTool from '../src/components/chat/tool-calls/GenericTool.vue';
 import type { ToolCall } from '../src/types';
@@ -404,6 +405,10 @@ describe('resolveToolRenderer', () => {
     expect(resolveToolRenderer(tool('Agent'))).toBe(AgentTool);
     expect(resolveToolRenderer(tool('subagent'))).toBe(AgentTool);
     expect(resolveToolRenderer(tool('task'))).toBe(AgentTool);
+  });
+
+  it('routes AgentDynamicWorkflow calls to the live progress renderer', () => {
+    expect(resolveToolRenderer(tool('AgentDynamicWorkflow'))).toBe(DynamicWorkflowTool);
   });
 
   it('routes edit-like calls to the Edit renderer', () => {

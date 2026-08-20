@@ -33,6 +33,7 @@ const mocks = vi.hoisted(() => {
     initializeCliTelemetry: vi.fn(),
     handleUpgrade: vi.fn(),
     flushDiagnosticLogs: vi.fn(),
+    drainStdio: vi.fn(async () => {}),
     finalizeHeadlessRun: vi.fn(),
     log: {
       info: vi.fn(),
@@ -131,6 +132,7 @@ vi.mock('../../src/cli/run-prompt', () => ({
 }));
 
 vi.mock('../../src/cli/headless-exit', () => ({
+  drainStdio: mocks.drainStdio,
   finalizeHeadlessRun: mocks.finalizeHeadlessRun,
 }));
 

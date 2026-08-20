@@ -103,7 +103,7 @@ describe('Pythinker identity factories', () => {
   });
 
   it('rejects an empty, whitespace, or all-non-ASCII platform instead of emitting a bad header', () => {
-    for (const platform of ['', '   ', '桌面']) {
+    for (const platform of ['', '   ', '\u684C\u9762']) {
       expect(
         () => createPythinkerDeviceHeaders({ homeDir: tempHome(), version: '1.2.3', platform }),
         JSON.stringify(platform),
@@ -115,7 +115,7 @@ describe('Pythinker identity factories', () => {
     const headers = createPythinkerDeviceHeaders({
       homeDir: tempHome(),
       version: '1.2.3',
-      platform: 'pythinker_code_桌面\n',
+      platform: 'pythinker_code_\u684C\u9762\n',
     });
     expect(headers['X-Msh-Platform']).toBe('pythinker_code_');
   });
@@ -152,7 +152,7 @@ describe('ascii header value sanitization', () => {
       const actual = await vi.importActual<typeof import('node:os')>('node:os');
       return {
         ...actual,
-        hostname: () => '你好',
+        hostname: () => '\u4F60\u597D',
         release: () => '1.0.0',
         type: () => 'Linux',
         arch: () => 'x64',

@@ -20,7 +20,7 @@ describe('title excerpts over the real context memory', () => {
     const context = ctx.get(IAgentContextMemoryService);
     context.append({
       role: 'user',
-      content: [{ type: 'text', text: '帮我部署这个服务' }],
+      content: [{ type: 'text', text: '\u5E2E\u6211\u90E8\u7F72\u8FD9\u4E2A\u670D\u52A1' }],
       toolCalls: [],
       origin: { kind: 'user' },
     });
@@ -28,7 +28,7 @@ describe('title excerpts over the real context memory', () => {
     context.appendLoopEvent({
       type: 'content.part',
       stepUuid: 's1',
-      part: { type: 'text', text: '先看一下配置' },
+      part: { type: 'text', text: '\u5148\u770B\u4E00\u4E0B\u914D\u7F6E' },
     });
     context.appendLoopEvent({
       type: 'tool.call',
@@ -47,24 +47,24 @@ describe('title excerpts over the real context memory', () => {
     context.appendLoopEvent({
       type: 'content.part',
       stepUuid: 's2',
-      part: { type: 'think', think: '收尾' },
+      part: { type: 'think', think: '\u6536\u5C3E' },
     });
     context.appendLoopEvent({
       type: 'content.part',
       stepUuid: 's2',
-      part: { type: 'text', text: '部署完成，服务在 8080 端口' },
+      part: { type: 'text', text: '\u90E8\u7F72\u5B8C\u6210，\u670D\u52A1\u5728 8080 \u7AEF\u53E3' },
     });
     context.appendLoopEvent({ type: 'step.end', uuid: 's2' });
 
     const source = ctx.get(IAgentTitlePromptSource);
     await expect(source.firstTurnExcerpt()).resolves.toEqual({
-      user: '帮我部署这个服务',
-      assistant: '部署完成，服务在 8080 端口',
+      user: '\u5E2E\u6211\u90E8\u7F72\u8FD9\u4E2A\u670D\u52A1',
+      assistant: '\u90E8\u7F72\u5B8C\u6210，\u670D\u52A1\u5728 8080 \u7AEF\u53E3',
     });
     await expect(source.digestExcerpt()).resolves.toEqual({
-      firstUser: '帮我部署这个服务',
+      firstUser: '\u5E2E\u6211\u90E8\u7F72\u8FD9\u4E2A\u670D\u52A1',
       lastUser: undefined,
-      assistant: '部署完成，服务在 8080 端口',
+      assistant: '\u90E8\u7F72\u5B8C\u6210，\u670D\u52A1\u5728 8080 \u7AEF\u53E3',
     });
   });
 
@@ -72,13 +72,13 @@ describe('title excerpts over the real context memory', () => {
     const context = ctx.get(IAgentContextMemoryService);
     context.append({
       role: 'user',
-      content: [{ type: 'text', text: '刚发的问题' }],
+      content: [{ type: 'text', text: '\u521A\u53D1\u7684\u95EE\u9898' }],
       toolCalls: [],
       origin: { kind: 'user' },
     });
 
     await expect(ctx.get(IAgentTitlePromptSource).firstTurnExcerpt()).resolves.toEqual({
-      user: '刚发的问题',
+      user: '\u521A\u53D1\u7684\u95EE\u9898',
       assistant: undefined,
     });
   });
@@ -90,7 +90,7 @@ describe('title excerpts over the real context memory', () => {
       content: [
         { type: 'text', text: 'User activated the skill "review". Follow the loaded skill instructions.' },
         { type: 'text', text: 'User activated the skill "security". Follow the loaded skill instructions.' },
-        { type: 'text', text: '检查这次改动的正确性' },
+        { type: 'text', text: '\u68C0\u67E5\u8FD9\u6B21\u6539\u52A8\u7684\u6B63\u786E\u6027' },
       ],
       toolCalls: [],
       origin: {
@@ -104,9 +104,9 @@ describe('title excerpts over the real context memory', () => {
 
     const source = ctx.get(IAgentTitlePromptSource);
     await expect(source.firstTurnExcerpt()).resolves.toEqual({
-      user: '检查这次改动的正确性',
+      user: '\u68C0\u67E5\u8FD9\u6B21\u6539\u52A8\u7684\u6B63\u786E\u6027',
       assistant: undefined,
     });
-    await expect(source.firstUserPrompts(5)).resolves.toEqual(['检查这次改动的正确性']);
+    await expect(source.firstUserPrompts(5)).resolves.toEqual(['\u68C0\u67E5\u8FD9\u6B21\u6539\u52A8\u7684\u6B63\u786E\u6027']);
   });
 });

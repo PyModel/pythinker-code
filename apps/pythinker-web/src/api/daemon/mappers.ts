@@ -4,11 +4,13 @@
 
 import type {
   AppApprovalRequest,
+  AppCatalogProvider,
   AppConfig,
   AppEvent,
   AppGoal,
   AppModel,
   AppProvider,
+  CatalogProviderImportResult,
   CodexLoginStatus,
   FsEntry,
   AppMessage,
@@ -32,6 +34,8 @@ import type {
 import type {
   WireApprovalRequest,
   WireApprovalResponse,
+  WireCatalogProvider,
+  WireImportCatalogProviderResult,
   WireTask,
   WireFsEntry,
   WireImageSource,
@@ -759,6 +763,35 @@ export function toAppProvider(wire: WireProvider): AppProvider {
     hasApiKey: wire.has_api_key,
     status: wire.status,
     models: wire.models,
+  };
+}
+
+export function toAppCatalogProvider(wire: WireCatalogProvider): AppCatalogProvider {
+  return {
+    id: wire.id,
+    name: wire.name,
+    wireType: wire.wire_type,
+    guessed: wire.guessed,
+    needsBaseUrl: wire.needs_base_url,
+    rejected: wire.rejected,
+    rejectReason: wire.reject_reason,
+    envKey: wire.env_key,
+    models: wire.models.map((model) => ({
+      id: model.id,
+      name: model.name,
+      maxContextSize: model.max_context_size,
+      capabilities: model.capabilities,
+      reasoning: model.reasoning,
+    })),
+  };
+}
+
+export function toCatalogProviderImportResult(
+  wire: WireImportCatalogProviderResult,
+): CatalogProviderImportResult {
+  return {
+    provider: toAppCatalogProvider(wire.provider),
+    modelsImported: wire.models_imported,
   };
 }
 

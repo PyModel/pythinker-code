@@ -62,7 +62,7 @@ describe('ScopeUnits — kernel materialization fold (D11/G2)', () => {
     app.dispose();
   });
 
-  it('tears the materialized unit down when the provider dies (连坐)', () => {
+  it('tears the materialized unit down when the provider dies (\u8FDE\u5750)', () => {
     const app = appWithPack();
     const a1 = app.createChild('agent', 'a1');
     expect(a1.accessor.get(IFoo).tag).toBe('foo');
@@ -72,7 +72,7 @@ describe('ScopeUnits — kernel materialization fold (D11/G2)', () => {
     app.dispose();
   });
 
-  it('tears the materialized unit down with the target scope (idempotent with 连坐)', () => {
+  it('tears the materialized unit down with the target scope (idempotent with \u8FDE\u5750)', () => {
     const app = appWithPack();
     const a1 = app.createChild('agent', 'a1');
     expect(a1.accessor.get(IFoo).tag).toBe('foo');

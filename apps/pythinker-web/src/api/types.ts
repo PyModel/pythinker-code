@@ -627,7 +627,7 @@ export interface AppModel {
 export interface AppProvider {
   /** Provider id */
   id: string;
-  /** Provider type (e.g. "pymodel", "anthropic", "openai", "custom") */
+  /** Provider type (e.g. "pythinker", "anthropic", "openai") */
   type: string;
   /** Optional custom base URL */
   baseUrl?: string;
@@ -639,6 +639,51 @@ export interface AppProvider {
   status: 'connected' | 'error' | 'unconfigured';
   /** Model ids available from this provider */
   models?: string[];
+}
+
+export type CatalogProviderWireType =
+  | 'pythinker'
+  | 'openai'
+  | 'openai_responses'
+  | 'anthropic'
+  | 'google-genai'
+  | 'vertexai';
+
+export interface AppCatalogModel {
+  id: string;
+  name?: string;
+  maxContextSize: number;
+  capabilities?: string[];
+  reasoning: boolean;
+}
+
+export interface AppCatalogProvider {
+  id: string;
+  name: string;
+  wireType: CatalogProviderWireType | null;
+  guessed: boolean;
+  needsBaseUrl: boolean;
+  rejected: boolean;
+  rejectReason: string | null;
+  envKey: string | null;
+  models: AppCatalogModel[];
+}
+
+export interface CatalogProviderImportInput {
+  catalogId: string;
+  apiKey?: string;
+  baseUrl?: string;
+  id?: string;
+}
+
+export interface CatalogProviderImportResult {
+  provider: AppCatalogProvider;
+  modelsImported: number;
+}
+
+export interface CatalogProviderApi {
+  listCatalogProviders(): Promise<AppCatalogProvider[]>;
+  importCatalogProvider(input: CatalogProviderImportInput): Promise<CatalogProviderImportResult>;
 }
 
 /** An OpenAI Codex sign-in in progress. Carries no token: the server keeps them. */

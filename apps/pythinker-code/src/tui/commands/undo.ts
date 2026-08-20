@@ -537,6 +537,8 @@ function renderWelcome(host: SlashCommandHost): void {
     return;
   }
   host.state.transcriptContainer.addChild(
-    new WelcomeComponent(host.state.appState),
+    new WelcomeComponent(host.state.appState, () => {
+      host.state.ui.requestRender();
+    }),
   );
 }

@@ -140,7 +140,6 @@ describe('STORAGE_KEYS', () => {
     expect(STORAGE_KEYS.notifyOnComplete).toBe('pythinker-web.notify-on-complete');
     expect(STORAGE_KEYS.notifyOnQuestion).toBe('pythinker-web.notify-on-question');
     expect(STORAGE_KEYS.soundOnComplete).toBe('pythinker-web.sound-on-complete');
-    expect(STORAGE_KEYS.locale).toBe('pythinker-locale');
   });
 });
 

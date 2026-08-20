@@ -61,28 +61,67 @@ Only set tokens from this set — unknown keys are silently ignored at load. If 
 
 | Token | Controls |
 | --- | --- |
-| `primary` | The most-used color: links, inline code, the selected item in nearly every dialog, the focused editor border, plan/"running" badges, spinners |
-| `accent` | Secondary highlight: approval `▶` prefix, device-code box, image placeholder, BTW / queue panes, registry import |
-| `text` | Body text: dialog bodies, todo titles, footer model label, Markdown headings, assistant/tool message bullets, list bullets |
-| `textStrong` | Emphasized / bold text: input dialogs, status messages |
-| `textDim` | Secondary, dimmed text (the most widely used dim shade): thinking, hints, descriptions, completed todos, Markdown quotes, footer status bar |
-| `textMuted` | Faintest text: counters, scroll info, descriptions, Markdown link URLs, code-block borders |
-| `border` | Pane and editor borders, Markdown horizontal rule |
-| `borderFocus` | Focus / attention border (currently only the approval panel) |
-| `success` | Success state: `✓`, "enabled", completed |
-| `warning` | Warning state: auto/yolo badges, stale markers, plan-mode hint |
-| `error` | Error state: error messages, failed tool output |
+| `primary` | Dominant interactive and brand color: links, inline code, selections, focus, plan badges, and spinners |
+| `accent` | Secondary highlight for approval markers, device-code boxes, image placeholders, and queue panes |
+| `primaryShimmer` | Bright primary pulse used by running-state animations |
+| `accentShimmer` | Bright accent pulse for attention animations |
+| `warningShimmer` | Bright warning pulse for attention animations |
+| `borderShimmer` | Bright border pulse for focused-panel animations |
+| `textDimShimmer` | Bright dim-text pulse for thinking and status animations |
+| `text` | Body text in dialogs, todos, Markdown, tool output, and message bullets |
+| `textStrong` | Emphasized text in input dialogs, status messages, and high-signal labels |
+| `textDim` | Secondary text for thinking, hints, descriptions, completed todos, and status metadata |
+| `textMuted` | Faint text for counters, scroll info, URLs, and code-block borders |
+| `border` | Pane, editor, and Markdown horizontal-rule borders |
+| `borderFocus` | Focus and attention borders |
+| `success` | Success marks and completed states |
+| `warning` | Warning badges, stale markers, and Plan mode hints |
+| `error` | Error messages and failed tool output |
 | `toolPendingBg` | Background tint for a running tool card |
 | `toolSuccessBg` | Background tint for a successful tool card |
 | `toolErrorBg` | Background tint for a failed tool card |
-| `diffAdded` | Diff added lines |
-| `diffRemoved` | Diff removed lines |
-| `diffAddedStrong` | Diff intra-line changed words, added (bold) |
-| `diffRemovedStrong` | Diff intra-line changed words, removed (bold) |
+| `effortLow` | Low thinking effort indicator |
+| `effortMedium` | Medium thinking effort indicator |
+| `effortHigh` | High thinking effort indicator |
+| `effortXHigh` | Extra-high thinking effort indicator |
+| `effortMax` | Maximum thinking effort indicator |
+| `diffAdded` | Added diff lines |
+| `diffRemoved` | Removed diff lines |
+| `diffAddedStrong` | Added intra-line changed words |
+| `diffRemovedStrong` | Removed intra-line changed words |
 | `diffGutter` | Diff line-number gutter |
-| `diffMeta` | Diff meta / hunk headers |
-| `roleUser` | User message bullet and text, skill-activation name (the one role color with its own hue) |
-| `shellMode` | Shell mode (`!`) prompt, editor border, and the echoed `$ command` line |
+| `diffMeta` | Diff meta and hunk headers |
+| `diffAddedDimmed` | De-emphasized added diff context |
+| `diffRemovedDimmed` | De-emphasized removed diff context |
+| `roleUser` | User message accent and skill-activation name |
+| `shellMode` | Shell mode (`!`) prompt, editor border, and echoed `$ command` line |
+| `workflowTitle` | Dynamic Workflow mission-control title |
+| `agentRed` | First agent identity color |
+| `agentOrange` | Second agent identity color |
+| `agentYellow` | Third agent identity color |
+| `agentGreen` | Fourth agent identity color |
+| `agentCyan` | Fifth agent identity color |
+| `agentBlue` | Sixth agent identity color |
+| `agentPurple` | Seventh agent identity color |
+| `agentPink` | Eighth agent identity color |
+| `rainbowRed` | Red spectrum stop for future highlighting |
+| `rainbowOrange` | Orange spectrum stop for future highlighting |
+| `rainbowYellow` | Yellow spectrum stop for future highlighting |
+| `rainbowGreen` | Green spectrum stop for future highlighting |
+| `rainbowBlue` | Blue spectrum stop for future highlighting |
+| `rainbowIndigo` | Indigo spectrum stop for future highlighting |
+| `rainbowViolet` | Violet spectrum stop for future highlighting |
+| `modeAutoAccept` | Auto-accept mode badge |
+| `modePlan` | Plan mode badge |
+| `modePermission` | Permission mode badge |
+| `modeFast` | Fast mode badge |
+| `background` | Assumed terminal background for themed surfaces |
+| `inverseText` | Foreground for active tabs; keep contrast with `selectionBg` at 4.5:1 or higher |
+| `selectionBg` | Background for active tabs; keep contrast with `inverseText` at 4.5:1 or higher |
+| `surfaceHighlight` | Subtle fill for highlighted rows and message surfaces |
+| `progressFill` | Filled Dynamic Workflow progress segment |
+| `progressHead` | Dynamic Workflow progress head |
+| `progressEmpty` | Empty Dynamic Workflow progress segment |
 
 ## Workflow
 

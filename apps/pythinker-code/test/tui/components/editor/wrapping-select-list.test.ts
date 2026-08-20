@@ -126,7 +126,7 @@ describe('WrappingSelectList', () => {
   it('never emits a line wider than the requested width, including CJK text', () => {
     const list = new WrappingSelectList(
       [
-        { value: 'lark', label: 'skill:lark-calendar', description: '管理飞书日历的技能描述'.repeat(8) },
+        { value: 'lark', label: 'skill:lark-calendar', description: '\u7BA1\u7406\u98DE\u4E66\u65E5\u5386\u7684\u6280\u80FD\u63CF\u8FF0'.repeat(8) },
         { value: 'init', label: 'init', description: 'word '.repeat(60).trim() },
       ],
       5,

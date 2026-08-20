@@ -2,12 +2,18 @@
 // Singleton factory for the PythinkerWebApi daemon client.
 
 import { readPythinkerApiConfig } from './config';
-import type { PythinkerWebApi } from './types';
+import type { CatalogProviderApi, PythinkerWebApi } from './types';
 import { DaemonPythinkerWebApi } from './daemon/client';
+import { createCatalogProviderApi } from './daemon/catalog';
 
-let singleton: PythinkerWebApi | undefined;
+type WebApi = PythinkerWebApi & CatalogProviderApi;
 
-export function getPythinkerWebApi(): PythinkerWebApi {
-  singleton ??= new DaemonPythinkerWebApi(readPythinkerApiConfig());
+let singleton: WebApi | undefined;
+
+export function getPythinkerWebApi(): WebApi {
+  if (singleton === undefined) {
+    const config = readPythinkerApiConfig();
+    singleton = Object.assign(new DaemonPythinkerWebApi(config), createCatalogProviderApi(config));
+  }
   return singleton;
 }

@@ -741,10 +741,10 @@ function persistSessionProfile(patch: {
   return Promise.resolve(getPythinkerWebApi().updateSession(sid, patch))
     .then(() => refreshSessionStatus(sid))
     .then(() => true)
-    .catch((err) => {
+    .catch((error) => {
       // Local state already reflects the change; tell the user (and the log)
       // that the daemon did not persist it.
-      pushOperationFailure('persistSessionProfile', err, { sessionId: sid });
+      pushOperationFailure('persistSessionProfile', error, { sessionId: sid });
       return false;
     });
 }
@@ -778,7 +778,7 @@ function setConversationToc(v: boolean): void {
 
 // ---------------------------------------------------------------------------
 // Onboarding: a "has the user been onboarded" flag that gates the first-run
-// onboarding screen (preference: language). Persisted; can be reset to re-open
+// onboarding screen. Persisted; can be reset to re-open
 // the screen from the settings popover.
 // ---------------------------------------------------------------------------
 function loadStringFromStorage(key: string): string {
@@ -1505,12 +1505,12 @@ async function syncSessionFromSnapshot(sessionId: string): Promise<SyncSessionRe
     if (snapUsagePlaceholder) void refreshSessionStatus(sessionId);
     void pullSessionWarnings(sessionId);
     return 'ok';
-  } catch (err) {
-    if (isSessionNotFoundError(err)) {
+  } catch (error) {
+    if (isSessionNotFoundError(error)) {
       await handleSessionNotFound(sessionId);
       return 'not-found';
     }
-    pushOperationFailure('getSessionSnapshot', err, {
+    pushOperationFailure('getSessionSnapshot', error, {
       title: i18n.global.t('warnings.sessionSnapshotTitle'),
       message: i18n.global.t('warnings.sessionSnapshotMessage'),
       sessionId,
@@ -2299,7 +2299,7 @@ const changes = computed<{ path: string; status: string }[]>(() => {
   if (!gs) return [];
   return Object.entries(gs.entries)
     .map(([path, status]) => ({ path, status }))
-    .sort((a, b) => a.path.localeCompare(b.path));
+    .toSorted((a, b) => a.path.localeCompare(b.path));
 });
 
 /** Aggregate working-tree line stats (vs HEAD) for the active session's header

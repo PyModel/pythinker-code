@@ -146,26 +146,6 @@ describe('notification copy', () => {
     });
   });
 
-  it('localizes approval notification copy', () => {
-    i18n.global.locale.value = 'zh';
-    expect(approvalNotificationCopy('', '')).toEqual({
-      title: 'Pythinker Code · 等待审批',
-      body: '有工具等待你审批',
-    });
-  });
-
-  it('localizes the notification copy', () => {
-    i18n.global.locale.value = 'zh';
-
-    expect(completionNotificationCopy('')).toEqual({
-      title: 'Pythinker Code · 回合完成',
-      body: '点击查看结果',
-    });
-    expect(questionNotificationCopy('', '')).toEqual({
-      title: 'Pythinker Code · 待回答',
-      body: '有提问等待你回答',
-    });
-  });
 });
 
 describe('shouldNotifyCompletion', () => {

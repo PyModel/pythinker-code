@@ -15,7 +15,6 @@ export default {
   permAutoSub: 'fully autonomous, never asks',
   permYoloSub: 'auto-approve tools, may still ask',
   planModeSub: 'Plan mode',
-  dynamicWorkflowModeSub: 'DynamicWorkflow mode',
   archivedSessions: 'Archived sessions',
   archivedSessionsSub: 'Browse and restore archived sessions',
   archivedBack: 'Back',

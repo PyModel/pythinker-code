@@ -62,7 +62,7 @@ describe('normalizeIdentitySlug', () => {
   });
 
   it.each([
-    ['Acme 开发助手', 'acme'],
+    ['Acme \u5F00\u53D1\u52A9\u624B', 'acme'],
     ['ACME__Dev', 'acme-dev'],
     ['  spaced  out  ', 'spaced-out'],
     ['--leading-and-trailing--', 'leading-and-trailing'],
@@ -70,7 +70,7 @@ describe('normalizeIdentitySlug', () => {
     expect(normalizeIdentitySlug(input)).toBe(expected);
   });
 
-  it.each(['开发助手', '!!!', '   ', '', '「」', '🎉'])(
+  it.each(['\u5F00\u53D1\u52A9\u624B', '!!!', '   ', '', '「」', '🎉'])(
     'falls back to the default slug for %j',
     (input) => {
       expect(normalizeIdentitySlug(input)).toBe(DEFAULT_IDENTITY_SLUG);
@@ -78,7 +78,7 @@ describe('normalizeIdentitySlug', () => {
   );
 
   it('always yields a non-empty ASCII token', () => {
-    for (const input of ['Acme', '开发', '~~~', '', 'a1', 'Ω']) {
+    for (const input of ['Acme', '\u5F00\u53D1', '~~~', '', 'a1', 'Ω']) {
       const slug = normalizeIdentitySlug(input);
       expect(slug.length).toBeGreaterThan(0);
       expect(/^[ -~]+$/.test(slug)).toBe(true);
@@ -150,8 +150,8 @@ describe('AgentIdentityService', () => {
   });
 
   it('keeps a CJK-only name usable by falling the slug back to the default', async () => {
-    const identity = await resolve({ name: '开发助手' });
-    expect(identity.displayName).toBe('开发助手');
+    const identity = await resolve({ name: '\u5F00\u53D1\u52A9\u624B' });
+    expect(identity.displayName).toBe('\u5F00\u53D1\u52A9\u624B');
     expect(identity.slug).toBe(DEFAULT_IDENTITY_SLUG);
   });
 });

@@ -11,7 +11,8 @@ import {
 import { clipboard } from '#/utils/clipboard/clipboard-native';
 import { openUrl } from '#/utils/open-url';
 
-import { FooterComponent } from './components/chrome/footer';import { GutterContainer } from './components/chrome/gutter-container';
+import { FooterComponent } from './components/chrome/footer';
+import { GutterContainer } from './components/chrome/gutter-container';
 import type { MoonLoader, SpinnerStyle } from './components/chrome/moon-loader';
 import { TodoPanelComponent } from './components/chrome/todo-panel';
 import type { SessionRow } from './components/dialogs/session-picker';
@@ -109,7 +110,7 @@ export function createTUIState(options: PythinkerTUIOptions): TUIState {
               .getText()
               .then((text) => {
                 if (!text || ui.getFocusedComponent() !== target) return;
-                target.handleInput?.(`\x1b[200~${text}\x1b[201~`);
+                target.handleInput?.(`\x1B[200~${text}\x1B[201~`);
                 ui.requestRender();
               })
               .catch(() => {});

@@ -870,7 +870,7 @@ describe("TUI overwide line handling", () => {
 
 		// Switch to overwide lines and re-render through the differential
 		// path (this threw before the fix).
-		component.lines = ["xxxxxxxxxx", "\x1b[31myyyyyyyyyy\x1b[0m", "你好世界"];
+		component.lines = ["xxxxxxxxxx", "\x1b[31myyyyyyyyyy\x1b[0m", "\u4F60\u597D\u4E16\u754C"];
 		tui.requestRender();
 		await terminal.waitForRender();
 
@@ -880,7 +880,7 @@ describe("TUI overwide line handling", () => {
 		// the following rows, failing the exact assertions below.
 		assert.strictEqual(viewport[0], "xxxx");
 		assert.strictEqual(viewport[1], "yyyy");
-		assert.strictEqual(viewport[2], "你好");
+		assert.strictEqual(viewport[2], "\u4F60\u597D");
 		assert.strictEqual(viewport[3], "");
 
 		tui.stop();
@@ -889,7 +889,7 @@ describe("TUI overwide line handling", () => {
 
 describe("Text negative width safety", () => {
 	it("does not throw at zero or negative widths", () => {
-		const text = new Text("你好", 1, 1);
+		const text = new Text("\u4F60\u597D", 1, 1);
 		assert.doesNotThrow(() => text.render(0));
 		assert.doesNotThrow(() => text.render(-1));
 	});

@@ -362,7 +362,7 @@ async function encodeWebp(
 function animatedWebpHeader(): Uint8Array {
   const bytes = new Uint8Array(30);
   const ascii = (s: string, at: number) => {
-    for (let i = 0; i < s.length; i++) bytes[at + i] = s.charCodeAt(i);
+    for (let i = 0; i < s.length; i++) bytes[at + i] = s.codePointAt(i);
   };
   ascii('RIFF', 0);
   new DataView(bytes.buffer).setUint32(4, 22, true);
@@ -1386,9 +1386,9 @@ describe('extractImageCompressionCaptions', () => {
   });
 
   it('extracts a caption merged into surrounding user text', () => {
-    const result = extractImageCompressionCaptions(`能展示但是没有快捷键提示${caption}`);
+    const result = extractImageCompressionCaptions(`\u80FD\u5C55\u793A\u4F46\u662F\u6CA1\u6709\u5FEB\u6377\u952E\u63D0\u793A${caption}`);
     expect(result.captions).toHaveLength(1);
-    expect(result.text).toBe('能展示但是没有快捷键提示');
+    expect(result.text).toBe('\u80FD\u5C55\u793A\u4F46\u662F\u6CA1\u6709\u5FEB\u6377\u952E\u63D0\u793A');
   });
 
   it('extracts multiple captions from one text', () => {
@@ -1397,11 +1397,11 @@ describe('extractImageCompressionCaptions', () => {
       final: { width: 2000, height: 1500, byteLength: 1024 * 1024, mimeType: 'image/jpeg' },
       originalPath: '/tmp/originals/photo.jpg',
     });
-    const result = extractImageCompressionCaptions(`看这两张图${caption}${other}`);
+    const result = extractImageCompressionCaptions(`\u770B\u8FD9\u4E24\u5F20\u56FE${caption}${other}`);
     expect(result.captions).toHaveLength(2);
     expect(result.captions[0]).toContain('/tmp/originals/shot.png');
     expect(result.captions[1]).toContain('/tmp/originals/photo.jpg');
-    expect(result.text).toBe('看这两张图');
+    expect(result.text).toBe('\u770B\u8FD9\u4E24\u5F20\u56FE');
   });
 
   it('leaves non-caption <system> blocks and plain text untouched', () => {

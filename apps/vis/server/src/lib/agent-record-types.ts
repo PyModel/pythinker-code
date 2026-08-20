@@ -165,7 +165,7 @@ export interface SessionDetail {
    *  which can drift after fork/rename. */
   sessionDir: string;
   workDir: string;
-  state: unknown; // 原样透传，前端按 state.json 真实形状渲染
+  state: unknown; // Preserve the source shape; the UI renders the actual state.json form.
   agents: AgentInfo[];
   /** True for sessions imported from a debug zip. */
   imported: boolean;

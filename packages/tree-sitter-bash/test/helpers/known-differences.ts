@@ -158,7 +158,7 @@ export const KNOWN_DIFFERENCES: readonly KnownDifference[] = [
   {
     id: 'nonascii-identifier-assignment',
     readmeAnchor: 'A non-ASCII “identifier” in assignment position',
-    summary: '变量=值 is a hasError variable_assignment in the reference; this parser keeps it a plain command word (bash itself rejects such names).',
+    summary: '\u53D8\u91CF=\u503C is a hasError variable_assignment in the reference; this parser keeps it a plain command word (bash itself rejects such names).',
   },
   {
     id: 'case-rejected-group',

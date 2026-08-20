@@ -92,8 +92,8 @@ function makeConn(): { conn: AgentSideConnection; raw: CapturingConn } {
 }
 
 const sampleQuestion: QuestionItem = {
-  question: '哪个口味？',
-  options: [{ label: '香草' }, { label: '巧克力' }, { label: '抹茶' }],
+  question: '\u54EA\u4E2A\u53E3\u5473？',
+  options: [{ label: '\u9999\u8349' }, { label: '\u5DE7\u514B\u529B' }, { label: '\u62B9\u8336' }],
 };
 
 function makeReq(overrides: Partial<QuestionRequest> = {}): QuestionRequest {
@@ -139,7 +139,7 @@ describe('AcpSession.handleQuestion', () => {
 
     const answer = await handle.invokeHandler(makeReq());
 
-    expect(answer).toEqual({ '哪个口味？': '香草' } satisfies QuestionAnswers);
+    expect(answer).toEqual({ '\u54EA\u4E2A\u53E3\u5473？': '\u9999\u8349' } satisfies QuestionAnswers);
     expect(raw.permissionRequests).toHaveLength(1);
     const req = raw.permissionRequests[0]!;
     expect(req.sessionId).toBe('s-q-happy');
@@ -161,7 +161,7 @@ describe('AcpSession.handleQuestion', () => {
     // currentTurnId is undefined in this test path, so raw toolCallId is used.
     expect(req.toolCall.toolCallId).toBe('tc-ask-1');
     expect(req.toolCall.content).toEqual([
-      { type: 'content', content: { type: 'text', text: '哪个口味？' } },
+      { type: 'content', content: { type: 'text', text: '\u54EA\u4E2A\u53E3\u5473？' } },
     ]);
     expect(trackCalls).toEqual([{ event: 'question_answered', properties: { answered: 1 } }]);
   });
@@ -202,7 +202,7 @@ describe('AcpSession.handleQuestion', () => {
       makeReq({ questions: [sampleQuestion, extra1, extra2] }),
     );
 
-    expect(answer).toEqual({ '哪个口味？': '巧克力' });
+    expect(answer).toEqual({ '\u54EA\u4E2A\u53E3\u5473？': '\u5DE7\u514B\u529B' });
     expect(raw.permissionRequests).toHaveLength(1);
     // Telemetry: degraded(multi_question) first, then answered.
     expect(trackCalls).toEqual([
@@ -267,7 +267,7 @@ describe('AcpSession.handleQuestion', () => {
 
     const answer = await handle.invokeHandler(makeReq());
 
-    expect(answer).toEqual({ '哪个口味？': '香草' });
+    expect(answer).toEqual({ '\u54EA\u4E2A\u53E3\u5473？': '\u9999\u8349' });
     expect(trackCalls).toEqual([]);
   });
 });

@@ -49,7 +49,7 @@ describe('exportSessionRequestSchema', () => {
   });
 
   it('measures the Web log limit in UTF-8 bytes instead of JavaScript characters', () => {
-    expect(exportSessionRequestSchema.safeParse({ web_log: '你'.repeat(87_382) }).success).toBe(
+    expect(exportSessionRequestSchema.safeParse({ web_log: '\u00E9'.repeat(131_073) }).success).toBe(
       false,
     );
   });

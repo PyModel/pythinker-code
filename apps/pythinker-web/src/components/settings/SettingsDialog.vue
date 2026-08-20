@@ -1,18 +1,21 @@
 <!-- apps/pythinker-web/src/components/settings/SettingsDialog.vue -->
 <!-- The app's dedicated Settings page (modal). Consolidates what used to be
-     scattered in the sidebar account popover: appearance, language, account,
+     scattered in the sidebar account popover: appearance, account,
      connection, plus notifications and the troubleshooting-log export. -->
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { usePythinkerWebClient } from '../../composables/usePythinkerWebClient';
-import type { AppSession } from '../../api/types';
+import type { AppConfig, AppModel, AppSession } from '../../api/types';
 import { useDialogFocus } from '../../composables/useDialogFocus';
-import LanguageSwitcher from './LanguageSwitcher.vue';
+import {
+  uiFontScaleForSize,
+  uiFontScaleOptions,
+  uiFontSizeForScale,
+} from '../../composables/client/useAppearance';
 import { serverEndpointLabel } from '../../api/config';
 import { downloadTraceLog, isTraceEnabled } from '../../debug/trace';
 import type { Accent, ColorScheme } from '../../composables/usePythinkerWebClient';
-import type { AppConfig, AppModel } from '../../api/types';
 import Dialog from '../ui/Dialog.vue';
 import Switch from '../ui/Switch.vue';
 import Button from '../ui/Button.vue';
@@ -72,6 +75,7 @@ const emit = defineEmits<{
 type SettingsTab = 'general' | 'agent' | 'account' | 'advanced' | 'archived';
 
 const activeTab = ref<SettingsTab>('general');
+const fontScale = computed(() => uiFontScaleForSize(props.uiFontSize));
 
 const tabs: { id: SettingsTab; labelKey: string }[] = [
   { id: 'general', labelKey: 'settings.tabs.general' },
@@ -216,6 +220,11 @@ function toggleTelemetry(): void {
 
 function setTab(tab: SettingsTab): void {
   activeTab.value = tab;
+}
+
+function setFontScale(scale: string): void {
+  const size = uiFontSizeForScale(scale);
+  if (size !== undefined) emit('setUiFontSize', size);
 }
 
 // ---------------------------------------------------------------------------
@@ -368,23 +377,12 @@ function archiveTime(iso: string): string {
             </div>
             <div class="row">
               <span class="rlabel">{{ t('settings.uiFontSize') }}</span>
-              <label class="num-field">
-                <input
-                  class="num-input"
-                  type="number"
-                  min="12"
-                  max="20"
-                  step="1"
-                  :value="uiFontSize"
-                  :aria-label="t('settings.uiFontSize')"
-                  @input="emit('setUiFontSize', Number(($event.target as HTMLInputElement).value))"
-                />
-                <span class="num-unit">px</span>
-              </label>
-            </div>
-            <div class="row">
-              <span class="rlabel">{{ t('sidebar.language') }}</span>
-              <LanguageSwitcher />
+              <SegmentedControl
+                :model-value="fontScale"
+                :options="uiFontScaleOptions"
+                :aria-label="t('settings.uiFontSize')"
+                @update:model-value="setFontScale"
+              />
             </div>
             <div class="row">
               <span class="rlabel">
@@ -746,36 +744,6 @@ function archiveTime(iso: string): string {
 }
 .rvalue.mono { font-family: var(--font-mono); font-size: var(--text-xs); }
 .hint { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--color-text-faint); }
-
-.num-field {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  flex: none;
-  padding: 0 var(--space-3);
-  height: 38px;
-  border: 1px solid var(--color-line);
-  border-radius: var(--radius-md);
-  background: var(--color-surface-raised);
-  transition: border-color var(--duration-fast) var(--ease-out), box-shadow var(--duration-fast) var(--ease-out);
-}
-.num-field:hover { border-color: var(--color-line-strong); }
-.num-field:focus-within { border-color: var(--color-accent); box-shadow: var(--p-focus-ring); }
-.num-input {
-  width: 48px;
-  border: none;
-  outline: none;
-  background: transparent;
-  color: var(--color-text);
-  font-family: var(--font-mono);
-  font-size: var(--text-base);
-  text-align: right;
-}
-.num-unit {
-  color: var(--color-text-muted);
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-}
 
 .select-wrap { min-width: 220px; max-width: min(320px, 50vw); flex: none; }
 

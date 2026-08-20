@@ -144,6 +144,8 @@ export function createProgram(
     }
 
     const raw = program.opts<Record<string, unknown>>();
+    const sessionSelectorConflict =
+      raw['session'] !== undefined && raw['resume'] !== undefined;
 
     const rawSession = raw['session'] ?? raw['resume'];
     const sessionValue = rawSession === true ? '' : (rawSession as string | undefined);
@@ -152,6 +154,7 @@ export function createProgram(
 
     const opts: CLIOptions = {
       session: sessionValue,
+      sessionSelectorConflict,
       continue: raw['continue'] === true || raw['C'] === true,
       yolo: yoloValue,
       auto: autoValue,

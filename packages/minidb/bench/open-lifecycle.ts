@@ -49,7 +49,18 @@ const LATIN_VOCAB =
   'wal sync snapshot compaction recovery index query cache buffer frame codec store delta merge rotate flush token parse schema server client socket thread worker queue stream ledger journal cursor segment batch commit'.split(
     ' ',
   );
-const CJK_VOCAB = ['持久化', '快照', '索引', '恢复', '压缩', '查询', '缓存', '日志', '事务', '复制'];
+const CJK_VOCAB = [
+  '\u6301\u4E45\u5316',
+  '\u5FEB\u7167',
+  '\u7D22\u5F15',
+  '\u6062\u590D',
+  '\u538B\u7F29',
+  '\u67E5\u8BE2',
+  '\u7F13\u5B58',
+  '\u65E5\u5FD7',
+  '\u4E8B\u52A1',
+  '\u590D\u5236',
+];
 
 function makeMessages(count, seed) {
   const rng = mulberry32(seed);
@@ -60,7 +71,7 @@ function makeMessages(count, seed) {
     const n = 20 + ((rng() * 15) | 0);
     for (let w = 0; w < n; w++) words.push(rng() < 0.15 ? pick(CJK_VOCAB) : pick(LATIN_VOCAB));
     if (i % 97 === 0) words.push('walrus');
-    if (i % 131 === 0) words.push('持久化');
+    if (i % 131 === 0) words.push('\u6301\u4E45\u5316');
     docs.push({ key: `m${i}`, body: words.join(' '), ts: 1_700_000_000_000 + i * 1000 });
   }
   return docs;
@@ -76,13 +87,13 @@ function percentileOf(sorted, p) {
 
 function latencySummary(samples) {
   if (!samples || samples.length === 0) return undefined;
-  const sorted = [...samples].sort((a, b) => a - b);
+  const sorted = [...samples].toSorted((a, b) => a - b);
   return {
     count: sorted.length,
     p50: percentileOf(sorted, 50),
     p95: percentileOf(sorted, 95),
     p99: percentileOf(sorted, 99),
-    max: sorted[sorted.length - 1],
+    max: sorted.at(-1),
   };
 }
 
@@ -361,7 +372,7 @@ async function main() {
   console.log('\ndone.\n');
 }
 
-main().catch((e) => {
-  console.error(e);
+main().catch((error) => {
+  console.error(error);
   process.exit(1);
 });

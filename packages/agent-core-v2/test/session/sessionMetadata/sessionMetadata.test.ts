@@ -347,7 +347,7 @@ describe('SessionMetadata', () => {
       createdAt: 1700000000000,
       updatedAt: 1700000000000,
       archived: false,
-      title: '用户手工标题',
+      title: '\u7528\u6237\u624B\u5DE5\u6807\u9898',
       titleKind: 'replaceable',
       isCustomTitle: true,
       agents: {},
@@ -356,7 +356,7 @@ describe('SessionMetadata', () => {
 
     const meta = ix.get(ISessionMetadata);
     await expect(meta.read()).resolves.toMatchObject({
-      title: '用户手工标题',
+      title: '\u7528\u6237\u624B\u5DE5\u6807\u9898',
       titleKind: 'custom',
     });
 
@@ -365,7 +365,7 @@ describe('SessionMetadata', () => {
 
     const fresh = createFreshMetadata(ix);
     await expect(fresh.read()).resolves.toMatchObject({
-      title: '用户手工标题',
+      title: '\u7528\u6237\u624B\u5DE5\u6807\u9898',
       titleKind: 'custom',
     });
     await expect(fresh.setGeneratedTitleIfUncustomized('generated title')).resolves.toBe(false);
@@ -445,7 +445,7 @@ describe('SessionMetadata', () => {
       createdAt: 1700000000000,
       updatedAt: 1700000000000,
       archived: false,
-      title: '用户手工标题',
+      title: '\u7528\u6237\u624B\u5DE5\u6807\u9898',
       titleKind: 'replaceable',
       isCustomTitle: true,
       agents: {},

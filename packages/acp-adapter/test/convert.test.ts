@@ -161,7 +161,7 @@ describe('acpBlocksToPromptParts', () => {
     ]);
     expect(out).toEqual([
       { type: 'text', text: '/Users/a b/foo.ts' },
-      { type: 'text', text: '/Users/中文/foo.ts' },
+      { type: 'text', text: '/Users/\u4E2D\u6587/foo.ts' },
     ]);
   });
 

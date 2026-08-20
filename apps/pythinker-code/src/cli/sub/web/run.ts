@@ -18,6 +18,10 @@ import { type Command } from 'commander';
 
 import { CLI_SHUTDOWN_TIMEOUT_MS, WEB_USER_AGENT_SUFFIX } from '#/constant/app';
 import { getNativeWebAssetsDir } from '#/native/web-assets';
+import {
+  PYTHINKER_LOGO_LINES,
+  renderPythinkerLogoLine,
+} from '#/tui/components/chrome/pythinker-logo';
 import { darkColors } from '#/tui/theme/colors';
 import { openUrl as defaultOpenUrl } from '#/utils/open-url';
 import { getDataDir } from '#/utils/paths';
@@ -363,6 +367,8 @@ interface FormatReadyBannerOptions {
   networkAddresses?: NetworkAddress[];
   /** When true, render a red danger notice (auth is disabled). */
   dangerousBypassAuth?: boolean;
+  /** Use the full five-row robot mark for a TUI-to-web handoff. */
+  useTuiLogo?: boolean;
 }
 
 export function formatReadyBanner(
@@ -384,15 +390,28 @@ export function formatReadyBanner(
   };
 
   const port = Number(new URL(origin).port);
-  // Borderless header: the Pythinker sprite (the little mascot with eyes) sits next
-  // to the title, keeping the brand without the enclosing box.
-  const logo = ['▐█▛█▛█▌', '▐█████▌'] as const;
-  const lines: string[] = [
-    '',
-    `  ${primary(logo[0])}  ${title('Pythinker server ready')}  ${dim(getVersion())}`,
-    `  ${primary(logo[1])}  ${dim('Local web UI is available from this machine.')}`,
-    '',
-  ];
+  const lines: string[] =
+    opts.useTuiLogo === true
+      ? [
+          '',
+          ...PYTHINKER_LOGO_LINES.map((line, index) => {
+            const colored = renderPythinkerLogoLine(index);
+            const copy =
+              index === 2
+                ? `${title('Pythinker server ready')}  ${dim(getVersion())}`
+                : index === 3
+                  ? dim('Local web UI is available from this machine.')
+                  : '';
+            return copy === '' ? `  ${colored}` : `  ${colored}  ${copy}`;
+          }),
+          '',
+        ]
+      : [
+          '',
+          `  ${primary('▐█▛█▛█▌')}  ${title('Pythinker server ready')}  ${dim(getVersion())}`,
+          `  ${primary('▐█████▌')}  ${dim('Local web UI is available from this machine.')}`,
+          '',
+        ];
 
   if (opts.dangerousBypassAuth === true) {
     // Red, impossible-to-miss notice: the bearer-token gate is off, so anyone

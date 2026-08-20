@@ -1,11 +1,10 @@
 <!-- apps/pythinker-web/src/components/settings/Onboarding.vue -->
-<!-- First-run onboarding overlay: a short welcome + the language, color scheme
-     and accent preferences, all of which apply live. Re-openable from the
+<!-- First-run onboarding overlay: a short welcome plus color-scheme and accent
+     preferences, all of which apply live. Re-openable from the
      settings popover. Each preference can be changed any time later, so there's
      nothing to "lose". -->
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n';
-import { availableLocales, setLocale, type LocaleCode } from '../../i18n';
 import { useAppearance, type Accent, type ColorScheme } from '../../composables/client/useAppearance';
 import Button from '../ui/Button.vue';
 import Dialog from '../ui/Dialog.vue';
@@ -13,12 +12,8 @@ import SegmentedControl from '../ui/SegmentedControl.vue';
 
 const emit = defineEmits<{ complete: []; skip: [] }>();
 
-const { t, locale } = useI18n();
+const { t } = useI18n();
 const { colorScheme, accent, setColorScheme, setAccent } = useAppearance();
-
-function chooseLocale(code: LocaleCode): void {
-  if (locale.value !== code) setLocale(code);
-}
 
 function finish(): void {
   emit('complete');
@@ -53,15 +48,6 @@ function finish(): void {
         </div>
       </div>
     </template>
-
-    <section class="ob-sec">
-      <div class="ob-label">{{ t('onboarding.languageLabel') }}</div>
-      <SegmentedControl
-        :model-value="locale"
-        :options="availableLocales.map((l) => ({ value: l.code, label: l.label }))"
-        @update:model-value="chooseLocale($event as LocaleCode)"
-      />
-    </section>
 
     <section class="ob-sec">
       <div class="ob-label">{{ t('theme.colorSchemeLabel') }}</div>

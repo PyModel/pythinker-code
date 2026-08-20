@@ -219,7 +219,7 @@ describe('selectRecentUserMessages', () => {
   });
 
   it('truncates a CJK-heavy oldest message within the budget in one pass', () => {
-    const cjk = '中'.repeat(40_000);
+    const cjk = '\u4E2D'.repeat(40_000);
     const messages = [textMessage('user', cjk), textMessage('user', 'recent')];
     const budget = estimateTokensForMessage(messages[1]!) + 1_000;
 

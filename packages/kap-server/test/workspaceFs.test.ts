@@ -118,7 +118,7 @@ describe('server-v2 /api/v1 fs folder picker', () => {
     );
     expect(body.code).toBe(0);
     expect(body.data.path).toBe(await realpath(root));
-    const names = body.data.entries.map((e) => e.name).sort();
+    const names = body.data.entries.map((e) => e.name).toSorted();
     expect(names).toEqual(['alpha', 'beta']);
     for (const entry of body.data.entries) {
       expect(entry.is_dir).toBe(true);
@@ -351,7 +351,7 @@ describe('server-v2 /api/v1 fs:content', () => {
 
   it('serves a UTF-8 Chinese .log file as text/plain', async () => {
     const file = join(dir as string, 'server.log');
-    const log = '2026-08-16 INFO 启动完成 ✅\n'.repeat(100);
+    const log = '2026-08-16 INFO \u542F\u52A8\u5B8C\u6210 ✅\n'.repeat(100);
     await writeFile(file, log);
 
     const res = await getContent(file);

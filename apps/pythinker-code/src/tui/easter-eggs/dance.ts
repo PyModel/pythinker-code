@@ -130,6 +130,25 @@ export function renderDanceWelcomeHeader(
   ];
 }
 
+export function renderDanceWelcomeText(
+  text: string,
+  offset = 0,
+  bold = false,
+): string {
+  return rainbowText(
+    text,
+    getDanceRainbowPalette(),
+    (currentDanceView?.phase ?? 0) + offset,
+    bold,
+  );
+}
+
+export function renderDanceWelcomeLogo(logoLines: readonly string[]): string[] {
+  const phase = currentDanceView?.phase ?? 0;
+  const palette = getDanceRainbowPalette();
+  return logoLines.map((line, index) => rainbowText(line, palette, phase + index * 3));
+}
+
 export function renderDanceFooterModel(modelLabel: string): string {
   return rainbowText(modelLabel, getDanceRainbowPalette(), currentDanceView?.phase ?? 0);
 }

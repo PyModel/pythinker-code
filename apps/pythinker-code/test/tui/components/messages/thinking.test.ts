@@ -1,8 +1,18 @@
+import chalk from 'chalk';
 import { visibleWidth, type TUI } from '@pymodel/pi-tui';
 import { describe, expect, it, vi } from 'vitest';
 
 import { ThinkingComponent } from '#/tui/components/messages/thinking';
+import {
+  BRAILLE_SPINNER_FRAMES,
+  BRAILLE_SPINNER_INTERVAL_MS,
+  formatThinkingSpinnerLabel,
+  getThinkingSpinnerLabel,
+  THINKING_SPINNER_LABEL_INTERVAL_MS,
+  THINKING_SPINNER_LABELS,
+} from '#/tui/constant/rendering';
 import { STATUS_BULLET } from '#/tui/constant/symbols';
+import { currentTheme, darkColors, lightColors } from '#/tui/theme';
 
 function strip(text: string): string {
   return text.replaceAll(/\u001B\[[0-9;]*m/g, '');
@@ -10,14 +20,27 @@ function strip(text: string): string {
 
 const longThinking = ['line1', 'line2', 'line3', 'line4', 'line5', 'line6', 'line7'].join('\n');
 
+describe('thinking labels', () => {
+  it('rotates labels at the configured interval', () => {
+    expect(getThinkingSpinnerLabel(0)).toBe('thinking');
+    expect(getThinkingSpinnerLabel(THINKING_SPINNER_LABEL_INTERVAL_MS - 1)).toBe('thinking');
+    expect(getThinkingSpinnerLabel(THINKING_SPINNER_LABEL_INTERVAL_MS)).toBe('reasoning');
+    expect(
+      getThinkingSpinnerLabel(THINKING_SPINNER_LABELS.length * THINKING_SPINNER_LABEL_INTERVAL_MS),
+    ).toBe('thinking');
+    expect(formatThinkingSpinnerLabel(0)).toBe('thinking…');
+  });
+});
+
 describe('ThinkingComponent', () => {
   it('shows only the live spinner header while collapsed', () => {
     const component = new ThinkingComponent('working it out', true, 'live');
     const out = strip(component.render(80).join('\n'));
+    const label = formatThinkingSpinnerLabel();
 
-    expect(out).toContain('⠋ thinking...');
-    expect(out).not.toContain('  ⠋ thinking...');
-    expect(out).not.toContain(`${STATUS_BULLET}⠋`);
+    expect(out).toContain(`⣷ ${label}`);
+    expect(out).not.toContain(`  ⣷ ${label}`);
+    expect(out).not.toContain(`${STATUS_BULLET}⣷`);
     expect(out).not.toContain('working it out');
   });
 
@@ -34,24 +57,40 @@ describe('ThinkingComponent', () => {
     expect(out).not.toContain('ctrl+o to expand');
   });
 
-  it('animates the live spinner and stops on finalize', () => {
+  it('refreshes the live indicator and stops on finalize', () => {
     vi.useFakeTimers();
+    vi.setSystemTime(0);
+    const previousLevel = chalk.level;
+    const previousPalette = currentTheme.palette;
+    chalk.level = 3;
+    currentTheme.setPalette(darkColors);
     const requestRender = vi.fn();
     const component = new ThinkingComponent('step', true, 'live', {
       requestRender,
     } as unknown as TUI);
 
-    expect(strip(component.render(80).join('\n'))).toContain('⠋ thinking...');
+    try {
+      const firstHeader = component.render(80)[1];
+      expect(strip(firstHeader ?? '')).toBe(`⣷ ${formatThinkingSpinnerLabel(0)}`);
+      expect(firstHeader).toContain(chalk.hex(darkColors.primary)('⣷ '));
 
-    vi.advanceTimersByTime(80);
-    expect(requestRender).toHaveBeenCalled();
-    expect(strip(component.render(80).join('\n'))).toContain('⠙ thinking...');
+      vi.advanceTimersByTime(BRAILLE_SPINNER_INTERVAL_MS);
+      expect(requestRender).toHaveBeenCalled();
+      const secondHeader = component.render(80)[1];
+      expect(strip(secondHeader ?? '')).toBe(
+        `${BRAILLE_SPINNER_FRAMES[1]} ${formatThinkingSpinnerLabel(0)}`,
+      );
 
-    component.finalize();
-    requestRender.mockClear();
-    vi.advanceTimersByTime(160);
-    expect(requestRender).not.toHaveBeenCalled();
-    vi.useRealTimers();
+      component.finalize();
+      requestRender.mockClear();
+      vi.advanceTimersByTime(BRAILLE_SPINNER_INTERVAL_MS * 2);
+      expect(requestRender).not.toHaveBeenCalled();
+    } finally {
+      component.dispose();
+      currentTheme.setPalette(previousPalette);
+      chalk.level = previousLevel;
+      vi.useRealTimers();
+    }
   });
 
   it('finalizes in place into nothing while collapsed', () => {
@@ -83,6 +122,30 @@ describe('ThinkingComponent', () => {
 
     for (const line of component.render(37)) {
       expect(visibleWidth(line)).toBeLessThanOrEqual(37);
+    }
+  });
+
+  it('reapplies the active theme after finalized content is invalidated', () => {
+    const previousLevel = chalk.level;
+    const previousPalette = currentTheme.palette;
+    chalk.level = 3;
+    currentTheme.setPalette(darkColors);
+    const component = new ThinkingComponent('final text', true, 'live');
+    component.finalize();
+    component.setExpanded(true);
+    const dark = component.render(80).join('');
+
+    currentTheme.setPalette(lightColors);
+    component.invalidate();
+    const light = component.render(80).join('');
+
+    try {
+      expect(strip(dark)).toBe(strip(light));
+      expect(dark).not.toBe(light);
+    } finally {
+      component.dispose();
+      currentTheme.setPalette(previousPalette);
+      chalk.level = previousLevel;
     }
   });
 });

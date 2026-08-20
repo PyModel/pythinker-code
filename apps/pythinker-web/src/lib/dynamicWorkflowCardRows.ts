@@ -14,6 +14,10 @@ export interface DynamicWorkflowCardRow {
   activity: string;
   phase: AppSubagentPhase;
   body: string;
+  /** True when the row is backed by a live AppTask (id is a task id), so the
+   *  card can open the agent detail side panel for it. Result-only rows
+   *  (post-refresh / never-spawned items) have no live task to open. */
+  live: boolean;
 }
 
 function lastNonEmptyLine(text: string | undefined): string {
@@ -53,6 +57,7 @@ function resultRow(sub: DynamicWorkflowResultSubagent, index: number): DynamicWo
     activity: sub.body.split('\n')[0] ?? '',
     phase: outcomeToPhase(sub.outcome),
     body: sub.body,
+    live: false,
   };
 }
 
@@ -85,6 +90,7 @@ export function buildDynamicWorkflowCardRows(members: DynamicWorkflowMember[], r
     activity: dynamicWorkflowMemberActivity(m),
     phase: m.phase,
     body: dynamicWorkflowMemberBody(m),
+    live: true,
   }));
   if (!result) return memberRows;
 

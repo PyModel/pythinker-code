@@ -42,11 +42,22 @@ const LATIN_VOCAB =
   'wal sync snapshot compaction recovery index query cache buffer frame codec store delta merge rotate flush token parse schema server client socket thread worker queue stream ledger journal cursor segment batch commit'.split(
     ' ',
   );
-const CJK_VOCAB = ['持久化', '快照', '索引', '恢复', '压缩', '查询', '缓存', '日志', '事务', '复制'];
+const CJK_VOCAB = [
+  '\u6301\u4E45\u5316',
+  '\u5FEB\u7167',
+  '\u7D22\u5F15',
+  '\u6062\u590D',
+  '\u538B\u7F29',
+  '\u67E5\u8BE2',
+  '\u7F13\u5B58',
+  '\u65E5\u5FD7',
+  '\u4E8B\u52A1',
+  '\u590D\u5236',
+];
 // Needles planted at deterministic intervals so query hit counts are stable.
 const NEEDLES = [
   { term: 'walrus', every: 97 },
-  { term: '持久化', every: 131 },
+  { term: '\u6301\u4E45\u5316', every: 131 },
   { term: 'checkpoint', every: 257 },
 ];
 
@@ -77,12 +88,12 @@ function percentileOf(sorted, p) {
 
 function latencySummary(samples) {
   if (!samples || samples.length === 0) return undefined;
-  const sorted = [...samples].sort((a, b) => a - b);
+  const sorted = [...samples].toSorted((a, b) => a - b);
   return {
     p50: percentileOf(sorted, 50),
     p95: percentileOf(sorted, 95),
     p99: percentileOf(sorted, 99),
-    max: sorted[sorted.length - 1],
+    max: sorted.at(-1),
   };
 }
 
@@ -336,8 +347,8 @@ async function coldOpenScenarios({ sizes, VALUE }) {
 
 /** Word (default tokenizer) and n-gram searches over the seeded message corpus. */
 async function searchScenarios({ sizes, seed }) {
-  const WORD_QUERIES = ['walrus', '持久化', 'wal snapshot', 'nonexistentxyz123'];
-  const NGRAM_QUERIES = ['walru', '持久', 'heckpo'];
+  const WORD_QUERIES = ['walrus', '\u6301\u4E45\u5316', 'wal snapshot', 'nonexistentxyz123'];
+  const NGRAM_QUERIES = ['walru', '\u6301\u4E45', 'heckpo'];
   const RUNS = 7;
   for (const count of sizes) {
     const dir = await tmpDir();
@@ -467,7 +478,7 @@ async function main() {
   console.log('\ndone.\n');
 }
 
-main().catch((e) => {
-  console.error(e);
+main().catch((error) => {
+  console.error(error);
   process.exit(1);
 });

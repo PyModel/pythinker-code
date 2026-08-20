@@ -2087,7 +2087,9 @@ export class PythinkerTUI {
       !sameStringArrays(this.state.appState.additionalDirs, patch.additionalDirs ?? []);
     const busyChanged = 'streamingPhase' in patch || 'isCompacting' in patch;
     Object.assign(this.state.appState, patch);
-    if ('planMode' in patch) this.updateEditorBorderHighlight();
+    if ('planMode' in patch || 'permissionMode' in patch || 'thinkingEffort' in patch) {
+      this.updateEditorBorderHighlight();
+    }
     this.state.footer.setState(this.state.appState);
     this.updateActivityPane();
     if (busyChanged) {
@@ -2850,7 +2852,9 @@ export class PythinkerTUI {
     ) {
       return;
     }
-    const welcome = new WelcomeComponent(this.state.appState);
+    const welcome = new WelcomeComponent(this.state.appState, () => {
+      this.state.ui.requestRender();
+    });
     this.state.transcriptContainer.addChild(welcome);
   }
 
@@ -3272,7 +3276,12 @@ export class PythinkerTUI {
         return;
       case 'waiting': {
         const stepRetry = this.state.appState.stepRetry;
-        const spinner = this.ensureActivitySpinner('moon', waitingSpinnerLabel(stepRetry));
+        const spinner = this.ensureActivitySpinner(
+          'braille',
+          waitingSpinnerLabel(stepRetry),
+          (s) => currentTheme.fg('primary', s),
+          stepRetry === null,
+        );
         this.syncAgentDynamicWorkflowActivitySpinner(placeSpinnerInAgentDynamicWorkflow ? spinner : undefined);
         if (placeSpinnerInAgentDynamicWorkflow) break;
         this.state.activityContainer.addChild(
@@ -3291,8 +3300,11 @@ export class PythinkerTUI {
         break;
       }
       case 'composing': {
-        const spinner = this.ensureActivitySpinner('braille', 'working...', (s) =>
-          currentTheme.fg('primary', s),
+        const spinner = this.ensureActivitySpinner(
+          'braille',
+          '',
+          (s) => currentTheme.fg('primary', s),
+          true,
         );
         this.syncAgentDynamicWorkflowActivitySpinner(undefined);
         this.state.activityContainer.addChild(
@@ -3305,7 +3317,12 @@ export class PythinkerTUI {
         break;
       }
       case 'tool': {
-        const spinner = this.ensureActivitySpinner('moon');
+        const spinner = this.ensureActivitySpinner(
+          'braille',
+          '',
+          (s) => currentTheme.fg('primary', s),
+          !placeSpinnerInAgentDynamicWorkflow,
+        );
         this.syncAgentDynamicWorkflowActivitySpinner(placeSpinnerInAgentDynamicWorkflow ? spinner : undefined);
         if (placeSpinnerInAgentDynamicWorkflow) break;
         this.state.activityContainer.addChild(
@@ -3516,7 +3533,28 @@ export class PythinkerTUI {
     const highlighted = this.state.appState.planMode || isBash || trimmed.startsWith('/');
     this.state.editor.borderHighlighted = highlighted;
     // Shell mode gets its own hue; plan-mode and slash context stay primary.
-    const borderToken = isBash ? 'shellMode' : highlighted ? 'primary' : 'border';
+    const effort = this.state.appState.thinkingEffort.toLowerCase();
+    const effortToken: ColorToken | undefined =
+      effort === 'low'
+        ? 'effortLow'
+        : effort === 'medium'
+          ? 'effortMedium'
+          : effort === 'high'
+            ? 'effortHigh'
+            : effort === 'xhigh' || effort === 'extra-high'
+              ? 'effortXHigh'
+              : effort === 'max'
+                ? 'effortMax'
+                : undefined;
+    const borderToken: ColorToken = isBash
+      ? 'shellMode'
+      : highlighted
+        ? 'primary'
+        : this.state.appState.permissionMode === 'auto'
+          ? 'modeAutoAccept'
+          : this.state.appState.permissionMode === 'yolo'
+            ? 'modePermission'
+            : effortToken ?? 'border';
     this.state.editor.borderColor = (s: string) => currentTheme.fg(borderToken, s);
     this.state.ui.requestRender();
   }
@@ -3607,18 +3645,23 @@ export class PythinkerTUI {
     style: SpinnerStyle,
     label = '',
     colorFn?: (s: string) => string,
+    verbLabels = false,
   ): MoonLoader {
     if (this.state.activitySpinner?.style !== style) {
       this.stopActivitySpinner();
     }
 
     if (this.state.activitySpinner === null) {
-      const instance = new MoonLoader(this.state.ui, style, colorFn, label);
+      const instance = new MoonLoader(this.state.ui, style, colorFn, label, { verbLabels });
       this.state.activitySpinner = { instance, style };
       return instance;
     }
 
-    this.state.activitySpinner.instance.setLabel(label);
+    if (verbLabels) {
+      this.state.activitySpinner.instance.setVerbLabels(true);
+    } else {
+      this.state.activitySpinner.instance.setLabel(label);
+    }
     if (colorFn !== undefined) {
       this.state.activitySpinner.instance.setColorFn(colorFn);
     }

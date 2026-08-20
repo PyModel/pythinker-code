@@ -135,7 +135,7 @@ describe('AssistantMessageComponent', () => {
 
     const lines = component.render(80);
     expect(lines[0]).toMatch(/^\u001B\]133;A\u0007/);
-    expect(lines[lines.length - 1]).toMatch(/^\u001B\]133;B\u0007\u001B\]133;C\u0007/);
+    expect(lines.at(-1)).toMatch(/^\u001B\]133;B\u0007\u001B\]133;C\u0007/);
 
     const cached = component.render(80);
     expect(cached[0]).toBe(lines[0]);
@@ -145,7 +145,7 @@ describe('AssistantMessageComponent', () => {
     const component = new AssistantMessageComponent();
     try {
       setMarkdownRenderLatex(true);
-      component.updateContent('能量公式 $E = mc^2$');
+      component.updateContent('\u80FD\u91CF\u516C\u5F0F $E = mc^2$');
       expect(strip(component.render(80).join('\n'))).toContain('E = mc²');
 
       setMarkdownRenderLatex(false);

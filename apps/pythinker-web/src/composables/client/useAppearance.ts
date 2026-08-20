@@ -13,15 +13,30 @@ export type ColorScheme = 'light' | 'dark' | 'system';
 /** Accent: 'blue' (Pythinker blue, default) or 'mono' (black/white). */
 export type Accent = 'blue' | 'mono';
 
-const ACCENT_VALUES: readonly string[] = ['blue', 'mono'];
+export type UiFontScale = 'small' | 'medium' | 'large' | 'xlarge';
+
+export const uiFontScaleOptions: { value: UiFontScale; label: string }[] = [
+  { value: 'small', label: 'S' },
+  { value: 'medium', label: 'M' },
+  { value: 'large', label: 'L' },
+  { value: 'xlarge', label: 'XL' },
+];
+
+const ACCENT_VALUES: readonly string[] = new Set(['blue', 'mono']);
 const COLOR_SCHEME_VALUES: readonly string[] = ['light', 'dark', 'system'];
 const UI_FONT_SIZE_DEFAULT = 14;
 const UI_FONT_SIZE_MIN = 12;
 const UI_FONT_SIZE_MAX = 20;
+const UI_FONT_SIZE_BY_SCALE: Record<UiFontScale, number> = {
+  small: 12,
+  medium: 14,
+  large: 16,
+  xlarge: 18,
+};
 
 function loadAccent(): Accent {
   const v = safeGetString(STORAGE_KEYS.accent);
-  if (v && ACCENT_VALUES.includes(v)) return v as Accent;
+  if (v && ACCENT_VALUES.has(v)) return v as Accent;
   return 'blue';
 }
 
@@ -56,6 +71,18 @@ function clampUiFontSize(value: number): number {
   return Math.min(UI_FONT_SIZE_MAX, Math.max(UI_FONT_SIZE_MIN, Math.round(value)));
 }
 
+export function uiFontScaleForSize(value: number): UiFontScale {
+  const size = clampUiFontSize(value);
+  if (size <= 13) return 'small';
+  if (size <= 15) return 'medium';
+  if (size <= 17) return 'large';
+  return 'xlarge';
+}
+
+export function uiFontSizeForScale(scale: string): number | undefined {
+  return UI_FONT_SIZE_BY_SCALE[scale as UiFontScale];
+}
+
 function loadUiFontSize(): number {
   const v = safeGetString(STORAGE_KEYS.uiFontSize);
   return v === null ? UI_FONT_SIZE_DEFAULT : clampUiFontSize(Number(v));
@@ -81,7 +108,7 @@ function setColorScheme(c: ColorScheme): void {
 }
 
 function setAccent(a: Accent): void {
-  if (!ACCENT_VALUES.includes(a)) return;
+  if (!ACCENT_VALUES.has(a)) return;
   accent.value = a;
   safeSetString(STORAGE_KEYS.accent, a);
 }

@@ -14,6 +14,7 @@ import ConversationToc, { type ConversationTocItem } from './ConversationToc.vue
 import Icon from '../ui/Icon.vue';
 import Spinner from '../ui/Spinner.vue';
 import Tooltip from '../ui/Tooltip.vue';
+import PythinkerLogo from '../PythinkerLogo.vue';
 import { getVisibleWorkspaces } from '../../lib/workspacePicker';
 import { safeRemove, STORAGE_KEYS } from '../../lib/storage';
 
@@ -32,7 +33,6 @@ const props = defineProps<{
   status: ConversationStatus;
   thinking?: ThinkingLevel;
   planMode?: boolean;
-  dynamicWorkflowMode?: boolean;
   goalMode?: boolean;
   questions?: UIQuestion[];
   /** Question ids with an in-flight respond/dismiss (drives the card loading
@@ -112,7 +112,6 @@ const emit = defineEmits<{
   setPermission: [mode: PermissionMode];
   setThinking: [level: ThinkingLevel];
   togglePlan: [];
-  toggleDynamicWorkflow: [];
   toggleGoal: [];
   createGoal: [objective: string];
   controlGoal: [action: 'pause' | 'resume' | 'cancel'];
@@ -1311,6 +1310,7 @@ defineExpose({ loadComposerForEdit, focusComposer });
             <div class="empty-hint">
               <span class="empty-hint-title" :class="{ 'is-starting': starting }">
                 <Spinner v-if="starting" size="sm" />
+                <PythinkerLogo v-else size="md" label="" aria-hidden="true" />
                 <span>{{ starting ? t('conversation.starting') : t('composer.emptyConversationTitle') }}</span>
               </span>
               <span v-if="!starting" class="empty-hint-text">{{ t('composer.emptyConversation') }}</span>
@@ -1377,7 +1377,6 @@ defineExpose({ loadComposerForEdit, focusComposer });
               :status="status"
               :thinking="thinking"
               :plan-mode="planMode"
-              :dynamic-workflow-mode="dynamicWorkflowMode"
               :goal-mode="goalMode"
               :goal="goal"
               :activation-badges="activationBadges"
@@ -1395,7 +1394,6 @@ defineExpose({ loadComposerForEdit, focusComposer });
               @set-permission="emit('setPermission', $event)"
               @set-thinking="emit('setThinking', $event)"
               @toggle-plan="emit('togglePlan')"
-              @toggle-dynamic_workflow="emit('toggleDynamicWorkflow')"
               @toggle-goal="emit('toggleGoal')"
               @open-btw="emit('command', '/btw')"
               @create-goal="emit('createGoal', $event)"
@@ -1453,7 +1451,6 @@ defineExpose({ loadComposerForEdit, focusComposer });
         :status="status"
         :thinking="thinking"
         :plan-mode="planMode"
-        :dynamic-workflow-mode="dynamicWorkflowMode"
         :goal-mode="goalMode"
         :activation-badges="activationBadges"
         :models="models"
@@ -1489,7 +1486,6 @@ defineExpose({ loadComposerForEdit, focusComposer });
         @set-permission="emit('setPermission', $event)"
         @set-thinking="emit('setThinking', $event)"
         @toggle-plan="emit('togglePlan')"
-        @toggle-dynamic_workflow="emit('toggleDynamicWorkflow')"
         @toggle-goal="emit('toggleGoal')"
           @open-btw="emit('command', '/btw')"
           @create-goal="emit('createGoal', $event)"
@@ -1613,13 +1609,14 @@ defineExpose({ loadComposerForEdit, focusComposer });
   font-family: var(--font-ui);
 }
 .empty-hint-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
   font-size: calc(var(--ui-font-size) + 16px);
   font-optical-sizing: auto;
   font-weight: 600;
 }
 .empty-hint-title.is-starting {
-  display: inline-flex;
-  align-items: center;
   gap: 9px;
   color: var(--dim);
   font-weight: 400;

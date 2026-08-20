@@ -34,7 +34,6 @@ export const STORAGE_KEYS = {
   soundOnComplete: 'pythinker-web.sound-on-complete',
   inputHistory: 'pythinker-web.input-history',
   // cross-file
-  locale: 'pythinker-locale',
   clientId: 'pythinker-web.client-id',
   debug: 'pythinker-web.debug',
   openInLastTarget: 'pythinker-web.open-in.last-target',

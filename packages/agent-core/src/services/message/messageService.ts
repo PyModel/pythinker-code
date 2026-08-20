@@ -68,8 +68,8 @@ export class MessageService extends Disposable implements IMessageService {
 
   async list(sid: string, query: MessageListQuery): Promise<PageResponse<Message>> {
     const all = await this._getProtocolMessages(sid);
-    // SCHEMAS §1.3: "缺省返回最近 N 条 (created_at desc)" — newest first.
-    const desc = [...all].reverse();
+    // SCHEMAS section 1.3: return the latest N items by default, newest first.
+    const desc = [...all].toReversed();
 
     let pivotIndex = -1;
     if (query.before_id !== undefined) {

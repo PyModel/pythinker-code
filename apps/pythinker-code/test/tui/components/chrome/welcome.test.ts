@@ -2,9 +2,13 @@ import { visibleWidth } from '@pymodel/pi-tui';
 import chalk from 'chalk';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import {
+  buildWelcomeCopy,
+  buildWelcomeInfoItems,
+  renderWelcomeBanner,
+} from '#/tui/components/chrome/welcome-banner';
 import { WelcomeComponent } from '#/tui/components/chrome/welcome';
 import { setRainbowDance, type RainbowDanceController } from '#/tui/easter-eggs/dance';
-import { darkColors } from '#/tui/theme/colors';
 import type { AppState } from '#/tui/types';
 
 const TRUECOLOR_PATTERN = /\u001B\[38;2;(\d+);(\d+);(\d+)m/g;
@@ -46,6 +50,10 @@ function truecolorCodes(text: string): Set<string> {
   return codes;
 }
 
+function stripAnsi(text: string): string {
+  return text.replaceAll(/\u001B\[[0-9;]*m/g, '');
+}
+
 /** The two header rows (logo + title) of the rendered welcome box. */
 function headerOf(lines: string[]): string {
   return [lines[3], lines[4]].join('\n');
@@ -74,11 +82,12 @@ describe('WelcomeComponent', () => {
     setRainbowDance(undefined);
   });
 
-  it('renders the banner in a single brand color by default', () => {
+  it('renders the branded banner with semantic logo colors by default', () => {
     const codes = truecolorCodes(headerOf(new WelcomeComponent(appState).render(80)));
 
-    // No rainbow by default — just the brand primary (plus the dim tagline).
-    expect(codes.size).toBeLessThanOrEqual(2);
+    // The static logo uses themed accent, body, and border tokens; rainbow is
+    // still off until /dance is activated.
+    expect(codes.size).toBeGreaterThanOrEqual(3);
   });
 
   it('paints the banner in rainbow while colored', () => {
@@ -94,6 +103,55 @@ describe('WelcomeComponent', () => {
     const off = headerOf(new WelcomeComponent(appState).render(80));
 
     expect(off).toBe(base);
+  });
+
+  it('renders session facts, branch metadata, and optional tips in the panel', () => {
+    const gitCache = {
+      getStatus: () => ({
+        branch: 'feature/tui',
+        dirty: true,
+        ahead: 1,
+        behind: 0,
+        diffAdded: 2,
+        diffDeleted: 1,
+        pullRequest: null,
+      }),
+    };
+    const plain = renderWelcomeBanner({
+      width: 120,
+      version: appState.version,
+      infoItems: buildWelcomeInfoItems(appState, gitCache),
+      copy: buildWelcomeCopy(false),
+      tips: [{ name: 'Tip', value: '/help opens commands' }],
+    }).map(stripAnsi);
+    const joined = plain.join('\n');
+
+    expect(joined).toContain('Pythinker Code');
+    expect(joined).toContain('feature/tui');
+    expect(joined).toContain('Directory');
+    expect(joined).toContain('Model');
+    expect(joined).toContain('Session');
+    expect(joined).toContain('Auto-save');
+    expect(joined).toContain('Tips');
+    expect(joined).toContain('/help opens commands');
+    expect(joined).not.toContain('Version:');
+  });
+
+  it('uses an ASCII frame and copy when requested for dumb terminals', () => {
+    const plain = renderWelcomeBanner({
+      width: 80,
+      version: appState.version,
+      infoItems: buildWelcomeInfoItems(appState, null),
+      copy: buildWelcomeCopy(false),
+      asciiMode: true,
+    }).map(stripAnsi);
+    const joined = plain.join('\n');
+
+    expect(joined).toContain('+');
+    expect(joined).toContain('-');
+    expect(joined).not.toContain('╭');
+    expect(joined).not.toContain('╰');
+    expect(joined).not.toContain('•');
   });
 
   it('keeps every line within the requested width on narrow terminals', () => {

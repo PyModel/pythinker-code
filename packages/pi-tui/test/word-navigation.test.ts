@@ -34,7 +34,7 @@ describe("findWordBackward", () => {
 	});
 
 	it("CJK mixed", () => {
-		const text = "你好世界 test";
+		const text = "\u4F60\u597D\u4E16\u754C test";
 		assert.strictEqual(findWordBackward(text, text.length), 5);
 		// Intl.Segmenter treats each CJK char as a separate word-like segment
 		assert.strictEqual(findWordBackward(text, 5), 2);
@@ -90,7 +90,7 @@ describe("findWordForward", () => {
 	});
 
 	it("CJK mixed", () => {
-		const text = "你好世界 test";
+		const text = "\u4F60\u597D\u4E16\u754C test";
 		const firstEnd = findWordForward(text, 0);
 		assert.ok(firstEnd > 0);
 		assert.ok(firstEnd <= 4);

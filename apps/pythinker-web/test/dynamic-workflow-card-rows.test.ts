@@ -40,7 +40,7 @@ function result(subagents: DynamicWorkflowResult['subagents']): DynamicWorkflowR
 
 describe('dynamicWorkflowMemberActivity', () => {
   it('prefers streamed subagent text over outputLines and summary', () => {
-    const m = member('a', '子任务', {
+    const m = member('a', '\u5B50\u4EFB\u52A1', {
       text: 'line 1\nline 2',
       outputLines: ['tool call output'],
       summary: 'final summary',
@@ -49,22 +49,22 @@ describe('dynamicWorkflowMemberActivity', () => {
   });
 
   it('falls back to the last outputLines entry when no text is streaming', () => {
-    const m = member('a', '子任务', { outputLines: ['one', 'two'], summary: 'summary' });
+    const m = member('a', '\u5B50\u4EFB\u52A1', { outputLines: ['one', 'two'], summary: 'summary' });
     expect(dynamicWorkflowMemberActivity(m)).toBe('two');
   });
 
   it('falls back to summary', () => {
-    expect(dynamicWorkflowMemberActivity(member('a', '子任务', { summary: 'sum' }))).toBe('sum');
+    expect(dynamicWorkflowMemberActivity(member('a', '\u5B50\u4EFB\u52A1', { summary: 'sum' }))).toBe('sum');
   });
 });
 
 describe('buildDynamicWorkflowCardRows', () => {
   it('builds rows from live members when no parsed result exists', () => {
     const rows = buildDynamicWorkflowCardRows(
-      [member('a', '子任务 A', { text: 'streaming' })],
+      [member('a', '\u5B50\u4EFB\u52A1 A', { text: 'streaming' })],
       null,
     );
-    expect(rows).toEqual([{ id: 'a', name: '子任务 A', activity: 'streaming', phase: 'working', body: 'streaming' }]);
+    expect(rows).toEqual([{ id: 'a', name: '\u5B50\u4EFB\u52A1 A', activity: 'streaming', phase: 'working', body: 'streaming' }]);
   });
 
   it('builds rows from result subagents when no members are present', () => {
@@ -82,8 +82,8 @@ describe('buildDynamicWorkflowCardRows', () => {
   it('appends result-only aborted not_started rows on top of live members', () => {
     const rows = buildDynamicWorkflowCardRows(
       [
-        member('a1', '子任务 A', { phase: 'completed' }),
-        member('a2', '子任务 B', { phase: 'working' }),
+        member('a1', '\u5B50\u4EFB\u52A1 A', { phase: 'completed' }),
+        member('a2', '\u5B50\u4EFB\u52A1 B', { phase: 'working' }),
       ],
       result([
         { outcome: 'completed', item: 'A', agentId: 'a1', body: 'A body' },
@@ -98,7 +98,7 @@ describe('buildDynamicWorkflowCardRows', () => {
 
   it('does not duplicate a result row that a live member already covers', () => {
     const rows = buildDynamicWorkflowCardRows(
-      [member('a1', '子任务 A', { phase: 'failed' })],
+      [member('a1', '\u5B50\u4EFB\u52A1 A', { phase: 'failed' })],
       result([{ outcome: 'aborted', item: 'A', agentId: 'a1', body: 'A body' }]),
     );
     expect(rows.map((r) => r.id)).toEqual(['a1']);

@@ -6,7 +6,7 @@
 import { computed, nextTick, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import ChatPane from './ChatPane.vue';
-import MoonSpinner from '../ui/MoonSpinner.vue';
+import ThinkingIndicator from '../ui/ThinkingIndicator.vue';
 import Icon from '../ui/Icon.vue';
 import type { ChatTurn } from '../../types';
 import PanelHeader from '../ui/PanelHeader.vue';
@@ -119,7 +119,7 @@ function autosize(): void {
         :working="sending || running"
       />
       <div v-if="showLoading" class="sc-loading" aria-hidden="true">
-        <MoonSpinner />
+        <ThinkingIndicator />
       </div>
     </div>
 

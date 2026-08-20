@@ -12,7 +12,7 @@ import CronNotice from './CronNotice.vue';
 import MessageTime from './MessageTime.vue';
 import AuthMedia from './AuthMedia.vue';
 import AttachmentChip from './AttachmentChip.vue';
-import MoonSpinner from '../ui/MoonSpinner.vue';
+import ThinkingIndicator from '../ui/ThinkingIndicator.vue';
 import Spinner from '../ui/Spinner.vue';
 import Icon from '../ui/Icon.vue';
 import Tooltip from '../ui/Tooltip.vue';
@@ -64,11 +64,11 @@ const props = withDefaults(
     turnActive?: boolean;
     /**
      * The main conversation has an unfinished prompt (submitted, or a main
-     * turn in flight). Renders the moon-spinner placeholder at the end of the
+     * turn in flight). Renders the Braille waiting mark at the end of the
      * transcript and gates "edit & resend" on the last user message.
      */
     working?: boolean;
-    /** Switches the CSS-only working moon to the faster visual cadence. */
+    /** Switches the CSS-only waiting mark to the faster visual cadence. */
     fastMoon?: boolean;
     /**
      * True while the session turns are being fetched (e.g. after switching to
@@ -511,7 +511,7 @@ function isStreamingRenderBlock(turn: ChatTurn, block: { sourceIndex: number }):
   return block.sourceIndex === turnBlocks(turn).length - 1;
 }
 
-// NOTE: the turn-summary line ("已调用 N 个工具…") was removed in f9417af. If it
+// NOTE: the turn-summary line ("Called N tools...") was removed in f9417af. If it
 // comes back, rebuild it from turnBlocks() with i18n strings — the old
 // implementation lives in git history at f9417af^.
 </script>
@@ -670,14 +670,14 @@ function isStreamingRenderBlock(turn: ChatTurn, block: { sourceIndex: number }):
     <!-- Pending approvals are rendered in the bottom dock (ConversationPane),
          alongside questions, so both blocking prompts share one position. -->
 
-    <!-- Compaction in progress — body-sized moon activity notice -->
+    <!-- Compaction in progress — body-sized activity notice -->
     <ActivityNotice v-if="compaction" :label="t('conversation.compacting')" />
 
-    <!-- Working placeholder — moon spinner while the conversation has an
+    <!-- Working placeholder — Braille mark while the conversation has an
          unfinished prompt (covers a page refresh mid-stream, where the
          optimistic submit flag was lost but the main turn is still in flight). -->
     <div v-if="showWorking" class="sending-placeholder">
-      <MoonSpinner :fast="fastMoon" />
+      <ThinkingIndicator :fast="fastMoon" />
     </div>
 
     <!-- Inline queue — pending user messages shown after the running turn.

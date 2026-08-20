@@ -25,7 +25,7 @@ const pageData = {
     {
       session_id: 's1',
       workspace_id: 'ws',
-      session_title: '搜索重构',
+      session_title: 'Search refactor',
       agent_id: 'main',
       role: 'assistant',
       snippet: 'Here is the apple guide.',
@@ -40,7 +40,7 @@ const pageData = {
       session_title: 'title doc',
       agent_id: '',
       role: 'title',
-      snippet: '苹果询价',
+      snippet: 'Apple quote',
       time: 1_700_000_100_000,
       score: 0.9,
     },
@@ -58,7 +58,7 @@ describe('fetchSearchPage', () => {
     const page = await fetchSearchPage({
       baseUrl: 'http://h:1',
       token: 'tok',
-      query: '苹果',
+      query: 'apple',
       role: 'assistant',
       sort: 'time_desc',
       pageSize: 20,
@@ -74,7 +74,7 @@ describe('fetchSearchPage', () => {
       authorization: 'Bearer tok',
     });
     expect(JSON.parse(calls[0]!.init?.body as string)).toEqual({
-      query: '苹果',
+      query: 'apple',
       role: 'assistant',
       sort: 'time_desc',
       page_size: 20,
@@ -103,7 +103,7 @@ describe('fetchSearchPage', () => {
 
   it('omits the authorization header when no token is configured', async () => {
     const { calls, fetchImpl } = fakeFetch(okEnvelope(pageData));
-    await fetchSearchPage({ baseUrl: 'http://h:1', query: '苹果', fetchImpl });
+    await fetchSearchPage({ baseUrl: 'http://h:1', query: 'apple', fetchImpl });
     expect(calls[0]!.init?.headers).toEqual({ 'content-type': 'application/json' });
   });
 
@@ -127,7 +127,7 @@ describe('fetchSearchPage', () => {
 
   it('leaves incomplete undefined for absent or unexpected values', async () => {
     const { fetchImpl } = fakeFetch(okEnvelope(pageData));
-    const page = await fetchSearchPage({ baseUrl: 'http://h:1', query: '苹果', fetchImpl });
+    const page = await fetchSearchPage({ baseUrl: 'http://h:1', query: 'apple', fetchImpl });
     expect(page.incomplete).toBeUndefined();
 
     const { fetchImpl: fetchImpl2 } = fakeFetch(
@@ -135,7 +135,7 @@ describe('fetchSearchPage', () => {
     );
     const page2 = await fetchSearchPage({
       baseUrl: 'http://h:1',
-      query: '苹果',
+      query: 'apple',
       fetchImpl: fetchImpl2,
     });
     expect(page2.incomplete).toBeUndefined();
@@ -145,37 +145,37 @@ describe('fetchSearchPage', () => {
     const { calls, fetchImpl } = fakeFetch(okEnvelope(pageData));
     await fetchSearchPage({
       baseUrl: 'http://h:1',
-      query: '苹果',
+      query: 'apple',
       container: { sessionId: 's1' },
       fetchImpl,
     });
     expect(JSON.parse(calls[0]!.init?.body as string)).toEqual({
-      query: '苹果',
+      query: 'apple',
       container: { session_id: 's1' },
     });
 
     const { calls: calls2, fetchImpl: fetchImpl2 } = fakeFetch(okEnvelope(pageData));
     await fetchSearchPage({
       baseUrl: 'http://h:1',
-      query: '苹果',
+      query: 'apple',
       container: { sessionId: 's1', agentId: 'main' },
       fetchImpl: fetchImpl2,
     });
     expect(JSON.parse(calls2[0]!.init?.body as string)).toEqual({
-      query: '苹果',
+      query: 'apple',
       container: { session_id: 's1', agent_id: 'main' },
     });
   });
 
   it('parses source: live and source: index', async () => {
     const { fetchImpl } = fakeFetch(okEnvelope({ ...pageData, source: 'live' }));
-    const page = await fetchSearchPage({ baseUrl: 'http://h:1', query: '苹果', fetchImpl });
+    const page = await fetchSearchPage({ baseUrl: 'http://h:1', query: 'apple', fetchImpl });
     expect(page.source).toBe('live');
 
     const { fetchImpl: fetchImpl2 } = fakeFetch(okEnvelope({ ...pageData, source: 'index' }));
     const page2 = await fetchSearchPage({
       baseUrl: 'http://h:1',
-      query: '苹果',
+      query: 'apple',
       fetchImpl: fetchImpl2,
     });
     expect(page2.source).toBe('index');
@@ -183,13 +183,13 @@ describe('fetchSearchPage', () => {
 
   it('leaves source undefined for absent or unknown values', async () => {
     const { fetchImpl } = fakeFetch(okEnvelope(pageData));
-    const page = await fetchSearchPage({ baseUrl: 'http://h:1', query: '苹果', fetchImpl });
+    const page = await fetchSearchPage({ baseUrl: 'http://h:1', query: 'apple', fetchImpl });
     expect(page.source).toBeUndefined();
 
     const { fetchImpl: fetchImpl2 } = fakeFetch(okEnvelope({ ...pageData, source: 'whatever' }));
     const page2 = await fetchSearchPage({
       baseUrl: 'http://h:1',
-      query: '苹果',
+      query: 'apple',
       fetchImpl: fetchImpl2,
     });
     expect(page2.source).toBeUndefined();

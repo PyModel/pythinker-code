@@ -101,13 +101,13 @@ test('boundary: empty / unicode / binary values', async () => {
   let db = await MiniDb.open({ dir, valueCodec: 'string' });
   try {
     await db.set('empty', '');
-    await db.set('unicode', '你好 🌍');
+    await db.set('unicode', '\u4F60\u597D 🌍');
     assert.equal(db.get('empty'), '');
-    assert.equal(db.get('unicode'), '你好 🌍');
+    assert.equal(db.get('unicode'), '\u4F60\u597D 🌍');
     await db.close();
     db = await MiniDb.open({ dir, valueCodec: 'string' });
     assert.equal(db.get('empty'), '');
-    assert.equal(db.get('unicode'), '你好 🌍');
+    assert.equal(db.get('unicode'), '\u4F60\u597D 🌍');
   } finally {
     await db.close().catch(() => {});
     await rmrf(dir);

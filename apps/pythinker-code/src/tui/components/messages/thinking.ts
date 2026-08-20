@@ -10,12 +10,14 @@ import { Text, type Component, type TUI } from '@pymodel/pi-tui';
 import {
   BRAILLE_SPINNER_FRAMES,
   BRAILLE_SPINNER_INTERVAL_MS,
+  formatThinkingSpinnerLabel,
   MESSAGE_INDENT,
   THINKING_PREVIEW_LINES,
 } from '#/tui/constant/rendering';
 import { STATUS_BULLET } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
 import { isRenderCacheEnabled } from '#/tui/utils/render-cache';
+import { shimmerText } from '#/tui/utils/shimmer';
 
 export type ThinkingRenderMode = 'live' | 'finalized';
 
@@ -99,10 +101,15 @@ export class ThinkingComponent implements Component {
     let rendered: string[];
     if (this.mode === 'live') {
       const spinner = currentTheme.fg(
-        'textDim',
+        'primary',
         `${BRAILLE_SPINNER_FRAMES[this.spinnerFrame] ?? BRAILLE_SPINNER_FRAMES[0]} `,
       );
-      rendered = ['', spinner + currentTheme.fg('textDim', 'thinking...')];
+      const label = shimmerText(formatThinkingSpinnerLabel(), {
+        baseToken: 'primary',
+        shimmerToken: 'primaryShimmer',
+        bandHalfWidth: 4,
+      });
+      rendered = ['', spinner + label];
       if (this.expanded) {
         const contentLines = this.renderContent(width);
         const visibleLines =

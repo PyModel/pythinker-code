@@ -397,6 +397,35 @@ export interface WireProvider {
   models?: string[];
 }
 
+export interface WireCatalogModel {
+  id: string;
+  name?: string;
+  max_context_size: number;
+  capabilities?: string[];
+  reasoning: boolean;
+}
+
+export interface WireCatalogProvider {
+  id: string;
+  name: string;
+  wire_type: 'pythinker' | 'openai' | 'openai_responses' | 'anthropic' | 'google-genai' | 'vertexai' | null;
+  guessed: boolean;
+  needs_base_url: boolean;
+  rejected: boolean;
+  reject_reason: string | null;
+  env_key: string | null;
+  models: WireCatalogModel[];
+}
+
+export interface WireListCatalogProvidersResult {
+  items: WireCatalogProvider[];
+}
+
+export interface WireImportCatalogProviderResult {
+  provider: WireCatalogProvider;
+  models_imported: number;
+}
+
 export interface WireProviderRefreshResult {
   changed: Array<{
     provider_id: string;

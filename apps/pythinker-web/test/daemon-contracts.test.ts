@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { DaemonPythinkerWebApi } from '../src/api/daemon/client';
+import { createCatalogProviderApi } from '../src/api/daemon/catalog';
 import { toAppTask, toWirePromptSubmission } from '../src/api/daemon/mappers';
 import { SLASH_COMMANDS } from '../src/lib/slashCommands';
 
@@ -39,14 +40,18 @@ function wireSession() {
   };
 }
 
-function api(): DaemonPythinkerWebApi {
-  return new DaemonPythinkerWebApi({
+function apiConfig() {
+  return {
     serverHttpUrl: 'http://example.test:58627',
     clientId: 'web_test',
     clientName: 'pythinker-code-web',
     clientVersion: '0.1.1',
     clientUiMode: 'web',
-  });
+  };
+}
+
+function api(): DaemonPythinkerWebApi {
+  return new DaemonPythinkerWebApi(apiConfig());
 }
 
 async function setupClient() {
@@ -131,34 +136,129 @@ describe('dynamic workflow daemon contracts', () => {
 });
 
 describe('provider daemon contracts', () => {
-  it('adds a provider through one POST to the providers collection', async () => {
-    const provider = {
-      id: 'openai_responses',
-      type: 'openai_responses',
-      base_url: 'https://api.example.test/v1',
-      default_model: 'gpt_5-mini',
-      has_api_key: true,
-      status: 'connected',
-      models: ['openai_responses/gpt_5-mini'],
-    };
-    const fetchMock = vi.fn().mockResolvedValueOnce(okEnvelope(provider));
+  it('lists all importable providers from the server catalog', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(okEnvelope({
+      items: [
+        {
+          id: 'anthropic',
+          name: 'Anthropic',
+          wire_type: 'anthropic',
+          guessed: false,
+          needs_base_url: false,
+          rejected: false,
+          reject_reason: null,
+          env_key: 'ANTHROPIC_API_KEY',
+          models: [{
+            id: 'claude/sonnet',
+            name: 'Claude Sonnet',
+            max_context_size: 200_000,
+            capabilities: ['vision'],
+            reasoning: false,
+          }],
+        },
+        {
+          id: 'local',
+          name: 'Local endpoint',
+          wire_type: null,
+          guessed: true,
+          needs_base_url: true,
+          rejected: false,
+          reject_reason: null,
+          env_key: null,
+          models: [{
+            id: 'local/model',
+            max_context_size: 32_000,
+            reasoning: true,
+          }],
+        },
+      ],
+    }));
     vi.stubGlobal('fetch', fetchMock);
 
-    await expect(api().addProvider({
-      type: 'openai_responses',
-      apiKey: 'sk-test',
-      baseUrl: 'https://api.example.test/v1',
-      defaultModel: 'gpt_5-mini',
-    })).resolves.toMatchObject({ id: 'openai_responses', defaultModel: 'gpt_5-mini' });
+    await expect(createCatalogProviderApi(apiConfig()).listCatalogProviders()).resolves.toEqual([
+      {
+        id: 'anthropic',
+        name: 'Anthropic',
+        wireType: 'anthropic',
+        guessed: false,
+        needsBaseUrl: false,
+        rejected: false,
+        rejectReason: null,
+        envKey: 'ANTHROPIC_API_KEY',
+        models: [{
+          id: 'claude/sonnet',
+          name: 'Claude Sonnet',
+          maxContextSize: 200_000,
+          capabilities: ['vision'],
+          reasoning: false,
+        }],
+      },
+      {
+        id: 'local',
+        name: 'Local endpoint',
+        wireType: null,
+        guessed: true,
+        needsBaseUrl: true,
+        rejected: false,
+        rejectReason: null,
+        envKey: null,
+        models: [{
+          id: 'local/model',
+          name: undefined,
+          maxContextSize: 32_000,
+          capabilities: undefined,
+          reasoning: true,
+        }],
+      },
+    ]);
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(fetchMock.mock.calls[0]![0]).toBe('http://example.test:58627/api/v1/providers');
+    expect(fetchMock.mock.calls[0]![0]).toBe('http://example.test:58627/api/v1/catalog/providers');
+    expect(fetchMock.mock.calls[0]![1]).toMatchObject({ method: 'GET' });
+  });
+
+  it('imports a catalog provider with credentials and base URL', async () => {
+    const provider = {
+      id: 'openai_responses',
+      name: 'OpenAI Responses',
+      wire_type: 'openai_responses',
+      guessed: false,
+      needs_base_url: false,
+      rejected: false,
+      reject_reason: null,
+      env_key: 'OPENAI_API_KEY',
+      models: [{
+        id: 'openai_responses/gpt-5-mini',
+        name: 'GPT-5 mini',
+        max_context_size: 400_000,
+        capabilities: ['tool_use'],
+        reasoning: true,
+      }],
+    };
+    const fetchMock = vi.fn().mockResolvedValueOnce(okEnvelope({
+      provider,
+      models_imported: 1,
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(createCatalogProviderApi(apiConfig()).importCatalogProvider({
+      catalogId: 'openai_responses',
+      apiKey: 'sk-test',
+      baseUrl: 'https://api.example.test/v1',
+    })).resolves.toMatchObject({
+      modelsImported: 1,
+      provider: { id: 'openai_responses', name: 'OpenAI Responses' },
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0]![0]).toBe(
+      'http://example.test:58627/api/v1/providers:import_catalog',
+    );
     expect(fetchMock.mock.calls[0]![1]).toMatchObject({ method: 'POST' });
     expect(JSON.parse((fetchMock.mock.calls[0]![1] as RequestInit).body as string)).toEqual({
-      type: 'openai_responses',
+      catalog_id: 'openai_responses',
       api_key: 'sk-test',
       base_url: 'https://api.example.test/v1',
-      default_model: 'gpt_5-mini',
     });
   });
 

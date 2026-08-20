@@ -23,7 +23,7 @@ import {
 } from '@pymodel/pythinker-telemetry';
 
 import { createProgram } from './cli/commands';
-import { finalizeHeadlessRun } from './cli/headless-exit';
+import { drainStdio, finalizeHeadlessRun } from './cli/headless-exit';
 import { startupTrace } from './utils/startup-trace';
 import type { CLIOptions } from './cli/options';
 import { OptionConflictError, validateOptions } from './cli/options';
@@ -65,6 +65,7 @@ export async function handleMainCommand(
   } catch (error) {
     if (error instanceof OptionConflictError) {
       process.stderr.write(`error: ${error.message}\n`);
+      await drainStdio([process.stderr]);
       process.exit(1);
     }
     throw error;
@@ -77,6 +78,7 @@ export async function handleMainCommand(
   );
   startupTrace('preflight:end');
   if (preflightResult === 'exit') {
+    await drainStdio([process.stdout, process.stderr]);
     process.exit(0);
   }
 
@@ -123,6 +125,7 @@ export async function handleUpgradeCommand(version: string): Promise<void> {
     await shutdownTelemetry({ timeoutMs: CLI_SHUTDOWN_TIMEOUT_MS }).catch(() => {});
     await harness.close().catch(() => {});
   }
+  await drainStdio([process.stdout, process.stderr]);
   process.exit(exitCode);
 }
 
@@ -220,6 +223,7 @@ export function main(): void {
             }),
           );
           process.stderr.write(`See log: ${resolveGlobalLogPath(resolvePythinkerHome())}\n`);
+          await drainStdio([process.stderr]);
           process.exit(1);
         });
     },
@@ -228,6 +232,7 @@ export function main(): void {
         await logStartupFailure('run migration', error);
         process.stderr.write(formatStartupError(error, { operation: 'run migration' }));
         process.stderr.write(`See log: ${resolveGlobalLogPath(resolvePythinkerHome())}\n`);
+        await drainStdio([process.stderr]);
         process.exit(1);
       });
     },
@@ -235,6 +240,7 @@ export function main(): void {
       void runPluginNodeEntry(entry, args).catch(async (error: unknown) => {
         await logStartupFailure('run plugin node entry', error);
         process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+        await drainStdio([process.stderr]);
         process.exit(1);
       });
     },
@@ -243,6 +249,7 @@ export function main(): void {
         await logStartupFailure('upgrade', error);
         process.stderr.write(formatStartupError(error, { operation: 'upgrade' }));
         process.stderr.write(`See log: ${resolveGlobalLogPath(resolvePythinkerHome())}\n`);
+        await drainStdio([process.stderr]);
         process.exit(1);
       });
     },

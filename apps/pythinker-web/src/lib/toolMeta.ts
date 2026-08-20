@@ -40,6 +40,7 @@ const TOOL_LABEL_KEYS: Record<string, string> = {
 // ---------------------------------------------------------------------------
 
 const NAME_ALIASES: Record<string, string> = {
+  agentdynamicworkflow: 'agentdynamic_workflow',
   multiedit: 'multi_edit',
   multiedits: 'multi_edit',
   shell: 'bash',

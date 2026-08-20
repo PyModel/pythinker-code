@@ -15,9 +15,9 @@ function userRecord(text: string, time: number, origin?: unknown): string {
 describe('extractFromWireLine', () => {
   it('extracts user text messages', () => {
     const out = extractFromWireLine(
-      userRecord('帮我重构搜索模块', 1_700_000_000_000, { kind: 'user' }),
+      userRecord('\u5E2E\u6211\u91CD\u6784\u641C\u7D22\u6A21\u5757', 1_700_000_000_000, { kind: 'user' }),
     );
-    expect(out).toEqual([{ role: 'user', text: '帮我重构搜索模块', time: 1_700_000_000_000 }]);
+    expect(out).toEqual([{ role: 'user', text: '\u5E2E\u6211\u91CD\u6784\u641C\u7D22\u6A21\u5757', time: 1_700_000_000_000 }]);
   });
 
   it('keeps user messages without an origin', () => {
@@ -60,13 +60,13 @@ describe('extractFromWireLine', () => {
     'keeps %s messages the user typed as a slash command',
     (kind) => {
       const out = extractFromWireLine(
-        userRecord('/commit 整理提交', 1_700_000_000_000, {
+        userRecord('/commit \u6574\u7406\u63D0\u4EA4', 1_700_000_000_000, {
           kind,
           trigger: 'user-slash',
           skillName: 'commit',
         }),
       );
-      expect(out).toEqual([{ role: 'user', text: '/commit 整理提交', time: 1_700_000_000_000 }]);
+      expect(out).toEqual([{ role: 'user', text: '/commit \u6574\u7406\u63D0\u4EA4', time: 1_700_000_000_000 }]);
     },
   );
 

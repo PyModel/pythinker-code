@@ -319,7 +319,7 @@ describe('WriteTool', () => {
   it('round-trips unicode content (CJK + emoji + accented Latin) through kaos.writeText', async () => {
     const writeText = vi.fn().mockResolvedValue(0);
     const tool = new WriteTool(createFakeKaos({ writeText }), PERMISSIVE_WORKSPACE);
-    const content = 'Hello 世界 🌍\nUnicode: café, naïve, résumé';
+    const content = 'Hello \u4E16\u754C 🌍\nUnicode: café, naïve, résumé';
 
     const result = await executeTool(tool,context({ path: '/tmp/unicode.txt', content }));
 

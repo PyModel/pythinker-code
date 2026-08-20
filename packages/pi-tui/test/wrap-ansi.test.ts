@@ -132,10 +132,10 @@ describe("wrapTextWithAnsi", () => {
 		});
 
 		it("should break CJK runs at grapheme boundaries after Latin text", () => {
-			const text = "This is an example 中文汉字测试段落内容中文汉字测试段落内容.";
+			const text = "This is an example \u4E2D\u6587\u6C49\u5B57\u6D4B\u8BD5\u6BB5\u843D\u5185\u5BB9\u4E2D\u6587\u6C49\u5B57\u6D4B\u8BD5\u6BB5\u843D\u5185\u5BB9.";
 			const wrapped = wrapTextWithAnsi(text, 40);
 
-			assert.deepStrictEqual(wrapped, ["This is an example 中文汉字测试段落内容", "中文汉字测试段落内容."]);
+			assert.deepStrictEqual(wrapped, ["This is an example \u4E2D\u6587\u6C49\u5B57\u6D4B\u8BD5\u6BB5\u843D\u5185\u5BB9", "\u4E2D\u6587\u6C49\u5B57\u6D4B\u8BD5\u6BB5\u843D\u5185\u5BB9."]);
 			for (const line of wrapped) {
 				assert.ok(visibleWidth(line) <= 40);
 			}
@@ -144,12 +144,12 @@ describe("wrapTextWithAnsi", () => {
 		it("should preserve color codes when wrapping CJK runs", () => {
 			const red = "\x1b[31m";
 			const reset = "\x1b[0m";
-			const text = `${red}This is an example 中文汉字测试段落内容中文汉字测试段落内容.${reset}`;
+			const text = `${red}This is an example \u4E2D\u6587\u6C49\u5B57\u6D4B\u8BD5\u6BB5\u843D\u5185\u5BB9\u4E2D\u6587\u6C49\u5B57\u6D4B\u8BD5\u6BB5\u843D\u5185\u5BB9.${reset}`;
 			const wrapped = wrapTextWithAnsi(text, 40);
 
 			assert.strictEqual(wrapped.length, 2);
-			assert.strictEqual(wrapped[0], `${red}This is an example 中文汉字测试段落内容`);
-			assert.strictEqual(wrapped[1], `${red}中文汉字测试段落内容.${reset}`);
+			assert.strictEqual(wrapped[0], `${red}This is an example \u4E2D\u6587\u6C49\u5B57\u6D4B\u8BD5\u6BB5\u843D\u5185\u5BB9`);
+			assert.strictEqual(wrapped[1], `${red}\u4E2D\u6587\u6C49\u5B57\u6D4B\u8BD5\u6BB5\u843D\u5185\u5BB9.${reset}`);
 			for (const line of wrapped) {
 				assert.ok(visibleWidth(line) <= 40);
 			}

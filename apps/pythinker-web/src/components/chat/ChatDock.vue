@@ -31,7 +31,6 @@ const props = defineProps<{
   status: ConversationStatus;
   thinking?: ThinkingLevel;
   planMode?: boolean;
-  dynamicWorkflowMode?: boolean;
   goalMode?: boolean;
   activationBadges?: ActivationBadges;
   models?: AppModel[];
@@ -64,13 +63,11 @@ const emit = defineEmits<{
   setPermission: [mode: PermissionMode];
   setThinking: [level: ThinkingLevel];
   togglePlan: [];
-  toggleDynamicWorkflow: [];
   toggleGoal: [];
   openBtw: [];
   createGoal: [objective: string];
   controlGoal: [action: 'pause' | 'resume' | 'cancel'];
   focusGoal: [];
-  focusDynamicWorkflow: [];
   compact: [];
   pickModel: [];
   selectModel: [modelId: string];
@@ -274,7 +271,6 @@ defineExpose({ loadForEdit, loadAttachmentsForEdit, focus });
       :status="status"
       :thinking="thinking"
       :plan-mode="planMode"
-      :dynamic-workflow-mode="dynamicWorkflowMode"
       :goal-mode="goalMode"
       :goal="goal"
       :activation-badges="activationBadges"
@@ -289,13 +285,11 @@ defineExpose({ loadForEdit, loadAttachmentsForEdit, focus });
       @set-permission="emit('setPermission', $event)"
       @set-thinking="emit('setThinking', $event)"
       @toggle-plan="emit('togglePlan')"
-      @toggle-dynamic_workflow="emit('toggleDynamicWorkflow')"
       @toggle-goal="emit('toggleGoal')"
       @open-btw="emit('openBtw')"
       @create-goal="emit('createGoal', $event)"
       @control-goal="emit('controlGoal', $event)"
       @focus-goal="emit('focusGoal')"
-      @focus-dynamic_workflow="emit('focusDynamicWorkflow')"
       @compact="emit('compact')"
       @pick-model="emit('pickModel')"
       @select-model="emit('selectModel', $event)"

@@ -32,6 +32,7 @@ import { restoreTerminalModes } from '#/utils/terminal-restore';
 import { resolveCommandPath } from '#/utils/process/resolve-command';
 
 import type { CLIOptions } from './options';
+import { drainStdio } from './headless-exit';
 import { resolveAgentProfileSelection } from './agent-selection';
 import { isPythinkerV2Enabled } from './experimental-v2';
 import { createCliTelemetryBootstrap, initializeCliTelemetry } from './telemetry';
@@ -254,6 +255,7 @@ export async function runShell(
       await tui.exitForegroundTask(exitCode);
       return;
     }
+    await drainStdio([process.stdout, process.stderr]);
     process.exit(exitCode);
   };
   try {

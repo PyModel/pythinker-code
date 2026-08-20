@@ -666,7 +666,7 @@ describe('WorkspaceFsService.list', () => {
       sort: 'name_asc',
       include_git_status: false,
     });
-    const names = result.items.map((i) => i.name).sort();
+    const names = result.items.map((i) => i.name).toSorted();
     expect(names).toEqual(['README.md', 'src']);
     expect(result.items.find((i) => i.name === 'src')?.kind).toBe('directory');
   });
@@ -682,7 +682,7 @@ describe('WorkspaceFsService.list', () => {
       sort: 'name_asc',
       include_git_status: false,
     });
-    expect(result.children_by_path?.['src']?.map((i) => i.name).sort()).toEqual([
+    expect(result.children_by_path?.['src']?.map((i) => i.name).toSorted()).toEqual([
       'a.ts',
       'sub',
     ]);
@@ -730,15 +730,15 @@ describe('WorkspaceFsService.read', () => {
   });
 
   it('returns base64 for binary content in auto mode', async () => {
-    const fs = makeSession({ 'bin.dat': 'abc\x00def' }, emptyHandler);
+    const fs = makeSession({ 'bin.dat': 'abc\u0000def' }, emptyHandler);
     const result = await fs.read({ path: 'bin.dat', offset: 0, length: 1024, encoding: 'auto' });
     expect(result.encoding).toBe('base64');
     expect(result.is_binary).toBe(true);
-    expect(result.content).toBe(Buffer.from('abc\x00def').toString('base64'));
+    expect(result.content).toBe(Buffer.from('abc\u0000def').toString('base64'));
   });
 
   it('throws fs.is_binary for binary content in utf-8 mode', async () => {
-    const fs = makeSession({ 'bin.dat': 'abc\x00def' }, emptyHandler);
+    const fs = makeSession({ 'bin.dat': 'abc\u0000def' }, emptyHandler);
     await expect(
       fs.read({ path: 'bin.dat', offset: 0, length: 1024, encoding: 'utf-8' }),
     ).rejects.toMatchObject({ code: 'fs.is_binary' });
@@ -765,10 +765,10 @@ describe('WorkspaceFsService.read', () => {
   });
 
   it('transcodes BOM-marked UTF-16 content that never looks binary (CJK-only)', async () => {
-    const utf16 = Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from('你好世界', 'utf16le')]);
+    const utf16 = Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from('\u4F60\u597D\u4E16\u754C', 'utf16le')]);
     const fs = makeSession({ 'notes.txt': utf16 }, emptyHandler);
     const result = await fs.read({ path: 'notes.txt', offset: 0, length: 1024, encoding: 'utf-8' });
-    expect(result.content).toBe('你好世界');
+    expect(result.content).toBe('\u4F60\u597D\u4E16\u754C');
     expect(result.encoding).toBe('utf-8');
     expect(result.is_binary).toBe(false);
   });
@@ -791,7 +791,7 @@ describe('WorkspaceFsService.read', () => {
   });
 
   it('reads UTF-8 Chinese log content as text instead of throwing fs.is_binary', async () => {
-    const log = '2026-08-16 INFO 启动完成 ✅\n2026-08-16 INFO 处理请求 🚀 成功\n'.repeat(50);
+    const log = '2026-08-16 INFO \u542F\u52A8\u5B8C\u6210 ✅\n2026-08-16 INFO \u5904\u7406\u8BF7\u6C42 🚀 \u6210\u529F\n'.repeat(50);
     const fs = makeSession({ 'app.log': log }, emptyHandler);
     const result = await fs.read({
       path: 'app.log',
@@ -807,9 +807,9 @@ describe('WorkspaceFsService.read', () => {
   });
 
   it('returns utf-8 rather than base64 for UTF-8 Chinese text in auto mode', async () => {
-    const fs = makeSession({ 'app.log': '中文日志 ✅\n' }, emptyHandler);
+    const fs = makeSession({ 'app.log': '\u4E2D\u6587\u65E5\u5FD7 ✅\n' }, emptyHandler);
     const result = await fs.read({ path: 'app.log', offset: 0, length: 1024, encoding: 'auto' });
-    expect(result.content).toBe('中文日志 ✅\n');
+    expect(result.content).toBe('\u4E2D\u6587\u65E5\u5FD7 ✅\n');
     expect(result.encoding).toBe('utf-8');
     expect(result.is_binary).toBe(false);
   });
@@ -901,7 +901,7 @@ describe('WorkspaceFsService.resolveDownload', () => {
   });
 
   it('resolves a UTF-8 Chinese log as text/plain', async () => {
-    const fs = makeSession({ 'app.log': '启动完成 ✅ 中文日志内容\n'.repeat(20) }, emptyHandler);
+    const fs = makeSession({ 'app.log': '\u542F\u52A8\u5B8C\u6210 ✅ \u4E2D\u6587\u65E5\u5FD7\u5185\u5BB9\n'.repeat(20) }, emptyHandler);
     const res = await fs.resolveDownload('app.log');
     expect(res.mime).toBe('text/plain');
   });

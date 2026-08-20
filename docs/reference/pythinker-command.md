@@ -258,8 +258,6 @@ Migrate local data from a legacy pythinker-cli installation to pythinker-code, i
 pythinker migrate
 ```
 
-For full migration instructions, see [Migrating from pythinker-cli](../guides/migration.md).
-
 ### `pythinker upgrade`
 
 Immediately check for the latest version and display an update prompt; exits after you make a selection. `pythinker update` is an alias for this command.

@@ -60,6 +60,7 @@ const mocks = vi.hoisted(() => {
     })),
     resolvePythinkerHome: vi.fn((homeDir?: string) => homeDir ?? '/tmp/pythinker-code-test-home'),
     flushDiagnosticLogsSync: vi.fn(),
+    drainStdio: vi.fn(async () => {}),
     harnessCreatesDeviceIdOnConstruction: false,
     execFileSync: vi.fn(() => ''),
     spawnSync: vi.fn(),
@@ -158,6 +159,10 @@ vi.mock('../../src/migration/index', () => ({
 vi.mock('node:child_process', () => ({
   execFileSync: mocks.execFileSync,
   spawnSync: mocks.spawnSync,
+}));
+
+vi.mock('../../src/cli/headless-exit', () => ({
+  drainStdio: mocks.drainStdio,
 }));
 
 vi.mock('../../src/utils/process/resolve-command', () => ({
@@ -877,6 +882,7 @@ describe('runShell', () => {
       });
       expect(mocks.harnessTrack).not.toHaveBeenCalledWith('exit', expect.anything());
       expect(mocks.shutdownTelemetry).toHaveBeenCalledOnce();
+      expect(mocks.drainStdio).toHaveBeenCalledWith([process.stdout, process.stderr]);
       expect(stdout.text()).toBe(' Bye!\n');
       expect(stderr.text()).toContain(' To resume this session: pythinker -r ses-1');
     } finally {

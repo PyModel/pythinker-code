@@ -32,7 +32,7 @@ const pageData = {
       id: 's1',
       workspace: { id: 'ws1', cwd: '/tmp/proj' },
       meta: {
-        title: '重构会话',
+        title: 'Refactor session',
         last_prompt: null,
         created_at: 1_700_000_000_000,
         updated_at: 1_700_000_100_000,
@@ -98,7 +98,7 @@ describe('fetchV2SessionsPage', () => {
     expect(first.id).toBe('s1');
     expect(first.workspace).toEqual({ id: 'ws1', cwd: '/tmp/proj' });
     expect(first.meta).toEqual({
-      title: '重构会话',
+      title: 'Refactor session',
       lastPrompt: null,
       createdAt: 1_700_000_000_000,
       updatedAt: 1_700_000_100_000,

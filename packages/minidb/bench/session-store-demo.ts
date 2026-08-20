@@ -42,7 +42,7 @@ async function main() {
   for (const s of p1.items) console.log(`    ${new Date(s.updatedAt ?? 0).toISOString().slice(0, 10)}  ${s.title.slice(0, 50)}`);
 
   // 3. precise get
-  if (p1.items.length) {
+  if (p1.items.length > 0) {
     const sid = p1.items[0]!.sessionId;
     t = performance.now();
     const s = store.getSession(sid);
@@ -54,7 +54,7 @@ async function main() {
   }
 
   // 4. fuzzy search
-  for (const q of ['database compaction', 'lark-approval', 'Redis 持久化']) {
+  for (const q of ['database compaction', 'lark-approval', 'Redis \u6301\u4E45\u5316']) {
     t = performance.now();
     const hits = store.search(q, { limit: 3 });
     console.log(`\n[4] search("${q}") -> ${hits.length} in ${ms(performance.now() - t)}`);
@@ -70,7 +70,7 @@ async function main() {
   console.log('\ndone.');
 }
 
-main().catch((e) => {
-  console.error(e);
+main().catch((error) => {
+  console.error(error);
   process.exit(1);
 });

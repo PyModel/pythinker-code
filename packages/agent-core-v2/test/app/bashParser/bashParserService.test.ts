@@ -74,7 +74,7 @@ describe('BashParserService', () => {
   });
 
   it('returns a JSON-serializable tree with text/range fidelity', () => {
-    const source = 'echo "你好 🎉" | grep 你';
+    const source = 'echo "\u4F60\u597D 🎉" | grep \u4F60';
     const result = service.parse(source);
     if (!result.ok) {
       throw new Error('expected ok');

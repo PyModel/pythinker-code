@@ -33,7 +33,7 @@ const props = withDefaults(
   { mobile: false, stackPosition: 'single', toolDiffPanel: false },
 );
 
-defineEmits<{
+const emit = defineEmits<{
   openMedia: [media: ToolMedia];
   openFile: [target: FilePreviewRequest];
   openToolDiff: [id: string];
@@ -154,6 +154,12 @@ function isRowOpen(id: string): boolean {
 function phaseLabel(phase: AppSubagentPhase): string {
   return t(`tools.dynamic_workflow.phase${phase[0]!.toUpperCase()}${phase.slice(1)}`);
 }
+
+// A live member row opens its agent detail in the right side panel (same panel
+// AgentTool's "Open" uses — openAgentPanel resolves the task id directly).
+function openMember(row: DynamicWorkflowCardRow): void {
+  if (row.live) emit('openAgent', row.id);
+}
 </script>
 
 <template>
@@ -219,6 +225,15 @@ function phaseLabel(phase: AppSubagentPhase): string {
             </Tooltip>
             <span class="mphase">{{ phaseLabel(row.phase) }}</span>
             <Icon class="mcar" :name="isRowOpen(row.id) ? 'chevron-down' : 'chevron-right'" size="sm" />
+          </button>
+          <button
+            v-if="row.live"
+            class="member-open"
+            type="button"
+            :aria-label="t('tools.dynamic_workflow.openAgent')"
+            @click.stop="openMember(row)"
+          >
+            <Icon name="arrow-right" size="sm" />
           </button>
           <div v-show="isRowOpen(row.id)" class="member-body">{{ row.body }}</div>
         </div>
@@ -393,7 +408,35 @@ function phaseLabel(phase: AppSubagentPhase): string {
 
 /* Per-member accordion. */
 .member {
+  position: relative;
   border-bottom: 1px solid color-mix(in srgb, var(--color-line) 70%, transparent);
+}
+/* Live rows reserve space for the absolutely-positioned open-agent arrow. */
+.member:has(> .member-open) .member-head {
+  padding-right: 36px;
+}
+.member-open {
+  position: absolute;
+  top: 4px;
+  right: 7px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-faint);
+  cursor: pointer;
+}
+.member-open:hover {
+  background: color-mix(in srgb, var(--color-surface) 55%, var(--bg));
+  color: var(--color-text);
+}
+.member-open:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--color-accent-soft);
 }
 .member:last-child {
   border-bottom: none;

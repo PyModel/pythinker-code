@@ -1,9 +1,10 @@
 <!-- apps/pythinker-web/src/components/settings/ProviderManager.vue -->
 <!-- Modal overlay for managing providers: list, add, refresh, delete. -->
 <script setup lang="ts">
-import { onMounted, onUnmounted, reactive, ref } from 'vue';
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
-import type { AppProvider } from '../../api/types';
+import { getPythinkerWebApi } from '../../api';
+import type { AppCatalogProvider, AppProvider } from '../../api/types';
 import { useDialogFocus } from '../../composables/useDialogFocus';
 import Dialog from '../ui/Dialog.vue';
 import Button from '../ui/Button.vue';
@@ -51,37 +52,68 @@ function onDeleteProvider(id: string): void {
 
 const showAddForm = ref(false);
 const addForm = reactive({
-  type: 'pymodel',
+  catalogId: '',
   apiKey: '',
   baseUrl: '',
-  defaultModel: '',
 });
 const addError = ref('');
+const catalogProviders = ref<AppCatalogProvider[]>([]);
+const catalogLoading = ref(false);
+const availableCatalogProviders = computed(() =>
+  catalogProviders.value.filter((provider) => !provider.rejected && provider.models.length > 0),
+);
+const selectedCatalogProvider = computed(() =>
+  availableCatalogProviders.value.find((provider) => provider.id === addForm.catalogId),
+);
 
-const PROVIDER_TYPES = ['pymodel', 'anthropic', 'openai', 'custom'];
+watch(
+  availableCatalogProviders,
+  (providers) => {
+    if (!providers.some((provider) => provider.id === addForm.catalogId)) {
+      addForm.catalogId = providers[0]?.id ?? '';
+    }
+  },
+  { immediate: true },
+);
+
+async function loadCatalogProviders(): Promise<void> {
+  catalogLoading.value = true;
+  try {
+    catalogProviders.value = await getPythinkerWebApi().listCatalogProviders();
+  } catch {
+    catalogProviders.value = [];
+  } finally {
+    catalogLoading.value = false;
+  }
+}
 
 function openAdd(): void {
-  addForm.type = 'pymodel';
+  addForm.catalogId = availableCatalogProviders.value[0]?.id ?? '';
   addForm.apiKey = '';
   addForm.baseUrl = '';
-  addForm.defaultModel = '';
   addError.value = '';
   showAddForm.value = true;
+  if (catalogProviders.value.length === 0 && !catalogLoading.value) {
+    void loadCatalogProviders();
+  }
 }
 function cancelAdd(): void {
   showAddForm.value = false;
 }
 function submitAdd(): void {
-  if (!addForm.apiKey.trim()) {
-    addError.value = t('providers.apiKeyRequired');
+  if (selectedCatalogProvider.value === undefined) {
+    addError.value = t('providers.unavailable');
+    return;
+  }
+  if (selectedCatalogProvider.value.needsBaseUrl && !addForm.baseUrl.trim()) {
+    addError.value = `${t('providers.fieldBaseUrl')} is required`;
     return;
   }
   addError.value = '';
   emit('add', {
-    type: addForm.type,
+    type: addForm.catalogId,
     apiKey: addForm.apiKey.trim() || undefined,
     baseUrl: addForm.baseUrl.trim() || undefined,
-    defaultModel: addForm.defaultModel.trim() || undefined,
   });
   showAddForm.value = false;
 }
@@ -97,7 +129,10 @@ function handleKeydown(e: KeyboardEvent): void {
   }
 }
 
-onMounted(() => document.addEventListener('keydown', handleKeydown));
+onMounted(() => {
+  document.addEventListener('keydown', handleKeydown);
+  void loadCatalogProviders();
+});
 onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
 
 // -------------------------------------------------------------------------
@@ -182,10 +217,27 @@ function statusLabel(status: AppProvider['status']): string {
         <template v-else>
           <div class="add-form">
             <Field :label="t('providers.fieldType')">
-              <Select v-model="addForm.type">
-                <option v-for="pt in PROVIDER_TYPES" :key="pt" :value="pt">{{ pt }}</option>
+              <Select
+                v-model="addForm.catalogId"
+                :disabled="catalogLoading || availableCatalogProviders.length === 0"
+              >
+                <option v-if="catalogLoading" value="">{{ t('providers.loading') }}</option>
+                <option v-else-if="availableCatalogProviders.length === 0" value="">
+                  {{ t('providers.unavailable') }}
+                </option>
+                <option
+                  v-for="provider in availableCatalogProviders"
+                  :key="provider.id"
+                  :value="provider.id"
+                >
+                  {{ provider.name }} ({{ provider.id }})
+                </option>
               </Select>
             </Field>
+            <div v-if="selectedCatalogProvider" class="catalog-meta">
+              <span>{{ selectedCatalogProvider.id }}</span>
+              <span>· {{ t('providers.modelCount', { count: selectedCatalogProvider.models.length }) }}</span>
+            </div>
             <Field :label="t('providers.fieldApiKey')">
               <Input
                 v-model="addForm.apiKey"
@@ -199,14 +251,6 @@ function statusLabel(status: AppProvider['status']): string {
               <Input
                 v-model="addForm.baseUrl"
                 :placeholder="t('providers.baseUrlPlaceholder')"
-                autocomplete="off"
-                spellcheck="false"
-              />
-            </Field>
-            <Field :label="t('providers.fieldDefaultModel')">
-              <Input
-                v-model="addForm.defaultModel"
-                :placeholder="t('providers.optional')"
                 autocomplete="off"
                 spellcheck="false"
               />
@@ -322,6 +366,13 @@ function statusLabel(status: AppProvider['status']): string {
 
 /* Form */
 .add-form { display: flex; flex-direction: column; gap: var(--space-3); }
+.catalog-meta {
+  display: flex;
+  gap: var(--space-2);
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
 .add-error {
   font-family: var(--font-ui);
   font-size: var(--text-sm);

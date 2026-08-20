@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { AgentDynamicWorkflowProgressComponent } from '#/tui/components/messages/agent-dynamic-workflow-progress';
+import { BRAILLE_SPINNER_FRAMES } from '#/tui/constant/rendering';
 import type { SessionEventHandler } from '#/tui/controllers/session-event-handler';
 import { PythinkerTUI, type PythinkerTUIStartupInput, type TUIState } from '#/tui/pythinker-tui';
 
@@ -166,7 +167,7 @@ describe('updateActivityPane terminal progress', () => {
     }
   });
 
-  it('moves the moon spinner into the AgentDynamicWorkflow progress row while active', () => {
+  it('moves the thinking indicator into the AgentDynamicWorkflow progress row while active', () => {
     vi.useFakeTimers();
     try {
       const { driver, state, setProgress } = makeDriverWithTerminalProgress();
@@ -179,7 +180,9 @@ describe('updateActivityPane terminal progress', () => {
       expect(setProgress).toHaveBeenLastCalledWith(true);
       expect(state.activitySpinner).not.toBeNull();
       expect(state.activityContainer.children).toHaveLength(0);
-      expect(strip(progress.render(80).join('\n'))).toContain('🌑 Working...');
+      const rendered = strip(progress.render(80).join('\n'));
+      expect(rendered).toContain('Working...');
+      expect(BRAILLE_SPINNER_FRAMES.some((frame) => rendered.includes(frame))).toBe(true);
 
       state.activitySpinner?.instance.stop();
       driver.sessionEventHandler.clearAgentDynamicWorkflowProgress();
@@ -188,7 +191,7 @@ describe('updateActivityPane terminal progress', () => {
     }
   });
 
-  it('keeps ended AgentDynamicWorkflow progress on a placeholder instead of the moon spinner', () => {
+  it('keeps ended AgentDynamicWorkflow progress on a placeholder instead of the thinking indicator', () => {
     vi.useFakeTimers();
     try {
       const { driver, state } = makeDriverWithTerminalProgress();
@@ -210,7 +213,7 @@ describe('updateActivityPane terminal progress', () => {
       expect(state.activityContainer.children).toHaveLength(1);
       const output = strip(progress.render(80).join('\n'));
       expect(output).toContain('  Working...');
-      expect(output).not.toContain('🌑 Working...');
+      expect(output).not.toContain('⣷ Working...');
 
       state.activitySpinner?.instance.stop();
       driver.sessionEventHandler.clearAgentDynamicWorkflowProgress();

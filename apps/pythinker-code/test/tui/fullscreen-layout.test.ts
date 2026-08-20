@@ -56,7 +56,7 @@ function fakeInitialAppState(): AppState {
 
 function stripAnsi(s: string): string {
   // eslint-disable-next-line no-control-regex
-  return s.replace(/\x1b\[[0-9;?]*[a-zA-Z]|\x1b\][^\x07]*\x07/g, '');
+  return s.replaceAll(/\x1B\[[0-9;?]*[a-zA-Z]|\x1B\][^\x07]*\x07/g, '');
 }
 
 const LONG_MARKDOWN = Array.from(
@@ -101,7 +101,7 @@ describe('fullscreen layout', () => {
     };
 
     // User message, then a streaming assistant message with the activity pane up.
-    state.transcriptContainer.addChild(new UserMessageComponent('分析下这个项目'));
+    state.transcriptContainer.addChild(new UserMessageComponent('\u5206\u6790\u4E0B\u8FD9\u4E2A\u9879\u76EE'));
     const spinner = new MoonLoader(state.ui);
     state.activityContainer.addChild(
       new ActivityPaneComponent({ mode: 'tool', spinner, tip: 'streaming' }),
@@ -133,14 +133,14 @@ describe('fullscreen layout', () => {
   it('jumps between prompts with Ctrl-Shift-Up/Down (OSC 133 zones survive the chain)', async () => {
     const { state, vt } = await mountFullscreen();
 
-    state.transcriptContainer.addChild(new UserMessageComponent('第一轮提问'));
+    state.transcriptContainer.addChild(new UserMessageComponent('\u7B2C\u4E00\u8F6E\u63D0\u95EE'));
     const first = new AssistantMessageComponent();
     state.transcriptContainer.addChild(first);
-    first.updateContent(`回答一\n\n${LONG_MARKDOWN}`);
-    state.transcriptContainer.addChild(new UserMessageComponent('第二轮提问'));
+    first.updateContent(`\u56DE\u7B54\u4E00\n\n${LONG_MARKDOWN}`);
+    state.transcriptContainer.addChild(new UserMessageComponent('\u7B2C\u4E8C\u8F6E\u63D0\u95EE'));
     const second = new AssistantMessageComponent();
     state.transcriptContainer.addChild(second);
-    second.updateContent(`回答二\n\n${LONG_MARKDOWN}`);
+    second.updateContent(`\u56DE\u7B54\u4E8C\n\n${LONG_MARKDOWN}`);
     state.ui.requestRender(true);
     await vt.waitForRender();
 
@@ -153,17 +153,17 @@ describe('fullscreen layout', () => {
     // Zones anchor every user/assistant message, so the nearest previous zone
     // below the fold is the current turn's assistant message, then the user
     // message that started the turn.
-    vt.sendInput('\x1b[1;6A'); // ctrl+shift+up = previous prompt
+    vt.sendInput('\x1B[1;6A'); // ctrl+shift+up = previous prompt
     await vt.waitForRender();
-    expect(topRows()[1]).toContain('回答二');
+    expect(topRows()[1]).toContain('\u56DE\u7B54\u4E8C');
 
-    vt.sendInput('\x1b[1;6A');
+    vt.sendInput('\x1B[1;6A');
     await vt.waitForRender();
-    expect(topRows()[1]).toContain('第二轮提问');
+    expect(topRows()[1]).toContain('\u7B2C\u4E8C\u8F6E\u63D0\u95EE');
 
-    vt.sendInput('\x1b[1;6B'); // ctrl+shift+down = next prompt
+    vt.sendInput('\x1B[1;6B'); // ctrl+shift+down = next prompt
     await vt.waitForRender();
-    expect(topRows()[1]).toContain('回答二');
+    expect(topRows()[1]).toContain('\u56DE\u7B54\u4E8C');
 
     state.ui.stop();
   });

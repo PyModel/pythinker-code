@@ -341,12 +341,12 @@ describe('LocalKaos', () => {
   });
 
   describe('readText errors parameter (Python compat)', () => {
-    // A file with a valid UTF-8 prefix "中", an invalid standalone byte 0xff,
-    // and a valid UTF-8 suffix "文". Under strict decoding this throws.
+    // A file with a valid UTF-8 prefix "\u4E2D", an invalid standalone byte 0xff,
+    // and a valid UTF-8 suffix "\u6587". Under strict decoding this throws.
     const invalidBytes = Buffer.concat([
-      Buffer.from([0xe4, 0xb8, 0xad]), // 中
+      Buffer.from([0xe4, 0xb8, 0xad]), // \u4E2D
       Buffer.from([0xff]),
-      Buffer.from([0xe6, 0x96, 0x87]), // 文
+      Buffer.from([0xe6, 0x96, 0x87]), // \u6587
     ]);
 
     it('throws on invalid utf-8 with errors="strict" (default)', async () => {
@@ -363,8 +363,8 @@ describe('LocalKaos', () => {
 
       const content = await kaos.readText(filePath, { errors: 'replace' });
       expect(content).toContain('\uFFFD');
-      expect(content).toContain('中');
-      expect(content).toContain('文');
+      expect(content).toContain('\u4E2D');
+      expect(content).toContain('\u6587');
     });
 
     it('drops invalid bytes with errors="ignore"', async () => {
@@ -372,7 +372,7 @@ describe('LocalKaos', () => {
       await kaos.writeBytes(filePath, invalidBytes);
 
       const content = await kaos.readText(filePath, { errors: 'ignore' });
-      expect(content).toBe('中文');
+      expect(content).toBe('\u4E2D\u6587');
       expect(content).not.toContain('\uFFFD');
     });
 
