@@ -4,27 +4,19 @@
  * `app/plugin/marketplace`). The shared module owns catalog reading, the
  * lenient entry normalization, source resolution, and version derivation;
  * this wrapper adds only the CLI's configured-source resolution (option →
- * env → production default), the source-checkout fallback for offline dev,
- * and the caller-supplied built-in capability entry injection.
+ * env) and the caller-supplied built-in capability entry injection.
  */
-
-import { stat } from 'node:fs/promises';
-import { resolve } from 'node:path';
 
 import {
   parsePluginMarketplace,
   readPluginMarketplace,
   withBuiltInEntries,
   withLatestVersions,
-  type MarketplaceLocation,
   type PluginMarketplace,
   type PluginMarketplaceEntry,
 } from '@pymodel/agent-core-v2/app/plugin/marketplace';
 
-import {
-  PYTHINKER_CODE_PLUGIN_MARKETPLACE_URL,
-  PYTHINKER_CODE_PLUGIN_MARKETPLACE_URL_ENV,
-} from '#/constant/app';
+import { PYTHINKER_CODE_PLUGIN_MARKETPLACE_URL_ENV } from '#/constant/app';
 
 export {
   computeUpdateStatus,
@@ -50,17 +42,18 @@ export interface LoadPluginMarketplaceOptions {
 export async function loadPluginMarketplace(
   options: LoadPluginMarketplaceOptions,
 ): Promise<PluginMarketplace> {
-  const configuredSource = options.source ?? process.env[PYTHINKER_CODE_PLUGIN_MARKETPLACE_URL_ENV];
-  const source = configuredSource ?? PYTHINKER_CODE_PLUGIN_MARKETPLACE_URL;
+  const source = options.source ?? process.env[PYTHINKER_CODE_PLUGIN_MARKETPLACE_URL_ENV];
+  const builtInEntries = options.builtInEntries ?? [];
+  if (source === undefined) {
+    return withBuiltInEntries({ source: '', plugins: [] }, builtInEntries);
+  }
   const fetchImpl = options.fetchImpl ?? fetch;
-  let read: { raw: string; location: MarketplaceLocation };
+  let read;
   try {
     read = await readPluginMarketplace({
       source,
       workDir: options.workDir,
       fetchImpl,
-      sourceCheckoutLocation:
-        configuredSource === undefined ? getSourceCheckoutMarketplaceLocation : undefined,
     });
   } catch (error) {
     if (options.builtInEntries !== undefined) {
@@ -74,14 +67,5 @@ export async function loadPluginMarketplace(
     parsePluginMarketplace(read.raw, read.location),
     fetchImpl,
   );
-  return options.builtInEntries !== undefined
-    ? withBuiltInEntries(marketplace, options.builtInEntries)
-    : marketplace;
-}
-
-async function getSourceCheckoutMarketplaceLocation(): Promise<MarketplaceLocation | undefined> {
-  const marketplacePath = resolve(import.meta.dirname, '../../../../plugins/marketplace.json');
-  const info = await stat(marketplacePath).catch(() => undefined);
-  if (info?.isFile() !== true) return undefined;
-  return { raw: marketplacePath, kind: 'local', resolved: marketplacePath };
+  return withBuiltInEntries(marketplace, builtInEntries);
 }

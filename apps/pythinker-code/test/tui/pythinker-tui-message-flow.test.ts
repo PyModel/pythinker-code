@@ -20,7 +20,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { ApprovalPanelComponent } from '#/tui/components/dialogs/approval-panel';
 import { EffortSelectorComponent } from '#/tui/components/dialogs/effort-selector';
-import { PYTHINKER_CODE_PLUGIN_MARKETPLACE_URL } from '#/constant/app';
 import { BRAILLE_SPINNER_FRAMES } from '#/tui/constant/rendering';
 import {
   AgentDynamicWorkflowProgressComponent,
@@ -6580,7 +6579,7 @@ command = "vim"
     });
   });
 
-  it('shows a quota note after installing a quota-consuming official plugin', async () => {
+  it('confirms a former Kimi official URL and does not show a quota note', async () => {
     const session = makeSession({
       installPlugin: vi.fn(async () => ({
         id: 'pythinker-datasource',
@@ -6598,16 +6597,25 @@ command = "vim"
     });
     const { driver } = await makeDriver(session);
 
-    // Official sources skip the trust prompt, so the install runs immediately.
     driver.handleUserInput(
       '/plugins install https://code.kimi.com/pythinker-code/plugins/official/pythinker-datasource.zip',
     );
 
     await vi.waitFor(() => {
-      const transcript = stripSgr(renderTranscript(driver));
-      expect(transcript).toContain('Run /new or /reload to apply plugin changes.');
-      expect(transcript).toContain('Note: This plugin consumes your quota.');
+      expect(driver.state.editorContainer.children[0]).toBeInstanceOf(
+        PluginInstallTrustConfirmComponent,
+      );
     });
+    const confirm = driver.state.editorContainer.children[0] as PluginInstallTrustConfirmComponent;
+    confirm.handleInput('\u001B[B');
+    confirm.handleInput('\r');
+
+    await vi.waitFor(() => {
+      expect(session.installPlugin).toHaveBeenCalled();
+    });
+    expect(stripSgr(renderTranscript(driver))).not.toContain(
+      'Note: This plugin consumes your quota.',
+    );
   });
 
   it('does not show the quota note for a same-id fork installed from a local path', async () => {
@@ -6681,7 +6689,7 @@ command = "vim"
             tier: 'official',
             displayName: 'Pythinker Datasource',
             description: 'Datasource plugin',
-            source: 'https://code.kimi.com/pythinker-code/plugins/official/pythinker-datasource.zip',
+            source: 'https://example.test/plugins/pythinker-datasource.zip',
           },
         ],
       }),
@@ -6701,14 +6709,20 @@ command = "vim"
     await vi.waitFor(() => {
       expect(stripSgr(panel.render(120).join('\n'))).toContain('Pythinker Datasource');
     });
-    // The pinned Pythinker WebBridge row leads the Official tab, so move down to
-    // the Pythinker Datasource entry before installing.
-    panel.handleInput('\u001B[B');
     panel.handleInput('\r');
 
     await vi.waitFor(() => {
+      expect(driver.state.editorContainer.children[0]).toBeInstanceOf(
+        PluginInstallTrustConfirmComponent,
+      );
+    });
+    const confirm = driver.state.editorContainer.children[0] as PluginInstallTrustConfirmComponent;
+    confirm.handleInput('\u001B[B');
+    confirm.handleInput('\r');
+
+    await vi.waitFor(() => {
       expect(session.installPlugin).toHaveBeenCalledWith(
-        'https://code.kimi.com/pythinker-code/plugins/official/pythinker-datasource.zip',
+        'https://example.test/plugins/pythinker-datasource.zip',
       );
     });
     await vi.waitFor(() => {
@@ -6734,7 +6748,7 @@ command = "vim"
             id: 'pythinker-datasource',
             tier: 'official',
             displayName: 'Pythinker Datasource',
-            source: 'https://code.kimi.com/pythinker-code/plugins/official/pythinker-datasource.zip',
+            source: 'https://example.test/plugins/pythinker-datasource.zip',
           },
         ],
       }),
@@ -6757,6 +6771,15 @@ command = "vim"
       expect(stripSgr(panel.render(120).join('\n'))).toContain('Pythinker Datasource');
     });
     panel.handleInput('\r');
+
+    await vi.waitFor(() => {
+      expect(driver.state.editorContainer.children[0]).toBeInstanceOf(
+        PluginInstallTrustConfirmComponent,
+      );
+    });
+    const confirm = driver.state.editorContainer.children[0] as PluginInstallTrustConfirmComponent;
+    confirm.handleInput('\u001B[B');
+    confirm.handleInput('\r');
 
     // The panel must not get stuck on the one-way "Installing…" view; it should
     // return to the list so the user can retry.
@@ -6885,7 +6908,7 @@ command = "vim"
     expect(session.activateSkill).not.toHaveBeenCalled();
   });
 
-  it('installs default marketplace entries through plain install', async () => {
+  it('shows an empty built-in marketplace without a remote fetch', async () => {
     const originalFetch = globalThis.fetch;
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
       plugins: [
@@ -6909,19 +6932,10 @@ command = "vim"
       });
       const panel = driver.state.editorContainer.children[0] as PluginsPanelComponent;
       await vi.waitFor(() => {
-        expect(stripSgr(panel.render(120).join('\n'))).toContain('Pythinker Datasource');
+        expect(stripSgr(panel.render(120).join('\n'))).toContain('No plugins found.');
       });
-      // The pinned Pythinker WebBridge row leads the Official tab, so move down to
-      // the Pythinker Datasource entry before installing.
-      panel.handleInput('\u001B[B');
-      panel.handleInput('\r');
-
-      await vi.waitFor(() => {
-        expect(session.installPlugin).toHaveBeenCalledWith(
-          'https://code.kimi.com/pythinker-code/plugins/official/pythinker-datasource.zip',
-        );
-      });
-      expect(globalThis.fetch).toHaveBeenCalledWith(PYTHINKER_CODE_PLUGIN_MARKETPLACE_URL);
+      expect(globalThis.fetch).not.toHaveBeenCalled();
+      expect(session.installPlugin).not.toHaveBeenCalled();
     } finally {
       vi.stubGlobal('fetch', originalFetch);
     }

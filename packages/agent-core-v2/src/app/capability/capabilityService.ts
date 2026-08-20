@@ -1,19 +1,11 @@
-import { homedir } from 'node:os';
-
 import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Disposable } from '#/_base/di/lifecycle';
 import { Emitter, type Event } from '#/_base/event';
 import { ILogService } from '#/_base/log/log';
 import { Error2 } from '#/errors';
-import { IBootstrapService } from '#/app/bootstrap/bootstrap';
-import { IPluginService } from '#/app/plugin/plugin';
-import { IHostProcessService } from '#/os/interface/hostProcess';
-
 import { ICapabilityService } from './capability';
 import { CapabilityErrors } from './errors';
-import { createPythinkerCuEntry } from './entries/pythinkerCu';
-import { createPythinkerWebbridgeEntry } from './entries/pythinkerWebbridge';
 import type {
   CapabilityEntry,
   CapabilityId,
@@ -45,29 +37,11 @@ export class CapabilityService extends Disposable implements ICapabilityService 
   }
 
   constructor(
-    @IBootstrapService bootstrap: IBootstrapService,
-    @IPluginService plugins: IPluginService,
-    @IHostProcessService hostProcess: IHostProcessService,
     @ILogService private readonly log: ILogService,
     entriesOverride?: readonly CapabilityEntry[],
   ) {
     super();
-    if (entriesOverride !== undefined) {
-      this.entries = new Map(entriesOverride.map((entry) => [entry.id, entry]));
-    } else {
-      const ctx = {
-        platform: process.platform,
-        arch: process.arch,
-        pythinkerHomeDir: bootstrap.homeDir,
-        userHomeDir: homedir(),
-        plugins,
-        hostProcess,
-      };
-      this.entries = new Map<CapabilityId, CapabilityEntry>([
-        ['pythinker-cu', createPythinkerCuEntry(ctx)],
-        ['pythinker-webbridge', createPythinkerWebbridgeEntry(ctx)],
-      ]);
-    }
+    this.entries = new Map((entriesOverride ?? []).map((entry) => [entry.id, entry]));
   }
 
   describeCapabilities(): readonly CapabilityDescriptor[] {

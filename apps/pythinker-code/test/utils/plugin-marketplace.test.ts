@@ -6,7 +6,6 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi } from 'vitest';
 
 import {
-  PYTHINKER_CODE_PLUGIN_MARKETPLACE_URL,
   PYTHINKER_CODE_PLUGIN_MARKETPLACE_URL_ENV,
 } from '#/constant/app';
 import { computeUpdateStatus, loadPluginMarketplace } from '#/utils/plugin-marketplace';
@@ -230,7 +229,8 @@ describe('loadPluginMarketplace', () => {
     );
   });
 
-  it('loads the default CDN marketplace with injectable fetch', async () => {
+  it('loads an explicitly configured remote marketplace with injectable fetch', async () => {
+    const source = 'https://example.test/marketplace.json';
     const fetchImpl = vi.fn(async () => ({
       ok: true,
       status: 200,
@@ -248,41 +248,37 @@ describe('loadPluginMarketplace', () => {
 
     const marketplace = await loadPluginMarketplace({
       workDir: '/tmp/work',
-      source: PYTHINKER_CODE_PLUGIN_MARKETPLACE_URL,
+      source,
       fetchImpl,
     });
 
-    expect(fetchImpl).toHaveBeenCalledWith(PYTHINKER_CODE_PLUGIN_MARKETPLACE_URL);
+    expect(fetchImpl).toHaveBeenCalledWith(source);
     expect(marketplace.plugins[0]).toEqual(
       expect.objectContaining({
         id: 'pythinker-datasource',
         displayName: 'Pythinker Datasource',
         source: new URL(
           './official/pythinker-datasource.zip',
-          PYTHINKER_CODE_PLUGIN_MARKETPLACE_URL,
+          source,
         ).toString(),
       }),
     );
   });
 
-  it('falls back to the source checkout marketplace when the default CDN cannot be fetched', async () => {
+  it('returns only built-in entries without reading when no source is configured', async () => {
     const previous = process.env[PYTHINKER_CODE_PLUGIN_MARKETPLACE_URL_ENV];
     delete process.env[PYTHINKER_CODE_PLUGIN_MARKETPLACE_URL_ENV];
-    const fetchImpl = vi.fn(async () => {
-      throw new Error('fetch failed');
-    }) as unknown as typeof fetch;
+    const fetchImpl = vi.fn() as unknown as typeof fetch;
 
     try {
-      const marketplace = await loadPluginMarketplace({ workDir: '/tmp/work', fetchImpl });
+      const marketplace = await loadPluginMarketplace({
+        workDir: '/tmp/work',
+        fetchImpl,
+        builtInEntries,
+      });
 
-      expect(fetchImpl).toHaveBeenCalledWith(PYTHINKER_CODE_PLUGIN_MARKETPLACE_URL);
-      expect(marketplace.source).toBe(join(REPO_ROOT, 'plugins/marketplace.json'));
-      expect(marketplace.plugins).toContainEqual(
-        expect.objectContaining({
-          id: 'superpowers',
-          source: 'https://github.com/obra/superpowers',
-        }),
-      );
+      expect(fetchImpl).not.toHaveBeenCalled();
+      expect(marketplace).toEqual({ source: '', plugins: builtInEntries });
     } finally {
       if (previous === undefined) {
         delete process.env[PYTHINKER_CODE_PLUGIN_MARKETPLACE_URL_ENV];
@@ -292,14 +288,14 @@ describe('loadPluginMarketplace', () => {
     }
   });
 
-  it('does not use the source checkout fallback for explicit marketplace sources', async () => {
+  it('reports failures from explicit marketplace sources', async () => {
     const fetchImpl = vi.fn(async () => {
       throw new Error('fetch failed');
     }) as unknown as typeof fetch;
 
     await expect(loadPluginMarketplace({
       workDir: '/tmp/work',
-      source: PYTHINKER_CODE_PLUGIN_MARKETPLACE_URL,
+      source: 'https://example.test/marketplace.json',
       fetchImpl,
     })).rejects.toThrow(/fetch failed/);
   });
@@ -364,7 +360,7 @@ describe('loadPluginMarketplace', () => {
     });
 
     it('does not derive a version from a non-GitHub URL', async () => {
-      const entry = await loadEntry('https://code.kimi.com/pythinker-code/plugins/curated/superpowers.zip');
+      const entry = await loadEntry('https://example.test/plugins/superpowers.zip');
       expect(entry.version).toBeUndefined();
     });
 

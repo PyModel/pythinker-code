@@ -51,21 +51,6 @@ interface PluginsRouteHost {
 
 const PLUGIN_ACTIONS = ['enable', 'disable', 'remove'] as const;
 
-const CAPABILITY_ROW_IDS: Readonly<
-  Record<string, { capabilityId: string; wiringPluginIds: readonly string[] }>
-> = {
-  'pythinker-cu': { capabilityId: 'pythinker-cu', wiringPluginIds: ['pythinker-cu', 'pythinker-cu-win'] },
-  'pythinker-cu-win': { capabilityId: 'pythinker-cu', wiringPluginIds: ['pythinker-cu', 'pythinker-cu-win'] },
-  'pythinker-webbridge': { capabilityId: 'pythinker-webbridge', wiringPluginIds: ['pythinker-webbridge'] },
-};
-
-function orderedWiringPluginIds(ids: readonly string[]): readonly string[] {
-  if (process.platform === 'win32' && process.arch === 'x64' && ids.includes('pythinker-cu-win')) {
-    return ['pythinker-cu-win', ...ids.filter((id) => id !== 'pythinker-cu-win')];
-  }
-  return ids;
-}
-
 const MARKETPLACE_FETCH_TIMEOUT_MS = 10_000;
 
 function fetchWithTimeout(...args: Parameters<typeof fetch>): Promise<Response> {
@@ -82,7 +67,7 @@ async function getSourceCheckoutLocation(): Promise<MarketplaceLocation | undefi
 
 export interface PluginsRouteOptions {
   /** Resolved catalog URL (server option / env already applied by start.ts). */
-  readonly marketplaceUrl: string;
+  readonly marketplaceUrl?: string;
   /**
    * True when the catalog location is the built-in default (neither the
    * server option nor the env var set) — only then does a failed remote read
@@ -109,6 +94,10 @@ export function registerPluginsRoutes(
       operationId: 'listPluginMarketplace',
     },
     async (req, reply) => {
+      if (opts.marketplaceUrl === undefined) {
+        reply.send(okEnvelope({ entries: [] }, req.id));
+        return;
+      }
       const fetchImpl = opts.fetchImpl ?? fetchWithTimeout;
       let read: { raw: string; location: MarketplaceLocation };
       try {
@@ -162,30 +151,9 @@ export function registerPluginsRoutes(
       marketplace = await withLatestVersions(marketplace, fetchImpl);
       const installed = await core.accessor.get(IPluginService).listPlugins();
       const byId = new Map(installed.map((p) => [p.id, p]));
-      const supportedCapabilityIds = new Set<string>(
-        core.accessor
-          .get(ICapabilityService)
-          .describeCapabilities()
-          .filter((descriptor) => descriptor.supported)
-          .map((descriptor) => descriptor.id),
-      );
       const entries: PluginMarketplaceEntryWire[] = [];
       for (const entry of marketplace.plugins) {
-        const capabilityRow =
-          opts.marketplaceIsDefault === true ? CAPABILITY_ROW_IDS[entry.id] : undefined;
-        if (
-          capabilityRow !== undefined &&
-          !supportedCapabilityIds.has(capabilityRow.capabilityId)
-        ) {
-          continue;
-        }
-
-        const record =
-          capabilityRow !== undefined
-            ? (orderedWiringPluginIds(capabilityRow.wiringPluginIds)
-                .map((id) => byId.get(id))
-                .find((candidate) => candidate !== undefined) ?? byId.get(entry.id))
-            : byId.get(entry.id);
+        const record = byId.get(entry.id);
         const installedInfo =
           record === undefined
             ? undefined
@@ -204,7 +172,6 @@ export function registerPluginsRoutes(
           source: entry.source,
           installed: installedInfo,
           updateAvailable: updateAvailable ? true : undefined,
-          capabilityId: capabilityRow?.capabilityId,
         });
       }
       reply.send(okEnvelope({ entries }, req.id));

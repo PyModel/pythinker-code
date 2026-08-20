@@ -33,28 +33,6 @@ const INSTALL_TRUST_EXIT = 'exit';
 const INSTALL_TRUST_TRUST = 'trust';
 const ELLIPSIS = '…';
 
-// Hardcoded Web Bridge promotion: a built-in fallback shown only while the
-// marketplace catalog is loading, unreachable, or predates the real
-// `pythinker-webbridge` entry. Selecting it opens the install page in the browser;
-// once the catalog carries the real entry, that row wins and installs
-// normally.
-const WEB_BRIDGE_URL = 'https://www.kimi.com/features/webbridge#local-agent';
-const WEB_BRIDGE_ENTRY: PluginMarketplaceEntry = {
-  id: 'pythinker-webbridge',
-  displayName: 'Pythinker WebBridge',
-  source: WEB_BRIDGE_URL,
-  tier: 'official',
-  homepage: WEB_BRIDGE_URL,
-  description: 'Control your real browser from Pythinker Code — navigate, click, type, and screenshot',
-};
-
-// Only the hardcoded pinned row should open the WebBridge install page. Match
-// by reference (not id) so a catalog entry on another tab that happens to
-// reuse the same id still installs normally instead of being hijacked.
-function isPinnedWebBridgeEntry(entry: PluginMarketplaceEntry): boolean {
-  return entry === WEB_BRIDGE_ENTRY;
-}
-
 interface PluginsOverviewItem {
   readonly value: string;
   readonly kind: 'plugin' | 'action';
@@ -333,8 +311,7 @@ export type PluginsPanelSelection =
   | { readonly kind: 'details'; readonly id: string }
   | { readonly kind: 'reload' }
   | { readonly kind: 'install'; readonly entry: PluginMarketplaceEntry }
-  | { readonly kind: 'install-source'; readonly source: string }
-  | { readonly kind: 'open-url'; readonly url: string; readonly label: string };
+  | { readonly kind: 'install-source'; readonly source: string };
 
 export interface PluginsPanelOptions {
   readonly installed: readonly PluginSummary[];
@@ -459,20 +436,9 @@ export class PluginsPanelComponent extends Container implements Focusable {
   }
 
   private get officialEntries(): readonly PluginMarketplaceEntry[] {
-    // While the catalog is loading or unreachable, the locally-known
-    // capability rows still render and install — built-in runtime setup
-    // must never be blocked by an unrelated catalog fetch.
-    if (this.market.status !== 'loaded') {
-      return this.pendingBuiltInEntries.some((entry) => entry.id === WEB_BRIDGE_ENTRY.id)
-        ? this.pendingBuiltInEntries
-        : [...this.pendingBuiltInEntries, WEB_BRIDGE_ENTRY];
-    }
-    // The real catalog entry wins when present (it installs the actual
-    // plugin); the hardcoded promo row is only a fallback while the catalog
-    // is loading, unreachable, or predates it — never a duplicate row.
-    return this.officialCatalogEntries.some((entry) => entry.id === WEB_BRIDGE_ENTRY.id)
+    return this.market.status === 'loaded'
       ? this.officialCatalogEntries
-      : [WEB_BRIDGE_ENTRY, ...this.officialCatalogEntries];
+      : this.pendingBuiltInEntries;
   }
 
   /** Capability rows synthesized from the engine's registry, independent of
@@ -604,10 +570,6 @@ export class PluginsPanelComponent extends Container implements Focusable {
     if (matchesKey(data, Key.enter)) {
       const entry = entries[this.selectedIndex];
       if (entry === undefined) return;
-      if (isPinnedWebBridgeEntry(entry)) {
-        this.opts.onSelect({ kind: 'open-url', url: WEB_BRIDGE_URL, label: entry.displayName });
-        return;
-      }
       this.opts.onSelect({ kind: 'install', entry });
     }
   }
@@ -719,11 +681,6 @@ export class PluginsPanelComponent extends Container implements Focusable {
     lines: string[],
     width: number,
     entries: readonly PluginMarketplaceEntry[],
-    indexOffset = 0,
-    // Counts (installed/available footer) are computed over this list:
-    // the Official tab renders the pinned promo as a row but excludes it
-    // from the catalog counts, matching its pre-catalog semantics.
-    entriesForCount: readonly PluginMarketplaceEntry[] = entries,
   ): void {
     const colors = currentTheme.palette;
     if (this.market.status === 'loading' || this.market.status === 'idle') {
@@ -739,16 +696,16 @@ export class PluginsPanelComponent extends Container implements Focusable {
       lines.push(chalk.hex(colors.textMuted)('  No plugins found.'));
     } else {
       for (let i = 0; i < entries.length; i++) {
-        lines.push(...this.renderMarketplaceRow(entries[i]!, i + indexOffset, width));
+        lines.push(...this.renderMarketplaceRow(entries[i]!, i, width));
       }
     }
-    const installedCount = entriesForCount.filter((entry) =>
+    const installedCount = entries.filter((entry) =>
       this.isMarketplaceEntryInstalled(entry),
     ).length;
     lines.push('');
     lines.push(
       mutedHintLine(
-        ` ${installedCount} installed · ${entriesForCount.length - installedCount} available`,
+        ` ${installedCount} installed · ${entries.length - installedCount} available`,
         colors,
       ),
     );
@@ -756,19 +713,15 @@ export class PluginsPanelComponent extends Container implements Focusable {
   }
 
   private renderOfficial(lines: string[], width: number): void {
-    // Loading / error: `officialEntries` carries the locally-known
-    // capability rows (plus the promo fallback when webbridge is not among
-    // them), so built-in setup works before the catalog arrives. Once
-    // loaded, the promo appears only when the catalog lacks the real entry.
     if (this.market.status !== 'loaded') {
       const entries = this.officialEntries;
       for (let i = 0; i < entries.length; i += 1) {
         lines.push(...this.renderMarketplaceRow(entries[i]!, i, width));
       }
-      this.renderMarketplaceTab(lines, width, [], entries.length);
+      this.renderMarketplaceTab(lines, width, []);
       return;
     }
-    this.renderMarketplaceTab(lines, width, this.officialEntries, 0, this.officialCatalogEntries);
+    this.renderMarketplaceTab(lines, width, this.officialEntries);
   }
 
   private renderThirdParty(lines: string[], width: number): void {
@@ -787,9 +740,7 @@ export class PluginsPanelComponent extends Container implements Focusable {
     const labelStyle = selected ? chalk.hex(colors.primary).bold : chalk.hex(colors.text);
     const prefix = chalk.hex(selected ? colors.primary : colors.textDim)(`  ${pointer} `);
     const capability = this.capabilityForEntry(entry);
-    const status = isPinnedWebBridgeEntry(entry)
-      ? 'open in browser'
-      : capability?.install.running === true
+    const status = capability?.install.running === true
         ? 'installing…'
         : marketplaceEntryStatus(
             entry,

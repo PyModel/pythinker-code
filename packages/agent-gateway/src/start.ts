@@ -13,7 +13,6 @@ import {
   ICapabilityService,
   IPluginService,
   IWorkspaceService,
-  PYTHINKER_CODE_PLUGIN_MARKETPLACE_URL,
   PluginChanged,
   logSeed,
   resolveConfigPath,
@@ -99,8 +98,7 @@ export interface ServerStartOptions {
   readonly homeDir?: string;
   /**
    * Plugin marketplace catalog URL for `GET /api/v1/plugins/marketplace`.
-   * Defaults to the `PYTHINKER_CODE_PLUGIN_MARKETPLACE_URL` env var, then the
-   * production catalog.
+   * Defaults to the `PYTHINKER_CODE_PLUGIN_MARKETPLACE_URL` env var.
    */
   readonly pluginMarketplaceUrl?: string;
   readonly configPath?: string;
@@ -453,8 +451,7 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
     guiStore,
     pluginMarketplaceUrl:
       opts.pluginMarketplaceUrl ??
-      process.env['PYTHINKER_CODE_PLUGIN_MARKETPLACE_URL'] ??
-      PYTHINKER_CODE_PLUGIN_MARKETPLACE_URL,
+      process.env['PYTHINKER_CODE_PLUGIN_MARKETPLACE_URL'],
     pluginMarketplaceIsDefault:
       opts.pluginMarketplaceUrl === undefined &&
       (process.env['PYTHINKER_CODE_PLUGIN_MARKETPLACE_URL'] === undefined ||

@@ -100,7 +100,6 @@ export const PYTHINKER_CODE_TIPS_BANNER_URL = 'https://cdn.kimi.com/pythinker-co
 // Deep-path import: this module is evaluated on every CLI invocation, so it
 // must not pull in the engine root.
 export {
-  PYTHINKER_CODE_PLUGIN_MARKETPLACE_URL,
   PYTHINKER_CODE_PLUGIN_MARKETPLACE_URL_ENV,
 } from '@pymodel/agent-core-v2/app/plugin/marketplace';
 // Official plugins whose usage bills against the user's plan quota. Installing
