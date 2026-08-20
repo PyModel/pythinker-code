@@ -98,7 +98,7 @@ const serverMeta = ref<{ serverVersion: string; serverId: string; backend: 'v1' 
 const resolvedServerVersion = computed(() => serverMeta.value?.serverVersion || props.serverVersion || '-');
 const resolvedBackend = computed(() => serverMeta.value?.backend ?? props.backend ?? 'v1');
 const backendLabel = computed(() =>
-  resolvedBackend.value === 'v2' ? 'v2 (agent-gateway)' : 'v1 (server)',
+  resolvedBackend.value === 'v2' ? 'agent-gateway' : 'server',
 );
 const diagnosticsCopied = ref(false);
 const providerDirty = ref(false);

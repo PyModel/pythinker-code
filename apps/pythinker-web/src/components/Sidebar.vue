@@ -5,15 +5,6 @@
 <script setup lang="ts">
 import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { serverEndpointLabel } from '../api/config';
-import {
-  fetchDevBackendState,
-  initialDevBackendState,
-  shortOrigin,
-  switchDevBackend,
-  type BackendName,
-  type DevBackendState,
-} from '../api/devBackend';
 import { copyTextToClipboard } from '../lib/clipboard';
 import {
   loadCollapsedWorkspaces,
@@ -30,40 +21,10 @@ import Icon from './ui/Icon.vue';
 import Kbd from './ui/Kbd.vue';
 import Menu from './ui/Menu.vue';
 import MenuItem from './ui/MenuItem.vue';
-import Pill from './ui/Pill.vue';
 import PinnedSessionList from './PinnedSessionList.vue';
 import SessionRow from './SessionRow.vue';
 
 const { t } = useI18n();
-
-// Dev-only affordance: a backend pill next to the brand shows the engine
-// generation reported by /meta (v1 = older server binary, v2 = agent-gateway)
-// plus the endpoint the dev proxy forwards to — click it to switch presets
-// without restarting Vite. In production this is inert.
-const isDev = import.meta.env.DEV;
-const devBackend = ref<DevBackendState | null>(isDev ? initialDevBackendState() : null);
-if (isDev) {
-  onMounted(async () => {
-    const live = await fetchDevBackendState();
-    if (live) devBackend.value = live;
-  });
-}
-// host:port of the server the dev proxy currently forwards to (fallback: the
-// build-time label when the dev endpoints are unavailable).
-const endpoint = computed(() => {
-  if (!isDev) return '';
-  const current = devBackend.value?.current;
-  return current ? shortOrigin(current) : serverEndpointLabel();
-});
-const backendNames: BackendName[] = ['default', 'multi'];
-function presetUrl(name: BackendName): string {
-  const url = devBackend.value?.presets[name] ?? '';
-  return url ? shortOrigin(url) : '';
-}
-function isCurrentBackend(name: BackendName): boolean {
-  const state = devBackend.value;
-  return state !== null && state.current === state.presets[name];
-}
 
 const props = withDefaults(
   defineProps<{
@@ -77,8 +38,6 @@ const props = withDefaults(
     activeId: string;
     /** Current workspace sort mode — drives the section-header sort button. */
     workspaceSortMode: WorkspaceSortMode;
-    /** Backend engine generation from /meta — dev-only badge next to the brand. */
-    backend?: 'v1' | 'v2';
     attentionBySession?: Record<string, number>;
     /** Per-session pending counts split by kind, for the coloured tags. */
     pendingBySession?: Record<string, { approvals: number; questions: number }>;
@@ -95,7 +54,6 @@ const props = withDefaults(
   {
     activeWorkspace: null,
     activeWorkspaceId: null,
-    backend: 'v1',
     attentionBySession: () => ({}),
     pendingBySession: () => ({}),
     unreadBySession: () => ({}),
@@ -550,78 +508,12 @@ function chooseSortMode(mode: WorkspaceSortMode): void {
   closeSectionMenu();
 }
 
-// ---------------------------------------------------------------------------
-// Dev backend switcher menu (the pill next to the brand). Dev-only: repoints
-// the Vite dev proxy at the other engine, then reloads so every client state
-// (REST, WS, /meta) re-initializes against the new backend.
-// ---------------------------------------------------------------------------
-const backendMenuOpen = ref(false);
-const backendMenuStyle = ref<Record<string, string>>({});
-const backendMenuRef = ref<InstanceType<typeof Menu> | null>(null);
-
-function onBackendMenuDocClick(e: MouseEvent): void {
-  const target = e.target as Element;
-  if (target.closest('.ch-backend') || target.closest('.backend-menu')) return;
-  closeBackendMenu();
-}
-
-async function toggleBackendMenu(e: MouseEvent): Promise<void> {
-  if (devBackend.value === null) return;
-  if (backendMenuOpen.value) {
-    closeBackendMenu();
-    return;
-  }
-  const btn = e.currentTarget as HTMLElement;
-  backendMenuOpen.value = true;
-  document.addEventListener('mousedown', onBackendMenuDocClick);
-  window.addEventListener('resize', closeBackendMenu);
-  await nextTick();
-  const menu = backendMenuRef.value?.el;
-  const r = btn.getBoundingClientRect();
-  const gap = 4;
-  const margin = 8;
-  const menuH = menu?.offsetHeight ?? 0;
-  let top = r.bottom + gap;
-  if (top + menuH > window.innerHeight - margin) {
-    top = Math.max(margin, r.top - menuH - gap);
-  }
-  backendMenuStyle.value = {
-    top: `${Math.round(top)}px`,
-    left: `${Math.round(Math.max(margin, r.left))}px`,
-  };
-}
-
-function closeBackendMenu(): void {
-  backendMenuOpen.value = false;
-  document.removeEventListener('mousedown', onBackendMenuDocClick);
-  window.removeEventListener('resize', closeBackendMenu);
-}
-
-async function chooseBackend(name: BackendName): Promise<void> {
-  if (isCurrentBackend(name)) {
-    closeBackendMenu();
-    return;
-  }
-  const next = await switchDevBackend(name);
-  if (next === null) {
-    console.warn('[pythinker-web] dev backend switch failed:', name);
-    closeBackendMenu();
-    return;
-  }
-  // Full reload: every client channel (REST base state, WS, /meta) must
-  // re-initialize against the new backend — a soft swap would leave stale
-  // session streams subscribed through the old target.
-  window.location.reload();
-}
-
 onBeforeUnmount(() => {
   document.removeEventListener('mousedown', onGhMenuDocClick, true);
   document.removeEventListener('mousedown', onWsMenuDocClick);
   document.removeEventListener('mousedown', onSectionMenuDocClick);
-  document.removeEventListener('mousedown', onBackendMenuDocClick);
   window.removeEventListener('resize', closeWsMenu);
   window.removeEventListener('resize', closeSectionMenu);
-  window.removeEventListener('resize', closeBackendMenu);
 });
 
 // Temporarily hide the new-workspace button while we evaluate the entry point.
@@ -681,17 +573,6 @@ onBeforeUnmount(() => {
               @pointercancel="onLogoPointerUp"
             />
             <span class="ch-name">Pythinker Code</span>
-            <Pill
-              v-if="isDev"
-              class="ch-backend"
-              :clickable="devBackend !== null"
-              :title="t('sidebar.backendTitle', { backend, endpoint })"
-              @click="toggleBackendMenu"
-            >
-              <span class="ch-backend-kind" :class="`is-${backend}`">{{ backend }}</span>
-              <span class="ch-backend-ep"> · {{ endpoint }}</span>
-              <Icon v-if="devBackend !== null" name="chevron-down" size="sm" />
-            </Pill>
           </template>
         </div>
         <IconButton
@@ -988,22 +869,6 @@ onBeforeUnmount(() => {
         {{ t(allCollapsed ? 'sidebar.expandAll' : 'sidebar.collapseAll') }}
       </MenuItem>
     </Menu>
-    <!-- Dev backend switcher menu (position:fixed, anchored to the brand pill) -->
-    <Menu
-      v-if="backendMenuOpen"
-      ref="backendMenuRef"
-      class="backend-menu"
-      :style="backendMenuStyle"
-      @click.stop
-    >
-      <MenuItem v-for="name in backendNames" :key="name" @click="chooseBackend(name)">
-        <span class="section-menu-check">
-          <Icon v-if="isCurrentBackend(name)" name="check" size="sm" />
-        </span>
-        <span class="backend-menu-name">{{ name }}</span>
-        <span class="backend-menu-url">{{ presetUrl(name) }}</span>
-      </MenuItem>
-    </Menu>
     <!-- Session search dialog (Cmd/Ctrl+K) -->
     <SearchSessionsDialog
       v-if="showSearch"
@@ -1138,34 +1003,8 @@ onBeforeUnmount(() => {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* Dev-only backend pill next to the brand: shows the engine generation from
-   /meta (v1 / v2) and opens the dev-proxy preset switcher menu. v2 is
-   accent-colored so it reads differently at a glance. */
-.ch-backend {
-  flex: none;
-  min-width: 0;
-}
-.ch-backend-kind {
-  font-family: var(--mono);
-  font-weight: 500;
-  color: var(--color-text-muted);
-}
-.ch-backend-kind.is-v2 {
-  color: var(--color-accent);
-}
-.ch-backend-ep {
-  font-family: var(--mono);
-  color: var(--color-text-faint);
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* Responsive brand row: below 320px the pill's endpoint drops out (the v1/v2
-   kind + chevron stay — the full target is one tooltip away); below 250px the
-   product name also drops out so the logo and action buttons keep their room. */
-@container sidebar-col (max-width: 320px) {
-  .ch-backend-ep { display: none; }
-}
+/* Responsive brand row: below 250px the product name drops out so the logo
+   and action buttons keep their room. */
 @container sidebar-col (max-width: 250px) {
   .ch-name { display: none; }
 }
@@ -1398,8 +1237,7 @@ onBeforeUnmount(() => {
    fixed positioning stays here (anchored to the ⋯ trigger / cursor). */
 .ws-menu,
 .gh-menu,
-.section-menu,
-.backend-menu {
+.section-menu {
   position: fixed;
   top: 0;
   left: 0;
@@ -1418,17 +1256,6 @@ onBeforeUnmount(() => {
   color: var(--color-text-faint);
   font-size: var(--text-xs);
   font-weight: var(--weight-medium);
-}
-
-/* Backend switcher menu rows: mono engine name + muted preset URL. */
-.backend-menu-name {
-  font-family: var(--mono);
-  font-weight: 500;
-}
-.backend-menu-url {
-  margin-left: 8px;
-  font-family: var(--mono);
-  color: var(--color-text-muted);
 }
 
 </style>

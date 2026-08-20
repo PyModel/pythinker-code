@@ -64,7 +64,6 @@ export default {
   notSignedIn: 'Not signed in',
   signIn: 'Sign in',
   daemon: 'Daemon',
-  backendTitle: 'Backend {backend} · {endpoint} — click to switch',
   noSessions: 'No conversations yet',
   showMore: 'Load {count} more conversations',
   showLess: 'Show less',
