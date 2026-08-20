@@ -6,15 +6,18 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { usePythinkerWebClient } from '../../composables/usePythinkerWebClient';
+import { getPythinkerWebApi } from '../../api';
 import type { AppConfig, AppModel, AppSession } from '../../api/types';
 import { useDialogFocus } from '../../composables/useDialogFocus';
+import { useConfirmDialog } from '../../composables/useConfirmDialog';
 import {
   uiFontScaleForSize,
   uiFontScaleOptions,
   uiFontSizeForScale,
 } from '../../composables/client/useAppearance';
-import { serverEndpointLabel } from '../../api/config';
+import { readPythinkerApiConfig } from '../../api/config';
 import { downloadTraceLog, isTraceEnabled } from '../../debug/trace';
+import { copyTextToClipboard } from '../../lib/clipboard';
 import type { Accent, ColorScheme } from '../../composables/usePythinkerWebClient';
 import Dialog from '../ui/Dialog.vue';
 import Switch from '../ui/Switch.vue';
@@ -22,6 +25,7 @@ import Button from '../ui/Button.vue';
 import SegmentedControl from '../ui/SegmentedControl.vue';
 import Select from '../ui/Select.vue';
 import Tooltip from '../ui/Tooltip.vue';
+import ProvidersPanel from './ProvidersPanel.vue';
 
 const { t } = useI18n();
 
@@ -53,6 +57,7 @@ const props = defineProps<{
   serverVersion?: string;
   /** Backend engine generation from GET /api/v1/meta ('v1' legacy, 'v2' agent-gateway). */
   backend?: 'v1' | 'v2';
+  initialTab?: 'general' | 'providers';
 }>();
 
 const emit = defineEmits<{
@@ -64,31 +69,41 @@ const emit = defineEmits<{
   setNotifyApproval: [on: boolean];
   setSound: [on: boolean];
   setConversationToc: [on: boolean];
-  login: [];
   logout: [];
   openOnboarding: [];
-  openProviders: [];
   updateConfig: [patch: Partial<AppConfig>];
   close: [];
 }>();
 
-type SettingsTab = 'general' | 'agent' | 'account' | 'advanced' | 'archived';
+type SettingsTab = 'general' | 'agent' | 'account' | 'providers' | 'advanced' | 'archived';
 
-const activeTab = ref<SettingsTab>('general');
+const activeTab = ref<SettingsTab>(props.initialTab ?? 'general');
 const fontScale = computed(() => uiFontScaleForSize(props.uiFontSize));
 
 const tabs: { id: SettingsTab; labelKey: string }[] = [
   { id: 'general', labelKey: 'settings.tabs.general' },
   { id: 'agent', labelKey: 'settings.tabs.agent' },
   { id: 'account', labelKey: 'settings.tabs.account' },
+  { id: 'providers', labelKey: 'settings.tabs.providers' },
   { id: 'advanced', labelKey: 'settings.tabs.advanced' },
   { id: 'archived', labelKey: 'settings.tabs.archived' },
 ];
 
-const daemonEndpoint = serverEndpointLabel();
+const serverAddress = readPythinkerApiConfig().serverHttpUrl;
+const appVersion =
+  typeof __PYTHINKER_WEB_VERSION__ === 'string' && __PYTHINKER_WEB_VERSION__.trim()
+    ? __PYTHINKER_WEB_VERSION__
+    : '0.0.0-dev';
+const serverMeta = ref<{ serverVersion: string; serverId: string; backend: 'v1' | 'v2' } | null>(null);
+const resolvedServerVersion = computed(() => serverMeta.value?.serverVersion || props.serverVersion || '-');
+const resolvedBackend = computed(() => serverMeta.value?.backend ?? props.backend ?? 'v1');
 const backendLabel = computed(() =>
-  props.backend === 'v2' ? 'v2 (agent-gateway)' : 'v1 (server)',
+  resolvedBackend.value === 'v2' ? 'v2 (agent-gateway)' : 'v1 (server)',
 );
+const diagnosticsCopied = ref(false);
+const providerDirty = ref(false);
+const providerDiscardToken = ref(0);
+const { confirm, current: currentConfirm } = useConfirmDialog();
 const permissionModes = ['manual', 'yolo', 'auto'] as const;
 // Reuse the Composer's permission labels (status.permission*) so the
 // default-permission names stay in sync with the toolbar.
@@ -104,10 +119,21 @@ const dialogRef = ref<HTMLElement | null>(null);
 useDialogFocus(dialogRef);
 
 function handleKeydown(e: KeyboardEvent): void {
-  if (e.key === 'Escape') emit('close');
+  if (e.key === 'Escape' && currentConfirm.value === null) void requestClose();
 }
-onMounted(() => document.addEventListener('keydown', handleKeydown));
+onMounted(() => {
+  document.addEventListener('keydown', handleKeydown);
+  void loadServerMeta();
+});
 onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
+
+async function loadServerMeta(): Promise<void> {
+  try {
+    serverMeta.value = await getPythinkerWebApi().getMeta();
+  } catch {
+    serverMeta.value = null;
+  }
+}
 
 function exportLog(): void {
   downloadTraceLog();
@@ -218,8 +244,45 @@ function toggleTelemetry(): void {
   emit('updateConfig', { telemetry: !enabled } as Partial<AppConfig>);
 }
 
-function setTab(tab: SettingsTab): void {
+async function setTab(tab: SettingsTab): Promise<void> {
+  if (tab === activeTab.value) return;
+  if (!(await confirmDiscardProviderChanges())) return;
   activeTab.value = tab;
+}
+
+async function confirmDiscardProviderChanges(): Promise<boolean> {
+  if (!providerDirty.value) return true;
+  const discard = await confirm({
+    title: t('providers.unsavedTitle'),
+    message: t('providers.unsavedBody'),
+    confirmLabel: t('providers.unsavedDiscard'),
+    cancelLabel: t('providers.unsavedStay'),
+    variant: 'danger',
+  });
+  if (discard) {
+    providerDirty.value = false;
+    providerDiscardToken.value += 1;
+  }
+  return discard;
+}
+
+async function requestClose(): Promise<void> {
+  if (await confirmDiscardProviderChanges()) emit('close');
+}
+
+function diagnosticsText(): string {
+  return [
+    `App version: ${appVersion}`,
+    `Server version: ${resolvedServerVersion.value}`,
+    `Backend: ${resolvedBackend.value}`,
+    `Server address: ${serverAddress}`,
+    `Server ID: ${serverMeta.value?.serverId || '-'}`,
+    `User agent: ${typeof navigator === 'undefined' ? '-' : navigator.userAgent}`,
+  ].join('\n');
+}
+
+async function copyDiagnostics(): Promise<void> {
+  diagnosticsCopied.value = await copyTextToClipboard(diagnosticsText());
 }
 
 function setFontScale(scale: string): void {
@@ -330,7 +393,7 @@ function archiveTime(iso: string): string {
 </script>
 
 <template>
-  <Dialog :open="true" :close-on-esc="false" :title="t('settings.title')" size="xl" height="fixed" :padded="false" @close="emit('close')">
+  <Dialog :open="true" :close-on-esc="false" :title="t('settings.title')" size="xl" height="fixed" :padded="false" @close="requestClose">
     <div ref="dialogRef" class="sd">
       <nav class="settings-tabs" role="tablist" :aria-label="t('settings.title')">
         <button
@@ -460,9 +523,17 @@ function archiveTime(iso: string): string {
             </div>
             <div class="actions">
               <Button variant="secondary" size="sm" @click="emit('openOnboarding'); emit('close')">{{ t('onboarding.reopen') }}</Button>
-              <Button variant="primary" size="sm" @click="emit('login')">{{ t('settings.manageProviders') }}</Button>
+              <Button variant="primary" size="sm" @click="setTab('providers')">{{ t('settings.manageProviders') }}</Button>
             </div>
           </section>
+        </section>
+
+        <!-- Providers -->
+        <section v-show="activeTab === 'providers'" class="panel">
+          <ProvidersPanel
+            :discard-token="providerDiscardToken"
+            @dirty-change="providerDirty = $event"
+          />
         </section>
 
         <!-- Agent defaults -->
@@ -555,22 +626,37 @@ function archiveTime(iso: string): string {
           </section>
         </section>
 
-        <!-- Advanced: diagnostics + data/privacy -->
+        <!-- Advanced: version, diagnostics + data/privacy -->
         <section v-show="activeTab === 'advanced'" class="panel">
           <section class="sec">
-            <h3 class="sec-title">{{ t('settings.advanced') }}</h3>
+            <h3 class="sec-title">{{ t('settings.versionAndUpdates') }}</h3>
             <div class="row">
-              <span class="rlabel">{{ t('sidebar.daemon') }}</span>
-              <span class="rvalue mono">{{ daemonEndpoint }}</span>
+              <span class="rlabel">
+                {{ t('settings.appVersion') }}
+                <span class="hint">{{ t('settings.appVersionHint') }}</span>
+              </span>
+              <span class="rvalue mono">{{ appVersion }}</span>
+            </div>
+            <div class="row">
+              <span class="rlabel">
+                {{ t('settings.serverVersion') }}
+                <span class="hint">{{ t('settings.serverVersionHint') }}</span>
+              </span>
+              <span class="rvalue mono">{{ resolvedServerVersion }}</span>
+            </div>
+            <div class="row">
+              <span class="rlabel">
+                {{ t('settings.serverAddress') }}
+                <span class="hint">{{ t('settings.serverAddressHint') }}</span>
+              </span>
+              <span class="rvalue mono">{{ serverAddress }}</span>
             </div>
             <div class="row">
               <span class="rlabel">{{ t('settings.backend') }}</span>
               <span class="rvalue mono">{{ backendLabel }}</span>
             </div>
-            <div class="row">
-              <span class="rlabel">{{ t('settings.serverVersion') }}</span>
-              <span class="rvalue mono">{{ serverVersion || '-' }}</span>
-            </div>
+          </section>
+          <section v-if="config" class="sec">
             <div v-if="config" class="row">
               <span class="rlabel">
                 {{ t('settings.telemetry') }}
@@ -584,12 +670,21 @@ function archiveTime(iso: string): string {
                 @update:model-value="toggleTelemetry()"
               />
             </div>
+          </section>
+          <section class="sec">
+            <h3 class="sec-title">{{ t('settings.diagnostics') }}</h3>
             <div class="row">
               <span class="rlabel">
                 {{ t('settings.exportLog') }}
                 <span v-if="!isTraceEnabled()" class="hint">{{ t('settings.logHint') }}</span>
               </span>
               <Button variant="secondary" size="sm" @click="exportLog">{{ t('settings.exportLogBtn') }}</Button>
+            </div>
+            <div class="row">
+              <span class="rlabel">{{ t('settings.copyDetails') }}</span>
+              <Button data-testid="copy-diagnostics" variant="secondary" size="sm" @click="copyDiagnostics">
+                {{ diagnosticsCopied ? t('settings.copied') : t('settings.copyDetails') }}
+              </Button>
             </div>
           </section>
         </section>

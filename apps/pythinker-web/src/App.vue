@@ -14,7 +14,6 @@ import TurnDiffPanel from './components/chat/TurnDiffPanel.vue';
 import SideChatPanel from './components/chat/SideChatPanel.vue';
 import DiffView from './components/chat/DiffView.vue';
 import ModelPicker from './components/settings/ModelPicker.vue';
-import ProviderManager from './components/settings/ProviderManager.vue';
 import SettingsDialog from './components/settings/SettingsDialog.vue';
 import AddWorkspaceDialog from './components/dialogs/AddWorkspaceDialog.vue';
 import ConfirmDialogHost from './components/dialogs/ConfirmDialogHost.vue';
@@ -423,15 +422,14 @@ const conversationPaneRef = ref<InstanceType<typeof ConversationPane> | null>(nu
 
 // Dialog visibility refs
 const showModelPicker = ref(false);
-const showProviders = ref(false);
 
 const showAddWorkspace = ref(false);
 const showStatusPanel = ref(false);
 const showSettings = ref(false);
+const settingsInitialTab = ref<'general' | 'providers'>('general');
 const overlayOpen = computed(() =>
   openDialogCount.value > 0 ||
   showModelPicker.value ||
-  showProviders.value ||
   showAddWorkspace.value ||
   showStatusPanel.value ||
   showSettings.value ||
@@ -458,7 +456,6 @@ const anyOverlayOpen = computed<boolean>(
   () =>
     openDialogCount.value > 0 ||
     showModelPicker.value ||
-    showProviders.value ||
     showAddWorkspace.value ||
     showStatusPanel.value ||
     showSettings.value ||
@@ -468,11 +465,9 @@ const anyOverlayOpen = computed<boolean>(
     lightboxMedia.value !== null,
 );
 
-// Loading state for model/provider fetches
+// Loading state for model fetches
 const modelsLoading = ref(false);
 const modelsUnavailable = ref(false);
-const providersLoading = ref(false);
-const providersUnavailable = ref(false);
 const configSaving = ref(false);
 
 async function openModelPicker(): Promise<void> {
@@ -491,23 +486,18 @@ async function openModelPicker(): Promise<void> {
   }
 }
 
-async function openProviders(): Promise<void> {
-  providersLoading.value = true;
-  providersUnavailable.value = false;
-  showProviders.value = true;
-  try {
-    await client.loadProviders();
-  } catch {
-    providersUnavailable.value = true;
-  } finally {
-    providersLoading.value = false;
-  }
+function openSettings(tab: 'general' | 'providers' = 'general'): void {
+  settingsInitialTab.value = tab;
+  showSettings.value = true;
+}
+
+function openProviders(): void {
+  openSettings('providers');
 }
 
 function openLogin(): void {
-  // No managed-account sign-in in this distribution: "log in" means adding a
-  // model provider (API key or provider OAuth) through the provider manager.
-  void openProviders();
+  // No managed-account sign-in in this distribution: "log in" opens provider setup.
+  openProviders();
 }
 
 async function handleSelectModel(modelId: string): Promise<void> {
@@ -535,19 +525,10 @@ async function handleComposerSelectModel(modelId: string): Promise<void> {
   }
 }
 
-async function handleAddProvider(input: { type: string; apiKey?: string; baseUrl?: string; defaultModel?: string }): Promise<void> {
-  await client.addProvider(input);
-}
-
-async function handleRefreshProvider(id: string): Promise<void> {
-  await client.refreshProvider(id);
-}
-
-// Destructive session/workspace/provider actions confirm through the shared
+// Destructive session/workspace actions confirm through the shared
 // modal here (the menu components only emit the intent). Each passes its work
 // as the dialog `action`, so the dialog stays open with a loading state until
-// the operation settles. All three client calls toast their own errors and
-// never reject.
+// the operation settles.
 async function markSessionDone(id: string): Promise<void> {
   await client.archiveSession(id);
   await loadDoneSessions();
@@ -594,15 +575,6 @@ async function confirmDeleteWorkspace(id: string): Promise<void> {
     message: t('workspace.removeWorkspaceConfirm', { name }),
     variant: 'danger',
     action: () => client.deleteWorkspace(id),
-  });
-}
-
-async function confirmDeleteProvider(id: string): Promise<void> {
-  await confirm({
-    title: t('providers.delete'),
-    message: t('providers.confirmDelete'),
-    variant: 'danger',
-    action: () => client.deleteProvider(id),
   });
 }
 
@@ -892,7 +864,7 @@ function openPr(url: string): void {
         @set-workspace-sort-mode="client.setWorkspaceSortMode($event)"
         @load-more-sessions="(id) => void client.loadMoreSessions(id)"
         @load-all-sessions="void client.loadAllSessions()"
-        @open-settings="showSettings = true"
+        @open-settings="openSettings()"
         @collapse="toggleSidebarCollapse"
       />
       <ResizeHandle
@@ -1147,41 +1119,6 @@ function openPr(url: string): void {
       @close="showModelPicker = false"
     />
 
-    <!-- Settings page (modal) -->
-    <SettingsDialog
-      v-if="showSettings"
-      :color-scheme="client.colorScheme.value"
-      :accent="client.accent.value"
-      :ui-font-size="client.uiFontSize.value"
-      :auth-ready="client.authReady.value"
-      :account-model="client.defaultModel.value"
-      :notify="client.notifyOnComplete.value"
-      :notify-question="client.notifyOnQuestion.value"
-      :notify-approval="client.notifyOnApproval.value"
-      :notify-permission="client.notifyPermission.value"
-      :sound="client.soundOnComplete.value"
-      :conversation-toc="client.conversationToc.value"
-      :config="client.config.value"
-      :models="client.models.value"
-      :config-saving="configSaving"
-      :server-version="client.serverVersion.value"
-      :backend="client.backend.value"
-      @set-color-scheme="client.setColorScheme($event)"
-      @set-accent="client.setAccent($event)"
-      @set-ui-font-size="client.setUiFontSize($event)"
-      @set-notify="client.setNotifyOnComplete($event)"
-      @set-notify-question="client.setNotifyOnQuestion($event)"
-      @set-notify-approval="client.setNotifyOnApproval($event)"
-      @set-sound="client.setSoundOnComplete($event)"
-      @set-conversation-toc="client.setConversationToc($event)"
-      @update-config="handleUpdateConfig($event)"
-      @login="() => { showSettings = false; openLogin(); }"
-      @logout="client.logout"
-      @open-onboarding="() => { showSettings = false; openOnboarding(); }"
-      @open-providers="() => { showSettings = false; openProviders(); }"
-      @close="showSettings = false"
-    />
-
     <!-- Status panel overlay (/status) — renders current client state, no daemon call -->
     <StatusPanel
       v-if="showStatusPanel"
@@ -1236,9 +1173,6 @@ function openPr(url: string): void {
     <!-- KAP/daemon debug panel (opt-in, ?debug=1) -->
     <DebugPanel v-if="debugEnabled" />
 
-    <!-- Global modal-confirmation host (driven by useConfirmDialog) -->
-    <ConfirmDialogHost />
-
     <!-- Mobile switcher bottom-sheet: workspace groups + sessions (mirrors the
          desktop sidebar) -->
     <MobileSwitcherSheet
@@ -1283,19 +1217,43 @@ function openPr(url: string): void {
       @logout="client.logout"
     />
     </div>
-    <!-- Provider Manager overlay. Outside `.app` so the auth-gate page and
-         `/login` can open it too. -->
-    <ProviderManager
-      v-if="showProviders"
-      :providers="client.providers.value"
-      :loading="providersLoading"
-      :unavailable="providersUnavailable"
-      @add="handleAddProvider($event)"
-      @refresh="handleRefreshProvider($event)"
-      @delete="confirmDeleteProvider($event)"
-      @close="showProviders = false"
+
+    <!-- Settings stays outside the auth/app branch so provider setup can open
+         from the auth gate and from every in-app entry point. -->
+    <SettingsDialog
+      v-if="showSettings"
+      :color-scheme="client.colorScheme.value"
+      :accent="client.accent.value"
+      :ui-font-size="client.uiFontSize.value"
+      :auth-ready="client.authReady.value"
+      :account-model="client.defaultModel.value"
+      :notify="client.notifyOnComplete.value"
+      :notify-question="client.notifyOnQuestion.value"
+      :notify-approval="client.notifyOnApproval.value"
+      :notify-permission="client.notifyPermission.value"
+      :sound="client.soundOnComplete.value"
+      :conversation-toc="client.conversationToc.value"
+      :config="client.config.value"
+      :models="client.models.value"
+      :config-saving="configSaving"
+      :server-version="client.serverVersion.value"
+      :backend="client.backend.value"
+      :initial-tab="settingsInitialTab"
+      @set-color-scheme="client.setColorScheme($event)"
+      @set-accent="client.setAccent($event)"
+      @set-ui-font-size="client.setUiFontSize($event)"
+      @set-notify="client.setNotifyOnComplete($event)"
+      @set-notify-question="client.setNotifyOnQuestion($event)"
+      @set-notify-approval="client.setNotifyOnApproval($event)"
+      @set-sound="client.setSoundOnComplete($event)"
+      @set-conversation-toc="client.setConversationToc($event)"
+      @update-config="handleUpdateConfig($event)"
+      @logout="client.logout"
+      @open-onboarding="() => { showSettings = false; openOnboarding(); }"
+      @close="showSettings = false"
     />
 
+    <ConfirmDialogHost />
   </div>
 </template>
 
