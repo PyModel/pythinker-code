@@ -255,7 +255,7 @@ provide('resolveAgentTaskId', resolveAgentTaskId);
 provide('pinScroll', pinScrollFor);
 const todoDoneCount = computed(() => (props.todos ?? []).filter((td) => td.status === 'done').length);
 const hasDockWork = computed(() =>
-  props.goal != null ||
+  props.goal !== null && props.goal !== undefined ||
   bashTasks.value.length > 0 ||
   subagentTasks.value.length > 0 ||
   (props.todos?.length ?? 0) > 0,
