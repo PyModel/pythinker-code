@@ -63,6 +63,23 @@ for (const file of [
 const trackedFiles = execSync('git ls-files -z').toString().split('\0').filter(Boolean);
 const kimiHostPattern = /\b(?:[a-z0-9-]+\.)*kimi\.com\b/gi;
 
+// kaos→pyaos rename guard: the only tracked files allowed to mention the old
+// name are the deprecated-alias surfaces (config `executor: 'kaos'`, SDK
+// `{kaos, persistenceKaos}` session params) and their tests. pnpm-lock.yaml is
+// excluded for its unrelated base64 `...kAOs...` integrity hash.
+const kaosAliasAllowlist = new Set([
+  'packages/agent-core/src/config/schema.ts',
+  'packages/agent-core-v2/src/mcpCore/config-schema.ts',
+  'packages/klient/src/contract/mcp.ts',
+  'packages/node-sdk/src/types.ts',
+  'packages/node-sdk/src/pythinker-harness.ts',
+  'packages/agent-core/test/config/configs.test.ts',
+  'packages/agent-core-v2/test/mcpCore/client-stdio.test.ts',
+  'packages/klient/test/contract.test.ts',
+  'packages/node-sdk/test/create-session-transport.test.ts',
+]);
+const kaosPattern = /kaos/i;
+
 for (const file of trackedFiles) {
   if (file.startsWith('scripts/upstream-sync/') || file.startsWith('blackbox/')) continue;
 
@@ -79,6 +96,15 @@ for (const file of trackedFiles) {
     text = new TextDecoder('utf-8', { fatal: true }).decode(contents);
   } catch {
     continue;
+  }
+
+  if (
+    file !== 'pnpm-lock.yaml' &&
+    !file.startsWith('.changeset/') &&
+    !kaosAliasAllowlist.has(file) &&
+    kaosPattern.test(text)
+  ) {
+    failures.push(`${file} — legacy 'kaos' residue (rename to pyaos, or extend the alias allowlist)`);
   }
 
   for (const [index, line] of text.split(/\r?\n/).entries()) {

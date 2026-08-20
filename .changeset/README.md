@@ -17,7 +17,7 @@ All other workspace packages are private internal packages, are not published to
 
 - `@pymodel/acp-adapter`
 - `@pymodel/agent-core`
-- `@pymodel/kaos`
+- `@pymodel/pyaos`
 - `@pymodel/pythinker-code-oauth`
 - `@pymodel/pythinker-telemetry`
 - `@pymodel/kosong`

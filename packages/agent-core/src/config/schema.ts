@@ -288,9 +288,13 @@ export const McpServerStdioConfigSchema = z.object({
   args: z.array(z.string()).optional(),
   env: StringRecordSchema.optional(),
   cwd: z.string().optional(),
-  // Reserved for future kaos-backed stdio launchers. `undefined` and `'local'`
-  // both mean direct child_process spawn for now.
-  executor: z.enum(['local', 'kaos']).optional(),
+  // Reserved for future pyaos-backed stdio launchers. `undefined` and `'local'`
+  // both mean direct child_process spawn for now. `'kaos'` is a deprecated
+  // alias normalized to `'pyaos'` at parse time.
+  executor: z
+    .enum(['local', 'pyaos', 'kaos'])
+    .transform((value) => (value === 'kaos' ? ('pyaos' as const) : value))
+    .optional(),
   ...McpServerCommonFields,
 });
 

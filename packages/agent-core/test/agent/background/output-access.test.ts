@@ -8,7 +8,7 @@ import { Readable } from 'node:stream';
 import type { Writable } from 'node:stream';
 import { join } from 'pathe';
 
-import type { KaosProcess } from '@pymodel/kaos';
+import type { PyaosProcess } from '@pymodel/pyaos';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { BackgroundManager } from '../../../src/agent/background';
@@ -18,16 +18,16 @@ import {
   waitForOutput,
 } from './helpers';
 
-function immediateProcess(exitCode: number, stdoutText = ''): KaosProcess {
+function immediateProcess(exitCode: number, stdoutText = ''): PyaosProcess {
   return {
     stdin: { write: vi.fn(), end: vi.fn() } as unknown as Writable,
     stdout: Readable.from(stdoutText ? [stdoutText] : []),
     stderr: Readable.from([]),
     pid: 50000 + exitCode,
     exitCode,
-    wait: vi.fn().mockResolvedValue(exitCode) as KaosProcess['wait'],
-    kill: vi.fn().mockResolvedValue(undefined) as KaosProcess['kill'],
-    dispose: vi.fn().mockResolvedValue(undefined) as KaosProcess['dispose'],
+    wait: vi.fn().mockResolvedValue(exitCode) as PyaosProcess['wait'],
+    kill: vi.fn().mockResolvedValue(undefined) as PyaosProcess['kill'],
+    dispose: vi.fn().mockResolvedValue(undefined) as PyaosProcess['dispose'],
   };
 }
 

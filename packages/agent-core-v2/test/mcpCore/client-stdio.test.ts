@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest';
 import { Error2 } from '#/errors';
 import { isMcpConnectionClosedError } from '#/mcpCore/client-shared';
 import { mergeStdioEnv, StdioMcpClient, type StdioMcpClientOptions } from '#/mcpCore/client-stdio';
-import type { McpServerStdioConfig } from '#/mcpCore/config-schema';
+import { McpServerStdioConfigSchema, type McpServerStdioConfig } from '#/mcpCore/config-schema';
 import { HostProcessService } from '#/os/backends/node-local/hostProcessService';
 import { FakeRuntime } from '#/runtime/fakeRuntime';
 
@@ -53,7 +53,7 @@ describe('StdioMcpClient', () => {
         createClient({
           transport: 'stdio',
           command: 'true',
-          executor: 'kaos',
+          executor: 'pyaos',
         }),
     ).toThrow(
       expect.objectContaining({ name: 'Error2', code: 'not_implemented' }) as unknown as Error,
@@ -61,7 +61,7 @@ describe('StdioMcpClient', () => {
 
     let thrown: unknown;
     try {
-      const client = createClient({ transport: 'stdio', command: 'true', executor: 'kaos' });
+      const client = createClient({ transport: 'stdio', command: 'true', executor: 'pyaos' });
       void client;
     } catch (error) {
       thrown = error;
@@ -390,5 +390,16 @@ describe('mergeStdioEnv', () => {
     const dir = mkdtempSync(join(tmpdir(), 'pythinker-mcp-env-'));
     await rm(dir, { recursive: true, force: true });
     expect(mergeStdioEnv(undefined, { PATH: dir })['PATH']).toBe(dir);
+  });
+});
+
+describe('mcp executor legacy alias', () => {
+  it('normalizes the deprecated executor value "kaos" to "pyaos"', () => {
+    const parsed = McpServerStdioConfigSchema.parse({
+      transport: 'stdio',
+      command: 'echo',
+      executor: 'kaos',
+    });
+    expect(parsed.executor).toBe('pyaos');
   });
 });

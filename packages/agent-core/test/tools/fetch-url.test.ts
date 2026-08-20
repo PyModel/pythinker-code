@@ -13,7 +13,7 @@ import {
   type UrlFetcher,
 } from '../../src/tools/builtin/web/fetch-url';
 import { PyModelFetchURLProvider } from '../../src/tools/providers/pymodel-fetch-url';
-import { toolContentString } from './fixtures/fake-kaos';
+import { toolContentString } from './fixtures/fake-pyaos';
 import { executeTool } from './fixtures/execute-tool';
 
 const signal = new AbortController().signal;

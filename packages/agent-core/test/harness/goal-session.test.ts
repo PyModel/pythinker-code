@@ -20,7 +20,7 @@ import type { SDKSessionRPC } from '../../src/rpc';
 import { Session } from '../../src/session';
 import { SessionAPIImpl } from '../../src/session/rpc';
 import { createScriptedGenerate } from '../agent/harness/scripted-generate';
-import { testKaos } from '../fixtures/test-kaos';
+import { testPyaos } from '../fixtures/test-pyaos';
 
 const MOCK_PROVIDER = { type: 'pythinker', apiKey: 'test-key', model: 'mock-model' } as const satisfies ProviderConfig;
 
@@ -91,7 +91,7 @@ async function setupSession(
   const session = track(
     new Session({
       id: 'goal-session',
-      kaos: testKaos.withCwd(sessionDir),
+      pyaos: testPyaos.withCwd(sessionDir),
       homedir: sessionDir,
       rpc: createSessionRpc(events),
       skills: { explicitDirs: [join(sessionDir, 'missing')] },
@@ -1021,7 +1021,7 @@ describe('goal session end-to-end', () => {
 
     const resumed = track(new Session({
       id: 'goal-session',
-      kaos: testKaos.withCwd(sessionDir),
+      pyaos: testPyaos.withCwd(sessionDir),
       homedir: sessionDir,
       rpc: createSessionRpc([]),
       skills: { explicitDirs: [join(sessionDir, 'missing')] },
@@ -1042,7 +1042,7 @@ describe('goal session end-to-end', () => {
 
     const resumed = track(new Session({
       id: 'goal-session',
-      kaos: testKaos.withCwd(sessionDir),
+      pyaos: testPyaos.withCwd(sessionDir),
       homedir: sessionDir,
       rpc: createSessionRpc([]),
       skills: { explicitDirs: [join(sessionDir, 'missing')] },

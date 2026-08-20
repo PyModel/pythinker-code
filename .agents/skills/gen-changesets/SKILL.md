@@ -5,7 +5,7 @@ description: Use when generating changesets in the pythinker-code repository —
 
 # Generate Changesets
 
-The only user-facing published package is the CLI: `@pymodel/pythinker-code`. All other `@pymodel/*` packages (sdk, agent-core, kosong, kaos, oauth, telemetry, and so on) are internal.
+The only user-facing published package is the CLI: `@pymodel/pythinker-code`. All other `@pymodel/*` packages (sdk, agent-core, kosong, pyaos, oauth, telemetry, and so on) are internal.
 
 ## 1. Whether to Write
 

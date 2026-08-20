@@ -17,8 +17,8 @@ import { HookEngine } from '../../src/session/hooks';
 import { ProviderManager } from '../../src/session/provider-manager';
 import type { SessionSubagentHost } from '../../src/session/subagent-host';
 import { FLAG_DEFINITIONS, FlagResolver } from '../../src/flags';
-import { createFakeKaos } from '../tools/fixtures/fake-kaos';
-import { createCommandKaos, testAgent } from './harness/agent';
+import { createFakePyaos } from '../tools/fixtures/fake-pyaos';
+import { createCommandPyaos, testAgent } from './harness/agent';
 import { executeTool } from '../tools/fixtures/execute-tool';
 
 const signal = new AbortController().signal;
@@ -47,7 +47,7 @@ describe('Agent tools', () => {
       },
     );
     const ctx = testAgent({
-      kaos: createFakeKaos({ execWithEnv }),
+      pyaos: createFakePyaos({ execWithEnv }),
       hookEngine,
     });
     ctx.configure({ tools: ['Bash'] });
@@ -83,7 +83,7 @@ describe('Agent tools', () => {
       },
     );
     const ctx = testAgent({
-      kaos: createCommandKaos('ok'),
+      pyaos: createCommandPyaos('ok'),
       hookEngine,
     });
     ctx.configure({ tools: ['Bash'] });
@@ -100,7 +100,7 @@ describe('Agent tools', () => {
 
   it('uses builtin descriptions on tool call start events', async () => {
     const ctx = testAgent({
-      kaos: createCommandKaos('ok'),
+      pyaos: createCommandPyaos('ok'),
     });
     ctx.configure({ tools: ['Bash'] });
     await ctx.rpc.setPermission({ mode: 'yolo' });

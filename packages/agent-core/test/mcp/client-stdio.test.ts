@@ -36,7 +36,7 @@ describe('StdioMcpClient', () => {
         new StdioMcpClient({
           transport: 'stdio',
           command: 'true',
-          executor: 'kaos',
+          executor: 'pyaos',
         }),
     ).toThrow(
       expect.objectContaining({ name: 'PythinkerError', code: 'not_implemented' }) as unknown as Error,
@@ -44,7 +44,7 @@ describe('StdioMcpClient', () => {
     // Sanity-check the error class identity too.
     let thrown: unknown;
     try {
-      const client = new StdioMcpClient({ transport: 'stdio', command: 'true', executor: 'kaos' });
+      const client = new StdioMcpClient({ transport: 'stdio', command: 'true', executor: 'pyaos' });
       void client;
     } catch (error) {
       thrown = error;

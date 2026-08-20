@@ -1,10 +1,10 @@
 /**
  * GrepTool — content search via ripgrep.
  *
- * Shells out to `rg` through Kaos. Supports glob/type filtering, context
+ * Shells out to `rg` through Pyaos. Supports glob/type filtering, context
  * lines, output modes, pagination, multiline, and case-insensitive search.
  *
- * Path safety is enforced before any Kaos I/O. Explicit absolute paths outside
+ * Path safety is enforced before any Pyaos I/O. Explicit absolute paths outside
  * the workspace are allowed; relative paths that escape the workspace are
  * rejected.
  *
@@ -17,7 +17,7 @@
  *     backend path class.
  */
 
-import type { Kaos } from '@pymodel/kaos';
+import type { Pyaos } from '@pymodel/pyaos';
 import { normalize } from 'pathe';
 import { z } from 'zod';
 
@@ -166,7 +166,7 @@ export class GrepTool implements BuiltinTool<GrepInput> {
   readonly parameters: Record<string, unknown> = toInputJsonSchema(GrepInputSchema);
   private readonly telemetry: TelemetryClient;
   constructor(
-    private readonly kaos: Kaos,
+    private readonly pyaos: Pyaos,
     private readonly workspace: WorkspaceConfig,
     telemetry: TelemetryClient = noopTelemetryClient,
   ) {
@@ -177,7 +177,7 @@ export class GrepTool implements BuiltinTool<GrepInput> {
     let path: string | undefined;
     if (args.path !== undefined) {
       path = resolvePathAccessPath(args.path, {
-        kaos: this.kaos,
+        pyaos: this.pyaos,
         workspace: this.workspace,
         operation: 'search',
         policy: { guardMode: 'absolute-outside-allowed', checkSensitive: false },
@@ -204,7 +204,7 @@ export class GrepTool implements BuiltinTool<GrepInput> {
       return { isError: true, output: 'Aborted before search started' };
     }
 
-    const pathClass = this.kaos.pathClass();
+    const pathClass = this.pyaos.pathClass();
     let rgPath: string;
     try {
       const resolution = await ensureRgPath({ signal });
@@ -224,7 +224,7 @@ export class GrepTool implements BuiltinTool<GrepInput> {
     }
 
     let runResult = await runRipgrepOnce(
-      this.kaos,
+      this.pyaos,
       buildRgArgs(rgPath, args, searchPaths),
       signal,
       { abortedMessage: 'Grep aborted' },
@@ -232,7 +232,7 @@ export class GrepTool implements BuiltinTool<GrepInput> {
     if (runResult.kind === 'tool-error') return runResult.result;
     if (shouldRetryRipgrepEagain(runResult)) {
       runResult = await runRipgrepOnce(
-        this.kaos,
+        this.pyaos,
         buildRgArgs(rgPath, args, searchPaths, true),
         signal,
         { abortedMessage: 'Grep aborted' },
@@ -274,7 +274,7 @@ export class GrepTool implements BuiltinTool<GrepInput> {
     try {
       orderedLines =
         mode === 'files_with_matches' && !timedOut
-          ? await sortFilesWithMatchesByMtime(keptLines, this.kaos, signal)
+          ? await sortFilesWithMatchesByMtime(keptLines, this.pyaos, signal)
           : keptLines;
     } catch (error) {
       if (error instanceof GrepAbortedError) {
@@ -385,7 +385,7 @@ class GrepAbortedError extends Error {
 
 async function sortFilesWithMatchesByMtime(
   lines: readonly ParsedGrepLine[],
-  kaos: Kaos,
+  pyaos: Pyaos,
   signal: AbortSignal,
 ): Promise<ParsedGrepLine[]> {
   const entries = await mapWithConcurrency(
@@ -398,7 +398,7 @@ async function sortFilesWithMatchesByMtime(
       let mtime = 0;
       if (path !== undefined) {
         try {
-          mtime = (await kaos.stat(path)).stMtime ?? 0;
+          mtime = (await pyaos.stat(path)).stMtime ?? 0;
         } catch {
           // Keep stat failures visible; use mtime=0 so they sort after known files.
         }

@@ -1408,7 +1408,7 @@ outline: 2
 ### 重构
 
 - 引入 `ModelProvider` 接口和 `SingleModelProvider`，将 `Agent` 与 `ProviderManager` 解耦。
-- 将 `RuntimeConfig` 拆分为 `Kaos` 和 `ToolServices`，并相应更新所有引用。
+- 将 `RuntimeConfig` 拆分为 `Pyaos` 和 `ToolServices`，并相应更新所有引用。
 - 精简 LLM 诊断日志，使用更少、更紧凑的字段。
 - 将共享的工具服务类型定义迁移到工具支持层。
 

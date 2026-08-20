@@ -13,7 +13,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { Readable, type Writable } from 'node:stream';
 
-import type { KaosProcess } from '@pymodel/kaos';
+import type { PyaosProcess } from '@pymodel/pyaos';
 import { join } from 'pathe';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -29,7 +29,7 @@ const LIMIT_BYTES = 16 * MiB;
  * code and the stream is destroyed (simulating the child dying on SIGTERM).
  */
 function streamingProcess(chunks: string[]): {
-  proc: KaosProcess;
+  proc: PyaosProcess;
   kill: ReturnType<typeof vi.fn>;
 } {
   const stdout = Readable.from(chunks);
@@ -54,7 +54,7 @@ function streamingProcess(chunks: string[]): {
     wait: () => waitP,
     kill,
     dispose: vi.fn().mockResolvedValue(undefined),
-  } as unknown as KaosProcess;
+  } as unknown as PyaosProcess;
   return { proc, kill };
 }
 
@@ -63,7 +63,7 @@ function streamingProcess(chunks: string[]): {
  * SIGKILL stops it) — simulating a producer that ignores the graceful stop and
  * keeps writing through the SIGTERM grace window.
  */
-function sigtermIgnoringProcess(chunks: string[]): { proc: KaosProcess; kill: ReturnType<typeof vi.fn> } {
+function sigtermIgnoringProcess(chunks: string[]): { proc: PyaosProcess; kill: ReturnType<typeof vi.fn> } {
   const stdout = Readable.from(chunks);
   const stderr = Readable.from([]);
   let resolveWait!: (code: number) => void;
@@ -89,7 +89,7 @@ function sigtermIgnoringProcess(chunks: string[]): { proc: KaosProcess; kill: Re
     wait: () => waitP,
     kill,
     dispose: vi.fn().mockResolvedValue(undefined),
-  } as unknown as KaosProcess;
+  } as unknown as PyaosProcess;
   return { proc, kill };
 }
 

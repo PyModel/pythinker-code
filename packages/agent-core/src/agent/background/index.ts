@@ -35,7 +35,7 @@ import {
 
 /**
  * `'lost'` is a reconcile-only terminal state. Tasks loaded from disk
- * that were marked `running` at startup but have no live KaosProcess
+ * that were marked `running` at startup but have no live PyaosProcess
  * (the previous CLI process died) are reclassified as lost.
  */
 export function isBackgroundTaskTerminal(status: BackgroundTaskStatus): boolean {
@@ -262,7 +262,7 @@ export class BackgroundManager {
   private readonly tasks = new Map<string, ManagedTask>();
   /**
    * Ghosts: tasks loaded from disk during reconcile that have no live
-   * KaosProcess. They appear in `list()` / `getTask()` with status
+   * PyaosProcess. They appear in `list()` / `getTask()` with status
    * `lost` so users see what was running before the crash/restart.
    */
   private readonly ghosts = new Map<string, BackgroundTaskInfo>();

@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'pathe';
 
-import { testKaos } from '../fixtures/test-kaos';
+import { testPyaos } from '../fixtures/test-pyaos';
 import { APIStatusError, type Message, type ToolCall } from '@pymodel/kosong';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -25,7 +25,7 @@ import {
 } from '../../src/session/subagent-host';
 import { abortError, userCancellationReason } from '../../src/utils/abort';
 import { testAgent, type AgentTestContext } from '../agent/harness/agent';
-import { createFakeKaos } from '../tools/fixtures/fake-kaos';
+import { createFakePyaos } from '../tools/fixtures/fake-pyaos';
 import { executeTool } from '../tools/fixtures/execute-tool';
 
 // Git context collection is exercised in git-context.test.ts; here it is
@@ -1467,7 +1467,7 @@ describe('Session resume permission parent chain', () => {
     await writeWire(childDir, []);
 
     const session = new Session({
-      kaos: testKaos.withCwd(workDir),
+      pyaos: testPyaos.withCwd(workDir),
       homedir: sessionDir,
       rpc: createSessionRpc(),
       initializeMainAgent: false,
@@ -1489,9 +1489,9 @@ describe('Session resume permission parent chain', () => {
 });
 
 describe('Session.createAgent', () => {
-  it('uses the Kaos current directory when the session cwd is omitted', async () => {
+  it('uses the Pyaos current directory when the session cwd is omitted', async () => {
     const workDir = '/remote/project';
-    const kaos = createFakeKaos({
+    const pyaos = createFakePyaos({
       getcwd: () => workDir,
       mkdir: vi.fn(async () => {}),
       writeText: vi.fn().mockResolvedValue(0),
@@ -1518,7 +1518,7 @@ describe('Session.createAgent', () => {
     });
     const session = new Session({
       id: 'test-subagent-remote-context',
-      kaos,
+      pyaos,
       homedir: '/tmp/pythinker-session',
       rpc: createSessionRpc(),
       initializeMainAgent: false,
@@ -1533,7 +1533,7 @@ describe('Session.createAgent', () => {
 
   it('renders profiles with the current directory listing and merged AGENTS.md files', async () => {
     const workDir = '/repo/packages/app';
-    const kaos = createFakeKaos({
+    const pyaos = createFakePyaos({
       mkdir: vi.fn(async () => {}),
       writeText: vi.fn().mockResolvedValue(0),
       stat: vi.fn(async (path: string) => {
@@ -1602,7 +1602,7 @@ describe('Session.createAgent', () => {
     });
     const session = new Session({
       id: 'test-subagent-agents-md',
-      kaos: kaos.withCwd(workDir),
+      pyaos: pyaos.withCwd(workDir),
       homedir: '/tmp/pythinker-session',
       rpc: createSessionRpc(),
       initializeMainAgent: false,
@@ -1634,7 +1634,7 @@ describe('Session.createAgent', () => {
     const realHome = '/real-home';
     const pythinkerHome = '/pythinker-home';
     const workDir = '/repo/packages/app';
-    const kaos = createFakeKaos({
+    const pyaos = createFakePyaos({
       gethome: () => realHome,
       mkdir: vi.fn(async () => {}),
       writeText: vi.fn().mockResolvedValue(0),
@@ -1659,7 +1659,7 @@ describe('Session.createAgent', () => {
     });
     const session = new Session({
       id: 'test-pythinker-home-agents-md',
-      kaos: kaos.withCwd(workDir),
+      pyaos: pyaos.withCwd(workDir),
       homedir: '/tmp/pythinker-session',
       pythinkerHomeDir: pythinkerHome,
       rpc: createSessionRpc(),
@@ -1676,7 +1676,7 @@ describe('Session.createAgent', () => {
     const sessionWorkDir = '/session/work';
     const parentWorkDir = '/parent/work';
 
-    const kaos = createFakeKaos({
+    const pyaos = createFakePyaos({
       mkdir: vi.fn().mockResolvedValue(undefined),
       writeText: vi.fn().mockResolvedValue(0),
       stat: vi.fn(async (path: string) => {
@@ -1694,7 +1694,7 @@ describe('Session.createAgent', () => {
 
     const session = new Session({
       id: 'test-subagent-parent-cwd',
-      kaos,
+      pyaos,
       homedir: '/tmp/pythinker-session',
       rpc: createSessionRpc(),
       initializeMainAgent: false,
@@ -1727,7 +1727,7 @@ describe('Session.createAgent', () => {
     ]);
     const session = new Session({
       id: 'test-subagent-additional-dirs',
-      kaos: createFakeKaos({
+      pyaos: createFakePyaos({
         mkdir: vi.fn().mockResolvedValue(undefined),
         writeText: vi.fn().mockResolvedValue(0),
         stat: vi.fn(async (path: string) => {
@@ -1768,7 +1768,7 @@ describe('Session.createAgent', () => {
   it('allocates the next unused generated agent id', async () => {
     const session = new Session({
       id: 'test-subagent-agent-id',
-      kaos: createFakeKaos({
+      pyaos: createFakePyaos({
         mkdir: vi.fn().mockResolvedValue(undefined),
         writeText: vi.fn().mockResolvedValue(0),
       }),
@@ -1794,7 +1794,7 @@ describe('Session.createAgent', () => {
 
   it('shares the session McpConnectionManager with sub and main agents', async () => {
     const session = new Session({
-      kaos: createFakeKaos({
+      pyaos: createFakePyaos({
         mkdir: vi.fn().mockResolvedValue(undefined),
         writeText: vi.fn().mockResolvedValue(0),
       }),
@@ -1856,7 +1856,7 @@ function fakeSession(
       custom: {},
     },
     writeMetadata: vi.fn(async () => {}),
-    systemContextKaos: vi.fn((cwd: string) => parent.kaos.withCwd(cwd)),
+    systemContextPyaos: vi.fn((cwd: string) => parent.pyaos.withCwd(cwd)),
     getReadyAgent: vi.fn((id: string) => agents.get(id)),
     ensureAgentResumed: vi.fn(async (id: string) => {
       const agent = agents.get(id);

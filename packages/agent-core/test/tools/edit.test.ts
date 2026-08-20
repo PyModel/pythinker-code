@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { type EditInput, EditTool } from '../../src/tools/builtin/file/edit';
-import { createFakeKaos, PERMISSIVE_WORKSPACE } from './fixtures/fake-kaos';
+import { createFakePyaos, PERMISSIVE_WORKSPACE } from './fixtures/fake-pyaos';
 import { executeTool } from './fixtures/execute-tool';
 
 const signal = new AbortController().signal;
@@ -12,7 +12,7 @@ function context(args: EditInput) {
 
 describe('EditTool', () => {
   it('exposes before/after on the file_io display so the approval panel can render a diff', () => {
-    const tool = new EditTool(createFakeKaos(), PERMISSIVE_WORKSPACE);
+    const tool = new EditTool(createFakePyaos(), PERMISSIVE_WORKSPACE);
     const execution = tool.resolveExecution({
       path: '/tmp/foo.ts',
       old_string: 'a\nb\nc',
@@ -33,7 +33,7 @@ describe('EditTool', () => {
   it('replaces a unique first occurrence and writes the updated content', async () => {
     const writeText = vi.fn().mockResolvedValue(0);
     const tool = new EditTool(
-      createFakeKaos({
+      createFakePyaos({
         readText: vi.fn().mockResolvedValue('alpha beta'),
         writeText,
       }),
@@ -48,10 +48,10 @@ describe('EditTool', () => {
     expect(writeText).toHaveBeenCalledWith('/tmp/a.txt', 'alpha gamma');
   });
 
-  it('expands leading tilde paths using the kaos home directory', async () => {
+  it('expands leading tilde paths using the pyaos home directory', async () => {
     const readText = vi.fn().mockResolvedValue('alpha beta');
     const writeText = vi.fn().mockResolvedValue(0);
-    const tool = new EditTool(createFakeKaos({ readText, writeText }), PERMISSIVE_WORKSPACE);
+    const tool = new EditTool(createFakePyaos({ readText, writeText }), PERMISSIVE_WORKSPACE);
 
     const result = await executeTool(tool,
       context({ path: '~/notes/today.txt', old_string: 'beta', new_string: 'gamma' }),
@@ -65,7 +65,7 @@ describe('EditTool', () => {
   it('treats replacement dollar sequences literally for single edits', async () => {
     const writeText = vi.fn().mockResolvedValue(0);
     const tool = new EditTool(
-      createFakeKaos({
+      createFakePyaos({
         readText: vi.fn().mockResolvedValue('alpha beta gamma'),
         writeText,
       }),
@@ -83,7 +83,7 @@ describe('EditTool', () => {
   it('treats replacement dollar sequences literally for replace_all edits', async () => {
     const writeText = vi.fn().mockResolvedValue(0);
     const tool = new EditTool(
-      createFakeKaos({
+      createFakePyaos({
         readText: vi.fn().mockResolvedValue('a b a'),
         writeText,
       }),
@@ -101,7 +101,7 @@ describe('EditTool', () => {
   it('matches pure CRLF files through the LF model view and writes back CRLF', async () => {
     const writeText = vi.fn().mockResolvedValue(0);
     const tool = new EditTool(
-      createFakeKaos({
+      createFakePyaos({
         readText: vi.fn().mockResolvedValue('alpha\r\nbeta\r\ngamma\r\n'),
         writeText,
       }),
@@ -119,7 +119,7 @@ describe('EditTool', () => {
   it('does not double carriage returns when editing pure CRLF files', async () => {
     const writeText = vi.fn().mockResolvedValue(0);
     const tool = new EditTool(
-      createFakeKaos({
+      createFakePyaos({
         readText: vi.fn().mockResolvedValue('alpha\r\nbeta\r\n'),
         writeText,
       }),
@@ -137,7 +137,7 @@ describe('EditTool', () => {
   it('keeps mixed line ending files on the raw exact path', async () => {
     const writeText = vi.fn().mockResolvedValue(0);
     const tool = new EditTool(
-      createFakeKaos({
+      createFakePyaos({
         readText: vi.fn().mockResolvedValue('alpha\r\nbeta\ngamma\r\n'),
         writeText,
       }),
@@ -156,7 +156,7 @@ describe('EditTool', () => {
   it('allows exact raw edits in mixed line ending files without normalizing the rest', async () => {
     const writeText = vi.fn().mockResolvedValue(0);
     const tool = new EditTool(
-      createFakeKaos({
+      createFakePyaos({
         readText: vi.fn().mockResolvedValue('alpha\r\nbeta\ngamma\r\n'),
         writeText,
       }),
@@ -174,7 +174,7 @@ describe('EditTool', () => {
   it('replace_all replaces every occurrence', async () => {
     const writeText = vi.fn().mockResolvedValue(0);
     const tool = new EditTool(
-      createFakeKaos({
+      createFakePyaos({
         readText: vi.fn().mockResolvedValue('a b a'),
         writeText,
       }),
@@ -192,7 +192,7 @@ describe('EditTool', () => {
   it('rejects no-op edits before file I/O', async () => {
     const readText = vi.fn().mockResolvedValue('same');
     const writeText = vi.fn().mockResolvedValue(0);
-    const tool = new EditTool(createFakeKaos({ readText, writeText }), PERMISSIVE_WORKSPACE);
+    const tool = new EditTool(createFakePyaos({ readText, writeText }), PERMISSIVE_WORKSPACE);
 
     const result = await executeTool(tool,
       context({
@@ -212,7 +212,7 @@ describe('EditTool', () => {
   it('errors when old_string is missing', async () => {
     const writeText = vi.fn().mockResolvedValue(0);
     const tool = new EditTool(
-      createFakeKaos({
+      createFakePyaos({
         readText: vi.fn().mockResolvedValue('alpha beta'),
         writeText,
       }),
@@ -231,7 +231,7 @@ describe('EditTool', () => {
   it('errors when old_string is not unique and replace_all is false', async () => {
     const writeText = vi.fn().mockResolvedValue(0);
     const tool = new EditTool(
-      createFakeKaos({
+      createFakePyaos({
         readText: vi.fn().mockResolvedValue('same same'),
         writeText,
       }),
@@ -251,7 +251,7 @@ describe('EditTool', () => {
 
   it('rejects relative traversal edits before reading', async () => {
     const readText = vi.fn().mockResolvedValue('secret');
-    const tool = new EditTool(createFakeKaos({ readText }), {
+    const tool = new EditTool(createFakePyaos({ readText }), {
       workspaceDir: '/workspace/project',
       additionalDirs: [],
     });
@@ -268,7 +268,7 @@ describe('EditTool', () => {
   it('replaces unicode strings (CJK) and round-trips the surrounding text', async () => {
     const writeText = vi.fn().mockResolvedValue(0);
     const tool = new EditTool(
-      createFakeKaos({
+      createFakePyaos({
         readText: vi.fn().mockResolvedValue('Hello \u4E16\u754C! café'),
         writeText,
       }),
@@ -287,7 +287,7 @@ describe('EditTool', () => {
     const writeText = vi.fn().mockResolvedValue(0);
     const original = 'Hello world!';
     const tool = new EditTool(
-      createFakeKaos({
+      createFakePyaos({
         readText: vi.fn().mockResolvedValue(original),
         writeText,
       }),
@@ -305,11 +305,11 @@ describe('EditTool', () => {
 
   it('errors with an is-not-a-file phrasing when the path resolves to a directory', async () => {
     // py wording is "is not a file"; TS currently relies on readText to fail.
-    // fake-kaos's notImplemented() defaults make this surface a generic
+    // fake-pyaos's notImplemented() defaults make this surface a generic
     // readText error today — fail-divergent until the path-type check moves
     // upstream of read.
     const tool = new EditTool(
-      createFakeKaos({
+      createFakePyaos({
         readText: vi.fn().mockRejectedValue(
           Object.assign(new Error('EISDIR: illegal operation on a directory'), {
             code: 'EISDIR',
@@ -330,7 +330,7 @@ describe('EditTool', () => {
   it('replaces a substring with an empty new_string (deletion)', async () => {
     const writeText = vi.fn().mockResolvedValue(0);
     const tool = new EditTool(
-      createFakeKaos({
+      createFakePyaos({
         readText: vi.fn().mockResolvedValue('Hello world!'),
         writeText,
       }),
@@ -348,7 +348,7 @@ describe('EditTool', () => {
   it('allows absolute edits outside the workspace under default policy', async () => {
     const writeText = vi.fn().mockResolvedValue(0);
     const tool = new EditTool(
-      createFakeKaos({
+      createFakePyaos({
         readText: vi.fn().mockResolvedValue('old content'),
         writeText,
       }),
@@ -368,7 +368,7 @@ describe('EditTool', () => {
     // mistake "shares a prefix" for "inside workspace".
     const writeText = vi.fn().mockResolvedValue(0);
     const tool = new EditTool(
-      createFakeKaos({
+      createFakePyaos({
         readText: vi.fn().mockResolvedValue('content'),
         writeText,
       }),

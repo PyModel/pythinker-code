@@ -55,7 +55,7 @@ workspace_node_modules=(
   "pkg_agent-core:/workspace/pythinker-code/packages/agent-core/node_modules"
   "pkg_agent-gateway:/workspace/pythinker-code/packages/agent-gateway/node_modules"
   "pkg_server-e2e:/workspace/pythinker-code/packages/klient/node_modules"
-  "pkg_kaos:/workspace/pythinker-code/packages/kaos/node_modules"
+  "pkg_pyaos:/workspace/pythinker-code/packages/pyaos/node_modules"
   "pkg_kosong:/workspace/pythinker-code/packages/kosong/node_modules"
   "pkg_node-sdk:/workspace/pythinker-code/packages/node-sdk/node_modules"
   "pkg_oauth:/workspace/pythinker-code/packages/oauth/node_modules"

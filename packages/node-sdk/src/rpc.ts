@@ -20,7 +20,7 @@ import {
   type ToolCallResponse,
   type DynamicWorkflowModeTrigger,
 } from '@pymodel/agent-core';
-import type { Kaos } from '@pymodel/kaos';
+import type { Pyaos } from '@pymodel/pyaos';
 
 import type { ApprovalHandler, QuestionHandler } from '#/events';
 import type {
@@ -196,13 +196,13 @@ export abstract class SDKRpcClientBase {
     return rpc.createSession(coreInput);
   }
 
-  async createSessionWithKaos(
+  async createSessionWithPyaos(
     input: CreateSessionOptions,
-    kaos: Kaos,
-    persistenceKaos?: Kaos,
+    pyaos: Pyaos,
+    persistencePyaos?: Pyaos,
   ): Promise<SessionSummary> {
-    void kaos;
-    void persistenceKaos;
+    void pyaos;
+    void persistencePyaos;
     return this.createSession(input);
   }
 
@@ -211,13 +211,13 @@ export abstract class SDKRpcClientBase {
     return rpc.resumeSession({ ...input, sessionId: input.id });
   }
 
-  async resumeSessionWithKaos(
+  async resumeSessionWithPyaos(
     input: ResumeSessionInput,
-    kaos: Kaos,
-    persistenceKaos?: Kaos,
+    pyaos: Pyaos,
+    persistencePyaos?: Pyaos,
   ): Promise<ResumedSessionSummary> {
-    void kaos;
-    void persistenceKaos;
+    void pyaos;
+    void persistencePyaos;
     return this.resumeSession(input);
   }
 

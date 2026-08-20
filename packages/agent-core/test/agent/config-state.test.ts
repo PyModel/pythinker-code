@@ -10,7 +10,7 @@ import {
   type PythinkerConfig,
 } from '../../src/config';
 import { testAgent } from './harness';
-import { createFakeKaos } from '../tools/fixtures/fake-kaos';
+import { createFakePyaos } from '../tools/fixtures/fake-pyaos';
 
 describe('ConfigState model capabilities', () => {
   it('updates the agent cwd without requiring the directory to exist', () => {
@@ -18,7 +18,7 @@ describe('ConfigState model capabilities', () => {
       throw Object.assign(new Error('missing workspace'), { code: 'ENOENT' });
     });
     const ctx = testAgent({
-      kaos: createFakeKaos({
+      pyaos: createFakePyaos({
         getcwd: () => '/workspace',
         chdir,
       }),
@@ -27,7 +27,7 @@ describe('ConfigState model capabilities', () => {
     ctx.agent.config.update({ cwd: '/tmp/missing-workdir' });
 
     expect(ctx.agent.config.cwd).toBe('/tmp/missing-workdir');
-    expect(ctx.agent.kaos.getcwd()).toBe('/tmp/missing-workdir');
+    expect(ctx.agent.pyaos.getcwd()).toBe('/tmp/missing-workdir');
     expect(chdir).not.toHaveBeenCalled();
   });
 

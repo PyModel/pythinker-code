@@ -11,7 +11,7 @@ import {
   ExitPlanModeTool,
   type ExitPlanModeInput,
 } from '../../../src/tools/builtin/planning/exit-plan-mode';
-import { createFakeKaos } from '../fixtures/fake-kaos';
+import { createFakePyaos } from '../fixtures/fake-pyaos';
 import { executeTool } from '../fixtures/execute-tool';
 
 const options = [
@@ -54,7 +54,7 @@ function makeAgent(input: {
     permission: { mode: input.mode },
     type: 'main',
     config: { cwd: '/workspace' },
-    kaos: createFakeKaos(),
+    pyaos: createFakePyaos(),
     emitStatusUpdated: vi.fn(),
     records: { logRecord: vi.fn() },
     replayBuilder: { push: vi.fn() },

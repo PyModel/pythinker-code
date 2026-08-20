@@ -1,12 +1,12 @@
 import { Readable, type Writable } from 'node:stream';
 
-import type { Environment, KaosProcess } from '@pymodel/kaos';
+import type { Environment, PyaosProcess } from '@pymodel/pyaos';
 import { describe, expect, it, vi } from 'vitest';
 
 import { BashInputSchema, BashTool } from '../../src/tools/builtin/shell/bash';
 import { createBackgroundManager } from '../agent/background/helpers';
 import { executeTool } from './fixtures/execute-tool';
-import { createFakeKaos } from './fixtures/fake-kaos';
+import { createFakePyaos } from './fixtures/fake-pyaos';
 
 const linuxEnv: Environment = {
   osKind: 'Linux',
@@ -24,7 +24,7 @@ const windowsBashEnv: Environment = {
   shellName: 'bash',
 };
 
-function fakeProcess(): KaosProcess {
+function fakeProcess(): PyaosProcess {
   return {
     stdin: { end: vi.fn(), write: vi.fn() } as unknown as Writable,
     stdout: Readable.from([]),
@@ -37,7 +37,7 @@ function fakeProcess(): KaosProcess {
   };
 }
 
-function fakeProcessWithOutput(stdout: Readable, stderr: Readable): KaosProcess {
+function fakeProcessWithOutput(stdout: Readable, stderr: Readable): PyaosProcess {
   return {
     stdin: { end: vi.fn(), write: vi.fn() } as unknown as Writable,
     stdout,
@@ -59,7 +59,7 @@ function captureCommandRewrite(
   const execWithEnv = vi.fn().mockResolvedValue(fakeProcess());
   const cwd = env.osKind === 'Windows' ? 'C:\\work' : '/work';
   const tool = new BashTool(
-    createFakeKaos({ execWithEnv, osEnv: env }),
+    createFakePyaos({ execWithEnv, osEnv: env }),
     cwd,
     createBackgroundManager().manager,
   );
@@ -161,7 +161,7 @@ describe('BashTool streaming output updates', () => {
     const execWithEnv = vi.fn().mockResolvedValue(proc);
     const onUpdate = vi.fn();
     const tool = new BashTool(
-      createFakeKaos({ execWithEnv, osEnv: linuxEnv }),
+      createFakePyaos({ execWithEnv, osEnv: linuxEnv }),
       '/work',
       createBackgroundManager().manager,
     );

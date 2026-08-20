@@ -4,7 +4,7 @@ import { join } from 'pathe';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { testKaos } from '../fixtures/test-kaos';
+import { testPyaos } from '../fixtures/test-pyaos';
 import { ErrorCodes, PythinkerError } from '../../src/errors';
 import {
   appendWorkspaceAdditionalDir,
@@ -44,7 +44,7 @@ describe('workspace local config', () => {
   it('returns empty workspace config when local.toml is missing', async () => {
     const root = await makeProject();
 
-    await expect(loadWorkspaceLocalConfig(testKaos, join(root, 'packages', 'app'))).resolves.toEqual({
+    await expect(loadWorkspaceLocalConfig(testPyaos, join(root, 'packages', 'app'))).resolves.toEqual({
       projectRoot: root,
       configPath: join(root, '.pythinker-code', 'local.toml'),
       additionalDirs: [],
@@ -64,7 +64,7 @@ describe('workspace local config', () => {
       'utf-8',
     );
 
-    await expect(readWorkspaceAdditionalDirs(testKaos, join(root, 'packages', 'app'))).resolves.toEqual({
+    await expect(readWorkspaceAdditionalDirs(testPyaos, join(root, 'packages', 'app'))).resolves.toEqual({
       projectRoot: root,
       configPath: join(root, '.pythinker-code', 'local.toml'),
       additionalDirs: [sharedDir, otherDir],
@@ -82,7 +82,7 @@ describe('workspace local config', () => {
     );
 
     await expectConfigInvalid(
-      loadWorkspaceLocalConfig(testKaos, join(root, 'packages', 'app')),
+      loadWorkspaceLocalConfig(testPyaos, join(root, 'packages', 'app')),
       'workspace.additional_dir must be an array of strings',
     );
   });
@@ -97,7 +97,7 @@ describe('workspace local config', () => {
     );
 
     await expectConfigInvalid(
-      readWorkspaceAdditionalDirs(testKaos, join(root, 'packages', 'app')),
+      readWorkspaceAdditionalDirs(testPyaos, join(root, 'packages', 'app')),
       'workspace.additional_dir must exist and be a directory',
     );
   });
@@ -109,13 +109,13 @@ describe('workspace local config', () => {
     await mkdir(sharedDir, { recursive: true });
     await mkdir(otherDir, { recursive: true });
 
-    const appended = await appendWorkspaceAdditionalDir(testKaos, root, 'shared', []);
+    const appended = await appendWorkspaceAdditionalDir(testPyaos, root, 'shared', []);
     const configPath = join(root, '.pythinker-code', 'local.toml');
     const before = await readFile(configPath, 'utf-8');
 
-    const duplicate = await appendWorkspaceAdditionalDir(testKaos, root, './shared', []);
+    const duplicate = await appendWorkspaceAdditionalDir(testPyaos, root, './shared', []);
     const afterDuplicate = await readFile(configPath, 'utf-8');
-    const second = await appendWorkspaceAdditionalDir(testKaos, root, 'other', duplicate.additionalDirs);
+    const second = await appendWorkspaceAdditionalDir(testPyaos, root, 'other', duplicate.additionalDirs);
 
     expect(duplicate).toEqual(appended);
     expect(afterDuplicate).toBe(before);
@@ -128,21 +128,21 @@ describe('workspace local config', () => {
     const sharedDir = join(root, 'packages', 'shared');
     await mkdir(sharedDir, { recursive: true });
 
-    const result = await appendWorkspaceAdditionalDir(testKaos, appDir, '../shared', []);
+    const result = await appendWorkspaceAdditionalDir(testPyaos, appDir, '../shared', []);
 
     expect(result.additionalDirs).toEqual([sharedDir]);
   });
 
   it('expands a ~/ path to the home directory when appending', async () => {
     const root = await makeProject();
-    const homeDir = testKaos.gethome();
+    const homeDir = testPyaos.gethome();
     const homeProjectDir = await mkdtemp(join(homeDir, 'pythinker-workspace-local-home-'));
     tempDirs.push(homeProjectDir);
     const sharedDir = join(homeProjectDir, 'shared');
     await mkdir(sharedDir, { recursive: true });
     const tildePath = `~/${sharedDir.slice(homeDir.length + 1)}`;
 
-    const result = await appendWorkspaceAdditionalDir(testKaos, root, tildePath, []);
+    const result = await appendWorkspaceAdditionalDir(testPyaos, root, tildePath, []);
 
     expect(result.additionalDirs).toEqual([sharedDir]);
   });
@@ -157,7 +157,7 @@ describe('workspace local config', () => {
     const configPath = join(root, '.pythinker-code', 'local.toml');
     await writeFile(configPath, '[workspace]\nadditional_dir = ["shared"]\n', 'utf-8');
 
-    const result = await appendWorkspaceAdditionalDir(testKaos, root, 'other', []);
+    const result = await appendWorkspaceAdditionalDir(testPyaos, root, 'other', []);
 
     expect(result.additionalDirs).toEqual([sharedDir, otherDir]);
   });
@@ -171,7 +171,7 @@ describe('workspace local config', () => {
     const before = '[workspace]\nadditional_dir = ["shared"]\n';
     await writeFile(configPath, before, 'utf-8');
 
-    const result = await appendWorkspaceAdditionalDir(testKaos, root, './shared', []);
+    const result = await appendWorkspaceAdditionalDir(testPyaos, root, './shared', []);
 
     expect(result.additionalDirs).toEqual([sharedDir]);
     await expect(readFile(configPath, 'utf-8')).resolves.toBe(before);
@@ -181,7 +181,7 @@ describe('workspace local config', () => {
     const root = await makeProject();
 
     await expectConfigInvalid(
-      appendWorkspaceAdditionalDir(testKaos, root, 'missing', []),
+      appendWorkspaceAdditionalDir(testPyaos, root, 'missing', []),
       'workspace.additional_dir must exist and be a directory',
     );
   });
@@ -191,7 +191,7 @@ describe('workspace local config', () => {
     await writeFile(join(root, 'shared'), 'not a directory', 'utf-8');
 
     await expectConfigInvalid(
-      appendWorkspaceAdditionalDir(testKaos, root, 'shared', []),
+      appendWorkspaceAdditionalDir(testPyaos, root, 'shared', []),
       'workspace.additional_dir must exist and be a directory',
     );
   });

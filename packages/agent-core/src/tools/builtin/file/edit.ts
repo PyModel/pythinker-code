@@ -5,10 +5,10 @@
  * default. When `replace_all` is true, replaces all occurrences.
  * Errors when `old_string` is not found or not unique (when
  * `replace_all=false`). Path access policy is resolved before any
- * Kaos I/O.
+ * Pyaos I/O.
  */
 
-import type { Kaos } from '@pymodel/kaos';
+import type { Pyaos } from '@pymodel/pyaos';
 import { z } from 'zod';
 
 import type { BuiltinTool } from '../../../agent/tool';
@@ -61,13 +61,13 @@ export class EditTool implements BuiltinTool<EditInput> {
   readonly parameters: Record<string, unknown> = toInputJsonSchema(EditInputSchema);
 
   constructor(
-    private readonly kaos: Kaos,
+    private readonly pyaos: Pyaos,
     private readonly workspace: WorkspaceConfig,
   ) {}
 
   resolveExecution(args: EditInput): ToolExecution {
     const path = resolvePathAccessPath(args.path, {
-      kaos: this.kaos,
+      pyaos: this.pyaos,
       workspace: this.workspace,
       operation: 'write',
     });
@@ -85,8 +85,8 @@ export class EditTool implements BuiltinTool<EditInput> {
       matchesRule: (ruleArgs) =>
         matchesPathRuleSubject(ruleArgs, path, {
           cwd: this.workspace.workspaceDir,
-          pathClass: this.kaos.pathClass(),
-          homeDir: this.kaos.gethome(),
+          pathClass: this.pyaos.pathClass(),
+          homeDir: this.pyaos.gethome(),
         }),
       execute: () => this.execution(args, path),
     };
@@ -101,7 +101,7 @@ export class EditTool implements BuiltinTool<EditInput> {
     }
 
     try {
-      const raw = await this.kaos.readText(safePath);
+      const raw = await this.pyaos.readText(safePath);
       const modelView = toModelTextView(raw);
       const content = modelView.text;
       const replaceAll = args.replace_all ?? false;
@@ -130,7 +130,7 @@ export class EditTool implements BuiltinTool<EditInput> {
         }
 
         const newContent = replaceOnceLiteral(content, args.old_string, args.new_string);
-        await this.kaos.writeText(
+        await this.pyaos.writeText(
           safePath,
           materializeModelText(newContent, modelView.lineEndingStyle),
         );
@@ -145,7 +145,7 @@ export class EditTool implements BuiltinTool<EditInput> {
       }
 
       const newContent = parts.join(args.new_string);
-      await this.kaos.writeText(
+      await this.pyaos.writeText(
         safePath,
         materializeModelText(newContent, modelView.lineEndingStyle),
       );

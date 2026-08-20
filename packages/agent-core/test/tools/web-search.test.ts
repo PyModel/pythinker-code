@@ -12,7 +12,7 @@ import {
   type WebSearchProvider,
 } from '../../src/tools/builtin/web/web-search';
 import { PyModelWebSearchProvider } from '../../src/tools/providers/pymodel-web-search';
-import { toolContentString } from './fixtures/fake-kaos';
+import { toolContentString } from './fixtures/fake-pyaos';
 import { executeTool } from './fixtures/execute-tool';
 
 const signal = new AbortController().signal;

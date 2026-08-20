@@ -30,7 +30,7 @@ mechanics and failure modes.
 ## What publishes
 
 `.changeset/config.json` `ignore` list excludes almost every internal package
-(`agent-core`, `kaos`, `kosong`, `server`, dashboards, web, …). Effective publishable set =
+(`agent-core`, `pyaos`, `kosong`, `server`, dashboards, web, …). Effective publishable set =
 non-private, non-ignored workspace packages — in practice **`@pythoughts/pythinker-code`** and the
 SDK-adjacent packages not on the ignore list. When adding a workspace package, decide its ignore/
 publish status explicitly, and remember `flake.nix` workspace lists must be updated by hand

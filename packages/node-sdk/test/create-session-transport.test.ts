@@ -10,7 +10,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import type { Kaos } from '@pymodel/kaos';
+import type { Pyaos } from '@pymodel/pyaos';
 import { createPythinkerHarness, PythinkerHarness } from '#/index';
 import type { PythinkerError } from '#/index';
 import type { ResumeSessionInput, ResumedSessionSummary } from '#/types';
@@ -69,7 +69,8 @@ async function writeReviewerAgent(workDir: string): Promise<void> {
 }
 
 class StubRpc extends SDKRpcClientBase {
-  resumeCalls: Array<{ input: ResumeSessionInput; kaos: Kaos; persistenceKaos?: Kaos }> = [];
+  resumeCalls: Array<{ input: ResumeSessionInput; pyaos: Pyaos; persistencePyaos?: Pyaos }> = [];
+  createPyaosCalls: Array<{ input: object; pyaos: Pyaos; persistencePyaos?: Pyaos }> = [];
 
   protected async getRpc(): Promise<never> {
     throw new Error('not used');
@@ -85,8 +86,13 @@ class StubRpc extends SDKRpcClientBase {
     };
   }
 
-  override async resumeSessionWithKaos(input: ResumeSessionInput, kaos: Kaos, persistenceKaos?: Kaos): Promise<ResumedSessionSummary> {
-    this.resumeCalls.push({ input, kaos, persistenceKaos });
+  override async createSessionWithPyaos(input: { id?: string; workDir: string }, pyaos: Pyaos, persistencePyaos?: Pyaos) {
+    this.createPyaosCalls.push({ input, pyaos, persistencePyaos });
+    return this.createSession(input);
+  }
+
+  override async resumeSessionWithPyaos(input: ResumeSessionInput, pyaos: Pyaos, persistencePyaos?: Pyaos): Promise<ResumedSessionSummary> {
+    this.resumeCalls.push({ input, pyaos, persistencePyaos });
     return {
       id: input.id,
       workDir: '/tmp/work',
@@ -840,7 +846,7 @@ effort = "medium"
     }
   });
 
-  it('rebinds an active session when resumeSession receives a new Kaos', async () => {
+  it('rebinds an active session when resumeSession receives a new Pyaos', async () => {
     const records: TelemetryRecord[] = [];
     const rpc = new StubRpc();
     const harness = new PythinkerHarness(rpc, {
@@ -853,16 +859,16 @@ effort = "medium"
     });
 
     const session = await harness.createSession({ id: 'ses_active', workDir: '/tmp/work' });
-    const kaos = {} as Kaos;
+    const pyaos = {} as Pyaos;
 
-    const resumed = await harness.resumeSession({ id: session.id, kaos });
+    const resumed = await harness.resumeSession({ id: session.id, pyaos });
 
     expect(resumed).toBe(session);
     expect(rpc.resumeCalls).toHaveLength(1);
     expect(rpc.resumeCalls[0]).toMatchObject({
       input: { id: 'ses_active' },
-      kaos,
-      persistenceKaos: undefined,
+      pyaos,
+      persistencePyaos: undefined,
     });
   });
 
@@ -946,3 +952,55 @@ function coreSessionIds(harness: PythinkerHarness): readonly string[] {
   ).rpc.core;
   return Array.from(core.sessions.keys()).toSorted();
 }
+
+describe('deprecated kaos alias session params', () => {
+  function makeStubHarness() {
+    const rpc = new StubRpc();
+    const harness = new PythinkerHarness(rpc, {
+      homeDir: '/tmp/home',
+      configPath: '/tmp/config.toml',
+      auth: { status: async () => ({ providers: [] }) } as never,
+      telemetry: recordingTelemetry([]),
+      ensureConfigFile: async () => undefined,
+      onClose: () => undefined,
+    });
+    return { rpc, harness };
+  }
+
+  it('createSession accepts { kaos, persistenceKaos } as aliases for the pyaos params', async () => {
+    const { rpc, harness } = makeStubHarness();
+    const legacy = {} as Pyaos;
+    const legacyPersistence = {} as Pyaos;
+
+    await harness.createSession({
+      id: 'ses_legacy_alias',
+      workDir: '/tmp/work',
+      kaos: legacy,
+      persistenceKaos: legacyPersistence,
+    });
+
+    expect(rpc.createPyaosCalls).toHaveLength(1);
+    expect(rpc.createPyaosCalls[0]).toMatchObject({
+      pyaos: legacy,
+      persistencePyaos: legacyPersistence,
+    });
+    expect(rpc.createPyaosCalls[0]?.input).not.toHaveProperty('kaos');
+    expect(rpc.createPyaosCalls[0]?.input).not.toHaveProperty('persistenceKaos');
+  });
+
+  it('resumeSession accepts { kaos } as an alias and prefers an explicit pyaos', async () => {
+    const { rpc, harness } = makeStubHarness();
+    const session = await harness.createSession({ id: 'ses_legacy_resume', workDir: '/tmp/work' });
+    const legacy = {} as Pyaos;
+
+    await harness.resumeSession({ id: session.id, kaos: legacy });
+
+    expect(rpc.resumeCalls).toHaveLength(1);
+    expect(rpc.resumeCalls[0]).toMatchObject({ pyaos: legacy, persistencePyaos: undefined });
+    expect(rpc.resumeCalls[0]?.input).not.toHaveProperty('kaos');
+
+    const preferred = {} as Pyaos;
+    await harness.resumeSession({ id: session.id, kaos: legacy, pyaos: preferred });
+    expect(rpc.resumeCalls[1]).toMatchObject({ pyaos: preferred });
+  });
+});

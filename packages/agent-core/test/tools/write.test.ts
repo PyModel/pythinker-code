@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { type WriteInput, WriteTool } from '../../src/tools/builtin/file/write';
-import { createFakeKaos, PERMISSIVE_WORKSPACE, toolContentString } from './fixtures/fake-kaos';
+import { createFakePyaos, PERMISSIVE_WORKSPACE, toolContentString } from './fixtures/fake-pyaos';
 import { executeTool } from './fixtures/execute-tool';
 
 const signal = new AbortController().signal;
@@ -15,7 +15,7 @@ const DIR_STAT = vi.fn().mockResolvedValue({ stMode: 0o040755 });
 
 describe('WriteTool', () => {
   it('exposes the content on the file_io display so the approval panel can preview it', () => {
-    const tool = new WriteTool(createFakeKaos(), PERMISSIVE_WORKSPACE);
+    const tool = new WriteTool(createFakePyaos(), PERMISSIVE_WORKSPACE);
     const execution = tool.resolveExecution({
       path: '/tmp/new.txt',
       content: 'hello\nworld',
@@ -32,7 +32,7 @@ describe('WriteTool', () => {
   });
 
   it('matches permission args with negated glob path semantics', () => {
-    const tool = new WriteTool(createFakeKaos(), {
+    const tool = new WriteTool(createFakePyaos(), {
       workspaceDir: '/workspace',
       additionalDirs: [],
     });
@@ -46,9 +46,9 @@ describe('WriteTool', () => {
     expect(outsideSrc.matchesRule?.('!./src/**')).toBe(true);
   });
 
-  it('writes content through kaos and reports bytes written', async () => {
+  it('writes content through pyaos and reports bytes written', async () => {
     const writeText = vi.fn().mockResolvedValue(5);
-    const tool = new WriteTool(createFakeKaos({ writeText, stat: DIR_STAT }), PERMISSIVE_WORKSPACE);
+    const tool = new WriteTool(createFakePyaos({ writeText, stat: DIR_STAT }), PERMISSIVE_WORKSPACE);
 
     const result = await executeTool(tool, context({ path: '/tmp/new.txt', content: 'hello' }));
 
@@ -56,9 +56,9 @@ describe('WriteTool', () => {
     expect(result.output).toContain('Wrote 5 bytes');
   });
 
-  it('expands leading tilde paths using the kaos home directory', async () => {
+  it('expands leading tilde paths using the pyaos home directory', async () => {
     const writeText = vi.fn().mockResolvedValue(5);
-    const tool = new WriteTool(createFakeKaos({ writeText, stat: DIR_STAT }), PERMISSIVE_WORKSPACE);
+    const tool = new WriteTool(createFakePyaos({ writeText, stat: DIR_STAT }), PERMISSIVE_WORKSPACE);
 
     const result = await executeTool(tool, context({ path: '~/notes/today.txt', content: 'hello' }));
 
@@ -66,9 +66,9 @@ describe('WriteTool', () => {
     expect(result.output).toContain('Wrote 5 bytes');
   });
 
-  it('appends content through kaos and reports appended bytes', async () => {
+  it('appends content through pyaos and reports appended bytes', async () => {
     const writeText = vi.fn().mockResolvedValue(6);
-    const tool = new WriteTool(createFakeKaos({ writeText, stat: DIR_STAT }), PERMISSIVE_WORKSPACE);
+    const tool = new WriteTool(createFakePyaos({ writeText, stat: DIR_STAT }), PERMISSIVE_WORKSPACE);
 
     const result = await executeTool(tool,
       context({ path: '/tmp/existing.txt', content: '\nhello', mode: 'append' }),
@@ -89,7 +89,7 @@ describe('WriteTool', () => {
     // writeText's contract returns a character count; the tool must not rely
     // on it for the byte figure.
     const writeText = vi.fn().mockResolvedValue(content.length);
-    const tool = new WriteTool(createFakeKaos({ writeText, stat: DIR_STAT }), PERMISSIVE_WORKSPACE);
+    const tool = new WriteTool(createFakePyaos({ writeText, stat: DIR_STAT }), PERMISSIVE_WORKSPACE);
 
     const result = await executeTool(tool, context({ path: '/tmp/jp.txt', content }));
 
@@ -111,7 +111,7 @@ describe('WriteTool', () => {
     // writeText's contract returns a character count; the tool must not rely
     // on it for the byte figure.
     const writeText = vi.fn().mockResolvedValue(content.length);
-    const tool = new WriteTool(createFakeKaos({ writeText, stat: DIR_STAT }), PERMISSIVE_WORKSPACE);
+    const tool = new WriteTool(createFakePyaos({ writeText, stat: DIR_STAT }), PERMISSIVE_WORKSPACE);
 
     const result = await executeTool(tool, context({ path: '/tmp/emoji.txt', content }));
 
@@ -125,7 +125,7 @@ describe('WriteTool', () => {
     expect(expectedBytes).toBe(5);
 
     const writeText = vi.fn().mockResolvedValue(content.length);
-    const tool = new WriteTool(createFakeKaos({ writeText, stat: DIR_STAT }), PERMISSIVE_WORKSPACE);
+    const tool = new WriteTool(createFakePyaos({ writeText, stat: DIR_STAT }), PERMISSIVE_WORKSPACE);
 
     const result = await executeTool(tool,
       context({ path: '/tmp/menu.txt', content, mode: 'append' }),
@@ -141,7 +141,7 @@ describe('WriteTool', () => {
     const stat = vi.fn().mockRejectedValue(enoent);
     const mkdir = vi.fn().mockResolvedValue(undefined);
     const writeText = vi.fn().mockResolvedValue(4);
-    const tool = new WriteTool(createFakeKaos({ stat, mkdir, writeText }), PERMISSIVE_WORKSPACE);
+    const tool = new WriteTool(createFakePyaos({ stat, mkdir, writeText }), PERMISSIVE_WORKSPACE);
 
     const result = await executeTool(tool,
       context({ path: '/tmp/missing-dir/file.txt', content: 'data' }),
@@ -159,7 +159,7 @@ describe('WriteTool', () => {
     const stat = vi.fn().mockRejectedValue(enoent);
     const mkdir = vi.fn().mockRejectedValue(new Error('permission denied'));
     const writeText = vi.fn().mockResolvedValue(4);
-    const tool = new WriteTool(createFakeKaos({ stat, mkdir, writeText }), PERMISSIVE_WORKSPACE);
+    const tool = new WriteTool(createFakePyaos({ stat, mkdir, writeText }), PERMISSIVE_WORKSPACE);
 
     const result = await executeTool(tool,
       context({ path: '/tmp/missing-dir/file.txt', content: 'data' }),
@@ -173,7 +173,7 @@ describe('WriteTool', () => {
     // A regular file (S_IFREG) standing where a directory is expected.
     const stat = vi.fn().mockResolvedValue({ stMode: 0o100644 });
     const writeText = vi.fn().mockResolvedValue(4);
-    const tool = new WriteTool(createFakeKaos({ stat, writeText }), PERMISSIVE_WORKSPACE);
+    const tool = new WriteTool(createFakePyaos({ stat, writeText }), PERMISSIVE_WORKSPACE);
 
     const result = await executeTool(tool,
       context({ path: '/tmp/a-file/child.txt', content: 'data' }),
@@ -187,7 +187,7 @@ describe('WriteTool', () => {
   it('writes when the parent directory exists', async () => {
     const stat = vi.fn().mockResolvedValue({ stMode: 0o040755 });
     const writeText = vi.fn().mockResolvedValue(4);
-    const tool = new WriteTool(createFakeKaos({ stat, writeText }), PERMISSIVE_WORKSPACE);
+    const tool = new WriteTool(createFakePyaos({ stat, writeText }), PERMISSIVE_WORKSPACE);
 
     const result = await executeTool(tool, context({ path: '/tmp/exists/file.txt', content: 'data' }));
 
@@ -195,9 +195,9 @@ describe('WriteTool', () => {
     expect(writeText).toHaveBeenCalledWith('/tmp/exists/file.txt', 'data');
   });
 
-  it('surfaces kaos write failures as tool errors', async () => {
+  it('surfaces pyaos write failures as tool errors', async () => {
     const tool = new WriteTool(
-      createFakeKaos({
+      createFakePyaos({
         stat: DIR_STAT,
         writeText: vi.fn().mockRejectedValue(new Error('disk full')),
       }),
@@ -211,7 +211,7 @@ describe('WriteTool', () => {
 
   it('allows explicit absolute writes outside the workspace', async () => {
     const writeText = vi.fn().mockResolvedValue(1);
-    const tool = new WriteTool(createFakeKaos({ writeText, stat: DIR_STAT }), {
+    const tool = new WriteTool(createFakePyaos({ writeText, stat: DIR_STAT }), {
       workspaceDir: '/workspace',
       additionalDirs: [],
     });
@@ -222,9 +222,9 @@ describe('WriteTool', () => {
     expect(writeText).toHaveBeenCalledWith('/tmp/pwned.txt', 'x');
   });
 
-  it('rejects relative traversal writes before kaos I/O', async () => {
+  it('rejects relative traversal writes before pyaos I/O', async () => {
     const writeText = vi.fn().mockResolvedValue(1);
-    const tool = new WriteTool(createFakeKaos({ writeText }), {
+    const tool = new WriteTool(createFakePyaos({ writeText }), {
       workspaceDir: '/workspace/project',
       additionalDirs: [],
     });
@@ -238,7 +238,7 @@ describe('WriteTool', () => {
 
   it('blocks sensitive file writes', async () => {
     const writeText = vi.fn().mockResolvedValue(1);
-    const tool = new WriteTool(createFakeKaos({ writeText }), {
+    const tool = new WriteTool(createFakePyaos({ writeText }), {
       workspaceDir: '/workspace',
       additionalDirs: [],
     });
@@ -250,9 +250,9 @@ describe('WriteTool', () => {
     expect(writeText).not.toHaveBeenCalled();
   });
 
-  it('round-trips unicode content (CJK + emoji + accented Latin) through kaos.writeText', async () => {
+  it('round-trips unicode content (CJK + emoji + accented Latin) through pyaos.writeText', async () => {
     const writeText = vi.fn().mockResolvedValue(0);
-    const tool = new WriteTool(createFakeKaos({ writeText }), PERMISSIVE_WORKSPACE);
+    const tool = new WriteTool(createFakePyaos({ writeText }), PERMISSIVE_WORKSPACE);
     const content = 'Hello \u4E16\u754C 🌍\nUnicode: café, naïve, résumé';
 
     const result = await executeTool(tool,context({ path: '/tmp/unicode.txt', content }));
@@ -261,9 +261,9 @@ describe('WriteTool', () => {
     expect(writeText).toHaveBeenCalledWith('/tmp/unicode.txt', content);
   });
 
-  it('writes empty content as a zero-byte file via kaos.writeText("")', async () => {
+  it('writes empty content as a zero-byte file via pyaos.writeText("")', async () => {
     const writeText = vi.fn().mockResolvedValue(0);
-    const tool = new WriteTool(createFakeKaos({ writeText }), PERMISSIVE_WORKSPACE);
+    const tool = new WriteTool(createFakePyaos({ writeText }), PERMISSIVE_WORKSPACE);
 
     const result = await executeTool(tool,context({ path: '/tmp/empty.txt', content: '' }));
 
@@ -282,7 +282,7 @@ describe('WriteTool', () => {
       .mockRejectedValue(
         Object.assign(new Error('ENOENT: no such file or directory'), { code: 'ENOENT' }),
       );
-    const tool = new WriteTool(createFakeKaos({ writeText }), PERMISSIVE_WORKSPACE);
+    const tool = new WriteTool(createFakePyaos({ writeText }), PERMISSIVE_WORKSPACE);
 
     const result = await executeTool(tool,
       context({ path: '/tmp/missing-dir/file.txt', content: 'data' }),
@@ -296,7 +296,7 @@ describe('WriteTool', () => {
     // py spec: append mode on a missing path returns success and creates
     // the file. Lock down the create-on-append contract.
     const writeText = vi.fn().mockResolvedValue(11);
-    const tool = new WriteTool(createFakeKaos({ writeText }), PERMISSIVE_WORKSPACE);
+    const tool = new WriteTool(createFakePyaos({ writeText }), PERMISSIVE_WORKSPACE);
 
     const result = await executeTool(tool,
       context({ path: '/tmp/new-append.txt', content: 'New content', mode: 'append' }),
@@ -311,7 +311,7 @@ describe('WriteTool', () => {
     // Path policy must distinguish "shares a prefix with workspaceDir" from
     // "is inside workspaceDir". /workspace-sneaky/* is outside /workspace.
     const writeText = vi.fn().mockResolvedValue(1);
-    const tool = new WriteTool(createFakeKaos({ writeText }), {
+    const tool = new WriteTool(createFakePyaos({ writeText }), {
       workspaceDir: '/workspace',
       additionalDirs: [],
     });

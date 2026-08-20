@@ -1,4 +1,4 @@
-import type { Kaos } from '@pymodel/kaos';
+import type { Pyaos } from '@pymodel/pyaos';
 import { dirname, isAbsolute, join, normalize, resolve } from 'pathe';
 import { parse as parseToml, stringify as stringifyToml } from 'smol-toml';
 import { z } from 'zod';
@@ -33,12 +33,12 @@ interface WorkspaceLocalTomlFile {
 }
 
 export async function loadWorkspaceLocalConfig(
-  kaos: Kaos,
+  pyaos: Pyaos,
   workDir: string,
 ): Promise<WorkspaceLocalConfig> {
-  const projectRoot = await findProjectRoot(kaos, workDir);
+  const projectRoot = await findProjectRoot(pyaos, workDir);
   const configPath = getWorkspaceLocalConfigPath(projectRoot);
-  const file = await readWorkspaceLocalToml(kaos, configPath);
+  const file = await readWorkspaceLocalToml(pyaos, configPath);
 
   const additionalDirs = file?.parsed.workspace?.additional_dir;
   if (additionalDirs === undefined) {
@@ -48,39 +48,39 @@ export async function loadWorkspaceLocalConfig(
   return {
     projectRoot,
     configPath,
-    additionalDirs: await resolveAdditionalDirs(kaos, projectRoot, additionalDirs),
+    additionalDirs: await resolveAdditionalDirs(pyaos, projectRoot, additionalDirs),
   };
 }
 
 export async function readWorkspaceAdditionalDirs(
-  kaos: Kaos,
+  pyaos: Pyaos,
   workDir: string,
 ): Promise<WorkspaceAdditionalDirsLoadResult> {
-  return loadWorkspaceLocalConfig(kaos, workDir);
+  return loadWorkspaceLocalConfig(pyaos, workDir);
 }
 
 export async function resolveWorkspaceAdditionalDirs(
-  kaos: Kaos,
+  pyaos: Pyaos,
   projectRoot: string,
   additionalDirs: readonly string[],
 ): Promise<string[]> {
-  return resolveAdditionalDirs(kaos, projectRoot, additionalDirs);
+  return resolveAdditionalDirs(pyaos, projectRoot, additionalDirs);
 }
 
 export async function appendWorkspaceAdditionalDir(
-  kaos: Kaos,
+  pyaos: Pyaos,
   workDir: string,
   inputPath: string,
   _currentAdditionalDirs: readonly string[],
 ): Promise<WorkspaceAdditionalDirsLoadResult> {
-  const projectRoot = await findProjectRoot(kaos, workDir);
+  const projectRoot = await findProjectRoot(pyaos, workDir);
   const configPath = getWorkspaceLocalConfigPath(projectRoot);
-  const additionalDir = await resolveAdditionalDir(kaos, workDir, inputPath);
-  const file = (await readWorkspaceLocalToml(kaos, configPath)) ?? { raw: {}, parsed: {} };
+  const additionalDir = await resolveAdditionalDir(pyaos, workDir, inputPath);
+  const file = (await readWorkspaceLocalToml(pyaos, configPath)) ?? { raw: {}, parsed: {} };
   const fileAdditionalDirs = file.parsed.workspace?.additional_dir ?? [];
-  const fileExistingDirs = resolveExistingAdditionalDirs(kaos, projectRoot, fileAdditionalDirs);
+  const fileExistingDirs = resolveExistingAdditionalDirs(pyaos, projectRoot, fileAdditionalDirs);
 
-  if (hasSameAdditionalDir(kaos, fileExistingDirs, additionalDir)) {
+  if (hasSameAdditionalDir(pyaos, fileExistingDirs, additionalDir)) {
     return { projectRoot, configPath, additionalDirs: fileExistingDirs };
   }
 
@@ -88,8 +88,8 @@ export async function appendWorkspaceAdditionalDir(
   workspace['additional_dir'] = [...fileExistingDirs, additionalDir];
   file.raw['workspace'] = workspace;
 
-  await kaos.mkdir(dirname(configPath), { parents: true, existOk: true });
-  await kaos.writeText(configPath, `${stringifyToml(file.raw)}\n`);
+  await pyaos.mkdir(dirname(configPath), { parents: true, existOk: true });
+  await pyaos.writeText(configPath, `${stringifyToml(file.raw)}\n`);
 
   return { projectRoot, configPath, additionalDirs: [...fileExistingDirs, additionalDir] };
 }
@@ -112,29 +112,29 @@ function getWorkspaceLocalConfigPath(projectRoot: string): string {
   return join(projectRoot, '.pythinker-code', 'local.toml');
 }
 
-async function findProjectRoot(kaos: Kaos, workDir: string): Promise<string> {
-  const initial = resolveWorkDir(kaos, workDir);
+async function findProjectRoot(pyaos: Pyaos, workDir: string): Promise<string> {
+  const initial = resolveWorkDir(pyaos, workDir);
   let current = initial;
 
   for (;;) {
-    if (await pathExists(kaos, join(current, '.git'))) return current;
+    if (await pathExists(pyaos, join(current, '.git'))) return current;
     const parent = dirname(current);
     if (parent === current) return initial;
     current = parent;
   }
 }
 
-function resolveWorkDir(kaos: Kaos, workDir: string): string {
-  return isAbsolute(workDir) ? kaos.normpath(workDir) : resolve(kaos.getcwd(), workDir);
+function resolveWorkDir(pyaos: Pyaos, workDir: string): string {
+  return isAbsolute(workDir) ? pyaos.normpath(workDir) : resolve(pyaos.getcwd(), workDir);
 }
 
 async function readWorkspaceLocalToml(
-  kaos: Kaos,
+  pyaos: Pyaos,
   configPath: string,
 ): Promise<WorkspaceLocalTomlFile | undefined> {
   let text: string;
   try {
-    text = await kaos.readText(configPath);
+    text = await pyaos.readText(configPath);
   } catch (error: unknown) {
     if (isPathMissing(error)) return undefined;
     throw new PythinkerError(
@@ -187,15 +187,15 @@ function describeWorkspaceLocalValidationError(error: z.ZodError): string {
 }
 
 async function resolveAdditionalDirs(
-  kaos: Kaos,
+  pyaos: Pyaos,
   projectRoot: string,
   additionalDirs: readonly string[],
 ): Promise<string[]> {
   const resolvedDirs: string[] = [];
 
   for (const additionalDir of normalizeAdditionalDirs(additionalDirs)) {
-    const resolvedDir = await resolveAdditionalDir(kaos, projectRoot, additionalDir);
-    if (hasSameAdditionalDir(kaos, resolvedDirs, resolvedDir)) continue;
+    const resolvedDir = await resolveAdditionalDir(pyaos, projectRoot, additionalDir);
+    if (hasSameAdditionalDir(pyaos, resolvedDirs, resolvedDir)) continue;
     resolvedDirs.push(resolvedDir);
   }
 
@@ -203,15 +203,15 @@ async function resolveAdditionalDirs(
 }
 
 function resolveExistingAdditionalDirs(
-  kaos: Kaos,
+  pyaos: Pyaos,
   projectRoot: string,
   additionalDirs: readonly string[],
 ): string[] {
   const resolvedDirs: string[] = [];
 
   for (const additionalDir of normalizeAdditionalDirs(additionalDirs)) {
-    const resolvedDir = resolvePath(kaos, projectRoot, additionalDir);
-    if (hasSameAdditionalDir(kaos, resolvedDirs, resolvedDir)) continue;
+    const resolvedDir = resolvePath(pyaos, projectRoot, additionalDir);
+    if (hasSameAdditionalDir(pyaos, resolvedDirs, resolvedDir)) continue;
     resolvedDirs.push(resolvedDir);
   }
 
@@ -219,13 +219,13 @@ function resolveExistingAdditionalDirs(
 }
 
 async function resolveAdditionalDir(
-  kaos: Kaos,
+  pyaos: Pyaos,
   projectRoot: string,
   additionalDir: string,
 ): Promise<string> {
   const normalizedInput = normalizeAdditionalDirInput(additionalDir);
-  const resolvedDir = resolvePath(kaos, projectRoot, normalizedInput);
-  await assertDirectory(kaos, resolvedDir);
+  const resolvedDir = resolvePath(pyaos, projectRoot, normalizedInput);
+  await assertDirectory(pyaos, resolvedDir);
   return resolvedDir;
 }
 
@@ -243,29 +243,29 @@ function normalizeAdditionalDirInput(additionalDir: string): string {
   return normalize(trimmed);
 }
 
-function resolvePath(kaos: Kaos, projectRoot: string, additionalDir: string): string {
-  const expanded = expandHome(kaos, additionalDir);
+function resolvePath(pyaos: Pyaos, projectRoot: string, additionalDir: string): string {
+  const expanded = expandHome(pyaos, additionalDir);
   return isAbsolute(expanded) ? normalize(expanded) : resolve(projectRoot, expanded);
 }
 
-function expandHome(kaos: Kaos, value: string): string {
-  if (value === '~') return kaos.gethome();
-  if (value.startsWith('~/')) return join(kaos.gethome(), value.slice(2));
+function expandHome(pyaos: Pyaos, value: string): string {
+  if (value === '~') return pyaos.gethome();
+  if (value.startsWith('~/')) return join(pyaos.gethome(), value.slice(2));
   return value;
 }
 
-function hasSameAdditionalDir(kaos: Kaos, dirs: readonly string[], target: string): boolean {
-  const normalizedTarget = normalizeForCompare(kaos, target);
-  return dirs.some((dir) => normalizeForCompare(kaos, dir) === normalizedTarget);
+function hasSameAdditionalDir(pyaos: Pyaos, dirs: readonly string[], target: string): boolean {
+  const normalizedTarget = normalizeForCompare(pyaos, target);
+  return dirs.some((dir) => normalizeForCompare(pyaos, dir) === normalizedTarget);
 }
 
-function normalizeForCompare(kaos: Kaos, filePath: string): string {
-  return kaos.normpath(filePath);
+function normalizeForCompare(pyaos: Pyaos, filePath: string): string {
+  return pyaos.normpath(filePath);
 }
 
-async function assertDirectory(kaos: Kaos, filePath: string): Promise<void> {
+async function assertDirectory(pyaos: Pyaos, filePath: string): Promise<void> {
   try {
-    const stat = await kaos.stat(filePath);
+    const stat = await pyaos.stat(filePath);
     if ((stat.stMode & S_IFMT) === S_IFDIR) return;
   } catch (error: unknown) {
     if (isPathMissing(error)) {
@@ -287,9 +287,9 @@ async function assertDirectory(kaos: Kaos, filePath: string): Promise<void> {
   );
 }
 
-async function pathExists(kaos: Kaos, filePath: string): Promise<boolean> {
+async function pathExists(pyaos: Pyaos, filePath: string): Promise<boolean> {
   try {
-    await kaos.stat(filePath);
+    await pyaos.stat(filePath);
     return true;
   } catch {
     return false;

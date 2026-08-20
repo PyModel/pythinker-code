@@ -2119,7 +2119,7 @@
 
 - [#190](https://github.com/PyModel/pythinker-code/pull/190) [`1873859`](https://github.com/PyModel/pythinker-code/commit/1873859b0ef093a956dfd19e1530e920e7118160) - Slim the LLM diagnostic logs with fewer, more compact fields.
 
-- [#185](https://github.com/PyModel/pythinker-code/pull/185) [`114777e`](https://github.com/PyModel/pythinker-code/commit/114777e859680f807375760271533e2dc396af5d) - Split `RuntimeConfig` into `Kaos` and `ToolServices` and update all references accordingly.
+- [#185](https://github.com/PyModel/pythinker-code/pull/185) [`114777e`](https://github.com/PyModel/pythinker-code/commit/114777e859680f807375760271533e2dc396af5d) - Split `RuntimeConfig` into `Pyaos` and `ToolServices` and update all references accordingly.
 
 - [#189](https://github.com/PyModel/pythinker-code/pull/189) [`564721f`](https://github.com/PyModel/pythinker-code/commit/564721fe16e582b2774835b01dec799cbb1d0122) - Clarify subagent and background task stop messages as user-initiated.
 

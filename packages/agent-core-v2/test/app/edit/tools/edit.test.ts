@@ -233,7 +233,7 @@ describe('EditTool', () => {
     expect(appWrite).not.toHaveBeenCalled();
   });
 
-  it('expands leading tilde paths using the kaos home directory', async () => {
+  it('expands leading tilde paths using the pyaos home directory', async () => {
     const readText = vi.fn().mockResolvedValue('alpha beta');
     const writeText = vi.fn().mockResolvedValue(undefined);
     const { fs } = createSpiedEditFs({ readText, writeText });

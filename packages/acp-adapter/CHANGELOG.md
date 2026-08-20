@@ -98,7 +98,7 @@
 
 - Updated dependencies [[`4e5043b`](https://github.com/PyModel/pythinker-code/commit/4e5043b03b2fb03374550dc65d04871bc83e932a), [`0927f79`](https://github.com/PyModel/pythinker-code/commit/0927f79883e036d0127d4384f60f8e486afb3b8c), [`7ec738c`](https://github.com/PyModel/pythinker-code/commit/7ec738c4a1de41b3a042cfb48700dfaf51e9de94), [`ff80327`](https://github.com/PyModel/pythinker-code/commit/ff803273440f3a2ff53d2c529c6fc892fde1d93f), [`a58b5b2`](https://github.com/PyModel/pythinker-code/commit/a58b5b20bb42228c72277daba9fa07bb1cd539a6), [`a2c5e1b`](https://github.com/PyModel/pythinker-code/commit/a2c5e1be25484f7c52f729e333196c485f83b84c), [`54302ad`](https://github.com/PyModel/pythinker-code/commit/54302ad612294056a47ada74b76737f2284861b5), [`30459af`](https://github.com/PyModel/pythinker-code/commit/30459af6abc8308e7f13822d9dbef3a5be80dd4a)]:
   - @pymodel/agent-core@0.12.2
-  - @pymodel/kaos@0.1.5
+  - @pymodel/pyaos@0.1.5
   - @pymodel/pythinker-code-sdk@0.9.2
 
 ## 0.2.4
@@ -118,7 +118,7 @@
 - Updated dependencies [[`879a7ee`](https://github.com/PyModel/pythinker-code/commit/879a7eeb33a8bedf18779d74a00d78369dae3db5), [`3b62b12`](https://github.com/PyModel/pythinker-code/commit/3b62b123e68cc4543bfa8fa376c7e8a24fee0afb), [`d7407b0`](https://github.com/PyModel/pythinker-code/commit/d7407b0ecfc87a3840e26ddaddb69e7f52383699), [`db82e33`](https://github.com/PyModel/pythinker-code/commit/db82e33a20fd1ec204672df4ba5bc38800ce8dea), [`5cff6d6`](https://github.com/PyModel/pythinker-code/commit/5cff6d60273a6145ee38539b9c1306adddc66510), [`41ebe9f`](https://github.com/PyModel/pythinker-code/commit/41ebe9fb9f403e2ee6a8721640a79faa64e9210a), [`4d11394`](https://github.com/PyModel/pythinker-code/commit/4d113949c8e906c20c7188817926f44786653923), [`d7407b0`](https://github.com/PyModel/pythinker-code/commit/d7407b0ecfc87a3840e26ddaddb69e7f52383699), [`f09ec7b`](https://github.com/PyModel/pythinker-code/commit/f09ec7bbb59af42805a93df2993301dbd317ff2d), [`72c4b0a`](https://github.com/PyModel/pythinker-code/commit/72c4b0adaa6ae0466875cd8e4066c42456195f21)]:
   - @pymodel/agent-core@0.11.0
   - @pymodel/pythinker-code-sdk@0.9.0
-  - @pymodel/kaos@0.1.4
+  - @pymodel/pyaos@0.1.4
 
 ## 0.2.2
 

@@ -39,7 +39,7 @@
   "dependencies": {
     "@agentclientprotocol/sdk": "^0.23.0",
     "@pymodel/agent-core": "workspace:^",
-    "@pymodel/kaos": "workspace:^",
+    "@pymodel/pyaos": "workspace:^",
     "@pymodel/pythinker-code-sdk": "workspace:^"
   },
   "devDependencies": {

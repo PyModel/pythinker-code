@@ -2,8 +2,8 @@
  * Path safety guards used by Read/Write/Edit/Grep/Glob.
  *
  * Canonicalization is **lexical** only (no `realpath` / symlink following).
- * Mirrors `KaosPath.canonical()` and keeps the guard backend-aware:
- * callers should pass the active Kaos path class so SSH paths stay POSIX
+ * Mirrors `PyaosPath.canonical()` and keeps the guard backend-aware:
+ * callers should pass the active Pyaos path class so SSH paths stay POSIX
  * even when the host Node process is running on Windows.
  *
  * Shared-prefix escapes (a path like `/workspace-evil` passing a naive
@@ -14,7 +14,7 @@
 
 import * as pathe from 'pathe';
 
-import type { Kaos } from '@pymodel/kaos';
+import type { Pyaos } from '@pymodel/pyaos';
 
 import type { WorkspaceConfig } from '../support/workspace';
 import { isSensitiveFile } from './sensitive';
@@ -178,7 +178,7 @@ export interface ResolvePathAccessOptions {
 }
 
 export interface ResolvePathAccessPathOptions {
-  readonly kaos: Pick<Kaos, 'pathClass' | 'gethome'>;
+  readonly pyaos: Pick<Pyaos, 'pathClass' | 'gethome'>;
   readonly workspace: WorkspaceConfig;
   readonly operation: PathAccessOperation;
   readonly policy?: WorkspaceAccessPolicy;
@@ -246,12 +246,12 @@ export function resolvePathAccessPath(
   path: string,
   options: ResolvePathAccessPathOptions,
 ): string {
-  const { kaos, workspace, operation, policy, expandHome = true } = options;
+  const { pyaos, workspace, operation, policy, expandHome = true } = options;
   return resolvePathAccess(path, workspace.workspaceDir, workspace, {
     operation,
     policy,
-    pathClass: kaos.pathClass(),
-    homeDir: expandHome ? kaos.gethome() : undefined,
+    pathClass: pyaos.pathClass(),
+    homeDir: expandHome ? pyaos.gethome() : undefined,
   }).path;
 }
 
@@ -261,7 +261,7 @@ export function resolvePathAccessPath(
  * absolute path when the check passes.
  *
  * Note: this is purely lexical. It does NOT protect against symlink
- * targets that point outside the workspace — that would require kaos-layer
+ * targets that point outside the workspace — that would require pyaos-layer
  * realpath support, which is not currently available.
  */
 export function assertPathAllowed(

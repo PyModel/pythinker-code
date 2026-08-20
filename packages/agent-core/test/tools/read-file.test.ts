@@ -1,8 +1,8 @@
-import type { Kaos } from '@pymodel/kaos';
+import type { Pyaos } from '@pymodel/pyaos';
 import { describe, expect, it, vi } from 'vitest';
 
 import { ReadTool } from '../../src/tools/builtin/file/read';
-import { createFakeKaos, PERMISSIVE_WORKSPACE } from './fixtures/fake-kaos';
+import { createFakePyaos, PERMISSIVE_WORKSPACE } from './fixtures/fake-pyaos';
 import { executeTool } from './fixtures/execute-tool';
 
 const signal = new AbortController().signal;
@@ -17,7 +17,7 @@ const REGULAR_FILE_STAT = {
   stAtime: 0,
   stMtime: 0,
   stCtime: 0,
-} satisfies Awaited<ReturnType<Kaos['stat']>>;
+} satisfies Awaited<ReturnType<Pyaos['stat']>>;
 
 function linesFromContent(content: string): string[] {
   if (content === '') return [];
@@ -28,7 +28,7 @@ function linesFromContent(content: string): string[] {
   });
 }
 
-function readLinesFromContent(content: string): Kaos['readLines'] {
+function readLinesFromContent(content: string): Pyaos['readLines'] {
   return async function* readLines(): AsyncGenerator<string> {
     for (const line of linesFromContent(content)) {
       yield line;
@@ -39,12 +39,12 @@ function readLinesFromContent(content: string): Kaos['readLines'] {
 function toolWithContent(content: string): ReadTool {
   const bytes = Buffer.from(content, 'utf8');
   return new ReadTool(
-    createFakeKaos({
-      stat: vi.fn<Kaos['stat']>().mockResolvedValue(REGULAR_FILE_STAT),
-      readBytes: vi.fn<Kaos['readBytes']>().mockImplementation(async (_path, n) => {
+    createFakePyaos({
+      stat: vi.fn<Pyaos['stat']>().mockResolvedValue(REGULAR_FILE_STAT),
+      readBytes: vi.fn<Pyaos['readBytes']>().mockImplementation(async (_path, n) => {
         return n === undefined ? bytes : bytes.subarray(0, n);
       }),
-      readLines: vi.fn<Kaos['readLines']>().mockImplementation(readLinesFromContent(content)),
+      readLines: vi.fn<Pyaos['readLines']>().mockImplementation(readLinesFromContent(content)),
     }),
     PERMISSIVE_WORKSPACE,
   );

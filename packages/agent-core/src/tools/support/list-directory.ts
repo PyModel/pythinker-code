@@ -13,7 +13,7 @@
 
 import { basename, join } from 'pathe';
 
-import type { Kaos } from '@pymodel/kaos';
+import type { Pyaos } from '@pymodel/pyaos';
 
 export const LIST_DIR_ROOT_WIDTH = 30;
 export const LIST_DIR_CHILD_WIDTH = 10;
@@ -28,17 +28,17 @@ interface Entry {
 }
 
 async function collectEntries(
-  kaos: Kaos,
+  pyaos: Pyaos,
   dirPath: string,
   maxWidth: number,
 ): Promise<{ entries: Entry[]; total: number; readable: boolean }> {
   const all: Entry[] = [];
   try {
-    for await (const fullPath of kaos.iterdir(dirPath)) {
+    for await (const fullPath of pyaos.iterdir(dirPath)) {
       const name = basename(fullPath);
       let isDir = false;
       try {
-        const st = await kaos.stat(fullPath);
+        const st = await pyaos.stat(fullPath);
         // StatResult mirrors POSIX stat; derive the file type from the
         // mode bits (S_IFMT mask → S_IFDIR == 0o040000).
         isDir = (st.stMode & 0o170000) === 0o040000;
@@ -67,13 +67,13 @@ function shouldCollapseDirectory(entry: Entry, options: ListDirectoryOptions): b
  * empty, or an error marker line if the directory itself is unreadable.
  */
 export async function listDirectory(
-  kaos: Kaos,
-  workDir: string = kaos.getcwd(),
+  pyaos: Pyaos,
+  workDir: string = pyaos.getcwd(),
   options: ListDirectoryOptions = {},
 ): Promise<string> {
   const lines: string[] = [];
   const { entries, total, readable } = await collectEntries(
-    kaos,
+    pyaos,
     workDir,
     LIST_DIR_ROOT_WIDTH,
   );
@@ -92,7 +92,7 @@ export async function listDirectory(
       if (shouldCollapseDirectory(entry, options)) continue;
       const childPrefix = isLast ? '    ' : '│   ';
       const childDir = join(workDir, name);
-      const child = await collectEntries(kaos, childDir, LIST_DIR_CHILD_WIDTH);
+      const child = await collectEntries(pyaos, childDir, LIST_DIR_CHILD_WIDTH);
       if (!child.readable) {
         lines.push(`${childPrefix}└── [not readable]`);
         continue;

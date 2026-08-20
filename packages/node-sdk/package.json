@@ -61,7 +61,7 @@
   "devDependencies": {
     "@pymodel/agent-core": "workspace:^",
     "@pymodel/agent-core-v2": "workspace:^",
-    "@pymodel/kaos": "workspace:^",
+    "@pymodel/pyaos": "workspace:^",
     "@pymodel/klient": "workspace:^",
     "@pymodel/kosong": "workspace:^",
     "@pymodel/pythinker-code-oauth": "workspace:^",

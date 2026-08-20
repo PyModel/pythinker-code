@@ -135,7 +135,7 @@ export class ToolManager {
 
   /**
    * Execute a user-initiated `!` shell command. Reuses the builtin Bash tool
-   * (same kaos / cwd / BackgroundManager as the agent), recording the command
+   * (same pyaos / cwd / BackgroundManager as the agent), recording the command
    * and its output as `shell_command`-origin messages. It does NOT start a turn
    * — the model is not prompted (parity with claude-code's `shouldQuery: false`).
    */
@@ -774,7 +774,7 @@ export class ToolManager {
 
   initializeBuiltinTools() {
     const {
-      kaos,
+      pyaos,
       toolServices,
       config: { cwd, provider, modelCapabilities },
       background,
@@ -794,12 +794,12 @@ export class ToolManager {
     const goalToolsEnabled = this.agent.type === 'main';
     this.builtinTools = new Map(
       [
-        new b.ReadTool(kaos, workspace),
-        new b.WriteTool(kaos, workspace),
-        new b.EditTool(kaos, workspace),
-        new b.GrepTool(kaos, workspace, this.agent.telemetry),
-        new b.GlobTool(kaos, workspace, this.agent.telemetry),
-        new b.BashTool(kaos, cwd, background, {
+        new b.ReadTool(pyaos, workspace),
+        new b.WriteTool(pyaos, workspace),
+        new b.EditTool(pyaos, workspace),
+        new b.GrepTool(pyaos, workspace, this.agent.telemetry),
+        new b.GlobTool(pyaos, workspace, this.agent.telemetry),
+        new b.BashTool(pyaos, cwd, background, {
           allowBackground,
           autoBackgroundOnTimeout:
             this.agent.pythinkerConfig?.background?.bashAutoBackgroundOnTimeout ?? true,
@@ -807,7 +807,7 @@ export class ToolManager {
         }),
         (modelCapabilities.image_in || modelCapabilities.video_in) &&
           new b.ReadMediaFileTool(
-            kaos,
+            pyaos,
             workspace,
             modelCapabilities,
             videoUploader,

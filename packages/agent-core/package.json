@@ -75,7 +75,7 @@
     "@jsquash/webp": "^1.5.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@mozilla/readability": "^0.6.0",
-    "@pymodel/kaos": "workspace:^",
+    "@pymodel/pyaos": "workspace:^",
     "@pymodel/kosong": "workspace:^",
     "@pymodel/protocol": "workspace:^",
     "@pymodel/pythinker-code-oauth": "workspace:^",

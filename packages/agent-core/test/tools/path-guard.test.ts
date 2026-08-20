@@ -24,7 +24,7 @@ const WIN_WORKSPACE: WorkspaceConfig = {
   additionalDirs: ['D:\\extra'],
 };
 
-const POSIX_KAOS = {
+const POSIX_PYAOS = {
   pathClass: () => 'posix' as const,
   gethome: () => '/home/test',
 };
@@ -109,7 +109,7 @@ describe('path access policy', () => {
 
   it('resolves only the canonical path for file tools', () => {
     const result = resolvePathAccessPath('src/../README.md', {
-      kaos: POSIX_KAOS,
+      pyaos: POSIX_PYAOS,
       workspace: { workspaceDir: '/workspace/project', additionalDirs: [] },
       operation: 'read',
     });
@@ -122,14 +122,14 @@ describe('path access policy', () => {
 
     expect(
       resolvePathAccessPath('~/notes/today.txt', {
-        kaos: POSIX_KAOS,
+        pyaos: POSIX_PYAOS,
         workspace,
         operation: 'read',
       }),
     ).toBe('/home/test/notes/today.txt');
     expect(
       resolvePathAccessPath('~/notes/today.txt', {
-        kaos: POSIX_KAOS,
+        pyaos: POSIX_PYAOS,
         workspace,
         operation: 'read',
         expandHome: false,

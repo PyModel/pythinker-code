@@ -21,7 +21,7 @@ export default defineConfig({
   },
   alias: {
     '@pymodel/agent-core': fileURLToPath(new URL('../agent-core/src/index.ts', import.meta.url)),
-    '@pymodel/kaos': fileURLToPath(new URL('../kaos/src/index.ts', import.meta.url)),
+    '@pymodel/pyaos': fileURLToPath(new URL('../pyaos/src/index.ts', import.meta.url)),
     '@pymodel/pythinker-code-oauth': fileURLToPath(new URL('../oauth/src/index.ts', import.meta.url)),
     '@pymodel/kosong': fileURLToPath(new URL('../kosong/src/index.ts', import.meta.url)),
   },

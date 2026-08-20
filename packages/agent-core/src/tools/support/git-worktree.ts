@@ -5,7 +5,7 @@
 
 import * as pathe from 'pathe';
 
-import type { Kaos } from '@pymodel/kaos';
+import type { Pyaos } from '@pymodel/pyaos';
 
 const S_IFMT = 0o170000;
 const S_IFDIR = 0o040000;
@@ -17,7 +17,7 @@ export interface GitWorkTreeMarker {
 }
 
 export async function findGitWorkTreeMarker(
-  kaos: Kaos,
+  pyaos: Pyaos,
   cwd: string,
 ): Promise<GitWorkTreeMarker | null> {
   if (cwd.length === 0 || !pathe.isAbsolute(cwd)) return null;
@@ -25,7 +25,7 @@ export async function findGitWorkTreeMarker(
   let current = pathe.normalize(cwd);
   for (let depth = 0; depth < 256; depth += 1) {
     const dotGitPath = pathe.join(current, '.git');
-    const hit = await probeGitMarker(kaos, dotGitPath, current);
+    const hit = await probeGitMarker(pyaos, dotGitPath, current);
     if (hit !== null) return hit;
 
     const parent = pathe.dirname(current);
@@ -36,13 +36,13 @@ export async function findGitWorkTreeMarker(
 }
 
 async function probeGitMarker(
-  kaos: Kaos,
+  pyaos: Pyaos,
   dotGitPath: string,
   markerParent: string,
 ): Promise<GitWorkTreeMarker | null> {
-  let stat: Awaited<ReturnType<Kaos['stat']>>;
+  let stat: Awaited<ReturnType<Pyaos['stat']>>;
   try {
-    stat = await kaos.stat(dotGitPath);
+    stat = await pyaos.stat(dotGitPath);
   } catch {
     return null;
   }
@@ -52,7 +52,7 @@ async function probeGitMarker(
 
   let content: string;
   try {
-    content = await kaos.readText(dotGitPath);
+    content = await pyaos.readText(dotGitPath);
   } catch {
     return null;
   }

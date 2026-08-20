@@ -66,7 +66,7 @@ describe('AgentPermissionPolicyService chain', () => {
           sessionApprovalRulePatterns: () => sessionApprovalRulePatterns,
         }));
         reg.defineInstance(ISessionWorkspaceContext, workspace.stub);
-        reg.defineInstance(IHostEnvironment, kaosStub());
+        reg.defineInstance(IHostEnvironment, pyaosStub());
         reg.defineInstance(IAgentRuntimeService, {
           _serviceBrand: undefined,
           onDidChange: () => ({ dispose: () => {} }),
@@ -233,7 +233,7 @@ describe('AgentPermissionPolicyService git cwd write approval', () => {
         );
         reg.definePartialInstance(IAgentPermissionRulesService, permissionRulesStub());
         reg.defineInstance(ISessionWorkspaceContext, workspace.stub);
-        reg.defineInstance(IHostEnvironment, kaosStub());
+        reg.defineInstance(IHostEnvironment, pyaosStub());
         reg.defineInstance(IAgentRuntimeService, {
           _serviceBrand: undefined,
           onDidChange: () => ({ dispose: () => {} }),
@@ -566,7 +566,7 @@ function workspaceStub(initialWorkDir: string): {
   };
 }
 
-function kaosStub(pathClass: HostEnvironmentService['pathClass'] = 'posix'): HostEnvironmentService {
+function pyaosStub(pathClass: HostEnvironmentService['pathClass'] = 'posix'): HostEnvironmentService {
   return {
     _serviceBrand: undefined,
     osKind: 'Linux',

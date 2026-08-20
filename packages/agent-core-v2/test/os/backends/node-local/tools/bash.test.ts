@@ -857,7 +857,7 @@ describe('BashTool', () => {
     expect(exec.mock.calls[0]?.[1]).toEqual(['-c', "cd '/workspace/project' && pwd"]);
   });
 
-  it('uses the kaos cwd as the default working directory', async () => {
+  it('uses the pyaos cwd as the default working directory', async () => {
     const { runner, exec } = createTestRunner(processWithOutput({ stdout: '' }));
     const tool = bashTool(runner, posixEnv, createTestCtx('/var/app'));
 

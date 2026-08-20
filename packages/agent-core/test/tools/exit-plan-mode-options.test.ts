@@ -8,7 +8,7 @@ import {
 } from '../../src/tools/builtin/planning/exit-plan-mode';
 import DESCRIPTION from '../../src/tools/builtin/planning/exit-plan-mode.md?raw';
 import { executeTool } from './fixtures/execute-tool';
-import { toolContentString } from './fixtures/fake-kaos';
+import { toolContentString } from './fixtures/fake-pyaos';
 
 const signal = new AbortController().signal;
 

@@ -13,7 +13,7 @@ import {
 import { limitAgentReplayByTurns } from '../../src/agent/replay/turns';
 import type { AgentReplayRecord } from '../../src/rpc/resumed';
 import { BackgroundTaskPersistence } from '../../src/agent/background';
-import { createFakeKaos } from '../tools/fixtures/fake-kaos';
+import { createFakePyaos } from '../tools/fixtures/fake-pyaos';
 import { testAgent } from './harness/agent';
 import { DEFAULT_TEST_SYSTEM_PROMPT } from './harness/snapshots';
 
@@ -50,7 +50,7 @@ describe('Agent resume', () => {
     const persistence = new RecordingAgentPersistence(resumeHistory());
     const execWithEnv = vi.fn().mockRejectedValue(new Error('Bash should not execute on resume'));
     const ctx = testAgent({
-      kaos: createFakeKaos({ execWithEnv }),
+      pyaos: createFakePyaos({ execWithEnv }),
       persistence,
     });
 

@@ -2,14 +2,14 @@ import type { ModelCapability } from '@pymodel/kosong';
 import { describe, expect, it } from 'vitest';
 
 import { ReadMediaFileTool } from '../../src/tools/builtin/file/read-media';
-import { createFakeKaos, PERMISSIVE_WORKSPACE } from './fixtures/fake-kaos';
+import { createFakePyaos, PERMISSIVE_WORKSPACE } from './fixtures/fake-pyaos';
 
 function capability(input: Partial<ModelCapability>): ModelCapability {
   return input as ModelCapability;
 }
 
 function makeTool(capabilities: Partial<ModelCapability>): ReadMediaFileTool {
-  return new ReadMediaFileTool(createFakeKaos(), PERMISSIVE_WORKSPACE, capability(capabilities));
+  return new ReadMediaFileTool(createFakePyaos(), PERMISSIVE_WORKSPACE, capability(capabilities));
 }
 
 describe('ReadMediaFileTool description by capabilities', () => {

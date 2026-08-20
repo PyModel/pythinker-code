@@ -131,8 +131,8 @@
  *   `ISessionBtwService`; `setDynamicWorkflowMode` / `dynamic_workflow` → the agent scope's
  *   `IAgentDynamicWorkflowService` (the v2 port of v1's `DynamicWorkflowMode`), with `dynamic_workflow()`
  *   recomposed over the `setDynamicWorkflowMode` + `prompt` overrides.
- *   `createSessionWithKaos` / `resumeSessionWithKaos` deliberately keep the
- *   base class's kaos-ignoring degradation (the v2 engine has no kaos
+ *   `createSessionWithPyaos` / `resumeSessionWithPyaos` deliberately keep the
+ *   base class's pyaos-ignoring degradation (the v2 engine has no pyaos
  *   injection point — see the session-lifecycle section header), and
  *   `toolCall` keeps the base class's "not supported" answer, which the
  *   interaction bridge already relies on.
@@ -870,13 +870,13 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
   // session id, a resume, or a workspace command goes through the
   // `engineAccessor` escape hatch (named per method below).
   //
-  // `createSessionWithKaos` / `resumeSessionWithKaos` are deliberately NOT
-  // overridden: agent-core-v2 has no kaos injection point (its fs/process
+  // `createSessionWithPyaos` / `resumeSessionWithPyaos` are deliberately NOT
+  // overridden: agent-core-v2 has no pyaos injection point (its fs/process
   // abstraction is the engine-internal hostFs domain, resolved at bootstrap),
-  // so the base class's degradation — ignore the kaos arguments and run a
+  // so the base class's degradation — ignore the pyaos arguments and run a
   // plain local create/resume — is the honest behavior, the same one every
   // daemon-transport client settles for. Failing loudly instead would break
-  // hosts that pass kaos opportunistically (the harness forwards it whenever
+  // hosts that pass pyaos opportunistically (the harness forwards it whenever
   // the host supplies one).
   // -----------------------------------------------------------------------
 

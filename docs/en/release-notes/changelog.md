@@ -1412,7 +1412,7 @@ This page documents the changes in each Pythinker Code CLI release.
 ### Refactors
 
 - Introduce `ModelProvider` interface and `SingleModelProvider` to decouple `Agent` from `ProviderManager`.
-- Split `RuntimeConfig` into `Kaos` and `ToolServices` and update all references accordingly.
+- Split `RuntimeConfig` into `Pyaos` and `ToolServices` and update all references accordingly.
 - Slim the LLM diagnostic logs with fewer, more compact fields.
 - Relocate shared tool service typing to the tool support layer.
 

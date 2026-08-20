@@ -1,4 +1,4 @@
-import type { Kaos } from '@pymodel/kaos';
+import type { Pyaos } from '@pymodel/pyaos';
 import type { ToolCall } from '@pymodel/kosong';
 import * as posixPath from 'node:path/posix';
 import { describe, expect, it, vi } from 'vitest';
@@ -31,12 +31,12 @@ import {
   matchesPathRuleSubject,
   matchesGlobRuleSubject,
 } from '../../src/tools/support/rule-match';
-import { createFakeKaos } from '../tools/fixtures/fake-kaos';
-import { createCommandKaos, testAgent } from './harness/agent';
+import { createFakePyaos } from '../tools/fixtures/fake-pyaos';
+import { createCommandPyaos, testAgent } from './harness/agent';
 
 describe('Agent permission', () => {
   it('auto mode bypasses approval for ordinary builtin tools', async () => {
-    const ctx = testAgent({ kaos: createCommandKaos('auto-output') });
+    const ctx = testAgent({ pyaos: createCommandPyaos('auto-output') });
     ctx.configure({ tools: ['Bash'] });
     await ctx.rpc.setPermission({ mode: 'auto' });
 
@@ -96,7 +96,7 @@ describe('Agent permission', () => {
   });
 
   it('yolo mode bypasses approval for ordinary builtin tools', async () => {
-    const ctx = testAgent({ kaos: createCommandKaos('yolo-output') });
+    const ctx = testAgent({ pyaos: createCommandPyaos('yolo-output') });
     ctx.configure({ tools: ['Bash'] });
     await ctx.rpc.setPermission({ mode: 'yolo' });
 
@@ -210,7 +210,7 @@ describe('Agent permission', () => {
       arguments: '{"command":"printf should-not-run","timeout":60}',
     };
     const ctx = testAgent({
-      kaos: createFakeKaos({ execWithEnv }),
+      pyaos: createFakePyaos({ execWithEnv }),
     });
     ctx.configure({ tools: ['Bash'] });
 
@@ -2657,7 +2657,7 @@ describe('Default git CWD Write/Edit permission', () => {
   const FILE_MODE = 0o100_644;
   const SYMLINK_MODE = 0o120_777;
 
-  function statResult(mode: number): Awaited<ReturnType<Kaos['stat']>> {
+  function statResult(mode: number): Awaited<ReturnType<Pyaos['stat']>> {
     return {
       stMode: mode,
       stIno: 1,
@@ -2678,17 +2678,17 @@ describe('Default git CWD Write/Edit permission', () => {
 
   function sshNotFound(path: string): Error {
     const error = Object.assign(new Error(`No such file: ${path}`), { code: 2 });
-    error.name = 'KaosFileNotFoundError';
+    error.name = 'PyaosFileNotFoundError';
     return error;
   }
 
-  function gitKaos(options: {
+  function gitPyaos(options: {
     readonly markerPath?: string | undefined;
     readonly markerMode?: number | undefined;
     readonly statModes?: Readonly<Record<string, number>> | undefined;
-    readonly readText?: Kaos['readText'] | undefined;
+    readonly readText?: Pyaos['readText'] | undefined;
     readonly missingError?: (path: string) => Error;
-  } = {}): { kaos: Kaos; stat: ReturnType<typeof vi.fn<Kaos['stat']>> } {
+  } = {}): { pyaos: Pyaos; stat: ReturnType<typeof vi.fn<Pyaos['stat']>> } {
     const markerPath = options.markerPath ?? '/workspace/.git';
     const statModes: Readonly<Record<string, number>> = {
       '/workspace': DIR_MODE,
@@ -2697,21 +2697,21 @@ describe('Default git CWD Write/Edit permission', () => {
       ...options.statModes,
     };
     const stat = vi
-      .fn<Kaos['stat']>()
+      .fn<Pyaos['stat']>()
       .mockImplementation(async (path) => {
         const mode = statModes[path];
         if (mode !== undefined) return statResult(mode);
         throw options.missingError?.(path) ?? notFound(path);
       });
     return {
-      kaos: createFakeKaos({ stat, readText: options.readText }),
+      pyaos: createFakePyaos({ stat, readText: options.readText }),
       stat,
     };
   }
 
-  function nonGitKaos(): Kaos {
-    return createFakeKaos({
-      stat: vi.fn<Kaos['stat']>().mockRejectedValue(new Error('ENOENT')),
+  function nonGitPyaos(): Pyaos {
+    return createFakePyaos({
+      stat: vi.fn<Pyaos['stat']>().mockRejectedValue(new Error('ENOENT')),
     });
   }
 
@@ -2724,10 +2724,10 @@ describe('Default git CWD Write/Edit permission', () => {
   }
 
   it('still requests approval for Bash inside a git cwd in manual mode', async () => {
-    const { kaos, stat } = gitKaos();
+    const { pyaos, stat } = gitPyaos();
     const { manager, requestApproval, telemetryTrack } = makePermissionManager(
       async () => ({ decision: 'approved' }),
-      { kaos },
+      { pyaos },
     );
 
     await expect(manager.beforeToolCall(hookContext({ id: 'call_bash_git_cwd' }))).resolves
@@ -2748,13 +2748,13 @@ describe('Default git CWD Write/Edit permission', () => {
   });
 
   it('still requests approval for Bash when the cwd is an additionalDir', async () => {
-    const { kaos, stat } = gitKaos({
+    const { pyaos, stat } = gitPyaos({
       markerPath: '/extra/.git',
       statModes: { '/extra': DIR_MODE },
     });
     const { manager, requestApproval, telemetryTrack } = makePermissionManager(
       async () => ({ decision: 'approved' }),
-      { cwd: '/extra', kaos, additionalDirs: ['/extra'] },
+      { cwd: '/extra', pyaos, additionalDirs: ['/extra'] },
     );
 
     await expect(
@@ -2781,10 +2781,10 @@ describe('Default git CWD Write/Edit permission', () => {
   });
 
   it('bypasses approval for Write to a relative path inside a git cwd', async () => {
-    const { kaos } = gitKaos();
+    const { pyaos } = gitPyaos();
     const { manager, requestApproval, telemetryTrack } = makePermissionManager(
       async () => ({ decision: 'approved' }),
-      { kaos },
+      { pyaos },
     );
 
     await expect(
@@ -2804,10 +2804,10 @@ describe('Default git CWD Write/Edit permission', () => {
   });
 
   it('bypasses approval for Edit on an absolute path inside the git cwd', async () => {
-    const { kaos } = gitKaos();
+    const { pyaos } = gitPyaos();
     const { manager, requestApproval, telemetryTrack } = makePermissionManager(
       async () => ({ decision: 'approved' }),
-      { kaos },
+      { pyaos },
     );
 
     await expect(
@@ -2832,10 +2832,10 @@ describe('Default git CWD Write/Edit permission', () => {
     ['Write', { path: '/extra/src/a.ts', content: 'x' }],
     ['Edit', { path: '/extra/src/a.ts', old_string: 'A', new_string: 'B' }],
   ] as const)('approves %s on an additionalDir path in manual mode', async (toolName, args) => {
-    const { kaos } = gitKaos();
+    const { pyaos } = gitPyaos();
     const { manager, requestApproval, telemetryTrack } = makePermissionManager(
       async () => ({ decision: 'approved' }),
-      { kaos, additionalDirs: ['/extra'] },
+      { pyaos, additionalDirs: ['/extra'] },
     );
 
     await expect(
@@ -2863,7 +2863,7 @@ describe('Default git CWD Write/Edit permission', () => {
   it('still requests approval when cwd is not inside a git work tree', async () => {
     const { manager, requestApproval, telemetryTrack } = makePermissionManager(
       async () => ({ decision: 'approved' }),
-      { kaos: nonGitKaos() },
+      { pyaos: nonGitPyaos() },
     );
 
     await expect(
@@ -2878,10 +2878,10 @@ describe('Default git CWD Write/Edit permission', () => {
   });
 
   it('rechecks missing git marker checks across repeated Write/Edit calls in the same cwd', async () => {
-    const stat = vi.fn<Kaos['stat']>().mockRejectedValue(new Error('ENOENT'));
+    const stat = vi.fn<Pyaos['stat']>().mockRejectedValue(new Error('ENOENT'));
     const { manager, requestApproval } = makePermissionManager(
       async () => ({ decision: 'approved' }),
-      { kaos: createFakeKaos({ stat }) },
+      { pyaos: createFakePyaos({ stat }) },
     );
 
     await expect(
@@ -2907,10 +2907,10 @@ describe('Default git CWD Write/Edit permission', () => {
   });
 
   it('still requests approval when a relative path escapes cwd via ..', async () => {
-    const { kaos } = gitKaos();
+    const { pyaos } = gitPyaos();
     const { manager, requestApproval } = makePermissionManager(
       async () => ({ decision: 'approved' }),
-      { kaos },
+      { pyaos },
     );
 
     await expect(
@@ -2921,10 +2921,10 @@ describe('Default git CWD Write/Edit permission', () => {
   });
 
   it('still requests approval for an absolute path outside the cwd', async () => {
-    const { kaos } = gitKaos();
+    const { pyaos } = gitPyaos();
     const { manager, requestApproval } = makePermissionManager(
       async () => ({ decision: 'approved' }),
-      { kaos },
+      { pyaos },
     );
 
     await expect(
@@ -2935,10 +2935,10 @@ describe('Default git CWD Write/Edit permission', () => {
   });
 
   it('still requests approval for a shared-prefix path outside additionalDirs', async () => {
-    const { kaos } = gitKaos();
+    const { pyaos } = gitPyaos();
     const { manager, requestApproval, telemetryTrack } = makePermissionManager(
       async () => ({ decision: 'approved' }),
-      { kaos, additionalDirs: ['/extra'] },
+      { pyaos, additionalDirs: ['/extra'] },
     );
 
     await expect(
@@ -2957,10 +2957,10 @@ describe('Default git CWD Write/Edit permission', () => {
   });
 
   it('still requests approval for a path inside the git root but outside the cwd', async () => {
-    const { kaos } = gitKaos({ markerPath: '/a/.git' });
+    const { pyaos } = gitPyaos({ markerPath: '/a/.git' });
     const { manager, requestApproval, telemetryTrack } = makePermissionManager(
       async () => ({ decision: 'approved' }),
-      { cwd: '/a/b/c', kaos },
+      { cwd: '/a/b/c', pyaos },
     );
 
     await expect(
@@ -2977,10 +2977,10 @@ describe('Default git CWD Write/Edit permission', () => {
   it.each(['.git/config', '.git/hooks/pre-commit'])(
     'still requests approval for git control file %s',
     async (path) => {
-      const { kaos } = gitKaos();
+      const { pyaos } = gitPyaos();
       const { manager, requestApproval, telemetryTrack } = makePermissionManager(
         async () => ({ decision: 'approved' }),
-        { kaos },
+        { pyaos },
       );
 
       await expect(manager.beforeToolCall(writeHook({ path, content: 'x' }))).resolves
@@ -2995,10 +2995,10 @@ describe('Default git CWD Write/Edit permission', () => {
   );
 
   it('still requests approval for a git control file inside an additionalDir', async () => {
-    const { kaos } = gitKaos();
+    const { pyaos } = gitPyaos();
     const { manager, requestApproval, telemetryTrack } = makePermissionManager(
       async () => ({ decision: 'approved' }),
-      { kaos, additionalDirs: ['/extra'] },
+      { pyaos, additionalDirs: ['/extra'] },
     );
 
     await expect(
@@ -3023,10 +3023,10 @@ describe('Default git CWD Write/Edit permission', () => {
   });
 
   it('still requests approval for case-variant git control files', async () => {
-    const { kaos } = gitKaos();
+    const { pyaos } = gitPyaos();
     const { manager, requestApproval, telemetryTrack } = makePermissionManager(
       async () => ({ decision: 'approved' }),
-      { kaos },
+      { pyaos },
     );
 
     await expect(
@@ -3041,17 +3041,17 @@ describe('Default git CWD Write/Edit permission', () => {
   });
 
   it('still requests approval for a linked-worktree gitdir inside cwd', async () => {
-    const { kaos } = gitKaos({
+    const { pyaos } = gitPyaos({
       markerMode: FILE_MODE,
       statModes: { '/workspace/.gitdir': DIR_MODE },
-      readText: vi.fn<Kaos['readText']>(async (path) => {
+      readText: vi.fn<Pyaos['readText']>(async (path) => {
         if (path === '/workspace/.git') return 'gitdir: .gitdir\n';
         throw notFound(path);
       }),
     });
     const { manager, requestApproval, telemetryTrack } = makePermissionManager(
       async () => ({ decision: 'approved' }),
-      { kaos },
+      { pyaos },
     );
 
     await expect(
@@ -3066,10 +3066,10 @@ describe('Default git CWD Write/Edit permission', () => {
   });
 
   it('does not ask for ordinary file access when a git marker exists', async () => {
-    const { kaos } = gitKaos();
+    const { pyaos } = gitPyaos();
     const { manager, requestApproval, telemetryTrack } = makePermissionManager(
       async () => ({ decision: 'approved' }),
-      { kaos },
+      { pyaos },
     );
 
     await expect(
@@ -3090,10 +3090,10 @@ describe('Default git CWD Write/Edit permission', () => {
   });
 
   it('asks before accessing the .git marker path itself', async () => {
-    const { kaos } = gitKaos();
+    const { pyaos } = gitPyaos();
     const { manager, requestApproval, telemetryTrack } = makePermissionManager(
       async () => ({ decision: 'approved' }),
-      { kaos },
+      { pyaos },
     );
 
     await expect(
@@ -3119,10 +3119,10 @@ describe('Default git CWD Write/Edit permission', () => {
   });
 
   it('does not check git control paths when cwd is empty', async () => {
-    const { kaos } = gitKaos();
+    const { pyaos } = gitPyaos();
     const { manager, requestApproval, telemetryTrack } = makePermissionManager(
       async () => ({ decision: 'approved' }),
-      { cwd: '', kaos },
+      { cwd: '', pyaos },
     );
 
     await expect(
@@ -3143,11 +3143,11 @@ describe('Default git CWD Write/Edit permission', () => {
   });
 
   it('detects Win32 .git path components case-insensitively', async () => {
-    const kaos = createFakeKaos({ pathClass: () => 'win32' });
+    const pyaos = createFakePyaos({ pathClass: () => 'win32' });
     const args = { path: 'C:\\repo\\.GIT\\config' };
     const { manager, requestApproval, telemetryTrack } = makePermissionManager(
       async () => ({ decision: 'approved' }),
-      { cwd: 'C:\\repo', kaos },
+      { cwd: 'C:\\repo', pyaos },
     );
 
     await expect(
@@ -3194,17 +3194,17 @@ describe('Default git CWD Write/Edit permission', () => {
     'rechecks git marker changes before default-approving %s access',
     async (toolName, firstArgs, secondArgs) => {
       let markerReady = false;
-      const stat = vi.fn<Kaos['stat']>(async (path) => {
+      const stat = vi.fn<Pyaos['stat']>(async (path) => {
         if (markerReady && path === '/workspace/.git') return statResult(FILE_MODE);
         throw notFound(path);
       });
-      const readText = vi.fn<Kaos['readText']>(async (path) => {
+      const readText = vi.fn<Pyaos['readText']>(async (path) => {
         if (path === '/workspace/.git') return 'gitdir: .gitdir\n';
         throw notFound(path);
       });
       const { manager, requestApproval, telemetryTrack } = makePermissionManager(
         async () => ({ decision: 'approved' }),
-        { kaos: createFakeKaos({ stat, readText }) },
+        { pyaos: createFakePyaos({ stat, readText }) },
       );
 
       await expect(
@@ -3231,12 +3231,12 @@ describe('Default git CWD Write/Edit permission', () => {
   );
 
   it('bypasses approval for a lexical path inside git cwd without resolving parent symlinks', async () => {
-    const { kaos } = gitKaos({
+    const { pyaos } = gitPyaos({
       statModes: { '/workspace/out': SYMLINK_MODE },
     });
     const { manager, requestApproval, telemetryTrack } = makePermissionManager(
       async () => ({ decision: 'approved' }),
-      { kaos },
+      { pyaos },
     );
 
     await expect(
@@ -3251,12 +3251,12 @@ describe('Default git CWD Write/Edit permission', () => {
   });
 
   it('bypasses approval for a lexical target inside git cwd without resolving target symlinks', async () => {
-    const { kaos } = gitKaos({
+    const { pyaos } = gitPyaos({
       statModes: { '/workspace/link.txt': SYMLINK_MODE },
     });
     const { manager, requestApproval, telemetryTrack } = makePermissionManager(
       async () => ({ decision: 'approved' }),
-      { kaos },
+      { pyaos },
     );
 
     await expect(
@@ -3271,10 +3271,10 @@ describe('Default git CWD Write/Edit permission', () => {
   });
 
   it('still requests approval for a sensitive file inside the git cwd', async () => {
-    const { kaos } = gitKaos();
+    const { pyaos } = gitPyaos();
     const { manager, requestApproval } = makePermissionManager(
       async () => ({ decision: 'approved' }),
-      { kaos },
+      { pyaos },
     );
 
     await expect(
@@ -3285,10 +3285,10 @@ describe('Default git CWD Write/Edit permission', () => {
   });
 
   it('still requests approval for a sensitive file inside an additionalDir', async () => {
-    const { kaos } = gitKaos();
+    const { pyaos } = gitPyaos();
     const { manager, requestApproval, telemetryTrack } = makePermissionManager(
       async () => ({ decision: 'approved' }),
-      { kaos, additionalDirs: ['/extra'] },
+      { pyaos, additionalDirs: ['/extra'] },
     );
 
     await expect(
@@ -3315,12 +3315,12 @@ describe('Default git CWD Write/Edit permission', () => {
   it.each(['.env.local', '.aws/credentials'])(
     'still requests approval for sensitive file %s',
     async (path) => {
-      const { kaos } = gitKaos({
+      const { pyaos } = gitPyaos({
         statModes: path.includes('/') ? { '/workspace/.aws': DIR_MODE } : {},
       });
       const { manager, requestApproval, telemetryTrack } = makePermissionManager(
         async () => ({ decision: 'approved' }),
-        { kaos },
+        { pyaos },
       );
 
       await expect(manager.beforeToolCall(writeHook({ path, content: 'secret' }))).resolves
@@ -3337,12 +3337,12 @@ describe('Default git CWD Write/Edit permission', () => {
   it.each(['src/config.ts', '.env.example', '.env.sample', '.env.template', 'id_rsa.pub'])(
     'does not treat non-sensitive or exempt file %s as sensitive',
     async (path) => {
-      const { kaos } = gitKaos({
+      const { pyaos } = gitPyaos({
         statModes: path.includes('/') ? { '/workspace/src': DIR_MODE } : {},
       });
       const { manager, requestApproval, telemetryTrack } = makePermissionManager(
         async () => ({ decision: 'approved' }),
-        { kaos },
+        { pyaos },
       );
 
       await expect(manager.beforeToolCall(writeHook({ path, content: 'x' }))).resolves
@@ -3361,10 +3361,10 @@ describe('Default git CWD Write/Edit permission', () => {
   );
 
   it('requests approval for sensitive read access before default approval', async () => {
-    const { kaos } = gitKaos();
+    const { pyaos } = gitPyaos();
     const { manager, requestApproval, telemetryTrack } = makePermissionManager(
       async () => ({ decision: 'approved' }),
-      { kaos },
+      { pyaos },
     );
 
     await expect(
@@ -3391,10 +3391,10 @@ describe('Default git CWD Write/Edit permission', () => {
   });
 
   it('detects sensitive Win32 paths case-insensitively', async () => {
-    const kaos = createFakeKaos({ pathClass: () => 'win32' });
+    const pyaos = createFakePyaos({ pathClass: () => 'win32' });
     const { manager, requestApproval, telemetryTrack } = makePermissionManager(
       async () => ({ decision: 'approved' }),
-      { cwd: 'C:\\repo', kaos },
+      { cwd: 'C:\\repo', pyaos },
     );
 
     await expect(
@@ -3417,11 +3417,11 @@ describe('Default git CWD Write/Edit permission', () => {
     );
   });
 
-  it('bypasses approval for new files when SSH Kaos reports numeric no-such-file', async () => {
-    const { kaos } = gitKaos({ missingError: sshNotFound });
+  it('bypasses approval for new files when SSH Pyaos reports numeric no-such-file', async () => {
+    const { pyaos } = gitPyaos({ missingError: sshNotFound });
     const { manager, requestApproval, telemetryTrack } = makePermissionManager(
       async () => ({ decision: 'approved' }),
-      { kaos },
+      { pyaos },
     );
 
     await expect(
@@ -3441,10 +3441,10 @@ describe('Default git CWD Write/Edit permission', () => {
   });
 
   it('lets an explicit `ask` rule keep the approval prompt for Write', async () => {
-    const { kaos } = gitKaos();
+    const { pyaos } = gitPyaos();
     const { manager, requestApproval, telemetryTrack } = makePermissionManager(
       async () => ({ decision: 'approved' }),
-      { kaos },
+      { pyaos },
     );
     manager.rules.push({
       decision: 'ask',
@@ -3465,10 +3465,10 @@ describe('Default git CWD Write/Edit permission', () => {
   });
 
   it('lets an explicit `allow` rule take the original allow path without git cwd approval telemetry', async () => {
-    const { kaos } = gitKaos();
+    const { pyaos } = gitPyaos();
     const { manager, requestApproval, telemetryTrack } = makePermissionManager(
       async () => ({ decision: 'approved' }),
-      { kaos },
+      { pyaos },
     );
     manager.rules.push({
       decision: 'allow',
@@ -3488,10 +3488,10 @@ describe('Default git CWD Write/Edit permission', () => {
   });
 
   it('keeps explicit `deny` rules higher priority than the bypass', async () => {
-    const { kaos } = gitKaos();
+    const { pyaos } = gitPyaos();
     const { manager, requestApproval, telemetryTrack } = makePermissionManager(
       async () => ({ decision: 'approved' }),
-      { kaos },
+      { pyaos },
     );
     manager.rules.push({
       decision: 'deny',
@@ -3515,10 +3515,10 @@ describe('Default git CWD Write/Edit permission', () => {
   });
 
   it('does not fire in auto mode because auto-mode-approve takes over', async () => {
-    const { kaos } = gitKaos();
+    const { pyaos } = gitPyaos();
     const { manager, requestApproval, telemetryTrack } = makePermissionManager(
       async () => ({ decision: 'approved' }),
-      { kaos },
+      { pyaos },
     );
     manager.setMode('auto');
 
@@ -3544,16 +3544,16 @@ describe('Default git CWD Write/Edit permission', () => {
 
   it('does not fire on Windows path semantics (Windows stMode unverified)', async () => {
     const stat = vi
-      .fn<Kaos['stat']>()
+      .fn<Pyaos['stat']>()
       .mockImplementation(async (path) =>
         path === '/workspace/.git'
           ? statResult(0o040_755)
           : Promise.reject(new Error('ENOENT')),
       );
-    const kaos = createFakeKaos({ stat, pathClass: () => 'win32' });
+    const pyaos = createFakePyaos({ stat, pathClass: () => 'win32' });
     const { manager, requestApproval, telemetryTrack } = makePermissionManager(
       async () => ({ decision: 'approved' }),
-      { kaos },
+      { pyaos },
     );
 
     await expect(
@@ -3568,10 +3568,10 @@ describe('Default git CWD Write/Edit permission', () => {
   });
 
   it('does not approve when cwd is empty', async () => {
-    const { kaos } = gitKaos();
+    const { pyaos } = gitPyaos();
     const { manager, requestApproval, telemetryTrack } = makePermissionManager(
       async () => ({ decision: 'approved' }),
-      { cwd: '', kaos },
+      { cwd: '', pyaos },
     );
 
     await expect(
@@ -3586,11 +3586,11 @@ describe('Default git CWD Write/Edit permission', () => {
   });
 
   it('does not approve Write when execution has no write file access', async () => {
-    const { kaos } = gitKaos();
+    const { pyaos } = gitPyaos();
     const args = { path: 'src/a.ts', content: 'x' };
     const { manager, requestApproval, telemetryTrack } = makePermissionManager(
       async () => ({ decision: 'approved' }),
-      { kaos },
+      { pyaos },
     );
 
     await expect(
@@ -3615,11 +3615,11 @@ describe('Default git CWD Write/Edit permission', () => {
   });
 
   it('approves multiple write accesses when all are inside the git cwd', async () => {
-    const { kaos } = gitKaos();
+    const { pyaos } = gitPyaos();
     const args = { path: 'src/a.ts', content: 'x' };
     const { manager, requestApproval, telemetryTrack } = makePermissionManager(
       async () => ({ decision: 'approved' }),
-      { kaos },
+      { pyaos },
     );
 
     await expect(
@@ -3647,11 +3647,11 @@ describe('Default git CWD Write/Edit permission', () => {
   });
 
   it('does not approve when any write access is outside the cwd', async () => {
-    const { kaos } = gitKaos();
+    const { pyaos } = gitPyaos();
     const args = { path: 'src/a.ts', content: 'x' };
     const { manager, requestApproval, telemetryTrack } = makePermissionManager(
       async () => ({ decision: 'approved' }),
-      { kaos },
+      { pyaos },
     );
 
     await expect(
@@ -3683,10 +3683,10 @@ describe('Default git CWD Write/Edit permission', () => {
   });
 
   it('does not approve non-Write/Edit tools even if they report write access', async () => {
-    const { kaos } = gitKaos();
+    const { pyaos } = gitPyaos();
     const { manager, requestApproval, telemetryTrack } = makePermissionManager(
       async () => ({ decision: 'approved' }),
-      { kaos },
+      { pyaos },
     );
 
     await expect(
@@ -3711,10 +3711,10 @@ describe('Default git CWD Write/Edit permission', () => {
   });
 
   it('rechecks git marker hits across repeated Write/Edit calls in the same cwd', async () => {
-    const { kaos, stat } = gitKaos();
+    const { pyaos, stat } = gitPyaos();
     const { manager, requestApproval } = makePermissionManager(
       async () => ({ decision: 'approved' }),
-      { kaos },
+      { pyaos },
     );
 
     await expect(
@@ -3887,7 +3887,7 @@ function makePermissionManager(
     readonly parent?: PermissionManager | undefined;
     readonly planModeActive?: boolean;
     readonly planFilePath?: string | null | undefined;
-    readonly kaos?: Kaos;
+    readonly pyaos?: Pyaos;
     readonly cwd?: string;
     readonly additionalDirs?: readonly string[];
     readonly agentType?: Agent['type'];
@@ -3908,7 +3908,7 @@ function makePermissionManager(
   const agent = {
     type: options.agentType ?? 'main',
     config: { cwd: options.cwd ?? '/workspace' },
-    kaos: options.kaos ?? createFakeKaos(),
+    pyaos: options.pyaos ?? createFakePyaos(),
     getAdditionalDirs: () => options.additionalDirs ?? [],
     emitStatusUpdated: vi.fn(),
     records: { logRecord: record },
@@ -3961,7 +3961,7 @@ function makePlanPermissionManager(input: {
   const agent = {
     type: 'main',
     config: { cwd: '/workspace' },
-    kaos: createFakeKaos(),
+    pyaos: createFakePyaos(),
     emitStatusUpdated: vi.fn(),
     records: { logRecord: record },
     replayBuilder: { push: vi.fn() },

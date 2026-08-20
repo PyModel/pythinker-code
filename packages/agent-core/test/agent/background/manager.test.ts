@@ -8,7 +8,7 @@ import { PassThrough, Readable } from 'node:stream';
 import type { Writable } from 'node:stream';
 import { join } from 'pathe';
 
-import type { KaosProcess } from '@pymodel/kaos';
+import type { PyaosProcess } from '@pymodel/pyaos';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -27,33 +27,33 @@ import {
 } from './helpers';
 import { isUserCancellation, userCancellationReason } from '../../../src/utils/abort';
 
-function immediateProcess(exitCode: number, stdoutText = ''): KaosProcess {
+function immediateProcess(exitCode: number, stdoutText = ''): PyaosProcess {
   return {
     stdin: { write: vi.fn(), end: vi.fn() } as unknown as Writable,
     stdout: Readable.from(stdoutText ? [stdoutText] : []),
     stderr: Readable.from([]),
     pid: 10000 + exitCode,
     exitCode,
-    wait: vi.fn().mockResolvedValue(exitCode) as KaosProcess['wait'],
-    kill: vi.fn().mockResolvedValue(undefined) as KaosProcess['kill'],
-    dispose: vi.fn().mockResolvedValue(undefined) as KaosProcess['dispose'],
+    wait: vi.fn().mockResolvedValue(exitCode) as PyaosProcess['wait'],
+    kill: vi.fn().mockResolvedValue(undefined) as PyaosProcess['kill'],
+    dispose: vi.fn().mockResolvedValue(undefined) as PyaosProcess['dispose'],
   };
 }
 
-function rejectedProcess(error: Error): KaosProcess {
+function rejectedProcess(error: Error): PyaosProcess {
   return {
     stdin: { write: vi.fn(), end: vi.fn() } as unknown as Writable,
     stdout: Readable.from([]),
     stderr: Readable.from([]),
     pid: 99999,
     exitCode: null,
-    wait: vi.fn().mockRejectedValue(error) as KaosProcess['wait'],
-    kill: vi.fn().mockResolvedValue(undefined) as KaosProcess['kill'],
-    dispose: vi.fn().mockResolvedValue(undefined) as KaosProcess['dispose'],
+    wait: vi.fn().mockRejectedValue(error) as PyaosProcess['wait'],
+    kill: vi.fn().mockResolvedValue(undefined) as PyaosProcess['kill'],
+    dispose: vi.fn().mockResolvedValue(undefined) as PyaosProcess['dispose'],
   };
 }
 
-function processWithStdoutError(message = 'stdout read failed'): KaosProcess {
+function processWithStdoutError(message = 'stdout read failed'): PyaosProcess {
   const stdout = new PassThrough();
   return {
     stdin: { write: vi.fn(), end: vi.fn() } as unknown as Writable,
@@ -64,14 +64,14 @@ function processWithStdoutError(message = 'stdout read failed'): KaosProcess {
     wait: vi.fn(async () => {
       stdout.destroy(new Error(message));
       return 0;
-    }) as KaosProcess['wait'],
-    kill: vi.fn().mockResolvedValue(undefined) as KaosProcess['kill'],
-    dispose: vi.fn().mockResolvedValue(undefined) as KaosProcess['dispose'],
+    }) as PyaosProcess['wait'],
+    kill: vi.fn().mockResolvedValue(undefined) as PyaosProcess['kill'],
+    dispose: vi.fn().mockResolvedValue(undefined) as PyaosProcess['dispose'],
   };
 }
 
 function processWithStdoutErrorBeforeWait(message = 'stdout read failed'): {
-  proc: KaosProcess;
+  proc: PyaosProcess;
   failStdout: () => void;
   resolveWait: (exitCode: number) => void;
 } {
@@ -90,9 +90,9 @@ function processWithStdoutErrorBeforeWait(message = 'stdout read failed'): {
       get exitCode(): number | null {
         return currentExitCode;
       },
-      wait: vi.fn(() => waitPromise) as KaosProcess['wait'],
-      kill: vi.fn().mockResolvedValue(undefined) as KaosProcess['kill'],
-      dispose: vi.fn().mockResolvedValue(undefined) as KaosProcess['dispose'],
+      wait: vi.fn(() => waitPromise) as PyaosProcess['wait'],
+      kill: vi.fn().mockResolvedValue(undefined) as PyaosProcess['kill'],
+      dispose: vi.fn().mockResolvedValue(undefined) as PyaosProcess['dispose'],
     },
     failStdout: () => {
       stdout.destroy(new Error(message));
@@ -105,7 +105,7 @@ function processWithStdoutErrorBeforeWait(message = 'stdout read failed'): {
 }
 
 function pendingProcess(exitOnKill = 143): {
-  proc: KaosProcess;
+  proc: PyaosProcess;
   killSpy: ReturnType<typeof vi.fn>;
 } {
   let resolveWait: (n: number) => void = () => {};
@@ -118,7 +118,7 @@ function pendingProcess(exitOnKill = 143): {
     currentExitCode = exitOnKill;
     resolveWait(exitOnKill);
   });
-  const proc: KaosProcess = {
+  const proc: PyaosProcess = {
     stdin: { write: vi.fn(), end: vi.fn() } as unknown as Writable,
     stdout: Readable.from([]),
     stderr: Readable.from([]),
@@ -127,14 +127,14 @@ function pendingProcess(exitOnKill = 143): {
       return currentExitCode;
     },
     wait: () => waitPromise,
-    kill: killSpy as unknown as KaosProcess['kill'],
-    dispose: vi.fn().mockResolvedValue(undefined) as KaosProcess['dispose'],
+    kill: killSpy as unknown as PyaosProcess['kill'],
+    dispose: vi.fn().mockResolvedValue(undefined) as PyaosProcess['dispose'],
   };
   return { proc, killSpy };
 }
 
 function manuallyResolvedProcess(): {
-  proc: KaosProcess;
+  proc: PyaosProcess;
   killSpy: ReturnType<typeof vi.fn>;
   resolve: (exitCode: number) => void;
 } {
@@ -144,7 +144,7 @@ function manuallyResolvedProcess(): {
   });
   let currentExitCode: number | null = null;
   const killSpy = vi.fn().mockResolvedValue(undefined);
-  const proc: KaosProcess = {
+  const proc: PyaosProcess = {
     stdin: { write: vi.fn(), end: vi.fn() } as unknown as Writable,
     stdout: Readable.from([]),
     stderr: Readable.from([]),
@@ -153,8 +153,8 @@ function manuallyResolvedProcess(): {
       return currentExitCode;
     },
     wait: () => waitPromise,
-    kill: killSpy as unknown as KaosProcess['kill'],
-    dispose: vi.fn().mockResolvedValue(undefined) as KaosProcess['dispose'],
+    kill: killSpy as unknown as PyaosProcess['kill'],
+    dispose: vi.fn().mockResolvedValue(undefined) as PyaosProcess['dispose'],
   };
   return {
     proc,
@@ -168,11 +168,11 @@ function manuallyResolvedProcess(): {
 }
 
 function processWithVisibleExitCodeBeforeWait(exitCode = 143): {
-  proc: KaosProcess;
+  proc: PyaosProcess;
   markExited: () => void;
 } {
   let currentExitCode: number | null = null;
-  const proc: KaosProcess = {
+  const proc: PyaosProcess = {
     stdin: { write: vi.fn(), end: vi.fn() } as unknown as Writable,
     stdout: Readable.from([]),
     stderr: Readable.from([]),
@@ -181,8 +181,8 @@ function processWithVisibleExitCodeBeforeWait(exitCode = 143): {
       return currentExitCode;
     },
     wait: () => new Promise<number>(() => {}),
-    kill: vi.fn().mockResolvedValue(undefined) as KaosProcess['kill'],
-    dispose: vi.fn().mockResolvedValue(undefined) as KaosProcess['dispose'],
+    kill: vi.fn().mockResolvedValue(undefined) as PyaosProcess['kill'],
+    dispose: vi.fn().mockResolvedValue(undefined) as PyaosProcess['dispose'],
   };
   return {
     proc,
@@ -477,7 +477,7 @@ describe('BackgroundManager', () => {
     const proc = {
       ...immediateProcess(0, 'hello'),
       dispose,
-    } as unknown as KaosProcess;
+    } as unknown as PyaosProcess;
     const taskId = registerProcess(manager, proc, 'echo hello', 'test echo');
 
     await waitForTerminal(manager, taskId);
@@ -564,7 +564,7 @@ describe('BackgroundManager', () => {
     const disposableProc = {
       ...proc,
       dispose,
-    } as unknown as KaosProcess;
+    } as unknown as PyaosProcess;
     const taskId = registerProcess(manager, disposableProc, 'sleep 60', 'kill test');
 
     await manager.stop(taskId, 'user requested');
@@ -870,7 +870,7 @@ describe('BackgroundManager', () => {
       ['-e', "process.stdout.write('bg-ok\\n')"],
       { stdio: 'pipe' },
     );
-    const proc: KaosProcess = {
+    const proc: PyaosProcess = {
       stdin: { write: vi.fn(), end: vi.fn() } as unknown as Writable,
       stdout: child.stdout,
       stderr: child.stderr,
@@ -886,12 +886,12 @@ describe('BackgroundManager', () => {
       }),
       kill: vi.fn(async (signal?: NodeJS.Signals) => {
         child.kill(signal ?? 'SIGTERM');
-      }) as unknown as KaosProcess['kill'],
+      }) as unknown as PyaosProcess['kill'],
       dispose: vi.fn(async () => {
         child.stdin?.destroy();
         child.stdout?.destroy();
         child.stderr?.destroy();
-      }) as KaosProcess['dispose'],
+      }) as PyaosProcess['dispose'],
     };
 
     const taskId = registerProcess(manager, proc, 'node -e <stdout bg-ok>', 'real worker');

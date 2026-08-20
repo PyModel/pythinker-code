@@ -56,7 +56,7 @@ Adding an OpenAI-compatible provider requires **zero code changes** — just add
 | `packages/agent-core-v2` | DI × Scope agent engine (the v2 port behind kap-server) | Four `LifecycleScope` tiers — `App` / `Workspace` / `Session` / `Agent` (`app/scopes.ts`) — plus the L3 unit layer (`Service`/`Fiber` units, collection contribution points, the Feature seam in `src/features/`). See its `AGENTS.md` and use the `agent-core-dev` skill. |
 | `packages/node-sdk` | Public TS SDK & harness | |
 | `packages/kosong` | LLM provider abstraction | Wire types, catalog, capability registry. |
-| `packages/kaos` | Execution environment | File/process abstractions. |
+| `packages/pyaos` | Execution environment | File/process abstractions. |
 | `packages/kap-server` | Pythinker Code server | Backed by `@pymodel/agent-core-v2`; sessions over REST + WebSocket (`/api/v1` + `/api/v1/ws`), plus `/api/v1/debug/*` reflection RPC (`--debug-endpoints`, loopback bind + bearer auth). See its `AGENTS.md`. |
 | `packages/klient` | Client SDK | Contract-driven facade over agent-core-v2 (`global.*` / `session(id).*` / `agent(id).*`, zod-validated); transport via subpath entry (`@pymodel/klient/ipc|memory`); hosts the e2e suites. See its `AGENTS.md`. |
 | `packages/transcript` | Isomorphic transcript rendering data layer | L1 agent-granular store, L2 idempotent operations, L3 `off/turn/block/delta` subscription granularity, L4 framework-free view registry, turn-cursor pagination. Pure TypeScript (browser-safe, no engine imports); sole owner of the transcript contract types (`src/contract/`). See its `AGENTS.md`. |

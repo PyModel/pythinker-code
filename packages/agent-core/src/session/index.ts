@@ -1,6 +1,6 @@
 import { homedir } from 'node:os';
 import { join } from 'pathe';
-import type { Kaos } from '@pymodel/kaos';
+import type { Pyaos } from '@pymodel/pyaos';
 import type { SessionWarning } from '@pymodel/protocol';
 
 import { ErrorCodes, PythinkerError } from '#/errors';
@@ -76,8 +76,8 @@ import { abortError } from '../utils/abort';
 import { resolveMainAgentProfile } from './main-agent-profile';
 
 export interface SessionOptions {
-  readonly kaos: Kaos;
-  readonly persistenceKaos?: Kaos;
+  readonly pyaos: Pyaos;
+  readonly persistencePyaos?: Pyaos;
   readonly config?: PythinkerConfig;
   readonly id?: string | undefined;
   readonly homedir: string;
@@ -240,8 +240,8 @@ export class Session {
   readonly experimentalFlags: ExperimentalFlagResolver;
   readonly imageLimits: ImageLimits;
   readonly agentCatalog: SessionAgentProfileCatalog;
-  private toolKaos: Kaos;
-  private persistenceKaos: Kaos;
+  private toolPyaos: Pyaos;
+  private persistencePyaos: Pyaos;
   private additionalDirs: readonly string[];
   private sessionAdditionalDirs: readonly string[] = [];
   private readonly pluginCommands: readonly PluginCommandDef[];
@@ -293,12 +293,12 @@ export class Session {
     this.experimentalFlags = options.experimentalFlags ?? new FlagResolver();
     this.imageLimits = options.imageLimits ?? new ImageLimits();
     this.hookEngine = new HookEngine(options.hooks, {
-      cwd: options.kaos.getcwd(),
+      cwd: options.pyaos.getcwd(),
       sessionId: options.id,
     });
     this.telemetry = options.telemetry ?? noopTelemetryClient;
-    this.toolKaos = options.kaos;
-    this.persistenceKaos = options.persistenceKaos ?? options.kaos;
+    this.toolPyaos = options.pyaos;
+    this.persistencePyaos = options.persistencePyaos ?? options.pyaos;
     this.additionalDirs = normalizeAdditionalDirs(options.additionalDirs ?? []);
     this.pluginCommands = options.pluginCommands ?? [];
     this.pluginSystemPrompts = options.pluginSystemPrompts ?? [];
@@ -310,7 +310,7 @@ export class Session {
         options.mcpOAuthService ?? new McpOAuthService({ pythinkerHomeDir: options.pythinkerHomeDir }),
       configResolver: options.mcpConfigResolver,
       log: this.log,
-      stdioCwd: options.kaos.getcwd(),
+      stdioCwd: options.pyaos.getcwd(),
       defaultStartupTimeoutMs: resolveMcpStartupTimeoutMs(options.config?.mcp?.startupTimeoutMs),
       defaultToolTimeoutMs: resolveMcpToolTimeoutMs(options.config?.mcp?.toolTimeoutMs),
     });
@@ -329,7 +329,7 @@ export class Session {
     this.agentCatalog =
       options.agents?.catalog ??
       new SessionAgentProfileCatalog({
-        workDir: options.kaos.getcwd(),
+        workDir: options.pyaos.getcwd(),
         brandHomeDir: options.pythinkerHomeDir ?? join(homedir(), '.pythinker-code'),
         osHomeDir: options.agents?.userHomeDir ?? homedir(),
         extraDirs: options.agents?.extraDirs ?? options.config?.extraAgentDirs,
@@ -404,10 +404,10 @@ export class Session {
   }
 
 
-  setToolKaos(kaos: Kaos) {
-    this.toolKaos = kaos;
+  setToolPyaos(pyaos: Pyaos) {
+    this.toolPyaos = pyaos;
     for (const agent of this.readyAgents()) {
-      agent.setKaos(kaos.withCwd(agent.config.cwd));
+      agent.setPyaos(pyaos.withCwd(agent.config.cwd));
     }
     this.refreshAgentBuiltinTools();
   }
@@ -431,18 +431,18 @@ export class Session {
     path: string,
     persist = true,
   ): Promise<WorkspaceAdditionalDirsLoadResult & { readonly persisted: boolean }> {
-    const cwd = this.toolKaos.getcwd();
-    const systemKaos = this.systemContextKaos(cwd);
+    const cwd = this.toolPyaos.getcwd();
+    const systemPyaos = this.systemContextPyaos(cwd);
     if (persist) {
-      const result = await appendWorkspaceAdditionalDir(systemKaos, cwd, path, this.additionalDirs);
+      const result = await appendWorkspaceAdditionalDir(systemPyaos, cwd, path, this.additionalDirs);
       const additionalDirs = normalizeAdditionalDirs([...this.additionalDirs, ...result.additionalDirs]);
       await this.setAdditionalDirs(additionalDirs);
       this.notifyAdditionalDirAdded(path, true, result.configPath);
       return { ...result, additionalDirs, persisted: true };
     }
 
-    const workspace = await readWorkspaceAdditionalDirs(systemKaos, cwd);
-    const additionalDirs = await resolveWorkspaceAdditionalDirs(systemKaos, cwd, [path]);
+    const workspace = await readWorkspaceAdditionalDirs(systemPyaos, cwd);
+    const additionalDirs = await resolveWorkspaceAdditionalDirs(systemPyaos, cwd, [path]);
     const nextAdditionalDirs = normalizeAdditionalDirs([...this.additionalDirs, ...additionalDirs]);
     const nextSessionAdditionalDirs = normalizeAdditionalDirs([
       ...this.sessionAdditionalDirs,
@@ -478,14 +478,14 @@ export class Session {
   }
 
   /**
-   * Kaos used by session-internal bootstrap (AGENTS.md context, cwd listing)
+   * Pyaos used by session-internal bootstrap (AGENTS.md context, cwd listing)
    * and metadata persistence. Always backed by the persistence sink (typically
    * the local filesystem) so a transient ACP-side failure on system files like
    * `AGENTS.md` never blocks `bootstrapAgentProfile` — tool calls still route
-   * through `agent.kaos` and continue to honor the ACP bridge.
+   * through `agent.pyaos` and continue to honor the ACP bridge.
    */
-  systemContextKaos(cwd: string): Kaos {
-    return this.persistenceKaos.withCwd(cwd);
+  systemContextPyaos(cwd: string): Pyaos {
+    return this.persistencePyaos.withCwd(cwd);
   }
 
   async createMain() {
@@ -519,9 +519,9 @@ export class Session {
     await this.skillsReady;
     this.log.info('session resume', { app_version: this.options.appVersion });
     const { agents, additionalDirs = [] } = await this.readMetadata();
-    const cwd = this.toolKaos.getcwd();
+    const cwd = this.toolPyaos.getcwd();
     this.sessionAdditionalDirs = await resolveWorkspaceAdditionalDirs(
-      this.systemContextKaos(cwd),
+      this.systemContextPyaos(cwd),
       cwd,
       additionalDirs,
     );
@@ -851,7 +851,7 @@ export class Session {
     profile: ResolvedAgentProfile,
   ): Promise<void> {
     const context = await prepareSystemPromptContext(
-      this.systemContextKaos(agent.kaos.getcwd()),
+      this.systemContextPyaos(agent.pyaos.getcwd()),
       this.options.pythinkerHomeDir,
       { additionalDirs: this.additionalDirs },
     );
@@ -990,7 +990,7 @@ export class Session {
     // surfaces for long-lived sessions.
     try {
       const context = await prepareSystemPromptContext(
-        this.systemContextKaos(this.toolKaos.getcwd()),
+        this.systemContextPyaos(this.toolPyaos.getcwd()),
         this.options.pythinkerHomeDir,
         { additionalDirs: this.additionalDirs },
       );
@@ -1016,7 +1016,7 @@ export class Session {
       });
       await handle.completion;
 
-      const agentsMd = await loadAgentsMd(mainAgent.kaos, this.options.pythinkerHomeDir);
+      const agentsMd = await loadAgentsMd(mainAgent.pyaos, this.options.pythinkerHomeDir);
       mainAgent.context.appendSystemReminder(initCompletionReminder(agentsMd), {
         kind: 'injection',
         variant: 'init',
@@ -1102,15 +1102,15 @@ export class Session {
       2,
     );
     const write = async () => {
-      await this.persistenceKaos.mkdir(this.options.homedir, { parents: true, existOk: true });
-      await this.persistenceKaos.writeText(this.metadataPath, text);
+      await this.persistencePyaos.mkdir(this.options.homedir, { parents: true, existOk: true });
+      await this.persistencePyaos.writeText(this.metadataPath, text);
     };
     this.writeMetadataPromise = this.writeMetadataPromise.then(write, write);
     return this.writeMetadataPromise;
   }
 
   async readMetadata() {
-    const text = await this.persistenceKaos.readText(this.metadataPath);
+    const text = await this.persistencePyaos.readText(this.metadataPath);
     const persisted = JSON.parse(text) as PersistedSessionState;
     const { agentProfileCatalog, ...metadata } = persisted;
     this.metadata = metadata;
@@ -1162,7 +1162,7 @@ export class Session {
       paths: {
         userHomeDir: this.options.skills?.userHomeDir ?? homedir(),
         brandHomeDir: this.options.skills?.brandHomeDir ?? this.options.pythinkerHomeDir,
-        workDir: this.options.kaos.getcwd(),
+        workDir: this.options.pyaos.getcwd(),
       },
       explicitDirs: this.options.skills?.explicitDirs,
       extraDirs: this.options.skills?.extraDirs,
@@ -1260,14 +1260,14 @@ export class Session {
     parentAgentId: string | null = null,
   ): Agent {
     const parentAgent = parentAgentId !== null ? this.getReadyAgent(parentAgentId) : undefined;
-    const cwd = parentAgent?.config.cwd ?? this.toolKaos.getcwd();
+    const cwd = parentAgent?.config.cwd ?? this.toolPyaos.getcwd();
     let agent!: Agent;
     const subagentHost =
       config.subagentHost ?? new SessionSubagentHost(this, id, () => agent);
     agent = new Agent({
       ...config,
       type,
-      kaos: this.toolKaos.withCwd(cwd),
+      pyaos: this.toolPyaos.withCwd(cwd),
       toolServices: this.options.toolServices,
       config: this.pythinkerConfig,
       homedir,
@@ -1291,7 +1291,7 @@ export class Session {
       additionalDirs: parentAgent?.getAdditionalDirs() ?? this.additionalDirs,
       systemPromptContextProvider: () =>
         prepareSystemPromptContext(
-          this.systemContextKaos(agent.kaos.getcwd()),
+          this.systemContextPyaos(agent.pyaos.getcwd()),
           this.options.pythinkerHomeDir,
           { additionalDirs: agent.getAdditionalDirs() },
         ),

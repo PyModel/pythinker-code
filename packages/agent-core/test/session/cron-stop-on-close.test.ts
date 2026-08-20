@@ -4,7 +4,7 @@ import { join } from 'pathe';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { testKaos } from '../fixtures/test-kaos';
+import { testPyaos } from '../fixtures/test-pyaos';
 import type { SDKSessionRPC } from '../../src/rpc';
 import { Session } from '../../src/session';
 
@@ -29,7 +29,7 @@ describe('Session.close stops cron', () => {
   it('stops each agent cron scheduler on close', async () => {
     const { sessionDir, workDir } = await sessionFixture();
     const session = new Session({
-      kaos: testKaos.withCwd(workDir),
+      pyaos: testPyaos.withCwd(workDir),
       id: 'session-cron-stop',
       homedir: sessionDir,
       rpc: createSessionRpc(),
@@ -56,7 +56,7 @@ describe('Session.close stops cron', () => {
     const before = process.listenerCount('SIGUSR1');
     const { sessionDir, workDir } = await sessionFixture();
     const session = new Session({
-      kaos: testKaos.withCwd(workDir),
+      pyaos: testPyaos.withCwd(workDir),
       id: 'session-cron-stop-sigusr1',
       homedir: sessionDir,
       rpc: createSessionRpc(),

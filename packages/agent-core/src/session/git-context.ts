@@ -15,7 +15,7 @@
 
 import type { Readable } from 'node:stream';
 
-import type { Kaos, KaosProcess } from '@pymodel/kaos';
+import type { Pyaos, PyaosProcess } from '@pymodel/pyaos';
 
 import { log } from '../logging/logger';
 
@@ -34,7 +34,7 @@ const ALLOWED_HOSTS = [
   'git.sr.ht',
 ] as const;
 
-async function disposeProcess(proc: KaosProcess): Promise<void> {
+async function disposeProcess(proc: PyaosProcess): Promise<void> {
   try {
     await proc.dispose();
   } catch {
@@ -48,12 +48,12 @@ async function disposeProcess(proc: KaosProcess): Promise<void> {
  * Returns a formatted `<git-context>` block, or an empty string if the
  * directory is not a git repository or no useful information was collected.
  */
-export async function collectGitContext(kaos: Kaos, cwd: string): Promise<string> {
+export async function collectGitContext(pyaos: Pyaos, cwd: string): Promise<string> {
   // Step 1: is this a git repo? `rev-parse` is the authoritative probe — it
   // handles `.git` files (worktrees/submodules), subdirectories, bare repos,
   // and `$GIT_DIR` redirection, none of which a plain FS check covers.
   const revParseArgs = ['rev-parse', '--is-inside-work-tree'] as const;
-  const revParse = await runGit(kaos, cwd, revParseArgs);
+  const revParse = await runGit(pyaos, cwd, revParseArgs);
   if (!revParse.ok) {
     if (revParse.kind === 'command-failed' && isNotARepo(revParse.stderr)) {
       // Definitive "not a repo" — tell the subagent so it doesn't waste turns
@@ -82,7 +82,7 @@ export async function collectGitContext(kaos: Kaos, cwd: string): Promise<string
     ['log', '-3', '--format=%h %s'],
   ] as const;
   const [remote, branch, status, gitLog] = (await Promise.all(
-    commandArgs.map(async (args) => ({ args, result: await runGit(kaos, cwd, args) })),
+    commandArgs.map(async (args) => ({ args, result: await runGit(pyaos, cwd, args) })),
   )) as unknown as [TaggedGitResult, TaggedGitResult, TaggedGitResult, TaggedGitResult];
 
   for (const { args, result } of [remote, branch, status, gitLog]) {
@@ -193,7 +193,7 @@ function tryUrlPath(remoteUrl: string): string | null {
  *
  * - `ok: true` — exited 0; `stdout` is trimmed.
  * - `timeout` — exceeded `GIT_TIMEOUT_MS`; process was SIGKILLed.
- * - `spawn-error` — `kaos.exec` itself rejected (git missing / backend error).
+ * - `spawn-error` — `pyaos.exec` itself rejected (git missing / backend error).
  * - `command-failed` — git ran but exited non-zero, or its streams errored.
  *   `exitCode`/`stderr` are populated for the non-zero-exit case.
  */
@@ -234,14 +234,14 @@ function logGitFailure(cwd: string, args: readonly string[], failure: GitFailure
 
 /**
  * Run a single `git -C <cwd> <args>` command and return a structured result.
- * The `git -C` form runs in the target directory regardless of the Kaos
+ * The `git -C` form runs in the target directory regardless of the Pyaos
  * backend. Both stdout and stderr are captured so callers can tell "not a
  * git repository" (exit 128 + telltale stderr) apart from other failures.
  */
-async function runGit(kaos: Kaos, cwd: string, args: readonly string[]): Promise<GitResult> {
-  let proc: KaosProcess | undefined;
+async function runGit(pyaos: Pyaos, cwd: string, args: readonly string[]): Promise<GitResult> {
+  let proc: PyaosProcess | undefined;
   try {
-    proc = await kaos.exec('git', '-C', cwd, ...args);
+    proc = await pyaos.exec('git', '-C', cwd, ...args);
   } catch {
     return { ok: false, kind: 'spawn-error' };
   }

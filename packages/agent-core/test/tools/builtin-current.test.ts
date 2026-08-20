@@ -7,7 +7,7 @@
 
 import { Readable, type Writable } from 'node:stream';
 
-import type { Kaos, KaosProcess } from '@pymodel/kaos';
+import type { Pyaos, PyaosProcess } from '@pymodel/pyaos';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { Agent } from '../../src/agent';
@@ -36,7 +36,7 @@ import { ReadInputSchema, ReadTool } from '../../src/tools/builtin/file/read';
 import { WriteInputSchema, WriteTool } from '../../src/tools/builtin/file/write';
 import { BashInputSchema, BashTool } from '../../src/tools/builtin/shell/bash';
 import type { WorkspaceConfig } from '../../src/tools/support/workspace';
-import { createFakeKaos } from './fixtures/fake-kaos';
+import { createFakePyaos } from './fixtures/fake-pyaos';
 import { executeTool } from './fixtures/execute-tool';
 import { createBackgroundManager } from '../agent/background/helpers';
 import {
@@ -63,11 +63,11 @@ const regularFileStat = {
   stAtime: 0,
   stMtime: 0,
   stCtime: 0,
-} satisfies Awaited<ReturnType<Kaos['stat']>>;
+} satisfies Awaited<ReturnType<Pyaos['stat']>>;
 const directoryStat = {
   ...regularFileStat,
   stMode: 0o040_755,
-} satisfies Awaited<ReturnType<Kaos['stat']>>;
+} satisfies Awaited<ReturnType<Pyaos['stat']>>;
 
 function context<Input>(args: Input, toolCallId = 'call_1') {
   return { turnId: '0', toolCallId, args, signal };
@@ -94,7 +94,7 @@ function mockDynamicWorkflowMode(): DynamicWorkflowMode {
   return { enter: vi.fn() } as unknown as DynamicWorkflowMode;
 }
 
-function processWithOutput(stdout: string, exitCode = 0): KaosProcess {
+function processWithOutput(stdout: string, exitCode = 0): PyaosProcess {
   const stdoutStream = Readable.from([stdout]);
   const stderrStream = Readable.from([]);
   return {
@@ -117,12 +117,12 @@ describe('current builtin file and shell tools', () => {
     const content = 'alpha\nbeta\n';
     const bytes = Buffer.from(content, 'utf8');
     const tool = new ReadTool(
-      createFakeKaos({
-        stat: vi.fn<Kaos['stat']>().mockResolvedValue(regularFileStat),
-        readBytes: vi.fn<Kaos['readBytes']>().mockImplementation(async (_path, n) => {
+      createFakePyaos({
+        stat: vi.fn<Pyaos['stat']>().mockResolvedValue(regularFileStat),
+        readBytes: vi.fn<Pyaos['readBytes']>().mockImplementation(async (_path, n) => {
           return n === undefined ? bytes : bytes.subarray(0, n);
         }),
-        readLines: vi.fn<Kaos['readLines']>().mockImplementation(async function* readLines() {
+        readLines: vi.fn<Pyaos['readLines']>().mockImplementation(async function* readLines() {
           yield 'alpha\n';
           yield 'beta\n';
         }),
@@ -143,10 +143,10 @@ describe('current builtin file and shell tools', () => {
     );
   });
 
-  it('Write exposes parameters and writes through kaos', async () => {
+  it('Write exposes parameters and writes through pyaos', async () => {
     const writeText = vi.fn().mockResolvedValue(5);
     const tool = new WriteTool(
-      createFakeKaos({ writeText, stat: vi.fn<Kaos['stat']>().mockResolvedValue(directoryStat) }),
+      createFakePyaos({ writeText, stat: vi.fn<Pyaos['stat']>().mockResolvedValue(directoryStat) }),
       workspace,
     );
 
@@ -165,7 +165,7 @@ describe('current builtin file and shell tools', () => {
 
   it('Edit exposes parameters and errors when old_string is missing', async () => {
     const tool = new EditTool(
-      createFakeKaos({ readText: vi.fn().mockResolvedValue('alpha\nbeta\n') }),
+      createFakePyaos({ readText: vi.fn().mockResolvedValue('alpha\nbeta\n') }),
       workspace,
     );
 
@@ -193,7 +193,7 @@ describe('current builtin file and shell tools', () => {
     // any other pattern and the 100-match cap is the only safety.
     const exec = vi.fn().mockResolvedValue(processWithOutput('/workspace/a.ts\n'));
     const stat = vi.fn().mockResolvedValue({ ...regularFileStat, stMode: 0o040000 });
-    const tool = new GlobTool(createFakeKaos({ exec, stat }), workspace);
+    const tool = new GlobTool(createFakePyaos({ exec, stat }), workspace);
 
     expect(GlobInputSchema.safeParse({ pattern: '*.ts' }).success).toBe(true);
     expect(tool.parameters).toMatchObject({
@@ -209,8 +209,8 @@ describe('current builtin file and shell tools', () => {
   });
 
   it('Grep exposes parameters and rejects relative workspace escapes before spawning rg', async () => {
-    const kaos = createFakeKaos({ exec: vi.fn() });
-    const tool = new GrepTool(kaos, workspace);
+    const pyaos = createFakePyaos({ exec: vi.fn() });
+    const tool = new GrepTool(pyaos, workspace);
 
     expect(GrepInputSchema.safeParse({ pattern: 'needle' }).success).toBe(true);
     expect(tool.parameters).toMatchObject({
@@ -221,12 +221,12 @@ describe('current builtin file and shell tools', () => {
     const result = await executeTool(tool, context({ pattern: 'needle', path: '../outside' }));
     expect(result).toMatchObject({ isError: true });
     expect(result.output).toContain('outside the working directory');
-    expect(kaos.exec).not.toHaveBeenCalled();
+    expect(pyaos.exec).not.toHaveBeenCalled();
   });
 
   it('Bash exposes parameters and returns foreground stdout', async () => {
     const tool = new BashTool(
-      createFakeKaos({
+      createFakePyaos({
         execWithEnv: vi.fn().mockResolvedValue(processWithOutput('ok\n')),
         osEnv: {
           osKind: 'Linux',

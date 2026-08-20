@@ -55,8 +55,8 @@ pythinker acp
 | --- | --- | --- |
 | `session/update` | 是 | 流式推送 `agent_message_chunk` / `tool_call*` / `plan` / `config_option_update` / `available_commands_update` |
 | `session/request_permission` | 是 | 工具审批和问题 elicitation 共用此通道 |
-| `fs/read_text_file` | 是 | kaos 层文件读取路由到客户端（通过 `fsCapabilities` 公告） |
-| `fs/write_text_file` | 是 | kaos 层文件写入路由到客户端 |
+| `fs/read_text_file` | 是 | pyaos 层文件读取路由到客户端（通过 `fsCapabilities` 公告） |
+| `fs/write_text_file` | 是 | pyaos 层文件写入路由到客户端 |
 | `terminal/create` · `output` · `release` · `kill` · `wait_for_exit` | 否 | 终端 reverse-RPC 未接，shell 命令走本地执行 |
 
 ### 不稳定面（1 / 19）

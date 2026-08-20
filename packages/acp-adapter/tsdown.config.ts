@@ -12,7 +12,7 @@ export default defineConfig({
       '@pymodel/agent-core',
       '@pymodel/pythinker-code-sdk',
       '@pymodel/kosong',
-      '@pymodel/kaos',
+      '@pymodel/pyaos',
     ],
   },
 });

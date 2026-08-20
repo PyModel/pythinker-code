@@ -1,4 +1,4 @@
-import type { Kaos } from '@pymodel/kaos';
+import type { Pyaos } from '@pymodel/pyaos';
 import {
   ErrorCodes,
   PythinkerError,
@@ -126,11 +126,19 @@ export class PythinkerHarness {
   }
 
   async createSession(options: CreateSessionOptions): Promise<Session> {
-    const { planMode, kaos, persistenceKaos, sessionStartedProperties, ...coreOptions } = options;
+    const {
+      planMode,
+      kaos,
+      persistenceKaos,
+      pyaos = kaos,
+      persistencePyaos = persistenceKaos,
+      sessionStartedProperties,
+      ...coreOptions
+    } = options;
     const summary =
-      kaos === undefined && persistenceKaos === undefined
+      pyaos === undefined && persistencePyaos === undefined
         ? await this.rpc.createSession(coreOptions)
-        : await this.rpc.createSessionWithKaos(coreOptions, kaos ?? persistenceKaos as Kaos, persistenceKaos);
+        : await this.rpc.createSessionWithPyaos(coreOptions, pyaos ?? persistencePyaos as Pyaos, persistencePyaos);
     const session = new Session({
       id: summary.id,
       workDir: summary.workDir,
@@ -157,6 +165,8 @@ export class PythinkerHarness {
     const {
       kaos,
       persistenceKaos,
+      pyaos = kaos,
+      persistencePyaos = persistenceKaos,
       sessionStartedProperties: _sessionStartedProperties,
       ...resumeInput
     } = input;
@@ -164,8 +174,8 @@ export class PythinkerHarness {
     // is not a valid resume target — fall through and re-resume fresh, which
     // the engine serializes behind that close.
     if (active !== undefined && !active.isClosed) {
-      if (kaos !== undefined || persistenceKaos !== undefined) {
-        await this.rpc.resumeSessionWithKaos({ ...resumeInput, id }, kaos ?? persistenceKaos as Kaos, persistenceKaos);
+      if (pyaos !== undefined || persistencePyaos !== undefined) {
+        await this.rpc.resumeSessionWithPyaos({ ...resumeInput, id }, pyaos ?? persistencePyaos as Pyaos, persistencePyaos);
       } else if (input.agentProfile !== undefined) {
         await this.rpc.resumeSession({ ...resumeInput, id });
       }
@@ -174,7 +184,7 @@ export class PythinkerHarness {
 
     // Coalesce concurrent resumes of the same id onto one facade, keyed by
     // the full input so a caller with different options (dirs, replay,
-    // profile, kaos) never has them silently dropped; without this,
+    // profile, pyaos) never has them silently dropped; without this,
     // parallel identical callers each build their own Session over the
     // shared engine handle, and one facade's close kills the engine handle
     // under the other.
@@ -191,11 +201,18 @@ export class PythinkerHarness {
   }
 
   private async doResumeSession(input: ResumeSessionInput, id: string): Promise<Session> {
-    const { kaos, persistenceKaos, sessionStartedProperties, ...resumeInput } = input;
+    const {
+      kaos,
+      persistenceKaos,
+      pyaos = kaos,
+      persistencePyaos = persistenceKaos,
+      sessionStartedProperties,
+      ...resumeInput
+    } = input;
     const summary =
-      kaos === undefined && persistenceKaos === undefined
+      pyaos === undefined && persistencePyaos === undefined
         ? await this.rpc.resumeSession({ ...resumeInput, id })
-        : await this.rpc.resumeSessionWithKaos({ ...resumeInput, id }, kaos ?? persistenceKaos as Kaos, persistenceKaos);
+        : await this.rpc.resumeSessionWithPyaos({ ...resumeInput, id }, pyaos ?? persistencePyaos as Pyaos, persistencePyaos);
     const session = new Session({
       id: summary.id,
       workDir: summary.workDir,
@@ -651,12 +668,12 @@ export class PythinkerHarness {
 const DEFAULT_SESSION_STARTED_UI_MODE = 'shell';
 
 function resumeCoalesceKey(id: string, input: ResumeSessionInput): string {
-  const { kaos, persistenceKaos, ...rest } = input;
+  const { pyaos, persistencePyaos, ...rest } = input;
   return JSON.stringify({
     ...rest,
     id,
-    kaos: kaos !== undefined,
-    persistenceKaos: persistenceKaos !== undefined,
+    pyaos: pyaos !== undefined,
+    persistencePyaos: persistencePyaos !== undefined,
   });
 }
 

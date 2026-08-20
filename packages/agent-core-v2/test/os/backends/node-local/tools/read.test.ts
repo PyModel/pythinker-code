@@ -377,7 +377,7 @@ describe('ReadTool', () => {
     expect(readLines).not.toHaveBeenCalled();
   });
 
-  it('expands leading tilde paths using the kaos home directory', async () => {
+  it('expands leading tilde paths using the pyaos home directory', async () => {
     const { fs, readBytes, readLines } = createSpiedFs('home note');
     const tool = createReadTool(fs, createTestEnv('/home/test'), stubWorkspaceContext('/workspace'));
 

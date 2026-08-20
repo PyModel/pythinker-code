@@ -160,7 +160,7 @@ export function registerLogServices(reg: ServiceRegistration): void {
 ix = createServices(disposables, {
   base: [registerLogServices, registerConfigServices, registerRecordsServices],
   additionalServices: (reg) => {
-    reg.definePartialInstance(IAgentKaos, {});        // one-off collaborator
+    reg.definePartialInstance(IAgentPyaos, {});        // one-off collaborator
     reg.define(IAgentRecords, spyRecords);             // override a base default
     reg.define(IXxxService, XxxService);               // system under test
   },

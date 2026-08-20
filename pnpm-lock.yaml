@@ -567,9 +567,9 @@ importers:
       '@pymodel/agent-core':
         specifier: workspace:^
         version: link:../agent-core
-      '@pymodel/kaos':
+      '@pymodel/pyaos':
         specifier: workspace:^
-        version: link:../kaos
+        version: link:../pyaos
       '@pymodel/pythinker-code-sdk':
         specifier: workspace:^
         version: link:../node-sdk
@@ -607,15 +607,15 @@ importers:
       '@mozilla/readability':
         specifier: ^0.6.0
         version: 0.6.0
-      '@pymodel/kaos':
-        specifier: workspace:^
-        version: link:../kaos
       '@pymodel/kosong':
         specifier: workspace:^
         version: link:../kosong
       '@pymodel/protocol':
         specifier: workspace:^
         version: link:../protocol
+      '@pymodel/pyaos':
+        specifier: workspace:^
+        version: link:../pyaos
       '@pymodel/pythinker-code-oauth':
         specifier: workspace:^
         version: link:../oauth
@@ -914,19 +914,6 @@ importers:
         specifier: ^4.23.5
         version: 4.23.12
 
-  packages/kaos:
-    dependencies:
-      pathe:
-        specifier: ^2.0.3
-        version: 2.0.3
-      ssh2:
-        specifier: ^1.17.0
-        version: 1.17.0
-    devDependencies:
-      '@types/ssh2':
-        specifier: ^1.15.5
-        version: 1.15.5
-
   packages/klient:
     dependencies:
       '@pymodel/agent-core-v2':
@@ -1001,15 +988,15 @@ importers:
       '@pymodel/agent-core-v2':
         specifier: workspace:^
         version: link:../agent-core-v2
-      '@pymodel/kaos':
-        specifier: workspace:^
-        version: link:../kaos
       '@pymodel/klient':
         specifier: workspace:^
         version: link:../klient
       '@pymodel/kosong':
         specifier: workspace:^
         version: link:../kosong
+      '@pymodel/pyaos':
+        specifier: workspace:^
+        version: link:../pyaos
       '@pymodel/pythinker-code-oauth':
         specifier: workspace:^
         version: link:../oauth
@@ -1057,6 +1044,19 @@ importers:
       zod:
         specifier: ^4.3.6
         version: 4.4.3
+
+  packages/pyaos:
+    dependencies:
+      pathe:
+        specifier: ^2.0.3
+        version: 2.0.3
+      ssh2:
+        specifier: ^1.17.0
+        version: 1.17.0
+    devDependencies:
+      '@types/ssh2':
+        specifier: ^1.15.5
+        version: 1.15.5
 
   packages/telemetry: {}
 
