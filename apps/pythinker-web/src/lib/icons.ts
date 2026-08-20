@@ -365,6 +365,26 @@ export function iconSvg(name: IconName, size: IconSize = 'md'): string {
   return applySize(entry.svg, SIZE_PX[size]);
 }
 
+const CODE_EXTENSIONS = new Set([
+  'ts', 'tsx', 'js', 'jsx', 'mjs', 'cjs', 'vue', 'json', 'py', 'go', 'rs',
+  'java', 'kt', 'c', 'h', 'cpp', 'cc', 'hpp', 'cs', 'rb', 'php', 'swift',
+  'sh', 'bash', 'zsh', 'css', 'scss', 'less', 'html', 'htm', 'xml', 'sql',
+  'yaml', 'yml', 'toml', 'lua', 'dart', 'scala', 'clj', 'ex', 'exs',
+]);
+const DOCUMENT_EXTENSIONS = new Set(['md', 'markdown', 'mdx', 'txt', 'rst', 'adoc', 'pdf', 'doc', 'docx']);
+const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'bmp', 'ico', 'avif']);
+
+export function fileTypeIconSvg(path: string, name?: string): string {
+  if (path.endsWith('/')) return iconSvg('folder', 'sm');
+  const base = name || path.split('/').pop() || path;
+  const dot = base.lastIndexOf('.');
+  const extension = dot > 0 ? base.slice(dot + 1).toLowerCase() : '';
+  if (CODE_EXTENSIONS.has(extension)) return iconSvg('code', 'sm');
+  if (DOCUMENT_EXTENSIONS.has(extension)) return iconSvg('file-text', 'sm');
+  if (IMAGE_EXTENSIONS.has(extension)) return iconSvg('image', 'sm');
+  return iconSvg('file', 'sm');
+}
+
 // ---------------------------------------------------------------------------
 // catalog grouping — single source of truth for design-system §02 icon list
 // ---------------------------------------------------------------------------

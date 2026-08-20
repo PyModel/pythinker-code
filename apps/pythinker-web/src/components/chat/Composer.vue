@@ -300,7 +300,8 @@ const {
 void fileInputRef;
 
 function clearAttachments(): void {
-  for (const attachment of attachments.value) removeAttachment(attachment.localId);
+  const ids = attachments.value.map((attachment) => attachment.localId);
+  for (const id of ids) removeAttachment(id);
 }
 
 const mediaAttachments = computed(() => attachments.value.filter((attachment) => attachment.kind !== 'file'));

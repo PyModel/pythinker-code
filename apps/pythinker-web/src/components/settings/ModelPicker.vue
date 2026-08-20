@@ -131,6 +131,36 @@ function flatIdx(m: AppModel): number {
 function selectTab(tabId: string): void {
   activeTab.value = tabId;
 }
+
+const capabilityKeys: Record<string, string> = {
+  image_in: 'imageIn',
+  imageIn: 'imageIn',
+  image_out: 'imageOut',
+  imageOut: 'imageOut',
+  vision: 'vision',
+  video_in: 'videoIn',
+  videoIn: 'videoIn',
+  audio_in: 'audioIn',
+  audioIn: 'audioIn',
+  audio_out: 'audioOut',
+  audioOut: 'audioOut',
+  thinking: 'thinking',
+  always_thinking: 'alwaysThinking',
+  alwaysThinking: 'alwaysThinking',
+  adaptive_thinking: 'adaptiveThinking',
+  adaptiveThinking: 'adaptiveThinking',
+  tool_use: 'toolUse',
+  toolUse: 'toolUse',
+  fast_mode: 'fastMode',
+  fastMode: 'fastMode',
+};
+
+function capabilityLabel(capability: string): string {
+  const key = capabilityKeys[capability];
+  return key
+    ? t(`model.capabilities.${key}`)
+    : t('model.capabilities.unknown', { capability });
+}
 </script>
 
 <template>
@@ -194,7 +224,7 @@ function selectTab(tabId: string): void {
             <span class="model-name">{{ m.displayName ?? m.model }}</span>
             <span class="model-id">{{ m.id }}</span>
             <span v-if="m.capabilities && m.capabilities.length > 0" class="caps">
-              <Badge v-for="cap in m.capabilities" :key="cap" variant="info" size="sm">{{ cap }}</Badge>
+              <Badge v-for="cap in m.capabilities" :key="cap" variant="info" size="sm">{{ capabilityLabel(cap) }}</Badge>
             </span>
           </span>
           <span class="model-provider">{{ m.provider }}</span>

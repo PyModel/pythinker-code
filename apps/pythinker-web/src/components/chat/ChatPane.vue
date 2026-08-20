@@ -12,6 +12,7 @@ import CronNotice from './CronNotice.vue';
 import MessageTime from './MessageTime.vue';
 import AuthMedia from './AuthMedia.vue';
 import AttachmentChip from './AttachmentChip.vue';
+import ComposerText from './ComposerText.vue';
 import ThinkingIndicator from '../ui/ThinkingIndicator.vue';
 import Spinner from '../ui/Spinner.vue';
 import Icon from '../ui/Icon.vue';
@@ -584,7 +585,7 @@ function isStreamingRenderBlock(turn: ChatTurn, block: { sourceIndex: number }):
               <div v-if="turn.pluginCommand.args" class="skill-act-args">{{ turn.pluginCommand.args }}</div>
             </div>
             <!-- User input renders verbatim (pre-wrap), never through Markdown -->
-            <div v-else class="u-text">{{ turn.text }}</div>
+            <div v-else class="u-text"><ComposerText :text="turn.text" :open-file="(target) => emit('openFile', target)" /></div>
           </div>
           <div v-if="turn.createdAt || canEditTurn(turn)" class="u-meta">
             <div v-if="canEditTurn(turn)" class="u-edit-wrap" :class="{ undoing: undoingTurnId === turn.id }">

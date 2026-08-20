@@ -2,7 +2,7 @@
 <!-- Popup list of file paths shown when user types @ in the Composer textarea. -->
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n';
-import { iconSvg } from '../../lib/icons';
+import { fileTypeIconSvg } from '../../lib/icons';
 import type { FileItem } from '../../types';
 
 // Re-exported for the .vue consumers (Composer / ChatDock / ConversationPane)
@@ -22,40 +22,6 @@ const emit = defineEmits<{
 
 const { t } = useI18n();
 
-// ---------------------------------------------------------------------------
-// File-type glyphs: small line-SVG icons (viewBox 0 0 16 16) keyed off the
-// extension. Categories: folder, code, doc/markdown, image, generic.
-// Subtle + muted; never an emoji.
-// ---------------------------------------------------------------------------
-
-const ICON_FOLDER = iconSvg('folder', 'sm');
-const ICON_CODE = iconSvg('code', 'sm');
-const ICON_DOC = iconSvg('file-text', 'sm');
-const ICON_IMAGE = iconSvg('image', 'sm');
-const ICON_GENERIC = iconSvg('file', 'sm');
-
-const CODE_EXT = new Set([
-  'ts', 'tsx', 'js', 'jsx', 'mjs', 'cjs', 'vue', 'json', 'py', 'go', 'rs',
-  'java', 'kt', 'c', 'h', 'cpp', 'cc', 'hpp', 'cs', 'rb', 'php', 'swift',
-  'sh', 'bash', 'zsh', 'css', 'scss', 'less', 'html', 'htm', 'xml', 'sql',
-  'yaml', 'yml', 'toml', 'lua', 'dart', 'scala', 'clj', 'ex', 'exs',
-]);
-const DOC_EXT = new Set(['md', 'markdown', 'mdx', 'txt', 'rst', 'adoc', 'pdf', 'doc', 'docx']);
-const IMAGE_EXT = new Set(['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'bmp', 'ico', 'avif']);
-
-function fileIcon(item: FileItem): string {
-  const path = item.path;
-  // Trailing slash → folder.
-  if (path.endsWith('/')) return ICON_FOLDER;
-  const base = item.name || path.split('/').pop() || path;
-  const dot = base.lastIndexOf('.');
-  const ext = dot > 0 ? base.slice(dot + 1).toLowerCase() : '';
-  if (!ext) return ICON_GENERIC;
-  if (CODE_EXT.has(ext)) return ICON_CODE;
-  if (DOC_EXT.has(ext)) return ICON_DOC;
-  if (IMAGE_EXT.has(ext)) return ICON_IMAGE;
-  return ICON_GENERIC;
-}
 </script>
 
 <template>
@@ -66,24 +32,24 @@ function fileIcon(item: FileItem): string {
     <!-- Empty state (not loading, no items) -->
     <div v-else-if="props.items.length === 0" class="mention-state dim">{{ t('mention.noMatch') }}</div>
 
-    <!-- File items -->
-    <div
-      v-for="(item, i) in props.items"
-      v-else
-      :key="item.path"
-      class="mention-item"
-      :class="{ active: i === props.activeIndex }"
-      role="option"
-      :aria-selected="i === props.activeIndex"
-      @mouseenter="emit('hover', i)"
-      @mousedown.prevent="emit('select', item)"
-    >
-      <!-- file-type glyph (line-SVG) -->
-      <!-- eslint-disable-next-line vue/no-v-html -->
-      <span class="mention-icon" v-html="fileIcon(item)" aria-hidden="true" />
-      <span class="mention-name">{{ item.name }}</span>
-      <span class="mention-path">{{ item.path }}</span>
-    </div>
+    <template v-else>
+      <div class="mention-group-label">{{ t('mention.files') }}</div>
+      <div
+        v-for="(item, i) in props.items"
+        :key="item.path"
+        class="mention-item"
+        :class="{ active: i === props.activeIndex }"
+        role="option"
+        :aria-selected="i === props.activeIndex"
+        @mouseenter="emit('hover', i)"
+        @mousedown.prevent="emit('select', item)"
+      >
+        <!-- eslint-disable-next-line vue/no-v-html -->
+        <span class="mention-icon" v-html="fileTypeIconSvg(item.path, item.name)" aria-hidden="true" />
+        <span class="mention-name">{{ item.name }}</span>
+        <span class="mention-path">{{ item.path }}</span>
+      </div>
+    </template>
   </div>
 </template>
 
@@ -109,6 +75,13 @@ function fileIcon(item: FileItem): string {
   padding: 8px 12px;
   font-family: var(--font-ui);
   font-size: var(--text-sm);
+}
+
+.mention-group-label {
+  padding: 5px 10px 3px;
+  color: var(--color-text-faint);
+  font-family: var(--font-ui);
+  font-size: var(--text-xs);
 }
 
 .dim {

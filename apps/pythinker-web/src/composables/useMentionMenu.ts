@@ -1,6 +1,7 @@
 // apps/pythinker-web/src/composables/useMentionMenu.ts
 import { nextTick, ref, type Ref } from 'vue';
 import type { FileItem } from '../types';
+import { serializeMention } from '../lib/mentions';
 
 export interface MentionMenuDeps {
   /** The live composer text — the @token is read from it and rewritten on select. */
@@ -81,13 +82,18 @@ export function useMentionMenu(deps: MentionMenuDeps) {
     const mt = getMentionToken();
     if (!mt) return;
     const val = text.value;
-    // Replace the @query token with the file path.
-    text.value = val.slice(0, mt.start) + item.path + val.slice(mt.end);
+    const name = item.name || item.path.split(/[\\/]/).filter(Boolean).pop() || item.path;
+    const mention = serializeMention({
+      kind: item.path.endsWith('/') ? 'folder' : 'file',
+      name,
+      path: item.path,
+    });
+    text.value = `${val.slice(0, mt.start)}${mention} ${val.slice(mt.end)}`;
     open.value = false;
     void nextTick(() => {
       const el = textareaRef.value;
       if (!el) return;
-      const newPos = mt.start + item.path.length;
+      const newPos = mt.start + mention.length + 1;
       el.setSelectionRange(newPos, newPos);
       el.focus();
       autosize();

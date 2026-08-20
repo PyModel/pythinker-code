@@ -244,7 +244,7 @@ function treePadding(depth: number): string {
         :close-label="t('diff.close')"
         @close="onClose"
       >
-        <span class="dv-change-count">{{ t('diff.changeCount', { count: changes.length }) }}</span>
+        <span class="dv-change-count">{{ t(changes.length === 1 ? 'diff.fileCountOne' : 'diff.fileCountOther', { number: changes.length }) }}</span>
         <SegmentedControl
           :model-value="viewMode"
           size="sm"

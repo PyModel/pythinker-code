@@ -30,18 +30,7 @@ function finish(): void {
   >
     <template #head>
       <div class="ob-brand">
-        <svg class="ob-logo" viewBox="0 0 32 22" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Pythinker Code">
-          <defs>
-            <mask id="obPythinkerEyes" maskUnits="userSpaceOnUse">
-              <rect x="0" y="0" width="32" height="22" fill="#fff" />
-              <g class="ob-eyes" fill="#000">
-                <rect class="ob-eye" x="11.8" y="7" width="2.8" height="8" rx="1.4" />
-                <rect class="ob-eye" x="17.4" y="7" width="2.8" height="8" rx="1.4" />
-              </g>
-            </mask>
-          </defs>
-          <rect x="1" y="1" width="30" height="20" rx="6" fill="var(--color-accent)" mask="url(#obPythinkerEyes)" />
-        </svg>
+        <img class="ob-logo" src="/brand/pythinker_animated.svg" alt="Pythinker" />
         <div class="ob-brand-text">
           <div class="ob-title">{{ t('onboarding.title') }}</div>
           <div class="ob-sub">{{ t('onboarding.subtitle') }}</div>
@@ -99,27 +88,4 @@ function finish(): void {
 /* full-width primary CTA */
 .ob-start { width: 100%; }
 
-/* Onboarding logo: faster eye animations than the sidebar (6s look, 4s blink). */
-.ob-eyes {
-  animation: ob-eye-look 6s ease-in-out infinite;
-}
-.ob-eye {
-  transform-box: fill-box;
-  transform-origin: center;
-  animation: ob-eye-blink 4s ease-in-out infinite;
-}
-@keyframes ob-eye-look {
-  0%, 42% { transform: translateX(0); }
-  47%, 53% { transform: translateX(2px); }
-  58%, 80% { transform: translateX(0); }
-  84%, 90% { transform: translateX(-2px); }
-  95%, 100% { transform: translateX(0); }
-}
-@keyframes ob-eye-blink {
-  0%, 94%, 100% { transform: scaleY(1); }
-  96.5%, 98% { transform: scaleY(0.12); }
-}
-@media (prefers-reduced-motion: reduce) {
-  .ob-eyes, .ob-eye { animation: none; }
-}
 </style>

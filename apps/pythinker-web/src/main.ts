@@ -2,8 +2,6 @@ import { createApp } from 'vue';
 import App from './App.vue';
 import i18n from './i18n';
 import { installClientErrorCapture } from './debug/trace';
-import '@fontsource-variable/inter/opsz.css';
-import '@fontsource-variable/inter/opsz-italic.css';
 import '@fontsource-variable/jetbrains-mono/wght.css';
 import './style.css';
 

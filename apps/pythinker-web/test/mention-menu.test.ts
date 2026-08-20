@@ -84,7 +84,7 @@ describe('useMentionMenu — select', () => {
     const { text, textarea, mention } = setup('hello @a');
     textarea.value = 'hello @a';
     mention.select({ path: 'src/a.ts', name: 'a.ts' });
-    expect(text.value).toBe('hello src/a.ts');
+    expect(text.value).toBe('hello [a.ts](src/a.ts) ');
     expect(mention.open.value).toBe(false);
     await nextTick();
   });

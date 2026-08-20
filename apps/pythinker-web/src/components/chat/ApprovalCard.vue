@@ -42,6 +42,8 @@ const planReview = computed<PlanReviewView | null>(() => {
 // Temporarily collapse to a thin bar so the approval stops covering the chat
 // while the user reads. The decision buttons + body return on expand.
 const minimized = ref(false);
+const expanded = ref(false);
+const expandable = computed(() => ['plan_review', 'diff', 'file'].includes(props.block.kind));
 
 // ---------------------------------------------------------------------------
 // Title by kind
@@ -193,6 +195,16 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
         <Badge v-if="agentName && !minimized" variant="neutral" size="sm">{{ t('approval.subagentBadge', { name: agentName }) }}</Badge>
         <Badge v-if="!minimized" variant="warning" size="sm" class="aw">{{ t('approval.required') }}</Badge>
         <IconButton
+          v-if="expandable && !minimized"
+          class="aexpand"
+          size="sm"
+          :label="expanded ? t('approval.collapsePlan') : t('approval.expandPlan')"
+          :tooltip="expanded ? t('approval.collapsePlan') : t('approval.expandPlan')"
+          @click="expanded = !expanded"
+        >
+          <Icon :name="expanded ? 'collapse' : 'expand'" size="md" />
+        </IconButton>
+        <IconButton
           class="amin"
           size="sm"
           :label="minimized ? t('question.expand') : t('question.minimize')"
@@ -214,7 +226,7 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
       <!-- Body by kind -->
 
       <!-- diff -->
-      <div v-if="block.kind === 'diff'" class="diff">
+      <div v-if="block.kind === 'diff'" class="diff" :class="{ expanded }">
         <div v-for="(line, i) in block.diff" :key="i" class="dl" :class="line.kind === 'add' ? 'add' : line.kind === 'rem' ? 'del' : ''">
           <span class="dg">{{ line.gutter }}</span><span class="dc">{{ line.text }}</span>
         </div>
@@ -228,7 +240,7 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
       </div>
 
       <!-- file -->
-      <div v-else-if="block.kind === 'file'" class="body-file">
+      <div v-else-if="block.kind === 'file'" class="body-file" :class="{ expanded }">
         <div class="file-bar">
           <span class="file-lang">{{ block.language ?? '' }}</span>
         </div>
@@ -275,7 +287,7 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
       </div>
 
       <!-- plan_review -->
-      <div v-else-if="block.kind === 'plan_review'" class="body-plan">
+      <div v-else-if="block.kind === 'plan_review'" class="body-plan" :class="{ expanded }">
         <Markdown :text="block.plan" />
       </div>
 
@@ -415,7 +427,10 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
   background: var(--color-surface-sunken);
   overflow: hidden;
   font: var(--text-sm)/1.85 var(--font-mono);
+  max-height: 240px;
+  overflow-y: auto;
 }
+.diff.expanded { max-height: none; }
 .dl { display: flex; padding: 0 var(--space-3); }
 .dg { width: 30px; color: var(--color-text-muted); text-align: right; padding-right: var(--space-3); user-select: none; }
 .dc { white-space: pre; font: inherit; }
@@ -470,6 +485,7 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
   max-height: 240px;
   overflow-y: auto;
 }
+.body-file.expanded .file-content { max-height: none; }
 .file-line { display: flex; padding: 0 var(--space-3); }
 .file-ln { width: 30px; color: var(--color-text-muted); text-align: right; padding-right: var(--space-3); user-select: none; flex: none; }
 .file-text { white-space: pre; font: inherit; }
@@ -522,6 +538,7 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
 /* Plan review — Markdown body, capped at half the viewport height with scroll
    for longer plans. */
 .body-plan { max-height: 50vh; overflow-y: auto; }
+.body-plan.expanded { max-height: none; }
 
 /* Feedback */
 .feedback-wrap {
