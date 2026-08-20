@@ -89,7 +89,6 @@
     "@pymodel/pythinker-code-oauth": "workspace:^",
     "@pymodel/pythinker-code-sdk": "workspace:^",
     "@pymodel/pythinker-telemetry": "workspace:^",
-    "@pymodel/migration-legacy": "workspace:^",
     "@pymodel/minidb": "workspace:^",
     "@pymodel/pi-tui": "workspace:^",
     "@pymodel/vis-server": "workspace:^",

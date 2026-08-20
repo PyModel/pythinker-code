@@ -10,7 +10,6 @@ import {
   visibleWidth,
   type Focusable,
 } from '@pymodel/pi-tui';
-import { formatSessionLabel } from '#/migration/index';
 import { CURRENT_MARK, SELECT_POINTER } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
 import { SearchableList } from '#/tui/utils/searchable-list';
@@ -381,7 +380,6 @@ export class SessionPickerComponent extends Container implements Focusable {
     const time = formatRelativeTime(session.updated_at);
     const badge = isCurrent ? CURRENT_MARK : '';
     const rawTitle = (session.title ?? session.id).trim() || session.id;
-    const titleSource = formatSessionLabel({ title: rawTitle, metadata: session.metadata });
 
     // Inline trailing parts after the title: "<title>  <time>  ← current".
     const trailingParts = [time, badge].filter((p) => p.length > 0);
@@ -389,7 +387,7 @@ export class SessionPickerComponent extends Container implements Focusable {
     const trailingWidth = visibleWidth(trailingText);
     const headerPrefixWidth = visibleWidth(pointer) + 1; // pointer + space
     const titleBudget = Math.max(8, width - headerPrefixWidth - trailingWidth);
-    const shownTitle = truncateToWidth(singleLine(titleSource), titleBudget, ELLIPSIS);
+    const shownTitle = truncateToWidth(singleLine(rawTitle), titleBudget, ELLIPSIS);
 
     let header = currentTheme.fg(isSelected ? 'primary' : 'textDim', pointer + ' ');
     header += titleStyle(shownTitle);

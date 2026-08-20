@@ -67,7 +67,6 @@
         ./packages/agent-core-v2
         ./packages/kap-server
         ./packages/klient
-        ./packages/migration-legacy
         ./packages/minidb
         ./packages/pi-tui
         ./packages/transcript
@@ -95,7 +94,6 @@
         "@pymodel/agent-core-v2"
         "@pymodel/kap-server"
         "@pymodel/klient"
-        "@pymodel/migration-legacy"
         "@pymodel/minidb"
         "@pymodel/pi-tui"
         "@pymodel/transcript"
