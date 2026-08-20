@@ -37,10 +37,10 @@ describe('getIcon', () => {
 });
 
 describe('iconSvg', () => {
-  it('renders a Remix icon with kw-icon class and default md size', () => {
+  it('renders a Remix icon with ui-icon class and default md size', () => {
     const svg = iconSvg('plus');
     expect(svg.startsWith('<svg ')).toBe(true);
-    expect(svg).toContain('class="kw-icon"');
+    expect(svg).toContain('class="ui-icon"');
     expect(svg).toContain('width="16" height="16"');
   });
 

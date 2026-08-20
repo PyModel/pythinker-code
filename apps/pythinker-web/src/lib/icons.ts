@@ -355,7 +355,7 @@ export function getIcon(name: IconName): IconEntry {
 function applySize(svg: string, px: number): string {
   return svg
     .replace(/\s(?:width|height)="[^"]*"/g, '')
-    .replace(/^<svg\b/, `<svg class="kw-icon" width="${px}" height="${px}" aria-hidden="true"`);
+    .replace(/^<svg\b/, `<svg class="ui-icon" width="${px}" height="${px}" aria-hidden="true"`);
 }
 
 /** Render an icon to a full <svg> string for v-html contexts. Mirrors <Icon>. */

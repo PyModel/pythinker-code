@@ -1000,7 +1000,7 @@ a.mention-folder {
     --safe-left: env(safe-area-inset-left, 0px)
 }
 
-.kw-icon {
+.ui-icon {
     display: inline-block;
     flex: none;
     vertical-align: -.15em

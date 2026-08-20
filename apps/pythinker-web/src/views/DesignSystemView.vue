@@ -2320,7 +2320,7 @@ onUnmounted(() => {
   .icon-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 8px; margin: 14px 0; }
   .icon-group-label { grid-column: 1 / -1; margin-top: 10px; font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--d-fg-muted); }
   .icon-cell { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--d-line); border-radius: 8px; background: var(--d-surface); }
-  .icon-cell .kw-icon { width: 20px; height: 20px; color: var(--d-fg-soft); }
+  .icon-cell .ui-icon { width: 20px; height: 20px; color: var(--d-fg-soft); }
   .icon-cell .ic-name { font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; color: var(--d-fg); }
   .icon-sizes { display: flex; align-items: end; gap: 22px; flex-wrap: wrap; }
   .icon-sizes .sz { display: flex; flex-direction: column; align-items: center; gap: 8px; font-size: 11px; color: var(--d-fg-muted); font-family: "JetBrains Mono", ui-monospace, monospace; }

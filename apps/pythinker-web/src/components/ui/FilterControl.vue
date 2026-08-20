@@ -294,7 +294,7 @@ onBeforeUnmount(() => {
 }
 
 .filter-control :deep(.ui-seg__item[data-icon='circle-check'] .ui-seg__icon),
-.fc-menu :deep(.kw-icon[data-icon='circle-check']) {
+.fc-menu :deep(.ui-icon[data-icon='circle-check']) {
   transform: scale(0.91);
 }
 

@@ -23,7 +23,7 @@ const px = computed(() => SIZE_PX[props.size]);
   <component
     v-if="entry"
     :is="entry.component"
-    class="kw-icon"
+    class="ui-icon"
     :width="px"
     :height="px"
     :aria-label="label"
