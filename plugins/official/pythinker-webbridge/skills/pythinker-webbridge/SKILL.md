@@ -34,13 +34,13 @@ Control the user's real browser (with their login sessions) via a local daemon a
 Single-tab tools (`snapshot`, `click`, `fill`, `screenshot`, `save_as_pdf`) act on the **current tab** — the one you most recently opened with `navigate` or selected with `find_tab`.
 
 - **Opening pages**: use `newTab:true` when pages should coexist (comparing, cross-referencing); omit it to send the current tab to a new URL.
-- **Going back to an earlier tab**: call `find_tab` to make a tab **you opened earlier in this session** the current one again. Pass the tab's **full URL** — take it from `list_tabs` or the earlier `navigate` result. A bare root domain (`kimi.com`) may miss a `www.kimi.com` tab, so prefer the exact URL. By default `find_tab` searches **only this session's own tabs** — it never reaches into the user's other tabs or windows.
+- **Going back to an earlier tab**: call `find_tab` to make a tab **you opened earlier in this session** the current one again. Pass the tab's **full URL** — take it from `list_tabs` or the earlier `navigate` result. A bare root domain (`example.com`) may miss a `www.example.com` tab, so prefer the exact URL. By default `find_tab` searches **only this session's own tabs** — it never reaches into the user's other tabs or windows.
 - **Acting on a page the user already has open**: pass `active:true` ("use my open X tab" / "the X page I'm viewing"). It **borrows** the tab the user is currently viewing (returns `borrowed:true`); the borrowed tab is operated in place — it is not pulled into the session's tab group.
 - If `find_tab` errors with "no tab matching … in this session", the page isn't open in this session — `navigate` with `newTab:true` instead.
 
 ```bash
 curl -s -X POST http://127.0.0.1:10086/command \
-  -d '{"action":"find_tab","args":{"url":"https://www.kimi.com","active":true},"session":"k26-research"}'
+  -d '{"action":"find_tab","args":{"url":"https://www.example.com","active":true},"session":"k26-research"}'
 ```
 
 ### Call Format
@@ -78,7 +78,7 @@ curl.exe -s -X POST http://127.0.0.1:10086/command -H "Content-Type: application
 ```bash
 # First tab: set session + a human label (in the user's language)
 curl -s -X POST http://127.0.0.1:10086/command \
-  -d '{"action":"navigate","args":{"url":"https://www.kimi.com","newTab":true,"group_title":"K2.6 feature research"},"session":"k26-research"}'
+  -d '{"action":"navigate","args":{"url":"https://www.example.com","newTab":true,"group_title":"K2.6 feature research"},"session":"k26-research"}'
 # Another site, same task → same session → joins the same group automatically
 curl -s -X POST http://127.0.0.1:10086/command \
   -d '{"action":"navigate","args":{"url":"https://www.pymodel.cn","newTab":true},"session":"k26-research"}'
@@ -154,5 +154,5 @@ Read [operations.md](references/operations.md) when the daemon or extension is u
 
 If a tool returns an error containing **"Please update the Pythinker WebBridge extension"**, the user's browser extension is older than this skill. Don't try to reconcile versions yourself — just tell the user, in their language, to update the extension and retry:
 
-- English: https://www.kimi.com/features/webbridge
-- 中文: https://www.kimi.com/zh-cn/features/webbridge
+- English: https://github.com/PyModel/pythinker-code
+- 中文: https://github.com/PyModel/pythinker-code

@@ -6,6 +6,7 @@
  * here instead of shipping silently. Run from the repo root.
  */
 import { existsSync, readFileSync } from 'node:fs';
+import { execSync } from 'node:child_process';
 
 const failures = [];
 
@@ -57,6 +58,38 @@ for (const file of [
     `${file} must not fall back to the managed OAuth provider`,
     !read(file).includes('fromManagedOAuth'),
   );
+}
+
+const trackedFiles = execSync('git ls-files -z').toString().split('\0').filter(Boolean);
+const kimiHostPattern = /\b(?:[a-z0-9-]+\.)*kimi\.com\b/gi;
+
+for (const file of trackedFiles) {
+  if (file.startsWith('scripts/upstream-sync/') || file.startsWith('blackbox/')) continue;
+
+  let contents;
+  try {
+    contents = readFileSync(file);
+  } catch {
+    continue;
+  }
+  if (contents.length > 2 * 1024 * 1024 || contents.includes(0)) continue;
+
+  let text;
+  try {
+    text = new TextDecoder('utf-8', { fatal: true }).decode(contents);
+  } catch {
+    continue;
+  }
+
+  for (const [index, line] of text.split(/\r?\n/).entries()) {
+    for (const match of line.matchAll(kimiHostPattern)) {
+      const host = match[0].toLowerCase();
+      if (host === 'api.kimi.com' || host === 'auth.kimi.com' || host.startsWith('platform.kimi.')) {
+        continue;
+      }
+      failures.push(`${file}:${index + 1} — ${match[0]}`);
+    }
+  }
 }
 
 if (failures.length > 0) {

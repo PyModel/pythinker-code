@@ -18,8 +18,8 @@ The `pythinker-webbridge` binary lives at `~/.pythinker-webbridge/bin/pythinker-
    - Chrome Web Store: https://chromewebstore.google.com/detail/pythinker-webbridge/fldmhceldgbpfpkbgopacenieobmligc
    - Restricted-network fallback: download https://pythinker-web-img.pymodel.cn/webbridge/latest/extension/pythinker-webbridge-extension.zip, unzip it, open `chrome://extensions`, enable Developer mode, choose **Load unpacked**, and select the extracted folder.
 4. **Anything still broken after a `start` + retry** → don't deep-troubleshoot. Point the user to the help page:
-   - English: https://www.kimi.com/features/webbridge
-   - 中文: https://www.kimi.com/zh-cn/features/webbridge
+   - English: https://github.com/PyModel/pythinker-code
+   - 中文: https://github.com/PyModel/pythinker-code
 
 ## Do NOT do automatically
 

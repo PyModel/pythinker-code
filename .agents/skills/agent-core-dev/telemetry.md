@@ -59,7 +59,7 @@ export interface ITelemetryAppender {
 Built-in appenders:
 
 - `ConsoleAppender` — `[telemetry] <event> <json>` to a log function (default `console.log`); options `prefix` / `pretty` / `log`.
-- `CloudAppender` — batches events, enriches with common context (`app_name` / `version` / `platform` / …), and posts to `https://telemetry-logs.kimi.com/v1/event` through `CloudTransport` (Bearer auth, retry, on-disk fallback). Options: `homeDir` / `deviceId` / `sessionId?` / `appName` / `version` / `uiMode?` / `model?` / `getAccessToken?` / `endpoint?` / `flushThreshold?` / `flushIntervalMs?`.
+- `CloudAppender` — batches events, enriches with common context (`app_name` / `version` / `platform` / …), and posts to `https://telemetry-logs.pythinker.com/v1/event` through `CloudTransport` (Bearer auth, retry, on-disk fallback). Options: `homeDir` / `deviceId` / `sessionId?` / `appName` / `version` / `uiMode?` / `model?` / `getAccessToken?` / `endpoint?` / `flushThreshold?` / `flushIntervalMs?`.
 
 ### Registering appenders (bootstrap)
 

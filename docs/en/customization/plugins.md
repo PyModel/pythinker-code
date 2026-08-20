@@ -142,7 +142,7 @@ You must first complete OAuth login with a Pythinker Code account via `/login`; 
 
 ### Pythinker WebBridge <Badge type="tip" text="v1.11.3" />
 
-Pythinker WebBridge lets AI drive your browser directly — not an emulator, not a crawler, but the browser you use every day, with your login sessions and cookies. AI can open pages, read content, click buttons, fill in forms, and take screenshots just like you do, taking repetitive web operations off your hands. See the [Pythinker WebBridge site](https://www.kimi.com/features/webbridge) for a product overview.
+Pythinker WebBridge lets AI drive your browser directly — not an emulator, not a crawler, but the browser you use every day, with your login sessions and cookies. AI can open pages, read content, click buttons, fill in forms, and take screenshots just like you do, taking repetitive web operations off your hands. See the [Pythinker Code repository](https://github.com/PyModel/pythinker-code) for more information.
 
 #### Install the browser extension
 
@@ -196,7 +196,7 @@ The first time you use Pythinker Computer Use after installation, it shows an au
 
 #### Notes for the Windows version
 
-The Windows version (WinCU) installs differently from the macOS one: run `/plugins install https://cdn.kimi.com/pythinker-computer-use-windows/latest/pythinker-cu-win-plugin.zip` in Pythinker Code, then restart after installation. A few things to know before using it:
+Before using the Windows version (WinCU), note the following:
 
 - **It may briefly take over your mouse and keyboard**: Unlike the macOS version, the Windows version cannot reliably inject input in the background; it may briefly activate the target window and use your real mouse and keyboard while performing actions
 - **System requirements**: Windows 10 version 1903 (Build 18362) or later, or Windows 11, x64; a real interactive desktop session is required, and Windows Server needs Desktop Experience

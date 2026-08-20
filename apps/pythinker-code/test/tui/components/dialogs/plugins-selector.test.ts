@@ -127,7 +127,7 @@ describe('plugins selector dialogs', () => {
       ...superpowers,
       source: 'zip-url' as const,
       originalSource:
-        'https://code.kimi.com/pythinker-code/plugins/official/pythinker-datasource.zip',
+        'https://plugins.example.com/pythinker-code/plugins/official/pythinker-datasource.zip',
     };
 
     expect(pluginTrustLabel(installed)).toBe('third-party');

@@ -80,7 +80,7 @@ PYTHINKER_BASE_URL = "https://api.moonshot.ai/v1"
 | `PYTHINKER_CODE_BASE_URL` | OAuth 登录后的托管 API base URL | `https://api.kimi.com/coding/v1` |
 
 ::: warning
-`PYTHINKER_CODE_BASE_URL`（OAuth 托管服务，指向 `kimi.com`）和 `PYTHINKER_BASE_URL`（API 密钥直连，指向 `pymodel.ai`）是两个不同的变量，请按场景区分。
+`PYTHINKER_CODE_BASE_URL`（OAuth 托管服务）和 `PYTHINKER_BASE_URL`（API 密钥直连 `pymodel.ai`）是两个不同的变量，请按场景区分。
 :::
 
 ## 用环境变量定义模型（`PYTHINKER_MODEL_*`）
@@ -126,7 +126,7 @@ pythinker
 | `PYTHINKER_CODE_BACKGROUND_MAX_RUNNING_TASKS` | 同时运行的后台任务数上限，优先级高于 `config.toml` 的 `[background] max_running_tasks`（不设置表示无上限） | 正整数；非法值被忽略 |
 | `PYTHINKER_IMAGE_MAX_EDGE_PX` | 图片压缩的最长边上限（像素），优先级高于 `config.toml` 的 `[image] max_edge_px`（默认 `2000`） | 正整数；非法值被忽略 |
 | `PYTHINKER_IMAGE_READ_BYTE_BUDGET` | 模型自行读图（`ReadMediaFile` 默认读取）的单图字节预算，优先级高于 `config.toml` 的 `[image] read_byte_budget`（默认 `262144`，即 256 KB） | 正整数；非法值被忽略 |
-| `PYTHINKER_CODE_PLUGIN_MARKETPLACE_URL` | 覆盖 `/plugins` 加载的 plugin marketplace JSON，适合 dev loopback server、测试 CDN 文件或替换 marketplace 目录 | `https://code.kimi.com/pythinker-code/plugins/marketplace.json`；也接受 `http://`、`file://` URL 和本地路径 |
+| `PYTHINKER_CODE_PLUGIN_MARKETPLACE_URL` | 覆盖 `/plugins` 加载的 plugin marketplace JSON，适合 dev loopback server、测试 CDN 文件或替换 marketplace 目录 | 未设置（无默认目录；未设置时仅显示内置条目）；接受 `http://`、`file://` URL 和本地路径 |
 | `PYTHINKER_CODE_AGENT_DYNAMIC_WORKFLOW_MAX_CONCURRENCY` | 限制 AgentDynamicWorkflow 初始提升并发阶段可同时运行的 subagent 数量；不设置表示不限制 | 正整数；非法值会立即失败 |
 | `PYTHINKER_SUBAGENT_TIMEOUT_MS` | 单个 subagent（`Agent` / `AgentDynamicWorkflow`）可运行的最长时间（毫秒）；优先级高于 `config.toml` 的 `[subagent] timeout_ms`（默认 `7200000`，即 2 小时） | 正整数；非法值回退到配置或默认值 |
 | `PYTHINKER_CODE_IDENTITY_NAME` | Agent 在系统提示词中的自称，优先级高于 `config.toml` 的 `[identity] name`，且不会被写回配置文件 | 任意非空字符串；空值视为未设置 |

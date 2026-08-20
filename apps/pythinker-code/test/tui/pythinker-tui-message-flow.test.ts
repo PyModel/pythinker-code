@@ -6591,13 +6591,13 @@ command = "vim"
         enabledMcpServerCount: 1,
         hasErrors: false,
         source: 'zip-url',
-        originalSource: 'https://code.kimi.com/pythinker-code/plugins/official/pythinker-datasource.zip',
+        originalSource: 'https://plugins.example.com/pythinker-code/plugins/official/pythinker-datasource.zip',
       })),
     });
     const { driver } = await makeDriver(session);
 
     driver.handleUserInput(
-      '/plugins install https://code.kimi.com/pythinker-code/plugins/official/pythinker-datasource.zip',
+      '/plugins install https://plugins.example.com/pythinker-code/plugins/official/pythinker-datasource.zip',
     );
 
     await vi.waitFor(() => {

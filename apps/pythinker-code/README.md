@@ -10,18 +10,10 @@ Pythinker Code CLI is an AI coding agent that runs in your terminal. It can read
 
 ## Install
 
-The recommended install path is the official script. It does not require Node.js to be installed first.
-
-- **macOS / Linux**:
+Install with npm. Node.js 22.19.0 or later is required:
 
 ```sh
-curl -fsSL https://code.kimi.com/pythinker-code/install.sh | bash
-```
-
-- **Windows (PowerShell)**:
-
-```powershell
-irm https://code.kimi.com/pythinker-code/install.ps1 | iex
+npm install -g @pymodel/pythinker-code
 ```
 
 > On Windows, install [Git for Windows](https://gitforwindows.org/) before first launch because Pythinker Code CLI uses the bundled Git Bash as its shell environment. If Git Bash is installed in a custom location, set `PYTHINKER_SHELL_PATH` to the absolute path of `bash.exe`.
@@ -30,20 +22,6 @@ Then run it with a new Terminal session:
 
 ```sh
 pythinker --version
-```
-
-### Alternative: npm
-
-If you prefer npm, use Node.js 22.19.0 or later:
-
-```sh
-npm install -g @pymodel/pythinker-code
-```
-
-Or with pnpm:
-
-```sh
-pnpm add -g @pymodel/pythinker-code
 ```
 
 For upgrade and uninstall instructions, see the [Getting Started guide](https://code.pythinker.com/pythinker-code/en/guides/getting-started).
@@ -65,7 +43,7 @@ Take a look at this project and explain the main directories.
 
 ## Key Features
 
-- **Single-binary distribution.** Install with one command — no Node.js setup, no PATH gymnastics, no global module conflicts.
+- **One-command installation.** Install globally with npm and start using Pythinker Code from any project.
 - **Blazing-fast startup.** The TUI is ready in milliseconds, so opening a session never feels heavy.
 - **Polished TUI.** A carefully tuned interface designed for long, focused agent sessions.
 - **Video input.** Drop a screen recording or demo clip into the chat — let the agent watch instead of typing out what's hard to describe in words.

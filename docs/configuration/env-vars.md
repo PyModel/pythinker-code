@@ -80,7 +80,7 @@ This group of variables redirects OAuth authentication and managed service endpo
 | `PYTHINKER_CODE_BASE_URL` | Managed API base URL used after OAuth login | `https://api.kimi.com/coding/v1` |
 
 ::: warning
-`PYTHINKER_CODE_BASE_URL` (OAuth-managed service, targeting `kimi.com`) and `PYTHINKER_BASE_URL` (direct API key connection, targeting `pymodel.ai`) are two distinct variables. Use each one in its appropriate context.
+`PYTHINKER_CODE_BASE_URL` (OAuth-managed service) and `PYTHINKER_BASE_URL` (direct API key connection to `pymodel.ai`) are two distinct variables. Use each one in its appropriate context.
 :::
 
 ## Define a model from environment variables (`PYTHINKER_MODEL_*`)
@@ -126,7 +126,7 @@ Switches that control the behavior of subsystems such as telemetry, background t
 | `PYTHINKER_CODE_BACKGROUND_MAX_RUNNING_TASKS` | Cap on concurrently running background tasks; takes higher priority than `[background] max_running_tasks` in `config.toml` (unset means no cap) | Positive integer; invalid values are ignored |
 | `PYTHINKER_IMAGE_MAX_EDGE_PX` | Longest-edge ceiling (px) for image compression; takes higher priority than `[image] max_edge_px` in `config.toml` (default `2000`) | Positive integer; invalid values are ignored |
 | `PYTHINKER_IMAGE_READ_BYTE_BUDGET` | Per-image byte budget for model-initiated image reads (`ReadMediaFile` default reads); takes higher priority than `[image] read_byte_budget` in `config.toml` (default `262144`, i.e. 256 KB) | Positive integer; invalid values are ignored |
-| `PYTHINKER_CODE_PLUGIN_MARKETPLACE_URL` | Override the plugin marketplace JSON loaded by `/plugins`; useful for dev loopback servers, staging CDN files, or alternate marketplace directories | `https://code.kimi.com/pythinker-code/plugins/marketplace.json`; also accepts `http://`, `file://` URLs, and local paths |
+| `PYTHINKER_CODE_PLUGIN_MARKETPLACE_URL` | Override the plugin marketplace JSON loaded by `/plugins`; useful for dev loopback servers, staging CDN files, or alternate marketplace directories | Unset (no default catalog; unset means only built-in entries are shown); accepts `http://`, `file://` URLs, and local paths |
 | `PYTHINKER_CODE_AGENT_DYNAMIC_WORKFLOW_MAX_CONCURRENCY` | Cap how many AgentDynamicWorkflow subagents run concurrently during the initial ramp; leave unset for no cap | Positive integer; invalid values fail fast |
 | `PYTHINKER_SUBAGENT_TIMEOUT_MS` | Maximum wall-clock time (ms) a single subagent (`Agent` / `AgentDynamicWorkflow`) may run; takes higher priority than `[subagent] timeout_ms` in `config.toml` (default `7200000`, i.e. 2 hours) | Positive integer; invalid values fall back to the config or default |
 | `PYTHINKER_CODE_IDENTITY_NAME` | Display name the agent calls itself in the system prompt; takes higher priority than `[identity] name` in `config.toml` and is never written back to it | Any non-empty string; blank values read as unset |

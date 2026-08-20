@@ -29,7 +29,7 @@ function makePluginSummary(): PluginSummary {
     hasErrors: false,
     source: 'zip-url',
     originalSource:
-      'https://code.kimi.com/pythinker-code/plugins/official/pythinker-datasource.zip',
+      'https://plugins.example.com/pythinker-code/plugins/official/pythinker-datasource.zip',
   };
 }
 
@@ -41,7 +41,7 @@ function makeMarketplace(source: string): PluginMarketplace {
         id: 'pythinker-datasource',
         displayName: 'Pythinker Datasource',
         source:
-          'https://code.kimi.com/pythinker-code/plugins/official/pythinker-datasource.zip',
+          'https://plugins.example.com/pythinker-code/plugins/official/pythinker-datasource.zip',
         tier: 'official',
         version: '3.4.0',
       },
@@ -86,7 +86,7 @@ describe('PluginUpdateNotifier', () => {
 
   it('does not notify for a Kimi marketplace source', async () => {
     await notifier(
-      makeMarketplace('https://code.kimi.com/pythinker-code/plugins/marketplace.json'),
+      makeMarketplace('https://plugins.example.com/pythinker-code/plugins/marketplace.json'),
     ).handlePluginCommandCompleted('pythinker-datasource');
 
     expect(session.listPlugins).not.toHaveBeenCalled();

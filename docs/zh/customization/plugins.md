@@ -142,7 +142,7 @@ Pythinker Datasource 是 Pythinker Code 官方数据插件，让你用自然语�
 
 ### Pythinker WebBridge <Badge type="tip" text="v1.11.3" />
 
-Pythinker WebBridge 让 AI 直接操控你的浏览器，带着你的登录状态和 Cookie，AI 可以像你一样打开网页、阅读内容、点击按钮、填写表单、截图保存，把重复繁琐的网页操作交给它完成。产品介绍见 [Pythinker WebBridge 官网](https://www.kimi.com/zh-cn/features/webbridge)。
+Pythinker WebBridge 让 AI 直接操控你的浏览器，带着你的登录状态和 Cookie，AI 可以像你一样打开网页、阅读内容、点击按钮、填写表单、截图保存，把重复繁琐的网页操作交给它完成。更多信息见 [Pythinker Code 仓库](https://github.com/PyModel/pythinker-code)。
 
 <a id="install-the-browser-extension"></a>
 

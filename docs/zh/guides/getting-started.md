@@ -14,44 +14,19 @@ Pythinker Code CLI 是一个运行在终端中的 AI Agent，帮助你完成软�
 
 ## 安装
 
-提供两种安装方式：官方安装脚本（推荐，无需预装 Node.js）和 npm 全局安装。
+使用 npm 全局安装，需要 Node.js 22.19.0 或更高版本。
 
 ::: tip 安装之前
 Pythinker Code CLI 为全交互式 TUI 应用，推荐在支持真彩色与连字的现代终端中运行以获得最佳体验，例如 [Kitty](https://sw.kovidgoyal.net/kitty/) 或 [Ghostty](https://ghostty.org/)。
 :::
 
-### 脚本安装（推荐）
-
-- **macOS / Linux**：
-
-```sh
-curl -fsSL https://code.kimi.com/pythinker-code/install.sh | bash
-```
-
-- **Windows（PowerShell）**：
-
-```powershell
-irm https://code.kimi.com/pythinker-code/install.ps1 | iex
-```
-
-> Windows 用户首次启动前还需要安装 [Git for Windows](https://gitforwindows.org/)，Pythinker Code CLI 会使用其中的 Git Bash 作为 Shell 环境。如果 Git Bash 安装在非标准路径，请把 `PYTHINKER_SHELL_PATH` 设为 `bash.exe` 的绝对路径。
-
-脚本会自动下载最新版本、校验 checksum，并把 `pythinker` 可执行文件放到你的 `PATH` 中。
-
 ### npm 安装
 
-需要 Node.js 22.19.0 或更高版本：
-
 ```sh
-node --version
 npm install -g @pymodel/pythinker-code
 ```
 
-或用 pnpm：
-
-```sh
-pnpm add -g @pymodel/pythinker-code
-```
+> Windows 用户首次启动前还需要安装 [Git for Windows](https://gitforwindows.org/)，Pythinker Code CLI 会使用其中的 Git Bash 作为 Shell 环境。如果 Git Bash 安装在非标准路径，请把 `PYTHINKER_SHELL_PATH` 设为 `bash.exe` 的绝对路径。
 
 ## 升级与卸载
 
@@ -61,13 +36,13 @@ pnpm add -g @pymodel/pythinker-code
 pythinker --version
 ```
 
-**升级**：运行 `pythinker upgrade`，CLI 会检查最新版本并展示更新选项。选择 `Install update now` 后根据当前安装来源执行升级；也可以直接用包管理器：
+**升级**：运行 `pythinker upgrade`，CLI 会检查最新版本并展示更新选项；也可以直接用 npm：
 
 ```sh
 npm install -g @pymodel/pythinker-code@latest
 ```
 
-**卸载**：脚本安装的用户删除 `pythinker` 可执行文件即可；npm 安装的用户：
+**卸载**：使用 npm：
 
 ```sh
 npm uninstall -g @pymodel/pythinker-code
