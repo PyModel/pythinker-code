@@ -39,7 +39,7 @@ export interface CloudTransportOptions {
   readonly now?: () => number;
 }
 
-export const TELEMETRY_ENDPOINT = 'https://telemetry-logs.kimi.com/v1/event';
+export const TELEMETRY_ENDPOINT = 'https://telemetry-logs.pythinker.com/v1/event';
 export const SERVER_EVENT_PREFIX = 'kfc_';
 export const USER_ID_PREFIX = 'kfc_device_id_';
 export const DISK_EVENT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;

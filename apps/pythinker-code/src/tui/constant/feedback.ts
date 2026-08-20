@@ -13,7 +13,6 @@ export {
   FEEDBACK_ISSUE_URL,
   FEEDBACK_TELEMETRY_EVENT,
   FEEDBACK_VERSION_PREFIX,
-  PYTHINKER_CODE_SIGNUP_URL,
 } from '#/constant/app';
 
 export const FEEDBACK_STATUS_SUBMITTING = 'Submitting feedback…';
@@ -23,7 +22,7 @@ export const FEEDBACK_STATUS_CANCELLED = 'Feedback cancelled.';
 export const FEEDBACK_STATUS_NETWORK_ERROR = 'Network error, failed to submit feedback.';
 export const FEEDBACK_STATUS_FALLBACK = 'Opening GitHub Issues as fallback…';
 export const FEEDBACK_STATUS_NOT_SIGNED_IN =
-  "You're not signed in. Sign up or leave feedback on GitHub:";
+  "You're not signed in. Leave feedback on GitHub:";
 export const FEEDBACK_STATUS_UPLOAD_FAILED =
   'Feedback sent; attachment upload failed — see feedback-upload.log.';
 

@@ -493,7 +493,7 @@ describe('GlobTool', () => {
   it('tracks when glob uses a non-system ripgrep fallback', async () => {
     vi.mocked(ensureRgPath).mockResolvedValueOnce({
       path: '/mock/rg',
-      source: 'share-bin-downloaded',
+      source: 'share-bin-cached',
     });
     const events: Array<{ event: string; properties: Record<string, unknown> }> = [];
     const exec = execReturning('/workspace/a.ts\n');
@@ -506,7 +506,7 @@ describe('GlobTool', () => {
     expect((exec.mock.calls[0] as ReadonlyArray<unknown>)[0]).toBe('/mock/rg');
     expect(events).toContainEqual({
       event: 'glob_tool_rg_fallback',
-      properties: { source: 'share-bin-downloaded', outcome: 'resolved' },
+      properties: { source: 'share-bin-cached', outcome: 'resolved' },
     });
   });
 

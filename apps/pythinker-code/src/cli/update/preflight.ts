@@ -3,11 +3,6 @@ import { spawn } from 'node:child_process';
 import { log, type Logger } from '@pymodel/pythinker-code-sdk';
 import type { TelemetryProperties } from '@pymodel/pythinker-telemetry';
 
-import {
-  PYTHINKER_CODE_OFFICIAL_INSTALL_URL,
-  NATIVE_INSTALL_COMMAND_UNIX,
-  NATIVE_INSTALL_COMMAND_WIN,
-} from '#/constant/app';
 import { loadTuiConfig } from '#/tui/config';
 import { resolveCommandPath } from '#/utils/process/resolve-command';
 
@@ -82,7 +77,7 @@ export function installCommandFor(
     case 'homebrew':
       return 'brew upgrade pythinker-code';
     case 'native':
-      return platform === 'win32' ? NATIVE_INSTALL_COMMAND_WIN : NATIVE_INSTALL_COMMAND_UNIX;
+      return 'See https://github.com/PyModel/pythinker-code/releases';
     case 'unsupported':
       return `npm install -g ${NPM_PACKAGE_NAME}@${version}`;
   }
@@ -100,8 +95,7 @@ export function canAutoInstall(source: InstallSource, _platform: NodeJS.Platform
       // behind the CDN release — prompt the user to run `brew upgrade` manually.
       return false;
     case 'native':
-      // Staged-swap self update works on every platform (win32 included).
-      return true;
+      return false;
     case 'unsupported':
       return false;
   }
@@ -184,9 +178,7 @@ function resolveInstallSpawn(
   return { resolvedCmd, args, shell: platform === 'win32' };
 }
 
-const THIRD_PARTY_SOURCE_NOTE =
-  '\nNote: Third-party sources may lag behind the official release.\n' +
-  `For the latest updates, use the official installer: ${PYTHINKER_CODE_OFFICIAL_INSTALL_URL}\n`;
+const THIRD_PARTY_SOURCE_NOTE = '\nNote: Third-party sources may lag behind the official release.\n';
 
 export function renderManualUpdateMessage(
   currentVersion: string,

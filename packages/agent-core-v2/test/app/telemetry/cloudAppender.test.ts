@@ -87,7 +87,7 @@ describe('CloudAppender', () => {
     await appender.flush();
 
     expect(requests).toHaveLength(1);
-    expect(requests[0]?.url).toBe('https://telemetry-logs.kimi.com/v1/event');
+    expect(requests[0]?.url).toBe('https://telemetry-logs.pythinker.com/v1/event');
     expect(requests[0]?.body.user_id).toBe('kfc_device_id_dev123');
     const event = requests[0]?.body.events[0];
     expect(event?.['event']).toBe('kfc_tool.call');

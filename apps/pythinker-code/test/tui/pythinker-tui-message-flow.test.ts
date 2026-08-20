@@ -2123,7 +2123,7 @@ command = "vim"
     expect(transcript).toContain('Session reloaded.');
   });
 
-  it('prints the sign-up page and GitHub Issues links when not signed in', async () => {
+  it('prints only the GitHub Issues link when not signed in', async () => {
     const { driver, harness } = await makeDriver(makeSession());
     harness.auth.status.mockResolvedValueOnce({
       providers: [{ providerName: 'managed:pythinker-code', hasToken: false }],
@@ -2139,7 +2139,6 @@ command = "vim"
     expect(harness.auth.submitFeedback).not.toHaveBeenCalled();
     const transcript = stripSgr(renderTranscript(driver));
     expect(transcript).toContain("You're not signed in");
-    expect(transcript).toContain('https://www.kimi.com/code');
     expect(transcript).toContain('https://github.com/PyModel/pythinker-code/issues');
   });
 

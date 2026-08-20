@@ -10,7 +10,7 @@
 import { valid } from 'semver';
 import { z } from 'zod';
 
-import { PYTHINKER_CODE_CDN_BINARIES_BASE } from '#/constant/app';
+import { UPDATE_DISABLED_MESSAGE } from './cdn';
 
 const MANIFEST_FETCH_TIMEOUT_MS = 10_000;
 
@@ -32,12 +32,12 @@ export const NativeReleaseManifestSchema = z.object({
 export type NativeReleaseManifest = z.infer<typeof NativeReleaseManifestSchema>;
 export type NativePlatformEntry = z.infer<typeof PlatformEntrySchema>;
 
-export function nativeManifestUrl(version: string): string {
-  return `${PYTHINKER_CODE_CDN_BINARIES_BASE}/${version}/manifest.json`;
+export function nativeManifestUrl(_version: string): string {
+  throw new Error(UPDATE_DISABLED_MESSAGE);
 }
 
-export function nativeBinaryUrl(version: string, filename: string): string {
-  return `${PYTHINKER_CODE_CDN_BINARIES_BASE}/${version}/${filename}`;
+export function nativeBinaryUrl(_version: string, _filename: string): string {
+  throw new Error(UPDATE_DISABLED_MESSAGE);
 }
 
 /**

@@ -1581,7 +1581,7 @@ describe('GrepTool', () => {
   it('tracks when grep uses a non-system ripgrep fallback', async () => {
     vi.mocked(ensureRgPath).mockResolvedValueOnce({
       path: '/mock/rg',
-      source: 'share-bin-downloaded',
+      source: 'share-bin-cached',
     });
     const records: TelemetryRecord[] = [];
     const exec = vi.fn().mockResolvedValue(processWithOutput('/workspace/src/a.ts\n'));
@@ -1593,7 +1593,7 @@ describe('GrepTool', () => {
     expect(records).toEqual([
       {
         event: 'grep_tool_rg_fallback',
-        properties: { source: 'share-bin-downloaded', outcome: 'resolved' },
+        properties: { source: 'share-bin-cached', outcome: 'resolved' },
       },
     ]);
   });
