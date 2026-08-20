@@ -11,6 +11,7 @@ export const STORAGE_KEYS = {
   permission: 'pythinker-web.permission',
   activeWorkspace: 'pythinker-active-workspace',
   planMode: 'pythinker-web.plan-mode',
+  planArmed: 'pythinker-web.plan-armed',
   dynamicWorkflowMode: 'pythinker-web.dynamic-workflow-mode',
   goalMode: 'pythinker-web.goal-mode',
   uiFontSize: 'pythinker-web.ui-font-size',

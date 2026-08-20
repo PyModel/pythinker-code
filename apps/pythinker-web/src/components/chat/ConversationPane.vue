@@ -2,7 +2,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, provide, ref, watch, type ComponentPublicInstance } from 'vue';
 import { useI18n } from 'vue-i18n';
-import type { ActivationBadges, ApprovalBlock, ChatTurn, ConversationStatus, FilePreviewRequest, PermissionMode, QueuedPromptView, TaskItem, TodoView, ToolMedia, TurnAttachment, UIQuestion, WorkspaceView } from '../../types';
+import type { ActivationBadges, ApprovalBlock, ChatTurn, ConversationStatus, FilePreviewRequest, PermissionMode, QueuedPromptView, SessionPlanEntry, TaskItem, TodoView, ToolMedia, TurnAttachment, UIQuestion, WorkspaceView } from '../../types';
 import type { AppGoal, AppModel, AppSkill, QuestionResponse, ThinkingLevel } from '../../api/types';
 import type { FileItem } from './MentionMenu.vue';
 import type { PromptAttachment } from '../../composables/usePythinkerWebClient';
@@ -33,6 +33,9 @@ const props = defineProps<{
   status: ConversationStatus;
   thinking?: ThinkingLevel;
   planMode?: boolean;
+  planArmed?: boolean;
+  sessionPlans?: Record<string, SessionPlanEntry>;
+  overlayOpen?: boolean;
   goalMode?: boolean;
   questions?: UIQuestion[];
   /** Question ids with an in-flight respond/dismiss (drives the card loading
@@ -184,7 +187,6 @@ const chatPaneRef = ref<InstanceType<typeof ChatPane> | null>(null);
 const emptyComposerRef = ref<ComposerHandle | null>(null);
 const dockedComposerRef = ref<ComposerHandle | null>(null);
 const copyConversationCopied = ref(false);
-const goalExpandSignal = ref(0);
 let copyConversationCopiedTimer: ReturnType<typeof setTimeout> | null = null;
 
 /** Load text (and any attachments) into whichever composer is currently mounted
@@ -217,10 +219,12 @@ function handleCopyConversationCopied(): void {
 }
 
 function focusGoal(): void {
-  goalExpandSignal.value++;
+  if (props.goal) dockPanel.value = 'goal';
 }
 
-const bashTasks = computed(() => props.tasks.filter((t) => t.kind !== 'subagent'));
+const bashTasks = computed(() => props.tasks.filter((t) =>
+  t.kind === 'bash' || (t.kind === 'tool' && !t.id.startsWith('question-')),
+));
 // The dock lists only BACKGROUND subagents. Foreground subagents render inline
 // in the message flow as the `Agent` tool card, so showing them here too would
 // duplicate them (and foreground ones can't be cancelled from the dock anyway).
@@ -250,15 +254,16 @@ provide('resolveAgentTaskId', resolveAgentTaskId);
 provide('pinScroll', pinScrollFor);
 const todoDoneCount = computed(() => (props.todos ?? []).filter((td) => td.status === 'done').length);
 const hasDockWork = computed(() =>
+  props.goal != null ||
   bashTasks.value.length > 0 ||
   subagentTasks.value.length > 0 ||
-  (props.todos?.length ?? 0) > 0 ||
-  (props.queued?.length ?? 0) > 0,
+  (props.todos?.length ?? 0) > 0,
 );
-const dockPanel = ref<'bash' | 'subagent' | 'todos' | null>(null);
+type DockPanel = 'bash' | 'subagent' | 'todos' | 'goal' | 'plan';
+const dockPanel = ref<DockPanel | null>(null);
 const changesCount = computed(() => (props.gitInfo ? props.changes?.length ?? 0 : 0));
 
-function toggleDockPanel(panel: 'bash' | 'subagent' | 'todos'): void {
+function toggleDockPanel(panel: DockPanel): void {
   dockPanel.value = dockPanel.value === panel ? null : panel;
 }
 
@@ -266,9 +271,16 @@ function closeDockPanel(): void {
   dockPanel.value = null;
 }
 
-watch(hasDockWork, (hasWork) => {
-  if (!hasWork) closeDockPanel();
-});
+watch(
+  [dockPanel, () => props.goal, bashTasks, subagentTasks, () => props.todos, () => props.planMode, () => props.sessionPlans],
+  () => {
+    if (dockPanel.value === 'goal' && !props.goal) closeDockPanel();
+    else if (dockPanel.value === 'bash' && bashTasks.value.length === 0) closeDockPanel();
+    else if (dockPanel.value === 'subagent' && subagentTasks.value.length === 0) closeDockPanel();
+    else if (dockPanel.value === 'todos' && (props.todos?.length ?? 0) === 0) closeDockPanel();
+    else if (dockPanel.value === 'plan' && !props.planMode && Object.keys(props.sessionPlans ?? {}).length === 0) closeDockPanel();
+  },
+);
 
 function tocTitle(turn: ChatTurn): string {
   if (turn.role === 'compaction') return t('conversation.compactedPlain');
@@ -1451,13 +1463,17 @@ defineExpose({ loadComposerForEdit, focusComposer });
         :status="status"
         :thinking="thinking"
         :plan-mode="planMode"
+        :plan-armed="planArmed"
+        :working="working"
         :goal-mode="goalMode"
         :activation-badges="activationBadges"
         :models="models"
         :starred-ids="starredIds"
         :skills="skills"
         :goal="goal"
-        :goal-expand-signal="goalExpandSignal"
+        :session-plans="sessionPlans"
+        :overlay-open="overlayOpen"
+        :open-file="(target) => emit('openFile', target)"
         :dock-panel="dockPanel"
         :bash-tasks="bashTasks"
         :subagent-tasks="subagentTasks"

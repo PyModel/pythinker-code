@@ -48,6 +48,16 @@ export default {
     minutes: '{value} min',
     hours: '{value} hr',
   },
+  plan: {
+    selectedOption: 'Selected option',
+    feedback: 'Feedback',
+    pathOnlyHint: 'The plan was saved to:',
+    review: {
+      approved: 'Approved',
+      rejected: 'Rejected',
+      cancelled: 'Cancelled',
+    },
+  },
   group: {
     title: '{count} tool call | {count} tool calls',
     running: 'running',

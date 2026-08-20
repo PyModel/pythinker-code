@@ -52,6 +52,8 @@ const props = withDefaults(defineProps<{
   status?: ConversationStatus;
   thinking?: ThinkingLevel;
   planMode?: boolean;
+  planArmed?: boolean;
+  working?: boolean;
   goalMode?: boolean;
   goal?: AppGoal | null;
   activationBadges?: ActivationBadges;
@@ -291,7 +293,9 @@ function focus(): void {
 function loadAttachmentsForEdit(atts: { fileId?: string; kind: 'image' | 'video' | 'file'; url: string; name?: string }[]): void {
   loadAttachments(atts);
 }
-defineExpose({ loadForEdit, loadAttachmentsForEdit, focus });
+const anyPopupOpen = computed(() => slashOpen.value || mentionOpen.value || dropdownOpen.value || permDropdownOpen.value || modesOpen.value || previewAttachment.value !== null);
+const isEmpty = computed(() => text.value.trim().length === 0 && attachments.value.length === 0);
+defineExpose({ loadForEdit, loadAttachmentsForEdit, focus, anyPopupOpen, isEmpty });
 
 // Build the wire-bound attachment payload: images/videos only need the fileId,
 // while file parts also carry name/mediaType/size for the daemon's file shape.

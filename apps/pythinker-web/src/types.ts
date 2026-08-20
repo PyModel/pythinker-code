@@ -186,6 +186,7 @@ export type TurnRole = 'user' | 'assistant' | 'compaction' | 'cron';
 export interface FilePreviewRequest {
   path: string;
   line?: number;
+  content?: string;
 }
 
 /**
@@ -305,6 +306,21 @@ export interface TaskItem {
    *  to its inline tool card, so the card's "Open detail" button can be hidden
    *  when the task is no longer available. */
   parentToolCallId?: string;
+  dynamicWorkflowIndex?: number;
+  createdAt?: string;
+  completedAt?: string;
+}
+
+export interface SessionPlanEntry {
+  agentId: 'main';
+  toolCallId: string;
+  turnId: string;
+  source: 'interaction';
+  plan?: string;
+  path?: string;
+  selectedOption?: string;
+  feedback?: string;
+  reviewState?: string;
 }
 
 export interface ConversationStatus {

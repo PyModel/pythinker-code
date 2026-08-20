@@ -84,6 +84,7 @@ import RiMessageLine from '~icons/ri/message-line';
 import RiPauseFill from '~icons/ri/pause-fill';
 import RiPencilLine from '~icons/ri/pencil-line';
 import RiPlayFill from '~icons/ri/play-fill';
+import RiShutDownLine from '~icons/ri/shut-down-line';
 import RiQuestionLine from '~icons/ri/question-line';
 import RiSortDesc from '~icons/ri/sort-desc';
 import RiSparklingLine from '~icons/ri/sparkling-line';
@@ -156,6 +157,7 @@ import RawMessageLine from '~icons/ri/message-line?raw';
 import RawPauseFill from '~icons/ri/pause-fill?raw';
 import RawPencilLine from '~icons/ri/pencil-line?raw';
 import RawPlayFill from '~icons/ri/play-fill?raw';
+import RawShutDownLine from '~icons/ri/shut-down-line?raw';
 import RawQuestionLine from '~icons/ri/question-line?raw';
 import RawSortDesc from '~icons/ri/sort-desc?raw';
 import RawSparklingLine from '~icons/ri/sparkling-line?raw';
@@ -236,6 +238,7 @@ export type IconName =
   | 'target'
   | 'pause'
   | 'play'
+  | 'power'
   | 'stop'
   | 'star'
   | 'star-outline'
@@ -322,6 +325,7 @@ export const ICONS: Record<IconName, IconEntry> = {
   target: entry(RiTargetLine, RawTargetLine),
   pause: entry(RiPauseFill, RawPauseFill),
   play: entry(RiPlayFill, RawPlayFill),
+  power: entry(RiShutDownLine, RawShutDownLine),
   stop: entry(RiStopFill, RawStopFill),
   star: entry(RiStarFill, RawStarFill),
   'star-outline': entry(RiStarLine, RawStarLine),
@@ -432,6 +436,7 @@ export const ICON_GROUPS: ReadonlyArray<readonly [string, readonly IconName[]]> 
       'sparkles',
       'pause',
       'play',
+      'power',
       'stop',
       'star',
       'star-outline',

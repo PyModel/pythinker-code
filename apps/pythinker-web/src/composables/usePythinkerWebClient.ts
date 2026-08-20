@@ -96,6 +96,7 @@ import type {
   QueuedPromptView,
   Session,
   TaskItem,
+  SessionPlanEntry,
   TaskState,
   TodoView,
   UIQuestion,
@@ -111,6 +112,7 @@ import type {
 const PERMISSION_STORAGE_KEY = STORAGE_KEYS.permission;
 const ACTIVE_WORKSPACE_KEY = STORAGE_KEYS.activeWorkspace;
 const PLAN_MODE_STORAGE_KEY = STORAGE_KEYS.planMode;
+const PLAN_ARMED_STORAGE_KEY = STORAGE_KEYS.planArmed;
 const DYNAMIC_WORKFLOW_MODE_STORAGE_KEY = STORAGE_KEYS.dynamicWorkflowMode;
 const GOAL_MODE_STORAGE_KEY = STORAGE_KEYS.goalMode;
 const SESSION_NOT_FOUND_CODE = 40401;
@@ -189,6 +191,10 @@ function saveModeMapToStorage(key: string, map: Record<string, boolean>): void {
 
 function savePlanModeToStorage(): void {
   saveModeMapToStorage(PLAN_MODE_STORAGE_KEY, rawState.planModeBySession);
+}
+
+function savePlanArmedToStorage(): void {
+  saveModeMapToStorage(PLAN_ARMED_STORAGE_KEY, rawState.planArmedBySession);
 }
 
 function saveDynamicWorkflowModeToStorage(): void {
@@ -319,6 +325,7 @@ export interface ExtendedState extends PythinkerClientState {
   /** Plan-mode toggle per session. Bound to a session (not global) so toggling
    *  it in one session does not affect another. */
   planModeBySession: Record<string, boolean>;
+  planArmedBySession: Record<string, boolean>;
   /** DynamicWorkflow-mode toggle per session. */
   dynamicWorkflowModeBySession: Record<string, boolean>;
   /** Goal-mode (one-shot "next send creates a goal") toggle per session. */
@@ -399,6 +406,7 @@ const rawState: ExtendedState = reactive({
   thinking: undefined,
   thinkingBySession: {},
   planModeBySession: loadModeMapFromStorage(PLAN_MODE_STORAGE_KEY),
+  planArmedBySession: loadModeMapFromStorage(PLAN_ARMED_STORAGE_KEY),
   dynamicWorkflowModeBySession: loadModeMapFromStorage(DYNAMIC_WORKFLOW_MODE_STORAGE_KEY),
   goalModeBySession: loadModeMapFromStorage(GOAL_MODE_STORAGE_KEY),
   loading: false,
@@ -622,10 +630,12 @@ function forgetSession(sessionId: string): void {
   // Drop per-session mode toggles and re-persist so a deleted session's entry
   // doesn't linger in localStorage.
   delete rawState.planModeBySession[sessionId];
+  delete rawState.planArmedBySession[sessionId];
   delete rawState.dynamicWorkflowModeBySession[sessionId];
   delete rawState.goalModeBySession[sessionId];
   delete rawState.thinkingBySession[sessionId];
   savePlanModeToStorage();
+  savePlanArmedToStorage();
   saveDynamicWorkflowModeToStorage();
   saveGoalModeToStorage();
 }
@@ -1898,6 +1908,9 @@ function toUiTask(task: AppTask): TaskItem {
     dynamicWorkflowIndex: task.dynamicWorkflowIndex,
     runInBackground: task.runInBackground,
     parentToolCallId: task.parentToolCallId,
+    dynamicWorkflowIndex: task.dynamicWorkflowIndex,
+    createdAt: task.createdAt,
+    completedAt: task.completedAt,
   };
 }
 
@@ -2099,10 +2112,59 @@ const turnActive = computed<boolean>(() => {
  *  (`turnActive`). */
 const working = computed<boolean>(() => inFlight.value || turnActive.value);
 
+const dynamicWorkflowIndexesBySession = new Map<string, { indexes: Map<string, number>; next: number }>();
+
 const tasks = computed<TaskItem[]>(() => {
   // Touch the clock so a running task's elapsed time recomputes each tick.
   void taskPoller.taskClock.value;
-  return activeAppTasks.value.map(toUiTask);
+  const background = activeAppTasks.value
+    .filter((task) => task.kind === 'subagent' && task.runInBackground)
+    .toSorted((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
+  const sid = rawState.activeSessionId ?? '__draft__';
+  const state = dynamicWorkflowIndexesBySession.get(sid) ?? { indexes: new Map<string, number>(), next: 1 };
+  dynamicWorkflowIndexesBySession.set(sid, state);
+  for (const task of background) {
+    const prior = state.indexes.get(task.id)
+      ?? (task.backgroundTaskId ? state.indexes.get(task.backgroundTaskId) : undefined);
+    const index = prior ?? state.next++;
+    state.indexes.set(task.id, index);
+    if (task.backgroundTaskId) state.indexes.set(task.backgroundTaskId, index);
+  }
+  return activeAppTasks.value.map((task) => {
+    const item = toUiTask(task);
+    if (task.kind === 'subagent' && task.runInBackground) {
+      item.dynamicWorkflowIndex = state.indexes.get(task.id);
+    }
+    return item;
+  });
+});
+
+const sessionPlans = computed<Record<string, SessionPlanEntry>>(() => {
+  const sid = rawState.activeSessionId;
+  if (!sid) return {};
+  const out: Record<string, SessionPlanEntry> = {};
+  for (const message of rawState.messagesBySession[sid] ?? []) {
+    for (const content of message.content) {
+      if (content.type !== 'toolUse' || content.toolName !== 'ExitPlanMode') continue;
+      const input = content.input && typeof content.input === 'object'
+        ? content.input as Record<string, unknown>
+        : {};
+      const review = rawState.planReviewByToolCallId[content.toolCallId];
+      const plan = review?.plan ?? (typeof input.plan === 'string' ? input.plan : undefined);
+      const path = review?.path
+        ?? (typeof input.path === 'string' ? input.path : undefined)
+        ?? (typeof input.planPath === 'string' ? input.planPath : undefined);
+      out[content.toolCallId] = {
+        agentId: 'main',
+        toolCallId: content.toolCallId,
+        turnId: message.id,
+        source: 'interaction',
+        plan,
+        path,
+      };
+    }
+  }
+  return out;
 });
 
 const dynamicWorkflows = computed<DynamicWorkflowGroup[]>(() => buildDynamicWorkflowGroups(activeAppTasks.value));
@@ -2169,6 +2231,10 @@ const thinking = computed<ThinkingLevel | undefined>(() => rawState.thinking);
 const planMode = computed<boolean>(() => {
   const sid = rawState.activeSessionId;
   return sid ? (rawState.planModeBySession[sid] ?? false) : draftModes.planMode;
+});
+const planArmed = computed<boolean>(() => {
+  const sid = rawState.activeSessionId;
+  return sid ? (rawState.planArmedBySession[sid] ?? false) : draftModes.planMode;
 });
 const dynamicWorkflowMode = computed<boolean>(() => {
   const sid = rawState.activeSessionId;
@@ -2914,6 +2980,8 @@ export function usePythinkerWebClient() {
     permission,
     thinking,
     planMode,
+    planArmed,
+    sessionPlans,
     dynamicWorkflowMode,
     goalMode,
     queued,

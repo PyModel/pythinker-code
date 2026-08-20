@@ -319,6 +319,16 @@ const showProviders = ref(false);
 const showAddWorkspace = ref(false);
 const showStatusPanel = ref(false);
 const showSettings = ref(false);
+const overlayOpen = computed(() =>
+  openDialogCount.value > 0 ||
+  showModelPicker.value ||
+  showProviders.value ||
+  showAddWorkspace.value ||
+  showStatusPanel.value ||
+  showSettings.value ||
+  showMobileSwitcher.value ||
+  showMobileSettings.value,
+);
 
 type SubmitPayload = {
   text: string;
@@ -774,6 +784,9 @@ function openPr(url: string): void {
       :status="client.status.value"
       :thinking="client.thinking.value"
       :plan-mode="client.planMode.value"
+      :plan-armed="client.planArmed.value"
+      :session-plans="client.sessionPlans.value"
+      :overlay-open="overlayOpen"
       :goal-mode="client.goalMode.value"
       :models="client.models.value"
       :starred-ids="client.starredModelIds.value"

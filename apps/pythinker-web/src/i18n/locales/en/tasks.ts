@@ -14,7 +14,6 @@ export default {
   dockTasks: 'Background tasks',
   dockBash: 'Bash',
   dockSubagent: 'Sub Agent',
-  dockTodos: 'Todos',
   todoProgressTitle: 'Progress',
   stateDone: 'Done',
   stateFail: 'Failed',
