@@ -65,7 +65,7 @@ import type {
   ToolCallDelta,
 } from '@pymodel/agent-core-v2/agent/loop/turnEvents';
 import type { TurnStepRetrying } from '@pymodel/agent-core-v2/agent/stepRetry/stepRetryService';
-import type { HookResult } from '@pymodel/agent-core-v2/agent/externalHooks/externalHooksService';
+import type { HookResult } from '@pymodel/agent-core-v2/features/externalHooks/agent/agentExternalHooksService';
 import type {
   ToolCallStarted,
   ToolProgress,
