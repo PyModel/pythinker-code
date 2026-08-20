@@ -13,6 +13,8 @@ import Menu from './ui/Menu.vue';
 import MenuItem from './ui/MenuItem.vue';
 import Icon from './ui/Icon.vue';
 import Tooltip from './ui/Tooltip.vue';
+import SessionEmojiPicker from './SessionEmojiPicker.vue';
+import { splitTitleEmoji } from '../lib/sessionEmoji';
 
 const { t } = useI18n();
 
@@ -26,17 +28,24 @@ const props = withDefaults(
     questionCount?: number;
     /** A background turn finished here that the user hasn't opened — blue dot. */
     unread?: boolean;
+    pinned?: boolean;
+    done?: boolean;
   }>(),
-  { approvalCount: 0, questionCount: 0, unread: false },
+  { approvalCount: 0, questionCount: 0, unread: false, pinned: false, done: false },
 );
 
 const emit = defineEmits<{
   select: [id: string];
   rename: [id: string, title: string];
   archive: [id: string];
+  restore: [id: string];
+  pin: [id: string];
+  setEmoji: [id: string, emoji: string | null];
   fork: [id: string];
   export: [id: string];
 }>();
+
+const titleParts = computed(() => splitTitleEmoji(props.session.title));
 
 // Full, absolute timestamp shown on hover (the row's `time` is a short relative
 // string like "2h"/"1d" — see formatTime in usePythinkerWebClient).
@@ -57,6 +66,7 @@ const kebabRef = ref<InstanceType<typeof IconButton> | null>(null);
 const menuRef = ref<InstanceType<typeof Menu> | null>(null);
 // Fixed-position style for the teleported kebab menu, anchored to the ⋯ button.
 const menuStyle = ref<Record<string, string>>({});
+const emojiPickerOpen = ref(false);
 
 function onDocClick(e: MouseEvent): void {
   const target = e.target as Node;
@@ -173,6 +183,26 @@ function startArchive(): void {
   emit('archive', props.session.id);
 }
 
+function restoreRow(): void {
+  closeMenu();
+  emit('restore', props.session.id);
+}
+
+function togglePin(): void {
+  closeMenu();
+  emit('pin', props.session.id);
+}
+
+function openEmojiPicker(): void {
+  closeMenu();
+  emojiPickerOpen.value = true;
+}
+
+function setEmoji(emoji: string | null): void {
+  emojiPickerOpen.value = false;
+  emit('setEmoji', props.session.id, emoji);
+}
+
 // Expose closeMenu so the parent can close on outside-click.
 defineExpose({ closeMenu });
 </script>
@@ -189,6 +219,7 @@ defineExpose({ closeMenu });
       </span>
 
       <div class="left">
+        <span v-if="titleParts.emoji && !renaming" class="session-emoji">{{ titleParts.emoji }}</span>
         <!-- Inline rename input -->
         <input
           v-if="renaming"
@@ -200,8 +231,12 @@ defineExpose({ closeMenu });
           @keydown.esc.stop="cancelRename"
           @blur="commitRename"
         />
-        <span v-else class="t" @dblclick.stop="startRename">{{ session.title }}</span>
+        <span v-else class="t" @dblclick.stop="startRename">{{ titleParts.rest }}</span>
       </div>
+
+      <Badge v-if="!renaming && done" variant="neutral" size="sm">
+        {{ t('sidebar.tagDone') }}
+      </Badge>
 
       <!-- Pending tags — coloured per kind, shown even when the row isn't
            active. "Answer" = an askUserQuestion is waiting; "Approve" = a
@@ -274,6 +309,15 @@ defineExpose({ closeMenu });
           }}
         </MenuItem>
         <MenuItem separator />
+        <MenuItem @click="togglePin">
+          <Icon :name="pinned ? 'star' : 'star-outline'" size="sm" />
+          {{ pinned ? t('sidebar.unpin') : t('sidebar.pin') }}
+        </MenuItem>
+        <MenuItem @click="openEmojiPicker">
+          <Icon name="sparkles" size="sm" />
+          {{ t('sidebar.setEmoji') }}
+        </MenuItem>
+        <MenuItem separator />
         <MenuItem @click="startRename">
           <Icon name="pencil" size="sm" />
           {{ t('sidebar.rename') }}
@@ -286,14 +330,26 @@ defineExpose({ closeMenu });
           <Icon name="download" size="sm" />
           {{ t('sidebar.export') }}
         </MenuItem>
-        <MenuItem danger @click="startArchive">
+        <MenuItem v-if="done" @click="restoreRow">
+          <Icon name="undo" size="sm" />
+          {{ t('sidebar.reopen') }}
+        </MenuItem>
+        <MenuItem v-else @click="startArchive">
           <Icon name="archive" size="sm" />
-          {{ t('sidebar.archive') }}
+          {{ t('sidebar.markDone') }}
         </MenuItem>
         <MenuItem separator />
         <div class="menu-time">{{ fullTime }}</div>
       </Menu>
     </Teleport>
+    <SessionEmojiPicker
+      :anchor="kebabRef?.el ?? null"
+      :open="emojiPickerOpen"
+      :current-emoji="titleParts.emoji"
+      @select="setEmoji"
+      @remove="setEmoji(null)"
+      @close="emojiPickerOpen = false"
+    />
   </div>
 </template>
 
@@ -336,6 +392,12 @@ defineExpose({ closeMenu });
   align-items: center;
   flex: 1;
   min-width: 0;
+}
+.session-emoji {
+  flex: none;
+  margin-right: var(--space-1);
+  font-size: var(--text-base);
+  line-height: 1;
 }
 
 /* Leading status slot — mirrors the workspace header's icon slot (so the title

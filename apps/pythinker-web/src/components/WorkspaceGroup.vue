@@ -24,6 +24,7 @@ const props = defineProps<{
   renameInputRef: Ref<HTMLInputElement | null>;
   pendingBySession: Record<string, { approvals: number; questions: number }>;
   unreadBySession: Record<string, boolean>;
+  pinnedIds: string[];
   wsMenuOpenId: string | null;
   /** True while this group is the active drag source (drag-to-reorder). */
   dragging: boolean;
@@ -43,6 +44,8 @@ const emit = defineEmits<{
   archiveSession: [id: string];
   forkSession: [id: string];
   exportSession: [id: string];
+  pinSession: [id: string];
+  setSessionEmoji: [id: string, emoji: string | null];
   loadMore: [workspaceId: string];
   toggleExpand: [workspaceId: string];
   confirmRename: [];
@@ -180,11 +183,14 @@ function onHeaderDragStart(event: DragEvent): void {
         :approval-count="pendingBySession[s.id]?.approvals ?? 0"
         :question-count="pendingBySession[s.id]?.questions ?? 0"
         :unread="unreadBySession[s.id] ?? false"
+        :pinned="pinnedIds.includes(s.id)"
         @select="emit('selectSession', $event)"
         @rename="(id, title) => emit('renameSession', id, title)"
         @archive="emit('archiveSession', $event)"
         @fork="emit('forkSession', $event)"
         @export="emit('exportSession', $event)"
+        @pin="emit('pinSession', $event)"
+        @set-emoji="(id, emoji) => emit('setSessionEmoji', id, emoji)"
       />
       <button
         v-if="group.hasMore || group.loadingMore"

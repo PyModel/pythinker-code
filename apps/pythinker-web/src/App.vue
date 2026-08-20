@@ -21,6 +21,7 @@ import ConfirmDialogHost from './components/dialogs/ConfirmDialogHost.vue';
 import StatusPanel from './components/chat/StatusPanel.vue';
 import WarningToasts from './components/WarningToasts.vue';
 import UpdateToast from './components/UpdateToast.vue';
+import Toast from './components/ui/Toast.vue';
 import WindowControls from './components/WindowControls.vue';
 import MobileTopBar from './components/mobile/MobileTopBar.vue';
 import MobileSwitcherSheet from './components/mobile/MobileSwitcherSheet.vue';
@@ -47,6 +48,7 @@ import { initServerAuth, onAuthRequired } from './api/daemon/serverAuth';
 import type { AppConfig, ThinkingLevel } from './api/types';
 import { commitLevel, effectiveThinkingLevel, segmentsFor } from './lib/modelThinking';
 import { stripSkillPrefix } from './lib/slashCommands';
+import { composeTitle } from './lib/sessionEmoji';
 import Button from './components/ui/Button.vue';
 import IconButton from './components/ui/IconButton.vue';
 import Icon from './components/ui/Icon.vue';
@@ -63,6 +65,54 @@ const authRequired = ref(false);
 let offAuthRequired: (() => void) | null = null;
 
 const client = usePythinkerWebClient();
+const archivedSessions = ref<import('./types').Session[]>([]);
+const sessionActionToast = ref<{ kind: 'done' | 'open'; id: string } | null>(null);
+let sessionActionToastTimer: ReturnType<typeof setTimeout> | null = null;
+
+const activeWorkspaceRecentSessions = computed(() => {
+  const workspaceId = client.activeWorkspaceId.value;
+  return client.sessionsForView.value.filter((session) => session.workspaceId === workspaceId);
+});
+
+function mapArchivedSession(session: import('./api/types').AppSession): import('./types').Session {
+  return {
+    id: session.id,
+    title: session.title,
+    time: new Intl.RelativeTimeFormat('en', { numeric: 'auto' }).format(
+      -Math.max(0, Math.floor((Date.now() - new Date(session.updatedAt).getTime()) / 86_400_000)),
+      'day',
+    ),
+    busy: false,
+    updatedAt: session.updatedAt,
+    workspaceId: session.workspaceId,
+  };
+}
+
+async function loadDoneSessions(): Promise<void> {
+  try {
+    const items: import('./api/types').AppSession[] = [];
+    let beforeId: string | undefined;
+    for (;;) {
+      const page = await client.loadArchivedSessions({ beforeId, pageSize: 100 });
+      items.push(...page.items);
+      if (!page.hasMore || page.items.length === 0) break;
+      beforeId = page.items.at(-1)?.id;
+      if (beforeId === undefined) break;
+    }
+    archivedSessions.value = items.map(mapArchivedSession);
+  } catch (error) {
+    console.warn('loadDoneSessions failed', error);
+  }
+}
+
+function showSessionActionToast(kind: 'done' | 'open', id: string): void {
+  sessionActionToast.value = { kind, id };
+  if (sessionActionToastTimer !== null) clearTimeout(sessionActionToastTimer);
+  sessionActionToastTimer = setTimeout(() => {
+    sessionActionToast.value = null;
+    sessionActionToastTimer = null;
+  }, 5000);
+}
 // When the server runs with `--dangerous-bypass-auth`, `/meta` advertises it
 // and we skip the token prompt entirely — there is no credential to enter.
 const showServerAuth = computed(
@@ -95,12 +145,17 @@ const showMobileSettings = ref(false);
 // Active session title for the mobile top bar.
 const activeSessionTitle = computed<string>(() => {
   const id = client.activeSessionId.value;
-  return client.sessions.value.find((s) => s.id === id)?.title ?? '';
+  return client.sessions.value.find((session) => session.id === id)?.title
+    ?? archivedSessions.value.find((session) => session.id === id)?.title
+    ?? '';
 });
 const activeLastTurnReason = computed(() => {
   const id = client.activeSessionId.value;
   return client.sessions.value.find((session) => session.id === id)?.lastTurnReason;
 });
+const activeSessionDone = computed(() =>
+  archivedSessions.value.some((session) => session.id === client.activeSessionId.value),
+);
 
 // Number of sessions in the active workspace (mobile top-bar sub-line).
 const activeWorkspaceSessionCount = computed<number>(
@@ -198,6 +253,7 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+  if (sessionActionToastTimer !== null) clearTimeout(sessionActionToastTimer);
   closeMediaLightbox();
   document.removeEventListener('keydown', onGlobalKeydown, true);
   window.visualViewport?.removeEventListener('resize', syncAppHeight);
@@ -492,13 +548,43 @@ async function handleRefreshProvider(id: string): Promise<void> {
 // as the dialog `action`, so the dialog stays open with a loading state until
 // the operation settles. All three client calls toast their own errors and
 // never reject.
-async function confirmArchiveSession(id: string): Promise<void> {
-  await confirm({
-    title: t('sidebar.archive'),
-    message: t('sidebar.archiveConfirm'),
-    variant: 'danger',
-    action: () => client.archiveSession(id),
-  });
+async function markSessionDone(id: string): Promise<void> {
+  await client.archiveSession(id);
+  await loadDoneSessions();
+  showSessionActionToast('done', id);
+}
+
+async function reopenSession(id: string): Promise<void> {
+  if (!await client.restoreSession(id)) return;
+  archivedSessions.value = archivedSessions.value.filter((session) => session.id !== id);
+  showSessionActionToast('open', id);
+}
+
+async function renameSidebarSession(id: string, title: string): Promise<void> {
+  await client.renameSession(id, title);
+  if (archivedSessions.value.some((session) => session.id === id)) await loadDoneSessions();
+}
+
+async function setSidebarSessionEmoji(id: string, emoji: string | null): Promise<void> {
+  const archived = archivedSessions.value.find((session) => session.id === id);
+  if (!archived) {
+    await client.setSessionEmoji(id, emoji);
+    return;
+  }
+  await renameSidebarSession(id, composeTitle(emoji, archived.title));
+}
+
+async function undoSessionAction(): Promise<void> {
+  const toast = sessionActionToast.value;
+  if (!toast) return;
+  sessionActionToast.value = null;
+  if (toast.kind === 'done') {
+    await client.restoreSession(toast.id);
+    archivedSessions.value = archivedSessions.value.filter((session) => session.id !== toast.id);
+  } else {
+    await client.archiveSession(toast.id);
+    await loadDoneSessions();
+  }
 }
 
 async function confirmDeleteWorkspace(id: string): Promise<void> {
@@ -775,6 +861,9 @@ function openPr(url: string): void {
         :active-workspace="client.visibleWorkspace.value"
         :active-workspace-id="client.activeWorkspaceId.value"
         :sessions="client.sessionsForView.value"
+        :archived-sessions="archivedSessions"
+        :pinned-ids="client.pinnedSessionIds.value"
+        :pinned-collapsed="client.pinnedCollapsed.value"
         :groups="client.workspaceGroups.value"
         :active-id="client.activeSessionId.value"
         :attention-by-session="client.attentionBySession.value"
@@ -787,8 +876,14 @@ function openPr(url: string): void {
         @create-in-workspace="handleCreateSessionInWorkspace($event)"
         @select-workspace="client.openWorkspace($event)"
         @add-workspace="showAddWorkspace = true"
-        @rename="(id, title) => client.renameSession(id, title)"
-        @archive="confirmArchiveSession($event)"
+        @rename="renameSidebarSession"
+        @archive="markSessionDone($event)"
+        @restore="reopenSession($event)"
+        @pin="client.togglePinnedSession($event)"
+        @reorder-pins="client.reorderPinnedSessions($event)"
+        @toggle-pinned-collapsed="client.togglePinnedCollapsed()"
+        @set-session-emoji="setSidebarSessionEmoji"
+        @load-done-sessions="loadDoneSessions"
         @fork="(id) => client.forkSession(id)"
         @export="(id) => client.exportSession(id)"
         @rename-workspace="(id, name) => client.renameWorkspace(id, name)"
@@ -874,6 +969,8 @@ function openPr(url: string): void {
       :pr="client.activePullRequest.value"
       :conversation-toc="client.conversationToc.value"
       :last-turn-reason="activeLastTurnReason"
+      :session-done="activeSessionDone"
+      :recent-sessions="activeWorkspaceRecentSessions"
       @open-changes="openDiffDetail()"
       @select-workspace="handleCreateSessionInWorkspace($event)"
       @add-workspace="showAddWorkspace = true"
@@ -898,7 +995,9 @@ function openPr(url: string): void {
       @refresh-git-status="client.activeSessionId.value && client.loadGitStatus(client.activeSessionId.value)"
       @rename-session="(id, title) => client.renameSession(id, title)"
       @fork-session="(id) => client.forkSession(id)"
-      @archive-session="confirmArchiveSession($event)"
+      @archive-session="markSessionDone($event)"
+      @restore-session="reopenSession($event)"
+      @select-session="client.selectSession($event)"
       @export-session="(id) => client.exportSession(id)"
       @compact="client.compact()"
       @pick-model="openModelPicker()"
@@ -1122,6 +1221,17 @@ function openPr(url: string): void {
     <!-- Floating warnings / agent errors (e.g. a 403 from the model provider) -->
     <WarningToasts :warnings="client.warnings.value" @dismiss="client.dismissWarning" />
     <UpdateToast />
+    <div v-if="sessionActionToast" class="session-action-toast">
+      <Toast
+        variant="success"
+        :title="t(sessionActionToast.kind === 'done' ? 'sidebar.completeToastLead' : 'sidebar.reopenToastLead')"
+        @dismiss="sessionActionToast = null"
+      >
+        <button type="button" class="session-action-undo" @click="undoSessionAction">
+          {{ t('sidebar.archiveToastUndo') }}
+        </button>
+      </Toast>
+    </div>
 
     <!-- KAP/daemon debug panel (opt-in, ?debug=1) -->
     <DebugPanel v-if="debugEnabled" />
@@ -1144,7 +1254,7 @@ function openPr(url: string): void {
       @create-in-workspace="handleCreateSessionInWorkspace($event)"
       @add-workspace="showAddWorkspace = true"
       @rename="(id, title) => client.renameSession(id, title)"
-      @archive="confirmArchiveSession($event)"
+      @archive="markSessionDone($event)"
       @delete-workspace="confirmDeleteWorkspace($event)"
       @load-more="(id) => void client.loadMoreSessions(id)"
     />
@@ -1375,6 +1485,27 @@ function openPr(url: string): void {
   width: auto;
   transition: none;
   border-top: 2px solid var(--color-text);
+}
+
+.session-action-toast {
+  position: fixed;
+  right: var(--space-4);
+  bottom: var(--space-4);
+  z-index: var(--z-toast);
+}
+.session-action-undo {
+  margin-top: var(--space-2);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-accent);
+  font: inherit;
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+.session-action-undo:focus-visible {
+  outline: none;
+  box-shadow: var(--p-focus-ring);
 }
 
 @media (max-width: 640px) {

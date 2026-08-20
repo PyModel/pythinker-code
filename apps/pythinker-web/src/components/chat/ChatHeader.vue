@@ -32,6 +32,7 @@ const props = defineProps<{
   pr?: { number: number; state: string; url: string } | null;
   /** True for ~2s after a successful copy-all, to flip the icon to a check. */
   copied?: boolean;
+  sessionDone?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -42,6 +43,7 @@ const emit = defineEmits<{
   renameSession: [id: string, title: string];
   forkSession: [id: string];
   archiveSession: [id: string];
+  restoreSession: [id: string];
   exportSession: [id: string];
 }>();
 
@@ -216,6 +218,12 @@ function startArchive(): void {
   closeMenu();
   emit('archiveSession', props.sessionId);
 }
+
+function restoreSession(): void {
+  if (!props.sessionId) return;
+  closeMenu();
+  emit('restoreSession', props.sessionId);
+}
 </script>
 
 <template>
@@ -287,9 +295,13 @@ function startArchive(): void {
           <Icon name="download" size="sm" />
           {{ t('header.exportSession') }}
         </MenuItem>
-        <MenuItem danger @click="startArchive">
+        <MenuItem v-if="sessionDone" @click="restoreSession">
+          <Icon name="undo" size="sm" />
+          {{ t('header.reopenSession') }}
+        </MenuItem>
+        <MenuItem v-else @click="startArchive">
           <Icon name="archive" size="sm" />
-          {{ t('header.archiveSession') }}
+          {{ t('header.markSessionDone') }}
         </MenuItem>
       </template>
     </Menu>

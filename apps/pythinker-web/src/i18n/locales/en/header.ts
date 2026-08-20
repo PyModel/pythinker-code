@@ -20,5 +20,8 @@ export default {
   renameSession: 'Rename',
   forkSession: 'Fork session',
   archiveSession: 'Archive',
+  markSessionDone: 'Mark session as done',
+  sessionDone: 'Session done',
+  reopenSession: 'Reopen session',
   exportSession: 'Export session',
 };

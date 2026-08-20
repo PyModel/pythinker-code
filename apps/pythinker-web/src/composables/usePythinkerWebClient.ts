@@ -22,14 +22,17 @@ import {
   loadUnread,
   loadWorkspaceOrder,
   loadWorkspaceSort,
+  safeGetJson,
   safeGetString,
   safeRemove,
   safeSetString,
+  safeSetJson,
   saveUnread,
   saveWorkspaceOrder,
   saveWorkspaceSort,
   STORAGE_KEYS,
 } from '../lib/storage';
+import { composeTitle } from '../lib/sessionEmoji';
 import {
   coalesceAppRenderEvents,
   createEventBatcher,
@@ -2495,6 +2498,35 @@ const workspaceSortMode = ref<WorkspaceSortMode>(
   loadWorkspaceSort() === 'manual' ? 'manual' : 'recent',
 );
 
+function loadStringArray(key: string): string[] {
+  const value = safeGetJson<unknown>(key);
+  return Array.isArray(value)
+    ? value.filter((id): id is string => typeof id === 'string')
+    : [];
+}
+
+const pinnedSessionIds = ref<string[]>(loadStringArray(STORAGE_KEYS.pinnedSessions));
+const pinnedCollapsed = ref(safeGetString(STORAGE_KEYS.pinnedCollapsed) === 'true');
+
+function togglePinnedSession(id: string): void {
+  pinnedSessionIds.value = pinnedSessionIds.value.includes(id)
+    ? pinnedSessionIds.value.filter((sessionId) => sessionId !== id)
+    : [...pinnedSessionIds.value, id];
+  safeSetJson(STORAGE_KEYS.pinnedSessions, pinnedSessionIds.value);
+}
+
+function reorderPinnedSessions(ids: string[]): void {
+  const current = new Set(pinnedSessionIds.value);
+  const ordered = ids.filter((id) => current.has(id));
+  pinnedSessionIds.value = [...ordered, ...pinnedSessionIds.value.filter((id) => !ordered.includes(id))];
+  safeSetJson(STORAGE_KEYS.pinnedSessions, pinnedSessionIds.value);
+}
+
+function togglePinnedCollapsed(): void {
+  pinnedCollapsed.value = !pinnedCollapsed.value;
+  safeSetString(STORAGE_KEYS.pinnedCollapsed, String(pinnedCollapsed.value));
+}
+
 // Reconcile the persisted order with the set of currently-known workspaces:
 // drop ids that no longer exist, and prepend newly-seen ids (newest first,
 // matching "createdAt desc" — the closest signal we have without a real
@@ -2787,6 +2819,12 @@ const workspaceState = useWorkspaceState(rawState, {
   fileDiffLoading,
 });
 
+function setSessionEmoji(id: string, emoji: string | null): Promise<void> {
+  const session = rawState.sessions.find((value) => value.id === id);
+  if (!session) return Promise.resolve();
+  return workspaceState.renameSession(id, composeTitle(emoji, session.title));
+}
+
 /** True when the user is actually watching this session: it is the active
     session, the page is visible, and the window has focus. Focus matters on
     top of visibility: a window that lost focus to another app often stays
@@ -2929,6 +2967,8 @@ export function usePythinkerWebClient() {
     // Workspace view props
     workspacesView,
     workspaceSortMode,
+    pinnedSessionIds,
+    pinnedCollapsed,
     visibleWorkspace,
     activeWorkspaceId,
     sessionsForView,
@@ -3081,6 +3121,10 @@ export function usePythinkerWebClient() {
     deleteWorkspace: workspaceState.deleteWorkspace,
     reorderWorkspaces,
     setWorkspaceSortMode,
+    togglePinnedSession,
+    reorderPinnedSessions,
+    togglePinnedCollapsed,
+    setSessionEmoji,
     archiveSession: workspaceState.archiveSession,
     exportSession: workspaceState.exportSession,
     restoreSession: workspaceState.restoreSession,

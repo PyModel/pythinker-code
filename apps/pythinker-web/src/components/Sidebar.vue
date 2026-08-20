@@ -31,6 +31,8 @@ import Kbd from './ui/Kbd.vue';
 import Menu from './ui/Menu.vue';
 import MenuItem from './ui/MenuItem.vue';
 import Pill from './ui/Pill.vue';
+import PinnedSessionList from './PinnedSessionList.vue';
+import SessionRow from './SessionRow.vue';
 
 const { t } = useI18n();
 
@@ -68,6 +70,9 @@ const props = withDefaults(
     activeWorkspace: WorkspaceView | null;
     activeWorkspaceId: string | null;
     sessions: Session[];
+    archivedSessions?: Session[];
+    pinnedIds?: string[];
+    pinnedCollapsed?: boolean;
     groups: WorkspaceGroupType[];
     activeId: string;
     /** Current workspace sort mode — drives the section-header sort button. */
@@ -94,6 +99,9 @@ const props = withDefaults(
     attentionBySession: () => ({}),
     pendingBySession: () => ({}),
     unreadBySession: () => ({}),
+    archivedSessions: () => [],
+    pinnedIds: () => [],
+    pinnedCollapsed: false,
     colWidth: 220,
     collapsed: false,
     dragging: false,
@@ -108,6 +116,12 @@ const emit = defineEmits<{
   addWorkspace: [];
   rename: [id: string, title: string];
   archive: [id: string];
+  restore: [id: string];
+  pin: [id: string];
+  reorderPins: [ids: string[]];
+  togglePinnedCollapsed: [];
+  setSessionEmoji: [id: string, emoji: string | null];
+  loadDoneSessions: [];
   fork: [id: string];
   export: [id: string];
   renameWorkspace: [id: string, name: string];
@@ -119,6 +133,33 @@ const emit = defineEmits<{
   openSettings: [];
   collapse: [];
 }>();
+
+const statusView = ref<'open' | 'done'>('open');
+const listView = ref<'flat' | 'grouped'>('grouped');
+const pinnedSessions = computed(() => {
+  const byId = new Map(props.sessions.map((session) => [session.id, session]));
+  return props.pinnedIds.flatMap((id) => {
+    const session = byId.get(id);
+    return session ? [session] : [];
+  });
+});
+const unpinnedSessions = computed(() =>
+  props.sessions.filter((session) => !props.pinnedIds.includes(session.id)),
+);
+const unpinnedGroups = computed(() => props.groups.map((group) => ({
+  ...group,
+  sessions: group.sessions.filter((session) => !props.pinnedIds.includes(session.id)),
+})));
+
+function showStatus(status: 'open' | 'done'): void {
+  statusView.value = status;
+  if (status === 'done') emit('loadDoneSessions');
+}
+
+function chooseListView(view: 'flat' | 'grouped'): void {
+  listView.value = view;
+  closeSectionMenu();
+}
 
 // ---------------------------------------------------------------------------
 // Session search dialog (Spotlight-style; filters title + last prompt)
@@ -180,12 +221,14 @@ function collapseAllWorkspaces(): void {
   const next = new Set(props.groups.map((g) => g.workspace.id));
   collapsedIds.value = next;
   saveCollapsedWorkspaces(next);
+  closeSectionMenu();
 }
 
 function expandAllWorkspaces(): void {
   const next = new Set<string>();
   collapsedIds.value = next;
   saveCollapsedWorkspaces(next);
+  closeSectionMenu();
 }
 
 // True when every workspace is collapsed — drives the single toggle button's
@@ -682,8 +725,103 @@ onBeforeUnmount(() => {
         </button>
       </div>
 
+      <div class="status-tabs" role="tablist">
+        <button
+          type="button"
+          role="tab"
+          :aria-selected="statusView === 'open'"
+          :class="{ active: statusView === 'open' }"
+          @click="showStatus('open')"
+        >
+          {{ t('sidebar.tabOpen') }}
+        </button>
+        <button
+          type="button"
+          role="tab"
+          :aria-selected="statusView === 'done'"
+          :class="{ active: statusView === 'done' }"
+          @click="showStatus('done')"
+        >
+          {{ t('sidebar.tabDone') }}
+        </button>
+        <IconButton
+          class="status-view-switcher side-section-kebab"
+          size="sm"
+          :label="t('sidebar.viewSwitcher')"
+          aria-haspopup="menu"
+          :aria-expanded="sectionMenuOpen"
+          @click.stop="toggleSectionMenu($event)"
+        >
+          <Icon name="sliders" />
+        </IconButton>
+      </div>
+
       <!-- Session list — grouped by workspace -->
       <div class="sessions" @scroll="onSessionsScroll">
+        <PinnedSessionList
+          v-if="statusView === 'open'"
+          :sessions="pinnedSessions"
+          :active-id="activeId"
+          :collapsed="pinnedCollapsed"
+          :pending-by-session="pendingBySession"
+          :unread-by-session="unreadBySession"
+          @select="onSelectSession"
+          @rename="(id, title) => emit('rename', id, title)"
+          @archive="emit('archive', $event)"
+          @fork="emit('fork', $event)"
+          @export="emit('export', $event)"
+          @pin="emit('pin', $event)"
+          @set-emoji="(id, emoji) => emit('setSessionEmoji', id, emoji)"
+          @reorder="emit('reorderPins', $event)"
+          @toggle-collapsed="emit('togglePinnedCollapsed')"
+        />
+
+        <div v-if="statusView === 'done'">
+          <SessionRow
+            v-for="session in archivedSessions"
+            :key="session.id"
+            :session="session"
+            :active="false"
+            :done="true"
+            :pinned="pinnedIds.includes(session.id)"
+            @select="onSelectSession"
+            @rename="(id, title) => emit('rename', id, title)"
+            @restore="emit('restore', $event)"
+            @fork="emit('fork', $event)"
+            @export="emit('export', $event)"
+            @pin="emit('pin', $event)"
+            @set-emoji="(id, emoji) => emit('setSessionEmoji', id, emoji)"
+          />
+          <div v-if="archivedSessions.length === 0" class="empty">
+            {{ t('sidebar.noDoneSessions') }}
+          </div>
+        </div>
+
+        <template v-else-if="listView === 'flat'">
+          <SessionRow
+            v-for="session in unpinnedSessions"
+            :key="session.id"
+            :session="session"
+            :active="session.id === activeId"
+            :pinned="pinnedIds.includes(session.id)"
+            :approval-count="pendingBySession[session.id]?.approvals ?? 0"
+            :question-count="pendingBySession[session.id]?.questions ?? 0"
+            :unread="unreadBySession[session.id] ?? false"
+            @select="onSelectSession"
+            @rename="(id, title) => emit('rename', id, title)"
+            @archive="emit('archive', $event)"
+            @fork="emit('fork', $event)"
+            @export="emit('export', $event)"
+            @pin="emit('pin', $event)"
+            @set-emoji="(id, emoji) => emit('setSessionEmoji', id, emoji)"
+          />
+          <div v-if="sessions.length === 0" class="empty">{{ t('sidebar.noOpenSessions') }}</div>
+        </template>
+
+        <template v-else>
+        <div v-if="sessions.length === 0 && groups.length > 0" class="empty">
+          {{ t('sidebar.noOpenSessions') }}
+        </div>
         <!-- Empty state — only when no workspace is registered at all; empty
              workspaces still render their group header (with the + button). -->
         <div v-if="groups.length === 0" class="empty">
@@ -716,7 +854,7 @@ onBeforeUnmount(() => {
             </div>
           </div>
           <div
-            v-for="g in groups"
+            v-for="g in unpinnedGroups"
             :key="g.workspace.id"
             class="ws-drop-target"
             :class="{
@@ -735,6 +873,7 @@ onBeforeUnmount(() => {
               :rename-input-ref="getRenameInputRef()"
               :pending-by-session="pendingBySession"
               :unread-by-session="unreadBySession"
+              :pinned-ids="pinnedIds"
               :ws-menu-open-id="wsMenuOpenId"
               :dragging="draggingWsId === g.workspace.id"
               :is-collapsed="isCollapsed"
@@ -748,6 +887,8 @@ onBeforeUnmount(() => {
               @archive-session="(id) => emit('archive', id)"
               @fork-session="(id) => emit('fork', id)"
               @export-session="(id) => emit('export', id)"
+              @pin-session="(id) => emit('pin', id)"
+              @set-session-emoji="(id, emoji) => emit('setSessionEmoji', id, emoji)"
               @load-more="onLoadMore"
               @toggle-expand="toggleExpand"
               @confirm-rename="confirmRenameWorkspace"
@@ -757,6 +898,7 @@ onBeforeUnmount(() => {
               @ws-dragend="onWsDragend"
             />
           </div>
+        </template>
         </template>
       </div>
 
@@ -805,6 +947,21 @@ onBeforeUnmount(() => {
       :style="sectionMenuStyle"
       @click.stop
     >
+      <div class="section-menu-label">{{ t('sidebar.viewGroup') }}</div>
+      <MenuItem @click="chooseListView('flat')">
+        <span class="section-menu-check">
+          <Icon v-if="listView === 'flat'" name="check" size="sm" />
+        </span>
+        {{ t('sidebar.viewFlat') }}
+      </MenuItem>
+      <MenuItem @click="chooseListView('grouped')">
+        <span class="section-menu-check">
+          <Icon v-if="listView === 'grouped'" name="check" size="sm" />
+        </span>
+        {{ t('sidebar.viewGrouped') }}
+      </MenuItem>
+      <MenuItem separator />
+      <div class="section-menu-label">{{ t('sidebar.sortGroup') }}</div>
       <MenuItem @click="chooseSortMode('manual')">
         <span class="section-menu-check">
           <Icon v-if="workspaceSortMode === 'manual'" name="check" size="sm" />
@@ -816,6 +973,11 @@ onBeforeUnmount(() => {
           <Icon v-if="workspaceSortMode === 'recent'" name="check" size="sm" />
         </span>
         {{ t('sidebar.sortRecent') }}
+      </MenuItem>
+      <MenuItem separator />
+      <MenuItem @click="allCollapsed ? expandAllWorkspaces() : collapseAllWorkspaces()">
+        <Icon :name="allCollapsed ? 'expand' : 'collapse'" size="sm" />
+        {{ t(allCollapsed ? 'sidebar.expandAll' : 'sidebar.collapseAll') }}
       </MenuItem>
     </Menu>
     <!-- Dev backend switcher menu (position:fixed, anchored to the brand pill) -->
@@ -1035,6 +1197,29 @@ onBeforeUnmount(() => {
   white-space: nowrap;
 }
 
+.status-tabs {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--sb-inset) var(--space-2);
+}
+.status-tabs > button:not(.status-view-switcher) {
+  min-height: 28px;
+  padding: 0 var(--space-3);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-muted);
+  font: inherit;
+  font-size: var(--text-xs);
+  cursor: pointer;
+}
+.status-tabs > button.active {
+  background: var(--color-selected);
+  color: var(--color-text);
+}
+.status-view-switcher { margin-left: auto; }
+
 /* Session search — the wrapper is the last fixed row above the list and
    carries the scroll-linked seam: its bottom border/shadow only appear once
    the session list has actually scrolled, so an unscrolled list shows no
@@ -1219,6 +1404,12 @@ onBeforeUnmount(() => {
   display: inline-flex;
   flex: none;
   width: 14px;
+}
+.section-menu-label {
+  padding: var(--space-2) var(--space-3) var(--space-1);
+  color: var(--color-text-faint);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
 }
 
 /* Backend switcher menu rows: mono engine name + muted preset URL. */

@@ -2,7 +2,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, provide, ref, watch, type ComponentPublicInstance } from 'vue';
 import { useI18n } from 'vue-i18n';
-import type { ActivationBadges, ApprovalBlock, ChatTurn, ConversationStatus, FilePreviewRequest, PermissionMode, QueuedPromptView, SessionPlanEntry, TaskItem, TodoView, ToolMedia, TurnAttachment, UIQuestion, WorkspaceView } from '../../types';
+import type { ActivationBadges, ApprovalBlock, ChatTurn, ConversationStatus, FilePreviewRequest, PermissionMode, QueuedPromptView, Session, SessionPlanEntry, TaskItem, TodoView, ToolMedia, TurnAttachment, UIQuestion, WorkspaceView } from '../../types';
 import type { AppGoal, AppModel, AppSkill, QuestionResponse, ThinkingLevel } from '../../api/types';
 import type { FileItem } from './MentionMenu.vue';
 import type { PromptAttachment } from '../../composables/usePythinkerWebClient';
@@ -19,6 +19,7 @@ import PythinkerLogo from '../PythinkerLogo.vue';
 import { getVisibleWorkspaces } from '../../lib/workspacePicker';
 import { safeRemove, STORAGE_KEYS } from '../../lib/storage';
 import type { TurnFileChange } from '../../lib/turnFiles';
+import WorkspaceRecentSessions from '../WorkspaceRecentSessions.vue';
 
 const { t } = useI18n();
 
@@ -103,6 +104,8 @@ const props = defineProps<{
   conversationToc?: boolean;
   /** Completion reason for the active session's last turn. */
   lastTurnReason?: 'completed' | 'cancelled' | 'failed';
+  sessionDone?: boolean;
+  recentSessions?: Session[];
 }>();
 
 const emit = defineEmits<{
@@ -150,6 +153,8 @@ const emit = defineEmits<{
   forkSession: [id: string];
   /** Chat header / session row: archive current session. */
   archiveSession: [id: string];
+  restoreSession: [id: string];
+  selectSession: [id: string];
   /** Chat header: export current session. */
   exportSession: [id: string];
 }>();
@@ -1306,6 +1311,7 @@ defineExpose({ loadComposerForEdit, focusComposer });
       :is-git-repo="!!gitInfo"
       :pr="pr"
       :copied="copyConversationCopied"
+      :session-done="sessionDone"
       @open-changes="emit('openChanges')"
       @copy-all="chatPaneRef?.copyConversation()"
       @copy-final-summary="chatPaneRef?.copyFinalSummary()"
@@ -1313,6 +1319,7 @@ defineExpose({ loadComposerForEdit, focusComposer });
       @rename-session="(id, title) => emit('renameSession', id, title)"
       @fork-session="(id) => emit('forkSession', id)"
       @archive-session="(id) => emit('archiveSession', id)"
+      @restore-session="(id) => emit('restoreSession', id)"
       @export-session="(id) => emit('exportSession', id)"
     />
 
@@ -1406,6 +1413,11 @@ defineExpose({ loadComposerForEdit, focusComposer });
                 <span>{{ t('conversation.addWorkspace') }}</span>
               </button>
             </div>
+            <WorkspaceRecentSessions
+              v-if="!sessionId"
+              :sessions="recentSessions ?? []"
+              @select="emit('selectSession', $event)"
+            />
             <Composer
               ref="emptyComposerRef"
               class="empty-composer"
