@@ -57,6 +57,7 @@ import RiCheckLine from '~icons/ri/check-line';
 import RiCloseLine from '~icons/ri/close-line';
 import RiCodeLine from '~icons/ri/code-line';
 import RiCollapseDiagonalLine from '~icons/ri/collapse-diagonal-line';
+import RiDeleteBinLine from '~icons/ri/delete-bin-line';
 import RiDownloadLine from '~icons/ri/download-line';
 import RiDraggable from '~icons/ri/draggable';
 import RiEqualizerLine from '~icons/ri/equalizer-line';
@@ -73,6 +74,7 @@ import RiFolderFill from '~icons/ri/folder-fill';
 import RiGitForkLine from '~icons/ri/git-fork-line';
 import RiGitPullRequestLine from '~icons/ri/git-pull-request-line';
 import RiGlobalLine from '~icons/ri/global-line';
+import RiHand from '~icons/ri/hand';
 import RiImageLine from '~icons/ri/image-line';
 import RiInformationLine from '~icons/ri/information-line';
 import RiLinksLine from '~icons/ri/links-line';
@@ -84,8 +86,10 @@ import RiMessageLine from '~icons/ri/message-line';
 import RiPauseFill from '~icons/ri/pause-fill';
 import RiPencilLine from '~icons/ri/pencil-line';
 import RiPlayFill from '~icons/ri/play-fill';
-import RiShutDownLine from '~icons/ri/shut-down-line';
 import RiQuestionLine from '~icons/ri/question-line';
+import RiShieldFlashLine from '~icons/ri/shield-flash-line';
+import RiShieldLine from '~icons/ri/shield-line';
+import RiShutDownLine from '~icons/ri/shut-down-line';
 import RiSortDesc from '~icons/ri/sort-desc';
 import RiSparklingLine from '~icons/ri/sparkling-line';
 import RiStarFill from '~icons/ri/star-fill';
@@ -130,6 +134,7 @@ import RawCheckLine from '~icons/ri/check-line?raw';
 import RawCloseLine from '~icons/ri/close-line?raw';
 import RawCodeLine from '~icons/ri/code-line?raw';
 import RawCollapseDiagonalLine from '~icons/ri/collapse-diagonal-line?raw';
+import RawDeleteBinLine from '~icons/ri/delete-bin-line?raw';
 import RawDownloadLine from '~icons/ri/download-line?raw';
 import RawDraggable from '~icons/ri/draggable?raw';
 import RawEqualizerLine from '~icons/ri/equalizer-line?raw';
@@ -146,6 +151,7 @@ import RawFolderFill from '~icons/ri/folder-fill?raw';
 import RawGitForkLine from '~icons/ri/git-fork-line?raw';
 import RawGitPullRequestLine from '~icons/ri/git-pull-request-line?raw';
 import RawGlobalLine from '~icons/ri/global-line?raw';
+import RawHand from '~icons/ri/hand?raw';
 import RawImageLine from '~icons/ri/image-line?raw';
 import RawInformationLine from '~icons/ri/information-line?raw';
 import RawLinksLine from '~icons/ri/links-line?raw';
@@ -157,8 +163,10 @@ import RawMessageLine from '~icons/ri/message-line?raw';
 import RawPauseFill from '~icons/ri/pause-fill?raw';
 import RawPencilLine from '~icons/ri/pencil-line?raw';
 import RawPlayFill from '~icons/ri/play-fill?raw';
-import RawShutDownLine from '~icons/ri/shut-down-line?raw';
 import RawQuestionLine from '~icons/ri/question-line?raw';
+import RawShieldFlashLine from '~icons/ri/shield-flash-line?raw';
+import RawShieldLine from '~icons/ri/shield-line?raw';
+import RawShutDownLine from '~icons/ri/shut-down-line?raw';
 import RawSortDesc from '~icons/ri/sort-desc?raw';
 import RawSparklingLine from '~icons/ri/sparkling-line?raw';
 import RawStarFill from '~icons/ri/star-fill?raw';
@@ -233,6 +241,10 @@ export type IconName =
   | 'info'
   | 'help-circle'
   | 'alert-triangle'
+  | 'hand'
+  | 'shield-question'
+  | 'full-access'
+  | 'trash'
   | 'clock'
   | 'sparkles'
   | 'target'
@@ -320,6 +332,10 @@ export const ICONS: Record<IconName, IconEntry> = {
   info: entry(RiInformationLine, RawInformationLine),
   'help-circle': entry(RiQuestionLine, RawQuestionLine),
   'alert-triangle': entry(RiAlertLine, RawAlertLine),
+  hand: entry(RiHand, RawHand),
+  'shield-question': entry(RiShieldLine, RawShieldLine),
+  'full-access': entry(RiShieldFlashLine, RawShieldFlashLine),
+  trash: entry(RiDeleteBinLine, RawDeleteBinLine),
   clock: entry(RiTimeLine, RawTimeLine),
   sparkles: entry(RiSparklingLine, RawSparklingLine),
   target: entry(RiTargetLine, RawTargetLine),

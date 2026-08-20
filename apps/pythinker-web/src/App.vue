@@ -1018,6 +1018,7 @@ function openPr(url: string): void {
       :status="client.status.value"
       :thinking="statusPanelThinking"
       :plan-mode="client.planMode.value"
+      :dynamic-workflow-mode="client.dynamicWorkflowMode.value"
       :cost-usd="client.sessionCost.value"
       @close="showStatusPanel = false"
     />

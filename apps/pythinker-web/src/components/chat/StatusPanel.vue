@@ -15,6 +15,7 @@ const props = defineProps<{
   status: ConversationStatus;
   thinking: ThinkingLevel;
   planMode: boolean;
+  dynamicWorkflowMode: boolean;
   /** Cumulative session cost in USD, when known (>= 0). */
   costUsd?: number;
 }>();
@@ -60,6 +61,9 @@ const permColor = computed(() => {
 });
 
 const planText = computed(() => (props.planMode ? t('status.planOn') : t('status.planOff')));
+const dynamicWorkflowText = computed(() => (
+  props.dynamicWorkflowMode ? t('status.dynamicWorkflowOn') : t('status.dynamicWorkflowOff')
+));
 
 const showCost = computed(() => typeof props.costUsd === 'number' && props.costUsd > 0);
 const costText = computed(() =>
@@ -85,6 +89,10 @@ const costText = computed(() =>
       <div class="row">
         <dt>{{ t('status.statusPlanMode') }}</dt>
         <dd :class="{ 'plan-on': planMode }">{{ planText }}</dd>
+      </div>
+      <div class="row">
+        <dt>{{ t('status.statusDynamicWorkflowMode') }}</dt>
+        <dd :class="{ 'workflow-on': dynamicWorkflowMode }">{{ dynamicWorkflowText }}</dd>
       </div>
       <div class="row">
         <dt>{{ t('status.statusContext') }}</dt>
@@ -130,7 +138,8 @@ const costText = computed(() =>
   gap: var(--space-2);
   min-width: 0;
 }
-.row dd.plan-on { color: var(--color-accent); }
+.row dd.plan-on,
+.row dd.workflow-on { color: var(--color-accent); }
 
 .ctx-text { flex: none; }
 .bar {

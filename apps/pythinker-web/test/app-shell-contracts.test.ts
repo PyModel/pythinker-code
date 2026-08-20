@@ -17,6 +17,7 @@ describe('app shell contracts', () => {
   it('mounts the session capability menu in the composer', () => {
     expect(composer).toContain("import CapabilityMenu from '../CapabilityMenu.vue';");
     expect(composer).toContain('<CapabilityMenu ref="capMenuRef" :session-id="sessionId" triggerless />');
+    expect(composer).toContain("id: 'capabilities'");
   });
 
   it('uses the Pythinker robot in the sidebar brand', () => {
