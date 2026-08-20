@@ -287,7 +287,7 @@ async function runServerInProcess(
     // rather than agent-gateway's private package version.
     serverVersion: version,
     // The CLI's host identity: feeds the engine's bootstrap client identity
-    // and the derived outbound headers (User-Agent + X-Msh-*), so web-UI
+    // and the derived outbound headers (User-Agent), so web-UI
     // OAuth flows and model / WebSearch requests carry the CLI identity. The
     // `web` User-Agent suffix distinguishes web-UI traffic from direct CLI
     // runs upstream (same product token, same platform).

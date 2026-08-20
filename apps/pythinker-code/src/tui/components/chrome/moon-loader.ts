@@ -5,8 +5,6 @@ import {
   BRAILLE_SPINNER_FRAMES,
   BRAILLE_SPINNER_INTERVAL_MS,
   formatThinkingSpinnerLabel,
-  MOON_SPINNER_FRAMES,
-  MOON_SPINNER_INTERVAL_MS,
 } from '#/tui/constant/rendering';
 import { currentTheme } from '#/tui/theme';
 import { shimmerText } from '#/tui/utils/shimmer';
@@ -45,8 +43,8 @@ export class MoonLoader extends Text {
   ) {
     super('', 1, 0);
     this.ui = ui;
-    this.frames = style === 'moon' ? [...MOON_SPINNER_FRAMES] : [...BRAILLE_SPINNER_FRAMES];
-    this.interval = style === 'moon' ? MOON_SPINNER_INTERVAL_MS : BRAILLE_SPINNER_INTERVAL_MS;
+    this.frames = [...BRAILLE_SPINNER_FRAMES];
+    this.interval = BRAILLE_SPINNER_INTERVAL_MS;
     this.colorFn = colorFn;
     this.useVerbLabels = options?.verbLabels ?? false;
     this.label = this.useVerbLabels ? formatThinkingSpinnerLabel() : label;

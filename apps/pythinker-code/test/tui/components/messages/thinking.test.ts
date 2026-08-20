@@ -93,12 +93,26 @@ describe('ThinkingComponent', () => {
     }
   });
 
-  it('finalizes in place into nothing while collapsed', () => {
+  it('finalizes in place into a hint while collapsed', () => {
     const component = new ThinkingComponent(longThinking, true, 'live');
 
     component.finalize();
 
-    expect(component.render(80)).toEqual([]);
+    const out = strip(component.render(80).join('\n'));
+    expect(out).toContain('more lines, ctrl+o to expand');
+    expect(out).not.toContain('line1');
+  });
+
+  it('shows the finalized content line count only while collapsed', () => {
+    const component = new ThinkingComponent(longThinking, true, 'live');
+    component.finalize();
+
+    const collapsed = strip(component.render(80).join('\n'));
+    expect(collapsed).toContain('(7 more lines, ctrl+o to expand)');
+
+    component.setExpanded(true);
+    const expanded = strip(component.render(80).join('\n'));
+    expect(expanded).not.toContain('ctrl+o to expand');
   });
 
   it('expands and collapses after finalization', () => {
@@ -112,7 +126,7 @@ describe('ThinkingComponent', () => {
     expect(expanded).not.toContain('ctrl+o to expand');
 
     component.setExpanded(false);
-    expect(component.render(80)).toEqual([]);
+    expect(strip(component.render(80).join('\n'))).toContain('ctrl+o to expand');
   });
 
   it('keeps expanded finalized lines within the requested render width', () => {

@@ -161,4 +161,24 @@ describe('WelcomeComponent', () => {
       }
     }
   });
+
+  it('shows model status on narrow terminals', () => {
+    const info = renderWelcomeBanner({
+      width: 20,
+      version: appState.version,
+      infoItems: [{ name: 'Model', value: 'k2', level: 'info' }],
+      copy: buildWelcomeCopy(false),
+    }).map(stripAnsi);
+    expect(info.some((line) => line.includes('Model: k2'))).toBe(true);
+
+    const warning = renderWelcomeBanner({
+      width: 20,
+      version: appState.version,
+      infoItems: [
+        { name: 'Model', value: 'not set, run /login or /provider', level: 'warn' },
+      ],
+      copy: buildWelcomeCopy(false),
+    }).map(stripAnsi);
+    expect(warning.some((line) => line.includes('Model: not set'))).toBe(true);
+  });
 });

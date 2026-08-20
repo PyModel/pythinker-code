@@ -58,7 +58,6 @@ export { OAuthManager, defaultRefreshThreshold, newInstanceId } from './oauth-ma
 export {
   assertPythinkerHostIdentity,
   createPythinkerDefaultHeaders,
-  createPythinkerDeviceHeaders,
   createPythinkerDeviceId,
   createPythinkerUserAgent,
   PYTHINKER_CODE_CUSTOM_HEADERS_ENV,

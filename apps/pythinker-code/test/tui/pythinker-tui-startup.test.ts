@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { log, type GoalSnapshot } from '@pymodel/pythinker-code-sdk';
+import { log, type GoalSnapshot, type Session } from '@pymodel/pythinker-code-sdk';
 import { describe, expect, it, vi } from 'vitest';
 
 import { BannerProvider } from '#/tui/banner/banner-provider';
@@ -246,6 +246,28 @@ function captureInputListeners(driver: StartupDriver) {
 }
 
 describe('PythinkerTUI startup', () => {
+  it('maps error session warnings to error status', async () => {
+    const session = makeSession({
+      getSessionWarnings: vi.fn(async () => [
+        { message: 'broken', severity: 'error' },
+        { message: 'meh', severity: 'warning' },
+      ]),
+    }) as unknown as Session;
+    const harness = makeHarness(session as never);
+    const tui = makeDriver(harness, makeStartupInput()) as unknown as {
+      session: Session;
+      showSessionWarnings(s: Session): Promise<void>;
+      showStatus(message: string, level?: 'warning' | 'error'): void;
+    };
+    tui.session = session;
+    const showStatus = vi.spyOn(tui, 'showStatus').mockImplementation(() => {});
+
+    await tui.showSessionWarnings(session);
+
+    expect(showStatus).toHaveBeenNthCalledWith(1, 'Warning: broken', 'error');
+    expect(showStatus).toHaveBeenNthCalledWith(2, 'Warning: meh', 'warning');
+  });
+
   it('creates a fresh session from startup flags and syncs runtime state', async () => {
     const session = makeSession({
       getStatus: vi.fn(async () => ({

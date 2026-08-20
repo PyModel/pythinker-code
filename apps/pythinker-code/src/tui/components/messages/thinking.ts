@@ -5,7 +5,7 @@
  * Supports expand/collapse via Ctrl+O (shared with tool output).
  */
 
-import { Text, type Component, type TUI } from '@pymodel/pi-tui';
+import { Text, truncateToWidth, type Component, type TUI } from '@pymodel/pi-tui';
 
 import {
   BRAILLE_SPINNER_FRAMES,
@@ -119,7 +119,18 @@ export class ThinkingComponent implements Component {
         rendered.push(...visibleLines.map((line) => MESSAGE_INDENT + line));
       }
     } else if (!this.expanded) {
-      rendered = [];
+      if (this.text.length === 0) {
+        rendered = [];
+      } else {
+        const contentLines = this.renderContent(width);
+        const hint = `... (${String(contentLines.length)} more lines, ctrl+o to expand)`;
+        const prefix = this.showMarker ? currentTheme.fg('textDim', STATUS_BULLET) : MESSAGE_INDENT;
+        const styledHint = currentTheme.fg(
+          'textDim',
+          truncateToWidth(hint, Math.max(1, width - MESSAGE_INDENT.length), '…'),
+        );
+        rendered = ['', prefix + styledHint];
+      }
     } else {
       const contentLines = this.renderContent(width);
       const lines: string[] = [''];

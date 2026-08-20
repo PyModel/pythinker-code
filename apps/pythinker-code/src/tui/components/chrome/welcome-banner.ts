@@ -385,11 +385,21 @@ export function renderWelcomeBanner(options: RenderWelcomeBannerOptions): string
     : options.copy;
 
   if (safeWidth < 24) {
-    return [
+    const lines = [
       '',
       truncateToWidth(copy.head, safeWidth, ellipsis),
       truncateToWidth(copy.prompt, safeWidth, ellipsis),
     ];
+    const modelItem = options.infoItems.find((item) => item.name === 'Model');
+    if (modelItem !== undefined) {
+      const value = asciiMode ? applyAsciiFallback(modelItem.value) : modelItem.value;
+      const modelLine =
+        modelItem.level === 'warn'
+          ? `Model: ${currentTheme.fg('warning', value)}`
+          : `Model: ${value}`;
+      lines.push(truncateToWidth(modelLine, safeWidth, ellipsis));
+    }
+    return lines;
   }
 
   const panelWidth = safeWidth;

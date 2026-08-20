@@ -124,6 +124,3 @@ export function getThinkingSpinnerLabel(nowMs: number = Date.now()): string {
 export function formatThinkingSpinnerLabel(nowMs: number = Date.now()): string {
   return `${getThinkingSpinnerLabel(nowMs)}…`;
 }
-
-export const MOON_SPINNER_FRAMES = BRAILLE_SPINNER_FRAMES;
-export const MOON_SPINNER_INTERVAL_MS = BRAILLE_SPINNER_INTERVAL_MS;

@@ -141,7 +141,7 @@ export interface ServerStartOptions {
   /**
    * Identity of the host product embedding the server: feeds the engine's
    * `bootstrap()` client identity, the default outbound request headers
-   * (User-Agent + `X-Msh-*` via `createPythinkerDefaultHeaders`), and the session
+   * (User-Agent via `createPythinkerDefaultHeaders`), and the session
    * export manifest. Applied to every agent and request the server hosts —
    * required, so every host states its own product name, version, and
    * platform explicitly.
