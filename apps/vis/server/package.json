@@ -37,8 +37,8 @@
   "devDependencies": {
     "@types/yauzl": "^2.10.3",
     "@types/yazl": "^2.4.6",
-    "tsx": "^4.21.0",
-    "vitest": "4.1.4",
+    "tsx": "^4.23.5",
+    "vitest": "4.1.9",
     "yazl": "^3.3.1"
   }
 }
