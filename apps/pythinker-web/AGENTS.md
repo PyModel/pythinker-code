@@ -61,3 +61,10 @@ Debugging against agent-gateway instances: start one from the repo root with `pn
 - **Theming:** the root element carries `data-color-scheme` (`light` | `dark` | `system`); react to it through `useIsDark()`, not by reading the DOM directly.
 - Keep the Vite **dev** proxy and **`preview`** proxy in sync — both are defined in `vite.config.ts` (shared `apiProxyOptions`).
 - The shared proxy strips the browser `Origin` header on forwarded requests: `changeOrigin` rewrites `Host` to the server but leaves `Origin` pointing at the Vite origin, and agent-gateway's WS upgrade path rejects that mismatch with 403. An Origin-less request is treated as a non-browser client. If you add another proxied path, route it through the same options.
+- **Upstream design parity:** the upstream removed its web UI source (2026-08-05); its current design exists only compiled in the reference checkout's `dist-web` bundle (`blackbox/refrence/apps/*/dist-web`, primary checkout only — gitignored). The last full upstream web source, already rebranded, is vendor commit `f12110e95` (`vendor/upstream`). When porting design, extract from the compiled bundle (component render fns + scoped CSS by `data-v` hash) rather than guessing.
+- **Dynamic Workflow is agent-driven:** the composer must not offer a manual workflow toggle (guarded by `test/settings-ui.test.ts`); the chip renders read-only from server-set session state, and `/workflow` is a daemon-routed command (`test/daemon-contracts.test.ts`).
+
+## Maintaining this file
+
+Keep this file for knowledge useful to almost every future agent session in this project.
+Do not repeat what the codebase already shows; point to the authoritative file or command instead.
