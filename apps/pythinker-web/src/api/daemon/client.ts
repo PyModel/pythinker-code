@@ -1,6 +1,7 @@
 // apps/pythinker-web/src/api/daemon/client.ts
 // DaemonPythinkerWebApi — implements PythinkerWebApi using the daemon REST + WS APIs.
 
+import { transcriptResponseSchema } from '@pymodel/transcript';
 import type { PythinkerApiConfig } from '../config';
 import { buildRestUrl, buildWsUrl } from '../config';
 import { traceKeyEvent } from '../../debug/trace';
@@ -11,6 +12,10 @@ import type {
   AppMessageRole,
   AppModel,
   AppProvider,
+  AppProviderDetails,
+  CustomRegistryImportResult,
+  ProviderCreateInput,
+  ProviderUpdateInput,
   AppConnector,
   AppMcpServerDefinition,
   AppMcpServerInput,
@@ -25,6 +30,8 @@ import type {
   AppSessionCursor,
   AppSessionRuntimeStatus,
   AppSessionSnapshot,
+  AppTranscriptPage,
+  AppTranscriptPageRequest,
   AppTask,
   AppTaskStatus,
   AppTerminal,
@@ -267,6 +274,27 @@ function toWireMcpDefinition(input: AppMcpServerInput): WireMcpServerDefinition 
     url: input.url,
     headers: input.headers,
   };
+}
+
+function toWireProviderInput(input: ProviderCreateInput | ProviderUpdateInput): Record<string, unknown> {
+  const body: Record<string, unknown> = {
+    type: input.type,
+    models: input.models.map((model) => ({
+      model: model.model,
+      max_context_size: model.maxContextSize,
+      display_name: model.displayName,
+      capabilities: model.capabilities,
+      max_output_size: model.maxOutputSize,
+      support_efforts: model.supportEfforts,
+      adaptive_thinking: model.adaptiveThinking,
+    })),
+  };
+  if ('id' in input) body['id'] = input.id;
+  if ('newId' in input && input.newId !== undefined) body['new_id'] = input.newId;
+  if (input.apiKey !== undefined) body['api_key'] = input.apiKey;
+  if (input.baseUrl !== undefined) body['base_url'] = input.baseUrl;
+  if (input.defaultModel !== undefined) body['default_model'] = input.defaultModel;
+  return body;
 }
 
 interface WireArchiveResult {
@@ -606,6 +634,38 @@ export class DaemonPythinkerWebApi implements PythinkerWebApi {
     return {
       items: data.items.map(toAppMessage),
       hasMore: data.has_more,
+    };
+  }
+
+  async getSessionTranscript(
+    sessionId: string,
+    input: AppTranscriptPageRequest,
+  ): Promise<AppTranscriptPage> {
+    const data = await this.http.get<unknown>(
+      `/sessions/${encodeURIComponent(sessionId)}/transcript`,
+      {
+        agent_id: input.agentId,
+        before_turn: input.beforeTurn,
+        after_turn: input.afterTurn,
+        page_size: input.pageSize,
+      },
+    );
+    const wire = transcriptResponseSchema.parse(data);
+    return {
+      agentId: wire.agent_id,
+      snapshot: {
+        items: wire.items,
+        tasks: wire.tasks,
+        interactions: wire.interactions,
+        attachments: wire.attachments,
+        todos: wire.todos,
+        prompts: wire.prompts,
+        meta: wire.meta,
+        hasMoreOlder: wire.has_more,
+      },
+      agents: wire.agents,
+      pendingInteractions: wire.pending_interactions,
+      seq: wire.seq,
     };
   }
 
@@ -1383,6 +1443,26 @@ export class DaemonPythinkerWebApi implements PythinkerWebApi {
     }
   }
 
+  /**
+   * S1: generate a session title via the daemon's managed chat_title tool —
+   * POST /api/v1/sessions/{id}/title/generate (v2 engine). Returns the
+   * generated title. Throws 40923 SESSION_TITLE_UNAVAILABLE when generation
+   * isn't possible (feature flag off, no managed login, no prompt yet, or a
+   * backend failure).
+   */
+  async generateSessionTitle(
+    sessionId: string,
+    input?: { force?: boolean; source?: 'user_prompts' | 'first_turn' | 'digest' },
+  ): Promise<{ title: string }> {
+    const body: Record<string, unknown> = {};
+    if (input?.force === true) body['force'] = true;
+    if (input?.source !== undefined) body['source'] = input.source;
+    return this.http.post<{ title: string }>(
+      `/sessions/${encodeURIComponent(sessionId)}/title/generate`,
+      body,
+    );
+  }
+
   // -------------------------------------------------------------------------
   // Models + Providers
   // PRESUMED — not in current daemon docs; isolated here, swap when backend defines them.
@@ -1395,24 +1475,45 @@ export class DaemonPythinkerWebApi implements PythinkerWebApi {
   }
 
   async listProviders(): Promise<AppProvider[]> {
-    // PRESUMED endpoint: GET /v1/providers → { items: WireProvider[] }
     const data = await this.http.get<{ items: WireProvider[] }>('/providers');
     return data.items.map(toAppProvider);
   }
 
-  async addProvider(input: {
-    type: string;
-    apiKey?: string;
-    baseUrl?: string;
-    defaultModel?: string;
-  }): Promise<AppProvider> {
-    // PRESUMED endpoint: POST /v1/providers → WireProvider
-    const body: Record<string, unknown> = { type: input.type };
-    if (input.apiKey !== undefined) body['api_key'] = input.apiKey;
-    if (input.baseUrl !== undefined) body['base_url'] = input.baseUrl;
-    if (input.defaultModel !== undefined) body['default_model'] = input.defaultModel;
-    const data = await this.http.post<WireProvider>('/providers', body);
+  async getProvider(id: string): Promise<AppProviderDetails> {
+    const data = await this.http.get<WireProvider>(`/providers/${encodeURIComponent(id)}`);
+    const provider = toAppProvider(data);
+    return data.api_key === undefined ? provider : { ...provider, apiKey: data.api_key };
+  }
+
+  async addProvider(input: ProviderCreateInput): Promise<AppProvider> {
+    const data = await this.http.post<WireProvider>('/providers', toWireProviderInput(input));
     return toAppProvider(data);
+  }
+
+  async updateProvider(
+    id: string,
+    input: ProviderUpdateInput,
+  ): Promise<{ provider: AppProvider }> {
+    const data = await this.http.put<{ provider: WireProvider }>(
+      `/providers/${encodeURIComponent(id)}`,
+      toWireProviderInput(input),
+    );
+    return { provider: toAppProvider(data.provider) };
+  }
+
+  async importCustomRegistry(
+    input: { url: string; apiKey?: string },
+  ): Promise<CustomRegistryImportResult> {
+    const body: Record<string, unknown> = { url: input.url };
+    if (input.apiKey !== undefined) body['api_key'] = input.apiKey;
+    const data = await this.http.post<{
+      providers: WireProvider[];
+      models_imported: number;
+    }>('/providers:import_registry', body);
+    return {
+      providers: data.providers.map(toAppProvider),
+      modelsImported: data.models_imported,
+    };
   }
 
   async deleteProvider(id: string): Promise<{ deleted: true }> {
@@ -1487,6 +1588,7 @@ export class DaemonPythinkerWebApi implements PythinkerWebApi {
       providers: 'providers',
       defaultProvider: 'default_provider',
       defaultModel: 'default_model',
+      secondaryModel: 'secondary_model',
       models: 'models',
       thinking: 'thinking',
       planMode: 'plan_mode',
@@ -1692,6 +1794,13 @@ export class DaemonPythinkerWebApi implements PythinkerWebApi {
         handlers.onError(code, msg, fatal);
       },
 
+      onTranscriptReset: (sessionId, agentId, snapshot, seq) => {
+        handlers.onTranscriptReset?.(sessionId, agentId, snapshot, seq);
+      },
+
+      onTranscriptOps: (sessionId, agentId, ops, seq) =>
+        handlers.onTranscriptOps?.(sessionId, agentId, ops, seq),
+
       onTerminalOutput: (sessionId, terminalId, data, seq) => {
         handlers.onTerminalOutput?.(sessionId, terminalId, data, seq);
       },
@@ -1714,6 +1823,12 @@ export class DaemonPythinkerWebApi implements PythinkerWebApi {
       },
       unsubscribe(sessionId: string): void {
         socket.unsubscribe(sessionId);
+      },
+      subscribeTranscript(sessionId: string, agentId: string, sinceSeq?: number): void {
+        socket.subscribeTranscript(sessionId, agentId, sinceSeq);
+      },
+      unsubscribeTranscript(sessionId: string, agentIds?: string[]): void {
+        socket.unsubscribeTranscript(sessionId, agentIds);
       },
       seedSnapshot(sessionId: string, snapshot: AppSessionSnapshot): void {
         // Rebuild the projector's mid-turn state from the snapshot. The

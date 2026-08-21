@@ -46,15 +46,13 @@ import { useSoundNotification } from './client/useSoundNotification';
 import { useTaskPoller } from './client/useTaskPoller';
 import { useModelProviderState } from './client/useModelProviderState';
 import { useSideChat } from './client/useSideChat';
+import { createAuxiliaryTranscripts } from './auxiliaryTranscripts';
 import {
   forgetLocalTurnState,
   SESSIONS_INITIAL_PAGE_SIZE,
   useWorkspaceState,
 } from './client/useWorkspaceState';
 
-const appearance = useAppearance();
-const notification = useNotification();
-const sound = useSoundNotification();
 import type {
   AppEvent,
   AppApprovalRequest,
@@ -100,13 +98,16 @@ import type {
   Session,
   TaskItem,
   SessionPlanEntry,
-  TaskState,
   TodoView,
   UIQuestion,
   Workspace,
   WorkspaceGroup,
   WorkspaceView,
 } from '../types';
+
+const appearance = useAppearance();
+const notification = useNotification();
+const sound = useSoundNotification();
 
 // ---------------------------------------------------------------------------
 // Internal reactive state (plain object wrapped in reactive())
@@ -813,6 +814,11 @@ function setOnboarded(done: boolean): void {
 
 // Singleton WS connection
 let eventConn: PythinkerEventConnection | null = null;
+const auxiliaryTranscripts = createAuxiliaryTranscripts({
+  api: getPythinkerWebApi(),
+  connectEventsIfNeeded,
+  getEventConnection: () => eventConn,
+});
 
 // Monotonic counter for optimistic user-message ids. Date.now() alone collides
 // when two prompts are submitted in the same millisecond (e.g. a queued send
@@ -1119,6 +1125,14 @@ function connectEventsIfNeeded(): void {
         // serverVersion / backend never go stale.
         void workspaceState.refreshServerMeta();
       }
+    },
+
+    onTranscriptReset(sessionId, agentId, snapshot, seq) {
+      auxiliaryTranscripts.receiveReset(sessionId, agentId, snapshot, seq);
+    },
+
+    onTranscriptOps(sessionId, agentId, ops, seq) {
+      return auxiliaryTranscripts.applyOps(sessionId, agentId, ops, seq);
     },
   });
 }
@@ -1795,6 +1809,7 @@ function toUiQuestion(q: AppQuestionRequest): UIQuestion {
   return {
     questionId: q.questionId,
     sessionId: q.sessionId,
+    toolCallId: q.toolCallId,
     questions: q.questions.map((qi) => ({
       id: qi.id,
       question: qi.question,
@@ -1862,24 +1877,29 @@ function findBashCommandForTask(task: AppTask): string | undefined {
 
 /** Map AppTask to UI TaskItem */
 function toUiTask(task: AppTask): TaskItem {
-  let state: TaskState;
+  let state: TaskItem['state'];
   if (task.status === 'running') {
     state = 'run';
   } else if (task.status === 'completed') {
     state = 'done';
+  } else if (task.status === 'cancelled') {
+    state = 'cancelled';
   } else {
     state = 'fail';
   }
 
   // Compute timing string
   let timing = '';
+  let durationMs: number | undefined;
   if (task.status === 'running' && task.startedAt) {
-    const elapsed = Math.round((Date.now() - new Date(task.startedAt).getTime()) / 1000);
+    durationMs = Date.now() - new Date(task.startedAt).getTime();
+    const elapsed = Math.round(durationMs / 1000);
     const m = Math.floor(elapsed / 60);
     const s = elapsed % 60;
     timing = i18n.global.t('tasks.timingRunning', { time: `${m}:${String(s).padStart(2, '0')}` });
   } else if (task.completedAt && task.startedAt) {
-    const elapsed = Math.round((new Date(task.completedAt).getTime() - new Date(task.startedAt).getTime()) / 1000);
+    durationMs = new Date(task.completedAt).getTime() - new Date(task.startedAt).getTime();
+    const elapsed = Math.round(durationMs / 1000);
     timing = i18n.global.t('tasks.timingDone', { sec: elapsed });
   } else {
     timing = task.status;
@@ -1900,15 +1920,21 @@ function toUiTask(task: AppTask): TaskItem {
 
   return {
     id: task.id,
+    agentId: task.agentId,
+    backgroundTaskId: task.backgroundTaskId,
     name: task.description,
     kind: task.kind,
     state,
     timing,
+    durationMs,
     meta,
     output,
     subagentType: task.subagentType,
     phase: task.subagentPhase,
+    model: task.model,
+    thinkingEffort: task.thinkingEffort,
     dynamicWorkflowIndex: task.dynamicWorkflowIndex,
+    swarmIndex: task.swarmIndex,
     runInBackground: task.runInBackground,
     parentToolCallId: task.parentToolCallId,
     createdAt: task.createdAt,
@@ -2297,7 +2323,7 @@ const questions = computed<UIQuestion[]>(() => {
  * tool_use). This is how the TUI / old web surface approvals.
  */
 const pendingApprovals = computed<
-  { approvalId: string; block: ApprovalBlock; agentName?: string }[]
+  { approvalId: string; block: ApprovalBlock; agentName?: string; toolCallId?: string }[]
 >(() => {
   const sid = rawState.activeSessionId;
   if (!sid) return [];
@@ -2305,6 +2331,9 @@ const pendingApprovals = computed<
     approvalId: a.approvalId,
     block: buildApprovalBlock(a),
     agentName: (a as { agentName?: string }).agentName,
+    // toolCallId lets ChatPane mark the run parked while its tool awaits the
+    // user's decision (reference Pn correlating by toolCallId).
+    toolCallId: a.toolCallId,
   }));
 });
 
@@ -2984,6 +3013,7 @@ export function usePythinkerWebClient() {
     /** Live `AppTask[]` for the active session — the subagent detail panel
      *  sources a subagent's streaming `outputLines` from here. */
     activeAppTasks,
+    auxiliaryTranscripts,
     todos,
     goal,
     dynamicWorkflows,
@@ -3131,6 +3161,7 @@ export function usePythinkerWebClient() {
     loadArchivedSessions: workspaceState.loadArchivedSessions,
     compact: workspaceState.compact,
     forkSession: workspaceState.forkSession,
+    generateSessionTitle: workspaceState.generateSessionTitle,
     undo: workspaceState.undo,
 
     // New Phase 4 actions
@@ -3149,6 +3180,7 @@ export function usePythinkerWebClient() {
     openInApp: workspaceState.openInApp,
     revealWorkspaceFile: workspaceState.revealWorkspaceFile,
     resolveImageUrl: workspaceState.resolveImageUrl,
+    getFileUrl: (fileId: string) => getPythinkerWebApi().getFileUrl(fileId),
 
     // Model + Provider actions
     loadModels: modelProvider.loadModels,

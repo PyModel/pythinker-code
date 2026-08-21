@@ -3,6 +3,12 @@
 // Handles: server_hello / client_hello handshake, subscribe/unsubscribe,
 // ping/pong heartbeat, resync_required, error frames, event.* dispatch.
 
+import {
+  transcriptOpsEventSchema,
+  transcriptResetEventSchema,
+  type AgentTranscriptSnapshot,
+  type TranscriptOperation,
+} from '@pymodel/transcript';
 import { traceWsIn, traceWsLifecycle, traceWsOut } from '../../debug/trace';
 import { classifyFrame } from './agentEventProjector';
 import { getCredential } from './serverAuth';
@@ -46,6 +52,18 @@ export interface DaemonEventSocketHandlers {
   onConnectionState(connected: boolean): void;
   /** Called on error frames or JSON parse failures */
   onError(code: number, msg: string, fatal: boolean): void;
+  onTranscriptReset?(
+    sessionId: string,
+    agentId: string,
+    snapshot: AgentTranscriptSnapshot,
+    seq?: number,
+  ): void;
+  onTranscriptOps?(
+    sessionId: string,
+    agentId: string,
+    ops: TranscriptOperation[],
+    seq?: number,
+  ): boolean | void;
   onTerminalOutput?(sessionId: string, terminalId: string, data: string, seq: number): void;
   onTerminalExit?(sessionId: string, terminalId: string, exitCode: number | null): void;
 }
@@ -81,6 +99,10 @@ export class DaemonEventSocket {
 
   /** subscriptions queued while not yet connected */
   private readonly pendingSubscriptions: PendingSubscription[] = [];
+  private readonly transcriptSubscriptions = new Map<
+    string,
+    { agentId: string; sinceSeq?: number }
+  >();
   private readonly terminalAttachments = new Map<string, TerminalAttachment>();
 
   private msgSeq = 0;
@@ -196,6 +218,31 @@ export class DaemonEventSocket {
         payload: { session_ids: [sessionId] },
       });
     }
+  }
+
+  subscribeTranscript(sessionId: string, agentId: string, sinceSeq?: number): void {
+    this.transcriptSubscriptions.set(sessionId, { agentId, sinceSeq });
+    if (this.connected) this.sendTranscriptSubscribe(sessionId, agentId, sinceSeq);
+  }
+
+  unsubscribeTranscript(sessionId: string, agentIds?: string[]): void {
+    const subscription = this.transcriptSubscriptions.get(sessionId);
+    if (
+      agentIds === undefined ||
+      subscription === undefined ||
+      agentIds.includes(subscription.agentId)
+    ) {
+      this.transcriptSubscriptions.delete(sessionId);
+    }
+    if (!this.connected || !this.ws) return;
+    this.send({
+      type: 'unsubscribe_v2',
+      id: this.nextId(),
+      payload: {
+        session_id: sessionId,
+        ...(agentIds !== undefined ? { agent_ids: agentIds } : {}),
+      },
+    });
   }
 
   /**
@@ -336,7 +383,52 @@ export class DaemonEventSocket {
     // TypeScript from narrowing .payload in each case arm. Cast once here.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const frame = rawFrame as any;
-    switch ((rawFrame as { type: string }).type) {
+    const type = (rawFrame as { type: string }).type;
+    if (type === 'transcript.reset') {
+      const parsed = transcriptResetEventSchema.safeParse({ type, ...frame.payload });
+      const sessionId = frame.session_id;
+      if (!parsed.success || typeof sessionId !== 'string') {
+        this.handlers.onError(0, 'Invalid transcript.reset frame', false);
+        return;
+      }
+      const event = parsed.data;
+      this.handlers.onTranscriptReset?.(
+        sessionId,
+        event.agent_id,
+        { ...event.snapshot, hasMoreOlder: event.has_more_older },
+        event.seq,
+      );
+      const subscription = this.transcriptSubscriptions.get(sessionId);
+      if (subscription?.agentId === event.agent_id && event.seq !== undefined) {
+        subscription.sinceSeq = event.seq;
+      }
+      return;
+    }
+    if (type === 'transcript.ops') {
+      const parsed = transcriptOpsEventSchema.safeParse({ type, ...frame.payload });
+      const sessionId = frame.session_id;
+      if (!parsed.success || typeof sessionId !== 'string') {
+        this.handlers.onError(0, 'Invalid transcript.ops frame', false);
+        return;
+      }
+      const event = parsed.data;
+      const accepted = this.handlers.onTranscriptOps?.(
+        sessionId,
+        event.agent_id,
+        event.ops,
+        event.seq,
+      );
+      const subscription = this.transcriptSubscriptions.get(sessionId);
+      if (
+        accepted !== false &&
+        subscription?.agentId === event.agent_id &&
+        event.seq !== undefined
+      ) {
+        subscription.sinceSeq = event.seq;
+      }
+      return;
+    }
+    switch (type) {
       case 'server_hello': {
         const hb = (frame.payload as { heartbeat_ms?: unknown } | undefined)?.heartbeat_ms;
         if (typeof hb === 'number' && hb > 0) this.heartbeatMs = hb;
@@ -491,6 +583,9 @@ export class DaemonEventSocket {
       },
     });
 
+    for (const [sessionId, subscription] of this.transcriptSubscriptions) {
+      this.sendTranscriptSubscribe(sessionId, subscription.agentId, subscription.sinceSeq);
+    }
     for (const attachment of this.terminalAttachments.values()) {
       this.sendTerminalAttach(attachment.sessionId, attachment.terminalId, attachment.lastSeq);
     }
@@ -503,6 +598,24 @@ export class DaemonEventSocket {
       payload: {
         session_ids: sessionIds,
         cursors,
+      },
+    });
+  }
+
+  private sendTranscriptSubscribe(
+    sessionId: string,
+    agentId: string,
+    sinceSeq?: number,
+  ): void {
+    this.send({
+      type: 'subscribe_v2',
+      id: this.nextId(),
+      payload: {
+        session_id: sessionId,
+        transcript: { [agentId]: 'delta' },
+        ...(sinceSeq !== undefined
+          ? { transcript_since: { [agentId]: sinceSeq } }
+          : {}),
       },
     });
   }

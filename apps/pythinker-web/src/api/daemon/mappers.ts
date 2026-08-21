@@ -380,11 +380,15 @@ export function toAppTask(wire: WireTask): AppTask {
     completedAt: wire.completed_at,
     outputPreview: wire.output_preview,
     outputBytes: wire.output_bytes,
+    agentId: wire.agent_id,
+    model: wire.model,
+    thinkingEffort: wire.thinking_effort,
     subagentPhase: wire.subagent_phase,
     subagentType: wire.subagent_type,
     parentToolCallId: wire.parent_tool_call_id,
     suspendedReason: wire.suspended_reason,
     dynamicWorkflowIndex: wire.dynamic_workflow_index,
+    swarmIndex: wire.swarm_index,
     // The snapshot's subagent roster carries the explicit flag. REST `/tasks`
     // does not, but its background-task store only holds detached tasks, so any
     // subagent it returns is a background subagent (foreground ones never
@@ -809,6 +813,7 @@ export function toAppConfig(wire: WireConfig): AppConfig {
     providers,
     defaultProvider: wire.default_provider,
     defaultModel: wire.default_model,
+    secondaryModel: wire.secondary_model,
     models: wire.models,
     thinking: wire.thinking as { enabled?: boolean; effort?: string } | undefined,
     planMode: wire.plan_mode,

@@ -328,11 +328,15 @@ export interface WireTask {
   completed_at?: string;
   output_preview?: string;
   output_bytes?: number;
+  agent_id?: string;
+  model?: string;
+  thinking_effort?: string;
   subagent_phase?: 'queued' | 'working' | 'suspended' | 'completed' | 'failed';
   subagent_type?: string;
   parent_tool_call_id?: string;
   suspended_reason?: string;
   dynamic_workflow_index?: number;
+  swarm_index?: number;
   run_in_background?: boolean;
 }
 
@@ -390,6 +394,7 @@ export interface WireCodexLoginStatus {
 export interface WireProvider {
   id: string;
   type: string;
+  api_key?: string;
   base_url?: string;
   default_model?: string;
   has_api_key: boolean;
@@ -460,6 +465,12 @@ export interface WireConfig {
   providers: Record<string, WireConfigProvider>;
   default_provider?: string;
   default_model?: string;
+  /** Daemon `secondaryModel` config section (nested keys stay camelCase —
+   *  the gateway snake_cases only top-level config domains). */
+  secondary_model?: {
+    model?: string;
+    defaultEffort?: string;
+  };
   models?: Record<string, unknown>;
   thinking?: unknown;
   plan_mode?: boolean;

@@ -2,6 +2,12 @@
 // App-facing camelCase model + PythinkerWebApi interface.
 // No daemon wire details here — Vue components consume only these types.
 
+import type {
+  AgentDescriptor,
+  AgentTranscriptSnapshot,
+  TranscriptOperation,
+} from '@pymodel/transcript';
+
 // ---------------------------------------------------------------------------
 // Pagination
 // ---------------------------------------------------------------------------
@@ -21,7 +27,7 @@ export interface PageRequest {
 // Notices
 // ---------------------------------------------------------------------------
 
-export type AppNoticeSeverity = 'info' | 'warning' | 'error';
+export type AppNoticeSeverity = 'info' | 'success' | 'warning' | 'error' | 'danger';
 
 export interface AppNoticeDetail {
   label: string;
@@ -304,7 +310,7 @@ export interface QuestionResponse {
 // ---------------------------------------------------------------------------
 
 export type AppTaskStatus = 'running' | 'completed' | 'failed' | 'cancelled';
-export type AppSubagentPhase = 'queued' | 'working' | 'suspended' | 'completed' | 'failed';
+export type AppSubagentPhase = 'queued' | 'working' | 'suspended' | 'completed' | 'failed' | 'cancelled';
 
 export interface AppTask {
   id: string;
@@ -318,6 +324,9 @@ export interface AppTask {
   completedAt?: string;
   outputPreview?: string;
   outputBytes?: number;
+  agentId?: string;
+  model?: string;
+  thinkingEffort?: string;
   outputLines?: string[]; // accumulated by eventReducer from task.progress chunks
   /** The subagent's concatenated live output (assistant.delta), accumulated by
    *  the event reducer from `taskProgress` chunks of kind `text`. Grows in the
@@ -328,6 +337,7 @@ export interface AppTask {
   parentToolCallId?: string;
   suspendedReason?: string;
   dynamicWorkflowIndex?: number;
+  swarmIndex?: number;
   /** True only for subagents detached into the background task store. Drives
    *  the dock: the dock lists background subagents, while foreground subagents
    *  render inline in the message flow as the `Agent` tool card. */
@@ -532,11 +542,38 @@ export interface AppSessionSnapshot {
   pendingQuestions: AppQuestionRequest[];
 }
 
+export interface AppTranscriptPage {
+  agentId: string;
+  snapshot: AgentTranscriptSnapshot;
+  agents: AgentDescriptor[];
+  pendingInteractions: string[];
+  seq?: number;
+}
+
+export interface AppTranscriptPageRequest {
+  agentId: string;
+  beforeTurn?: string;
+  afterTurn?: string;
+  pageSize?: number;
+}
+
 export interface PythinkerEventHandlers {
   onEvent(event: AppEvent, meta: PythinkerEventMeta): void;
   onResync(sessionId: string, currentSeq: number, epoch?: string): void;
   onError(code: number, msg: string, fatal: boolean): void;
   onConnectionChange(connected: boolean): void;
+  onTranscriptReset?(
+    sessionId: string,
+    agentId: string,
+    snapshot: AgentTranscriptSnapshot,
+    seq?: number,
+  ): void;
+  onTranscriptOps?(
+    sessionId: string,
+    agentId: string,
+    ops: TranscriptOperation[],
+    seq?: number,
+  ): boolean | void;
   onTerminalOutput?(sessionId: string, terminalId: string, data: string, seq: number): void;
   onTerminalExit?(sessionId: string, terminalId: string, exitCode: number | null): void;
 }
@@ -556,6 +593,8 @@ export interface PythinkerEventMeta {
 export interface PythinkerEventConnection {
   subscribe(sessionId: string, cursor?: AppSessionCursor): void;
   unsubscribe(sessionId: string): void;
+  subscribeTranscript(sessionId: string, agentId: string, sinceSeq?: number): void;
+  unsubscribeTranscript(sessionId: string, agentIds?: string[]): void;
   /**
    * Bind the real daemon prompt_id to the next turn for a session, so the
    * client-side projector stops synthesizing a random promptId on turn.started.
@@ -641,6 +680,39 @@ export interface AppProvider {
   models?: string[];
 }
 
+export interface AppProviderDetails extends AppProvider {
+  /** Stored key returned only by the single-provider endpoint. */
+  apiKey?: string;
+}
+
+export interface ProviderModelInput {
+  model: string;
+  maxContextSize: number;
+  displayName?: string;
+  capabilities?: string[];
+  maxOutputSize?: number;
+  supportEfforts?: string[];
+  adaptiveThinking?: boolean;
+}
+
+export interface ProviderCreateInput {
+  id: string;
+  type: CatalogProviderWireType;
+  apiKey?: string;
+  baseUrl?: string;
+  defaultModel?: string;
+  models: ProviderModelInput[];
+}
+
+export interface ProviderUpdateInput extends Omit<ProviderCreateInput, 'id'> {
+  newId?: string;
+}
+
+export interface CustomRegistryImportResult {
+  providers: AppProvider[];
+  modelsImported: number;
+}
+
 export type CatalogProviderWireType =
   | 'pythinker'
   | 'openai'
@@ -724,6 +796,13 @@ export interface AppConfig {
   providers: Record<string, AppConfigProvider>;
   defaultProvider?: string;
   defaultModel?: string;
+  /** Secondary (subagent) model recipe. `model` names a catalog entry or
+   *  config `models` alias; `defaultEffort` mirrors the daemon's
+   *  `secondaryModel` config section (wire key `secondary_model`). */
+  secondaryModel?: {
+    model?: string;
+    defaultEffort?: string;
+  };
   models?: Record<string, unknown>;
   thinking?: { enabled?: boolean; effort?: string };
   planMode?: boolean;
@@ -853,6 +932,10 @@ export interface PythinkerWebApi {
   archiveSession(sessionId: string): Promise<{ archived: true }>;
   restoreSession(sessionId: string): Promise<AppSession>;
   listMessages(sessionId: string, input?: PageRequest & { role?: AppMessageRole }): Promise<Page<AppMessage>>;
+  getSessionTranscript(
+    sessionId: string,
+    input: AppTranscriptPageRequest,
+  ): Promise<AppTranscriptPage>;
   /** v2 initial sync: atomic session state + `asOfSeq` watermark + epoch. */
   getSessionSnapshot(sessionId: string): Promise<AppSessionSnapshot>;
   /** Export the session archive, optionally including the bounded Web JSONL log. */
@@ -866,6 +949,8 @@ export interface PythinkerWebApi {
   compactSession(sessionId: string, instruction?: string): Promise<void>;
   undoSession(sessionId: string, count?: number): Promise<void>;
   forkSession(sessionId: string, input?: { title?: string }): Promise<AppSession>;
+  /** Generate a session title via the daemon's managed title tool (v2 engine) — POST /sessions/{id}/title/generate. Throws SESSION_TITLE_UNAVAILABLE when generation isn't possible. */
+  generateSessionTitle(sessionId: string, input?: { force?: boolean; source?: 'user_prompts' | 'first_turn' | 'digest' }): Promise<{ title: string }>;
   /** Create a child session under a parent — POST /sessions/{id}/children. */
   createChildSession(sessionId: string, input?: { title?: string }): Promise<AppSession>;
   /** List a session's child sessions — GET /sessions/{id}/children. */
@@ -921,7 +1006,10 @@ export interface PythinkerWebApi {
   // PRESUMED — not in current daemon docs; isolated in adapter, swap when backend defines them.
   listModels(): Promise<AppModel[]>;
   listProviders(): Promise<AppProvider[]>;
-  addProvider(input: { type: string; apiKey?: string; baseUrl?: string; defaultModel?: string }): Promise<AppProvider>;
+  getProvider(id: string): Promise<AppProviderDetails>;
+  addProvider(input: ProviderCreateInput): Promise<AppProvider>;
+  updateProvider(id: string, input: ProviderUpdateInput): Promise<{ provider: AppProvider }>;
+  importCustomRegistry(input: { url: string; apiKey?: string }): Promise<CustomRegistryImportResult>;
   deleteProvider(id: string): Promise<{ deleted: true }>;
   refreshProvider(id: string): Promise<ProviderRefreshResult>;
   refreshAllProviders(): Promise<ProviderRefreshResult>;
