@@ -276,7 +276,7 @@ onUnmounted(() => {
             </ul>
 
             <h3 class="sub">Type scale &amp; weight</h3>
-            <p>The user font-size preference writes <code>--base-ui-font-size</code>. Compact UI chrome and the sidebar follow it through <code>--ui-font-size</code>, while chat reading surfaces derive one readable step above it through <code>--content-font-size</code>.</p>
+            <p>The user font-size preference sets <code>data-font-scale</code> on the root element, which the CSS uses to pick <code>--base-font</code> (12 / 14 / 16 / 18px). Compact UI chrome and the sidebar follow it through <code>--ui-font-size</code>, while chat reading surfaces derive one readable step above it through <code>--content-font-size</code>.</p>
             <p>The fixed product type tokens still define component defaults: <b>UI controls / buttons / forms</b> use <code>--text-base</code> (14px); <b>reading body — including chat Markdown, message bubbles, etc.</b> stays one step larger than compact chrome for readability; the <b>sidebar session list</b> follows that same readable step while keeping list density.
             Drop stray <code>font-weight: 650 / 750</code>; converge on two weights, 400 / 500 (regular / emphasis).</p>
             <div class="panel panel-pad" style="margin:16px 0">
@@ -292,7 +292,7 @@ onUnmounted(() => {
               <tbody>
                 <tr><td class="tk">--font-ui</td><td class="val">"Inter Variable", "Inter", "Helvetica Neue", Arial…</td><td>UI &amp; body (Inter first)</td></tr>
                 <tr><td class="tk">--font-mono</td><td class="val">JetBrains Mono…</td><td>code, tool names, line numbers, diffs</td></tr>
-                <tr><td class="tk">--base-ui-font-size</td><td class="val">14px user preference</td><td>root setting that drives UI, reading body, and sidebar font sizes</td></tr>
+                <tr><td class="tk">--base-font</td><td class="val">14px (data-font-scale: 12/14/16/18)</td><td>root setting that drives UI, reading body, and sidebar font sizes</td></tr>
                 <tr><td class="tk">--content-font-size</td><td class="val">calc(base + 1px)</td><td>chat Markdown, message bubbles, composer</td></tr>
                 <tr><td class="tk">--leading-tight/normal/relaxed</td><td class="val">1.25 / 1.5 / 1.7</td><td>headings / UI / long text</td></tr>
                 <tr><td class="tk">--weight-regular/medium</td><td class="val">400 / 500</td><td>body / emphasis</td></tr>
@@ -2043,9 +2043,9 @@ onUnmounted(() => {
 
   /* ===== Chat: user bubble ===== */
   .p-bubble-user {
-    align-self: flex-end; max-width: 78%; background: var(--p-accent-soft); border: 1px solid var(--p-accent-bd);
-    color: var(--p-text); border-radius: 18px 18px 5px 18px; padding: 11px 15px;
-    font-size: var(--p-font-size-md); line-height: var(--p-leading-normal); box-shadow: var(--p-sh-xs);
+    align-self: flex-end; max-width: 78%; background: var(--color-user-bubble-bg);
+    color: var(--p-text); border-radius: var(--radius-lg); padding: 10px 12px;
+    font-size: var(--p-font-size-md); line-height: var(--p-leading-normal);
   }
   .p-msg { max-width: 760px; font-size: var(--p-font-size-md); line-height: var(--p-leading-relaxed); color: var(--p-text); }
   .p-msg p { margin: 0 0 10px; color: var(--p-text); }

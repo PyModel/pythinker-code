@@ -62,6 +62,9 @@ function onOutside(event: MouseEvent): void {
   if (!root.value?.contains(event.target as Node)) close();
 }
 
+// Imperative open for call sites that trigger the menu from elsewhere.
+defineExpose({ open: () => void toggleOpen() });
+
 function toggleValue(id: string): void {
   emit('update:modelValue', toggleMultiSelectValue(props.modelValue, id));
 }

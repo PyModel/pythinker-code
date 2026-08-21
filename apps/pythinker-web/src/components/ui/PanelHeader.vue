@@ -52,7 +52,7 @@ defineEmits<{ close: [] }>();
   padding: 0 6px 0 var(--space-3);
   box-sizing: border-box;
   min-width: 0;
-  border-bottom: 1px solid var(--color-line);
+  border-bottom: 0.5px solid var(--color-line);
   background: var(--color-surface);
 }
 .ui-panel-header__title {

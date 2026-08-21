@@ -59,7 +59,7 @@ const { t } = useI18n();
 }
 .gload-text {
   font-family: var(--mono);
-  font-size: var(--text-base);
+  font-size: var(--text-xl);
   color: var(--muted);
   letter-spacing: 0.04em;
 }
@@ -70,13 +70,13 @@ const { t } = useI18n();
   gap: var(--space-2);
   max-width: min(480px, 80vw);
   font-family: var(--sans);
-  font-size: var(--text-sm);
+  font-size: var(--text-base);
   color: var(--muted);
   text-align: center;
 }
 .gload-issue-detail {
   font-family: var(--mono);
-  font-size: var(--text-xs);
+  font-size: var(--text-base);
   color: var(--muted);
   opacity: 0.8;
   word-break: break-word;

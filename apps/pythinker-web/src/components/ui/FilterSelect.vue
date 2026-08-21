@@ -2,6 +2,9 @@
 export interface FilterSelectOption {
   value: string;
   label: string;
+  /** Status-dot variant rendered before the label when set (e.g.
+      `open`/`done` in the session-admin filter — same tokens as StatusDot). */
+  dot?: string;
 }
 
 export function moveOptionFocus(index: number, delta: number, count: number): number {
@@ -56,6 +59,10 @@ function onOutside(event: MouseEvent): void {
   if (!root.value?.contains(event.target as Node)) close();
 }
 
+// Imperative open for call sites that trigger the menu from elsewhere (e.g. a
+// keyboard shortcut or an external button).
+defineExpose({ open: () => void toggle() });
+
 function onKeydown(event: KeyboardEvent): void {
   if (event.key === 'Escape') {
     event.preventDefault();
@@ -99,6 +106,7 @@ onBeforeUnmount(close);
         @click="select(option.value)"
       >
         <span class="filter-select__check"><Icon v-if="option.value === modelValue" name="check" size="sm" /></span>
+        <span v-if="option.dot" class="sa-dot" :class="[`sa-dot--${option.dot}`]" aria-hidden="true" />
         {{ option.label }}
       </MenuItem>
     </Menu>
@@ -127,4 +135,9 @@ onBeforeUnmount(close);
 .filter-select__value { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .filter-select__menu { position: absolute; top: calc(100% + var(--space-1)); right: 0; z-index: var(--z-dropdown); }
 .filter-select__check { width: 16px; flex: none; }
+/* Per-option status dot (reference `.sa-dot`): small filled circle marking the
+   option's state; variant classes pick the colour (open/done). */
+.sa-dot { flex: none; width: 8px; height: 8px; border-radius: var(--radius-full); }
+.sa-dot--open { background: var(--color-success); }
+.sa-dot--done { background: var(--color-done); }
 </style>

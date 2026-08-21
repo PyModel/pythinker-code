@@ -261,6 +261,8 @@ summary {
     --color-fg: var(--color-text);
     --border: var(--color-line);
     --surface-light: #ffffff;
+    --surface-dark: #0d1117;
+    --accent-primary: #1783ff;
     color-scheme: light dark
 }
 
@@ -517,6 +519,7 @@ html[data-color-scheme=dark] {
     --p-subagent-card-min: 180px;
     --p-slash-menu-h: 228px;
     --p-mention-menu-h: 296px;
+    --p-media-thumb-size: 64px;
     --p-mention-tip-w: 320px;
     --p-mention-tip-vmargin: var(--space-3);
     --p-mention-tip-spinner-lift: -.1em;

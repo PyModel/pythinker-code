@@ -18,16 +18,19 @@ export default {
     goal_get: 'Read Goal',
     goal_budget: 'Set Goal Budget',
     goal_update: 'Update Goal',
+    waitfor: 'Wait',
   },
   dynamic_workflow: {
     progress: '{done} / {total}',
     runningSub: '{count} in progress',
     doneSub: '{completed} completed · {failed} failed',
+    doneSubWithCancelled: '{completed} completed · {failed} failed · {cancelled} cancelled',
     phaseQueued: 'Queued',
     phaseWorking: 'Working',
     phaseSuspended: 'Suspended',
     phaseCompleted: 'Completed',
     phaseFailed: 'Failed',
+    phaseCancelled: 'Cancelled',
     waiting: 'Waiting for subagents…',
     openAgent: 'Open agent detail',
   },
@@ -85,5 +88,27 @@ export default {
     answers: '{count} answers',
     answered: 'Answered',
     more: '(+{count} more)',
+  },
+  // -- waitfor tool card (T1a) --
+  waitfor: {
+    waitingAny: 'Waiting for any background task',
+    waitingTask: 'Waiting for {id}',
+    noTasks: 'No background tasks running',
+    timedOut: 'Timed out',
+    stillRunning: '{count} still running',
+    moreFinished: '+{count} finished during wait',
+    moreRunning: '+{count} more',
+    status: {
+      completed: 'completed',
+      failed: 'failed',
+      timed_out: 'timed out',
+      killed: 'killed',
+      lost: 'lost',
+    },
+  },
+  // -- agent tool run-mode chip (T1b) --
+  agent: {
+    foreground: 'Foreground',
+    background: 'Background',
   },
 } as const;

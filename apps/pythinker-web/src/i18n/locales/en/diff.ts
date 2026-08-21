@@ -13,4 +13,5 @@ export default {
   list: 'List',
   tree: 'Tree',
   close: 'Close',
+  emptyFile: 'Empty file',
 } as const;
