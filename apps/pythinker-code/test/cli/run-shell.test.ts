@@ -4,6 +4,7 @@ import type { createPythinkerDeviceId as createPythinkerDeviceIdFn } from '@pymo
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { runShell } from '#/cli/run-shell';
+import { refreshPythinkerRegion } from '#/utils/region';
 
 import { captureProcessWrite, ExitCalled, mockProcessExit } from '../helpers/process';
 
@@ -167,11 +168,16 @@ vi.mock('../../src/utils/process/resolve-command', () => ({
 describe('runShell', () => {
   beforeEach(() => {
     vi.stubEnv('PYTHINKER_CODE_LEGACY_FLAG', '1');
+    // Pin region to cn: the telemetry endpoint assertion below must not
+    // follow the dev machine's own login/marker state.
+    vi.stubEnv('PYTHINKER_CODE_OAUTH_HOST', 'https://auth.kimi.com');
+    refreshPythinkerRegion();
   });
 
   afterEach(() => {
     vi.clearAllMocks();
     vi.unstubAllEnvs();
+    refreshPythinkerRegion();
     mocks.harnessGetConfig.mockResolvedValue({
       providers: {},
       defaultModel: 'k2',
@@ -331,8 +337,14 @@ describe('runShell', () => {
       uiMode: 'shell',
       model: 'k2',
       sessionId: undefined,
+      endpoint: expect.any(Function),
       getAccessToken: expect.any(Function),
     });
+    // The endpoint resolver defers to the active region profile at flush time.
+    const telemetryOptions = mocks.initializeTelemetry.mock.calls[0]![0] as {
+      endpoint: () => string;
+    };
+    expect(telemetryOptions.endpoint()).toBe('https://telemetry-logs.pythinker.com/v1/event');
     expect(mocks.setCrashPhase).toHaveBeenCalledWith('runtime');
 
     const [, harness, startupInput] = mocks.pythinkerTuiConstructor.mock.calls[0]!;
