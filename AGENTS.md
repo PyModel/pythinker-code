@@ -69,7 +69,7 @@ The web bundle: `apps/pythinker-code/dist-web` is the committed, prebuilt bundle
 
 ## Environment
 
-- **Node.js** ≥ 26.4.0 (`.nvmrc`). **pnpm** 10.34.3 (root `packageManager`). `engine-strict=true`; `pnpm install` fails when the Node version is not satisfied.
+- **Node.js** 24.x, minimum 24.15.0 (`.nvmrc` pins 24.15.0). **pnpm** 10.34.3 (root `packageManager`). `engine-strict=true`; `pnpm install` fails outside the supported Node 24 range.
 
 ## Monorepo Maintenance
 

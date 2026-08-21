@@ -63,7 +63,7 @@
     "pre-push": "bash scripts/pre-push.sh"
   },
   "engines": {
-    "node": ">=24.15.0"
+    "node": ">=24.15.0 <25"
   },
   "packageManager": "pnpm@10.34.3",
   "pnpm": {
