@@ -6,11 +6,12 @@
 import { computed, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import type { DiffViewLine } from '../../types';
-import DiffLines from './DiffLines.vue';
+import HighlightedCode from './HighlightedCode.vue';
 import Button from '../ui/Button.vue';
 import PanelHeader from '../ui/PanelHeader.vue';
 import SegmentedControl from '../ui/SegmentedControl.vue';
 import Icon from '../ui/Icon.vue';
+import Spinner from '../ui/Spinner.vue';
 import Tooltip from '../ui/Tooltip.vue';
 
 const { t } = useI18n();
@@ -21,6 +22,11 @@ const props = withDefaults(
     gitInfo: { branch: string; ahead: number; behind: number } | null;
     /** Parsed unified-diff lines for the selected file (empty until tapped). */
     fileDiff?: DiffViewLine[];
+    /** Full before/after file texts, for whole-file highlighting of the diff
+     *  sides (the renderer reconstructs them from the lines when absent). */
+    fullTexts?: { before?: string; after?: string } | null;
+    /** True when the selected file exists but is empty (no lines at all). */
+    emptyFile?: boolean;
     /** The currently-open file path, or null when showing the file list. */
     selectedDiffPath?: string | null;
     /** True while the diff for the selected file is being fetched. */
@@ -37,7 +43,7 @@ const props = withDefaults(
     /** Show the close button in the panel header. */
     closable?: boolean;
   }>(),
-  { mode: 'full', hideBack: false, closable: true },
+  { mode: 'full', hideBack: false, closable: true, fullTexts: null, emptyFile: false },
 );
 
 const emit = defineEmits<{
@@ -49,7 +55,8 @@ const emit = defineEmits<{
   close: [];
 }>();
 
-// Status badge: single-letter glyph + CSS class
+// Status badge: single-letter glyph + CSS class (glyphs mirror the upstream
+// file-status legend: '+' added/untracked, '−' deleted, '→' renamed)
 type BadgeKind = 'modified' | 'added' | 'deleted' | 'renamed' | 'untracked' | 'conflicted' | 'ignored' | 'clean' | 'unknown';
 
 function badgeKind(s: string): BadgeKind {
@@ -67,10 +74,10 @@ function badgeKind(s: string): BadgeKind {
 
 const BADGE_GLYPH: Record<BadgeKind, string> = {
   modified: 'M',
-  added: 'A',
-  deleted: 'D',
-  renamed: 'R',
-  untracked: 'U',
+  added: '+',
+  deleted: '−',
+  renamed: '→',
+  untracked: '+',
   conflicted: 'C',
   ignored: 'I',
   clean: '·',
@@ -226,13 +233,26 @@ function treePadding(depth: number): string {
         </Button>
       </div>
 
-      <div v-if="loading" class="empty-state">{{ t('diff.loading') }}</div>
+      <Transition name="diff-content" mode="out-in">
+        <div v-if="loading" key="loading" class="empty-state diff-loading">
+          <Spinner size="md" />
+          <span>{{ t('diff.loading') }}</span>
+        </div>
 
-      <div v-else-if="diffLines.length > 0" class="dv-lines-wrap">
-        <DiffLines :lines="diffLines" />
-      </div>
+        <div v-else-if="diffLines.length > 0" key="lines" class="dv-lines-wrap">
+          <HighlightedCode
+            :lines="diffLines"
+            :path="selectedDiffPath ?? undefined"
+            :line-numbers="true"
+            :framed="false"
+            :full-texts="fullTexts"
+          />
+        </div>
 
-      <div v-else class="empty-state">{{ t('diff.noDiff') }}</div>
+        <div v-else key="empty" class="empty-state">
+          {{ emptyFile ? t('diff.emptyFile') : t('diff.noDiff') }}
+        </div>
+      </Transition>
     </template>
 
     <!-- ======================== CHANGED-FILE LIST ======================= -->
@@ -529,10 +549,22 @@ function treePadding(depth: number): string {
 
 /* ---- Empty state ---- */
 .empty-state {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
   padding: 32px 20px;
   color: var(--muted, #9098a0);
   font-size: var(--ui-font-size);
   text-align: center;
+  user-select: none;
+}
+.diff-loading {
+  flex-direction: row;
+  gap: var(--space-2);
 }
 
 /* =========================================================================
@@ -550,12 +582,22 @@ function treePadding(depth: number): string {
   overflow: hidden;
 }
 
-/* Wrapper that lets <DiffLines> fill the panel height and scroll internally.
-   The line-row styles themselves live in DiffLines.vue. */
+/* Wrapper that lets <HighlightedCode> fill the panel height and scroll
+   internally. The line-row styles themselves live in HighlightedCode.vue. */
 .dv-lines-wrap {
   flex: 1;
   min-height: 0;
   overflow: auto;
+}
+
+/* Fade between the loading / diff / empty states. */
+.diff-content-enter-active,
+.diff-content-leave-active {
+  transition: opacity var(--duration-base) var(--ease-out);
+}
+.diff-content-enter-from,
+.diff-content-leave-to {
+  opacity: 0;
 }
 
 /* Context rows keep plain colors (inherit). */

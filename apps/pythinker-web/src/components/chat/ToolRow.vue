@@ -56,10 +56,12 @@ function onHeadClick(): void {
     <div class="bh" ref="bhEl" @click="onHeadClick">
       <span v-if="icon" class="gl" v-html="icon" aria-hidden="true" />
       <span class="bh-text">
-        <span class="a">{{ name }}</span>
-        <Tooltip :text="arg">
-          <span v-if="arg" class="p">{{ arg }}</span>
-        </Tooltip>
+        <slot name="title">
+          <span class="a">{{ name }}</span>
+          <Tooltip :text="arg">
+            <span v-if="arg" class="p">{{ arg }}</span>
+          </Tooltip>
+        </slot>
       </span>
       <span class="rt">
         <span class="status" :class="status" role="status" :aria-label="status">

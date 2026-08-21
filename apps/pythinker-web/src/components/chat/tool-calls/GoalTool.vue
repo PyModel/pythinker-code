@@ -2,7 +2,7 @@
 import { computed, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import type { FilePreviewRequest, ToolCall, ToolMedia } from '../../../types';
-import { toolGlyph, toolLabel } from '../../../lib/toolMeta';
+import { normalizeToolName, toolGlyph, toolLabel } from '../../../lib/toolMeta';
 import ToolRow from '../ToolRow.vue';
 import ToolOutputBlock from './ToolOutputBlock.vue';
 
@@ -38,16 +38,31 @@ const criterion = computed(() => {
   const value = arg.value?.completionCriterion ?? arg.value?.completion_criterion;
   return typeof value === 'string' ? value : '';
 });
-const summary = computed(() => objective.value && criterion.value
-  ? t('tools.goal.objectiveWithCriterion', { objective: objective.value, criterion: criterion.value })
-  : objective.value,
-);
 const status = computed(() => typeof arg.value?.status === 'string' ? arg.value.status : '');
+const toolKey = computed(() => normalizeToolName(props.tool.name));
 const statusLabel = computed(() => {
   if (status.value === 'active') return t('status.goalStatusActive');
   if (status.value === 'blocked') return t('status.goalStatusBlocked');
   if (status.value === 'complete') return t('status.goalStatusComplete');
   return status.value;
+});
+/** Header pill: updategoal shows its status (Active/Done/Blocked); creategoal
+ *  always shows a constant "Active" pill (reference GoalTool trailing). */
+const pill = computed<{ label: string; cls: string } | null>(() => {
+  if (toolKey.value === 'updategoal' && statusLabel.value) {
+    const cls = status.value === 'complete' ? 'pill-done'
+      : status.value === 'blocked' ? 'pill-blocked'
+      : 'pill-active';
+    return { label: statusLabel.value, cls };
+  }
+  if (toolKey.value === 'creategoal') return { label: t('status.goalStatusActive'), cls: 'pill-active' };
+  return null;
+});
+const summary = computed(() => {
+  if (toolKey.value === 'updategoal' && statusLabel.value) return statusLabel.value;
+  return objective.value && criterion.value
+    ? t('tools.goal.objectiveWithCriterion', { objective: objective.value, criterion: criterion.value })
+    : objective.value;
 });
 const budget = computed(() => {
   const value = arg.value?.value;
@@ -88,7 +103,9 @@ watch(
     :stack-position="stackPosition"
     @toggle="toggle"
   >
-    <div v-if="statusLabel" class="goal-status">{{ t('tools.goal.status', { status: statusLabel }) }}</div>
+    <template #trailing>
+      <span v-if="pill" class="tl-pill" :class="pill.cls">{{ pill.label }}</span>
+    </template>
     <div v-if="budget" class="goal-budget">{{ budget }}</div>
     <ToolOutputBlock
       :lines="tool.output"
@@ -98,7 +115,26 @@ watch(
 </template>
 
 <style scoped>
-.goal-status,
+.tl-pill {
+  font-size: var(--text-xs);
+  line-height: 1.5;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-full);
+  flex: none;
+  white-space: nowrap;
+}
+.tl-pill.pill-active {
+  color: var(--color-accent);
+  background: var(--color-accent-soft);
+}
+.tl-pill.pill-done {
+  color: var(--color-success);
+  background: var(--color-success-soft);
+}
+.tl-pill.pill-blocked {
+  color: var(--color-warning);
+  background: var(--color-warning-soft);
+}
 .goal-budget {
   color: var(--color-text-muted);
 }

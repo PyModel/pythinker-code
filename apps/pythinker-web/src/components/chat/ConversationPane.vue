@@ -26,7 +26,7 @@ const { t } = useI18n();
 const props = defineProps<{
   turns: ChatTurn[];
   sessionId?: string;
-  approvals?: { approvalId: string; block: ApprovalBlock; agentName?: string }[];
+  approvals?: { approvalId: string; block: ApprovalBlock; agentName?: string; toolCallId?: string }[];
   gitInfo?: { branch: string; ahead: number; behind: number } | null;
   tasks: TaskItem[];
   /** Model-maintained todo list (TodoList tool) — shown as a floating card. */
@@ -104,7 +104,14 @@ const props = defineProps<{
   conversationToc?: boolean;
   /** Completion reason for the active session's last turn. */
   lastTurnReason?: 'completed' | 'cancelled' | 'failed';
+  /** Step-limit variant of the failed-turn banner (turn.step.interrupted
+   *  reason === 'max_steps'): renders the "Step limit reached" title. */
+  turnErrorKind?: 'max_steps' | 'error' | 'aborted';
+  /** Optional failure detail rendered under the failed-turn banner title. */
+  turnErrorMessage?: string;
   sessionDone?: boolean;
+  /** True while the active session is pinned. */
+  pinned?: boolean;
   recentSessions?: Session[];
 }>();
 
@@ -141,6 +148,8 @@ const emit = defineEmits<{
   refreshGitStatus: [];
   /** Edit + resend the last user message (App undoes, then refills composer). */
   editMessage: [payload: { text: string; attachments?: TurnAttachment[] }];
+  /** Failed-turn recovery: re-send the last user prompt (see ChatPane). */
+  continueTurn: [text: string];
   /** Empty-composer workspace picker: start a new conversation elsewhere. */
   selectWorkspace: [workspaceId: string];
   /** Empty-composer workspace picker: create a new workspace. */
@@ -157,6 +166,10 @@ const emit = defineEmits<{
   selectSession: [id: string];
   /** Chat header: export current session. */
   exportSession: [id: string];
+  /** Chat header: pin/unpin the current session. */
+  togglePin: [id: string];
+  /** Home recent-sessions foot row: open Session Management. */
+  openSessionAdmin: [];
 }>();
 
 // Empty-composer workspace picker.
@@ -262,6 +275,9 @@ function resolveAgentTaskId(toolCallId: string): string | undefined {
   return undefined;
 }
 provide('resolveAgentTaskId', resolveAgentTaskId);
+// Let the ExitPlanMode tool card reach the plan markdown captured from the
+// plan_review approval display (client.sessionPlans — survives reloads).
+provide('resolvePlan', (toolCallId: string) => props.sessionPlans?.[toolCallId]);
 provide('pinScroll', pinScrollFor);
 const todoDoneCount = computed(() => (props.todos ?? []).filter((td) => td.status === 'done').length);
 const hasDockWork = computed(() =>
@@ -446,8 +462,12 @@ const searchOpen = ref(false);
 const dockRef = ref<HTMLElement | null>(null);
 const panesScrollbarWidth = ref(0);
 const dockHeight = ref(0);
+const CHAT_DOCK_CLEARANCE = 48;
 const chatDockStyle = computed(() => ({
   '--panes-scrollbar-width': `${panesScrollbarWidth.value}px`,
+}));
+const chatLayoutStyle = computed(() => ({
+  '--chat-dock-height': `${dockHeight.value + CHAT_DOCK_CLEARANCE}px`,
 }));
 type ComposerHandle = {
   loadForEdit: (value: string) => boolean | void;
@@ -1312,12 +1332,14 @@ defineExpose({ loadComposerForEdit, focusComposer });
       :pr="pr"
       :copied="copyConversationCopied"
       :session-done="sessionDone"
+      :pinned="pinned"
       @open-changes="emit('openChanges')"
       @copy-all="chatPaneRef?.copyConversation()"
       @copy-final-summary="chatPaneRef?.copyFinalSummary()"
       @open-pr="pr && emit('openPr', pr.url)"
       @rename-session="(id, title) => emit('renameSession', id, title)"
       @fork-session="(id) => emit('forkSession', id)"
+      @toggle-pin="(id) => emit('togglePin', id)"
       @archive-session="(id) => emit('archiveSession', id)"
       @restore-session="(id) => emit('restoreSession', id)"
       @export-session="(id) => emit('exportSession', id)"
@@ -1335,7 +1357,7 @@ defineExpose({ loadComposerForEdit, focusComposer });
       @select="scrollToTurn"
     />
 
-    <div class="chat-layout">
+    <div class="chat-layout" :style="chatLayoutStyle">
       <div
         :ref="bindChatPane"
         class="panes chat-scroll"
@@ -1417,6 +1439,7 @@ defineExpose({ loadComposerForEdit, focusComposer });
               v-if="!sessionId"
               :sessions="recentSessions ?? []"
               @select="emit('selectSession', $event)"
+              @open-session-admin="emit('openSessionAdmin')"
             />
             <Composer
               ref="emptyComposerRef"
@@ -1464,6 +1487,7 @@ defineExpose({ loadComposerForEdit, focusComposer });
               :key="fileReloadKey ?? 'no-session'"
               :turns="turns"
               :approvals="approvals"
+              :questions="questions"
               :turn-active="turnActive"
               :working="working"
               :fast-moon="fastMoon"
@@ -1475,6 +1499,8 @@ defineExpose({ loadComposerForEdit, focusComposer });
               :is-following="following"
               :tool-diff-panel="true"
               :last-turn-reason="lastTurnReason"
+              :turn-error-kind="turnErrorKind"
+              :turn-error-message="turnErrorMessage"
               :cwd="workspaceRoot"
               :queued="queued"
               @open-file="emit('openFile', $event)"
@@ -1490,6 +1516,7 @@ defineExpose({ loadComposerForEdit, focusComposer });
               @unqueue="emit('unqueue', $event)"
               @edit-queued="handleEditQueued"
               @reorder-queue="handleReorderQueue"
+              @continue-turn="emit('continueTurn', $event)"
             />
           </template>
         </div>
@@ -1631,6 +1658,8 @@ defineExpose({ loadComposerForEdit, focusComposer });
   width: 100%;
   max-width: var(--read-max);
   min-height: 100%;
+  box-sizing: border-box;
+  padding-bottom: var(--chat-dock-height, 0px);
   display: flex;
   flex-direction: column;
   flex-shrink: 0;

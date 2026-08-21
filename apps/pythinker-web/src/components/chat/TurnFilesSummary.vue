@@ -6,7 +6,11 @@ import Button from '../ui/Button.vue';
 import Card from '../ui/Card.vue';
 import Icon from '../ui/Icon.vue';
 
-const { changes, cwd } = defineProps<{ changes: TurnFileChange[]; cwd?: string }>();
+const { changes, cwd, interactive = true } = defineProps<{
+  changes: TurnFileChange[];
+  cwd?: string;
+  interactive?: boolean;
+}>();
 const emit = defineEmits<{
   openDiff: [change: TurnFileChange];
   openFile: [target: { path: string }];
@@ -38,6 +42,7 @@ function pathParts(path: string): { dir: string; base: string } {
 }
 
 function open(change: TurnFileChange): void {
+  if (!interactive) return;
   if (change.hasWrite) emit('openFile', { path: change.path });
   else emit('openDiff', change);
 }
@@ -50,9 +55,9 @@ function open(change: TurnFileChange): void {
       <span class="tf-title">
         {{ t(changes.length === 1 ? 'conversation.turnFiles.titleOne' : 'conversation.turnFiles.titleOther', { number: changes.length }) }}
       </span>
-      <span v-if="statsComplete" class="tf-stats">
-        <span class="tf-add">+{{ totalAdded }}</span>
-        <span class="tf-del">−{{ totalRemoved }}</span>
+      <span v-if="statsComplete && statsTotal > 0" class="tf-stats">
+        <span v-if="totalAdded > 0" class="tf-add">+{{ totalAdded }}</span>
+        <span v-if="totalRemoved > 0" class="tf-del">−{{ totalRemoved }}</span>
         <span class="diffbar" aria-hidden="true">
           <span class="seg-add" :style="{ flexGrow: addGrow }" />
           <span class="seg-del" :style="{ flexGrow: removeGrow }" />
@@ -61,13 +66,21 @@ function open(change: TurnFileChange): void {
     </template>
     <ul class="tf-list">
       <li v-for="change in shownChanges" :key="change.path" class="tf-row">
-        <button type="button" class="tf-file" @click="open(change)">
+        <component
+          :is="interactive ? 'button' : 'span'"
+          :type="interactive ? 'button' : undefined"
+          class="tf-file"
+          @click="open(change)"
+        >
           <span class="tf-dir">{{ pathParts(change.path).dir }}</span>
           <span class="tf-base">{{ pathParts(change.path).base }}</span>
-        </button>
-        <span v-if="!change.statsIncomplete" class="tf-stats">
-          <span class="tf-add">+{{ change.added }}</span>
-          <span class="tf-del">−{{ change.removed }}</span>
+        </component>
+        <span
+          v-if="!change.statsIncomplete && (change.added > 0 || change.removed > 0)"
+          class="tf-stats"
+        >
+          <span v-if="change.added > 0" class="tf-add">+{{ change.added }}</span>
+          <span v-if="change.removed > 0" class="tf-del">−{{ change.removed }}</span>
         </span>
       </li>
     </ul>
@@ -96,6 +109,9 @@ function open(change: TurnFileChange): void {
 .tf-file { display: flex; align-items: baseline; border: none; border-radius: var(--radius-xs); background: transparent; padding: 0; font: inherit; color: var(--color-text); flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-align: left; cursor: pointer; }
 .tf-file:hover { text-decoration: underline; text-decoration-color: var(--color-text-faint); text-underline-offset: 3px; }
 .tf-file:focus-visible { outline: none; box-shadow: var(--p-focus-ring); }
+/* Non-interactive (static) files list: rows render as spans — no pointer. */
+span.tf-file { cursor: default; }
+span.tf-file:hover { text-decoration: none; }
 .tf-dir { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--color-text-faint); }
 .tf-base { flex: none; font-weight: var(--weight-medium); color: var(--color-text); }
 .tf-more { width: 100%; justify-content: flex-start; border-radius: 0; }

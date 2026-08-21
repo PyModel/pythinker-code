@@ -55,7 +55,14 @@ function parseTodos(value: string): TodoItem[] | null {
 }
 
 const todos = computed(() => parseTodos(props.tool.arg));
-const summary = computed(() => toolSummary(props.tool.name, props.tool.arg));
+const doneCount = computed(() => todos.value?.filter((item) => item.status === 'done').length ?? 0);
+const totalCount = computed(() => todos.value?.length ?? 0);
+const ratio = computed(() => (totalCount.value > 0 ? doneCount.value / totalCount.value : 0));
+/** The current in-progress item title (reference header dim line). */
+const summary = computed(() => {
+  const current = todos.value?.find((item) => item.status === 'in_progress');
+  return current?.title ?? toolSummary(props.tool.name, props.tool.arg);
+});
 const canExpand = computed(() => (todos.value?.length ?? 0) > 0 || (props.tool.output?.length ?? 0) > 0);
 const open = ref(props.tool.defaultExpanded === true && canExpand.value);
 
@@ -91,7 +98,12 @@ watch(
     @toggle="toggle"
   >
     <template #trailing>
-      <span v-if="todos" class="chip">{{ t('tools.chip.todos', { count: todos.length }) }}</span>
+      <template v-if="todos">
+        <span class="chip">{{ doneCount }} / {{ totalCount }}</span>
+        <span class="todo-bar" aria-hidden="true">
+          <span class="todo-fill" :style="{ width: `${ratio * 100}%` }" />
+        </span>
+      </template>
     </template>
     <div v-if="todos" class="todo-list">
       <div v-for="(item, index) in todos" :key="index" class="todo-row" :data-status="item.status">
@@ -110,6 +122,20 @@ watch(
 </template>
 
 <style scoped>
+.todo-bar {
+  display: inline-flex;
+  width: 36px;
+  height: 3px;
+  border-radius: var(--radius-full);
+  background: var(--color-line);
+  overflow: hidden;
+  flex: none;
+}
+.todo-fill {
+  background: var(--color-success);
+  border-radius: var(--radius-full);
+  transition: width var(--duration-slow) var(--ease-out);
+}
 .todo-list {
   display: grid;
   gap: var(--space-2);

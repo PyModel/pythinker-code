@@ -14,9 +14,14 @@ import {
 import type { MarkdownIt } from 'markstream-vue';
 import { useIsDark } from '../../composables/useIsDark';
 import type { FilePreviewRequest } from '../../types';
+import type { AppSkill } from '../../api/types';
 import { collectFilePathAliases, findFilePathLinks } from '../../lib/filePathLinks';
 import { markdownRenderPlan } from '../../lib/markdownPerformance';
 import { copyCodeBlockFallback, copyTextToClipboard } from '../../lib/clipboard';
+import { buildInlineMathMatcher } from '../../lib/inlineMath';
+import { splitFrontmatter } from '../../lib/markdownFrontmatter';
+import { middleTruncateName } from '../../lib/mentions';
+import { fileTypeIconSvg, iconSvg } from '../../lib/icons';
 import * as katexWorkerModule from 'markstream-vue/workers/katexRenderer.worker?worker&type=module';
 import * as mermaidWorkerModule from 'markstream-vue/workers/mermaidParser.worker?worker&type=module';
 import Tooltip from '../ui/Tooltip.vue';
@@ -64,12 +69,62 @@ clearMermaidWorker();
 setKaTeXWorker(new katexWorkerModule.default());
 setMermaidWorker(new mermaidWorkerModule.default());
 
-// Only `$$…$$` display math is rendered; single `$` inline math is disabled so
-// prices, env vars, and shell paths (`$5`, `$PATH`, `$HOME/bin`) stay literal
-// without any escaping or code-detection gymnastics. `math_block` (the $$ rule)
-// is left enabled.
-function disableInlineMath(md: MarkdownIt): MarkdownIt {
+// ---------------------------------------------------------------------------
+// Inline `$…$` math — curated detector (ported from the reference web UI).
+//
+// The stock `math` rule is too permissive for prose: prices, env vars and
+// shell paths (`$5`, `$PATH`, `$HOME/bin`, `US$100`) all look like math. The
+// reference replaces the rule with a curated matcher (bundle `ZBe`/`VBe`,
+// ported to `lib/inlineMath.ts`) that renders real formulas (`$x^2$`) while
+// keeping currency/number/path-shaped dollars literal. `$$…$$` display math
+// (the block `math_block` rule) stays enabled untouched.
+// ---------------------------------------------------------------------------
+
+interface MathInlineState {
+  src: string;
+  pos: number;
+  posMax: number;
+  push(type: string, tag: string, nesting: number): {
+    content: string;
+    markup: string;
+    raw: string;
+    loading: boolean;
+  };
+}
+
+// matcher is cheap to build per source but the rule runs once per `$`, so
+// cache it on the inline state for the lifetime of a parse run (same WeakMap
+// pattern as the reference).
+const inlineMathCache = new WeakMap<object, { src: string; match: ReturnType<typeof buildInlineMathMatcher>; lastEnd: number }>();
+
+function inlineMathRule(state: MathInlineState, silent: boolean): boolean {
+  if (state.src[state.pos] !== '$') return false;
+  let cached = inlineMathCache.get(state);
+  if (!cached || cached.src !== state.src) {
+    cached = { src: state.src, match: buildInlineMathMatcher(state.src), lastEnd: -1 };
+    inlineMathCache.set(state, cached);
+  }
+  const match = cached.match(state.pos, cached.lastEnd);
+  if (!match || match.end > state.posMax) return false;
+  cached.lastEnd = match.end;
+  if (silent) {
+    state.pos = match.end;
+    return true;
+  }
+  const token = state.push('math_inline', 'math', 0);
+  token.content = match.content;
+  token.markup = '$';
+  token.raw = state.src.slice(state.pos, match.end);
+  token.loading = false;
+  state.pos = match.end;
+  return true;
+}
+
+/** Reference `GBe`: swap the stock inline-math rule for the curated detector. */
+function configureInlineMath(md: MarkdownIt): MarkdownIt {
+  md.set({ typographer: false });
   md.inline.ruler.disable('math');
+  md.inline.ruler.before('escape', 'math', inlineMathRule);
   return md;
 }
 
@@ -81,6 +136,11 @@ const props = withDefaults(
   defineProps<{
     text: string;
     openFile?: (target: FilePreviewRequest) => void;
+    /**
+     * Session skills; enriches the skill-mention hover tooltip with the
+     * skill's description and file-open button when a `path` is available.
+     */
+    skills?: AppSkill[];
     /**
      * True only for the assistant turn that is actively streaming. Drives BOTH
      * `final` (= !streaming) AND markstream's `smooth-streaming`. We bind
@@ -96,7 +156,13 @@ const props = withDefaults(
 );
 
 const final = computed(() => !props.streaming);
-const filePathAliases = computed(() => collectFilePathAliases(props.text ?? ''));
+
+// A leading `---` YAML block renders as a read-only `<pre class="md-front
+// matter">` before the body (reference `zBe`); every downstream pass sees
+// only the body.
+const frontmatterSplit = computed(() => splitFrontmatter(props.text ?? ''));
+const textBody = computed(() => frontmatterSplit.value.body);
+const filePathAliases = computed(() => collectFilePathAliases(textBody.value));
 const renderPlan = computed(() => {
   // While a turn is actively streaming, never downgrade the code renderer:
   // markstream keys each code block on the renderer value, so flipping
@@ -105,7 +171,7 @@ const renderPlan = computed(() => {
   // Plan for heaviness only once the turn has settled — already-loaded history
   // is never `streaming`, so the large/heavy-session case still gets `pre`.
   if (props.streaming) return { codeRenderer: 'shiki' as const, codeFenceCount: 0, codeChars: 0 };
-  return markdownRenderPlan(props.text ?? '');
+  return markdownRenderPlan(textBody.value);
 });
 
 // Code blocks follow the app colour scheme (shiki re-renders on flip).
@@ -198,8 +264,8 @@ function rewriteImageSrcs(text: string): string {
 // NOTE: comes after defineProps — watch() invokes its getter synchronously, so
 // referencing `props` above its declaration would throw a TDZ ReferenceError.
 watch(
-  () => props.text,
-  (text) => queueImageResolution(text ?? ''),
+  () => textBody.value,
+  (body) => queueImageResolution(body),
   { immediate: true },
 );
 
@@ -250,14 +316,8 @@ function processFileLinks(): void {
   }
 }
 
-function isLocalLink(href: string): boolean {
-  if (!href) return false;
-  if (/^(https?:|mailto:|tel:|data:|blob:|#)/i.test(href)) return false;
-  return true;
-}
-
 /** Strip `?query` and `#fragment` from a link path so it can be opened as a
-    workspace file. Pure `#anchor` links are skipped upstream by isLocalLink. */
+    workspace file. Pure `#anchor` links are skipped upstream by classifyMentionHref. */
 function stripFragmentAndQuery(href: string): string {
   let cut = href.length;
   for (const sep of ['#', '?']) {
@@ -267,29 +327,515 @@ function stripFragmentAndQuery(href: string): string {
   return href.slice(0, cut);
 }
 
-function processMarkdownLinks(): void {
-  if (!mdRef.value || !props.openFile || props.streaming) return;
+/** Decode a percent-encoded link path without throwing on bad input. */
+function decodeLinkPath(path: string): string {
+  try {
+    return decodeURIComponent(path);
+  } catch {
+    return path;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Mention pills — post-process rendered links into typed pills (reference
+// `x()` + `JP`): `pythinker-code://skill/<name>` links become skill pills, paths
+// with a trailing slash become folder pills, and everything else local
+// becomes a file pill. The pill shows a file/folder/skill icon + a
+// mid-truncated name, opens the file on Enter/Space/click, and exposes a
+// hover tooltip (path + copy for files; name + description + open for skills).
+// ---------------------------------------------------------------------------
+
+const SKILL_SCHEME = 'pythinker-code://skill/';
+
+type MentionKind = 'file' | 'folder' | 'skill';
+
+/** Reference `JP`: classify a link destination for mention rendering. */
+function classifyMentionHref(href: string): MentionKind | null {
+  if (!href) return null;
+  if (href.startsWith(SKILL_SCHEME) && href.length > SKILL_SCHEME.length) return 'skill';
+  if (
+    href.startsWith('#') ||
+    href.startsWith('?') ||
+    href.startsWith('//') ||
+    (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(href) && !/^[a-zA-Z]:(?:[\\/]|%5c)/i.test(href))
+  ) {
+    return null;
+  }
+  if (href.endsWith('/') || href.endsWith('\\') || /%5c$/i.test(href)) return 'folder';
+  return 'file';
+}
+
+/** Reference `ej`: decode a `pythinker-code://skill/…` href into the skill name. */
+function skillNameFromHref(href: string): string {
+  try {
+    return decodeURIComponent(href.slice(SKILL_SCHEME.length));
+  } catch {
+    return href.slice(SKILL_SCHEME.length);
+  }
+}
+
+/** Reference `bDe`: unescape the link label written by the mention serializer. */
+function unescapeMentionLabel(label: string): string {
+  return label
+    .replace(/%0A/g, '\n')
+    .replace(/%0D/g, '\r')
+    .replace(/%26/g, '&')
+    .replace(/%3C/g, '<')
+    .replace(/%3E/g, '>')
+    .replace(/%25/g, '%');
+}
+
+function processMentionLinks(): void {
+  if (!mdRef.value || props.streaming) return;
   const links = mdRef.value.querySelectorAll<HTMLAnchorElement>('a[href]');
   for (const link of links) {
     if (link.dataset.mdLinkHandled === 'true') continue;
     // Skip links inside Mermaid SVGs — their hrefs are diagram semantics, not
-    // workspace file paths.
-    if (link.closest('svg')) continue;
+    // workspace file paths. Image links keep their natural behavior too.
+    if (link.closest('svg') || link.querySelector('img')) continue;
     const href = link.getAttribute('href') ?? '';
-    if (!isLocalLink(href)) continue;
+    const kind = classifyMentionHref(href);
+    if (kind === null) continue;
     link.dataset.mdLinkHandled = 'true';
+    link.removeAttribute('title');
+
+    const path = kind === 'skill' ? href : stripFragmentAndQuery(href);
+    const label = unescapeMentionLabel(link.textContent ?? '');
+    link.classList.add('mention-pill', `mention-${kind}`);
+    link.dataset.mentionKind = kind;
+    link.dataset.mentionName = kind === 'skill' ? skillNameFromHref(href) : label;
+    link.dataset.mentionPath = path;
+    if (kind === 'skill' || props.openFile) link.removeAttribute('href');
+    if (kind === 'skill' || (kind === 'file' && props.openFile)) {
+      link.tabIndex = 0;
+      link.setAttribute('role', 'button');
+    }
+
+    const name = middleTruncateName(label);
+    const nameEl = document.createElement('span');
+    nameEl.className = 'mention-pill-name';
+    nameEl.textContent = name;
+    link.replaceChildren(nameEl);
+    if (!link.querySelector('.mention-pill-icon')) {
+      const icon = document.createElement('span');
+      icon.className = 'mention-pill-icon';
+      icon.setAttribute('aria-hidden', 'true');
+      icon.innerHTML =
+        kind === 'skill'
+          ? iconSvg('sparkles', 'sm')
+          : kind === 'folder'
+            ? iconSvg('folder', 'sm')
+            : fileTypeIconSvg(path, label);
+      link.prepend(icon);
+    }
+
     link.addEventListener('click', (event) => {
+      if (kind !== 'skill' && !props.openFile) return;
       event.preventDefault();
       event.stopPropagation();
-      props.openFile?.({ path: stripFragmentAndQuery(href) });
+      if (kind === 'file') props.openFile?.({ path: decodeLinkPath(stripFragmentAndQuery(href)) });
     });
+    if (kind === 'file' && props.openFile) {
+      link.addEventListener('keydown', (event) => {
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        event.preventDefault();
+        event.stopPropagation();
+        props.openFile?.({ path: decodeLinkPath(stripFragmentAndQuery(href)) });
+      });
+    }
+    attachMentionTip(link);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Mention hover tooltip — one fixed `.mention-tip` element per component
+// instance (global CSS in style.css), shown above/under a focused or hovered
+// pill. Files/folders get the path with a copy button; skills get the skill
+// name, its description and an open-file button when the skill carries a path.
+// ---------------------------------------------------------------------------
+
+type PillInfo = { kind: MentionKind; name: string; path: string };
+
+function pillInfo(pill: HTMLElement): PillInfo {
+  const kind: MentionKind = pill.dataset.mentionKind as MentionKind | undefined ??
+    (pill.classList.contains('mention-skill')
+      ? 'skill'
+      : pill.classList.contains('mention-folder')
+        ? 'folder'
+        : 'file');
+  const name = pill.dataset.mentionName ?? pill.querySelector('.mention-pill-name')?.textContent ?? '';
+  return { kind, name, path: pill.dataset.mentionPath ?? '' };
+}
+
+// Tokens read once from the stylesheet (with fallbacks), like the reference's
+// `yg()` cache; `--duration-*` values are seconds here, so convert to ms.
+function cssVarMs(name: string, fallback: number): () => number {
+  let cached: number | undefined;
+  return () => {
+    if (cached === undefined) {
+      const raw = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+      const parsed = parseFloat(raw);
+      cached = Number.isFinite(parsed) ? (raw.endsWith('s') ? parsed * 1000 : parsed) : fallback;
+    }
+    return cached;
+  };
+}
+
+const TIP_GAP_PX = cssVarMs('--space-1-5', 6);
+const TIP_VMARGIN_PX = cssVarMs('--p-mention-tip-vmargin', 12);
+const TIP_SHOW_DELAY_MS = cssVarMs('--duration-tooltip', 150);
+const TIP_HIDE_DELAY_MS = cssVarMs('--duration-fast', 120);
+const TIP_COPY_FLASH_MS = cssVarMs('--duration-flash', 1000);
+
+const tipEl = ref<HTMLDivElement | null>(null);
+let tipPill: HTMLElement | null = null;
+let tipShowTimer = 0;
+let tipHideTimer = 0;
+
+function tipContains(node: Node): boolean {
+  return tipEl.value?.contains(node) ?? false;
+}
+
+function ensureTip(): HTMLDivElement {
+  let tip = tipEl.value;
+  if (!tip) {
+    tip = document.createElement('div');
+    tip.className = 'mention-tip';
+    tip.id = 'mention-tip';
+    tip.setAttribute('role', 'tooltip');
+    tip.addEventListener('mouseenter', () => window.clearTimeout(tipHideTimer));
+    tip.addEventListener('mouseleave', () => scheduleTipHide());
+    tip.addEventListener('focusin', () => window.clearTimeout(tipHideTimer));
+    tip.addEventListener('focusout', (event) => {
+      const next = (event as FocusEvent).relatedTarget;
+      if (next instanceof Node && (tip!.contains(next) || tipPill?.contains(next))) return;
+      hideTip();
+    });
+    document.body.append(tip);
+    tipEl.value = tip;
+  }
+  return tip;
+}
+
+function positionTip(): void {
+  const tip = tipEl.value;
+  const pill = tipPill;
+  if (!tip || !pill) return;
+  const rect = pill.getBoundingClientRect();
+  const gap = TIP_GAP_PX();
+  const margin = TIP_VMARGIN_PX();
+  let top = rect.top - gap - tip.offsetHeight;
+  if (top < margin) top = rect.bottom + gap;
+  top = Math.min(Math.max(top, margin), Math.max(margin, window.innerHeight - margin - tip.offsetHeight));
+  const left = Math.min(
+    Math.max(rect.left + rect.width / 2 - tip.offsetWidth / 2, margin),
+    Math.max(margin, window.innerWidth - margin - tip.offsetWidth),
+  );
+  tip.style.top = `${Math.round(top)}px`;
+  tip.style.left = `${Math.round(left)}px`;
+}
+
+function skillForName(name: string): AppSkill | undefined {
+  return props.skills?.find((skill) => skill.name === name);
+}
+
+/** Path line + copy button (reference `xBe`). */
+function buildPathTip(path: string): Node {
+  const wrap = document.createElement('div');
+  wrap.className = 'mention-tip-path';
+  const textBox = document.createElement('div');
+  textBox.className = 'mention-tip-path-text';
+  const parts = path.split(/([/\\])/);
+  let last = parts.length - 1;
+  while (last > 0 && (parts[last] === '' || parts[last] === '/' || parts[last] === '\\')) last--;
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i] ?? '';
+    if (part === '') continue;
+    const span = document.createElement('span');
+    if (part === '/' || part === '\\') {
+      span.className = 'mention-tip-sep';
+      span.textContent = part;
+      textBox.append(span, document.createElement('wbr'));
+      continue;
+    }
+    if (i === last) span.className = 'mention-tip-base';
+    span.textContent = part;
+    textBox.append(span);
+  }
+  wrap.append(textBox);
+
+  const copyButton = document.createElement('button');
+  copyButton.type = 'button';
+  copyButton.className = 'mention-tip-copy';
+  copyButton.setAttribute('aria-label', t('mention.copyPath'));
+  const copyIcon = iconSvg('copy', 'sm');
+  copyButton.innerHTML = copyIcon;
+  copyButton.addEventListener('click', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    void copyTextToClipboard(path).then((ok) => {
+      if (!ok) return;
+      copyButton.innerHTML = iconSvg('check', 'sm');
+      window.setTimeout(() => {
+        copyButton.innerHTML = copyIcon;
+      }, TIP_COPY_FLASH_MS());
+    });
+  });
+  wrap.append(copyButton);
+  return wrap;
+}
+
+/** Skill name + open button + description (reference `SBe`). */
+function buildSkillTip(skill: AppSkill): Node {
+  const wrap = document.createElement('div');
+  wrap.className = 'mention-tip-skill';
+  const head = document.createElement('div');
+  head.className = 'mention-tip-head';
+  const name = document.createElement('span');
+  name.className = 'mention-tip-name';
+  name.textContent = skill.name;
+  head.append(name);
+  if (skill.path && props.openFile) {
+    const openButton = document.createElement('button');
+    openButton.type = 'button';
+    openButton.className = 'mention-tip-open';
+    openButton.setAttribute('aria-label', t('mention.openSkill'));
+    openButton.innerHTML = iconSvg('external-link', 'sm');
+    const path = skill.path;
+    openButton.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      hideTip();
+      props.openFile?.({ path });
+    });
+    head.append(openButton);
+  }
+  wrap.append(head);
+  if (skill.description) {
+    const desc = document.createElement('div');
+    desc.className = 'mention-tip-desc';
+    desc.textContent = skill.description;
+    wrap.append(desc);
+  }
+  return wrap;
+}
+
+function showTip(pill: HTMLElement): void {
+  const tip = ensureTip();
+  tipPill?.removeAttribute('aria-describedby');
+  tipPill = pill;
+  pill.setAttribute('aria-describedby', tip.id);
+  const info = pillInfo(pill);
+  tip.replaceChildren(
+    info.kind === 'skill'
+      ? buildSkillTip(skillForName(info.name) ?? { name: info.name, description: '', source: '' })
+      : buildPathTip(info.path || info.name),
+  );
+  tip.classList.remove('positioned');
+  positionTip();
+  tip.classList.add('positioned');
+  tip.removeAttribute('inert');
+}
+
+function hideTip(): void {
+  window.clearTimeout(tipShowTimer);
+  window.clearTimeout(tipHideTimer);
+  tipPill?.removeAttribute('aria-describedby');
+  tipPill = null;
+  const tip = tipEl.value;
+  tip?.classList.remove('positioned');
+  tip?.setAttribute('inert', '');
+}
+
+function scheduleTipShow(pill: HTMLElement): void {
+  window.clearTimeout(tipHideTimer);
+  window.clearTimeout(tipShowTimer);
+  const alreadyShown = tipEl.value?.classList.contains('positioned') && tipPill === pill;
+  tipShowTimer = window.setTimeout(() => {
+    if (pill.isConnected) showTip(pill);
+  }, alreadyShown ? 0 : TIP_SHOW_DELAY_MS());
+}
+
+function scheduleTipHide(): void {
+  window.clearTimeout(tipShowTimer);
+  window.clearTimeout(tipHideTimer);
+  tipHideTimer = window.setTimeout(hideTip, TIP_HIDE_DELAY_MS());
+}
+
+function onTipGlobalKeydown(event: KeyboardEvent): void {
+  const tip = tipEl.value;
+  if (!tip || !tip.classList.contains('positioned') || !tipPill) return;
+  if (event.key === 'Escape') {
+    if (event.target instanceof Node && tip.contains(event.target)) tipPill.focus();
+    hideTip();
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    return;
+  }
+  if (event.key === 'Tab' && event.target instanceof Node && tip.contains(event.target)) {
+    const buttons = Array.from(tip.querySelectorAll('button'));
+    const first = buttons[0];
+    const last = buttons[buttons.length - 1];
+    if ((!event.shiftKey && event.target === last) || (event.shiftKey && event.target === first)) {
+      event.preventDefault();
+      tipPill.focus();
+      hideTip();
+    }
+  }
+}
+
+function onTipGlobalPointerdown(event: PointerEvent): void {
+  const target = event.target;
+  if (target instanceof Node && (tipContains(target) || tipPill?.contains(target))) return;
+  hideTip();
+}
+
+function attachMentionTip(pill: HTMLElement): void {
+  pill.addEventListener('mouseenter', () => scheduleTipShow(pill));
+  pill.addEventListener('mouseleave', (event) => {
+    const related = event.relatedTarget;
+    if (related instanceof Node && tipContains(related)) return;
+    scheduleTipHide();
+  });
+  pill.addEventListener('focus', () => scheduleTipShow(pill));
+  pill.addEventListener('blur', (event) => {
+    const related = (event as FocusEvent).relatedTarget;
+    if (related instanceof Node && tipContains(related)) return;
+    scheduleTipHide();
+  });
+}
+
+function onTipGlobalScroll(): void {
+  hideTip();
+}
+
+// ---------------------------------------------------------------------------
+// Table widen toggle — wide markdown tables get a `md-table-toggle` button
+// (shown on wrapper hover/focus-within, reference `c$e`/`c7`) that toggles
+// the `md-table-wide` breakout. The breakout CSS lives in the chat-pane scope
+// (see ChatPane.vue: `@container (min-width:760px)`); here we only create and
+// drive the chrome: the toggle button, the right-edge fade, the "at end" state
+// and the scroll-synced transforms. Tables outside `.a-msg .msg` get no
+// toggle, matching the reference `a$e` gate.
+// ---------------------------------------------------------------------------
+
+const TABLE_WIDE_CLASS = 'md-table-wide';
+const TABLE_TOGGLE_CLASS = 'md-table-toggle';
+const TABLE_FADE_CLASS = 'md-table-fade';
+const TABLE_TOGGLE_SHOW_CLASS = 'md-table-toggle--show';
+const TABLE_AT_END_CLASS = 'md-table-at-end';
+const TABLE_TOGGLE_SIZE = 26;
+
+function tableToggleOf(wrapper: HTMLElement): HTMLButtonElement | null {
+  return wrapper.querySelector<HTMLButtonElement>(`button.${TABLE_TOGGLE_CLASS}`);
+}
+
+function tableFadeOf(wrapper: HTMLElement): HTMLElement | null {
+  return wrapper.querySelector(`.${TABLE_FADE_CLASS}`);
+}
+
+/** Pin the toggle to the header row's vertical centre (reference `l$e`). */
+function positionTableChrome(wrapper: HTMLElement): void {
+  const toggle = tableToggleOf(wrapper);
+  if (!toggle) return;
+  const headerRow = wrapper.querySelector('thead tr') ?? wrapper.querySelector('tr');
+  if (!headerRow) return;
+  const rowRect = headerRow.getBoundingClientRect();
+  const wrapperTop = wrapper.getBoundingClientRect().top;
+  const inset = Math.max(2, Math.round(rowRect.top - wrapperTop + (rowRect.height - TABLE_TOGGLE_SIZE) / 2));
+  toggle.style.top = `${inset}px`;
+  toggle.style.right = `${inset}px`;
+}
+
+function tableOverflows(wrapper: HTMLElement): boolean {
+  const table = wrapper.querySelector('table');
+  return table !== null && table.scrollWidth > wrapper.clientWidth + 1;
+}
+
+/** Keep fade + toggle pinned to the right edge while the table scrolls. */
+function syncTableScrollState(wrapper: HTMLElement): void {
+  const translate = `translateX(${wrapper.scrollLeft}px)`;
+  const fade = tableFadeOf(wrapper);
+  if (fade) fade.style.transform = translate;
+  const toggle = tableToggleOf(wrapper);
+  if (toggle) toggle.style.transform = translate;
+  const atEnd = wrapper.scrollLeft + wrapper.clientWidth >= wrapper.scrollWidth - 2;
+  wrapper.classList.toggle(TABLE_AT_END_CLASS, atEnd);
+}
+
+/** Show/hide the toggle (overflowing or user-widened) and the fade (reference `c7`). */
+function refreshTableToggle(wrapper: HTMLElement): void {
+  const toggle = tableToggleOf(wrapper);
+  if (!toggle) return;
+  const overflowing = tableOverflows(wrapper);
+  const widened = wrapper.classList.contains(TABLE_WIDE_CLASS);
+  toggle.classList.toggle(TABLE_TOGGLE_SHOW_CLASS, overflowing || widened);
+  const fade = tableFadeOf(wrapper);
+  fade?.classList.toggle(TABLE_TOGGLE_SHOW_CLASS, overflowing);
+  positionTableChrome(wrapper);
+  syncTableScrollState(wrapper);
+}
+
+function ensureTableToggle(wrapper: HTMLElement): HTMLButtonElement | null {
+  const existing = tableToggleOf(wrapper);
+  if (existing) return existing;
+  // Only assistant-message tables can break out of the reading column.
+  if (!wrapper.closest('.a-msg .msg')) return null;
+  const fade = document.createElement('div');
+  fade.className = TABLE_FADE_CLASS;
+  fade.setAttribute('aria-hidden', 'true');
+  const toggle = document.createElement('button');
+  toggle.type = 'button';
+  toggle.className = TABLE_TOGGLE_CLASS;
+  toggle.innerHTML = iconSvg('expand', 'sm');
+  toggle.setAttribute('aria-label', t('conversation.widenTable'));
+  toggle.title = t('conversation.widenTable');
+  toggle.addEventListener('click', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    toggleTableWidth(wrapper);
+  });
+  wrapper.append(fade, toggle);
+  wrapper.addEventListener('scroll', () => syncTableScrollState(wrapper), { passive: true });
+  refreshTableToggle(wrapper);
+  return toggle;
+}
+
+function toggleTableWidth(wrapper: HTMLElement): void {
+  const widened = wrapper.classList.toggle(TABLE_WIDE_CLASS);
+  const toggle = tableToggleOf(wrapper);
+  if (toggle) {
+    toggle.innerHTML = iconSvg(widened ? 'collapse' : 'expand', 'sm');
+    const label = widened ? t('conversation.restoreTableWidth') : t('conversation.widenTable');
+    toggle.setAttribute('aria-label', label);
+    toggle.title = label;
+  }
+  refreshTableToggle(wrapper);
+  wrapper.dispatchEvent(new CustomEvent('kimi-table-layout', { bubbles: true }));
+}
+
+function processTableToggles(): void {
+  if (!mdRef.value || props.streaming) return;
+  for (const wrapper of mdRef.value.querySelectorAll<HTMLElement>('.table-node-wrapper')) {
+    ensureTableToggle(wrapper);
+  }
+}
+
+function refreshAllTableToggles(): void {
+  if (!mdRef.value || props.streaming) return;
+  for (const wrapper of mdRef.value.querySelectorAll<HTMLElement>('.table-node-wrapper')) {
+    refreshTableToggle(wrapper);
   }
 }
 
 function scheduleFileLinkProcessing(): void {
+  // Content is about to change — a tooltip anchored on a pill that may get
+  // re-rendered must not linger.
+  hideTip();
   void nextTick().then(() => {
     processFileLinks();
-    processMarkdownLinks();
+    processMentionLinks();
+    processTableToggles();
   });
 }
 
@@ -297,15 +843,32 @@ watch(() => props.text, scheduleFileLinkProcessing);
 watch(() => props.streaming, scheduleFileLinkProcessing);
 
 let observer: MutationObserver | null = null;
+let tableResizeObserver: ResizeObserver | null = null;
 onMounted(() => {
   scheduleFileLinkProcessing();
   if (mdRef.value) {
     observer = new MutationObserver(scheduleFileLinkProcessing);
     observer.observe(mdRef.value, { childList: true, subtree: true });
+    if (typeof ResizeObserver !== 'undefined') {
+      tableResizeObserver = new ResizeObserver(refreshAllTableToggles);
+      tableResizeObserver.observe(mdRef.value);
+    }
   }
+  window.addEventListener('scroll', onTipGlobalScroll, { capture: true });
+  window.addEventListener('resize', onTipGlobalScroll);
+  document.addEventListener('pointerdown', onTipGlobalPointerdown, { capture: true });
+  document.addEventListener('keydown', onTipGlobalKeydown, { capture: true });
 });
 onUnmounted(() => {
   observer?.disconnect();
+  tableResizeObserver?.disconnect();
+  window.removeEventListener('scroll', onTipGlobalScroll, { capture: true });
+  window.removeEventListener('resize', onTipGlobalScroll);
+  document.removeEventListener('pointerdown', onTipGlobalPointerdown, { capture: true });
+  document.removeEventListener('keydown', onTipGlobalKeydown, { capture: true });
+  hideTip();
+  tipEl.value?.remove();
+  tipEl.value = null;
 });
 
 // Shiki themes for code blocks: github-light on the light surface,
@@ -386,7 +949,7 @@ type Segment =
 const DIFF_FENCE_RE = /(^|\n)(?:```|~~~)diff\b[^\n]*\n([\s\S]*?)(?:\n)?(?:```|~~~)(?=\n|$)/g;
 
 const segments = computed<Segment[]>(() => {
-  const text = rewriteImageSrcs(props.text ?? '');
+  const text = rewriteImageSrcs(textBody.value);
   const out: Segment[] = [];
   let lastIndex = 0;
   DIFF_FENCE_RE.lastIndex = 0;
@@ -441,12 +1004,14 @@ function copyDiff(code: string, idx: number) {
 
 <template>
   <div ref="mdRef" class="md">
+    <!-- Leading YAML frontmatter renders as a read-only pre before the body -->
+    <pre v-if="frontmatterSplit.frontmatter !== null" class="md-frontmatter">{{ frontmatterSplit.frontmatter }}</pre>
     <template v-for="(seg, i) in segments" :key="i">
       <!-- Non-diff markdown → markstream (smooth streaming + shiki) -->
       <MarkdownRender
         v-if="seg.kind === 'md'"
         :content="seg.text"
-        :custom-markdown-it="disableInlineMath"
+        :custom-markdown-it="configureInlineMath"
         mode="chat"
         :code-renderer="renderPlan.codeRenderer"
         :is-dark="isDark"
@@ -733,6 +1298,35 @@ function copyDiff(code: string, idx: number) {
   text-decoration: underline;
 }
 
+/* Mention pills inside markdown keep the muted pill look instead of the
+   accent link colour; file/skill pills underline on hover (cursor comes from
+   the global `.mention-pill` rules), folders never do. */
+.md :deep(a.mention-pill) {
+  color: var(--color-text-muted);
+  text-decoration: none;
+}
+.md :deep(a.mention-folder:hover) {
+  text-decoration: none;
+}
+
+/* Inline math stays on the text baseline (markstream's default). */
+.md :deep(.math-inline) {
+  vertical-align: baseline;
+}
+
+/* Leading YAML frontmatter — read-only pre, mono type, muted ink. */
+.md-frontmatter {
+  margin: 0 0 var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border: var(--p-hairline) solid var(--color-line);
+  border-radius: var(--radius-md);
+  background: var(--color-well);
+  box-shadow: var(--shadow-xs);
+  overflow-x: auto;
+  color: var(--color-text-muted);
+  font: var(--text-sm)/1.65 var(--font-mono);
+}
+
 /* KaTeX math. Colour already inherits (--color-text) since KaTeX draws with
    currentColor, so the only skinning needed is layout: let a wide display
    formula scroll inside its own box instead of overflowing the chat column and
@@ -750,7 +1344,7 @@ function copyDiff(code: string, idx: number) {
 .md :deep(blockquote) {
   margin: 0.5em 0;
   padding: 4px 12px;
-  border-left: 3px solid var(--color-line);
+  border-left: 1px solid var(--color-line);
   color: var(--color-text-muted);
 }
 
@@ -790,14 +1384,27 @@ function copyDiff(code: string, idx: number) {
    its content width (`width:max-content`, `max-width:none`,
    `table-layout:auto`), so many-column or long-cell tables keep their natural
    layout and only the excess scrolls within the wrapper. `min-width:100%` keeps
-   narrow tables stretched to fill the wrapper exactly as before. `!important`
-   beats markstream's scoped `.table-node[data-v-…]` rules regardless of
-   injection order. */
+   narrow tables stretched to fill the wrapper exactly as before.
+
+   Since the widen toggle breaks the wrapper out of the column
+   (`.table-node-wrapper.md-table-wide` — see the `@container` rules in
+   ChatPane.vue), no `max-width:100%!important` pin is applied here: the
+   breakout rules carry their own higher-specificity `!important` cap, and any
+   unrelated context stays at `width:100%`. */
 .md :deep(.table-node-wrapper) {
+  --table-cell-cap: var(--p-table-cell-max);
+  /* Token-local fade so check-style's no-gradient-text rule stays satisfied. */
+  --md-table-fade-bg: linear-gradient(
+    to right,
+    transparent,
+    color-mix(in srgb, var(--color-bg) 65%, transparent) 55%,
+    var(--color-bg)
+  );
   width: 100%;
-  max-width: 100% !important;
   min-width: 0;
   overflow-x: auto !important;
+  scrollbar-gutter: auto !important;
+  position: relative;
 }
 
 .md :deep(.table-node) {
@@ -815,25 +1422,88 @@ function copyDiff(code: string, idx: number) {
   text-align: left;
   vertical-align: top;
   /* Cap runaway columns: a single cell with long prose should stop stretching
-     its column at --p-table-cell-max and wrap inside the cell instead.
+     its column at the table's cell cap and wrap inside the cell instead.
      max-width on the cell itself only works in Firefox — Chromium ignores it
      under table-layout:auto — so the clamp is reinforced on the content box
      below. Wider tables made of many columns still scroll inside the
-     wrapper. */
-  max-width: var(--p-table-cell-max);
+     wrapper. The cap is `min(--p-table-cell-max, 36cqi)` inside the chat
+     pane (narrow panes get tighter caps) and `--p-table-cell-max` elsewhere. */
+  max-width: var(--table-cell-cap);
 }
 /* Chromium honors max-width on this inner box even under table-layout:auto:
    markstream wraps plain-text cell content in a .text-node span, and as an
-   inline-block its max-content contribution to the column is clamped to
-   --p-table-cell-max, so the column stops there and the text wraps inside
+   inline-block its max-content contribution to the column is clamped to the
+   table's cell cap, so the column stops there and the text wraps inside
    (the span is already white-space:pre-wrap + overflow-wrap:break-word).
    Cells mixing several inline children can still exceed the cap by the sum
    of those children — acceptable; the runaway single-prose-cell case is the
    one that matters. */
 .md :deep(.table-node .text-node) {
   display: inline-block;
-  max-width: var(--p-table-cell-max);
+  max-width: var(--table-cell-cap);
   vertical-align: top;
+}
+
+/* Widen toggle chrome — a right-edge fade hint plus a small toggle button,
+   both absolutely positioned inside the scroll wrapper and translated with
+   the scroll offset so they stay anchored to the header row (positioning and
+   transforms are driven from script). The toggle appears on hover/focus, and
+   stays visible while the user has widened the table. */
+.md :deep(.md-table-fade) {
+  display: none;
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 0;
+  width: 36px;
+  background: var(--md-table-fade-bg);
+  pointer-events: none;
+  transition: opacity var(--duration-base) var(--ease-out);
+}
+.md :deep(.md-table-fade.md-table-toggle--show) {
+  display: block;
+}
+.md :deep(.md-table-at-end .md-table-fade) {
+  opacity: 0;
+}
+.md :deep(.md-table-toggle) {
+  display: none;
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  color: var(--color-text-muted);
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-sm);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--duration-base) var(--ease-out),
+    background var(--duration-base) var(--ease-out),
+    color var(--duration-base) var(--ease-out);
+}
+.md :deep(.md-table-toggle.md-table-toggle--show) {
+  display: inline-flex;
+}
+.md :deep(.table-node-wrapper:hover .md-table-toggle.md-table-toggle--show),
+.md :deep(.table-node-wrapper:focus-within .md-table-toggle.md-table-toggle--show),
+.md :deep(.table-node-wrapper.md-table-wide .md-table-toggle.md-table-toggle--show) {
+  opacity: 1;
+}
+.md :deep(.md-table-toggle:hover) {
+  background: var(--color-surface-sunken);
+  color: var(--color-text);
+}
+.md :deep(.md-table-toggle:focus-visible) {
+  outline: none;
+  box-shadow: var(--p-focus-ring);
+}
+.md :deep(.md-table-toggle svg) {
+  display: block;
 }
 
 /* Drop markstream-vue's default table-row hover background — the conversation

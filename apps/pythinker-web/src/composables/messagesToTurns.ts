@@ -225,10 +225,13 @@ function normalizeToolOutput(output: unknown): string[] | undefined {
 
 export function toAgentMember(task: AppTask): AgentMember {
   return {
-    id: task.id,
+    id: task.agentId ?? task.id,
     toolCallId: task.parentToolCallId,
     name: task.description,
     subagentType: task.subagentType,
+    prompt: task.command,
+    model: task.model,
+    thinkingEffort: task.thinkingEffort,
     phase:
       task.subagentPhase ??
       (task.status === 'completed' ? 'completed' : task.status === 'failed' ? 'failed' : 'working'),

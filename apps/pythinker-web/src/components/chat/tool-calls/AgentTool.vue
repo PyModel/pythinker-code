@@ -34,6 +34,7 @@ interface AgentInput {
   description?: string;
   subagentType?: string;
   prompt?: string;
+  runInBackground?: boolean;
 }
 
 function parseAgentInput(arg: string): AgentInput {
@@ -44,6 +45,7 @@ function parseAgentInput(arg: string): AgentInput {
       description: typeof obj['description'] === 'string' ? obj['description'] : undefined,
       subagentType: typeof obj['subagent_type'] === 'string' ? obj['subagent_type'] : undefined,
       prompt: typeof obj['prompt'] === 'string' ? obj['prompt'] : undefined,
+      runInBackground: obj['run_in_background'] === true,
     };
   } catch {
     return {};
@@ -61,6 +63,12 @@ const status = computed<'running' | 'ok' | 'error'>(() => props.tool.status as '
 const label = computed(() => toolLabel(props.tool.name));
 const glyph = computed(() => toolGlyph(props.tool.name));
 const summary = computed(() => input.value.description || input.value.subagentType || '');
+// The Agent tool input carries `run_in_background` (background/foreground);
+// model/effort are not on the wire ToolCall or any task DTO, so the chip is
+// the only run-mode signal rendered here.
+const runModeLabel = computed(() =>
+  input.value.runInBackground ? t('tools.agent.background') : t('tools.agent.foreground'),
+);
 
 // Hide the "Open detail" button when no live/background subagent task matches
 // this tool call (e.g. a completed foreground subagent after a page refresh) —
@@ -97,6 +105,7 @@ watch(
     @toggle="toggle"
   >
     <template #trailing>
+      <span class="chip">{{ runModeLabel }}</span>
       <button v-if="canOpenAgent" type="button" class="at-open" @click.stop="emit('openAgent', tool.id)">
         {{ t('tasks.openDetail') }}
       </button>

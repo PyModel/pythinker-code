@@ -15,6 +15,7 @@ import DynamicWorkflowTool from './DynamicWorkflowTool.vue';
 import PlanTool from './PlanTool.vue';
 import ReadTool from './ReadTool.vue';
 import TodoTool from './TodoTool.vue';
+import WaitForTool from './WaitForTool.vue';
 import WebFetchTool from './WebFetchTool.vue';
 
 type ToolRenderer = Component;
@@ -29,6 +30,7 @@ export function resolveToolRenderer(tool: ToolCall): ToolRenderer {
   if (name === 'grep' || name === 'search') return GrepTool;
   if (name === 'glob' || name === 'ls') return GlobTool;
   if (name === 'web_fetch') return WebFetchTool;
+  if (name === 'waitfor') return WaitForTool;
   if (name === 'todo') return TodoTool;
   // NOTE: normalizeToolName() folds `agent`/`subagent` into the canonical
   // `task` kind (see lib/toolMeta.ts NAME_ALIASES), so the match must be on

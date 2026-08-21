@@ -1,10 +1,14 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, defineAsyncComponent, inject, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
-import type { FilePreviewRequest, ToolCall, ToolMedia } from '../../../types';
+import type { FilePreviewRequest, SessionPlanEntry, ToolCall, ToolMedia } from '../../../types';
 import { toolGlyph, toolLabel } from '../../../lib/toolMeta';
 import ToolRow from '../ToolRow.vue';
 import ToolOutputBlock from './ToolOutputBlock.vue';
+
+// Lazy: markstream's katex worker fails to resolve under vitest's node loader,
+// and PlanTool only needs markdown when a plan projection exists.
+const Markdown = defineAsyncComponent(() => import('../Markdown.vue'));
 
 const props = withDefaults(
   defineProps<{
@@ -23,6 +27,11 @@ const emit = defineEmits<{
 }>();
 
 const { t } = useI18n();
+// The plan markdown projection captured from the plan_review approval display,
+// keyed by tool-call id (provided by ConversationPane from client.sessionPlans).
+const resolvePlan = inject<(toolCallId: string) => SessionPlanEntry | undefined>('resolvePlan');
+const plan = computed(() => resolvePlan?.(props.tool.id));
+const planMarkdown = computed(() => (plan.value?.plan && plan.value.plan.length > 0 ? plan.value.plan : ''));
 const arg = computed<Record<string, unknown> | null>(() => {
   try {
     const value: unknown = JSON.parse(props.tool.arg);
@@ -83,6 +92,9 @@ watch(
       <span>{{ t('tools.plan.pathOnlyHint') }}</span>
       <span class="plan-path-value">{{ tool.planPath }}</span>
     </button>
+    <div v-if="planMarkdown" class="plan-md">
+      <Markdown :text="planMarkdown" :open-file="(target) => emit('openFile', target)" />
+    </div>
     <div v-if="selectedOption" class="plan-option">
       <span>{{ t('tools.plan.selectedOption') }}</span>
       <span>{{ selectedOption }}</span>
@@ -98,6 +110,14 @@ watch(
 <style scoped>
 .plan-review {
   color: var(--color-text-muted);
+}
+.plan-md {
+  margin-top: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-md);
+  background: var(--color-well);
+  color: var(--color-text);
 }
 .plan-path {
   display: grid;

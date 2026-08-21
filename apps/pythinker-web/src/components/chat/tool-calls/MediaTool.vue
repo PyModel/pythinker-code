@@ -2,6 +2,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import type { ToolCall, ToolMedia } from '../../../types';
+import Icon from '../../ui/Icon.vue';
 import Tooltip from '../../ui/Tooltip.vue';
 
 const props = withDefaults(defineProps<{ tool: ToolCall; mobile?: boolean }>(), { mobile: false });
@@ -29,7 +30,7 @@ const mediaTitle = computed(() => {
 
 function openMediaPreview(): void {
   const m = media.value;
-  if (m?.kind === 'image') emit('openMedia', m);
+  if (m?.kind === 'image' || m?.kind === 'video') emit('openMedia', m);
 }
 </script>
 
@@ -52,13 +53,19 @@ function openMediaPreview(): void {
         />
       </button>
     </Tooltip>
-    <video
-      v-else-if="media.kind === 'video'"
-      class="media-video"
-      :src="media.url"
-      controls
-      preload="metadata"
-    />
+    <Tooltip v-if="media.kind === 'video'" :text="media.path || mediaTitle">
+      <button
+        type="button"
+        class="media-image-button media-video-button"
+        :aria-label="media.path ? basename(media.path) : mediaTitle"
+        @click="openMediaPreview"
+      >
+        <span class="media-video-tile" aria-hidden="true" />
+        <span class="media-play-badge" aria-hidden="true">
+          <Icon name="play" size="sm" />
+        </span>
+      </button>
+    </Tooltip>
     <audio v-else class="media-audio" :src="media.url" controls />
   </div>
 </template>
@@ -85,13 +92,40 @@ function openMediaPreview(): void {
   border-radius: var(--radius-md);
   overflow: hidden;
 }
+.media-video-button {
+  position: relative;
+  display: block;
+}
+.media-video-tile {
+  display: block;
+  width: 320px;
+  max-width: 100%;
+  aspect-ratio: 16 / 9;
+  background: var(--color-well);
+}
+.media-play-badge {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-full);
+  background: var(--color-surface-raised);
+  border: 0.5px solid var(--color-line);
+  color: var(--color-text);
+  box-shadow: var(--shadow-sm);
+  pointer-events: none;
+}
 .media-image {
   display: block;
   max-width: 100%;
   border-radius: var(--radius-md);
   background: var(--media-alpha-canvas);
 }
-.media-video,
 .media-audio {
   max-width: 100%;
   border-radius: var(--radius-md);

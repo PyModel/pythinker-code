@@ -1,7 +1,7 @@
 <!-- apps/pythinker-web/src/components/chat/AuthMedia.vue
      Renders a user-uploaded image/video whose bytes live in the daemon file
-     store. The bare getFileUrl(fileId) 401s when used as a <video>/<img> src
-     because the browser loads those natively and never attaches our Bearer
+     store. The bare getFileUrl(fileId) 401s when used as a native media source
+     because the browser loads it directly and never attaches our Bearer
      credential — so when a fileId is present we fetch the bytes through the
      authenticated API client and play from a page-local blob URL instead. -->
 <script setup lang="ts">
@@ -101,22 +101,26 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <video
-    v-if="kind === 'video'"
-    ref="mediaEl"
-    :class="mediaClass"
-    :src="resolvedUrl || undefined"
-    :controls="controls"
-    :muted="muted"
-    playsinline
-    preload="metadata"
-  />
+  <template v-if="kind === 'video'">
+    <video
+      v-if="resolvedUrl"
+      ref="mediaEl"
+      :class="mediaClass"
+      :src="resolvedUrl"
+      :controls="controls"
+      :muted="muted"
+      playsinline
+      preload="metadata"
+    />
+    <span v-else ref="mediaEl" :class="mediaClass" role="status" :aria-label="alt || ''" />
+  </template>
   <img
-    v-else
+    v-else-if="resolvedUrl"
     ref="mediaEl"
     :class="mediaClass"
-    :src="resolvedUrl || undefined"
+    :src="resolvedUrl"
     :alt="alt || ''"
     loading="lazy"
   />
+  <span v-else ref="mediaEl" :class="mediaClass" role="img" :aria-label="alt || ''" />
 </template>

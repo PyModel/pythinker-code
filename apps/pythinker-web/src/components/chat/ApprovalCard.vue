@@ -1,9 +1,10 @@
 <!-- apps/pythinker-web/src/components/chat/ApprovalCard.vue -->
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, watch, type ComputedRef, type Ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import type { ApprovalBlock } from '../../types';
 import type { ApprovalDecision } from '../../api/types';
+import { useAppearance } from '../../composables/client/useAppearance';
 import Markdown from './Markdown.vue';
 import Card from '../ui/Card.vue';
 import Badge from '../ui/Badge.vue';
@@ -46,6 +47,76 @@ const expanded = ref(false);
 const expandable = computed(() => ['plan_review', 'diff', 'file'].includes(props.block.kind));
 
 // ---------------------------------------------------------------------------
+// Scroll-edge fades on the scrollable bodies (diff / file / plan): a mask
+// fades the content at the scrolled edge(s), recomputed from scrollTop flags.
+// ---------------------------------------------------------------------------
+
+interface ScrollEdge {
+  top: boolean;
+  bottom: boolean;
+}
+
+const diffBodyRef = ref<HTMLElement | null>(null);
+const fileBodyRef = ref<HTMLElement | null>(null);
+const planBodyRef = ref<HTMLElement | null>(null);
+const diffEdge = ref<ScrollEdge>({ top: false, bottom: false });
+const fileEdge = ref<ScrollEdge>({ top: false, bottom: false });
+const planEdge = ref<ScrollEdge>({ top: false, bottom: false });
+
+function bodyScrollHandler(edge: Ref<ScrollEdge>) {
+  return (event: Event): void => {
+    const el = event.currentTarget;
+    if (!(el instanceof HTMLElement)) return;
+    edge.value = {
+      top: el.scrollTop > 0,
+      bottom: el.scrollTop + el.clientHeight < el.scrollHeight - 1,
+    };
+  };
+}
+
+const onDiffScroll = bodyScrollHandler(diffEdge);
+const onFileScroll = bodyScrollHandler(fileEdge);
+const onPlanScroll = bodyScrollHandler(planEdge);
+
+function edgeMaskStyle(edge: Ref<ScrollEdge>): ComputedRef<Record<string, string> | undefined> {
+  return computed(() => {
+    const { top, bottom } = edge.value;
+    if (!top && !bottom) return undefined;
+    const fade = 'var(--menu-scroll-fade)';
+    const mask = top && bottom
+      ? `linear-gradient(to bottom, transparent 0, black ${fade}, black calc(100% - ${fade}), transparent 100%)`
+      : top
+        ? `linear-gradient(to bottom, transparent, black ${fade})`
+        : `linear-gradient(to top, transparent, black ${fade})`;
+    return { maskImage: mask, WebkitMaskImage: mask };
+  });
+}
+
+const diffMask = edgeMaskStyle(diffEdge);
+const fileMask = edgeMaskStyle(fileEdge);
+const planMask = edgeMaskStyle(planEdge);
+
+function refreshEdges(): void {
+  const pairs: Array<[HTMLElement | null, Ref<ScrollEdge>]> = [
+    [diffBodyRef.value, diffEdge],
+    [fileBodyRef.value, fileEdge],
+    [planBodyRef.value, planEdge],
+  ];
+  for (const [el, edge] of pairs) {
+    if (!el) continue;
+    edge.value = {
+      top: el.scrollTop > 0,
+      bottom: el.scrollTop + el.clientHeight < el.scrollHeight - 1,
+    };
+  }
+}
+
+// Bodies remount on expand/minimize and the block may refresh — re-measure.
+watch(expanded, () => void nextTick(refreshEdges));
+watch(minimized, () => void nextTick(refreshEdges));
+watch(() => props.block, () => void nextTick(refreshEdges));
+
+// ---------------------------------------------------------------------------
 // Title by kind
 // ---------------------------------------------------------------------------
 
@@ -63,6 +134,63 @@ function title(): string {
 const feedbackOpen = ref(false);
 const feedbackText = ref('');
 const feedbackRef = ref<HTMLTextAreaElement | null>(null);
+
+// ---------------------------------------------------------------------------
+// Feedback textarea autosize: grows with its content up to 40% of the visual
+// viewport height, then scrolls. Re-measured on resize / font-scale change /
+// width changes (mirrors the reference, which re-measures on the same cues).
+// ---------------------------------------------------------------------------
+
+const FEEDBACK_MAX_HEIGHT_RATIO = 0.4;
+
+function measureFeedback(): void {
+  const ta = feedbackRef.value;
+  if (!ta) return;
+  ta.style.height = 'auto';
+  const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
+  const cap = viewportHeight * FEEDBACK_MAX_HEIGHT_RATIO;
+  const height = Math.min(ta.scrollHeight, cap);
+  ta.style.height = `${height}px`;
+  ta.style.overflowY = ta.scrollHeight > cap ? 'auto' : 'hidden';
+}
+
+let feedbackObserver: ResizeObserver | null = null;
+let feedbackWidth = 0;
+
+function observeFeedback(): void {
+  feedbackObserver?.disconnect();
+  feedbackObserver = null;
+  if (typeof ResizeObserver === 'undefined') return;
+  const ta = feedbackRef.value;
+  if (!ta) return;
+  feedbackObserver = new ResizeObserver((entries) => {
+    const width = entries[0]?.contentRect.width ?? 0;
+    if (width !== feedbackWidth) {
+      feedbackWidth = width;
+      measureFeedback();
+    }
+  });
+  feedbackObserver.observe(ta);
+}
+
+watch(feedbackText, () => void nextTick(measureFeedback));
+watch(feedbackOpen, (open) => {
+  if (!open) {
+    feedbackObserver?.disconnect();
+    feedbackObserver = null;
+    return;
+  }
+  void nextTick(() => {
+    measureFeedback();
+    observeFeedback();
+  });
+});
+watch(minimized, (minimizedNow) => {
+  if (!minimizedNow) void nextTick(measureFeedback);
+});
+
+const { uiFontSize } = useAppearance();
+watch(uiFontSize, () => void nextTick(measureFeedback));
 
 function openFeedback(): void {
   if (props.busy) return;
@@ -173,8 +301,19 @@ function handleKeydown(e: KeyboardEvent): void {
   else if (e.key === '4') { e.preventDefault(); openFeedback(); }
 }
 
-onMounted(() => document.addEventListener('keydown', handleKeydown));
-onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
+onMounted(() => {
+  document.addEventListener('keydown', handleKeydown);
+  window.addEventListener('resize', measureFeedback);
+  window.visualViewport?.addEventListener('resize', measureFeedback);
+});
+
+onUnmounted(() => {
+  document.removeEventListener('keydown', handleKeydown);
+  window.removeEventListener('resize', measureFeedback);
+  window.visualViewport?.removeEventListener('resize', measureFeedback);
+  feedbackObserver?.disconnect();
+  feedbackObserver = null;
+});
 </script>
 
 <template>
@@ -226,7 +365,14 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
       <!-- Body by kind -->
 
       <!-- diff -->
-      <div v-if="block.kind === 'diff'" class="diff" :class="{ expanded }">
+      <div
+        v-if="block.kind === 'diff'"
+        ref="diffBodyRef"
+        class="diff"
+        :class="{ expanded }"
+        :style="diffMask"
+        @scroll="onDiffScroll"
+      >
         <div v-for="(line, i) in block.diff" :key="i" class="dl" :class="line.kind === 'add' ? 'add' : line.kind === 'rem' ? 'del' : ''">
           <span class="dg">{{ line.gutter }}</span><span class="dc">{{ line.text }}</span>
         </div>
@@ -244,7 +390,7 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
         <div class="file-bar">
           <span class="file-lang">{{ block.language ?? '' }}</span>
         </div>
-        <div class="file-content">
+        <div class="file-content" ref="fileBodyRef" :style="fileMask" @scroll="onFileScroll">
           <div v-for="(line, i) in block.content.split('\n')" :key="i" class="file-line">
             <span class="file-ln">{{ i + 1 }}</span><span class="file-text">{{ line }}</span>
           </div>
@@ -287,7 +433,14 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
       </div>
 
       <!-- plan_review -->
-      <div v-else-if="block.kind === 'plan_review'" class="body-plan" :class="{ expanded }">
+      <div
+        v-else-if="block.kind === 'plan_review'"
+        ref="planBodyRef"
+        class="body-plan"
+        :class="{ expanded }"
+        :style="planMask"
+        @scroll="onPlanScroll"
+      >
         <Markdown :text="block.plan" />
       </div>
 

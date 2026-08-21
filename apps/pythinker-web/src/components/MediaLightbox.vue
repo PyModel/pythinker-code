@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, shallowRef, useTemplateRef } from 'vue';
 import type { ToolMedia } from '../types';
+import { useBodyScrollLock } from '../composables/useBodyScrollLock';
 import Icon from './ui/Icon.vue';
 
 const props = defineProps<{
@@ -43,6 +44,8 @@ let dragStartX = 0;
 let dragStartY = 0;
 let panStartX = 0;
 let panStartY = 0;
+
+const { lock: lockBody, unlock: unlockBody } = useBodyScrollLock();
 
 function resetImage(): void {
   scale.value = 1;
@@ -120,12 +123,14 @@ function onKeydown(event: KeyboardEvent): void {
 }
 
 onMounted(() => {
+  lockBody();
   restoreFocus = document.activeElement instanceof HTMLElement ? document.activeElement : props.originImg ?? null;
   window.addEventListener('keydown', onKeydown);
   closeRef.value?.focus();
 });
 
 onUnmounted(() => {
+  unlockBody();
   window.removeEventListener('keydown', onKeydown);
   restoreFocus?.focus();
 });
