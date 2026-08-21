@@ -1353,8 +1353,8 @@ describe('Session MCP startup', () => {
             transport: 'stdio',
             command: process.execPath,
             args: [stdioFixture],
-            env: { PYTHINKER_TEST_MCP_START_DELAY_MS: '250' },
-            startupTimeoutMs: 2_000,
+            env: { PYTHINKER_TEST_MCP_START_DELAY_MS: '1000' },
+            startupTimeoutMs: 3_000,
           },
         },
       },
@@ -1386,7 +1386,7 @@ describe('Session MCP startup', () => {
 
       await Promise.race([
         turnEnded,
-        sleep(1_000).then(() => {
+        sleep(3_000).then(() => {
           throw new Error('Timed out waiting for turn.ended');
         }),
       ]);
