@@ -23,6 +23,7 @@ import { LOOP_CONTROL_SECTION, type LoopControl } from '#/agent/loop/configSecti
 import { TurnStarted } from '#/agent/loop/turnEvents';
 import { IAgentStateService } from '#/agent/state/agentState';
 import { IEventDispatcher } from '#/state/eventDispatcher';
+import { IAgentModelFallbackService } from '#/agent/turnRecovery/modelFallback';
 
 import { IAgentStepRetryService } from './stepRetry';
 
@@ -63,6 +64,7 @@ export class AgentStepRetryService extends Disposable implements IAgentStepRetry
     @IEventBus private readonly eventBus: IEventBus,
     @IEventDispatcher private readonly dispatcher: IEventDispatcher,
     @IAgentStateService private readonly states: IAgentStateService,
+    @IAgentModelFallbackService private readonly modelFallback: IAgentModelFallbackService,
   ) {
     super();
     this.states.contributeState(stepRetryLastFailedDriverIdKey);
@@ -121,7 +123,11 @@ export class AgentStepRetryService extends Disposable implements IAgentStepRetry
     );
     if (this.failedAttempts >= maxAttempts) {
       this.resetAttempts();
-      return false;
+      const switched = await this.modelFallback.tryFallbackSwitch(context);
+      if (!switched) return false;
+      if (context.currentStep?.signal.aborted === true) return false;
+      context.retry(driver, { at: 'head' });
+      return true;
     }
 
     const error = unwrapErrorCause(context.error);
