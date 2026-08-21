@@ -17,6 +17,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   select: [id: string];
   rename: [id: string, title: string];
+  generateTitle: [id: string, onTitle: (title: string | null) => void];
   archive: [id: string];
   fork: [id: string];
   export: [id: string];
@@ -84,6 +85,7 @@ function drop(targetId: string, event: DragEvent): void {
           :unread="unreadBySession[session.id] ?? false"
           @select="emit('select', $event)"
           @rename="(id, title) => emit('rename', id, title)"
+          @generate-title="(id, onTitle) => emit('generateTitle', id, onTitle)"
           @archive="emit('archive', $event)"
           @fork="emit('fork', $event)"
           @export="emit('export', $event)"

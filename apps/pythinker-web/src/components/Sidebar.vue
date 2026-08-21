@@ -3,7 +3,7 @@
      The old workspace rail and workspace tabs have been removed;
      workspace switching, folding and renaming all live in the group header. -->
 <script setup lang="ts">
-import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { copyTextToClipboard } from '../lib/clipboard';
 import {
@@ -12,10 +12,11 @@ import {
 } from '../lib/storage';
 import { moveInOrder, type DropPosition, type WorkspaceSortMode } from '../lib/workspaceOrder';
 import type { Session, WorkspaceGroup as WorkspaceGroupType, WorkspaceView } from '../types';
+import type { AppWorkspace } from '../api/types';
 import PythinkerLogo from './PythinkerLogo.vue';
 import SearchSessionsDialog from './dialogs/SearchSessionsDialog.vue';
 import WorkspaceGroup from './WorkspaceGroup.vue';
-import { isMacosDesktop } from '../lib/desktopFlag';
+import { isDesktop, isMacosDesktop } from '../lib/desktopFlag';
 import IconButton from './ui/IconButton.vue';
 import Icon from './ui/Icon.vue';
 import Kbd from './ui/Kbd.vue';
@@ -31,6 +32,8 @@ const props = withDefaults(
     activeWorkspace: WorkspaceView | null;
     activeWorkspaceId: string | null;
     sessions: Session[];
+    /** All known workspaces — powers the search dialog's workspace hits. */
+    workspaces?: AppWorkspace[];
     archivedSessions?: Session[];
     pinnedIds?: string[];
     pinnedCollapsed?: boolean;
@@ -50,6 +53,8 @@ const props = withDefaults(
     /** True while the resize handle is dragged — disables the width transition
      *  so the sidebar follows the pointer 1:1. */
     dragging?: boolean;
+    /** Enables the experimental Open / Done / Workspaces tab strip. */
+    tabsEnabled?: boolean;
   }>(),
   {
     activeWorkspace: null,
@@ -58,11 +63,13 @@ const props = withDefaults(
     pendingBySession: () => ({}),
     unreadBySession: () => ({}),
     archivedSessions: () => [],
+    workspaces: () => [],
     pinnedIds: () => [],
     pinnedCollapsed: false,
     colWidth: 220,
     collapsed: false,
     dragging: false,
+    tabsEnabled: false,
   },
 );
 
@@ -72,7 +79,11 @@ const emit = defineEmits<{
   createInWorkspace: [workspaceId: string];
   selectWorkspace: [workspaceId: string];
   addWorkspace: [];
+  /** Folder paths dropped onto the sidebar column (desktop shell only). */
+  addWorkspacePaths: [paths: string[]];
   rename: [id: string, title: string];
+  /** Generate a session title; the callback receives the title (or null). */
+  generateTitle: [id: string, onTitle: (title: string | null) => void];
   archive: [id: string];
   restore: [id: string];
   pin: [id: string];
@@ -93,8 +104,11 @@ const emit = defineEmits<{
   collapse: [];
 }>();
 
-const statusView = ref<'open' | 'done'>('open');
+const statusView = ref<'open' | 'done' | 'workspaces'>('open');
 const listView = ref<'flat' | 'grouped'>('grouped');
+watch(() => props.tabsEnabled, (enabled) => {
+  if (!enabled) statusView.value = 'open';
+});
 const pinnedSessions = computed(() => {
   const byId = new Map(props.sessions.map((session) => [session.id, session]));
   return props.pinnedIds.flatMap((id) => {
@@ -110,7 +124,20 @@ const unpinnedGroups = computed(() => props.groups.map((group) => ({
   sessions: group.sessions.filter((session) => !props.pinnedIds.includes(session.id)),
 })));
 
-function showStatus(status: 'open' | 'done'): void {
+// Done tab: archive sessions grouped by workspace (client-side grouping of the
+// already-loaded list; only groups with at least one done session render).
+const doneGroups = computed(() =>
+  props.groups
+    .map((group) => ({
+      workspace: group.workspace,
+      sessions: props.archivedSessions.filter(
+        (session) => session.workspaceId === group.workspace.id,
+      ),
+    }))
+    .filter((group) => group.sessions.length > 0),
+);
+
+function showStatus(status: 'open' | 'done' | 'workspaces'): void {
   statusView.value = status;
   if (status === 'done') emit('loadDoneSessions');
 }
@@ -330,6 +357,12 @@ function onUpdateRenameValue(value: string): void {
   renameValue.value = value;
 }
 
+// The workspaces-tab rename input registers into the same ref the workspace
+// header input uses, so focus lands on whichever rename input is rendered.
+function registerRenameInput(el: unknown): void {
+  renameInputRef.value = el instanceof HTMLInputElement ? el : null;
+}
+
 // ---------------------------------------------------------------------------
 // Workspace right-click menu (copy path, rename)
 // ---------------------------------------------------------------------------
@@ -516,6 +549,69 @@ onBeforeUnmount(() => {
   window.removeEventListener('resize', closeSectionMenu);
 });
 
+// ---------------------------------------------------------------------------
+// Folder-drop to add a workspace: dragging an OS folder onto the column shows
+// the drop overlay and emits the resolved paths upward (App adds them via the
+// existing addWorkspace flow). Reference parity — path resolution needs the
+// desktop shell (Kimi's kimiDesktop.getPathForFile); the browser itself cannot
+// read absolute paths, so the interaction only activates inside the desktop
+// app. We extract via the legacy Electron `File.path` — on shells that expose
+// neither, the overlay still shows but the drop resolves no paths (no-op).
+// ---------------------------------------------------------------------------
+const dropDepth = ref(0);
+const dropOverlayVisible = ref(false);
+
+function isFolderDrag(event: DragEvent): boolean {
+  return Array.from(event.dataTransfer?.items ?? []).some(
+    (item) => item.kind === 'file' && item.type === '',
+  );
+}
+
+function droppedFolderPaths(event: DragEvent): string[] {
+  const paths: string[] = [];
+  const seen = new Set<string>();
+  for (const file of Array.from(event.dataTransfer?.files ?? [])) {
+    const path = (file as File & { path?: string }).path;
+    if (typeof path === 'string' && path.length > 0 && !seen.has(path)) {
+      seen.add(path);
+      paths.push(path);
+    }
+  }
+  return paths;
+}
+
+function onColDragenter(event: DragEvent): void {
+  if (!isDesktop || !isFolderDrag(event)) return;
+  event.preventDefault();
+  event.stopPropagation();
+  dropDepth.value += 1;
+  dropOverlayVisible.value = true;
+}
+
+function onColDragover(event: DragEvent): void {
+  if (!isDesktop || !isFolderDrag(event)) return;
+  event.preventDefault();
+  event.stopPropagation();
+  if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+}
+
+function onColDragleave(): void {
+  if (!isDesktop) return;
+  dropDepth.value = Math.max(0, dropDepth.value - 1);
+  if (dropDepth.value === 0) dropOverlayVisible.value = false;
+}
+
+function onColDrop(event: DragEvent): void {
+  dropDepth.value = 0;
+  dropOverlayVisible.value = false;
+  if (!isDesktop) return;
+  const paths = droppedFolderPaths(event);
+  if (paths.length === 0) return;
+  event.preventDefault();
+  event.stopPropagation();
+  emit('addWorkspacePaths', paths);
+}
+
 // Temporarily hide the new-workspace button while we evaluate the entry point.
 const showNewWorkspaceButton = false;
 
@@ -555,7 +651,14 @@ onBeforeUnmount(() => {
     :style="{ width: collapsed ? '0px' : colWidth + 'px' }"
   >
     <!-- Session column -->
-    <div class="col" :style="{ width: colWidth + 'px' }">
+    <div
+      class="col"
+      :style="{ width: colWidth + 'px' }"
+      @dragenter="onColDragenter"
+      @dragover="onColDragover"
+      @dragleave="onColDragleave"
+      @drop="onColDrop"
+    >
       <!-- Header: brand + collapse. The collapse button lives INSIDE the header
            on non-mac platforms (right-aligned); on macOS desktop the brand is
            hidden (traffic lights own that corner) and the header is just a
@@ -612,7 +715,7 @@ onBeforeUnmount(() => {
         </button>
       </div>
 
-      <div class="status-tabs" role="tablist">
+      <div v-if="tabsEnabled" class="status-tabs" role="tablist">
         <button
           type="button"
           role="tab"
@@ -630,6 +733,15 @@ onBeforeUnmount(() => {
           @click="showStatus('done')"
         >
           {{ t('sidebar.tabDone') }}
+        </button>
+        <button
+          type="button"
+          role="tab"
+          :aria-selected="statusView === 'workspaces'"
+          :class="{ active: statusView === 'workspaces' }"
+          @click="showStatus('workspaces')"
+        >
+          {{ t('sidebar.tabWorkspaces') }}
         </button>
         <IconButton
           class="status-view-switcher side-section-kebab"
@@ -654,6 +766,7 @@ onBeforeUnmount(() => {
           :unread-by-session="unreadBySession"
           @select="onSelectSession"
           @rename="(id, title) => emit('rename', id, title)"
+          @generate-title="(id, onTitle) => emit('generateTitle', id, onTitle)"
           @archive="emit('archive', $event)"
           @fork="emit('fork', $event)"
           @export="emit('export', $event)"
@@ -663,24 +776,113 @@ onBeforeUnmount(() => {
           @toggle-collapsed="emit('togglePinnedCollapsed')"
         />
 
+        <!-- Done tab — done sessions grouped by workspace with count headers.
+             The group header collapses like an open-tab workspace group and
+             carries the same context actions (kebab → rename/copy/remove). -->
         <div v-if="statusView === 'done'">
-          <SessionRow
-            v-for="session in archivedSessions"
-            :key="session.id"
-            :session="session"
-            :active="false"
-            :done="true"
-            :pinned="pinnedIds.includes(session.id)"
-            @select="onSelectSession"
-            @rename="(id, title) => emit('rename', id, title)"
-            @restore="emit('restore', $event)"
-            @fork="emit('fork', $event)"
-            @export="emit('export', $event)"
-            @pin="emit('pin', $event)"
-            @set-emoji="(id, emoji) => emit('setSessionEmoji', id, emoji)"
-          />
+          <div v-for="dg in doneGroups" :key="dg.workspace.id" class="done-group">
+            <div
+              class="done-gh"
+              @click="toggleCollapse(dg.workspace.id)"
+              @contextmenu="openGhMenu(dg.workspace, $event)"
+            >
+              <Icon
+                class="done-gh-folder"
+                :name="isCollapsed(dg.workspace.id) ? 'folder-closed' : 'folder'"
+              />
+              <span class="done-gh-name">{{ dg.workspace.name }}</span>
+              <span class="done-gh-count">{{ dg.sessions.length }}</span>
+              <IconButton
+                class="done-gh-more gh-more"
+                :class="{ open: wsMenuOpenId === dg.workspace.id }"
+                size="sm"
+                :label="t('sidebar.options')"
+                @click.stop="toggleWsMenu(dg.workspace, $event)"
+              >
+                <Icon name="dots-horizontal" />
+              </IconButton>
+            </div>
+            <div v-if="!isCollapsed(dg.workspace.id)" class="done-gh-sessions">
+              <SessionRow
+                v-for="session in dg.sessions"
+                :key="session.id"
+                :session="session"
+                :active="false"
+                :done="true"
+                :pinned="pinnedIds.includes(session.id)"
+                @select="onSelectSession"
+                @rename="(id, title) => emit('rename', id, title)"
+                @generate-title="(id, onTitle) => emit('generateTitle', id, onTitle)"
+                @restore="emit('restore', $event)"
+                @fork="emit('fork', $event)"
+                @export="emit('export', $event)"
+                @pin="emit('pin', $event)"
+                @set-emoji="(id, emoji) => emit('setSessionEmoji', id, emoji)"
+              />
+            </div>
+          </div>
           <div v-if="archivedSessions.length === 0" class="empty">
             {{ t('sidebar.noDoneSessions') }}
+          </div>
+        </div>
+
+        <!-- Workspaces tab — directory-style rows of all registered
+             workspaces; click opens a new session in the workspace, the kebab
+             holds the standard workspace actions (copy path / rename /
+             remove), and the header holds the new-workspace entry. -->
+        <div v-else-if="statusView === 'workspaces'">
+          <div class="side-section-label">
+            <span class="side-section-title">{{ t('sidebar.tabWorkspaces') }}</span>
+            <div class="side-section-actions">
+              <IconButton
+                class="side-section-toggle"
+                size="sm"
+                :label="t('sidebar.newWorkspace')"
+                @click.stop="emit('addWorkspace')"
+              >
+                <Icon name="folder-plus" />
+              </IconButton>
+            </div>
+          </div>
+          <div
+            v-for="g in groups"
+            :key="g.workspace.id"
+            class="ws-dir"
+            :class="{ on: g.workspace.id === activeWorkspaceId }"
+            @click="emit('createInWorkspace', g.workspace.id)"
+            @contextmenu="openGhMenu(g.workspace, $event)"
+          >
+            <div class="ws-dir-row">
+              <Icon class="ws-dir-icon" name="folder-closed" />
+              <input
+                v-if="renamingId === g.workspace.id"
+                :ref="registerRenameInput"
+                v-model="renameValue"
+                class="ws-dir-rename"
+                type="text"
+                @keydown.enter.stop="confirmRenameWorkspace"
+                @keydown.esc.stop="cancelRenameWorkspace"
+                @blur="confirmRenameWorkspace"
+                @click.stop
+              />
+              <span v-else class="ws-dir-name" @dblclick.stop="startRenameWorkspace(g.workspace.id, g.workspace.name)">
+                {{ g.workspace.name }}
+              </span>
+              <IconButton
+                v-if="renamingId !== g.workspace.id"
+                class="gh-more ws-dir-act"
+                :class="{ open: wsMenuOpenId === g.workspace.id }"
+                size="sm"
+                :label="t('sidebar.options')"
+                @click.stop="toggleWsMenu(g.workspace, $event)"
+              >
+                <Icon name="dots-horizontal" />
+              </IconButton>
+            </div>
+            <div class="ws-dir-sub">{{ g.workspace.root }}</div>
+          </div>
+          <div v-if="groups.length === 0" class="empty">
+            {{ t('workspace.noWorkspace') }}
           </div>
         </div>
 
@@ -696,6 +898,7 @@ onBeforeUnmount(() => {
             :unread="unreadBySession[session.id] ?? false"
             @select="onSelectSession"
             @rename="(id, title) => emit('rename', id, title)"
+            @generate-title="(id, onTitle) => emit('generateTitle', id, onTitle)"
             @archive="emit('archive', $event)"
             @fork="emit('fork', $event)"
             @export="emit('export', $event)"
@@ -771,6 +974,7 @@ onBeforeUnmount(() => {
               @create-in-workspace="(id) => emit('createInWorkspace', id)"
               @select-session="onSelectSession"
               @rename-session="(id, title) => emit('rename', id, title)"
+              @generate-session-title="(id, onTitle) => emit('generateTitle', id, onTitle)"
               @archive-session="(id) => emit('archive', id)"
               @fork-session="(id) => emit('fork', id)"
               @export-session="(id) => emit('export', id)"
@@ -795,6 +999,15 @@ onBeforeUnmount(() => {
           <Icon name="settings" />
           <span>{{ t('settings.title') }}</span>
         </button>
+      </div>
+
+      <!-- Folder-drop overlay (desktop): covers the column while a folder drag
+           hovers it; the resolved paths flow up via @add-workspace-paths. -->
+      <div class="folder-drop-overlay" :class="{ show: dropOverlayVisible }" aria-hidden="true">
+        <div class="folder-drop-card">
+          <Icon name="folder" size="lg" />
+          <span>{{ t('sidebar.dropToAddWorkspace') }}</span>
+        </div>
       </div>
     </div>
 
@@ -873,8 +1086,10 @@ onBeforeUnmount(() => {
     <SearchSessionsDialog
       v-if="showSearch"
       :sessions="sessions"
+      :workspaces="workspaces"
       :active-id="activeId"
       @select="onSelectSession"
+      @select-workspace="emit('selectWorkspace', $event)"
       @close="showSearch = false"
     />
     <!-- Keep inside <aside>: a top-level <Teleport> makes Sidebar multi-root,
@@ -907,8 +1122,8 @@ onBeforeUnmount(() => {
      - row boxes (hover/selected pills) sit --sb-inset from the sidebar edges;
      - text/icons start at --sb-pad-x = --sb-inset + 8px row padding;
      - row titles start at --sb-pad-x + --sb-gutter + --sb-gap. */
-  --sb-inset: var(--space-3);  /* row box inset from the sidebar edge */
-  --sb-pad-x: var(--space-5);  /* content start x (inset + row padding) */
+  --sb-inset: var(--space-2);  /* row box inset from the sidebar edge */
+  --sb-pad-x: var(--space-4);  /* content start x (inset + row padding) */
   --sb-gutter: 16px;           /* leading icon slot (matches the 16px folder icon, so the session title aligns under the workspace name) */
   --sb-gap: var(--space-2);    /* gap between the icon slot and the text */
   /* Row hover wash — global --color-hover (lighter than the selected fill;
@@ -941,6 +1156,8 @@ onBeforeUnmount(() => {
   border-right: 1px solid var(--line);
   container-type: inline-size;
   container-name: sidebar-col;
+  /* Anchors the absolute folder-drop overlay to the column, not the viewport. */
+  position: relative;
 }
 
 /* Header: brand strip (no border — flows into the workspace list). On non-mac
@@ -1256,6 +1473,203 @@ onBeforeUnmount(() => {
   color: var(--color-text-faint);
   font-size: var(--text-xs);
   font-weight: var(--weight-medium);
+}
+
+/* ---------------------------------------------------------------------------
+   Workspaces tab — directory-style workspace rows (icon + name + root path +
+   hover kebab). Same inset-pill rhythm as session rows; the whole row opens a
+   new session in the workspace.
+--------------------------------------------------------------------------- */
+.ws-dir {
+  display: block;
+  padding: 8px calc(var(--sb-pad-x) - var(--sb-inset));
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  position: relative;
+  user-select: none;
+}
+.ws-dir:hover { background: var(--sb-hover, var(--color-hover)); }
+.ws-dir.on { background: var(--color-selected); }
+.ws-dir + .ws-dir { margin-top: var(--space-05); }
+.ws-dir-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sb-gap);
+  min-width: 0;
+  position: relative;
+}
+.ws-dir-icon {
+  flex: none;
+  color: var(--color-text-muted);
+}
+.ws-dir-name {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--ui-font-size-sm);
+  font-weight: var(--weight-caption);
+  line-height: var(--leading-tight);
+  color: var(--color-text);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: clip;
+  -webkit-mask-image: linear-gradient(to right, var(--color-text-strong) calc(100% - 16px), transparent);
+  mask-image: linear-gradient(to right, var(--color-text-strong) calc(100% - 16px), transparent);
+}
+.ws-dir-rename {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-ui);
+  font-size: var(--ui-font-size-sm);
+  font-weight: var(--weight-caption);
+  color: var(--color-text);
+  background: var(--color-bg);
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-sm);
+  padding: 2px 5px;
+  outline: none;
+}
+.ws-dir-sub {
+  margin: var(--space-1) 0 0;
+  color: var(--color-text-faint);
+  font-size: var(--text-xs);
+  line-height: var(--leading-tight);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: clip;
+  -webkit-mask-image: linear-gradient(to right, var(--color-text-strong) calc(100% - 16px), transparent);
+  mask-image: linear-gradient(to right, var(--color-text-strong) calc(100% - 16px), transparent);
+}
+/* Hover kebab — floats over the row's right edge, revealed on hover/focus.
+   The name/sub fade masks leave a 16px tail so the button never collides. */
+.ws-dir-act {
+  position: absolute;
+  top: 50%;
+  right: var(--space-1);
+  transform: translateY(-50%);
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity var(--duration-fast) var(--ease-out),
+    visibility 0s linear var(--duration-fast);
+}
+.ws-dir:hover .ws-dir-act,
+.ws-dir:focus-within .ws-dir-act,
+.ws-dir-act.open {
+  opacity: 1;
+  visibility: visible;
+  transition: opacity var(--duration-fast) var(--ease-out);
+}
+
+/* ---------------------------------------------------------------------------
+   Done tab — done-session groups with a count header; the header collapses
+   into the shared workspace collapse set (persisted like the open tab).
+--------------------------------------------------------------------------- */
+.done-gh {
+  display: flex;
+  align-items: center;
+  gap: var(--sb-gap);
+  padding: 8px calc(var(--sb-pad-x) - var(--sb-inset));
+  border-radius: var(--radius-sm);
+  font-family: var(--font-ui);
+  color: var(--color-text);
+  user-select: none;
+  position: relative;
+  cursor: pointer;
+}
+.done-gh:hover { background: var(--sb-hover, var(--color-hover)); }
+.done-gh-folder {
+  flex: none;
+  color: var(--color-text-muted);
+}
+.done-gh-name {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--ui-font-size-sm);
+  font-weight: var(--weight-medium);
+  line-height: var(--leading-tight);
+  color: var(--color-text-muted);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: clip;
+  -webkit-mask-image: linear-gradient(to right, var(--color-text-strong) calc(100% - 16px), transparent);
+  mask-image: linear-gradient(to right, var(--color-text-strong) calc(100% - 16px), transparent);
+}
+.done-gh-count {
+  flex: none;
+  color: var(--color-text-faint);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+}
+.done-gh-more {
+  position: absolute;
+  top: 50%;
+  right: var(--space-1);
+  transform: translateY(-50%);
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity var(--duration-fast) var(--ease-out),
+    visibility 0s linear var(--duration-fast);
+}
+.done-gh:hover .done-gh-more,
+.done-gh:focus-within .done-gh-more,
+.done-gh-more.open {
+  opacity: 1;
+  visibility: visible;
+  transition: opacity var(--duration-fast) var(--ease-out);
+}
+.done-gh:hover .done-gh-count,
+.done-gh:focus-within .done-gh-count {
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity var(--duration-fast) var(--ease-out),
+    visibility 0s linear var(--duration-fast);
+}
+.done-gh-sessions {
+  padding-bottom: var(--space-1);
+}
+
+/* ---------------------------------------------------------------------------
+   Folder-drop overlay — covers the whole column while a folder drag hovers it
+   (desktop shell only; see the drag handlers in <script>).
+--------------------------------------------------------------------------- */
+.folder-drop-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: var(--z-dropdown);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-3);
+  box-sizing: border-box;
+  background: color-mix(in srgb, var(--color-sidebar-bg) 72%, transparent);
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity var(--duration-base) ease, visibility var(--duration-base);
+}
+.folder-drop-overlay.show {
+  opacity: 1;
+  visibility: visible;
+}
+.folder-drop-card {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  max-width: 100%;
+  box-sizing: border-box;
+  padding: var(--space-4);
+  border-radius: var(--radius-lg);
+  border: 1px dashed var(--color-accent);
+  background: var(--color-bg);
+  color: var(--color-accent);
+  font-size: var(--ui-font-size-lg);
+  font-weight: var(--weight-medium);
+  box-shadow: var(--shadow-md);
+}
+.folder-drop-card svg { flex: none; }
+.folder-drop-card span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 </style>

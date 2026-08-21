@@ -67,9 +67,16 @@ const props = defineProps<{
   loadArchived: () => Promise<AdminSession[]>;
   archiveSession: (id: string) => Promise<void>;
   restoreSession: (id: string) => Promise<void>;
+  runBatch?: (items: AdminSession[], action: 'archive' | 'restore') => Promise<void>;
 }>();
 
-const emit = defineEmits<{ back: [] }>();
+const emit = defineEmits<{
+  back: [];
+  open: [id: string];
+  rename: [id: string, title: string];
+  fork: [id: string];
+  export: [id: string];
+}>();
 const { t } = useI18n();
 const archivedSessions = ref<AdminSession[]>([]);
 const loading = ref(true);
@@ -81,11 +88,13 @@ const query = ref('');
 const page = ref(1);
 const pageSize = ref('20');
 const selected = ref(new Set<string>());
+const renamingId = ref<string | null>(null);
+const renameValue = ref('');
 
 const statusOptions = computed(() => [
   { value: 'all', label: t('admin.statusAll') },
-  { value: 'open', label: t('admin.statusOpen') },
-  { value: 'done', label: t('admin.statusDone') },
+  { value: 'open', label: t('admin.statusOpen'), dot: 'open' },
+  { value: 'done', label: t('admin.statusDone'), dot: 'done' },
 ]);
 const timeOptions = computed(() => [
   { value: 'all', label: t('admin.timeAll') },
@@ -145,13 +154,33 @@ function selectAllMatching(): void {
   selected.value = new Set(filtered.value.map((item) => item.id));
 }
 
+function startRename(item: AdminSession): void {
+  renamingId.value = item.id;
+  renameValue.value = item.title;
+}
+
+function commitRename(): void {
+  const id = renamingId.value;
+  const title = renameValue.value.trim();
+  if (id && title) emit('rename', id, title);
+  renamingId.value = null;
+}
+
+function cancelRename(): void {
+  renamingId.value = null;
+}
+
 async function runAction(items: AdminSession[], action: 'archive' | 'restore'): Promise<void> {
   if (running.value || items.length === 0) return;
   running.value = true;
   try {
-    for (const item of items) {
-      if (action === 'archive') await props.archiveSession(item.id);
-      else await props.restoreSession(item.id);
+    if (props.runBatch !== undefined && items.length > 1) {
+      await props.runBatch(items, action);
+    } else {
+      for (const item of items) {
+        if (action === 'archive') await props.archiveSession(item.id);
+        else await props.restoreSession(item.id);
+      }
     }
     selected.value = new Set();
     await refreshArchived();
@@ -220,11 +249,32 @@ onMounted(refreshArchived);
             <tr v-for="item in pageItems" :key="item.id">
               <td><Checkbox :model-value="selected.has(item.id)" :disabled="running" @update:model-value="toggleRow(item.id)" /></td>
               <td><span class="session-admin__status" :class="{ done: item.archived }"><Icon :name="item.archived ? 'archive' : 'message'" size="sm" />{{ item.archived ? t('admin.statusDone') : t('admin.statusOpen') }}</span></td>
-              <td class="session-admin__title" :title="item.title">{{ item.title }}</td>
+              <td class="session-admin__title" :title="item.title">
+                <input
+                  v-if="renamingId === item.id"
+                  v-model="renameValue"
+                  class="session-admin__rename"
+                  type="text"
+                  @keydown.enter="commitRename"
+                  @keydown.esc="cancelRename"
+                  @blur="commitRename"
+                />
+                <button v-else type="button" class="session-admin__title-button" @click="emit('open', item.id)">
+                  {{ item.title }}
+                </button>
+              </td>
               <td>{{ item.workspaceName }}</td>
-              <td class="session-admin__prompt" :title="item.lastPrompt">{{ item.lastPrompt ?? '—' }}</td>
+              <td class="session-admin__prompt" :title="item.lastPrompt">{{ item.lastPrompt ?? '-' }}</td>
               <td class="session-admin__updated">{{ formatUpdated(item.updatedAt) }}</td>
-              <td><Button size="sm" variant="ghost" :disabled="running" @click="runAction([item], item.archived ? 'restore' : 'archive')">{{ item.archived ? t('admin.reopen') : t('admin.markDone') }}</Button></td>
+              <td>
+                <div class="session-admin__actions">
+                  <Button size="sm" variant="ghost" :disabled="running" @click="emit('open', item.id)">{{ t('admin.openSession') }}</Button>
+                  <Button size="sm" variant="ghost" :disabled="running" @click="startRename(item)">{{ t('sidebar.rename') }}</Button>
+                  <Button size="sm" variant="ghost" :disabled="running" @click="emit('fork', item.id)">{{ t('sidebar.fork') }}</Button>
+                  <Button size="sm" variant="ghost" :disabled="running" @click="emit('export', item.id)">{{ t('sidebar.export') }}</Button>
+                  <Button size="sm" variant="ghost" :disabled="running" @click="runAction([item], item.archived ? 'restore' : 'archive')">{{ item.archived ? t('admin.reopen') : t('admin.markDone') }}</Button>
+                </div>
+              </td>
             </tr>
           </tbody>
         </table>
@@ -247,7 +297,7 @@ onMounted(refreshArchived);
 
 <style scoped>
 .session-admin { grid-column: 3 / -1; min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--color-bg); color: var(--color-text); }
-.session-admin__header { min-height: var(--panel-head-h); display: flex; align-items: flex-start; gap: var(--space-3); padding: var(--space-4); border-bottom: 1px solid var(--color-line); }
+.session-admin__header { min-height: var(--panel-head-h); display: flex; align-items: flex-start; gap: var(--space-3); padding: var(--space-4); border-bottom: 0.5px solid var(--color-line); }
 .session-admin__header h1 { margin: 0; font-size: var(--text-lg); font-weight: var(--weight-medium); }
 .session-admin__header p { margin: var(--space-1) 0 0; color: var(--color-text-muted); font-size: var(--text-sm); }
 .session-admin__body { width: min(100%, var(--p-table-max)); min-height: 0; margin: 0 auto; padding: var(--space-5); overflow: auto; }
@@ -266,6 +316,11 @@ onMounted(refreshArchived);
 .session-admin__status { display: inline-flex; align-items: center; gap: var(--space-1); white-space: nowrap; }
 .session-admin__status.done { color: var(--color-success); }
 .session-admin__title, .session-admin__prompt { max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.session-admin__title-button { max-width: 100%; overflow: hidden; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.session-admin__title-button:hover { text-decoration: underline; text-underline-offset: 3px; }
+.session-admin__title-button:focus-visible { outline: none; box-shadow: var(--p-focus-ring); }
+.session-admin__rename { width: 100%; min-width: 140px; border: 1px solid var(--color-accent); border-radius: var(--radius-sm); background: var(--color-surface-raised); color: var(--color-text); font: inherit; }
+.session-admin__actions { display: flex; align-items: center; gap: var(--space-1); white-space: nowrap; }
 .session-admin__updated { white-space: nowrap; color: var(--color-text-muted); font-family: var(--font-mono); font-size: var(--text-xs); }
 .session-admin__state { min-height: 220px; display: grid; place-items: center; }
 .session-admin__sr-only { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }

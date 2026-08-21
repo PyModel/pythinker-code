@@ -74,5 +74,10 @@ export default {
   searchPlaceholder: 'Search sessions',
   search: 'Search',
   searchHint: '↑↓ navigate · ↵ open · Esc close',
-  searchNoResults: 'No matching sessions',
+  searchNoResults: 'No matching sessions or workspaces',
+  // S1 parity: workspaces tab, folder-drop overlay, generated session titles
+  tabWorkspaces: 'Workspaces',
+  dropToAddWorkspace: 'Drop to add workspace',
+  genTitle: 'Gen Title',
+  genTitleUnavailable: 'Title generation unavailable — needs a managed Pythinker login and at least one message',
 } as const;

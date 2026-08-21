@@ -37,6 +37,9 @@ const props = withDefaults(
 const emit = defineEmits<{
   select: [id: string];
   rename: [id: string, title: string];
+  /** Ask the parent to generate a title; the callback receives the generated
+   *  title (or null when generation is unavailable). */
+  generateTitle: [id: string, onTitle: (title: string | null) => void];
   archive: [id: string];
   restore: [id: string];
   pin: [id: string];
@@ -142,11 +145,60 @@ async function startRename(): Promise<void> {
 }
 function commitRename(): void {
   const newTitle = renameValue.value.trim();
-  if (newTitle) emit('rename', props.session.id, newTitle);
+  // Skip the update when the value equals the just-generated title (the daemon
+  // already persisted it and the list refreshes via the WS event) or the
+  // session's current title.
+  if (newTitle && newTitle !== generatedTitle && newTitle !== props.session.title) {
+    emit('rename', props.session.id, newTitle);
+  }
   renaming.value = false;
+  generatedTitle = null;
 }
 function cancelRename(): void {
   renaming.value = false;
+  generatedTitle = null;
+}
+
+// "Generate title" — ask the parent to call the daemon's title-generation
+// endpoint while the rename input is open. While generating, the input is
+// readonly and a spinner replaces the button; the returned title streams into
+// the input and is kept selected so the user can commit it as-is or edit it.
+const generating = ref(false);
+let generatedTitle: string | null = null;
+
+function startGenerateTitle(): void {
+  if (generating.value) return;
+  generating.value = true;
+  generatedTitle = null;
+  const original = renameValue.value || props.session.title;
+  renameValue.value = '';
+  emit('generateTitle', props.session.id, (title: string | null) => {
+    generating.value = false;
+    if (!renaming.value) return;
+    const next = title ?? original;
+    renameValue.value = next;
+    generatedTitle = next;
+    void nextTick().then(() => {
+      try {
+        renameInputRef.value?.focus();
+        renameInputRef.value?.select();
+      } catch {
+        // jsdom may not implement focus/select
+      }
+    });
+  });
+}
+
+// Blur while generating keeps the rename open (the result is about to land).
+function onRenameBlur(): void {
+  if (generating.value) return;
+  commitRename();
+}
+
+// Esc cancels both the pending generation and the rename.
+function onRenameEsc(): void {
+  generating.value = false;
+  cancelRename();
 }
 
 // Copy session ID
@@ -220,17 +272,29 @@ defineExpose({ closeMenu });
 
       <div class="left">
         <span v-if="titleParts.emoji && !renaming" class="session-emoji">{{ titleParts.emoji }}</span>
-        <!-- Inline rename input -->
-        <input
-          v-if="renaming"
-          ref="renameInputRef"
-          v-model="renameValue"
-          class="rename-input"
-          @click.stop
-          @keydown.enter.stop="commitRename"
-          @keydown.esc.stop="cancelRename"
-          @blur="commitRename"
-        />
+        <!-- Inline rename input (with the "generate title" action) -->
+        <div v-if="renaming" class="rename-wrap" :class="{ generating }" @click.stop>
+          <input
+            ref="renameInputRef"
+            v-model="renameValue"
+            class="rename-input"
+            :readonly="generating"
+            @keydown.enter.stop="commitRename"
+            @keydown.esc.stop="onRenameEsc"
+            @blur="onRenameBlur"
+          />
+          <Spinner v-if="generating" size="sm" :label="t('sidebar.genTitle')" />
+          <IconButton
+            v-else
+            class="gen-title-btn"
+            size="sm"
+            :label="t('sidebar.genTitle')"
+            @mousedown.prevent.stop
+            @click.stop="startGenerateTitle"
+          >
+            <Icon name="gen-title" />
+          </IconButton>
+        </div>
         <span v-else class="t" @dblclick.stop="startRename">{{ titleParts.rest }}</span>
       </div>
 
@@ -483,17 +547,40 @@ defineExpose({ closeMenu });
   user-select: text;
 }
 
-.rename-input {
+/* Rename state: the bordered box is the .rename-wrap (it also hosts the
+   generate-title button / loading spinner); the input inside is borderless. */
+.rename-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
   flex: 1;
-  font-family: var(--font-ui);
-  font-size: var(--text-sm);
-  color: var(--color-text);
+  min-width: 0;
   background: var(--color-bg);
   border: 1px solid var(--color-accent);
   border-radius: var(--radius-xs);
+}
+.rename-input {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+  color: var(--color-text);
+  background: transparent;
+  border: none;
   padding: 1px 4px;
   outline: none;
-  min-width: 0;
+}
+/* While generating, the input is readonly and the spinner sits where the
+   button was; the input keeps its size so the box never shifts. */
+.rename-wrap.generating .rename-input { visibility: hidden; }
+.gen-title-btn {
+  flex: none;
+  margin-right: 1px;
+  color: var(--color-accent);
+}
+.gen-title-btn:hover:not(:disabled) {
+  color: var(--color-accent-hover);
+  background: transparent;
 }
 
 .sessions .se {
@@ -503,6 +590,7 @@ defineExpose({ closeMenu });
      the same x as the workspace name (whose header has no inset). */
   padding: 8px calc(var(--sb-pad-x, 20px) - var(--sb-inset, 12px));
 }
-.sessions .se .rename-input { border-radius: var(--radius-sm); font-family: var(--sans); }
+.sessions .se .rename-wrap { border-radius: var(--radius-sm); }
+.sessions .se .rename-input { font-family: var(--sans); }
 .sessions .se .kebab { border-radius: var(--radius-sm); }
 </style>

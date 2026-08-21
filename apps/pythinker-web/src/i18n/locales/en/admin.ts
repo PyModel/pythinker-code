@@ -36,8 +36,13 @@ export default {
   selectAllMatching: 'Select all {total} matching sessions',
   allMatchingSelected: 'All {n} selected',
   clearSelection: 'Clear selection',
+  openSession: 'Open',
   markDone: 'Mark as done',
   reopen: 'Mark as open',
   markDoneCount: 'Mark as done ({n})',
   reopenCount: 'Mark as open ({n})',
+  actionArchived: '{n} session archived | {n} sessions archived',
+  actionRestored: '{n} session restored | {n} sessions restored',
+  exporting: 'Exporting session…',
+  exported: 'Session export ready',
 } as const;
