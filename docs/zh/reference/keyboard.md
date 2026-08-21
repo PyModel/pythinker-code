@@ -18,6 +18,17 @@ Pythinker Code CLI 的 TUI 交互模式支持一套键盘快捷键。键位按�
 
 **流式输出期间**按 `Ctrl-C` 会立即取消，无需二次确认。
 
+输入框和状态区固定在屏幕底部，transcript 在其上方滚动。离开最新输出后，点击 **Jump to bottom (click) ↓** 或按 `End`，即可回到底部并继续跟随新输出。
+
+### Transcript 导航
+
+| 快捷键 | 功能 |
+| --- | --- |
+| 鼠标滚轮 / `PageUp` / `PageDown` | 滚动 transcript，输入框保持固定 |
+| `Home` / `End` | 跳到 transcript 开头或最新输出 |
+| `Ctrl-Shift-↑` / `Ctrl-Shift-↓` | 跳到上一个或下一个 prompt |
+| `Ctrl-Shift-F` | 搜索 transcript |
+
 **退出程序**（输入框为空时按 `Ctrl-C`，或按 `Ctrl-D`）使用「双击确认」机制：第一次按下后状态栏会出现提示，再按一次相同的键才真正退出。中途按其他键会清除确认状态。
 
 ## 模式切换
