@@ -62,9 +62,10 @@ describe('title excerpts over the real context memory', () => {
       assistant: '\u90E8\u7F72\u5B8C\u6210，\u670D\u52A1\u5728 8080 \u7AEF\u53E3',
     });
     await expect(source.digestExcerpt()).resolves.toEqual({
-      firstUser: '\u5E2E\u6211\u90E8\u7F72\u8FD9\u4E2A\u670D\u52A1',
-      lastUser: undefined,
-      assistant: '\u90E8\u7F72\u5B8C\u6210，\u670D\u52A1\u5728 8080 \u7AEF\u53E3',
+      turns: [{
+        user: '\u5E2E\u6211\u90E8\u7F72\u8FD9\u4E2A\u670D\u52A1',
+        assistant: '\u90E8\u7F72\u5B8C\u6210，\u670D\u52A1\u5728 8080 \u7AEF\u53E3',
+      }],
     });
   });
 

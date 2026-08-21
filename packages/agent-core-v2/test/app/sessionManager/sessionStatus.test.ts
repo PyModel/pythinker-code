@@ -6,7 +6,7 @@ import { DisposableStore } from '#/_base/di/lifecycle';
 import { LifecycleScope } from '#/app/scopes';
 import { type IAgentScopeHandle, type ISessionScopeHandle } from '#/_base/di/scope';
 import { TestInstantiationService } from '#/_base/di/test';
-import { IAgentTokenCountingService } from '#/agent/tokenCounting/tokenCounting';
+import { ISessionTokenCountingService } from '#/session/tokenCounting/sessionTokenCounting';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import { IAgentPlanService } from '#/features/plan/plan';
 import { IAgentProfileService } from '#/agent/profile/profile';
@@ -20,6 +20,10 @@ import { ISessionIndex, ISessionIndexMirror } from '#/app/sessionIndex/sessionIn
 import { ISessionManager } from '#/app/sessionManager/sessionManager';
 import { ISessionLifecycleService } from '#/workspace/sessionLifecycle/sessionLifecycle';
 import { IAgentActivityView } from '#/agent/activityView/activityView';
+import {
+  IAgentScopeContext,
+  makeAgentScopeContext,
+} from '#/agent/scopeContext/scopeContext';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionCronService } from '#/session/cron/sessionCronService';
 
@@ -35,6 +39,11 @@ function accessor(
     },
   };
 }
+
+const MAIN_AGENT_SCOPE_CONTEXT = makeAgentScopeContext({
+  agentId: 'main',
+  agentScope: 'agents/main',
+});
 
 function stubSessionChain(ix: TestInstantiationService, session: ISessionScopeHandle): void {
   const handler = {
@@ -124,8 +133,9 @@ describe('Session status (best-effort runtime state)', () => {
       kind: LifecycleScope.Agent,
       accessor: accessor([
         [IAgentLifecycleService, { main: () => Promise.resolve(agent) }],
+        [IAgentScopeContext, MAIN_AGENT_SCOPE_CONTEXT],
         [IAgentProfileService, profile],
-        [IAgentTokenCountingService, { get: () => ({ size: 25, measured: 20, estimated: 5 }), statusSize: () => 25 }],
+        [ISessionTokenCountingService, { get: () => ({ size: 25, measured: 20, estimated: 5 }), statusSize: () => 25 }],
         [IAgentPermissionModeService, { mode: 'manual' }],
         [IAgentPlanService, { status: () => Promise.resolve(null) }],
         [IAgentDynamicWorkflowService, { isActive: false }],
@@ -182,8 +192,9 @@ describe('Session status (best-effort runtime state)', () => {
       kind: LifecycleScope.Agent,
       accessor: accessor([
         [IAgentLifecycleService, { main: () => Promise.resolve(agent) }],
+        [IAgentScopeContext, MAIN_AGENT_SCOPE_CONTEXT],
         [IAgentProfileService, profile],
-        [IAgentTokenCountingService, { get: () => ({ size: 0, measured: 0, estimated: 0 }), statusSize: () => 0 }],
+        [ISessionTokenCountingService, { get: () => ({ size: 0, measured: 0, estimated: 0 }), statusSize: () => 0 }],
         [IAgentPermissionModeService, { mode: 'manual' }],
         [IAgentPlanService, { status: () => Promise.resolve(null) }],
         [IAgentDynamicWorkflowService, { isActive: false }],
@@ -241,8 +252,9 @@ describe('Session status (best-effort runtime state)', () => {
       kind: LifecycleScope.Agent,
       accessor: accessor([
         [IAgentLifecycleService, { main: () => Promise.resolve(agent) }],
+        [IAgentScopeContext, MAIN_AGENT_SCOPE_CONTEXT],
         [IAgentProfileService, profile],
-        [IAgentTokenCountingService, { get: () => ({ size: 0, measured: 0, estimated: 0 }), statusSize: () => 0 }],
+        [ISessionTokenCountingService, { get: () => ({ size: 0, measured: 0, estimated: 0 }), statusSize: () => 0 }],
         [IAgentPermissionModeService, { mode: 'manual' }],
         [IAgentPlanService, { status: () => Promise.resolve(null) }],
         [IAgentDynamicWorkflowService, { isActive: false }],
@@ -325,8 +337,9 @@ describe('Session status (best-effort runtime state)', () => {
       kind: LifecycleScope.Agent,
       accessor: accessor([
         [IAgentLifecycleService, { main: () => Promise.resolve(agent) }],
+        [IAgentScopeContext, MAIN_AGENT_SCOPE_CONTEXT],
         [IAgentProfileService, profile],
-        [IAgentTokenCountingService, { get: () => ({ size: 120_000, measured: 110_000, estimated: 10_000 }), statusSize: () => 120_000 }],
+        [ISessionTokenCountingService, { get: () => ({ size: 120_000, measured: 110_000, estimated: 10_000 }), statusSize: () => 120_000 }],
         [IAgentPermissionModeService, { mode: 'manual' }],
         [IAgentPlanService, { status: () => Promise.resolve(null) }],
         [IAgentDynamicWorkflowService, { isActive: false }],

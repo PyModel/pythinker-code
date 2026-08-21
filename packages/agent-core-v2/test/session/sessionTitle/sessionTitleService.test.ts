@@ -155,7 +155,7 @@ describe('SessionTitleService', () => {
     titlePrompts = [];
     promptSourceImpl = async (limit) => titlePrompts.slice(0, limit);
     turnExcerpt = {};
-    digestExcerpt = {};
+    digestExcerpt = { turns: [] };
     tokenCalls = [];
     flagEnabled = true;
     providers = { 'managed:pythinker-code': MANAGED_PROVIDER };
@@ -199,6 +199,8 @@ describe('SessionTitleService', () => {
         };
         reg.definePartialInstance(IAgentLifecycleService, {
           get: () => mainAgent,
+          findAgentHandle: () => mainAgent,
+          list: () => [mainAgent],
         });
         reg.defineInstance(IEventService, events);
         reg.defineInstance(IProviderService, stubProviderService(providers));
@@ -285,7 +287,7 @@ describe('SessionTitleService', () => {
     });
   });
 
-  it('truncates the composed title input to the total budget, keeping the head', async () => {
+  it('truncates each composed title prompt to its segment budget', async () => {
     titlePrompts = ['\u5F88\u957F\u7684\u8F93\u5165'.repeat(400), '\u7B2C\u4E8C\u6761'];
 
     await ix.get(ISessionTitleService).generateTitle();
@@ -293,7 +295,7 @@ describe('SessionTitleService', () => {
     const [, init] = fetchMock.mock.calls[0]!;
     const body = JSON.parse(init?.body as string) as { params: { chat_content: string } };
     expect(body.params.chat_content.startsWith('user: \u5F88\u957F\u7684\u8F93\u5165')).toBe(true);
-    expect(body.params.chat_content).toHaveLength(1000);
+    expect(body.params.chat_content).toHaveLength(416);
   });
 
   it('returns unavailable when only a slash activation updated lastPrompt', async () => {
@@ -408,11 +410,16 @@ describe('SessionTitleService', () => {
     const [, init] = fetchMock.mock.calls[0]!;
     const content = (JSON.parse(init?.body as string) as { params: { chat_content: string } })
       .params.chat_content;
-    expect(content).toBe(`user: ${'\u95EE'.repeat(300)}\nassistant: ${'\u7B54'.repeat(600)}`);
+    expect(content).toBe(`user: ${'\u95EE'.repeat(400)}\nassistant: ${'\u7B54'.repeat(300)}`);
   });
 
   it('digest composes head and tail segments, tolerating a missing reply', async () => {
-    digestExcerpt = { firstUser: '\u5F00\u573A', lastUser: '\u6700\u65B0\u8FFD\u95EE', assistant: '\u5F53\u524D\u8FDB\u5C55' };
+    digestExcerpt = {
+      turns: [
+        { user: '\u5F00\u573A' },
+        { user: '\u6700\u65B0\u8FFD\u95EE', assistant: '\u5F53\u524D\u8FDB\u5C55' },
+      ],
+    };
 
     await expect(
       ix.get(ISessionTitleService).generateTitle({ source: 'digest' }),
@@ -425,7 +432,7 @@ describe('SessionTitleService', () => {
     });
 
     fetchMock.mockClear();
-    digestExcerpt = { firstUser: '\u5F00\u573A' };
+    digestExcerpt = { turns: [{ user: '\u5F00\u573A' }] };
     await expect(
       ix.get(ISessionTitleService).generateTitle({ force: true, source: 'digest' }),
     ).resolves.toBe('\u751F\u6210\u7684\u6807\u9898');
@@ -436,8 +443,45 @@ describe('SessionTitleService', () => {
     });
   });
 
+  it('digest truncates each segment to its budget', async () => {
+    digestExcerpt = {
+      turns: [{ user: '问'.repeat(300), assistant: '答'.repeat(300) }],
+    };
+
+    await expect(
+      ix.get(ISessionTitleService).generateTitle({ source: 'digest' }),
+    ).resolves.toBe('生成的标题');
+
+    const [, init] = fetchMock.mock.calls[0]!;
+    const content = (JSON.parse(init?.body as string) as { params: { chat_content: string } })
+      .params.chat_content;
+    expect(content).toBe(`user: ${'问'.repeat(200)}\nassistant: ${'答'.repeat(200)}`);
+  });
+
+  it('digest elides the middle turns when the input exceeds the total budget', async () => {
+    digestExcerpt = {
+      turns: Array.from({ length: 30 }, (_, i) => ({
+        user: `第${i}个${'问'.repeat(180)}`,
+        assistant: `第${i}个${'答'.repeat(180)}`,
+      })),
+    };
+
+    await expect(
+      ix.get(ISessionTitleService).generateTitle({ source: 'digest' }),
+    ).resolves.toBe('生成的标题');
+
+    const [, init] = fetchMock.mock.calls[0]!;
+    const content = (JSON.parse(init?.body as string) as { params: { chat_content: string } })
+      .params.chat_content;
+    expect(content.length).toBeLessThanOrEqual(3000);
+    expect(content.startsWith('user: 第0个')).toBe(true);
+    expect(content).toContain('\n...\n');
+    expect(content.split('\n...\n')[1]?.startsWith('user: ')).toBe(true);
+    expect(content.endsWith(`assistant: 第29个${'答'.repeat(180)}`)).toBe(true);
+  });
+
   it('digest is unavailable when the window yields no segments at all', async () => {
-    digestExcerpt = {};
+    digestExcerpt = { turns: [] };
 
     await expect(
       ix.get(ISessionTitleService).generateTitle({ source: 'digest' }),
