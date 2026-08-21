@@ -2590,6 +2590,57 @@ describe('SessionEventBroadcaster', () => {
       expect(transcriptEnvelopes(legacy.envelopes)).toHaveLength(0);
     });
 
+    it('delivers terminal subagent lifecycle events after a running snapshot', async () => {
+      const lc = new FakeLifecycle();
+      const main = lc.addAgent('main');
+      sessions.set('s1', lc);
+      bc = makeBroadcasterWithTranscript();
+
+      const view = collectingTarget();
+      await bc.subscribe('s1', view.target, undefined, { main: 'delta' });
+
+      main.bus.emit(agentEvent('subagent.spawned', {
+        subagentId: 'agent-0',
+        subagentName: 'explore',
+        description: 'Compare final UI screenshots',
+        runInBackground: false,
+      }));
+      main.bus.emit(agentEvent('subagent.started', { subagentId: 'agent-0' }));
+      await bc.getCursor('s1');
+      expect((await bc.getSnapshotState('s1')).subagents).toEqual([
+        expect.objectContaining({
+          id: 'agent-0',
+          status: 'running',
+          subagent_phase: 'working',
+        }),
+      ]);
+
+      main.bus.emit(agentEvent('subagent.suspended', { subagentId: 'agent-0', reason: 'rate limit' }));
+      main.bus.emit(agentEvent('subagent.started', { subagentId: 'agent-0' }));
+      main.bus.emit(agentEvent('subagent.completed', { subagentId: 'agent-0', resultSummary: 'done' }));
+      main.bus.emit(agentEvent('subagent.spawned', {
+        subagentId: 'agent-1',
+        subagentName: 'review',
+        description: 'Review final UI',
+        runInBackground: false,
+      }));
+      main.bus.emit(agentEvent('subagent.failed', { subagentId: 'agent-1', error: 'failed' }));
+      await bc.getCursor('s1');
+
+      const lifecycleTypes = view.envelopes
+        .map((e) => e.type)
+        .filter((type) => type.startsWith('subagent.'));
+      expect(lifecycleTypes).toEqual([
+        'subagent.spawned',
+        'subagent.started',
+        'subagent.suspended',
+        'subagent.started',
+        'subagent.completed',
+        'subagent.spawned',
+        'subagent.failed',
+      ]);
+    });
+
     it('keeps delivering lifecycle and global events to graded connections', async () => {
       const lc = new FakeLifecycle();
       lc.addAgent('main');
