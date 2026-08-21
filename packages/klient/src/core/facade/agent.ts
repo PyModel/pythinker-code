@@ -13,13 +13,13 @@ import type { IAgentContextMemoryService } from '@pymodel/agent-core-v2/agent/co
 import type { IAgentMcpService } from '@pymodel/agent-core-v2/agent/mcp/mcp';
 import type { IAgentRuntimeBindingService } from '@pymodel/agent-core-v2/agent/runtimeBinding/runtimeBinding';
 import type { IAgentPromptService } from '@pymodel/agent-core-v2/agent/prompt/prompt';
-import type { IAgentTokenCountingService } from '@pymodel/agent-core-v2/agent/tokenCounting/tokenCounting';
+import type { ISessionTokenCountingService } from '@pymodel/agent-core-v2/session/tokenCounting/sessionTokenCounting';
 import type { IAgentPlanService } from '@pymodel/agent-core-v2/features/plan/plan';
 import type { IAgentProfileService } from '@pymodel/agent-core-v2/agent/profile/profile';
 import type { IAgentShellCommandService } from '@pymodel/agent-core-v2/agent/shellCommand/shellCommand';
 import type { IAgentSkillService } from '@pymodel/agent-core-v2/agent/skill/skill';
 import type { IAgentTaskService } from '@pymodel/agent-core-v2/agent/task/task';
-import type { IAgentUsageService } from '@pymodel/agent-core-v2/agent/usage/usage';
+import type { ISessionUsageService } from '@pymodel/agent-core-v2/session/usage/sessionUsage';
 import type { ContentPart } from '@pymodel/agent-core-v2/kosong/contract/message';
 import type { PermissionMode } from '@pymodel/agent-core-v2/agent/permissionPolicy/types';
 
@@ -34,10 +34,10 @@ export type PromptWithSkillsResult = Awaited<ReturnType<IAgentSkillService['prom
 export type ShellCommandResult = Awaited<ReturnType<IAgentShellCommandService['run']>>;
 export type SetModelResult = Awaited<ReturnType<IAgentProfileService['setModel']>>;
 export type ThinkingLevel = ReturnType<IAgentProfileService['getEffectiveThinkingLevel']>;
-export type UsageStatus = Awaited<ReturnType<IAgentUsageService['status']>>;
+export type UsageStatus = Awaited<ReturnType<ISessionUsageService['status']>>;
 export type AgentContextData = {
   history: ReturnType<IAgentContextMemoryService['get']>;
-  tokenCount: ReturnType<IAgentTokenCountingService['statusSize']>;
+  tokenCount: ReturnType<ISessionTokenCountingService['statusSize']>;
 };
 export type AgentCommandInfo = Awaited<ReturnType<IAgentCommandService['list']>>[number];
 export type RuntimeBinding = ReturnType<IAgentRuntimeBindingService['get']>;
