@@ -18,6 +18,10 @@ export interface DynamicWorkflowCardRow {
    *  card can open the agent detail side panel for it. Result-only rows
    *  (post-refresh / never-spawned items) have no live task to open. */
   live: boolean;
+  /** Agent id from the `<agent_dynamic_workflow_result>` payload, when the result
+   *  row corresponds to a real subagent — lets a settled row open the agent
+   *  detail panel (reference SwarmTool `agentId` rows). */
+  agentId?: string;
 }
 
 function lastNonEmptyLine(text: string | undefined): string {
@@ -46,7 +50,10 @@ function dynamicWorkflowMemberBody(member: DynamicWorkflowMember): string {
 
 function outcomeToPhase(outcome: string): AppSubagentPhase {
   if (outcome === 'completed') return 'completed';
-  if (outcome === 'failed' || outcome === 'aborted') return 'failed';
+  if (outcome === 'failed') return 'failed';
+  // Aborted / not_started rows are cancelled work, not failures (reference
+  // SwarmTool maps them to the neutral `cancelled` phase).
+  if (outcome === 'aborted' || outcome === 'cancelled') return 'cancelled';
   return 'working';
 }
 
@@ -58,6 +65,7 @@ function resultRow(sub: DynamicWorkflowResultSubagent, index: number): DynamicWo
     phase: outcomeToPhase(sub.outcome),
     body: sub.body,
     live: false,
+    agentId: sub.agentId,
   };
 }
 

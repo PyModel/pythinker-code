@@ -30,6 +30,7 @@ const TOOL_LABEL_KEYS: Record<string, string> = {
   getgoal: 'tools.label.goal_get',
   setgoalbudget: 'tools.label.goal_budget',
   updategoal: 'tools.label.goal_update',
+  waitfor: 'tools.label.waitfor',
 };
 
 // ---------------------------------------------------------------------------
@@ -111,6 +112,7 @@ const TOOL_GLYPH: Record<string, IconName> = {
   croncreate: 'calendar-schedule',
   cronlist: 'calendar-todo',
   crondelete: 'calendar-close',
+  waitfor: 'clock',
 };
 
 export function toolGlyph(name: string): string {
