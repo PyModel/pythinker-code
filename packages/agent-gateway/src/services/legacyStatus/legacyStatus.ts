@@ -1,7 +1,8 @@
 import {
+  agentContextOf,
   IAgentProfileService,
-  IAgentTokenCountingService,
-  IAgentUsageService,
+  ISessionTokenCountingService,
+  ISessionUsageService,
   IModelCatalog,
   IModelService,
   type IAgentScopeHandle,
@@ -91,17 +92,18 @@ export function readLegacyStatus(agent: IAgentScopeHandle): LegacyStatusSnapshot
   const profile = agent.accessor.get(IAgentProfileService) as
     | IAgentProfileService
     | undefined;
-  const usageService = agent.accessor.get(IAgentUsageService) as
-    | IAgentUsageService
+  const usageService = agent.accessor.get(ISessionUsageService) as
+    | ISessionUsageService
     | undefined;
-  const tokenCounting = agent.accessor.get(IAgentTokenCountingService) as
-    | IAgentTokenCountingService
+  const tokenCounting = agent.accessor.get(ISessionTokenCountingService) as
+    | ISessionTokenCountingService
     | undefined;
   if (profile === undefined || usageService === undefined || tokenCounting === undefined) {
     return undefined;
   }
-  const usage = usageService.status();
-  const contextTokens = tokenCounting.statusSize();
+  const context = agentContextOf(agent);
+  const usage = usageService.status(context);
+  const contextTokens = tokenCounting.statusSize(context);
   const capabilities = profile.getModelCapabilities();
   let maxContextTokens = capabilities.max_input_tokens ?? capabilities.max_context_tokens;
   if (maxContextTokens === 0 && profile.getModel() === '') {
@@ -162,7 +164,7 @@ export function toLegacyPhase(state: AgentActivityState): AgentPhase | undefined
 
   if (lifecycle === 'ready' && turn !== undefined) {
     if (turn.pendingApprovals.length > 0) {
-      const latest = turn.pendingApprovals[turn.pendingApprovals.length - 1]!;
+      const latest = turn.pendingApprovals.at(-1)!;
       return {
         kind: 'awaiting_approval',
         turnId: turn.turnId,
@@ -213,7 +215,7 @@ export function toLegacyPhase(state: AgentActivityState): AgentPhase | undefined
           since: turn.since,
         };
       case 'tool_call': {
-        const latest = turn.activeToolCalls[turn.activeToolCalls.length - 1];
+        const latest = turn.activeToolCalls.at(-1);
         return {
           kind: 'tool_call',
           turnId: turn.turnId,

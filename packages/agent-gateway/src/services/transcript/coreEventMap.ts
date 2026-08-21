@@ -7,7 +7,7 @@ import type {
   CompactionCompleted,
   CompactionStarted,
 } from '@pymodel/agent-core-v2/agent/fullCompaction/compactionOps';
-import type { GoalUpdated } from '@pymodel/agent-core-v2/agent/goal/goalOps';
+import type { GoalUpdated } from '@pymodel/agent-core-v2';
 import type {
   AssistantDelta,
   ThinkingDelta,
