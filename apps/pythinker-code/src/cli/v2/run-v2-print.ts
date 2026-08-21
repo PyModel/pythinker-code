@@ -57,7 +57,7 @@ import {
   type Scope,
 } from '@pymodel/agent-core-v2';
 import { createPythinkerDefaultHeaders, createPythinkerDeviceId } from '@pymodel/pythinker-code-oauth';
-import type { GoalUpdated } from '@pymodel/agent-core-v2/agent/goal/goalOps';
+import type { GoalUpdated } from '@pymodel/agent-core-v2';
 import type { TurnEnded } from '@pymodel/agent-core-v2/agent/loop/turnOps';
 import type {
   AssistantDelta,

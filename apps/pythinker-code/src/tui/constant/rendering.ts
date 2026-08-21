@@ -6,9 +6,9 @@ export const MESSAGE_INDENT = '  ';
 // transcript messages. The fullscreen renderer strips them at paint and uses
 // the A marker for previous/next-prompt navigation (Ctrl-Shift-Up/Down); in
 // regular mode they pass through to native scrollback invisibly.
-export const OSC133_ZONE_START = '\x1B]133;A\x07';
-export const OSC133_ZONE_END = '\x1B]133;B\x07';
-export const OSC133_ZONE_FINAL = '\x1B]133;C\x07';
+export const OSC133_ZONE_START = '\u001B]133;A\u0007';
+export const OSC133_ZONE_END = '\u001B]133;B\u0007';
+export const OSC133_ZONE_FINAL = '\u001B]133;C\u0007';
 
 // Outer left/right padding applied to the transcript, panels, and the
 // statusline so the chrome's left edge lines up with the input box's
@@ -18,6 +18,8 @@ export const CHROME_GUTTER = 1;
 
 // Shared preview caps used by thinking, tool results, and shell snippets.
 export const RESULT_PREVIEW_LINES = 3;
+// Collapsed row cap for a finished `!` shell command's output card.
+export const SHELL_OUTPUT_PREVIEW_LINES = 10;
 export const THINKING_PREVIEW_LINES = 2;
 export const COMMAND_PREVIEW_LINES = 10;
 

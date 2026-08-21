@@ -92,8 +92,9 @@ export function createTUIState(options: PythinkerTUIOptions): TUIState {
 
   const terminal = new ProcessTerminal();
   setMarkdownRenderLatex(initialAppState.renderLatex ?? DEFAULT_TUI_CONFIG.renderLatex ?? true);
-  // Fullscreen is experimental and env-gated for now: PYTHINKER_CODE_TUI_FULL_SCREEN=1.
-  const fullscreen = process.env['PYTHINKER_CODE_TUI_FULL_SCREEN'] === '1';
+  // The docked fullscreen layout is the default. Set PYTHINKER_CODE_TUI_FULL_SCREEN=0
+  // to restore the legacy inline renderer for terminals that need native scrollback.
+  const fullscreen = process.env['PYTHINKER_CODE_TUI_FULL_SCREEN'] !== '0';
   const ui =
     fullscreen
       ? new TuiAltScreen(terminal, undefined, undefined, {
@@ -103,6 +104,7 @@ export function createTUIState(options: PythinkerTUIOptions): TUIState {
           // Likewise, on Windows the terminal's native right-click paste is
           // intercepted; feed the clipboard to the focused component as a
           // bracketed paste instead (renderer only calls this on win32).
+          jumpToBottomLabel: 'Jump to bottom (click) ↓',
           onRightClickPaste: () => {
             const target = ui.getFocusedComponent();
             if (!target?.handleInput || clipboard?.getText === undefined) return;
@@ -110,7 +112,7 @@ export function createTUIState(options: PythinkerTUIOptions): TUIState {
               .getText()
               .then((text) => {
                 if (!text || ui.getFocusedComponent() !== target) return;
-                target.handleInput?.(`\x1B[200~${text}\x1B[201~`);
+                target.handleInput?.(`\u001B[200~${text}\u001B[201~`);
                 ui.requestRender();
               })
               .catch(() => {});
