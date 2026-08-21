@@ -246,4 +246,44 @@ describe('settings UI', () => {
     expect(document.body.textContent).toContain('Subagent model');
     wrapper.unmount();
   });
+
+  it('emits setAccent with mono when the Black accent option is picked', async () => {
+    const wrapper = mount(SettingsDialog, {
+      props: {
+        colorScheme: 'system',
+        accent: 'blue',
+        uiFontSize: 14,
+        authReady: true,
+        notify: false,
+        notifyQuestion: false,
+        notifyApproval: false,
+        sound: false,
+        config: { providers: {} },
+      },
+      global: { plugins: [i18n] },
+    });
+    await flushPromises();
+
+    const black = Array.from(document.body.querySelectorAll<HTMLButtonElement>('[role="tab"]'))
+      .find((tab) => tab.textContent?.trim() === 'Black');
+    expect(black).toBeDefined();
+    black!.click();
+    await flushPromises();
+
+    expect(wrapper.emitted('setAccent')?.at(-1)).toEqual(['mono']);
+    wrapper.unmount();
+  });
+
+  it('ships mono-accent CSS for every color-scheme path', () => {
+    // Regression guard: useAppearance sets html[data-accent], which only has
+    // an effect while style.css actually remaps the accent tokens for it.
+    const webRoot = process.cwd().endsWith('apps/pythinker-web')
+      ? process.cwd()
+      : join(process.cwd(), 'apps/pythinker-web');
+    const css = readFileSync(join(webRoot, 'src/style.css'), 'utf8');
+
+    expect(css).toContain('html[data-accent=mono]');
+    expect(css).toContain('html[data-color-scheme=dark][data-accent=mono]');
+    expect(css).toContain('html[data-color-scheme=system][data-accent=mono]');
+  });
 });
