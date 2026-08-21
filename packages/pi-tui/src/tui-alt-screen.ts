@@ -121,6 +121,12 @@ interface ScrollbarTarget {
 	geometry: ScrollbarGeometry;
 }
 
+interface JumpToBottomTarget {
+	row: number;
+	startCol: number;
+	width: number;
+}
+
 type SearchSelectionMode = "query" | "retain" | "next" | "previous";
 
 interface ActiveSearch {
@@ -153,6 +159,10 @@ export interface TuiAltScreenOptions {
 	openUrl?: (url: string) => void;
 	/** Handle an unmodified secondary-button press for clipboard paste. Currently enabled on Windows only. */
 	onRightClickPaste?: () => void;
+	/** Label for a clickable control shown when the primary viewport is not following its end. */
+	jumpToBottomLabel?: string;
+	/** Style the jump-to-bottom label. Defaults to reverse video. */
+	jumpToBottomStyle?: (text: string) => string;
 }
 
 /** Alternate-screen TUI with a scrollable, application-owned viewport. */
@@ -192,6 +202,9 @@ export class TuiAltScreen extends TuiBase implements ViewportTUI {
 	private readonly searchCurrentMatchStyle: (text: string) => string;
 	private readonly openUrl?: (url: string) => void;
 	private readonly onRightClickPaste?: () => void;
+	private readonly jumpToBottomLabel?: string;
+	private readonly jumpToBottomStyle: (text: string) => string;
+	private jumpToBottomTarget?: JumpToBottomTarget;
 
 	constructor(
 		terminal: Terminal,
@@ -214,6 +227,8 @@ export class TuiAltScreen extends TuiBase implements ViewportTUI {
 		this.searchCurrentMatchStyle = options.searchCurrentMatchStyle ?? ((text) => `\x1b[1;7m${text}\x1b[22;27m`);
 		this.openUrl = options.openUrl;
 		this.onRightClickPaste = options.onRightClickPaste;
+		this.jumpToBottomLabel = options.jumpToBottomLabel;
+		this.jumpToBottomStyle = options.jumpToBottomStyle ?? ((text) => `\x1b[7m${text}\x1b[27m`);
 		this.addInputListener((data) => this.handleViewportInput(data));
 	}
 
@@ -561,6 +576,7 @@ export class TuiAltScreen extends TuiBase implements ViewportTUI {
 		}
 		const mouseEvent = this.parseSgrMouseEvent(data);
 		if (mouseEvent) {
+			if (this.handleJumpToBottomMouseEvent(mouseEvent)) return { consume: true };
 			if (this.handleRightClickPaste(mouseEvent)) return { consume: true };
 			const handled = this.handleScrollbarMouseEvent(mouseEvent);
 			if (!this.scrollbarDrag) this.updateScrollbarHover(mouseEvent.x, mouseEvent.y);
@@ -690,6 +706,24 @@ export class TuiAltScreen extends TuiBase implements ViewportTUI {
 			y: Number.parseInt(match[3]!, 10) - 1,
 			release: match[4] === "m",
 		};
+	}
+
+	private handleJumpToBottomMouseEvent(event: SgrMouseEvent): boolean {
+		const target = this.jumpToBottomTarget;
+		if (
+			this.hasOverlay() ||
+			!target ||
+			event.release ||
+			(event.button & 32) !== 0 ||
+			(event.button & 3) !== 0 ||
+			event.y !== target.row ||
+			event.x < target.startCol ||
+			event.x >= target.startCol + target.width
+		) {
+			return false;
+		}
+		this.scrollToBottom();
+		return true;
 	}
 
 	private handleRightClickPaste(event: SgrMouseEvent): boolean {
@@ -1217,6 +1251,30 @@ export class TuiAltScreen extends TuiBase implements ViewportTUI {
 		return /^\x1b\[<\d+;\d+;\d+[Mm]$/.test(data) || (data.length === 6 && data.startsWith("\x1b[M"));
 	}
 
+	private compositeJumpToBottom(screen: string[], layout: LayoutFrame, width: number): string[] {
+		this.jumpToBottomTarget = undefined;
+		const label = this.jumpToBottomLabel;
+		const scrollView = layout.primaryScrollView;
+		if (this.hasOverlay() || !label || !scrollView || scrollView.isFollowingEnd || !scrollView.canScroll) {
+			return screen;
+		}
+		const box = getScrollViewBox(layout, scrollView);
+		if (!box || box.clip.width <= 0 || box.clip.height <= 0) return screen;
+
+		const labelWidth = Math.min(visibleWidth(label), box.clip.width);
+		const minRow = Math.max(0, box.rect.y, box.clip.y);
+		let row = Math.min(screen.length - 1, box.rect.y + box.rect.height - 1, box.clip.y + box.clip.height - 1);
+		while (row >= minRow && isImageLine(screen[row] ?? "")) row -= 1;
+		if (row < minRow) return screen;
+
+		const centeredCol = box.rect.x + Math.floor((box.rect.width - labelWidth) / 2);
+		const startCol = Math.max(box.clip.x, Math.min(centeredCol, box.clip.x + box.clip.width - labelWidth));
+		const result = [...screen];
+		result[row] = compositeTuiLine(result[row] ?? "", this.jumpToBottomStyle(label), startCol, labelWidth, width);
+		this.jumpToBottomTarget = { row, startCol, width: labelWidth };
+		return result;
+	}
+
 	private compositeFlashes(screen: string[], width: number, height: number): string[] {
 		const flashLines = this.flashes.render(width).slice(-height);
 		if (flashLines.length === 0) return screen;
@@ -1242,6 +1300,7 @@ export class TuiAltScreen extends TuiBase implements ViewportTUI {
 		}
 		let screen = nextLayout.lines.map((line) => line.replace(OSC133_ZONE_PREFIX, ""));
 		screen = this.applySearchHighlights(screen, nextLayout);
+		screen = this.compositeJumpToBottom(screen, nextLayout, width);
 		screen = this.compositeOverlays(screen, width, height);
 		if (screen.length > height) screen = screen.slice(screen.length - height);
 		screen = this.applySelection(screen, nextLayout);
