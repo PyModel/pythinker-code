@@ -1008,8 +1008,8 @@ function openWorkflowMode(): void {
 }
 
 // Permission modes
-const PERM_MODES: { mode: PermissionMode; icon: 'hand' | 'shield-question' | 'full-access'; color: string; labelKey: string; descKey: string }[] = [
-  { mode: 'manual', icon: 'hand', color: 'var(--color-text)', labelKey: 'status.permissionManual', descKey: 'status.permissionManualDesc' },
+const PERM_MODES: { mode: PermissionMode; icon: 'fingerprint' | 'shield-question' | 'full-access'; color: string; labelKey: string; descKey: string }[] = [
+  { mode: 'manual', icon: 'fingerprint', color: 'var(--color-text)', labelKey: 'status.permissionManual', descKey: 'status.permissionManualDesc' },
   { mode: 'yolo', icon: 'shield-question', color: 'var(--color-warning)', labelKey: 'status.permissionYolo', descKey: 'status.permissionYoloDesc' },
   { mode: 'auto', icon: 'full-access', color: 'var(--color-danger)', labelKey: 'status.permissionAuto', descKey: 'status.permissionAutoDesc' },
 ];
@@ -1099,7 +1099,7 @@ function choosePermission(mode: PermissionMode): void {
 
 const permInfo = computed(() => PERM_MODES.find((p) => p.mode === props.status?.permission));
 const permLabel = computed(() => (permInfo.value ? t(permInfo.value.labelKey) : ''));
-const permIcon = computed(() => permInfo.value?.icon ?? 'hand');
+const permIcon = computed(() => permInfo.value?.icon ?? 'fingerprint');
 
 // ---------------------------------------------------------------------------
 // Model dropdown — current provider models + thinking + more

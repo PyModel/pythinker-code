@@ -80,8 +80,8 @@ import RiFolderAddLine from '~icons/ri/folder-add-line';
 import RiFolderFill from '~icons/ri/folder-fill';
 import RiGitForkLine from '~icons/ri/git-fork-line';
 import RiGitPullRequestLine from '~icons/ri/git-pull-request-line';
+import RiFingerprintLine from '~icons/ri/fingerprint-line';
 import RiGlobalLine from '~icons/ri/global-line';
-import RiHand from '~icons/ri/hand';
 import RiImageLine from '~icons/ri/image-line';
 import RiInformationLine from '~icons/ri/information-line';
 import RiLinksLine from '~icons/ri/links-line';
@@ -168,8 +168,8 @@ import RawFolderAddLine from '~icons/ri/folder-add-line?raw';
 import RawFolderFill from '~icons/ri/folder-fill?raw';
 import RawGitForkLine from '~icons/ri/git-fork-line?raw';
 import RawGitPullRequestLine from '~icons/ri/git-pull-request-line?raw';
+import RawFingerprintLine from '~icons/ri/fingerprint-line?raw';
 import RawGlobalLine from '~icons/ri/global-line?raw';
-import RawHand from '~icons/ri/hand?raw';
 import RawImageLine from '~icons/ri/image-line?raw';
 import RawInformationLine from '~icons/ri/information-line?raw';
 import RawLinksLine from '~icons/ri/links-line?raw';
@@ -268,7 +268,7 @@ export type IconName =
   | 'info'
   | 'help-circle'
   | 'alert-triangle'
-  | 'hand'
+  | 'fingerprint'
   | 'shield-question'
   | 'full-access'
   | 'trash'
@@ -370,7 +370,7 @@ export const ICONS: Record<IconName, IconEntry> = {
   info: entry(RiInformationLine, RawInformationLine),
   'help-circle': entry(RiQuestionLine, RawQuestionLine),
   'alert-triangle': entry(RiAlertLine, RawAlertLine),
-  hand: entry(RiHand, RawHand),
+  fingerprint: entry(RiFingerprintLine, RawFingerprintLine),
   'shield-question': entry(RiShieldLine, RawShieldLine),
   'full-access': entry(RiShieldFlashLine, RawShieldFlashLine),
   trash: entry(RiDeleteBinLine, RawDeleteBinLine),
