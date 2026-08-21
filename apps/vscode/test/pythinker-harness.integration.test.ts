@@ -122,7 +122,7 @@ async function createRuntimeRig(extraAliases: readonly string[] = []): Promise<R
       try {
         await closeProvider();
       } finally {
-        await rm(rootDir, { recursive: true, force: true });
+        await rm(rootDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
       }
     }
   });
@@ -154,7 +154,7 @@ async function createPlainHarness(homeDir: string): Promise<PythinkerHarness> {
 
 async function createMcpHandlerRig(): Promise<McpHandlerRig> {
   const homeDir = await mkdtemp(join(tmpdir(), "pythinker-vscode-mcp-handler-"));
-  cleanups.push(() => rm(homeDir, { recursive: true, force: true }));
+  cleanups.push(() => rm(homeDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
   const harness = await createPlainHarness(homeDir);
   const servers: any[] = [];
   const listOptions: Array<{ cwd?: string }> = [];
