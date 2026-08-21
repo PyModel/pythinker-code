@@ -1,10 +1,15 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
-import type { AppProviderSetup } from '../api/types';
+
+interface ProviderSetupCatalogItem {
+  id: string;
+  name: string;
+  models: Array<{ id: string; name?: string }>;
+}
 
 const props = withDefaults(defineProps<{
-  catalog: AppProviderSetup[];
+  catalog: ProviderSetupCatalogItem[];
   loading?: boolean;
   unavailable?: boolean;
   saving?: boolean;
