@@ -109,6 +109,30 @@ describe('turnBudget plugin', () => {
     expect(retryOriginTriggers()).toHaveLength(3);
   });
 
+  it('keeps continuing when only the current delta is small after the cap', async () => {
+    const outputs = [1000, 1000, 1000, 1, 1];
+    let calls = 0;
+    ctx = createTestAgent(
+      budgetFlags(),
+      llmGenerateServices(async () => {
+        const response = completedResponse(`mixed-${String(calls)}`, outputs[calls] ?? 0);
+        calls += 1;
+        return response;
+      }),
+      {
+        initialConfig: {
+          loopControl: { maxStepsPerTurn: 30, turnBudgetTokens: 1_000_000 },
+        },
+      },
+    );
+
+    const result = await runTurn(1);
+
+    expect(result).toMatchObject({ type: 'completed' });
+    expect(calls).toBe(5);
+    expect(retryOriginTriggers()).toHaveLength(4);
+  });
+
   it('does not continue when the flag is off even with a budget configured', async () => {
     let calls = 0;
     ctx = createTestAgent(

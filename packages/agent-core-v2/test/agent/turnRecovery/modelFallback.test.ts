@@ -4,12 +4,12 @@ import { APIConnectionError } from '#/kosong/contract/errors';
 import { emptyUsage } from '#/kosong/contract/usage';
 import { IFlagService } from '#/app/flag/flag';
 import { IEventBus } from '#/app/event/eventBus';
-import { IAgentLoopService } from '#/agent/loop/loop';
+import { IAgentLoopService, type LoopErrorContext, type Step } from '#/agent/loop/loop';
 import { ContinuationStepRequest } from '#/agent/loop/stepRequest';
 import { TurnStarted } from '#/agent/loop/turnEvents';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { MODEL_FALLBACK_FLAG_ID } from '#/agent/turnRecovery/flag';
-import { ModelFallbackSwitched } from '#/agent/turnRecovery/modelFallback';
+import { IAgentModelFallbackService, ModelFallbackSwitched } from '#/agent/turnRecovery/modelFallback';
 
 import { stubFlag } from '../../app/flag/stubs';
 import { appService, createTestAgent, llmGenerateServices, type TestAgentContext } from '../../harness';
@@ -168,7 +168,50 @@ describe('modelFallback plugin', () => {
     const result = await runTurn(1);
 
     expect(result.type).toBe('completed');
-    expect(calls).toBeGreaterThanOrEqual(2);
+    expect(calls).toBe(2);
+    expect(ctx.get(IAgentProfileService).getModel()).toBe('mock-model');
+  });
+
+  it('refuses to switch when the step is already aborted', async () => {
+    ctx = createTestAgent(
+      fallbackFlags(),
+      llmGenerateServices(async () => ({
+        id: 'aborted',
+        message: {
+          role: 'assistant' as const,
+          content: [{ type: 'text' as const, text: 'ok' }],
+          toolCalls: [],
+        },
+        usage: emptyUsage(),
+        finishReason: 'completed' as const,
+        rawFinishReason: 'stop',
+      })),
+      { initialConfig: fallbackTestConfig() },
+    );
+
+    const signal = AbortSignal.abort();
+    const stepStub: Step = {
+      id: 'step-1',
+      turnId: 1,
+      state: 'running',
+      signal,
+      result: Promise.resolve({ type: 'cancelled', reason: new Error('cancelled') }),
+      cancel: () => false,
+    };
+    const context: LoopErrorContext = {
+      turnId: 1,
+      step: 1,
+      signal,
+      error: new APIConnectionError('terminated'),
+      failedDriver: new ContinuationStepRequest(),
+      retry: () => stepStub,
+    };
+
+    const switched = await ctx
+      .get(IAgentModelFallbackService)
+      .tryFallbackSwitch(context);
+
+    expect(switched).toBe(false);
     expect(ctx.get(IAgentProfileService).getModel()).toBe('mock-model');
   });
 });

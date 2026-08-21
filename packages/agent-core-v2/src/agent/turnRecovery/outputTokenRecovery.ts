@@ -12,8 +12,10 @@ export interface IAgentOutputTokenRecoveryService {
 export const IAgentOutputTokenRecoveryService =
   createDecorator<IAgentOutputTokenRecoveryService>('agentOutputTokenRecoveryService');
 
+/** Maximum resume-nudge continuations injected per turn for truncated output. */
 export const MAX_OUTPUT_TOKEN_RECOVERY_ATTEMPTS = 3;
 
+/** Meta user message appended before each output-token recovery continuation. */
 export const OUTPUT_TOKEN_RECOVERY_NUDGE =
   'Output token limit hit. Resume directly - no apology, no recap of what you were doing. '
   + 'Pick up mid-thought if that is where the cut happened. Break remaining work into smaller pieces.';

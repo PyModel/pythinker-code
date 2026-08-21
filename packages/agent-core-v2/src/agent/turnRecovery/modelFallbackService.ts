@@ -25,6 +25,10 @@ export const modelFallbackUsedKey = defineState<boolean>(
 export class AgentModelFallbackService extends Disposable implements IAgentModelFallbackService {
   declare readonly _serviceBrand: undefined;
 
+  private static stepAborted(context: LoopErrorContext): boolean {
+    return context.signal.aborted || context.currentStep?.signal.aborted === true;
+  }
+
   constructor(
     @IFlagService private readonly flags: IFlagService,
     @IConfigService private readonly config: IConfigService,
@@ -57,6 +61,7 @@ export class AgentModelFallbackService extends Disposable implements IAgentModel
 
   async tryFallbackSwitch(context: LoopErrorContext): Promise<boolean> {
     if (!this.flags.enabled(MODEL_FALLBACK_FLAG_ID)) return false;
+    if (AgentModelFallbackService.stepAborted(context)) return false;
     const target = this.fallbackModel();
     if (target === undefined || target.length === 0) return false;
     if (this.used || target === this.profile.getModel()) return false;
@@ -68,6 +73,15 @@ export class AgentModelFallbackService extends Disposable implements IAgentModel
       await this.profile.setModel(target);
     } catch {
       this.used = false;
+      return false;
+    }
+    if (AgentModelFallbackService.stepAborted(context)) {
+      this.used = false;
+      try {
+        await this.profile.setModel(fromModel);
+      } catch {
+        return false;
+      }
       return false;
     }
     void this.dispatcher.dispatch(

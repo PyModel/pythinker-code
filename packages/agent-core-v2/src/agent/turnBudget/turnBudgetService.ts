@@ -108,6 +108,7 @@ export class AgentTurnBudgetService extends Disposable implements IAgentTurnBudg
 
     const delta = context.usage.output;
     const used = this.tokensUsed + delta;
+    const previousDelta = this.lastDeltaTokens;
     this.lastDeltaTokens = delta;
     this.tokensUsed = used;
 
@@ -118,7 +119,7 @@ export class AgentTurnBudgetService extends Disposable implements IAgentTurnBudg
     const diminishing =
       this.continuations >= TURN_BUDGET_MAX_DIMINISHING_CONTINUATIONS &&
       delta < TURN_BUDGET_DIMINISHING_MIN_DELTA_TOKENS &&
-      this.lastDeltaTokens < TURN_BUDGET_DIMINISHING_MIN_DELTA_TOKENS;
+      previousDelta < TURN_BUDGET_DIMINISHING_MIN_DELTA_TOKENS;
     if (diminishing) return;
     if (used >= budget * TURN_BUDGET_COMPLETION_THRESHOLD) return;
 
