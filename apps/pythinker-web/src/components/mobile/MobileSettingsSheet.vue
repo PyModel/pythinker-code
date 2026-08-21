@@ -9,9 +9,10 @@
 import { computed, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import type { ConversationStatus, PermissionMode } from '../../types';
-import type { AppModel, AppSession, ThinkingLevel } from '../../api/types';
+import type { AppGoal, AppModel, AppSession, ThinkingLevel } from '../../api/types';
 import type { ColorScheme } from '../../composables/usePythinkerWebClient';
 import { usePythinkerWebClient } from '../../composables/usePythinkerWebClient';
+import { useConfirmDialog } from '../../composables/useConfirmDialog';
 import {
   uiFontScaleForSize,
   uiFontScaleOptions,
@@ -38,6 +39,12 @@ const props = withDefaults(
     status: ConversationStatus;
     thinking?: ThinkingLevel;
     planMode?: boolean;
+    goalMode?: boolean;
+    /** Live goal of the active session (drives the goal controls row). */
+    goal?: AppGoal | null;
+    /** Dynamic workflow mode — shown read-only (the composer must not offer a
+        manual workflow toggle, see test/settings-ui.test.ts). */
+    dynamicWorkflowMode?: boolean;
     colorScheme?: ColorScheme;
     uiFontSize?: number;
     authReady?: boolean;
@@ -53,6 +60,7 @@ const props = withDefaults(
     authReady: false,
     serverVersion: '',
     models: () => [],
+    goal: null,
   },
 );
 
@@ -61,12 +69,16 @@ const emit = defineEmits<{
   pickModel: [];
   setThinking: [level: ThinkingLevel];
   togglePlan: [];
+  toggleGoal: [];
+  controlGoal: [action: 'pause' | 'resume' | 'cancel'];
   setPermission: [mode: PermissionMode];
   setColorScheme: [colorScheme: ColorScheme];
   setUiFontSize: [size: number];
   setConversationToc: [on: boolean];
   login: [];
 }>();
+
+const { confirm } = useConfirmDialog();
 
 function onColorScheme(v: string): void {
   emit('setColorScheme', v as ColorScheme);
@@ -95,6 +107,31 @@ const thinkingOptions = computed(() =>
   thinkingSegments.value.map((seg) => ({ value: seg, label: effortLabel(seg) })),
 );
 const planOn = computed<boolean>(() => props.planMode === true);
+const goalOn = computed<boolean>(() => props.goalMode === true);
+const goalActive = computed<boolean>(() =>
+  props.goal !== null && ['active', 'paused', 'blocked'].includes(props.goal?.status ?? ''),
+);
+const goalStatusText = computed<string>(() => {
+  const status = props.goal?.status;
+  return status
+    ? t(`status.goalStatus${status[0]!.toUpperCase()}${status.slice(1)}`)
+    : '';
+});
+
+// Same cancel flow as the desktop dock: confirm first, then control the goal.
+async function cancelGoal(): Promise<void> {
+  if (
+    await confirm({
+      title: t('status.goalCancel'),
+      message: t('status.goalCancelConfirm'),
+      confirmLabel: t('status.goalCancelConfirmYes'),
+      cancelLabel: t('status.goalCancelConfirmNo'),
+      variant: 'danger',
+    })
+  ) {
+    emit('controlGoal', 'cancel');
+  }
+}
 const fontScale = computed(() => uiFontScaleForSize(props.uiFontSize));
 
 function setFontScale(scale: string): void {
@@ -289,6 +326,49 @@ watch(
       </span>
       <span class="toggle" :class="{ on: planOn }" role="switch" :aria-checked="planOn" />
     </button>
+
+    <!-- Goal: status + pause/resume/cancel while a goal is active, otherwise a
+         goal-mode toggle (mirrors the desktop dock's goal controls). -->
+    <div v-if="goalActive" class="srow read-only">
+      <span class="srow-main">
+        <span class="srow-label">{{ t('status.goalLabel') }}</span>
+        <span class="srow-sub">{{ goalStatusText }}</span>
+      </span>
+      <span class="goal-actions">
+        <Button
+          v-if="goal?.status === 'active'"
+          variant="secondary"
+          size="sm"
+          @click="emit('controlGoal', 'pause')"
+        >{{ t('status.goalPause') }}</Button>
+        <Button
+          v-if="goal?.status === 'paused' || goal?.status === 'blocked'"
+          variant="secondary"
+          size="sm"
+          @click="emit('controlGoal', 'resume')"
+        >{{ t('status.goalResume') }}</Button>
+        <Button variant="ghost" size="sm" @click="cancelGoal">{{ t('status.goalCancel') }}</Button>
+      </span>
+    </div>
+    <button v-else type="button" class="srow" role="switch" :aria-checked="goalOn" @click="emit('toggleGoal')">
+      <span class="srow-main">
+        <span class="srow-label">{{ t('status.goalLabel') }}</span>
+        <span class="srow-sub">{{ t('mobile.goalModeSub') }}</span>
+      </span>
+      <span class="toggle" :class="{ on: goalOn }" />
+    </button>
+
+    <!-- Dynamic Workflow → read-only (agent-driven; no manual toggle on any
+         composer surface — mirrors the desktop StatusPanel row). -->
+    <div class="srow read-only">
+      <span class="srow-main">
+        <span class="srow-label">{{ t('status.statusDynamicWorkflowMode') }}</span>
+        <span class="srow-sub">{{ t('mobile.workflowModeSub') }}</span>
+      </span>
+      <span class="srow-val" :class="{ dim: !dynamicWorkflowMode }">
+        {{ dynamicWorkflowMode ? t('status.dynamicWorkflowOn') : t('status.dynamicWorkflowOff') }}
+      </span>
+    </div>
 
     <!-- Permission → cycle (sub-line + chevron) -->
     <button type="button" class="srow" @click="cyclePermission">
@@ -524,6 +604,14 @@ watch(
 /* App preference rows: segmented theme and font-size controls. */
 .srow.pref { cursor: default; }
 
+/* Goal controls: compact action buttons squeezed into the status row. */
+.goal-actions {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
 /* Account rows */
 .srow.acct.in .srow-label { color: var(--color-accent-hover); font-weight: 500; }
 .srow.acct.out .srow-label { color: var(--color-danger); }
@@ -574,7 +662,8 @@ watch(
   .srow-val,
   .chev,
   .toggle,
-  .ctx-meter {
+  .ctx-meter,
+  .goal-actions {
     margin-top: 2px;
   }
 }

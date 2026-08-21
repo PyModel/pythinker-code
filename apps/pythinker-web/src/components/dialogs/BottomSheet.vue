@@ -6,6 +6,7 @@
 <script setup lang="ts">
 import { onUnmounted, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
+import { useBodyScrollLock } from '../../composables/useBodyScrollLock';
 
 const { t } = useI18n();
 
@@ -15,14 +16,18 @@ const props = withDefaults(
     modelValue: boolean;
     /** Optional sheet title shown in the header strip. */
     title?: string;
+    /** Close on Escape while open (default on). */
+    closeOnEsc?: boolean;
   }>(),
-  { title: '' },
+  { title: '', closeOnEsc: true },
 );
 
 const emit = defineEmits<{
   'update:modelValue': [open: boolean];
   close: [];
 }>();
+
+const { lock: lockBody, unlock: unlockBody } = useBodyScrollLock();
 
 function close(): void {
   emit('update:modelValue', false);
@@ -31,21 +36,29 @@ function close(): void {
 
 // Close on Escape while open (desktop keyboard / test convenience).
 function onKeydown(e: KeyboardEvent): void {
-  if (e.key === 'Escape') close();
+  if (e.key === 'Escape' && props.closeOnEsc) close();
 }
 
 watch(
   () => props.modelValue,
   (open) => {
     if (typeof document === 'undefined') return;
-    if (open) document.addEventListener('keydown', onKeydown);
-    else document.removeEventListener('keydown', onKeydown);
+    if (open) {
+      lockBody();
+      document.addEventListener('keydown', onKeydown);
+    } else {
+      unlockBody();
+      document.removeEventListener('keydown', onKeydown);
+    }
   },
   { immediate: true },
 );
 
 onUnmounted(() => {
-  if (typeof document !== 'undefined') document.removeEventListener('keydown', onKeydown);
+  if (typeof document !== 'undefined') {
+    unlockBody();
+    document.removeEventListener('keydown', onKeydown);
+  }
 });
 </script>
 
