@@ -3,8 +3,10 @@ import {
   drainQueryStoreDisposals,
   drainSessionMetadataWrites,
   drainSessionIndexMirror,
+  drainLogCloses,
   ConfigWarning,
   CapabilityChanged,
+  IAppendLogStore,
   IConfigService,
   IEventService,
   IProviderDiscoveryService,
@@ -96,6 +98,14 @@ export interface ServerStartOptions {
   readonly host?: string;
   readonly port?: number;
   readonly homeDir?: string;
+  /**
+   * Environment bag handed to the engine bootstrap (`IBootstrapService.getEnv`).
+   * Defaults to `process.env`; hosts that need to override engine-level env
+   * reads (e.g. an embedded server pinning `PYTHINKER_CODE_REGION_MARKER=off`)
+   * pass a merged bag here instead of mutating the host process's env, which
+   * would leak the override into every child process the host spawns.
+   */
+  readonly env?: NodeJS.ProcessEnv;
   /**
    * Plugin marketplace catalog URL for `GET /api/v1/plugins/marketplace`.
    * Defaults to the `PYTHINKER_CODE_PLUGIN_MARKETPLACE_URL` env var.
@@ -235,6 +245,7 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
     {
       homeDir,
       configPath,
+      env: opts.env,
       clientIdentity: opts.hostIdentity,
       args: {
         requestHeaders: createPythinkerDefaultHeaders({ homeDir, ...opts.hostIdentity }),
@@ -345,11 +356,14 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
       await drainSessionMetadataWrites();
       await core.accessor.get(ISessionIndexMirror).drain();
       fsWatchBridge.dispose();
+      const appendLogStore = core.accessor.get(IAppendLogStore);
       core.dispose();
+      await appendLogStore.drainRetirements();
       await drainSessionIndexMirror();
       await drainGlobalSearchDisposals();
       await drainQueryStoreDisposals();
       await drainSessionMetadataWrites();
+      await drainLogCloses();
     } finally {
       await registration.release();
     }
@@ -457,7 +471,7 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
       (process.env['PYTHINKER_CODE_PLUGIN_MARKETPLACE_URL'] === undefined ||
         process.env['PYTHINKER_CODE_PLUGIN_MARKETPLACE_FROM_DEV_SERVER'] === '1'),
     onShutdown: () => {
-      void close().catch((err: unknown) => logger.error({ err }, 'server close failed'));
+      void close().catch((error: unknown) => logger.error({ error }, 'server close failed'));
     },
     connectionRegistry,
     broadcaster,
