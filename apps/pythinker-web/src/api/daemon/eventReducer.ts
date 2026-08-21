@@ -653,14 +653,23 @@ export function reduceAppEvent(
       } else {
         const patched = [...list];
         const previous = list[idx]!;
+        const startsNewSubagentRun =
+          previous.kind === 'subagent' &&
+          (previous.status === 'completed' ||
+            previous.status === 'failed' ||
+            previous.status === 'cancelled') &&
+          event.task.kind === 'subagent' &&
+          event.task.status === 'running' &&
+          event.task.subagentPhase === 'queued';
         // The projected task does not carry reducer-owned accumulated progress;
-        // preserve it across the replacement so subagent output keeps growing.
+        // preserve it across the replacement so subagent output keeps growing,
+        // except when an explicit queued spawn starts a new run for a terminal id.
         // A resync also rebuilds skeleton tasks without their identity metadata,
         // so keep the previous value when the projected task omits it.
         patched[idx] = {
           ...event.task,
-          outputLines: previous.outputLines,
-          text: previous.text,
+          outputLines: startsNewSubagentRun ? event.task.outputLines : previous.outputLines,
+          text: startsNewSubagentRun ? event.task.text : previous.text,
           // A post-refresh lifecycle event re-projects the task with skeleton
           // metadata; don't let its placeholder clobber the roster-seeded
           // description.

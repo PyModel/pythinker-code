@@ -69,6 +69,58 @@ describe('subagent streaming text', () => {
     const events = projector.project('assistant.delta', { agentId: 'sub-1', delta: '' }, 's1');
     expect(events).toEqual([]);
   });
+
+  it('keeps a completed subagent terminal when buffered progress arrives late', () => {
+    const projector = createAgentProjector();
+    projector.project('subagent.spawned', { subagentId: 'sub-1', description: 'Inspect UI' }, 's1');
+    projector.project('subagent.started', { subagentId: 'sub-1' }, 's1');
+    projector.project('subagent.completed', { subagentId: 'sub-1', resultSummary: 'done' }, 's1');
+
+    const events = projector.project(
+      'assistant.delta',
+      { agentId: 'sub-1', delta: 'late buffered output' },
+      's1',
+    );
+
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: 'taskCreated',
+        task: expect.objectContaining({
+          id: 'sub-1',
+          status: 'completed',
+          subagentPhase: 'completed',
+          outputPreview: 'done',
+        }),
+      }),
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: 'taskProgress', taskId: 'sub-1' }),
+    );
+  });
+
+  it('allows an explicit spawn to start a later run for the same subagent id', () => {
+    const projector = createAgentProjector();
+    projector.project('subagent.spawned', { subagentId: 'sub-1', description: 'First run' }, 's1');
+    projector.project('subagent.completed', { subagentId: 'sub-1', resultSummary: 'done' }, 's1');
+
+    const events = projector.project(
+      'subagent.spawned',
+      { subagentId: 'sub-1', description: 'Second run' },
+      's1',
+    );
+
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: 'taskCreated',
+        task: expect.objectContaining({
+          id: 'sub-1',
+          description: 'Second run',
+          status: 'running',
+          subagentPhase: 'queued',
+        }),
+      }),
+    );
+  });
 });
 
 describe('agent error projection', () => {

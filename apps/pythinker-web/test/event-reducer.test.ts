@@ -442,6 +442,47 @@ describe('reduceAppEvent taskProgress', () => {
     expect(next.tasksBySession['s1']?.[0]?.text).toBe('partial');
   });
 
+  it('clears prior output when an explicit spawn reuses a terminal subagent id', () => {
+    const state = {
+      ...createInitialState(),
+      tasksBySession: {
+        's1': [
+          {
+            ...makeSubagentTask('t1', 's1'),
+            status: 'completed' as const,
+            subagentPhase: 'completed' as const,
+            outputLines: ['old progress'],
+            text: 'old result',
+            outputPreview: 'old summary',
+          },
+        ],
+      },
+    };
+    const next = reduceAppEvent(
+      state,
+      {
+        type: 'taskCreated',
+        sessionId: 's1',
+        task: {
+          ...makeSubagentTask('t1', 's1'),
+          description: 'second run',
+          status: 'running',
+          subagentPhase: 'queued',
+        },
+      },
+      { sessionId: 's1', seq: 1 },
+    );
+
+    expect(next.tasksBySession['s1']?.[0]).toMatchObject({
+      description: 'second run',
+      status: 'running',
+      subagentPhase: 'queued',
+    });
+    expect(next.tasksBySession['s1']?.[0]?.outputLines).toBeUndefined();
+    expect(next.tasksBySession['s1']?.[0]?.text).toBeUndefined();
+    expect(next.tasksBySession['s1']?.[0]?.outputPreview).toBeUndefined();
+  });
+
   it('preserves subagent identity metadata across a taskCreated replacement with omitted fields', () => {
     const state = {
       ...createInitialState(),

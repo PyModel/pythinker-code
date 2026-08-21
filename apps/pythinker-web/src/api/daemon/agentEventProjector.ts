@@ -241,9 +241,24 @@ function patchSubagent(
     createdAt: new Date().toISOString(),
     subagentPhase: 'queued',
   } satisfies AppTask;
+  const terminal =
+    prev.status === 'completed' || prev.status === 'failed' || prev.status === 'cancelled';
+  const effectivePatch =
+    terminal && patch.status === 'running'
+      ? {
+          ...patch,
+          status: prev.status,
+          subagentPhase: prev.subagentPhase,
+          startedAt: prev.startedAt,
+          completedAt: prev.completedAt,
+          outputPreview: prev.outputPreview,
+          outputBytes: prev.outputBytes,
+          suspendedReason: prev.suspendedReason,
+        }
+      : patch;
   const next: AppTask = {
     ...prev,
-    ...patch,
+    ...effectivePatch,
     id: subagentId,
     agentId: subagentId,
     sessionId,
