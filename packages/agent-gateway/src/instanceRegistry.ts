@@ -65,8 +65,8 @@ function pidAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
     return true;
-  } catch (err) {
-    const code = (err as NodeJS.ErrnoException).code;
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
     if (code === 'ESRCH') return false;
     if (code === 'EPERM') return true;
     return true;
@@ -120,8 +120,8 @@ function decode(raw: string): ServerInstanceInfo | undefined {
 async function readInstanceFile(filePath: string): Promise<ServerInstanceInfo | undefined> {
   try {
     return decode(await readFile(filePath, 'utf8'));
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
     return undefined;
   }
 }
@@ -152,9 +152,9 @@ async function sweepStale(instancesDir: string): Promise<void> {
   let names: string[];
   try {
     names = await readdir(instancesDir);
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return;
-    throw err;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
+    throw error;
   }
   await Promise.all(
     names.filter(isInstanceFile).map(async (name) => {
@@ -163,8 +163,8 @@ async function sweepStale(instancesDir: string): Promise<void> {
       if (info === undefined || pidAlive(info.pid)) return;
       try {
         await unlink(filePath);
-      } catch (err) {
-        if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
       }
     }),
   );
@@ -174,9 +174,9 @@ async function listLiveInternal(instancesDir: string): Promise<readonly ServerIn
   let names: string[];
   try {
     names = await readdir(instancesDir);
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return [];
-    throw err;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
+    throw error;
   }
   const live: ServerInstanceInfo[] = [];
   await Promise.all(
@@ -187,8 +187,8 @@ async function listLiveInternal(instancesDir: string): Promise<readonly ServerIn
       if (!pidAlive(info.pid)) {
         try {
           await unlink(filePath);
-        } catch (err) {
-          if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
         }
         return;
       }
@@ -213,33 +213,40 @@ export function createInstanceRegistry(options: InstanceRegistryOptions = {}): I
 
       const state: { port: number; released: boolean } = { port: info.port, released: false };
 
-      let inflightWrites = 0;
-      let onWritesDrained: (() => void) | null = null;
+      let writeRequested = false;
+      let writePromise: Promise<void> | undefined;
 
-      const write = async (): Promise<void> => {
-        if (state.released) return;
-        inflightWrites += 1;
-        try {
-          const full: ServerInstanceInfo = {
-            serverId,
-            pid: info.pid,
-            host: info.host,
-            port: state.port,
-            startedAt: info.startedAt,
-            heartbeatAt: now(),
-            ...(info.serverVersion !== undefined ? { serverVersion: info.serverVersion } : {}),
-          };
-          await writeFileAtomic(filePath, encode(full));
-        } finally {
-          inflightWrites -= 1;
-          if (inflightWrites === 0) onWritesDrained?.();
-        }
+      const writeOnce = async (): Promise<void> => {
+        const full: ServerInstanceInfo = {
+          serverId,
+          pid: info.pid,
+          host: info.host,
+          port: state.port,
+          startedAt: info.startedAt,
+          heartbeatAt: now(),
+          ...(info.serverVersion !== undefined ? { serverVersion: info.serverVersion } : {}),
+        };
+        await writeFileAtomic(filePath, encode(full));
       };
 
-      await write();
+      const requestWrite = async (): Promise<void> => {
+        if (state.released) return;
+        writeRequested = true;
+        writePromise ??= (async () => {
+          while (writeRequested && !state.released) {
+            writeRequested = false;
+            await writeOnce();
+          }
+        })().finally(() => {
+          writePromise = undefined;
+        });
+        await writePromise;
+      };
+
+      await requestWrite();
 
       const timer = setInterval(() => {
-        void write().catch(() => {
+        void requestWrite().catch(() => {
         });
       }, heartbeatIntervalMs);
       timer.unref();
@@ -249,21 +256,18 @@ export function createInstanceRegistry(options: InstanceRegistryOptions = {}): I
         async update(patch) {
           if (state.released) return;
           if (patch.port !== undefined) state.port = patch.port;
-          await write();
+          await requestWrite();
         },
         async release() {
           if (state.released) return;
           state.released = true;
+          writeRequested = false;
           clearInterval(timer);
-          if (inflightWrites > 0) {
-            await new Promise<void>((resolve) => {
-              onWritesDrained = resolve;
-            });
-          }
+          await writePromise?.catch(() => {});
           try {
             await unlink(filePath);
-          } catch (err) {
-            if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
           }
         },
       };

@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   createInstanceRegistry,
@@ -53,10 +53,6 @@ function writeInstance(serverId: string, fields: Partial<DiskInstance> & { pid: 
 
 function readInstance(serverId: string): DiskInstance {
   return JSON.parse(readFileSync(join(instancesDir, `${serverId}.json`), 'utf8')) as DiskInstance;
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolvePromise) => setTimeout(resolvePromise, ms));
 }
 
 const baseInfo = {
@@ -193,10 +189,23 @@ describe('createInstanceRegistry — update', () => {
     expect(after.heartbeat_at).toBe(3000);
     await reg.release();
   });
+
+  it('serializes concurrent updates and persists the latest port', async () => {
+    const registry = createInstanceRegistry({ instancesDir });
+    const reg = await registry.register(baseInfo);
+
+    await Promise.all(
+      Array.from({ length: 20 }, (_, index) => reg.update({ port: 58628 + index })),
+    );
+
+    expect(readInstance(reg.serverId).port).toBe(58647);
+    await reg.release();
+  });
 });
 
 describe('createInstanceRegistry — heartbeat', () => {
   it('periodically rewrites heartbeatAt until released', async () => {
+    vi.useFakeTimers();
     let tick = 0;
     const registry = createInstanceRegistry({
       instancesDir,
@@ -204,16 +213,23 @@ describe('createInstanceRegistry — heartbeat', () => {
       now: () => ++tick,
     });
     const reg = await registry.register(baseInfo);
-    const first = readInstance(reg.serverId).heartbeat_at;
+    const filePath = join(instancesDir, `${reg.serverId}.json`);
 
-    await sleep(90);
-    const later = readInstance(reg.serverId).heartbeat_at;
-    expect(later).toBeGreaterThan(first);
+    try {
+      expect(tick).toBe(1);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(tick).toBeGreaterThan(1);
 
-    await reg.release();
-    expect(existsSync(join(instancesDir, `${reg.serverId}.json`))).toBe(false);
-    await sleep(30);
-    expect(existsSync(join(instancesDir, `${reg.serverId}.json`))).toBe(false);
+      await reg.release();
+      expect(existsSync(filePath)).toBe(false);
+      const releasedTick = tick;
+      await vi.advanceTimersByTimeAsync(30);
+      expect(tick).toBe(releasedTick);
+      expect(existsSync(filePath)).toBe(false);
+    } finally {
+      await reg.release();
+      vi.useRealTimers();
+    }
   });
 });
 
@@ -271,8 +287,8 @@ describe('startServer — instance registry wiring', () => {
     const live = await listLiveServerInstances(home);
     expect(live).toHaveLength(2);
     expect(new Set(live.map((i) => i.serverId)).size).toBe(2);
-    expect(live.map((i) => i.port).sort((x, y) => x - y)).toEqual(
-      [a.port, b.port].sort((x, y) => x - y),
+    expect(live.map((i) => i.port).toSorted((x, y) => x - y)).toEqual(
+      [a.port, b.port].toSorted((x, y) => x - y),
     );
     expect(existsSync(join(home, 'server', 'lock'))).toBe(false);
   });
