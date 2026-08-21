@@ -1,13 +1,13 @@
 import { toInputJsonSchema } from '#/tool/input-schema';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { GOAL_MAIN_AGENT_ONLY, mainAgentOnlyExecution } from '#/agent/tools/mainAgentOnly';
 import { type ToolExecution } from '#/tool/toolContract';
-import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
 
-import { IAgentGoalService } from '#/agent/goal/goal';
+import { IAgentGoalService } from '#/features/goal/goal';
 import {
   buildGoalBlockedReasonPrompt,
   buildGoalCompletionSummaryPrompt,
-} from '#/agent/goal/tools/outcome-prompts';
+} from '#/features/goal/tools/outcome-prompts';
 
 import DESCRIPTION from './update-goal.md?raw';
 import {
@@ -22,9 +22,14 @@ export class UpdateGoalTool implements IUpdateGoalTool {
   readonly description: string = DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(UpdateGoalToolInputSchema);
 
-  constructor(@IAgentGoalService private readonly goal: IAgentGoalService) {}
+  constructor(
+    @IAgentGoalService private readonly goal: IAgentGoalService,
+    @IAgentScopeContext private readonly scopeContext: IAgentScopeContext,
+  ) {}
 
   resolveExecution(args: UpdateGoalToolInput): ToolExecution {
+    const denied = mainAgentOnlyExecution(this.scopeContext, GOAL_MAIN_AGENT_ONLY);
+    if (denied !== undefined) return denied;
     if (!isUpdateGoalStatus(args.status)) {
       return {
         isError: true,
@@ -94,8 +99,3 @@ function changedGoalOutput(status: UpdateGoalToolInput['status']): string {
   return 'Goal not blocked: the current goal changed.';
 }
 
-registerAgentToolService(IUpdateGoalTool, UpdateGoalTool, {
-  name: 'UpdateGoal',
-  domain: 'goal',
-  when: (accessor) => accessor.get(IAgentScopeContext).agentId === 'main',
-});

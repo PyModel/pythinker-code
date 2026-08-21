@@ -1,29 +1,48 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import type { ServicesAccessor } from '#/_base/di/instantiation';
+import type { CollectionToken, CollectionView } from '#/_base/di/collection';
+import { ScopeActivation } from '#/_base/di/instantiation';
+import { type InstantiationService } from '#/_base/di/instantiationService';
+import {
+  _clearScopedRegistryForTests,
+  registerScopedService,
+  type Scope,
+} from '#/_base/di/scope';
+import { createScopedTestHost } from '#/_base/di/test';
 import type { ToolCall } from '#/kosong/contract/message';
 import {
   compileToolArgsValidator,
   validateToolArgs,
 } from '#/tool/args-validator';
 import { USER_PROMPT_ORIGIN } from '#/agent/contextMemory/types';
-import { IAgentGoalService } from '#/agent/goal/goal';
-import { CreateGoalTool } from '#/agent/tools/goal/create-goal/createGoalTool';
-import { GetGoalTool } from '#/agent/tools/goal/get-goal/getGoalTool';
-import { SetGoalBudgetTool } from '#/agent/tools/goal/set-goal-budget/setGoalBudgetTool';
-import { UpdateGoalToolInputSchema } from '#/agent/tools/goal/update-goal/update-goal';
-import { UpdateGoalTool } from '#/agent/tools/goal/update-goal/updateGoalTool';
+import { GOAL_MAIN_AGENT_ONLY } from '#/agent/tools/mainAgentOnly';
+import { IFeatureManager } from '#/app/feature/featureManager';
+import { FeatureManagerService } from '#/app/feature/featureManagerService';
+import { LifecycleScope } from '#/app/scopes';
+import { IAgentGoalService } from '#/features/goal/goal';
+import { GoalFeature } from '#/features/goal/goalFeature';
+import { CreateGoalTool } from '#/features/goal/tools/create-goal/createGoalTool';
+import { GetGoalTool } from '#/features/goal/tools/get-goal/getGoalTool';
+import { SetGoalBudgetTool } from '#/features/goal/tools/set-goal-budget/setGoalBudgetTool';
+import { UpdateGoalToolInputSchema } from '#/features/goal/tools/update-goal/update-goal';
+import { UpdateGoalTool } from '#/features/goal/tools/update-goal/updateGoalTool';
 import { IAgentLoopService } from '#/agent/loop/loop';
-import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { IAgentScopeContext, makeAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentDynamicWorkflowService } from '#/features/dynamic_workflow/agent/dynamic_workflow';
 import {
   IAgentToolExecutorService,
   type ToolExecutionResult,
 } from '#/agent/toolExecutor/toolExecutor';
-import { getAgentToolContributions } from '#/agent/toolRegistry/toolContribution';
+import { AgentToolContribution } from '#/agent/toolRegistry/toolContribution';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { IEventBus } from '#/app/event/eventBus';
 import { TurnStarted } from '#/agent/loop/turnEvents';
+import { IFeatureAssemblyService } from '#/features/featureAssembly';
+import { FeatureAssemblyService } from '#/features/featureAssemblyService';
+import {
+  _clearFeatureRecipesForTests,
+  registerFeature,
+} from '#/features/featureRegistry';
 
 import {
   agentService,
@@ -31,10 +50,14 @@ import {
   permissionModeServices,
   type TestAgentContext,
 } from '../../../harness';
-import { stubLoopWithHooks } from '../../loop/stubs';
+import { stubLoopWithHooks } from '../../../agent/loop/stubs';
 import { stubAgentDynamicWorkflow } from '../stubs';
 
 const signal = new AbortController().signal;
+
+function collectionViewOf<T>(scope: Scope, token: CollectionToken<T>): CollectionView<T> {
+  return (scope.instantiation as InstantiationService).fiberHost.collectionView(token);
+}
 
 describe('goal tools', () => {
   let ctx: TestAgentContext;
@@ -55,8 +78,9 @@ describe('goal tools', () => {
     goals = ctx.get(IAgentGoalService);
     eventBus = ctx.get(IEventBus);
     toolExecutor = ctx.get(IAgentToolExecutorService);
-    setGoalBudgetTool = new SetGoalBudgetTool(goals);
-    updateGoalTool = new UpdateGoalTool(goals);
+    const scopeContext = ctx.get(IAgentScopeContext);
+    setGoalBudgetTool = new SetGoalBudgetTool(goals, scopeContext);
+    updateGoalTool = new UpdateGoalTool(goals, scopeContext);
   });
 
   afterEach(async () => {
@@ -65,7 +89,7 @@ describe('goal tools', () => {
 
   it('CreateGoal does not apply a delayed execution to a replacement goal', async () => {
     await goals.createGoal({ objective: 'old task' });
-    eventBus.publish(new TurnStarted({ turnId: 6, origin: USER_PROMPT_ORIGIN }));
+    eventBus.publish(new TurnStarted({ agentId: 'main', turnId: 6, origin: USER_PROMPT_ORIGIN }));
     const tool = ctx.get(IAgentToolRegistryService).resolve('CreateGoal');
     if (tool === undefined) throw new Error('CreateGoal should be registered');
     const execution = await tool.resolveExecution({ objective: 'stale task', replace: true });
@@ -86,7 +110,7 @@ describe('goal tools', () => {
   });
 
   it('CreateGoal does not apply a no-goal execution to an externally created goal', async () => {
-    eventBus.publish(new TurnStarted({ turnId: 7, origin: USER_PROMPT_ORIGIN }));
+    eventBus.publish(new TurnStarted({ agentId: 'main', turnId: 7, origin: USER_PROMPT_ORIGIN }));
     const tool = ctx.get(IAgentToolRegistryService).resolve('CreateGoal');
     if (tool === undefined) throw new Error('CreateGoal should be registered');
     const execution = await tool.resolveExecution({ objective: 'stale task', replace: true });
@@ -184,7 +208,7 @@ describe('goal tools', () => {
 
   it('SetGoalBudget ignores a stale call from a replaced goal turn', async () => {
     await goals.createGoal({ objective: 'old task' });
-    eventBus.publish(new TurnStarted({ turnId: 1, origin: USER_PROMPT_ORIGIN }));
+    eventBus.publish(new TurnStarted({ agentId: 'main', turnId: 1, origin: USER_PROMPT_ORIGIN }));
     const replacement = await goals.createGoal({ objective: 'new task', replace: true });
 
     const results = await executeGoalCalls(
@@ -202,7 +226,7 @@ describe('goal tools', () => {
   });
 
   it('SetGoalBudget applies a delayed execution to a goal created earlier in the same batch', async () => {
-    eventBus.publish(new TurnStarted({ turnId: 2, origin: USER_PROMPT_ORIGIN }));
+    eventBus.publish(new TurnStarted({ agentId: 'main', turnId: 2, origin: USER_PROMPT_ORIGIN }));
 
     const results = await executeGoalCalls(
       [
@@ -223,7 +247,7 @@ describe('goal tools', () => {
 
   it('SetGoalBudget applies a same-batch budget to the replacement goal', async () => {
     await goals.createGoal({ objective: 'old task' });
-    eventBus.publish(new TurnStarted({ turnId: 3, origin: USER_PROMPT_ORIGIN }));
+    eventBus.publish(new TurnStarted({ agentId: 'main', turnId: 3, origin: USER_PROMPT_ORIGIN }));
 
     const results = await executeGoalCalls(
       [
@@ -334,7 +358,7 @@ describe('goal tools', () => {
     'UpdateGoal applies %s to a goal replaced earlier in the same batch',
     async (updateStatus, expectedCurrentStatus, expectedOutput) => {
       await goals.createGoal({ objective: 'old task' });
-      eventBus.publish(new TurnStarted({ turnId: 4, origin: USER_PROMPT_ORIGIN }));
+      eventBus.publish(new TurnStarted({ agentId: 'main', turnId: 4, origin: USER_PROMPT_ORIGIN }));
 
       const results = await executeGoalCalls(
         [
@@ -357,7 +381,7 @@ describe('goal tools', () => {
   ] as const)(
     'UpdateGoal applies %s when the goal was created earlier in the same batch',
     async (updateStatus, expectedCurrentStatus, expectedOutput) => {
-      eventBus.publish(new TurnStarted({ turnId: 5, origin: USER_PROMPT_ORIGIN }));
+      eventBus.publish(new TurnStarted({ agentId: 'main', turnId: 5, origin: USER_PROMPT_ORIGIN }));
 
       const results = await executeGoalCalls(
         [
@@ -393,7 +417,7 @@ describe('goal tools', () => {
 
   async function countGoalTurn(turnId: number): Promise<void> {
     const abortController = new AbortController();
-    eventBus.publish(new TurnStarted({ turnId, origin: USER_PROMPT_ORIGIN }));
+    eventBus.publish(new TurnStarted({ agentId: 'main', turnId, origin: USER_PROMPT_ORIGIN }));
     await loopService.hooks.onWillBeginStep.run({
       turnId,
       step: 1,
@@ -413,6 +437,52 @@ describe('goal tools', () => {
     return results;
   }
 
+  it('registers the goal tool surface for a subagent', async () => {
+    const subCtx = createSubagentContext();
+    try {
+      const registry = subCtx.get(IAgentToolRegistryService);
+      for (const name of ['CreateGoal', 'GetGoal', 'SetGoalBudget', 'UpdateGoal']) {
+        expect(registry.resolve(name), `${name} should be registered for a subagent`).toBeDefined();
+      }
+    } finally {
+      await subCtx.dispose();
+    }
+  });
+
+  it.each([
+    ['CreateGoal', { objective: 'work' }],
+    ['GetGoal', {}],
+    ['SetGoalBudget', { value: 20, unit: 'turns' }],
+    ['UpdateGoal', { status: 'complete' }],
+  ] as const)('rejects %s execution when the agent is a subagent', async (name, args) => {
+    const subCtx = createSubagentContext();
+    try {
+      const results: ToolExecutionResult[] = [];
+      for await (const result of subCtx
+        .get(IAgentToolExecutorService)
+        .execute([goalToolCall('call_1', name, args)], {
+          turnId: 0,
+          signal,
+        })) {
+        results.push(result);
+      }
+      expect(results).toHaveLength(1);
+      expect(results[0]?.result.isError).toBe(true);
+      expect(results[0]?.result.output).toBe(GOAL_MAIN_AGENT_ONLY);
+    } finally {
+      await subCtx.dispose();
+    }
+  });
+
+  function createSubagentContext(): TestAgentContext {
+    return createTestAgent(
+      agentService(
+        IAgentScopeContext,
+        makeAgentScopeContext({ agentId: 'sub-1', agentScope: 'test/agents/sub-1' }),
+      ),
+    );
+  }
+
   function goalToolCall(
     id: string,
     name: 'CreateGoal' | 'GetGoal' | 'SetGoalBudget' | 'UpdateGoal',
@@ -422,29 +492,46 @@ describe('goal tools', () => {
   }
 });
 
-describe('goal tool main-agent gating', () => {
-  const gatedTools = [
+describe('goal tool registration surface', () => {
+  const surfaceTools = [
     ['CreateGoalTool', CreateGoalTool],
     ['GetGoalTool', GetGoalTool],
     ['SetGoalBudgetTool', SetGoalBudgetTool],
     ['UpdateGoalTool', UpdateGoalTool],
   ] as const;
 
-  function accessorFor(agentId: string): ServicesAccessor {
-    const scopeContext: IAgentScopeContext = {
-      _serviceBrand: undefined,
-      agentId,
-      scope: () => '',
-    };
-    return { get: () => scopeContext } as unknown as ServicesAccessor;
-  }
+  beforeEach(() => {
+    _clearScopedRegistryForTests();
+    _clearFeatureRecipesForTests();
+    registerScopedService(
+      LifecycleScope.App,
+      IFeatureManager,
+      FeatureManagerService,
+      ScopeActivation.OnScopeCreated,
+      'feature',
+    );
+    registerScopedService(
+      LifecycleScope.App,
+      IFeatureAssemblyService,
+      FeatureAssemblyService,
+      ScopeActivation.OnScopeCreated,
+      'features',
+    );
+    registerFeature(GoalFeature);
+  });
 
-  it.each(gatedTools)('%s is contributed with a main-agent-only guard', (name, ctor) => {
-    const contribution = getAgentToolContributions().find((c) => c.ctor === ctor);
+  it.each(surfaceTools)('%s is contributed without an agent-identity gate', (name, ctor) => {
+    const host = createScopedTestHost();
+    const agent = host.child(LifecycleScope.Agent, 'agent-1');
+    const contribution = collectionViewOf(agent, AgentToolContribution).items.find(
+      (c) => c.ctor === ctor,
+    );
     expect(contribution, `${name} contribution`).toBeDefined();
-    const when = contribution?.options.when;
-    expect(when, `${name} must gate on agent identity`).toBeDefined();
-    expect(when?.(accessorFor('main'))).toBe(true);
-    expect(when?.(accessorFor('sub-1'))).toBe(false);
+    expect(
+      contribution?.options.when,
+      `${name} must not gate registration on agent identity: forked agents inherit the caller's ` +
+        'context and must rebuild an identical tool surface; subagent authority is rejected at execution time',
+    ).toBeUndefined();
+    host.dispose();
   });
 });

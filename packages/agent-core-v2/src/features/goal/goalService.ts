@@ -1,19 +1,14 @@
 import { randomUUID } from 'node:crypto';
 
-import { z } from 'zod';
-
 import { TurnStarted } from '#/agent/loop/turnEvents';
 import { TurnEnded } from '#/agent/loop/turnOps';
 import { Disposable, MutableDisposable, type IDisposable } from '#/_base/di/lifecycle';
-import { LifecycleScope } from '#/app/scopes';
-import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 
 import { abortError } from '#/_base/utils/abort';
 import { isPlainRecord } from '#/_base/utils/canonical-args';
 import { IAgentContextInjectorService } from '#/agent/contextInjector/contextInjector';
-import { ContextAppendMessage } from '#/agent/contextMemory/contextEvents';
 import type { ContextMessage, PromptOrigin } from '#/agent/contextMemory/types';
-import { GoalInjection, GOAL_WAIT_FOR_GUIDANCE } from '#/agent/goal/injection/goalInjection';
+import { GoalInjection, GOAL_WAIT_FOR_GUIDANCE } from '#/features/goal/injection/goalInjection';
 import {
   IAgentLoopService,
   type AfterStepContext,
@@ -34,7 +29,8 @@ import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
 import type { BeforeToolExecuteEvent } from '#/agent/toolExecutor/toolHooks';
-import { IAgentUsageService, type UsageRecordedContext } from '#/agent/usage/usage';
+import { ISessionUsageService } from '#/session/usage/sessionUsage';
+import { type UsageRecordedContext } from '#/agent/usage/usage';
 import type { GoalBudgetProperties } from '#/app/telemetry/events';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { IConfigService } from '#/app/config/config';
@@ -53,9 +49,10 @@ import { IAgentGoalService, type GoalReasonInput, type ResumeGoalInput } from '.
 import { WAIT_FOR_FLAG_ID } from '#/agent/tools/task/task-wait/flag';
 import { IGoalDeadlineScheduler } from './goalDeadlineScheduler';
 import {
+  GOAL_FORK_CLEARED_REMINDER_NAME,
   GoalClear,
   GoalCreate,
-  GoalForked,
+  goalForkNoticeKey,
   goalKey,
   GoalUpdate,
   GoalUpdated,
@@ -88,8 +85,6 @@ const GOAL_FORK_CLEARED_REMINDER = [
   'Ignore earlier active-goal reminders from the source session.',
   'Handle requests normally unless the user starts a new goal.',
 ].join(' ');
-
-const GOAL_FORK_CLEARED_REMINDER_NAME = 'goal_fork_cleared';
 
 const GOAL_CONTINUATION_ORIGIN: PromptOrigin = {
   kind: 'system_trigger',
@@ -158,11 +153,6 @@ const GOAL_STEP_CAP_CONTINUATION_PROMPT = [
   GOAL_CONTINUATION_PROMPT,
 ].join(' ');
 
-interface GoalForkNoticeState {
-  readonly goalPresent: boolean;
-  readonly reminderPending: boolean;
-}
-
 interface PendingContinuation {
   readonly receipt: EnqueueReceipt;
   readonly goalId: string;
@@ -172,32 +162,6 @@ interface PendingContinuation {
 interface ResumeContinuation {
   readonly turnId: number;
   readonly goalId: string;
-}
-
-export const goalForkNoticeKey = defineState(
-  'goalForkNotice',
-  (): GoalForkNoticeState => ({ goalPresent: false, reminderPending: false }),
-).replayable({ schema: z.custom<GoalForkNoticeState>() })
-  .on(GoalCreate, (s) => {
-    s.goalPresent = true;
-  })
-  .on(GoalClear, (s) => {
-    s.goalPresent = false;
-  })
-  .on(GoalForked, (s) => {
-    s.reminderPending = s.goalPresent || s.reminderPending;
-    s.goalPresent = false;
-  })
-  .on(ContextAppendMessage, (s, e) => {
-    if (s.reminderPending && isGoalForkClearedReminder(e.message)) {
-      s.reminderPending = false;
-    }
-  });
-
-function isGoalForkClearedReminder(message: ContextMessage | undefined): boolean {
-  const origin = message?.origin;
-  if (origin?.kind === 'injection') return origin.variant === GOAL_FORK_CLEARED_REMINDER_NAME;
-  return origin?.kind === 'system_trigger' && origin.name === GOAL_FORK_CLEARED_REMINDER_NAME;
 }
 
 function isGoalContinuationOrigin(origin: TurnStarted['origin']): boolean {
@@ -271,7 +235,7 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
     @IAgentToolPolicyService private readonly toolPolicy: IAgentToolPolicyService,
     @IAgentToolApprovalService private readonly toolApproval: IAgentToolApprovalService,
     @IAgentPermissionModeService private readonly permissionMode: IAgentPermissionModeService,
-    @IAgentUsageService usageService: IAgentUsageService,
+    @ISessionUsageService usageService: ISessionUsageService,
     @IConfigService private readonly config: IConfigService,
     @IFlagService private readonly flags: IFlagService,
     @IGoalDeadlineScheduler private readonly deadlineScheduler: IGoalDeadlineScheduler,
@@ -315,7 +279,10 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
       }),
     );
     this._register(
-      usageService.onDidRecord((ctx) => this.handleUsageRecorded(ctx)),
+      usageService.onDidRecord((ctx) => {
+        if (ctx.agent !== this.agentContext.agentContext) return;
+        this.handleUsageRecorded(ctx);
+      }),
     );
     this._register(
       loopService.hooks.onWillBeginStep.register('goal-count-turn', async (ctx, next) => {
@@ -485,6 +452,7 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
     const wallClockResumedAt = Date.now();
     void this.dispatcher.dispatch(
       new GoalCreate({
+        agentId: this.agentContext.agentId,
         goalId: randomUUID(),
         objective,
         completionCriterion: normalizeCompletionCriterion(input.completionCriterion),
@@ -587,7 +555,7 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
     this.assertSupportedAgent();
     const state = this.requireState();
     const budgetLimits = { ...state.budgetLimits, ...input.budgetLimits };
-    void this.dispatcher.dispatch(new GoalUpdate({ budgetLimits }));
+    void this.dispatcher.dispatch(new GoalUpdate({ agentId: this.agentContext.agentId, budgetLimits }));
     const next = this.requireState();
     this.emitGoalUpdated(this.toSnapshot(next));
     this.telemetry.track2('goal_budget_set', {
@@ -648,7 +616,9 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
 
   private dispatchCompletion(state: GoalState, reason: string | undefined, actor: GoalActor): void {
     const wallClockMs = this.settleWallClock(state);
-    void this.dispatcher.dispatch(new GoalUpdate({ status: 'complete', reason, wallClockMs, actor }));
+    void this.dispatcher.dispatch(
+      new GoalUpdate({ agentId: this.agentContext.agentId, status: 'complete', reason, wallClockMs, actor }),
+    );
   }
 
   private emitCompletion(
@@ -680,7 +650,7 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
     const state = this.goalState;
     if (state === null || state.status !== 'active' || !matchesGoal(state, goalId)) return null;
     const tokensUsed = state.tokensUsed + Math.max(0, tokenDelta);
-    void this.dispatcher.dispatch(new GoalUpdate({ tokensUsed }));
+    void this.dispatcher.dispatch(new GoalUpdate({ agentId: this.agentContext.agentId, tokensUsed }));
     const next = this.requireState();
     return this.blockIfBudgetReached(next) ?? this.toSnapshot(next);
   }
@@ -694,7 +664,7 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
     const state = this.goalState;
     if (state === null || state.status !== 'active' || !matchesGoal(state, goalId)) return null;
     const turnsUsed = state.turnsUsed + 1;
-    void this.dispatcher.dispatch(new GoalUpdate({ turnsUsed }));
+    void this.dispatcher.dispatch(new GoalUpdate({ agentId: this.agentContext.agentId, turnsUsed }));
     const next = this.requireState();
     this.emitGoalUpdated(this.toSnapshot(next));
     this.telemetry.track2('goal_continued', { turns_used: next.turnsUsed });
@@ -1001,6 +971,7 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
     const reason = 'Paused after agent resume';
     void this.dispatcher.dispatch(
       new GoalUpdate({
+        agentId: this.agentContext.agentId,
         status: 'paused',
         reason,
         wallClockMs: this.settleWallClock(state),
@@ -1027,7 +998,7 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
     this.cancelPendingContinuation(opts.preserveLiveContinuation === true);
     this.wallClockDeadline.clear();
     this.liveWallClockStartedAt = undefined;
-    void this.dispatcher.dispatch(new GoalClear({}));
+    void this.dispatcher.dispatch(new GoalClear({ agentId: this.agentContext.agentId }));
     if (opts.emit !== false) this.emitGoalUpdated(null);
     if (opts.track !== false) this.telemetry.track2('goal_cleared', { actor });
   }
@@ -1056,7 +1027,7 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
       this.liveWallClockStartedAt = undefined;
     }
     void this.dispatcher.dispatch(
-      new GoalUpdate({ status, reason, wallClockMs, wallClockResumedAt, actor }),
+      new GoalUpdate({ agentId: this.agentContext.agentId, status, reason, wallClockMs, wallClockResumedAt, actor }),
     );
     const next = this.requireState();
     if (status === 'active') this.adoptStarterTurn(actor);
@@ -1086,7 +1057,9 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
   }
 
   private emitGoalUpdated(snapshot: GoalSnapshot | null, change?: GoalChange): void {
-    void this.dispatcher.dispatch(new GoalUpdated({ snapshot, change }));
+    void this.dispatcher.dispatch(
+      new GoalUpdated({ agentId: this.agentContext.agentId, snapshot, change }),
+    );
   }
 
   private settleWallClock(state: GoalState): number {
@@ -1312,11 +1285,3 @@ function pauseReasonWithMessage(prefix: string, message: string | undefined): st
   const trimmed = message?.trim();
   return trimmed === undefined || trimmed.length === 0 ? prefix : `${prefix}: ${trimmed}`;
 }
-
-registerScopedService(
-  LifecycleScope.Agent,
-  IAgentGoalService,
-  AgentGoalService,
-  ScopeActivation.OnScopeCreated,
-  'goal',
-);
