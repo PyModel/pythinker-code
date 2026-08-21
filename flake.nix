@@ -2,7 +2,7 @@
   description = "Pythinker Code CLI";
 
   inputs = {
-    # nixos-unstable ships Node.js 26, required by the workspace engine floor.
+    # nixos-unstable supplies the pinned Node.js 24 release line.
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
   };
 
@@ -27,21 +27,21 @@
           })
         );
 
-      minNodeVersion = "26.4.0";
+      minNodeVersion = "24.15.0";
 
-      # Hardcode to Node.js 26.x; fail the evaluation if the pinned nixpkgs
-      # does not offer a new enough 26.x.
+      # Hardcode to Node.js 24.x; fail the evaluation if the pinned nixpkgs
+      # does not offer a new enough 24.x.
       nodejsFor =
         pkgs:
         let
-          node = pkgs.nodejs_26;
+          node = pkgs.nodejs_24;
         in
-        if lib.versionAtLeast node.version minNodeVersion then
+        if lib.versionAtLeast node.version minNodeVersion && lib.versionOlder node.version "25" then
           node
         else
           throw ''
-            Pythinker Code requires Node.js >= ${minNodeVersion},
-            but nixpkgs only offers ${node.version}.
+            Pythinker Code requires Node.js >= ${minNodeVersion} and < 25,
+            but nixpkgs offers ${node.version} for nodejs_24.
             Pin a newer nixpkgs revision or update minNodeVersion in flake.nix.
           '';
 
