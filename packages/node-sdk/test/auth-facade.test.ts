@@ -4,6 +4,7 @@ import { join } from 'node:path';
 
 import {
   FileTokenStorage,
+  PYTHINKER_CODE_OAUTH_KEY,
   PYTHINKER_CODE_PROVIDER_NAME,
   PythinkerOAuthToolkit,
   OAuthConnectionError,
@@ -96,7 +97,7 @@ describe('PythinkerHarness.auth', () => {
         const error = await harness.auth
           .resolveOAuthTokenProvider(PYTHINKER_CODE_PROVIDER_NAME)
           .getAccessToken()
-          .catch((caught: unknown) => caught);
+          .catch((error: unknown) => error);
 
         expect(error).toBeInstanceOf(PythinkerError);
         expect(error).toMatchObject({
@@ -342,6 +343,140 @@ oauth = { storage = "file", key = "${oauthKey}", oauth_host = "${oauthHost}" }
     expect(fetchMock.mock.calls.map((call) => fetchInputUrl(call[0]))).toEqual([
       `${oauthHost}/api/oauth/token`,
       `${baseUrl}/models`,
+    ]);
+  });
+
+  it('logs in against the global region hosts when region is global', async () => {
+    const baseUrl = 'https://api.kimi.ai/coding/v1';
+    const oauthHost = 'https://auth.kimi.ai';
+    const oauthKey = resolvePythinkerCodeOAuthKey({ oauthHost, baseUrl });
+    const storageName = resolvePythinkerTokenStorageName({ oauthKey });
+    const storage = new FileTokenStorage(join(homeDir, 'credentials'));
+    await storage.save(storageName, {
+      ...freshToken(),
+      accessToken: 'expired-global-access-token',
+      refreshToken: 'global-refresh-token',
+      expiresAt: 1,
+    });
+    const fetchMock = vi.fn<FetchMock>(async (input, init) => {
+      const url = fetchInputUrl(input);
+      if (url === `${oauthHost}/api/oauth/token`) {
+        if (typeof init?.body !== 'string') throw new TypeError('expected form body');
+        const body = new URLSearchParams(init.body);
+        expect(body.get('grant_type')).toBe('refresh_token');
+        expect(body.get('refresh_token')).toBe('global-refresh-token');
+        return new Response(
+          JSON.stringify({
+            access_token: 'rotated-global-access-token',
+            refresh_token: 'rotated-global-refresh-token',
+            expires_in: 3600,
+            scope: '',
+            token_type: 'Bearer',
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      if (url === `${baseUrl}/models`) {
+        expect(new Headers(init?.headers).get('authorization')).toBe(
+          'Bearer rotated-global-access-token',
+        );
+        return new Response(
+          JSON.stringify({
+            data: [{ id: 'kimi-for-coding', context_length: 262144, supports_reasoning: true }],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      throw new Error(`unexpected request: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const harness = createPythinkerHarness({ homeDir, identity: TEST_IDENTITY });
+
+    await expect(harness.auth.login(undefined, { region: 'global' })).resolves.toMatchObject({
+      providerName: PYTHINKER_CODE_PROVIDER_NAME,
+      ok: true,
+      defaultModel: 'pythinker-code/kimi-for-coding',
+    });
+    const config = await harness.getConfig({ reload: true });
+    expect(config.providers[PYTHINKER_CODE_PROVIDER_NAME]).toMatchObject({
+      baseUrl,
+      oauth: { storage: 'file', key: oauthKey, oauthHost },
+    });
+    // The default (cn) credential slot must stay untouched.
+    expect(
+      await new FileTokenStorage(join(homeDir, 'credentials')).load(
+        resolvePythinkerTokenStorageName({ oauthKey: PYTHINKER_CODE_OAUTH_KEY }),
+      ),
+    ).toBeUndefined();
+  });
+
+  it('logs back into the mainland-cn region over a persisted global login', async () => {
+    const globalBaseUrl = 'https://api.kimi.ai/coding/v1';
+    const globalOauthHost = 'https://auth.kimi.ai';
+    const globalKey = resolvePythinkerCodeOAuthKey({
+      oauthHost: globalOauthHost,
+      baseUrl: globalBaseUrl,
+    });
+    await writeFile(
+      join(homeDir, 'config.toml'),
+      `
+[providers."managed:pythinker-code"]
+type = "pythinker"
+base_url = "${globalBaseUrl}"
+api_key = ""
+oauth = { storage = "file", key = "${globalKey}", oauth_host = "${globalOauthHost}" }
+`,
+    );
+    const storage = new FileTokenStorage(join(homeDir, 'credentials'));
+    const defaultStorageName = resolvePythinkerTokenStorageName({ oauthKey: PYTHINKER_CODE_OAUTH_KEY });
+    await storage.save(defaultStorageName, {
+      ...freshToken(),
+      accessToken: 'expired-cn-access-token',
+      refreshToken: 'cn-refresh-token',
+      expiresAt: 1,
+    });
+    const fetchMock = vi.fn<FetchMock>(async (input, init) => {
+      const url = fetchInputUrl(input);
+      if (url === 'https://auth.kimi.com/api/oauth/token') {
+        if (typeof init?.body !== 'string') throw new TypeError('expected form body');
+        const body = new URLSearchParams(init.body);
+        expect(body.get('refresh_token')).toBe('cn-refresh-token');
+        return new Response(
+          JSON.stringify({
+            access_token: 'rotated-cn-access-token',
+            refresh_token: 'rotated-cn-refresh-token',
+            expires_in: 3600,
+            scope: '',
+            token_type: 'Bearer',
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      if (url === 'https://api.kimi.com/coding/v1/models') {
+        return new Response(
+          JSON.stringify({
+            data: [{ id: 'kimi-for-coding', context_length: 262144, supports_reasoning: true }],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      throw new Error(`unexpected request: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const harness = createPythinkerHarness({ homeDir, identity: TEST_IDENTITY });
+
+    await expect(harness.auth.login(undefined, { region: 'mainland-cn' })).resolves.toMatchObject({
+      providerName: PYTHINKER_CODE_PROVIDER_NAME,
+      ok: true,
+    });
+    const config = await harness.getConfig({ reload: true });
+    const provider = config.providers[PYTHINKER_CODE_PROVIDER_NAME];
+    expect(provider?.oauth?.key).toBe(PYTHINKER_CODE_OAUTH_KEY);
+    // Back on the default hosts, the persisted oauth ref carries no host trace.
+    expect(provider?.oauth?.oauthHost).toBeUndefined();
+    expect(fetchMock.mock.calls.map((call) => fetchInputUrl(call[0]))).toEqual([
+      'https://auth.kimi.com/api/oauth/token',
+      'https://api.kimi.com/coding/v1/models',
     ]);
   });
 
