@@ -33,6 +33,26 @@ function isError(warning: AppWarning): boolean {
   return warning.startsWith(`${t('warnings.errorLabel')}:`) || /\b4\d\d\b|error|failed/i.test(warning);
 }
 
+type ToastVariant = 'info' | 'success' | 'warning' | 'danger';
+
+/** Notice severity → Toast variant. Only plain-string warnings fall back to
+    the text heuristic (danger vs warning); structured notices map 1:1
+    (error/danger → danger, success → success, info → info, else warning). */
+function toastVariant(warning: AppWarning): ToastVariant {
+  if (!isNotice(warning)) return isError(warning) ? 'danger' : 'warning';
+  switch (warning.severity) {
+    case 'error':
+    case 'danger':
+      return 'danger';
+    case 'success':
+      return 'success';
+    case 'info':
+      return 'info';
+    default:
+      return 'warning';
+  }
+}
+
 function warningKey(warning: AppWarning): string {
   if (!isNotice(warning)) return `text:${warning}`;
   return `notice:${warning.severity}:${warning.title}:${warning.message ?? ''}:${JSON.stringify(warning.details ?? [])}`;
@@ -193,7 +213,7 @@ onUnmounted(() => {
     <Toast
       v-for="toast in toasts"
       :key="toast.id"
-      :variant="isError(toast.warning) ? 'danger' : 'warning'"
+      :variant="toastVariant(toast.warning)"
       :title="toastTitle(toast.warning)"
       :message="toastMessage(toast.warning)"
       :dismiss-label="t('warnings.dismiss')"

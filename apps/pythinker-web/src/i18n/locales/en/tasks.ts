@@ -42,4 +42,8 @@ export default {
   copyCommand: 'Copy command',
   copyOutput: 'Copy output',
   copyAll: 'Copy all',
+  agentComposerPlaceholder: 'Message this sub agent…',
+  agentComposerSend: 'Send',
+  agentMessagingQueued: 'This sub agent has not started yet.',
+  agentMessagingUnavailable: 'This sub agent is no longer running.',
 } as const;
