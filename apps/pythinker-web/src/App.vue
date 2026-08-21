@@ -452,10 +452,6 @@ const {
   previewMax,
   previewWidth,
   previewPanelWidth,
-  thinkingPanelText,
-  thinkingVisible,
-  openThinkingPanel,
-  closeThinkingPanel,
   compactionPanelText,
   compactionPanelVisible,
   openCompactionPanel,
@@ -1139,7 +1135,6 @@ function openPr(url: string): void {
       @select-model="handleComposerSelectModel($event)"
       @open-file="openFilePreview($event)"
       @open-media="openMediaPreview($event)"
-      @open-thinking="openThinkingPanel($event)"
       @open-compaction="openCompactionPanel($event)"
       @open-agent="openAgentPanel($event)"
       @open-tool-diff="openToolDiff($event)"
@@ -1208,12 +1203,7 @@ function openPr(url: string): void {
       :aria-hidden="!sidePanelVisible"
     >
       <ThinkingPanel
-        v-if="detailTarget === 'thinking' && thinkingVisible"
-        :text="thinkingPanelText ?? ''"
-        @close="closeThinkingPanel"
-      />
-      <ThinkingPanel
-        v-else-if="detailTarget === 'compaction' && compactionPanelVisible"
+        v-if="detailTarget === 'compaction' && compactionPanelVisible"
         :text="compactionPanelText ?? ''"
         :subtitle="t('conversation.summaryTitle')"
         @close="closeCompactionPanel"

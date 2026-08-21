@@ -68,7 +68,6 @@ const emit = defineEmits<{
   openFile: [target: FilePreviewRequest];
   openToolDiff: [id: string];
   openAgent: [toolCallId: string];
-  openThinking: [blockIndex: number];
 }>();
 
 const { t } = useI18n();
@@ -342,7 +341,8 @@ function isItemStreaming(item: RunItem): boolean {
             :text="item.thinking"
             :mobile="mobile"
             :streaming="isItemStreaming(item)"
-            @open="emit('openThinking', item.sourceIndex)"
+            :started-at-ms="startedAtMs ?? undefined"
+            :duration-ms="settledElapsedMs"
           />
           <ToolCall
             v-else
