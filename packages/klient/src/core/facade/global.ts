@@ -25,6 +25,7 @@ import type { ProviderConfig } from '@pymodel/agent-core-v2/kosong/provider/prov
 import type {
   AuthStatus,
   IOAuthService,
+  OAuthLoginOptions,
 } from '@pymodel/agent-core-v2/app/auth/auth';
 import type { ExperimentalFeatureState } from '@pymodel/agent-core-v2/app/flag/flag';
 import type {
@@ -179,7 +180,7 @@ export interface GlobalAuthFacade {
    * model usage does not depend on the OAuth-only {@link summarize} view.
    */
   ensureReady(modelOverride?: string): Promise<void>;
-  startLogin(provider?: string): Promise<OAuthFlowStart>;
+  startLogin(provider?: string, options?: OAuthLoginOptions): Promise<OAuthFlowStart>;
   flow(provider?: string): Promise<OAuthFlowSnapshot | undefined>;
   cancelLogin(provider?: string): Promise<OAuthLoginCancelResponse>;
   logout(provider?: string): Promise<OAuthLogoutResponse>;
@@ -313,7 +314,7 @@ export function createGlobalFacade(scoped: ScopedCaller, scopedStream: ScopedStr
       const scalars = Object.fromEntries(
         ENV_SCALAR_PROPERTIES.map((prop, index) => [prop, values[index]]),
       );
-      const identity = values[values.length - 1] as { version: string };
+      const identity = values.at(-1) as { version: string };
       return { ...scalars, clientVersion: identity.version } as unknown as KlientEnvInfo;
     });
     return envPromise;
@@ -441,8 +442,8 @@ export function createGlobalFacade(scoped: ScopedCaller, scopedStream: ScopedStr
       summarize: () => call('authSummaryService', 'summarize', []) as Promise<readonly AuthStatus[]>,
       ensureReady: (modelOverride) =>
         call('authSummaryService', 'ensureReady', [modelOverride]) as Promise<void>,
-      startLogin: (provider) =>
-        call('oauthService', 'startLogin', [provider]) as Promise<OAuthFlowStart>,
+      startLogin: (provider, options) =>
+        call('oauthService', 'startLogin', [provider, options]) as Promise<OAuthFlowStart>,
       flow: (provider) =>
         call('oauthService', 'getFlow', [provider]) as Promise<OAuthFlowSnapshot | undefined>,
       cancelLogin: (provider) =>
