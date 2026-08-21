@@ -22,10 +22,14 @@ import type { Accent, ColorScheme } from '../../composables/usePythinkerWebClien
 import Dialog from '../ui/Dialog.vue';
 import Switch from '../ui/Switch.vue';
 import Button from '../ui/Button.vue';
+import Icon from '../ui/Icon.vue';
+import IconButton from '../ui/IconButton.vue';
 import SegmentedControl from '../ui/SegmentedControl.vue';
 import Select from '../ui/Select.vue';
 import Tooltip from '../ui/Tooltip.vue';
+import type { IconName } from '../../lib/icons';
 import ProvidersPanel from './ProvidersPanel.vue';
+import SecondaryModelPicker from './SecondaryModelPicker.vue';
 
 const { t } = useI18n();
 
@@ -75,18 +79,19 @@ const emit = defineEmits<{
   close: [];
 }>();
 
-type SettingsTab = 'general' | 'agent' | 'account' | 'providers' | 'advanced' | 'archived';
+type SettingsTab = 'general' | 'agent' | 'account' | 'providers' | 'advanced' | 'lab' | 'archived';
 
 const activeTab = ref<SettingsTab>(props.initialTab ?? 'general');
 const fontScale = computed(() => uiFontScaleForSize(props.uiFontSize));
 
-const tabs: { id: SettingsTab; labelKey: string }[] = [
-  { id: 'general', labelKey: 'settings.tabs.general' },
-  { id: 'agent', labelKey: 'settings.tabs.agent' },
-  { id: 'account', labelKey: 'settings.tabs.account' },
-  { id: 'providers', labelKey: 'settings.tabs.providers' },
-  { id: 'advanced', labelKey: 'settings.tabs.advanced' },
-  { id: 'archived', labelKey: 'settings.tabs.archived' },
+const tabs: { id: SettingsTab; labelKey: string; icon: IconName }[] = [
+  { id: 'general', labelKey: 'settings.tabs.general', icon: 'sliders' },
+  { id: 'agent', labelKey: 'settings.tabs.agent', icon: 'robot' },
+  { id: 'account', labelKey: 'settings.tabs.account', icon: 'user' },
+  { id: 'providers', labelKey: 'settings.tabs.providers', icon: 'bolt' },
+  { id: 'advanced', labelKey: 'settings.tabs.advanced', icon: 'microscope' },
+  { id: 'lab', labelKey: 'settings.tabs.lab', icon: 'flask' },
+  { id: 'archived', labelKey: 'settings.tabs.archived', icon: 'archive' },
 ];
 
 const serverAddress = readPythinkerApiConfig().serverHttpUrl;
@@ -125,7 +130,10 @@ onMounted(() => {
   document.addEventListener('keydown', handleKeydown);
   void loadServerMeta();
 });
-onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
+onUnmounted(() => {
+  document.removeEventListener('keydown', handleKeydown);
+  if (copyFlashTimer !== null) clearTimeout(copyFlashTimer);
+});
 
 async function loadServerMeta(): Promise<void> {
   try {
@@ -169,8 +177,8 @@ const modelGroups = computed<Array<{ provider: string; options: ModelOption[] }>
     list.push(option);
     map.set(option.provider, list);
   }
-  for (const list of map.values()) {
-    list.sort((a, b) => a.label.localeCompare(b.label));
+  for (const [provider, list] of map) {
+    map.set(provider, list.toSorted((a, b) => a.label.localeCompare(b.label)));
   }
   return Array.from(map.entries())
     .toSorted(([a], [b]) => a.localeCompare(b))
@@ -285,6 +293,63 @@ async function copyDiagnostics(): Promise<void> {
   diagnosticsCopied.value = await copyTextToClipboard(diagnosticsText());
 }
 
+// Per-value copy buttons in the advanced tab: flash the check state for 1.5s
+// after a successful copy (reference `copyServerVersion`/`copyServerAddress`).
+const serverVersionCopied = ref(false);
+const serverAddressCopied = ref(false);
+let copyFlashTimer: ReturnType<typeof setTimeout> | null = null;
+
+function scheduleCopyFlashReset(): void {
+  if (copyFlashTimer !== null) clearTimeout(copyFlashTimer);
+  copyFlashTimer = setTimeout(() => {
+    serverVersionCopied.value = false;
+    serverAddressCopied.value = false;
+    copyFlashTimer = null;
+  }, 1500);
+}
+
+async function copyServerVersion(): Promise<void> {
+  if (!(await copyTextToClipboard(resolvedServerVersion.value))) return;
+  serverVersionCopied.value = true;
+  scheduleCopyFlashReset();
+}
+
+async function copyServerAddress(): Promise<void> {
+  if (!(await copyTextToClipboard(serverAddress))) return;
+  serverAddressCopied.value = true;
+  scheduleCopyFlashReset();
+}
+
+// Secondary (subagent) model — the Agent tab section mirrors the reference:
+// it renders only while the daemon's `secondary-model` experimental flag is
+// on, and writes `config.secondaryModel` ({ model, defaultEffort }) through
+// the regular config update path (wire key `secondary_model`).
+const secondaryModelFlagEnabled = computed(() => experimentalFlag('secondary-model'));
+const secondaryModel = computed(() => props.config?.secondaryModel?.model ?? '');
+const secondaryModelEffort = computed(() => props.config?.secondaryModel?.defaultEffort ?? '');
+const modelInfoById = computed<Record<string, AppModel>>(() =>
+  Object.fromEntries((props.models ?? []).map((model) => [model.id, model])),
+);
+
+function experimentalFlag(flag: string): boolean {
+  return props.config?.experimental?.[flag] === true;
+}
+
+function toggleExperimental(flag: string, value: boolean): void {
+  const next = { ...props.config?.experimental, [flag]: value };
+  emit('updateConfig', { experimental: next } as Partial<AppConfig>);
+}
+
+function setSecondaryModel(selection: { model: string; effort?: string }): void {
+  const next = selection.effort
+    ? { model: selection.model, defaultEffort: selection.effort }
+    : { model: selection.model };
+  if (next.model === secondaryModel.value && (selection.effort ?? '') === secondaryModelEffort.value) {
+    return;
+  }
+  emit('updateConfig', { secondaryModel: next } as Partial<AppConfig>);
+}
+
 function setFontScale(scale: string): void {
   const size = uiFontSizeForScale(scale);
   if (size !== undefined) emit('setUiFontSize', size);
@@ -343,7 +408,7 @@ watch(activeTab, (tab) => {
 const archiveWorkspaces = computed<string[]>(() => {
   const set = new Set<string>();
   for (const s of archivedItems.value) set.add(s.cwd);
-  return Array.from(set).sort((a, b) => a.localeCompare(b));
+  return Array.from(set).toSorted((a, b) => a.localeCompare(b));
 });
 
 const filteredArchived = computed<AppSession[]>(() => {
@@ -356,15 +421,13 @@ const filteredArchived = computed<AppSession[]>(() => {
     rows = rows.filter((s) => s.cwd === archiveWsFilter.value);
   }
   if (q) rows = rows.filter((s) => s.title.toLowerCase().includes(q));
-  rows = rows.slice();
   if (archiveSort.value === 'archived-desc') {
-    rows.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-  } else if (archiveSort.value === 'created-desc') {
-    rows.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-  } else {
-    rows.sort((a, b) => a.title.localeCompare(b.title, 'en'));
+    return rows.toSorted((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   }
-  return rows;
+  if (archiveSort.value === 'created-desc') {
+    return rows.toSorted((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+  return rows.toSorted((a, b) => a.title.localeCompare(b.title, 'en'));
 });
 
 const groupedArchived = computed<{ cwd: string; items: AppSession[] }[]>(() => {
@@ -406,6 +469,7 @@ function archiveTime(iso: string): string {
           :class="{ on: activeTab === tb.id }"
           @click="setTab(tb.id)"
         >
+          <Icon :name="tb.icon" size="sm" />
           {{ t(tb.labelKey) }}
         </button>
       </nav>
@@ -618,6 +682,26 @@ function archiveTime(iso: string): string {
                   @update:model-value="toggleConfigBoolean('mergeAllAvailableSkills')"
                 />
               </div>
+
+              <section v-if="secondaryModelFlagEnabled" class="sec">
+                <h3 class="sec-title">{{ t('settings.secondaryModelSection') }}</h3>
+                <div class="row">
+                  <span class="rlabel">
+                    {{ t('settings.secondaryModel') }}
+                    <span class="hint">{{ t('settings.secondaryModelHint') }}</span>
+                  </span>
+                  <SecondaryModelPicker
+                    v-if="modelGroups.length > 0"
+                    :model-value="secondaryModel"
+                    :effort="secondaryModelEffort"
+                    :groups="modelGroups"
+                    :model-info-by-id="modelInfoById"
+                    :disabled="configSaving"
+                    @select="setSecondaryModel"
+                  />
+                  <span v-else class="rvalue">{{ t('settings.noSecondaryModel') }}</span>
+                </div>
+              </section>
             </template>
 
             <div v-else class="empty-config">
@@ -642,14 +726,34 @@ function archiveTime(iso: string): string {
                 {{ t('settings.serverVersion') }}
                 <span class="hint">{{ t('settings.serverVersionHint') }}</span>
               </span>
-              <span class="rvalue mono">{{ resolvedServerVersion }}</span>
+              <span class="value-wrap">
+                <span class="rvalue mono">{{ resolvedServerVersion }}</span>
+                <IconButton
+                  size="sm"
+                  :label="serverVersionCopied ? t('settings.copied') : t('settings.copyServerVersion')"
+                  :data-testid="'copy-server-version'"
+                  @click="copyServerVersion"
+                >
+                  <Icon :name="serverVersionCopied ? 'check' : 'copy'" size="sm" />
+                </IconButton>
+              </span>
             </div>
             <div class="row">
               <span class="rlabel">
                 {{ t('settings.serverAddress') }}
                 <span class="hint">{{ t('settings.serverAddressHint') }}</span>
               </span>
-              <span class="rvalue mono">{{ serverAddress }}</span>
+              <span class="value-wrap">
+                <span class="rvalue mono">{{ serverAddress }}</span>
+                <IconButton
+                  size="sm"
+                  :label="serverAddressCopied ? t('settings.copied') : t('settings.copyServerAddress')"
+                  :data-testid="'copy-server-address'"
+                  @click="copyServerAddress"
+                >
+                  <Icon :name="serverAddressCopied ? 'check' : 'copy'" size="sm" />
+                </IconButton>
+              </span>
             </div>
             <div class="row">
               <span class="rlabel">{{ t('settings.backend') }}</span>
@@ -685,6 +789,42 @@ function archiveTime(iso: string): string {
               <Button data-testid="copy-diagnostics" variant="secondary" size="sm" @click="copyDiagnostics">
                 {{ diagnosticsCopied ? t('settings.copied') : t('settings.copyDetails') }}
               </Button>
+            </div>
+          </section>
+        </section>
+
+        <!-- Lab: experimental flags. -->
+        <section v-show="activeTab === 'lab'" class="panel">
+          <section class="sec">
+            <h3 class="sec-title">{{ t('settings.tabs.lab') }}</h3>
+            <template v-if="config">
+              <div class="row">
+                <span class="rlabel">
+                  {{ t('settings.lab.sidebarTabs') }}
+                  <span class="hint">{{ t('settings.lab.sidebarTabsHint') }}</span>
+                </span>
+                <Switch
+                  :model-value="experimentalFlag('sidebarTabs')"
+                  :disabled="configSaving"
+                  :label="t('settings.lab.sidebarTabs')"
+                  @update:model-value="toggleExperimental('sidebarTabs', $event)"
+                />
+              </div>
+              <div class="row">
+                <span class="rlabel">
+                  {{ t('settings.lab.secondaryModel') }}
+                  <span class="hint">{{ t('settings.lab.secondaryModelHint') }}</span>
+                </span>
+                <Switch
+                  :model-value="experimentalFlag('secondary-model')"
+                  :disabled="configSaving"
+                  :label="t('settings.lab.secondaryModel')"
+                  @update:model-value="toggleExperimental('secondary-model', $event)"
+                />
+              </div>
+            </template>
+            <div v-else class="empty-config">
+              {{ t('settings.configUnavailable') }}
             </div>
           </section>
         </section>
@@ -771,6 +911,9 @@ function archiveTime(iso: string): string {
 }
 .tab {
   text-align: left;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
   padding: 8px 10px;
   border: none;
   border-radius: var(--radius-md);
@@ -781,6 +924,8 @@ function archiveTime(iso: string): string {
   cursor: pointer;
   transition: background var(--duration-fast) var(--ease-out), color var(--duration-fast) var(--ease-out);
 }
+.tab .ui-icon { flex: none; color: var(--color-text-faint); }
+.tab.on .ui-icon { color: var(--color-accent); }
 .tab:hover { background: var(--color-surface-sunken); color: var(--color-text); }
 .tab.on { background: var(--color-accent-soft); color: var(--color-accent); font-weight: var(--weight-medium); }
 .tab:focus-visible { outline: none; box-shadow: var(--p-focus-ring); }
@@ -838,6 +983,15 @@ function archiveTime(iso: string): string {
   white-space: nowrap;
 }
 .rvalue.mono { font-family: var(--font-mono); font-size: var(--text-xs); }
+.value-wrap {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  max-width: 60%;
+  min-width: 0;
+  flex: none;
+}
+.value-wrap .rvalue { max-width: 100%; }
 .hint { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--color-text-faint); }
 
 .select-wrap { min-width: 220px; max-width: min(320px, 50vw); flex: none; }
