@@ -32,6 +32,7 @@ import PythinkerFolderOpen from '~icons/pythinker/folder-open';
 import PythinkerMore from '~icons/pythinker/more';
 import PythinkerSearch from '~icons/pythinker/search';
 import PythinkerSetting from '~icons/pythinker/setting';
+import PythinkerThinking from '~icons/pythinker/thinking';
 
 // Components (Tabler) ---------------------------------------------------------
 import TablerCircleCheck from '~icons/tabler/circle-check';
@@ -52,7 +53,6 @@ import RiArrowRightLine from '~icons/ri/arrow-right-line';
 import RiArrowRightSLine from '~icons/ri/arrow-right-s-line';
 import RiArrowUpLine from '~icons/ri/arrow-up-line';
 import RiArrowUpSLine from '~icons/ri/arrow-up-s-line';
-import RiBrainLine from '~icons/ri/brain-line';
 import RiBracesLine from '~icons/ri/braces-line';
 import RiCalendarCloseLine from '~icons/ri/calendar-close-line';
 import RiCalendarScheduleLine from '~icons/ri/calendar-schedule-line';
@@ -120,6 +120,7 @@ import RawPythinkerFolderOpen from '~icons/pythinker/folder-open?raw';
 import RawPythinkerMore from '~icons/pythinker/more?raw';
 import RawPythinkerSearch from '~icons/pythinker/search?raw';
 import RawPythinkerSetting from '~icons/pythinker/setting?raw';
+import RawPythinkerThinking from '~icons/pythinker/thinking?raw';
 
 // Raw SVG strings (Tabler) ----------------------------------------------------
 import RawTablerCircleCheck from '~icons/tabler/circle-check?raw';
@@ -140,7 +141,6 @@ import RawArrowRightLine from '~icons/ri/arrow-right-line?raw';
 import RawArrowRightSLine from '~icons/ri/arrow-right-s-line?raw';
 import RawArrowUpLine from '~icons/ri/arrow-up-line?raw';
 import RawArrowUpSLine from '~icons/ri/arrow-up-s-line?raw';
-import RawBrainLine from '~icons/ri/brain-line?raw';
 import RawBracesLine from '~icons/ri/braces-line?raw';
 import RawCalendarCloseLine from '~icons/ri/calendar-close-line?raw';
 import RawCalendarScheduleLine from '~icons/ri/calendar-schedule-line?raw';
@@ -376,7 +376,7 @@ export const ICONS: Record<IconName, IconEntry> = {
   trash: entry(RiDeleteBinLine, RawDeleteBinLine),
   clock: entry(RiTimeLine, RawTimeLine),
   sparkles: entry(RiSparklingLine, RawSparklingLine),
-  thinking: entry(RiBrainLine, RawBrainLine),
+  thinking: entry(PythinkerThinking, RawPythinkerThinking),
   target: entry(RiTargetLine, RawTargetLine),
   pause: entry(RiPauseFill, RawPauseFill),
   play: entry(RiPlayFill, RawPlayFill),
