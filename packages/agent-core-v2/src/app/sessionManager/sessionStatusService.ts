@@ -1,4 +1,4 @@
-import type { GoalSnapshot } from '#/agent/goal/types';
+import type { GoalSnapshot } from '#/features/goal/types';
 
 import type { SessionStatusResponse } from './sessionProtocol';
 import { LifecycleScope } from '#/app/scopes';
@@ -12,8 +12,9 @@ import {
   IInstantiationService,
   type ServicesAccessor,
 } from '#/_base/di/instantiation';
-import { IAgentTokenCountingService } from '#/agent/tokenCounting/tokenCounting';
-import { IAgentGoalService } from '#/agent/goal/goal';
+import { agentContextOf } from '#/agent/scopeContext/scopeContext';
+import { IAgentGoalService } from '#/features/goal/goal';
+import { ISessionTokenCountingService } from '#/session/tokenCounting/sessionTokenCounting';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import { IAgentPlanService } from '#/features/plan/plan';
 import { IAgentProfileService } from '#/agent/profile/profile';
@@ -64,7 +65,7 @@ export class SessionStatusService implements ISessionStatusService {
     agent: IAgentScopeHandle,
   ): Promise<SessionStatusResponse> {
     const profile = agent.accessor.get(IAgentProfileService);
-    const tokenCounting = agent.accessor.get(IAgentTokenCountingService);
+    const tokenCounting = agent.accessor.get(ISessionTokenCountingService);
     const permission = agent.accessor.get(IAgentPermissionModeService);
     const plan = agent.accessor.get(IAgentPlanService);
     const dynamic_workflow = agent.accessor.get(IAgentDynamicWorkflowService);
@@ -75,7 +76,7 @@ export class SessionStatusService implements ISessionStatusService {
     if (maxTokens === 0 && model === '') {
       maxTokens = resolveDefaultModelContextTokens(agent) ?? 0;
     }
-    const tokens = tokenCounting.statusSize();
+    const tokens = tokenCounting.statusSize(agentContextOf(agent));
     const planData = await plan.status();
 
     return {

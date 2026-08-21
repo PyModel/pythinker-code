@@ -33,6 +33,7 @@ import type {
   WillExecuteToolEvent,
 } from '#/agent/toolExecutor/toolHooks';
 import { IAgentStateService } from '#/agent/state/agentState';
+import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { ILogService } from '#/_base/log/log';
 import type { ToolCallEvent } from '#/app/telemetry/events';
@@ -148,6 +149,7 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
   }
 
   constructor(
+    @IAgentScopeContext private readonly scopeContext: IAgentScopeContext,
     @IAgentToolRegistryService private readonly toolRegistry: IAgentToolRegistryService,
     @IEventDispatcher private readonly dispatcher: IEventDispatcher,
     @ITelemetryService private readonly telemetry: ITelemetryService,
@@ -233,7 +235,7 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
           candidates.push(
             nextTimed.then(
               (result): ToolExecutionStreamEvent => ({ type: 'timed', result }),
-              (reason): ToolExecutionStreamEvent => ({ type: 'timedRejected', reason }),
+              (error): ToolExecutionStreamEvent => ({ type: 'timedRejected', error }),
             ),
           );
         }
@@ -263,7 +265,7 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
             options,
           ).then(
             (value): SettledToolExecutionResult => ({ status: 'fulfilled', value }),
-            (reason): SettledToolExecutionResult => ({ status: 'rejected', reason }),
+            (error): SettledToolExecutionResult => ({ status: 'rejected', error }),
           );
           finalizations.add(finalization);
           nextTimed = timedResults.next();
@@ -480,7 +482,7 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
         index,
         pendingResult.then(
           (value): SettledTimedToolResult => ({ status: 'fulfilled', value }),
-          (reason): SettledTimedToolResult => ({ status: 'rejected', index, reason }),
+          (error): SettledTimedToolResult => ({ status: 'rejected', index, error }),
         ),
       );
     }
@@ -572,6 +574,7 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
   ): void {
     void this.dispatcher.dispatch(
       new ToolCallStarted({
+        agentId: this.scopeContext.agentId,
         turnId: options.turnId,
         toolCallId: call.toolCall.id,
         name: call.toolName,
@@ -594,6 +597,7 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
   ): void {
     void this.dispatcher.dispatch(
       new ToolResultEvent({
+        agentId: this.scopeContext.agentId,
         turnId: options.turnId,
         toolCallId: call.toolCall.id,
         output: result.output,
@@ -609,6 +613,7 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
   ): void {
     void this.dispatcher.dispatch(
       new ToolProgress({
+        agentId: this.scopeContext.agentId,
         turnId: options.turnId,
         toolCallId: call.toolCall.id,
         update,
