@@ -69,6 +69,7 @@ const emit = defineEmits<{
   pickModel: [];
   setThinking: [level: ThinkingLevel];
   togglePlan: [];
+  toggleWorkflow: [];
   toggleGoal: [];
   controlGoal: [action: 'pause' | 'resume' | 'cancel'];
   setPermission: [mode: PermissionMode];
@@ -358,17 +359,15 @@ watch(
       <span class="toggle" :class="{ on: goalOn }" />
     </button>
 
-    <!-- Dynamic Workflow → read-only (agent-driven; no manual toggle on any
-         composer surface — mirrors the desktop StatusPanel row). -->
-    <div class="srow read-only">
+    <!-- Dynamic Workflow → switch (same manual entry points as the desktop
+         composer: the "+" menu row and the active-mode chip dismiss). -->
+    <button type="button" class="srow" role="switch" :aria-checked="dynamicWorkflowMode" @click="emit('toggleWorkflow')">
       <span class="srow-main">
         <span class="srow-label">{{ t('status.statusDynamicWorkflowMode') }}</span>
         <span class="srow-sub">{{ t('mobile.workflowModeSub') }}</span>
       </span>
-      <span class="srow-val" :class="{ dim: !dynamicWorkflowMode }">
-        {{ dynamicWorkflowMode ? t('status.dynamicWorkflowOn') : t('status.dynamicWorkflowOff') }}
-      </span>
-    </div>
+      <span class="toggle" :class="{ on: dynamicWorkflowMode }" />
+    </button>
 
     <!-- Permission → cycle (sub-line + chevron) -->
     <button type="button" class="srow" @click="cyclePermission">

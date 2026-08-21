@@ -130,6 +130,7 @@ const emit = defineEmits<{
   setPermission: [mode: PermissionMode];
   setThinking: [level: ThinkingLevel];
   togglePlan: [];
+  toggleWorkflow: [];
   toggleGoal: [];
   createGoal: [objective: string];
   controlGoal: [action: 'pause' | 'resume' | 'cancel'];
@@ -1469,6 +1470,7 @@ defineExpose({ loadComposerForEdit, focusComposer });
               @set-permission="emit('setPermission', $event)"
               @set-thinking="emit('setThinking', $event)"
               @toggle-plan="emit('togglePlan')"
+              @toggle-workflow="emit('toggleWorkflow')"
               @toggle-goal="emit('toggleGoal')"
               @open-btw="emit('command', '/btw')"
               @create-goal="emit('createGoal', $event)"
@@ -1572,6 +1574,7 @@ defineExpose({ loadComposerForEdit, focusComposer });
         @set-permission="emit('setPermission', $event)"
         @set-thinking="emit('setThinking', $event)"
         @toggle-plan="emit('togglePlan')"
+        @toggle-workflow="emit('toggleWorkflow')"
         @toggle-goal="emit('toggleGoal')"
           @open-btw="emit('command', '/btw')"
           @create-goal="emit('createGoal', $event)"

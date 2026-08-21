@@ -83,6 +83,7 @@ const emit = defineEmits<{
   setPermission: [mode: PermissionMode];
   setThinking: [level: ThinkingLevel];
   togglePlan: [];
+  toggleWorkflow: [];
   toggleGoal: [];
   openBtw: [];
   createGoal: [objective: string];
@@ -522,6 +523,7 @@ defineExpose({
       @set-permission="emit('setPermission', $event)"
       @set-thinking="emit('setThinking', $event)"
       @toggle-plan="emit('togglePlan')"
+      @toggle-workflow="emit('toggleWorkflow')"
       @toggle-goal="emit('toggleGoal')"
       @open-btw="emit('openBtw')"
       @create-goal="emit('createGoal', $event)"
