@@ -4,7 +4,12 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { classifyFrame, createAgentProjector, subagentProgressText } from '../src/api/daemon/agentEventProjector';
+import {
+  classifyFrame,
+  createAgentProjector,
+  getTurnInterruption,
+  subagentProgressText,
+} from '../src/api/daemon/agentEventProjector';
 
 describe('subagentProgressText', () => {
   it('drops turn.step.started as noise', () => {
@@ -108,6 +113,64 @@ describe('agent error projection', () => {
         },
       },
     ]);
+  });
+});
+
+describe('turn.step.interrupted capture', () => {
+  it('records the interrupt reason + message per session for the failed-turn banner', () => {
+    const projector = createAgentProjector();
+    projector.project(
+      'turn.started',
+      { turnId: 1, origin: { kind: 'user' }, agentId: 'main', sessionId: 's1' },
+      's1',
+    );
+    // A max-steps interrupt: the banner keys off the wire lastTurnReason
+    // ('failed') that the following turn.ended flips, and reads this detail.
+    projector.project(
+      'turn.step.interrupted',
+      { turnId: 1, step: 3, reason: 'max_steps', message: 'Step limit reached — this turn was interrupted', agentId: 'main', sessionId: 's1' },
+      's1',
+    );
+    const info = getTurnInterruption('s1');
+    expect(info).toMatchObject({ reason: 'max_steps', turnId: 1 });
+    expect(info?.message).toBe('Step limit reached — this turn was interrupted');
+    expect(typeof info?.at).toBe('number');
+  });
+
+  it('projects no AppEvent for the interrupt — capture is side-channel only', () => {
+    const projector = createAgentProjector();
+    projector.project('turn.started', { turnId: 1, agentId: 'main', sessionId: 's1' }, 's1');
+    const events = projector.project(
+      'turn.step.interrupted',
+      { turnId: 1, step: 1, reason: 'max_steps', agentId: 'main', sessionId: 's1' },
+      's1',
+    );
+    expect(events).toEqual([]);
+  });
+
+  it('clears the capture when the next turn starts so info never leaks across turns', () => {
+    const projector = createAgentProjector();
+    projector.project('turn.started', { turnId: 1, agentId: 'main', sessionId: 's1' }, 's1');
+    projector.project(
+      'turn.step.interrupted',
+      { turnId: 1, step: 1, reason: 'max_steps', agentId: 'main', sessionId: 's1' },
+      's1',
+    );
+    expect(getTurnInterruption('s1')).toBeDefined();
+    projector.project('turn.started', { turnId: 2, agentId: 'main', sessionId: 's1' }, 's1');
+    expect(getTurnInterruption('s1')).toBeUndefined();
+  });
+
+  it('keeps sessions isolated — an interrupt in one session does not leak to another', () => {
+    const projector = createAgentProjector();
+    projector.project('turn.started', { turnId: 1, agentId: 'main', sessionId: 's1' }, 's1');
+    projector.project(
+      'turn.step.interrupted',
+      { turnId: 1, step: 1, reason: 'max_steps', agentId: 'main', sessionId: 's1' },
+      's1',
+    );
+    expect(getTurnInterruption('s1')).toBeDefined();
+    expect(getTurnInterruption('other')).toBeUndefined();
   });
 });
 

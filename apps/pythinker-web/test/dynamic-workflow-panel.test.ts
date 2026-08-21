@@ -5,6 +5,7 @@ import { createI18n } from 'vue-i18n';
 import { describe, expect, it } from 'vitest';
 
 import DynamicWorkflowPanel from '../src/components/DynamicWorkflowPanel.vue';
+import SubagentGrid from '../src/components/chat/SubagentGrid.vue';
 import type { TaskItem } from '../src/types';
 
 const panelSource = readFileSync(
@@ -78,6 +79,43 @@ describe('DynamicWorkflowPanel', () => {
     expect(dockPanelRule).toMatch(/background:\s*var\(--color-menu-bg-frost\);/u);
     expect(dockSource).toContain('<SubagentGrid');
     expect(dockSource).not.toContain('transition: opacity 0.16s ease');
+  });
+
+  it('makes a running subagent card clickable before it has output', async () => {
+    const i18n = createI18n({
+      legacy: false,
+      locale: 'en',
+      messages: {
+        en: {
+          tasks: {
+            running: 'running',
+            stateDone: 'done',
+            stateFail: 'failed',
+            stateCancelled: 'cancelled',
+            stop: 'stop',
+          },
+        },
+      },
+    });
+    const wrapper = mount(SubagentGrid, {
+      props: {
+        filter: 'running',
+        tasks: [
+          {
+            id: 'task_1',
+            agentId: 'agent_1',
+            name: 'Inspect the implementation',
+            kind: 'subagent',
+            state: 'run',
+            timing: 'Running · 0:01',
+          },
+        ],
+      },
+      global: { plugins: [i18n] },
+    });
+
+    await wrapper.get('.sg-open').trigger('click');
+    expect(wrapper.emitted('open')).toEqual([['agent_1']]);
   });
 
   it('shows live activity, filters workers, and opens the selected worker', async () => {

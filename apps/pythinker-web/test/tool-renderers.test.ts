@@ -10,6 +10,7 @@ import GrepTool from '../src/components/chat/tool-calls/GrepTool.vue';
 import PlanTool from '../src/components/chat/tool-calls/PlanTool.vue';
 import ReadTool from '../src/components/chat/tool-calls/ReadTool.vue';
 import TodoTool from '../src/components/chat/tool-calls/TodoTool.vue';
+import WaitForTool from '../src/components/chat/tool-calls/WaitForTool.vue';
 import WebFetchTool from '../src/components/chat/tool-calls/WebFetchTool.vue';
 import { resolveToolRenderer } from '../src/components/chat/tool-calls/toolRegistry';
 import { messages } from '../src/i18n/locales';
@@ -43,6 +44,7 @@ describe('tool renderer routing', () => {
       ['exitplanmode', PlanTool], ['ExitPlanMode', PlanTool],
       ['creategoal', GoalTool], ['getgoal', GoalTool],
       ['setgoalbudget', GoalTool], ['updategoal', GoalTool], ['create_goal', GoalTool],
+      ['waitfor', WaitForTool], ['WaitFor', WaitForTool],
     ] as const;
 
     for (const [name, renderer] of cases) expect(resolveToolRenderer(tool(name))).toBe(renderer);
@@ -79,7 +81,9 @@ describe('specialized tool renderers', () => {
     }));
 
     expect(wrapper.findAll('.todo-row')).toHaveLength(3);
-    expect(wrapper.get('.chip').text()).toBe('3 items');
+    // Done/total chip (reference TodoTool) + thin progress bar fill.
+    expect(wrapper.get('.chip').text()).toBe('1 / 3');
+    expect(wrapper.get('.todo-fill').attributes('style')).toContain('width: 33.33333333333333%');
     expect(wrapper.findAll('.todo-row[data-status="done"]')).toHaveLength(1);
   });
 

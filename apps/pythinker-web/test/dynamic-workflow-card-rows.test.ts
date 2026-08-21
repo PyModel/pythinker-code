@@ -92,7 +92,9 @@ describe('buildDynamicWorkflowCardRows', () => {
       ]),
     );
     expect(rows.map((r) => r.id)).toEqual(['a1', 'a2', 'C']);
-    expect(rows[2]?.phase).toBe('failed');
+    // Aborted / not_started rows are cancelled work — a neutral phase, not a
+    // failure (reference SwarmTool maps them to the `cancelled` phase).
+    expect(rows[2]?.phase).toBe('cancelled');
     expect(rows[2]?.body).toBe('C never started');
   });
 

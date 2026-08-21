@@ -1,58 +1,143 @@
 import { mount } from '@vue/test-utils';
-import { createI18n } from 'vue-i18n';
-import { describe, expect, it } from 'vitest';
-
+import { createI18n, type I18n } from 'vue-i18n';
+import { defineComponent } from 'vue';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import AgentDetailPanel from '../src/components/chat/AgentDetailPanel.vue';
-import type { AgentMember } from '../src/types';
+import type { AgentMember, ChatTurn } from '../src/types';
+
+vi.mock('markstream-vue', () => {
+  const noop = (): void => undefined;
+  return {
+    MarkdownRender: defineComponent({
+      name: 'MarkdownRenderStub',
+      props: ['content'],
+      setup(props) {
+        return () => String(props.content ?? '');
+      },
+    }),
+    enableKatex: noop,
+    enableMermaid: noop,
+    setKaTeXWorker: noop,
+    clearKaTeXWorker: noop,
+    setMermaidWorker: noop,
+    clearMermaidWorker: noop,
+  };
+});
+vi.mock('markstream-vue/workers/katexRenderer.worker?worker&type=module', () => ({
+  default: class {
+    terminate(): void {}
+  },
+}));
+vi.mock('markstream-vue/workers/mermaidParser.worker?worker&type=module', () => ({
+  default: class {
+    terminate(): void {}
+  },
+}));
 
 const i18n = createI18n({
   legacy: false,
   locale: 'en',
-  messages: { en: { common: { preview: 'Preview' }, thinking: { close: 'Close' } } },
+  messages: {
+    en: {
+      thinking: { close: 'Close' },
+      tasks: {
+        copy: 'Copy',
+        copyCommand: 'Copy command',
+        copyOutput: 'Copy output',
+        copyAll: 'Copy all',
+        transcriptLoadError: 'Failed to load this sub agent’s conversation.',
+      },
+      tools: {
+        dynamic_workflow: {
+          phaseWorking: 'Working',
+          phaseCompleted: 'Completed',
+        },
+      },
+    },
+  },
 });
 
-function member(outputLines: string[]): AgentMember {
-  return {
-    id: 'agent_1',
-    name: 'Review modified files',
-    subagentType: 'review',
-    phase: 'working',
-    status: 'running',
-    prompt: 'Review the current changes',
-    outputLines,
-  };
+const member: AgentMember = {
+  id: 'agent_1',
+  name: 'Review modified files',
+  subagentType: 'review',
+  model: 'secondary/model',
+  thinkingEffort: 'high',
+  phase: 'working',
+  status: 'running',
+  prompt: 'Review the current changes',
+};
+
+const turns: ChatTurn[] = [
+  {
+    id: 'turn_1_input',
+    role: 'user',
+    no: 1,
+    text: 'Review the current changes',
+  },
+  {
+    id: 'turn_1_output',
+    role: 'assistant',
+    no: 2,
+    text: 'I inspected the implementation.',
+    tools: [
+      {
+        id: 'tool_1',
+        name: 'Read',
+        arg: '{"path":"src/App.vue"}',
+        status: 'ok',
+        output: ['Read complete'],
+      },
+    ],
+  },
+];
+
+function mountPanel(options: { turns?: ChatTurn[]; loadError?: boolean } = {}) {
+  return mount(AgentDetailPanel, {
+    props: {
+      member,
+      turns: options.turns ?? turns,
+      running: true,
+      loading: false,
+      loadError: options.loadError ?? false,
+      hasMore: false,
+      loadingMore: false,
+      loadMoreError: false,
+    },
+    global: { plugins: [i18n as I18n] },
+  });
 }
 
 describe('AgentDetailPanel', () => {
-  it('groups streamed agent output by tool call and folds long output', async () => {
-    const wrapper = mount(AgentDetailPanel, {
-      props: {
-        member: member([
-          'Calling Bash: pnpm test',
-          ...Array.from({ length: 10 }, (_, index) => `test line ${index + 1}`),
-          'Calling Read: src/App.vue',
-          'Read complete',
-        ]),
+  beforeEach(() => {
+    vi.stubGlobal('matchMedia', () => ({
+      matches: false,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    }));
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        observe(): void {}
+        disconnect(): void {}
       },
-      global: { plugins: [i18n] },
-    });
+    );
+  });
 
-    expect(wrapper.findAll('.ap-group')).toHaveLength(2);
-    expect(wrapper.findAll('.ap-call').map((call) => call.text())).toEqual([
-      '▶ Calling Bash: pnpm test',
-      '▶ Calling Read: src/App.vue',
-    ]);
-    expect(wrapper.text()).toContain('… (3 more)');
-    expect(wrapper.text()).not.toContain('test line 6');
+  it('renders the selected subagent transcript and execution tools', () => {
+    const wrapper = mountPanel();
 
-    await wrapper.get('.ap-fold').trigger('click');
+    expect(wrapper.text()).toContain('Review modified files');
+    expect(wrapper.text()).toContain('review · secondary/model · high');
+    expect(wrapper.text()).toContain('Review the current changes');
+    expect(wrapper.text()).toContain('I inspected the implementation.');
+    expect(wrapper.text()).toContain('Read');
+  });
 
-    expect(wrapper.text()).toContain('test line 6');
+  it('shows task output as a fallback when the transcript request fails', () => {
+    const wrapper = mountPanel({ turns: [], loadError: true });
 
-    await wrapper.setProps({
-      member: member(['Calling Bash: pnpm test', 'streamed update']),
-    });
-
-    expect(wrapper.text()).toContain('streamed update');
+    expect(wrapper.text()).toContain('Failed to load this sub agent’s conversation.');
+    expect(wrapper.text()).toContain('Review the current changes');
   });
 });

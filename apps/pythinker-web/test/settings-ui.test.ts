@@ -105,7 +105,7 @@ describe('settings UI', () => {
     apiKey.dispatchEvent(new Event('input', { bubbles: true }));
     await flushPromises();
     const generalTab = Array.from(document.body.querySelectorAll<HTMLButtonElement>('[role="tab"]'))
-      .find((tab) => tab.textContent === 'General');
+      .find((tab) => tab.textContent?.trim() === 'General');
     generalTab!.click();
     await flushPromises();
 
@@ -143,7 +143,7 @@ describe('settings UI', () => {
     });
     await flushPromises();
     const advancedTab = Array.from(document.body.querySelectorAll<HTMLButtonElement>('[role="tab"]'))
-      .find((tab) => tab.textContent === 'Advanced');
+      .find((tab) => tab.textContent?.trim() === 'Advanced');
     advancedTab!.click();
     await flushPromises();
     document.body.querySelector<HTMLButtonElement>('[data-testid="copy-diagnostics"]')!.click();
@@ -189,5 +189,70 @@ describe('settings UI', () => {
     const conversation = readFileSync(join(webRoot, 'src/components/chat/ConversationPane.vue'), 'utf8');
 
     expect(conversation).toContain('<PythinkerLogo v-else size="md"');
+  });
+
+  it('renders the Lab tab toggles and writes them via config.experimental', async () => {
+    const wrapper = mount(SettingsDialog, {
+      props: {
+        colorScheme: 'system',
+        accent: 'blue',
+        uiFontSize: 14,
+        authReady: true,
+        notify: false,
+        notifyQuestion: false,
+        notifyApproval: false,
+        sound: false,
+        config: {
+          providers: {},
+          experimental: { sidebarTabs: true },
+        },
+      },
+      global: { plugins: [i18n] },
+    });
+    await flushPromises();
+    const labTab = Array.from(document.body.querySelectorAll<HTMLButtonElement>('[role="tab"]'))
+      .find((tab) => tab.textContent?.trim() === 'Lab');
+    labTab!.click();
+    await flushPromises();
+
+    const sidebarTabs = document.body.querySelector<HTMLButtonElement>('[role="switch"][aria-label="Multi-tab sidebar"]');
+    const secondaryModel = document.body.querySelector<HTMLButtonElement>('[role="switch"][aria-label="Secondary model for subagents"]');
+    expect(sidebarTabs?.getAttribute('aria-checked')).toBe('true');
+    expect(secondaryModel?.getAttribute('aria-checked')).toBe('false');
+    secondaryModel!.click();
+    await flushPromises();
+    const emitted = wrapper.emitted('updateConfig');
+    expect(emitted?.at(-1)?.[0]).toEqual({ experimental: { sidebarTabs: true, 'secondary-model': true } });
+    wrapper.unmount();
+  });
+
+  it('shows the subagent model section only while the secondary-model flag is on', async () => {
+    const wrapper = mount(SettingsDialog, {
+      props: {
+        colorScheme: 'system',
+        accent: 'blue',
+        uiFontSize: 14,
+        authReady: true,
+        notify: false,
+        notifyQuestion: false,
+        notifyApproval: false,
+        sound: false,
+        config: { providers: {} },
+      },
+      global: { plugins: [i18n] },
+    });
+    await flushPromises();
+    const agentTab = Array.from(document.body.querySelectorAll<HTMLButtonElement>('[role="tab"]'))
+      .find((tab) => tab.textContent?.trim() === 'Agent');
+    agentTab!.click();
+    await flushPromises();
+    expect(document.body.textContent).not.toContain('Subagent model');
+
+    await wrapper.setProps({
+      config: { providers: {}, experimental: { 'secondary-model': true } },
+    });
+    await flushPromises();
+    expect(document.body.textContent).toContain('Subagent model');
+    wrapper.unmount();
   });
 });

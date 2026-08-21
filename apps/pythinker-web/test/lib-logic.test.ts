@@ -842,7 +842,7 @@ describe('keepLiveSubagents', () => {
     expect(merged?.outputPreview).toBe('done');
   });
 
-  it('maps a REST-cancelled row to the failed phase (the enum has no cancelled)', () => {
+  it('maps a REST-cancelled row to the cancelled phase', () => {
     const live = subagent('agent-1', {
       runInBackground: true,
       backgroundTaskId: 'task-9',
@@ -851,7 +851,7 @@ describe('keepLiveSubagents', () => {
     const rest = [subagent('task-9', { runInBackground: true, status: 'cancelled' })];
     const [merged] = keepLiveSubagents(rest, [live]);
     expect(merged?.status).toBe('cancelled');
-    expect(merged?.subagentPhase).toBe('failed');
+    expect(merged?.subagentPhase).toBe('cancelled');
   });
 
   it('never lets a lagging poll flip a finished row back to running', () => {

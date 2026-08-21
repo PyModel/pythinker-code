@@ -39,7 +39,9 @@ describe('app shell contracts', () => {
   it('shows archived sessions only in the Done view and restores them', () => {
     expect(sidebar).toContain("statusView === 'done'");
     expect(sidebar).toContain(':sessions="pinnedSessions"');
-    expect(sidebar).toContain('v-for="session in archivedSessions"');
+    // Done sessions render grouped by workspace (doneGroups → per-group rows).
+    expect(sidebar).toContain('v-for="dg in doneGroups"');
+    expect(sidebar).toContain('v-for="session in dg.sessions"');
     expect(sidebar).toContain(`@restore="emit('restore', $event)"`);
     expect(app).toContain('await client.restoreSession(id)');
   });
