@@ -1514,13 +1514,6 @@ function continueFailedTurn(): void {
   gap: 0;
   padding: 22px 20px 26px;
 }
-.u-bub {
-  background: var(--color-accent-soft);
-  border-color: var(--color-accent-bd);
-  border-radius: var(--radius-xl) var(--radius-xl) var(--radius-sm) var(--radius-xl);
-  padding: 11px 15px;
-  box-shadow: var(--shc);
-}
 .a-msg {
   max-width: 100%;
   width: 100%;

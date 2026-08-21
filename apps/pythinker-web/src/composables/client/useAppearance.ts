@@ -23,7 +23,7 @@ export const uiFontScaleOptions: { value: UiFontScale; label: string }[] = [
 ];
 
 const ACCENT_VALUES: ReadonlySet<string> = new Set(['blue', 'mono']);
-const COLOR_SCHEME_VALUES: readonly string[] = new Set(['light', 'dark', 'system']);
+const COLOR_SCHEME_VALUES: ReadonlySet<string> = new Set(['light', 'dark', 'system']);
 const UI_FONT_SIZE_DEFAULT = 14;
 const UI_FONT_SIZE_MIN = 12;
 const UI_FONT_SIZE_MAX = 20;

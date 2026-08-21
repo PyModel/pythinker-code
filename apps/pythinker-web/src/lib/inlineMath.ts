@@ -33,7 +33,8 @@ function charAt(source: string, index: number): string | undefined {
 function prevChar(source: string, index: number): string | undefined {
   if (index <= 0) return undefined;
   const code = source.codePointAt(index - 1);
-  const start = code >= 0xd800 && code <= 0xdbff && index > 1 ? index - 2 : index - 1;
+  const start =
+    code !== undefined && code >= 0xd800 && code <= 0xdbff && index > 1 ? index - 2 : index - 1;
   const codePoint = source.codePointAt(start);
   return codePoint === undefined ? undefined : String.fromCodePoint(codePoint);
 }
