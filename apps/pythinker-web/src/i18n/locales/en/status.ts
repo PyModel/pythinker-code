@@ -26,6 +26,7 @@ export default {
   planEmptyArmed: 'Plan mode is on — the plan the agent writes will show up here.',
   planEmptyIdle: 'No plan yet — turn plan mode on and the agent’s plan will show up here.',
   dynamicWorkflowLabel: 'Workflow',
+  dynamicWorkflowDismiss: 'Turn off Workflow',
   workModeDismiss: 'Exit mode',
   modeOff: 'Off',
   goalPlaceholder: 'What should the agent achieve?',

@@ -103,6 +103,7 @@ const emit = defineEmits<{
   setPermission: [mode: PermissionMode];
   setThinking: [level: ThinkingLevel];
   togglePlan: [];
+  toggleWorkflow: [];
   toggleGoal: [];
   openBtw: [];
   createGoal: [objective: string];
@@ -899,6 +900,7 @@ const addMenuRows = computed<AddMenuRow[]>(() => {
     { id: 'capabilities', icon: 'sliders', nameKey: 'capabilityMenu.trigger', action: openCapabilities },
     { id: 'goal', icon: 'target', nameKey: 'status.goalLabel', descKey: 'composer.addGoalDesc', action: openGoalMode },
     { id: 'plan', icon: 'file-edit', nameKey: 'status.planLabel', descKey: 'composer.addPlanDesc', action: openPlanMode },
+    { id: 'workflow', icon: 'sparkles', nameKey: 'status.dynamicWorkflowLabel', descKey: 'composer.addWorkflowDesc', action: openWorkflowMode },
   );
   return rows;
 });
@@ -998,6 +1000,11 @@ function openGoalMode(): void {
 function openPlanMode(): void {
   closeModes();
   if (!planOn.value) togglePlanMode();
+}
+
+function openWorkflowMode(): void {
+  closeModes();
+  if (!workflowOn.value) emit('toggleWorkflow');
 }
 
 // Permission modes
@@ -1417,6 +1424,15 @@ function selectModel(modelId: string): void {
           <span v-if="workflowOn" class="workflow-chip">
             <Icon class="workflow-ic" name="sparkles" size="md" />
             <span class="workflow-label">{{ t('status.dynamicWorkflowLabel') }}</span>
+            <IconButton
+              class="workflow-x"
+              size="sm"
+              :label="t('status.dynamicWorkflowDismiss')"
+              @mousedown.prevent
+              @click.stop="emit('toggleWorkflow')"
+            >
+              <Icon name="close" size="sm" />
+            </IconButton>
           </span>
         </div>
 
@@ -2600,7 +2616,8 @@ function selectModel(modelId: string): void {
 }
 
 
-.wm-x {
+.wm-x,
+.workflow-x {
     position: relative;
     width: var(--wm-x-size);
     height: var(--wm-x-size);
@@ -2608,7 +2625,8 @@ function selectModel(modelId: string): void {
 }
 
 
-.wm-x:before {
+.wm-x:before,
+.workflow-x:before {
     content: "";
     position: absolute;
     inset: calc(-1 * var(--wm-x-ring))
@@ -2616,7 +2634,8 @@ function selectModel(modelId: string): void {
 
 
 @media(hover:none) {
-    .wm-x:before {
+    .wm-x:before,
+    .workflow-x:before {
         inset: calc((var(--wm-x-size) - var(--touch-target-min)) / 2)
     }
 }
