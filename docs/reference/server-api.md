@@ -65,7 +65,7 @@ Error codes are grouped by band:
 | `400xx` | Bad request | `40001` validation failed (`details` lists each field), `40003` provider is OAuth-managed |
 | `401xx` | Auth and readiness | `40101` unauthorized, `40110` no provider configured, `40113` model not resolved |
 | `404xx` | Not found | `40401` session, `40408` MCP server, `40409` file path |
-| `409xx` | State conflict | `40901` session busy, `40902` approval already resolved, `40922` page conditions mismatch `page_token` |
+| `409xx` | State conflict | `40901` session busy, `40902` approval already resolved, `40922` page conditions mismatch `page_token`, `40928` `fs:write` `base_etag` is stale |
 | `410xx` | Expired | `41001` approval timed out, `41002` question timed out, `41003` temporary file expired |
 | `413xx` | Size or boundary exceeded | `41302` file read over 10 MB, `41304` path escapes the session directory |
 | `429xx` | Rate limited | `42901` auth-failure ban, `42902` too many fs watches |
@@ -219,7 +219,7 @@ PTY terminal endpoints; mounted only on loopback binds.
 
 ### File system
 
-In-session file operations go through `POST /api/v1/sessions/{session_id}/fs:{action}` with JSON bodies; actions are `list` / `read` / `list_many` / `stat` / `stat_many` / `mkdir` / `search` / `grep` / `git_status` / `diff` / `open` / `open-in` / `reveal`. In addition:
+In-session file operations go through `POST /api/v1/sessions/{session_id}/fs:{action}` with JSON bodies; actions are `list` / `read` / `list_many` / `stat` / `stat_many` / `mkdir` / `write` / `search` / `grep` / `git_status` / `diff` / `open` / `open-in` / `reveal`. In addition:
 
 | Method and path | Description |
 | --- | --- |
@@ -229,6 +229,27 @@ In-session file operations go through `POST /api/v1/sessions/{session_id}/fs:{ac
 | `GET /api/v1/fs:home` | The user's home directory and recent workspaces |
 | `GET /api/v1/fs:content` | Raw bytes of any host file (gated only by the token — be careful when exposing the port) |
 | `POST /api/v1/fs:mkdir` | Create a directory by absolute path |
+
+#### Writing a file
+
+`POST /api/v1/sessions/{session_id}/fs:write` saves a workspace file. It resolves
+and checks the path exactly as `fs:read` does, so it cannot escape the session
+directory or follow a symlink out of it, and it rejects a body over 10 MiB.
+
+| Field | Description |
+| --- | --- |
+| `path` | Session-relative path to write |
+| `content` | File contents, encoded per `encoding` |
+| `encoding` | `utf-8` (default) or `base64` |
+| `base_etag` | The etag the edit was based on; omit to write unconditionally |
+
+The response carries `{ path, size, etag, created }` — `etag` is the value to send
+as the next write's `base_etag`, and `created` distinguishes a new file from an
+overwrite.
+
+Passing `base_etag` makes the write optimistically concurrent: if the file changed
+since that etag, the write is refused with `40928` (`FS_CONFLICT`) instead of
+overwriting the other change. Re-read the file, rebase the edit, and retry.
 
 ### File uploads
 
