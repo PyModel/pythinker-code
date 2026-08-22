@@ -3,7 +3,7 @@
 A **Feature** is a built-in capability (plan mode, and later mcp, …) authored as ONE
 self-contained unit under `src/features/<name>/`. The Feature unit is the single place
 that declares everything the capability contributes to the engine; retracting the unit
-withdraws all of it across the scope tree (连坐).
+withdraws all of it across the scope tree.
 
 `plan` is the reference implementation: `src/features/plan/` (extracted from
 `agent/plan` + `agent/tools/plan`).

@@ -57,7 +57,7 @@ describe('AgentTitlePromptSource', () => {
   });
 
   it('returns the first three prompts from the live context and queue in order', async () => {
-    liveMessages = [userMessage('one', '\u7B2C\u4E00\u6761')];
+    liveMessages = [userMessage('one', 'First entry')];
     queue = {
       active: undefined,
       pending: [
@@ -66,36 +66,36 @@ describe('AgentTitlePromptSource', () => {
           userMessageId: 'two',
           createdAt: '2026-01-01T00:00:00.000Z',
           state: 'pending',
-          message: userMessage('two', '\u7B2C\u4E8C\u6761'),
+          message: userMessage('two', 'Second entry'),
         },
         {
           id: 'three',
           userMessageId: 'three',
           createdAt: '2026-01-01T00:00:01.000Z',
           state: 'pending',
-          message: userMessage('three', '\u7B2C\u4E09\u6761'),
+          message: userMessage('three', 'Third entry'),
         },
       ],
     };
 
     await expect(ix.get(IAgentTitlePromptSource).firstUserPrompts(3)).resolves.toEqual([
-      '\u7B2C\u4E00\u6761',
-      '\u7B2C\u4E8C\u6761',
-      '\u7B2C\u4E09\u6761',
+      'First entry',
+      'Second entry',
+      'Third entry',
     ]);
   });
 
   it('keeps the head user messages of a compacted window, skipping elision and summary', async () => {
     liveMessages = [
-      userMessage('head', '\u5F00\u573A\u63D0\u95EE'),
+      userMessage('head', 'Opening question'),
       userMessage('elision', '... omitted ...', { kind: 'injection', variant: 'compaction_elision' }),
-      userMessage('tail', '\u6700\u8FD1\u7684\u8FFD\u95EE'),
+      userMessage('tail', 'Latest follow-up'),
       userMessage('summary', ' compaction summary ', { kind: 'compaction_summary' }),
     ];
 
     await expect(ix.get(IAgentTitlePromptSource).firstUserPrompts(3)).resolves.toEqual([
-      '\u5F00\u573A\u63D0\u95EE',
-      '\u6700\u8FD1\u7684\u8FFD\u95EE',
+      'Opening question',
+      'Latest follow-up',
     ]);
   });
 
@@ -120,55 +120,55 @@ describe('AgentTitlePromptSource', () => {
   });
 
   it('counts a queued prompt already appended to the context only once', async () => {
-    liveMessages = [userMessage('one', '\u540C\u4E00\u6761')];
+    liveMessages = [userMessage('one', 'Same entry')];
     queue = {
       active: {
         id: 'one',
         userMessageId: 'one',
         createdAt: '2026-01-01T00:00:00.000Z',
         state: 'running',
-        message: userMessage('one', '\u540C\u4E00\u6761'),
+        message: userMessage('one', 'Same entry'),
       },
       pending: [],
     };
 
-    await expect(ix.get(IAgentTitlePromptSource).firstUserPrompts(3)).resolves.toEqual(['\u540C\u4E00\u6761']);
+    await expect(ix.get(IAgentTitlePromptSource).firstUserPrompts(3)).resolves.toEqual(['Same entry']);
   });
 
   it('firstTurnExcerpt pairs the opening prompt with the turn’s final assistant text', async () => {
     liveMessages = [
-      userMessage('u1', '\u5E2E\u6211\u5199\u4E00\u4E2A\u5FEB\u6392'),
-      assistantMessage('a1-think', [{ type: 'think', think: '\u8BA9\u6211\u60F3\u60F3' }]),
+      userMessage('u1', 'Write me a quicksort'),
+      assistantMessage('a1-think', [{ type: 'think', think: 'Let me think' }]),
       assistantMessage('a1-text', [{ type: 'text', text: '\u597D\u7684，\u5148\u5199\u4E00\u7248' }]),
       toolMessage('t1', 'tool output'),
       assistantMessage('a2', [
-        { type: 'text', text: '\u8FD9\u662F\u6700\u7EC8\u7248\u5B9E\u73B0' },
+        { type: 'text', text: 'This is the final implementation' },
         { type: 'image_url', imageUrl: { url: 'data:image/png;base64,AAAA' } },
       ]),
-      userMessage('u2', '\u518D\u52A0\u4E2A\u5355\u6D4B'),
-      assistantMessage('a3', [{ type: 'text', text: '\u7B2C\u4E8C\u8F6E\u7684\u56DE\u590D' }]),
+      userMessage('u2', 'Add a unit test too'),
+      assistantMessage('a3', [{ type: 'text', text: 'Second-round reply' }]),
     ];
 
     await expect(ix.get(IAgentTitlePromptSource).firstTurnExcerpt()).resolves.toEqual({
-      user: '\u5E2E\u6211\u5199\u4E00\u4E2A\u5FEB\u6392',
-      assistant: '\u8FD9\u662F\u6700\u7EC8\u7248\u5B9E\u73B0',
+      user: 'Write me a quicksort',
+      assistant: 'This is the final implementation',
     });
   });
 
   it('firstTurnExcerpt reports a missing assistant reply until the turn ends', async () => {
-    liveMessages = [userMessage('u1', '\u521A\u53D1\u7684\u95EE\u9898')];
+    liveMessages = [userMessage('u1', 'Just-sent question')];
 
     await expect(ix.get(IAgentTitlePromptSource).firstTurnExcerpt()).resolves.toEqual({
-      user: '\u521A\u53D1\u7684\u95EE\u9898',
+      user: 'Just-sent question',
       assistant: undefined,
     });
   });
 
   it('digestExcerpt counts a queued prompt already appended to the context only once', async () => {
     liveMessages = [
-      userMessage('one', '最早的问题'),
-      assistantMessage('a1', [{ type: 'text', text: '第一轮回答' }]),
-      userMessage('two', '进行中的问题'),
+      userMessage('one', 'earliest question'),
+      assistantMessage('a1', [{ type: 'text', text: 'first reply' }]),
+      userMessage('two', 'in-progress question'),
     ];
     queue = {
       active: {
@@ -176,78 +176,78 @@ describe('AgentTitlePromptSource', () => {
         userMessageId: 'two',
         createdAt: '2026-01-01T00:00:01.000Z',
         state: 'running',
-        message: userMessage('two', '进行中的问题'),
+        message: userMessage('two', 'in-progress question'),
       },
       pending: [],
     };
 
     await expect(ix.get(IAgentTitlePromptSource).digestExcerpt()).resolves.toEqual({
       turns: [
-        { user: '最早的问题', assistant: '第一轮回答' },
-        { user: '进行中的问题', assistant: undefined },
+        { user: 'earliest question', assistant: 'first reply' },
+        { user: 'in-progress question', assistant: undefined },
       ],
     });
   });
 
   it('digestExcerpt pairs every prompt with its own turn’s final assistant text', async () => {
     liveMessages = [
-      userMessage('u1', '\u6700\u521D\u7684\u76EE\u6807'),
-      assistantMessage('a1', [{ type: 'text', text: '\u7B2C\u4E00\u8F6E\u56DE\u7B54' }]),
-      userMessage('u2', '\u4E2D\u9014\u8FFD\u95EE'),
-      assistantMessage('a2', [{ type: 'text', text: '\u4E2D\u95F4\u56DE\u7B54' }]),
-      userMessage('u3', '\u6700\u8FD1\u7684\u8981\u6C42'),
-      assistantMessage('a3', [{ type: 'think', think: '\u601D\u8003\u4E2D' }]),
-      assistantMessage('a4', [{ type: 'text', text: '\u6700\u65B0\u6B63\u6587' }]),
+      userMessage('u1', 'Original goal'),
+      assistantMessage('a1', [{ type: 'text', text: 'First-round reply' }]),
+      userMessage('u2', 'Midway follow-up'),
+      assistantMessage('a2', [{ type: 'text', text: 'Middle reply' }]),
+      userMessage('u3', 'Latest request'),
+      assistantMessage('a3', [{ type: 'think', think: 'Thinking' }]),
+      assistantMessage('a4', [{ type: 'text', text: 'Latest reply body' }]),
     ];
 
     await expect(ix.get(IAgentTitlePromptSource).digestExcerpt()).resolves.toEqual({
       turns: [
-        { user: '\u6700\u521D\u7684\u76EE\u6807', assistant: '\u7B2C\u4E00\u8F6E\u56DE\u7B54' },
-        { user: '\u4E2D\u9014\u8FFD\u95EE', assistant: '\u4E2D\u95F4\u56DE\u7B54' },
-        { user: '\u6700\u8FD1\u7684\u8981\u6C42', assistant: '\u6700\u65B0\u6B63\u6587' },
+        { user: 'Original goal', assistant: 'First-round reply' },
+        { user: 'Midway follow-up', assistant: 'Middle reply' },
+        { user: 'Latest request', assistant: 'Latest reply body' },
       ],
     });
   });
 
   it('digestExcerpt covers every turn, even with a dangling tool-only span', async () => {
     liveMessages = [
-      userMessage('u1', '最初的目标'),
-      assistantMessage('a1', [{ type: 'text', text: '第一轮回答' }]),
-      userMessage('u2', '第二个话题'),
-      assistantMessage('a2', [{ type: 'think', think: '只在思考' }]),
-      userMessage('u3', '第三个话题'),
-      assistantMessage('a3', [{ type: 'text', text: '第三轮回答' }]),
-      userMessage('u4', '最新的话题'),
-      assistantMessage('a4', [{ type: 'text', text: '最新回答' }]),
+      userMessage('u1', 'original goal'),
+      assistantMessage('a1', [{ type: 'text', text: 'first reply' }]),
+      userMessage('u2', 'second topic'),
+      assistantMessage('a2', [{ type: 'think', think: 'thinking only' }]),
+      userMessage('u3', 'third topic'),
+      assistantMessage('a3', [{ type: 'text', text: 'third reply' }]),
+      userMessage('u4', 'latest topic'),
+      assistantMessage('a4', [{ type: 'text', text: 'latest reply' }]),
     ];
 
     await expect(ix.get(IAgentTitlePromptSource).digestExcerpt()).resolves.toEqual({
       turns: [
-        { user: '最初的目标', assistant: '第一轮回答' },
-        { user: '第二个话题', assistant: undefined },
-        { user: '第三个话题', assistant: '第三轮回答' },
-        { user: '最新的话题', assistant: '最新回答' },
+        { user: 'original goal', assistant: 'first reply' },
+        { user: 'second topic', assistant: undefined },
+        { user: 'third topic', assistant: 'third reply' },
+        { user: 'latest topic', assistant: 'latest reply' },
       ],
     });
   });
 
   it('digestExcerpt keeps a single-prompt conversation and dangling questions', async () => {
     liveMessages = [
-      userMessage('u1', '\u552F\u4E00\u7684\u95EE\u9898'),
-      assistantMessage('a1', [{ type: 'text', text: '\u552F\u4E00\u7684\u56DE\u7B54' }]),
-      userMessage('u2', '\u8FD8\u6CA1\u5F97\u5230\u56DE\u590D\u7684\u65B0\u95EE\u9898'),
+      userMessage('u1', 'Only question'),
+      assistantMessage('a1', [{ type: 'text', text: 'Only reply' }]),
+      userMessage('u2', 'New question still awaiting a reply'),
     ];
 
     await expect(ix.get(IAgentTitlePromptSource).digestExcerpt()).resolves.toEqual({
       turns: [
-        { user: '\u552F\u4E00\u7684\u95EE\u9898', assistant: '\u552F\u4E00\u7684\u56DE\u7B54' },
-        { user: '\u8FD8\u6CA1\u5F97\u5230\u56DE\u590D\u7684\u65B0\u95EE\u9898', assistant: undefined },
+        { user: 'Only question', assistant: 'Only reply' },
+        { user: 'New question still awaiting a reply', assistant: undefined },
       ],
     });
 
-    liveMessages = [userMessage('u1', '\u552F\u4E00\u7684\u95EE\u9898')];
+    liveMessages = [userMessage('u1', 'Only question')];
     await expect(ix.get(IAgentTitlePromptSource).digestExcerpt()).resolves.toEqual({
-      turns: [{ user: '\u552F\u4E00\u7684\u95EE\u9898', assistant: undefined }],
+      turns: [{ user: 'Only question', assistant: undefined }],
     });
 
     liveMessages = [];

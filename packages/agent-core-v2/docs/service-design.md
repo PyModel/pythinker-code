@@ -4,9 +4,9 @@
 > **scope**, when to **split it across scopes**, how to **call** other Services, and which
 > direction dependencies should point.
 >
-> This complements [`docs/di.md`](di.md). `di.md` explains the DI/Scope machinery
+> This complements the **agent-core-dev** skill, which explains the DI/Scope machinery
 > ("how the container works"); this doc explains the **design rules** ("where to put things
-> and why"). Read `di.md` first if you have not.
+> and why"). Read the skill first if you have not.
 
 ---
 
@@ -216,7 +216,7 @@ Use a veto event when many domains may intercept an operation and the only outco
 Two distinct layers are involved, and they differ in *hardness*:
 
 - **Scope direction**: short-lived → long-lived, **enforced by the container** (already
-  covered in [`docs/di.md`](di.md)).
+  covered in the agent-core-dev skill).
 - **Domain direction**: which domain may depend on which, **a matter of judgment** — the
   container does not enforce it.
 
