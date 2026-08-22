@@ -6,7 +6,7 @@
  * (web client over WS, mock handler in tests) and resolves the
  * promise when the response arrives.
  *
- * Role: one-shot broker — see `packages/services/AGENTS.md`. Kept under the
+ * Role: one-shot broker — see `packages/agent-core/src/services/AGENTS.md`. Kept under the
  * `Service` suffix per the package-wide convention; the broker semantics
  * lives in the interface shape (`request` + `resolve`) and the docstring,
  * not in the type name.

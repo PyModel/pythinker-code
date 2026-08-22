@@ -2,6 +2,13 @@
 
 How a domain's Services become the wire surface (`/api/v2`) and WebSocket events. This is a **design-time** decision: which Services are exposed, under what public `resource:action` name, and which events stream.
 
+> **Implementation note (2026-08):** the current `/api/v2` surface is hand-written route files
+> under `packages/agent-gateway/src/routes/v2/`, mounted by `src/routes/registerApiV2Routes.ts`
+> (see `packages/agent-gateway/AGENTS.md`). There is no generic `actionMap` dispatcher in
+> agent-gateway today; the `resource:action` model and tables below are the original v2 edge
+> design. The facade rules (§2, §4), the scope-resolution rule, and the WS-event rules (§5)
+> still apply to route-file exposure.
+
 The transport (`/api/v2` over HTTP + WS) lives in the **edge** layer (`gateway`/`rpc`/`transport`). It borrows business Services by interface; business code never imports it.
 
 ## 1. The edge model
@@ -45,7 +52,7 @@ A Service method is directly exposable iff **all** hold:
 3. Errors are `PythinkerError` (coded).
 4. It is a command/query, not a factory, stream, byte-store, or sink.
 
-If any fail → add a wire-safe orchestration method to the owning domain Service (e.g. `IAgentPromptService.submit` settles `{turn_id}` instead of returning the live `PromptHandle`) or compose several domain Services at the edge — kap-server's `routes/prompts.ts` is the reference for edge-side composition.
+If any fail → add a wire-safe orchestration method to the owning domain Service (e.g. `IAgentPromptService.submit` settles `{turn_id}` instead of returning the live `PromptHandle`) or compose several domain Services at the edge — agent-gateway's `routes/prompts.ts` is the reference for edge-side composition.
 
 ## 3. Per-scope `resource:action` map
 
@@ -160,7 +167,7 @@ The `eventMap` binds a public event name to the scope's `Event` source (analogou
 
 Session-level `onDidChange` sources (metadata / interactions) carry no payload today, so they are not exposed until there is a concrete consumer.
 
-Safety / reliability (carried over from `packages/server/src/ws/connection.ts` and VSCode's `ChannelServer`):
+Safety / reliability (carried over from VSCode's `ChannelServer`, and the legacy v1 server those ideas were ported from):
 
 - request ids + active-request table — `cancel` / `unlisten` disposes them;
 - heartbeat — `ping` every 30s, `pong` timeout 10s → `terminate`;

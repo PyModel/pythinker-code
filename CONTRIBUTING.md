@@ -1,7 +1,5 @@
 # Contributing to pythinker-code
 
-[中文版](CONTRIBUTING.zh-CN.md)
-
 Thanks for taking the time to contribute! This project moves quickly, and thoughtful contributions from the community are what keep it sharp. The guide below walks you through how we work so your PR has the best chance of landing smoothly.
 
 ## Before You Start
@@ -30,14 +28,14 @@ This is a pnpm monorepo. The most relevant entry points are:
 - `apps/vis` — session debug visualizer
 - `packages/node-sdk` — public TypeScript SDK (`@pymodel/pythinker-code-sdk`)
 - `packages/agent-core-v2` — the agent engine (v2, DI Scope architecture); `packages/agent-core` is v1 and being phased out
-- `packages/klient`, `kap-server`, `protocol`, `transcript`, `kosong`, `pyaos`, `oauth`, `telemetry` — internal engine packages
+- `packages/klient`, `agent-gateway`, `protocol`, `transcript`, `kosong`, `pyaos`, `oauth`, `telemetry` — internal engine packages
 - `docs/` — VitePress bilingual docs site
 
 For the full project map, see [AGENTS.md](AGENTS.md).
 
 ## Development Setup
 
-Prerequisites: Node.js >= 24.15.0, pnpm 10.33.0, Git.
+Prerequisites: Node.js >= 24.15.0, pnpm 10.34.3, Git.
 
 ```sh
 git clone https://github.com/PyModel/pythinker-code.git

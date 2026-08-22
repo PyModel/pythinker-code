@@ -270,7 +270,7 @@ registerSection(MY_SECTION, MySectionSchema, {
 });
 ```
 
-- A deprecated TOML key is **ignored** (its value no longer applies — the schema only knows the new key) and reports a warning `ConfigDiagnostic` while present; the file is never rewritten, so the warning is the migration guide. Diagnostics are recomputed on every load/reload and surface to clients via `IConfigService.diagnostics()` and `onDidChangeDiagnostics` (kap-server republishes them as the global `event.config.warning` WS event).
+- A deprecated TOML key is **ignored** (its value no longer applies — the schema only knows the new key) and reports a warning `ConfigDiagnostic` while present; the file is never rewritten, so the warning is the migration guide. Diagnostics are recomputed on every load/reload and surface to clients via `IConfigService.diagnostics()` and `onDidChangeDiagnostics` (agent-gateway republishes them as the global `event.config.warning` WS event).
 - A deprecated env var still **resolves** as a fallback (new var first), with the same warning treatment, and `stripEnvBoundFields` treats it as env-owned for writes.
 - See `src/agent/loop/configSection.ts` for a worked example (`max_retries_per_step` → `max_attempts_per_step`).
 

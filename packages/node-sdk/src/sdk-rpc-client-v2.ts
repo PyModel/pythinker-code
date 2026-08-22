@@ -546,7 +546,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
       subscription.dispose();
     }
     await this.klient.close();
-    // Same shutdown order as kap-server: drain the session-index mirror while
+    // Same shutdown order as agent-gateway: drain the session-index mirror while
     // the query store is still open, then await the asynchronous closes that
     // disposal fires — a host that removes homeDir right after close() must
     // not race an in-flight shard close (ENOTEMPTY on teardown).
@@ -1626,7 +1626,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
   /**
    * The session's materialized main agent with v1's eager default binding
    * applied: a freshly created agent whose profile is still unbound gets the
-   * default profile + configured default model (the same bind kap-server's
+   * default profile + configured default model (the same bind agent-gateway's
    * prompt route performs on first use). A home with no configured model
    * leaves the agent unbound instead of failing — v1's model-less session
    * reads (`model: undefined`, `'off'` thinking, zero capabilities) map onto

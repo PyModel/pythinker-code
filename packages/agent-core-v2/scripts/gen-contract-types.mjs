@@ -4,7 +4,7 @@
  * The output mirrors `src/` but with every registered service IMPLEMENTATION
  * class removed, leaving only the contract surface: interfaces, types, models,
  * error domains, factory functions, the `ServiceIdentifier` accessors, and the
- * DI primitives. Consumers (pythinker-code-mini-bench) type-check against this tree
+ * DI primitives. External contract consumers type-check against this tree
  * so tests cannot import an impl class, while at runtime the real linked
  * package still binds the real implementations.
  *

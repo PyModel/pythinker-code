@@ -26,7 +26,7 @@
  *     `Disposable` child stack. `PythinkerCore` itself has no `dispose()` today —
  *     when it gets one, we wire it here.
  *
- * Role: cross-process adapter — see `packages/services/AGENTS.md`.
+ * Role: cross-process adapter — see `packages/agent-core/src/services/AGENTS.md`.
  */
 
 import { createDecorator } from '../../di';

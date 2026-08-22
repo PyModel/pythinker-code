@@ -328,8 +328,7 @@ and flash wear:
 ## RESP server (redis-cli compatible)
 
 ```bash
-npm run server -- --dir ./data --port 6379
-# or: node --import tsx src/server.ts --dir ./data --port 6379
+node --import tsx src/server.ts --dir ./data --port 6379
 ```
 
 Then in another shell:
@@ -389,31 +388,30 @@ pnpm bench:cluster   # bench/cluster.ts — spawns real writer/reader processes
 
 ## Testing
 
-Three layers of tests, run with the built-in `node:test` runner (no deps):
+Vitest suite, run with `pnpm -C packages/minidb test`:
 
 ```bash
-npm test            # unit tests (fast)
-npm run test:e2e    # end-to-end stability suite
-npm run test:all    # both
+pnpm -C packages/minidb test   # unit + e2e + cluster suites
 ```
 
-The **unit tests** (`test/*.test.js`) cover each module: frame codec/CRC, WAL
+The **unit tests** (`test/*.test.ts`) cover each module: frame codec/CRC, WAL
 group commit, store TTL, snapshot/compaction, recovery truncation, skip list,
 secondary/full-text indexes, and the RESP server.
 
-The **E2E stability suite** (`test/e2e/*.test.js`) covers crash-safety and
+The **E2E stability suite** (`test/e2e/*.test.ts`) covers crash-safety and
 long-run behavior:
 
 | File | What it verifies |
 |---|---|
-| `fuzz-model.test.js` | thousands of random ops match a reference model (seeded, reproducible) |
-| `crash-recovery.test.js` | `kill -9` mid-write and mid-compaction → recovery is always consistent |
-| `index-consistency.test.js` | key/dt/secondary/full-text indexes never drift from the store |
-| `compaction-race.test.js` | heavy concurrent writes during compaction lose nothing |
-| `recovery-matrix.test.js` | WAL corruption at head/mid/tail under `resync` vs `strict` |
-| `durability.test.js` | `always`/`everysec`/`no` close-durability + many open/close cycles |
-| `boundary.test.js` | key-length limits, large values, many keys, empty db |
-| `soak.test.js` | sustained ops + heap stability (opt-in: `SOAK=30 npm run test:e2e`) |
+| `fuzz-model.test.ts` | thousands of random ops match a reference model (seeded, reproducible) |
+| `crash-recovery.test.ts` | `kill -9` mid-write and mid-compaction → recovery is always consistent |
+| `index-consistency.test.ts` | key/dt/secondary/full-text indexes never drift from the store |
+| `compaction-race.test.ts` | heavy concurrent writes during compaction lose nothing |
+| `recovery-matrix.test.ts` | WAL corruption at head/mid/tail under `resync` vs `strict` |
+| `durability.test.ts` | `always`/`everysec`/`no` close-durability + many open/close cycles |
+| `boundary.test.ts` | key-length limits, large values, many keys, empty db |
+| `soak.test.ts` | sustained ops + heap stability (opt-in: `SOAK=30`) |
+| `stress.test.ts` | sustained concurrent load |
 
 The **cluster suite** (`test/cluster/*.test.ts`) covers the `ClusterDb`
 sharding layer: topology/routing, merged scans, lock contention and lease
