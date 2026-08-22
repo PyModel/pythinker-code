@@ -317,7 +317,7 @@ export function pythinkerCodeEnvOAuthHost(env: ManagedPythinkerEnv = process.env
 }
 
 // Base URLs that share the default `oauth/pythinker-code` credential slot.
-const SHARED_DEFAULT_BASE_URLS: readonly string[] = new Set([
+const SHARED_DEFAULT_BASE_URLS: ReadonlySet<string> = new Set([
   normalizeEndpoint(DEFAULT_PYTHINKER_CODE_BASE_URL),
 ]);
 
