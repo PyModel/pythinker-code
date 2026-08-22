@@ -36,7 +36,7 @@ const emit = defineEmits<{
 
 const { t } = useI18n();
 
-const status = computed<'running' | 'ok' | 'error'>(() => props.tool.status as 'running' | 'ok' | 'error');
+const status = computed(() => props.tool.status);
 const label = computed(() => toolLabel(props.tool.name));
 const glyph = computed(() => toolGlyph(props.tool.name));
 const isWrite = computed(() => normalizeToolName(props.tool.name) === 'write');
@@ -118,9 +118,10 @@ function openFile(): void {
 
 <style scoped>
 .tl-name {
-  color: var(--color-text);
+  color: var(--emph, var(--color-text));
   font-weight: var(--weight-medium);
   flex: none;
+  transition: color var(--duration-slow) var(--ease-out);
 }
 .tl-ficon {
   display: inline-flex;
@@ -132,7 +133,7 @@ function openFile(): void {
   display: block;
 }
 .tl-file {
-  color: var(--color-text);
+  color: var(--emph, var(--color-text));
   line-height: var(--leading-tight);
   flex: none;
   max-width: 60%;
@@ -146,6 +147,7 @@ function openFile(): void {
   font-family: inherit;
   font-size: inherit;
   cursor: pointer;
+  transition: color var(--duration-slow) var(--ease-out);
 }
 .tl-file:hover {
   color: var(--color-accent);

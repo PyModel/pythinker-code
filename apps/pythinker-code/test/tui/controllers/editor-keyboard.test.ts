@@ -383,84 +383,199 @@ describe('EditorKeyboardController input changes', () => {
   });
 });
 
-describe('EditorKeyboardController Shift-Tab plan toggle', () => {
-  function createShiftTabHarness(options: { sessionless?: boolean; engineV2?: boolean } = {}) {
+describe('EditorKeyboardController Shift-Tab effort cycle', () => {
+  function createEffortHarness(
+    options: {
+      supportEfforts?: string[];
+      capabilities?: string[];
+      thinkingEffort?: string;
+      streamingPhase?: string;
+      sessionless?: boolean;
+      engineV2?: boolean;
+      setThinkingError?: Error;
+    } = {},
+  ) {
     const editor: Record<string, ((...args: never[]) => unknown) | undefined> = {
       setHistoryFilter: vi.fn() as unknown as (...args: never[]) => unknown,
     };
-    const handlePlanToggle = vi.fn();
+    const setThinking = vi.fn(async () => {});
+    if (options.setThinkingError !== undefined) {
+      setThinking.mockRejectedValue(options.setThinkingError);
+    }
+    const setConfig = vi.fn(async () => {});
     const track = vi.fn();
     const showError = vi.fn();
-    const ensureSession = vi.fn(async (): Promise<{ id: string } | undefined> => ({ id: 'ses-lazy' }));
+    const showNotice = vi.fn();
+    const appState: Record<string, unknown> = {
+      streamingPhase: options.streamingPhase ?? 'idle',
+      isCompacting: false,
+      model: 'kimi-k2',
+      thinkingEffort: options.thinkingEffort ?? 'off',
+      availableModels: {
+        'kimi-k2':
+          options.supportEfforts === undefined
+            ? {
+                provider: 'managed:pythinker-code',
+                model: 'kimi-k2',
+                maxContextSize: 262144,
+                capabilities: options.capabilities ?? ['thinking'],
+              }
+            : {
+                provider: 'managed:pythinker-code',
+                model: 'kimi-k2',
+                maxContextSize: 262144,
+                supportEfforts: options.supportEfforts,
+              },
+      },
+    };
+    const statePatches: Array<Record<string, unknown>> = [];
     const host = {
       state: {
         editor,
         activeDialog: null,
-        appState: { streamingPhase: 'idle', isCompacting: false, planMode: false },
+        appState,
         footer: { setTransientHint: vi.fn() },
         ui: { requestRender: vi.fn() },
       },
-      session: options.sessionless ? undefined : { cancel: vi.fn(async () => {}) },
+      session:
+        options.sessionless === true
+          ? undefined
+          : { cancel: vi.fn(async () => {}), setThinking },
       engineV2: options.engineV2 ?? false,
-      ensureSession,
-      handlePlanToggle,
+      harness: { setConfig },
+      // Merge like the real host so successive presses read fresh effort.
+      setAppState: (patch: Record<string, unknown>) => {
+        Object.assign(appState, patch);
+        statePatches.push(patch);
+      },
       track,
       showError,
+      showNotice,
       btwPanelController: { cancelRunning: vi.fn(), closeOrCancel: vi.fn() },
     } as unknown as EditorKeyboardHost;
 
     new EditorKeyboardController(host, undefined as unknown as ImageAttachmentStore).install();
     const onShiftTab = editor['onShiftTab'] as unknown as () => void;
-    return { onShiftTab, handlePlanToggle, track, showError, ensureSession };
+    return { onShiftTab, setThinking, setConfig, track, showError, showNotice, statePatches };
   }
 
-  it('toggles plan mode directly with an active session', () => {
-    const { onShiftTab, handlePlanToggle, ensureSession } = createShiftTabHarness();
-
-    onShiftTab();
-
-    expect(ensureSession).not.toHaveBeenCalled();
-    expect(handlePlanToggle).toHaveBeenCalledWith(true);
-  });
-
-  it('reports no active session on v1 when session-less', () => {
-    const { onShiftTab, showError, handlePlanToggle } = createShiftTabHarness({
-      sessionless: true,
-    });
-
-    onShiftTab();
-
-    expect(showError).toHaveBeenCalledWith(NO_ACTIVE_SESSION_MESSAGE);
-    expect(handlePlanToggle).not.toHaveBeenCalled();
-  });
-
-  it('lazy-creates the session before toggling on v2 when session-less', async () => {
-    const { onShiftTab, ensureSession, handlePlanToggle, track } = createShiftTabHarness({
-      sessionless: true,
-      engineV2: true,
-    });
-
-    onShiftTab();
-    expect(handlePlanToggle).not.toHaveBeenCalled();
-
-    await vi.waitFor(() => {
-      expect(handlePlanToggle).toHaveBeenCalledWith(true);
-    });
-    expect(ensureSession).toHaveBeenCalledOnce();
-    expect(track).toHaveBeenCalledWith('shortcut_plan_toggle', { enabled: true });
-  });
-
-  it('does not toggle when the lazy creation fails on v2', async () => {
-    const { onShiftTab, ensureSession, handlePlanToggle } = createShiftTabHarness({
-      sessionless: true,
-      engineV2: true,
-    });
-    ensureSession.mockResolvedValue(undefined);
-
-    onShiftTab();
+  async function settle(): Promise<void> {
     await new Promise((resolve) => setImmediate(resolve));
+    await new Promise((resolve) => setImmediate(resolve));
+  }
 
-    expect(handlePlanToggle).not.toHaveBeenCalled();
+  it('cycles off → low → high → max → off and persists the default', async () => {
+    const h = createEffortHarness({ supportEfforts: ['low', 'high', 'max'] });
+    const press = async (): Promise<unknown> => {
+      h.onShiftTab();
+      await settle();
+      return h.statePatches.at(-1)?.['thinkingEffort'];
+    };
+
+    await expect(press()).resolves.toBe('low');
+    expect(h.setThinking).toHaveBeenCalledWith('low');
+    expect(h.setConfig).toHaveBeenCalledWith({ thinking: { enabled: true, effort: 'low' } });
+
+    await expect(press()).resolves.toBe('high');
+    await expect(press()).resolves.toBe('max');
+    // The top declared level never becomes the stored default effort.
+    expect(h.setConfig).toHaveBeenLastCalledWith({ thinking: { enabled: true } });
+
+    await expect(press()).resolves.toBe('off');
+    expect(h.setConfig).toHaveBeenLastCalledWith({ thinking: { enabled: false } });
+    expect(h.track).toHaveBeenLastCalledWith('thinking_toggle', {
+      enabled: false,
+      effort: 'off',
+      from: 'max',
+    });
+  });
+
+  it('ignores shift-tab pressed again while a thinking update is in flight', async () => {
+    const h = createEffortHarness({ supportEfforts: ['low', 'high', 'max'] });
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    h.setThinking.mockImplementation(() => gate);
+
+    h.onShiftTab();
+    await new Promise((resolve) => setImmediate(resolve));
+    h.onShiftTab();
+    release();
+    await settle();
+
+    expect(h.setThinking).toHaveBeenCalledTimes(1);
+    expect(h.setThinking).toHaveBeenCalledWith('low');
+    expect(h.statePatches.at(-1)?.['thinkingEffort']).toBe('low');
+  });
+
+  it('refuses to cycle while a turn is streaming', async () => {
+    const h = createEffortHarness({
+      supportEfforts: ['low', 'high'],
+      streamingPhase: 'composing',
+    });
+
+    h.onShiftTab();
+    await settle();
+
+    expect(h.showError).toHaveBeenCalledWith(
+      'Cannot change thinking effort while streaming — press Esc or Ctrl-C first.',
+    );
+    expect(h.setThinking).not.toHaveBeenCalled();
+  });
+
+  it('reports no active session on v1 when session-less', async () => {
+    const h = createEffortHarness({ supportEfforts: ['low', 'high'], sessionless: true });
+
+    h.onShiftTab();
+    await settle();
+
+    expect(h.showError).toHaveBeenCalledWith(NO_ACTIVE_SESSION_MESSAGE);
+    expect(h.statePatches).toEqual([]);
+  });
+
+  it('carries the cycled effort into the lazy v2 session when session-less', async () => {
+    const h = createEffortHarness({
+      supportEfforts: ['low', 'high'],
+      sessionless: true,
+      engineV2: true,
+    });
+
+    h.onShiftTab();
+    await settle();
+
+    expect(h.setThinking).not.toHaveBeenCalled();
+    expect(h.statePatches.at(-1)).toMatchObject({
+      thinkingEffort: 'low',
+      lazySessionThinking: 'low',
+    });
+    expect(h.showError).not.toHaveBeenCalled();
+  });
+
+  it('notifies when the model offers no selectable levels', async () => {
+    const h = createEffortHarness({ capabilities: ['always_thinking'] });
+
+    h.onShiftTab();
+    await settle();
+
+    expect(h.showNotice).toHaveBeenCalledWith(
+      'kimi-k2 does not offer selectable thinking effort levels.',
+    );
+    expect(h.setThinking).not.toHaveBeenCalled();
+  });
+
+  it('surfaces a setThinking failure without changing state', async () => {
+    const h = createEffortHarness({
+      supportEfforts: ['low', 'high'],
+      setThinkingError: new Error('boom'),
+    });
+
+    h.onShiftTab();
+    await settle();
+
+    expect(h.showError).toHaveBeenCalledWith('Failed to set thinking effort: boom');
+    expect(h.statePatches).toEqual([]);
+    expect(h.setConfig).not.toHaveBeenCalled();
   });
 });
 

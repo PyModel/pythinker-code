@@ -820,11 +820,11 @@ describe('PythinkerTUI message flow', () => {
       driver as unknown as { refreshSkillCommands(): Promise<void> }
     ).refreshSkillCommands();
 
-    driver.handleUserInput('/dance please use /skill:review');
+    driver.handleUserInput('/hatch please use /skill:review');
 
     await vi.waitFor(() => {
       expect(session.promptWithSkills).toHaveBeenCalledWith(
-        '/dance please use /skill:review',
+        '/hatch please use /skill:review',
         [{ name: 'review' }],
       );
     });
@@ -2586,17 +2586,29 @@ command = "vim"
     expect(failedSession.onEvent).toHaveBeenCalledOnce();
   });
 
-  it('tracks Shift-Tab mode switches through the editor handler', async () => {
+  it('tracks Shift-Tab effort cycling through the editor handler', async () => {
     const { driver, session, harness } = await makeDriver();
     harness.track.mockClear();
+    driver.state.appState.availableModels = {
+      k2: {
+        provider: 'openai',
+        model: 'gpt-x',
+        maxContextSize: 100,
+        supportEfforts: ['low', 'high'],
+      },
+    };
 
     driver.state.editor.onShiftTab?.();
 
     await vi.waitFor(() => {
-      expect(session.setPlanMode).toHaveBeenCalledWith(true);
+      expect(session.setThinking).toHaveBeenCalledWith('low');
     });
-    expect(harness.track).toHaveBeenCalledWith('shortcut_plan_toggle', { enabled: true });
-    expect(harness.track).toHaveBeenCalledWith('shortcut_mode_switch', { to_mode: 'plan' });
+    expect(driver.state.appState.thinkingEffort).toBe('low');
+    expect(harness.track).toHaveBeenCalledWith('thinking_toggle', {
+      enabled: true,
+      effort: 'low',
+      from: 'off',
+    });
   });
 
   it('routes /yolo through session permission state without app-layer telemetry duplication', async () => {

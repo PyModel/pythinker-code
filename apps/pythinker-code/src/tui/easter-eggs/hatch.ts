@@ -1,7 +1,7 @@
 /**
- * `/dance` easter egg — everything it needs lives in this one file: the
- * rainbow text coloring, the animation state machine, and the command handler.
- * Removing the feature is "delete this file + its import sites".
+ * `/hatch` easter egg — the rainbow text coloring, the animation state
+ * machine, and the command handler. Removing the feature is "delete this
+ * file, `constant/hatch.ts`, and the import sites".
  *
  * It is deliberately NOT registered in BUILTIN_SLASH_COMMANDS, so it stays out
  * of `/help` and autocomplete; `executeSlashCommand` calls the handler as a
@@ -13,12 +13,8 @@ import chalk from 'chalk';
 
 import type { SlashCommandHost } from '../commands/dispatch';
 import type { ParsedSlashInput } from '../commands/types';
+import { HATCH_FLOW_MS, HATCH_FRAME_MS } from '../constant/hatch';
 import { currentTheme } from '../theme';
-
-/** Frame interval for the rainbow flow animation. */
-export const DANCE_FRAME_MS = 110;
-/** How long the rainbow flows before settling (fading out, or freezing). */
-export const DANCE_FLOW_MS = 3000;
 
 const DARK_RAINBOW = [
   '#4FA8FF',
@@ -43,7 +39,7 @@ const LIGHT_RAINBOW = [
   '#354CB5',
 ] as const;
 
-function getDanceRainbowPalette(): readonly [string, ...string[]] {
+function getHatchRainbowPalette(): readonly [string, ...string[]] {
   return currentTheme.palette.text === '#1A1A1A' ? LIGHT_RAINBOW : DARK_RAINBOW;
 }
 
@@ -66,69 +62,69 @@ export function rainbowText(
     .join('');
 }
 
-/** Read-only view of the dance state for components that only render it. */
-export interface RainbowDanceView {
+/** Read-only view of the hatch state for components that only render it. */
+export interface RainbowHatchView {
   /** Whether consumers should paint themselves in rainbow at all. */
   readonly colored: boolean;
   /** Palette offset, advancing while the rainbow flows. */
   readonly phase: number;
 }
 
-export interface RainbowDanceController extends RainbowDanceView {
+export interface RainbowHatchController extends RainbowHatchView {
   start(opts: { hold: boolean }): void;
   stop(): void;
   dispose(): void;
 }
 
-let currentDanceController: RainbowDanceController | undefined;
-let currentDanceView: RainbowDanceView | undefined;
+let currentHatchController: RainbowHatchController | undefined;
+let currentHatchView: RainbowHatchView | undefined;
 
-export function setRainbowDance(dance: RainbowDanceController | undefined): void {
-  currentDanceController = dance;
-  currentDanceView = dance;
+export function setRainbowHatch(hatch: RainbowHatchController | undefined): void {
+  currentHatchController = hatch;
+  currentHatchView = hatch;
 }
 
-export function installRainbowDance(requestRender: () => void): () => void {
-  currentDanceController?.dispose();
-  const dance = new RainbowDance(requestRender);
-  setRainbowDance(dance);
+export function installRainbowHatch(requestRender: () => void): () => void {
+  currentHatchController?.dispose();
+  const hatch = new RainbowHatch(requestRender);
+  setRainbowHatch(hatch);
   return () => {
-    dance.dispose();
-    if (currentDanceController === dance) {
-      setRainbowDance(undefined);
+    hatch.dispose();
+    if (currentHatchController === hatch) {
+      setRainbowHatch(undefined);
     }
   };
 }
 
-export function getRainbowDanceView(): RainbowDanceView | undefined {
-  return currentDanceView;
+export function getRainbowHatchView(): RainbowHatchView | undefined {
+  return currentHatchView;
 }
 
-export function isRainbowDancing(): boolean {
-  return currentDanceView?.colored === true;
+export function isRainbowHatching(): boolean {
+  return currentHatchView?.colored === true;
 }
 
-export function renderDanceWelcomeText(
+export function renderHatchWelcomeText(
   text: string,
   offset = 0,
   bold = false,
 ): string {
   return rainbowText(
     text,
-    getDanceRainbowPalette(),
-    (currentDanceView?.phase ?? 0) + offset,
+    getHatchRainbowPalette(),
+    (currentHatchView?.phase ?? 0) + offset,
     bold,
   );
 }
 
-export function renderDanceWelcomeLogo(logoLines: readonly string[]): string[] {
-  const phase = currentDanceView?.phase ?? 0;
-  const palette = getDanceRainbowPalette();
+export function renderHatchWelcomeLogo(logoLines: readonly string[]): string[] {
+  const phase = currentHatchView?.phase ?? 0;
+  const palette = getHatchRainbowPalette();
   return logoLines.map((line, index) => rainbowText(line, palette, phase + index * 3));
 }
 
-export function renderDanceFooterModel(modelLabel: string): string {
-  return rainbowText(modelLabel, getDanceRainbowPalette(), currentDanceView?.phase ?? 0);
+export function renderHatchFooterModel(modelLabel: string): string {
+  return rainbowText(modelLabel, getHatchRainbowPalette(), currentHatchView?.phase ?? 0);
 }
 
 /**
@@ -137,7 +133,7 @@ export function renderDanceFooterModel(modelLabel: string): string {
  * scrolling away or being rebuilt never disturbs the animation. Three states:
  * off (default), flowing, and a frozen static rainbow.
  */
-export class RainbowDance implements RainbowDanceController {
+export class RainbowHatch implements RainbowHatchController {
   private currentPhase = 0;
   private isColored = false;
   private frameTimer: ReturnType<typeof setInterval> | null = null;
@@ -157,7 +153,7 @@ export class RainbowDance implements RainbowDanceController {
   }
 
   /**
-   * Flow the rainbow for `DANCE_FLOW_MS`, then settle:
+   * Flow the rainbow for `HATCH_FLOW_MS`, then settle:
    *  - `hold: false` → fade back to the default (uncolored) banner.
    *  - `hold: true`  → freeze into a static rainbow that stays on.
    */
@@ -166,13 +162,13 @@ export class RainbowDance implements RainbowDanceController {
     this.isColored = true;
     this.frameTimer = setInterval(() => {
       // Phase just increments; rainbowText() takes it modulo the *current*
-      // palette length, so the dance never needs to know the palette size.
+      // palette length, so the hatch never needs to know the palette size.
       this.currentPhase += 1;
       this.requestRender();
-    }, DANCE_FRAME_MS);
+    }, HATCH_FRAME_MS);
     this.flowStopTimer = setTimeout(() => {
       this.settle(opts.hold);
-    }, DANCE_FLOW_MS);
+    }, HATCH_FLOW_MS);
     this.requestRender();
   }
 
@@ -215,16 +211,16 @@ export class RainbowDance implements RainbowDanceController {
 }
 
 /**
- * Handle `/dance`:
- *   /dance       flow for a few seconds, then fade back to the default colors
- *   /dance on    flow, then freeze into a static rainbow that stays on
- *   /dance off   turn the rainbow off
+ * Handle `/hatch`:
+ *   /hatch       flow for a few seconds, then fade back to the default colors
+ *   /hatch on    flow, then freeze into a static rainbow that stays on
+ *   /hatch off   turn the rainbow off
  *
  * Returns true when it claimed the input.
  */
-export function tryHandleDanceCommand(host: SlashCommandHost, parsed: ParsedSlashInput): boolean {
-  if (parsed.name !== 'dance') return false;
-  if (currentDanceController === undefined) return false;
+export function tryHandleHatchCommand(host: SlashCommandHost, parsed: ParsedSlashInput): boolean {
+  if (parsed.name !== 'hatch') return false;
+  if (currentHatchController === undefined) return false;
 
   // The status line dims the whole message, which buried the command in the
   // hint. Paint just the command in the brand color (bold) so it reads as a
@@ -233,13 +229,13 @@ export function tryHandleDanceCommand(host: SlashCommandHost, parsed: ParsedSlas
 
   const sub = parsed.args.trim().toLowerCase();
   if (sub === 'off') {
-    currentDanceController.stop();
+    currentHatchController.stop();
   } else if (sub === 'on') {
-    currentDanceController.start({ hold: true });
-    host.showStatus(`Dancing — use ${cmd('/dance off')} to turn it off.`);
+    currentHatchController.start({ hold: true });
+    host.showStatus(`Hatching — use ${cmd('/hatch off')} to turn it off.`);
   } else {
-    currentDanceController.start({ hold: false });
-    host.showStatus(`Use ${cmd('/dance on')} to keep the rainbow on.`);
+    currentHatchController.start({ hold: false });
+    host.showStatus(`Use ${cmd('/hatch on')} to keep the rainbow on.`);
   }
   return true;
 }

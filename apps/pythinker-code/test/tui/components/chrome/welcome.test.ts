@@ -8,7 +8,7 @@ import {
   renderWelcomeBanner,
 } from '#/tui/components/chrome/welcome-banner';
 import { WelcomeComponent } from '#/tui/components/chrome/welcome';
-import { setRainbowDance, type RainbowDanceController } from '#/tui/easter-eggs/dance';
+import { setRainbowHatch, type RainbowHatchController } from '#/tui/easter-eggs/hatch';
 import type { AppState } from '#/tui/types';
 
 const TRUECOLOR_PATTERN = /\u001B\[38;2;(\d+);(\d+);(\d+)m/g;
@@ -59,15 +59,15 @@ function headerOf(lines: string[]): string {
   return [lines[3], lines[4]].join('\n');
 }
 
-function setDanceView(colored: boolean, phase: number): void {
-  const dance: RainbowDanceController = {
+function setHatchView(colored: boolean, phase: number): void {
+  const hatch: RainbowHatchController = {
     colored,
     phase,
     start: () => {},
     stop: () => {},
     dispose: () => {},
   };
-  setRainbowDance(dance);
+  setRainbowHatch(hatch);
 }
 
 describe('WelcomeComponent', () => {
@@ -79,19 +79,19 @@ describe('WelcomeComponent', () => {
 
   afterEach(() => {
     chalk.level = previousChalkLevel;
-    setRainbowDance(undefined);
+    setRainbowHatch(undefined);
   });
 
   it('renders the branded banner with semantic logo colors by default', () => {
     const codes = truecolorCodes(headerOf(new WelcomeComponent(appState).render(80)));
 
     // The static logo uses themed accent, body, and border tokens; rainbow is
-    // still off until /dance is activated.
+    // still off until /hatch is activated.
     expect(codes.size).toBeGreaterThanOrEqual(3);
   });
 
   it('paints the banner in rainbow while colored', () => {
-    setDanceView(true, 0);
+    setHatchView(true, 0);
     const codes = truecolorCodes(headerOf(new WelcomeComponent(appState).render(80)));
 
     expect(codes.size).toBeGreaterThanOrEqual(5);
@@ -99,7 +99,7 @@ describe('WelcomeComponent', () => {
 
   it('renders exactly the default banner when not colored', () => {
     const base = headerOf(new WelcomeComponent(appState).render(80));
-    setDanceView(false, 5);
+    setHatchView(false, 5);
     const off = headerOf(new WelcomeComponent(appState).render(80));
 
     expect(off).toBe(base);

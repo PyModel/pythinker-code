@@ -1,6 +1,11 @@
 import { readFile } from 'node:fs/promises';
 
-import type { FileMeta, PythinkerHarness, Session } from '@pymodel/pythinker-code-sdk';
+import type {
+  FileMeta,
+  PythinkerHarness,
+  Session,
+  ThinkingEffort,
+} from '@pymodel/pythinker-code-sdk';
 import { compressImageForModel } from '@pymodel/pythinker-code-sdk';
 
 import {
@@ -11,6 +16,7 @@ import {
 import { parseImageMeta } from '#/utils/image/image-mime';
 import { editInExternalEditor, resolveEditorCommand } from '#/utils/process/external-editor';
 
+import { segmentsFor } from '../components/dialogs/model-selector';
 import {
   CTRL_C_HINT,
   CTRL_D_HINT,
@@ -28,7 +34,13 @@ import type {
 } from '../utils/image-attachment-store';
 import { extractMediaAttachments, imageExtensionForMime } from '../utils/image-placeholder';
 import { extractInlineSkillActivations } from '../utils/inline-skill-tokens';
-import type { PendingExit, QueuedMessage, SteerInputItem } from '../types';
+import { thinkingEffortToConfig } from '../utils/thinking-config';
+import type {
+  AppState,
+  PendingExit,
+  QueuedMessage,
+  SteerInputItem,
+} from '../types';
 import type { TUIState } from '../tui-state';
 import type { BtwPanelController } from './btw-panel';
 
@@ -63,6 +75,8 @@ export interface EditorKeyboardHost {
   releaseStagingMedia(mediaAttachmentIds: readonly number[]): void;
   recallLastQueued(): QueuedMessage | undefined;
   showError(msg: string): void;
+  showNotice(title: string, detail?: string): void;
+  setAppState(patch: Partial<AppState>): void;
   track(event: string, props?: Record<string, unknown>): void;
   updateEditorBorderHighlight(text?: string): void;
   /** `undefined` means the input cannot be a `/goal` command (clear without measuring). */
@@ -76,7 +90,6 @@ export interface EditorKeyboardHost {
   openUndoSelector(): void;
   stop(exitCode?: number): Promise<void>;
   ensureSession(): Promise<Session | undefined>;
-  handlePlanToggle(next: boolean): void;
   handleInputModeChange(mode: 'prompt' | 'bash'): void;
   clearQueuedMessages(): void;
   setExternalEditorRunning(running: boolean): void;
@@ -256,25 +269,7 @@ export class EditorKeyboardController {
     };
 
     editor.onShiftTab = () => {
-      const togglePlan = (): void => {
-        const next = !host.state.appState.planMode;
-        host.track('shortcut_plan_toggle', { enabled: next });
-        host.track('shortcut_mode_switch', { to_mode: next ? 'plan' : 'agent' });
-        host.handlePlanToggle(next);
-      };
-      if (host.session === undefined) {
-        if (!host.engineV2) {
-          host.showError(NO_ACTIVE_SESSION_MESSAGE);
-          return;
-        }
-        // v2 session-less: lazy-create the session, then toggle — the same
-        // path /plan takes.
-        void host.ensureSession().then((session) => {
-          if (session !== undefined) togglePlan();
-        });
-        return;
-      }
-      togglePlan();
+      void this.cycleThinkingEffort();
     };
 
     editor.onInputModeChange = (mode) => {
@@ -530,6 +525,82 @@ export class EditorKeyboardController {
     // addition to the agent turn, so Esc / Ctrl+C interrupts it too.
     this.host.cancelRunningShellCommand();
     void this.host.session?.cancel();
+  }
+
+  /** Guards Shift-Tab cycling while a setThinking round-trip is still pending. */
+  private thinkingCycleInFlight = false;
+
+  /** Shift-Tab: cycle the thinking effort to the current model's next level (wraps). */
+  private async cycleThinkingEffort(): Promise<void> {
+    if (this.thinkingCycleInFlight) return;
+    const { host } = this;
+    if (host.state.appState.streamingPhase !== 'idle' || host.state.appState.isCompacting) {
+      host.showError('Cannot change thinking effort while streaming — press Esc or Ctrl-C first.');
+      return;
+    }
+    const alias = host.state.appState.model;
+    if (alias.trim().length === 0) {
+      host.showError(LLM_NOT_SET_MESSAGE);
+      return;
+    }
+    const model = host.state.appState.availableModels[alias];
+    if (model === undefined) {
+      host.showError('No model selected. Run /model to select one first.');
+      return;
+    }
+    const levels = segmentsFor(model);
+    if (levels.length <= 1) {
+      host.showNotice(`${alias} does not offer selectable thinking effort levels.`);
+      return;
+    }
+    this.thinkingCycleInFlight = true;
+    try {
+      const prev = host.state.appState.thinkingEffort;
+      const currentIndex = levels.indexOf(prev);
+      // An out-of-list live effort (e.g. a provider-specific value) restarts the
+      // cycle from the off entry when offered, else from the first level.
+      const startIndex = currentIndex !== -1 ? currentIndex + 1 : Math.max(0, levels.indexOf('off'));
+      const next = levels[startIndex % levels.length] ?? levels[0]!;
+      if (host.session !== undefined) {
+        try {
+          await host.session.setThinking(next);
+        } catch (error) {
+          host.showError(`Failed to set thinking effort: ${formatErrorMessage(error)}`);
+          return;
+        }
+      } else if (!host.engineV2) {
+        host.showError(NO_ACTIVE_SESSION_MESSAGE);
+        return;
+      }
+      // v2 session-less: carry the choice into the first lazy-created session,
+      // the same way a session-only Alt+S choice is applied on creation.
+      const patch: Partial<AppState> = { thinkingEffort: next };
+      if (host.session === undefined) patch.lazySessionThinking = next;
+      host.setAppState(patch);
+      host.track('thinking_toggle', { enabled: next !== 'off', effort: next, from: prev });
+      // No transcript notice: the footer already shows the new level live, and
+      // rapid cycling would stack a line per keypress in the chat history.
+      await this.persistDefaultEffort(alias, model, next);
+    } finally {
+      this.thinkingCycleInFlight = false;
+    }
+  }
+
+  /** Best-effort persist of the cycled effort as the config default. */
+  private async persistDefaultEffort(
+    alias: string,
+    model: Parameters<typeof segmentsFor>[0],
+    effort: ThinkingEffort,
+  ): Promise<void> {
+    const harness = this.host.harness;
+    if (harness === undefined || alias !== this.host.state.appState.model) return;
+    try {
+      await harness.setConfig({ thinking: thinkingEffortToConfig(effort, model.supportEfforts) });
+    } catch (error) {
+      this.host.showError(
+        `Thinking effort set to ${effort}, but failed to save default: ${formatErrorMessage(error)}`,
+      );
+    }
   }
 
   private cancelCurrentCompaction(): void {

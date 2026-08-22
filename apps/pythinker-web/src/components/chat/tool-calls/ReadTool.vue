@@ -184,12 +184,13 @@ watch(
   display: block;
 }
 .tl-name {
-  color: var(--color-text);
+  color: var(--emph, var(--color-text));
   font-weight: var(--weight-medium);
   flex: none;
+  transition: color var(--duration-slow) var(--ease-out);
 }
 .tl-file {
-  color: var(--color-text);
+  color: var(--emph, var(--color-text));
   line-height: var(--leading-tight);
   flex: none;
   max-width: 60%;
@@ -203,6 +204,7 @@ watch(
   font-family: inherit;
   font-size: inherit;
   cursor: pointer;
+  transition: color var(--duration-slow) var(--ease-out);
 }
 .tl-file:hover {
   color: var(--color-accent);

@@ -19,7 +19,7 @@ export const WORKING_TIPS: readonly ToolbarTip[] = [
   { text: 'ctrl-s to add guidance without waiting for the turn to finish', priority: 2, solo: true },
   { text: '/tasks to check progress and status for background tasks', priority: 2 },
   { text: '/init: generate AGENTS.md', priority: 2 },
-  { text: 'Try /dance for a hidden Easter egg' },
+  { text: 'Try /hatch for a hidden Easter egg' },
   {
     text: '/plugins: manage plugins — try the "Pythinker Datasource" for reliable financial, economic, and academic data',
     solo: true,
@@ -44,6 +44,6 @@ export const ALL_TIPS: readonly ToolbarTip[] = [
   { text: '/help: show commands' },
   { text: '/compact compresses context when it gets long', priority: 2 },
   { text: 'ctrl-o to hide or reveal tool output switching between a clean chat view and full execution details', priority: 2 },
-  { text: 'shift-tab to Plan mode to review the approach before Pythinker edits files.', priority: 2 },
+  { text: '/plan to review the approach before Pythinker edits files.', priority: 2 },
   { text: '/model: switch model', priority: 2 },
 ];

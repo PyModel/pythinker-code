@@ -1,13 +1,14 @@
 <!-- apps/pythinker-web/src/components/chat/ToolRow.vue -->
 <script setup lang="ts">
 import { inject, nextTick, ref } from 'vue';
+import type { ToolStatus } from '../../types';
 import Icon from '../ui/Icon.vue';
 import Tooltip from '../ui/Tooltip.vue';
 import StatusDot from '../ui/StatusDot.vue';
 
 withDefaults(
   defineProps<{
-    status: 'running' | 'ok' | 'error' | 'suspended';
+    status: ToolStatus;
     /** Inline-SVG glyph string (toolGlyph), or empty for none. */
     icon?: string;
     name: string;
@@ -47,6 +48,7 @@ function onHeadClick(): void {
     :class="{
       open,
       stacked,
+      run: status === 'running' || status === 'suspended',
       err: status === 'error',
       'stack-first': stackPosition === 'first',
       'stack-middle': stackPosition === 'middle',
@@ -110,6 +112,10 @@ function onHeadClick(): void {
   border-top: 1px solid var(--color-line);
 }
 
+/* Head text emphasis, inherited by slotted titles too: a settled row sits
+   dimmed, hover/open restores legibility, and a running/suspended row holds
+   full strength — then fades back out once it finishes. Slotted content
+   (Edit/Read tool titles) picks this up via custom-property inheritance. */
 .bh {
   display: flex;
   align-items: center;
@@ -119,10 +125,15 @@ function onHeadClick(): void {
   cursor: pointer;
   font: var(--text-sm) var(--font-mono);
   color: var(--color-text);
+  --emph: var(--color-text-muted);
 }
 .box.open .bh,
 .bh:hover {
   background: var(--color-surface-sunken);
+  --emph: var(--color-text);
+}
+.box.run .bh {
+  --emph: var(--color-text-strong);
 }
 .box.err .bh {
   background: color-mix(in srgb, var(--color-danger) 4%, var(--bg));
@@ -145,9 +156,10 @@ function onHeadClick(): void {
   min-width: 0;
 }
 .a {
-  color: var(--color-text);
+  color: var(--emph);
   font-weight: var(--weight-medium);
   flex: none;
+  transition: color var(--duration-slow) var(--ease-out);
 }
 .p {
   color: var(--color-text-muted);
