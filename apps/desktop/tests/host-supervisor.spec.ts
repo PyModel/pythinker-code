@@ -226,6 +226,17 @@ describe('desktop Host supervisor', () => {
     expect(logged.join('')).toContain('#token=[redacted]')
   })
 
+  it('keeps the bearer token out of a rejected malformed readiness URL', async () => {
+    const child = new FakeHostChild()
+    const supervisor = createHostSupervisor({ spawnHost: () => child })
+    const starting = supervisor.start()
+
+    child.stdout.emit('Pythinker server: https://127.0.0.1:4567/#token=s3cret\n')
+
+    await expect(starting).rejects.toThrow(/must be loopback HTTP/su)
+    await expect(starting).rejects.not.toThrow(/s3cret/su)
+  })
+
   it('keeps the bearer token out of the pre-readiness exit diagnostic', async () => {
     const child = new FakeHostChild()
     const supervisor = createHostSupervisor({ spawnHost: () => child })

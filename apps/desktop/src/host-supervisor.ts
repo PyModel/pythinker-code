@@ -244,7 +244,8 @@ export function createHostSupervisor(options: HostSupervisorOptions): HostSuperv
         settled = true
         cleanupStartup()
         const diagnostic = output === '' ? '' : `\nHost output:\n${output}`
-        reject(new Error(`${error instanceof Error ? error.message : String(error)}${diagnostic}`))
+        const message = redactHostToken(error instanceof Error ? error.message : String(error))
+        reject(new Error(`${message}${diagnostic}`))
       }
       const acceptChunk = (chunk: string): void => {
         appendOutput(chunk)
