@@ -527,8 +527,12 @@ export class EditorKeyboardController {
     void this.host.session?.cancel();
   }
 
+  /** Guards Shift-Tab cycling while a setThinking round-trip is still pending. */
+  private thinkingCycleInFlight = false;
+
   /** Shift-Tab: cycle the thinking effort to the current model's next level (wraps). */
   private async cycleThinkingEffort(): Promise<void> {
+    if (this.thinkingCycleInFlight) return;
     const { host } = this;
     if (host.state.appState.streamingPhase !== 'idle' || host.state.appState.isCompacting) {
       host.showError('Cannot change thinking effort while streaming — press Esc or Ctrl-C first.');
@@ -549,32 +553,37 @@ export class EditorKeyboardController {
       host.showNotice(`${alias} does not offer selectable thinking effort levels.`);
       return;
     }
-    const prev = host.state.appState.thinkingEffort;
-    const currentIndex = levels.indexOf(prev);
-    // An out-of-list live effort (e.g. a provider-specific value) restarts the
-    // cycle from the off entry when offered, else from the first level.
-    const startIndex = currentIndex !== -1 ? currentIndex + 1 : Math.max(0, levels.indexOf('off'));
-    const next = levels[startIndex % levels.length] ?? levels[0]!;
-    if (host.session !== undefined) {
-      try {
-        await host.session.setThinking(next);
-      } catch (error) {
-        host.showError(`Failed to set thinking effort: ${formatErrorMessage(error)}`);
+    this.thinkingCycleInFlight = true;
+    try {
+      const prev = host.state.appState.thinkingEffort;
+      const currentIndex = levels.indexOf(prev);
+      // An out-of-list live effort (e.g. a provider-specific value) restarts the
+      // cycle from the off entry when offered, else from the first level.
+      const startIndex = currentIndex !== -1 ? currentIndex + 1 : Math.max(0, levels.indexOf('off'));
+      const next = levels[startIndex % levels.length] ?? levels[0]!;
+      if (host.session !== undefined) {
+        try {
+          await host.session.setThinking(next);
+        } catch (error) {
+          host.showError(`Failed to set thinking effort: ${formatErrorMessage(error)}`);
+          return;
+        }
+      } else if (!host.engineV2) {
+        host.showError(NO_ACTIVE_SESSION_MESSAGE);
         return;
       }
-    } else if (!host.engineV2) {
-      host.showError(NO_ACTIVE_SESSION_MESSAGE);
-      return;
+      // v2 session-less: carry the choice into the first lazy-created session,
+      // the same way a session-only Alt+S choice is applied on creation.
+      const patch: Partial<AppState> = { thinkingEffort: next };
+      if (host.session === undefined) patch.lazySessionThinking = next;
+      host.setAppState(patch);
+      host.track('thinking_toggle', { enabled: next !== 'off', effort: next, from: prev });
+      // No transcript notice: the footer already shows the new level live, and
+      // rapid cycling would stack a line per keypress in the chat history.
+      await this.persistDefaultEffort(alias, model, next);
+    } finally {
+      this.thinkingCycleInFlight = false;
     }
-    // v2 session-less: carry the choice into the first lazy-created session,
-    // the same way a session-only Alt+S choice is applied on creation.
-    const patch: Partial<AppState> = { thinkingEffort: next };
-    if (host.session === undefined) patch.lazySessionThinking = next;
-    host.setAppState(patch);
-    host.track('thinking_toggle', { enabled: next !== 'off', effort: next, from: prev });
-    // No transcript notice: the footer already shows the new level live, and
-    // rapid cycling would stack a line per keypress in the chat history.
-    await this.persistDefaultEffort(alias, model, next);
   }
 
   /** Best-effort persist of the cycled effort as the config default. */

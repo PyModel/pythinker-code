@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { formatStepDebugTiming } from '#/utils/usage/debug-timing';
+import { computeDecodeTps, formatStepDebugTiming } from '#/utils/usage/debug-timing';
 
 describe('formatStepDebugTiming', () => {
   it('returns undefined when timing fields are missing', () => {
@@ -143,5 +143,18 @@ describe('formatStepDebugTiming', () => {
     });
     expect(result).toContain('TTFT: 1.5s');
     expect(result).toContain('10.0s');
+  });
+});
+
+describe('computeDecodeTps', () => {
+  it('rejects non-finite inputs', () => {
+    expect(computeDecodeTps(Number.NaN, 1000)).toBeNull();
+    expect(computeDecodeTps(Number.POSITIVE_INFINITY, 1000)).toBeNull();
+    expect(computeDecodeTps(200, Number.NaN)).toBeNull();
+    expect(computeDecodeTps(200, Number.POSITIVE_INFINITY)).toBeNull();
+  });
+
+  it('computes the ratio for finite values', () => {
+    expect(computeDecodeTps(200, 5000)).toBeCloseTo(40);
   });
 });

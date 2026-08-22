@@ -46,8 +46,12 @@ export function computeDecodeTps(
   outputTokens: number | undefined,
   streamMs: number | undefined,
 ): number | null {
-  if (outputTokens === undefined || outputTokens <= 0) return null;
-  if (streamMs === undefined || streamMs < MIN_STREAM_MS_FOR_TPS) return null;
+  if (outputTokens === undefined || !Number.isFinite(outputTokens) || outputTokens <= 0) {
+    return null;
+  }
+  if (streamMs === undefined || !Number.isFinite(streamMs) || streamMs < MIN_STREAM_MS_FOR_TPS) {
+    return null;
+  }
   return outputTokens / (streamMs / 1000);
 }
 

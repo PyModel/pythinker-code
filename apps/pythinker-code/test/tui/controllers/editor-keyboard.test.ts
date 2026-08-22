@@ -490,6 +490,25 @@ describe('EditorKeyboardController Shift-Tab effort cycle', () => {
     });
   });
 
+  it('ignores shift-tab pressed again while a thinking update is in flight', async () => {
+    const h = createEffortHarness({ supportEfforts: ['low', 'high', 'max'] });
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    h.setThinking.mockImplementation(() => gate);
+
+    h.onShiftTab();
+    await new Promise((resolve) => setImmediate(resolve));
+    h.onShiftTab();
+    release();
+    await settle();
+
+    expect(h.setThinking).toHaveBeenCalledTimes(1);
+    expect(h.setThinking).toHaveBeenCalledWith('low');
+    expect(h.statePatches.at(-1)?.['thinkingEffort']).toBe('low');
+  });
+
   it('refuses to cycle while a turn is streaming', async () => {
     const h = createEffortHarness({
       supportEfforts: ['low', 'high'],

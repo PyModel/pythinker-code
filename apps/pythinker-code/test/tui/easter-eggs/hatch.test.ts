@@ -2,8 +2,6 @@ import chalk from 'chalk';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
-  HATCH_FLOW_MS,
-  HATCH_FRAME_MS,
   getRainbowHatchView,
   installRainbowHatch,
   RainbowHatch,
@@ -11,6 +9,7 @@ import {
   setRainbowHatch,
   tryHandleHatchCommand,
 } from '#/tui/easter-eggs/hatch';
+import { HATCH_FLOW_MS, HATCH_FRAME_MS } from '#/tui/constant/hatch';
 import type { SlashCommandHost } from '#/tui/commands/dispatch';
 import { darkColors } from '#/tui/theme/colors';
 
