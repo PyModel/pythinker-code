@@ -57,7 +57,7 @@ Adding an OpenAI-compatible provider requires **zero code changes** — just add
 | `packages/node-sdk` | Public TS SDK & harness | |
 | `packages/kosong` | LLM provider abstraction | Wire types, catalog, capability registry. |
 | `packages/pyaos` | Execution environment | File/process abstractions. |
-| `packages/agent-gateway` | Pythinker Code server (renamed from `kap-server`) | Fastify server backed by `@pymodel/agent-core-v2`; sessions over REST + WebSocket (`/api/v1` + `/api/v1/ws`), plus `/api/v1/debug/*` reflection RPC (`--debug-endpoints`, loopback bind + bearer auth). See its `AGENTS.md`. |
+| `packages/agent-gateway` | Pythinker Code server | Fastify server backed by `@pymodel/agent-core-v2`; sessions over REST + WebSocket (`/api/v1` + `/api/v1/ws`), plus `/api/v1/debug/*` reflection RPC (`--debug-endpoints`, loopback bind + bearer auth). See its `AGENTS.md`. |
 | `packages/klient` | Client SDK | Contract-driven facade over agent-core-v2 (`global.*` / `session(id).*` / `agent(id).*`, zod-validated); transport via subpath entry (`@pymodel/klient/ipc|memory`); hosts the e2e suites. See its `AGENTS.md`. |
 | `packages/transcript` | Isomorphic transcript rendering data layer | L1 agent-granular store, L2 idempotent operations, L3 `off/turn/block/delta` subscription granularity, L4 framework-free view registry, turn-cursor pagination. Pure TypeScript (browser-safe, no engine imports); sole owner of the transcript contract types (`src/contract/`). See its `AGENTS.md`. |
 | `packages/oauth` | Auth utilities | |
