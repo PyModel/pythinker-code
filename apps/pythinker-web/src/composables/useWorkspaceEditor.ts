@@ -48,6 +48,11 @@ const state = reactive<WorkspaceEditorState>({
 
 let etag: string | null = null;
 let requestSeq = 0;
+// The session the open buffer was read from. saveFileEditor writes back to
+// *this* session, not whichever one is active when the user hits Save: the
+// editor stays open across a session switch, and each session resolves paths
+// against its own workspace root.
+let openSessionId: string | null = null;
 
 const bridge: { getContent: (() => string) | null } = { getContent: null };
 
@@ -64,6 +69,7 @@ function reset(): void {
   requestSeq += 1;
   state.path = null;
   state.loading = false;
+  state.saving = false;
   state.loadError = null;
   state.savingError = null;
   state.conflict = false;
@@ -71,6 +77,7 @@ function reset(): void {
   state.savedAt = null;
   state.languageId = undefined;
   etag = null;
+  openSessionId = null;
 }
 
 export async function openFileEditor(target: { path: string; line?: number }): Promise<void> {
@@ -86,13 +93,16 @@ export async function openFileEditor(target: { path: string; line?: number }): P
     state.dirty = false;
     state.savedAt = null;
     state.languageId = undefined;
+    state.saving = false;
     etag = null;
+    openSessionId = null;
     return;
   }
   const seq = ++requestSeq;
   state.open = true;
   state.path = target.path;
   state.loading = true;
+  state.saving = false;
   state.loadError = null;
   state.savingError = null;
   state.conflict = false;
@@ -100,6 +110,7 @@ export async function openFileEditor(target: { path: string; line?: number }): P
   state.savedAt = null;
   state.languageId = undefined;
   etag = null;
+  openSessionId = sid;
 
   try {
     const result = await getPythinkerWebApi().readFile(sid, {
@@ -160,7 +171,7 @@ export async function reloadFileEditor(): Promise<void> {
 }
 
 export async function saveFileEditor(options?: { force?: boolean }): Promise<void> {
-  const sid = getActiveSessionId();
+  const sid = openSessionId;
   const path = state.path;
   if (!sid || !path || state.saving || state.loading || state.conflict) return;
   const getContent = bridge.getContent;
@@ -189,7 +200,11 @@ export async function saveFileEditor(options?: { force?: boolean }): Promise<voi
     state.savingError =
       error instanceof Error && error.message.length > 0 ? error.message : t('editor.loadFailed');
   } finally {
-    if (seq === requestSeq) state.saving = false;
+    // Unconditional: a save superseded by open/reset must still release the
+    // flag, or `state.saving` latches true and blocks every later save. Two
+    // saves never overlap (the guard above returns while one is in flight),
+    // so nothing else can own it.
+    state.saving = false;
   }
 }
 

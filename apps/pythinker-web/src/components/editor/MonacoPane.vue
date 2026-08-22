@@ -65,14 +65,23 @@ async function loadBuffer(): Promise<void> {
   const uri = monaco.Uri.parse(`pythinker://session/${encodeURIComponent(path)}`);
   const existing = monaco.editor.getModel(uri);
   modelListener?.dispose();
-  model?.dispose();
-  model =
-    existing ??
-    monaco.editor.createModel(
-      pending?.content ?? '',
-      languageFor(props.languageId),
-      uri,
-    );
+  modelListener = null;
+  // Never dispose the model we are about to reuse: a reload re-enters with the
+  // same URI, so `existing` and `model` are the same instance and monaco throws
+  // on every call against a disposed model.
+  if (model !== null && model !== existing) model.dispose();
+  if (existing === null) {
+    model = monaco.editor.createModel(pending?.content ?? '', languageFor(props.languageId), uri);
+  } else {
+    model = existing;
+    // A reused model keeps the stale buffer unless the re-read text is written
+    // into it, and its language is fixed at creation time.
+    if (pending !== null) model.setValue(pending.content);
+    const language = languageFor(props.languageId);
+    if (language !== undefined) monaco.editor.setModelLanguage(model, language);
+  }
+  // Attached last: setValue above fires onDidChangeContent, and a reload must
+  // not land the freshly-read buffer in the dirty state.
   modelListener = model.onDidChangeContent(() => markEditorDirty());
   editor.setModel(model);
   registerEditorContentGetter(() => model?.getValue() ?? '');
