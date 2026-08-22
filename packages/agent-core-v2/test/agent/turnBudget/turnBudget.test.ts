@@ -130,7 +130,12 @@ describe('turnBudget plugin', () => {
 
     expect(result).toMatchObject({ type: 'completed' });
     expect(calls).toBe(5);
-    expect(retryOriginTriggers()).toHaveLength(4);
+    expect(retryOriginTriggers()).toEqual([
+      'token_budget',
+      'token_budget',
+      'token_budget',
+      'token_budget',
+    ]);
   });
 
   it('does not continue when the flag is off even with a budget configured', async () => {

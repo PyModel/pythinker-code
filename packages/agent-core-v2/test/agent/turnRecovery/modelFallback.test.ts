@@ -172,7 +172,7 @@ describe('modelFallback plugin', () => {
     expect(ctx.get(IAgentProfileService).getModel()).toBe('mock-model');
   });
 
-  it('refuses to switch when the step is already aborted', async () => {
+  it('refuses to switch when the turn signal is already aborted', async () => {
     ctx = createTestAgent(
       fallbackFlags(),
       llmGenerateServices(async () => ({
@@ -202,6 +202,51 @@ describe('modelFallback plugin', () => {
       turnId: 1,
       step: 1,
       signal,
+      error: new APIConnectionError('terminated'),
+      failedDriver: new ContinuationStepRequest(),
+      retry: () => stepStub,
+    };
+
+    const switched = await ctx
+      .get(IAgentModelFallbackService)
+      .tryFallbackSwitch(context);
+
+    expect(switched).toBe(false);
+    expect(ctx.get(IAgentProfileService).getModel()).toBe('mock-model');
+  });
+
+  it('refuses to switch when only the current step is aborted', async () => {
+    ctx = createTestAgent(
+      fallbackFlags(),
+      llmGenerateServices(async () => ({
+        id: 'step-aborted',
+        message: {
+          role: 'assistant' as const,
+          content: [{ type: 'text' as const, text: 'ok' }],
+          toolCalls: [],
+        },
+        usage: emptyUsage(),
+        finishReason: 'completed' as const,
+        rawFinishReason: 'stop',
+      })),
+      { initialConfig: fallbackTestConfig() },
+    );
+
+    const stepController = new AbortController();
+    stepController.abort();
+    const stepStub: Step = {
+      id: 'step-1',
+      turnId: 1,
+      state: 'running',
+      signal: stepController.signal,
+      result: Promise.resolve({ type: 'cancelled', reason: new Error('cancelled') }),
+      cancel: () => false,
+    };
+    const context: LoopErrorContext = {
+      turnId: 1,
+      step: 1,
+      signal: new AbortController().signal,
+      currentStep: stepStub,
       error: new APIConnectionError('terminated'),
       failedDriver: new ContinuationStepRequest(),
       retry: () => stepStub,
