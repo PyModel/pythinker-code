@@ -11,6 +11,14 @@ extend-exclude = [
   "**/*.test.ts",
   "**/__snapshots__/**",
   "**/CHANGELOG.md",
+  # Committed minified web bundle: vendor code and hashed asset names
+  # false-positive at high volume (shiki/mermaid/katex language tables).
+  "apps/pythinker-code/dist-web/",
+  # Generated tables: Material Icon Theme extension maps contain real file
+  # extensions (ags/caf/cpy/edn/mak/rcall/stap/styl/tese); inlineMath carries
+  # ISO 4217 currency codes (JOD). All false positives on short tokens.
+  "apps/pythinker-web/src/lib/fileIconsData.ts",
+  "apps/pythinker-web/src/lib/inlineMath.ts",
   "pnpm-lock.yaml",
 ]
 
