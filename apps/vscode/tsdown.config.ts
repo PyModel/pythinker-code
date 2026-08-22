@@ -51,7 +51,7 @@ export default defineConfig({
   },
   deps: {
     onlyBundle: false,
-    alwaysBundle: [/^@pymodel\//, 'zod', 'diff'],
+    alwaysBundle: [/^@pymodel\//, 'zod', 'diff', 'immer'],
     neverBundle: ['vscode'],
   },
   outputOptions: {
