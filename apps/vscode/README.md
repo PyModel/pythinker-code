@@ -28,6 +28,25 @@ variable is supported; there is no separate VS Code setting for it. Do not run
 the same session from both applications at the same time, because
 cross-process session locking is not guaranteed.
 
+### Extension development
+
+The F5 launch profile ("Extension Development Host (isolated)") runs against a
+disposable `PYTHINKER_CODE_HOME` at `.tmp/vscode-extension-dev/pythinker-home`,
+recreated empty on every launch by `scripts/prepare-dev.mjs`. It does **not**
+read your real `~/.pythinker-code/config.toml`.
+
+To start the dev extension with your real providers and models, use the
+"(seeded config)" launch profile or `pnpm run dev:prepare:seeded`. It copies your
+real `config.toml` verbatim into the disposable dev home, which duplicates every
+secret it contains — API keys and any embedded provider auth metadata — into a
+`0600` file under `.tmp/`. Credential stores, session data, and `mcp.json` stay
+in the real home. The isolated default remains unchanged.
+
+Note: the engine watches `config.toml` and reloads itself on change, but the
+extension currently has no config-change subscription, so an open webview only
+reflects external TOML edits on its next request (open the model picker or
+Config Hub).
+
 ## Docs
 
 Full documentation is available at [pymodel.github.io/pythinker-code](https://pymodel.github.io/pythinker-code/).

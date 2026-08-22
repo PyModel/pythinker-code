@@ -210,7 +210,63 @@ describe('Extension Development Host setup (isolated local state)', () => {
     expect(result.stderr).toContain('Refusing to reset unsafe development directory');
     await expect(readFile(join(unsafeDir, 'keep.txt'), 'utf8')).resolves.toBe('keep');
   });
+
+  it('seeds config.toml from PYTHINKER_CODE_HOME with --seed-config', async () => {
+    const parent = await makeTempDir('pythinker-dev-profile-');
+    const sourceHome = join(parent, 'real-home');
+    const baseDir = join(parent, 'vscode-extension-dev');
+    await mkdir(sourceHome, { recursive: true });
+    await writeFile(join(sourceHome, 'config.toml'), 'default_model = "probe"\n');
+
+    const result = runNode(prepareDevScript, ['--base-dir', baseDir, '--seed-config'], {
+      PYTHINKER_CODE_HOME: sourceHome,
+    });
+
+    expect(result.status).toBe(0);
+    const seededPath = join(baseDir, 'pythinker-home', 'config.toml');
+    await expect(readFile(seededPath, 'utf8')).resolves.toBe('default_model = "probe"\n');
+    if (process.platform !== 'win32') {
+      expect((await stat(seededPath)).mode & 0o777).toBe(0o600);
+    }
+  });
+
+  it('leaves the existing profile untouched when the seed source is unreadable', async () => {
+    const parent = await makeTempDir('pythinker-dev-profile-');
+    const baseDir = join(parent, 'vscode-extension-dev');
+
+    await prepareDevCli(baseDir);
+    await writeFile(join(baseDir, 'workspace', 'marker.txt'), 'keep me');
+
+    const result = runNode(
+      prepareDevScript,
+      ['--base-dir', baseDir, '--seed-config'],
+      { PYTHINKER_CODE_HOME: join(parent, 'missing-home') },
+    );
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('--seed-config could not read');
+    await expect(readFile(join(baseDir, 'workspace', 'marker.txt'), 'utf8')).resolves.toBe(
+      'keep me',
+    );
+  });
+
+  it('refuses a seed source inside the dev tree being reset', async () => {
+    const parent = await makeTempDir('pythinker-dev-profile-');
+    const baseDir = join(parent, 'vscode-extension-dev');
+
+    const result = runNode(prepareDevScript, ['--base-dir', baseDir, '--seed-config'], {
+      PYTHINKER_CODE_HOME: baseDir,
+    });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('inside the dev tree');
+  });
 });
+
+async function prepareDevCli(baseDir: string): Promise<void> {
+  const result = runNode(prepareDevScript, ['--base-dir', baseDir]);
+  expect(result.status).toBe(0);
+}
 
 async function makeTempDir(prefix: string): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), prefix));
@@ -252,11 +308,11 @@ async function makeVsixFixture(target: string): Promise<string> {
   return root;
 }
 
-function runNode(script: string, args: string[]) {
+function runNode(script: string, args: string[], env: Record<string, string> = {}) {
   const result = spawnSync(process.execPath, [script, ...args], {
     cwd: appRoot,
     encoding: 'utf8',
-    env: { ...process.env, VSCE_PAT: '', OVSX_PAT: '' },
+    env: { ...process.env, VSCE_PAT: '', OVSX_PAT: '', ...env },
   });
   if (result.error !== undefined) throw result.error;
   return {
