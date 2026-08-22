@@ -39,13 +39,14 @@ To start the dev extension with your real providers and models, use the
 "(seeded config)" launch profile or `pnpm run dev:prepare:seeded`. It copies your
 real `config.toml` verbatim into the disposable dev home, which duplicates every
 secret it contains — API keys and any embedded provider auth metadata — into a
-`0600` file under `.tmp/`. Credential stores, session data, and `mcp.json` stay
-in the real home. The isolated default remains unchanged.
+file under `.tmp/` (mode `0600` where supported). Credential stores, session
+data, and `mcp.json` stay in the real home. The isolated default remains unchanged.
 
 Note: the engine watches `config.toml` and reloads itself on change, but the
-extension currently has no config-change subscription, so an open webview only
-reflects external TOML edits on its next request (open the model picker or
-Config Hub).
+extension has no config-change subscription. The model picker and Models section
+render Zustand state — no RPC — so they update only on webview reinitialization
+or extension-owned provider changes that emit `ProvidersChanged`. The raw
+Config File tab rereads the TOML display when opened.
 
 ## Docs
 

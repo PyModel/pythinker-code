@@ -207,6 +207,31 @@ describe("Webview provider-change model refresh", () => {
     });
   });
 
+  it("does not let a save that failed before the refresh restore a dropped model", async () => {
+    // Regression: setModels left settingsSaveRevision untouched, so a rollback
+    // captured against the pre-refresh list could reinstate a model the refresh
+    // had just removed.
+    let rejectSave!: (error: Error) => void;
+    boundary.saveConfig.mockReturnValue(new Promise((_resolve, reject) => {
+      rejectSave = reject;
+    }));
+    useSettingsStore.getState().initModels(MODELS, "plain", false);
+    useSettingsStore.getState().updateModel("reasoning");
+
+    useSettingsStore.getState().setModels({
+      models: [ADDED],
+      defaultModel: ADDED.id,
+      defaultThinking: false,
+    });
+    expect(useSettingsStore.getState().currentModel).toBe(ADDED.id);
+
+    rejectSave(new Error("config.toml is read-only"));
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(useSettingsStore.getState().currentModel).toBe(ADDED.id);
+  });
+
   it("falls back to the default when the current model's provider was removed", () => {
     useSettingsStore.getState().initModels(MODELS, "reasoning", true);
 

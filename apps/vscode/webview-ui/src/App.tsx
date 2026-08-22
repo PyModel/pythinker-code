@@ -36,12 +36,22 @@ function MainContent({ onAuthAction }: { onAuthAction: () => void }) {
   }, [processEvent, sessionId]);
 
   useEffect(() => {
+    // Two provider edits in quick succession race: whichever getModels() call
+    // resolves last wins, which is not necessarily the newest. Only the latest
+    // request is allowed to publish.
+    let providersRevision = 0;
     const unsubs = [
       bridge.on(Events.MCPServersChanged, setMCPServers),
       // Provider add/remove only updates the Providers tab's local view; the
       // model list everywhere else comes from the store, so refetch it.
       bridge.on(Events.ProvidersChanged, () => {
-        void bridge.getModels().then(setModels).catch(() => undefined);
+        const revision = ++providersRevision;
+        void bridge
+          .getModels()
+          .then((models) => {
+            if (revision === providersRevision) setModels(models);
+          })
+          .catch(() => undefined);
       }),
       bridge.on(Events.SlashCommandsChanged, setWireSlashCommands),
       bridge.on(Events.ExtensionConfigChanged, ({ config }: { config: ExtensionConfig }) => setExtensionConfig(config)),

@@ -305,6 +305,10 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   // yank a live session off its model, so keep the current alias unless it no
   // longer exists.
   setModels: ({ models, defaultModel, defaultThinking, defaultThinkingEffort }) => {
+    // The refreshed list supersedes any save still in flight: its rollback was
+    // captured against the old list and could restore a model that no longer
+    // exists.
+    settingsSaveRevision += 1;
     set((state) => {
       const kept = getModelById(models, state.currentModel) !== undefined;
       const currentModel = kept ? state.currentModel : defaultModel ?? models[0]?.id ?? "";
