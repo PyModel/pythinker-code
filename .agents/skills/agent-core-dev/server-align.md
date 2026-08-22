@@ -94,8 +94,8 @@ packages/agent-core-v2/src/<domain>Legacy/
 Skeleton (matches `prompt/`):
 
 ```ts
-// prompt.ts — contract shaped by the v1 wire schema (agent-gateway/src/protocol)
-import type { PromptSubmitResult, PromptSubmission } from '../../protocol/rest-prompt';
+// prompt.ts — contract shaped by the v1 wire schema (@pymodel/protocol)
+import type { PromptSubmitResult, PromptSubmission } from '@pymodel/protocol';
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 
 export interface IAgentPromptService {
@@ -204,7 +204,6 @@ Where the route mirrors v1, the test is the regression guard for the schema-fide
 
 ### 7. Verify
 
-- `pnpm -C packages/agent-gateway test` — server routes green.
 - `pnpm -C packages/agent-gateway test` — server routes green (incl. any wire-schema guards).
 - `pnpm -C packages/agent-core-v2 test` — native + Legacy Service tests green.
 - `pnpm -C packages/agent-core-v2 run lint:imports` — the import boundaries (v1 ban, kosong subtree) still hold for a LegacyService.

@@ -68,7 +68,7 @@ Themes are managed centrally under `src/tui/theme/`:
 - `bundle.ts` — packs `colors`, `styles`, `markdownTheme` into a `PythinkerTUIThemeBundle`.
 - `index.ts` / `detect.ts` — theme type and auto/dark/light resolution.
 
-> **Keep the color-token set in sync.** `ColorPalette` in `colors.ts` is the source of truth for color tokens. When you add, rename, or remove one, update its mirrors in the same change: the custom-theme JSON schema (`apps/pythinker-code/src/tui/theme/theme-schema.json`), the token table in the custom-theme docs (`docs/en/customization/themes.md`), and the token table in the `custom-theme` built-in skill (`packages/agent-core/src/skill/builtin/custom-theme.md`).
+> **Keep the color-token set in sync.** `ColorPalette` in `colors.ts` is the source of truth for color tokens. When you add, rename, or remove one, update its mirrors in the same change: the custom-theme JSON schema (`apps/pythinker-code/src/tui/theme/theme-schema.json`), the token table in the custom-theme docs (`docs/customization/themes.md`), and the token table in the `custom-theme` built-in skill (`packages/agent-core/src/skill/builtin/custom-theme.md`).
 
 Apply / switch flow:
 
