@@ -87,7 +87,7 @@ export interface WorkspaceGroup {
 /** Sidebar session-list scope: only the active workspace, or all workspaces. */
 export type WorkspaceScope = 'current' | 'all';
 
-export type ToolStatus = 'ok' | 'running' | 'error';
+export type ToolStatus = 'ok' | 'running' | 'error' | 'suspended';
 
 export interface ToolCall {
   id: string;
