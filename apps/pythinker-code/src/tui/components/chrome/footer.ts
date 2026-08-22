@@ -195,6 +195,7 @@ export class FooterComponent implements Component {
   private gitCacheWorkDir: string;
   private transientHint: string | null = null;
   private warningHint: string | null = null;
+  private streamSpeedTps: number | null = null;
   private goalSnapshotKey: string | null = null;
   private goalObservedAtMs = Date.now();
   private goalTimer: ReturnType<typeof setInterval> | null = null;
@@ -243,6 +244,17 @@ export class FooterComponent implements Component {
       this.statusLineRunner?.dispose();
       this.statusLineRunner = new StatusLineCommandRunner(command, this.onRefresh);
     }
+  }
+
+  /**
+   * Decode speed of the most recently completed step (tokens/s), shown next
+   * to the context readout on line 2. `null` hides it (turn end, or a step
+   * too short to measure — see `computeDecodeTps`).
+   */
+  setStreamSpeed(tps: number | null): void {
+    if (this.streamSpeedTps === tps) return;
+    this.streamSpeedTps = tps;
+    this.onRefresh();
   }
 
   /**
@@ -337,28 +349,34 @@ export class FooterComponent implements Component {
       }
     }
 
-    // ── Line 2: hint (bottom-left) + context (right) ──
+    // ── Line 2: hint (bottom-left) + context + stream speed (right) ──
     const contextText = formatContextStatus(
       state.contextUsage,
       state.contextTokens,
       state.maxContextTokens,
     );
-    const contextWidth = visibleWidth(contextText);
+    const speedSuffix =
+      this.streamSpeedTps === null ? '' : ` · ${this.streamSpeedTps.toFixed(1)} t/s`;
+    const rightWidth = visibleWidth(contextText) + visibleWidth(speedSuffix);
     let line2: string;
     const hint = this.transientHint ?? this.warningHint;
     if (hint) {
-      const maxHintWidth = Math.max(0, width - contextWidth - 1);
+      const maxHintWidth = Math.max(0, width - rightWidth - 1);
       const shownHint =
         visibleWidth(hint) <= maxHintWidth ? hint : truncateToWidth(hint, maxHintWidth, '…');
       const hintWidth = visibleWidth(shownHint);
-      const pad = Math.max(0, width - hintWidth - contextWidth);
+      const pad = Math.max(0, width - hintWidth - rightWidth);
       line2 =
         chalk.hex(colors.warning).bold(shownHint) +
         ' '.repeat(pad) +
-        chalk.hex(colors.text)(contextText);
+        chalk.hex(colors.text)(contextText) +
+        chalk.hex(colors.textDim)(speedSuffix);
     } else {
-      const leftPad = Math.max(0, width - contextWidth);
-      line2 = ' '.repeat(leftPad) + chalk.hex(colors.text)(contextText);
+      const leftPad = Math.max(0, width - rightWidth);
+      line2 =
+        ' '.repeat(leftPad) +
+        chalk.hex(colors.text)(contextText) +
+        chalk.hex(colors.textDim)(speedSuffix);
     }
 
     return [truncateToWidth(line1, width), truncateToWidth(line2, width)];

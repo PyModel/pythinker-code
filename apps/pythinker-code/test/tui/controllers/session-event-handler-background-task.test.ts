@@ -124,7 +124,7 @@ function makeSessionEventHost() {
       todoPanel: { getTodos: vi.fn(() => []) },
       transcriptContainer: { addChild: vi.fn() },
       tasksBrowser: undefined,
-      footer: { setBackgroundCounts: vi.fn() },
+      footer: { setBackgroundCounts: vi.fn(), setStreamSpeed: vi.fn() },
       ui: { requestRender: vi.fn() },
     },
     session: { id: 's1' },

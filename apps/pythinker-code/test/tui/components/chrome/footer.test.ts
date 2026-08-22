@@ -2,7 +2,7 @@ import chalk from 'chalk';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { FooterComponent } from '#/tui/components/chrome/footer';
-import { setRainbowDance, type RainbowDanceController } from '#/tui/easter-eggs/dance';
+import { setRainbowHatch, type RainbowHatchController } from '#/tui/easter-eggs/hatch';
 import { currentTheme, darkColors, lightColors } from '#/tui/theme';
 import type { ModelAlias } from '@pymodel/pythinker-code-sdk';
 import type { AppState } from '#/tui/types';
@@ -17,19 +17,19 @@ function truecolorCodes(text: string): Set<string> {
   return codes;
 }
 
-// Dark dance colors the footer never uses outside of /dance.
+// Dark hatch colors the footer never uses outside of /hatch.
 const RAINBOW_CYAN = '91,192,190';
 const RAINBOW_GREEN = '78,200,126';
 
-function setDanceView(colored: boolean, phase: number): void {
-  const dance: RainbowDanceController = {
+function setHatchView(colored: boolean, phase: number): void {
+  const hatch: RainbowHatchController = {
     colored,
     phase,
     start: () => {},
     stop: () => {},
     dispose: () => {},
   };
-  setRainbowDance(dance);
+  setRainbowHatch(hatch);
 }
 
 const appState: AppState = {
@@ -70,11 +70,11 @@ describe('FooterComponent', () => {
 
   afterEach(() => {
     chalk.level = previousChalkLevel;
-    setRainbowDance(undefined);
+    setRainbowHatch(undefined);
   });
 
   it('paints the model name in rainbow while colored', () => {
-    setDanceView(true, 0);
+    setHatchView(true, 0);
     const footer = new FooterComponent(appState);
 
     const codes = truecolorCodes(footer.render(120).join('\n'));
@@ -85,7 +85,7 @@ describe('FooterComponent', () => {
     expect(codes.has(RAINBOW_GREEN)).toBe(true);
   });
 
-  it('renders the model name in its normal color when not dancing', () => {
+  it('renders the model name in its normal color when not hatching', () => {
     const footer = new FooterComponent(appState);
 
     const codes = truecolorCodes(footer.render(120).join('\n'));
@@ -221,5 +221,36 @@ describe('FooterComponent line-2 hints', () => {
     footer.setWarningHint(null);
 
     expect(stripAnsi(footer.render(120)[1] ?? '')).not.toContain('Goal objective is too long');
+  });
+});
+
+
+describe('FooterComponent stream speed', () => {
+  function stripAnsiSpeed(text: string): string {
+    return text.replaceAll(/\[[0-9;]*m/g, '');
+  }
+
+  it('hides the speed badge until a step completes', () => {
+    const footer = new FooterComponent(appState);
+
+    expect(stripAnsiSpeed(footer.render(120)[1] ?? '')).not.toContain('t/s');
+  });
+
+  it('shows the last step decode speed next to the context readout', () => {
+    const footer = new FooterComponent(appState);
+    footer.setStreamSpeed(38.44);
+
+    const line2 = stripAnsiSpeed(footer.render(120)[1] ?? '');
+
+    expect(line2).toContain('context:');
+    expect(line2).toContain('· 38.4 t/s');
+  });
+
+  it('clears the speed badge on null', () => {
+    const footer = new FooterComponent(appState);
+    footer.setStreamSpeed(12.5);
+    footer.setStreamSpeed(null);
+
+    expect(stripAnsiSpeed(footer.render(120)[1] ?? '')).not.toContain('t/s');
   });
 });

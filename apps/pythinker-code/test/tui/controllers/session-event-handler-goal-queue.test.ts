@@ -47,6 +47,7 @@ function makeHost(options: { createGoalRejects?: boolean } = {}) {
   };
   const host = {
     state: {
+      footer: { setStreamSpeed: vi.fn() },
       appState: {
         sessionId: 's1',
         streamingPhase: 'waiting',
