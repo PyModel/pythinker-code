@@ -103,6 +103,7 @@ const emit = defineEmits<{
   setPermission: [mode: PermissionMode];
   setThinking: [level: ThinkingLevel];
   togglePlan: [];
+  toggleWorkflow: [];
   toggleGoal: [];
   openBtw: [];
   createGoal: [objective: string];
@@ -899,6 +900,7 @@ const addMenuRows = computed<AddMenuRow[]>(() => {
     { id: 'capabilities', icon: 'sliders', nameKey: 'capabilityMenu.trigger', action: openCapabilities },
     { id: 'goal', icon: 'target', nameKey: 'status.goalLabel', descKey: 'composer.addGoalDesc', action: openGoalMode },
     { id: 'plan', icon: 'file-edit', nameKey: 'status.planLabel', descKey: 'composer.addPlanDesc', action: openPlanMode },
+    { id: 'workflow', icon: 'sparkles', nameKey: 'status.dynamicWorkflowLabel', descKey: 'composer.addWorkflowDesc', action: openWorkflowMode },
   );
   return rows;
 });
@@ -1000,9 +1002,14 @@ function openPlanMode(): void {
   if (!planOn.value) togglePlanMode();
 }
 
+function openWorkflowMode(): void {
+  closeModes();
+  if (!workflowOn.value) emit('toggleWorkflow');
+}
+
 // Permission modes
-const PERM_MODES: { mode: PermissionMode; icon: 'hand' | 'shield-question' | 'full-access'; color: string; labelKey: string; descKey: string }[] = [
-  { mode: 'manual', icon: 'hand', color: 'var(--color-text)', labelKey: 'status.permissionManual', descKey: 'status.permissionManualDesc' },
+const PERM_MODES: { mode: PermissionMode; icon: 'fingerprint' | 'shield-question' | 'full-access'; color: string; labelKey: string; descKey: string }[] = [
+  { mode: 'manual', icon: 'fingerprint', color: 'var(--color-text)', labelKey: 'status.permissionManual', descKey: 'status.permissionManualDesc' },
   { mode: 'yolo', icon: 'shield-question', color: 'var(--color-warning)', labelKey: 'status.permissionYolo', descKey: 'status.permissionYoloDesc' },
   { mode: 'auto', icon: 'full-access', color: 'var(--color-danger)', labelKey: 'status.permissionAuto', descKey: 'status.permissionAutoDesc' },
 ];
@@ -1092,7 +1099,7 @@ function choosePermission(mode: PermissionMode): void {
 
 const permInfo = computed(() => PERM_MODES.find((p) => p.mode === props.status?.permission));
 const permLabel = computed(() => (permInfo.value ? t(permInfo.value.labelKey) : ''));
-const permIcon = computed(() => permInfo.value?.icon ?? 'hand');
+const permIcon = computed(() => permInfo.value?.icon ?? 'fingerprint');
 
 // ---------------------------------------------------------------------------
 // Model dropdown — current provider models + thinking + more
@@ -1417,6 +1424,15 @@ function selectModel(modelId: string): void {
           <span v-if="workflowOn" class="workflow-chip">
             <Icon class="workflow-ic" name="sparkles" size="md" />
             <span class="workflow-label">{{ t('status.dynamicWorkflowLabel') }}</span>
+            <IconButton
+              class="workflow-x"
+              size="sm"
+              :label="t('status.dynamicWorkflowDismiss')"
+              @mousedown.prevent
+              @click.stop="emit('toggleWorkflow')"
+            >
+              <Icon name="close" size="sm" />
+            </IconButton>
           </span>
         </div>
 
@@ -1455,7 +1471,7 @@ function selectModel(modelId: string): void {
               :aria-label="t('composer.interrupt')"
               @click="emit('interrupt')"
             >
-              <Icon name="stop" size="sm" />
+              <span class="stop-square" aria-hidden="true" />
             </button>
           </Tooltip>
           <button
@@ -2043,10 +2059,12 @@ function selectModel(modelId: string): void {
 }
 
 
-.stop svg {
-    flex: none;
-    width: var(--composer-send-icon-size);
-    height: var(--composer-send-icon-size)
+.stop .stop-square {
+    display: block;
+    width: 10px;
+    height: 10px;
+    border-radius: var(--radius-xs);
+    background: currentColor
 }
 
 
@@ -2600,7 +2618,8 @@ function selectModel(modelId: string): void {
 }
 
 
-.wm-x {
+.wm-x,
+.workflow-x {
     position: relative;
     width: var(--wm-x-size);
     height: var(--wm-x-size);
@@ -2608,7 +2627,8 @@ function selectModel(modelId: string): void {
 }
 
 
-.wm-x:before {
+.wm-x:before,
+.workflow-x:before {
     content: "";
     position: absolute;
     inset: calc(-1 * var(--wm-x-ring))
@@ -2616,7 +2636,8 @@ function selectModel(modelId: string): void {
 
 
 @media(hover:none) {
-    .wm-x:before {
+    .wm-x:before,
+    .workflow-x:before {
         inset: calc((var(--wm-x-size) - var(--touch-target-min)) / 2)
     }
 }
@@ -2680,14 +2701,9 @@ function selectModel(modelId: string): void {
         position: relative
     }
 
-    .stop svg {
-        display: none
-    }
-
-    .stop:after {
-        content: "■";
-        font-size: 17px;
-        line-height: 1
+    .stop .stop-square {
+        width: 12px;
+        height: 12px
     }
 
     .perm-pill,

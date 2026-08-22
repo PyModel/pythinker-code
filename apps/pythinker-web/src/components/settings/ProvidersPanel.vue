@@ -3,11 +3,15 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { getPythinkerWebApi } from '../../api';
 import type { AppConfig, AppProvider } from '../../api/types';
+import { modelsForProvider } from '../../lib/providerForm';
 import { useConfirmDialog } from '../../composables/useConfirmDialog';
 import Badge from '../ui/Badge.vue';
+import Banner from '../ui/Banner.vue';
 import Button from '../ui/Button.vue';
+import EmptyState from '../ui/EmptyState.vue';
 import Icon from '../ui/Icon.vue';
-import Spinner from '../ui/Spinner.vue';
+import IconButton from '../ui/IconButton.vue';
+import Skeleton from '../ui/Skeleton.vue';
 import Tooltip from '../ui/Tooltip.vue';
 import AddProviderFlow from './AddProviderFlow.vue';
 import ProviderForm from './ProviderForm.vue';
@@ -21,16 +25,58 @@ const providers = ref<AppProvider[]>([]);
 const config = ref<AppConfig | null>(null);
 const loading = ref(false);
 const unavailable = ref(false);
-const expandedId = ref<string | null>(null);
+const selectedId = ref<string | null>(null);
 const dirty = ref(false);
 
+const ADD_ID = '$add';
+
 const sortedProviders = computed(() => providers.value.toSorted((a, b) => a.id.localeCompare(b.id)));
-const adding = computed(() => expandedId.value === '$add');
+const adding = computed(() => selectedId.value === ADD_ID);
+const selected = computed(() => sortedProviders.value.find((p) => p.id === selectedId.value) ?? null);
+
+interface ModelRow {
+  id: string;
+  displayName?: string;
+  contextBadge?: string;
+}
+
+const selectedModels = computed<ModelRow[]>(() => {
+  const provider = selected.value;
+  if (!provider?.models?.length) return [];
+  const contexts = new Map(modelsForProvider(provider, config.value?.models).map((m) => [m.model, m.maxContextSize]));
+  return provider.models.map((id) => {
+    const raw = contexts.get(id)?.trim() ?? '';
+    return { id, contextBadge: formatContext(raw) };
+  });
+});
+
+function formatContext(raw: string): string | undefined {
+  if (!raw || !/^\d+$/.test(raw)) return undefined;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return undefined;
+  if (n >= 1_000_000) return `${trimZeros(n / 1_000_000)}M`;
+  if (n >= 1_000) return `${trimZeros(n / 1_000)}K`;
+  return String(n);
+}
+
+function trimZeros(value: number): string {
+  return String(Number(value.toFixed(1)));
+}
+
+function statusKind(status: AppProvider['status']): 'ok' | 'error' | 'idle' {
+  if (status === 'connected') return 'ok';
+  if (status === 'error') return 'error';
+  return 'idle';
+}
+
+function typeInitial(type: string): string {
+  return (type.trim()[0] ?? '?').toUpperCase();
+}
 
 watch(dirty, (value) => emit('dirtyChange', value), { immediate: true });
 watch(() => discardToken, () => {
   dirty.value = false;
-  expandedId.value = null;
+  selectedId.value = sortedProviders.value[0]?.id ?? null;
 });
 
 async function load(): Promise<void> {
@@ -38,6 +84,9 @@ async function load(): Promise<void> {
   unavailable.value = false;
   try {
     providers.value = await getPythinkerWebApi().listProviders();
+    if (!sortedProviders.value.some((p) => p.id === selectedId.value)) {
+      selectedId.value = sortedProviders.value[0]?.id ?? null;
+    }
   } catch {
     providers.value = [];
     unavailable.value = true;
@@ -51,15 +100,15 @@ async function load(): Promise<void> {
   }
 }
 
-function toggle(id: string): void {
+function select(id: string): void {
   if (dirty.value) return;
-  expandedId.value = expandedId.value === id ? null : id;
+  selectedId.value = id;
 }
 
 async function saved(id: string): Promise<void> {
   dirty.value = false;
   await load();
-  expandedId.value = id;
+  selectedId.value = id;
 }
 
 async function deleteProvider(provider: AppProvider): Promise<void> {
@@ -71,7 +120,7 @@ async function deleteProvider(provider: AppProvider): Promise<void> {
     variant: 'danger',
     action: async () => {
       await getPythinkerWebApi().deleteProvider(provider.id);
-      expandedId.value = null;
+      selectedId.value = null;
       dirty.value = false;
       await load();
     },
@@ -88,79 +137,226 @@ onMounted(load);
         <h3>{{ t('providers.title') }}</h3>
         <p>{{ t('providers.description') }}</p>
       </div>
+      <IconButton v-if="!loading && !unavailable" size="sm" :label="t('providers.refresh')" data-testid="providers-refresh" @click="load()">
+        <Icon name="undo" size="sm" />
+      </IconButton>
     </div>
 
-    <div v-if="loading" class="providers-panel__state"><Spinner size="sm" />{{ t('providers.loading') }}</div>
-    <div v-else-if="unavailable" class="providers-panel__state providers-panel__state--warning"><Icon name="alert-triangle" size="md" />{{ t('providers.unavailable') }}</div>
-    <template v-else>
-      <section class="providers-panel__card providers-panel__add" :class="{ 'is-open': adding }">
-        <button type="button" class="providers-panel__summary" @click="toggle('$add')">
-          <span class="providers-panel__add-icon"><Icon name="plus" size="sm" /></span>
-          <strong>{{ t('providers.addProvider') }}</strong>
-          <span class="providers-panel__grow" />
-          <Icon name="chevron-right" size="sm" :class="{ 'is-rotated': adding }" />
-        </button>
-        <div v-if="adding" class="providers-panel__details">
-          <AddProviderFlow :config="config" @dirty-change="dirty = $event" @added="saved" @cancel="expandedId = null; dirty = false" />
-        </div>
-      </section>
+    <Banner v-if="unavailable" variant="warning">{{ t('providers.unavailable') }}</Banner>
 
-      <div v-if="providers.length === 0" class="providers-panel__state">{{ t('providers.empty') }}</div>
-      <section v-for="provider in sortedProviders" :key="provider.id" class="providers-panel__card">
-        <button
-          type="button"
-          class="providers-panel__summary"
-          :data-testid="`provider-${provider.id}-toggle`"
-          :aria-expanded="expandedId === provider.id"
-          @click="toggle(provider.id)"
-        >
-          <Tooltip :text="t(`providers.status.${provider.status}`)"><span class="providers-panel__status" :class="`is-${provider.status}`" /></Tooltip>
-          <span class="providers-panel__identity">
-            <strong>{{ provider.id }}</strong>
-            <span>{{ provider.type }}<template v-if="provider.baseUrl"> · {{ provider.baseUrl }}</template></span>
-          </span>
-          <span class="providers-panel__grow" />
-          <Badge :variant="provider.hasApiKey ? 'success' : 'neutral'" size="sm">{{ provider.hasApiKey ? t('providers.keySet') : t('providers.keyNotSet') }}</Badge>
-          <span class="providers-panel__count">{{ t('providers.modelCount', { count: provider.models?.length ?? 0 }) }}</span>
-          <Icon name="chevron-right" size="sm" :class="{ 'is-rotated': expandedId === provider.id }" />
-        </button>
-        <div v-if="expandedId === provider.id" class="providers-panel__details">
-          <div v-if="provider.models?.length" class="providers-panel__model-list">
-            <code v-for="model in provider.models" :key="model">{{ model }}</code>
+    <div v-else class="providers-panel__split">
+      <nav class="providers-panel__list" :aria-label="t('providers.title')">
+        <div class="providers-pane-label">{{ t('settings.tabs.providers') }}</div>
+        <template v-if="loading">
+          <div v-for="i in 3" :key="i" class="providers-panel__row providers-panel__row--skeleton" role="status" :aria-label="t('providers.loading')">
+            <Skeleton width="26px" height="26px" circle />
+            <Skeleton :width="`${52 - i * 6}%`" height="11px" />
           </div>
-          <ProviderForm mode="edit" :provider="provider" :config="config" @dirty-change="dirty = $event" @saved="saved" @cancel="expandedId = null; dirty = false" />
-          <div class="providers-panel__delete">
-            <Button variant="danger-soft" size="sm" :data-testid="`provider-${provider.id}-delete`" @click="deleteProvider(provider)">{{ t('providers.deleteProvider') }}</Button>
-          </div>
-        </div>
-      </section>
-    </template>
+        </template>
+        <template v-else>
+          <button
+            v-for="provider in sortedProviders"
+            :key="provider.id"
+            type="button"
+            class="providers-panel__row"
+            :class="{ 'is-selected': selectedId === provider.id }"
+            :data-testid="`provider-${provider.id}-toggle`"
+            :aria-current="selectedId === provider.id"
+            @click="select(provider.id)"
+          >
+            <Tooltip :text="t(`providers.status.${provider.status}`)">
+              <span class="providers-panel__tile" :class="`is-${statusKind(provider.status)}`" role="img" :aria-label="t(`providers.status.${provider.status}`)">
+                <span aria-hidden="true">{{ typeInitial(provider.type) }}</span>
+              </span>
+            </Tooltip>
+            <span class="providers-panel__row-name">{{ provider.id }}</span>
+            <span class="providers-panel__row-dot" :class="`is-${statusKind(provider.status)}`" aria-hidden="true" />
+          </button>
+
+          <div class="providers-pane-label">{{ t('providers.customProviders') }}</div>
+          <button
+            type="button"
+            class="providers-panel__row providers-panel__row--add"
+            :class="{ 'is-selected': adding }"
+            :aria-current="adding"
+            @click="select(ADD_ID)"
+          >
+            <span class="providers-panel__add-icon"><Icon name="plus" size="sm" /></span>
+            <span class="providers-panel__row-name">{{ t('providers.addProvider') }}</span>
+          </button>
+        </template>
+      </nav>
+
+      <div class="providers-panel__detail">
+        <template v-if="adding">
+          <AddProviderFlow :config="config" @dirty-change="dirty = $event" @added="saved" @cancel="selectedId = sortedProviders[0]?.id ?? null; dirty = false" />
+        </template>
+
+        <template v-else-if="selected">
+          <header class="providers-detail__head">
+            <span class="providers-detail__tile" aria-hidden="true">{{ typeInitial(selected.type) }}</span>
+            <div class="providers-detail__identity">
+              <div class="providers-detail__name-row">
+                <h4>{{ selected.id }}</h4>
+                <Badge :variant="selected.status === 'connected' ? 'success' : selected.status === 'error' ? 'danger' : 'neutral'" size="md">
+                  {{ t(`providers.status.${selected.status}`) }}
+                </Badge>
+              </div>
+              <p class="providers-detail__meta">
+                <span>{{ selected.type }}</span>
+                <template v-if="selected.baseUrl"><span aria-hidden="true">·</span><span class="mono">{{ selected.baseUrl }}</span></template>
+              </p>
+            </div>
+          </header>
+
+          <section class="providers-detail__sec">
+            <div class="providers-detail__sec-head">
+              <span class="providers-pane-label">{{ t('providers.fieldModels') }}</span>
+              <span class="providers-detail__count">{{ t('providers.modelCount', { count: selected.models?.length ?? 0 }) }}</span>
+            </div>
+            <div v-if="selectedModels.length > 0" class="providers-model-card">
+              <div v-for="model in selectedModels" :key="model.id" class="providers-model-row">
+                <code>{{ model.id }}</code>
+                <span v-if="model.displayName" class="providers-model-name">{{ model.displayName }}</span>
+                <span class="providers-model-grow" />
+                <Badge v-if="model.contextBadge" variant="neutral" size="sm">{{ model.contextBadge }}</Badge>
+              </div>
+            </div>
+            <p v-else class="providers-detail__empty">{{ t('providers.noModels') }}</p>
+          </section>
+
+          <section class="providers-detail__sec">
+            <ProviderForm mode="edit" :provider="selected" :config="config" @dirty-change="dirty = $event" @saved="saved" @cancel="selectedId = sortedProviders[0]?.id ?? null; dirty = false" />
+          </section>
+
+          <footer class="providers-detail__foot">
+            <Button variant="danger-soft" size="sm" :data-testid="`provider-${selected.id}-delete`" @click="deleteProvider(selected)">
+              <Icon name="trash" size="sm" />{{ t('providers.deleteProvider') }}
+            </Button>
+          </footer>
+        </template>
+
+        <EmptyState v-else-if="providers.length === 0 && !loading" :title="t('providers.empty')" :hint="t('providers.emptyHint')">
+          <template #icon><Icon name="bolt" /></template>
+        </EmptyState>
+      </div>
+    </div>
   </section>
 </template>
 
 <style scoped>
 .providers-panel { display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-4) 0; }
+.providers-panel__heading { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); }
 .providers-panel__heading h3 { margin: 0; color: var(--color-text); font-size: var(--text-xl); font-weight: var(--weight-medium); }
 .providers-panel__heading p { margin: var(--space-1) 0 0; color: var(--color-text-muted); font-size: var(--text-sm); }
-.providers-panel__state { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-5) 0; color: var(--color-text-muted); }
-.providers-panel__state--warning { color: var(--color-warning); }
-.providers-panel__card { overflow: hidden; border: 1px solid var(--color-line); border-radius: var(--radius-lg); background: var(--color-bg); }
-.providers-panel__add { border-style: dashed; }
-.providers-panel__summary { display: flex; align-items: center; gap: var(--space-3); width: 100%; min-height: 54px; padding: var(--space-3) var(--space-4); border: 0; background: transparent; color: var(--color-text); text-align: left; cursor: pointer; }
-.providers-panel__summary:hover { background: var(--color-hover); }
-.providers-panel__summary:focus-visible { outline: none; box-shadow: inset var(--p-focus-ring); }
-.providers-panel__add-icon { display: grid; place-items: center; width: 24px; height: 24px; border-radius: var(--radius-md); background: var(--color-accent-soft); color: var(--color-accent); }
-.providers-panel__grow { flex: 1; }
-.providers-panel__identity { display: flex; min-width: 0; flex-direction: column; gap: var(--space-1); }
-.providers-panel__identity strong, .providers-panel__identity span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.providers-panel__identity span, .providers-panel__count { color: var(--color-text-muted); font-size: var(--text-xs); }
-.providers-panel__status { display: block; width: 8px; height: 8px; border: 1px solid var(--color-text-faint); border-radius: var(--radius-full); }
-.providers-panel__status.is-connected { border-color: var(--color-success); background: var(--color-success); }
-.providers-panel__status.is-error { border-color: var(--color-danger); background: var(--color-danger); }
-.providers-panel__summary :deep(.ui-icon).is-rotated { transform: rotate(90deg); }
-.providers-panel__details { display: flex; flex-direction: column; gap: var(--space-4); padding: var(--space-4); border-top: 1px solid var(--color-line); background: var(--color-surface-sunken); }
-.providers-panel__model-list { display: flex; flex-wrap: wrap; gap: var(--space-2); }
-.providers-panel__model-list code { padding: var(--space-1) var(--space-2); border-radius: var(--radius-sm); background: var(--color-surface-raised); color: var(--color-text-muted); font-size: var(--text-xs); }
-.providers-panel__delete { display: flex; justify-content: flex-start; padding-top: var(--space-3); border-top: 1px solid var(--color-line); }
-@media (max-width: 640px) { .providers-panel__count { display: none; } .providers-panel__summary { gap: var(--space-2); padding: var(--space-3); } }
+
+.providers-pane-label {
+  padding: 0 var(--space-2);
+  color: var(--color-text-faint);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.providers-panel__split {
+  display: grid;
+  grid-template-columns: minmax(170px, 216px) minmax(0, 1fr);
+  gap: var(--space-5);
+  align-items: start;
+}
+.providers-panel__list { display: flex; flex-direction: column; gap: var(--space-1); }
+.providers-panel__list .providers-pane-label:not(:first-child) { margin-top: var(--space-3); }
+
+.providers-panel__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: 44px;
+  padding: var(--space-1-5) var(--space-2);
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-text);
+  font-family: var(--font-ui);
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-out);
+}
+.providers-panel__row:hover { background: var(--color-hover); }
+.providers-panel__row:focus-visible { outline: none; box-shadow: inset var(--p-focus-ring); }
+.providers-panel__row.is-selected { background: var(--color-selected); }
+.providers-panel__row-name { overflow: hidden; flex: 1; font-size: var(--text-base); font-weight: var(--weight-medium); text-overflow: ellipsis; white-space: nowrap; }
+.providers-panel__row-dot { width: 7px; height: 7px; flex: none; border-radius: var(--radius-full); background: var(--color-text-faint); }
+.providers-panel__row-dot.is-ok { background: var(--color-success); }
+.providers-panel__row-dot.is-error { background: var(--color-danger); }
+
+.providers-panel__tile {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  flex: none;
+  border-radius: var(--radius-md);
+  background: var(--color-surface-sunken);
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  line-height: 1;
+}
+.providers-panel__tile.is-ok { color: var(--color-success); }
+.providers-panel__tile.is-error { color: var(--color-danger); }
+
+.providers-panel__add-icon { display: grid; place-items: center; width: 26px; height: 26px; flex: none; border: 1px dashed var(--color-line-strong); border-radius: var(--radius-md); color: var(--color-text-muted); }
+.providers-panel__row--add .providers-panel__row-name { color: var(--color-text-muted); font-weight: var(--weight-regular); }
+.providers-panel__row--add:hover .providers-panel__row-name,
+.providers-panel__row--add.is-selected .providers-panel__row-name { color: var(--color-text); }
+.providers-panel__row--add.is-selected .providers-panel__add-icon { border-style: solid; border-color: var(--color-accent-bd); color: var(--color-accent); }
+
+.providers-panel__row--skeleton { gap: var(--space-2); }
+
+.providers-panel__detail { display: flex; flex-direction: column; gap: var(--space-4); min-width: 0; padding-top: var(--space-1); }
+
+.providers-detail__head { display: flex; align-items: center; gap: var(--space-3); }
+.providers-detail__tile {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  flex: none;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-sunken);
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-medium);
+  line-height: 1;
+}
+.providers-detail__identity { display: flex; flex-direction: column; gap: var(--space-1); min-width: 0; }
+.providers-detail__name-row { display: flex; align-items: center; gap: var(--space-2); }
+.providers-detail__name-row h4 { margin: 0; overflow: hidden; color: var(--color-text); font-size: var(--text-lg); font-weight: var(--weight-medium); text-overflow: ellipsis; white-space: nowrap; }
+.providers-detail__meta { display: flex; align-items: center; gap: var(--space-1-5); overflow: hidden; margin: 0; color: var(--color-text-muted); font-size: var(--text-xs); white-space: nowrap; }
+.providers-detail__meta .mono { overflow: hidden; font-family: var(--font-mono); text-overflow: ellipsis; }
+
+.providers-detail__sec { display: flex; flex-direction: column; gap: var(--space-2); }
+.providers-detail__sec-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-3); }
+.providers-detail__count { color: var(--color-text-faint); font-size: var(--text-xs); font-variant-numeric: tabular-nums; }
+.providers-detail__empty { margin: 0; color: var(--color-text-faint); font-size: var(--text-sm); }
+
+.providers-model-card { overflow: hidden; border: 1px solid var(--color-line); border-radius: var(--radius-lg); background: var(--color-bg); }
+.providers-model-row { display: flex; align-items: center; gap: var(--space-3); min-height: 42px; padding: var(--space-1-5) var(--space-4); }
+.providers-model-row + .providers-model-row { border-top: 1px solid var(--color-line); }
+.providers-model-row code { overflow: hidden; font-family: var(--font-mono); font-size: var(--text-sm); text-overflow: ellipsis; white-space: nowrap; }
+.providers-model-name { overflow: hidden; color: var(--color-text-faint); font-size: var(--text-xs); text-overflow: ellipsis; white-space: nowrap; }
+.providers-model-grow { flex: 1; }
+
+.providers-detail__foot { display: flex; justify-content: flex-start; padding-top: var(--space-2); border-top: 1px solid var(--color-line); }
+
+@media (max-width: 640px) {
+  .providers-panel__split { grid-template-columns: 1fr; gap: var(--space-4); }
+  .providers-panel__detail { padding-top: 0; }
+}
 </style>

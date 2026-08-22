@@ -389,11 +389,11 @@ export function toAppTask(wire: WireTask): AppTask {
     suspendedReason: wire.suspended_reason,
     dynamicWorkflowIndex: wire.dynamic_workflow_index,
     swarmIndex: wire.swarm_index,
-    // The snapshot's subagent roster carries the explicit flag. REST `/tasks`
-    // does not, but its background-task store only holds detached tasks, so any
-    // subagent it returns is a background subagent (foreground ones never
-    // persist there) — hence the `?? true` fallback for that path.
-    runInBackground: wire.run_in_background ?? (wire.kind === 'subagent' ? true : undefined),
+    // Explicit on every wire surface that returns subagents (snapshot roster
+    // and REST /tasks). Never guess: defaulting a missing flag to true made the
+    // dock claim foreground workflow agents as background rows that no terminal
+    // event would ever complete.
+    runInBackground: wire.run_in_background,
     // outputLines starts undefined; populated by eventReducer via task.progress events
   };
 }

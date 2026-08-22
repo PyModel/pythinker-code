@@ -4,6 +4,9 @@ import { describe, expect, it } from 'vitest';
 
 const app = readFileSync(join(import.meta.dirname, '../src/App.vue'), 'utf8');
 const composer = readFileSync(join(import.meta.dirname, '../src/components/chat/Composer.vue'), 'utf8');
+const chatDock = readFileSync(join(import.meta.dirname, '../src/components/chat/ChatDock.vue'), 'utf8');
+const conversationPane = readFileSync(join(import.meta.dirname, '../src/components/chat/ConversationPane.vue'), 'utf8');
+const mobileSheet = readFileSync(join(import.meta.dirname, '../src/components/mobile/MobileSettingsSheet.vue'), 'utf8');
 const sidebar = readFileSync(join(import.meta.dirname, '../src/components/Sidebar.vue'), 'utf8');
 const sessionRow = readFileSync(join(import.meta.dirname, '../src/components/SessionRow.vue'), 'utf8');
 const client = readFileSync(join(import.meta.dirname, '../src/composables/usePythinkerWebClient.ts'), 'utf8');
@@ -20,6 +23,20 @@ describe('app shell contracts', () => {
     expect(composer).toContain("import CapabilityMenu from '../CapabilityMenu.vue';");
     expect(composer).toContain('<CapabilityMenu ref="capMenuRef" :session-id="sessionId" triggerless />');
     expect(composer).toContain("id: 'capabilities'");
+  });
+
+  it('offers Dynamic Workflow from the same surfaces as Goal and Plan', () => {
+    // The "+" add menu lists a workflow row; toggling emits up the chain and
+    // App owns the state change (Composer stays dumb).
+    expect(composer).toContain("id: 'workflow'");
+    expect(composer).toContain('toggleWorkflow: [];');
+    expect(chatDock).toContain(`@toggle-workflow="emit('toggleWorkflow')"`);
+    expect(conversationPane).toContain(`@toggle-workflow="emit('toggleWorkflow')"`);
+    expect(app).toContain('@toggle-workflow="client.toggleDynamicWorkflowMode()"');
+    // The active-mode chip is dismissible.
+    expect(composer).toContain("t('status.dynamicWorkflowDismiss')");
+    // The mobile sheet carries an interactive switch like the reference.
+    expect(mobileSheet).toContain(':aria-checked="dynamicWorkflowMode" @click="emit(\'toggleWorkflow\')"');
   });
 
   it('uses the Pythinker robot in the sidebar brand', () => {

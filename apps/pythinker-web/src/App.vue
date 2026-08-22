@@ -452,10 +452,6 @@ const {
   previewMax,
   previewWidth,
   previewPanelWidth,
-  thinkingPanelText,
-  thinkingVisible,
-  openThinkingPanel,
-  closeThinkingPanel,
   compactionPanelText,
   compactionPanelVisible,
   openCompactionPanel,
@@ -1122,6 +1118,7 @@ function openPr(url: string): void {
       @set-permission="client.setPermission($event)"
       @set-thinking="client.setThinking($event)"
       @toggle-plan="client.togglePlanMode()"
+      @toggle-workflow="client.toggleDynamicWorkflowMode()"
       @toggle-goal="client.toggleGoalMode()"
       @create-goal="client.createGoal($event)"
       @control-goal="client.controlGoal($event)"
@@ -1139,7 +1136,6 @@ function openPr(url: string): void {
       @select-model="handleComposerSelectModel($event)"
       @open-file="openFilePreview($event)"
       @open-media="openMediaPreview($event)"
-      @open-thinking="openThinkingPanel($event)"
       @open-compaction="openCompactionPanel($event)"
       @open-agent="openAgentPanel($event)"
       @open-tool-diff="openToolDiff($event)"
@@ -1208,12 +1204,7 @@ function openPr(url: string): void {
       :aria-hidden="!sidePanelVisible"
     >
       <ThinkingPanel
-        v-if="detailTarget === 'thinking' && thinkingVisible"
-        :text="thinkingPanelText ?? ''"
-        @close="closeThinkingPanel"
-      />
-      <ThinkingPanel
-        v-else-if="detailTarget === 'compaction' && compactionPanelVisible"
+        v-if="detailTarget === 'compaction' && compactionPanelVisible"
         :text="compactionPanelText ?? ''"
         :subtitle="t('conversation.summaryTitle')"
         @close="closeCompactionPanel"
@@ -1425,6 +1416,7 @@ function openPr(url: string): void {
       @pick-model="openModelPicker()"
       @set-thinking="client.setThinking($event)"
       @toggle-plan="client.togglePlanMode()"
+      @toggle-workflow="client.toggleDynamicWorkflowMode()"
       @toggle-goal="client.toggleGoalMode()"
       @control-goal="client.controlGoal($event)"
       @set-permission="client.setPermission($event)"

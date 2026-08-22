@@ -101,6 +101,29 @@ describe('dynamic workflow daemon contracts', () => {
     );
   });
 
+  it('maps run_in_background explicitly instead of defaulting subagents to background', () => {
+    const foreground = toAppTask({
+      id: 'task_fg',
+      session_id: 'ses_1',
+      kind: 'subagent',
+      description: 'Foreground review',
+      status: 'running',
+      created_at: now,
+      run_in_background: false,
+    });
+    const background = toAppTask({
+      id: 'task_bg',
+      session_id: 'ses_1',
+      kind: 'subagent',
+      description: 'Background review',
+      status: 'running',
+      created_at: now,
+      run_in_background: true,
+    });
+    expect(foreground.runInBackground).toBe(false);
+    expect(background.runInBackground).toBe(true);
+  });
+
   it('loads one subagent transcript from the agent-scoped transcript route', async () => {
     const fetchMock = vi.fn().mockResolvedValueOnce(okEnvelope({
       agent_id: 'agent_1',

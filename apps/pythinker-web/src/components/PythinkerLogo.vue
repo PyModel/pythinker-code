@@ -6,7 +6,7 @@ const wavingSrc = useApngRestart('/brand/mascot-waving.png');
 
 const props = withDefaults(
   defineProps<{
-    size?: 'sm' | 'md' | 'lg' | 'xl';
+    size?: 'sm' | 'md' | 'lg' | 'xl' | 'hero';
     animated?: boolean;
     label?: string;
     interactive?: boolean;
@@ -58,6 +58,10 @@ function onClick(): void {
 }
 .size-xl {
   height: 96px;
+  width: auto;
+}
+.size-hero {
+  height: clamp(128px, 15vw, 172px);
   width: auto;
 }
 .pythinker-logo.interactive {

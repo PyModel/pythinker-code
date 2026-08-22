@@ -20,17 +20,27 @@ import type { AppTask } from '../api/types';
  * (`backgroundTaskId` links the two, set from the `task.started`
  * registration). Fold the REST copy into the WS-owned row so one agent does
  * not surface as two rows; REST still corrects a terminal status the WS row
- * may have missed while disconnected.
+ * may have missed while disconnected. When that explicit link was never
+ * learned (e.g. the `task.started` frame raced the page load), fall back to
+ * matching on the agent id both rows carry.
  */
 export function keepLiveSubagents(restBased: AppTask[], existing: AppTask[]): AppTask[] {
   const restIds = new Set(restBased.map((t) => t.id));
   const liveSubagents = existing.filter((t) => t.kind === 'subagent' && !restIds.has(t.id));
   if (liveSubagents.length === 0) return restBased;
   const restById = new Map(restBased.map((t) => [t.id, t] as const));
+  const restByAgentId = new Map<string, AppTask>();
+  for (const t of restBased) {
+    if (t.kind === 'subagent' && t.agentId !== undefined && !restByAgentId.has(t.agentId)) {
+      restByAgentId.set(t.agentId, t);
+    }
+  }
   const foldedRestIds = new Set<string>();
   const merged = liveSubagents.map((live) => {
     const rest =
-      live.backgroundTaskId !== undefined ? restById.get(live.backgroundTaskId) : undefined;
+      (live.backgroundTaskId !== undefined ? restById.get(live.backgroundTaskId) : undefined) ??
+      restByAgentId.get(live.id) ??
+      (live.agentId !== undefined ? restByAgentId.get(live.agentId) : undefined);
     if (rest === undefined) return live;
     foldedRestIds.add(rest.id);
     // True when the fold — not the event stream — is what makes the row terminal.

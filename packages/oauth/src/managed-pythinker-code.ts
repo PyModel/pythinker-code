@@ -151,10 +151,15 @@ export interface ManagedPythinkerModelAlias {
   provider: string;
   model: string;
   maxContextSize: number;
+  maxInputSize?: number | undefined;
+  maxOutputSize?: number | undefined;
   capabilities?: string[] | undefined;
   supportEfforts?: readonly string[] | undefined;
   defaultEffort?: string | undefined;
   displayName?: string | undefined;
+  reasoningKey?: string | undefined;
+  offEffort?: string | undefined;
+  baseUrl?: string | undefined;
   protocol?: ManagedPythinkerCodeProtocol;
   betaApi?: boolean;
   adaptiveThinking?: boolean | undefined;
@@ -312,9 +317,9 @@ export function pythinkerCodeEnvOAuthHost(env: ManagedPythinkerEnv = process.env
 }
 
 // Base URLs that share the default `oauth/pythinker-code` credential slot.
-const SHARED_DEFAULT_BASE_URLS: readonly string[] = [
+const SHARED_DEFAULT_BASE_URLS: ReadonlySet<string> = new Set([
   normalizeEndpoint(DEFAULT_PYTHINKER_CODE_BASE_URL),
-];
+]);
 
 export function resolvePythinkerCodeOAuthKey(options: {
   readonly oauthHost?: string | undefined;
@@ -324,7 +329,7 @@ export function resolvePythinkerCodeOAuthKey(options: {
   const baseUrl = defaultBaseUrl(options.baseUrl);
   const defaultOauthHost = normalizeEndpoint(DEFAULT_PYTHINKER_CODE_OAUTH_HOST);
 
-  if (oauthHost === defaultOauthHost && SHARED_DEFAULT_BASE_URLS.includes(baseUrl)) {
+  if (oauthHost === defaultOauthHost && SHARED_DEFAULT_BASE_URLS.has(baseUrl)) {
     return PYTHINKER_CODE_OAUTH_KEY;
   }
 
