@@ -169,7 +169,7 @@ db.dtRange('created', { gte: t0, lte: t1 }); // O(log N), [{ key, value, dt, dtV
 db.query({
   key:    { prefix: 'post:' },
   dt:     { created: { gte: t0, lte: t1 } },
-  text:   { index: 'body', q: '北京', op: 'AND' },
+  text:   { index: 'body', q: 'beijing', op: 'AND' },
   filter: { age: { $gte: 18 }, $or: [{ city: 'Paris' }, { city: 'London' }] },
   sort:   { age: -1 },
   project: ['name', 'age'],
@@ -190,7 +190,7 @@ $type`, plus `$and $or $nor $not`. Paths use dot/bracket notation
 
 ```js
 await db.createTextIndex('body', { fields: ['bio'] }); // fields optional (default: all strings)
-db.search('body', 'hello 世界', { op: 'AND' });         // [{ key, value, score }]
+db.search('body', 'hello world', { op: 'AND' });         // [{ key, value, score }]
 ```
 
 Latin words + CJK unigram/bigram tokenization (no dictionary, zero deps), with

@@ -83,12 +83,12 @@ function nextIsSignOrDigit(source: string, index: number): boolean {
   const after = source[index + 1];
   return isDigit(charAt(source, index + 1))
     ? true
-    : (after === '-' || after === '+' || after === '.' || after === '−' || after === '＋' || after === '－') &&
+    : (after === '-' || after === '+' || after === '.' || after === '−') &&
         isDigit(charAt(source, index + 2));
 }
 
 /** `UBe`: `$` sits between currency punctuation and a signed number. */
-const CURRENCY_PREV_CHAR_RE = /^[-–—,，、;；:：~～(（[【/／]$/;
+const CURRENCY_PREV_CHAR_RE = /^[-–—,;:~([/]$/;
 
 function currencyPunctuationOpen(source: string, index: number): boolean {
   const after = source[index + 1];
@@ -97,8 +97,8 @@ function currencyPunctuationOpen(source: string, index: number): boolean {
   return before !== undefined && CURRENCY_PREV_CHAR_RE.test(before);
 }
 
-/** `KBe`: text shaped like a numeric expression (`5$10`, `20元10`, `100 to 200`). */
-const NUMERIC_SEPARATOR_ALT = String.raw`[、,，;；:：~～\-–—至到/／\s（）()=*×＝]|和|跟|与|及|或|and|or`;
+/** `KBe`: text shaped like a numeric expression (`5$10`, `3 km to 5 km`). */
+const NUMERIC_SEPARATOR_ALT = String.raw`[,;:~\-–—/\s()=*×]|and|or`;
 
 function numericExpression(text: string): boolean {
   let value = text.replace(new RegExp(String.raw`^(?:${NUMERIC_SEPARATOR_ALT})+`, 'u'), '');
@@ -177,7 +177,7 @@ export function buildInlineMathMatcher(source: string): InlineMathMatcher {
   }
 
   // URL/domain/relative-path candidates; each scans to its natural end.
-  const URL_PANIC_CHARS = new Set(' \t\n\r)。，、；：！？"<>`「」『』【】〔〕（）*—–“”‘’');
+  const URL_PANIC_CHARS = new Set(' \t\n\r)"<>`*—–“”‘’');
   const urlStarts: number[] = [];
   for (const match of source.matchAll(/\b(?:https?:\/\/|ftp:\/\/|mailto:|www\.)/gi)) urlStarts.push(match.index);
   for (const match of source.matchAll(
