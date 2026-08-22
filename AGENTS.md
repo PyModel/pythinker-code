@@ -69,7 +69,7 @@ Adding an OpenAI-compatible provider requires **zero code changes** — just add
 | `packages/pi-tui` | Vendored TUI library | Upstream fork with local divergences; tests run with `node --test`, not vitest. See its `AGENTS.md`. |
 | `packages/protocol` | Shared REST + WS protocol schemas | Envelope, error codes, pagination, WS-control types. |
 
-The web bundle: `apps/pythinker-code/dist-web` is the committed, prebuilt bundle of `apps/pythinker-web` (built with `pnpm --filter @pymodel/pythinker-web run build` and copied via `scripts/copy-web-assets.mjs`). `apps/pythinker-code/scripts/check-web-assets.mjs` guards packaging against a missing bundle — sync and commit the bundle in the same change whenever the web UI should ship differently. `packages/server` and `packages/server-e2e` are empty leftover directories excluded from the workspace — not packages.
+The web bundle: `apps/pythinker-code/dist-web` is the committed, prebuilt bundle of `apps/pythinker-web` (built with `pnpm --filter @pymodel/pythinker-web run build` and copied via `scripts/copy-web-assets.mjs`). `apps/pythinker-code/scripts/check-web-assets.mjs` fails when the bundle is missing **or stale** (it compares a fingerprint of every `apps/pythinker-web` build input against the one recorded at copy time); it runs in pre-push, in the CLI `build`, and on `prepack`. Whenever you touch the web UI, run `pnpm run build:web` and commit the restaged bundle in the same change. `packages/server` and `packages/server-e2e` are empty leftover directories excluded from the workspace — not packages.
 
 ## Environment
 

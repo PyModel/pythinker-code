@@ -50,7 +50,7 @@
     "provenance": true
   },
   "scripts": {
-    "build": "pnpm -C ../pythinker-web run build && tsdown && tsdown --config tsdown.dist-worker.config.ts && node scripts/copy-native-assets.mjs && node scripts/copy-web-assets.mjs",
+    "build": "pnpm -C ../pythinker-web run build && tsdown && tsdown --config tsdown.dist-worker.config.ts && node scripts/copy-native-assets.mjs && node scripts/copy-web-assets.mjs && node scripts/check-web-assets.mjs",
     "prebuild": "node scripts/build-vis-asset.mjs",
     "catalog:update": "node scripts/update-catalog.mjs --out dist/built-in-catalog.json",
     "smoke": "node scripts/smoke.mjs",
@@ -75,7 +75,8 @@
     "test": "pnpm -w run build:packages && vitest run",
     "e2e": "pnpm -w run build:packages && PYTHINKER_E2E=1 vitest run test/e2e",
     "e2e:real": "pnpm -w run build:packages && PYTHINKER_E2E_REAL=1 vitest run test/e2e/real-llm-smoke.e2e.test.ts",
-    "postinstall": "node scripts/postinstall.mjs"
+    "postinstall": "node scripts/postinstall.mjs",
+    "prepack": "node scripts/check-web-assets.mjs"
   },
   "optionalDependencies": {
     "@mariozechner/clipboard": "^0.3.9",
