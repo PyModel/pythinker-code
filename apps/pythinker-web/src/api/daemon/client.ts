@@ -320,6 +320,13 @@ interface WireReadFileResult {
   is_binary: boolean;
 }
 
+interface WireWriteFileResult {
+  path: string;
+  size: number;
+  etag: string;
+  created: boolean;
+}
+
 interface WireSearchFilesResult {
   items: Array<{
     path: string;
@@ -1212,6 +1219,30 @@ export class DaemonPythinkerWebApi implements PythinkerWebApi {
       languageId: data.language_id,
       lineCount: data.line_count,
       isBinary: data.is_binary,
+    };
+  }
+
+  async writeFile(
+    sessionId: string,
+    input: { path: string; content: string; encoding?: 'utf-8' | 'base64'; baseEtag?: string },
+  ): Promise<{
+    path: string;
+    size: number;
+    etag: string;
+    created: boolean;
+  }> {
+    const body: Record<string, unknown> = { path: input.path, content: input.content };
+    if (input.encoding !== undefined) body['encoding'] = input.encoding;
+    if (input.baseEtag !== undefined) body['base_etag'] = input.baseEtag;
+    const data = await this.http.post<WireWriteFileResult>(
+      `/sessions/${encodeURIComponent(sessionId)}/fs:write`,
+      body,
+    );
+    return {
+      path: data.path,
+      size: data.size,
+      etag: data.etag,
+      created: data.created,
     };
   }
 
