@@ -53,6 +53,7 @@ jobs:
     if: github.repository_owner == 'PyModel'
     outputs:
       packages_published: ${{ steps.changesets.outputs.published }}
+      extension_version_bumped: ${{ steps.extension-version.outputs.bumped }}
       pythinker_native_release: ${{ steps.pythinker-release.outputs.should_publish }}
       pythinker_release_tag: ${{ steps.pythinker-release.outputs.tag }}
     permissions:
@@ -77,6 +78,18 @@ jobs:
 
       - name: Upgrade npm for Trusted Publishing
         run: npm install -g npm@11
+
+      # Machine-readable signal for the VS Code extension publish gate: the
+      # release PR merge is a squash whose only meaningful delta for the
+      # extension is the version field, so compare it against the previous
+      # commit instead of trusting the commit-message prefix.
+      - name: Detect extension version bump
+        id: extension-version
+        run: |
+          prev=$(git show 'HEAD^:apps/vscode/package.json' | node -p 'JSON.parse(require("fs").readFileSync(0, "utf8")).version')
+          curr=$(node -p 'require("./apps/vscode/package.json").version')
+          if [ "$prev" = "$curr" ]; then bumped=false; else bumped=true; fi
+          echo "bumped=$bumped" >> "$GITHUB_OUTPUT"
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -133,13 +146,18 @@ jobs:
   # The VS Code extension is a private workspace package: changesets bumps its
   # version but never publishes it to npm, so it ships from here instead. Both
   # publish scripts skip packages that already exist in the registry, so this
-  # job is a no-op on releases that did not touch the extension.
+  # job is a no-op on releases that did not touch the extension. Extension-only
+  # releases publish nothing to npm, so the gate also covers a version bump.
   publish-vscode-extension:
     timeout-minutes: 45
     name: Publish VS Code extension
     needs: release
-    if: needs.release.outputs.packages_published == 'true'
+    if: >-
+      needs.release.outputs.packages_published == 'true'
+      || needs.release.outputs.extension_version_bumped == 'true'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # pinned from v6.0.2
