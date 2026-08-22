@@ -811,7 +811,7 @@ function toggleTableWidth(wrapper: HTMLElement): void {
     toggle.title = label;
   }
   refreshTableToggle(wrapper);
-  wrapper.dispatchEvent(new CustomEvent('kimi-table-layout', { bubbles: true }));
+  wrapper.dispatchEvent(new CustomEvent('pythinker-table-layout', { bubbles: true }));
 }
 
 function processTableToggles(): void {

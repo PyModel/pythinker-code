@@ -27,11 +27,12 @@ Custom themes can override the tokens below. The `dark` and `light` columns show
 | `toolPendingBg` | `#1D2129` | `#E8EEF7` | Background tint for a running tool card |
 | `toolSuccessBg` | `#14171B` | `#F1F3F5` | Background tint for a successful tool card |
 | `toolErrorBg` | `#291D1D` | `#F9E9E9` | Background tint for a failed tool card |
-| `effortLow` | `#8A8A8A` | `#8A8A8A` | Low thinking effort indicator |
-| `effortMedium` | `#6FA8DC` | `#2E6FB8` | Medium thinking effort indicator |
-| `effortHigh` | `#D33682` | `#A81D6E` | High thinking effort indicator |
-| `effortXHigh` | `#C0392B` | `#8B1A1A` | Extra-high thinking effort indicator |
-| `effortMax` | `#F2C744` | `#B8860B` | Maximum thinking effort indicator |
+| `effortOff` | `#8A8A8A` | `#767676` | Off thinking effort — grey prompt border |
+| `effortLow` | `#B3B3B3` | `#8C8C8C` | Low thinking effort — lighter grey prompt border |
+| `effortMedium` | `#E8E8E8` | `#404040` | Medium thinking effort — near-white prompt border |
+| `effortHigh` | `#6FA8DC` | `#2E6FB8` | High thinking effort — light-blue prompt border |
+| `effortXHigh` | `#A78BFA` | `#7048B6` | Extra-high thinking effort — light-purple prompt border |
+| `effortMax` | `#F2C744` | `#B8860B` | Maximum thinking effort — gold prompt border |
 | `diffAdded` | `#4EC87E` | `#0E7A38` | Added diff lines |
 | `diffRemoved` | `#E85454` | `#B91C1C` | Removed diff lines |
 | `diffAddedStrong` | `#7AD99B` | `#0E7A38` | Added intra-line changed words |

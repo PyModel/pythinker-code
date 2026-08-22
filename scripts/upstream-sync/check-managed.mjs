@@ -66,7 +66,10 @@ const kimiHostPattern = /\b(?:[a-z0-9-]+\.)*kimi\.com\b/gi;
 // kaos→pyaos rename guard: the only tracked files allowed to mention the old
 // name are the deprecated-alias surfaces (config `executor: 'kaos'`, SDK
 // `{kaos, persistenceKaos}` session params) and their tests. pnpm-lock.yaml is
-// excluded for its unrelated base64 `...kAOs...` integrity hash.
+// excluded for its unrelated base64 `...kAOs...` integrity hash. Changesets and
+// the CHANGELOG.md files generated from them are excluded for the same reason:
+// they are a release record of the rename, and rewriting a published entry
+// would falsify history rather than remove residue.
 const kaosAliasAllowlist = new Set([
   'packages/agent-core/src/config/schema.ts',
   'packages/agent-core-v2/src/mcpCore/config-schema.ts',
@@ -101,6 +104,7 @@ for (const file of trackedFiles) {
   if (
     file !== 'pnpm-lock.yaml' &&
     !file.startsWith('.changeset/') &&
+    !file.endsWith('CHANGELOG.md') &&
     !kaosAliasAllowlist.has(file) &&
     kaosPattern.test(text)
   ) {

@@ -659,27 +659,24 @@ onBeforeUnmount(() => {
       @dragleave="onColDragleave"
       @drop="onColDrop"
     >
-      <!-- Header: brand + collapse. The collapse button lives INSIDE the header
-           on non-mac platforms (right-aligned); on macOS desktop the brand is
-           hidden (traffic lights own that corner) and the header is just a
-           window-drag strip — there the toggle is App.vue's resident floating
-           button beside the traffic lights. -->
+      <!-- Header: brand + collapse. On every platform the brand sits left
+           and the collapse button is right-aligned in the row; on macOS
+           desktop the row is also the window-drag strip — it pads left to
+           clear the floating traffic lights, and the button opts out of the
+           drag region so it stays clickable. -->
       <div class="ch">
         <div class="ch-brand">
-          <template v-if="!isMacosDesktop">
-            <PythinkerLogo
-              class="ch-logo"
-              size="sm"
-              :animated="false"
-              @pointerdown="onLogoPointerDown"
-              @pointerup="onLogoPointerUp"
-              @pointercancel="onLogoPointerUp"
-            />
-            <span class="ch-name">Pythinker Code</span>
-          </template>
+          <PythinkerLogo
+            class="ch-logo"
+            size="sm"
+            :animated="false"
+            @pointerdown="onLogoPointerDown"
+            @pointerup="onLogoPointerUp"
+            @pointercancel="onLogoPointerUp"
+          />
+          <span class="ch-name">Pythinker Code</span>
         </div>
         <IconButton
-          v-if="!isMacosDesktop"
           class="ch-collapse"
           size="sm"
           :label="t('sidebar.collapseSidebar')"
@@ -1103,9 +1100,16 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .side {
-  /* Sidebar sits on its own surface (--color-sidebar-bg, one step off --bg);
-     the 1px hairline on .col still separates it from the conversation pane. */
-  background: var(--color-sidebar-bg);
+  position: relative;
+  /* Sidebar frost surface — extends the sanctioned TopBar `.frost` recipe by
+     explicit product decision (same pattern as the Onboarding hero): translucent
+     glass base + gradient wash + backdrop blur, so the session column reads as
+     a vibrancy material. The blur lives on an isolated ::before layer, NOT on
+     .side itself: a backdrop-filtered element becomes the containing block for
+     position:fixed descendants, which would reparent and clip the kebab /
+     workspace / section menus below. --color-sidebar-bg stays the solid
+     composite for row masks / overlays. */
+  isolation: isolate;
   display: flex;
   flex-direction: row;
   /* Anchor content to the right edge: while the container width animates to 0
@@ -1129,6 +1133,20 @@ onBeforeUnmount(() => {
   /* Row hover wash — global --color-hover (lighter than the selected fill;
      both translucent, so they sit on any surface). */
   --sb-hover: var(--color-hover);
+}
+/* Frost layer: paints above .side's own (transparent) background but below all
+   content via negative z-index; .side's isolation keeps it from sinking behind
+   ancestor surfaces. */
+.side::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-color: var(--color-sidebar-glass);
+  background-image: var(--color-sidebar-wash);
+  -webkit-backdrop-filter: var(--p-sidebar-backdrop);
+  backdrop-filter: var(--p-sidebar-backdrop);
 }
 /* While dragging the resize handle, follow the pointer 1:1 (same pattern as
    .global-preview.no-anim in App.vue). */
@@ -1177,15 +1195,22 @@ onBeforeUnmount(() => {
   box-sizing: border-box;
 }
 /* macOS desktop: the window uses a hidden title bar, so the traffic lights
-   float over the top-left of the sidebar and the resident toggle sits beside
-   them. The header renders no content here (brand hidden) — it is purely a
-   window-drag strip. */
+   float over the top-left of the sidebar. The brand row sits BELOW them (its
+   own line, like the design-system reference): padding-top clears the lights,
+   left padding returns to the normal sidebar gutter, and the whole strip —
+   lights zone included — stays a window-drag area while the collapse button
+   opts out so it remains clickable. */
 .side.macos-desktop .ch {
-  padding-left: 80px;
+  padding-top: 36px;
   -webkit-app-region: drag;
 }
-.side.macos-desktop .ch-brand {
-  display: none;
+.side.macos-desktop .ch-collapse {
+  -webkit-app-region: no-drag;
+}
+/* Compact brand lockup on macOS, matching the reference proportions. */
+.side.macos-desktop .ch-logo {
+  height: 24px;
+  width: 24px;
 }
 .ch-logo {
   height: 28px;
@@ -1214,7 +1239,7 @@ onBeforeUnmount(() => {
 .ch-name {
   font-size: var(--ui-font-size);
   font-weight: 500;
-  line-height: 22px;
+  line-height: 1.25;
   color: var(--color-text);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1292,7 +1317,9 @@ onBeforeUnmount(() => {
   padding: 0 var(--sb-inset);
   position: relative;
   z-index: 1;
-  background: var(--color-sidebar-bg);
+  background: var(--color-sidebar-glass);
+  -webkit-backdrop-filter: var(--p-sidebar-backdrop);
+  backdrop-filter: var(--p-sidebar-backdrop);
   border-bottom: 1px solid transparent;
   transition: border-color var(--duration-base) var(--ease-out),
     box-shadow var(--duration-base) var(--ease-out);

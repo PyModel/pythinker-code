@@ -92,7 +92,12 @@ const turns: ChatTurn[] = [
   },
 ];
 
-function mountPanel(options: { turns?: ChatTurn[]; loadError?: boolean } = {}) {
+type ModelResolvers = {
+  modelDisplay?: (modelId: string | undefined) => string | undefined;
+  subagentEffort?: (effort: string | undefined) => string | undefined;
+};
+
+function mountPanel(options: { turns?: ChatTurn[]; loadError?: boolean; provide?: ModelResolvers } = {}) {
   return mount(AgentDetailPanel, {
     props: {
       member,
@@ -102,9 +107,8 @@ function mountPanel(options: { turns?: ChatTurn[]; loadError?: boolean } = {}) {
       loadError: options.loadError ?? false,
       hasMore: false,
       loadingMore: false,
-      loadMoreError: false,
     },
-    global: { plugins: [i18n as I18n] },
+    global: { plugins: [i18n as I18n], provide: options.provide ?? {} },
   });
 }
 
@@ -125,10 +129,16 @@ describe('AgentDetailPanel', () => {
   });
 
   it('renders the selected subagent transcript and execution tools', () => {
-    const wrapper = mountPanel();
+    const wrapper = mountPanel({
+      provide: {
+        modelDisplay: (modelId) => (modelId === 'secondary/model' ? 'Secondary Model' : modelId),
+        subagentEffort: (effort) => (effort === 'high' ? 'High' : effort),
+      },
+    });
 
     expect(wrapper.text()).toContain('Review modified files');
-    expect(wrapper.text()).toContain('review · secondary/model · high');
+    // The subtitle resolves through the provided model/effort resolvers.
+    expect(wrapper.text()).toContain('review · Secondary Model · High');
     expect(wrapper.text()).toContain('Review the current changes');
     expect(wrapper.text()).toContain('I inspected the implementation.');
     expect(wrapper.text()).toContain('Read');

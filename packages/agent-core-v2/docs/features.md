@@ -3,7 +3,7 @@
 A **Feature** is a built-in capability (plan mode, and later mcp, …) authored as ONE
 self-contained unit under `src/features/<name>/`. The Feature unit is the single place
 that declares everything the capability contributes to the engine; retracting the unit
-withdraws all of it across the scope tree (连坐).
+withdraws all of it across the scope tree.
 
 `plan` is the reference implementation: `src/features/plan/` (extracted from
 `agent/plan` + `agent/tools/plan`).
@@ -33,7 +33,7 @@ registerFeature(PlanFeature);   // import = register
 construction protocol (declare contributions in the constructor; they are buffered and
 flushed by the kernel). A feature may also declare `static readonly meta = { ... }` —
 free-form self-description that `IFeatureManager.units()` introspection carries (and
-kap-server surfaces via `GET /api/v1/meta`); it defaults to `{}`. The helpers are thin
+agent-gateway surfaces via `GET /api/v1/meta`); it defaults to `{}`. The helpers are thin
 compositions over the existing seams:
 
 | Helper | Composition | Semantics |

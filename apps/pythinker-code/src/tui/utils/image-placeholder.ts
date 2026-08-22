@@ -204,7 +204,7 @@ export function pendingMediaIngestions(
   store: ImageAttachmentStore,
   timeoutMs: number,
 ): Promise<void> | undefined {
-  const pendings: Promise<void>[] = [];
+  const mediaIngestions: Promise<void>[] = [];
   PLACEHOLDER_REGEX.lastIndex = 0;
   let match: RegExpExecArray | null;
   while ((match = PLACEHOLDER_REGEX.exec(text)) !== null) {
@@ -213,13 +213,13 @@ export function pendingMediaIngestions(
     if (idStr === undefined) continue;
     const attachment = store.get(Number.parseInt(idStr, 10));
     if (attachment?.kind === kind && attachment.pending !== undefined) {
-      pendings.push(attachment.pending);
+      mediaIngestions.push(attachment.pending);
     }
   }
-  if (pendings.length === 0) return undefined;
+  if (mediaIngestions.length === 0) return undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
   return Promise.race([
-    Promise.allSettled(pendings).then(() => undefined),
+    Promise.allSettled(mediaIngestions).then(() => undefined),
     new Promise<void>((resolve) => {
       timer = setTimeout(resolve, timeoutMs);
     }),

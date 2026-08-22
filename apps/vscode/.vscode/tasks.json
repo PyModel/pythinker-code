@@ -12,6 +12,16 @@
       "problemMatcher": []
     },
     {
+      "label": "vscode: prepare isolated dev (seeded)",
+      "type": "process",
+      "command": "pnpm",
+      "args": ["run", "dev:prepare:seeded"],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
       "label": "vscode: watch extension",
       "type": "process",
       "command": "pnpm",
@@ -62,6 +72,16 @@
           "endsPattern": "built in \\d+.*ms"
         }
       }
+    },
+    {
+      "label": "vscode: dev (seeded)",
+      "dependsOrder": "parallel",
+      "dependsOn": [
+        "vscode: prepare isolated dev (seeded)",
+        "vscode: watch extension",
+        "vscode: watch webview"
+      ],
+      "problemMatcher": []
     },
     {
       "label": "vscode: dev",

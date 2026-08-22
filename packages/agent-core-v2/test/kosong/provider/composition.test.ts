@@ -1280,6 +1280,31 @@ describe('OpenAI reasoning_effort path (issue #1616)', () => {
     expect(body['reasoning_effort']).toBe('none');
   });
 
+  it('omits max_output_tokens for the Codex gateway, which rejects it with a bare 400', async () => {
+    const provider = new OpenAIResponsesChatProvider({
+      model: 'gpt-5.6-terra',
+      apiKey: 'sk-probe',
+      baseUrl: 'https://chatgpt.com/backend-api/codex',
+      maxOutputTokens: 4096,
+    });
+
+    const body = await captureResponsesBody(provider, { maxCompletionTokens: 5000 });
+
+    expect(body).not.toHaveProperty('max_output_tokens');
+  });
+
+  it('keeps max_output_tokens for the public Responses API', async () => {
+    const provider = new OpenAIResponsesChatProvider({
+      model: 'gpt-4.1',
+      apiKey: 'sk-probe',
+      baseUrl: 'https://api.openai.com/v1',
+    });
+
+    const body = await captureResponsesBody(provider, { maxCompletionTokens: 5000 });
+
+    expect(body['max_output_tokens']).toBe(5000);
+  });
+
   it('encodes an explicit off as the configured offEffort on the Responses wire', async () => {
     const provider = new OpenAIResponsesChatProvider({
       model: 'grok-4',

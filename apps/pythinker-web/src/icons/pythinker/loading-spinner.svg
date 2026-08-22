@@ -1,36 +1,17 @@
-<svg
-  xmlns="http://www.w3.org/2000/svg"
-  width="24"
-  height="24"
-  viewBox="0 0 24 24"
-  fill="none"
-  class="spinner"
-  role="img"
-  aria-label="Loading"
->
+<svg class="ptx ptx-loading-spinner" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none">
   <style>
-    .spinner {
-      color: #1f2937;
-    }
-
-    .spinner__ring {
+    .ptx-loading-spinner .spinner__ring {
       transform-origin: 12px 12px;
-      animation: spinner-rotate 0.8s linear infinite;
-    }
-
-    @media (prefers-color-scheme: dark) {
-      .spinner {
-        color: #e5e7eb;
-      }
+      animation: ptx-loading-spinner-rotate 0.8s linear infinite;
     }
 
     @media (prefers-reduced-motion: reduce) {
-      .spinner__ring {
+      .ptx-loading-spinner .spinner__ring {
         animation-duration: 1.6s;
       }
     }
 
-    @keyframes spinner-rotate {
+    @keyframes ptx-loading-spinner-rotate {
       to { transform: rotate(360deg); }
     }
   </style>

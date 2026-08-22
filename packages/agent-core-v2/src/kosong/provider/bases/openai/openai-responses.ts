@@ -499,6 +499,29 @@ function mapAudioUrlToInputItem(url: string): unknown {
   return null;
 }
 
+/**
+ * The ChatGPT Codex gateway rejects `max_output_tokens` outright — it answers
+ * `400 {"detail":"Unsupported parameter: max_output_tokens"}` — while the
+ * public OpenAI Responses API requires it to honour a completion budget. The
+ * budget resolver always produces one, so the parameter has to be dropped for
+ * this host or every Codex turn fails before it starts. Applied once, after the
+ * request kwargs are assembled: a configured `maxOutputTokens` and a per-turn
+ * completion budget both land in the same field.
+ */
+export function rejectsMaxOutputTokens(baseUrl: string | undefined): boolean {
+  if (baseUrl === undefined) return false;
+  let host: string;
+  let path: string;
+  try {
+    const parsed = new URL(baseUrl);
+    host = parsed.hostname.toLowerCase();
+    path = parsed.pathname.toLowerCase();
+  } catch {
+    return false;
+  }
+  return host === 'chatgpt.com' && path.startsWith('/backend-api/codex');
+}
+
 const OPENAI_RESPONSES_DEVELOPER_ROLE_MODELS = new Set([
   'gpt-4.1',
   'gpt-4.1-mini',
@@ -1123,6 +1146,10 @@ export class OpenAIResponsesChatProvider implements ChatProvider {
         summary: 'auto',
       };
       kwargs['include'] = ['reasoning.encrypted_content'];
+    }
+
+    if (rejectsMaxOutputTokens(this._baseUrl)) {
+      delete kwargs['max_output_tokens'];
     }
 
     for (const key of Object.keys(kwargs)) {

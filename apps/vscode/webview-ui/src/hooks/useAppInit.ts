@@ -18,6 +18,22 @@ export type AppViewResolution =
   | { readonly view: "main" };
 
 /**
+ * Pure status router for init. A configured model is what makes the extension
+ * usable, so it decides `ready` on its own: `loggedIn` covers a Pythinker
+ * account or a provider OAuth token, and a provider authenticated by a plain
+ * API key in `config.toml` has neither. Gating on it walled off every
+ * API-key-only user behind a sign-in screen they could not satisfy and had to
+ * dismiss on each reload, because the skip is component state.
+ */
+export function resolveInitStatus(input: {
+  readonly modelsCount: number;
+  readonly loggedIn: boolean;
+}): AppStatus {
+  if (input.modelsCount > 0) return "ready";
+  return input.loggedIn ? "no-models" : "not-logged-in";
+}
+
+/**
  * Pure view router for App. The `no-models` status (a managed OAuth token
  * exists but config.toml has no models — e.g. a first login whose model
  * provisioning failed after the device flow already persisted the token)
@@ -111,22 +127,11 @@ export function useAppInit(): AppInitState {
 
         const modelsCount = modelsConfig.models?.length ?? 0;
 
-        if (modelsCount === 0 && !loginStatus.loggedIn) {
-          setState({ status: "not-logged-in", errorMessage: null, modelsCount });
-          return;
-        }
-
-        if (modelsCount === 0) {
-          setState({ status: "no-models", errorMessage: null, modelsCount: 0 });
-          return;
-        }
-
-        if (!loginStatus.loggedIn) {
-          setState({ status: "not-logged-in", errorMessage: null, modelsCount });
-          return;
-        }
-
-        setState({ status: "ready", errorMessage: null, modelsCount });
+        setState({
+          status: resolveInitStatus({ modelsCount, loggedIn: loginStatus.loggedIn }),
+          errorMessage: null,
+          modelsCount,
+        });
       } catch (error) {
         if (!cancelled) {
           setState({

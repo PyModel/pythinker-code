@@ -132,13 +132,15 @@ describe('openai-codex-oauth', () => {
     });
     expect(models).toHaveLength(2);
     expect(models[0]?.id).toBe('gpt-5.4-codex');
+    // `ultra` is advertised by /models but rejected by /responses
+    // ("Invalid value: 'ultra'. Supported values are: ..."), so offering it
+    // would only ever produce a failed turn.
     expect(models[0]?.supportedReasoningEfforts).toEqual([
       'low',
       'medium',
       'high',
       'xhigh',
       'max',
-      'ultra',
     ]);
     expect(models[0]?.supportsFastMode).toBe(true);
     expect(models[1]?.supportsFastMode).toBe(false);

@@ -233,7 +233,7 @@ export interface CronTurnData {
  * dedicated block. */
 export type TurnBlock =
   | { kind: 'text'; text: string }
-  | { kind: 'thinking'; thinking: string }
+  | { kind: 'thinking'; thinking: string; startedAt?: string; durationMs?: number }
   | { kind: 'tool'; tool: ToolCall }
   | { kind: 'activity-run'; items: ActivityRunItem[] };
 
@@ -244,7 +244,7 @@ export type TurnBlock =
  * groups by turn as a best-effort approximation of the reference UI.
  */
 export type ActivityRunItem =
-  | { kind: 'thinking'; thinking: string }
+  | { kind: 'thinking'; thinking: string; startedAt?: string; durationMs?: number }
   | { kind: 'tool'; tool: ToolCall };
 
 /** One attachment on a user turn: an uploaded file, image or video. Images

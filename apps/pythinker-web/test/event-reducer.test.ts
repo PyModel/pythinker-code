@@ -82,6 +82,44 @@ describe('reduceAppEvent turnActiveChanged', () => {
   });
 });
 
+describe('reduceAppEvent sessionArchived', () => {
+  it('removes a session archived elsewhere from the open list', () => {
+    const state = {
+      ...createInitialState(),
+      sessions: [makeSession('s1', '2026-01-01T00:00:00.000Z'), makeSession('s2', '2026-01-02T00:00:00.000Z')],
+      activeSessionId: 's1',
+    };
+
+    const next = reduceAppEvent(
+      state,
+      { type: 'sessionArchived', sessionId: 's1', workspaceId: 'w1' },
+      { sessionId: 's1', seq: 1 },
+    );
+
+    expect(next.sessions.map((s) => s.id)).toEqual(['s2']);
+    expect(next.activeSessionId).toBeUndefined();
+  });
+
+  it('keeps cached session data so the session can be reopened', () => {
+    const state = {
+      ...createInitialState(),
+      sessions: [makeSession('s1', '2026-01-01T00:00:00.000Z')],
+      messagesBySession: { s1: [] },
+      lastSeqBySession: { s1: 7 },
+    };
+
+    const next = reduceAppEvent(
+      state,
+      { type: 'sessionArchived', sessionId: 's1', workspaceId: 'w1' },
+      { sessionId: 's1', seq: 1 },
+    );
+
+    expect(next.sessions).toEqual([]);
+    expect(next.messagesBySession['s1']).toEqual([]);
+    expect(next.lastSeqBySession['s1']).toBe(7);
+  });
+});
+
 describe('reduceAppEvent sessionWorkChanged', () => {
   it('updates list-level main-turn liveness for an unopened session', () => {
     const state = {
@@ -715,5 +753,144 @@ describe('reduceAppEvent unknown agent error', () => {
   it('still renders agent warnings as plain strings', () => {
     const next = reduceRaw({ _agentWarning: true, message: 'heads up' });
     expect(next.warnings[0]).toBe(`${i18n.global.t('warnings.noteLabel')}: heads up`);
+  });
+});
+
+describe('reduceAppEvent thinking timing', () => {
+  function seedAssistantMessage(state: ReturnType<typeof createInitialState>) {
+    const message: AppMessage = {
+      id: 'msg_a',
+      sessionId: 's1',
+      role: 'assistant',
+      content: [],
+      createdAt: '2026-01-01T00:00:00.000Z',
+      promptId: 'pr_1',
+    };
+    return reduceAppEvent(state, { type: 'messageCreated', message }, { sessionId: 's1', seq: 1 });
+  }
+
+  function thinkingOf(state: ReturnType<typeof createInitialState>, index: number) {
+    const part = state.messagesBySession['s1']?.find((m) => m.id === 'msg_a')?.content[index];
+    if (part?.type !== 'thinking') throw new Error(`expected thinking part at ${index}`);
+    return part;
+  }
+
+  it('stamps startedAt on the first thinking delta and settles it when the next part starts', () => {
+    let state = seedAssistantMessage(createInitialState());
+    state = reduceAppEvent(
+      state,
+      { type: 'assistantDelta', sessionId: 's1', messageId: 'msg_a', contentIndex: 0, delta: { thinking: 'plan' } },
+      { sessionId: 's1', seq: 2 },
+    );
+    const opened = thinkingOf(state, 0);
+    expect(opened.startedAt).toBeDefined();
+    expect(opened.durationMs).toBeUndefined();
+
+    // The next content part (text) ends the thinking stream: its duration freezes.
+    state = reduceAppEvent(
+      state,
+      { type: 'assistantDelta', sessionId: 's1', messageId: 'msg_a', contentIndex: 1, delta: { text: 'hi' } },
+      { sessionId: 's1', seq: 3 },
+    );
+    const settled = thinkingOf(state, 0);
+    expect(settled.durationMs).toBeGreaterThanOrEqual(0);
+    expect(settled.startedAt).toBe(opened.startedAt);
+  });
+
+  it('keeps timing when a thinking delta continues the same part', () => {
+    let state = seedAssistantMessage(createInitialState());
+    state = reduceAppEvent(
+      state,
+      { type: 'assistantDelta', sessionId: 's1', messageId: 'msg_a', contentIndex: 0, delta: { thinking: 'a' } },
+      { sessionId: 's1', seq: 2 },
+    );
+    const opened = thinkingOf(state, 0);
+    state = reduceAppEvent(
+      state,
+      { type: 'assistantDelta', sessionId: 's1', messageId: 'msg_a', contentIndex: 0, delta: { thinking: 'b' } },
+      { sessionId: 's1', seq: 3 },
+    );
+    const continued = thinkingOf(state, 0);
+    expect(continued.thinking).toBe('ab');
+    expect(continued.startedAt).toBe(opened.startedAt);
+    expect(continued.durationMs).toBeUndefined();
+  });
+
+  it('settles all but the tail on a pending messageUpdated, and the tail on completion', () => {
+    let state = seedAssistantMessage(createInitialState());
+    state = reduceAppEvent(
+      state,
+      { type: 'assistantDelta', sessionId: 's1', messageId: 'msg_a', contentIndex: 0, delta: { thinking: 'plan' } },
+      { sessionId: 's1', seq: 2 },
+    );
+    // tool.use: the projector echoes the full content with the new tool slot,
+    // status pending — the thinking before it settles, the tool stays open.
+    state = reduceAppEvent(
+      state,
+      {
+        type: 'messageUpdated',
+        sessionId: 's1',
+        messageId: 'msg_a',
+        content: [
+          { type: 'thinking', thinking: 'plan' },
+          { type: 'toolUse', toolCallId: 'tc1', toolName: 'Bash', input: {} },
+        ],
+        status: 'pending',
+      },
+      { sessionId: 's1', seq: 3 },
+    );
+    expect(thinkingOf(state, 0).durationMs).toBeGreaterThanOrEqual(0);
+
+    // A fresh thinking tail after the tool: streams open…
+    state = reduceAppEvent(
+      state,
+      { type: 'assistantDelta', sessionId: 's1', messageId: 'msg_a', contentIndex: 2, delta: { thinking: 'next' } },
+      { sessionId: 's1', seq: 4 },
+    );
+    expect(thinkingOf(state, 2).durationMs).toBeUndefined();
+
+    // …until the step completes (messageUpdated status completed freezes it).
+    state = reduceAppEvent(
+      state,
+      {
+        type: 'messageUpdated',
+        sessionId: 's1',
+        messageId: 'msg_a',
+        content: [
+          { type: 'thinking', thinking: 'plan' },
+          { type: 'toolUse', toolCallId: 'tc1', toolName: 'Bash', input: {} },
+          { type: 'thinking', thinking: 'next' },
+        ],
+        status: 'completed',
+      },
+      { sessionId: 's1', seq: 5 },
+    );
+    expect(thinkingOf(state, 2).durationMs).toBeGreaterThanOrEqual(0);
+  });
+
+  it('preserves existing timing across a wholesale messageUpdated content swap', () => {
+    let state = seedAssistantMessage(createInitialState());
+    state = reduceAppEvent(
+      state,
+      { type: 'assistantDelta', sessionId: 's1', messageId: 'msg_a', contentIndex: 0, delta: { thinking: 'plan' } },
+      { sessionId: 's1', seq: 2 },
+    );
+    const opened = thinkingOf(state, 0);
+    state = reduceAppEvent(
+      state,
+      {
+        type: 'messageUpdated',
+        sessionId: 's1',
+        messageId: 'msg_a',
+        content: [{ type: 'thinking', thinking: 'plan plus more' }],
+        status: 'pending',
+      },
+      { sessionId: 's1', seq: 3 },
+    );
+    const kept = thinkingOf(state, 0);
+    expect(kept.thinking).toBe('plan plus more');
+    expect(kept.startedAt).toBe(opened.startedAt);
+    // Still the tail with pending status → stays open (stream may resume).
+    expect(kept.durationMs).toBeUndefined();
   });
 });

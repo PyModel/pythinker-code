@@ -5,169 +5,173 @@ description: |
   This plugin exposes tools via MCP server `plugin-pythinker-datasource_data`; call them in the flow `mcp__plugin-pythinker-datasource_data__get_data_source_desc` → `mcp__plugin-pythinker-datasource_data__call_data_source_tool`.
 ---
 
-# pythinker-datasource — 通用数据源助手
+# pythinker-datasource — Universal Data-Source Assistant
 
-## 0. 调用方式
+## 0. How to invoke
 
-本 skill 使用 datasource MCP server 注册的两个工具，不要通过 Bash 手动执行脚本：
+This skill uses the two tools registered by the datasource MCP server. Do not run scripts manually through Bash:
 
 - `mcp__plugin-pythinker-datasource_data__get_data_source_desc`
 - `mcp__plugin-pythinker-datasource_data__call_data_source_tool`
 
-这两个工具由 Pythinker Code 托管执行，参数直接按 tool schema 传 JSON。
+Both tools are hosted and executed by Pythinker Code; pass arguments as JSON following each tool schema.
 
-工具会读取当前 Pythinker Code 环境对应的本地 OAuth 登录凭据；当设置了 `PYTHINKER_CODE_OAUTH_HOST` / `PYTHINKER_CODE_BASE_URL` 时，会使用对应环境的隔离凭据。如果没有登录凭据，让用户先在 Pythinker Code 里执行 `/login`。
+The tools read the local OAuth credentials of the current Pythinker Code environment; when `PYTHINKER_CODE_OAUTH_HOST` / `PYTHINKER_CODE_BASE_URL` are set, the isolated credentials of the matching environment are used. If there are no login credentials, ask the user to run `/login` in Pythinker Code first.
 
-## 1. 这个 skill 提供什么能力
+## 1. What this skill provides
 
-本 plugin 后面挂了 25 个外部数据源。每一行的"数据源名"就是传给 `get_data_source_desc` 的 `name`。
+This plugin fronts 25 external data sources. The "data source name" in each row is the `name` passed to `get_data_source_desc`.
 
-| 能力域 | 数据源名 | 典型问题 |
+| Capability | Data source | Typical questions |
 |---|---|---|
-| **A股 / 港股 / 美股 行情和财务** | `stock_finance_data` | "茅台现在多少钱"、"宁德时代 2024 年财报"、"腾讯股东"、"杭州的人工智能股票" |
-| **Yahoo Finance 全球金融** | `yahoo_finance` | "苹果分析师评级"、"AAPL 期权链"、"苹果前十大机构股东" |
-| **世界银行历史宏观** | `world_bank_open_data` | "中国历年 GDP"、"印度通胀率"、"各国人口增长对比" |
-| **中国企业工商信息** | `tianyancha` | "字节跳动股东"、"比亚迪司法风险"、"宁德时代专利" |
-| **arXiv 论文预印本** | `arxiv` | "找 RAG 综述"、"下载 2406.xxxxx" |
-| **Google Scholar 学术搜索** | `scholar` | "Hinton 最新论文"、"transformer 综述高引文献" |
-| **中国法律法规 / 司法案例** | `yuandian_law` | "民法典关于居住权的规定"、"帮我查劳动合同解除的相关法条"、"找几个不当得利的判例" |
-| **Wind 万得（A股/基金/债券/宏观）** | `wind` | "茅台今天的分钟线"、"十年期国债收益率走势"、"基金净值查询" |
-| **IMF 国际宏观（汇率 / CPI / 预测）** | `imf` | "美元兑人民币汇率"、"各国 GDP 增速预测"、"全球通胀率对比" |
-| **恒生聚源智能筛选** | `gildata` | "筛选净利润增速超 30% 且 ROE 大于 15% 的股票"、"基金经理筛选" |
-| **美股 SEC 披露文件** | `sec_edgar` | "特斯拉 10-K 年报"、"苹果 10-Q 季报"、"Form 4 内部人交易"、"13F 机构持仓" |
-| **S&P Capital IQ 美股基本面** | `sp_data` | "苹果分析师一致预期"、"美股估值比率对比"、"竞争对手关系" |
-| **中国政府开放数据目录（国家数据局）** | `china_nda` | "全国公共数据资源登记目录里有什么"、"各省开放数据平台有哪些数据集" |
-| **国家统计局宏观指标** | `china_nbs` | "中国历年 GDP 官方口径"、"各省市人口与就业统计"、"社会消费品零售总额" |
-| **中国标准查询（国标 / 行标 / 地标 / 团标）** | `china_standards` | "查 GB 国家标准全文"、"某行业的现行行业标准" |
-| **WHO 全球健康** | `who` | "全球婴儿死亡率"、"各国预期寿命" |
-| **FAO 农业粮食** | `fao` | "各国粮食产量"、"农产品价格" |
-| **联合国统计司 UNdata** | `unsd` | "联合国成员国统计年鉴表"、"国际贸易统计" |
-| **欧洲央行统计** | `ecb` | "欧元区基准利率"、"欧元区货币供应量" |
-| **欧盟统计局** | `eurostat` | "欧盟各国失业率"、"欧元区 CPI" |
-| **联合国儿童基金会** | `unicef` | "全球儿童营养指标"、"儿童免疫接种率" |
-| **OECD 数据** | `oecd` | "OECD 国家 GDP 对比"、"成员国教育支出" |
-| **FRED 美国/全球宏观** | `fred` | "美国 CPI 长时间序列"、"联邦基金利率走势" |
-| **新华财经新闻公告** | `xhcj` | "新华财经快讯"、"A 股公司公告"、"行业政策新闻" |
-| **财新数据库** | `caixin` | "财新数据接口检索"、"财新新闻与数据" |
+| **A-share / HK / US stock quotes & financials** | `stock_finance_data` | "What is Moutai trading at?", "CATL 2024 annual report", "Tencent shareholders", "AI stocks in Hangzhou" |
+| **Yahoo Finance global markets** | `yahoo_finance` | "Apple analyst ratings", "AAPL options chain", "Apple top-10 institutional holders" |
+| **World Bank historical macro** | `world_bank_open_data` | "China GDP by year", "India inflation", "population comparison across countries" |
+| **Chinese corporate registry** | `tianyancha` | "ByteDance shareholders", "BYD legal risk", "CATL patents" |
+| **arXiv preprints** | `arxiv` | "Find RAG surveys", "download 2406.xxxxx" |
+| **Google Scholar search** | `scholar` | "Latest Hinton papers", "highly cited transformer surveys" |
+| **Chinese laws & regulations / court cases** | `yuandian_law` | "Civil Code provisions on the right of habitation", "statutes on labor-contract termination", "unjust-enrichment precedents" |
+| **Wind (A-shares / funds / bonds / macro)** | `wind` | "Moutai minute bars today", "10-year treasury yield trend", "fund NAV lookup" |
+| **IMF international macro (FX / CPI / forecasts)** | `imf` | "USD/CNY exchange rate", "GDP growth forecasts by country", "global inflation comparison" |
+| **HS Gildata smart screening** | `gildata` | "Screen stocks with net-profit growth above 30% and ROE above 15%", "screen fund managers" |
+| **US SEC filings** | `sec_edgar` | "Tesla 10-K annual report", "Apple 10-Q quarterly", "Form 4 insider trades", "13F institutional holdings" |
+| **S&P Capital IQ US fundamentals** | `sp_data` | "Apple analyst consensus", "US valuation ratio comparison", "competitor relationships" |
+| **China open-data catalog (National Data Administration)** | `china_nda` | "What is in the national public-data resource registry?", "which datasets do provincial open-data platforms offer?" |
+| **National Bureau of Statistics macro indicators** | `china_nbs` | "Official China GDP series by year", "population & employment by province", "total retail sales of consumer goods" |
+| **Chinese standards (national / industry / local / group)** | `china_standards` | "Look up a GB national standard full text", "current industry standards for a sector" |
+| **WHO global health** | `who` | "Global infant mortality", "life expectancy by country" |
+| **FAO agriculture & food** | `fao` | "Cereal production by country", "agricultural commodity prices" |
+| **UN Statistics UNdata** | `unsd` | "UN member-state statistical yearbook tables", "international trade statistics" |
+| **ECB statistics** | `ecb` | "Eurozone benchmark rate", "euro-area money supply" |
+| **Eurostat** | `eurostat` | "Unemployment rate across EU countries", "euro-area CPI" |
+| **UNICEF** | `unicef` | "Global child nutrition indicators", "child immunization coverage" |
+| **OECD data** | `oecd` | "GDP comparison across OECD countries", "education spending by member state" |
+| **FRED US/global macro** | `fred` | "Long US CPI time series", "fed funds rate trend" |
+| **Xinhua Finance news & announcements** | `xhcj` | "Xinhua Finance flashes", "A-share company announcements", "sector policy news" |
+| **Caixin database** | `caixin` | "Search Caixin data APIs", "Caixin news and data" |
 
-### 选源原则
+### Source-selection principles
 
-1. **用户点名了数据源** → 直接用指定的源。
-2. **没点名** → 按能力域从上表选最匹配的一个；结合下面的"能力边界参考"和用户问题的深度、范围自行判断。
-3. **一次简单查询只选一个数据源**，不要并行读取其他源的 desc。选定的源成功返回且已经覆盖用户问题后，立即回答；不要为了补充字段、重新格式化或交叉验证继续调用其他 API。只有用户明确要求跨源对比时，才能查询第二个数据源。
+1. **User named a source** → use that source directly.
+2. **No source named** → pick the best match from the table by capability; use the capability-boundary notes below plus the depth and scope of the user's question.
+3. **One simple query picks one data source only**, and do not read other sources' descs in parallel. Once the chosen source returns successfully and covers the question, answer immediately; do not keep calling other APIs to add fields, reformat, or cross-check. Query a second source only when the user explicitly asks for a cross-source comparison.
 
-### 能力边界参考（客观事实，选源时考虑）
+### Capability-boundary notes (objective facts; weigh when selecting)
 
-- `yahoo_finance` 的外汇历史最多 2 年；`imf` 提供长期的汇率、CPI、GDP 预测和国际收支序列
-- `stock_finance_data` 的行情是实时/收盘快照；分钟级分时序列在 `wind`（另有基金、债券、国债收益率）
-- 股东 / 机构持仓：`yahoo_finance`、`sec_edgar`（13F）、`sp_data`（S&P 标准化持有人）都覆盖，口径和深度不同
-- `world_bank_open_data` 是 50 年以上的历史宏观序列；要 IMF 的预测值用 `imf`
-- `gildata` 的查询输入是自然语言条件（选股 / 选基金 / 基金经理筛选），`tianyancha` 是企业工商档案
-- `wind` 的 `indexes`/`indicators` 参数要求 Wind 原生字段名；PE/PB/ROE/总市值这类常用字段先调 `wind_search_fields` 映射（支持别名和中文，一次查一个），不要硬猜字段名
-- 中国官方统计口径：`china_nbs` 是国家统计局宏观指标序列（GDP / CPI / PPI 等，全国 / 省 / 主要城市），`china_nda` 是国家数据局的开放数据目录（回答"有什么数据集可用"）；`world_bank_open_data` 和 `imf` 是国际口径的历史与预测序列
-- WHO、FAO、UNSD、ECB、Eurostat、UNICEF、OECD、FRED 各自是独立数据源，按机构名直接选；IMF 自己的数据集（汇率 / CPI / GDP 预测）走 `imf`
-- 国家标准（gb）、行业标准（hb）、地方标准（db）、团体标准（tt）查 `china_standards`；法律法规与判例在 `yuandian_law`，别混
-- 新华财经（`xhcj`）偏公告 / 快讯 / 政策新闻；`caixin` 覆盖 600+ 财新数据接口，先用它的 `caixin_api_search` 找合适接口再调用
+- `yahoo_finance` FX history goes back at most 2 years; `imf` provides long-run FX, CPI, GDP forecasts, and balance-of-payments series
+- `stock_finance_data` quotes are realtime/close snapshots; minute-level intraday series live in `wind` (which also has funds, bonds, and treasury yields)
+- Shareholders / institutional holdings: covered by `yahoo_finance`, `sec_edgar` (13F), and `sp_data` (standardized S&P holders), with different scopes and depth
+- `world_bank_open_data` is 50+ years of historical macro series; for IMF forecast values use `imf`
+- `gildata` takes natural-language screening conditions (stock / fund / fund-manager screens); `tianyancha` is a corporate registry archive
+- `wind`'s `indexes`/`indicators` parameters require native Wind field names; map common fields like PE/PB/ROE/market cap via `wind_search_fields` first (supports aliases and Chinese, one lookup at a time) instead of guessing field names
+- Official China statistics: `china_nbs` serves NBS macro indicator series (GDP / CPI / PPI etc., national / provincial / major cities); `china_nda` is the NDA open-data catalog (answers "which datasets exist"); `world_bank_open_data` and `imf` are international-standard historical and forecast series
+- WHO, FAO, UNSD, ECB, Eurostat, UNICEF, OECD, and FRED are independent sources — select directly by institution; IMF's own datasets (FX / CPI / GDP forecasts) go through `imf`
+- National standards (gb), industry standards (hb), local standards (db), and group standards (tt) go to `china_standards`; laws, regulations, and case law belong to `yuandian_law` — do not mix them
+- Xinhua Finance (`xhcj`) leans toward announcements / flashes / policy news; `caixin` covers 600+ Caixin data APIs — run its `caixin_api_search` first to find the right API before calling
 
-**不支持的能力**：通用 Web 搜索，以及 `xhcj` / `caixin` 覆盖之外的实时新闻。
+**Not supported**: general web search, and realtime news beyond what `xhcj` / `caixin` cover.
 
-## 2. 标准工作流：`get_data_source_desc` → `call_data_source_tool`
+## 2. Standard workflow: `get_data_source_desc` → `call_data_source_tool`
 
-后端可用 API 经常会调整，**这份 skill 故意不抄具体的 API 名和参数表**。每次调用前你都应当现场问数据源："你都有什么接口？"
+Backend APIs change often, so **this skill deliberately omits concrete API names and parameter tables**. Before every call you should ask the data source on the spot: "which APIs do you have?"
 
 ```
-1. 根据用户问题，从上表只挑一个 data_source_name
-2. 执行 get_data_source_desc，读取该数据源的 Markdown 文档
-3. 仔细读返回的 Markdown，里面列了：
-     - 该数据源整体说明（含 ticker 格式、全局约束）
-     - 每个 API 的描述 / 必填参数 / 可选参数 / 默认值 / 取值范围
-4. 选最匹配的 API，按文档拼 params
-5. 执行 call_data_source_tool 取数；需要先发现接口 / 字段 / 实体的源（caixin_api_search、wind_search_fields、天眼查公司搜索），发现类调用不受“一次”限制，继续调到真正的取数 API。结果成功且已经覆盖问题时停止调用
-6. 读返回结果，用用户提问时使用的语言回答
+1. From the table above, pick exactly one data_source_name for the user's question
+2. Call get_data_source_desc and read that source's Markdown document
+3. Read the returned Markdown carefully; it lists:
+     - the source's overall notes (ticker formats, global constraints)
+     - per-API descriptions / required params / optional params / defaults / value ranges
+4. Pick the best-matching API and assemble params per the doc
+5. Call call_data_source_tool to fetch data. For sources that require discovering
+   APIs / fields / entities first (caixin_api_search, wind_search_fields, Tianyancha
+   company search), discovery calls are exempt from the "one source" limit — keep
+   calling until you reach the real data-fetching API, then stop once the result
+   covers the question
+6. Read the results and answer in the language the user asked in
 ```
 
-### 例 1：用户问"茅台最近一年走势"
+### Example 1: "How has Moutai moved over the past year?"
 
-1. 股票走势 → `stock_finance_data`
-2. 调用 `mcp__plugin-pythinker-datasource_data__get_data_source_desc`，参数 `{"name":"stock_finance_data"}`
+1. Stock price history → `stock_finance_data`
+2. Call `mcp__plugin-pythinker-datasource_data__get_data_source_desc` with `{"name":"stock_finance_data"}`
 
-3. 从文档里找到"获取历史价格"那个 API，看它要 `ticker / start_date / end_date / file_path` 等
-4. 用 web_search 核对 → 茅台 = `600519.SH`
-5. 调用 `mcp__plugin-pythinker-datasource_data__call_data_source_tool`，参数形如 `{"data_source_name":"stock_finance_data","api_name":"<文档里写的 api>","params":{"ticker":"600519.SH","start_date":"...","end_date":"...","file_path":"/tmp/mao_1y.csv"}}`
+3. In the doc, find the historical-price API and note it needs `ticker / start_date / end_date / file_path` etc.
+4. Verify via web_search → Moutai = `600519.SH`
+5. Call `mcp__plugin-pythinker-datasource_data__call_data_source_tool` with args shaped like `{"data_source_name":"stock_finance_data","api_name":"<api from the doc>","params":{"ticker":"600519.SH","start_date":"...","end_date":"...","file_path":"/tmp/mao_1y.csv"}}`
 
-### 例 2：用户问"找几篇 retrieval augmented generation 的综述"
+### Example 2: "Find a few retrieval-augmented-generation surveys"
 
-1. 论文搜索 → `arxiv`（或 `scholar`，arxiv 更适合预印本，scholar 引用更全）
-2. 调用 `mcp__plugin-pythinker-datasource_data__get_data_source_desc`，参数 `{"name":"arxiv"}`
+1. Paper search → `arxiv` (or `scholar`; arxiv suits preprints, scholar has broader citation coverage)
+2. Call `mcp__plugin-pythinker-datasource_data__get_data_source_desc` with `{"name":"arxiv"}`
 
-3. 从文档里找到搜索类 API，看它要 `query / file_path / max_results` 等
-4. 执行 `call_data_source_tool`
+3. In the doc, find the search API and note it needs `query / file_path / max_results` etc.
+4. Call `call_data_source_tool`
 
-### 例 3：用户问"字节跳动有哪些股东"
+### Example 3: "Who are ByteDance's shareholders?"
 
-1. 企业工商 → `tianyancha`
-2. 调用 `mcp__plugin-pythinker-datasource_data__get_data_source_desc`，参数 `{"name":"tianyancha"}`
+1. Corporate registry → `tianyancha`
+2. Call `mcp__plugin-pythinker-datasource_data__get_data_source_desc` with `{"name":"tianyancha"}`
 
-3. 注意：tianyancha 的 API 是动态注册的，文档会指引你**先用搜索类接口找到合适的 API 名，再调用**
-4. **必须使用企业全称**（"北京字节跳动科技有限公司"），不要用简称。不知道全称就先用 tianyancha 文档里的"公司搜索"接口查
+3. Note: tianyancha APIs are registered dynamically; the doc will direct you to **find the right API name via its search interface first, then call**
+4. **Always use the full registered company name** ("Beijing ByteDance Technology Co., Ltd."), never abbreviations. If the full name is unknown, run tianyancha's company-search API first
 
-## 3. 调用前的几条铁律
+## 3. Hard rules before calling
 
-### 3.1 股票代码必须核对，不能凭记忆猜
+### 3.1 Stock tickers must be verified — never guess from memory
 
-A 股 `.SH/.SZ/.BJ`，港股 `.HK`，美股 `.US` 等。用户通常只说中文名（"茅台"、"宁德时代"、"腾讯"），不会给代码。
+A-shares `.SH/.SZ/.BJ`, HK `.HK`, US `.US`, etc. Users usually say only the company name ("Moutai", "CATL", "Tencent") without a ticker.
 
-**调任何股票相关 API 前**，先用 `web_search` / `WebSearch` 一类联网工具确认正确代码 + 后缀。
+**Before any stock-related API call**, confirm the correct ticker + suffix with an online tool such as `web_search` / `WebSearch`.
 
-如果当前环境没有任何联网工具，**让用户亲口确认代码**，不要硬猜。错了的话接口会静默返回错数据或空数据。
+If no online tool exists in this environment, **have the user confirm the ticker themselves** — do not guess. A wrong ticker makes the API silently return wrong or empty data.
 
-### 3.2 企业相关查询必须用全称
+### 3.2 Corporate queries must use full legal names
 
-`tianyancha` 拒收"特斯拉"、"网易"、"腾讯"这种简称，必须给"北京特斯拉销售有限公司"这种全名。不知道全名时，先调它的公司搜索 API。
+`tianyancha` rejects short names like "Tesla", "NetEase", or "Tencent"; it requires full names such as "Tesla (Shanghai) Co., Ltd.". When the full name is unknown, call its company-search API first.
 
-### 3.3 多数 API 需要 `file_path`
+### 3.3 Most APIs need `file_path`
 
-绝大部分数据源 API 把完整结果以 CSV 形式写到 `file_path`。漏传会报 `Missing required parameters: file_path`。不知道传啥时，给一个 `/tmp/<场景>_<时间戳>.csv` 即可。
+Nearly all data-source APIs write the full result set as CSV to `file_path`. Omitting it fails with `Missing required parameters: file_path`. When unsure, pass `/tmp/<scenario>_<timestamp>.csv`.
 
-### 3.4 一次调用不要堆太多 ticker
+### 3.4 Do not pile too many tickers into one call
 
-`stock_finance_data` 的实时接口最多 3 个 ticker，历史接口最多 10 个。超过会被截断或报错。多了就分批调。
+`stock_finance_data` realtime endpoints take at most 3 tickers, historical endpoints at most 10. Beyond that they truncate or error out. Split into batches.
 
-## 4. 怎么读返回结果
+## 4. How to read results
 
-`call_data_source_tool` 的 stdout 一般含两段：
+`call_data_source_tool` stdout generally contains two parts:
 
-1. **`data_preview`**：CSV 头 + 前几行（通常 1~3 行），方便你直接答简单问题
-2. **`CSV 数据已写入：/tmp/xxx.csv`**：完整数据落盘路径
+1. **`data_preview`**: CSV header + first rows (usually 1–3) so you can answer simple questions directly
+2. **`CSV data written to: /tmp/xxx.csv`**: path of the full dataset on disk
 
-策略：
-- 用户只问"XX 现在多少钱"、"中国 2023 GDP 多少"这种单值 → `data_preview` 一般够，直接答
-- 用户要画图、对比、算盈亏、列清单 → 用 `Read` 工具把 CSV 读出来再处理
-- 混合 A+港股查询时服务端会自动把 CSV 拆成 `_a.csv` / `_hk.csv` 两份，原 `file_path` 那个文件不存在
+Strategy:
+- Single-value questions ("What is X trading at?", "What was China's 2023 GDP?") → `data_preview` usually suffices; answer directly
+- Charting, comparisons, P&L math, long listings → read the CSV with the `Read` tool and process it
+- Mixed A-share + HK queries: the server automatically splits the CSV into `_a.csv` / `_hk.csv`; the original `file_path` file does not exist in that case
 
-如果接口返回失败，提示文字一般会写明原因（参数不对 / 不支持 / 数据空等）。把人话原因反馈给用户，不要硬走第二次。
+If an API call fails, the message usually states the cause (bad params / unsupported / empty data). Relay the human-readable reason to the user; do not blindly retry.
 
-## 5. `watchlist.json` — 用户自选股
+## 5. `watchlist.json` — user watchlist
 
-`${PYTHINKER_SKILL_DIR}/watchlist.json` 是用户的自选股列表。用户问"看一下我的自选股"时，读这个文件，再走标准 `get_data_source_desc("stock_finance_data") → call_data_source_tool` 流程查实时行情；文档里的实时接口最多 3 个 ticker 一批，多了分批调。
+`${PYTHINKER_SKILL_DIR}/watchlist.json` holds the user's stock watchlist. When asked "show my watchlist", read this file, then follow the standard `get_data_source_desc("stock_finance_data") → call_data_source_tool` flow for realtime quotes; the doc's realtime endpoint takes batches of at most 3 tickers — split larger lists.
 
-格式：
+Format:
 
 ```json
 [
-  {"code": "600519.SH", "name": "贵州茅台"},
-  {"code": "0700.HK", "name": "腾讯控股", "hold_cost": 350.5, "hold_quantity": 100}
+  {"code": "600519.SH", "name": "Kweichow Moutai"},
+  {"code": "0700.HK", "name": "Tencent Holdings", "hold_cost": 350.5, "hold_quantity": 100}
 ]
 ```
 
-- `code` 和 `name` 必填；`hold_cost` 和 `hold_quantity` 可选
-- 两者都有时顺便算盈亏：`(当前价 - hold_cost) * hold_quantity`
-- 用户说"帮我加 XX 到自选股"时：先 web_search 核对代码，再追加到 JSON 数组
+- `code` and `name` are required; `hold_cost` and `hold_quantity` are optional
+- When both holdings fields exist, compute P&L: `(current price - hold_cost) * hold_quantity`
+- When the user says "add X to my watchlist": verify the ticker via web_search first, then append to the JSON array
 
-## 6. 注意事项
+## 6. Cautions
 
-- **回答用户时，使用用户提问时使用的语言**。如果用户用中文问，就用中文答；如果用户用英文问，就用英文答；用其他语言问，就用其他语言答。
-- **不要凭记忆猜股票代码 / 企业全称**。错代码会让接口静默返回错数据，用户察觉不到
-- **不要在没读 desc 的情况下硬传 `api_name`**。后端会报 `API_NOT_FOUND`。除非这次会话里你已经读过该数据源的 desc 并记得参数
-- **不要给投资建议**。给完数据加一句"AI 生成，不构成投资建议"即可
-- 如果某个数据源接口返回的报错明显是后端 bug（参数 schema 自相矛盾、内部 Python 报错等），**汇报错误给用户，不要硬试**——这种 bug 我们这边修不了，要后端服务侧改
+- **Answer in the language the user asked in.** Chinese question → Chinese answer; English question → English answer; any other language likewise.
+- **Never guess stock tickers / full company names from memory.** A wrong ticker makes the API silently return wrong data without the user noticing.
+- **Never pass a hard-coded `api_name` without reading the desc first.** The backend answers `API_NOT_FOUND`. Exception: you already read that source's desc earlier in this session and remember the params.
+- **Do not give investment advice.** After presenting data, add one line: "AI-generated; not investment advice."
+- If a data-source API error clearly indicates a backend bug (self-contradictory param schema, internal Python traceback, etc.), **report the error to the user instead of retrying** — such bugs cannot be fixed on this side and need a backend-service fix.

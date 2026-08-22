@@ -185,6 +185,86 @@ describe("Webview model metadata", () => {
 
 });
 
+describe("Webview provider-change model refresh", () => {
+  const ADDED = { id: "zen/flash", name: "Flash", provider: "opencode-go", capabilities: [] };
+
+  it("shows models from a newly added provider without moving the current selection", () => {
+    useSettingsStore.getState().initModels(MODELS, "reasoning", true);
+    expect(useSettingsStore.getState().thinkingEffort).toBe("high");
+
+    useSettingsStore.getState().setModels({
+      models: [...MODELS, ADDED],
+      defaultModel: "plain",
+      defaultThinking: false,
+    });
+
+    expect(useSettingsStore.getState()).toMatchObject({
+      models: expect.arrayContaining([expect.objectContaining({ id: "zen/flash" })]),
+      currentModel: "reasoning",
+      thinkingEffort: "high",
+      defaultModel: "plain",
+      modelsLoaded: true,
+    });
+  });
+
+  it("does not let a save that failed before the refresh restore a dropped model", async () => {
+    // Regression: setModels left settingsSaveRevision untouched, so a rollback
+    // captured against the pre-refresh list could reinstate a model the refresh
+    // had just removed.
+    let rejectSave!: (error: Error) => void;
+    boundary.saveConfig.mockReturnValue(new Promise((_resolve, reject) => {
+      rejectSave = reject;
+    }));
+    useSettingsStore.getState().initModels(MODELS, "plain", false);
+    useSettingsStore.getState().updateModel("reasoning");
+
+    useSettingsStore.getState().setModels({
+      models: [ADDED],
+      defaultModel: ADDED.id,
+      defaultThinking: false,
+    });
+    expect(useSettingsStore.getState().currentModel).toBe(ADDED.id);
+
+    rejectSave(new Error("config.toml is read-only"));
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(useSettingsStore.getState().currentModel).toBe(ADDED.id);
+  });
+
+  it("falls back to the default when the current model's provider was removed", () => {
+    useSettingsStore.getState().initModels(MODELS, "reasoning", true);
+
+    useSettingsStore.getState().setModels({
+      models: [MODELS[0]],
+      defaultModel: "plain",
+      defaultThinking: false,
+    });
+
+    expect(useSettingsStore.getState()).toMatchObject({
+      currentModel: "plain",
+      thinkingEffort: "off",
+      modelsLoaded: true,
+    });
+  });
+
+  it("recomputes the effort for the fallback model from the refreshed defaults", () => {
+    useSettingsStore.getState().initModels(MODELS, "plain", false);
+
+    useSettingsStore.getState().setModels({
+      models: [MODELS[1]],
+      defaultModel: "reasoning",
+      defaultThinking: true,
+      defaultThinkingEffort: "low",
+    });
+
+    expect(useSettingsStore.getState()).toMatchObject({
+      currentModel: "reasoning",
+      thinkingEffort: "low",
+    });
+  });
+});
+
 describe("Webview MCP update bridge", () => {
   it("sends a lossless structured MCP edit request to the extension host", async () => {
     const posted: unknown[] = [];

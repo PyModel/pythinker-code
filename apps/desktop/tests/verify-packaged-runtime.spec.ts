@@ -17,7 +17,7 @@ describe('packaged desktop runtime verification', () => {
     const appOutDir = await mkdtemp(join(tmpdir(), 'pythinker-packaged-runtime-'))
     try {
       const resources = join(appOutDir, 'Pythinker.app', 'Contents', 'Resources', 'host', 'node_modules')
-      const cli = join(resources, '@pymodel', 'pythinker-code', 'dist', 'launcher.mjs')
+      const cli = join(resources, '@pymodel', 'pythinker-code', 'dist', 'main.mjs')
       const web = join(resources, '@pymodel', 'pythinker-code', 'dist-web', 'index.html')
       await mkdir(join(cli, '..'), { recursive: true })
       await mkdir(join(web, '..'), { recursive: true })
@@ -43,7 +43,7 @@ describe('packaged desktop runtime verification', () => {
     const appOutDir = await mkdtemp(join(tmpdir(), 'pythinker-packaged-runtime-'))
     try {
       const resources = join(appOutDir, 'resources', 'host', 'node_modules')
-      const cli = join(resources, '@pymodel', 'pythinker-code', 'dist', 'launcher.mjs')
+      const cli = join(resources, '@pymodel', 'pythinker-code', 'dist', 'main.mjs')
       const web = join(resources, '@pymodel', 'pythinker-code', 'dist-web', 'index.html')
       await mkdir(join(cli, '..'), { recursive: true })
       await mkdir(join(web, '..'), { recursive: true })
@@ -60,7 +60,7 @@ describe('packaged desktop runtime verification', () => {
     const appOutDir = await mkdtemp(join(tmpdir(), 'pythinker-packaged-runtime-'))
     try {
       const resources = join(appOutDir, 'Pythinker.app', 'Contents', 'Resources', 'host', 'node_modules')
-      const cli = join(resources, '@pymodel', 'pythinker-code', 'dist', 'launcher.mjs')
+      const cli = join(resources, '@pymodel', 'pythinker-code', 'dist', 'main.mjs')
       const web = join(resources, '@pymodel', 'pythinker-code', 'dist-web', 'index.html')
       await mkdir(join(cli, '..'), { recursive: true })
       await mkdir(join(web, '..'), { recursive: true })

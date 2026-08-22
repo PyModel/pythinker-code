@@ -1,7 +1,7 @@
 <script setup lang="ts">
+import { inject } from 'vue';
 import { useI18n } from 'vue-i18n';
 import type { TaskItem } from '../../types';
-import { effortLabel } from '../../lib/modelThinking';
 import Icon from '../ui/Icon.vue';
 import IconButton from '../ui/IconButton.vue';
 import StatusGlyph from './StatusGlyph.vue';
@@ -50,13 +50,18 @@ function stateLabel(task: TaskItem): string {
   return t('tasks.running');
 }
 
+const modelDisplayResolver = inject<(modelId: string | undefined) => string | undefined>('modelDisplay');
+const subagentEffort = inject<(effort: string | undefined) => string | undefined>('subagentEffort');
+
 function modelDisplay(task: TaskItem): string | undefined {
-  return task.kind === 'subagent' ? referenceTask(task).model : undefined;
+  if (task.kind !== 'subagent') return undefined;
+  const raw = referenceTask(task).model;
+  return modelDisplayResolver?.(raw) ?? raw;
 }
 
 function thinkingDisplay(task: TaskItem): string | undefined {
-  const thinkingEffort = referenceTask(task).thinkingEffort;
-  return task.kind === 'subagent' && thinkingEffort ? effortLabel(thinkingEffort) : undefined;
+  if (task.kind !== 'subagent') return undefined;
+  return subagentEffort?.(referenceTask(task).thinkingEffort);
 }
 </script>
 

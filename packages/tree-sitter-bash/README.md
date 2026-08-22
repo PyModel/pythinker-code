@@ -211,7 +211,7 @@ and pinned by a stored expectation in `test/fixtures/` — see
 - A `$` directly fused with a backtick substitution (`` $`echo x` ``) is
   one `command_substitution` with a `$`+backtick token in the reference;
   this parser produces a `($)` token followed by the substitution.
-- A non-ASCII “identifier” in assignment position (`变量=值`, `é=1`) is a
+- A non-ASCII “identifier” in assignment position (`é=1`) is a
   `variable_assignment` flagged `hasError` in the reference; this parser
   keeps it a plain command word — which is also how bash itself treats it
   (variable names are ASCII-only, so the text runs as a command).

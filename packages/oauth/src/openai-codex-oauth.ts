@@ -454,13 +454,29 @@ export interface FetchOpenAICodexModelsOptions {
   readonly signal?: AbortSignal | undefined;
 }
 
+// The Codex /models catalog advertises reasoning levels its own /responses
+// endpoint refuses: `ultra` is listed for the gpt-5.6 family but answers
+// `Invalid value: 'ultra'. Supported values are: ...`. Writing an unusable
+// level into config.toml surfaces as a failed turn the user cannot diagnose,
+// so only levels /responses actually accepts are kept.
+const CODEX_RESPONSES_REASONING_EFFORTS = new Set([
+  'none',
+  'minimal',
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+  'max',
+]);
+
 function readCodexReasoningEfforts(item: Record<string, unknown>): readonly string[] {
   const levels = item['supported_reasoning_levels'];
   if (!Array.isArray(levels)) return [];
   return levels.flatMap((level) => {
     if (!isRecord(level)) return [];
     const effort = level['effort'];
-    return typeof effort === 'string' && effort.length > 0 ? [effort] : [];
+    if (typeof effort !== 'string' || effort.length === 0) return [];
+    return CODEX_RESPONSES_REASONING_EFFORTS.has(effort) ? [effort] : [];
   });
 }
 

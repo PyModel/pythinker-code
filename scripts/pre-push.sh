@@ -65,11 +65,17 @@ step "sherif" pnpm run sherif || fail "sherif" "monorepo dependency versions are
 # 3. oxlint (CI: `pnpm run lint`).
 step "lint" pnpm run lint || fail "lint" "oxlint reported errors"
 
-# 4. Nix fetchPnpmDeps hash freshness proxy (CI: nix build).
+# 4. Committed web bundle freshness. apps/pythinker-code/dist-web is generated
+#    from apps/pythinker-web and read by no other gate, so a web source edit
+#    without a rebuild ships a stale embedded UI with nothing red to show for it.
+step "web-bundle-freshness" node apps/pythinker-code/scripts/check-web-assets.mjs ||
+  fail "build" "apps/pythinker-web changed without restaging dist-web (run 'pnpm run build:web')"
+
+# 5. Nix fetchPnpmDeps hash freshness proxy (CI: nix build).
 step "nix-hash-freshness" node scripts/check-nix-hash-fresh.mjs ||
   fail "nix build (flake.nix)" "pnpm-lock.yaml changed without refreshing flake.nix's pnpmDeps hash"
 
-# 5. Typecheck, scoped to packages changed since $base_ref (CI: `pnpm run
+# 6. Typecheck, scoped to packages changed since $base_ref (CI: `pnpm run
 #    typecheck`). Full typecheck builds every package first and takes
 #    minutes — not affordable pre-push, so this narrows to what pnpm's own
 #    dependency graph says was actually touched.
@@ -81,7 +87,7 @@ else
   echo "[pre-push] run 'pnpm run typecheck' manually before pushing if you touched types."
 fi
 
-# 6. Tests, scoped via vitest's own changed-file impact analysis (CI: `pnpm test`).
+# 7. Tests, scoped via vitest's own changed-file impact analysis (CI: `pnpm test`).
 if [[ -n "$base_ref" ]]; then
   step "test (changed)" pnpm exec vitest run --changed "$base_ref" --passWithNoTests ||
     fail "test" "tests affected by changed files are failing"

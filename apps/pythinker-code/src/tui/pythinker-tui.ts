@@ -93,10 +93,7 @@ import {
 import { StepSummaryComponent } from './components/messages/step-summary';
 import { ThinkingComponent } from './components/messages/thinking';
 import { ToolCallComponent } from './components/messages/tool-call';
-import {
-  ReplayTurnBoundaryComponent,
-  UserMessageComponent,
-} from './components/messages/user-message';
+import { UserMessageComponent } from './components/messages/user-message';
 import { ActivityPaneComponent, type ActivityPaneMode } from './components/panes/activity-pane';
 import { QueuePaneComponent } from './components/panes/queue-pane';
 import type { TuiConfig } from './config';
@@ -175,7 +172,8 @@ import { notifyTerminalOnce } from './utils/terminal-notification';
 import { installTerminalThemeTracking } from './utils/terminal-theme';
 import { detectTmuxKeyboardWarning } from './utils/tmux-keyboard';
 import {
-  getTranscriptComponentEntry,
+  isFoldSegmentBoundaryComponent,
+  isTurnBoundaryComponent,
   markTranscriptComponent,
 } from './utils/transcript-component-metadata';
 import { nextTranscriptId } from './utils/transcript-id';
@@ -2787,23 +2785,6 @@ export class PythinkerTUI {
     this.state.ui.requestRender();
   }
 
-  private isTurnBoundaryComponent(child: Component): boolean {
-    if (
-      !(child instanceof UserMessageComponent) &&
-      !(child instanceof SkillActivationComponent) &&
-      !(child instanceof PluginCommandComponent) &&
-      !(child instanceof ReplayTurnBoundaryComponent)
-    ) {
-      return false;
-    }
-    const entry = getTranscriptComponentEntry(child);
-    if (entry === undefined) return false;
-    // Live user messages / slash activations have an undefined turnId; replayed
-    // ones get a `replay:N` turnId. Both start a new turn. Steer messages carry
-    // a defined non-replay turnId and are not boundaries.
-    return entry.turnId === undefined || entry.turnId.startsWith('replay:');
-  }
-
   private trimTranscriptWindow(): boolean {
     if (!TRANSCRIPT_WINDOW_ENABLED || TRANSCRIPT_MAX_TURNS <= 0) return false;
     // Session replay already caps history to its own turn limit; trimming during
@@ -2817,7 +2798,7 @@ export class PythinkerTUI {
     // the rest of the turn would be left behind.
     const boundaries: number[] = [];
     for (let i = 0; i < children.length; i++) {
-      if (this.isTurnBoundaryComponent(children[i]!)) boundaries.push(i);
+      if (isTurnBoundaryComponent(children[i]!)) boundaries.push(i);
     }
 
     const turns = groupTurns(this.state.transcriptEntries);
@@ -2854,7 +2835,7 @@ export class PythinkerTUI {
     let boundariesSeen = 0;
     let cutoff = 0;
     for (let i = 0; i < children.length; i++) {
-      if (this.isTurnBoundaryComponent(children[i]!)) {
+      if (isTurnBoundaryComponent(children[i]!)) {
         if (boundariesSeen === boundariesToRemove) {
           cutoff = i;
           break;
@@ -2908,7 +2889,7 @@ export class PythinkerTUI {
     // Find the start of the current turn (last turn-starting user message).
     let turnStart = -1;
     for (let i = children.length - 1; i >= 0; i--) {
-      if (this.isTurnBoundaryComponent(children[i]!)) {
+      if (isFoldSegmentBoundaryComponent(children[i]!)) {
         turnStart = i;
         break;
       }
@@ -2990,7 +2971,7 @@ export class PythinkerTUI {
 
     const boundaries: number[] = [];
     for (let i = 0; i < children.length; i++) {
-      if (this.isTurnBoundaryComponent(children[i]!)) boundaries.push(i);
+      if (isFoldSegmentBoundaryComponent(children[i]!)) boundaries.push(i);
     }
     if (boundaries.length === 0) return;
 
@@ -3286,7 +3267,7 @@ export class PythinkerTUI {
     // components that have no entry in the metadata map.
     const boundaries: number[] = [];
     for (let i = 0; i < children.length; i++) {
-      if (this.isTurnBoundaryComponent(children[i]!)) boundaries.push(i);
+      if (isTurnBoundaryComponent(children[i]!)) boundaries.push(i);
     }
     const expandCutoff =
       TRANSCRIPT_EXPAND_TURNS <= 0
@@ -3425,19 +3406,24 @@ export class PythinkerTUI {
     const highlighted = this.state.appState.planMode || isBash || trimmed.startsWith('/');
     this.state.editor.borderHighlighted = highlighted;
     // Shell mode gets its own hue; plan-mode and slash context stay primary.
+    // Concrete effort levels tint the border as a heat ladder
+    // (off grey → low light grey → medium near-white → high blue →
+    // xhigh purple → max gold); boolean on keeps the default border.
     const effort = this.state.appState.thinkingEffort.toLowerCase();
     const effortToken: ColorToken | undefined =
-      effort === 'low'
-        ? 'effortLow'
-        : effort === 'medium'
-          ? 'effortMedium'
-          : effort === 'high'
-            ? 'effortHigh'
-            : effort === 'xhigh' || effort === 'extra-high'
-              ? 'effortXHigh'
-              : effort === 'max'
-                ? 'effortMax'
-                : undefined;
+      effort === 'off'
+        ? 'effortOff'
+        : effort === 'low'
+          ? 'effortLow'
+          : effort === 'medium'
+            ? 'effortMedium'
+            : effort === 'high'
+              ? 'effortHigh'
+              : effort === 'xhigh' || effort === 'extra-high'
+                ? 'effortXHigh'
+                : effort === 'max'
+                  ? 'effortMax'
+                  : undefined;
     const borderToken: ColorToken = isBash
       ? 'shellMode'
       : highlighted

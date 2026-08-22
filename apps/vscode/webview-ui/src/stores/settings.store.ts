@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { bridge } from "@/services";
 import { toast } from "@/components/ui/sonner";
 import type { ExtensionConfig } from "shared/types";
-import type { MCPServerConfig, ModelConfig, ThinkingMode, SlashCommandInfo } from "shared/legacy-sdk";
+import type { MCPServerConfig, ModelConfig, ModelsConfig, ThinkingMode, SlashCommandInfo } from "shared/legacy-sdk";
 
 let settingsSaveRevision = 0;
 function saveConfigWithRollback(
@@ -158,6 +158,7 @@ interface SettingsState {
   setCurrentWorkDir: (workDir: string | null) => void;
   setWorkspaceRoot: (root: string | null) => void;
   initModels: (models: ModelConfig[], defaultModel: string | null, defaultThinking: boolean, defaultThinkingEffort?: string) => void;
+  setModels: (config: ModelsConfig) => void;
   setWireSlashCommands: (commands: SlashCommandInfo[]) => void;
   setIsLoggedIn: (loggedIn: boolean) => void;
   getCurrentThinkingMode: () => ThinkingMode;
@@ -297,6 +298,32 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     set({
       wireSlashCommands: commands,
       slashCommands: commands,
+    });
+  },
+
+  // Provider add/remove lands in config.toml on the host; refreshing must not
+  // yank a live session off its model, so keep the current alias unless it no
+  // longer exists.
+  setModels: ({ models, defaultModel, defaultThinking, defaultThinkingEffort }) => {
+    // The refreshed list supersedes any save still in flight: its rollback was
+    // captured against the old list and could restore a model that no longer
+    // exists.
+    settingsSaveRevision += 1;
+    set((state) => {
+      const kept = getModelById(models, state.currentModel) !== undefined;
+      const currentModel = kept ? state.currentModel : defaultModel ?? models[0]?.id ?? "";
+      const model = getModelById(models, currentModel);
+      return {
+        models,
+        defaultModel,
+        modelsLoaded: true,
+        currentModel,
+        thinkingEffort: kept
+          ? state.thinkingEffort
+          : model !== undefined
+            ? defaultEffortForModel(model, defaultThinking, defaultThinkingEffort)
+            : "off",
+      };
     });
   },
 

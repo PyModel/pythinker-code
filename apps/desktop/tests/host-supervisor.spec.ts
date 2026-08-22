@@ -75,15 +75,15 @@ describe('desktop Host readiness', () => {
     expect(parser.push('Pythinker se')).toBeUndefined()
     expect(parser.push('rver: http://127.0.')).toBeUndefined()
     expect(parser.push('0.1:4173 (LAN: http://192.0.2.10:4173)')).toBeUndefined()
-    expect(parser.push('\nstartup complete\n')).toBe('http://127.0.0.1:4173')
-    expect(parser.finalize()).toBe('http://127.0.0.1:4173')
+    expect(parser.push('\nstartup complete\n')).toEqual({ origin: 'http://127.0.0.1:4173' })
+    expect(parser.finalize()).toEqual({ origin: 'http://127.0.0.1:4173' })
   })
 
   it('accepts a complete unterminated readiness line when the stream ends', () => {
     const parser = createReadinessParser()
 
     expect(parser.push('diagnostic\nPythinker server: http://localhost:51234')).toBeUndefined()
-    expect(parser.finalize()).toBe('http://localhost:51234')
+    expect(parser.finalize()).toEqual({ origin: 'http://localhost:51234' })
   })
 
   it.each([
@@ -108,8 +108,16 @@ describe('desktop Host readiness', () => {
   it('rejects conflicting readiness URLs', () => {
     const parser = createReadinessParser()
 
-    expect(parser.push('Pythinker server: http://127.0.0.1:4173\n')).toBe('http://127.0.0.1:4173')
+    expect(parser.push('Pythinker server: http://127.0.0.1:4173\n')).toEqual({ origin: 'http://127.0.0.1:4173' })
     expect(() => parser.push('Pythinker server: http://127.0.0.1:4174\n')).toThrow(/conflicting readiness URLs/iu)
+  })
+
+  it('captures the bearer token from the #token= readiness fragment', () => {
+    const parser = createReadinessParser()
+
+    expect(parser.push('Pythinker server: http://127.0.0.1:4173/#token=s3cret\n'))
+      .toEqual({ origin: 'http://127.0.0.1:4173', token: 's3cret' })
+    expect(parser.finalize()).toEqual({ origin: 'http://127.0.0.1:4173', token: 's3cret' })
   })
 })
 
@@ -175,7 +183,7 @@ describe('desktop Host supervisor', () => {
     expect(spawnHost).toHaveBeenCalledOnce()
 
     child.stdout.emit('Pythinker server: http://127.0.0.1:4567\n')
-    await expect(first).resolves.toBe('http://127.0.0.1:4567')
+    await expect(first).resolves.toEqual({ origin: 'http://127.0.0.1:4567' })
     expect(child.signals).toEqual([])
   })
 
@@ -191,7 +199,7 @@ describe('desktop Host supervisor', () => {
     expect(settled).not.toHaveBeenCalled()
 
     child.stdout.emit('Pythinker server: http://127.0.0.1:4567\n')
-    await expect(starting).resolves.toBe('http://127.0.0.1:4567')
+    await expect(starting).resolves.toEqual({ origin: 'http://127.0.0.1:4567' })
   })
 
   it('reports output when the Host exits before readiness', async () => {
@@ -203,6 +211,42 @@ describe('desktop Host supervisor', () => {
     child.emitExit(7)
 
     await expect(starting).rejects.toThrow(/exited before readiness \(code 7, signal null\).*configuration rejected/su)
+  })
+
+  it('keeps the bearer token out of the log and the failure diagnostic', async () => {
+    const child = new FakeHostChild()
+    const logged: string[] = []
+    const supervisor = createHostSupervisor({ spawnHost: () => child, log: chunk => { logged.push(chunk) } })
+    const starting = supervisor.start()
+
+    child.stdout.emit('Pythinker server: http://127.0.0.1:4567/#token=s3cret\n')
+    await expect(starting).resolves.toEqual({ origin: 'http://127.0.0.1:4567', token: 's3cret' })
+
+    expect(logged.join('')).not.toContain('s3cret')
+    expect(logged.join('')).toContain('#token=[redacted]')
+  })
+
+  it('keeps the bearer token out of a rejected malformed readiness URL', async () => {
+    const child = new FakeHostChild()
+    const supervisor = createHostSupervisor({ spawnHost: () => child })
+    const starting = supervisor.start()
+
+    child.stdout.emit('Pythinker server: https://127.0.0.1:4567/#token=s3cret\n')
+
+    await expect(starting).rejects.toThrow(/must be loopback HTTP/su)
+    await expect(starting).rejects.not.toThrow(/s3cret/su)
+  })
+
+  it('keeps the bearer token out of the pre-readiness exit diagnostic', async () => {
+    const child = new FakeHostChild()
+    const supervisor = createHostSupervisor({ spawnHost: () => child })
+    const starting = supervisor.start()
+
+    child.stderr.emit('Pythinker server: http://127.0.0.1:4567/#token=s3cret\n')
+    child.emitExit(7)
+
+    await expect(starting).rejects.toThrow(/#token=\[redacted\]/su)
+    await expect(starting).rejects.not.toThrow(/s3cret/su)
   })
 
   it('contains a synchronous spawn failure as a rejected start', async () => {
@@ -344,7 +388,7 @@ describe('desktop Host process', () => {
     const { spawnPythinkerServer } = await import('../src/host-supervisor')
     spawnPythinkerServer({
       nodeExecutable: '/Applications/Pythinker.app/Contents/MacOS/Pythinker',
-      cliEntry: '/Applications/Pythinker.app/Contents/Resources/host/node_modules/@pymodel/pythinker-code/dist/launcher.mjs',
+      cliEntry: '/Applications/Pythinker.app/Contents/Resources/host/node_modules/@pymodel/pythinker-code/dist/main.mjs',
       cwd: '/Users/tester',
       env: { PYTHINKER_DESKTOP: '1' },
       port: 24_827,
@@ -354,10 +398,9 @@ describe('desktop Host process', () => {
     expect(spawn).toHaveBeenCalledWith(
       '/Applications/Pythinker.app/Contents/MacOS/Pythinker',
       [
-        '/Applications/Pythinker.app/Contents/Resources/host/node_modules/@pymodel/pythinker-code/dist/launcher.mjs',
-        'server',
-        'run',
-        '--foreground',
+        '/Applications/Pythinker.app/Contents/Resources/host/node_modules/@pymodel/pythinker-code/dist/main.mjs',
+        'web',
+        '--no-open',
         '--port',
         '24827',
         '--log-level',

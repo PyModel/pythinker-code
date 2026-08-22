@@ -11,6 +11,8 @@
     "dev:cli": "pnpm -C apps/pythinker-code run dev",
     "dev:desktop": "pnpm -C apps/desktop run dev",
     "dev:web": "pnpm -C apps/pythinker-web run dev",
+    "build:web": "pnpm --filter @pymodel/pythinker-web run build && node apps/pythinker-code/scripts/copy-web-assets.mjs",
+    "check:web": "node apps/pythinker-code/scripts/check-web-assets.mjs",
     "package:desktop": "pnpm -C apps/desktop run package",
     "dist:mac:desktop": "pnpm -C apps/desktop run dist:mac",
     "dist:win:desktop": "pnpm -C apps/desktop run dist:win",
@@ -66,14 +68,6 @@
     "node": ">=24.15.0 <25"
   },
   "packageManager": "pnpm@10.34.3",
-  "pnpm": {
-    "overrides": {
-      "vite@>=8.0.0 <8.0.16": "8.0.16",
-      "@babel/core@<7.29.6": "^7.29.6",
-      "diff@>=6.0.0 <8.0.3": "^8.0.3",
-      "serialize-javascript@<7.0.5": "^7.0.5"
-    }
-  },
   "lint-staged": {
     "*.{js,jsx,ts,tsx,mjs,cjs,mts,cts}": [
       "oxlint --fix --quiet",

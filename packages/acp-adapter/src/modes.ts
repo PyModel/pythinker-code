@@ -2,7 +2,7 @@
  * ACP session-mode taxonomy.
  *
  * The 4 modes (`default`, `plan`, `auto`, `yolo`) are the locked
- * decision in PLAN D9 (`PLAN.md` §D9). Every `session/new` and
+ * ACP session-mode decision. Every `session/new` and
  * `session/load` response advertises {@link ACP_MODES} as the
  * `availableModes` plus {@link DEFAULT_MODE_ID} as `currentModeId`,
  * so Zed (and any other ACP client) can render its mode dropdown
@@ -19,7 +19,7 @@ import type { SessionMode } from '@agentclientprotocol/sdk';
 import type { PermissionMode } from '@pymodel/pythinker-code-sdk';
 
 /**
- * Canonical 4-mode taxonomy (PLAN D9). Order matters: the array
+ * Canonical 4-mode ACP taxonomy. Order matters: the array
  * is rendered as-is by the client, so `default` must appear first
  * and `yolo` last. `as const satisfies` pins both the literal
  * shape and the SDK contract so a future SDK type change surfaces
@@ -83,8 +83,7 @@ export interface AcpModeToggles {
 }
 
 /**
- * Resolve an {@link AcpModeId} to its underlying SDK toggles per
- * PLAN D9 (`PLAN.md:93-98`). The `switch` deliberately enumerates every
+ * Resolve an {@link AcpModeId} to its underlying SDK toggles. The `switch` deliberately enumerates every
  * arm of {@link AcpModeId} so the TypeScript compiler enforces
  * exhaustiveness — adding a 5th mode without extending this table is a
  * typecheck error (the `never` fallthrough), not a silent runtime

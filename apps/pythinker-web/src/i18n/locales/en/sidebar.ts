@@ -42,6 +42,7 @@ export default {
   tabDone: 'Done',
   tagOpen: 'Open',
   tagDone: 'Done',
+  lastActive: 'Last updated: {time}',
   markDone: 'Mark as done',
   reopen: 'Mark as open',
   noDoneSessions: 'No completed sessions yet',

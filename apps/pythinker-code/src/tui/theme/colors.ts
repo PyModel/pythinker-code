@@ -72,15 +72,17 @@ export interface ColorPalette {
   toolErrorBg: string;
 
   // ── Effort heat ──
-  /** Low thinking effort; colors the editor effort dot. */
+  /** Thinking effort off; grey prompt-area border. */
+  effortOff: string;
+  /** Low thinking effort; lighter grey prompt-area border. */
   effortLow: string;
-  /** Medium thinking effort; colors the editor effort dot. */
+  /** Medium thinking effort; near-white prompt-area border. */
   effortMedium: string;
-  /** High thinking effort; colors the editor effort dot. */
+  /** High thinking effort; light-blue prompt-area border. */
   effortHigh: string;
-  /** Extra-high thinking effort; colors the editor effort dot. */
+  /** Extra-high thinking effort; light-purple prompt-area border. */
   effortXHigh: string;
-  /** Maximum thinking effort; colors the editor effort dot. */
+  /** Maximum thinking effort; gold prompt-area border. */
   effortMax: string;
 
   // ── Diff (all consumed by components/media/diff-preview.ts) ──
@@ -205,10 +207,11 @@ export const darkColors: ColorPalette = {
   toolSuccessBg: '#14171B',
   toolErrorBg: '#291D1D',
 
-  effortLow: '#8A8A8A',
-  effortMedium: '#6FA8DC',
-  effortHigh: '#D33682',
-  effortXHigh: '#C0392B',
+  effortOff: '#8A8A8A',
+  effortLow: '#B3B3B3',
+  effortMedium: '#E8E8E8',
+  effortHigh: '#6FA8DC',
+  effortXHigh: '#A78BFA',
   effortMax: '#F2C744',
 
   diffAdded: '#4EC87E',
@@ -283,10 +286,11 @@ export const lightColors: ColorPalette = {
   toolSuccessBg: '#F1F3F5',
   toolErrorBg: '#F9E9E9',
 
-  effortLow: '#8A8A8A',
-  effortMedium: '#2E6FB8',
-  effortHigh: '#A81D6E',
-  effortXHigh: '#8B1A1A',
+  effortOff: '#767676',
+  effortLow: '#8C8C8C',
+  effortMedium: '#404040',
+  effortHigh: '#2E6FB8',
+  effortXHigh: '#7048B6',
   effortMax: '#B8860B',
 
   diffAdded: '#0E7A38',

@@ -403,7 +403,7 @@ defineExpose({ closeMenu });
           {{ t('sidebar.markDone') }}
         </MenuItem>
         <MenuItem separator />
-        <div class="menu-time">{{ fullTime }}</div>
+        <div class="menu-time">{{ t('sidebar.lastActive', { time: fullTime }) }}</div>
       </Menu>
     </Teleport>
     <SessionEmojiPicker
@@ -539,10 +539,11 @@ defineExpose({ closeMenu });
   z-index: var(--z-dropdown);
 }
 .menu-time {
-  padding: 6px 10px;
+  padding: var(--space-1) var(--space-2);
   color: var(--color-text-faint);
-  font-family: var(--font-mono);
+  font-family: var(--font-ui);
   font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
   cursor: default;
   user-select: text;
 }

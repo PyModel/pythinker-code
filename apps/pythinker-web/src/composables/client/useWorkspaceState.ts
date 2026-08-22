@@ -897,6 +897,7 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
     rawState.availableOpenInApps = m.openInApps;
     rawState.dangerousBypassAuth = m.dangerousBypassAuth;
     rawState.backend = m.backend;
+    rawState.serverCapabilities = m.capabilities;
   }
 
   async function load(): Promise<void> {

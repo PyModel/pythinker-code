@@ -155,4 +155,4 @@ Read [operations.md](references/operations.md) when the daemon or extension is u
 If a tool returns an error containing **"Please update the Pythinker WebBridge extension"**, the user's browser extension is older than this skill. Don't try to reconcile versions yourself — just tell the user, in their language, to update the extension and retry:
 
 - English: https://github.com/PyModel/pythinker-code
-- 中文: https://github.com/PyModel/pythinker-code
+- **Chinese docs**: https://github.com/PyModel/pythinker-code

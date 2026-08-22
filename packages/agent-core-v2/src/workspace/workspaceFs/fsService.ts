@@ -25,6 +25,8 @@ import {
   type FsStatResponse,
   type FsSuggestRequest,
   type FsSuggestResponse,
+  type FsWriteRequest,
+  type FsWriteResponse,
 } from './fs';
 
 const FsWireErrorCode = {
@@ -79,6 +81,8 @@ const SUGGEST_WALK_ABORTED = new Error('suggest walk aborted');
 const WALK_MAX_DEPTH = 64;
 
 const FS_READ_MAX_BYTES = 10 * 1024 * 1024;
+
+const FS_WRITE_MAX_BYTES = 10 * 1024 * 1024;
 
 const HIDDEN_NAME_RE = /^\./;
 const MACOS_NOISE = new Set(['.DS_Store', '.AppleDouble', '.LSOverride']);
@@ -395,6 +399,62 @@ export class WorkspaceFsService implements IWorkspaceFsService {
     }
     const st = await this.hostFs.lstat(abs);
     return buildFsEntry(rel, this.path.basename(abs), st, false);
+  }
+
+  async write(req: FsWriteRequest): Promise<FsWriteResponse> {
+    const abs = await this.resolveWithin(req.path);
+    const rel = this.toRel(abs);
+
+    let prior: HostFileStat | undefined;
+    try {
+      prior = await this.hostFs.stat(abs);
+    } catch (error) {
+      if (!isMissingPathError(error)) throw mapFsError(error, req.path);
+    }
+    if (prior !== undefined) {
+      if (prior.isDirectory) {
+        throw new Error2(ErrorCodes.FS_IS_DIRECTORY, `path is a directory: ${req.path}`, {
+          details: { path: req.path },
+        });
+      }
+      if (req.base_etag !== undefined && buildEtag(prior) !== req.base_etag) {
+        throw new Error2(ErrorCodes.FS_CONFLICT, `file changed since it was read: ${req.path}`, {
+          details: { path: req.path, base_etag: req.base_etag, current_etag: buildEtag(prior) },
+        });
+      }
+    }
+
+    const bytes =
+      req.encoding === 'base64'
+        ? Buffer.from(req.content, 'base64')
+        : Buffer.from(req.content, 'utf-8');
+    if (bytes.byteLength > FS_WRITE_MAX_BYTES) {
+      throw new Error2(
+        ErrorCodes.FS_TOO_LARGE,
+        `content too large: ${req.path} (${bytes.byteLength} bytes > ${FS_WRITE_MAX_BYTES})`,
+        { details: { path: req.path, size: bytes.byteLength } },
+      );
+    }
+
+    try {
+      await this.hostFs.writeBytes(abs, bytes);
+    } catch (error) {
+      const code = errnoCode(error);
+      if (code === 'ENOENT' || code === 'ENOTDIR') {
+        throw new Error2(ErrorCodes.FS_PATH_NOT_FOUND, `parent not found: ${req.path}`, {
+          details: { path: req.path },
+        });
+      }
+      if (code === 'EISDIR') {
+        throw new Error2(ErrorCodes.FS_IS_DIRECTORY, `path is a directory: ${req.path}`, {
+          details: { path: req.path },
+        });
+      }
+      throw error;
+    }
+
+    const st = await this.hostFs.stat(abs);
+    return { path: rel, size: st.size, etag: buildEtag(st), created: prior === undefined };
   }
 
   async resolvePath(relPath: string): Promise<FsPathResolved> {

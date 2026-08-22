@@ -163,7 +163,7 @@ describe('SessionTitleService', () => {
     events = new FakeEventService();
     fetchMock = vi.fn<(url: string, init?: RequestInit) => Promise<Response>>(
       async () =>
-        new Response(JSON.stringify({ title: '\u751F\u6210\u7684\u6807\u9898' }), {
+        new Response(JSON.stringify({ title: 'Generated title' }), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
         }),
@@ -248,18 +248,18 @@ describe('SessionTitleService', () => {
   });
 
   it('replaces the easy title with the generated one', async () => {
-    titlePrompts = ['\u5E2E\u6211\u770B\u4E00\u4E0B\u8FD9\u4E2A Go \u7684 nil pointer \u62A5\u9519'];
+    titlePrompts = ['Help me debug this Go nil pointer error'];
 
     const title = await ix.get(ISessionTitleService).generateTitle();
 
-    expect(title).toBe('\u751F\u6210\u7684\u6807\u9898');
-    expect(metadata.meta.title).toBe('\u751F\u6210\u7684\u6807\u9898');
+    expect(title).toBe('Generated title');
+    expect(metadata.meta.title).toBe('Generated title');
     expect(metadata.meta.titleKind).toBe('generated');
 
     const [, init] = fetchMock.mock.calls[0]!;
     expect(JSON.parse(init?.body as string)).toEqual({
       method: 'chat_title',
-      params: { chat_content: 'user: \u5E2E\u6211\u770B\u4E00\u4E0B\u8FD9\u4E2A Go \u7684 nil pointer \u62A5\u9519' },
+      params: { chat_content: 'user: Help me debug this Go nil pointer error' },
     });
     expect(new Headers(init?.headers as Record<string, string>).get('authorization')).toBe(
       'Bearer test-token',
@@ -268,13 +268,13 @@ describe('SessionTitleService', () => {
     const rebroadcast = events.published.find(
       (event): event is SessionMetaUpdated =>
         event.type === 'session.meta.updated' &&
-        (event as SessionMetaUpdated).payload.patch.title === '\u751F\u6210\u7684\u6807\u9898',
+        (event as SessionMetaUpdated).payload.patch.title === 'Generated title',
     );
     expect(rebroadcast).toBeDefined();
   });
 
   it('composes the title input from the recorded prompts in order', async () => {
-    titlePrompts = ['\u5148\u5E2E\u6211\u642D\u4E00\u4E2A Vite \u9879\u76EE', '\u52A0\u4E0A\u8DEF\u7531', '\u73B0\u5728\u914D\u4E00\u4E0B ESLint'];
+    titlePrompts = ['Scaffold a Vite project for me', 'Add routing', 'Now set up ESLint'];
 
     await ix.get(ISessionTitleService).generateTitle();
 
@@ -282,20 +282,20 @@ describe('SessionTitleService', () => {
     expect(JSON.parse(init?.body as string)).toEqual({
       method: 'chat_title',
       params: {
-        chat_content: 'user: \u5148\u5E2E\u6211\u642D\u4E00\u4E2A Vite \u9879\u76EE\nuser: \u52A0\u4E0A\u8DEF\u7531\nuser: \u73B0\u5728\u914D\u4E00\u4E0B ESLint',
+        chat_content: 'user: Scaffold a Vite project for me\nuser: Add routing\nuser: Now set up ESLint',
       },
     });
   });
 
   it('truncates each composed title prompt to its segment budget', async () => {
-    titlePrompts = ['\u5F88\u957F\u7684\u8F93\u5165'.repeat(400), '\u7B2C\u4E8C\u6761'];
+    titlePrompts = ['Very long input'.repeat(400), 'Second entry'];
 
     await ix.get(ISessionTitleService).generateTitle();
 
     const [, init] = fetchMock.mock.calls[0]!;
     const body = JSON.parse(init?.body as string) as { params: { chat_content: string } };
-    expect(body.params.chat_content.startsWith('user: \u5F88\u957F\u7684\u8F93\u5165')).toBe(true);
-    expect(body.params.chat_content).toHaveLength(416);
+    expect(body.params.chat_content.startsWith('user: Very long input')).toBe(true);
+    expect(body.params.chat_content).toHaveLength(425);
   });
 
   it('returns unavailable when only a slash activation updated lastPrompt', async () => {
@@ -320,79 +320,79 @@ describe('SessionTitleService', () => {
     titlePrompts = ['hello'];
     const generation = ix.get(ISessionTitleService).generateTitle();
     await pendingFetch.started;
-    await metadata.setTitle('user \u53D6\u7684\u6807\u9898');
+    await metadata.setTitle('User-chosen title');
     pendingFetch.resolve(
-      new Response(JSON.stringify({ title: '\u751F\u6210\u7684\u6807\u9898' }), {
+      new Response(JSON.stringify({ title: 'Generated title' }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
       }),
     );
 
     await expect(generation).resolves.toBeUndefined();
-    expect(metadata.meta.title).toBe('user \u53D6\u7684\u6807\u9898');
+    expect(metadata.meta.title).toBe('User-chosen title');
     expect(metadata.meta.titleKind).toBe('custom');
   });
 
   it('skips generation when the current title was already generated', async () => {
-    await metadata.setGeneratedTitleIfUncustomized('\u5DF2\u751F\u6210\u7684\u6807\u9898');
+    await metadata.setGeneratedTitleIfUncustomized('Pre-existing generated title');
     titlePrompts = ['hello'];
 
     await expect(ix.get(ISessionTitleService).generateTitle()).resolves.toBeUndefined();
     expect(fetchMock).not.toHaveBeenCalled();
-    expect(metadata.meta.title).toBe('\u5DF2\u751F\u6210\u7684\u6807\u9898');
+    expect(metadata.meta.title).toBe('Pre-existing generated title');
   });
 
   it('force regenerates an already-generated title', async () => {
-    await metadata.setGeneratedTitleIfUncustomized('\u5DF2\u751F\u6210\u7684\u6807\u9898');
+    await metadata.setGeneratedTitleIfUncustomized('Pre-existing generated title');
     titlePrompts = ['hello'];
 
     await expect(
       ix.get(ISessionTitleService).generateTitle({ force: true }),
-    ).resolves.toBe('\u751F\u6210\u7684\u6807\u9898');
+    ).resolves.toBe('Generated title');
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(metadata.meta.title).toBe('\u751F\u6210\u7684\u6807\u9898');
+    expect(metadata.meta.title).toBe('Generated title');
     expect(metadata.meta.titleKind).toBe('generated');
   });
 
   it('force overwrites a custom title and drops its custom marking', async () => {
-    await metadata.setTitle('user \u53D6\u7684\u6807\u9898');
+    await metadata.setTitle('User-chosen title');
     titlePrompts = ['hello'];
 
     await expect(
       ix.get(ISessionTitleService).generateTitle({ force: true }),
-    ).resolves.toBe('\u751F\u6210\u7684\u6807\u9898');
-    expect(metadata.meta.title).toBe('\u751F\u6210\u7684\u6807\u9898');
+    ).resolves.toBe('Generated title');
+    expect(metadata.meta.title).toBe('Generated title');
     expect(metadata.meta.titleKind).toBe('generated');
   });
 
   it('force still degrades when the backend request fails', async () => {
     fetchMock.mockImplementationOnce(async () => new Response('', { status: 500 }));
-    await metadata.setTitle('user \u53D6\u7684\u6807\u9898');
+    await metadata.setTitle('User-chosen title');
     titlePrompts = ['hello'];
 
     await expect(
       ix.get(ISessionTitleService).generateTitle({ force: true }),
     ).resolves.toBeUndefined();
-    expect(metadata.meta.title).toBe('user \u53D6\u7684\u6807\u9898');
+    expect(metadata.meta.title).toBe('User-chosen title');
     expect(metadata.meta.titleKind).toBe('custom');
   });
 
   it('first_turn composes the opening prompt with the first reply, within budget', async () => {
-    turnExcerpt = { user: '\u6700\u521D\u7684\u95EE\u9898', assistant: '\u7B2C\u4E00\u8F6E\u7684\u56DE\u7B54' };
+    turnExcerpt = { user: 'Initial question', assistant: 'First-round reply' };
 
     await expect(
       ix.get(ISessionTitleService).generateTitle({ source: 'first_turn' }),
-    ).resolves.toBe('\u751F\u6210\u7684\u6807\u9898');
+    ).resolves.toBe('Generated title');
 
     const [, init] = fetchMock.mock.calls[0]!;
     expect(JSON.parse(init?.body as string)).toEqual({
       method: 'chat_title',
-      params: { chat_content: 'user: \u6700\u521D\u7684\u95EE\u9898\nassistant: \u7B2C\u4E00\u8F6E\u7684\u56DE\u7B54' },
+      params: { chat_content: 'user: Initial question\nassistant: First-round reply' },
     });
   });
 
   it('first_turn is strict: no assistant reply yet means unavailable', async () => {
-    turnExcerpt = { user: '\u53EA\u6709\u95EE\u9898' };
+    turnExcerpt = { user: 'Question only' };
 
     await expect(
       ix.get(ISessionTitleService).generateTitle({ source: 'first_turn' }),
@@ -401,83 +401,83 @@ describe('SessionTitleService', () => {
   });
 
   it('first_turn truncates each segment to its budget', async () => {
-    turnExcerpt = { user: '\u95EE'.repeat(500), assistant: '\u7B54'.repeat(1000) };
+    turnExcerpt = { user: 'q'.repeat(500), assistant: 'a'.repeat(1000) };
 
     await expect(
       ix.get(ISessionTitleService).generateTitle({ source: 'first_turn' }),
-    ).resolves.toBe('\u751F\u6210\u7684\u6807\u9898');
+    ).resolves.toBe('Generated title');
 
     const [, init] = fetchMock.mock.calls[0]!;
     const content = (JSON.parse(init?.body as string) as { params: { chat_content: string } })
       .params.chat_content;
-    expect(content).toBe(`user: ${'\u95EE'.repeat(400)}\nassistant: ${'\u7B54'.repeat(300)}`);
+    expect(content).toBe(`user: ${'q'.repeat(400)}\nassistant: ${'a'.repeat(300)}`);
   });
 
   it('digest composes head and tail segments, tolerating a missing reply', async () => {
     digestExcerpt = {
       turns: [
-        { user: '\u5F00\u573A' },
-        { user: '\u6700\u65B0\u8FFD\u95EE', assistant: '\u5F53\u524D\u8FDB\u5C55' },
+        { user: 'Opening question' },
+        { user: 'Latest follow-up', assistant: 'Current progress' },
       ],
     };
 
     await expect(
       ix.get(ISessionTitleService).generateTitle({ source: 'digest' }),
-    ).resolves.toBe('\u751F\u6210\u7684\u6807\u9898');
+    ).resolves.toBe('Generated title');
 
     let [, init] = fetchMock.mock.calls[0]!;
     expect(JSON.parse(init?.body as string)).toEqual({
       method: 'chat_title',
-      params: { chat_content: 'user: \u5F00\u573A\nuser: \u6700\u65B0\u8FFD\u95EE\nassistant: \u5F53\u524D\u8FDB\u5C55' },
+      params: { chat_content: 'user: Opening question\nuser: Latest follow-up\nassistant: Current progress' },
     });
 
     fetchMock.mockClear();
-    digestExcerpt = { turns: [{ user: '\u5F00\u573A' }] };
+    digestExcerpt = { turns: [{ user: 'Opening question' }] };
     await expect(
       ix.get(ISessionTitleService).generateTitle({ force: true, source: 'digest' }),
-    ).resolves.toBe('\u751F\u6210\u7684\u6807\u9898');
+    ).resolves.toBe('Generated title');
     [, init] = fetchMock.mock.calls[0]!;
     expect(JSON.parse(init?.body as string)).toEqual({
       method: 'chat_title',
-      params: { chat_content: 'user: \u5F00\u573A' },
+      params: { chat_content: 'user: Opening question' },
     });
   });
 
   it('digest truncates each segment to its budget', async () => {
     digestExcerpt = {
-      turns: [{ user: '问'.repeat(300), assistant: '答'.repeat(300) }],
+      turns: [{ user: 'q'.repeat(300), assistant: 'a'.repeat(300) }],
     };
 
     await expect(
       ix.get(ISessionTitleService).generateTitle({ source: 'digest' }),
-    ).resolves.toBe('生成的标题');
+    ).resolves.toBe('Generated title');
 
     const [, init] = fetchMock.mock.calls[0]!;
     const content = (JSON.parse(init?.body as string) as { params: { chat_content: string } })
       .params.chat_content;
-    expect(content).toBe(`user: ${'问'.repeat(200)}\nassistant: ${'答'.repeat(200)}`);
+    expect(content).toBe(`user: ${'q'.repeat(200)}\nassistant: ${'a'.repeat(200)}`);
   });
 
   it('digest elides the middle turns when the input exceeds the total budget', async () => {
     digestExcerpt = {
       turns: Array.from({ length: 30 }, (_, i) => ({
-        user: `第${i}个${'问'.repeat(180)}`,
-        assistant: `第${i}个${'答'.repeat(180)}`,
+        user: `#${i} ${'q'.repeat(180)}`,
+        assistant: `#${i} ${'a'.repeat(180)}`,
       })),
     };
 
     await expect(
       ix.get(ISessionTitleService).generateTitle({ source: 'digest' }),
-    ).resolves.toBe('生成的标题');
+    ).resolves.toBe('Generated title');
 
     const [, init] = fetchMock.mock.calls[0]!;
     const content = (JSON.parse(init?.body as string) as { params: { chat_content: string } })
       .params.chat_content;
     expect(content.length).toBeLessThanOrEqual(3000);
-    expect(content.startsWith('user: 第0个')).toBe(true);
+    expect(content.startsWith('user: #0')).toBe(true);
     expect(content).toContain('\n...\n');
     expect(content.split('\n...\n')[1]?.startsWith('user: ')).toBe(true);
-    expect(content.endsWith(`assistant: 第29个${'答'.repeat(180)}`)).toBe(true);
+    expect(content.endsWith(`assistant: #29 ${'a'.repeat(180)}`)).toBe(true);
   });
 
   it('digest is unavailable when the window yields no segments at all', async () => {
@@ -503,8 +503,8 @@ describe('SessionTitleService', () => {
     fetchMock.mockImplementationOnce(async () => new Response('', { status: 401 }));
     titlePrompts = ['hello'];
 
-    await expect(ix.get(ISessionTitleService).generateTitle()).resolves.toBe('\u751F\u6210\u7684\u6807\u9898');
-    expect(metadata.meta.title).toBe('\u751F\u6210\u7684\u6807\u9898');
+    await expect(ix.get(ISessionTitleService).generateTitle()).resolves.toBe('Generated title');
+    expect(metadata.meta.title).toBe('Generated title');
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(tokenCalls).toEqual([false, true]);
   });
@@ -594,13 +594,13 @@ describe('SessionTitleService', () => {
     await pendingFetch.started;
 
     pendingFetch.resolve(
-      new Response(JSON.stringify({ title: '\u751F\u6210\u7684\u6807\u9898' }), {
+      new Response(JSON.stringify({ title: 'Generated title' }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
       }),
     );
-    await expect(first).resolves.toBe('\u751F\u6210\u7684\u6807\u9898');
-    await expect(second).resolves.toBe('\u751F\u6210\u7684\u6807\u9898');
+    await expect(first).resolves.toBe('Generated title');
+    await expect(second).resolves.toBe('Generated title');
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 

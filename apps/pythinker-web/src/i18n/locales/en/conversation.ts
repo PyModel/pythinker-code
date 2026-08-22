@@ -81,6 +81,8 @@ export default {
   restoreTableWidth: 'Restore default width',
   // S3 parity — failed-turn recovery banner (ChatPane.vue)
   turnFailedResume: 'Continue',
+  /** Fixed prompt text submitted by the failed-turn "Continue" button. */
+  turnFailedResumeText: 'Continue',
   // S3 parity — ActivityRun aggregate run blocks (ActivityRun.vue). Clause
   // summaries mirror the reference `tools.activity` / `tools.group.typed`.
   activityRun: {

@@ -652,10 +652,22 @@ export function messagesToTurns(
         if (c.thinking) {
           g.thinkingParts.push(c.thinking);
           // Ordered block too: thinking renders WHERE it happened in the turn,
-          // merging consecutive segments (same rule as text blocks above).
+          // merging consecutive segments (same rule as text blocks above). The
+          // merged block keeps the FIRST segment's startedAt; the LAST
+          // segment's durationMs decides whether the block is still streaming
+          // (a settled segment freezes the whole block — reference parity).
           const last = g.blocks.at(-1);
-          if (last && last.kind === 'thinking') last.thinking += '\n' + c.thinking;
-          else g.blocks.push({ kind: 'thinking', thinking: c.thinking });
+          if (last && last.kind === 'thinking') {
+            last.thinking += '\n' + c.thinking;
+            last.durationMs = c.durationMs;
+          } else {
+            g.blocks.push({
+              kind: 'thinking',
+              thinking: c.thinking,
+              startedAt: c.startedAt,
+              durationMs: c.durationMs,
+            });
+          }
         }
       } else if (c.type === 'toolUse') {
         // Single `Agent` subagent spawns and all other tools render as a normal

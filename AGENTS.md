@@ -50,22 +50,26 @@ Adding an OpenAI-compatible provider requires **zero code changes** — just add
 | ------- | ----------- | ----- |
 | `apps/pythinker-code` | CLI / TUI app | Consumes `@pymodel/pythinker-code-sdk`; no `agent-core` dep. Use `write-tui` skill. |
 | `apps/pythinker-web` | Browser UI (Vue 3 + Vite + vue-i18n) | REST + WS `/api/v1`; no `agent-core` dep. See its `AGENTS.md`. |
-| `apps/pythinker-inspect` | Web inspector for the kap-server `/api/v1/debug` RPC surface | Workspace/session browser, per-session transcript chat, per-scope Service panels, DI unit inspection. See its `AGENTS.md`. |
+| `apps/pythinker-inspect` | Web inspector for the agent-gateway `/api/v1/debug` RPC surface | Workspace/session browser, per-session transcript chat, per-scope Service panels, DI unit inspection. See its `AGENTS.md`. |
 | `apps/vis` | Session replay & debugging visualizer | `server/` + `web/` subdirs. |
 | `packages/agent-core` | Agent engine | Agent, Session, profile, skills, tools, plan, permission, DI. |
-| `packages/agent-core-v2` | DI × Scope agent engine (the v2 port behind kap-server) | Four `LifecycleScope` tiers — `App` / `Workspace` / `Session` / `Agent` (`app/scopes.ts`) — plus the L3 unit layer (`Service`/`Fiber` units, collection contribution points, the Feature seam in `src/features/`). See its `AGENTS.md` and use the `agent-core-dev` skill. |
+| `packages/agent-core-v2` | DI × Scope agent engine (the v2 port behind agent-gateway) | Four `LifecycleScope` tiers — `App` / `Workspace` / `Session` / `Agent` (`app/scopes.ts`) — plus the L3 unit layer (`Service`/`Fiber` units, collection contribution points, the Feature seam in `src/features/`). See its `AGENTS.md` and use the `agent-core-dev` skill. |
 | `packages/node-sdk` | Public TS SDK & harness | |
 | `packages/kosong` | LLM provider abstraction | Wire types, catalog, capability registry. |
 | `packages/pyaos` | Execution environment | File/process abstractions. |
-| `packages/kap-server` | Pythinker Code server | Backed by `@pymodel/agent-core-v2`; sessions over REST + WebSocket (`/api/v1` + `/api/v1/ws`), plus `/api/v1/debug/*` reflection RPC (`--debug-endpoints`, loopback bind + bearer auth). See its `AGENTS.md`. |
+| `packages/agent-gateway` | Pythinker Code server | Fastify server backed by `@pymodel/agent-core-v2`; sessions over REST + WebSocket (`/api/v1` + `/api/v1/ws`), plus `/api/v1/debug/*` reflection RPC (`--debug-endpoints`, loopback bind + bearer auth). See its `AGENTS.md`. |
 | `packages/klient` | Client SDK | Contract-driven facade over agent-core-v2 (`global.*` / `session(id).*` / `agent(id).*`, zod-validated); transport via subpath entry (`@pymodel/klient/ipc|memory`); hosts the e2e suites. See its `AGENTS.md`. |
 | `packages/transcript` | Isomorphic transcript rendering data layer | L1 agent-granular store, L2 idempotent operations, L3 `off/turn/block/delta` subscription granularity, L4 framework-free view registry, turn-cursor pagination. Pure TypeScript (browser-safe, no engine imports); sole owner of the transcript contract types (`src/contract/`). See its `AGENTS.md`. |
 | `packages/oauth` | Auth utilities | |
 | `packages/telemetry` | Client-side telemetry | |
 | `packages/tree-sitter-bash` | Pure-TypeScript bash parser | No runtime deps, no wasm; `parse(source, { timeoutMs, maxNodes })` under a deterministic budget returns a discriminated `ParseResult` — treat aborted/hasError trees as "cannot analyze" and degrade. Parser only, no safety judgments. |
-| `packages/minidb` | Embedded JSON document store | `MiniDb` behind kap-server's search index — snapshot + WAL persistence with an exclusive write lock, larger-than-RAM full-text layer, persistent index generations. See its `AGENTS.md`. |
+| `packages/minidb` | Embedded JSON document store | `MiniDb` behind agent-gateway's search index — snapshot + WAL persistence with an exclusive write lock, larger-than-RAM full-text layer, persistent index generations. See its `AGENTS.md`. |
+| `packages/acp-adapter` | Agent Client Protocol adapter over engine v1 | Pin `@agentclientprotocol/sdk` `^0.23.0`. |
+| `packages/acp-server` | Agent Client Protocol host over engine v2 | Drives the engine through a `klient` memory-transport facade. |
+| `packages/pi-tui` | Vendored TUI library | Upstream fork with local divergences; tests run with `node --test`, not vitest. See its `AGENTS.md`. |
+| `packages/protocol` | Shared REST + WS protocol schemas | Envelope, error codes, pagination, WS-control types. |
 
-The web bundle: `apps/pythinker-code/dist-web` is the committed, prebuilt bundle of `apps/pythinker-web` (built with `pnpm --filter @pymodel/pythinker-web run build` and copied via `scripts/copy-web-assets.mjs`). `apps/pythinker-code/scripts/check-web-assets.mjs` guards packaging against a missing bundle — sync and commit the bundle in the same change whenever the web UI should ship differently.
+The web bundle: `apps/pythinker-code/dist-web` is the committed, prebuilt bundle of `apps/pythinker-web` (built with `pnpm --filter @pymodel/pythinker-web run build` and copied via `scripts/copy-web-assets.mjs`). `apps/pythinker-code/scripts/check-web-assets.mjs` fails when the bundle is missing **or stale** (it compares a fingerprint of every `apps/pythinker-web` build input against the one recorded at copy time); it runs in pre-push, in the CLI `build`, and on `prepack`. Whenever you touch the web UI, run `pnpm run build:web` and commit the restaged bundle in the same change. `packages/server` and `packages/server-e2e` are empty leftover directories excluded from the workspace — not packages.
 
 ## Environment
 
@@ -80,7 +84,7 @@ The web bundle: `apps/pythinker-code/dist-web` is the committed, prebuilt bundle
 ## Coding Rules
 
 - English-only codebase. Use ASCII/Latin fixtures (e.g. `café`) for unicode tests.
-- `packages/agent-core-v2`, `packages/kap-server`, and `packages/transcript` are comment-free zones: no line/block comments; exceptions are JSDoc attached to exported symbols and load-bearing lint-suppression directives (`oxlint-disable` / `eslint-disable`), while other tooling directives (`@ts-expect-error`, …) stay banned. Enforced by `scripts/check-no-comments.mjs`, which runs as part of `pnpm lint`.
+- `packages/agent-core-v2`, `packages/agent-gateway`, and `packages/transcript` are comment-free zones: no line/block comments; exceptions are JSDoc attached to exported symbols and load-bearing lint-suppression directives (`oxlint-disable` / `eslint-disable`), while other tooling directives (`@ts-expect-error`, …) stay banned. Enforced by `scripts/check-no-comments.mjs`, which runs as part of `pnpm lint`.
 - `packages/acp-adapter`: pin `@agentclientprotocol/sdk` `^0.23.0` (0.24+ broke session-model API).
 - `tsgo` (`@typescript/native-preview`) available via `npx tsgo -p <tsconfig> --noEmit`; committed scripts use `tsc` — run both for type fixes.
 - Pass `undefined` directly for optional props — no conditional spread.
@@ -97,7 +101,7 @@ The web bundle: `apps/pythinker-code/dist-web` is the committed, prebuilt bundle
 Gate behind flags. Env: `PYTHINKER_CODE_EXPERIMENTAL_<NAME>` toggles one; `PYTHINKER_CODE_EXPERIMENTAL_FLAG` enables all. Release: flip the entry's `default` to `true`.
 
 - `packages/agent-core` (v1): add the flag to the central registry at `packages/agent-core/src/flags/registry.ts`, then check it with `flags.enabled('my-feature')`.
-- `packages/agent-core-v2` and kap-server modules: no central catalog — declare the flag in the owning domain via `registerFlagDefinition` at import time (see `packages/agent-core-v2/docs/flag.md`), then check it with `IFlagService.enabled(id)`.
+- `packages/agent-core-v2` and agent-gateway modules: no central catalog — declare the flag in the owning domain via `registerFlagDefinition` at import time (see `packages/agent-core-v2/docs/flag.md`), then check it with `IFlagService.enabled(id)`.
 
 ## Workflow
 

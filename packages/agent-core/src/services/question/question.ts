@@ -7,7 +7,7 @@
  * promise when the response arrives — or `dismiss()`-es it if the user
  * closes the panel (SCHEMAS.md §6.3).
  *
- * Role: one-shot broker — see `packages/services/AGENTS.md`. Kept under the
+ * Role: one-shot broker — see `packages/agent-core/src/services/AGENTS.md`. Kept under the
  * `Service` suffix per the package-wide convention; the broker semantics
  * lives in the interface shape (`request` + `resolve` + `dismiss`) and the
  * docstring, not in the type name.
