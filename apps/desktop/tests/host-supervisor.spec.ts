@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   createHostSupervisor,
   createReadinessParser,
+  resolveHostExecutable,
   type HostChild,
 } from '../src/host-supervisor'
 import * as hostSupervisor from '../src/host-supervisor'
@@ -507,5 +508,53 @@ describe('desktop Host process', () => {
 
     expect(child.kill).toHaveBeenCalledWith('SIGTERM')
     expect(spawnSync).not.toHaveBeenCalled()
+  })
+})
+
+describe('resolveHostExecutable', () => {
+  const APP = '/Applications/Pythinker.app/Contents/MacOS/Pythinker'
+  const FRAMEWORKS = '/Applications/Pythinker.app/Contents/Frameworks'
+  const HELPER = `${FRAMEWORKS}/Pythinker Helper.app/Contents/MacOS/Pythinker Helper`
+
+  it('runs the Host from the LSUIElement helper so it takes no Dock tile of its own', () => {
+    // Re-execing the app's own binary registers a second Foreground app under
+    // the same bundle id, which shows up as a stray generic-executable icon in
+    // the Dock next to the real app.
+    const seen: string[] = []
+    const resolved = resolveHostExecutable({
+      platform: 'darwin',
+      execPath: APP,
+      frameworksPath: FRAMEWORKS,
+      exists: path => {
+        seen.push(path)
+        return path === HELPER
+      },
+    })
+    expect(resolved).toBe(HELPER)
+    expect(seen).toEqual([HELPER])
+  })
+
+  it('keeps the app executable when the bundle ships no matching helper', () => {
+    expect(
+      resolveHostExecutable({
+        platform: 'darwin',
+        execPath: APP,
+        frameworksPath: FRAMEWORKS,
+        exists: () => false,
+      }),
+    ).toBe(APP)
+  })
+
+  it('leaves non-macOS platforms alone', () => {
+    for (const platform of ['win32', 'linux']) {
+      expect(
+        resolveHostExecutable({
+          platform,
+          execPath: 'C:\\Program Files\\Pythinker\\Pythinker.exe',
+          frameworksPath: 'C:\\Program Files\\Pythinker\\Frameworks',
+          exists: () => true,
+        }),
+      ).toBe('C:\\Program Files\\Pythinker\\Pythinker.exe')
+    }
   })
 })
