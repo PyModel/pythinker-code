@@ -72,6 +72,12 @@ Only set tokens from this set — unknown keys are silently ignored at load. If 
 | `success` | Success state: `✓`, "enabled", completed |
 | `warning` | Warning state: auto/yolo badges, stale markers, plan-mode hint |
 | `error` | Error state: error messages, failed tool output |
+| `effortOff` | Editor prompt border when thinking effort is off (grey) |
+| `effortLow` | Editor prompt border at low thinking effort (lighter grey) |
+| `effortMedium` | Editor prompt border at medium thinking effort (near-white) |
+| `effortHigh` | Editor prompt border at high thinking effort (light blue) |
+| `effortXHigh` | Editor prompt border at extra-high thinking effort (light purple) |
+| `effortMax` | Editor prompt border at maximum thinking effort (gold) |
 | `diffAdded` | Diff added lines |
 | `diffRemoved` | Diff removed lines |
 | `diffAddedStrong` | Diff intra-line changed words, added (bold) |
