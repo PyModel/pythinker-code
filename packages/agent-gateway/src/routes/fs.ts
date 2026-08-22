@@ -60,13 +60,14 @@ import {
 
 /**
  * Body cap for the fs action route. `WorkspaceFsService.write` accepts 10 MiB
- * of decoded content, which is ~13.4 MiB once base64-encoded and wrapped in
- * JSON — well past Fastify's 1 MiB default, which would reject a legal write
- * as a transport error before `FS_TOO_LARGE` could ever be returned. Scoped to
- * this route so the raise does not widen the request surface of every other
+ * of decoded content. Two encodings expand it: base64 costs ~4/3, and a UTF-8
+ * string of control characters costs 6 bytes per character once JSON-escaped,
+ * so a legal 10 MiB write can serialize to ~60 MiB. Anything under that is
+ * rejected as a transport error before `FS_TOO_LARGE` can be returned. Scoped
+ * to this route so the raise does not widen the request surface of every other
  * endpoint.
  */
-export const FS_ACTION_BODY_LIMIT_BYTES = 16 * 1024 * 1024;
+export const FS_ACTION_BODY_LIMIT_BYTES = 64 * 1024 * 1024;
 
 interface FsRouteHost {
   post(
