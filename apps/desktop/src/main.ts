@@ -30,6 +30,7 @@ import {
   isPortInUseError,
   parseRunningServerConflict,
   resolveDesktopPort,
+  resolveHostExecutable,
   spawnPythinkerServer,
   type HostSupervisor,
 } from './host-supervisor'
@@ -112,7 +113,12 @@ function hostPaths(): { nodeExecutable: string; cliEntry: string; cwd: string; e
     }
   }
   return {
-    nodeExecutable: process.execPath,
+    nodeExecutable: resolveHostExecutable({
+      platform: process.platform,
+      execPath: process.execPath,
+      frameworksPath: join(process.resourcesPath, '..', 'Frameworks'),
+      exists: existsSync,
+    }),
     cliEntry: join(process.resourcesPath, 'host/node_modules/@pymodel/pythinker-code/dist/main.mjs'),
     cwd: app.getPath('home'),
     electronRunAsNode: true,

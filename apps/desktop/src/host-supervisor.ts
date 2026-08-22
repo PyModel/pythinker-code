@@ -1,6 +1,7 @@
 /** Supervise the loopback Web Host used by the first desktop application. */
 
 import { spawn, spawnSync, type ChildProcessByStdio } from 'node:child_process'
+import { basename, join } from 'node:path'
 import type { Readable } from 'node:stream'
 
 const READINESS_PREFIX = 'Pythinker server: '
@@ -310,6 +311,31 @@ export function createHostSupervisor(options: HostSupervisorOptions): HostSuperv
   }
 
   return { start, shutdown }
+}
+
+/**
+ * Resolve the executable that runs the Host on a packaged macOS app.
+ *
+ * The app must not re-exec its own main binary. LaunchServices registers that
+ * child as a second `Foreground` application under the same bundle id, so it
+ * takes a Dock tile of its own — drawn with the generic Unix-executable icon,
+ * since a bare executable has no icon to show. `ELECTRON_RUN_AS_NODE` stops the
+ * child from becoming a browser process but does not stop that registration.
+ * The bundled Electron helper declares `LSUIElement`, so it runs the very same
+ * Node runtime with no Dock tile and no second app.
+ * @param options - Platform, the app's own executable, its `Frameworks` directory, and an existence probe.
+ * @returns The helper executable when the bundle ships one, otherwise `execPath` unchanged.
+ */
+export function resolveHostExecutable(options: {
+  readonly platform: string
+  readonly execPath: string
+  readonly frameworksPath: string
+  readonly exists: (path: string) => boolean
+}): string {
+  if (options.platform !== 'darwin') return options.execPath
+  const name = basename(options.execPath)
+  const helper = join(options.frameworksPath, `${name} Helper.app`, 'Contents', 'MacOS', `${name} Helper`)
+  return options.exists(helper) ? helper : options.execPath
 }
 
 /** Options for the real Pythinker server child. */
