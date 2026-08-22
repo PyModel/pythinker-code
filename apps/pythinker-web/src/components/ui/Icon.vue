@@ -1,9 +1,11 @@
 <!-- apps/pythinker-web/src/components/ui/Icon.vue -->
 <!-- Design-system §02 icon primitive. Renders a registered line icon from
-     lib/icons.ts at a token size. Use everywhere instead of hand-writing raw SVG. -->
+     lib/icons.ts at a token size. Use everywhere instead of hand-writing raw SVG.
+     Animated registry entries carry no compiled component (the ~icons pipeline
+     strips their <style>), so they are inlined from entry.svg via iconSvg(). -->
 <script setup lang="ts">
 import { computed } from 'vue';
-import { getIcon, SIZE_PX, type IconName, type IconSize } from '../../lib/icons';
+import { getIcon, iconSvg, SIZE_PX, type IconName, type IconSize } from '../../lib/icons';
 
 const props = withDefaults(
   defineProps<{
@@ -17,11 +19,20 @@ const props = withDefaults(
 
 const entry = computed(() => getIcon(props.name));
 const px = computed(() => SIZE_PX[props.size]);
+const animatedHtml = computed(() =>
+  entry.value?.animated ? iconSvg(props.name, props.size, props.label) : '',
+);
 </script>
 
 <template>
+  <span
+    v-if="entry?.animated"
+    :aria-label="label"
+    :aria-hidden="label ? undefined : true"
+    v-html="animatedHtml"
+  />
   <component
-    v-if="entry"
+    v-else-if="entry?.component"
     :is="entry.component"
     class="ui-icon"
     :width="px"

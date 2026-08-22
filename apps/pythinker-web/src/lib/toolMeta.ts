@@ -101,7 +101,7 @@ const TOOL_GLYPH: Record<string, IconName> = {
   ls: 'folder',
   web_fetch: 'globe',
   todo: 'check-list',
-  task: 'sparkles',
+  task: 'loading-spinner',
   agentdynamic_workflow: 'git-pull-request',
   askuserquestion: 'help-circle',
   creategoal: 'target',

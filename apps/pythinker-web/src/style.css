@@ -1060,6 +1060,43 @@ a.mention-folder {
     --safe-left: env(safe-area-inset-left, 0px)
 }
 
+/* Live-status shimmer: a highlight sweeps across a label while a turn is in
+   flight ("Thinking…", "Working…"). Clipped to the text, so it inherits the
+   theme's text tokens and needs no per-site colours. Both gradient ends are
+   faint, which makes the loop seam invisible. Children that set their own
+   colour (error / faint clauses) opt out and keep it. */
+.ui-shimmer {
+    background: linear-gradient(90deg,
+        var(--color-text-faint) 0%,
+        var(--color-text-faint) 40%,
+        var(--color-text) 50%,
+        var(--color-text-faint) 60%,
+        var(--color-text-faint) 100%);
+    background-size: 300% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    animation: ui-shimmer 2.2s linear infinite;
+}
+
+@keyframes ui-shimmer {
+    0% {
+        background-position: 0% 0
+    }
+
+    100% {
+        background-position: 100% 0
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .ui-shimmer {
+        animation: none;
+        background: none;
+        color: var(--color-text-muted)
+    }
+}
+
 .ui-icon {
     display: inline-block;
     flex: none;

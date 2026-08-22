@@ -1,0 +1,106 @@
+<svg class="ptx ptx-cute-bot" width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Animated cute bot icon">
+  <style>
+    .ptx-cute-bot .bot {
+      transform-box: view-box;
+      transform-origin: 12px 12px;
+      animation: ptx-bot-float 2.8s ease-in-out infinite;
+    }
+
+    .ptx-cute-bot .antenna {
+      transform-box: fill-box;
+      transform-origin: 50% 100%;
+      animation: ptx-bot-antenna-wiggle 2.8s ease-in-out infinite;
+    }
+
+    .ptx-cute-bot .antenna-dot {
+      transform-box: fill-box;
+      transform-origin: center;
+      animation: ptx-bot-antenna-pulse 2.8s ease-in-out infinite;
+    }
+
+    .ptx-cute-bot .eye {
+      transform-box: fill-box;
+      transform-origin: center;
+      animation: ptx-bot-blink 3.4s ease-in-out infinite;
+    }
+
+    .ptx-cute-bot .ear-left {
+      animation: ptx-bot-ear-left 2.8s ease-in-out infinite;
+    }
+
+    .ptx-cute-bot .ear-right {
+      animation: ptx-bot-ear-right 2.8s ease-in-out infinite;
+    }
+
+    .ptx-cute-bot .smile {
+      transform-box: fill-box;
+      transform-origin: center;
+      animation: ptx-bot-smile 2.8s ease-in-out infinite;
+    }
+
+    @keyframes ptx-bot-float {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-0.45px); }
+    }
+
+    @keyframes ptx-bot-antenna-wiggle {
+      0%, 100% { transform: rotate(0deg); }
+      25% { transform: rotate(-6deg); }
+      75% { transform: rotate(6deg); }
+    }
+
+    @keyframes ptx-bot-antenna-pulse {
+      0%, 100% { transform: scale(1); opacity: 1; }
+      50% { transform: scale(1.12); opacity: 0.82; }
+    }
+
+    @keyframes ptx-bot-blink {
+      0%, 43%, 47%, 100% { transform: scaleY(1); }
+      45% { transform: scaleY(0.12); }
+    }
+
+    @keyframes ptx-bot-ear-left {
+      0%, 100% { transform: translateX(0); }
+      50% { transform: translateX(-0.35px); }
+    }
+
+    @keyframes ptx-bot-ear-right {
+      0%, 100% { transform: translateX(0); }
+      50% { transform: translateX(0.35px); }
+    }
+
+    @keyframes ptx-bot-smile {
+      0%, 100% { transform: scaleX(1); }
+      50% { transform: scaleX(1.06); }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .ptx-cute-bot .bot,
+      .ptx-cute-bot .antenna,
+      .ptx-cute-bot .antenna-dot,
+      .ptx-cute-bot .eye,
+      .ptx-cute-bot .ear-left,
+      .ptx-cute-bot .ear-right,
+      .ptx-cute-bot .smile {
+        animation: none !important;
+      }
+    }
+  </style>
+
+  <g class="bot">
+    <g class="antenna">
+      <path d="M12 4.75V7.25" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+      <circle class="antenna-dot" cx="12" cy="3.2" r="1.55" fill="currentColor"/>
+    </g>
+
+    <rect x="4.4" y="7.25" width="15.2" height="11.5" rx="3.4" stroke="currentColor" stroke-width="1.5"/>
+
+    <path class="ear-left" d="M2.35 11.2V13.8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+    <path class="ear-right" d="M21.65 11.2V13.8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+
+    <circle class="eye" cx="9.3" cy="11.9" r="1.3" fill="currentColor"/>
+    <circle class="eye" cx="14.7" cy="11.9" r="1.3" fill="currentColor"/>
+
+    <path class="smile" d="M9.6 15.5C10.26 16.12 11.1 16.45 12 16.45C12.9 16.45 13.74 16.12 14.4 15.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+  </g>
+</svg>

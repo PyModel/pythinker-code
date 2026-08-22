@@ -86,7 +86,7 @@ const fontScale = computed(() => uiFontScaleForSize(props.uiFontSize));
 
 const tabs: { id: SettingsTab; labelKey: string; icon: IconName }[] = [
   { id: 'general', labelKey: 'settings.tabs.general', icon: 'sliders' },
-  { id: 'agent', labelKey: 'settings.tabs.agent', icon: 'robot' },
+  { id: 'agent', labelKey: 'settings.tabs.agent', icon: 'cute-bot' },
   { id: 'account', labelKey: 'settings.tabs.account', icon: 'user' },
   { id: 'providers', labelKey: 'settings.tabs.providers', icon: 'bolt' },
   { id: 'advanced', labelKey: 'settings.tabs.advanced', icon: 'microscope' },
