@@ -38,6 +38,7 @@ interface TaskWire {
   agent_id?: string;
   subagent_type?: string;
   parent_tool_call_id?: string;
+  run_in_background?: boolean;
 }
 
 interface ListWire {
@@ -214,6 +215,7 @@ describe('server-v2 /api/v1/sessions/{sid}/tasks', () => {
       agent_id: 'sub-1',
       subagent_type: 'explore',
       parent_tool_call_id: 'call-parent-1',
+      run_in_background: true,
     });
     expect(byId.get(agentId)?.command).toBeUndefined();
 
@@ -229,6 +231,23 @@ describe('server-v2 /api/v1/sessions/{sid}/tasks', () => {
     expect(byId.get(questionId)?.subagent_type).toBeUndefined();
     expect(byId.get(processId)?.parent_tool_call_id).toBeUndefined();
     expect(byId.get(questionId)?.parent_tool_call_id).toBeUndefined();
+  });
+
+  it('reports run_in_background false for a foreground (non-detached) task', async () => {
+    const id = await createSession();
+    const tasks = await mainAgentTasks(id);
+    const foregroundId = tasks.registerTask(fakeTask('agent'), { detached: false });
+    await flush();
+
+    const listed = await getJson<ListWire>(`/api/v1/sessions/${id}/tasks`);
+    expect(listed.body.code).toBe(0);
+    const entry = listed.body.data.items.find((t) => t.id === foregroundId);
+    expect(entry).toMatchObject({ kind: 'subagent', status: 'running' });
+    expect(entry?.run_in_background).toBe(false);
+
+    const got = await getJson<TaskWire>(`/api/v1/sessions/${id}/tasks/${foregroundId}`);
+    expect(got.body.code).toBe(0);
+    expect(got.body.data.run_in_background).toBe(false);
   });
 
   it('filters the list by wire status', async () => {

@@ -887,4 +887,33 @@ describe('keepLiveSubagents', () => {
     expect(merged?.outputPreview).toBe('final result');
     expect(merged?.outputBytes).toBe(200);
   });
+
+  it('folds a REST foreground copy into the WS row by agent id', () => {
+    // Foreground workflow agents also appear in REST /tasks while running,
+    // keyed by their task id; only the agent id links them to the WS row.
+    const live = subagent('agent-1', {
+      runInBackground: false,
+      outputLines: ['step 1'],
+    });
+    const rest = [
+      subagent('task-5', { runInBackground: false, agentId: 'agent-1' }),
+    ];
+    const merged = keepLiveSubagents(rest, [live]);
+    expect(merged).toHaveLength(1);
+    expect(merged[0]?.id).toBe('agent-1');
+    expect(merged[0]?.runInBackground).toBe(false);
+    expect(merged[0]?.outputLines).toEqual(['step 1']);
+  });
+
+  it('folds the REST copy into the row matched via its own agentId field', () => {
+    // A WS row whose id is neither the REST task id nor the agent id (late
+    // synthesized row) still folds when it carries the agent id.
+    const live = subagent('synth-1', { agentId: 'agent-1' });
+    const rest = [
+      subagent('task-5', { runInBackground: false, agentId: 'agent-1' }),
+    ];
+    const merged = keepLiveSubagents(rest, [live]);
+    expect(merged).toHaveLength(1);
+    expect(merged[0]?.id).toBe('synth-1');
+  });
 });
