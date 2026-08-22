@@ -74,6 +74,11 @@ export interface HostReady {
   readonly token?: string
 }
 
+/** Replace the bearer token in any readiness URL fragment with a placeholder. */
+export function redactHostToken(text: string): string {
+  return text.replaceAll(/#token=[^\s]+/gu, '#token=[redacted]')
+}
+
 /** Assert and normalize one readiness line. */
 function parseReadinessLine(line: string): HostReady | undefined {
   if (!line.startsWith(READINESS_PREFIX)) return undefined
@@ -207,8 +212,14 @@ export function createHostSupervisor(options: HostSupervisorOptions): HostSuperv
   let output = ''
 
   const appendOutput = (chunk: string): void => {
-    output = `${output}${chunk}`.slice(-MAX_STARTUP_OUTPUT_CHARS)
-    options.log?.(chunk)
+    // The readiness URL carries the Host's bearer token in its `#token=`
+    // fragment. Both the retained startup buffer (interpolated into the
+    // failure Error) and options.log (stderr in the desktop app) outlive this
+    // process, so the token is stripped here — the parser still sees the raw
+    // chunk, which is where the token is actually needed.
+    const safe = redactHostToken(chunk)
+    output = `${output}${safe}`.slice(-MAX_STARTUP_OUTPUT_CHARS)
+    options.log?.(safe)
   }
 
   const start = (): Promise<HostReady> => {

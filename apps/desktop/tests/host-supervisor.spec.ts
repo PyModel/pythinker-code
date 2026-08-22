@@ -213,6 +213,31 @@ describe('desktop Host supervisor', () => {
     await expect(starting).rejects.toThrow(/exited before readiness \(code 7, signal null\).*configuration rejected/su)
   })
 
+  it('keeps the bearer token out of the log and the failure diagnostic', async () => {
+    const child = new FakeHostChild()
+    const logged: string[] = []
+    const supervisor = createHostSupervisor({ spawnHost: () => child, log: chunk => { logged.push(chunk) } })
+    const starting = supervisor.start()
+
+    child.stdout.emit('Pythinker server: http://127.0.0.1:4567/#token=s3cret\n')
+    await expect(starting).resolves.toEqual({ origin: 'http://127.0.0.1:4567', token: 's3cret' })
+
+    expect(logged.join('')).not.toContain('s3cret')
+    expect(logged.join('')).toContain('#token=[redacted]')
+  })
+
+  it('keeps the bearer token out of the pre-readiness exit diagnostic', async () => {
+    const child = new FakeHostChild()
+    const supervisor = createHostSupervisor({ spawnHost: () => child })
+    const starting = supervisor.start()
+
+    child.stderr.emit('Pythinker server: http://127.0.0.1:4567/#token=s3cret\n')
+    child.emitExit(7)
+
+    await expect(starting).rejects.toThrow(/#token=\[redacted\]/su)
+    await expect(starting).rejects.not.toThrow(/s3cret/su)
+  })
+
   it('contains a synchronous spawn failure as a rejected start', async () => {
     const failure = new Error('spawn unavailable')
     const supervisor = createHostSupervisor({
