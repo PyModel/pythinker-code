@@ -2,4 +2,4 @@
 "@pymodel/pythinker-code": patch
 ---
 
-Allow sub agent activity cards to open their live execution transcript.
+Allow subagent activity cards to open their live execution transcript.
