@@ -26,9 +26,12 @@ const accents: { value: Accent; label: string }[] = [
       <div class="rail-inner">
         <span class="eyebrow-pill">{{ t('onboarding.eyebrow') }}</span>
 
-        <div class="brand-tile">
-          <PythinkerLogo size="lg" :animated="false" label="Pythinker Code" />
-        </div>
+        <PythinkerLogo
+          class="brand-mark"
+          size="lg"
+          :animated="false"
+          label="Pythinker Code"
+        />
 
         <h1 class="wiz-title">{{ t('onboarding.title') }}</h1>
         <p class="wiz-sub">{{ t('onboarding.subtitle') }}</p>
@@ -169,17 +172,9 @@ const accents: { value: Accent; label: string }[] = [
   font-weight: var(--weight-medium);
   letter-spacing: 0.04em;
 }
-.brand-tile {
-  display: grid;
-  place-items: center;
-  width: 64px;
-  height: 64px;
+.brand-mark {
   margin-top: var(--space-8);
-  border-radius: var(--radius-xl);
-  background: var(--color-text);
-  color: var(--color-bg);
 }
-.brand-tile :deep(svg), .brand-tile :deep(.pythinker-logo) { color: var(--color-bg); }
 .wiz-title {
   margin: var(--space-5) 0 0;
   font-size: var(--text-2xl);
