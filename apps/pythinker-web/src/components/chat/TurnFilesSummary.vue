@@ -108,9 +108,11 @@ function open(change: TurnFileChange): void {
 .tf-del { color: var(--color-danger); }
 .tf-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
 .tf-row { display: flex; align-items: center; gap: var(--space-1); min-width: 0; padding: var(--space-1) 0; font-size: var(--text-sm); line-height: var(--leading-tight); }
-.tf-file { display: flex; align-items: baseline; border: none; border-radius: var(--radius-xs); background: transparent; padding: 0; font: inherit; color: var(--color-text); flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-align: left; cursor: pointer; }
+.tf-file { display: flex; align-items: center; border: none; border-radius: var(--radius-xs); background: transparent; padding: 0; font: inherit; color: var(--color-text); flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-align: left; cursor: pointer; }
 .tf-file:hover { text-decoration: underline; text-decoration-color: var(--color-text-faint); text-underline-offset: 3px; }
-.tf-ficon { display: inline-flex; align-items: center; flex: none; line-height: 0; margin-right: 2px; }
+/* Pin the 14px glyph to its own centered box so every icon kind sits on the
+   row's optical midline instead of riding the text baseline. */
+.tf-ficon { display: inline-flex; align-items: center; justify-content: center; flex: none; width: var(--p-ic-sm); height: var(--p-ic-sm); line-height: 0; margin-right: 2px; }
 .tf-ficon :deep(svg) { display: block; }
 .tf-file:focus-visible { outline: none; box-shadow: var(--p-focus-ring); }
 /* Non-interactive (static) files list: rows render as spans — no pointer. */
