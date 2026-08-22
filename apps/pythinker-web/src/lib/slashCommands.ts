@@ -29,9 +29,6 @@ export const SLASH_COMMANDS: SlashCommand[] = [
   { name: '/workflow',   desc: 'commands.dynamicWorkflow.desc', acceptsInput: true },
   { name: '/goal',       desc: 'commands.goal.desc', acceptsInput: true },
   { name: '/btw',        desc: 'commands.btw.desc', acceptsInput: true },
-  { name: '/auto',       desc: 'commands.auto.desc' },
-  { name: '/yolo',       desc: 'commands.yolo.desc' },
-  { name: '/thinking',   desc: 'commands.thinking.desc' },
   { name: '/compact',    desc: 'commands.compact.desc', acceptsInput: true },
   { name: '/undo',       desc: 'commands.undo.desc' },
   { name: '/fork',       desc: 'commands.fork.desc' },
@@ -118,7 +115,7 @@ export function filterCommands(
       return { item, index, score };
     })
     .filter(({ score }) => score > 0)
-    .sort((a, b) => {
+    .toSorted((a, b) => {
       if (a.score !== b.score) return b.score - a.score;
       return a.index - b.index;
     })

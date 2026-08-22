@@ -98,6 +98,15 @@ describe('useSlashMenu — update', () => {
     expect(names).not.toContain('/skill:update-config');
   });
 
+  it('does not offer permission or thinking commands - those live in the composer pickers', () => {
+    const { slash } = setup('/');
+    slash.update();
+    const names = slash.items.value.map((i) => i.name);
+    expect(names).not.toContain('/auto');
+    expect(names).not.toContain('/yolo');
+    expect(names).not.toContain('/thinking');
+  });
+
   it('matches a prefixed skill when filtering by its bare name', () => {
     const { slash } = setup('/depl', [{ name: 'deploy', description: 'deploy stuff', source: 'project' } as AppSkill]);
     slash.update();
