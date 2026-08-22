@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.3
+
+### Patch Changes
+
+- [#140](https://github.com/PyModel/pythinker-code/pull/140) [`5092805`](https://github.com/PyModel/pythinker-code/commit/5092805d0500046e500c1f57e6460a664fe61c77) Thanks [@elkaix](https://github.com/elkaix)! - Fix the extension bundle to inline `immer`.
+
 ## 0.9.2
 
 ### Patch Changes
