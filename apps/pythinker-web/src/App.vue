@@ -812,20 +812,6 @@ async function handleSubmit(payload: SubmitPayload): Promise<void> {
   void client.sendPrompt(payload.text, payload.attachments);
 }
 
-// Failed-turn recovery: re-send the last user prompt through the ordinary send
-// path. Approximates the reference's daemon-side resumeTurn — this wire has no
-// resume endpoint, so we resubmit the user's own text (chat-turn attachments
-// are not replayed).
-async function handleContinueTurn(text: string): Promise<void> {
-  const wsId = client.activeWorkspaceId.value;
-  if (!client.activeSessionId.value && wsId) {
-    await client.startSessionAndSendPrompt(wsId, text, []);
-    return;
-  }
-  if (!client.activeSessionId.value) return;
-  void client.sendPrompt(text);
-}
-
 async function handleAddWorkspace(root: string): Promise<void> {
   addWorkspaceError.value = null;
   const added = await client.addWorkspaceByPath(root);
@@ -1141,7 +1127,6 @@ function openPr(url: string): void {
       @open-tool-diff="openToolDiff($event)"
       @open-turn-diff="openTurnDiff($event)"
       @edit-message="handleEditMessage"
-      @continue-turn="handleContinueTurn"
     />
 
     <!-- Sidebar toggle — floating only when the in-header control can't serve:

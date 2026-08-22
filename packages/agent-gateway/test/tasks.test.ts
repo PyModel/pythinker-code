@@ -216,7 +216,6 @@ describe('server-v2 /api/v1/sessions/{sid}/tasks', () => {
       subagent_type: 'explore',
       parent_tool_call_id: 'call-parent-1',
     });
-    // Reference wire: /tasks omits the flag; clients default subagents to background.
     expect(byId.get(agentId)?.run_in_background).toBeUndefined();
     expect(byId.get(agentId)?.command).toBeUndefined();
 
