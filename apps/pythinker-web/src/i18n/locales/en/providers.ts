@@ -11,6 +11,7 @@ export default {
   loading: 'Loading providers…',
   unavailable: 'The daemon does not support provider management yet',
   empty: 'No providers yet',
+  emptyHint: 'Use Add provider above to connect your first model.',
   status: {
     connected: 'Connected',
     error: 'Error',
@@ -20,6 +21,7 @@ export default {
   keyNotSet: 'key not set',
   modelCount: '{count} models',
   addProvider: 'Add provider',
+  customProviders: 'Custom providers',
   colModelId: 'Model ID',
   colDisplayName: 'Display name',
   noModels: 'No models',
