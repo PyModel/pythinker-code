@@ -311,7 +311,7 @@
     "vscode:prepublish": "pnpm run build",
     "dev": "pnpm run dev:prepare && pnpm run \"/^dev:(extension|webview)$/\"",
     "dev:prepare": "node scripts/prepare-dev.mjs",
-    "dev:prepare:seeded": "node scripts/prepare-dev.mjs --seed-config",
+    "dev:prepare:seeded": "node scripts/prepare-dev.mjs --seed-config --base-dir ../../.tmp/seeded/vscode-extension-dev",
     "dev:extension": "node scripts/watch-extension.mjs",
     "dev:webview": "vite build --config webview-ui/vite.config.ts --watch --sourcemap",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p webview-ui/tsconfig.json --noEmit",

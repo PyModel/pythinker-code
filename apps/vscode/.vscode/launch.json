@@ -18,7 +18,10 @@
       "env": {
         "PYTHINKER_CODE_HOME": "${workspaceFolder}/../../.tmp/vscode-extension-dev/pythinker-home"
       },
-      "outFiles": ["${workspaceFolder}/dist/**/*.js", "${workspaceFolder}/dist/**/*.mjs"],
+      "outFiles": [
+        "${workspaceFolder}/dist/**/*.js",
+        "${workspaceFolder}/dist/**/*.mjs"
+      ],
       "sourceMaps": true,
       "resolveSourceMapLocations": [
         "${workspaceFolder}/**",
@@ -32,17 +35,20 @@
       "preLaunchTask": "vscode: dev (seeded)",
       "args": [
         "--extensionDevelopmentPath=${workspaceFolder}",
-        "--user-data-dir=${workspaceFolder}/../../.tmp/vscode-extension-dev/user-data",
-        "--extensions-dir=${workspaceFolder}/../../.tmp/vscode-extension-dev/extensions",
+        "--user-data-dir=${workspaceFolder}/../../.tmp/seeded/vscode-extension-dev/user-data",
+        "--extensions-dir=${workspaceFolder}/../../.tmp/seeded/vscode-extension-dev/extensions",
         "--disable-workspace-trust",
         "--skip-welcome",
         "--skip-release-notes",
-        "${workspaceFolder}/../../.tmp/vscode-extension-dev/workspace"
+        "${workspaceFolder}/../../.tmp/seeded/vscode-extension-dev/workspace"
       ],
       "env": {
-        "PYTHINKER_CODE_HOME": "${workspaceFolder}/../../.tmp/vscode-extension-dev/pythinker-home"
+        "PYTHINKER_CODE_HOME": "${workspaceFolder}/../../.tmp/seeded/vscode-extension-dev/pythinker-home"
       },
-      "outFiles": ["${workspaceFolder}/dist/**/*.js", "${workspaceFolder}/dist/**/*.mjs"],
+      "outFiles": [
+        "${workspaceFolder}/dist/**/*.js",
+        "${workspaceFolder}/dist/**/*.mjs"
+      ],
       "sourceMaps": true,
       "resolveSourceMapLocations": [
         "${workspaceFolder}/**",
