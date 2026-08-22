@@ -58,40 +58,49 @@ export interface ReadinessParser {
   /**
    * Consume one stdout chunk.
    * @param chunk - Text emitted by the Host.
-   * @returns The loopback URL once a complete readiness line is observed.
+   * @returns The loopback origin once a complete readiness line is observed.
    */
-  push(chunk: string): string | undefined
+  push(chunk: string): HostReady | undefined
   /**
    * Finish the stream and require a readiness line.
-   * @returns The parsed loopback URL.
+   * @returns The parsed loopback origin.
    */
-  finalize(): string
+  finalize(): HostReady
+}
+
+/** Origin plus optional bearer token carried in the readiness URL's #token= fragment. */
+export interface HostReady {
+  readonly origin: string
+  readonly token?: string
 }
 
 /** Assert and normalize one readiness line. */
-function parseReadinessLine(line: string): string | undefined {
+function parseReadinessLine(line: string): HostReady | undefined {
   if (!line.startsWith(READINESS_PREFIX)) return undefined
-  const token = line.slice(READINESS_PREFIX.length).split(/\s/u, 1)[0]
-  if (token === undefined) throw new Error(`desktop Host readiness line has no URL: ${line}`)
+  const raw = line.slice(READINESS_PREFIX.length).split(/\s/u, 1)[0]
+  if (raw === undefined) throw new Error(`desktop Host readiness line has no URL: ${line}`)
 
   let url: URL
   try {
-    url = new URL(token)
+    url = new URL(raw)
   } catch {
-    throw new Error(`desktop Host readiness URL is invalid: ${token}`)
+    throw new Error(`desktop Host readiness URL is invalid: ${raw}`)
   }
   const port = Number(url.port)
+  const hashToken = /^#token=(.+)$/u.exec(url.hash)
   if (url.protocol !== 'http:'
     || (url.hostname !== '127.0.0.1' && url.hostname !== 'localhost')
     || url.pathname !== '/'
     || url.search !== ''
-    || url.hash !== ''
+    || (url.hash !== '' && hashToken === null)
     || !Number.isInteger(port)
     || port < 1
     || port > 65_535) {
-    throw new Error(`desktop Host readiness URL must be loopback HTTP with an explicit port: ${token}`)
+    throw new Error(`desktop Host readiness URL must be loopback HTTP with an explicit port: ${raw}`)
   }
-  return url.origin
+  return hashToken === null
+    ? { origin: url.origin }
+    : { origin: url.origin, token: hashToken[1] }
 }
 
 /**
@@ -100,16 +109,16 @@ function parseReadinessLine(line: string): string | undefined {
  */
 export function createReadinessParser(): ReadinessParser {
   let pending = ''
-  let readyUrl: string | undefined
+  let readyInfo: HostReady | undefined
 
-  const accept = (line: string): string | undefined => {
+  const accept = (line: string): HostReady | undefined => {
     const parsed = parseReadinessLine(line.replace(/\r$/u, ''))
     if (parsed === undefined) return undefined
-    if (readyUrl !== undefined && parsed !== readyUrl) {
-      throw new Error(`desktop Host emitted conflicting readiness URLs: ${readyUrl} and ${parsed}`)
+    if (readyInfo !== undefined && parsed.origin !== readyInfo.origin) {
+      throw new Error(`desktop Host emitted conflicting readiness URLs: ${readyInfo.origin} and ${parsed.origin}`)
     }
-    readyUrl = parsed
-    return readyUrl
+    readyInfo = parsed
+    return parsed
   }
 
   return {
@@ -117,7 +126,7 @@ export function createReadinessParser(): ReadinessParser {
       pending += chunk
       for (;;) {
         const newline = pending.indexOf('\n')
-        if (newline === -1) return readyUrl
+        if (newline === -1) return undefined
         const line = pending.slice(0, newline)
         pending = pending.slice(newline + 1)
         const parsed = accept(line)
@@ -126,8 +135,8 @@ export function createReadinessParser(): ReadinessParser {
     },
     finalize() {
       if (pending !== '') accept(pending)
-      if (readyUrl === undefined) throw new Error('desktop Host exited before emitting its readiness URL')
-      return readyUrl
+      if (readyInfo === undefined) throw new Error('desktop Host exited before emitting its readiness URL')
+      return readyInfo
     },
   }
 }
@@ -159,7 +168,7 @@ export interface HostSupervisorOptions {
 /** Handle for the desktop-owned Host process. */
 export interface HostSupervisor {
   /** Start once, or join the in-flight start. */
-  start(): Promise<string>
+  start(): Promise<HostReady>
   /** Gracefully stop once, escalating after the configured timeout. */
   shutdown(): Promise<void>
 }
@@ -189,7 +198,7 @@ export function createHostSupervisor(options: HostSupervisorOptions): HostSuperv
   const readinessTimeoutMs = options.readinessTimeoutMs ?? DEFAULT_READINESS_TIMEOUT_MS
   const shutdownTimeoutMs = options.shutdownTimeoutMs ?? DEFAULT_SHUTDOWN_TIMEOUT_MS
   let child: HostChild | undefined
-  let startPromise: Promise<string> | undefined
+  let startPromise: Promise<HostReady> | undefined
   let shutdownPromise: Promise<void> | undefined
   let exited: Promise<void> | undefined
   let exitResult: Deferred<void> | undefined
@@ -202,11 +211,11 @@ export function createHostSupervisor(options: HostSupervisorOptions): HostSuperv
     options.log?.(chunk)
   }
 
-  const start = (): Promise<string> => {
+  const start = (): Promise<HostReady> => {
     if (startPromise !== undefined) return startPromise
     if (shutdownPromise !== undefined) return Promise.reject(new Error('desktop Host cannot start after shutdown'))
 
-    startPromise = new Promise<string>((resolve, reject) => {
+    startPromise = new Promise<HostReady>((resolve, reject) => {
       const parser = createReadinessParser()
       const spawned = options.spawnHost()
       child = spawned
@@ -328,9 +337,8 @@ export function spawnPythinkerServer(options: SpawnPythinkerServerOptions): Host
     : options.env
   const process = spawn(options.nodeExecutable, [
     options.cliEntry,
-    'server',
-    'run',
-    '--foreground',
+    'web',
+    '--no-open',
     '--port',
     String(options.port),
     '--log-level',
