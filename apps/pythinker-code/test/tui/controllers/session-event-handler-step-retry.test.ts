@@ -6,6 +6,7 @@ import { getBuiltInPalette } from '#/tui/theme';
 function makeHost() {
   const host = {
     state: {
+      footer: { setStreamSpeed: vi.fn() },
       appState: {
         sessionId: 's1',
         streamingPhase: 'waiting',

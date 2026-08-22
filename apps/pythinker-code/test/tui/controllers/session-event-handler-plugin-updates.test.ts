@@ -20,6 +20,7 @@ function makeHost() {
   };
   const host = {
     state: {
+      footer: { setStreamSpeed: vi.fn() },
       appState: {
         sessionId: 's1',
         streamingPhase: 'waiting',

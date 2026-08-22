@@ -23,6 +23,7 @@ function makeHarness() {
   };
   const host = {
     state: {
+      footer: { setStreamSpeed: vi.fn() },
       appState: { availableModels: {}, workDir: '/tmp/work', stepRetry: null },
       ui: { requestRender: vi.fn() },
       transcriptContainer: { addChild: vi.fn() },

@@ -71,7 +71,7 @@ import { openUrl } from '#/utils/open-url';
 import { currentTheme } from '#/tui/theme';
 import type { ColorToken } from '#/tui/theme';
 import { errorReportHintLine } from '../constant/feedback';
-import { formatStepDebugTiming } from '#/utils/usage/debug-timing';
+import { computeDecodeTps, formatStepDebugTiming } from '#/utils/usage/debug-timing';
 import { nextTranscriptId } from '../utils/transcript-id';
 import type { BtwPanelController } from './btw-panel';
 import { isPluginMcpToolName, PluginUpdateNotifier } from './plugin-update-notifier';
@@ -373,6 +373,8 @@ export class SessionEventHandler {
     this.host.handleTurnEnded?.(event);
     this.host.streamingUI.flushNow();
     this.clearStepRetry();
+    // The last step's decode speed no longer applies once the turn ends.
+    this.host.state.footer.setStreamSpeed(null);
     if (event.reason === 'cancelled') {
       this.markActiveAgentDynamicWorkflowsCancelled();
     }
@@ -436,6 +438,9 @@ export class SessionEventHandler {
     this.clearStepRetry();
     this.host.noteStepUsage(event.usage);
     this.maybeShowDebugTiming(event);
+    this.host.state.footer.setStreamSpeed(
+      computeDecodeTps(event.usage?.output, event.llmStreamDurationMs),
+    );
 
     if (event.providerFinishReason === 'filtered') {
       this.host.showNotice(

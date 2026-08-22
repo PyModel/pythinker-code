@@ -120,7 +120,7 @@ import { SessionReplayRenderer } from './controllers/session-replay';
 import { StagingLeaseTracker, type StagingLease } from './controllers/staging-leases';
 import { StreamingUIController } from './controllers/streaming-ui';
 import { TasksBrowserController } from './controllers/tasks-browser';
-import { installRainbowDance } from './easter-eggs/dance';
+import { installRainbowHatch } from './easter-eggs/hatch';
 import { adaptPanelResponse } from './reverse-rpc/approval/adapter';
 import { ApprovalController } from './reverse-rpc/approval/controller';
 import { createApprovalRequestHandler } from './reverse-rpc/approval/handler';
@@ -321,7 +321,7 @@ export class PythinkerTUI {
   private terminalFocusTrackingDispose: (() => void) | undefined;
   private terminalThemeTrackingDispose: (() => void) | undefined;
   private clipboardImageHintController: ClipboardImageHintController | undefined;
-  private uninstallRainbowDance: () => void;
+  private uninstallRainbowHatch: () => void;
   private signalCleanupHandlers: Array<() => void> = [];
   private isShuttingDown = false;
   private backgroundRefreshPromise: Promise<void> | undefined;
@@ -417,7 +417,7 @@ export class PythinkerTUI {
     this.engineV2 = startupInput.engineV2 ?? false;
     this.startupNotice = startupInput.startupNotice;
     this.state = createTUIState(tuiOptions);
-    this.uninstallRainbowDance = installRainbowDance(() => {
+    this.uninstallRainbowHatch = installRainbowHatch(() => {
       this.state.ui.requestRender();
     });
 
@@ -907,7 +907,7 @@ export class PythinkerTUI {
     } finally {
       this.sessionEventHandler.stopAllMcpServerStatusSpinners();
       this.sessionEventHandler.clearStepRetryAttemptTimer();
-      this.uninstallRainbowDance();
+      this.uninstallRainbowHatch();
       try {
         await this.state.terminal.drainInput();
       } catch {
@@ -1060,10 +1060,6 @@ export class PythinkerTUI {
   // =========================================================================
   // Input Dispatch
   // =========================================================================
-
-  handlePlanToggle(next: boolean): void {
-    void slashCommands.handlePlanCommand(this, next ? 'on' : 'off');
-  }
 
   handleInputModeChange(mode: 'prompt' | 'bash'): void {
     this.setAppState({ inputMode: mode });
