@@ -77,15 +77,23 @@ const props = defineProps<{
   downloadUrl?: string | null;
   closable?: boolean;
   externalActions?: boolean;
+  /** Server supports fs:write and a session is active — shows the Edit button. */
+  editable?: boolean;
   /** Open a linked file from inside a Markdown preview (resolved against the
       current file's directory before being called). */
   openFile?: (target: FilePreviewRequest) => void;
 }>();
 
+const canEdit = computed(() => {
+  const f = props.file;
+  return f !== null && !f.isBinary;
+});
+
 const emit = defineEmits<{
   close: [];
   openExternal: [];
   reveal: [];
+  openEditor: [path: string];
 }>();
 
 function handleMarkdownOpenFile(target: { path: string; line?: number }): void {
@@ -503,6 +511,9 @@ function truncatePath(path: string, maxLen = 55): string {
         <IconButton size="sm" :class="{ copied: copiedPath }" :label="copiedPath ? t('filePreview.copied') : t('filePreview.copyPath')" @click="copyPath">
           <Icon v-if="!copiedPath" name="link" size="md" />
           <Icon v-else class="fp-check" name="check" size="md" />
+        </IconButton>
+        <IconButton v-if="editable && canEdit && file !== null" size="sm" :label="t('editor.title')" @click="emit('openEditor', file.path)">
+          <Icon name="pencil" size="md" />
         </IconButton>
         <IconButton v-if="externalActions" size="sm" :label="t('filePreview.openInEditor')" @click="emit('openExternal')">
           <Icon name="external-link" size="md" />

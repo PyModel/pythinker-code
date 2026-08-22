@@ -233,6 +233,51 @@ describe('server-v2 /api/v1 fs routes', () => {
     expect(dup.code).toBe(ErrorCode.FS_ALREADY_EXISTS);
   });
 
+  it('fs:write creates a file and fs:read returns the saved content', async () => {
+    const id = await createSession();
+    const written = await postFs<{ path: string; size: number; etag: string; created: boolean }>(
+      id,
+      'write',
+      { path: 'note.md', content: '# hello' },
+    );
+    expect(written.code).toBe(0);
+    expect(written.data.created).toBe(true);
+    expect(written.data.path).toBe('note.md');
+
+    const read = await postFs<{ content: string; etag: string }>(id, 'read', { path: 'note.md' });
+    expect(read.code).toBe(0);
+    expect(read.data.content).toBe('# hello');
+    expect(read.data.etag).toBe(written.data.etag);
+
+    const updated = await postFs<{ created: boolean }>(id, 'write', {
+      path: 'note.md',
+      content: '# hello v2',
+      base_etag: written.data.etag,
+    });
+    expect(updated.code).toBe(0);
+    expect(updated.data.created).toBe(false);
+  });
+
+  it('fs:write maps a stale base_etag to FS_CONFLICT', async () => {
+    const id = await createSession();
+    const first = await postFs<{ etag: string }>(id, 'write', { path: 'a.txt', content: 'one' });
+    expect(first.code).toBe(0);
+    await postFs(id, 'write', { path: 'a.txt', content: 'two' });
+
+    const stale = await postFs<null>(id, 'write', {
+      path: 'a.txt',
+      content: 'three',
+      base_etag: first.data.etag,
+    });
+    expect(stale.code).toBe(ErrorCode.FS_CONFLICT);
+  });
+
+  it('fs:write rejects paths that escape the workspace', async () => {
+    const id = await createSession();
+    const res = await postFs<null>(id, 'write', { path: '../escape.txt', content: 'x' });
+    expect(res.code).toBe(ErrorCode.FS_PATH_ESCAPES_SESSION);
+  });
+
   it('fs:stat_many returns null for missing paths', async () => {
     await writeFile(join(work!, 'a.txt'), 'hi');
     const id = await createSession();
