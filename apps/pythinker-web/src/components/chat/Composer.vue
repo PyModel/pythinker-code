@@ -1471,7 +1471,7 @@ function selectModel(modelId: string): void {
               :aria-label="t('composer.interrupt')"
               @click="emit('interrupt')"
             >
-              <Icon name="stop" size="sm" />
+              <span class="stop-square" aria-hidden="true" />
             </button>
           </Tooltip>
           <button
@@ -2059,10 +2059,12 @@ function selectModel(modelId: string): void {
 }
 
 
-.stop svg {
-    flex: none;
-    width: var(--composer-send-icon-size);
-    height: var(--composer-send-icon-size)
+.stop .stop-square {
+    display: block;
+    width: 10px;
+    height: 10px;
+    border-radius: var(--radius-xs);
+    background: currentColor
 }
 
 
@@ -2699,14 +2701,9 @@ function selectModel(modelId: string): void {
         position: relative
     }
 
-    .stop svg {
-        display: none
-    }
-
-    .stop:after {
-        content: "■";
-        font-size: 17px;
-        line-height: 1
+    .stop .stop-square {
+        width: 12px;
+        height: 12px
     }
 
     .perm-pill,
