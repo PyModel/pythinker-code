@@ -133,12 +133,15 @@ jobs:
   # The VS Code extension is a private workspace package: changesets bumps its
   # version but never publishes it to npm, so it ships from here instead. Both
   # publish scripts skip packages that already exist in the registry, so this
-  # job is a no-op on releases that did not touch the extension.
+  # job is a no-op on releases that did not touch the extension. Extension-only
+  # releases publish nothing to npm, so also run on release-PR merges.
   publish-vscode-extension:
     timeout-minutes: 45
     name: Publish VS Code extension
     needs: release
-    if: needs.release.outputs.packages_published == 'true'
+    if: >-
+      needs.release.outputs.packages_published == 'true'
+      || startsWith(github.event.head_commit.message, 'ci: release packages')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
