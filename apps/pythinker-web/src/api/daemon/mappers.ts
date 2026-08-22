@@ -389,11 +389,12 @@ export function toAppTask(wire: WireTask): AppTask {
     suspendedReason: wire.suspended_reason,
     dynamicWorkflowIndex: wire.dynamic_workflow_index,
     swarmIndex: wire.swarm_index,
-    // Explicit on every wire surface that returns subagents (snapshot roster
-    // and REST /tasks). Never guess: defaulting a missing flag to true made the
-    // dock claim foreground workflow agents as background rows that no terminal
-    // event would ever complete.
-    runInBackground: wire.run_in_background,
+    // Matches the reference client: REST `/tasks` omits the flag (it lists every
+    // agent run, foreground included), so a subagent row without an explicit
+    // flag docks as background. Surfaces that do report it explicitly (snapshot
+    // roster, live subagent.spawned events) keep foreground rows out of the
+    // dock — those render inline as Agent tool cards.
+    runInBackground: wire.run_in_background ?? (wire.kind === 'subagent' ? true : undefined),
     // outputLines starts undefined; populated by eventReducer via task.progress events
   };
 }
