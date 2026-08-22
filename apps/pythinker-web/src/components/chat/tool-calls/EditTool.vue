@@ -13,6 +13,7 @@ import type { DiffViewLine, FilePreviewRequest, ToolCall, ToolMedia } from '../.
 import { diffStats } from '../../../lib/diffLines';
 import { buildEditDiffLines, extractEditPath } from '../../../lib/toolDiff';
 import { normalizeToolName, toolGlyph, toolLabel } from '../../../lib/toolMeta';
+import { fileTypeIconSvg } from '../../../lib/icons';
 import DiffLines from '../DiffLines.vue';
 import ToolRow from '../ToolRow.vue';
 import ToolOutputBlock from './ToolOutputBlock.vue';
@@ -92,6 +93,7 @@ function openFile(): void {
   >
     <template #title>
       <span class="tl-name">{{ label }}</span>
+      <span v-if="path" class="tl-ficon" aria-hidden="true" v-html="fileTypeIconSvg(path)" />
       <button v-if="path" type="button" class="tl-file" @click.stop="openFile">{{ baseName(path) }}</button>
       <span v-if="path" class="tl-faint">{{ dirName(path) }}</span>
       <span v-if="!path" class="tl-dim">{{ path || tool.arg }}</span>
@@ -119,6 +121,15 @@ function openFile(): void {
   color: var(--color-text);
   font-weight: var(--weight-medium);
   flex: none;
+}
+.tl-ficon {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  line-height: 0;
+}
+.tl-ficon :deep(svg) {
+  display: block;
 }
 .tl-file {
   color: var(--color-text);

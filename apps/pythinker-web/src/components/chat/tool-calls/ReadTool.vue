@@ -10,6 +10,7 @@ import { computed, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import type { FilePreviewRequest, ToolCall, ToolMedia } from '../../../types';
 import { toolChip, toolGlyph, toolLabel } from '../../../lib/toolMeta';
+import { fileTypeIconSvg } from '../../../lib/icons';
 import ToolRow from '../ToolRow.vue';
 import ToolOutputBlock from './ToolOutputBlock.vue';
 
@@ -148,6 +149,7 @@ watch(
   >
     <template #title>
       <span class="tl-name">{{ toolLabel(tool.name) }}</span>
+      <span v-if="path" class="tl-ficon" aria-hidden="true" v-html="fileTypeIconSvg(path)" />
       <button v-if="path" type="button" class="tl-file" @click.stop="openPath">{{ baseName(path) }}</button>
       <span v-if="path" class="tl-faint">{{ dirName(path) }}</span>
       <span v-if="rangeLabel" class="tl-faint">{{ rangeLabel }}</span>
@@ -172,6 +174,15 @@ watch(
 </template>
 
 <style scoped>
+.tl-ficon {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  line-height: 0;
+}
+.tl-ficon :deep(svg) {
+  display: block;
+}
 .tl-name {
   color: var(--color-text);
   font-weight: var(--weight-medium);
