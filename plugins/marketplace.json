@@ -54,7 +54,7 @@
       "description": "Build, deploy, and manage Tencent CloudBase apps — databases, cloud functions, storage, auth, and hosting, powered by cloudbase-mcp.",
       "homepage": "https://github.com/TencentCloudBase/CloudBase-AI-Toolkit",
       "keywords": ["cloudbase", "tencent-cloud", "baas", "database", "cloud-function", "mcp"],
-      "source": "https://github.com/TencentCloudBase/CloudBase-AI-Toolkit/releases/latest/download/cloudbase-pythinker.zip"
+      "source": "https://github.com/TencentCloudBase/CloudBase-AI-Toolkit/releases/latest/download/cloudbase-kimi.zip"
     }
   ]
 }
