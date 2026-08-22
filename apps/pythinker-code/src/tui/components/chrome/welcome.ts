@@ -6,10 +6,10 @@
 import type { Component } from '@pymodel/pi-tui';
 
 import {
-  isRainbowDancing,
-  renderDanceWelcomeLogo,
-  renderDanceWelcomeText,
-} from '#/tui/easter-eggs/dance';
+  isRainbowHatching,
+  renderHatchWelcomeLogo,
+  renderHatchWelcomeText,
+} from '#/tui/easter-eggs/hatch';
 import type { AppState } from '#/tui/types';
 import type { GitStatusCache } from '#/utils/git/git-status';
 
@@ -45,7 +45,7 @@ export class WelcomeComponent implements Component, WelcomeLogoAnimationHost {
   ) {
     this.state = state;
     this.gitCache = createWelcomeGitCache(state.workDir);
-    if (requestRender !== undefined && welcomeLogoAnimationEnabled() && !isRainbowDancing()) {
+    if (requestRender !== undefined && welcomeLogoAnimationEnabled() && !isRainbowHatching()) {
       this.eyeAnimator = new WelcomeLogoAnimator(this, requestRender);
       queueMicrotask(() => this.eyeAnimator?.start());
     }
@@ -70,13 +70,13 @@ export class WelcomeComponent implements Component, WelcomeLogoAnimationHost {
 
   render(width: number): string[] {
     const isLoggedOut = !this.state.model;
-    const copy = isRainbowDancing()
+    const copy = isRainbowHatching()
       ? (() => {
           const text = buildWelcomeCopyText(isLoggedOut);
           return {
-            head: renderDanceWelcomeText(text.head, 2, true),
-            strapline: renderDanceWelcomeText(text.strapline, 5),
-            prompt: renderDanceWelcomeText(text.prompt),
+            head: renderHatchWelcomeText(text.head, 2, true),
+            strapline: renderHatchWelcomeText(text.strapline, 5),
+            prompt: renderHatchWelcomeText(text.prompt),
           };
         })()
       : buildWelcomeCopy(isLoggedOut);
@@ -84,7 +84,7 @@ export class WelcomeComponent implements Component, WelcomeLogoAnimationHost {
       this.eyeBlinkState,
       this.antennaFrame ?? undefined,
     );
-    const renderedLogo = isRainbowDancing() ? renderDanceWelcomeLogo(logoLines) : logoLines;
+    const renderedLogo = isRainbowHatching() ? renderHatchWelcomeLogo(logoLines) : logoLines;
 
     return renderWelcomeBanner({
       width,
