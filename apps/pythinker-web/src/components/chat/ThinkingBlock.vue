@@ -9,6 +9,7 @@ import { computed, inject, onUnmounted, ref, watch, type Ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { formatLiveDuration } from '../chatTurnRendering';
 import Icon from '../ui/Icon.vue';
+import ThinkingBulb from '../ui/ThinkingBulb.vue';
 
 const props = withDefaults(
   defineProps<{
@@ -114,8 +115,8 @@ function toggle(): void {
       "
       @click="toggle"
     >
-      <Icon class="think-bulb" name="thinking" size="sm" aria-hidden="true" />
-      <span class="think-title">
+      <ThinkingBulb class="think-bulb" :animated="streaming" size="sm" aria-hidden="true" />
+      <span class="think-title" :class="{ 'ui-shimmer': streaming }">
         {{ streaming ? t('thinking.streaming') : t('thinking.panelTitle') }}
       </span>
       <span v-if="timeLabel" class="think-time">{{ timeLabel }}</span>

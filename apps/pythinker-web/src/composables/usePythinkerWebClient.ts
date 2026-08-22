@@ -141,14 +141,17 @@ safeRemove(STORAGE_KEYS.theme);
 // per-session thinking state — clear the old key so stale picks can't linger.
 safeRemove(STORAGE_KEYS.thinking);
 
-function loadPermissionFromStorage(): PermissionMode {
+/** The explicit permission pick persisted for this browser, or null when the
+ *  user never picked one locally — an unset pick means the chat page follows
+ *  the daemon's default_permission_mode instead of a hardcoded fallback. */
+function loadPermissionFromStorage(): PermissionMode | null {
   try {
     const v = safeGetString(PERMISSION_STORAGE_KEY);
     if (v === 'auto' || v === 'yolo' || v === 'manual') return v;
   } catch {
     // localStorage not available (e.g. jsdom without config)
   }
-  return 'manual';
+  return null;
 }
 
 function savePermissionToStorage(mode: PermissionMode): void {
@@ -403,7 +406,7 @@ const rawState: ExtendedState = reactive({
   backend: 'v1',
   workspaceName: 'pythinker-web',
   connection: 'disconnected' as ConnectionState,
-  permission: loadPermissionFromStorage(),
+  permission: loadPermissionFromStorage() ?? 'manual',
   // Resolved per session/model once the catalog/session is known (loadModels
   // and the active-session watcher in useModelProviderState) — the per-session
   // map below starts empty and is fed by /status folds.
@@ -456,6 +459,22 @@ const draftModes = reactive<{ planMode: boolean; dynamicWorkflowMode: boolean; g
   dynamicWorkflowMode: false,
   goalMode: false,
 });
+
+/** True once this browser has an explicit permission pick in localStorage.
+ *  Without one, the chat page follows the daemon's default_permission_mode
+ *  (seeded on config load) instead of showing a hardcoded 'manual'. */
+const hasExplicitPermissionPick = loadPermissionFromStorage() !== null;
+
+/** Adopt the daemon's default permission mode for browsers that never picked
+ *  one locally. Called after GET /config resolves; a later explicit pick (via
+ *  setPermission) wins from then on because it writes localStorage. */
+function seedPermissionFromDaemonDefault(): void {
+  if (hasExplicitPermissionPick) return;
+  const mode = rawState.config?.defaultPermissionMode;
+  if (mode === 'auto' || mode === 'yolo' || mode === 'manual') {
+    rawState.permission = mode;
+  }
+}
 
 // ---------------------------------------------------------------------------
 // rawState.sessions — single mutation funnel.
@@ -686,6 +705,12 @@ async function refreshSessionStatus(sessionId: string): Promise<void> {
   }));
   rawState.dynamicWorkflowModeBySession = { ...rawState.dynamicWorkflowModeBySession, [sessionId]: st.dynamicWorkflowMode };
   rawState.planModeBySession = { ...rawState.planModeBySession, [sessionId]: st.planMode };
+  // Fold the session's effective permission mode too — the pill must reflect
+  // what the daemon will actually enforce for the active session (the daemon
+  // applies config defaults at agent creation), not a stale local value.
+  if (st.permission === 'auto' || st.permission === 'yolo' || st.permission === 'manual') {
+    rawState.permission = st.permission;
+  }
   // Fold the session's own thinking level too — per-session state wins over the
   // per-model storage pick (see thinkingBySession on ExtendedState).
   if (st.thinkingEffort.length > 0) {
@@ -2832,6 +2857,7 @@ const workspaceState = useWorkspaceState(rawState, {
   status,
   workspaceIdForSession,
   savePermissionToStorage,
+  seedPermissionFromDaemonDefault,
   savePlanModeToStorage,
   saveDynamicWorkflowModeToStorage,
   saveGoalModeToStorage,

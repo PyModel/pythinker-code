@@ -9,7 +9,7 @@ defineProps<{ label: string }>();
     <span class="wi-mascot" aria-hidden="true">
       <MascotSprite state="running" :size="40" />
     </span>
-    <span class="wi-label">{{ label }}</span>
+    <span class="wi-label ui-shimmer">{{ label }}</span>
   </div>
 </template>
 
@@ -23,12 +23,4 @@ defineProps<{ label: string }>();
   color: var(--color-text-muted);
 }
 .wi-mascot { flex: none; width: 40px; }
-.wi-label { animation: wi-breathe 1.6s var(--ease-in-out) infinite; }
-@keyframes wi-breathe {
-  0%, to { opacity: 1; }
-  50% { opacity: 0.45; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .wi-label { animation: none; }
-}
 </style>

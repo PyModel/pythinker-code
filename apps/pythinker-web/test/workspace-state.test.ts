@@ -29,6 +29,7 @@ const apiMock = vi.hoisted(() => ({
   cancelTask: vi.fn(),
   getAuth: vi.fn(),
   getConfig: vi.fn(),
+  setConfig: vi.fn(),
   getFsHome: vi.fn(),
   getHealth: vi.fn(),
   getMeta: vi.fn(),
@@ -142,6 +143,7 @@ function createDeps(): UseWorkspaceStateDeps {
     status: computed(() => ({})),
     workspaceIdForSession: vi.fn(),
     savePermissionToStorage: vi.fn(),
+    seedPermissionFromDaemonDefault: vi.fn(),
     savePlanModeToStorage: vi.fn(),
     saveDynamicWorkflowModeToStorage: vi.fn(),
     saveGoalModeToStorage: vi.fn(),
@@ -286,6 +288,100 @@ describe('useWorkspaceState — abortCurrentPrompt', () => {
 
     expect(apiMock.abortPrompt).not.toHaveBeenCalled();
     expect(apiMock.abortSession).toHaveBeenCalledWith('sess_1');
+  });
+});
+
+describe('useWorkspaceState — updateConfig agent defaults', () => {
+  function createConfigDeps(state: ExtendedState) {
+    const deps = createDeps();
+    return {
+      ...deps,
+      // Real mutation so assertions can read state.sessions after the call.
+      updateSession: (id: string, update: (s: AppSession) => AppSession) => {
+        state.sessions = state.sessions.map((s) => (s.id === id ? update(s) : s));
+      },
+      modelProvider: { ...deps.modelProvider, draftModel: ref(null) },
+    };
+  }
+
+  beforeEach(() => {
+    apiMock.setConfig.mockReset();
+  });
+
+  it('moves an empty active session pinned to the old default onto the new default model', async () => {
+    apiMock.setConfig.mockResolvedValue({ defaultModel: 'qwen/next' });
+    const state = createState();
+    state.defaultModel = 'ds4/deepseek-v4-flash';
+    state.sessions = [{ ...createSession(), busy: false, model: 'ds4/deepseek-v4-flash' }];
+    const deps = createConfigDeps(state);
+    const workspace = useWorkspaceState(state, deps);
+
+    await expect(workspace.updateConfig({ defaultModel: 'qwen/next' })).resolves.toBe(true);
+
+    expect(state.sessions[0]?.model).toBe('qwen/next');
+    expect(deps.persistSessionProfile).toHaveBeenCalledWith({ model: 'qwen/next' }, 'sess_1');
+  });
+
+  it('clears a staged draft pick when the default model changes', async () => {
+    apiMock.setConfig.mockResolvedValue({ defaultModel: 'qwen/next' });
+    const state = createState();
+    state.activeSessionId = undefined;
+    state.defaultModel = 'ds4/deepseek-v4-flash';
+    state.sessions = [];
+    const deps = createConfigDeps(state);
+    const draftModel = deps.modelProvider.draftModel;
+    if (draftModel) draftModel.value = 'ds4/deepseek-v4-flash';
+    const workspace = useWorkspaceState(state, deps);
+
+    await workspace.updateConfig({ defaultModel: 'qwen/next' });
+
+    expect(draftModel?.value ?? null).toBeNull();
+    expect(deps.persistSessionProfile).not.toHaveBeenCalled();
+  });
+
+  it('keeps sessions with history on their own model', async () => {
+    apiMock.setConfig.mockResolvedValue({ defaultModel: 'qwen/next' });
+    const state = createState();
+    state.defaultModel = 'ds4/deepseek-v4-flash';
+    state.sessions = [
+      { ...createSession(), messageCount: 3, model: 'ds4/deepseek-v4-flash' },
+    ];
+    const deps = createConfigDeps(state);
+    const workspace = useWorkspaceState(state, deps);
+
+    await workspace.updateConfig({ defaultModel: 'qwen/next' });
+
+    expect(state.sessions[0]?.model).toBe('ds4/deepseek-v4-flash');
+    expect(deps.persistSessionProfile).not.toHaveBeenCalled();
+  });
+
+  it('applies a saved default permission mode like an explicit pick', async () => {
+    apiMock.setConfig.mockResolvedValue({ defaultPermissionMode: 'auto' });
+    const state = createState();
+    state.permission = 'manual';
+    const deps = createConfigDeps(state);
+    const workspace = useWorkspaceState(state, deps);
+
+    await workspace.updateConfig({ defaultPermissionMode: 'auto' });
+
+    expect(state.permission).toBe('auto');
+    expect(deps.savePermissionToStorage).toHaveBeenCalledWith('auto');
+    expect(deps.persistSessionProfile).toHaveBeenCalledWith({ permissionMode: 'auto' });
+  });
+
+  it('leaves permission untouched when the daemon rejects the save', async () => {
+    apiMock.setConfig.mockRejectedValue(
+      new DaemonApiError({ code: 500, msg: 'boom', requestId: 'req_1' }),
+    );
+    const state = createState();
+    state.permission = 'manual';
+    const deps = createConfigDeps(state);
+    const workspace = useWorkspaceState(state, deps);
+
+    await expect(workspace.updateConfig({ defaultPermissionMode: 'auto' })).resolves.toBe(false);
+
+    expect(state.permission).toBe('manual');
+    expect(deps.savePermissionToStorage).not.toHaveBeenCalled();
   });
 });
 

@@ -9,7 +9,8 @@
     "build": "vite build",
     "typecheck": "vue-tsc --noEmit",
     "test": "vitest run",
-    "check:style": "node scripts/check-style.mjs"
+    "check:style": "node scripts/check-style.mjs",
+    "gen:file-icons": "node scripts/generate-file-icons.mjs"
   },
   "dependencies": {
     "@chenglou/pretext": "0.0.8",
@@ -40,6 +41,7 @@
     "vite": "^6.3.3",
     "vitest": "4.1.9",
     "vue-tsc": "~3.3.9",
-    "ws": "^8.18.0"
+    "ws": "^8.18.0",
+    "material-icon-theme": "^5.37.0"
   }
 }

@@ -248,6 +248,10 @@ export interface UseWorkspaceStateDeps {
   status: ComputedRef<ConversationStatus>;
   workspaceIdForSession: (s: { workspaceId?: string; cwd: string }) => string;
   savePermissionToStorage: (mode: PermissionMode) => void;
+  /** Called after GET /config resolves; adopts the daemon's default permission
+   *  mode when this browser has no explicit local pick (storage knowledge stays
+   *  in the facade next to the storage helpers). */
+  seedPermissionFromDaemonDefault: () => void;
   /** Persist the current per-session mode maps (read off rawState). */
   savePlanModeToStorage: () => void;
   saveDynamicWorkflowModeToStorage: () => void;
@@ -298,6 +302,7 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
     status,
     workspaceIdForSession,
     savePermissionToStorage,
+    seedPermissionFromDaemonDefault,
     savePlanModeToStorage,
     saveDynamicWorkflowModeToStorage,
     saveGoalModeToStorage,
@@ -476,18 +481,76 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
     try {
       const api = getPythinkerWebApi();
       rawState.config = await api.getConfig();
+      // A browser that never picked a permission mode locally follows the
+      // daemon default — otherwise the pill would show a hardcoded 'manual'
+      // while Settings shows Auto.
+      seedPermissionFromDaemonDefault();
     } catch {
       // Daemon may not have this endpoint yet; leave null
     }
+  }
+
+  /** Apply a just-saved daemon default permission mode to the live chat state.
+   *  Mirrors setPermission: the pill updates now, the choice persists locally,
+   *  and the active session's profile carries it so its next prompt runs at
+   *  the new mode (the daemon only applies config defaults at agent creation —
+   *  existing sessions need this write-through). */
+  function adoptDefaultPermissionMode(mode: string): void {
+    if (mode !== 'manual' && mode !== 'auto' && mode !== 'yolo') return;
+    rawState.permission = mode;
+    savePermissionToStorage(mode);
+    void persistSessionProfile({ permissionMode: mode });
+  }
+
+  /** Make the visible chat follow a just-saved daemon default model. Composer
+   *  picks already write through to the global default, so any staged draft
+   *  pick equals the default it was made under — the fresh default supersedes
+   *  it. An EMPTY active session pinned to the previous default hasn't run
+   *  anything yet, so it follows too; sessions with history (or a diverged
+   *  explicit pick) keep their own model. */
+  function followNewDefaultModel(prevDefault: string | null, nextDefault: string): void {
+    if (nextDefault === prevDefault) return;
+    modelProvider.draftModel.value = null;
+    const sid = rawState.activeSessionId;
+    if (!sid) return;
+    const session = rawState.sessions.find((s) => s.id === sid);
+    if (
+      session === undefined ||
+      session.messageCount > 0 ||
+      session.busy ||
+      rawState.inFlightBySession[sid] ||
+      !session.model ||
+      session.model.length === 0 ||
+      session.model !== prevDefault
+    ) {
+      return;
+    }
+    updateSession(sid, (s) => ({ ...s, model: nextDefault }));
+    void persistSessionProfile({ model: nextDefault }, sid);
   }
 
   /** Update global config via POST /api/v1/config. */
   async function updateConfig(patch: Partial<AppConfig>): Promise<boolean> {
     try {
       const api = getPythinkerWebApi();
+      const prevDefaultModel = rawState.defaultModel;
       const next = await api.setConfig(patch);
       rawState.config = next;
       rawState.defaultModel = next.defaultModel ?? null;
+      // Settings' agent defaults must reach the main chat page immediately:
+      // the composer pill and permission control read live state, not config.
+      const savedDefaultModel = next.defaultModel;
+      if (patch.defaultPermissionMode !== undefined) {
+        adoptDefaultPermissionMode(next.defaultPermissionMode ?? patch.defaultPermissionMode);
+      }
+      if (
+        patch.defaultModel !== undefined &&
+        savedDefaultModel !== null &&
+        savedDefaultModel !== undefined &&
+        savedDefaultModel.length > 0
+      ) {
+        followNewDefaultModel(prevDefaultModel, savedDefaultModel);
+      }
       return true;
     } catch (error) {
       pushOperationFailure('setConfig', error);

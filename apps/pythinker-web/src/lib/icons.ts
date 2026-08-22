@@ -12,9 +12,10 @@
 //     panel toggle, which neither pack above covers well.
 //   - `~icons/ri/*` — Remix Icon (https://remixicon.com/, Apache-2.0) for
 //     the remaining intents.
-// Each icon is imported twice: once as a Vue component (for <Icon name=... />)
-// and once as a `?raw` SVG string (for iconSvg() in v-html contexts such as
-// lib/toolMeta.ts).
+// Each static icon is imported twice: once as a Vue component (for
+// <Icon name=... />) and once as a `?raw` SVG string (for iconSvg() in v-html
+// contexts such as lib/toolMeta.ts). Self-animated icons are raw-only — see
+// animatedEntry() below.
 //
 // All collections share the 24x24 source grid and follow currentColor; the
 // rendered size comes from the size token prop. Colour follows text.
@@ -24,14 +25,12 @@
 //   - iconSvg() below, for v-html contexts (e.g. lib/toolMeta.ts).
 
 import type { Component } from 'vue';
+import { fileIconSvg } from './fileIcons';
 
 // Components (Pythinker collection) ----------------------------------------------
 import PythinkerAddConversation from '~icons/pythinker/add-conversation';
 import PythinkerFolder from '~icons/pythinker/folder';
-import PythinkerFolderOpen from '~icons/pythinker/folder-open';
 import PythinkerMore from '~icons/pythinker/more';
-import PythinkerSearch from '~icons/pythinker/search';
-import PythinkerSetting from '~icons/pythinker/setting';
 import PythinkerThinking from '~icons/pythinker/thinking';
 
 // Components (Tabler) ---------------------------------------------------------
@@ -97,7 +96,6 @@ import RiPlayFill from '~icons/ri/play-fill';
 import RiPushpinFill from '~icons/ri/pushpin-fill';
 import RiPushpinLine from '~icons/ri/pushpin-line';
 import RiQuestionLine from '~icons/ri/question-line';
-import RiRobotLine from '~icons/ri/robot-line';
 import RiShieldFlashLine from '~icons/ri/shield-flash-line';
 import RiShieldLine from '~icons/ri/shield-line';
 import RiShutDownLine from '~icons/ri/shut-down-line';
@@ -108,18 +106,19 @@ import RiStarLine from '~icons/ri/star-line';
 import RiStopFill from '~icons/ri/stop-fill';
 import RiSubtractLine from '~icons/ri/subtract-line';
 import RiTargetLine from '~icons/ri/target-line';
-import RiTerminalBoxLine from '~icons/ri/terminal-box-line';
 import RiTimeLine from '~icons/ri/time-line';
 import RiToolsLine from '~icons/ri/tools-line';
 import RiUserLine from '~icons/ri/user-line';
 
 // Raw SVG strings (Pythinker collection) -----------------------------------------
 import RawPythinkerAddConversation from '~icons/pythinker/add-conversation?raw';
+import RawPythinkerCuteBot from '~icons/pythinker/cute-bot?raw';
 import RawPythinkerFolder from '~icons/pythinker/folder?raw';
 import RawPythinkerFolderOpen from '~icons/pythinker/folder-open?raw';
 import RawPythinkerMore from '~icons/pythinker/more?raw';
 import RawPythinkerSearch from '~icons/pythinker/search?raw';
 import RawPythinkerSetting from '~icons/pythinker/setting?raw';
+import RawPythinkerTerminal from '~icons/pythinker/terminal?raw';
 import RawPythinkerThinking from '~icons/pythinker/thinking?raw';
 
 // Raw SVG strings (Tabler) ----------------------------------------------------
@@ -185,7 +184,6 @@ import RawPlayFill from '~icons/ri/play-fill?raw';
 import RawPushpinFill from '~icons/ri/pushpin-fill?raw';
 import RawPushpinLine from '~icons/ri/pushpin-line?raw';
 import RawQuestionLine from '~icons/ri/question-line?raw';
-import RawRobotLine from '~icons/ri/robot-line?raw';
 import RawShieldFlashLine from '~icons/ri/shield-flash-line?raw';
 import RawShieldLine from '~icons/ri/shield-line?raw';
 import RawShutDownLine from '~icons/ri/shut-down-line?raw';
@@ -196,7 +194,6 @@ import RawStarLine from '~icons/ri/star-line?raw';
 import RawStopFill from '~icons/ri/stop-fill?raw';
 import RawSubtractLine from '~icons/ri/subtract-line?raw';
 import RawTargetLine from '~icons/ri/target-line?raw';
-import RawTerminalBoxLine from '~icons/ri/terminal-box-line?raw';
 import RawTimeLine from '~icons/ri/time-line?raw';
 import RawToolsLine from '~icons/ri/tools-line?raw';
 import RawUserLine from '~icons/ri/user-line?raw';
@@ -221,7 +218,7 @@ export type IconName =
   | 'image'
   | 'settings'
   | 'sliders'
-  | 'robot'
+  | 'cute-bot'
   | 'microscope'
   | 'flask'
   | 'eye'
@@ -294,14 +291,26 @@ export type IconSize = 'sm' | 'md' | 'lg';
 export const SIZE_PX: Record<IconSize, number> = { sm: 14, md: 16, lg: 20 };
 
 export interface IconEntry {
-  /** Vue component that renders the icon (used by <Icon>). */
-  component: Component;
+  /** Vue component that renders the icon (used by <Icon>). Animated entries omit it. */
+  component?: Component;
   /** Raw `<svg>` string (used by iconSvg() in v-html contexts). */
   svg: string;
+  /**
+   * The artwork ships its own <style>-driven animation (namespaced under a
+   * `ptx-*` root class). The compiled ~icons component strips <style>, which
+   * kills both the motion and the CSS-declared strokes, so these entries are
+   * raw-only and <Icon> inlines entry.svg via iconSvg() instead.
+   */
+  animated?: boolean;
 }
 
 function entry(component: Component, svg: string): IconEntry {
   return { component, svg };
+}
+
+/** Registry entry for self-animated artwork: raw SVG only, no compiled component. */
+function animatedEntry(svg: string): IconEntry {
+  return { svg, animated: true };
 }
 
 export const ICONS: Record<IconName, IconEntry> = {
@@ -313,7 +322,7 @@ export const ICONS: Record<IconName, IconEntry> = {
   close: entry(RiCloseLine, RawCloseLine),
   check: entry(RiCheckLine, RawCheckLine),
   archive: entry(RiArchiveLine, RawArchiveLine),
-  search: entry(PythinkerSearch, RawPythinkerSearch),
+  search: animatedEntry(RawPythinkerSearch),
   copy: entry(RiFileCopyLine, RawFileCopyLine),
   link: entry(RiLinksLine, RawLinksLine),
   'external-link': entry(RiExternalLinkLine, RawExternalLinkLine),
@@ -321,9 +330,9 @@ export const ICONS: Record<IconName, IconEntry> = {
   undo: entry(RiArrowGoBackLine, RawArrowGoBackLine),
   send: entry(RiArrowUpLine, RawArrowUpLine),
   image: entry(RiImageLine, RawImageLine),
-  settings: entry(PythinkerSetting, RawPythinkerSetting),
+  settings: animatedEntry(RawPythinkerSetting),
   sliders: entry(RiEqualizerLine, RawEqualizerLine),
-  robot: entry(RiRobotLine, RawRobotLine),
+  'cute-bot': animatedEntry(RawPythinkerCuteBot),
   microscope: entry(RiMicroscopeLine, RawMicroscopeLine),
   flask: entry(RiFlaskLine, RawFlaskLine),
   eye: entry(RiEyeLine, RawEyeLine),
@@ -343,7 +352,7 @@ export const ICONS: Record<IconName, IconEntry> = {
   list: entry(RiListUnordered, RawListUnordered),
   sort: entry(RiSortDesc, RawSortDesc),
   grip: entry(RiDraggable, RawDraggable),
-  folder: entry(PythinkerFolderOpen, RawPythinkerFolderOpen),
+  folder: animatedEntry(RawPythinkerFolderOpen),
   'folder-closed': entry(PythinkerFolder, RawPythinkerFolder),
   'folder-plus': entry(RiFolderAddLine, RawFolderAddLine),
   'folder-solid': entry(RiFolderFill, RawFolderFill),
@@ -355,7 +364,7 @@ export const ICONS: Record<IconName, IconEntry> = {
   attachment: entry(TablerPaperclip, RawTablerPaperclip),
   'image-off': entry(RiImageLine, RawImageLine),
   code: entry(RiCodeLine, RawCodeLine),
-  terminal: entry(RiTerminalBoxLine, RawTerminalBoxLine),
+  terminal: animatedEntry(RawPythinkerTerminal),
   pencil: entry(RiPencilLine, RawPencilLine),
   tool: entry(RiToolsLine, RawToolsLine),
   glob: entry(RiBracesLine, RawBracesLine),
@@ -402,31 +411,73 @@ function applySize(svg: string, px: number): string {
     .replace(/^<svg\b/, `<svg class="ui-icon" width="${px}" height="${px}" aria-hidden="true"`);
 }
 
-/** Render an icon to a full <svg> string for v-html contexts. Mirrors <Icon>. */
-export function iconSvg(name: IconName, size: IconSize = 'md'): string {
-  const entry = ICONS[name];
-  if (!entry) return '';
-  return applySize(entry.svg, SIZE_PX[size]);
+/**
+ * Head attribute marking the hoisted stylesheet of one animated icon.
+ * Keyed by registry name: the CSS is namespaced under the artwork's ptx-*
+ * root class, so one sheet per name serves every mounted instance.
+ */
+const ANIMATED_STYLE_ATTR = 'data-ptx-icon-style';
+
+/** Per-name split of the artwork: style-less SVG + its extracted CSS. */
+const animatedArtCache = new Map<string, { inline: string; css: string }>();
+
+/**
+ * Prepare self-animated artwork for rendering: peel the <style> block out of
+ * the SVG (it would otherwise pollute ancestors' textContent and duplicate
+ * itself on every mount) and install it once in document.head. Idempotent.
+ */
+function prepareAnimatedArt(name: IconName, target: IconEntry): string {
+  let art = animatedArtCache.get(name);
+  if (!art) {
+    const css = /<style>([\s\S]*?)<\/style>/.exec(target.svg)?.[1] ?? '';
+    art = { inline: target.svg.replace(/<style>[\s\S]*?<\/style>\s*/, ''), css };
+    animatedArtCache.set(name, art);
+  }
+  if (art.css && typeof document !== 'undefined' && !document.head.querySelector(`style[${ANIMATED_STYLE_ATTR}="${name}"]`)) {
+    const sheet = document.createElement('style');
+    sheet.setAttribute(ANIMATED_STYLE_ATTR, name);
+    sheet.textContent = art.css;
+    document.head.appendChild(sheet);
+  }
+  return art.inline;
 }
 
-const CODE_EXTENSIONS = new Set([
-  'ts', 'tsx', 'js', 'jsx', 'mjs', 'cjs', 'vue', 'json', 'py', 'go', 'rs',
-  'java', 'kt', 'c', 'h', 'cpp', 'cc', 'hpp', 'cs', 'rb', 'php', 'swift',
-  'sh', 'bash', 'zsh', 'css', 'scss', 'less', 'html', 'htm', 'xml', 'sql',
-  'yaml', 'yml', 'toml', 'lua', 'dart', 'scala', 'clj', 'ex', 'exs',
-]);
-const DOCUMENT_EXTENSIONS = new Set(['md', 'markdown', 'mdx', 'txt', 'rst', 'adoc', 'pdf', 'doc', 'docx']);
-const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'bmp', 'ico', 'avif']);
+/**
+ * Sizer for self-animated artwork. Rewrites only the ROOT <svg> tag — nested
+ * shapes legitimately carry width/height (e.g. the folder papers' rects) and a
+ * blanket strip like applySize would destroy them. Merges the shared ui-icon
+ * class into the artwork's namespaced root class, swaps the descriptive role
+ * for decorative hiding unless a label is given.
+ */
+function applyAnimatedSize(svg: string, px: number, label?: string): string {
+  return svg.replace(/^<svg\b([^>]*)>/, (_match, attrs: string) => {
+    const stripped = attrs
+      .replace(/\s(?:role|aria-label|width|height)="[^"]*"/g, '')
+      .replace(/\sclass="[^"]*"/, '');
+    const rootClass = /class="([^"]*)"/.exec(attrs)?.[1] ?? '';
+    const classes = ['ui-icon', rootClass].filter(Boolean).join(' ');
+    const a11y = label === undefined ? ' aria-hidden="true"' : ` aria-label="${label}"`;
+    return `<svg${stripped}${a11y} class="${classes}" width="${px}" height="${px}">`;
+  });
+}
 
+/** Render an icon to a full <svg> string for v-html contexts. Mirrors <Icon>. */
+export function iconSvg(name: IconName, size: IconSize = 'md', label?: string): string {
+  const target = ICONS[name];
+  if (!target) return '';
+  return target.animated
+    ? applyAnimatedSize(prepareAnimatedArt(name, target), SIZE_PX[size], label)
+    : applySize(target.svg, SIZE_PX[size]);
+}
+
+/**
+ * File-type icon: resolves a path (or display name) through the Material Icon
+ * Theme data (src/lib/fileIcons.ts) — exact file name first, then the longest
+ * dotted-extension suffix, then the theme default. Directories end with `/`.
+ * Falls back to the shared registry glyphs only if the data module is missing.
+ */
 export function fileTypeIconSvg(path: string, name?: string): string {
-  if (path.endsWith('/')) return iconSvg('folder', 'sm');
-  const base = name || path.split('/').pop() || path;
-  const dot = base.lastIndexOf('.');
-  const extension = dot > 0 ? base.slice(dot + 1).toLowerCase() : '';
-  if (CODE_EXTENSIONS.has(extension)) return iconSvg('code', 'sm');
-  if (DOCUMENT_EXTENSIONS.has(extension)) return iconSvg('file-text', 'sm');
-  if (IMAGE_EXTENSIONS.has(extension)) return iconSvg('image', 'sm');
-  return iconSvg('file', 'sm');
+  return fileIconSvg(path, name);
 }
 
 // ---------------------------------------------------------------------------
@@ -453,7 +504,7 @@ export const ICON_GROUPS: ReadonlyArray<readonly [string, readonly IconName[]]> 
       'image',
       'settings',
       'sliders',
-      'robot',
+      'cute-bot',
       'microscope',
       'flask',
       'eye',

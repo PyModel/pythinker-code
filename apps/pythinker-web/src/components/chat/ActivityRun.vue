@@ -14,6 +14,7 @@ import { normalizeToolName, toolSummary } from '../../lib/toolMeta';
 import type { IconName } from '../../lib/icons';
 import { formatLiveDuration, runItemKey, type RunItem } from '../chatTurnRendering';
 import Icon from '../ui/Icon.vue';
+import ThinkingBulb from '../ui/ThinkingBulb.vue';
 import ThinkingBlock from './ThinkingBlock.vue';
 import ToolCall from './ToolCall.vue';
 
@@ -317,13 +318,24 @@ function isItemStreaming(item: RunItem): boolean {
     >
       <span
         class="ar-glyph"
-        :class="{ run: status === 'running', err: status === 'error', ok: status === 'done' }"
+        :class="{
+          run: status === 'running',
+          bulb: glyphName === 'thinking',
+          err: status === 'error',
+          ok: status === 'done',
+        }"
         role="status"
         :aria-label="status"
       >
-        <Icon :name="glyphName" size="sm" aria-hidden="true" />
+        <ThinkingBulb
+          v-if="glyphName === 'thinking'"
+          :animated="status === 'running'"
+          size="sm"
+          aria-hidden="true"
+        />
+        <Icon v-else :name="glyphName" size="sm" aria-hidden="true" />
       </span>
-      <span class="ar-sum" :title="titleText">
+      <span class="ar-sum" :class="{ 'ui-shimmer': status === 'running' }" :title="titleText">
         <template v-for="(clause, ci) in headerClauses" :key="ci">
           <span v-if="ci > 0" class="ar-sep"> · </span>
           <template v-for="(fragment, fi) in clause.fragments" :key="fi">
@@ -390,6 +402,11 @@ function isItemStreaming(item: RunItem): boolean {
 .ar-glyph.run {
   color: var(--color-text-muted);
   animation: ar-breathe 1.6s var(--ease-in-out) infinite;
+}
+/* The thinking bulb already animates its own filament; breathing the wrapper on
+   top of it multiplies the two opacities and washes the tungsten out. */
+.ar-glyph.run.bulb {
+  animation: none;
 }
 @keyframes ar-breathe {
   0%, to { opacity: 1; }
