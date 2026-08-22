@@ -8,6 +8,7 @@ import ResizeHandle from './components/ResizeHandle.vue';
 import ConversationPane from './components/chat/ConversationPane.vue';
 import MediaLightbox from './components/MediaLightbox.vue';
 import FilePreview from './components/FilePreview.vue';
+import EditorPanel from './components/editor/EditorPanel.vue';
 import ThinkingPanel from './components/chat/ThinkingPanel.vue';
 import AgentDetailPanel from './components/chat/AgentDetailPanel.vue';
 import ToolDiffPanel from './components/chat/ToolDiffPanel.vue';
@@ -38,6 +39,11 @@ import { useAuthGate } from './composables/useAuthGate';
 import { usePageTitle } from './composables/usePageTitle';
 import { useSidebarLayout } from './composables/useSidebarLayout';
 import { resolveMediaUrl, useFilePreview, type DetailTarget } from './composables/useFilePreview';
+import {
+  closeFileEditor,
+  installEditorSessionSource,
+  openFileEditor,
+} from './composables/useWorkspaceEditor';
 import type { TurnFileChange } from './lib/turnFiles';
 import { useDetailPanel } from './composables/useDetailPanel';
 import { useIsMobile } from './composables/useIsMobile';
@@ -387,6 +393,21 @@ const {
   openPreviewInEditor,
   revealPreviewFile,
 } = useFilePreview({ client, detailTarget });
+
+installEditorSessionSource(() => client.activeSessionId.value);
+
+function handleOpenInEditor(path: string): void {
+  detailTarget.value = 'editor';
+  void openFileEditor({ path, line: previewTarget.value?.line });
+}
+
+function handleCloseEditor(): void {
+  if (detailTarget.value === 'editor') detailTarget.value = null;
+}
+
+watch(detailTarget, (target, previous) => {
+  if (previous === 'editor' && target !== 'editor') closeFileEditor();
+});
 
 const lightboxMedia = ref<ToolMedia | null>(null);
 const lightboxSrc = ref<string | null>(null);
@@ -1259,6 +1280,10 @@ function openPr(url: string): void {
         @open-file="openFilePreview($event)"
         @close="closeTurnDiff"
       />
+      <EditorPanel
+        v-else-if="detailTarget === 'editor'"
+        @close="handleCloseEditor"
+      />
       <FilePreview
         v-else-if="detailTarget === 'file'"
         :file="previewFile"
@@ -1268,10 +1293,12 @@ function openPr(url: string): void {
         :download-url="previewDownloadUrl"
         closable
         :external-actions="previewExternalActions"
+        :editable="client.fsWriteSupported.value && client.activeSessionId.value !== null"
         :open-file="openFilePreview"
         @close="closeFilePreview"
         @open-external="openPreviewInEditor"
         @reveal="revealPreviewFile"
+        @open-editor="handleOpenInEditor($event)"
       />
     </aside>
 

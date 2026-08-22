@@ -1188,7 +1188,7 @@ export class DaemonPythinkerWebApi implements PythinkerWebApi {
 
   async readFile(
     sessionId: string,
-    input: { path: string; offset?: number; length?: number },
+    input: { path: string; offset?: number; length?: number; encoding?: 'utf-8' | 'base64' | 'auto' },
   ): Promise<{
     path: string;
     content: string;
@@ -1204,6 +1204,7 @@ export class DaemonPythinkerWebApi implements PythinkerWebApi {
     const body: Record<string, unknown> = { path: input.path };
     if (input.offset !== undefined) body['offset'] = input.offset;
     if (input.length !== undefined) body['length'] = input.length;
+    if (input.encoding !== undefined) body['encoding'] = input.encoding;
     const data = await this.http.post<WireReadFileResult>(
       `/sessions/${encodeURIComponent(sessionId)}/fs:read`,
       body,
