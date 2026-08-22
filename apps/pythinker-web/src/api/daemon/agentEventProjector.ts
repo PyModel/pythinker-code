@@ -546,7 +546,7 @@ export interface AgentProjector {
   /** Project a single raw agent-core event into zero or more AppEvents. Never throws. */
   project(rawType: string, payload: unknown, sessionId: string, meta?: ProjectMeta): AppEvent[];
   /**
-   * Bind an externally-known promptId to the next turn.startd for this session.
+   * Bind an externally-known promptId to the next turn.started for this session.
    * Call this right after submitPrompt() returns, before the first turn.started arrives.
    */
   bindNextPromptId(sessionId: string, promptId: string): void;
