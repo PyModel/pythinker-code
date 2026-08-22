@@ -1,5 +1,17 @@
 # @pymodel/pythinker-code
 
+## 0.39.2
+
+### Patch Changes
+
+- [#138](https://github.com/PyModel/pythinker-code/pull/138) [`443f201`](https://github.com/PyModel/pythinker-code/commit/443f2019b793db29486424d54d2d819f216162b9) Thanks [@elkaix](https://github.com/elkaix)! - Show the step decode speed next to the context readout in the terminal footer.
+
+- [#138](https://github.com/PyModel/pythinker-code/pull/138) [`443f201`](https://github.com/PyModel/pythinker-code/commit/443f2019b793db29486424d54d2d819f216162b9) Thanks [@elkaix](https://github.com/elkaix)! - Rename the hidden /dance easter egg to /hatch.
+
+- [#138](https://github.com/PyModel/pythinker-code/pull/138) [`443f201`](https://github.com/PyModel/pythinker-code/commit/443f2019b793db29486424d54d2d819f216162b9) Thanks [@elkaix](https://github.com/elkaix)! - Use Shift-Tab in the terminal to cycle the model thinking effort.
+
+- [#138](https://github.com/PyModel/pythinker-code/pull/138) [`443f201`](https://github.com/PyModel/pythinker-code/commit/443f2019b793db29486424d54d2d819f216162b9) Thanks [@elkaix](https://github.com/elkaix)! - Keep running tool rows at full text emphasis in the web transcript.
+
 ## 0.39.1
 
 ### Patch Changes
