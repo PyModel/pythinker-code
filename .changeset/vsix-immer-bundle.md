@@ -1,4 +1,4 @@
 ---
 "pythinker": patch
 ---
-Fix the extension bundle to inline every runtime dependency.
+Fix the extension bundle to inline `immer`.
