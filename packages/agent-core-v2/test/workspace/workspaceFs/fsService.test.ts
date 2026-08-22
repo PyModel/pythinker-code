@@ -1293,8 +1293,8 @@ describe('WorkspaceFsService.write', () => {
 
   it('overwrites an existing file, reports created=false, and refreshes the etag', async () => {
     const fs = makeSession({ 'a.txt': 'one' }, emptyHandler);
-    const before = await fs.read({ path: 'a.txt' });
-    const result = await fs.write({ path: 'a.txt', content: 'two' });
+    const before = await fs.read({ path: 'a.txt', offset: 0, length: 1024, encoding: 'utf-8' });
+    const result = await fs.write({ path: 'a.txt', content: 'two', encoding: 'utf-8' });
     expect(result.created).toBe(false);
     expect(result.etag).not.toBe(before.etag);
     const back = await fs.read({ path: 'a.txt', offset: 0, length: 1024, encoding: 'utf-8' });
@@ -1303,15 +1303,15 @@ describe('WorkspaceFsService.write', () => {
 
   it('succeeds when base_etag matches the current file', async () => {
     const fs = makeSession({ 'a.txt': 'one' }, emptyHandler);
-    const before = await fs.read({ path: 'a.txt' });
-    const result = await fs.write({ path: 'a.txt', content: 'two', base_etag: before.etag });
+    const before = await fs.read({ path: 'a.txt', offset: 0, length: 1024, encoding: 'utf-8' });
+    const result = await fs.write({ path: 'a.txt', content: 'two', base_etag: before.etag, encoding: 'utf-8' });
     expect(result.created).toBe(false);
   });
 
   it('throws fs.conflict when base_etag is stale', async () => {
     const fs = makeSession({ 'a.txt': 'one' }, emptyHandler);
-    await fs.write({ path: 'a.txt', content: 'changed by someone else' });
-    await expect(fs.write({ path: 'a.txt', content: 'stale write', base_etag: 'bogus-etag' }))
+    await fs.write({ path: 'a.txt', content: 'changed by someone else', encoding: 'utf-8' });
+    await expect(fs.write({ path: 'a.txt', content: 'stale write', base_etag: 'bogus-etag', encoding: 'utf-8' }))
       .rejects.toMatchObject({ code: 'fs.conflict' });
   });
 
@@ -1326,7 +1326,7 @@ describe('WorkspaceFsService.write', () => {
 
   it('throws fs.is_directory when the target is a directory', async () => {
     const fs = makeSession({ 'src/a.ts': '' }, emptyHandler);
-    await expect(fs.write({ path: 'src', content: 'x' })).rejects.toMatchObject({
+    await expect(fs.write({ path: 'src', content: 'x', encoding: 'utf-8' })).rejects.toMatchObject({
       code: 'fs.is_directory',
     });
   });
@@ -1334,24 +1334,24 @@ describe('WorkspaceFsService.write', () => {
   it('throws fs.too_large when the payload exceeds the write cap', async () => {
     const fs = makeSession({}, emptyHandler);
     const big = Buffer.alloc(10 * 1024 * 1024 + 1, 97).toString('utf-8');
-    await expect(fs.write({ path: 'big.txt', content: big })).rejects.toMatchObject({
+    await expect(fs.write({ path: 'big.txt', content: big, encoding: 'utf-8' })).rejects.toMatchObject({
       code: 'fs.too_large',
     });
   });
 
   it('throws fs.path_escapes for paths leaving the workspace', async () => {
     const fs = makeSession({}, emptyHandler);
-    await expect(fs.write({ path: '../outside.txt', content: 'x' })).rejects.toMatchObject({
+    await expect(fs.write({ path: '../outside.txt', content: 'x', encoding: 'utf-8' })).rejects.toMatchObject({
       code: 'fs.path_escapes',
     });
-    await expect(fs.write({ path: '/etc/hosts', content: 'x' })).rejects.toMatchObject({
+    await expect(fs.write({ path: '/etc/hosts', content: 'x', encoding: 'utf-8' })).rejects.toMatchObject({
       code: 'fs.path_escapes',
     });
   });
 
   it('throws fs.path_not_found when the parent directory does not exist', async () => {
     const fs = makeSession({}, emptyHandler);
-    await expect(fs.write({ path: 'missing/dir/f.txt', content: 'x' })).rejects.toMatchObject({
+    await expect(fs.write({ path: 'missing/dir/f.txt', content: 'x', encoding: 'utf-8' })).rejects.toMatchObject({
       code: 'fs.path_not_found',
     });
   });
