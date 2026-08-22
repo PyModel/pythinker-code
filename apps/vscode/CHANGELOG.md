@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.9.5
+
+### Patch Changes
+
+- [#147](https://github.com/PyModel/pythinker-code/pull/147) [`dde6152`](https://github.com/PyModel/pythinker-code/commit/dde615293b1fc0ac4c41a383a8012c3ef93e9b21) Thanks [@elkaix](https://github.com/elkaix)! - Fix the VS Code extension asking you to sign in when a provider is already configured with an API key.
+
+- [#147](https://github.com/PyModel/pythinker-code/pull/147) [`dde6152`](https://github.com/PyModel/pythinker-code/commit/dde615293b1fc0ac4c41a383a8012c3ef93e9b21) Thanks [@elkaix](https://github.com/elkaix)! - Keep a way back to the sign-in screen when the VS Code extension reports that no model is configured.
+
 ## 0.9.4
 
 ### Patch Changes

@@ -1,5 +1,13 @@
 # @pymodel/pythinker-desktop
 
+## 0.1.6
+
+### Patch Changes
+
+- [#149](https://github.com/PyModel/pythinker-code/pull/149) [`45d1c0a`](https://github.com/PyModel/pythinker-code/commit/45d1c0a49c99cb67c67b4bfa4671d7ef0216865e) Thanks [@elkaix](https://github.com/elkaix)! - Stop a second, unnamed Pythinker icon appearing in the macOS Dock while the app runs.
+
+- [#145](https://github.com/PyModel/pythinker-code/pull/145) [`a0c2705`](https://github.com/PyModel/pythinker-code/commit/a0c2705cf7be9d4d0680aa8f35982a30f7678baa) Thanks [@elkaix](https://github.com/elkaix)! - Stop the desktop app writing its server access token to the log.
+
 ## 0.1.3
 
 ### Patch Changes
