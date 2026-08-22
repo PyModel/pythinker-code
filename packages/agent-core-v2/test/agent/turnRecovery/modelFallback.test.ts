@@ -39,7 +39,7 @@ class DeferredSetModelProfile extends AgentProfileService {
       await new Promise<void>((resolve) => {
         resolveFirstSetModel = resolve;
       });
-      return { model };
+      return super.setModel(model);
     }
     return super.setModel(model);
   }
