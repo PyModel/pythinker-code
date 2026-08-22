@@ -145,7 +145,13 @@ function positionCopyMenu(): void {
   }
 }
 
+function focusCopyMenuItem(): void {
+  const menu = copyMenuRef.value?.el;
+  menu?.querySelector<HTMLElement>('.ui-menu-item:not(:disabled)')?.focus();
+}
+
 function closeCopyMenu(refocus = false): void {
+  if (!copyMenuOpen.value) return;
   copyMenuOpen.value = false;
   window.removeEventListener('mousedown', onDocumentMouseDown, true);
   window.removeEventListener('keydown', onMenuEscape, true);
@@ -161,16 +167,25 @@ async function openCopyMenu(): Promise<void> {
   }
   copyMenuOpen.value = true;
   await nextTick();
+  // A member switch or unmount during the tick can have closed the menu and
+  // torn its listeners down; resuming here would leak them until unmount.
+  if (!copyMenuOpen.value) return;
   positionCopyMenu();
-  copyMenuRef.value?.el?.querySelector<HTMLElement>('.ui-menu-item:not(:disabled)')?.focus();
+  focusCopyMenuItem();
   window.addEventListener('mousedown', onDocumentMouseDown, true);
   window.addEventListener('keydown', onMenuEscape, true);
   window.addEventListener('resize', positionCopyMenu);
   window.addEventListener('scroll', positionCopyMenu, true);
 }
 
+function onTriggerArrowKey(event: KeyboardEvent): void {
+  event.preventDefault();
+  void openCopyMenu();
+}
+
 function onDocumentMouseDown(event: MouseEvent): void {
-  const target = event.target as Node;
+  const target = event.target as Node | null;
+  if (!target) return;
   if (copyMenuRef.value?.el?.contains(target) || copyTriggerRef.value?.el?.contains(target)) return;
   closeCopyMenu();
 }
@@ -180,6 +195,31 @@ function onMenuEscape(event: KeyboardEvent): void {
   event.preventDefault();
   event.stopImmediatePropagation();
   closeCopyMenu(true);
+}
+
+function onMenuKeyDown(event: KeyboardEvent): void {
+  if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+  event.preventDefault();
+  const items = Array.from(
+    copyMenuRef.value?.el?.querySelectorAll<HTMLElement>('.ui-menu-item:not(:disabled)') ?? [],
+  );
+  if (items.length === 0) return;
+  const currentIndex = items.indexOf(document.activeElement as HTMLElement);
+  const nextIndex = event.key === 'ArrowDown'
+    ? (currentIndex + 1) % items.length
+    : (currentIndex - 1 + items.length) % items.length;
+  items[nextIndex]?.focus();
+}
+
+function onCopyFocusOut(event: FocusEvent): void {
+  const related = event.relatedTarget as Node | null;
+  if (
+    related &&
+    (copyMenuRef.value?.el?.contains(related) || copyTriggerRef.value?.el?.contains(related))
+  ) {
+    return;
+  }
+  closeCopyMenu();
 }
 
 async function copyToClipboard(kind: 'command' | 'output' | 'all'): Promise<void> {
@@ -237,6 +277,9 @@ onUnmounted(() => {
         aria-haspopup="menu"
         :aria-expanded="copyMenuOpen"
         @click="openCopyMenu"
+        @keydown.down.prevent="onTriggerArrowKey"
+        @keydown.up.prevent="onTriggerArrowKey"
+        @focusout="onCopyFocusOut"
       >
         <Icon :name="copiedKind ? 'check' : 'copy'" size="sm" />
       </IconButton>
@@ -269,35 +312,38 @@ onUnmounted(() => {
       />
     </div>
 
-    <Menu
-      v-if="copyMenuOpen"
-      ref="copyMenuRef"
-      class="copy-menu"
-      :style="copyMenuStyle"
-      @click.stop
-    >
-      <MenuItem
-        v-if="member.prompt"
-        :size="copyMenuItemSize"
-        @click="copyToClipboard('command')"
+    <Teleport to="body">
+      <Menu
+        v-if="copyMenuOpen"
+        ref="copyMenuRef"
+        class="copy-menu"
+        :style="copyMenuStyle"
+        @keydown="onMenuKeyDown"
+        @focusout="onCopyFocusOut"
       >
-        <Icon name="terminal" size="sm" />
-        <span>{{ t('tasks.copyCommand') }}</span>
-      </MenuItem>
-      <MenuItem
-        :size="copyMenuItemSize"
-        :disabled="!outputText"
-        @click="copyToClipboard('output')"
-      >
-        <Icon name="file-text" size="sm" />
-        <span>{{ t('tasks.copyOutput') }}</span>
-      </MenuItem>
-      <MenuItem separator />
-      <MenuItem :size="copyMenuItemSize" @click="copyToClipboard('all')">
-        <Icon name="copy" size="sm" />
-        <span>{{ t('tasks.copyAll') }}</span>
-      </MenuItem>
-    </Menu>
+        <MenuItem
+          v-if="member.prompt"
+          :size="copyMenuItemSize"
+          @click="copyToClipboard('command')"
+        >
+          <Icon name="terminal" size="sm" />
+          <span>{{ t('tasks.copyCommand') }}</span>
+        </MenuItem>
+        <MenuItem
+          :size="copyMenuItemSize"
+          :disabled="!outputText"
+          @click="copyToClipboard('output')"
+        >
+          <Icon name="file-text" size="sm" />
+          <span>{{ t('tasks.copyOutput') }}</span>
+        </MenuItem>
+        <MenuItem separator />
+        <MenuItem :size="copyMenuItemSize" @click="copyToClipboard('all')">
+          <Icon name="copy" size="sm" />
+          <span>{{ t('tasks.copyAll') }}</span>
+        </MenuItem>
+      </Menu>
+    </Teleport>
   </div>
 </template>
 

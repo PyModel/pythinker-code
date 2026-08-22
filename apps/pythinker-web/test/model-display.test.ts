@@ -7,8 +7,12 @@
 // hiding the degenerate on/off levels).
 import { mount } from '@vue/test-utils';
 import { createI18n } from 'vue-i18n';
-import { defineComponent } from 'vue';
+import { defineComponent, nextTick } from 'vue';
 import { describe, expect, it, vi } from 'vitest';
+import AgentDetailPanel from '../src/components/chat/AgentDetailPanel.vue';
+import SubagentGrid from '../src/components/chat/SubagentGrid.vue';
+import TasksPane from '../src/components/chat/TasksPane.vue';
+import type { TaskItem } from '../src/types';
 
 vi.mock('markstream-vue', () => {
   const noop = (): void => undefined;
@@ -38,10 +42,6 @@ vi.mock('markstream-vue/workers/mermaidParser.worker?worker&type=module', () => 
     terminate(): void {}
   },
 }));
-import AgentDetailPanel from '../src/components/chat/AgentDetailPanel.vue';
-import SubagentGrid from '../src/components/chat/SubagentGrid.vue';
-import TasksPane from '../src/components/chat/TasksPane.vue';
-import type { TaskItem } from '../src/types';
 
 const i18n = createI18n({
   legacy: false,
@@ -161,5 +161,119 @@ describe('subagent model/effort display resolvers', () => {
     });
     expect(wrapper.text()).toContain('review · Example Model · High');
     vi.unstubAllGlobals();
+  });
+});
+
+describe('copy menu keyboard and focus behavior', () => {
+  const member = {
+    id: 'm1',
+    name: 'Review modified files',
+    subagentType: 'review',
+    model: 'pymodel/example-model',
+    thinkingEffort: 'high',
+    phase: 'working' as const,
+    status: 'running' as const,
+    prompt: 'Review the current changes',
+  };
+
+  function mountPanelWithMenu() {
+    return mount(AgentDetailPanel, {
+      props: {
+        member,
+        turns: [],
+        running: true,
+        loading: false,
+        loadError: false,
+        hasMore: false,
+        loadingMore: false,
+        loadMoreError: false,
+      },
+      global: {
+        plugins: [i18n],
+        provide: { modelDisplay: resolvers.modelDisplay, subagentEffort: resolvers.subagentEffort },
+        attachTo: document.body,
+      },
+    });
+  }
+
+  function copyTrigger(wrapper: ReturnType<typeof mountPanelWithMenu>) {
+    return wrapper.find('button[aria-haspopup="menu"]');
+  }
+
+  it('teleports the open menu to body and focuses its first item', async () => {
+    const wrapper = mountPanelWithMenu();
+    await copyTrigger(wrapper).trigger('click');
+    await nextTick();
+    // Menu lives under document.body (teleported), not inside the panel root.
+    const teleported = document.body.querySelector(':scope > .agent-panel .copy-menu');
+    expect(teleported).toBeNull();
+    const menu = document.body.querySelector('.copy-menu');
+    expect(menu).not.toBeNull();
+    expect(document.activeElement?.classList.contains('ui-menu-item')).toBe(true);
+    wrapper.unmount();
+  });
+
+  it('opens on ArrowDown from the trigger with focus landing on a menu item', async () => {
+    const wrapper = mountPanelWithMenu();
+    await copyTrigger(wrapper).trigger('keydown.down');
+    await nextTick();
+    expect(copyTrigger(wrapper).attributes('aria-expanded')).toBe('true');
+    expect(document.activeElement?.classList.contains('ui-menu-item')).toBe(true);
+    wrapper.unmount();
+  });
+
+  it('cycles focus with ArrowDown/ArrowUp inside the menu without leaving it', async () => {
+    const wrapper = mountPanelWithMenu();
+    await copyTrigger(wrapper).trigger('click');
+    await nextTick();
+    const items = Array.from(document.body.querySelectorAll<HTMLElement>('.copy-menu .ui-menu-item'));
+    expect(items.length).toBeGreaterThanOrEqual(3);
+    // First item is focused after open; ArrowUp wraps to the last item.
+    document.activeElement!.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }),
+    );
+    expect(document.activeElement).toBe(items.at(-1));
+    document.activeElement!.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }),
+    );
+    expect(document.activeElement).toBe(items[0]);
+    wrapper.unmount();
+  });
+
+  it('closes when focusout leaves both trigger and menu', async () => {
+    const wrapper = mountPanelWithMenu();
+    await copyTrigger(wrapper).trigger('click');
+    await nextTick();
+    expect(document.body.querySelector('.copy-menu')).not.toBeNull();
+    // Simulate focus moving to an unrelated element outside the pair.
+    const outside = document.createElement('button');
+    document.body.append(outside);
+    outside.focus();
+    const menuEl = document.body.querySelector('.copy-menu')!;
+    menuEl.dispatchEvent(new FocusEvent('focusout', { relatedTarget: outside, bubbles: true }));
+    await nextTick();
+    expect(document.body.querySelector('.copy-menu')).toBeNull();
+    outside.remove();
+    wrapper.unmount();
+  });
+
+  it('does not leak menu listeners when the member switches mid-open', async () => {
+    const addSpy = vi.spyOn(window, 'addEventListener');
+    const removeSpy = vi.spyOn(window, 'removeEventListener');
+    const wrapper = mountPanelWithMenu();
+    const trigger = copyTrigger(wrapper);
+    // Kick off the open; its continuation resumes after the nextTick await.
+    const opening = trigger.trigger('click');
+    // The member switch closes the menu inside that window.
+    void wrapper.setProps({ member: { ...member, id: 'm2' } });
+    await opening;
+    await nextTick();
+    expect(document.body.querySelector('.copy-menu')).toBeNull();
+    const added = addSpy.mock.calls.filter(([type]) => type === 'keydown');
+    const removed = removeSpy.mock.calls.filter(([type]) => type === 'keydown');
+    expect(removed.length).toBeGreaterThanOrEqual(added.length);
+    addSpy.mockRestore();
+    removeSpy.mockRestore();
+    wrapper.unmount();
   });
 });
