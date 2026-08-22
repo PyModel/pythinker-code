@@ -20,7 +20,7 @@
  * `CyclicDependencyError.path` and `'No service registered for identifier ...'`
  * messages.
  *
- * Role: pub-sub bus — see `packages/services/AGENTS.md`. Per-domain typed
+ * Role: pub-sub bus — see `packages/agent-core/src/services/AGENTS.md`. Per-domain typed
  * `onDidXxx: Event<T>` accessors layer on top of this central stream
  * (e.g. `PromptService.onDidComplete`, `SessionService.onDidCreate`).
  */

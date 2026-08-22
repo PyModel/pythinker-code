@@ -8,6 +8,7 @@ import en_common from './en/common';
 import en_composer from './en/composer';
 import en_conversation from './en/conversation';
 import en_diff from './en/diff';
+import en_editor from './en/editor';
 import en_filePreview from './en/filePreview';
 import en_fileTree from './en/fileTree';
 import en_header from './en/header';
@@ -46,6 +47,7 @@ export const messages = {
     composer: en_composer,
     conversation: en_conversation,
     diff: en_diff,
+    editor: en_editor,
     filePreview: en_filePreview,
     fileTree: en_fileTree,
     header: en_header,

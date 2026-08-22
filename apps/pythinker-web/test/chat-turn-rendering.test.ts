@@ -6,6 +6,7 @@ import {
   formatDuration,
   formatLiveDuration,
   formatTokens,
+  isSettledThinking,
   rendersToolCard,
   renderBlockKey,
   toolStackPosition,
@@ -257,5 +258,46 @@ describe('renderBlockKey', () => {
         0,
       ),
     ).toBe('activity-run-7');
+  });
+});
+
+describe('thinking timing pass-through', () => {
+  it('carries startedAt/durationMs onto standalone thinking blocks and run items', () => {
+    const startedAt = '2026-01-01T00:00:00.000Z';
+    const rendered = assistantRenderBlocks(
+      assistantTurn([
+        { kind: 'thinking', thinking: 'settled', startedAt, durationMs: 2000 },
+        toolBlock('a'),
+        { kind: 'thinking', thinking: 'live tail', startedAt },
+      ]),
+    );
+    // One run folds all three; timing survives on each thinking item.
+    expect(rendered).toHaveLength(1);
+    const run = rendered[0];
+    if (run?.kind !== 'activity-run') throw new Error('expected activity-run');
+    const [settled, , live] = run.items;
+    expect(settled).toMatchObject({ kind: 'thinking', startedAt, durationMs: 2000 });
+    expect(live).toMatchObject({ kind: 'thinking', startedAt, durationMs: undefined });
+  });
+
+  it('keeps timing when a lone thinking flushes out of a run', () => {
+    const startedAt = '2026-01-01T00:00:00.000Z';
+    const rendered = assistantRenderBlocks(
+      assistantTurn([
+        { kind: 'thinking', thinking: 'done', startedAt, durationMs: 1500 },
+        { kind: 'text', text: 'answer' },
+      ]),
+    );
+    expect(rendered[0]).toMatchObject({ kind: 'thinking', startedAt, durationMs: 1500 });
+  });
+});
+
+describe('isSettledThinking', () => {
+  it('marks only thinking blocks with a frozen duration as settled', () => {
+    expect(isSettledThinking({ kind: 'thinking', durationMs: 0 })).toBe(true);
+    expect(isSettledThinking({ kind: 'thinking', durationMs: 2000 })).toBe(true);
+    expect(isSettledThinking({ kind: 'thinking' })).toBe(false);
+    expect(isSettledThinking({ kind: 'text' })).toBe(false);
+    expect(isSettledThinking({ kind: 'tool' })).toBe(false);
   });
 });

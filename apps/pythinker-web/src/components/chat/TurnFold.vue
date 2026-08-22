@@ -11,7 +11,7 @@ import { computed, inject, nextTick, onUnmounted, ref, watch, type Ref } from 'v
 import { useI18n } from 'vue-i18n';
 import type { FilePreviewRequest, ToolMedia } from '../../types';
 import type { AssistantRenderBlock } from '../chatTurnRendering';
-import { formatLiveDuration, renderBlockKey } from '../chatTurnRendering';
+import { blockStartedMs, formatLiveDuration, isSettledThinking, renderBlockKey } from '../chatTurnRendering';
 import Icon from '../ui/Icon.vue';
 import Markdown from './Markdown.vue';
 import ThinkingBlock from './ThinkingBlock.vue';
@@ -176,6 +176,8 @@ const workedLabel = computed(() => {
 });
 
 function blockStreaming(block: AssistantRenderBlock): boolean {
+  // A settled thinking block is never the streaming tail (reference x).
+  if (isSettledThinking(block)) return false;
   return props.streamingTailIndex !== null
     && 'sourceIndex' in block
     && block.sourceIndex === props.streamingTailIndex;
@@ -184,6 +186,7 @@ function blockStreaming(block: AssistantRenderBlock): boolean {
 function runStreaming(block: Extract<AssistantRenderBlock, { kind: 'activity-run' }>): boolean {
   if (props.streamingTailIndex === null) return false;
   const last = block.items.at(-1);
+  if (last !== undefined && isSettledThinking(last)) return false;
   return last !== undefined && last.sourceIndex === props.streamingTailIndex;
 }
 </script>
@@ -210,8 +213,8 @@ function runStreaming(block: Extract<AssistantRenderBlock, { kind: 'activity-run
             :text="block.thinking"
             :mobile="mobile"
             :streaming="blockStreaming(block)"
-            :started-at-ms="seedMs"
-            :duration-ms="elapsedMs"
+            :started-at-ms="blockStartedMs(block.startedAt)"
+            :duration-ms="block.durationMs"
           />
           <div v-else-if="block.kind === 'text' && block.text" class="msg">
             <Markdown

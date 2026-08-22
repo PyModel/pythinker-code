@@ -115,6 +115,7 @@ import RawPythinkerAddConversation from '~icons/pythinker/add-conversation?raw';
 import RawPythinkerCuteBot from '~icons/pythinker/cute-bot?raw';
 import RawPythinkerFolder from '~icons/pythinker/folder?raw';
 import RawPythinkerFolderOpen from '~icons/pythinker/folder-open?raw';
+import RawPythinkerLoadingSpinner from '~icons/pythinker/loading-spinner?raw';
 import RawPythinkerMore from '~icons/pythinker/more?raw';
 import RawPythinkerSearch from '~icons/pythinker/search?raw';
 import RawPythinkerSetting from '~icons/pythinker/setting?raw';
@@ -270,6 +271,7 @@ export type IconName =
   | 'full-access'
   | 'trash'
   | 'clock'
+  | 'loading-spinner'
   | 'sparkles'
   | 'thinking'
   | 'target'
@@ -384,6 +386,7 @@ export const ICONS: Record<IconName, IconEntry> = {
   'full-access': entry(RiShieldFlashLine, RawShieldFlashLine),
   trash: entry(RiDeleteBinLine, RawDeleteBinLine),
   clock: entry(RiTimeLine, RawTimeLine),
+  'loading-spinner': animatedEntry(RawPythinkerLoadingSpinner),
   sparkles: entry(RiSparklingLine, RawSparklingLine),
   thinking: entry(PythinkerThinking, RawPythinkerThinking),
   target: entry(RiTargetLine, RawTargetLine),
@@ -437,7 +440,7 @@ function prepareAnimatedArt(name: IconName, target: IconEntry): string {
     const sheet = document.createElement('style');
     sheet.setAttribute(ANIMATED_STYLE_ATTR, name);
     sheet.textContent = art.css;
-    document.head.appendChild(sheet);
+    document.head.append(sheet);
   }
   return art.inline;
 }
@@ -452,7 +455,7 @@ function prepareAnimatedArt(name: IconName, target: IconEntry): string {
 function applyAnimatedSize(svg: string, px: number, label?: string): string {
   return svg.replace(/^<svg\b([^>]*)>/, (_match, attrs: string) => {
     const stripped = attrs
-      .replace(/\s(?:role|aria-label|width|height)="[^"]*"/g, '')
+      .replaceAll(/\s(?:role|aria-label|width|height)="[^"]*"/g, '')
       .replace(/\sclass="[^"]*"/, '');
     const rootClass = /class="([^"]*)"/.exec(attrs)?.[1] ?? '';
     const classes = ['ui-icon', rootClass].filter(Boolean).join(' ');
@@ -569,6 +572,7 @@ export const ICON_GROUPS: ReadonlyArray<readonly [string, readonly IconName[]]> 
       'help-circle',
       'alert-triangle',
       'clock',
+      'loading-spinner',
       'sparkles',
       'thinking',
       'pause',

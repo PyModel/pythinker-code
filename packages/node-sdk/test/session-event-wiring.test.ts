@@ -3,7 +3,7 @@
  * bus. Covers the status-snapshot fold: v2 emits `agent.status.updated` in
  * slices and the model slice rides only the bind-time emission, so the
  * wiring merges a consistent usage + context + model snapshot into every
- * status event (mirrors kap-server's broadcaster bridge).
+ * status event (mirrors agent-gateway's broadcaster bridge).
  * Run: pnpm exec vitest run test/session-event-wiring.test.ts
  */
 import { describe, expect, it } from 'vitest';
@@ -175,7 +175,7 @@ describe('SessionEventWiring status snapshot fold', () => {
     const { sink, events } = collectingSink();
     const wiring = new SessionEventWiring(makeSession([sub]), sink);
     try {
-      // `promptAttachments` is transcript-projection metadata: kap-server
+      // `promptAttachments` is transcript-projection metadata: agent-gateway
       // strips it from the WS wire event, so SDK consumers must not see it
       // either.
       sub.bus.emit({

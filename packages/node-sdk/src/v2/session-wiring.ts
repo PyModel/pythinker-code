@@ -266,7 +266,7 @@ export class SessionEventWiring {
  * dropped there, so subagent cards never learn the model. Fold a consistent
  * usage + context + model snapshot into every status event at this edge,
  * restoring the v1 combined-payload contract regardless of slice timing.
- * Mirrors kap-server's `readLegacyStatus` bridge; the v1 edge lives in the
+ * Mirrors agent-gateway's `readLegacyStatus` bridge; the v1 edge lives in the
  * two client-facing packages so the core engine stays free of v1
  * wire-compatibility concerns.
  */

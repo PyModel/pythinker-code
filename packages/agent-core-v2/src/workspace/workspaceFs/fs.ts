@@ -121,6 +121,24 @@ export const fsMkdirRequestSchema = z.object({
 });
 export type FsMkdirRequest = z.infer<typeof fsMkdirRequestSchema>;
 
+export const fsWriteEncodingRequestSchema = z.enum(['utf-8', 'base64']);
+
+export const fsWriteRequestSchema = z.object({
+  path: z.string().min(1),
+  content: z.string(),
+  encoding: fsWriteEncodingRequestSchema.default('utf-8'),
+  base_etag: z.string().optional(),
+});
+export type FsWriteRequest = z.infer<typeof fsWriteRequestSchema>;
+
+export const fsWriteResponseSchema = z.object({
+  path: z.string(),
+  size: z.number().int().nonnegative(),
+  etag: z.string(),
+  created: z.boolean(),
+});
+export type FsWriteResponse = z.infer<typeof fsWriteResponseSchema>;
+
 export const fsMkdirResponseSchema = fsEntrySchema;
 export type FsMkdirResponse = z.infer<typeof fsMkdirResponseSchema>;
 
@@ -253,6 +271,7 @@ export interface IWorkspaceFsService {
   stat(req: FsStatRequest): Promise<FsStatResponse>;
   statMany(req: FsStatManyRequest): Promise<FsStatManyResponse>;
   mkdir(req: FsMkdirRequest): Promise<FsMkdirResponse>;
+  write(req: FsWriteRequest): Promise<FsWriteResponse>;
   search(req: FsSearchRequest): Promise<FsSearchResponse>;
   suggest(req: FsSuggestRequest): Promise<FsSuggestResponse>;
   grep(req: FsGrepRequest): Promise<FsGrepResponse>;

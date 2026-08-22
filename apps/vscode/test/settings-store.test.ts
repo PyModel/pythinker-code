@@ -185,6 +185,61 @@ describe("Webview model metadata", () => {
 
 });
 
+describe("Webview provider-change model refresh", () => {
+  const ADDED = { id: "zen/flash", name: "Flash", provider: "opencode-go", capabilities: [] };
+
+  it("shows models from a newly added provider without moving the current selection", () => {
+    useSettingsStore.getState().initModels(MODELS, "reasoning", true);
+    expect(useSettingsStore.getState().thinkingEffort).toBe("high");
+
+    useSettingsStore.getState().setModels({
+      models: [...MODELS, ADDED],
+      defaultModel: "plain",
+      defaultThinking: false,
+    });
+
+    expect(useSettingsStore.getState()).toMatchObject({
+      models: expect.arrayContaining([expect.objectContaining({ id: "zen/flash" })]),
+      currentModel: "reasoning",
+      thinkingEffort: "high",
+      defaultModel: "plain",
+      modelsLoaded: true,
+    });
+  });
+
+  it("falls back to the default when the current model's provider was removed", () => {
+    useSettingsStore.getState().initModels(MODELS, "reasoning", true);
+
+    useSettingsStore.getState().setModels({
+      models: [MODELS[0]],
+      defaultModel: "plain",
+      defaultThinking: false,
+    });
+
+    expect(useSettingsStore.getState()).toMatchObject({
+      currentModel: "plain",
+      thinkingEffort: "off",
+      modelsLoaded: true,
+    });
+  });
+
+  it("recomputes the effort for the fallback model from the refreshed defaults", () => {
+    useSettingsStore.getState().initModels(MODELS, "plain", false);
+
+    useSettingsStore.getState().setModels({
+      models: [MODELS[1]],
+      defaultModel: "reasoning",
+      defaultThinking: true,
+      defaultThinkingEffort: "low",
+    });
+
+    expect(useSettingsStore.getState()).toMatchObject({
+      currentModel: "reasoning",
+      thinkingEffort: "low",
+    });
+  });
+});
+
 describe("Webview MCP update bridge", () => {
   it("sends a lossless structured MCP edit request to the extension host", async () => {
     const posted: unknown[] = [];

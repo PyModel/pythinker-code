@@ -369,6 +369,8 @@ export interface ExtendedState extends PythinkerClientState {
   hiddenWorkspaceRoots: string[];
   /** Installed external apps that can be used with "Open in app". */
   availableOpenInApps: string[];
+  /** GET /meta capability flags (fs_write, terminal, …) — absent keys mean unsupported. */
+  serverCapabilities: Record<string, boolean>;
   /** Global daemon configuration (secrets redacted). */
   config: AppConfig | null;
   /** Transient BTW side-panel transcript, keyed by forked agent id. */
@@ -432,6 +434,7 @@ const rawState: ExtendedState = reactive({
   recentRoots: [],
   hiddenWorkspaceRoots: loadHiddenWorkspacesFromStorage(),
   availableOpenInApps: [],
+  serverCapabilities: {},
   config: null,
   sideChatMessagesByAgent: {},
   sideChatSendingByAgent: {},
@@ -2819,6 +2822,9 @@ const recentRoots = computed<string[]>(() => rawState.recentRoots);
 /** Installed external apps the "Open in app" menu may offer for this host. */
 const availableOpenInApps = computed<string[]>(() => rawState.availableOpenInApps);
 
+/** True when the connected server advertises the session fs:write action. */
+const fsWriteSupported = computed<boolean>(() => rawState.serverCapabilities['fs_write'] === true);
+
 // ---------------------------------------------------------------------------
 // Per-session turn-end cleanup + queue auto-flush.
 // Driven by the main agent's turn.ended boundary (wired in
@@ -3058,6 +3064,7 @@ export function usePythinkerWebClient() {
     changesByPath,
     pendingApprovals,
     availableOpenInApps,
+    fsWriteSupported,
 
     // New Phase 1 computed
     connection,

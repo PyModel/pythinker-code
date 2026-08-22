@@ -1019,7 +1019,7 @@ describe('AgentLLMRequesterService stream stall watchdog', () => {
     controller.abort(new Error('user cancelled'));
     await vi.advanceTimersByTimeAsync(100);
     await settled;
-    const error = await pending.catch((caught: unknown) => caught);
+    const error = await pending.catch((error: unknown) => error);
     expect(error).not.toBeInstanceOf(APITimeoutError);
   });
 });

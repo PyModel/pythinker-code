@@ -158,7 +158,12 @@ export type AppMessageContent =
   | { type: 'image'; source: ImageSource }
   | { type: 'video'; source: ImageSource }
   | { type: 'file'; fileId: string; name: string; mediaType: string; size: number }
-  | { type: 'thinking'; thinking: string; signature?: string }
+  // `startedAt` stamps the first streamed delta of this thinking part;
+  // `durationMs` settles the moment the next content part starts (or the
+  // step/turn ends). A thinking part with `durationMs` set is never the live
+  // streaming tail — the render layer relies on this to collapse settled
+  // thinking instead of shimmering a second "Thinking…" row (reference parity).
+  | { type: 'thinking'; thinking: string; signature?: string; startedAt?: string; durationMs?: number }
   | { type: 'unknown'; raw: unknown };
 
 export type ImageSource =
@@ -427,6 +432,7 @@ export type AppEvent =
   | { type: 'workspaceDeleted'; workspaceId: string; root: string }
   | { type: 'sessionUpdated'; session: AppSession; changedFields: string[] }
   | { type: 'sessionDeleted'; sessionId: string }
+  | { type: 'sessionArchived'; sessionId: string; workspaceId: string }
   | {
       type: 'sessionWorkChanged';
       sessionId: string;
@@ -981,7 +987,8 @@ export interface PythinkerWebApi {
   getTerminal(sessionId: string, terminalId: string): Promise<AppTerminal>;
   closeTerminal(sessionId: string, terminalId: string): Promise<{ closed: true }>;
   listDirectory(sessionId: string, input: { path?: string; depth?: number; includeGitStatus?: boolean }): Promise<{ items: FsEntry[]; childrenByPath?: Record<string, FsEntry[]>; truncated: boolean }>;
-  readFile(sessionId: string, input: { path: string; offset?: number; length?: number }): Promise<{ path: string; content: string; encoding: 'utf-8' | 'base64'; size: number; truncated: boolean; etag: string; mime: string; languageId?: string; lineCount?: number; isBinary: boolean }>;
+  readFile(sessionId: string, input: { path: string; offset?: number; length?: number; encoding?: 'utf-8' | 'base64' | 'auto' }): Promise<{ path: string; content: string; encoding: 'utf-8' | 'base64'; size: number; truncated: boolean; etag: string; mime: string; languageId?: string; lineCount?: number; isBinary: boolean }>;
+  writeFile(sessionId: string, input: { path: string; content: string; encoding?: 'utf-8' | 'base64'; baseEtag?: string }): Promise<{ path: string; size: number; etag: string; created: boolean }>;
   /** Search files in a workspace (no session required) — POST /workspace/fs:search. `workspace` accepts a registered workspace id or an absolute root. */
   searchFiles(workspace: string, input: { query: string; limit?: number }): Promise<{ items: Array<{ path: string; name: string; kind: FsKind; score: number; matchPositions: number[] }>; truncated: boolean }>;
   grepFiles(sessionId: string, input: { pattern: string; regex?: boolean; caseSensitive?: boolean }): Promise<{ files: Array<{ path: string; matches: Array<{ line: number; col: number; text: string; before: string[]; after: string[] }> }>; filesScanned: number; truncated: boolean; elapsedMs: number }>;

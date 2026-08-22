@@ -61,6 +61,7 @@ let tray: Tray | undefined
 let host: HostSupervisor | undefined
 let lifecycle: DesktopLifecycle | undefined
 let hostOrigin: string | undefined
+let hostToken: string | undefined
 let bootQuitPromise: Promise<void> | undefined
 let stopTrayAnimation: (() => void) | undefined
 let quitReleased = false
@@ -105,14 +106,14 @@ function hostPaths(): { nodeExecutable: string; cliEntry: string; cwd: string; e
   if (!app.isPackaged) {
     return {
       nodeExecutable: process.env['PYTHINKER_DESKTOP_NODE_EXECUTABLE'] ?? 'node',
-      cliEntry: join(REPOSITORY_ROOT, 'apps/pythinker-code/dist/launcher.mjs'),
+      cliEntry: join(REPOSITORY_ROOT, 'apps/pythinker-code/dist/main.mjs'),
       cwd: process.cwd(),
       electronRunAsNode: false,
     }
   }
   return {
     nodeExecutable: process.execPath,
-    cliEntry: join(process.resourcesPath, 'host/node_modules/@pymodel/pythinker-code/dist/launcher.mjs'),
+    cliEntry: join(process.resourcesPath, 'host/node_modules/@pymodel/pythinker-code/dist/main.mjs'),
     cwd: app.getPath('home'),
     electronRunAsNode: true,
   }
@@ -224,6 +225,9 @@ async function createMainWindow(): Promise<BrowserWindow> {
   const rendererUrl = new URL(origin)
   rendererUrl.searchParams.set('pythinker_desktop', '1')
   rendererUrl.searchParams.set('platform', process.platform)
+  if (hostToken !== undefined) {
+    rendererUrl.hash = `token=${hostToken}`
+  }
   await window.loadURL(rendererUrl.href)
   if (!lifecycle?.isQuitting) window.show()
   return window
@@ -342,7 +346,9 @@ async function boot(): Promise<void> {
         },
       })
       try {
-        hostOrigin = await host.start()
+        const ready = await host.start()
+        hostOrigin = ready.origin
+        hostToken = ready.token
         track('desktop_server_ready')
         break
       } catch (error) {

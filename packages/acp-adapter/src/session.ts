@@ -471,8 +471,7 @@ export class AcpSession {
    * Forward an ACP `session/set_mode` request to the underlying SDK
    * session.
    *
-   * Phase 12.2 supports the full 4-mode taxonomy (PLAN D9 at
-   * `PLAN.md:85-106`):
+   * Phase 12.2 supports the full 4-mode ACP taxonomy:
    *
    *  - `'default'` → `setPlanMode(false)` + `setPermission('manual')`
    *  - `'plan'`    → `setPlanMode(true)`  + `setPermission('manual')`
@@ -484,13 +483,13 @@ export class AcpSession {
    * {@link acpModeToToggles} so the registry of modes and the toggles
    * each mode maps to stay co-located.
    *
-   * Phase 14.3 (PLAN D11) emits the generic `config_option_update`
+   * Phase 14.3 emits the generic `config_option_update`
    * notification in place of Phase 12's `current_mode_update` — model
    * and mode pickers share the same notification channel now so a
    * client that listens for either change has exactly one subscription
    * point.
    *
-   * No idempotency optimisation (PLAN D9 line 105): even if the client
+   * No idempotency optimisation: even if the client
    * re-asserts the current mode, both SDK calls fire and a fresh
    * `config_option_update` notification is emitted.
    *

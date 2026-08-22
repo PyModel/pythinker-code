@@ -745,6 +745,7 @@ interface WireEventBase<T extends string, P> {
 type WireEventSessionCreated = WireEventBase<'event.session.created', { session: WireSession }>;
 type WireEventSessionUpdated = WireEventBase<'event.session.updated', { session: WireSession; changed_fields: string[] }>;
 type WireEventSessionDeleted = WireEventBase<'event.session.deleted', { session_id: string }>;
+type WireEventSessionArchived = WireEventBase<'event.session.archived', { workspace_id: string }>;
 type WireEventSessionWorkChanged = WireEventBase<'event.session.work_changed', {
   busy: boolean;
   main_turn_active?: boolean;
@@ -906,6 +907,7 @@ export type WireEvent =
   | WireEventSessionWorkChanged
   | WireEventSessionStatusChanged
   | WireEventSessionUsageUpdated
+  | WireEventSessionArchived
   | WireEventSessionHistoryCompacted
   // Workspace lifecycle
   | WireEventWorkspaceCreated

@@ -17,10 +17,15 @@ import { dirname, join } from 'node:path';
 
 function nodePtyRoot() {
   const require = createRequire(import.meta.url);
-  // Resolve from packages/services (where node-pty is declared) so we find the
-  // workspace's hoisted copy regardless of where this script runs.
+  // Resolve from the workspace packages that declare node-pty (agent-core-v2,
+  // apps/pythinker-code) so we find the hoisted copy regardless of where this
+  // script runs.
   const entry = require.resolve('node-pty', {
-    paths: [join(process.cwd(), 'packages/services'), process.cwd()],
+    paths: [
+      join(process.cwd(), 'packages/agent-core-v2'),
+      join(process.cwd(), 'apps/pythinker-code'),
+      process.cwd(),
+    ],
   });
   // .../node-pty/lib/index.js -> .../node-pty
   return dirname(dirname(entry));

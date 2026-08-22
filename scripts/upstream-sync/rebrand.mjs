@@ -50,6 +50,7 @@ const PROTECT = [
   'Kimi Platform',
   'Kimi Open Platform',
   'kimi-for-coding',
+  'cloudbase-kimi.zip',
   'kimi-k1',
   'kimi-k2',
   'kimi-k3',

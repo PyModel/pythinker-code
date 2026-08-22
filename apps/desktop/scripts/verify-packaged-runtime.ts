@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import type { AfterPackContext } from 'electron-builder'
 
 const REQUIRED_HOST_FILES = [
-  ['@pymodel', 'pythinker-code', 'dist', 'launcher.mjs'],
+  ['@pymodel', 'pythinker-code', 'dist', 'main.mjs'],
   ['@pymodel', 'pythinker-code', 'dist-web', 'index.html'],
 ] as const
 

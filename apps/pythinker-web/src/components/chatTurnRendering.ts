@@ -44,6 +44,42 @@ export function turnBlocks(turn: ChatTurn): TurnBlock[] {
   return blocks;
 }
 
+/** Parse an ISO timestamp to ms epoch; undefined when absent or invalid. */
+export function blockStartedMs(startedAt: string | undefined): number | undefined {
+  if (startedAt === undefined) return undefined;
+  const ms = Date.parse(startedAt);
+  return Number.isNaN(ms) ? undefined : ms;
+}
+
+/** A thinking block whose stream ended (durationMs frozen when the next part
+ *  started or the step/turn ended) is never the live tail — the run header
+ *  and fold must not keep shimmering "Thinking…" for it (reference parity:
+ *  the `durationMs !== void 0` guards in kn / jt / Pn / `_()`). */
+export function isSettledThinking(block: { kind?: string; durationMs?: number }): boolean {
+  return block.kind === 'thinking' && block.durationMs !== undefined;
+}
+
+/** Earliest thinking start across the turn's blocks (reference YRe) — seeds
+ *  the TurnFold live timer so "Worked Ns" measures from the first thought,
+ *  not the first visible text. */
+export function earliestThinkingMs(turn: ChatTurn): number | undefined {
+  let earliest: number | undefined;
+  for (const block of turnBlocks(turn)) {
+    if (block.kind === 'activity-run') {
+      for (const item of block.items) {
+        if (item.kind !== 'thinking') continue;
+        const ms = blockStartedMs(item.startedAt);
+        if (ms !== undefined && (earliest === undefined || ms < earliest)) earliest = ms;
+      }
+      continue;
+    }
+    if (block.kind !== 'thinking') continue;
+    const ms = blockStartedMs(block.startedAt);
+    if (ms !== undefined && (earliest === undefined || ms < earliest)) earliest = ms;
+  }
+  return earliest;
+}
+
 export type ToolStackPosition = 'single' | 'first' | 'middle' | 'last';
 
 export type ToolStackItem = {
@@ -55,11 +91,11 @@ export type ToolStackItem = {
  *  a tool card, each carrying its index in the turn's block list so stream
  *  markers can be pinned to the single live tail item. */
 export type RunItem =
-  | { kind: 'thinking'; thinking: string; sourceIndex: number }
+  | { kind: 'thinking'; thinking: string; startedAt?: string; durationMs?: number; sourceIndex: number }
   | { kind: 'tool'; tool: ToolStackItem['tool']; sourceIndex: number };
 
 export type AssistantRenderBlock =
-  | { kind: 'thinking'; thinking: string; sourceIndex: number }
+  | { kind: 'thinking'; thinking: string; startedAt?: string; durationMs?: number; sourceIndex: number }
   | { kind: 'text'; text: string; sourceIndex: number }
   | { kind: 'tool'; tool: ToolStackItem['tool']; sourceIndex: number }
   | { kind: 'tool-stack'; tools: ToolStackItem[] }
@@ -104,7 +140,7 @@ export function assistantRenderBlocks(turn: ChatTurn): AssistantRenderBlock[] {
   const flushRun = () => {
     const [item] = run;
     if (run.length === 1 && item) {
-      if (item.kind === 'thinking') rendered.push({ kind: 'thinking', thinking: item.thinking, sourceIndex: item.sourceIndex });
+      if (item.kind === 'thinking') rendered.push({ kind: 'thinking', thinking: item.thinking, startedAt: item.startedAt, durationMs: item.durationMs, sourceIndex: item.sourceIndex });
       else rendered.push({ kind: 'tool', tool: item.tool, sourceIndex: item.sourceIndex });
     } else if (run.length > 1) {
       rendered.push({ kind: 'activity-run', items: run });
@@ -114,7 +150,7 @@ export function assistantRenderBlocks(turn: ChatTurn): AssistantRenderBlock[] {
 
   blocks.forEach((block, sourceIndex) => {
     if (block.kind === 'thinking') {
-      run.push({ kind: 'thinking', thinking: block.thinking, sourceIndex });
+      run.push({ kind: 'thinking', thinking: block.thinking, startedAt: block.startedAt, durationMs: block.durationMs, sourceIndex });
       return;
     }
     if (block.kind === 'tool') {

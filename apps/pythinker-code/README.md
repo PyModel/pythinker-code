@@ -54,7 +54,6 @@ Take a look at this project and explain the main directories.
 ## Documentation
 
 - Full docs: https://code.pythinker.com/pythinker-code/en/
-- 中文文档: https://code.pythinker.com/pythinker-code/zh/
 - Getting Started: https://code.pythinker.com/pythinker-code/en/guides/getting-started
 
 ## Repository & Issues

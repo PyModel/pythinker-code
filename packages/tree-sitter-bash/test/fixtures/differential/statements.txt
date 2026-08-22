@@ -350,24 +350,24 @@ foo::bar() {
 @match: echo "a "
 echo "a "
 ===
-@match: echo 你好 && ls
-echo 你好 && ls
+@match: echo café && ls
+echo café && ls
 ===
 @match: echo "🎉 done" | grep 🎉 && echo ✓
 echo "🎉 done" | grep 🎉 && echo ✓
 ===
-@known-diff nonascii-identifier-assignment: 变量=值 echo $变量
-变量=值 echo $变量
+@known-diff nonascii-identifier-assignment: é=1 echo $é
+é=1 echo $é
 ---
 hasError: false
-program [0,13] "变量=值 echo $变量"
-  command [0,13] "变量=值 echo $变量"
-    command_name [0,4] "变量=值"
-      word [0,4] "变量=值"
-    word [5,9] "echo"
-    concatenation [10,13] "$变量"
-      ($) [10,11] "$"
-      word [11,13] "变量"
+program [0,11] "é=1 echo $é"
+  command [0,11] "é=1 echo $é"
+    command_name [0,3] "é=1"
+      word [0,3] "é=1"
+    word [4,8] "echo"
+    concatenation [9,11] "$é"
+      ($) [9,10] "$"
+      word [10,11] "é"
 ===
 @known-diff escaped-space-argument: echo a\<TAB>b
 echo a\	b

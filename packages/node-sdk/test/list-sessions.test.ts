@@ -572,7 +572,7 @@ describe('SDKRpcClientV2.listSessionsPage', () => {
 
 describe('SDKRpcClientV2 search-index separation', () => {
   // The global full-text search database (`<homeDir>/search-index`) belongs
-  // to the kap-server search surface. The TUI-side chain (rpc client →
+  // to the agent-gateway search surface. The TUI-side chain (rpc client →
   // klient → `ISessionIndex`) must list, resume and continue sessions without
   // ever opening it — including while the session read model is still
   // preparing.

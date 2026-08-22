@@ -2804,6 +2804,17 @@ export class PythinkerTUI {
     return entry.turnId === undefined || entry.turnId.startsWith('replay:');
   }
 
+  /**
+   * Fold-segment boundary: everything {@link isTurnBoundaryComponent} counts,
+   * plus the cron card. A cron-fired turn mounts no user message, so without
+   * the card as a boundary its output would share the previous user turn's
+   * fold segment - and the completed-turn assistant cap would fold that turn's
+   * final answer into the step summary.
+   */
+  private isFoldSegmentBoundaryComponent(child: Component): boolean {
+    return this.isTurnBoundaryComponent(child) || child instanceof CronMessageComponent;
+  }
+
   private trimTranscriptWindow(): boolean {
     if (!TRANSCRIPT_WINDOW_ENABLED || TRANSCRIPT_MAX_TURNS <= 0) return false;
     // Session replay already caps history to its own turn limit; trimming during
@@ -2908,7 +2919,7 @@ export class PythinkerTUI {
     // Find the start of the current turn (last turn-starting user message).
     let turnStart = -1;
     for (let i = children.length - 1; i >= 0; i--) {
-      if (this.isTurnBoundaryComponent(children[i]!)) {
+      if (this.isFoldSegmentBoundaryComponent(children[i]!)) {
         turnStart = i;
         break;
       }
@@ -2990,7 +3001,7 @@ export class PythinkerTUI {
 
     const boundaries: number[] = [];
     for (let i = 0; i < children.length; i++) {
-      if (this.isTurnBoundaryComponent(children[i]!)) boundaries.push(i);
+      if (this.isFoldSegmentBoundaryComponent(children[i]!)) boundaries.push(i);
     }
     if (boundaries.length === 0) return;
 
@@ -3425,19 +3436,24 @@ export class PythinkerTUI {
     const highlighted = this.state.appState.planMode || isBash || trimmed.startsWith('/');
     this.state.editor.borderHighlighted = highlighted;
     // Shell mode gets its own hue; plan-mode and slash context stay primary.
+    // Concrete effort levels tint the border as a heat ladder
+    // (off grey → low light grey → medium near-white → high blue →
+    // xhigh purple → max gold); boolean on keeps the default border.
     const effort = this.state.appState.thinkingEffort.toLowerCase();
     const effortToken: ColorToken | undefined =
-      effort === 'low'
-        ? 'effortLow'
-        : effort === 'medium'
-          ? 'effortMedium'
-          : effort === 'high'
-            ? 'effortHigh'
-            : effort === 'xhigh' || effort === 'extra-high'
-              ? 'effortXHigh'
-              : effort === 'max'
-                ? 'effortMax'
-                : undefined;
+      effort === 'off'
+        ? 'effortOff'
+        : effort === 'low'
+          ? 'effortLow'
+          : effort === 'medium'
+            ? 'effortMedium'
+            : effort === 'high'
+              ? 'effortHigh'
+              : effort === 'xhigh' || effort === 'extra-high'
+                ? 'effortXHigh'
+                : effort === 'max'
+                  ? 'effortMax'
+                  : undefined;
     const borderToken: ColorToken = isBash
       ? 'shellMode'
       : highlighted

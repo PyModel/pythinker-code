@@ -8,6 +8,7 @@ import ResizeHandle from './components/ResizeHandle.vue';
 import ConversationPane from './components/chat/ConversationPane.vue';
 import MediaLightbox from './components/MediaLightbox.vue';
 import FilePreview from './components/FilePreview.vue';
+import EditorPanel from './components/editor/EditorPanel.vue';
 import ThinkingPanel from './components/chat/ThinkingPanel.vue';
 import AgentDetailPanel from './components/chat/AgentDetailPanel.vue';
 import ToolDiffPanel from './components/chat/ToolDiffPanel.vue';
@@ -38,6 +39,11 @@ import { useAuthGate } from './composables/useAuthGate';
 import { usePageTitle } from './composables/usePageTitle';
 import { useSidebarLayout } from './composables/useSidebarLayout';
 import { resolveMediaUrl, useFilePreview, type DetailTarget } from './composables/useFilePreview';
+import {
+  closeFileEditor,
+  installEditorSessionSource,
+  openFileEditor,
+} from './composables/useWorkspaceEditor';
 import type { TurnFileChange } from './lib/turnFiles';
 import { useDetailPanel } from './composables/useDetailPanel';
 import { useIsMobile } from './composables/useIsMobile';
@@ -46,7 +52,7 @@ import type { DynamicWorkflowMember } from './composables/dynamicWorkflowGroups'
 import ServerAuthDialog from './components/ServerAuthDialog.vue';
 import { initServerAuth, onAuthRequired } from './api/daemon/serverAuth';
 import type { AppConfig, ThinkingLevel } from './api/types';
-import { commitLevel, effectiveThinkingLevel, segmentsFor } from './lib/modelThinking';
+import { effortLabel, effectiveThinkingLevel } from './lib/modelThinking';
 import { stripSkillPrefix } from './lib/slashCommands';
 import { composeTitle } from './lib/sessionEmoji';
 import { getTurnInterruption } from './api/daemon/agentEventProjector';
@@ -171,6 +177,20 @@ const showServerAuth = computed(
   () => !client.dangerousBypassAuth.value && authRequired.value,
 );
 provide('resolveImage', client.resolveImageUrl);
+// Friendly model / thinking-effort labels for subagent surfaces (TasksPane,
+// SubagentGrid, AgentDetailPanel). The model resolver prefers the exact id —
+// model names can collide across providers — then falls back to the raw id
+// with any provider prefix stripped.
+provide('modelDisplay', (modelId: string | undefined): string | undefined => {
+  if (modelId === undefined || modelId.length === 0) return undefined;
+  const matched =
+    client.models.value.find((m) => m.id === modelId) ??
+    client.models.value.find((m) => m.model === modelId);
+  return matched?.displayName || matched?.model || (modelId.includes('/') ? modelId.split('/').pop()! : modelId);
+});
+provide('subagentEffort', (effort: string | undefined): string | undefined =>
+  effort !== undefined && effort.length > 0 && effort !== 'off' && effort !== 'on' ? effortLabel(effort) : undefined,
+);
 // Live dynamic_workflow member roster for the inline AgentDynamicWorkflow tool card. Sourced from the
 // AppTask store so the card shows each subagent's live phase; on refresh the
 // tasks are gone and the card falls back to the parsed tool result. Includes
@@ -237,21 +257,6 @@ const { showAuthGate, blinkAuthLogo } = useAuthGate({ client, authLogoRef });
 // intentionally excluded so the tab title stays stable. Prefixes an animated
 // spinner while the agent is running so activity is visible at a glance.
 usePageTitle({ running, showAuthGate });
-
-// The /thinking slash command has no popover anchor, so it steps to the next
-// segment for the active model (effort models cycle through their declared
-// levels; boolean models flip on/off; unsupported stays off).
-function nextThinkingLevel(current: ThinkingLevel | undefined): ThinkingLevel {
-  // Identity is the model id — display/model names can collide across providers.
-  const model = client.models.value.find((m) => m.id === client.status.value.modelId);
-  const segs = segmentsFor(model);
-  // No stored preference means the model default is in effect — cycle from
-  // there; a level the model doesn't declare (indexOf → -1) starts the cycle
-  // at the first segment.
-  const idx = segs.indexOf(effectiveThinkingLevel(model, current));
-  const next = segs[(idx + 1) % segs.length] ?? segs[0] ?? 'off';
-  return commitLevel(model, next);
-}
 
 // Status panel (/status) renders current client state only — show the
 // effective thinking level so "no preference" reads as the model default that
@@ -387,6 +392,21 @@ const {
   openPreviewInEditor,
   revealPreviewFile,
 } = useFilePreview({ client, detailTarget });
+
+installEditorSessionSource(() => client.activeSessionId.value);
+
+function handleOpenInEditor(path: string): void {
+  detailTarget.value = 'editor';
+  void openFileEditor({ path, line: previewTarget.value?.line });
+}
+
+function handleCloseEditor(): void {
+  if (detailTarget.value === 'editor') detailTarget.value = null;
+}
+
+watch(detailTarget, (target, previous) => {
+  if (previous === 'editor' && target !== 'editor') closeFileEditor();
+});
 
 const lightboxMedia = ref<ToolMedia | null>(null);
 const lightboxSrc = ref<string | null>(null);
@@ -744,16 +764,6 @@ function handleCommand(cmd: string): void {
       break;
     case '/plan':
       client.togglePlanMode();
-      break;
-    case '/auto':
-      client.setPermission('auto');
-      break;
-    case '/yolo':
-      client.setPermission('yolo');
-      break;
-    case '/thinking':
-      // No popover anchor from a slash command — step to the next level.
-      client.setThinking(nextThinkingLevel(client.thinking.value));
       break;
     case '/status':
       showStatusPanel.value = true;
@@ -1144,18 +1154,15 @@ function openPr(url: string): void {
       @continue-turn="handleContinueTurn"
     />
 
-    <!-- Sidebar toggle — floating only when the in-header control can't serve:
-         on macOS desktop it's RESIDENT (always rendered beside the traffic
-         lights, the sidebar slides underneath and only the glyph swaps, so it
-         never moves or flashes); on Windows/web the collapse button lives
-         inside the sidebar header, so this floating button only appears while
-         COLLAPSED (to re-expand the sidebar). It must come AFTER
-         ConversationPane in the DOM: Electron computes the window-drag region
-         in tree order (drag rects union, no-drag rects subtract), so a no-drag
-         element placed before the ChatHeader drag region would have its hole
-         painted back over — making the button an inert drag area. -->
+    <!-- Sidebar toggle — floating only while the sidebar is COLLAPSED on
+         every platform: the in-header collapse button serves the expanded
+         state. It must come AFTER ConversationPane in the DOM: Electron
+         computes the window-drag region in tree order (drag rects union,
+         no-drag rects subtract), so a no-drag element placed before the
+         ChatHeader drag region would have its hole painted back over —
+         making the button an inert drag area. -->
     <IconButton
-      v-if="!isMobile && (isMacosDesktop || sidebarCollapsed)"
+      v-if="!isMobile && sidebarCollapsed"
       class="sidebar-toggle-btn"
       size="sm"
       :label="sidebarCollapsed ? t('sidebar.expandSidebar') : t('sidebar.collapseSidebar')"
@@ -1259,6 +1266,10 @@ function openPr(url: string): void {
         @open-file="openFilePreview($event)"
         @close="closeTurnDiff"
       />
+      <EditorPanel
+        v-else-if="detailTarget === 'editor'"
+        @close="handleCloseEditor"
+      />
       <FilePreview
         v-else-if="detailTarget === 'file'"
         :file="previewFile"
@@ -1268,10 +1279,12 @@ function openPr(url: string): void {
         :download-url="previewDownloadUrl"
         closable
         :external-actions="previewExternalActions"
+        :editable="client.fsWriteSupported.value && client.activeSessionId.value !== null"
         :open-file="openFilePreview"
         @close="closeFilePreview"
         @open-external="openPreviewInEditor"
         @reveal="revealPreviewFile"
+        @open-editor="handleOpenInEditor($event)"
       />
     </aside>
 
@@ -1592,9 +1605,10 @@ function openPr(url: string): void {
   /* Floats over the macOS-desktop window-drag header; keep it clickable. */
   -webkit-app-region: no-drag;
 }
-/* macOS desktop (hidden title bar): resident beside the floating traffic
-   lights (green light's right edge ≈ 68px; 72 keeps a gap that matches the
-   lights' own 8px rhythm); no entrance animation since it never appears. */
+/* macOS desktop (hidden title bar): the collapsed state floats the button
+   beside the traffic lights (green light's right edge ≈ 68px; 72 keeps a gap
+   that matches the lights' own 8px rhythm); no entrance animation since the
+   drag-region union is recomputed anyway. */
 .app.macos-desktop .sidebar-toggle-btn {
   left: 72px;
   animation: none;

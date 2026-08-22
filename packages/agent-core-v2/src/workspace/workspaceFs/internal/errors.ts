@@ -8,6 +8,7 @@ export const FsErrors = {
     FS_IS_DIRECTORY: 'fs.is_directory',
     FS_IS_BINARY: 'fs.is_binary',
     FS_TOO_LARGE: 'fs.too_large',
+    FS_CONFLICT: 'fs.conflict',
     FS_ALREADY_EXISTS: 'fs.already_exists',
     FS_TOO_MANY_RESULTS: 'fs.too_many_results',
     FS_GREP_TIMEOUT: 'fs.grep_timeout',
