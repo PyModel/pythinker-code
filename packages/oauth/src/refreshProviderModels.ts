@@ -4,6 +4,13 @@ import {
   removeCustomRegistryProvider,
   type CustomRegistrySource,
 } from './custom-registry';
+import { mergeRefreshedModelAlias } from './model-alias-merge';
+import {
+  fetchModelsDevCatalog,
+  MODELS_DEV_MODEL_FIELDS,
+  parseModelsDevSource,
+  modelsDevProviderAliases,
+} from './models-dev-catalog';
 import {
   applyManagedApiKeyProviderModels,
   applyManagedPythinkerCodeConfig,
@@ -334,6 +341,30 @@ function clearDefaultThinkingWhenDefaultRemoved(
   }
 }
 
+/**
+ * Syncs one provider's aliases against upstream-generated ones: prefixed
+ * aliases are upstream-owned (gone from upstream = deleted, new = added,
+ * retained = merged field-by-field so user tweaks on remote-owned fields
+ * lose to fresh metadata while everything else survives).
+ */
+function applyModelsDevAliases(
+  config: ManagedPythinkerConfigShape,
+  providerId: string,
+  aliases: Record<string, ManagedPythinkerModelAlias>,
+): void {
+  const models = config.models ?? {};
+  const upstreamKeys = new Set(Object.keys(aliases));
+  for (const [key, raw] of Object.entries(models)) {
+    if ((raw as ManagedPythinkerModelAlias).provider === providerId && !upstreamKeys.has(key)) {
+      delete models[key];
+    }
+  }
+  for (const [key, alias] of Object.entries(aliases)) {
+    models[key] = mergeRefreshedModelAlias(models[key], alias, MODELS_DEV_MODEL_FIELDS);
+  }
+  config.models = models;
+}
+
 function pickDefaultModel(
   config: ManagedPythinkerConfigShape,
   providerId: string,
@@ -357,7 +388,7 @@ function pickDefaultModel(
 
 /**
  * Refresh remote model metadata for the configured providers and persist any
- * changes through the host. Handles four provider kinds, in order:
+ * changes through the host. Handles five provider kinds, in order:
  *
  *  1. Managed Pythinker Code (OAuth) — `GET /models` against the runtime endpoint.
  *  2. Open platforms (moonshot-cn, moonshot-ai, …) — platform catalog fetch.
@@ -616,7 +647,9 @@ export async function refreshProviderModels(
   }
 
   // ---------------------------------------------------------------------------
-  // 3. Custom Registry providers (grouped by URL, with API-key candidates)
+  // 3. Custom Registry providers (grouped by URL, with API-key candidates).
+  // Private registries only — models.dev directory providers are handled by
+  // branch 3.5 below, which never rewrites provider records nor adds siblings.
   // ---------------------------------------------------------------------------
   const customSources = new Map<
     string,
@@ -754,6 +787,109 @@ export async function refreshProviderModels(
     } catch (error) {
       const reportedIds = targetId !== undefined ? [targetId] : providerIds;
       for (const providerId of reportedIds) {
+        failed.push({
+          provider: providerId,
+          reason: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // 3.5. models.dev directory providers (`source.kind = 'modelsDev'`)
+  //
+  // Providers imported from the public models.dev catalog (CLI catalog flow
+  // and the server import route) carry this source blob. Deliberately unlike
+  // private api.json registries: entries are never auto-added as new providers
+  // (the directory lists hundreds), the stored provider record is never
+  // rewritten, no Authorization header is sent upstream, and an entry whose
+  // models are all unusable is reported as a failure instead of wiping local
+  // aliases. A provider id missing from the document means it disappeared
+  // upstream and is removed like branch 3 does.
+  // ---------------------------------------------------------------------------
+  const modelsDevGroups = new Map<string, string[]>();
+  for (const providerId of Object.keys(config.providers)) {
+    if (targetId !== undefined && targetId !== providerId) continue;
+    const provider = readProvider(config, providerId);
+    if (provider === undefined) continue;
+    const source = parseModelsDevSource(provider.source);
+    if (source === undefined) continue;
+    const group = modelsDevGroups.get(source.url);
+    if (group !== undefined) {
+      group.push(providerId);
+    } else {
+      modelsDevGroups.set(source.url, [providerId]);
+    }
+  }
+
+  for (const [url, providerIds] of modelsDevGroups) {
+    try {
+      const document = await fetchModelsDevCatalog(url, { userAgent: host.userAgent });
+      const next = structuredClone(config);
+      const providersToRemoveBeforeSet = new Set<string>();
+      const changedProviders: Array<{
+        readonly providerId: string;
+        readonly providerName: string;
+        readonly added: number;
+        readonly removed: number;
+      }> = [];
+      for (const providerId of providerIds) {
+        if (!Object.prototype.hasOwnProperty.call(document, providerId)) {
+          const oldIds = collectModelIdsForAliases(config, providerAliasKeys(config, providerId));
+          removeCustomRegistryProvider(next, providerId);
+          changedProviders.push({
+            providerId,
+            providerName: providerId,
+            added: 0,
+            removed: oldIds.size,
+          });
+          providersToRemoveBeforeSet.add(providerId);
+          continue;
+        }
+        const aliases = modelsDevProviderAliases(providerId, document[providerId]);
+        if (Object.keys(aliases).length === 0) {
+          failed.push({
+            provider: providerId,
+            reason: `models.dev entry ${providerId} lists no usable models`,
+          });
+          continue;
+        }
+        applyModelsDevAliases(next, providerId, aliases);
+        const refreshedAliasKeys = providerRefreshAliasKeys(config, next, providerId, `${providerId}/`);
+        restoreProviderAliases(
+          next,
+          preserveUserProviderAliases(config, providerId, refreshedAliasKeys),
+        );
+        if (providerModelsEqual(config, next, providerId, refreshedAliasKeys)) {
+          unchanged.push(providerId);
+          continue;
+        }
+        const { added, removed } = computeChanges(
+          collectModelIdsForAliases(config, refreshedAliasKeys),
+          collectModelIdsForAliases(next, refreshedAliasKeys),
+        );
+        changedProviders.push({ providerId, providerName: providerId, added, removed });
+        providersToRemoveBeforeSet.add(providerId);
+      }
+      if (changedProviders.length > 0) {
+        restoreDefaultSelection(next, config.defaultModel, config.thinking?.enabled);
+        clampDanglingDefault(next);
+        clearDefaultThinkingWhenDefaultRemoved(next, config.defaultModel);
+        for (const providerId of providersToRemoveBeforeSet) {
+          await host.removeProvider(providerId);
+        }
+        config = await host.setConfig({
+          providers: next.providers,
+          models: next.models,
+          defaultModel: next.defaultModel,
+          thinking: next.thinking,
+        });
+        for (const change of changedProviders) {
+          changed.push(change);
+        }
+      }
+    } catch (error) {
+      for (const providerId of providerIds) {
         failed.push({
           provider: providerId,
           reason: error instanceof Error ? error.message : String(error),

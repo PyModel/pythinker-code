@@ -45,6 +45,7 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
+    "@pymodel/kosong": "workspace:^",
     "proper-lockfile": "^4.1.2",
     "zod": "catalog:"
   },
