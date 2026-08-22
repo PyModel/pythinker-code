@@ -17,6 +17,7 @@ import {
 } from '@pymodel/pythinker-telemetry';
 
 import { CLI_USER_AGENT_PRODUCT, WEB_UI_MODE } from '#/constant/app';
+import { currentPythinkerProfile } from '#/utils/region';
 
 import { createPythinkerCodeHostIdentity } from './version';
 
@@ -57,6 +58,7 @@ export function initializeCliTelemetry(options: InitializeCliTelemetryOptions): 
     uiMode: options.uiMode,
     model: options.model ?? options.config.defaultModel,
     sessionId: options.sessionId,
+    endpoint: () => currentPythinkerProfile().telemetryEndpoint,
     getAccessToken: async () =>
       (await options.harness.auth.getCachedAccessToken(PYTHINKER_CODE_PROVIDER_NAME)) ?? null,
   });
@@ -105,6 +107,7 @@ export function initializeServerTelemetry(
     version: options.version,
     uiMode: WEB_UI_MODE,
     model: config.defaultModel,
+    endpoint: () => currentPythinkerProfile().telemetryEndpoint,
     getAccessToken: async () => (await auth.getCachedAccessToken(PYTHINKER_CODE_PROVIDER_NAME)) ?? null,
   });
 
@@ -119,11 +122,7 @@ function readServerTelemetryConfig(
   configPath: string,
 ): Pick<PythinkerConfig, 'telemetry' | 'defaultModel'> {
   try {
-    const { config, fileError } = loadRuntimeConfigSafe(configPath);
-    // A broken config fails the server on its own inside PythinkerCore; for
-    // telemetry just degrade to "enabled, no model" so we never block startup.
-    if (fileError !== undefined) return {};
-    return config;
+    return loadRuntimeConfigSafe(configPath).config;
   } catch {
     return {};
   }

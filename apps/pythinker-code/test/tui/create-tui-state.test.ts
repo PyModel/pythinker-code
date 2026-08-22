@@ -88,7 +88,31 @@ describe('createTUIState', () => {
     expect(state.activitySpinner).toBeNull();
   });
 
-  it('uses the main-screen renderer by default', () => {
+  it('uses the docked fullscreen renderer by default', () => {
+    const previous = process.env['PYTHINKER_CODE_TUI_FULL_SCREEN'];
+    delete process.env['PYTHINKER_CODE_TUI_FULL_SCREEN'];
+    try {
+      const state = createTUIState({
+        initialAppState: fakeInitialAppState(),
+        startup: {
+          continueLast: false,
+          yolo: false,
+          auto: false,
+          plan: false,
+        },
+      });
+
+      expect(state.ui).toBeInstanceOf(TuiAltScreen);
+      expect(state.ui.mode).toBe('fullscreen');
+      expect(state.dockContainer).toBeDefined();
+    } finally {
+      if (previous === undefined) delete process.env['PYTHINKER_CODE_TUI_FULL_SCREEN'];
+      else process.env['PYTHINKER_CODE_TUI_FULL_SCREEN'] = previous;
+    }
+  });
+
+  it('uses the main-screen renderer when fullscreen is disabled', () => {
+    vi.stubEnv('PYTHINKER_CODE_TUI_FULL_SCREEN', '0');
     const state = createTUIState({
       initialAppState: fakeInitialAppState(),
       startup: {
@@ -98,6 +122,8 @@ describe('createTUIState', () => {
         plan: false,
       },
     });
+
+    vi.unstubAllEnvs();
 
     expect(state.ui).toBeInstanceOf(TuiMainScreen);
     expect(state.ui.mode).toBe('regular');

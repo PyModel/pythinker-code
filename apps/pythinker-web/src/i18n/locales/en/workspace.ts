@@ -13,7 +13,8 @@ export default {
   deleteHasSessions: 'This workspace still has sessions — archive them before deleting it',
   // Secondary confirmation (modal)
   removeWorkspaceConfirm: 'Remove workspace "{name}"?',
-  dynamicWorkflowEnableConfirm: 'Enable dynamic_workflow mode? The agent will run multiple sub-agents in parallel.',
+  dynamicWorkflowEnableTitle: 'Enable workflow mode?',
+  dynamicWorkflowEnableConfirm: 'The agent will run multiple sub-agents in parallel.',
   goalStartConfirm: 'Start goal: "{objective}"? The agent will run autonomously toward it.',
   // Column-header scope toggle
   scopeCurrent: 'this workspace',

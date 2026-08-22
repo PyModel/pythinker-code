@@ -53,6 +53,12 @@ export const PYTHINKER_CODE_UPDATE_INSTALL_STATE_FILE_NAME = 'install.json';
 export const PYTHINKER_CODE_UPDATE_INSTALL_LOCK_FILE_NAME = 'install.lock';
 export const PYTHINKER_CODE_UPDATE_ROLLOUT_LOG_FILE_NAME = 'rollout.log';
 export const PYTHINKER_CODE_PLUGIN_UPDATE_NOTICE_STATE_FILE_NAME = 'plugin-notices.json';
+// Native staged update: the staged binary + metadata live next to the running
+// executable (`<exe dir>/.staging/`); the re-exec guard env breaks the
+// swap → re-exec → swap loop.
+export const PYTHINKER_CODE_NATIVE_STAGING_DIR_NAME = '.staging';
+export const PYTHINKER_CODE_NATIVE_STAGED_STATE_FILE_NAME = 'staged.json';
+export const PYTHINKER_CODE_UPDATE_REEXEC_ENV = 'PYTHINKER_CODE_UPDATE_REEXEC';
 export const PYTHINKER_CODE_INPUT_HISTORY_DIR_NAME = 'user-history';
 export const PYTHINKER_CODE_BANNER_DIR_NAME = 'banner';
 export const PYTHINKER_CODE_BANNER_STATE_FILE_NAME = 'state.json';
@@ -66,9 +72,6 @@ export const DEFAULT_OAUTH_PROVIDER_NAME = 'managed:pythinker-code';
 export const OAUTH_LOGIN_REQUIRED_CODE = ErrorCodes.AUTH_LOGIN_REQUIRED;
 
 export const FEEDBACK_ISSUE_URL = 'https://github.com/PyModel/pythinker-code/issues';
-// Sign-up / sign-in page offered to signed-out users so they can create an
-// account and submit feedback through the authenticated channel next time.
-export const PYTHINKER_CODE_SIGNUP_URL = 'https://www.kimi.com/code';
 
 // Sent in the feedback `version` field so the backend can distinguish this
 // TypeScript client from clients that send a bare version.
@@ -77,31 +80,13 @@ export const FEEDBACK_VERSION_PREFIX = 'pythinker-code-';
 // Telemetry event name; keep stable for dashboard queries.
 export const FEEDBACK_TELEMETRY_EVENT = 'feedback_submitted';
 
-// CDN source of truth: all version checks and native install scripts pull from here.
-export const PYTHINKER_CODE_CDN_BASE = 'https://code.kimi.com/pythinker-code';
-export const PYTHINKER_CODE_CDN_LATEST_URL = `${PYTHINKER_CODE_CDN_BASE}/latest`;
-// Rollout manifest consumed by update checks; the plain-text `/latest` above
-// stays unchanged forever — already-shipped clients hard-fail on non-semver
-// bodies, and the CDN install scripts read it for fresh installs.
-export const PYTHINKER_CODE_CDN_LATEST_JSON_URL = `${PYTHINKER_CODE_CDN_BASE}/latest.json`;
-export const PYTHINKER_CODE_TIPS_BANNER_URL = 'https://cdn.kimi.com/pythinker-code-tips/tips.json';
 // The marketplace catalog location constants live in the shared
-// agent-core-v2 plugin domain (kap-server consumes them from there).
+// agent-core-v2 plugin domain (agent-gateway consumes them from there).
 // Deep-path import: this module is evaluated on every CLI invocation, so it
 // must not pull in the engine root.
 export {
-  PYTHINKER_CODE_PLUGIN_MARKETPLACE_URL,
   PYTHINKER_CODE_PLUGIN_MARKETPLACE_URL_ENV,
 } from '@pymodel/agent-core-v2/app/plugin/marketplace';
 // Official plugins whose usage bills against the user's plan quota. Installing
 // one of these shows a quota note after the install result.
 export const QUOTA_CONSUMING_PLUGIN_IDS: readonly string[] = ['pythinker-datasource'];
-export const PYTHINKER_CODE_INSTALL_SH_URL = `${PYTHINKER_CODE_CDN_BASE}/install.sh`;
-export const PYTHINKER_CODE_INSTALL_PS1_URL = `${PYTHINKER_CODE_CDN_BASE}/install.ps1`;
-// Official download page, referenced by prompt copy that steers users away
-// from third-party install sources.
-export const PYTHINKER_CODE_OFFICIAL_INSTALL_URL = 'https://www.kimi.com/code';
-
-// Native install commands, split by platform. Use these for prompt copy and spawn calls only; do not assemble the strings elsewhere.
-export const NATIVE_INSTALL_COMMAND_UNIX = `curl -fsSL ${PYTHINKER_CODE_INSTALL_SH_URL} | bash`;
-export const NATIVE_INSTALL_COMMAND_WIN = `irm ${PYTHINKER_CODE_INSTALL_PS1_URL} | iex`;

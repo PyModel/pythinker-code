@@ -40,7 +40,7 @@ export class ConfigState {
   private _systemPrompt: string = '';
 
   constructor(protected readonly agent: Agent) {
-    this._cwd = agent.kaos.getcwd();
+    this._cwd = agent.pyaos.getcwd();
     this._modelAlias = agent.modelProvider?.defaultModel;
   }
 
@@ -108,7 +108,7 @@ export class ConfigState {
     }
     if (changed.cwd) {
       this._cwd = changed.cwd;
-      this.agent.setKaos(this.agent.kaos.withCwd(changed.cwd));
+      this.agent.setPyaos(this.agent.pyaos.withCwd(changed.cwd));
     }
     if (changed.modelAlias) {
       this._modelAlias = changed.modelAlias;

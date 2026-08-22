@@ -5,8 +5,6 @@ import { fileURLToPath } from 'node:url';
 
 import { gt, valid } from 'semver';
 
-export const PYTHINKER_CODE_PLUGIN_MARKETPLACE_URL =
-  'https://code.kimi.com/pythinker-code/plugins/marketplace.json';
 export const PYTHINKER_CODE_PLUGIN_MARKETPLACE_URL_ENV = 'PYTHINKER_CODE_PLUGIN_MARKETPLACE_URL';
 
 export const PLUGIN_MARKETPLACE_TIERS = ['official', 'curated'] as const;

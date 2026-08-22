@@ -11,6 +11,7 @@ export const STORAGE_KEYS = {
   permission: 'pythinker-web.permission',
   activeWorkspace: 'pythinker-active-workspace',
   planMode: 'pythinker-web.plan-mode',
+  planArmed: 'pythinker-web.plan-armed',
   dynamicWorkflowMode: 'pythinker-web.dynamic-workflow-mode',
   goalMode: 'pythinker-web.goal-mode',
   uiFontSize: 'pythinker-web.ui-font-size',
@@ -24,6 +25,9 @@ export const STORAGE_KEYS = {
   workspaceOrder: 'pythinker-web.workspace-order',
   workspaceNameOverrides: 'pythinker-web.workspace-name-overrides',
   workspaceSort: 'pythinker-web.workspace-sort',
+  pinnedSessions: 'pythinker-web.pinned-sessions',
+  pinnedCollapsed: 'pythinker-web.pinned-collapsed',
+  recentEmojis: 'pythinker-web.recent-emojis',
   // Conversation outline (TOC). The value keeps the legacy `beta-toc` name so
   // users who explicitly turned it off while it was experimental keep their
   // preference after it became on-by-default.

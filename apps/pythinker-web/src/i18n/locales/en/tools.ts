@@ -13,28 +13,43 @@ export default {
     task: 'Task',
     dynamic_workflow: 'DynamicWorkflow',
     ask_user: 'Question',
+    plan: 'Plan',
     goal_create: 'Start Goal',
     goal_get: 'Read Goal',
     goal_budget: 'Set Goal Budget',
     goal_update: 'Update Goal',
+    waitfor: 'Wait',
   },
   dynamic_workflow: {
     progress: '{done} / {total}',
     runningSub: '{count} in progress',
     doneSub: '{completed} completed · {failed} failed',
+    doneSubWithCancelled: '{completed} completed · {failed} failed · {cancelled} cancelled',
     phaseQueued: 'Queued',
     phaseWorking: 'Working',
     phaseSuspended: 'Suspended',
     phaseCompleted: 'Completed',
     phaseFailed: 'Failed',
+    phaseCancelled: 'Cancelled',
     waiting: 'Waiting for subagents…',
+    openAgent: 'Open agent detail',
   },
   chip: {
     lines: '{count} lines',
     results: '{count} results',
+    files: '{count} files',
     edited: 'edited',
     created: 'created',
     todos: '{count} items',
+  },
+  disclosure: {
+    expand: 'Expand details',
+    collapse: 'Collapse details',
+  },
+  output: {
+    waiting: 'Waiting for output…',
+    empty: 'No output',
+    saved: 'Saved result',
   },
   goal: {
     objectiveWithCriterion: '{objective} · {criterion}',
@@ -46,6 +61,20 @@ export default {
     seconds: '{value} sec',
     minutes: '{value} min',
     hours: '{value} hr',
+  },
+  plan: {
+    selectedOption: 'Selected option',
+    feedback: 'Feedback',
+    pathOnlyHint: 'The plan was saved to:',
+    review: {
+      pending: 'Pending review',
+      approved: 'Approved',
+      rejected: 'Rejected',
+      cancelled: 'Cancelled',
+    },
+  },
+  summary: {
+    inScope: '{value} in {scope}',
   },
   group: {
     title: '{count} tool call | {count} tool calls',
@@ -59,5 +88,27 @@ export default {
     answers: '{count} answers',
     answered: 'Answered',
     more: '(+{count} more)',
+  },
+  // -- waitfor tool card (T1a) --
+  waitfor: {
+    waitingAny: 'Waiting for any background task',
+    waitingTask: 'Waiting for {id}',
+    noTasks: 'No background tasks running',
+    timedOut: 'Timed out',
+    stillRunning: '{count} still running',
+    moreFinished: '+{count} finished during wait',
+    moreRunning: '+{count} more',
+    status: {
+      completed: 'completed',
+      failed: 'failed',
+      timed_out: 'timed out',
+      killed: 'killed',
+      lost: 'lost',
+    },
+  },
+  // -- agent tool run-mode chip (T1b) --
+  agent: {
+    foreground: 'Foreground',
+    background: 'Background',
   },
 } as const;

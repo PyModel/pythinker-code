@@ -36,6 +36,8 @@ export function resolveOutputFormat(
 
 export interface CLIOptions {
   session: string | undefined;
+  /** Set when --session and the hidden --resume alias are both supplied. */
+  sessionSelectorConflict?: boolean;
   continue: boolean;
   yolo: boolean;
   auto: boolean;
@@ -65,6 +67,9 @@ export function validateOptions(
   opts: CLIOptions,
   env: Readonly<Record<string, string | undefined>> = process.env,
 ): ValidatedOptions {
+  if (opts.sessionSelectorConflict === true) {
+    throw new OptionConflictError('Cannot combine --session with --resume.');
+  }
   const prompt = opts.prompt;
   const promptMode = prompt !== undefined;
   if (promptMode && prompt.trim().length === 0) {

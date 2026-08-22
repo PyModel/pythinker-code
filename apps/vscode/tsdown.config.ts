@@ -33,7 +33,7 @@ export default defineConfig({
   alias: {
     '@pymodel/pythinker-code-sdk': resolve(root, '../../packages/node-sdk/src/index.ts'),
     '@pymodel/agent-core': resolve(root, '../../packages/agent-core/src/index.ts'),
-    '@pymodel/kaos': resolve(root, '../../packages/kaos/src/index.ts'),
+    '@pymodel/pyaos': resolve(root, '../../packages/pyaos/src/index.ts'),
     '@pymodel/pythinker-code-oauth': resolve(root, '../../packages/oauth/src/index.ts'),
     '@pymodel/kosong': resolve(root, '../../packages/kosong/src/index.ts'),
   },

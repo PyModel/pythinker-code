@@ -414,7 +414,7 @@ describe('CronListTool', () => {
     // Inner content is JSON-stringified; strip the outer quotes and
     // the trailing `…(truncated)` marker, then verify the remainder
     // parses back to a run of `\u4F60` chars with no fractional sequence.
-    const stripped = rendered.replace(/^"|…\(truncated\)"$/g, '');
+    const stripped = rendered.replaceAll(/^"|…\(truncated\)"$/g, '');
     expect(stripped.length).toBeGreaterThan(0);
     for (const ch of stripped) expect(ch).toBe('\u4F60');
   });

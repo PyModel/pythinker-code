@@ -16,6 +16,7 @@ import { Readable, Writable } from 'node:stream';
 import { ndJsonStream, type AgentConnection, type Stream } from '@agentclientprotocol/sdk';
 import {
   bootstrap,
+  drainLogCloses,
   drainQueryStoreDisposals,
   drainSessionIndexMirror,
   drainSessionMetadataWrites,
@@ -165,7 +166,7 @@ export async function runAcpServerWithStream(
       await acpRuntimeProvider.unbindSession(workspaceId, sessionId);
     },
     // Prompt-image compression persists originals into the session's own
-    // media-originals dir (same resolution as kap-server's prompt route):
+    // media-originals dir (same resolution as agent-gateway's prompt route):
     // live session scope → `ISessionContext.sessionDir`. A session that is
     // not live in this process yields undefined → temp-dir fallback.
     resolveOriginalsDir: (sessionId) => {
@@ -186,12 +187,13 @@ export async function runAcpServerWithStream(
       // Flush the append-log write-behind before disposing, so a clean shutdown
       // never races a pending drain against teardown (and doesn't drop the last
       // persisted ops). Best-effort: a flush failure must not block disposal.
+      const appendLogStore = core.accessor.get(IAppendLogStore);
       try {
-        await core.accessor.get(IAppendLogStore).flush();
+        await appendLogStore.flush();
       } catch {
         // ignore — disposal proceeds regardless
       }
-      // Same shutdown order as kap-server: settle queued session-metadata
+      // Same shutdown order as agent-gateway: settle queued session-metadata
       // writes, then drain the session-index mirror while the query store is
       // still open, so a queued summary lands in the read model.
       await drainSessionMetadataWrites();
@@ -201,10 +203,13 @@ export async function runAcpServerWithStream(
       // `core.dispose()` runs the mirror's and the query store's synchronous
       // `dispose()`, whose drains/closes are asynchronous — await them so an
       // embedding host that removes homeDir right after close() never races
-      // an in-flight shard close (ENOTEMPTY on teardown).
+      // an in-flight shard close (ENOTEMPTY on teardown). The same window
+      // exists for the append-log retirement flushes released by disposal.
+      await appendLogStore.drainRetirements();
       await drainSessionIndexMirror();
       await drainQueryStoreDisposals();
       await drainSessionMetadataWrites();
+      await drainLogCloses();
     })();
     return closePromise;
   };

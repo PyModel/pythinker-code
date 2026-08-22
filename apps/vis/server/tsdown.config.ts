@@ -5,5 +5,5 @@ export default defineConfig({
   format: ['esm'],
   outDir: 'dist',
   clean: true,
-  external: ['@pymodel/agent-core', '@pymodel/kosong', '@pymodel/kaos'],
+  external: ['@pymodel/agent-core', '@pymodel/kosong', '@pymodel/pyaos'],
 });

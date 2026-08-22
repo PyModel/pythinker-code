@@ -1,4 +1,4 @@
-import type { KaosProcess } from '@pymodel/kaos';
+import type { PyaosProcess } from '@pymodel/pyaos';
 import type { Readable } from 'node:stream';
 
 import { errorMessage } from '../../loop/errors';
@@ -31,7 +31,7 @@ export class ProcessBackgroundTask implements BackgroundTask {
   private exitCode: number | null = null;
 
   constructor(
-    readonly proc: KaosProcess,
+    readonly proc: PyaosProcess,
     readonly command: string,
     readonly description: string,
     private readonly onOutput?: ProcessBackgroundTaskOutputCallback,

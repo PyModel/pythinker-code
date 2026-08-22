@@ -36,6 +36,22 @@ export PYTHINKER_DISABLE_TELEMETRY=1
 
 Switch models temporarily without modifying `config.toml` — when `PYTHINKER_MODEL_NAME` is set, the CLI synthesizes a temporary provider in memory; the change does not persist after restart. See [Define a model from environment variables](#define-a-model-from-environment-variables-pythinker-model).
 
+### `PYTHINKER_CODE_CUSTOM_HEADERS`
+
+Attaches custom HTTP headers to every outbound model request — both LLM chat requests (across all provider protocols) and `/models` listing requests. Useful when a gateway routes by header, for example to pin a specific cluster:
+
+```sh
+export PYTHINKER_CODE_CUSTOM_HEADERS=$'X-Gateway-Cluster: my-cluster\nX-Custom-Tag: debug'
+```
+
+The format mirrors `ANTHROPIC_CUSTOM_HEADERS`: newline-separated `Name: Value` lines. Names and values are trimmed, and lines without a colon are ignored.
+
+::: info Added
+Added in 0.20.2.
+:::
+
+> Precedence: the Pythinker identity headers (`User-Agent`, `X-Msh-*`) and a provider's `custom_headers` in `config.toml` (see [Config files](./config-files.md#providers)) override same-named entries here. Authentication is protocol-dependent: on the `pythinker`, `openai`, and `openai_responses` protocols an exact `Authorization` entry replaces the generated bearer token, while `/models` listing requests keep their own authentication. A case variant such as `authorization` is never treated as the same name — it is combined with the real header, which can break requests. Do not use this variable for authentication or other reserved headers. Use `custom_headers` when headers need to differ per provider.
+
 ## Provider credential key names (written in config.toml)
 
 The key names below are not read directly from the shell — they are key names written inside the `[providers.<name>.env]` sub-table of `config.toml`, serving as fallback values for `api_key` / `base_url`. The CLI reads only from the config file, not from `process.env`.
@@ -80,7 +96,7 @@ This group of variables redirects OAuth authentication and managed service endpo
 | `PYTHINKER_CODE_BASE_URL` | Managed API base URL used after OAuth login | `https://api.kimi.com/coding/v1` |
 
 ::: warning
-`PYTHINKER_CODE_BASE_URL` (OAuth-managed service, targeting `kimi.com`) and `PYTHINKER_BASE_URL` (direct API key connection, targeting `pymodel.ai`) are two distinct variables. Use each one in its appropriate context.
+`PYTHINKER_CODE_BASE_URL` (OAuth-managed service) and `PYTHINKER_BASE_URL` (direct API key connection to `pymodel.ai`) are two distinct variables. Use each one in its appropriate context.
 :::
 
 ## Define a model from environment variables (`PYTHINKER_MODEL_*`)
@@ -126,14 +142,15 @@ Switches that control the behavior of subsystems such as telemetry, background t
 | `PYTHINKER_CODE_BACKGROUND_MAX_RUNNING_TASKS` | Cap on concurrently running background tasks; takes higher priority than `[background] max_running_tasks` in `config.toml` (unset means no cap) | Positive integer; invalid values are ignored |
 | `PYTHINKER_IMAGE_MAX_EDGE_PX` | Longest-edge ceiling (px) for image compression; takes higher priority than `[image] max_edge_px` in `config.toml` (default `2000`) | Positive integer; invalid values are ignored |
 | `PYTHINKER_IMAGE_READ_BYTE_BUDGET` | Per-image byte budget for model-initiated image reads (`ReadMediaFile` default reads); takes higher priority than `[image] read_byte_budget` in `config.toml` (default `262144`, i.e. 256 KB) | Positive integer; invalid values are ignored |
-| `PYTHINKER_CODE_PLUGIN_MARKETPLACE_URL` | Override the plugin marketplace JSON loaded by `/plugins`; useful for dev loopback servers, staging CDN files, or alternate marketplace directories | `https://code.kimi.com/pythinker-code/plugins/marketplace.json`; also accepts `http://`, `file://` URLs, and local paths |
+| `PYTHINKER_CODE_PLUGIN_MARKETPLACE_URL` | Override the plugin marketplace JSON loaded by `/plugins`; useful for dev loopback servers, staging CDN files, or alternate marketplace directories | Unset (no default catalog; unset means only built-in entries are shown); accepts `http://`, `file://` URLs, and local paths |
 | `PYTHINKER_CODE_AGENT_DYNAMIC_WORKFLOW_MAX_CONCURRENCY` | Cap how many AgentDynamicWorkflow subagents run concurrently during the initial ramp; leave unset for no cap | Positive integer; invalid values fail fast |
 | `PYTHINKER_SUBAGENT_TIMEOUT_MS` | Maximum wall-clock time (ms) a single subagent (`Agent` / `AgentDynamicWorkflow`) may run; takes higher priority than `[subagent] timeout_ms` in `config.toml` (default `7200000`, i.e. 2 hours) | Positive integer; invalid values fall back to the config or default |
 | `PYTHINKER_CODE_IDENTITY_NAME` | Display name the agent calls itself in the system prompt; takes higher priority than `[identity] name` in `config.toml` and is never written back to it | Any non-empty string; blank values read as unset |
 | `PYTHINKER_CODE_IDENTITY_SLUG` | Protocol identifier for the `User-Agent` product token sent to third-party providers and the MCP client name; takes higher priority than `[identity] slug`. Derived from the name when unset | Any non-empty string; normalized to lowercase with non-alphanumeric runs folded to `-` |
 | `PYTHINKER_CODE_BUILTIN_PRODUCT_SKILLS` | Whether the built-in skills documenting Pythinker Code itself are offered to the model; takes higher priority than `builtin_product_skills` in `config.toml` (default enabled) | Truthy: `1`/`true`/`yes`/`on`; falsy: `0`/`false`/`no`/`off` |
-| `PYTHINKER_CODE_TUI_FULL_SCREEN` | Enable the experimental fullscreen alternate-screen UI: scrollable transcript viewport, mouse text selection, clickable links, and Ctrl-Shift-F transcript search | `1` enables it; anything else keeps the regular inline UI |
+| `PYTHINKER_CODE_TUI_FULL_SCREEN` | Control the fullscreen TUI with a fixed prompt dock, scrollable transcript, mouse text selection, clickable links, transcript search, and a clickable jump-to-bottom control. Fullscreen is enabled by default | `0` restores the legacy inline UI; unset or any other value keeps fullscreen enabled |
 | `PYTHINKER_CODE_EXPERIMENTAL_SECONDARY_MODEL` | Enable the experimental [subagent model pool](./config-files.md#subagent-model-pool) in every launch mode, including the interactive TUI; the master `PYTHINKER_CODE_EXPERIMENTAL_FLAG=1` also enables it | Truthy: `1`/`true`/`yes`/`on`; falsy: `0`/`false`/`no`/`off` |
+| `PYTHINKER_CODE_EXPERIMENTAL_SUBAGENT_FORK` | Enable the experimental `fork` parameter on the `Agent` and `AgentDynamicWorkflow` tools, letting the model start a subagent with a snapshot of the calling agent's conversation history instead of an empty context; the master `PYTHINKER_CODE_EXPERIMENTAL_FLAG=1` also enables it | Truthy: `1`/`true`/`yes`/`on`; falsy: `0`/`false`/`no`/`off` |
 | `PYTHINKER_MCP_STARTUP_TIMEOUT_MS` | Global default connection timeout (ms) for all MCP servers; takes higher priority than `[mcp] startup_timeout_ms` in `config.toml`, but a per-server `startupTimeoutMs` in `mcp.json` still wins (default `30000`) | Integer from `1` to `2147483647`; invalid values are ignored |
 | `PYTHINKER_MCP_TOOL_TIMEOUT_MS` | Global default single tool-call timeout (ms) for all MCP servers; takes higher priority than `[mcp] tool_timeout_ms` in `config.toml`, but a per-server `toolTimeoutMs` in `mcp.json` still wins (default `60000`) | Integer from `1` to `2147483647`; invalid values are ignored |
 | `PYTHINKER_LOOP_MAX_STEPS_PER_TURN` | Maximum Agent steps per turn; takes higher priority than `[loop_control] max_steps_per_turn` in `config.toml` (unset or `0` means unlimited) | Non-negative integer; invalid values are ignored |

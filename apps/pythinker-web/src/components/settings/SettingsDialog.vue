@@ -6,22 +6,30 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { usePythinkerWebClient } from '../../composables/usePythinkerWebClient';
+import { getPythinkerWebApi } from '../../api';
 import type { AppConfig, AppModel, AppSession } from '../../api/types';
 import { useDialogFocus } from '../../composables/useDialogFocus';
+import { useConfirmDialog } from '../../composables/useConfirmDialog';
 import {
   uiFontScaleForSize,
   uiFontScaleOptions,
   uiFontSizeForScale,
 } from '../../composables/client/useAppearance';
-import { serverEndpointLabel } from '../../api/config';
+import { readPythinkerApiConfig } from '../../api/config';
 import { downloadTraceLog, isTraceEnabled } from '../../debug/trace';
+import { copyTextToClipboard } from '../../lib/clipboard';
 import type { Accent, ColorScheme } from '../../composables/usePythinkerWebClient';
 import Dialog from '../ui/Dialog.vue';
 import Switch from '../ui/Switch.vue';
 import Button from '../ui/Button.vue';
+import Icon from '../ui/Icon.vue';
+import IconButton from '../ui/IconButton.vue';
 import SegmentedControl from '../ui/SegmentedControl.vue';
 import Select from '../ui/Select.vue';
 import Tooltip from '../ui/Tooltip.vue';
+import type { IconName } from '../../lib/icons';
+import ProvidersPanel from './ProvidersPanel.vue';
+import SecondaryModelPicker from './SecondaryModelPicker.vue';
 
 const { t } = useI18n();
 
@@ -51,8 +59,9 @@ const props = defineProps<{
   configSaving?: boolean;
   /** Server version reported by GET /api/v1/meta. */
   serverVersion?: string;
-  /** Backend engine generation from GET /api/v1/meta ('v1' legacy, 'v2' kap-server). */
+  /** Backend engine generation from GET /api/v1/meta ('v1' legacy, 'v2' agent-gateway). */
   backend?: 'v1' | 'v2';
+  initialTab?: 'general' | 'providers';
 }>();
 
 const emit = defineEmits<{
@@ -64,31 +73,42 @@ const emit = defineEmits<{
   setNotifyApproval: [on: boolean];
   setSound: [on: boolean];
   setConversationToc: [on: boolean];
-  login: [];
   logout: [];
   openOnboarding: [];
-  openProviders: [];
   updateConfig: [patch: Partial<AppConfig>];
   close: [];
 }>();
 
-type SettingsTab = 'general' | 'agent' | 'account' | 'advanced' | 'archived';
+type SettingsTab = 'general' | 'agent' | 'account' | 'providers' | 'advanced' | 'lab' | 'archived';
 
-const activeTab = ref<SettingsTab>('general');
+const activeTab = ref<SettingsTab>(props.initialTab ?? 'general');
 const fontScale = computed(() => uiFontScaleForSize(props.uiFontSize));
 
-const tabs: { id: SettingsTab; labelKey: string }[] = [
-  { id: 'general', labelKey: 'settings.tabs.general' },
-  { id: 'agent', labelKey: 'settings.tabs.agent' },
-  { id: 'account', labelKey: 'settings.tabs.account' },
-  { id: 'advanced', labelKey: 'settings.tabs.advanced' },
-  { id: 'archived', labelKey: 'settings.tabs.archived' },
+const tabs: { id: SettingsTab; labelKey: string; icon: IconName }[] = [
+  { id: 'general', labelKey: 'settings.tabs.general', icon: 'sliders' },
+  { id: 'agent', labelKey: 'settings.tabs.agent', icon: 'robot' },
+  { id: 'account', labelKey: 'settings.tabs.account', icon: 'user' },
+  { id: 'providers', labelKey: 'settings.tabs.providers', icon: 'bolt' },
+  { id: 'advanced', labelKey: 'settings.tabs.advanced', icon: 'microscope' },
+  { id: 'lab', labelKey: 'settings.tabs.lab', icon: 'flask' },
+  { id: 'archived', labelKey: 'settings.tabs.archived', icon: 'archive' },
 ];
 
-const daemonEndpoint = serverEndpointLabel();
+const serverAddress = readPythinkerApiConfig().serverHttpUrl;
+const appVersion =
+  typeof __PYTHINKER_WEB_VERSION__ === 'string' && __PYTHINKER_WEB_VERSION__.trim()
+    ? __PYTHINKER_WEB_VERSION__
+    : '0.0.0-dev';
+const serverMeta = ref<{ serverVersion: string; serverId: string; backend: 'v1' | 'v2' } | null>(null);
+const resolvedServerVersion = computed(() => serverMeta.value?.serverVersion || props.serverVersion || '-');
+const resolvedBackend = computed(() => serverMeta.value?.backend ?? props.backend ?? 'v1');
 const backendLabel = computed(() =>
-  props.backend === 'v2' ? 'v2 (kap-server)' : 'v1 (server)',
+  resolvedBackend.value === 'v2' ? 'agent-gateway' : 'server',
 );
+const diagnosticsCopied = ref(false);
+const providerDirty = ref(false);
+const providerDiscardToken = ref(0);
+const { confirm, current: currentConfirm } = useConfirmDialog();
 const permissionModes = ['manual', 'yolo', 'auto'] as const;
 // Reuse the Composer's permission labels (status.permission*) so the
 // default-permission names stay in sync with the toolbar.
@@ -104,10 +124,24 @@ const dialogRef = ref<HTMLElement | null>(null);
 useDialogFocus(dialogRef);
 
 function handleKeydown(e: KeyboardEvent): void {
-  if (e.key === 'Escape') emit('close');
+  if (e.key === 'Escape' && currentConfirm.value === null) void requestClose();
 }
-onMounted(() => document.addEventListener('keydown', handleKeydown));
-onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
+onMounted(() => {
+  document.addEventListener('keydown', handleKeydown);
+  void loadServerMeta();
+});
+onUnmounted(() => {
+  document.removeEventListener('keydown', handleKeydown);
+  if (copyFlashTimer !== null) clearTimeout(copyFlashTimer);
+});
+
+async function loadServerMeta(): Promise<void> {
+  try {
+    serverMeta.value = await getPythinkerWebApi().getMeta();
+  } catch {
+    serverMeta.value = null;
+  }
+}
 
 function exportLog(): void {
   downloadTraceLog();
@@ -143,8 +177,8 @@ const modelGroups = computed<Array<{ provider: string; options: ModelOption[] }>
     list.push(option);
     map.set(option.provider, list);
   }
-  for (const list of map.values()) {
-    list.sort((a, b) => a.label.localeCompare(b.label));
+  for (const [provider, list] of map) {
+    map.set(provider, list.toSorted((a, b) => a.label.localeCompare(b.label)));
   }
   return Array.from(map.entries())
     .toSorted(([a], [b]) => a.localeCompare(b))
@@ -218,8 +252,102 @@ function toggleTelemetry(): void {
   emit('updateConfig', { telemetry: !enabled } as Partial<AppConfig>);
 }
 
-function setTab(tab: SettingsTab): void {
+async function setTab(tab: SettingsTab): Promise<void> {
+  if (tab === activeTab.value) return;
+  if (!(await confirmDiscardProviderChanges())) return;
   activeTab.value = tab;
+}
+
+async function confirmDiscardProviderChanges(): Promise<boolean> {
+  if (!providerDirty.value) return true;
+  const discard = await confirm({
+    title: t('providers.unsavedTitle'),
+    message: t('providers.unsavedBody'),
+    confirmLabel: t('providers.unsavedDiscard'),
+    cancelLabel: t('providers.unsavedStay'),
+    variant: 'danger',
+  });
+  if (discard) {
+    providerDirty.value = false;
+    providerDiscardToken.value += 1;
+  }
+  return discard;
+}
+
+async function requestClose(): Promise<void> {
+  if (await confirmDiscardProviderChanges()) emit('close');
+}
+
+function diagnosticsText(): string {
+  return [
+    `App version: ${appVersion}`,
+    `Server version: ${resolvedServerVersion.value}`,
+    `Backend: ${resolvedBackend.value}`,
+    `Server address: ${serverAddress}`,
+    `Server ID: ${serverMeta.value?.serverId || '-'}`,
+    `User agent: ${typeof navigator === 'undefined' ? '-' : navigator.userAgent}`,
+  ].join('\n');
+}
+
+async function copyDiagnostics(): Promise<void> {
+  diagnosticsCopied.value = await copyTextToClipboard(diagnosticsText());
+}
+
+// Per-value copy buttons in the advanced tab: flash the check state for 1.5s
+// after a successful copy (reference `copyServerVersion`/`copyServerAddress`).
+const serverVersionCopied = ref(false);
+const serverAddressCopied = ref(false);
+let copyFlashTimer: ReturnType<typeof setTimeout> | null = null;
+
+function scheduleCopyFlashReset(): void {
+  if (copyFlashTimer !== null) clearTimeout(copyFlashTimer);
+  copyFlashTimer = setTimeout(() => {
+    serverVersionCopied.value = false;
+    serverAddressCopied.value = false;
+    copyFlashTimer = null;
+  }, 1500);
+}
+
+async function copyServerVersion(): Promise<void> {
+  if (!(await copyTextToClipboard(resolvedServerVersion.value))) return;
+  serverVersionCopied.value = true;
+  scheduleCopyFlashReset();
+}
+
+async function copyServerAddress(): Promise<void> {
+  if (!(await copyTextToClipboard(serverAddress))) return;
+  serverAddressCopied.value = true;
+  scheduleCopyFlashReset();
+}
+
+// Secondary (subagent) model — the Agent tab section mirrors the reference:
+// it renders only while the daemon's `secondary-model` experimental flag is
+// on, and writes `config.secondaryModel` ({ model, defaultEffort }) through
+// the regular config update path (wire key `secondary_model`).
+const secondaryModelFlagEnabled = computed(() => experimentalFlag('secondary-model'));
+const secondaryModel = computed(() => props.config?.secondaryModel?.model ?? '');
+const secondaryModelEffort = computed(() => props.config?.secondaryModel?.defaultEffort ?? '');
+const modelInfoById = computed<Record<string, AppModel>>(() =>
+  Object.fromEntries((props.models ?? []).map((model) => [model.id, model])),
+);
+
+function experimentalFlag(flag: string): boolean {
+  return props.config?.experimental?.[flag] === true;
+}
+
+function toggleExperimental(flag: string, value: boolean): void {
+  const next = { ...props.config?.experimental, [flag]: value };
+  emit('updateConfig', { experimental: next } as Partial<AppConfig>);
+}
+
+function setSecondaryModel(selection: { model: string; effort?: string }): void {
+  const next = selection.effort
+    ? { model: selection.model, defaultEffort: selection.effort }
+    : { model: selection.model };
+  if (next.model === secondaryModel.value && (selection.effort ?? '') === secondaryModelEffort.value) {
+    return;
+  }
+  emit('updateConfig', { secondaryModel: next } as Partial<AppConfig>);
 }
 
 function setFontScale(scale: string): void {
@@ -280,7 +408,7 @@ watch(activeTab, (tab) => {
 const archiveWorkspaces = computed<string[]>(() => {
   const set = new Set<string>();
   for (const s of archivedItems.value) set.add(s.cwd);
-  return Array.from(set).sort((a, b) => a.localeCompare(b));
+  return Array.from(set).toSorted((a, b) => a.localeCompare(b));
 });
 
 const filteredArchived = computed<AppSession[]>(() => {
@@ -293,15 +421,13 @@ const filteredArchived = computed<AppSession[]>(() => {
     rows = rows.filter((s) => s.cwd === archiveWsFilter.value);
   }
   if (q) rows = rows.filter((s) => s.title.toLowerCase().includes(q));
-  rows = rows.slice();
   if (archiveSort.value === 'archived-desc') {
-    rows.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-  } else if (archiveSort.value === 'created-desc') {
-    rows.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-  } else {
-    rows.sort((a, b) => a.title.localeCompare(b.title, 'zh'));
+    return rows.toSorted((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   }
-  return rows;
+  if (archiveSort.value === 'created-desc') {
+    return rows.toSorted((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+  return rows.toSorted((a, b) => a.title.localeCompare(b.title, 'en'));
 });
 
 const groupedArchived = computed<{ cwd: string; items: AppSession[] }[]>(() => {
@@ -330,7 +456,7 @@ function archiveTime(iso: string): string {
 </script>
 
 <template>
-  <Dialog :open="true" :close-on-esc="false" :title="t('settings.title')" size="xl" height="fixed" :padded="false" @close="emit('close')">
+  <Dialog :open="true" :close-on-esc="false" :title="t('settings.title')" size="xl" height="fixed" :padded="false" @close="requestClose">
     <div ref="dialogRef" class="sd">
       <nav class="settings-tabs" role="tablist" :aria-label="t('settings.title')">
         <button
@@ -343,6 +469,7 @@ function archiveTime(iso: string): string {
           :class="{ on: activeTab === tb.id }"
           @click="setTab(tb.id)"
         >
+          <Icon :name="tb.icon" size="sm" />
           {{ t(tb.labelKey) }}
         </button>
       </nav>
@@ -460,9 +587,17 @@ function archiveTime(iso: string): string {
             </div>
             <div class="actions">
               <Button variant="secondary" size="sm" @click="emit('openOnboarding'); emit('close')">{{ t('onboarding.reopen') }}</Button>
-              <Button variant="primary" size="sm" @click="emit('login')">{{ t('settings.manageProviders') }}</Button>
+              <Button variant="primary" size="sm" @click="setTab('providers')">{{ t('settings.manageProviders') }}</Button>
             </div>
           </section>
+        </section>
+
+        <!-- Providers -->
+        <section v-show="activeTab === 'providers'" class="panel">
+          <ProvidersPanel
+            :discard-token="providerDiscardToken"
+            @dirty-change="providerDirty = $event"
+          />
         </section>
 
         <!-- Agent defaults -->
@@ -547,6 +682,26 @@ function archiveTime(iso: string): string {
                   @update:model-value="toggleConfigBoolean('mergeAllAvailableSkills')"
                 />
               </div>
+
+              <section v-if="secondaryModelFlagEnabled" class="sec">
+                <h3 class="sec-title">{{ t('settings.secondaryModelSection') }}</h3>
+                <div class="row">
+                  <span class="rlabel">
+                    {{ t('settings.secondaryModel') }}
+                    <span class="hint">{{ t('settings.secondaryModelHint') }}</span>
+                  </span>
+                  <SecondaryModelPicker
+                    v-if="modelGroups.length > 0"
+                    :model-value="secondaryModel"
+                    :effort="secondaryModelEffort"
+                    :groups="modelGroups"
+                    :model-info-by-id="modelInfoById"
+                    :disabled="configSaving"
+                    @select="setSecondaryModel"
+                  />
+                  <span v-else class="rvalue">{{ t('settings.noSecondaryModel') }}</span>
+                </div>
+              </section>
             </template>
 
             <div v-else class="empty-config">
@@ -555,22 +710,57 @@ function archiveTime(iso: string): string {
           </section>
         </section>
 
-        <!-- Advanced: diagnostics + data/privacy -->
+        <!-- Advanced: version, diagnostics + data/privacy -->
         <section v-show="activeTab === 'advanced'" class="panel">
           <section class="sec">
-            <h3 class="sec-title">{{ t('settings.advanced') }}</h3>
+            <h3 class="sec-title">{{ t('settings.versionAndUpdates') }}</h3>
             <div class="row">
-              <span class="rlabel">{{ t('sidebar.daemon') }}</span>
-              <span class="rvalue mono">{{ daemonEndpoint }}</span>
+              <span class="rlabel">
+                {{ t('settings.appVersion') }}
+                <span class="hint">{{ t('settings.appVersionHint') }}</span>
+              </span>
+              <span class="rvalue mono">{{ appVersion }}</span>
+            </div>
+            <div class="row">
+              <span class="rlabel">
+                {{ t('settings.serverVersion') }}
+                <span class="hint">{{ t('settings.serverVersionHint') }}</span>
+              </span>
+              <span class="value-wrap">
+                <span class="rvalue mono">{{ resolvedServerVersion }}</span>
+                <IconButton
+                  size="sm"
+                  :label="serverVersionCopied ? t('settings.copied') : t('settings.copyServerVersion')"
+                  :data-testid="'copy-server-version'"
+                  @click="copyServerVersion"
+                >
+                  <Icon :name="serverVersionCopied ? 'check' : 'copy'" size="sm" />
+                </IconButton>
+              </span>
+            </div>
+            <div class="row">
+              <span class="rlabel">
+                {{ t('settings.serverAddress') }}
+                <span class="hint">{{ t('settings.serverAddressHint') }}</span>
+              </span>
+              <span class="value-wrap">
+                <span class="rvalue mono">{{ serverAddress }}</span>
+                <IconButton
+                  size="sm"
+                  :label="serverAddressCopied ? t('settings.copied') : t('settings.copyServerAddress')"
+                  :data-testid="'copy-server-address'"
+                  @click="copyServerAddress"
+                >
+                  <Icon :name="serverAddressCopied ? 'check' : 'copy'" size="sm" />
+                </IconButton>
+              </span>
             </div>
             <div class="row">
               <span class="rlabel">{{ t('settings.backend') }}</span>
               <span class="rvalue mono">{{ backendLabel }}</span>
             </div>
-            <div class="row">
-              <span class="rlabel">{{ t('settings.serverVersion') }}</span>
-              <span class="rvalue mono">{{ serverVersion || '-' }}</span>
-            </div>
+          </section>
+          <section v-if="config" class="sec">
             <div v-if="config" class="row">
               <span class="rlabel">
                 {{ t('settings.telemetry') }}
@@ -584,12 +774,57 @@ function archiveTime(iso: string): string {
                 @update:model-value="toggleTelemetry()"
               />
             </div>
+          </section>
+          <section class="sec">
+            <h3 class="sec-title">{{ t('settings.diagnostics') }}</h3>
             <div class="row">
               <span class="rlabel">
                 {{ t('settings.exportLog') }}
                 <span v-if="!isTraceEnabled()" class="hint">{{ t('settings.logHint') }}</span>
               </span>
               <Button variant="secondary" size="sm" @click="exportLog">{{ t('settings.exportLogBtn') }}</Button>
+            </div>
+            <div class="row">
+              <span class="rlabel">{{ t('settings.copyDetails') }}</span>
+              <Button data-testid="copy-diagnostics" variant="secondary" size="sm" @click="copyDiagnostics">
+                {{ diagnosticsCopied ? t('settings.copied') : t('settings.copyDetails') }}
+              </Button>
+            </div>
+          </section>
+        </section>
+
+        <!-- Lab: experimental flags. -->
+        <section v-show="activeTab === 'lab'" class="panel">
+          <section class="sec">
+            <h3 class="sec-title">{{ t('settings.tabs.lab') }}</h3>
+            <template v-if="config">
+              <div class="row">
+                <span class="rlabel">
+                  {{ t('settings.lab.sidebarTabs') }}
+                  <span class="hint">{{ t('settings.lab.sidebarTabsHint') }}</span>
+                </span>
+                <Switch
+                  :model-value="experimentalFlag('sidebarTabs')"
+                  :disabled="configSaving"
+                  :label="t('settings.lab.sidebarTabs')"
+                  @update:model-value="toggleExperimental('sidebarTabs', $event)"
+                />
+              </div>
+              <div class="row">
+                <span class="rlabel">
+                  {{ t('settings.lab.secondaryModel') }}
+                  <span class="hint">{{ t('settings.lab.secondaryModelHint') }}</span>
+                </span>
+                <Switch
+                  :model-value="experimentalFlag('secondary-model')"
+                  :disabled="configSaving"
+                  :label="t('settings.lab.secondaryModel')"
+                  @update:model-value="toggleExperimental('secondary-model', $event)"
+                />
+              </div>
+            </template>
+            <div v-else class="empty-config">
+              {{ t('settings.configUnavailable') }}
             </div>
           </section>
         </section>
@@ -676,6 +911,9 @@ function archiveTime(iso: string): string {
 }
 .tab {
   text-align: left;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
   padding: 8px 10px;
   border: none;
   border-radius: var(--radius-md);
@@ -686,6 +924,8 @@ function archiveTime(iso: string): string {
   cursor: pointer;
   transition: background var(--duration-fast) var(--ease-out), color var(--duration-fast) var(--ease-out);
 }
+.tab .ui-icon { flex: none; color: var(--color-text-faint); }
+.tab.on .ui-icon { color: var(--color-accent); }
 .tab:hover { background: var(--color-surface-sunken); color: var(--color-text); }
 .tab.on { background: var(--color-accent-soft); color: var(--color-accent); font-weight: var(--weight-medium); }
 .tab:focus-visible { outline: none; box-shadow: var(--p-focus-ring); }
@@ -743,6 +983,15 @@ function archiveTime(iso: string): string {
   white-space: nowrap;
 }
 .rvalue.mono { font-family: var(--font-mono); font-size: var(--text-xs); }
+.value-wrap {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  max-width: 60%;
+  min-width: 0;
+  flex: none;
+}
+.value-wrap .rvalue { max-width: 100%; }
 .hint { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--color-text-faint); }
 
 .select-wrap { min-width: 220px; max-width: min(320px, 50vw); flex: none; }

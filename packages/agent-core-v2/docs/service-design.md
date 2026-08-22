@@ -244,7 +244,7 @@ Derived from "what is more foundational", roughly (lower is depended on by highe
 reverse):
 
 1. **Root (depend on no business domain)**: `_base`, `log`, `environment`, `event`,
-   `telemetry`, `kaos`.
+   `telemetry`, `pyaos`.
 2. **Data / state**: `records`, `filestore`, `workspace`, `blobStore`, `config`.
 3. **Capabilities**: `tool`, `permission`, `prompt`, `contextMemory`, `chatProvider`,
    `modelRuntime`, `skill`, …

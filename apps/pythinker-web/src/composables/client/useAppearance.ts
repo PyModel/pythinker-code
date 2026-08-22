@@ -22,8 +22,8 @@ export const uiFontScaleOptions: { value: UiFontScale; label: string }[] = [
   { value: 'xlarge', label: 'XL' },
 ];
 
-const ACCENT_VALUES: readonly string[] = ['blue', 'mono'];
-const COLOR_SCHEME_VALUES: readonly string[] = ['light', 'dark', 'system'];
+const ACCENT_VALUES: ReadonlySet<string> = new Set(['blue', 'mono']);
+const COLOR_SCHEME_VALUES: ReadonlySet<string> = new Set(['light', 'dark', 'system']);
 const UI_FONT_SIZE_DEFAULT = 14;
 const UI_FONT_SIZE_MIN = 12;
 const UI_FONT_SIZE_MAX = 20;
@@ -36,7 +36,7 @@ const UI_FONT_SIZE_BY_SCALE: Record<UiFontScale, number> = {
 
 function loadAccent(): Accent {
   const v = safeGetString(STORAGE_KEYS.accent);
-  if (v && ACCENT_VALUES.includes(v)) return v as Accent;
+  if (v && ACCENT_VALUES.has(v)) return v as Accent;
   return 'blue';
 }
 
@@ -47,7 +47,7 @@ function applyAccent(a: Accent): void {
 
 function loadColorScheme(): ColorScheme {
   const v = safeGetString(STORAGE_KEYS.colorScheme);
-  if (v && COLOR_SCHEME_VALUES.includes(v)) return v as ColorScheme;
+  if (v && COLOR_SCHEME_VALUES.has(v)) return v as ColorScheme;
   return 'system';
 }
 
@@ -58,10 +58,10 @@ function applyColorScheme(c: ColorScheme): void {
   // Mobile browser chrome (status/address bar) follows <meta name=theme-color>.
   const metas = document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]');
   if (metas.length === 0) return;
-  const pinned = c === 'dark' ? '#0d1117' : c === 'light' ? '#ffffff' : null;
+  const pinned = c === 'dark' ? '#121212' : c === 'light' ? '#ffffff' : null;
   metas.forEach((meta) => {
     const media = meta.getAttribute('media') ?? '';
-    const systemValue = media.includes('dark') ? '#0d1117' : '#ffffff';
+    const systemValue = media.includes('dark') ? '#121212' : '#ffffff';
     meta.setAttribute('content', pinned ?? systemValue);
   });
 }
@@ -90,7 +90,10 @@ function loadUiFontSize(): number {
 
 function applyUiFontSize(value: number): void {
   if (typeof document === 'undefined' || !document.documentElement) return;
-  document.documentElement.style.setProperty('--base-ui-font-size', `${clampUiFontSize(value)}px`);
+  // The CSS scales every UI size off `--base-font`, which is set by the
+  // `html[data-font-scale=...]` attribute selectors in style.css. Map the
+  // stored pixel preference onto that scale attribute so the change applies.
+  document.documentElement.dataset.fontScale = uiFontScaleForSize(value);
 }
 
 const colorScheme = ref<ColorScheme>(loadColorScheme());
@@ -102,13 +105,13 @@ watch(accent, applyAccent, { immediate: true });
 watch(uiFontSize, applyUiFontSize, { immediate: true });
 
 function setColorScheme(c: ColorScheme): void {
-  if (!COLOR_SCHEME_VALUES.includes(c)) return;
+  if (!COLOR_SCHEME_VALUES.has(c)) return;
   colorScheme.value = c;
   safeSetString(STORAGE_KEYS.colorScheme, c);
 }
 
 function setAccent(a: Accent): void {
-  if (!ACCENT_VALUES.includes(a)) return;
+  if (!ACCENT_VALUES.has(a)) return;
   accent.value = a;
   safeSetString(STORAGE_KEYS.accent, a);
 }

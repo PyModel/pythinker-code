@@ -328,11 +328,15 @@ export interface WireTask {
   completed_at?: string;
   output_preview?: string;
   output_bytes?: number;
+  agent_id?: string;
+  model?: string;
+  thinking_effort?: string;
   subagent_phase?: 'queued' | 'working' | 'suspended' | 'completed' | 'failed';
   subagent_type?: string;
   parent_tool_call_id?: string;
   suspended_reason?: string;
   dynamic_workflow_index?: number;
+  swarm_index?: number;
   run_in_background?: boolean;
 }
 
@@ -390,11 +394,41 @@ export interface WireCodexLoginStatus {
 export interface WireProvider {
   id: string;
   type: string;
+  api_key?: string;
   base_url?: string;
   default_model?: string;
   has_api_key: boolean;
   status: 'connected' | 'error' | 'unconfigured';
   models?: string[];
+}
+
+export interface WireCatalogModel {
+  id: string;
+  name?: string;
+  max_context_size: number;
+  capabilities?: string[];
+  reasoning: boolean;
+}
+
+export interface WireCatalogProvider {
+  id: string;
+  name: string;
+  wire_type: 'pythinker' | 'openai' | 'openai_responses' | 'anthropic' | 'google-genai' | 'vertexai' | null;
+  guessed: boolean;
+  needs_base_url: boolean;
+  rejected: boolean;
+  reject_reason: string | null;
+  env_key: string | null;
+  models: WireCatalogModel[];
+}
+
+export interface WireListCatalogProvidersResult {
+  items: WireCatalogProvider[];
+}
+
+export interface WireImportCatalogProviderResult {
+  provider: WireCatalogProvider;
+  models_imported: number;
 }
 
 export interface WireProviderRefreshResult {
@@ -431,6 +465,12 @@ export interface WireConfig {
   providers: Record<string, WireConfigProvider>;
   default_provider?: string;
   default_model?: string;
+  /** Daemon `secondaryModel` config section (nested keys stay camelCase —
+   *  the gateway snake_cases only top-level config domains). */
+  secondary_model?: {
+    model?: string;
+    defaultEffort?: string;
+  };
   models?: Record<string, unknown>;
   thinking?: unknown;
   plan_mode?: boolean;
@@ -542,7 +582,7 @@ export interface WireServerHello {
   timestamp: string;
   payload: {
     server_id: string;
-    /** Advisory only — kap-server omits this since it sends no heartbeat. */
+    /** Advisory only — agent-gateway omits this since it sends no heartbeat. */
     heartbeat_ms?: number;
     max_event_buffer_size: number;
     capabilities: {

@@ -13,7 +13,7 @@ export default defineConfig({
     alwaysBundle: ['picomatch'],
     neverBundle: [
       '@pymodel/kosong',
-      '@pymodel/kaos',
+      '@pymodel/pyaos',
       '@pymodel/pythinker-code-oauth',
     ],
   },

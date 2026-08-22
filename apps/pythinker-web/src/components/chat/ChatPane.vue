@@ -1,10 +1,10 @@
 <!-- apps/pythinker-web/src/components/chat/ChatPane.vue -->
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, watch, type ComponentPublicInstance } from 'vue';
 import { useI18n } from 'vue-i18n';
-import type { ChatTurn, ApprovalBlock, FilePreviewRequest, ToolMedia, QueuedPromptView, TurnAttachment } from '../../types';
+import type { ChatTurn, ApprovalBlock, FilePreviewRequest, ToolMedia, QueuedPromptView, TurnAttachment, UIQuestion } from '../../types';
 import ToolCall from './ToolCall.vue';
-import ToolGroup from './ToolGroup.vue';
+import ActivityRun from './ActivityRun.vue';
 import Markdown from './Markdown.vue';
 import ThinkingBlock from './ThinkingBlock.vue';
 import ActivityNotice from './ActivityNotice.vue';
@@ -12,15 +12,20 @@ import CronNotice from './CronNotice.vue';
 import MessageTime from './MessageTime.vue';
 import AuthMedia from './AuthMedia.vue';
 import AttachmentChip from './AttachmentChip.vue';
-import ThinkingIndicator from '../ui/ThinkingIndicator.vue';
+import ComposerText from './ComposerText.vue';
 import Spinner from '../ui/Spinner.vue';
 import Icon from '../ui/Icon.vue';
 import Tooltip from '../ui/Tooltip.vue';
+import Button from '../ui/Button.vue';
+import TurnFold from './TurnFold.vue';
+import TurnFilesSummary from './TurnFilesSummary.vue';
+import WorkingIndicator from './WorkingIndicator.vue';
 import { useConfirmDialog } from '../../composables/useConfirmDialog';
 import { copyTextToClipboard } from '../../lib/clipboard';
 import { openFileAttachment } from '../../lib/openFileAttachment';
 import {
   assistantRenderBlocks,
+  foldRenderBlocks,
   formatDuration,
   formatTokens,
   renderBlockKey,
@@ -28,11 +33,16 @@ import {
   turnFinalText,
   turnToMarkdown,
 } from '../chatTurnRendering';
+import type { AssistantRenderBlock } from '../chatTurnRendering';
+import { turnFileChanges, type TurnFileChange } from '../../lib/turnFiles';
 
 const { t } = useI18n();
 const { confirm } = useConfirmDialog();
 
 onUnmounted(() => {
+  for (const observer of userTextObservers.values()) observer.disconnect();
+  userTextObservers.clear();
+  userTextElements.clear();
   if (copiedTimer !== null) {
     clearTimeout(copiedTimer);
     copiedTimer = null;
@@ -54,7 +64,10 @@ onUnmounted(() => {
 const props = withDefaults(
   defineProps<{
     turns: ChatTurn[];
-    approvals?: { approvalId: string; block: ApprovalBlock; agentName?: string }[];
+    approvals?: { approvalId: string; block: ApprovalBlock; agentName?: string; toolCallId?: string }[];
+    /** Pending questions (conversation dock). `toolCallId` correlates an
+        awaiting-question tool to its transcript card for the parked turn. */
+    questions?: UIQuestion[];
     /**
      * True while the MAIN agent has a turn in flight (not merely "session
      * busy" — background subagents and BTW side chats don't set this). Marks
@@ -105,6 +118,19 @@ const props = withDefaults(
      * cards there expand inline instead.
      */
     toolDiffPanel?: boolean;
+    readOnly?: boolean;
+    inspector?: boolean;
+    /** Session completion reason for the failed-turn banner. */
+    lastTurnReason?: 'completed' | 'cancelled' | 'failed';
+    /** Step-limit variant of the failed-turn banner header (turn.step.interrupted
+     *  reason === 'max_steps'): renders the reference "Step limit reached" title
+     *  instead of the generic failure title. */
+    turnErrorKind?: 'max_steps' | 'error' | 'aborted';
+    /** Optional failure detail rendered under the failed-turn banner title
+     *  (the interrupted step's message, when the daemon carried one). */
+    turnErrorMessage?: string;
+    /** Workspace root used to shorten per-turn file paths. */
+    cwd?: string;
     /**
      * Pending user messages queued while the session is busy. Rendered inline
      * at the tail of the transcript (after the running turn) — click to edit,
@@ -117,6 +143,7 @@ const props = withDefaults(
   }>(),
   {
     approvals: () => [],
+    questions: () => [],
     turnActive: false,
     working: false,
     fastMoon: false,
@@ -126,6 +153,8 @@ const props = withDefaults(
     loadingMoreError: false,
     isFollowing: false,
     toolDiffPanel: false,
+    readOnly: false,
+    inspector: false,
     queued: () => [],
   },
 );
@@ -192,6 +221,33 @@ const streamingTurnId = computed<string | null>(() => {
 // the main conversation only.
 const showWorking = computed(() => props.working);
 
+interface AssistantTurnModel {
+  all: AssistantRenderBlock[];
+  folded: AssistantRenderBlock[];
+  visible: AssistantRenderBlock[];
+  changes: TurnFileChange[];
+}
+
+const assistantTurnModels = computed(() => {
+  const models = new Map<string, AssistantTurnModel>();
+  for (const turn of props.turns) {
+    if (turn.role !== 'assistant') continue;
+    const all = assistantRenderBlocks(turn);
+    const { folded, visible } = foldRenderBlocks(all);
+    models.set(turn.id, { all, folded, visible, changes: turnFileChanges(turn) });
+  }
+  return models;
+});
+
+const workingLabel = computed(() => {
+  const last = props.turns.at(-1);
+  if (last?.role !== 'assistant') return t('conversation.requesting');
+  const hasContent = assistantTurnModels.value.get(last.id)?.all.some((block) =>
+    block.kind === 'text' ? block.text.trim().length > 0 : true,
+  );
+  return t(hasContent ? 'conversation.working' : 'conversation.requesting');
+});
+
 const emit = defineEmits<{
   openFile: [target: FilePreviewRequest];
   openMedia: [media: ToolMedia];
@@ -205,6 +261,8 @@ const emit = defineEmits<{
   openAgent: [toolCallId: string];
   /** Show an Edit/Write tool call's diff in the right-side panel. */
   openToolDiff: [id: string];
+  /** Show the aggregate file changes for one assistant turn. */
+  openTurnDiff: [target: { turnId: string; changes: TurnFileChange[] }];
   /** Edit + resend the last user message (parent undoes, then refills composer). */
   editMessage: [payload: { text: string; attachments?: TurnAttachment[] }];
   /** Fetch the next older page of messages (triggered by top sentinel visibility or click). */
@@ -215,7 +273,48 @@ const emit = defineEmits<{
   editQueued: [index: number];
   /** Drag-to-reorder a queued message within the active session's queue. */
   reorderQueue: [payload: { from: number; to: number }];
+  /**
+   * Failed-turn recovery: re-send the last user prompt (approximation of the
+   * reference's daemon-side resumeTurn — the wire has no resume endpoint).
+   */
+  continueTurn: [text: string];
 }>();
+
+const expandedUserTurns = ref<Record<string, boolean>>({});
+const overflowingUserTurns = ref<Record<string, boolean>>({});
+const userTextElements = new Map<string, HTMLElement>();
+const userTextObservers = new Map<string, ResizeObserver>();
+
+function measureUserText(turnId: string): void {
+  const wrapper = userTextElements.get(turnId);
+  const content = wrapper?.querySelector<HTMLElement>('.u-text');
+  if (!content) return;
+  const lineHeight = Number.parseFloat(getComputedStyle(content).lineHeight) || 24;
+  overflowingUserTurns.value[turnId] = content.scrollHeight > lineHeight * 10 + 1;
+}
+
+function bindUserText(turnId: string, value: Element | ComponentPublicInstance | null): void {
+  const element = value instanceof HTMLElement ? value : null;
+  if (!element) {
+    userTextObservers.get(turnId)?.disconnect();
+    userTextObservers.delete(turnId);
+    userTextElements.delete(turnId);
+    return;
+  }
+  if (userTextElements.get(turnId) === element) return;
+  userTextObservers.get(turnId)?.disconnect();
+  userTextElements.set(turnId, element);
+  if (typeof ResizeObserver !== 'undefined') {
+    const observer = new ResizeObserver(() => measureUserText(turnId));
+    observer.observe(element.querySelector<HTMLElement>('.u-text') ?? element);
+    userTextObservers.set(turnId, observer);
+  }
+  void nextTick(() => measureUserText(turnId));
+}
+
+function toggleUserText(turnId: string): void {
+  expandedUserTurns.value[turnId] = !expandedUserTurns.value[turnId];
+}
 
 // ---- Inline queue (pending messages while running) ------------------------
 // Edit/remove are one-click; reorder is HTML5 drag-and-drop initiated from the
@@ -511,6 +610,65 @@ function isStreamingRenderBlock(turn: ChatTurn, block: { sourceIndex: number }):
   return block.sourceIndex === turnBlocks(turn).length - 1;
 }
 
+// Live-fold wiring (reference TurnFold): the in-flight turn's fold streams
+// only its single tail item. `streamingTailIndex` is the last source index of
+// the turn's blocks; a live turn with no streamable tail is "parked" (no stream
+// markers, the header keeps ticking "Worked 1m3s"). Parked (reference Pn):
+// no content yet, OR the tail is a running tool the agent is waiting on (a
+// pending approval / question — the dock shows the prompt, the wire streams
+// nothing). A settled thinking tail can't be detected here: the pythinker
+// block model carries no per-block timing, so the only non-streaming blocking
+// tail observable from this side is the awaiting-decision tool.
+function streamingTailIndexFor(turn: ChatTurn): number | null {
+  if (turn.id !== streamingTurnId.value) return null;
+  const blocks = turnBlocks(turn);
+  const last = blocks.at(-1);
+  if (last?.kind === 'tool' && last.tool.status === 'running') {
+    const toolId = last.tool.id;
+    const awaitingDecision =
+      props.approvals.some((approval) => approval.toolCallId === toolId) ||
+      (props.questions ?? []).some((question: UIQuestion) => question.toolCallId === toolId);
+    if (awaitingDecision) return null;
+  }
+  return blocks.length - 1;
+}
+
+/** ms epoch for the turn's creation — the wire carries no per-block startedAt,
+ *  so this is the seeding point for the live elapsed timers. */
+function turnCreatedMs(turn: ChatTurn): number | undefined {
+  if (!turn.createdAt) return undefined;
+  const ms = Date.parse(turn.createdAt);
+  return Number.isFinite(ms) ? ms : undefined;
+}
+
+/** True when an `activity-run` block is the streaming tail run of the live
+ *  turn (its last item is the turn's last block). */
+function runIsStreaming(
+  turn: ChatTurn,
+  block: Extract<AssistantRenderBlock, { kind: 'activity-run' }>,
+): boolean {
+  if (turn.id !== streamingTurnId.value) return false;
+  const last = block.items.at(-1);
+  return last !== undefined && last.sourceIndex === turnBlocks(turn).length - 1;
+}
+
+// Failed-turn recovery: re-send the LAST USER prompt through the ordinary send
+// path. The reference's daemon-side resumeTurn does not exist on this wire, so
+// the closest approximation is resubmitting the user's own text.
+function lastUserPrompt(): string {
+  for (let index = props.turns.length - 1; index >= 0; index -= 1) {
+    const turn = props.turns[index];
+    if (turn && turn.role === 'user' && turn.text.trim().length > 0) return turn.text;
+  }
+  return '';
+}
+
+function continueFailedTurn(): void {
+  const text = lastUserPrompt();
+  if (text.length === 0) return;
+  emit('continueTurn', text);
+}
+
 // NOTE: the turn-summary line ("Called N tools...") was removed in f9417af. If it
 // comes back, rebuild it from turnBlocks() with i18n strings — the old
 // implementation lives in git history at f9417af^.
@@ -584,7 +742,24 @@ function isStreamingRenderBlock(turn: ChatTurn, block: { sourceIndex: number }):
               <div v-if="turn.pluginCommand.args" class="skill-act-args">{{ turn.pluginCommand.args }}</div>
             </div>
             <!-- User input renders verbatim (pre-wrap), never through Markdown -->
-            <div v-else class="u-text">{{ turn.text }}</div>
+            <div
+              v-else
+              :ref="(value) => bindUserText(turn.id, value)"
+              class="u-text-wrap"
+              :class="{ 'is-clamped': overflowingUserTurns[turn.id] && !expandedUserTurns[turn.id] }"
+            >
+              <div class="u-text"><ComposerText :text="turn.text" :open-file="(target) => emit('openFile', target)" /></div>
+              <button
+                v-if="overflowingUserTurns[turn.id]"
+                type="button"
+                class="u-text-toggle"
+                :aria-expanded="!!expandedUserTurns[turn.id]"
+                @click="toggleUserText(turn.id)"
+              >
+                {{ t(expandedUserTurns[turn.id] ? 'conversation.userMessage.collapse' : 'conversation.userMessage.expand') }}
+                <Icon class="u-text-toggle-car" name="chevron-down" size="sm" />
+              </button>
+            </div>
           </div>
           <div v-if="turn.createdAt || canEditTurn(turn)" class="u-meta">
             <div v-if="canEditTurn(turn)" class="u-edit-wrap" :class="{ undoing: undoingTurnId === turn.id }">
@@ -635,21 +810,49 @@ function isStreamingRenderBlock(turn: ChatTurn, block: { sourceIndex: number }):
 
       <!-- Assistant turn → left-aligned, no name/role label. -->
       <div v-else class="a-msg turn-anchor" :data-turn-id="turn.id">
-        <template v-for="(blk, bi) in assistantRenderBlocks(turn)" :key="renderBlockKey(blk, bi)">
+        <!-- ONE TurnFold instance per assistant turn: the live props flip on
+             `turn.id === streamingTurnId`, so an in-flight fold transitions to
+             settled WITHOUT a remount — its open/closed state and inert body
+             survive (two separate v-if/v-else folds used to unmount/remount). -->
+        <TurnFold
+          :items="assistantTurnModels.get(turn.id)?.folded ?? []"
+          :live="turn.id === streamingTurnId"
+          :parked="turn.id === streamingTurnId && streamingTailIndexFor(turn) === null"
+          :streaming-tail-index="streamingTailIndexFor(turn)"
+          :created-ms="turnCreatedMs(turn)"
+          :duration-ms="turn.durationMs"
+          :tool-diff-panel="toolDiffPanel"
+          mobile
+          @open-media="emit('openMedia', $event)"
+          @open-file="emit('openFile', $event)"
+          @open-tool-diff="emit('openToolDiff', $event)"
+          @open-agent="emit('openAgent', $event)"
+          @open-thinking="emit('openThinking', { turnId: turn.id, blockIndex: $event })"
+        />
+        <template v-for="(blk, bi) in assistantTurnModels.get(turn.id)?.visible ?? []" :key="renderBlockKey(blk, bi)">
           <ThinkingBlock v-if="blk.kind === 'thinking'" :text="blk.thinking" mobile :streaming="isStreamingRenderBlock(turn, blk)" @open="emit('openThinking', { turnId: turn.id, blockIndex: blk.sourceIndex })" />
           <div v-else-if="blk.kind === 'text' && blk.text" class="msg"><Markdown :text="blk.text" :streaming="isStreamingRenderBlock(turn, blk)" :open-file="(target) => emit('openFile', target)" /></div>
-          <ToolGroup
-            v-else-if="blk.kind === 'tool-stack'"
-            :tools="blk.tools"
+          <ActivityRun
+            v-else-if="blk.kind === 'activity-run'"
+            :items="blk.items"
             mobile
+            :streaming="runIsStreaming(turn, blk)"
             :tool-diff-panel="toolDiffPanel"
             @open-media="emit('openMedia', $event)"
             @open-file="emit('openFile', $event)"
             @open-tool-diff="emit('openToolDiff', $event)"
             @open-agent="emit('openAgent', $event)"
+            @open-thinking="emit('openThinking', { turnId: turn.id, blockIndex: $event })"
           />
           <ToolCall v-else-if="blk.kind === 'tool'" :tool="blk.tool" mobile :tool-diff-panel="toolDiffPanel" @open-media="emit('openMedia', $event)" @open-file="emit('openFile', $event)" @open-tool-diff="emit('openToolDiff', $event)" @open-agent="emit('openAgent', $event)" />
         </template>
+        <TurnFilesSummary
+          v-if="turn.id !== streamingTurnId && (assistantTurnModels.get(turn.id)?.changes.length ?? 0) > 0"
+          :changes="assistantTurnModels.get(turn.id)?.changes ?? []"
+          :cwd="cwd"
+          @open-diff="emit('openTurnDiff', { turnId: turn.id, changes: assistantTurnModels.get(turn.id)?.changes ?? [] })"
+          @open-file="emit('openFile', $event)"
+        />
         <div v-if="turn.id !== streamingTurnId && isAssistantRunEnd(ti) && (assistantRunFinalText(ti).trim().length > 0 || turn.durationMs !== undefined)" class="a-msg-ft">
           <Tooltip :text="`${turn.durationMs} ms`">
             <span v-if="turn.durationMs !== undefined" class="a-duration">{{ formatDuration(turn.durationMs) }}</span>
@@ -667,6 +870,17 @@ function isStreamingRenderBlock(turn: ChatTurn, block: { sourceIndex: number }):
       </div>
     </template>
 
+    <div v-if="lastTurnReason === 'failed' && !working" class="turn-failed" role="alert">
+      <span class="tf-chip" aria-hidden="true"><Icon name="alert-triangle" size="sm" /></span>
+      <div class="tf-main">
+        <span class="tf-title">{{ turnErrorKind === 'max_steps' ? t('conversation.turnFailedMaxSteps') : t('conversation.turnFailed') }}</span>
+        <span v-if="turnErrorMessage" class="tf-sub" :title="turnErrorMessage">{{ turnErrorMessage }}</span>
+      </div>
+      <Button variant="secondary" size="sm" @click="continueFailedTurn">
+        {{ t('conversation.turnFailedResume') }}
+      </Button>
+    </div>
+
     <!-- Pending approvals are rendered in the bottom dock (ConversationPane),
          alongside questions, so both blocking prompts share one position. -->
 
@@ -677,7 +891,7 @@ function isStreamingRenderBlock(turn: ChatTurn, block: { sourceIndex: number }):
          unfinished prompt (covers a page refresh mid-stream, where the
          optimistic submit flag was lost but the main turn is still in flight). -->
     <div v-if="showWorking" class="sending-placeholder">
-      <ThinkingIndicator :fast="fastMoon" />
+      <WorkingIndicator :label="workingLabel" />
     </div>
 
     <!-- Inline queue — pending user messages shown after the running turn.
@@ -851,18 +1065,16 @@ function isStreamingRenderBlock(turn: ChatTurn, block: { sourceIndex: number }):
   width: 100%;
 }
 
-/* User message → right-aligned soft-blue bubble (redesign .p-bubble-user). */
+/* User message → right-aligned surface bubble (reference parity). */
 .u-bub {
   align-self: flex-end;
   max-width: 78%;
-  background: var(--color-accent-soft);
-  border: 1px solid var(--color-accent-bd);
+  background: var(--color-user-bubble-bg);
   color: var(--color-text);
-  border-radius: var(--radius-xl) var(--radius-xl) var(--radius-sm) var(--radius-xl);
-  padding: 11px 15px;
+  border-radius: var(--radius-lg);
+  padding: 10px 12px;
   font-size: var(--content-font-size);
   line-height: var(--leading-normal);
-  box-shadow: var(--shadow-xs);
 }
 .u-meta {
   align-self: flex-end;
@@ -882,6 +1094,36 @@ function isStreamingRenderBlock(turn: ChatTurn, block: { sourceIndex: number }):
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+.u-text-wrap { position: relative; display: flex; flex-direction: column; }
+.u-text-wrap.is-clamped { min-width: 120px; }
+.u-text-wrap.is-clamped > .u-text {
+  max-height: 10lh;
+  overflow: hidden;
+  mask-image: linear-gradient(to bottom, black calc(100% - 5lh), transparent calc(100% - 1lh));
+  -webkit-mask-image: linear-gradient(to bottom, black calc(100% - 5lh), transparent calc(100% - 1lh));
+}
+.u-text-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  align-self: center;
+  margin-top: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  border: none;
+  border-radius: var(--radius-full);
+  background: var(--color-surface-raised);
+  box-shadow: var(--shadow-sm);
+  color: var(--color-text);
+  font: var(--ui-font-size-sm)/1 var(--font-ui);
+  cursor: pointer;
+  user-select: none;
+  transition: box-shadow var(--duration-base) var(--ease-out);
+}
+.u-text-toggle:hover { box-shadow: var(--shadow-md); }
+.u-text-toggle:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 1px; }
+.u-text-wrap.is-clamped .u-text-toggle { position: absolute; bottom: 0; left: 50%; transform: translateX(-50%); margin-top: 0; }
+.u-text-toggle-car { transition: transform var(--duration-base) var(--ease-out); }
+.u-text-toggle[aria-expanded='true'] .u-text-toggle-car { transform: rotate(180deg); }
 
 /* Undo/edit-and-resend affordance on the most recent user message. The trigger
    button sits outside the user bubble; clicking it swaps in an inline confirm
@@ -980,6 +1222,22 @@ function isStreamingRenderBlock(turn: ChatTurn, block: { sourceIndex: number }):
   max-width: 94%;
   width: 94%;
 }
+.turn-failed {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--chat-turn-gap);
+  padding: var(--space-2) var(--space-3);
+  border: var(--p-hairline) solid var(--color-danger-bd);
+  border-radius: var(--radius-lg);
+  background: var(--color-danger-soft);
+  box-shadow: var(--shadow-xs);
+  animation: pythinker-card-in var(--duration-slow) var(--ease-out);
+}
+.tf-chip { display: inline-flex; align-items: center; justify-content: center; width: var(--space-6); height: var(--space-6); border-radius: var(--radius-md); background: var(--color-surface-raised); box-shadow: var(--shadow-xs); color: var(--color-danger); flex: none; }
+.tf-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.tf-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-sm); font-weight: var(--weight-medium); color: var(--color-text); line-height: var(--leading-normal); }
+.tf-sub { font-size: var(--text-xs); color: var(--color-text-muted); line-height: var(--leading-normal); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .a-msg-ft {
   display: flex;
   justify-content: flex-start;
@@ -1060,6 +1318,7 @@ function isStreamingRenderBlock(turn: ChatTurn, block: { sourceIndex: number }):
 .a-msg > :deep(.media-tool) {
   margin-top: var(--chat-block-gap);
 }
+.a-msg > :deep(.turn-fold) { margin-top: var(--chat-block-gap); }
 .a-msg > .msg:first-child,
 .a-msg > :deep(.think:first-child),
 .a-msg > :deep(.tool-group:first-child),
@@ -1070,6 +1329,7 @@ function isStreamingRenderBlock(turn: ChatTurn, block: { sourceIndex: number }):
 .a-msg > :deep(.media-tool:first-child) {
   margin-top: 0;
 }
+.a-msg > :deep(.turn-fold:first-child) { margin-top: 0; }
 .a-msg :deep(code) {
   font: .9em var(--font-mono);
   background: var(--color-surface-sunken);
@@ -1085,15 +1345,23 @@ function isStreamingRenderBlock(turn: ChatTurn, block: { sourceIndex: number }):
 @container (min-width: 760px) {
   /* markstream's content-visibility:auto implies paint containment, which can
      clip a table that breaks out of the normal Markdown width. Disable it only
-     for renderers that actually contain a table. Keep contain:layout intact. */
-  .a-msg .msg :deep(.markstream-vue.markdown-renderer:has(.table-node-wrapper)) {
+     for renderers that actually contain a WIDENED table. Keep contain:layout
+     intact. */
+  .a-msg .msg :deep(.markstream-vue.markdown-renderer:has(.table-node-wrapper.md-table-wide)) {
     content-visibility: visible;
   }
 
+  /* Tighter cell cap while the table stays in the reading column; widening
+     (`.md-table-wide`, toggled from Markdown.vue) restores the full cap. */
+  .a-msg .msg :deep(.table-node-wrapper:not(.md-table-wide)) {
+    --table-cell-cap: min(var(--p-table-cell-max), 36cqi);
+  }
+
   /* Let a table grow naturally beyond the reading column, centred within the
-     conversation pane. The first-stage overflow-x:auto continues to handle
-     content wider than this wrapper. */
-  .a-msg .msg :deep(.table-node-wrapper) {
+     conversation pane — but only while the user widens it via the markdown
+     toggle. The first-stage overflow-x:auto continues to handle content wider
+     than this wrapper. */
+  .a-msg .msg :deep(.table-node-wrapper.md-table-wide) {
     position: relative;
     left: 50%;
     width: max-content;
@@ -1245,13 +1513,6 @@ function isStreamingRenderBlock(turn: ChatTurn, block: { sourceIndex: number }):
 .chat {
   gap: 0;
   padding: 22px 20px 26px;
-}
-.u-bub {
-  background: var(--color-accent-soft);
-  border-color: var(--color-accent-bd);
-  border-radius: var(--radius-xl) var(--radius-xl) var(--radius-sm) var(--radius-xl);
-  padding: 11px 15px;
-  box-shadow: var(--shc);
 }
 .a-msg {
   max-width: 100%;

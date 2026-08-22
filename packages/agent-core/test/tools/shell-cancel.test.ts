@@ -1,12 +1,12 @@
 import { Readable, type Writable } from 'node:stream';
 
-import type { Environment, KaosProcess } from '@pymodel/kaos';
+import type { Environment, PyaosProcess } from '@pymodel/pyaos';
 import { describe, expect, it, vi } from 'vitest';
 
 import { BashTool } from '../../src/tools/builtin/shell/bash';
 import { createBackgroundManager } from '../agent/background/helpers';
 import { executeTool } from './fixtures/execute-tool';
-import { createFakeKaos } from './fixtures/fake-kaos';
+import { createFakePyaos } from './fixtures/fake-pyaos';
 
 const posixEnv: Environment = {
   osKind: 'Linux',
@@ -25,7 +25,7 @@ describe('BashTool cancellation contract', () => {
     const kill = vi.fn(async () => {
       resolveWait(143);
     });
-    const proc: KaosProcess = {
+    const proc: PyaosProcess = {
       stdin: { end: vi.fn(), write: vi.fn() } as unknown as Writable,
       stdout: Readable.from([]),
       stderr: Readable.from([]),
@@ -38,7 +38,7 @@ describe('BashTool cancellation contract', () => {
     const execWithEnv = vi.fn().mockResolvedValue(proc);
     const controller = new AbortController();
     const tool = new BashTool(
-      createFakeKaos({ execWithEnv, osEnv: posixEnv }),
+      createFakePyaos({ execWithEnv, osEnv: posixEnv }),
       '/workspace',
       createBackgroundManager().manager,
     );

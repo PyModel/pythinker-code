@@ -96,9 +96,9 @@ test('non-ASCII key: scan returns the original key and value', async () => {
     await db.set('b-ascii', '1');
     await db.set('a-é', '2');
     await db.set('c-\u5317\u4EAC', '3');
-    const keys = db.scan().map((r) => r.key);
-    assert.ok(keys.includes('a-é'), 'scan must include the accented key');
-    assert.ok(keys.includes('c-\u5317\u4EAC'), 'scan must include the CJK key');
+    const keys = new Set(db.scan().map((r) => r.key));
+    assert.ok(keys.has('a-é'), 'scan must include the accented key');
+    assert.ok(keys.has('c-\u5317\u4EAC'), 'scan must include the CJK key');
     assert.equal(db.get('a-é'), '2');
     assert.equal(db.get('c-\u5317\u4EAC'), '3');
   } finally {
@@ -114,7 +114,7 @@ test('non-ASCII key: prefix scan matches', async () => {
     await db.set('\u7528\u6237:1', 'a');
     await db.set('\u7528\u6237:2', 'b');
     await db.set('other:1', 'c');
-    const keys = db.prefix('\u7528\u6237:').map((r) => r.key).sort();
+    const keys = db.prefix('\u7528\u6237:').map((r) => r.key).toSorted();
     assert.deepEqual(keys, ['\u7528\u6237:1', '\u7528\u6237:2']);
   } finally {
     await db.close();
@@ -129,7 +129,7 @@ test('non-ASCII key: secondary equality index returns key and value', async () =
   try {
     await db.set('\u7528\u62371', { city: 'Paris', n: 1 });
     await db.set('\u7528\u62372', { city: 'Paris', n: 2 });
-    const r = db.findEq('byCity', 'Paris').sort((a, b) => (a.key < b.key ? -1 : 1));
+    const r = db.findEq('byCity', 'Paris').toSorted((a, b) => (a.key < b.key ? -1 : 1));
     assert.deepEqual(r.map((x) => x.key), ['\u7528\u62371', '\u7528\u62372']);
     assert.deepEqual(r.map((x) => (x.value as { n: number }).n), [1, 2]);
   } finally {
@@ -186,7 +186,7 @@ test('non-ASCII key: unified query by exact key and by prefix', async () => {
     await db.set('post:\u5317\u4EAC', { tag: 'a' });
     await db.set('post:\u4E0A\u6D77', { tag: 'b' });
     assert.deepEqual(db.query({ key: 'post:\u5317\u4EAC' }).map((r) => r.key), ['post:\u5317\u4EAC']);
-    const pref = db.query({ key: { prefix: 'post:' } }).map((r) => r.key).sort();
+    const pref = db.query({ key: { prefix: 'post:' } }).map((r) => r.key).toSorted();
     assert.deepEqual(pref, ['post:\u4E0A\u6D77', 'post:\u5317\u4EAC']);
   } finally {
     await db.close();

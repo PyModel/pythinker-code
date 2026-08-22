@@ -1,6 +1,4 @@
 import { execFileSync, spawnSync } from 'node:child_process';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
 
 import {
   createPythinkerHarness,
@@ -20,7 +18,6 @@ import {
 } from '@pymodel/pythinker-telemetry';
 
 import { CLI_SHUTDOWN_TIMEOUT_MS, CLI_UI_MODE } from '#/constant/app';
-import { detectPendingMigration } from '#/migration/index';
 import type { TuiConfig } from '#/tui/config';
 import { loadTuiConfig, TuiConfigParseError } from '#/tui/config';
 import { CHROME_GUTTER } from '#/tui/constant/rendering';
@@ -32,6 +29,7 @@ import { restoreTerminalModes } from '#/utils/terminal-restore';
 import { resolveCommandPath } from '#/utils/process/resolve-command';
 
 import type { CLIOptions } from './options';
+import { drainStdio } from './headless-exit';
 import { resolveAgentProfileSelection } from './agent-selection';
 import { isPythinkerV2Enabled } from './experimental-v2';
 import { createCliTelemetryBootstrap, initializeCliTelemetry } from './telemetry';
@@ -40,7 +38,6 @@ import { createPythinkerCodeHostIdentity } from './version';
 export async function runShell(
   opts: CLIOptions,
   version: string,
-  runOptions: { readonly migrateOnly?: boolean } = {},
 ): Promise<void> {
   const startedAt = Date.now();
   const configStartedAt = startedAt;
@@ -99,16 +96,6 @@ export async function runShell(
   });
 
   await harness.ensureConfigFile();
-  const migrationPlan = await detectPendingMigration({
-    sourceHome: join(homedir(), '.pythinker'),
-    targetHome: harness.homeDir,
-    ignoreMarker: runOptions.migrateOnly,
-  });
-  if (runOptions.migrateOnly === true && migrationPlan === null) {
-    process.stdout.write('  Nothing to migrate from ~/.pythinker/.\n');
-    await harness.close();
-    return;
-  }
   const config = await harness.getConfig();
   startupTrace('config:loaded');
   // Config diagnostics (deprecated keys, invalid sections, ...) are surfaced
@@ -126,8 +113,6 @@ export async function runShell(
     version,
     workDir,
     startupNotice: configWarning,
-    migrationPlan,
-    migrateOnly: runOptions.migrateOnly,
     engineV2,
   });
 
@@ -254,6 +239,7 @@ export async function runShell(
       await tui.exitForegroundTask(exitCode);
       return;
     }
+    await drainStdio([process.stdout, process.stderr]);
     process.exit(exitCode);
   };
   try {

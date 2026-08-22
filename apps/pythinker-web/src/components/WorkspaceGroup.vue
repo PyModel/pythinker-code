@@ -24,6 +24,7 @@ const props = defineProps<{
   renameInputRef: Ref<HTMLInputElement | null>;
   pendingBySession: Record<string, { approvals: number; questions: number }>;
   unreadBySession: Record<string, boolean>;
+  pinnedIds: string[];
   wsMenuOpenId: string | null;
   /** True while this group is the active drag source (drag-to-reorder). */
   dragging: boolean;
@@ -40,9 +41,12 @@ const emit = defineEmits<{
   createInWorkspace: [workspaceId: string];
   selectSession: [sessionId: string];
   renameSession: [id: string, title: string];
+  generateSessionTitle: [id: string, onTitle: (title: string | null) => void];
   archiveSession: [id: string];
   forkSession: [id: string];
   exportSession: [id: string];
+  pinSession: [id: string];
+  setSessionEmoji: [id: string, emoji: string | null];
   loadMore: [workspaceId: string];
   toggleExpand: [workspaceId: string];
   confirmRename: [];
@@ -172,6 +176,7 @@ function onHeaderDragStart(event: DragEvent): void {
       :class="{ collapsed: isCollapsed(group.workspace.id) }"
       :inert="isCollapsed(group.workspace.id)"
     >
+      <div class="group-sessions-inner">
       <SessionRow
         v-for="s in visibleSessions"
         :key="s.id"
@@ -180,11 +185,15 @@ function onHeaderDragStart(event: DragEvent): void {
         :approval-count="pendingBySession[s.id]?.approvals ?? 0"
         :question-count="pendingBySession[s.id]?.questions ?? 0"
         :unread="unreadBySession[s.id] ?? false"
+        :pinned="pinnedIds.includes(s.id)"
         @select="emit('selectSession', $event)"
         @rename="(id, title) => emit('renameSession', id, title)"
+        @generate-title="(id, onTitle) => emit('generateSessionTitle', id, onTitle)"
         @archive="emit('archiveSession', $event)"
         @fork="emit('forkSession', $event)"
         @export="emit('exportSession', $event)"
+        @pin="emit('pinSession', $event)"
+        @set-emoji="(id, emoji) => emit('setSessionEmoji', id, emoji)"
       />
       <button
         v-if="group.hasMore || group.loadingMore"
@@ -210,6 +219,7 @@ function onHeaderDragStart(event: DragEvent): void {
         }}</span>
       </button>
       <div v-if="group.sessions.length === 0" class="group-empty">{{ t('sidebar.noSessions') }}</div>
+      </div>
     </div>
   </div>
 </template>
@@ -220,17 +230,20 @@ function onHeaderDragStart(event: DragEvent): void {
    no bottom gap. */
 .group.dragging { opacity: 0.45; }
 
-/* Session list: collapses/expands via a height transition. `interpolate-size:
-   allow-keywords` (set on :root) lets `height: auto` interpolate instead of
-   snap. `inert` (set in the template when collapsed) keeps the hidden rows out
-   of the tab order / a11y tree, matching the old `v-show` behavior. */
+/* Session list collapses with a grid track so the transition does not animate
+   layout dimensions directly. `inert` keeps hidden rows out of focus order. */
 .group-sessions {
-  height: auto;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
   overflow: hidden;
-  transition: height var(--duration-base) var(--ease-out);
+  transition: grid-template-rows var(--duration-base) var(--ease-out);
 }
 .group-sessions.collapsed {
-  height: 0;
+  grid-template-rows: minmax(0, 0fr);
+}
+.group-sessions-inner {
+  min-height: 0;
+  overflow: hidden;
 }
 
 /* Workspace header — an inset rounded row that mirrors the session-row inset

@@ -7,8 +7,8 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { fileURLToPath } from 'node:url';
 
 const webPort = Number(process.env.WEB_PORT) || 5175;
-// Dev-proxy backend presets: `default` is the kap-server started by the root
-// `pnpm dev:server` (port 58627); `multi` is a second kap-server instance
+// Dev-proxy backend presets: `default` is the agent-gateway started by the root
+// `pnpm dev:server` (port 58627); `multi` is a second agent-gateway instance
 // started with `pnpm dev:v2` (port 58628 — instances share the home dir, so
 // both can run at once) for multi-instance debugging. Override with
 // PYTHINKER_BACKEND_DEFAULT_URL / PYTHINKER_BACKEND_MULTI_URL.
@@ -95,7 +95,7 @@ function backendSwitcherPlugin(): Plugin {
 //      and the object itself per WS upgrade);
 //   2. strips the browser `Origin` header on the forwarded request. The proxy
 //      rewrites `Host` to the server (changeOrigin) but leaves `Origin`
-//      pointing at the Vite origin — and kap-server's WS upgrade path
+//      pointing at the Vite origin — and agent-gateway's WS upgrade path
 //      rejects any present Origin whose host ≠ Host with 403. An Origin-less
 //      request is treated as a non-browser client (and the browser never
 //      needs CORS here: it talks to its own origin).

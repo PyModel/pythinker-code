@@ -231,7 +231,7 @@ constructor(@IAgentToolExecutorService executor, ...) {
 ```ts
 // packages/agent-core/src/tools/builtin/file/write.ts
 resolveExecution(args: WriteInput): ToolExecution {
-  const path = resolvePathAccessPath(args.path, { kaos, workspace, operation: 'write' });
+  const path = resolvePathAccessPath(args.path, { pyaos, workspace, operation: 'write' });
   return {
     accesses: ToolAccesses.writeFile(path),            // 声明：写这个文件
     approvalRule: literalRulePattern(this.name, path),
@@ -254,7 +254,7 @@ type ToolResourceAccess =
 - **能枚举资源的**（write/read/edit/grep/glob）→ 用 `accesses`，通用文件维度自动覆盖。
 - **不能枚举资源的**（bash 跑任意命令）→ 不声明 `accesses`，改用 `matchesRule` DSL（如 `Bash(rm *)` 按命令串 glob）。
 
-**kaos 的定位**：kaos 是执行环境抽象（fs/process/pathClass），供文件维度做路径归一化与判断，**不是权限维度抽象本身**。权限语义在 kaos 之上的「文件访问」层。
+**pyaos 的定位**：pyaos 是执行环境抽象（fs/process/pathClass），供文件维度做路径归一化与判断，**不是权限维度抽象本身**。权限语义在 pyaos 之上的「文件访问」层。
 
 **v2 演进方向**：扩展 `ToolResourceAccess` 联合类型，让非文件资源也能结构化声明：
 

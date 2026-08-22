@@ -3,10 +3,10 @@
  *
  * Creates the file if it does not exist. Missing parent directories are
  * created automatically, mirroring `mkdir(parents=True, exist_ok=True)`.
- * Path access policy is resolved before any Kaos I/O.
+ * Path access policy is resolved before any Pyaos I/O.
  */
 
-import type { Kaos } from '@pymodel/kaos';
+import type { Pyaos } from '@pymodel/pyaos';
 import { dirname } from 'pathe';
 import { z } from 'zod';
 
@@ -57,13 +57,13 @@ export class WriteTool implements BuiltinTool<WriteInput> {
   readonly parameters: Record<string, unknown> = toInputJsonSchema(WriteInputSchema);
 
   constructor(
-    private readonly kaos: Kaos,
+    private readonly pyaos: Pyaos,
     private readonly workspace: WorkspaceConfig,
   ) {}
 
   resolveExecution(args: WriteInput): ToolExecution {
     const path = resolvePathAccessPath(args.path, {
-      kaos: this.kaos,
+      pyaos: this.pyaos,
       workspace: this.workspace,
       operation: 'write',
     });
@@ -75,8 +75,8 @@ export class WriteTool implements BuiltinTool<WriteInput> {
       matchesRule: (ruleArgs) =>
         matchesPathRuleSubject(ruleArgs, path, {
           cwd: this.workspace.workspaceDir,
-          pathClass: this.kaos.pathClass(),
-          homeDir: this.kaos.gethome(),
+          pathClass: this.pyaos.pathClass(),
+          homeDir: this.pyaos.gethome(),
         }),
       execute: () => this.execution(args, path),
     };
@@ -91,9 +91,9 @@ export class WriteTool implements BuiltinTool<WriteInput> {
     try {
       const mode = args.mode ?? 'overwrite';
       if (mode === 'append') {
-        await this.kaos.writeText(safePath, args.content, { mode: 'a' });
+        await this.pyaos.writeText(safePath, args.content, { mode: 'a' });
       } else {
-        await this.kaos.writeText(safePath, args.content);
+        await this.pyaos.writeText(safePath, args.content);
       }
       // Report the number of UTF-8 bytes this call wrote to disk. The string
       // length would only equal the byte count for pure ASCII content, so it
@@ -137,11 +137,11 @@ export class WriteTool implements BuiltinTool<WriteInput> {
     const parent = dirname(safePath);
     let stat;
     try {
-      stat = await this.kaos.stat(parent);
+      stat = await this.pyaos.stat(parent);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
         try {
-          await this.kaos.mkdir(parent, { parents: true, existOk: true });
+          await this.pyaos.mkdir(parent, { parents: true, existOk: true });
           return undefined;
         } catch (mkdirError) {
           return mkdirError instanceof Error ? mkdirError.message : String(mkdirError);

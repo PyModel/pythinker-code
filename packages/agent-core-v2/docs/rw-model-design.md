@@ -256,8 +256,9 @@ declare module '#/stream' {
   生成）是方向性目标，放在附录 C 远期项，本期只做"投影函数与类型同处声明、
   禁止路由层手写投影"。
 
-> 兼容注：v1 协议消费者（messageLegacy/sessionLegacy）保留为边缘的翻译层，
-> 从新 Envelope 流翻译到旧 shape，不再反向影响核心模型。
+> 兼容注：v1 协议消费者的边缘翻译层已随清理移除（无遗留用户）；
+> session wire 协议由 `app/sessionManager/sessionProtocol` 提供，
+> 不再反向影响核心模型。
 
 ### 3.2 与 contract 生成的关系
 
@@ -427,7 +428,7 @@ view 是纯 fold，因此**天然支持冷读**：不实例化 agent/session sco
 边缘保留 journal/seq/epoch/backfill（§0、§7.1），其余变薄：鉴权、连接管理、
 统一流直通（durable/volatile 分类、agent 缝合、投影都由核心做完）、
 REST 读路由 = `readView()` 的透传（热/冷一致，§5.6）。snapshot 路由从
-"跨 6 个服务现拼 + drain queue 保一致"（`sessionLegacyService.ts:278-300`、
+"跨 6 个服务现拼 + drain queue 保一致"（`sessionStatusService.ts`、
 `snapshot.ts:10-14`）变成"读若干 view 的 `{value, seq}`"。写路由 = Command
 的透传（actionMap 的 `resource:action` allowlist 模式保留，它已经证明
 "命令 = Service 方法"可行）；路由层手发事件（C4）被"写即 commit、commit

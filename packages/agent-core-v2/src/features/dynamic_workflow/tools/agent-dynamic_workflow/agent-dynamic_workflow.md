@@ -9,3 +9,5 @@ Each of these is enforced — a violation is rejected before any subagent starts
 Use enough subagents to keep the work focused and parallel. AgentDynamicWorkflow supports up to 128 subagents, and launches are queued automatically, so it is safe to split large tasks into many clear, independent items.
 
 If `AgentDynamicWorkflow` is called, that call must be the only tool call in the response.
+
+This capability is called a "dynamic workflow" (or simply "workflow"). Never use the word "swarm" in the `description` field, in subagent prompts, or when talking to the user about this tool.

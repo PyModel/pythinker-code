@@ -6,19 +6,25 @@
 import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import type { Session } from '../../types';
+import type { AppWorkspace } from '../../api/types';
 import { highlightHtml, snippet } from '../../lib/searchHighlight';
 import Dialog from '../ui/Dialog.vue';
 import Icon from '../ui/Icon.vue';
 
 const { t } = useI18n();
 
-const props = defineProps<{
-  sessions: Session[];
-  activeId: string;
-}>();
+const props = withDefaults(
+  defineProps<{
+    sessions: Session[];
+    workspaces?: AppWorkspace[];
+    activeId: string;
+  }>(),
+  { workspaces: () => [] },
+);
 
 const emit = defineEmits<{
   select: [id: string];
+  selectWorkspace: [id: string];
   close: [];
 }>();
 
@@ -41,11 +47,52 @@ interface Hit {
   snippetText: string;
 }
 
+interface WorkspaceHit {
+  workspace: AppWorkspace;
+  /** Name matched the query (controls name highlighting). */
+  inName: boolean;
+  /** Short path matched the query (controls path highlighting). */
+  inPath: boolean;
+}
+
+interface SectionHeader {
+  label: string;
+  count: number;
+}
+
+type ResultEntry =
+  | { kind: 'workspace'; key: string; section?: SectionHeader; hit: WorkspaceHit }
+  | { kind: 'session'; key: string; section?: SectionHeader; hit: Hit };
+
+const WORKSPACE_CAP = 3;
 const RESULT_CAP = 200;
 
-const results = computed<Hit[]>(() => {
+/** Home-relative short path for a workspace root (the daemon does not send
+    one): `/Users/x/a/b` and `/home/x/a/b` → `~/a/b`, anything else verbatim. */
+function shortPathFor(root: string): string {
+  const match = root.match(/^\/(?:Users|home)\/[^/]+(\/.*)?$/);
+  return match ? `~${match[1] ?? ''}` : root;
+}
+
+const results = computed<ResultEntry[]>(() => {
   const q = query.value.trim().toLowerCase();
-  const out: Hit[] = [];
+  // Workspace hits: name or shortPath match; empty query → the N most recent.
+  const workspaceHits: ResultEntry[] = [];
+  const workspaces = props.workspaces;
+  if (q.length === 0) {
+    for (const w of workspaces.slice(0, WORKSPACE_CAP)) {
+      workspaceHits.push({ kind: 'workspace', key: `ws:${w.id}`, hit: { workspace: w, inName: false, inPath: false } });
+    }
+  } else {
+    for (const w of workspaces) {
+      const inName = w.name.toLowerCase().includes(q);
+      const inPath = shortPathFor(w.root).toLowerCase().includes(q);
+      if (!inName && !inPath) continue;
+      workspaceHits.push({ kind: 'workspace', key: `ws:${w.id}`, hit: { workspace: w, inName, inPath } });
+    }
+  }
+  // Session hits: title / lastPrompt / workspace name (unchanged behaviour).
+  const sessionHits: Hit[] = [];
   for (const s of props.sessions) {
     const title = s.title ?? '';
     const last = s.lastPrompt ?? '';
@@ -55,7 +102,7 @@ const results = computed<Hit[]>(() => {
     const inWorkspace = q.length > 0 && ws.toLowerCase().includes(q);
     // Empty query → show the full (recent) list; otherwise require a hit.
     if (q.length > 0 && !inTitle && !inLast && !inWorkspace) continue;
-    out.push({
+    sessionHits.push({
       session: s,
       inTitle,
       inWorkspace,
@@ -63,9 +110,20 @@ const results = computed<Hit[]>(() => {
       // snippet on the match (no-ops to the head when the title matched only).
       snippetText: last ? snippet(last, query.value) : '',
     });
-    if (out.length >= RESULT_CAP) break;
+    if (sessionHits.length >= RESULT_CAP) break;
   }
-  return out;
+  // Section headers only when BOTH kinds are present (reference behaviour).
+  if (workspaceHits.length > 0 && sessionHits.length > 0) {
+    (workspaceHits[0] as ResultEntry).section = { label: t('sidebar.workspaces'), count: workspaceHits.length };
+    const first: ResultEntry = { kind: 'session', key: `s:${sessionHits[0]!.session.id}`, hit: sessionHits[0]!, section: { label: t('sidebar.sessionsHeader'), count: sessionHits.length } };
+    return [
+      ...workspaceHits,
+      first,
+      ...sessionHits.slice(1).map((hit): ResultEntry => ({ kind: 'session', key: `s:${hit.session.id}`, hit })),
+    ];
+  }
+  if (workspaceHits.length > 0) return workspaceHits;
+  return sessionHits.map((hit): ResultEntry => ({ kind: 'session', key: `s:${hit.session.id}`, hit }));
 });
 
 const selectedIndex = ref(0);
@@ -96,9 +154,16 @@ function openHit(id: string): void {
   emit('close');
 }
 
+function openWorkspaceHit(id: string): void {
+  emit('selectWorkspace', id);
+  emit('close');
+}
+
 function openSelected(): void {
-  const hit = results.value[selectedIndex.value];
-  if (hit) openHit(hit.session.id);
+  const entry = results.value[selectedIndex.value];
+  if (!entry) return;
+  if (entry.kind === 'workspace') openWorkspaceHit(entry.hit.workspace.id);
+  else openHit(entry.hit.session.id);
 }
 
 function onKeydown(e: KeyboardEvent): void {
@@ -143,34 +208,60 @@ onMounted(() => {
 
     <div ref="listRef" class="sd-list" role="listbox">
       <template v-if="results.length > 0">
-        <button
-          v-for="(hit, i) in results"
-          :key="hit.session.id"
-          class="sd-row"
-          :class="{ on: i === selectedIndex, active: hit.session.id === activeId }"
-          role="option"
-          :aria-selected="i === selectedIndex"
-          @click="openHit(hit.session.id)"
-          @mousemove="selectedIndex = i"
-        >
-          <span class="sd-meta">
+        <template v-for="(entry, i) in results" :key="entry.key">
+          <div v-if="entry.section" class="sd-section">
+            <span>{{ entry.section.label }}</span>
+            <span class="sd-section-count">{{ entry.section.count }}</span>
+          </div>
+          <button
+            v-if="entry.kind === 'workspace'"
+            class="sd-row sd-row-ws"
+            :class="{ on: i === selectedIndex }"
+            role="option"
+            :aria-selected="i === selectedIndex"
+            @click="openWorkspaceHit(entry.hit.workspace.id)"
+            @mousemove="selectedIndex = i"
+          >
             <Icon class="sd-folder" name="folder-closed" size="sm" />
             <!-- eslint-disable-next-line vue/no-v-html -- highlightHtml escapes the source before injecting <mark>. -->
             <span
-              class="sd-ws"
-              v-html="highlightHtml(hit.session.workspaceName ?? hit.session.workspaceId ?? '', hit.inWorkspace ? query : '')"
+              class="sd-ws-name"
+              v-html="highlightHtml(entry.hit.workspace.name, entry.hit.inName ? query : '')"
             ></span>
-            <span class="sd-time">{{ hit.session.time }}</span>
-          </span>
-          <!-- eslint-disable-next-line vue/no-v-html -- highlightHtml escapes the source before injecting <mark>. -->
-          <span class="sd-title" v-html="highlightHtml(hit.session.title, hit.inTitle ? query : '')"></span>
-          <!-- eslint-disable-next-line vue/no-v-html -- highlightHtml escapes the source before injecting <mark>. -->
-          <span
-            v-if="hit.snippetText"
-            class="sd-snippet"
-            v-html="highlightHtml(hit.snippetText, query)"
-          ></span>
-        </button>
+            <!-- eslint-disable-next-line vue/no-v-html -- highlightHtml escapes the source before injecting <mark>. -->
+            <span
+              class="sd-ws-path"
+              v-html="highlightHtml(shortPathFor(entry.hit.workspace.root), entry.hit.inPath ? query : '')"
+            ></span>
+          </button>
+          <button
+            v-else
+            class="sd-row"
+            :class="{ on: i === selectedIndex, active: entry.hit.session.id === activeId }"
+            role="option"
+            :aria-selected="i === selectedIndex"
+            @click="openHit(entry.hit.session.id)"
+            @mousemove="selectedIndex = i"
+          >
+            <span class="sd-meta">
+              <Icon class="sd-folder" name="folder-closed" size="sm" />
+              <!-- eslint-disable-next-line vue/no-v-html -- highlightHtml escapes the source before injecting <mark>. -->
+              <span
+                class="sd-ws"
+                v-html="highlightHtml(entry.hit.session.workspaceName ?? entry.hit.session.workspaceId ?? '', entry.hit.inWorkspace ? query : '')"
+              ></span>
+              <span class="sd-time">{{ entry.hit.session.time }}</span>
+            </span>
+            <!-- eslint-disable-next-line vue/no-v-html -- highlightHtml escapes the source before injecting <mark>. -->
+            <span class="sd-title" v-html="highlightHtml(entry.hit.session.title, entry.hit.inTitle ? query : '')"></span>
+            <!-- eslint-disable-next-line vue/no-v-html -- highlightHtml escapes the source before injecting <mark>. -->
+            <span
+              v-if="entry.hit.snippetText"
+              class="sd-snippet"
+              v-html="highlightHtml(entry.hit.snippetText, query)"
+            ></span>
+          </button>
+        </template>
       </template>
       <div v-else class="sd-empty">{{ t('sidebar.searchNoResults') }}</div>
     </div>
@@ -235,6 +326,52 @@ onMounted(() => {
   color: var(--color-accent-hover);
 }
 
+/* Workspace hit rows: horizontal (name left, short path right) instead of the
+   stacked session rows. */
+.sd-row-ws {
+  flex-direction: row;
+  align-items: center;
+  gap: var(--space-2);
+}
+.sd-ws-name {
+  flex: none;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-base);
+  color: var(--color-text);
+}
+.sd-ws-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
+  font-size: var(--text-xs);
+  color: var(--color-text-faint);
+}
+/* Section divider + label (shown only when both kinds are present). */
+.sd-section {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3) var(--space-1);
+  font-family: var(--font-ui);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-section-label);
+  text-transform: uppercase;
+  color: var(--color-text-faint);
+  user-select: none;
+}
+.sd-section-count { font-weight: var(--weight-regular); }
+.sd-section:first-child { padding-top: var(--space-1); }
+.sd-section:not(:first-child) {
+  margin-top: var(--space-1);
+  border-top: 1px solid var(--color-line);
+}
+
 .sd-meta {
   display: flex;
   align-items: center;
@@ -280,12 +417,14 @@ onMounted(() => {
 /* v-html content is outside the scoped tree, so :deep is required to style the
    injected <mark>. */
 .sd-title :deep(mark),
-.sd-snippet :deep(mark) {
-  background: var(--color-accent);
-  color: var(--color-bg);
-  font-weight: 600;
+.sd-snippet :deep(mark),
+.sd-ws-name :deep(mark),
+.sd-ws-path :deep(mark) {
+  background: var(--color-accent-soft);
+  color: inherit;
+  font-weight: var(--weight-semibold);
   border-radius: var(--radius-xs);
-  padding: 0 2px;
+  padding: 0 1px;
 }
 
 .sd-empty {

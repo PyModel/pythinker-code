@@ -53,7 +53,7 @@ describe('check-import-boundaries', () => {
 
   it('allows sibling-package imports outside kosong', () => {
     const violations = checkSource(
-      `import { something } from '@pymodel/kaos';`,
+      `import { something } from '@pymodel/pyaos';`,
       at('log', 'log.ts'),
     );
     expect(violations).toHaveLength(0);

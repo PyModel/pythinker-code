@@ -12,7 +12,9 @@ export const AgentDynamicWorkflowToolInputSchema = z
       .string()
       .trim()
       .min(1)
-      .describe('Short description for the whole dynamic_workflow.'),
+      .describe(
+        'Short description for the whole dynamic workflow. It is shown to the user as the workflow and subagent title, so word it as a workflow or run and never use the word "swarm".',
+      ),
     subagent_type: z
       .string()
       .trim()
@@ -35,6 +37,12 @@ export const AgentDynamicWorkflowToolInputSchema = z
       .optional()
       .describe(
         `Values used to fill ${PROMPT_TEMPLATE_PLACEHOLDER}. Each item launches one new subagent.`,
+      ),
+    fork: z
+      .boolean()
+      .optional()
+      .describe(
+        'Fork the current context for every item-spawned subagent: each starts with a snapshot of this agent\'s completed conversation history instead of zero context, inheriting this agent\'s agent type, tool set, and model. A non-empty resume_agent_ids map is rejected. If subagent_type is provided, it must match this agent\'s type; if model is provided, it must be this agent\'s model or "primary". Different types and model overrides are rejected. Use it only when every item builds on this conversation; keep independent tasks zero-context.',
       ),
     resume_agent_ids: z
       .record(z.string().trim().min(1), z.string().trim().min(1))

@@ -18,6 +18,17 @@ The following keys are always available in the input box:
 
 Pressing `Ctrl-C` **during streaming** cancels immediately — no second confirmation needed.
 
+The input box and status area stay fixed at the bottom of the screen while the transcript scrolls above them. When you move away from the latest output, click **Jump to bottom (click) ↓** or press `End` to resume following new output.
+
+### Transcript navigation
+
+| Shortcut | Function |
+| --- | --- |
+| Mouse wheel / `PageUp` / `PageDown` | Scroll the transcript without moving the input box |
+| `Home` / `End` | Jump to the start or latest transcript output |
+| `Ctrl-Shift-↑` / `Ctrl-Shift-↓` | Jump to the previous or next prompt |
+| `Ctrl-Shift-F` | Search the transcript |
+
 **Exiting the program** (pressing `Ctrl-C` with an empty input box, or pressing `Ctrl-D`) uses a double-press confirmation mechanism: after the first press, a prompt appears in the status bar; a second press of the same key actually exits. Pressing any other key in between clears the confirmation state.
 
 ## Mode Switching

@@ -11,6 +11,7 @@ import {
   applyManagedPythinkerCodeLogoutConfig,
   PYTHINKER_CODE_PROVIDER_NAME,
   PythinkerOAuthToolkit,
+  pythinkerRegionLoginHosts,
   resolvePythinkerCodeLoginAuth,
   resolvePythinkerCodeRuntimeAuth,
   type AuthManagedUsageResult,
@@ -21,6 +22,7 @@ import {
   type FetchSubmitFeedbackResult,
   type PythinkerHostIdentity,
   type PythinkerOAuthLoginOptions,
+  type PythinkerRegion,
   type ManagedPythinkerConfigShape,
   type OAuthRefreshOutcome,
 } from '@pymodel/pythinker-code-oauth';
@@ -71,7 +73,16 @@ export type PythinkerAuthCreateFeedbackUploadUrlResult =
   | PythinkerAuthCreateFeedbackUploadUrlOk
   | FetchFeedbackUploadError;
 
-export type PythinkerAuthLoginOptions = Omit<PythinkerOAuthLoginOptions, 'provisionConfig'>;
+export type PythinkerAuthLoginOptions = Omit<PythinkerOAuthLoginOptions, 'provisionConfig'> & {
+  /**
+   * Explicit region choice from the login UI ('mainland-cn' / 'global'). Maps
+   * to the region profile's OAuth/API hosts — including for 'mainland-cn', so
+   * switching back overrides a persisted global login. Yields to
+   * `PYTHINKER_CODE_OAUTH_HOST` / `PYTHINKER_CODE_BASE_URL` env overrides and to
+   * explicit `oauthHost` / `baseUrl` options.
+   */
+  readonly region?: PythinkerRegion;
+};
 
 export interface PythinkerAuthLoginResult {
   readonly providerName: string;
@@ -126,18 +137,20 @@ export class PythinkerAuthFacade {
     providerName: string | undefined = PYTHINKER_CODE_PROVIDER_NAME,
     options: PythinkerAuthLoginOptions = {},
   ): Promise<PythinkerAuthLoginResult> {
+    const { region, ...loginOptions } = options;
+    const regionHosts = region === undefined ? undefined : pythinkerRegionLoginHosts(region);
     const auth = this.resolveManagedAuth(providerName);
     const loginAuth = resolvePythinkerCodeLoginAuth({
       configuredBaseUrl: auth.baseUrl,
       configuredOAuthRef: auth.oauthRef,
-      requestedBaseUrl: options.baseUrl,
-      requestedOAuthHost: options.oauthHost,
+      requestedBaseUrl: loginOptions.baseUrl ?? regionHosts?.baseUrl,
+      requestedOAuthHost: loginOptions.oauthHost ?? regionHosts?.oauthHost,
     });
     const result = await this.toolkit.login(providerName, {
-      ...options,
+      ...loginOptions,
       baseUrl: loginAuth.baseUrl,
       oauthHost: loginAuth.oauthHost,
-      oauthRef: options.oauthRef ?? loginAuth.oauthRef,
+      oauthRef: loginOptions.oauthRef ?? loginAuth.oauthRef,
       provisionConfig: true,
     });
     if (result.provision === undefined) {

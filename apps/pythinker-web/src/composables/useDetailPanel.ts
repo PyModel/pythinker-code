@@ -7,6 +7,7 @@ import type { DetailTarget } from './useFilePreview';
 import type { usePythinkerWebClient } from './usePythinkerWebClient';
 import { buildEditDiffLines, extractEditPath, findToolCallById } from '../lib/toolDiff';
 import { toolLabel } from '../lib/toolMeta';
+import { transcriptSnapshotToTurns } from '../lib/transcriptToTurns';
 import { toAgentMember } from './messagesToTurns';
 import { clampPanelWidth, panelMaxWidth, useViewportWidth } from './useViewportWidth';
 
@@ -125,49 +126,138 @@ export function useDetailPanel({
   // ---------------------------------------------------------------------------
   // Subagent detail panel
   // ---------------------------------------------------------------------------
-  // Sourced from the live subagent task (not the message flow), so the panel
-  // keeps streaming a still-running subagent's `outputLines`. `agentTarget`
-  // holds the subagent task id; the open entry points are the `Agent` tool card
-  // (keyed by its tool-call id) and a background subagent chip in the dock
-  // (keyed by the task id) — both resolve to a task id here.
-  const agentTarget = ref<{ subagentId: string } | null>(null);
+  const agentTarget = ref<{ sessionId: string; subagentId: string } | null>(null);
 
-  function resolveSubagentId(target: string): string | undefined {
-    const tasks = client.activeAppTasks.value;
-    const task =
-      tasks.find((tk) => tk.id === target) ?? tasks.find((tk) => tk.parentToolCallId === target);
-    if (task) return task.id;
-    // Same fallback as resolveAgentTaskId: a synthesized subagent task (missed
-    // spawn) has no parentToolCallId; if exactly one exists, open it.
-    const unmapped = tasks.filter((tk) => tk.kind === 'subagent' && !tk.parentToolCallId);
-    if (unmapped.length === 1) return unmapped[0]!.id;
-    return undefined;
+  const agentTranscriptEntry = computed(() => {
+    const target = agentTarget.value;
+    if (!target) return { entry: undefined, version: 0 };
+    const entry = client.auxiliaryTranscripts.getEntry(target.sessionId, target.subagentId);
+    return { entry, version: entry?.version.value ?? 0 };
+  });
+
+  function resolveAgentId(target: string): string {
+    const task = client.activeAppTasks.value.find(
+      (candidate) =>
+        candidate.agentId === target ||
+        candidate.id === target ||
+        candidate.backgroundTaskId === target ||
+        candidate.parentToolCallId === target,
+    );
+    return task?.agentId ?? task?.id ?? target;
   }
 
   const agentPanelMember = computed<AgentMember | null>(() => {
     const target = agentTarget.value;
     if (!target) return null;
-    const task = client.activeAppTasks.value.find((tk) => tk.id === target.subagentId);
-    return task ? toAgentMember(task) : null;
+    const task = client.activeAppTasks.value.find(
+      (candidate) =>
+        candidate.agentId === target.subagentId ||
+        candidate.id === target.subagentId ||
+        candidate.backgroundTaskId === target.subagentId,
+    );
+    if (task) return toAgentMember(task);
+
+    const channel = agentTranscriptEntry.value.entry?.channel;
+    if (!channel) return null;
+    const descriptor = channel.agents.find((agent) => agent.agentId === target.subagentId);
+    const latestTurn = channel.snapshot.items.findLast((item) => item.kind === 'turn');
+    const active = channel.snapshot.meta.activity === 'turn';
+    const loading = channel.loading;
+    const failed = latestTurn?.kind === 'turn' && latestTurn.state === 'failed';
+    const cancelled = latestTurn?.kind === 'turn' && latestTurn.state === 'cancelled';
+    const unavailable = channel.refreshError && latestTurn === undefined;
+    return {
+      id: target.subagentId,
+      name: descriptor?.label ?? target.subagentId,
+      subagentType: descriptor?.type === 'sub' ? 'subagent' : descriptor?.type,
+      phase: active
+        ? 'working'
+        : cancelled
+          ? 'cancelled'
+          : failed || unavailable
+            ? 'failed'
+            : loading
+              ? 'queued'
+              : 'completed',
+      status: active || loading
+        ? 'running'
+        : cancelled
+          ? 'cancelled'
+          : failed || unavailable
+            ? 'failed'
+            : 'completed',
+    };
   });
 
+  const agentPanelTurns = computed(() => {
+    const target = agentTarget.value;
+    const channel = agentTranscriptEntry.value.entry?.channel;
+    if (!target || !channel) return [];
+    const descriptor = channel.agents.find((agent) => agent.agentId === target.subagentId);
+    return transcriptSnapshotToTurns(channel.snapshot, descriptor, {
+      sessionId: target.sessionId,
+      getFileUrl: (fileId) => client.getFileUrl(fileId),
+    });
+  });
+
+  const agentPanelLoading = computed(
+    () => agentTranscriptEntry.value.entry?.channel.loading ?? false,
+  );
+  const agentPanelLoadError = computed(
+    () => agentTranscriptEntry.value.entry?.channel.refreshError ?? false,
+  );
+  const agentPanelLoadingMore = computed(
+    () => agentTranscriptEntry.value.entry?.channel.loadingOlder ?? false,
+  );
+  const agentPanelLoadMoreError = computed(
+    () => agentTranscriptEntry.value.entry?.channel.loadOlderError ?? false,
+  );
+  const agentPanelHasMore = computed(
+    () => agentTranscriptEntry.value.entry?.channel.snapshot.hasMoreOlder ?? false,
+  );
+  const agentPanelRunning = computed(
+    () => agentTranscriptEntry.value.entry?.channel.snapshot.meta.activity === 'turn',
+  );
   const agentPanelVisible = computed(() => agentPanelMember.value !== null);
 
   function openAgentPanel(target: string): void {
-    const subagentId = resolveSubagentId(target);
-    if (!subagentId) return;
-    if (agentTarget.value?.subagentId === subagentId) {
-      agentTarget.value = null;
-      if (detailTarget.value === 'agent') detailTarget.value = null;
+    const sessionId = client.activeSessionId.value;
+    if (!target || !sessionId) return;
+    const subagentId = resolveAgentId(target);
+    if (
+      detailTarget.value === 'agent' &&
+      agentTarget.value?.sessionId === sessionId &&
+      agentTarget.value.subagentId === subagentId
+    ) {
+      closeAgentPanel();
       return;
     }
-    agentTarget.value = { subagentId };
+    const previous = agentTarget.value;
+    if (previous && previous.subagentId !== subagentId) {
+      client.auxiliaryTranscripts.deactivate(previous.sessionId, previous.subagentId);
+    }
+    agentTarget.value = { sessionId, subagentId };
     detailTarget.value = 'agent';
+    client.auxiliaryTranscripts.activate(sessionId, subagentId);
   }
 
   function closeAgentPanel(): void {
+    const target = agentTarget.value;
+    if (target) {
+      client.auxiliaryTranscripts.deactivate(target.sessionId, target.subagentId);
+    }
     agentTarget.value = null;
     if (detailTarget.value === 'agent') detailTarget.value = null;
+  }
+
+  watch(detailTarget, (target, previous) => {
+    if (previous !== 'agent' || target === 'agent') return;
+    const agent = agentTarget.value;
+    if (agent) client.auxiliaryTranscripts.deactivate(agent.sessionId, agent.subagentId);
+  });
+
+  function loadOlderAgentMessages(): void {
+    void agentTranscriptEntry.value.entry?.channel.loadOlder().catch(() => undefined);
   }
 
   // ---------------------------------------------------------------------------
@@ -298,7 +388,7 @@ export function useDetailPanel({
   type PanelSnapshot =
     | { kind: 'thinking'; turnId: string; blockIndex: number }
     | { kind: 'compaction'; turnId: string }
-    | { kind: 'agent'; subagentId: string }
+    | { kind: 'agent'; sessionId: string; subagentId: string }
     | { kind: 'toolDiff'; toolId: string }
     | { kind: 'btw' };
 
@@ -332,10 +422,15 @@ export function useDetailPanel({
         compactionTarget.value = { turnId: snap.turnId };
         detailTarget.value = 'compaction';
         break;
-      case 'agent':
-        agentTarget.value = { subagentId: snap.subagentId };
+      case 'agent': {
+        const sessionId = client.activeSessionId.value;
+        if (!sessionId) break;
+        const subagentId = resolveAgentId(snap.subagentId);
+        agentTarget.value = { sessionId, subagentId };
         detailTarget.value = 'agent';
+        client.auxiliaryTranscripts.activate(sessionId, subagentId);
         break;
+      }
       case 'toolDiff':
         toolDiffToolId.value = snap.toolId;
         detailTarget.value = 'toolDiff';
@@ -398,9 +493,17 @@ export function useDetailPanel({
     openCompactionPanel,
     closeCompactionPanel,
     agentPanelMember,
+    agentPanelTurns,
+    agentPanelLoading,
+    agentPanelLoadError,
+    agentPanelLoadingMore,
+    agentPanelLoadMoreError,
+    agentPanelHasMore,
+    agentPanelRunning,
     agentPanelVisible,
     openAgentPanel,
     closeAgentPanel,
+    loadOlderAgentMessages,
     toolDiffTarget,
     toolDiffVisible,
     openToolDiff,

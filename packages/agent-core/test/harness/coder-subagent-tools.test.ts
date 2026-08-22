@@ -29,7 +29,7 @@ import type { SDKSessionRPC } from '../../src/rpc';
 import { Session } from '../../src/session';
 import { ProviderManager } from '../../src/session/provider-manager';
 import { createScriptedGenerate } from '../agent/harness/scripted-generate';
-import { testKaos } from '../fixtures/test-kaos';
+import { testPyaos } from '../fixtures/test-pyaos';
 
 const MOCK_PROVIDER = { type: 'pythinker', apiKey: 'test-key', model: 'mock-model' } as const satisfies ProviderConfig;
 
@@ -181,7 +181,7 @@ async function createCoderSession(
 
   const session = new Session({
     id: 'coder-tools-drain-e2e',
-    kaos: testKaos.withCwd(sessionDir),
+    pyaos: testPyaos.withCwd(sessionDir),
     homedir: sessionDir,
     rpc,
     skills: { explicitDirs: [join(sessionDir, 'no-such-skills-dir')] },
@@ -224,7 +224,7 @@ describe('coder subagent aligned tools (real Session e2e)', () => {
 
     const session = new Session({
       id: 'coder-tools-e2e',
-      kaos: testKaos.withCwd(sessionDir),
+      pyaos: testPyaos.withCwd(sessionDir),
       homedir: sessionDir,
       rpc,
       skills: { explicitDirs: [join(sessionDir, 'no-such-skills-dir')] },

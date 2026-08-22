@@ -229,6 +229,7 @@ export interface GoalChange {
 
 export type PythinkerErrorCode =
   | 'config.invalid'
+  | 'config.persist_blocked'
   | 'session.not_found'
   | 'session.already_exists'
   | 'session.id_invalid'
@@ -444,6 +445,12 @@ export interface ToolUpdate {
   readonly percent?: number;
   readonly customKind?: string;
   readonly customData?: unknown;
+  /**
+   * When true, hosts replace this tool call's previous live status block
+   * instead of appending a new row — for periodic "still working" updates
+   * whose predecessors are stale the moment they are emitted.
+   */
+  readonly replace?: boolean;
 }
 
 export const MCP_OAUTH_AUTHORIZATION_URL_TOOL_UPDATE = 'mcp.oauth.authorization_url';
@@ -682,6 +689,8 @@ export interface TurnStartedEvent {
   readonly prompt?: string;
   /** The prompt record id when the turn was opened by a prompt submission. */
   readonly promptId?: string;
+  /** Session-media references carried by the prompt (transcript attachments). */
+  readonly promptAttachments?: readonly { kind: 'image' | 'video' | 'audio'; fileId: string }[];
 }
 
 export interface TurnEndedEvent {
@@ -858,6 +867,11 @@ export interface SubagentSpawnedEvent {
   /** The child's effective thinking effort at spawn (same vocabulary as
    *  `agent.status.updated`). Optional for cross-version tolerance. */
   readonly thinkingEffort?: string;
+  /** Background-task id the run registered under in the caller's task store.
+   *  Emitted after task registration, so cancel/status actions can bind to
+   *  the task store without waiting for `task.started`. Optional for
+   *  cross-version tolerance (older producers never send it). */
+  readonly taskId?: string;
 }
 
 export interface SubagentStartedEvent {
@@ -1246,6 +1260,7 @@ export const goalChangeSchema = z.object({
 
 export const pythinkerErrorCodeSchema = z.enum([
   'config.invalid',
+  'config.persist_blocked',
   'session.not_found',
   'session.already_exists',
   'session.id_invalid',
@@ -1444,6 +1459,7 @@ export const toolUpdateSchema = z.object({
   percent: z.number().optional(),
   customKind: z.string().optional(),
   customData: z.unknown().optional(),
+  replace: z.boolean().optional(),
 }) satisfies z.ZodType<ToolUpdate>;
 
 export const mcpOAuthAuthorizationUrlUpdateDataSchema = z.object({
@@ -1647,6 +1663,9 @@ export const turnStartedEventSchema = z.object({
   origin: promptOriginSchema,
   prompt: z.string().optional(),
   promptId: z.string().optional(),
+  promptAttachments: z
+    .array(z.object({ kind: z.enum(['image', 'video', 'audio']), fileId: z.string() }))
+    .optional(),
 }) satisfies z.ZodType<TurnStartedEvent>;
 
 export const turnEndedEventSchema = z.object({
@@ -1793,6 +1812,7 @@ export const subagentSpawnedEventSchema = z.object({
   runInBackground: z.boolean(),
   model: z.string().optional(),
   thinkingEffort: z.string().optional(),
+  taskId: z.string().optional(),
 }) satisfies z.ZodType<SubagentSpawnedEvent>;
 
 export const subagentStartedEventSchema = z.object({
@@ -1996,7 +2016,7 @@ export const eventSchema = agentEventSchema.and(
  * Everything not listed here is durable: journaled, seq-bearing, replayable.
  *
  * @deprecated Use the server-side `isVolatileSignal`
- * (`packages/kap-server/src/transport/ws/v1/sessionEventBroadcaster.ts`) instead,
+ * (`packages/agent-gateway/src/transport/ws/v1/sessionEventBroadcaster.ts`) instead,
  * which owns volatile-vs-durable classification for the `wire` emission path.
  * The legacy `IAgentRecordService` (`record.on`) transport path still consumes
  * this until Phase 4 removes it; do not add new consumers.
@@ -2010,7 +2030,7 @@ export const VOLATILE_EVENT_TYPES = [
   'shell.started',
   'shell.completed',
   'agent.status.updated',
-  // Live-only capability install progress (per-chunk ticks); kap-server
+  // Live-only capability install progress (per-chunk ticks); agent-gateway
   // classifies it volatile (never journaled), so shared-protocol clients must
   // not treat it as durable/replayable either.
   'event.capability.changed',
@@ -2022,7 +2042,7 @@ const volatileEventTypeSet: ReadonlySet<string> = new Set(VOLATILE_EVENT_TYPES);
 
 /**
  * @deprecated Use the server-side `isVolatileSignal`
- * (`packages/kap-server/src/transport/ws/v1/sessionEventBroadcaster.ts`) instead,
+ * (`packages/agent-gateway/src/transport/ws/v1/sessionEventBroadcaster.ts`) instead,
  * which owns volatile-vs-durable classification for the `wire` emission path.
  * Retained only for the legacy `IAgentRecordService` (`record.on`) transport
  * path until Phase 4 removes it; do not add new consumers.

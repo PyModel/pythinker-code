@@ -11,7 +11,6 @@ function parse(argv: string[]): CLIOptions {
     (opts) => {
       captured = opts;
     },
-    () => {},
   );
   program.exitOverride();
   program.configureOutput({

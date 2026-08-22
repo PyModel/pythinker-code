@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import type { ChatTurn, ToolCall, TurnBlock } from '../src/types';
 import {
   assistantRenderBlocks,
+  foldRenderBlocks,
   formatDuration,
+  formatLiveDuration,
   formatTokens,
   rendersToolCard,
   renderBlockKey,
@@ -42,6 +44,18 @@ describe('formatDuration', () => {
     expect(formatDuration(59_999)).toBe('60.0s');
     expect(formatDuration(60_000)).toBe('1m0.0s');
     expect(formatDuration(90_500)).toBe('1m30.5s');
+  });
+});
+
+describe('formatLiveDuration', () => {
+  it('formats whole-second compact durations like the reference live timer', () => {
+    expect(formatLiveDuration(0)).toBe('');
+    expect(formatLiveDuration(500)).toBe('');
+    expect(formatLiveDuration(45_000)).toBe('45s');
+    expect(formatLiveDuration(60_000)).toBe('1m');
+    expect(formatLiveDuration(63_000)).toBe('1m3s');
+    expect(formatLiveDuration(120_000)).toBe('2m');
+    expect(formatLiveDuration(7_500_000)).toBe('2h5m');
   });
 });
 
@@ -93,29 +107,48 @@ describe('toolStackPosition', () => {
 });
 
 describe('assistantRenderBlocks', () => {
-  it('groups consecutive renderable tools into one tool-stack', () => {
+  it('folds consecutive renderable tools into one activity-run', () => {
     const rendered = assistantRenderBlocks(assistantTurn([toolBlock('a'), toolBlock('b')]));
     expect(rendered).toHaveLength(1);
-    expect(rendered[0]).toMatchObject({ kind: 'tool-stack' });
-    if (rendered[0]?.kind === 'tool-stack') {
-      expect(rendered[0].tools.map((t) => t.tool.id)).toEqual(['a', 'b']);
-      expect(rendered[0].tools.map((t) => t.sourceIndex)).toEqual([0, 1]);
+    expect(rendered[0]).toMatchObject({ kind: 'activity-run' });
+    if (rendered[0]?.kind === 'activity-run') {
+      expect(rendered[0].items.map((t) => t.tool.id)).toEqual(['a', 'b']);
+      expect(rendered[0].items.map((t) => t.sourceIndex)).toEqual([0, 1]);
     }
   });
 
-  it('renders a lone tool as a standalone tool, not a stack', () => {
+  it('folds thinking segments into the same run as following tools', () => {
+    const rendered = assistantRenderBlocks(
+      assistantTurn([{ kind: 'thinking', thinking: 'plan' }, toolBlock('a'), toolBlock('b')]),
+    );
+    expect(rendered[0]?.kind).toBe('activity-run');
+    expect(rendered).toHaveLength(1);
+  });
+
+  it('flattens a turn block that already carries an activity-run (parity)', () => {
+    const rendered = assistantRenderBlocks(
+      assistantTurn([
+        { kind: 'activity-run', items: [{ kind: 'thinking', thinking: 'a' }, toolBlock('b')] },
+        toolBlock('c'),
+      ]),
+    );
+    expect(rendered).toHaveLength(1);
+    expect(rendered[0]?.kind).toBe('activity-run');
+  });
+
+  it('renders a lone tool as a standalone tool, not a run', () => {
     const rendered = assistantRenderBlocks(assistantTurn([toolBlock('a')]));
     expect(rendered).toEqual([{ kind: 'tool', tool: tool('a'), sourceIndex: 0 }]);
   });
 
-  it('breaks the stack when a non-tool block interrupts the run', () => {
+  it('breaks the run when a non-tool block interrupts', () => {
     const rendered = assistantRenderBlocks(
       assistantTurn([toolBlock('a'), { kind: 'text', text: 'x' }, toolBlock('b')]),
     );
     expect(rendered.map((b) => b.kind)).toEqual(['tool', 'text', 'tool']);
   });
 
-  it('breaks the stack when a media tool (no card) interrupts the run', () => {
+  it('breaks the run when a media tool (no card) interrupts', () => {
     const rendered = assistantRenderBlocks(
       assistantTurn([
         toolBlock('a'),
@@ -123,10 +156,17 @@ describe('assistantRenderBlocks', () => {
         toolBlock('c', { status: 'ok', media: { kind: 'image', url: 'x' } }),
       ]),
     );
-    expect(rendered.map((b) => b.kind)).toEqual(['tool-stack', 'tool']);
-    if (rendered[0]?.kind === 'tool-stack') {
-      expect(rendered[0].tools.map((t) => t.tool.id)).toEqual(['a', 'b']);
+    expect(rendered.map((b) => b.kind)).toEqual(['activity-run', 'tool']);
+    if (rendered[0]?.kind === 'activity-run') {
+      expect(rendered[0].items.map((t) => t.tool.id)).toEqual(['a', 'b']);
     }
+  });
+
+  it('does not emit an empty text block and it still breaks the run', () => {
+    const rendered = assistantRenderBlocks(
+      assistantTurn([{ kind: 'thinking', thinking: 'plan' }, { kind: 'text', text: '' }, toolBlock('a')]),
+    );
+    expect(rendered.map((b) => b.kind)).toEqual(['thinking', 'tool']);
   });
 
   it('preserves thinking/text order with their source indexes', () => {
@@ -140,6 +180,42 @@ describe('assistantRenderBlocks', () => {
       { kind: 'thinking', thinking: 'plan', sourceIndex: 0 },
       { kind: 'text', text: 'answer', sourceIndex: 1 },
     ]);
+  });
+});
+
+describe('foldRenderBlocks', () => {
+  it('folds thinking and tools before the last non-blank text block', () => {
+    const blocks = assistantRenderBlocks(
+      assistantTurn([
+        { kind: 'thinking', thinking: 'plan' },
+        toolBlock('a'),
+        { kind: 'text', text: 'answer' },
+      ]),
+    );
+    expect(blocks.map((b) => b.kind)).toEqual(['activity-run', 'text']);
+    expect(foldRenderBlocks(blocks)).toEqual({
+      folded: blocks.slice(0, 1),
+      visible: blocks.slice(1),
+    });
+  });
+
+  it('folds every block in an all-tools turn', () => {
+    const blocks = assistantRenderBlocks(assistantTurn([toolBlock('a'), toolBlock('b')]));
+    expect(foldRenderBlocks(blocks)).toEqual({ folded: blocks, visible: [] });
+  });
+
+  it('keeps a leading text block and following tools visible', () => {
+    const blocks = assistantRenderBlocks(
+      assistantTurn([{ kind: 'text', text: 'answer' }, toolBlock('a')]),
+    );
+    expect(foldRenderBlocks(blocks)).toEqual({ folded: [], visible: blocks });
+  });
+
+  it('does not use blank text blocks as anchors', () => {
+    const blocks = assistantRenderBlocks(
+      assistantTurn([toolBlock('a'), { kind: 'text', text: '  \n ' }]),
+    );
+    expect(foldRenderBlocks(blocks)).toEqual({ folded: blocks, visible: [] });
   });
 });
 
@@ -175,5 +251,11 @@ describe('renderBlockKey', () => {
     expect(
       renderBlockKey({ kind: 'tool-stack', tools: [{ tool: tool('a'), sourceIndex: 5 }] }, 0),
     ).toBe('tool-stack-5');
+    expect(
+      renderBlockKey(
+        { kind: 'activity-run', items: [{ kind: 'thinking', thinking: 'a', sourceIndex: 7 }] },
+        0,
+      ),
+    ).toBe('activity-run-7');
   });
 });

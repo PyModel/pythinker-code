@@ -41,6 +41,9 @@ export interface Session {
   workspaceId?: string;
   /** Workspace display name, joined from workspacesView. */
   workspaceName?: string;
+  /** True when the session is archived (done). Home-list rows use it for the
+      status glyph. */
+  archived?: boolean;
 }
 
 export interface Workspace {
@@ -112,13 +115,15 @@ export interface ToolMedia {
   fileId?: string;
 }
 
-export type AgentPhase = 'queued' | 'working' | 'suspended' | 'completed' | 'failed';
+export type AgentPhase = 'queued' | 'working' | 'suspended' | 'completed' | 'failed' | 'cancelled';
 
 export interface AgentMember {
   id: string;
   toolCallId?: string;
   name: string;
   subagentType?: string;
+  model?: string;
+  thinkingEffort?: string;
   phase: AgentPhase;
   status: 'running' | 'completed' | 'failed' | 'cancelled';
   /** The prompt/task the subagent was given (from the Agent tool input). */
@@ -186,6 +191,7 @@ export type TurnRole = 'user' | 'assistant' | 'compaction' | 'cron';
 export interface FilePreviewRequest {
   path: string;
   line?: number;
+  content?: string;
 }
 
 /**
@@ -216,15 +222,28 @@ export interface CronTurnData {
   missedCount?: number;
 }
 
-/** One ordered piece of an assistant turn: a thinking segment, a text segment
- * OR a tool card. Built in call order so every piece renders inline where it
- * happened (a turn can think → act → think again — nothing is hoisted).
+/** One ordered piece of an assistant turn: a thinking segment, a text segment,
+ * a tool card OR an activity-run group. Built in call order so every piece
+ * renders inline where it happened (a turn can think → act → think again —
+ * nothing is hoisted). `activity-run` groups are produced by the render layer
+ * (chatTurnRendering), not by the daemon.
  *
  * Subagents render as the spawning `Agent` tool card here; their live progress
  * streams in the right-side detail panel, sourced from the task rather than a
  * dedicated block. */
 export type TurnBlock =
   | { kind: 'text'; text: string }
+  | { kind: 'thinking'; thinking: string }
+  | { kind: 'tool'; tool: ToolCall }
+  | { kind: 'activity-run'; items: ActivityRunItem[] };
+
+/**
+ * One item inside an `activity-run` block: a thinking segment or a tool card.
+ * The render layer folds consecutive thinking + tool blocks into runs (see
+ * chatTurnRendering); the daemon wire carries no run boundaries, so the fold
+ * groups by turn as a best-effort approximation of the reference UI.
+ */
+export type ActivityRunItem =
   | { kind: 'thinking'; thinking: string }
   | { kind: 'tool'; tool: ToolCall };
 
@@ -289,12 +308,21 @@ export type TaskState = 'run' | 'done' | 'fail';
 
 export interface TaskItem {
   id: string;
+  agentId?: string;
+  backgroundTaskId?: string;
   name: string;
   kind: string; // 'subagent' | 'task'
-  state: TaskState;
+  state: TaskState | 'cancelled';
   timing: string;
+  durationMs?: number;
   meta?: string;
   output?: string[];
+  subagentType?: string;
+  phase?: AgentPhase;
+  model?: string;
+  thinkingEffort?: string;
+  dynamicWorkflowIndex?: number;
+  swarmIndex?: number;
   /** Background subagents only — the dock lists these; foreground subagents
    *  render inline as the `Agent` tool card instead. */
   runInBackground?: boolean;
@@ -302,6 +330,20 @@ export interface TaskItem {
    *  to its inline tool card, so the card's "Open detail" button can be hidden
    *  when the task is no longer available. */
   parentToolCallId?: string;
+  createdAt?: string;
+  completedAt?: string;
+}
+
+export interface SessionPlanEntry {
+  agentId: 'main';
+  toolCallId: string;
+  turnId: string;
+  source: 'interaction';
+  plan?: string;
+  path?: string;
+  selectedOption?: string;
+  feedback?: string;
+  reviewState?: string;
 }
 
 export interface ConversationStatus {
@@ -347,6 +389,7 @@ export interface QueuedPromptView {
 export interface UIQuestion {
   questionId: string;
   sessionId: string;
+  toolCallId?: string;
   questions: {
     id: string;
     question: string;

@@ -11,7 +11,7 @@ import { Readable } from 'node:stream';
 import type { Writable } from 'node:stream';
 import { join } from 'pathe';
 
-import type { KaosProcess } from '@pymodel/kaos';
+import type { PyaosProcess } from '@pymodel/pyaos';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ProcessBackgroundTask, type BackgroundManager } from '../../../src/agent/background';
@@ -21,22 +21,22 @@ const MAX_OUTPUT_BYTES = 1024 * 1024;
 
 const tick = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 5));
 
-function immediateProcess(exitCode: number, stdoutText = ''): KaosProcess {
+function immediateProcess(exitCode: number, stdoutText = ''): PyaosProcess {
   return {
     stdin: { write: vi.fn(), end: vi.fn() } as unknown as Writable,
     stdout: Readable.from(stdoutText ? [stdoutText] : []),
     stderr: Readable.from([]),
     pid: 60000 + exitCode,
     exitCode,
-    wait: vi.fn().mockResolvedValue(exitCode) as KaosProcess['wait'],
-    kill: vi.fn().mockResolvedValue(undefined) as KaosProcess['kill'],
-    dispose: vi.fn().mockResolvedValue(undefined) as KaosProcess['dispose'],
+    wait: vi.fn().mockResolvedValue(exitCode) as PyaosProcess['wait'],
+    kill: vi.fn().mockResolvedValue(undefined) as PyaosProcess['kill'],
+    dispose: vi.fn().mockResolvedValue(undefined) as PyaosProcess['dispose'],
   };
 }
 
 /** A process whose stdout and exit are driven by the test, for timing control. */
 function controllableProcess(): {
-  proc: KaosProcess;
+  proc: PyaosProcess;
   pushStdout: (text: string) => void;
   finish: (exitCode: number) => void;
 } {
@@ -45,15 +45,15 @@ function controllableProcess(): {
   const waitPromise = new Promise<number>((resolve) => {
     resolveWait = resolve;
   });
-  const proc: KaosProcess = {
+  const proc: PyaosProcess = {
     stdin: { write: vi.fn(), end: vi.fn() } as unknown as Writable,
     stdout,
     stderr: Readable.from([]),
     pid: 61000,
     exitCode: null,
-    wait: vi.fn(() => waitPromise) as KaosProcess['wait'],
-    kill: vi.fn().mockResolvedValue(undefined) as KaosProcess['kill'],
-    dispose: vi.fn().mockResolvedValue(undefined) as KaosProcess['dispose'],
+    wait: vi.fn(() => waitPromise) as PyaosProcess['wait'],
+    kill: vi.fn().mockResolvedValue(undefined) as PyaosProcess['kill'],
+    dispose: vi.fn().mockResolvedValue(undefined) as PyaosProcess['dispose'],
   };
   return {
     proc,
@@ -68,7 +68,7 @@ function controllableProcess(): {
 
 function registerForeground(
   manager: BackgroundManager,
-  proc: KaosProcess,
+  proc: PyaosProcess,
   command: string,
   description: string,
 ): string {

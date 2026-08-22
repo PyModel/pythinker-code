@@ -1,6 +1,7 @@
 <!-- apps/pythinker-web/src/components/chat/tool-calls/GenericTool.vue -->
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
+import { useI18n } from 'vue-i18n';
 import type { FilePreviewRequest, ToolCall, ToolMedia } from '../../../types';
 import { toolChip, toolGlyph, toolLabel, toolSummary } from '../../../lib/toolMeta';
 import ToolRow from '../ToolRow.vue';
@@ -15,6 +16,8 @@ const props = withDefaults(
   }>(),
   { mobile: false, stackPosition: 'single', toolDiffPanel: false },
 );
+
+const { t } = useI18n();
 
 defineEmits<{
   openMedia: [media: ToolMedia];
@@ -73,7 +76,10 @@ watch(
       <span v-if="chip" class="chip">{{ chip }}</span>
     </template>
     <div v-if="summaryFull" class="bb-summary">{{ summaryFull }}</div>
-    <ToolOutputBlock :lines="tool.output" empty-text="Waiting for output…" />
+    <ToolOutputBlock
+      :lines="tool.output"
+      :empty-text="tool.status === 'running' ? t('tools.output.waiting') : t('tools.output.empty')"
+    />
   </ToolRow>
 </template>
 

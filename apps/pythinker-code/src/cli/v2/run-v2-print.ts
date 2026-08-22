@@ -57,7 +57,7 @@ import {
   type Scope,
 } from '@pymodel/agent-core-v2';
 import { createPythinkerDefaultHeaders, createPythinkerDeviceId } from '@pymodel/pythinker-code-oauth';
-import type { GoalUpdated } from '@pymodel/agent-core-v2/agent/goal/goalOps';
+import type { GoalUpdated } from '@pymodel/agent-core-v2';
 import type { TurnEnded } from '@pymodel/agent-core-v2/agent/loop/turnOps';
 import type {
   AssistantDelta,
@@ -65,7 +65,7 @@ import type {
   ToolCallDelta,
 } from '@pymodel/agent-core-v2/agent/loop/turnEvents';
 import type { TurnStepRetrying } from '@pymodel/agent-core-v2/agent/stepRetry/stepRetryService';
-import type { HookResult } from '@pymodel/agent-core-v2/agent/externalHooks/externalHooksService';
+import type { HookResult } from '@pymodel/agent-core-v2/features/externalHooks/agent/agentExternalHooksService';
 import type {
   ToolCallStarted,
   ToolProgress,

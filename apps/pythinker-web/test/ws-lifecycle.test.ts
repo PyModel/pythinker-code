@@ -143,4 +143,53 @@ describe('DaemonEventSocket reconnect + staleness', () => {
     first.readyState = FakeWebSocket.CLOSING;
     expect(socket.health().open).toBe(false);
   });
+
+  it('subscribes to and receives one subagent transcript stream', () => {
+    const handlers = {
+      ...makeHandlers(),
+      onTranscriptReset: vi.fn(),
+      onTranscriptOps: vi.fn(() => true),
+    };
+    const socket = new DaemonEventSocket(WS_URL, CLIENT_ID, handlers);
+    socket.connect();
+    socket.subscribeTranscript('session_1', 'agent_1', 7);
+    const first = FakeWebSocket.instances[0]!;
+    first.emitMessage(SERVER_HELLO);
+
+    expect(first.sent.map((frame) => JSON.parse(frame))).toContainEqual({
+      type: 'subscribe_v2',
+      id: 'c_2',
+      payload: {
+        session_id: 'session_1',
+        transcript: { agent_1: 'delta' },
+        transcript_since: { agent_1: 7 },
+      },
+    });
+
+    first.emitMessage({
+      type: 'transcript.reset',
+      session_id: 'session_1',
+      payload: {
+        agent_id: 'agent_1',
+        snapshot: {
+          items: [],
+          tasks: [],
+          interactions: [],
+          attachments: [],
+          todos: [],
+          prompts: [],
+          meta: { activity: 'idle' },
+        },
+        has_more_older: false,
+        seq: 8,
+      },
+    });
+
+    expect(handlers.onTranscriptReset).toHaveBeenCalledWith(
+      'session_1',
+      'agent_1',
+      expect.objectContaining({ hasMoreOlder: false }),
+      8,
+    );
+  });
 });

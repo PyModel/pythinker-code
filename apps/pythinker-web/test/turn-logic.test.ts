@@ -315,7 +315,7 @@ describe('messagesToTurns', () => {
   });
 
   it('recovers a file attachment from the server’s "Attached file" notice, not raw text', () => {
-    // After a resync the file part is gone from history — the kap-server prompt
+    // After a resync the file part is gone from history — the agent-gateway prompt
     // route replaced it with this notice. The chip must be rebuilt from the
     // notice (fileId lives in the materialized basename) instead of dumping the
     // absolute server path into the bubble.

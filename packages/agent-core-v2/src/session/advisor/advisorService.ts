@@ -87,18 +87,18 @@ export class SessionAdvisorService extends Disposable implements ISessionAdvisor
     @ILogService private readonly log: Pick<ILogService, 'debug' | 'warn'>,
   ) {
     super();
-    this._register(this.agents.onDidCreate((handle) => {
+    this._register(this.agents.onDidCreateScope(({ handle }) => {
       this.bindMain(handle);
     }));
-    this._register(this.agents.onDidDispose((agentId) => {
-      if (agentId === MAIN_AGENT_ID) this.disposeMainBindings();
+    this._register(this.agents.onDidDispose((agent) => {
+      if (agent.agentId === MAIN_AGENT_ID) this.disposeMainBindings();
     }));
     this._register(toDisposable(() => {
       this.disposed = true;
       this.activeAbort?.abort();
       this.disposeMainBindings();
     }));
-    const main = this.agents.get(MAIN_AGENT_ID);
+    const main = this.agents.findAgentHandle(MAIN_AGENT_ID);
     if (main !== undefined) this.bindMain(main);
   }
 

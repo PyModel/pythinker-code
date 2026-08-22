@@ -1,4 +1,4 @@
-import type { Kaos } from '@pymodel/kaos';
+import type { Pyaos } from '@pymodel/pyaos';
 import { describe, expect, it, vi } from 'vitest';
 
 import {
@@ -11,7 +11,7 @@ import {
 } from '../../src/tools/builtin/file/read';
 import { MEDIA_SNIFF_BYTES } from '../../src/tools/support/file-type';
 import type { WorkspaceConfig } from '../../src/tools/support/workspace';
-import { createFakeKaos, PERMISSIVE_WORKSPACE, toolContentString } from './fixtures/fake-kaos';
+import { createFakePyaos, PERMISSIVE_WORKSPACE, toolContentString } from './fixtures/fake-pyaos';
 import { executeTool } from './fixtures/execute-tool';
 
 const signal = new AbortController().signal;
@@ -26,12 +26,12 @@ const REGULAR_FILE_STAT = {
   stAtime: 0,
   stMtime: 0,
   stCtime: 0,
-} satisfies Awaited<ReturnType<Kaos['stat']>>;
+} satisfies Awaited<ReturnType<Pyaos['stat']>>;
 
 const DIRECTORY_STAT = {
   ...REGULAR_FILE_STAT,
   stMode: 0o040_755,
-} satisfies Awaited<ReturnType<Kaos['stat']>>;
+} satisfies Awaited<ReturnType<Pyaos['stat']>>;
 
 function context(args: ReadInput) {
   return {
@@ -51,7 +51,7 @@ function linesFromContent(content: string): string[] {
   });
 }
 
-function readLinesFromContent(content: string): Kaos['readLines'] {
+function readLinesFromContent(content: string): Pyaos['readLines'] {
   return async function* readLines(): AsyncGenerator<string> {
     for (const line of linesFromContent(content)) {
       yield line;
@@ -69,13 +69,13 @@ function readNote(status: string): string {
 function toolWithContent(content: string, workspace: WorkspaceConfig = PERMISSIVE_WORKSPACE) {
   const bytes = Buffer.from(content, 'utf8');
   return new ReadTool(
-    createFakeKaos({
-      stat: vi.fn<Kaos['stat']>().mockResolvedValue(REGULAR_FILE_STAT),
-      readBytes: vi.fn<Kaos['readBytes']>().mockImplementation(async (_path, n) => {
+    createFakePyaos({
+      stat: vi.fn<Pyaos['stat']>().mockResolvedValue(REGULAR_FILE_STAT),
+      readBytes: vi.fn<Pyaos['readBytes']>().mockImplementation(async (_path, n) => {
         return n === undefined ? bytes : bytes.subarray(0, n);
       }),
-      readLines: vi.fn<Kaos['readLines']>().mockImplementation(readLinesFromContent(content)),
-      readText: vi.fn<Kaos['readText']>().mockResolvedValue(content),
+      readLines: vi.fn<Pyaos['readLines']>().mockImplementation(readLinesFromContent(content)),
+      readText: vi.fn<Pyaos['readText']>().mockResolvedValue(content),
     }),
     workspace,
   );
@@ -213,7 +213,7 @@ describe('ReadTool', () => {
 
   it('rejects relative traversal before reading', async () => {
     const readText = vi.fn().mockResolvedValue('secret');
-    const tool = new ReadTool(createFakeKaos({ readText }), {
+    const tool = new ReadTool(createFakePyaos({ readText }), {
       workspaceDir: '/workspace/project',
       additionalDirs: [],
     });
@@ -228,13 +228,13 @@ describe('ReadTool', () => {
   it('allows explicit absolute paths outside the workspace', async () => {
     const content = 'external';
     const bytes = Buffer.from(content, 'utf8');
-    const readBytes = vi.fn<Kaos['readBytes']>().mockImplementation(async (_path, n) => {
+    const readBytes = vi.fn<Pyaos['readBytes']>().mockImplementation(async (_path, n) => {
       return n === undefined ? bytes : bytes.subarray(0, n);
     });
-    const readLines = vi.fn<Kaos['readLines']>().mockImplementation(readLinesFromContent(content));
+    const readLines = vi.fn<Pyaos['readLines']>().mockImplementation(readLinesFromContent(content));
     const tool = new ReadTool(
-      createFakeKaos({
-        stat: vi.fn<Kaos['stat']>().mockResolvedValue(REGULAR_FILE_STAT),
+      createFakePyaos({
+        stat: vi.fn<Pyaos['stat']>().mockResolvedValue(REGULAR_FILE_STAT),
         readBytes,
         readLines,
       }),
@@ -259,12 +259,12 @@ describe('ReadTool', () => {
   it('returns a friendly error for missing files before sniffing bytes', async () => {
     const statError = Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
     const readBytes = vi
-      .fn<Kaos['readBytes']>()
+      .fn<Pyaos['readBytes']>()
       .mockRejectedValue(new Error('readBytes should not be called for missing files'));
-    const readLines = vi.fn<Kaos['readLines']>().mockImplementation(readLinesFromContent(''));
+    const readLines = vi.fn<Pyaos['readLines']>().mockImplementation(readLinesFromContent(''));
     const tool = new ReadTool(
-      createFakeKaos({
-        stat: vi.fn<Kaos['stat']>().mockRejectedValue(statError),
+      createFakePyaos({
+        stat: vi.fn<Pyaos['stat']>().mockRejectedValue(statError),
         readBytes,
         readLines,
       }),
@@ -286,12 +286,12 @@ describe('ReadTool', () => {
 
   it('returns a friendly error for directories before sniffing bytes', async () => {
     const readBytes = vi
-      .fn<Kaos['readBytes']>()
+      .fn<Pyaos['readBytes']>()
       .mockRejectedValue(new Error('readBytes should not be called for directories'));
-    const readLines = vi.fn<Kaos['readLines']>().mockImplementation(readLinesFromContent(''));
+    const readLines = vi.fn<Pyaos['readLines']>().mockImplementation(readLinesFromContent(''));
     const tool = new ReadTool(
-      createFakeKaos({
-        stat: vi.fn<Kaos['stat']>().mockResolvedValue(DIRECTORY_STAT),
+      createFakePyaos({
+        stat: vi.fn<Pyaos['stat']>().mockResolvedValue(DIRECTORY_STAT),
         readBytes,
         readLines,
       }),
@@ -311,17 +311,17 @@ describe('ReadTool', () => {
     expect(readLines).not.toHaveBeenCalled();
   });
 
-  it('expands leading tilde paths using the kaos home directory', async () => {
+  it('expands leading tilde paths using the pyaos home directory', async () => {
     const content = 'home note';
     const bytes = Buffer.from(content, 'utf8');
-    const readBytes = vi.fn<Kaos['readBytes']>().mockImplementation(async (_path, n) => {
+    const readBytes = vi.fn<Pyaos['readBytes']>().mockImplementation(async (_path, n) => {
       return n === undefined ? bytes : bytes.subarray(0, n);
     });
-    const readLines = vi.fn<Kaos['readLines']>().mockImplementation(readLinesFromContent(content));
+    const readLines = vi.fn<Pyaos['readLines']>().mockImplementation(readLinesFromContent(content));
     const tool = new ReadTool(
-      createFakeKaos({
+      createFakePyaos({
         gethome: () => '/home/test',
-        stat: vi.fn<Kaos['stat']>().mockResolvedValue(REGULAR_FILE_STAT),
+        stat: vi.fn<Pyaos['stat']>().mockResolvedValue(REGULAR_FILE_STAT),
         readBytes,
         readLines,
       }),
@@ -345,7 +345,7 @@ describe('ReadTool', () => {
 
   it('blocks sensitive files independently from workspace access', async () => {
     const readText = vi.fn().mockResolvedValue('SECRET=value');
-    const tool = new ReadTool(createFakeKaos({ readText }), {
+    const tool = new ReadTool(createFakePyaos({ readText }), {
       workspaceDir: '/workspace',
       additionalDirs: [],
     });
@@ -360,12 +360,12 @@ describe('ReadTool', () => {
   it('rejects image files before text decoding and points to ReadMediaFile', async () => {
     const pngHeader = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
     const readText = vi
-      .fn<Kaos['readText']>()
+      .fn<Pyaos['readText']>()
       .mockRejectedValue(new Error('readText should not be called for images'));
     const tool = new ReadTool(
-      createFakeKaos({
-        stat: vi.fn<Kaos['stat']>().mockResolvedValue(REGULAR_FILE_STAT),
-        readBytes: vi.fn<Kaos['readBytes']>().mockResolvedValue(pngHeader),
+      createFakePyaos({
+        stat: vi.fn<Pyaos['stat']>().mockResolvedValue(REGULAR_FILE_STAT),
+        readBytes: vi.fn<Pyaos['readBytes']>().mockResolvedValue(pngHeader),
         readText,
       }),
       PERMISSIVE_WORKSPACE,
@@ -386,12 +386,12 @@ describe('ReadTool', () => {
     // rather than being misidentified as an image and sent to ReadMediaFile.
     const plainText = Buffer.from('this is plain ascii text, not a png');
     const readText = vi
-      .fn<Kaos['readText']>()
+      .fn<Pyaos['readText']>()
       .mockRejectedValue(new Error('readText should not be called for non-image files'));
     const tool = new ReadTool(
-      createFakeKaos({
-        stat: vi.fn<Kaos['stat']>().mockResolvedValue(REGULAR_FILE_STAT),
-        readBytes: vi.fn<Kaos['readBytes']>().mockResolvedValue(plainText),
+      createFakePyaos({
+        stat: vi.fn<Pyaos['stat']>().mockResolvedValue(REGULAR_FILE_STAT),
+        readBytes: vi.fn<Pyaos['readBytes']>().mockResolvedValue(plainText),
         readText,
       }),
       PERMISSIVE_WORKSPACE,
@@ -410,12 +410,12 @@ describe('ReadTool', () => {
   it('rejects extensionless image files using magic-byte sniffing', async () => {
     const pngHeader = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
     const readText = vi
-      .fn<Kaos['readText']>()
+      .fn<Pyaos['readText']>()
       .mockRejectedValue(new Error('readText should not be called for extensionless images'));
     const tool = new ReadTool(
-      createFakeKaos({
-        stat: vi.fn<Kaos['stat']>().mockResolvedValue(REGULAR_FILE_STAT),
-        readBytes: vi.fn<Kaos['readBytes']>().mockResolvedValue(pngHeader),
+      createFakePyaos({
+        stat: vi.fn<Pyaos['stat']>().mockResolvedValue(REGULAR_FILE_STAT),
+        readBytes: vi.fn<Pyaos['readBytes']>().mockResolvedValue(pngHeader),
         readText,
       }),
       PERMISSIVE_WORKSPACE,
@@ -438,12 +438,12 @@ describe('ReadTool', () => {
       Buffer.from('mp42isom'),
     ]);
     const readText = vi
-      .fn<Kaos['readText']>()
+      .fn<Pyaos['readText']>()
       .mockRejectedValue(new Error('readText should not be called for videos'));
     const tool = new ReadTool(
-      createFakeKaos({
-        stat: vi.fn<Kaos['stat']>().mockResolvedValue(REGULAR_FILE_STAT),
-        readBytes: vi.fn<Kaos['readBytes']>().mockResolvedValue(mp4Header),
+      createFakePyaos({
+        stat: vi.fn<Pyaos['stat']>().mockResolvedValue(REGULAR_FILE_STAT),
+        readBytes: vi.fn<Pyaos['readBytes']>().mockResolvedValue(mp4Header),
         readText,
       }),
       PERMISSIVE_WORKSPACE,
@@ -461,12 +461,12 @@ describe('ReadTool', () => {
   it('rejects NUL-containing binary files before text decoding', async () => {
     const header = Buffer.concat([Buffer.from('plain prefix'), Buffer.from([0x00, 0x01])]);
     const readText = vi
-      .fn<Kaos['readText']>()
+      .fn<Pyaos['readText']>()
       .mockRejectedValue(new Error('readText should not be called for binary files'));
     const tool = new ReadTool(
-      createFakeKaos({
-        stat: vi.fn<Kaos['stat']>().mockResolvedValue(REGULAR_FILE_STAT),
-        readBytes: vi.fn<Kaos['readBytes']>().mockResolvedValue(header),
+      createFakePyaos({
+        stat: vi.fn<Pyaos['stat']>().mockResolvedValue(REGULAR_FILE_STAT),
+        readBytes: vi.fn<Pyaos['readBytes']>().mockResolvedValue(header),
         readText,
       }),
       PERMISSIVE_WORKSPACE,
@@ -485,14 +485,14 @@ describe('ReadTool', () => {
 
   it('rejects NUL bytes that appear after the preflight header', async () => {
     const header = Buffer.from('text prefix without nul', 'utf8');
-    const readLines = vi.fn<Kaos['readLines']>().mockImplementation(async function* readLines() {
+    const readLines = vi.fn<Pyaos['readLines']>().mockImplementation(async function* readLines() {
       yield 'safe text\n';
       yield `binary${String.fromCodePoint(0)}tail\n`;
     });
     const tool = new ReadTool(
-      createFakeKaos({
-        stat: vi.fn<Kaos['stat']>().mockResolvedValue(REGULAR_FILE_STAT),
-        readBytes: vi.fn<Kaos['readBytes']>().mockResolvedValue(header),
+      createFakePyaos({
+        stat: vi.fn<Pyaos['stat']>().mockResolvedValue(REGULAR_FILE_STAT),
+        readBytes: vi.fn<Pyaos['readBytes']>().mockResolvedValue(header),
         readLines,
       }),
       PERMISSIVE_WORKSPACE,
@@ -510,7 +510,7 @@ describe('ReadTool', () => {
 
   it('rejects invalid UTF-8 instead of returning replacement characters', async () => {
     const replacement = String.fromCodePoint(0xfffd);
-    const readLines = vi.fn<Kaos['readLines']>().mockImplementation(async function* readLines(
+    const readLines = vi.fn<Pyaos['readLines']>().mockImplementation(async function* readLines(
       _path,
       options,
     ) {
@@ -520,9 +520,9 @@ describe('ReadTool', () => {
       yield `bad${replacement}text\n`;
     });
     const tool = new ReadTool(
-      createFakeKaos({
-        stat: vi.fn<Kaos['stat']>().mockResolvedValue(REGULAR_FILE_STAT),
-        readBytes: vi.fn<Kaos['readBytes']>().mockResolvedValue(Buffer.from('text header')),
+      createFakePyaos({
+        stat: vi.fn<Pyaos['stat']>().mockResolvedValue(REGULAR_FILE_STAT),
+        readBytes: vi.fn<Pyaos['readBytes']>().mockResolvedValue(Buffer.from('text header')),
         readLines,
       }),
       PERMISSIVE_WORKSPACE,
@@ -566,16 +566,16 @@ describe('ReadTool', () => {
 
   it('uses text preview for sniffing before falling back to readBytes', async () => {
     const content = 'hello from acp buffer\nsecond line\n';
-    const readBytes = vi.fn<Kaos['readBytes']>().mockImplementation(async () => Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+    const readBytes = vi.fn<Pyaos['readBytes']>().mockImplementation(async () => Buffer.from([0x89, 0x50, 0x4e, 0x47]));
     const readTextPreview = vi.fn(async (_path: string, n: number) => Buffer.from(content.slice(0, n), 'utf8'));
     const tool = new ReadTool(
-      createFakeKaos({
-        stat: vi.fn<Kaos['stat']>().mockResolvedValue(REGULAR_FILE_STAT),
+      createFakePyaos({
+        stat: vi.fn<Pyaos['stat']>().mockResolvedValue(REGULAR_FILE_STAT),
         readBytes,
         readTextPreview,
-        readLines: vi.fn<Kaos['readLines']>().mockImplementation(readLinesFromContent(content)),
-        readText: vi.fn<Kaos['readText']>().mockRejectedValue(new Error('full readText should not be called')),
-      } as unknown as Partial<Kaos>),
+        readLines: vi.fn<Pyaos['readLines']>().mockImplementation(readLinesFromContent(content)),
+        readText: vi.fn<Pyaos['readText']>().mockRejectedValue(new Error('full readText should not be called')),
+      } as unknown as Partial<Pyaos>),
       PERMISSIVE_WORKSPACE,
     );
 
@@ -595,21 +595,21 @@ describe('ReadTool', () => {
     );
     const bytes = Buffer.from(content, 'utf8');
     const readText = vi
-      .fn<Kaos['readText']>()
+      .fn<Pyaos['readText']>()
       .mockRejectedValue(new Error('full readText should not be called'));
     let consumed = 0;
-    const readLines: Kaos['readLines'] = async function* readLines(): AsyncGenerator<string> {
+    const readLines: Pyaos['readLines'] = async function* readLines(): AsyncGenerator<string> {
       for (let i = 1; i <= MAX_LINES + 5; i += 1) {
         consumed = i;
         yield `line ${String(i)}\n`;
       }
     };
-    const readBytes = vi.fn<Kaos['readBytes']>().mockImplementation(async (_path, n) => {
+    const readBytes = vi.fn<Pyaos['readBytes']>().mockImplementation(async (_path, n) => {
       return n === undefined ? bytes : bytes.subarray(0, n);
     });
     const tool = new ReadTool(
-      createFakeKaos({
-        stat: vi.fn<Kaos['stat']>().mockResolvedValue(REGULAR_FILE_STAT),
+      createFakePyaos({
+        stat: vi.fn<Pyaos['stat']>().mockResolvedValue(REGULAR_FILE_STAT),
         readBytes,
         readLines,
         readText,
@@ -633,7 +633,7 @@ describe('ReadTool', () => {
   it('uses range reader when available without consuming readLines', async () => {
     const content = Array.from({ length: 20 }, (_, i) => `line ${String(i + 1)}`).join('\n');
     const bytes = Buffer.from(content, 'utf8');
-    const readLines = vi.fn<Kaos['readLines']>();
+    const readLines = vi.fn<Pyaos['readLines']>();
     const readLineRange = vi.fn(async function* readLineRange(
       _path: string,
       options: { startLine: number; maxLines: number },
@@ -649,15 +649,15 @@ describe('ReadTool', () => {
       lineEndingFlags: { hasCrLf: false, hasLf: true, hasLoneCr: false },
     }));
     const tool = new ReadTool(
-      createFakeKaos({
-        stat: vi.fn<Kaos['stat']>().mockResolvedValue(REGULAR_FILE_STAT),
-        readBytes: vi.fn<Kaos['readBytes']>().mockImplementation(async (_path, n) => {
+      createFakePyaos({
+        stat: vi.fn<Pyaos['stat']>().mockResolvedValue(REGULAR_FILE_STAT),
+        readBytes: vi.fn<Pyaos['readBytes']>().mockImplementation(async (_path, n) => {
           return n === undefined ? bytes : bytes.subarray(0, n);
         }),
         readLines,
         scanTextFile,
         readLineRange,
-      } as unknown as Partial<Kaos>),
+      } as unknown as Partial<Pyaos>),
       PERMISSIVE_WORKSPACE,
     );
 
@@ -678,7 +678,7 @@ describe('ReadTool', () => {
   it('uses tail reader when available without consuming readLines', async () => {
     const content = Array.from({ length: 20 }, (_, i) => `line ${String(i + 1)}`).join('\n');
     const bytes = Buffer.from(content, 'utf8');
-    const readLines = vi.fn<Kaos['readLines']>();
+    const readLines = vi.fn<Pyaos['readLines']>();
     const readTailLines = vi.fn(async function* readTailLines(): AsyncGenerator<string> {
       yield 'line 18\n';
       yield 'line 19\n';
@@ -691,15 +691,15 @@ describe('ReadTool', () => {
       lineEndingFlags: { hasCrLf: false, hasLf: true, hasLoneCr: false },
     }));
     const tool = new ReadTool(
-      createFakeKaos({
-        stat: vi.fn<Kaos['stat']>().mockResolvedValue(REGULAR_FILE_STAT),
-        readBytes: vi.fn<Kaos['readBytes']>().mockImplementation(async (_path, n) => {
+      createFakePyaos({
+        stat: vi.fn<Pyaos['stat']>().mockResolvedValue(REGULAR_FILE_STAT),
+        readBytes: vi.fn<Pyaos['readBytes']>().mockImplementation(async (_path, n) => {
           return n === undefined ? bytes : bytes.subarray(0, n);
         }),
         readLines,
         scanTextFile,
         readTailLines,
-      } as unknown as Partial<Kaos>),
+      } as unknown as Partial<Pyaos>),
       PERMISSIVE_WORKSPACE,
     );
 
@@ -715,9 +715,9 @@ describe('ReadTool', () => {
   it('short-circuits on scan NUL before range read', async () => {
     const readLineRange = vi.fn();
     const tool = new ReadTool(
-      createFakeKaos({
-        stat: vi.fn<Kaos['stat']>().mockResolvedValue(REGULAR_FILE_STAT),
-        readBytes: vi.fn<Kaos['readBytes']>().mockResolvedValue(Buffer.from('text')),
+      createFakePyaos({
+        stat: vi.fn<Pyaos['stat']>().mockResolvedValue(REGULAR_FILE_STAT),
+        readBytes: vi.fn<Pyaos['readBytes']>().mockResolvedValue(Buffer.from('text')),
         scanTextFile: vi.fn(async () => ({
           totalLines: 1,
           endsWithNewline: false,
@@ -725,7 +725,7 @@ describe('ReadTool', () => {
           lineEndingFlags: { hasCrLf: false, hasLf: false, hasLoneCr: false },
         })),
         readLineRange,
-      } as unknown as Partial<Kaos>),
+      } as unknown as Partial<Pyaos>),
       PERMISSIVE_WORKSPACE,
     );
 
@@ -798,12 +798,12 @@ describe('ReadTool', () => {
     const content = 'extra-dir note';
     const bytes = Buffer.from(content, 'utf8');
     const tool = new ReadTool(
-      createFakeKaos({
-        stat: vi.fn<Kaos['stat']>().mockResolvedValue(REGULAR_FILE_STAT),
-        readBytes: vi.fn<Kaos['readBytes']>().mockImplementation(async (_path, n) => {
+      createFakePyaos({
+        stat: vi.fn<Pyaos['stat']>().mockResolvedValue(REGULAR_FILE_STAT),
+        readBytes: vi.fn<Pyaos['readBytes']>().mockImplementation(async (_path, n) => {
           return n === undefined ? bytes : bytes.subarray(0, n);
         }),
-        readLines: vi.fn<Kaos['readLines']>().mockImplementation(readLinesFromContent(content)),
+        readLines: vi.fn<Pyaos['readLines']>().mockImplementation(readLinesFromContent(content)),
       }),
       { workspaceDir: '/workspace', additionalDirs: ['/extra'] },
     );
@@ -817,8 +817,8 @@ describe('ReadTool', () => {
   it('reports nonexistent files with the expected does-not-exist phrasing', async () => {
     const statError = Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
     const tool = new ReadTool(
-      createFakeKaos({
-        stat: vi.fn<Kaos['stat']>().mockRejectedValue(statError),
+      createFakePyaos({
+        stat: vi.fn<Pyaos['stat']>().mockRejectedValue(statError),
       }),
       { workspaceDir: '/workspace', additionalDirs: [] },
     );

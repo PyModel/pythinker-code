@@ -987,7 +987,7 @@ export class AcpSession {
     if (turnId === undefined) {
       // The launch round-trip has not returned the turn id yet. The engine's
       // cancel payload makes turnId optional — an empty call cancels whatever
-      // turn is active (the same contract kap-server's cancel route relies
+      // turn is active (the same contract agent-gateway's cancel route relies
       // on) — and concurrent prompts are rejected, so the active turn can only
       // be this driver's. Flag the driver too: when the id lands, the launch
       // handler re-issues a precisely-addressed cancel, and a no-launch

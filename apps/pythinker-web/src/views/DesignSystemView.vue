@@ -174,9 +174,9 @@ onUnmounted(() => {
             <p>Semantic-first, in three layers: <b>background / text / border</b> + <b>accent</b> + <b>status colors</b>. All colors are defined in light / dark pairs, with contrast ≥ 4.5:1.</p>
             <div class="callout info"><span class="ico">i</span><div>The table below shows the <b>derived semantic tokens</b>. The <b>neutrals and the accent</b> are derived from the 4 color seeds in §05 — for example <code>--color-accent</code> comes from <code>--accent-primary</code>, and <code>--color-bg</code> comes from the current light / dark surface. The <b>semantic status colors</b> (success / warning / danger / info) are independent palettes paired with the seeds, one set each for light / dark; they are not auto-derived from the seeds. Day-to-day reskinning usually only needs the 4 seeds, with the status colors fine-tuned as needed.</div></div>
             <div class="palette">
-              <div class="color-card"><div class="color-chip" style="background:#ffffff"></div><div class="color-meta"><div class="cn">bg</div><div class="cv">#ffffff / #0d1117</div></div></div>
-              <div class="color-card"><div class="color-chip" style="background:#fafbfc"></div><div class="color-meta"><div class="cn">surface</div><div class="cv">#fafbfc / #161b22</div></div></div>
-              <div class="color-card"><div class="color-chip" style="background:#f3f5f8"></div><div class="color-meta"><div class="cn">surface-sunken</div><div class="cv">#f3f5f8 / #0d1117</div></div></div>
+              <div class="color-card"><div class="color-chip" style="background:#ffffff"></div><div class="color-meta"><div class="cn">bg</div><div class="cv">#ffffff / #121212</div></div></div>
+              <div class="color-card"><div class="color-chip" style="background:#fafbfc"></div><div class="color-meta"><div class="cn">surface</div><div class="cv">#fafbfc / #1f1f1f</div></div></div>
+              <div class="color-card"><div class="color-chip" style="background:#f3f5f8"></div><div class="color-meta"><div class="cn">surface-sunken</div><div class="cv">#f3f5f8 / #121212</div></div></div>
               <div class="color-card"><div class="color-chip" style="background:#eceff3"></div><div class="color-meta"><div class="cn">selected</div><div class="cv">#eceff3 / #2d333b</div></div></div>
               <div class="color-card"><div class="color-chip" style="background:#14171c"></div><div class="color-meta"><div class="cn">fg</div><div class="cv">#14171c / #e8eaed</div></div></div>
               <div class="color-card"><div class="color-chip" style="background:#6b7280"></div><div class="color-meta"><div class="cn">fg-muted</div><div class="cv">#6b7280 / #9aa0a8</div></div></div>
@@ -187,9 +187,9 @@ onUnmounted(() => {
             <table class="dt">
               <thead><tr><th>Token</th><th>Light</th><th>Dark</th><th>Usage</th></tr></thead>
               <tbody>
-                <tr><td class="tk">--color-bg</td><td class="val"><span class="swatch" style="background:#fff"></span>#ffffff</td><td class="val"><span class="swatch" style="background:#0d1117"></span>#0d1117</td><td>Page background</td></tr>
-                <tr><td class="tk">--color-surface</td><td class="val"><span class="swatch" style="background:#fafbfc"></span>#fafbfc</td><td class="val"><span class="swatch" style="background:#161b22"></span>#161b22</td><td>Panel / sidebar / card head</td></tr>
-                <tr><td class="tk">--color-surface-raised</td><td class="val"><span class="swatch" style="background:#fff"></span>#ffffff</td><td class="val"><span class="swatch" style="background:#1c2128"></span>#1c2128</td><td>Raised card / dialog / input</td></tr>
+                <tr><td class="tk">--color-bg</td><td class="val"><span class="swatch" style="background:#fff"></span>#ffffff</td><td class="val"><span class="swatch" style="background:#121212"></span>#121212</td><td>Page background</td></tr>
+                <tr><td class="tk">--color-surface</td><td class="val"><span class="swatch" style="background:#fafbfc"></span>#fafbfc</td><td class="val"><span class="swatch" style="background:#1f1f1f"></span>#1f1f1f</td><td>Panel / sidebar / card head</td></tr>
+                <tr><td class="tk">--color-surface-raised</td><td class="val"><span class="swatch" style="background:#fff"></span>#ffffff</td><td class="val"><span class="swatch" style="background:#292929"></span>#292929</td><td>Raised card / dialog / input</td></tr>
                 <tr><td class="tk">--color-text</td><td class="val"><span class="swatch" style="background:#14171c"></span>#14171c</td><td class="val"><span class="swatch" style="background:#e8eaed"></span>#e8eaed</td><td>Body text / headings</td></tr>
                 <tr><td class="tk">--color-text-muted</td><td class="val"><span class="swatch" style="background:#6b7280"></span>#6b7280</td><td class="val"><span class="swatch" style="background:#9aa0a8"></span>#9aa0a8</td><td>Secondary text / placeholder</td></tr>
                 <tr><td class="tk">--color-line</td><td class="val"><span class="swatch" style="background:#e7eaee"></span>#e7eaee</td><td class="val"><span class="swatch" style="background:#2d333b"></span>#2d333b</td><td>Divider / card border</td></tr>
@@ -210,10 +210,10 @@ onUnmounted(() => {
             <table class="dt">
               <thead><tr><th>Token</th><th>Light</th><th>Dark</th><th>Usage</th></tr></thead>
               <tbody>
-                <tr><td class="tk">--p-surface-raised</td><td class="val"><span class="swatch" style="background:#fff"></span>#ffffff</td><td class="val"><span class="swatch" style="background:#1c2128"></span>#1c2128</td><td>Raised card / dialog / input (raised layer)</td></tr>
-                <tr><td class="tk">--p-surface</td><td class="val"><span class="swatch" style="background:#fafbfc"></span>#fafbfc</td><td class="val"><span class="swatch" style="background:#161b22"></span>#161b22</td><td>Panel / sidebar / card head (default flat layer)</td></tr>
-                <tr><td class="tk">--p-surface-sunken</td><td class="val"><span class="swatch" style="background:#f3f5f8"></span>#f3f5f8</td><td class="val"><span class="swatch" style="background:#0d1117"></span>#0d1117</td><td>Code block / inline input / recessed area (sunken layer)</td></tr>
-                <tr><td class="tk">--p-bg</td><td class="val"><span class="swatch" style="background:#fff"></span>#ffffff</td><td class="val"><span class="swatch" style="background:#0d1117"></span>#0d1117</td><td>Page background</td></tr>
+                <tr><td class="tk">--p-surface-raised</td><td class="val"><span class="swatch" style="background:#fff"></span>#ffffff</td><td class="val"><span class="swatch" style="background:#292929"></span>#292929</td><td>Raised card / dialog / input (raised layer)</td></tr>
+                <tr><td class="tk">--p-surface</td><td class="val"><span class="swatch" style="background:#fafbfc"></span>#fafbfc</td><td class="val"><span class="swatch" style="background:#1f1f1f"></span>#1f1f1f</td><td>Panel / sidebar / card head (default flat layer)</td></tr>
+                <tr><td class="tk">--p-surface-sunken</td><td class="val"><span class="swatch" style="background:#f3f5f8"></span>#f3f5f8</td><td class="val"><span class="swatch" style="background:#121212"></span>#121212</td><td>Code block / inline input / recessed area (sunken layer)</td></tr>
+                <tr><td class="tk">--p-bg</td><td class="val"><span class="swatch" style="background:#fff"></span>#ffffff</td><td class="val"><span class="swatch" style="background:#121212"></span>#121212</td><td>Page background</td></tr>
               </tbody>
             </table>
 
@@ -276,7 +276,7 @@ onUnmounted(() => {
             </ul>
 
             <h3 class="sub">Type scale &amp; weight</h3>
-            <p>The user font-size preference writes <code>--base-ui-font-size</code>. Compact UI chrome and the sidebar follow it through <code>--ui-font-size</code>, while chat reading surfaces derive one readable step above it through <code>--content-font-size</code>.</p>
+            <p>The user font-size preference sets <code>data-font-scale</code> on the root element, which the CSS uses to pick <code>--base-font</code> (12 / 14 / 16 / 18px). Compact UI chrome and the sidebar follow it through <code>--ui-font-size</code>, while chat reading surfaces derive one readable step above it through <code>--content-font-size</code>.</p>
             <p>The fixed product type tokens still define component defaults: <b>UI controls / buttons / forms</b> use <code>--text-base</code> (14px); <b>reading body — including chat Markdown, message bubbles, etc.</b> stays one step larger than compact chrome for readability; the <b>sidebar session list</b> follows that same readable step while keeping list density.
             Drop stray <code>font-weight: 650 / 750</code>; converge on two weights, 400 / 500 (regular / emphasis).</p>
             <div class="panel panel-pad" style="margin:16px 0">
@@ -292,7 +292,7 @@ onUnmounted(() => {
               <tbody>
                 <tr><td class="tk">--font-ui</td><td class="val">"Inter Variable", "Inter", "Helvetica Neue", Arial…</td><td>UI &amp; body (Inter first)</td></tr>
                 <tr><td class="tk">--font-mono</td><td class="val">JetBrains Mono…</td><td>code, tool names, line numbers, diffs</td></tr>
-                <tr><td class="tk">--base-ui-font-size</td><td class="val">14px user preference</td><td>root setting that drives UI, reading body, and sidebar font sizes</td></tr>
+                <tr><td class="tk">--base-font</td><td class="val">14px (data-font-scale: 12/14/16/18)</td><td>root setting that drives UI, reading body, and sidebar font sizes</td></tr>
                 <tr><td class="tk">--content-font-size</td><td class="val">calc(base + 1px)</td><td>chat Markdown, message bubbles, composer</td></tr>
                 <tr><td class="tk">--leading-tight/normal/relaxed</td><td class="val">1.25 / 1.5 / 1.7</td><td>headings / UI / long text</td></tr>
                 <tr><td class="tk">--weight-regular/medium</td><td class="val">400 / 500</td><td>body / emphasis</td></tr>
@@ -1230,7 +1230,7 @@ onUnmounted(() => {
                 <div style="text-align:center"><div style="width:48px;height:48px;border-radius:12px;background:#1783ff;margin:0 auto 8px;box-shadow:var(--d-shadow-sm)"></div><div style="font-size:13px;font-weight:700">Theme color · primary</div><div class="mono" style="font-size:11.5px;color:var(--d-fg-muted)">--accent-primary</div></div>
                 <div style="text-align:center"><div style="width:48px;height:48px;border-radius:12px;background:#6b7280;margin:0 auto 8px;box-shadow:var(--d-shadow-sm)"></div><div style="font-size:13px;font-weight:700">Theme color · secondary</div><div class="mono" style="font-size:11.5px;color:var(--d-fg-muted)">--accent-secondary</div></div>
                 <div style="text-align:center"><div style="width:48px;height:48px;border-radius:12px;background:#ffffff;border:1px solid var(--d-line);margin:0 auto 8px;box-shadow:var(--d-shadow-sm)"></div><div style="font-size:13px;font-weight:700">Light surface</div><div class="mono" style="font-size:11.5px;color:var(--d-fg-muted)">--surface-light</div></div>
-                <div style="text-align:center"><div style="width:48px;height:48px;border-radius:12px;background:#0d1117;margin:0 auto 8px;box-shadow:var(--d-shadow-sm)"></div><div style="font-size:13px;font-weight:700">Dark surface</div><div class="mono" style="font-size:11.5px;color:var(--d-fg-muted)">--surface-dark</div></div>
+                <div style="text-align:center"><div style="width:48px;height:48px;border-radius:12px;background:#121212;margin:0 auto 8px;box-shadow:var(--d-shadow-sm)"></div><div style="font-size:13px;font-weight:700">Dark surface</div><div class="mono" style="font-size:11.5px;color:var(--d-fg-muted)">--surface-dark</div></div>
               </div>
             </div>
 
@@ -1262,7 +1262,7 @@ onUnmounted(() => {
                   <span class="p-badge info"><span style="width:10px;height:10px;border-radius:3px;background:#1783ff"></span>Primary #1783ff</span>
                   <span class="p-badge neutral"><span style="width:10px;height:10px;border-radius:3px;background:#6b7280"></span>Secondary #6b7280</span>
                   <span class="p-badge neutral"><span style="width:10px;height:10px;border-radius:3px;background:#ffffff;border:1px solid var(--p-line)"></span>Light surface #ffffff</span>
-                  <span class="p-badge neutral"><span style="width:10px;height:10px;border-radius:3px;background:#0d1117"></span>Dark surface #0d1117</span>
+                  <span class="p-badge neutral"><span style="width:10px;height:10px;border-radius:3px;background:#121212"></span>Dark surface #121212</span>
                 </div>
                 <div class="demo-row" style="align-items:stretch">
                   <div class="demo-col" style="flex:1;border:1px solid var(--p-line);border-radius:12px;background:var(--p-surface-raised);padding:16px;gap:10px">
@@ -1752,7 +1752,7 @@ onUnmounted(() => {
   .stage.dark {
     background:
       radial-gradient(circle at 1px 1px, rgba(255,255,255,.06) 1px, transparent 0) 0 0 / 18px 18px,
-      #0d1117;
+      #121212;
   }
   .stage-label { width: 100%; font-size: 11.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--d-fg-faint); margin-bottom: -6px; }
   .stage.dark .stage-label { color: #6b7280; }
@@ -1772,8 +1772,8 @@ onUnmounted(() => {
   .ba-col.after .ba-body { background: #fff; }
 
   /* ---------- Code block ---------- */
-  .code { background: #0d1117; border-radius: 12px; overflow: hidden; margin: 16px 0; border: 1px solid #1c2128; }
-  .code-bar { display: flex; align-items: center; gap: 8px; padding: 9px 14px; background: #161b22; border-bottom: 1px solid #1c2128; }
+  .code { background: #121212; border-radius: 12px; overflow: hidden; margin: 16px 0; border: 1px solid #121212; }
+  .code-bar { display: flex; align-items: center; gap: 8px; padding: 9px 14px; background: #1f1f1f; border-bottom: 1px solid #1f1f1f; }
   .code-bar .d { width: 10px; height: 10px; border-radius: 50%; background: #30363d; }
   .code-bar .fn { font-family: "JetBrains Mono", monospace; font-size: 11.5px; color: #8b949e; margin-left: 4px; }
   .code pre { margin: 0; padding: 18px; overflow-x: auto; font-size: 12.5px; line-height: 1.7; color: #c9d1d9; }
@@ -1884,7 +1884,7 @@ onUnmounted(() => {
   }
   /* ---- Dark skin overrides ---- */
   .ds-page [data-p="dark"] {
-    --p-bg: #0d1117; --p-surface: #161b22; --p-surface-raised: #1c2128; --p-surface-sunken: #0d1117;
+    --p-bg: #121212; --p-surface: #1f1f1f; --p-surface-raised: #292929; --p-surface-sunken: #121212;
     --p-text: #c9cdd4; --p-text-muted: #9aa0a8; --p-text-faint: #6b7280;
     --p-text-on-accent: #ffffff;
     --p-line: #2d333b; --p-line-strong: #3d444d;
@@ -2043,9 +2043,9 @@ onUnmounted(() => {
 
   /* ===== Chat: user bubble ===== */
   .p-bubble-user {
-    align-self: flex-end; max-width: 78%; background: var(--p-accent-soft); border: 1px solid var(--p-accent-bd);
-    color: var(--p-text); border-radius: 18px 18px 5px 18px; padding: 11px 15px;
-    font-size: var(--p-font-size-md); line-height: var(--p-leading-normal); box-shadow: var(--p-sh-xs);
+    align-self: flex-end; max-width: 78%; background: var(--color-user-bubble-bg);
+    color: var(--p-text); border-radius: var(--radius-lg); padding: 10px 12px;
+    font-size: var(--p-font-size-md); line-height: var(--p-leading-normal);
   }
   .p-msg { max-width: 760px; font-size: var(--p-font-size-md); line-height: var(--p-leading-relaxed); color: var(--p-text); }
   .p-msg p { margin: 0 0 10px; color: var(--p-text); }
@@ -2320,7 +2320,7 @@ onUnmounted(() => {
   .icon-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 8px; margin: 14px 0; }
   .icon-group-label { grid-column: 1 / -1; margin-top: 10px; font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--d-fg-muted); }
   .icon-cell { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--d-line); border-radius: 8px; background: var(--d-surface); }
-  .icon-cell .kw-icon { width: 20px; height: 20px; color: var(--d-fg-soft); }
+  .icon-cell .ui-icon { width: 20px; height: 20px; color: var(--d-fg-soft); }
   .icon-cell .ic-name { font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; color: var(--d-fg); }
   .icon-sizes { display: flex; align-items: end; gap: 22px; flex-wrap: wrap; }
   .icon-sizes .sz { display: flex; flex-direction: column; align-items: center; gap: 8px; font-size: 11px; color: var(--d-fg-muted); font-family: "JetBrains Mono", ui-monospace, monospace; }

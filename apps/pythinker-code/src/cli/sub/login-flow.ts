@@ -6,11 +6,27 @@
  */
 
 import { createPythinkerHarness } from '@pymodel/pythinker-code-sdk';
+import type { PythinkerRegion } from '@pymodel/pythinker-code-oauth';
 
 import { createPythinkerCodeHostIdentity } from '#/cli/version';
 import { openUrl } from '#/utils/open-url';
+import { persistedPythinkerOAuthRef, regionForBareLogin } from '#/utils/region';
 
-export async function runLoginFlow(): Promise<never> {
+/** Parse a `--region` CLI flag; exits with an actionable message on bad input. */
+export function parseRegionFlag(value: string): PythinkerRegion {
+  if (value !== 'mainland-cn' && value !== 'global') {
+    process.stderr.write(`Invalid --region "${value}" (expected "mainland-cn" or "global").\n`);
+    process.exit(1);
+  }
+  return value;
+}
+
+export async function runLoginFlow(options: { region?: PythinkerRegion } = {}): Promise<never> {
+  // No flag: a fresh install follows the resolved region (env/marker/
+  // default); an existing login keeps its own environment (see
+  // regionForBareLogin — the default slot re-pins mainland-cn, a scoped slot
+  // keeps its configured hosts).
+  const region = options.region ?? regionForBareLogin(persistedPythinkerOAuthRef());
   const identity = createPythinkerCodeHostIdentity();
   const harness = createPythinkerHarness({
     identity,
@@ -23,6 +39,7 @@ export async function runLoginFlow(): Promise<never> {
   try {
     const result = await harness.auth.login(undefined, {
       signal: controller.signal,
+      region,
       onDeviceCode: (data) => {
         const url = data.verificationUriComplete || data.verificationUri;
         // Print the manual fallback before attempting to open the user's

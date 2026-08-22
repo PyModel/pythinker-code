@@ -16,7 +16,7 @@ const EXPORT_TIMEOUT_MS = 5 * 60_000;
 const ULID_ALPHABET = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
 const BODY_PREVIEW_LIMIT = 500;
 
-// Server-transport auth failure envelope code (see kap-server
+// Server-transport auth failure envelope code (see agent-gateway
 // src/middleware/auth.ts AUTH_ERROR_CODE). Distinct from provider-auth 40110–40113.
 export const SERVER_AUTH_UNAUTHORIZED_CODE = 40101;
 

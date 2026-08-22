@@ -4,6 +4,7 @@ import type { createPythinkerDeviceId as createPythinkerDeviceIdFn } from '@pymo
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { runShell } from '#/cli/run-shell';
+import { refreshPythinkerRegion } from '#/utils/region';
 
 import { captureProcessWrite, ExitCalled, mockProcessExit } from '../helpers/process';
 
@@ -41,7 +42,6 @@ const mocks = vi.hoisted(() => {
     harnessGetConfigDiagnostics: vi.fn(async () => ({ warnings: [] as readonly string[] })),
     harnessGetCachedAccessToken: vi.fn(),
     harnessClose: vi.fn(),
-    detectPendingMigration: vi.fn<() => Promise<unknown>>(async () => null),
     harnessTrack: vi.fn(),
     pythinkerTuiConstructor: vi.fn(),
     tuiStart: vi.fn(),
@@ -60,6 +60,7 @@ const mocks = vi.hoisted(() => {
     })),
     resolvePythinkerHome: vi.fn((homeDir?: string) => homeDir ?? '/tmp/pythinker-code-test-home'),
     flushDiagnosticLogsSync: vi.fn(),
+    drainStdio: vi.fn(async () => {}),
     harnessCreatesDeviceIdOnConstruction: false,
     execFileSync: vi.fn(() => ''),
     spawnSync: vi.fn(),
@@ -151,13 +152,13 @@ vi.mock('../../src/tui/theme/detect', () => ({
   detectTerminalTheme: mocks.detectTerminalTheme,
 }));
 
-vi.mock('../../src/migration/index', () => ({
-  detectPendingMigration: mocks.detectPendingMigration,
-}));
-
 vi.mock('node:child_process', () => ({
   execFileSync: mocks.execFileSync,
   spawnSync: mocks.spawnSync,
+}));
+
+vi.mock('../../src/cli/headless-exit', () => ({
+  drainStdio: mocks.drainStdio,
 }));
 
 vi.mock('../../src/utils/process/resolve-command', () => ({
@@ -167,11 +168,16 @@ vi.mock('../../src/utils/process/resolve-command', () => ({
 describe('runShell', () => {
   beforeEach(() => {
     vi.stubEnv('PYTHINKER_CODE_LEGACY_FLAG', '1');
+    // Pin region to cn: the telemetry endpoint assertion below must not
+    // follow the dev machine's own login/marker state.
+    vi.stubEnv('PYTHINKER_CODE_OAUTH_HOST', 'https://auth.kimi.com');
+    refreshPythinkerRegion();
   });
 
   afterEach(() => {
     vi.clearAllMocks();
     vi.unstubAllEnvs();
+    refreshPythinkerRegion();
     mocks.harnessGetConfig.mockResolvedValue({
       providers: {},
       defaultModel: 'k2',
@@ -331,8 +337,14 @@ describe('runShell', () => {
       uiMode: 'shell',
       model: 'k2',
       sessionId: undefined,
+      endpoint: expect.any(Function),
       getAccessToken: expect.any(Function),
     });
+    // The endpoint resolver defers to the active region profile at flush time.
+    const telemetryOptions = mocks.initializeTelemetry.mock.calls[0]![0] as {
+      endpoint: () => string;
+    };
+    expect(telemetryOptions.endpoint()).toBe('https://telemetry-logs.pythinker.com/v1/event');
     expect(mocks.setCrashPhase).toHaveBeenCalledWith('runtime');
 
     const [, harness, startupInput] = mocks.pythinkerTuiConstructor.mock.calls[0]!;
@@ -877,6 +889,7 @@ describe('runShell', () => {
       });
       expect(mocks.harnessTrack).not.toHaveBeenCalledWith('exit', expect.anything());
       expect(mocks.shutdownTelemetry).toHaveBeenCalledOnce();
+      expect(mocks.drainStdio).toHaveBeenCalledWith([process.stdout, process.stderr]);
       expect(stdout.text()).toBe(' Bye!\n');
       expect(stderr.text()).toContain(' To resume this session: pythinker -r ses-1');
     } finally {
@@ -933,40 +946,5 @@ describe('runShell', () => {
       stdout.restore();
       stderr.restore();
     }
-  });
-
-  it('surfaces an invalid target config as an error for pythinker migrate, not silently', async () => {
-    mocks.loadTuiConfig.mockResolvedValue({
-      theme: 'dark',
-      editorCommand: null,
-      notifications: { enabled: true, condition: 'unfocused' },
-    });
-    mocks.detectPendingMigration.mockResolvedValue({ totalSessions: 1 });
-    mocks.harnessGetConfig.mockRejectedValue(
-      new Error('Invalid configuration in ~/.pythinker-code/config.toml'),
-    );
-
-    // A broken config.toml must fail loudly — `pythinker migrate` must not swallow
-    // it and proceed, or the user never learns their config is broken.
-    await expect(
-      runShell(
-        {
-          session: undefined,
-          continue: false,
-          yolo: false,
-          auto: false,
-          plan: false,
-          model: undefined,
-          outputFormat: undefined,
-          prompt: undefined,
-          skillsDirs: [],
-          agent: undefined,
-          agentFiles: [],
-        },
-        '1.2.3-test',
-        { migrateOnly: true },
-      ),
-    ).rejects.toThrow('Invalid configuration');
-    expect(mocks.tuiStart).not.toHaveBeenCalled();
   });
 });

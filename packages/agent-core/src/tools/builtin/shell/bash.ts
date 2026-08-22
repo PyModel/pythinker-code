@@ -5,12 +5,12 @@
  * the shell is Git Bash; the path is resolved by `detectEnvironment`.
  *
  * Dependencies injected via constructor:
- *   - `Kaos`        — shell execution abstraction (exec / execWithEnv)
+ *   - `Pyaos`        — shell execution abstraction (exec / execWithEnv)
  *   - `cwd`         — default working directory for commands
  *   - `Environment` — cross-platform probe (shellName / shellPath)
  *   - `BackgroundManager` — task lifecycle manager for foreground/background commands
  *
- * Execution goes through Kaos, never directly via node:child_process.
+ * Execution goes through Pyaos, never directly via node:child_process.
  *
  * Hardening:
  *   - `args.timeout` (seconds) and the ambient `signal` both stop the
@@ -22,7 +22,7 @@
  *     foreground runs pass a callback to collect chunks for this call.
  */
 
-import type { Kaos, KaosProcess } from '@pymodel/kaos';
+import { getShellPathBridge, type Pyaos, type PyaosProcess } from '@pymodel/pyaos';
 import { z } from 'zod';
 
 import { ProcessBackgroundTask, type BackgroundManager } from '../../../agent/background';
@@ -121,7 +121,7 @@ function normalizeForegroundTimeoutMs(timeout: number | undefined): number {
   return Math.min(value, MAX_TIMEOUT_S) * MS_PER_SECOND;
 }
 
-async function disposeProcess(proc: KaosProcess): Promise<void> {
+async function disposeProcess(proc: PyaosProcess): Promise<void> {
   try {
     await proc.dispose();
   } catch {
@@ -214,7 +214,7 @@ export class BashTool implements BuiltinTool<BashInput> {
   private readonly backgroundTimeoutMs: number | undefined;
 
   constructor(
-    private readonly kaos: Kaos,
+    private readonly pyaos: Pyaos,
     private readonly cwd: string,
     private readonly backgroundManager: BackgroundManager,
     options?: {
@@ -228,13 +228,13 @@ export class BashTool implements BuiltinTool<BashInput> {
       backgroundTimeoutS?: number;
     },
   ) {
-    this.isWindowsBash = this.kaos.osEnv.osKind === 'Windows';
+    this.isWindowsBash = this.pyaos.osEnv.osKind === 'Windows';
     this.allowBackground = options?.allowBackground ?? true;
     this.autoBackgroundOnTimeout = options?.autoBackgroundOnTimeout ?? true;
     const backgroundTimeoutS = options?.backgroundTimeoutS ?? DEFAULT_BACKGROUND_TIMEOUT_S;
     this.backgroundTimeoutMs =
       backgroundTimeoutS === 0 ? undefined : backgroundTimeoutS * MS_PER_SECOND;
-    const rendered = renderBashDescription(this.kaos.osEnv.shellName);
+    const rendered = renderBashDescription(this.pyaos.osEnv.shellName);
     const withEffectiveDefault =
       this.backgroundTimeoutMs === undefined
         ? withoutBackgroundDefaultTimeout(rendered)
@@ -270,10 +270,10 @@ export class BashTool implements BuiltinTool<BashInput> {
     };
   }
 
-  private spawn(effectiveCwd: string, command: string): Promise<KaosProcess> {
-    const shellCwd = this.isWindowsBash ? windowsPathToPosixPath(effectiveCwd) : effectiveCwd;
+  private spawn(effectiveCwd: string, command: string): Promise<PyaosProcess> {
+    const shellCwd = getShellPathBridge(this.pyaos.osEnv).toShellPath(effectiveCwd);
     const shellArgs = [
-      this.kaos.osEnv.shellPath,
+      this.pyaos.osEnv.shellPath,
       '-c',
       `cd ${shellQuote(shellCwd)} && ${command}`,
     ];
@@ -285,7 +285,7 @@ export class BashTool implements BuiltinTool<BashInput> {
       // to be inherited; honour an explicit ambient value when the user has
       // set one.
       GIT_TERMINAL_PROMPT: process.env['GIT_TERMINAL_PROMPT'] ?? '0',
-      SHELL: this.kaos.osEnv.shellPath,
+      SHELL: this.pyaos.osEnv.shellPath,
     };
 
     // Merge ambient env + noninteractive knobs so tools like git / node
@@ -294,7 +294,7 @@ export class BashTool implements BuiltinTool<BashInput> {
       ...(process.env as Record<string, string>),
       ...noninteractiveEnv,
     };
-    return this.kaos.execWithEnv(shellArgs, mergedEnv);
+    return this.pyaos.execWithEnv(shellArgs, mergedEnv);
   }
 
   /**
@@ -328,7 +328,7 @@ export class BashTool implements BuiltinTool<BashInput> {
       : foregroundTimeoutMs;
 
     const builder = new ToolResultBuilder();
-    let proc: KaosProcess;
+    let proc: PyaosProcess;
     try {
       proc = await this.spawn(effectiveCwd, command);
     } catch (error) {
@@ -453,7 +453,7 @@ export class BashTool implements BuiltinTool<BashInput> {
 
   private async foregroundCompletionResult(
     taskId: string,
-    proc: KaosProcess,
+    proc: PyaosProcess,
     builder: ToolResultBuilder,
     foregroundTimeoutMs: number,
   ): Promise<ExecutableToolResult> {
@@ -505,7 +505,7 @@ export class BashTool implements BuiltinTool<BashInput> {
 
   private backgroundStartedResult(
     taskId: string,
-    proc: KaosProcess,
+    proc: PyaosProcess,
     description: string,
     labels: { title: string; brief: string },
     builder = new ToolResultBuilder(),
@@ -585,7 +585,7 @@ function foregroundDescription(args: BashInput): string {
   return `Bash: ${preview}`;
 }
 
-function closeProcessStdin(proc: KaosProcess): void {
+function closeProcessStdin(proc: PyaosProcess): void {
   try {
     proc.stdin.end();
   } catch {
@@ -593,7 +593,7 @@ function closeProcessStdin(proc: KaosProcess): void {
   }
 }
 
-async function killSpawnedProcess(proc: KaosProcess): Promise<void> {
+async function killSpawnedProcess(proc: PyaosProcess): Promise<void> {
   try {
     await proc.kill('SIGTERM');
   } catch {
@@ -605,21 +605,6 @@ async function killSpawnedProcess(proc: KaosProcess): Promise<void> {
 
 function shellQuote(s: string): string {
   return `'${s.replaceAll("'", "'\\''")}'`;
-}
-
-function windowsPathToPosixPath(path: string): string {
-  if (path.startsWith('\\\\')) {
-    return path.replaceAll('\\', '/');
-  }
-
-  const driveMatch = /^([A-Za-z]):(?:[\\/]|$)/.exec(path);
-  if (driveMatch !== null) {
-    const drive = driveMatch[1]!.toLowerCase();
-    const rest = path.slice(2).replaceAll('\\', '/');
-    return `/${drive}${rest.startsWith('/') ? rest : `/${rest}`}`;
-  }
-
-  return path.replaceAll('\\', '/');
 }
 
 const WINDOWS_NUL_REDIRECT = /(\d?&?>+\s*)[Nn][Uu][Ll](?=\s|$|[|&;)\n])/g;

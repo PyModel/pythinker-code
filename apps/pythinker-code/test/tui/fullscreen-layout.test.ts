@@ -56,7 +56,7 @@ function fakeInitialAppState(): AppState {
 
 function stripAnsi(s: string): string {
   // eslint-disable-next-line no-control-regex
-  return s.replace(/\x1b\[[0-9;?]*[a-zA-Z]|\x1b\][^\x07]*\x07/g, '');
+  return s.replaceAll(/\u001B\[[0-9;?]*[a-zA-Z]|\u001B\][^\u0007]*\u0007/g, '');
 }
 
 const LONG_MARKDOWN = Array.from(
@@ -130,6 +130,32 @@ describe('fullscreen layout', () => {
     state.ui.stop();
   });
 
+  it('shows a clickable jump-to-bottom control while the transcript is scrolled up', async () => {
+    const { state, vt } = await mountFullscreen();
+    const assistant = new AssistantMessageComponent();
+    state.transcriptContainer.addChild(assistant);
+    assistant.updateContent(LONG_MARKDOWN);
+    state.ui.requestRender(true);
+    await vt.waitForRender();
+
+    vt.sendInput('\u001B[<64;1;1M');
+    await vt.waitForRender();
+
+    const labelRow = vt
+      .getViewport()
+      .findIndex((line) => stripAnsi(line).includes('Jump to bottom (click) ↓'));
+    expect(labelRow).toBeGreaterThanOrEqual(0);
+    expect((state.ui as TuiAltScreen).isFollowingOutput).toBe(false);
+
+    vt.sendInput(`\u001B[<0;${Math.floor(WIDTH / 2) + 1};${labelRow + 1}M`);
+    await vt.waitForRender();
+
+    expect((state.ui as TuiAltScreen).isFollowingOutput).toBe(true);
+    expect(vt.getViewport().every((line) => !stripAnsi(line).includes('Jump to bottom'))).toBe(true);
+
+    state.ui.stop();
+  });
+
   it('jumps between prompts with Ctrl-Shift-Up/Down (OSC 133 zones survive the chain)', async () => {
     const { state, vt } = await mountFullscreen();
 
@@ -153,15 +179,15 @@ describe('fullscreen layout', () => {
     // Zones anchor every user/assistant message, so the nearest previous zone
     // below the fold is the current turn's assistant message, then the user
     // message that started the turn.
-    vt.sendInput('\x1b[1;6A'); // ctrl+shift+up = previous prompt
+    vt.sendInput('\u001B[1;6A'); // ctrl+shift+up = previous prompt
     await vt.waitForRender();
     expect(topRows()[1]).toContain('\u56DE\u7B54\u4E8C');
 
-    vt.sendInput('\x1b[1;6A');
+    vt.sendInput('\u001B[1;6A');
     await vt.waitForRender();
     expect(topRows()[1]).toContain('\u7B2C\u4E8C\u8F6E\u63D0\u95EE');
 
-    vt.sendInput('\x1b[1;6B'); // ctrl+shift+down = next prompt
+    vt.sendInput('\u001B[1;6B'); // ctrl+shift+down = next prompt
     await vt.waitForRender();
     expect(topRows()[1]).toContain('\u56DE\u7B54\u4E8C');
 

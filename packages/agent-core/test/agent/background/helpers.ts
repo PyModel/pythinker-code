@@ -1,4 +1,4 @@
-import type { KaosProcess } from '@pymodel/kaos';
+import type { PyaosProcess } from '@pymodel/pyaos';
 import { vi } from 'vitest';
 
 import {
@@ -60,7 +60,7 @@ export function createBackgroundManager(options: {
 
 export function registerProcess(
   manager: BackgroundManager,
-  proc: KaosProcess,
+  proc: PyaosProcess,
   command: string,
   description: string,
 ): string {

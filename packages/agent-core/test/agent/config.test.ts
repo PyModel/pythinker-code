@@ -2,7 +2,7 @@ import type { ModelCapability, ProviderConfig, ToolCall } from '@pymodel/kosong'
 import { describe, expect, it } from 'vitest';
 
 import type { ResolvedAgentProfile } from '../../src/profile';
-import { createCommandKaos, testAgent } from './harness/agent';
+import { createCommandPyaos, testAgent } from './harness/agent';
 import { DEFAULT_TEST_SYSTEM_PROMPT } from './harness/snapshots';
 
 describe('Agent config', () => {
@@ -185,7 +185,7 @@ describe('Agent config', () => {
       name: 'Bash',
       arguments: '{"command":"printf original-result","timeout":60}',
     };
-    const ctx = testAgent({ kaos: createCommandKaos('original-result') });
+    const ctx = testAgent({ pyaos: createCommandPyaos('original-result') });
     ctx.configure({ tools: ['Bash'] });
 
     ctx.mockNextResponse({ type: 'text', text: 'I will run Bash.' }, bashCall);

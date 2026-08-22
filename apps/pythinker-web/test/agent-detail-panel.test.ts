@@ -1,0 +1,143 @@
+import { mount } from '@vue/test-utils';
+import { createI18n, type I18n } from 'vue-i18n';
+import { defineComponent } from 'vue';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import AgentDetailPanel from '../src/components/chat/AgentDetailPanel.vue';
+import type { AgentMember, ChatTurn } from '../src/types';
+
+vi.mock('markstream-vue', () => {
+  const noop = (): void => undefined;
+  return {
+    MarkdownRender: defineComponent({
+      name: 'MarkdownRenderStub',
+      props: ['content'],
+      setup(props) {
+        return () => String(props.content ?? '');
+      },
+    }),
+    enableKatex: noop,
+    enableMermaid: noop,
+    setKaTeXWorker: noop,
+    clearKaTeXWorker: noop,
+    setMermaidWorker: noop,
+    clearMermaidWorker: noop,
+  };
+});
+vi.mock('markstream-vue/workers/katexRenderer.worker?worker&type=module', () => ({
+  default: class {
+    terminate(): void {}
+  },
+}));
+vi.mock('markstream-vue/workers/mermaidParser.worker?worker&type=module', () => ({
+  default: class {
+    terminate(): void {}
+  },
+}));
+
+const i18n = createI18n({
+  legacy: false,
+  locale: 'en',
+  messages: {
+    en: {
+      thinking: { close: 'Close' },
+      tasks: {
+        copy: 'Copy',
+        copyCommand: 'Copy command',
+        copyOutput: 'Copy output',
+        copyAll: 'Copy all',
+        transcriptLoadError: 'Failed to load this sub agent’s conversation.',
+      },
+      tools: {
+        dynamic_workflow: {
+          phaseWorking: 'Working',
+          phaseCompleted: 'Completed',
+        },
+      },
+    },
+  },
+});
+
+const member: AgentMember = {
+  id: 'agent_1',
+  name: 'Review modified files',
+  subagentType: 'review',
+  model: 'secondary/model',
+  thinkingEffort: 'high',
+  phase: 'working',
+  status: 'running',
+  prompt: 'Review the current changes',
+};
+
+const turns: ChatTurn[] = [
+  {
+    id: 'turn_1_input',
+    role: 'user',
+    no: 1,
+    text: 'Review the current changes',
+  },
+  {
+    id: 'turn_1_output',
+    role: 'assistant',
+    no: 2,
+    text: 'I inspected the implementation.',
+    tools: [
+      {
+        id: 'tool_1',
+        name: 'Read',
+        arg: '{"path":"src/App.vue"}',
+        status: 'ok',
+        output: ['Read complete'],
+      },
+    ],
+  },
+];
+
+function mountPanel(options: { turns?: ChatTurn[]; loadError?: boolean } = {}) {
+  return mount(AgentDetailPanel, {
+    props: {
+      member,
+      turns: options.turns ?? turns,
+      running: true,
+      loading: false,
+      loadError: options.loadError ?? false,
+      hasMore: false,
+      loadingMore: false,
+      loadMoreError: false,
+    },
+    global: { plugins: [i18n as I18n] },
+  });
+}
+
+describe('AgentDetailPanel', () => {
+  beforeEach(() => {
+    vi.stubGlobal('matchMedia', () => ({
+      matches: false,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    }));
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        observe(): void {}
+        disconnect(): void {}
+      },
+    );
+  });
+
+  it('renders the selected subagent transcript and execution tools', () => {
+    const wrapper = mountPanel();
+
+    expect(wrapper.text()).toContain('Review modified files');
+    expect(wrapper.text()).toContain('review · secondary/model · high');
+    expect(wrapper.text()).toContain('Review the current changes');
+    expect(wrapper.text()).toContain('I inspected the implementation.');
+    expect(wrapper.text()).toContain('Read');
+  });
+
+  it('shows task output as a fallback when the transcript request fails', () => {
+    const wrapper = mountPanel({ turns: [], loadError: true });
+
+    expect(wrapper.text()).toContain('Failed to load this sub agent’s conversation.');
+    expect(wrapper.text()).toContain('Review the current changes');
+  });
+});

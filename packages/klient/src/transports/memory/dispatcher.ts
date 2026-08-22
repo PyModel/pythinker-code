@@ -1,6 +1,6 @@
 /**
  * In-process dispatcher — resolves a wire triple `(service, method, args)`
- * against a live engine scope and mirrors kap-server's dispatcher semantics
+ * against a live engine scope and mirrors agent-gateway's dispatcher semantics
  * (reflection call, non-function members are property reads, `main` agent
  * auto-materialized via `ensureMainAgent`). Scope routing resolves workspace
  * instances through `IWorkspaceInstanceManager` and live sessions through the
@@ -15,11 +15,13 @@
  */
 
 import type { ServiceIdentifier } from '@pymodel/agent-core-v2/_base/di/instantiation';
+import type { IAgentScopeHandle } from '@pymodel/agent-core-v2/_base/di/scope';
 import { IWorkspaceInstanceManager } from '@pymodel/agent-core-v2/workspace/workspaceInstance/workspaceInstanceManager';
 import { ISessionManager } from '@pymodel/agent-core-v2/app/sessionManager/sessionManager';
 import { getLiveSessionById } from '@pymodel/agent-core-v2/app/sessionManager/sessionLookup';
 import { IAgentLifecycleService } from '@pymodel/agent-core-v2/session/agentLifecycle/agentLifecycle';
 import { ensureMainAgent } from '@pymodel/agent-core-v2/session/agentLifecycle/mainAgent';
+import { agentContextOf } from '@pymodel/agent-core-v2/agent/scopeContext/scopeContext';
 import { ISessionInteractionService } from '@pymodel/agent-core-v2/session/interaction/interaction';
 import { IEventBus } from '@pymodel/agent-core-v2/app/event/eventBus';
 import type {
@@ -65,6 +67,18 @@ const NOT_FOUND = 40404;
 const PROMPT_ID_CONFLICT = 40927;
 
 /**
+ * Session-scope domain services whose methods take the lifecycle-issued
+ * `AgentContext` as their first argument. The wire stays agentId-only (the
+ * scope ref already carries it), so the live context is resolved here at the
+ * edge — after `wireClone`, since the context is a live object that must
+ * never cross the JSON round-trip.
+ */
+const AGENT_CONTEXT_SERVICES: ReadonlySet<string> = new Set([
+  'agentTokenCountingService',
+  'agentUsageService',
+]);
+
+/**
  * Engine file errors cross the facade as public `RPCError`s, never as the
  * engine's raw `Error2`. The dispatcher is shared by both transports, so
  * memory and ipc then surface the identical `NOT_FOUND` code for a stale or
@@ -91,7 +105,7 @@ type FileServiceWireTarget = {
 };
 
 export function createMemoryDispatcher(root: ScopeLike): MemoryDispatcher {
-  /** Mirrors kap-server's `resolveScope`, incl. main-agent materialization. */
+  /** Mirrors agent-gateway's `resolveScope`, incl. main-agent materialization. */
   async function resolveScope(scope: ScopeRef): Promise<ResolvedScope> {
     if (scope.workspaceId !== undefined) {
       const workspace = await root.accessor
@@ -109,7 +123,7 @@ export function createMemoryDispatcher(root: ScopeLike): MemoryDispatcher {
     if (scope.agentId === 'main') {
       return { kind: 'agent', like: await ensureMainAgent(session) };
     }
-    const agent = session.accessor.get(IAgentLifecycleService).get(scope.agentId);
+    const agent = session.accessor.get(IAgentLifecycleService).findAgentHandle(scope.agentId);
     if (agent === undefined) {
       throw new RPCError(NOT_FOUND, `agent not found: ${scope.agentId}`);
     }
@@ -124,7 +138,7 @@ export function createMemoryDispatcher(root: ScopeLike): MemoryDispatcher {
     return resolved.like.accessor.get(token) as Record<string, unknown>;
   }
 
-  /** Mirrors kap-server's WS `eventMap` per scope kind. */
+  /** Mirrors agent-gateway's WS `eventMap` per scope kind. */
   function subscribeStream(
     resolved: ResolvedScope,
     name: string,
@@ -225,8 +239,11 @@ export function createMemoryDispatcher(root: ScopeLike): MemoryDispatcher {
         return wireClone(member);
       }
       const clonedArgs = args.map(wireClone);
+      const callArgs = AGENT_CONTEXT_SERVICES.has(service)
+        ? [agentContextOf(resolved.like as IAgentScopeHandle), ...clonedArgs]
+        : clonedArgs;
       try {
-        const result = await (member as (...a: unknown[]) => unknown).apply(instance, clonedArgs);
+        const result = await (member as (...a: unknown[]) => unknown).apply(instance, callArgs);
         return wireClone(result);
       } catch (error) {
         if (error instanceof Error2 && error.code === ErrorCodes.PROMPT_ID_CONFLICT) {

@@ -3,8 +3,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { Readable, type Writable } from 'node:stream';
 
-import { LocalKaos } from '@pymodel/kaos';
-import type { Kaos, KaosProcess, StatResult } from '@pymodel/kaos';
+import { LocalPyaos } from '@pymodel/pyaos';
+import type { Pyaos, PyaosProcess, StatResult } from '@pymodel/pyaos';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -16,7 +16,7 @@ import {
 } from '../../src/tools/builtin/file/glob';
 import { ensureRgPath } from '../../src/tools/support/rg-locator';
 import type { WorkspaceConfig } from '../../src/tools/support/workspace';
-import { createFakeKaos } from './fixtures/fake-kaos';
+import { createFakePyaos } from './fixtures/fake-pyaos';
 import { executeTool } from './fixtures/execute-tool';
 import { recordingTelemetry, type TelemetryRecord } from '../fixtures/telemetry';
 
@@ -29,7 +29,7 @@ vi.mock('../../src/tools/support/rg-locator', () => ({
 const signal = new AbortController().signal;
 const workspace: WorkspaceConfig = { workspaceDir: '/workspace', additionalDirs: ['/extra'] };
 
-function processWithOutput(stdout: string, stderr = '', exitCode = 0): KaosProcess {
+function processWithOutput(stdout: string, stderr = '', exitCode = 0): PyaosProcess {
   const stdoutStream = Readable.from([stdout]);
   const stderrStream = Readable.from([stderr]);
   return {
@@ -74,10 +74,10 @@ function execReturning(stdout: string, stderr = '', exitCode = 0) {
   return vi.fn().mockResolvedValue(processWithOutput(stdout, stderr, exitCode));
 }
 
-// Kaos with `exec` scripted and `stat` reporting a directory — the baseline
+// Pyaos with `exec` scripted and `stat` reporting a directory — the baseline
 // for tests that run the GlobTool to completion.
-function kaosWithExec(exec: Kaos['exec'], overrides: Partial<Kaos> = {}) {
-  return createFakeKaos({ exec, stat: vi.fn().mockResolvedValue(dirStat()), ...overrides });
+function pyaosWithExec(exec: Pyaos['exec'], overrides: Partial<Pyaos> = {}) {
+  return createFakePyaos({ exec, stat: vi.fn().mockResolvedValue(dirStat()), ...overrides });
 }
 
 function execArgs(exec: ReturnType<typeof vi.fn>): string[] {
@@ -86,7 +86,7 @@ function execArgs(exec: ReturnType<typeof vi.fn>): string[] {
 
 describe('GlobTool', () => {
   it('exposes current metadata and schema', () => {
-    const tool = new GlobTool(createFakeKaos(), workspace);
+    const tool = new GlobTool(createFakePyaos(), workspace);
 
     expect(tool.name).toBe('Glob');
     expect(tool.parameters).toMatchObject({
@@ -98,7 +98,7 @@ describe('GlobTool', () => {
   });
 
   it('is files-only and exposes include_ignored; include_dirs is deprecated and ignored', () => {
-    const tool = new GlobTool(createFakeKaos(), workspace);
+    const tool = new GlobTool(createFakePyaos(), workspace);
     const schema = tool.parameters as { properties: Record<string, { description?: string }> };
 
     expect(schema.properties).toHaveProperty('include_ignored');
@@ -112,11 +112,11 @@ describe('GlobTool', () => {
   it('tracks when glob uses a non-system ripgrep fallback', async () => {
     vi.mocked(ensureRgPath).mockResolvedValueOnce({
       path: '/mock/rg',
-      source: 'share-bin-downloaded',
+      source: 'share-bin-cached',
     });
     const records: TelemetryRecord[] = [];
     const exec = execReturning('/workspace/src/a.ts\n');
-    const tool = new GlobTool(kaosWithExec(exec), workspace, recordingTelemetry(records));
+    const tool = new GlobTool(pyaosWithExec(exec), workspace, recordingTelemetry(records));
 
     const result = await executeTool(tool, context({ pattern: 'src/**/*.ts', path: '/workspace' }));
 
@@ -124,13 +124,13 @@ describe('GlobTool', () => {
     expect(records).toEqual([
       {
         event: 'glob_tool_rg_fallback',
-        properties: { source: 'share-bin-downloaded', outcome: 'resolved' },
+        properties: { source: 'share-bin-cached', outcome: 'resolved' },
       },
     ]);
   });
 
   it('injects the Windows path hint into the description on a win32 backend', () => {
-    const tool = new GlobTool(createFakeKaos({ pathClass: () => 'win32' }), workspace);
+    const tool = new GlobTool(createFakePyaos({ pathClass: () => 'win32' }), workspace);
 
     expect(tool.description).toContain('Windows');
     expect(tool.description).toContain('forward slashes');
@@ -138,14 +138,14 @@ describe('GlobTool', () => {
   });
 
   it('omits the Windows path hint from the description on a non-Windows backend', () => {
-    const tool = new GlobTool(createFakeKaos({ pathClass: () => 'posix' }), workspace);
+    const tool = new GlobTool(createFakePyaos({ pathClass: () => 'posix' }), workspace);
 
     expect(tool.description).not.toContain('forward slashes');
   });
 
   it('requests reverse modified sort and preserves the rg output order', async () => {
     const exec = execReturning('/workspace/src/new.ts\n/workspace/src/old.ts\n');
-    const tool = new GlobTool(kaosWithExec(exec), workspace);
+    const tool = new GlobTool(pyaosWithExec(exec), workspace);
 
     const result = await executeTool(tool, context({ pattern: 'src/**/*.ts', path: '/workspace' }));
     const args = execArgs(exec);
@@ -157,7 +157,7 @@ describe('GlobTool', () => {
 
   it('uses the backend path class when displaying paths relative to a windows root', async () => {
     const exec = execReturning('C:\\workspace\\src\\old.ts\n');
-    const tool = new GlobTool(kaosWithExec(exec, { pathClass: () => 'win32' }), {
+    const tool = new GlobTool(pyaosWithExec(exec, { pathClass: () => 'win32' }), {
       workspaceDir: 'C:\\workspace',
       additionalDirs: [],
     });
@@ -174,7 +174,7 @@ describe('GlobTool', () => {
       Array.from({ length: MAX_MATCHES + 5 }, (_, i) => `/workspace/${String(i)}.ts`).join('\n') +
       '\n';
     const exec = execReturning(stdout);
-    const tool = new GlobTool(kaosWithExec(exec), workspace);
+    const tool = new GlobTool(pyaosWithExec(exec), workspace);
 
     const result = await executeTool(tool, context({ pattern: '**' }));
 
@@ -185,7 +185,7 @@ describe('GlobTool', () => {
 
   it('passes a brace pattern through to a single rg --glob', async () => {
     const exec = execReturning('/workspace/a.ts\n/workspace/shared.ts\n/workspace/shared.tsx\n');
-    const tool = new GlobTool(kaosWithExec(exec), workspace);
+    const tool = new GlobTool(pyaosWithExec(exec), workspace);
 
     const result = await executeTool(tool, context({ pattern: '*.{ts,tsx}' }));
 
@@ -201,7 +201,7 @@ describe('GlobTool', () => {
     // literally named `{a,b}.ts`. The pattern must reach rg with the escapes
     // intact (the tool must not strip or reinterpret the backslashes).
     const exec = execReturning('/workspace/{a,b}.ts\n');
-    const tool = new GlobTool(kaosWithExec(exec), workspace);
+    const tool = new GlobTool(pyaosWithExec(exec), workspace);
 
     const result = await executeTool(tool, context({ pattern: '\\{a,b\\}.ts' }));
 
@@ -212,7 +212,7 @@ describe('GlobTool', () => {
 
   it('searches only the current workspace when path is omitted', async () => {
     const exec = execReturning('/workspace/a.ts\n/workspace/shared.ts\n');
-    const tool = new GlobTool(kaosWithExec(exec), workspace);
+    const tool = new GlobTool(pyaosWithExec(exec), workspace);
 
     const result = await executeTool(tool, context({ pattern: '*.ts' }));
 
@@ -224,7 +224,7 @@ describe('GlobTool', () => {
   it('keeps results absolute when searching an additional directory', async () => {
     // additionalDir is outside workspaceDir, so matches stay absolute.
     const exec = execReturning('/extra/pkg/a.ts\n');
-    const tool = new GlobTool(kaosWithExec(exec), workspace);
+    const tool = new GlobTool(pyaosWithExec(exec), workspace);
 
     const result = await executeTool(tool, context({ pattern: 'pkg/**/*.ts', path: '/extra' }));
 
@@ -234,7 +234,7 @@ describe('GlobTool', () => {
 
   it('adds --no-ignore when include_ignored is true', async () => {
     const exec = execReturning('/workspace/dist/bundle.js\n');
-    const tool = new GlobTool(kaosWithExec(exec), workspace);
+    const tool = new GlobTool(pyaosWithExec(exec), workspace);
 
     await executeTool(tool, context({ pattern: '*.js', include_ignored: true }));
 
@@ -243,7 +243,7 @@ describe('GlobTool', () => {
 
   it('does not pass --no-ignore by default', async () => {
     const exec = execReturning('/workspace/a.ts\n');
-    const tool = new GlobTool(kaosWithExec(exec), workspace);
+    const tool = new GlobTool(pyaosWithExec(exec), workspace);
 
     await executeTool(tool, context({ pattern: '*.ts' }));
 
@@ -255,7 +255,7 @@ describe('GlobTool', () => {
       Array.from({ length: MAX_MATCHES + 1 }, (_, i) => `/workspace/${String(i)}.ts`).join('\n') +
       '\n';
     const exec = execReturning(stdout);
-    const tool = new GlobTool(kaosWithExec(exec), { workspaceDir: '/workspace', additionalDirs: [] });
+    const tool = new GlobTool(pyaosWithExec(exec), { workspaceDir: '/workspace', additionalDirs: [] });
 
     const result = await executeTool(tool, context({ pattern: '*.ts' }));
 
@@ -270,7 +270,7 @@ describe('GlobTool', () => {
         '\n',
       ) + '\n';
     const exec = execReturning(stdout);
-    const tool = new GlobTool(kaosWithExec(exec), { workspaceDir: '/workspace', additionalDirs: [] });
+    const tool = new GlobTool(pyaosWithExec(exec), { workspaceDir: '/workspace', additionalDirs: [] });
 
     const result = await executeTool(tool, context({ pattern: '*.txt' }));
 
@@ -282,7 +282,7 @@ describe('GlobTool', () => {
       Array.from({ length: MAX_MATCHES }, (_, i) => `/workspace/test_${String(i)}.py`).join('\n') +
       '\n';
     const exec = execReturning(stdout);
-    const tool = new GlobTool(kaosWithExec(exec), { workspaceDir: '/workspace', additionalDirs: [] });
+    const tool = new GlobTool(pyaosWithExec(exec), { workspaceDir: '/workspace', additionalDirs: [] });
 
     const result = await executeTool(tool, context({ pattern: '*.py' }));
 
@@ -292,7 +292,7 @@ describe('GlobTool', () => {
 
   it('filters sensitive files from results', async () => {
     const exec = execReturning('/workspace/.env\n/workspace/src/a.ts\n');
-    const tool = new GlobTool(kaosWithExec(exec), workspace);
+    const tool = new GlobTool(pyaosWithExec(exec), workspace);
 
     const result = await executeTool(tool, context({ pattern: 'src/**' }));
 
@@ -309,7 +309,7 @@ describe('GlobTool', () => {
 
     it('searches inside a registered additionalDir entry', async () => {
       const exec = execReturning('/skills/read_content.py\n/skills/utils.py\n');
-      const tool = new GlobTool(kaosWithExec(exec), skillsWorkspace);
+      const tool = new GlobTool(pyaosWithExec(exec), skillsWorkspace);
 
       const result = await executeTool(tool, context({ pattern: '*.py', path: '/skills' }));
 
@@ -320,7 +320,7 @@ describe('GlobTool', () => {
 
     it('searches inside a subdirectory of an additionalDir entry', async () => {
       const exec = execReturning('/skills/feishu/scripts/read_content.py\n');
-      const tool = new GlobTool(kaosWithExec(exec), skillsWorkspace);
+      const tool = new GlobTool(pyaosWithExec(exec), skillsWorkspace);
 
       const result = await executeTool(
         tool,
@@ -332,7 +332,7 @@ describe('GlobTool', () => {
 
     it('rejects a relative path that escapes both workspace and additionalDirs', async () => {
       const exec = vi.fn();
-      const tool = new GlobTool(createFakeKaos({ exec }), {
+      const tool = new GlobTool(createFakePyaos({ exec }), {
         workspaceDir: '/workspace/project',
         additionalDirs: ['/skills'],
       });
@@ -346,7 +346,7 @@ describe('GlobTool', () => {
 
     it('accepts a path inside a deeply nested additionalDir entry', async () => {
       const exec = execReturning('/skills/my-skill/scripts/helper.py\n');
-      const tool = new GlobTool(kaosWithExec(exec), skillsWorkspace);
+      const tool = new GlobTool(pyaosWithExec(exec), skillsWorkspace);
 
       const result = await executeTool(
         tool,
@@ -359,7 +359,7 @@ describe('GlobTool', () => {
 
   it('walks "**/" prefix patterns with a literal anchor', async () => {
     const exec = execReturning('/workspace/a.py\n/workspace/sub/b.py\n');
-    const tool = new GlobTool(kaosWithExec(exec), workspace);
+    const tool = new GlobTool(pyaosWithExec(exec), workspace);
 
     const result = await executeTool(tool, context({ pattern: '**/*.py' }));
 
@@ -380,7 +380,7 @@ describe('GlobTool', () => {
         '/workspace/src/test/test_config.py',
       ].join('\n') + '\n',
     );
-    const tool = new GlobTool(kaosWithExec(exec), workspace);
+    const tool = new GlobTool(pyaosWithExec(exec), workspace);
 
     const result = await executeTool(tool, context({ pattern: 'src/**/*.py', path: '/workspace' }));
 
@@ -394,7 +394,7 @@ describe('GlobTool', () => {
 
   it('surfaces an explicit no-match message when rg exits 1', async () => {
     const exec = execReturning('', '', 1);
-    const tool = new GlobTool(kaosWithExec(exec), workspace);
+    const tool = new GlobTool(pyaosWithExec(exec), workspace);
 
     const result = await executeTool(tool, context({ pattern: '*.xyz', path: '/workspace' }));
 
@@ -408,7 +408,7 @@ describe('GlobTool', () => {
       'rg: ./locked: Permission denied (os error 13)',
       2,
     );
-    const tool = new GlobTool(kaosWithExec(exec), workspace);
+    const tool = new GlobTool(pyaosWithExec(exec), workspace);
 
     const result = await executeTool(tool, context({ pattern: '*.ts', path: '/workspace' }));
 
@@ -421,7 +421,7 @@ describe('GlobTool', () => {
 
   it('keeps ripgrep errors hard failures when no complete path is produced', async () => {
     const exec = execReturning('', 'error: invalid glob', 2);
-    const tool = new GlobTool(kaosWithExec(exec), workspace);
+    const tool = new GlobTool(pyaosWithExec(exec), workspace);
 
     const result = await executeTool(tool, context({ pattern: '[', path: '/workspace' }));
 
@@ -434,7 +434,7 @@ describe('GlobTool', () => {
     const stat = vi
       .fn()
       .mockRejectedValue(Object.assign(new Error('ENOENT: no such file or directory'), { code: 'ENOENT' }));
-    const tool = new GlobTool(createFakeKaos({ exec, stat }), workspace);
+    const tool = new GlobTool(createFakePyaos({ exec, stat }), workspace);
 
     const result = await executeTool(tool, context({ pattern: '*.py', path: '/workspace/nonexistent' }));
 
@@ -446,7 +446,7 @@ describe('GlobTool', () => {
   it('reports "is not a directory" when the search target is a file', async () => {
     const exec = vi.fn();
     const stat = vi.fn().mockResolvedValue(fileStat());
-    const tool = new GlobTool(createFakeKaos({ exec, stat }), workspace);
+    const tool = new GlobTool(createFakePyaos({ exec, stat }), workspace);
 
     const result = await executeTool(tool, context({ pattern: '*.py', path: '/workspace/file.txt' }));
 
@@ -457,7 +457,7 @@ describe('GlobTool', () => {
 
   it('walks "**/" patterns with literal subdirectory anchors after the prefix', async () => {
     const exec = execReturning('/workspace/src/main/app.py\n');
-    const tool = new GlobTool(kaosWithExec(exec), workspace);
+    const tool = new GlobTool(pyaosWithExec(exec), workspace);
 
     const result = await executeTool(tool, context({ pattern: '**/main/*.py' }));
 
@@ -468,7 +468,7 @@ describe('GlobTool', () => {
 
   it('matches dotfiles like .gitlab-ci.yml under a simple "*.yml" pattern', async () => {
     const exec = execReturning('/workspace/.gitlab-ci.yml\n/workspace/config.yml\n');
-    const tool = new GlobTool(kaosWithExec(exec), workspace);
+    const tool = new GlobTool(pyaosWithExec(exec), workspace);
 
     const result = await executeTool(tool, context({ pattern: '*.yml' }));
 
@@ -478,7 +478,7 @@ describe('GlobTool', () => {
 
   it('descends into hidden directories under a recursive pattern', async () => {
     const exec = execReturning('/workspace/src/.config/settings.yml\n');
-    const tool = new GlobTool(kaosWithExec(exec), workspace);
+    const tool = new GlobTool(pyaosWithExec(exec), workspace);
 
     const result = await executeTool(tool, context({ pattern: 'src/**/*.yml' }));
 
@@ -487,7 +487,7 @@ describe('GlobTool', () => {
 
   it('matches files inside an explicitly addressed hidden directory', async () => {
     const exec = execReturning('/workspace/.github/workflows/ci.yml\n');
-    const tool = new GlobTool(kaosWithExec(exec), workspace);
+    const tool = new GlobTool(pyaosWithExec(exec), workspace);
 
     const result = await executeTool(tool, context({ pattern: '.github/**/*.yml' }));
 
@@ -496,7 +496,7 @@ describe('GlobTool', () => {
 
   it('shows absolute paths when explicit search root is outside all workspace roots', async () => {
     const exec = execReturning('/extra/test.py\n');
-    const tool = new GlobTool(kaosWithExec(exec), { workspaceDir: '/workspace', additionalDirs: [] });
+    const tool = new GlobTool(pyaosWithExec(exec), { workspaceDir: '/workspace', additionalDirs: [] });
 
     const result = await executeTool(tool, context({ pattern: '*.py', path: '/extra' }));
 
@@ -507,7 +507,7 @@ describe('GlobTool', () => {
   it('keeps absolute paths when explicit search root is an additionalDir', async () => {
     const registered: WorkspaceConfig = { workspaceDir: '/workspace', additionalDirs: ['/extra'] };
     const exec = execReturning('/extra/test.py\n');
-    const tool = new GlobTool(kaosWithExec(exec), registered);
+    const tool = new GlobTool(pyaosWithExec(exec), registered);
 
     const result = await executeTool(tool, context({ pattern: '*.py', path: '/extra' }));
 
@@ -517,7 +517,7 @@ describe('GlobTool', () => {
 
   it('allows a relative path argument that resolves inside the workspace', async () => {
     const exec = execReturning('/workspace/relative/path/test.py\n');
-    const tool = new GlobTool(kaosWithExec(exec), workspace);
+    const tool = new GlobTool(pyaosWithExec(exec), workspace);
 
     const result = await executeTool(tool, context({ pattern: '*.py', path: 'relative/path' }));
 
@@ -528,7 +528,7 @@ describe('GlobTool', () => {
 
   it('expands a leading "~/" path before searching outside the workspace', async () => {
     const exec = execReturning('');
-    const tool = new GlobTool(kaosWithExec(exec, { gethome: () => '/home/test' }), {
+    const tool = new GlobTool(pyaosWithExec(exec, { gethome: () => '/home/test' }), {
       workspaceDir: '/workspace',
       additionalDirs: [],
     });
@@ -542,7 +542,7 @@ describe('GlobTool', () => {
 
   it('allows a path sharing the workspace prefix when it is absolute', async () => {
     const exec = execReturning('');
-    const tool = new GlobTool(kaosWithExec(exec), {
+    const tool = new GlobTool(pyaosWithExec(exec), {
       workspaceDir: '/parent/workdir',
       additionalDirs: [],
     });
@@ -558,7 +558,7 @@ describe('GlobTool', () => {
   });
 
   it('locks down brace-expansion mention and large-directory caveats in the description', () => {
-    const tool = new GlobTool(createFakeKaos(), workspace);
+    const tool = new GlobTool(createFakePyaos(), workspace);
 
     expect(tool.description).toContain('**');
     expect(tool.description).toMatch(/\*\*\/\*\.py/);
@@ -568,7 +568,7 @@ describe('GlobTool', () => {
   });
 
   it('mentions Windows path forms in the description on win32 backends', () => {
-    const tool = new GlobTool(createFakeKaos({ pathClass: () => 'win32' }), {
+    const tool = new GlobTool(createFakePyaos({ pathClass: () => 'win32' }), {
       workspaceDir: 'C:\\workspace',
       additionalDirs: [],
     });
@@ -603,12 +603,12 @@ describe('splitCompletePaths', () => {
 });
 
 describe('GlobTool integration (real ripgrep)', () => {
-  // Spawns the actual rg binary through a real LocalKaos so the ripgrep
+  // Spawns the actual rg binary through a real LocalPyaos so the ripgrep
   // semantics the tool relies on (sort direction, recursion, brace handling)
   // are exercised end-to-end — not just the argument plumbing.
 
   let tmpDir: string | undefined;
-  let kaos: LocalKaos;
+  let pyaos: LocalPyaos;
   let runRealRg = false;
 
   beforeAll(async () => {
@@ -627,7 +627,7 @@ describe('GlobTool integration (real ripgrep)', () => {
   beforeEach(async (testCtx) => {
     if (!runRealRg) testCtx.skip();
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'glob-rg-'));
-    kaos = await LocalKaos.create();
+    pyaos = await LocalPyaos.create();
   });
 
   afterEach(async () => {
@@ -650,7 +650,7 @@ describe('GlobTool integration (real ripgrep)', () => {
     await touch('old.ts', new Date('2020-01-01T00:00:00Z'));
     await touch('mid.ts', new Date('2022-01-01T00:00:00Z'));
     await touch('new.ts', new Date('2024-01-01T00:00:00Z'));
-    const tool = new GlobTool(kaos, ws());
+    const tool = new GlobTool(pyaos, ws());
 
     const result = await executeTool(tool, context({ pattern: '*.ts', path: tmpDir! }));
 
@@ -661,7 +661,7 @@ describe('GlobTool integration (real ripgrep)', () => {
     await touch('root.ts', new Date('2024-01-01T00:00:00Z'));
     await touch('src/a.ts', new Date('2023-01-01T00:00:00Z'));
     await touch('src/sub/b.ts', new Date('2022-01-01T00:00:00Z'));
-    const tool = new GlobTool(kaos, ws());
+    const tool = new GlobTool(pyaos, ws());
 
     const result = await executeTool(tool, context({ pattern: '*.ts', path: tmpDir! }));
 
@@ -674,7 +674,7 @@ describe('GlobTool integration (real ripgrep)', () => {
     await touch('src/a.ts', new Date('2024-01-01T00:00:00Z'));
     await touch('test/a.ts', new Date('2023-01-01T00:00:00Z'));
     await touch('other/a.ts', new Date('2022-01-01T00:00:00Z'));
-    const tool = new GlobTool(kaos, ws());
+    const tool = new GlobTool(pyaos, ws());
 
     const result = await executeTool(tool, context({ pattern: '{src,test}/*.ts', path: tmpDir! }));
 
@@ -691,7 +691,7 @@ describe('GlobTool integration (real ripgrep)', () => {
     await touch('src/a.ts', new Date('2024-01-01T00:00:00Z'));
     await touch('src/sub/b.ts', new Date('2023-01-01T00:00:00Z'));
     await touch('other/c.ts', new Date('2022-01-01T00:00:00Z'));
-    const tool = new GlobTool(kaos, ws());
+    const tool = new GlobTool(pyaos, ws());
 
     const result = await executeTool(tool, context({ pattern: 'src/**/*.ts', path: tmpDir! }));
 
@@ -702,7 +702,7 @@ describe('GlobTool integration (real ripgrep)', () => {
 
   it('treats an escaped brace as a literal filename', async () => {
     await touch('{a,b}.ts', new Date('2024-01-01T00:00:00Z'));
-    const tool = new GlobTool(kaos, ws());
+    const tool = new GlobTool(pyaos, ws());
 
     const result = await executeTool(tool, context({ pattern: '\\{a,b\\}.ts', path: tmpDir! }));
 
@@ -718,7 +718,7 @@ describe('GlobTool integration (real ripgrep)', () => {
     try {
       const extFile = path.join(externalDir, 'pkg.ts');
       await fs.writeFile(extFile, '');
-      const tool = new GlobTool(kaos, ws());
+      const tool = new GlobTool(pyaos, ws());
 
       const result = await executeTool(tool, context({ pattern: '*.ts', path: externalDir }));
 

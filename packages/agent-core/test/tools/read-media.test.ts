@@ -1,11 +1,11 @@
 /**
  * ReadMediaFileTool public execution contract: capability and path gating,
  * model-safe media delivery, compression/crop behavior, and actionable
- * failures. Real codecs are used; Kaos is the only stubbed I/O boundary.
+ * failures. Real codecs are used; Pyaos is the only stubbed I/O boundary.
  * Run with: pnpm --filter @pymodel/agent-core test -- read-media.test.ts
  */
 
-import type { Kaos } from '@pymodel/kaos';
+import type { Pyaos } from '@pymodel/pyaos';
 import type { ContentPart, ModelCapability } from '@pymodel/kosong';
 import { Jimp } from 'jimp';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -20,7 +20,7 @@ import { MAX_IMAGE_DECODE_BYTES } from '../../src/tools/support/image-compress';
 import { ImageLimits } from '../../src/tools/support/image-limits';
 import { MEDIA_SNIFF_BYTES, sniffImageDimensions } from '../../src/tools/support/file-type';
 import type { TelemetryClient } from '../../src/telemetry';
-import { createFakeKaos, FAKE_OS_ENV, PERMISSIVE_WORKSPACE } from './fixtures/fake-kaos';
+import { createFakePyaos, FAKE_OS_ENV, PERMISSIVE_WORKSPACE } from './fixtures/fake-pyaos';
 import { executeTool } from './fixtures/execute-tool';
 
 const signal = new AbortController().signal;
@@ -90,19 +90,19 @@ function capabilities(overrides: Partial<ModelCapability> = {}): ModelCapability
 
 function makeReadMediaTool(
   input: {
-    readonly stat?: Kaos['stat'] | undefined;
-    readonly readBytes?: Kaos['readBytes'] | undefined;
+    readonly stat?: Pyaos['stat'] | undefined;
+    readonly readBytes?: Pyaos['readBytes'] | undefined;
     readonly modelCapabilities?: ModelCapability | undefined;
     readonly telemetry?: TelemetryClient | undefined;
     readonly imageLimits?: ImageLimits | undefined;
   } = {},
 ): ReadMediaFileTool {
-  const kaos = createFakeKaos({
-    stat: input.stat ?? vi.fn<Kaos['stat']>().mockResolvedValue(DEFAULT_STAT),
-    readBytes: input.readBytes ?? vi.fn<Kaos['readBytes']>().mockResolvedValue(PNG_HEADER),
+  const pyaos = createFakePyaos({
+    stat: input.stat ?? vi.fn<Pyaos['stat']>().mockResolvedValue(DEFAULT_STAT),
+    readBytes: input.readBytes ?? vi.fn<Pyaos['readBytes']>().mockResolvedValue(PNG_HEADER),
   });
   return new ReadMediaFileTool(
-    kaos,
+    pyaos,
     PERMISSIVE_WORKSPACE,
     input.modelCapabilities ?? capabilities(),
     undefined,
@@ -164,7 +164,7 @@ describe('ReadMediaFileTool', () => {
     expect(
       () =>
         new ReadMediaFileTool(
-          createFakeKaos(),
+          createFakePyaos(),
           PERMISSIVE_WORKSPACE,
           capabilities({ image_in: false, video_in: false }),
         ),
@@ -174,8 +174,8 @@ describe('ReadMediaFileTool', () => {
   it('returns a text/image/text wrap plus a <system> note for PNG files', async () => {
     const data = Buffer.concat([PNG_HEADER, Buffer.from('pngdata')]);
     const tool = makeReadMediaTool({
-      stat: vi.fn<Kaos['stat']>().mockResolvedValue({ ...DEFAULT_STAT, stSize: data.length }),
-      readBytes: vi.fn<Kaos['readBytes']>().mockResolvedValue(data),
+      stat: vi.fn<Pyaos['stat']>().mockResolvedValue({ ...DEFAULT_STAT, stSize: data.length }),
+      readBytes: vi.fn<Pyaos['readBytes']>().mockResolvedValue(data),
     });
 
     const result = await executeTool(tool, {
@@ -199,8 +199,8 @@ describe('ReadMediaFileTool', () => {
   it('emits a <system> summary with mime type and byte size for images', async () => {
     const data = Buffer.concat([PNG_HEADER, Buffer.from('pngdata')]);
     const tool = makeReadMediaTool({
-      stat: vi.fn<Kaos['stat']>().mockResolvedValue({ ...DEFAULT_STAT, stSize: data.length }),
-      readBytes: vi.fn<Kaos['readBytes']>().mockResolvedValue(data),
+      stat: vi.fn<Pyaos['stat']>().mockResolvedValue({ ...DEFAULT_STAT, stSize: data.length }),
+      readBytes: vi.fn<Pyaos['readBytes']>().mockResolvedValue(data),
     });
 
     const result = await executeTool(tool, {
@@ -225,8 +225,8 @@ describe('ReadMediaFileTool', () => {
     ihdr.writeUInt32BE(2, 12);
     const data = Buffer.concat([PNG_HEADER, ihdr]);
     const tool = makeReadMediaTool({
-      stat: vi.fn<Kaos['stat']>().mockResolvedValue({ ...DEFAULT_STAT, stSize: data.length }),
-      readBytes: vi.fn<Kaos['readBytes']>().mockResolvedValue(data),
+      stat: vi.fn<Pyaos['stat']>().mockResolvedValue({ ...DEFAULT_STAT, stSize: data.length }),
+      readBytes: vi.fn<Pyaos['readBytes']>().mockResolvedValue(data),
     });
 
     const result = await executeTool(tool, {
@@ -249,8 +249,8 @@ describe('ReadMediaFileTool', () => {
     // null and the <system> block must drop the "Original dimensions" line.
     const data = Buffer.from(PNG_HEADER);
     const tool = makeReadMediaTool({
-      stat: vi.fn<Kaos['stat']>().mockResolvedValue({ ...DEFAULT_STAT, stSize: data.length }),
-      readBytes: vi.fn<Kaos['readBytes']>().mockResolvedValue(data),
+      stat: vi.fn<Pyaos['stat']>().mockResolvedValue({ ...DEFAULT_STAT, stSize: data.length }),
+      readBytes: vi.fn<Pyaos['readBytes']>().mockResolvedValue(data),
     });
 
     const result = await executeTool(tool, {
@@ -273,11 +273,11 @@ describe('ReadMediaFileTool', () => {
 
   it('emits a <system> summary for videos without pixel dimensions', async () => {
     const tool = makeReadMediaTool({
-      stat: vi.fn<Kaos['stat']>().mockResolvedValue({
+      stat: vi.fn<Pyaos['stat']>().mockResolvedValue({
         ...DEFAULT_STAT,
         stSize: MP4_HEADER.length,
       }),
-      readBytes: vi.fn<Kaos['readBytes']>().mockResolvedValue(MP4_HEADER),
+      readBytes: vi.fn<Pyaos['readBytes']>().mockResolvedValue(MP4_HEADER),
     });
 
     const result = await executeTool(tool, {
@@ -297,8 +297,8 @@ describe('ReadMediaFileTool', () => {
   it('detects an extensionless PNG via magic-byte sniffing', async () => {
     const data = Buffer.concat([PNG_HEADER, Buffer.from('pngdata')]);
     const tool = makeReadMediaTool({
-      stat: vi.fn<Kaos['stat']>().mockResolvedValue({ ...DEFAULT_STAT, stSize: data.length }),
-      readBytes: vi.fn<Kaos['readBytes']>().mockResolvedValue(data),
+      stat: vi.fn<Pyaos['stat']>().mockResolvedValue({ ...DEFAULT_STAT, stSize: data.length }),
+      readBytes: vi.fn<Pyaos['readBytes']>().mockResolvedValue(data),
     });
 
     const result = await executeTool(tool, {
@@ -313,11 +313,11 @@ describe('ReadMediaFileTool', () => {
     expect((parts[1] as { imageUrl: { url: string } }).imageUrl.url).toContain('image/png');
   });
 
-  it('expands leading tilde paths using the kaos home directory', async () => {
+  it('expands leading tilde paths using the pyaos home directory', async () => {
     const data = Buffer.concat([PNG_HEADER, Buffer.from('pngdata')]);
-    const readBytes = vi.fn<Kaos['readBytes']>().mockResolvedValue(data);
+    const readBytes = vi.fn<Pyaos['readBytes']>().mockResolvedValue(data);
     const tool = makeReadMediaTool({
-      stat: vi.fn<Kaos['stat']>().mockResolvedValue({ ...DEFAULT_STAT, stSize: data.length }),
+      stat: vi.fn<Pyaos['stat']>().mockResolvedValue({ ...DEFAULT_STAT, stSize: data.length }),
       readBytes,
     });
 
@@ -336,11 +336,11 @@ describe('ReadMediaFileTool', () => {
 
   it('returns a text/video/text wrap for MP4 files', async () => {
     const tool = makeReadMediaTool({
-      stat: vi.fn<Kaos['stat']>().mockResolvedValue({
+      stat: vi.fn<Pyaos['stat']>().mockResolvedValue({
         ...DEFAULT_STAT,
         stSize: MP4_HEADER.length,
       }),
-      readBytes: vi.fn<Kaos['readBytes']>().mockResolvedValue(MP4_HEADER),
+      readBytes: vi.fn<Pyaos['readBytes']>().mockResolvedValue(MP4_HEADER),
     });
 
     const result = await executeTool(tool, {
@@ -364,8 +364,8 @@ describe('ReadMediaFileTool', () => {
   it('falls back to a media extension when the header cannot be sniffed', async () => {
     const data = Buffer.from([0x00, 0x00, 0x01, 0xba, 0x21, 0x00, 0x01, 0x00]);
     const tool = makeReadMediaTool({
-      stat: vi.fn<Kaos['stat']>().mockResolvedValue({ ...DEFAULT_STAT, stSize: data.length }),
-      readBytes: vi.fn<Kaos['readBytes']>().mockResolvedValue(data),
+      stat: vi.fn<Pyaos['stat']>().mockResolvedValue({ ...DEFAULT_STAT, stSize: data.length }),
+      readBytes: vi.fn<Pyaos['readBytes']>().mockResolvedValue(data),
     });
 
     const result = await executeTool(tool, {
@@ -388,12 +388,12 @@ describe('ReadMediaFileTool', () => {
       videoUrl: { url: 'ms://file-123', id: 'file-123' },
     });
     const tool = new ReadMediaFileTool(
-      createFakeKaos({
-        stat: vi.fn<Kaos['stat']>().mockResolvedValue({
+      createFakePyaos({
+        stat: vi.fn<Pyaos['stat']>().mockResolvedValue({
           ...DEFAULT_STAT,
           stSize: MP4_HEADER.length,
         }),
-        readBytes: vi.fn<Kaos['readBytes']>().mockResolvedValue(MP4_HEADER),
+        readBytes: vi.fn<Pyaos['readBytes']>().mockResolvedValue(MP4_HEADER),
       }),
       PERMISSIVE_WORKSPACE,
       capabilities(),
@@ -422,12 +422,12 @@ describe('ReadMediaFileTool', () => {
   it('falls back to an inline base64 video part when the upload fails', async () => {
     const videoUploader = vi.fn().mockRejectedValue(new Error('404 route not found'));
     const tool = new ReadMediaFileTool(
-      createFakeKaos({
-        stat: vi.fn<Kaos['stat']>().mockResolvedValue({
+      createFakePyaos({
+        stat: vi.fn<Pyaos['stat']>().mockResolvedValue({
           ...DEFAULT_STAT,
           stSize: MP4_HEADER.length,
         }),
-        readBytes: vi.fn<Kaos['readBytes']>().mockResolvedValue(MP4_HEADER),
+        readBytes: vi.fn<Pyaos['readBytes']>().mockResolvedValue(MP4_HEADER),
       }),
       PERMISSIVE_WORKSPACE,
       capabilities(),
@@ -454,12 +454,12 @@ describe('ReadMediaFileTool', () => {
       .fn()
       .mockRejectedValue(Object.assign(new Error('401 Unauthorized'), { statusCode: 401 }));
     const tool = new ReadMediaFileTool(
-      createFakeKaos({
-        stat: vi.fn<Kaos['stat']>().mockResolvedValue({
+      createFakePyaos({
+        stat: vi.fn<Pyaos['stat']>().mockResolvedValue({
           ...DEFAULT_STAT,
           stSize: MP4_HEADER.length,
         }),
-        readBytes: vi.fn<Kaos['readBytes']>().mockResolvedValue(MP4_HEADER),
+        readBytes: vi.fn<Pyaos['readBytes']>().mockResolvedValue(MP4_HEADER),
       }),
       PERMISSIVE_WORKSPACE,
       capabilities(),
@@ -481,8 +481,8 @@ describe('ReadMediaFileTool', () => {
   it('rejects text files with a Read hint', async () => {
     const text = Buffer.from('hello');
     const tool = makeReadMediaTool({
-      stat: vi.fn<Kaos['stat']>().mockResolvedValue({ ...DEFAULT_STAT, stSize: text.length }),
-      readBytes: vi.fn<Kaos['readBytes']>().mockResolvedValue(text),
+      stat: vi.fn<Pyaos['stat']>().mockResolvedValue({ ...DEFAULT_STAT, stSize: text.length }),
+      readBytes: vi.fn<Pyaos['readBytes']>().mockResolvedValue(text),
     });
 
     const result = await executeTool(tool, {
@@ -502,8 +502,8 @@ describe('ReadMediaFileTool', () => {
   it('rejects unknown binary files without legacy Python-tool wording', async () => {
     const blob = Buffer.from([0x00, 0x01, 0x02, 0x03]);
     const tool = makeReadMediaTool({
-      stat: vi.fn<Kaos['stat']>().mockResolvedValue({ ...DEFAULT_STAT, stSize: blob.length }),
-      readBytes: vi.fn<Kaos['readBytes']>().mockResolvedValue(blob),
+      stat: vi.fn<Pyaos['stat']>().mockResolvedValue({ ...DEFAULT_STAT, stSize: blob.length }),
+      readBytes: vi.fn<Pyaos['readBytes']>().mockResolvedValue(blob),
     });
 
     const result = await executeTool(tool, {
@@ -522,11 +522,11 @@ describe('ReadMediaFileTool', () => {
 
   it('errors when the current model lacks video input capability', async () => {
     const tool = makeReadMediaTool({
-      stat: vi.fn<Kaos['stat']>().mockResolvedValue({
+      stat: vi.fn<Pyaos['stat']>().mockResolvedValue({
         ...DEFAULT_STAT,
         stSize: MP4_HEADER.length,
       }),
-      readBytes: vi.fn<Kaos['readBytes']>().mockResolvedValue(MP4_HEADER),
+      readBytes: vi.fn<Pyaos['readBytes']>().mockResolvedValue(MP4_HEADER),
       modelCapabilities: capabilities({ image_in: true, video_in: false }),
     });
 
@@ -543,7 +543,7 @@ describe('ReadMediaFileTool', () => {
 
   it('rejects empty files and files exceeding the media size limit', async () => {
     const empty = await executeTool(makeReadMediaTool({
-      stat: vi.fn<Kaos['stat']>().mockResolvedValue({ ...DEFAULT_STAT, stSize: 0 }),
+      stat: vi.fn<Pyaos['stat']>().mockResolvedValue({ ...DEFAULT_STAT, stSize: 0 }),
     }), {
       turnId: 't1',
       toolCallId: 'c_empty',
@@ -554,7 +554,7 @@ describe('ReadMediaFileTool', () => {
     expect(empty.output).toMatch(/empty/i);
 
     const huge = await executeTool(makeReadMediaTool({
-      stat: vi.fn<Kaos['stat']>().mockResolvedValue({
+      stat: vi.fn<Pyaos['stat']>().mockResolvedValue({
         ...DEFAULT_STAT,
         stSize: 200 * 1024 * 1024,
       }),
@@ -583,8 +583,8 @@ describe('ReadMediaFileTool', () => {
       'hex',
     );
     const tool = makeReadMediaTool({
-      stat: vi.fn<Kaos['stat']>().mockResolvedValue({ ...DEFAULT_STAT, stSize: png.length }),
-      readBytes: vi.fn<Kaos['readBytes']>().mockResolvedValue(png),
+      stat: vi.fn<Pyaos['stat']>().mockResolvedValue({ ...DEFAULT_STAT, stSize: png.length }),
+      readBytes: vi.fn<Pyaos['readBytes']>().mockResolvedValue(png),
     });
 
     const result = await executeTool(tool,{
@@ -606,8 +606,8 @@ describe('ReadMediaFileTool', () => {
     // omitted because the header is too short to read IHDR.
     const data = Buffer.concat([PNG_HEADER, Buffer.from('pngdata')]);
     const tool = makeReadMediaTool({
-      stat: vi.fn<Kaos['stat']>().mockResolvedValue({ ...DEFAULT_STAT, stSize: data.length }),
-      readBytes: vi.fn<Kaos['readBytes']>().mockResolvedValue(data),
+      stat: vi.fn<Pyaos['stat']>().mockResolvedValue({ ...DEFAULT_STAT, stSize: data.length }),
+      readBytes: vi.fn<Pyaos['readBytes']>().mockResolvedValue(data),
     });
 
     const result = await executeTool(tool,{
@@ -624,7 +624,7 @@ describe('ReadMediaFileTool', () => {
   });
 
   it('description by capabilities lockdown — image + video points at Read for text fallback', () => {
-    const tool = new ReadMediaFileTool(createFakeKaos(), PERMISSIVE_WORKSPACE, capabilities());
+    const tool = new ReadMediaFileTool(createFakePyaos(), PERMISSIVE_WORKSPACE, capabilities());
     // Long-form description contract from sibling docs: 100MB ceiling and
     // pointer to the text-file tool for non-media content. TS renames the
     // sibling tool to `Read` (py was `ReadFile`).
@@ -641,7 +641,7 @@ describe('ReadMediaFileTool', () => {
     let caught: unknown = null;
     const construct = (): ReadMediaFileTool =>
       new ReadMediaFileTool(
-        createFakeKaos(),
+        createFakePyaos(),
         PERMISSIVE_WORKSPACE,
         capabilities({ image_in: false, video_in: false }),
       );
@@ -654,10 +654,10 @@ describe('ReadMediaFileTool', () => {
   });
 
   it('allows absolute media paths outside workspace but rejects relative escapes', async () => {
-    const readBytes = vi.fn<Kaos['readBytes']>().mockResolvedValue(PNG_HEADER);
+    const readBytes = vi.fn<Pyaos['readBytes']>().mockResolvedValue(PNG_HEADER);
     const tool = new ReadMediaFileTool(
-      createFakeKaos({
-        stat: vi.fn<Kaos['stat']>().mockResolvedValue(DEFAULT_STAT),
+      createFakePyaos({
+        stat: vi.fn<Pyaos['stat']>().mockResolvedValue(DEFAULT_STAT),
         readBytes,
       }),
       { workspaceDir: '/workspace', additionalDirs: [] },
@@ -689,8 +689,8 @@ describe('ReadMediaFileTool', () => {
     // API rejects it as `application/octet-stream`.
     const data = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.from('jpegdata')]);
     const tool = makeReadMediaTool({
-      stat: vi.fn<Kaos['stat']>().mockResolvedValue({ ...DEFAULT_STAT, stSize: data.length }),
-      readBytes: vi.fn<Kaos['readBytes']>().mockResolvedValue(data),
+      stat: vi.fn<Pyaos['stat']>().mockResolvedValue({ ...DEFAULT_STAT, stSize: data.length }),
+      readBytes: vi.fn<Pyaos['readBytes']>().mockResolvedValue(data),
     });
 
     const result = await executeTool(tool, {
@@ -713,8 +713,8 @@ describe('ReadMediaFileTool', () => {
     // It refuses with conversion guidance instead.
     const data = Buffer.concat([Buffer.from('BM'), Buffer.from('bmpdata')]);
     const tool = makeReadMediaTool({
-      stat: vi.fn<Kaos['stat']>().mockResolvedValue({ ...DEFAULT_STAT, stSize: data.length }),
-      readBytes: vi.fn<Kaos['readBytes']>().mockResolvedValue(data),
+      stat: vi.fn<Pyaos['stat']>().mockResolvedValue({ ...DEFAULT_STAT, stSize: data.length }),
+      readBytes: vi.fn<Pyaos['readBytes']>().mockResolvedValue(data),
     });
 
     const result = await executeTool(tool, {
@@ -736,8 +736,8 @@ describe('ReadMediaFileTool', () => {
     // mismatched data URL.
     const data = Buffer.from('this is not an image, just plain ascii text');
     const tool = makeReadMediaTool({
-      stat: vi.fn<Kaos['stat']>().mockResolvedValue({ ...DEFAULT_STAT, stSize: data.length }),
-      readBytes: vi.fn<Kaos['readBytes']>().mockResolvedValue(data),
+      stat: vi.fn<Pyaos['stat']>().mockResolvedValue({ ...DEFAULT_STAT, stSize: data.length }),
+      readBytes: vi.fn<Pyaos['readBytes']>().mockResolvedValue(data),
     });
 
     const result = await executeTool(tool, {
@@ -760,8 +760,8 @@ describe('ReadMediaFileTool', () => {
     expect(sniffImageDimensions(big)).toEqual({ width: 2200, height: 2200 });
 
     const tool = makeReadMediaTool({
-      stat: vi.fn<Kaos['stat']>().mockResolvedValue({ ...DEFAULT_STAT, stSize: big.length }),
-      readBytes: vi.fn<Kaos['readBytes']>().mockResolvedValue(big),
+      stat: vi.fn<Pyaos['stat']>().mockResolvedValue({ ...DEFAULT_STAT, stSize: big.length }),
+      readBytes: vi.fn<Pyaos['readBytes']>().mockResolvedValue(big),
     });
 
     const result = await executeTool(tool, {
@@ -800,8 +800,8 @@ describe('ReadMediaFileTool', () => {
       6,
     );
     const tool = makeReadMediaTool({
-      stat: vi.fn<Kaos['stat']>().mockResolvedValue({ ...DEFAULT_STAT, stSize: portrait.length }),
-      readBytes: vi.fn<Kaos['readBytes']>().mockResolvedValue(portrait),
+      stat: vi.fn<Pyaos['stat']>().mockResolvedValue({ ...DEFAULT_STAT, stSize: portrait.length }),
+      readBytes: vi.fn<Pyaos['readBytes']>().mockResolvedValue(portrait),
     });
 
     const result = await executeTool(tool, {
@@ -828,8 +828,8 @@ describe('ReadMediaFileTool', () => {
       6,
     );
     const tool = makeReadMediaTool({
-      stat: vi.fn<Kaos['stat']>().mockResolvedValue({ ...DEFAULT_STAT, stSize: portrait.length }),
-      readBytes: vi.fn<Kaos['readBytes']>().mockResolvedValue(portrait),
+      stat: vi.fn<Pyaos['stat']>().mockResolvedValue({ ...DEFAULT_STAT, stSize: portrait.length }),
+      readBytes: vi.fn<Pyaos['readBytes']>().mockResolvedValue(portrait),
     });
 
     const result = await executeTool(tool, {
@@ -855,8 +855,8 @@ describe('ReadMediaFileTool', () => {
       6,
     );
     const tool = makeReadMediaTool({
-      stat: vi.fn<Kaos['stat']>().mockResolvedValue({ ...DEFAULT_STAT, stSize: portrait.length }),
-      readBytes: vi.fn<Kaos['readBytes']>().mockResolvedValue(portrait),
+      stat: vi.fn<Pyaos['stat']>().mockResolvedValue({ ...DEFAULT_STAT, stSize: portrait.length }),
+      readBytes: vi.fn<Pyaos['readBytes']>().mockResolvedValue(portrait),
     });
 
     const result = await executeTool(tool, {
@@ -880,8 +880,8 @@ describe('ReadMediaFileTool', () => {
       await new Jimp({ width: 2200, height: 1100, color: 0x3366ccff }).getBuffer('image/png'),
     );
     const tool = makeReadMediaTool({
-      stat: vi.fn<Kaos['stat']>().mockResolvedValue({ ...DEFAULT_STAT, stSize: big.length }),
-      readBytes: vi.fn<Kaos['readBytes']>().mockResolvedValue(big),
+      stat: vi.fn<Pyaos['stat']>().mockResolvedValue({ ...DEFAULT_STAT, stSize: big.length }),
+      readBytes: vi.fn<Pyaos['readBytes']>().mockResolvedValue(big),
       telemetry,
     });
 
@@ -917,8 +917,8 @@ describe('ReadMediaFileTool', () => {
 
     function toolFor(data: Buffer, imageLimits?: ImageLimits): ReadMediaFileTool {
       return makeReadMediaTool({
-        stat: vi.fn<Kaos['stat']>().mockResolvedValue({ ...DEFAULT_STAT, stSize: data.length }),
-        readBytes: vi.fn<Kaos['readBytes']>().mockResolvedValue(data),
+        stat: vi.fn<Pyaos['stat']>().mockResolvedValue({ ...DEFAULT_STAT, stSize: data.length }),
+        readBytes: vi.fn<Pyaos['readBytes']>().mockResolvedValue(data),
         imageLimits,
       });
     }
@@ -1045,11 +1045,11 @@ describe('ReadMediaFileTool', () => {
       // PNG magic followed by 4MB of filler: recognizably an image, over the
       // 3.75MB byte budget — full_resolution must refuse, not silently shrink.
       const data = Buffer.concat([PNG_HEADER, Buffer.alloc(4 * 1024 * 1024, 1)]);
-      const readBytes = vi.fn<Kaos['readBytes']>(async (_path, n) =>
+      const readBytes = vi.fn<Pyaos['readBytes']>(async (_path, n) =>
         n === undefined ? data : data.subarray(0, n),
       );
       const tool = makeReadMediaTool({
-        stat: vi.fn<Kaos['stat']>().mockResolvedValue({ ...DEFAULT_STAT, stSize: data.length }),
+        stat: vi.fn<Pyaos['stat']>().mockResolvedValue({ ...DEFAULT_STAT, stSize: data.length }),
         readBytes,
       });
 
@@ -1072,9 +1072,9 @@ describe('ReadMediaFileTool', () => {
     });
 
     it('returns external preprocessing guidance before loading an oversized region source', async () => {
-      const readBytes = vi.fn<Kaos['readBytes']>().mockResolvedValue(PNG_HEADER);
+      const readBytes = vi.fn<Pyaos['readBytes']>().mockResolvedValue(PNG_HEADER);
       const tool = makeReadMediaTool({
-        stat: vi.fn<Kaos['stat']>().mockResolvedValue({
+        stat: vi.fn<Pyaos['stat']>().mockResolvedValue({
           ...DEFAULT_STAT,
           stSize: MAX_IMAGE_DECODE_BYTES + 1,
         }),
@@ -1105,9 +1105,9 @@ describe('ReadMediaFileTool', () => {
     });
 
     it('prioritizes external preprocessing guidance for full_resolution above the decode cap', async () => {
-      const readBytes = vi.fn<Kaos['readBytes']>().mockResolvedValue(PNG_HEADER);
+      const readBytes = vi.fn<Pyaos['readBytes']>().mockResolvedValue(PNG_HEADER);
       const tool = makeReadMediaTool({
-        stat: vi.fn<Kaos['stat']>().mockResolvedValue({
+        stat: vi.fn<Pyaos['stat']>().mockResolvedValue({
           ...DEFAULT_STAT,
           stSize: MAX_IMAGE_DECODE_BYTES + 1,
         }),
@@ -1135,11 +1135,11 @@ describe('ReadMediaFileTool', () => {
 
     it('rejects region and full_resolution for video files', async () => {
       const tool = makeReadMediaTool({
-        stat: vi.fn<Kaos['stat']>().mockResolvedValue({
+        stat: vi.fn<Pyaos['stat']>().mockResolvedValue({
           ...DEFAULT_STAT,
           stSize: MP4_HEADER.length,
         }),
-        readBytes: vi.fn<Kaos['readBytes']>().mockResolvedValue(MP4_HEADER),
+        readBytes: vi.fn<Pyaos['readBytes']>().mockResolvedValue(MP4_HEADER),
       });
 
       const withRegion = await executeTool(tool, {
@@ -1172,12 +1172,12 @@ describe('ReadMediaFileTool', () => {
     }
 
     function unsupportedTool(osKind: string, data: Buffer): ReadMediaFileTool {
-      const kaos = createFakeKaos({
-        stat: vi.fn<Kaos['stat']>().mockResolvedValue({ ...DEFAULT_STAT, stSize: data.length }),
-        readBytes: vi.fn<Kaos['readBytes']>().mockResolvedValue(data),
+      const pyaos = createFakePyaos({
+        stat: vi.fn<Pyaos['stat']>().mockResolvedValue({ ...DEFAULT_STAT, stSize: data.length }),
+        readBytes: vi.fn<Pyaos['readBytes']>().mockResolvedValue(data),
         osEnv: { ...FAKE_OS_ENV, osKind },
       });
-      return new ReadMediaFileTool(kaos, PERMISSIVE_WORKSPACE, capabilities());
+      return new ReadMediaFileTool(pyaos, PERMISSIVE_WORKSPACE, capabilities());
     }
 
     function heicTool(osKind: string, brand = 'heic'): ReadMediaFileTool {
@@ -1309,8 +1309,8 @@ describe('ReadMediaFileTool', () => {
 
     function toolFor(data: Buffer, imageLimits?: ImageLimits): ReadMediaFileTool {
       return makeReadMediaTool({
-        stat: vi.fn<Kaos['stat']>().mockResolvedValue({ ...DEFAULT_STAT, stSize: data.length }),
-        readBytes: vi.fn<Kaos['readBytes']>().mockResolvedValue(data),
+        stat: vi.fn<Pyaos['stat']>().mockResolvedValue({ ...DEFAULT_STAT, stSize: data.length }),
+        readBytes: vi.fn<Pyaos['readBytes']>().mockResolvedValue(data),
         imageLimits,
       });
     }
@@ -1369,9 +1369,9 @@ describe('ReadMediaFileTool', () => {
     });
 
     it('returns shrink guidance before loading a default image that exceeds the decode byte guard', async () => {
-      const readBytes = vi.fn<Kaos['readBytes']>().mockResolvedValue(PNG_HEADER);
+      const readBytes = vi.fn<Pyaos['readBytes']>().mockResolvedValue(PNG_HEADER);
       const tool = makeReadMediaTool({
-        stat: vi.fn<Kaos['stat']>().mockResolvedValue({
+        stat: vi.fn<Pyaos['stat']>().mockResolvedValue({
           ...DEFAULT_STAT,
           stSize: MAX_IMAGE_DECODE_BYTES + 1,
         }),
@@ -1403,9 +1403,9 @@ describe('ReadMediaFileTool', () => {
           '00000000ffff03000c1d03014b0000000049454e44ae426082',
         'hex',
       );
-      const readBytes = vi.fn<Kaos['readBytes']>().mockResolvedValue(png);
+      const readBytes = vi.fn<Pyaos['readBytes']>().mockResolvedValue(png);
       const tool = makeReadMediaTool({
-        stat: vi.fn<Kaos['stat']>().mockResolvedValue({
+        stat: vi.fn<Pyaos['stat']>().mockResolvedValue({
           ...DEFAULT_STAT,
           stSize: MAX_IMAGE_DECODE_BYTES + 1,
         }),

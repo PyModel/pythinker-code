@@ -47,7 +47,7 @@ describe('builtin skill: check-pythinker-code-docs', () => {
 
   it('pins the official docs site and the module routing list', () => {
     const content = CHECK_PYTHINKER_CODE_DOCS_SKILL.content;
-    expect(content).toContain('https://www.kimi.com/code/docs/en/');
+    expect(content).toContain('https://github.com/PyModel/pythinker-code/tree/main/docs/en');
     expect(content).toContain('pythinker-code-cli/configuration/');
     expect(content).toContain('pythinker-code-cli/customization/');
     expect(content).toContain('pythinker-code/membership.html');

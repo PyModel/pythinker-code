@@ -55,8 +55,8 @@ The spec divides methods into a **stable** surface and an evolving **unstable** 
 | --- | --- | --- |
 | `session/update` | Yes | Streams `agent_message_chunk` / `tool_call*` / `plan` / `config_option_update` / `available_commands_update` |
 | `session/request_permission` | Yes | Shared channel for tool approval and question elicitation |
-| `fs/read_text_file` | Yes | File reads at the kaos layer are routed to the client (advertised via `fsCapabilities`) |
-| `fs/write_text_file` | Yes | File writes at the kaos layer are routed to the client |
+| `fs/read_text_file` | Yes | File reads at the pyaos layer are routed to the client (advertised via `fsCapabilities`) |
+| `fs/write_text_file` | Yes | File writes at the pyaos layer are routed to the client |
 | `terminal/create` · `output` · `release` · `kill` · `wait_for_exit` | No | Terminal reverse-RPC not connected; shell commands use local execution |
 
 ### Unstable surface (1 / 19)

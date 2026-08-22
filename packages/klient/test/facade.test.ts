@@ -95,6 +95,29 @@ describe('facade routing', () => {
     });
   });
 
+  it('forwards the login region option through the wire contract', async () => {
+    const channel = new FakeChannel();
+    const klient = createKlientFromChannel(channel);
+
+    channel.results.set('oauthService.startLogin', {
+      flow_id: 'f1',
+      provider: 'managed:pythinker-code',
+      status: 'pending',
+      verification_uri: 'https://example.com/device',
+      verification_uri_complete: 'https://example.com/device?user_code=ABCD',
+      user_code: 'ABCD',
+      expires_in: 1800,
+      expires_at: '2026-08-19T15:00:00.000Z',
+      interval: 5,
+    });
+    await klient.global.auth.startLogin('managed:pythinker-code', { region: 'global' });
+    expect(channel.calls[0]).toMatchObject({
+      service: 'oauthService',
+      method: 'startLogin',
+      args: ['managed:pythinker-code', { region: 'global' }],
+    });
+  });
+
   it('routes capability calls through the registered app service contract', async () => {
     const channel = new FakeChannel();
     const klient = createKlientFromChannel(channel);
@@ -189,13 +212,23 @@ describe('agent skill routing', () => {
     const klient = createKlientFromChannel(channel);
     const agent = klient.session('s1').agent('main');
 
-    channel.result = { turn_id: 7 };
+    channel.result = {
+      turn_id: 7,
+      prompt_id: 'p1',
+      created_at: '2026-01-01T00:00:00.000Z',
+      state: 'running',
+    };
     await expect(
       agent.promptWithSkills({
         input: [{ type: 'text', text: 'Review this change.' }],
         skills: [{ name: 'review' }, { name: 'security', args: 'src/app.ts' }],
       }),
-    ).resolves.toEqual({ turn_id: 7 });
+    ).resolves.toEqual({
+      turn_id: 7,
+      prompt_id: 'p1',
+      created_at: '2026-01-01T00:00:00.000Z',
+      state: 'running',
+    });
     expect(channel.calls[0]).toEqual({
       scope: { sessionId: 's1', agentId: 'main' },
       service: 'agentSkillService',

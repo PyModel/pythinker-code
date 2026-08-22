@@ -21,7 +21,7 @@ export interface ScopeRef {
 
 /**
  * Where an event subscription reads from:
- * - `stream` — a scope's named event stream, mirroring kap-server's WS
+ * - `stream` — a scope's named event stream, mirroring agent-gateway's WS
  *   `eventMap`: core `events` (the global `IEventService` bus), session
  *   `interactions` / `interactions:resolved`, agent `events` (the per-agent
  *   `IEventBus`). The scope coordinates disambiguate which scope's stream.

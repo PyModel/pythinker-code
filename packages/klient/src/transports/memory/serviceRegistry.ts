@@ -39,13 +39,13 @@ import { IAgentPermissionModeService } from '@pymodel/agent-core-v2/agent/permis
 import { IAgentCommandService } from '@pymodel/agent-core-v2/agent/command/agentCommand';
 import { IAgentRuntimeBindingService } from '@pymodel/agent-core-v2/agent/runtimeBinding/runtimeBinding';
 import { IAgentContextMemoryService } from '@pymodel/agent-core-v2/agent/contextMemory/contextMemory';
-import { IAgentTokenCountingService } from '@pymodel/agent-core-v2/agent/tokenCounting/tokenCounting';
+import { ISessionTokenCountingService } from '@pymodel/agent-core-v2/session/tokenCounting/sessionTokenCounting';
 import { IAgentActivityView } from '@pymodel/agent-core-v2/agent/activityView/activityView';
 import { IAgentPlanService } from '@pymodel/agent-core-v2/features/plan/plan';
 import { IAgentProfileService } from '@pymodel/agent-core-v2/agent/profile/profile';
 import { IAgentShellCommandService } from '@pymodel/agent-core-v2/agent/shellCommand/shellCommand';
 import { IAgentTaskService } from '@pymodel/agent-core-v2/agent/task/task';
-import { IAgentUsageService } from '@pymodel/agent-core-v2/agent/usage/usage';
+import { ISessionUsageService } from '@pymodel/agent-core-v2/session/usage/sessionUsage';
 import { IAgentMcpService } from '@pymodel/agent-core-v2/agent/mcp/mcp';
 import { IAgentFullCompactionService } from '@pymodel/agent-core-v2/agent/fullCompaction/fullCompaction';
 
@@ -81,11 +81,11 @@ export const serviceTokens: Readonly<Record<string, ServiceIdentifier<unknown>>>
   agentCommandService: IAgentCommandService,
   agentRuntimeBindingService: IAgentRuntimeBindingService,
   agentContextMemoryService: IAgentContextMemoryService,
-  agentTokenCountingService: IAgentTokenCountingService,
+  agentTokenCountingService: ISessionTokenCountingService,
   agentActivityView: IAgentActivityView,
   agentShellCommandService: IAgentShellCommandService,
   agentProfileService: IAgentProfileService,
-  agentUsageService: IAgentUsageService,
+  agentUsageService: ISessionUsageService,
   agentPlanService: IAgentPlanService,
   agentTaskService: IAgentTaskService,
   agentMcpService: IAgentMcpService,

@@ -35,7 +35,7 @@ import {
 
 /**
  * `'lost'` is a reconcile-only terminal state. Tasks loaded from disk
- * that were marked `running` at startup but have no live KaosProcess
+ * that were marked `running` at startup but have no live PyaosProcess
  * (the previous CLI process died) are reclassified as lost.
  */
 export function isBackgroundTaskTerminal(status: BackgroundTaskStatus): boolean {
@@ -262,7 +262,7 @@ export class BackgroundManager {
   private readonly tasks = new Map<string, ManagedTask>();
   /**
    * Ghosts: tasks loaded from disk during reconcile that have no live
-   * KaosProcess. They appear in `list()` / `getTask()` with status
+   * PyaosProcess. They appear in `list()` / `getTask()` with status
    * `lost` so users see what was running before the crash/restart.
    */
   private readonly ghosts = new Map<string, BackgroundTaskInfo>();
@@ -546,6 +546,19 @@ export class BackgroundManager {
     const taskIds = Array.from(this.tasks.keys());
     const results = await Promise.all(taskIds.map((taskId) => this.stop(taskId, reason)));
     return results.filter((info): info is BackgroundTaskInfo => info !== undefined);
+  }
+
+  /**
+   * Await every queued `output.log` append and persisted task-record write.
+   * Tasks that reached a terminal state are already drained by `finalizeTask`;
+   * this covers writes still queued on live (kept-alive) tasks when the owning
+   * session closes.
+   */
+  async drainWrites(): Promise<void> {
+    const entries = Array.from(this.tasks.values());
+    await Promise.all(
+      entries.flatMap((entry) => [entry.outputWriteQueue, entry.persistWriteQueue]),
+    );
   }
 
   /**
@@ -1009,6 +1022,7 @@ export class BackgroundManager {
       entry.pendingOutput = [];
       entry.pendingOutputBytes = 0;
     }
+    await entry.outputWriteQueue;
     this.fireTerminalEffects(entry);
     entry.foregroundRelease?.resolve('terminal');
     entry.terminal.resolve();

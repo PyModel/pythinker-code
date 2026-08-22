@@ -25,7 +25,10 @@ export const mcpServerConfigSchema = z.discriminatedUnion('transport', [
     args: z.array(z.string()).optional(),
     env: stringRecordSchema.optional(),
     cwd: z.string().optional(),
-    executor: z.enum(['local', 'kaos']).optional(),
+    executor: z
+      .enum(['local', 'pyaos', 'kaos'])
+      .transform((value) => (value === 'kaos' ? ('pyaos' as const) : value))
+      .optional(),
     ...mcpServerCommonFields,
   }),
   z.object({

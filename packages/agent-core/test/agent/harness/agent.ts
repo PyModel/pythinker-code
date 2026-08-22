@@ -2,7 +2,7 @@ import { EventEmitter } from 'node:events';
 import { Readable, type Writable } from 'node:stream';
 
 import { createControlledPromise } from '@antfu/utils';
-import { type Environment, type Kaos, type KaosProcess } from '@pymodel/kaos';
+import { type Environment, type Pyaos, type PyaosProcess } from '@pymodel/pyaos';
 import type { ModelCapability, ProviderConfig } from '@pymodel/kosong';
 import { expect, onTestFinished, vi } from 'vitest';
 
@@ -28,8 +28,8 @@ import type { AgentAPI } from '../../../src/rpc/core-api';
 import type { ToolServices } from '../../../src/tools/support/services';
 import type { TelemetryClient } from '../../../src/telemetry';
 import type { PromisifyMethods } from '../../../src/utils/types';
-import { createFakeKaos } from '../../tools/fixtures/fake-kaos';
-import { testKaos } from '../../fixtures/test-kaos';
+import { createFakePyaos } from '../../tools/fixtures/fake-pyaos';
+import { testPyaos } from '../../fixtures/test-pyaos';
 
 import { createScriptedGenerate } from './scripted-generate';
 import {
@@ -89,7 +89,7 @@ interface ResumeStateSnapshot {
 }
 
 export interface TestAgentOptions {
-  readonly kaos?: Kaos | undefined;
+  readonly pyaos?: Pyaos | undefined;
   readonly runtime?: ToolServices | undefined;
   readonly compactionStrategy?: CompactionStrategy | undefined;
   readonly microCompaction?: AgentOptions['microCompaction'];
@@ -119,8 +119,8 @@ interface ConfigureOptions {
 
 export type TestAgentContext = AgentTestContext;
 
-export function createCommandKaos(stdout: string): Kaos {
-  function createProcess(): KaosProcess {
+export function createCommandPyaos(stdout: string): Pyaos {
+  function createProcess(): PyaosProcess {
     return {
       stdin: { write: vi.fn(), end: vi.fn() } as unknown as Writable,
       stdout: Readable.from([stdout]),
@@ -133,7 +133,7 @@ export function createCommandKaos(stdout: string): Kaos {
     };
   }
 
-  return createFakeKaos({
+  return createFakePyaos({
     execWithEnv: vi.fn().mockImplementation(async () => createProcess()),
     mkdir: vi.fn().mockResolvedValue(undefined),
     writeText: vi.fn(async (_path: string, content: string) => content.length),
@@ -174,13 +174,13 @@ export class AgentTestContext {
       ...options.providerManagerOverrides,
     });
 
-    const kaos = options.kaos ?? testKaos;
+    const pyaos = options.pyaos ?? testPyaos;
     const toolServices = options.runtime;
     const persistence = this.wrapPersistence(
       options.persistence ?? new InMemoryAgentRecordPersistence(),
     );
     this.agent = new Agent({
-      kaos,
+      pyaos,
       toolServices,
       config: this.pythinkerConfig,
       rpc: this.createRpcProxy(),
@@ -737,7 +737,7 @@ export class AgentTestContext {
 
   async expectResumeMatches(): Promise<void> {
     const resumed = testAgent({
-      kaos: createResumeNoSideEffectKaos(this.agent.config.cwd, this.agent.kaos.pathClass()),
+      pyaos: createResumeNoSideEffectPyaos(this.agent.config.cwd, this.agent.pyaos.pathClass()),
       runtime: {
         urlFetcher: this.agent.toolServices?.urlFetcher,
         webSearcher: this.agent.toolServices?.webSearcher,
@@ -962,18 +962,18 @@ const failOnResumeGenerate: GenerateFn = async () => {
   throw new Error('Resume replay unexpectedly called the LLM');
 };
 
-function createResumeNoSideEffectKaos(
+function createResumeNoSideEffectPyaos(
   initialCwd: string,
   pathClass: 'posix' | 'win32',
-): Kaos {
+): Pyaos {
   const fail = (method: string): never => {
-    throw new Error(`Resume replay unexpectedly called kaos.${method}`);
+    throw new Error(`Resume replay unexpectedly called pyaos.${method}`);
   };
 
   // Replay may carry `config.update({cwd})` events that route through
-  // `kaos.chdir(...)`; let those mutate an internal cwd field so replay
+  // `pyaos.chdir(...)`; let those mutate an internal cwd field so replay
   // succeeds. Actual fs I/O methods remain forbidden. `pathClass` mirrors
-  // the live agent's kaos so platform-conditional tool descriptions (e.g.
+  // the live agent's pyaos so platform-conditional tool descriptions (e.g.
   // Glob's Windows note) match the original in `expectResumeMatches`.
   let cwd = initialCwd;
   return {
@@ -983,8 +983,8 @@ function createResumeNoSideEffectKaos(
     normpath: (p: string) => p,
     gethome: () => '/home/test',
     getcwd: () => cwd,
-    withCwd: (next: string) => createResumeNoSideEffectKaos(next, pathClass),
-    withEnv: () => createResumeNoSideEffectKaos(cwd, pathClass),
+    withCwd: (next: string) => createResumeNoSideEffectPyaos(next, pathClass),
+    withEnv: () => createResumeNoSideEffectPyaos(cwd, pathClass),
     chdir: async (next: string) => {
       cwd = next;
     },

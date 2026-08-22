@@ -8,11 +8,13 @@
 import { ref, watch, type ComputedRef } from 'vue';
 import { getPythinkerWebApi } from '../../api';
 import type {
+  AppCatalogProvider,
   AppMessage,
   AppModel,
   AppProvider,
   AppSession,
   AppSkill,
+  CatalogProviderImportInput,
   OAuthLoginStartResult,
   ThinkingLevel,
 } from '../../api/types';
@@ -113,6 +115,7 @@ export function useModelProviderState(
   // (onboarding composer). Keyed by workspace id; loaded once per workspace.
   const skillsByWorkspace = ref<Record<string, AppSkill[]>>({});
   const providers = ref<AppProvider[]>([]);
+  const catalogProviders = ref<AppCatalogProvider[]>([]);
 
   // Model picked while in the "new session draft" state (onboarding composer —
   // no backend session exists yet, so POST /profile has nothing to target).
@@ -293,8 +296,8 @@ export function useModelProviderState(
       if (active !== undefined) {
         rawState.thinking = thinkingLevelForSession(rawState.activeSessionId, active);
       }
-    } catch (err) {
-      pushOperationFailure('loadModels', err);
+    } catch (error) {
+      pushOperationFailure('loadModels', error);
     }
   }
 
@@ -303,8 +306,18 @@ export function useModelProviderState(
     try {
       const api = getPythinkerWebApi();
       providers.value = await api.listProviders();
-    } catch (err) {
-      pushOperationFailure('loadProviders', err);
+    } catch (error) {
+      pushOperationFailure('loadProviders', error);
+    }
+  }
+
+  /** Load providers available for import from the server catalog. */
+  async function loadCatalogProviders(): Promise<void> {
+    try {
+      const api = getPythinkerWebApi();
+      catalogProviders.value = await api.listCatalogProviders();
+    } catch (error) {
+      pushOperationFailure('loadCatalogProviders', error);
     }
   }
 
@@ -359,7 +372,7 @@ export function useModelProviderState(
         model: modelId,
         thinking: nextThinking !== prevThinking ? nextThinking : undefined,
       });
-    } catch (err) {
+    } catch (error) {
       // The model change rides HTTP, not the WS, so a dropped socket alone does
       // not fail it — but when the daemon is unreachable the request throws here.
       // Roll the picker back to the real model so the UI can't keep showing the
@@ -371,7 +384,7 @@ export function useModelProviderState(
           rawState.thinkingBySession = { ...rawState.thinkingBySession, [sid]: prevThinking };
         }
       }
-      pushOperationFailure('setModel', err, { sessionId: sid });
+      pushOperationFailure('setModel', error, { sessionId: sid });
       return false;
     }
     // The switch reached the daemon: also persist the thinking pick as the
@@ -456,13 +469,13 @@ export function useModelProviderState(
       );
       if (!persisted) throw PROFILE_PERSIST_FAILED;
       await getPythinkerWebApi().activateSkill(sid, skillName, args);
-    } catch (err) {
+    } catch (error) {
       if (guarded) {
         rawState.inFlightBySession = { ...rawState.inFlightBySession, [sid]: false };
         updateSessionMessages(sid, (msgs) => msgs.filter((m) => m.id !== tempId));
       }
       // The persist failure was already surfaced by persistSessionProfile.
-      if (err !== PROFILE_PERSIST_FAILED) pushOperationFailure('activateSkill', err, { sessionId: sid });
+      if (error !== PROFILE_PERSIST_FAILED) pushOperationFailure('activateSkill', error, { sessionId: sid });
     } finally {
       // The daemon answered the activation (accepted or rejected) — the
       // pending window in which a snapshot can't reflect this turn is over.
@@ -470,19 +483,14 @@ export function useModelProviderState(
     }
   }
 
-  /** Add a provider, then reload providers + models */
-  async function addProvider(input: {
-    type: string;
-    apiKey?: string;
-    baseUrl?: string;
-    defaultModel?: string;
-  }): Promise<void> {
+  /** Import a provider from the server catalog, then reload providers + models. */
+  async function importCatalogProvider(input: CatalogProviderImportInput): Promise<void> {
     try {
       const api = getPythinkerWebApi();
-      await api.addProvider(input);
+      await api.importCatalogProvider(input);
       await Promise.all([loadProviders(), loadModels()]);
-    } catch (err) {
-      pushOperationFailure('addProvider', err);
+    } catch (error) {
+      pushOperationFailure('importCatalogProvider', error);
     }
   }
 
@@ -492,8 +500,8 @@ export function useModelProviderState(
       const api = getPythinkerWebApi();
       await api.deleteProvider(id);
       await Promise.all([loadProviders(), loadModels()]);
-    } catch (err) {
-      pushOperationFailure('deleteProvider', err);
+    } catch (error) {
+      pushOperationFailure('deleteProvider', error);
     }
   }
 
@@ -507,8 +515,8 @@ export function useModelProviderState(
         });
       }
       await Promise.all([loadProviders(), loadModels()]);
-    } catch (err) {
-      pushOperationFailure('refreshProvider', err);
+    } catch (error) {
+      pushOperationFailure('refreshProvider', error);
     }
   }
 
@@ -522,8 +530,8 @@ export function useModelProviderState(
         });
       }
       await Promise.all([loadProviders(), loadModels()]);
-    } catch (err) {
-      pushOperationFailure('refreshAllProviders', err);
+    } catch (error) {
+      pushOperationFailure('refreshAllProviders', error);
     }
   }
 
@@ -546,10 +554,10 @@ export function useModelProviderState(
     try {
       const api = getPythinkerWebApi();
       return await api.pollOAuthLogin();
-    } catch (err) {
+    } catch (error) {
       // The dialog counts consecutive nulls and gives up after a few; keep the
       // cause in the log so a dead daemon is diagnosable.
-      console.warn('[pythinker-web] pollOAuthLogin failed', err);
+      console.warn('[pythinker-web] pollOAuthLogin failed', error);
       return null;
     }
   }
@@ -577,6 +585,7 @@ export function useModelProviderState(
     models,
     starredModelIds,
     providers,
+    catalogProviders,
     draftModel,
     skillsBySession,
     skillsByWorkspace,
@@ -585,13 +594,27 @@ export function useModelProviderState(
     loadSkillsForWorkspace,
     loadModels,
     loadProviders,
+    loadCatalogProviders,
     setModel,
     thinkingLevelForModelId,
     thinkingLevelForSessionId,
     resolveThinkingForPrompt,
     toggleStarModel,
     activateSkill,
-    addProvider,
+    importCatalogProvider,
+    // Compatibility for the existing root facade until the provider dialog is
+    // migrated to the catalog-shaped event directly.
+    addProvider: (input: {
+      type: string;
+      apiKey?: string;
+      baseUrl?: string;
+      defaultModel?: string;
+    }) =>
+      importCatalogProvider({
+        catalogId: input.type,
+        apiKey: input.apiKey,
+        baseUrl: input.baseUrl,
+      }),
     deleteProvider,
     refreshProvider,
     refreshAllProviders,

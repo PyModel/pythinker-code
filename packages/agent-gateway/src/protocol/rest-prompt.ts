@@ -1,0 +1,73 @@
+import { z } from 'zod';
+
+import { isoDateTimeSchema } from '@pymodel/agent-core-v2/_base/utils/isoDateTime';
+import { messageContentSchema } from './message';
+import {
+  promptPermissionModeSchema,
+  promptThinkingSchema,
+} from '@pymodel/agent-core-v2/app/sessionManager/sessionProtocol';
+
+export { promptPermissionModeSchema, promptThinkingSchema };
+export type { PromptPermissionMode, PromptThinking } from '@pymodel/agent-core-v2/app/sessionManager/sessionProtocol';
+
+export const promptSkillActivationSchema = z.object({
+  name: z.string().min(1),
+  args: z.string().optional(),
+});
+export type PromptSkillActivation = z.infer<typeof promptSkillActivationSchema>;
+
+export const promptSubmissionSchema = z.object({
+  content: z.array(messageContentSchema).min(1),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+  agent_id: z.string().min(1).optional(),
+  profile: z.string().min(1).optional(),
+  model: z.string().min(1).optional(),
+  thinking: promptThinkingSchema.optional(),
+  permission_mode: promptPermissionModeSchema.optional(),
+  plan_mode: z.boolean().optional(),
+  dynamic_workflow_mode: z.boolean().optional(),
+  goal_objective: z.string().optional(),
+  goal_control: z.enum(['pause', 'resume', 'cancel']).optional(),
+  disabled_tools: z.array(z.string()).optional(),
+  prompt_id: z.string().min(1).optional(),
+  skills: z.array(promptSkillActivationSchema).min(1).optional(),
+});
+export type PromptSubmission = z.infer<typeof promptSubmissionSchema>;
+
+export const promptStatusSchema = z.enum(['running', 'queued', 'blocked']);
+export type PromptStatus = z.infer<typeof promptStatusSchema>;
+
+export const promptItemSchema = z.object({
+  prompt_id: z.string().min(1),
+  user_message_id: z.string().min(1),
+  status: promptStatusSchema,
+  content: z.array(messageContentSchema).min(1),
+  created_at: isoDateTimeSchema,
+});
+export type PromptItem = z.infer<typeof promptItemSchema>;
+
+export const promptListResponseSchema = z.object({
+  active: promptItemSchema.nullable(),
+  queued: z.array(promptItemSchema),
+});
+export type PromptListResponse = z.infer<typeof promptListResponseSchema>;
+
+export const promptSubmitResultSchema = promptItemSchema;
+export type PromptSubmitResult = z.infer<typeof promptSubmitResultSchema>;
+
+export const promptSteerRequestSchema = z.object({
+  prompt_ids: z.array(z.string().min(1)).min(1),
+});
+export type PromptSteerRequest = z.infer<typeof promptSteerRequestSchema>;
+
+export const promptSteerResultSchema = z.object({
+  steered: z.literal(true),
+  prompt_ids: z.array(z.string().min(1)).min(1),
+});
+export type PromptSteerResult = z.infer<typeof promptSteerResultSchema>;
+
+export const promptAbortResponseSchema = z.object({
+  aborted: z.boolean(),
+  at_seq: z.number().int().nonnegative().optional(),
+});
+export type PromptAbortResponse = z.infer<typeof promptAbortResponseSchema>;

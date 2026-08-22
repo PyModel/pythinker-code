@@ -18,7 +18,7 @@ import { arch, homedir, hostname, release, type } from 'node:os';
 import path from 'node:path';
 import readline from 'node:readline';
 
-const VERSION = '3.3.0';
+const VERSION = '3.4.0';
 const DEFAULT_PYTHINKER_CODE_OAUTH_HOST = 'https://auth.kimi.com';
 const DEFAULT_PYTHINKER_CODE_BASE_URL = 'https://api.kimi.com/coding/v1';
 const API_URL = datasourceApiUrl();
@@ -29,7 +29,7 @@ const TOOLS = [
   {
     name: 'call_data_source_tool',
     description:
-      "Dispatch one call to the data source selected for the user's request. Always call get_data_source_desc(name) first, then use an api_name and params from that description. For a simple lookup, use one specialized source and stop after its first successful result; do not query fallback or comparison sources unless the user explicitly asks for a cross-source comparison. When the user names a data source, use that source.",
+      "Dispatch one call to the data source selected for the user's request. Always call get_data_source_desc(name) first, then use an api_name and params from that description. For a simple lookup, use one specialized source and stop once a result covers the user's question; do not query fallback or comparison sources unless the user explicitly asks for a cross-source comparison. When the user names a data source, use that source.",
     inputSchema: {
       type: 'object',
       properties: {
@@ -72,6 +72,19 @@ const TOOLS = [
             'gildata',
             'sec_edgar',
             'sp_data',
+            'china_nda',
+            'china_nbs',
+            'china_standards',
+            'who',
+            'fao',
+            'unsd',
+            'ecb',
+            'eurostat',
+            'unicef',
+            'oecd',
+            'fred',
+            'xhcj',
+            'caixin',
           ],
           description:
             'Data source name. Capabilities: stock_finance_data / yahoo_finance = general quotes and financials ' +
@@ -81,7 +94,14 @@ const TOOLS = [
             'wind = A-share intraday minute series, funds, bonds (map PE/PB/ROE-style field names via wind_search_fields first); ' +
             'gildata = natural-language stock/fund screening; ' +
             'sec_edgar = US filings (10-K/10-Q, S-1, Form 4, 13F, 8-K); ' +
-            'sp_data = S&P fundamentals (consensus estimates, valuation ratios, transcripts).',
+            'sp_data = S&P fundamentals (consensus estimates, valuation ratios, transcripts); ' +
+            'china_nda = CN government open data catalogs (National Data Administration registry + provincial platforms); ' +
+            'china_nbs = CN NBS macro indicators and time series (national / provincial / major-city scopes); ' +
+            'china_standards = CN standards (GB national, HB industry, DB local, TT association); ' +
+            'who / fao / unsd / ecb / eurostat / unicef / oecd / fred = international organization open data ' +
+            '(global health, food & agriculture, UN statistics, ECB & EU statistics, child indicators, OECD datasets, US & global macro series); ' +
+            'xhcj = Xinhua Finance (CNFIC) news flashes, announcements, and policies; ' +
+            'caixin = Caixin database (600+ data APIs, discover via caixin_api_search first).',
         },
       },
       required: ['name'],
@@ -146,8 +166,8 @@ async function runTool(params) {
     const text = extractText(response);
     const formatted = (handler.format?.(text, built) ?? text).trim();
     return { content: [{ type: 'text', text: appendTrace(appendWarnings(formatted, fileWarnings), trace) }] };
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
     return {
       content: [{ type: 'text', text: appendTrace(message, trace) }],
       isError: true,
@@ -296,16 +316,16 @@ async function loadAccessToken() {
   let parsed;
   try {
     parsed = JSON.parse(await readFile(credentialsFile, 'utf8'));
-  } catch (err) {
-    if (isNotFound(err)) {
+  } catch (error) {
+    if (isNotFound(error)) {
       throw new Error(
         `Pythinker Code credentials file not found: ${credentialsFile}\nRun /login in Pythinker Code first.`,
       );
     }
-    if (err instanceof SyntaxError) {
-      throw new Error(`Failed to parse Pythinker Code credentials file: ${err.message}`);
+    if (error instanceof SyntaxError) {
+      throw new Error(`Failed to parse Pythinker Code credentials file: ${error.message}`);
     }
-    throw err;
+    throw error;
   }
 
   if (!isRecord(parsed)) {
@@ -358,11 +378,11 @@ async function callPythinkerTool(method, params, trace = {}) {
     } catch {
       return text;
     }
-  } catch (err) {
-    if (err instanceof DOMException && err.name === 'AbortError') {
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') {
       throw new Error(`Request timed out after ${REQUEST_TIMEOUT_MS / 1000} seconds.`);
     }
-    throw err;
+    throw error;
   } finally {
     clearTimeout(timeout);
   }
@@ -507,14 +527,14 @@ async function dispatch(message) {
   try {
     const result = await handleRequest(message);
     sendResult(id, result ?? {});
-  } catch (err) {
-    if (err && typeof err === 'object' && err.jsonRpc !== undefined) {
-      sendError(id, err.jsonRpc);
+  } catch (error) {
+    if (error && typeof error === 'object' && error.jsonRpc !== undefined) {
+      sendError(id, error.jsonRpc);
       return;
     }
     sendError(id, {
       code: -32603,
-      message: err instanceof Error ? err.message : String(err),
+      message: error instanceof Error ? error.message : String(error),
     });
   }
 }
@@ -527,10 +547,10 @@ function start() {
     let message;
     try {
       message = JSON.parse(trimmed);
-    } catch (err) {
+    } catch (error) {
       sendError(null, {
         code: -32700,
-        message: `Parse error: ${err instanceof Error ? err.message : String(err)}`,
+        message: `Parse error: ${error instanceof Error ? error.message : String(error)}`,
       });
       return;
     }

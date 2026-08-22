@@ -107,7 +107,7 @@ export class PlanMode {
     if (!this._planId || !this._planFilePath) return null;
     let content = '';
     try {
-      content = await this.agent.kaos.readText(this._planFilePath);
+      content = await this.agent.pyaos.readText(this._planFilePath);
     } catch (error) {
       if (!isMissingFileError(error)) throw error;
     }
@@ -120,11 +120,11 @@ export class PlanMode {
 
   private async writeEmptyPlanFile(path: string): Promise<void> {
     await this.ensurePlanDirectory(path);
-    await this.agent.kaos.writeText(path, '');
+    await this.agent.pyaos.writeText(path, '');
   }
 
   private async ensurePlanDirectory(path: string): Promise<void> {
-    await this.agent.kaos.mkdir(dirname(path), {
+    await this.agent.pyaos.mkdir(dirname(path), {
       parents: true,
       existOk: true,
     });

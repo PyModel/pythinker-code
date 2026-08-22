@@ -12,7 +12,7 @@ const strip = (s: string): string => s.replaceAll(SGR, '');
 const TAB = '\t';
 const RIGHT = `${ESC}[C`;
 // chalk.bgHex(colors.primary) → background truecolor for #4FA8FF.
-const PRIMARY_BG = '48;2;79;168;255';
+const PRIMARY_BG = '48;2;187;198;255';
 
 function model(displayName: string, provider: string): ModelAlias {
   return {

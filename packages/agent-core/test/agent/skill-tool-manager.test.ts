@@ -5,7 +5,7 @@ import { join } from 'pathe';
 import { describe, expect, it, vi } from 'vitest';
 
 import { Agent, type AgentRecord } from '../../src/agent';
-import { testKaos } from '../fixtures/test-kaos';
+import { testPyaos } from '../fixtures/test-pyaos';
 import { InMemoryAgentRecordPersistence } from '../../src/agent/records';
 import type { AgentRecordPersistence } from '../../src/agent/records';
 import { ProviderManager } from '../../src/session/provider-manager';
@@ -46,7 +46,7 @@ function makeAgent(
     toolCall: vi.fn(),
   } as unknown as SDKAgentRPC;
   const agent = new Agent({
-    kaos: testKaos,
+    pyaos: testPyaos,
     rpc,
     skills,
     persistence,
@@ -63,7 +63,7 @@ function makeAgent(
 
 function runtime(cwd?: string) {
   return {
-    kaos: cwd === undefined ? testKaos : testKaos.withCwd(cwd),
+    pyaos: cwd === undefined ? testPyaos : testPyaos.withCwd(cwd),
   };
 }
 
@@ -213,7 +213,7 @@ describe('ToolManager SkillTool registration', () => {
 
       const session = new Session({
         id: 'test-skill-tool',
-        kaos: testKaos.withCwd(workDir),
+        pyaos: testPyaos.withCwd(workDir),
         homedir: homeDir,
         rpc: sessionRpc(),
         providerManager: testProviderManager(),

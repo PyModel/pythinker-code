@@ -341,7 +341,7 @@ describe("Pythinker runtime (owns shared SDK sessions for Webviews)", () => {
     const opened = await runtime.openSession(openOptions({ sessionId: "saved-1" }));
 
     expect(opened.id).toBe("saved-1");
-    expect(sdk.resumeInputs).toEqual([{ id: "saved-1" }]);
+    expect(sdk.resumeInputs).toEqual([{ id: "saved-1", includeSubagents: true }]);
     expect(sdk.createInputs).toEqual([]);
   });
 

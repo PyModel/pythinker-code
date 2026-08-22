@@ -146,7 +146,7 @@
 
 - Updated dependencies [[`d0d5821`](https://github.com/PyModel/pythinker-code/commit/d0d58219007cd9d7355f1ea8900e9777b66abda2), [`b45672c`](https://github.com/PyModel/pythinker-code/commit/b45672cdaac9959024c3ae36bf35b16a423aa1dc)]:
   - @pymodel/kosong@0.4.6
-  - @pymodel/kaos@0.1.6
+  - @pymodel/pyaos@0.1.6
 
 ## 0.13.0
 
@@ -212,7 +212,7 @@
 
 - Updated dependencies [[`d8cdebf`](https://github.com/PyModel/pythinker-code/commit/d8cdebf3c03efa3a3dfa4f1deb3186a8f8f7f5ef), [`0381329`](https://github.com/PyModel/pythinker-code/commit/0381329570d3dca9fd861761c843968cc1c5e927), [`ff80327`](https://github.com/PyModel/pythinker-code/commit/ff803273440f3a2ff53d2c529c6fc892fde1d93f), [`a2c5e1b`](https://github.com/PyModel/pythinker-code/commit/a2c5e1be25484f7c52f729e333196c485f83b84c)]:
   - @pymodel/kosong@0.4.4
-  - @pymodel/kaos@0.1.5
+  - @pymodel/pyaos@0.1.5
 
 ## 0.12.1
 
@@ -259,7 +259,7 @@
 
 - [#569](https://github.com/PyModel/pythinker-code/pull/569) [`d7407b0`](https://github.com/PyModel/pythinker-code/commit/d7407b0ecfc87a3840e26ddaddb69e7f52383699) - Make goals, background questions, and sub-skill discovery available without experimental opt-ins.
 
-- [#424](https://github.com/PyModel/pythinker-code/pull/424) [`72c4b0a`](https://github.com/PyModel/pythinker-code/commit/72c4b0adaa6ae0466875cd8e4066c42456195f21) - Add the `/dynamic_workflow` command for running agent dynamic workflows with live progress and rate-limit-aware retries.
+- [#424](https://github.com/PyModel/pythinker-code/pull/424) [`72c4b0a`](https://github.com/PyModel/pythinker-code/commit/72c4b0adaa6ae0466875cd8e4066c42456195f21) - Add the `/dynamic_workflow` command for running agent dynamicWorkflows with live progress and rate-limit-aware retries.
 
 ### Patch Changes
 
@@ -274,7 +274,7 @@
 - [#506](https://github.com/PyModel/pythinker-code/pull/506) [`f09ec7b`](https://github.com/PyModel/pythinker-code/commit/f09ec7bbb59af42805a93df2993301dbd317ff2d) - Remove the per-turn auto-compaction limit so long conversations can keep compacting instead of failing early.
 
 - Updated dependencies [[`3b62b12`](https://github.com/PyModel/pythinker-code/commit/3b62b123e68cc4543bfa8fa376c7e8a24fee0afb), [`72c4b0a`](https://github.com/PyModel/pythinker-code/commit/72c4b0adaa6ae0466875cd8e4066c42456195f21)]:
-  - @pymodel/kaos@0.1.4
+  - @pymodel/pyaos@0.1.4
   - @pymodel/kosong@0.4.0
 
 ## 0.10.0
@@ -397,7 +397,7 @@
 
 - Updated dependencies [[`a24bfb1`](https://github.com/PyModel/pythinker-code/commit/a24bfb1df38e58120827a1d8ed881724af2e7b23), [`a580cd3`](https://github.com/PyModel/pythinker-code/commit/a580cd3a98664e18642e0e856aeaa9b71ba93516), [`e2e1728`](https://github.com/PyModel/pythinker-code/commit/e2e17289fca9bcb23f05cd77f7bcb9cba5db0325)]:
   - @pymodel/kosong@0.3.0
-  - @pymodel/kaos@0.1.3
+  - @pymodel/pyaos@0.1.3
 
 ## 0.5.0
 
@@ -433,7 +433,7 @@
 
 - [#190](https://github.com/PyModel/pythinker-code/pull/190) [`1873859`](https://github.com/PyModel/pythinker-code/commit/1873859b0ef093a956dfd19e1530e920e7118160) - Slim the LLM diagnostic logs with fewer, more compact fields.
 
-- [#185](https://github.com/PyModel/pythinker-code/pull/185) [`114777e`](https://github.com/PyModel/pythinker-code/commit/114777e859680f807375760271533e2dc396af5d) - Split `RuntimeConfig` into `Kaos` and `ToolServices` and update all references accordingly.
+- [#185](https://github.com/PyModel/pythinker-code/pull/185) [`114777e`](https://github.com/PyModel/pythinker-code/commit/114777e859680f807375760271533e2dc396af5d) - Split `RuntimeConfig` into `Pyaos` and `ToolServices` and update all references accordingly.
 
 - [#189](https://github.com/PyModel/pythinker-code/pull/189) [`564721f`](https://github.com/PyModel/pythinker-code/commit/564721fe16e582b2774835b01dec799cbb1d0122) - Clarify subagent and background task stop messages as user-initiated.
 
@@ -484,7 +484,7 @@
 
 - Updated dependencies [[`4e458d6`](https://github.com/PyModel/pythinker-code/commit/4e458d63643a56a2fb1ba9f908c774e56eef1c75), [`e5717b7`](https://github.com/PyModel/pythinker-code/commit/e5717b7261599f4b4379aa34eb0b5fdf2dd93898)]:
   - @pymodel/kosong@0.2.2
-  - @pymodel/kaos@0.1.2
+  - @pymodel/pyaos@0.1.2
 
 ## 0.2.1
 

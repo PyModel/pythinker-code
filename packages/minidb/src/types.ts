@@ -34,7 +34,7 @@ export interface OpenOptions {
   /**
    * Writer opens only: invoked synchronously right after the exclusive write
    * lock is acquired — BEFORE any recovery/replay work runs. Hosts that
-   * supervise the open from another thread (e.g. kap-server's search worker,
+   * supervise the open from another thread (e.g. agent-gateway's search worker,
    * whose threads share the main process pid so pid-liveness alone can never
    * reclaim the lock) use it to learn the lock token immediately and reap
    * the lock after a mid-open crash.

@@ -37,7 +37,6 @@ import {
 } from '../utils/plugin-source-label';
 import { PYTHINKER_CODE_PLUGIN_MARKETPLACE_URL_ENV, QUOTA_CONSUMING_PLUGIN_IDS } from '#/constant/app';
 import { loadPluginMarketplace, type PluginMarketplaceEntry } from '#/utils/plugin-marketplace';
-import { openUrl } from '#/utils/open-url';
 import type { SlashCommandHost } from './dispatch';
 
 interface ShowPluginsPickerOptions {
@@ -698,12 +697,6 @@ async function handlePluginsPanelSelection(
         isOfficialPluginSource(selection.source),
       );
       return;
-    case 'open-url':
-      host.restoreEditor();
-      openUrl(selection.url);
-      host.showStatus(`Opening the ${selection.label} page in your browser…`, 'success');
-      host.showStatus(`If it did not open, visit ${selection.url}`);
-      return;
   }
 }
 
@@ -788,7 +781,7 @@ const WEBBRIDGE_POST_INSTALL_MARKDOWN = [
   '',
   '   - [Chrome Web Store](https://chromewebstore.google.com/detail/pythinker-webbridge/fldmhceldgbpfpkbgopacenieobmligc)',
   '   - [Edge Add-ons](https://microsoftedge.microsoft.com/addons/detail/pythinker-webbridge/bnlffdbcfnanfbknnlaflhlhkocccckg)',
-  '   - [Manual installation guide](https://www.kimi.com/code/docs/pythinker-code-cli/customization/plugins.html#install-the-browser-extension)',
+  '   - [Manual installation guide](https://github.com/PyModel/pythinker-code/blob/main/docs/en/customization/plugins.md)',
   '',
   '2. Run `/reload` or `/new` to apply it.',
 ].join('\n');

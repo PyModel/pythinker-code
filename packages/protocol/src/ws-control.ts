@@ -75,7 +75,7 @@ export const serverHelloPayloadSchema = z.object({
   ws_connection_id: z.string(),
   protocol_version: z.number().int().positive(),
   /**
-   * Legacy servers advertise their ping interval here. kap-server dropped the
+   * Legacy servers advertise their ping interval here. agent-gateway dropped the
    * server-initiated heartbeat and omits this field — clients must treat it as
    * advisory and not require it.
    */

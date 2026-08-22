@@ -92,7 +92,7 @@
 
 ### Minor Changes
 
-- [#424](https://github.com/PyModel/pythinker-code/pull/424) [`72c4b0a`](https://github.com/PyModel/pythinker-code/commit/72c4b0adaa6ae0466875cd8e4066c42456195f21) - Add the `/dynamic_workflow` command for running agent dynamic workflows with live progress and rate-limit-aware retries.
+- [#424](https://github.com/PyModel/pythinker-code/pull/424) [`72c4b0a`](https://github.com/PyModel/pythinker-code/commit/72c4b0adaa6ae0466875cd8e4066c42456195f21) - Add the `/dynamic_workflow` command for running agent dynamicWorkflows with live progress and rate-limit-aware retries.
 
 ## 0.3.4
 

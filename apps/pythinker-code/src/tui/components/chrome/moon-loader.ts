@@ -4,21 +4,26 @@ import type { TUI } from '@pymodel/pi-tui';
 import {
   BRAILLE_SPINNER_FRAMES,
   BRAILLE_SPINNER_INTERVAL_MS,
-  MOON_SPINNER_FRAMES,
-  MOON_SPINNER_INTERVAL_MS,
+  formatThinkingSpinnerLabel,
 } from '#/tui/constant/rendering';
 import { currentTheme } from '#/tui/theme';
+import { shimmerText } from '#/tui/utils/shimmer';
 
 export type SpinnerStyle = 'moon' | 'braille';
+
+export interface MoonLoaderOptions {
+  readonly verbLabels?: boolean;
+}
 
 export class MoonLoader extends Text {
   private currentFrame = 0;
   private intervalId: ReturnType<typeof setInterval> | null = null;
-  private ui: TUI;
-  private frames: string[];
-  private interval: number;
+  private readonly ui: TUI;
+  private readonly frames: string[];
+  private readonly interval: number;
   private colorFn?: (s: string) => string;
   private label: string;
+  private useVerbLabels = false;
   private displayText = '';
   // Inline text used when the spinner is embedded into another line (e.g. the
   // agent-dynamic_workflow progress status line). It intentionally excludes the tip: the
@@ -26,21 +31,23 @@ export class MoonLoader extends Text {
   // pane, otherwise it would get squeezed against whatever follows the inline
   // spinner (like the dynamic_workflow progress bar).
   private inlineText = '';
-  private tip: string = '';
+  private tip = '';
   private availableWidth = 0;
 
   constructor(
     ui: TUI,
     style: SpinnerStyle = 'moon',
     colorFn?: (s: string) => string,
-    label: string = '',
+    label = '',
+    options?: MoonLoaderOptions,
   ) {
     super('', 1, 0);
     this.ui = ui;
-    this.frames = style === 'moon' ? [...MOON_SPINNER_FRAMES] : [...BRAILLE_SPINNER_FRAMES];
-    this.interval = style === 'moon' ? MOON_SPINNER_INTERVAL_MS : BRAILLE_SPINNER_INTERVAL_MS;
+    this.frames = [...BRAILLE_SPINNER_FRAMES];
+    this.interval = BRAILLE_SPINNER_INTERVAL_MS;
     this.colorFn = colorFn;
-    this.label = label;
+    this.useVerbLabels = options?.verbLabels ?? false;
+    this.label = this.useVerbLabels ? formatThinkingSpinnerLabel() : label;
     this.start();
   }
 
@@ -53,7 +60,7 @@ export class MoonLoader extends Text {
   }
 
   stop(): void {
-    if (this.intervalId) {
+    if (this.intervalId !== null) {
       clearInterval(this.intervalId);
       this.intervalId = null;
     }
@@ -64,7 +71,14 @@ export class MoonLoader extends Text {
   }
 
   setLabel(label: string): void {
+    this.useVerbLabels = false;
     this.label = label;
+    this.updateDisplay();
+  }
+
+  setVerbLabels(enabled: boolean): void {
+    this.useVerbLabels = enabled;
+    if (enabled) this.label = formatThinkingSpinnerLabel();
     this.updateDisplay();
   }
 
@@ -89,9 +103,16 @@ export class MoonLoader extends Text {
   }
 
   private updateDisplay(): void {
+    if (this.useVerbLabels) this.label = formatThinkingSpinnerLabel();
     const frame = this.frames[this.currentFrame]!;
     const coloredFrame = this.colorFn ? this.colorFn(frame) : frame;
-    const baseText = this.label ? `${coloredFrame} ${this.label}` : coloredFrame;
+    const renderedLabel = this.useVerbLabels
+      ? shimmerText(this.label, {
+          baseToken: 'primary',
+          shimmerToken: 'primaryShimmer',
+        })
+      : this.label;
+    const baseText = renderedLabel ? `${coloredFrame} ${renderedLabel}` : coloredFrame;
     this.inlineText = baseText;
     let text = baseText;
     if (this.tip) {

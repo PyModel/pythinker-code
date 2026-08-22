@@ -20,7 +20,7 @@ async function activePlanAgent(): Promise<{ agent: Agent; planMode: PlanMode }> 
     emitStatusUpdated: vi.fn(),
     records: { logRecord: vi.fn() },
     replayBuilder: { push: vi.fn() },
-    kaos: {
+    pyaos: {
       mkdir: vi.fn().mockResolvedValue(undefined),
     },
   } as unknown as Agent;

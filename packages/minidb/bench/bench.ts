@@ -43,21 +43,21 @@ const LATIN_VOCAB =
     ' ',
   );
 const CJK_VOCAB = [
-  '\u6301\u4e45\u5316',
-  '\u5feb\u7167',
-  '\u7d22\u5f15',
-  '\u6062\u590d',
-  '\u538b\u7f29',
-  '\u67e5\u8be2',
-  '\u7f13\u5b58',
-  '\u65e5\u5fd7',
-  '\u4e8b\u52a1',
-  '\u590d\u5236',
+  '\u6301\u4E45\u5316',
+  '\u5FEB\u7167',
+  '\u7D22\u5F15',
+  '\u6062\u590D',
+  '\u538B\u7F29',
+  '\u67E5\u8BE2',
+  '\u7F13\u5B58',
+  '\u65E5\u5FD7',
+  '\u4E8B\u52A1',
+  '\u590D\u5236',
 ];
 // Needles planted at deterministic intervals so query hit counts are stable.
 const NEEDLES = [
   { term: 'walrus', every: 97 },
-  { term: '\u6301\u4e45\u5316', every: 131 },
+  { term: '\u6301\u4E45\u5316', every: 131 },
   { term: 'checkpoint', every: 257 },
 ];
 
@@ -88,12 +88,12 @@ function percentileOf(sorted, p) {
 
 function latencySummary(samples) {
   if (!samples || samples.length === 0) return undefined;
-  const sorted = [...samples].sort((a, b) => a - b);
+  const sorted = [...samples].toSorted((a, b) => a - b);
   return {
     p50: percentileOf(sorted, 50),
     p95: percentileOf(sorted, 95),
     p99: percentileOf(sorted, 99),
-    max: sorted[sorted.length - 1],
+    max: sorted.at(-1),
   };
 }
 
@@ -347,8 +347,8 @@ async function coldOpenScenarios({ sizes, VALUE }) {
 
 /** Word (default tokenizer) and n-gram searches over the seeded message corpus. */
 async function searchScenarios({ sizes, seed }) {
-  const WORD_QUERIES = ['walrus', '\u6301\u4e45\u5316', 'wal snapshot', 'nonexistentxyz123'];
-  const NGRAM_QUERIES = ['walru', '\u6301\u4e45', 'heckpo'];
+  const WORD_QUERIES = ['walrus', '\u6301\u4E45\u5316', 'wal snapshot', 'nonexistentxyz123'];
+  const NGRAM_QUERIES = ['walru', '\u6301\u4E45', 'heckpo'];
   const RUNS = 7;
   for (const count of sizes) {
     const dir = await tmpDir();
@@ -478,7 +478,7 @@ async function main() {
   console.log('\ndone.\n');
 }
 
-main().catch((e) => {
-  console.error(e);
+main().catch((error) => {
+  console.error(error);
   process.exit(1);
 });

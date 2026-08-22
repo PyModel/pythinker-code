@@ -3,22 +3,25 @@
 import { computed, nextTick, onMounted, onUnmounted, provide, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import Sidebar from './components/Sidebar.vue';
+import SessionAdminView, { type AdminSession } from './components/SessionAdminView.vue';
 import ResizeHandle from './components/ResizeHandle.vue';
 import ConversationPane from './components/chat/ConversationPane.vue';
+import MediaLightbox from './components/MediaLightbox.vue';
 import FilePreview from './components/FilePreview.vue';
 import ThinkingPanel from './components/chat/ThinkingPanel.vue';
 import AgentDetailPanel from './components/chat/AgentDetailPanel.vue';
 import ToolDiffPanel from './components/chat/ToolDiffPanel.vue';
+import TurnDiffPanel from './components/chat/TurnDiffPanel.vue';
 import SideChatPanel from './components/chat/SideChatPanel.vue';
 import DiffView from './components/chat/DiffView.vue';
 import ModelPicker from './components/settings/ModelPicker.vue';
-import ProviderManager from './components/settings/ProviderManager.vue';
 import SettingsDialog from './components/settings/SettingsDialog.vue';
 import AddWorkspaceDialog from './components/dialogs/AddWorkspaceDialog.vue';
 import ConfirmDialogHost from './components/dialogs/ConfirmDialogHost.vue';
 import StatusPanel from './components/chat/StatusPanel.vue';
 import WarningToasts from './components/WarningToasts.vue';
 import UpdateToast from './components/UpdateToast.vue';
+import ActionToast from './components/ui/ActionToast.vue';
 import WindowControls from './components/WindowControls.vue';
 import MobileTopBar from './components/mobile/MobileTopBar.vue';
 import MobileSwitcherSheet from './components/mobile/MobileSwitcherSheet.vue';
@@ -30,11 +33,12 @@ import { isTraceEnabled } from './debug/trace';
 import { usePythinkerWebClient } from './composables/usePythinkerWebClient';
 import { useConfirmDialog } from './composables/useConfirmDialog';
 import type { PromptAttachment } from './composables/usePythinkerWebClient';
-import type { TurnAttachment } from './types';
+import type { ToolMedia, TurnAttachment } from './types';
 import { useAuthGate } from './composables/useAuthGate';
 import { usePageTitle } from './composables/usePageTitle';
 import { useSidebarLayout } from './composables/useSidebarLayout';
-import { useFilePreview, type DetailTarget } from './composables/useFilePreview';
+import { resolveMediaUrl, useFilePreview, type DetailTarget } from './composables/useFilePreview';
+import type { TurnFileChange } from './lib/turnFiles';
 import { useDetailPanel } from './composables/useDetailPanel';
 import { useIsMobile } from './composables/useIsMobile';
 import { openDialogCount } from './composables/dialogStack';
@@ -44,6 +48,8 @@ import { initServerAuth, onAuthRequired } from './api/daemon/serverAuth';
 import type { AppConfig, ThinkingLevel } from './api/types';
 import { commitLevel, effectiveThinkingLevel, segmentsFor } from './lib/modelThinking';
 import { stripSkillPrefix } from './lib/slashCommands';
+import { composeTitle } from './lib/sessionEmoji';
+import { getTurnInterruption } from './api/daemon/agentEventProjector';
 import Button from './components/ui/Button.vue';
 import IconButton from './components/ui/IconButton.vue';
 import Icon from './components/ui/Icon.vue';
@@ -60,6 +66,105 @@ const authRequired = ref(false);
 let offAuthRequired: (() => void) | null = null;
 
 const client = usePythinkerWebClient();
+const archivedSessions = ref<import('./types').Session[]>([]);
+const showSessionAdmin = ref(false);
+const sessionActionToast = ref<{
+  kind: 'done' | 'open';
+  ids: string[];
+} | null>(null);
+const exportActionToast = ref<{ state: 'running' | 'done'; sessionId: string } | null>(null);
+const titleNoticeToast = ref<string | null>(null);
+let titleNoticeToastTimer: ReturnType<typeof setTimeout> | null = null;
+
+const activeWorkspaceRecentSessions = computed(() => {
+  const workspaceId = client.activeWorkspaceId.value;
+  if (!workspaceId) return [];
+  return [...client.sessionsForView.value, ...archivedSessions.value]
+    .filter((session) => session.workspaceId === workspaceId)
+    .toSorted((a, b) => new Date(b.updatedAt ?? 0).getTime() - new Date(a.updatedAt ?? 0).getTime())
+    .slice(0, 6);
+});
+
+function mapArchivedSession(session: import('./api/types').AppSession): import('./types').Session {
+  return {
+    id: session.id,
+    title: session.title,
+    time: new Intl.RelativeTimeFormat('en', { numeric: 'auto' }).format(
+      -Math.max(0, Math.floor((Date.now() - new Date(session.updatedAt).getTime()) / 86_400_000)),
+      'day',
+    ),
+    busy: false,
+    updatedAt: session.updatedAt,
+    workspaceId: session.workspaceId,
+    archived: true,
+  };
+}
+
+async function loadDoneSessions(): Promise<void> {
+  try {
+    const items: import('./api/types').AppSession[] = [];
+    let beforeId: string | undefined;
+    for (;;) {
+      const page = await client.loadArchivedSessions({ beforeId, pageSize: 100 });
+      items.push(...page.items);
+      if (!page.hasMore || page.items.length === 0) break;
+      beforeId = page.items.at(-1)?.id;
+      if (beforeId === undefined) break;
+    }
+    archivedSessions.value = items.map(mapArchivedSession);
+  } catch (error) {
+    console.warn('loadDoneSessions failed', error);
+  }
+}
+
+const adminOpenSessions = computed<AdminSession[]>(() => {
+  const updatedById = new Map(
+    client.workspaceGroups.value.flatMap((group) => group.sessions.map((session) => [session.id, session.updatedAt] as const)),
+  );
+  return client.sessionsForView.value.map((session) => ({
+    id: session.id,
+    title: session.title,
+    workspaceId: session.workspaceId ?? '',
+    workspaceName: session.workspaceName ?? '-',
+    lastPrompt: session.lastPrompt,
+    updatedAt: session.updatedAt ?? updatedById.get(session.id) ?? new Date(0).toISOString(),
+    archived: false,
+  }));
+});
+
+async function loadAdminArchivedSessions(): Promise<AdminSession[]> {
+  const items: import('./api/types').AppSession[] = [];
+  let beforeId: string | undefined;
+  for (;;) {
+    const result = await client.loadArchivedSessions({ beforeId, pageSize: 100 });
+    items.push(...result.items);
+    if (!result.hasMore || result.items.length === 0) break;
+    beforeId = result.items.at(-1)?.id;
+    if (beforeId === undefined) break;
+  }
+  const workspaces = client.workspacesView.value;
+  return items.filter((session) => !session.parentSessionId).map((session) => {
+    const workspace = workspaces.find((item) => item.id === session.workspaceId || item.root === session.cwd);
+    return {
+      id: session.id,
+      title: session.title,
+      workspaceId: workspace?.id ?? session.workspaceId ?? session.cwd,
+      workspaceName: workspace?.name ?? session.cwd.split('/').filter(Boolean).at(-1) ?? '-',
+      lastPrompt: session.lastPrompt,
+      updatedAt: session.updatedAt,
+      archived: true,
+    };
+  });
+}
+
+function openSessionAdmin(): void {
+  showSessionAdmin.value = true;
+  void client.loadAllSessions();
+}
+
+function showSessionActionToast(kind: 'done' | 'open', ids: string | string[]): void {
+  sessionActionToast.value = { kind, ids: Array.isArray(ids) ? ids : [ids] };
+}
 // When the server runs with `--dangerous-bypass-auth`, `/meta` advertises it
 // and we skip the token prompt entirely — there is no credential to enter.
 const showServerAuth = computed(
@@ -92,8 +197,27 @@ const showMobileSettings = ref(false);
 // Active session title for the mobile top bar.
 const activeSessionTitle = computed<string>(() => {
   const id = client.activeSessionId.value;
-  return client.sessions.value.find((s) => s.id === id)?.title ?? '';
+  return client.sessions.value.find((session) => session.id === id)?.title
+    ?? archivedSessions.value.find((session) => session.id === id)?.title
+    ?? '';
 });
+const activeLastTurnReason = computed(() => {
+  const id = client.activeSessionId.value;
+  return client.sessions.value.find((session) => session.id === id)?.lastTurnReason;
+});
+// Last step interruption observed for the active session (turn.step.interrupted
+// payload: reason 'max_steps' + message). Pairs with activeLastTurnReason to
+// render the step-limit failed-turn banner variant. Read non-reactively from
+// the projector's module map; the `sessions` dep above re-runs this whenever
+// the session record updates (including the turn.ended that flips lastTurnReason).
+const activeTurnError = computed(() => {
+  const id = client.activeSessionId.value;
+  if (!id) return undefined;
+  return getTurnInterruption(id);
+});
+const activeSessionDone = computed(() =>
+  archivedSessions.value.some((session) => session.id === client.activeSessionId.value),
+);
 
 // Number of sessions in the active workspace (mobile top-bar sub-line).
 const activeWorkspaceSessionCount = computed<number>(
@@ -191,6 +315,7 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+  closeMediaLightbox();
   document.removeEventListener('keydown', onGlobalKeydown, true);
   window.visualViewport?.removeEventListener('resize', syncAppHeight);
   window.visualViewport?.removeEventListener('scroll', syncAppHeight);
@@ -212,10 +337,10 @@ function onGlobalKeydown(e: KeyboardEvent): void {
   // A modal dialog open on top of the side panel owns Escape — leave the event
   // alone so the dialog can close itself instead of the panel behind it.
   if (anyOverlayOpen.value) return;
-  if (closeOpenSidePanel()) {
-    e.stopPropagation();
-    e.preventDefault();
-  }
+  if (detailTarget.value === 'turnDiff') closeTurnDiff();
+  else if (!closeOpenSidePanel()) return;
+  e.stopPropagation();
+  e.preventDefault();
 }
 
 // ---------------------------------------------------------------------------
@@ -224,12 +349,28 @@ function onGlobalKeydown(e: KeyboardEvent): void {
 // composables can both claim the single right-side slot.
 // ---------------------------------------------------------------------------
 const detailTarget = ref<DetailTarget | null>(null);
+const turnDiffTarget = ref<{ turnId: string; changes: TurnFileChange[] } | null>(null);
+
+function openTurnDiff(target: { turnId: string; changes: TurnFileChange[] }): void {
+  if (detailTarget.value === 'turnDiff' && turnDiffTarget.value?.turnId === target.turnId) {
+    closeTurnDiff();
+    return;
+  }
+  turnDiffTarget.value = target;
+  detailTarget.value = 'turnDiff';
+}
+
+function closeTurnDiff(): void {
+  turnDiffTarget.value = null;
+  if (detailTarget.value === 'turnDiff') detailTarget.value = null;
+}
 
 // True for one frame while the active session changes: suppresses the right
 // panel's width transition so a restored panel snaps to its width instead of
 // animating open from zero.
 const panelSwitching = ref(false);
 watch(client.activeSessionId, () => {
+  closeTurnDiff();
   panelSwitching.value = true;
   void nextTick(() => { panelSwitching.value = false; });
 });
@@ -242,11 +383,40 @@ const {
   previewDownloadUrl,
   previewExternalActions,
   openFilePreview,
-  openMediaPreview,
   closeFilePreview,
   openPreviewInEditor,
   revealPreviewFile,
 } = useFilePreview({ client, detailTarget });
+
+const lightboxMedia = ref<ToolMedia | null>(null);
+const lightboxSrc = ref<string | null>(null);
+let lightboxRequestSeq = 0;
+let revokeLightboxUrl: (() => void) | undefined;
+
+async function openMediaPreview(media: ToolMedia): Promise<void> {
+  if (media.kind !== 'image' && media.kind !== 'video') return;
+  const requestSeq = ++lightboxRequestSeq;
+  revokeLightboxUrl?.();
+  revokeLightboxUrl = undefined;
+  lightboxMedia.value = null;
+  lightboxSrc.value = null;
+  const resolved = await resolveMediaUrl(media);
+  if (requestSeq !== lightboxRequestSeq) {
+    resolved.revoke?.();
+    return;
+  }
+  revokeLightboxUrl = resolved.revoke;
+  lightboxMedia.value = media;
+  lightboxSrc.value = resolved.url;
+}
+
+function closeMediaLightbox(): void {
+  lightboxRequestSeq += 1;
+  revokeLightboxUrl?.();
+  revokeLightboxUrl = undefined;
+  lightboxMedia.value = null;
+  lightboxSrc.value = null;
+}
 
 // True while the right-side slot is actually occupied, so the sidebar reserves
 // room for it and the conversation can never be squeezed. Keyed off detailTarget
@@ -291,8 +461,16 @@ const {
   openCompactionPanel,
   closeCompactionPanel,
   agentPanelMember,
+  agentPanelTurns,
+  agentPanelLoading,
+  agentPanelLoadError,
+  agentPanelLoadingMore,
+  agentPanelLoadMoreError,
+  agentPanelHasMore,
+  agentPanelRunning,
   openAgentPanel,
   closeAgentPanel,
+  loadOlderAgentMessages,
   toolDiffTarget,
   openToolDiff,
   closeToolDiff,
@@ -314,11 +492,21 @@ const conversationPaneRef = ref<InstanceType<typeof ConversationPane> | null>(nu
 
 // Dialog visibility refs
 const showModelPicker = ref(false);
-const showProviders = ref(false);
 
 const showAddWorkspace = ref(false);
 const showStatusPanel = ref(false);
 const showSettings = ref(false);
+const settingsInitialTab = ref<'general' | 'providers'>('general');
+const overlayOpen = computed(() =>
+  openDialogCount.value > 0 ||
+  showModelPicker.value ||
+  showAddWorkspace.value ||
+  showStatusPanel.value ||
+  showSettings.value ||
+  showMobileSwitcher.value ||
+  showMobileSettings.value ||
+  lightboxMedia.value !== null,
+);
 
 type SubmitPayload = {
   text: string;
@@ -338,20 +526,18 @@ const anyOverlayOpen = computed<boolean>(
   () =>
     openDialogCount.value > 0 ||
     showModelPicker.value ||
-    showProviders.value ||
     showAddWorkspace.value ||
     showStatusPanel.value ||
     showSettings.value ||
     showOnboarding.value ||
     showMobileSwitcher.value ||
-    showMobileSettings.value,
+    showMobileSettings.value ||
+    lightboxMedia.value !== null,
 );
 
-// Loading state for model/provider fetches
+// Loading state for model fetches
 const modelsLoading = ref(false);
 const modelsUnavailable = ref(false);
-const providersLoading = ref(false);
-const providersUnavailable = ref(false);
 const configSaving = ref(false);
 
 async function openModelPicker(): Promise<void> {
@@ -370,23 +556,18 @@ async function openModelPicker(): Promise<void> {
   }
 }
 
-async function openProviders(): Promise<void> {
-  providersLoading.value = true;
-  providersUnavailable.value = false;
-  showProviders.value = true;
-  try {
-    await client.loadProviders();
-  } catch {
-    providersUnavailable.value = true;
-  } finally {
-    providersLoading.value = false;
-  }
+function openSettings(tab: 'general' | 'providers' = 'general'): void {
+  settingsInitialTab.value = tab;
+  showSettings.value = true;
+}
+
+function openProviders(): void {
+  openSettings('providers');
 }
 
 function openLogin(): void {
-  // No managed-account sign-in in this distribution: "log in" means adding a
-  // model provider (API key or provider OAuth) through the provider manager.
-  void openProviders();
+  // No managed-account sign-in in this distribution: "log in" opens provider setup.
+  openProviders();
 }
 
 async function handleSelectModel(modelId: string): Promise<void> {
@@ -414,26 +595,66 @@ async function handleComposerSelectModel(modelId: string): Promise<void> {
   }
 }
 
-async function handleAddProvider(input: { type: string; apiKey?: string; baseUrl?: string; defaultModel?: string }): Promise<void> {
-  await client.addProvider(input);
-}
-
-async function handleRefreshProvider(id: string): Promise<void> {
-  await client.refreshProvider(id);
-}
-
-// Destructive session/workspace/provider actions confirm through the shared
+// Destructive session/workspace actions confirm through the shared
 // modal here (the menu components only emit the intent). Each passes its work
 // as the dialog `action`, so the dialog stays open with a loading state until
-// the operation settles. All three client calls toast their own errors and
-// never reject.
-async function confirmArchiveSession(id: string): Promise<void> {
-  await confirm({
-    title: t('sidebar.archive'),
-    message: t('sidebar.archiveConfirm'),
-    variant: 'danger',
-    action: () => client.archiveSession(id),
-  });
+// the operation settles.
+async function markSessionDone(id: string): Promise<void> {
+  await client.archiveSession(id);
+  await loadDoneSessions();
+  showSessionActionToast('done', id);
+}
+
+async function reopenSession(id: string): Promise<void> {
+  if (!await client.restoreSession(id)) return;
+  archivedSessions.value = archivedSessions.value.filter((session) => session.id !== id);
+  showSessionActionToast('open', id);
+}
+
+async function renameSidebarSession(id: string, title: string): Promise<void> {
+  await client.renameSession(id, title);
+  if (archivedSessions.value.some((session) => session.id === id)) await loadDoneSessions();
+}
+
+async function setSidebarSessionEmoji(id: string, emoji: string | null): Promise<void> {
+  const archived = archivedSessions.value.find((session) => session.id === id);
+  if (!archived) {
+    await client.setSessionEmoji(id, emoji);
+    return;
+  }
+  await renameSidebarSession(id, composeTitle(emoji, archived.title));
+}
+
+async function runAdminBatch(
+  items: AdminSession[],
+  action: 'archive' | 'restore',
+): Promise<void> {
+  const ids = items.map((item) => item.id);
+  for (const id of ids) {
+    if (action === 'archive') await client.archiveSession(id);
+    else await client.restoreSession(id);
+  }
+  await loadDoneSessions();
+  showSessionActionToast(action === 'archive' ? 'done' : 'open', ids);
+}
+
+async function undoSessionAction(): Promise<void> {
+  const toast = sessionActionToast.value;
+  if (!toast) return;
+  sessionActionToast.value = null;
+  for (const id of toast.ids) {
+    if (toast.kind === 'done') await client.restoreSession(id);
+    else await client.archiveSession(id);
+  }
+  await loadDoneSessions();
+}
+
+async function handleExportSession(id?: string): Promise<void> {
+  const sessionId = id ?? client.activeSessionId.value;
+  if (!sessionId) return;
+  exportActionToast.value = { state: 'running', sessionId };
+  const exported = await client.exportSession(sessionId);
+  exportActionToast.value = exported ? { state: 'done', sessionId } : null;
 }
 
 async function confirmDeleteWorkspace(id: string): Promise<void> {
@@ -443,15 +664,6 @@ async function confirmDeleteWorkspace(id: string): Promise<void> {
     message: t('workspace.removeWorkspaceConfirm', { name }),
     variant: 'danger',
     action: () => client.deleteWorkspace(id),
-  });
-}
-
-async function confirmDeleteProvider(id: string): Promise<void> {
-  await confirm({
-    title: t('providers.delete'),
-    message: t('providers.confirmDelete'),
-    variant: 'danger',
-    action: () => client.deleteProvider(id),
   });
 }
 
@@ -529,7 +741,7 @@ function handleCommand(cmd: string): void {
       void client.forkSession();
       break;
     case '/export':
-      void client.exportSession();
+      void handleExportSession();
       break;
     case '/undo':
       void client.undo();
@@ -604,6 +816,20 @@ async function handleSubmit(payload: SubmitPayload): Promise<void> {
   void client.sendPrompt(payload.text, payload.attachments);
 }
 
+// Failed-turn recovery: re-send the last user prompt through the ordinary send
+// path. Approximates the reference's daemon-side resumeTurn — this wire has no
+// resume endpoint, so we resubmit the user's own text (chat-turn attachments
+// are not replayed).
+async function handleContinueTurn(text: string): Promise<void> {
+  const wsId = client.activeWorkspaceId.value;
+  if (!client.activeSessionId.value && wsId) {
+    await client.startSessionAndSendPrompt(wsId, text, []);
+    return;
+  }
+  if (!client.activeSessionId.value) return;
+  void client.sendPrompt(text);
+}
+
 async function handleAddWorkspace(root: string): Promise<void> {
   addWorkspaceError.value = null;
   const added = await client.addWorkspaceByPath(root);
@@ -628,6 +854,41 @@ function handleCloseAddWorkspace(): void {
   pendingWorkspaceSubmit.value = null;
   addWorkspaceError.value = null;
   showAddWorkspace.value = false;
+}
+
+// Folder-drop from the sidebar (desktop shell): one addWorkspace call per
+// dropped path through the same flow as the picker confirm. A rejected path
+// opens the picker with the inline error so the user can see and fix it.
+async function handleAddWorkspacePaths(paths: string[]): Promise<void> {
+  for (const root of paths) {
+    addWorkspaceError.value = null;
+    const added = await client.addWorkspaceByPath(root);
+    if (!added) {
+      addWorkspaceError.value = t('workspace.addFailed');
+      showAddWorkspace.value = true;
+      return;
+    }
+  }
+}
+
+// Generate a session title via the daemon's managed chat_title tool. The
+// daemon persists the title itself (the list refreshes via the WS event); the
+// result streams back into the rename input through the callback. Unavailable
+// generation surfaces as an info toast, mirroring the reference UI.
+async function handleGenerateSessionTitle(
+  sessionId: string,
+  onTitle: (title: string | null) => void,
+): Promise<void> {
+  const title = await client.generateSessionTitle(sessionId);
+  if (title === null) {
+    titleNoticeToast.value = t('sidebar.genTitleUnavailable');
+    if (titleNoticeToastTimer !== null) clearTimeout(titleNoticeToastTimer);
+    titleNoticeToastTimer = setTimeout(() => {
+      titleNoticeToast.value = null;
+      titleNoticeToastTimer = null;
+    }, 5000);
+  }
+  onTitle(title);
 }
 
 function focusComposerAfterDraft(): void {
@@ -710,29 +971,42 @@ function openPr(url: string): void {
         :active-workspace="client.visibleWorkspace.value"
         :active-workspace-id="client.activeWorkspaceId.value"
         :sessions="client.sessionsForView.value"
+        :archived-sessions="archivedSessions"
+        :pinned-ids="client.pinnedSessionIds.value"
+        :pinned-collapsed="client.pinnedCollapsed.value"
         :groups="client.workspaceGroups.value"
         :active-id="client.activeSessionId.value"
         :attention-by-session="client.attentionBySession.value"
         :pending-by-session="client.pendingBySession.value"
         :unread-by-session="client.unreadBySession.value"
         :workspace-sort-mode="client.workspaceSortMode.value"
-        :backend="client.backend.value"
+        :workspaces="client.workspacesView.value"
+        :tabs-enabled="client.config.value?.experimental?.sidebarTabs === true"
         @select="client.selectSession($event)"
         @create="handleCreateSession"
         @create-in-workspace="handleCreateSessionInWorkspace($event)"
         @select-workspace="client.openWorkspace($event)"
         @add-workspace="showAddWorkspace = true"
-        @rename="(id, title) => client.renameSession(id, title)"
-        @archive="confirmArchiveSession($event)"
+        @add-workspace-paths="handleAddWorkspacePaths"
+        @rename="renameSidebarSession"
+        @generate-title="handleGenerateSessionTitle"
+        @archive="markSessionDone($event)"
+        @restore="reopenSession($event)"
+        @pin="client.togglePinnedSession($event)"
+        @reorder-pins="client.reorderPinnedSessions($event)"
+        @toggle-pinned-collapsed="client.togglePinnedCollapsed()"
+        @set-session-emoji="setSidebarSessionEmoji"
+        @load-done-sessions="loadDoneSessions"
         @fork="(id) => client.forkSession(id)"
-        @export="(id) => client.exportSession(id)"
+        @export="(id) => handleExportSession(id)"
         @rename-workspace="(id, name) => client.renameWorkspace(id, name)"
         @delete-workspace="confirmDeleteWorkspace($event)"
         @reorder-workspaces="client.reorderWorkspaces($event)"
         @set-workspace-sort-mode="client.setWorkspaceSortMode($event)"
         @load-more-sessions="(id) => void client.loadMoreSessions(id)"
         @load-all-sessions="void client.loadAllSessions()"
-        @open-settings="showSettings = true"
+        @open-settings="openSettings()"
+        @open-session-admin="openSessionAdmin"
         @collapse="toggleSidebarCollapse"
       />
       <ResizeHandle
@@ -759,7 +1033,23 @@ function openPr(url: string): void {
       @open-settings="showMobileSettings = true"
     />
 
+    <SessionAdminView
+      v-if="showSessionAdmin"
+      :open-sessions="adminOpenSessions"
+      :workspaces="client.workspacesView.value"
+      :load-archived="loadAdminArchivedSessions"
+      :archive-session="markSessionDone"
+      :restore-session="reopenSession"
+      :run-batch="runAdminBatch"
+      @open="showSessionAdmin = false; client.selectSession($event)"
+      @rename="(id, title) => client.renameSession(id, title)"
+      @fork="(id) => client.forkSession(id)"
+      @export="(id) => handleExportSession(id)"
+      @back="showSessionAdmin = false"
+    />
+
     <ConversationPane
+      v-else
       ref="conversationPaneRef"
       :mobile="isMobile"
       :turns="client.turns.value"
@@ -774,7 +1064,11 @@ function openPr(url: string): void {
       :status="client.status.value"
       :thinking="client.thinking.value"
       :plan-mode="client.planMode.value"
+      :plan-armed="client.planArmed.value"
+      :session-plans="client.sessionPlans.value"
+      :overlay-open="overlayOpen"
       :goal-mode="client.goalMode.value"
+      :dynamic-workflow-mode="client.dynamicWorkflowMode.value"
       :models="client.models.value"
       :starred-ids="client.starredModelIds.value"
       :skills="client.skills.value"
@@ -804,6 +1098,12 @@ function openPr(url: string): void {
       :session-title="activeSessionTitle"
       :pr="client.activePullRequest.value"
       :conversation-toc="client.conversationToc.value"
+      :last-turn-reason="activeLastTurnReason"
+      :turn-error-kind="activeTurnError?.reason === 'max_steps' ? 'max_steps' : undefined"
+      :turn-error-message="activeTurnError?.message"
+      :session-done="activeSessionDone"
+      :pinned="client.pinnedSessionIds.value.includes(client.activeSessionId.value ?? '')"
+      :recent-sessions="activeWorkspaceRecentSessions"
       @open-changes="openDiffDetail()"
       @select-workspace="handleCreateSessionInWorkspace($event)"
       @add-workspace="showAddWorkspace = true"
@@ -828,8 +1128,12 @@ function openPr(url: string): void {
       @refresh-git-status="client.activeSessionId.value && client.loadGitStatus(client.activeSessionId.value)"
       @rename-session="(id, title) => client.renameSession(id, title)"
       @fork-session="(id) => client.forkSession(id)"
-      @archive-session="confirmArchiveSession($event)"
-      @export-session="(id) => client.exportSession(id)"
+      @archive-session="markSessionDone($event)"
+      @restore-session="reopenSession($event)"
+      @select-session="client.selectSession($event)"
+      @toggle-pin="client.togglePinnedSession($event)"
+      @open-session-admin="openSessionAdmin"
+      @export-session="(id) => handleExportSession(id)"
       @compact="client.compact()"
       @pick-model="openModelPicker()"
       @select-model="handleComposerSelectModel($event)"
@@ -839,7 +1143,9 @@ function openPr(url: string): void {
       @open-compaction="openCompactionPanel($event)"
       @open-agent="openAgentPanel($event)"
       @open-tool-diff="openToolDiff($event)"
+      @open-turn-diff="openTurnDiff($event)"
       @edit-message="handleEditMessage"
+      @continue-turn="handleContinueTurn"
     />
 
     <!-- Sidebar toggle — floating only when the in-header control can't serve:
@@ -862,8 +1168,21 @@ function openPr(url: string): void {
       <Icon :name="sidebarCollapsed ? 'panel-expand' : 'panel-collapse'" />
     </IconButton>
 
+    <!-- Floating "New chat" while the sidebar is collapsed: mirrors the
+         sidebar's + New action (draft in the active workspace). Rendered next
+         to the toggle button and hidden on mobile. -->
+    <IconButton
+      v-if="!isMobile && sidebarCollapsed"
+      class="new-chat-btn"
+      size="sm"
+      :label="t('sidebar.newChat')"
+      @click="handleCreateSession"
+    >
+      <Icon name="chat-new" />
+    </IconButton>
+
     <ResizeHandle
-      v-if="sidePanelVisible && !isMobile"
+      v-if="!showSessionAdmin && sidePanelVisible && !isMobile"
       class="preview-handle"
       :storage-key="PREVIEW_WIDTH_KEY"
       :default-width="previewDefaultWidth"
@@ -881,7 +1200,7 @@ function openPr(url: string): void {
          (full-screen overlay). Content stays v-if'd, so a closed panel is a
          zero-width empty shell. -->
     <aside
-      v-if="!isMobile || sidePanelVisible"
+      v-if="!showSessionAdmin && (!isMobile || sidePanelVisible)"
       class="global-preview"
       :class="{ open: sidePanelVisible, mobile: isMobile, 'no-anim': panelDragging || panelSwitching }"
       role="complementary"
@@ -902,7 +1221,19 @@ function openPr(url: string): void {
       <AgentDetailPanel
         v-else-if="detailTarget === 'agent' && agentPanelMember"
         :member="agentPanelMember"
+        :turns="agentPanelTurns"
+        :running="agentPanelRunning"
+        :loading="agentPanelLoading"
+        :load-error="agentPanelLoadError"
+        :has-more="agentPanelHasMore"
+        :loading-more="agentPanelLoadingMore"
+        :load-more-error="agentPanelLoadMoreError"
         @close="closeAgentPanel"
+        @load-older-messages="loadOlderAgentMessages"
+        @open-file="openFilePreview($event)"
+        @open-media="openMediaPreview($event)"
+        @open-agent="openAgentPanel($event)"
+        @open-turn-diff="openTurnDiff($event)"
       />
       <SideChatPanel
         v-else-if="detailTarget === 'btw' && btwVisible"
@@ -930,6 +1261,13 @@ function openPr(url: string): void {
         :target="toolDiffTarget"
         @close="closeToolDiff"
       />
+      <TurnDiffPanel
+        v-else-if="detailTarget === 'turnDiff' && turnDiffTarget"
+        :changes="turnDiffTarget.changes"
+        :cwd="client.visibleWorkspace.value?.root ?? client.status.value.cwd"
+        @open-file="openFilePreview($event)"
+        @close="closeTurnDiff"
+      />
       <FilePreview
         v-else-if="detailTarget === 'file'"
         :file="previewFile"
@@ -951,6 +1289,13 @@ function openPr(url: string): void {
          events pass through so it never blocks clicks. -->
     <InternalBuildBanner class="internal-build-fab" />
 
+    <MediaLightbox
+      v-if="lightboxMedia && lightboxSrc"
+      :media="lightboxMedia"
+      :src="lightboxSrc"
+      @close="closeMediaLightbox"
+    />
+
     <!-- Model Picker overlay -->
     <ModelPicker
       v-if="showModelPicker"
@@ -964,47 +1309,13 @@ function openPr(url: string): void {
       @close="showModelPicker = false"
     />
 
-    <!-- Settings page (modal) -->
-    <SettingsDialog
-      v-if="showSettings"
-      :color-scheme="client.colorScheme.value"
-      :accent="client.accent.value"
-      :ui-font-size="client.uiFontSize.value"
-      :auth-ready="client.authReady.value"
-      :account-model="client.defaultModel.value"
-      :notify="client.notifyOnComplete.value"
-      :notify-question="client.notifyOnQuestion.value"
-      :notify-approval="client.notifyOnApproval.value"
-      :notify-permission="client.notifyPermission.value"
-      :sound="client.soundOnComplete.value"
-      :conversation-toc="client.conversationToc.value"
-      :config="client.config.value"
-      :models="client.models.value"
-      :config-saving="configSaving"
-      :server-version="client.serverVersion.value"
-      :backend="client.backend.value"
-      @set-color-scheme="client.setColorScheme($event)"
-      @set-accent="client.setAccent($event)"
-      @set-ui-font-size="client.setUiFontSize($event)"
-      @set-notify="client.setNotifyOnComplete($event)"
-      @set-notify-question="client.setNotifyOnQuestion($event)"
-      @set-notify-approval="client.setNotifyOnApproval($event)"
-      @set-sound="client.setSoundOnComplete($event)"
-      @set-conversation-toc="client.setConversationToc($event)"
-      @update-config="handleUpdateConfig($event)"
-      @login="() => { showSettings = false; openLogin(); }"
-      @logout="client.logout"
-      @open-onboarding="() => { showSettings = false; openOnboarding(); }"
-      @open-providers="() => { showSettings = false; openProviders(); }"
-      @close="showSettings = false"
-    />
-
     <!-- Status panel overlay (/status) — renders current client state, no daemon call -->
     <StatusPanel
       v-if="showStatusPanel"
       :status="client.status.value"
       :thinking="statusPanelThinking"
       :plan-mode="client.planMode.value"
+      :dynamic-workflow-mode="client.dynamicWorkflowMode.value"
       :cost-usd="client.sessionCost.value"
       @close="showStatusPanel = false"
     />
@@ -1037,12 +1348,43 @@ function openPr(url: string): void {
     <!-- Floating warnings / agent errors (e.g. a 403 from the model provider) -->
     <WarningToasts :warnings="client.warnings.value" @dismiss="client.dismissWarning" />
     <UpdateToast />
+    <div class="action-toast-stack">
+      <ActionToast
+        v-if="sessionActionToast"
+        :key="`${sessionActionToast.kind}:${sessionActionToast.ids.join(',')}`"
+        :duration="8000"
+        @dismiss="sessionActionToast = null"
+      >
+        <span>
+          {{ t(
+            sessionActionToast.kind === 'done' ? 'admin.actionArchived' : 'admin.actionRestored',
+            { n: sessionActionToast.ids.length },
+          ) }}
+        </span>
+        <button type="button" class="session-action-undo" @click="undoSessionAction">
+          {{ t('sidebar.archiveToastUndo') }}
+        </button>
+      </ActionToast>
+      <ActionToast
+        v-if="exportActionToast"
+        :key="`${exportActionToast.sessionId}:${exportActionToast.state}`"
+        :duration="exportActionToast.state === 'running' ? 60000 : 4000"
+        @dismiss="exportActionToast = null"
+      >
+        {{ t(exportActionToast.state === 'running' ? 'admin.exporting' : 'admin.exported') }}
+      </ActionToast>
+      <ActionToast
+        v-if="titleNoticeToast"
+        :key="titleNoticeToast"
+        :duration="5000"
+        @dismiss="titleNoticeToast = null"
+      >
+        {{ titleNoticeToast }}
+      </ActionToast>
+    </div>
 
     <!-- KAP/daemon debug panel (opt-in, ?debug=1) -->
     <DebugPanel v-if="debugEnabled" />
-
-    <!-- Global modal-confirmation host (driven by useConfirmDialog) -->
-    <ConfirmDialogHost />
 
     <!-- Mobile switcher bottom-sheet: workspace groups + sessions (mirrors the
          desktop sidebar) -->
@@ -1059,7 +1401,7 @@ function openPr(url: string): void {
       @create-in-workspace="handleCreateSessionInWorkspace($event)"
       @add-workspace="showAddWorkspace = true"
       @rename="(id, title) => client.renameSession(id, title)"
-      @archive="confirmArchiveSession($event)"
+      @archive="markSessionDone($event)"
       @delete-workspace="confirmDeleteWorkspace($event)"
       @load-more="(id) => void client.loadMoreSessions(id)"
     />
@@ -1072,6 +1414,9 @@ function openPr(url: string): void {
       :thinking="client.thinking.value"
       :models="client.models.value"
       :plan-mode="client.planMode.value"
+      :goal-mode="client.goalMode.value"
+      :goal="client.goal.value"
+      :dynamic-workflow-mode="client.dynamicWorkflowMode.value"
       :color-scheme="client.colorScheme.value"
       :ui-font-size="client.uiFontSize.value"
       :auth-ready="client.authReady.value"
@@ -1080,6 +1425,8 @@ function openPr(url: string): void {
       @pick-model="openModelPicker()"
       @set-thinking="client.setThinking($event)"
       @toggle-plan="client.togglePlanMode()"
+      @toggle-goal="client.toggleGoalMode()"
+      @control-goal="client.controlGoal($event)"
       @set-permission="client.setPermission($event)"
       @set-color-scheme="client.setColorScheme($event)"
       @set-ui-font-size="client.setUiFontSize($event)"
@@ -1088,19 +1435,43 @@ function openPr(url: string): void {
       @logout="client.logout"
     />
     </div>
-    <!-- Provider Manager overlay. Outside `.app` so the auth-gate page and
-         `/login` can open it too. -->
-    <ProviderManager
-      v-if="showProviders"
-      :providers="client.providers.value"
-      :loading="providersLoading"
-      :unavailable="providersUnavailable"
-      @add="handleAddProvider($event)"
-      @refresh="handleRefreshProvider($event)"
-      @delete="confirmDeleteProvider($event)"
-      @close="showProviders = false"
+
+    <!-- Settings stays outside the auth/app branch so provider setup can open
+         from the auth gate and from every in-app entry point. -->
+    <SettingsDialog
+      v-if="showSettings"
+      :color-scheme="client.colorScheme.value"
+      :accent="client.accent.value"
+      :ui-font-size="client.uiFontSize.value"
+      :auth-ready="client.authReady.value"
+      :account-model="client.defaultModel.value"
+      :notify="client.notifyOnComplete.value"
+      :notify-question="client.notifyOnQuestion.value"
+      :notify-approval="client.notifyOnApproval.value"
+      :notify-permission="client.notifyPermission.value"
+      :sound="client.soundOnComplete.value"
+      :conversation-toc="client.conversationToc.value"
+      :config="client.config.value"
+      :models="client.models.value"
+      :config-saving="configSaving"
+      :server-version="client.serverVersion.value"
+      :backend="client.backend.value"
+      :initial-tab="settingsInitialTab"
+      @set-color-scheme="client.setColorScheme($event)"
+      @set-accent="client.setAccent($event)"
+      @set-ui-font-size="client.setUiFontSize($event)"
+      @set-notify="client.setNotifyOnComplete($event)"
+      @set-notify-question="client.setNotifyOnQuestion($event)"
+      @set-notify-approval="client.setNotifyOnApproval($event)"
+      @set-sound="client.setSoundOnComplete($event)"
+      @set-conversation-toc="client.setConversationToc($event)"
+      @update-config="handleUpdateConfig($event)"
+      @logout="client.logout"
+      @open-onboarding="() => { showSettings = false; openOnboarding(); }"
+      @close="showSettings = false"
     />
 
+    <ConfirmDialogHost />
   </div>
 </template>
 
@@ -1240,6 +1611,21 @@ function openPr(url: string): void {
   from { opacity: 0; }
 }
 
+/* Floating "New chat" — sits directly right of the toggle (sm IconButton is
+   26px wide: 16 + 26 = 42; macOS: 72 + 26 = 98). Same fade-in + no-drag
+   contract as the toggle. */
+.new-chat-btn {
+  position: absolute;
+  top: 11px;
+  left: 42px;
+  z-index: var(--z-sticky);
+  animation: sidebar-toggle-btn-in 0.18s var(--ease-out) 0.12s backwards;
+  -webkit-app-region: no-drag;
+}
+.app.macos-desktop .new-chat-btn {
+  left: 98px;
+}
+
 /* Internal-build tag pinned to the app's bottom-right corner (desktop app
    only — the component renders nothing elsewhere). Informational: never
    intercepts pointer input. */
@@ -1292,7 +1678,39 @@ function openPr(url: string): void {
   border-top: 2px solid var(--color-text);
 }
 
+.action-toast-stack {
+  position: fixed;
+  right: var(--space-4);
+  bottom: var(--space-4);
+  z-index: var(--z-toast);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-2);
+  pointer-events: none;
+}
+.session-action-undo {
+  margin-top: var(--space-2);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-accent);
+  font: inherit;
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+.session-action-undo:focus-visible {
+  outline: none;
+  box-shadow: var(--p-focus-ring);
+}
+
 @media (max-width: 640px) {
+  .action-toast-stack {
+    right: var(--space-3);
+    bottom: max(var(--space-3), var(--safe-bottom));
+    left: var(--space-3);
+    align-items: stretch;
+  }
   .auth-page {
     align-items: flex-start;
     padding:

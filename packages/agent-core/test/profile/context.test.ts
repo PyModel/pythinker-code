@@ -5,7 +5,7 @@ import { join } from 'pathe';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { loadAgentsMd, prepareSystemPromptContext } from '../../src/profile/context';
-import { testKaos } from '../fixtures/test-kaos';
+import { testPyaos } from '../fixtures/test-pyaos';
 
 let homeDir: string;
 let workDir: string;
@@ -15,8 +15,8 @@ beforeEach(async () => {
   homeDir = await mkdtemp(join(tmpdir(), 'pythinker-agents-home-'));
   workDir = await mkdtemp(join(tmpdir(), 'pythinker-agents-work-'));
   extraDirs = [];
-  vi.spyOn(testKaos, 'gethome').mockReturnValue(homeDir);
-  vi.spyOn(testKaos, 'getcwd').mockReturnValue(workDir);
+  vi.spyOn(testPyaos, 'gethome').mockReturnValue(homeDir);
+  vi.spyOn(testPyaos, 'getcwd').mockReturnValue(workDir);
 });
 
 afterEach(async () => {
@@ -34,7 +34,7 @@ describe('loadAgentsMd user-level discovery', () => {
     await writeFile(join(homeDir, '.agents', 'AGENTS.md'), 'user generic', 'utf-8');
     await writeFile(join(workDir, 'AGENTS.md'), 'project instructions', 'utf-8');
 
-    const result = await loadAgentsMd(testKaos);
+    const result = await loadAgentsMd(testPyaos);
 
     expect(result).toContain('user branded');
     expect(result).toContain('user generic');
@@ -47,7 +47,7 @@ describe('loadAgentsMd user-level discovery', () => {
     await mkdir(join(homeDir, '.agents'), { recursive: true });
     await writeFile(join(homeDir, '.agents', 'AGENTS.md'), 'dot-agents generic', 'utf-8');
 
-    const result = await loadAgentsMd(testKaos);
+    const result = await loadAgentsMd(testPyaos);
 
     expect(result).toContain('dot-agents generic');
   });
@@ -55,18 +55,18 @@ describe('loadAgentsMd user-level discovery', () => {
   it('falls back to project-level only when no user-level files exist', async () => {
     await writeFile(join(workDir, 'AGENTS.md'), 'project only', 'utf-8');
 
-    const result = await loadAgentsMd(testKaos);
+    const result = await loadAgentsMd(testPyaos);
 
     expect(result).toContain('project only');
     expect(result).not.toContain(homeDir);
   });
 
   it('does not load the same file twice when the work dir is the home dir', async () => {
-    vi.spyOn(testKaos, 'getcwd').mockReturnValue(homeDir);
+    vi.spyOn(testPyaos, 'getcwd').mockReturnValue(homeDir);
     await mkdir(join(homeDir, '.pythinker-code'), { recursive: true });
     await writeFile(join(homeDir, '.pythinker-code', 'AGENTS.md'), 'home branded', 'utf-8');
 
-    const result = await loadAgentsMd(testKaos);
+    const result = await loadAgentsMd(testPyaos);
 
     expect(result.split('home branded').length - 1).toBe(1);
   });
@@ -88,7 +88,7 @@ describe('loadAgentsMd brand home (PYTHINKER_CODE_HOME)', () => {
     await mkdir(join(homeDir, '.agents'), { recursive: true });
     await writeFile(join(homeDir, '.agents', 'AGENTS.md'), 'real home generic', 'utf-8');
 
-    const result = await loadAgentsMd(testKaos, brandHome);
+    const result = await loadAgentsMd(testPyaos, brandHome);
 
     expect(result).toContain('brand home instructions');
     expect(result).toContain('real home generic');
@@ -99,7 +99,7 @@ describe('loadAgentsMd brand home (PYTHINKER_CODE_HOME)', () => {
     await mkdir(join(homeDir, '.pythinker-code'), { recursive: true });
     await writeFile(join(homeDir, '.pythinker-code', 'AGENTS.md'), 'stale real-home brand', 'utf-8');
 
-    const result = await loadAgentsMd(testKaos, brandHome);
+    const result = await loadAgentsMd(testPyaos, brandHome);
 
     expect(result).toContain('brand wins');
     expect(result).not.toContain('stale real-home brand');
@@ -109,7 +109,7 @@ describe('loadAgentsMd brand home (PYTHINKER_CODE_HOME)', () => {
     await mkdir(join(homeDir, '.pythinker-code'), { recursive: true });
     await writeFile(join(homeDir, '.pythinker-code', 'AGENTS.md'), 'fallback branded', 'utf-8');
 
-    const result = await loadAgentsMd(testKaos);
+    const result = await loadAgentsMd(testPyaos);
 
     expect(result).toContain('fallback branded');
   });
@@ -120,7 +120,7 @@ describe('loadAgentsMd oversized content', () => {
     const largeContent = 'x'.repeat(40 * 1024);
     await writeFile(join(workDir, 'AGENTS.md'), largeContent, 'utf-8');
 
-    const result = await loadAgentsMd(testKaos);
+    const result = await loadAgentsMd(testPyaos);
 
     expect(result).toContain(largeContent);
     expect(result).not.toContain('truncated or omitted');
@@ -134,7 +134,7 @@ describe('prepareSystemPromptContext AGENTS.md size warning', () => {
     const largeContent = 'x'.repeat(40 * 1024);
     await writeFile(join(workDir, 'AGENTS.md'), largeContent, 'utf-8');
 
-    const result = await prepareSystemPromptContext(testKaos, brandHome);
+    const result = await prepareSystemPromptContext(testPyaos, brandHome);
 
     expect(result.agentsMd).toContain(largeContent);
     expect(result.agentsMdWarning).toBeDefined();
@@ -146,7 +146,7 @@ describe('prepareSystemPromptContext AGENTS.md size warning', () => {
     extraDirs.push(brandHome);
     await writeFile(join(workDir, 'AGENTS.md'), 'small instructions', 'utf-8');
 
-    const result = await prepareSystemPromptContext(testKaos, brandHome);
+    const result = await prepareSystemPromptContext(testPyaos, brandHome);
 
     expect(result.agentsMdWarning).toBeUndefined();
   });
@@ -163,7 +163,7 @@ describe('prepareSystemPromptContext additional directories', () => {
     await writeFile(join(extraDir, 'AGENTS.md'), 'extra project instructions', 'utf-8');
     await writeFile(join(extraDir, 'extra-file.txt'), 'extra listing entry', 'utf-8');
 
-    const result = await prepareSystemPromptContext(testKaos, brandHome, {
+    const result = await prepareSystemPromptContext(testPyaos, brandHome, {
       additionalDirs: [extraDir],
     });
 
@@ -189,7 +189,7 @@ describe('prepareSystemPromptContext additional directories', () => {
     await writeFile(join(extraDirA, 'AGENTS.md'), 'extra A instructions', 'utf-8');
     await writeFile(join(extraDirB, 'AGENTS.md'), 'extra B instructions', 'utf-8');
 
-    const result = await prepareSystemPromptContext(testKaos, brandHome, {
+    const result = await prepareSystemPromptContext(testPyaos, brandHome, {
       additionalDirs: [extraDirA, extraDirB],
     });
 

@@ -8,7 +8,7 @@
 [![downloads](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FPyModel%2Fpythinker-code%2Fbadges%2Fdesktop-total.json&style=flat-square&label=downloads&labelColor=000000&color=dfb317)](https://code.pythinker.com/)
 [![license](https://img.shields.io/badge/license-MIT-16a34a?style=flat-square)](LICENSE)
 [![macOS](https://img.shields.io/badge/macOS-e5e7eb?style=flat-square&logo=apple&logoColor=000000)](https://code.pythinker.com/) | [![Windows](https://img.shields.io/badge/Windows-e5e7eb?style=flat-square&logo=data:image/svg%2Bxml;base64,PHN2ZyByb2xlPSJpbWciIHZpZXdCb3g9IjAgMCAyNCAyNCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48dGl0bGU+V2luZG93cyAxMTwvdGl0bGU+PHBhdGggZmlsbD0iIzAwNzhENCIgZD0iTTAsMEgxMS4zNzdWMTEuMzcySDBaTTEyLjYyMywwSDI0VjExLjM3MkgxMi42MjNaTTAsMTIuNjIzSDExLjM3N1YyNEgwWm0xMi42MjMsMEgyNFYyNEgxMi42MjMiLz48L3N2Zz4=)](https://code.pythinker.com/)
-[![Node.js](https://img.shields.io/badge/Node.js-26.4%2B-339933?style=flat-square&logo=nodedotjs&logoColor=white)](package.json)
+[![Node.js](https://img.shields.io/badge/Node.js-24.15%2B-339933?style=flat-square&logo=nodedotjs&logoColor=white)](package.json)
 [![visitors](https://komarev.com/ghpvc/?username=PyModel-pythinker-code&label=visitors&color=4f46e5&style=flat-square)](https://github.com/PyModel/pythinker-code)
 
 <a href="#get-the-desktop-app">Download</a> &nbsp;·&nbsp;
@@ -81,7 +81,7 @@ The CLI ships as a native binary, so there is no Node.js prerequisite.
 | Homebrew | `brew install pymodel/tap/pythinker-code` |
 | Windows (PowerShell) | `irm https://code.pythinker.com/pythinker-code/install.ps1 \| iex` |
 | Nix | `nix run github:PyModel/pythinker-code` |
-| npm | `npm install -g @pymodel/pythinker-code` (needs Node.js 26.4+) |
+| npm | `npm install -g @pymodel/pythinker-code` (needs Node.js 24.15+) |
 
 ```sh
 cd your-project
@@ -163,11 +163,11 @@ Pythinker Code is a pnpm monorepo. The desktop app and the CLI both talk to the 
 | `apps/pythinker-web` | Browser interface that the desktop app renders |
 | `packages/agent-core` | Agent engine: sessions, tools, skills, permissions, plans |
 | `packages/kosong` | LLM and provider abstraction |
-| `packages/kaos` | Execution environment, file and process abstractions |
+| `packages/pyaos` | Execution environment, file and process abstractions |
 | `packages/server` | REST and WebSocket session host (`/api/v1`) |
 | `packages/node-sdk` | Public TypeScript SDK |
 
-Requirements: Node.js 26.4+, pnpm 10.34.3, Git.
+Requirements: Node.js 24.15-24.x, pnpm 10.34.3, Git.
 
 ```sh
 git clone https://github.com/PyModel/pythinker-code.git

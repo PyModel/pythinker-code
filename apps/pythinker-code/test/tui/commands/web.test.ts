@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { findBuiltInSlashCommand, resolveSlashCommandAvailability } from '#/tui/commands/index';
 import type { SlashCommandHost } from '#/tui/commands/dispatch';
+import { PYTHINKER_LOGO_LINES } from '#/tui/components/chrome/pythinker-logo';
 import { handleWebCommand, webSessionUrl } from '#/tui/commands/web';
 
 const mocks = vi.hoisted(() => ({
@@ -114,6 +115,7 @@ describe('handleWebCommand', () => {
     );
     const written = writeSpy.mock.calls.map((call) => String(call[0])).join('');
     expect(written).toContain('Pythinker server ready');
+    for (const logoLine of PYTHINKER_LOGO_LINES) expect(written).toContain(logoLine);
     expect(written).toContain('Ctrl+C');
     expect(written).toContain('/sessions/ses-1');
     writeSpy.mockRestore();

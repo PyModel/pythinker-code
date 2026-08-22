@@ -4,20 +4,24 @@
  * The server always runs in the current process, attached to the terminal,
  * and shuts down cleanly on SIGINT/SIGTERM. `--no-open` skips the browser.
  * Multiple instances can share the home directory: each registers itself in
- * the instance registry and takes the next free port (see kap-server's
+ * the instance registry and takes the next free port (see agent-gateway's
  * `startServer`).
  */
 
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { createServerLogger, startServer, type ServerLogger } from '@pymodel/kap-server';
+import { createServerLogger, startServer, type ServerLogger } from '@pymodel/agent-gateway';
 import { shutdownTelemetry, track } from '@pymodel/pythinker-telemetry';
 import chalk from 'chalk';
 import { type Command } from 'commander';
 
 import { CLI_SHUTDOWN_TIMEOUT_MS, WEB_USER_AGENT_SUFFIX } from '#/constant/app';
 import { getNativeWebAssetsDir } from '#/native/web-assets';
+import {
+  PYTHINKER_LOGO_LINES,
+  renderPythinkerLogoLine,
+} from '#/tui/components/chrome/pythinker-logo';
 import { darkColors } from '#/tui/theme/colors';
 import { openUrl as defaultOpenUrl } from '#/utils/open-url';
 import { getDataDir } from '#/utils/paths';
@@ -50,7 +54,7 @@ import {
 const WEB_ASSETS_DIR = 'dist-web';
 
 /**
- * Minimal surface `runServerInProcess` needs from the server. kap-server's
+ * Minimal surface `runServerInProcess` needs from the server. agent-gateway's
  * `RunningServer` is adapted to it (it returns `{ host, port, close }`
  * instead of `{ address, logger, close }`).
  */
@@ -243,7 +247,7 @@ async function runServerInProcess(
 ): Promise<never> {
   const version = getVersion();
   // Registers the telemetry provider for `track` / `shutdownTelemetry`; the
-  // client itself is not passed into kap-server.
+  // client itself is not passed into agent-gateway.
   initializeServerTelemetry({ version });
 
   let running: RoutedServer | undefined;
@@ -265,7 +269,7 @@ async function runServerInProcess(
     process.exit(0);
   }
 
-  // kap-server (the DI × Scope engine server) is the only server flavor. Its
+  // agent-gateway (the DI × Scope engine server) is the only server flavor. Its
   // `startServer` returns `{ host, port, close }` rather than `{ address,
   // logger, close }`, so adapt it to the `RoutedServer` surface the rest of
   // this runner consumes.
@@ -280,10 +284,10 @@ async function runServerInProcess(
     host: options.host,
     port: options.port,
     // Report the CLI's product version as `server_version` (/meta, web UI)
-    // rather than kap-server's private package version.
+    // rather than agent-gateway's private package version.
     serverVersion: version,
     // The CLI's host identity: feeds the engine's bootstrap client identity
-    // and the derived outbound headers (User-Agent + X-Msh-*), so web-UI
+    // and the derived outbound headers (User-Agent), so web-UI
     // OAuth flows and model / WebSearch requests carry the CLI identity. The
     // `web` User-Agent suffix distinguishes web-UI traffic from direct CLI
     // runs upstream (same product token, same platform).
@@ -332,11 +336,11 @@ async function runServerInProcess(
 }
 
 /**
- * Resolve the web assets directory passed to kap-server. In dev mode
- * (`PYTHINKER_CODE_DEV_SERVER=1`, set by the repo's `dev:server` / `dev:kap-server*`
+ * Resolve the web assets directory passed to agent-gateway. In dev mode
+ * (`PYTHINKER_CODE_DEV_SERVER=1`, set by the repo's `dev:server` / `dev:agent-gateway*`
  * scripts) a missing `dist-web` build is tolerated: the server starts API-only
  * and the web UI is expected to come from a Vite dev server (the web UI source lives in the code-app repo).
- * Outside dev mode the directory is always returned and kap-server keeps
+ * Outside dev mode the directory is always returned and agent-gateway keeps
  * failing fast when the assets are missing.
  */
 export function serverWebAssetsDir(
@@ -363,6 +367,8 @@ interface FormatReadyBannerOptions {
   networkAddresses?: NetworkAddress[];
   /** When true, render a red danger notice (auth is disabled). */
   dangerousBypassAuth?: boolean;
+  /** Use the full five-row robot mark for a TUI-to-web handoff. */
+  useTuiLogo?: boolean;
 }
 
 export function formatReadyBanner(
@@ -384,15 +390,28 @@ export function formatReadyBanner(
   };
 
   const port = Number(new URL(origin).port);
-  // Borderless header: the Pythinker sprite (the little mascot with eyes) sits next
-  // to the title, keeping the brand without the enclosing box.
-  const logo = ['▐█▛█▛█▌', '▐█████▌'] as const;
-  const lines: string[] = [
-    '',
-    `  ${primary(logo[0])}  ${title('Pythinker server ready')}  ${dim(getVersion())}`,
-    `  ${primary(logo[1])}  ${dim('Local web UI is available from this machine.')}`,
-    '',
-  ];
+  const lines: string[] =
+    opts.useTuiLogo === true
+      ? [
+          '',
+          ...PYTHINKER_LOGO_LINES.map((line, index) => {
+            const colored = renderPythinkerLogoLine(index);
+            const copy =
+              index === 2
+                ? `${title('Pythinker server ready')}  ${dim(getVersion())}`
+                : index === 3
+                  ? dim('Local web UI is available from this machine.')
+                  : '';
+            return copy === '' ? `  ${colored}` : `  ${colored}  ${copy}`;
+          }),
+          '',
+        ]
+      : [
+          '',
+          `  ${primary('▐█▛█▛█▌')}  ${title('Pythinker server ready')}  ${dim(getVersion())}`,
+          `  ${primary('▐█████▌')}  ${dim('Local web UI is available from this machine.')}`,
+          '',
+        ];
 
   if (opts.dangerousBypassAuth === true) {
     // Red, impossible-to-miss notice: the bearer-token gate is off, so anyone

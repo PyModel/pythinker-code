@@ -8,7 +8,7 @@ import { Readable } from 'node:stream';
 import type { Writable } from 'node:stream';
 import { join } from 'pathe';
 
-import type { KaosProcess } from '@pymodel/kaos';
+import type { PyaosProcess } from '@pymodel/pyaos';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -26,7 +26,7 @@ import {
   waitForOutput,
 } from '../../agent/background/helpers';
 import { executeTool } from '../fixtures/execute-tool';
-import { toolContentString } from '../fixtures/fake-kaos';
+import { toolContentString } from '../fixtures/fake-pyaos';
 
 const signal = new AbortController().signal;
 
@@ -34,20 +34,20 @@ function context<Input>(toolCallId: string, args: Input) {
   return { turnId: '0', toolCallId, args, signal };
 }
 
-function immediateProcess(exitCode: number, stdoutText = ''): KaosProcess {
+function immediateProcess(exitCode: number, stdoutText = ''): PyaosProcess {
   return {
     stdin: { write: vi.fn(), end: vi.fn() } as unknown as Writable,
     stdout: Readable.from(stdoutText ? [stdoutText] : []),
     stderr: Readable.from([]),
     pid: 10000 + exitCode,
     exitCode,
-    wait: vi.fn().mockResolvedValue(exitCode) as KaosProcess['wait'],
-    kill: vi.fn().mockResolvedValue(undefined) as KaosProcess['kill'],
-    dispose: vi.fn().mockResolvedValue(undefined) as KaosProcess['dispose'],
+    wait: vi.fn().mockResolvedValue(exitCode) as PyaosProcess['wait'],
+    kill: vi.fn().mockResolvedValue(undefined) as PyaosProcess['kill'],
+    dispose: vi.fn().mockResolvedValue(undefined) as PyaosProcess['dispose'],
   };
 }
 
-function pendingProcess(): KaosProcess {
+function pendingProcess(): PyaosProcess {
   let resolveWait: (n: number) => void = () => {};
   const waitPromise = new Promise<number>((resolve) => {
     resolveWait = resolve;
@@ -67,8 +67,8 @@ function pendingProcess(): KaosProcess {
       return currentExitCode;
     },
     wait: () => waitPromise,
-    kill: killSpy as unknown as KaosProcess['kill'],
-    dispose: vi.fn().mockResolvedValue(undefined) as KaosProcess['dispose'],
+    kill: killSpy as unknown as PyaosProcess['kill'],
+    dispose: vi.fn().mockResolvedValue(undefined) as PyaosProcess['dispose'],
   };
 }
 

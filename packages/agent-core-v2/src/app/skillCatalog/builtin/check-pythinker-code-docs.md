@@ -12,7 +12,7 @@ Answer Pythinker Code **product** questions from the official documentation site
 Official documentation (English):
 
 ```
-https://www.kimi.com/code/docs/en/
+https://github.com/PyModel/pythinker-code/tree/main/docs/en
 ```
 
 Fetch pages with **FetchURL** before answering. All page links below are relative to this base.
@@ -41,4 +41,4 @@ If no row fits the question, fetch the docs home page and follow its navigation 
 1. Pick the page from the table above.
 2. **FetchURL the page before answering** — answer strictly from the fetched content, never from memory.
 3. Cite the page link(s) you used at the end of the answer.
-4. If the fetch fails or the docs do not cover the question, say so plainly: answer from what you already know, attach the docs entry link (`https://www.kimi.com/code/docs/en/`), and mark which parts you could not verify. **Never invent config keys, command names, model IDs, or product behaviors.**
+4. If the fetch fails or the docs do not cover the question, say so plainly: answer from what you already know, attach the docs entry link (`https://github.com/PyModel/pythinker-code/tree/main/docs/en`), and mark which parts you could not verify. **Never invent config keys, command names, model IDs, or product behaviors.**

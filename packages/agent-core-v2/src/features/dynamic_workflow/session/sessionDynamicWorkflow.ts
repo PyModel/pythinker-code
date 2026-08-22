@@ -1,6 +1,7 @@
 import type { TokenUsage } from '#/kosong/contract/usage';
 
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
+import type { SubagentSpawnPlan } from '#/session/subagent/spawn';
 
 type SessionDynamicWorkflowTaskBase<T> = {
   readonly data: T;
@@ -19,7 +20,7 @@ type SessionDynamicWorkflowTaskBase<T> = {
 export type SessionDynamicWorkflowSpawnTask<T = unknown> = SessionDynamicWorkflowTaskBase<T> & {
   readonly kind: 'spawn';
   readonly resumeAgentId?: undefined;
-  readonly binding?: { readonly model: string; readonly thinking?: string };
+  readonly plan: SubagentSpawnPlan;
 };
 
 export type SessionDynamicWorkflowResumeTask<T = unknown> = SessionDynamicWorkflowTaskBase<T> & {

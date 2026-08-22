@@ -53,11 +53,11 @@ import type {
   SessionSummary,
 } from '@pymodel/pythinker-code-sdk';
 import { log } from '@pymodel/pythinker-code-sdk';
-import { LocalKaos, type Kaos } from '@pymodel/kaos';
+import { LocalPyaos, type Pyaos } from '@pymodel/pyaos';
 
 import { TERMINAL_AUTH_METHOD, buildTerminalAuthMethod } from './auth-methods';
 import { redirectConsoleToStderr } from './log-guard';
-import { AcpKaos } from './kaos-acp';
+import { AcpPyaos } from './pyaos-acp';
 import { AcpSession, type TelemetryTrackFn } from './session';
 import { buildSessionConfigOptions } from './config-options';
 import { availableCommandsUpdateNotification } from './events-map';
@@ -229,12 +229,12 @@ export class AcpServer implements Agent {
     session: Session,
   ) => Promise<ResolvedSlashCommands>;
   /**
-   * Lazily-built inner {@link Kaos} (a {@link LocalKaos}) used as the
-   * delegate target for every {@link AcpKaos} this server hands out.
+   * Lazily-built inner {@link Pyaos} (a {@link LocalPyaos}) used as the
+   * delegate target for every {@link AcpPyaos} this server hands out.
    * One per server (not per session) so we don't re-probe the
    * environment for every `session/new` call.
    */
-  private innerKaos: Kaos | undefined = undefined;
+  private innerPyaos: Pyaos | undefined = undefined;
 
   constructor(
     private readonly harness: PythinkerHarness,
@@ -370,20 +370,20 @@ export class AcpServer implements Agent {
       // connection mid-stream.
       throw RequestError.internalError(undefined, 'AcpServer is missing its AgentSideConnection');
     }
-    // Pre-mint the session id so the optional `AcpKaos` (built when the
+    // Pre-mint the session id so the optional `AcpPyaos` (built when the
     // client advertised `fs.readTextFile` / `fs.writeTextFile`) carries
     // the correct reverse-RPC channel for the same session the kernel
-    // is about to construct. Boundary injection — the kaos is captured
+    // is about to construct. Boundary injection — the pyaos is captured
     // by the kernel `SessionImpl` ctor and every tool downstream sees
     // the same reference, no AsyncLocalStorage needed.
     const sessionId = `session_${randomUUID()}`;
-    const acpKaos = await this.maybeBuildAcpKaos(sessionId);
-    const persistenceKaos = acpKaos === undefined ? undefined : await this.ensureInnerKaos();
+    const acpPyaos = await this.maybeBuildAcpPyaos(sessionId);
+    const persistencePyaos = acpPyaos === undefined ? undefined : await this.ensureInnerPyaos();
     const session = await this.harness.createSession({
       id: sessionId,
       workDir: params.cwd,
-      kaos: acpKaos,
-      persistenceKaos,
+      pyaos: acpPyaos,
+      persistencePyaos,
       sessionStartedProperties: { mode: 'new' },
       // @ts-expect-error — `mcpServers` is a kernel-side extension
       // (agent-core `CreateSessionPayload`) the SDK transparently
@@ -546,14 +546,14 @@ export class AcpServer implements Agent {
     // `resumeSession` spreads `input` so unknown fields ride to the
     // kernel.
     const mcpServers = acpMcpServersToConfigs(params.mcpServers);
-    const acpKaos = await this.maybeBuildAcpKaos(params.sessionId);
-    const persistenceKaos = acpKaos === undefined ? undefined : await this.ensureInnerKaos();
+    const acpPyaos = await this.maybeBuildAcpPyaos(params.sessionId);
+    const persistencePyaos = acpPyaos === undefined ? undefined : await this.ensureInnerPyaos();
     let session: Session;
     try {
       session = await this.harness.resumeSession({
         id: params.sessionId,
-        kaos: acpKaos,
-        persistenceKaos,
+        pyaos: acpPyaos,
+        persistencePyaos,
         sessionStartedProperties: { mode: params.mode },
         // @ts-expect-error — see block comment above; mcpServers is a
         // kernel-only field that the SDK forwards via spread.
@@ -616,19 +616,19 @@ export class AcpServer implements Agent {
   }
 
   /**
-   * Build an {@link AcpKaos} for a given session id if (and only if)
+   * Build an {@link AcpPyaos} for a given session id if (and only if)
    * the client advertised any FS reverse-RPC capability. Returns
-   * `undefined` otherwise — the caller then omits the `kaos` field
+   * `undefined` otherwise — the caller then omits the `pyaos` field
    * from `harness.createSession`/`resumeSession`, leaving the kernel
-   * to fall back to its process-wide {@link LocalKaos}.
+   * to fall back to its process-wide {@link LocalPyaos}.
    *
-   * The inner {@link LocalKaos} is built lazily on the first capable
-   * session and cached on `this.innerKaos`; subsequent sessions reuse
-   * it. The resulting {@link AcpKaos} is captured by the kernel
+   * The inner {@link LocalPyaos} is built lazily on the first capable
+   * session and cached on `this.innerPyaos`; subsequent sessions reuse
+   * it. The resulting {@link AcpPyaos} is captured by the kernel
    * `SessionImpl` ctor and every tool downstream sees the same
    * reference — no AsyncLocalStorage involved.
    */
-  private async maybeBuildAcpKaos(sessionId: string): Promise<AcpKaos | undefined> {
+  private async maybeBuildAcpPyaos(sessionId: string): Promise<AcpPyaos | undefined> {
     const fs = this.clientCapabilities?.fs;
     if (!fs?.readTextFile && !fs?.writeTextFile) {
       return undefined;
@@ -636,15 +636,15 @@ export class AcpServer implements Agent {
     if (!this.conn) {
       return undefined;
     }
-    const innerKaos = await this.ensureInnerKaos();
-    return new AcpKaos(this.conn, sessionId, innerKaos);
+    const innerPyaos = await this.ensureInnerPyaos();
+    return new AcpPyaos(this.conn, sessionId, innerPyaos);
   }
 
-  private async ensureInnerKaos(): Promise<Kaos> {
-    if (!this.innerKaos) {
-      this.innerKaos = await LocalKaos.create();
+  private async ensureInnerPyaos(): Promise<Pyaos> {
+    if (!this.innerPyaos) {
+      this.innerPyaos = await LocalPyaos.create();
     }
-    return this.innerKaos;
+    return this.innerPyaos;
   }
 
   /**

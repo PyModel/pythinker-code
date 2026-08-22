@@ -88,6 +88,11 @@ const RENAME = [
   ['Swarm', 'DynamicWorkflow'],
   ['swarms', 'dynamicWorkflows'],
   ['swarm', 'dynamic_workflow'],
+  // kaos OS-abstraction layer was renamed to pyaos in pythinker
+  ['KAOS_', 'PYAOS_'],
+  ['KAOS', 'PYAOS'],
+  ['Kaos', 'Pyaos'],
+  ['kaos', 'pyaos'],
   // product identity
   ['kimi-code', 'pythinker-code'],
   ['KimiCode', 'PythinkerCode'],

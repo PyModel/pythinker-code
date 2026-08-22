@@ -15,9 +15,12 @@ export function QuestionDialog() {
   // The question stays pending until the RPC settles, so repeated key presses
   // would submit duplicate answers without this guard.
   const inFlightRef = useRef(false);
+  const [multiSelected, setMultiSelected] = useState<string[]>([]);
 
   const questions = pendingQuestion?.questions ?? [];
   const question = questions[questionIndex];
+  const isMultiSelect = question?.multi_select === true;
+  const isLastQuestion = questionIndex + 1 >= questions.length;
 
   useEffect(() => {
     if (pendingQuestion) {
@@ -27,6 +30,7 @@ export function QuestionDialog() {
       setQuestionIndex(0);
       setAnswers({});
       cardRef.current?.focus();
+      setMultiSelected([]);
     }
   }, [pendingQuestion?.id]);
 
@@ -35,12 +39,13 @@ export function QuestionDialog() {
   // Step through the questions one by one; submit all answers after the last.
   const handleAnswer = async (answer: string) => {
     const nextAnswers = { ...answers, [question.question]: answer };
-    if (questionIndex + 1 < questions.length) {
+    if (!isLastQuestion) {
       setAnswers(nextAnswers);
       setQuestionIndex(questionIndex + 1);
       setShowCustom(false);
       setCustomInput("");
       setSelectedIndex(1);
+      setMultiSelected([]);
     } else {
       if (inFlightRef.current) return;
       inFlightRef.current = true;
@@ -54,16 +59,30 @@ export function QuestionDialog() {
   };
 
   const handleSelect = async (optionLabel: string) => {
+    if (isMultiSelect) {
+      setMultiSelected((prev) =>
+        prev.includes(optionLabel) ? prev.filter((value) => value !== optionLabel) : [...prev, optionLabel],
+      );
+      return;
+    }
     await handleAnswer(optionLabel);
   };
 
   const handleCustomSubmit = async () => {
-    if (!customInput.trim()) return;
-    await handleAnswer(customInput.trim());
+    const value = customInput.trim();
+    if (!value) return;
+    if (isMultiSelect) {
+      setMultiSelected((prev) => (prev.includes(value) ? prev : [...prev, value]));
+      setCustomInput("");
+      setShowCustom(false);
+      return;
+    }
+    await handleAnswer(value);
   };
 
   const options = question.options || [];
   const customIndex = options.length + 1;
+  const customValues = multiSelected.filter((value) => !options.some((option) => option.label === value));
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     if (showCustom) return; // the custom input owns the keyboard while open
@@ -111,25 +130,51 @@ export function QuestionDialog() {
         )}
         {question.header && <div className="text-[10px] text-muted-foreground uppercase tracking-wide">{question.header}</div>}
         <div className="text-xs font-semibold text-foreground">{question.question}</div>
+        {isMultiSelect && <div className="text-[10px] text-muted-foreground">Select all that apply</div>}
         <div className="space-y-1.5">
-          {options.map((option, idx) => (
+          {options.map((option, idx) => {
+            const isChecked = isMultiSelect && multiSelected.includes(option.label);
+            const isHighlighted = selectedIndex === idx + 1;
+            return (
+              <button
+                key={idx}
+                onClick={() => {
+                  void handleSelect(option.label);
+                }}
+                onMouseEnter={() => setSelectedIndex(idx + 1)}
+                className={cn(
+                  "w-full text-left px-2 py-1 rounded-md text-xs transition-colors",
+                  "border cursor-pointer",
+                  isChecked
+                    ? "bg-blue-500/15 border-blue-500"
+                    : isHighlighted
+                      ? "bg-blue-500 text-white border-blue-500"
+                      : "bg-background border-border hover:bg-muted/50",
+                )}
+              >
+                <span className={cn("mr-2", isHighlighted && !isChecked ? "text-blue-200" : "text-muted-foreground")}>
+                  {isChecked ? "✓" : idx + 1}
+                </span>
+                <span className="font-medium">{option.label}</span>
+                {option.description && (
+                  <span className={cn("ml-2", isHighlighted && !isChecked ? "text-blue-200" : "text-muted-foreground")}>- {option.description}</span>
+                )}
+              </button>
+            );
+          })}
+          {customValues.map((value) => (
             <button
-              key={idx}
+              key={value}
               onClick={() => {
-                void handleSelect(option.label);
+                void handleSelect(value);
               }}
-              onMouseEnter={() => setSelectedIndex(idx + 1)}
               className={cn(
                 "w-full text-left px-2 py-1 rounded-md text-xs transition-colors",
-                "border border-border cursor-pointer",
-                selectedIndex === idx + 1 ? "bg-primary text-primary-foreground border-primary" : "bg-background hover:bg-muted/50",
+                "border cursor-pointer bg-blue-500/15 border-blue-500",
               )}
             >
-              <span className={cn("mr-2", selectedIndex === idx + 1 ? "text-primary-foreground/70" : "text-muted-foreground")}>{idx + 1}</span>
-              <span className="font-medium">{option.label}</span>
-              {option.description && (
-                <span className={cn("ml-2", selectedIndex === idx + 1 ? "text-primary-foreground/70" : "text-muted-foreground")}>- {option.description}</span>
-              )}
+              <span className="mr-2 text-muted-foreground">✓</span>
+              <span className="font-medium">{value}</span>
             </button>
           ))}
           {showCustom ? (
@@ -170,6 +215,17 @@ export function QuestionDialog() {
             >
               <span className={cn("mr-2", selectedIndex === customIndex ? "text-primary-foreground/70" : "text-muted-foreground")}>{customIndex}</span>
               <span className="font-medium">Custom response...</span>
+            </button>
+          )}
+          {isMultiSelect && (
+            <button
+              onClick={() => {
+                void handleAnswer(multiSelected.join(", "));
+              }}
+              disabled={multiSelected.length === 0}
+              className="w-full px-2 py-1 rounded-md text-xs bg-blue-500 text-white disabled:opacity-50 cursor-pointer"
+            >
+              {isLastQuestion ? "Submit" : "Next"}
             </button>
           )}
         </div>

@@ -174,7 +174,7 @@ import type { ResumedAgentState, ResumeSessionResult } from './resumed';
 import type { SDKRPC } from './sdk-api';
 import type { SessionWarning } from '@pymodel/protocol';
 import { proxyWithExtraPayload } from './types';
-import { KaosShellNotFoundError, LocalKaos, type Kaos } from '@pymodel/kaos';
+import { PyaosShellNotFoundError, LocalPyaos, type Pyaos } from '@pymodel/pyaos';
 import type { ToolServices } from '../tools/support/services';
 
 const PYTHINKER_CODE_PROVIDER_NAME = 'managed:pythinker-code';
@@ -228,7 +228,7 @@ export class PythinkerCore implements PromisableMethods<CoreAPI> {
   readonly sessions = new Map<string, Session>();
   readonly telemetry: TelemetryClient;
 
-  private kaos: Promise<Kaos> | undefined;
+  private pyaos: Promise<Pyaos> | undefined;
   private runtime: ToolServices | undefined;
   private config: PythinkerConfig;
   private configWarnings: readonly string[] = [];
@@ -333,7 +333,7 @@ export class PythinkerCore implements PromisableMethods<CoreAPI> {
 
   async createSessionWithOverrides(
     input: CreateSessionPayload,
-    overrides: { kaos?: Kaos; persistenceKaos?: Kaos },
+    overrides: { pyaos?: Pyaos; persistencePyaos?: Pyaos },
   ): Promise<SessionSummary> {
     const options = input;
     const workDir = requiredWorkDir('createSession', options.workDir);
@@ -357,18 +357,18 @@ export class PythinkerCore implements PromisableMethods<CoreAPI> {
       homeDir: this.homeDir,
     });
     const withCallerMcp = mergeCallerMcpServers(baseMcpConfig, options.mcpServers);
-    const parentKaos = overrides.kaos ?? (await this.getKaos());
-    const persistenceKaos = overrides.persistenceKaos ?? parentKaos;
+    const parentPyaos = overrides.pyaos ?? (await this.getPyaos());
+    const persistencePyaos = overrides.persistencePyaos ?? parentPyaos;
     // Read the workspace local config (`.pythinker-code/local.toml`) through the
-    // persistence (local) kaos, not the tool kaos. In ACP mode the tool kaos is
+    // persistence (local) pyaos, not the tool pyaos. In ACP mode the tool pyaos is
     // the reverse-RPC bridge and the client does not know the session yet during
     // `session/new`, so reading through it fails with "unknown session"
     // (https://github.com/PyModel/pythinker-code/issues/988). The local config is
     // a system file and must not depend on the tool bridge — same reason
-    // `Session.systemContextKaos` is backed by the persistence sink.
-    const localWorkspaceDirs = await readWorkspaceAdditionalDirs(persistenceKaos, workDir);
+    // `Session.systemContextPyaos` is backed by the persistence sink.
+    const localWorkspaceDirs = await readWorkspaceAdditionalDirs(persistencePyaos, workDir);
     const callerAdditionalDirs = await resolveWorkspaceAdditionalDirs(
-      parentKaos,
+      parentPyaos,
       workDir,
       options.additionalDirs ?? [],
     );
@@ -434,8 +434,8 @@ export class PythinkerCore implements PromisableMethods<CoreAPI> {
     // ctor block throws, `session.close()` releases the sink (and mcp).
     const runtime = await this.resolveRuntime(config);
     const session = new Session({
-      kaos: parentKaos.withCwd(workDir),
-      persistenceKaos,
+      pyaos: parentPyaos.withCwd(workDir),
+      persistencePyaos,
       toolServices: runtime,
       config: sessionConfig,
       id,
@@ -557,22 +557,22 @@ export class PythinkerCore implements PromisableMethods<CoreAPI> {
   async resumeSessionWithOverrides(
     input: ResumeSessionPayload,
     overrides: {
-      kaos?: Kaos;
-      persistenceKaos?: Kaos;
+      pyaos?: Pyaos;
+      persistencePyaos?: Pyaos;
       forcePluginSessionStartReminder?: boolean;
       refreshPluginAgents?: boolean;
     },
   ): Promise<ResumeSessionResult> {
     const summary = await this.sessionStore.get(input.sessionId);
-    const parentKaosForRead = overrides.kaos ?? (await this.getKaos());
-    // Read `.pythinker-code/local.toml` through the persistence (local) kaos, not the
-    // tool kaos — see createSessionWithOverrides and issue #988.
+    const parentPyaosForRead = overrides.pyaos ?? (await this.getPyaos());
+    // Read `.pythinker-code/local.toml` through the persistence (local) pyaos, not the
+    // tool pyaos — see createSessionWithOverrides and issue #988.
     const localWorkspaceDirs = await readWorkspaceAdditionalDirs(
-      overrides.persistenceKaos ?? parentKaosForRead,
+      overrides.persistencePyaos ?? parentPyaosForRead,
       summary.workDir,
     );
     const callerAdditionalDirs = await resolveWorkspaceAdditionalDirs(
-      parentKaosForRead,
+      parentPyaosForRead,
       summary.workDir,
       input.additionalDirs ?? [],
     );
@@ -583,8 +583,8 @@ export class PythinkerCore implements PromisableMethods<CoreAPI> {
     const active = this.sessions.get(summary.id);
     if (active !== undefined) {
       await active.assertMainProfileSelection(input.agentProfile);
-      if (overrides.kaos !== undefined) {
-        active.setToolKaos(overrides.kaos.withCwd(summary.workDir));
+      if (overrides.pyaos !== undefined) {
+        active.setToolPyaos(overrides.pyaos.withCwd(summary.workDir));
       }
       await active.setBaseAdditionalDirs(additionalDirs);
       return withAdditionalDirs(
@@ -611,11 +611,11 @@ export class PythinkerCore implements PromisableMethods<CoreAPI> {
     const pluginCommands = await this.plugins.enabledCommands();
     const mcpConfig = this.mergePluginMcpConfig(withCallerMcp);
     const runtime = await this.resolveRuntime(config);
-    const parentKaos = parentKaosForRead;
-    const persistenceKaos = overrides.persistenceKaos ?? parentKaos;
+    const parentPyaos = parentPyaosForRead;
+    const persistencePyaos = overrides.persistencePyaos ?? parentPyaos;
     const session = new Session({
-      kaos: parentKaos.withCwd(summary.workDir),
-      persistenceKaos,
+      pyaos: parentPyaos.withCwd(summary.workDir),
+      persistencePyaos,
       toolServices: runtime,
       config: sessionConfig,
       id: summary.id,
@@ -1860,14 +1860,14 @@ export class PythinkerCore implements PromisableMethods<CoreAPI> {
     return runtime;
   }
 
-  private getKaos(): Promise<Kaos> {
-    this.kaos ??= LocalKaos.create().catch((error: unknown) => {
-      if (error instanceof KaosShellNotFoundError) {
+  private getPyaos(): Promise<Pyaos> {
+    this.pyaos ??= LocalPyaos.create().catch((error: unknown) => {
+      if (error instanceof PyaosShellNotFoundError) {
         throw new PythinkerError(ErrorCodes.SHELL_GIT_BASH_NOT_FOUND, error.message);
       }
       throw error;
     });
-    return this.kaos;
+    return this.pyaos;
   }
 
   private resolveSessionSkillConfig(config: PythinkerConfig): SessionSkillConfig {

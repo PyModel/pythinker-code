@@ -119,6 +119,42 @@ describe("TuiAltScreen", () => {
 		tui.stop();
 	});
 
+	it("shows a clickable jump-to-bottom control above a fixed dock", async () => {
+		const terminal = new VirtualTerminal(40, 6);
+		const tui = new TuiAltScreen(terminal, undefined, undefined, {
+			jumpToBottomLabel: "Jump to bottom (click) ↓",
+		});
+		const transcript = new ScrollView(
+			new Text(Array.from({ length: 10 }, (_, index) => `line ${index + 1}`).join("\n"), 0, 0),
+			{ follow: "end", primary: true },
+		);
+		const dock = new VStack([new Text("editor", 0, 0), new Text("footer", 0, 0)]);
+		tui.setLayoutRoot(
+			new VStack([
+				{ component: transcript, basis: 0, grow: 1, minSize: 1 },
+				{ component: dock, basis: "auto", minSize: 1 },
+			]),
+		);
+		tui.start();
+		await terminal.waitForRender();
+
+		terminal.sendInput("\x1b[<64;1;1M");
+		await terminal.waitForRender();
+		assert.ok(terminal.getViewport()[3]?.includes("Jump to bottom (click) ↓"));
+		assert.strictEqual(tui.isFollowingOutput, false);
+
+		terminal.sendInput("\x1b[<0;20;4M");
+		await terminal.waitForRender();
+		assert.strictEqual(tui.isFollowingOutput, true);
+		assert.ok(!terminal.getViewport().some((line) => line.includes("Jump to bottom")));
+		assert.deepStrictEqual(
+			terminal.getViewport().map((line) => line.trimEnd()),
+			["line 7", "line 8", "line 9", "line 10", "editor", "footer"],
+		);
+
+		tui.stop();
+	});
+
 	it("invalidates overlays with an explicit layout root", () => {
 		const tui = new TuiAltScreen(new VirtualTerminal());
 		const overlay = new Text("overlay", 0, 0);

@@ -10,7 +10,7 @@ import { join } from 'pathe';
 import { setTimeout as delay } from 'node:timers/promises';
 import { Readable, type Writable } from 'node:stream';
 
-import type { Kaos, KaosProcess } from '@pymodel/kaos';
+import type { Pyaos, PyaosProcess } from '@pymodel/pyaos';
 import { createControlledPromise } from '@antfu/utils';
 import {
   APIConnectionError,
@@ -43,9 +43,9 @@ import type {
   SessionSubagentHost,
 } from '../../src/session/subagent-host';
 import { recordingTelemetry, type TelemetryRecord } from '../fixtures/telemetry';
-import { createFakeKaos } from '../tools/fixtures/fake-kaos';
+import { createFakePyaos } from '../tools/fixtures/fake-pyaos';
 import {
-  createCommandKaos,
+  createCommandPyaos,
   testAgent,
   type TestAgentContext,
   type TestAgentOptions,
@@ -534,7 +534,7 @@ describe('Agent turn flow', () => {
   it('reports turn_interrupted telemetry as user_cancelled on manual abort', async () => {
     const records: TelemetryRecord[] = [];
     const ctx = testAgent({
-      kaos: createCommandKaos('should-not-run'),
+      pyaos: createCommandPyaos('should-not-run'),
       telemetry: recordingTelemetry(records),
     });
     ctx.configure({ tools: ['Bash'] });
@@ -561,7 +561,7 @@ describe('Agent turn flow', () => {
   it('reports turn_interrupted telemetry as aborted on programmatic abort', async () => {
     const records: TelemetryRecord[] = [];
     const ctx = testAgent({
-      kaos: createCommandKaos('should-not-run'),
+      pyaos: createCommandPyaos('should-not-run'),
       telemetry: recordingTelemetry(records),
     });
     ctx.configure({ tools: ['Bash'] });
@@ -618,15 +618,15 @@ describe('Agent turn flow', () => {
     const ctx = testAgent();
     ctx.agent.printDrainAgentTasksOnStop = true;
 
-    const proc: KaosProcess = {
+    const proc: PyaosProcess = {
       stdin: { write: vi.fn(), end: vi.fn() } as unknown as Writable,
       stdout: Readable.from([]),
       stderr: Readable.from([]),
       pid: 4242,
       exitCode: null,
-      wait: vi.fn().mockReturnValue(new Promise<number>(() => {})) as unknown as KaosProcess['wait'],
-      kill: vi.fn().mockResolvedValue(undefined) as unknown as KaosProcess['kill'],
-      dispose: vi.fn().mockResolvedValue(undefined) as unknown as KaosProcess['dispose'],
+      wait: vi.fn().mockReturnValue(new Promise<number>(() => {})) as unknown as PyaosProcess['wait'],
+      kill: vi.fn().mockResolvedValue(undefined) as unknown as PyaosProcess['kill'],
+      dispose: vi.fn().mockResolvedValue(undefined) as unknown as PyaosProcess['dispose'],
     };
     ctx.agent.background.registerTask(new ProcessBackgroundTask(proc, 'sleep 60', 'proc'));
 
@@ -674,7 +674,7 @@ describe('Agent turn flow', () => {
   it('attaches the provider trace id to turn and tool telemetry', async () => {
     const records: TelemetryRecord[] = [];
     const ctx = testAgent({
-      kaos: createCommandKaos('traced'),
+      pyaos: createCommandPyaos('traced'),
       telemetry: recordingTelemetry(records),
     });
     ctx.configure({ tools: ['Bash'] });
@@ -717,7 +717,7 @@ describe('Agent turn flow', () => {
   it('tracks duplicate tool-call detection telemetry', async () => {
     const records: TelemetryRecord[] = [];
     const ctx = testAgent({
-      kaos: createCommandKaos('dup'),
+      pyaos: createCommandPyaos('dup'),
       telemetry: recordingTelemetry(records),
     });
     ctx.configure({ tools: ['Bash'] });
@@ -757,7 +757,7 @@ describe('Agent turn flow', () => {
   it('tracks cross-step duplicate tool-call detection telemetry', async () => {
     const records: TelemetryRecord[] = [];
     const ctx = testAgent({
-      kaos: createCommandKaos('dup'),
+      pyaos: createCommandPyaos('dup'),
       telemetry: recordingTelemetry(records),
     });
     ctx.configure({ tools: ['Bash'] });
@@ -796,7 +796,7 @@ describe('Agent turn flow', () => {
   it('force-stops a turn that keeps re-issuing the same validation-rejected call', async () => {
     const records: TelemetryRecord[] = [];
     const ctx = testAgent({
-      kaos: createCommandKaos('bad'),
+      pyaos: createCommandPyaos('bad'),
       telemetry: recordingTelemetry(records),
     });
     ctx.configure({ tools: ['Bash'] });
@@ -826,7 +826,7 @@ describe('Agent turn flow', () => {
   it('does not force-stop when the malformed argument text keeps changing', async () => {
     const records: TelemetryRecord[] = [];
     const ctx = testAgent({
-      kaos: createCommandKaos('bad'),
+      pyaos: createCommandPyaos('bad'),
       telemetry: recordingTelemetry(records),
     });
     ctx.configure({ tools: ['Bash'] });
@@ -876,7 +876,7 @@ describe('Agent turn flow', () => {
         },
       },
     );
-    const ctx = testAgent({ kaos: createCommandKaos('dup'), hookEngine });
+    const ctx = testAgent({ pyaos: createCommandPyaos('dup'), hookEngine });
     ctx.configure({ tools: ['Bash'] });
     await ctx.rpc.setPermission({ mode: 'yolo' });
 
@@ -1518,7 +1518,7 @@ describe('Agent turn flow', () => {
       },
     ]);
     const ctx = testAgent({
-      kaos: createFakeKaos({ execWithEnv }),
+      pyaos: createFakePyaos({ execWithEnv }),
       hookEngine,
     });
     const beforeToolCall = vi.spyOn(ctx.agent.permission, 'beforeToolCall');
@@ -1585,7 +1585,7 @@ describe('Agent turn flow', () => {
     );
     const ctx = testAgent({
       hookEngine,
-      kaos: createCommandKaos('should-not-run'),
+      pyaos: createCommandPyaos('should-not-run'),
     });
     ctx.configure({ tools: ['Bash'] });
 
@@ -1616,7 +1616,7 @@ describe('Agent turn flow', () => {
     );
     const ctx = testAgent({
       hookEngine,
-      kaos: createCommandKaos('should-not-run'),
+      pyaos: createCommandPyaos('should-not-run'),
     });
     ctx.configure({ tools: ['Bash'] });
 
@@ -1897,7 +1897,7 @@ describe('Agent turn flow', () => {
         providers: {},
         loopControl: { maxStepsPerTurn: 1 },
       },
-      kaos: createCommandKaos('loop-output'),
+      pyaos: createCommandPyaos('loop-output'),
     });
     ctx.configure({ tools: ['Bash'] });
     await ctx.rpc.setPermission({ mode: 'yolo' });
@@ -1944,7 +1944,7 @@ describe('Agent turn flow', () => {
           providers: {},
           loopControl: { maxStepsPerTurn: 100 },
         },
-        kaos: createCommandKaos('loop-output'),
+        pyaos: createCommandPyaos('loop-output'),
       });
       ctx.configure({ tools: ['Bash'] });
       await ctx.rpc.setPermission({ mode: 'yolo' });
@@ -2353,7 +2353,7 @@ describe('Agent turn flow', () => {
     };
     const ctx = testAgent({
       generate,
-      kaos: createCommandKaos('traced'),
+      pyaos: createCommandPyaos('traced'),
       ...singleAttemptAgentOptions(),
       telemetry: recordingTelemetry(records),
     });
@@ -2401,7 +2401,7 @@ describe('Agent turn flow', () => {
     };
     const ctx = testAgent({
       generate,
-      kaos: createCommandKaos('traced'),
+      pyaos: createCommandPyaos('traced'),
       ...singleAttemptAgentOptions(),
       telemetry: recordingTelemetry(records),
     });
@@ -2446,7 +2446,7 @@ describe('Agent turn flow', () => {
     };
     const ctx = testAgent({
       generate,
-      kaos: createCommandKaos('traced'),
+      pyaos: createCommandPyaos('traced'),
       telemetry: recordingTelemetry(records),
     });
     ctx.configure({ tools: ['Bash'] });
@@ -2592,7 +2592,7 @@ describe('Agent turn flow', () => {
     } as unknown as ChatProvider;
     const ctx = testAgent({
       ...oauthOptions,
-      kaos: createVideoKaos(),
+      pyaos: createVideoPyaos(),
     });
     ctx.agent.config.update({
       cwd: process.cwd(),
@@ -2627,7 +2627,7 @@ describe('Agent turn flow', () => {
   it('cancels an active turn', async () => {
     const records: TelemetryRecord[] = [];
     const ctx = testAgent({
-      kaos: createCommandKaos('should-not-run'),
+      pyaos: createCommandPyaos('should-not-run'),
       telemetry: recordingTelemetry(records),
     });
     ctx.configure({ tools: ['Bash'] });
@@ -2691,7 +2691,7 @@ describe('Agent turn flow', () => {
       arguments: '{"command":"printf approved","timeout":60}',
     };
     const ctx = testAgent({
-      kaos: createCommandKaos('approved'),
+      pyaos: createCommandPyaos('approved'),
     });
     ctx.configure({ tools: ['Bash'] });
 
@@ -2765,7 +2765,7 @@ describe('Agent turn flow', () => {
   });
 
   it('rejects a non-steer prompt while a turn is active', async () => {
-    const ctx = testAgent({ kaos: createCommandKaos('should-not-run') });
+    const ctx = testAgent({ pyaos: createCommandPyaos('should-not-run') });
     ctx.configure({ tools: ['Bash'] });
 
     ctx.mockNextResponse({ type: 'text', text: 'I will wait for approval.' }, bashCall());
@@ -2935,10 +2935,10 @@ const DEFAULT_MEDIA_STAT = {
   stCtime: 0,
 };
 
-function createVideoKaos(): Kaos {
-  return createFakeKaos({
-    stat: vi.fn<Kaos['stat']>().mockResolvedValue(DEFAULT_MEDIA_STAT),
-    readBytes: vi.fn<Kaos['readBytes']>().mockResolvedValue(MP4_HEADER),
+function createVideoPyaos(): Pyaos {
+  return createFakePyaos({
+    stat: vi.fn<Pyaos['stat']>().mockResolvedValue(DEFAULT_MEDIA_STAT),
+    readBytes: vi.fn<Pyaos['readBytes']>().mockResolvedValue(MP4_HEADER),
   });
 }
 
@@ -3037,7 +3037,7 @@ describe('abandoned tool exchange teardown', () => {
       flush: () => base.flush(),
       close: () => base.close(),
     };
-    const ctx = testAgent({ kaos: createCommandKaos('ok'), persistence });
+    const ctx = testAgent({ pyaos: createCommandPyaos('ok'), persistence });
     ctx.configure({ tools: ['Bash'] });
     await ctx.rpc.setPermission({ mode: 'auto' });
 
