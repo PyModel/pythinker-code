@@ -15,3 +15,7 @@ overrides:
   "ssh2@1.17.0>cpu-features": "-"
   "ssh2@1.17.0>nan": "-"
   "pythinker-code>tailwindcss": "4.1.18"
+  "vite@>=8.0.0 <8.0.16": "8.0.16"
+  "@babel/core@<7.29.6": "^7.29.6"
+  "diff@>=6.0.0 <8.0.3": "^8.0.3"
+  "serialize-javascript@<7.0.5": "^7.0.5"
