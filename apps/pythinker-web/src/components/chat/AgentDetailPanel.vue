@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onUnmounted, provide, ref, watch } from 'vue';
+import { computed, inject, nextTick, onUnmounted, provide, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import type { AgentMember, ChatTurn, FilePreviewRequest, ToolMedia } from '../../types';
 import type { TurnFileChange } from '../../lib/turnFiles';
@@ -73,8 +73,15 @@ const outputText = computed(() =>
     .join('\n'),
 );
 
+const modelDisplay = inject<(modelId: string | undefined) => string | undefined>('modelDisplay');
+const subagentEffort = inject<(effort: string | undefined) => string | undefined>('subagentEffort');
+
 const subtitle = computed(() =>
-  [props.member.subagentType, props.member.model, props.member.thinkingEffort]
+  [
+    props.member.subagentType,
+    modelDisplay?.(props.member.model),
+    subagentEffort?.(props.member.thinkingEffort),
+  ]
     .filter(Boolean)
     .join(' · ') || undefined,
 );

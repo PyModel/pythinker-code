@@ -46,7 +46,7 @@ import type { DynamicWorkflowMember } from './composables/dynamicWorkflowGroups'
 import ServerAuthDialog from './components/ServerAuthDialog.vue';
 import { initServerAuth, onAuthRequired } from './api/daemon/serverAuth';
 import type { AppConfig, ThinkingLevel } from './api/types';
-import { commitLevel, effectiveThinkingLevel, segmentsFor } from './lib/modelThinking';
+import { commitLevel, effortLabel, effectiveThinkingLevel, segmentsFor } from './lib/modelThinking';
 import { stripSkillPrefix } from './lib/slashCommands';
 import { composeTitle } from './lib/sessionEmoji';
 import { getTurnInterruption } from './api/daemon/agentEventProjector';
@@ -171,6 +171,20 @@ const showServerAuth = computed(
   () => !client.dangerousBypassAuth.value && authRequired.value,
 );
 provide('resolveImage', client.resolveImageUrl);
+// Friendly model / thinking-effort labels for subagent surfaces (TasksPane,
+// SubagentGrid, AgentDetailPanel). The model resolver prefers the exact id —
+// model names can collide across providers — then falls back to the raw id
+// with any provider prefix stripped.
+provide('modelDisplay', (modelId: string | undefined): string | undefined => {
+  if (modelId === undefined || modelId.length === 0) return undefined;
+  const matched =
+    client.models.value.find((m) => m.id === modelId) ??
+    client.models.value.find((m) => m.model === modelId);
+  return matched?.displayName || matched?.model || (modelId.includes('/') ? modelId.split('/').pop()! : modelId);
+});
+provide('subagentEffort', (effort: string | undefined): string | undefined =>
+  effort !== undefined && effort.length > 0 && effort !== 'off' && effort !== 'on' ? effortLabel(effort) : undefined,
+);
 // Live dynamic_workflow member roster for the inline AgentDynamicWorkflow tool card. Sourced from the
 // AppTask store so the card shows each subagent's live phase; on refresh the
 // tasks are gone and the card falls back to the parsed tool result. Includes
