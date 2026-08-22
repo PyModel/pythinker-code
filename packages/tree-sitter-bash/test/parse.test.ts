@@ -441,11 +441,15 @@ describe('adversarial input', () => {
     }
   });
 
-  it('parses a 500KB double-quoted string under the default budget', () => {
+  it('parses a 500KB double-quoted string within the node budget', () => {
     // Regression: per-character budget.tick() used to burn the 50k node cap
     // on long strings even though only a handful of nodes are created.
+    // Budgets are pinned rather than defaulted: the assertion is about node
+    // accounting, and the default 50ms wall clock made it fail on a loaded CI
+    // runner for machine speed instead. A 1k node cap is far stricter than the
+    // 50k default — per-character ticking would blow it instantly.
     const body = 'a'.repeat(500 * 1024);
-    const result = parse(`echo "${body}"`);
+    const result = parse(`echo "${body}"`, { timeoutMs: 10_000, maxNodes: 1_000 });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.hasError).toBe(false);
@@ -454,9 +458,9 @@ describe('adversarial input', () => {
     expect(content[0]!.text).toBe(body);
   });
 
-  it('parses a 500KB heredoc body under the default budget', () => {
+  it('parses a 500KB heredoc body within the node budget', () => {
     const body = 'b'.repeat(500 * 1024);
-    const result = parse(`cat <<EOF\n${body}\nEOF`);
+    const result = parse(`cat <<EOF\n${body}\nEOF`, { timeoutMs: 10_000, maxNodes: 1_000 });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.hasError).toBe(false);
