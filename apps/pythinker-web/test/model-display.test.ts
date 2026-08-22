@@ -63,7 +63,7 @@ const resolvers = {
   modelDisplay: (modelId: string | undefined): string | undefined => {
     if (modelId === undefined || modelId.length === 0) return undefined;
     const catalog: Record<string, string> = {
-      'pymodel/example-model': 'Example Model',
+      'example.test/example-model': 'Example Model',
     };
     return (
       catalog[modelId] ??
@@ -94,7 +94,7 @@ describe('subagent model/effort display resolvers', () => {
     kind: 'subagent',
     state: 'run',
     timing: 'Running · 0:01',
-    model: 'pymodel/example-model',
+    model: 'example.test/example-model',
     thinkingEffort: 'high',
   };
 
@@ -138,7 +138,7 @@ describe('subagent model/effort display resolvers', () => {
       template: `<AgentDetailPanel
         :member="{
           id: 'm1', name: 'Review modified files', subagentType: 'review',
-          model: 'pymodel/example-model', thinkingEffort: 'high',
+          model: 'example.test/example-model', thinkingEffort: 'high',
           phase: 'working', status: 'running', prompt: 'x'
         }"
         :turns="[]" :running="true" :loading="false" :load-error="false"
@@ -169,7 +169,7 @@ describe('copy menu keyboard and focus behavior', () => {
     id: 'm1',
     name: 'Review modified files',
     subagentType: 'review',
-    model: 'pymodel/example-model',
+    model: 'example.test/example-model',
     thinkingEffort: 'high',
     phase: 'working' as const,
     status: 'running' as const,

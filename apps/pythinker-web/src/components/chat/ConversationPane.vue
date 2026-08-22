@@ -247,12 +247,13 @@ function focusGoal(): void {
 const bashTasks = computed(() => props.tasks.filter((t) =>
   t.kind === 'bash' || (t.kind === 'tool' && !t.id.startsWith('question-')),
 ));
-// The dock lists every subagent row not explicitly marked foreground: live
-// `subagent.spawned` events and the snapshot roster carry the flag for inline
-// (foreground) runs, while REST /tasks omits it — those rows dock here. True
-// foreground runs render inline in the message flow as the `Agent` tool card,
-// so showing them here too would duplicate them (and foreground ones can't be
-// cancelled from the dock anyway).
+// The dock lists background subagents only. Every wire surface that returns
+// subagents reports the flag explicitly — REST /tasks (`run_in_background:
+// info.detached !== false`), the snapshot roster, and live `subagent.spawned`
+// events — so a missing flag means "not a subagent row we can dock", never
+// "assume background". Foreground runs render inline in the message flow as
+// the `Agent` tool card; docking them too would duplicate them, and they
+// cannot be cancelled from the dock anyway.
 const subagentTasks = computed(() =>
   props.tasks.filter((t) => t.kind === 'subagent' && t.runInBackground),
 );

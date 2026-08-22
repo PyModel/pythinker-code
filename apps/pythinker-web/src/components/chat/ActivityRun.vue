@@ -78,7 +78,9 @@ const last = computed(() => props.items.at(-1) ?? null);
 // The item the status glyph pins to: the streaming thinking tail (while this
 // run is streaming) or the last still-running tool; null once settled.
 const statusItem = computed<RunItem | null>(() => {
-  if (props.streaming && last.value?.kind === 'thinking') return last.value;
+  if (props.streaming && last.value?.kind === 'thinking' && !isSettledThinking(last.value)) {
+    return last.value;
+  }
   for (let index = props.items.length - 1; index >= 0; index -= 1) {
     const item = props.items[index];
     if (item?.kind === 'tool' && item.tool.status === 'running') return item;
@@ -151,7 +153,10 @@ onUnmounted(stopTicking);
 const glyphName = computed<IconName>(() => {
   if (status.value === 'done') return 'check';
   if (status.value === 'error') return 'close';
-  const current = statusItem.value ?? last.value;
+  // `last` is only a fallback while it can still be the live tail: a settled
+  // thinking block keeps its frozen label and must not re-arm the bulb.
+  const fallback = last.value !== null && isSettledThinking(last.value) ? null : last.value;
+  const current = statusItem.value ?? fallback;
   if (!current) return 'tool';
   if (current.kind === 'thinking') return 'thinking';
   const kind = normalizeToolName(current.tool.name);
