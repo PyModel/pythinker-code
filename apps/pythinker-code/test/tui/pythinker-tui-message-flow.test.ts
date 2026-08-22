@@ -820,11 +820,11 @@ describe('PythinkerTUI message flow', () => {
       driver as unknown as { refreshSkillCommands(): Promise<void> }
     ).refreshSkillCommands();
 
-    driver.handleUserInput('/dance please use /skill:review');
+    driver.handleUserInput('/hatch please use /skill:review');
 
     await vi.waitFor(() => {
       expect(session.promptWithSkills).toHaveBeenCalledWith(
-        '/dance please use /skill:review',
+        '/hatch please use /skill:review',
         [{ name: 'review' }],
       );
     });

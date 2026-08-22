@@ -12,7 +12,7 @@ import chalk from 'chalk';
 import { effectiveModelAlias } from '@pymodel/pythinker-code-sdk';
 
 import { ALL_TIPS, type ToolbarTip } from '#/tui/constant/tips';
-import { isRainbowDancing, renderDanceFooterModel } from '#/tui/easter-eggs/dance';
+import { isRainbowHatching, renderHatchFooterModel } from '#/tui/easter-eggs/hatch';
 import { currentTheme } from '#/tui/theme';
 import type { ColorPalette } from '#/tui/theme/colors';
 import type { AppState } from '#/tui/types';
@@ -413,8 +413,8 @@ export class FooterComponent implements Component {
           : '';
       const modelLabel = `${model}${thinkingLabel}`;
       let renderedModelLabel = chalk.hex(colors.text)(modelLabel);
-      if (isRainbowDancing()) {
-        renderedModelLabel = renderDanceFooterModel(modelLabel);
+      if (isRainbowHatching()) {
+        renderedModelLabel = renderHatchFooterModel(modelLabel);
       }
       slots['model'] = [renderedModelLabel];
     }
