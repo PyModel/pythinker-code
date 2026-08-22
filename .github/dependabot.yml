@@ -5,7 +5,7 @@ updates:
     schedule:
       interval: "weekly"
     # Scheduled version-update PRs are disabled on purpose: this workspace's
-    # engines.node (>=26.4.0) exceeds the Node.js version Dependabot's own
+    # engines.node (>=24.15.0 <25) exceeds the Node.js version Dependabot's own
     # updater sandbox ships, so ANY `pnpm install`/update it attempts hard-fails
     # with ERR_PNPM_UNSUPPORTED_ENGINE (root .npmrc sets engine-strict=true).
     # See dependabot/dependabot-core#7426, #4072, #12976 — there is no

@@ -1,7 +1,7 @@
 /**
  * Local server discovery (browser side) — reads the dev/preview middleware at
  * `/__inspect/servers` (`vite/serverDiscovery.ts`), which scans the local
- * kap-server instance registry and reads the home token. Powers the
+ * agent-gateway instance registry and reads the home token. Powers the
  * zero-config startup connect, the header server switcher, and the discovered
  * list on the connect screen. Returns `null` outside dev/preview (no such
  * endpoint on a static host) so the app falls back to the manual flow.

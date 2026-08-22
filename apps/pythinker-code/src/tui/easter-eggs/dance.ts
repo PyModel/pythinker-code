@@ -10,7 +10,6 @@
  */
 
 import chalk from 'chalk';
-import { truncateToWidth, visibleWidth } from '@pymodel/pi-tui';
 
 import type { SlashCommandHost } from '../commands/dispatch';
 import type { ParsedSlashInput } from '../commands/types';
@@ -109,25 +108,23 @@ export function isRainbowDancing(): boolean {
   return currentDanceView?.colored === true;
 }
 
-export function renderDanceWelcomeHeader(
-  logo: readonly [string, string],
-  textWidth: number,
-  rightRow1: string,
-): string[] {
+export function renderDanceWelcomeText(
+  text: string,
+  offset = 0,
+  bold = false,
+): string {
+  return rainbowText(
+    text,
+    getDanceRainbowPalette(),
+    (currentDanceView?.phase ?? 0) + offset,
+    bold,
+  );
+}
+
+export function renderDanceWelcomeLogo(logoLines: readonly string[]): string[] {
   const phase = currentDanceView?.phase ?? 0;
   const palette = getDanceRainbowPalette();
-  const logoWidth = Math.max(...logo.map((row) => visibleWidth(row)));
-  const gap = '  ';
-  const rightRow0 = truncateToWidth(
-    rainbowText('Welcome to Pythinker Code!', palette, phase + 2, true),
-    textWidth,
-    '…',
-  );
-
-  return [
-    rainbowText(logo[0].padEnd(logoWidth), palette, phase) + gap + rightRow0,
-    rainbowText(logo[1].padEnd(logoWidth), palette, phase + 3) + gap + rightRow1,
-  ];
+  return logoLines.map((line, index) => rainbowText(line, palette, phase + index * 3));
 }
 
 export function renderDanceFooterModel(modelLabel: string): string {

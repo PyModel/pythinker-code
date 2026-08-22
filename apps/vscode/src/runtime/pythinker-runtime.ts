@@ -131,7 +131,7 @@ export class PythinkerRuntime {
               permission: seedMode,
               metadata: permissionModeMetadata(seedMode),
             })
-          : await this.harness.resumeSession({ id: requestedId });
+          : await this.harness.resumeSession({ id: requestedId, includeSubagents: true });
       try {
         assertSessionWorkDir(session, options.workDir);
         const mode = await restorePermissionMode(session, seedMode);
@@ -211,7 +211,7 @@ export class PythinkerRuntime {
 
   async deleteSession(id: string): Promise<void> {
     await this.closeSession(id);
-    await ((this.harness as any).deleteSession?.(id) ?? Promise.resolve());
+    await this.harness.deleteSession(id);
   }
 
   /**

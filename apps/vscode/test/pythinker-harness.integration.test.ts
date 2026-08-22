@@ -74,6 +74,7 @@ interface McpHandlerRig {
   readonly harness: PythinkerHarness;
   readonly broadcasts: BroadcastRecord[];
   readonly logs: LogRecord[];
+  readonly listOptions: Array<{ cwd?: string }>;
 }
 
 const cleanups: Array<() => Promise<void>> = [];
@@ -121,7 +122,7 @@ async function createRuntimeRig(extraAliases: readonly string[] = []): Promise<R
       try {
         await closeProvider();
       } finally {
-        await rm(rootDir, { recursive: true, force: true });
+        await rm(rootDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
       }
     }
   });
@@ -153,10 +154,14 @@ async function createPlainHarness(homeDir: string): Promise<PythinkerHarness> {
 
 async function createMcpHandlerRig(): Promise<McpHandlerRig> {
   const homeDir = await mkdtemp(join(tmpdir(), "pythinker-vscode-mcp-handler-"));
-  cleanups.push(() => rm(homeDir, { recursive: true, force: true }));
+  cleanups.push(() => rm(homeDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
   const harness = await createPlainHarness(homeDir);
   const servers: any[] = [];
-  (harness as any).listMcpServers = async () => [...servers];
+  const listOptions: Array<{ cwd?: string }> = [];
+  (harness as any).listMcpServers = async (options: { cwd?: string } = {}) => {
+    listOptions.push(options);
+    return [...servers];
+  };
   (harness as any).addMcpServer = async (server: any) => {
     servers.push(server);
     return [...servers];
@@ -177,7 +182,7 @@ async function createMcpHandlerRig(): Promise<McpHandlerRig> {
   (harness as any).testMcpServer = async () => ({ success: true, output: "ok" });
   const broadcasts: BroadcastRecord[] = [];
   const logs: LogRecord[] = [];
-  return { harness, broadcasts, logs };
+  return { harness, broadcasts, logs, listOptions };
 }
 
 async function updateMcpServer(
@@ -194,6 +199,7 @@ async function getMcpServers(rig: McpHandlerRig): Promise<MCPServerConfig[]> {
 function mcpHandlerContext(rig: McpHandlerRig): HandlerContext {
   return {
     harness: rig.harness,
+    workDir: "/workspace",
     broadcast: (event: string, data: unknown, webviewId?: string) => {
       rig.broadcasts.push({ event, data, webviewId });
     },
@@ -532,6 +538,31 @@ describe("VS Code Pythinker harness integration (shares one in-process SDK home)
       },
     ]);
     expect(JSON.stringify(servers)).not.toMatch(/header-secret|cookie-secret|api-key-secret|env-secret/);
+  });
+
+  it("lists MCP servers for the workspace and omits nested plugin origin details", async () => {
+    const rig = await createMcpHandlerRig();
+    await (rig.harness as any).addMcpServer({
+      name: "plugin-server",
+      transport: "stdio",
+      command: "example-mcp",
+      source: "plugin",
+      origin: "plugin",
+      mutable: false,
+      plugin: { id: "example-plugin" },
+    });
+
+    const servers = await getMcpServers(rig);
+
+    expect(rig.listOptions).toContainEqual({ cwd: "/workspace" });
+    expect(servers).toEqual([{
+      name: "plugin-server",
+      transport: "stdio",
+      command: "example-mcp",
+      source: "plugin",
+      origin: "plugin",
+      mutable: false,
+    }]);
   });
 
   it("logs a failed MCP test without returning credential values to the Webview", async () => {

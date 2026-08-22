@@ -1,6 +1,9 @@
 import * as vscode from "vscode";
-type SdkMcpServerConfig = any;
-type McpTestResult = any;
+import type {
+  McpManagedServerInfo,
+  McpServerConfig as SdkMcpServerConfig,
+  McpTestResult,
+} from "@pymodel/pythinker-code-sdk";
 
 import { Events, Methods } from "../../shared/bridge";
 import {
@@ -26,12 +29,13 @@ interface NameParams { name: string }
 
 export const mcpHandlers: Record<string, Handler<any, any>> = {
   [Methods.GetMCPServers]: async (_, ctx): Promise<MCPServerConfig[]> => {
-    return toWebviewServers(await (ctx.harness as any).listMcpServers?.() ?? []);
+    return listWorkspaceServers(ctx);
   },
 
   [Methods.AddMCPServer]: async (params: MCPServerConfig, ctx): Promise<MCPServerConfig[]> => {
     const server = restoreMaskedSecrets(undefined, params);
-    const servers = toWebviewServers(await (ctx.harness as any).addMcpServer?.(toSdkServer(server)) ?? []);
+    await ctx.harness.addMcpServer(toSdkServer(server));
+    const servers = await listWorkspaceServers(ctx);
     ctx.broadcast(Events.MCPServersChanged, servers);
     return servers;
   },
@@ -41,20 +45,20 @@ export const mcpHandlers: Record<string, Handler<any, any>> = {
     ctx,
   ): Promise<MCPServerConfig[]> => {
     const request = normalizeUpdateRequest(params);
-    const current = ((await (ctx.harness as any).listMcpServers?.() ?? []) as SdkMcpServerConfig[]).find(
-      (server: any) => server.name === request.originalName,
-    );
+    const current = (
+      await ctx.harness.listMcpServers({ cwd: ctx.workDir ?? undefined })
+    ).find((server) => server.name === request.originalName);
     const edited = restoreMaskedSecrets(current, request.server);
     const next = mergeEditableServer(current, edited, request.replaceEditableFields);
-    const servers = toWebviewServers(
-      await updateOrRenameServer(ctx.harness as any, request.originalName, current, next),
-    );
+    await updateOrRenameServer(ctx.harness, request.originalName, current, next);
+    const servers = await listWorkspaceServers(ctx);
     ctx.broadcast(Events.MCPServersChanged, servers);
     return servers;
   },
 
   [Methods.RemoveMCPServer]: async ({ name }: NameParams, ctx): Promise<MCPServerConfig[]> => {
-    const servers = toWebviewServers(await (ctx.harness as any).removeMcpServer?.(name) ?? []);
+    await ctx.harness.removeMcpServer(name);
+    const servers = await listWorkspaceServers(ctx);
     ctx.broadcast(Events.MCPServersChanged, servers);
     return servers;
   },
@@ -68,8 +72,8 @@ export const mcpHandlers: Record<string, Handler<any, any>> = {
       },
       async () => {
         try {
-          await (ctx.harness as any).authenticateMcpServer?.(name, {
-            onAuthorizationUrl: async (url: string) => vscode.env.openExternal(vscode.Uri.parse(url)),
+          await ctx.harness.authenticateMcpServer(name, {
+            onAuthorizationUrl: async (url) => vscode.env.openExternal(vscode.Uri.parse(url)),
           });
           await vscode.window.showInformationMessage(`Pythinker: OAuth completed for "${name}"`);
         } catch (error) {
@@ -91,7 +95,7 @@ export const mcpHandlers: Record<string, Handler<any, any>> = {
       },
       async () => {
         try {
-          await (ctx.harness as any).resetMcpServerAuth?.(name);
+          await ctx.harness.resetMcpServerAuth(name);
           await vscode.window.showInformationMessage(`Pythinker: Auth reset for "${name}"`);
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
@@ -105,10 +109,9 @@ export const mcpHandlers: Record<string, Handler<any, any>> = {
 
   [Methods.TestMCP]: async ({ name }: NameParams, ctx): Promise<MCPTestResult> => {
     void vscode.window.showInformationMessage(`Pythinker: Testing MCP server "${name}"...`);
-    const rawResult = await (ctx.harness as any).testMcpServer?.(name, {
+    const result = toWebviewTestResult(await ctx.harness.testMcpServer(name, {
       cwd: ctx.workDir ?? undefined,
-    }) ?? { success: false, output: "MCP testing not supported" };
-    const result = toWebviewTestResult(rawResult);
+    }));
     if (!result.success) {
       ctx.logError(`MCP server test failed for "${name}"`, new Error(result.output));
     }
@@ -116,14 +119,29 @@ export const mcpHandlers: Record<string, Handler<any, any>> = {
   },
 };
 
-function toWebviewServers(servers: readonly SdkMcpServerConfig[]): MCPServerConfig[] {
+/**
+ * The workspace-aware server list shown in the modal. The mutation RPCs
+ * (add/update/remove) return a list resolved without a cwd, so the webview
+ * refresh after every mutation must re-list with the workspace cwd —
+ * otherwise project-layer entries drop out of the modal until the next full
+ * load.
+ */
+async function listWorkspaceServers(ctx: Parameters<Handler>[1]): Promise<MCPServerConfig[]> {
+  return toWebviewServers(await ctx.harness.listMcpServers({ cwd: ctx.workDir ?? undefined }));
+}
+
+function toWebviewServers(servers: readonly McpManagedServerInfo[]): MCPServerConfig[] {
   return servers
     .filter((server) => server.transport === "stdio" || server.transport === "http")
     .map((server) => {
-      if (server.transport === "stdio") {
-        return { ...server, env: maskSecretValues(server.env) } as MCPServerConfig;
+      // The management view's source/origin/mutable tags stay in the webview
+      // payload so the panel can hide mutating controls on read-only entries;
+      // only the nested plugin origin detail is dropped.
+      const { plugin: _plugin, ...config } = server;
+      if (config.transport === "stdio") {
+        return { ...config, env: maskSecretValues(config.env) } as MCPServerConfig;
       }
-      return { ...server, headers: maskSecretValues(server.headers) } as MCPServerConfig;
+      return { ...config, headers: maskSecretValues(config.headers) } as MCPServerConfig;
     });
 }
 
@@ -152,7 +170,7 @@ function isSensitiveMcpKey(key: string): boolean {
 }
 
 function restoreMaskedSecrets(
-  current: SdkMcpServerConfig,
+  current: SdkMcpServerConfig | undefined,
   edited: MCPServerConfig,
 ): MCPServerConfig {
   if (edited.transport === "stdio") {
@@ -221,7 +239,7 @@ function toSdkServer(server: MCPServerConfig): SdkMcpServerConfig {
 }
 
 function mergeEditableServer(
-  current: SdkMcpServerConfig,
+  current: SdkMcpServerConfig | undefined,
   edited: MCPServerConfig,
   replaceEditableFields: boolean,
 ): SdkMcpServerConfig {
@@ -265,23 +283,27 @@ function normalizeUpdateRequest(
 }
 
 async function updateOrRenameServer(
-  harness: any,
+  harness: Pick<
+    Parameters<Handler>[1]["harness"],
+    "addMcpServer" | "updateMcpServer" | "removeMcpServer"
+  >,
   originalName: string,
-  current: SdkMcpServerConfig,
+  current: SdkMcpServerConfig | undefined,
   next: SdkMcpServerConfig,
-): Promise<readonly SdkMcpServerConfig[]> {
+): Promise<void> {
   if (next.name === originalName) {
-    return harness.updateMcpServer(next);
+    await harness.updateMcpServer(next);
+    return;
   }
   if (current === undefined) {
     throw new Error(`MCP server "${originalName}" was not found`);
   }
 
-  await (harness as any).addMcpServer(next);
+  await harness.addMcpServer(next);
   try {
-    return await (harness as any).removeMcpServer(originalName);
+    await harness.removeMcpServer(originalName);
   } catch (error) {
-    await (harness as any).removeMcpServer(next.name).catch(() => undefined);
+    await harness.removeMcpServer(next.name).catch(() => undefined);
     throw error;
   }
 }

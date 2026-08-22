@@ -250,14 +250,6 @@ pythinker export 01HZ...XYZ -o ./bug-report.zip
 pythinker export 01HZ...XYZ -o ./bug-report.zip --no-include-global-log
 ```
 
-### `pythinker migrate`
-
-Migrate local data from a legacy pythinker-cli installation to pythinker-code, including session history and configuration files. Runs entirely interactively, guiding you through the full process.
-
-```sh
-pythinker migrate
-```
-
 ### `pythinker upgrade`
 
 Immediately check for the latest version and display an update prompt; exits after you make a selection. `pythinker update` is an alias for this command.
@@ -266,7 +258,7 @@ Immediately check for the latest version and display an update prompt; exits aft
 pythinker upgrade
 ```
 
-For global npm, pnpm, yarn, bun, and macOS / Linux native installations, `pythinker upgrade` shows update options; selecting `Install update now` runs the corresponding foreground install command. When the current installation method cannot be upgraded automatically (e.g., Windows native installation), the manual update command is printed instead.
+For global npm, pnpm, yarn, and bun installations, `pythinker upgrade` shows update options; selecting `Install update now` runs the corresponding foreground install command. For native installations (including Windows), it downloads and verifies the new binary in the foreground and swaps it in on the next start. When the current installation method cannot be upgraded automatically, the manual update command is printed instead.
 
 ### `pythinker vis`
 

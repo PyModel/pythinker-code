@@ -335,7 +335,7 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
         pageSize: MESSAGES_PAGE_SIZE,
       });
       // Server returns newest-first; the UI keeps messages in chronological order.
-      const older = [...page.items].reverse();
+      const older = [...page.items].toReversed();
       // Live events may have appended messages while the request was in flight;
       // the updater receives the latest array so those messages are not overwritten.
       updateSessionMessages(sessionId, (latest) => [...older, ...latest]);
@@ -343,12 +343,12 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
         ...rawState.messagesHasMoreBySession,
         [sessionId]: page.hasMore,
       };
-    } catch (err) {
+    } catch (error) {
       rawState.messagesLoadMoreErrorBySession = {
         ...rawState.messagesLoadMoreErrorBySession,
         [sessionId]: true,
       };
-      pushOperationFailure('loadOlderMessages', err, { sessionId });
+      pushOperationFailure('loadOlderMessages', error, { sessionId });
     } finally {
       rawState.messagesLoadingMoreBySession = {
         ...rawState.messagesLoadingMoreBySession,
@@ -379,14 +379,14 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
       // Guard against a stale response when the user tapped another file.
       if (selectedDiffPath.value !== path) return;
       fileDiffLines.value = parseDiff(result.diff);
-    } catch (err) {
+    } catch (error) {
       // A single file's diff failing (a new/untracked/binary/deleted file the
       // daemon can't diff) is LOCAL to this pane, not a session-level fault — the
       // DiffView already shows a graceful "no diff" state when the lines are
       // empty. Surfacing it as a global "pythinker server api" error toast on a routine
       // file click is disproportionate, so log it for the trace export instead.
       if (selectedDiffPath.value === path) fileDiffLines.value = [];
-      console.warn('[loadFileDiff] diff unavailable for', path, err);
+      console.warn('[loadFileDiff] diff unavailable for', path, error);
     } finally {
       if (selectedDiffPath.value === path) fileDiffLoading.value = false;
     }
@@ -434,10 +434,10 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
       rawState.managedProviderStatus = result.managedProvider?.status ?? null;
       connectIssue.value = null;
       return 'proceed';
-    } catch (err) {
+    } catch (error) {
       if (
-        isDaemonApiError(err) &&
-        (err.code === 401 || err.code === SERVER_AUTH_UNAUTHORIZED_CODE)
+        isDaemonApiError(error) &&
+        (error.code === 401 || error.code === SERVER_AUTH_UNAUTHORIZED_CODE)
       ) {
         // The ServerAuthDialog explains this one — nothing to surface.
         connectIssue.value = null;
@@ -445,7 +445,7 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
       }
       // Surface the reason on the splash so "cannot connect" is diagnosable
       // instead of an unexplained spinner.
-      connectIssue.value = (err instanceof Error ? err.message : String(err)).slice(0, 140);
+      connectIssue.value = (error instanceof Error ? error.message : String(error)).slice(0, 140);
       return 'retry';
     }
   }
@@ -489,8 +489,8 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
       rawState.config = next;
       rawState.defaultModel = next.defaultModel ?? null;
       return true;
-    } catch (err) {
-      pushOperationFailure('setConfig', err);
+    } catch (error) {
+      pushOperationFailure('setConfig', error);
       return false;
     }
   }
@@ -533,7 +533,7 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
       }
       items.push(...page.items);
       if (!page.hasMore || page.items.length === 0) break;
-      beforeId = page.items[page.items.length - 1]!.id;
+      beforeId = page.items.at(-1)!.id;
     }
     return { sessions: items, error: continuationError };
   }
@@ -612,7 +612,7 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
       }
       hasMore = page.hasMore;
       if (page.items.length === 0) break;
-      const oldest = page.items[page.items.length - 1]!;
+      const oldest = page.items.at(-1)!;
       const oldestBeyondWindow = ageOf(oldest) >= SESSIONS_RECENT_WINDOW_MS;
 
       if (!isFirstPage && oldestBeyondWindow) {
@@ -732,7 +732,7 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
       // separately from the loaded set so a deep-linked older session appended
       // out of band cannot shift the cursor and skip intervening sessions.
       cursors[workspaceId] =
-        page.items.length > 0 ? page.items[page.items.length - 1]!.id : undefined;
+        page.items.length > 0 ? page.items.at(-1)!.id : undefined;
       // Collapse target for the sidebar's in-group "show less" control: the
       // first-page capacity, floored at a full page so a workspace that was
       // empty or sparse on first paint does not hide sessions created later.
@@ -778,7 +778,7 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
       rawState.sessionsCursorByWorkspace = {
         ...rawState.sessionsCursorByWorkspace,
         [workspaceId]:
-          page.items.length > 0 ? page.items[page.items.length - 1]!.id : beforeId,
+          page.items.length > 0 ? page.items.at(-1)!.id : beforeId,
       };
       // Trust the server's hasMore. Deriving it from the workspace session_count
       // is unsafe: archive/delete only removes the local session and leaves the
@@ -787,8 +787,8 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
         ...rawState.sessionsHasMoreByWorkspace,
         [workspaceId]: page.hasMore,
       };
-    } catch (err) {
-      pushOperationFailure('loadMoreSessions', err);
+    } catch (error) {
+      pushOperationFailure('loadMoreSessions', error);
     } finally {
       rawState.sessionsLoadingMoreByWorkspace = {
         ...rawState.sessionsLoadingMoreByWorkspace,
@@ -802,8 +802,8 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
    *  first search; a no-op once the full list is loaded. */
   async function loadAllSessions(): Promise<void> {
     if (rawState.sessionsFullyLoaded) return;
-    const result = await listAllSessionsGlobal().catch((err) => {
-      console.warn('[pythinker-web] loadAllSessions failed; search covers only loaded sessions', err);
+    const result = await listAllSessionsGlobal().catch((error) => {
+      console.warn('[pythinker-web] loadAllSessions failed; search covers only loaded sessions', error);
       return null;
     });
     if (result === null) return;
@@ -906,9 +906,9 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
       if (!rawState.activeSessionId && sessions.length > 0) {
         await selectSession(sessions[0]!.id, { urlMode: 'replace' });
       }
-    } catch (err) {
+    } catch (error) {
       traceStatus = 'failed';
-      pushOperationFailure('load', err);
+      pushOperationFailure('load', error);
       // Do not re-throw — app stays mounted with empty sessions
     } finally {
       rawState.loading = false;
@@ -1167,8 +1167,8 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
       const sid = await createDraftSession(workspaceId);
       if (!sid) return;
       await submitPromptInternal(sid, text, attachments);
-    } catch (err) {
-      pushOperationFailure('startSessionAndSendPrompt', err);
+    } catch (error) {
+      pushOperationFailure('startSessionAndSendPrompt', error);
     } finally {
       startingFirstPromptWorkspaces.delete(workspaceId);
     }
@@ -1229,8 +1229,8 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
       // effort is worse than not activating (the finally still re-arms below).
       if (!persisted) return;
       await modelProvider.activateSkill(skillName, args, sid);
-    } catch (err) {
-      pushOperationFailure('startSessionAndActivateSkill', err);
+    } catch (error) {
+      pushOperationFailure('startSessionAndActivateSkill', error);
     } finally {
       startingFirstPromptWorkspaces.delete(workspaceId);
     }
@@ -1256,8 +1256,8 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
       const sid = await createDraftSession(workspaceId);
       if (!sid) return;
       await sideChat.openSideChatOn(sid, prompt);
-    } catch (err) {
-      pushOperationFailure('startSessionAndOpenSideChat', err);
+    } catch (error) {
+      pushOperationFailure('startSessionAndOpenSideChat', error);
     } finally {
       startingFirstPromptWorkspaces.delete(workspaceId);
     }
@@ -1279,9 +1279,9 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
       upsertWorkspacePreserveOrder(ws);
       openWorkspaceDraft(ws.id);
       return true;
-    } catch (err) {
+    } catch (error) {
       // The caller shows an inline error in the picker; keep the cause in the log.
-      console.warn('[pythinker-web] addWorkspaceByPath failed for', trimmed, err);
+      console.warn('[pythinker-web] addWorkspaceByPath failed for', trimmed, error);
       return false;
     }
   }
@@ -1437,8 +1437,8 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
       // Refresh sidecars AFTER the snapshot settles so status/usage updates
       // aren't overwritten by syncSessionFromSnapshot.
       refreshSessionSidecars(sessionId);
-    } catch (err) {
-      pushOperationFailure('selectSession', err, { sessionId });
+    } catch (error) {
+      pushOperationFailure('selectSession', error, { sessionId });
     } finally {
       if (rawState.activeSessionId === sessionId) {
         rawState.sessionLoading = false;
@@ -1518,8 +1518,8 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
       if (goalMode && text) {
         try {
           await api.updateSession(sid, { goalObjective: text.trim() });
-        } catch (err) {
-          pushOperationFailure('createGoal', err, { sessionId: sid });
+        } catch (error) {
+          pushOperationFailure('createGoal', error, { sessionId: sid });
           rawState.inFlightBySession = { ...rawState.inFlightBySession, [sid]: false };
           updateSessionMessages(sid, (msgs) =>
             msgs.some((m) => m.id === tempId) ? msgs.filter((m) => m.id !== tempId) : msgs,
@@ -1578,7 +1578,7 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
       // locally would mark the session isCustomTitle=true and SUPPRESS the
       // daemon's auto-title, so we let the daemon own it.
       return 'ok';
-    } catch (err) {
+    } catch (error) {
       // Submit failed — clear the in-flight flag so the next prompt isn't stuck
       // queued forever (turn.ended will never arrive), and roll back the
       // optimistic user message so the transcript doesn't show a delivered-
@@ -1589,8 +1589,8 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
       updateSessionMessages(sid, (msgs) =>
         msgs.some((m) => m.id === tempId) ? msgs.filter((m) => m.id !== tempId) : msgs,
       );
-      pushOperationFailure('sendPrompt', err, { sessionId: sid });
-      return isDaemonApiError(err) ? 'rejected' : 'uncertain';
+      pushOperationFailure('sendPrompt', error, { sessionId: sid });
+      return isDaemonApiError(error) ? 'rejected' : 'uncertain';
     } finally {
       // The daemon answered the submit (accepted or rejected) — the pending
       // window in which a snapshot can't reflect this turn is over.
@@ -1745,7 +1745,7 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
         // The active turn finished between submit and steer — the daemon starts
         // the parked prompt as its own turn. Nothing to roll back.
       }
-    } catch (err) {
+    } catch (error) {
       // Submit failed: drop the optimistic echo so the transcript doesn't show
       // a delivered-looking message the daemon never received.
       updateSessionMessages(sid, (msgs) => msgs.filter((m) => m.id !== tempId));
@@ -1755,8 +1755,8 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
       // already be queued server-side; re-queueing the originals would
       // duplicate it (the exact ghost-send behavior this change exists to
       // prevent). The failure toast below tells the user what happened.
-      if (isDaemonApiError(err)) restoreQueue();
-      pushOperationFailure('steer', err, { sessionId: sid });
+      if (isDaemonApiError(error)) restoreQueue();
+      pushOperationFailure('steer', error, { sessionId: sid });
     } finally {
       settleLocalTurn(sid, localTurnToken);
     }
@@ -1771,8 +1771,8 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
       const api = getPythinkerWebApi();
       const result = await api.uploadFile({ file, name });
       return { fileId: result.id, name: result.name, mediaType: result.mediaType };
-    } catch (err) {
-      pushOperationFailure('uploadImage', err);
+    } catch (error) {
+      pushOperationFailure('uploadImage', error);
       return null;
     }
   }
@@ -1949,14 +1949,14 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
         const nextPromptIds = { ...rawState.promptIdBySession };
         delete nextPromptIds[sid];
         rawState.promptIdBySession = nextPromptIds;
-      } catch (err) {
-        if (isDaemonApiError(err) && err.code === PROMPT_NOT_FOUND_CODE) {
+      } catch (error) {
+        if (isDaemonApiError(error) && error.code === PROMPT_NOT_FOUND_CODE) {
           // Stale id — try the session-level fallback below.
           const nextPromptIds = { ...rawState.promptIdBySession };
           delete nextPromptIds[sid];
           rawState.promptIdBySession = nextPromptIds;
         } else {
-          pushOperationFailure('abortCurrentPrompt', err, { sessionId: sid });
+          pushOperationFailure('abortCurrentPrompt', error, { sessionId: sid });
           return;
         }
       }
@@ -1966,8 +1966,8 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
     //    is running in the session (including skill activations).
     try {
       await api.abortSession(sid);
-    } catch (err) {
-      pushOperationFailure('abortCurrentPrompt', err, { sessionId: sid });
+    } catch (error) {
+      pushOperationFailure('abortCurrentPrompt', error, { sessionId: sid });
     }
   }
 
@@ -2007,13 +2007,13 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
       await api.respondApproval(sid, approvalId, fullResponse);
       // Remove from local approvals immediately (WS event will confirm)
       removePendingApproval(sid, approvalId);
-    } catch (err) {
-      if (isAlreadyResolvedError(err)) {
+    } catch (error) {
+      if (isAlreadyResolvedError(error)) {
         // Already resolved (another client or a raced event) — that is the
         // desired end state, so drop it locally without surfacing an error.
         removePendingApproval(sid, approvalId);
       } else {
-        pushOperationFailure('respondApproval', err, { sessionId: sid });
+        pushOperationFailure('respondApproval', error, { sessionId: sid });
       }
     } finally {
       delete pendingApprovalActions[approvalId];
@@ -2033,13 +2033,13 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
       const api = getPythinkerWebApi();
       await api.respondQuestion(sid, questionId, response);
       removePendingQuestion(sid, questionId);
-    } catch (err) {
-      if (isAlreadyResolvedError(err)) {
+    } catch (error) {
+      if (isAlreadyResolvedError(error)) {
         // Already resolved (another client or a raced event) — that is the
         // desired end state, so drop it locally without surfacing an error.
         removePendingQuestion(sid, questionId);
       } else {
-        pushOperationFailure('respondQuestion', err, { sessionId: sid });
+        pushOperationFailure('respondQuestion', error, { sessionId: sid });
       }
     } finally {
       delete pendingQuestionActions[questionId];
@@ -2056,11 +2056,11 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
       const api = getPythinkerWebApi();
       await api.dismissQuestion(sid, questionId);
       removePendingQuestion(sid, questionId);
-    } catch (err) {
-      if (isAlreadyResolvedError(err)) {
+    } catch (error) {
+      if (isAlreadyResolvedError(error)) {
         removePendingQuestion(sid, questionId);
       } else {
-        pushOperationFailure('dismissQuestion', err, { sessionId: sid });
+        pushOperationFailure('dismissQuestion', error, { sessionId: sid });
       }
     } finally {
       delete pendingQuestionActions[questionId];
@@ -2088,14 +2088,14 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
           t.id === taskId ? { ...t, status: 'cancelled' as const } : t,
         ),
       };
-    } catch (err) {
-      if (isTaskAlreadyFinishedError(err)) {
+    } catch (error) {
+      if (isTaskAlreadyFinishedError(error)) {
         // Already in a terminal state — that is the desired end state for
         // "cancel", so stay silent. Don't force status to 'cancelled': the
         // task may have completed/failed, and the task event stream / poller
         // will reflect its real status.
       } else {
-        pushOperationFailure('cancelTask', err, { sessionId: sid });
+        pushOperationFailure('cancelTask', error, { sessionId: sid });
       }
     } finally {
       delete pendingTaskCancellations[taskId];
@@ -2143,7 +2143,8 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
     const on = !current;
     if (on && rawState.permission === 'manual') {
       const ok = await confirm({
-        title: t('workspace.dynamicWorkflowEnableConfirm'),
+        title: t('workspace.dynamicWorkflowEnableTitle'),
+        message: t('workspace.dynamicWorkflowEnableConfirm'),
         variant: 'primary',
       });
       if (!ok) return;
@@ -2205,16 +2206,16 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
       // prompt) which wrap createDraftSession.
       try {
         sid = (await createDraftSession(wsId)) ?? undefined;
-      } catch (err) {
-        pushOperationFailure('createGoal', err);
+      } catch (error) {
+        pushOperationFailure('createGoal', error);
         return;
       }
       if (!sid) return;
     }
     try {
       await getPythinkerWebApi().updateSession(sid, { goalObjective: trimmed });
-    } catch (err) {
-      pushOperationFailure('createGoal', err, { sessionId: sid, message: goalErrorMessage(err) });
+    } catch (error) {
+      pushOperationFailure('createGoal', error, { sessionId: sid, message: goalErrorMessage(error) });
       return;
     }
     // The goal objective is set explicitly above. If goal mode was staged on the
@@ -2248,8 +2249,8 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
     const sid = rawState.activeSessionId;
     if (!sid) return;
     void Promise.resolve(getPythinkerWebApi().updateSession(sid, { goalControl: action }))
-      .catch((err) => {
-        pushOperationFailure('controlGoal', err, { sessionId: sid, message: goalErrorMessage(err) });
+      .catch((error) => {
+        pushOperationFailure('controlGoal', error, { sessionId: sid, message: goalErrorMessage(error) });
       });
   }
 
@@ -2275,8 +2276,24 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
       const api = getPythinkerWebApi();
       await api.updateSession(id, { title });
       updateSession(id, (s) => ({ ...s, title }));
-    } catch (err) {
-      pushOperationFailure('renameSession', err, { sessionId: id });
+    } catch (error) {
+      pushOperationFailure('renameSession', error, { sessionId: id });
+    }
+  }
+
+  /** Ask the daemon to generate a session title (managed chat_title tool, v2
+   *  engine). Returns the generated title, or null when generation is
+   *  unavailable (flag off, no managed login, no prompt yet, backend failure) —
+   *  the caller surfaces the notice. The daemon persists the title itself and
+   *  emits the session-updated event, so no local rename is needed here. */
+  async function generateSessionTitle(id: string): Promise<string | null> {
+    try {
+      const api = getPythinkerWebApi();
+      const data = await api.generateSessionTitle(id, { force: true, source: 'digest' });
+      return data.title.length > 0 ? data.title : null;
+    } catch (error) {
+      console.warn('[pythinker-web] generateSessionTitle failed for', id, error);
+      return null;
     }
   }
 
@@ -2303,17 +2320,17 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
         }
       }
       applyLocal();
-    } catch (err) {
+    } catch (error) {
       if (
         root !== undefined &&
-        isDaemonApiError(err) &&
-        err.code === WORKSPACE_NOT_FOUND_CODE
+        isDaemonApiError(error) &&
+        error.code === WORKSPACE_NOT_FOUND_CODE
       ) {
         saveWorkspaceNameOverrides({ ...loadWorkspaceNameOverrides(), [root]: name });
         applyLocal();
         return;
       }
-      pushOperationFailure('renameWorkspace', err);
+      pushOperationFailure('renameWorkspace', error);
     }
   }
 
@@ -2346,9 +2363,9 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
     // Best-effort registry cleanup; ignore failures (the hide already took effect).
     try {
       await getPythinkerWebApi().deleteWorkspace(id);
-    } catch (err) {
+    } catch (error) {
       // registry delete is optional — the sidebar hide is what the user sees.
-      console.warn('[pythinker-web] deleteWorkspace registry cleanup failed for', id, err);
+      console.warn('[pythinker-web] deleteWorkspace registry cleanup failed for', id, error);
     }
     rawState.workspaces = rawState.workspaces.filter((w) => w.id !== id && w.root !== root);
     if (removingActiveWorkspace || activeSessionInRemovedWorkspace) {
@@ -2389,22 +2406,22 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
           writeSessionUrl(undefined, 'replace');
         }
       }
-    } catch (err) {
-      pushOperationFailure('archiveSession', err, { sessionId: id });
+    } catch (error) {
+      pushOperationFailure('archiveSession', error, { sessionId: id });
     }
   }
 
   /** Export the given session (default: the active one). The id is captured
    * synchronously so a later session switch cannot redirect the in-flight
    * request, and a lock prevents duplicate ZIP generation. */
-  async function exportSession(targetSessionId?: string): Promise<void> {
-    if (exportInFlight) return;
+  async function exportSession(targetSessionId?: string): Promise<boolean> {
+    if (exportInFlight) return false;
     const sessionId = targetSessionId ?? rawState.activeSessionId;
     if (!sessionId) {
       const message = t('commands.export.noSession');
       traceKeyEvent('export:failed', { status: 'no-session' });
       pushOperationFailure('exportSession', new Error(message), { message });
-      return;
+      return false;
     }
     exportInFlight = true;
     const startedAt = Date.now();
@@ -2437,6 +2454,7 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
         zipBytes: blob.size,
         durationMs: Date.now() - startedAt,
       });
+      return true;
     } catch (error) {
       const failure =
         typeof error === 'object' && error !== null
@@ -2460,6 +2478,7 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
         httpStatus: typeof failure?.status === 'number' ? failure.status : undefined,
       });
       pushOperationFailure('exportSession', error, { sessionId });
+      return false;
     } finally {
       exportInFlight = false;
     }
@@ -2472,8 +2491,8 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
       const restored = await getPythinkerWebApi().restoreSession(id);
       upsertSessionFront(restored);
       return true;
-    } catch (err) {
-      pushOperationFailure('restoreSession', err, { sessionId: id });
+    } catch (error) {
+      pushOperationFailure('restoreSession', error, { sessionId: id });
       return false;
     }
   }
@@ -2496,8 +2515,8 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
       await api.logout();
       await checkAuth();
       await load();
-    } catch (err) {
-      pushOperationFailure('logout', err);
+    } catch (error) {
+      pushOperationFailure('logout', error);
     }
   }
 
@@ -2512,8 +2531,8 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
     if (!sid) return;
     void getPythinkerWebApi()
       .compactSession(sid, instruction)
-      .catch((err) => {
-        pushOperationFailure('compact', err, { sessionId: sid });
+      .catch((error) => {
+        pushOperationFailure('compact', error, { sessionId: sid });
       });
   }
 
@@ -2528,8 +2547,8 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
       const forked = await getPythinkerWebApi().forkSession(sid);
       upsertSessionFront(forked);
       await selectSession(forked.id);
-    } catch (err) {
-      pushOperationFailure('fork', err, { sessionId: sid });
+    } catch (error) {
+      pushOperationFailure('fork', error, { sessionId: sid });
     }
   }
 
@@ -2560,8 +2579,8 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
       await getPythinkerWebApi().undoSession(sid, count);
       await syncSessionFromSnapshot(sid);
       return lastUserText;
-    } catch (err) {
-      pushOperationFailure('undo', err, { sessionId: sid });
+    } catch (error) {
+      pushOperationFailure('undo', error, { sessionId: sid });
       return null;
     }
   }
@@ -2642,8 +2661,8 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
         size: result.size,
         lineCount: result.lineCount,
       };
-    } catch (err) {
-      console.warn('[pythinker-web] readFileContent failed for', path, err);
+    } catch (error) {
+      console.warn('[pythinker-web] readFileContent failed for', path, error);
       return null;
     }
   }
@@ -2665,8 +2684,8 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
     try {
       await getPythinkerWebApi().openFile(sid, { path, line });
       return true;
-    } catch (err) {
-      pushOperationFailure('openFile', err, { sessionId: sid });
+    } catch (error) {
+      pushOperationFailure('openFile', error, { sessionId: sid });
       return false;
     }
   }
@@ -2678,8 +2697,8 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
     const path = status.value.cwd || '.';
     try {
       await getPythinkerWebApi().openInApp(sid, appId, path);
-    } catch (err) {
-      pushOperationFailure('openInApp', err, { sessionId: sid });
+    } catch (error) {
+      pushOperationFailure('openInApp', error, { sessionId: sid });
     }
   }
 
@@ -2689,8 +2708,8 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
     try {
       await getPythinkerWebApi().revealFile(sid, { path });
       return true;
-    } catch (err) {
-      pushOperationFailure('revealFile', err, { sessionId: sid });
+    } catch (error) {
+      pushOperationFailure('revealFile', error, { sessionId: sid });
       return false;
     }
   }
@@ -2813,6 +2832,7 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
     setPermission,
     dismissWarning,
     renameSession,
+    generateSessionTitle,
     renameWorkspace,
     deleteWorkspace,
     archiveSession,

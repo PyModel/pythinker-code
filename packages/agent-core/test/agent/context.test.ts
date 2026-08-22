@@ -1,6 +1,6 @@
 import { Readable, type Writable } from 'node:stream';
 
-import type { KaosProcess } from '@pymodel/kaos';
+import type { PyaosProcess } from '@pymodel/pyaos';
 import type { Message } from '@pymodel/kosong';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -9,7 +9,7 @@ import { project } from '../../src/agent/context/projector';
 import type { ContextMessage } from '../../src/agent/context/types';
 import { buildImageCompressionCaption } from '../../src/tools/support/image-compress';
 import { estimateTokensForMessages } from '../../src/utils/tokens';
-import { createFakeKaos } from '../tools/fixtures/fake-kaos';
+import { createFakePyaos } from '../tools/fixtures/fake-pyaos';
 import { recordingTelemetry, type TelemetryRecord } from '../fixtures/telemetry';
 import { testAgent } from './harness/agent';
 
@@ -237,7 +237,7 @@ describe('Agent context', () => {
   });
 
   it('runs a shell command via the Bash tool and records its output', async () => {
-    const fakeProcess = (stdout: string): KaosProcess => {
+    const fakeProcess = (stdout: string): PyaosProcess => {
       const out = Readable.from([stdout]);
       const err = Readable.from([]);
       return {
@@ -254,10 +254,10 @@ describe('Agent context', () => {
         }),
       };
     };
-    const kaos = createFakeKaos({
+    const pyaos = createFakePyaos({
       execWithEnv: vi.fn().mockImplementation(async () => fakeProcess('hello\n')),
     });
-    const ctx = testAgent({ kaos });
+    const ctx = testAgent({ pyaos });
     ctx.configure();
 
     await ctx.agent.tools.runShellCommand('echo hello');
@@ -273,7 +273,7 @@ describe('Agent context', () => {
   });
 
   it('surfaces the failure reason when a shell command fails with no output', async () => {
-    const fakeProcess = (exitCode: number): KaosProcess => {
+    const fakeProcess = (exitCode: number): PyaosProcess => {
       const out = Readable.from([]);
       const err = Readable.from([]);
       return {
@@ -290,10 +290,10 @@ describe('Agent context', () => {
         }),
       };
     };
-    const kaos = createFakeKaos({
+    const pyaos = createFakePyaos({
       execWithEnv: vi.fn().mockImplementation(async () => fakeProcess(1)),
     });
-    const ctx = testAgent({ kaos });
+    const ctx = testAgent({ pyaos });
     ctx.configure();
 
     const result = await ctx.agent.tools.runShellCommand('false');

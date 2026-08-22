@@ -29,6 +29,7 @@ import {
 } from '#/_base/di/test';
 import { LifecycleScope } from '#/app/scopes';
 import { type IAgentScopeHandle, type ISessionScopeHandle } from '#/_base/di/scope';
+import type { AgentContext } from '#/agent/agentContext/agentContext';
 import type { ServiceIdentifier, ServicesAccessor } from '#/_base/di/instantiation';
 import { ILogService, type ILogService as LogService } from '#/_base/log/log';
 import { IWireService } from '#/wire/wire';
@@ -44,7 +45,7 @@ import {
 } from '#/app/sessionExport/sessionExportService';
 import { writeExportZip } from '#/app/sessionExport/zip';
 import { ISessionIndex, type SessionSummary } from '#/app/sessionIndex/sessionIndex';
-import { ISessionManager } from '#/app/sessionManager/sessionManager';
+import { ISessionManager, type UnguardedSessionLifecycle } from '#/app/sessionManager/sessionManager';
 import { ISessionLifecycleService } from '#/workspace/sessionLifecycle/sessionLifecycle';
 import { IWorkspaceService } from '#/app/workspace/workspace';
 import { Error2 } from '#/errors';
@@ -890,6 +891,12 @@ function registerSessionExportServices(
     },
     resume: async () => options.lifecycleHandle,
     get: () => options.lifecycleHandle,
+    status: async () => options.summary,
+    whenResumeSettled: async () => {},
+    withLifecycleSerialization: async <T>(
+      _sessionId: string,
+      work: (unguarded: UnguardedSessionLifecycle) => Promise<T>,
+    ): Promise<T> => work({ archive: async () => {}, restore: async () => undefined }),
     list: () => (options.lifecycleHandle === undefined ? [] : [options.lifecycleHandle]),
     close: async () => {},
     archive: async () => {},
@@ -985,10 +992,12 @@ function stubAgentLifecycle(agents: readonly IAgentScopeHandle[]): IAgentLifecyc
   return {
     _serviceBrand: undefined,
     onDidCreate: noopEvent,
+    onDidCreateScope: noopEvent,
     onDidDispose: noopEvent,
     create: async () => agents[0]!,
     fork: async () => agents[0]!,
-    get: (agentId) => agents.find((agent) => agent.id === agentId),
+    get: (context: AgentContext) => agents.find((agent) => agent.id === context.agentId),
+    findAgentHandle: (agentId: string) => agents.find((agent) => agent.id === agentId),
     list: () => agents,
     remove: async () => {},
     broadcastPermissionMode: () => {},

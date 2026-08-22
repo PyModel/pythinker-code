@@ -1,7 +1,7 @@
 /**
  * Klient-level session-scope events — the public, typed, namespaced event
  * surface of one session. Mirrors the pattern of `../global/events.ts`;
- * stream names match the kap-server session event map (`interactions`,
+ * stream names match the agent-gateway session event map (`interactions`,
  * `interactions:resolved`).
  */
 

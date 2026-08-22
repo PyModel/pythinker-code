@@ -34,7 +34,7 @@ export class GitControlPathAccessAskPermissionPolicy implements PermissionPolicy
   async evaluate(context: PermissionPolicyContext): Promise<PermissionPolicyResult | undefined> {
     const cwd = this.agent.config.cwd;
     if (cwd.length === 0) return;
-    const pathClass = this.agent.kaos.pathClass();
+    const pathClass = this.agent.pyaos.pathClass();
     const accesses = fileAccesses(context);
     if (accesses.length === 0) return;
 
@@ -48,7 +48,7 @@ export class GitControlPathAccessAskPermissionPolicy implements PermissionPolicy
       };
     }
 
-    const marker = await findGitWorkTreeMarker(this.agent.kaos, cwd);
+    const marker = await findGitWorkTreeMarker(this.agent.pyaos, cwd);
     if (marker === null) return;
     const access = accesses.find((fileAccess) => {
       return isGitControlPath(fileAccess.path, marker, pathClass);

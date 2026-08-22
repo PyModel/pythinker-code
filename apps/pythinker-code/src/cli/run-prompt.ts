@@ -18,6 +18,7 @@ import { resolve } from 'pathe';
 
 import { CLI_SHUTDOWN_TIMEOUT_MS, PROMPT_CLEANUP_TIMEOUT_MS } from '#/constant/app';
 
+import { drainStdio } from './headless-exit';
 import { resolveAgentProfileSelection } from './agent-selection';
 import { isPythinkerV2Enabled } from './experimental-v2';
 import { resolveOutputFormat } from './options';
@@ -78,15 +79,22 @@ export async function raceWithTimeout(promise: Promise<void>, timeoutMs: number)
 interface PromptOutput {
   readonly columns?: number | undefined;
   write(chunk: string): boolean;
+  flush?(): void | Promise<void>;
 }
 
 export interface PromptRunIO {
   readonly stdout?: PromptOutput;
   readonly stderr?: PromptOutput;
-  readonly process?: PromptProcess;
+  readonly process?: PromptProcess | LegacyPromptProcess;
 }
 
 export interface PromptProcess {
+  on(signal: NodeJS.Signals, listener: () => Promise<void>): unknown;
+  off(signal: NodeJS.Signals, listener: () => Promise<void>): unknown;
+  exit(code?: number): never | void;
+}
+
+interface LegacyPromptProcess {
   once(signal: NodeJS.Signals, listener: () => Promise<void>): unknown;
   off(signal: NodeJS.Signals, listener: () => Promise<void>): unknown;
   exit(code?: number): never | void;
@@ -164,7 +172,13 @@ export async function runPrompt(
     // after, so any straggling work is torn down with the process.
     await raceWithTimeout(pending, PROMPT_CLEANUP_TIMEOUT_MS);
   };
-  removeTerminationCleanup = installPromptTerminationCleanup(promptProcess, cleanupPromptRun);
+  removeTerminationCleanup = installPromptTerminationCleanup(
+    promptProcess,
+    cleanupPromptRun,
+    async () => {
+      await Promise.all([flushPromptOutput(stdout), flushPromptOutput(stderr)]);
+    },
+  );
 
   try {
     await harness.ensureConfigFile();
@@ -429,30 +443,71 @@ function installHeadlessHandlers(session: PromptSession): void {
 }
 
 export function installPromptTerminationCleanup(
-  promptProcess: PromptProcess,
+  promptProcess: PromptProcess | LegacyPromptProcess,
   cleanup: () => Promise<void>,
+  flushOutput: () => Promise<void> = async () => {},
 ): () => void {
-  let terminating = false;
+  let terminationSignal: NodeJS.Signals | undefined;
+  let forced = false;
+  let removed = false;
+  const removeListeners = (): void => {
+    if (removed) return;
+    removed = true;
+    promptProcess.off('SIGINT', onSigint);
+    promptProcess.off('SIGTERM', onSigterm);
+    promptProcess.off('SIGHUP', onSighup);
+  };
+  const remove = (): void => {
+    if (terminationSignal !== undefined) return;
+    removeListeners();
+  };
   const exitAfterCleanup = async (signal: NodeJS.Signals): Promise<void> => {
-    if (terminating) return;
-    terminating = true;
+    if (terminationSignal !== undefined) {
+      if (!forced) {
+        forced = true;
+        removeListeners();
+        promptProcess.exit(signalExitCode(signal));
+      }
+      return;
+    }
+    terminationSignal = signal;
     try {
-      await cleanup();
+      await cleanup().catch(() => {});
+      await flushOutput().catch(() => {});
     } finally {
-      promptProcess.exit(signalExitCode(signal));
+      if (!forced) {
+        removeListeners();
+        promptProcess.exit(signalExitCode(signal));
+      }
     }
   };
   const onSigint = () => exitAfterCleanup('SIGINT');
   const onSigterm = () => exitAfterCleanup('SIGTERM');
   const onSighup = () => exitAfterCleanup('SIGHUP');
-  promptProcess.once('SIGINT', onSigint);
-  promptProcess.once('SIGTERM', onSigterm);
-  promptProcess.once('SIGHUP', onSighup);
-  return () => {
-    promptProcess.off('SIGINT', onSigint);
-    promptProcess.off('SIGTERM', onSigterm);
-    promptProcess.off('SIGHUP', onSighup);
-  };
+  if ('on' in promptProcess) {
+    promptProcess.on('SIGINT', onSigint);
+    promptProcess.on('SIGTERM', onSigterm);
+    promptProcess.on('SIGHUP', onSighup);
+  } else {
+    promptProcess.once('SIGINT', onSigint);
+    promptProcess.once('SIGTERM', onSigterm);
+    promptProcess.once('SIGHUP', onSighup);
+  }
+  return remove;
+}
+
+async function flushPromptOutput(output: PromptOutput): Promise<void> {
+  if (output.flush !== undefined) {
+    await output.flush();
+    return;
+  }
+  if (output === process.stdout) {
+    await drainStdio([process.stdout]);
+    return;
+  }
+  if (output === process.stderr) {
+    await drainStdio([process.stderr]);
+  }
 }
 
 export function signalExitCode(signal: NodeJS.Signals): number {

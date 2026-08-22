@@ -22,14 +22,17 @@ import {
   loadUnread,
   loadWorkspaceOrder,
   loadWorkspaceSort,
+  safeGetJson,
   safeGetString,
   safeRemove,
   safeSetString,
+  safeSetJson,
   saveUnread,
   saveWorkspaceOrder,
   saveWorkspaceSort,
   STORAGE_KEYS,
 } from '../lib/storage';
+import { composeTitle } from '../lib/sessionEmoji';
 import {
   coalesceAppRenderEvents,
   createEventBatcher,
@@ -43,15 +46,13 @@ import { useSoundNotification } from './client/useSoundNotification';
 import { useTaskPoller } from './client/useTaskPoller';
 import { useModelProviderState } from './client/useModelProviderState';
 import { useSideChat } from './client/useSideChat';
+import { createAuxiliaryTranscripts } from './auxiliaryTranscripts';
 import {
   forgetLocalTurnState,
   SESSIONS_INITIAL_PAGE_SIZE,
   useWorkspaceState,
 } from './client/useWorkspaceState';
 
-const appearance = useAppearance();
-const notification = useNotification();
-const sound = useSoundNotification();
 import type {
   AppEvent,
   AppApprovalRequest,
@@ -96,13 +97,17 @@ import type {
   QueuedPromptView,
   Session,
   TaskItem,
-  TaskState,
+  SessionPlanEntry,
   TodoView,
   UIQuestion,
   Workspace,
   WorkspaceGroup,
   WorkspaceView,
 } from '../types';
+
+const appearance = useAppearance();
+const notification = useNotification();
+const sound = useSoundNotification();
 
 // ---------------------------------------------------------------------------
 // Internal reactive state (plain object wrapped in reactive())
@@ -111,6 +116,7 @@ import type {
 const PERMISSION_STORAGE_KEY = STORAGE_KEYS.permission;
 const ACTIVE_WORKSPACE_KEY = STORAGE_KEYS.activeWorkspace;
 const PLAN_MODE_STORAGE_KEY = STORAGE_KEYS.planMode;
+const PLAN_ARMED_STORAGE_KEY = STORAGE_KEYS.planArmed;
 const DYNAMIC_WORKFLOW_MODE_STORAGE_KEY = STORAGE_KEYS.dynamicWorkflowMode;
 const GOAL_MODE_STORAGE_KEY = STORAGE_KEYS.goalMode;
 const SESSION_NOT_FOUND_CODE = 40401;
@@ -189,6 +195,10 @@ function saveModeMapToStorage(key: string, map: Record<string, boolean>): void {
 
 function savePlanModeToStorage(): void {
   saveModeMapToStorage(PLAN_MODE_STORAGE_KEY, rawState.planModeBySession);
+}
+
+function savePlanArmedToStorage(): void {
+  saveModeMapToStorage(PLAN_ARMED_STORAGE_KEY, rawState.planArmedBySession);
 }
 
 function saveDynamicWorkflowModeToStorage(): void {
@@ -295,7 +305,7 @@ export interface ExtendedState extends PythinkerClientState {
    */
   dangerousBypassAuth: boolean;
   /**
-   * Engine generation of the connected server: `'v2'` = kap-server /
+   * Engine generation of the connected server: `'v2'` = agent-gateway /
    * agent-core-v2, `'v1'` = an older (legacy) server binary. Read from `/meta`
    * (`backend` field; older servers omit it ⇒ v1). Drives the dev-mode
    * backend badge in the Sidebar.
@@ -319,6 +329,7 @@ export interface ExtendedState extends PythinkerClientState {
   /** Plan-mode toggle per session. Bound to a session (not global) so toggling
    *  it in one session does not affect another. */
   planModeBySession: Record<string, boolean>;
+  planArmedBySession: Record<string, boolean>;
   /** DynamicWorkflow-mode toggle per session. */
   dynamicWorkflowModeBySession: Record<string, boolean>;
   /** Goal-mode (one-shot "next send creates a goal") toggle per session. */
@@ -399,6 +410,7 @@ const rawState: ExtendedState = reactive({
   thinking: undefined,
   thinkingBySession: {},
   planModeBySession: loadModeMapFromStorage(PLAN_MODE_STORAGE_KEY),
+  planArmedBySession: loadModeMapFromStorage(PLAN_ARMED_STORAGE_KEY),
   dynamicWorkflowModeBySession: loadModeMapFromStorage(DYNAMIC_WORKFLOW_MODE_STORAGE_KEY),
   goalModeBySession: loadModeMapFromStorage(GOAL_MODE_STORAGE_KEY),
   loading: false,
@@ -622,10 +634,12 @@ function forgetSession(sessionId: string): void {
   // Drop per-session mode toggles and re-persist so a deleted session's entry
   // doesn't linger in localStorage.
   delete rawState.planModeBySession[sessionId];
+  delete rawState.planArmedBySession[sessionId];
   delete rawState.dynamicWorkflowModeBySession[sessionId];
   delete rawState.goalModeBySession[sessionId];
   delete rawState.thinkingBySession[sessionId];
   savePlanModeToStorage();
+  savePlanArmedToStorage();
   saveDynamicWorkflowModeToStorage();
   saveGoalModeToStorage();
 }
@@ -741,10 +755,10 @@ function persistSessionProfile(patch: {
   return Promise.resolve(getPythinkerWebApi().updateSession(sid, patch))
     .then(() => refreshSessionStatus(sid))
     .then(() => true)
-    .catch((err) => {
+    .catch((error) => {
       // Local state already reflects the change; tell the user (and the log)
       // that the daemon did not persist it.
-      pushOperationFailure('persistSessionProfile', err, { sessionId: sid });
+      pushOperationFailure('persistSessionProfile', error, { sessionId: sid });
       return false;
     });
 }
@@ -800,6 +814,11 @@ function setOnboarded(done: boolean): void {
 
 // Singleton WS connection
 let eventConn: PythinkerEventConnection | null = null;
+const auxiliaryTranscripts = createAuxiliaryTranscripts({
+  api: getPythinkerWebApi(),
+  connectEventsIfNeeded,
+  getEventConnection: () => eventConn,
+});
 
 // Monotonic counter for optimistic user-message ids. Date.now() alone collides
 // when two prompts are submitted in the same millisecond (e.g. a queued send
@@ -1106,6 +1125,14 @@ function connectEventsIfNeeded(): void {
         // serverVersion / backend never go stale.
         void workspaceState.refreshServerMeta();
       }
+    },
+
+    onTranscriptReset(sessionId, agentId, snapshot, seq) {
+      auxiliaryTranscripts.receiveReset(sessionId, agentId, snapshot, seq);
+    },
+
+    onTranscriptOps(sessionId, agentId, ops, seq) {
+      return auxiliaryTranscripts.applyOps(sessionId, agentId, ops, seq);
     },
   });
 }
@@ -1505,12 +1532,12 @@ async function syncSessionFromSnapshot(sessionId: string): Promise<SyncSessionRe
     if (snapUsagePlaceholder) void refreshSessionStatus(sessionId);
     void pullSessionWarnings(sessionId);
     return 'ok';
-  } catch (err) {
-    if (isSessionNotFoundError(err)) {
+  } catch (error) {
+    if (isSessionNotFoundError(error)) {
       await handleSessionNotFound(sessionId);
       return 'not-found';
     }
-    pushOperationFailure('getSessionSnapshot', err, {
+    pushOperationFailure('getSessionSnapshot', error, {
       title: i18n.global.t('warnings.sessionSnapshotTitle'),
       message: i18n.global.t('warnings.sessionSnapshotMessage'),
       sessionId,
@@ -1782,6 +1809,7 @@ function toUiQuestion(q: AppQuestionRequest): UIQuestion {
   return {
     questionId: q.questionId,
     sessionId: q.sessionId,
+    toolCallId: q.toolCallId,
     questions: q.questions.map((qi) => ({
       id: qi.id,
       question: qi.question,
@@ -1849,24 +1877,29 @@ function findBashCommandForTask(task: AppTask): string | undefined {
 
 /** Map AppTask to UI TaskItem */
 function toUiTask(task: AppTask): TaskItem {
-  let state: TaskState;
+  let state: TaskItem['state'];
   if (task.status === 'running') {
     state = 'run';
   } else if (task.status === 'completed') {
     state = 'done';
+  } else if (task.status === 'cancelled') {
+    state = 'cancelled';
   } else {
     state = 'fail';
   }
 
   // Compute timing string
   let timing = '';
+  let durationMs: number | undefined;
   if (task.status === 'running' && task.startedAt) {
-    const elapsed = Math.round((Date.now() - new Date(task.startedAt).getTime()) / 1000);
+    durationMs = Date.now() - new Date(task.startedAt).getTime();
+    const elapsed = Math.round(durationMs / 1000);
     const m = Math.floor(elapsed / 60);
     const s = elapsed % 60;
     timing = i18n.global.t('tasks.timingRunning', { time: `${m}:${String(s).padStart(2, '0')}` });
   } else if (task.completedAt && task.startedAt) {
-    const elapsed = Math.round((new Date(task.completedAt).getTime() - new Date(task.startedAt).getTime()) / 1000);
+    durationMs = new Date(task.completedAt).getTime() - new Date(task.startedAt).getTime();
+    const elapsed = Math.round(durationMs / 1000);
     timing = i18n.global.t('tasks.timingDone', { sec: elapsed });
   } else {
     timing = task.status;
@@ -1887,14 +1920,25 @@ function toUiTask(task: AppTask): TaskItem {
 
   return {
     id: task.id,
+    agentId: task.agentId,
+    backgroundTaskId: task.backgroundTaskId,
     name: task.description,
     kind: task.kind,
     state,
     timing,
+    durationMs,
     meta,
     output,
+    subagentType: task.subagentType,
+    phase: task.subagentPhase,
+    model: task.model,
+    thinkingEffort: task.thinkingEffort,
+    dynamicWorkflowIndex: task.dynamicWorkflowIndex,
+    swarmIndex: task.swarmIndex,
     runInBackground: task.runInBackground,
     parentToolCallId: task.parentToolCallId,
+    createdAt: task.createdAt,
+    completedAt: task.completedAt,
   };
 }
 
@@ -2096,10 +2140,59 @@ const turnActive = computed<boolean>(() => {
  *  (`turnActive`). */
 const working = computed<boolean>(() => inFlight.value || turnActive.value);
 
+const dynamicWorkflowIndexesBySession = new Map<string, { indexes: Map<string, number>; next: number }>();
+
 const tasks = computed<TaskItem[]>(() => {
   // Touch the clock so a running task's elapsed time recomputes each tick.
   void taskPoller.taskClock.value;
-  return activeAppTasks.value.map(toUiTask);
+  const background = activeAppTasks.value
+    .filter((task) => task.kind === 'subagent' && task.runInBackground)
+    .toSorted((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
+  const sid = rawState.activeSessionId ?? '__draft__';
+  const state = dynamicWorkflowIndexesBySession.get(sid) ?? { indexes: new Map<string, number>(), next: 1 };
+  dynamicWorkflowIndexesBySession.set(sid, state);
+  for (const task of background) {
+    const prior = state.indexes.get(task.id)
+      ?? (task.backgroundTaskId ? state.indexes.get(task.backgroundTaskId) : undefined);
+    const index = prior ?? state.next++;
+    state.indexes.set(task.id, index);
+    if (task.backgroundTaskId) state.indexes.set(task.backgroundTaskId, index);
+  }
+  return activeAppTasks.value.map((task) => {
+    const item = toUiTask(task);
+    if (task.kind === 'subagent' && task.runInBackground) {
+      item.dynamicWorkflowIndex = task.dynamicWorkflowIndex ?? state.indexes.get(task.id);
+    }
+    return item;
+  });
+});
+
+const sessionPlans = computed<Record<string, SessionPlanEntry>>(() => {
+  const sid = rawState.activeSessionId;
+  if (!sid) return {};
+  const out: Record<string, SessionPlanEntry> = {};
+  for (const message of rawState.messagesBySession[sid] ?? []) {
+    for (const content of message.content) {
+      if (content.type !== 'toolUse' || content.toolName !== 'ExitPlanMode') continue;
+      const input = content.input && typeof content.input === 'object'
+        ? content.input as Record<string, unknown>
+        : {};
+      const review = rawState.planReviewByToolCallId[content.toolCallId];
+      const plan = review?.plan ?? (typeof input.plan === 'string' ? input.plan : undefined);
+      const path = review?.path
+        ?? (typeof input.path === 'string' ? input.path : undefined)
+        ?? (typeof input.planPath === 'string' ? input.planPath : undefined);
+      out[content.toolCallId] = {
+        agentId: 'main',
+        toolCallId: content.toolCallId,
+        turnId: message.id,
+        source: 'interaction',
+        plan,
+        path,
+      };
+    }
+  }
+  return out;
 });
 
 const dynamicWorkflows = computed<DynamicWorkflowGroup[]>(() => buildDynamicWorkflowGroups(activeAppTasks.value));
@@ -2167,6 +2260,10 @@ const planMode = computed<boolean>(() => {
   const sid = rawState.activeSessionId;
   return sid ? (rawState.planModeBySession[sid] ?? false) : draftModes.planMode;
 });
+const planArmed = computed<boolean>(() => {
+  const sid = rawState.activeSessionId;
+  return sid ? (rawState.planArmedBySession[sid] ?? false) : draftModes.planMode;
+});
 const dynamicWorkflowMode = computed<boolean>(() => {
   const sid = rawState.activeSessionId;
   return sid ? (rawState.dynamicWorkflowModeBySession[sid] ?? false) : draftModes.dynamicWorkflowMode;
@@ -2226,7 +2323,7 @@ const questions = computed<UIQuestion[]>(() => {
  * tool_use). This is how the TUI / old web surface approvals.
  */
 const pendingApprovals = computed<
-  { approvalId: string; block: ApprovalBlock; agentName?: string }[]
+  { approvalId: string; block: ApprovalBlock; agentName?: string; toolCallId?: string }[]
 >(() => {
   const sid = rawState.activeSessionId;
   if (!sid) return [];
@@ -2234,6 +2331,9 @@ const pendingApprovals = computed<
     approvalId: a.approvalId,
     block: buildApprovalBlock(a),
     agentName: (a as { agentName?: string }).agentName,
+    // toolCallId lets ChatPane mark the run parked while its tool awaits the
+    // user's decision (reference Pn correlating by toolCallId).
+    toolCallId: a.toolCallId,
   }));
 });
 
@@ -2299,7 +2399,7 @@ const changes = computed<{ path: string; status: string }[]>(() => {
   if (!gs) return [];
   return Object.entries(gs.entries)
     .map(([path, status]) => ({ path, status }))
-    .sort((a, b) => a.path.localeCompare(b.path));
+    .toSorted((a, b) => a.path.localeCompare(b.path));
 });
 
 /** Aggregate working-tree line stats (vs HEAD) for the active session's header
@@ -2426,6 +2526,35 @@ const workspaceOrder = ref<string[]>(loadWorkspaceOrder());
 const workspaceSortMode = ref<WorkspaceSortMode>(
   loadWorkspaceSort() === 'manual' ? 'manual' : 'recent',
 );
+
+function loadStringArray(key: string): string[] {
+  const value = safeGetJson<unknown>(key);
+  return Array.isArray(value)
+    ? value.filter((id): id is string => typeof id === 'string')
+    : [];
+}
+
+const pinnedSessionIds = ref<string[]>(loadStringArray(STORAGE_KEYS.pinnedSessions));
+const pinnedCollapsed = ref(safeGetString(STORAGE_KEYS.pinnedCollapsed) === 'true');
+
+function togglePinnedSession(id: string): void {
+  pinnedSessionIds.value = pinnedSessionIds.value.includes(id)
+    ? pinnedSessionIds.value.filter((sessionId) => sessionId !== id)
+    : [...pinnedSessionIds.value, id];
+  safeSetJson(STORAGE_KEYS.pinnedSessions, pinnedSessionIds.value);
+}
+
+function reorderPinnedSessions(ids: string[]): void {
+  const current = new Set(pinnedSessionIds.value);
+  const ordered = ids.filter((id) => current.has(id));
+  pinnedSessionIds.value = [...ordered, ...pinnedSessionIds.value.filter((id) => !ordered.includes(id))];
+  safeSetJson(STORAGE_KEYS.pinnedSessions, pinnedSessionIds.value);
+}
+
+function togglePinnedCollapsed(): void {
+  pinnedCollapsed.value = !pinnedCollapsed.value;
+  safeSetString(STORAGE_KEYS.pinnedCollapsed, String(pinnedCollapsed.value));
+}
 
 // Reconcile the persisted order with the set of currently-known workspaces:
 // drop ids that no longer exist, and prepend newly-seen ids (newest first,
@@ -2719,6 +2848,12 @@ const workspaceState = useWorkspaceState(rawState, {
   fileDiffLoading,
 });
 
+function setSessionEmoji(id: string, emoji: string | null): Promise<void> {
+  const session = rawState.sessions.find((value) => value.id === id);
+  if (!session) return Promise.resolve();
+  return workspaceState.renameSession(id, composeTitle(emoji, session.title));
+}
+
 /** True when the user is actually watching this session: it is the active
     session, the page is visible, and the window has focus. Focus matters on
     top of visibility: a window that lost focus to another app often stays
@@ -2861,6 +2996,8 @@ export function usePythinkerWebClient() {
     // Workspace view props
     workspacesView,
     workspaceSortMode,
+    pinnedSessionIds,
+    pinnedCollapsed,
     visibleWorkspace,
     activeWorkspaceId,
     sessionsForView,
@@ -2876,6 +3013,7 @@ export function usePythinkerWebClient() {
     /** Live `AppTask[]` for the active session — the subagent detail panel
      *  sources a subagent's streaming `outputLines` from here. */
     activeAppTasks,
+    auxiliaryTranscripts,
     todos,
     goal,
     dynamicWorkflows,
@@ -2911,6 +3049,8 @@ export function usePythinkerWebClient() {
     permission,
     thinking,
     planMode,
+    planArmed,
+    sessionPlans,
     dynamicWorkflowMode,
     goalMode,
     queued,
@@ -3011,12 +3151,17 @@ export function usePythinkerWebClient() {
     deleteWorkspace: workspaceState.deleteWorkspace,
     reorderWorkspaces,
     setWorkspaceSortMode,
+    togglePinnedSession,
+    reorderPinnedSessions,
+    togglePinnedCollapsed,
+    setSessionEmoji,
     archiveSession: workspaceState.archiveSession,
     exportSession: workspaceState.exportSession,
     restoreSession: workspaceState.restoreSession,
     loadArchivedSessions: workspaceState.loadArchivedSessions,
     compact: workspaceState.compact,
     forkSession: workspaceState.forkSession,
+    generateSessionTitle: workspaceState.generateSessionTitle,
     undo: workspaceState.undo,
 
     // New Phase 4 actions
@@ -3035,6 +3180,7 @@ export function usePythinkerWebClient() {
     openInApp: workspaceState.openInApp,
     revealWorkspaceFile: workspaceState.revealWorkspaceFile,
     resolveImageUrl: workspaceState.resolveImageUrl,
+    getFileUrl: (fileId: string) => getPythinkerWebApi().getFileUrl(fileId),
 
     // Model + Provider actions
     loadModels: modelProvider.loadModels,

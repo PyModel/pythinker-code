@@ -2,7 +2,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, provide, ref, watch, type ComponentPublicInstance } from 'vue';
 import { useI18n } from 'vue-i18n';
-import type { ActivationBadges, ApprovalBlock, ChatTurn, ConversationStatus, FilePreviewRequest, PermissionMode, QueuedPromptView, TaskItem, TodoView, ToolMedia, TurnAttachment, UIQuestion, WorkspaceView } from '../../types';
+import type { ActivationBadges, ApprovalBlock, ChatTurn, ConversationStatus, FilePreviewRequest, PermissionMode, QueuedPromptView, Session, SessionPlanEntry, TaskItem, TodoView, ToolMedia, TurnAttachment, UIQuestion, WorkspaceView } from '../../types';
 import type { AppGoal, AppModel, AppSkill, QuestionResponse, ThinkingLevel } from '../../api/types';
 import type { FileItem } from './MentionMenu.vue';
 import type { PromptAttachment } from '../../composables/usePythinkerWebClient';
@@ -11,19 +11,22 @@ import ChatHeader from './ChatHeader.vue';
 import Composer from './Composer.vue';
 import ChatDock from './ChatDock.vue';
 import ConversationToc, { type ConversationTocItem } from './ConversationToc.vue';
+import TranscriptSearch from './TranscriptSearch.vue';
 import Icon from '../ui/Icon.vue';
 import Spinner from '../ui/Spinner.vue';
 import Tooltip from '../ui/Tooltip.vue';
 import PythinkerLogo from '../PythinkerLogo.vue';
 import { getVisibleWorkspaces } from '../../lib/workspacePicker';
 import { safeRemove, STORAGE_KEYS } from '../../lib/storage';
+import type { TurnFileChange } from '../../lib/turnFiles';
+import WorkspaceRecentSessions from '../WorkspaceRecentSessions.vue';
 
 const { t } = useI18n();
 
 const props = defineProps<{
   turns: ChatTurn[];
   sessionId?: string;
-  approvals?: { approvalId: string; block: ApprovalBlock; agentName?: string }[];
+  approvals?: { approvalId: string; block: ApprovalBlock; agentName?: string; toolCallId?: string }[];
   gitInfo?: { branch: string; ahead: number; behind: number } | null;
   tasks: TaskItem[];
   /** Model-maintained todo list (TodoList tool) — shown as a floating card. */
@@ -33,7 +36,11 @@ const props = defineProps<{
   status: ConversationStatus;
   thinking?: ThinkingLevel;
   planMode?: boolean;
+  planArmed?: boolean;
+  sessionPlans?: Record<string, SessionPlanEntry>;
+  overlayOpen?: boolean;
   goalMode?: boolean;
+  dynamicWorkflowMode?: boolean;
   questions?: UIQuestion[];
   /** Question ids with an in-flight respond/dismiss (drives the card loading
    *  state). Keyed by questionId with the action kind. */
@@ -95,6 +102,17 @@ const props = defineProps<{
   pr?: { number: number; state: string; url: string } | null;
   /** Conversation outline: proportional bubbles, viewport indicator, hover tooltip. */
   conversationToc?: boolean;
+  /** Completion reason for the active session's last turn. */
+  lastTurnReason?: 'completed' | 'cancelled' | 'failed';
+  /** Step-limit variant of the failed-turn banner (turn.step.interrupted
+   *  reason === 'max_steps'): renders the "Step limit reached" title. */
+  turnErrorKind?: 'max_steps' | 'error' | 'aborted';
+  /** Optional failure detail rendered under the failed-turn banner title. */
+  turnErrorMessage?: string;
+  sessionDone?: boolean;
+  /** True while the active session is pinned. */
+  pinned?: boolean;
+  recentSessions?: Session[];
 }>();
 
 const emit = defineEmits<{
@@ -124,11 +142,14 @@ const emit = defineEmits<{
   openCompaction: [target: { turnId: string }];
   openAgent: [toolCallId: string];
   openToolDiff: [id: string];
+  openTurnDiff: [target: { turnId: string; changes: TurnFileChange[] }];
   /** Chat header / files pane: focus the diff detail layer and refresh git status. */
   openChanges: [];
   refreshGitStatus: [];
   /** Edit + resend the last user message (App undoes, then refills composer). */
   editMessage: [payload: { text: string; attachments?: TurnAttachment[] }];
+  /** Failed-turn recovery: re-send the last user prompt (see ChatPane). */
+  continueTurn: [text: string];
   /** Empty-composer workspace picker: start a new conversation elsewhere. */
   selectWorkspace: [workspaceId: string];
   /** Empty-composer workspace picker: create a new workspace. */
@@ -141,8 +162,14 @@ const emit = defineEmits<{
   forkSession: [id: string];
   /** Chat header / session row: archive current session. */
   archiveSession: [id: string];
+  restoreSession: [id: string];
+  selectSession: [id: string];
   /** Chat header: export current session. */
   exportSession: [id: string];
+  /** Chat header: pin/unpin the current session. */
+  togglePin: [id: string];
+  /** Home recent-sessions foot row: open Session Management. */
+  openSessionAdmin: [];
 }>();
 
 // Empty-composer workspace picker.
@@ -184,7 +211,6 @@ const chatPaneRef = ref<InstanceType<typeof ChatPane> | null>(null);
 const emptyComposerRef = ref<ComposerHandle | null>(null);
 const dockedComposerRef = ref<ComposerHandle | null>(null);
 const copyConversationCopied = ref(false);
-const goalExpandSignal = ref(0);
 let copyConversationCopiedTimer: ReturnType<typeof setTimeout> | null = null;
 
 /** Load text (and any attachments) into whichever composer is currently mounted
@@ -217,10 +243,12 @@ function handleCopyConversationCopied(): void {
 }
 
 function focusGoal(): void {
-  goalExpandSignal.value++;
+  if (props.goal) dockPanel.value = 'goal';
 }
 
-const bashTasks = computed(() => props.tasks.filter((t) => t.kind !== 'subagent'));
+const bashTasks = computed(() => props.tasks.filter((t) =>
+  t.kind === 'bash' || (t.kind === 'tool' && !t.id.startsWith('question-')),
+));
 // The dock lists only BACKGROUND subagents. Foreground subagents render inline
 // in the message flow as the `Agent` tool card, so showing them here too would
 // duplicate them (and foreground ones can't be cancelled from the dock anyway).
@@ -247,18 +275,22 @@ function resolveAgentTaskId(toolCallId: string): string | undefined {
   return undefined;
 }
 provide('resolveAgentTaskId', resolveAgentTaskId);
+// Let the ExitPlanMode tool card reach the plan markdown captured from the
+// plan_review approval display (client.sessionPlans — survives reloads).
+provide('resolvePlan', (toolCallId: string) => props.sessionPlans?.[toolCallId]);
 provide('pinScroll', pinScrollFor);
 const todoDoneCount = computed(() => (props.todos ?? []).filter((td) => td.status === 'done').length);
 const hasDockWork = computed(() =>
+  (props.goal !== null && props.goal !== undefined) ||
   bashTasks.value.length > 0 ||
   subagentTasks.value.length > 0 ||
-  (props.todos?.length ?? 0) > 0 ||
-  (props.queued?.length ?? 0) > 0,
+  (props.todos?.length ?? 0) > 0,
 );
-const dockPanel = ref<'bash' | 'subagent' | 'todos' | null>(null);
+type DockPanel = 'bash' | 'subagent' | 'todos' | 'goal' | 'plan';
+const dockPanel = ref<DockPanel | null>(null);
 const changesCount = computed(() => (props.gitInfo ? props.changes?.length ?? 0 : 0));
 
-function toggleDockPanel(panel: 'bash' | 'subagent' | 'todos'): void {
+function toggleDockPanel(panel: DockPanel): void {
   dockPanel.value = dockPanel.value === panel ? null : panel;
 }
 
@@ -266,9 +298,16 @@ function closeDockPanel(): void {
   dockPanel.value = null;
 }
 
-watch(hasDockWork, (hasWork) => {
-  if (!hasWork) closeDockPanel();
-});
+watch(
+  [dockPanel, () => props.goal, bashTasks, subagentTasks, () => props.todos, () => props.planMode, () => props.sessionPlans],
+  () => {
+    if (dockPanel.value === 'goal' && !props.goal) closeDockPanel();
+    else if (dockPanel.value === 'bash' && bashTasks.value.length === 0) closeDockPanel();
+    else if (dockPanel.value === 'subagent' && subagentTasks.value.length === 0) closeDockPanel();
+    else if (dockPanel.value === 'todos' && (props.todos?.length ?? 0) === 0) closeDockPanel();
+    else if (dockPanel.value === 'plan' && !props.planMode && Object.keys(props.sessionPlans ?? {}).length === 0) closeDockPanel();
+  },
+);
 
 function tocTitle(turn: ChatTurn): string {
   if (turn.role === 'compaction') return t('conversation.compactedPlain');
@@ -419,11 +458,16 @@ const approvalBusy = computed<boolean>(() => {
 // ---------------------------------------------------------------------------
 
 const panesRef = ref<HTMLElement | null>(null);
+const searchOpen = ref(false);
 const dockRef = ref<HTMLElement | null>(null);
 const panesScrollbarWidth = ref(0);
 const dockHeight = ref(0);
+const CHAT_DOCK_CLEARANCE = 48;
 const chatDockStyle = computed(() => ({
   '--panes-scrollbar-width': `${panesScrollbarWidth.value}px`,
+}));
+const chatLayoutStyle = computed(() => ({
+  '--chat-dock-height': `${dockHeight.value + CHAT_DOCK_CLEARANCE}px`,
 }));
 type ComposerHandle = {
   loadForEdit: (value: string) => boolean | void;
@@ -1174,10 +1218,24 @@ function handleInterrupt(): void {
 }
 
 function onKeyDown(event: KeyboardEvent): void {
+  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'f') {
+    if (props.overlayOpen) return;
+    event.preventDefault();
+    searchOpen.value = true;
+    void nextTick(() => {
+      panesRef.value?.closest('.con')?.querySelector<HTMLInputElement>('.tsearch-input')?.focus();
+    });
+    return;
+  }
   if (event.key === 'Escape' && (props.running || props.working)) {
     event.preventDefault();
     handleInterrupt();
   }
+}
+
+function closeTranscriptSearch(): void {
+  searchOpen.value = false;
+  void nextTick(() => panesRef.value?.focus({ preventScroll: true }));
 }
 
 // When the on-screen keyboard opens, browsers without interactive-widget support
@@ -1251,6 +1309,12 @@ defineExpose({ loadComposerForEdit, focusComposer });
 
 <template>
   <section class="con" :class="{ mobile }">
+    <TranscriptSearch
+      v-if="searchOpen && panesRef"
+      :pane="panesRef"
+      :mobile="mobile"
+      @close="closeTranscriptSearch"
+    />
     <!-- Chat context header: workspace/session, git status, open-in-editor,
          copy-all, PR. Hidden for the empty-composer (no session context yet). -->
     <ChatHeader
@@ -1267,13 +1331,17 @@ defineExpose({ loadComposerForEdit, focusComposer });
       :is-git-repo="!!gitInfo"
       :pr="pr"
       :copied="copyConversationCopied"
+      :session-done="sessionDone"
+      :pinned="pinned"
       @open-changes="emit('openChanges')"
       @copy-all="chatPaneRef?.copyConversation()"
       @copy-final-summary="chatPaneRef?.copyFinalSummary()"
       @open-pr="pr && emit('openPr', pr.url)"
       @rename-session="(id, title) => emit('renameSession', id, title)"
       @fork-session="(id) => emit('forkSession', id)"
+      @toggle-pin="(id) => emit('togglePin', id)"
       @archive-session="(id) => emit('archiveSession', id)"
+      @restore-session="(id) => emit('restoreSession', id)"
       @export-session="(id) => emit('exportSession', id)"
     />
 
@@ -1289,10 +1357,11 @@ defineExpose({ loadComposerForEdit, focusComposer });
       @select="scrollToTurn"
     />
 
-    <div class="chat-layout">
+    <div class="chat-layout" :style="chatLayoutStyle">
       <div
         :ref="bindChatPane"
         class="panes chat-scroll"
+        tabindex="-1"
         :class="{
           'is-following': following,
           'history-prepending': historyLoadInProgress,
@@ -1366,6 +1435,12 @@ defineExpose({ loadComposerForEdit, focusComposer });
                 <span>{{ t('conversation.addWorkspace') }}</span>
               </button>
             </div>
+            <WorkspaceRecentSessions
+              v-if="!sessionId"
+              :sessions="recentSessions ?? []"
+              @select="emit('selectSession', $event)"
+              @open-session-admin="emit('openSessionAdmin')"
+            />
             <Composer
               ref="emptyComposerRef"
               class="empty-composer"
@@ -1378,6 +1453,7 @@ defineExpose({ loadComposerForEdit, focusComposer });
               :thinking="thinking"
               :plan-mode="planMode"
               :goal-mode="goalMode"
+              :workflow-active="dynamicWorkflowMode"
               :goal="goal"
               :activation-badges="activationBadges"
               :models="models"
@@ -1411,6 +1487,7 @@ defineExpose({ loadComposerForEdit, focusComposer });
               :key="fileReloadKey ?? 'no-session'"
               :turns="turns"
               :approvals="approvals"
+              :questions="questions"
               :turn-active="turnActive"
               :working="working"
               :fast-moon="fastMoon"
@@ -1421,6 +1498,10 @@ defineExpose({ loadComposerForEdit, focusComposer });
               :loading-more-error="loadingMoreError"
               :is-following="following"
               :tool-diff-panel="true"
+              :last-turn-reason="lastTurnReason"
+              :turn-error-kind="turnErrorKind"
+              :turn-error-message="turnErrorMessage"
+              :cwd="workspaceRoot"
               :queued="queued"
               @open-file="emit('openFile', $event)"
               @open-media="emit('openMedia', $event)"
@@ -1429,11 +1510,13 @@ defineExpose({ loadComposerForEdit, focusComposer });
               @open-compaction="emit('openCompaction', $event)"
               @open-agent="emit('openAgent', $event)"
               @open-tool-diff="emit('openToolDiff', $event)"
+              @open-turn-diff="emit('openTurnDiff', $event)"
               @edit-message="handleEditMessage"
               @load-older-messages="handleLoadOlderMessages"
               @unqueue="emit('unqueue', $event)"
               @edit-queued="handleEditQueued"
               @reorder-queue="handleReorderQueue"
+              @continue-turn="emit('continueTurn', $event)"
             />
           </template>
         </div>
@@ -1451,13 +1534,18 @@ defineExpose({ loadComposerForEdit, focusComposer });
         :status="status"
         :thinking="thinking"
         :plan-mode="planMode"
+        :plan-armed="planArmed"
+        :working="working"
         :goal-mode="goalMode"
+        :dynamic-workflow-mode="dynamicWorkflowMode"
         :activation-badges="activationBadges"
         :models="models"
         :starred-ids="starredIds"
         :skills="skills"
         :goal="goal"
-        :goal-expand-signal="goalExpandSignal"
+        :session-plans="sessionPlans"
+        :overlay-open="overlayOpen"
+        :open-file="(target) => emit('openFile', target)"
         :dock-panel="dockPanel"
         :bash-tasks="bashTasks"
         :subagent-tasks="subagentTasks"
@@ -1570,6 +1658,8 @@ defineExpose({ loadComposerForEdit, focusComposer });
   width: 100%;
   max-width: var(--read-max);
   min-height: 100%;
+  box-sizing: border-box;
+  padding-bottom: var(--chat-dock-height, 0px);
   display: flex;
   flex-direction: column;
   flex-shrink: 0;

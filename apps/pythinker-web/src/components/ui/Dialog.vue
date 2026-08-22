@@ -181,7 +181,7 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   background: var(--color-surface-raised);
-  border: 1px solid var(--color-line);
+  border: 0.5px solid var(--color-line);
   border-radius: var(--radius-xl);
   box-shadow: var(--shadow-xl);
   outline: none;

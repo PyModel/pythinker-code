@@ -1,3 +1,19 @@
+@font-face {
+  font-family: 'Schibsted Grotesk Variable';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400 900;
+  src: url('./assets/fonts/SchibstedGrotesk_wght.woff2') format('woff2-variations');
+}
+
+@font-face {
+  font-family: 'Schibsted Grotesk Variable';
+  font-style: italic;
+  font-display: swap;
+  font-weight: 400 900;
+  src: url('./assets/fonts/SchibstedGrotesk-Italic_wght.woff2') format('woff2-variations');
+}
+
 /* ---- Minimal reset (replaces Tailwind preflight) ----
    Just enough normalization so UA defaults don't leak through; the app's own
    token-driven styles layer on top. */
@@ -155,726 +171,1118 @@ summary {
     interpolate-size: allow-keywords;
   }
 }
+:root {
+    --panel-head-h: 48px;
+    --panel-head-inset: calc((var(--panel-head-h) - var(--icon-button-sm)) / 2)
+}
+
+.app:not(.mobile) .chat-header {
+    transition: padding-left .28s cubic-bezier(.4, 0, .2, 1)
+}
+
+.app.sidebar-collapsed .chat-header {
+    padding-left: 78px
+}
+
+.app.sidebar-collapsed.macos-desktop .chat-header {
+    padding-left: 146px
+}
+
+.app.sidebar-collapsed .session-admin .sa-head {
+    padding-left: 78px
+}
+
+.app.sidebar-collapsed.windows-desktop .session-admin .sa-head {
+    padding-left: var(--space-6)
+}
+
+.app.sidebar-collapsed.macos-desktop .session-admin .sa-head {
+    padding-left: 146px
+}
+
+.app.fullscreen.sidebar-collapsed.macos-desktop .session-admin .sa-head {
+    padding-left: 78px
+}
+
+.app.macos-desktop .global-preview .ui-panel-header {
+    -webkit-app-region: drag
+}
+
+.app.macos-desktop .global-preview .ui-panel-header button,
+.app.macos-desktop .global-preview .ui-panel-header input {
+    -webkit-app-region: no-drag
+}
+
+.app.macos-desktop:has(.ch-menu, .open-in-menu, .dock-work-panel, .copy-menu-open) .chat-header,
+.app.macos-desktop:has(.ch-menu, .open-in-menu, .dock-work-panel, .copy-menu-open) .side .ch,
+.app.macos-desktop:has(.ch-menu, .open-in-menu, .dock-work-panel, .copy-menu-open) .global-preview .ui-panel-header {
+    -webkit-app-region: no-drag
+}
 
 :root {
-  --dim: #595959;
-  --muted: #8a8a8a;
-  --faint: #b5b5b5;
-  --line: #e9edf3;
-  --line2: #f1f4f8;
-  /* Soft neutral canvas the white cards/bubbles lift off, plus the soft
-     elevation shadows shared by the per-element card rules. */
-  --canvas: #f4f6fa;
-  --sh: 0 1px 3px rgba(28, 40, 66, 0.05), 0 6px 18px rgba(28, 40, 66, 0.06);
-  --shc: 0 1px 2px rgba(28, 40, 66, 0.05);
-  --panel: #fafbfc;
-  --panel2: #f3f5f8;
-  --bg: #ffffff;
-  /* Brand blue = Pythinker KMBlue (#1783ff), aligned with the neutral UI palette.
-     --blue2 is a darker press/hover shade; --soft/--bd/--bluebg/--blueln are
-     the light-blue fills + borders derived from the same hue. */
-  --blue: #1783ff;
-  --blue2: #0f6fe0;
-  --soft: #e8f3ff;
-  --bd: #cfe6ff;
-  --logo: #1783ff;
-  /* Soft-blue bubble fill + border (mobile user message bubble). */
-  --bluebg: #e8f3ff;
-  --blueln: #cfe6ff;
-  --ok: #0e7a38;
-  /* Keep in sync with --color-warning / --color-danger in the v2 token layer
-     below (light values; dark overrides live in the data-color-scheme blocks). */
-  --warn: #a9610a;
-  --star: #eab308;
-  --err: #c0392b;
-  /* Subtle hover wash for icon buttons (toast close, etc.). */
-  --hover: rgba(0, 0, 0, 0.05);
-  /* Aliases for names referenced across components but never defined —
-     without these the declarations are invalid at computed-value time and
-     silently fall back (see test/css-custom-properties.test.ts). They point
-     at the v2 token layer, so light/dark both resolve. */
-  --ink: var(--color-text);
-  --fg: var(--color-text);
-  --color-fg: var(--color-text);
-  --border: var(--color-line);
-  /* Legacy radius aliases (kept for one version cycle, design-system §02).
-     Byte-for-byte identical to the old 6 / 8 / 12 / 16 scale, now expressed
-     against the canonical --radius-* scale below so the two cannot drift.
-     New work should reference --radius-* directly. */
-  --r-xs: var(--radius-sm);
-  --r-sm: var(--radius-md);
-  --r-md: var(--radius-lg);
-  --r-lg: var(--radius-xl);
-  --base-ui-font-size: 14px;
-  --ui-font-size: var(--base-ui-font-size);
-  --ui-font-size-sm: calc(var(--ui-font-size) - 1px);
-  --ui-font-size-xs: calc(var(--ui-font-size) - 2px);
-  --ui-font-size-lg: calc(var(--ui-font-size) + 1px);
-  --ui-font-size-xl: calc(var(--ui-font-size) + 2px);
-  --content-font-size: calc(var(--base-ui-font-size) + 1px);
-  --mono: "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
-  /* Body/UI font follows the design-system canonical token. Mirrors --font-ui
-     so the legacy alias can never drift from the current text face. */
-  --sans: var(--font-ui);
-  color-scheme: light dark;
+    --dim: rgba(0, 0, 0, .6);
+    --muted: rgba(0, 0, 0, .45);
+    --faint: rgba(0, 0, 0, .3);
+    --line: var(--color-line);
+    --line2: var(--color-subtle);
+    --canvas: #f9fbfc;
+    --sh: 0 1px 3px rgba(28, 40, 66, .05), 0 6px 18px rgba(28, 40, 66, .06);
+    --shc: 0 1px 2px rgba(28, 40, 66, .05);
+    --panel: #f5f5f5;
+    --panel2: rgba(0, 0, 0, .05);
+    --bg: #ffffff;
+    --blue: #1783ff;
+    --blue2: #167ff7;
+    --soft: #e8f3ff;
+    --bd: rgba(23, 131, 255, .25);
+    --logo: #1783ff;
+    --bluebg: #e8f3ff;
+    --blueln: rgba(23, 131, 255, .25);
+    --ok: #0e7a38;
+    --warn: #a9610a;
+    --star: #eab308;
+    --err: #c0392b;
+    --hover: var(--color-hover);
+    --r-xs: var(--radius-sm);
+    --r-sm: var(--radius-md);
+    --r-md: var(--radius-lg);
+    --r-lg: var(--radius-xl);
+    --ui-font-size: var(--ui-b2);
+    --ui-font-size-sm: calc(var(--ui-font-size) - 1px);
+    --ui-font-size-xs: calc(var(--ui-font-size) - 2px);
+    --ui-font-size-lg: calc(var(--ui-font-size) + 1px);
+    --ui-font-size-xl: calc(var(--ui-font-size) + 2px);
+    --content-font-size: var(--md-b1);
+    --code-font-size: calc(var(--content-font-size) - 2px);
+    --mono: "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    --sans: var(--font-ui);
+    --ink: var(--color-text);
+    --fg: var(--color-text);
+    --color-fg: var(--color-text);
+    --border: var(--color-line);
+    --surface-light: #ffffff;
+    --surface-dark: #0d1117;
+    --accent-primary: #1783ff;
+    color-scheme: light dark
 }
 
-/* Safe-area insets + chat-dock metrics ---------------------------------------
-   Centralised so mobile layout reads one consistent source instead of each
-   component calling env(safe-area-inset-*) with its own fallback. Falls back to
-   0px where the UA doesn't expose insets (most desktops, older Android);
-   pair with max(min, var(--safe-bottom)) so gestures / home indicators keep a
-   minimum gutter even when the inset reports 0. The mobile footer (composer),
-   bottom sheets and the toast layer all consume these. */
+html[data-color-scheme=light] {
+    color-scheme: light
+}
+
+html[data-color-scheme=system] {
+    color-scheme: light dark
+}
+
+html[data-color-scheme=dark] {
+    color-scheme: dark;
+    --dim: rgba(255, 255, 255, .56);
+    --muted: rgba(255, 255, 255, .42);
+    --faint: rgba(255, 255, 255, .26);
+    --panel: #1f1f1f;
+    --panel2: #121212;
+    --bg: #121212;
+    --blue: #1a88ff;
+    --blue2: #258eff;
+    --soft: rgba(26, 136, 255, .1);
+    --bd: rgba(26, 136, 255, .28);
+    --logo: #1a88ff;
+    --bluebg: #292929;
+    --blueln: rgba(255, 255, 255, .05);
+    --ok: #3fb950;
+    --warn: #d29922;
+    --star: #facc15;
+    --err: #f85149;
+    --hover: var(--color-hover);
+    --canvas: #161717;
+    --sh: 0 1px 3px rgba(0, 0, 0, .35), 0 6px 18px rgba(0, 0, 0, .4);
+    --shc: 0 1px 2px rgba(0, 0, 0, .35)
+}
+
+@media(prefers-color-scheme:dark) {
+    html[data-color-scheme=system] {
+        --dim: rgba(255, 255, 255, .56);
+        --muted: rgba(255, 255, 255, .42);
+        --faint: rgba(255, 255, 255, .26);
+        --panel: #1f1f1f;
+        --panel2: #121212;
+        --bg: #121212;
+        --blue: #1a88ff;
+        --blue2: #258eff;
+        --soft: rgba(26, 136, 255, .1);
+        --bd: rgba(26, 136, 255, .28);
+        --logo: #1a88ff;
+        --bluebg: #292929;
+        --blueln: rgba(255, 255, 255, .05);
+        --ok: #3fb950;
+        --warn: #d29922;
+        --star: #facc15;
+        --err: #f85149;
+        --hover: var(--color-hover);
+        --canvas: #161717;
+        --sh: 0 1px 3px rgba(0, 0, 0, .35), 0 6px 18px rgba(0, 0, 0, .4);
+        --shc: 0 1px 2px rgba(0, 0, 0, .35)
+    }
+}
+
 :root {
-  --safe-top: env(safe-area-inset-top, 0px);
-  --safe-right: env(safe-area-inset-right, 0px);
-  --safe-bottom: env(safe-area-inset-bottom, 0px);
-  --safe-left: env(safe-area-inset-left, 0px);
-  /* Border-box height of the chat dock, written by ChatDock via ResizeObserver.
-     Used to anchor fixed overlays (toasts, floating hints) just above the
-     composer — dynamic so multi-line input growth keeps them clear. Left
-     undeclared on purpose: consumers use a fallback (e.g. the assumed
-     single-line dock height) on pages where ChatDock is not mounted. */
+    --color-bg: #ffffff;
+    --color-surface: #f5f5f5;
+    --color-surface-raised: #ffffff;
+    --color-surface-overlay: #ffffff;
+    --color-surface-sunken: #f5f5f5;
+    --color-inline-code-bg: rgba(0, 0, 0, .03);
+    --color-well: #f5f5f5;
+    --color-surface-deep: #f5f5f5;
+    --color-media-alpha-bg-1: color-mix(in srgb, var(--color-bg) 52%, var(--color-text) 48%);
+    --color-media-alpha-bg-2: color-mix(in srgb, var(--color-bg) 42%, var(--color-text) 58%);
+    --media-alpha-canvas: conic-gradient(var(--color-media-alpha-bg-1) 25%, var(--color-media-alpha-bg-2) 0 50%, var(--color-media-alpha-bg-1) 0 75%, var(--color-media-alpha-bg-2) 0) 0 0 / 16px 16px;
+    --color-text: rgba(0, 0, 0, .9);
+    --color-text-strong: #000000;
+    --color-text-muted: rgba(0, 0, 0, .6);
+    --color-text-faint: rgba(0, 0, 0, .45);
+    --color-text-on-accent: #ffffff;
+    --color-line: rgba(0, 0, 0, .13);
+    --color-subtle: rgba(0, 0, 0, .05);
+    --color-line-strong: rgba(0, 0, 0, .15);
+    --color-scrim: rgba(0, 0, 0, .4);
+    --color-scrim-strong: rgba(0, 0, 0, .6);
+    --color-text-on-scrim: #ffffff;
+    --color-selected: rgba(0, 0, 0, .05);
+    --color-selected-hover: rgba(0, 0, 0, .08);
+    --color-hover: rgba(0, 0, 0, .03);
+    --color-sidebar-bg: #f9fbfc;
+    --color-user-bubble-bg: #f5f5f5;
+    --color-accent: #1783ff;
+    --color-accent-hover: #167ff7;
+    --color-accent-soft: #e8f3ff;
+    --color-accent-bd: rgba(23, 131, 255, .25);
+    --color-success: #0e7a38;
+    --color-success-soft: #e7f6ee;
+    --color-success-bd: #bfe3cc;
+    --color-warning: #a9610a;
+    --color-warning-soft: #fbf1e0;
+    --color-warning-bd: #f0d9b8;
+    --color-danger: #c0392b;
+    --color-danger-soft: #fbeaea;
+    --color-danger-bd: #f0cccc;
+    --color-diff-add-bg: rgba(22, 196, 86, .25);
+    --color-diff-del-bg: rgba(255, 56, 73, .25);
+    --color-done: #8250df;
+    --color-done-soft: #f3e8ff;
+    --color-done-bd: #e0ccff;
+    --color-info: #1783ff;
+    --color-term-magenta: #8250df;
+    --color-term-cyan: #1b7c83;
+    --color-term-black: #24292f;
+    --space-05: 2px;
+    --space-1: 4px;
+    --space-1-5: 6px;
+    --space-2: 8px;
+    --space-3: 12px;
+    --space-4: 16px;
+    --space-5: 20px;
+    --space-6: 24px;
+    --space-8: 32px;
+    --radius-xs: 4px;
+    --radius-sm: 6px;
+    --radius-md: 8px;
+    --radius-lg: 12px;
+    --radius-xl: 16px;
+    --radius-2xl: 20px;
+    --radius-composer: 32px;
+    --corner-shape-composer: superellipse(1.5);
+    --radius-menu-row: var(--radius-sm);
+    --corner-shape-menu: var(--corner-shape-composer);
+    --color-menu-bg-frost: color-mix(in srgb, var(--color-bg) 70%, transparent);
+    --color-menu-scrollbar: color-mix(in srgb, var(--color-text) 16%, transparent);
+    --color-menu-scrollbar-hover: color-mix(in srgb, var(--color-text) 48%, transparent);
+    --radius-full: 999px;
+    --menu-scroll-fade: var(--space-5);
+    --menu-row-hug: var(--space-1-5);
+    --menu-rows-seam: 1px;
+    --menu-row-gap-icon: 7px;
+    --menu-row-padding-block: var(--space-05);
+    --menu-row-padding-inline: calc(var(--space-4) - var(--space-3) + var(--menu-row-hug));
+    --menu-row-touch-padding-block: 11px;
+    --menu-scrollbar-width: 3px;
+    --menu-scrollbar-edge: calc(var(--menu-row-hug) + var(--p-hairline) - var(--menu-scrollbar-width));
+    --menu-scrollbar-track-inset: calc(var(--radius-lg) - var(--space-1-5));
+    --menu-scrollbar-thumb-min: 24px;
+    --att-chip-pad-left: 5px;
+    --wm-x-size: calc(var(--p-ic-sm) + var(--space-1));
+    --wm-x-ring: var(--space-1-5);
+    --z-base: 0;
+    --z-raised: 1;
+    --z-sticky: 100;
+    --z-dropdown: 200;
+    --z-overlay: 300;
+    --z-modal: 400;
+    --z-modal-dropdown: 500;
+    --z-toast: 600;
+    --z-tooltip: 650;
+    --z-max: 9999;
+    --shadow-xs: 0 1px 2px rgba(16, 24, 40, .04);
+    --shadow-sm: 0 1px 2px rgba(16, 24, 40, .05), 0 1px 3px rgba(16, 24, 40, .06);
+    --shadow-menu: 0 6px 18px lch(0% 0 0 / .02), 0 3px 9px lch(0% 0 0 / .04), 0 1px 1px lch(0% 0 0 / .04);
+    --color-menu-bg: rgba(255, 255, 255, .95);
+    --p-menu-backdrop: blur(24px) saturate(1.8);
+    --shadow-input: 0 5px 16px -4px rgba(0, 0, 0, .07);
+    --shadow-md: 0 4px 12px rgba(16, 24, 40, .07), 0 2px 4px rgba(16, 24, 40, .05);
+    --shadow-lg: 0 12px 32px rgba(16, 24, 40, .12), 0 4px 10px rgba(16, 24, 40, .08);
+    --shadow-xl: 0 24px 64px rgba(16, 24, 40, .18), 0 8px 20px rgba(16, 24, 40, .1);
+    --ease-out: cubic-bezier(.16, 1, .3, 1);
+    --ease-in-out: cubic-bezier(.4, 0, .2, 1);
+    --duration-fast: .12s;
+    --duration-base: .16s;
+    --duration-slow: .26s;
+    --duration-hover-intent: .25s;
+    --duration-tooltip: .15s;
+    --duration-spin: .7s;
+    --duration-flash: 1.2s;
+    --motion-panel-shift: 2px;
+    --motion-panel-scale: .97;
+    --color-composer-bg: #ffffff;
+    --color-composer-line: rgba(0, 0, 0, .13);
+    --color-composer-focus-line: rgba(0, 0, 0, .25);
+    --color-send-bg: rgba(0, 0, 0, .9);
+    --color-send-bg-hover: #252525;
+    --color-send-icon: #ffffff;
+    --color-stop-glyph: var(--color-danger);
+    --color-send-bg-disabled: rgba(0, 0, 0, .05);
+    --color-send-icon-disabled: rgba(0, 0, 0, .27);
+    --opacity-send-disabled: 1;
+    --shadow-send: 0 7px 16px -13px rgba(0, 0, 0, .38), 0 1px 2px rgba(0, 0, 0, .07);
+    --shadow-send-hover: 0 8px 18px -13px rgba(0, 0, 0, .42), 0 1px 3px rgba(0, 0, 0, .09);
+    --composer-send-icon-size: 28px;
+    --font-ui-latin: "Schibsted Grotesk Variable", "Helvetica Neue", Arial;
+    --font-ui: var(--font-ui-latin), "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Source Han Sans SC", "Noto Sans SC", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Ubuntu, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+    --font-display: var(--font-ui);
+    --font-kbd: "Schibsted Grotesk Variable", system-ui, sans-serif;
+    --font-mono: "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    --text-2xs: calc(var(--ui-c1) - 1px);
+    --text-xs: var(--ui-c1);
+    --text-sm: calc(var(--ui-b2) - 1px);
+    --text-base: var(--ui-b2);
+    --text-lg: var(--ui-t2);
+    --text-xl: var(--ui-t1);
+    --text-2xl: var(--ui-t0);
+    --leading-solid: 1;
+    --leading-tight: 1.25;
+    --leading-caption: 1.4;
+    --leading-normal: 1.5;
+    --leading-prose: 1.6;
+    --leading-relaxed: 1.7;
+    --weight-regular: 400;
+    --weight-caption: 450;
+    --weight-option-label: 475;
+    --weight-medium: 500;
+    --weight-ui-strong: 525;
+    --weight-section-label: 600;
+    --weight-semibold: 700;
+    --ui-shift: calc(var(--base-font, 14px) - 14px);
+    --md-shift: var(--ui-shift);
+    --ui-t0: min(calc(20px + var(--ui-shift)), 24px);
+    --ui-t1: min(calc(18px + var(--ui-shift)), 22px);
+    --ui-t2: calc(16px + var(--ui-shift));
+    --ui-b1: calc(15px + var(--ui-shift));
+    --ui-b2: calc(14px + var(--ui-shift));
+    --ui-c1: calc(12px + var(--ui-shift));
+    --ui-c2: calc(10px + var(--ui-shift));
+    --md-h1: calc(22px + var(--md-shift));
+    --md-h2: calc(20px + var(--md-shift));
+    --md-h3: calc(18px + var(--md-shift));
+    --md-b1: calc(14px + var(--md-shift));
+    --md-b2: calc(13px + var(--md-shift));
+    --md-b3: calc(13px + var(--md-shift));
+    --p-focus-ring: 0 0 0 3px var(--color-accent-soft);
+    --p-focus-ring-strong: 0 0 0 3px var(--color-accent-soft), 0 0 0 1px var(--color-accent);
+    --p-selection: rgba(23, 131, 255, .2);
+    --p-ic-sm: 14px;
+    --p-ic-md: 16px;
+    --p-ring-stroke: 1.5px;
+    --p-ic-lg: 20px;
+    --p-empty-ico: 28px;
+    --p-hairline: .5px;
+    --p-findring-w: 2px;
+    --p-scroll-seam-h: 18px;
+    --icon-button-sm: 26px;
+    --touch-target-min: 44px;
+    --p-chip-num: 20px;
+    --p-sidebar-w: 264px;
+    --p-content-max: 760px;
+    --p-content-wide: 920px;
+    --p-table-max: 1040px;
+    --p-table-cell-max: 700px;
+    --p-findbar-w: 340px;
+    --p-dock-panel-h: 320px;
+    --p-subagent-card-min: 180px;
+    --p-slash-menu-h: 228px;
+    --p-mention-menu-h: 296px;
+    --p-media-thumb-size: 64px;
+    --p-mention-tip-w: 320px;
+    --p-mention-tip-vmargin: var(--space-3);
+    --p-mention-tip-spinner-lift: -.1em;
+    --opacity-stale: .55;
+    --p-add-menu-h: var(--p-slash-menu-h);
+    --p-bp-sm: 640px;
+    --p-bp-md: 980px
 }
 
-/* -- icon primitive (design-system §02) -------------------------------------
-   Applied to every design-system icon: the <Icon> component output
-   (components/ui/Icon.vue) and the iconSvg() v-html strings (lib/icons.ts).
-   Both source their SVG from the Remix Icon registry in lib/icons.ts, bundled
-   by unplugin-icons at build time — so only registered icons ship. Colour
-   follows text via fill="currentColor". */
-.kw-icon {
-  display: inline-block;
-  flex: none;
-  vertical-align: -0.15em;
+:root,
+html[data-font-scale=medium] {
+    --base-font: 14px
 }
 
-/* Render code literally: disable the ligatures coding fonts enable by default
-   (e.g. `!=` collapsing to `≠`, `=>` to `⇒`). */
+html[data-font-scale=small] {
+    --base-font: 12px
+}
+
+html[data-font-scale=large] {
+    --base-font: 16px
+}
+
+html[data-font-scale=xlarge] {
+    --base-font: 18px
+}
+
+.text-ui-t0 {
+    font-size: var(--ui-t0);
+    line-height: round(calc(var(--ui-t0) * 1.4), 1px)
+}
+
+.text-ui-t1 {
+    font-size: var(--ui-t1);
+    line-height: round(calc(var(--ui-t1) * 1.44), 1px)
+}
+
+.text-ui-t2 {
+    font-size: var(--ui-t2);
+    line-height: round(calc(var(--ui-t2) * 1.5), 1px)
+}
+
+.text-ui-b1 {
+    font-size: var(--ui-b1);
+    line-height: round(calc(var(--ui-b1) * 1.47), 1px)
+}
+
+.text-ui-b2 {
+    font-size: var(--ui-b2);
+    line-height: round(calc(var(--ui-b2) * 1.42), 1px)
+}
+
+.text-ui-c1 {
+    font-size: var(--ui-c1);
+    line-height: round(calc(var(--ui-c1) * 1.5), 1px)
+}
+
+.text-ui-c2 {
+    font-size: var(--ui-c2);
+    line-height: round(calc(var(--ui-c2) * 1.4), 1px)
+}
+
+.text-md-h1 {
+    font-size: var(--md-h1);
+    line-height: round(calc(var(--md-h1) * 1.63), 1px)
+}
+
+.text-md-h2 {
+    font-size: var(--md-h2);
+    line-height: round(calc(var(--md-h2) * 1.6), 1px)
+}
+
+.text-md-h3 {
+    font-size: var(--md-h3);
+    line-height: round(calc(var(--md-h3) * 1.56), 1px)
+}
+
+.text-md-b1 {
+    font-size: var(--md-b1);
+    line-height: round(calc(var(--md-b1) * 1.625), 1px)
+}
+
+.text-md-b2 {
+    font-size: var(--md-b2);
+    line-height: round(calc(var(--md-b2) * 1.6), 1px)
+}
+
+.text-md-b3 {
+    font-size: var(--md-b3);
+    line-height: round(calc(var(--md-b3) * 1.57), 1px)
+}
+
+html[data-color-scheme=dark] {
+    --color-bg: #121212;
+    --color-surface: #1f1f1f;
+    --color-surface-raised: #292929;
+    --color-surface-overlay: rgba(255, 255, 255, .1);
+    --color-surface-sunken: #121212;
+    --color-inline-code-bg: rgba(255, 255, 255, .1);
+    --color-well: #1f1f1f;
+    --color-surface-deep: #0d0d0d;
+    --color-text: rgba(255, 255, 255, .84);
+    --color-text-strong: #ffffff;
+    --color-text-muted: rgba(255, 255, 255, .56);
+    --color-text-faint: rgba(255, 255, 255, .42);
+    --color-line: rgba(255, 255, 255, .12);
+    --color-subtle: rgba(255, 255, 255, .05);
+    --color-line-strong: rgba(255, 255, 255, .18);
+    --color-scrim: rgba(0, 0, 0, .6);
+    --color-scrim-strong: rgba(0, 0, 0, .75);
+    --color-selected: rgba(255, 255, 255, .1);
+    --color-selected-hover: rgba(255, 255, 255, .14);
+    --color-hover: rgba(255, 255, 255, .05);
+    --color-sidebar-bg: #0d0d0d;
+    --color-user-bubble-bg: #292929;
+    --color-accent: #1a88ff;
+    --color-accent-hover: #258eff;
+    --color-accent-soft: rgba(26, 136, 255, .1);
+    --color-accent-bd: rgba(26, 136, 255, .28);
+    --p-selection: rgba(26, 136, 255, .2);
+    --color-success: #3fb950;
+    --color-success-soft: rgba(63, 185, 80, .14);
+    --color-success-bd: rgba(63, 185, 80, .28);
+    --color-warning: #d29922;
+    --color-warning-soft: rgba(210, 153, 34, .14);
+    --color-warning-bd: rgba(210, 153, 34, .28);
+    --color-danger: #f85149;
+    --color-danger-soft: rgba(248, 81, 73, .14);
+    --color-danger-bd: rgba(248, 81, 73, .28);
+    --color-diff-add-bg: rgba(63, 185, 80, .14);
+    --color-diff-del-bg: rgba(248, 81, 73, .14);
+    --color-done: #a371f7;
+    --color-done-soft: rgba(163, 113, 247, .14);
+    --color-done-bd: rgba(163, 113, 247, .28);
+    --color-info: #1a88ff;
+    --color-term-magenta: #d2a8ff;
+    --color-term-cyan: #76e3ea;
+    --color-term-black: #484f58;
+    --color-composer-bg: #1f1f1f;
+    --color-composer-line: rgba(255, 255, 255, .12);
+    --color-composer-focus-line: rgba(255, 255, 255, .25);
+    --color-send-bg: rgba(255, 255, 255, .84);
+    --color-send-bg-hover: rgba(255, 255, 255, .848);
+    --color-send-icon: #1f1f1f;
+    --color-stop-glyph: color-mix(in srgb, var(--color-danger) 72%, transparent);
+    --color-send-bg-disabled: rgba(255, 255, 255, .1);
+    --color-send-icon-disabled: rgba(255, 255, 255, .28);
+    --shadow-xs: 0 1px 2px rgba(0, 0, 0, .2);
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, .22), 0 1px 3px rgba(0, 0, 0, .18);
+    --shadow-menu: 0 6px 18px rgba(0, 0, 0, .2), 0 3px 9px rgba(0, 0, 0, .24), 0 1px 1px rgba(0, 0, 0, .24);
+    --color-menu-bg: rgba(41, 41, 41, .95);
+    --shadow-input: 0 5px 16px -4px rgba(0, 0, 0, .07);
+    --shadow-md: 0 4px 12px rgba(0, 0, 0, .3), 0 2px 4px rgba(0, 0, 0, .24);
+    --shadow-lg: 0 12px 32px rgba(0, 0, 0, .34), 0 4px 10px rgba(0, 0, 0, .28);
+    --shadow-xl: 0 24px 64px rgba(0, 0, 0, .42), 0 8px 20px rgba(0, 0, 0, .32)
+}
+
+@media(prefers-color-scheme:dark) {
+    html[data-color-scheme=system] {
+        --color-bg: #121212;
+        --color-surface: #1f1f1f;
+        --color-surface-raised: #292929;
+        --color-surface-overlay: rgba(255, 255, 255, .1);
+        --color-surface-sunken: #121212;
+        --color-inline-code-bg: rgba(255, 255, 255, .1);
+        --color-well: #1f1f1f;
+        --color-surface-deep: #0d0d0d;
+        --color-text: rgba(255, 255, 255, .84);
+        --color-text-strong: #ffffff;
+        --color-text-muted: rgba(255, 255, 255, .56);
+        --color-text-faint: rgba(255, 255, 255, .42);
+        --color-line: rgba(255, 255, 255, .12);
+        --color-subtle: rgba(255, 255, 255, .05);
+        --color-line-strong: rgba(255, 255, 255, .18);
+        --color-scrim: rgba(0, 0, 0, .6);
+        --color-scrim-strong: rgba(0, 0, 0, .75);
+        --color-selected: rgba(255, 255, 255, .1);
+        --color-selected-hover: rgba(255, 255, 255, .14);
+        --color-hover: rgba(255, 255, 255, .05);
+        --color-sidebar-bg: #0d0d0d;
+        --color-user-bubble-bg: #292929;
+        --color-accent: #1a88ff;
+        --color-accent-hover: #258eff;
+        --color-accent-soft: rgba(26, 136, 255, .1);
+        --color-accent-bd: rgba(26, 136, 255, .28);
+        --p-selection: rgba(26, 136, 255, .2);
+        --color-success: #3fb950;
+        --color-success-soft: rgba(63, 185, 80, .14);
+        --color-success-bd: rgba(63, 185, 80, .28);
+        --color-warning: #d29922;
+        --color-warning-soft: rgba(210, 153, 34, .14);
+        --color-warning-bd: rgba(210, 153, 34, .28);
+        --color-danger: #f85149;
+        --color-danger-soft: rgba(248, 81, 73, .14);
+        --color-danger-bd: rgba(248, 81, 73, .28);
+        --color-diff-add-bg: rgba(63, 185, 80, .14);
+        --color-diff-del-bg: rgba(248, 81, 73, .14);
+        --color-done: #a371f7;
+        --color-done-soft: rgba(163, 113, 247, .14);
+        --color-done-bd: rgba(163, 113, 247, .28);
+        --color-term-magenta: #d2a8ff;
+        --color-term-cyan: #76e3ea;
+        --color-term-black: #484f58;
+        --color-info: #1a88ff;
+        --color-composer-bg: #1f1f1f;
+        --color-composer-line: rgba(255, 255, 255, .12);
+        --color-composer-focus-line: rgba(255, 255, 255, .25);
+        --color-send-bg: rgba(255, 255, 255, .84);
+        --color-send-bg-hover: rgba(255, 255, 255, .848);
+        --color-send-icon: #1f1f1f;
+        --color-stop-glyph: color-mix(in srgb, var(--color-danger) 72%, transparent);
+        --color-send-bg-disabled: rgba(255, 255, 255, .1);
+        --color-send-icon-disabled: rgba(255, 255, 255, .28);
+        --shadow-xs: 0 1px 2px rgba(0, 0, 0, .2);
+        --shadow-sm: 0 1px 2px rgba(0, 0, 0, .22), 0 1px 3px rgba(0, 0, 0, .18);
+        --shadow-menu: 0 6px 18px rgba(0, 0, 0, .2), 0 3px 9px rgba(0, 0, 0, .24), 0 1px 1px rgba(0, 0, 0, .24);
+        --color-menu-bg: rgba(41, 41, 41, .95);
+        --shadow-input: 0 5px 16px -4px rgba(0, 0, 0, .07);
+        --shadow-md: 0 4px 12px rgba(0, 0, 0, .3), 0 2px 4px rgba(0, 0, 0, .24);
+        --shadow-lg: 0 12px 32px rgba(0, 0, 0, .34), 0 4px 10px rgba(0, 0, 0, .28);
+        --shadow-xl: 0 24px 64px rgba(0, 0, 0, .42), 0 8px 20px rgba(0, 0, 0, .32)
+    }
+}
+
+:root {
+    --color-sidebar-tint: rgba(255, 255, 255, .4)
+}
+
+html[data-color-scheme=dark] {
+    --color-sidebar-tint: rgba(0, 0, 0, .25)
+}
+
+@media(prefers-color-scheme:dark) {
+    html[data-color-scheme=system] {
+        --color-sidebar-tint: rgba(0, 0, 0, .25)
+    }
+}
+
+:root {
+    --color-search-match: #ffe066;
+    --color-search-match-current: #ffc531
+}
+
+html[data-color-scheme=dark] {
+    --color-search-match: rgba(255, 197, 49, .3);
+    --color-search-match-current: rgba(255, 197, 49, .55)
+}
+
+@media(prefers-color-scheme:dark) {
+    html[data-color-scheme=system] {
+        --color-search-match: rgba(255, 197, 49, .3);
+        --color-search-match-current: rgba(255, 197, 49, .55)
+    }
+}
+
+::highlight(pythinker-transcript-search) {
+    background-color: var(--color-search-match)
+}
+
+::highlight(pythinker-transcript-search-current) {
+    background-color: var(--color-search-match-current)
+}
+
+.mention-pill {
+    display: inline-flex;
+    align-items: baseline;
+    gap: var(--space-05);
+    color: var(--color-text-muted);
+    font-weight: var(--weight-ui-strong);
+    white-space: nowrap;
+    text-decoration: none;
+    vertical-align: baseline;
+    padding-inline: var(--space-05);
+    transition: color var(--duration-fast) var(--ease-out)
+}
+
+.mention-pill:hover {
+    color: var(--color-text)
+}
+
+.mention-pill:hover .mention-pill-icon {
+    color: inherit
+}
+
+.mention-pill.mention-file,
+.mention-pill.mention-skill {
+    cursor: pointer
+}
+
+.mention-pill.mention-file:hover,
+.mention-pill.mention-skill:hover {
+    text-decoration: underline
+}
+
+.mention-pill:focus-visible {
+    outline: none;
+    box-shadow: var(--p-focus-ring);
+    border-radius: var(--radius-sm)
+}
+
+.ProseMirror .mention-pill,
+.ProseMirror .mention-pill:hover {
+    cursor: text;
+    text-decoration: none
+}
+
+a.mention-folder {
+    cursor: default
+}
+
+.mention-pill.mention-skill.mention-inert,
+.mention-pill.mention-skill.mention-inert:hover {
+    cursor: default;
+    text-decoration: none
+}
+
+.mention-pill-name {
+    max-width: 24em;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis
+}
+
+.mention-pill-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: var(--p-ic-sm);
+    height: var(--p-ic-sm);
+    color: var(--muted);
+    align-self: center;
+    flex-shrink: 0
+}
+
+.mention-pill-icon svg {
+    width: var(--p-ic-sm);
+    height: var(--p-ic-sm);
+    display: block;
+    stroke: currentColor;
+    stroke-width: var(--p-hairline)
+}
+
+.mention-pill.pill-in-selection {
+    background: var(--p-selection);
+    border-radius: var(--radius-sm)
+}
+
+.mention-tip {
+    position: fixed;
+    z-index: var(--z-tooltip);
+    max-width: min(var(--p-mention-tip-w), calc(100vw - 2 * var(--p-mention-tip-vmargin)));
+    padding: var(--space-1) var(--space-2);
+    border-radius: var(--radius-sm);
+    background: var(--color-text);
+    color: var(--color-bg);
+    font-family: var(--font-ui);
+    font-size: var(--text-xs);
+    line-height: round(calc(var(--text-xs) * 1.5), 1px);
+    overflow-wrap: anywhere;
+    opacity: 0;
+    transition: opacity var(--duration-fast) var(--ease-out)
+}
+
+.mention-tip:not(.positioned) {
+    pointer-events: none
+}
+
+.mention-tip.positioned {
+    opacity: 1
+}
+
+.mention-tip-path {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-2)
+}
+
+.mention-tip-path-text {
+    min-width: 0
+}
+
+.mention-tip-sep {
+    color: color-mix(in srgb, currentColor 45%, transparent)
+}
+
+.mention-tip-base {
+    font-weight: var(--weight-semibold)
+}
+
+.mention-tip-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2)
+}
+
+.mention-tip-name {
+    font-weight: var(--weight-semibold);
+    overflow-wrap: anywhere
+}
+
+.mention-tip-open,
+.mention-tip-copy {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    padding: var(--space-05);
+    border: none;
+    border-radius: var(--radius-xs);
+    background: transparent;
+    color: color-mix(in srgb, currentColor 65%, transparent);
+    cursor: pointer;
+    transition: color var(--duration-fast) var(--ease-out), background-color var(--duration-fast) var(--ease-out)
+}
+
+.mention-tip-open:hover,
+.mention-tip-copy:hover {
+    color: var(--color-bg);
+    background: color-mix(in srgb, var(--color-bg) 14%, transparent)
+}
+
+.mention-tip-open:focus-visible,
+.mention-tip-copy:focus-visible {
+    outline: none;
+    box-shadow: var(--p-focus-ring)
+}
+
+.mention-tip-open svg,
+.mention-tip-copy svg {
+    width: var(--p-ic-sm);
+    height: var(--p-ic-sm);
+    display: block
+}
+
+.mention-tip-copy {
+    margin-top: calc(0px - var(--space-05));
+    margin-right: calc(var(--space-05) - var(--space-2))
+}
+
+.mention-tip-desc {
+    margin-top: var(--space-05);
+    color: color-mix(in srgb, currentColor 78%, transparent);
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 4;
+    overflow: hidden
+}
+
+.mention-tip-spinner {
+    display: inline-block;
+    width: calc(var(--space-2) + var(--space-05));
+    height: calc(var(--space-2) + var(--space-05));
+    margin-left: var(--space-1);
+    vertical-align: var(--p-mention-tip-spinner-lift);
+    border-radius: 50%;
+    border: var(--p-ring-stroke) solid color-mix(in srgb, currentColor 30%, transparent);
+    border-top-color: currentColor;
+    animation: mention-tip-spin var(--duration-spin) linear infinite
+}
+
+@keyframes mention-tip-spin {
+    to {
+        transform: rotate(360deg)
+    }
+}
+
+.mention-pill.mention-missing,
+.mention-pill.mention-missing:hover {
+    color: color-mix(in srgb, var(--color-text-muted) 55%, transparent);
+    text-decoration: line-through
+}
+
+.mention-pill.mention-missing .mention-pill-icon {
+    color: inherit
+}
+
+:root {
+    --safe-top: env(safe-area-inset-top, 0px);
+    --safe-right: env(safe-area-inset-right, 0px);
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+    --safe-left: env(safe-area-inset-left, 0px)
+}
+
+.ui-icon {
+    display: inline-block;
+    flex: none;
+    vertical-align: -.15em
+}
+
 code,
 pre,
 kbd,
 samp,
 tt {
-  font-feature-settings: "liga" 0, "calt" 0, "ss01" 0;
-  font-variant-ligatures: none;
-}
-
-/* color-scheme drives UA-rendered parts (scrollbars, form controls, etc.).
-   An explicit choice must pin it to a single value — otherwise a dark-mode
-   user on a light OS gets light scrollbars floating on the dark UI. */
-html[data-color-scheme="light"] {
-  color-scheme: light;
-}
-html[data-color-scheme="system"] {
-  color-scheme: light dark;
-}
-
-/* Dark mode variables — applied when explicitly chosen or via system preference. */
-html[data-color-scheme="dark"] {
-  color-scheme: dark;
-  --dim: #9aa0a8;
-  --muted: #727983;
-  --faint: #525960;
-  --line: #2d333b;
-  --line2: #22272e;
-  --panel: #1c2128;
-  --panel2: #161b22;
-  --bg: #0d1117;
-  --blue: #58a6ff;
-  --blue2: #79b8ff;
-  --soft: #1f2937;
-  --bd: #1f6feb;
-  --logo: #58a6ff;
-  --bluebg: #1c2a3a;
-  --blueln: #1f4f7a;
-  --ok: #3fb950;
-  --warn: #d29922;
-  --star: #facc15;
-  --err: #f85149;
-  --hover: rgba(255, 255, 255, 0.07);
-  --canvas: #161b22;
-  --sh: 0 1px 3px rgba(0, 0, 0, 0.35), 0 6px 18px rgba(0, 0, 0, 0.4);
-  --shc: 0 1px 2px rgba(0, 0, 0, 0.35);
-}
-
-@media (prefers-color-scheme: dark) {
-  html[data-color-scheme="system"] {
-    --dim: #9aa0a8;
-    --muted: #727983;
-    --faint: #525960;
-    --line: #2d333b;
-    --line2: #22272e;
-    --panel: #1c2128;
-    --panel2: #161b22;
-    --bg: #0d1117;
-    --blue: #58a6ff;
-    --blue2: #79b8ff;
-    --soft: #1f2937;
-    --bd: #1f6feb;
-    --logo: #58a6ff;
-    --bluebg: #1c2a3a;
-    --blueln: #1f4f7a;
-    --ok: #3fb950;
-    --warn: #d29922;
-    --star: #facc15;
-    --err: #f85149;
-    --hover: rgba(255, 255, 255, 0.07);
-    --canvas: #161b22;
-    --sh: 0 1px 3px rgba(0, 0, 0, 0.35), 0 6px 18px rgba(0, 0, 0, 0.4);
-    --shc: 0 1px 2px rgba(0, 0, 0, 0.35);
-  }
-}
-
-/* Accent: black/white (Vercel-style) — remaps the blue tokens to grayscale.
-   Orthogonal to the color scheme (only recolours the accent). */
-html[data-accent="mono"] {
-  --accent-primary: #171717;
-  --color-accent: #171717;
-  --color-accent-hover: #383838;
-  --color-accent-soft: #f1f1f2;
-  --color-accent-bd: #d4d4d8;
-  --blue: #171717;
-  --blue2: #383838;
-  --soft: #f1f1f2;
-  --bd: #d4d4d8;
-  --bluebg: #f4f4f5;
-  --blueln: #e4e4e7;
-  --logo: #171717;
-}
-
-/* mono accent × dark: the light grayscale above would win over the dark
-   variables (same specificity, later in source) — remap to dark grays and
-   pair the near-white accent with the scheme background as its foreground. */
-html[data-color-scheme="dark"][data-accent="mono"] {
-  --accent-primary: #e8eaed;
-  --color-accent: #e8eaed;
-  --color-accent-hover: #c9cdd4;
-  --color-accent-soft: #21262d;
-  --color-accent-bd: #444c56;
-  --color-text-on-accent: var(--color-bg);
-  --blue: #e8eaed;
-  --blue2: #c9cdd4;
-  --soft: #21262d;
-  --bd: #444c56;
-  --bluebg: #21262d;
-  --blueln: #30363d;
-  --logo: #e8eaed;
-}
-@media (prefers-color-scheme: dark) {
-  html[data-color-scheme="system"][data-accent="mono"] {
-    --accent-primary: #e8eaed;
-    --color-accent: #e8eaed;
-    --color-accent-hover: #c9cdd4;
-    --color-accent-soft: #21262d;
-    --color-accent-bd: #444c56;
-    --color-text-on-accent: var(--color-bg);
-    --blue: #e8eaed;
-    --blue2: #c9cdd4;
-    --soft: #21262d;
-    --bd: #444c56;
-    --bluebg: #21262d;
-    --blueln: #30363d;
-    --logo: #e8eaed;
-  }
-}
-
-
-/* ===========================================================================
-   DESIGN TOKENS v2 (redesign.html §03)
-   Additive, scheme-aware token scales that sit alongside the legacy short
-   aliases (--bg / --ink / --blue / --r-* …) defined above. The legacy aliases
-   are kept byte-for-byte so existing components render identically (zero
-   regression); new and redesigned work references the semantic `--color-*`
-   layer plus the spacing / radius / elevation / motion / type scales below.
-
-   Light values live in `:root`; dark values are overridden in the two
-   `data-color-scheme` blocks that follow. Only 4 colour "seeds" are meant to
-   be customised — everything else is derived from / paired to them.
-   =========================================================================== */
-:root {
-  /* -- 4 colour seeds (the only knobs a theme customiser should need) ------ */
-  --accent-primary: #1783ff;
-  --accent-secondary: #6b7280;
-  --surface-light: #ffffff;
-  --surface-dark: #0d1117;
-
-  /* -- semantic colour layer (light) --------------------------------------- */
-  --color-bg: #ffffff;
-  --color-surface: #fafbfc;
-  --color-surface-raised: #ffffff;
-  --color-surface-sunken: #f3f5f8;
-  /* Checkerboard canvas behind <img> so transparent PNGs keep white/black
-     content visible and read as transparent. Squares are mixed from the
-     theme's bg/text (≈#858585/#6b6b6b light, ≈#676b72/#7a7e85 dark), each
-     ≥3:1 against both white and black; opaque images simply cover it. */
-  --color-media-alpha-bg-1: color-mix(in srgb, var(--color-bg) 52%, var(--color-text) 48%);
-  --color-media-alpha-bg-2: color-mix(in srgb, var(--color-bg) 42%, var(--color-text) 58%);
-  --media-alpha-canvas: conic-gradient(
-    var(--color-media-alpha-bg-1) 25%,
-    var(--color-media-alpha-bg-2) 0 50%,
-    var(--color-media-alpha-bg-1) 0 75%,
-    var(--color-media-alpha-bg-2) 0
-  ) 0 0 / 16px 16px;
-  /* Foreground text colours. `--color-text` is the default solid body / UI
-     colour (headings and emphasis share it); muted / faint step down for
-     secondary and tertiary copy; on-accent is text drawn on the accent fill. */
-  --color-text: rgba(0, 0, 0, 0.9);
-  --color-text-muted: #6b7280;
-  --color-text-faint: #9aa3af;
-  --color-text-on-accent: #ffffff;
-  --color-line: #e7eaee;
-  --color-line-strong: #d4d9e0;
-  /* Neutral selected fill (sidebar rows, list pickers) — deliberately NOT
-     accent-tinted, so selection reads as "where I am", not as an action. */
-  --color-selected: #00000014;
-  /* Row hover wash — lighter than the selected fill (hover < selected); both
-     are translucent black so they sit naturally on any light surface. */
-  --color-hover: #0000000d;
-  /* Sidebar surface — one step off --color-bg (warm off-white / near-black)
-     so the session column reads as its own plane. */
-  --color-sidebar-bg: #fbfaf9;
-  --color-accent: var(--accent-primary);
-  --color-accent-hover: #0f6fe0;
-  --color-accent-soft: #e8f3ff;
-  --color-accent-bd: #cfe6ff;
-  --color-success: #0e7a38;
-  --color-success-soft: #e7f6ee;
-  --color-success-bd: #bfe3cc;
-  --color-warning: #a9610a;
-  --color-warning-soft: #fbf1e0;
-  --color-warning-bd: #f0d9b8;
-  --color-danger: #c0392b;
-  --color-danger-soft: #fbeaea;
-  --color-danger-bd: #f0cccc;
-  /* "Done" scale — purple used for GitHub merged PRs (matches GitHub Primer). */
-  --color-done: #8250df;
-  --color-done-soft: #f3e8ff;
-  --color-done-bd: #e0ccff;
-  --color-info: var(--accent-primary);
-  /* -- spacing (4px grid) -------------------------------------------------- */
-  --space-1: 4px;
-  --space-2: 8px;
-  --space-3: 12px;
-  --space-4: 16px;
-  --space-5: 20px;
-  --space-6: 24px;
-  --space-8: 32px;
-
-  /* -- radius -------------------------------------------------------------- */
-  --radius-xs: 4px;
-  --radius-sm: 6px;
-  --radius-md: 8px;
-  --radius-lg: 12px;
-  --radius-xl: 16px;
-  --radius-2xl: 20px;
-  --radius-full: 999px;
-
-  /* -- elevation / z-index ------------------------------------------------- */
-  --z-base: 0;
-  --z-sticky: 100;
-  --z-dropdown: 200;
-  --z-tooltip: 250;
-  --z-overlay: 300;
-  --z-modal: 400;
-  --z-toast: 600;
-  --z-max: 9999;
-
-  /* -- shadows (light) ----------------------------------------------------- */
-  --shadow-xs: 0 1px 2px rgba(16, 24, 40, 0.04);
-  --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.05), 0 1px 3px rgba(16, 24, 40, 0.06);
-  --shadow-md: 0 4px 12px rgba(16, 24, 40, 0.07), 0 2px 4px rgba(16, 24, 40, 0.05);
-  --shadow-lg: 0 12px 32px rgba(16, 24, 40, 0.12), 0 4px 10px rgba(16, 24, 40, 0.08);
-  --shadow-xl: 0 24px 64px rgba(16, 24, 40, 0.18), 0 8px 20px rgba(16, 24, 40, 0.1);
-
-  /* -- motion -------------------------------------------------------------- */
-  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
-  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
-  --duration-fast: 120ms;
-  --duration-base: 160ms;
-  --duration-slow: 260ms;
-
-  /* -- type families ------------------------------------------------------- */
-  /* UI/body use self-hosted Inter first. CJK and platform system UI families
-     stay late in the fallback chain so Latin glyphs resolve to Inter while
-     Chinese text can still fall through to native CJK fonts. */
-  --font-ui: "Inter Variable", "Inter", "Helvetica Neue", Arial,
-    "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Source Han Sans SC",
-    "Noto Sans SC", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-    Ubuntu, sans-serif, "Apple Color Emoji", "Segoe UI Emoji",
-    "Segoe UI Symbol", "Noto Color Emoji";
-  --font-display: var(--font-ui);
-  --font-mono: "JetBrains Mono Variable", "JetBrains Mono", ui-monospace,
-    "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
-
-  /* -- type scale (6 levels, design-system §03) --------------------------- */
-  --text-xs: 12px;
-  --text-sm: 13px;
-  --text-base: 14px;
-  --text-lg: 16px;
-  --text-xl: 18px;
-  --text-2xl: 22px;
-  --leading-tight: 1.25;
-  --leading-normal: 1.5;
-  --leading-relaxed: 1.7;
-  --weight-regular: 400;
-  --weight-medium: 500;
-  --weight-semibold: 700;
-
-  /* -- focus ring (design-system §02) -------------------------------------- */
-  --p-focus-ring: 0 0 0 3px var(--color-accent-soft);
-  --p-focus-ring-strong: 0 0 0 3px var(--color-accent-soft), 0 0 0 1px var(--color-accent);
-
-  /* -- selection (design-system §02) --------------------------------------- */
-  --p-selection: rgba(23, 131, 255, 0.18);
-
-  /* -- icon sizes (design-system §02) -------------------------------------- */
-  --p-ic-sm: 14px;
-  --p-ic-md: 16px;
-  --p-ic-lg: 20px;
-
-  /* -- layout & breakpoints (design-system §02) ---------------------------- */
-  --p-sidebar-w: 264px;
-  --p-content-max: 760px;
-  --p-content-wide: 920px;
-  --p-table-max: 1040px;
-  --p-table-cell-max: 700px;
-  --p-bp-sm: 640px;
-  --p-bp-md: 980px;
-}
-
-/* Design tokens v2 — dark values (explicit choice). */
-html[data-color-scheme="dark"] {
-  --accent-primary: #58a6ff;
-  --color-bg: #0d1117;
-  --color-surface: #161b22;
-  --color-surface-raised: #1c2128;
-  --color-surface-sunken: #0d1117;
-  --color-text: #c9cdd4;
-  --color-text-muted: #9aa0a8;
-  --color-text-faint: #6b7280;
-  --color-line: #2d333b;
-  --color-line-strong: #3d444d;
-  --color-selected: #ffffff14;
-  --color-hover: #ffffff0d;
-  --color-sidebar-bg: #181817;
-  --color-accent: #58a6ff;
-  --color-accent-hover: #79b8ff;
-  --color-accent-soft: rgba(88, 166, 255, 0.14);
-  --p-selection: rgba(88, 166, 255, 0.32);
-  --color-accent-bd: rgba(88, 166, 255, 0.28);
-  --color-success: #3fb950;
-  --color-success-soft: rgba(63, 185, 80, 0.14);
-  --color-success-bd: rgba(63, 185, 80, 0.28);
-  --color-warning: #d29922;
-  --color-warning-soft: rgba(210, 153, 34, 0.14);
-  --color-warning-bd: rgba(210, 153, 34, 0.28);
-  --color-danger: #f85149;
-  --color-danger-soft: rgba(248, 81, 73, 0.14);
-  --color-danger-bd: rgba(248, 81, 73, 0.28);
-  /* "Done" scale — purple used for GitHub merged PRs (matches GitHub Primer). */
-  --color-done: #a371f7;
-  --color-done-soft: rgba(163, 113, 247, 0.14);
-  --color-done-bd: rgba(163, 113, 247, 0.28);
-  --color-info: #58a6ff;
-  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.2);
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.22), 0 1px 3px rgba(0, 0, 0, 0.18);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.3), 0 2px 4px rgba(0, 0, 0, 0.24);
-  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.34), 0 4px 10px rgba(0, 0, 0, 0.28);
-  --shadow-xl: 0 24px 64px rgba(0, 0, 0, 0.42), 0 8px 20px rgba(0, 0, 0, 0.32);
-}
-
-/* Design tokens v2 — dark values (follow OS preference). */
-@media (prefers-color-scheme: dark) {
-  html[data-color-scheme="system"] {
-    --accent-primary: #58a6ff;
-    --color-bg: #0d1117;
-    --color-surface: #161b22;
-    --color-surface-raised: #1c2128;
-    --color-surface-sunken: #0d1117;
-    --color-text: #c9cdd4;
-    --color-text-muted: #9aa0a8;
-    --color-text-faint: #6b7280;
-    --color-line: #2d333b;
-    --color-line-strong: #3d444d;
-    --color-selected: #ffffff14;
-    --color-hover: #ffffff0d;
-    --color-sidebar-bg: #181817;
-    --color-accent: #58a6ff;
-    --color-accent-hover: #79b8ff;
-    --color-accent-soft: rgba(88, 166, 255, 0.14);
-  --p-selection: rgba(88, 166, 255, 0.32);
-    --color-accent-bd: rgba(88, 166, 255, 0.28);
-    --color-success: #3fb950;
-    --color-success-soft: rgba(63, 185, 80, 0.14);
-    --color-success-bd: rgba(63, 185, 80, 0.28);
-    --color-warning: #d29922;
-    --color-warning-soft: rgba(210, 153, 34, 0.14);
-    --color-warning-bd: rgba(210, 153, 34, 0.28);
-    --color-danger: #f85149;
-    --color-danger-soft: rgba(248, 81, 73, 0.14);
-    --color-danger-bd: rgba(248, 81, 73, 0.28);
-    /* "Done" scale — purple used for GitHub merged PRs (matches GitHub Primer). */
-    --color-done: #a371f7;
-    --color-done-soft: rgba(163, 113, 247, 0.14);
-    --color-done-bd: rgba(163, 113, 247, 0.28);
-    --color-info: #58a6ff;
-    --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.2);
-    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.22), 0 1px 3px rgba(0, 0, 0, 0.18);
-    --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.3), 0 2px 4px rgba(0, 0, 0, 0.24);
-    --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.34), 0 4px 10px rgba(0, 0, 0, 0.28);
-    --shadow-xl: 0 24px 64px rgba(0, 0, 0, 0.42), 0 8px 20px rgba(0, 0, 0, 0.32);
-  }
+    font-feature-settings: "liga" 0, "calt" 0, "ss01" 0;
+    font-variant-ligatures: none
 }
 
 html,
 body,
 #app {
-  height: 100%;
-  margin: 0;
-  /* Explicit light background on the root: a transparent <html> gets sampled as
-     "dark" by some extensions, which then repaint it. Keep it solid white. */
-  background: var(--bg);
+    height: 100%;
+    margin: 0;
+    background: var(--bg)
 }
 
-/* Pin the app to the viewport so it always fills the screen even if a dark-mode
-   browser extension collapses <html>'s height — the opaque app then fully covers
-   any colour the extension paints on the root, and child height:100% resolves
-   against the viewport-sized app rather than the (possibly broken) document. */
 #app {
-  position: fixed;
-  inset: 0;
+    position: fixed;
+    inset: 0
 }
 
-/* The app is a fixed full-viewport shell with its own internal scrollers; the
-   document itself must never scroll. Without this, any transient overflow
-   (e.g. the composer growing for a frame on a multi-line paste) pops a window
-   scrollbar in and out and jolts the whole layout. */
 html,
 body {
-  overflow: hidden;
+    overflow: hidden
 }
 
-/* ---------------------------------------------------------------------------
-   Global scrollbars: thin + faint on every scroller (chat, tasks, file tree,
-   terminal, dialogs…). Firefox reads scrollbar-width/color; WebKit/Blink read
-   the ::-webkit-scrollbar pseudo-elements. The track stays transparent so the
-   bar floats, and the thumb is a neutral semi-transparent gray that reads as a
-   soft hairline on both light and dark surfaces and darkens slightly on hover.
-   A single mid-gray works on either background, so no per-theme tokens needed.
-   Components may still override locally (e.g. the sidebar's even-thinner rule).
-   --------------------------------------------------------------------------- */
-/* Firefox-only fallback: the standard scrollbar properties DISABLE the whole
-   ::-webkit-scrollbar customisation in Chromium 121+ (any non-auto value wins
-   over the pseudo-element styles), silently replacing the 6px/4px custom bars
-   with the ~11px native thin gutter. Scope them to engines that don't know
-   the webkit pseudo-element instead. */
 @supports not selector(::-webkit-scrollbar) {
-  * {
-    scrollbar-width: thin;
-    scrollbar-color: rgba(128, 128, 128, 0.3) transparent;
-  }
+    * {
+        scrollbar-width: thin;
+        scrollbar-color: color-mix(in srgb, var(--color-text) 12%, transparent) transparent
+    }
 }
+
 *::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+    width: 6px;
+    height: 6px
 }
+
 *::-webkit-scrollbar-track {
-  background: transparent;
+    background: transparent
 }
+
 *::-webkit-scrollbar-thumb {
-  background: rgba(128, 128, 128, 0.3);
-  border-radius: 999px;
+    background: color-mix(in srgb, var(--color-text) 12%, transparent);
+    border-radius: 999px
 }
+
 *::-webkit-scrollbar-thumb:hover {
-  background: rgba(128, 128, 128, 0.5);
+    background: color-mix(in srgb, var(--color-text) 25%, transparent)
 }
+
 *::-webkit-scrollbar-corner {
-  background: transparent;
+    background: transparent
 }
 
 body {
-  font-family: var(--sans);
-  color: var(--color-text);
-  background: var(--bg);
-  font-size: var(--ui-font-size);
-  font-weight: 400;
-  line-height: 1.6;
-  font-optical-sizing: auto;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  text-rendering: auto;
-  font-synthesis: none;
-  text-size-adjust: 100%;
-  /* Never insert a hyphen glyph at line breaks (the page is `lang="en"`);
-     word-break/overflow-wrap still decide where lines wrap. */
-  -webkit-hyphens: none;
-  hyphens: none;
+    font-family: var(--sans);
+    color: var(--color-text);
+    background: var(--bg);
+    font-size: var(--ui-font-size);
+    font-weight: 400;
+    line-height: 1.6;
+    font-optical-sizing: auto;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: auto;
+    font-synthesis: none;
+    text-size-adjust: 100%;
+    -webkit-hyphens: none;
+    hyphens: none
 }
 
-/* ---------------------------------------------------------------------------
-   Mobile dialogs → bottom sheets.
-   On narrow viewports the centered modal overlays used by ModelPicker,
-   StatusPanel, AddWorkspaceDialog, ProviderManager and
-   LoginDialog become bottom-anchored full-width sheets (rounded top, slides up).
-   The selectors are compound (`.backdrop .dialog`, specificity 0,2,0) so they
-   win over each component's scoped `.dialog` rule regardless of injection order.
-   Desktop (>640px) keeps the existing centered modal untouched.
-   --------------------------------------------------------------------------- */
-@media (max-width: 640px) {
-  .backdrop {
-    align-items: flex-end;
-    justify-content: stretch;
-  }
-  .backdrop .dialog {
-    width: 100%;
-    max-width: 100%;
-    max-height: 88vh;
-    border-radius: 16px 16px 0 0;
-    border-left: none;
-    border-right: none;
-    border-bottom: none;
-    /* The hairline keeps the sheet edge visible in dark mode, where a black
-       drop shadow on a near-black page disappears. */
-    border-top: 1px solid var(--line);
-    box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.18);
-    animation: pythinker-sheet-up 0.26s cubic-bezier(0.4, 0, 0.2, 1);
-  }
+@media(max-width:640px) {
+    .backdrop {
+        align-items: flex-end;
+        justify-content: stretch
+    }
+
+    .backdrop .dialog {
+        width: 100%;
+        max-width: 100%;
+        max-height: 88vh;
+        border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+        border-left: none;
+        border-right: none;
+        border-bottom: none;
+        border-top: .5px solid var(--line);
+        box-shadow: 0 -10px 30px #0000002e;
+        animation: pythinker-sheet-up .26s cubic-bezier(.4, 0, .2, 1)
+    }
 }
 
 @keyframes pythinker-sheet-up {
-  from { transform: translateY(101%); }
-  to { transform: translateY(0); }
+    0% {
+        transform: translateY(101%)
+    }
+
+    to {
+        transform: translateY(0)
+    }
 }
 
-/* ---------------------------------------------------------------------------
-   Overlay stability: every floating surface (dialog backdrops, the onboarding
-   overlay, bottom sheets, the settings popover) is position:fixed and MUST
-   resolve against the viewport. If anything ever leaves a transform/filter/
-   perspective on <html> or <body> — e.g. a residual animation, or a dark-mode
-   browser extension that wraps the page when it treats the app as "dark" — that
-   element becomes the containing block for fixed descendants and every overlay
-   drifts. `!important` author declarations beat both animations and the page's
-   own styles, so forbid those properties on the root. Harmless: the root never
-   needs a transform of its own.
-   --------------------------------------------------------------------------- */
-/* Belt-and-suspenders for the same problem (works even if a transform can't be
-   reset because an extension set it inline-!important): every full-screen
-   overlay is position:fixed with `inset: 0`, which sizes against the fixed
-   containing block. If that block is a collapsed/transformed <html>, `inset: 0`
-   shrinks the overlay and its centered card drifts. Viewport-unit min-size is
-   measured against the VIEWPORT, not the containing block, so the overlay always
-   fills the screen and its card re-centers. No-op in a normal browser. Global
-   (not scoped) with !important so it wins over each dialog's scoped .backdrop. */
 .backdrop,
 .ob-backdrop {
-  min-width: 100vw !important;
-  min-height: 100vh !important;
-  min-height: 100dvh !important;
+    min-width: 100vw !important;
+    min-height: 100vh !important;
+    min-height: 100dvh !important
 }
 
-/* Content text (messages, titles, descriptions, buttons) uses a real UI sans.
-   Paths, code, tab labels, timestamps and badges keep --mono because they set it
-   per-element — so chrome stays crisp and code-like while content reads soft. */
-/* Interaction fluidity: scoped to common surfaces so we never animate
-   layout-affecting properties (no layout shift). */
-/* ---- Soft canvas: the conversation pane is a faint neutral so white tool
-   cards and the user bubble lift off it with a gentle shadow. Side panels stay
-   as-is; only the reading surface softens. ---- */
-/* Chat surface is white (the user prefers a white reading area over the soft
-   canvas). Bubbles/tool cards still read fine via their own borders + shadows. */
-/* Session rows → rounded, inset pills with a soft active state (cards, not a
-   full-bleed tint bar). Keeps the mono timestamp/badges. Scoped under
-   .sessions because .se is also a (different) class in MobileTopBar. */
-/* Tab bar → clean white strip with a single hairline.
-   Sidebar header (.ch) keeps the sidebar body color so the right border
-   extends seamlessly from top to bottom. */
-/* Chat prose → UI sans (what makes the conversation read like a chat app).
-   Markdown.vue renders message text inside .md/.markdown-renderer with --mono;
-   override to --sans here. Code blocks, inline code and file paths keep --mono
-   via their own per-element rules, so only the prose changes. Global (not
-   scoped) so it reliably wins the cascade. */
-/* Composer input also types in sans (matches the chat prose). */
-/* ---- Composer (global, NOT in Composer.vue) ----------------------------------
-   These MUST live here: scoped rules in Composer.vue did not win the cascade
-   against the base rules, so they are moved to the global sheet where they apply
-   reliably. The chat surface is white, so the composer card reads as a rounded
-   card via a soft shadow + hairline border. */
-/* ---- Chat bubbles (moved out of ChatPane.vue) ---- */
-/* ---- Tool cards (moved out of ToolCall.vue) ---- */
-/* ===========================================================================
-   DE-TERMINALIZATION
-   Some component-scoped styles still ship a sharp, terminal-flavored look
-   (0–4px corners, --mono on UI copy, 2px blue "terminal stripe" dialog tops,
-   hardcoded colors). The rules below restyle those remnants with the shared
-   tokens (--r-* radius scale, --sans for UI copy, --sh/--shc shadows). Code,
-   paths, commands, timestamps and badges deliberately keep --mono. Grouped by
-   surface.
-   =========================================================================== */
-
-/* ---- App shell ---- */
-/* ---- Sidebar: buttons, rename inputs, kebab menu, settings popover ---- */
-/* ---- Chat content: code blocks, inline code, thinking, tool chips ---- */
-/* ---- Approval & question cards (match the rounded .box tool cards) ---- */
-/* ---- Composer: permission pill, model menu, queue strip ---- */
-/* ---- Floating menus + status line ---- */
-/* ---- Entrance / micro keyframes (shared by component-scoped rules) ---- */
 @keyframes pythinker-card-in {
-  from { opacity: 0; transform: translateY(8px) scale(0.995); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
+    0% {
+        opacity: 0;
+        transform: translateY(8px) scale(.995)
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1)
+    }
 }
+
 @keyframes pythinker-check-in {
-  from { opacity: 0; transform: scale(0.4); }
-  60% { opacity: 1; transform: scale(1.15); }
-  to { opacity: 1; transform: scale(1); }
+    0% {
+        opacity: 0;
+        transform: scale(.4)
+    }
+
+    60% {
+        opacity: 1;
+        transform: scale(1.15)
+    }
+
+    to {
+        opacity: 1;
+        transform: scale(1)
+    }
 }
 
-/* ---- Reduced-motion: disable ALL entrance/micro animations ---- */
-@media (prefers-reduced-motion: reduce) {
-  * {
-    animation-duration: 0.001ms !important;
-    animation-delay: 0ms !important;
-    transition-duration: 0.001ms !important;
-  }
+@media(prefers-reduced-motion:reduce) {
+
+    *,
+    *:before,
+    *:after {
+        animation-duration: .001ms !important;
+        animation-delay: 0ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: .001ms !important
+    }
 }
-/* Markdown images at natural size. markstream enforces a min-width/min-height
-   floor (--ms-size-image-*, ~33px) that scales small inline images UP — README
-   shields.io badges (78×20) were rendered at 128×33. Higher specificity than
-   markstream's `.image-node__img[data-v]` (0,2,0) so the floor is removed. */
+
+.ch-eyes {
+    animation: pythinker-eye-look 16s ease-in-out infinite
+}
+
+.ch-eye {
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: pythinker-eye-blink 11s ease-in-out infinite
+}
+
+@keyframes pythinker-eye-look {
+
+    0%,
+    42% {
+        transform: translate(0)
+    }
+
+    47%,
+    53% {
+        transform: translate(2px)
+    }
+
+    58%,
+    80% {
+        transform: translate(0)
+    }
+
+    84%,
+    90% {
+        transform: translate(-2px)
+    }
+
+    95%,
+    to {
+        transform: translate(0)
+    }
+}
+
+@keyframes pythinker-eye-blink {
+
+    0%,
+    94%,
+    to {
+        transform: scaleY(1)
+    }
+
+    96.5%,
+    98% {
+        transform: scaleY(.12)
+    }
+}
+
+@media(prefers-reduced-motion:reduce) {
+
+    .ch-eyes,
+    .ch-eye {
+        animation: none
+    }
+}
+
+.blink-now .ch-eye {
+    animation: pythinker-eye-blink-once .24s ease-in-out
+}
+
+@keyframes pythinker-eye-blink-once {
+
+    0%,
+    to {
+        transform: scaleY(1)
+    }
+
+    50% {
+        transform: scaleY(.1)
+    }
+}
+
 .md .markdown-renderer img {
-  min-width: 0;
-  min-height: 0;
+    min-width: 0;
+    min-height: 0
 }
 
-/* User-controlled UI font size. Components still set explicit sizes for compact
-   surfaces; these shared chat/input/tool selectors keep readable content and
-   code in lockstep with the setting. */
 .app {
-  font-size: var(--ui-font-size);
+    font-size: var(--ui-font-size)
 }
-/* Chat/message content → 16px (like Feishu doc body). */
+
 .md,
 .md .markdown-renderer,
 .md .markdown-renderer p,
 .md .markdown-renderer li,
-.md .markdown-renderer blockquote,
-.md .markdown-renderer td,
-.md .markdown-renderer th,
 .u-bub,
 .u-bub .u-text,
 .a-msg .msg,
-.box .bb,
 .ph {
-  font-size: var(--content-font-size);
+    font-size: var(--content-font-size)
 }
 
-/* UI chrome + code surfaces → 14px (like Feishu/Ant Design shell). */
+.md .markdown-renderer blockquote,
+.md .markdown-renderer td,
+.md .markdown-renderer th {
+    font-size: var(--md-b2)
+}
+
+.md,
+.u-bub .u-text,
+.a-msg .msg {
+    text-autospace: normal
+}
+
 .md .code-block-container pre,
 .md .markstream-pre,
 .md .code-block-container pre code,
 .md .diff-pre code,
-.box .bh,
+.md .markdown-renderer :not(pre)>code,
+.md .markdown-renderer .inline-code,
+.a-msg code {
+    font-size: var(--md-b3)
+}
+
+.md .markdown-renderer :is(h1, h2, h3, h4) :not(pre)>code,
+.md .markdown-renderer :is(h1, h2, h3, h4) .inline-code {
+    font-size: .9em
+}
+
 .queue-item,
 .queue-text,
 .ctx-num,
@@ -888,15 +1296,14 @@ body {
 .qbtn,
 .srow,
 .srow-val {
-  font-size: var(--ui-font-size);
+    font-size: var(--ui-font-size)
 }
-.md :not(pre) > code,
-.md .inline-code,
-.a-msg code,
+
 .qopt-desc,
 .srow-label {
-  font-size: var(--ui-font-size-sm);
+    font-size: var(--ui-font-size-sm)
 }
+
 .code-block-header,
 .code-block-header *,
 .diff-lang,
@@ -904,13 +1311,235 @@ body {
 .qopt-key,
 .qstep,
 .srow-sub {
-  font-size: var(--ui-font-size-xs);
+    font-size: var(--ui-font-size-xs)
 }
 
-@media (max-width: 640px) {
-  .u-bub .u-text,
-  .a-msg .msg,
-  .ph {
-    font-size: max(16px, var(--ui-font-size-xl));
-  }
+@media(max-width:640px) {
+
+    .u-bub .u-text,
+    .a-msg .msg,
+    .ph {
+        font-size: max(16px, var(--ui-font-size-xl))
+    }
+}
+
+:root {
+    --anim-rive-spin: .4167s;
+    --anim-leftbar: .5333s;
+    --anim-leftbar-shrink: .2s
+}
+
+#bar-divider {
+    transform-box: view-box;
+    transform-origin: 9.3px 12px;
+    transition: transform var(--anim-leftbar-shrink) linear
+}
+
+svg:hover #bar-divider,
+button:hover #bar-divider {
+    transform: translate(-1.5px) scaleY(.5)
+}
+
+#bar-arrow {
+    transform-box: view-box;
+    transform-origin: 0 0;
+    transform: translate(63.95833%, 50.625%) scale(0)
+}
+
+svg:hover #bar-arrow,
+button:hover #bar-arrow {
+    animation: leftbar-arrow var(--anim-leftbar) linear 1 forwards
+}
+
+@keyframes leftbar-arrow {
+    0% {
+        transform: translate(62.97083%, 50.625%) scale(-.6);
+        opacity: 0
+    }
+
+    3.125% {
+        transform: translate(62.97083%, 50.625%) scale(-.6);
+        opacity: 1
+    }
+
+    15.625% {
+        transform: translate(59.0125%, 50.625%) scale(-1);
+        opacity: 1
+    }
+
+    37.5% {
+        transform: translate(52.08333%, 50.625%) scale(-1);
+        opacity: 1
+    }
+
+    to {
+        transform: translate(52.08333%, 50.625%) scale(-1);
+        opacity: 1
+    }
+}
+
+#bar-arrow-expand {
+    transform-box: view-box;
+    transform-origin: 0 0;
+    transform: translate(52.08333%, 50.625%) scale(0)
+}
+
+svg:hover #bar-arrow-expand,
+button:hover #bar-arrow-expand {
+    animation: leftbar-arrow-expand var(--anim-leftbar) linear 1 forwards
+}
+
+@keyframes leftbar-arrow-expand {
+    0% {
+        transform: translate(37.02917%, 50.625%) scale(.6);
+        opacity: 0
+    }
+
+    3.125% {
+        transform: translate(37.02917%, 50.625%) scale(.6);
+        opacity: 1
+    }
+
+    15.625% {
+        transform: translate(40.9875%, 50.625%) scale(1);
+        opacity: 1
+    }
+
+    37.5% {
+        transform: translate(52.08333%, 50.625%) scale(1);
+        opacity: 1
+    }
+
+    to {
+        transform: translate(52.08333%, 50.625%) scale(1);
+        opacity: 1
+    }
+}
+
+#p1 {
+    transform-box: view-box;
+    transform-origin: 0 0
+}
+
+svg:hover #p1,
+button:hover #p1 {
+    animation: nc-plus-spin var(--anim-rive-spin) linear 1 forwards
+}
+
+@keyframes nc-plus-spin {
+    0% {
+        transform: translate(11.5px, 11.5px)
+    }
+
+    8% {
+        transform: translate(11.501px, 11.48px) rotate(1.1795deg) scale(1.02022)
+    }
+
+    12% {
+        transform: translate(11.511px, 11.46px) rotate(2.8374deg) scale(1.03026)
+    }
+
+    20% {
+        transform: translate(11.562px, 11.401px) rotate(8.8167deg) scale(1.05041)
+    }
+
+    24% {
+        transform: translate(11.608px, 11.361px) rotate(13.4726deg) scale(1.06017)
+    }
+
+    32% {
+        transform: translate(11.751px, 11.278px) rotate(25.9719deg) scale(1.08008)
+    }
+
+    48% {
+        transform: translate(12.149px, 11.222px) rotate(55.8418deg) scale(1.12025)
+    }
+
+    52% {
+        transform: translate(12.235px, 11.236px) rotate(62.0737deg) scale(1.12953)
+    }
+
+    60% {
+        transform: translate(12.371px, 11.276px) rotate(72.1167deg) scale(1.14954)
+    }
+
+    68% {
+        transform: translate(12.446px, 11.346px) rotate(79.3018deg) scale(1.12048)
+    }
+
+    76% {
+        transform: translate(12.488px, 11.403px) rotate(84.2633deg) scale(1.09046)
+    }
+
+    88% {
+        transform: translate(12.509px, 11.464px) rotate(88.52deg) scale(1.04535)
+    }
+
+    to {
+        transform: translate(12.5px, 11.5px) rotate(90deg)
+    }
+}
+
+#af-p1 {
+    transform-box: view-box;
+    transform-origin: 18.4px 16.3px
+}
+
+svg:hover #af-p1,
+button:hover #af-p1 {
+    animation: folder-plus-spin var(--anim-rive-spin) linear 1 forwards
+}
+
+@keyframes folder-plus-spin {
+    0% {
+        transform: none
+    }
+
+    8% {
+        transform: rotate(1.1795deg) scale(1.02022)
+    }
+
+    12% {
+        transform: rotate(2.8374deg) scale(1.03026)
+    }
+
+    20% {
+        transform: rotate(8.8167deg) scale(1.05041)
+    }
+
+    24% {
+        transform: rotate(13.4726deg) scale(1.06017)
+    }
+
+    32% {
+        transform: rotate(25.9719deg) scale(1.08008)
+    }
+
+    48% {
+        transform: rotate(55.8418deg) scale(1.12025)
+    }
+
+    52% {
+        transform: rotate(62.0737deg) scale(1.12953)
+    }
+
+    60% {
+        transform: rotate(72.1167deg) scale(1.14954)
+    }
+
+    68% {
+        transform: rotate(79.3018deg) scale(1.12048)
+    }
+
+    76% {
+        transform: rotate(84.2633deg) scale(1.09046)
+    }
+
+    88% {
+        transform: rotate(88.52deg) scale(1.04535)
+    }
+
+    to {
+        transform: rotate(90deg)
+    }
 }

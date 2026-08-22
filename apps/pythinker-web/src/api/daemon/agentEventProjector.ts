@@ -91,6 +91,31 @@ function normalizeUsage(raw: unknown): {
 }
 
 // ---------------------------------------------------------------------------
+// Per-session turn-interruption capture (turn.step.interrupted)
+// ---------------------------------------------------------------------------
+
+export interface TurnInterruptionInfo {
+  reason: string;
+  message?: string;
+  turnId?: number;
+  at: number;
+}
+
+// Last step interruption per session, read on demand by the failed-turn banner
+// (ChatPane) via getTurnInterruption(). Module-level because the UI reads it
+// OUTSIDE the AppEvent pipeline — the turn.step.interrupted frame projects no
+// AppEvent (it only resets the in-flight message), so there is no reducer
+// slot to carry it through reactively. The banner keys off the session's
+// wire lastTurnReason ('failed'), which flips after the following
+// turn.ended/status_changed, so a non-reactive read converges within the same
+// event batch. Cleared on the next turn.started so info never leaks across turns.
+const turnInterruptionBySession = new Map<string, TurnInterruptionInfo>();
+
+export function getTurnInterruption(sessionId: string): TurnInterruptionInfo | undefined {
+  return turnInterruptionBySession.get(sessionId);
+}
+
+// ---------------------------------------------------------------------------
 // Per-session projector state
 // ---------------------------------------------------------------------------
 
@@ -216,7 +241,29 @@ function patchSubagent(
     createdAt: new Date().toISOString(),
     subagentPhase: 'queued',
   } satisfies AppTask;
-  const next: AppTask = { ...prev, ...patch, id: subagentId, sessionId, kind: 'subagent' };
+  const terminal =
+    prev.status === 'completed' || prev.status === 'failed' || prev.status === 'cancelled';
+  const effectivePatch =
+    terminal && patch.status === 'running'
+      ? {
+          ...patch,
+          status: prev.status,
+          subagentPhase: prev.subagentPhase,
+          startedAt: prev.startedAt,
+          completedAt: prev.completedAt,
+          outputPreview: prev.outputPreview,
+          outputBytes: prev.outputBytes,
+          suspendedReason: prev.suspendedReason,
+        }
+      : patch;
+  const next: AppTask = {
+    ...prev,
+    ...effectivePatch,
+    id: subagentId,
+    agentId: subagentId,
+    sessionId,
+    kind: 'subagent',
+  };
   state.subagentMeta.set(subagentId, next);
   return next;
 }
@@ -716,6 +763,9 @@ export function createAgentProjector(): AgentProjector {
         // Fresh turn → fresh step stream offsets.
         s.turnTextLen = 0;
         s.turnThinkLen = 0;
+        // A fresh turn supersedes any prior step interruption — never leak the
+        // previous turn's failure detail into a new turn's banner.
+        turnInterruptionBySession.delete(sessionId);
         // Main-conversation liveness (the moon) keys off the main agent's turn
         // boundary directly — only main-agent frames reach this switch arm.
         out.push({ type: 'turnActiveChanged', sessionId, active: true });
@@ -1087,6 +1137,20 @@ export function createAgentProjector(): AgentProjector {
         // new one. Drop any pending retry reuse target for the same reason.
         s.currentAssistantMsgId = undefined;
         s.retryReuseMsgId = undefined;
+        // Capture the step-limit / error detail for the failed-turn banner:
+        // reason (e.g. 'max_steps') plus the optional message. The following
+        // turn.ended/status_changed flips the wire lastTurnReason to 'failed'
+        // and ChatPane reads this via getTurnInterruption().
+        const interruptReason =
+          typeof p?.reason === 'string' && p.reason.length > 0 ? p.reason : 'error';
+        const interruptMessage =
+          typeof p?.message === 'string' && p.message.length > 0 ? p.message : undefined;
+        turnInterruptionBySession.set(sessionId, {
+          reason: interruptReason,
+          message: interruptMessage,
+          turnId: typeof p?.turnId === 'number' ? p.turnId : undefined,
+          at: Date.now(),
+        });
         break;
       }
 
@@ -1095,6 +1159,7 @@ export function createAgentProjector(): AgentProjector {
         const taskId = typeof p?.subagentId === 'string' && p.subagentId.length > 0 ? p.subagentId : ulid('task_');
         const task: AppTask = {
           id: taskId,
+          agentId: taskId,
           sessionId,
           kind: 'subagent',
           description: typeof p?.description === 'string' ? p.description : p?.subagentName ?? 'Sub Agent',
@@ -1102,6 +1167,9 @@ export function createAgentProjector(): AgentProjector {
           createdAt: new Date().toISOString(),
           subagentPhase: 'queued',
           subagentType: typeof p?.subagentName === 'string' ? p.subagentName : undefined,
+          model: typeof p?.model === 'string' ? p.model : undefined,
+          thinkingEffort:
+            typeof p?.thinkingEffort === 'string' ? p.thinkingEffort : undefined,
           parentToolCallId: typeof p?.parentToolCallId === 'string' ? p.parentToolCallId : undefined,
           dynamicWorkflowIndex: typeof p?.dynamicWorkflowIndex === 'number' ? p.dynamicWorkflowIndex : undefined,
           runInBackground: p?.runInBackground === true,
@@ -1239,6 +1307,9 @@ export function createAgentProjector(): AgentProjector {
             const task = patchSubagent(s, sessionId, agentId, {
               description,
               backgroundTaskId: taskId,
+              model: typeof info.model === 'string' ? info.model : undefined,
+              thinkingEffort:
+                typeof info.thinkingEffort === 'string' ? info.thinkingEffort : undefined,
               runInBackground: true,
             });
             if (task) out.push({ type: 'taskCreated', sessionId, task });

@@ -3,6 +3,8 @@ import { describe, expect, it, vi } from 'vitest';
 import type { IDisposable } from '#/_base/di/lifecycle';
 import type { ServiceIdentifier, ServicesAccessor } from '#/_base/di/instantiation';
 import type { IAgentScopeHandle } from '#/_base/di/scope';
+import type { AgentContext } from '#/agent/agentContext/agentContext';
+import { makeAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { Emitter } from '#/_base/event';
 import {
   IAgentContextInjectorService,
@@ -28,7 +30,10 @@ import type {
   ModelRequestParams,
   ModelRequester,
 } from '#/kosong/model/modelRequester';
-import type { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
+import type {
+  AgentScopeCreatedEvent,
+  IAgentLifecycleService,
+} from '#/session/agentLifecycle/agentLifecycle';
 import type { AdvisorConfig } from '#/session/advisor/configSection';
 import { AdvisorConfigSchema } from '#/session/advisor/configSection';
 import { SessionAdvisorService } from '#/session/advisor/advisorService';
@@ -54,6 +59,7 @@ interface RequestCall {
 }
 
 interface Fixture {
+  readonly agent: AgentContext;
   readonly bus: EventBusService;
   readonly calls: RequestCall[];
   readonly debug: ReturnType<typeof vi.fn>;
@@ -149,13 +155,21 @@ function fixture(options: {
     accessor,
     dispose: () => {},
   };
-  const createEmitter = new Emitter<IAgentScopeHandle>();
-  const disposeEmitter = new Emitter<string>();
+  const mainContext = makeAgentScopeContext({
+    agentId: 'main',
+    agentScope: 'agents/main',
+  }).agentContext;
+  bus.activateAgent(mainContext);
+  const createEmitter = new Emitter<typeof mainContext>();
+  const createScopeEmitter = new Emitter<AgentScopeCreatedEvent>();
+  const disposeEmitter = new Emitter<typeof mainContext>();
   const lifecycle = {
     _serviceBrand: undefined,
     onDidCreate: createEmitter.event,
+    onDidCreateScope: createScopeEmitter.event,
     onDidDispose: disposeEmitter.event,
-    get: (id: string) => id === 'main' ? main : undefined,
+    get: (context: typeof mainContext) => context === mainContext ? main : undefined,
+    findAgentHandle: (id: string) => id === 'main' ? main : undefined,
     list: () => [main],
     broadcastPermissionMode: () => {},
     create: async () => main,
@@ -215,6 +229,7 @@ function fixture(options: {
   const service = new SessionAdvisorService(config, catalog, modelConfig, lifecycle, log);
 
   return {
+    agent: mainContext,
     bus,
     calls,
     debug,
@@ -226,10 +241,11 @@ function fixture(options: {
 
 function finishUserTurn(f: Fixture, turnId = 1): void {
   f.bus.publish(new TurnPrompt({
+    agentId: 'main',
     input: [{ type: 'text', text: 'Review this.' }],
     origin: { kind: 'user' },
-  }));
-  f.bus.publish(new TurnEnded({ turnId, reason: 'completed' }));
+  }), f.agent);
+  f.bus.publish(new TurnEnded({ agentId: 'main', turnId, reason: 'completed' }), f.agent);
 }
 
 describe('SessionAdvisorService', () => {
@@ -242,9 +258,10 @@ describe('SessionAdvisorService', () => {
     });
     expect(await f.inject()).toBeUndefined();
     f.bus.publish(new TurnPrompt({
+      agentId: 'main',
       input: [{ type: 'text', text: 'Continue.' }],
       origin: { kind: 'user' },
-    }));
+    }), f.agent);
     let advisory: unknown;
     await vi.waitFor(async () => {
       advisory = await f.inject();

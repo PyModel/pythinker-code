@@ -11,7 +11,7 @@ const sourceDirectories = [
   join(extensionRoot, 'shared'),
   ...[
     'agent-core',
-    'kaos',
+    'pyaos',
     'kosong',
     'node-sdk',
     'oauth',

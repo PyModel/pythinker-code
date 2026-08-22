@@ -17,6 +17,7 @@ import { ErrorCodes, PythinkerError } from '../../src/errors';
 import {
   PythinkerConfigSchema,
   McpServerConfigSchema,
+  McpServerStdioConfigSchema,
   applyPrintModeConfigDefaults,
   configToTomlData,
   ensureConfigFile,
@@ -1071,5 +1072,25 @@ describe('migrateThinkingEffortMaxToHigh', () => {
     migrateThinkingEffortMaxToHigh(configPath, home);
 
     await expect(readFile(join(home, 'migrations-effort.json'), 'utf-8')).rejects.toThrow();
+  });
+});
+
+describe('mcp executor legacy alias', () => {
+  it('normalizes the deprecated executor value "kaos" to "pyaos"', () => {
+    const parsed = McpServerStdioConfigSchema.parse({
+      transport: 'stdio',
+      command: 'echo',
+      executor: 'kaos',
+    });
+    expect(parsed.executor).toBe('pyaos');
+  });
+
+  it('keeps accepting the current executor value "pyaos"', () => {
+    const parsed = McpServerStdioConfigSchema.parse({
+      transport: 'stdio',
+      command: 'echo',
+      executor: 'pyaos',
+    });
+    expect(parsed.executor).toBe('pyaos');
   });
 });

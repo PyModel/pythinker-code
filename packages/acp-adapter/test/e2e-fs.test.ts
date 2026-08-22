@@ -8,16 +8,16 @@
  *   │        │                          │ │      │
  *   │        │ ◄──── { content: ... } ──│ ▼ tool │
  *   └────────┘                          │ uses   │
- *                                       │ kaos   │
+ *                                       │ pyaos   │
  *                                       └────────┘
  *
  * Boundary-injection model: when the client advertises
  * `clientCapabilities.fs.readTextFile`, `AcpServer.newSession` builds
- * an {@link AcpKaos} and threads it into `harness.createSession({ kaos })`.
- * In the real stack the kernel `SessionImpl` ctor captures that kaos
+ * an {@link AcpPyaos} and threads it into `harness.createSession({ pyaos })`.
+ * In the real stack the kernel `SessionImpl` ctor captures that pyaos
  * and every tool (Read / Write / Edit / Grep / Glob / Bash) sees the
  * same reference. The harness stub here mimics that capture by
- * forwarding the supplied kaos into the fake Session's `prompt` body —
+ * forwarding the supplied pyaos into the fake Session's `prompt` body —
  * exactly what a real Read tool would consult.
  */
 
@@ -35,7 +35,7 @@ import {
   type WriteTextFileRequest,
   type WriteTextFileResponse,
 } from '@agentclientprotocol/sdk';
-import type { Kaos } from '@pymodel/kaos';
+import type { Pyaos } from '@pymodel/pyaos';
 import type { Event, PythinkerHarness, Session } from '@pymodel/pythinker-code-sdk';
 import { describe, expect, it } from 'vitest';
 
@@ -74,24 +74,24 @@ class UnsavedBufferClient implements Client {
 }
 
 /**
- * Build a fake `Session` whose `prompt` calls `kaos.readText(targetPath)`
+ * Build a fake `Session` whose `prompt` calls `pyaos.readText(targetPath)`
  * — what a real Read tool would do — and emits the contents as an
- * assistant delta. The kaos is supplied at construction time (mirroring
+ * assistant delta. The pyaos is supplied at construction time (mirroring
  * the kernel `SessionImpl` ctor's capture-on-construction behavior).
  */
 function makeReadingSession(
   sessionId: string,
   targetPath: string,
-  kaos: Kaos | undefined,
+  pyaos: Pyaos | undefined,
 ): Session {
   const listeners = new Set<(event: Event) => void>();
   return {
     id: sessionId,
     prompt: async (_input: unknown) => {
-      if (kaos === undefined) {
-        throw new Error('kaos missing — boundary injection failed');
+      if (pyaos === undefined) {
+        throw new Error('pyaos missing — boundary injection failed');
       }
-      const content = await kaos.readText(targetPath);
+      const content = await pyaos.readText(targetPath);
 
       for (const fn of listeners) {
         fn({
@@ -131,9 +131,9 @@ describe('end-to-end FS reverse-RPC', () => {
     let capturedSessionId: string | undefined;
     const harness = {
       auth: { status: async () => AUTHED_STATUS },
-      createSession: async (options: { id?: string; workDir: string; kaos?: Kaos }) => {
+      createSession: async (options: { id?: string; workDir: string; pyaos?: Pyaos }) => {
         capturedSessionId = options.id ?? 'fallback';
-        createdSession = makeReadingSession(capturedSessionId, targetPath, options.kaos);
+        createdSession = makeReadingSession(capturedSessionId, targetPath, options.pyaos);
         return createdSession;
       },
     } as unknown as PythinkerHarness;
@@ -144,7 +144,7 @@ describe('end-to-end FS reverse-RPC', () => {
     const client = new ClientSideConnection(() => bufferClient, clientStream);
 
     // Initialize with the FS read capability advertised — this is the
-    // wire signal that switches the agent to `AcpKaos`.
+    // wire signal that switches the agent to `AcpPyaos`.
     await client.initialize({
       protocolVersion: 1,
       clientCapabilities: {
@@ -166,9 +166,9 @@ describe('end-to-end FS reverse-RPC', () => {
     // expected path and matching sessionId.
     expect(bufferClient.readRequests).toHaveLength(1);
 
-    // AcpKaos forwards paths in client-native separators: when the inner
-    // LocalKaos reports pathClass 'win32' (Windows), '/' is converted to '\\'
-    // before the fs/readTextFile RPC (see kaos-acp.test.ts "uses win32-native
+    // AcpPyaos forwards paths in client-native separators: when the inner
+    // LocalPyaos reports pathClass 'win32' (Windows), '/' is converted to '\\'
+    // before the fs/readTextFile RPC (see pyaos-acp.test.ts "uses win32-native
     // separators"). Mirror that here so the assertion holds on every platform.
     const expectedWirePath =
       process.platform === 'win32' ? targetPath.replaceAll('/', '\\') : targetPath;
@@ -192,14 +192,14 @@ describe('end-to-end FS reverse-RPC', () => {
   });
 
   it('does NOT route through the client when no FS capability is advertised', async () => {
-    let observedKaos: Kaos | undefined;
+    let observedPyaos: Pyaos | undefined;
     let capturedSessionId: string | undefined;
 
     const listeners = new Set<(event: Event) => void>();
     const harness = {
       auth: { status: async () => AUTHED_STATUS },
-      createSession: async (options: { id?: string; workDir: string; kaos?: Kaos }) => {
-        observedKaos = options.kaos;
+      createSession: async (options: { id?: string; workDir: string; pyaos?: Pyaos }) => {
+        observedPyaos = options.pyaos;
         capturedSessionId = options.id ?? 'fallback';
         return {
           id: capturedSessionId,
@@ -247,6 +247,6 @@ describe('end-to-end FS reverse-RPC', () => {
 
     expect(response.stopReason).toBe('end_turn');
     expect(bufferClient.readRequests).toEqual([]);
-    expect(observedKaos).toBeUndefined();
+    expect(observedPyaos).toBeUndefined();
   });
 });

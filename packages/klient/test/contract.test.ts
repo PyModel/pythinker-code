@@ -76,3 +76,16 @@ describe('prompt contract validation', () => {
     expect(promptPayloadSchema.safeParse({ input: [], promptId: 'submission-1' }).success).toBe(true);
   });
 });
+
+describe('mcp executor legacy alias', () => {
+  it('normalizes the deprecated executor value "kaos" to "pyaos"', () => {
+    const parsed = createSessionOptionsSchema.safeParse({
+      workDir: '/tmp/example',
+      mcpServers: {
+        stdioExample: { transport: 'stdio', command: 'node', executor: 'kaos' },
+      },
+    });
+    expect(parsed.success).toBe(true);
+    expect(parsed.data?.mcpServers?.['stdioExample']).toMatchObject({ executor: 'pyaos' });
+  });
+});

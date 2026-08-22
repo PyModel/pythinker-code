@@ -2,9 +2,9 @@ import { access, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'pathe';
 
-import { testKaos } from '../fixtures/test-kaos';
+import { testPyaos } from '../fixtures/test-pyaos';
 import type { ProviderConfig, ToolCall } from '@pymodel/kosong';
-import type { Kaos, StatResult } from '@pymodel/kaos';
+import type { Pyaos, StatResult } from '@pymodel/pyaos';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { Agent, AgentOptions } from '../../src/agent';
@@ -21,7 +21,7 @@ import { estimateTokensForMessages } from '../../src/utils/tokens';
 import { createScriptedGenerate } from '../agent/harness/scripted-generate';
 import { recordingTelemetry, type TelemetryRecord } from '../fixtures/telemetry';
 import { executeTool } from '../tools/fixtures/execute-tool';
-import { createFakeKaos, toolContentString } from '../tools/fixtures/fake-kaos';
+import { createFakePyaos, toolContentString } from '../tools/fixtures/fake-pyaos';
 
 const MOCK_PROVIDER = {
   type: 'pythinker',
@@ -46,7 +46,7 @@ describe('Session.init', () => {
     const mcpOAuth = new McpOAuthService({ pythinkerHomeDir: await makeTempDir() });
     const session = new Session({
       id: 'test-mcp-credentials-during-init',
-      kaos: testKaos.withCwd(await makeTempDir()),
+      pyaos: testPyaos.withCwd(await makeTempDir()),
       homedir: await makeTempDir(),
       rpc: createSessionRpc([]),
       providerManager: testProviderManager(),
@@ -79,7 +79,7 @@ describe('Session.init', () => {
     const scripted = createScriptedGenerate();
     const session = new Session({
       id: 'test-init',
-      kaos: testKaos.withCwd(workDir),
+      pyaos: testPyaos.withCwd(workDir),
       homedir: sessionDir,
       rpc: createSessionRpc(events),
       skills: { explicitDirs: [join(workDir, 'missing-skills')] },
@@ -149,17 +149,17 @@ describe('Session.init', () => {
     expect(contextText).not.toContain('Task requirements:');
   });
 
-  it('loads AGENTS.md via the persistence kaos when the tool kaos rejects readText (Zed ACP "Internal error" regression)', async () => {
+  it('loads AGENTS.md via the persistence pyaos when the tool pyaos rejects readText (Zed ACP "Internal error" regression)', async () => {
     const workDir = await makeTempDir();
     const sessionDir = await makeTempDir();
     await mkdir(join(workDir, '.git'));
     await writeFile(join(workDir, 'AGENTS.md'), 'project instructions from disk', 'utf-8');
 
     // Simulate Zed's `fs/readTextFile` returning a generic -32603 Internal
-    // error: every `readText` through the tool kaos rejects. The persistence
-    // kaos is a real LocalKaos that can reach AGENTS.md on disk.
-    const toolKaos = wrapReadTextWithError(
-      testKaos.withCwd(workDir),
+    // error: every `readText` through the tool pyaos rejects. The persistence
+    // pyaos is a real LocalPyaos that can reach AGENTS.md on disk.
+    const toolPyaos = wrapReadTextWithError(
+      testPyaos.withCwd(workDir),
       new Error('acp: readTextFile failed: Internal error'),
     );
 
@@ -167,8 +167,8 @@ describe('Session.init', () => {
     const events: Array<Record<string, unknown>> = [];
     const session = new Session({
       id: 'test-bootstrap-acp-fallback',
-      kaos: toolKaos,
-      persistenceKaos: testKaos.withCwd(workDir),
+      pyaos: toolPyaos,
+      persistencePyaos: testPyaos.withCwd(workDir),
       homedir: sessionDir,
       rpc: createSessionRpc(events),
       skills: { explicitDirs: [join(workDir, 'missing-skills')] },
@@ -204,8 +204,8 @@ describe('Session.init', () => {
 
     const firstSession = new Session({
       id: 'test-resume-system-prompt-refresh',
-      kaos: testKaos.withCwd(workDir),
-      persistenceKaos: testKaos.withCwd(workDir),
+      pyaos: testPyaos.withCwd(workDir),
+      persistencePyaos: testPyaos.withCwd(workDir),
       homedir: sessionDir,
       rpc: createSessionRpc([]),
       skills: { explicitDirs: [join(workDir, 'missing-skills')] },
@@ -222,8 +222,8 @@ describe('Session.init', () => {
 
     const resumedSession = new Session({
       id: 'test-resume-system-prompt-refresh',
-      kaos: testKaos.withCwd(workDir),
-      persistenceKaos: testKaos.withCwd(workDir),
+      pyaos: testPyaos.withCwd(workDir),
+      persistencePyaos: testPyaos.withCwd(workDir),
       homedir: sessionDir,
       rpc: createSessionRpc([]),
       skills: { explicitDirs: [join(workDir, 'missing-skills')] },
@@ -248,8 +248,8 @@ describe('Session.init', () => {
     const sessionDir = await makeTempDir();
     const options = {
       id: 'test-resume-without-agent-homedir',
-      kaos: testKaos.withCwd(workDir),
-      persistenceKaos: testKaos.withCwd(workDir),
+      pyaos: testPyaos.withCwd(workDir),
+      persistencePyaos: testPyaos.withCwd(workDir),
       homedir: sessionDir,
       rpc: createSessionRpc([]),
       skills: { explicitDirs: [join(workDir, 'missing-skills')] },
@@ -287,15 +287,15 @@ describe('Session.init', () => {
     }
   });
 
-  it('rebuilds builtin tools when rebinding the session tool kaos', async () => {
+  it('rebuilds builtin tools when rebinding the session tool pyaos', async () => {
     const workDir = await makeTempDir();
     const sessionDir = await makeTempDir();
-    const staleKaos = createReadToolKaos(workDir, 'stale kaos\n');
-    const replacementKaos = createReadToolKaos(workDir, 'replacement kaos\n');
+    const stalePyaos = createReadToolPyaos(workDir, 'stale pyaos\n');
+    const replacementPyaos = createReadToolPyaos(workDir, 'replacement pyaos\n');
     const session = new Session({
-      id: 'test-rebind-tool-kaos',
-      kaos: staleKaos,
-      persistenceKaos: testKaos.withCwd(sessionDir),
+      id: 'test-rebind-tool-pyaos',
+      pyaos: stalePyaos,
+      persistencePyaos: testPyaos.withCwd(sessionDir),
       homedir: sessionDir,
       rpc: createSessionRpc([]),
       skills: { explicitDirs: [join(workDir, 'missing-skills')] },
@@ -311,7 +311,7 @@ describe('Session.init', () => {
       agent.tools.initializeBuiltinTools();
       agent.tools.setActiveTools(['Read']);
 
-      session.setToolKaos(replacementKaos);
+      session.setToolPyaos(replacementPyaos);
 
       const readTool = agent.tools.loopTools.find((candidate) => candidate.name === 'Read');
       expect(readTool).toBeDefined();
@@ -323,7 +323,7 @@ describe('Session.init', () => {
       });
 
       expect(result.isError).not.toBe(true);
-      expect(toolContentString(result)).toContain('replacement kaos');
+      expect(toolContentString(result)).toContain('replacement pyaos');
     } finally {
       await session.close();
     }
@@ -334,7 +334,7 @@ describe('Session.init', () => {
     const sessionDir = await makeTempDir();
     const records: TelemetryRecord[] = [];
     const session = new Session({
-      kaos: testKaos.withCwd(workDir),
+      pyaos: testPyaos.withCwd(workDir),
       homedir: sessionDir,
       rpc: createSessionRpc([]),
       providerManager: testProviderManager(),
@@ -395,7 +395,7 @@ describe('AgentAPI.startBtw', () => {
     const scripted = createScriptedGenerate();
     const session = new Session({
       id: 'test-btw',
-      kaos: testKaos.withCwd(workDir),
+      pyaos: testPyaos.withCwd(workDir),
       homedir: sessionDir,
       rpc: createSessionRpc(events),
       skills: { explicitDirs: [join(workDir, 'missing-skills')] },
@@ -514,7 +514,7 @@ describe('AgentAPI.startBtw', () => {
     const scripted = createScriptedGenerate();
     const session = new Session({
       id: 'test-btw-deny-tools',
-      kaos: testKaos.withCwd(workDir),
+      pyaos: testPyaos.withCwd(workDir),
       homedir: sessionDir,
       rpc: createSessionRpc(events),
       skills: { explicitDirs: [join(workDir, 'missing-skills')] },
@@ -617,7 +617,7 @@ describe('AgentAPI.startBtw', () => {
     );
     const session = new Session({
       id: 'test-btw-cancel',
-      kaos: testKaos.withCwd(workDir),
+      pyaos: testPyaos.withCwd(workDir),
       homedir: sessionDir,
       rpc: createSessionRpc(events),
       skills: { explicitDirs: [join(workDir, 'missing-skills')] },
@@ -693,7 +693,7 @@ describe('AgentAPI.startBtw', () => {
 
     const disabledSession = new Session({
       id: 'test-disabled-sub-skills',
-      kaos: testKaos.withCwd(workDir),
+      pyaos: testPyaos.withCwd(workDir),
       homedir: sessionDir,
       rpc: createSessionRpc([]),
       skills: { explicitDirs: [skillsRoot] },
@@ -710,7 +710,7 @@ describe('AgentAPI.startBtw', () => {
 
     const enabledSession = new Session({
       id: 'test-enabled-sub-skills',
-      kaos: testKaos.withCwd(workDir),
+      pyaos: testPyaos.withCwd(workDir),
       homedir: sessionDir,
       rpc: createSessionRpc([]),
       skills: { explicitDirs: [skillsRoot] },
@@ -761,7 +761,7 @@ describe('Session secondary-model live config', () => {
     const sessionDir = await makeTempDir();
     return new Session({
       id: 'test-secondary-model',
-      kaos: testKaos.withCwd(workDir),
+      pyaos: testPyaos.withCwd(workDir),
       homedir: sessionDir,
       rpc: createSessionRpc([]),
       skills: { explicitDirs: [join(workDir, 'missing-skills')] },
@@ -926,8 +926,8 @@ function testProfile(): ResolvedAgentProfile {
   };
 }
 
-function createReadToolKaos(cwd: string, content: string): Kaos {
-  return createFakeKaos({
+function createReadToolPyaos(cwd: string, content: string): Pyaos {
+  return createFakePyaos({
     getcwd: () => cwd,
     stat: async () =>
       ({
@@ -988,12 +988,12 @@ function createSessionRpc(events: Array<Record<string, unknown>>): SDKSessionRPC
 }
 
 /**
- * Wrap a {@link Kaos} so every `readText` (and `readLines`, which reads via
+ * Wrap a {@link Pyaos} so every `readText` (and `readLines`, which reads via
  * `readText` in the ACP bridge) rejects with `cause`. Used to simulate the
  * Zed ACP `fs/readTextFile` "Internal error" path that broke session bootstrap
- * before AGENTS.md loading was rerouted onto the persistence kaos.
+ * before AGENTS.md loading was rerouted onto the persistence pyaos.
  */
-function wrapReadTextWithError(inner: Kaos, cause: Error): Kaos {
+function wrapReadTextWithError(inner: Pyaos, cause: Error): Pyaos {
   return new Proxy(inner, {
     get(target, prop, receiver) {
       if (prop === 'readText') {

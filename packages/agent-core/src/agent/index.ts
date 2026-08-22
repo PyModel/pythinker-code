@@ -59,7 +59,7 @@ import { UsageRecorder } from './usage';
 import { LlmRequestLogger, splitGenerateOptions } from './llm-request-logger';
 import { LlmRequestRecorder } from './llm-request-recorder';
 import { resolveCompletionBudget } from '../utils/completion-budget';
-import type { Kaos } from '@pymodel/kaos';
+import type { Pyaos } from '@pymodel/pyaos';
 import type { ToolServices } from '../tools/support/services';
 
 export type { AgentRecord, AgentRecordPersistence } from './records';
@@ -76,7 +76,7 @@ export * from './goal';
 export type AgentType = 'main' | 'sub' | 'independent';
 
 export interface AgentOptions {
-  readonly kaos: Kaos;
+  readonly pyaos: Pyaos;
   readonly config?: PythinkerConfig;
   readonly homedir?: string;
   /**
@@ -114,10 +114,10 @@ export interface AgentOptions {
 
 export class Agent {
   readonly type: AgentType;
-  private _kaos: Kaos;
+  private _pyaos: Pyaos;
 
-  get kaos(): Kaos {
-    return this._kaos;
+  get pyaos(): Pyaos {
+    return this._pyaos;
   }
 
   /**
@@ -191,7 +191,7 @@ export class Agent {
 
   constructor(options: AgentOptions) {
     this.type = options.type ?? 'main';
-    this._kaos = options.kaos;
+    this._pyaos = options.pyaos;
     this.pythinkerConfig = options.config;
     this.homedir = options.homedir;
     this.mediaOriginalsDir = options.mediaOriginalsDir;
@@ -250,8 +250,8 @@ export class Agent {
     this.replayBuilder = new ReplayBuilder(this, options.replay);
   }
 
-  setKaos(kaos: Kaos) {
-    this._kaos = kaos;
+  setPyaos(pyaos: Pyaos) {
+    this._pyaos = pyaos;
   }
 
   getAdditionalDirs(): readonly string[] {
@@ -475,7 +475,7 @@ export class Agent {
   async refreshSystemPrompt(): Promise<void> {
     if (this.activeProfile === undefined) return;
     const context = this.systemPromptContextProvider === undefined
-      ? await prepareSystemPromptContext(this.kaos, this.brandHome, {
+      ? await prepareSystemPromptContext(this.pyaos, this.brandHome, {
           additionalDirs: this.additionalDirs,
         })
       : await this.systemPromptContextProvider();
@@ -490,7 +490,7 @@ export class Agent {
     const pluginSections = composePluginSections(this.pluginSystemPrompts);
     this.warnAboutSkippedPluginSections(pluginSections.skipped);
     const systemPrompt = profile.systemPrompt({
-      osEnv: this.kaos.osEnv,
+      osEnv: this.pyaos.osEnv,
       cwd: this.config.cwd,
       skills: this.skills?.registry,
       pluginSections: pluginSections.content,

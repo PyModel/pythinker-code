@@ -177,7 +177,7 @@ export class BridgeHandler {
         const current = this.runtime.getSession(sessionId);
         const session =
           current?.session ??
-          (await this.runtime.harness.resumeSession({ id: sessionId }));
+          (await this.runtime.harness.resumeSession({ id: sessionId, includeSubagents: true }));
         if (!areSameFsPath(session.workDir, this.requireWorkDir(webviewId))) {
           if (current === undefined) {
             await session.close().catch((error: unknown) => {

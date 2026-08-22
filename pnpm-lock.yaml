@@ -19,10 +19,6 @@ overrides:
 importers:
 
   .:
-    dependencies:
-      '@earendil-works/pi-tui':
-        specifier: ^0.83.0
-        version: 0.83.0
     devDependencies:
       '@arethetypeswrong/cli':
         specifier: 0.18.3
@@ -123,12 +119,9 @@ importers:
       '@pymodel/agent-core-v2':
         specifier: workspace:^
         version: link:../../packages/agent-core-v2
-      '@pymodel/kap-server':
+      '@pymodel/agent-gateway':
         specifier: workspace:^
-        version: link:../../packages/kap-server
-      '@pymodel/migration-legacy':
-        specifier: workspace:^
-        version: link:../../packages/migration-legacy
+        version: link:../../packages/agent-gateway
       '@pymodel/minidb':
         specifier: workspace:^
         version: link:../../packages/minidb
@@ -251,6 +244,9 @@ importers:
       '@fontsource-variable/jetbrains-mono':
         specifier: ^5.2.8
         version: 5.3.0
+      '@pymodel/transcript':
+        specifier: workspace:*
+        version: link:../../packages/transcript
       '@xterm/addon-fit':
         specifier: ^0.11.0
         version: 0.11.0
@@ -574,9 +570,9 @@ importers:
       '@pymodel/agent-core':
         specifier: workspace:^
         version: link:../agent-core
-      '@pymodel/kaos':
+      '@pymodel/pyaos':
         specifier: workspace:^
-        version: link:../kaos
+        version: link:../pyaos
       '@pymodel/pythinker-code-sdk':
         specifier: workspace:^
         version: link:../node-sdk
@@ -614,15 +610,15 @@ importers:
       '@mozilla/readability':
         specifier: ^0.6.0
         version: 0.6.0
-      '@pymodel/kaos':
-        specifier: workspace:^
-        version: link:../kaos
       '@pymodel/kosong':
         specifier: workspace:^
         version: link:../kosong
       '@pymodel/protocol':
         specifier: workspace:^
         version: link:../protocol
+      '@pymodel/pyaos':
+        specifier: workspace:^
+        version: link:../pyaos
       '@pymodel/pythinker-code-oauth':
         specifier: workspace:^
         version: link:../oauth
@@ -863,20 +859,7 @@ importers:
         specifier: ^4.23.5
         version: 4.23.12
 
-  packages/kaos:
-    dependencies:
-      pathe:
-        specifier: ^2.0.3
-        version: 2.0.3
-      ssh2:
-        specifier: ^1.17.0
-        version: 1.17.0
-    devDependencies:
-      '@types/ssh2':
-        specifier: ^1.15.5
-        version: 1.15.5
-
-  packages/kap-server:
+  packages/agent-gateway:
     dependencies:
       '@fastify/multipart':
         specifier: ^10.0.0
@@ -981,22 +964,6 @@ importers:
         specifier: ^3.0.1
         version: 3.0.1(ajv@8.20.0)
 
-  packages/migration-legacy:
-    dependencies:
-      '@pymodel/agent-core':
-        specifier: workspace:^
-        version: link:../agent-core
-      smol-toml:
-        specifier: ^1.6.1
-        version: 1.6.1
-      zod:
-        specifier: ^4.3.6
-        version: 4.4.3
-    devDependencies:
-      '@pymodel/kaos':
-        specifier: workspace:^
-        version: link:../kaos
-
   packages/minidb:
     devDependencies:
       tsx:
@@ -1024,15 +991,15 @@ importers:
       '@pymodel/agent-core-v2':
         specifier: workspace:^
         version: link:../agent-core-v2
-      '@pymodel/kaos':
-        specifier: workspace:^
-        version: link:../kaos
       '@pymodel/klient':
         specifier: workspace:^
         version: link:../klient
       '@pymodel/kosong':
         specifier: workspace:^
         version: link:../kosong
+      '@pymodel/pyaos':
+        specifier: workspace:^
+        version: link:../pyaos
       '@pymodel/pythinker-code-oauth':
         specifier: workspace:^
         version: link:../oauth
@@ -1080,6 +1047,19 @@ importers:
       zod:
         specifier: ^4.3.6
         version: 4.4.3
+
+  packages/pyaos:
+    dependencies:
+      pathe:
+        specifier: ^2.0.3
+        version: 2.0.3
+      ssh2:
+        specifier: ^1.17.0
+        version: 1.17.0
+    devDependencies:
+      '@types/ssh2':
+        specifier: ^1.15.5
+        version: 1.15.5
 
   packages/telemetry: {}
 
@@ -1610,10 +1590,6 @@ packages:
 
   '@dotenvx/primitives@0.8.0':
     resolution: {integrity: sha512-VYJy0uhFm9zTJ1TxBaW/pA8bjbOM/OttaNMwZ1RHG4JKyRG7DhSdiqD1ipQoAyoD22olUtxbP78W9xY3Wd11bg==}
-
-  '@earendil-works/pi-tui@0.83.0':
-    resolution: {integrity: sha512-IoYrb0rORjELmEpNtoCA/U8je3KopMkRAVJRdSzvXRvgb+Huo1gNh8Q5CSZvNOiYtDxJdj2tYZZHZ4B3+IN3hA==}
-    engines: {node: '>=22.19.0'}
 
   '@electron-internal/extract-zip@1.0.5':
     resolution: {integrity: sha512-+bqFCP98pLI0Tt0XQo1TmlXtwjWchISndDOxCkEcIuUgXWpBnLyRI+2DU+mesvnMMX6L1XDqYNA0lXNDHd/yiA==}
@@ -11218,11 +11194,6 @@ snapshots:
       yocto-spinner: 1.2.1
 
   '@dotenvx/primitives@0.8.0': {}
-
-  '@earendil-works/pi-tui@0.83.0':
-    dependencies:
-      get-east-asian-width: 1.6.0
-      marked: 18.0.5
 
   '@electron-internal/extract-zip@1.0.5': {}
 

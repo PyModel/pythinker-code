@@ -1,11 +1,11 @@
 import type { ToolCall } from '@pymodel/kosong';
 import { describe, expect, it, vi } from 'vitest';
 
-import { createFakeKaos } from '../tools/fixtures/fake-kaos';
-import { createCommandKaos, testAgent } from './harness/agent';
+import { createFakePyaos } from '../tools/fixtures/fake-pyaos';
+import { createCommandPyaos, testAgent } from './harness/agent';
 
-function createPlanKaos(overrides: Parameters<typeof createFakeKaos>[0] = {}) {
-  return createFakeKaos({
+function createPlanPyaos(overrides: Parameters<typeof createFakePyaos>[0] = {}) {
+  return createFakePyaos({
     mkdir: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   });
@@ -22,7 +22,7 @@ describe('manual plan entry', () => {
     const mkdir = vi.fn().mockResolvedValue(undefined);
     const writeText = vi.fn().mockResolvedValue(0);
     const ctx = testAgent({
-      kaos: createFakeKaos({ mkdir, writeText }),
+      pyaos: createFakePyaos({ mkdir, writeText }),
     });
 
     await ctx.rpc.enterPlan({});
@@ -38,7 +38,7 @@ describe('manual plan entry', () => {
 
   it('derives the no-homedir plan path from cwd on enter and restore', async () => {
     const ctx = testAgent({
-      kaos: createPlanKaos({
+      pyaos: createPlanPyaos({
         writeText: vi.fn(async (_path: string, content: string) => content.length),
       }),
     });
@@ -56,7 +56,7 @@ describe('manual plan entry', () => {
       time: expect.any(Number),
     });
 
-    const resumed = testAgent({ kaos: createFakeKaos() });
+    const resumed = testAgent({ pyaos: createFakePyaos() });
     resumed.dispatch({
       type: 'plan_mode.enter',
       id: 'stable-plan',
@@ -73,7 +73,7 @@ describe('manual plan entry', () => {
       arguments: '{}',
     };
     const ctx = testAgent({
-      kaos: createPlanKaos({
+      pyaos: createPlanPyaos({
         writeText: vi.fn(async (_path: string, content: string) => content.length),
       }),
     });
@@ -104,7 +104,7 @@ describe('plan clear', () => {
     });
 
     const ctx = testAgent({
-      kaos: createPlanKaos({ mkdir, readText, writeText }),
+      pyaos: createPlanPyaos({ mkdir, readText, writeText }),
     });
     await ctx.agent.planMode.enter('test-plan', false);
 
@@ -132,7 +132,7 @@ describe('plan exit tool', () => {
     const files = new Map<string, string>();
     const readText = vi.fn(async (path: string) => files.get(path) ?? '');
     const ctx = testAgent({
-      kaos: createPlanKaos({ readText }),
+      pyaos: createPlanPyaos({ readText }),
     });
     ctx.configure({ tools: ['ExitPlanMode'] });
     await ctx.rpc.setPermission({ mode: 'auto' });
@@ -168,7 +168,7 @@ describe('plan exit tool', () => {
     const files = new Map<string, string>();
     const readText = vi.fn(async (path: string) => files.get(path) ?? '');
     const ctx = testAgent({
-      kaos: createPlanKaos({ readText }),
+      pyaos: createPlanPyaos({ readText }),
     });
     ctx.configure({ tools: ['ExitPlanMode'] });
     await ctx.rpc.setPermission({ mode: 'manual' });
@@ -206,7 +206,7 @@ describe('plan exit tool', () => {
       throw new Error('Bash should not execute after plan rejection');
     });
     const ctx = testAgent({
-      kaos: createPlanKaos({ readText, execWithEnv }),
+      pyaos: createPlanPyaos({ readText, execWithEnv }),
     });
     ctx.configure({ tools: ['ExitPlanMode', 'Bash'] });
     await ctx.rpc.setPermission({ mode: 'yolo' });
@@ -252,7 +252,7 @@ describe('plan exit tool', () => {
   it('refuses to exit when the current plan file is empty', async () => {
     const readText = vi.fn(async () => '');
     const ctx = testAgent({
-      kaos: createPlanKaos({ readText }),
+      pyaos: createPlanPyaos({ readText }),
     });
     ctx.configure({ tools: ['ExitPlanMode'] });
     await ctx.rpc.setPermission({ mode: 'yolo' });
@@ -283,7 +283,7 @@ describe('plan exit tool options', () => {
     const files = new Map<string, string>();
     const readText = vi.fn(async (path: string) => files.get(path) ?? '');
     const ctx = testAgent({
-      kaos: createPlanKaos({ readText }),
+      pyaos: createPlanPyaos({ readText }),
     });
     ctx.configure({ tools: ['ExitPlanMode'] });
     await ctx.rpc.setPermission({ mode: 'manual' });
@@ -336,7 +336,7 @@ describe('plan allows safe tool flow', () => {
         return content.length;
       });
       const ctx = testAgent({
-        kaos: createPlanKaos({ readText, writeText }),
+        pyaos: createPlanPyaos({ readText, writeText }),
       });
       ctx.configure({ tools: [toolName] });
       await ctx.agent.planMode.enter('test-plan', false);
@@ -380,7 +380,7 @@ describe('plan allows safe tool flow', () => {
       return content.length;
     });
     const ctx = testAgent({
-      kaos: createPlanKaos({ writeText }),
+      pyaos: createPlanPyaos({ writeText }),
     });
     ctx.configure({ tools: ['Write'] });
     ctx.agent.permission.rules.push({
@@ -424,7 +424,7 @@ describe('plan allows safe tool flow', () => {
       name: 'Bash',
       arguments: '{"command":"printf plan-safe","timeout":60}',
     };
-    const ctx = testAgent({ kaos: createCommandKaos('plan-safe') });
+    const ctx = testAgent({ pyaos: createCommandPyaos('plan-safe') });
     ctx.configure({ tools: ['Bash'] });
     await ctx.rpc.setPermission({ mode: 'yolo' });
     await ctx.agent.planMode.enter('test-plan', false);
@@ -480,7 +480,7 @@ describe('plan mode Bash ordinary permission behavior', () => {
       name: 'Bash',
       arguments: '{"command":"rm forbidden.txt","timeout":60}',
     };
-    const ctx = testAgent({ kaos: createCommandKaos('removed') });
+    const ctx = testAgent({ pyaos: createCommandPyaos('removed') });
     ctx.configure({ tools: ['Bash'] });
     await ctx.rpc.setPermission({ mode: 'yolo' });
     await ctx.agent.planMode.enter('test-plan', false);
@@ -555,7 +555,7 @@ describe('plan mode injection cadence', () => {
 
   it('emits a reentry reminder when restored plan mode already has plan content', async () => {
     const ctx = testAgent({
-      kaos: createFakeKaos({
+      pyaos: createFakePyaos({
         readText: vi.fn(async () => '# Existing Plan\n\n- Keep this context'),
       }),
     });

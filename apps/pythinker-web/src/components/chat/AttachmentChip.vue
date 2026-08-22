@@ -1,15 +1,15 @@
 <!-- apps/pythinker-web/src/components/chat/AttachmentChip.vue -->
-<!-- One attachment rendered as a pill chip — the SAME component for the
-     composer's pending-attachment strip and for sent messages in the chat
-     bubble. Context differences are props, not restyled variants:
-       - composer: uploading spinner, error tint, remove button
-       - bubble:   plain chip, click opens preview / downloads
-     Tile rule: images show a real thumbnail, videos a play glyph, files a
-     neutral file icon with the extension badge next to the name. -->
+<!-- One attachment. File attachments (and media in the chat bubble) render as
+     the pill chip below; composer media attachments (kind image/video with a
+     remove button) render as the square pending-upload tile — see MediaThumb
+     (context differences stay props, not restyled variants):
+       - composer media: square tile, uploading spinner, error tint, remove
+       - composer files / bubble: plain pill chip -->
 <script setup lang="ts">
 import { computed } from 'vue';
 import { useI18n } from 'vue-i18n';
 import AuthMedia from './AuthMedia.vue';
+import MediaThumb from './MediaThumb.vue';
 import Icon from '../ui/Icon.vue';
 import Spinner from '../ui/Spinner.vue';
 import Tooltip from '../ui/Tooltip.vue';
@@ -79,7 +79,24 @@ const title = computed(() => {
 </script>
 
 <template>
+  <!-- Composer media attachments: square pending-upload tile (MediaThumb). -->
+  <MediaThumb
+    v-if="kind !== 'file' && removable"
+    :kind="kind"
+    :name="name"
+    :url="url"
+    :file-id="fileId"
+    :uploading="uploading"
+    :error="error"
+    removable
+    :remove-label="removeLabel"
+    @activate="emit('activate')"
+    @remove="emit('remove')"
+  />
+
+  <!-- Files anywhere + media in the chat bubble: pill chip. -->
   <span
+    v-else
     class="att-chip"
     :class="{ 'is-error': error, uploading }"
     :title="title"

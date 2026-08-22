@@ -6,7 +6,7 @@
 declare const __PYTHINKER_DEV_PROXY_TARGET__: string;
 
 // Injected by Vite `define` (see vite.config.ts): the named dev-proxy backend
-// presets (default = kap-server on 58627, multi = extra kap-server instance on
+// presets (default = agent-gateway on 58627, multi = extra agent-gateway instance on
 // 58628) for the Sidebar switcher menu. The live target comes from
 // GET /__pythinker-dev/backend; this is the synchronous initial value. Unused by
 // the same-origin production build.

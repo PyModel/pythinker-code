@@ -33,7 +33,7 @@ export type TurnEndReasonMeta = 'completed' | 'cancelled' | 'failed' | 'blocked'
 
 /**
  * What the agent is doing right now. Same shape as the wire
- * `agentPhaseSchema` (kap-server `protocol/events-zod.ts`), copied through
+ * `agentPhaseSchema` (agent-gateway `protocol/events-zod.ts`), copied through
  * opaquely — this package must not import the server.
  */
 export type AgentPhaseMeta =
@@ -130,7 +130,8 @@ export interface TranscriptMeta {
   readonly agent?: AgentStatusMeta;
 }
 
-/** Contract shape of a `meta.merge` payload — like {@link TranscriptMeta}, but mode keys may be `null` to clear. */
-export type TranscriptMetaMerge = Omit<TranscriptMeta, 'modes'> & {
+/** Contract shape of a `meta.merge` payload — like {@link TranscriptMeta}, but mode keys and `goal` may be `null` to clear. */
+export type TranscriptMetaMerge = Omit<TranscriptMeta, 'modes' | 'goal'> & {
   readonly modes?: ModesMetaMerge;
+  readonly goal?: GoalMeta | null;
 };

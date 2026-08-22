@@ -4,11 +4,13 @@
 
 import type {
   AppApprovalRequest,
+  AppCatalogProvider,
   AppConfig,
   AppEvent,
   AppGoal,
   AppModel,
   AppProvider,
+  CatalogProviderImportResult,
   CodexLoginStatus,
   FsEntry,
   AppMessage,
@@ -32,6 +34,8 @@ import type {
 import type {
   WireApprovalRequest,
   WireApprovalResponse,
+  WireCatalogProvider,
+  WireImportCatalogProviderResult,
   WireTask,
   WireFsEntry,
   WireImageSource,
@@ -376,11 +380,15 @@ export function toAppTask(wire: WireTask): AppTask {
     completedAt: wire.completed_at,
     outputPreview: wire.output_preview,
     outputBytes: wire.output_bytes,
+    agentId: wire.agent_id,
+    model: wire.model,
+    thinkingEffort: wire.thinking_effort,
     subagentPhase: wire.subagent_phase,
     subagentType: wire.subagent_type,
     parentToolCallId: wire.parent_tool_call_id,
     suspendedReason: wire.suspended_reason,
     dynamicWorkflowIndex: wire.dynamic_workflow_index,
+    swarmIndex: wire.swarm_index,
     // The snapshot's subagent roster carries the explicit flag. REST `/tasks`
     // does not, but its background-task store only holds detached tasks, so any
     // subagent it returns is a background subagent (foreground ones never
@@ -762,6 +770,35 @@ export function toAppProvider(wire: WireProvider): AppProvider {
   };
 }
 
+export function toAppCatalogProvider(wire: WireCatalogProvider): AppCatalogProvider {
+  return {
+    id: wire.id,
+    name: wire.name,
+    wireType: wire.wire_type,
+    guessed: wire.guessed,
+    needsBaseUrl: wire.needs_base_url,
+    rejected: wire.rejected,
+    rejectReason: wire.reject_reason,
+    envKey: wire.env_key,
+    models: wire.models.map((model) => ({
+      id: model.id,
+      name: model.name,
+      maxContextSize: model.max_context_size,
+      capabilities: model.capabilities,
+      reasoning: model.reasoning,
+    })),
+  };
+}
+
+export function toCatalogProviderImportResult(
+  wire: WireImportCatalogProviderResult,
+): CatalogProviderImportResult {
+  return {
+    provider: toAppCatalogProvider(wire.provider),
+    modelsImported: wire.models_imported,
+  };
+}
+
 export function toAppConfig(wire: WireConfig): AppConfig {
   const providers: Record<string, { type: string; baseUrl?: string; defaultModel?: string; hasApiKey: boolean }> = {};
   for (const [id, provider] of Object.entries(wire.providers)) {
@@ -776,6 +813,7 @@ export function toAppConfig(wire: WireConfig): AppConfig {
     providers,
     defaultProvider: wire.default_provider,
     defaultModel: wire.default_model,
+    secondaryModel: wire.secondary_model,
     models: wire.models,
     thinking: wire.thinking as { enabled?: boolean; effort?: string } | undefined,
     planMode: wire.plan_mode,

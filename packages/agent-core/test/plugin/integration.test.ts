@@ -10,7 +10,7 @@ import type { SDKSessionRPC } from '../../src/rpc';
 import { Session } from '../../src/session';
 import { ProviderManager } from '../../src/session/provider-manager';
 import { createScriptedGenerate } from '../agent/harness/scripted-generate';
-import { testKaos } from '../fixtures/test-kaos';
+import { testPyaos } from '../fixtures/test-pyaos';
 
 describe('PluginManager → SkillRegistry integration', () => {
   it('enabled plugin contributes to pluginSkillRoots()', async () => {
@@ -57,7 +57,7 @@ describe('plugin system-prompt integration', () => {
     const sessionDir = await mkdtemp(path.join(tmpdir(), 'plugin-session-'));
     const session = new Session({
       id: 'test-plugin-system-prompts',
-      kaos: testKaos.withCwd(workDir),
+      pyaos: testPyaos.withCwd(workDir),
       homedir: sessionDir,
       rpc: sessionRpcStub(),
       skills: { explicitDirs: [path.join(workDir, 'missing-skills')] },

@@ -26,7 +26,7 @@ import { ProviderManager } from '../../src/session/provider-manager';
 import { SessionAPIImpl } from '../../src/session/rpc';
 import { buildImageCompressionCaption } from '../../src/tools/support/image-compress';
 import { createScriptedGenerate } from '../agent/harness/scripted-generate';
-import { testKaos } from '../fixtures/test-kaos';
+import { testPyaos } from '../fixtures/test-pyaos';
 
 const CAPTION = buildImageCompressionCaption({
   original: { width: 3264, height: 666, byteLength: 344 * 1024, mimeType: 'image/png' },
@@ -76,7 +76,7 @@ describe('SessionAPIImpl prompt metadata', () => {
     const session = track(
       new Session({
         id: 'prompt-metadata-steer',
-        kaos: testKaos.withCwd(sessionDir),
+        pyaos: testPyaos.withCwd(sessionDir),
         homedir: sessionDir,
         rpc: createSessionRpc(events),
         skills: { explicitDirs: [join(sessionDir, 'missing-skills')] },

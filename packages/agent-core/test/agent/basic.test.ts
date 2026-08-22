@@ -8,7 +8,7 @@ import { pathToFileURL } from 'node:url';
 import { describe, expect, it, vi } from 'vitest';
 
 import { FLAG_DEFINITIONS, FlagResolver } from '../../src/flags';
-import { createCommandKaos, testAgent } from './harness/agent';
+import { createCommandPyaos, testAgent } from './harness/agent';
 
 it('creates an independent agent with a scoped experimental flag resolver', () => {
   const ctx = testAgent({
@@ -99,7 +99,7 @@ it('runs an agent turn through builtin tool approval and execution', async () =>
     name: 'Bash',
     arguments: '{"command":"printf lookup-result","timeout":60}',
   };
-  const ctx = testAgent({ kaos: createCommandKaos('lookup-result') });
+  const ctx = testAgent({ pyaos: createCommandPyaos('lookup-result') });
   ctx.configure({ tools: ['Bash'] });
 
   ctx.mockNextResponse({ type: 'text', text: 'I will run that.' }, bashCall);
@@ -315,8 +315,8 @@ describe('prompt-attached video resolution', () => {
     });
 
     const path = tempVideo();
-    const realReadBytes = ctx.agent.kaos.readBytes.bind(ctx.agent.kaos);
-    vi.spyOn(ctx.agent.kaos, 'readBytes').mockImplementation(async (p, length) => {
+    const realReadBytes = ctx.agent.pyaos.readBytes.bind(ctx.agent.pyaos);
+    vi.spyOn(ctx.agent.pyaos, 'readBytes').mockImplementation(async (p, length) => {
       // The uncapped full-content read is the window the user cancels in.
       if (length === undefined) await ctx.rpc.cancel({ turnId: 0 });
       return realReadBytes(p, length);

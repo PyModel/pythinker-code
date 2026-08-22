@@ -12,11 +12,11 @@ const providerClientShimPath = path.join(dtsRoot, 'provider-clients.d.ts');
 const tscBinPath = packageBinPath('typescript', 'bin/tsc');
 const apiExtractorBinPath = packageBinPath('@microsoft/api-extractor', 'bin/api-extractor');
 
-const packageDirs = new Set(['agent-core', 'agent-core-v2', 'kaos', 'klient', 'kosong', 'node-sdk', 'oauth']);
+const packageDirs = new Set(['agent-core', 'agent-core-v2', 'pyaos', 'klient', 'kosong', 'node-sdk', 'oauth']);
 const workspacePackages = new Map([
   ['@pymodel/agent-core-v2', 'agent-core-v2'],
   ['@pymodel/agent-core', 'agent-core'],
-  ['@pymodel/kaos', 'kaos'],
+  ['@pymodel/pyaos', 'pyaos'],
   ['@pymodel/pythinker-code-oauth', 'oauth'],
   ['@pymodel/klient', 'klient'],
   ['@pymodel/kosong', 'kosong'],
@@ -107,7 +107,7 @@ async function rewriteWorkspaceSpecifiers() {
           `import { GoogleGenAI as GenAIClient } from '${providerClientSpecifier}';`,
         );
       const updated = providerClientText.replaceAll(
-        /(["'])(#\/[^"']+|@pymodel\/(?:agent-core-v2|agent-core|kaos|pythinker-code-oauth|klient|kosong)(?:\/[^"']+)?)\1/g,
+        /(["'])(#\/[^"']+|@pymodel\/(?:agent-core-v2|agent-core|pyaos|pythinker-code-oauth|klient|kosong)(?:\/[^"']+)?)\1/g,
         (_match, quote, specifier) => {
           const resolved = resolveSpecifier({
             currentFile: file,

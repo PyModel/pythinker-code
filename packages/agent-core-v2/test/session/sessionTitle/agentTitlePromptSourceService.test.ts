@@ -164,7 +164,32 @@ describe('AgentTitlePromptSource', () => {
     });
   });
 
-  it('digestExcerpt anchors the first prompt and lands on the latest turn', async () => {
+  it('digestExcerpt counts a queued prompt already appended to the context only once', async () => {
+    liveMessages = [
+      userMessage('one', '最早的问题'),
+      assistantMessage('a1', [{ type: 'text', text: '第一轮回答' }]),
+      userMessage('two', '进行中的问题'),
+    ];
+    queue = {
+      active: {
+        id: 'two',
+        userMessageId: 'two',
+        createdAt: '2026-01-01T00:00:01.000Z',
+        state: 'running',
+        message: userMessage('two', '进行中的问题'),
+      },
+      pending: [],
+    };
+
+    await expect(ix.get(IAgentTitlePromptSource).digestExcerpt()).resolves.toEqual({
+      turns: [
+        { user: '最早的问题', assistant: '第一轮回答' },
+        { user: '进行中的问题', assistant: undefined },
+      ],
+    });
+  });
+
+  it('digestExcerpt pairs every prompt with its own turn’s final assistant text', async () => {
     liveMessages = [
       userMessage('u1', '\u6700\u521D\u7684\u76EE\u6807'),
       assistantMessage('a1', [{ type: 'text', text: '\u7B2C\u4E00\u8F6E\u56DE\u7B54' }]),
@@ -176,13 +201,37 @@ describe('AgentTitlePromptSource', () => {
     ];
 
     await expect(ix.get(IAgentTitlePromptSource).digestExcerpt()).resolves.toEqual({
-      firstUser: '\u6700\u521D\u7684\u76EE\u6807',
-      lastUser: '\u6700\u8FD1\u7684\u8981\u6C42',
-      assistant: '\u6700\u65B0\u6B63\u6587',
+      turns: [
+        { user: '\u6700\u521D\u7684\u76EE\u6807', assistant: '\u7B2C\u4E00\u8F6E\u56DE\u7B54' },
+        { user: '\u4E2D\u9014\u8FFD\u95EE', assistant: '\u4E2D\u95F4\u56DE\u7B54' },
+        { user: '\u6700\u8FD1\u7684\u8981\u6C42', assistant: '\u6700\u65B0\u6B63\u6587' },
+      ],
     });
   });
 
-  it('digestExcerpt collapses a single-prompt conversation and skips dangling questions', async () => {
+  it('digestExcerpt covers every turn, even with a dangling tool-only span', async () => {
+    liveMessages = [
+      userMessage('u1', '最初的目标'),
+      assistantMessage('a1', [{ type: 'text', text: '第一轮回答' }]),
+      userMessage('u2', '第二个话题'),
+      assistantMessage('a2', [{ type: 'think', think: '只在思考' }]),
+      userMessage('u3', '第三个话题'),
+      assistantMessage('a3', [{ type: 'text', text: '第三轮回答' }]),
+      userMessage('u4', '最新的话题'),
+      assistantMessage('a4', [{ type: 'text', text: '最新回答' }]),
+    ];
+
+    await expect(ix.get(IAgentTitlePromptSource).digestExcerpt()).resolves.toEqual({
+      turns: [
+        { user: '最初的目标', assistant: '第一轮回答' },
+        { user: '第二个话题', assistant: undefined },
+        { user: '第三个话题', assistant: '第三轮回答' },
+        { user: '最新的话题', assistant: '最新回答' },
+      ],
+    });
+  });
+
+  it('digestExcerpt keeps a single-prompt conversation and dangling questions', async () => {
     liveMessages = [
       userMessage('u1', '\u552F\u4E00\u7684\u95EE\u9898'),
       assistantMessage('a1', [{ type: 'text', text: '\u552F\u4E00\u7684\u56DE\u7B54' }]),
@@ -190,16 +239,18 @@ describe('AgentTitlePromptSource', () => {
     ];
 
     await expect(ix.get(IAgentTitlePromptSource).digestExcerpt()).resolves.toEqual({
-      firstUser: '\u552F\u4E00\u7684\u95EE\u9898',
-      lastUser: '\u8FD8\u6CA1\u5F97\u5230\u56DE\u590D\u7684\u65B0\u95EE\u9898',
-      assistant: '\u552F\u4E00\u7684\u56DE\u7B54',
+      turns: [
+        { user: '\u552F\u4E00\u7684\u95EE\u9898', assistant: '\u552F\u4E00\u7684\u56DE\u7B54' },
+        { user: '\u8FD8\u6CA1\u5F97\u5230\u56DE\u590D\u7684\u65B0\u95EE\u9898', assistant: undefined },
+      ],
     });
 
     liveMessages = [userMessage('u1', '\u552F\u4E00\u7684\u95EE\u9898')];
     await expect(ix.get(IAgentTitlePromptSource).digestExcerpt()).resolves.toEqual({
-      firstUser: '\u552F\u4E00\u7684\u95EE\u9898',
-      lastUser: undefined,
-      assistant: undefined,
+      turns: [{ user: '\u552F\u4E00\u7684\u95EE\u9898', assistant: undefined }],
     });
+
+    liveMessages = [];
+    await expect(ix.get(IAgentTitlePromptSource).digestExcerpt()).resolves.toEqual({ turns: [] });
   });
 });

@@ -4,7 +4,6 @@ import {
   WIRE_PROTOCOL_VERSION,
   EVENT2_REGISTRY,
   IAgentContextMemoryService,
-  IAgentTokenCountingService,
   IAgentGoalService,
   type ContextMessage,
   type WireRecord,
@@ -29,8 +28,9 @@ import { InMemoryStorageService } from '#/persistence/backends/memory/inMemorySt
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
 import { TokenCountingMeasured } from '#/agent/tokenCounting/tokenCountingOps';
-import { todoKey, ToolsUpdateStore } from '#/session/todo/todoOps';
-import { IAgentStateService } from '#/agent/state/agentState';
+import { ToolsUpdateStore } from '#/session/todo/todoOps';
+import { TodoAgentModelDefinition } from '#/session/todo/todoAgentModel';
+import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 import type { Event2Class } from '#/app/event/event2';
 import { AGENT_WIRE_RECORD_KEY } from '#/wire/record';
@@ -82,6 +82,9 @@ const V2_RECORD_TYPES: ReadonlySet<string> = new Set([
   'tower_mode.exit',
   'task.started',
   'task.terminated',
+  'task.waitDelivered',
+  'staleGuard.recorded',
+  'staleGuard.cleared',
   'interaction.request',
   'interaction.resolved',
   'plan.revision',
@@ -93,6 +96,10 @@ const V2_RECORD_TYPES: ReadonlySet<string> = new Set([
   'token_counting.measured',
   'token_counting.truncated',
   'token_counting.rebased',
+  'cron.add',
+  'cron.delete',
+  'cron.cursor',
+  'token_counting.turn_recorded',
 ]);
 
 describe('v1 wire vocabulary', () => {
@@ -110,7 +117,6 @@ describe('v1 wire vocabulary', () => {
     log = ix.get(IAppendLogStore);
     registerTestAgentWire(ix, SCOPE, { log });
     dispatcher = registerTestEventDispatcher(ix);
-    ix.get(IAgentStateService).contributeState(todoKey);
   });
 
   afterEach(() => disposables.dispose());
@@ -138,7 +144,7 @@ describe('v1 wire vocabulary', () => {
   it('stamps persisted records with time, except the metadata envelope', async () => {
     await dispatcher.restore();
     await dispatcher.dispatch(
-      new ToolsUpdateStore({ key: 'todo', value: [{ title: 'x', status: 'pending' }] }),
+      new ToolsUpdateStore({ agentId: 'test-agent', key: 'todo', value: [{ title: 'x', status: 'pending' }] }),
     );
 
     const records = await readRecords();
@@ -150,6 +156,7 @@ describe('v1 wire vocabulary', () => {
       },
       {
         type: 'tools.update_store',
+        agentId: 'test-agent',
         key: 'todo',
         value: [{ title: 'x', status: 'pending' }],
         time: expect.any(Number),
@@ -159,7 +166,7 @@ describe('v1 wire vocabulary', () => {
 
   it('round-trips the todo list through the persisted tools.update_store record', async () => {
     await dispatcher.dispatch(
-      new ToolsUpdateStore({ key: 'todo', value: [{ title: 'restore me', status: 'in_progress' }] }),
+      new ToolsUpdateStore({ agentId: 'test-agent', key: 'todo', value: [{ title: 'restore me', status: 'in_progress' }] }),
     );
     const records = await readRecords();
 
@@ -171,12 +178,11 @@ describe('v1 wire vocabulary', () => {
     const log2 = ix2.get(IAppendLogStore);
     registerTestAgentWire(ix2, SCOPE, { log: log2 });
     const fresh = registerTestEventDispatcher(ix2);
-    const freshState = ix2.get(IAgentStateService);
-    freshState.contributeState(todoKey);
 
     await restoreTestEventDispatcher(fresh, log2, SCOPE, records);
 
-    expect(freshState.get(todoKey)).toEqual([
+    const freshAgent = ix2.get(IAgentScopeContext).agentContext;
+    expect(freshAgent.space.use(TodoAgentModelDefinition, (model) => model.items())).toEqual([
       { title: 'restore me', status: 'in_progress' },
     ]);
   });
@@ -197,14 +203,14 @@ describe('conversation-time checkpoint registration', () => {
   it('registers every context-reacting state as checkpointed or explicitly exempt', () => {
     const violations: string[] = [];
     let entries = 0;
-    const undoable = BUILTIN_REPLAYABLE_STATE_KEYS.filter(
+    const undoable = new Set(BUILTIN_REPLAYABLE_STATE_KEYS.filter(
       (key) => key.replayable.undoable !== undefined,
-    );
+    ));
     for (const key of BUILTIN_REPLAYABLE_STATE_KEYS) {
       if (key.name === CONTEXT_OWNER_STATE) continue;
       if (!CONTEXT_EVENTS.some((cls) => key.replayable.folds.has(cls))) continue;
       entries += 1;
-      if (undoable.includes(key)) continue;
+      if (undoable.has(key)) continue;
       if (CHECKPOINT_EXEMPT_STATES.has(key.name)) continue;
       violations.push(key.name);
     }
@@ -215,7 +221,7 @@ describe('conversation-time checkpoint registration', () => {
 
 describe('AgentRecords persistence metadata', () => {
   let context: IAgentContextMemoryService;
-  let tokenCounting: IAgentTokenCountingService;
+  let tokenCounting: TestAgentContext['tokenCounting'];
   let ctx: TestAgentContext;
   let expectResumeMatches: boolean;
   let persistence: RecordingInMemoryWireRecordPersistence;
@@ -225,7 +231,7 @@ describe('AgentRecords persistence metadata', () => {
     persistence = new RecordingInMemoryWireRecordPersistence();
     ctx = createTestAgent({ persistence, autoConfigure: false });
     context = ctx.get(IAgentContextMemoryService);
-    tokenCounting = ctx.get(IAgentTokenCountingService);
+    tokenCounting = ctx.tokenCounting;
   });
 
   afterEach(async () => {
@@ -485,7 +491,9 @@ describe('AgentRecords persistence metadata', () => {
     expect(restored.size).toBe(restored.estimated);
     expect(restored.size).toBeGreaterThan(0);
 
-    await ctx.dispatcher.dispatch(new TokenCountingMeasured({ length: 1, tokens: 42 }));
+    await ctx.dispatcher.dispatch(
+      new TokenCountingMeasured({ agentId: 'main', length: 1, tokens: 42 }),
+    );
     expect(tokenCounting.get()).toEqual({
       size: 42,
       measured: 42,

@@ -3,7 +3,7 @@ import { basename } from 'node:path';
 import {
   configureSearchWorkerRuntime,
   getSearchWorkerRuntimeState,
-} from '@pymodel/kap-server/search-worker-runtime';
+} from '@pymodel/agent-gateway/search-worker-runtime';
 
 import { KAP_SEARCH_WORKER_ASSET } from '../../scripts/native/manifest.mjs';
 import {

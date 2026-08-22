@@ -24,7 +24,7 @@
  * Read/Write/Edit.
  */
 
-import type { Kaos } from '@pymodel/kaos';
+import type { Pyaos } from '@pymodel/pyaos';
 import type {
   ContentPart,
   ModelCapability,
@@ -259,7 +259,7 @@ export class ReadMediaFileTool implements BuiltinTool<ReadMediaFileInput> {
   private readonly compressTelemetry: ImageCompressionTelemetry | undefined;
   private readonly imageLimits: ImageLimits;
   constructor(
-    private readonly kaos: Kaos,
+    private readonly pyaos: Pyaos,
     private readonly workspace: WorkspaceConfig,
     private readonly capabilities: ModelCapability,
     private readonly videoUploader?: VideoUploader | undefined,
@@ -299,7 +299,7 @@ export class ReadMediaFileTool implements BuiltinTool<ReadMediaFileInput> {
 
   resolveExecution(args: ReadMediaFileInput): ToolExecution {
     const path = resolvePathAccessPath(args.path, {
-      kaos: this.kaos,
+      pyaos: this.pyaos,
       workspace: this.workspace,
       operation: 'read',
     });
@@ -311,8 +311,8 @@ export class ReadMediaFileTool implements BuiltinTool<ReadMediaFileInput> {
       matchesRule: (ruleArgs) =>
         matchesPathRuleSubject(ruleArgs, path, {
           cwd: this.workspace.workspaceDir,
-          pathClass: this.kaos.pathClass(),
-          homeDir: this.kaos.gethome(),
+          pathClass: this.pyaos.pathClass(),
+          homeDir: this.pyaos.gethome(),
         }),
       execute: () => this.execution(args, path),
     };
@@ -329,7 +329,7 @@ export class ReadMediaFileTool implements BuiltinTool<ReadMediaFileInput> {
     try {
       // For media input, the bytes are authoritative; the extension is only
       // a fallback for formats that cannot be sniffed from the header.
-      const header = await this.kaos.readBytes(safePath, MEDIA_SNIFF_BYTES);
+      const header = await this.pyaos.readBytes(safePath, MEDIA_SNIFF_BYTES);
       const fileType = detectFileType(safePath, header, 'media');
 
       if (fileType.kind === 'text') {
@@ -369,7 +369,7 @@ export class ReadMediaFileTool implements BuiltinTool<ReadMediaFileInput> {
           output: buildImageConversionGuidance(
             args.path,
             fileType.mimeType,
-            this.kaos.osEnv.osKind,
+            this.pyaos.osEnv.osKind,
           ),
         };
       }
@@ -382,7 +382,7 @@ export class ReadMediaFileTool implements BuiltinTool<ReadMediaFileInput> {
         };
       }
 
-      const stat = await this.kaos.stat(safePath);
+      const stat = await this.pyaos.stat(safePath);
       if (stat.stSize === 0) {
         return { isError: true, output: `"${args.path}" is empty.` };
       }
@@ -447,7 +447,7 @@ export class ReadMediaFileTool implements BuiltinTool<ReadMediaFileInput> {
         };
       }
 
-      const data = await this.kaos.readBytes(safePath);
+      const data = await this.pyaos.readBytes(safePath);
       // The summary always reports the ORIGINAL pixel size and byte size: the
       // model derives relative coordinates and scales them by the original
       // dimensions, so it must see the pre-compression size even when the

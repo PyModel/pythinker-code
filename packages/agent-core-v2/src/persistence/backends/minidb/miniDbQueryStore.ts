@@ -207,7 +207,7 @@ export class MiniDbQueryStore extends Disposable implements IQueryStore {
   async ensureIndex(collection: string, def: IndexDef): Promise<void> {
     if (def.kind === 'text') {
       throw new Error(
-        `minidb query-store is a structural read model: text index "${def.name}" on collection "${collection}" is rejected; full-text search lives in the kap-server search-index database`,
+        `minidb query-store is a structural read model: text index "${def.name}" on collection "${collection}" is rejected; full-text search lives in the agent-gateway search-index database`,
       );
     }
     const guard = `${collection}:${def.kind}:${def.name}`;

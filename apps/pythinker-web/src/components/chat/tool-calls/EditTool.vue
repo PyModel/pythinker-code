@@ -1,10 +1,19 @@
 <!-- apps/pythinker-web/src/components/chat/tool-calls/EditTool.vue -->
+<!-- Edit/Write card. Header shows the file's basename as a button that opens
+     the file; the trailing area carries a `+added / −removed` diffbar (two
+     proportional segments) for edits, or a `created` chip for a successful
+     write. The expanded body renders the inline diff from the tool's inputs
+     (sharing the side-panel DiffLines renderer) and falls back to the raw
+     output when the call cannot be diffed from its args (replace_all, append,
+     oversized inputs) or when the side diff panel owns the diff. -->
 <script setup lang="ts">
 import { computed, ref } from 'vue';
+import { useI18n } from 'vue-i18n';
 import type { DiffViewLine, FilePreviewRequest, ToolCall, ToolMedia } from '../../../types';
 import { diffStats } from '../../../lib/diffLines';
-import { buildEditDiffLines } from '../../../lib/toolDiff';
-import { toolGlyph, toolLabel, toolSummary } from '../../../lib/toolMeta';
+import { buildEditDiffLines, extractEditPath } from '../../../lib/toolDiff';
+import { normalizeToolName, toolGlyph, toolLabel } from '../../../lib/toolMeta';
+import DiffLines from '../DiffLines.vue';
 import ToolRow from '../ToolRow.vue';
 import ToolOutputBlock from './ToolOutputBlock.vue';
 
@@ -24,21 +33,32 @@ const emit = defineEmits<{
   openToolDiff: [id: string];
 }>();
 
+const { t } = useI18n();
+
 const status = computed<'running' | 'ok' | 'error'>(() => props.tool.status as 'running' | 'ok' | 'error');
 const label = computed(() => toolLabel(props.tool.name));
 const glyph = computed(() => toolGlyph(props.tool.name));
-const summary = computed(() => toolSummary(props.tool.name, props.tool.arg));
-const summaryFull = computed(() => toolSummary(props.tool.name, props.tool.arg, true));
+const isWrite = computed(() => normalizeToolName(props.tool.name) === 'write');
+
+const path = computed(() => extractEditPath(props.tool.arg) ?? '');
+
+/** Last path segment — the clickable name in the header. */
+function baseName(p: string): string {
+  const parts = p.split('/').filter(Boolean);
+  return parts.at(-1) ?? p;
+}
+/** Directory portion of the path (both separators), empty for a bare name. */
+function dirName(p: string): string {
+  return /^(.*)[\\/][^\\/]+[\\/]?$/.exec(p)?.[1] ?? '';
+}
 
 const editDiff = computed<DiffViewLine[] | null>(() => buildEditDiffLines(props.tool));
-const chip = computed(() => {
+const stats = computed(() => {
   const diff = editDiff.value;
-  if (diff && props.tool.status !== 'error') {
-    const { added, removed } = diffStats(diff);
-    if (added || removed) return `+${added} −${removed}`;
-  }
-  return '';
+  if (diff && props.tool.status !== 'error') return diffStats(diff);
+  return { added: 0, removed: 0 };
 });
+const hasDiffs = computed(() => stats.value.added > 0 || stats.value.removed > 0);
 
 const hasOutput = computed(() => !!props.tool.output && props.tool.output.length > 0);
 const open = ref(false);
@@ -51,6 +71,10 @@ function toggle(): void {
   }
   if (hasOutput.value) open.value = !open.value;
 }
+
+function openFile(): void {
+  if (path.value) emit('openFile', { path: path.value });
+}
 </script>
 
 <template>
@@ -58,7 +82,7 @@ function toggle(): void {
     :status="status"
     :icon="glyph"
     :name="label"
-    :arg="!open ? summary : ''"
+    :arg="''"
     :time="tool.timing"
     :open="open"
     :expandable="canExpand || toolDiffPanel"
@@ -66,25 +90,109 @@ function toggle(): void {
     :stack-position="stackPosition"
     @toggle="toggle"
   >
-    <template #trailing>
-      <span v-if="chip" class="chip">{{ chip }}</span>
+    <template #title>
+      <span class="tl-name">{{ label }}</span>
+      <button v-if="path" type="button" class="tl-file" @click.stop="openFile">{{ baseName(path) }}</button>
+      <span v-if="path" class="tl-faint">{{ dirName(path) }}</span>
+      <span v-if="!path" class="tl-dim">{{ path || tool.arg }}</span>
     </template>
-    <div v-if="summaryFull" class="bb-summary">{{ summaryFull }}</div>
-    <ToolOutputBlock :lines="tool.output" empty-text="Waiting for output…" />
+    <template #trailing>
+      <template v-if="hasDiffs">
+        <span v-if="stats.added > 0" class="tl-add">+{{ stats.added }}</span>
+        <span v-if="stats.removed > 0" class="tl-del">−{{ stats.removed }}</span>
+        <span class="diffbar" aria-hidden="true">
+          <span class="seg-add" :style="{ flexGrow: stats.added }" />
+          <span class="seg-del" :style="{ flexGrow: stats.removed }" />
+        </span>
+      </template>
+      <span v-else-if="isWrite && tool.status === 'ok'" class="chip">{{ t('tools.chip.created') }}</span>
+    </template>
+    <div v-if="editDiff && !toolDiffPanel" class="diff-wrap">
+      <DiffLines :lines="editDiff" />
+    </div>
+    <ToolOutputBlock v-else :lines="tool.output" empty-text="Waiting for output…" />
   </ToolRow>
 </template>
 
 <style scoped>
-.chip {
+.tl-name {
+  color: var(--color-text);
+  font-weight: var(--weight-medium);
+  flex: none;
+}
+.tl-file {
+  color: var(--color-text);
+  line-height: var(--leading-tight);
+  flex: none;
+  max-width: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border: none;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  padding: 0 1px;
+  font-family: inherit;
+  font-size: inherit;
+  cursor: pointer;
+}
+.tl-file:hover {
+  color: var(--color-accent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.tl-file:focus-visible {
+  outline: none;
+  box-shadow: var(--p-focus-ring);
+}
+.tl-dim {
   color: var(--color-text-muted);
+  line-height: var(--leading-tight);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tl-faint {
+  color: var(--color-text-faint);
+  line-height: var(--leading-tight);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tl-add {
+  color: var(--color-success);
+  font-family: var(--font-mono);
   font-size: var(--text-xs);
   flex: none;
 }
-.bb-summary {
-  color: var(--color-text);
-  border-bottom: 1px dashed var(--color-line);
-  padding-bottom: 6px;
-  margin-bottom: 6px;
-  word-break: break-all;
+.tl-del {
+  color: var(--color-danger);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  flex: none;
+}
+.diffbar {
+  display: inline-flex;
+  width: 36px;
+  height: 3px;
+  border-radius: var(--radius-full);
+  overflow: hidden;
+  gap: 1px;
+  flex: none;
+}
+.seg-add {
+  background: var(--color-success);
+}
+.seg-del {
+  background: var(--color-danger);
+}
+.diff-wrap {
+  margin-top: var(--space-2);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-raised);
+  overflow-x: auto;
 }
 </style>

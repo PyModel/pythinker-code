@@ -216,7 +216,7 @@ function writer(columns?: number) {
 function fakeProcess() {
   const listeners = new Map<NodeJS.Signals, () => Promise<void> | void>();
   return {
-    once: vi.fn((signal: NodeJS.Signals, listener: () => Promise<void> | void) => {
+    on: vi.fn((signal: NodeJS.Signals, listener: () => Promise<void> | void) => {
       listeners.set(signal, listener);
     }),
     off: vi.fn((signal: NodeJS.Signals, listener: () => Promise<void> | void) => {
@@ -1120,7 +1120,7 @@ describe('runPrompt', () => {
       expect(processMock.listener('SIGINT')).toBeDefined();
       expect(mocks.session.setPermission).toHaveBeenCalledWith('auto');
     });
-    expect(processMock.once.mock.invocationCallOrder[0]).toBeLessThan(
+    expect(processMock.on.mock.invocationCallOrder[0]).toBeLessThan(
       mocks.session.setPermission.mock.invocationCallOrder[0]!,
     );
 
@@ -1143,6 +1143,89 @@ describe('runPrompt', () => {
     }
     releasePrompt();
     await run;
+  });
+
+  it('flushes custom output writers before forced signal exit', async () => {
+    let releasePrompt!: () => void;
+    mocks.session.prompt.mockImplementationOnce(async () => {
+      for (const handler of mocks.eventHandlers) {
+        handler(mocks.mainEvent({ type: 'turn.started', turnId: 8, origin: { kind: 'user' } }));
+      }
+      await new Promise<void>((resolve) => {
+        releasePrompt = resolve;
+      });
+    });
+    const stdout = { ...writer(), flush: vi.fn(async () => {}) };
+    const stderr = { ...writer(), flush: vi.fn(async () => {}) };
+    const processMock = fakeProcess();
+    const run = runPrompt(opts(), '1.2.3-test', {
+      stdout,
+      stderr,
+      process: processMock,
+    } as Parameters<typeof runPrompt>[2] & { process: ReturnType<typeof fakeProcess> });
+
+    await waitForAssertion(() => {
+      expect(processMock.listener('SIGINT')).toBeDefined();
+    });
+
+    await processMock.listener('SIGINT')?.();
+
+    expect(stdout.flush).toHaveBeenCalledOnce();
+    expect(stderr.flush).toHaveBeenCalledOnce();
+    expect(processMock.exit).toHaveBeenCalledWith(130);
+
+    for (const handler of mocks.eventHandlers) {
+      handler(mocks.mainEvent({ type: 'turn.ended', turnId: 8, reason: 'completed' }));
+    }
+    releasePrompt();
+    await run;
+  });
+
+  it('force-exits on a second signal while the first cleanup is pending', async () => {
+    let releaseClose!: () => void;
+    mocks.harnessClose.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          releaseClose = resolve;
+        }),
+    );
+    let releasePrompt!: () => void;
+    mocks.session.prompt.mockImplementationOnce(async () => {
+      for (const handler of mocks.eventHandlers) {
+        handler(mocks.mainEvent({ type: 'turn.started', turnId: 9, origin: { kind: 'user' } }));
+      }
+      await new Promise<void>((resolve) => {
+        releasePrompt = resolve;
+      });
+    });
+    const processMock = fakeProcess();
+    const run = runPrompt(opts(), '1.2.3-test', {
+      stdout: { write: vi.fn(() => true) },
+      stderr: { write: vi.fn(() => true) },
+      process: processMock,
+    } as Parameters<typeof runPrompt>[2] & { process: ReturnType<typeof fakeProcess> });
+
+    await waitForAssertion(() => {
+      expect(processMock.listener('SIGINT')).toBeDefined();
+    });
+
+    const firstCleanup = processMock.listener('SIGINT')?.();
+    await waitForAssertion(() => {
+      expect(mocks.harnessClose).toHaveBeenCalledOnce();
+    });
+    await processMock.listener('SIGTERM')?.();
+
+    expect(processMock.exit).toHaveBeenCalledTimes(1);
+    expect(processMock.exit).toHaveBeenCalledWith(143);
+
+    releaseClose();
+    await firstCleanup;
+    for (const handler of mocks.eventHandlers) {
+      handler(mocks.mainEvent({ type: 'turn.ended', turnId: 9, reason: 'completed' }));
+    }
+    releasePrompt();
+    await run;
+    expect(mocks.harnessClose).toHaveBeenCalledOnce();
   });
 
   it('uses auto permission so headless mode can bypass plan approval and questions', async () => {

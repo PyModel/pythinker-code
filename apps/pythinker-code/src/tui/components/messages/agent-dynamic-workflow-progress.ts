@@ -6,9 +6,9 @@ import {
   type AgentDynamicWorkflowProgressEstimatorPhase,
 } from '#/tui/components/messages/agent-dynamic-workflow-progress-estimator';
 import { FAILURE_MARK, SUCCESS_MARK } from '#/tui/constant/symbols';
-import { currentTheme } from '#/tui/theme';
+import { currentTheme, type ColorToken } from '#/tui/theme';
 import type { ColorPalette } from '#/tui/theme/colors';
-import { gradientText } from '#/tui/theme/gradient-text';
+import { shimmerText } from '#/tui/utils/shimmer';
 
 const TEXT_CELL_PREFERRED_WIDTH = 30;
 const CELL_GAP = '  ';
@@ -44,7 +44,16 @@ const QUEUED_LABEL = 'Queued...';
 const SUSPENDED_LABEL = 'Rate limited...';
 const RESUMED_ITEM_LABEL = '(resumed)';
 const CANCELLED_LABEL_DARKEN_FACTOR = 0.72;
-const AGENT_DYNAMIC_WORKFLOW_TITLE_ACCENT_BIAS = 1.3;
+const AGENT_ID_TOKENS = [
+  'agentRed',
+  'agentOrange',
+  'agentYellow',
+  'agentGreen',
+  'agentCyan',
+  'agentBlue',
+  'agentPurple',
+  'agentPink',
+] as const satisfies readonly ColorToken[];
 
 const STATUS_BAR_ORDER = [
   'completed',
@@ -498,7 +507,7 @@ export class AgentDynamicWorkflowProgressComponent implements Component {
   private renderHeader(width: number, _summary: AgentDynamicWorkflowSummary | undefined): string {
     if (width <= 3) return chalk.hex(this.colors.primary)('─'.repeat(width));
 
-    const title = gradientText('Agent DynamicWorkflow', this.colors.primary, this.colors.accent, AGENT_DYNAMIC_WORKFLOW_TITLE_ACCENT_BIAS);
+    const title = chalk.hex(this.colors.workflowTitle)('Agent DynamicWorkflow');
     const description =
       this.description.length > 0
         ? chalk.hex(this.colors.primary)(' ─ ') + chalk.hex(this.colors.text)(this.description)
@@ -549,10 +558,9 @@ export class AgentDynamicWorkflowProgressComponent implements Component {
   }
 
   private renderProgressStatusLine(width: number, status: TotalStatus): string {
-    const label = renderStatusLabel(
-      totalStatusLabel(status),
-      totalStatusLabelColor(status, this.members, this.colors),
-    );
+    const label = status === 'working'
+      ? renderAnimatedStatusLabel(totalStatusLabel(status))
+      : renderStatusLabel(totalStatusLabel(status), totalStatusColor(status, this.colors));
     if (this.members.length === 0) return truncateToWidth(label, width);
     const barWidth = Math.max(0, width - visibleWidth(label) - TOTAL_STATUS_BAR_GAP);
     if (barWidth <= 0) return truncateToWidth(label, width);
@@ -565,15 +573,14 @@ export class AgentDynamicWorkflowProgressComponent implements Component {
   private renderOrchestratingStatusLine(width: number): string {
     if (this.itemsStarted) {
       return truncateToWidth(
-        renderStatusLabel(ORCHESTRATING_LABEL, this.colors.primary),
+        renderAnimatedStatusLabel(ORCHESTRATING_LABEL),
         width,
       );
     }
 
     const promptTemplate = collapseWhitespace(this.promptTemplateText);
-    const label = renderStatusLabel(
+    const label = renderAnimatedStatusLabel(
       promptTemplate.length > 0 ? PROMPTING_LABEL : ORCHESTRATING_LABEL,
-      this.colors.primary,
     );
     if (promptTemplate.length === 0) return truncateToWidth(label, width);
 
@@ -645,7 +652,7 @@ export class AgentDynamicWorkflowProgressComponent implements Component {
       capacityTicks: layout.barCells * BRAILLE_LEVELS.length,
       nowMs,
     });
-    const id = chalk.hex(this.colors.primary)(member.id);
+    const id = chalk.hex(memberIdColor(member.id, this.colors))(member.id);
     const bar = brailleBar(
       estimate.displayTicks,
       snapshot.phase,
@@ -673,7 +680,7 @@ export class AgentDynamicWorkflowProgressComponent implements Component {
       capacityTicks: barCells * BRAILLE_LEVELS.length,
       nowMs,
     });
-    const id = chalk.hex(this.colors.primary)(member.id);
+    const id = chalk.hex(memberIdColor(member.id, this.colors))(member.id);
     const bar = brailleBar(
       estimate.displayTicks,
       estimatePhase,
@@ -828,6 +835,13 @@ function createMembers(count: number, phase: AgentDynamicWorkflowPhase): AgentDy
     itemText: '',
     latestModelText: '',
   }));
+}
+
+function memberIdColor(id: string, colors: ColorPalette): string {
+  const numericId = Number.parseInt(id, 10);
+  const index = Number.isNaN(numericId) ? 0 : Math.max(0, numericId - 1);
+  const token = AGENT_ID_TOKENS[index % AGENT_ID_TOKENS.length] ?? 'agentRed';
+  return colors[token];
 }
 
 function clearMemberState(member: AgentDynamicWorkflowMember, ...keys: ClearableMemberKey[]): void {
@@ -1211,17 +1225,27 @@ function brailleBar(
   if (phase === 'cancelled') {
     const cancelledColor = phaseColorOverride ?? colors.warning;
     return bracketBar(
-      accumulatedBrailleBar(displayTicks, innerWidth, cancelledColor, colors, () => cancelledColor),
+      accumulatedBrailleBar(displayTicks, innerWidth, cancelledColor, colors, () => colors.progressEmpty),
       colors,
     );
   }
   const colorMap: Record<Exclude<AgentDynamicWorkflowPhase, 'pending' | 'failed' | 'cancelled'>, string> = {
-    queued: colors.textDim,
-    suspended: colors.textDim,
-    running: colors.success,
+    queued: colors.progressEmpty,
+    suspended: colors.progressEmpty,
+    running: colors.progressFill,
     completed: colors.success,
   };
-  return bracketBar(accumulatedBrailleBar(displayTicks, innerWidth, colorMap[phase], colors), colors);
+  return bracketBar(
+    accumulatedBrailleBar(
+      displayTicks,
+      innerWidth,
+      colorMap[phase],
+      colors,
+      undefined,
+      phase === 'running' ? colors.progressHead : undefined,
+    ),
+    colors,
+  );
 }
 
 function cancelledProgressColor(
@@ -1240,10 +1264,10 @@ function bracketBar(content: string, colors: ColorPalette): string {
 
 function phaseColor(phase: AgentDynamicWorkflowPhase, colors: ColorPalette): string {
   const map: Record<AgentDynamicWorkflowPhase, string> = {
-    pending: colors.textDim,
-    queued: colors.textDim,
-    suspended: colors.textDim,
-    running: colors.textDim,
+    pending: colors.progressEmpty,
+    queued: colors.progressEmpty,
+    suspended: colors.progressEmpty,
+    running: colors.progressFill,
     completed: colors.success,
     failed: colors.error,
     cancelled: colors.warning,
@@ -1264,19 +1288,39 @@ function renderStatusPipBar(
   const safeWidth = Math.max(1, width);
   const counts = statusBarCounts(members);
   if (counts.length === 0) {
-    return chalk.hex(colors.textMuted)(STATUS_BAR_CHAR.repeat(safeWidth));
+    return chalk.hex(colors.progressEmpty)(STATUS_BAR_CHAR.repeat(safeWidth));
   }
 
   const segmentWidths = allocateSegmentWidths(counts.map((entry) => entry.count), safeWidth);
   return counts.map((entry, index) => {
     const segmentWidth = segmentWidths[index] ?? 0;
     if (segmentWidth <= 0) return '';
+    if (entry.phase === 'working') {
+      const fillWidth = Math.max(0, segmentWidth - 1);
+      return (
+        chalk.hex(colors.progressFill)(STATUS_BAR_CHAR.repeat(fillWidth)) +
+        chalk.hex(colors.progressHead)(STATUS_BAR_CHAR)
+      );
+    }
     return chalk.hex(statusBarColor(entry.phase, colors))(STATUS_BAR_CHAR.repeat(segmentWidth));
   }).join('');
 }
 
 function renderStatusLabel(label: string, color: string): string {
   return ` ${chalk.hex(color)(label)}`;
+}
+
+function shimmerWorkflowLabel(label: string): string {
+  return shimmerText(label, {
+    baseToken: 'progressFill',
+    shimmerToken: 'progressHead',
+    altShimmerToken: 'primaryShimmer',
+    bandHalfWidth: 4,
+  });
+}
+
+function renderAnimatedStatusLabel(label: string): string {
+  return ` ${shimmerWorkflowLabel(label)}`;
 }
 
 function activityPrefixForTotalStatus(status: TotalStatus, colors: ColorPalette): string {
@@ -1320,9 +1364,9 @@ function statusBarPhase(phase: AgentDynamicWorkflowPhase): StatusBarPhase {
 
 function statusBarColor(phase: StatusBarPhase, colors: ColorPalette): string {
   const map: Record<StatusBarPhase, string> = {
-    queued: colors.textMuted,
-    working: colors.primary,
-    suspended: colors.textMuted,
+    queued: colors.progressEmpty,
+    working: colors.progressFill,
+    suspended: colors.progressEmpty,
     completed: colors.success,
     failed: colors.error,
     cancelled: colors.warning,
@@ -1360,24 +1404,13 @@ function totalStatusLabel(status: TotalStatus): string {
 
 function totalStatusColor(status: TotalStatus, colors: ColorPalette): string {
   const map: Record<TotalStatus, string> = {
-    working: colors.success,
+    working: colors.progressFill,
     completed: colors.success,
-    suspended: colors.textDim,
+    suspended: colors.progressEmpty,
     failed: colors.error,
     aborted: colors.warning,
   };
   return map[status];
-}
-
-function totalStatusLabelColor(
-  status: TotalStatus,
-  members: readonly AgentDynamicWorkflowMember[],
-  colors: ColorPalette,
-): string {
-  if (status === 'working' && !members.some((member) => member.phase === 'completed')) {
-    return colors.primary;
-  }
-  return totalStatusColor(status, colors);
 }
 
 function allocateSegmentWidths(counts: readonly number[], width: number): number[] {
@@ -1407,7 +1440,11 @@ function renderCellLabel(
 ): string {
   const latestLine = latestNonEmptyLine(snapshot.latestModelText);
   if (snapshot.phase === 'running') {
-    return truncateWithColor(runningCellLabelText(member), width, colors.textDim);
+    return truncateToWidth(
+      shimmerWorkflowLabel(runningCellLabelText(member)),
+      width,
+      shimmerWorkflowLabel('…'),
+    );
   }
   if (snapshot.phase === 'failed' && member.failureText !== undefined) {
     return truncateWithColor(`${FAILURE_MARK}${member.failureText}`, width, colors.error);
@@ -1472,7 +1509,7 @@ function renderPendingCell(
   width: number,
   colors: ColorPalette,
 ): string {
-  const id = chalk.hex(colors.primary)(member.id);
+  const id = chalk.hex(memberIdColor(member.id, colors))(member.id);
   const prefix = `${id} `;
   const itemText = collapseWhitespace(member.itemText);
   const label = itemText.length > 0 ? itemText : QUEUED_LABEL;
@@ -1485,7 +1522,7 @@ function renderQueuedCell(
   width: number,
   colors: ColorPalette,
 ): string {
-  const id = chalk.hex(colors.primary)(member.id);
+  const id = chalk.hex(memberIdColor(member.id, colors))(member.id);
   const prefix = `${id} `;
   const labelWidth = Math.max(1, width - visibleWidth(prefix));
   return prefix + truncateWithColor(QUEUED_LABEL, labelWidth, colors.textDim);
@@ -1496,7 +1533,7 @@ function renderCancelledUnstartedCell(
   width: number,
   colors: ColorPalette,
 ): string {
-  const id = chalk.hex(colors.primary)(member.id);
+  const id = chalk.hex(memberIdColor(member.id, colors))(member.id);
   const prefix = `${id} `;
   const labelWidth = Math.max(1, width - visibleWidth(prefix));
   return prefix + renderCancelledCellLabel(member, labelWidth, colors);
@@ -1670,7 +1707,7 @@ function failedBrailleBar(
     width,
     colors.error,
     colors,
-    (cellIndex) => cellIndex < redCellCount ? placeholderColor : colors.textDim,
+    (cellIndex) => cellIndex < redCellCount ? placeholderColor : colors.progressEmpty,
   );
 }
 
@@ -1711,6 +1748,7 @@ function accumulatedBrailleBar(
   filledColor: string,
   colors: ColorPalette,
   emptyColorForCell?: (cellIndex: number) => string,
+  headColor?: string,
 ): string {
   const dotsPerCell = BRAILLE_LEVELS.length;
   const cycleSize = width * dotsPerCell;
@@ -1747,9 +1785,14 @@ function accumulatedBrailleBar(
     const cellStart = i * dotsPerCell;
     const countThisCycle = Math.max(0, Math.min(dotsPerCell, cycleTicks - cellStart));
     const count = countThisCycle > 0 ? countThisCycle : completedCycles > 0 ? dotsPerCell : 0;
+    const isHead = headColor !== undefined && countThisCycle > 0 && countThisCycle < dotsPerCell;
     append(
       count === 0 ? BRAILLE_EMPTY : BRAILLE_LEVELS[count - 1]!,
-      count === 0 ? emptyColorForCell?.(i) ?? colors.textDim : filledColor,
+      count === 0
+        ? emptyColorForCell?.(i) ?? colors.progressEmpty
+        : isHead
+          ? headColor
+          : filledColor,
     );
   }
   flush();

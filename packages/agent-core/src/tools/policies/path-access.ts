@@ -2,8 +2,8 @@
  * Path safety guards used by Read/Write/Edit/Grep/Glob.
  *
  * Canonicalization is **lexical** only (no `realpath` / symlink following).
- * Mirrors `KaosPath.canonical()` and keeps the guard backend-aware:
- * callers should pass the active Kaos path class so SSH paths stay POSIX
+ * Mirrors `PyaosPath.canonical()` and keeps the guard backend-aware:
+ * callers should pass the active Pyaos path class so SSH paths stay POSIX
  * even when the host Node process is running on Windows.
  *
  * Shared-prefix escapes (a path like `/workspace-evil` passing a naive
@@ -14,7 +14,12 @@
 
 import * as pathe from 'pathe';
 
-import type { Kaos } from '@pymodel/kaos';
+import {
+  getShellPathBridge,
+  translateShellDrivePath,
+  type Pyaos,
+  type ShellPathBridge,
+} from '@pymodel/pyaos';
 
 import type { WorkspaceConfig } from '../support/workspace';
 import { isSensitiveFile } from './sensitive';
@@ -60,31 +65,7 @@ function isWin32DriveRelative(path: string): boolean {
 }
 
 export function normalizeUserPath(path: string, pathClass: PathClass = DEFAULT_PATH_CLASS): string {
-  if (pathClass !== 'win32') return path;
-
-  // A bare root slash stays forward so downstream pathe operations
-  // treat it consistently. Matches the py helper's behavior.
-  if (path === '/') return '/';
-
-  if (path.startsWith('//')) {
-    return path;
-  }
-
-  const cygdriveMatch = /^\/cygdrive\/([A-Za-z])(?:\/|$)/.exec(path);
-  if (cygdriveMatch !== null) {
-    const drive = cygdriveMatch[1]!.toUpperCase();
-    const rest = path.slice(`/cygdrive/${cygdriveMatch[1]!}`.length);
-    return `${drive}:${rest === '' ? '/' : rest}`;
-  }
-
-  const driveMatch = /^\/([A-Za-z])(?:\/|$)/.exec(path);
-  if (driveMatch !== null) {
-    const drive = driveMatch[1]!.toUpperCase();
-    const rest = path.slice(2);
-    return `${drive}:${rest === '' ? '/' : rest}`;
-  }
-
-  return path;
+  return pathClass === 'win32' ? translateShellDrivePath(path) : path;
 }
 
 function expandUserPath(path: string, homeDir: string | undefined, pathClass: PathClass): string {
@@ -175,10 +156,15 @@ export interface ResolvePathAccessOptions {
   readonly policy?: WorkspaceAccessPolicy | undefined;
   readonly pathClass?: PathClass | undefined;
   readonly homeDir?: string;
+  /**
+   * Shell path bridge used to normalize model-supplied paths on win32 bash;
+   * without it paths go through the lexical-only {@link normalizeUserPath}.
+   */
+  readonly shellPathBridge?: ShellPathBridge;
 }
 
 export interface ResolvePathAccessPathOptions {
-  readonly kaos: Pick<Kaos, 'pathClass' | 'gethome'>;
+  readonly pyaos: Pick<Pyaos, 'pathClass' | 'gethome' | 'osEnv'>;
   readonly workspace: WorkspaceConfig;
   readonly operation: PathAccessOperation;
   readonly policy?: WorkspaceAccessPolicy;
@@ -205,7 +191,8 @@ export function resolvePathAccess(
   options: ResolvePathAccessOptions,
 ): PathAccess {
   const pathClass = options.pathClass ?? DEFAULT_PATH_CLASS;
-  const normalizedPath = normalizeUserPath(path, pathClass);
+  const normalizedPath =
+    options.shellPathBridge?.fromShellPath(path) ?? normalizeUserPath(path, pathClass);
   const expandedPath = expandUserPath(normalizedPath, options.homeDir, pathClass);
   const rawIsAbsolute = pathe.isAbsolute(expandedPath);
   const canonical = canonicalizePath(expandedPath, cwd, pathClass);
@@ -246,12 +233,14 @@ export function resolvePathAccessPath(
   path: string,
   options: ResolvePathAccessPathOptions,
 ): string {
-  const { kaos, workspace, operation, policy, expandHome = true } = options;
+  const { pyaos, workspace, operation, policy, expandHome = true } = options;
+  const pathClass = pyaos.pathClass();
   return resolvePathAccess(path, workspace.workspaceDir, workspace, {
     operation,
     policy,
-    pathClass: kaos.pathClass(),
-    homeDir: expandHome ? kaos.gethome() : undefined,
+    pathClass,
+    homeDir: expandHome ? pyaos.gethome() : undefined,
+    shellPathBridge: pathClass === 'win32' ? getShellPathBridge(pyaos.osEnv) : undefined,
   }).path;
 }
 
@@ -261,7 +250,7 @@ export function resolvePathAccessPath(
  * absolute path when the check passes.
  *
  * Note: this is purely lexical. It does NOT protect against symlink
- * targets that point outside the workspace — that would require kaos-layer
+ * targets that point outside the workspace — that would require pyaos-layer
  * realpath support, which is not currently available.
  */
 export function assertPathAllowed(

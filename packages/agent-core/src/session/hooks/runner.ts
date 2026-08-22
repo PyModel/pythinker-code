@@ -22,7 +22,7 @@ export function buildHookSpawnOptions(options: {
     detached: process.platform !== 'win32',
     // Hide the console Windows would otherwise allocate for the shell child.
     // Without `windowsHide:true`, each hook flashes a visible console window —
-    // the same regression the Bash tool path already guards against in KAOS
+    // the same regression the Bash tool path already guards against in PYAOS
     // (see `buildLocalSpawnOptions`). Unconditional: it is a no-op on POSIX.
     windowsHide: true,
     env: options.env ? { ...process.env, ...options.env } : undefined,

@@ -34,12 +34,15 @@ import PythinkerSearch from '~icons/pythinker/search';
 import PythinkerSetting from '~icons/pythinker/setting';
 
 // Components (Tabler) ---------------------------------------------------------
+import TablerCircleCheck from '~icons/tabler/circle-check';
+import TablerCircleDashed from '~icons/tabler/circle-dashed';
 import TablerSidebarLeftCollapse from '~icons/tabler/layout-sidebar-left-collapse';
 import TablerSidebarLeftExpand from '~icons/tabler/layout-sidebar-left-expand';
 import TablerPaperclip from '~icons/tabler/paperclip';
 
 // Components (Remix) ---------------------------------------------------------
 import RiAddLine from '~icons/ri/add-line';
+import RiAiGenerate from '~icons/ri/ai-generate';
 import RiAlertLine from '~icons/ri/alert-line';
 import RiArchiveLine from '~icons/ri/archive-line';
 import RiArrowDownLine from '~icons/ri/arrow-down-line';
@@ -49,6 +52,7 @@ import RiArrowRightLine from '~icons/ri/arrow-right-line';
 import RiArrowRightSLine from '~icons/ri/arrow-right-s-line';
 import RiArrowUpLine from '~icons/ri/arrow-up-line';
 import RiArrowUpSLine from '~icons/ri/arrow-up-s-line';
+import RiBrainLine from '~icons/ri/brain-line';
 import RiBracesLine from '~icons/ri/braces-line';
 import RiCalendarCloseLine from '~icons/ri/calendar-close-line';
 import RiCalendarScheduleLine from '~icons/ri/calendar-schedule-line';
@@ -57,22 +61,27 @@ import RiCheckLine from '~icons/ri/check-line';
 import RiCloseLine from '~icons/ri/close-line';
 import RiCodeLine from '~icons/ri/code-line';
 import RiCollapseDiagonalLine from '~icons/ri/collapse-diagonal-line';
+import RiDeleteBinLine from '~icons/ri/delete-bin-line';
 import RiDownloadLine from '~icons/ri/download-line';
 import RiDraggable from '~icons/ri/draggable';
 import RiEqualizerLine from '~icons/ri/equalizer-line';
 import RiExpandDiagonalLine from '~icons/ri/expand-diagonal-line';
 import RiExternalLinkLine from '~icons/ri/external-link-line';
+import RiEyeLine from '~icons/ri/eye-line';
+import RiEyeOffLine from '~icons/ri/eye-off-line';
 import RiFileAddLine from '~icons/ri/file-add-line';
 import RiFileCopyLine from '~icons/ri/file-copy-line';
 import RiFileEditLine from '~icons/ri/file-edit-line';
 import RiFileLine from '~icons/ri/file-line';
 import RiFileTextLine from '~icons/ri/file-text-line';
+import RiFlaskLine from '~icons/ri/flask-line';
 import RiFlashlightLine from '~icons/ri/flashlight-line';
 import RiFolderAddLine from '~icons/ri/folder-add-line';
 import RiFolderFill from '~icons/ri/folder-fill';
 import RiGitForkLine from '~icons/ri/git-fork-line';
 import RiGitPullRequestLine from '~icons/ri/git-pull-request-line';
 import RiGlobalLine from '~icons/ri/global-line';
+import RiHand from '~icons/ri/hand';
 import RiImageLine from '~icons/ri/image-line';
 import RiInformationLine from '~icons/ri/information-line';
 import RiLinksLine from '~icons/ri/links-line';
@@ -81,10 +90,17 @@ import RiListUnordered from '~icons/ri/list-unordered';
 import RiLoginBoxLine from '~icons/ri/login-box-line';
 import RiMailLine from '~icons/ri/mail-line';
 import RiMessageLine from '~icons/ri/message-line';
+import RiMicroscopeLine from '~icons/ri/microscope-line';
 import RiPauseFill from '~icons/ri/pause-fill';
 import RiPencilLine from '~icons/ri/pencil-line';
 import RiPlayFill from '~icons/ri/play-fill';
+import RiPushpinFill from '~icons/ri/pushpin-fill';
+import RiPushpinLine from '~icons/ri/pushpin-line';
 import RiQuestionLine from '~icons/ri/question-line';
+import RiRobotLine from '~icons/ri/robot-line';
+import RiShieldFlashLine from '~icons/ri/shield-flash-line';
+import RiShieldLine from '~icons/ri/shield-line';
+import RiShutDownLine from '~icons/ri/shut-down-line';
 import RiSortDesc from '~icons/ri/sort-desc';
 import RiSparklingLine from '~icons/ri/sparkling-line';
 import RiStarFill from '~icons/ri/star-fill';
@@ -106,12 +122,15 @@ import RawPythinkerSearch from '~icons/pythinker/search?raw';
 import RawPythinkerSetting from '~icons/pythinker/setting?raw';
 
 // Raw SVG strings (Tabler) ----------------------------------------------------
+import RawTablerCircleCheck from '~icons/tabler/circle-check?raw';
+import RawTablerCircleDashed from '~icons/tabler/circle-dashed?raw';
 import RawTablerSidebarLeftCollapse from '~icons/tabler/layout-sidebar-left-collapse?raw';
 import RawTablerSidebarLeftExpand from '~icons/tabler/layout-sidebar-left-expand?raw';
 import RawTablerPaperclip from '~icons/tabler/paperclip?raw';
 
 // Raw SVG strings (Remix) ----------------------------------------------------
 import RawAddLine from '~icons/ri/add-line?raw';
+import RawAiGenerate from '~icons/ri/ai-generate?raw';
 import RawAlertLine from '~icons/ri/alert-line?raw';
 import RawArchiveLine from '~icons/ri/archive-line?raw';
 import RawArrowDownLine from '~icons/ri/arrow-down-line?raw';
@@ -121,6 +140,7 @@ import RawArrowRightLine from '~icons/ri/arrow-right-line?raw';
 import RawArrowRightSLine from '~icons/ri/arrow-right-s-line?raw';
 import RawArrowUpLine from '~icons/ri/arrow-up-line?raw';
 import RawArrowUpSLine from '~icons/ri/arrow-up-s-line?raw';
+import RawBrainLine from '~icons/ri/brain-line?raw';
 import RawBracesLine from '~icons/ri/braces-line?raw';
 import RawCalendarCloseLine from '~icons/ri/calendar-close-line?raw';
 import RawCalendarScheduleLine from '~icons/ri/calendar-schedule-line?raw';
@@ -129,22 +149,27 @@ import RawCheckLine from '~icons/ri/check-line?raw';
 import RawCloseLine from '~icons/ri/close-line?raw';
 import RawCodeLine from '~icons/ri/code-line?raw';
 import RawCollapseDiagonalLine from '~icons/ri/collapse-diagonal-line?raw';
+import RawDeleteBinLine from '~icons/ri/delete-bin-line?raw';
 import RawDownloadLine from '~icons/ri/download-line?raw';
 import RawDraggable from '~icons/ri/draggable?raw';
 import RawEqualizerLine from '~icons/ri/equalizer-line?raw';
 import RawExpandDiagonalLine from '~icons/ri/expand-diagonal-line?raw';
 import RawExternalLinkLine from '~icons/ri/external-link-line?raw';
+import RawEyeLine from '~icons/ri/eye-line?raw';
+import RawEyeOffLine from '~icons/ri/eye-off-line?raw';
 import RawFileAddLine from '~icons/ri/file-add-line?raw';
 import RawFileCopyLine from '~icons/ri/file-copy-line?raw';
 import RawFileEditLine from '~icons/ri/file-edit-line?raw';
 import RawFileLine from '~icons/ri/file-line?raw';
 import RawFileTextLine from '~icons/ri/file-text-line?raw';
+import RawFlaskLine from '~icons/ri/flask-line?raw';
 import RawFlashlightLine from '~icons/ri/flashlight-line?raw';
 import RawFolderAddLine from '~icons/ri/folder-add-line?raw';
 import RawFolderFill from '~icons/ri/folder-fill?raw';
 import RawGitForkLine from '~icons/ri/git-fork-line?raw';
 import RawGitPullRequestLine from '~icons/ri/git-pull-request-line?raw';
 import RawGlobalLine from '~icons/ri/global-line?raw';
+import RawHand from '~icons/ri/hand?raw';
 import RawImageLine from '~icons/ri/image-line?raw';
 import RawInformationLine from '~icons/ri/information-line?raw';
 import RawLinksLine from '~icons/ri/links-line?raw';
@@ -153,10 +178,17 @@ import RawListUnordered from '~icons/ri/list-unordered?raw';
 import RawLoginBoxLine from '~icons/ri/login-box-line?raw';
 import RawMailLine from '~icons/ri/mail-line?raw';
 import RawMessageLine from '~icons/ri/message-line?raw';
+import RawMicroscopeLine from '~icons/ri/microscope-line?raw';
 import RawPauseFill from '~icons/ri/pause-fill?raw';
 import RawPencilLine from '~icons/ri/pencil-line?raw';
 import RawPlayFill from '~icons/ri/play-fill?raw';
+import RawPushpinFill from '~icons/ri/pushpin-fill?raw';
+import RawPushpinLine from '~icons/ri/pushpin-line?raw';
 import RawQuestionLine from '~icons/ri/question-line?raw';
+import RawRobotLine from '~icons/ri/robot-line?raw';
+import RawShieldFlashLine from '~icons/ri/shield-flash-line?raw';
+import RawShieldLine from '~icons/ri/shield-line?raw';
+import RawShutDownLine from '~icons/ri/shut-down-line?raw';
 import RawSortDesc from '~icons/ri/sort-desc?raw';
 import RawSparklingLine from '~icons/ri/sparkling-line?raw';
 import RawStarFill from '~icons/ri/star-fill?raw';
@@ -189,6 +221,11 @@ export type IconName =
   | 'image'
   | 'settings'
   | 'sliders'
+  | 'robot'
+  | 'microscope'
+  | 'flask'
+  | 'eye'
+  | 'eye-off'
   | 'log-in'
   | 'chevron-down'
   | 'chevron-right'
@@ -231,15 +268,26 @@ export type IconName =
   | 'info'
   | 'help-circle'
   | 'alert-triangle'
+  | 'hand'
+  | 'shield-question'
+  | 'full-access'
+  | 'trash'
   | 'clock'
   | 'sparkles'
+  | 'thinking'
   | 'target'
   | 'pause'
   | 'play'
+  | 'power'
   | 'stop'
   | 'star'
   | 'star-outline'
-  | 'dots-horizontal';
+  | 'dots-horizontal'
+  | 'circle-check'
+  | 'circle-dashed'
+  | 'pushpin-line'
+  | 'pushpin-fill'
+  | 'gen-title';
 
 export type IconSize = 'sm' | 'md' | 'lg';
 
@@ -275,6 +323,11 @@ export const ICONS: Record<IconName, IconEntry> = {
   image: entry(RiImageLine, RawImageLine),
   settings: entry(PythinkerSetting, RawPythinkerSetting),
   sliders: entry(RiEqualizerLine, RawEqualizerLine),
+  robot: entry(RiRobotLine, RawRobotLine),
+  microscope: entry(RiMicroscopeLine, RawMicroscopeLine),
+  flask: entry(RiFlaskLine, RawFlaskLine),
+  eye: entry(RiEyeLine, RawEyeLine),
+  'eye-off': entry(RiEyeOffLine, RawEyeOffLine),
   'log-in': entry(RiLoginBoxLine, RawLoginBoxLine),
   'chevron-down': entry(RiArrowDownSLine, RawArrowDownSLine),
   'chevron-right': entry(RiArrowRightSLine, RawArrowRightSLine),
@@ -317,15 +370,26 @@ export const ICONS: Record<IconName, IconEntry> = {
   info: entry(RiInformationLine, RawInformationLine),
   'help-circle': entry(RiQuestionLine, RawQuestionLine),
   'alert-triangle': entry(RiAlertLine, RawAlertLine),
+  hand: entry(RiHand, RawHand),
+  'shield-question': entry(RiShieldLine, RawShieldLine),
+  'full-access': entry(RiShieldFlashLine, RawShieldFlashLine),
+  trash: entry(RiDeleteBinLine, RawDeleteBinLine),
   clock: entry(RiTimeLine, RawTimeLine),
   sparkles: entry(RiSparklingLine, RawSparklingLine),
+  thinking: entry(RiBrainLine, RawBrainLine),
   target: entry(RiTargetLine, RawTargetLine),
   pause: entry(RiPauseFill, RawPauseFill),
   play: entry(RiPlayFill, RawPlayFill),
+  power: entry(RiShutDownLine, RawShutDownLine),
   stop: entry(RiStopFill, RawStopFill),
   star: entry(RiStarFill, RawStarFill),
   'star-outline': entry(RiStarLine, RawStarLine),
   'dots-horizontal': entry(PythinkerMore, RawPythinkerMore),
+  'circle-check': entry(TablerCircleCheck, RawTablerCircleCheck),
+  'circle-dashed': entry(TablerCircleDashed, RawTablerCircleDashed),
+  'pushpin-line': entry(RiPushpinLine, RawPushpinLine),
+  'pushpin-fill': entry(RiPushpinFill, RawPushpinFill),
+  'gen-title': entry(RiAiGenerate, RawAiGenerate),
 };
 
 export function getIcon(name: IconName): IconEntry {
@@ -334,8 +398,8 @@ export function getIcon(name: IconName): IconEntry {
 
 function applySize(svg: string, px: number): string {
   return svg
-    .replace(/\s(?:width|height)="[^"]*"/g, '')
-    .replace(/^<svg\b/, `<svg class="kw-icon" width="${px}" height="${px}" aria-hidden="true"`);
+    .replaceAll(/\s(?:width|height)="[^"]*"/g, '')
+    .replace(/^<svg\b/, `<svg class="ui-icon" width="${px}" height="${px}" aria-hidden="true"`);
 }
 
 /** Render an icon to a full <svg> string for v-html contexts. Mirrors <Icon>. */
@@ -343,6 +407,26 @@ export function iconSvg(name: IconName, size: IconSize = 'md'): string {
   const entry = ICONS[name];
   if (!entry) return '';
   return applySize(entry.svg, SIZE_PX[size]);
+}
+
+const CODE_EXTENSIONS = new Set([
+  'ts', 'tsx', 'js', 'jsx', 'mjs', 'cjs', 'vue', 'json', 'py', 'go', 'rs',
+  'java', 'kt', 'c', 'h', 'cpp', 'cc', 'hpp', 'cs', 'rb', 'php', 'swift',
+  'sh', 'bash', 'zsh', 'css', 'scss', 'less', 'html', 'htm', 'xml', 'sql',
+  'yaml', 'yml', 'toml', 'lua', 'dart', 'scala', 'clj', 'ex', 'exs',
+]);
+const DOCUMENT_EXTENSIONS = new Set(['md', 'markdown', 'mdx', 'txt', 'rst', 'adoc', 'pdf', 'doc', 'docx']);
+const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'bmp', 'ico', 'avif']);
+
+export function fileTypeIconSvg(path: string, name?: string): string {
+  if (path.endsWith('/')) return iconSvg('folder', 'sm');
+  const base = name || path.split('/').pop() || path;
+  const dot = base.lastIndexOf('.');
+  const extension = dot > 0 ? base.slice(dot + 1).toLowerCase() : '';
+  if (CODE_EXTENSIONS.has(extension)) return iconSvg('code', 'sm');
+  if (DOCUMENT_EXTENSIONS.has(extension)) return iconSvg('file-text', 'sm');
+  if (IMAGE_EXTENSIONS.has(extension)) return iconSvg('image', 'sm');
+  return iconSvg('file', 'sm');
 }
 
 // ---------------------------------------------------------------------------
@@ -369,6 +453,11 @@ export const ICON_GROUPS: ReadonlyArray<readonly [string, readonly IconName[]]> 
       'image',
       'settings',
       'sliders',
+      'robot',
+      'microscope',
+      'flask',
+      'eye',
+      'eye-off',
       'log-in',
     ],
   ],
@@ -430,12 +519,15 @@ export const ICON_GROUPS: ReadonlyArray<readonly [string, readonly IconName[]]> 
       'alert-triangle',
       'clock',
       'sparkles',
+      'thinking',
       'pause',
       'play',
+      'power',
       'stop',
       'star',
       'star-outline',
       'dots-horizontal',
+      'gen-title',
     ],
   ],
 ];

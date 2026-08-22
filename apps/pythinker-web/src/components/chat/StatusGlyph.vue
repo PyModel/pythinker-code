@@ -22,12 +22,12 @@ const GLYPH: Record<StatusGlyphStatus, string> = {
 .status-glyph {
   flex: none;
   width: 16px;
-  font-size: var(--text-base);
-  line-height: 1;
-  text-align: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   user-select: none;
 }
-.status-glyph.s-run { color: var(--color-accent); font-weight: 500; }
+.status-glyph.s-run { color: var(--color-accent); }
 .status-glyph.s-done { color: var(--color-success); }
 .status-glyph.s-fail { color: var(--color-danger); }
 .status-glyph.s-pending { color: var(--color-text-faint); }

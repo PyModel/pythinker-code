@@ -1,6 +1,6 @@
 import { dirname, join } from 'pathe';
 
-import type { Kaos } from '@pymodel/kaos';
+import type { Pyaos } from '@pymodel/pyaos';
 
 import { normalizeAdditionalDirs } from '../config';
 import { listDirectory } from '../tools/support/list-directory';
@@ -27,15 +27,15 @@ export interface PrepareSystemPromptContextOptions {
 }
 
 export async function prepareSystemPromptContext(
-  kaos: Kaos,
+  pyaos: Pyaos,
   brandHome?: string,
   options?: PrepareSystemPromptContextOptions,
 ): Promise<PreparedSystemPromptContext> {
   const additionalDirs = normalizeAdditionalDirs(options?.additionalDirs ?? []);
   const [cwdListing, agentsMdResult, additionalDirsInfo] = await Promise.all([
-    listDirectory(kaos, undefined, { collapseHiddenDirs: true }),
-    loadAgentsMdForRoots(kaos, brandHome, [kaos.getcwd()]),
-    loadAdditionalDirsInfo(kaos, additionalDirs),
+    listDirectory(pyaos, undefined, { collapseHiddenDirs: true }),
+    loadAgentsMdForRoots(pyaos, brandHome, [pyaos.getcwd()]),
+    loadAdditionalDirsInfo(pyaos, additionalDirs),
   ]);
   return {
     cwdListing,
@@ -45,8 +45,8 @@ export async function prepareSystemPromptContext(
   };
 }
 
-export async function loadAgentsMd(kaos: Kaos, brandHome?: string): Promise<string> {
-  const result = await loadAgentsMdForRoots(kaos, brandHome, [kaos.getcwd()]);
+export async function loadAgentsMd(pyaos: Pyaos, brandHome?: string): Promise<string> {
+  const result = await loadAgentsMdForRoots(pyaos, brandHome, [pyaos.getcwd()]);
   return result.content;
 }
 
@@ -56,7 +56,7 @@ interface LoadedAgentsMd {
 }
 
 async function loadAgentsMdForRoots(
-  kaos: Kaos,
+  pyaos: Pyaos,
   brandHome: string | undefined,
   workDirs: readonly string[],
 ): Promise<LoadedAgentsMd> {
@@ -64,9 +64,9 @@ async function loadAgentsMdForRoots(
   const seen = new Set<string>();
 
   const collect = async (path: string): Promise<boolean> => {
-    const file = await readAgentFile(kaos, path);
+    const file = await readAgentFile(pyaos, path);
     if (file === undefined) return false;
-    const key = kaos.normpath(file.path);
+    const key = pyaos.normpath(file.path);
     if (seen.has(key)) return false;
     seen.add(key);
     discovered.push(file);
@@ -76,7 +76,7 @@ async function loadAgentsMdForRoots(
   // User-level files come first so any project-level AGENTS.md overrides them.
   // The brand dir follows PYTHINKER_CODE_HOME (default ~/.pythinker-code); the generic
   // .agents dir stays under the real OS home so it can be shared across tools.
-  const realHome = kaos.gethome();
+  const realHome = pyaos.gethome();
   const brandDir = brandHome ?? join(realHome, '.pythinker-code');
   await collect(join(brandDir, 'AGENTS.md'));
 
@@ -90,10 +90,10 @@ async function loadAgentsMdForRoots(
   }
 
   for (const workDir of workDirs) {
-    const rootKaos = kaos.withCwd(workDir);
-    const rootWorkDir = rootKaos.getcwd();
-    const projectRoot = await findProjectRoot(rootKaos, rootWorkDir);
-    const dirs = dirsRootToLeaf(rootKaos, rootWorkDir, projectRoot);
+    const rootPyaos = pyaos.withCwd(workDir);
+    const rootWorkDir = rootPyaos.getcwd();
+    const projectRoot = await findProjectRoot(rootPyaos, rootWorkDir);
+    const dirs = dirsRootToLeaf(rootPyaos, rootWorkDir, projectRoot);
 
     for (const dir of dirs) {
       await collect(join(dir, '.pythinker-code', 'AGENTS.md'));
@@ -115,12 +115,12 @@ async function loadAgentsMdForRoots(
 }
 
 async function loadAdditionalDirsInfo(
-  kaos: Kaos,
+  pyaos: Pyaos,
   additionalDirs: readonly string[],
 ): Promise<string> {
   const sections = await Promise.all(
     additionalDirs.map(async (dir) => {
-      const listing = await listDirectory(kaos.withCwd(dir));
+      const listing = await listDirectory(pyaos.withCwd(dir));
       return `### ${dir}\n${listing}`;
     }),
   );
@@ -128,21 +128,21 @@ async function loadAdditionalDirsInfo(
   return sections.join('\n\n');
 }
 
-async function findProjectRoot(kaos: Kaos, workDir: string): Promise<string> {
-  const initial = kaos.normpath(workDir);
+async function findProjectRoot(pyaos: Pyaos, workDir: string): Promise<string> {
+  const initial = pyaos.normpath(workDir);
   let current = initial;
 
   while (true) {
-    if (await pathExists(kaos, join(current, '.git'))) return current;
+    if (await pathExists(pyaos, join(current, '.git'))) return current;
     const parent = dirname(current);
     if (parent === current) return initial;
     current = parent;
   }
 }
 
-function dirsRootToLeaf(kaos: Kaos, workDir: string, projectRoot: string): string[] {
+function dirsRootToLeaf(pyaos: Pyaos, workDir: string, projectRoot: string): string[] {
   const dirs: string[] = [];
-  let current = kaos.normpath(workDir);
+  let current = pyaos.normpath(workDir);
 
   while (true) {
     dirs.push(current);
@@ -160,25 +160,25 @@ interface AgentFile {
   readonly content: string;
 }
 
-async function readAgentFile(kaos: Kaos, path: string): Promise<AgentFile | undefined> {
-  if (!(await isFile(kaos, path))) return undefined;
-  const content = (await kaos.readText(path, { errors: 'ignore' })).trim();
+async function readAgentFile(pyaos: Pyaos, path: string): Promise<AgentFile | undefined> {
+  if (!(await isFile(pyaos, path))) return undefined;
+  const content = (await pyaos.readText(path, { errors: 'ignore' })).trim();
   if (content.length === 0) return undefined;
   return { path, content };
 }
 
-async function pathExists(kaos: Kaos, path: string): Promise<boolean> {
+async function pathExists(pyaos: Pyaos, path: string): Promise<boolean> {
   try {
-    await kaos.stat(path);
+    await pyaos.stat(path);
     return true;
   } catch {
     return false;
   }
 }
 
-async function isFile(kaos: Kaos, path: string): Promise<boolean> {
+async function isFile(pyaos: Pyaos, path: string): Promise<boolean> {
   try {
-    const stat = await kaos.stat(path);
+    const stat = await pyaos.stat(path);
     return (stat.stMode & S_IFMT) === S_IFREG;
   } catch {
     return false;

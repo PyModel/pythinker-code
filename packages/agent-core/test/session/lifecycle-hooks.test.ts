@@ -4,9 +4,9 @@ import { join } from 'pathe';
 import { Readable } from 'node:stream';
 import type { Writable } from 'node:stream';
 
-import type { KaosProcess } from '@pymodel/kaos';
+import type { PyaosProcess } from '@pymodel/pyaos';
 
-import { testKaos } from '../fixtures/test-kaos';
+import { testPyaos } from '../fixtures/test-pyaos';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { SDKSessionRPC } from '../../src/rpc';
@@ -28,7 +28,7 @@ describe('Session lifecycle hooks', () => {
   it('fires SessionStart on startup and SessionEnd on close', async () => {
     const { command, logPath, sessionDir, workDir } = await hookFixture();
     const session = new Session({
-      kaos: testKaos.withCwd(workDir),
+      pyaos: testPyaos.withCwd(workDir),
       id: 'session-123',
       homedir: sessionDir,
       rpc: createSessionRpc(),
@@ -73,7 +73,7 @@ describe('Session lifecycle hooks', () => {
       'utf-8',
     );
     const session = new Session({
-      kaos: testKaos.withCwd(workDir),
+      pyaos: testPyaos.withCwd(workDir),
       id: 'session-456',
       homedir: sessionDir,
       rpc: createSessionRpc(),
@@ -96,7 +96,7 @@ describe('Session lifecycle hooks', () => {
   it('does not let failing SessionStart or SessionEnd hook commands interrupt startup or close', async () => {
     const { sessionDir, workDir } = await hookFixture();
     const session = new Session({
-      kaos: testKaos.withCwd(workDir),
+      pyaos: testPyaos.withCwd(workDir),
       id: 'session-reject',
       homedir: sessionDir,
       rpc: createSessionRpc(),
@@ -114,7 +114,7 @@ describe('Session lifecycle hooks', () => {
   it('stops background tasks on close by default', async () => {
     const { sessionDir, workDir } = await hookFixture();
     const session = new Session({
-      kaos: testKaos.withCwd(workDir),
+      pyaos: testPyaos.withCwd(workDir),
       id: 'session-bg-cleanup',
       homedir: sessionDir,
       rpc: createSessionRpc(),
@@ -135,7 +135,7 @@ describe('Session lifecycle hooks', () => {
   it('does not steer background task notifications while closing the session', async () => {
     const { sessionDir, workDir } = await hookFixture();
     const session = new Session({
-      kaos: testKaos.withCwd(workDir),
+      pyaos: testPyaos.withCwd(workDir),
       id: 'session-bg-cleanup-no-steer',
       homedir: sessionDir,
       rpc: createSessionRpc(),
@@ -159,7 +159,7 @@ describe('Session lifecycle hooks', () => {
   it('keeps background tasks alive on close when keepAliveOnExit is true', async () => {
     const { sessionDir, workDir } = await hookFixture();
     const session = new Session({
-      kaos: testKaos.withCwd(workDir),
+      pyaos: testPyaos.withCwd(workDir),
       id: 'session-bg-keepalive',
       homedir: sessionDir,
       rpc: createSessionRpc(),
@@ -181,7 +181,7 @@ describe('Session lifecycle hooks', () => {
   it('keeps background agent turns alive on close when keepAliveOnExit is true', async () => {
     const { sessionDir, workDir } = await hookFixture();
     const session = new Session({
-      kaos: testKaos.withCwd(workDir),
+      pyaos: testPyaos.withCwd(workDir),
       id: 'session-bg-agent-keepalive',
       homedir: sessionDir,
       rpc: createSessionRpc(),
@@ -222,7 +222,7 @@ describe('Session lifecycle hooks', () => {
   it('waitForBackgroundTasksOnPrint returns immediately when keepAliveOnExit is false', async () => {
     const { sessionDir, workDir } = await hookFixture();
     const session = new Session({
-      kaos: testKaos.withCwd(workDir),
+      pyaos: testPyaos.withCwd(workDir),
       id: 'session-print-wait-disabled',
       homedir: sessionDir,
       rpc: createSessionRpc(),
@@ -245,7 +245,7 @@ describe('Session lifecycle hooks', () => {
   it('waitForBackgroundTasksOnPrint waits for background tasks to finish when keepAliveOnExit is true', async () => {
     const { sessionDir, workDir } = await hookFixture();
     const session = new Session({
-      kaos: testKaos.withCwd(workDir),
+      pyaos: testPyaos.withCwd(workDir),
       id: 'session-print-wait',
       homedir: sessionDir,
       rpc: createSessionRpc(),
@@ -276,7 +276,7 @@ describe('Session lifecycle hooks', () => {
   it('waitForBackgroundTasksOnPrint times out after printWaitCeilingS', async () => {
     const { sessionDir, workDir } = await hookFixture();
     const session = new Session({
-      kaos: testKaos.withCwd(workDir),
+      pyaos: testPyaos.withCwd(workDir),
       id: 'session-print-wait-timeout',
       homedir: sessionDir,
       rpc: createSessionRpc(),
@@ -300,7 +300,7 @@ describe('Session lifecycle hooks', () => {
   it('handlePrintMainTurnCompleted finishes immediately by default once quiescent (steer mode)', async () => {
     const { sessionDir, workDir } = await hookFixture();
     const session = new Session({
-      kaos: testKaos.withCwd(workDir),
+      pyaos: testPyaos.withCwd(workDir),
       id: 'session-print-mode-default',
       homedir: sessionDir,
       rpc: createSessionRpc(),
@@ -316,7 +316,7 @@ describe('Session lifecycle hooks', () => {
   it('handlePrintMainTurnCompleted defaults to steer: continue while a task is pending, then finish', async () => {
     const { sessionDir, workDir } = await hookFixture();
     const session = new Session({
-      kaos: testKaos.withCwd(workDir),
+      pyaos: testPyaos.withCwd(workDir),
       id: 'session-print-mode-default-steer',
       homedir: sessionDir,
       rpc: createSessionRpc(),
@@ -341,7 +341,7 @@ describe('Session lifecycle hooks', () => {
   it('handlePrintMainTurnCompleted drains when printBackgroundMode is drain without keepAliveOnExit', async () => {
     const { sessionDir, workDir } = await hookFixture();
     const session = new Session({
-      kaos: testKaos.withCwd(workDir),
+      pyaos: testPyaos.withCwd(workDir),
       id: 'session-print-mode-drain',
       homedir: sessionDir,
       rpc: createSessionRpc(),
@@ -372,7 +372,7 @@ describe('Session lifecycle hooks', () => {
   it('explicit printBackgroundMode exit overrides keepAliveOnExit (no drain)', async () => {
     const { sessionDir, workDir } = await hookFixture();
     const session = new Session({
-      kaos: testKaos.withCwd(workDir),
+      pyaos: testPyaos.withCwd(workDir),
       id: 'session-print-mode-exit-override',
       homedir: sessionDir,
       rpc: createSessionRpc(),
@@ -397,7 +397,7 @@ describe('Session lifecycle hooks', () => {
   it('handlePrintMainTurnCompleted returns continue in steer mode while a task is pending, then finish once quiescent', async () => {
     const { sessionDir, workDir } = await hookFixture();
     const session = new Session({
-      kaos: testKaos.withCwd(workDir),
+      pyaos: testPyaos.withCwd(workDir),
       id: 'session-print-mode-steer',
       homedir: sessionDir,
       rpc: createSessionRpc(),
@@ -421,7 +421,7 @@ describe('Session lifecycle hooks', () => {
   it('handlePrintMainTurnCompleted finishes in steer mode once printMaxTurns is reached', async () => {
     const { sessionDir, workDir } = await hookFixture();
     const session = new Session({
-      kaos: testKaos.withCwd(workDir),
+      pyaos: testPyaos.withCwd(workDir),
       id: 'session-print-mode-steer-cap',
       homedir: sessionDir,
       rpc: createSessionRpc(),
@@ -445,7 +445,7 @@ describe('Session lifecycle hooks', () => {
   it('waitForBackgroundTasksOnPrint waits for tasks spawned after the first enumeration', async () => {
     const { sessionDir, workDir } = await hookFixture();
     const session = new Session({
-      kaos: testKaos.withCwd(workDir),
+      pyaos: testPyaos.withCwd(workDir),
       id: 'session-print-wait-fanout',
       homedir: sessionDir,
       rpc: createSessionRpc(),
@@ -490,7 +490,7 @@ describe('Session lifecycle hooks', () => {
   it('suppresses notifications for every active task before awaiting any of them', async () => {
     const { sessionDir, workDir } = await hookFixture();
     const session = new Session({
-      kaos: testKaos.withCwd(workDir),
+      pyaos: testPyaos.withCwd(workDir),
       id: 'session-print-wait-suppress-race',
       homedir: sessionDir,
       rpc: createSessionRpc(),
@@ -530,7 +530,7 @@ describe('Session lifecycle hooks', () => {
     vi.stubEnv('PYTHINKER_CODE_BACKGROUND_KEEP_ALIVE_ON_EXIT', '0');
     const { sessionDir, workDir } = await hookFixture();
     const session = new Session({
-      kaos: testKaos.withCwd(workDir),
+      pyaos: testPyaos.withCwd(workDir),
       id: 'session-bg-env-cleanup',
       homedir: sessionDir,
       rpc: createSessionRpc(),
@@ -552,7 +552,7 @@ describe('Session lifecycle hooks', () => {
   it('createMain enables print drain when drainAgentTasksOnStop is true', async () => {
     const { sessionDir, workDir } = await hookFixture();
     const session = new Session({
-      kaos: testKaos.withCwd(workDir),
+      pyaos: testPyaos.withCwd(workDir),
       id: 'session-print-drain',
       homedir: sessionDir,
       rpc: createSessionRpc(),
@@ -569,7 +569,7 @@ describe('Session lifecycle hooks', () => {
   it('createMain leaves print drain disabled by default', async () => {
     const { sessionDir, workDir } = await hookFixture();
     const session = new Session({
-      kaos: testKaos.withCwd(workDir),
+      pyaos: testPyaos.withCwd(workDir),
       id: 'session-print-drain-off',
       homedir: sessionDir,
       rpc: createSessionRpc(),
@@ -584,7 +584,7 @@ describe('Session lifecycle hooks', () => {
   it('cancels an active foreground turn before closing', async () => {
     const { sessionDir, workDir } = await hookFixture();
     const session = new Session({
-      kaos: testKaos.withCwd(workDir),
+      pyaos: testPyaos.withCwd(workDir),
       id: 'session-active-turn-cleanup',
       homedir: sessionDir,
       rpc: createSessionRpc(),
@@ -622,7 +622,7 @@ describe('Session lifecycle hooks', () => {
     );
     const emitEvent = vi.fn<SDKSessionRPC['emitEvent']>(async () => {});
     const session = new Session({
-      kaos: testKaos.withCwd(workDir),
+      pyaos: testPyaos.withCwd(workDir),
       id: 'session-close-during-user-hook',
       homedir: sessionDir,
       rpc: createSessionRpc({ emitEvent }),
@@ -659,7 +659,7 @@ describe('Session lifecycle hooks', () => {
   it('keeps background tasks alive and skips SessionEnd hooks when closing for reload', async () => {
     const { command, logPath, sessionDir, workDir } = await hookFixture();
     const session = new Session({
-      kaos: testKaos.withCwd(workDir),
+      pyaos: testPyaos.withCwd(workDir),
       id: 'session-reload-close',
       homedir: sessionDir,
       rpc: createSessionRpc(),
@@ -784,7 +784,7 @@ function createDeferred<T>(): {
 }
 
 function pendingProcess(exitOnKill = 143): {
-  readonly proc: KaosProcess;
+  readonly proc: PyaosProcess;
   readonly killSpy: ReturnType<typeof vi.fn>;
 } {
   let resolveWait: (n: number) => void = () => {
@@ -799,7 +799,7 @@ function pendingProcess(exitOnKill = 143): {
     currentExitCode = exitOnKill;
     resolveWait(exitOnKill);
   });
-  const proc: KaosProcess = {
+  const proc: PyaosProcess = {
     stdin: { write: vi.fn(), end: vi.fn() } as unknown as Writable,
     stdout: Readable.from([]),
     stderr: Readable.from([]),
@@ -808,8 +808,8 @@ function pendingProcess(exitOnKill = 143): {
       return currentExitCode;
     },
     wait: () => waitPromise,
-    kill: killSpy as unknown as KaosProcess['kill'],
-    dispose: vi.fn().mockResolvedValue(undefined) as KaosProcess['dispose'],
+    kill: killSpy as unknown as PyaosProcess['kill'],
+    dispose: vi.fn().mockResolvedValue(undefined) as PyaosProcess['dispose'],
   };
   return { proc, killSpy };
 }

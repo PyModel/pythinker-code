@@ -3,7 +3,7 @@
  *
  * Finds files matching a glob pattern, returned sorted by modification
  * time (most recent first). Implemented by shelling out to `rg --files`
- * through Kaos — sharing the ripgrep binary, subprocess plumbing, and
+ * through Pyaos — sharing the ripgrep binary, subprocess plumbing, and
  * gitignore / sensitive-file handling with GrepTool.
  *
  * Output convention: `content` shown to the LLM is relativized to the
@@ -24,7 +24,7 @@
  *     anchor (extension, subdirectory) when that would not be enough.
  */
 
-import type { Kaos } from '@pymodel/kaos';
+import type { Pyaos } from '@pymodel/pyaos';
 import { normalize, resolve } from 'pathe';
 import { z } from 'zod';
 
@@ -107,13 +107,13 @@ export class GlobTool implements BuiltinTool<GlobInput> {
   readonly parameters: Record<string, unknown> = toInputJsonSchema(GlobInputSchema);
   private readonly telemetry: TelemetryClient;
   constructor(
-    private readonly kaos: Kaos,
+    private readonly pyaos: Pyaos,
     private readonly workspace: WorkspaceConfig,
     telemetry: TelemetryClient = noopTelemetryClient,
   ) {
     this.telemetry = telemetry;
     this.description =
-      this.kaos.pathClass() === 'win32'
+      this.pyaos.pathClass() === 'win32'
         ? GLOB_DESCRIPTION + WINDOWS_PATH_HINT
         : GLOB_DESCRIPTION;
   }
@@ -122,7 +122,7 @@ export class GlobTool implements BuiltinTool<GlobInput> {
     let path: string | undefined;
     if (args.path !== undefined) {
       path = resolvePathAccessPath(args.path, {
-        kaos: this.kaos,
+        pyaos: this.pyaos,
         workspace: this.workspace,
         operation: 'search',
         policy: { guardMode: 'absolute-outside-allowed', checkSensitive: false },
@@ -165,7 +165,7 @@ export class GlobTool implements BuiltinTool<GlobInput> {
     // returned as its own match instead of rejected. A missing root surfaces
     // here as "does not exist".
     try {
-      const st = await this.kaos.stat(searchRoot);
+      const st = await this.pyaos.stat(searchRoot);
       if ((st.stMode & S_IFMT) !== S_IFDIR) {
         return { isError: true, output: `${searchRoot} is not a directory` };
       }
@@ -199,10 +199,10 @@ export class GlobTool implements BuiltinTool<GlobInput> {
     // rg*, so with an absolute search path a pattern containing a `/` (e.g.
     // `src/**/*.ts`) is matched against the absolute path and never matches.
     // Running from the search root makes glob matching relative to it.
-    const execKaos = this.kaos.withCwd(searchRoot);
+    const execPyaos = this.pyaos.withCwd(searchRoot);
 
     let runResult = await runRipgrepOnce(
-      execKaos,
+      execPyaos,
       buildRgArgs(rgPath, args),
       signal,
       { abortedMessage: 'Glob aborted' },
@@ -210,7 +210,7 @@ export class GlobTool implements BuiltinTool<GlobInput> {
     if (runResult.kind === 'tool-error') return runResult.result;
     if (shouldRetryRipgrepEagain(runResult)) {
       runResult = await runRipgrepOnce(
-        execKaos,
+        execPyaos,
         buildRgArgs(rgPath, args, true),
         signal,
         { abortedMessage: 'Glob aborted' },
@@ -277,7 +277,7 @@ export class GlobTool implements BuiltinTool<GlobInput> {
     // save tokens, but only for the primary workspace. Relative paths are
     // later resolved against workspaceDir, so additionalDir matches stay
     // absolute to keep follow-up Read/Edit calls on the same file.
-    const pathClass = this.kaos.pathClass();
+    const pathClass = this.pyaos.pathClass();
     const shouldRelativize = isWithinDirectory(searchRoot, this.workspace.workspaceDir, pathClass);
     const displayLines = limited.map((p) =>
       shouldRelativize ? relativizeIfUnder(p, searchRoot, pathClass) : p,

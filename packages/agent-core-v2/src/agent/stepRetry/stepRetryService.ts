@@ -13,7 +13,7 @@ import {
 import { isRetryableGenerateError } from '#/kosong/contract/errors';
 import { IConfigService } from '#/app/config/config';
 import { IEventBus } from '#/app/event/eventBus';
-import { Event2 } from '#/app/event/event2';
+import { AgentEvent2 } from '#/app/event/event2';
 import { unwrapErrorCause } from '#/errors';
 import {
   IAgentLoopService,
@@ -21,6 +21,7 @@ import {
 } from '#/agent/loop/loop';
 import { LOOP_CONTROL_SECTION, type LoopControl } from '#/agent/loop/configSection';
 import { TurnStarted } from '#/agent/loop/turnEvents';
+import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentStateService } from '#/agent/state/agentState';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 import { IAgentModelFallbackService } from '#/agent/turnRecovery/modelFallback';
@@ -28,6 +29,7 @@ import { IAgentModelFallbackService } from '#/agent/turnRecovery/modelFallback';
 import { IAgentStepRetryService } from './stepRetry';
 
 export interface TurnStepRetryingPayload {
+  readonly agentId: string;
   readonly turnId: number;
   readonly step: number;
   readonly stepId?: string;
@@ -40,7 +42,7 @@ export interface TurnStepRetryingPayload {
   readonly statusCode?: number;
 }
 
-export class TurnStepRetrying extends Event2<TurnStepRetryingPayload> {
+export class TurnStepRetrying extends AgentEvent2<TurnStepRetryingPayload> {
   static override readonly type = 'turn.step.retrying';
   static override readonly observable = true;
 }
@@ -67,6 +69,7 @@ export class AgentStepRetryService extends Disposable implements IAgentStepRetry
     @IConfigService private readonly config: IConfigService,
     @IEventBus private readonly eventBus: IEventBus,
     @IEventDispatcher private readonly dispatcher: IEventDispatcher,
+    @IAgentScopeContext private readonly scopeContext: IAgentScopeContext,
     @IAgentStateService private readonly states: IAgentStateService,
     @IAgentModelFallbackService private readonly modelFallback: IAgentModelFallbackService,
   ) {
@@ -140,6 +143,7 @@ export class AgentStepRetryService extends Disposable implements IAgentStepRetry
       readRetryAfterMs(error) ?? retryBackoffDelays(maxAttempts)[this.failedAttempts - 1] ?? 0;
     void this.dispatcher.dispatch(
       new TurnStepRetrying({
+        agentId: this.scopeContext.agentId,
         turnId: context.turnId,
         step: context.step,
         stepId: context.stepId,

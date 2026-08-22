@@ -1,17 +1,8 @@
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-
-import { log, type GoalSnapshot } from '@pymodel/pythinker-code-sdk';
-import type { MigrationPlan } from '@pymodel/migration-legacy';
+import { log, type GoalSnapshot, type Session } from '@pymodel/pythinker-code-sdk';
 import { describe, expect, it, vi } from 'vitest';
 
-import { BannerProvider } from '#/tui/banner/banner-provider';
-import { readBannerDisplayState } from '#/tui/banner/state';
 import { handleLoginCommand, handleLogoutCommand } from '#/tui/commands/auth';
 import { promptPlatformSelection, promptLogoutProviderSelection } from '#/tui/commands/prompts';
-import { BannerComponent } from '#/tui/components/chrome/banner';
-import { WelcomeComponent } from '#/tui/components/chrome/welcome';
 import { PythinkerTUI, type PythinkerTUIStartupInput, type TUIState } from '#/tui/pythinker-tui';
 import { REPLAY_FETCH_TURN_LIMIT } from '#/tui/utils/message-replay';
 import { copyTextToClipboard } from '#/utils/clipboard/clipboard-text';
@@ -54,22 +45,8 @@ interface ThemeTrackingDriver extends StartupDriver {
 interface MigrateExitDriver extends StartupDriver {
   start(): Promise<void>;
   onExit?: (code?: number) => Promise<void>;
-  runMigrationScreen(plan: unknown): Promise<unknown>;
   initMainTui(): Promise<boolean>;
-  terminalFocusTrackingDispose?: () => void;
 }
-
-const MIGRATION_PLAN: MigrationPlan = {
-  sourceHome: '/x/.pythinker',
-  hasConfig: false,
-  hasMcp: false,
-  hasUserHistory: false,
-  oauthCredentials: [],
-  workdirs: [],
-  detectedPlugins: [],
-  detectedMcpOauthServers: [],
-  totalSessions: 0,
-};
 
 function makeStartupInput(
   cliOptions: Partial<PythinkerTUIStartupInput['cliOptions']> = {},
@@ -261,6 +238,28 @@ function captureInputListeners(driver: StartupDriver) {
 }
 
 describe('PythinkerTUI startup', () => {
+  it('maps error session warnings to error status', async () => {
+    const session = makeSession({
+      getSessionWarnings: vi.fn(async () => [
+        { message: 'broken', severity: 'error' },
+        { message: 'meh', severity: 'warning' },
+      ]),
+    }) as unknown as Session;
+    const harness = makeHarness(session as never);
+    const tui = makeDriver(harness, makeStartupInput()) as unknown as {
+      session: Session;
+      showSessionWarnings(s: Session): Promise<void>;
+      showStatus(message: string, level?: 'warning' | 'error'): void;
+    };
+    tui.session = session;
+    const showStatus = vi.spyOn(tui, 'showStatus').mockImplementation(() => {});
+
+    await tui.showSessionWarnings(session);
+
+    expect(showStatus).toHaveBeenNthCalledWith(1, 'Warning: broken', 'error');
+    expect(showStatus).toHaveBeenNthCalledWith(2, 'Warning: meh', 'warning');
+  });
+
   it('creates a fresh session from startup flags and syncs runtime state', async () => {
     const session = makeSession({
       getStatus: vi.fn(async () => ({
@@ -1965,127 +1964,6 @@ describe('PythinkerTUI startup', () => {
     expect(driver.state.appState.sessionId).toBe('');
   });
 
-  it('disposes terminal focus/theme tracking on the pythinker migrate exit', async () => {
-    const harness = makeHarness();
-    const driver = makeDriver(harness, {
-      ...makeStartupInput(),
-      migrationPlan: MIGRATION_PLAN,
-      migrateOnly: true,
-    }) as unknown as MigrateExitDriver;
-    // pi-tui start/stop and focus tracking touch the real TTY — stub the I/O.
-    vi.spyOn(driver.state.ui, 'start').mockImplementation(() => {});
-    vi.spyOn(driver.state.ui, 'stop').mockImplementation(() => {});
-    vi.spyOn(driver.state.terminal, 'write').mockImplementation(() => {});
-    // The migration screen would await user input; resolve it immediately.
-    vi.spyOn(driver, 'runMigrationScreen').mockResolvedValue({ decision: 'later' });
-    const onExit = vi.fn(async () => {});
-    driver.onExit = onExit;
-
-    await driver.start();
-
-    // `pythinker migrate` exits via process.exit; startEventLoop() installed focus
-    // tracking, so the exit path must dispose it — otherwise the terminal
-    // keeps emitting focus/OSC sequences after the command finishes.
-    expect(driver.terminalFocusTrackingDispose).toBeUndefined();
-    expect(onExit).toHaveBeenCalledWith(0);
-  });
-
-  it('disposes terminal tracking when post-migration startup fails', async () => {
-    const harness = makeHarness();
-    const driver = makeDriver(harness, {
-      ...makeStartupInput(),
-      migrationPlan: MIGRATION_PLAN,
-      migrateOnly: false,
-    }) as unknown as MigrateExitDriver;
-    vi.spyOn(driver.state.ui, 'start').mockImplementation(() => {});
-    vi.spyOn(driver.state.ui, 'stop').mockImplementation(() => {});
-    vi.spyOn(driver.state.terminal, 'write').mockImplementation(() => {});
-    // The migration screen resolves "later"; startup then continues into
-    // initMainTui(), which fails (e.g. a session-resume error).
-    vi.spyOn(driver, 'runMigrationScreen').mockResolvedValue({ decision: 'later' });
-    vi.spyOn(driver, 'initMainTui').mockRejectedValue(new Error('resume boom'));
-
-    await expect(driver.start()).rejects.toThrow('resume boom');
-
-    // The focus tracking installed by startEventLoop() must be torn down
-    // before the error propagates — not left active after the process exits.
-    expect(driver.terminalFocusTrackingDispose).toBeUndefined();
-  });
-
-  it('checks workspace trust before entering the migration screen', async () => {
-    // The migration branch used to skip the trust gate entirely: a workspace
-    // with legacy ~/.pythinker data went straight to the migration screen, and
-    // later startup steps spawned child processes in an untrusted directory.
-    const getWorkspaceTrustInfo = vi.fn(async () => ({
-      trusted: true,
-      gatedMcpServers: [],
-    }));
-    const harness = makeHarness(makeSession(), { getWorkspaceTrustInfo });
-    const driver = makeDriver(harness, {
-      ...makeStartupInput(),
-      migrationPlan: MIGRATION_PLAN,
-      migrateOnly: true,
-      engineV2: true,
-    }) as unknown as MigrateExitDriver;
-    vi.spyOn(driver.state.ui, 'start').mockImplementation(() => {});
-    vi.spyOn(driver.state.ui, 'stop').mockImplementation(() => {});
-    vi.spyOn(driver.state.terminal, 'write').mockImplementation(() => {});
-    const migrationSpy = vi
-      .spyOn(driver, 'runMigrationScreen')
-      .mockResolvedValue({ decision: 'later' });
-    const onExit = vi.fn(async () => {});
-    driver.onExit = onExit;
-
-    await driver.start();
-
-    expect(getWorkspaceTrustInfo).toHaveBeenCalledWith('/tmp/proj-a');
-    expect(getWorkspaceTrustInfo.mock.invocationCallOrder[0]!).toBeLessThan(
-      migrationSpy.mock.invocationCallOrder[0]!,
-    );
-    expect(onExit).toHaveBeenCalledWith(0);
-  });
-
-  it('prompts for workspace trust before migrating an untrusted workspace', async () => {
-    const getWorkspaceTrustInfo = vi.fn(async () => ({
-      trusted: false,
-      gatedMcpServers: [],
-    }));
-    const trustWorkspace = vi.fn(async () => {});
-    const harness = makeHarness(makeSession(), { getWorkspaceTrustInfo, trustWorkspace });
-    const driver = makeDriver(harness, {
-      ...makeStartupInput(),
-      migrationPlan: MIGRATION_PLAN,
-      migrateOnly: true,
-      engineV2: true,
-    }) as unknown as MigrateExitDriver & {
-      mountEditorReplacement(panel: { handleInput(data: string): void }): void;
-    };
-    vi.spyOn(driver.state.ui, 'start').mockImplementation(() => {});
-    vi.spyOn(driver.state.ui, 'stop').mockImplementation(() => {});
-    vi.spyOn(driver.state.terminal, 'write').mockImplementation(() => {});
-    const migrationSpy = vi
-      .spyOn(driver, 'runMigrationScreen')
-      .mockResolvedValue({ decision: 'later' });
-    const mountSpy = vi.spyOn(driver, 'mountEditorReplacement');
-    const onExit = vi.fn(async () => {});
-    driver.onExit = onExit;
-
-    const startPromise = driver.start();
-    await vi.waitFor(() => {
-      expect(mountSpy).toHaveBeenCalled();
-    });
-    // Move from the safe default to the explicit trust choice, then confirm.
-    mountSpy.mock.calls[0]![0].handleInput('\u001B[A');
-    mountSpy.mock.calls[0]![0].handleInput('\r');
-    await startPromise;
-
-    expect(trustWorkspace).toHaveBeenCalledWith('/tmp/proj-a');
-    expect(getWorkspaceTrustInfo.mock.invocationCallOrder[0]!).toBeLessThan(
-      migrationSpy.mock.invocationCallOrder[0]!,
-    );
-    expect(onExit).toHaveBeenCalledWith(0);
-  });
-
   it('keeps non-login startup session errors fatal', async () => {
     const harness = makeHarness(makeSession(), {
       createSession: vi.fn(async () => {
@@ -2130,146 +2008,6 @@ describe('PythinkerTUI startup', () => {
     await driver.initMainTui();
 
     expect(uiContainsFooter(driver)).toBe(true);
-  });
-
-  it('renders the banner below the welcome message after it loads', async () => {
-    const banner = {
-      key: 'new-banner',
-      tag: 'New',
-      mainText: 'Banner main',
-      subText: null,
-      display: 'always' as const,
-    };
-    const loadSpy = vi.spyOn(BannerProvider.prototype, 'load').mockResolvedValue(banner);
-    const session = makeSession({ id: 'ses-target' });
-    const harness = makeHarness(session, {
-      listSessions: vi.fn(async () => [{ id: 'ses-target', workDir: '/tmp/proj-a' }]),
-    });
-    const driver = makeDriver(
-      harness,
-      makeStartupInput({ session: 'ses-target' }),
-    ) as unknown as MigrateExitDriver;
-
-    await driver.initMainTui();
-
-    await vi.waitFor(() => {
-      expect(
-        driver.state.transcriptContainer.children.some((child) => child instanceof BannerComponent),
-      ).toBe(true);
-    });
-
-    // The banner is rendered directly below the welcome panel so it appears
-    // above later status messages such as MCP server connection summaries.
-    const welcomeIndex = driver.state.transcriptContainer.children.findIndex(
-      (child) => child instanceof WelcomeComponent,
-    );
-    const bannerIndex = driver.state.transcriptContainer.children.findIndex(
-      (child) => child instanceof BannerComponent,
-    );
-    expect(welcomeIndex).toBeGreaterThanOrEqual(0);
-    expect(bannerIndex).toBe(welcomeIndex + 1);
-
-    loadSpy.mockRestore();
-  });
-
-  it('writes display state after rendering a once banner', async () => {
-    const originalEnv = { ...process.env };
-    const dir = mkdtempSync(join(tmpdir(), 'pythinker-startup-banner-'));
-    process.env['PYTHINKER_CODE_HOME'] = dir;
-
-    try {
-      const banner = {
-        key: 'once-banner',
-        tag: null,
-        mainText: 'Banner main',
-        subText: null,
-        display: 'once' as const,
-      };
-      const loadSpy = vi.spyOn(BannerProvider.prototype, 'load').mockResolvedValue(banner);
-      const session = makeSession({ id: 'ses-target' });
-      const harness = makeHarness(session, {
-        listSessions: vi.fn(async () => [{ id: 'ses-target', workDir: '/tmp/proj-a' }]),
-      });
-      const driver = makeDriver(
-        harness,
-        makeStartupInput({ session: 'ses-target' }),
-      ) as unknown as MigrateExitDriver;
-
-      await driver.initMainTui();
-
-      await vi.waitFor(() => {
-        expect(
-          driver.state.transcriptContainer.children.some((child) => child instanceof BannerComponent),
-        ).toBe(true);
-      });
-
-      // writeBannerDisplayState runs after renderBanner; on Windows the atomic
-      // write can lag behind the render, so wait for the state to land before
-      // asserting it.
-      await vi.waitFor(
-        async () => {
-          const state = await readBannerDisplayState();
-          expect(state.shown['once-banner']?.lastShownAt).toBeDefined();
-        },
-        { timeout: 5000 },
-      );
-      await expect(readBannerDisplayState()).resolves.toMatchObject({
-        version: 1,
-        shown: {
-          'once-banner': {
-            lastShownAt: expect.any(String),
-          },
-        },
-      });
-
-      loadSpy.mockRestore();
-    } finally {
-      process.env = { ...originalEnv };
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
-
-  it('does not write display state for an always banner', async () => {
-    const originalEnv = { ...process.env };
-    const dir = mkdtempSync(join(tmpdir(), 'pythinker-startup-banner-'));
-    process.env['PYTHINKER_CODE_HOME'] = dir;
-
-    try {
-      const banner = {
-        key: 'always-banner',
-        tag: null,
-        mainText: 'Banner main',
-        subText: null,
-        display: 'always' as const,
-      };
-      const loadSpy = vi.spyOn(BannerProvider.prototype, 'load').mockResolvedValue(banner);
-      const session = makeSession({ id: 'ses-target' });
-      const harness = makeHarness(session, {
-        listSessions: vi.fn(async () => [{ id: 'ses-target', workDir: '/tmp/proj-a' }]),
-      });
-      const driver = makeDriver(
-        harness,
-        makeStartupInput({ session: 'ses-target' }),
-      ) as unknown as MigrateExitDriver;
-
-      await driver.initMainTui();
-
-      await vi.waitFor(() => {
-        expect(
-          driver.state.transcriptContainer.children.some((child) => child instanceof BannerComponent),
-        ).toBe(true);
-      });
-
-      await expect(readBannerDisplayState()).resolves.toEqual({
-        version: 1,
-        shown: {},
-      });
-
-      loadSpy.mockRestore();
-    } finally {
-      process.env = { ...originalEnv };
-      rmSync(dir, { recursive: true, force: true });
-    }
   });
 
   it('resumes a startup session when Windows workdir uses backslashes', async () => {

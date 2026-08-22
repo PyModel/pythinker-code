@@ -1,12 +1,17 @@
 import {
+  buildPlatformOptions,
   catalogModelToAlias,
+  catalogProviderIdFromPlatformValue,
+  DEFAULT_CATALOG_URL,
   resolveCatalogImport,
   type Catalog,
   type CatalogModel,
   type ModelAlias,
+  type PlatformSelection,
   type ThinkingEffort,
 } from '@pymodel/pythinker-code-sdk';
 import {
+  OPENAI_CODEX_OAUTH_PLATFORM_ID,
   capabilitiesForModel,
   OPENAI_CODEX_PROVIDER_ID,
   type ManagedPythinkerCodeModelInfo,
@@ -22,23 +27,119 @@ import {
 import { ChoicePickerComponent, type ChoiceOption } from '../components/dialogs/choice-picker';
 import { FeedbackInputDialogComponent, type FeedbackInputDialogResult } from '../components/dialogs/feedback-input-dialog';
 import { ModelSelectorComponent } from '../components/dialogs/model-selector';
-import { PlatformSelectorComponent } from '../components/dialogs/platform-selector';
+import {
+  AuthenticationMethodSelectorComponent,
+  PlatformSelectorComponent,
+  type AuthenticationMethod,
+  type PlatformSelectorProvider,
+} from '../components/dialogs/platform-selector';
+import { createPythinkerCodeUserAgent } from '#/cli/version';
+import { fetchCatalogOrBuiltIn } from '#/utils/catalog-fetch';
+import { formatErrorMessage } from '#/tui/utils/event-payload';
 import type { SlashCommandHost } from './dispatch';
 
-export function promptPlatformSelection(host: SlashCommandHost): Promise<string | undefined> {
+export async function promptPlatformSelection(
+  host: SlashCommandHost,
+): Promise<PlatformSelection | undefined> {
+  const method = await promptAuthenticationMethodSelection(host);
+  if (method === undefined) return undefined;
+
+  const catalog = method === 'api_key' ? await loadLoginCatalog(host) : {};
+  if (catalog === undefined) return undefined;
+
+  const config = await host.harness.getConfig({ reload: true });
+  const providers = buildPlatformOptions(catalog)
+    .filter((option) =>
+      method === 'oauth'
+        ? option.value === OPENAI_CODEX_OAUTH_PLATFORM_ID
+        : option.value !== OPENAI_CODEX_OAUTH_PLATFORM_ID,
+    )
+    .map((option): PlatformSelectorProvider => {
+      const providerId = catalogProviderIdFromPlatformValue(option.value) ?? option.value;
+      const configProviderId =
+        option.value === OPENAI_CODEX_OAUTH_PLATFORM_ID ? OPENAI_CODEX_PROVIDER_ID : providerId;
+      const configured = config.providers[configProviderId];
+      return {
+        value: option.value,
+        label: option.label,
+        status: configured === undefined ? 'unconfigured' : 'configured',
+      };
+    })
+    .toSorted((left, right) => left.label.localeCompare(right.label));
+
+  if (providers.length === 0) {
+    host.showStatus(
+      method === 'oauth'
+        ? 'No account providers available.'
+        : 'No API key providers available.',
+    );
+    return undefined;
+  }
+
   return new Promise((resolve) => {
     const selector = new PlatformSelectorComponent({
-      onSelect: (platformId) => {
+      providers,
+      onSelect: (platformId): void => {
         host.restoreEditor();
-        resolve(platformId);
+        resolve({ platformId, catalog });
       },
-      onCancel: () => {
+      onCancel: (): void => {
         host.restoreEditor();
         resolve(undefined);
       },
     });
     host.mountEditorReplacement(selector);
   });
+}
+
+function promptAuthenticationMethodSelection(
+  host: SlashCommandHost,
+): Promise<AuthenticationMethod | undefined> {
+  return new Promise((resolve) => {
+    const selector = new AuthenticationMethodSelectorComponent({
+      onSelect: (method): void => {
+        host.restoreEditor();
+        resolve(method);
+      },
+      onCancel: (): void => {
+        host.restoreEditor();
+        resolve(undefined);
+      },
+    });
+    host.mountEditorReplacement(selector);
+  });
+}
+
+async function loadLoginCatalog(host: SlashCommandHost): Promise<Catalog | undefined> {
+  const controller = new AbortController();
+  const cancel = (): void => {
+    controller.abort();
+  };
+  host.cancelInFlight = cancel;
+  const spinner = host.showLoginProgressSpinner('Loading provider catalog');
+  try {
+    const loaded = await fetchCatalogOrBuiltIn(DEFAULT_CATALOG_URL, {
+      signal: controller.signal,
+      userAgent: createPythinkerCodeUserAgent(),
+    });
+    spinner.stop({
+      ok: true,
+      label: loaded.fromBuiltIn
+        ? 'Provider catalog loaded from the built-in snapshot.'
+        : 'Provider catalog loaded.',
+    });
+    return loaded.catalog;
+  } catch (error) {
+    if (controller.signal.aborted) {
+      spinner.stop({ ok: false, label: 'Aborted.' });
+      return undefined;
+    }
+    spinner.stop({ ok: false, label: 'Failed to load provider catalog.' });
+    host.showError(`Failed to load provider catalog: ${formatErrorMessage(error)}`);
+    return undefined;
+  } finally {
+    if (host.cancelInFlight === cancel) host.cancelInFlight = undefined;
+  }
 }
 
 export function promptLogoutProviderSelection(

@@ -248,8 +248,15 @@ export interface TaskNotificationOrigin {
   readonly notificationId: string;
 }
 
+interface LegacyBackgroundTaskNotificationOrigin {
+  readonly kind: 'background_task';
+  readonly taskId: string;
+  readonly status: BackgroundTaskStatus;
+  readonly notificationId: string;
+}
+
 export type BackgroundTaskNotificationOrigin =
-  | Extract<PromptOrigin, { kind: 'background_task' }>
+  | LegacyBackgroundTaskNotificationOrigin
   | TaskNotificationOrigin;
 
 export function backgroundOrigin(

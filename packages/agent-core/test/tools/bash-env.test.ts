@@ -1,12 +1,12 @@
 import { Readable, type Writable } from 'node:stream';
 
-import type { Environment, KaosProcess } from '@pymodel/kaos';
+import type { Environment, PyaosProcess } from '@pymodel/pyaos';
 import { describe, expect, it, vi } from 'vitest';
 
 import { BashTool } from '../../src/tools/builtin/shell/bash';
 import { createBackgroundManager } from '../agent/background/helpers';
 import { executeTool } from './fixtures/execute-tool';
-import { createFakeKaos } from './fixtures/fake-kaos';
+import { createFakePyaos } from './fixtures/fake-pyaos';
 
 const posixEnv: Environment = {
   osKind: 'Linux',
@@ -16,7 +16,7 @@ const posixEnv: Environment = {
   shellName: 'bash',
 };
 
-function fakeProcess(): KaosProcess {
+function fakeProcess(): PyaosProcess {
   return {
     stdin: { end: vi.fn(), write: vi.fn() } as unknown as Writable,
     stdout: Readable.from([]),
@@ -34,7 +34,7 @@ const signal = new AbortController().signal;
 async function captureSpawnEnv(): Promise<Record<string, string>> {
   const execWithEnv = vi.fn().mockResolvedValue(fakeProcess());
   const tool = new BashTool(
-    createFakeKaos({ execWithEnv, osEnv: posixEnv }),
+    createFakePyaos({ execWithEnv, osEnv: posixEnv }),
     '/workspace',
     createBackgroundManager().manager,
   );
@@ -71,18 +71,18 @@ describe('BashTool noninteractive env semantics', () => {
     }
   });
 
-  it('lets kaos-level env override BashTool env and observes in-place updates', async () => {
+  it('lets pyaos-level env override BashTool env and observes in-place updates', async () => {
     const execWithEnv = vi.fn().mockResolvedValue(fakeProcess());
     const sessionEnv = {
       GIT_TERMINAL_PROMPT: 'configured',
       PYTHINKER_CODE_ENV: 'initial',
     };
-    const kaos = createFakeKaos({ execWithEnv, osEnv: posixEnv }).withEnv(sessionEnv);
-    const tool = new BashTool(kaos, '/workspace', createBackgroundManager().manager);
+    const pyaos = createFakePyaos({ execWithEnv, osEnv: posixEnv }).withEnv(sessionEnv);
+    const tool = new BashTool(pyaos, '/workspace', createBackgroundManager().manager);
 
     await executeTool(tool, {
       turnId: '0',
-      toolCallId: 'tc_kaos_env_1',
+      toolCallId: 'tc_pyaos_env_1',
       args: { command: 'true', timeout: 1000 },
       signal,
     });
@@ -94,7 +94,7 @@ describe('BashTool noninteractive env semantics', () => {
     sessionEnv.PYTHINKER_CODE_ENV = 'updated';
     await executeTool(tool, {
       turnId: '0',
-      toolCallId: 'tc_kaos_env_2',
+      toolCallId: 'tc_pyaos_env_2',
       args: { command: 'true', timeout: 1000 },
       signal,
     });

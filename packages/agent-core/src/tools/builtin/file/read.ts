@@ -1,4 +1,4 @@
-import type { Kaos, StatResult } from '@pymodel/kaos';
+import type { Pyaos, StatResult } from '@pymodel/pyaos';
 import { z } from 'zod';
 
 import type { BuiltinTool } from '../../../agent/tool';
@@ -79,7 +79,7 @@ interface FinishReadResultInput {
   readonly requestedLines: number;
 }
 
-type TextPreviewKaos = Kaos & {
+type TextPreviewPyaos = Pyaos & {
   readTextPreview?: (path: string, n: number) => Promise<Buffer>;
 };
 
@@ -90,7 +90,7 @@ interface TextFileScan {
   lineEndingFlags: LineEndingFlags;
 }
 
-type RangeReadKaos = TextPreviewKaos & {
+type RangeReadPyaos = TextPreviewPyaos & {
   scanTextFile?: (path: string) => Promise<TextFileScan>;
   readLineRange?: (
     path: string,
@@ -102,11 +102,11 @@ type RangeReadKaos = TextPreviewKaos & {
   ) => AsyncGenerator<string>;
 };
 
-async function readTextHeader(kaos: TextPreviewKaos, path: string, n: number): Promise<Buffer> {
-  if (kaos.readTextPreview !== undefined) {
-    return kaos.readTextPreview(path, n);
+async function readTextHeader(pyaos: TextPreviewPyaos, path: string, n: number): Promise<Buffer> {
+  if (pyaos.readTextPreview !== undefined) {
+    return pyaos.readTextPreview(path, n);
   }
-  return kaos.readBytes(path, n);
+  return pyaos.readBytes(path, n);
 }
 
 function truncateLine(line: string, maxLength: number): string {
@@ -236,13 +236,13 @@ export class ReadTool implements BuiltinTool<ReadInput> {
   readonly description = READ_DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(ReadInputSchema);
   constructor(
-    private readonly kaos: Kaos,
+    private readonly pyaos: Pyaos,
     private readonly workspace: WorkspaceConfig,
   ) {}
 
   resolveExecution(args: ReadInput): ToolExecution {
     const path = resolvePathAccessPath(args.path, {
-      kaos: this.kaos,
+      pyaos: this.pyaos,
       workspace: this.workspace,
       operation: 'read',
     });
@@ -254,8 +254,8 @@ export class ReadTool implements BuiltinTool<ReadInput> {
       matchesRule: (ruleArgs) =>
         matchesPathRuleSubject(ruleArgs, path, {
           cwd: this.workspace.workspaceDir,
-          pathClass: this.kaos.pathClass(),
-          homeDir: this.kaos.gethome(),
+          pathClass: this.pyaos.pathClass(),
+          homeDir: this.pyaos.gethome(),
         }),
       execute: () => this.execution(args, path),
     };
@@ -265,7 +265,7 @@ export class ReadTool implements BuiltinTool<ReadInput> {
     try {
       let stat: StatResult;
       try {
-        stat = await this.kaos.stat(safePath);
+        stat = await this.pyaos.stat(safePath);
       } catch (error) {
         if (isFileNotFoundError(error)) {
           return { isError: true, output: `"${args.path}" does not exist.` };
@@ -276,7 +276,7 @@ export class ReadTool implements BuiltinTool<ReadInput> {
         return { isError: true, output: `"${args.path}" is not a file.` };
       }
 
-      const header = await readTextHeader(this.kaos, safePath, MEDIA_SNIFF_BYTES);
+      const header = await readTextHeader(this.pyaos, safePath, MEDIA_SNIFF_BYTES);
       const fileType = detectFileType(safePath, header);
       if (fileType.kind === 'image' || fileType.kind === 'video') {
         return {
@@ -329,15 +329,15 @@ export class ReadTool implements BuiltinTool<ReadInput> {
     effectiveLimit: number,
     requestedLines: number,
   ): Promise<ExecutableToolResult> {
-    const rangeKaos = this.kaos as RangeReadKaos;
-    if (rangeKaos.scanTextFile !== undefined && rangeKaos.readLineRange !== undefined) {
-      const scan = await rangeKaos.scanTextFile(safePath);
+    const rangePyaos = this.pyaos as RangeReadPyaos;
+    if (rangePyaos.scanTextFile !== undefined && rangePyaos.readLineRange !== undefined) {
+      const scan = await rangePyaos.scanTextFile(safePath);
       if (scan.hasNul) {
         return { isError: true, output: notReadableFileOutput(displayPath) };
       }
       const selectedEntries: ReadLineEntry[] = [];
       let lineNo = lineOffset;
-      for await (const rawLine of rangeKaos.readLineRange(safePath, {
+      for await (const rawLine of rangePyaos.readLineRange(safePath, {
         startLine: lineOffset,
         maxLines: effectiveLimit,
         errors: 'strict',
@@ -365,7 +365,7 @@ export class ReadTool implements BuiltinTool<ReadInput> {
     let maxLinesReached = false;
     let collectionClosed = false;
 
-    for await (const rawLine of this.kaos.readLines(safePath, { errors: 'strict' })) {
+    for await (const rawLine of this.pyaos.readLines(safePath, { errors: 'strict' })) {
       if (containsNulByte(rawLine)) {
         return { isError: true, output: notReadableFileOutput(displayPath) };
       }
@@ -417,14 +417,14 @@ export class ReadTool implements BuiltinTool<ReadInput> {
     requestedLines: number,
   ): Promise<ExecutableToolResult> {
     const tailCount = Math.abs(lineOffset);
-    const rangeKaos = this.kaos as RangeReadKaos;
-    if (rangeKaos.scanTextFile !== undefined && rangeKaos.readTailLines !== undefined) {
-      const scan = await rangeKaos.scanTextFile(safePath);
+    const rangePyaos = this.pyaos as RangeReadPyaos;
+    if (rangePyaos.scanTextFile !== undefined && rangePyaos.readTailLines !== undefined) {
+      const scan = await rangePyaos.scanTextFile(safePath);
       if (scan.hasNul) {
         return { isError: true, output: notReadableFileOutput(displayPath) };
       }
       const rawLines: string[] = [];
-      for await (const rawLine of rangeKaos.readTailLines(safePath, {
+      for await (const rawLine of rangePyaos.readTailLines(safePath, {
         tailCount,
         errors: 'strict',
       })) {
@@ -448,7 +448,7 @@ export class ReadTool implements BuiltinTool<ReadInput> {
     const flags: LineEndingFlags = { hasCrLf: false, hasLf: false, hasLoneCr: false };
     let currentLineNo = 0;
 
-    for await (const rawLine of this.kaos.readLines(safePath, { errors: 'strict' })) {
+    for await (const rawLine of this.pyaos.readLines(safePath, { errors: 'strict' })) {
       if (containsNulByte(rawLine)) {
         return { isError: true, output: notReadableFileOutput(displayPath) };
       }

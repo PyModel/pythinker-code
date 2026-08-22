@@ -11,7 +11,7 @@ import { join } from 'pathe';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { testKaos } from '../fixtures/test-kaos';
+import { testPyaos } from '../fixtures/test-pyaos';
 import type { ProviderConfig } from '@pymodel/kosong';
 
 import type { SDKSessionRPC } from '../../src/rpc';
@@ -672,7 +672,7 @@ describe('Session agentfile wiring', () => {
 
     const session = new Session({
       id: 'test-agentfile-main',
-      kaos: testKaos.withCwd(workDir),
+      pyaos: testPyaos.withCwd(workDir),
       homedir: sessionDir,
       pythinkerHomeDir: brandHome,
       rpc: createSessionRpc(),
@@ -696,7 +696,7 @@ describe('Session agentfile wiring', () => {
     const brandHome = await makeTempDir();
     const session = new Session({
       id: 'test-agentfile-unknown',
-      kaos: testKaos.withCwd(workDir),
+      pyaos: testPyaos.withCwd(workDir),
       homedir: sessionDir,
       pythinkerHomeDir: brandHome,
       rpc: createSessionRpc(),
@@ -716,7 +716,7 @@ describe('Session agentfile wiring', () => {
     const brandHome = await makeTempDir();
     const session = new Session({
       id: 'test-agentfile-fatal',
-      kaos: testKaos.withCwd(workDir),
+      pyaos: testPyaos.withCwd(workDir),
       homedir: sessionDir,
       pythinkerHomeDir: brandHome,
       rpc: createSessionRpc(),
@@ -761,7 +761,7 @@ describe('Session agentfile wiring', () => {
 
     const options = {
       id: 'test-agentfile-delegation-resume',
-      kaos: testKaos.withCwd(workDir),
+      pyaos: testPyaos.withCwd(workDir),
       homedir: sessionDir,
       pythinkerHomeDir: brandHome,
       rpc: createSessionRpc(),

@@ -125,7 +125,7 @@
     {
       // The worker closures: these modules (and everything
       // packages/minidb/src/worker/ and
-      // packages/kap-server/src/search/worker/ pull in) are loaded by a bare
+      // packages/agent-gateway/src/search/worker/ pull in) are loaded by a bare
       // node:worker_threads Worker under Node's native type stripping with
       // `execArgv: ['--experimental-transform-types']`, which requires
       // explicit `.ts` import specifiers (the strip loader does not remap
@@ -138,9 +138,9 @@
         "packages/minidb/src/text-postings.ts",
         "packages/minidb/src/text-index/tokenize.ts",
         "packages/minidb/src/gen-codec.ts",
-        "packages/kap-server/src/search/worker/**/*.ts",
-        "packages/kap-server/src/search/indexCore.ts",
-        "packages/kap-server/src/search/match.ts"
+        "packages/agent-gateway/src/search/worker/**/*.ts",
+        "packages/agent-gateway/src/search/indexCore.ts",
+        "packages/agent-gateway/src/search/match.ts"
       ],
       "rules": {
         "import/extensions": "off"

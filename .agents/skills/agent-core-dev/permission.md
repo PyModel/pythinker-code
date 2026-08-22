@@ -132,7 +132,7 @@ In `resolveExecution(input)`, before execution, declare accessed resources with 
 
 ```ts
 resolveExecution(args: WriteInput): ToolExecution {
-  const path = resolvePathAccessPath(args.path, { kaos, workspace, operation: 'write' });
+  const path = resolvePathAccessPath(args.path, { pyaos, workspace, operation: 'write' });
   return {
     accesses: ToolAccesses.writeFile(path),            // declares: write this file
     approvalRule: literalRulePattern(this.name, path),
@@ -155,7 +155,7 @@ Two complementary channels:
 - **Enumerable resources** (write/read/edit/grep/glob) → use `accesses`; generic file dimensions cover them automatically.
 - **Non-enumerable resources** (bash running arbitrary commands) → do not declare `accesses`; use the `matchesRule` DSL (e.g. `Bash(rm *)` globs by command string).
 
-**kaos's role:** kaos is the execution-environment abstraction (fs/process/pathClass) used by the file dimension for path normalization and judgment — it is **not** the permission-dimension abstraction itself. Permission semantics live one layer above kaos, at "file access".
+**pyaos's role:** pyaos is the execution-environment abstraction (fs/process/pathClass) used by the file dimension for path normalization and judgment — it is **not** the permission-dimension abstraction itself. Permission semantics live one layer above pyaos, at "file access".
 
 **v2 evolution:** extend the `ToolResourceAccess` union so non-file resources can be declared structurally:
 
@@ -209,5 +209,5 @@ Incremental, not big-bang:
 - Product reviews (plan/goal) are not permissions either: the owning domain intercepts its tool with a cold `event.waitUntil(factory)` and drives `IAgentToolApprovalService` itself; the gate only handles chain asks.
 - The chain encodes dimensions, not tools: a new tool must not lengthen the chain.
 - New specifics go through the data path (rules); only new risk behavior goes through the code path (a policy node).
-- Tools only declare `accesses`; generic dimensions consume them. kaos is the execution environment, not the permission abstraction.
+- Tools only declare `accesses`; generic dimensions consume them. pyaos is the execution environment, not the permission abstraction.
 - Use `factory` (Agent-scope instantiation), not `instance`, for registered policies.

@@ -1,4 +1,4 @@
-import { LocalKaos } from '@pymodel/kaos';
+import { LocalPyaos } from '@pymodel/pyaos';
 
 import type { AgentReplayRecord } from '../../rpc/resumed';
 import { Agent } from '../index';
@@ -10,7 +10,7 @@ export async function buildReplay(
   range?: ReplayRangeOptions,
 ): Promise<readonly AgentReplayRecord[]> {
   const agent = new Agent({
-    kaos: await LocalKaos.create(),
+    pyaos: await LocalPyaos.create(),
     persistence,
     type: 'sub',
     replay: { range },

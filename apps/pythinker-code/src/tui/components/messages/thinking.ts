@@ -5,17 +5,19 @@
  * Supports expand/collapse via Ctrl+O (shared with tool output).
  */
 
-import { Text, type Component, type TUI } from '@pymodel/pi-tui';
+import { Text, truncateToWidth, type Component, type TUI } from '@pymodel/pi-tui';
 
 import {
   BRAILLE_SPINNER_FRAMES,
   BRAILLE_SPINNER_INTERVAL_MS,
+  formatThinkingSpinnerLabel,
   MESSAGE_INDENT,
   THINKING_PREVIEW_LINES,
 } from '#/tui/constant/rendering';
 import { STATUS_BULLET } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
 import { isRenderCacheEnabled } from '#/tui/utils/render-cache';
+import { shimmerText } from '#/tui/utils/shimmer';
 
 export type ThinkingRenderMode = 'live' | 'finalized';
 
@@ -99,10 +101,15 @@ export class ThinkingComponent implements Component {
     let rendered: string[];
     if (this.mode === 'live') {
       const spinner = currentTheme.fg(
-        'textDim',
+        'primary',
         `${BRAILLE_SPINNER_FRAMES[this.spinnerFrame] ?? BRAILLE_SPINNER_FRAMES[0]} `,
       );
-      rendered = ['', spinner + currentTheme.fg('textDim', 'thinking...')];
+      const label = shimmerText(formatThinkingSpinnerLabel(), {
+        baseToken: 'primary',
+        shimmerToken: 'primaryShimmer',
+        bandHalfWidth: 4,
+      });
+      rendered = ['', spinner + label];
       if (this.expanded) {
         const contentLines = this.renderContent(width);
         const visibleLines =
@@ -112,7 +119,18 @@ export class ThinkingComponent implements Component {
         rendered.push(...visibleLines.map((line) => MESSAGE_INDENT + line));
       }
     } else if (!this.expanded) {
-      rendered = [];
+      if (this.text.length === 0) {
+        rendered = [];
+      } else {
+        const contentLines = this.renderContent(width);
+        const hint = `... (${String(contentLines.length)} more lines, ctrl+o to expand)`;
+        const prefix = this.showMarker ? currentTheme.fg('textDim', STATUS_BULLET) : MESSAGE_INDENT;
+        const styledHint = currentTheme.fg(
+          'textDim',
+          truncateToWidth(hint, Math.max(1, width - MESSAGE_INDENT.length), '…'),
+        );
+        rendered = ['', prefix + styledHint];
+      }
     } else {
       const contentLines = this.renderContent(width);
       const lines: string[] = [''];

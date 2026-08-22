@@ -33,7 +33,7 @@ const props = withDefaults(
   { mobile: false, stackPosition: 'single', toolDiffPanel: false },
 );
 
-defineEmits<{
+const emit = defineEmits<{
   openMedia: [media: ToolMedia];
   openFile: [target: FilePreviewRequest];
   openToolDiff: [id: string];
@@ -71,8 +71,9 @@ const result = computed(() => parseDynamicWorkflowResult(props.tool.output));
 const status = computed<'running' | 'ok' | 'error'>(() => props.tool.status as 'running' | 'ok' | 'error');
 const aggregateStatus = computed<'running' | 'ok' | 'error'>(() => {
   if (status.value === 'running') return 'running';
-  if (status.value === 'error' || (result.value?.failed ?? 0) > 0 || (result.value?.aborted ?? 0) > 0)
-    return 'error';
+  // Only real failures turn the card red — aborted/cancelled work is a neutral
+  // `cancelled` phase (reference SwarmTool).
+  if (status.value === 'error' || (result.value?.failed ?? 0) > 0) return 'error';
   return 'ok';
 });
 
@@ -82,6 +83,7 @@ interface PhaseCounts {
   suspended: number;
   queued: number;
   failed: number;
+  cancelled: number;
 }
 
 // Rows are the single source of truth: phase counts and totals derive from the
@@ -92,13 +94,13 @@ interface PhaseCounts {
 const rows = computed<DynamicWorkflowCardRow[]>(() => buildDynamicWorkflowCardRows(members.value, result.value));
 
 const counts = computed<PhaseCounts>(() => {
-  const c: PhaseCounts = { completed: 0, working: 0, suspended: 0, queued: 0, failed: 0 };
+  const c: PhaseCounts = { completed: 0, working: 0, suspended: 0, queued: 0, failed: 0, cancelled: 0 };
   for (const r of rows.value) c[r.phase]++;
   return c;
 });
 
 const total = computed(() => rows.value.length || input.value.itemCount || 0);
-const done = computed(() => counts.value.completed + counts.value.failed);
+const done = computed(() => counts.value.completed + counts.value.failed + counts.value.cancelled);
 const inProgress = computed(() => counts.value.working + counts.value.suspended + counts.value.queued);
 
 const PHASE_ORDER: readonly { phase: AppSubagentPhase; cls: string }[] = [
@@ -106,6 +108,7 @@ const PHASE_ORDER: readonly { phase: AppSubagentPhase; cls: string }[] = [
   { phase: 'working', cls: 's-run' },
   { phase: 'suspended', cls: 's-warn' },
   { phase: 'failed', cls: 's-fail' },
+  { phase: 'cancelled', cls: 's-queue' },
   { phase: 'queued', cls: 's-queue' },
 ];
 
@@ -154,6 +157,47 @@ function isRowOpen(id: string): boolean {
 function phaseLabel(phase: AppSubagentPhase): string {
   return t(`tools.dynamic_workflow.phase${phase[0]!.toUpperCase()}${phase.slice(1)}`);
 }
+
+/** Result-based done summary: cancelled (aborted) entries get their own count
+ *  in the legend line (reference SwarmTool `doneSubWithCancelled`). */
+const doneSummary = computed(() => {
+  if (!result.value) return '';
+  const aborted = result.value.aborted ?? 0;
+  if (aborted > 0) {
+    return t('tools.dynamic_workflow.doneSubWithCancelled', {
+      completed: result.value.completed,
+      failed: result.value.failed,
+      cancelled: aborted,
+    });
+  }
+  return t('tools.dynamic_workflow.doneSub', {
+    completed: result.value.completed,
+    failed: result.value.failed,
+  });
+});
+
+// A live member row opens its agent detail in the right side panel (same panel
+// AgentTool's "Open" uses — openAgentPanel resolves the task id directly); a
+// settled row with a result `agentId` does the same, falling back to the
+// inline accordion when there is nothing to open.
+function openMember(row: DynamicWorkflowCardRow): void {
+  if (row.agentId) {
+    emit('openAgent', row.agentId);
+    return;
+  }
+  if (row.live) {
+    emit('openAgent', row.id);
+    return;
+  }
+  if (row.body) toggleRow(row.id);
+}
+
+/** Settled rows that carry a result agentId keep their saved body reachable via
+ *  a dedicated toggle (the head click opens the agent detail instead). */
+function rowHasSavedResult(row: DynamicWorkflowCardRow): boolean {
+  return row.agentId !== undefined && row.body.length > 0 &&
+    (row.phase === 'completed' || row.phase === 'failed' || row.phase === 'cancelled');
+}
 </script>
 
 <template>
@@ -183,7 +227,7 @@ function phaseLabel(phase: AppSubagentPhase): string {
             {{ t('tools.dynamic_workflow.runningSub', { count: inProgress }) }}
           </span>
           <span v-else-if="result" class="lbl">
-            {{ t('tools.dynamic_workflow.doneSub', { completed: result.completed, failed: result.failed + result.aborted }) }}
+            {{ doneSummary }}
           </span>
           <span v-else class="lbl">{{ t('tools.dynamic_workflow.waiting') }}</span>
         </div>
@@ -204,11 +248,15 @@ function phaseLabel(phase: AppSubagentPhase): string {
           class="member"
           :class="[`phase-${row.phase}`, { open: isRowOpen(row.id) }]"
         >
+          <!-- A row with a resolvable agent (live task or result agentId) opens
+               the agent detail panel; other rows expand inline. -->
           <button
             class="member-head"
             type="button"
-            :aria-expanded="isRowOpen(row.id)"
-            @click="toggleRow(row.id)"
+            :disabled="!row.live && !row.agentId && !row.body"
+            :aria-label="row.live || row.agentId ? t('tasks.openDetail') : undefined"
+            :aria-expanded="row.live || row.agentId ? undefined : isRowOpen(row.id)"
+            @click="openMember(row)"
           >
             <StatusDot class="row-dot" :status="row.phase" />
             <Tooltip :text="row.name">
@@ -218,9 +266,25 @@ function phaseLabel(phase: AppSubagentPhase): string {
               <span class="mact">{{ row.activity }}</span>
             </Tooltip>
             <span class="mphase">{{ phaseLabel(row.phase) }}</span>
-            <Icon class="mcar" :name="isRowOpen(row.id) ? 'chevron-down' : 'chevron-right'" size="sm" />
+            <Icon
+              v-if="row.live || row.agentId"
+              class="mcar"
+              name="arrow-right"
+              size="sm"
+            />
+            <Icon v-else-if="row.body" class="mcar" :name="isRowOpen(row.id) ? 'chevron-down' : 'chevron-right'" size="sm" />
           </button>
-          <div v-show="isRowOpen(row.id)" class="member-body">{{ row.body }}</div>
+          <button
+            v-if="rowHasSavedResult(row)"
+            class="member-saved"
+            type="button"
+            :aria-expanded="isRowOpen(row.id)"
+            @click="toggleRow(row.id)"
+          >
+            <Icon class="member-saved-car" :name="isRowOpen(row.id) ? 'chevron-down' : 'chevron-right'" size="sm" />
+            <span>{{ t('tools.output.saved') }}</span>
+          </button>
+          <div v-show="isRowOpen(row.id) && (!row.live && !row.agentId || rowHasSavedResult(row))" class="member-body">{{ row.body }}</div>
         </div>
       </template>
 
@@ -393,7 +457,32 @@ function phaseLabel(phase: AppSubagentPhase): string {
 
 /* Per-member accordion. */
 .member {
+  position: relative;
   border-bottom: 1px solid color-mix(in srgb, var(--color-line) 70%, transparent);
+}
+.member-saved {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  width: 100%;
+  padding: var(--space-1) var(--space-3);
+  border: none;
+  border-top: 0.5px solid var(--color-line);
+  background: transparent;
+  color: var(--color-text-faint);
+  font: var(--text-xs) var(--font-ui);
+  cursor: pointer;
+}
+.member-saved:hover {
+  background: var(--color-hover);
+  color: var(--color-text-muted);
+}
+.member-saved:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--color-accent-soft);
+}
+.member-saved-car {
+  color: var(--color-text-faint);
 }
 .member:last-child {
   border-bottom: none;

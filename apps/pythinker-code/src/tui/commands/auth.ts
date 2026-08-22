@@ -1,18 +1,15 @@
 import {
-  applyOpenAICodexOAuthConfig,
-  applyOpenPlatformConfig,
-  fetchOpenAICodexModels,
-  fetchOpenPlatformModels,
-  filterModelsByPrefix,
-  getOpenPlatformById,
-  OpenPlatformApiError,
-  OPENAI_CODEX_OAUTH_PLATFORM_ID,
   OPENAI_CODEX_PROVIDER_ID,
-  runOpenAICodexOAuthFlow,
   type ManagedPythinkerCodeModelInfo,
-  type ManagedPythinkerConfigShape,
+  type OpenAICodexModelInfo,
   type OpenPlatformDefinition,
 } from '@pymodel/pythinker-code-oauth';
+import {
+  runLogin,
+  type LoginPlatformDefinition,
+  type LoginPlatformModelInfo,
+  type LoginUi,
+} from '@pymodel/pythinker-code-sdk';
 
 import type { ChoiceOption } from '../components/dialogs/choice-picker';
 import { DEFAULT_OAUTH_PROVIDER_NAME, PRODUCT_NAME } from '../constant/pythinker-tui';
@@ -20,11 +17,13 @@ import { formatErrorMessage } from '../utils/event-payload';
 import {
   promptApiKey,
   promptLogoutProviderSelection,
+  promptModelSelectionForCatalog,
   promptModelSelectionForCodex,
   promptModelSelectionForOpenPlatform,
   promptPlatformSelection,
 } from './prompts';
 import { openUrl } from '#/utils/open-url';
+import { refreshPythinkerRegion } from '#/utils/region';
 import type { SlashCommandHost } from './dispatch';
 
 // ---------------------------------------------------------------------------
@@ -32,173 +31,72 @@ import type { SlashCommandHost } from './dispatch';
 // ---------------------------------------------------------------------------
 
 export async function handleLoginCommand(host: SlashCommandHost): Promise<void> {
-  const platformId = await promptPlatformSelection(host);
-  if (platformId === undefined) return;
-
-  if (platformId === OPENAI_CODEX_OAUTH_PLATFORM_ID) {
-    await handleOpenAICodexLogin(host);
-    return;
-  }
-
-  const platform = getOpenPlatformById(platformId);
-  if (platform === undefined) return;
-  await handleOpenPlatformLogin(host, platform);
-}
-
-async function handleOpenAICodexLogin(host: SlashCommandHost): Promise<void> {
-  const controller = new AbortController();
-  let committing = false;
-  const cancelLogin = (): void => {
-    if (!committing) controller.abort();
+  const ui: LoginUi = {
+    harness: host.harness,
+    get cancelInFlight() {
+      return host.cancelInFlight;
+    },
+    set cancelInFlight(value) {
+      host.cancelInFlight = value;
+    },
+    openBrowser: openUrl,
+    showStatus: (message): void => {
+      host.showStatus(message);
+    },
+    showError: (message): void => {
+      host.showError(message);
+    },
+    showLoginProgressSpinner: (label) => host.showLoginProgressSpinner(label),
+    promptPlatformSelection: () => promptPlatformSelection(host),
+    promptApiKey: (platformName, subtitleLines, options) =>
+      promptApiKey(host, platformName, subtitleLines, {
+        title: options?.title,
+        mask: options?.secret !== false,
+        emptyHint: options?.emptyMessage,
+      }),
+    promptModelSelectionForOpenPlatform: (models, platform) =>
+      promptLoginPlatformModel(host, models, platform),
+    promptModelSelectionForCatalog: async (providerId, models) => {
+      const selection = await promptModelSelectionForCatalog(host, providerId, models);
+      return selection === undefined
+        ? undefined
+        : { model: selection.model, effort: selection.thinking };
+    },
+    refreshConfigAfterLogin: () => host.authFlow.refreshConfigAfterLogin(),
+    track: (event, properties): void => {
+      host.track(event, properties);
+    },
   };
-  host.cancelInFlight = cancelLogin;
-
   try {
-    const tokens = await runOpenAICodexOAuthFlow({
-      signal: controller.signal,
-      openBrowser: openUrl,
-      onManualInput: () =>
-        promptApiKey(
-          host,
-          'OpenAI Codex',
-          ['Paste the redirected localhost URL from your browser.'],
-          {
-            title: 'Paste OpenAI Codex redirect URL',
-            mask: false,
-            emptyHint: 'Redirect URL cannot be empty.',
-          },
-        ),
-    });
-    const models = await fetchOpenAICodexModels({
-      accessToken: tokens.accessToken,
-      accountId: tokens.accountId,
-      signal: controller.signal,
-    });
-    if (models.length === 0) {
-      host.showError('No models available for OpenAI Codex.');
-      return;
-    }
-
-    const selection = await promptModelSelectionForCodex(host, models);
-    if (selection === undefined) return;
-
-    controller.signal.throwIfAborted();
-    const current = await host.harness.getConfig({ reload: true });
-    controller.signal.throwIfAborted();
-    const next = {
-      ...current,
-      providers: { ...current.providers },
-      models: { ...current.models },
-    };
-    applyOpenAICodexOAuthConfig(next, {
-      accessToken: tokens.accessToken,
-      refreshToken: tokens.refreshToken,
-      accountId: tokens.accountId,
-      models,
-      selectedModel: selection.model,
-      thinking: selection.thinking !== 'off',
-      effort:
-        selection.thinking !== 'off' && selection.thinking !== 'on'
-          ? selection.thinking
-          : undefined,
-    });
-    committing = true;
-    await host.harness.replaceConfigSections({
-      providers: next.providers,
-      models: next.models,
-      defaultModel: next.defaultModel,
-      thinking: next.thinking,
-    });
-    await host.authFlow.refreshConfigAfterLogin();
-    host.track('login', { provider: OPENAI_CODEX_PROVIDER_ID, method: 'oauth' });
-    host.showStatus(`Setup complete: OpenAI Codex · ${selection.model.id}`);
+    await runLogin(ui);
   } catch (error) {
-    if (!controller.signal.aborted) {
-      host.showError(`OpenAI Codex login failed: ${formatErrorMessage(error)}`);
-    }
-  } finally {
-    if (host.cancelInFlight === cancelLogin) host.cancelInFlight = undefined;
+    if (error instanceof Error && error.name === 'AbortError') return;
+    host.showError(`Login failed: ${formatErrorMessage(error)}`);
   }
 }
 
-async function handleOpenPlatformLogin(
+async function promptLoginPlatformModel(
   host: SlashCommandHost,
-  platform: OpenPlatformDefinition,
-): Promise<void> {
-  const consoleHost = platform.consoleUrl?.replace(/^https?:\/\//, '') ?? '';
-  const platformName = consoleHost.length > 0 ? `Kimi Platform (${consoleHost})` : 'Kimi Platform';
-  const subtitleLines = [
-    `${'base_url'.padEnd(12)}${platform.baseUrl}`,
-    `${'saved to'.padEnd(12)}~/.pythinker-code/config.toml`,
-  ];
-  const apiKey = await promptApiKey(host, platformName, subtitleLines);
-  if (apiKey === undefined) return;
-
-  const controller = new AbortController();
-  const cancelLogin = (): void => {
-    controller.abort();
-  };
-  host.cancelInFlight = cancelLogin;
-
-  let models: ManagedPythinkerCodeModelInfo[];
-  try {
-    models = await fetchOpenPlatformModels(platform, apiKey, fetch, controller.signal);
-    models = filterModelsByPrefix(models, platform);
-  } catch (error) {
-    if (controller.signal.aborted) return;
-    const msg = formatErrorMessage(error);
-    host.showError(`Failed to verify API key: ${msg}`);
-    if (
-      error instanceof OpenPlatformApiError &&
-      error.status === 401
-    ) {
-      host.showStatus(
-        'Hint: If your API key was obtained from Pythinker Code, please select "Pythinker Code" instead.',
-      );
-    }
-    return;
-  } finally {
-    if (host.cancelInFlight === cancelLogin) {
-      host.cancelInFlight = undefined;
-    }
+  models: LoginPlatformModelInfo[],
+  platform: LoginPlatformDefinition,
+): Promise<{ model: LoginPlatformModelInfo; effort: string } | undefined> {
+  if (platform.id === OPENAI_CODEX_PROVIDER_ID) {
+    const selection = await promptModelSelectionForCodex(
+      host,
+      models as OpenAICodexModelInfo[],
+    );
+    return selection === undefined
+      ? undefined
+      : { model: selection.model, effort: selection.thinking };
   }
-
-  if (models.length === 0) {
-    host.showError('No models available for this platform.');
-    return;
-  }
-
-  const selection = await promptModelSelectionForOpenPlatform(host, models, platform);
-  if (selection === undefined) return;
-
-  const existingConfig = await host.harness.getConfig();
-  if (existingConfig.providers[platform.id] !== undefined) {
-    await host.harness.removeProvider(platform.id);
-  }
-
-  const config = await host.harness.getConfig();
-  applyOpenPlatformConfig(config as ManagedPythinkerConfigShape, {
-    platform,
-    models,
-    selectedModel: selection.model,
-    thinking: selection.thinking !== 'off',
-    effort:
-      selection.thinking !== 'off' && selection.thinking !== 'on'
-        ? selection.thinking
-        : undefined,
-    apiKey,
-  });
-
-  await host.harness.setConfig({
-    providers: config.providers,
-    models: config.models,
-    defaultModel: config.defaultModel,
-    thinking: config.thinking,
-  });
-
-  await host.authFlow.refreshConfigAfterLogin();
-  host.track('login', { provider: platform.id, method: 'api_key' });
-  host.showStatus(`Setup complete: ${platform.name} · ${selection.model.id}`);
+  const selection = await promptModelSelectionForOpenPlatform(
+    host,
+    models as ManagedPythinkerCodeModelInfo[],
+    platform as OpenPlatformDefinition,
+  );
+  return selection === undefined
+    ? undefined
+    : { model: selection.model, effort: selection.thinking };
 }
 
 export async function handleLogoutCommand(host: SlashCommandHost): Promise<void> {
@@ -257,6 +155,7 @@ export async function handleLogoutCommand(host: SlashCommandHost): Promise<void>
       availableProviders: updated.providers ?? {},
     });
   }
+  refreshPythinkerRegion();
 
   host.track('logout', { provider: target });
   const label = target === DEFAULT_OAUTH_PROVIDER_NAME ? PRODUCT_NAME : target;

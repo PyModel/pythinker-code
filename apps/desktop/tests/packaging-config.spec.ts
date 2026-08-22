@@ -104,7 +104,7 @@ describe('desktop packaging configuration', () => {
     const icon = readFileSync(resolve(desktopRoot, 'build/icon.png'))
 
     expect(createHash('sha256').update(icon).digest('hex'))
-      .toBe('50294e23ec2763e0602dbf68bb0528d410ff6d3bb92b01e6a1d2dd683f342751')
+      .toBe('e31d6fe302ffdb5efa07dd765f7d9c68857b64be379c482f95b1828ae5a3174f')
     expect(desktopPackage.build.mac.icon).toBe('build/icon.png')
     expect(desktopPackage.build.win.icon).toBe('build/icon.png')
   })

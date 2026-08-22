@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, normalize } from 'pathe';
 
-import type { Kaos } from '@pymodel/kaos';
+import type { Pyaos } from '@pymodel/pyaos';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -23,7 +23,7 @@ import {
 } from '../../src/logging/logger';
 import { resolveLoggingConfig } from '../../src/logging/resolve-config';
 import type { OAuthTokenProviderResolver } from '../../src/session/provider-manager';
-import { testKaos } from '../fixtures/test-kaos';
+import { testPyaos } from '../fixtures/test-pyaos';
 
 function requiredFlagEnv(id: string): string {
   // Micro compaction was the only registered flag and has been removed, so the
@@ -41,22 +41,22 @@ function experimentalFeatureEnabled(core: PythinkerCore, id: string): boolean | 
   return core.getExperimentalFeatures().find((feature) => feature.id === id)?.enabled;
 }
 
-function setCoreKaos(core: PythinkerCore, kaos: Promise<Kaos>): void {
-  (core as unknown as { kaos?: Promise<Kaos> }).kaos = kaos;
+function setCorePyaos(core: PythinkerCore, pyaos: Promise<Pyaos>): void {
+  (core as unknown as { pyaos?: Promise<Pyaos> }).pyaos = pyaos;
 }
 
-function rejectedKaos(error: Error): Promise<Kaos> {
-  const promise = Promise.reject(error) as Promise<Kaos>;
+function rejectedPyaos(error: Error): Promise<Pyaos> {
+  const promise = Promise.reject(error) as Promise<Pyaos>;
   promise.catch(() => undefined);
   return promise;
 }
 
-// Builds a Kaos that behaves like the ACP reverse-RPC bridge during
+// Builds a Pyaos that behaves like the ACP reverse-RPC bridge during
 // `session/new`: reading a `local.toml` rejects with a non-ENOENT error because
 // the client does not know the session yet (issue #988). Everything else
-// delegates to the underlying kaos, so once the system-file read is routed
-// through a working (local) kaos, session bootstrap can still proceed.
-function createLocalTomlFailingKaos(base: Kaos): Kaos {
+// delegates to the underlying pyaos, so once the system-file read is routed
+// through a working (local) pyaos, session bootstrap can still proceed.
+function createLocalTomlFailingPyaos(base: Pyaos): Pyaos {
   return new Proxy(base, {
     get(target, prop, receiver) {
       if (prop === 'readText') {
@@ -73,7 +73,7 @@ function createLocalTomlFailingKaos(base: Kaos): Kaos {
         };
       }
       if (prop === 'withCwd') {
-        return (cwd: string) => createLocalTomlFailingKaos(target.withCwd(cwd));
+        return (cwd: string) => createLocalTomlFailingPyaos(target.withCwd(cwd));
       }
       const value = Reflect.get(target, prop, receiver);
       return typeof value === 'function' ? (value as (...args: unknown[]) => unknown).bind(target) : value;
@@ -268,11 +268,11 @@ micro_compaction = false
   });
 
   // Regression for https://github.com/PyModel/pythinker-code/issues/988: during
-  // ACP `session/new` the tool kaos is the reverse-RPC bridge and the client
+  // ACP `session/new` the tool pyaos is the reverse-RPC bridge and the client
   // does not know the session yet, so reading `.pythinker-code/local.toml` through
   // it rejects. The workspace local config is a local system file and must be
-  // read through the persistence (local) kaos instead.
-  it('reads workspace local.toml through persistenceKaos during createSession', async () => {
+  // read through the persistence (local) pyaos instead.
+  it('reads workspace local.toml through persistencePyaos during createSession', async () => {
     tmp = await mkdtemp(join(tmpdir(), 'pythinker-core-runtime-'));
     const homeDir = join(tmp, 'home');
     const workDir = join(tmp, 'work');
@@ -298,7 +298,7 @@ micro_compaction = false
 
     const created = await core.createSessionWithOverrides(
       { id: 'ses_runtime_local_toml_bootstrap', workDir, model: 'default-mock' },
-      { kaos: createLocalTomlFailingKaos(testKaos), persistenceKaos: testKaos },
+      { pyaos: createLocalTomlFailingPyaos(testPyaos), persistencePyaos: testPyaos },
     );
 
     const session = core.sessions.get(created.id);
@@ -942,9 +942,9 @@ max_context_size = 100000
       requestQuestion: vi.fn(async () => null),
       toolCall: vi.fn(async () => ({ output: '' })),
     });
-    setCoreKaos(
+    setCorePyaos(
       core,
-      rejectedKaos(
+      rejectedPyaos(
         new PythinkerError(ErrorCodes.SHELL_GIT_BASH_NOT_FOUND, 'Git Bash missing'),
       ),
     );
@@ -975,16 +975,16 @@ max_context_size = 100000
       requestQuestion: vi.fn(async () => null),
       toolCall: vi.fn(async () => ({ output: '' })),
     });
-    setCoreKaos(core, Promise.resolve(testKaos));
+    setCorePyaos(core, Promise.resolve(testPyaos));
     const created = await rpc.createSession({
       id: 'ses_runtime_shell_missing_resume',
       workDir,
       model: 'default-mock',
     });
     await rpc.closeSession({ sessionId: created.id });
-    setCoreKaos(
+    setCorePyaos(
       core,
-      rejectedKaos(
+      rejectedPyaos(
         new PythinkerError(ErrorCodes.SHELL_GIT_BASH_NOT_FOUND, 'Git Bash missing'),
       ),
     );

@@ -7,7 +7,7 @@
  * the master switch for experimental features within either engine; it does
  * not select the engine.
  *
- * Note: `pythinker web` always boots kap-server (the agent-core-v2 engine
+ * Note: `pythinker web` always boots agent-gateway (the agent-core-v2 engine
  * server) — it does not consult this switch.
  */
 

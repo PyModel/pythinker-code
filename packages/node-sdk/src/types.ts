@@ -6,7 +6,7 @@ import type {
   TelemetryContextPatch,
   TelemetryProperties,
 } from '@pymodel/agent-core';
-import type { Kaos } from '@pymodel/kaos';
+import type { Pyaos } from '@pymodel/pyaos';
 import type { PythinkerHostIdentity, OAuthRefreshOutcome } from '@pymodel/pythinker-code-oauth';
 import type { ContentPart } from '@pymodel/kosong';
 
@@ -159,8 +159,12 @@ export interface CreateSessionOptions {
   readonly permission?: PermissionMode | undefined;
   readonly planMode?: boolean;
   readonly metadata?: JsonObject | undefined;
-  readonly kaos?: Kaos | undefined;
-  readonly persistenceKaos?: Kaos | undefined;
+  readonly pyaos?: Pyaos | undefined;
+  readonly persistencePyaos?: Pyaos | undefined;
+  /** @deprecated Use `pyaos`. Accepted as a legacy alias when `pyaos` is not set. */
+  readonly kaos?: Pyaos | undefined;
+  /** @deprecated Use `persistencePyaos`. Accepted as a legacy alias when `persistencePyaos` is not set. */
+  readonly persistenceKaos?: Pyaos | undefined;
   readonly additionalDirs?: readonly string[];
   /**
    * Main-agent profile name (`--agent`): a builtin profile or one defined by
@@ -198,8 +202,12 @@ export interface GenerateSessionTitleInput {
 
 export interface ResumeSessionInput {
   readonly id: string;
-  readonly kaos?: Kaos | undefined;
-  readonly persistenceKaos?: Kaos | undefined;
+  readonly pyaos?: Pyaos | undefined;
+  readonly persistencePyaos?: Pyaos | undefined;
+  /** @deprecated Use `pyaos`. Accepted as a legacy alias when `pyaos` is not set. */
+  readonly kaos?: Pyaos | undefined;
+  /** @deprecated Use `persistencePyaos`. Accepted as a legacy alias when `persistencePyaos` is not set. */
+  readonly persistenceKaos?: Pyaos | undefined;
   readonly additionalDirs?: readonly string[];
   /** Re-select the session's already-bound main profile; a different name fails. */
   readonly agentProfile?: string;
@@ -310,6 +318,13 @@ export interface PlanInfo {
 }
 
 export type SessionPlan = PlanInfo | null;
+
+export type SessionTodoStatus = 'pending' | 'in_progress' | 'done';
+
+export interface SessionTodoItem {
+  readonly title: string;
+  readonly status: SessionTodoStatus;
+}
 
 export interface TokenUsage {
   readonly inputOther: number;

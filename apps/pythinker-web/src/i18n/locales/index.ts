@@ -1,4 +1,5 @@
 import en_app from './en/app';
+import en_admin from './en/admin';
 import en_approval from './en/approval';
 import en_capabilityMenu from './en/capabilityMenu';
 import en_codexLogin from './en/codexLogin';
@@ -25,6 +26,7 @@ import en_sidebar from './en/sidebar';
 import en_status from './en/status';
 import en_suggestions from './en/suggestions';
 import en_tasks from './en/tasks';
+import en_terminal from './en/terminal';
 import en_theme from './en/theme';
 import en_thinking from './en/thinking';
 import en_tools from './en/tools';
@@ -34,6 +36,7 @@ import en_workspace from './en/workspace';
 
 export const messages = {
   en: {
+    admin: en_admin,
     app: en_app,
     approval: en_approval,
     capabilityMenu: en_capabilityMenu,
@@ -61,6 +64,7 @@ export const messages = {
     status: en_status,
     suggestions: en_suggestions,
     tasks: en_tasks,
+    terminal: en_terminal,
     theme: en_theme,
     thinking: en_thinking,
     tools: en_tools,

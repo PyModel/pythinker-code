@@ -4,7 +4,7 @@ import { join } from 'node:path';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { detectFdPath, getFdAssetName } from '#/utils/process/fd-detect';
+import { detectFdPath, ensureFdPath } from '#/utils/process/fd-detect';
 import { getBinDir } from '#/utils/paths';
 
 const mocks = vi.hoisted(() => ({
@@ -30,29 +30,6 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe('getFdAssetName', () => {
-  it('returns the macOS arm64 asset name', () => {
-    expect(getFdAssetName('darwin', 'arm64')).toBe('fd-v10.4.2-aarch64-apple-darwin.tar.gz');
-  });
-
-  it('returns the macOS x64 asset name pinned to the available upstream release', () => {
-    expect(getFdAssetName('darwin', 'x64')).toBe('fd-v10.3.0-x86_64-apple-darwin.tar.gz');
-  });
-
-  it('returns the Linux x64 musl asset name', () => {
-    expect(getFdAssetName('linux', 'x64')).toBe('fd-v10.4.2-x86_64-unknown-linux-musl.tar.gz');
-  });
-
-  it('returns the Windows x64 asset name', () => {
-    expect(getFdAssetName('win32', 'x64')).toBe('fd-v10.4.2-x86_64-pc-windows-msvc.zip');
-  });
-
-  it('returns null for unsupported platforms or architectures', () => {
-    expect(getFdAssetName('freebsd', 'x64')).toBeNull();
-    expect(getFdAssetName('darwin', 'arm')).toBeNull();
-  });
-});
-
 describe('detectFdPath', () => {
   it('returns the absolute resolved path for a system fd binary', () => {
     tempHome = mkdtempSync(join(tmpdir(), 'pythinker-fd-home-'));
@@ -66,6 +43,17 @@ describe('detectFdPath', () => {
     expect(mocks.spawnSync).toHaveBeenCalledWith('/usr/local/bin/fd', ['--version'], {
       stdio: 'ignore',
     });
+  });
+
+  it('does not download fd when no local binary is available', async () => {
+    tempHome = mkdtempSync(join(tmpdir(), 'pythinker-fd-home-'));
+    process.env['PYTHINKER_CODE_HOME'] = tempHome;
+    mocks.resolveCommandPath.mockReturnValue(undefined);
+    const fetchImpl = vi.fn();
+    vi.stubGlobal('fetch', fetchImpl);
+
+    await expect(ensureFdPath()).resolves.toBeNull();
+    expect(fetchImpl).not.toHaveBeenCalled();
   });
 
   it('prefers the managed fd binary under PYTHINKER_CODE_HOME', () => {

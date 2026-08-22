@@ -38,7 +38,7 @@ test('dt columns: set, range query, persist across reopen', async () => {
     await db.set('b', { n: 2 }, { dt: { created: mar } });
     await db.set('c', { n: 3 }, { dt: { created: jun } });
 
-    assert.deepEqual(db.dtColumns().sort(), ['created']);
+    assert.deepEqual(db.dtColumns().toSorted(), ['created']);
     const rows = db.dtRange('created', { gte: jan, lte: mar });
     assert.deepEqual(rows.map((r) => r.key), ['a', 'b']);
     await db.close();
@@ -60,15 +60,15 @@ test('value filter (Mongo-like) with operators', async () => {
     await db.set('c', { name: 'Eve', age: 25, tags: ['z'] });
 
     assert.deepEqual(
-      db.query({ filter: { age: { $gt: 18 } } }).map((r) => r.key).sort(),
+      db.query({ filter: { age: { $gt: 18 } } }).map((r) => r.key).toSorted(),
       ['a', 'c'],
     );
     assert.deepEqual(
-      db.query({ filter: { tags: { $contains: 'y' } } }).map((r) => r.key).sort(),
+      db.query({ filter: { tags: { $contains: 'y' } } }).map((r) => r.key).toSorted(),
       ['a', 'b'],
     );
     assert.deepEqual(
-      db.query({ filter: { $or: [{ age: { $lt: 18 } }, { name: 'Eve' }] } }).map((r) => r.key).sort(),
+      db.query({ filter: { $or: [{ age: { $lt: 18 } }, { name: 'Eve' }] } }).map((r) => r.key).toSorted(),
       ['b', 'c'],
     );
     assert.deepEqual(
@@ -121,7 +121,7 @@ test('dt-ordered limit fast path matches a reference (no ties)', async () => {
 
     const refDesc = docs
       .filter((d) => d.role === 'user' && d.ts >= gte && d.ts <= lte)
-      .sort((a, b) => b.ts - a.ts);
+      .toSorted((a, b) => b.ts - a.ts);
 
     // sort by dt desc + limit -> fast path
     assert.deepEqual(
@@ -129,7 +129,7 @@ test('dt-ordered limit fast path matches a reference (no ties)', async () => {
       refDesc.slice(0, 3).map((d) => d.key),
     );
     // ascending + skip + limit -> fast path
-    const refAsc = [...refDesc].reverse();
+    const refAsc = [...refDesc].toReversed();
     assert.deepEqual(
       db.query({ dt: { ts: { gte, lte } }, filter: { role: 'user' }, sort: { ts: 1 }, skip: 1, limit: 2 }).map((r) => r.key),
       refAsc.slice(1, 3).map((d) => d.key),
@@ -189,7 +189,7 @@ test('full-text search: latin + CJK', async () => {
     const cjk = db.search('bio', '\u5317\u4EAC').map((r) => r.key);
     assert.deepEqual(cjk, ['b']);
 
-    const or = db.search('bio', '\u5317\u4EAC \u4E0A\u6D77', { op: 'OR' }).map((r) => r.key).sort();
+    const or = db.search('bio', '\u5317\u4EAC \u4E0A\u6D77', { op: 'OR' }).map((r) => r.key).toSorted();
     assert.deepEqual(or, ['b', 'c']);
     await db.close();
   } finally {
@@ -245,8 +245,8 @@ test('query uses value indexes for equality/range filters', async () => {
     await db.set('b', { city: 'Paris', age: 17 });
     await db.set('c', { city: 'London', age: 41 });
 
-    assert.deepEqual(db.query({ filter: { city: 'Paris' } }).map((r) => r.key).sort(), ['a', 'b']);
-    assert.deepEqual(db.query({ filter: { age: { $gte: 30 } } }).map((r) => r.key).sort(), ['a', 'c']);
+    assert.deepEqual(db.query({ filter: { city: 'Paris' } }).map((r) => r.key).toSorted(), ['a', 'b']);
+    assert.deepEqual(db.query({ filter: { age: { $gte: 30 } } }).map((r) => r.key).toSorted(), ['a', 'c']);
     assert.deepEqual(
       db.query({ filter: { $and: [{ city: 'Paris' }, { age: { $gte: 18 } }] } }).map((r) => r.key),
       ['a'],

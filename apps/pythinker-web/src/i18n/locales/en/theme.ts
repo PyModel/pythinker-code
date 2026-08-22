@@ -1,7 +1,7 @@
 export default {
   colorSchemeLabel: 'Light/Dark',
-  light: 'Moon Bright',
-  dark: 'Moon Dark',
+  light: 'Light',
+  dark: 'Dark',
   system: 'System',
   accentLabel: 'Accent',
   accentBlue: 'Blue',

@@ -31,7 +31,7 @@ async function bench(label, fn, iters = 1) {
 // ---------------------------------------------------------------------------
 
 function percentile(sorted, p) {
-  if (!sorted.length) return NaN;
+  if (sorted.length === 0) return NaN;
   const idx = Math.min(sorted.length - 1, Math.ceil((p / 100) * sorted.length) - 1);
   return sorted[Math.max(0, idx)];
 }
@@ -151,7 +151,7 @@ async function deltaOverwriteScenario() {
     lat.sort((a, b) => a - b);
     console.log(
       `    overwrite 1 doc x100`.padEnd(24),
-      `p50 ${percentile(lat, 50).toFixed(2)} ms   p95 ${percentile(lat, 95).toFixed(2)} ms   max ${lat[lat.length - 1].toFixed(2)} ms`,
+      `p50 ${percentile(lat, 50).toFixed(2)} ms   p95 ${percentile(lat, 95).toFixed(2)} ms   max ${lat.at(-1).toFixed(2)} ms`,
     );
     await db.close();
   } finally {
@@ -187,7 +187,7 @@ async function uniqueBatchScenario() {
       lat.sort((a, b) => a - b);
       console.log(
         `    batch size=${String(size).padEnd(5)}`.padEnd(24),
-        `p50 ${percentile(lat, 50).toFixed(2)} ms   p95 ${percentile(lat, 95).toFixed(2)} ms   max ${lat[lat.length - 1].toFixed(2)} ms`,
+        `p50 ${percentile(lat, 50).toFixed(2)} ms   p95 ${percentile(lat, 95).toFixed(2)} ms   max ${lat.at(-1).toFixed(2)} ms`,
       );
     }
     await db.close();
@@ -228,7 +228,7 @@ async function ttlWritePauseScenario() {
     lat.sort((a, b) => a - b);
     console.log(
       `    plain writes`.padEnd(24),
-      `p50 ${percentile(lat, 50).toFixed(2)} ms   p95 ${percentile(lat, 95).toFixed(2)} ms   max ${lat[lat.length - 1].toFixed(2)} ms`,
+      `p50 ${percentile(lat, 50).toFixed(2)} ms   p95 ${percentile(lat, 95).toFixed(2)} ms   max ${lat.at(-1).toFixed(2)} ms`,
     );
     await db.close();
   } finally {
@@ -254,7 +254,7 @@ async function main() {
         {
           age: 18 + (i % 60),
           city: ['Paris', 'London', 'Tokyo', 'Beijing'][i % 4],
-          bio: i % 3 === 0 ? '\u5317\u4eac \u6570\u636e\u5e93' : 'hello world from nodejs database engine',
+          bio: i % 3 === 0 ? '\u5317\u4EAC \u6570\u636E\u5E93' : 'hello world from nodejs database engine',
         },
         { dt: { created: base + i * 1000 } },
       ),
@@ -282,7 +282,7 @@ async function main() {
   r = await bench('text search latin', () => db.search('body', 'hello'), ITERS);
   console.log(`  text search "hello"`.padEnd(42), `${r.ms.toFixed(1)} ms total`, `-> ${ops(ITERS, r.ms)}`, `(~${r.r.length} rows)`);
 
-  r = await bench('text search cjk', () => db.search('body', '\u5317\u4eac'), ITERS);
+  r = await bench('text search cjk', () => db.search('body', '\u5317\u4EAC'), ITERS);
   console.log(`  text search "CJK term"`.padEnd(42), `${r.ms.toFixed(1)} ms total`, `-> ${ops(ITERS, r.ms)}`, `(~${r.r.length} rows)`);
 
   // composed query
@@ -313,7 +313,7 @@ async function main() {
   console.log('\ndone.\n');
 }
 
-main().catch((e) => {
-  console.error(e);
+main().catch((error) => {
+  console.error(error);
   process.exit(1);
 });

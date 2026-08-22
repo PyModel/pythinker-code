@@ -25,10 +25,12 @@ const TOOL_LABEL_KEYS: Record<string, string> = {
   task: 'tools.label.task',
   agentdynamic_workflow: 'tools.label.dynamic_workflow',
   askuserquestion: 'tools.label.ask_user',
+  exitplanmode: 'tools.label.plan',
   creategoal: 'tools.label.goal_create',
   getgoal: 'tools.label.goal_get',
   setgoalbudget: 'tools.label.goal_budget',
   updategoal: 'tools.label.goal_update',
+  waitfor: 'tools.label.waitfor',
 };
 
 // ---------------------------------------------------------------------------
@@ -40,6 +42,7 @@ const TOOL_LABEL_KEYS: Record<string, string> = {
 // ---------------------------------------------------------------------------
 
 const NAME_ALIASES: Record<string, string> = {
+  agentdynamicworkflow: 'agentdynamic_workflow',
   multiedit: 'multi_edit',
   multiedits: 'multi_edit',
   shell: 'bash',
@@ -109,6 +112,7 @@ const TOOL_GLYPH: Record<string, IconName> = {
   croncreate: 'calendar-schedule',
   cronlist: 'calendar-todo',
   crondelete: 'calendar-close',
+  waitfor: 'clock',
 };
 
 export function toolGlyph(name: string): string {

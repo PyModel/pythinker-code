@@ -1,6 +1,5 @@
 import type { PluginSummary } from '@pymodel/pythinker-code-sdk';
 
-import { PYTHINKER_CODE_PLUGIN_MARKETPLACE_URL } from '#/constant/app';
 import {
   computeUpdateStatus,
   loadPluginMarketplace,
@@ -163,10 +162,7 @@ export class PluginUpdateNotifier {
       const session = this.deps.getSession();
       if (session === undefined) return;
       const marketplace = await this.loadCatalog();
-      // Only the default official catalog can back an "Official Marketplace"
-      // notice — a custom catalog (PYTHINKER_CODE_PLUGIN_MARKETPLACE_URL) may
-      // advertise anything under any id.
-      if (marketplace.source !== PYTHINKER_CODE_PLUGIN_MARKETPLACE_URL) return;
+      if (marketplace.source !== '') return;
       const entry = marketplace.plugins.find((plugin) => plugin.id === pluginId);
       if (entry === undefined) return;
       const installed = (await session.listPlugins()).find((plugin) => plugin.id === pluginId);

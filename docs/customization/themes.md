@@ -12,11 +12,11 @@ Active `/model` provider and `AskUserQuestion` tabs use `selectionBg` for the ba
 | --- | --- | --- | --- |
 | `primary` | `#BBC6FF` | `#4A5BC4` | Dominant interactive/brand colour: links & inline code, the selected item in nearly every dialog, the focused editor border, plan/"running" badges, spinners. The most widely used token. |
 | `accent` | `#7B8CE8` | `#5566CC` | Secondary highlight: approval "▶" prefix, device-code box, image placeholder, BTW / queue panes, custom-registry import. |
-| `primaryShimmer` | `#F4F5FF` | `#263BA8` | Brighter primary pulse for future spinner and running-state animations. |
-| `accentShimmer` | `#AAB7FF` | `#3F4DB5` | Brighter accent pulse for future device-code and queue-pane animations. |
-| `warningShimmer` | `#FFD474` | `#6F4700` | Brighter warning pulse for future stale-state and attention animations. |
-| `borderShimmer` | `#848CA8` | `#4F567A` | Brighter border pulse for future focused-panel border animations. |
-| `textDimShimmer` | `#B6B9C7` | `#222A4A` | Brighter dim-text pulse for future thinking and status animations. |
+| `primaryShimmer` | `#F4F5FF` | `#263BA8` | Bright primary pulse used by running-state animations. |
+| `accentShimmer` | `#AAB7FF` | `#3F4DB5` | Bright accent pulse used by attention animations. |
+| `warningShimmer` | `#FFD474` | `#6F4700` | Bright warning pulse used by attention animations. |
+| `borderShimmer` | `#848CA8` | `#4F567A` | Bright border pulse used by focused-panel animations. |
+| `textDimShimmer` | `#B6B9C7` | `#222A4A` | Bright dim-text pulse used by thinking and status animations. |
 | `text` | `#E0E0E0` | `#1A1A1A` | Default body text: dialog bodies, todo titles, footer model label, markdown headings, tool/read output, and assistant-side message bullets (assistant / tool / agent / read) plus markdown list bullets. |
 | `textStrong` | `#F5F5F5` | `#1A1A1A` | Emphasised text: input dialogs, status messages, high-signal tool names, user transcript text. |
 | `textDim` | `#888888` | `#454545` | Secondary, dimmed text (the most widely used dim shade): thinking blocks, hints, descriptions, completed todos, markdown quotes, and the footer status bar (cwd path, git badge). |
@@ -37,18 +37,18 @@ Active `/model` provider and `AskUserQuestion` tabs use `selectionBg` for the ba
 | `diffRemovedStrong` | `#F08585` | `#B91C1C` | Removed lines — intra-line changed words (bold). |
 | `diffGutter` | `#6B6B6B` | `#737373` | Line-number gutter (also approval panel/preview). |
 | `diffMeta` | `#888888` | `#5F5F5F` | Meta / hunk headers. |
-| `diffAddedDimmed` | `#57966F` | `#316A48` | De-emphasised added context lines in future expanded diff hunks. |
-| `diffRemovedDimmed` | `#B55E68` | `#8D4852` | De-emphasised removed context lines in future expanded diff hunks. |
-| `roleUser` | `#FFCB6B` | `#9A4A00` | User-accent hue for skill-activation names and future user-specific accents. Assistant/thinking/status bullets reuse text/textDim. |
+| `diffAddedDimmed` | `#57966F` | `#316A48` | De-emphasized added diff context. |
+| `diffRemovedDimmed` | `#B55E68` | `#8D4852` | De-emphasized removed diff context. |
+| `roleUser` | `#FFCB6B` | `#9A4A00` | User-accent hue for skill-activation names and user-specific accents. Assistant/thinking/status bullets reuse text/textDim. |
 | `workflowTitle` | `#EE9983` | `#9C261C` | Coral title used by the Dynamic Workflow mission-control frame. |
-| `agentRed` | `#E2697D` | `#9D2539` | Red identity used by the first future agent in Dynamic Workflow progress and grouped output. |
-| `agentOrange` | `#E2B069` | `#9D6B25` | Orange identity used by the second future agent in Dynamic Workflow progress and grouped output. |
-| `agentYellow` | `#BAE269` | `#759D25` | Yellow identity used by the third future agent in Dynamic Workflow progress and grouped output. |
-| `agentGreen` | `#69E273` | `#259D2F` | Green identity used by the fourth future agent in Dynamic Workflow progress and grouped output. |
-| `agentCyan` | `#69E2CE` | `#259D89` | Cyan identity used by the fifth future agent in Dynamic Workflow progress and grouped output. |
-| `agentBlue` | `#699CE2` | `#25579D` | Blue identity used by the sixth future agent in Dynamic Workflow progress and grouped output. |
-| `agentPurple` | `#9269E2` | `#4D259D` | Purple identity used by the seventh future agent in Dynamic Workflow progress and grouped output. |
-| `agentPink` | `#E269D8` | `#9D2593` | Pink identity used by the eighth future agent in Dynamic Workflow progress and grouped output. |
+| `agentRed` | `#E2697D` | `#9D2539` | Red identity used by the first agent in Dynamic Workflow progress and grouped output. |
+| `agentOrange` | `#E2B069` | `#9D6B25` | Orange identity used by the second agent in Dynamic Workflow progress and grouped output. |
+| `agentYellow` | `#BAE269` | `#759D25` | Yellow identity used by the third agent in Dynamic Workflow progress and grouped output. |
+| `agentGreen` | `#69E273` | `#259D2F` | Green identity used by the fourth agent in Dynamic Workflow progress and grouped output. |
+| `agentCyan` | `#69E2CE` | `#259D89` | Cyan identity used by the fifth agent in Dynamic Workflow progress and grouped output. |
+| `agentBlue` | `#699CE2` | `#25579D` | Blue identity used by the sixth agent in Dynamic Workflow progress and grouped output. |
+| `agentPurple` | `#9269E2` | `#4D259D` | Purple identity used by the seventh agent in Dynamic Workflow progress and grouped output. |
+| `agentPink` | `#E269D8` | `#9D2593` | Pink identity used by the eighth agent in Dynamic Workflow progress and grouped output. |
 | `rainbowRed` | `#E96E63` | `#9C261C` | Red spectrum stop for future keyword and gradient highlighting. |
 | `rainbowOrange` | `#E9B163` | `#9C671C` | Orange spectrum stop for future keyword and gradient highlighting. |
 | `rainbowYellow` | `#DEE963` | `#919C1C` | Yellow spectrum stop for future keyword and gradient highlighting. |
@@ -56,11 +56,11 @@ Active `/model` provider and `AskUserQuestion` tabs use `selectionBg` for the ba
 | `rainbowBlue` | `#639BE9` | `#1C519C` | Blue spectrum stop for future keyword and gradient highlighting. |
 | `rainbowIndigo` | `#6E63E9` | `#261C9C` | Indigo spectrum stop for future keyword and gradient highlighting. |
 | `rainbowViolet` | `#C763E9` | `#7C1C9C` | Violet spectrum stop for future keyword and gradient highlighting. |
-| `modeAutoAccept` | `#66D49A` | `#26704C` | Auto-accept badge colour for the future mode-specific status treatment. |
-| `modePlan` | `#A9B8FF` | `#4A5BC4` | Plan badge colour for the future mode-specific status treatment. |
-| `modePermission` | `#D99AF0` | `#7A3C96` | Permission badge colour for the future mode-specific status treatment. |
-| `modeFast` | `#FFB45E` | `#9A570F` | Fast badge colour for the future mode-specific status treatment. |
-| `background` | `#000000` | `#FFFFFF` | Assumed terminal background against which future themed surfaces are tuned. |
+| `modeAutoAccept` | `#66D49A` | `#26704C` | Auto-accept badge colour for the mode-specific status treatment. |
+| `modePlan` | `#A9B8FF` | `#4A5BC4` | Plan badge colour for the mode-specific status treatment. |
+| `modePermission` | `#D99AF0` | `#7A3C96` | Permission badge colour for the mode-specific status treatment. |
+| `modeFast` | `#FFB45E` | `#9A570F` | Fast badge colour for the mode-specific status treatment. |
+| `background` | `#000000` | `#FFFFFF` | Assumed terminal background against which themed surfaces are tuned. |
 | `inverseText` | `#FFFFFF` | `#0B1020` | Foreground for active `/model` provider and `AskUserQuestion` tabs; pair with `selectionBg` at 4.5:1 contrast or higher. |
 | `selectionBg` | `#344274` | `#C9D1FA` | Background for active `/model` provider and `AskUserQuestion` tabs; pair with `inverseText` at 4.5:1 contrast or higher. |
 | `surfaceHighlight` | `#1C2238` | `#E8EBFC` | Subtle fill for highlighted rows and message surfaces, including user transcript rows. |

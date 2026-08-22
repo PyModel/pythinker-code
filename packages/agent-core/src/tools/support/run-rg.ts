@@ -1,7 +1,7 @@
 /**
  * run-rg — shared ripgrep subprocess plumbing.
  *
- * Single place that knows how we spawn `rg` through Kaos: timeout / abort
+ * Single place that knows how we spawn `rg` through Pyaos: timeout / abort
  * handling, capped stdout / stderr draining, two-phase kill with process
  * disposal, and the standard exclusion globs (VCS metadata + sensitive
  * files) shared by GrepTool and GlobTool. Mode-specific argument building
@@ -10,7 +10,7 @@
 
 import type { Readable } from 'node:stream';
 
-import type { Kaos, KaosProcess } from '@pymodel/kaos';
+import type { Pyaos, PyaosProcess } from '@pymodel/pyaos';
 
 import type { ExecutableToolResult } from '../../loop/types';
 import { SENSITIVE_DOT_VARIANT_SUFFIXES } from '../policies/sensitive';
@@ -60,7 +60,7 @@ export interface RunRipgrepOptions {
   readonly abortedMessage?: string;
 }
 
-async function disposeProcess(proc: KaosProcess): Promise<void> {
+async function disposeProcess(proc: PyaosProcess): Promise<void> {
   try {
     await proc.dispose();
   } catch {
@@ -69,7 +69,7 @@ async function disposeProcess(proc: KaosProcess): Promise<void> {
 }
 
 export async function runRipgrepOnce(
-  kaos: Kaos,
+  pyaos: Pyaos,
   rgArgs: readonly string[],
   signal: AbortSignal,
   options: RunRipgrepOptions = {},
@@ -79,9 +79,9 @@ export async function runRipgrepOnce(
     return { kind: 'tool-error', result: { isError: true, output: abortedMessage } };
   }
 
-  let proc: KaosProcess;
+  let proc: PyaosProcess;
   try {
-    proc = await kaos.exec(...rgArgs);
+    proc = await pyaos.exec(...rgArgs);
   } catch (error) {
     // Spawn can still fail after path resolution, e.g. permissions or a
     // corrupt binary. ENOENT gets the same actionable hint as locator failures.

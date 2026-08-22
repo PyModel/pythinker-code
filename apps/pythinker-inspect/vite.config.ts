@@ -7,7 +7,7 @@ import { serverDiscoveryPlugin } from './vite/serverDiscovery';
 const webPort = Number(process.env['INSPECT_PORT']) || 5176;
 // Where the dev proxy forwards server traffic. The app can also connect to an
 // arbitrary server URL typed into the connect screen (loopback cross-origin is
-// allowed by kap-server), but the default connection is same-origin through
+// allowed by agent-gateway), but the default connection is same-origin through
 // this proxy so no CORS / Origin handling is involved.
 const serverTarget = process.env['PYTHINKER_SERVER_URL'] || 'http://127.0.0.1:58627';
 

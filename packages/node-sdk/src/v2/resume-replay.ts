@@ -61,7 +61,7 @@ import {
   type AgentRecordPersistence,
   type AgentReplayRecord,
 } from '@pymodel/agent-core';
-import { LocalKaos } from '@pymodel/kaos';
+import { LocalPyaos } from '@pymodel/pyaos';
 
 export interface FoldedAgentReplay {
   readonly replay: readonly AgentReplayRecord[];
@@ -106,7 +106,7 @@ export async function foldAgentWireReplay(wirePath: string): Promise<FoldedAgent
     const records = parseWireRecords(await readFile(wirePath, 'utf-8'));
     if (records.length === 0) return EMPTY_FOLD;
     const agent = new Agent({
-      kaos: await LocalKaos.create(),
+      pyaos: await LocalPyaos.create(),
       persistence: new ReadOnlyAgentRecordPersistence(records),
       type: 'sub',
     });

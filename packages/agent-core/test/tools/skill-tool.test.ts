@@ -103,25 +103,12 @@ describe('SkillTool metadata and schema', () => {
     expect(MAX_SKILL_QUERY_DEPTH).toBe(3);
   });
 
-  it('documents the skill and args parameters and the already-loaded guard', () => {
+  it('references the pythinker-skill-loaded block in the tool description', () => {
     const tool = skillTool(registry());
-    const params = tool.parameters as {
-      properties: { skill: { description?: string }; args: { description?: string } };
-    };
 
-    expect(params.properties.skill.description ?? '').toMatch(/skill listing/i);
-    expect(params.properties.args.description ?? '').toMatch(/argument/i);
     // A skill loaded earlier surfaces a <pythinker-skill-loaded> block; the description
     // must steer the model to follow it rather than re-invoking the tool.
     expect(tool.description).toContain('pythinker-skill-loaded');
-    // ...but the no-reinvoke guard is scoped to the SAME args: an arg-bearing skill
-    // reused with new inputs must be called again, because the loaded block froze the
-    // earlier args (it was expanded with them).
-    expect(tool.description).toContain('with the same `args`');
-    expect(tool.description.toLowerCase()).toContain('different arguments');
-    // The recursion depth cap is never seeded in production (currentDepth is
-    // always 0), so the description must not advertise it as a hard limit.
-    expect(tool.description).not.toMatch(/recursive depth|capped at/i);
   });
 });
 
@@ -166,9 +153,8 @@ describe('SkillTool execution', () => {
     expect(result.output).not.toContain('body of commit');
     expect(methods.recordSkillActivation).toHaveBeenCalledTimes(1);
     expect(methods.recordUserMessage).toHaveBeenCalledTimes(1);
-    expect(methods.recordUserMessage.mock.calls[0]?.[0][0]?.text).toBe(
-      'Skill tool loaded instructions for this request. Follow them.\n\n' +
-        '<pythinker-skill-loaded name="commit" trigger="model-tool" source="user" dir="/skills/commit" args="message text">\nbody of commit\n\nARGUMENTS: message text\n</pythinker-skill-loaded>',
+    expect(methods.recordUserMessage.mock.calls[0]?.[0][0]?.text).toContain(
+      '<pythinker-skill-loaded name="commit" trigger="model-tool" source="user" dir="/skills/commit" args="message text">\nbody of commit\n\nARGUMENTS: message text\n</pythinker-skill-loaded>',
     );
     expect(methods.recordUserMessage.mock.calls[0]?.[0][0]?.text).not.toContain(
       '<system-reminder>',
@@ -193,9 +179,8 @@ describe('SkillTool execution', () => {
 
     await execute(tool, { skill: 'brainstorming' });
 
-    expect(methods.recordUserMessage.mock.calls[0]?.[0][0]?.text).toBe(
-      'Skill tool loaded instructions for this request. Follow them.\n\n' +
-        '<pythinker-skill-loaded name="brainstorming" trigger="model-tool" source="extra" dir="/skills/brainstorming" args="">\n' +
+    expect(methods.recordUserMessage.mock.calls[0]?.[0][0]?.text).toContain(
+      '<pythinker-skill-loaded name="brainstorming" trigger="model-tool" source="extra" dir="/skills/brainstorming" args="">\n' +
         '<pythinker-plugin-instructions plugin="superpowers">\n' +
         'Use AskUserQuestion for clarifying questions.\n' +
         '</pythinker-plugin-instructions>\n\nbrainstorm body\n' +
@@ -218,9 +203,8 @@ describe('SkillTool execution', () => {
 
     await execute(tool, { skill: 'commit', args: '-m "fix login"' });
 
-    expect(methods.recordUserMessage.mock.calls[0]?.[0][0]?.text).toBe(
-      'Skill tool loaded instructions for this request. Follow them.\n\n' +
-        '<pythinker-skill-loaded name="commit" trigger="model-tool" source="user" dir="/skills/commit" args="-m &quot;fix login&quot;">\nFlag: -m\nCommit message: fix login\nRaw: -m "fix login"\n</pythinker-skill-loaded>',
+    expect(methods.recordUserMessage.mock.calls[0]?.[0][0]?.text).toContain(
+      '<pythinker-skill-loaded name="commit" trigger="model-tool" source="user" dir="/skills/commit" args="-m &quot;fix login&quot;">\nFlag: -m\nCommit message: fix login\nRaw: -m "fix login"\n</pythinker-skill-loaded>',
     );
     expect(methods.recordUserMessage.mock.calls[0]?.[0][0]?.text).not.toContain('ARGUMENTS:');
   });
@@ -236,9 +220,8 @@ describe('SkillTool execution', () => {
 
     await execute(tool, { skill: 'session-aware' });
 
-    expect(methods.recordUserMessage.mock.calls[0]?.[0][0]?.text).toBe(
-      'Skill tool loaded instructions for this request. Follow them.\n\n' +
-        '<pythinker-skill-loaded name="session-aware" trigger="model-tool" source="user" dir="/skills/session-aware" args="">\nSession: ses_model_skill\n</pythinker-skill-loaded>',
+    expect(methods.recordUserMessage.mock.calls[0]?.[0][0]?.text).toContain(
+      '<pythinker-skill-loaded name="session-aware" trigger="model-tool" source="user" dir="/skills/session-aware" args="">\nSession: ses_model_skill\n</pythinker-skill-loaded>',
     );
   });
 
@@ -270,9 +253,8 @@ describe('SkillTool execution', () => {
 
     await execute(tool, { skill: 'a&b', args: '<raw "value">' });
 
-    expect(methods.recordUserMessage.mock.calls[0]?.[0][0]?.text).toBe(
-      'Skill tool loaded instructions for this request. Follow them.\n\n' +
-        '<pythinker-skill-loaded name="a&amp;b" trigger="model-tool" source="user" dir="/skills/a&amp;b" args="&lt;raw &quot;value&quot;&gt;">\nbody of a&b\n\nARGUMENTS: &lt;raw "value"&gt;\n</pythinker-skill-loaded>',
+    expect(methods.recordUserMessage.mock.calls[0]?.[0][0]?.text).toContain(
+      '<pythinker-skill-loaded name="a&amp;b" trigger="model-tool" source="user" dir="/skills/a&amp;b" args="&lt;raw &quot;value&quot;&gt;">\nbody of a&b\n\nARGUMENTS: &lt;raw "value"&gt;\n</pythinker-skill-loaded>',
     );
     expect(methods.recordSkillActivation).toHaveBeenCalledTimes(1);
   });

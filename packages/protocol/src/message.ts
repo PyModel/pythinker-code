@@ -32,7 +32,7 @@ export const imageSourceSchema = z.discriminatedUnion('kind', [
     kind: z.literal('url'),
     url: z.string().min(1),
     // Provider-issued file id behind a reference such as `ms://…` — forwarded
-    // when the provider keys media by id. Matches the kap-server wire schema.
+    // when the provider keys media by id. Matches the agent-gateway wire schema.
     id: z.string().min(1).optional(),
   }),
   z.object({

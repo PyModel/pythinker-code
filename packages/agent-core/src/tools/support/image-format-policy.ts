@@ -177,7 +177,7 @@ export function isModelAcceptedImageMime(mimeType: string): boolean {
 
 /**
  * Refusal for an unsupported image that has a readable file path, with a
- * conversion command matching the execution environment (`kaos.osEnv.osKind`
+ * conversion command matching the execution environment (`pyaos.osEnv.osKind`
  * — where Bash actually runs, so SSH/container sessions get the right command
  * too). The model can run the command through Bash (under the normal
  * permission flow) and read the converted file.

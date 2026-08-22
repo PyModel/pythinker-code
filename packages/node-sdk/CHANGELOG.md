@@ -1,5 +1,23 @@
 # @pymodel/pythinker-code-sdk
 
+## 0.19.1
+
+### Patch Changes
+
+- [#2862](https://github.com/PyModel/pythinker-code/pull/2862) [`3d77620`](https://github.com/PyModel/pythinker-code/commit/3d7762003a4a35cbeb8571d471c6898a006152e6) Thanks [@liruifengv](https://github.com/liruifengv)! - Add an optional region parameter to the auth login API for selecting the OAuth login endpoint (.com or .ai deployment).
+
+## 0.19.0
+
+### Minor Changes
+
+- [#2593](https://github.com/PyModel/pythinker-code/pull/2593) [`d833a1a`](https://github.com/PyModel/pythinker-code/commit/d833a1a893c4d69d96af542f40557442992085e0) Thanks [@7Sageer](https://github.com/7Sageer)! - Daemon file references no longer persist a materialization path; the display path is derived from the session media store at read time.
+
+- [#2934](https://github.com/PyModel/pythinker-code/pull/2934) [`61591bc`](https://github.com/PyModel/pythinker-code/commit/61591bce09f4467aa1664cb8ecb6aa6904b7accd) Thanks [@chengluyu](https://github.com/chengluyu)! - Add `session.promptWithSkills(input, skills)` to submit one prompt with multiple skill activations in a single turn (v2 engine only).
+
+- [#2593](https://github.com/PyModel/pythinker-code/pull/2593) [`d833a1a`](https://github.com/PyModel/pythinker-code/commit/d833a1a893c4d69d96af542f40557442992085e0) Thanks [@7Sageer](https://github.com/7Sageer)! - Add `uploadFile` for uploading media and referencing it from prompts, and an optional `promptId` on prompt submissions. Both require the v2 harness.
+
+- [#3026](https://github.com/PyModel/pythinker-code/pull/3026) [`13857f3`](https://github.com/PyModel/pythinker-code/commit/13857f383200881aa77dc972a8963ba421eeb2b6) Thanks [@bj456736](https://github.com/bj456736)! - Unify the MCP management surface behind a source-tagged registry, covering plugin-declared servers in `listMcpServers` and adding `getMcpServer`, `testMcpServerConfig`, runtime `addMcpServer`, `inspectAppMcpServers`, and an `oauth-expired` auth state.
+
 ## 0.18.0
 
 ### Minor Changes
@@ -178,7 +196,7 @@
 
 - [#487](https://github.com/PyModel/pythinker-code/pull/487) [`4d11394`](https://github.com/PyModel/pythinker-code/commit/4d113949c8e906c20c7188817926f44786653923) - Honor the standard `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` / `NO_PROXY` environment variables, including SOCKS proxies, for all outbound traffic.
 
-- [#424](https://github.com/PyModel/pythinker-code/pull/424) [`72c4b0a`](https://github.com/PyModel/pythinker-code/commit/72c4b0adaa6ae0466875cd8e4066c42456195f21) - Add the `/dynamic_workflow` command for running agent dynamic workflows with live progress and rate-limit-aware retries.
+- [#424](https://github.com/PyModel/pythinker-code/pull/424) [`72c4b0a`](https://github.com/PyModel/pythinker-code/commit/72c4b0adaa6ae0466875cd8e4066c42456195f21) - Add the `/dynamic_workflow` command for running agent dynamicWorkflows with live progress and rate-limit-aware retries.
 
 ### Patch Changes
 

@@ -14,7 +14,7 @@ import { dirname, join } from 'pathe';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-import { testKaos } from '../fixtures/test-kaos';
+import { testPyaos } from '../fixtures/test-pyaos';
 import type { ProviderConfig } from '@pymodel/kosong';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -1186,7 +1186,7 @@ describe('Session MCP startup', () => {
 
     const session = new Session({
       id: 'test-mcp-oauth',
-      kaos: testKaos.withCwd(tmp),
+      pyaos: testPyaos.withCwd(tmp),
       homedir: join(tmp, 'session'),
       pythinkerHomeDir: pythinkerHome,
       rpc: sessionRpc(),
@@ -1233,7 +1233,7 @@ describe('Session MCP startup', () => {
     const idleServer = `process.stdin.on('end', () => process.exit(0)); process.stdin.resume(); setTimeout(() => {}, 800)`;
     const session = new Session({
       id: 'test-mcp-slow',
-      kaos: testKaos.withCwd(tmp),
+      pyaos: testPyaos.withCwd(tmp),
       homedir: join(tmp, 'session'),
       rpc: sessionRpc(),
       mcpConfig: {
@@ -1266,7 +1266,7 @@ describe('Session MCP startup', () => {
     const tmp = await mkdtemp(join(tmpdir(), 'pythinker-session-mcp-cwd-'));
     const session = new Session({
       id: 'test-mcp-cwd',
-      kaos: testKaos.withCwd(tmp),
+      pyaos: testPyaos.withCwd(tmp),
       homedir: join(tmp, 'session'),
       rpc: sessionRpc(),
       mcpConfig: {
@@ -1300,7 +1300,7 @@ describe('Session MCP startup', () => {
     const tmp = await mkdtemp(join(tmpdir(), 'pythinker-session-mcp-global-timeout-'));
     const session = new Session({
       id: 'test-mcp-global-timeout',
-      kaos: testKaos.withCwd(tmp),
+      pyaos: testPyaos.withCwd(tmp),
       homedir: join(tmp, 'session'),
       rpc: sessionRpc(),
       config: { providers: {}, mcp: { toolTimeoutMs: 1 } },
@@ -1338,7 +1338,7 @@ describe('Session MCP startup', () => {
     scripted.mockNextResponse({ type: 'text', text: 'ready' });
     const session = new Session({
       id: 'test-mcp-turn-ended',
-      kaos: testKaos.withCwd(tmp),
+      pyaos: testPyaos.withCwd(tmp),
       homedir: join(tmp, 'session'),
       rpc: sessionRpc({
         events,
@@ -1353,8 +1353,8 @@ describe('Session MCP startup', () => {
             transport: 'stdio',
             command: process.execPath,
             args: [stdioFixture],
-            env: { PYTHINKER_TEST_MCP_START_DELAY_MS: '250' },
-            startupTimeoutMs: 2_000,
+            env: { PYTHINKER_TEST_MCP_START_DELAY_MS: '1000' },
+            startupTimeoutMs: 3_000,
           },
         },
       },
@@ -1386,7 +1386,7 @@ describe('Session MCP startup', () => {
 
       await Promise.race([
         turnEnded,
-        sleep(1_000).then(() => {
+        sleep(3_000).then(() => {
           throw new Error('Timed out waiting for turn.ended');
         }),
       ]);
@@ -1405,7 +1405,7 @@ describe('Session MCP startup', () => {
     const events: SessionRpcEvent[] = [];
     const session = new Session({
       id: 'test-mcp-mixed',
-      kaos: testKaos.withCwd(tmp),
+      pyaos: testPyaos.withCwd(tmp),
       homedir: join(tmp, 'session'),
       rpc: sessionRpc({ events }),
       mcpConfig: {

@@ -17,7 +17,6 @@ import {
   FEEDBACK_TELEMETRY_EVENT,
   feedbackIdLine,
   feedbackSessionLine,
-  PYTHINKER_CODE_SIGNUP_URL,
   withFeedbackVersionPrefix,
 } from '../constant/feedback';
 import { DEFAULT_OAUTH_PROVIDER_NAME, isManagedUsageProvider } from '../constant/pythinker-tui';
@@ -55,7 +54,6 @@ export async function handleFeedbackCommand(host: SlashCommandHost): Promise<voi
   }
   if (!signedIn) {
     host.showStatus(FEEDBACK_STATUS_NOT_SIGNED_IN);
-    host.showStatus(PYTHINKER_CODE_SIGNUP_URL);
     host.showStatus(FEEDBACK_ISSUE_URL);
     return;
   }

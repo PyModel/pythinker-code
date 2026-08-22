@@ -9,6 +9,7 @@ import { copyTextToClipboard } from '../../lib/clipboard';
 import { isMacosDesktop } from '../../lib/desktopFlag';
 import Menu from '../ui/Menu.vue';
 import MenuItem from '../ui/MenuItem.vue';
+import Button from '../ui/Button.vue';
 import IconButton from '../ui/IconButton.vue';
 import Icon from '../ui/Icon.vue';
 import Tooltip from '../ui/Tooltip.vue';
@@ -32,6 +33,9 @@ const props = defineProps<{
   pr?: { number: number; state: string; url: string } | null;
   /** True for ~2s after a successful copy-all, to flip the icon to a check. */
   copied?: boolean;
+  sessionDone?: boolean;
+  /** True while the session is pinned (sidebar pinned section). */
+  pinned?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -41,7 +45,9 @@ const emit = defineEmits<{
   openPr: [url: string];
   renameSession: [id: string, title: string];
   forkSession: [id: string];
+  togglePin: [id: string];
   archiveSession: [id: string];
+  restoreSession: [id: string];
   exportSession: [id: string];
 }>();
 
@@ -208,6 +214,16 @@ function exportSession(): void {
 }
 
 // ---------------------------------------------------------------------------
+// Pin — the modal confirm and the async work live in App.vue; the header only
+// emits the intent (same flow as archive).
+// ---------------------------------------------------------------------------
+function togglePin(): void {
+  if (!props.sessionId) return;
+  closeMenu();
+  emit('togglePin', props.sessionId);
+}
+
+// ---------------------------------------------------------------------------
 // Archive — the modal confirm and the async work live in App.vue
 // (confirmArchiveSession); the header only emits the intent.
 // ---------------------------------------------------------------------------
@@ -215,6 +231,12 @@ function startArchive(): void {
   if (!props.sessionId) return;
   closeMenu();
   emit('archiveSession', props.sessionId);
+}
+
+function restoreSession(): void {
+  if (!props.sessionId) return;
+  closeMenu();
+  emit('restoreSession', props.sessionId);
 }
 </script>
 
@@ -275,6 +297,10 @@ function startArchive(): void {
           <Icon :name="copiedId ? 'check' : 'copy'" size="sm" />
           {{ copiedId ? t('header.copied') : t('header.copySessionId') }}
         </MenuItem>
+        <MenuItem v-if="!sessionDone" @click="togglePin">
+          <Icon :name="pinned ? 'pushpin-fill' : 'pushpin-line'" size="sm" />
+          {{ pinned ? t('header.unpinSession') : t('header.pinSession') }}
+        </MenuItem>
         <MenuItem @click="startRename">
           <Icon name="pencil" size="sm" />
           {{ t('header.renameSession') }}
@@ -287,9 +313,13 @@ function startArchive(): void {
           <Icon name="download" size="sm" />
           {{ t('header.exportSession') }}
         </MenuItem>
-        <MenuItem danger @click="startArchive">
+        <MenuItem v-if="sessionDone" @click="restoreSession">
+          <Icon name="undo" size="sm" />
+          {{ t('header.reopenSession') }}
+        </MenuItem>
+        <MenuItem v-else @click="startArchive">
           <Icon name="archive" size="sm" />
-          {{ t('header.archiveSession') }}
+          {{ t('header.markSessionDone') }}
         </MenuItem>
       </template>
     </Menu>
@@ -333,6 +363,19 @@ function startArchive(): void {
       <span>PR #{{ pr.number }} · {{ prStateLabel(pr.state) }}</span>
     </button>
 
+    <!-- Archived session (tabs-mode reference surface): "Session done" chip +
+         Reopen button right of the PR badge. -->
+    <template v-if="sessionId && sessionDone">
+      <span class="ch-pill ch-pr pr-merged ch-done-pill">
+        <Icon name="circle-check" size="sm" />
+        <span>{{ t('header.sessionDone') }}</span>
+      </span>
+      <Button variant="secondary" size="sm" @click="restoreSession">
+        <Icon name="undo" size="sm" />
+        {{ t('header.reopenSession') }}
+      </Button>
+    </template>
+
   </header>
 </template>
 
@@ -344,7 +387,7 @@ function startArchive(): void {
   gap: 14px;
   height: 48px;
   padding: 0 16px;
-  border-bottom: 1px solid var(--color-line);
+  border-bottom: 0.5px solid var(--color-line);
   background: var(--color-bg);
   font-family: var(--font-ui);
   min-width: 0;
@@ -453,6 +496,11 @@ function startArchive(): void {
 .ch-pr.pr-draft { color: var(--color-text-muted); border-color: var(--color-line-strong); background: var(--color-surface-sunken); }
 .ch-pr.pr-unknown { color: var(--color-text-muted); border-color: var(--color-line-strong); background: var(--color-surface-sunken); }
 .ch-pr:hover { border-color: var(--color-line-strong); }
+
+/* "Session done" chip (reuses .ch-pr.pr-merged styling) — informational, not
+   a button. */
+.ch-done-pill { cursor: default; }
+.ch-done-pill:hover { border-color: var(--color-done-bd); }
 
 /* Fixed more-menu, anchored to the kebab trigger. Surface / items come from
    the Menu + MenuItem primitives; only positioning stays here. */

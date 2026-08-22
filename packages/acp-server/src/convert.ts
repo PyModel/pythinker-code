@@ -79,7 +79,7 @@ export function acpBlocksToContentParts(blocks: readonly ContentBlock[]): readon
 
 /**
  * Shrink oversized inline images in a prompt-part list — the ACP ingestion
- * point's input-stage compression, mirroring kap-server's upload-time step
+ * point's input-stage compression, mirroring agent-gateway's upload-time step
  * (`resolvePromptMediaFiles`). Best effort: a part that cannot be compressed
  * is passed through unchanged.
  *

@@ -1,6 +1,6 @@
 import { Readable } from 'node:stream';
 
-import type { Kaos, KaosProcess } from '@pymodel/kaos';
+import type { Pyaos, PyaosProcess } from '@pymodel/pyaos';
 import { describe, expect, it, vi } from 'vitest';
 
 import {
@@ -8,9 +8,9 @@ import {
   parseProjectName,
   sanitizeRemoteUrl,
 } from '../../src/session/git-context';
-import { createFakeKaos } from '../tools/fixtures/fake-kaos';
+import { createFakePyaos } from '../tools/fixtures/fake-pyaos';
 
-function fakeProcess(stdout: string, exitCode = 0, stderr = ''): KaosProcess {
+function fakeProcess(stdout: string, exitCode = 0, stderr = ''): PyaosProcess {
   return {
     stdin: { write: () => true, end: () => {} } as never,
     stdout: Readable.from([stdout]),
@@ -26,9 +26,9 @@ function fakeProcess(stdout: string, exitCode = 0, stderr = ''): KaosProcess {
 /** Scripted git output keyed by the git subcommand (`args[3]`). */
 type GitScript = Record<string, { stdout: string; exitCode?: number; stderr?: string }>;
 
-function gitKaos(script: GitScript): Kaos {
-  return createFakeKaos({
-    exec: async (...args: string[]): Promise<KaosProcess> => {
+function gitPyaos(script: GitScript): Pyaos {
+  return createFakePyaos({
+    exec: async (...args: string[]): Promise<PyaosProcess> => {
       const subcommand = args[3] ?? '';
       // Match the full git invocation first (e.g. `rev-parse --abbrev-ref
       // HEAD`) so two commands sharing a subcommand (both `rev-parse`) can be
@@ -43,36 +43,36 @@ function gitKaos(script: GitScript): Kaos {
 
 describe('collectGitContext', () => {
   it('returns an unavailable block when the directory is not a git repository', async () => {
-    const kaos = gitKaos({
+    const pyaos = gitPyaos({
       'rev-parse': {
         stdout: '',
         exitCode: 128,
         stderr: 'fatal: not a git repository (or any of the parent directories): .git',
       },
     });
-    expect(await collectGitContext(kaos, '/project')).toBe(
+    expect(await collectGitContext(pyaos, '/project')).toBe(
       `<git-context status="unavailable" reason="not-a-repo"/>`,
     );
   });
 
   it('returns an empty string when rev-parse fails for a reason other than not-a-repo', async () => {
-    const kaos = gitKaos({
+    const pyaos = gitPyaos({
       'rev-parse': { stdout: '', exitCode: 1, stderr: 'fatal: some other git error' },
     });
-    expect(await collectGitContext(kaos, '/project')).toBe('');
+    expect(await collectGitContext(pyaos, '/project')).toBe('');
   });
 
   it('returns an empty string when git fails to spawn', async () => {
-    const kaos = createFakeKaos({
-      exec: async (): Promise<KaosProcess> => {
+    const pyaos = createFakePyaos({
+      exec: async (): Promise<PyaosProcess> => {
         throw new Error('spawn failed');
       },
     });
-    expect(await collectGitContext(kaos, '/project')).toBe('');
+    expect(await collectGitContext(pyaos, '/project')).toBe('');
   });
 
   it('builds a git-context block with all sections', async () => {
-    const kaos = gitKaos({
+    const pyaos = gitPyaos({
       'rev-parse': { stdout: 'true' },
       remote: { stdout: 'https://github.com/acme/widgets.git' },
       'symbolic-ref --short HEAD': { stdout: 'main' },
@@ -80,7 +80,7 @@ describe('collectGitContext', () => {
       log: { stdout: 'abc123 first commit\ndef456 second commit' },
     });
 
-    const block = await collectGitContext(kaos, '/project');
+    const block = await collectGitContext(pyaos, '/project');
 
     expect(block.startsWith('<git-context>\n')).toBe(true);
     expect(block.endsWith('\n</git-context>')).toBe(true);
@@ -96,7 +96,7 @@ describe('collectGitContext', () => {
 
   it('caps dirty files at 20 and reports the remainder', async () => {
     const dirty = Array.from({ length: 25 }, (_, i) => ` M src/f${String(i)}.ts`).join('\n');
-    const kaos = gitKaos({
+    const pyaos = gitPyaos({
       'rev-parse': { stdout: 'true' },
       remote: { stdout: '' },
       'symbolic-ref --short HEAD': { stdout: '' },
@@ -104,19 +104,19 @@ describe('collectGitContext', () => {
       log: { stdout: '' },
     });
 
-    const block = await collectGitContext(kaos, '/project');
+    const block = await collectGitContext(pyaos, '/project');
 
     expect(block).toContain('Dirty files (25):');
     expect(block).toContain('  ... and 5 more');
   });
 
   it('returns an empty string when only the working directory is known', async () => {
-    const kaos = gitKaos({ 'rev-parse': { stdout: 'true' } });
-    expect(await collectGitContext(kaos, '/project')).toBe('');
+    const pyaos = gitPyaos({ 'rev-parse': { stdout: 'true' } });
+    expect(await collectGitContext(pyaos, '/project')).toBe('');
   });
 
   it('omits both Remote and Project for a disallowed remote host', async () => {
-    const kaos = gitKaos({
+    const pyaos = gitPyaos({
       'rev-parse': { stdout: 'true' },
       remote: { stdout: 'git@internal.corp:secret/repo.git' },
       'symbolic-ref --short HEAD': { stdout: 'main' },
@@ -124,7 +124,7 @@ describe('collectGitContext', () => {
       log: { stdout: '' },
     });
 
-    const block = await collectGitContext(kaos, '/project');
+    const block = await collectGitContext(pyaos, '/project');
 
     expect(block).not.toContain('Remote:');
     expect(block).not.toContain('Project:');
@@ -133,7 +133,7 @@ describe('collectGitContext', () => {
   });
 
   it('keeps branch and status when the origin remote is absent', async () => {
-    const kaos = gitKaos({
+    const pyaos = gitPyaos({
       'rev-parse': { stdout: 'true' },
       remote: { stdout: '', exitCode: 2, stderr: "error: No such remote 'origin'" },
       'symbolic-ref --short HEAD': { stdout: 'main' },
@@ -141,7 +141,7 @@ describe('collectGitContext', () => {
       log: { stdout: 'abc123 first commit' },
     });
 
-    const block = await collectGitContext(kaos, '/project');
+    const block = await collectGitContext(pyaos, '/project');
 
     expect(block).toContain('Branch: main');
     expect(block).toContain('Dirty files (1):');
@@ -151,7 +151,7 @@ describe('collectGitContext', () => {
   });
 
   it('keeps branch and status when the repository has no commits yet', async () => {
-    const kaos = gitKaos({
+    const pyaos = gitPyaos({
       'rev-parse': { stdout: 'true' },
       remote: { stdout: 'https://github.com/acme/widgets.git' },
       'symbolic-ref --short HEAD': { stdout: 'main' },
@@ -163,7 +163,7 @@ describe('collectGitContext', () => {
       },
     });
 
-    const block = await collectGitContext(kaos, '/project');
+    const block = await collectGitContext(pyaos, '/project');
 
     expect(block).toContain('Branch: main');
     expect(block).toContain('Remote: https://github.com/acme/widgets.git');
@@ -172,7 +172,7 @@ describe('collectGitContext', () => {
   });
 
   it('omits the Branch section in detached HEAD state', async () => {
-    const kaos = gitKaos({
+    const pyaos = gitPyaos({
       'rev-parse': { stdout: 'true' },
       'symbolic-ref --short HEAD': {
         stdout: '',
@@ -184,7 +184,7 @@ describe('collectGitContext', () => {
       log: { stdout: 'abc123 first commit' },
     });
 
-    const block = await collectGitContext(kaos, '/project');
+    const block = await collectGitContext(pyaos, '/project');
 
     expect(block).not.toContain('Branch:');
     expect(block).toContain('Remote: https://github.com/acme/widgets.git');
@@ -194,8 +194,8 @@ describe('collectGitContext', () => {
   it('treats a hanging git command as a failure (timeout)', async () => {
     vi.useFakeTimers();
     try {
-      const kaos = createFakeKaos({
-        exec: async (): Promise<KaosProcess> => {
+      const pyaos = createFakePyaos({
+        exec: async (): Promise<PyaosProcess> => {
           let release: (code: number) => void = () => {};
           const exited = new Promise<number>((resolve) => {
             release = resolve;
@@ -216,7 +216,7 @@ describe('collectGitContext', () => {
         },
       });
 
-      const promise = collectGitContext(kaos, '/project');
+      const promise = collectGitContext(pyaos, '/project');
       await vi.advanceTimersByTimeAsync(6_000);
       expect(await promise).toBe('');
     } finally {

@@ -5,7 +5,7 @@ import { dirname, join } from 'node:path';
 import { Worker } from 'node:worker_threads';
 
 import { MiniDb } from '@pymodel/minidb';
-import { getSearchWorkerRuntimeState } from '@pymodel/kap-server/search-worker-runtime';
+import { getSearchWorkerRuntimeState } from '@pymodel/agent-gateway/search-worker-runtime';
 
 import {
   getEmbeddedNativeAssetManifest,

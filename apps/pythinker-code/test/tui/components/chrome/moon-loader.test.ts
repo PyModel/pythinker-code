@@ -5,6 +5,7 @@ import { MoonLoader } from '#/tui/components/chrome/moon-loader';
 import {
   BRAILLE_SPINNER_FRAMES,
   BRAILLE_SPINNER_INTERVAL_MS,
+  formatThinkingSpinnerLabel,
 } from '#/tui/constant/rendering';
 
 // MoonLoader starts a real setInterval in its constructor, so every loader
@@ -49,12 +50,27 @@ describe('MoonLoader', () => {
     expect(createLoader().renderInline()).toBe('⣷');
   });
 
-  it('advances through the shared Braille frames', () => {
+  it('uses the shared Braille mark and shimmer verb labels while allowing retry text to win', () => {
     vi.useFakeTimers();
-    const loader = createLoader();
+    vi.setSystemTime(0);
+    const ui = { requestRender() {} } as unknown as TUI;
+    const loader = new MoonLoader(ui, 'braille', undefined, '', { verbLabels: true });
+    loaders.push(loader);
+    const stripAnsi = (text: string): string => text.replaceAll(/\u001B\[[0-9;]*m/g, '');
 
+    expect(stripAnsi(loader.renderInline())).toBe(
+      `${BRAILLE_SPINNER_FRAMES[0]} ${formatThinkingSpinnerLabel(0)}`,
+    );
     vi.advanceTimersByTime(BRAILLE_SPINNER_INTERVAL_MS);
+    expect(stripAnsi(loader.renderInline())).toBe(
+      `${BRAILLE_SPINNER_FRAMES[1]} ${formatThinkingSpinnerLabel(0)}`,
+    );
 
-    expect(loader.renderInline()).toBe(BRAILLE_SPINNER_FRAMES[1]);
+    loader.setLabel('Retrying in 1s');
+    expect(stripAnsi(loader.renderInline())).toBe(`${BRAILLE_SPINNER_FRAMES[1]} Retrying in 1s`);
+    expect(stripAnsi(loader.renderInline())).not.toContain('thinking');
+
+    loader.setVerbLabels(true);
+    expect(stripAnsi(loader.renderInline())).toContain(`${BRAILLE_SPINNER_FRAMES[1]} thinking…`);
   });
 });

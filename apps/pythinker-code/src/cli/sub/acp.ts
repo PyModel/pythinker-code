@@ -35,7 +35,7 @@ import { buildSkillSlashCommands } from '#/tui/commands/skills';
 
 import { isLegacyEnabled } from '../experimental-v2';
 import { registerNativeAcpCommand } from './acp-native';
-import { runLoginFlow } from './login-flow';
+import { parseRegionFlag, runLoginFlow } from './login-flow';
 
 export function registerAcpCommand(parent: Command): void {
   if (!isLegacyEnabled()) {
@@ -51,9 +51,15 @@ export function registerAcpCommand(parent: Command): void {
       'Run the device-code login flow then exit (entry point for ACP terminal-auth).',
       false,
     )
-    .action(async (opts: { login?: boolean }) => {
+    .option(
+      '--region <region>',
+      'Login region used together with --login: "mainland-cn" (pythinker.com) or "global" (pythinker.ai).',
+    )
+    .action(async (opts: { login?: boolean; region?: string }) => {
       if (opts.login === true) {
-        await runLoginFlow();
+        await runLoginFlow({
+          region: opts.region === undefined ? undefined : parseRegionFlag(opts.region),
+        });
         return;
       }
       const identity = createPythinkerCodeHostIdentity();
@@ -125,8 +131,8 @@ export function registerAcpCommand(parent: Command): void {
             : {}),
         });
         process.exit(0);
-      } catch (err) {
-        process.stderr.write(`acp server: fatal error: ${String(err)}\n`);
+      } catch (error) {
+        process.stderr.write(`acp server: fatal error: ${String(error)}\n`);
         process.exit(1);
       }
     });

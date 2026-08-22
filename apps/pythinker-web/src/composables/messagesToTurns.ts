@@ -85,7 +85,7 @@ function fileIdFromCachePath(p: string): string | undefined {
 }
 
 /** A generic file attachment comes back from the server as a text notice (see
- *  resolvePromptMediaFiles in the kap-server prompts route):
+ *  resolvePromptMediaFiles in the agent-gateway prompts route):
  *    Attached file "<name>" (<mime>, <n> bytes): <dir>/<fileId>-<name> — open it with the Read tool
  *  Recover the chip from the notice instead of dumping it — absolute server
  *  path and all — into the bubble. The fileId is matched by shape at the start
@@ -225,10 +225,13 @@ function normalizeToolOutput(output: unknown): string[] | undefined {
 
 export function toAgentMember(task: AppTask): AgentMember {
   return {
-    id: task.id,
+    id: task.agentId ?? task.id,
     toolCallId: task.parentToolCallId,
     name: task.description,
     subagentType: task.subagentType,
+    prompt: task.command,
+    model: task.model,
+    thinkingEffort: task.thinkingEffort,
     phase:
       task.subagentPhase ??
       (task.status === 'completed' ? 'completed' : task.status === 'failed' ? 'failed' : 'working'),

@@ -13,7 +13,7 @@ import {
   type SDKAPI,
   type TelemetryClient,
 } from '@pymodel/agent-core';
-import type { Kaos } from '@pymodel/kaos';
+import type { Pyaos } from '@pymodel/pyaos';
 import { assertPythinkerHostIdentity, createPythinkerDefaultHeaders } from '@pymodel/pythinker-code-oauth';
 
 import { PythinkerAuthFacade } from '#/auth';
@@ -112,24 +112,24 @@ export class SDKRpcClient extends SDKRpcClientBase {
     return this.ready;
   }
 
-  override async createSessionWithKaos(
+  override async createSessionWithPyaos(
     input: CreateSessionOptions,
-    kaos: Kaos,
-    persistenceKaos?: Kaos,
+    pyaos: Pyaos,
+    persistencePyaos?: Pyaos,
   ): Promise<SessionSummary> {
     const { planMode, ...coreInput } = input;
     void planMode;
-    return this.core.createSessionWithOverrides(coreInput, { kaos, persistenceKaos });
+    return this.core.createSessionWithOverrides(coreInput, { pyaos, persistencePyaos });
   }
 
-  override async resumeSessionWithKaos(
+  override async resumeSessionWithPyaos(
     input: ResumeSessionInput,
-    kaos: Kaos,
-    persistenceKaos?: Kaos,
+    pyaos: Pyaos,
+    persistencePyaos?: Pyaos,
   ): Promise<ResumedSessionSummary> {
     return this.core.resumeSessionWithOverrides(
       { ...input, sessionId: input.id },
-      { kaos, persistenceKaos },
+      { pyaos, persistencePyaos },
     );
   }
 

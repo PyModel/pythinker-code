@@ -88,7 +88,7 @@ export function applyOperation(state: AgentState, op: TranscriptOperation): Appl
   }
 }
 
-function applyReset(state: AgentState, op: Extract<TranscriptOperation, { op: 'reset' }>): ApplyResult {
+function applyReset(_state: AgentState, op: Extract<TranscriptOperation, { op: 'reset' }>): ApplyResult {
   const pending = new Set<InteractionId>();
   for (const interaction of op.snapshot.interactions) {
     if (interaction.state === 'pending') pending.add(interaction.interactionId);
@@ -192,6 +192,8 @@ function turnEquals(turn: TranscriptTurn, header: TurnHeader): boolean {
     turn.endedAt === header.endedAt &&
     turn.origin.kind === header.origin.kind &&
     turn.origin.payload === header.origin.payload &&
+    ('taskId' in turn.origin ? turn.origin.taskId : undefined) ===
+      ('taskId' in header.origin ? header.origin.taskId : undefined) &&
     turn.usage === header.usage &&
     turn.durationMs === header.durationMs &&
     turn.error === header.error
@@ -302,7 +304,12 @@ function frameEquals(a: TranscriptFrame, b: TranscriptFrame): boolean {
     );
   }
   if (a.kind === 'notice' && b.kind === 'notice') {
-    return a.message === b.message && a.level === b.level && a.detail === b.detail;
+    return (
+      a.message === b.message &&
+      a.level === b.level &&
+      a.detail === b.detail &&
+      a.source === b.source
+    );
   }
   return false;
 }
@@ -578,7 +585,7 @@ function applyMetaMerge(state: AgentState, meta: TranscriptMetaMerge): ApplyResu
   const agent =
     meta.agent !== undefined ? { ...state.meta.agent, ...meta.agent } : state.meta.agent;
   const next: TranscriptMeta = {
-    goal: meta.goal ?? state.meta.goal,
+    goal: meta.goal === null ? undefined : (meta.goal ?? state.meta.goal),
     activity: meta.activity ?? state.meta.activity,
     modes: modes !== undefined && modes.plan === undefined && modes.dynamic_workflow === undefined ? undefined : modes,
     agent,

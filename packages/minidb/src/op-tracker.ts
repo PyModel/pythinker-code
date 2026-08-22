@@ -41,7 +41,7 @@
 //     backup() = pause() (the fence + drain IS its linearization point) →
 //     copy → resume() (review #22).
 //
-// kap-server consumer (plan 13): GlobalSearchService gives its
+// agent-gateway consumer (plan 13): GlobalSearchService gives its
 // lifecycle-managed background work (sync passes, read-only refreshes) one
 // tracker; op bodies run under `if (!tracker.enter()) return; try { … }
 // finally { tracker.leave(); }`, and dispose() is exactly `await
@@ -52,7 +52,7 @@
 // work submitted meanwhile rejects synchronously at enter() — it never parks,
 // so shutdown can never deadlock against it.
 //
-// Re-exported from the package root for that kap-server consumer.
+// Re-exported from the package root for that agent-gateway consumer.
 
 export class OpTracker {
   private count = 0;

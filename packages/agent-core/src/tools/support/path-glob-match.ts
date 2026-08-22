@@ -116,7 +116,7 @@ function pathMatchSemantics(
   pattern: string,
   pathOptions: PermissionPathMatchOptions | undefined,
 ): PathMatchSemantics {
-  // Production callers pass the active Kaos path class. The fallback keeps
+  // Production callers pass the active Pyaos path class. The fallback keeps
   // the pure matcher useful for tests and direct helper calls.
   const pathClass =
     pathOptions?.pathClass ??

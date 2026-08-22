@@ -5,13 +5,13 @@
 import { Readable } from 'node:stream';
 import type { Writable } from 'node:stream';
 
-import type { KaosProcess } from '@pymodel/kaos';
+import type { PyaosProcess } from '@pymodel/pyaos';
 import { describe, expect, it, vi } from 'vitest';
 
 import { BackgroundTaskPersistence } from '../../../src/agent/background';
 import { agentTask, createBackgroundManager, registerProcess } from './helpers';
 
-function pendingProcess(): KaosProcess {
+function pendingProcess(): PyaosProcess {
   return {
     stdin: { write: vi.fn(), end: vi.fn() } as unknown as Writable,
     stdout: Readable.from([]),
@@ -19,8 +19,8 @@ function pendingProcess(): KaosProcess {
     pid: 54321,
     exitCode: null,
     wait: () => new Promise<number>(() => {}),
-    kill: vi.fn().mockResolvedValue(undefined) as KaosProcess['kill'],
-    dispose: vi.fn().mockResolvedValue(undefined) as KaosProcess['dispose'],
+    kill: vi.fn().mockResolvedValue(undefined) as PyaosProcess['kill'],
+    dispose: vi.fn().mockResolvedValue(undefined) as PyaosProcess['dispose'],
   };
 }
 

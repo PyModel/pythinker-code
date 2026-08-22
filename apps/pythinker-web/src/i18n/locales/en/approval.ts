@@ -25,4 +25,6 @@ export default {
   approvePlan: 'Approve plan',
   revise: 'Revise',
   rejectAndExit: 'Reject and Exit',
+  expandPlan: 'Expand',
+  collapsePlan: 'Collapse',
 } as const;

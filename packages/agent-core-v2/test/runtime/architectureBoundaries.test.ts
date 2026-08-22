@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const sourceRoot = join(import.meta.dirname, '../../src');
-const kapSourceRoot = join(import.meta.dirname, '../../../kap-server/src');
+const kapSourceRoot = join(import.meta.dirname, '../../../agent-gateway/src');
 
 function source(path: string): string {
   return readFileSync(join(sourceRoot, path), 'utf8');

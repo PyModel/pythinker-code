@@ -104,7 +104,7 @@ describe('runHook process runner', () => {
 // Regression coverage for the "every hook flashes an empty console window on
 // Windows" bug. With `shell:true` and no `windowsHide`, Node allocates a
 // visible console for each hook child process on Windows. The fix is to pass
-// `windowsHide:true` (mirrors KAOS' `buildLocalSpawnOptions` and the runner's
+// `windowsHide:true` (mirrors PYAOS' `buildLocalSpawnOptions` and the runner's
 // own taskkill spawn). The flag is only observable on Windows, so we assert
 // the spawn options builder directly.
 describe('buildHookSpawnOptions (Windows console-window regression)', () => {

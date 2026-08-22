@@ -72,9 +72,6 @@ Only set tokens from this set — unknown keys are silently ignored at load. If 
 | `success` | Success state: `✓`, "enabled", completed |
 | `warning` | Warning state: auto/yolo badges, stale markers, plan-mode hint |
 | `error` | Error state: error messages, failed tool output |
-| `toolPendingBg` | Background tint for a running tool card |
-| `toolSuccessBg` | Background tint for a successful tool card |
-| `toolErrorBg` | Background tint for a failed tool card |
 | `diffAdded` | Diff added lines |
 | `diffRemoved` | Diff removed lines |
 | `diffAddedStrong` | Diff intra-line changed words, added (bold) |

@@ -14,6 +14,7 @@ export default defineConfig({
     name: 'cli',
     env: {
       PYTHINKER_LOG_LEVEL: 'off',
+      PYTHINKER_CODE_TUI_FULL_SCREEN: '0',
     },
     include: ['test/**/*.test.ts', 'test/**/*.test.tsx'],
   },

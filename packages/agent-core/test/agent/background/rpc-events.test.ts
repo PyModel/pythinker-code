@@ -8,7 +8,7 @@ import { Readable } from 'node:stream';
 import type { Writable } from 'node:stream';
 import { join } from 'pathe';
 
-import type { KaosProcess } from '@pymodel/kaos';
+import type { PyaosProcess } from '@pymodel/pyaos';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -21,20 +21,20 @@ import {
   registerProcess,
 } from './helpers';
 
-function immediateProcess(exitCode: number, stdoutText = ''): KaosProcess {
+function immediateProcess(exitCode: number, stdoutText = ''): PyaosProcess {
   return {
     stdin: { write: vi.fn(), end: vi.fn() } as unknown as Writable,
     stdout: Readable.from(stdoutText ? [stdoutText] : []),
     stderr: Readable.from([]),
     pid: 30000 + exitCode,
     exitCode,
-    wait: vi.fn().mockResolvedValue(exitCode) as KaosProcess['wait'],
-    kill: vi.fn().mockResolvedValue(undefined) as KaosProcess['kill'],
-    dispose: vi.fn().mockResolvedValue(undefined) as KaosProcess['dispose'],
+    wait: vi.fn().mockResolvedValue(exitCode) as PyaosProcess['wait'],
+    kill: vi.fn().mockResolvedValue(undefined) as PyaosProcess['kill'],
+    dispose: vi.fn().mockResolvedValue(undefined) as PyaosProcess['dispose'],
   };
 }
 
-function pendingProcess(): KaosProcess {
+function pendingProcess(): PyaosProcess {
   let resolveWait: (code: number) => void = () => {};
   const waitPromise = new Promise<number>((resolve) => {
     resolveWait = resolve;
@@ -53,8 +53,8 @@ function pendingProcess(): KaosProcess {
       if (currentExitCode !== null) return;
       currentExitCode = 143;
       resolveWait(143);
-    }) as unknown as KaosProcess['kill'],
-    dispose: vi.fn().mockResolvedValue(undefined) as KaosProcess['dispose'],
+    }) as unknown as PyaosProcess['kill'],
+    dispose: vi.fn().mockResolvedValue(undefined) as PyaosProcess['dispose'],
   };
 }
 

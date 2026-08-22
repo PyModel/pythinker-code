@@ -101,14 +101,14 @@ async function resolveOneVideo(
     // model reads the file with ReadMediaFile, which re-validates and uploads.
     if (path.trim().length === 0) return videoTag(path);
     if (!agent.config.modelCapabilities.video_in) return videoTag(path);
-    const header = await agent.kaos.readBytes(path, MEDIA_SNIFF_BYTES);
+    const header = await agent.pyaos.readBytes(path, MEDIA_SNIFF_BYTES);
     const fileType = detectFileType(path, header, 'media');
     if (fileType.kind !== 'video') return videoTag(path);
-    const stat = await agent.kaos.stat(path);
+    const stat = await agent.pyaos.stat(path);
     if (stat.stSize === 0) return videoTag(path);
     if (stat.stSize > MAX_MEDIA_BYTES) return videoTag(path);
 
-    const data = await agent.kaos.readBytes(path);
+    const data = await agent.pyaos.readBytes(path);
     const uploader = agent.tools.videoUploader();
     // No upload channel and a wire that drops inline video (OpenAI family):
     // the tag is the only form that actually reaches the model — an inline

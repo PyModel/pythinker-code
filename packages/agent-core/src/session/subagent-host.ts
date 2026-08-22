@@ -388,7 +388,7 @@ export class SessionSubagentHost {
 
     let childPrompt = options.prompt;
     if (profileName === 'explore') {
-      const gitContext = await collectGitContext(child.kaos, child.config.cwd);
+      const gitContext = await collectGitContext(child.pyaos, child.config.cwd);
       if (gitContext) childPrompt = `${gitContext}\n\n${childPrompt}`;
     }
 
@@ -450,7 +450,7 @@ export class SessionSubagentHost {
     });
 
     const context = await prepareSystemPromptContext(
-      this.session.systemContextKaos(child.kaos.getcwd()),
+      this.session.systemContextPyaos(child.pyaos.getcwd()),
       this.session.options.pythinkerHomeDir,
       { additionalDirs: child.getAdditionalDirs() },
     );

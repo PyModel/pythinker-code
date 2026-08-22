@@ -558,7 +558,7 @@ export class AcpSession {
    * reattached client up to the same on-screen state it would have if
    * it had observed every prior `session/prompt` live. Replay is pure
    * event emission: no `onEvent` subscription, no `session.prompt()`
-   * call, no Kaos. The method walks {@link Session.getResumeState}
+   * call, no Pyaos. The method walks {@link Session.getResumeState}
    * (which the node SDK populates from the on-disk session snapshot
    * during `harness.resumeSession`) and synthesizes per-message
    * notifications:

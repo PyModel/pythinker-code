@@ -149,11 +149,11 @@ export class CronCreateTool implements BuiltinTool<CronCreateInput> {
     let parsed: ParsedCronExpression;
     try {
       parsed = parseCronExpression(normalizedCron);
-    } catch (err) {
+    } catch (error) {
       return {
         isError: true,
         output: `Invalid cron expression: ${
-          err instanceof Error ? err.message : String(err)
+          error instanceof Error ? error.message : String(error)
         }`,
       };
     }

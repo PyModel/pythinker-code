@@ -34,9 +34,13 @@ import { foldAgentWireReplay } from '#/v2/resume-replay';
 import {
   drainQueryStoreDisposals,
   drainSessionIndexMirror,
+  getLiveSessionById,
+  agentContextOf,
   HostProcessError,
+  IAgentLifecycleService,
   IHostRequestHeaders,
   ISessionManager,
+  ISessionTodoService,
   OsProcessErrors,
 } from '@pymodel/agent-core-v2';
 
@@ -533,8 +537,14 @@ key = "${titleOAuthRef.key}"
       // The resumed session is a fresh, fully usable scope — not the handle
       // the temporary path just tore down.
       await client.renameSession({ id: 'ses_title_race', title: 'Resumed title' });
-      const sessions = await client.listSessions({ workDir });
-      expect(sessions.find((item) => item.id === 'ses_title_race')?.title).toBe('Resumed title');
+      await expect
+        .poll(
+          async () =>
+            (await client.listSessions({ workDir })).find((item) => item.id === 'ses_title_race')
+              ?.title,
+          { interval: 50, timeout: 4000 },
+        )
+        .toBe('Resumed title');
     } finally {
       await client.close();
       fetchSpy.mockRestore();
@@ -867,6 +877,43 @@ key = "${titleOAuthRef.key}"
       });
     } finally {
       await harness.close();
+    }
+  });
+
+  it('serves getTodos from the live session todo state', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-'));
+    tempDirs.push(homeDir);
+    const workDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-work-'));
+    tempDirs.push(workDir);
+    const client = new SDKRpcClientV2({ homeDir, identity: TEST_IDENTITY });
+    try {
+      await client.createSession({ id: 'ses_todos', workDir });
+      expect(await client.getTodos({ sessionId: 'ses_todos' })).toEqual([]);
+
+      const handle = getLiveSessionById(client.engineAccessor, 'ses_todos');
+      expect(handle).toBeDefined();
+      const main = await handle!.accessor.get(IAgentLifecycleService).create({ agentId: 'main' });
+      await handle!.accessor.get(ISessionTodoService).setTodos(agentContextOf(main), [
+        { title: 'write tests', status: 'in_progress' },
+        { title: 'ship it', status: 'pending' },
+      ]);
+
+      expect(await client.getTodos({ sessionId: 'ses_todos' })).toEqual([
+        { title: 'write tests', status: 'in_progress' },
+        { title: 'ship it', status: 'pending' },
+      ]);
+
+      const served = await client.getTodos({ sessionId: 'ses_todos' });
+      const stored = await handle!
+        .accessor.get(ISessionTodoService)
+        .getTodos(agentContextOf(main));
+      expect(served).not.toBe(stored);
+      expect(served[0]).not.toBe(stored[0]);
+      await expect(client.getTodos({ sessionId: 'ses_missing' })).rejects.toMatchObject({
+        code: ErrorCodes.SESSION_NOT_FOUND,
+      });
+    } finally {
+      await client.close();
     }
   });
 });

@@ -47,8 +47,13 @@ export function keepLiveSubagents(restBased: AppTask[], existing: AppTask[]): Ap
       subagentPhase: restCompletesLiveRow
         ? rest.status === 'completed'
           ? 'completed'
-          : 'failed'
+          : rest.status === 'cancelled'
+            ? 'cancelled'
+            : 'failed'
         : live.subagentPhase,
+      agentId: live.agentId ?? rest.agentId,
+      model: live.model ?? rest.model,
+      thinkingEffort: live.thinkingEffort ?? rest.thinkingEffort,
       completedAt: live.completedAt ?? rest.completedAt,
       // REST output is authoritative once present: agent tasks persist their
       // result at completion, and a previously folded preview would otherwise

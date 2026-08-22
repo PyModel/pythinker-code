@@ -3,8 +3,8 @@
 // (02-sea-blob.mjs) and be spawned from disk at runtime:
 //   - text-build-worker.mjs: the minidb text-build worker
 //     (packages/minidb/src/worker/text-build-worker.ts);
-//   - search-worker.mjs: the kap-server global-search worker
-//     (packages/kap-server/src/search/worker/entry.ts).
+//   - search-worker.mjs: the agent-gateway global-search worker
+//     (packages/agent-gateway/src/search/worker/entry.ts).
 // Without them the bundled binary lacks the worker entry files on disk and
 // heavy index work degrades to the inline main-thread cores, stalling the
 // event loop on large corpora. Runs after the main bundle with clean:false
@@ -46,5 +46,5 @@ function workerConfig(name: string, entry: string) {
 
 export default [
   workerConfig('text-build-worker', '../../packages/minidb/src/worker/text-build-worker.ts'),
-  workerConfig('search-worker', '../../packages/kap-server/src/search/worker/entry.ts'),
+  workerConfig('search-worker', '../../packages/agent-gateway/src/search/worker/entry.ts'),
 ];
