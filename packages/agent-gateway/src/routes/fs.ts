@@ -58,10 +58,20 @@ import {
   fsRevealRequestSchema,
 } from '../protocol/rest-fs';
 
+/**
+ * Body cap for the fs action route. `WorkspaceFsService.write` accepts 10 MiB
+ * of decoded content, which is ~13.4 MiB once base64-encoded and wrapped in
+ * JSON — well past Fastify's 1 MiB default, which would reject a legal write
+ * as a transport error before `FS_TOO_LARGE` could ever be returned. Scoped to
+ * this route so the raise does not widen the request surface of every other
+ * endpoint.
+ */
+export const FS_ACTION_BODY_LIMIT_BYTES = 16 * 1024 * 1024;
+
 interface FsRouteHost {
   post(
     path: string,
-    options: { preHandler: unknown[]; schema?: Record<string, unknown> },
+    options: { preHandler: unknown[]; schema?: Record<string, unknown>; bodyLimit?: number },
     handler: (
       req: { id: string; body: unknown; params: unknown },
       reply: { send(payload: unknown): unknown },
@@ -369,7 +379,7 @@ export function registerFsRoutes(app: FsRouteHost, core: Scope): void {
   );
   app.post(
     fsActionRoute.path,
-    fsActionRoute.options,
+    { ...fsActionRoute.options, bodyLimit: FS_ACTION_BODY_LIMIT_BYTES },
     fsActionRoute.handler as unknown as Parameters<FsRouteHost['post']>[2],
   );
 
@@ -873,5 +883,5 @@ function buildValidationEnvelope(
 function sanitizeFilename(rel: string): string {
   const segs = rel.split('/');
   const base = segs.at(-1) ?? rel;
-  return base.replaceAll(/"/g, '\\"');
+  return base.replaceAll('"', '\\"');
 }

@@ -272,6 +272,14 @@ describe('server-v2 /api/v1 fs routes', () => {
     expect(stale.code).toBe(ErrorCode.FS_CONFLICT);
   });
 
+  it('fs:write accepts a payload past Fastify\'s 1 MiB default body limit', async () => {
+    const id = await createSession();
+    const content = 'x'.repeat(2 * 1024 * 1024);
+    const res = await postFs<{ size: number }>(id, 'write', { path: 'big.txt', content });
+    expect(res.code).toBe(0);
+    expect(res.data.size).toBe(content.length);
+  });
+
   it('fs:write rejects paths that escape the workspace', async () => {
     const id = await createSession();
     const res = await postFs<null>(id, 'write', { path: '../escape.txt', content: 'x' });
