@@ -24,6 +24,7 @@ import { IAgentToolSelectService } from '#/agent/toolSelect/toolSelect';
 import { IAgentMediaResolverService } from '#/agent/media/mediaResolver';
 import { ISessionUsageService } from '#/session/usage/sessionUsage';
 import { IConfigService } from '#/app/config/config';
+import type { LlmConfig } from '#/app/kosongConfig/configSection';
 import type { Event2 } from '#/app/event/event2';
 import { IEventBus } from '#/app/event/eventBus';
 import {
@@ -31,6 +32,7 @@ import {
   APIEmptyResponseError,
   APIRequestTooLargeError,
   APIStatusError,
+  APITimeoutError,
 } from '#/kosong/contract/errors';
 import { emptyUsage, type TokenUsage } from '#/kosong/contract/usage';
 import {
@@ -160,6 +162,7 @@ function createService(
     readonly thinkingLevel?: ThinkingEffort;
     readonly mediaResolver?: Partial<IAgentMediaResolverService>;
     readonly contextMessages?: Message[];
+    readonly llmConfig?: LlmConfig;
   } = {},
 ) {
   const ix = disposables.add(new TestInstantiationService());
@@ -202,7 +205,8 @@ function createService(
   };
   const tools = { list: () => [] };
   const config: Partial<IConfigService> = {
-    get: (() => undefined) as IConfigService['get'],
+    get: ((domain: string) =>
+      domain === 'llm' ? options.llmConfig : undefined) as IConfigService['get'],
   };
   const log = { info: () => undefined, warn: () => undefined };
   const telemetryRecords: TelemetryRecord[] = [];
@@ -910,5 +914,112 @@ describe('AgentLLMRequesterService tool call id normalization', () => {
 
     const result = await service.request();
     expect(result.message.toolCalls[0]!.id).toBe('Bash_0__2');
+  });
+});
+
+function createStallingRequester(options: {
+  readonly hangForever?: boolean;
+  readonly partGapMs?: number;
+  readonly partCount?: number;
+} = {}): ModelRequester {
+  const model: Model = {
+    id: 'm',
+    name: 'wire-model',
+    aliases: [],
+    protocol: 'anthropic',
+    baseUrl: 'https://example.test',
+    headers: {},
+    capabilities,
+    maxContextSize: 1000,
+    alwaysThinking: false,
+    providerName: 'p',
+    authProvider: { getAuth: async () => undefined },
+  };
+  return {
+    model,
+    request: async function* (_input, signal) {
+      const partCount = options.partCount ?? 0;
+      const rejectOnAbort = (): Promise<never> => {
+        if (signal?.aborted === true) {
+          return Promise.reject(signal.reason ?? new Error('aborted'));
+        }
+        const aborted = new Promise<never>((_, reject) => {
+          signal?.addEventListener(
+            'abort',
+            () => reject(signal.reason ?? new Error('aborted')),
+            { once: true },
+          );
+        });
+        void aborted.catch(() => {});
+        return aborted;
+      };
+      for (let index = 0; index < partCount; index += 1) {
+        yield {
+          type: 'part',
+          part: { type: 'text', text: `chunk ${index}` },
+        } satisfies ModelRequestEvent;
+        await new Promise((resolve) => setTimeout(resolve, options.partGapMs ?? 0));
+      }
+      if (options.hangForever === true) {
+        await rejectOnAbort();
+      }
+      yield {
+        type: 'finish',
+        message: { role: 'assistant', content: [{ type: 'text', text: 'ok' }], toolCalls: [] },
+        providerFinishReason: 'completed',
+        rawFinishReason: 'stop',
+        id: 'resp-1',
+      };
+    },
+  };
+}
+
+describe('AgentLLMRequesterService stream stall watchdog', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('fails a stream that never delivers events with APITimeoutError', async () => {
+    vi.useFakeTimers();
+    const { service } = createService(createStallingRequester({ hangForever: true }), undefined, {
+      llmConfig: { requestIdleTimeoutMs: 1_000 },
+    });
+
+    const pending = service.request();
+    const settled = expect(pending).rejects.toThrow(APITimeoutError);
+    await vi.advanceTimersByTimeAsync(1_500);
+    await settled;
+  });
+
+  it('keeps a slow but progressing stream alive until it finishes', async () => {
+    vi.useFakeTimers();
+    const { service } = createService(
+      createStallingRequester({ partGapMs: 600, partCount: 3 }),
+      undefined,
+      { llmConfig: { requestIdleTimeoutMs: 1_000 } },
+    );
+
+    const pending = service.request();
+    for (let tick = 0; tick < 20; tick += 1) {
+      await vi.advanceTimersByTimeAsync(300);
+    }
+    const result = await pending;
+    expect(result.message.content).toEqual([{ type: 'text', text: 'ok' }]);
+  });
+
+  it('surfaces an outer user abort instead of the idle timeout', async () => {
+    vi.useFakeTimers();
+    const controller = new AbortController();
+    const { service } = createService(createStallingRequester({ hangForever: true }), undefined, {
+      llmConfig: { requestIdleTimeoutMs: 60_000 },
+    });
+
+    const pending = service.request({}, undefined, controller.signal);
+    const settled = expect(pending).rejects.toThrow('user cancelled');
+    controller.abort(new Error('user cancelled'));
+    await vi.advanceTimersByTimeAsync(100);
+    await settled;
+    const error = await pending.catch((error: unknown) => error);
+    expect(error).not.toBeInstanceOf(APITimeoutError);
   });
 });
