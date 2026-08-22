@@ -1,7 +1,7 @@
 /**
- * `/hatch` easter egg — everything it needs lives in this one file: the
- * rainbow text coloring, the animation state machine, and the command handler.
- * Removing the feature is "delete this file + its import sites".
+ * `/hatch` easter egg — the rainbow text coloring, the animation state
+ * machine, and the command handler. Removing the feature is "delete this
+ * file, `constant/hatch.ts`, and the import sites".
  *
  * It is deliberately NOT registered in BUILTIN_SLASH_COMMANDS, so it stays out
  * of `/help` and autocomplete; `executeSlashCommand` calls the handler as a
@@ -13,12 +13,8 @@ import chalk from 'chalk';
 
 import type { SlashCommandHost } from '../commands/dispatch';
 import type { ParsedSlashInput } from '../commands/types';
+import { HATCH_FLOW_MS, HATCH_FRAME_MS } from '../constant/hatch';
 import { currentTheme } from '../theme';
-
-/** Frame interval for the rainbow flow animation. */
-export const HATCH_FRAME_MS = 110;
-/** How long the rainbow flows before settling (fading out, or freezing). */
-export const HATCH_FLOW_MS = 3000;
 
 const DARK_RAINBOW = [
   '#4FA8FF',

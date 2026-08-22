@@ -1,13 +1,14 @@
 <!-- apps/pythinker-web/src/components/chat/ToolRow.vue -->
 <script setup lang="ts">
 import { inject, nextTick, ref } from 'vue';
+import type { ToolStatus } from '../../types';
 import Icon from '../ui/Icon.vue';
 import Tooltip from '../ui/Tooltip.vue';
 import StatusDot from '../ui/StatusDot.vue';
 
 withDefaults(
   defineProps<{
-    status: 'running' | 'ok' | 'error' | 'suspended';
+    status: ToolStatus;
     /** Inline-SVG glyph string (toolGlyph), or empty for none. */
     icon?: string;
     name: string;

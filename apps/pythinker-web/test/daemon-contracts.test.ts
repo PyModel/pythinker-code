@@ -101,15 +101,7 @@ describe('dynamic workflow daemon contracts', () => {
     );
   });
 
-  it('defaults a missing flag to background for subagents, keeps explicit values', () => {
-    const omitted = toAppTask({
-      id: 'task_omit',
-      session_id: 'ses_1',
-      kind: 'subagent',
-      description: 'REST-listed review',
-      status: 'running',
-      created_at: now,
-    });
+  it('maps run_in_background explicitly instead of defaulting subagents to background', () => {
     const foreground = toAppTask({
       id: 'task_fg',
       session_id: 'ses_1',
@@ -128,8 +120,6 @@ describe('dynamic workflow daemon contracts', () => {
       created_at: now,
       run_in_background: true,
     });
-    // Reference-matching defaulting: /tasks omits the flag → dockable.
-    expect(omitted.runInBackground).toBe(true);
     expect(foreground.runInBackground).toBe(false);
     expect(background.runInBackground).toBe(true);
   });

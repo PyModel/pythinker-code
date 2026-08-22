@@ -76,6 +76,25 @@ export interface TurnEndedEvent {
   trace_id?: string;
 }
 
+export interface OutputTokenRecoveryEvent {
+  turn_id: number;
+  attempt: number;
+  max_attempts: number;
+}
+
+export interface ModelFallbackEvent {
+  turn_id: number;
+  from_model: string;
+  to_model: string;
+}
+
+export interface BudgetContinuationEvent {
+  turn_id: number;
+  continuation_count: number;
+  tokens_used: number;
+  budget_tokens: number;
+}
+
 export interface PromptCacheProbeEvent {
   source: 'fork';
   turn_id: number;
@@ -496,6 +515,37 @@ export const telemetryEventDefinitions = {
       thinking_effort: 'Effective thinking effort the turn ran with',
       trace_id:
         'Trace id of the most recent LLM request in this turn; absent for non-Pythinker protocols',
+    },
+  }),
+  output_token_recovery: defineAgentTelemetryEvent<OutputTokenRecoveryEvent>({
+    owner: 'pythinker-code',
+    comment:
+      'A truncated response (output token limit, no tool calls) is recovered with a resume nudge and the turn continues.',
+    properties: {
+      turn_id: 'Per-agent turn index (main or subagent); pair with agent_id to locate a turn within a session',
+      attempt: 'Recovery attempt index within the turn, starting at 1',
+      max_attempts: 'Configured cap on recovery attempts per turn',
+    },
+  }),
+  model_fallback_triggered: defineAgentTelemetryEvent<ModelFallbackEvent>({
+    owner: 'pythinker-code',
+    comment:
+      'Step retries were exhausted on a persistent retryable provider error and the agent switched to the configured fallback model.',
+    properties: {
+      turn_id: 'Per-agent turn index (main or subagent); pair with agent_id to locate a turn within a session',
+      from_model: 'Model alias that kept failing before the switch',
+      to_model: 'Fallback model alias the agent switched to',
+    },
+  }),
+  budget_continuation: defineAgentTelemetryEvent<BudgetContinuationEvent>({
+    owner: 'pythinker-code',
+    comment:
+      'A naturally-stopping turn is continued toward the configured output-token target with a continuation nudge.',
+    properties: {
+      turn_id: 'Per-agent turn index (main or subagent); pair with agent_id to locate a turn within a session',
+      continuation_count: 'Continuation index within the turn, starting at 1',
+      tokens_used: 'Cumulative output tokens consumed by the turn so far',
+      budget_tokens: 'Configured output-token target for the turn',
     },
   }),
   prompt_cache_probe: defineAgentTelemetryEvent<PromptCacheProbeEvent>({

@@ -27,7 +27,7 @@
 // references become '(circular)', and class instances collapse to a '(ClassName)'
 // marker — the wire shape of an entry is the JSON projection of the type here.
 //
-// Index (App: 0 keys · Workspace: 6 keys · Session: 17 keys · Agent: 94 keys)
+// Index (App: 0 keys · Workspace: 6 keys · Session: 17 keys · Agent: 99 keys)
 //   App
 //   Workspace
 //     workspaceDirs.ephemeralDirs          src/workspace/workspaceDirs/workspaceDirsService.ts
@@ -148,6 +148,11 @@
 //     toolSelect.pendingLoaded                        src/agent/toolSelect/toolSelectService.ts
 //     tower                                           src/features/tower/towerOps.ts
 //     turn                                            src/agent/loop/turnOps.ts
+//     turnBudget.continuations                        src/agent/turnBudget/turnBudgetService.ts
+//     turnBudget.lastDeltaTokens                      src/agent/turnBudget/turnBudgetService.ts
+//     turnBudget.tokensUsed                           src/agent/turnBudget/turnBudgetService.ts
+//     turnRecovery.modelFallbackUsed                  src/agent/turnRecovery/modelFallbackService.ts
+//     turnRecovery.outputTokenAttempts                src/agent/turnRecovery/outputTokenRecoveryService.ts
 //     userTool                                        src/agent/userTool/userToolOps.ts
 
 /** App-scope keys registered into IAppStateService. */
@@ -1478,6 +1483,14 @@ export interface AgentStateSnapshot {
   'toolExecutor.toolCallDupTypes': Map<string, /* ToolCallDupType — packages/agent-core-v2/src/agent/toolExecutor/toolExecutor.ts */ 'same_step' | 'cross_step'>;
   // src/agent/toolSelect/toolSelectService.ts
   'toolSelect.pendingLoaded': Set<string>;
+  // src/agent/turnBudget/turnBudgetService.ts
+  'turnBudget.continuations': number;
+  'turnBudget.lastDeltaTokens': number;
+  'turnBudget.tokensUsed': number;
+  // src/agent/turnRecovery/modelFallbackService.ts
+  'turnRecovery.modelFallbackUsed': boolean;
+  // src/agent/turnRecovery/outputTokenRecoveryService.ts
+  'turnRecovery.outputTokenAttempts': number;
   // src/agent/userTool/userToolOps.ts
   // replayable · durable — folds: ToolsRegisterUserTool, ToolsUnregisterUserTool
   'userTool': /* UserToolModelState — packages/agent-core-v2/src/agent/userTool/userToolOps.ts */ Map<string, /* UserToolRegistration — packages/agent-core-v2/src/agent/userTool/userTool.ts */ {

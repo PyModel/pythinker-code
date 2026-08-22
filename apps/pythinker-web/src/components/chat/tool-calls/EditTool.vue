@@ -36,7 +36,7 @@ const emit = defineEmits<{
 
 const { t } = useI18n();
 
-const status = computed<'running' | 'ok' | 'error'>(() => props.tool.status as 'running' | 'ok' | 'error');
+const status = computed(() => props.tool.status);
 const label = computed(() => toolLabel(props.tool.name));
 const glyph = computed(() => toolGlyph(props.tool.name));
 const isWrite = computed(() => normalizeToolName(props.tool.name) === 'write');

@@ -8,6 +8,7 @@ export const LOOP_CONTROL_SECTION = 'loopControl';
 
 export const LOOP_MAX_STEPS_PER_TURN_ENV = 'PYTHINKER_LOOP_MAX_STEPS_PER_TURN';
 export const LOOP_MAX_ATTEMPTS_PER_STEP_ENV = 'PYTHINKER_LOOP_MAX_ATTEMPTS_PER_STEP';
+export const LOOP_TURN_BUDGET_TOKENS_ENV = 'PYTHINKER_LOOP_TURN_BUDGET_TOKENS';
 /** Deprecated former name of {@link LOOP_MAX_ATTEMPTS_PER_STEP_ENV}. */
 export const LOOP_MAX_RETRIES_PER_STEP_ENV = 'PYTHINKER_LOOP_MAX_RETRIES_PER_STEP';
 
@@ -17,6 +18,8 @@ export const LoopControlSchema = z.object({
   maxRalphIterations: z.number().int().min(-1).optional(),
   reservedContextSize: z.number().int().min(0).optional(),
   compactionTriggerRatio: z.number().min(0.5).max(0.99).optional(),
+  fallbackModel: z.string().min(1).optional(),
+  turnBudgetTokens: z.number().int().min(0).optional(),
 });
 
 export type LoopControl = z.infer<typeof LoopControlSchema>;
@@ -35,6 +38,7 @@ export const loopControlEnvBindings: EnvBindings<LoopControl> = envBindings(Loop
     deprecatedEnv: LOOP_MAX_RETRIES_PER_STEP_ENV,
     parse: parseNonNegativeInt,
   },
+  turnBudgetTokens: { env: LOOP_TURN_BUDGET_TOKENS_ENV, parse: parseNonNegativeInt },
 });
 
 export const stripLoopControlEnv = stripEnvBoundFields(loopControlEnvBindings);

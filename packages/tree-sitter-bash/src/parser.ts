@@ -1901,7 +1901,7 @@ export class Parser {
     }
   }
 
-  /** Pendings that never got a body (scope ended first): close them empty. */
+  /** Pending heredocs that never got a body (scope ended first): close them empty. */
   private failOpenHeredocs(): void {
     for (const pending of this.heredocQueue.splice(0)) {
       this.hasError = true;

@@ -24,7 +24,7 @@ Token:   ...
 Stop:    Ctrl+C
 ```
 
-服务在前台运行，按 `Ctrl-C` 干净退出。`--host`、`--log-level` 等完整选项见 [pythinker 命令参考](../reference/pythinker-command.md#pythinker-web)。
+服务在前台运行，按 `Ctrl-C` 干净退出。`--host`、`--log-level` 等完整选项见 [pythinker 命令参考](../../reference/pythinker-command.md#pythinker-web)。
 
 ## 鉴权
 
@@ -41,7 +41,7 @@ token 泄露时运行 `pythinker web rotate-token` 轮换：新 token 立即写�
 如果把服务绑定到非本机地址（`--host`），建议额外设置 `PYTHINKER_CODE_PASSWORD` 环境变量作为并列凭证；此时服务端会对鉴权失败自动限流。
 
 ::: danger 警告
-`--dangerous-bypass-auth` 会彻底关闭鉴权，任何能访问该端口的人都能控制你的会话、文件系统和 shell。仅在可信网络或自有鉴权代理之后使用，详见 [pythinker 命令参考](../reference/pythinker-command.md#pythinker-web)。
+`--dangerous-bypass-auth` 会彻底关闭鉴权，任何能访问该端口的人都能控制你的会话、文件系统和 shell。仅在可信网络或自有鉴权代理之后使用，详见 [pythinker 命令参考](../../reference/pythinker-command.md#pythinker-web)。
 :::
 
 ## 用 API 驱动一个会话
@@ -113,4 +113,4 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 ## 下一步
 
 - [服务 API](../reference/server-api.md) — REST 端点全集、错误码、WebSocket 事件与转录协议
-- [pythinker 命令](../reference/pythinker-command.md#pythinker-web) — `pythinker web` 的全部命令行选项
+- [pythinker 命令](../../reference/pythinker-command.md#pythinker-web) — `pythinker web` 的全部命令行选项

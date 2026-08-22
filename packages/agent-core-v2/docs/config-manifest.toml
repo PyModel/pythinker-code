@@ -208,6 +208,7 @@ extra_skill_dirs = []
 #   env:
 #     max_steps_per_turn <- PYTHINKER_LOOP_MAX_STEPS_PER_TURN (custom parse)
 #     max_attempts_per_step <- PYTHINKER_LOOP_MAX_ATTEMPTS_PER_STEP (custom parse; deprecated fallback PYTHINKER_LOOP_MAX_RETRIES_PER_STEP)
+#     turn_budget_tokens <- PYTHINKER_LOOP_TURN_BUDGET_TOKENS (custom parse)
 # ##########################################################################
 
 [loop_control]
@@ -216,6 +217,8 @@ extra_skill_dirs = []
 # max_ralph_iterations: integer
 # reserved_context_size: integer
 # compaction_trigger_ratio: number
+# fallback_model: string
+# turn_budget_tokens: integer
 
 # ##########################################################################
 # mcp
