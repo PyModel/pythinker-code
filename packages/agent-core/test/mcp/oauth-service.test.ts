@@ -158,8 +158,12 @@ async function deliverCallback(flow: BeginAuthorizationResult): Promise<void> {
   await response.text();
 }
 
-async function waitFor(condition: () => boolean, description: string): Promise<void> {
-  const deadline = Date.now() + 5000;
+async function waitFor(
+  condition: () => boolean,
+  description: string,
+  timeoutMs = 5000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
   while (!condition()) {
     if (Date.now() > deadline) throw new Error(`timed out waiting for ${description}`);
     await new Promise((resolve) => setTimeout(resolve, 10));
@@ -618,9 +622,13 @@ describe('McpOAuthService sweepProactiveRefresh resilience', () => {
     await writeFile(join(fixture.storeDir, 'corrupt-meta.json'), '{not json', 'utf-8');
 
     expect(() => fixture.service.sweepProactiveRefresh()).not.toThrow();
+    // The immediate refresh spans two localhost HTTP round-trips plus token
+    // writes; on a loaded CI runner that can outlast the default 5s budget
+    // while staying well inside this test's own 15s timeout.
     await waitFor(
       () => authServer.counts.refresh === 1,
       'the swept credential to refresh immediately',
+      12_000,
     );
   }, 15000);
 });
