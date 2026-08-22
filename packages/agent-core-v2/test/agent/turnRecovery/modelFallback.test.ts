@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { APIConnectionError } from '#/kosong/contract/errors';
 import { emptyUsage } from '#/kosong/contract/usage';
@@ -7,18 +7,47 @@ import { IEventBus } from '#/app/event/eventBus';
 import { IAgentLoopService, type LoopErrorContext, type Step } from '#/agent/loop/loop';
 import { ContinuationStepRequest } from '#/agent/loop/stepRequest';
 import { TurnStarted } from '#/agent/loop/turnEvents';
-import { IAgentProfileService } from '#/agent/profile/profile';
+import {
+  type ProfileSetModelResult,
+  IAgentProfileService,
+} from '#/agent/profile/profile';
+import { AgentProfileService } from '#/agent/profile/profileService';
+import { SyncDescriptor } from '#/_base/di/descriptors';
 import { MODEL_FALLBACK_FLAG_ID } from '#/agent/turnRecovery/flag';
 import { IAgentModelFallbackService, ModelFallbackSwitched } from '#/agent/turnRecovery/modelFallback';
 
 import { stubFlag } from '../../app/flag/stubs';
-import { appService, createTestAgent, llmGenerateServices, type TestAgentContext } from '../../harness';
+import {
+  agentService,
+  appService,
+  createTestAgent,
+  llmGenerateServices,
+  type TestAgentContext,
+} from '../../harness';
 
 const FALLBACK_MODEL = 'fallback-model';
 
 function fallbackFlags(enabled = true): ReturnType<typeof appService> {
   return appService(IFlagService, stubFlag((id) => enabled && id === MODEL_FALLBACK_FLAG_ID));
 }
+
+class DeferredSetModelProfile extends AgentProfileService {
+  override async setModel(model: string): Promise<ProfileSetModelResult> {
+    setModelCalls.push(model);
+    if (deferFirstSetModel) {
+      deferFirstSetModel = false;
+      await new Promise<void>((resolve) => {
+        resolveFirstSetModel = resolve;
+      });
+      return { model };
+    }
+    return super.setModel(model);
+  }
+}
+
+let deferFirstSetModel = false;
+let resolveFirstSetModel: (() => void) | undefined;
+const setModelCalls: string[] = [];
 
 function fallbackTestConfig() {
   return {
@@ -257,6 +286,61 @@ describe('modelFallback plugin', () => {
       .tryFallbackSwitch(context);
 
     expect(switched).toBe(false);
+    expect(ctx.get(IAgentProfileService).getModel()).toBe('mock-model');
+  });
+
+  it('rolls back the model when the step aborts during setModel', async () => {
+    const stepController = new AbortController();
+    deferFirstSetModel = true;
+    resolveFirstSetModel = undefined;
+    setModelCalls.length = 0;
+    ctx = createTestAgent(
+      fallbackFlags(),
+      llmGenerateServices(async () => ({
+        id: 'mid-abort',
+        message: {
+          role: 'assistant' as const,
+          content: [{ type: 'text' as const, text: 'ok' }],
+          toolCalls: [],
+        },
+        usage: emptyUsage(),
+        finishReason: 'completed' as const,
+        rawFinishReason: 'stop',
+      })),
+      { initialConfig: fallbackTestConfig() },
+      agentService(
+        IAgentProfileService,
+        new SyncDescriptor(DeferredSetModelProfile),
+      ),
+    );
+
+    const stepStub: Step = {
+      id: 'step-1',
+      turnId: 1,
+      state: 'running',
+      signal: stepController.signal,
+      result: Promise.resolve({ type: 'cancelled', reason: new Error('cancelled') }),
+      cancel: () => false,
+    };
+    const context: LoopErrorContext = {
+      turnId: 1,
+      step: 1,
+      signal: new AbortController().signal,
+      currentStep: stepStub,
+      error: new APIConnectionError('terminated'),
+      failedDriver: new ContinuationStepRequest(),
+      retry: () => stepStub,
+    };
+
+    const pending = ctx
+      .get(IAgentModelFallbackService)
+      .tryFallbackSwitch(context);
+    await vi.waitFor(() => expect(resolveFirstSetModel).toBeDefined());
+    stepController.abort();
+    resolveFirstSetModel!();
+
+    await expect(pending).resolves.toBe(false);
+    expect(setModelCalls).toEqual(['fallback-model', 'mock-model']);
     expect(ctx.get(IAgentProfileService).getModel()).toBe('mock-model');
   });
 });
