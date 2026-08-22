@@ -45,7 +45,7 @@ describe('turnBudget plugin', () => {
   });
 
   async function runTurn(turnId: number): Promise<Awaited<ReturnType<IAgentLoopService['run']>>> {
-    void ctx.dispatcher.dispatch(new TurnStarted({ turnId, origin: { kind: 'user' } }));
+    void ctx.dispatcher.dispatch(new TurnStarted({ agentId: 'main', turnId, origin: { kind: 'user' } }));
     const loop = ctx.get(IAgentLoopService);
     loop.enqueue(new ContinuationStepRequest());
     return loop.run({ turnId });
