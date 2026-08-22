@@ -47,7 +47,7 @@ async function assertWebAssetsCurrent() {
   const { hash, fileCount } = await computeWebInputHash();
   if (recorded.sourceHash !== hash) {
     throw new Error(
-      'The committed web bundle is stale: apps/pythinker-web has changed since ' +
+      'The committed web bundle is stale: a web build input has changed since ' +
         `it was built (bundle ${String(recorded.sourceHash).slice(0, 12)}, ` +
         `source ${hash.slice(0, 12)}; ${recorded.sourceFileCount} -> ${fileCount} files). ` +
         REBUILD,
