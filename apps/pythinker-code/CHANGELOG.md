@@ -1,5 +1,29 @@
 # @pymodel/pythinker-code
 
+## 0.39.1
+
+### Patch Changes
+
+- [#136](https://github.com/PyModel/pythinker-code/pull/136) [`307ee39`](https://github.com/PyModel/pythinker-code/commit/307ee392bfa7682c380473cdc4ba96532e50201e) Thanks [@elkaix](https://github.com/elkaix)! - Fix missing brand icons in the bundled web UI.
+
+- [#136](https://github.com/PyModel/pythinker-code/pull/136) [`307ee39`](https://github.com/PyModel/pythinker-code/commit/307ee392bfa7682c380473cdc4ba96532e50201e) Thanks [@elkaix](https://github.com/elkaix)! - Abort LLM requests whose stream stalls and report a timeout.
+
+- [#136](https://github.com/PyModel/pythinker-code/pull/136) [`307ee39`](https://github.com/PyModel/pythinker-code/commit/307ee392bfa7682c380473cdc4ba96532e50201e) Thanks [@elkaix](https://github.com/elkaix)! - Refresh model lists for providers imported from the models.dev catalog so newly released models appear automatically.
+
+- [#136](https://github.com/PyModel/pythinker-code/pull/136) [`307ee39`](https://github.com/PyModel/pythinker-code/commit/307ee392bfa7682c380473cdc4ba96532e50201e) Thanks [@elkaix](https://github.com/elkaix)! - Fix subagent cards in the web session view staying Running after they finish.
+
+- [#136](https://github.com/PyModel/pythinker-code/pull/136) [`307ee39`](https://github.com/PyModel/pythinker-code/commit/307ee392bfa7682c380473cdc4ba96532e50201e) Thanks [@elkaix](https://github.com/elkaix)! - Add a manual dynamic-workflow toggle to the composer and the mobile sheet.
+
+- [#136](https://github.com/PyModel/pythinker-code/pull/136) [`307ee39`](https://github.com/PyModel/pythinker-code/commit/307ee392bfa7682c380473cdc4ba96532e50201e) Thanks [@elkaix](https://github.com/elkaix)! - Show file-type icons next to files in the web transcript.
+
+- [#136](https://github.com/PyModel/pythinker-code/pull/136) [`307ee39`](https://github.com/PyModel/pythinker-code/commit/307ee392bfa7682c380473cdc4ba96532e50201e) Thanks [@elkaix](https://github.com/elkaix)! - Add a mono accent option and a mascot working indicator to the web UI.
+
+- [#136](https://github.com/PyModel/pythinker-code/pull/136) [`307ee39`](https://github.com/PyModel/pythinker-code/commit/307ee392bfa7682c380473cdc4ba96532e50201e) Thanks [@elkaix](https://github.com/elkaix)! - Rework the web onboarding flow and provider settings screens.
+
+- [#136](https://github.com/PyModel/pythinker-code/pull/136) [`307ee39`](https://github.com/PyModel/pythinker-code/commit/307ee392bfa7682c380473cdc4ba96532e50201e) Thanks [@elkaix](https://github.com/elkaix)! - Use the brand fingerprint icon for the manual-permission glyph in the web UI.
+
+- [#136](https://github.com/PyModel/pythinker-code/pull/136) [`307ee39`](https://github.com/PyModel/pythinker-code/commit/307ee392bfa7682c380473cdc4ba96532e50201e) Thanks [@elkaix](https://github.com/elkaix)! - Rework the thinking block into an inline collapsible with a live timer.
+
 ## 0.39.0
 
 ### Minor Changes
