@@ -18,7 +18,7 @@ vi.mock("@/components/ui/sonner", () => ({
   toast: { error: vi.fn(), warning: vi.fn() },
 }));
 
-import { resolveAppView, type AppStatus } from "../webview-ui/src/hooks/useAppInit";
+import { resolveAppView, resolveInitStatus, type AppStatus } from "../webview-ui/src/hooks/useAppInit";
 
 function resolve(
   status: AppStatus,
@@ -82,5 +82,26 @@ describe("resolveAppView", () => {
     for (const status of ["loading", "no-workspace", "runtime-error"] as const) {
       expect(resolve(status)).toEqual({ view: "status", status, canGoToLogin: false });
     }
+  });
+});
+
+describe("resolveInitStatus", () => {
+  it("is ready with configured models even when nothing reports a login", () => {
+    // Regression: an API-key-only provider satisfies neither `isAuthenticated()`
+    // nor a provider OAuth token, so this state walled a fully configured user
+    // behind a sign-in screen on every reload.
+    expect(resolveInitStatus({ modelsCount: 2, loggedIn: false })).toBe("ready");
+  });
+
+  it("is ready with configured models when a login is reported", () => {
+    expect(resolveInitStatus({ modelsCount: 2, loggedIn: true })).toBe("ready");
+  });
+
+  it("asks for setup when a login exists but no model is configured", () => {
+    expect(resolveInitStatus({ modelsCount: 0, loggedIn: true })).toBe("no-models");
+  });
+
+  it("asks a brand-new user to add a provider", () => {
+    expect(resolveInitStatus({ modelsCount: 0, loggedIn: false })).toBe("not-logged-in");
   });
 });
