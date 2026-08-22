@@ -295,3 +295,13 @@ export const ModelCatalogConfigSchema = z.object({
 export type ModelCatalogConfig = z.infer<typeof ModelCatalogConfigSchema>;
 
 registerConfigSection(MODEL_CATALOG_SECTION, ModelCatalogConfigSchema);
+
+export const LLM_SECTION = 'llm';
+
+export const LlmConfigSchema = z.object({
+  requestIdleTimeoutMs: z.number().int().min(0).optional(),
+});
+
+export type LlmConfig = z.infer<typeof LlmConfigSchema>;
+
+registerConfigSection(LLM_SECTION, LlmConfigSchema);

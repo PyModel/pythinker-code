@@ -1,85 +1,132 @@
 <!-- apps/pythinker-web/src/components/chat/ThinkingBlock.vue -->
-<!-- 9e97773-style presentation: while this block is streaming it shows a live
-     5-line scrolling window; when the stream moves past it the window folds
-     into a one-paragraph teaser (the LAST paragraph of the thinking text).
-     There is NO inline expand any more — clicking anywhere on the block emits
-     `open`, and the parent shows the full text in the right-side panel. -->
+<!-- Reference presentation (kimi upstream web UI): a `think-head` row — bulb
+     glyph, "Thinking…"/"Thinking" title, live elapsed time while streaming —
+     above an inline collapsible `think-body` holding the full text. Clicking
+     the head toggles the body; a block that was open while streaming folds
+     itself once the stream ends. -->
 <script setup lang="ts">
-import { computed, onMounted, ref, watch, nextTick } from 'vue';
+import { computed, inject, onUnmounted, ref, watch, type Ref } from 'vue';
+import { useI18n } from 'vue-i18n';
+import { formatLiveDuration } from '../chatTurnRendering';
+import Icon from '../ui/Icon.vue';
+import ThinkingBulb from '../ui/ThinkingBulb.vue';
 
 const props = withDefaults(
   defineProps<{
     text: string;
     mobile?: boolean;
     streaming?: boolean;
-    foldable?: boolean;
+    /** ms epoch the thinking stream started; enables the live timer. */
+    startedAtMs?: number;
+    /** Settled duration; renders as a faint "· 7s" tail when present. */
+    durationMs?: number;
+    /** Static always-open variant (no button, no chevron). */
+    forceOpen?: boolean;
   }>(),
-  { mobile: false, streaming: false, foldable: true },
+  { mobile: false, streaming: false, forceOpen: false },
 );
 
-const emit = defineEmits<{
-  /** Show the full thinking text (right-side panel — App's shared slot). */
-  open: [];
-}>();
+const { t } = useI18n();
 
-// Live window while streaming, teaser afterwards. The 0.25s grid transition
-// between the two states (fa8b305) plays on the class flip.
-const paragraphs = computed(() =>
-  props.text
-    .split(/\n{2,}/)
-    .filter((p) => p.trim().length > 0),
+const userOpened = ref(false);
+const open = computed(() => props.forceOpen || userOpened.value);
+
+// A block that streams open collapses as soon as the stream ends.
+watch(
+  () => props.streaming,
+  (current, previous) => {
+    if (previous && !current) userOpened.value = false;
+  },
 );
 
-/** Single-paragraph thinking has nothing to fold — show it straight. */
-const isFoldable = computed(() => props.foldable && paragraphs.value.length > 1);
-const open = computed(() => props.streaming || !isFoldable.value);
-
-/** Last non-empty paragraph, shown as the collapsed teaser. */
-const teaser = computed(() => paragraphs.value.at(-1) ?? '');
-
-const bodyEl = ref<HTMLElement | null>(null);
-
-// On mount, a streaming block must land on its LATEST line. After a page refresh
-// mid-stream the whole thinking text is present at once with scrollTop 0, so the
-// "already at bottom?" check below would otherwise leave the live window parked
-// at the top. A static/historical block is left at its start (we don't pin it).
-onMounted(() => {
-  if (!props.streaming) return;
-  const el = bodyEl.value;
-  if (el) el.scrollTop = el.scrollHeight;
-});
+// Live elapsed: ticking clock anchored at `startedAt`; settled blocks show the
+// captured duration instead ("· 7s"). No timestamps on the wire → no label.
+const nowMs = ref(Date.now());
+let tickInterval: ReturnType<typeof setInterval> | null = null;
 
 watch(
-  () => props.text,
-  () => {
-    const el = bodyEl.value;
-    if (!el) return;
-    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
-    if (!atBottom) return;
-    void nextTick(() => {
-      if (bodyEl.value) bodyEl.value.scrollTop = bodyEl.value.scrollHeight;
+  () => [props.streaming, props.startedAtMs] as const,
+  ([streaming, startedAtMs], _previous, onCleanup) => {
+    if (!streaming || startedAtMs === undefined) return;
+    nowMs.value = Date.now();
+    tickInterval = setInterval(() => {
+      nowMs.value = Date.now();
+    }, 1000);
+    onCleanup(() => {
+      if (tickInterval !== null) {
+        clearInterval(tickInterval);
+        tickInterval = null;
+      }
     });
   },
   { immediate: true },
 );
+
+onUnmounted(() => {
+  if (tickInterval !== null) {
+    clearInterval(tickInterval);
+    tickInterval = null;
+  }
+});
+
+const timeLabel = computed(() => {
+  if (props.streaming && props.startedAtMs !== undefined) {
+    return Number.isFinite(props.startedAtMs) ? formatLiveDuration(nowMs.value - props.startedAtMs) : '';
+  }
+  if (props.durationMs !== undefined) {
+    const settled = formatLiveDuration(props.durationMs);
+    return settled ? `· ${settled}` : '';
+  }
+  return '';
+});
+
+const pinScroll = inject<(el: HTMLElement) => void>('pinScroll', () => undefined);
+const headEl: Ref<HTMLElement | null> = ref(null);
+const bodyInnerEl: Ref<HTMLElement | null> = ref(null);
+
+/** Skip the height transition when expanding onto a body taller than the
+ *  viewport (a streaming window would otherwise animate for seconds). */
+const instant = ref(false);
+
+function toggle(): void {
+  if (props.forceOpen) return;
+  if (!userOpened.value) {
+    const bodyHeight = bodyInnerEl.value?.scrollHeight ?? 0;
+    instant.value = props.streaming && bodyHeight > window.innerHeight;
+  }
+  userOpened.value = !userOpened.value;
+  if (props.streaming) return;
+  const el = headEl.value;
+  if (el) pinScroll(el);
+}
 </script>
 
 <template>
-  <div class="think" :class="{ mob: mobile }">
-    <!-- Foldable: live window above, last-paragraph teaser below; click opens
-         the full text in the right-side panel -->
-    <template v-if="isFoldable">
-      <div class="tc-wrap" :class="{ 'is-collapsed': !open }" @click="emit('open')">
-        <div class="tc-anim">
-          <pre ref="bodyEl" class="tc">{{ text }}</pre>
-        </div>
-        <div class="prev-anim">
-          <span class="prev">{{ teaser }}</span>
-        </div>
+  <div class="think" :class="{ mob: mobile, open, streaming }">
+    <component
+      :is="forceOpen ? 'div' : 'button'"
+      ref="headEl"
+      class="think-head"
+      :class="{ 'is-static': forceOpen }"
+      v-bind="
+        forceOpen
+          ? {}
+          : { type: 'button', 'aria-expanded': open }
+      "
+      @click="toggle"
+    >
+      <ThinkingBulb class="think-bulb" :animated="streaming" size="sm" aria-hidden="true" />
+      <span class="think-title" :class="{ 'ui-shimmer': streaming }">
+        {{ streaming ? t('thinking.streaming') : t('thinking.panelTitle') }}
+      </span>
+      <span v-if="timeLabel" class="think-time">{{ timeLabel }}</span>
+      <Icon v-if="!forceOpen" class="think-car" name="chevron-right" size="sm" aria-hidden="true" />
+    </component>
+    <div class="think-body" :class="{ open, instant }" :inert="!open">
+      <div ref="bodyInnerEl" class="think-body-inner">
+        <pre class="think-text">{{ text }}</pre>
       </div>
-    </template>
-    <!-- Single-paragraph or explicitly non-foldable: always show full content -->
-    <pre v-else ref="bodyEl" class="tc">{{ text }}</pre>
+    </div>
   </div>
 </template>
 
@@ -87,66 +134,69 @@ watch(
 .think {
   margin: 0;
 }
-
-.tc-wrap {
-  display: grid;
-  grid-template-rows: 1fr 0fr;
-  transition: grid-template-rows var(--duration-slow) var(--ease-out);
-  cursor: pointer;
-}
-.tc-wrap.is-collapsed {
-  grid-template-rows: 0fr 1fr;
-}
-.tc-anim,
-.prev-anim {
-  /* min-height: 0 is required for the 0fr/1fr grid collapse to actually shrink
-     below the tracks' content. Without it, an inner scroll container (`.tc`,
-     overflow-y: auto) contributes its content as the automatic minimum, so the
-     row keeps its streaming height and never collapses to the short teaser —
-     most visible on iOS Safari. */
-  overflow: hidden;
-  min-height: 0;
-}
-
-/* Hover hints clickability (opens the full text in the side panel) */
-.tc-wrap.is-collapsed:hover .prev {
-  color: var(--color-text);
-}
-.tc-wrap:not(.is-collapsed):hover .tc {
-  color: var(--color-text-muted);
-}
-
-.prev {
+.think-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  width: 100%;
+  padding: var(--space-1) 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
   color: var(--color-text-faint);
-  font: var(--text-base)/var(--leading-relaxed) var(--font-ui);
-  font-weight: 425;
-  white-space: pre-wrap;
-  word-break: break-word;
-  display: block;
+  font: var(--text-sm)/1 var(--font-ui);
+  text-align: left;
+  cursor: pointer;
+  user-select: none;
+  transition: color var(--duration-base) var(--ease-out);
 }
-
-.tc {
+.think-head:hover { color: var(--color-text); }
+.think-head.is-static,
+.think-head.is-static:hover { cursor: default; color: var(--color-text-faint); }
+.think-head:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--color-accent-soft); }
+.think-bulb { flex: none; }
+.think-title { font-weight: var(--weight-medium); }
+.think-time { color: var(--color-text-faint); font-weight: 400; flex: none; }
+.think-car {
+  color: var(--color-text-faint);
+  flex: none;
+  transition: transform var(--duration-base) var(--ease-out);
+}
+.think.open .think-car { transform: rotate(90deg); }
+.think-body {
+  display: grid;
+  grid-template-rows: minmax(0, 0fr);
+  overflow: hidden;
+  transition: grid-template-rows var(--duration-base) var(--ease-out);
+}
+.think-body.instant { transition: none; }
+.think-body.open { grid-template-rows: minmax(0, 1fr); }
+.think-body-inner { min-height: 0; overflow: hidden; }
+.think-text {
   font: var(--text-base)/var(--leading-relaxed) var(--font-ui);
-  font-weight: 425;
+  font-weight: 400;
   color: var(--color-text-muted);
   white-space: pre-wrap;
   word-break: break-word;
   margin: 0;
-  max-height: calc(var(--leading-relaxed) * 1em * 5);
-  overflow-y: auto;
+  padding: var(--space-1) 0 var(--space-2);
 }
 
 /* ---- Mobile tweaks ---- */
-.mob {
-  margin: 0;
-}
-.mob .tc {
+.mob .think-text {
   color: var(--color-text-faint);
   line-height: var(--leading-normal);
-  max-height: calc(var(--leading-normal) * 1em * 5);
 }
-.mob .prev {
-  color: var(--color-text-faint);
-  line-height: var(--leading-normal);
+
+/* Streaming title breathes like the run header glyph. */
+.think.streaming .think-title {
+  animation: think-breathe 1.6s var(--ease-in-out) infinite;
+}
+@keyframes think-breathe {
+  0%, to { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .think.streaming .think-title { animation: none; }
 }
 </style>

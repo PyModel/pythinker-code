@@ -8,7 +8,7 @@
 # commented "# field: type" lines describe the remaining schema fields.
 # Values resolve as: default -> config.toml -> env overlay -> memory.
 
-# Index (26 sections · 2 overlay(s))
+# Index (27 sections · 2 overlay(s))
 #   advisor                  src/session/advisor/configSection.ts
 #   background               src/agent/task/configSection.ts
 #   builtinProductSkills     src/app/skillCatalog/configSection.ts
@@ -21,6 +21,7 @@
 #   hooks                    src/features/externalHooks/configSection.ts
 #   identity                 src/app/agentIdentity/configSection.ts
 #   image                    src/agent/media/configSection.ts
+#   llm                      src/app/kosongConfig/configSection.ts
 #   loopControl              src/agent/loop/configSection.ts
 #   mcp                      src/app/mcpConfig/configSection.ts
 #   mergeAllAvailableSkills  src/app/skillCatalog/configSection.ts
@@ -186,6 +187,15 @@ extra_skill_dirs = []
 [image]
 # max_edge_px: integer
 # read_byte_budget: integer
+
+# ##########################################################################
+# llm
+#   owner: src/app/kosongConfig/configSection.ts
+#   scope: core
+# ##########################################################################
+
+[llm]
+# request_idle_timeout_ms: integer
 
 # ##########################################################################
 # loopControl (config.toml: loop_control)

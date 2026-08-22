@@ -19,6 +19,7 @@ import { IConfigService } from '#/app/config/config';
 import {
   APIRequestTooLargeError,
   APIStatusError,
+  APITimeoutError,
   classifyApiError,
   isImageFormatError,
   isRecoverableRequestStructureError,
@@ -41,7 +42,7 @@ import type { ModelOverrides } from '#/kosong/model/model.types';
 import { IModelService } from '#/kosong/model/model';
 import { completionBudgetParams, resolveCompletionBudget } from '#/kosong/model/completionBudget';
 import { resolveThinkingKeep, type ThinkingConfig } from '#/kosong/model/thinking';
-import { THINKING_SECTION } from '#/app/kosongConfig/configSection';
+import { THINKING_SECTION, LLM_SECTION, type LlmConfig } from '#/app/kosongConfig/configSection';
 import type { Protocol } from '#/kosong/protocol/protocol';
 import type { ApiErrorEvent } from '#/app/telemetry/events';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
@@ -71,7 +72,7 @@ import {
   type LlmRequestPayload,
   type LlmRequestToolSchema,
 } from './llmRequestOps';
-import { isAbortError } from '#/_base/utils/abort';
+import { isAbortError, linkAbortSignal } from '#/_base/utils/abort';
 import { ErrorCodes, Error2, unwrapErrorCause } from '#/errors';
 import { retryErrorFields } from '#/_base/utils/retry';
 
@@ -81,6 +82,10 @@ const EMPTY_TOOL_PARAMETERS: Record<string, unknown> = {
 };
 
 const noopOnPart: AgentLLMRequestPartHandler = () => {};
+
+const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 180_000;
+
+const STREAM_STALL_REASON = { reason: 'llm-stream-idle-timeout' };
 
 interface ResolvedLLMRequest {
   readonly requester: ModelRequester;
@@ -363,11 +368,19 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
         onRequestTrace(normalized);
       };
 
+      const idleTimeoutMs =
+        this.config.get<LlmConfig>(LLM_SECTION)?.requestIdleTimeoutMs ??
+        DEFAULT_STREAM_IDLE_TIMEOUT_MS;
+      const stall = createStreamStallWatchdog(idleTimeoutMs);
+      const unlinkOuter =
+        signal === undefined ? undefined : linkAbortSignal(signal, stall.controller);
+
       try {
-        for await (const event of request.requester.request(input, signal, {
+        for await (const event of request.requester.request(input, stall.signal, {
           ...request.params,
           onTraceId: setTraceId,
         })) {
+          stall.touch();
           switch (event.type) {
             case 'part':
               await onPart(this.normalizeStreamPart(toolCallIds, event.part));
@@ -408,7 +421,16 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
         }
       } catch (error) {
         toolCallIds.rollback();
+        if (stall.fired && signal?.aborted !== true) {
+          throw new APITimeoutError(
+            `LLM provider stream stalled: no events received for ${String(Math.round(idleTimeoutMs / 1000))}s.`,
+          );
+        }
         throw error;
+      }
+      finally {
+        stall.dispose();
+        unlinkOuter?.();
       }
 
       void this.usage.record(
@@ -831,6 +853,43 @@ function projectionField(fields: AgentLLMRequestLogFields): LlmRequestProjection
 
 function fingerprint(content: string): string {
   return createHash('sha256').update(content).digest('hex');
+}
+
+interface StreamStallWatchdog {
+  readonly controller: AbortController;
+  readonly signal: AbortSignal;
+  readonly fired: boolean;
+  touch(): void;
+  dispose(): void;
+}
+
+function createStreamStallWatchdog(idleTimeoutMs: number): StreamStallWatchdog {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let fired = false;
+  const arm = (): void => {
+    if (idleTimeoutMs <= 0) return;
+    if (timer !== undefined) clearTimeout(timer);
+    timer = setTimeout(() => {
+      timer = undefined;
+      fired = true;
+      controller.abort(STREAM_STALL_REASON);
+    }, idleTimeoutMs);
+    timer.unref?.();
+  };
+  arm();
+  return {
+    controller,
+    signal: controller.signal,
+    get fired() {
+      return fired;
+    },
+    touch: arm,
+    dispose: () => {
+      if (timer !== undefined) clearTimeout(timer);
+      timer = undefined;
+    },
+  };
 }
 
 function apiStatusCode(error: unknown): number | undefined {

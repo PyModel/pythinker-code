@@ -57,7 +57,6 @@ const emit = defineEmits<{
   openFile: [target: FilePreviewRequest];
   openToolDiff: [id: string];
   openAgent: [toolCallId: string];
-  openThinking: [blockIndex: number];
 }>();
 
 const { t } = useI18n();
@@ -211,7 +210,8 @@ function runStreaming(block: Extract<AssistantRenderBlock, { kind: 'activity-run
             :text="block.thinking"
             :mobile="mobile"
             :streaming="blockStreaming(block)"
-            @open="emit('openThinking', block.sourceIndex)"
+            :started-at-ms="seedMs"
+            :duration-ms="elapsedMs"
           />
           <div v-else-if="block.kind === 'text' && block.text" class="msg">
             <Markdown
@@ -230,7 +230,6 @@ function runStreaming(block: Extract<AssistantRenderBlock, { kind: 'activity-run
             @open-file="emit('openFile', $event)"
             @open-tool-diff="emit('openToolDiff', $event)"
             @open-agent="emit('openAgent', $event)"
-            @open-thinking="emit('openThinking', $event)"
           />
           <ToolCall
             v-else-if="block.kind === 'tool'"

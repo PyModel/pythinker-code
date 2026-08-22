@@ -325,6 +325,63 @@ html[data-color-scheme=dark] {
     }
 }
 
+/* Accent: black/white — remaps the accent tokens to grayscale. Orthogonal to
+   the color scheme (only recolours the accent). */
+html[data-accent=mono] {
+    --accent-primary: #171717;
+    --color-accent: #171717;
+    --color-accent-hover: #383838;
+    --color-accent-soft: #f1f1f2;
+    --color-accent-bd: #d4d4d8;
+    --p-selection: rgba(23, 23, 23, .2);
+    --blue: #171717;
+    --blue2: #383838;
+    --soft: #f1f1f2;
+    --bd: #d4d4d8;
+    --bluebg: #f4f4f5;
+    --blueln: #e4e4e7;
+    --logo: #171717
+}
+
+/* mono × dark: the light grayscale above would lose to the dark scheme blocks
+   (same specificity, later in source) — remap to dark grays and pair the
+   near-white accent with the scheme background as its foreground. */
+html[data-color-scheme=dark][data-accent=mono] {
+    --accent-primary: #e8eaed;
+    --color-accent: #e8eaed;
+    --color-accent-hover: #c9cdd4;
+    --color-accent-soft: #21262d;
+    --color-accent-bd: #444c56;
+    --color-text-on-accent: var(--color-bg);
+    --p-selection: rgba(232, 234, 237, .2);
+    --blue: #e8eaed;
+    --blue2: #c9cdd4;
+    --soft: #21262d;
+    --bd: #444c56;
+    --bluebg: #21262d;
+    --blueln: #30363d;
+    --logo: #e8eaed
+}
+
+@media(prefers-color-scheme:dark) {
+    html[data-color-scheme=system][data-accent=mono] {
+        --accent-primary: #e8eaed;
+        --color-accent: #e8eaed;
+        --color-accent-hover: #c9cdd4;
+        --color-accent-soft: #21262d;
+        --color-accent-bd: #444c56;
+        --color-text-on-accent: var(--color-bg);
+        --p-selection: rgba(232, 234, 237, .2);
+        --blue: #e8eaed;
+        --blue2: #c9cdd4;
+        --soft: #21262d;
+        --bd: #444c56;
+        --bluebg: #21262d;
+        --blueln: #30363d;
+        --logo: #e8eaed
+    }
+}
+
 :root {
     --color-bg: #ffffff;
     --color-surface: #f5f5f5;
@@ -1001,6 +1058,43 @@ a.mention-folder {
     --safe-right: env(safe-area-inset-right, 0px);
     --safe-bottom: env(safe-area-inset-bottom, 0px);
     --safe-left: env(safe-area-inset-left, 0px)
+}
+
+/* Live-status shimmer: a highlight sweeps across a label while a turn is in
+   flight ("Thinking…", "Working…"). Clipped to the text, so it inherits the
+   theme's text tokens and needs no per-site colours. Both gradient ends are
+   faint, which makes the loop seam invisible. Children that set their own
+   colour (error / faint clauses) opt out and keep it. */
+.ui-shimmer {
+    background: linear-gradient(90deg,
+        var(--color-text-faint) 0%,
+        var(--color-text-faint) 40%,
+        var(--color-text) 50%,
+        var(--color-text-faint) 60%,
+        var(--color-text-faint) 100%);
+    background-size: 300% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    animation: ui-shimmer 2.2s linear infinite;
+}
+
+@keyframes ui-shimmer {
+    0% {
+        background-position: 0% 0
+    }
+
+    100% {
+        background-position: 100% 0
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .ui-shimmer {
+        animation: none;
+        background: none;
+        color: var(--color-text-muted)
+    }
 }
 
 .ui-icon {
