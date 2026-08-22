@@ -360,14 +360,14 @@ echo "🎉 done" | grep 🎉 && echo ✓
 é=1 echo $é
 ---
 hasError: false
-program [0,12] "é=1 echo $é"
-  command [0,12] "é=1 echo $é"
+program [0,11] "é=1 echo $é"
+  command [0,11] "é=1 echo $é"
     command_name [0,3] "é=1"
       word [0,3] "é=1"
     word [4,8] "echo"
-    concatenation [9,12] "$é"
+    concatenation [9,11] "$é"
       ($) [9,10] "$"
-      word [10,12] "é"
+      word [10,11] "é"
 ===
 @known-diff escaped-space-argument: echo a\<TAB>b
 echo a\	b
