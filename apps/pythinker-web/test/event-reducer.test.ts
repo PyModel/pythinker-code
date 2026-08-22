@@ -82,6 +82,44 @@ describe('reduceAppEvent turnActiveChanged', () => {
   });
 });
 
+describe('reduceAppEvent sessionArchived', () => {
+  it('removes a session archived elsewhere from the open list', () => {
+    const state = {
+      ...createInitialState(),
+      sessions: [makeSession('s1', '2026-01-01T00:00:00.000Z'), makeSession('s2', '2026-01-02T00:00:00.000Z')],
+      activeSessionId: 's1',
+    };
+
+    const next = reduceAppEvent(
+      state,
+      { type: 'sessionArchived', sessionId: 's1', workspaceId: 'w1' },
+      { sessionId: 's1', seq: 1 },
+    );
+
+    expect(next.sessions.map((s) => s.id)).toEqual(['s2']);
+    expect(next.activeSessionId).toBeUndefined();
+  });
+
+  it('keeps cached session data so the session can be reopened', () => {
+    const state = {
+      ...createInitialState(),
+      sessions: [makeSession('s1', '2026-01-01T00:00:00.000Z')],
+      messagesBySession: { s1: [] },
+      lastSeqBySession: { s1: 7 },
+    };
+
+    const next = reduceAppEvent(
+      state,
+      { type: 'sessionArchived', sessionId: 's1', workspaceId: 'w1' },
+      { sessionId: 's1', seq: 1 },
+    );
+
+    expect(next.sessions).toEqual([]);
+    expect(next.messagesBySession['s1']).toEqual([]);
+    expect(next.lastSeqBySession['s1']).toBe(7);
+  });
+});
+
 describe('reduceAppEvent sessionWorkChanged', () => {
   it('updates list-level main-turn liveness for an unopened session', () => {
     const state = {

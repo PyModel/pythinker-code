@@ -388,6 +388,18 @@ export function reduceAppEvent(
       break;
     }
 
+    // An archive performed elsewhere (another client, or the CLI). The session
+    // leaves the open list but its cached data stays: archiving is reversible,
+    // and reopening should not have to refetch everything.
+    case 'sessionArchived': {
+      const id = event.sessionId;
+      next.sessions = next.sessions.filter((s) => s.id !== id);
+      if (next.activeSessionId === id) {
+        next.activeSessionId = undefined;
+      }
+      break;
+    }
+
     // -------------------------------------------------------------------------
     case 'sessionWorkChanged': {
       next.sessions = next.sessions.map((s) => {
