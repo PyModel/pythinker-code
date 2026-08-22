@@ -268,15 +268,14 @@ const emit = defineEmits<{
   editMessage: [payload: { text: string; attachments?: TurnAttachment[] }];
   /** Fetch the next older page of messages (triggered by top sentinel visibility or click). */
   loadOlderMessages: [];
-  /** Remove a queued message by index. */
   unqueue: [index: number];
   /** Load a queued message back into the composer for editing (and dequeue it). */
   editQueued: [index: number];
   /** Drag-to-reorder a queued message within the active session's queue. */
   reorderQueue: [payload: { from: number; to: number }];
   /**
-   * Failed-turn recovery: re-send the last user prompt (approximation of the
-   * reference's daemon-side resumeTurn — the wire has no resume endpoint).
+   * Failed-turn recovery: submit a fixed "Continue" prompt (no attachments),
+   * mirroring the reference client's resume path.
    */
   continueTurn: [text: string];
 }>();
@@ -663,21 +662,13 @@ function runIsStreaming(
   return last !== undefined && last.sourceIndex === turnBlocks(turn).length - 1;
 }
 
-// Failed-turn recovery: re-send the LAST USER prompt through the ordinary send
-// path. The reference's daemon-side resumeTurn does not exist on this wire, so
-// the closest approximation is resubmitting the user's own text.
-function lastUserPrompt(): string {
-  for (let index = props.turns.length - 1; index >= 0; index -= 1) {
-    const turn = props.turns[index];
-    if (turn && turn.role === 'user' && turn.text.trim().length > 0) return turn.text;
-  }
-  return '';
-}
-
+// Failed-turn recovery: submit a fixed "Continue" prompt with no attachments,
+// matching the reference client (its ConversationPane submits
+// `conversation.turnFailedResumeText` through the ordinary send path). The
+// user's own last message is deliberately NOT re-sent: that would repeat its
+// instructions and any side effects.
 function continueFailedTurn(): void {
-  const text = lastUserPrompt();
-  if (text.length === 0) return;
-  emit('continueTurn', text);
+  emit('continueTurn', t('conversation.turnFailedResumeText'));
 }
 
 // NOTE: the turn-summary line ("Called N tools...") was removed in f9417af. If it

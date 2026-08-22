@@ -148,8 +148,6 @@ const emit = defineEmits<{
   refreshGitStatus: [];
   /** Edit + resend the last user message (App undoes, then refills composer). */
   editMessage: [payload: { text: string; attachments?: TurnAttachment[] }];
-  /** Failed-turn recovery: re-send the last user prompt (see ChatPane). */
-  continueTurn: [text: string];
   /** Empty-composer workspace picker: start a new conversation elsewhere. */
   selectWorkspace: [workspaceId: string];
   /** Empty-composer workspace picker: create a new workspace. */
@@ -1519,7 +1517,7 @@ defineExpose({ loadComposerForEdit, focusComposer });
               @unqueue="emit('unqueue', $event)"
               @edit-queued="handleEditQueued"
               @reorder-queue="handleReorderQueue"
-              @continue-turn="emit('continueTurn', $event)"
+              @continue-turn="(text) => handleComposerSubmit({ text, attachments: [] })"
             />
           </template>
         </div>
