@@ -247,6 +247,25 @@ function appendToolOutputToMessages(messages: AppMessage[], toolCallId: string, 
   return changed ? next : messages;
 }
 
+/**
+ * Settle open thinking parts in `content` (reference `cp`): a thinking part
+ * streams only while it is the current tail — the moment a later content part
+ * starts (or the step/turn ends) its `durationMs` freezes, so the render layer
+ * stops treating it as live. `beforeIndex` limits settling to parts before
+ * that index (the part AT `beforeIndex` is the just-opened tail and stays
+ * open); pass `content.length` to settle everything.
+ */
+function settleOpenThinking(content: AppMessageContent[], nowMs: number, beforeIndex = content.length): void {
+  for (let i = 0; i < beforeIndex; i++) {
+    const part = content[i];
+    if (part?.type !== 'thinking') continue;
+    if (part.startedAt === undefined || part.durationMs !== undefined) continue;
+    const started = Date.parse(part.startedAt);
+    if (Number.isNaN(started)) continue;
+    content[i] = { ...part, durationMs: Math.max(0, nowMs - started) };
+  }
+}
+
 /** Agent error code → semantic title key under `warnings.agentError`. Codes
  *  come from the protocol error domain (agent-core-v2 `ProtocolErrors`);
  *  anything unmapped falls back to the generic `title`. */
@@ -530,9 +549,26 @@ export function reduceAppEvent(
       const msgs = next.messagesBySession[sid] ?? [];
       next.messagesBySession[sid] = msgs.map((m) => {
         if (m.id !== event.messageId) return m;
+        // Carry per-part thinking timing across the wholesale content swap: the
+        // projector's copy has none (timing is born here, on first delta), so
+        // map by index and keep the existing startedAt/durationMs (reference
+        // messageUpdated). Then settle open thinking parts: a pending update
+        // (new tool-use slot) freezes every part before the new tail; a
+        // completed/duration-stamped update freezes the tail too.
+        const content = event.content.map((part, index) => {
+          const existing = m.content[index];
+          return part.type === 'thinking' && existing?.type === 'thinking'
+            ? { ...part, startedAt: existing.startedAt, durationMs: existing.durationMs }
+            : part;
+        });
+        const now = Date.now();
+        settleOpenThinking(content, now, content.length - 1);
+        if (event.status !== 'pending' || event.durationMs !== undefined) {
+          settleOpenThinking(content, now);
+        }
         return {
           ...m,
-          content: event.content,
+          content,
           durationMs: event.durationMs ?? m.durationMs,
         };
       });
@@ -547,6 +583,11 @@ export function reduceAppEvent(
         if (m.id !== event.messageId) return m;
         const content = [...m.content];
         const idx = event.contentIndex;
+        // Track whether the slot pre-existed: the placeholder loop below pads
+        // text slots, so a padded slot must be treated as a NEW part (settle
+        // the thinking parts before it), not a continuation (reference: the
+        // `c` flag in assistantDelta).
+        const created = content.length <= idx;
         // Ensure the slot exists
         while (content.length <= idx) {
           content.push({ type: 'text', text: '' });
@@ -554,9 +595,11 @@ export function reduceAppEvent(
         const existing = content[idx]!;
         let patched: AppMessageContent;
         if (event.delta.text !== undefined) {
-          if (existing.type === 'text') {
+          if (existing.type === 'text' && !created) {
             patched = { type: 'text', text: existing.text + event.delta.text };
           } else {
+            // A fresh text part ends any thinking part before it (reference cp).
+            settleOpenThinking(content, Date.now(), idx);
             patched = { type: 'text', text: event.delta.text };
           }
         } else if (event.delta.thinking !== undefined) {
@@ -565,9 +608,14 @@ export function reduceAppEvent(
               type: 'thinking',
               thinking: existing.thinking + event.delta.thinking,
               signature: existing.signature,
+              startedAt: existing.startedAt,
+              durationMs: existing.durationMs,
             };
           } else {
-            patched = { type: 'thinking', thinking: event.delta.thinking };
+            // The thinking stream opens here — stamp its start so the live
+            // timer has an anchor — and settle every thinking part before it.
+            settleOpenThinking(content, Date.now(), idx);
+            patched = { type: 'thinking', thinking: event.delta.thinking, startedAt: new Date().toISOString() };
           }
         } else {
           patched = existing;

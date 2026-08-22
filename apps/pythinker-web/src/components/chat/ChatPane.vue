@@ -25,9 +25,12 @@ import { copyTextToClipboard } from '../../lib/clipboard';
 import { openFileAttachment } from '../../lib/openFileAttachment';
 import {
   assistantRenderBlocks,
+  blockStartedMs,
+  earliestThinkingMs,
   foldRenderBlocks,
   formatDuration,
   formatTokens,
+  isSettledThinking,
   renderBlockKey,
   turnBlocks,
   turnFinalText,
@@ -603,8 +606,12 @@ function onAttachmentClick(att: TurnAttachment): void {
   });
 }
 
-function isStreamingRenderBlock(turn: ChatTurn, block: { sourceIndex: number }): boolean {
+function isStreamingRenderBlock(turn: ChatTurn, block: { sourceIndex: number; kind?: string; durationMs?: number }): boolean {
   if (turn.id !== streamingTurnId.value) return false;
+  // A settled thinking block is never the streaming tail (reference kn): its
+  // durationMs froze when the next part started, so it renders collapsed as
+  // "Thinking · Ns" instead of shimmering a second "Thinking…" row.
+  if (isSettledThinking(block)) return false;
   return block.sourceIndex === turnBlocks(turn).length - 1;
 }
 
@@ -621,6 +628,10 @@ function streamingTailIndexFor(turn: ChatTurn): number | null {
   if (turn.id !== streamingTurnId.value) return null;
   const blocks = turnBlocks(turn);
   const last = blocks.at(-1);
+  // A settled thinking tail means the model finished thinking and the agent is
+  // between steps: no stream markers (the turn folds to its ticking "Worked"
+  // header instead of holding a stale "Thinking…" row open — reference Pn).
+  if (last !== undefined && isSettledThinking(last)) return null;
   if (last?.kind === 'tool' && last.tool.status === 'running') {
     const toolId = last.tool.id;
     const awaitingDecision =
@@ -640,13 +651,15 @@ function turnCreatedMs(turn: ChatTurn): number | undefined {
 }
 
 /** True when an `activity-run` block is the streaming tail run of the live
- *  turn (its last item is the turn's last block). */
+ *  turn (its last item is the turn's last block). A run whose tail thinking
+ *  already settled is not streaming (reference jt). */
 function runIsStreaming(
   turn: ChatTurn,
   block: Extract<AssistantRenderBlock, { kind: 'activity-run' }>,
 ): boolean {
   if (turn.id !== streamingTurnId.value) return false;
   const last = block.items.at(-1);
+  if (last !== undefined && isSettledThinking(last)) return false;
   return last !== undefined && last.sourceIndex === turnBlocks(turn).length - 1;
 }
 
@@ -817,6 +830,7 @@ function continueFailedTurn(): void {
           :live="turn.id === streamingTurnId"
           :parked="turn.id === streamingTurnId && streamingTailIndexFor(turn) === null"
           :streaming-tail-index="streamingTailIndexFor(turn)"
+          :seed-ms="earliestThinkingMs(turn)"
           :created-ms="turnCreatedMs(turn)"
           :duration-ms="turn.durationMs"
           :tool-diff-panel="toolDiffPanel"
@@ -827,7 +841,7 @@ function continueFailedTurn(): void {
           @open-agent="emit('openAgent', $event)"
         />
         <template v-for="(blk, bi) in assistantTurnModels.get(turn.id)?.visible ?? []" :key="renderBlockKey(blk, bi)">
-          <ThinkingBlock v-if="blk.kind === 'thinking'" :text="blk.thinking" mobile :streaming="isStreamingRenderBlock(turn, blk)" :started-at-ms="turnCreatedMs(turn)" :duration-ms="turn.durationMs" />
+          <ThinkingBlock v-if="blk.kind === 'thinking'" :text="blk.thinking" mobile :streaming="isStreamingRenderBlock(turn, blk)" :started-at-ms="blockStartedMs(blk.startedAt)" :duration-ms="blk.durationMs" />
           <div v-else-if="blk.kind === 'text' && blk.text" class="msg"><Markdown :text="blk.text" :streaming="isStreamingRenderBlock(turn, blk)" :open-file="(target) => emit('openFile', target)" /></div>
           <ActivityRun
             v-else-if="blk.kind === 'activity-run'"

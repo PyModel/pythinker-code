@@ -103,7 +103,17 @@ function transcriptTurnToMessages(
           id: frame.frameId,
           sessionId: options.sessionId,
           role: 'assistant',
-          content: [{ type: 'thinking', thinking: frame.text }],
+          content: [
+            {
+              type: 'thinking',
+              thinking: frame.text,
+              // Frames carry no timing of their own; borrow the step's. A
+              // finished step settles the thinking (durationMs), a still-
+              // running step leaves it open so the live tail can stream.
+              startedAt: stepTime,
+              durationMs: durationBetween(stepTime, validDate(step.endedAt)),
+            },
+          ],
           createdAt: stepTime,
           promptId,
         });

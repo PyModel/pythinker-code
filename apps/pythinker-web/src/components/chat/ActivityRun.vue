@@ -12,7 +12,7 @@ import { useI18n } from 'vue-i18n';
 import type { FilePreviewRequest, ToolMedia } from '../../types';
 import { normalizeToolName, toolSummary } from '../../lib/toolMeta';
 import type { IconName } from '../../lib/icons';
-import { formatLiveDuration, runItemKey, type RunItem } from '../chatTurnRendering';
+import { blockStartedMs, formatLiveDuration, isSettledThinking, runItemKey, type RunItem } from '../chatTurnRendering';
 import Icon from '../ui/Icon.vue';
 import ThinkingBulb from '../ui/ThinkingBulb.vue';
 import ThinkingBlock from './ThinkingBlock.vue';
@@ -297,11 +297,15 @@ function toggle(): void {
 }
 
 /** Only the run's last thinking item streams (the daemon streams one tail
- *  item at a time; a settled thinking block never animates). */
+ *  item at a time; a settled thinking block never animates). The durationMs
+ *  guard mirrors the reference `_()`: a thinking whose step ended keeps its
+ *  frozen "Thinking · Ns" label instead of shimmering forever while the run
+ *  stays open. */
 function isItemStreaming(item: RunItem): boolean {
   return (
     props.streaming &&
     item.kind === 'thinking' &&
+    !isSettledThinking(item) &&
     item.sourceIndex === (last.value?.sourceIndex ?? -1)
   );
 }
@@ -353,8 +357,8 @@ function isItemStreaming(item: RunItem): boolean {
             :text="item.thinking"
             :mobile="mobile"
             :streaming="isItemStreaming(item)"
-            :started-at-ms="startedAtMs ?? undefined"
-            :duration-ms="settledElapsedMs"
+            :started-at-ms="blockStartedMs(item.startedAt)"
+            :duration-ms="item.durationMs"
           />
           <ToolCall
             v-else

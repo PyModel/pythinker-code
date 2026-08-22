@@ -545,6 +545,66 @@ describe('messagesToTurns', () => {
 
     expect(turns[0]).toMatchObject({ role: 'user', text: 'a < b and c > d, no system tag here' });
   });
+
+  it('carries thinking part timing into turn blocks (settled vs streaming tail)', () => {
+    // The redundant-thinking scenario: text, then a tool call, then a settled
+    // thinking segment. The block must carry durationMs so the render layer
+    // treats it as settled (no shimmering "Thinking…" row under the run).
+    const turns = messagesToTurns(
+      [
+        message('u1', 'user', [{ type: 'text', text: 'go' }]),
+        message('a1', 'assistant', [{ type: 'text', text: 'Branch is …' }]),
+        message('a2', 'assistant', [
+          { type: 'toolUse', toolCallId: 'tool-1', toolName: 'bash', input: { command: 'git fetch' } },
+        ]),
+        message('t1', 'tool', [{ type: 'toolResult', toolCallId: 'tool-1', output: 'ok' }]),
+        message('a3', 'assistant', [
+          {
+            type: 'thinking',
+            thinking: 'next step',
+            startedAt: '2026-01-01T00:00:10.000Z',
+            durationMs: 2000,
+          },
+        ]),
+      ],
+      [],
+      undefined,
+      false,
+    );
+
+    const turn = turns[1];
+    expect(turn?.role).toBe('assistant');
+    const thinking = turn?.blocks?.find((b) => b.kind === 'thinking');
+    expect(thinking).toMatchObject({
+      kind: 'thinking',
+      thinking: 'next step',
+      startedAt: '2026-01-01T00:00:10.000Z',
+      durationMs: 2000,
+    });
+  });
+
+  it('keeps the earliest startedAt and the latest durationMs when thinking segments merge', () => {
+    const turns = messagesToTurns(
+      [
+        message('u1', 'user', [{ type: 'text', text: 'go' }]),
+        message('a1', 'assistant', [
+          { type: 'thinking', thinking: 'first', startedAt: '2026-01-01T00:00:00.000Z', durationMs: 1000 },
+          { type: 'thinking', thinking: 'second', startedAt: '2026-01-01T00:00:02.000Z' },
+        ]),
+      ],
+      [],
+      undefined,
+      false,
+    );
+
+    const thinking = turns[1]?.blocks?.filter((b) => b.kind === 'thinking');
+    expect(thinking).toHaveLength(1);
+    expect(thinking?.[0]).toMatchObject({
+      thinking: 'first\nsecond',
+      startedAt: '2026-01-01T00:00:00.000Z',
+      durationMs: undefined,
+    });
+  });
 });
 
 describe('messagesToTurns resync dedup', () => {
