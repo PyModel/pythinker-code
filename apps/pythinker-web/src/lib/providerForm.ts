@@ -73,23 +73,63 @@ export function modelsForProvider(
   return result;
 }
 
-export function validateProviderForm(
+/** Validation failures for one model row, keyed by the field that failed. */
+export interface ProviderModelRowErrors {
+  model?: ProviderFormError;
+  maxContextSize?: ProviderFormError;
+}
+
+/** Every validation failure in a provider form, addressed by field.
+ *
+ *  Field-scoped rather than a single message so the form can clear exactly the
+ *  error the user just fixed, and so one incomplete model row reports against
+ *  that row instead of blocking the whole provider with an unattributed
+ *  message. */
+export interface ProviderFormErrors {
+  id?: ProviderFormError;
+  apiKey?: ProviderFormError;
+  baseUrl?: ProviderFormError;
+  /** Keyed by row index — the only stable handle while ids are being typed. */
+  models: Record<number, ProviderModelRowErrors>;
+  /** Set when the form carries no model rows at all. */
+  modelsEmpty?: ProviderFormError;
+}
+
+/** Collect every validation failure at once, rather than stopping at the first. */
+export function collectProviderFormErrors(
   value: ProviderFormValue,
   requirements: { apiKey?: boolean; baseUrl?: boolean } = {},
-): ProviderFormError | null {
+): ProviderFormErrors {
+  const errors: ProviderFormErrors = { models: {} };
   const id = value.id.trim();
-  if (id === '') return 'idRequired';
-  if (!providerIdPattern.test(id)) return 'idInvalid';
-  if (requirements.apiKey === true && value.apiKey.trim() === '') return 'apiKeyRequired';
-  if (requirements.baseUrl === true && value.baseUrl.trim() === '') return 'baseUrlRequired';
-  if (value.models.length === 0) return 'modelRequired';
-  for (const model of value.models) {
-    if (model.model.trim() === '') return 'modelRequired';
-    const context = model.maxContextSize.trim();
-    if (context === '') return 'contextSizeRequired';
-    if (!/^\d+$/.test(context) || Number(context) < 1) return 'contextSizeInvalid';
+  if (id === '') errors.id = 'idRequired';
+  else if (!providerIdPattern.test(id)) errors.id = 'idInvalid';
+  if (requirements.apiKey === true && value.apiKey.trim() === '') errors.apiKey = 'apiKeyRequired';
+  if (requirements.baseUrl === true && value.baseUrl.trim() === '') {
+    errors.baseUrl = 'baseUrlRequired';
   }
-  return null;
+  if (value.models.length === 0) errors.modelsEmpty = 'modelRequired';
+  value.models.forEach((model, index) => {
+    const row: ProviderModelRowErrors = {};
+    if (model.model.trim() === '') row.model = 'modelRequired';
+    const context = model.maxContextSize.trim();
+    if (context === '') row.maxContextSize = 'contextSizeRequired';
+    else if (!/^\d+$/.test(context) || Number(context) < 1) {
+      row.maxContextSize = 'contextSizeInvalid';
+    }
+    if (row.model !== undefined || row.maxContextSize !== undefined) errors.models[index] = row;
+  });
+  return errors;
+}
+
+export function hasProviderFormErrors(errors: ProviderFormErrors): boolean {
+  return (
+    errors.id !== undefined ||
+    errors.apiKey !== undefined ||
+    errors.baseUrl !== undefined ||
+    errors.modelsEmpty !== undefined ||
+    Object.keys(errors.models).length > 0
+  );
 }
 
 function normalizeModels(models: ProviderModelFormValue[]): ProviderModelInput[] {

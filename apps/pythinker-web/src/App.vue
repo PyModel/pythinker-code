@@ -687,7 +687,7 @@ async function handleUpdateConfig(patch: Partial<AppConfig>): Promise<void> {
   try {
     const saved = await client.updateConfig(patch);
     if (saved) {
-      await client.checkAuth();
+      await client.refreshRuntimeState();
     }
   } finally {
     configSaving.value = false;

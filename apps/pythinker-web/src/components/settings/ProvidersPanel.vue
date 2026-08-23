@@ -2,6 +2,7 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { getPythinkerWebApi } from '../../api';
+import { usePythinkerWebClient } from '../../composables/usePythinkerWebClient';
 import type { AppConfig, AppProvider } from '../../api/types';
 import { modelsForProvider } from '../../lib/providerForm';
 import { useConfirmDialog } from '../../composables/useConfirmDialog';
@@ -20,6 +21,7 @@ const { discardToken = 0 } = defineProps<{ discardToken?: number }>();
 const emit = defineEmits<{ dirtyChange: [dirty: boolean] }>();
 const { t } = useI18n();
 const { confirm } = useConfirmDialog();
+const client = usePythinkerWebClient();
 
 const providers = ref<AppProvider[]>([]);
 const config = ref<AppConfig | null>(null);
@@ -79,6 +81,15 @@ watch(() => discardToken, () => {
   selectedId.value = sortedProviders.value[0]?.id ?? null;
 });
 
+// Every provider mutation reconciles the app's own runtime state before this
+// panel refreshes its local view. Without it a fresh install stays on the setup
+// screen after adding a working provider: the daemon is ready, but nothing told
+// the app to re-read /auth, so the gate never clears until a reload.
+async function reconcileAndLoad(): Promise<void> {
+  await client.refreshRuntimeState();
+  await load();
+}
+
 async function load(): Promise<void> {
   loading.value = true;
   unavailable.value = false;
@@ -107,7 +118,7 @@ function select(id: string): void {
 
 async function saved(id: string): Promise<void> {
   dirty.value = false;
-  await load();
+  await reconcileAndLoad();
   selectedId.value = id;
 }
 
@@ -122,7 +133,7 @@ async function deleteProvider(provider: AppProvider): Promise<void> {
       await getPythinkerWebApi().deleteProvider(provider.id);
       selectedId.value = null;
       dirty.value = false;
-      await load();
+      await reconcileAndLoad();
     },
   });
 }
@@ -137,7 +148,7 @@ onMounted(load);
         <h3>{{ t('providers.title') }}</h3>
         <p>{{ t('providers.description') }}</p>
       </div>
-      <IconButton v-if="!loading && !unavailable" size="sm" :label="t('providers.refresh')" data-testid="providers-refresh" @click="load()">
+      <IconButton v-if="!loading && !unavailable" size="sm" :label="t('providers.refresh')" data-testid="providers-refresh" @click="reconcileAndLoad()">
         <Icon name="undo" size="sm" />
       </IconButton>
     </div>

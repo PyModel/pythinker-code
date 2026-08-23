@@ -2880,6 +2880,23 @@ const workspaceState = useWorkspaceState(rawState, {
   fileDiffLoading,
 });
 
+/** Re-read every piece of daemon state a configuration change can invalidate.
+ *
+ *  The single reconciliation boundary for configuration mutations: provider
+ *  saved or deleted, credential changed, catalog imported, OAuth completed,
+ *  default model changed. Config is loaded first because auth readiness and the
+ *  model catalog are both derived from it; the rest are independent and run
+ *  together. Defensive throughout — each call swallows its own failures, so a
+ *  half-reachable daemon degrades instead of throwing into a save handler. */
+async function refreshRuntimeState(): Promise<void> {
+  await workspaceState.loadConfig();
+  await Promise.all([
+    workspaceState.checkAuth(),
+    modelProvider.loadModels(),
+    modelProvider.loadProviders(),
+  ]);
+}
+
 function setSessionEmoji(id: string, emoji: string | null): Promise<void> {
   const session = rawState.sessions.find((value) => value.id === id);
   if (!session) return Promise.resolve();
@@ -3247,6 +3264,7 @@ export function usePythinkerWebClient() {
 
     // Auth actions
     checkAuth: workspaceState.checkAuth,
+    refreshRuntimeState,
     startOAuthLogin: modelProvider.startOAuthLogin,
     pollOAuthLogin: modelProvider.pollOAuthLogin,
     cancelOAuthLogin: modelProvider.cancelOAuthLogin,
