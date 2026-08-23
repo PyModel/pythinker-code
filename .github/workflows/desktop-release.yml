@@ -246,7 +246,10 @@ jobs:
             exit 1
           fi
           verify_app "$dmg_app"
-          xcrun stapler validate "$dmg_path"
+          # electron-builder notarizes and staples the .app, then packs the
+          # already-stapled bundle into the disk image; the image itself never
+          # receives a ticket. Validate the staple where it actually lives.
+          xcrun stapler validate "$dmg_app"
           cleanup_mount
           trap - EXIT
 

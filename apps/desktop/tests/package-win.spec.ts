@@ -1,9 +1,55 @@
+import { createRequire } from 'node:module'
 import { describe, expect, it } from 'vitest'
 import {
   requireWindowsReleaseSigning,
   windowsPackageInvocation,
   windowsSigningArgs,
 } from '../scripts/package-win'
+
+interface SchemaNode {
+  readonly $ref?: string
+  readonly anyOf?: readonly SchemaNode[]
+  readonly properties?: Readonly<Record<string, SchemaNode>>
+}
+
+const requireFromTests = createRequire(import.meta.url)
+const schema = requireFromTests(
+  requireFromTests.resolve('app-builder-lib/scheme.json', {
+    paths: [requireFromTests.resolve('electron-builder')],
+  }),
+) as { readonly definitions: Readonly<Record<string, SchemaNode>> }
+
+function referencedDefinition(node: SchemaNode): SchemaNode | undefined {
+  const reference = node.$ref ?? node.anyOf?.find(branch => branch.$ref !== undefined)?.$ref
+  return reference === undefined ? undefined : schema.definitions[reference.replace('#/definitions/', '')]
+}
+
+/**
+ * Assert that a `--config.<path>` option exists in the installed Electron Builder schema.
+ *
+ * `WindowsConfiguration` sets `additionalProperties: false`, so an option that
+ * the schema does not declare fails validation before any build work and takes
+ * the whole `win` object down with it. Comparing against the real schema keeps
+ * these arguments honest across Electron Builder upgrades, which is what an
+ * expected-array assertion cannot do.
+ * @param path - Dotted option path with the `--config.` prefix removed.
+ */
+function assertSchemaOption(path: string): void {
+  const [root, ...rest] = path.split('.')
+  expect(root).toBe('win')
+  let definition = schema.definitions['WindowsConfiguration']!
+  rest.forEach((segment, index) => {
+    const property = definition.properties?.[segment]
+    if (property === undefined) {
+      throw new Error(`Electron Builder has no option '${rest.slice(0, index + 1).join('.')}' under win`)
+    }
+    const next = referencedDefinition(property)
+    if (next !== undefined) definition = next
+    else if (index !== rest.length - 1) {
+      throw new Error(`Electron Builder option 'win.${rest.slice(0, index + 1).join('.')}' has no nested options`)
+    }
+  })
+}
 
 const signingEnvironment: NodeJS.ProcessEnv = {
   AZURE_TENANT_ID: 'tenant-id',
@@ -26,7 +72,6 @@ describe('Windows Azure signing configuration', () => {
       '--config.win.azureSignOptions.codeSigningAccountName', 'signing-account',
       '--config.win.azureSignOptions.certificateProfileName', 'certificate-profile',
       '--config.win.azureSignOptions.publisherName', 'CN=Example Publisher, O=Example Publisher, L=Redmond, S=WA, C=US',
-      '--config.win.publisherName', 'CN=Example Publisher, O=Example Publisher, L=Redmond, S=WA, C=US',
     ])
   })
 
@@ -56,6 +101,27 @@ describe('Windows Azure signing configuration', () => {
   })
 })
 
+describe('Electron Builder option names', () => {
+  const certificateEnvironment: NodeJS.ProcessEnv = {
+    WIN_CSC_LINK: 'certificate.p12',
+    WIN_CSC_KEY_PASSWORD: 'password',
+    WINDOWS_SIGNING_PUBLISHER_NAME: 'CN=Example Publisher, O=Example Publisher',
+  }
+
+  it('emits only options the installed Electron Builder schema declares', () => {
+    for (const environment of [signingEnvironment, certificateEnvironment]) {
+      const options = windowsSigningArgs(environment).filter(argument => argument.startsWith('--config.'))
+      expect(options.length).toBeGreaterThan(0)
+      for (const option of options) assertSchemaOption(option.slice('--config.'.length))
+    }
+  })
+
+  it('rejects an option the schema does not declare', () => {
+    expect(() => { assertSchemaOption('win.publisherName') })
+      .toThrow("Electron Builder has no option 'publisherName' under win")
+  })
+})
+
 describe('Windows tagged-release signing', () => {
   it('rejects an unsigned tagged release', () => {
     expect(() => requireWindowsReleaseSigning({})).toThrow('Windows release signing is not configured')
@@ -70,7 +136,7 @@ describe('Windows tagged-release signing', () => {
 
     expect(requireWindowsReleaseSigning(environment)).toBe('CN=Example Publisher, O=Example Publisher')
     expect(windowsSigningArgs(environment)).toEqual([
-      '--config.win.publisherName', 'CN=Example Publisher, O=Example Publisher',
+      '--config.win.signtoolOptions.publisherName', 'CN=Example Publisher, O=Example Publisher',
     ])
   })
 
@@ -111,7 +177,6 @@ describe('Windows package invocation', () => {
       '--config.win.azureSignOptions.codeSigningAccountName', 'signing-account',
       '--config.win.azureSignOptions.certificateProfileName', 'certificate-profile',
       '--config.win.azureSignOptions.publisherName', 'CN=Example Publisher, O=Example Publisher, L=Redmond, S=WA, C=US',
-      '--config.win.publisherName', 'CN=Example Publisher, O=Example Publisher, L=Redmond, S=WA, C=US',
     ])
   })
 

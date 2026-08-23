@@ -73,12 +73,12 @@ export function windowsSigningArgs(env: NodeJS.ProcessEnv): readonly string[] {
     )
   }
 
-  const publisherName = hasAzureValue
-    ? trimmedValue(env['AZURE_SIGNING_PUBLISHER_NAME'])!
-    : trimmedValue(env['WINDOWS_SIGNING_PUBLISHER_NAME'])!
-  if (!hasAzureValue) args.length = 0
-  args.push('--config.win.publisherName', publisherName)
-  return args
+  // Electron Builder 26 removed `win.publisherName`, and `win` rejects unknown
+  // keys, so passing it fails schema validation before any build work. The
+  // Azure path already carries the publisher in `azureSignOptions`; the
+  // certificate path now sets it where signtool reads it.
+  if (hasAzureValue) return args
+  return ['--config.win.signtoolOptions.publisherName', trimmedValue(env['WINDOWS_SIGNING_PUBLISHER_NAME'])!]
 }
 
 /** Require one complete signing method for a tagged Windows release. */
