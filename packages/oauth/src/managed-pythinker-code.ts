@@ -333,8 +333,11 @@ export function resolvePythinkerCodeOAuthKey(options: {
     return PYTHINKER_CODE_OAUTH_KEY;
   }
 
+  const publicEndpointIdentity = new TextEncoder().encode(
+    JSON.stringify({ oauthHost, baseUrl }),
+  );
   const digest = createHash('sha256')
-    .update(JSON.stringify({ oauthHost, baseUrl }))
+    .update(publicEndpointIdentity)
     .digest('hex')
     .slice(0, 16);
   return `${PYTHINKER_CODE_SCOPED_OAUTH_KEY_PREFIX}${digest}`;
