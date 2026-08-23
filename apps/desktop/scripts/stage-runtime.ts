@@ -112,6 +112,7 @@ async function deploy(target: string): Promise<void> {
     await run('pnpm', [
       '--config.verify-deps-before-run=false', '--filter', deployPackage, 'deploy', '--legacy', '--prod',
       '--config.node-linker=hoisted', '--config.auto-install-peers=false', '--config.link-workspace-packages=true',
+      '--config.allow-unused-patches=true',
       deployTargetArgument(repositoryRoot, target),
     ])
   } finally {

@@ -141,6 +141,7 @@
               fileset = lib.fileset.unions (
                 [
                   ./build
+                  ./patches
                   ./.npmrc
                   ./.nvmrc
                   ./package.json
@@ -160,7 +161,8 @@
               inherit (finalAttrs) pname version src pnpmWorkspaces;
               inherit pnpm;
               fetcherVersion = 3;
-             hash = "sha256-5Pl1q21N5dZGliZgjWZ0aAm4opAI0Jr5d/o3TgvaZaM=";
+              # Monaco's package patch is part of src, not the fetched dependency closure.
+              hash = "sha256-4VF66YT0aN2VVYJjz7giCuq1ECbSPxAVL6v5xIVhLaE=";
             };
 
             nativeBuildInputs = [
