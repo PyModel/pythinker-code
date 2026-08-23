@@ -5,6 +5,7 @@ import { AsyncEmitter, type Event, type IWaitUntil } from '#/_base/event';
 
 import { deepEqual, diffRecords, isEmptyDiff } from '../recordDiff';
 
+import { resolveDefaultModel } from './defaultModelPolicy';
 import {
   type DefaultModelChangedEvent,
   IModelService,
@@ -52,6 +53,7 @@ export class ModelService extends Disposable implements IModelService {
   loadAll(models: ModelsSection, defaultModel: string | undefined): void {
     void this.applyRecords(models);
     void this.applyDefaultModel(defaultModel);
+    void this.settleDefaultModel();
     if (!this.hydrated) {
       this.hydrated = true;
       this.resolveReady();
@@ -61,12 +63,14 @@ export class ModelService extends Disposable implements IModelService {
   async replaceAll(models: ModelsSection): Promise<void> {
     await this.ready;
     await this.applyRecords(models);
+    await this.settleDefaultModel();
   }
 
   async set(id: string, model: ModelRecord): Promise<void> {
     await this.ready;
     if (deepEqual(this.models[id], model)) return;
     await this.applyRecords({ ...this.models, [id]: model });
+    await this.settleDefaultModel();
   }
 
   async delete(id: string): Promise<void> {
@@ -74,11 +78,16 @@ export class ModelService extends Disposable implements IModelService {
     if (!(id in this.models)) return;
     const { [id]: _removed, ...rest } = this.models;
     await this.applyRecords(rest);
+    await this.settleDefaultModel();
   }
 
   async setDefaultModel(id: string | undefined): Promise<void> {
     await this.ready;
     await this.applyDefaultModel(id);
+  }
+
+  private settleDefaultModel(): Promise<void> {
+    return this.applyDefaultModel(resolveDefaultModel(this.models, this.defaultModel));
   }
 
   private async applyRecords(next: Readonly<Record<string, ModelRecord>>): Promise<void> {

@@ -851,7 +851,10 @@ describe('server-v2 /api/v1 provider write endpoints', () => {
 
     const single = await getJson<Record<string, unknown>>('/api/v1/providers/openai');
     expect(single.body.data).not.toHaveProperty('base_url');
-    expect(single.body.data).not.toHaveProperty('default_model');
+    // The provider no longer carries its own default_model (asserted on disk
+    // above); what the response reports now is the global default the model
+    // registry adopted, which happens to belong to this provider.
+    expect(single.body.data).toHaveProperty('default_model', 'openai/gpt-4.1');
   });
 
   it('does not reveal an empty-string api_key on the single GET', async () => {
