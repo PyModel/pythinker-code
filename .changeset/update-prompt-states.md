@@ -1,5 +1,5 @@
 ---
-"@pymodel/pythinker-code": patch
+"@pymodel/pythinker-desktop": minor
 ---
 
-Tell the desktop app when a new version is found, while it downloads, and when the download fails, instead of only once it is ready to install.
+Say when a new version is found, while it downloads, and when a download fails, instead of only once it is ready to install.

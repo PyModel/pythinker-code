@@ -1,5 +1,5 @@
 ---
-"@pymodel/pythinker-code": patch
+"@pymodel/pythinker-desktop": patch
 ---
 
-Remove the "Internal testing only" tag from the desktop app.
+Remove the "Internal testing only" tag.
