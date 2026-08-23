@@ -12,6 +12,11 @@ concurrency:
   group: desktop-release-${{ github.ref }}
   cancel-in-progress: false
 
+# A manual run is a release rehearsal: both platforms build and go through the
+# same signing gates a tag does, with nothing published and the installers
+# attached to the run instead. Only the release-repo steps stay tag-gated, so a
+# credential that has expired or a configuration Electron Builder no longer
+# accepts surfaces on demand rather than on the tag that needed it.
 jobs:
   # Create one draft before either platform uploads. It stays private until both
   # jobs and the final downloaded-asset validation succeed.
@@ -182,8 +187,7 @@ jobs:
       # A tag build that quietly produces an unsigned app is worse than a failed
       # one: macOS rejects unsigned updates, so it ships a release users cannot
       # install or update from. Manual runs stay free to build unsigned.
-      - name: Require signing for tagged releases
-        if: startsWith(github.ref, 'refs/tags/desktop-v')
+      - name: Require signing
         working-directory: apps/desktop
         run: node --import tsx scripts/assert-release-signing.ts
 
@@ -206,7 +210,6 @@ jobs:
           node --import tsx apps/desktop/scripts/verify-update-manifest.ts mac apps/desktop/dist "$DESKTOP_VERSION"
 
       - name: Verify macOS signatures and notarization
-        if: startsWith(github.ref, 'refs/tags/desktop-v')
         shell: bash
         run: |
           set -euo pipefail
@@ -347,8 +350,7 @@ jobs:
             if [ -n "$value" ]; then printf '%s<<%s\n%s\n%s\n' "$name" "$delimiter" "$value" "$delimiter" >> "$GITHUB_ENV"; fi
           done
 
-      - name: Require signing for tagged Windows releases
-        if: startsWith(github.ref, 'refs/tags/desktop-v')
+      - name: Require signing
         working-directory: apps/desktop
         run: node --import tsx scripts/assert-windows-release-signing.ts
 
@@ -366,7 +368,6 @@ jobs:
           node --import tsx apps/desktop/scripts/verify-update-manifest.ts win apps/desktop/dist "$DESKTOP_VERSION"
 
       - name: Verify Windows release signatures
-        if: startsWith(github.ref, 'refs/tags/desktop-v')
         working-directory: apps/desktop
         run: node --import tsx scripts/verify-windows-signatures.ts
 

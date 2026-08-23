@@ -41,6 +41,24 @@ describe('desktop release workflow', () => {
     expect(workflow).toContain("if: startsWith(github.ref, 'refs/tags/desktop-v')\n        shell: bash\n        env:\n          GH_TOKEN:")
   })
 
+  it('runs every signing gate on a manual rehearsal, not only on a tag', () => {
+    // A manual run is the only chance to prove the signing path before the tag
+    // that depends on it. Gating these behind the tag would make a rehearsal
+    // pass while the credentials it was meant to exercise were already broken.
+    const rehearsed = [
+      'scripts/assert-release-signing.ts',
+      'scripts/assert-windows-release-signing.ts',
+      'scripts/verify-windows-signatures.ts',
+      'xcrun stapler validate',
+    ]
+    for (const step of rehearsed) {
+      const stepIndex = workflow.indexOf(step)
+      expect(stepIndex).toBeGreaterThan(-1)
+      const precedingStep = workflow.lastIndexOf('      - name:', stepIndex)
+      expect(workflow.slice(precedingStep, stepIndex)).not.toContain('refs/tags/desktop-v')
+    }
+  })
+
   it('downloads and revalidates uploaded assets before publishing', () => {
     expect(workflow).toContain('gh release download "$RELEASE_TAG"')
     expect(workflow).toContain('scripts/verify-update-manifest.ts mac release-assets')
