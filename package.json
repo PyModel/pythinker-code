@@ -13,6 +13,7 @@
     "dev:web": "pnpm -C apps/pythinker-web run dev",
     "build:web": "pnpm --filter @pymodel/pythinker-web run build && node apps/pythinker-code/scripts/copy-web-assets.mjs",
     "check:web": "node apps/pythinker-code/scripts/check-web-assets.mjs",
+    "check:security-artifacts": "node scripts/security/check-artifacts.mjs",
     "package:desktop": "pnpm -C apps/desktop run package",
     "dist:mac:desktop": "pnpm -C apps/desktop run dist:mac",
     "dist:win:desktop": "pnpm -C apps/desktop run dist:win",
