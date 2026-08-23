@@ -299,8 +299,11 @@ function resolvePythinkerCodeCredentialName() {
   }
 
   // Keep this in sync with packages/oauth/src/managed-pythinker-code.ts.
+  const publicEndpointIdentity = new TextEncoder().encode(
+    JSON.stringify({ oauthHost, baseUrl }),
+  );
   const digest = createHash('sha256')
-    .update(JSON.stringify({ oauthHost, baseUrl }))
+    .update(publicEndpointIdentity)
     .digest('hex')
     .slice(0, 16);
   return `pythinker-code-env-${digest}`;

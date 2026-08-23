@@ -61,8 +61,7 @@ describe('provisionManagedPythinkerCodeConfig', () => {
       baseUrl: 'https://api.dev.example.test/coding/v1',
     });
 
-    expect(devKey).not.toBe(PYTHINKER_CODE_OAUTH_KEY);
-    expect(devKey).toMatch(/^oauth\/pythinker-code-env-[a-f0-9]{16}$/);
+    expect(devKey).toBe('oauth/pythinker-code-env-51d35a57390d1c7e');
     expect(
       resolvePythinkerCodeOAuthKey({
         oauthHost: 'https://auth.dev.example.test/',

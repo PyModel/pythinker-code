@@ -18,15 +18,20 @@ function git(args) {
 }
 
 function resolveBaseRef() {
-  try {
-    const upstream = git(['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}']);
-    if (upstream) return upstream;
-  } catch {
-    // no upstream configured
+  for (const [ref, fullRef] of [
+    ['origin/HEAD', 'refs/remotes/origin/HEAD'],
+    ['origin/main', 'refs/remotes/origin/main'],
+  ]) {
+    try {
+      git(['show-ref', '--verify', '--quiet', fullRef]);
+      return ref;
+    } catch {
+      // ref is unavailable
+    }
   }
   try {
-    git(['show-ref', '--verify', '--quiet', 'refs/remotes/origin/HEAD']);
-    return 'origin/HEAD';
+    const upstream = git(['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}']);
+    return upstream || null;
   } catch {
     return null;
   }
@@ -57,7 +62,7 @@ if (!lockChanged || flakeChanged) {
 
 console.error(
   '❌ pnpm-lock.yaml changed on this branch but flake.nix did not.\n' +
-    "   flake.nix pins a fetchPnpmDeps hash of pnpm-lock.yaml; CI's nix build will fail with a hash mismatch.\n" +
+    '   flake.nix pins a fetchPnpmDeps hash of pnpm-lock.yaml, so its hash may be stale.\n' +
     '   Refresh it: run a nix build (e.g. `nix build .#pythinker-code`), take the sha256-... hash\n' +
     '   from the mismatch error, paste it into the `hash = "sha256-...";` line in flake.nix, commit, and re-push.',
 );
