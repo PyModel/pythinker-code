@@ -201,7 +201,7 @@ class SharedRuntimeUnitHost implements RuntimeUnitHost {
     await this.enqueue(async () => {
       let failure: unknown;
       let failed = false;
-      for (const record of [...this.records].reverse()) {
+      for (const record of [...this.records].toReversed()) {
         if (!record.active) continue;
         record.active = false;
         try {
@@ -304,7 +304,14 @@ class SharedRuntimeUnitHost implements RuntimeUnitHost {
         const handle: RuntimeProviderRuntimeHandle = {
           runtimeId: runtime.identity.runtimeId,
           update: (replacement) => this.updateRuntime(staged, replacement),
-          remove: () => this.removeRuntime(staged),
+          remove: async () => {
+            try {
+              await this.removeRuntime(staged);
+            } finally {
+              const index = runtimes.indexOf(staged);
+              if (index >= 0) runtimes.splice(index, 1);
+            }
+          },
         };
         return handle;
       },
@@ -360,7 +367,7 @@ class SharedRuntimeUnitHost implements RuntimeUnitHost {
         active = false;
         let failure: unknown;
         let failed = false;
-        for (const staged of runtimes.reverse()) {
+        for (const staged of runtimes.toReversed()) {
           if (!staged.active) continue;
           staged.active = false;
           try {
@@ -371,10 +378,10 @@ class SharedRuntimeUnitHost implements RuntimeUnitHost {
             failed = true;
           }
         }
-        for (const registration of local.reverse()) {
+        for (const registration of local.toReversed()) {
           if (this.locals.get(registration.id) === registration) this.locals.delete(registration.id);
         }
-        for (const unit of units.reverse()) {
+        for (const unit of units.toReversed()) {
           try {
             await unit.dispose();
           } catch (error) {
