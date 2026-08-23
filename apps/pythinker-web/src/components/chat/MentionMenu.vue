@@ -150,9 +150,8 @@ function itemKey(item: MentionItem): string {
 </template>
 
 <style scoped>
-/* The popup surface. `[data-menu-frame]` keys the rule the same way the
-   reference does (the frame is the positioned anchor for the scroller and
-   thumb). */
+/* The popup surface. `[data-menu-frame]` keys the rule to the frame, which is
+   the positioned anchor for the scroller and thumb. */
 .mention-menu[data-menu-frame] {
   position: absolute;
   bottom: calc(100% + var(--space-2));

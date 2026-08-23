@@ -418,7 +418,7 @@ async function copyDiagnostics(): Promise<void> {
 }
 
 // Per-value copy buttons in the advanced tab: flash the check state for 1.5s
-// after a successful copy (reference `copyServerVersion`/`copyServerAddress`).
+// after a successful copy.
 const serverVersionCopied = ref(false);
 const serverAddressCopied = ref(false);
 let copyFlashTimer: ReturnType<typeof setTimeout> | null = null;

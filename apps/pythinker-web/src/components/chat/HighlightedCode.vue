@@ -1,6 +1,6 @@
 <!-- apps/pythinker-web/src/components/chat/HighlightedCode.vue -->
-<!-- Shiki-based line-level code / unified-diff renderer (upstream HighlightedCode
-     parity). Two modes, switched by which prop is present:
+<!-- Shiki-based line-level code / unified-diff renderer. Two modes, switched
+     by which prop is present:
        · `lines`  — unified-diff rows (DiffViewLine[]): '+/-' sign, optional
          old/new gutters, per-type row backgrounds. The before/after sides are
          tokenized from full texts reconstructed from the rows, or from the

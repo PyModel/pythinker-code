@@ -35,9 +35,9 @@ export interface MentionMenuDeps {
    */
   searchSkills?: () => ((q: string) => Promise<MentionSkillItem[]>) | undefined;
   /**
-   * Optional insertion hook for a selected skill. The reference editor needs a
-   * parent-side callback to serialize a skill mention; without one, selecting
-   * a skill closes the menu without inserting anything (mirrors upstream).
+   * Optional insertion hook for a selected skill. Serializing a skill mention
+   * needs a parent-side callback; without one, selecting a skill closes the
+   * menu without inserting anything.
    */
   insertSkill?: (name: string) => void;
 }
@@ -141,7 +141,7 @@ export function useMentionMenu(deps: MentionMenuDeps) {
     if (!mt) return;
     open.value = false;
     // Skills are not plain file mentions: hand the choice to the parent hook
-    // (if any) and otherwise just dismiss the menu, mirroring upstream.
+    // (if any) and otherwise just dismiss the menu.
     if (item.kind === 'skill') {
       insertSkill?.(item.skill.name);
       return;

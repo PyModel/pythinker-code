@@ -2360,7 +2360,7 @@ const pendingApprovals = computed<
     block: buildApprovalBlock(a),
     agentName: (a as { agentName?: string }).agentName,
     // toolCallId lets ChatPane mark the run parked while its tool awaits the
-    // user's decision (reference Pn correlating by toolCallId).
+    // user's decision.
     toolCallId: a.toolCallId,
   }));
 });

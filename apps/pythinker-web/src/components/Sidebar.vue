@@ -552,10 +552,9 @@ onBeforeUnmount(() => {
 // ---------------------------------------------------------------------------
 // Folder-drop to add a workspace: dragging an OS folder onto the column shows
 // the drop overlay and emits the resolved paths upward (App adds them via the
-// existing addWorkspace flow). Reference parity — path resolution needs the
-// desktop shell (Kimi's kimiDesktop.getPathForFile); the browser itself cannot
-// read absolute paths, so the interaction only activates inside the desktop
-// app. We extract via the legacy Electron `File.path` — on shells that expose
+// existing addWorkspace flow). Path resolution needs the desktop shell: a
+// browser cannot read an absolute path out of a drop, so the interaction only
+// activates inside the desktop app. We extract via the legacy Electron `File.path` — on shells that expose
 // neither, the overlay still shows but the drop resolves no paths (no-op).
 // ---------------------------------------------------------------------------
 const dropDepth = ref(0);
@@ -1196,7 +1195,7 @@ onBeforeUnmount(() => {
 }
 /* macOS desktop: the window uses a hidden title bar, so the traffic lights
    float over the top-left of the sidebar. The brand row sits BELOW them (its
-   own line, like the design-system reference): padding-top clears the lights,
+   own line, like the design-system spec): padding-top clears the lights,
    left padding returns to the normal sidebar gutter, and the whole strip —
    lights zone included — stays a window-drag area while the collapse button
    opts out so it remains clickable. */

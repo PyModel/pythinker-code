@@ -6,7 +6,7 @@ import Icon from '../ui/Icon.vue';
 import IconButton from '../ui/IconButton.vue';
 import StatusGlyph from './StatusGlyph.vue';
 
-type ReferenceTaskItem = Omit<TaskItem, 'state'> & {
+type ExtendedTaskItem = Omit<TaskItem, 'state'> & {
   agentId?: string;
   model?: string;
   thinkingEffort?: string;
@@ -22,8 +22,8 @@ const emit = defineEmits<{
 
 const { t } = useI18n();
 
-function referenceTask(task: TaskItem): ReferenceTaskItem {
-  return task as ReferenceTaskItem;
+function extendedTask(task: TaskItem): ExtendedTaskItem {
+  return task as ExtendedTaskItem;
 }
 
 function emptyKey(filter: string): string {
@@ -37,7 +37,7 @@ const modelDisplayResolver = inject<(modelId: string | undefined) => string | un
 const subagentEffort = inject<(effort: string | undefined) => string | undefined>('subagentEffort');
 
 function modelDisplay(task: TaskItem): string | undefined {
-  const { model, thinkingEffort } = referenceTask(task);
+  const { model, thinkingEffort } = extendedTask(task);
   const parts = [
     modelDisplayResolver?.(model) ?? model,
     subagentEffort?.(thinkingEffort),
@@ -46,7 +46,7 @@ function modelDisplay(task: TaskItem): string | undefined {
 }
 
 function stateLabel(task: TaskItem): string {
-  const state = referenceTask(task).state;
+  const state = extendedTask(task).state;
   if (state === 'done') return t('tasks.stateDone');
   if (state === 'fail') return t('tasks.stateFail');
   if (state === 'cancelled') return t('tasks.stateCancelled');
@@ -58,7 +58,7 @@ function taskNumber(task: TaskItem, index: number): string {
 }
 
 function isOpenable(task: TaskItem): boolean {
-  return Boolean(referenceTask(task).agentId || task.output?.length);
+  return Boolean(extendedTask(task).agentId || task.output?.length);
 }
 </script>
 
@@ -69,14 +69,14 @@ function isOpenable(task: TaskItem): boolean {
       v-for="(task, index) in tasks"
       :key="task.id"
       class="sg-card"
-      :class="[`s-${referenceTask(task).state}`, { openable: isOpenable(task) }]"
+      :class="[`s-${extendedTask(task).state}`, { openable: isOpenable(task) }]"
     >
       <button
         v-if="isOpenable(task)"
         class="sg-open"
         type="button"
         :aria-label="task.name"
-        @click="emit('open', referenceTask(task).agentId ?? task.id)"
+        @click="emit('open', extendedTask(task).agentId ?? task.id)"
       />
       <div class="sg-top">
         <span class="sg-num">{{ taskNumber(task, index) }}</span>
@@ -89,9 +89,9 @@ function isOpenable(task: TaskItem): boolean {
         </div>
         <div class="sg-status">
           <span class="sg-state">
-            <StatusGlyph v-if="referenceTask(task).state === 'run'" status="run" />
+            <StatusGlyph v-if="extendedTask(task).state === 'run'" status="run" />
             <Icon
-              v-else-if="referenceTask(task).state === 'done'"
+              v-else-if="extendedTask(task).state === 'done'"
               class="sg-ic-done"
               name="check"
               size="sm"
@@ -106,7 +106,7 @@ function isOpenable(task: TaskItem): boolean {
         </div>
       </div>
       <IconButton
-        v-if="referenceTask(task).state === 'run'"
+        v-if="extendedTask(task).state === 'run'"
         class="sg-cancel"
         size="sm"
         :label="t('tasks.stop')"

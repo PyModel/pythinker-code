@@ -1,5 +1,5 @@
 <!-- apps/pythinker-web/src/components/chat/ActivityRun.vue -->
-<!-- Aggregate per-run block (reference ActivityRun): folds a run of
+<!-- Aggregate per-run block: folds a run of
      consecutive thinking + tool items into a collapsible row whose header
      pins the status glyph to the last running item, joins a clause summary
      ("current · done") and ticks a live elapsed timer while the run is
@@ -24,7 +24,7 @@ type ClauseFragment = { text: string; tone?: 'normal' | 'danger' | 'faint' };
 type Clause = { fragments: ClauseFragment[] };
 
 /** Tool kinds with a dedicated localized done/doing clause; everything else
- *  falls back to the generic "tool call" summary (reference `tools.activity`). */
+ *  falls back to the generic "tool call" summary. */
 const CLAUSE_KINDS = new Set([
   'read',
   'bash',

@@ -28,9 +28,9 @@ export default {
     close: 'Close search',
   },
   turnFailed: 'Model request failed — this turn was interrupted',
-  // S3 parity — step-limit variant of the failed-turn banner (ChatPane.vue):
-  // renders when turn.step.interrupted carried reason 'max_steps' (reference
-  // title for the loop.max_steps_exceeded error code).
+  // Step-limit variant of the failed-turn banner (ChatPane.vue): renders when
+  // turn.step.interrupted carried reason 'max_steps', matching the title for
+  // the loop.max_steps_exceeded error code.
   turnFailedMaxSteps: 'Step limit reached — this turn was interrupted',
   activatedSkill: 'Activated skill: {name}',
   undo: 'Undo',
@@ -97,14 +97,14 @@ export default {
   },
   viewMoreSessions: 'View more',
   sessionAdminTooltip: 'View and manage more sessions in Session Management',
-  // T3 markdown parity — markdown table widen toggle
+  // Markdown table widen toggle
   widenTable: 'Widen table',
   restoreTableWidth: 'Restore default width',
-  // S3 parity — failed-turn recovery banner (ChatPane.vue)
+  // Failed-turn recovery banner (ChatPane.vue)
   turnFailedResume: 'Continue',
   /** Fixed prompt text submitted by the failed-turn "Continue" button. */
   turnFailedResumeText: 'Continue',
-  // S3 parity — ActivityRun aggregate run blocks (ActivityRun.vue). Clause
+  // ActivityRun aggregate run blocks (ActivityRun.vue). Clause
   // summaries pair with `tools.activity` / `tools.group.typed`.
   activityRun: {
     busy: 'Working…',
