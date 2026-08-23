@@ -1,5 +1,13 @@
 # @pymodel/pythinker-desktop
 
+## 0.2.1
+
+### Patch Changes
+
+- [#166](https://github.com/PyModel/pythinker-code/pull/166) [`5560aec`](https://github.com/PyModel/pythinker-code/commit/5560aec41997b522058fc2aeb8af2e29c6d8cc7a) Thanks [@elkaix](https://github.com/elkaix)! - Remove duplicate live activity and keep narrow subagent panel controls visible.
+
+- [#166](https://github.com/PyModel/pythinker-code/pull/166) [`5560aec`](https://github.com/PyModel/pythinker-code/commit/5560aec41997b522058fc2aeb8af2e29c6d8cc7a) Thanks [@elkaix](https://github.com/elkaix)! - Show task outcome cards with subagent model and thinking-effort details in conversations.
+
 ## 0.2.0
 
 ### Minor Changes

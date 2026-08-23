@@ -1,5 +1,17 @@
 # @pymodel/pythinker-code
 
+## 1.1.0
+
+### Minor Changes
+
+- [#162](https://github.com/PyModel/pythinker-code/pull/162) [`23d50fc`](https://github.com/PyModel/pythinker-code/commit/23d50fc942d517a41daa85bdb7100d48b30db40b) Thanks [@elkaix](https://github.com/elkaix)! - Add the experimental `/tower` command for workspace-wide subagent coordination, enabled with `PYTHINKER_CODE_EXPERIMENTAL_TOWER=1`.
+
+### Patch Changes
+
+- [#162](https://github.com/PyModel/pythinker-code/pull/162) [`23d50fc`](https://github.com/PyModel/pythinker-code/commit/23d50fc942d517a41daa85bdb7100d48b30db40b) Thanks [@elkaix](https://github.com/elkaix)! - Remove duplicate live activity and keep narrow subagent panel controls visible.
+
+- [#162](https://github.com/PyModel/pythinker-code/pull/162) [`23d50fc`](https://github.com/PyModel/pythinker-code/commit/23d50fc942d517a41daa85bdb7100d48b30db40b) Thanks [@elkaix](https://github.com/elkaix)! - Show task outcome cards with subagent model and thinking-effort details in conversations.
+
 ## 1.0.2
 
 ### Patch Changes
