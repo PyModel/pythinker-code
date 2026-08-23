@@ -303,7 +303,7 @@ function toggle(): void {
 
 /** Only the run's last thinking item streams (the daemon streams one tail
  *  item at a time; a settled thinking block never animates). The durationMs
- *  guard mirrors the reference `_()`: a thinking whose step ended keeps its
+ *  guard: a thinking whose step ended keeps its
  *  frozen "Thinking · Ns" label instead of shimmering forever while the run
  *  stays open. */
 function isItemStreaming(item: RunItem): boolean {

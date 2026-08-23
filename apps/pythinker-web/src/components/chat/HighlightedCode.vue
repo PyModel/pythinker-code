@@ -23,7 +23,7 @@ interface HighlightToken {
 
 type CodeToTokensLang = Parameters<typeof codeToTokens>[1]['lang'];
 
-// Extension → Shiki language id (mirrors the upstream map).
+// Extension → Shiki language id.
 const EXT_LANG: Record<string, string> = {
   ts: 'ts', tsx: 'tsx', js: 'js', jsx: 'jsx', mjs: 'js', cjs: 'js',
   vue: 'vue', svelte: 'svelte', py: 'py', rb: 'rb', go: 'go', rs: 'rs',

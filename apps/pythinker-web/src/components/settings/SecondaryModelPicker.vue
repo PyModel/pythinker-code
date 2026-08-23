@@ -1,7 +1,7 @@
 <!-- apps/pythinker-web/src/components/settings/SecondaryModelPicker.vue -->
 <!-- Two-level model picker for the secondary (subagent) model: a provider-
-     grouped model list with a per-model thinking-effort flyout. Ported from
-     the reference `SecondaryModelPicker` (label `model · effort`). -->
+     grouped model list with a per-model thinking-effort flyout. The trigger
+     label reads `model · effort`. -->
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
@@ -42,7 +42,7 @@ const { t } = useI18n();
 const menuId = `sm-picker-${Math.random().toString(36).slice(2, 9)}`;
 
 // ---------------------------------------------------------------------------
-// State (mirrors the reference picker: open menu, hovered model with flyout,
+// State (open menu, hovered model with flyout,
 // pane focus for keyboard nav)
 // ---------------------------------------------------------------------------
 const triggerRef = ref<HTMLButtonElement | null>(null);

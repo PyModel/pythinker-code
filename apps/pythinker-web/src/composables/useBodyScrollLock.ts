@@ -1,7 +1,7 @@
 // apps/pythinker-web/src/composables/useBodyScrollLock.ts
-// Counter-based body scroll lock (mirrors the upstream reference's shared
-// counter): any number of overlays (lightbox, sheets, dialogs) can hold the
-// lock simultaneously; the body only unlocks when the last holder releases.
+// Counter-based body scroll lock: any number of overlays (lightbox, sheets,
+// dialogs) can hold the lock simultaneously, and the body only unlocks when
+// the last holder releases.
 
 let lockCount = 0;
 let savedOverflow: string | null = null;

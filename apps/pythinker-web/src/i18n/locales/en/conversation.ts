@@ -105,7 +105,7 @@ export default {
   /** Fixed prompt text submitted by the failed-turn "Continue" button. */
   turnFailedResumeText: 'Continue',
   // S3 parity — ActivityRun aggregate run blocks (ActivityRun.vue). Clause
-  // summaries mirror the reference `tools.activity` / `tools.group.typed`.
+  // summaries pair with `tools.activity` / `tools.group.typed`.
   activityRun: {
     busy: 'Working…',
     thinking: 'Thinking…',

@@ -1,9 +1,8 @@
 <!-- apps/pythinker-web/src/components/chat/MentionMenu.vue -->
 <!-- Popup list shown when the user types @ in the Composer textarea: workspace
      file/folder matches (highlighted in name and parent path) plus, when the
-     caller feeds them in, skill rows. Reflects the upstream reference: stale
-     results dim, a custom scrollbar replaces the native one, and the list
-     fades at its scroll edges. -->
+     caller feeds them in, skill rows. Stale results dim, a custom scrollbar
+     replaces the native one, and the list fades at its scroll edges. -->
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { useI18n } from 'vue-i18n';

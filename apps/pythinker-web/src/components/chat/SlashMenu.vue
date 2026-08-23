@@ -1,7 +1,7 @@
 <!-- apps/pythinker-web/src/components/chat/SlashMenu.vue -->
 <!-- Popup list of slash commands shown above the Composer textarea. The typed
      query is highlighted in both the command name and its description — either
-     via explicit `query`/`ranges` props (mirroring the reference) or computed
+     via explicit `query`/`ranges` props or computed
      locally from the `query` prop. Custom scrollbar + edge fade shared with
      the mention menu. -->
 <script setup lang="ts">

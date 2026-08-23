@@ -1207,7 +1207,7 @@ onBeforeUnmount(() => {
 .side.macos-desktop .ch-collapse {
   -webkit-app-region: no-drag;
 }
-/* Compact brand lockup on macOS, matching the reference proportions. */
+/* Compact brand lockup on macOS. */
 .side.macos-desktop .ch-logo {
   height: 24px;
   width: 24px;

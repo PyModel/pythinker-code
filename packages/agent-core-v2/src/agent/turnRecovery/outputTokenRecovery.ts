@@ -3,7 +3,7 @@ import { createDecorator } from '#/_base/di/instantiation';
 /**
  * Recovers turns whose model response ended truncated at the output token
  * limit without tool calls, by injecting a resume nudge and continuing the
- * turn. Ported from the reference design's max_output_tokens recovery ladder.
+ * turn.
  */
 export interface IAgentOutputTokenRecoveryService {
   readonly _serviceBrand: undefined;

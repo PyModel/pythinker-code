@@ -70,7 +70,7 @@ setKaTeXWorker(new katexWorkerModule.default());
 setMermaidWorker(new mermaidWorkerModule.default());
 
 // ---------------------------------------------------------------------------
-// Inline `$…$` math — curated detector (ported from the reference web UI).
+// Inline `$…$` math — curated detector.
 //
 // The stock `math` rule is too permissive for prose: prices, env vars and
 // shell paths (`$5`, `$PATH`, `$HOME/bin`, `US$100`) all look like math. The
@@ -94,7 +94,7 @@ interface MathInlineState {
 
 // matcher is cheap to build per source but the rule runs once per `$`, so
 // cache it on the inline state for the lifetime of a parse run (same WeakMap
-// pattern as the reference).
+// pattern).
 const inlineMathCache = new WeakMap<object, { src: string; match: ReturnType<typeof buildInlineMathMatcher>; lastEnd: number }>();
 
 function inlineMathRule(state: MathInlineState, silent: boolean): boolean {
@@ -467,7 +467,7 @@ function pillInfo(pill: HTMLElement): PillInfo {
   return { kind, name, path: pill.dataset.mentionPath ?? '' };
 }
 
-// Tokens read once from the stylesheet (with fallbacks), like the reference's
+// Tokens read once from the stylesheet (with fallbacks), like the
 // `yg()` cache; `--duration-*` values are seconds here, so convert to ms.
 function cssVarMs(name: string, fallback: number): () => number {
   let cached: number | undefined;
@@ -716,7 +716,7 @@ function onTipGlobalScroll(): void {
 // (see ChatPane.vue: `@container (min-width:760px)`); here we only create and
 // drive the chrome: the toggle button, the right-edge fade, the "at end" state
 // and the scroll-synced transforms. Tables outside `.a-msg .msg` get no
-// toggle, matching the reference `a$e` gate.
+// toggle.
 // ---------------------------------------------------------------------------
 
 const TABLE_WIDE_CLASS = 'md-table-wide';

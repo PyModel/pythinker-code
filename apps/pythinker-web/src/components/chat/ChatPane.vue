@@ -276,7 +276,7 @@ const emit = defineEmits<{
   reorderQueue: [payload: { from: number; to: number }];
   /**
    * Failed-turn recovery: submit a fixed "Continue" prompt (no attachments),
-   * mirroring the reference client's resume path.
+   * on the resume path.
    */
   continueTurn: [text: string];
 }>();
@@ -664,7 +664,7 @@ function runIsStreaming(
 }
 
 // Failed-turn recovery: submit a fixed "Continue" prompt with no attachments,
-// matching the reference client (its ConversationPane submits
+// matching the conversation pane, which submits
 // `conversation.turnFailedResumeText` through the ordinary send path). The
 // user's own last message is deliberately NOT re-sent: that would repeat its
 // instructions and any side effects.

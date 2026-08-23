@@ -2,8 +2,7 @@
 // Shared scroll affordances for the composer popup menus (mention / slash):
 // a custom drag-able scrollbar thumb, edge-fade mask over the scroller, and a
 // viewport-aware max-height so the popup never overflows above the composer.
-// Ported from the upstream reference menu implementation; the tokens it reads
-// (--menu-*, --p-*-menu-h) are defined in src/style.css.
+// The tokens it reads (--menu-*, --p-*-menu-h) are defined in src/style.css.
 import { computed, nextTick, onMounted, onUnmounted, ref, watch, type ComputedRef, type Ref } from 'vue';
 
 export interface MenuScrollbarOptions {

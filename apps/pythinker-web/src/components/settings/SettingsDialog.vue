@@ -444,7 +444,7 @@ async function copyServerAddress(): Promise<void> {
   scheduleCopyFlashReset();
 }
 
-// Secondary (subagent) model — the Agent tab section mirrors the reference:
+// Secondary (subagent) model — the Agent tab section:
 // it renders only while the daemon's `secondary-model` experimental flag is
 // on, and writes `config.secondaryModel` ({ model, defaultEffort }) through
 // the regular config update path (wire key `secondary_model`).

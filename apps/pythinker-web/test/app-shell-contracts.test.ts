@@ -35,7 +35,7 @@ describe('app shell contracts', () => {
     expect(app).toContain('@toggle-workflow="client.toggleDynamicWorkflowMode()"');
     // The active-mode chip is dismissible.
     expect(composer).toContain("t('status.dynamicWorkflowDismiss')");
-    // The mobile sheet carries an interactive switch like the reference.
+    // The mobile sheet carries an interactive switch.
     expect(mobileSheet).toContain(':aria-checked="dynamicWorkflowMode" @click="emit(\'toggleWorkflow\')"');
   });
 

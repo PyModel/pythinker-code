@@ -55,8 +55,8 @@ const emit = defineEmits<{
   close: [];
 }>();
 
-// Status badge: single-letter glyph + CSS class (glyphs mirror the upstream
-// file-status legend: '+' added/untracked, '−' deleted, '→' renamed)
+// Status badge: single-letter glyph + CSS class
+// ('+' added/untracked, '−' deleted, '→' renamed)
 type BadgeKind = 'modified' | 'added' | 'deleted' | 'renamed' | 'untracked' | 'conflicted' | 'ignored' | 'clean' | 'unknown';
 
 function badgeKind(s: string): BadgeKind {

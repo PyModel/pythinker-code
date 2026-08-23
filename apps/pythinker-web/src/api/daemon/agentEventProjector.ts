@@ -6,10 +6,8 @@
 // protocol events). This projector translates them into the same AppEvent union
 // that the existing reducer (eventReducer.ts) consumes.
 //
-// Ported from the daemon-side reference implementation:
-//   apps/pythinker-daemon/src/session/event-projector.ts
-//   apps/pythinker-daemon/src/session/message-log.ts
-//   apps/pythinker-daemon/src/session/usage-tracker.ts
+// It owns three concerns the server keeps separate: event projection, the
+// message log, and usage tracking.
 //
 // Usage:
 //   const projector = createAgentProjector();
