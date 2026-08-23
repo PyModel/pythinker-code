@@ -809,7 +809,7 @@ describe('server-v2 /api/v1 provider write endpoints', () => {
     expect(body.data).toBeNull();
   });
 
-  it('clears omitted provider fields (base_url/default_model) from config.toml for real', async () => {
+  it('clears omitted provider fields from config.toml, leaving only the adopted global default in the response', async () => {
     const FULL_TOML = [
       '[providers.openai]',
       'type = "openai"',
@@ -851,9 +851,6 @@ describe('server-v2 /api/v1 provider write endpoints', () => {
 
     const single = await getJson<Record<string, unknown>>('/api/v1/providers/openai');
     expect(single.body.data).not.toHaveProperty('base_url');
-    // The provider no longer carries its own default_model (asserted on disk
-    // above); what the response reports now is the global default the model
-    // registry adopted, which happens to belong to this provider.
     expect(single.body.data).toHaveProperty('default_model', 'openai/gpt-4.1');
   });
 
