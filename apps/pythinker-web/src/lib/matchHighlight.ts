@@ -2,7 +2,7 @@
 // Pure TS — no Vue, no side effects. Match highlighting for the composer's
 // @-mention and /-command menus.
 //
-// Two position models are supported, mirroring the upstream reference:
+// Two position models are supported:
 //   - Mention menus highlight from *character positions*: `matchPositions` is
 //     the index of every matching character (contiguous runs collapse into one
 //     highlighted span). Positions are relative to the item's searchable text
@@ -17,7 +17,7 @@ export interface HighlightPiece {
 }
 
 /**
- * Build a lowercase map for `text` (port of the reference `R1e`): `lower` is
+ * Build a lowercase map for `text`: `lower` is
  * the case-folded string, `map` translates a lower-string index back to the
  * original string index. Handles characters whose lowercase form is longer
  * than the original (e.g. `İ` → `i̇`).
@@ -54,7 +54,7 @@ export function matchPositions(query: string, text: string): number[] {
 
 /**
  * Split `text` into highlighted/non-highlighted pieces from `positions` —
- * indices in the original text (port of the reference `_3`). `offset` is
+ * indices in the original text. `offset` is
  * subtracted from each position before clamping (used when the positions are
  * relative to a longer string, e.g. a file name inside its path).
  */
@@ -83,7 +83,7 @@ export function splitHits(text: string, positions: number[] | undefined, offset 
   return pieces;
 }
 
-/** Merge overlapping/adjacent `[start, end)` ranges (port of the reference `s_`). */
+/** Merge overlapping/adjacent `[start, end)` ranges. */
 export function mergeRanges(ranges: Array<[number, number]>): Array<[number, number]> {
   const sorted = ranges.toSorted((a, b) => a[0] - b[0]);
   const merged: Array<[number, number]> = [];
@@ -97,7 +97,7 @@ export function mergeRanges(ranges: Array<[number, number]>): Array<[number, num
 
 /**
  * Split `text` into highlighted/non-highlighted pieces from `[start, end)`
- * ranges (port of the reference slash-menu splitter). Ranges are clamped to
+ * ranges. Ranges are clamped to
  * the text length; overlapping ranges are merged first.
  */
 export function splitByRanges(text: string, ranges?: Array<[number, number]>): HighlightPiece[] {
@@ -120,7 +120,7 @@ export function splitByRanges(text: string, ranges?: Array<[number, number]>): H
 
 /**
  * First contiguous occurrence of `query` in `text` (case-insensitive), as a
- * `[start, end)` range (port of the reference `GB`).
+ * `[start, end)` range.
  */
 function contiguousRange(text: string, query: string): [number, number] | undefined {
   const idx = text.toLowerCase().indexOf(query);
@@ -130,7 +130,7 @@ function contiguousRange(text: string, query: string): [number, number] | undefi
 /**
  * First subsequence occurrence of `query` in `text` (case-insensitive, chars
  * in order but not necessarily contiguous): a range covering the first
- * matched char through the last one (port of the reference `Tue`).
+ * matched char through the last one.
  */
 function subsequenceRange(text: string, query: string): [number, number] | undefined {
   const lower = text.toLowerCase();
@@ -149,7 +149,7 @@ function subsequenceRange(text: string, query: string): [number, number] | undef
 
 /**
  * Compute the highlight ranges for a slash item from the typed `query`
- * (port of the reference `Fue`, minus its pinyin path — this app is
+ * (no pinyin path — this app is
  * English-only). Name matches fall back to subsequence; the description only
  * highlights contiguous matches.
  */

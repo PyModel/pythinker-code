@@ -1,6 +1,6 @@
 // apps/pythinker-web/src/lib/markdownFrontmatter.ts
-// YAML frontmatter splitter, ported from the reference web UI (bundle `zBe`):
-// a leading `---` line, a `---` closing line, and the block between them is
+// YAML frontmatter splitter: a leading `---` line, a `---` closing line, and
+// the block between them is
 // rendered as a `<pre class="md-frontmatter">` before the body. Anything
 // else (including an immediate `---\n---`) renders as normal markdown.
 

@@ -4,7 +4,7 @@ import { splitFrontmatter } from './markdownFrontmatter';
 
 describe('splitFrontmatter', () => {
   it('splits a leading --- block from the body', () => {
-    // The block keeps its last line's EOL, mirroring the reference splitter.
+    // The block keeps its last line's EOL.
     const split = splitFrontmatter('---\nauthor: Ada\n---\n\nBody text');
     expect(split.frontmatter).toBe('author: Ada\n');
     expect(split.body).toBe('\nBody text');

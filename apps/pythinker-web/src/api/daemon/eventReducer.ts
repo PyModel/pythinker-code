@@ -248,7 +248,7 @@ function appendToolOutputToMessages(messages: AppMessage[], toolCallId: string, 
 }
 
 /**
- * Settle open thinking parts in `content` (reference `cp`): a thinking part
+ * Settle open thinking parts in `content`: a thinking part
  * streams only while it is the current tail — the moment a later content part
  * starts (or the step/turn ends) its `durationMs` freezes, so the render layer
  * stops treating it as live. `beforeIndex` limits settling to parts before
@@ -563,8 +563,8 @@ export function reduceAppEvent(
         if (m.id !== event.messageId) return m;
         // Carry per-part thinking timing across the wholesale content swap: the
         // projector's copy has none (timing is born here, on first delta), so
-        // map by index and keep the existing startedAt/durationMs (reference
-        // messageUpdated). Then settle open thinking parts: a pending update
+        // map by index and keep the existing startedAt/durationMs. Then
+        // settle open thinking parts: a pending update
         // (new tool-use slot) freezes every part before the new tail; a
         // completed/duration-stamped update freezes the tail too.
         const content = event.content.map((part, index) => {
@@ -597,8 +597,8 @@ export function reduceAppEvent(
         const idx = event.contentIndex;
         // Track whether the slot pre-existed: the placeholder loop below pads
         // text slots, so a padded slot must be treated as a NEW part (settle
-        // the thinking parts before it), not a continuation (reference: the
-        // `c` flag in assistantDelta).
+        // the thinking parts before it), not a continuation — the `c` flag
+        // in assistantDelta marks it.
         const created = content.length <= idx;
         // Ensure the slot exists
         while (content.length <= idx) {
@@ -610,7 +610,7 @@ export function reduceAppEvent(
           if (existing.type === 'text' && !created) {
             patched = { type: 'text', text: existing.text + event.delta.text };
           } else {
-            // A fresh text part ends any thinking part before it (reference cp).
+            // A fresh text part ends any thinking part before it.
             settleOpenThinking(content, Date.now(), idx);
             patched = { type: 'text', text: event.delta.text };
           }

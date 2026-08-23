@@ -656,7 +656,7 @@ export function messagesToTurns(
           // merging consecutive segments (same rule as text blocks above). The
           // merged block keeps the FIRST segment's startedAt; the LAST
           // segment's durationMs decides whether the block is still streaming
-          // (a settled segment freezes the whole block — reference parity).
+          // (a settled segment freezes the whole block).
           const last = g.blocks.at(-1);
           if (last && last.kind === 'thinking') {
             last.thinking += '\n' + c.thinking;

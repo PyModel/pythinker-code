@@ -162,7 +162,7 @@ export type AppMessageContent =
   // `durationMs` settles the moment the next content part starts (or the
   // step/turn ends). A thinking part with `durationMs` set is never the live
   // streaming tail — the render layer relies on this to collapse settled
-  // thinking instead of shimmering a second "Thinking…" row (reference parity).
+  // thinking instead of shimmering a second "Thinking…" row.
   | { type: 'thinking'; thinking: string; signature?: string; startedAt?: string; durationMs?: number }
   | { type: 'unknown'; raw: unknown };
 

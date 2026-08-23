@@ -1,6 +1,6 @@
 <!-- apps/pythinker-web/src/components/chat/MediaThumb.vue -->
-<!-- Square media tile for composer pending-upload thumbnails (reference
-     `MediaThumb`): a real image/video tile with a centered uploading spinner,
+<!-- Square media tile for composer pending-upload thumbnails: a real
+     image/video tile with a centered uploading spinner,
      error badge, video play badge, and a corner remove button. Non-media
      attachmens keep the pill chip (AttachmentChip). -->
 <script setup lang="ts">

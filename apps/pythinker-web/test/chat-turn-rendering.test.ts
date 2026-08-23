@@ -49,7 +49,7 @@ describe('formatDuration', () => {
 });
 
 describe('formatLiveDuration', () => {
-  it('formats whole-second compact durations like the reference live timer', () => {
+  it('formats whole-second compact durations for the live timer', () => {
     expect(formatLiveDuration(0)).toBe('');
     expect(formatLiveDuration(500)).toBe('');
     expect(formatLiveDuration(45_000)).toBe('45s');

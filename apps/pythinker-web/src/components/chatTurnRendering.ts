@@ -16,8 +16,8 @@ export function formatDuration(ms: number): string {
   return `${m}m${s}s`;
 }
 
-/** Whole-second compact duration for LIVE timers (reference TurnFold /
- *  ActivityRun style): 45s, 1m3s, 2h5m. Returns '' below one second so a
+/** Whole-second compact duration for the LIVE timers in TurnFold and
+ *  ActivityRun: 45s, 1m3s, 2h5m. Returns '' below one second so a
  *  freshly-started live turn falls back to the "Work details" label. */
 export function formatLiveDuration(ms: number): string {
   const total = Math.max(0, Math.floor(ms / 1000));
@@ -53,13 +53,13 @@ export function blockStartedMs(startedAt: string | undefined): number | undefine
 
 /** A thinking block whose stream ended (durationMs frozen when the next part
  *  started or the step/turn ended) is never the live tail — the run header
- *  and fold must not keep shimmering "Thinking…" for it (reference parity:
- *  the `durationMs !== void 0` guards in kn / jt / Pn / `_()`). */
+ *  and fold must not keep shimmering "Thinking…" for it: a frozen durationMs
+ *  is the settled marker every consumer checks. */
 export function isSettledThinking(block: { kind?: string; durationMs?: number }): boolean {
   return block.kind === 'thinking' && block.durationMs !== undefined;
 }
 
-/** Earliest thinking start across the turn's blocks (reference YRe) — seeds
+/** Earliest thinking start across the turn's blocks — seeds
  *  the TurnFold live timer so "Worked Ns" measures from the first thought,
  *  not the first visible text. */
 export function earliestThinkingMs(turn: ChatTurn): number | undefined {

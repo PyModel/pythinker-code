@@ -1,6 +1,6 @@
 <!-- apps/pythinker-web/src/components/chat/HighlightedCode.vue -->
-<!-- Shiki-based line-level code / unified-diff renderer (upstream HighlightedCode
-     parity). Two modes, switched by which prop is present:
+<!-- Shiki-based line-level code / unified-diff renderer. Two modes, switched
+     by which prop is present:
        · `lines`  — unified-diff rows (DiffViewLine[]): '+/-' sign, optional
          old/new gutters, per-type row backgrounds. The before/after sides are
          tokenized from full texts reconstructed from the rows, or from the
@@ -23,7 +23,7 @@ interface HighlightToken {
 
 type CodeToTokensLang = Parameters<typeof codeToTokens>[1]['lang'];
 
-// Extension → Shiki language id (mirrors the upstream map).
+// Extension → Shiki language id.
 const EXT_LANG: Record<string, string> = {
   ts: 'ts', tsx: 'tsx', js: 'js', jsx: 'jsx', mjs: 'js', cjs: 'js',
   vue: 'vue', svelte: 'svelte', py: 'py', rb: 'rb', go: 'go', rs: 'rs',

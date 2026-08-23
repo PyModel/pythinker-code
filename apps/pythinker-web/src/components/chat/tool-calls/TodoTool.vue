@@ -58,7 +58,7 @@ const todos = computed(() => parseTodos(props.tool.arg));
 const doneCount = computed(() => todos.value?.filter((item) => item.status === 'done').length ?? 0);
 const totalCount = computed(() => todos.value?.length ?? 0);
 const ratio = computed(() => (totalCount.value > 0 ? doneCount.value / totalCount.value : 0));
-/** The current in-progress item title (reference header dim line). */
+/** The current in-progress item title. */
 const summary = computed(() => {
   const current = todos.value?.find((item) => item.status === 'in_progress');
   return current?.title ?? toolSummary(props.tool.name, props.tool.arg);

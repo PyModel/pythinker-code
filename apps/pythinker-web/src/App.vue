@@ -879,7 +879,7 @@ async function handleAddWorkspacePaths(paths: string[]): Promise<void> {
 // Generate a session title via the daemon's managed chat_title tool. The
 // daemon persists the title itself (the list refreshes via the WS event); the
 // result streams back into the rename input through the callback. Unavailable
-// generation surfaces as an info toast, mirroring the reference UI.
+// generation surfaces as an info toast.
 async function handleGenerateSessionTitle(
   sessionId: string,
   onTitle: (title: string | null) => void,
