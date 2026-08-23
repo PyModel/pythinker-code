@@ -130,7 +130,7 @@ importers:
         specifier: 26.15.3
         version: 26.15.3(electron-builder-squirrel-windows@26.15.3)
       electron-updater:
-        specifier: ^6.8.9
+        specifier: 6.8.9
         version: 6.8.9
       semver:
         specifier: ^7.7.4

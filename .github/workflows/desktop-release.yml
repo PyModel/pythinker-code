@@ -85,6 +85,7 @@ jobs:
           private-key: ${{ secrets.DESKTOP_RELEASES_APP_PRIVATE_KEY }}
           owner: PyModel
           repositories: pythinker-desktop-releases
+          permission-contents: write
 
       - name: Create the draft release unless it already exists
         if: startsWith(github.ref, 'refs/tags/desktop-v')
@@ -258,6 +259,7 @@ jobs:
           private-key: ${{ secrets.DESKTOP_RELEASES_APP_PRIVATE_KEY }}
           owner: PyModel
           repositories: pythinker-desktop-releases
+          permission-contents: write
       - name: Upload verified macOS release assets
         if: startsWith(github.ref, 'refs/tags/desktop-v')
         shell: bash
@@ -374,6 +376,7 @@ jobs:
           private-key: ${{ secrets.DESKTOP_RELEASES_APP_PRIVATE_KEY }}
           owner: PyModel
           repositories: pythinker-desktop-releases
+          permission-contents: write
       - name: Upload verified Windows release assets
         if: startsWith(github.ref, 'refs/tags/desktop-v')
         shell: bash
@@ -428,6 +431,7 @@ jobs:
           private-key: ${{ secrets.DESKTOP_RELEASES_APP_PRIVATE_KEY }}
           owner: PyModel
           repositories: pythinker-desktop-releases
+          permission-contents: write
 
       - name: Download and validate every release asset
         shell: bash

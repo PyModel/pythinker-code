@@ -102,6 +102,22 @@ describe('UpdateToast', () => {
     expect((await mountToast()).find('[data-testid="update-toast"]').exists()).toBe(false);
   });
 
+  it.each([
+    ['downloading', '[data-testid="update-progress"]'],
+    ['downloaded', '[data-testid="restart-to-update"]'],
+  ] as const)('keeps the %s state visible after the release notification', async (status, selector) => {
+    installBridge(updateState({
+      status,
+      availableVersion: '1.2.3',
+      notifiedVersion: '1.2.3',
+    }));
+
+    const wrapper = await mountToast();
+
+    expect(wrapper.find('[data-testid="update-toast"]').exists()).toBe(true);
+    expect(wrapper.find(selector).exists()).toBe(true);
+  });
+
   it('closing the toast does not skip the version', async () => {
     const bridge = installBridge(updateState({ status: 'available', availableVersion: '1.2.3' }));
     const wrapper = await mountToast();

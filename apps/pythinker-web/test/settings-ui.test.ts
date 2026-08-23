@@ -132,6 +132,15 @@ describe('settings UI', () => {
       configurable: true,
       value: 'Pythinker Test Browser',
     });
+    (window as unknown as { pythinkerDesktop?: unknown }).pythinkerDesktop = {
+      platform: 'darwin',
+      getUpdateState: vi.fn(() => Promise.resolve({
+        status: 'idle',
+        installedVersion: '9.8.7',
+        autoUpdate: true,
+      } satisfies DesktopUpdateState)),
+      onUpdateState: vi.fn(() => () => {}),
+    };
     const wrapper = mount(SettingsDialog, {
       props: {
         colorScheme: 'system',
@@ -153,7 +162,7 @@ describe('settings UI', () => {
     document.body.querySelector<HTMLButtonElement>('[data-testid="copy-diagnostics"]')!.click();
     await flushPromises();
 
-    expect(copyTextToClipboard).toHaveBeenCalledWith(expect.stringContaining('App version:'));
+    expect(copyTextToClipboard).toHaveBeenCalledWith(expect.stringContaining('App version: 9.8.7'));
     expect(copyTextToClipboard).toHaveBeenCalledWith(expect.stringContaining('Server version: 2.4.0'));
     expect(copyTextToClipboard).toHaveBeenCalledWith(expect.stringContaining('Backend: v2'));
     expect(copyTextToClipboard).toHaveBeenCalledWith(expect.stringContaining('Server ID: server-test'));

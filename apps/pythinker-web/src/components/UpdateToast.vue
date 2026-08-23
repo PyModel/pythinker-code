@@ -39,7 +39,7 @@ function applyState(next: DesktopUpdateState): void {
   }
   if (!isUpdateStage(next.status)) return;
   if (activeVersion.value === version) return;
-  if (next.notifiedVersion === version) {
+  if (next.status === 'available' && next.notifiedVersion === version) {
     activeVersion.value = undefined;
     return;
   }
@@ -280,7 +280,7 @@ onUnmounted(() => {
 .update-toast {
   position: fixed;
   right: var(--space-4);
-  bottom: 152px;
+  bottom: calc(var(--dock-h, 144px) + var(--space-2));
   z-index: var(--z-toast);
   width: min(380px, calc(100vw - var(--space-8)));
 }
@@ -336,7 +336,7 @@ onUnmounted(() => {
   .update-toast {
     right: var(--space-3);
     left: var(--space-3);
-    bottom: calc(150px + env(safe-area-inset-bottom));
+    bottom: calc(var(--dock-h, 142px) + var(--space-2));
     width: auto;
   }
 }

@@ -404,7 +404,7 @@ async function requestClose(): Promise<void> {
 
 function diagnosticsText(): string {
   return [
-    `App version: ${appVersion}`,
+    `App version: ${resolvedAppVersion.value}`,
     `Server version: ${resolvedServerVersion.value}`,
     `Backend: ${resolvedBackend.value}`,
     `Server address: ${serverAddress}`,

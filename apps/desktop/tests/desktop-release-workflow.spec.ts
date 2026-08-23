@@ -6,6 +6,10 @@ const workflow = readFileSync(
   resolve(import.meta.dirname, '../../../.github/workflows/desktop-release.yml'),
   'utf8',
 )
+const desktopPackage = JSON.parse(readFileSync(
+  resolve(import.meta.dirname, '../package.json'),
+  'utf8',
+)) as { readonly devDependencies: Record<string, string> }
 
 describe('desktop release workflow', () => {
   it('builds locally before it uploads either platform', () => {
@@ -46,5 +50,13 @@ describe('desktop release workflow', () => {
   it('refuses to overwrite an existing published release', () => {
     expect(workflow).toContain("--json isDraft --jq '.isDraft'")
     expect(workflow).toContain('already exists and is published; refusing to replace live assets')
+  })
+
+  it('limits release tokens to repository contents writes', () => {
+    expect(workflow.match(/permission-contents: write/gu)).toHaveLength(4)
+  })
+
+  it('pins the updater version used by the manifest parser', () => {
+    expect(desktopPackage.devDependencies['electron-updater']).toBe('6.8.9')
   })
 })
