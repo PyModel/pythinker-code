@@ -70,5 +70,6 @@ handlers, script elements, and `javascript:` URLs cannot execute or remain activ
 - A dismissed or auto-dismissed record cannot justify a vulnerable lockfile entry.
 - Historical `AUTO_DISMISSED`, `DISMISSED`, and `FIXED` states can remain in GitHub reporting after
   the lockfile is clean.
-- The development-dependency auto-dismiss preset is disabled because development dependencies can
-  enter shipped artifacts in this monorepo.
+- The development-dependency auto-dismiss preset must be disabled because development dependencies
+  can enter shipped artifacts in this monorepo. Verify this repository setting in GitHub's web UI;
+  the repository REST and GraphQL APIs do not expose its state.

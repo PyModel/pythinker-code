@@ -285,7 +285,7 @@ async function main() {
     browser = launched.browser;
     const endpoint = new URL(launched.endpoint);
     const targetResponse = await fetch(
-      `http://127.0.0.1:${endpoint.port}/json/new?${encodeURIComponent(`${origin}/`)}`,
+      `http://127.0.0.1:${endpoint.port}/json/new?about:blank`,
       { method: 'PUT' },
     );
     if (!targetResponse.ok) throw new Error(`Chrome target creation failed: ${targetResponse.status}`);
@@ -293,12 +293,14 @@ async function main() {
     client = new CdpClient(target.webSocketDebuggerUrl);
     await client.connect();
     await client.call('Runtime.enable');
+    await client.call('Page.enable');
+    await client.call('Page.navigate', { url: `${origin}/` });
     for (let attempt = 0; attempt < 100; attempt += 1) {
       const ready = await client.call('Runtime.evaluate', {
-        expression: 'document.readyState',
+        expression: '({ origin: location.origin, readyState: document.readyState })',
         returnByValue: true,
       });
-      if (ready.result.value === 'complete') break;
+      if (ready.result.value.origin === origin && ready.result.value.readyState === 'complete') break;
       await new Promise((resolveWait) => {
         setTimeout(resolveWait, 50);
       });
