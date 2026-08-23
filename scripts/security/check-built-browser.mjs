@@ -191,6 +191,12 @@ function browserExpression(editorAsset, mermaidAsset) {
           .map((attribute) => attribute.name + '=' + attribute.value));
       };
 
+      // Poll rather than assert once: this evaluates as soon as the navigation
+      // resolves, and a CI runner is slow enough to get here before the document
+      // has parsed. Asserting immediately failed there while passing locally.
+      for (let waited = 0; !document.querySelector('#app') && waited < 30000; waited += 100) {
+        await sleep(100);
+      }
       if (!document.querySelector('#app')) throw new Error('The built application did not load.');
       globalThis.__artifactSecurityExecuted = 0;
 
