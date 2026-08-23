@@ -10,7 +10,7 @@ Advisories. The remediated lockfile returns zero vulnerabilities at every severi
 An unreachable advisory is still a valid dependency finding. Reachability affects urgency and
 test scope. It does not change an advisory to a false positive.
 
-## Evidence Authority
+## Evidence authority
 
 Use evidence in this order:
 
@@ -21,7 +21,7 @@ Use evidence in this order:
 
 Discovery sources can corroborate a result. They do not establish a safe version floor.
 
-## Remediation Ownership
+## Remediation ownership
 
 | Phase | Package families |
 | --- | --- |
@@ -32,7 +32,7 @@ Discovery sources can corroborate a result. They do not establish a safe version
 
 Each family has one phase owner. Browser DOMPurify work includes both Mermaid and Monaco.
 
-## Reachability Record
+## Reachability record
 
 | Code | Family | Repository evidence and reachability |
 | --- | --- | --- |
@@ -48,7 +48,7 @@ Each family has one phase owner. Browser DOMPurify work includes both Mermaid an
 | R10 | Monaco | The web editor loads Monaco. Monaco 0.55.1 embedded DOMPurify 3.2.7 in its ESM, development, and minified distributions. A pnpm patch replaces the ESM implementation with DOMPurify 3.4.14 and removes CommonJS metadata. Post-install pruning removes the two unused vulnerable distributions. A lockfile override alone is not accepted. |
 | R11 | Tooling and package families | brace-expansion, js-yaml, Vite, esbuild, PostCSS, nanoid, linkify-it, qs, and body-parser occur in build, package, docs, test, or transitive runtime graphs. Full-workspace audit and artifact checks cover them even when production-only audit classification excludes them. |
 
-## Verification Contract
+## Verification contract
 
 The following checks are required:
 
@@ -61,7 +61,7 @@ The following checks are required:
 The browser check does not rely only on license banners or version strings. It verifies that event
 handlers, script elements, and `javascript:` URLs cannot execute or remain active in rendered DOM.
 
-## Alert and Recurrence Policy
+## Alert and recurrence policy
 
 - Pull requests block every net-new dependency vulnerability, at every severity.
 - Critical and High disclosures receive triage within 24 hours and a fix target of 72 hours.

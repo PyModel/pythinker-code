@@ -56,6 +56,7 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - run: node --test scripts/security/*.test.mjs
       - run: pnpm -C apps/pythinker-code run prepack
       - run: pnpm -C apps/desktop run package
       - run: pnpm -C docs run build

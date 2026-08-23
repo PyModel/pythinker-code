@@ -253,13 +253,35 @@ class CdpClient {
   constructor(url) {
     this.nextId = 1;
     this.pending = new Map();
+    this.failure = null;
     this.socket = new WebSocket(url);
+    this.socket.addEventListener('close', () => {
+      this.rejectPending(new Error('CDP WebSocket closed.'));
+    });
+    this.socket.addEventListener('error', () => {
+      this.rejectPending(new Error('CDP WebSocket failed.'));
+    });
   }
 
   async connect() {
+    if (this.failure) throw this.failure;
     await new Promise((resolveOpen, reject) => {
-      this.socket.addEventListener('open', resolveOpen, { once: true });
-      this.socket.addEventListener('error', reject, { once: true });
+      const cleanup = () => {
+        this.socket.removeEventListener('open', onOpen);
+        this.socket.removeEventListener('close', onFailure);
+        this.socket.removeEventListener('error', onFailure);
+      };
+      const onOpen = () => {
+        cleanup();
+        resolveOpen();
+      };
+      const onFailure = () => {
+        cleanup();
+        reject(this.failure ?? new Error('CDP WebSocket failed before opening.'));
+      };
+      this.socket.addEventListener('open', onOpen, { once: true });
+      this.socket.addEventListener('close', onFailure, { once: true });
+      this.socket.addEventListener('error', onFailure, { once: true });
     });
     this.socket.addEventListener('message', (event) => {
       const message = JSON.parse(String(event.data));
@@ -273,14 +295,30 @@ class CdpClient {
   }
 
   call(method, params = {}) {
+    if (this.failure) return Promise.reject(this.failure);
+    if (this.socket.readyState !== WebSocket.OPEN) {
+      return Promise.reject(new Error('CDP WebSocket is not open.'));
+    }
     const id = this.nextId++;
     return new Promise((resolveCall, reject) => {
       this.pending.set(id, { resolve: resolveCall, reject });
-      this.socket.send(JSON.stringify({ id, method, params }));
+      try {
+        this.socket.send(JSON.stringify({ id, method, params }));
+      } catch (error) {
+        this.pending.delete(id);
+        reject(error instanceof Error ? error : new Error(String(error)));
+      }
     });
   }
 
+  rejectPending(error) {
+    this.failure ??= error;
+    for (const pending of this.pending.values()) pending.reject(this.failure);
+    this.pending.clear();
+  }
+
   close() {
+    this.rejectPending(new Error('CDP WebSocket closed.'));
     this.socket.close();
   }
 }
@@ -454,11 +492,15 @@ async function main() {
   }
 }
 
-try {
-  await main();
-} catch (error) {
-  process.stderr.write(
-    `Built browser security failed: ${error instanceof Error ? error.message : String(error)}\n`,
-  );
-  process.exitCode = 1;
+if (process.argv[1] && resolve(process.argv[1]) === import.meta.filename) {
+  try {
+    await main();
+  } catch (error) {
+    process.stderr.write(
+      `Built browser security failed: ${error instanceof Error ? error.message : String(error)}\n`,
+    );
+    process.exitCode = 1;
+  }
 }
+
+export { CdpClient };
