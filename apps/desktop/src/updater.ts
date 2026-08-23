@@ -129,6 +129,7 @@ let getWindow: (() => BrowserWindow | undefined) | undefined
 let initialCheckTimer: ReturnType<typeof setTimeout> | undefined
 let checkInterval: ReturnType<typeof setInterval> | undefined
 let checkPromise: Promise<UpdateState> | undefined
+let installRequestedVersion: string | undefined
 let listenersWired = false
 let initialized = false
 let updateTelemetryTrack: UpdateTelemetryTrack = () => {}
@@ -194,8 +195,8 @@ function updateState(next: Partial<UpdateState>): void {
 }
 
 function persistSettings(next: UpdateSettings): void {
+  writeUpdateSettings(app.getPath('userData'), next)
   settings = next
-  writeUpdateSettings(app.getPath('userData'), settings)
   updateState({})
 }
 
@@ -240,7 +241,7 @@ function disableUpdates(): UpdateState {
 function scheduleChecks(): void {
   if (checkInterval !== undefined) return
   checkInterval = setInterval(() => {
-    if (settings.autoUpdate) void runCheck()
+    if (settings.autoUpdate) void checkForUpdatesNow()
   }, CHECK_INTERVAL_MS)
 }
 
@@ -352,6 +353,7 @@ export function initUpdater(
     skippedVersion: settings.skippedVersion,
     completedVersion: settings.completedVersion,
   }
+  installRequestedVersion = undefined
   updateState({})
   clearTimers()
 
@@ -371,7 +373,7 @@ export function initUpdater(
   app.once('will-quit', clearTimers)
 
   if (settings.autoUpdate) {
-    initialCheckTimer = setTimeout(() => { void runCheck() }, INITIAL_CHECK_DELAY_MS)
+    initialCheckTimer = setTimeout(() => { void checkForUpdatesNow() }, INITIAL_CHECK_DELAY_MS)
     scheduleChecks()
   }
 }
@@ -407,6 +409,7 @@ export async function checkForUpdatesNow(): Promise<UpdateState> {
     return state
   }
   if (!hasUpdateConfig()) return disableUpdates()
+  if (state.status === 'downloading' || state.status === 'downloaded') return state
 
   try {
     configureExplicitConsent()
@@ -441,13 +444,15 @@ export function undoSkippedUpdate(): UpdateState {
 }
 
 export function startUpdateDownload(): UpdateState {
-  if (!app.isPackaged || !hasUpdateConfig() || state.status !== 'available') return state
+  const canDownload = state.status === 'available'
+    || (state.status === 'error' && state.availableVersion !== undefined)
+  if (!app.isPackaged || !hasUpdateConfig() || !canDownload) return state
   try {
     configureExplicitConsent()
     updateState({
       status: 'downloading',
-      percent: 0,
-      transferred: 0,
+      percent: undefined,
+      transferred: undefined,
       total: undefined,
       bytesPerSecond: undefined,
       message: undefined,
@@ -464,16 +469,21 @@ export function installDownloadedUpdateNow(): UpdateState {
   if (!app.isPackaged || !hasUpdateConfig() || state.status !== 'downloaded' || version === undefined) {
     return state
   }
-  persistSettings({ ...settings, pendingInstallVersion: version })
+  if (installRequestedVersion === version) return state
+  installRequestedVersion = version
   try {
-    updateTelemetryTrack('desktop_update_install', { version })
-  } catch {
-    // Telemetry must never delay an explicit installation.
-  }
-  try {
+    persistSettings({ ...settings, pendingInstallVersion: version })
+    try {
+      updateTelemetryTrack('desktop_update_install', { version })
+    } catch {
+      // Telemetry must never delay an explicit installation.
+    }
     autoUpdater.quitAndInstall()
   } catch (error) {
-    persistSettings({ ...settings, pendingInstallVersion: undefined })
+    installRequestedVersion = undefined
+    if (settings.pendingInstallVersion === version) {
+      persistSettings({ ...settings, pendingInstallVersion: undefined })
+    }
     stateError(error)
     throw error
   }

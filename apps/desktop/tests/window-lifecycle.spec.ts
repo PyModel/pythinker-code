@@ -171,4 +171,22 @@ describe('desktop window lifecycle', () => {
     expect(reportError).toHaveBeenCalledWith(failure)
     expect(quit).toHaveBeenCalledOnce()
   })
+
+  it('rejects updater preparation when Host disposal fails', async () => {
+    const failure = new Error('Host disposal failed')
+    const reportError = vi.fn()
+    const quit = vi.fn()
+    const lifecycle = createDesktopLifecycle({
+      getWindow: () => undefined,
+      createWindow: () => Promise.resolve(fakeWindow()),
+      disposeHost: () => Promise.reject(failure),
+      reportError,
+      quit,
+    })
+
+    await expect(lifecycle.prepareQuit()).rejects.toBe(failure)
+    expect(reportError).toHaveBeenCalledWith(failure)
+    expect(quit).not.toHaveBeenCalled()
+    expect(lifecycle.isQuitting).toBe(false)
+  })
 })

@@ -424,7 +424,7 @@ describe('desktop Host shutdown request', () => {
     await requestHostShutdown({ origin: 'http://127.0.0.1:4567', token: 's3cret' })
 
     expect(fetch).toHaveBeenCalledOnce()
-    expect(String(fetch.mock.calls[0]?.[0])).toBe('http://127.0.0.1:4567/api/v1/shutdown')
+    expect(fetch.mock.calls[0]?.[0]).toEqual(new URL('http://127.0.0.1:4567/api/v1/shutdown'))
     expect(fetch.mock.calls[0]?.[1]).toMatchObject({
       method: 'POST',
       headers: { Authorization: 'Bearer s3cret' },

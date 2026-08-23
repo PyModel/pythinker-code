@@ -24,10 +24,8 @@ Download the installer for your platform from the
 There is no Linux desktop distribution at this time. On Linux, use the
 [CLI](./getting-started.md), or run `pythinker web` for the browser interface.
 
-::: tip Unsigned builds
-If a release is published without code-signing credentials, macOS Gatekeeper or Windows SmartScreen
-shows a warning at first launch. A signed build is much less likely to show one.
-:::
+Published releases are signed. Release automation verifies the macOS Gatekeeper and notarization
+results and the Windows Authenticode publisher before it makes a release public.
 
 ## First launch
 
@@ -53,15 +51,22 @@ For the directory layout, see [Data locations](../configuration/data-locations.m
 
 ## Updates
 
-The desktop application updates itself. Open **Settings** in the application to control this:
+The desktop application checks for updates. Open **Settings > Advanced > Version & updates** to see
+the current state and control the process:
 
-- **Automatic updates** — download and install new versions automatically. This is the default.
+- **Automatic update checks** — discover new versions in the background. This is the default.
 - **Check for updates** — check immediately.
+- **Download update** — start the download and show its percentage, transferred size, total size,
+  and speed when available.
 - **Restart to update** — appears when an update is downloaded and ready to install.
 
-When a new version is available, the application also shows an update prompt. Choose **Update** to
-download the version if needed, close the application, install it, and restart. Choose **Skip** to
-ignore that version.
+When a new version is released, the application shows one notification for that version. Choose
+**View notes**, **Skip this version**, or **Download update**. Closing the notification keeps the
+update available in Settings. Skip applies only to that version. A later version appears normally.
+
+Downloading does not install the update. After the download finishes, choose **Later** to keep it
+ready or **Restart to update** to stop the local Host safely, install it, and restart. A normal quit
+never installs a downloaded update.
 
 The update controls apply to installed builds only. A development build shows them as unavailable.
 

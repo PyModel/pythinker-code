@@ -75,15 +75,24 @@ export function createDesktopLifecycle(options: DesktopLifecycleOptions): Deskto
   const prepareQuit = (): Promise<void> => {
     if (pendingPreparation !== undefined) return pendingPreparation
     quitting = true
-    pendingPreparation = options.disposeHost().catch((error: unknown) => {
+    let disposal: Promise<void>
+    try {
+      disposal = options.disposeHost()
+    } catch (error) {
+      disposal = Promise.reject(error)
+    }
+    pendingPreparation = disposal.catch((error: unknown) => {
       options.reportError?.(error)
+      quitting = false
+      pendingPreparation = undefined
+      throw error
     })
     return pendingPreparation
   }
 
   const requestQuit = (): Promise<void> => {
     if (pendingQuit !== undefined) return pendingQuit
-    pendingQuit = prepareQuit().then(options.quit)
+    pendingQuit = prepareQuit().catch(() => undefined).then(options.quit)
     return pendingQuit
   }
 

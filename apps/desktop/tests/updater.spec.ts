@@ -311,7 +311,11 @@ describe('strict update consent', () => {
     const downloaded = vi.mocked(localAutoUpdater.on).mock.calls.find(([event]) => event === 'update-downloaded')?.[1] as ((info: { version: string }) => void) | undefined
     available?.({ version: '1.2.3' })
 
-    expect(startLocalUpdateDownload()).toMatchObject({ status: 'downloading' })
+    expect(startLocalUpdateDownload()).toMatchObject({
+      status: 'downloading',
+      percent: undefined,
+      transferred: undefined,
+    })
     expect(localAutoUpdater.downloadUpdate).toHaveBeenCalledOnce()
     expect(localAutoUpdater.quitAndInstall).not.toHaveBeenCalled()
 
@@ -319,8 +323,70 @@ describe('strict update consent', () => {
     expect(localAutoUpdater.quitAndInstall).not.toHaveBeenCalled()
 
     expect(installLocalUpdate()).toMatchObject({ status: 'downloaded' })
+    expect(installLocalUpdate()).toMatchObject({ status: 'downloaded' })
     expect(localAutoUpdater.quitAndInstall).toHaveBeenCalledOnce()
     expect(readUpdateSettings(directory)).toMatchObject({ pendingInstallVersion: '1.2.3' })
+  })
+
+  it('does not let a scheduled check overwrite a downloaded update', async () => {
+    vi.useFakeTimers()
+    try {
+      vi.resetModules()
+      const directory = temporaryDirectory()
+      writeFileSync(join(directory, 'app-update.yml'), '', 'utf8')
+      writeFileSync(join(directory, 'update-settings.json'), '{"autoUpdate":true}\n', 'utf8')
+      const { app: localApp } = await import('electron')
+      const { default: localElectronUpdater } = await import('electron-updater')
+      const { initUpdater: initLocalUpdater } = await import('../src/updater')
+      const localAutoUpdater = localElectronUpdater.autoUpdater
+      vi.mocked(localApp.getPath).mockReturnValue(directory)
+      Object.defineProperty(localApp, 'isPackaged', { configurable: true, value: true })
+      Object.defineProperty(process, 'resourcesPath', { configurable: true, value: directory })
+
+      initLocalUpdater(() => undefined)
+      const downloaded = vi.mocked(localAutoUpdater.on).mock.calls.find(
+        ([event]) => event === 'update-downloaded',
+      )?.[1] as ((info: { version: string }) => void) | undefined
+      downloaded?.({ version: '1.2.3' })
+      await vi.advanceTimersByTimeAsync(4 * 60 * 60 * 1_000)
+
+      expect(localAutoUpdater.checkForUpdates).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('retries a failed user-requested download without enabling automatic download', async () => {
+    vi.resetModules()
+    const directory = temporaryDirectory()
+    writeFileSync(join(directory, 'app-update.yml'), '', 'utf8')
+    writeFileSync(join(directory, 'update-settings.json'), '{"autoUpdate":false}\n', 'utf8')
+    const { app: localApp } = await import('electron')
+    const { default: localElectronUpdater } = await import('electron-updater')
+    const {
+      getUpdateState: getLocalUpdateState,
+      initUpdater: initLocalUpdater,
+      startUpdateDownload: startLocalUpdateDownload,
+    } = await import('../src/updater')
+    const localAutoUpdater = localElectronUpdater.autoUpdater
+    vi.mocked(localApp.getPath).mockReturnValue(directory)
+    Object.defineProperty(localApp, 'isPackaged', { configurable: true, value: true })
+    Object.defineProperty(process, 'resourcesPath', { configurable: true, value: directory })
+    vi.mocked(localAutoUpdater.downloadUpdate)
+      .mockRejectedValueOnce(new Error('network interrupted'))
+      .mockResolvedValueOnce([])
+
+    initLocalUpdater(() => undefined)
+    const available = vi.mocked(localAutoUpdater.on).mock.calls.find(
+      ([event]) => event === 'update-available',
+    )?.[1] as ((info: { version: string }) => void) | undefined
+    available?.({ version: '1.2.3' })
+
+    startLocalUpdateDownload()
+    await vi.waitFor(() => { expect(getLocalUpdateState().status).toBe('error') })
+    expect(startLocalUpdateDownload()).toMatchObject({ status: 'downloading' })
+    expect(localAutoUpdater.downloadUpdate).toHaveBeenCalledTimes(2)
+    expect(localAutoUpdater.autoDownload).toBe(false)
   })
 })
 

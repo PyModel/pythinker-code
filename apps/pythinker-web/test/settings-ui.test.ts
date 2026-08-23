@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { flushPromises, mount } from '@vue/test-utils';
 
 import {
@@ -32,6 +32,10 @@ vi.mock('../src/composables/useConfirmDialog', () => ({
 vi.mock('../src/lib/clipboard', () => ({ copyTextToClipboard }));
 
 describe('settings UI', () => {
+  afterEach(() => {
+    delete (window as unknown as { pythinkerDesktop?: unknown }).pythinkerDesktop;
+  });
+
   it('lists provider models and fires the delete intent', async () => {
     api.listProviders.mockResolvedValueOnce([
       {
@@ -154,6 +158,99 @@ describe('settings UI', () => {
     expect(copyTextToClipboard).toHaveBeenCalledWith(expect.stringContaining('Backend: v2'));
     expect(copyTextToClipboard).toHaveBeenCalledWith(expect.stringContaining('Server ID: server-test'));
     expect(copyTextToClipboard).toHaveBeenCalledWith(expect.stringContaining('User agent: Pythinker Test Browser'));
+    wrapper.unmount();
+  });
+
+  it('keeps the desktop update center live through download and restart', async () => {
+    let state: DesktopUpdateState = {
+      status: 'available',
+      installedVersion: '1.0.0',
+      availableVersion: '1.2.3',
+      autoUpdate: true,
+    };
+    let push: ((next: DesktopUpdateState) => void) | undefined;
+    const bridge = {
+      platform: 'darwin',
+      getUpdateState: vi.fn(() => Promise.resolve(state)),
+      setAutoUpdate: vi.fn((enabled: boolean) => {
+        state = { ...state, autoUpdate: enabled };
+        return Promise.resolve(state);
+      }),
+      checkForUpdates: vi.fn(() => Promise.resolve(state)),
+      downloadUpdate: vi.fn(() => {
+        state = { ...state, status: 'downloading', percent: 0, transferred: 0 };
+        return Promise.resolve(state);
+      }),
+      skipUpdate: vi.fn(() => Promise.resolve(state)),
+      undoSkippedUpdate: vi.fn(() => Promise.resolve(state)),
+      markUpdateNotified: vi.fn(() => Promise.resolve(state)),
+      acknowledgeCompletedUpdate: vi.fn(() => Promise.resolve(state)),
+      openUpdateReleaseNotes: vi.fn(() => Promise.resolve(state)),
+      restartToUpdate: vi.fn(() => Promise.resolve(state)),
+      onUpdateState: vi.fn((callback: (next: DesktopUpdateState) => void) => {
+        push = callback;
+        return () => {};
+      }),
+      setThemeSource: vi.fn(),
+    };
+    (window as unknown as { pythinkerDesktop?: unknown }).pythinkerDesktop = bridge;
+    const wrapper = mount(SettingsDialog, {
+      props: {
+        colorScheme: 'system',
+        accent: 'blue',
+        uiFontSize: 14,
+        authReady: true,
+        notify: false,
+        notifyQuestion: false,
+        notifyApproval: false,
+        sound: false,
+        initialTab: 'advanced',
+      },
+      global: { plugins: [i18n] },
+    });
+    await flushPromises();
+
+    const updateControls = document.body.querySelector<HTMLElement>('[data-testid="desktop-update-controls"]')!;
+    expect(updateControls.textContent).toContain('Version 1.2.3 is available');
+    const automaticChecks = document.body.querySelector<HTMLButtonElement>('[data-testid="automatic-update-checks"]')!;
+    expect(automaticChecks.getAttribute('aria-checked')).toBe('true');
+    automaticChecks.click();
+    await flushPromises();
+    expect(bridge.setAutoUpdate).toHaveBeenCalledWith(false);
+
+    document.body.querySelector<HTMLButtonElement>('[data-testid="settings-download-update"]')!.click();
+    await flushPromises();
+    state = {
+      ...state,
+      status: 'downloading',
+      percent: 50,
+      transferred: 5_000_000,
+      total: 10_000_000,
+      bytesPerSecond: 1_000_000,
+    };
+    push?.(state);
+    await flushPromises();
+    expect(document.body.querySelector('[data-testid="settings-update-progress"]')?.getAttribute('value')).toBe('50');
+    expect(document.body.querySelector('[data-testid="settings-update-progress-detail"]')?.textContent).toContain('4.8 MB of 9.5 MB');
+    expect(document.body.querySelector('[data-testid="settings-restart-update"]')).toBeNull();
+
+    state = { ...state, status: 'downloaded', percent: 100 };
+    push?.(state);
+    await flushPromises();
+    document.body.querySelector<HTMLButtonElement>('[data-testid="settings-restart-update"]')!.click();
+    await flushPromises();
+    expect(bridge.restartToUpdate).toHaveBeenCalledOnce();
+
+    state = { ...state, status: 'idle', availableVersion: undefined };
+    push?.(state);
+    bridge.checkForUpdates.mockRejectedValueOnce(new Error('update service unavailable'));
+    await flushPromises();
+    Array.from(updateControls.querySelectorAll<HTMLButtonElement>('button'))
+      .find((button) => button.textContent?.includes('Check for updates'))!
+      .click();
+    await flushPromises();
+    expect(updateControls.textContent).toContain('update service unavailable');
+
     wrapper.unmount();
   });
 
