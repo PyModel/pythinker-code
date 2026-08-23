@@ -33,6 +33,11 @@ jobs:
         with:
           persist-credentials: false
 
+      # apps/desktop/package.json is the single source of truth for the version.
+      # The tag only selects which commit ships. Stamping the tag's version into
+      # the tree instead would let `git tag desktop-v9.9.9 <any commit>` silently
+      # rewrite that commit into a release nobody reviewed, so a disagreement is
+      # a hard failure rather than a rewrite.
       - name: Resolve the desktop version
         id: resolve
         shell: bash
@@ -41,22 +46,42 @@ jobs:
           IS_TAG: ${{ startsWith(github.ref, 'refs/tags/desktop-v') }}
         run: |
           set -euo pipefail
-          # A tag build is authoritative; a manual run falls back to whatever
-          # version the checked-out tree declares.
-          if [ "$IS_TAG" = 'true' ]; then
-            version="${TAG_NAME#desktop-v}"
-          else
-            version="$(node -p 'require("./apps/desktop/package.json").version')"
-          fi
+          version="$(node -p 'require("./apps/desktop/package.json").version')"
           if [ -z "$version" ]; then
             echo 'Could not resolve a desktop version' >&2
             exit 1
+          fi
+          if [ "$IS_TAG" = 'true' ]; then
+            tag_version="${TAG_NAME#desktop-v}"
+            if [ "$tag_version" != "$version" ]; then
+              echo "::error::Tag ${TAG_NAME} does not match apps/desktop/package.json (${version})." >&2
+              echo 'Bump the package version on main first, then tag that commit.' >&2
+              exit 1
+            fi
           fi
           # electron-builder names the GitHub release `v${version}`; the tag we
           # push here (`desktop-v*`) only triggers the workflow.
           echo "version=${version}" >> "$GITHUB_OUTPUT"
           echo "tag=v${version}" >> "$GITHUB_OUTPUT"
           echo "Releasing desktop ${version} as tag v${version}."
+
+      # A release built from a commit that never landed on main ships code no
+      # review gate ever saw. `compare` reports `identical` or `behind` when the
+      # commit is an ancestor of main, and `diverged`/`ahead` when it is not.
+      - name: Require the tagged commit to be on main
+        if: startsWith(github.ref, 'refs/tags/desktop-v')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          status="$(gh api "repos/${GITHUB_REPOSITORY}/compare/main...${GITHUB_SHA}" --jq '.status')"
+          case "$status" in
+            identical|behind) echo "${GITHUB_SHA} is on main (${status})." ;;
+            *)
+              echo "::error::${GITHUB_SHA} is not on main (compare status: ${status})." >&2
+              exit 1 ;;
+          esac
 
       - name: Mint releases-repo token
         id: releases_token
@@ -106,14 +131,6 @@ jobs:
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
-
-      - name: Stamp desktop version for tag builds
-        if: startsWith(github.ref, 'refs/tags/desktop-v')
-        env:
-          TAG_NAME: ${{ github.ref_name }}
-        run: |
-          export DESKTOP_VERSION="${TAG_NAME#desktop-v}"
-          node -e 'const fs = require("node:fs"); const path = "apps/desktop/package.json"; const packageJson = JSON.parse(fs.readFileSync(path, "utf8")); packageJson.version = process.env.DESKTOP_VERSION; fs.writeFileSync(path, `${JSON.stringify(packageJson, null, 2)}\n`);'
 
       - name: Build workspace
         run: pnpm --workspace-root run build
@@ -232,15 +249,6 @@ jobs:
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
-
-      - name: Stamp desktop version for tag builds
-        if: startsWith(github.ref, 'refs/tags/desktop-v')
-        shell: bash
-        env:
-          TAG_NAME: ${{ github.ref_name }}
-        run: |
-          export DESKTOP_VERSION="${TAG_NAME#desktop-v}"
-          node -e 'const fs = require("node:fs"); const path = "apps/desktop/package.json"; const packageJson = JSON.parse(fs.readFileSync(path, "utf8")); packageJson.version = process.env.DESKTOP_VERSION; fs.writeFileSync(path, `${JSON.stringify(packageJson, null, 2)}\n`);'
 
       - name: Build workspace
         run: pnpm --workspace-root run build

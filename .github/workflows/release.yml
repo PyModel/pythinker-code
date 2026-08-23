@@ -126,6 +126,59 @@ jobs:
           # No NPM_TOKEN on purpose: changesets prefers it over OIDC when set, so
           # defining it would silently downgrade publishing to a long-lived token.
 
+      # apps/desktop is a private workspace package: changesets bumps its
+      # version but nothing publishes it, and Desktop Release only fires on a
+      # `desktop-v*` tag. A bump that nobody tags therefore leaves every
+      # installed desktop client on the previous version with nothing red to
+      # show for it — which is exactly how 0.2.0 sat unreleased behind 0.1.6.
+      # Read both versions out of git rather than the working tree: the
+      # changesets action rewrites package.json in place on the run that opens
+      # the version PR, and that rewrite is not a release.
+      # The App token matters: a tag pushed with GITHUB_TOKEN would not start
+      # Desktop Release, because GitHub refuses to trigger workflows from it.
+      # A desktop tag that fails to cut costs one manual `git tag`; a failed step
+      # here would block npm, the Marketplace and the CDN behind it. Never let
+      # this be the thing that stops a release — but annotate every skip, since
+      # a silent no-op is the exact failure being fixed.
+      - name: Cut the desktop release tag on a version bump
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ steps.release-bot.outputs.token }}
+        run: |
+          set -uo pipefail
+          # Read the pushed commit by sha, never HEAD. The changesets action
+          # checks out changeset-release/main and commits the bumped
+          # package.json files on the run that opens the version PR, so by the
+          # time this step runs HEAD can be a bump that is not a release — and
+          # tagging it would burn the next real version's tag name, which the
+          # already-exists check below would then treat as done.
+          read_version() { git show "$1:apps/desktop/package.json" 2>/dev/null | node -p 'JSON.parse(require("fs").readFileSync(0, "utf8")).version' 2>/dev/null; }
+          prev="$(read_version "${GITHUB_SHA}^" || true)"
+          curr="$(read_version "${GITHUB_SHA}" || true)"
+          if [ -z "$prev" ] || [ -z "$curr" ] || [ "$prev" = "$curr" ]; then
+            echo "::notice::Desktop version unchanged or unreadable (prev='${prev}' curr='${curr}'); no tag cut."
+            exit 0
+          fi
+          tag="desktop-v${curr}"
+          # A tag on this commit is a re-run. A tag on a different commit is an
+          # anomaly that would otherwise silently swallow this release.
+          existing="$(git ls-remote --tags origin "refs/tags/${tag}" | cut -f1)"
+          if [ -n "$existing" ]; then
+            if [ "$existing" = "$GITHUB_SHA" ]; then
+              echo "::notice::${tag} already points here; nothing to do."
+            else
+              echo "::error::${tag} exists at ${existing}, not ${GITHUB_SHA}. Desktop ${curr} will not ship until that is resolved."
+            fi
+            exit 0
+          fi
+          if ! gh api "repos/${GITHUB_REPOSITORY}/git/refs" \
+            -f ref="refs/tags/${tag}" \
+            -f sha="${GITHUB_SHA}" > /dev/null; then
+            echo "::error::Could not cut ${tag}. Desktop ${curr} will not ship until someone pushes it: git tag ${tag} ${GITHUB_SHA} && git push origin ${tag}"
+            exit 1
+          fi
+          echo "Cut ${tag} at ${GITHUB_SHA} (desktop ${prev} -> ${curr})."
+
       - name: Request CodeRabbit review on version PR
         if: steps.changesets.outputs.published != 'true'
         env:
