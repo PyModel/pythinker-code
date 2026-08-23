@@ -38,14 +38,14 @@ Each family has one phase owner. Browser DOMPurify work includes both Mermaid an
 | --- | --- | --- |
 | R1 | tar | Both agent-core manifests declared tar and its deprecated type stub, but no source imported it. The direct declarations were removed. Electron packaging and node-gyp still resolve the patched release. |
 | R2 | ws | The gateway directly creates `WebSocketServer`. Google GenAI, OpenAI, klient tests, and jsdom also resolve ws. This is a reachable runtime path. Every resolved instance uses 8.21.3 or later. |
-| R3 | protobufjs and @protobufjs/utf8 | Google GenAI uses this graph in both provider engines. This path is reachable when a Google provider is selected. |
+| R3 | protobufjs and @protobufjs/utf8 | Google GenAI includes this graph only in its tokenizer subpath. No repository source imports that subpath, so the installed graph is dormant in current provider use. The lockfile was still remediated. |
 | R4 | React Router | The visualizer directly mounts `BrowserRouter`. The reviewed RSC and server-rendering modes were not present at that entry point, but the dependency finding remained valid and was remediated. |
 | R5 | find-my-way | Fastify uses this router in the gateway runtime. HTTP/2 exposure was not established in the default server configuration. The runtime graph was still upgraded. |
 | R6 | ip-address | Runtime packages resolve it through SOCKS and MCP-related networking paths. No direct repository call was found. The transitive instance was still upgraded. |
 | R7 | fast-uri | Ajv and Fastify-related validation paths resolve it. The transitive runtime and tooling instances were upgraded. |
 | R8 | Mermaid | The web chat renders model-produced Mermaid blocks. This is hostile browser input and a reachable sanitizer path. Docs also build Mermaid content. |
-| R9 | DOMPurify | Mermaid and Monaco resolved separate vulnerable copies. Both now resolve 3.4.14. The built browser test executes malicious fixtures through both production chunks. |
-| R10 | Monaco | The web editor loads Monaco. Monaco 0.55.1 also embedded DOMPurify at version 3.2.7 in its ESM source. A pnpm patch replaces that ESM implementation with the resolved DOMPurify 3.4.14 module and changes Monaco's dependency metadata. A lockfile override alone is not accepted. |
+| R9 | DOMPurify | Mermaid and Monaco resolved separate vulnerable copies. Both now resolve 3.4.14. The built browser test executes malicious fixtures through the production Mermaid and Monaco paths. |
+| R10 | Monaco | The web editor loads Monaco. Monaco 0.55.1 embedded DOMPurify 3.2.7 in its ESM, development, and minified distributions. A pnpm patch replaces the ESM implementation with DOMPurify 3.4.14 and removes CommonJS metadata. Post-install pruning removes the two unused vulnerable distributions. A lockfile override alone is not accepted. |
 | R11 | Tooling and package families | brace-expansion, js-yaml, Vite, esbuild, PostCSS, nanoid, linkify-it, qs, and body-parser occur in build, package, docs, test, or transitive runtime graphs. Full-workspace audit and artifact checks cover them even when production-only audit classification excludes them. |
 
 ## Verification Contract
@@ -54,7 +54,7 @@ The following checks are required:
 
 1. `pnpm audit --json` reports zero vulnerabilities. `pnpm audit --prod` is informational only.
 2. Lockfile checks reject every known vulnerable package version, including unreachable entries.
-3. Monaco dependency metadata, patched ESM source, and resolved DOMPurify version must agree.
+3. Monaco dependency metadata, patched ESM source, resolved DOMPurify version, and installed package tree must agree. The unused vulnerable development and minified distributions must be absent.
 4. Malicious Monaco and Mermaid fixtures run in Chrome against the production web build.
 5. CLI `dist`, committed `dist-web`, packed CLI, desktop package, VSIX, docs output, and tooling graph are inspected separately. Embedded `dist-web` copies must be byte-identical.
 

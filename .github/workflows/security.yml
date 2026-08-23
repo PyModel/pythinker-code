@@ -56,10 +56,12 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - run: pnpm -C apps/pythinker-code run prepack
       - run: pnpm -C apps/desktop run package
       - run: pnpm -C docs run build
       - run: mkdir -p .tmp/security-artifacts/cli .tmp/security-artifacts/vsix
       - run: pnpm --filter @pymodel/pythinker-code pack --pack-destination "${{ github.workspace }}/.tmp/security-artifacts/cli"
       - run: pnpm --filter pythinker run package:platform -- --target linux-x64 --out-dir "${{ github.workspace }}/.tmp/security-artifacts/vsix"
       - run: pnpm -C apps/pythinker-code run smoke
+      - run: git diff --exit-code -- apps/pythinker-code/dist-web
       - run: pnpm run check:security-artifacts

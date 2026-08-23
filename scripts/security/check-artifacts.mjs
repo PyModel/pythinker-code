@@ -2,7 +2,7 @@
 
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdir, mkdtemp, readFile, readdir, rm, stat } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, readFile, readdir, rm, stat } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, extname, join, relative, resolve, sep } from 'node:path';
@@ -12,12 +12,12 @@ const artifactRoot = resolve(repositoryRoot, process.argv[2] ?? '.tmp/security-a
 const webRoot = resolve(repositoryRoot, 'apps/pythinker-code/dist-web');
 const textExtensions = new Set(['.cjs', '.css', '.html', '.js', '.json', '.map', '.mjs', '.txt', '.yaml', '.yml']);
 const vulnerableCode = [
-  /DOMPurify 3\.2\.7\b/,
-  /DOMPurify 3\.4\.7\b/,
+  /@license DOMPurify 3\.2\.7\b/,
+  /@license DOMPurify 3\.4\.7\b/,
   /\.version\s*=\s*["']3\.2\.7["']/,
   /\.version\s*=\s*["']3\.4\.7["']/,
 ];
-const safeCode = [/DOMPurify 3\.4\.14\b/, /\.version\s*=\s*["']3\.4\.14["']/];
+const safeCode = [/@license DOMPurify 3\.4\.14\b/, /\.version\s*=\s*["']3\.4\.14["']/];
 
 function compareVersions(left, right) {
   const parse = (value) => value.split('-')[0].split('.').map((part) => Number.parseInt(part, 10) || 0);
@@ -147,6 +147,9 @@ async function assertDependencyProof() {
   const webRequire = createRequire(resolve(repositoryRoot, 'apps/pythinker-web/package.json'));
   const monacoRoot = dirname(webRequire.resolve('monaco-editor/package.json'));
   const monacoPackage = JSON.parse(await readFile(join(monacoRoot, 'package.json'), 'utf8'));
+  if (monacoPackage.main || monacoPackage.exports?.['.']?.require) {
+    throw new Error('Monaco still exposes a pruned vulnerable distribution.');
+  }
   if (monacoPackage.dependencies?.dompurify !== '3.4.14') {
     throw new Error('Monaco dependency metadata does not require DOMPurify 3.4.14.');
   }
@@ -165,8 +168,18 @@ async function assertDependencyProof() {
   if (domPurifyPackage.version !== '3.4.14') {
     throw new Error(`Monaco resolves DOMPurify ${domPurifyPackage.version}, expected 3.4.14.`);
   }
+  for (const distribution of ['dev', 'min']) {
+    try {
+      await access(join(monacoRoot, distribution));
+      throw new Error(`Monaco still contains its vulnerable ${distribution} distribution.`);
+    } catch (error) {
+      if (error instanceof Error && 'code' in error && error.code === 'ENOENT') continue;
+      throw error;
+    }
+  }
+  await assertTextArtifactsSafe('Resolved Monaco package', monacoRoot);
   process.stdout.write(
-    'Monaco: dependency metadata, ESM source, and resolved DOMPurify are patched.\n',
+    'Monaco: metadata and ESM source are patched; unused vulnerable distributions are absent.\n',
   );
 }
 

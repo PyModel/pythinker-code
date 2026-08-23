@@ -11,40 +11,40 @@ catalogs:
       version: 4.4.3
 
 overrides:
-  pythinker-code>@tailwindcss/vite: 4.1.18
-  ssh2@1.17.0>cpu-features: '-'
-  ssh2@1.17.0>nan: '-'
-  pythinker-code>tailwindcss: 4.1.18
-  vite@>=8.0.0 <8.0.16: 8.0.16
   '@babel/core@<7.29.6': ^7.29.6
-  diff@>=6.0.0 <8.0.3: ^8.0.3
-  serialize-javascript@<7.0.5: ^7.0.5
-  tar@<7.5.22: 7.5.22
-  ws@<8.21.3: 8.21.3
-  protobufjs@>=7 <7.6.5: 7.6.5
   '@protobufjs/utf8@<1.1.2': 1.1.2
-  dompurify@<3.4.14: 3.4.14
-  react-router@>=7 <7.18.2: 7.18.2
-  find-my-way@>=9 <9.9.0: 9.9.0
-  ip-address@>=10 <10.5.0: 10.5.0
-  fast-uri@>=3 <3.1.5: 3.1.5
-  mermaid@>=11 <11.17.0: 11.17.0
+  body-parser@>=2 <2.3.0: 2.3.0
   brace-expansion@<1.1.18: 1.1.18
   brace-expansion@>=2 <2.1.4: 2.1.4
   brace-expansion@>=3 <5.0.9: 5.0.9
+  diff@>=6.0.0 <8.0.3: ^8.0.3
+  dompurify@<3.4.14: 3.4.14
+  esbuild@<=0.24.2: 0.25.12
+  fast-uri@>=3 <3.1.5: 3.1.5
+  find-my-way@>=9 <9.9.0: 9.9.0
+  ip-address@>=10 <10.5.0: 10.5.0
   js-yaml@>=3 <3.15.1: 3.15.1
   js-yaml@>=4 <4.3.1: 4.3.1
-  vitepress@1.6.4>vite: 6.4.3
-  esbuild@<=0.24.2: 0.25.12
-  postcss@>=8 <8.5.26: 8.5.26
-  nanoid@>=3 <3.3.18: 3.3.18
   linkify-it@>=5 <5.0.2: 5.0.2
+  mermaid@>=11 <11.17.0: 11.17.0
+  nanoid@>=3 <3.3.18: 3.3.18
+  postcss@>=8 <8.5.26: 8.5.26
+  protobufjs@>=7 <7.6.5: 7.6.5
+  pythinker-code>@tailwindcss/vite: 4.1.18
+  pythinker-code>tailwindcss: 4.1.18
   qs@>=6 <6.15.3: 6.15.3
-  body-parser@>=2 <2.3.0: 2.3.0
+  react-router@>=7 <7.18.2: 7.18.2
+  serialize-javascript@<7.0.5: ^7.0.5
+  ssh2@1.17.0>cpu-features: '-'
+  ssh2@1.17.0>nan: '-'
+  tar@<7.5.22: 7.5.22
+  vite@>=8.0.0 <8.0.16: 8.0.16
+  vitepress@1.6.4>vite: 6.4.3
+  ws@<8.21.3: 8.21.3
 
 patchedDependencies:
   monaco-editor@0.55.1:
-    hash: ecce0e7a616300ff7ca8fd71c77eb16ea86e112eab4ad42409aa1a3f1767343c
+    hash: dfc69cf7c849c515519c92ac86f89725f35d7404160274a973e65baa06bdc3a4
     path: patches/monaco-editor@0.55.1.patch
 
 importers:
@@ -289,13 +289,13 @@ importers:
         version: 0.17.0
       markstream-vue:
         specifier: 1.0.9-beta.1
-        version: 1.0.9-beta.1(katex@0.17.0)(mermaid@11.17.0)(stream-diffs@0.0.2(@shikijs/themes@4.4.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(vue@3.5.35(typescript@6.0.3)))(stream-markdown@0.0.16(react@19.2.8)(shiki@4.4.3)(vue@3.5.35(typescript@6.0.3)))(stream-monaco@0.0.49(monaco-editor@0.55.1(patch_hash=ecce0e7a616300ff7ca8fd71c77eb16ea86e112eab4ad42409aa1a3f1767343c)))(vue-i18n@11.4.8(vue@3.5.35(typescript@6.0.3)))(vue@3.5.35(typescript@6.0.3))
+        version: 1.0.9-beta.1(katex@0.17.0)(mermaid@11.17.0)(stream-diffs@0.0.2(@shikijs/themes@4.4.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(vue@3.5.35(typescript@6.0.3)))(stream-markdown@0.0.16(react@19.2.8)(shiki@4.4.3)(vue@3.5.35(typescript@6.0.3)))(stream-monaco@0.0.49(monaco-editor@0.55.1(patch_hash=dfc69cf7c849c515519c92ac86f89725f35d7404160274a973e65baa06bdc3a4)))(vue-i18n@11.4.8(vue@3.5.35(typescript@6.0.3)))(vue@3.5.35(typescript@6.0.3))
       mermaid:
         specifier: ^11.17.0
         version: 11.17.0
       monaco-editor:
         specifier: ^0.55.1
-        version: 0.55.1(patch_hash=ecce0e7a616300ff7ca8fd71c77eb16ea86e112eab4ad42409aa1a3f1767343c)
+        version: 0.55.1(patch_hash=dfc69cf7c849c515519c92ac86f89725f35d7404160274a973e65baa06bdc3a4)
       shiki:
         specifier: ^4.3.0
         version: 4.4.3
@@ -307,7 +307,7 @@ importers:
         version: 0.0.16(react@19.2.8)(shiki@4.4.3)(vue@3.5.35(typescript@6.0.3))
       stream-monaco:
         specifier: 0.0.49
-        version: 0.0.49(monaco-editor@0.55.1(patch_hash=ecce0e7a616300ff7ca8fd71c77eb16ea86e112eab4ad42409aa1a3f1767343c))
+        version: 0.0.49(monaco-editor@0.55.1(patch_hash=dfc69cf7c849c515519c92ac86f89725f35d7404160274a973e65baa06bdc3a4))
       vue:
         specifier: ^3.5.35
         version: 3.5.35(typescript@6.0.3)
@@ -17278,7 +17278,7 @@ snapshots:
 
   markstream-core@1.0.3: {}
 
-  markstream-vue@1.0.9-beta.1(katex@0.17.0)(mermaid@11.17.0)(stream-diffs@0.0.2(@shikijs/themes@4.4.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(vue@3.5.35(typescript@6.0.3)))(stream-markdown@0.0.16(react@19.2.8)(shiki@4.4.3)(vue@3.5.35(typescript@6.0.3)))(stream-monaco@0.0.49(monaco-editor@0.55.1(patch_hash=ecce0e7a616300ff7ca8fd71c77eb16ea86e112eab4ad42409aa1a3f1767343c)))(vue-i18n@11.4.8(vue@3.5.35(typescript@6.0.3)))(vue@3.5.35(typescript@6.0.3)):
+  markstream-vue@1.0.9-beta.1(katex@0.17.0)(mermaid@11.17.0)(stream-diffs@0.0.2(@shikijs/themes@4.4.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(vue@3.5.35(typescript@6.0.3)))(stream-markdown@0.0.16(react@19.2.8)(shiki@4.4.3)(vue@3.5.35(typescript@6.0.3)))(stream-monaco@0.0.49(monaco-editor@0.55.1(patch_hash=dfc69cf7c849c515519c92ac86f89725f35d7404160274a973e65baa06bdc3a4)))(vue-i18n@11.4.8(vue@3.5.35(typescript@6.0.3)))(vue@3.5.35(typescript@6.0.3)):
     dependencies:
       '@chenglou/pretext': 0.0.8
       '@floating-ui/dom': 1.8.0
@@ -17290,7 +17290,7 @@ snapshots:
       mermaid: 11.17.0
       stream-diffs: 0.0.2(@shikijs/themes@4.4.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(vue@3.5.35(typescript@6.0.3))
       stream-markdown: 0.0.16(react@19.2.8)(shiki@4.4.3)(vue@3.5.35(typescript@6.0.3))
-      stream-monaco: 0.0.49(monaco-editor@0.55.1(patch_hash=ecce0e7a616300ff7ca8fd71c77eb16ea86e112eab4ad42409aa1a3f1767343c))
+      stream-monaco: 0.0.49(monaco-editor@0.55.1(patch_hash=dfc69cf7c849c515519c92ac86f89725f35d7404160274a973e65baa06bdc3a4))
       vue-i18n: 11.4.8(vue@3.5.35(typescript@6.0.3))
 
   matcher@3.0.0:
@@ -17831,7 +17831,7 @@ snapshots:
       yargs-parser: 21.1.1
       yargs-unparser: 2.0.0
 
-  monaco-editor@0.55.1(patch_hash=ecce0e7a616300ff7ca8fd71c77eb16ea86e112eab4ad42409aa1a3f1767343c):
+  monaco-editor@0.55.1(patch_hash=dfc69cf7c849c515519c92ac86f89725f35d7404160274a973e65baa06bdc3a4):
     dependencies:
       dompurify: 3.4.14
       marked: 14.0.0
@@ -19611,11 +19611,11 @@ snapshots:
       - solid-js
       - vue
 
-  stream-monaco@0.0.49(monaco-editor@0.55.1(patch_hash=ecce0e7a616300ff7ca8fd71c77eb16ea86e112eab4ad42409aa1a3f1767343c)):
+  stream-monaco@0.0.49(monaco-editor@0.55.1(patch_hash=dfc69cf7c849c515519c92ac86f89725f35d7404160274a973e65baa06bdc3a4)):
     dependencies:
       '@shikijs/monaco': 3.23.0
       alien-signals: 2.0.8
-      monaco-editor: 0.55.1(patch_hash=ecce0e7a616300ff7ca8fd71c77eb16ea86e112eab4ad42409aa1a3f1767343c)
+      monaco-editor: 0.55.1(patch_hash=dfc69cf7c849c515519c92ac86f89725f35d7404160274a973e65baa06bdc3a4)
       shiki: 3.23.0
 
   strict-event-emitter@0.5.1: {}

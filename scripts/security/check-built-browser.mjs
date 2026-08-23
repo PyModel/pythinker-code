@@ -9,6 +9,41 @@ import { extname, isAbsolute, join, relative, resolve } from 'node:path';
 
 const repositoryRoot = resolve(import.meta.dirname, '../..');
 const webRoot = resolve(repositoryRoot, process.argv[2] ?? 'apps/pythinker-code/dist-web');
+const fixtureSessionId = '01ARZ3NDEKTSV4RRFFQ69G5FAV';
+const fixtureWorkspaceId = 'artifact-security-workspace';
+const fixtureTimestamp = '2026-01-01T00:00:00.000Z';
+const fixtureMarkdown = [
+  '```mermaid',
+  'flowchart TD',
+  'A["<img src=/missing-mermaid-fixture onerror=globalThis.__artifactSecurityExecuted=10>unsafe-diagram"]',
+  '```',
+].join('\n');
+const fixtureSession = {
+  id: fixtureSessionId,
+  title: 'Artifact security fixture',
+  created_at: fixtureTimestamp,
+  updated_at: fixtureTimestamp,
+  busy: false,
+  main_turn_active: false,
+  pending_interaction: 'none',
+  archived: false,
+  workspace_id: fixtureWorkspaceId,
+  metadata: { cwd: '/workspace' },
+  agent_config: { model: 'fixture-model' },
+  usage: {
+    input_tokens: 0,
+    output_tokens: 0,
+    cache_read_tokens: 0,
+    cache_creation_tokens: 0,
+    total_cost_usd: 0,
+    context_tokens: 0,
+    context_limit: 0,
+    turn_count: 1,
+  },
+  permission_rules: [],
+  message_count: 1,
+  last_seq: 1,
+};
 
 async function findAsset(pattern) {
   const assets = await readdir(join(webRoot, 'assets'));
@@ -53,6 +88,87 @@ function contentType(path) {
   }[extname(path)] ?? 'application/octet-stream';
 }
 
+function serveFixtureApi(pathname, response) {
+  let data;
+  if (pathname === '/api/v1/auth') {
+    data = { ready: true, providers_count: 1, default_model: 'fixture-model', managed_provider: null };
+  } else if (pathname === '/api/v1/healthz') {
+    data = { ok: true };
+  } else if (pathname === '/api/v1/meta') {
+    data = {
+      server_version: 'artifact-security',
+      server_id: 'artifact-security',
+      started_at: fixtureTimestamp,
+      capabilities: {},
+      open_in_apps: [],
+      dangerous_bypass_auth: false,
+      backend: 'v2',
+    };
+  } else if (pathname === '/api/v1/models' || pathname === '/api/v1/providers') {
+    data = { items: [] };
+  } else if (pathname === '/api/v1/config') {
+    data = {};
+  } else if (pathname === '/api/v1/workspaces') {
+    data = {
+      items: [{
+        id: fixtureWorkspaceId,
+        root: '/workspace',
+        name: 'Artifact security',
+        last_opened_at: fixtureTimestamp,
+        session_count: 1,
+      }],
+      has_more: false,
+    };
+  } else if (pathname === '/api/v1/fs:home') {
+    data = { home: '/workspace', recent_roots: [] };
+  } else if (pathname === '/api/v1/sessions') {
+    data = { items: [fixtureSession], has_more: false };
+  } else if (pathname === `/api/v1/sessions/${fixtureSessionId}/snapshot`) {
+    data = {
+      as_of_seq: 1,
+      epoch: 'artifact-security',
+      session: fixtureSession,
+      messages: {
+        items: [{
+          id: '01ARZ3NDEKTSV4RRFFQ69G5FAW',
+          session_id: fixtureSessionId,
+          role: 'assistant',
+          content: [{ type: 'text', text: fixtureMarkdown }],
+          created_at: fixtureTimestamp,
+        }],
+        has_more: false,
+      },
+      in_flight_turn: null,
+      subagents: [],
+      pending_approvals: [],
+      pending_questions: [],
+    };
+  } else if (pathname === `/api/v1/sessions/${fixtureSessionId}/status`) {
+    data = {
+      model: 'fixture-model',
+      thinking_level: 'off',
+      permission: 'manual',
+      plan_mode: false,
+      dynamic_workflow_mode: false,
+      context_tokens: 0,
+      max_context_tokens: 0,
+      context_usage: 0,
+    };
+  } else if (pathname === `/api/v1/sessions/${fixtureSessionId}/goal`) {
+    data = null;
+  } else if (pathname === `/api/v1/sessions/${fixtureSessionId}/warnings`) {
+    data = { warnings: [] };
+  } else {
+    return false;
+  }
+  response.writeHead(200, {
+    'Cache-Control': 'no-store',
+    'Content-Type': 'application/json; charset=utf-8',
+  });
+  response.end(JSON.stringify({ code: 0, msg: '', data, request_id: 'artifact-security' }));
+  return true;
+}
+
 async function startServer() {
   // createServer's handler is declared to return void, so handing it an async
   // function hands Node a floating promise: a rejection escapes as an
@@ -73,6 +189,7 @@ async function startServer() {
 async function serve(request, response) {
   try {
     const pathname = decodeURIComponent(new URL(request.url ?? '/', 'http://localhost').pathname);
+    if (serveFixtureApi(pathname, response)) return;
     const requested = pathname === '/' ? 'index.html' : pathname.slice(1);
     const relativePath = relative(webRoot, resolve(webRoot, requested));
     if (relativePath.startsWith('..') || isAbsolute(relativePath)) {
@@ -168,7 +285,7 @@ class CdpClient {
   }
 }
 
-function browserExpression(editorAsset, mermaidAsset) {
+function browserExpression(editorAsset) {
   return `
     (async () => {
       const sleep = (milliseconds) => new Promise((resolveSleep) => setTimeout(resolveSleep, milliseconds));
@@ -198,7 +315,28 @@ function browserExpression(editorAsset, mermaidAsset) {
         await sleep(100);
       }
       if (!document.querySelector('#app')) throw new Error('The built application did not load.');
-      globalThis.__artifactSecurityExecuted = 0;
+
+      let productionDiagram = null;
+      for (let attempt = 0; attempt < 600 && !productionDiagram; attempt += 1) {
+        await sleep(50);
+        const candidate = document.querySelector('.mermaid-block-container[data-markstream-mode="preview"]');
+        if (candidate?.querySelector('svg') && candidate.textContent.includes('unsafe-diagram')) {
+          productionDiagram = candidate;
+        }
+      }
+      if (!productionDiagram) {
+        throw new Error('The production Markdown renderer did not render the Mermaid fixture.');
+      }
+      const mermaidDangerous = dangerousDom(productionDiagram);
+      if (
+        productionDiagram.querySelector('script')
+        || mermaidDangerous.length
+        || globalThis.__artifactSecurityExecuted !== 0
+      ) {
+        throw new Error(
+          'The production Mermaid sanitizer retained executable markup: ' + mermaidDangerous.join(', '),
+        );
+      }
 
       const editorModule = await import(${JSON.stringify(editorAsset)});
       const monaco = findApi(editorModule, (value) => value.editor?.create && value.languages?.registerHoverProvider);
@@ -243,27 +381,6 @@ function browserExpression(editorAsset, mermaidAsset) {
       provider?.dispose?.();
       languageRegistration?.dispose?.();
       host.remove();
-
-      const mermaidModule = await import(${JSON.stringify(mermaidAsset)});
-      const mermaid = findApi(mermaidModule, (value) => typeof value.initialize === 'function' && typeof value.render === 'function');
-      if (!mermaid) throw new Error('Could not resolve the built Mermaid API.');
-      mermaid.initialize({ htmlLabels: true, securityLevel: 'strict', startOnLoad: false });
-      const rendered = await mermaid.render(
-        'artifactSecurityDiagram',
-        ${JSON.stringify('flowchart TD\nA["<img src=/missing-mermaid-fixture onerror=globalThis.__artifactSecurityExecuted=10>unsafe-diagram"]')},
-      );
-      const diagram = document.createElement('div');
-      diagram.innerHTML = rendered.svg;
-      document.body.append(diagram);
-      await sleep(100);
-      const mermaidDangerous = dangerousDom(diagram);
-      if (diagram.querySelector('script') || mermaidDangerous.length || globalThis.__artifactSecurityExecuted !== 0) {
-        throw new Error('The built Mermaid sanitizer retained executable markup: ' + mermaidDangerous.join(', '));
-      }
-      if (!diagram.textContent.includes('unsafe-diagram')) {
-        throw new Error('The built Mermaid fixture did not render.');
-      }
-      diagram.remove();
       return { mermaid: 'sanitized', monaco: 'sanitized' };
     })()
   `;
@@ -271,9 +388,8 @@ function browserExpression(editorAsset, mermaidAsset) {
 
 async function main() {
   await access(join(webRoot, 'index.html'));
-  const [editorAsset, mermaidAsset, chrome] = await Promise.all([
+  const [editorAsset, chrome] = await Promise.all([
     findAsset(/^editor\.main-[\w-]+\.js$/),
-    findAsset(/^mermaid\.core-[\w-]+\.js$/),
     findChrome(),
   ]);
   const profile = await mkdtemp(join(tmpdir(), 'pythinker-security-chrome-'));
@@ -294,20 +410,29 @@ async function main() {
     await client.connect();
     await client.call('Runtime.enable');
     await client.call('Page.enable');
+    await client.call('Page.addScriptToEvaluateOnNewDocument', {
+      source: `
+        globalThis.__artifactSecurityExecuted = 0;
+        localStorage.setItem('pythinker-web.onboarded', '1');
+      `,
+    });
     await client.call('Page.navigate', { url: `${origin}/` });
-    for (let attempt = 0; attempt < 100; attempt += 1) {
+    let loaded = false;
+    for (let attempt = 0; attempt < 600; attempt += 1) {
       const ready = await client.call('Runtime.evaluate', {
         expression: '({ origin: location.origin, readyState: document.readyState })',
         returnByValue: true,
       });
-      if (ready.result.value.origin === origin && ready.result.value.readyState === 'complete') break;
+      loaded = ready.result.value.origin === origin && ready.result.value.readyState === 'complete';
+      if (loaded) break;
       await new Promise((resolveWait) => {
         setTimeout(resolveWait, 50);
       });
     }
+    if (!loaded) throw new Error('The built application navigation did not complete.');
     const evaluation = await client.call('Runtime.evaluate', {
       awaitPromise: true,
-      expression: browserExpression(editorAsset, mermaidAsset),
+      expression: browserExpression(editorAsset),
       returnByValue: true,
     });
     if (evaluation.exceptionDetails) {

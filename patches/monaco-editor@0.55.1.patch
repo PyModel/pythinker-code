@@ -1355,6 +1355,21 @@ diff --git a/package.json b/package.json
 index 6bea0ff3f836b47d3ff7db80a26f257cb4e998dd..6d8bc47f9ba41ba40ef53e5ec2605c45e45ce24e 100644
 --- a/package.json
 +++ b/package.json
+@@ -33,13 +33,11 @@
+     "build-lsp": "cd monaco-lsp-client && npm install && npm run build"
+   },
+   "typings": "./esm/vs/editor/editor.main.d.ts",
+-  "main": "./min/vs/editor/editor.main.js",
+   "module": "./esm/vs/editor/editor.main.js",
+   "exports": {
+     ".": {
+       "types": "./esm/vs/editor/editor.main.d.ts",
+-      "import": "./esm/vs/editor/editor.main.js",
+-      "require": "./min/vs/editor/editor.main.js"
++      "import": "./esm/vs/editor/editor.main.js"
+     },
+     "./*": "./*"
+   },
 @@ -102,7 +102,7 @@
    },
    "dependencies": {
