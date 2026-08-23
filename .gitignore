@@ -10,6 +10,7 @@ coverage/
 .vitest-results/
 .DS_Store
 .playwright-mcp/
+.lavish/
 .claude
 .conductor
 .pythinker-stash-dir

@@ -26,7 +26,17 @@ Alternative channel:
 
 ## Our Response
 
-We will acknowledge your report and provide an initial assessment as soon as we can.
+We triage Critical and High reports within 24 hours. We target a fix within 72 hours for
+Critical and High issues, 7 days for Medium issues, and 30 days for Low issues.
+
+## Dependency Vulnerability Policy
+
+Pull requests cannot add a vulnerability at any severity. The repository uses a full-workspace
+audit because build and package steps can ship workspace code declared as a development
+dependency. A production-only audit is informational and is not a security gate.
+
+If a vulnerability is disclosed after clean code reaches `main`, the response times above apply.
+Dismissed or auto-dismissed alert state does not make a vulnerable dependency acceptable.
 
 ## Public Disclosure
 
