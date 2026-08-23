@@ -175,6 +175,45 @@ describe('AcpProcessService local fallback', () => {
     });
   });
 
+  it('falls back to local execution for a non-shell -c command carrying the Bash env', async () => {
+    let created = 0;
+    const connection = makeConnection({
+      terminalEnabled: true,
+      createTerminal: () => {
+        created += 1;
+        return makeTerminalHandle();
+      },
+    });
+    const { local, calls } = makeLocalProcessService();
+    const runtime = await bindRuntime(makeEnvironment(), { connection, local });
+
+    await runtime.process!.spawn('python', ['-c', 'print(1)'], { env: { ...bashEnv } });
+
+    expect(created).toBe(0);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({ command: 'python', args: ['-c', 'print(1)'] });
+  });
+
+  it('routes a shell spawn to the terminal regardless of the shell binary or its path', async () => {
+    for (const shell of ['/bin/zsh', '/usr/local/bin/fish', 'C:\\Program Files\\Git\\bin\\bash.exe']) {
+      let created = 0;
+      const connection = makeConnection({
+        terminalEnabled: true,
+        createTerminal: () => {
+          created += 1;
+          return makeTerminalHandle();
+        },
+      });
+      const { local, calls } = makeLocalProcessService();
+      const runtime = await bindRuntime(makeEnvironment(), { connection, local });
+
+      await runtime.process!.spawn(shell, ['-c', 'echo hi'], { env: { ...bashEnv } });
+
+      expect(created, shell).toBe(1);
+      expect(calls, shell).toHaveLength(0);
+    }
+  });
+
   it('falls back to local execution for non-Bash spawns even with the terminal capability', async () => {
     let created = 0;
     const connection = makeConnection({
