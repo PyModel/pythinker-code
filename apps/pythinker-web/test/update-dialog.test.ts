@@ -201,7 +201,9 @@ describe('UpdateDialog', () => {
 
     update.openDialog();
     await nextTick();
-    body().querySelector<HTMLElement>('.ui-dialog__close')?.click();
+    const close = body().querySelector<HTMLElement>('.ui-dialog__close');
+    expect(close).not.toBeNull();
+    close?.click();
     await nextTick();
 
     expect(update.dialogOpen.value).toBe(true);
