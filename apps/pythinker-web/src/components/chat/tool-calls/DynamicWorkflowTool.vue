@@ -174,7 +174,7 @@ function phaseLabel(phase: AppSubagentPhase): string {
 }
 
 /** Result-based done summary: cancelled (aborted) entries get their own count
- *  in the legend line. */
+ *  in the header's overview label (the `.lbl` span, not the phase legend). */
 const doneSummary = computed(() => {
   if (!result.value) return '';
   const aborted = result.value.aborted ?? 0;

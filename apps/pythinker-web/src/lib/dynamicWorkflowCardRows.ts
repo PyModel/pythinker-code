@@ -51,8 +51,8 @@ function dynamicWorkflowMemberBody(member: DynamicWorkflowMember): string {
 function outcomeToPhase(outcome: string): AppSubagentPhase {
   if (outcome === 'completed') return 'completed';
   if (outcome === 'failed') return 'failed';
-  // Aborted / not_started rows are cancelled work, not failures: they map to
-  // the neutral `cancelled` phase.
+  // Aborted rows are cancelled work, not failures: they map to the neutral
+  // `cancelled` phase. Anything else, not_started included, stays `working`.
   if (outcome === 'aborted' || outcome === 'cancelled') return 'cancelled';
   return 'working';
 }
