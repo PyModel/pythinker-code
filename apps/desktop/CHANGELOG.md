@@ -1,5 +1,17 @@
 # @pymodel/pythinker-desktop
 
+## 0.2.0
+
+### Minor Changes
+
+- [#151](https://github.com/PyModel/pythinker-code/pull/151) [`535b2a9`](https://github.com/PyModel/pythinker-code/commit/535b2a94bfc0e614dfeda754da174db9b9a5378e) Thanks [@elkaix](https://github.com/elkaix)! - Say when a new version is found, while it downloads, and when a download fails, instead of only once it is ready to install.
+
+- [#151](https://github.com/PyModel/pythinker-code/pull/151) [`535b2a9`](https://github.com/PyModel/pythinker-code/commit/535b2a94bfc0e614dfeda754da174db9b9a5378e) Thanks [@elkaix](https://github.com/elkaix)! - Give the Windows window its own title bar, so the window controls no longer sit on top of the conversation header and the window can be dragged again.
+
+### Patch Changes
+
+- [#151](https://github.com/PyModel/pythinker-code/pull/151) [`535b2a9`](https://github.com/PyModel/pythinker-code/commit/535b2a94bfc0e614dfeda754da174db9b9a5378e) Thanks [@elkaix](https://github.com/elkaix)! - Remove the "Internal testing only" tag.
+
 ## 0.1.6
 
 ### Patch Changes
