@@ -240,11 +240,18 @@ jobs:
     needs:
       - release
       - publish-native-assets
+    # A native release whose zips never reached the GitHub release must not
+    # reach the CDN either. `publish-native-assets` refuses to publish a
+    # partial set, and a job whose needs failed reports `skipped`, not
+    # `failure` — so checking only for failure let a release with zero assets
+    # through and pointed every native installer at a release that has none.
+    # Requiring success (only when this release has native artifacts at all)
+    # leaves the CDN on the last installable version instead.
     if: >-
       always()
       && needs.release.result == 'success'
-      && needs.publish-native-assets.result != 'failure'
-      && needs.publish-native-assets.result != 'cancelled'
+      && (needs.release.outputs.pythinker_native_release != 'true'
+          || needs.publish-native-assets.result == 'success')
       && (needs.release.outputs.packages_published == 'true'
           || startsWith(github.event.head_commit.message, 'ci: release packages'))
     runs-on: ubuntu-latest
@@ -308,9 +315,16 @@ jobs:
     needs:
       - release
       - redeploy-cdn
+    # Without `always()` a skip anywhere upstream skips this job too, and the
+    # gate that exists to catch a half-shipped release goes quiet in exactly
+    # the runs that need it. It stays out of `redeploy-cdn`'s result on
+    # purpose: a CDN that never redeployed is the failure this asserts, so it
+    # has to run and report it rather than disappear with it.
     if: >-
-      needs.release.outputs.packages_published == 'true'
-      || startsWith(github.event.head_commit.message, 'ci: release packages')
+      always()
+      && needs.release.result == 'success'
+      && (needs.release.outputs.packages_published == 'true'
+          || startsWith(github.event.head_commit.message, 'ci: release packages'))
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
