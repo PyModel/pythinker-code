@@ -1,5 +1,11 @@
 # @pymodel/pythinker-code
 
+## 1.0.2
+
+### Patch Changes
+
+- [#161](https://github.com/PyModel/pythinker-code/pull/161) [`372d041`](https://github.com/PyModel/pythinker-code/commit/372d041a757a6d2f53346a1b62bc6f5aba12a43c) Thanks [@elkaix](https://github.com/elkaix)! - Add explicit download and restart controls with live progress for desktop updates.
+
 ## 1.0.1
 
 ### Patch Changes
