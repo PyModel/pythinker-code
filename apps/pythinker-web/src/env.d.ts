@@ -21,11 +21,21 @@ declare const __PYTHINKER_WEB_DESKTOP__: boolean;
 
 // Update state mirrored from the desktop app's auto-updater (electron-updater).
 type DesktopUpdateState = {
-  status: 'disabled' | 'idle' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'error';
-  version?: string;
+  status: 'disabled' | 'idle' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'skipped' | 'error';
+  installedVersion: string;
+  availableVersion?: string;
+  releaseDate?: string;
+  releaseNotes?: string;
+  lastCheckedAt?: string;
   percent?: number;
+  transferred?: number;
+  total?: number;
+  bytesPerSecond?: number;
   message?: string;
   autoUpdate: boolean;
+  notifiedVersion?: string;
+  skippedVersion?: string;
+  completedVersion?: string;
 };
 
 // Preload bridge exposed by the Pythinker Desktop app (apps/desktop).
@@ -34,7 +44,13 @@ interface PythinkerDesktopBridge {
   getUpdateState: () => Promise<DesktopUpdateState>;
   setAutoUpdate: (enabled: boolean) => Promise<DesktopUpdateState>;
   checkForUpdates: () => Promise<DesktopUpdateState>;
-  quitAndInstall: () => Promise<DesktopUpdateState>;
+  downloadUpdate: () => Promise<DesktopUpdateState>;
+  skipUpdate: (version: string) => Promise<DesktopUpdateState>;
+  undoSkippedUpdate: () => Promise<DesktopUpdateState>;
+  markUpdateNotified: (version: string) => Promise<DesktopUpdateState>;
+  acknowledgeCompletedUpdate: (version: string) => Promise<DesktopUpdateState>;
+  openUpdateReleaseNotes: (version: string) => Promise<DesktopUpdateState>;
+  restartToUpdate: () => Promise<DesktopUpdateState>;
   minimizeWindow: () => Promise<void>;
   toggleMaximizeWindow: () => Promise<void>;
   closeWindow: () => Promise<void>;

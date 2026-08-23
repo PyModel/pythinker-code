@@ -127,6 +127,33 @@ describe('desktop window lifecycle', () => {
     expect(quit).toHaveBeenCalledOnce()
   })
 
+  it('prepares an updater restart without releasing an ordinary app quit', async () => {
+    const window = fakeWindow()
+    const disposal = testDeferred<undefined>()
+    const disposeHost = vi.fn(() => disposal.promise)
+    const quit = vi.fn()
+    const lifecycle = createDesktopLifecycle({
+      getWindow: () => window,
+      createWindow: () => Promise.resolve(window),
+      disposeHost,
+      quit,
+    })
+
+    const first = lifecycle.prepareQuit()
+    const second = lifecycle.prepareQuit()
+    expect(second).toBe(first)
+    expect(lifecycle.isQuitting).toBe(true)
+    expect(disposeHost).toHaveBeenCalledOnce()
+
+    disposal.resolve(undefined)
+    await first
+    expect(quit).not.toHaveBeenCalled()
+
+    await lifecycle.requestQuit()
+    expect(disposeHost).toHaveBeenCalledOnce()
+    expect(quit).toHaveBeenCalledOnce()
+  })
+
   it('reports a Host disposal failure and still releases Electron quit', async () => {
     const failure = new Error('Host disposal failed')
     const reportError = vi.fn()

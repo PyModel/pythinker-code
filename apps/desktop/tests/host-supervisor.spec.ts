@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   createHostSupervisor,
   createReadinessParser,
+  requestHostShutdown,
   resolveHostExecutable,
   type HostChild,
 } from '../src/host-supervisor'
@@ -346,6 +347,47 @@ describe('desktop Host supervisor', () => {
     expect(child.signals).toEqual(['SIGTERM'])
   })
 
+  it('uses the authenticated Host shutdown API before sending a process signal', async () => {
+    const child = new FakeHostChild()
+    const requestShutdown = vi.fn(() => Promise.resolve())
+    const supervisor = createHostSupervisor({
+      spawnHost: () => child,
+      requestShutdown,
+      shutdownTimeoutMs: 25,
+    })
+    const starting = supervisor.start()
+    child.stdout.emit('Pythinker server: http://127.0.0.1:4567/#token=s3cret\n')
+    await starting
+
+    const closing = supervisor.shutdown()
+    await Promise.resolve()
+    expect(requestShutdown).toHaveBeenCalledOnce()
+    expect(requestShutdown).toHaveBeenCalledWith({ origin: 'http://127.0.0.1:4567', token: 's3cret' })
+    expect(child.signals).toEqual([])
+
+    child.emitExit(0)
+    await expect(closing).resolves.toBeUndefined()
+    expect(child.signals).toEqual([])
+  })
+
+  it('falls back to process termination when the Host shutdown API fails', async () => {
+    const child = new FakeHostChild()
+    const supervisor = createHostSupervisor({
+      spawnHost: () => child,
+      requestShutdown: () => Promise.reject(new Error('shutdown endpoint unavailable')),
+      shutdownTimeoutMs: 25,
+    })
+    const starting = supervisor.start()
+    child.stdout.emit('Pythinker server: http://127.0.0.1:4567\n')
+    await starting
+
+    const closing = supervisor.shutdown()
+    await Promise.resolve()
+    expect(child.signals).toEqual(['SIGTERM'])
+    child.emitExit(0)
+    await expect(closing).resolves.toBeUndefined()
+  })
+
   it('escalates a stuck shutdown once and still waits for child exit', async () => {
     vi.useFakeTimers()
     const child = new FakeHostChild()
@@ -372,6 +414,29 @@ describe('desktop Host supervisor', () => {
     await vi.advanceTimersByTimeAsync(0)
     expect(settled).toHaveBeenCalledOnce()
     await expect(closing).resolves.toBeUndefined()
+  })
+})
+
+describe('desktop Host shutdown request', () => {
+  it('posts the bearer token only to the validated loopback shutdown route', async () => {
+    const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 204 }))
+
+    await requestHostShutdown({ origin: 'http://127.0.0.1:4567', token: 's3cret' })
+
+    expect(fetch).toHaveBeenCalledOnce()
+    expect(String(fetch.mock.calls[0]?.[0])).toBe('http://127.0.0.1:4567/api/v1/shutdown')
+    expect(fetch.mock.calls[0]?.[1]).toMatchObject({
+      method: 'POST',
+      headers: { Authorization: 'Bearer s3cret' },
+    })
+  })
+
+  it('rejects a non-loopback shutdown origin before making a request', async () => {
+    const fetch = vi.spyOn(globalThis, 'fetch')
+
+    await expect(requestHostShutdown({ origin: 'https://example.test', token: 's3cret' }))
+      .rejects.toThrow('loopback HTTP origin')
+    expect(fetch).not.toHaveBeenCalled()
   })
 })
 

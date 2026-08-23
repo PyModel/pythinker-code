@@ -29,6 +29,7 @@ import {
   createHostSupervisor,
   isPortInUseError,
   parseRunningServerConflict,
+  requestHostShutdown,
   resolveDesktopPort,
   resolveHostExecutable,
   spawnPythinkerServer,
@@ -36,11 +37,17 @@ import {
 } from './host-supervisor'
 import { createSplashWindow } from './splash'
 import {
+  acknowledgeCompletedUpdate,
   checkForUpdatesNow,
   getUpdateState,
   initUpdater,
-  quitAndInstallNow,
+  installDownloadedUpdateNow,
+  markUpdateNotified,
   setAutoUpdate,
+  skipUpdate,
+  startUpdateDownload,
+  undoSkippedUpdate,
+  updateReleaseNotesUrl,
 } from './updater'
 import { windowAppearanceOptions } from './window-options'
 import { createDesktopLifecycle, type DesktopLifecycle } from './window-lifecycle'
@@ -187,6 +194,11 @@ function assertTrustedSender(event: Electron.IpcMainInvokeEvent): void {
   }
 }
 
+function updateVersion(value: unknown): string {
+  if (typeof value !== 'string' || value.length === 0) throw new TypeError('update version must be a string')
+  return value
+}
+
 /** Install navigation and permission policy before the first renderer loads. */
 function hardenSession(): void {
   const desktopSession = session.defaultSession
@@ -251,16 +263,48 @@ ipcMain.handle('pythinker:update:get', (event) => {
 })
 ipcMain.handle('pythinker:update:set-auto', (event, enabled: unknown) => {
   assertTrustedSender(event)
-  if (typeof enabled !== 'boolean') throw new TypeError('automatic updates must be a boolean')
+  if (typeof enabled !== 'boolean') throw new TypeError('automatic update checks must be a boolean')
   return setAutoUpdate(enabled)
 })
 ipcMain.handle('pythinker:update:check', (event) => {
   assertTrustedSender(event)
   return checkForUpdatesNow()
 })
-ipcMain.handle('pythinker:update:install', (event) => {
+ipcMain.handle('pythinker:update:download', (event) => {
   assertTrustedSender(event)
-  return quitAndInstallNow()
+  return startUpdateDownload()
+})
+ipcMain.handle('pythinker:update:skip', (event, version: unknown) => {
+  assertTrustedSender(event)
+  return skipUpdate(updateVersion(version))
+})
+ipcMain.handle('pythinker:update:undo-skip', (event) => {
+  assertTrustedSender(event)
+  return undoSkippedUpdate()
+})
+ipcMain.handle('pythinker:update:notified', (event, version: unknown) => {
+  assertTrustedSender(event)
+  return markUpdateNotified(updateVersion(version))
+})
+ipcMain.handle('pythinker:update:ack-completed', (event, version: unknown) => {
+  assertTrustedSender(event)
+  return acknowledgeCompletedUpdate(updateVersion(version))
+})
+ipcMain.handle('pythinker:update:open-notes', async (event, version: unknown) => {
+  assertTrustedSender(event)
+  const requestedVersion = updateVersion(version)
+  const current = getUpdateState()
+  if (requestedVersion !== current.availableVersion && requestedVersion !== current.installedVersion) {
+    throw new Error('release notes requested for an unknown update version')
+  }
+  const url = updateReleaseNotesUrl(requestedVersion)
+  if (url === undefined) throw new Error('release notes requested for an invalid update version')
+  await shell.openExternal(url)
+  return current
+})
+ipcMain.handle('pythinker:update:install', async (event) => {
+  assertTrustedSender(event)
+  return requestUpdateInstall()
 })
 // Windows has no native caption buttons any more, so the renderer drives the
 // window. `close()` is used rather than `destroy()` so the tray lifecycle still
@@ -299,13 +343,31 @@ function createTray(images: TrayImages): void {
   tray.on('click', showWindowSafely)
 }
 
-function releaseAppQuit(): void {
+function releaseQuitResources(): void {
   stopTrayAnimation?.()
   stopTrayAnimation = undefined
-  quitReleased = true
   tray?.destroy()
   tray = undefined
+}
+
+function releaseAppQuit(): void {
+  quitReleased = true
+  releaseQuitResources()
   app.quit()
+}
+
+async function requestUpdateInstall(): Promise<ReturnType<typeof getUpdateState>> {
+  if (getUpdateState().status !== 'downloaded' || lifecycle === undefined) return getUpdateState()
+  await lifecycle.prepareQuit()
+  quitReleased = true
+  releaseQuitResources()
+  try {
+    return installDownloadedUpdateNow()
+  } catch (error) {
+    console.error('desktop update installation failed:', error)
+    app.quit()
+    throw error
+  }
 }
 
 /** Join explicit quit requests even while the Host or window is still starting. */
@@ -346,6 +408,7 @@ async function boot(): Promise<void> {
           port,
         }),
         log: chunk => process.stderr.write(chunk),
+        requestShutdown: requestHostShutdown,
         onUnexpectedExit: ({ code, signal }) => {
           console.error(`desktop Host exited unexpectedly (code ${String(code)}, signal ${String(signal)})`)
           void requestAppQuit()
@@ -416,7 +479,9 @@ if (!app.requestSingleInstanceLock()) {
   app.quit()
 } else {
   // Update-triggered quits close windows before app.before-quit, so start teardown here.
-  autoUpdater.on('before-quit-for-update', () => { void requestAppQuit() })
+  autoUpdater.on('before-quit-for-update', () => {
+    if (!quitReleased) void requestAppQuit()
+  })
   app.on('second-instance', showWindowSafely)
   app.on('activate', showWindowSafely)
   app.on('window-all-closed', () => {

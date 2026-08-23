@@ -120,6 +120,9 @@ importers:
       '@types/node':
         specifier: ^26.1.2
         version: 26.2.0
+      '@types/semver':
+        specifier: ^7.7.0
+        version: 7.7.1
       electron:
         specifier: 43.4.0
         version: 43.4.0
@@ -129,6 +132,9 @@ importers:
       electron-updater:
         specifier: ^6.8.9
         version: 6.8.9
+      semver:
+        specifier: ^7.7.4
+        version: 7.8.5
       tsdown:
         specifier: 0.22.3
         version: 0.22.3(@arethetypeswrong/core@0.18.3)(@typescript/native-preview@7.0.0-dev.20260707.2)(publint@0.3.21)(tsx@4.23.12)(typescript@6.0.3)(unrun@0.2.34(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.1))(vue-tsc@3.3.10(typescript@6.0.3))
