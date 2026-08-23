@@ -1,5 +1,11 @@
 # @pymodel/pythinker-code
 
+## 1.0.1
+
+### Patch Changes
+
+- [#153](https://github.com/PyModel/pythinker-code/pull/153) [`5b6620e`](https://github.com/PyModel/pythinker-code/commit/5b6620e2f996a7bd8007e4053a7cf5edfff730c1) Thanks [@elkaix](https://github.com/elkaix)! - Update the bundled dependencies to releases that carry the current security fixes.
+
 ## 1.0.0
 
 ### Major Changes
