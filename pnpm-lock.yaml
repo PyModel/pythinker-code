@@ -123,6 +123,9 @@ importers:
       '@types/semver':
         specifier: ^7.7.0
         version: 7.7.1
+      builder-util-runtime:
+        specifier: 9.7.0
+        version: 9.7.0
       electron:
         specifier: 43.4.0
         version: 43.4.0

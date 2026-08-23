@@ -1,0 +1,272 @@
+import { flushPromises, mount } from '@vue/test-utils';
+import { nextTick } from 'vue';
+import { createI18n } from 'vue-i18n';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+import Sidebar from '../src/components/Sidebar.vue';
+import UpdateDialog from '../src/components/UpdateDialog.vue';
+import {
+  formatUpdateBytes,
+  resetDesktopUpdateStateForTests,
+  useDesktopUpdate,
+} from '../src/composables/useDesktopUpdate';
+import enSettings from '../src/i18n/locales/en/settings';
+import enSidebar from '../src/i18n/locales/en/sidebar';
+import enUpdate from '../src/i18n/locales/en/update';
+
+const i18n = createI18n({
+  legacy: false,
+  locale: 'en',
+  messages: { en: { settings: enSettings, sidebar: enSidebar, update: enUpdate } },
+});
+
+function updateState(patch: Partial<DesktopUpdateState> = {}): DesktopUpdateState {
+  return {
+    status: 'idle',
+    installedVersion: '1.0.0',
+    autoUpdate: true,
+    ...patch,
+  };
+}
+
+function installBridge(initial: DesktopUpdateState) {
+  let current = initial;
+  let push: ((next: DesktopUpdateState) => void) | undefined;
+  const bridge = {
+    platform: 'darwin',
+    getUpdateState: vi.fn(() => Promise.resolve(current)),
+    setAutoUpdate: vi.fn(() => Promise.resolve(current)),
+    checkForUpdates: vi.fn(() => Promise.resolve(current)),
+    downloadUpdate: vi.fn(() => {
+      current = { ...current, status: 'downloading', percent: 0, transferred: 0 };
+      return Promise.resolve(current);
+    }),
+    cancelUpdateDownload: vi.fn(() => {
+      current = {
+        ...current,
+        status: 'available',
+        percent: undefined,
+        transferred: undefined,
+        total: undefined,
+        bytesPerSecond: undefined,
+      };
+      return Promise.resolve(current);
+    }),
+    skipUpdate: vi.fn((version: string) => {
+      current = { ...current, status: 'skipped', skippedVersion: version };
+      return Promise.resolve(current);
+    }),
+    undoSkippedUpdate: vi.fn(() => Promise.resolve(current)),
+    markUpdateNotified: vi.fn((version: string) => {
+      current = { ...current, notifiedVersion: version };
+      return Promise.resolve(current);
+    }),
+    acknowledgeCompletedUpdate: vi.fn(() => Promise.resolve(current)),
+    openUpdateReleaseNotes: vi.fn(() => Promise.resolve(current)),
+    restartToUpdate: vi.fn(() => Promise.resolve(current)),
+    minimizeWindow: vi.fn(),
+    toggleMaximizeWindow: vi.fn(),
+    closeWindow: vi.fn(),
+    setThemeSource: vi.fn(),
+    onUpdateState: vi.fn((cb: (next: DesktopUpdateState) => void) => {
+      push = cb;
+      return () => {};
+    }),
+    emit: async (next: DesktopUpdateState) => {
+      current = next;
+      push?.(next);
+      await nextTick();
+    },
+  };
+  (window as unknown as { pythinkerDesktop?: unknown }).pythinkerDesktop = bridge;
+  return bridge;
+}
+
+let mounted: ReturnType<typeof mount> | undefined;
+
+async function mountDialog() {
+  mounted = mount(UpdateDialog, { global: { plugins: [i18n] } });
+  await flushPromises();
+  useDesktopUpdate().openDialog();
+  await nextTick();
+  return mounted;
+}
+
+function body(): HTMLElement {
+  return document.body;
+}
+
+afterEach(() => {
+  // Unmount rather than clearing document.body: the dialog teleports into the
+  // body, and wiping it removes the teleport target for every later mount.
+  mounted?.unmount();
+  mounted = undefined;
+  resetDesktopUpdateStateForTests();
+  delete (window as unknown as { pythinkerDesktop?: unknown }).pythinkerDesktop;
+  vi.restoreAllMocks();
+});
+
+describe('formatUpdateBytes', () => {
+  it('keeps one decimal above bytes so the totals do not jump a whole unit', () => {
+    expect(formatUpdateBytes(54_000_000)).toBe('51.5MB');
+    expect(formatUpdateBytes(52_300_000)).toBe('49.9MB');
+    expect(formatUpdateBytes(512)).toBe('512B');
+  });
+});
+
+describe('UpdateDialog', () => {
+  it('offers download, skip, and notes before any bytes move', async () => {
+    installBridge(updateState({ status: 'available', availableVersion: '1.2.3' }));
+    await mountDialog();
+
+    expect(body().querySelector('[data-testid="download-update"]')).not.toBeNull();
+    expect(body().querySelector('[data-testid="skip-update"]')).not.toBeNull();
+    expect(body().querySelector('[data-testid="view-update-notes"]')).not.toBeNull();
+    expect(body().querySelector('[data-testid="cancel-update-download"]')).toBeNull();
+  });
+
+  it('shows transferred bytes against the total while downloading', async () => {
+    const bridge = installBridge(updateState({ status: 'available', availableVersion: '1.2.3' }));
+    await mountDialog();
+
+    await bridge.emit(updateState({
+      status: 'downloading',
+      availableVersion: '1.2.3',
+      percent: 42.5,
+      transferred: 4_250_000,
+      total: 10_000_000,
+    }));
+    await nextTick();
+
+    const bytes = body().querySelector('[data-testid="update-dialog-bytes"]');
+    expect(bytes?.textContent).toBe('4.1MB of 9.5MB');
+    const progress = body().querySelector<HTMLProgressElement>('[data-testid="update-dialog-progress"]');
+    expect(progress?.value).toBe(42.5);
+  });
+
+  it('cancels an in-flight download through the bridge', async () => {
+    const bridge = installBridge(updateState({ status: 'available', availableVersion: '1.2.3' }));
+    await mountDialog();
+    await bridge.emit(updateState({
+      status: 'downloading',
+      availableVersion: '1.2.3',
+      percent: 10,
+      transferred: 1_000,
+      total: 10_000,
+    }));
+    await nextTick();
+
+    const cancel = body().querySelector<HTMLButtonElement>('[data-testid="cancel-update-download"]');
+    expect(cancel).not.toBeNull();
+    cancel?.click();
+    await flushPromises();
+
+    expect(bridge.cancelUpdateDownload).toHaveBeenCalledOnce();
+    expect(useDesktopUpdate().status.value).toBe('available');
+  });
+
+  it('keeps download and restart as two separate actions', async () => {
+    const bridge = installBridge(updateState({ status: 'available', availableVersion: '1.2.3' }));
+    await mountDialog();
+
+    body().querySelector<HTMLButtonElement>('[data-testid="download-update"]')?.click();
+    await flushPromises();
+    expect(bridge.downloadUpdate).toHaveBeenCalledOnce();
+    expect(bridge.restartToUpdate).not.toHaveBeenCalled();
+
+    await bridge.emit(updateState({ status: 'downloaded', availableVersion: '1.2.3' }));
+    await nextTick();
+    body().querySelector<HTMLButtonElement>('[data-testid="restart-to-update"]')?.click();
+    await flushPromises();
+
+    expect(bridge.restartToUpdate).toHaveBeenCalledOnce();
+  });
+
+  it('cannot be dismissed while the download is running', async () => {
+    const bridge = installBridge(updateState({ status: 'available', availableVersion: '1.2.3' }));
+    const update = useDesktopUpdate();
+    await mountDialog();
+
+    await bridge.emit(updateState({
+      status: 'downloading',
+      availableVersion: '1.2.3',
+      percent: 10,
+      transferred: 1_000,
+      total: 10_000,
+    }));
+    await nextTick();
+
+    update.closeDialog();
+    expect(update.dialogOpen.value).toBe(false);
+
+    update.openDialog();
+    await nextTick();
+    body().querySelector<HTMLElement>('.ui-dialog__close')?.click();
+    await nextTick();
+
+    expect(update.dialogOpen.value).toBe(true);
+  });
+});
+
+describe('useDesktopUpdate.hasUpdate', () => {
+  it('stays false with no bridge, and true once an unskipped version arrives', async () => {
+    expect(useDesktopUpdate().hasUpdate.value).toBe(false);
+
+    const bridge = installBridge(updateState({ status: 'available', availableVersion: '1.2.3' }));
+    const update = useDesktopUpdate();
+    update.subscribe();
+    await flushPromises();
+
+    expect(update.hasUpdate.value).toBe(true);
+
+    await bridge.emit(updateState({
+      status: 'skipped',
+      availableVersion: '1.2.3',
+      skippedVersion: '1.2.3',
+    }));
+    expect(update.hasUpdate.value).toBe(false);
+  });
+});
+
+describe('sidebar update button', () => {
+  async function mountSidebar() {
+    mounted = mount(Sidebar, {
+      props: {
+        activeWorkspace: null,
+        activeWorkspaceId: null,
+        sessions: [],
+        groups: [],
+        activeId: '',
+        workspaceSortMode: 'manual' as const,
+      },
+      global: { plugins: [i18n] },
+    });
+    await flushPromises();
+    return mounted;
+  }
+
+  it('stays hidden until an update is waiting', async () => {
+    installBridge(updateState({ status: 'idle' }));
+    const wrapper = await mountSidebar();
+
+    expect(wrapper.find('[data-testid="sidebar-update"]').exists()).toBe(false);
+  });
+
+  it('appears once a version arrives and opens the overlay when clicked', async () => {
+    const bridge = installBridge(updateState({ status: 'available', availableVersion: '1.2.3' }));
+    const update = useDesktopUpdate();
+    update.subscribe();
+    const wrapper = await mountSidebar();
+    await bridge.emit(updateState({ status: 'available', availableVersion: '1.2.3' }));
+    await nextTick();
+
+    const button = wrapper.find('[data-testid="sidebar-update"]');
+    expect(button.exists()).toBe(true);
+    expect(button.text()).toContain('Update');
+    expect(update.dialogOpen.value).toBe(false);
+
+    await button.trigger('click');
+
+    expect(update.dialogOpen.value).toBe(true);
+  });
+});

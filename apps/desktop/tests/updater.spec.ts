@@ -388,6 +388,102 @@ describe('strict update consent', () => {
     expect(localAutoUpdater.downloadUpdate).toHaveBeenCalledTimes(2)
     expect(localAutoUpdater.autoDownload).toBe(false)
   })
+
+  it('cancelling an in-flight download aborts the transfer and restores the available state', async () => {
+    vi.resetModules()
+    const directory = temporaryDirectory()
+    writeFileSync(join(directory, 'app-update.yml'), '', 'utf8')
+    writeFileSync(join(directory, 'update-settings.json'), '{"autoUpdate":false}\n', 'utf8')
+    const { app: localApp } = await import('electron')
+    const { default: localElectronUpdater } = await import('electron-updater')
+    const {
+      cancelUpdateDownload: cancelLocalUpdateDownload,
+      getUpdateState: getLocalUpdateState,
+      initUpdater: initLocalUpdater,
+      startUpdateDownload: startLocalUpdateDownload,
+    } = await import('../src/updater')
+    const localAutoUpdater = localElectronUpdater.autoUpdater
+    vi.mocked(localApp.getPath).mockReturnValue(directory)
+    Object.defineProperty(localApp, 'isPackaged', { configurable: true, value: true })
+    Object.defineProperty(process, 'resourcesPath', { configurable: true, value: directory })
+
+    initLocalUpdater(() => undefined)
+    const available = vi.mocked(localAutoUpdater.on).mock.calls.find(
+      ([event]) => event === 'update-available',
+    )?.[1] as ((info: { version: string }) => void) | undefined
+    const progress = vi.mocked(localAutoUpdater.on).mock.calls.find(
+      ([event]) => event === 'download-progress',
+    )?.[1] as ((info: {
+      percent: number
+      transferred: number
+      total: number
+      bytesPerSecond: number
+    }) => void) | undefined
+    available?.({ version: '1.2.3' })
+
+    startLocalUpdateDownload()
+    progress?.({ percent: 40, transferred: 400, total: 1_000, bytesPerSecond: 80 })
+    expect(getLocalUpdateState()).toMatchObject({ status: 'downloading', percent: 40 })
+
+    const token = vi.mocked(localAutoUpdater.downloadUpdate).mock.calls[0]?.[0] as
+      | { cancelled: boolean }
+      | undefined
+    expect(token).toBeDefined()
+    expect(token?.cancelled).toBe(false)
+
+    expect(cancelLocalUpdateDownload()).toMatchObject({
+      status: 'available',
+      availableVersion: '1.2.3',
+      percent: undefined,
+      transferred: undefined,
+      total: undefined,
+      bytesPerSecond: undefined,
+    })
+    expect(token?.cancelled).toBe(true)
+    expect(localAutoUpdater.autoDownload).toBe(false)
+    expect(localAutoUpdater.quitAndInstall).not.toHaveBeenCalled()
+  })
+
+  it('does not report an error when the cancelled download rejects', async () => {
+    vi.resetModules()
+    const directory = temporaryDirectory()
+    writeFileSync(join(directory, 'app-update.yml'), '', 'utf8')
+    writeFileSync(join(directory, 'update-settings.json'), '{"autoUpdate":false}\n', 'utf8')
+    const { app: localApp } = await import('electron')
+    const { default: localElectronUpdater } = await import('electron-updater')
+    const {
+      cancelUpdateDownload: cancelLocalUpdateDownload,
+      getUpdateState: getLocalUpdateState,
+      initUpdater: initLocalUpdater,
+      startUpdateDownload: startLocalUpdateDownload,
+    } = await import('../src/updater')
+    const localAutoUpdater = localElectronUpdater.autoUpdater
+    vi.mocked(localApp.getPath).mockReturnValue(directory)
+    Object.defineProperty(localApp, 'isPackaged', { configurable: true, value: true })
+    Object.defineProperty(process, 'resourcesPath', { configurable: true, value: directory })
+
+    let rejectDownload: ((error: Error) => void) | undefined
+    vi.mocked(localAutoUpdater.downloadUpdate).mockReturnValueOnce(
+      new Promise<string[]>((_resolve, reject) => {
+        rejectDownload = reject
+      }),
+    )
+
+    initLocalUpdater(() => undefined)
+    const available = vi.mocked(localAutoUpdater.on).mock.calls.find(
+      ([event]) => event === 'update-available',
+    )?.[1] as ((info: { version: string }) => void) | undefined
+    available?.({ version: '1.2.3' })
+
+    startLocalUpdateDownload()
+    cancelLocalUpdateDownload()
+    rejectDownload?.(new Error('cancelled'))
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(getLocalUpdateState()).toMatchObject({ status: 'available', availableVersion: '1.2.3' })
+    expect(getLocalUpdateState().message).toBeUndefined()
+  })
 })
 
 describe('update prompt receipts', () => {
