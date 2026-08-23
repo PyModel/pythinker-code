@@ -853,6 +853,7 @@ describe('task notifications', () => {
     ['outputPreview', { text: 'tail', truncated: 'true' }],
   ])('rejects invalid optional %s metadata', (field, value) => {
     const parsed = parseTaskNotifications(notification)[0];
+    expect(parsed).toBeDefined();
 
     expect(
       taskNotificationFromMetadata({
