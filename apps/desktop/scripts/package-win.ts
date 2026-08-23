@@ -46,14 +46,47 @@ export function windowsSigningArgs(env: NodeJS.ProcessEnv): readonly string[] {
   }
   missing.sort()
 
-  if (missing.length === values.length) return []
-  if (missing.length > 0) {
+  const certificateValues: readonly (readonly [string, string | undefined])[] = [
+    ['WIN_CSC_LINK', trimmedValue(env['WIN_CSC_LINK'])],
+    ['WIN_CSC_KEY_PASSWORD', trimmedValue(env['WIN_CSC_KEY_PASSWORD'])],
+    ['WINDOWS_SIGNING_PUBLISHER_NAME', trimmedValue(env['WINDOWS_SIGNING_PUBLISHER_NAME'])],
+  ]
+  const missingCertificateValues = certificateValues
+    .filter(([, value]) => value === undefined)
+    .map(([name]) => name)
+  const hasCertificateValue = missingCertificateValues.length < certificateValues.length
+  const hasAzureValue = missing.length < values.length
+
+  if (hasCertificateValue && missingCertificateValues.length > 0) {
+    throw new Error(
+      `Windows certificate signing is partially configured; missing: ${missingCertificateValues.join(', ')}. Set all three signing variables or none.`,
+    )
+  }
+  if (hasAzureValue && hasCertificateValue) {
+    throw new Error('Choose one Windows signing method; Azure and certificate signing are both configured.')
+  }
+
+  if (!hasAzureValue && !hasCertificateValue) return []
+  if (hasAzureValue && missing.length > 0) {
     throw new Error(
       `Windows signing is partially configured; missing: ${missing.join(', ')}. Set all seven signing variables or none.`,
     )
   }
 
+  const publisherName = hasAzureValue
+    ? trimmedValue(env['AZURE_SIGNING_PUBLISHER_NAME'])!
+    : trimmedValue(env['WINDOWS_SIGNING_PUBLISHER_NAME'])!
+  if (!hasAzureValue) args.length = 0
+  args.push('--config.win.publisherName', publisherName)
   return args
+}
+
+/** Require one complete signing method for a tagged Windows release. */
+export function requireWindowsReleaseSigning(env: NodeJS.ProcessEnv): string {
+  const args = windowsSigningArgs(env)
+  if (args.length === 0) throw new Error('Windows release signing is not configured')
+  return trimmedValue(env['AZURE_SIGNING_PUBLISHER_NAME'])
+    ?? trimmedValue(env['WINDOWS_SIGNING_PUBLISHER_NAME'])!
 }
 
 /** Return the package-manager invocation for a Windows installer build. */

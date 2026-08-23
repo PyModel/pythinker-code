@@ -44,6 +44,8 @@ export interface DesktopLifecycle {
   onWindowClose(event: WindowCloseEvent): void
   /** Show the existing window or create a replacement. */
   showWindow(): Promise<void>
+  /** Dispose the Host once without releasing Electron's ordinary quit. */
+  prepareQuit(): Promise<void>
   /** Dispose the Host once, then release Electron's quit sequence. */
   requestQuit(): Promise<void>
 }
@@ -55,6 +57,7 @@ export interface DesktopLifecycle {
  */
 export function createDesktopLifecycle(options: DesktopLifecycleOptions): DesktopLifecycle {
   let quitting = false
+  let pendingPreparation: Promise<void> | undefined
   let pendingQuit: Promise<void> | undefined
   let creatingWindow: Promise<DesktopWindow> | undefined
 
@@ -69,14 +72,27 @@ export function createDesktopLifecycle(options: DesktopLifecycleOptions): Deskto
     window.focus()
   }
 
+  const prepareQuit = (): Promise<void> => {
+    if (pendingPreparation !== undefined) return pendingPreparation
+    quitting = true
+    let disposal: Promise<void>
+    try {
+      disposal = options.disposeHost()
+    } catch (error) {
+      disposal = Promise.reject(error)
+    }
+    pendingPreparation = disposal.catch((error: unknown) => {
+      options.reportError?.(error)
+      quitting = false
+      pendingPreparation = undefined
+      throw error
+    })
+    return pendingPreparation
+  }
+
   const requestQuit = (): Promise<void> => {
     if (pendingQuit !== undefined) return pendingQuit
-    quitting = true
-    pendingQuit = options.disposeHost().catch((error: unknown) => {
-      options.reportError?.(error)
-    }).then(() => {
-      options.quit()
-    })
+    pendingQuit = prepareQuit().catch(() => undefined).then(options.quit)
     return pendingQuit
   }
 
@@ -89,6 +105,7 @@ export function createDesktopLifecycle(options: DesktopLifecycleOptions): Deskto
       options.getWindow()?.hide()
     },
     showWindow,
+    prepareQuit,
     requestQuit,
   }
 }

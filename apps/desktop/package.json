@@ -18,9 +18,11 @@
   "devDependencies": {
     "@pymodel/pythinker-telemetry": "workspace:*",
     "@types/node": "^26.1.2",
+    "@types/semver": "^7.7.0",
     "electron": "43.4.0",
     "electron-builder": "26.15.3",
-    "electron-updater": "^6.8.9",
+    "electron-updater": "6.8.9",
+    "semver": "^7.7.4",
     "tsdown": "0.22.3",
     "typescript": "6.0.3",
     "vitest": "4.1.9"

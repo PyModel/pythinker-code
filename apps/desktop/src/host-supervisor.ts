@@ -7,6 +7,7 @@ import type { Readable } from 'node:stream'
 const READINESS_PREFIX = 'Pythinker server: '
 const DEFAULT_READINESS_TIMEOUT_MS = 90_000
 const DEFAULT_SHUTDOWN_TIMEOUT_MS = 5_000
+const HOST_SHUTDOWN_REQUEST_TIMEOUT_MS = 1_000
 const TASKKILL_TIMEOUT_MS = 5_000
 const MAX_STARTUP_OUTPUT_CHARS = 32_768
 
@@ -165,6 +166,8 @@ export interface HostSupervisorOptions {
   readonly readinessTimeoutMs?: number
   /** Grace after SIGTERM before SIGKILL. */
   readonly shutdownTimeoutMs?: number
+  /** Ask a ready Host to drain and stop before process-signal fallback. */
+  readonly requestShutdown?: (ready: HostReady) => Promise<void>
   /** Receives bounded Host output for desktop diagnostics. */
   readonly log?: (line: string) => void
   /** Called when a ready Host exits outside an application-owned shutdown. */
@@ -195,6 +198,38 @@ function deferred<T>(): Deferred<T> {
   return { promise, resolve, reject }
 }
 
+async function waitForExit(exited: Promise<void>, timeoutMs: number): Promise<boolean> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const outcome = await Promise.race([
+    exited.then(() => true),
+    new Promise<false>((resolve) => {
+      timer = setTimeout(() => { resolve(false) }, timeoutMs)
+    }),
+  ])
+  if (timer !== undefined) clearTimeout(timer)
+  return outcome
+}
+
+/** Request the authenticated graceful shutdown route of a validated loopback Host. */
+export async function requestHostShutdown(ready: HostReady): Promise<void> {
+  const origin = new URL(ready.origin)
+  if (origin.protocol !== 'http:' || (origin.hostname !== '127.0.0.1' && origin.hostname !== 'localhost')) {
+    throw new Error('desktop Host shutdown requires a loopback HTTP origin')
+  }
+  const controller = new AbortController()
+  const timer = setTimeout(() => { controller.abort() }, HOST_SHUTDOWN_REQUEST_TIMEOUT_MS)
+  try {
+    const response = await fetch(new URL('/api/v1/shutdown', origin), {
+      method: 'POST',
+      headers: ready.token === undefined ? undefined : { Authorization: `Bearer ${ready.token}` },
+      signal: controller.signal,
+    })
+    if (!response.ok) throw new Error(`desktop Host shutdown returned HTTP ${String(response.status)}`)
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 /**
  * Create a single-owner Host supervisor.
  * @param options - Child-process operations and bounded lifecycle timings.
@@ -208,6 +243,7 @@ export function createHostSupervisor(options: HostSupervisorOptions): HostSuperv
   let shutdownPromise: Promise<void> | undefined
   let exited: Promise<void> | undefined
   let exitResult: Deferred<void> | undefined
+  let readyInfo: HostReady | undefined
   let ready = false
   let shuttingDown = false
   let output = ''
@@ -255,6 +291,7 @@ export function createHostSupervisor(options: HostSupervisorOptions): HostSuperv
           if (url === undefined || settled) return
           settled = true
           ready = true
+          readyInfo = url
           cleanupStartup()
           resolve(url)
         } catch (error) {
@@ -290,22 +327,19 @@ export function createHostSupervisor(options: HostSupervisorOptions): HostSuperv
       const spawned = child
       if (spawned === undefined) return
       shuttingDown = true
-      spawned.kill('SIGTERM')
       const closed = exited ?? Promise.resolve()
-      let timer: ReturnType<typeof setTimeout> | undefined
-      const outcome = await Promise.race([
-        closed.then(() => 'closed' as const),
-        new Promise<'timeout'>((resolve) => {
-          timer = setTimeout(() => {
-            resolve('timeout')
-          }, shutdownTimeoutMs)
-        }),
-      ])
-      if (timer !== undefined) clearTimeout(timer)
-      if (outcome === 'timeout') {
-        spawned.kill('SIGKILL')
-        await closed
+      if (readyInfo !== undefined && options.requestShutdown !== undefined) {
+        try {
+          await options.requestShutdown(readyInfo)
+          if (await waitForExit(closed, shutdownTimeoutMs)) return
+        } catch {
+          // Signal fallback handles unavailable or rejected shutdown requests.
+        }
       }
+      spawned.kill('SIGTERM')
+      if (await waitForExit(closed, shutdownTimeoutMs)) return
+      spawned.kill('SIGKILL')
+      await closed
     })()
     return shutdownPromise
   }
@@ -399,9 +433,8 @@ export function spawnPythinkerServer(options: SpawnPythinkerServerOptions): Host
  * Because this call is synchronous, keep it bounded so a stalled taskkill falls
  * back to a single-process kill instead of blocking the Electron main loop indefinitely.
  *
- * ponytail: /F makes every Windows stop a forced stop — Node cannot deliver a
- * graceful SIGTERM to a Windows child at all. Add a stdin or IPC shutdown
- * channel to the Host if graceful Windows teardown is ever needed.
+ * The supervisor first uses the authenticated HTTP shutdown route. `/F` is
+ * only the bounded fallback when the Host does not drain and exit.
  */
 function killProcessTree(child: ChildProcessByStdio<null, Readable, Readable>, signal: 'SIGTERM' | 'SIGKILL'): void {
   if (process.platform !== 'win32' || child.pid === undefined) {

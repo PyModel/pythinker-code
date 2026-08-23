@@ -66,17 +66,19 @@ rmdir "$MOUNT_POINT"
 
 ### Windows
 
-Run `pnpm run dist:win` on a native Windows x64 host; cross-building from macOS is not possible because the staged Host closure contains platform-gated native packages. The output is `dist/Pythinker-<version>-x64-Setup.exe`, an assisted NSIS installer that defaults to a per-user install, offers a per-machine option that requires elevation, and lets you select the installation directory. The existing certificate-file signing path uses `WIN_CSC_LINK` and `WIN_CSC_KEY_PASSWORD`.
+Run `pnpm run dist:win` on a native Windows x64 host; cross-building from macOS is not possible because the staged Host closure contains platform-gated native packages. The output is `dist/Pythinker-<version>-x64-Setup.exe`, an assisted NSIS installer that defaults to a per-user install, offers a per-machine option that requires elevation, and lets you select the installation directory. The certificate-file signing path uses `WIN_CSC_LINK`, `WIN_CSC_KEY_PASSWORD`, and `WINDOWS_SIGNING_PUBLISHER_NAME`. The full publisher name is stored in the packaged updater configuration so electron-updater verifies future installers against it.
 
 #### Azure Artifact Signing
 
-Windows artifacts are signed through Azure Artifact Signing when `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, `AZURE_SIGNING_ENDPOINT`, `AZURE_SIGNING_ACCOUNT`, `AZURE_SIGNING_CERT_PROFILE`, and `AZURE_SIGNING_PUBLISHER_NAME` are all set; they are unsigned when none are set. The credential variables are read from the environment; the four `AZURE_SIGNING_*` variables map to `azureSignOptions.endpoint`, `azureSignOptions.codeSigningAccountName`, `azureSignOptions.certificateProfileName`, and `azureSignOptions.publisherName`, respectively. Setting only some of the seven variables is a hard error by design.
+Windows artifacts are signed through Azure Artifact Signing when `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, `AZURE_SIGNING_ENDPOINT`, `AZURE_SIGNING_ACCOUNT`, `AZURE_SIGNING_CERT_PROFILE`, and `AZURE_SIGNING_PUBLISHER_NAME` are all set; they are unsigned when neither signing method is set. The credential variables are read from the environment; the four `AZURE_SIGNING_*` variables map to `azureSignOptions.endpoint`, `azureSignOptions.codeSigningAccountName`, `azureSignOptions.certificateProfileName`, and `azureSignOptions.publisherName`, respectively. Setting only part of either signing method, or setting both methods, is a hard error.
+
+Tagged releases require one complete Windows signing method. CI verifies the installer and packaged app with electron-updater's Authenticode verifier before upload. Both platform jobs also recompute every size and SHA-512 value in `latest.yml` or `latest-mac.yml`. The final job downloads the draft assets and repeats both manifest checks before publication. Manual workflow runs remain private workflow artifacts and cannot publish an unsigned build.
 
 ## Known limitations
 
 The first desktop assembly uses a loopback HTTP Host. The renderer and Host protocol remain unchanged so the application can replace the transport with the IPC carrier reserved by the GUI architecture without changing product features.
 
-The signed installer path currently targets macOS. Linux packaging creates an unpacked application; its installer format and distribution signing remain release work.
+Linux packaging creates an unpacked application; its installer format and distribution signing remain release work.
 
 ## Model Experience
 

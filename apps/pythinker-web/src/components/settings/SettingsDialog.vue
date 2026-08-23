@@ -27,6 +27,7 @@ import IconButton from '../ui/IconButton.vue';
 import SegmentedControl from '../ui/SegmentedControl.vue';
 import Select from '../ui/Select.vue';
 import Tooltip from '../ui/Tooltip.vue';
+import Banner from '../ui/Banner.vue';
 import type { IconName } from '../../lib/icons';
 import ProvidersPanel from './ProvidersPanel.vue';
 import SecondaryModelPicker from './SecondaryModelPicker.vue';
@@ -99,6 +100,12 @@ const appVersion =
   typeof __PYTHINKER_WEB_VERSION__ === 'string' && __PYTHINKER_WEB_VERSION__.trim()
     ? __PYTHINKER_WEB_VERSION__
     : '0.0.0-dev';
+const desktopBridge = typeof window === 'undefined' ? undefined : window.pythinkerDesktop;
+const desktopUpdateState = ref<DesktopUpdateState>();
+const desktopUpdateBusy = ref(false);
+const desktopUpdateActionError = ref<string>();
+let removeDesktopUpdateListener: (() => void) | undefined;
+const resolvedAppVersion = computed(() => desktopUpdateState.value?.installedVersion ?? appVersion);
 const serverMeta = ref<{ serverVersion: string; serverId: string; backend: 'v1' | 'v2' } | null>(null);
 const resolvedServerVersion = computed(() => serverMeta.value?.serverVersion || props.serverVersion || '-');
 const resolvedBackend = computed(() => serverMeta.value?.backend ?? props.backend ?? 'v1');
@@ -129,11 +136,128 @@ function handleKeydown(e: KeyboardEvent): void {
 onMounted(() => {
   document.addEventListener('keydown', handleKeydown);
   void loadServerMeta();
+  if (desktopBridge !== undefined) {
+    removeDesktopUpdateListener = desktopBridge.onUpdateState((next) => {
+      desktopUpdateState.value = next;
+    });
+    void desktopBridge.getUpdateState().then((next) => {
+      desktopUpdateState.value = next;
+    });
+  }
 });
 onUnmounted(() => {
   document.removeEventListener('keydown', handleKeydown);
+  removeDesktopUpdateListener?.();
   if (copyFlashTimer !== null) clearTimeout(copyFlashTimer);
 });
+
+const desktopUpdateStatus = computed(() => {
+  const current = desktopUpdateState.value;
+  if (current === undefined) return t('settings.desktop.loading');
+  switch (current.status) {
+    case 'disabled':
+      return t('settings.desktop.disabled');
+    case 'checking':
+      return t('settings.desktop.checking');
+    case 'available':
+      return t('settings.desktop.available', { version: current.availableVersion });
+    case 'downloading':
+      return t('settings.desktop.downloading', { version: current.availableVersion });
+    case 'downloaded':
+      return t('settings.desktop.downloaded', { version: current.availableVersion });
+    case 'skipped':
+      return t('settings.desktop.skipped', { version: current.skippedVersion ?? current.availableVersion });
+    case 'error':
+      return current.message ?? t('settings.desktop.errorGeneric');
+    default:
+      return t('settings.desktop.upToDate');
+  }
+});
+
+const desktopUpdateProgress = computed(() => {
+  const value = desktopUpdateState.value?.percent;
+  return value === undefined || !Number.isFinite(value) ? undefined : Math.min(100, Math.max(0, value));
+});
+
+function formatBytes(value: number): string {
+  const units = ['B', 'KB', 'MB', 'GB'];
+  let amount = Math.max(0, value);
+  let unit = 0;
+  while (amount >= 1_024 && unit < units.length - 1) {
+    amount /= 1_024;
+    unit += 1;
+  }
+  return `${new Intl.NumberFormat('en', { maximumFractionDigits: 1 }).format(amount)} ${units[unit]}`;
+}
+
+const desktopUpdateProgressDetail = computed(() => {
+  const current = desktopUpdateState.value;
+  if (current?.status !== 'downloading') return '';
+  const parts: string[] = [];
+  if (desktopUpdateProgress.value !== undefined) parts.push(`${Math.round(desktopUpdateProgress.value)}%`);
+  if (current.transferred !== undefined && current.total !== undefined) {
+    parts.push(t('settings.desktop.bytesOfTotal', {
+      transferred: formatBytes(current.transferred),
+      total: formatBytes(current.total),
+    }));
+  } else if (current.transferred !== undefined) {
+    parts.push(formatBytes(current.transferred));
+  }
+  if (current.bytesPerSecond !== undefined) parts.push(`${formatBytes(current.bytesPerSecond)}/s`);
+  return parts.join(' · ');
+});
+
+const desktopUpdateError = computed(() => {
+  if (desktopUpdateActionError.value !== undefined) return desktopUpdateActionError.value;
+  return desktopUpdateState.value?.status === 'error' ? desktopUpdateStatus.value : undefined;
+});
+
+async function runDesktopUpdate(action: () => Promise<DesktopUpdateState>): Promise<void> {
+  if (desktopUpdateBusy.value) return;
+  desktopUpdateBusy.value = true;
+  desktopUpdateActionError.value = undefined;
+  try {
+    desktopUpdateState.value = await action();
+  } catch (error) {
+    desktopUpdateActionError.value = error instanceof Error ? error.message : String(error);
+  } finally {
+    desktopUpdateBusy.value = false;
+  }
+}
+
+function setAutomaticUpdateChecks(enabled: boolean): void {
+  if (desktopBridge !== undefined) void runDesktopUpdate(() => desktopBridge.setAutoUpdate(enabled));
+}
+
+function checkForDesktopUpdate(): void {
+  if (desktopBridge !== undefined) void runDesktopUpdate(() => desktopBridge.checkForUpdates());
+}
+
+function downloadDesktopUpdate(): void {
+  if (desktopBridge !== undefined) void runDesktopUpdate(() => desktopBridge.downloadUpdate());
+}
+
+function skipDesktopUpdate(): void {
+  const version = desktopUpdateState.value?.availableVersion;
+  if (desktopBridge !== undefined && version !== undefined) {
+    void runDesktopUpdate(() => desktopBridge.skipUpdate(version));
+  }
+}
+
+function undoSkippedDesktopUpdate(): void {
+  if (desktopBridge !== undefined) void runDesktopUpdate(() => desktopBridge.undoSkippedUpdate());
+}
+
+function openDesktopUpdateNotes(): void {
+  const version = desktopUpdateState.value?.availableVersion;
+  if (desktopBridge !== undefined && version !== undefined) {
+    void runDesktopUpdate(() => desktopBridge.openUpdateReleaseNotes(version));
+  }
+}
+
+function restartToDesktopUpdate(): void {
+  if (desktopBridge !== undefined) void runDesktopUpdate(() => desktopBridge.restartToUpdate());
+}
 
 async function loadServerMeta(): Promise<void> {
   try {
@@ -280,7 +404,7 @@ async function requestClose(): Promise<void> {
 
 function diagnosticsText(): string {
   return [
-    `App version: ${appVersion}`,
+    `App version: ${resolvedAppVersion.value}`,
     `Server version: ${resolvedServerVersion.value}`,
     `Backend: ${resolvedBackend.value}`,
     `Server address: ${serverAddress}`,
@@ -719,7 +843,108 @@ function archiveTime(iso: string): string {
                 {{ t('settings.appVersion') }}
                 <span class="hint">{{ t('settings.appVersionHint') }}</span>
               </span>
-              <span class="rvalue mono">{{ appVersion }}</span>
+              <span class="rvalue mono">{{ resolvedAppVersion }}</span>
+            </div>
+            <div v-if="desktopBridge" data-testid="desktop-update-controls" class="desktop-update-center">
+              <div class="row">
+                <span class="rlabel">
+                  {{ t('settings.desktop.automaticChecks') }}
+                  <span class="hint">{{ t('settings.desktop.automaticChecksHint') }}</span>
+                </span>
+                <Switch
+                  data-testid="automatic-update-checks"
+                  :model-value="desktopUpdateState?.autoUpdate ?? false"
+                  :disabled="desktopUpdateBusy || desktopUpdateState === undefined || desktopUpdateState.status === 'disabled'"
+                  :label="t('settings.desktop.automaticChecks')"
+                  @update:model-value="setAutomaticUpdateChecks"
+                />
+              </div>
+
+              <div class="desktop-update-status">
+                <div class="desktop-update-status-copy">
+                  <span class="rlabel">{{ t('settings.desktop.status') }}</span>
+                  <span class="hint" aria-live="polite">{{ desktopUpdateStatus }}</span>
+                </div>
+
+                <div v-if="desktopUpdateState?.status === 'downloading'" class="desktop-update-progress">
+                  <progress
+                    v-if="desktopUpdateProgress === undefined"
+                    data-testid="settings-update-progress"
+                    max="100"
+                    :aria-label="t('settings.desktop.progressLabel')"
+                  />
+                  <progress
+                    v-else
+                    data-testid="settings-update-progress"
+                    :value="desktopUpdateProgress"
+                    max="100"
+                    :aria-label="t('settings.desktop.progressLabel')"
+                  />
+                  <span data-testid="settings-update-progress-detail">
+                    {{ desktopUpdateProgressDetail || t('settings.desktop.fetching') }}
+                  </span>
+                </div>
+
+                <Banner v-if="desktopUpdateError" variant="danger">
+                  {{ desktopUpdateError }}
+                </Banner>
+
+                <div class="desktop-update-actions">
+                  <Button
+                    v-if="desktopUpdateState?.availableVersion"
+                    variant="ghost"
+                    size="sm"
+                    :disabled="desktopUpdateBusy"
+                    @click="openDesktopUpdateNotes"
+                  >
+                    {{ t('settings.desktop.viewNotes') }}
+                  </Button>
+                  <Button
+                    v-if="desktopUpdateState?.status === 'available'"
+                    variant="ghost"
+                    size="sm"
+                    :disabled="desktopUpdateBusy"
+                    @click="skipDesktopUpdate"
+                  >
+                    {{ t('settings.desktop.skip') }}
+                  </Button>
+                  <Button
+                    v-if="desktopUpdateState?.status === 'available' || (desktopUpdateState?.status === 'error' && desktopUpdateState.availableVersion)"
+                    data-testid="settings-download-update"
+                    size="sm"
+                    :loading="desktopUpdateBusy"
+                    @click="downloadDesktopUpdate"
+                  >
+                    {{ desktopUpdateState?.status === 'error' ? t('settings.desktop.retryDownload') : t('settings.desktop.download') }}
+                  </Button>
+                  <Button
+                    v-if="desktopUpdateState?.status === 'skipped'"
+                    size="sm"
+                    :loading="desktopUpdateBusy"
+                    @click="undoSkippedDesktopUpdate"
+                  >
+                    {{ t('settings.desktop.undoSkip') }}
+                  </Button>
+                  <Button
+                    v-if="desktopUpdateState?.status === 'downloaded'"
+                    data-testid="settings-restart-update"
+                    size="sm"
+                    :loading="desktopUpdateBusy"
+                    @click="restartToDesktopUpdate"
+                  >
+                    {{ t('settings.desktop.restartToUpdate') }}
+                  </Button>
+                  <Button
+                    v-if="desktopUpdateState && ['idle', 'available', 'skipped', 'error'].includes(desktopUpdateState.status)"
+                    variant="secondary"
+                    size="sm"
+                    :disabled="desktopUpdateBusy"
+                    @click="checkForDesktopUpdate"
+                  >
+                    {{ t('settings.desktop.checkForUpdates') }}
+                  </Button>
+                </div>
+              </div>
             </div>
             <div class="row">
               <span class="rlabel">
@@ -993,6 +1218,55 @@ function archiveTime(iso: string): string {
 }
 .value-wrap .rvalue { max-width: 100%; }
 .hint { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--color-text-faint); }
+
+.desktop-update-center {
+  border-top: 1px solid var(--color-line);
+  border-bottom: 1px solid var(--color-line);
+  margin: var(--space-2) 0;
+  padding: var(--space-2) 0 var(--space-3);
+}
+.desktop-update-status {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding-top: var(--space-2);
+}
+.desktop-update-status-copy {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.desktop-update-progress {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  font-family: var(--font-ui);
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+}
+.desktop-update-progress progress {
+  width: 100%;
+  height: 7px;
+  overflow: hidden;
+  border: 0;
+  border-radius: var(--radius-full);
+  background: var(--color-surface-sunken);
+  accent-color: var(--color-accent);
+}
+.desktop-update-progress progress::-webkit-progress-bar {
+  border-radius: var(--radius-full);
+  background: var(--color-surface-sunken);
+}
+.desktop-update-progress progress::-webkit-progress-value {
+  border-radius: var(--radius-full);
+  background: var(--color-accent);
+}
+.desktop-update-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
 
 .select-wrap { min-width: 220px; max-width: min(320px, 50vw); flex: none; }
 
