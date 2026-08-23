@@ -21,7 +21,7 @@ import AddWorkspaceDialog from './components/dialogs/AddWorkspaceDialog.vue';
 import ConfirmDialogHost from './components/dialogs/ConfirmDialogHost.vue';
 import StatusPanel from './components/chat/StatusPanel.vue';
 import WarningToasts from './components/WarningToasts.vue';
-import UpdateToast from './components/UpdateToast.vue';
+import UpdateDialog from './components/UpdateDialog.vue';
 import ActionToast from './components/ui/ActionToast.vue';
 import WindowControls from './components/WindowControls.vue';
 import MobileTopBar from './components/mobile/MobileTopBar.vue';
@@ -1345,7 +1345,7 @@ function openPr(url: string): void {
 
     <!-- Floating warnings / agent errors (e.g. a 403 from the model provider) -->
     <WarningToasts :warnings="client.warnings.value" @dismiss="client.dismissWarning" />
-    <UpdateToast />
+    <UpdateDialog />
     <div class="action-toast-stack">
       <ActionToast
         v-if="sessionActionToast"

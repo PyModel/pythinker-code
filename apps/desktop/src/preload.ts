@@ -6,6 +6,7 @@ contextBridge.exposeInMainWorld('pythinkerDesktop', {
   setAutoUpdate: (enabled: boolean) => ipcRenderer.invoke('pythinker:update:set-auto', enabled),
   checkForUpdates: () => ipcRenderer.invoke('pythinker:update:check'),
   downloadUpdate: () => ipcRenderer.invoke('pythinker:update:download'),
+  cancelUpdateDownload: () => ipcRenderer.invoke('pythinker:update:cancel'),
   skipUpdate: (version: string) => ipcRenderer.invoke('pythinker:update:skip', version),
   undoSkippedUpdate: () => ipcRenderer.invoke('pythinker:update:undo-skip'),
   markUpdateNotified: (version: string) => ipcRenderer.invoke('pythinker:update:notified', version),

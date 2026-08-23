@@ -17,6 +17,7 @@ import PythinkerLogo from './PythinkerLogo.vue';
 import SearchSessionsDialog from './dialogs/SearchSessionsDialog.vue';
 import WorkspaceGroup from './WorkspaceGroup.vue';
 import { isDesktop, isMacosDesktop } from '../lib/desktopFlag';
+import { useDesktopUpdate } from '../composables/useDesktopUpdate';
 import IconButton from './ui/IconButton.vue';
 import Icon from './ui/Icon.vue';
 import Kbd from './ui/Kbd.vue';
@@ -26,6 +27,7 @@ import PinnedSessionList from './PinnedSessionList.vue';
 import SessionRow from './SessionRow.vue';
 
 const { t } = useI18n();
+const update = useDesktopUpdate();
 
 const props = withDefaults(
   defineProps<{
@@ -685,6 +687,23 @@ onBeforeUnmount(() => {
         </IconButton>
       </div>
 
+      <!-- Update entry point. Desktop only, and only once a version the user
+           has not skipped is actually waiting; the overlay owns the rest. -->
+      <div v-if="update.hasUpdate.value" class="update-wrap">
+        <button
+          class="btn-update"
+          type="button"
+          data-testid="sidebar-update"
+          :title="update.availableVersion.value
+            ? t('update.sidebarHint', { version: update.availableVersion.value })
+            : undefined"
+          @click.stop="update.openDialog()"
+        >
+          <Icon name="arrow-up" />
+          <span>{{ t('update.sidebarAction') }}</span>
+        </button>
+      </div>
+
       <!-- New chat + new workspace buttons -->
       <div class="btn-wrap">
         <button class="btn-new-chat" type="button" @click.stop="emit('create')">
@@ -1253,6 +1272,39 @@ onBeforeUnmount(() => {
 /* Action buttons — first row of the actions group (New chat + search): rows
    inside the group stack flush (0 gap, same rhythm as the session list rows);
    the group's bottom gap lives on .search-wrap. */
+.update-wrap {
+  display: flex;
+  padding: 0 var(--sb-inset) var(--space-1);
+}
+/* Same row geometry as .btn-new-chat; accent colour is the only difference,
+   so the row reads as an offer rather than another navigation item. */
+.btn-update {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+  padding: 8px calc(var(--sb-pad-x) - var(--sb-inset));
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-accent);
+  font-family: var(--font-ui);
+  font-size: var(--ui-font-size-sm);
+  font-weight: var(--weight-medium);
+  line-height: var(--leading-tight);
+  cursor: pointer;
+  text-align: left;
+}
+.btn-update:hover { background: var(--sb-hover); }
+.btn-update:focus-visible { outline: none; box-shadow: var(--p-focus-ring); }
+.btn-update svg { flex: none; }
+.btn-update span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .btn-wrap {
   display: flex;
   align-items: center;

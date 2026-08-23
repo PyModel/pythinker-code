@@ -38,6 +38,7 @@ import {
 import { createSplashWindow } from './splash'
 import {
   acknowledgeCompletedUpdate,
+  cancelUpdateDownload,
   checkForUpdatesNow,
   getUpdateState,
   initUpdater,
@@ -273,6 +274,10 @@ ipcMain.handle('pythinker:update:check', (event) => {
 ipcMain.handle('pythinker:update:download', (event) => {
   assertTrustedSender(event)
   return startUpdateDownload()
+})
+ipcMain.handle('pythinker:update:cancel', (event) => {
+  assertTrustedSender(event)
+  return cancelUpdateDownload()
 })
 ipcMain.handle('pythinker:update:skip', (event, version: unknown) => {
   assertTrustedSender(event)

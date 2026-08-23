@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { app, type BrowserWindow } from 'electron'
+import { CancellationToken } from 'builder-util-runtime'
 import electronUpdater, { type ProgressInfo, type UpdateInfo } from 'electron-updater'
 import { gt, valid } from 'semver'
 
@@ -130,6 +131,8 @@ let initialCheckTimer: ReturnType<typeof setTimeout> | undefined
 let checkInterval: ReturnType<typeof setInterval> | undefined
 let checkPromise: Promise<UpdateState> | undefined
 let installRequestedVersion: string | undefined
+let activeDownloadToken: CancellationToken | undefined
+let restartDownloadWhenSettled = false
 let listenersWired = false
 let initialized = false
 let updateTelemetryTrack: UpdateTelemetryTrack = () => {}
@@ -205,6 +208,20 @@ function stateError(error: unknown): void {
     status: 'error',
     message: error instanceof Error ? error.message : String(error),
   })
+}
+
+/**
+ * electron-updater reports a cancelled download through the same `error` path
+ * as a genuine failure, and `CancellationError` carries no distinguishing
+ * `name`, so the token itself is the discriminator: `cancel()` flips
+ * `cancelled` synchronously, before the rejection reaches us. The guard reads
+ * the token that owns this rejection rather than the current one.
+ *
+ * That alone is not enough to make a retry safe — see `beginDownload`.
+ */
+function downloadError(token: CancellationToken, error: unknown): void {
+  if (token.cancelled) return
+  stateError(error)
 }
 
 function clearTimers(): void {
@@ -443,6 +460,29 @@ export function undoSkippedUpdate(): UpdateState {
   return state
 }
 
+/**
+ * `AppUpdater.downloadUpdate` returns the in-flight `downloadPromise` when one
+ * exists and ignores the token it is handed. A download started before the
+ * previous one has settled would therefore be bound to the older promise — so
+ * cancelling and immediately downloading again would surface the cancelled
+ * attempt's rejection as this attempt's error. Hold the new start until the
+ * previous promise settles, and only then ask for a fresh one.
+ */
+function beginDownload(): void {
+  const token = new CancellationToken()
+  activeDownloadToken = token
+  void autoUpdater
+    .downloadUpdate(token)
+    .catch((error: unknown) => downloadError(token, error))
+    .finally(() => {
+      if (activeDownloadToken === token) activeDownloadToken = undefined
+      token.dispose()
+      if (!restartDownloadWhenSettled) return
+      restartDownloadWhenSettled = false
+      if (state.status === 'downloading') beginDownload()
+    })
+}
+
 export function startUpdateDownload(): UpdateState {
   const canDownload = state.status === 'available'
     || (state.status === 'error' && state.availableVersion !== undefined)
@@ -457,10 +497,36 @@ export function startUpdateDownload(): UpdateState {
       bytesPerSecond: undefined,
       message: undefined,
     })
-    void autoUpdater.downloadUpdate().catch(stateError)
+    if (activeDownloadToken !== undefined) {
+      restartDownloadWhenSettled = true
+      return state
+    }
+    beginDownload()
   } catch (error) {
+    activeDownloadToken = undefined
+    restartDownloadWhenSettled = false
     stateError(error)
   }
+  return state
+}
+
+/**
+ * Aborts an in-flight download and returns the update to the state it had
+ * before the user consented, so the same version can be downloaded again.
+ */
+export function cancelUpdateDownload(): UpdateState {
+  const token = activeDownloadToken
+  if (state.status !== 'downloading' || token === undefined) return state
+  restartDownloadWhenSettled = false
+  token.cancel()
+  updateState({
+    status: 'available',
+    percent: undefined,
+    transferred: undefined,
+    total: undefined,
+    bytesPerSecond: undefined,
+    message: undefined,
+  })
   return state
 }
 

@@ -45,6 +45,7 @@ interface PythinkerDesktopBridge {
   setAutoUpdate: (enabled: boolean) => Promise<DesktopUpdateState>;
   checkForUpdates: () => Promise<DesktopUpdateState>;
   downloadUpdate: () => Promise<DesktopUpdateState>;
+  cancelUpdateDownload: () => Promise<DesktopUpdateState>;
   skipUpdate: (version: string) => Promise<DesktopUpdateState>;
   undoSkippedUpdate: () => Promise<DesktopUpdateState>;
   markUpdateNotified: (version: string) => Promise<DesktopUpdateState>;

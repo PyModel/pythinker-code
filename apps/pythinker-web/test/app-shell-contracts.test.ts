@@ -14,9 +14,9 @@ const client = readFileSync(join(import.meta.dirname, '../src/composables/usePyt
 describe('app shell contracts', () => {
   it('mounts the desktop chrome', () => {
     expect(app).toContain("import WindowControls from './components/WindowControls.vue';");
-    expect(app).toContain("import UpdateToast from './components/UpdateToast.vue';");
+    expect(app).toContain("import UpdateDialog from './components/UpdateDialog.vue';");
     expect(app).toContain('<WindowControls />');
-    expect(app).toContain('<UpdateToast />');
+    expect(app).toContain('<UpdateDialog />');
   });
 
   it('mounts the session capability menu in the composer', () => {
