@@ -99,7 +99,12 @@ export type AssistantRenderBlock =
   | { kind: 'text'; text: string; sourceIndex: number }
   | { kind: 'tool'; tool: ToolStackItem['tool']; sourceIndex: number }
   | { kind: 'tool-stack'; tools: ToolStackItem[] }
-  | { kind: 'activity-run'; items: RunItem[] };
+  | { kind: 'activity-run'; items: RunItem[] }
+  | {
+      kind: 'notification';
+      items: Extract<TurnBlock, { kind: 'notification' }>['notification'][];
+      sourceIndex: number;
+    };
 
 export function rendersToolCard(block: Extract<TurnBlock, { kind: 'tool' }>): boolean {
   return !(block.tool.status === 'ok' && block.tool.media);
@@ -136,6 +141,12 @@ export function assistantRenderBlocks(turn: ChatTurn): AssistantRenderBlock[] {
   );
   const rendered: AssistantRenderBlock[] = [];
   let run: RunItem[] = [];
+  let notificationGroup:
+    | {
+        items: Extract<TurnBlock, { kind: 'notification' }>['notification'][];
+        sourceIndex: number;
+      }
+    | null = null;
 
   const flushRun = () => {
     const [item] = run;
@@ -148,7 +159,28 @@ export function assistantRenderBlocks(turn: ChatTurn): AssistantRenderBlock[] {
     run = [];
   };
 
+  const flushNotifications = () => {
+    if (notificationGroup !== null) {
+      rendered.push({
+        kind: 'notification',
+        items: notificationGroup.items,
+        sourceIndex: notificationGroup.sourceIndex,
+      });
+    }
+    notificationGroup = null;
+  };
+
   blocks.forEach((block, sourceIndex) => {
+    if (block.kind === 'notification') {
+      flushRun();
+      if (notificationGroup === null) {
+        notificationGroup = { items: [block.notification], sourceIndex };
+      } else {
+        notificationGroup.items.push(block.notification);
+      }
+      return;
+    }
+    if (run.length === 0) flushNotifications();
     if (block.kind === 'thinking') {
       run.push({ kind: 'thinking', thinking: block.thinking, startedAt: block.startedAt, durationMs: block.durationMs, sourceIndex });
       return;
@@ -164,12 +196,14 @@ export function assistantRenderBlocks(turn: ChatTurn): AssistantRenderBlock[] {
     }
 
     flushRun();
+    flushNotifications();
     if (block.kind === 'text' && block.text) {
       rendered.push({ kind: 'text', text: block.text, sourceIndex });
     }
   });
 
   flushRun();
+  flushNotifications();
   return rendered;
 }
 
@@ -185,12 +219,20 @@ export function foldRenderBlocks(
     }
   }
   if (anchor < 0) {
-    anchor = blocks.findIndex(
-      (block) => block.kind === 'tool' && block.tool.status === 'ok' && block.tool.media,
+    anchor = blocks.findIndex((block) =>
+      (block.kind === 'tool' && !rendersToolCard({ kind: 'tool', tool: block.tool })) ||
+      block.kind === 'notification',
     );
   }
   if (anchor < 0) return { folded: blocks, visible: [] };
-  return { folded: blocks.slice(0, anchor), visible: blocks.slice(anchor) };
+  const folded = blocks.slice(0, anchor);
+  const visible = blocks.slice(anchor);
+  const notifications = folded.filter((block) => block.kind === 'notification');
+  if (notifications.length === 0) return { folded, visible };
+  return {
+    folded: folded.filter((block) => block.kind !== 'notification'),
+    visible: [...notifications, ...visible],
+  };
 }
 
 export function turnFinalText(turn: ChatTurn): string {
@@ -219,6 +261,19 @@ export function turnToMarkdown(turn: ChatTurn): string {
           parts.push(`\`\`\`\n[${item.tool.name}]\n${output}\n\`\`\``);
         }
       }
+    } else if (blk.kind === 'notification') {
+      const notification = blk.notification;
+      const lines = [notification.title, notification.type, ...notification.body.split('\n')]
+        .filter((line) => line !== '');
+      const summary = lines.length > 0
+        ? `> **Notification**\n> ${lines.join('\n> ')}`
+        : '';
+      const output = notification.outputPreview?.text ?? '';
+      const preview = output !== ''
+        ? `\`\`\`\n[output-preview]\n${output}\n\`\`\``
+        : '';
+      const markdown = [summary, preview].filter((part) => part !== '').join('\n\n');
+      if (markdown !== '') parts.push(markdown);
     }
   }
   return parts.join('\n\n');

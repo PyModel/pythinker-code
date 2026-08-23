@@ -6,6 +6,7 @@ import {
   IAgentPlanService,
   IAgentProfileService,
   IAgentDynamicWorkflowService,
+  IAgentTowerService,
   resumeSessionById,
   type PermissionMode,
   type Scope,
@@ -50,6 +51,20 @@ export async function applySessionAgentConfig(
     if (dynamic_workflow.isActive !== agentConfig.dynamic_workflow_mode) {
       if (agentConfig.dynamic_workflow_mode) dynamic_workflow.enter('manual');
       else dynamic_workflow.exit();
+    }
+  }
+  if (agentConfig.tower_mode !== undefined) {
+    const tower = agent.accessor.get(IAgentTowerService);
+    if (agentConfig.tower_mode) {
+      await tower.enter();
+      if (!tower.isActive) {
+        throw new Error2(
+          ErrorCodes.SESSION_TOWER_MODE_INVALID,
+          'tower mode could not be enabled — the feature is unavailable or another live session owns this workspace tower',
+        );
+      }
+    } else {
+      tower.exit();
     }
   }
   if (agentConfig.goal_objective !== undefined) {

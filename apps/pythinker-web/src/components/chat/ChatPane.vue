@@ -9,6 +9,7 @@ import Markdown from './Markdown.vue';
 import ThinkingBlock from './ThinkingBlock.vue';
 import ActivityNotice from './ActivityNotice.vue';
 import CronNotice from './CronNotice.vue';
+import NotificationCard from './NotificationCard.vue';
 import MessageTime from './MessageTime.vue';
 import AuthMedia from './AuthMedia.vue';
 import AttachmentChip from './AttachmentChip.vue';
@@ -846,6 +847,7 @@ function continueFailedTurn(): void {
             @open-agent="emit('openAgent', $event)"
           />
           <ToolCall v-else-if="blk.kind === 'tool'" :tool="blk.tool" mobile :tool-diff-panel="toolDiffPanel" @open-media="emit('openMedia', $event)" @open-file="emit('openFile', $event)" @open-tool-diff="emit('openToolDiff', $event)" @open-agent="emit('openAgent', $event)" />
+          <NotificationCard v-else-if="blk.kind === 'notification'" :items="blk.items" />
         </template>
         <TurnFilesSummary
           v-if="turn.id !== streamingTurnId && (assistantTurnModels.get(turn.id)?.changes.length ?? 0) > 0"

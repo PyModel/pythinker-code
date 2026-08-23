@@ -191,6 +191,7 @@ import {
   IAgentProfileService,
   IAgentSkillService,
   IAgentDynamicWorkflowService,
+  IAgentTowerService,
   IAgentTaskService,
   ISessionTokenCountingService,
   IAgentToolPolicyService,
@@ -234,6 +235,8 @@ import {
   PRINT_WAIT_CEILING_S_DEFAULT,
   ProfileError,
   ProfileErrors,
+  Error2 as V2Error2,
+  ErrorCodes as V2ErrorCodes,
   resolveAgentTaskConfig,
   resolveConfigPath,
   resolvePythinkerHome,
@@ -270,6 +273,7 @@ import {
   type SetSessionPermissionRpcInput,
   type SetSessionPlanModeRpcInput,
   type SetSessionDynamicWorkflowModeRpcInput,
+  type SetSessionTowerModeRpcInput,
   type SetSessionThinkingRpcInput,
   type UpdateSessionMetadataRpcInput,
 } from '#/rpc';
@@ -1800,6 +1804,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
       permission: agent.accessor.get(IAgentPermissionModeService).mode,
       planMode: plan !== null,
       dynamicWorkflowMode: agent.accessor.get(IAgentDynamicWorkflowService).isActive,
+      towerMode: agent.accessor.get(IAgentTowerService).isActive,
       contextTokens,
       maxContextTokens,
       contextUsage,
@@ -2111,6 +2116,23 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
   override async dynamic_workflow(input: SessionPromptRpcInput): Promise<void> {
     await this.setDynamicWorkflowMode({ sessionId: input.sessionId, enabled: true, trigger: 'task' });
     return this.prompt(input);
+  }
+
+  override async setTowerMode(input: SetSessionTowerModeRpcInput): Promise<void> {
+    const agent = await this.agentScope(input.sessionId);
+    const tower = agent.accessor.get(IAgentTowerService);
+    if (input.enabled) {
+      await tower.enter();
+      if (!tower.isActive) {
+        throw new V2Error2(
+          V2ErrorCodes.SESSION_TOWER_MODE_INVALID,
+          'tower mode could not be enabled — the feature is unavailable or another live session owns this workspace tower',
+        );
+      }
+    } else {
+      tower.exit();
+    }
+    await agent.accessor.get(IAgentContextInjectorService).reconcileWhenIdle('tower_mode');
   }
 
   // -----------------------------------------------------------------------

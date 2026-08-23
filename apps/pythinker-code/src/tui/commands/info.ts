@@ -24,6 +24,7 @@ import { submitFeedbackWithAttachments } from '../../feedback/feedback-attachmen
 import { formatErrorMessage } from '../utils/event-payload';
 import { openUrl } from '#/utils/open-url';
 import { promptFeedbackAttachment, promptFeedbackInput } from './prompts';
+import { isExperimentalFlagEnabled } from './experimental-flags';
 import type { SlashCommandHost } from './dispatch';
 
 // ---------------------------------------------------------------------------
@@ -174,6 +175,8 @@ export async function showStatusReport(host: SlashCommandHost): Promise<void> {
     thinkingEffort: appState.thinkingEffort,
     permissionMode: appState.permissionMode,
     planMode: appState.planMode,
+    towerMode: appState.towerMode,
+    towerAvailable: host.engineV2 && isExperimentalFlagEnabled('tower'),
     contextUsage: appState.contextUsage,
     contextTokens: appState.contextTokens,
     maxContextTokens: appState.maxContextTokens,

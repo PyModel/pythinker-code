@@ -27,7 +27,7 @@ export interface IAgentTowerService {
   readonly _serviceBrand: undefined;
 
   readonly isActive: boolean;
-  enter(): void;
+  enter(): Promise<void>;
   exit(): void;
 }
 

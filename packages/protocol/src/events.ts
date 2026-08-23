@@ -249,6 +249,7 @@ export type PythinkerErrorCode =
   | 'session.thinking_empty'
   | 'session.model_empty'
   | 'session.plan_mode_invalid'
+  | 'session.tower_mode_invalid'
   | 'session.approval_handler_error'
   | 'session.question_handler_error'
   | 'session.init_failed'
@@ -548,6 +549,7 @@ export interface AgentStatusUpdatedEvent {
   readonly contextUsage?: number;
   readonly planMode?: boolean;
   readonly dynamicWorkflowMode?: boolean;
+  readonly towerMode?: boolean;
   readonly permission?: PermissionMode;
   readonly usage?: UsageStatus;
   readonly phase?: AgentPhase;
@@ -1280,6 +1282,7 @@ export const pythinkerErrorCodeSchema = z.enum([
   'session.thinking_empty',
   'session.model_empty',
   'session.plan_mode_invalid',
+  'session.tower_mode_invalid',
   'session.approval_handler_error',
   'session.question_handler_error',
   'session.init_failed',
@@ -1545,6 +1548,7 @@ export const agentStatusUpdatedEventSchema = z.object({
   contextUsage: z.number().optional(),
   planMode: z.boolean().optional(),
   dynamicWorkflowMode: z.boolean().optional(),
+  towerMode: z.boolean().optional(),
   permission: permissionModeSchema.optional(),
   usage: usageStatusSchema.optional(),
   phase: agentPhaseSchema.optional(),

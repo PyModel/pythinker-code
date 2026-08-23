@@ -62,6 +62,10 @@ export class TowerFeature extends Feature {
   constructor(@IFlagService flags: IFlagService) {
     super();
     if (!flags.enabled(TOWER_FLAG_ID)) return;
+    assembledFlagServices.add(flags);
+    this.onDispose(() => {
+      assembledFlagServices.delete(flags);
+    });
     this.contributeService(LifecycleScope.App, ITowerRateLimitService, TowerRateLimitService, {
       activation: ScopeActivation.OnDemand,
     });
@@ -73,6 +77,17 @@ export class TowerFeature extends Feature {
     }
     this.contributeProfiles([TOWER_WORKER_PROFILE_DEF]);
   }
+}
+
+const assembledFlagServices = new WeakSet<IFlagService>();
+let assembledOverrideForTests: boolean | undefined;
+
+export function isTowerFeatureAssembled(flags: IFlagService): boolean {
+  return assembledOverrideForTests ?? assembledFlagServices.has(flags);
+}
+
+export function _setTowerFeatureAssembledForTests(value: boolean | undefined): void {
+  assembledOverrideForTests = value;
 }
 
 registerFeature(TowerFeature);

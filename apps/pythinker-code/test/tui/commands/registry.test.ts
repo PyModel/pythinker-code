@@ -6,6 +6,7 @@ import {
   addDirArgumentCompletions,
   sortSlashCommands,
   dynamicWorkflowArgumentCompletions,
+  towerArgumentCompletions,
   type PythinkerSlashCommand,
 } from '#/tui/commands/index';
 import { describe, expect, it } from 'vitest';
@@ -73,6 +74,16 @@ describe('built-in slash command registry', () => {
     expect(values('on')).toBeNull();
     expect(values('off')).toBeNull();
     expect(values('Ship feature X')).toBeNull();
+  });
+
+  it('registers tower as an engine-v2 experiment', () => {
+    const tower = findBuiltInSlashCommand('tower');
+    expect(tower).toBeDefined();
+    expect((tower as PythinkerSlashCommand).experimentalFlag).toBe('tower');
+    expect((tower as PythinkerSlashCommand).requiresEngineV2).toBe(true);
+    expect(resolveSlashCommandAvailability(tower!, 'status')).toBe('always');
+    expect(resolveSlashCommandAvailability(tower!, 'Ship feature X')).toBe('idle-only');
+    expect(towerArgumentCompletions('')).toHaveLength(4);
   });
 
   it('offers add-dir list and directory argument completions', () => {

@@ -733,6 +733,7 @@ export class SessionEventHandler {
     if (event.maxContextTokens !== undefined) patch.maxContextTokens = event.maxContextTokens;
     if (event.planMode !== undefined) patch.planMode = event.planMode;
     if (event.dynamicWorkflowMode !== undefined) patch.dynamicWorkflowMode = event.dynamicWorkflowMode;
+    if (event.towerMode !== undefined) patch.towerMode = event.towerMode;
     if (event.permission !== undefined) {
       patch.permissionMode = event.permission;
     }

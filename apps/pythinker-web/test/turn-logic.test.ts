@@ -3,6 +3,11 @@ import type { AppMessage, AppMessageContent } from '../src/api/types';
 import { latestTodos } from '../src/composables/latestTodos';
 import { messagesToTurns } from '../src/composables/messagesToTurns';
 import { isPlayableMediaUrl } from '../src/composables/useFilePreview';
+import {
+  parseTaskNotifications,
+  TASK_NOTIFICATION_METADATA_KEY,
+  taskNotificationFromMetadata,
+} from '../src/lib/taskNotification';
 
 function message(
   id: string,
@@ -802,6 +807,93 @@ describe('latestTodos', () => {
         ]),
       ]),
     ).toEqual([{ title: 'new', status: 'done' }]);
+  });
+});
+
+describe('task notifications', () => {
+  const notification =
+    '<notification id="task:task_1:completed" category="task" type="task.completed" source_kind="background_task" source_id="task_1">\n' +
+    'Title: Tests &amp; checks complete\n' +
+    'Severity: info\n' +
+    '42 passed &lt; 1 skipped\n' +
+    '<output-file path="/tmp/test.log" bytes="128"></output-file>\n' +
+    '<output-preview bytes="12" total_bytes="24" truncated="true">\n' +
+    'Output:\nlast line\n' +
+    '</output-preview>\n' +
+    '</notification>';
+
+  it('parses safe text and optional output metadata from the task XML', () => {
+    expect(parseTaskNotifications(notification)).toEqual([
+      expect.objectContaining({
+        id: 'task:task_1:completed',
+        category: 'task',
+        type: 'task.completed',
+        sourceKind: 'background_task',
+        sourceId: 'task_1',
+        title: 'Tests & checks complete',
+        severity: 'info',
+        body: '42 passed < 1 skipped',
+        outputFile: { path: '/tmp/test.log', bytes: 128 },
+        outputPreview: { text: 'last line', bytes: 12, totalBytes: 24, truncated: true },
+        raw: notification,
+      }),
+    ]);
+  });
+
+  it.each([
+    ['agentId', null],
+    ['createdAt', 42],
+    ['outputFile', null],
+    ['outputFile', { path: 42 }],
+    ['outputFile', { path: '/tmp/test.log', bytes: '128' }],
+    ['outputPreview', null],
+    ['outputPreview', { text: 42 }],
+    ['outputPreview', { text: 'tail', bytes: '12' }],
+    ['outputPreview', { text: 'tail', totalBytes: '24' }],
+    ['outputPreview', { text: 'tail', truncated: 'true' }],
+  ])('rejects invalid optional %s metadata', (field, value) => {
+    const parsed = parseTaskNotifications(notification)[0];
+    expect(parsed).toBeDefined();
+
+    expect(
+      taskNotificationFromMetadata({
+        [TASK_NOTIFICATION_METADATA_KEY]: { ...parsed, [field]: value },
+      }),
+    ).toBeUndefined();
+  });
+
+  it('keeps a task notification inside the active assistant turn', () => {
+    const turns = messagesToTurns(
+      [
+        message('a1', 'assistant', [{ type: 'thinking', thinking: 'waiting' }], { promptId: 'p1' }),
+        message('n1', 'user', [{ type: 'text', text: notification }], {
+          promptId: 'p1',
+          metadata: { origin: { kind: 'task', taskId: 'task_1' } },
+        }),
+        message('a2', 'assistant', [{ type: 'text', text: 'Done.' }], { promptId: 'p1' }),
+      ],
+      [],
+      undefined,
+      false,
+    );
+
+    expect(turns).toHaveLength(1);
+    expect(turns[0]?.role).toBe('assistant');
+    expect(turns[0]?.blocks?.map((block) => block.kind)).toEqual([
+      'thinking',
+      'notification',
+      'text',
+    ]);
+  });
+
+  it('does not reinterpret user-pasted notification XML without a task origin', () => {
+    const turns = messagesToTurns(
+      [message('u1', 'user', [{ type: 'text', text: notification }])],
+      [],
+    );
+
+    expect(turns).toHaveLength(1);
+    expect(turns[0]).toMatchObject({ role: 'user', text: notification });
   });
 });
 

@@ -1,6 +1,6 @@
 <!-- apps/pythinker-web/src/components/chat/ConversationPane.vue -->
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, provide, ref, watch, type ComponentPublicInstance } from 'vue';
+import { computed, inject, nextTick, onMounted, onUnmounted, provide, ref, watch, type ComponentPublicInstance } from 'vue';
 import { useI18n } from 'vue-i18n';
 import type { ActivationBadges, ApprovalBlock, ChatTurn, ConversationStatus, FilePreviewRequest, PermissionMode, QueuedPromptView, Session, SessionPlanEntry, TaskItem, TodoView, ToolMedia, TurnAttachment, UIQuestion, WorkspaceView } from '../../types';
 import type { AppGoal, AppModel, AppSkill, QuestionResponse, ThinkingLevel } from '../../api/types';
@@ -277,6 +277,22 @@ function resolveAgentTaskId(toolCallId: string): string | undefined {
   return undefined;
 }
 provide('resolveAgentTaskId', resolveAgentTaskId);
+const modelDisplay = inject<(modelId: string | undefined) => string | undefined>('modelDisplay');
+const subagentEffort = inject<(effort: string | undefined) => string | undefined>('subagentEffort');
+function resolveAgentModel(
+  toolCallId: string,
+): { display?: string; effort?: string } | undefined {
+  const taskId = resolveAgentTaskId(toolCallId);
+  if (taskId === undefined) return undefined;
+  const task = props.tasks.find((candidate) =>
+    candidate.id === taskId || candidate.agentId === taskId,
+  );
+  const display = modelDisplay?.(task?.model);
+  const effort = subagentEffort?.(task?.thinkingEffort);
+  if (display === undefined && effort === undefined) return undefined;
+  return { display, effort };
+}
+provide('resolveAgentModel', resolveAgentModel);
 // Let the ExitPlanMode tool card reach the plan markdown captured from the
 // plan_review approval display (client.sessionPlans — survives reloads).
 provide('resolvePlan', (toolCallId: string) => props.sessionPlans?.[toolCallId]);

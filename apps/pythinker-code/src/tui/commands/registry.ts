@@ -4,6 +4,7 @@ import { basename, dirname, join, relative, resolve } from 'pathe';
 
 import type { AutocompleteItem } from '@pymodel/pi-tui';
 
+import { TOWER_ARG_COMPLETIONS } from '../constant/tower';
 import { completeLeadingArg, type ArgCompletionSpec } from './complete-args';
 import type { PythinkerSlashCommand, SlashCommandAvailability } from './types';
 
@@ -47,6 +48,11 @@ export function goalArgumentCompletions(argumentPrefix: string): AutocompleteIte
 /** Argument autocompletion for the `/dynamic_workflow` command (subcommands). */
 export function dynamicWorkflowArgumentCompletions(argumentPrefix: string): AutocompleteItem[] | null {
   return completeLeadingArg(DYNAMIC_WORKFLOW_ARG_COMPLETIONS, argumentPrefix);
+}
+
+/** Argument autocompletion for the `/tower` command. */
+export function towerArgumentCompletions(argumentPrefix: string): AutocompleteItem[] | null {
+  return completeLeadingArg(TOWER_ARG_COMPLETIONS, argumentPrefix);
 }
 
 /** Argument autocompletion for the `/add-dir` command. */
@@ -176,6 +182,22 @@ export const BUILTIN_SLASH_COMMANDS = [
     argumentHint: '[on|off] | <task>',
     completeArgs: dynamicWorkflowArgumentCompletions,
     availability: 'idle-only',
+  },
+  {
+    name: 'tower',
+    aliases: [],
+    description: 'Report tower status, toggle tower mode, or set the tower objective',
+    priority: 100,
+    argumentHint: '[status|teardown|on|off] | <objective>',
+    completeArgs: towerArgumentCompletions,
+    availability: (args) => {
+      const sub = args.trim().toLowerCase();
+      return sub === '' || sub === 'on' || sub === 'off' || sub === 'status' || sub === 'teardown'
+        ? 'always'
+        : 'idle-only';
+    },
+    experimentalFlag: 'tower',
+    requiresEngineV2: true,
   },
   {
     name: 'model',

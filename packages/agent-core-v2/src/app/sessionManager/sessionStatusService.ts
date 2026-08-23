@@ -19,6 +19,7 @@ import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMo
 import { IAgentPlanService } from '#/features/plan/plan';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentDynamicWorkflowService } from '#/features/dynamic_workflow/agent/dynamic_workflow';
+import { IAgentTowerService } from '#/features/tower/tower';
 import {
   getLiveSessionById,
   resumeSessionById,
@@ -69,6 +70,7 @@ export class SessionStatusService implements ISessionStatusService {
     const permission = agent.accessor.get(IAgentPermissionModeService);
     const plan = agent.accessor.get(IAgentPlanService);
     const dynamic_workflow = agent.accessor.get(IAgentDynamicWorkflowService);
+    const tower = agent.accessor.get(IAgentTowerService);
 
     const model = profile.getModel();
     const capabilities = profile.getModelCapabilities();
@@ -86,6 +88,7 @@ export class SessionStatusService implements ISessionStatusService {
       permission: permission.mode,
       plan_mode: planData !== null,
       dynamic_workflow_mode: dynamic_workflow.isActive,
+      tower_mode: tower.isActive,
       context_tokens: tokens,
       max_context_tokens: maxTokens > 0 ? maxTokens : undefined,
       context_usage: maxTokens > 0 ? Math.min(1, tokens / maxTokens) : undefined,

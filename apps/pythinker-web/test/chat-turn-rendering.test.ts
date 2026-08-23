@@ -182,6 +182,55 @@ describe('assistantRenderBlocks', () => {
       { kind: 'text', text: 'answer', sourceIndex: 1 },
     ]);
   });
+
+  it('groups consecutive task notifications without joining activity runs', () => {
+    const base = {
+      id: 'task:1:completed',
+      category: 'task',
+      type: 'task.completed',
+      sourceKind: 'background_task',
+      sourceId: 'task_1',
+      title: 'Done',
+      severity: 'info',
+      body: 'Finished',
+      raw: '<notification />',
+    };
+    const rendered = assistantRenderBlocks(
+      assistantTurn([
+        { kind: 'notification', notification: base },
+        { kind: 'notification', notification: { ...base, id: 'task:2:failed', type: 'task.failed' } },
+        toolBlock('a'),
+      ]),
+    );
+
+    expect(rendered.map((block) => block.kind)).toEqual(['notification', 'tool']);
+    expect(rendered[0]).toMatchObject({ kind: 'notification', items: [base, expect.any(Object)] });
+  });
+
+  it('keeps a notification between two tool runs', () => {
+    const notification = {
+      id: 'task:1:completed',
+      category: 'task',
+      type: 'task.completed',
+      sourceKind: 'background_task',
+      sourceId: 'task_1',
+      title: 'Done',
+      severity: 'info',
+      body: 'Finished',
+      raw: '<notification />',
+    };
+    const rendered = assistantRenderBlocks(
+      assistantTurn([
+        toolBlock('a'),
+        { kind: 'notification', notification },
+        toolBlock('b'),
+      ]),
+    );
+
+    expect(rendered.map((block) => block.kind)).toEqual(['tool', 'notification', 'tool']);
+    expect(rendered[0]).toMatchObject({ kind: 'tool', tool: { id: 'a' } });
+    expect(rendered[2]).toMatchObject({ kind: 'tool', tool: { id: 'b' } });
+  });
 });
 
 describe('foldRenderBlocks', () => {
@@ -217,6 +266,33 @@ describe('foldRenderBlocks', () => {
       assistantTurn([toolBlock('a'), { kind: 'text', text: '  \n ' }]),
     );
     expect(foldRenderBlocks(blocks)).toEqual({ folded: blocks, visible: [] });
+  });
+
+  it('keeps task notifications visible ahead of the final answer', () => {
+    const blocks = assistantRenderBlocks(
+      assistantTurn([
+        toolBlock('a'),
+        {
+          kind: 'notification',
+          notification: {
+            id: 'task:1:completed',
+            category: 'task',
+            type: 'task.completed',
+            sourceKind: 'background_task',
+            sourceId: 'task_1',
+            title: 'Done',
+            severity: 'info',
+            body: 'Finished',
+            raw: '<notification />',
+          },
+        },
+        { kind: 'text', text: 'answer' },
+      ]),
+    );
+    const model = foldRenderBlocks(blocks);
+
+    expect(model.folded.map((block) => block.kind)).toEqual(['tool']);
+    expect(model.visible.map((block) => block.kind)).toEqual(['notification', 'text']);
   });
 });
 

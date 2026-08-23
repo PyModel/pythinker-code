@@ -7,11 +7,14 @@
 // hiding the degenerate on/off levels).
 import { mount } from '@vue/test-utils';
 import { createI18n } from 'vue-i18n';
-import { defineComponent, nextTick } from 'vue';
+import { defineComponent, nextTick, ref } from 'vue';
 import { describe, expect, it, vi } from 'vitest';
 import AgentDetailPanel from '../src/components/chat/AgentDetailPanel.vue';
+import AgentTool from '../src/components/chat/tool-calls/AgentTool.vue';
+import DynamicWorkflowTool from '../src/components/chat/tool-calls/DynamicWorkflowTool.vue';
 import SubagentGrid from '../src/components/chat/SubagentGrid.vue';
 import TasksPane from '../src/components/chat/TasksPane.vue';
+import type { DynamicWorkflowMember } from '../src/composables/dynamicWorkflowGroups';
 import type { TaskItem } from '../src/types';
 
 vi.mock('markstream-vue', () => {
@@ -46,6 +49,8 @@ vi.mock('markstream-vue/workers/mermaidParser.worker?worker&type=module', () => 
 const i18n = createI18n({
   legacy: false,
   locale: 'en',
+  missingWarn: false,
+  fallbackWarn: false,
   messages: {
     en: {
       tasks: {
@@ -161,6 +166,83 @@ describe('subagent model/effort display resolvers', () => {
     });
     expect(wrapper.text()).toContain('review · Example Model · High');
     vi.unstubAllGlobals();
+  });
+
+  it('AgentTool shows resolved model and effort in its inline metadata', () => {
+    const wrapper = mount(AgentTool, {
+      props: {
+        tool: {
+          id: 'tool_1',
+          name: 'Agent',
+          arg: JSON.stringify({ description: 'Inspect UI', run_in_background: false }),
+          status: 'running',
+        },
+      },
+      global: {
+        plugins: [i18n],
+        provide: {
+          resolveAgentModel: () => ({ display: 'Example Model', effort: 'High' }),
+          resolveAgentTaskId: () => 'task_1',
+        },
+      },
+    });
+
+    expect(wrapper.get('.chip').text()).toContain('Example Model · High');
+  });
+
+  it('DynamicWorkflowTool shows only shared model and effort metadata', async () => {
+    const members = ref<DynamicWorkflowMember[]>([
+      {
+        id: 'agent_1',
+        name: 'First',
+        phase: 'working' as const,
+        dynamicWorkflowIndex: 0,
+        model: 'example.test/example-model',
+        thinkingEffort: 'high',
+      },
+      {
+        id: 'agent_2',
+        name: 'Second',
+        phase: 'working' as const,
+        dynamicWorkflowIndex: 1,
+        model: 'example.test/example-model',
+        thinkingEffort: 'high',
+      },
+    ]);
+    const wrapper = mount(DynamicWorkflowTool, {
+      props: {
+        tool: {
+          id: 'workflow_1',
+          name: 'AgentDynamicWorkflow',
+          arg: JSON.stringify({ description: 'Inspect both surfaces', items: [{}, {}] }),
+          status: 'running',
+        },
+      },
+      global: {
+        plugins: [i18n],
+        provide: {
+          resolveDynamicWorkflowMembers: () => members.value,
+          modelDisplay: resolvers.modelDisplay,
+          subagentEffort: resolvers.subagentEffort,
+        },
+        stubs: { Tooltip: true },
+      },
+    });
+
+    expect(wrapper.get('.model-meta').text()).toBe('Example Model · High');
+
+    members.value[1].thinkingEffort = 'medium';
+    await nextTick();
+    expect(wrapper.find('.model-meta').exists()).toBe(false);
+
+    members.value[1] = {
+      id: 'agent_2',
+      name: 'Second',
+      phase: 'working',
+      dynamicWorkflowIndex: 1,
+    };
+    await nextTick();
+    expect(wrapper.find('.model-meta').exists()).toBe(false);
   });
 });
 

@@ -386,6 +386,71 @@ describe('reduceAppEvent messageCreated', () => {
 });
 
 describe('reduceAppEvent taskProgress', () => {
+  it('stamps an estimated completion time for a linked background task', () => {
+    const state = {
+      ...createInitialState(),
+      tasksBySession: {
+        s1: [
+          {
+            ...makeSubagentTask('agent-1', 's1'),
+            status: 'running' as const,
+            backgroundTaskId: 'task-9',
+          },
+        ],
+      },
+    };
+    const before = Date.now();
+    const next = reduceAppEvent(
+      state,
+      {
+        type: 'taskCompleted',
+        sessionId: 's1',
+        taskId: 'task-9',
+        status: 'completed',
+        outputPreview: 'done',
+      },
+      { sessionId: 's1', seq: 1 },
+    );
+    const task = next.tasksBySession.s1?.[0];
+    expect(task).toMatchObject({
+      status: 'completed',
+      completedAtEstimated: true,
+      outputPreview: 'done',
+    });
+    expect(Date.parse(task?.completedAt ?? '')).toBeGreaterThanOrEqual(before);
+  });
+
+  it('keeps an authoritative completion time over a projected estimate', () => {
+    const state = {
+      ...createInitialState(),
+      tasksBySession: {
+        s1: [
+          {
+            ...makeSubagentTask('t1', 's1'),
+            status: 'completed' as const,
+            completedAt: '2026-01-01T00:01:00.000Z',
+          },
+        ],
+      },
+    };
+    const next = reduceAppEvent(
+      state,
+      {
+        type: 'taskCreated',
+        sessionId: 's1',
+        task: {
+          ...makeSubagentTask('t1', 's1'),
+          status: 'completed',
+          completedAt: '2026-01-01T00:02:00.000Z',
+          completedAtEstimated: true,
+        },
+      },
+      { sessionId: 's1', seq: 1 },
+    );
+    expect(next.tasksBySession.s1?.[0]?.completedAt).toBe('2026-01-01T00:01:00.000Z');
+    expect(next.tasksBySession.s1?.[0]?.completedAtEstimated).toBeUndefined();
+  });
+
   it('accumulates the full progress output without truncating to a fixed window', () => {
     const state = {
       ...createInitialState(),
@@ -492,6 +557,8 @@ describe('reduceAppEvent taskProgress', () => {
             outputLines: ['old progress'],
             text: 'old result',
             outputPreview: 'old summary',
+            completedAt: '2026-01-01T00:01:00.000Z',
+            completedAtEstimated: true,
           },
         ],
       },
@@ -519,6 +586,8 @@ describe('reduceAppEvent taskProgress', () => {
     expect(next.tasksBySession['s1']?.[0]?.outputLines).toBeUndefined();
     expect(next.tasksBySession['s1']?.[0]?.text).toBeUndefined();
     expect(next.tasksBySession['s1']?.[0]?.outputPreview).toBeUndefined();
+    expect(next.tasksBySession['s1']?.[0]?.completedAt).toBeUndefined();
+    expect(next.tasksBySession['s1']?.[0]?.completedAtEstimated).toBeUndefined();
   });
 
   it('preserves subagent identity metadata across a taskCreated replacement with omitted fields', () => {

@@ -53,11 +53,15 @@ Some commands are only available in the idle state. Executing these commands whi
 | `/plan clear` | — | Clear the current plan | No |
 | `/dynamic_workflow on\|off` | — | Turn dynamic_workflow mode on or off without sending a prompt. | Yes |
 | `/dynamic_workflow <task>` | — | Turn dynamic_workflow mode on, then send `<task>` as a normal prompt. If the turn completes normally, dynamic_workflow mode turns off automatically. In `manual` permission mode, Pythinker Code asks whether to switch to `auto` or `yolo` before starting. | No |
+| `/tower [status\|on\|off\|teardown]` | — | Report tower status, turn workspace-wide tower coordination on or off, or ask the active tower to stop all agents | Yes |
+| `/tower <objective>` | — | Turn tower mode on and send `<objective>` as the shared objective for coordinated subagents | No |
 | `/goal [...]` | — | Start or manage an autonomous goal | See below |
 
 ::: warning
 `/yolo` skips approval for regular tool calls. Please make sure you understand the potential risks before enabling it. Plan mode exit approval is not bypassed by `/yolo`; `Bash` inside Plan mode is still subject to the regular `/yolo` allow rules.
 :::
+
+`/tower` is experimental and hidden by default. Set `PYTHINKER_CODE_EXPERIMENTAL_TOWER=1` before starting Pythinker Code CLI to enable it. It requires the `agent-core-v2` engine and is unavailable when `PYTHINKER_CODE_LEGACY_FLAG=1`. A workspace can have one active tower at a time.
 
 ## Autonomous Goal
 

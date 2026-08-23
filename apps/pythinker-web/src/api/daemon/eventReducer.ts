@@ -721,6 +721,11 @@ export function reduceAppEvent(
           event.task.kind === 'subagent' &&
           event.task.status === 'running' &&
           event.task.subagentPhase === 'queued';
+        const keepsAuthoritativeCompletion =
+          !startsNewSubagentRun &&
+          previous.completedAt !== undefined &&
+          previous.completedAtEstimated !== true &&
+          event.task.completedAtEstimated === true;
         // The projected task does not carry reducer-owned accumulated progress;
         // preserve it across the replacement so subagent output keeps growing,
         // except when an explicit queued spawn starts a new run for a terminal id.
@@ -730,6 +735,10 @@ export function reduceAppEvent(
           ...event.task,
           outputLines: startsNewSubagentRun ? event.task.outputLines : previous.outputLines,
           text: startsNewSubagentRun ? event.task.text : previous.text,
+          completedAt: keepsAuthoritativeCompletion ? previous.completedAt : event.task.completedAt,
+          completedAtEstimated: keepsAuthoritativeCompletion
+            ? previous.completedAtEstimated
+            : event.task.completedAtEstimated,
           // A post-refresh lifecycle event re-projects the task with skeleton
           // metadata; don't let its placeholder clobber the roster-seeded
           // description.
@@ -780,12 +789,15 @@ export function reduceAppEvent(
       const sid = event.sessionId;
       const list = next.tasksBySession[sid] ?? [];
       next.tasksBySession[sid] = list.map((t) => {
-        if (t.id !== event.taskId) return t;
+        if (t.id !== event.taskId && t.backgroundTaskId !== event.taskId) return t;
+        const terminal = t.status === 'completed' || t.status === 'failed' || t.status === 'cancelled';
         return {
           ...t,
-          status: event.status,
-          outputPreview: event.outputPreview,
-          outputBytes: event.outputBytes,
+          status: terminal ? t.status : event.status,
+          completedAt: t.completedAt ?? new Date().toISOString(),
+          completedAtEstimated: t.completedAt === undefined ? true : t.completedAtEstimated,
+          outputPreview: event.outputPreview ?? t.outputPreview,
+          outputBytes: event.outputBytes ?? t.outputBytes,
         };
       });
       break;

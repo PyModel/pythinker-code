@@ -12,6 +12,7 @@
 import type { AppMessage, AppApprovalRequest, AppTask, CompactionMarkerMetadata } from '../api/types';
 import { COMPACTION_MARKER_METADATA_KEY } from '../api/types';
 import type { AgentMember, ApprovalBlock, ChatTurn, CronTurnData, DiffLine, ToolCall, ToolMedia, TurnAttachment, TurnBlock } from '../types';
+import { parseTaskNotifications, taskNotificationFromMetadata } from '../lib/taskNotification';
 
 const READ_MEDIA_TOOL_RE = /^read[_-]?media(?:file)?$/i;
 const DATA_URL_RE = /^data:([^;]+);base64,(.*)$/s;
@@ -790,11 +791,47 @@ export function messagesToTurns(
       // buffers steer input while a turn is in flight and only injects it at the
       // turn boundary, so the cron message does not land between a tool use and
       // its result in practice.
-      flushGroup();
       if (cronKind !== undefined) {
+        flushGroup();
         turns.push(buildCronTurn(msg, no++, cronKind));
         continue;
       }
+      const originKind = (msg.metadata?.['origin'] as { kind?: string } | undefined)?.kind;
+      if (
+        originKind === 'task' ||
+        originKind === 'background_task' ||
+        originKind === 'task_notification'
+      ) {
+        const text = msg.content
+          .filter((part): part is { type: 'text'; text: string } => part.type === 'text')
+          .map((part) => part.text)
+          .join('\n');
+        const metadataNotification = taskNotificationFromMetadata(msg.metadata);
+        const notifications = metadataNotification
+          ? [metadataNotification]
+          : parseTaskNotifications(text);
+        if (notifications.length > 0) {
+          pendingGroup ??= {
+            id: msg.id,
+            promptId: undefined,
+            textParts: [],
+            thinkingParts: [],
+            tools: [],
+            blocks: [],
+            approval: undefined,
+            approvalId: undefined,
+            foldedSigs: [],
+          };
+          for (const notification of notifications) {
+            pendingGroup.blocks.push({
+              kind: 'notification',
+              notification: { ...notification, createdAt: msg.createdAt },
+            });
+          }
+        }
+        continue;
+      }
+      flushGroup();
       // Hide system-injected user turns (TUI parity) — they end the previous
       // assistant turn but aren't rendered as a user bubble.
       if (!isDisplayableUserMessage(msg)) continue;

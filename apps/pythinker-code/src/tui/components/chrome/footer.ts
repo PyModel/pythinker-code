@@ -409,6 +409,7 @@ export class FooterComponent implements Component {
     if (state.permissionMode === 'yolo') modes.push(chalk.hex(colors.warning).bold('yolo'));
     if (state.planMode) modes.push(chalk.hex(colors.primary).bold('plan'));
     if (state.dynamicWorkflowMode) modes.push(chalk.hex(colors.accent).bold('dynamic_workflow'));
+    if (state.towerMode) modes.push(chalk.hex(colors.accent).bold('tower'));
     if (modes.length > 0) slots['mode'] = [modes.join(' ')];
 
     const goalBadge = formatGoalBadge(state.goal, colors, this.goalWallClockMs(state.goal));

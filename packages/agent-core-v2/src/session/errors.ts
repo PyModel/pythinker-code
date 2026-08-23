@@ -18,6 +18,7 @@ export const SessionErrors = {
     SESSION_THINKING_EMPTY: 'session.thinking_empty',
     SESSION_MODEL_EMPTY: 'session.model_empty',
     SESSION_PLAN_MODE_INVALID: 'session.plan_mode_invalid',
+    SESSION_TOWER_MODE_INVALID: 'session.tower_mode_invalid',
   },
   retryable: ['session.fork_active_turn'],
 } as const satisfies ErrorDomain;

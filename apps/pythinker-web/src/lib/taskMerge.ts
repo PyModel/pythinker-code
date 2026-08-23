@@ -45,6 +45,8 @@ export function keepLiveSubagents(restBased: AppTask[], existing: AppTask[]): Ap
     foldedRestIds.add(rest.id);
     // True when the fold — not the event stream — is what makes the row terminal.
     const restCompletesLiveRow = live.status === 'running' && rest.status !== 'running';
+    const hasAuthoritativeRestCompletion =
+      rest.completedAt !== undefined && rest.completedAtEstimated !== true;
     return {
       ...live,
       // Terminal-stickiness: never let a lagging poll flip a finished row back
@@ -64,7 +66,14 @@ export function keepLiveSubagents(restBased: AppTask[], existing: AppTask[]): Ap
       agentId: live.agentId ?? rest.agentId,
       model: live.model ?? rest.model,
       thinkingEffort: live.thinkingEffort ?? rest.thinkingEffort,
-      completedAt: live.completedAt ?? rest.completedAt,
+      completedAt: hasAuthoritativeRestCompletion
+        ? rest.completedAt
+        : live.completedAt ?? rest.completedAt,
+      completedAtEstimated: hasAuthoritativeRestCompletion
+        ? rest.completedAtEstimated
+        : live.completedAt !== undefined
+          ? live.completedAtEstimated
+          : rest.completedAtEstimated,
       // REST output is authoritative once present: agent tasks persist their
       // result at completion, and a previously folded preview would otherwise
       // freeze the detail panel's Result.

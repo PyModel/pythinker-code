@@ -192,6 +192,7 @@ export function foldWireRecordFacts(
   let planActive: boolean | undefined;
   let planRevision: { readonly reviewPath?: string; readonly version?: number } | undefined;
   let dynamicWorkflowActive: boolean | undefined;
+  let towerActive: boolean | undefined;
 
   const appended: TranscriptItem[] = [];
   const activeCancelTurnIds = new Set<number>();
@@ -341,6 +342,14 @@ export function foldWireRecordFacts(
         pushMarker('dynamic_workflow.exit', record);
         break;
       }
+      case 'tower_mode.enter': {
+        towerActive = true;
+        break;
+      }
+      case 'tower_mode.exit': {
+        towerActive = false;
+        break;
+      }
       case 'task.started':
       case 'task.terminated': {
         upsertTask(record);
@@ -453,7 +462,10 @@ export function foldWireRecordFacts(
         })
       : base.items;
 
-  const modesTouched = planActive !== undefined || dynamicWorkflowActive !== undefined;
+  const modesTouched =
+    planActive !== undefined ||
+    dynamicWorkflowActive !== undefined ||
+    towerActive !== undefined;
   const meta: TranscriptMeta = {
     ...base.meta,
     goal: goalTouched ? goal : base.meta.goal,
@@ -467,6 +479,7 @@ export function foldWireRecordFacts(
                 ? (planRevision ?? {})
                 : undefined,
           dynamic_workflow: dynamicWorkflowActive === undefined ? base.meta.modes?.dynamic_workflow : dynamicWorkflowActive ? {} : undefined,
+          tower: towerActive === undefined ? base.meta.modes?.tower : towerActive ? {} : undefined,
         }
       : base.meta.modes,
   };

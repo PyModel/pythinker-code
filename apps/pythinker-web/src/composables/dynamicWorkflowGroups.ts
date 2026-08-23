@@ -4,6 +4,8 @@ export interface DynamicWorkflowMember {
   id: string;
   name: string;
   subagentType?: string;
+  model?: string;
+  thinkingEffort?: string;
   phase: AppSubagentPhase;
   summary?: string;
   outputLines?: string[];
@@ -55,6 +57,8 @@ export function buildDynamicWorkflowGroups(tasks: AppTask[]): DynamicWorkflowGro
       id: task.id,
       name: task.description,
       subagentType: task.subagentType,
+      model: task.model,
+      thinkingEffort: task.thinkingEffort,
       phase: phaseForTask(task),
       summary: task.outputPreview,
       outputLines: task.outputLines,
@@ -110,6 +114,8 @@ export function dynamicWorkflowMembersByToolCall(tasks: AppTask[]): Map<string, 
       id: task.id,
       name: task.description,
       subagentType: task.subagentType,
+      model: task.model,
+      thinkingEffort: task.thinkingEffort,
       phase: phaseForTask(task),
       summary: task.outputPreview,
       outputLines: task.outputLines,

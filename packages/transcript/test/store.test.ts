@@ -463,10 +463,14 @@ describe('AgentTranscript', () => {
 
   it('meta.merge clears a mode badge on null and keeps absent keys', () => {
     const tx = new AgentTranscript('main');
-    tx.apply([{ op: 'meta.merge', meta: { modes: { plan: {}, dynamic_workflow: {} } } }]);
+    tx.apply([
+      { op: 'meta.merge', meta: { modes: { plan: {}, dynamic_workflow: {}, tower: {} } } },
+    ]);
     tx.apply([{ op: 'meta.merge', meta: { modes: { plan: null } } }]);
-    expect(tx.getMeta().modes).toEqual({ dynamic_workflow: {} });
+    expect(tx.getMeta().modes).toEqual({ dynamic_workflow: {}, tower: {} });
     tx.apply([{ op: 'meta.merge', meta: { modes: { dynamic_workflow: null } } }]);
+    expect(tx.getMeta().modes).toEqual({ tower: {} });
+    tx.apply([{ op: 'meta.merge', meta: { modes: { tower: null } } }]);
     expect(tx.getMeta().modes).toBeUndefined();
   });
 

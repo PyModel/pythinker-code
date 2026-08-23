@@ -974,6 +974,30 @@ describe('foldWireRecordFacts (cold facts)', () => {
     expect(stillPlanning.meta.modes).toEqual({ plan: {} });
   });
 
+  it('folds tower mode records into meta.modes without markers', () => {
+    const base = baseWithMarker();
+    const folded = foldWireRecordFacts(
+      [
+        { type: 'tower_mode.enter', time: 1000 },
+        { type: 'tower_mode.exit', time: 2000 },
+        { type: 'tower_mode.enter', time: 3000 },
+      ],
+      base,
+    );
+    expect(folded.meta.modes).toEqual({ tower: {} });
+    expect(folded.items).toEqual(base.items);
+
+    const exited = foldWireRecordFacts(
+      [
+        { type: 'tower_mode.enter', time: 1000 },
+        { type: 'tower_mode.exit', time: 2000 },
+      ],
+      base,
+    );
+    expect(exited.meta.modes).toEqual({});
+    expect(exited.items).toEqual(base.items);
+  });
+
   it('folds plan.revision records into the plan badge and a timeline marker', () => {
     const base = baseWithMarker();
     const revision = {

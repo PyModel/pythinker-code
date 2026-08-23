@@ -185,6 +185,15 @@ function stringField(source: Record<string, unknown>, key: string): string | und
   return typeof value === 'string' ? value : undefined;
 }
 
+function escapeXml(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&apos;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;');
+}
+
 function numberField(source: Record<string, unknown>, key: string): number | undefined {
   const value = source[key];
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
@@ -1209,6 +1218,7 @@ export function createAgentProjector(): AgentProjector {
           subagentPhase: 'completed',
           status: 'completed',
           completedAt: new Date().toISOString(),
+          completedAtEstimated: true,
           outputPreview,
         });
         if (task) out.push({ type: 'taskCreated', sessionId, task });
@@ -1228,6 +1238,7 @@ export function createAgentProjector(): AgentProjector {
           subagentPhase: 'failed',
           status: 'failed',
           completedAt: new Date().toISOString(),
+          completedAtEstimated: true,
           outputPreview,
         });
         if (task) out.push({ type: 'taskCreated', sessionId, task });
@@ -1238,6 +1249,44 @@ export function createAgentProjector(): AgentProjector {
           status: 'failed',
           outputPreview,
         });
+        break;
+      }
+
+      case 'task.notified': {
+        const notificationType = stringField(p ?? {}, 'notificationType');
+        const sourceKind = stringField(p ?? {}, 'sourceKind');
+        const sourceId = stringField(p ?? {}, 'sourceId');
+        if (!notificationType || !sourceKind || !sourceId) break;
+        const state = notificationType.startsWith('task.')
+          ? notificationType.slice('task.'.length)
+          : notificationType;
+        const notificationId = `task:${sourceId}:${state}`;
+        const title = stringField(p ?? {}, 'title') ?? '';
+        const severity = stringField(p ?? {}, 'severity') ?? '';
+        const body = stringField(p ?? {}, 'body') ?? '';
+        const xml =
+          `<notification id="${escapeXml(notificationId)}" category="task" type="${escapeXml(notificationType)}" source_kind="${escapeXml(sourceKind)}" source_id="${escapeXml(sourceId)}">\n` +
+          (title !== '' ? `Title: ${escapeXml(title)}\n` : '') +
+          (severity !== '' ? `Severity: ${escapeXml(severity)}\n` : '') +
+          (body !== '' ? `${escapeXml(body)}\n` : '') +
+          '</notification>';
+        const message: AppMessage = {
+          id: `task_ntf_${notificationId}`,
+          sessionId,
+          role: 'user',
+          content: [{ type: 'text', text: xml }],
+          createdAt: new Date().toISOString(),
+          metadata: {
+            origin: {
+              kind: 'task',
+              taskId: sourceId,
+              status: state,
+              notificationId,
+            },
+          },
+        };
+        s.messages.push(message);
+        out.push({ type: 'messageCreated', message: cloneMessage(message) });
         break;
       }
 
@@ -1543,6 +1592,7 @@ const KNOWN_AGENT_CORE_TYPES = new Set([
   'subagent.failed',
   'task.started',
   'task.terminated',
+  'task.notified',
   'background.task.started',
   'background.task.terminated',
   'cron.fired',

@@ -842,6 +842,24 @@ describe('keepLiveSubagents', () => {
     expect(merged?.outputPreview).toBe('done');
   });
 
+  it('replaces an estimated live completion time with the REST timestamp', () => {
+    const live = subagent('agent-1', {
+      backgroundTaskId: 'task-9',
+      status: 'completed',
+      completedAt: '2026-01-01T00:02:00.000Z',
+      completedAtEstimated: true,
+    });
+    const rest = [
+      subagent('task-9', {
+        status: 'completed',
+        completedAt: '2026-01-01T00:01:00.000Z',
+      }),
+    ];
+    const [merged] = keepLiveSubagents(rest, [live]);
+    expect(merged?.completedAt).toBe('2026-01-01T00:01:00.000Z');
+    expect(merged?.completedAtEstimated).toBeUndefined();
+  });
+
   it('maps a REST-cancelled row to the cancelled phase', () => {
     const live = subagent('agent-1', {
       runInBackground: true,

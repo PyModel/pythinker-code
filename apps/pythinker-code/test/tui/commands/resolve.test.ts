@@ -17,6 +17,7 @@ function resolve(
     pluginCommandMap: new Map<string, string>(),
     isStreaming: false,
     isCompacting: false,
+    engineV2: true,
     ...overrides,
   });
 }
@@ -252,6 +253,15 @@ describe('resolveSlashCommandInput', () => {
       kind: 'builtin',
       name: 'dynamic_workflow',
       args: 'Ship feature X',
+    });
+  });
+
+  it('does not resolve /tower on the legacy engine', () => {
+    setExperimentalFeatures([{ id: 'tower', enabled: true }]);
+
+    expect(resolve('/tower', { engineV2: false })).toEqual({
+      kind: 'message',
+      input: '/tower',
     });
   });
 

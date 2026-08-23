@@ -78,4 +78,107 @@ describe('transcriptSnapshotToTurns', () => {
       output: ['Read complete'],
     });
   });
+
+  it('restores a mid-turn task notification from a task-linked user frame', () => {
+    const turns = transcriptSnapshotToTurns(
+      {
+        items: [
+          {
+            kind: 'turn',
+            turnId: 'turn_2',
+            ordinal: 2,
+            state: 'done',
+            origin: { kind: 'user' },
+            steps: [
+              {
+                kind: 'step',
+                stepId: 'step_2',
+                turnId: 'turn_2',
+                ordinal: 1,
+                state: 'done',
+                frames: [
+                  {
+                    kind: 'text',
+                    frameId: 'notification_1',
+                    role: 'user',
+                    text: [
+                      '<notification id="notification_1" category="task" type="task.completed" source_kind="background_task" source_id="task_1">',
+                      'Title: Background process completed',
+                      'Severity: info',
+                      '42 passed',
+                      '<output-file path="/tmp/task-1.log" bytes="128">',
+                      'Read the output file to retrieve the result: /tmp/task-1.log',
+                      '</output-file>',
+                      '</notification>',
+                      '<notification id="notification_2" category="task" type="task.failed" source_kind="subagent" source_id="task_2" agent_id="agent_2">',
+                      'Title: Review failed',
+                      'Severity: error',
+                      'The review agent stopped.',
+                      '</notification>',
+                    ].join('\n'),
+                    taskId: 'task_1',
+                  },
+                  {
+                    kind: 'text',
+                    frameId: 'answer_1',
+                    role: 'assistant',
+                    text: 'All checks passed.',
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+        tasks: [
+          {
+            taskId: 'task_1',
+            kind: 'process',
+            state: 'completed',
+            detached: true,
+            description: 'pnpm test',
+            outputTail: '42 passed',
+          },
+        ],
+        interactions: [],
+        attachments: [],
+        todos: [],
+        prompts: [],
+        meta: { activity: 'idle' },
+        hasMoreOlder: false,
+      },
+      { agentId: 'main', type: 'main', label: 'Pythinker' },
+      { sessionId: 'session_1', getFileUrl: (fileId) => `/files/${fileId}` },
+    );
+
+    expect(turns).toHaveLength(1);
+    expect(turns[0]?.blocks?.map((block) => block.kind)).toEqual([
+      'notification',
+      'notification',
+      'text',
+    ]);
+    expect(turns[0]?.blocks?.[0]).toMatchObject({
+      kind: 'notification',
+      notification: {
+        id: 'notification_1',
+        type: 'task.completed',
+        sourceKind: 'background_task',
+        sourceId: 'task_1',
+        title: 'Background process completed',
+        body: '42 passed',
+        outputFile: { path: '/tmp/task-1.log', bytes: 128 },
+      },
+    });
+    expect(turns[0]?.blocks?.[1]).toMatchObject({
+      kind: 'notification',
+      notification: {
+        id: 'notification_2',
+        type: 'task.failed',
+        sourceKind: 'subagent',
+        sourceId: 'task_2',
+        agentId: 'agent_2',
+        title: 'Review failed',
+        body: 'The review agent stopped.',
+      },
+    });
+  });
 });

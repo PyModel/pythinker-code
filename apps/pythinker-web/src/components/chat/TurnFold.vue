@@ -17,6 +17,7 @@ import Markdown from './Markdown.vue';
 import ThinkingBlock from './ThinkingBlock.vue';
 import ToolCall from './ToolCall.vue';
 import ActivityRun from './ActivityRun.vue';
+import NotificationCard from './NotificationCard.vue';
 
 const props = withDefaults(
   defineProps<{
@@ -243,6 +244,10 @@ function runStreaming(block: Extract<AssistantRenderBlock, { kind: 'activity-run
             @open-file="emit('openFile', $event)"
             @open-tool-diff="emit('openToolDiff', $event)"
             @open-agent="emit('openAgent', $event)"
+          />
+          <NotificationCard
+            v-else-if="block.kind === 'notification'"
+            :items="block.items"
           />
         </template>
       </div>
