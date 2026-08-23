@@ -277,6 +277,9 @@ const showFirstRun = computed(() => client.appState.value === 'first-run');
 const showRecovery = computed(
   () => client.appState.value === 'recovery' && !recoveryDismissed.value,
 );
+const showOfflineStrip = computed(
+  () => client.appState.value === 'recovery' && recoveryDismissed.value,
+);
 watch(
   () => client.appState.value,
   (state) => {
@@ -962,8 +965,16 @@ function openPr(url: string): void {
       @open-providers="() => { recoveryDismissed = true; openProviders(); }"
       @dismiss="recoveryDismissed = true"
     />
+    <!-- Dismissing recovery reaches the app read-only. Without this strip the
+         composer looks fully usable and only fails at send time. -->
+    <div v-if="showOfflineStrip" class="offline-strip" role="status">
+      <span>{{ t('recovery.offlineNotice') }}</span>
+      <button type="button" data-testid="offline-strip-reconnect" @click="recoveryDismissed = false">
+        {{ t('recovery.addProvider') }}
+      </button>
+    </div>
     <div
-      v-else
+      v-if="!showRecovery"
       class="app"
       :class="{
         mobile: isMobile,
@@ -1505,6 +1516,23 @@ function openPr(url: string): void {
   flex-direction: column;
   overflow: hidden;
   box-sizing: border-box;
+}
+.offline-strip {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  flex: none;
+  padding: 7px 16px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+  color: var(--dim);
+  font-size: var(--ui-font-size-sm);
+}
+.offline-strip button {
+  color: var(--blue);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
 }
 .app {
   --preview-w: 460px;

@@ -32,10 +32,13 @@ export function resolveAppState({
 /**
  * Whether setup counts as finished.
  *
- * A daemon that is already ready proves setup happened at some point, which
- * covers a cleared browser profile, a restored machine, or a fresh client
- * pointed at an established daemon — none of those people are new users.
+ * `authReadyAtBoot` is deliberately the value from the first load and never the
+ * live one. A daemon that was already ready when the window opened proves setup
+ * happened before — that covers cleared browser storage, a restored machine, or
+ * a fresh client against an established daemon, none of whom are new users.
+ * Reading it live instead would tear the wizard down the instant its own
+ * connect step succeeded, skipping the steps after it.
  */
-export function isOnboardingCompleted(storedFlag: boolean, authReady: boolean): boolean {
-  return storedFlag || authReady;
+export function isOnboardingCompleted(storedFlag: boolean, authReadyAtBoot: boolean): boolean {
+  return storedFlag || authReadyAtBoot;
 }

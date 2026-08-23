@@ -22,7 +22,7 @@ export default {
     title: 'Choose your default model',
     subtitle:
       'New conversations start with this model. Any session can switch to another one at any time.',
-    connected: '{provider} connected — {count} models available.',
+    connected: '{provider} connected — {count} model available. | {provider} connected — {count} models available.',
     recommended: 'Recommended',
     showAll: 'Show all {count} models',
     showFewer: 'Show fewer',

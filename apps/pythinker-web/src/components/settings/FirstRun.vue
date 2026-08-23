@@ -223,7 +223,7 @@ async function onProviderAdded(): Promise<void> {
       <section v-else-if="step === 'model'" class="first-run__body">
         <h1>{{ t('firstRun.model.title') }}</h1>
         <p class="first-run__sub">
-          {{ t('firstRun.model.connected', { provider: connectedProvider, count: usableModels.length }) }}
+          {{ t('firstRun.model.connected', { provider: connectedProvider, count: usableModels.length }, usableModels.length) }}
           {{ t('firstRun.model.subtitle') }}
         </p>
 

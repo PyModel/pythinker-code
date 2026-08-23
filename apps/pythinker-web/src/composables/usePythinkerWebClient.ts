@@ -2493,8 +2493,23 @@ const sessionCost = computed<number>(() => {
 
 const authReady = computed<boolean>(() => rawState.authReady);
 
+/** Readiness as it stood on the first load, latched once and never updated.
+ *
+ *  Only the boot value can stand in for "setup happened before". Tracking it
+ *  live would make the first-run wizard unmount the moment its own connect step
+ *  made the daemon ready, dropping the user into the app without ever choosing
+ *  a model. */
+const authReadyAtBoot = ref<boolean | null>(null);
+watch(
+  initialized,
+  (ready) => {
+    if (ready && authReadyAtBoot.value === null) authReadyAtBoot.value = authReady.value;
+  },
+  { immediate: true },
+);
+
 const onboardingCompleted = computed<boolean>(() =>
-  isOnboardingCompleted(onboarded.value, authReady.value),
+  isOnboardingCompleted(onboarded.value, authReadyAtBoot.value ?? false),
 );
 
 const appState = computed<AppState>(() =>

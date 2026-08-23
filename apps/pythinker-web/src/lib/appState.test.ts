@@ -29,11 +29,25 @@ describe('app state', () => {
     ).toBe('app');
   });
 
-  it('treats a ready daemon as proof that setup already happened', () => {
+  it('treats a daemon that was ready at boot as proof that setup already happened', () => {
     // Cleared browser storage, a restored machine, or a fresh client against an
     // established daemon — none of them are new users.
     expect(isOnboardingCompleted(false, true)).toBe(true);
     expect(isOnboardingCompleted(true, false)).toBe(true);
     expect(isOnboardingCompleted(false, false)).toBe(false);
+  });
+
+  it('keeps first run open while its own connect step makes the daemon ready', () => {
+    // Boot readiness is false for a fresh install and stays false for the rest
+    // of the session. Reading readiness live here would end the wizard the
+    // instant a provider connected, skipping the model and appearance steps.
+    const bootReady = false;
+    expect(
+      resolveAppState({
+        initialized: true,
+        onboardingCompleted: isOnboardingCompleted(false, bootReady),
+        authReady: true,
+      }),
+    ).toBe('first-run');
   });
 });
