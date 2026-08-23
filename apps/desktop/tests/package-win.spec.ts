@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { windowsPackageInvocation, windowsSigningArgs } from '../scripts/package-win'
+import {
+  requireWindowsReleaseSigning,
+  windowsPackageInvocation,
+  windowsSigningArgs,
+} from '../scripts/package-win'
 
 const signingEnvironment: NodeJS.ProcessEnv = {
   AZURE_TENANT_ID: 'tenant-id',
@@ -22,6 +26,7 @@ describe('Windows Azure signing configuration', () => {
       '--config.win.azureSignOptions.codeSigningAccountName', 'signing-account',
       '--config.win.azureSignOptions.certificateProfileName', 'certificate-profile',
       '--config.win.azureSignOptions.publisherName', 'CN=Example Publisher, O=Example Publisher, L=Redmond, S=WA, C=US',
+      '--config.win.publisherName', 'CN=Example Publisher, O=Example Publisher, L=Redmond, S=WA, C=US',
     ])
   })
 
@@ -51,6 +56,39 @@ describe('Windows Azure signing configuration', () => {
   })
 })
 
+describe('Windows tagged-release signing', () => {
+  it('rejects an unsigned tagged release', () => {
+    expect(() => requireWindowsReleaseSigning({})).toThrow('Windows release signing is not configured')
+  })
+
+  it('accepts a complete certificate configuration and sets the updater publisher', () => {
+    const environment = {
+      WIN_CSC_LINK: 'certificate.p12',
+      WIN_CSC_KEY_PASSWORD: 'password',
+      WINDOWS_SIGNING_PUBLISHER_NAME: 'CN=Example Publisher, O=Example Publisher',
+    }
+
+    expect(requireWindowsReleaseSigning(environment)).toBe('CN=Example Publisher, O=Example Publisher')
+    expect(windowsSigningArgs(environment)).toEqual([
+      '--config.win.publisherName', 'CN=Example Publisher, O=Example Publisher',
+    ])
+  })
+
+  it('rejects a partial certificate configuration', () => {
+    expect(() => requireWindowsReleaseSigning({ WIN_CSC_LINK: 'certificate.p12' }))
+      .toThrow('WIN_CSC_KEY_PASSWORD, WINDOWS_SIGNING_PUBLISHER_NAME')
+  })
+
+  it('rejects simultaneous certificate and Azure signing', () => {
+    expect(() => requireWindowsReleaseSigning({
+      ...signingEnvironment,
+      WIN_CSC_LINK: 'certificate.p12',
+      WIN_CSC_KEY_PASSWORD: 'password',
+      WINDOWS_SIGNING_PUBLISHER_NAME: 'CN=Other Publisher',
+    })).toThrow('Choose one Windows signing method')
+  })
+})
+
 describe('Windows package invocation', () => {
   it('quotes the publisher name on Windows', () => {
     const invocation = windowsPackageInvocation('win32', signingEnvironment, 'never')
@@ -73,6 +111,7 @@ describe('Windows package invocation', () => {
       '--config.win.azureSignOptions.codeSigningAccountName', 'signing-account',
       '--config.win.azureSignOptions.certificateProfileName', 'certificate-profile',
       '--config.win.azureSignOptions.publisherName', 'CN=Example Publisher, O=Example Publisher, L=Redmond, S=WA, C=US',
+      '--config.win.publisherName', 'CN=Example Publisher, O=Example Publisher, L=Redmond, S=WA, C=US',
     ])
   })
 

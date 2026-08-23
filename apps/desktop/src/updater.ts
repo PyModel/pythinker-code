@@ -1,24 +1,51 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { app, type BrowserWindow } from 'electron'
-import electronUpdater from 'electron-updater'
+import electronUpdater, { type ProgressInfo, type UpdateInfo } from 'electron-updater'
+import { gt, valid } from 'semver'
 
 const { autoUpdater } = electronUpdater
 const UPDATE_SETTINGS_FILE = 'update-settings.json'
 const UPDATES_UNAVAILABLE_MESSAGE = 'Updates are not available for this build'
 const INITIAL_CHECK_DELAY_MS = 10_000
 const CHECK_INTERVAL_MS = 4 * 60 * 60 * 1_000
+const RELEASE_REPOSITORY_PATH = '/PyModel/pythinker-desktop-releases/releases/tag/'
 
 export interface UpdateSettings {
   readonly autoUpdate: boolean
+  readonly notifiedVersion?: string
+  readonly skippedVersion?: string
+  readonly pendingInstallVersion?: string
+  readonly completedVersion?: string
+  readonly lastRunVersion?: string
 }
 
+export type UpdateStatus =
+  | 'disabled'
+  | 'idle'
+  | 'checking'
+  | 'available'
+  | 'downloading'
+  | 'downloaded'
+  | 'skipped'
+  | 'error'
+
 export type UpdateState = {
-  status: 'disabled' | 'idle' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'error'
-  version?: string
+  status: UpdateStatus
+  installedVersion: string
+  availableVersion?: string
+  releaseDate?: string
+  releaseNotes?: string
+  lastCheckedAt?: string
   percent?: number
+  transferred?: number
+  total?: number
+  bytesPerSecond?: number
   message?: string
   autoUpdate: boolean
+  notifiedVersion?: string
+  skippedVersion?: string
+  completedVersion?: string
 }
 
 export type UpdateTelemetryTrack = (
@@ -28,12 +55,25 @@ export type UpdateTelemetryTrack = (
 
 const DEFAULT_SETTINGS: UpdateSettings = { autoUpdate: true }
 
+function optionalString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.length > 0 ? value : undefined
+}
+
 export function readUpdateSettings(dir: string): UpdateSettings {
   try {
     const parsed: unknown = JSON.parse(readFileSync(join(dir, UPDATE_SETTINGS_FILE), 'utf8'))
     if (typeof parsed === 'object' && parsed !== null) {
-      const autoUpdate = (parsed as { autoUpdate?: unknown }).autoUpdate
-      if (typeof autoUpdate === 'boolean') return { autoUpdate }
+      const source = parsed as Readonly<Record<string, unknown>>
+      if (typeof source['autoUpdate'] === 'boolean') {
+        return {
+          autoUpdate: source['autoUpdate'],
+          notifiedVersion: optionalString(source['notifiedVersion']),
+          skippedVersion: optionalString(source['skippedVersion']),
+          pendingInstallVersion: optionalString(source['pendingInstallVersion']),
+          completedVersion: optionalString(source['completedVersion']),
+          lastRunVersion: optionalString(source['lastRunVersion']),
+        }
+      }
     }
   } catch {
     // Missing and corrupt settings use the default.
@@ -41,21 +81,57 @@ export function readUpdateSettings(dir: string): UpdateSettings {
   return DEFAULT_SETTINGS
 }
 
-export function writeUpdateSettings(dir: string, settings: UpdateSettings): void {
-  writeFileSync(join(dir, UPDATE_SETTINGS_FILE), `${JSON.stringify(settings, null, 2)}\n`, 'utf8')
+export function writeUpdateSettings(dir: string, value: UpdateSettings): void {
+  writeFileSync(join(dir, UPDATE_SETTINGS_FILE), `${JSON.stringify(value, null, 2)}\n`, 'utf8')
+}
+
+function releaseNotesText(value: UpdateInfo['releaseNotes']): string | undefined {
+  if (typeof value === 'string') return value
+  if (!Array.isArray(value)) return undefined
+  const notes = value.flatMap(item => typeof item.note === 'string' ? [item.note] : [])
+  return notes.length > 0 ? notes.join('\n\n') : undefined
+}
+
+export function updateReleaseNotesUrl(version: string): string | undefined {
+  const normalized = valid(version)
+  if (normalized === null || normalized !== version) return undefined
+  const url = new URL(`${RELEASE_REPOSITORY_PATH}v${normalized}`, 'https://github.com')
+  if (url.protocol !== 'https:' || url.hostname !== 'github.com') return undefined
+  if (!url.pathname.startsWith(RELEASE_REPOSITORY_PATH)) return undefined
+  return url.toString()
+}
+
+function isVerifiedUpgrade(currentVersion: string, previousVersion: string | undefined): boolean {
+  return valid(currentVersion) !== null && previousVersion !== undefined && valid(previousVersion) !== null
+    && gt(currentVersion, previousVersion)
+}
+
+function reconcileStartupReceipt(value: UpdateSettings, currentVersion: string): UpdateSettings {
+  let completedVersion = value.completedVersion === currentVersion ? value.completedVersion : undefined
+  if (value.pendingInstallVersion === currentVersion) {
+    if (isVerifiedUpgrade(currentVersion, value.lastRunVersion)) completedVersion = currentVersion
+  }
+  return {
+    ...value,
+    pendingInstallVersion: undefined,
+    completedVersion,
+    lastRunVersion: currentVersion,
+  }
 }
 
 let settings = DEFAULT_SETTINGS
 let state: UpdateState = {
   status: app.isPackaged ? 'idle' : 'disabled',
+  installedVersion: app.getVersion(),
   autoUpdate: settings.autoUpdate,
 }
 let getWindow: (() => BrowserWindow | undefined) | undefined
 let initialCheckTimer: ReturnType<typeof setTimeout> | undefined
 let checkInterval: ReturnType<typeof setInterval> | undefined
+let checkPromise: Promise<UpdateState> | undefined
+let installRequestedVersion: string | undefined
 let listenersWired = false
 let initialized = false
-let installWhenDownloaded = false
 let updateTelemetryTrack: UpdateTelemetryTrack = () => {}
 
 export function trackUpdateTransition(
@@ -69,10 +145,16 @@ export function trackUpdateTransition(
       track('desktop_update_check')
       break
     case 'available':
-      track('desktop_update_available', next.version === undefined ? {} : { version: next.version })
+      track(
+        'desktop_update_available',
+        next.availableVersion === undefined ? {} : { version: next.availableVersion },
+      )
       break
     case 'downloaded':
-      track('desktop_update_downloaded', next.version === undefined ? {} : { version: next.version })
+      track(
+        'desktop_update_downloaded',
+        next.availableVersion === undefined ? {} : { version: next.availableVersion },
+      )
       break
     case 'error':
       track('desktop_update_error', {
@@ -92,17 +174,16 @@ function emitUpdateTelemetry(previous: UpdateState, next: UpdateState): void {
   }
 }
 
-function stateError(error: unknown): void {
-  installWhenDownloaded = false
-  updateState({
-    status: 'error',
-    message: error instanceof Error ? error.message : String(error),
-  })
-}
-
 function updateState(next: Partial<UpdateState>): void {
   const previous = state
-  state = { ...state, ...next, autoUpdate: settings.autoUpdate }
+  state = {
+    ...state,
+    ...next,
+    autoUpdate: settings.autoUpdate,
+    notifiedVersion: settings.notifiedVersion,
+    skippedVersion: settings.skippedVersion,
+    completedVersion: settings.completedVersion,
+  }
   emitUpdateTelemetry(previous, state)
   const window = getWindow?.()
   if (window === undefined || window.isDestroyed() || window.webContents.isDestroyed()) return
@@ -111,6 +192,19 @@ function updateState(next: Partial<UpdateState>): void {
   } catch {
     // The renderer can disappear between the destroyed check and send.
   }
+}
+
+function persistSettings(next: UpdateSettings): void {
+  writeUpdateSettings(app.getPath('userData'), next)
+  settings = next
+  updateState({})
+}
+
+function stateError(error: unknown): void {
+  updateState({
+    status: 'error',
+    message: error instanceof Error ? error.message : String(error),
+  })
 }
 
 function clearTimers(): void {
@@ -124,12 +218,22 @@ function hasUpdateConfig(): boolean {
   return existsSync(join(process.resourcesPath, 'app-update.yml'))
 }
 
+function configureExplicitConsent(): void {
+  autoUpdater.autoDownload = false
+  autoUpdater.autoInstallOnAppQuit = false
+}
+
 function disableUpdates(): UpdateState {
   updateState({
     status: 'disabled',
     message: UPDATES_UNAVAILABLE_MESSAGE,
-    version: undefined,
+    availableVersion: undefined,
+    releaseDate: undefined,
+    releaseNotes: undefined,
     percent: undefined,
+    transferred: undefined,
+    total: undefined,
+    bytesPerSecond: undefined,
   })
   return state
 }
@@ -137,18 +241,41 @@ function disableUpdates(): UpdateState {
 function scheduleChecks(): void {
   if (checkInterval !== undefined) return
   checkInterval = setInterval(() => {
-    if (settings.autoUpdate) void runCheck()
+    if (settings.autoUpdate) void checkForUpdatesNow()
   }, CHECK_INTERVAL_MS)
 }
 
 async function runCheck(): Promise<UpdateState> {
-  updateState({ status: 'checking', message: undefined, version: undefined, percent: undefined })
-  try {
-    await autoUpdater.checkForUpdates()
-  } catch (error) {
-    stateError(error)
-  }
-  return state
+  if (checkPromise !== undefined) return checkPromise
+  checkPromise = (async () => {
+    updateState({ status: 'checking', message: undefined })
+    try {
+      configureExplicitConsent()
+      await autoUpdater.checkForUpdates()
+    } catch (error) {
+      stateError(error)
+    }
+    return state
+  })().finally(() => {
+    checkPromise = undefined
+  })
+  return checkPromise
+}
+
+function applyAvailableUpdate(info: UpdateInfo): void {
+  const skipped = settings.skippedVersion === info.version
+  updateState({
+    status: skipped ? 'skipped' : 'available',
+    availableVersion: info.version,
+    releaseDate: info.releaseDate,
+    releaseNotes: releaseNotesText(info.releaseNotes),
+    lastCheckedAt: new Date().toISOString(),
+    percent: undefined,
+    transferred: undefined,
+    total: undefined,
+    bytesPerSecond: undefined,
+    message: undefined,
+  })
 }
 
 function wireUpdaterEvents(): void {
@@ -157,18 +284,40 @@ function wireUpdaterEvents(): void {
     autoUpdater.on('checking-for-update', () => {
       updateState({ status: 'checking', message: undefined })
     })
-    autoUpdater.on('update-available', (info) => {
-      updateState({ status: 'available', version: info.version, message: undefined, percent: undefined })
-    })
+    autoUpdater.on('update-available', applyAvailableUpdate)
     autoUpdater.on('update-not-available', () => {
-      updateState({ status: 'idle', message: 'No updates available', version: undefined, percent: undefined })
+      updateState({
+        status: 'idle',
+        lastCheckedAt: new Date().toISOString(),
+        availableVersion: undefined,
+        releaseDate: undefined,
+        releaseNotes: undefined,
+        percent: undefined,
+        transferred: undefined,
+        total: undefined,
+        bytesPerSecond: undefined,
+        message: undefined,
+      })
     })
-    autoUpdater.on('download-progress', (progress) => {
-      updateState({ status: 'downloading', percent: progress.percent })
+    autoUpdater.on('download-progress', (progress: ProgressInfo) => {
+      updateState({
+        status: 'downloading',
+        percent: progress.percent,
+        transferred: progress.transferred,
+        total: progress.total,
+        bytesPerSecond: progress.bytesPerSecond,
+      })
     })
-    autoUpdater.on('update-downloaded', (info) => {
-      updateState({ status: 'downloaded', version: info.version, percent: 100, message: undefined })
-      if (installWhenDownloaded) installDownloadedUpdate()
+    autoUpdater.on('update-downloaded', (info: UpdateInfo) => {
+      updateState({
+        status: 'downloaded',
+        availableVersion: info.version,
+        releaseDate: info.releaseDate ?? state.releaseDate,
+        releaseNotes: releaseNotesText(info.releaseNotes) ?? state.releaseNotes,
+        percent: 100,
+        transferred: state.total,
+        message: undefined,
+      })
     })
     autoUpdater.on('error', stateError)
     listenersWired = true
@@ -190,11 +339,21 @@ export function initUpdater(
   initialized = true
   getWindow = windowGetter
   updateTelemetryTrack = track
-  settings = readUpdateSettings(app.getPath('userData'))
+  const userData = app.getPath('userData')
+  settings = readUpdateSettings(userData)
+  if (app.isPackaged) {
+    settings = reconcileStartupReceipt(settings, app.getVersion())
+    writeUpdateSettings(userData, settings)
+  }
   state = {
     status: app.isPackaged ? 'idle' : 'disabled',
+    installedVersion: app.getVersion(),
     autoUpdate: settings.autoUpdate,
+    notifiedVersion: settings.notifiedVersion,
+    skippedVersion: settings.skippedVersion,
+    completedVersion: settings.completedVersion,
   }
+  installRequestedVersion = undefined
   updateState({})
   clearTimers()
 
@@ -205,8 +364,7 @@ export function initUpdater(
   }
 
   try {
-    autoUpdater.autoDownload = settings.autoUpdate
-    autoUpdater.autoInstallOnAppQuit = settings.autoUpdate
+    configureExplicitConsent()
   } catch (error) {
     stateError(error)
     return
@@ -215,7 +373,7 @@ export function initUpdater(
   app.once('will-quit', clearTimers)
 
   if (settings.autoUpdate) {
-    initialCheckTimer = setTimeout(() => { void runCheck() }, INITIAL_CHECK_DELAY_MS)
+    initialCheckTimer = setTimeout(() => { void checkForUpdatesNow() }, INITIAL_CHECK_DELAY_MS)
     scheduleChecks()
   }
 }
@@ -226,16 +384,12 @@ export function getUpdateState(): UpdateState {
 
 export function setAutoUpdate(enabled: boolean): UpdateState {
   const wasEnabled = settings.autoUpdate
-  const nextSettings = { autoUpdate: enabled }
-  writeUpdateSettings(app.getPath('userData'), nextSettings)
-  settings = nextSettings
-  updateState({})
+  persistSettings({ ...settings, autoUpdate: enabled })
 
   if (!app.isPackaged) return state
 
   try {
-    autoUpdater.autoDownload = enabled
-    autoUpdater.autoInstallOnAppQuit = enabled
+    configureExplicitConsent()
   } catch (error) {
     stateError(error)
     return state
@@ -255,52 +409,89 @@ export async function checkForUpdatesNow(): Promise<UpdateState> {
     return state
   }
   if (!hasUpdateConfig()) return disableUpdates()
+  if (state.status === 'downloading' || state.status === 'downloaded') return state
 
   try {
-    autoUpdater.autoDownload = true
+    configureExplicitConsent()
   } catch (error) {
     stateError(error)
     return state
   }
-  try {
-    return await runCheck()
-  } finally {
-    autoUpdater.autoDownload = settings.autoUpdate
-  }
+  return runCheck()
 }
 
-export function quitAndInstallNow(): UpdateState {
-  if (!app.isPackaged) {
-    updateState({ status: 'disabled' })
-    return state
-  }
-  if (!hasUpdateConfig()) return disableUpdates()
-
-  try {
-    updateTelemetryTrack('desktop_update_install')
-  } catch {
-    // Telemetry must never delay update installation.
-  }
-  if (state.status === 'available') {
-    installWhenDownloaded = true
-    updateState({ status: 'downloading', percent: 0, message: undefined })
-    try {
-      void autoUpdater.downloadUpdate().catch(stateError)
-    } catch (error) {
-      stateError(error)
-    }
-    return state
-  }
-  if (state.status !== 'downloaded') return state
-  installDownloadedUpdate()
+export function markUpdateNotified(version: string): UpdateState {
+  if (state.availableVersion !== version) return state
+  persistSettings({ ...settings, notifiedVersion: version })
   return state
 }
 
-function installDownloadedUpdate(): void {
-  installWhenDownloaded = false
+export function skipUpdate(version: string): UpdateState {
+  if (state.status !== 'available' || state.availableVersion !== version) return state
+  persistSettings({ ...settings, notifiedVersion: version, skippedVersion: version })
+  updateState({ status: 'skipped' })
+  return state
+}
+
+export function undoSkippedUpdate(): UpdateState {
+  const skippedVersion = settings.skippedVersion
+  if (skippedVersion === undefined) return state
+  persistSettings({ ...settings, skippedVersion: undefined })
+  if (state.status === 'skipped' && state.availableVersion === skippedVersion) {
+    updateState({ status: 'available' })
+  }
+  return state
+}
+
+export function startUpdateDownload(): UpdateState {
+  const canDownload = state.status === 'available'
+    || (state.status === 'error' && state.availableVersion !== undefined)
+  if (!app.isPackaged || !hasUpdateConfig() || !canDownload) return state
   try {
-    autoUpdater.quitAndInstall()
+    configureExplicitConsent()
+    updateState({
+      status: 'downloading',
+      percent: undefined,
+      transferred: undefined,
+      total: undefined,
+      bytesPerSecond: undefined,
+      message: undefined,
+    })
+    void autoUpdater.downloadUpdate().catch(stateError)
   } catch (error) {
     stateError(error)
   }
+  return state
+}
+
+export function installDownloadedUpdateNow(): UpdateState {
+  const version = state.availableVersion
+  if (!app.isPackaged || !hasUpdateConfig() || state.status !== 'downloaded' || version === undefined) {
+    return state
+  }
+  if (installRequestedVersion === version) return state
+  installRequestedVersion = version
+  try {
+    persistSettings({ ...settings, pendingInstallVersion: version })
+    try {
+      updateTelemetryTrack('desktop_update_install', { version })
+    } catch {
+      // Telemetry must never delay an explicit installation.
+    }
+    autoUpdater.quitAndInstall()
+  } catch (error) {
+    installRequestedVersion = undefined
+    if (settings.pendingInstallVersion === version) {
+      persistSettings({ ...settings, pendingInstallVersion: undefined })
+    }
+    stateError(error)
+    throw error
+  }
+  return state
+}
+
+export function acknowledgeCompletedUpdate(version: string): UpdateState {
+  if (settings.completedVersion !== version) return state
+  persistSettings({ ...settings, completedVersion: undefined })
+  return state
 }

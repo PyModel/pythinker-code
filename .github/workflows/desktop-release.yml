@@ -6,22 +6,15 @@ on:
   workflow_dispatch: {}
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: desktop-release-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  # electron-builder's `getOrCreateRelease` lists the releases, and creates one
-  # when no tag matches. That is a check-then-act with no lock, so two platform
-  # jobs racing it both decide to create: one wins and the other gets
-  # `422 Published releases must have a valid tag`. Creating the release here,
-  # once, removes the race — every platform job then finds it and reuses it.
-  #
-  # It is created as a draft on purpose. A draft needs no valid git tag, so this
-  # step cannot hit the same 422, and `getOrCreateRelease` returns an existing
-  # draft before it consults either the release type or the two-hour rule.
+  # Create one draft before either platform uploads. It stays private until both
+  # jobs and the final downloaded-asset validation succeed.
   prepare:
     runs-on: ubuntu-latest
     outputs:
@@ -84,6 +77,7 @@ jobs:
           esac
 
       - name: Mint releases-repo token
+        if: startsWith(github.ref, 'refs/tags/desktop-v')
         id: releases_token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # pinned from v3.2.0
         with:
@@ -91,8 +85,10 @@ jobs:
           private-key: ${{ secrets.DESKTOP_RELEASES_APP_PRIVATE_KEY }}
           owner: PyModel
           repositories: pythinker-desktop-releases
+          permission-contents: write
 
       - name: Create the draft release unless it already exists
+        if: startsWith(github.ref, 'refs/tags/desktop-v')
         shell: bash
         env:
           GH_TOKEN: ${{ steps.releases_token.outputs.token }}
@@ -100,10 +96,14 @@ jobs:
           RELEASE_REPO: PyModel/pythinker-desktop-releases
         run: |
           set -euo pipefail
-          # Re-runs and re-tags must not disturb a release that already exists,
-          # published or not — this only ever adds a missing draft.
-          if gh release view "$RELEASE_TAG" --repo "$RELEASE_REPO" >/dev/null 2>&1; then
-            echo "Release ${RELEASE_TAG} already exists; leaving it as it is."
+          # Drafts are safe to resume. A published release is immutable here:
+          # platform uploads use --clobber and must never replace live assets.
+          if is_draft="$(gh release view "$RELEASE_TAG" --repo "$RELEASE_REPO" --json isDraft --jq '.isDraft' 2>/dev/null)"; then
+            if [ "$is_draft" != 'true' ]; then
+              echo "::error::Release ${RELEASE_TAG} already exists and is published; refusing to replace live assets." >&2
+              exit 1
+            fi
+            echo "Draft release ${RELEASE_TAG} already exists; resuming it."
             exit 0
           fi
           gh release create "$RELEASE_TAG" \
@@ -121,7 +121,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # pinned from v4
         with:
           fetch-depth: 0
-          persist-credentials: true
+          persist-credentials: false
 
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # pinned from v6
 
@@ -139,11 +139,6 @@ jobs:
         working-directory: apps/desktop
         run: node --import tsx scripts/stage-runtime.ts
 
-      # On a desktop-v* tag, --publish always creates or updates the release
-      # in pythinker-desktop-releases with the GitHub App token below.
-      # Without Developer ID signing secrets, electron-builder publishes an
-      # ad-hoc/self-signed app. macOS auto-update will not accept unsigned updates,
-      # but this still proves packaging and the feed shape.
       # An unset GitHub secret interpolates to an empty string, and
       # electron-builder resolves an empty CSC_LINK as a certificate path
       # (path.resolve(appDir, '') === appDir), failing with "not a file".
@@ -191,7 +186,72 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/desktop-v')
         working-directory: apps/desktop
         run: node --import tsx scripts/assert-release-signing.ts
+
+      - name: Package desktop release
+        working-directory: apps/desktop
+        run: pnpm exec electron-builder --mac dmg zip --publish never
+
+      - name: Verify macOS update artifacts
+        shell: bash
+        env:
+          DESKTOP_VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          app_bundle="$(find apps/desktop/dist -maxdepth 2 -type d -name '*.app' -print -quit)"
+          if [ -z "$app_bundle" ]; then
+            echo 'macOS application bundle not found' >&2
+            exit 1
+          fi
+          test -f "$app_bundle/Contents/Resources/app-update.yml"
+          node --import tsx apps/desktop/scripts/verify-update-manifest.ts mac apps/desktop/dist "$DESKTOP_VERSION"
+
+      - name: Verify macOS signatures and notarization
+        if: startsWith(github.ref, 'refs/tags/desktop-v')
+        shell: bash
+        run: |
+          set -euo pipefail
+          verify_app() {
+            codesign --verify --deep --strict --verbose=2 "$1"
+            spctl --assess --type execute --verbose=2 "$1"
+          }
+          app_bundle="$(find apps/desktop/dist -maxdepth 2 -type d -name '*.app' -print -quit)"
+          zip_path="$(find apps/desktop/dist -maxdepth 1 -type f -name '*-mac.zip' -print -quit)"
+          dmg_path="$(find apps/desktop/dist -maxdepth 1 -type f -name '*.dmg' -print -quit)"
+          if [ -z "$app_bundle" ] || [ -z "$zip_path" ] || [ -z "$dmg_path" ]; then
+            echo 'Complete macOS release artifacts were not found' >&2
+            exit 1
+          fi
+
+          verify_app "$app_bundle"
+
+          zip_dir="${RUNNER_TEMP}/macos-zip"
+          mkdir "$zip_dir"
+          ditto -x -k "$zip_path" "$zip_dir"
+          zip_app="$(find "$zip_dir" -maxdepth 2 -type d -name '*.app' -print -quit)"
+          if [ -z "$zip_app" ]; then
+            echo 'macOS ZIP does not contain an application bundle' >&2
+            exit 1
+          fi
+          verify_app "$zip_app"
+
+          hdiutil verify "$dmg_path"
+          mount_point="${RUNNER_TEMP}/macos-dmg"
+          mkdir "$mount_point"
+          hdiutil attach "$dmg_path" -readonly -nobrowse -mountpoint "$mount_point"
+          cleanup_mount() { hdiutil detach "$mount_point" || true; }
+          trap cleanup_mount EXIT
+          dmg_app="$(find "$mount_point" -maxdepth 2 -type d -name '*.app' -print -quit)"
+          if [ -z "$dmg_app" ]; then
+            echo 'macOS DMG does not contain an application bundle' >&2
+            exit 1
+          fi
+          verify_app "$dmg_app"
+          xcrun stapler validate "$dmg_path"
+          cleanup_mount
+          trap - EXIT
+
       - name: Mint releases-repo token
+        if: startsWith(github.ref, 'refs/tags/desktop-v')
         id: releases_token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # pinned from v3.2.0
         with:
@@ -199,26 +259,19 @@ jobs:
           private-key: ${{ secrets.DESKTOP_RELEASES_APP_PRIVATE_KEY }}
           owner: PyModel
           repositories: pythinker-desktop-releases
-      - name: Package and publish desktop release
-        working-directory: apps/desktop
-        run: pnpm exec electron-builder --mac dmg zip --publish always
+          permission-contents: write
+      - name: Upload verified macOS release assets
+        if: startsWith(github.ref, 'refs/tags/desktop-v')
+        shell: bash
         env:
           GH_TOKEN: ${{ steps.releases_token.outputs.token }}
-          # Without this, electron-builder refuses to upload to a release that
-          # was published more than two hours ago — and it does so by logging
-          # "skipped publishing" and exiting 0, so a re-run would go green
-          # having shipped nothing.
-          EP_GH_IGNORE_TIME: 'true'
-
-      - name: Verify macOS packaged update configuration
-        shell: bash
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+          RELEASE_REPO: PyModel/pythinker-desktop-releases
         run: |
-          app_bundle="$(find apps/desktop/dist -maxdepth 2 -type d -name '*.app' -print -quit)"
-          if [ -z "$app_bundle" ]; then
-            echo 'macOS application bundle not found' >&2
-            exit 1
-          fi
-          test -f "$app_bundle/Contents/Resources/app-update.yml"
+          set -euo pipefail
+          shopt -s nullglob
+          assets=(apps/desktop/dist/*.dmg apps/desktop/dist/*-mac.zip apps/desktop/dist/*.blockmap apps/desktop/dist/latest-mac.yml)
+          gh release upload "$RELEASE_TAG" "${assets[@]}" --repo "$RELEASE_REPO" --clobber
 
       - name: Upload macOS artifacts for manual runs
         if: github.event_name == 'workflow_dispatch'
@@ -239,7 +292,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # pinned from v4
         with:
           fetch-depth: 0
-          persist-credentials: true
+          persist-credentials: false
 
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # pinned from v6
 
@@ -265,11 +318,13 @@ jobs:
         env:
           IN_WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
           IN_WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+          IN_WINDOWS_SIGNING_PUBLISHER_NAME: ${{ secrets.WINDOWS_SIGNING_PUBLISHER_NAME }}
         run: |
-          for name in WIN_CSC_LINK WIN_CSC_KEY_PASSWORD; do
+          delimiter="EOF_$(openssl rand -hex 16)"
+          for name in WIN_CSC_LINK WIN_CSC_KEY_PASSWORD WINDOWS_SIGNING_PUBLISHER_NAME; do
             input="IN_${name}"
             value="${!input:-}"
-            if [ -n "$value" ]; then printf '%s<<__EOF__\n%s\n__EOF__\n' "$name" "$value" >> "$GITHUB_ENV"; fi
+            if [ -n "$value" ]; then printf '%s<<%s\n%s\n%s\n' "$name" "$delimiter" "$value" "$delimiter" >> "$GITHUB_ENV"; fi
           done
       - name: Resolve Azure signing configuration
         shell: bash
@@ -282,12 +337,38 @@ jobs:
           IN_AZURE_SIGNING_CERT_PROFILE: ${{ secrets.AZURE_SIGNING_CERT_PROFILE }}
           IN_AZURE_SIGNING_PUBLISHER_NAME: ${{ secrets.AZURE_SIGNING_PUBLISHER_NAME }}
         run: |
+          delimiter="EOF_$(openssl rand -hex 16)"
           for name in AZURE_TENANT_ID AZURE_CLIENT_ID AZURE_CLIENT_SECRET AZURE_SIGNING_ENDPOINT AZURE_SIGNING_ACCOUNT AZURE_SIGNING_CERT_PROFILE AZURE_SIGNING_PUBLISHER_NAME; do
             input="IN_${name}"
             value="${!input:-}"
-            if [ -n "$value" ]; then printf '%s<<__EOF__\n%s\n__EOF__\n' "$name" "$value" >> "$GITHUB_ENV"; fi
+            if [ -n "$value" ]; then printf '%s<<%s\n%s\n%s\n' "$name" "$delimiter" "$value" "$delimiter" >> "$GITHUB_ENV"; fi
           done
+
+      - name: Require signing for tagged Windows releases
+        if: startsWith(github.ref, 'refs/tags/desktop-v')
+        working-directory: apps/desktop
+        run: node --import tsx scripts/assert-windows-release-signing.ts
+
+      - name: Package desktop release
+        working-directory: apps/desktop
+        run: node --import tsx scripts/package-win.ts --publish never
+
+      - name: Verify Windows update artifacts
+        shell: bash
+        env:
+          DESKTOP_VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          test -f apps/desktop/dist/win-unpacked/resources/app-update.yml
+          node --import tsx apps/desktop/scripts/verify-update-manifest.ts win apps/desktop/dist "$DESKTOP_VERSION"
+
+      - name: Verify Windows release signatures
+        if: startsWith(github.ref, 'refs/tags/desktop-v')
+        working-directory: apps/desktop
+        run: node --import tsx scripts/verify-windows-signatures.ts
+
       - name: Mint releases-repo token
+        if: startsWith(github.ref, 'refs/tags/desktop-v')
         id: releases_token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # pinned from v3.2.0
         with:
@@ -295,18 +376,19 @@ jobs:
           private-key: ${{ secrets.DESKTOP_RELEASES_APP_PRIVATE_KEY }}
           owner: PyModel
           repositories: pythinker-desktop-releases
-      - name: Package and publish desktop release
-        working-directory: apps/desktop
-        run: node --import tsx scripts/package-win.ts --publish always
+          permission-contents: write
+      - name: Upload verified Windows release assets
+        if: startsWith(github.ref, 'refs/tags/desktop-v')
+        shell: bash
         env:
           GH_TOKEN: ${{ steps.releases_token.outputs.token }}
-          # See the macOS job: without this a re-run against an older release
-          # silently uploads nothing and still reports success.
-          EP_GH_IGNORE_TIME: 'true'
-
-      - name: Verify Windows packaged update configuration
-        shell: bash
-        run: test -f apps/desktop/dist/win-unpacked/resources/app-update.yml
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+          RELEASE_REPO: PyModel/pythinker-desktop-releases
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          assets=(apps/desktop/dist/*.exe apps/desktop/dist/*.blockmap apps/desktop/dist/latest.yml)
+          gh release upload "$RELEASE_TAG" "${assets[@]}" --repo "$RELEASE_REPO" --clobber
 
       - name: Upload Windows artifacts for manual runs
         if: github.event_name == 'workflow_dispatch'
@@ -323,9 +405,24 @@ jobs:
   # which is recoverable by re-running that job; publishing per-platform instead
   # would leave a live release missing an operating system.
   publish:
+    if: startsWith(github.ref, 'refs/tags/desktop-v')
     needs: [prepare, mac, windows]
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # pinned from v4
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # pinned from v6
+
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # pinned from v6
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
       - name: Mint releases-repo token
         id: releases_token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # pinned from v3.2.0
@@ -334,39 +431,21 @@ jobs:
           private-key: ${{ secrets.DESKTOP_RELEASES_APP_PRIVATE_KEY }}
           owner: PyModel
           repositories: pythinker-desktop-releases
+          permission-contents: write
 
-      - name: Require every expected artifact before publishing
+      - name: Download and validate every release asset
         shell: bash
         env:
           GH_TOKEN: ${{ steps.releases_token.outputs.token }}
           RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
           RELEASE_REPO: PyModel/pythinker-desktop-releases
+          DESKTOP_VERSION: ${{ needs.prepare.outputs.version }}
         run: |
           set -euo pipefail
-          gh release view "$RELEASE_TAG" --repo "$RELEASE_REPO" \
-            --json assets --jq '.assets[].name' > assets.txt
-          echo 'Assets on the release:'
-          sed 's/^/  /' assets.txt
-
-          # Counting assets is not enough: the half-release that shipped before
-          # had four of them and no .dmg. Each artifact is named individually.
-          missing=0
-          require() {
-            if ! grep -qE "$1" assets.txt; then
-              echo "Missing artifact: $2" >&2
-              missing=1
-            fi
-          }
-          require '\.dmg$'          'macOS disk image'
-          require '\-mac\.zip$'     'macOS update archive'
-          require '^latest-mac\.yml$' 'macOS update manifest'
-          require '\-Setup\.exe$'   'Windows installer'
-          require '^latest\.yml$'   'Windows update manifest'
-          if [ "$missing" -ne 0 ]; then
-            echo 'Leaving the release as a draft.' >&2
-            exit 1
-          fi
-          echo 'All expected artifacts are present.'
+          mkdir release-assets
+          gh release download "$RELEASE_TAG" --repo "$RELEASE_REPO" --dir release-assets
+          node --import tsx apps/desktop/scripts/verify-update-manifest.ts mac release-assets "$DESKTOP_VERSION"
+          node --import tsx apps/desktop/scripts/verify-update-manifest.ts win release-assets "$DESKTOP_VERSION"
 
       - name: Publish the release
         shell: bash

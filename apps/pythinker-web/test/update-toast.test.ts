@@ -1,4 +1,4 @@
-import { mount } from '@vue/test-utils';
+import { flushPromises, mount } from '@vue/test-utils';
 import { nextTick } from 'vue';
 import { createI18n } from 'vue-i18n';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -13,29 +13,51 @@ const i18n = createI18n({
   messages: { en: { settings: enSettings, update: enUpdate } },
 });
 
-type UpdateState = {
-  status: string;
-  version?: string;
-  percent?: number;
-  message?: string;
-  autoUpdate: boolean;
-};
+function updateState(patch: Partial<DesktopUpdateState> = {}): DesktopUpdateState {
+  return {
+    status: 'idle',
+    installedVersion: '1.0.0',
+    autoUpdate: true,
+    ...patch,
+  };
+}
 
-function installBridge(state: UpdateState) {
-  let push: ((next: UpdateState) => void) | undefined;
+function installBridge(initial: DesktopUpdateState) {
+  let current = initial;
+  let push: ((next: DesktopUpdateState) => void) | undefined;
   const bridge = {
     platform: 'darwin',
-    getUpdateState: vi.fn(() => Promise.resolve(state)),
-    setAutoUpdate: vi.fn(),
-    checkForUpdates: vi.fn(() => Promise.resolve(state)),
-    quitAndInstall: vi.fn(() => Promise.resolve(state)),
+    getUpdateState: vi.fn(() => Promise.resolve(current)),
+    setAutoUpdate: vi.fn(() => Promise.resolve(current)),
+    checkForUpdates: vi.fn(() => Promise.resolve(current)),
+    downloadUpdate: vi.fn(() => {
+      current = { ...current, status: 'downloading', percent: 0, transferred: 0 };
+      return Promise.resolve(current);
+    }),
+    skipUpdate: vi.fn((version: string) => {
+      current = { ...current, status: 'skipped', skippedVersion: version };
+      return Promise.resolve(current);
+    }),
+    undoSkippedUpdate: vi.fn(() => Promise.resolve(current)),
+    markUpdateNotified: vi.fn((version: string) => {
+      current = { ...current, notifiedVersion: version };
+      return Promise.resolve(current);
+    }),
+    acknowledgeCompletedUpdate: vi.fn((version: string) => {
+      current = current.completedVersion === version
+        ? { ...current, completedVersion: undefined }
+        : current;
+      return Promise.resolve(current);
+    }),
+    openUpdateReleaseNotes: vi.fn(() => Promise.resolve(current)),
+    restartToUpdate: vi.fn(() => Promise.resolve(current)),
     setThemeSource: vi.fn(),
-    onUpdateState: vi.fn((cb: (next: UpdateState) => void) => {
+    onUpdateState: vi.fn((cb: (next: DesktopUpdateState) => void) => {
       push = cb;
       return () => {};
     }),
-    /** Replay a main-process state event, as the preload bridge would. */
-    emit: async (next: UpdateState) => {
+    emit: async (next: DesktopUpdateState) => {
+      current = next;
       push?.(next);
       await nextTick();
     },
@@ -46,117 +68,161 @@ function installBridge(state: UpdateState) {
 
 async function mountToast() {
   const wrapper = mount(UpdateToast, { global: { plugins: [i18n] } });
-  await nextTick();
-  await nextTick();
+  await flushPromises();
   return wrapper;
 }
 
 afterEach(() => {
   delete (window as unknown as { pythinkerDesktop?: unknown }).pythinkerDesktop;
-  localStorage.clear();
   vi.restoreAllMocks();
 });
 
 describe('UpdateToast', () => {
   it('renders nothing without the desktop bridge', async () => {
     const wrapper = await mountToast();
-    expect(wrapper.find('.update-toast').exists()).toBe(false);
+    expect(wrapper.find('[data-testid="update-toast"]').exists()).toBe(false);
   });
 
-  it('announces an update that is downloading automatically', async () => {
-    installBridge({ status: 'available', version: '1.2.3', autoUpdate: true });
+  it('prompts once per available version with explicit actions', async () => {
+    const bridge = installBridge(updateState({ status: 'available', availableVersion: '1.2.3' }));
     const wrapper = await mountToast();
-    expect(wrapper.get('.title').text()).toContain('1.2.3');
-    expect(wrapper.get('.msg').text()).toBe(enUpdate.downloading);
+
+    expect(wrapper.get('[data-testid="update-toast"]').text()).toContain('1.2.3');
+    expect(wrapper.get('[data-testid="download-update"]').text()).toBe('Download update');
+    expect(wrapper.get('[data-testid="skip-update"]').text()).toBe('Skip this version');
+    expect(wrapper.get('[data-testid="view-update-notes"]').text()).toBe('View notes');
+    expect(bridge.markUpdateNotified).toHaveBeenCalledWith('1.2.3');
+
+    wrapper.unmount();
+    installBridge(updateState({
+      status: 'available',
+      availableVersion: '1.2.3',
+      notifiedVersion: '1.2.3',
+    }));
+    expect((await mountToast()).find('[data-testid="update-toast"]').exists()).toBe(false);
   });
 
-  it('reports download progress instead of staying silent', async () => {
-    installBridge({ status: 'downloading', version: '1.2.3', percent: 41.6, autoUpdate: true });
+  it.each([
+    ['downloading', '[data-testid="update-progress"]'],
+    ['downloaded', '[data-testid="restart-to-update"]'],
+  ] as const)('keeps the %s state visible after the release notification', async (status, selector) => {
+    installBridge(updateState({
+      status,
+      availableVersion: '1.2.3',
+      notifiedVersion: '1.2.3',
+    }));
+
     const wrapper = await mountToast();
-    expect(wrapper.get('.msg').text()).toContain('42');
-    // A download in flight cannot be installed yet.
-    expect(wrapper.get('.go').attributes('disabled')).toBeDefined();
+
+    expect(wrapper.find('[data-testid="update-toast"]').exists()).toBe(true);
+    expect(wrapper.find(selector).exists()).toBe(true);
   });
 
-  it('prompts to restart once the update is downloaded', async () => {
-    const bridge = installBridge({ status: 'downloaded', version: '1.2.3', autoUpdate: true });
+  it('closing the toast does not skip the version', async () => {
+    const bridge = installBridge(updateState({ status: 'available', availableVersion: '1.2.3' }));
     const wrapper = await mountToast();
-    expect(wrapper.get('.title').text()).toContain('1.2.3');
-    expect(wrapper.get('.msg').text()).toBe(enUpdate.restart);
-    expect(wrapper.get('.go').text()).toBe(enUpdate.install);
-    await wrapper.get('.go').trigger('click');
-    expect(bridge.quitAndInstall).toHaveBeenCalledTimes(1);
+
+    await wrapper.get('[aria-label="Dismiss update notification"]').trigger('click');
+
+    expect(wrapper.find('[data-testid="update-toast"]').exists()).toBe(false);
+    expect(bridge.skipUpdate).not.toHaveBeenCalled();
   });
 
-  it('starts the complete update flow when automatic downloads are off', async () => {
-    const bridge = installBridge({ status: 'available', version: '1.2.3', autoUpdate: false });
+  it('skips only the exact available version', async () => {
+    const bridge = installBridge(updateState({ status: 'available', availableVersion: '1.2.3' }));
     const wrapper = await mountToast();
-    expect(wrapper.get('.msg').text()).toBe(enUpdate.prompt);
-    expect(wrapper.get('.go').text()).toBe(enUpdate.install);
-    await wrapper.get('.go').trigger('click');
-    expect(bridge.quitAndInstall).toHaveBeenCalledTimes(1);
+
+    await wrapper.get('[data-testid="skip-update"]').trigger('click');
+    await flushPromises();
+
+    expect(bridge.skipUpdate).toHaveBeenCalledWith('1.2.3');
+    expect(wrapper.find('[data-testid="update-toast"]').exists()).toBe(false);
+
+    await bridge.emit(updateState({
+      status: 'available',
+      availableVersion: '1.2.4',
+      notifiedVersion: '1.2.3',
+      skippedVersion: '1.2.3',
+    }));
+    expect(wrapper.find('[data-testid="update-toast"]').exists()).toBe(true);
   });
 
-  it('keeps reporting the download the user started from the prompt', async () => {
-    const bridge = installBridge({ status: 'available', version: '1.2.3', autoUpdate: false });
+  it('shows live download progress after the user accepts the download', async () => {
+    const bridge = installBridge(updateState({ status: 'available', availableVersion: '1.2.3' }));
     const wrapper = await mountToast();
-    await wrapper.get('.go').trigger('click');
-    await bridge.emit({ status: 'downloading', version: '1.2.3', percent: 12, autoUpdate: false });
 
-    expect(wrapper.find('.update-toast').exists()).toBe(true);
-    expect(wrapper.get('.msg').text()).toContain('12');
-    expect(wrapper.get('.go').attributes('disabled')).toBeDefined();
+    await wrapper.get('[data-testid="download-update"]').trigger('click');
+    await flushPromises();
+    await bridge.emit(updateState({
+      status: 'downloading',
+      availableVersion: '1.2.3',
+      notifiedVersion: '1.2.3',
+      percent: 42.5,
+      transferred: 4_250_000,
+      total: 10_000_000,
+      bytesPerSecond: 1_250_000,
+    }));
+
+    const progress = wrapper.get<HTMLProgressElement>('[data-testid="update-progress"]');
+    expect(progress.attributes('value')).toBe('42.5');
+    expect(wrapper.get('[data-testid="update-progress-detail"]').text()).toContain('43%');
+    expect(wrapper.get('[data-testid="update-progress-detail"]').text()).toContain('4.1 MB of 9.5 MB');
+    expect(wrapper.get('[data-testid="update-progress-detail"]').text()).toContain('1.2 MB/s');
+    expect(wrapper.find('[data-testid="restart-to-update"]').exists()).toBe(false);
   });
 
-  it('stays silent for an idle or disabled updater', async () => {
-    installBridge({ status: 'idle', autoUpdate: true });
-    expect((await mountToast()).find('.update-toast').exists()).toBe(false);
-  });
-
-  it('keeps a failed check quiet until an update is actually found', async () => {
-    const bridge = installBridge({ status: 'error', message: 'offline', autoUpdate: true });
+  it('offers Later or Restart only after the download completes', async () => {
+    const bridge = installBridge(updateState({
+      status: 'downloaded',
+      availableVersion: '1.2.3',
+    }));
     const wrapper = await mountToast();
-    expect(wrapper.find('.update-toast').exists()).toBe(false);
 
-    await bridge.emit({ status: 'available', version: '1.2.3', autoUpdate: true });
-    await bridge.emit({ status: 'error', message: 'signature mismatch', autoUpdate: true });
-    expect(wrapper.get('.title').text()).toBe(enUpdate.failed);
-    expect(wrapper.get('.msg').text()).toBe('signature mismatch');
-    expect(wrapper.get('.go').text()).toBe(enUpdate.retry);
-
-    await wrapper.get('.go').trigger('click');
-    expect(bridge.checkForUpdates).toHaveBeenCalledTimes(1);
+    expect(wrapper.get('[data-testid="later-update"]').text()).toBe('Later');
+    expect(wrapper.get('[data-testid="restart-to-update"]').text()).toBe('Restart to update');
+    await wrapper.get('[data-testid="restart-to-update"]').trigger('click');
+    expect(bridge.restartToUpdate).toHaveBeenCalledOnce();
   });
 
-  it('dismisses a failure without skipping the version', async () => {
-    const bridge = installBridge({ status: 'idle', autoUpdate: true });
+  it('shows and acknowledges one verified completion receipt', async () => {
+    const bridge = installBridge(updateState({ completedVersion: '1.2.3' }));
     const wrapper = await mountToast();
-    await bridge.emit({ status: 'available', version: '1.2.3', autoUpdate: true });
-    await bridge.emit({ status: 'error', message: 'download failed', autoUpdate: true });
 
-    await wrapper.get('.skip').trigger('click');
-    expect(wrapper.find('.update-toast').exists()).toBe(false);
-    expect(localStorage.getItem('pythinker.update.skipped')).toBeNull();
-
-    await bridge.emit({ status: 'downloaded', version: '1.2.3', autoUpdate: true });
-    expect(wrapper.find('.update-toast').exists()).toBe(true);
+    expect(wrapper.get('[data-testid="update-toast"]').text()).toContain('Updated to Pythinker v1.2.3');
+    expect(bridge.acknowledgeCompletedUpdate).toHaveBeenCalledWith('1.2.3');
   });
 
-  it('hides the prompt and remembers the skipped version', async () => {
-    installBridge({ status: 'downloaded', version: '1.2.3', autoUpdate: true });
+  it('keeps background check errors quiet but reports a failed accepted download', async () => {
+    const bridge = installBridge(updateState({ status: 'error', message: 'offline' }));
     const wrapper = await mountToast();
-    await wrapper.get('.skip').trigger('click');
-    expect(wrapper.find('.update-toast').exists()).toBe(false);
-    expect(localStorage.getItem('pythinker.update.skipped')).toBe('["1.2.3"]');
+    expect(wrapper.find('[data-testid="update-toast"]').exists()).toBe(false);
 
-    const second = await mountToast();
-    expect(second.find('.update-toast').exists()).toBe(false);
-  });
+    await bridge.emit(updateState({ status: 'available', availableVersion: '1.2.3' }));
+    await bridge.emit(updateState({
+      status: 'error',
+      availableVersion: '1.2.3',
+      notifiedVersion: '1.2.3',
+      message: 'background check is offline',
+    }));
+    expect(wrapper.get('[data-testid="update-toast"]').text()).toContain('Download update');
+    expect(wrapper.get('[data-testid="update-toast"]').text()).not.toContain('background check is offline');
 
-  it('still prompts for a different version after a skip', async () => {
-    localStorage.setItem('pythinker.update.skipped', '["1.2.3"]');
-    installBridge({ status: 'downloaded', version: '1.3.0', autoUpdate: true });
-    const wrapper = await mountToast();
-    expect(wrapper.find('.update-toast').exists()).toBe(true);
+    await bridge.emit(updateState({
+      status: 'available',
+      availableVersion: '1.2.3',
+      notifiedVersion: '1.2.3',
+    }));
+    await wrapper.get('[data-testid="download-update"]').trigger('click');
+    await bridge.emit(updateState({
+      status: 'error',
+      availableVersion: '1.2.3',
+      notifiedVersion: '1.2.3',
+      message: 'signature mismatch',
+    }));
+
+    expect(wrapper.get('[data-testid="update-toast"]').text()).toContain('signature mismatch');
+    expect(wrapper.get('[data-testid="retry-update"]').text()).toBe('Retry download');
+    await wrapper.get('[data-testid="retry-update"]').trigger('click');
+    expect(bridge.downloadUpdate).toHaveBeenCalledTimes(2);
   });
 });
