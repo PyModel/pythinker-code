@@ -26,6 +26,13 @@ const DYNAMIC_WORKFLOW_ARG_COMPLETIONS: readonly ArgCompletionSpec[] = [
   { value: 'off', description: 'Turn dynamic_workflow mode off' },
 ];
 
+const TOWER_ARG_COMPLETIONS: readonly ArgCompletionSpec[] = [
+  { value: 'status', description: 'Report tower status' },
+  { value: 'teardown', description: 'Tear down the tower' },
+  { value: 'on', description: 'Turn tower mode on' },
+  { value: 'off', description: 'Turn tower mode off' },
+];
+
 const ADD_DIR_ARG_COMPLETIONS: readonly ArgCompletionSpec[] = [
   { value: 'list', description: 'Show configured additional workspace directories' },
 ];
@@ -47,6 +54,11 @@ export function goalArgumentCompletions(argumentPrefix: string): AutocompleteIte
 /** Argument autocompletion for the `/dynamic_workflow` command (subcommands). */
 export function dynamicWorkflowArgumentCompletions(argumentPrefix: string): AutocompleteItem[] | null {
   return completeLeadingArg(DYNAMIC_WORKFLOW_ARG_COMPLETIONS, argumentPrefix);
+}
+
+/** Argument autocompletion for the `/tower` command. */
+export function towerArgumentCompletions(argumentPrefix: string): AutocompleteItem[] | null {
+  return completeLeadingArg(TOWER_ARG_COMPLETIONS, argumentPrefix);
 }
 
 /** Argument autocompletion for the `/add-dir` command. */
@@ -176,6 +188,22 @@ export const BUILTIN_SLASH_COMMANDS = [
     argumentHint: '[on|off] | <task>',
     completeArgs: dynamicWorkflowArgumentCompletions,
     availability: 'idle-only',
+  },
+  {
+    name: 'tower',
+    aliases: [],
+    description: 'Report tower status, toggle tower mode, or set the tower objective',
+    priority: 100,
+    argumentHint: '[status|teardown|on|off] | <objective>',
+    completeArgs: towerArgumentCompletions,
+    availability: (args) => {
+      const sub = args.trim().toLowerCase();
+      return sub === '' || sub === 'on' || sub === 'off' || sub === 'status' || sub === 'teardown'
+        ? 'always'
+        : 'idle-only';
+    },
+    experimentalFlag: 'tower',
+    requiresEngineV2: true,
   },
   {
     name: 'model',

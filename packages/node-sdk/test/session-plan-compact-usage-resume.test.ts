@@ -3,7 +3,7 @@ import { dirname, join } from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { createPythinkerHarness, type Event, type PythinkerError } from '#/index';
+import { createPythinkerHarness, ErrorCodes, type Event, type PythinkerError } from '#/index';
 
 import { makeTempDir, removeTempDirs } from './session-runtime-helpers';
 import { TEST_IDENTITY } from './test-identity';
@@ -20,6 +20,28 @@ afterEach(async () => {
 });
 
 describe('Session plan, compact, usage, and resume APIs', () => {
+  it('rejects setTowerMode on the v1 engine', async () => {
+    const homeDir = await makeTempDir(tempDirs, 'pythinker-sdk-tower-home-');
+    const workDir = await makeTempDir(tempDirs, 'pythinker-sdk-tower-work-');
+    await writeTestConfig(homeDir);
+    const harness = createPythinkerHarness({ homeDir, identity: TEST_IDENTITY });
+
+    try {
+      const session = await harness.createSession({ id: 'ses_tower_runtime', workDir });
+      await expect(session.setTowerMode('yes' as unknown as boolean)).rejects.toMatchObject({
+        code: ErrorCodes.REQUEST_INVALID,
+      });
+      await expect(session.setTowerMode(true)).rejects.toMatchObject({
+        code: ErrorCodes.NOT_IMPLEMENTED,
+      });
+      await expect(session.setTowerMode(false)).rejects.toMatchObject({
+        code: ErrorCodes.NOT_IMPLEMENTED,
+      });
+    } finally {
+      await harness.close();
+    }
+  });
+
   it('sets plan mode through manualEnterPlan and clears the active plan file', async () => {
     const homeDir = await makeTempDir(tempDirs, 'pythinker-sdk-plan-home-');
     const workDir = await makeTempDir(tempDirs, 'pythinker-sdk-plan-work-');

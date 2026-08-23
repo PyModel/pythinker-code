@@ -222,6 +222,27 @@ export interface CronTurnData {
   missedCount?: number;
 }
 
+export interface TaskNotification {
+  id: string;
+  category: string;
+  type: string;
+  sourceKind: string;
+  sourceId: string;
+  agentId?: string;
+  title: string;
+  severity: string;
+  body: string;
+  outputFile?: { path: string; bytes?: number };
+  outputPreview?: {
+    text: string;
+    bytes?: number;
+    totalBytes?: number;
+    truncated?: boolean;
+  };
+  raw: string;
+  createdAt?: string;
+}
+
 /** One ordered piece of an assistant turn: a thinking segment, a text segment,
  * a tool card OR an activity-run group. Built in call order so every piece
  * renders inline where it happened (a turn can think → act → think again —
@@ -235,6 +256,7 @@ export type TurnBlock =
   | { kind: 'text'; text: string }
   | { kind: 'thinking'; thinking: string; startedAt?: string; durationMs?: number }
   | { kind: 'tool'; tool: ToolCall }
+  | { kind: 'notification'; notification: TaskNotification }
   | { kind: 'activity-run'; items: ActivityRunItem[] };
 
 /**

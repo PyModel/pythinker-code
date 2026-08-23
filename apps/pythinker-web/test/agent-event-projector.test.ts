@@ -89,6 +89,7 @@ describe('subagent streaming text', () => {
           id: 'sub-1',
           status: 'completed',
           subagentPhase: 'completed',
+          completedAtEstimated: true,
           outputPreview: 'done',
         }),
       }),
@@ -693,5 +694,48 @@ describe('background subagent task registration', () => {
         task: expect.objectContaining({ id: 'task-1', kind: 'bash', command: 'npm test' }),
       },
     ]);
+  });
+});
+
+describe('task.notified', () => {
+  it('projects a live task notification as a hidden task-origin message', () => {
+    const projector = createAgentProjector();
+    const events = projector.project(
+      'task.notified',
+      {
+        notificationType: 'task.completed',
+        title: 'Background process completed',
+        body: '42 passed',
+        severity: 'info',
+        sourceKind: 'background_task',
+        sourceId: 'task_1',
+      },
+      's1',
+    );
+
+    expect(events).toEqual([
+      expect.objectContaining({
+        type: 'messageCreated',
+        message: expect.objectContaining({
+          role: 'user',
+          metadata: {
+            origin: expect.objectContaining({ kind: 'task', taskId: 'task_1' }),
+          },
+          content: [
+            expect.objectContaining({
+              type: 'text',
+              text: expect.stringContaining('<notification'),
+            }),
+          ],
+        }),
+      }),
+    ]);
+  });
+
+  it('classifies raw task notifications for the agent projector', () => {
+    expect(classifyFrame('event.task.notified', {})).toEqual({
+      route: 'agent',
+      agentType: 'task.notified',
+    });
   });
 });

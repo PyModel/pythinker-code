@@ -1,6 +1,7 @@
 import { mount } from '@vue/test-utils';
 import { createI18n, type I18n } from 'vue-i18n';
 import { defineComponent } from 'vue';
+import { existsSync, readFileSync } from 'node:fs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import AgentDetailPanel from '../src/components/chat/AgentDetailPanel.vue';
 import type { AgentMember, ChatTurn } from '../src/types';
@@ -97,16 +98,17 @@ type ModelResolvers = {
   subagentEffort?: (effort: string | undefined) => string | undefined;
 };
 
-function mountPanel(options: { turns?: ChatTurn[]; loadError?: boolean; provide?: ModelResolvers } = {}) {
+function mountPanel(options: { member?: AgentMember; turns?: ChatTurn[]; loadError?: boolean; provide?: ModelResolvers } = {}) {
   return mount(AgentDetailPanel, {
     props: {
-      member,
+      member: options.member ?? member,
       turns: options.turns ?? turns,
       running: true,
       loading: false,
       loadError: options.loadError ?? false,
       hasMore: false,
       loadingMore: false,
+      loadMoreError: false,
     },
     global: { plugins: [i18n as I18n], provide: options.provide ?? {} },
   });
@@ -149,5 +151,23 @@ describe('AgentDetailPanel', () => {
 
     expect(wrapper.text()).toContain('Failed to load this sub agent’s conversation.');
     expect(wrapper.text()).toContain('Review the current changes');
+  });
+
+  it('shrinks a long header title before the Close control', () => {
+    const path = [
+      'src/components/ui/PanelHeader.vue',
+      'apps/pythinker-web/src/components/ui/PanelHeader.vue',
+    ].find(existsSync);
+    if (path === undefined) throw new Error('PanelHeader.vue was not found');
+    const source = readFileSync(path, 'utf8');
+    const titleRule = /\.ui-panel-header__title\s*\{([^}]*)\}/.exec(source)?.[1] ?? '';
+    const closeRule = /\.ui-panel-header__close\s*\{([^}]*)\}/.exec(source)?.[1] ?? '';
+
+    expect(titleRule).toMatch(/flex:\s*0 1 auto/);
+    expect(titleRule).toMatch(/min-width:\s*0/);
+    expect(titleRule).toMatch(/overflow:\s*hidden/);
+    expect(titleRule).toMatch(/text-overflow:\s*ellipsis/);
+    expect(titleRule).toMatch(/white-space:\s*nowrap/);
+    expect(closeRule).toMatch(/flex:\s*none/);
   });
 });

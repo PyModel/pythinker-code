@@ -50,6 +50,7 @@ function makeHost() {
     restoreEditor: vi.fn(),
     showStatus: vi.fn(),
     showError: vi.fn(),
+    showNotice: vi.fn(),
     track: vi.fn(),
   } as unknown as SlashCommandHost & {
     harness: {
@@ -112,5 +113,25 @@ describe('experimental feature command handlers', () => {
       'No experimental feature changes to apply.',
       'textMuted',
     );
+  });
+
+  it('shows a restart notice when the tower flag changes', async () => {
+    const host = makeHost();
+
+    await applyExperimentalFeatureChanges(host, [{ id: 'tower', enabled: true }]);
+
+    expect(host.showNotice).toHaveBeenCalledWith(
+      'Tower mode takes effect after restarting Pythinker Code.',
+    );
+  });
+
+  it('does not show the restart notice for other flags', async () => {
+    const host = makeHost();
+
+    await applyExperimentalFeatureChanges(host, [
+      { id: 'micro_compaction', enabled: false },
+    ]);
+
+    expect(host.showNotice).not.toHaveBeenCalled();
   });
 });

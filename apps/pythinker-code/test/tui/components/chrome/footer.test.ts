@@ -52,6 +52,7 @@ const appState: AppState = {
   planMode: false,
   inputMode: 'prompt',
   dynamicWorkflowMode: false,
+  towerMode: false,
   theme: 'dark',
   editorCommand: null,
   notifications: { enabled: true, condition: 'unfocused' },
@@ -92,6 +93,12 @@ describe('FooterComponent', () => {
 
     expect(codes.has(RAINBOW_CYAN)).toBe(false);
     expect(codes.has(RAINBOW_GREEN)).toBe(false);
+  });
+
+  it('shows tower mode in the footer', () => {
+    const footer = new FooterComponent({ ...appState, towerMode: true });
+
+    expect(footer.render(120).join('\n')).toContain('tower');
   });
 
   it('repaints from the active palette on the next render (no setColors needed)', () => {

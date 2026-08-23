@@ -358,7 +358,7 @@ function isItemStreaming(item: RunItem): boolean {
       <div class="ar-body-inner">
         <template v-for="item in items" :key="runItemKey(item)">
           <ThinkingBlock
-            v-if="item.kind === 'thinking'"
+            v-if="item.kind === 'thinking' && !isItemStreaming(item)"
             :text="item.thinking"
             :mobile="mobile"
             :streaming="isItemStreaming(item)"
@@ -366,7 +366,7 @@ function isItemStreaming(item: RunItem): boolean {
             :duration-ms="item.durationMs"
           />
           <ToolCall
-            v-else
+            v-else-if="item.kind === 'tool'"
             :tool="item.tool"
             :mobile="mobile"
             :tool-diff-panel="toolDiffPanel"

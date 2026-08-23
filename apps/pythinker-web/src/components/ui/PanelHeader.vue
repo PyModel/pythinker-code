@@ -56,7 +56,11 @@ defineEmits<{ close: [] }>();
   background: var(--color-surface);
 }
 .ui-panel-header__title {
-  flex: none;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font: var(--weight-semibold) var(--text-xs) var(--font-mono);
   letter-spacing: 0.04em;
   color: var(--color-text);

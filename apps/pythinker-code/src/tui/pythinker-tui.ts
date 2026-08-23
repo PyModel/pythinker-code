@@ -247,6 +247,7 @@ function createInitialAppState(input: PythinkerTUIStartupInput): AppState {
     planMode: input.cliOptions.plan,
     inputMode: 'prompt',
     dynamicWorkflowMode: false,
+    towerMode: false,
     thinkingEffort: 'off',
     contextUsage: 0,
     contextTokens: 0,
@@ -451,8 +452,10 @@ export class PythinkerTUI {
   // =========================================================================
 
   private getSlashCommands(): readonly PythinkerSlashCommand[] {
-    const builtins = sortSlashCommands(BUILTIN_SLASH_COMMANDS).filter((command) =>
-      isExperimentalFlagEnabled(command.experimentalFlag),
+    const builtins = sortSlashCommands(BUILTIN_SLASH_COMMANDS).filter(
+      (command) =>
+        isExperimentalFlagEnabled(command.experimentalFlag) &&
+        (!command.requiresEngineV2 || this.engineV2),
     );
     return [...builtins, ...this.skillCommands, ...this.pluginCommands];
   }
@@ -2224,6 +2227,7 @@ export class PythinkerTUI {
       permissionMode: status.permission,
       planMode: status.planMode,
       dynamicWorkflowMode: status.dynamicWorkflowMode ?? false,
+      towerMode: status.towerMode ?? false,
       contextTokens: status.contextTokens,
       maxContextTokens: status.maxContextTokens,
       contextUsage: status.contextUsage,

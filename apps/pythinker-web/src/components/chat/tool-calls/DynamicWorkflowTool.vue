@@ -67,6 +67,21 @@ const label = computed(() => toolLabel(props.tool.name));
 const description = computed(() => input.value.description ?? '');
 const members = computed(() => resolveDynamicWorkflowMembers?.(props.tool.id) ?? []);
 const result = computed(() => parseDynamicWorkflowResult(props.tool.output));
+const modelDisplay = inject<(modelId: string | undefined) => string | undefined>('modelDisplay');
+const subagentEffort = inject<(effort: string | undefined) => string | undefined>('subagentEffort');
+const sharedModelLabel = computed(() => {
+  let shared: string | undefined;
+  for (const member of members.value) {
+    const label = [
+      modelDisplay?.(member.model),
+      subagentEffort?.(member.thinkingEffort),
+    ].filter((part): part is string => part !== undefined).join(' · ');
+    if (label === '') continue;
+    if (shared === undefined) shared = label;
+    else if (shared !== label) return undefined;
+  }
+  return shared;
+});
 
 const status = computed<'running' | 'ok' | 'error'>(() => props.tool.status as 'running' | 'ok' | 'error');
 const aggregateStatus = computed<'running' | 'ok' | 'error'>(() => {
@@ -223,6 +238,7 @@ function rowHasSavedResult(row: DynamicWorkflowCardRow): boolean {
       <div class="overview">
         <div class="overview-line">
           <span class="big">{{ t('tools.dynamic_workflow.progress', { done, total }) }}</span>
+          <span v-if="sharedModelLabel" class="model-meta">{{ sharedModelLabel }}</span>
           <span v-if="aggregateStatus === 'running' && total > 0" class="lbl">
             {{ t('tools.dynamic_workflow.runningSub', { count: inProgress }) }}
           </span>
@@ -415,6 +431,7 @@ function rowHasSavedResult(row: DynamicWorkflowCardRow): boolean {
   color: var(--color-text);
   font-size: 15px;
 }
+.model-meta,
 .lbl {
   color: var(--color-text-muted);
   font-size: var(--text-xs);

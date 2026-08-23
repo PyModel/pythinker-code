@@ -327,6 +327,7 @@ export interface AppTask {
   createdAt: string;
   startedAt?: string;
   completedAt?: string;
+  completedAtEstimated?: boolean;
   outputPreview?: string;
   outputBytes?: number;
   agentId?: string;

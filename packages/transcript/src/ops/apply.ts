@@ -580,6 +580,7 @@ function applyMetaMerge(state: AgentState, meta: TranscriptMetaMerge): ApplyResu
       ? {
           plan: meta.modes.plan === null ? undefined : (meta.modes.plan ?? state.meta.modes?.plan),
           dynamic_workflow: meta.modes.dynamic_workflow === null ? undefined : (meta.modes.dynamic_workflow ?? state.meta.modes?.dynamic_workflow),
+          tower: meta.modes.tower === null ? undefined : (meta.modes.tower ?? state.meta.modes?.tower),
         }
       : state.meta.modes;
   const agent =
@@ -587,7 +588,13 @@ function applyMetaMerge(state: AgentState, meta: TranscriptMetaMerge): ApplyResu
   const next: TranscriptMeta = {
     goal: meta.goal === null ? undefined : (meta.goal ?? state.meta.goal),
     activity: meta.activity ?? state.meta.activity,
-    modes: modes !== undefined && modes.plan === undefined && modes.dynamic_workflow === undefined ? undefined : modes,
+    modes:
+      modes !== undefined &&
+      modes.plan === undefined &&
+      modes.dynamic_workflow === undefined &&
+      modes.tower === undefined
+        ? undefined
+        : modes,
     agent,
   };
   if (

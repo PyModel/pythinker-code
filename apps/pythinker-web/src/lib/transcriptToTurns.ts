@@ -6,8 +6,9 @@ import type {
   TranscriptTurn,
 } from '@pymodel/transcript';
 import type { AppMessage, AppMessageContent, ImageSource } from '../api/types';
-import type { ChatTurn } from '../types';
+import type { ChatTurn, TaskNotification } from '../types';
 import { messagesToTurns } from '../composables/messagesToTurns';
+import { parseTaskNotifications, TASK_NOTIFICATION_METADATA_KEY } from './taskNotification';
 
 export interface TranscriptTurnOptions {
   sessionId: string;
@@ -93,6 +94,11 @@ function transcriptTurnToMessages(
               : {
                   origin: { kind: 'task', taskId: frame.taskId },
                   task: tasks.get(frame.taskId),
+                  [TASK_NOTIFICATION_METADATA_KEY]: taskNotificationFromFrame(
+                    frame.taskId,
+                    frame.text,
+                    tasks.get(frame.taskId),
+                  ),
                 },
         });
         continue;
@@ -163,6 +169,29 @@ function transcriptTurnToMessages(
     if (index >= 0) messages[index] = { ...messages[index]!, durationMs };
   }
   return messages;
+}
+
+function taskNotificationFromFrame(
+  taskId: string,
+  text: string,
+  task: TranscriptTask | undefined,
+): TaskNotification {
+  const parsed = parseTaskNotifications(text)[0];
+  if (parsed !== undefined) return parsed;
+  const [title = '', ...body] = text.split('\n');
+  const state = task?.state ?? 'info';
+  return {
+    id: `task:${taskId}:${state}`,
+    category: 'task',
+    type: `task.${state}`,
+    sourceKind: task?.kind === 'subagent' ? 'subagent' : 'background_task',
+    sourceId: taskId,
+    agentId: task?.agentId,
+    title: title.trim(),
+    severity: state === 'completed' ? 'info' : 'warning',
+    body: body.join('\n').trim(),
+    raw: text,
+  };
 }
 
 function attachmentContent(

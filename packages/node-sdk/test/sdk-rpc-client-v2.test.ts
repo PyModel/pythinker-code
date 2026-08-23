@@ -38,6 +38,7 @@ import {
   agentContextOf,
   HostProcessError,
   IAgentLifecycleService,
+  IAgentTowerService,
   IHostRequestHeaders,
   ISessionManager,
   ISessionTodoService,
@@ -914,6 +915,79 @@ key = "${titleOAuthRef.key}"
       });
     } finally {
       await client.close();
+    }
+  });
+
+  it('serves tower mode through the v2 agent scope', async () => {
+    vi.stubEnv('PYTHINKER_CODE_EXPERIMENTAL_TOWER', '1');
+    const homeDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-'));
+    tempDirs.push(homeDir);
+    const workDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-work-'));
+    tempDirs.push(workDir);
+    const client = new SDKRpcClientV2({ homeDir, identity: TEST_IDENTITY });
+    try {
+      await client.createSession({ id: 'ses_tower', workDir });
+      expect((await client.getStatus({ sessionId: 'ses_tower' })).towerMode).toBe(false);
+
+      const handle = getLiveSessionById(client.engineAccessor, 'ses_tower');
+      expect(handle).toBeDefined();
+      const main = handle!.accessor.get(IAgentLifecycleService).findAgentHandle('main');
+      expect(main).toBeDefined();
+      const tower = main!.accessor.get(IAgentTowerService);
+
+      await client.setTowerMode({ sessionId: 'ses_tower', enabled: true });
+      expect((await client.getStatus({ sessionId: 'ses_tower' })).towerMode).toBe(tower.isActive);
+
+      await client.setTowerMode({ sessionId: 'ses_tower', enabled: false });
+      expect((await client.getStatus({ sessionId: 'ses_tower' })).towerMode).toBe(false);
+      await expect(client.setTowerMode({ sessionId: 'ses_missing', enabled: true }))
+        .rejects.toMatchObject({ code: ErrorCodes.SESSION_NOT_FOUND });
+    } finally {
+      vi.unstubAllEnvs();
+      await client.close();
+    }
+  });
+
+  it('rejects tower entry when the feature is unavailable', async () => {
+    vi.stubEnv('PYTHINKER_CODE_EXPERIMENTAL_FLAG', '0');
+    vi.stubEnv('PYTHINKER_CODE_EXPERIMENTAL_TOWER', '0');
+    const homeDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-'));
+    tempDirs.push(homeDir);
+    const workDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-work-'));
+    tempDirs.push(workDir);
+    const client = new SDKRpcClientV2({ homeDir, identity: TEST_IDENTITY });
+    try {
+      await client.createSession({ id: 'ses_tower_off', workDir });
+
+      await expect(client.setTowerMode({ sessionId: 'ses_tower_off', enabled: true }))
+        .rejects.toMatchObject({ code: 'session.tower_mode_invalid' });
+      expect((await client.getStatus({ sessionId: 'ses_tower_off' })).towerMode).toBe(false);
+      await expect(client.setTowerMode({ sessionId: 'ses_tower_off', enabled: false }))
+        .resolves.toBeUndefined();
+    } finally {
+      vi.unstubAllEnvs();
+      await client.close();
+    }
+  });
+
+  it('exposes Session.setTowerMode on the v2 harness', async () => {
+    vi.stubEnv('PYTHINKER_CODE_EXPERIMENTAL_TOWER', '1');
+    const { harness } = await makeHarness();
+    const workDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-work-'));
+    tempDirs.push(workDir);
+    try {
+      const session = await harness.createSession({ workDir });
+      expect((await session.getStatus()).towerMode).toBe(false);
+      await expect(session.setTowerMode(true)).resolves.toBeUndefined();
+      expect(typeof (await session.getStatus()).towerMode).toBe('boolean');
+      await expect(session.setTowerMode(false)).resolves.toBeUndefined();
+      expect((await session.getStatus()).towerMode).toBe(false);
+      await expect(session.setTowerMode('yes' as unknown as boolean)).rejects.toMatchObject({
+        code: ErrorCodes.REQUEST_INVALID,
+      });
+    } finally {
+      vi.unstubAllEnvs();
+      await harness.close();
     }
   });
 });

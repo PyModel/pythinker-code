@@ -1153,6 +1153,7 @@ export class AgentTranscriptProjector {
   private onAgentStatusUpdated(event: {
     planMode?: boolean;
     dynamicWorkflowMode?: boolean;
+    towerMode?: boolean;
     model?: string;
     thinkingEffort?: string;
     usage?: AgentUsageMeta;
@@ -1162,7 +1163,11 @@ export class AgentTranscriptProjector {
     permission?: 'manual' | 'yolo' | 'auto';
   }): TranscriptOperation[] {
     const ops: TranscriptOperation[] = [];
-    const modes: { plan?: Record<string, never> | null; dynamic_workflow?: Record<string, never> | null } = {};
+    const modes: {
+      plan?: Record<string, never> | null;
+      dynamic_workflow?: Record<string, never> | null;
+      tower?: Record<string, never> | null;
+    } = {};
     if (event.planMode === true) {
       modes.plan = {};
       this.planModeActive = true;
@@ -1172,7 +1177,13 @@ export class AgentTranscriptProjector {
     }
     if (event.dynamicWorkflowMode === true) modes.dynamic_workflow = {};
     else if (event.dynamicWorkflowMode === false) modes.dynamic_workflow = null;
-    if (modes.plan !== undefined || modes.dynamic_workflow !== undefined) {
+    if (event.towerMode === true) modes.tower = {};
+    else if (event.towerMode === false) modes.tower = null;
+    if (
+      modes.plan !== undefined ||
+      modes.dynamic_workflow !== undefined ||
+      modes.tower !== undefined
+    ) {
       ops.push({ op: 'meta.merge', meta: { modes } });
     }
     const agent: {

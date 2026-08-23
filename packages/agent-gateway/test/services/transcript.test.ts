@@ -1,6 +1,8 @@
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { promisify } from 'node:util';
 
 import {
   IAgentLifecycleService,
@@ -8,6 +10,7 @@ import {
   IAgentScopeContext,
   IAgentTaskService,
   IEventBus,
+  IFlagService,
   ISessionIndex,
   ISessionInteractionService,
   ISessionMetadata,
@@ -18,12 +21,15 @@ import {
   makeAgentScopeContext,
   SessionInteractionService,
   StateRegistry,
+  TOWER_FLAG_ID,
+  _setTowerFeatureAssembledForTests,
   type AgentContext,
   type Event2,
   type ISessionScopeHandle,
   type ISessionStateService,
   type Scope,
 } from '@pymodel/agent-core-v2';
+import { TowerStore } from '@pymodel/agent-core-v2/features/tower/protocol/index';
 import {
   AgentTranscript,
   TranscriptStore,
@@ -49,6 +55,8 @@ import {
   snapshotToOps,
   TRANSCRIPT_OPS_JOURNAL_CAPACITY,
 } from '../../src/services/transcript/transcriptService';
+
+const execFileAsync = promisify(execFile);
 
 function ev(payload: Record<string, unknown>): ProjectorBusEvent {
   return payload as unknown as ProjectorBusEvent;
@@ -1138,6 +1146,16 @@ describe('AgentTranscriptProjector', () => {
     expect(tx.getMeta().modes).toBeUndefined();
   });
 
+  it('mirrors tower mode into meta.modes', () => {
+    const projector = new AgentTranscriptProjector('main');
+    const tx = new AgentTranscript('main');
+
+    tx.apply(projector.map(ev({ type: 'agent.status.updated', towerMode: true })));
+    expect(tx.getMeta().modes).toEqual({ tower: {} });
+    tx.apply(projector.map(ev({ type: 'agent.status.updated', towerMode: false })));
+    expect(tx.getMeta().modes).toBeUndefined();
+  });
+
   it('mirrors status slices into meta.agent (shallow-merged across slices)', () => {
     const projector = new AgentTranscriptProjector('main');
     const tx = new AgentTranscript('main');
@@ -1813,6 +1831,110 @@ describe('AgentTranscriptProjector', () => {
       ]);
       service.dropSession('s1');
     } finally {
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
+  it('gates a cold tower badge by flag, assembly, owner, and agent', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'transcript-cold-tower-'));
+    _setTowerFeatureAssembledForTests(true);
+    try {
+      const wireDir = join(home, 'sessions', 'ws', 's1', 'agents', 'main');
+      await mkdir(wireDir, { recursive: true });
+      const records = [
+        {
+          type: 'context.append_message',
+          message: {
+            role: 'user',
+            content: [{ type: 'text', text: 'hi' }],
+            toolCalls: [],
+            origin: { kind: 'user' },
+          },
+          time: 1000,
+        },
+        { type: 'tower_mode.enter', time: 2000 },
+      ];
+      await writeFile(
+        join(wireDir, 'wire.jsonl'),
+        `${records.map((record) => JSON.stringify(record)).join('\n')}\n`,
+      );
+
+      const serviceWith = (
+        flagOn: boolean,
+        options: { cwd?: string; liveSessionIds?: readonly string[] } = {},
+      ) =>
+        new TranscriptService({
+          homeDir: home,
+          core: {
+            accessor: {
+              get: (token: unknown) => {
+                if (token === ISessionManager) {
+                  return {
+                    get: (id: string) =>
+                      options.liveSessionIds?.includes(id) === true ? {} : undefined,
+                    list: () => [],
+                  };
+                }
+                if (token === IWorkspaceInstanceManager) {
+                  return { list: () => [], onDidChange: () => ({ dispose: () => undefined }) };
+                }
+                if (token === ISessionIndex) {
+                  return { get: async () => ({ workspaceId: 'ws', cwd: options.cwd }) };
+                }
+                if (token === IFlagService) {
+                  return { enabled: (id: string) => flagOn && id === TOWER_FLAG_ID };
+                }
+                return undefined;
+              },
+            },
+          } as unknown as Scope,
+        });
+
+      expect((await serviceWith(true).readColdSnapshot('s1', 'main'))!.meta.modes).toEqual({
+        tower: {},
+      });
+      expect((await serviceWith(false).readColdSnapshot('s1', 'main'))!.meta.modes)
+        .toBeUndefined();
+
+      _setTowerFeatureAssembledForTests(false);
+      expect((await serviceWith(true).readColdSnapshot('s1', 'main'))!.meta.modes)
+        .toBeUndefined();
+      _setTowerFeatureAssembledForTests(true);
+
+      const repo = await mkdtemp(join(tmpdir(), 'tower-cold-owner-'));
+      try {
+        await execFileAsync('git', ['init', '-b', 'main'], { cwd: repo });
+        await execFileAsync('git', ['config', 'user.email', 'tower-test@example.com'], {
+          cwd: repo,
+        });
+        await execFileAsync('git', ['config', 'user.name', 'Tower Test'], { cwd: repo });
+        await writeFile(join(repo, 'README.md'), '# fixture\n');
+        await execFileAsync('git', ['add', 'README.md'], { cwd: repo });
+        await execFileAsync('git', ['commit', '-m', 'initial'], { cwd: repo });
+        await new TowerStore(repo).init('session-b');
+
+        const liveOwner = await serviceWith(true, {
+          cwd: repo,
+          liveSessionIds: ['session-b'],
+        }).readColdSnapshot('s1', 'main');
+        expect(liveOwner!.meta.modes).toBeUndefined();
+
+        const deadOwner = await serviceWith(true, { cwd: repo }).readColdSnapshot('s1', 'main');
+        expect(deadOwner!.meta.modes).toEqual({ tower: {} });
+      } finally {
+        await rm(repo, { recursive: true, force: true });
+      }
+
+      const childDir = join(home, 'sessions', 'ws', 's1', 'agents', 'worker-1');
+      await mkdir(childDir, { recursive: true });
+      await writeFile(
+        join(childDir, 'wire.jsonl'),
+        `${records.map((record) => JSON.stringify(record)).join('\n')}\n`,
+      );
+      const child = await serviceWith(true).readColdSnapshot('s1', 'worker-1');
+      expect(child!.meta.modes).toBeUndefined();
+    } finally {
+      _setTowerFeatureAssembledForTests(undefined);
       await rm(home, { recursive: true, force: true });
     }
   });

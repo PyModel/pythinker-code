@@ -50,6 +50,27 @@ export default {
     diffUnavailable: 'This file’s changes can’t be shown line by line',
     openFile: 'Open file',
   },
+  notification: {
+    kindTask: 'Background task',
+    kindSubagent: 'Subagent',
+    title: {
+      completed: '{kind} completed',
+      failed: '{kind} failed',
+      timed_out: '{kind} timed out',
+      killed: '{kind} killed',
+      lost: '{kind} lost',
+      info: '{kind} notification',
+    },
+    copyPath: 'Copy path',
+    copied: 'Copied',
+    rawPayload: 'Raw payload',
+    outputTruncated: 'Output truncated — showing the tail',
+    fields: {
+      type: 'Type',
+      source: 'Source',
+      severity: 'Severity',
+    },
+  },
   userMessage: {
     expand: 'Show more',
     collapse: 'Show less',

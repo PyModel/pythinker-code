@@ -17,6 +17,7 @@ function resolve(
     pluginCommandMap: new Map<string, string>(),
     isStreaming: false,
     isCompacting: false,
+    engineV2: true,
     ...overrides,
   });
 }
