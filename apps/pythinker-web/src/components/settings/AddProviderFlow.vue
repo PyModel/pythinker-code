@@ -13,7 +13,7 @@ import SegmentedControl from '../ui/SegmentedControl.vue';
 import Spinner from '../ui/Spinner.vue';
 import ProviderForm from './ProviderForm.vue';
 
-const props = defineProps<{ config?: AppConfig | null }>();
+const props = defineProps<{ config?: AppConfig | null; initialSource?: 'catalog' | 'registry' | 'manual' }>();
 const emit = defineEmits<{
   dirtyChange: [dirty: boolean];
   added: [providerId: string];
@@ -21,7 +21,7 @@ const emit = defineEmits<{
 }>();
 const { t } = useI18n();
 
-const source = ref<'catalog' | 'registry' | 'manual'>('catalog');
+const source = ref<'catalog' | 'registry' | 'manual'>(props.initialSource ?? 'catalog');
 const sourceOptions = computed(() => [
   { value: 'catalog', label: t('providers.catalog.sourceCatalog') },
   { value: 'registry', label: t('providers.catalog.sourceRegistry') },

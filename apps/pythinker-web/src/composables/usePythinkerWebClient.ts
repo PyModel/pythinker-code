@@ -13,6 +13,7 @@ import {
   sortWorkspacesByRecent,
   type WorkspaceSortMode,
 } from '../lib/workspaceOrder';
+import { isOnboardingCompleted, resolveAppState, type AppState } from '../lib/appState';
 import { mergeWorkspaces } from '../lib/mergeWorkspaces';
 import { workspaceRootKey } from '../lib/rootKey';
 import { mergeSnapshotMessages } from '../lib/snapshotMessages';
@@ -2491,6 +2492,19 @@ const sessionCost = computed<number>(() => {
 });
 
 const authReady = computed<boolean>(() => rawState.authReady);
+
+const onboardingCompleted = computed<boolean>(() =>
+  isOnboardingCompleted(onboarded.value, authReady.value),
+);
+
+const appState = computed<AppState>(() =>
+  resolveAppState({
+    initialized: initialized.value,
+    onboardingCompleted: onboardingCompleted.value,
+    authReady: authReady.value,
+  }),
+);
+
 const defaultModel = computed<string | null>(() => rawState.defaultModel);
 const managedProviderStatus = computed<string | null>(() => rawState.managedProviderStatus);
 const config = computed<AppConfig | null>(() => rawState.config);
@@ -3142,6 +3156,8 @@ export function usePythinkerWebClient() {
     setSoundOnComplete: sound.setSoundOnComplete,
     onboarded,
     setOnboarded,
+    onboardingCompleted,
+    appState,
 
     // Actions
     load: workspaceState.load,

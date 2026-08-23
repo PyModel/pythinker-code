@@ -28,6 +28,8 @@ import MobileTopBar from './components/mobile/MobileTopBar.vue';
 import MobileSwitcherSheet from './components/mobile/MobileSwitcherSheet.vue';
 import MobileSettingsSheet from './components/mobile/MobileSettingsSheet.vue';
 import Onboarding from './components/settings/Onboarding.vue';
+import FirstRun from './components/settings/FirstRun.vue';
+import Recovery from './components/settings/Recovery.vue';
 import GlobalLoading from './components/GlobalLoading.vue';
 import DebugPanel from './debug/DebugPanel.vue';
 import { isTraceEnabled } from './debug/trace';
@@ -56,7 +58,6 @@ import { effortLabel, effectiveThinkingLevel } from './lib/modelThinking';
 import { stripSkillPrefix } from './lib/slashCommands';
 import { composeTitle } from './lib/sessionEmoji';
 import { getTurnInterruption } from './api/daemon/agentEventProjector';
-import Button from './components/ui/Button.vue';
 import IconButton from './components/ui/IconButton.vue';
 import Icon from './components/ui/Icon.vue';
 import { isMacosDesktop } from './lib/desktopFlag';
@@ -248,8 +249,7 @@ const running = computed(() => client.activity.value !== 'idle');
 
 // Auth readiness gates the main app. Once the first load finishes and auth is
 // still missing, show a full-page login entry instead of an in-app banner.
-const authLogoRef = ref<SVGSVGElement | null>(null);
-const { showAuthGate, blinkAuthLogo } = useAuthGate({ client, authLogoRef });
+const { showAuthGate } = useAuthGate({ client });
 
 
 // Static page title (app name only). The session title and workspace name are
@@ -265,9 +265,33 @@ const statusPanelThinking = computed<ThinkingLevel>(() => {
   return effectiveThinkingLevel(model, client.thinking.value);
 });
 
-// First-run onboarding. Shown until the user
-// finishes it once; re-openable from the settings popover.
-const showOnboarding = ref(!client.onboarded.value);
+// Top-level surface. `appState` separates "has never set this up" from "cannot
+// reach a model right now", so an established user whose credential expired
+// lands on recovery instead of being treated as a new user.
+//
+// Recovery is dismissible: a dead provider should not lock someone out of
+// transcripts they already have. Dismissing is per-visit — the next reload, or
+// any change that keeps readiness false, surfaces it again.
+const recoveryDismissed = ref(false);
+const showFirstRun = computed(() => client.appState.value === 'first-run');
+const showRecovery = computed(
+  () => client.appState.value === 'recovery' && !recoveryDismissed.value,
+);
+watch(
+  () => client.appState.value,
+  (state) => {
+    if (state !== 'recovery') recoveryDismissed.value = false;
+  },
+);
+function completeFirstRun(): void {
+  // The flag is written by the wizard's final step, never earlier: a crash
+  // mid-setup must resume the wizard rather than land in a half-configured app.
+  recoveryDismissed.value = false;
+}
+
+// Appearance-only onboarding, re-openable from the settings popover once setup
+// is done. First run reaches these same controls through FirstRun's last step.
+const showOnboarding = ref(false);
 function completeOnboarding(): void {
   client.setOnboarded(true);
   showOnboarding.value = false;
@@ -933,30 +957,11 @@ function openPr(url: string): void {
   <div class="app-shell">
     <WindowControls />
     <ServerAuthDialog v-if="showServerAuth" />
-    <section v-if="showAuthGate" class="auth-page">
-      <div class="auth-page-inner">
-        <svg ref="authLogoRef" class="auth-page-logo ch-logo" viewBox="0 0 32 22" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Pythinker Code" @mousedown.prevent @click="blinkAuthLogo">
-          <defs>
-            <mask id="authPythinkerEyes" maskUnits="userSpaceOnUse">
-              <rect x="0" y="0" width="32" height="22" fill="#fff" />
-              <g class="ch-eyes" fill="#000">
-                <rect class="ch-eye" x="11.8" y="7" width="2.8" height="8" rx="1.4" />
-                <rect class="ch-eye" x="17.4" y="7" width="2.8" height="8" rx="1.4" />
-              </g>
-            </mask>
-          </defs>
-          <rect x="1" y="1" width="30" height="20" rx="6" fill="var(--logo)" mask="url(#authPythinkerEyes)" />
-        </svg>
-        <div class="auth-page-copy">
-          <h1>{{ t('app.authPageTitle') }}</h1>
-          <p>{{ t('app.authPageMessage') }}</p>
-        </div>
-        <Button class="auth-page-btn" variant="primary" @click="openLogin">
-          <Icon name="log-in" size="md" />
-          <span>{{ t('app.authPageLogin') }}</span>
-        </Button>
-      </div>
-    </section>
+    <Recovery
+      v-if="showRecovery"
+      @open-providers="() => { recoveryDismissed = true; openProviders(); }"
+      @dismiss="recoveryDismissed = true"
+    />
     <div
       v-else
       class="app"
@@ -1337,8 +1342,13 @@ function openPr(url: string): void {
     <!-- First-run onboarding overlay. Held back
          until the first load settled so it can't cover the connecting splash
          (it teleports to <body> and would float above the retry error). -->
+    <!-- First run owns the whole window until setup finishes. It is what a
+         brand-new install sees instead of the old dead-end setup screen, whose
+         single action could not satisfy readiness by itself. -->
+    <FirstRun v-if="showFirstRun" @complete="completeFirstRun" />
+
     <Onboarding
-      v-if="client.initialized.value && showOnboarding && !showAuthGate"
+      v-else-if="showOnboarding"
       @complete="completeOnboarding"
       @skip="completeOnboarding"
     />
@@ -1496,57 +1506,6 @@ function openPr(url: string): void {
   overflow: hidden;
   box-sizing: border-box;
 }
-.auth-page {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 32px;
-  background: var(--bg);
-  color: var(--color-text);
-  box-sizing: border-box;
-}
-.auth-page-inner {
-  width: min(420px, 100%);
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 18px;
-}
-.auth-page-logo {
-  width: 64px;
-  height: 44px;
-  flex: none;
-  cursor: pointer;
-  user-select: none;
-  -webkit-user-select: none;
-  transition: transform 0.18s ease;
-}
-.auth-page-logo:hover {
-  transform: scale(1.06);
-}
-.auth-page-copy {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.auth-page-copy h1 {
-  margin: 0;
-  font-family: var(--sans);
-  font-size: 30px;
-  line-height: 1.15;
-  font-weight: 500;
-  letter-spacing: 0;
-  color: var(--color-text);
-}
-.auth-page-copy p {
-  margin: 0;
-  font-family: var(--sans);
-  font-size: var(--ui-font-size-lg);
-  line-height: 1.55;
-  color: var(--dim);
-}
 .app {
   --preview-w: 460px;
   flex: 1;
@@ -1702,20 +1661,6 @@ function openPr(url: string): void {
     bottom: max(var(--space-3), var(--safe-bottom));
     left: var(--space-3);
     align-items: stretch;
-  }
-  .auth-page {
-    align-items: flex-start;
-    padding:
-      max(48px, var(--safe-top))
-      max(20px, var(--safe-right))
-      max(24px, var(--safe-bottom))
-      max(20px, var(--safe-left));
-  }
-  .auth-page-copy h1 {
-    font-size: 26px;
-  }
-  .auth-page-btn {
-    width: 100%;
   }
 }
 </style>

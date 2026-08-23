@@ -10,6 +10,7 @@ import en_conversation from './en/conversation';
 import en_diff from './en/diff';
 import en_editor from './en/editor';
 import en_filePreview from './en/filePreview';
+import en_firstRun from './en/firstRun';
 import en_fileTree from './en/fileTree';
 import en_header from './en/header';
 import en_layout from './en/layout';
@@ -20,6 +21,7 @@ import en_model from './en/model';
 import en_onboarding from './en/onboarding';
 import en_providers from './en/providers';
 import en_question from './en/question';
+import en_recovery from './en/recovery';
 import en_sessions from './en/sessions';
 import en_settings from './en/settings';
 import en_sideChat from './en/sideChat';
@@ -49,6 +51,7 @@ export const messages = {
     diff: en_diff,
     editor: en_editor,
     filePreview: en_filePreview,
+    firstRun: en_firstRun,
     fileTree: en_fileTree,
     header: en_header,
     layout: en_layout,
@@ -59,6 +62,7 @@ export const messages = {
     onboarding: en_onboarding,
     providers: en_providers,
     question: en_question,
+    recovery: en_recovery,
     sessions: en_sessions,
     settings: en_settings,
     sideChat: en_sideChat,
