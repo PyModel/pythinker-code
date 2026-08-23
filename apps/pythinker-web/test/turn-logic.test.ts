@@ -3,7 +3,11 @@ import type { AppMessage, AppMessageContent } from '../src/api/types';
 import { latestTodos } from '../src/composables/latestTodos';
 import { messagesToTurns } from '../src/composables/messagesToTurns';
 import { isPlayableMediaUrl } from '../src/composables/useFilePreview';
-import { parseTaskNotifications } from '../src/lib/taskNotification';
+import {
+  parseTaskNotifications,
+  TASK_NOTIFICATION_METADATA_KEY,
+  taskNotificationFromMetadata,
+} from '../src/lib/taskNotification';
 
 function message(
   id: string,
@@ -834,6 +838,27 @@ describe('task notifications', () => {
         raw: notification,
       }),
     ]);
+  });
+
+  it.each([
+    ['agentId', null],
+    ['createdAt', 42],
+    ['outputFile', null],
+    ['outputFile', { path: 42 }],
+    ['outputFile', { path: '/tmp/test.log', bytes: '128' }],
+    ['outputPreview', null],
+    ['outputPreview', { text: 42 }],
+    ['outputPreview', { text: 'tail', bytes: '12' }],
+    ['outputPreview', { text: 'tail', totalBytes: '24' }],
+    ['outputPreview', { text: 'tail', truncated: 'true' }],
+  ])('rejects invalid optional %s metadata', (field, value) => {
+    const parsed = parseTaskNotifications(notification)[0];
+
+    expect(
+      taskNotificationFromMetadata({
+        [TASK_NOTIFICATION_METADATA_KEY]: { ...parsed, [field]: value },
+      }),
+    ).toBeUndefined();
   });
 
   it('keeps a task notification inside the active assistant turn', () => {

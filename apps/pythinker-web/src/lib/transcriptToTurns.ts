@@ -175,9 +175,8 @@ function taskNotificationFromFrame(
   taskId: string,
   text: string,
   task: TranscriptTask | undefined,
-): TaskNotification {
-  const parsed = parseTaskNotifications(text)[0];
-  if (parsed !== undefined) return parsed;
+): TaskNotification | undefined {
+  if (parseTaskNotifications(text).length > 0) return undefined;
   const [title = '', ...body] = text.split('\n');
   const state = task?.state ?? 'info';
   return {

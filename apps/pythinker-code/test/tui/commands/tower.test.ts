@@ -6,6 +6,7 @@ import { handleTowerCommand } from '#/tui/commands/index';
 import type { SlashCommandHost } from '#/tui/commands/dispatch';
 import {
   LLM_NOT_SET_MESSAGE,
+  NO_ACTIVE_SESSION_MESSAGE,
   TOWER_STATUS_PROMPT,
   TOWER_TEARDOWN_PROMPT,
 } from '#/tui/constant/pythinker-tui';
@@ -117,5 +118,15 @@ describe('handleTowerCommand', () => {
     await handleTowerCommand(legacy.host, 'on');
     expect(legacy.host.showError).toHaveBeenCalledWith(expect.stringContaining('session'));
     expect(legacy.host.ensureSession).not.toHaveBeenCalled();
+  });
+
+  it('rejects a legacy host even when it already has a session', async () => {
+    const { host, session } = makeHost({ engineV2: false });
+
+    await handleTowerCommand(host, 'on');
+
+    expect(host.showError).toHaveBeenCalledWith(NO_ACTIVE_SESSION_MESSAGE);
+    expect(session.setTowerMode).not.toHaveBeenCalled();
+    expect(host.ensureSession).not.toHaveBeenCalled();
   });
 });

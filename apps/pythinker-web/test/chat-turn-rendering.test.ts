@@ -206,6 +206,31 @@ describe('assistantRenderBlocks', () => {
     expect(rendered.map((block) => block.kind)).toEqual(['notification', 'tool']);
     expect(rendered[0]).toMatchObject({ kind: 'notification', items: [base, expect.any(Object)] });
   });
+
+  it('keeps a notification between two tool runs', () => {
+    const notification = {
+      id: 'task:1:completed',
+      category: 'task',
+      type: 'task.completed',
+      sourceKind: 'background_task',
+      sourceId: 'task_1',
+      title: 'Done',
+      severity: 'info',
+      body: 'Finished',
+      raw: '<notification />',
+    };
+    const rendered = assistantRenderBlocks(
+      assistantTurn([
+        toolBlock('a'),
+        { kind: 'notification', notification },
+        toolBlock('b'),
+      ]),
+    );
+
+    expect(rendered.map((block) => block.kind)).toEqual(['tool', 'notification', 'tool']);
+    expect(rendered[0]).toMatchObject({ kind: 'tool', tool: { id: 'a' } });
+    expect(rendered[2]).toMatchObject({ kind: 'tool', tool: { id: 'b' } });
+  });
 });
 
 describe('foldRenderBlocks', () => {

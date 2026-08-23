@@ -985,6 +985,7 @@ describe('foldWireRecordFacts (cold facts)', () => {
       base,
     );
     expect(folded.meta.modes).toEqual({ tower: {} });
+    expect(folded.items).toEqual(base.items);
 
     const exited = foldWireRecordFacts(
       [
@@ -994,6 +995,7 @@ describe('foldWireRecordFacts (cold facts)', () => {
       base,
     );
     expect(exited.meta.modes).toEqual({});
+    expect(exited.items).toEqual(base.items);
   });
 
   it('folds plan.revision records into the plan badge and a timeline marker', () => {

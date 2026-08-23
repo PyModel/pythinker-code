@@ -256,6 +256,15 @@ describe('resolveSlashCommandInput', () => {
     });
   });
 
+  it('does not resolve /tower on the legacy engine', () => {
+    setExperimentalFeatures([{ id: 'tower', enabled: true }]);
+
+    expect(resolve('/tower', { engineV2: false })).toEqual({
+      kind: 'message',
+      input: '/tower',
+    });
+  });
+
 });
 
 describe('goal command resolution', () => {

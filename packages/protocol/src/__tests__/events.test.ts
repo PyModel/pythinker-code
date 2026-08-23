@@ -8,6 +8,7 @@ import {
   agentEventSchema,
   assistantDeltaEventSchema,
   eventSchema,
+  pythinkerErrorCodeSchema,
   shellCompletedEventSchema,
   toolCallStartedEventSchema,
 } from '../events';
@@ -105,6 +106,12 @@ describe('events / display re-exports', () => {
         turnId: 1,
       }).success,
     ).toBe(false);
+  });
+
+  it('accepts the Tower mode error code emitted by Engine V2', () => {
+    expect(pythinkerErrorCodeSchema.parse('session.tower_mode_invalid')).toBe(
+      'session.tower_mode_invalid',
+    );
   });
 
   it('validates session-scoped daemon events with agentId and sessionId', () => {

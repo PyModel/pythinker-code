@@ -4,6 +4,7 @@ import { basename, dirname, join, relative, resolve } from 'pathe';
 
 import type { AutocompleteItem } from '@pymodel/pi-tui';
 
+import { TOWER_ARG_COMPLETIONS } from '../constant/tower';
 import { completeLeadingArg, type ArgCompletionSpec } from './complete-args';
 import type { PythinkerSlashCommand, SlashCommandAvailability } from './types';
 
@@ -24,13 +25,6 @@ const GOAL_NEXT_ARG_COMPLETIONS: readonly ArgCompletionSpec[] = [
 const DYNAMIC_WORKFLOW_ARG_COMPLETIONS: readonly ArgCompletionSpec[] = [
   { value: 'on', description: 'Turn dynamic_workflow mode on' },
   { value: 'off', description: 'Turn dynamic_workflow mode off' },
-];
-
-const TOWER_ARG_COMPLETIONS: readonly ArgCompletionSpec[] = [
-  { value: 'status', description: 'Report tower status' },
-  { value: 'teardown', description: 'Tear down the tower' },
-  { value: 'on', description: 'Turn tower mode on' },
-  { value: 'off', description: 'Turn tower mode off' },
 ];
 
 const ADD_DIR_ARG_COMPLETIONS: readonly ArgCompletionSpec[] = [

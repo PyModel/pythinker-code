@@ -61,7 +61,7 @@ Some commands are only available in the idle state. Executing these commands whi
 `/yolo` skips approval for regular tool calls. Please make sure you understand the potential risks before enabling it. Plan mode exit approval is not bypassed by `/yolo`; `Bash` inside Plan mode is still subject to the regular `/yolo` allow rules.
 :::
 
-`/tower` is experimental and hidden by default. Set `PYTHINKER_CODE_EXPERIMENTAL_TOWER=1` before starting Pythinker Code CLI to enable it. A workspace can have one active tower at a time.
+`/tower` is experimental and hidden by default. Set `PYTHINKER_CODE_EXPERIMENTAL_TOWER=1` before starting Pythinker Code CLI to enable it. It requires the `agent-core-v2` engine and is unavailable when `PYTHINKER_CODE_LEGACY_FLAG=1`. A workspace can have one active tower at a time.
 
 ## Autonomous Goal
 

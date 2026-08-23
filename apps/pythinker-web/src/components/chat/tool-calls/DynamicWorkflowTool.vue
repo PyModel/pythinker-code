@@ -75,8 +75,8 @@ const sharedModelLabel = computed(() => {
     const label = [
       modelDisplay?.(member.model),
       subagentEffort?.(member.thinkingEffort),
-    ].filter((part): part is string => part !== undefined).join(' · ');
-    if (label === '') continue;
+    ].filter((part): part is string => part !== undefined && part !== '').join(' · ');
+    if (label === '') return undefined;
     if (shared === undefined) shared = label;
     else if (shared !== label) return undefined;
   }

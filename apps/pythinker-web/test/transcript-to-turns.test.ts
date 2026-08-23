@@ -110,6 +110,11 @@ describe('transcriptSnapshotToTurns', () => {
                       'Read the output file to retrieve the result: /tmp/task-1.log',
                       '</output-file>',
                       '</notification>',
+                      '<notification id="notification_2" category="task" type="task.failed" source_kind="subagent" source_id="task_2" agent_id="agent_2">',
+                      'Title: Review failed',
+                      'Severity: error',
+                      'The review agent stopped.',
+                      '</notification>',
                     ].join('\n'),
                     taskId: 'task_1',
                   },
@@ -146,7 +151,11 @@ describe('transcriptSnapshotToTurns', () => {
     );
 
     expect(turns).toHaveLength(1);
-    expect(turns[0]?.blocks?.map((block) => block.kind)).toEqual(['notification', 'text']);
+    expect(turns[0]?.blocks?.map((block) => block.kind)).toEqual([
+      'notification',
+      'notification',
+      'text',
+    ]);
     expect(turns[0]?.blocks?.[0]).toMatchObject({
       kind: 'notification',
       notification: {
@@ -157,6 +166,18 @@ describe('transcriptSnapshotToTurns', () => {
         title: 'Background process completed',
         body: '42 passed',
         outputFile: { path: '/tmp/task-1.log', bytes: 128 },
+      },
+    });
+    expect(turns[0]?.blocks?.[1]).toMatchObject({
+      kind: 'notification',
+      notification: {
+        id: 'notification_2',
+        type: 'task.failed',
+        sourceKind: 'subagent',
+        sourceId: 'task_2',
+        agentId: 'agent_2',
+        title: 'Review failed',
+        body: 'The review agent stopped.',
       },
     });
   });

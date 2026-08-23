@@ -1852,7 +1852,7 @@ describe('AgentTranscriptProjector', () => {
           },
           time: 1000,
         },
-        { type: 'tower_mode.enter', time: 2000 },
+        { type: 'tower_mode.enter', agentId: 'main', sessionId: 'session-b', time: 2000 },
       ];
       await writeFile(
         join(wireDir, 'wire.jsonl'),
@@ -1890,9 +1890,8 @@ describe('AgentTranscriptProjector', () => {
           } as unknown as Scope,
         });
 
-      expect((await serviceWith(true).readColdSnapshot('s1', 'main'))!.meta.modes).toEqual({
-        tower: {},
-      });
+      expect((await serviceWith(true).readColdSnapshot('s1', 'main'))!.meta.modes)
+        .toBeUndefined();
       expect((await serviceWith(false).readColdSnapshot('s1', 'main'))!.meta.modes)
         .toBeUndefined();
 

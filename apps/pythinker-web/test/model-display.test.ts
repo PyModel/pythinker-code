@@ -14,6 +14,7 @@ import AgentTool from '../src/components/chat/tool-calls/AgentTool.vue';
 import DynamicWorkflowTool from '../src/components/chat/tool-calls/DynamicWorkflowTool.vue';
 import SubagentGrid from '../src/components/chat/SubagentGrid.vue';
 import TasksPane from '../src/components/chat/TasksPane.vue';
+import type { DynamicWorkflowMember } from '../src/composables/dynamicWorkflowGroups';
 import type { TaskItem } from '../src/types';
 
 vi.mock('markstream-vue', () => {
@@ -190,7 +191,7 @@ describe('subagent model/effort display resolvers', () => {
   });
 
   it('DynamicWorkflowTool shows only shared model and effort metadata', async () => {
-    const members = ref([
+    const members = ref<DynamicWorkflowMember[]>([
       {
         id: 'agent_1',
         name: 'First',
@@ -231,6 +232,15 @@ describe('subagent model/effort display resolvers', () => {
     expect(wrapper.get('.model-meta').text()).toBe('Example Model · High');
 
     members.value[1].thinkingEffort = 'medium';
+    await nextTick();
+    expect(wrapper.find('.model-meta').exists()).toBe(false);
+
+    members.value[1] = {
+      id: 'agent_2',
+      name: 'Second',
+      phase: 'working',
+      dynamicWorkflowIndex: 1,
+    };
     await nextTick();
     expect(wrapper.find('.model-meta').exists()).toBe(false);
   });

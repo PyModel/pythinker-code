@@ -536,7 +536,7 @@ export class TranscriptService {
   }
 
   private async coldTowerOwnedHere(sessionId: string, cwd: string | undefined): Promise<boolean> {
-    if (cwd === undefined) return true;
+    if (cwd === undefined) return false;
     const owner = await new TowerStore(resolveTowerRepoRoot(cwd)).load().then(
       (state) => state.sessionId,
       () => undefined,

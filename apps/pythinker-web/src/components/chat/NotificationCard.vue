@@ -8,6 +8,7 @@ import {
   type TaskNotificationState,
 } from '../../lib/taskNotification';
 import { copyTextToClipboard } from '../../lib/clipboard';
+import Button from '../ui/Button.vue';
 import Icon from '../ui/Icon.vue';
 import MessageTime from './MessageTime.vue';
 
@@ -126,8 +127,9 @@ onUnmounted(() => {
           <span v-if="notification.outputFile.bytes !== undefined" class="ntn-out-size">
             {{ formatBytes(notification.outputFile.bytes) }}
           </span>
-          <button
-            class="ntn-out-copy"
+          <Button
+            variant="ghost"
+            size="sm"
             type="button"
             @click="copyPath(notification.outputFile.path, itemKey(notification, index))"
           >
@@ -136,7 +138,7 @@ onUnmounted(() => {
                 ? t('conversation.notification.copied')
                 : t('conversation.notification.copyPath')
             }}
-          </button>
+          </Button>
         </div>
         <div v-if="hasPreview(notification)" class="ntn-line">
           <div v-if="previewCaption(notification)" class="ntn-preview-cap">
@@ -241,20 +243,6 @@ onUnmounted(() => {
   font-size: var(--text-xs);
   color: var(--color-text-faint);
 }
-.ntn-out-copy {
-  display: inline-flex;
-  align-items: center;
-  height: var(--space-6);
-  padding: 0 var(--space-2);
-  border-radius: var(--radius-full);
-  font-size: var(--text-xs);
-  color: var(--color-text-muted);
-  border: 0.5px solid var(--color-line-strong);
-  background: var(--color-surface-raised);
-  flex: none;
-  cursor: pointer;
-}
-.ntn-out-copy:hover { color: var(--color-text); }
 .ntn-preview-cap {
   font-size: var(--text-xs);
   color: var(--color-text-faint);

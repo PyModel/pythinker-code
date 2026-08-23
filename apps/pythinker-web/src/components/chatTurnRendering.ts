@@ -172,6 +172,7 @@ export function assistantRenderBlocks(turn: ChatTurn): AssistantRenderBlock[] {
 
   blocks.forEach((block, sourceIndex) => {
     if (block.kind === 'notification') {
+      flushRun();
       if (notificationGroup === null) {
         notificationGroup = { items: [block.notification], sourceIndex };
       } else {

@@ -110,20 +110,98 @@ export function taskNotificationFromMetadata(
   const value = metadata?.[TASK_NOTIFICATION_METADATA_KEY];
   if (typeof value !== 'object' || value === null) return undefined;
   const candidate = value as Record<string, unknown>;
-  for (const key of [
-    'id',
-    'category',
-    'type',
-    'sourceKind',
-    'sourceId',
-    'title',
-    'severity',
-    'body',
-    'raw',
-  ]) {
-    if (typeof candidate[key] !== 'string') return undefined;
+
+  const id = candidate['id'];
+  const category = candidate['category'];
+  const type = candidate['type'];
+  const sourceKind = candidate['sourceKind'];
+  const sourceId = candidate['sourceId'];
+  const agentId = candidate['agentId'];
+  const title = candidate['title'];
+  const severity = candidate['severity'];
+  const body = candidate['body'];
+  const raw = candidate['raw'];
+  const createdAt = candidate['createdAt'];
+  if (
+    typeof id !== 'string' ||
+    typeof category !== 'string' ||
+    typeof type !== 'string' ||
+    typeof sourceKind !== 'string' ||
+    typeof sourceId !== 'string' ||
+    typeof title !== 'string' ||
+    typeof severity !== 'string' ||
+    typeof body !== 'string' ||
+    typeof raw !== 'string' ||
+    (agentId !== undefined && typeof agentId !== 'string') ||
+    (createdAt !== undefined && typeof createdAt !== 'string')
+  ) {
+    return undefined;
   }
-  return value as TaskNotification;
+
+  let outputFile: TaskNotification['outputFile'];
+  const outputFileValue = candidate['outputFile'];
+  if (outputFileValue !== undefined) {
+    if (
+      typeof outputFileValue !== 'object' ||
+      outputFileValue === null ||
+      Array.isArray(outputFileValue)
+    ) {
+      return undefined;
+    }
+    const file = outputFileValue as Record<string, unknown>;
+    const path = file['path'];
+    const bytes = file['bytes'];
+    if (
+      typeof path !== 'string' ||
+      (bytes !== undefined && (typeof bytes !== 'number' || !Number.isFinite(bytes)))
+    ) {
+      return undefined;
+    }
+    outputFile = { path, bytes };
+  }
+
+  let outputPreview: TaskNotification['outputPreview'];
+  const outputPreviewValue = candidate['outputPreview'];
+  if (outputPreviewValue !== undefined) {
+    if (
+      typeof outputPreviewValue !== 'object' ||
+      outputPreviewValue === null ||
+      Array.isArray(outputPreviewValue)
+    ) {
+      return undefined;
+    }
+    const preview = outputPreviewValue as Record<string, unknown>;
+    const text = preview['text'];
+    const bytes = preview['bytes'];
+    const totalBytes = preview['totalBytes'];
+    const truncated = preview['truncated'];
+    if (
+      typeof text !== 'string' ||
+      (bytes !== undefined && (typeof bytes !== 'number' || !Number.isFinite(bytes))) ||
+      (totalBytes !== undefined &&
+        (typeof totalBytes !== 'number' || !Number.isFinite(totalBytes))) ||
+      (truncated !== undefined && typeof truncated !== 'boolean')
+    ) {
+      return undefined;
+    }
+    outputPreview = { text, bytes, totalBytes, truncated };
+  }
+
+  return {
+    id,
+    category,
+    type,
+    sourceKind,
+    sourceId,
+    agentId,
+    title,
+    severity,
+    body,
+    outputFile,
+    outputPreview,
+    raw,
+    createdAt,
+  };
 }
 
 export type TaskNotificationState =

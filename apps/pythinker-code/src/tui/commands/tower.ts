@@ -81,10 +81,10 @@ async function setTowerMode(host: SlashCommandHost, enabled: boolean): Promise<b
 }
 
 async function requireSessionEnsured(host: SlashCommandHost): Promise<Session | undefined> {
-  if (host.session !== undefined) return host.session;
   if (!host.engineV2) {
     host.showError(NO_ACTIVE_SESSION_MESSAGE);
     return undefined;
   }
+  if (host.session !== undefined) return host.session;
   return host.ensureSession();
 }
