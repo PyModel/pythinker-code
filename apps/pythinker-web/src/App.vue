@@ -59,7 +59,6 @@ import { getTurnInterruption } from './api/daemon/agentEventProjector';
 import Button from './components/ui/Button.vue';
 import IconButton from './components/ui/IconButton.vue';
 import Icon from './components/ui/Icon.vue';
-import InternalBuildBanner from './components/InternalBuildBanner.vue';
 import { isMacosDesktop } from './lib/desktopFlag';
 
 // Hydrate the server-transport credential (fragment token or localStorage)
@@ -1288,11 +1287,6 @@ function openPr(url: string): void {
       />
     </aside>
 
-    <!-- Internal-build tag — pinned to the app's bottom-right corner, above
-         whatever pane happens to be there. Purely informational: pointer
-         events pass through so it never blocks clicks. -->
-    <InternalBuildBanner class="internal-build-fab" />
-
     <MediaLightbox
       v-if="lightboxMedia && lightboxSrc"
       :media="lightboxMedia"
@@ -1635,14 +1629,6 @@ function openPr(url: string): void {
 /* Internal-build tag pinned to the app's bottom-right corner (desktop app
    only — the component renders nothing elsewhere). Informational: never
    intercepts pointer input. */
-.internal-build-fab {
-  position: absolute;
-  right: var(--space-3);
-  bottom: var(--space-3);
-  z-index: var(--z-sticky);
-  pointer-events: none;
-}
-
 /* Mobile single-column shell: slim top bar (auto) over the full-width
    conversation pane (1fr). No rail, no session column, no resize handle. */
 .app.mobile {

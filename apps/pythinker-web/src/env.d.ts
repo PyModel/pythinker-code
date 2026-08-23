@@ -16,7 +16,7 @@ declare const __PYTHINKER_DEV_BACKENDS__: { default: string; multi: string };
 declare const __PYTHINKER_WEB_VERSION__: string;
 
 // Injected by Vite `define`: true only in the web bundle embedded in the Pythinker
-// Desktop app. Gates the internal-build banner (see InternalBuildBanner.vue).
+// Desktop app. One of the desktop signals in lib/desktopFlag.ts.
 declare const __PYTHINKER_WEB_DESKTOP__: boolean;
 
 // Update state mirrored from the desktop app's auto-updater (electron-updater).

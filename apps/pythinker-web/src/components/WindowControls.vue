@@ -1,7 +1,9 @@
-<!-- Windows caption buttons. The desktop shell drops `titleBarOverlay` on
-     win32, so nothing native is drawn there and the renderer owns the controls.
-     They keep the macOS traffic-light shape but sit on the trailing edge, where
-     Windows users look for them. -->
+<!-- Windows title bar. The desktop shell drops `titleBarOverlay` on win32, so
+     nothing native is drawn there and the renderer owns the whole caption. It
+     is an in-flow strip above the app (never an overlay), so the conversation
+     header keeps its full width and the buttons cannot cover the git status.
+     The strip is the window-drag region — without it a Windows window has no
+     draggable chrome at all. -->
 <script setup lang="ts">
 import { computed } from 'vue';
 import { useI18n } from 'vue-i18n';
@@ -45,14 +47,17 @@ function close(): void {
 
 <style scoped>
 .window-controls {
-  position: fixed;
-  top: 12px;
-  right: 14px;
-  z-index: 60;
+  flex: none;
+  height: 32px;
   display: flex;
+  align-items: center;
+  justify-content: flex-end;
   gap: 8px;
-  /* The strip underneath drags the window; the buttons must not. */
-  -webkit-app-region: no-drag;
+  padding: 0 14px;
+  background: var(--color-bg);
+  border-bottom: 0.5px solid var(--color-line);
+  /* The whole strip drags the window; the buttons opt out below. */
+  -webkit-app-region: drag;
 }
 .wc {
   width: 14px;
@@ -64,6 +69,7 @@ function close(): void {
   align-items: center;
   justify-content: center;
   cursor: pointer;
+  -webkit-app-region: no-drag;
   /* The glyph only appears on hover, exactly as macOS does it. */
   color: transparent;
 }
