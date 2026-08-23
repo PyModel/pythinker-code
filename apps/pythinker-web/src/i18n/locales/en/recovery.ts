@@ -1,6 +1,6 @@
 export default {
   title: 'Pythinker Code cannot reach a model',
-  noProvider: 'No model provider is configured any more. Your sessions and history are untouched.',
+  noProvider: 'No model provider is configured. Your sessions and history are untouched.',
   noModel:
     '{provider} is connected, but none of its models can run a conversation right now. Your sessions and history are untouched.',
   credential:

@@ -15,6 +15,8 @@ export default {
     manualName: 'Custom endpoint',
     manualDesc: 'Any OpenAI- or Anthropic-compatible base URL',
     back: 'Back to options',
+    skip: 'Skip for now',
+    skipHint: 'You can connect a provider later from Settings, but you cannot send messages until you do.',
   },
   model: {
     title: 'Choose your default model',

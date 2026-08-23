@@ -105,8 +105,17 @@ async function goToAppearance(): Promise<void> {
 }
 
 function finish(): void {
+  // Written last and only here, so a crash mid-wizard resumes setup rather than
+  // leaving someone in a half-configured app.
   client.setOnboarded(true);
   emit('complete');
+}
+
+/** Leave setup without a provider. The app then has no model, which lands on
+ *  the recovery surface rather than pretending everything is fine — that is
+ *  the honest state, and it keeps existing transcripts readable. */
+function skip(): void {
+  finish();
 }
 
 function selectRoute(next: ConnectRoute): void {
@@ -193,12 +202,21 @@ async function onProviderAdded(): Promise<void> {
           </Button>
         </div>
 
-        <div v-if="canLeaveConnect" class="first-run__actions">
+        <div class="first-run__actions">
+          <Button variant="ghost" data-testid="first-run-skip" @click="skip">
+            {{ t('firstRun.connect.skip') }}
+          </Button>
           <span class="first-run__spacer" />
-          <Button variant="primary" data-testid="first-run-connect-continue" @click="goToModel">
+          <Button
+            v-if="canLeaveConnect"
+            variant="primary"
+            data-testid="first-run-connect-continue"
+            @click="goToModel"
+          >
             {{ t('firstRun.continue') }}
           </Button>
         </div>
+        <p v-if="route === null" class="first-run__skip-hint">{{ t('firstRun.connect.skipHint') }}</p>
       </section>
 
       <!-- Step 2 — Model -->
@@ -362,5 +380,6 @@ async function onProviderAdded(): Promise<void> {
 .first-run__empty { margin: 0; color: var(--warn); font-size: var(--ui-font-size); }
 .first-run__ready { display: flex; align-items: center; gap: 8px; margin: 0; color: var(--ok); font-size: var(--ui-font-size-sm); }
 .first-run__actions { display: flex; align-items: center; gap: 8px; width: 100%; margin-top: 6px; }
+.first-run__skip-hint { margin: 0; color: var(--muted); font-size: var(--ui-font-size-sm); }
 .first-run__spacer { flex: 1; }
 </style>

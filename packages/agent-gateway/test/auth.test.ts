@@ -113,6 +113,38 @@ describe('server-v2 GET /api/v1/auth', () => {
     expect(summary.managed_provider).toBeNull();
   });
 
+  it('adopts a model that can serve a turn, not merely the first one listed', async () => {
+    await boot(
+      [
+        '[providers.demo]',
+        'type = "openai"',
+        'api_key = "sk-test"',
+        '',
+        '[models."demo/embed-only"]',
+        'provider = "demo"',
+        'model = "embed-only"',
+        'max_context_size = 8192',
+        'capabilities = ["image_in"]',
+        '',
+        '[models."demo/chat-small"]',
+        'provider = "demo"',
+        'model = "chat-small"',
+        'max_context_size = 32768',
+        'capabilities = ["tool_use"]',
+        '',
+        '[models."demo/chat-big"]',
+        'provider = "demo"',
+        'model = "chat-big"',
+        'max_context_size = 262144',
+        'capabilities = ["tool_use"]',
+        '',
+      ].join('\n'),
+    );
+    const summary = await getAuth();
+    expect(summary.ready).toBe(true);
+    expect(summary.default_model).toBe('demo/chat-big');
+  });
+
   it('returns ready=false when the only model cannot serve a turn', async () => {
     await boot(
       [

@@ -12,11 +12,11 @@ import { Error2 } from '#/_base/errors/errors';
 import { IAgentIdentity } from '#/app/agentIdentity/agentIdentity';
 import { IConfigService } from '#/app/config/config';
 import { IModelCatalog } from '#/kosong/model/catalog';
-import { type ModelsSection } from '#/kosong/model/model';
+import { IModelService, type ModelsSection } from '#/kosong/model/model';
 import { type ProviderConfig, type ProvidersSection } from '#/kosong/provider/provider';
 import { modelsDevProviderModels, resolveModelsDevImport } from './modelsDev';
 
-import { DEFAULT_MODEL_SECTION, MODELS_SECTION, PROVIDERS_SECTION } from './configSection';
+import { MODELS_SECTION, PROVIDERS_SECTION } from './configSection';
 import { ModelsDevImportErrors } from './errors';
 import { IKosongConfigService } from './kosongConfig';
 import {
@@ -54,6 +54,7 @@ export class ModelsDevImportService implements IModelsDevImportService {
     @IConfigService private readonly config: IConfigService,
     @IKosongConfigService private readonly kosongConfig: IKosongConfigService,
     @IModelCatalog private readonly modelCatalog: IModelCatalog,
+    @IModelService private readonly models: IModelService,
     @IAgentIdentity private readonly identity: IAgentIdentity,
   ) {}
 
@@ -189,11 +190,7 @@ export class ModelsDevImportService implements IModelsDevImportService {
     await config.replace(MODELS_SECTION, nextModels);
     await this.cascadePool(config, nextModels);
 
-    const firstModel = models[0];
-    if (firstModel !== undefined) {
-      await seedDefaultModelWhenUnset(config, `${targetId}/${firstModel.id}`);
-    }
-
+    await this.models.settled;
     const imported = await this.modelCatalog.getProvider(targetId);
     return { provider: imported, modelsImported: models.length };
   }
@@ -278,12 +275,7 @@ export class ModelsDevImportService implements IModelsDevImportService {
     await config.replace(MODELS_SECTION, (applied.models ?? {}) as ModelsSection);
     await this.cascadePool(config, applied.models ?? {});
 
-    const firstEntry = Object.values(entries)[0];
-    const firstModelKey = firstEntry === undefined ? undefined : Object.keys(firstEntry.models)[0];
-    if (firstEntry !== undefined && firstModelKey !== undefined) {
-      await seedDefaultModelWhenUnset(config, `${firstEntry.id}/${firstModelKey}`);
-    }
-
+    await this.models.settled;
     const imported = [];
     for (const entry of Object.values(entries)) {
       imported.push(await this.modelCatalog.getProvider(entry.id));
@@ -294,12 +286,6 @@ export class ModelsDevImportService implements IModelsDevImportService {
     );
     return { providers: imported, modelsImported };
   }
-}
-
-async function seedDefaultModelWhenUnset(config: IConfigService, alias: string): Promise<void> {
-  const current = config.inspect<string>(DEFAULT_MODEL_SECTION).userValue;
-  if (current !== undefined && current.trim() !== '') return;
-  await config.replace(DEFAULT_MODEL_SECTION, alias);
 }
 
 function registryKeyFromExisting(

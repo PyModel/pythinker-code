@@ -21,6 +21,7 @@ export class ModelService extends Disposable implements IModelService {
 
   private models: Readonly<Record<string, ModelRecord>> = {};
   private defaultModel: string | undefined;
+  private settling: Promise<void> = Promise.resolve();
   private hydrated = false;
   private resolveReady!: () => void;
   readonly ready: Promise<void> = new Promise<void>((resolve) => {
@@ -38,6 +39,10 @@ export class ModelService extends Disposable implements IModelService {
   readonly onDidChangeDefaultModel: Event<DefaultModelChangedEvent & IWaitUntil> =
     this._onDidChangeDefaultModel.event;
 
+  get settled(): Promise<void> {
+    return this.settling;
+  }
+
   get(id: string): ModelRecord | undefined {
     return this.models[id];
   }
@@ -53,7 +58,7 @@ export class ModelService extends Disposable implements IModelService {
   loadAll(models: ModelsSection, defaultModel: string | undefined): void {
     void this.applyRecords(models);
     void this.applyDefaultModel(defaultModel);
-    void this.settleDefaultModel();
+    this.settling = this.settleDefaultModel();
     if (!this.hydrated) {
       this.hydrated = true;
       this.resolveReady();
@@ -87,7 +92,9 @@ export class ModelService extends Disposable implements IModelService {
   }
 
   private settleDefaultModel(): Promise<void> {
-    return this.applyDefaultModel(resolveDefaultModel(this.models, this.defaultModel));
+    const settle = this.applyDefaultModel(resolveDefaultModel(this.models, this.defaultModel));
+    this.settling = settle;
+    return settle;
   }
 
   private async applyRecords(next: Readonly<Record<string, ModelRecord>>): Promise<void> {
