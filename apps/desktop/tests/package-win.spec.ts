@@ -6,49 +6,72 @@ import {
   windowsSigningArgs,
 } from '../scripts/package-win'
 
-interface SchemaNode {
-  readonly $ref?: string
-  readonly anyOf?: readonly SchemaNode[]
-  readonly properties?: Readonly<Record<string, SchemaNode>>
-}
+type JsonObject = Record<string, unknown>
 
 const requireFromTests = createRequire(import.meta.url)
-const schema = requireFromTests(
-  requireFromTests.resolve('app-builder-lib/scheme.json', {
-    paths: [requireFromTests.resolve('electron-builder')],
-  }),
-) as { readonly definitions: Readonly<Record<string, SchemaNode>> }
+const electronBuilderPath = requireFromTests.resolve('electron-builder')
+const schema: unknown = requireFromTests(
+  requireFromTests.resolve('app-builder-lib/scheme.json', { paths: [electronBuilderPath] }),
+)
+const Ajv = requireFromTests(requireFromTests.resolve('ajv', { paths: [electronBuilderPath] })) as {
+  readonly default: new (options: JsonObject) => {
+    compile: (schema: unknown) => ((data: unknown) => boolean) & { errors?: readonly { instancePath: string, keyword: string, message?: string, params: JsonObject }[] }
+  }
+}
+// The same Ajv settings app-builder-lib validates a release configuration with,
+// so a configuration this accepts is one Electron Builder accepts.
+const validateConfiguration = new Ajv.default({
+  allErrors: true,
+  verbose: true,
+  coerceTypes: true,
+  strict: false,
+}).compile(schema)
 
-function referencedDefinition(node: SchemaNode): SchemaNode | undefined {
-  const reference = node.$ref ?? node.anyOf?.find(branch => branch.$ref !== undefined)?.$ref
-  return reference === undefined ? undefined : schema.definitions[reference.replace('#/definitions/', '')]
+const baseConfiguration = (requireFromTests('../package.json') as { readonly build: JsonObject }).build
+
+/**
+ * Apply generated `--config.<path> <value>` arguments to the packaged build configuration.
+ * @param args - Arguments as they reach Electron Builder.
+ * @returns The configuration Electron Builder would validate.
+ */
+function configurationFrom(args: readonly string[]): JsonObject {
+  const configuration = structuredClone(baseConfiguration)
+  for (let index = 0; index < args.length; index += 1) {
+    const argument = args[index]!
+    if (!argument.startsWith('--config.')) continue
+    const path = argument.slice('--config.'.length).split('.')
+    let node = configuration
+    for (const key of path.slice(0, -1)) {
+      node[key] ??= {}
+      node = node[key] as JsonObject
+    }
+    node[path.at(-1)!] = args[index + 1]
+    index += 1
+  }
+  return configuration
 }
 
 /**
- * Assert that a `--config.<path>` option exists in the installed Electron Builder schema.
+ * Assert Electron Builder would accept the configuration these arguments produce.
  *
- * `WindowsConfiguration` sets `additionalProperties: false`, so an option that
- * the schema does not declare fails validation before any build work and takes
- * the whole `win` object down with it. Comparing against the real schema keeps
- * these arguments honest across Electron Builder upgrades, which is what an
- * expected-array assertion cannot do.
- * @param path - Dotted option path with the `--config.` prefix removed.
+ * Comparing generated arguments against a hand-written array cannot tell that
+ * the arguments are invalid — both copies carry the same mistake. Electron
+ * Builder validates the merged configuration before it packages anything, so
+ * running that same validation here fails in the suite instead of at the tag.
+ * @param args - Arguments as they reach Electron Builder.
  */
-function assertSchemaOption(path: string): void {
-  const [root, ...rest] = path.split('.')
-  expect(root).toBe('win')
-  let definition = schema.definitions['WindowsConfiguration']!
-  rest.forEach((segment, index) => {
-    const property = definition.properties?.[segment]
-    if (property === undefined) {
-      throw new Error(`Electron Builder has no option '${rest.slice(0, index + 1).join('.')}' under win`)
-    }
-    const next = referencedDefinition(property)
-    if (next !== undefined) definition = next
-    else if (index !== rest.length - 1) {
-      throw new Error(`Electron Builder option 'win.${rest.slice(0, index + 1).join('.')}' has no nested options`)
-    }
-  })
+function assertConfigurationAccepted(args: readonly string[]): void {
+  if (validateConfiguration(configurationFrom(args))) return
+  const errors = validateConfiguration.errors ?? []
+  const unknown = errors
+    .filter(error => error.keyword === 'additionalProperties')
+    .map(error => `${error.instancePath}.${String(error.params['additionalProperty'])}`)
+  if (unknown.length > 0) throw new Error(`Electron Builder rejects unknown options: ${unknown.join(', ')}`)
+  // anyOf/type noise follows every real error; the specific keywords name the cause.
+  const specific = errors.filter(error => error.keyword !== 'anyOf' && error.keyword !== 'type')
+  const reported = (specific.length > 0 ? specific : errors)
+    .map(error => `${error.instancePath === '' ? 'configuration' : error.instancePath} ${error.message ?? 'is invalid'}`)
+  throw new Error(`Electron Builder rejects the configuration: ${[...new Set(reported)].join('; ')}`)
 }
 
 const signingEnvironment: NodeJS.ProcessEnv = {
@@ -101,24 +124,28 @@ describe('Windows Azure signing configuration', () => {
   })
 })
 
-describe('Electron Builder option names', () => {
+describe('Electron Builder configuration', () => {
   const certificateEnvironment: NodeJS.ProcessEnv = {
     WIN_CSC_LINK: 'certificate.p12',
     WIN_CSC_KEY_PASSWORD: 'password',
     WINDOWS_SIGNING_PUBLISHER_NAME: 'CN=Example Publisher, O=Example Publisher',
   }
 
-  it('emits only options the installed Electron Builder schema declares', () => {
+  it('accepts the packaged configuration on its own', () => {
+    expect(() => { assertConfigurationAccepted([]) }).not.toThrow()
+  })
+
+  it('accepts the configuration every signing method produces', () => {
     for (const environment of [signingEnvironment, certificateEnvironment]) {
-      const options = windowsSigningArgs(environment).filter(argument => argument.startsWith('--config.'))
-      expect(options.length).toBeGreaterThan(0)
-      for (const option of options) assertSchemaOption(option.slice('--config.'.length))
+      const args = windowsSigningArgs(environment)
+      expect(args.length).toBeGreaterThan(0)
+      expect(() => { assertConfigurationAccepted(args) }).not.toThrow()
     }
   })
 
-  it('rejects an option the schema does not declare', () => {
-    expect(() => { assertSchemaOption('win.publisherName') })
-      .toThrow("Electron Builder has no option 'publisherName' under win")
+  it('rejects an option Electron Builder has removed', () => {
+    expect(() => { assertConfigurationAccepted(['--config.win.publisherName', 'CN=Example Publisher']) })
+      .toThrow('Electron Builder rejects unknown options: /win.publisherName')
   })
 })
 
