@@ -184,9 +184,10 @@ jobs:
             echo 'No macOS signing certificate configured; building unsigned.'
           fi
 
-      # A tag build that quietly produces an unsigned app is worse than a failed
+      # A build that quietly produces an unsigned app is worse than a failed
       # one: macOS rejects unsigned updates, so it ships a release users cannot
-      # install or update from. Manual runs stay free to build unsigned.
+      # install or update from. Manual runs are held to the same bar, which is
+      # what makes them a rehearsal rather than a smoke test.
       - name: Require signing
         working-directory: apps/desktop
         run: node --import tsx scripts/assert-release-signing.ts
@@ -316,9 +317,9 @@ jobs:
         working-directory: apps/desktop
         run: node --import tsx scripts/stage-runtime.ts
 
-      # Only non-empty WIN_CSC_* signing secrets are exported. Without them,
-      # Windows artifacts are unsigned and installers trigger a SmartScreen
-      # warning on first run.
+      # Only non-empty WIN_CSC_* signing secrets are exported. Without them the
+      # artifacts are unsigned and installers trigger a SmartScreen warning, so
+      # the credential check below fails the run rather than shipping one.
       - name: Resolve Windows signing credentials
         shell: bash
         env:

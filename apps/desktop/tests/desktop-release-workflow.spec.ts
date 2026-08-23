@@ -55,7 +55,11 @@ describe('desktop release workflow', () => {
       const stepIndex = workflow.indexOf(step)
       expect(stepIndex).toBeGreaterThan(-1)
       const precedingStep = workflow.lastIndexOf('      - name:', stepIndex)
-      expect(workflow.slice(precedingStep, stepIndex)).not.toContain('refs/tags/desktop-v')
+      // Any condition at all, not just a tag test, would skip one trigger:
+      // `github.event_name == 'workflow_dispatch'` reintroduces the same hole
+      // from the other side. These steps must be unconditional.
+      const declaration = workflow.slice(precedingStep, stepIndex)
+      expect(declaration).not.toMatch(/^\s+if:/mu)
     }
   })
 
