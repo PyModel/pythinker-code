@@ -17,7 +17,7 @@ TypeScript monorepo for **pythinker-code**, a provider-agnostic AI coding agent.
 | `openai_responses` | OpenAI Responses API    | OpenAI (GPT-4.1/5.x, o-series)                  |
 | `google-genai`     | `@google/genai`         | Google (Gemini 2.0–3.x)                          |
 | `vertexai`         | Google Vertex AI        | Google Cloud–hosted Gemini                       |
-| `pythinker`        | Pythinker managed API   | Any model proxied through Pythinker              |
+| `pythinker`        | Pythinker-compatible API | PyModel, Kimi, and custom compatible endpoints   |
 
 Any OpenAI-compatible endpoint (DeepSeek, Qwen, GLM, Grok, Together AI, Fireworks, etc.) works via the `openai`/`openai_responses` wire with a custom `baseURL`.
 

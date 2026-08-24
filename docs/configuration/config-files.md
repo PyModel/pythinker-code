@@ -23,19 +23,19 @@ TOML field names always use snake_case, for example `default_model` and `max_con
 The following example covers the most commonly used configuration fields. You can copy it and adjust as needed:
 
 ```toml
-default_model = "pythinker-code/k3"
+default_model = "example/k3"
 default_permission_mode = "manual"
 default_plan_mode = false
 merge_all_available_skills = true
 telemetry = true
 
-[providers."managed:pythinker-code"]
+[providers.example]
 type = "pythinker"
-base_url = "https://api.kimi.com/coding/v1"
-api_key = ""
+base_url = "https://api.example.test/v1"
+api_key = "YOUR_API_KEY"
 
-[models."pythinker-code/k3"]
-provider = "managed:pythinker-code"
+[models."example/k3"]
+provider = "example"
 model = "k3"
 max_context_size = 1048576
 capabilities = [ "thinking", "always_thinking", "image_in", "video_in", "tool_use" ]
@@ -43,15 +43,15 @@ display_name = "K3"
 support_efforts = [ "low", "high", "max" ]
 default_effort = "max"
 
-[models."pythinker-code/kimi-for-coding"]
-provider = "managed:pythinker-code"
-model = "kimi-for-coding"
+[models."example/test-model"]
+provider = "example"
+model = "test-model"
 max_context_size = 262144
 capabilities = [ "thinking", "always_thinking", "image_in", "video_in", "tool_use" ]
 
-[models."pythinker-code/kimi-for-coding-highspeed"]
-provider = "managed:pythinker-code"
-model = "kimi-for-coding-highspeed"
+[models."example/test-model-fast"]
+provider = "example"
+model = "test-model-fast"
 max_context_size = 262144
 capabilities = [ "thinking", "always_thinking", "image_in", "video_in", "tool_use" ]
 
@@ -69,12 +69,12 @@ max_running_tasks = 4
 keep_alive_on_exit = false
 
 [services.pymodel_search]
-base_url = "https://api.kimi.com/coding/v1/search"
-api_key = ""
+base_url = "https://api.example.test/v1/search"
+api_key = "YOUR_API_KEY"
 
 [services.pymodel_fetch]
-base_url = "https://api.kimi.com/coding/v1/fetch"
-api_key = ""
+base_url = "https://api.example.test/v1/fetch"
+api_key = "YOUR_API_KEY"
 
 [[permission.rules]]
 decision = "allow"
@@ -177,14 +177,14 @@ max_context_size = 1047576
 Use `[models."<alias>".overrides]` for user overrides that must survive provider-model refreshes. Runtime consumers read the effective value: the override when present, otherwise the top-level field.
 
 ```toml
-[models."pythinker-code/kimi-for-coding"]
-provider = "managed:pythinker-code"
-model = "kimi-for-coding"
+[models."example/test-model"]
+provider = "example"
+model = "test-model"
 max_context_size = 262144
 
-[models."pythinker-code/kimi-for-coding".overrides]
+[models."example/test-model".overrides]
 max_context_size = 131072
-display_name = "Pythinker for Coding (custom)"
+display_name = "Test Model (custom)"
 ```
 
 `[models."<alias>".overrides]` accepts ordinary model fields such as `max_context_size`, `max_input_size`, `max_output_size`, `capabilities`, `display_name`, `reasoning_key`, `adaptive_thinking`, `support_efforts`, `default_effort`, and `off_effort`. It does not accept identity / routing fields: `provider`, `model`, `protocol`, `beta_api`, and `base_url`.
@@ -222,7 +222,7 @@ The minimal configuration is one line — a lone `default_model` is a pool with 
 
 ```toml
 [secondary_model]
-default_model = "pythinker-code/kimi-for-coding-highspeed"
+default_model = "example/test-model-fast"
 ```
 
 | Field | Type | Default | Description |
@@ -242,15 +242,15 @@ Constraints between the fields:
 
 In the interactive TUI, the [`/secondary-model`](../reference/slash-commands.md) command (alias `/subagent-model`) opens a model selector: the choice is written to `default_model` (when a models table exists and the picked alias is not in it, an entry with an empty description is added), and newly spawned subagents pick up the new default immediately — no session restart needed.
 
-A configured pool — an explicit `models` table or a lone `default_model` — enables model selection: the `Agent` / `AgentDynamicWorkflow` tools gain a `model` parameter, and the tool description lists the pool (the default marked `[default]`) so the main agent can choose per spawn. Pool keys can only reference configured [`[models]`](#models) entries — the `pythinker-code/*` aliases below are provisioned by `/login`:
+A configured pool — an explicit `models` table or a lone `default_model` — enables model selection: the `Agent` / `AgentDynamicWorkflow` tools gain a `model` parameter, and the tool description lists the pool (the default marked `[default]`) so the main agent can choose per spawn. Pool keys can only reference configured [`[models]`](#models) entries:
 
 ```toml
 [secondary_model]
-default_model = "pythinker-code/kimi-for-coding-highspeed"
+default_model = "example/test-model-fast"
 [secondary_model.models]
-"pythinker-code/k3" = "Pick this for hard problems. Strong at complex reasoning, algorithm design, deep debugging, math, and systematic challenges."
-"pythinker-code/kimi-for-coding-highspeed" = "Fast but priced higher. Good for latency-sensitive tasks: daily refactoring, code explanation, small edits, and summaries."
-"pythinker-code/kimi-for-coding" = "A balanced coding workhorse. Good for most feature development and code-change tasks."
+"example/k3" = "Pick this for hard problems. Strong at complex reasoning, algorithm design, deep debugging, math, and systematic challenges."
+"example/test-model-fast" = "Fast but priced higher. Good for latency-sensitive tasks: daily refactoring, code explanation, small edits, and summaries."
+"example/test-model" = "A balanced coding workhorse. Good for most feature development and code-change tasks."
 ```
 
 A spawn resolves the subagent's model in this order:
@@ -270,7 +270,7 @@ To take the choice away from the main agent and run every subagent on one fixed 
 
 ```toml
 [secondary_model]
-default_model = "pythinker-code/kimi-for-coding-highspeed"
+default_model = "example/test-model-fast"
 force = true
 ```
 
@@ -284,10 +284,10 @@ Binding a pool alias lands the subagent on the bound model's default effort. You
 2. List both the original alias and the variant alias in the pool.
 
 ```toml
-# "pythinker-code/k3" is provisioned by /login (default: high); this registers
-# a max-effort variant of the same model
+# "example/k3" is configured above with high effort; this registers a
+# max-effort variant of the same model.
 [models.k3-max]
-provider = "managed:pythinker-code"
+provider = "example"
 model = "k3"
 max_context_size = 1048576
 capabilities = [ "thinking", "always_thinking", "image_in", "video_in", "tool_use" ]
@@ -297,15 +297,15 @@ support_efforts = [ "low", "high", "max" ]
 default_effort = "max"
 
 [secondary_model]
-default_model = "pythinker-code/k3"
+default_model = "example/k3"
 [secondary_model.models]
-"pythinker-code/k3" = "Default high effort. Good for most implementation, analysis, and multi-turn interaction tasks."
+"example/k3" = "Default high effort. Good for most implementation, analysis, and multi-turn interaction tasks."
 k3-max = "The same model at max thinking effort. Good for the hardest subtasks."
 ```
 
 Two prerequisites:
 
-- The underlying model must declare `support_efforts` (under `managed:pythinker-code` only the k3 family currently declares effort levels).
+- The underlying model must declare `support_efforts` (in this example, only the k3 family declares effort levels).
 - The variant is a standalone entry and does not inherit fields from the entry it points at — copy `capabilities`, `support_efforts`, and the other metadata over in full, otherwise `default_effort` has no effect (it must be a member of `support_efforts`).
 
 For the main agent, global `[thinking].effort` takes priority over a model entry's `default_effort`. For pool-bound subagents, the model entry's valid `default_effort` is used before global fallback resolution, and only `[secondary_model].default_effort` takes higher priority. Value and fallback rules follow the [`[models]` entry's `default_effort`](#models).

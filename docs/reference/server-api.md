@@ -62,7 +62,7 @@ Error codes are grouped by band:
 | Band | Meaning | Examples |
 | --- | --- | --- |
 | `0` | Success | |
-| `400xx` | Bad request | `40001` validation failed (`details` lists each field), `40003` provider is OAuth-managed |
+| `400xx` | Bad request | `40001` validation failed (`details` lists each field) |
 | `401xx` | Auth and readiness | `40101` unauthorized, `40110` no provider configured, `40113` model not resolved |
 | `404xx` | Not found | `40401` session, `40408` MCP server, `40409` file path |
 | `409xx` | State conflict | `40901` session busy, `40902` approval already resolved, `40922` page conditions mismatch `page_token`, `40928` `fs:write` `base_etag` is stale |
@@ -91,17 +91,11 @@ Endpoints are grouped by resource below. A `:{action}` suffix in a path is the a
 | `GET /api/v1/meta` | Server version, capability map, `server_id`, experimental flags |
 | `POST /api/v1/shutdown` | Graceful shutdown (replies 200 first); mounted only on loopback binds |
 
-### Login and usage
+### Authentication
 
 | Method and path | Description |
 | --- | --- |
 | `GET /api/v1/auth` | Auth readiness snapshot |
-| `POST /api/v1/oauth/login` | Start the OAuth device-code login flow |
-| `GET /api/v1/oauth/login` | Poll the login flow state |
-| `DELETE /api/v1/oauth/login` | Cancel a pending login flow |
-| `POST /api/v1/oauth/logout` | Log out the managed provider |
-| `GET /api/v1/oauth/usage` | Plan usage and limits |
-| `GET /api/v1/oauth/userinfo` | Account profile |
 
 ### Config
 
@@ -122,7 +116,7 @@ Endpoints are grouped by resource below. A `:{action}` suffix in a path is the a
 | `PUT /api/v1/providers/{provider_id}` | Replace a provider |
 | `DELETE /api/v1/providers/{provider_id}` | Delete a provider (204) |
 | `POST /api/v1/providers/{provider_id}:refresh` | Refresh one provider's model metadata |
-| `POST /api/v1/providers:{action}` | Collection actions: `refresh` / `refresh_oauth` / `import_catalog` / `import_registry` |
+| `POST /api/v1/providers:{action}` | Collection actions: `refresh` / `import_catalog` / `import_registry` |
 | `GET /api/v1/catalog/providers` | Browse the models.dev directory (server-proxied) |
 | `GET /api/v1/catalog/providers/{catalog_id}` | Read one directory entry |
 

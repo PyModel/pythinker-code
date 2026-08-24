@@ -85,26 +85,12 @@ Key names per provider:
 
 For the full provider type and field reference, see [Providers and models](./providers.md).
 
-## OAuth and managed services
-
-This group of variables redirects OAuth authentication and managed service endpoints to a self-hosted or test environment. They are not needed for everyday use.
-
-| Variable | Purpose | Default |
-| --- | --- | --- |
-| `PYTHINKER_CODE_OAUTH_HOST` | OAuth auth host; highest priority | Falls back to `PYTHINKER_OAUTH_HOST` when unset |
-| `PYTHINKER_OAUTH_HOST` | OAuth auth host; fallback for `PYTHINKER_CODE_OAUTH_HOST` | Falls back to `https://auth.kimi.com` when unset |
-| `PYTHINKER_CODE_BASE_URL` | Managed API base URL used after OAuth login | `https://api.kimi.com/coding/v1` |
-
-::: warning
-`PYTHINKER_CODE_BASE_URL` (OAuth-managed service) and `PYTHINKER_BASE_URL` (direct API key connection to `pymodel.ai`) are two distinct variables. Use each one in its appropriate context.
-:::
-
 ## Define a model from environment variables (`PYTHINKER_MODEL_*`)
 
 Want to switch models for testing without touching `config.toml`? When `PYTHINKER_MODEL_NAME` is set, the CLI synthesizes a temporary provider and model alias from the `PYTHINKER_MODEL_*` variables in memory — nothing is written back to the config file. These variables take priority over `default_model` in `config.toml`, but the `-m <alias>` option at startup still has the highest priority.
 
 ```sh
-export PYTHINKER_MODEL_NAME="kimi-for-coding"
+export PYTHINKER_MODEL_NAME="test-model"
 export PYTHINKER_MODEL_API_KEY="YOUR_API_KEY"
 export PYTHINKER_MODEL_BASE_URL="https://api.example.com/v1"
 export PYTHINKER_MODEL_MAX_CONTEXT_SIZE="262144"
@@ -159,7 +145,7 @@ Switches that control the behavior of subsystems such as telemetry, background t
 | `PYTHINKER_TOKEN_COUNTING_STRATEGY` | Which context token count is reported externally (the context-size display); takes higher priority than `[token_counting] strategy` in `config.toml` (default `measured+estimated`) | `measured+estimated`, `measured`, `estimated` (case-insensitive); invalid values are ignored |
 | `PYTHINKER_WEB_SEARCH_BASE_URL` | API URL of the web search (`WebSearch`) service; takes higher priority than `[services.pymodel_search] base_url` in `config.toml`, and enables the service without that config section. Persisted credentials and custom headers are not forwarded to an env-selected endpoint | Non-blank string; blank values are ignored |
 | `PYTHINKER_WEB_SEARCH_API_KEY` | API key of the web search (`WebSearch`) service; replaces both the configured API key and OAuth credential when set | Non-blank string; blank values are ignored |
-| `PYTHINKER_WEB_FETCH_BASE_URL` | API URL of the web fetch (`FetchURL`) service; takes higher priority than `[services.pymodel_fetch] base_url`. Persisted credentials and custom headers are not forwarded to an env-selected endpoint. Without an env or config endpoint, signed-in users try the managed Pythinker OAuth fetch service before direct local requests | Non-blank string; blank values are ignored |
+| `PYTHINKER_WEB_FETCH_BASE_URL` | API URL of the web fetch (`FetchURL`) service; takes higher priority than `[services.pymodel_fetch] base_url`. Persisted credentials and custom headers are not forwarded to an env-selected endpoint | Non-blank string; blank values are ignored |
 | `PYTHINKER_WEB_FETCH_API_KEY` | API key of the web fetch (`FetchURL`) service; replaces both the configured API key and OAuth credential when set | Non-blank string; blank values are ignored |
 | `PYTHINKER_CODE_EXPERIMENTAL_FLAG` | Enable all registered experimental features for this process; it does not select the agent engine | `1`, `true`, `yes`, `on` |
 | `PYTHINKER_CODE_LEGACY_FLAG` | Use the legacy `agent-core` engine for `pythinker`, `pythinker -p`, `pythinker doctor`, `pythinker acp`, `pythinker export`, and `pythinker provider`; these commands use `agent-core-v2` by default | `1`, `true`, `yes`, `on` |

@@ -120,7 +120,7 @@ Output uses a transcript style: thinking content and Assistant text are both pre
 Temporarily switch the model:
 
 ```sh
-pythinker -m pythinker-code/kimi-for-coding -p "Explain the latest diff"
+pythinker -m example/test-model -p "Explain the latest diff"
 ```
 
 When you need to parse output programmatically, use the `stream-json` format — each line on stdout is a JSON object:
