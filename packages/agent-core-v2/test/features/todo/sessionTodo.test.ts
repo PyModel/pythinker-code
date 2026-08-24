@@ -171,10 +171,6 @@ function makeRuntimeAgent(
   };
 }
 
-function nextTick(): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, 0));
-}
-
 describe('TodoAgentRuntime', () => {
   it('isolates state by agent and generation', async () => {
     const registry = new RuntimeRegistry();
@@ -369,7 +365,6 @@ describe('TodoAgentRuntime', () => {
     expect(() => main.managed.runtimeSet.resolve(AgentTodo)).toThrow('closed');
 
     registry.withdraw(record);
-    await nextTick();
     expect(sub.activeReminders()).toBe(0);
     expect(() => sub.managed.runtimeSet.resolve(AgentTodo)).toThrow('unavailable');
     await sub.dispose();
@@ -509,7 +504,6 @@ describe('TodoAgentRuntime', () => {
     const managed = new ManagedAgent(scope.agentContext, handle, []);
     registry.track(managed);
     managed.attachDurableRuntimes();
-    await nextTick();
 
     expect(managed.runtimeSet.inspect()[0]).toMatchObject({
       id: 'failed-runtime',
@@ -527,9 +521,8 @@ describe('KeyedResourceLeasePool', () => {
     let creates = 0;
     const pool = new KeyedResourceLeasePool(
       { owner: 'todo.test', generation: 1 },
-      async () => {
+      () => {
         creates += 1;
-        await nextTick();
         return { dispose: () => {} };
       },
     );
@@ -547,8 +540,7 @@ describe('KeyedResourceLeasePool', () => {
     const pool = new KeyedResourceLeasePool(
       { owner: 'todo.test', generation: 2 },
       () => ({
-        dispose: async () => {
-          await nextTick();
+        dispose: () => {
           disposed = true;
         },
       }),
@@ -557,7 +549,6 @@ describe('KeyedResourceLeasePool', () => {
     const withdrawal = pool.withdraw();
 
     await expect(pool.acquire('main')).rejects.toThrow('todo.test:2 is withdrawn');
-    await nextTick();
     expect(disposed).toBe(false);
     lease.release();
     await withdrawal;

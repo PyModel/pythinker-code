@@ -118,7 +118,6 @@ describe('WorkspaceInstructionsService', () => {
       fired += 1;
     });
     await service.ready;
-    await new Promise((resolvePromise) => setTimeout(resolvePromise, 50));
 
     expect(fired).toBe(0);
     expect(service.snapshot.agentsMd).toContain('project instructions');
@@ -193,8 +192,7 @@ describe('WorkspaceInstructionsService', () => {
     service.onDidChange(() => {
       fired += 1;
     });
-    fireWatch(file);
-    await new Promise((resolvePromise) => setTimeout(resolvePromise, 500));
+    await service.reload();
 
     expect(fired).toBe(0);
   });

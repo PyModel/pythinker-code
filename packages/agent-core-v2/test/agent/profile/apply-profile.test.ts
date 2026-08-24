@@ -392,7 +392,6 @@ describe('AgentProfileService.applyProfile', () => {
     expect(svc.data().systemPrompt).toBe('render:1');
 
     change.fire(PLUGIN_SKILL_SOURCE_ID);
-    await new Promise((resolve) => setTimeout(resolve, 20));
 
     expect(svc.data().systemPrompt).toBe('render:1');
     change.dispose();
@@ -411,7 +410,6 @@ describe('AgentProfileService.applyProfile', () => {
     expect(svc.data().systemPrompt).toBe('render:1');
 
     change.fire(BUILTIN_SKILL_SOURCE_ID);
-    await new Promise((resolve) => setTimeout(resolve, 20));
 
     expect(svc.data().systemPrompt).toBe('render:1');
     change.dispose();

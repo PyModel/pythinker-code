@@ -1149,15 +1149,15 @@ describe('McpOAuthService shutdown', () => {
     await writeStarted;
 
     const shutdown = fixture.service.shutdown();
+    let shutdownSettled = false;
+    void shutdown.then(() => {
+      shutdownSettled = true;
+    });
     await fixture.scheduler.advanceBy(60);
-    const settledBeforeRelease = await Promise.race([
-      shutdown.then(() => true),
-      new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 1_000)),
-    ]);
+    await Promise.resolve();
+    expect(shutdownSettled).toBe(true);
     releaseWrite();
     await Promise.all([refresh, shutdown]);
-
-    expect(settledBeforeRelease).toBe(true);
   }, 15000);
 
   it('prevents a completing refresh from scheduling work after shutdown', async () => {
