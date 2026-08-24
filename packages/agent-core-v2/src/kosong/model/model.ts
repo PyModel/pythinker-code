@@ -64,6 +64,15 @@ export interface IModelService {
   readonly _serviceBrand: undefined;
 
   readonly ready: Promise<void>;
+  /**
+   * Resolves once any in-flight default-model adoption has finished, including
+   * the config write it triggers.
+   *
+   * Adoption is kicked off from the synchronous `loadAll` the config bridge
+   * calls, so without awaiting this a caller can return to its own caller
+   * before the adopted default has been persisted.
+   */
+  readonly settled: Promise<void>;
   readonly onDidChangeModels: Event<ModelsChangedEvent & IWaitUntil>;
   readonly onDidChangeDefaultModel: Event<DefaultModelChangedEvent & IWaitUntil>;
   get(id: string): ModelRecord | undefined;

@@ -10,6 +10,7 @@ import {
 } from '../src/composables/client/useAppearance';
 import { i18n } from '../src/i18n';
 import { messages } from '../src/i18n/locales';
+import ProviderForm from '../src/components/settings/ProviderForm.vue';
 import ProvidersPanel from '../src/components/settings/ProvidersPanel.vue';
 import SettingsDialog from '../src/components/settings/SettingsDialog.vue';
 
@@ -20,6 +21,9 @@ const { api, confirm, copyTextToClipboard } = vi.hoisted(() => ({
     addProvider: vi.fn(),
     deleteProvider: vi.fn(),
     getMeta: vi.fn(),
+    getAuth: vi.fn().mockResolvedValue({ ready: true, defaultModel: 'x', managedProvider: null }),
+    getConfig: vi.fn().mockResolvedValue({}),
+    listModels: vi.fn().mockResolvedValue([]),
   },
   confirm: vi.fn(),
   copyTextToClipboard: vi.fn(),
@@ -34,6 +38,30 @@ vi.mock('../src/lib/clipboard', () => ({ copyTextToClipboard }));
 describe('settings UI', () => {
   afterEach(() => {
     delete (window as unknown as { pythinkerDesktop?: unknown }).pythinkerDesktop;
+  });
+
+  it('re-reads auth readiness after a provider is saved, without a reload', async () => {
+    api.listProviders.mockResolvedValue([
+      {
+        id: 'opencode-go',
+        type: 'openai',
+        hasApiKey: true,
+        status: 'connected',
+        models: ['opencode-go/model-a'],
+      },
+    ]);
+    const wrapper = mount(ProvidersPanel, { global: { plugins: [i18n] } });
+    await flushPromises();
+
+    api.getAuth.mockClear();
+    await wrapper.find('.providers-panel__row').trigger('click');
+    await flushPromises();
+    wrapper.findComponent(ProviderForm).vm.$emit('saved', 'opencode-go');
+    await flushPromises();
+
+    // Without this the setup gate stays up until the window is reloaded: the
+    // daemon is ready but nothing asked it again.
+    expect(api.getAuth).toHaveBeenCalled();
   });
 
   it('lists provider models and fires the delete intent', async () => {

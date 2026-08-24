@@ -13,6 +13,7 @@ import {
   sortWorkspacesByRecent,
   type WorkspaceSortMode,
 } from '../lib/workspaceOrder';
+import { isOnboardingCompleted, resolveAppState, type AppState } from '../lib/appState';
 import { mergeWorkspaces } from '../lib/mergeWorkspaces';
 import { workspaceRootKey } from '../lib/rootKey';
 import { mergeSnapshotMessages } from '../lib/snapshotMessages';
@@ -2491,6 +2492,34 @@ const sessionCost = computed<number>(() => {
 });
 
 const authReady = computed<boolean>(() => rawState.authReady);
+
+/** Readiness as it stood on the first load, latched once and never updated.
+ *
+ *  Only the boot value can stand in for "setup happened before". Tracking it
+ *  live would make the first-run wizard unmount the moment its own connect step
+ *  made the daemon ready, dropping the user into the app without ever choosing
+ *  a model. */
+const authReadyAtBoot = ref<boolean | null>(null);
+watch(
+  initialized,
+  (ready) => {
+    if (ready && authReadyAtBoot.value === null) authReadyAtBoot.value = authReady.value;
+  },
+  { immediate: true },
+);
+
+const onboardingCompleted = computed<boolean>(() =>
+  isOnboardingCompleted(onboarded.value, authReadyAtBoot.value ?? false),
+);
+
+const appState = computed<AppState>(() =>
+  resolveAppState({
+    initialized: initialized.value,
+    onboardingCompleted: onboardingCompleted.value,
+    authReady: authReady.value,
+  }),
+);
+
 const defaultModel = computed<string | null>(() => rawState.defaultModel);
 const managedProviderStatus = computed<string | null>(() => rawState.managedProviderStatus);
 const config = computed<AppConfig | null>(() => rawState.config);
@@ -2880,6 +2909,23 @@ const workspaceState = useWorkspaceState(rawState, {
   fileDiffLoading,
 });
 
+/** Re-read every piece of daemon state a configuration change can invalidate.
+ *
+ *  The single reconciliation boundary for configuration mutations: provider
+ *  saved or deleted, credential changed, catalog imported, OAuth completed,
+ *  default model changed. Config is loaded first because auth readiness and the
+ *  model catalog are both derived from it; the rest are independent and run
+ *  together. Defensive throughout — each call swallows its own failures, so a
+ *  half-reachable daemon degrades instead of throwing into a save handler. */
+async function refreshRuntimeState(): Promise<void> {
+  await workspaceState.loadConfig();
+  await Promise.all([
+    workspaceState.checkAuth(),
+    modelProvider.loadModels(),
+    modelProvider.loadProviders(),
+  ]);
+}
+
 function setSessionEmoji(id: string, emoji: string | null): Promise<void> {
   const session = rawState.sessions.find((value) => value.id === id);
   if (!session) return Promise.resolve();
@@ -3125,6 +3171,8 @@ export function usePythinkerWebClient() {
     setSoundOnComplete: sound.setSoundOnComplete,
     onboarded,
     setOnboarded,
+    onboardingCompleted,
+    appState,
 
     // Actions
     load: workspaceState.load,
@@ -3247,6 +3295,7 @@ export function usePythinkerWebClient() {
 
     // Auth actions
     checkAuth: workspaceState.checkAuth,
+    refreshRuntimeState,
     startOAuthLogin: modelProvider.startOAuthLogin,
     pollOAuthLogin: modelProvider.pollOAuthLogin,
     cancelOAuthLogin: modelProvider.cancelOAuthLogin,

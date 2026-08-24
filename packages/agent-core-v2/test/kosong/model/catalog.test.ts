@@ -1338,6 +1338,13 @@ describe('ModelCatalog setDefaultModel', () => {
     const { host, models, catalog } = createHost({
       providers: {},
       models: {
+        good: {
+          model: 'good-model',
+          baseUrl: 'https://x.test/v1',
+          apiKey: 'sk',
+          capabilities: ['tool_use'],
+          maxContextSize: 262144,
+        },
         bad: {
           model: 'bad-model',
           baseUrl: 'https://x.test/v1',
@@ -1347,8 +1354,9 @@ describe('ModelCatalog setDefaultModel', () => {
       },
     });
     try {
+      expect(models.getDefaultModel()).toBe('good');
       await expect(catalog.setDefaultModel('bad')).rejects.toThrow();
-      expect(models.getDefaultModel()).toBeUndefined();
+      expect(models.getDefaultModel()).toBe('good');
     } finally {
       host.dispose();
     }
