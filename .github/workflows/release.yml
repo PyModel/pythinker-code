@@ -643,8 +643,40 @@ jobs:
           RELEASE_TAG: ${{ needs.release.outputs.pythinker_release_tag }}
         run: node apps/pythinker-code/scripts/native/produce-manifest.mjs dist-native-release "$RELEASE_TAG"
 
+      # Unlike the desktop release, which uploads into a draft and refuses to
+      # touch a published one, this release is already live: changesets creates
+      # it when it publishes to npm. `--clobber` therefore replaced the assets
+      # of a shipped version on any re-run of this job — and a re-run after a
+      # source change would put different bytes behind a version number users
+      # already have. A version has to identify one exact build forever.
+      #
+      # Uploading only what is missing keeps both properties: a run that failed
+      # part way through still completes on a re-run, and a rebuild of an
+      # already-published version is left on the floor instead of shipped under
+      # its old number. To correct a bad build, cut the next patch.
       - name: Upload assets to GitHub Release
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ needs.release.outputs.pythinker_release_tag }}
-        run: gh release upload "$RELEASE_TAG" dist-native-release/* --clobber
+        run: |
+          set -euo pipefail
+          existing="$(gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name')"
+          missing=()
+          skipped=()
+          for path in dist-native-release/*; do
+            name="$(basename "$path")"
+            if printf '%s\n' "$existing" | grep -qxF "$name"; then
+              skipped+=("$name")
+            else
+              missing+=("$path")
+            fi
+          done
+          if [ "${#skipped[@]}" -gt 0 ]; then
+            echo "::notice::Already on ${RELEASE_TAG} and left untouched: ${skipped[*]}"
+          fi
+          if [ "${#missing[@]}" -eq 0 ]; then
+            echo "::notice::Every asset is already on ${RELEASE_TAG}; nothing to upload."
+            exit 0
+          fi
+          gh release upload "$RELEASE_TAG" "${missing[@]}"
