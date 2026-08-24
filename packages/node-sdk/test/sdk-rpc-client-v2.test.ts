@@ -32,15 +32,14 @@ import {
   drainSessionIndexMirror,
   Error2,
   getLiveSessionById,
-  agentContextOf,
   HostProcessError,
+  AgentTodo,
   IAgentLifecycleService,
   IAgentTowerService,
   IHostRequestHeaders,
   IMcpManagementService,
   IMcpOAuthService,
   ISessionManager,
-  ISessionTodoService,
   OsProcessErrors,
 } from '@pymodel/agent-core-v2';
 
@@ -796,8 +795,10 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
 
       const handle = getLiveSessionById(client.engineAccessor, 'ses_todos');
       expect(handle).toBeDefined();
-      const main = await handle!.accessor.get(IAgentLifecycleService).create({ agentId: 'main' });
-      await handle!.accessor.get(ISessionTodoService).setTodos(agentContextOf(main), [
+      const manager = handle!.accessor.get(IAgentLifecycleService);
+      const main = await manager.create({ agentId: 'main' });
+      const todo = manager.resolve(main, AgentTodo);
+      await todo.replace([
         { title: 'write tests', status: 'in_progress' },
         { title: 'ship it', status: 'pending' },
       ]);
@@ -808,9 +809,7 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
       ]);
 
       const served = await client.getTodos({ sessionId: 'ses_todos' });
-      const stored = await handle!
-        .accessor.get(ISessionTodoService)
-        .getTodos(agentContextOf(main));
+      const stored = todo.get();
       expect(served).not.toBe(stored);
       expect(served[0]).not.toBe(stored[0]);
       await expect(client.getTodos({ sessionId: 'ses_missing' })).rejects.toMatchObject({
@@ -834,7 +833,7 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
 
       const handle = getLiveSessionById(client.engineAccessor, 'ses_tower');
       expect(handle).toBeDefined();
-      const main = handle!.accessor.get(IAgentLifecycleService).findAgentHandle('main');
+      const main = handle!.accessor.get(IAgentLifecycleService).handleOf('main');
       expect(main).toBeDefined();
       const tower = main!.accessor.get(IAgentTowerService);
 

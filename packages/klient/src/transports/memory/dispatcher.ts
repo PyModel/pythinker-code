@@ -22,7 +22,20 @@ import { getLiveSessionById } from '@pymodel/agent-core-v2/app/sessionManager/se
 import { IAgentLifecycleService } from '@pymodel/agent-core-v2/session/agentLifecycle/agentLifecycle';
 import { ensureMainAgent } from '@pymodel/agent-core-v2/session/agentLifecycle/mainAgent';
 import { agentContextOf } from '@pymodel/agent-core-v2/agent/scopeContext/scopeContext';
-import { ISessionInteractionService } from '@pymodel/agent-core-v2/session/interaction/interaction';
+import { AgentInteraction } from '@pymodel/agent-core-v2/features/interaction/interactionAgentRuntime';
+import type {
+  InteractionKind,
+  InteractionRequest,
+} from '@pymodel/agent-core-v2/features/interaction/interaction';
+import {
+  enqueueSessionInteraction,
+  isSessionInteractionRecentlyResolved,
+  listSessionPendingInteractions,
+  onSessionInteractionDidChangePending,
+  onSessionInteractionDidResolve,
+  requestSessionInteraction,
+  respondSessionInteraction,
+} from '@pymodel/agent-core-v2/features/interaction/sessionInteractions';
 import { IEventBus } from '@pymodel/agent-core-v2/app/event/eventBus';
 import type {
   FileMeta,
@@ -51,6 +64,33 @@ export interface ScopeLike {
 export function wireClone<T>(value: T): T {
   if (value === undefined) return value;
   return JSON.parse(JSON.stringify(value)) as T;
+}
+
+/**
+ * `sessionInteractionService` stays on the wire after the engine moved the
+ * interaction kernel into per-agent runtimes: the view aggregates the live
+ * agents' `AgentInteraction` facades through the session's agent lifecycle.
+ */
+function interactionServiceView(session: ScopeLike): Record<string, unknown> {
+  const manager = session.accessor.get(IAgentLifecycleService);
+  return {
+    request: (req: InteractionRequest<unknown>) => requestSessionInteraction(manager, req),
+    enqueue: (req: InteractionRequest<unknown>) => enqueueSessionInteraction(manager, req),
+    respond: (id: string, response: unknown) => {
+      respondSessionInteraction(manager, id, response);
+    },
+    listPending: (kind?: InteractionKind) => listSessionPendingInteractions(manager, kind),
+    isRecentlyResolved: (id: string) => isSessionInteractionRecentlyResolved(manager, id),
+    cancelPendingForTurn: (turnId: number) => {
+      for (const context of manager.list()) {
+        manager.resolve(context, AgentInteraction).cancelPendingForTurn(turnId);
+      }
+    },
+    onDidChangePending: (listener: (event: unknown) => void) =>
+      onSessionInteractionDidChangePending(manager, listener),
+    onDidResolve: (listener: (event: unknown) => void) =>
+      onSessionInteractionDidResolve(manager, listener),
+  };
 }
 
 export interface MemoryDispatcher {
@@ -151,9 +191,14 @@ export function createMemoryDispatcher(root: ScopeLike): MemoryDispatcher {
     }
     if (scope.agentId === undefined) return { kind: 'session', like: session };
     if (scope.agentId === 'main') {
-      return { kind: 'agent', like: await ensureMainAgent(session) };
+      const context = await ensureMainAgent(session);
+      const handle = session.accessor.get(IAgentLifecycleService).handleOf(context.agentId);
+      if (handle === undefined) {
+        throw new RPCError(NOT_FOUND, 'main agent was not found');
+      }
+      return { kind: 'agent', like: handle };
     }
-    const agent = session.accessor.get(IAgentLifecycleService).findAgentHandle(scope.agentId);
+    const agent = session.accessor.get(IAgentLifecycleService).handleOf(scope.agentId);
     if (agent === undefined) {
       throw new RPCError(NOT_FOUND, `agent not found: ${scope.agentId}`);
     }
@@ -161,6 +206,15 @@ export function createMemoryDispatcher(root: ScopeLike): MemoryDispatcher {
   }
 
   function resolveService(resolved: ResolvedScope, service: string): Record<string, unknown> {
+    if (service === 'sessionInteractionService') {
+      if (resolved.kind !== 'session') {
+        throw new RPCError(
+          REQUEST_INVALID,
+          `service not available in ${resolved.kind} scope: ${service}`,
+        );
+      }
+      return interactionServiceView(resolved.like);
+    }
     if (
       service === MCP_MANAGEMENT_SERVICE &&
       !root.accessor.get(IFlagService).enabled(MCP_MANAGEMENT_FLAG_ID)
@@ -187,14 +241,13 @@ export function createMemoryDispatcher(root: ScopeLike): MemoryDispatcher {
       });
     }
     if (resolved.kind === 'session' && name === 'interactions') {
-      const interaction = resolved.like.accessor.get(ISessionInteractionService);
-      return interaction.onDidChangePending(() => {
-        handler(wireClone(interaction.listPending()));
+      const manager = resolved.like.accessor.get(IAgentLifecycleService);
+      return onSessionInteractionDidChangePending(manager, () => {
+        handler(wireClone(listSessionPendingInteractions(manager)));
       });
     }
     if (resolved.kind === 'session' && name === 'interactions:resolved') {
-      const interaction = resolved.like.accessor.get(ISessionInteractionService);
-      return interaction.onDidResolve((resolution) => {
+      return onSessionInteractionDidResolve(resolved.like.accessor.get(IAgentLifecycleService), (resolution) => {
         handler(wireClone(resolution));
       });
     }

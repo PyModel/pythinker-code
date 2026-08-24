@@ -15,7 +15,7 @@ import type {
 import type {
   Interaction,
   InteractionKind,
-} from '@pymodel/agent-core-v2/session/interaction/interaction';
+} from '@pymodel/agent-core-v2/features/interaction/interaction';
 import type {
   QuestionRequest,
   QuestionResult,

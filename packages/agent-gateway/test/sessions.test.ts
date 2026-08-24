@@ -7,16 +7,16 @@ import { inflateRawSync } from 'node:zlib';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  AgentCron,
+  AgentGoal,
   Error2,
   ErrorCodes,
   IBootstrapService,
   type Event2,
   IAgentConversationUndoService,
-  IAgentGoalService,
   IAgentLifecycleService,
   IEventBus,
   IEventService,
-  ISessionCronService,
   ISessionManager,
   IWorkspaceService,
   MAIN_AGENT_ID,
@@ -24,7 +24,6 @@ import {
   getLiveSessionById,
   resumeSessionById,
   sessionDirOf,
-  type ServiceIdentifier,
 } from '@pymodel/agent-core-v2';
 import { TurnStarted } from '@pymodel/agent-core-v2/agent/loop/turnEvents';
 import { sessionWarningsResponseSchema } from '@pymodel/agent-core-v2/app/sessionManager/sessionProtocol';
@@ -65,14 +64,6 @@ interface SessionWire {
 interface PageWire {
   items: SessionWire[];
   has_more: boolean;
-}
-
-function agentRpc(
-  service: ServiceIdentifier<unknown>,
-  method: string,
-  sessionId: string,
-): string {
-  return `/api/v1/debug/session/${sessionId}/agent/main/${String(service)}/${method}`;
 }
 
 function goalContinuationStarts(events: readonly Event2<any>[]): readonly Event2<any>[] {
@@ -289,18 +280,24 @@ describe('server-v2 /api/v1/sessions', () => {
     });
     const session = getLiveSessionById((server as RunningServer).core.accessor, id);
     if (session === undefined) throw new Error('expected a live session');
-    const agent = session.accessor.get(IAgentLifecycleService).findAgentHandle(MAIN_AGENT_ID);
+    const lifecycle = session.accessor.get(IAgentLifecycleService);
+    const context = lifecycle.get(MAIN_AGENT_ID);
+    const agent = lifecycle.handleOf(MAIN_AGENT_ID);
+    if (context === undefined) throw new Error('expected a live main agent context');
     if (agent === undefined) throw new Error('expected a live main agent');
 
     const eventBus = agent.accessor.get(IEventBus);
     const events: Event2<any>[] = [];
     const subscription = eventBus.subscribe((event) => events.push(event));
 
-    const stopped = await postJson<{ status: string }>(
-      agentRpc(IAgentGoalService, status === 'blocked' ? 'markBlocked' : 'pauseGoal', id),
-      status === 'blocked' ? { reason: 'need credentials' } : {},
-    );
-    if (stopped.body.data.status !== status) throw new Error(`expected a ${status} goal`);
+    const goal = lifecycle.resolve(context, AgentGoal);
+    const snapshot =
+      status === 'blocked'
+        ? await goal.markBlocked({ reason: 'need credentials' })
+        : await goal.pauseGoal({});
+    if (snapshot === null || snapshot.status !== status) {
+      throw new Error(`expected a ${status} goal`);
+    }
 
     return {
       id,
@@ -712,9 +709,10 @@ describe('server-v2 /api/v1/sessions', () => {
     });
     const session = getLiveSessionById((server as RunningServer).core.accessor, created.body.data.id);
     if (session === undefined) throw new Error('expected live session');
-    const agent = await session.accessor
+    await session.accessor
       .get(IAgentLifecycleService)
       .create({ agentId: MAIN_AGENT_ID });
+    const agent = session.accessor.get(IAgentLifecycleService).handleOf(MAIN_AGENT_ID)!;
     const undo = vi
       .spyOn(agent.accessor.get(IAgentConversationUndoService), 'undo')
       .mockRejectedValue(new Error2(ErrorCodes.SESSION_BUSY, 'session is busy'));
@@ -813,8 +811,8 @@ describe('server-v2 /api/v1/sessions', () => {
     const parentId = parent.body.data.id;
     const session = getLiveSessionById((server as RunningServer).core.accessor, parentId);
     expect(session).toBeDefined();
-    await session!.accessor.get(IAgentLifecycleService).create({ agentId: MAIN_AGENT_ID });
-    const cron = session!.accessor.get(ISessionCronService);
+    const mainContext = await session!.accessor.get(IAgentLifecycleService).create({ agentId: MAIN_AGENT_ID });
+    const cron = session!.accessor.get(IAgentLifecycleService).resolve(mainContext, AgentCron);
     const task = cron.addTask({ cron: '0 9 * * *', prompt: 'fork me', recurring: true });
 
     const forked = await postJson<SessionWire>(`/api/v1/sessions/${parentId}:fork`, {});
@@ -825,7 +823,8 @@ describe('server-v2 /api/v1/sessions', () => {
       forked.body.data.id,
     );
     expect(forkedSession).toBeDefined();
-    const forkedCron = forkedSession!.accessor.get(ISessionCronService);
+    const forkedManager = forkedSession!.accessor.get(IAgentLifecycleService);
+    const forkedCron = forkedManager.resolve(forkedManager.get(MAIN_AGENT_ID)!, AgentCron);
     expect(forkedCron.list().map((t) => ({ id: t.id, prompt: t.prompt }))).toEqual([
       { id: task.id, prompt: 'fork me' },
     ]);
@@ -837,9 +836,10 @@ describe('server-v2 /api/v1/sessions', () => {
     const parentId = parent.body.data.id;
     const session = getLiveSessionById((server as RunningServer).core.accessor, parentId);
     expect(session).toBeDefined();
-    await session!.accessor.get(IAgentLifecycleService).create({ agentId: MAIN_AGENT_ID });
+    const mainContext = await session!.accessor.get(IAgentLifecycleService).create({ agentId: MAIN_AGENT_ID });
     const task = session!.accessor
-      .get(ISessionCronService)
+      .get(IAgentLifecycleService)
+      .resolve(mainContext, AgentCron)
       .addTask({ cron: '0 9 * * *', prompt: 'restart me', recurring: true });
 
     await (server as RunningServer).close();
@@ -857,7 +857,8 @@ describe('server-v2 /api/v1/sessions', () => {
       .get(ISessionManager)
       .resume(parentId);
     expect(resumed).toBeDefined();
-    const cron = resumed!.accessor.get(ISessionCronService);
+    const resumedManager = resumed!.accessor.get(IAgentLifecycleService);
+    const cron = resumedManager.resolve(resumedManager.get(MAIN_AGENT_ID)!, AgentCron);
     expect(cron.list().map((t) => ({ id: t.id, prompt: t.prompt }))).toEqual([
       { id: task.id, prompt: 'restart me' },
     ]);

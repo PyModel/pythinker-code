@@ -390,7 +390,7 @@ export class TranscriptService {
     const agent =
       session === undefined
         ? undefined
-        : session.accessor.get(IAgentLifecycleService).findAgentHandle(agentId);
+        : session.accessor.get(IAgentLifecycleService).handleOf(agentId);
     const status = agent?.accessor.get(IAgentLoopService).status();
     if (status?.state !== 'running' || status.activeTurnId === undefined) return undefined;
     const ordinal = status.activeTurnId;
@@ -417,7 +417,7 @@ export class TranscriptService {
   private livePromptBackfill(sessionId: string, agentId: string): TranscriptOperation[] {
     const agent = getLiveSessionById(this.deps.core.accessor, sessionId)
       ?.accessor.get(IAgentLifecycleService)
-      .findAgentHandle(agentId);
+      .handleOf(agentId);
     const promptService = agent === undefined ? undefined : agent.accessor.get(IAgentPromptService);
     const queue = promptService?.list();
     if (queue === undefined) return [];
@@ -599,7 +599,7 @@ export class TranscriptService {
     const folded = foldWireRecordFacts(records, base);
     const status = getLiveSessionById(this.deps.core.accessor, sessionId)
       ?.accessor.get(IAgentLifecycleService)
-      .findAgentHandle(agentId)
+      .handleOf(agentId)
       ?.accessor.get(IAgentLoopService)
       .status();
     const activity: ActivityMeta = status?.state === 'running' ? 'turn' : 'idle';

@@ -141,7 +141,7 @@ export type {
 export type {
   Interaction,
   InteractionKind,
-} from '@pymodel/agent-core-v2/session/interaction/interaction';
+} from '@pymodel/agent-core-v2/features/interaction/interaction';
 export type { SkillSummary } from '@pymodel/agent-core-v2/app/skillCatalog/types';
 export type {
   GlobalMcpServerConfig,

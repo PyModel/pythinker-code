@@ -7,7 +7,7 @@ import type {
   CompactionCompleted,
   CompactionStarted,
 } from '@pymodel/agent-core-v2/agent/fullCompaction/compactionOps';
-import type { ContentPart, GoalUpdated } from '@pymodel/agent-core-v2';
+import type { ContentPart, CronFired, GoalUpdated } from '@pymodel/agent-core-v2';
 import type {
   AssistantDelta,
   ThinkingDelta,
@@ -48,7 +48,6 @@ import type {
 import type { AgentStatusUpdated } from '@pymodel/agent-core-v2/agent/usage/usageEvents';
 import type { PlanRevision } from '@pymodel/agent-core-v2/features/plan/planOps';
 import type { SubagentSuspended } from '@pymodel/agent-core-v2/features/dynamic_workflow/session/sessionDynamicWorkflowService';
-import type { CronFired } from '@pymodel/agent-core-v2/session/cron/cronOps';
 import type {
   SubagentCompleted,
   SubagentFailed,

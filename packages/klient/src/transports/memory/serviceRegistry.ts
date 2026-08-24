@@ -27,7 +27,6 @@ import { IHostFolderBrowser } from '@pymodel/agent-core-v2/app/hostFolderBrowser
 import { IWorkspaceInstanceManager } from '@pymodel/agent-core-v2/workspace/workspaceInstance/workspaceInstanceManager';
 import { ISessionManager } from '@pymodel/agent-core-v2/app/sessionManager/sessionManager';
 import { ISessionMetadata } from '@pymodel/agent-core-v2/session/sessionMetadata/sessionMetadata';
-import { ISessionInteractionService } from '@pymodel/agent-core-v2/session/interaction/interaction';
 import { ISessionApprovalService } from '@pymodel/agent-core-v2/session/approval/approval';
 import { ISessionQuestionService } from '@pymodel/agent-core-v2/session/question/question';
 import { ISessionSkillCatalog } from '@pymodel/agent-core-v2/session/sessionSkillCatalog/skillCatalog';
@@ -70,7 +69,6 @@ export const serviceTokens: Readonly<Record<string, ServiceIdentifier<unknown>>>
   workspaceInstanceManager: IWorkspaceInstanceManager,
   sessionManager: ISessionManager,
   sessionMetadata: ISessionMetadata,
-  sessionInteractionService: ISessionInteractionService,
   sessionApprovalService: ISessionApprovalService,
   sessionQuestionService: ISessionQuestionService,
   sessionSkillCatalog: ISessionSkillCatalog,
