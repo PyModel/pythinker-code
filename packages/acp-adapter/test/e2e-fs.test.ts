@@ -139,7 +139,7 @@ describe('end-to-end FS reverse-RPC', () => {
     } as unknown as PythinkerHarness;
 
     const { agentStream, clientStream } = makeInMemoryStreamPair();
-    new AgentSideConnection((c) => new AcpServer(harness, c), agentStream);
+    new AgentSideConnection((c) => new AcpServer(harness, c, { disableAuth: true }), agentStream);
     const bufferClient = new UnsavedBufferClient();
     const client = new ClientSideConnection(() => bufferClient, clientStream);
 
@@ -226,7 +226,7 @@ describe('end-to-end FS reverse-RPC', () => {
     } as unknown as PythinkerHarness;
 
     const { agentStream, clientStream } = makeInMemoryStreamPair();
-    new AgentSideConnection((c) => new AcpServer(harness, c), agentStream);
+    new AgentSideConnection((c) => new AcpServer(harness, c, { disableAuth: true }), agentStream);
     const bufferClient = new UnsavedBufferClient();
     const client = new ClientSideConnection(() => bufferClient, clientStream);
 

@@ -175,7 +175,7 @@ export async function listModelsFromHarness(
  * `effectiveModelAlias` only applies to non-Pythinker providers, and then only to
  * model names that still carry a Claude marker — a custom-named Claude model
  * on a `type = "anthropic"` provider still gets an inferred effort list,
- * while managed Pythinker models and clearly non-Claude names keep only their
+ * while Pythinker models and clearly non-Claude names keep only their
  * catalog-declared efforts.
  */
 function providerTypeOf(

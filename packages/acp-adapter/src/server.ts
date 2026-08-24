@@ -3,7 +3,6 @@
  *
  * Phase 3 implements `initialize`, `session/new`, and `session/cancel`
  * against {@link PythinkerHarness}. `prompt` is wired in step 3.4. `initialize`
- * advertises the terminal-auth method (see {@link TERMINAL_AUTH_METHOD}).
  */
 
 import { Readable, Writable } from 'node:stream';
@@ -55,7 +54,6 @@ import type {
 import { log } from '@pymodel/pythinker-code-sdk';
 import { LocalPyaos, type Pyaos } from '@pymodel/pyaos';
 
-import { TERMINAL_AUTH_METHOD, buildTerminalAuthMethod } from './auth-methods';
 import { redirectConsoleToStderr } from './log-guard';
 import { AcpPyaos } from './pyaos-acp';
 import { AcpSession, type TelemetryTrackFn } from './session';
@@ -114,12 +112,9 @@ function toResolvedSlashCommands(
 /**
  * Inline auth gate — moved out of `PythinkerAuthFacade.hasUsableToken()` so
  * the SDK doesn't have to carry an ACP-specific convenience method.
- * OAuth tokens still count as authed, but ACP can also start when the
- * active model resolves to a provider with config-file credentials.
+ * OAuth tokens and config-file credentials both count as usable.
  */
 async function harnessIsAuthed(harness: PythinkerHarness): Promise<boolean> {
-  const status = await harness.auth.status();
-  if (status.providers.some((entry) => entry.hasToken)) return true;
   return hasUsableConfiguredDefaultModel(harness);
 }
 
@@ -140,7 +135,11 @@ async function hasUsableConfiguredDefaultModel(harness: PythinkerHarness): Promi
   if (alias === undefined) return false;
 
   const provider = providerForAlias(config, alias);
-  return provider !== undefined && providerHasNonOAuthCredentials(provider);
+  if (provider === undefined) return false;
+  if (provider.oauth !== undefined) {
+    return (await harness.auth.getCachedAccessToken(provider.oauth)) !== undefined;
+  }
+  return providerHasNonOAuthCredentials(provider);
 }
 
 function providerForAlias(config: PythinkerConfig, alias: ModelAlias): ProviderConfig | undefined {
@@ -223,8 +222,7 @@ export class AcpServer implements Agent {
   private clientCapabilities: ClientCapabilities | undefined;
   private readonly sessions = new Map<string, AcpSession>();
   private readonly agentInfo: Implementation | undefined;
-  private readonly terminalAuthEnv: Readonly<Record<string, string>> | undefined;
-  private readonly terminalAuthLegacyCommand: string | undefined;
+  private readonly disableAuth: boolean;
   private readonly resolveSlashCommands: (
     session: Session,
   ) => Promise<ResolvedSlashCommands>;
@@ -241,22 +239,7 @@ export class AcpServer implements Agent {
     private readonly conn?: AgentSideConnection | undefined,
     opts?: {
       agentInfo?: Implementation;
-      /**
-       * Env vars to advertise in `authMethods[0].env` so the `pythinker login`
-       * subprocess the client spawns (via `terminal-auth`) lands its
-       * token under the same data root the ACP server uses. Intended for
-       * sandboxed test setups (e.g. `{ PYTHINKER_CODE_HOME: '/tmp/...' }`);
-       * leave undefined in production so the advertised env stays empty.
-       */
-      terminalAuthEnv?: Readonly<Record<string, string>>;
-      /**
-       * Absolute binary path advertised in `_meta['terminal-auth'].command`
-       * for clients that don't yet honor the first-class
-       * `AuthMethodTerminal` (Zed without `AcpBetaFeatureFlag`, JetBrains
-       * plugin). Clients on this legacy path spawn `<command> login`
-       * directly. Defaults to undefined (the `_meta` fallback is omitted).
-       */
-      terminalAuthLegacyCommand?: string;
+      disableAuth?: boolean;
       /**
        * Slash commands to advertise in the one-shot
        * `available_commands_update` pushed immediately after each
@@ -278,8 +261,7 @@ export class AcpServer implements Agent {
     },
   ) {
     this.agentInfo = opts?.agentInfo;
-    this.terminalAuthEnv = opts?.terminalAuthEnv;
-    this.terminalAuthLegacyCommand = opts?.terminalAuthLegacyCommand;
+    this.disableAuth = opts?.disableAuth ?? false;
     const slash = opts?.slashCommands;
     this.resolveSlashCommands =
       typeof slash === 'function'
@@ -326,20 +308,13 @@ export class AcpServer implements Agent {
     return {
       protocolVersion: this.negotiated.protocolVersion,
       agentCapabilities,
-      authMethods: [
-        this.terminalAuthEnv !== undefined || this.terminalAuthLegacyCommand !== undefined
-          ? buildTerminalAuthMethod({
-              env: this.terminalAuthEnv,
-              legacyCommand: this.terminalAuthLegacyCommand,
-            })
-          : TERMINAL_AUTH_METHOD,
-      ],
+      authMethods: [],
       ...(this.agentInfo ? { agentInfo: this.agentInfo } : {}),
     };
   }
 
   async newSession(params: NewSessionRequest): Promise<NewSessionResponse> {
-    if (!(await harnessIsAuthed(this.harness))) {
+    if (!this.disableAuth && !(await harnessIsAuthed(this.harness))) {
       throw RequestError.authRequired();
     }
     // ACP's `cwd` maps to the SDK's `workDir`. `model`, `planMode`, and
@@ -425,6 +400,13 @@ export class AcpServer implements Agent {
       sessionId: session.id,
       configOptions,
     };
+  }
+
+  async authenticate(params: AuthenticateRequest): Promise<AuthenticateResponse | void> {
+    throw RequestError.invalidParams(
+      { methodId: params.methodId },
+      `Unknown auth method: ${params.methodId}`,
+    );
   }
 
   /**
@@ -530,7 +512,7 @@ export class AcpServer implements Agent {
     acpSession: AcpSession;
     configOptions: SessionConfigOption[];
   }> {
-    if (!(await harnessIsAuthed(this.harness))) {
+    if (!this.disableAuth && !(await harnessIsAuthed(this.harness))) {
       throw RequestError.authRequired();
     }
     if (!this.conn) {
@@ -645,29 +627,6 @@ export class AcpServer implements Agent {
       this.innerPyaos = await LocalPyaos.create();
     }
     return this.innerPyaos;
-  }
-
-  /**
-   * Re-check whether the on-disk token is usable; does NOT trigger an
-   * actual OAuth flow. The stdio JSON-RPC channel has no TTY to render
-   * the device-code prompt — clients are expected to spawn
-   * `pythinker login` themselves via the terminal-auth method advertised in
-   * `initialize.authMethods` (`args:['login']`, see {@link TERMINAL_AUTH_METHOD})
-   * and then re-invoke `authenticate('login')` to confirm the token
-   * landed on disk. Mirrors pythinker-cli `acp/server.py:374-398` semantics
-   * (plan G3, lines 68-104).
-   */
-  async authenticate(params: AuthenticateRequest): Promise<AuthenticateResponse | void> {
-    if (params.methodId !== 'login') {
-      throw RequestError.invalidParams(
-        { methodId: params.methodId },
-        `Unknown auth method: ${params.methodId}`,
-      );
-    }
-    if (!(await harnessIsAuthed(this.harness))) {
-      throw RequestError.authRequired();
-    }
-    // void = empty success body (ACP allows AuthenticateResponse | void).
   }
 
   async prompt(params: PromptRequest): Promise<PromptResponse> {
@@ -837,8 +796,7 @@ export class AcpServer implements Agent {
    * Stub the ACP `ext/<method>` extension surface. The interface
    * declares both `extMethod` and `extNotification` as optional, but
    * implementing them explicitly with a structured `MethodNotFound`
-   * response gives clients a uniform failure shape (mirrors the
-   * `authenticate` pattern at {@link AcpServer.authenticate}) — some
+   * response gives clients a uniform failure shape — some
    * clients treat "method absent on the agent" differently from an
    * explicit error reply.
    *
@@ -1050,8 +1008,6 @@ export async function runAcpServerWithStream(
   stream: Stream,
   opts?: {
     agentInfo?: Implementation;
-    terminalAuthEnv?: Readonly<Record<string, string>>;
-    terminalAuthLegacyCommand?: string;
     slashCommands?: SlashCommandsResolver;
   },
 ): Promise<void> {
@@ -1091,17 +1047,6 @@ export async function runAcpServer(
      * `null`, matching the pythinker-cli reference implementation.
      */
     agentInfo?: Implementation;
-    /**
-     * Env vars to forward to the `pythinker login` subprocess clients spawn
-     * via `terminal-auth`. See {@link AcpServer} ctor for the use case.
-     */
-    terminalAuthEnv?: Readonly<Record<string, string>>;
-    /**
-     * Absolute path to the agent binary, advertised in the legacy
-     * `_meta['terminal-auth'].command` fallback. See {@link AcpServer}
-     * ctor for compatibility rationale.
-     */
-    terminalAuthLegacyCommand?: string;
     /**
      * Slash commands to advertise to ACP clients so their slash-command
      * palette is populated. See {@link AcpServer} ctor for details.
@@ -1160,8 +1105,6 @@ export async function runAcpServer(
     // a signal handler closed the underlying stream.
     await runAcpServerWithStream(harness, stream, {
       agentInfo: opts?.agentInfo,
-      terminalAuthEnv: opts?.terminalAuthEnv,
-      terminalAuthLegacyCommand: opts?.terminalAuthLegacyCommand,
       slashCommands: opts?.slashCommands,
     });
   } finally {

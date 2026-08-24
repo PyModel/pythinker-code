@@ -162,11 +162,11 @@ describe('listModelsFromHarness', () => {
     const harness = {
       getConfig: async () => ({
         providers: {
-          'managed:pythinker-code': { type: 'pythinker' },
+          'oauth-example': { type: 'pythinker' },
         },
         models: {
           custom: {
-            provider: 'managed:pythinker-code',
+            provider: 'oauth-example',
             model: 'custom-anthropic-model',
             maxContextSize: 200000,
             protocol: 'anthropic',

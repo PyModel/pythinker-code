@@ -193,7 +193,7 @@ describe('AcpServer cancel ⇄ pending requestPermission', () => {
     } as unknown as PythinkerHarness;
 
     const { agentStream, clientStream } = makeInMemoryStreamPair();
-    new AgentSideConnection((c) => new AcpServer(harness, c), agentStream);
+    new AgentSideConnection((c) => new AcpServer(harness, c, { disableAuth: true }), agentStream);
     const client = new ParkingPermissionClient();
     const clientConn = new ClientSideConnection(() => client, clientStream);
 
@@ -288,7 +288,7 @@ describe('AcpServer cancel ⇄ pending requestPermission', () => {
     } as unknown as PythinkerHarness;
 
     const { agentStream, clientStream } = makeInMemoryStreamPair();
-    new AgentSideConnection((c) => new AcpServer(harness, c), agentStream);
+    new AgentSideConnection((c) => new AcpServer(harness, c, { disableAuth: true }), agentStream);
     const client = new ParkingPermissionClient();
     const clientConn = new ClientSideConnection(() => client, clientStream);
 

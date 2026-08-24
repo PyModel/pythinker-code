@@ -292,7 +292,7 @@ describe('AcpSession ↔ requestPermission bridge (selectedLabel end-to-end)', (
     } as unknown as PythinkerHarness;
 
     const { agentStream, clientStream } = makeInMemoryStreamPair();
-    new AgentSideConnection((c) => new AcpServer(harness, c), agentStream);
+    new AgentSideConnection((c) => new AcpServer(harness, c, { disableAuth: true }), agentStream);
     const client = new ApprovalDisplayClient();
     client.reply = {
       outcome: { outcome: 'selected', optionId: APPROVE_ALWAYS_OPTION_ID },

@@ -124,7 +124,7 @@ describe('AcpServer error mapping', () => {
     });
 
     const { agentStream, clientStream } = makeInMemoryStreamPair();
-    new AgentSideConnection((c) => new AcpServer(makeHarnessWithSession(session), c), agentStream);
+    new AgentSideConnection((c) => new AcpServer(makeHarnessWithSession(session), c, { disableAuth: true }), agentStream);
     const client = new ClientSideConnection(() => new StubClient(), clientStream);
 
     await client.newSession({ cwd: '/tmp/x', mcpServers: [] });
@@ -154,7 +154,7 @@ describe('AcpServer error mapping', () => {
     });
 
     const { agentStream, clientStream } = makeInMemoryStreamPair();
-    new AgentSideConnection((c) => new AcpServer(makeHarnessWithSession(session), c), agentStream);
+    new AgentSideConnection((c) => new AcpServer(makeHarnessWithSession(session), c, { disableAuth: true }), agentStream);
     const client = new ClientSideConnection(() => new StubClient(), clientStream);
 
     await client.newSession({ cwd: '/tmp/x', mcpServers: [] });
@@ -187,7 +187,7 @@ describe('AcpServer error mapping', () => {
     });
 
     const { agentStream, clientStream } = makeInMemoryStreamPair();
-    new AgentSideConnection((c) => new AcpServer(makeHarnessWithSession(session), c), agentStream);
+    new AgentSideConnection((c) => new AcpServer(makeHarnessWithSession(session), c, { disableAuth: true }), agentStream);
     const client = new ClientSideConnection(() => new StubClient(), clientStream);
 
     await client.newSession({ cwd: '/tmp/x', mcpServers: [] });
@@ -203,7 +203,7 @@ describe('AcpServer error mapping', () => {
     });
 
     const { agentStream, clientStream } = makeInMemoryStreamPair();
-    new AgentSideConnection((c) => new AcpServer(makeHarnessWithSession(session), c), agentStream);
+    new AgentSideConnection((c) => new AcpServer(makeHarnessWithSession(session), c, { disableAuth: true }), agentStream);
     const client = new ClientSideConnection(() => new StubClient(), clientStream);
 
     await client.newSession({ cwd: '/tmp/x', mcpServers: [] });
@@ -220,7 +220,7 @@ describe('AcpServer error mapping', () => {
     const { session } = makeScriptedSession(sessionId, { rejectWith: generic });
 
     const { agentStream, clientStream } = makeInMemoryStreamPair();
-    new AgentSideConnection((c) => new AcpServer(makeHarnessWithSession(session), c), agentStream);
+    new AgentSideConnection((c) => new AcpServer(makeHarnessWithSession(session), c, { disableAuth: true }), agentStream);
     const client = new ClientSideConnection(() => new StubClient(), clientStream);
 
     await client.newSession({ cwd: '/tmp/x', mcpServers: [] });
@@ -252,7 +252,7 @@ describe('AcpServer error mapping', () => {
     });
 
     const { agentStream, clientStream } = makeInMemoryStreamPair();
-    new AgentSideConnection((c) => new AcpServer(makeHarnessWithSession(session), c), agentStream);
+    new AgentSideConnection((c) => new AcpServer(makeHarnessWithSession(session), c, { disableAuth: true }), agentStream);
     const client = new ClientSideConnection(() => new StubClient(), clientStream);
 
     await client.newSession({ cwd: '/tmp/x', mcpServers: [] });
@@ -289,7 +289,7 @@ describe('AcpServer error mapping', () => {
     });
 
     const { agentStream, clientStream } = makeInMemoryStreamPair();
-    new AgentSideConnection((c) => new AcpServer(makeHarnessWithSession(session), c), agentStream);
+    new AgentSideConnection((c) => new AcpServer(makeHarnessWithSession(session), c, { disableAuth: true }), agentStream);
     const client = new ClientSideConnection(() => new StubClient(), clientStream);
 
     await client.newSession({ cwd: '/tmp/x', mcpServers: [] });

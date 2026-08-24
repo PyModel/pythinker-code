@@ -130,7 +130,7 @@ describe('AcpServer tool-call streaming', () => {
     } as unknown as PythinkerHarness;
 
     const { agentStream, clientStream } = makeInMemoryStreamPair();
-    new AgentSideConnection((c) => new AcpServer(harness, c), agentStream);
+    new AgentSideConnection((c) => new AcpServer(harness, c, { disableAuth: true }), agentStream);
     const collecting = new CollectingClient();
     const client = new ClientSideConnection(() => collecting, clientStream);
 
@@ -212,7 +212,7 @@ describe('AcpServer tool-call streaming', () => {
     } as unknown as PythinkerHarness;
 
     const { agentStream, clientStream } = makeInMemoryStreamPair();
-    new AgentSideConnection((c) => new AcpServer(harness, c), agentStream);
+    new AgentSideConnection((c) => new AcpServer(harness, c, { disableAuth: true }), agentStream);
     const collecting = new CollectingClient();
     const client = new ClientSideConnection(() => collecting, clientStream);
 
@@ -241,7 +241,7 @@ describe('AcpServer tool-call streaming', () => {
     } as unknown as PythinkerHarness;
 
     const { agentStream, clientStream } = makeInMemoryStreamPair();
-    new AgentSideConnection((c) => new AcpServer(harness, c), agentStream);
+    new AgentSideConnection((c) => new AcpServer(harness, c, { disableAuth: true }), agentStream);
     const collecting = new CollectingClient();
     const client = new ClientSideConnection(() => collecting, clientStream);
 
@@ -294,7 +294,7 @@ describe('AcpServer tool-call streaming', () => {
     } as unknown as PythinkerHarness;
 
     const { agentStream, clientStream } = makeInMemoryStreamPair();
-    new AgentSideConnection((c) => new AcpServer(harness, c), agentStream);
+    new AgentSideConnection((c) => new AcpServer(harness, c, { disableAuth: true }), agentStream);
     const collecting = new CollectingClient();
     const client = new ClientSideConnection(() => collecting, clientStream);
 
@@ -369,7 +369,7 @@ describe('AcpServer tool-call streaming', () => {
     } as unknown as PythinkerHarness;
 
     const { agentStream, clientStream } = makeInMemoryStreamPair();
-    new AgentSideConnection((c) => new AcpServer(harness, c), agentStream);
+    new AgentSideConnection((c) => new AcpServer(harness, c, { disableAuth: true }), agentStream);
     const collecting = new CollectingClient();
     const client = new ClientSideConnection(() => collecting, clientStream);
 
@@ -456,7 +456,7 @@ describe('AcpServer tool-call streaming', () => {
     } as unknown as PythinkerHarness;
 
     const { agentStream, clientStream } = makeInMemoryStreamPair();
-    new AgentSideConnection((c) => new AcpServer(harness, c), agentStream);
+    new AgentSideConnection((c) => new AcpServer(harness, c, { disableAuth: true }), agentStream);
     const collecting = new CollectingClient();
     const client = new ClientSideConnection(() => collecting, clientStream);
 

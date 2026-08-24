@@ -97,7 +97,7 @@ async function openSession(
   harness: PythinkerHarness,
 ): Promise<{ client: ClientSideConnection; capturing: CapturingClient; sessionId: string }> {
   const { agentStream, clientStream } = makeInMemoryStreamPair();
-  new AgentSideConnection((c) => new AcpServer(harness, c), agentStream);
+  new AgentSideConnection((c) => new AcpServer(harness, c, { disableAuth: true }), agentStream);
   const capturing = new CapturingClient();
   const client = new ClientSideConnection((_a) => capturing, clientStream);
   const response = await client.newSession({ cwd: '/tmp/x', mcpServers: [] });

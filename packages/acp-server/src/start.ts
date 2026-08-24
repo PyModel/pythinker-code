@@ -153,8 +153,6 @@ export async function runAcpServerWithStream(
   server = new AcpServer(client, klient, acpConnection, {
     agentInfo: opts.agentInfo,
     disableAuth: opts.disableAuth,
-    terminalAuthEnv: opts.terminalAuthEnv,
-    terminalAuthLegacyCommand: opts.terminalAuthLegacyCommand,
     slashCommands: opts.slashCommands,
     bindSessionRuntime: async (sessionId) => {
       const handle = getLiveSessionById(core.accessor, sessionId);

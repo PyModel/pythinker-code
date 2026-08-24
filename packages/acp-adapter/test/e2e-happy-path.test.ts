@@ -147,7 +147,7 @@ describe('AcpServer end-to-end happy path', () => {
     } as unknown as PythinkerHarness;
 
     const { agentStream, clientStream } = makeInMemoryStreamPair();
-    new AgentSideConnection((c) => new AcpServer(harness, c), agentStream);
+    new AgentSideConnection((c) => new AcpServer(harness, c, { disableAuth: true }), agentStream);
     const client = new ClientSideConnection(() => new CollectingClient(), clientStream);
 
     const response = await client.initialize({
@@ -179,14 +179,8 @@ describe('AcpServer end-to-end happy path', () => {
       },
     });
 
-    // Phase 10 does not supply agentInfo; authMethods advertises terminal-auth.
     expect(response.agentInfo).toBeUndefined();
-    expect(response.authMethods).toHaveLength(1);
-    expect(response.authMethods?.[0]).toMatchObject({
-      id: 'login',
-      type: 'terminal',
-      args: ['--login'],
-    });
+    expect(response.authMethods).toEqual([]);
   });
 
   it('drives the full happy path: initialize → newSession → prompt(end_turn)', async () => {
@@ -199,7 +193,7 @@ describe('AcpServer end-to-end happy path', () => {
     const harness = makeHarness(session);
 
     const { agentStream, clientStream } = makeInMemoryStreamPair();
-    new AgentSideConnection((c) => new AcpServer(harness, c), agentStream);
+    new AgentSideConnection((c) => new AcpServer(harness, c, { disableAuth: true }), agentStream);
     const collecting = new CollectingClient();
     const client = new ClientSideConnection(() => collecting, clientStream);
 
@@ -269,7 +263,7 @@ describe('AcpServer end-to-end happy path', () => {
     const harness = makeHarness(session);
 
     const { agentStream, clientStream } = makeInMemoryStreamPair();
-    new AgentSideConnection((c) => new AcpServer(harness, c), agentStream);
+    new AgentSideConnection((c) => new AcpServer(harness, c, { disableAuth: true }), agentStream);
     const collecting = new CollectingClient();
     const client = new ClientSideConnection(() => collecting, clientStream);
 
