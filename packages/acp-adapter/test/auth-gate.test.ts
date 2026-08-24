@@ -252,6 +252,25 @@ describe('AcpServer auth gate', () => {
     expect(createCalls).toHaveLength(0);
   });
 
+  it('rejects a multi-label lookalike Vertex AI hostname', async () => {
+    const { harness, createCalls } = makeHarnessWithConfig(
+      configuredModelConfig({
+        type: 'vertexai',
+        baseUrl: 'https://proxy.example-us-central1-aiplatform.googleapis.com',
+        env: { GOOGLE_CLOUD_PROJECT: 'project' },
+      }),
+    );
+
+    const { agentStream, clientStream } = makeInMemoryStreamPair();
+    startAcpServer(harness, agentStream);
+    const client = new ClientSideConnection((_a) => new StubClient(), clientStream);
+
+    await expect(client.newSession({ cwd: '/tmp/vertexai', mcpServers: [] })).rejects.toMatchObject({
+      code: -32000,
+    });
+    expect(createCalls).toHaveLength(0);
+  });
+
   it('rejects when config loading fails even if an OAuth token exists', async () => {
     const createCalls: Array<{ id?: string; workDir: string }> = [];
     const harness = {

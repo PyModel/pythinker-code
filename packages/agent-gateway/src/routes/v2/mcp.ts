@@ -18,9 +18,14 @@ import { errEnvelope, okEnvelope } from '../../protocol/envelope';
 import { ErrorCode } from '../../protocol/error-codes';
 
 interface V2McpRouteHost {
+  rateLimit(options: { max: number; timeWindow: number }): unknown;
   get(
     path: string,
-    options: { preHandler: unknown[]; schema?: Record<string, unknown> },
+    options: {
+      preHandler: unknown[];
+      schema?: Record<string, unknown>;
+      config?: Record<string, unknown>;
+    },
     handler: (
       req: { id: string; query: unknown; params: unknown },
       reply: { send(payload: unknown): unknown },
@@ -28,7 +33,11 @@ interface V2McpRouteHost {
   ): unknown;
   post(
     path: string,
-    options: { preHandler: unknown[]; schema?: Record<string, unknown> },
+    options: {
+      preHandler: unknown[];
+      schema?: Record<string, unknown>;
+      config?: Record<string, unknown>;
+    },
     handler: (
       req: { id: string; body: unknown; query: unknown; params: unknown },
       reply: { send(payload: unknown): unknown },
@@ -211,6 +220,13 @@ function sendMappedError(
 
 export function registerV2McpRoutes(app: V2McpRouteHost, core: Scope): void {
   const management = (): IMcpManagementService => core.accessor.get(IMcpManagementService);
+  const authRateLimit = app.rateLimit({ max: 30, timeWindow: 60_000 });
+  const withRateLimit = (
+    options: { preHandler: unknown[]; schema?: Record<string, unknown> },
+  ): { preHandler: unknown[]; schema?: Record<string, unknown> } => ({
+    ...options,
+    preHandler: [authRateLimit, ...options.preHandler],
+  });
 
   const listServersRoute = defineRoute(
     {
@@ -428,7 +444,7 @@ export function registerV2McpRoutes(app: V2McpRouteHost, core: Scope): void {
   );
   app.get(
     authStatusesRoute.path,
-    (authStatusesRoute.options),
+    withRateLimit(authStatusesRoute.options),
     authStatusesRoute.handler as Parameters<V2McpRouteHost['get']>[2],
   );
 
@@ -455,7 +471,7 @@ export function registerV2McpRoutes(app: V2McpRouteHost, core: Scope): void {
   );
   app.post(
     authBeginRoute.path,
-    (authBeginRoute.options),
+    withRateLimit(authBeginRoute.options),
     authBeginRoute.handler as Parameters<V2McpRouteHost['post']>[2],
   );
 
@@ -490,7 +506,7 @@ export function registerV2McpRoutes(app: V2McpRouteHost, core: Scope): void {
   );
   app.post(
     authCompleteRoute.path,
-    (authCompleteRoute.options),
+    withRateLimit(authCompleteRoute.options),
     authCompleteRoute.handler as Parameters<V2McpRouteHost['post']>[2],
   );
 
@@ -515,7 +531,7 @@ export function registerV2McpRoutes(app: V2McpRouteHost, core: Scope): void {
   );
   app.post(
     authCancelRoute.path,
-    (authCancelRoute.options),
+    withRateLimit(authCancelRoute.options),
     authCancelRoute.handler as Parameters<V2McpRouteHost['post']>[2],
   );
 
@@ -542,7 +558,7 @@ export function registerV2McpRoutes(app: V2McpRouteHost, core: Scope): void {
   );
   app.post(
     authResetRoute.path,
-    (authResetRoute.options),
+    withRateLimit(authResetRoute.options),
     authResetRoute.handler as Parameters<V2McpRouteHost['post']>[2],
   );
 }

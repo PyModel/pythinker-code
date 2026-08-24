@@ -40,6 +40,7 @@ import {
   type TranscriptTurn,
 } from '@pymodel/transcript';
 
+import { resolveStoragePath } from '../../lib/storagePath';
 import { projectPromptContentParts } from '../messages/messageProjection';
 import {
   bindSessionTranscript,
@@ -509,8 +510,9 @@ export class TranscriptService {
     if (summary === undefined) return undefined;
     let meta: SessionMeta;
     try {
+      const sessionsRoot = join(this.deps.homeDir, SESSIONS_ROOT);
       const raw = await readFile(
-        join(this.deps.homeDir, SESSIONS_ROOT, summary.workspaceId, sessionId, STATE_FILE),
+        resolveStoragePath(sessionsRoot, summary.workspaceId, sessionId, STATE_FILE),
         'utf-8',
       );
       meta = JSON.parse(raw) as SessionMeta;
@@ -537,18 +539,17 @@ export class TranscriptService {
     if (!isPlainAgentId(agentId)) {
       return groupMessagesIntoSnapshot([]);
     }
-    const wirePath = join(
-      this.deps.homeDir,
-      SESSIONS_ROOT,
-      summary.workspaceId,
-      sessionId,
-      AGENTS_DIR,
-      agentId,
-      WIRE_FILE,
-    );
+    const sessionsRoot = join(this.deps.homeDir, SESSIONS_ROOT);
     let records: Awaited<ReturnType<typeof readWireRecords>>;
     try {
-      records = await readWireRecords(wirePath);
+      records = await readWireRecords(
+        sessionsRoot,
+        summary.workspaceId,
+        sessionId,
+        AGENTS_DIR,
+        agentId,
+        WIRE_FILE,
+      );
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
         return groupMessagesIntoSnapshot([]);

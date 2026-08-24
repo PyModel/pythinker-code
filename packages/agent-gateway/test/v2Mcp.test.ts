@@ -226,6 +226,21 @@ describe('server /api/v2/mcp', () => {
       expect(stub.calls).toEqual([]);
     });
 
+    it('shares one rate limit across MCP authentication routes by source', async () => {
+      const stub = makeMcpStub();
+      await boot(stub);
+
+      for (let index = 0; index < 15; index += 1) {
+        const status = await call('GET', '/api/v2/mcp/auth-statuses?verify=false');
+        expect(status.status).toBe(200);
+        const cancel = await call('POST', '/api/v2/mcp/auth:cancel', { flowId: 'flow-1' });
+        expect(cancel.status).toBe(200);
+      }
+      const limited = await call('GET', '/api/v2/mcp/auth-statuses?verify=false');
+      expect(limited.status).toBe(429);
+      expect(limited.body.code).toBe(42901);
+    });
+
     it('round-trips a server through add/get/update/remove', async () => {
       const stub = makeMcpStub();
       await boot(stub);

@@ -187,8 +187,15 @@ function vertexAILocationFromBaseUrl(baseUrl: string | undefined): string | unde
   if (url === undefined) return undefined;
   try {
     const host = new URL(url).hostname;
-    const suffix = '-aiplatform.googleapis.com';
-    return host.endsWith(suffix) ? nonEmptyString(host.slice(0, -suffix.length)) : undefined;
+    const labels = host.split('.');
+    if (labels.length !== 3 || labels[1] !== 'googleapis' || labels[2] !== 'com') {
+      return undefined;
+    }
+    const service = labels[0]!;
+    const suffix = '-aiplatform';
+    return service.endsWith(suffix)
+      ? nonEmptyString(service.slice(0, -suffix.length))
+      : undefined;
   } catch {
     return undefined;
   }

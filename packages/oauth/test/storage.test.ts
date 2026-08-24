@@ -5,7 +5,7 @@
  * 0600 is enforced; corrupted files return undefined rather than throwing.
  */
 
-import { chmodSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -15,12 +15,7 @@ import { FileTokenStorage, resolveOAuthTokenStorageName } from '../src/storage';
 import type { TokenInfo } from '../src/types';
 
 function makeTmpDir(): string {
-  const dir = join(
-    tmpdir(),
-    `pythinker-storage-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-  );
-  mkdirSync(dir, { recursive: true });
-  return dir;
+  return mkdtempSync(join(tmpdir(), 'pythinker-storage-test-'));
 }
 
 function sampleToken(overrides: Partial<TokenInfo> = {}): TokenInfo {

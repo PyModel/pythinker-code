@@ -2,7 +2,7 @@
 
 import { spawn, spawnSync } from 'node:child_process';
 import { once } from 'node:events';
-import { access, mkdtemp, readFile, readdir, rm, stat } from 'node:fs/promises';
+import { access, mkdtemp, open, readdir, rm } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { extname, isAbsolute, join, relative, resolve } from 'node:path';
@@ -197,12 +197,17 @@ async function serve(request, response) {
       return;
     }
     const file = resolve(webRoot, relativePath);
-    if (!(await stat(file)).isFile()) throw new Error('not a file');
-    response.writeHead(200, {
-      'Cache-Control': 'no-store',
-      'Content-Type': contentType(file),
-    });
-    response.end(await readFile(file));
+    const handle = await open(file, 'r');
+    try {
+      if (!(await handle.stat()).isFile()) throw new Error('not a file');
+      response.writeHead(200, {
+        'Cache-Control': 'no-store',
+        'Content-Type': contentType(file),
+      });
+      response.end(await handle.readFile());
+    } finally {
+      await handle.close();
+    }
   } catch {
     response.writeHead(404).end('Not found');
   }

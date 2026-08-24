@@ -1,4 +1,5 @@
 export const AUTH_RATE_LIMIT_CODE = 42901;
+export const AUTH_RATE_LIMIT_ERROR_NAME = 'PYTHINKER_AUTH_RATE_LIMIT';
 export const AUTH_RATE_LIMIT_MSG = 'Too many failed auth attempts';
 
 export interface AuthFailureLimiterOptions {

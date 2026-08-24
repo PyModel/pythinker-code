@@ -41,6 +41,7 @@ import {
   listCatalogProvidersResponseSchema,
   listModelsResponseSchema,
   listProvidersResponseSchema,
+  providerIdSchema,
   providerCollectionActionBodySchema,
   replaceProviderRequestSchema,
   replaceProviderResponseSchema,
@@ -90,7 +91,7 @@ interface StatusReply {
 }
 
 const providerIdParamSchema = z.object({
-  provider_id: z.string().min(1),
+  provider_id: providerIdSchema,
 });
 
 const modelActionTailParamSchema = z.object({
@@ -244,7 +245,7 @@ export function registerModelCatalogRoutes(app: ModelCatalogRouteHost, core: Sco
         const config = await loadConfig(core);
         const { id } = req.body;
         const providers = config.inspect<ProvidersSection>(PROVIDERS_SECTION).userValue ?? {};
-        if (providers[id] !== undefined) {
+        if (Object.hasOwn(providers, id)) {
           reply.send(
             errEnvelope(
               ErrorCode.PROVIDER_ALREADY_EXISTS,
@@ -263,7 +264,7 @@ export function registerModelCatalogRoutes(app: ModelCatalogRouteHost, core: Sco
         }
         await config.set(PROVIDERS_SECTION, { [id]: provider });
 
-        const aliases: Record<string, ModelRecord> = {};
+        const aliases: Array<readonly [string, ModelRecord]> = [];
         for (const entry of req.body.models) {
           const alias: ModelRecord = {
             provider: id,
@@ -277,9 +278,9 @@ export function registerModelCatalogRoutes(app: ModelCatalogRouteHost, core: Sco
             alias.supportEfforts = [...entry.support_efforts];
           if (entry.adaptive_thinking !== undefined)
             alias.adaptiveThinking = entry.adaptive_thinking;
-          aliases[`${id}/${entry.model}`] = alias;
+          aliases.push([`${id}/${entry.model}`, alias]);
         }
-        await config.set(MODELS_SECTION, aliases);
+        await config.set(MODELS_SECTION, Object.fromEntries(aliases));
 
         if (provider.defaultModel !== undefined) {
           await seedDefaultModelWhenUnset(config, provider.defaultModel);
@@ -319,7 +320,9 @@ export function registerModelCatalogRoutes(app: ModelCatalogRouteHost, core: Sco
         const config = await loadConfig(core);
         const { provider_id } = req.params;
         const providers = config.inspect<ProvidersSection>(PROVIDERS_SECTION).userValue ?? {};
-        const target = providers[provider_id];
+        const target = Object.hasOwn(providers, provider_id)
+          ? providers[provider_id]
+          : undefined;
         if (target === undefined) {
           reply.send(
             errEnvelope(
@@ -331,7 +334,7 @@ export function registerModelCatalogRoutes(app: ModelCatalogRouteHost, core: Sco
           return;
         }
         const newId = req.body.new_id ?? provider_id;
-        if (newId !== provider_id && providers[newId] !== undefined) {
+        if (newId !== provider_id && Object.hasOwn(providers, newId)) {
           reply.send(
             errEnvelope(
               ErrorCode.PROVIDER_ALREADY_EXISTS,
@@ -350,13 +353,9 @@ export function registerModelCatalogRoutes(app: ModelCatalogRouteHost, core: Sco
             ?
               `${newId}/${req.body.default_model}`
             : undefined;
-        const nextProviders = Object.fromEntries(
-          Object.entries(providers).map(([key, value]) => [
-            key === provider_id ? newId : key,
-            value,
-          ]),
-        );
-        nextProviders[newId] = provider;
+        const nextProviders = new Map(Object.entries(providers));
+        nextProviders.delete(provider_id);
+        nextProviders.set(newId, provider);
 
         const models = config.inspect<ModelsSection>(MODELS_SECTION).userValue ?? {};
         const newAliasKeys = new Set(req.body.models.map((entry) => `${newId}/${entry.model}`));
@@ -375,14 +374,14 @@ export function registerModelCatalogRoutes(app: ModelCatalogRouteHost, core: Sco
           return;
         }
 
-        await config.replace(PROVIDERS_SECTION, nextProviders);
+        await config.replace(PROVIDERS_SECTION, Object.fromEntries(nextProviders));
 
         const previousAliasIds = new Set(
           Object.entries(models)
             .filter(([, record]) => record.provider === provider_id)
             .map(([aliasId]) => aliasId),
         );
-        const nextModels = Object.fromEntries(
+        const nextModelsMap = new Map(
           Object.entries(models).filter(([, record]) => record.provider !== provider_id),
         );
         const previousByModel = new Map(
@@ -405,8 +404,9 @@ export function registerModelCatalogRoutes(app: ModelCatalogRouteHost, core: Sco
             entry.support_efforts !== undefined ? [...entry.support_efforts] : undefined;
           alias.adaptiveThinking =
             entry.adaptive_thinking !== undefined ? entry.adaptive_thinking : undefined;
-          nextModels[`${newId}/${entry.model}`] = alias;
+          nextModelsMap.set(`${newId}/${entry.model}`, alias);
         }
+        const nextModels: ModelsSection = Object.fromEntries(nextModelsMap);
         await config.replace(MODELS_SECTION, nextModels);
 
         if (newId !== provider_id) {
@@ -418,7 +418,7 @@ export function registerModelCatalogRoutes(app: ModelCatalogRouteHost, core: Sco
           if (defaultModel !== undefined && previousAliasIds.has(defaultModel)) {
             const renamedModel = models[defaultModel]?.model;
             const renamedAlias = renamedModel !== undefined ? `${newId}/${renamedModel}` : undefined;
-            if (renamedAlias !== undefined && nextModels[renamedAlias] !== undefined) {
+            if (renamedAlias !== undefined && Object.hasOwn(nextModels, renamedAlias)) {
               await config.replace(DEFAULT_MODEL_SECTION, renamedAlias);
             }
           }
@@ -429,7 +429,7 @@ export function registerModelCatalogRoutes(app: ModelCatalogRouteHost, core: Sco
           for (const oldAlias of previousAliasIds) {
             const bare = models[oldAlias]?.model;
             const renamed = bare === undefined ? undefined : `${newId}/${bare}`;
-            if (renamed !== undefined && nextModels[renamed] !== undefined) {
+            if (renamed !== undefined && Object.hasOwn(nextModels, renamed)) {
               renamedAliases.set(oldAlias, renamed);
             }
           }
@@ -603,7 +603,9 @@ export function registerModelCatalogRoutes(app: ModelCatalogRouteHost, core: Sco
         const config = await loadConfig(core);
         const { provider_id } = req.params;
         const providers = config.inspect<ProvidersSection>(PROVIDERS_SECTION).userValue ?? {};
-        const target = providers[provider_id];
+        const target = Object.hasOwn(providers, provider_id)
+          ? providers[provider_id]
+          : undefined;
         if (target === undefined) {
           reply.send(
             errEnvelope(
@@ -615,8 +617,9 @@ export function registerModelCatalogRoutes(app: ModelCatalogRouteHost, core: Sco
           return;
         }
         const models = config.inspect<ModelsSection>(MODELS_SECTION).userValue ?? {};
-        const restProviders = { ...providers };
-        delete restProviders[provider_id];
+        const restProviders = Object.fromEntries(
+          Object.entries(providers).filter(([id]) => id !== provider_id),
+        );
         await config.replace(PROVIDERS_SECTION, restProviders);
         const restModels = Object.fromEntries(
           Object.entries(models).filter(([, record]) => record.provider !== provider_id),

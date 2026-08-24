@@ -1,7 +1,6 @@
 import { createHash } from 'node:crypto';
 import { createWriteStream } from 'node:fs';
-import { mkdir, stat, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdir, stat } from 'node:fs/promises';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 
@@ -28,6 +27,7 @@ import {
 } from '@pymodel/agent-core-v2';
 
 import type { PromptSubmission } from '../protocol/rest-prompt';
+import { resolveStoragePath } from './storagePath';
 
 type WireContent = PromptSubmission['content'];
 
@@ -166,11 +166,18 @@ export async function resolvePromptMediaFiles(
         if (!isModelAcceptedImageMime(effectiveMime)) {
           const bytes = Buffer.from(part.source.data, 'base64');
           const name = `image.${imageExtensionForMime(effectiveMime)}`;
-          const persisted = await persistAttachmentBytes(
-            bytes,
-            `${createHash('sha256').update(bytes).digest('hex').slice(0, 32)}-${name}`,
-            await resolveAttachmentsDir(),
-          );
+          const targetName = `${createHash('sha256').update(bytes).digest('hex').slice(0, 32)}-${name}`;
+          const persisted = await store
+            .save(Readable.from(bytes), name, { mimeType: effectiveMime })
+            .then(async (saved) => {
+              ownedFileIds.add(saved.id);
+              return materializeAttachmentToDir(
+                await store.get(saved.id),
+                await resolveAttachmentsDir(),
+                targetName,
+              );
+            })
+            .catch(() => null);
           content.push({
             type: 'text',
             text: persisted === null
@@ -254,11 +261,10 @@ export async function resolvePromptMediaFiles(
         let mediaType = file.meta.media_type;
         mediaType = resolveEffectiveImageMime(mediaType, data);
         if (!isModelAcceptedImageMime(mediaType)) {
-          const persisted = await persistAttachmentBytes(
-            data,
-            `${file.meta.id}-${sanitizeAttachmentName(file.meta.name)}`,
+          const persisted = await materializeAttachmentToDir(
+            file,
             await resolveAttachmentsDir(),
-          );
+          ).catch(() => null);
           content.push({
             type: 'text',
             text: persisted === null
@@ -342,30 +348,18 @@ function sanitizeAttachmentName(name: string): string {
   return cleaned.length > 0 ? cleaned : 'attachment';
 }
 
-async function materializeAttachmentToDir(file: GetResult, dir: string): Promise<string> {
+async function materializeAttachmentToDir(
+  file: GetResult,
+  dir: string,
+  targetName = `${file.meta.id}-${sanitizeAttachmentName(file.meta.name)}`,
+): Promise<string> {
   await mkdir(dir, { recursive: true });
-  const target = join(dir, `${file.meta.id}-${sanitizeAttachmentName(file.meta.name)}`);
+  const target = resolveStoragePath(dir, targetName);
   const info = await stat(target).catch(() => undefined);
   if (info?.size === file.meta.size) return target;
 
   await pipeline(file.stream(), createWriteStream(target));
   return target;
-}
-
-async function persistAttachmentBytes(
-  bytes: Uint8Array,
-  name: string,
-  dir: string,
-): Promise<string | null> {
-  try {
-    await mkdir(dir, { recursive: true });
-    const target = join(dir, name);
-    const info = await stat(target).catch(() => undefined);
-    if (info?.size !== bytes.length) await writeFile(target, bytes);
-    return target;
-  } catch {
-    return null;
-  }
 }
 
 function imageExtensionForMime(mediaType: string): string {

@@ -30,7 +30,7 @@ const forbidden = [
   { label: 'hosted provider constant', pattern: /PYTHINKER_CODE_PROVIDER_NAME/ },
   { label: 'hosted OAuth flow config', pattern: /PYTHINKER_CODE_FLOW_CONFIG/ },
   { label: 'hosted OAuth default', pattern: /DEFAULT_PYTHINKER_CODE_OAUTH_HOST/ },
-  { label: 'hosted inference endpoint', pattern: /api\.kimi\.com\/coding/i },
+  { label: 'hosted inference endpoint', needle: 'api.kimi.com/coding' },
   { label: 'hosted model alias', pattern: /pythinker-code\/kimi-for-coding/i },
   { label: 'removed provider OAuth route', pattern: /\/api\/v1\/oauth\/(?:login|logout|usage|userinfo)\b/i },
   { label: 'removed provider refresh action', pattern: /refresh_oauth/i },
@@ -66,7 +66,9 @@ for (const file of tracked) {
   for (const rule of forbidden) {
     if (rule.allow?.has(file)) continue;
     for (const [index, line] of lines.entries()) {
-      if (rule.pattern.test(line)) failures.push(`${file}:${index + 1}: ${rule.label}`);
+      const matches =
+        rule.pattern?.test(line) ?? line.toLowerCase().includes(rule.needle.toLowerCase());
+      if (matches) failures.push(`${file}:${index + 1}: ${rule.label}`);
     }
   }
 }

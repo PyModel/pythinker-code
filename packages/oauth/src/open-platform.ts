@@ -114,7 +114,7 @@ export async function fetchOpenPlatformModels(
   fetchImpl: typeof fetch = fetch,
   signal?: AbortSignal,
 ): Promise<ProviderModelInfo[]> {
-  const res = await fetchImpl(`${platform.baseUrl.replace(/\/+$/, '')}/models`, {
+  const res = await fetchImpl(`${withoutTrailingSlashes(platform.baseUrl)}/models`, {
     headers: {
       ...parsePythinkerCodeCustomHeaders(),
       Authorization: `Bearer ${apiKey}`,
@@ -135,6 +135,12 @@ export async function fetchOpenPlatformModels(
   return payload['data']
     .map((item) => toModelInfo(item))
     .filter((item): item is ProviderModelInfo => item !== undefined);
+}
+
+function withoutTrailingSlashes(value: string): string {
+  let end = value.length;
+  while (end > 0 && value.charCodeAt(end - 1) === 47) end -= 1;
+  return value.slice(0, end);
 }
 
 export function filterModelsByPrefix(

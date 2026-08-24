@@ -11,7 +11,7 @@ export function effectiveModelAlias(
   providerType?: ProviderType,
 ): ModelAlias {
   const { overrides, ...base } = alias;
-  const effective: ModelAlias = overrides === undefined ? alias : { ...base, ...overrides };
+  let effective: ModelAlias = overrides === undefined ? alias : { ...base, ...overrides };
 
   if (
     overrides?.supportEfforts !== undefined &&
@@ -19,7 +19,8 @@ export function effectiveModelAlias(
     effective.defaultEffort !== undefined &&
     !overrides.supportEfforts.includes(effective.defaultEffort)
   ) {
-    delete effective.defaultEffort;
+    const { defaultEffort: _defaultEffort, ...withoutDefaultEffort } = effective;
+    effective = withoutDefaultEffort;
   }
 
   // The input cap can never exceed the effective total window (an override

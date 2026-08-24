@@ -359,11 +359,21 @@ describe('Model assembly (pure data)', () => {
           baseUrl: 'https://us-east4-aiplatform.googleapis.com',
           env: { GOOGLE_CLOUD_PROJECT: 'my-project' },
         },
+        vertexLookalike: {
+          type: 'google-genai',
+          baseUrl: 'https://proxy.example-us-east4-aiplatform.googleapis.com',
+          env: { GOOGLE_CLOUD_PROJECT: 'my-project' },
+        },
         plain: { type: 'google-genai', apiKey: 'sk-g' },
       },
       models: {
         v: { provider: 'vertex', model: 'gemini-2.5-flash', maxContextSize: 1000 },
         v2: { provider: 'vertexUrl', model: 'gemini-2.5-flash', maxContextSize: 1000 },
+        lookalike: {
+          provider: 'vertexLookalike',
+          model: 'gemini-2.5-flash',
+          maxContextSize: 1000,
+        },
         g: { provider: 'plain', model: 'gemini-2.5-flash', maxContextSize: 1000 },
       },
     });
@@ -380,6 +390,7 @@ describe('Model assembly (pure data)', () => {
         project: 'my-project',
         location: 'us-east4',
       });
+      expect(catalog.get('lookalike').providerOptions).toBeUndefined();
       expect(catalog.get('g').providerOptions).toBeUndefined();
     } finally {
       host.dispose();

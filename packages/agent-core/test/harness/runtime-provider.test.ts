@@ -1204,6 +1204,28 @@ describe('google base URL forwarding', () => {
     });
   });
 
+  it('does not derive a Vertex location from a multi-label lookalike host', () => {
+    const resolved = resolveRuntimeProvider({
+      config: {
+        defaultModel: 'gemini',
+        providers: {
+          vertex: {
+            type: 'vertexai',
+            apiKey: 'v-key',
+            baseUrl: 'https://proxy.example-us-central1-aiplatform.googleapis.com',
+          },
+        },
+        models: {
+          gemini: { provider: 'vertex', model: 'gemini-1.5-pro', maxContextSize: 1_000_000 },
+        },
+      },
+    });
+
+    expect(resolved.provider.type).toBe('vertexai');
+    if (resolved.provider.type !== 'vertexai') throw new Error('expected Vertex provider');
+    expect(resolved.provider.location).toBeUndefined();
+  });
+
   it('derives vertex location from the GOOGLE_VERTEX_BASE_URL env fallback so ADC mode is selected', () => {
     // The env fallback must behave exactly like config `base_url`: when the
     // regional endpoint is supplied via GOOGLE_VERTEX_BASE_URL (with a project

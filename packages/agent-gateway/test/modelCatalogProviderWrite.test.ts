@@ -499,6 +499,12 @@ describe('server-v2 /api/v1 provider write endpoints', () => {
     expect(body?.code).toBe(40412);
   });
 
+  it('does not treat inherited object properties as provider ids', async () => {
+    await boot(KEEP_DEFAULT_TOML);
+    const { body } = await deleteJson<unknown>('/api/v1/providers/toString');
+    expect(body?.code).toBe(40412);
+  });
+
   it('replaces a provider, keeping the stored api_key and rebuilding its aliases', async () => {
     await boot(KEEP_DEFAULT_TOML);
     const { status, body } = await putJson<{
@@ -805,6 +811,12 @@ describe('server-v2 /api/v1 provider write endpoints', () => {
     const { body } = await putJson<unknown>('/api/v1/providers/missing', REPLACE_BODY);
     expect(body.code).toBe(40412);
     expect(body.data).toBeNull();
+  });
+
+  it('rejects a prototype property name as a provider id', async () => {
+    await boot(KEEP_DEFAULT_TOML);
+    const { body } = await putJson<unknown>('/api/v1/providers/__proto__', REPLACE_BODY);
+    expect(body.code).toBe(40001);
   });
 
   it('clears omitted provider fields from config.toml, leaving only the adopted global default in the response', async () => {

@@ -98,6 +98,18 @@ describe('fetchOpenPlatformModels', () => {
     );
   });
 
+  it('removes repeated trailing slashes before the models path', async () => {
+    const fetchMock = vi.fn(async () => makeModelsResponse());
+    const platform = { ...getOpenPlatformById('moonshot-cn')!, baseUrl: 'https://example.test/v1////' };
+
+    await fetchOpenPlatformModels(platform, 'sk-test', fetchMock as unknown as typeof fetch);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://example.test/v1/models',
+      expect.any(Object),
+    );
+  });
+
   it('surfaces API error messages and status on HTTP error', async () => {
     const fetchMock = vi.fn(
       async () =>

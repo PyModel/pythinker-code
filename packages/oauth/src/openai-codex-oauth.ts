@@ -267,6 +267,8 @@ export async function startOpenAICodexCallbackServer(
     cancelWait: () => {},
     close: () => {},
   };
+  const errorPage = renderOAuthErrorPage();
+  const successPage = renderOpenAICodexOAuthSuccessPage();
 
   return new Promise((resolve) => {
     const callbackServer = createServer((req, res) => {
@@ -279,7 +281,7 @@ export async function startOpenAICodexCallbackServer(
         const errorParam = url.searchParams.get('error');
         if (errorParam !== null) {
           res.writeHead(400, { 'content-type': 'text/html; charset=utf-8' }).end(
-            renderOAuthErrorPage(),
+            errorPage,
           );
           settleWait?.(null);
           settleWait = undefined;
@@ -288,7 +290,7 @@ export async function startOpenAICodexCallbackServer(
         const stateParam = url.searchParams.get('state');
         if (stateParam !== expectedState) {
           res.writeHead(400, { 'content-type': 'text/html; charset=utf-8' }).end(
-            renderOAuthErrorPage(),
+            errorPage,
           );
           settleWait?.(null);
           settleWait = undefined;
@@ -297,14 +299,14 @@ export async function startOpenAICodexCallbackServer(
         const code = url.searchParams.get('code');
         if (code === null || code.length === 0) {
           res.writeHead(400, { 'content-type': 'text/html; charset=utf-8' }).end(
-            renderOAuthErrorPage(),
+            errorPage,
           );
           settleWait?.(null);
           settleWait = undefined;
           return;
         }
         res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }).end(
-          renderOpenAICodexOAuthSuccessPage(),
+          successPage,
         );
         settleWait?.({ code });
         settleWait = undefined;

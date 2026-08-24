@@ -60,7 +60,6 @@ import {
   type EventEnvelope,
   type JournalLogger,
   SessionEventJournal,
-  sessionJournalPath,
 } from './sessionEventJournal';
 
 export type ResyncReason = 'buffer_overflow' | 'session_recreated' | 'epoch_changed';
@@ -634,7 +633,8 @@ export class SessionEventBroadcaster {
     const summary = await this.opts.core.accessor.get(ISessionIndex).get(sessionId);
     if (summary === undefined) return undefined;
     const journal = await SessionEventJournal.open(
-      sessionJournalPath(this.opts.eventsDir, sessionId),
+      this.opts.eventsDir,
+      sessionId,
       this.opts.logger,
     );
     const watermark = { seq: journal.seq, epoch: journal.epoch };
@@ -676,7 +676,8 @@ export class SessionEventBroadcaster {
     if (session === undefined) return undefined;
 
     const journal = await SessionEventJournal.open(
-      sessionJournalPath(this.opts.eventsDir, sessionId),
+      this.opts.eventsDir,
+      sessionId,
       this.opts.logger,
     );
     if (this.closed) {
@@ -728,7 +729,8 @@ export class SessionEventBroadcaster {
 
   private async createGlobalState(): Promise<SessionState> {
     const journal = await SessionEventJournal.open(
-      sessionJournalPath(this.opts.eventsDir, GLOBAL_SESSION_ID),
+      this.opts.eventsDir,
+      GLOBAL_SESSION_ID,
       this.opts.logger,
     );
     const state: SessionState = {
