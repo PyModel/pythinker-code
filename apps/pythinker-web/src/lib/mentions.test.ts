@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { middleTruncateName, parseMentionSegments, serializeMention } from './mentions';
+import {
+  isRevivableSkillActivation,
+  middleTruncateName,
+  parseMentionSegments,
+  serializeMention,
+  serializeSkillActivation,
+  skillActivationDisplayText,
+} from './mentions';
 
 describe('mentions', () => {
   it('round-trips escaped file names and paths', () => {
@@ -11,6 +18,30 @@ describe('mentions', () => {
     expect(parseMentionSegments(serializeMention({ kind: 'folder', name: 'src', path: '/work/src' }))).toEqual([
       { type: 'mention', attrs: { kind: 'folder', name: 'src', path: '/work/src/' } },
     ]);
+  });
+
+  it('round-trips skill mentions', () => {
+    const attrs = { kind: 'skill' as const, name: 'code-review', path: '' };
+    expect(parseMentionSegments(serializeMention(attrs))).toEqual([{ type: 'mention', attrs }]);
+  });
+
+  it('serializes reversible skill activations for edit and display', () => {
+    const activation = { name: 'code-review', args: 'focus on errors' };
+    expect(serializeSkillActivation(activation, { revivePill: false })).toBe(
+      '/skill:code-review focus on errors',
+    );
+    expect(isRevivableSkillActivation(activation, { revivePill: false })).toBe(true);
+    expect(skillActivationDisplayText(activation)).toBe(
+      `${serializeMention({ kind: 'skill', name: 'code-review', path: '' })} focus on errors`,
+    );
+  });
+
+  it('does not revive a nested activation pill as a slash command', () => {
+    const args = serializeMention({ kind: 'skill', name: 'code-review', path: '' });
+    const activation = { name: 'code-review', args };
+    expect(serializeSkillActivation(activation, { revivePill: false })).toBeNull();
+    expect(serializeSkillActivation(activation, { revivePill: true })).toBe(args);
+    expect(skillActivationDisplayText(activation)).toBe(args);
   });
 
   it('leaves web links as text', () => {

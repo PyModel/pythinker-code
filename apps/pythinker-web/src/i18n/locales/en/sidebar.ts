@@ -25,6 +25,7 @@ export default {
   pinned: 'Pinned',
   collapsePinned: 'Collapse pinned',
   expandPinned: 'Expand pinned',
+  resizePinnedAria: 'Resize pinned sessions',
   setEmoji: 'Set Emoji…',
   sessionEmojiTitle: 'Pick an emoji',
   removeEmoji: 'Remove emoji',

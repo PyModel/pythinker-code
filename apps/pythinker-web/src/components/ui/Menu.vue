@@ -4,10 +4,14 @@
 <script setup lang="ts">
 import { ref } from 'vue';
 
+import { useOpenMenu } from './openMenus';
+
 // Expose the panel element so call sites can anchor / outside-click against the
 // menu surface (positioning is intentionally left to the consumer).
 const el = ref<HTMLElement>();
 defineExpose({ el });
+
+useOpenMenu(el);
 </script>
 
 <template>
@@ -19,7 +23,7 @@ defineExpose({ el });
 <style scoped>
 .ui-menu {
   min-width: 180px;
-  padding: var(--space-1);
+  padding: var(--menu-pad);
   background: var(--color-surface-raised);
   border: 1px solid var(--color-line);
   border-radius: var(--radius-lg);

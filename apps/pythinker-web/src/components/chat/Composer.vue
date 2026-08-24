@@ -23,6 +23,7 @@ import { useSlashMenu } from '../../composables/useSlashMenu';
 import { useMentionMenu } from '../../composables/useMentionMenu';
 import { useComposerDraft } from '../../composables/useComposerDraft';
 import { useAttachmentUpload, type Attachment } from '../../composables/useAttachmentUpload';
+import { useIsMobile } from '../../composables/useIsMobile';
 import { openFileAttachment } from '../../lib/openFileAttachment';
 import type { IconName } from '../../lib/icons';
 import type { PromptAttachment } from '../../composables/usePythinkerWebClient';
@@ -32,8 +33,11 @@ import Icon from '../ui/Icon.vue';
 import ContextRing from '../ui/ContextRing.vue';
 import SegmentedControl from '../ui/SegmentedControl.vue';
 import Tooltip from '../ui/Tooltip.vue';
+import Input from '../ui/Input.vue';
 import AttachmentChip from './AttachmentChip.vue';
 import CapabilityMenu from '../CapabilityMenu.vue';
+import BottomSheet from '../dialogs/BottomSheet.vue';
+import { useOpenMenu } from '../ui/openMenus';
 
 // ---------------------------------------------------------------------------
 // Props & emits
@@ -115,6 +119,7 @@ const emit = defineEmits<{
 }>();
 
 const { t, locale } = useI18n();
+const isMobile = useIsMobile();
 
 // ---------------------------------------------------------------------------
 // Textarea + per-session draft persistence — see useComposerDraft.
@@ -255,14 +260,86 @@ const {
   items: mentionItems,
   active: mentionActive,
   loading: mentionLoading,
+  stale: mentionStale,
   update: updateMentionMenu,
   select: selectMentionItem,
+  close: closeMentionMenu,
+  getMentionToken,
 } = useMentionMenu({
   text,
   textareaRef,
   autosize,
   searchFiles: () => props.searchFiles,
 });
+
+const slashSheetSearchRef = ref<InstanceType<typeof Input> | null>(null);
+const mentionSheetSearchRef = ref<InstanceType<typeof Input> | null>(null);
+const mentionSheetToken = ref<{ start: number; end: number } | null>(null);
+
+function placeComposerCaret(position: number): void {
+  textareaRef.value?.setSelectionRange(position, position);
+}
+
+const slashSheetQuery = computed<string>({
+  get: () => text.value.startsWith('/') ? text.value.slice(1) : text.value,
+  set: (query) => {
+    text.value = `/${query}`;
+    void nextTick(() => {
+      placeComposerCaret(text.value.length);
+      updateSlashMenu();
+    });
+  },
+});
+
+const mentionSheetQuery = computed<string>({
+  get: () => {
+    const token = mentionSheetToken.value;
+    return token ? text.value.slice(token.start + 1, token.end) : '';
+  },
+  set: (query) => {
+    const token = mentionSheetToken.value;
+    if (!token) return;
+    text.value = `${text.value.slice(0, token.start)}@${query}${text.value.slice(token.end)}`;
+    const end = token.start + query.length + 1;
+    mentionSheetToken.value = { start: token.start, end };
+    void nextTick(() => {
+      placeComposerCaret(end);
+      updateMentionMenu();
+    });
+  },
+});
+
+watch([slashOpen, isMobile], async ([open, mobile]) => {
+  if (!open || !mobile) return;
+  await nextTick();
+  slashSheetSearchRef.value?.focus();
+});
+
+watch([mentionOpen, isMobile], async ([open, mobile]) => {
+  if (!open || !mobile) return;
+  mentionSheetToken.value = getMentionToken();
+  await nextTick();
+  mentionSheetSearchRef.value?.focus();
+});
+
+function closeSlashSheet(): void {
+  slashOpen.value = false;
+  textareaRef.value?.focus();
+}
+
+function updateSlashSheet(open: boolean): void {
+  if (!open) closeSlashSheet();
+}
+
+function closeMentionSheet(): void {
+  closeMentionMenu();
+  mentionSheetToken.value = null;
+  textareaRef.value?.focus();
+}
+
+function updateMentionSheet(open: boolean): void {
+  if (!open) closeMentionSheet();
+}
 
 // ---------------------------------------------------------------------------
 // Input event handler — updates both menus
@@ -702,9 +779,15 @@ const permDropdownOpen = ref(false);
 const toolbarRef = ref<HTMLElement | null>(null);
 const permissionPillRef = ref<HTMLElement | null>(null);
 const modelPillRef = ref<HTMLButtonElement | null>(null);
+const modelNameRef = ref<HTMLElement | null>(null);
 const modelDropdownRef = ref<HTMLElement | null>(null);
+const permDropdownRef = ref<HTMLElement | null>(null);
+useOpenMenu(modelDropdownRef);
+useOpenMenu(permDropdownRef);
 const permissionLeft = ref('');
 const modelRight = ref('');
+const modelMenuMaxHeight = ref('');
+const modelMenuFlipDown = ref(false);
 
 function toggleDropdown(): void {
   dropdownOpen.value = !dropdownOpen.value;
@@ -748,7 +831,11 @@ function removePopupListenerIfIdle(): void {
 
 function onPopupDocClick(event: MouseEvent): void {
   const target = event.target as Node;
-  if (toolbarRef.value?.contains(target) || modesMenuRef.value?.contains(target)) return;
+  if (
+    toolbarRef.value?.contains(target)
+    || modesMenuRef.value?.contains(target)
+    || mobileModesMenuRef.value?.contains(target)
+  ) return;
   closeDropdown();
   closePermDropdown();
   closeModes();
@@ -879,6 +966,9 @@ watch(workMode, async (mode) => {
 const capMenuRef = ref<InstanceType<typeof CapabilityMenu> | null>(null);
 const modesOpen = ref(false);
 const modesMenuRef = ref<HTMLElement | null>(null);
+const mobileModesMenuRef = ref<HTMLElement | null>(null);
+useOpenMenu(modesMenuRef);
+useOpenMenu(mobileModesMenuRef);
 const addMenuScrollRef = ref<HTMLElement | null>(null);
 const addMenuThumb = ref<{ top: number; height: number } | null>(null);
 let addMenuResizeObserver: ResizeObserver | null = null;
@@ -895,6 +985,12 @@ const addMenuRows = computed<AddMenuRow[]>(() => {
   const rows: AddMenuRow[] = [];
   if (hasUpload.value) {
     rows.push({ id: 'files', icon: 'attachment', nameKey: 'composer.addFiles', action: openFiles });
+  }
+  if (isMobile.value) {
+    rows.push(
+      { id: 'slash', icon: 'terminal', nameKey: 'composer.addSlash', descKey: 'composer.addSlashDesc', action: openSlashSheet },
+      { id: 'mention', icon: 'link', nameKey: 'composer.addMention', descKey: 'composer.addMentionDesc', action: openMentionSheet },
+    );
   }
   rows.push(
     { id: 'capabilities', icon: 'sliders', nameKey: 'capabilityMenu.trigger', action: openCapabilities },
@@ -940,6 +1036,10 @@ function closeModes(): void {
   modesOpen.value = false;
   removePopupListenerIfIdle();
 }
+
+function updateModesSheet(open: boolean): void {
+  if (!open) closeModes();
+}
 function toggleModes(): void {
   if (modesOpen.value) {
     closeModes();
@@ -952,12 +1052,15 @@ function toggleModes(): void {
   mentionOpen.value = false;
   modesOpen.value = true;
   document.addEventListener('click', onPopupDocClick, true);
-  void nextTick(() => modesMenuRef.value?.querySelector<HTMLButtonElement>('.am-row')?.focus());
+  void nextTick(() => {
+    const menu = isMobile.value ? mobileModesMenuRef.value : modesMenuRef.value;
+    menu?.querySelector<HTMLButtonElement>('.am-row')?.focus();
+  });
 }
 
 function activateAddMenuRow(row: AddMenuRow): void {
   row.action();
-  textareaRef.value?.focus();
+  if (!(isMobile.value && row.id === 'files')) textareaRef.value?.focus();
 }
 
 function handleAddMenuKeydown(event: KeyboardEvent): void {
@@ -973,7 +1076,8 @@ function handleAddMenuKeydown(event: KeyboardEvent): void {
   }
   if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
   event.preventDefault();
-  const rows = Array.from(modesMenuRef.value?.querySelectorAll<HTMLButtonElement>('.am-row') ?? []);
+  const menu = isMobile.value ? mobileModesMenuRef.value : modesMenuRef.value;
+  const rows = Array.from(menu?.querySelectorAll<HTMLButtonElement>('.am-row') ?? []);
   if (rows.length === 0) return;
   const current = rows.indexOf(document.activeElement as HTMLButtonElement);
   const next = event.key === 'ArrowDown'
@@ -985,6 +1089,24 @@ function handleAddMenuKeydown(event: KeyboardEvent): void {
 function openFiles(): void {
   closeModes();
   openFilePicker();
+}
+
+function openSlashSheet(): void {
+  closeModes();
+  text.value = '/';
+  void nextTick(() => {
+    placeComposerCaret(1);
+    updateSlashMenu();
+  });
+}
+
+function openMentionSheet(): void {
+  closeModes();
+  text.value = '@';
+  void nextTick(() => {
+    placeComposerCaret(1);
+    updateMentionMenu();
+  });
 }
 
 function openCapabilities(): void {
@@ -1029,6 +1151,7 @@ const permissionMenuStyle = computed<Record<string, string>>(() => {
 const modelMenuStyle = computed<Record<string, string>>(() => {
   const style: Record<string, string> = {};
   if (modelRight.value) style.right = modelRight.value;
+  if (modelMenuMaxHeight.value) style.maxHeight = modelMenuMaxHeight.value;
   return style;
 });
 let menuMeasureFrame: number | null = null;
@@ -1100,6 +1223,84 @@ function choosePermission(mode: PermissionMode): void {
 const permInfo = computed(() => PERM_MODES.find((p) => p.mode === props.status?.permission));
 const permLabel = computed(() => (permInfo.value ? t(permInfo.value.labelKey) : ''));
 const permIcon = computed(() => permInfo.value?.icon ?? 'fingerprint');
+const labelsCollapsed = ref(false);
+const modelIconOnly = ref(false);
+let labelsCollapsedAt = 0;
+let modelIconOnlyAt = 0;
+let toolbarResizeObserver: ResizeObserver | null = null;
+
+function toolbarMetric(style: CSSStyleDeclaration, property: string, fallback: number): number {
+  const raw = style.getPropertyValue(property).trim();
+  const value = Number.parseFloat(raw);
+  if (!Number.isFinite(value)) return fallback;
+  return raw.endsWith('em') ? value * Number.parseFloat(style.fontSize) : value;
+}
+
+function modelNameOverflows(element: HTMLElement): boolean {
+  return element.scrollWidth > element.clientWidth + 1
+    || (element.clientWidth === 0 && (element.textContent?.length ?? 0) > 0);
+}
+
+function measureToolbarOverflow(): void {
+  const toolbar = toolbarRef.value;
+  if (!toolbar) return;
+  const style = getComputedStyle(toolbar);
+  const floor = toolbarMetric(style, '--composer-valve-floor', 56);
+  const margin = toolbarMetric(style, '--composer-valve-expand-margin', 48);
+  const width = toolbar.getBoundingClientRect().width;
+  if (modelIconOnly.value) {
+    if (width > modelIconOnlyAt + margin) {
+      modelIconOnly.value = false;
+      void nextTick(measureToolbarOverflow);
+    }
+    return;
+  }
+  if (labelsCollapsed.value && width > labelsCollapsedAt + margin) {
+    labelsCollapsed.value = false;
+    void nextTick(measureToolbarOverflow);
+    return;
+  }
+  const name = modelNameRef.value;
+  if (!name || !modelNameOverflows(name) || name.getBoundingClientRect().width >= floor) return;
+  if (labelsCollapsed.value) {
+    modelIconOnlyAt = width;
+    modelIconOnly.value = true;
+  } else {
+    labelsCollapsedAt = width;
+    labelsCollapsed.value = true;
+  }
+  void nextTick(measureToolbarOverflow);
+}
+
+onMounted(() => {
+  if (typeof ResizeObserver === 'function' && toolbarRef.value) {
+    toolbarResizeObserver = new ResizeObserver(measureToolbarOverflow);
+    toolbarResizeObserver.observe(toolbarRef.value);
+  }
+  void document.fonts?.ready.then(measureToolbarOverflow);
+});
+
+watch(
+  [
+    permLabel,
+    workflowOn,
+    showCompact,
+    thinkingSuffix,
+    () => props.status?.model,
+    () => props.working,
+    locale,
+  ],
+  () => {
+    labelsCollapsed.value = false;
+    modelIconOnly.value = false;
+    void nextTick(measureToolbarOverflow);
+  },
+);
+
+onUnmounted(() => {
+  toolbarResizeObserver?.disconnect();
+  toolbarResizeObserver = null;
+});
 
 // ---------------------------------------------------------------------------
 // Model dropdown — current provider models + thinking + more
@@ -1125,12 +1326,59 @@ const starredOtherModels = computed(() => {
   );
 });
 
+function fitModelMenuToViewport(): void {
+  const menu = modelDropdownRef.value;
+  const toolbar = toolbarRef.value;
+  if (!menu || !toolbar) return;
+  const style = getComputedStyle(menu);
+  const gap = cssPx(style.getPropertyValue('--space-1')) || 4;
+  const margin = cssPx(style.getPropertyValue('--space-2')) || 8;
+  const viewport = window.visualViewport;
+  const top = viewport?.offsetTop ?? 0;
+  const bottom = top + (viewport?.height ?? window.innerHeight);
+  const anchor = toolbar.getBoundingClientRect();
+  const above = anchor.top - top - gap - margin;
+  const below = bottom - anchor.bottom - gap - margin;
+  if (menu.offsetHeight > above && below > above) {
+    modelMenuFlipDown.value = true;
+    modelMenuMaxHeight.value = `${Math.max(Math.floor(below), 0)}px`;
+  } else {
+    modelMenuFlipDown.value = false;
+    modelMenuMaxHeight.value = `${Math.max(Math.floor(above), 0)}px`;
+  }
+}
+
+function closeModelMenuForViewportChange(): void {
+  closeDropdown();
+}
+
+function addModelMenuViewportListeners(): void {
+  window.addEventListener('resize', closeModelMenuForViewportChange);
+  window.visualViewport?.addEventListener('resize', closeModelMenuForViewportChange);
+  window.visualViewport?.addEventListener('scroll', closeModelMenuForViewportChange);
+}
+
+function removeModelMenuViewportListeners(): void {
+  window.removeEventListener('resize', closeModelMenuForViewportChange);
+  window.visualViewport?.removeEventListener('resize', closeModelMenuForViewportChange);
+  window.visualViewport?.removeEventListener('scroll', closeModelMenuForViewportChange);
+}
+
 watch(dropdownOpen, async (open) => {
-  if (!open) return;
+  if (!open) {
+    removeModelMenuViewportListeners();
+    return;
+  }
+  addModelMenuViewportListeners();
+  modelMenuFlipDown.value = false;
+  modelMenuMaxHeight.value = '';
   await nextTick();
+  fitModelMenuToViewport();
   const current = modelDropdownRef.value?.querySelector<HTMLButtonElement>('.md-row.is-current');
   (current ?? modelDropdownRef.value?.querySelector<HTMLButtonElement>('.md-row'))?.focus();
 });
+
+onUnmounted(removeModelMenuViewportListeners);
 
 function handleModelDropdownKeydown(event: KeyboardEvent): void {
   if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
@@ -1175,7 +1423,7 @@ function selectModel(modelId: string): void {
       </div>
     </div>
 
-    <div class="composer-card">
+    <div class="composer-card" :class="{ 'labels-collapsed': labelsCollapsed }">
       <div v-if="attachments.length > 0" class="att-strip">
         <div
           ref="attachmentScrollRef"
@@ -1240,7 +1488,7 @@ function selectModel(modelId: string): void {
 
       <div class="cin-wrap">
         <SlashMenu
-          v-if="slashOpen"
+          v-if="slashOpen && !isMobile"
           id="composer-slash-menu"
           :items="slashItems"
           :active-index="slashActive"
@@ -1250,18 +1498,19 @@ function selectModel(modelId: string): void {
 
         <!-- Mention menu (above textarea) -->
         <MentionMenu
-          v-if="mentionOpen"
+          v-if="mentionOpen && !isMobile"
           id="composer-mention-menu"
           :items="mentionItems"
           :active-index="mentionActive"
           :loading="mentionLoading"
+          :stale="mentionStale"
           @select="selectMentionItem"
           @hover="mentionActive = $event"
         />
 
         <Transition name="composer-menu-pop">
           <div
-            v-if="modesOpen"
+            v-if="modesOpen && !isMobile"
             ref="modesMenuRef"
             class="add-menu"
             @click.stop
@@ -1329,7 +1578,7 @@ function selectModel(modelId: string): void {
             @compositionstart="handleCompositionStart"
             @compositionend="handleCompositionEnd"
             @input="handleInput"
-            @blur="slashOpen = false; mentionOpen = false"
+            @blur="if (!isMobile) { slashOpen = false; mentionOpen = false; }"
           />
           <Tooltip :text="expanded ? t('composer.collapseTitle') : t('composer.expandTitle')">
             <button
@@ -1394,6 +1643,7 @@ function selectModel(modelId: string): void {
           <Transition name="composer-menu-pop">
             <div
               v-if="permDropdownOpen && status"
+              ref="permDropdownRef"
               class="perm-dropdown"
               :style="permissionMenuStyle"
               role="menu"
@@ -1451,20 +1701,26 @@ function selectModel(modelId: string): void {
             </span>
           </Tooltip>
 
-          <button
-            v-if="status"
-            ref="modelPillRef"
-            type="button"
-            class="model-pill"
-            :class="{ open: dropdownOpen }"
-            aria-haspopup="menu"
-            :aria-expanded="dropdownOpen"
-            @click.stop="toggleDropdown"
-          >
-            <span class="mp-name">{{ status.model }}</span>
-            <span v-if="thinkingSuffix" class="think-suffix">{{ thinkingSuffix }}</span>
-            <Icon class="cv" name="chevron-down" size="sm" />
-          </button>
+          <Tooltip :text="modelIconOnly ? `${status?.model ?? ''}${thinkingSuffix}` : null">
+            <button
+              v-if="status"
+              ref="modelPillRef"
+              type="button"
+              class="model-pill"
+              :class="{ open: dropdownOpen, 'icon-only': modelIconOnly }"
+              aria-haspopup="menu"
+              :aria-expanded="dropdownOpen"
+              :aria-label="modelIconOnly ? `${status.model}${thinkingSuffix}` : undefined"
+              @click.stop="toggleDropdown"
+            >
+              <Icon v-if="modelIconOnly" name="cute-bot" size="md" />
+              <template v-else>
+                <span ref="modelNameRef" class="mp-name">{{ status.model }}</span>
+                <span v-if="thinkingSuffix" class="think-suffix">{{ thinkingSuffix }}</span>
+                <Icon class="cv" name="chevron-down" size="sm" />
+              </template>
+            </button>
+          </Tooltip>
           <Tooltip v-if="working" :text="t('composer.interruptTitle')">
             <button
               class="stop"
@@ -1491,6 +1747,7 @@ function selectModel(modelId: string): void {
             v-if="dropdownOpen && status"
             ref="modelDropdownRef"
             class="model-dropdown"
+            :class="{ 'flip-down': modelMenuFlipDown }"
             :style="modelMenuStyle"
             role="menu"
             @click.stop
@@ -1565,6 +1822,87 @@ function selectModel(modelId: string): void {
         <span>{{ t('composer.dropToAttach') }}</span>
       </div>
     </div>
+    <Teleport to="body">
+      <BottomSheet
+        :model-value="isMobile && slashOpen"
+        :title="t('composer.slashSheetTitle')"
+        @update:model-value="updateSlashSheet"
+      >
+        <div class="msheet-search">
+          <Input
+            ref="slashSheetSearchRef"
+            v-model="slashSheetQuery"
+            :placeholder="t('composer.slashSearchPlaceholder')"
+            autocomplete="off"
+            spellcheck="false"
+            @keydown="handleKeydown"
+          />
+        </div>
+        <SlashMenu
+          id="composer-slash-menu"
+          layout="sheet"
+          :items="slashItems"
+          :active-index="slashActive"
+          :query="slashSheetQuery"
+          @select="selectSlashCommand"
+          @hover="slashActive = $event"
+        />
+      </BottomSheet>
+
+      <BottomSheet
+        :model-value="isMobile && mentionOpen"
+        :title="t('composer.mentionSheetTitle')"
+        @update:model-value="updateMentionSheet"
+      >
+        <div class="msheet-search">
+          <Input
+            ref="mentionSheetSearchRef"
+            v-model="mentionSheetQuery"
+            :placeholder="t('composer.mentionSearchPlaceholder')"
+            autocomplete="off"
+            spellcheck="false"
+            @keydown="handleKeydown"
+          />
+        </div>
+        <MentionMenu
+          id="composer-mention-menu"
+          layout="sheet"
+          :items="mentionItems"
+          :active-index="mentionActive"
+          :loading="mentionLoading"
+          :stale="mentionStale"
+          @select="selectMentionItem"
+          @hover="mentionActive = $event"
+        />
+      </BottomSheet>
+
+      <BottomSheet
+        :model-value="isMobile && modesOpen"
+        @update:model-value="updateModesSheet"
+      >
+        <div
+          ref="mobileModesMenuRef"
+          class="msheet-add"
+          role="menu"
+          @click.stop
+          @keydown="handleAddMenuKeydown"
+        >
+          <button
+            v-for="row in addMenuRows"
+            :key="row.id"
+            type="button"
+            class="am-row"
+            role="menuitem"
+            @mousedown.prevent
+            @click="activateAddMenuRow(row)"
+          >
+            <span class="am-icon"><Icon :name="row.icon" size="sm" /></span>
+            <span class="am-name">{{ t(row.nameKey) }}</span>
+            <span v-if="row.descKey" class="am-desc">{{ t(row.descKey) }}</span>
+          </button>
+        </div>
+      </BottomSheet>
+    </Teleport>
   </div>
 </template>
 
@@ -1622,6 +1960,8 @@ function selectModel(modelId: string): void {
     --composer-control-size: var(--space-8);
     --composer-send-size: var(--composer-control-size);
     --composer-control-inset: var(--space-2);
+    --composer-valve-floor: 4em;
+    --composer-valve-expand-margin: 3.4em;
     position: relative;
     border: .5px solid var(--color-composer-line);
     border-radius: var(--radius-composer);
@@ -1898,6 +2238,19 @@ function selectModel(modelId: string): void {
     background: var(--color-menu-scrollbar-hover)
 }
 
+.msheet-search {
+    padding: 0 var(--space-4) var(--space-2)
+}
+
+
+.msheet-add {
+    display: flex;
+    flex-direction: column;
+    gap: var(--menu-rows-seam);
+    padding: 0 var(--menu-row-hug);
+    font-family: var(--font-ui)
+}
+
 
 .am-row {
     display: flex;
@@ -2072,6 +2425,7 @@ function selectModel(modelId: string): void {
     display: flex;
     align-items: center;
     justify-content: space-between;
+    gap: var(--space-2);
     padding: var(--space-1) var(--composer-control-inset) var(--composer-control-inset);
     position: relative
 }
@@ -2097,13 +2451,14 @@ function selectModel(modelId: string): void {
 
 
 .toolbar-left {
-    flex: 0 1 auto;
-    overflow: hidden
+    flex: none;
+    overflow: hidden;
+    padding-right: var(--space-2)
 }
 
 
 .toolbar-right {
-    flex: 1 1 0;
+    flex: 1 1 auto;
     justify-content: flex-end
 }
 
@@ -2189,31 +2544,29 @@ function selectModel(modelId: string): void {
 }
 
 
-@container (max-width: 620px) {
-    .perm-pill {
+.labels-collapsed .perm-pill {
         width: var(--composer-control-size);
         height: var(--composer-control-size);
         padding: 0;
         justify-content: center;
         flex: none
-    }
+}
 
-    .perm-pill-label {
+.labels-collapsed .perm-pill-label {
         display: none
-    }
+}
 
-    .workflow-chip {
+.labels-collapsed .workflow-chip {
         position: relative;
         width: var(--composer-control-size);
         height: var(--composer-control-size);
         padding: 0;
-        justify-content: center
-    }
+        justify-content: center;
+        flex: none
+}
 
-    .workflow-label {
+.labels-collapsed .workflow-label {
         display: none
-    }
-
 }
 
 
@@ -2290,12 +2643,20 @@ function selectModel(modelId: string): void {
     transform: rotate(180deg)
 }
 
+.model-pill.icon-only {
+    width: var(--composer-control-size);
+    height: var(--composer-control-size);
+    padding: 0;
+    justify-content: center;
+    flex: none
+}
+
 
 
 
 .model-dropdown {
     position: absolute;
-    bottom: calc(100% + 4px);
+    bottom: calc(100% + var(--space-1));
     right: calc(var(--composer-control-inset) + var(--composer-send-size) + var(--space-1));
     z-index: var(--z-dropdown);
     min-width: 200px;
@@ -2310,7 +2671,16 @@ function selectModel(modelId: string): void {
     flex-direction: column;
     gap: 1px;
     font-family: var(--font-ui);
-    transform-origin: bottom right
+    transform-origin: bottom right;
+    overflow-y: auto;
+    overscroll-behavior: contain
+}
+
+
+.model-dropdown.flip-down {
+    top: calc(100% + var(--space-1));
+    bottom: auto;
+    transform-origin: top right
 }
 
 
@@ -2332,13 +2702,16 @@ function selectModel(modelId: string): void {
 }
 
 
+.model-dropdown.flip-down.composer-menu-pop-enter-from,
+.model-dropdown.flip-down.composer-menu-pop-leave-to {
+    transform: scale(.97) translateY(-2px)
+}
+
+
 .md-list {
     display: flex;
     flex-direction: column;
-    gap: 1px;
-    max-height: min(320px, 40vh);
-    overflow-y: auto;
-    overscroll-behavior: contain
+    gap: 1px
 }
 
 

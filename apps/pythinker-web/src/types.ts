@@ -395,6 +395,7 @@ export interface ActivationBadges {
 
 /** A queued prompt as shown inline at the tail of the transcript. */
 export interface QueuedPromptView {
+  id: string;
   text: string;
   /** Number of attachments waiting with this prompt. */
   attachmentCount: number;

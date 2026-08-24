@@ -9,6 +9,7 @@ const conversationPane = readFileSync(join(import.meta.dirname, '../src/componen
 const mobileSheet = readFileSync(join(import.meta.dirname, '../src/components/mobile/MobileSettingsSheet.vue'), 'utf8');
 const sidebar = readFileSync(join(import.meta.dirname, '../src/components/Sidebar.vue'), 'utf8');
 const sessionRow = readFileSync(join(import.meta.dirname, '../src/components/SessionRow.vue'), 'utf8');
+const sideChat = readFileSync(join(import.meta.dirname, '../src/components/chat/SideChatPanel.vue'), 'utf8');
 const client = readFileSync(join(import.meta.dirname, '../src/composables/usePythinkerWebClient.ts'), 'utf8');
 
 describe('app shell contracts', () => {
@@ -67,5 +68,18 @@ describe('app shell contracts', () => {
     expect(sessionRow).toContain('splitTitleEmoji(props.session.title)');
     expect(sessionRow).toContain('class="session-emoji"');
     expect(sessionRow).toContain('{{ titleParts.rest }}');
+  });
+
+  it('keeps global Escape IME-safe and focuses side chat after it opens', () => {
+    expect(app).toContain('e.isComposing');
+    expect(app).toContain('ref="sideChatPanelRef"');
+    expect(app).toContain('sideChatPanelRef.value?.focusInput()');
+    expect(sideChat).toContain('defineExpose({ focusInput });');
+  });
+
+  it('fits the model menu to the visual viewport', () => {
+    expect(composer).toContain("'flip-down': modelMenuFlipDown");
+    expect(composer).toContain('window.visualViewport');
+    expect(composer).toContain('style.maxHeight = modelMenuMaxHeight.value');
   });
 });

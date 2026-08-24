@@ -51,7 +51,20 @@ const i18n = createI18n({
         turnFailedMaxSteps: 'Step limit reached — this turn was interrupted',
         turnFailedResume: 'Continue',
         turnFailedResumeText: 'Continue',
+        undoTooltip: 'Undo',
+        activatedSkill: 'Activated {name}',
+        userMessage: { expand: 'Expand', collapse: 'Collapse' },
       },
+      composer: {
+        queueLabel: 'Queue',
+        queuePending: '{n} waiting to send',
+        queueSteer: 'Send into the running turn',
+        queueDragTitle: 'Drag to reorder',
+        editQueued: 'Edit queued message',
+        queuedAttachments: '{n} attachments',
+        remove: 'Remove',
+      },
+      filePreview: { copy: 'Copy' },
     },
   },
 });
@@ -123,5 +136,77 @@ describe('failed-turn recovery (ChatPane)', () => {
     await wrapper.find('.turn-failed button').trigger('click');
     expect(wrapper.emitted('continueTurn')).toEqual([['Continue']]);
     vi.unstubAllGlobals();
+  });
+});
+
+describe('queued prompts and skill turns (ChatPane)', () => {
+  it('offers steer only on the first queued prompt', async () => {
+    const wrapper = mount(ChatPane, {
+      props: {
+        turns: [],
+        queued: [
+          { id: 'q_1', text: 'first', attachmentCount: 0 },
+          { id: 'q_2', text: 'second', attachmentCount: 0 },
+        ],
+      },
+      global: { plugins: [i18n as I18n] },
+    });
+
+    expect(wrapper.findAll('.q-send')).toHaveLength(1);
+    await wrapper.find('.q-send').trigger('click');
+    expect(wrapper.emitted('steerQueued')).toEqual([[0]]);
+  });
+
+  it('renders a reversible skill activation as a normal user-turn pill', () => {
+    const wrapper = mount(ChatPane, {
+      props: {
+        turns: [
+          {
+            id: 'u_skill',
+            role: 'user',
+            no: 1,
+            text: 'focus on errors',
+            skillActivation: { name: 'code-review', args: 'focus on errors' },
+          },
+        ],
+        working: false,
+      },
+      global: { plugins: [i18n as I18n] },
+    });
+
+    expect(wrapper.find('.mention-skill').text()).toBe('code-review');
+    expect(wrapper.find('.u-text').text()).toContain('focus on errors');
+    expect(wrapper.find('.u-edit').exists()).toBe(true);
+    expect(wrapper.find('.skill-act').exists()).toBe(false);
+  });
+
+  it('keeps plugin commands as cards and non-revivable skill turns locked', () => {
+    const skillPill = '[code-review](pythinker-code://skill/code-review)';
+    const wrapper = mount(ChatPane, {
+      props: {
+        turns: [
+          {
+            id: 'u_skill',
+            role: 'user',
+            no: 1,
+            text: skillPill,
+            skillActivation: { name: 'code-review', args: skillPill },
+          },
+          {
+            id: 'u_plugin',
+            role: 'user',
+            no: 2,
+            text: 'args',
+            pluginCommand: { pluginId: 'tools', commandName: 'run', args: 'args' },
+          },
+        ],
+        working: false,
+      },
+      global: { plugins: [i18n as I18n] },
+    });
+
+    expect(wrapper.findAll('.skill-act')).toHaveLength(1);
+    expect(wrapper.find('.skill-act').text()).toContain('/tools:run');
+    expect(wrapper.find('.u-edit').exists()).toBe(false);
   });
 });

@@ -452,6 +452,10 @@ html[data-color-scheme=dark][data-accent=mono] {
     --radius-composer: 32px;
     --corner-shape-composer: superellipse(1.5);
     --radius-menu-row: var(--radius-sm);
+    --menu-pad: 3.5px;
+    --radius-menu-item: calc(var(--radius-lg) - var(--menu-pad) - var(--p-hairline));
+    --radius-select-option: calc(var(--radius-md) - var(--space-1) - var(--p-hairline));
+    --radius-dropdown-row: calc(var(--radius-lg) - var(--space-1) - var(--p-hairline));
     --corner-shape-menu: var(--corner-shape-composer);
     --color-menu-bg-frost: color-mix(in srgb, var(--color-bg) 70%, transparent);
     --color-menu-scrollbar: color-mix(in srgb, var(--color-text) 16%, transparent);

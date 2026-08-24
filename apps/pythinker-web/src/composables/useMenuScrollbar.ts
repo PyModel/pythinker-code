@@ -16,6 +16,8 @@ export interface MenuScrollbarOptions {
   activeIndex?: Ref<number>;
   /** Re-measure when this reference changes identity (e.g. the items array). */
   refreshKey?: Ref<unknown>;
+  /** Fit popup height to the viewport. Sheet layouts already own their height. */
+  fitToViewport?: boolean;
 }
 
 export interface MenuScrollbarState {
@@ -42,7 +44,7 @@ function readVar(el: HTMLElement, name: string, fallback: number): number {
 }
 
 export function useMenuScrollbar(options: MenuScrollbarOptions): MenuScrollbarState {
-  const { menuEl, scrollEl, maxHeightVar, activeIndex, refreshKey } = options;
+  const { menuEl, scrollEl, maxHeightVar, activeIndex, refreshKey, fitToViewport = true } = options;
 
   const atTop = ref(false);
   const atBottom = ref(false);
@@ -169,13 +171,17 @@ export function useMenuScrollbar(options: MenuScrollbarOptions): MenuScrollbarSt
         }
       });
       resizeObserver.observe(scrollEl.value);
-      const anchor = menuEl.value?.offsetParent;
-      if (anchor) resizeObserver.observe(anchor);
+      if (fitToViewport) {
+        const anchor = menuEl.value?.offsetParent;
+        if (anchor) resizeObserver.observe(anchor);
+      }
     }
-    window.addEventListener('resize', fitHeight);
-    window.visualViewport?.addEventListener('resize', fitHeight);
-    window.visualViewport?.addEventListener('scroll', fitHeight);
-    fitHeight();
+    if (fitToViewport) {
+      window.addEventListener('resize', fitHeight);
+      window.visualViewport?.addEventListener('resize', fitHeight);
+      window.visualViewport?.addEventListener('scroll', fitHeight);
+      fitHeight();
+    }
     update();
   });
 

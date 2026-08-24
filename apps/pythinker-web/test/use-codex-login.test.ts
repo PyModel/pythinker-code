@@ -46,11 +46,36 @@ function popupWindow(): Window & { close: ReturnType<typeof vi.fn> } {
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
   vi.clearAllMocks();
 });
 
 describe('useCodexLogin', () => {
+  it('polls immediately when the browser window regains focus', async () => {
+    vi.useFakeTimers();
+    mockApi.startCodexLogin.mockResolvedValue({
+      loginId: 'login_focus',
+      authorizeUrl: 'https://auth.openai.com/oauth/authorize?state=focus',
+      loopback: true,
+      expiresAt: '2026-08-17T00:10:00.000Z',
+    });
+    mockApi.getCodexLoginStatus.mockResolvedValue({ loginId: 'login_focus', state: 'pending' });
+    mockApi.cancelCodexLogin.mockResolvedValue({ loginId: 'login_focus', state: 'cancelled' });
+    vi.spyOn(window, 'open').mockReturnValue(popupWindow());
+    const { wrapper, login } = mountLogin();
+
+    await login.start();
+    expect(mockApi.getCodexLoginStatus).not.toHaveBeenCalled();
+
+    window.dispatchEvent(new Event('focus'));
+    await flushPromises();
+
+    expect(mockApi.getCodexLoginStatus).toHaveBeenCalledOnce();
+    expect(mockApi.getCodexLoginStatus).toHaveBeenCalledWith('login_focus');
+    wrapper.unmount();
+  });
+
   it('keeps the authorize URL available when the popup is blocked', async () => {
     const authorizeUrl = 'https://auth.openai.com/oauth/authorize?client_id=app_test&state=s';
     mockApi.startCodexLogin.mockResolvedValue({

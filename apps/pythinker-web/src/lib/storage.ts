@@ -42,6 +42,7 @@ export const STORAGE_KEYS = {
   debug: 'pythinker-web.debug',
   openInLastTarget: 'pythinker-web.open-in.last-target',
   sidebarCollapsed: 'pythinker-web.sidebar-collapsed',
+  sidebarPinnedHeight: 'pythinker-web.sidebar-pinned-height',
   sidebarWidth: 'pythinker-web.sidebar-width',
   // deprecated cleanups (kept so the removals still fire for old users)
   codeFont: 'pythinker-web.code-font',

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { nextTick, onBeforeUnmount, ref, watch } from 'vue';
+import { useOpenMenu } from './openMenus';
 
 type Alignment = 'start' | 'end';
 
@@ -20,6 +21,7 @@ const emit = defineEmits<{
 }>();
 
 const panelRef = ref<HTMLElement | null>(null);
+useOpenMenu(panelRef);
 const panelStyle = ref<Record<string, string>>({});
 let opener: HTMLElement | null = null;
 let listenersAttached = false;

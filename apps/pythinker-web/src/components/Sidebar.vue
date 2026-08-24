@@ -770,26 +770,27 @@ onBeforeUnmount(() => {
         </IconButton>
       </div>
 
+      <PinnedSessionList
+        v-if="statusView === 'open'"
+        :sessions="pinnedSessions"
+        :active-id="activeId"
+        :collapsed="pinnedCollapsed"
+        :pending-by-session="pendingBySession"
+        :unread-by-session="unreadBySession"
+        @select="onSelectSession"
+        @rename="(id, title) => emit('rename', id, title)"
+        @generate-title="(id, onTitle) => emit('generateTitle', id, onTitle)"
+        @archive="emit('archive', $event)"
+        @fork="emit('fork', $event)"
+        @export="emit('export', $event)"
+        @pin="emit('pin', $event)"
+        @set-emoji="(id, emoji) => emit('setSessionEmoji', id, emoji)"
+        @reorder="emit('reorderPins', $event)"
+        @toggle-collapsed="emit('togglePinnedCollapsed')"
+      />
+
       <!-- Session list — grouped by workspace -->
       <div class="sessions" @scroll="onSessionsScroll">
-        <PinnedSessionList
-          v-if="statusView === 'open'"
-          :sessions="pinnedSessions"
-          :active-id="activeId"
-          :collapsed="pinnedCollapsed"
-          :pending-by-session="pendingBySession"
-          :unread-by-session="unreadBySession"
-          @select="onSelectSession"
-          @rename="(id, title) => emit('rename', id, title)"
-          @generate-title="(id, onTitle) => emit('generateTitle', id, onTitle)"
-          @archive="emit('archive', $event)"
-          @fork="emit('fork', $event)"
-          @export="emit('export', $event)"
-          @pin="emit('pin', $event)"
-          @set-emoji="(id, emoji) => emit('setSessionEmoji', id, emoji)"
-          @reorder="emit('reorderPins', $event)"
-          @toggle-collapsed="emit('togglePinnedCollapsed')"
-        />
 
         <!-- Done tab — done sessions grouped by workspace with count headers.
              The group header collapses like an open-tab workspace group and
