@@ -1,5 +1,6 @@
 export {
   ErrorCodes,
+  isPythinkerErrorCode,
   PYTHINKER_ERROR_INFO,
   type PythinkerErrorCode,
   type PythinkerErrorInfo,
