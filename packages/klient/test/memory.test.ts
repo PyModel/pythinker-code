@@ -9,7 +9,9 @@ import { RPCError } from '../src/core/errors.js';
 import { makeEngine } from './helpers/engine.js';
 
 defineKlientConformance('memory', async () => {
-  const { homeDir, app } = await makeEngine();
+  const { homeDir, app } = await makeEngine('klient-test-engine-', {
+    PYTHINKER_CODE_EXPERIMENTAL_MCP_MANAGEMENT: '1',
+  });
   const klient = createKlient({ scope: app });
   return {
     klient,
@@ -23,6 +25,20 @@ defineKlientConformance('memory', async () => {
 });
 
 describe('memory dispatcher specifics', () => {
+  it('rejects MCP management calls while the flag is disabled', async () => {
+    const { homeDir, app } = await makeEngine();
+    const klient = createKlient({ scope: app });
+
+    await expect(klient.global.mcp.list()).rejects.toMatchObject({
+      name: 'RPCError',
+      code: 40001,
+    });
+
+    await klient.close();
+    app.dispose();
+    await rm(homeDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 25 });
+  });
+
   it('rejects unknown services and methods with RPCError(40001)', async () => {
     const { homeDir, app } = await makeEngine();
     const dispatcher = createMemoryDispatcher(app);
