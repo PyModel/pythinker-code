@@ -83,7 +83,7 @@ describe('deploy retries', () => {
     )
 
     expect(retried).toEqual([1, 2])
-    expect(waits).toEqual([deployRetryDelayMs(1), deployRetryDelayMs(2)])
+    expect(waits).toEqual([5_000, 20_000])
   })
 
   // A deterministic failure must still fail the build, and must surface its own
@@ -101,7 +101,11 @@ describe('deploy retries', () => {
     expect(waits).toHaveLength(DEPLOY_ATTEMPTS - 1)
   })
 
-  it('backs off further on the second retry', () => {
+  // Ordering alone would accept a 0ms/1ms backoff, which retries faster than a
+  // registry propagates and turns one retry into three failures in a row.
+  it('waits five seconds before the first retry and twenty before the second', () => {
+    expect(deployRetryDelayMs(1)).toBe(5_000)
+    expect(deployRetryDelayMs(2)).toBe(20_000)
     expect(deployRetryDelayMs(2)).toBeGreaterThan(deployRetryDelayMs(1))
   })
 })
