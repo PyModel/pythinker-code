@@ -6,27 +6,29 @@ import { OAuthUnauthorizedError } from './errors';
 import { parsePythinkerCodeCustomHeaders } from './identity';
 import { DEFAULT_PYTHINKER_CODE_BASE_URL, pythinkerCodeBaseUrl } from './managed-usage';
 import { MANAGED_PYTHINKER_MODEL_FIELDS, mergeRefreshedModelAlias } from './model-alias-merge';
+import {
+  parseModelProtocol,
+  parseStringArray,
+  parseSupportsThinkingType,
+  parseThinkEfforts,
+  type ModelAlias as ManagedPythinkerModelAlias,
+  type ModelAliasOverrides as ManagedPythinkerModelAliasOverrides,
+  type ModelProtocol as ManagedPythinkerCodeProtocol,
+  type OAuthRef as ManagedPythinkerOAuthRef,
+  type OAuthRefInput as ManagedPythinkerOAuthRefInput,
+  type ProviderConfig as ManagedPythinkerProviderConfig,
+  type PythinkerConfigShape as ManagedPythinkerConfigShape,
+  type ServiceConfig as ManagedPythinkerServiceConfig,
+  type ServicesConfig as ManagedPythinkerServicesConfig,
+  type SupportsThinkingType,
+  type ThinkingShape as ManagedPythinkerThinkingShape,
+} from './provider-config';
 import { isRecord } from './utils';
 
 export const PYTHINKER_CODE_PLATFORM_ID = 'pythinker-code';
 export const PYTHINKER_CODE_PROVIDER_NAME = 'managed:pythinker-code';
 export const PYTHINKER_CODE_OAUTH_KEY = 'oauth/pythinker-code';
 const PYTHINKER_CODE_SCOPED_OAUTH_KEY_PREFIX = 'oauth/pythinker-code-env-';
-
-export type ManagedPythinkerCodeProtocol = 'pythinker' | 'anthropic';
-
-export function parseModelProtocol(value: unknown): ManagedPythinkerCodeProtocol | undefined {
-  return value === 'anthropic' ? 'anthropic' : undefined;
-}
-
-/**
- * Server-declared thinking toggle support from `/models`:
- *  - 'only' — thinking cannot be turned off (always-thinking)
- *  - 'no'   — thinking is not supported at all
- *  - 'both' — thinking can be toggled on and off
- * Absent on older servers — callers fall back to `supportsReasoning`.
- */
-export type SupportsThinkingType = 'only' | 'no' | 'both';
 
 export interface ManagedPythinkerCodeModelInfo {
   readonly id: string;
@@ -77,18 +79,6 @@ export interface ManagedPythinkerCodeCleanupResult {
   readonly removedServices: readonly string[];
 }
 
-export interface ManagedPythinkerOAuthRef {
-  readonly storage: 'file' | 'keyring';
-  readonly key: string;
-  readonly oauthHost?: string | undefined;
-}
-
-export interface ManagedPythinkerOAuthRefInput {
-  readonly storage?: 'file' | 'keyring' | undefined;
-  readonly key?: string | undefined;
-  readonly oauthHost?: string | undefined;
-}
-
 export interface ManagedPythinkerRuntimeAuth {
   readonly baseUrl?: string | undefined;
   readonly oauthRef: ManagedPythinkerOAuthRef;
@@ -125,73 +115,6 @@ export class ManagedPythinkerCodeModelsAuthError extends OAuthUnauthorizedError 
     this.status = options.status;
     this.baseUrl = options.baseUrl;
   }
-}
-
-export interface ManagedPythinkerProviderConfig {
-  type: ManagedPythinkerCodeProtocol;
-  baseUrl?: string | undefined;
-  apiKey?: string | undefined;
-  oauth?: ManagedPythinkerOAuthRef | undefined;
-  readonly [key: string]: unknown;
-}
-
-export interface ManagedPythinkerModelAliasOverrides {
-  maxContextSize?: number | undefined;
-  maxOutputSize?: number | undefined;
-  capabilities?: string[] | undefined;
-  displayName?: string | undefined;
-  reasoningKey?: string | undefined;
-  adaptiveThinking?: boolean | undefined;
-  supportEfforts?: readonly string[] | undefined;
-  defaultEffort?: string | undefined;
-  readonly [key: string]: unknown;
-}
-
-export interface ManagedPythinkerModelAlias {
-  provider: string;
-  model: string;
-  maxContextSize: number;
-  maxInputSize?: number | undefined;
-  maxOutputSize?: number | undefined;
-  capabilities?: string[] | undefined;
-  supportEfforts?: readonly string[] | undefined;
-  defaultEffort?: string | undefined;
-  displayName?: string | undefined;
-  reasoningKey?: string | undefined;
-  offEffort?: string | undefined;
-  baseUrl?: string | undefined;
-  protocol?: ManagedPythinkerCodeProtocol;
-  betaApi?: boolean;
-  adaptiveThinking?: boolean | undefined;
-  overrides?: ManagedPythinkerModelAliasOverrides | undefined;
-  readonly [key: string]: unknown;
-}
-
-export interface ManagedPythinkerServiceConfig {
-  baseUrl?: string | undefined;
-  apiKey?: string | undefined;
-  oauth?: ManagedPythinkerOAuthRef | undefined;
-}
-
-export interface ManagedPythinkerServicesConfig {
-  pymodelSearch?: ManagedPythinkerServiceConfig | undefined;
-  pymodelFetch?: ManagedPythinkerServiceConfig | undefined;
-  readonly [key: string]: unknown;
-}
-
-export interface ManagedPythinkerThinkingShape {
-  enabled?: boolean | undefined;
-  effort?: string | undefined;
-  [key: string]: unknown;
-}
-
-export interface ManagedPythinkerConfigShape {
-  providers: Record<string, ManagedPythinkerProviderConfig | Record<string, unknown>>;
-  models?: Record<string, ManagedPythinkerModelAlias | Record<string, unknown>> | undefined;
-  defaultModel?: string | undefined;
-  thinking?: ManagedPythinkerThinkingShape | undefined;
-  services?: ManagedPythinkerServicesConfig | undefined;
-  [key: string]: unknown;
 }
 
 export interface ManagedPythinkerConfigAdapter<TConfig> {
@@ -449,46 +372,6 @@ function toModelInfo(item: unknown): ManagedPythinkerCodeModelInfo | undefined {
     defaultEffort: thinkEfforts.defaultEffort,
     displayName: normalizedDisplayName,
     protocol: parseModelProtocol(item['protocol']),
-  };
-}
-
-export function parseStringArray(value: unknown): readonly string[] | undefined {
-  if (!Array.isArray(value)) return undefined;
-  const out = value.filter((v): v is string => typeof v === 'string' && v.length > 0);
-  return out.length > 0 ? out : undefined;
-}
-
-// Unknown or missing values resolve to undefined so callers fall back to the
-// legacy supports_reasoning boolean instead of guessing.
-export function parseSupportsThinkingType(value: unknown): SupportsThinkingType | undefined {
-  return value === 'only' || value === 'no' || value === 'both' ? value : undefined;
-}
-
-/**
- * Parse the nested `think_efforts` object from `/models`:
- *   { "support": true, "valid_efforts": ["low", "high", "max"], "default_effort": "high" }
- * Returns the effort list and default effort, or undefineds when absent so
- * callers can fall back to the legacy flat `support_efforts` / `default_effort`
- * fields on older servers.
- */
-export function parseThinkEfforts(value: unknown): {
-  supportEfforts: readonly string[] | undefined;
-  defaultEffort: string | undefined;
-} {
-  if (value === null || typeof value !== 'object') {
-    return { supportEfforts: undefined, defaultEffort: undefined };
-  }
-  const record = value as Record<string, unknown>;
-  // `support` gates the whole object: when it is not true, ignore
-  // valid_efforts / default_effort entirely.
-  if (record['support'] !== true) {
-    return { supportEfforts: undefined, defaultEffort: undefined };
-  }
-  const rawDefault = record['default_effort'];
-  return {
-    supportEfforts: parseStringArray(record['valid_efforts']),
-    defaultEffort:
-      typeof rawDefault === 'string' && rawDefault.length > 0 ? rawDefault : undefined,
   };
 }
 
@@ -864,3 +747,23 @@ export async function provisionManagedPythinkerCodeConfig<TConfig>(
     configPath: options.adapter.configPath,
   };
 }
+
+export {
+  parseModelProtocol,
+  parseStringArray,
+  parseSupportsThinkingType,
+  parseThinkEfforts,
+} from './provider-config';
+export type {
+  ModelAlias as ManagedPythinkerModelAlias,
+  ModelAliasOverrides as ManagedPythinkerModelAliasOverrides,
+  ModelProtocol as ManagedPythinkerCodeProtocol,
+  OAuthRef as ManagedPythinkerOAuthRef,
+  OAuthRefInput as ManagedPythinkerOAuthRefInput,
+  ProviderConfig as ManagedPythinkerProviderConfig,
+  PythinkerConfigShape as ManagedPythinkerConfigShape,
+  ServiceConfig as ManagedPythinkerServiceConfig,
+  ServicesConfig as ManagedPythinkerServicesConfig,
+  SupportsThinkingType,
+  ThinkingShape as ManagedPythinkerThinkingShape,
+} from './provider-config';

@@ -1,5 +1,5 @@
 import { isRecord } from './utils';
-import type { ManagedPythinkerModelAlias, ManagedPythinkerModelAliasOverrides } from './managed-pythinker-code';
+import type { ModelAlias, ModelAliasOverrides } from './provider-config';
 
 export const MANAGED_PYTHINKER_MODEL_FIELDS: ReadonlySet<string> = new Set([
   'provider',
@@ -25,8 +25,8 @@ export const CUSTOM_REGISTRY_MODEL_FIELDS: ReadonlySet<string> = new Set([
 ]);
 
 function cloneOverrides(
-  overrides: ManagedPythinkerModelAliasOverrides | undefined,
-): ManagedPythinkerModelAliasOverrides | undefined {
+  overrides: ModelAliasOverrides | undefined,
+): ModelAliasOverrides | undefined {
   if (overrides === undefined) return undefined;
   return structuredClone(overrides);
 }
@@ -45,13 +45,13 @@ function userExtras(
 
 export function mergeRefreshedModelAlias(
   existing: unknown,
-  remote: ManagedPythinkerModelAlias,
+  remote: ModelAlias,
   remoteOwnedFields: ReadonlySet<string>,
-): ManagedPythinkerModelAlias {
+): ModelAlias {
   const current = isRecord(existing) ? existing : {};
   const overrides = cloneOverrides(
     isRecord(current['overrides'])
-      ? (current['overrides'] as ManagedPythinkerModelAliasOverrides)
+      ? (current['overrides'] as ModelAliasOverrides)
       : undefined,
   );
   return {

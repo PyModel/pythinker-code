@@ -3,7 +3,7 @@ import { createServer, type Server } from 'node:http';
 
 import { readApiErrorMessage } from './api-error';
 import { renderOAuthErrorPage, renderOpenAICodexOAuthSuccessPage } from './oauth-pages';
-import { parseSupportsThinkingType, type SupportsThinkingType } from './managed-pythinker-code';
+import { parseSupportsThinkingType, type SupportsThinkingType } from './provider-config';
 import { capabilitiesForModel } from './open-platform';
 import { isRecord } from './utils';
 
