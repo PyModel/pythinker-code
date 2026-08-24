@@ -31,7 +31,7 @@ export const APPROVAL_LABEL = 'breaking-change-approved';
  * @returns The declared levels, lowercased, in file order.
  */
 export function parseBumpLevels(source) {
-  const normalized = source.replaceAll(/\r\n/gu, '\n');
+  const normalized = source.replaceAll('\r\n', '\n');
   if (!normalized.startsWith('---\n')) return [];
   const end = normalized.indexOf('\n---', 3);
   if (end === -1) return [];
@@ -53,15 +53,24 @@ export function isChangesetFile(path) {
 /**
  * Decide whether the gate passes.
  *
- * @param input.addedFiles - Paths added by the pull request.
+ * A changeset counts against the pull request when it declares `major` now and
+ * did not already declare it on the base branch. Editing an existing changeset
+ * up to `major` therefore counts, while merely touching one that was already
+ * approved does not ask for the label a second time.
+ *
+ * @param input.changedFiles - Changeset paths the pull request adds or edits.
  * @param input.labels - Label names on the pull request.
- * @param input.readFile - Reads one path; injected so this stays pure.
+ * @param input.readFile - Reads one path at the pull request head.
+ * @param input.readBaseFile - Reads one path on the base branch, or undefined
+ *   when the path does not exist there. Injected so this stays pure.
  * @returns The offending changesets and whether they are approved.
  */
 export function evaluate(input) {
-  const majors = input.addedFiles
-    .filter(isChangesetFile)
-    .filter((path) => parseBumpLevels(input.readFile(path)).includes('major'));
+  const majors = input.changedFiles.filter(isChangesetFile).filter((path) => {
+    if (!parseBumpLevels(input.readFile(path)).includes('major')) return false;
+    const base = input.readBaseFile(path);
+    return base === undefined || !parseBumpLevels(base).includes('major');
+  });
   const approved = input.labels.includes(APPROVAL_LABEL);
   return { majors, approved, ok: majors.length === 0 || approved };
 }
@@ -87,22 +96,76 @@ function selfTest() {
     }
   }
 
-  const files = { '.changeset/a.md': '---\n"a": major\n---\n\nText.\n' };
+  const MAJOR = '---\n"a": major\n---\n\nText.\n';
+  const MINOR = '---\n"a": minor\n---\n\nText.\n';
+  const files = { '.changeset/a.md': MAJOR };
   const readFile = (path) => files[path];
-  const blocked = evaluate({ addedFiles: ['.changeset/a.md'], labels: [], readFile });
-  if (blocked.ok || blocked.majors.length !== 1) {
-    console.error('self-test FAILED: an unlabelled major must be blocked');
-    failures += 1;
-  }
-  const allowed = evaluate({ addedFiles: ['.changeset/a.md'], labels: [APPROVAL_LABEL], readFile });
-  if (!allowed.ok) {
-    console.error('self-test FAILED: a labelled major must pass');
-    failures += 1;
-  }
-  const readmeOnly = evaluate({ addedFiles: ['.changeset/README.md'], labels: [], readFile: () => '---\n"a": major\n---\n' });
-  if (!readmeOnly.ok) {
-    console.error('self-test FAILED: the changeset README is not a changeset');
-    failures += 1;
+  const absentFromBase = () => undefined;
+
+  const gateCases = [
+    {
+      name: 'an unlabelled new major is blocked',
+      input: { changedFiles: ['.changeset/a.md'], labels: [], readFile, readBaseFile: absentFromBase },
+      ok: false,
+      majors: 1,
+    },
+    {
+      name: 'a labelled new major passes',
+      input: {
+        changedFiles: ['.changeset/a.md'],
+        labels: [APPROVAL_LABEL],
+        readFile,
+        readBaseFile: absentFromBase,
+      },
+      ok: true,
+      majors: 1,
+    },
+    {
+      name: 'the changeset README is not a changeset',
+      input: {
+        changedFiles: ['.changeset/README.md'],
+        labels: [],
+        readFile: () => MAJOR,
+        readBaseFile: absentFromBase,
+      },
+      ok: true,
+      majors: 0,
+    },
+    // The escape this gate exists to close: the file is not new, so a filter on
+    // added paths alone would never see the bump rise from minor to major.
+    {
+      name: 'editing an existing changeset up to major is blocked',
+      input: { changedFiles: ['.changeset/a.md'], labels: [], readFile, readBaseFile: () => MINOR },
+      ok: false,
+      majors: 1,
+    },
+    {
+      name: 'touching an already-major changeset does not re-ask for the label',
+      input: { changedFiles: ['.changeset/a.md'], labels: [], readFile, readBaseFile: () => MAJOR },
+      ok: true,
+      majors: 0,
+    },
+    {
+      name: 'editing a changeset that stays below major passes',
+      input: {
+        changedFiles: ['.changeset/a.md'],
+        labels: [],
+        readFile: () => MINOR,
+        readBaseFile: () => MINOR,
+      },
+      ok: true,
+      majors: 0,
+    },
+  ];
+
+  for (const { name, input, ok, majors } of gateCases) {
+    const actual = evaluate(input);
+    if (actual.ok !== ok || actual.majors.length !== majors) {
+      console.error(
+        `self-test FAILED: ${name} — expected ok=${ok} majors=${majors}, got ok=${actual.ok} majors=${actual.majors.length}`,
+      );
+      failures += 1;
+    }
   }
 
   const labelCases = [
@@ -122,7 +185,7 @@ function selfTest() {
   }
 
   if (failures > 0) process.exit(1);
-  console.log(`check-major-changeset: self-test OK (${cases.length + labelCases.length + 3} cases)`);
+  console.log(`check-major-changeset: self-test OK (${cases.length + labelCases.length + gateCases.length} cases)`);
 }
 
 /**
@@ -143,13 +206,29 @@ export function parseLabels(raw) {
   return Array.isArray(parsed) ? parsed.filter((name) => typeof name === 'string') : [];
 }
 
-function addedFilesAgainst(baseSha) {
+/**
+ * Changeset paths the pull request adds, edits, or renames into place.
+ *
+ * `--diff-filter=d` keeps every status except deletion, so an edit that raises
+ * an existing changeset to `major` is reported alongside a brand new one. A
+ * deleted changeset cannot introduce a bump, so it is the only status dropped.
+ */
+function changedFilesAgainst(baseSha) {
   const output = execFileSync(
     'git',
-    ['diff', '--name-only', '--diff-filter=A', `${baseSha}...HEAD`, '--', '.changeset'],
+    ['diff', '--name-only', '--diff-filter=d', `${baseSha}...HEAD`, '--', '.changeset'],
     { encoding: 'utf8' },
   );
   return output.split('\n').filter((line) => line.length > 0);
+}
+
+/** The same path on the base branch, or undefined when it is new there. */
+function readBaseFile(baseSha, path) {
+  try {
+    return execFileSync('git', ['show', `${baseSha}:${path}`], { encoding: 'utf8' });
+  } catch {
+    return undefined;
+  }
 }
 
 function main() {
@@ -165,9 +244,10 @@ function main() {
   }
 
   const result = evaluate({
-    addedFiles: addedFilesAgainst(baseSha),
+    changedFiles: changedFilesAgainst(baseSha),
     labels: parseLabels(process.env['PR_LABELS_JSON']),
     readFile: (path) => readFileSync(path, 'utf8'),
+    readBaseFile: (path) => readBaseFile(baseSha, path),
   });
 
   if (result.ok) {
