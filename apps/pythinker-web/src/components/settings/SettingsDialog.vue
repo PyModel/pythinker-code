@@ -418,7 +418,7 @@ async function copyDiagnostics(): Promise<void> {
 }
 
 // Per-value copy buttons in the advanced tab: flash the check state for 1.5s
-// after a successful copy (reference `copyServerVersion`/`copyServerAddress`).
+// after a successful copy.
 const serverVersionCopied = ref(false);
 const serverAddressCopied = ref(false);
 let copyFlashTimer: ReturnType<typeof setTimeout> | null = null;
@@ -444,7 +444,7 @@ async function copyServerAddress(): Promise<void> {
   scheduleCopyFlashReset();
 }
 
-// Secondary (subagent) model — the Agent tab section mirrors the reference:
+// Secondary (subagent) model — the Agent tab section:
 // it renders only while the daemon's `secondary-model` experimental flag is
 // on, and writes `config.secondaryModel` ({ model, defaultEffort }) through
 // the regular config update path (wire key `secondary_model`).

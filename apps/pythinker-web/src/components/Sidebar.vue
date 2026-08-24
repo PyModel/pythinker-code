@@ -17,6 +17,7 @@ import PythinkerLogo from './PythinkerLogo.vue';
 import SearchSessionsDialog from './dialogs/SearchSessionsDialog.vue';
 import WorkspaceGroup from './WorkspaceGroup.vue';
 import { isDesktop, isMacosDesktop } from '../lib/desktopFlag';
+import { useDesktopUpdate } from '../composables/useDesktopUpdate';
 import IconButton from './ui/IconButton.vue';
 import Icon from './ui/Icon.vue';
 import Kbd from './ui/Kbd.vue';
@@ -26,6 +27,7 @@ import PinnedSessionList from './PinnedSessionList.vue';
 import SessionRow from './SessionRow.vue';
 
 const { t } = useI18n();
+const update = useDesktopUpdate();
 
 const props = withDefaults(
   defineProps<{
@@ -552,10 +554,9 @@ onBeforeUnmount(() => {
 // ---------------------------------------------------------------------------
 // Folder-drop to add a workspace: dragging an OS folder onto the column shows
 // the drop overlay and emits the resolved paths upward (App adds them via the
-// existing addWorkspace flow). Reference parity — path resolution needs the
-// desktop shell (Kimi's kimiDesktop.getPathForFile); the browser itself cannot
-// read absolute paths, so the interaction only activates inside the desktop
-// app. We extract via the legacy Electron `File.path` — on shells that expose
+// existing addWorkspace flow). Path resolution needs the desktop shell: a
+// browser cannot read an absolute path out of a drop, so the interaction only
+// activates inside the desktop app. We extract via the legacy Electron `File.path` — on shells that expose
 // neither, the overlay still shows but the drop resolves no paths (no-op).
 // ---------------------------------------------------------------------------
 const dropDepth = ref(0);
@@ -684,6 +685,23 @@ onBeforeUnmount(() => {
         >
           <Icon name="panel-collapse" />
         </IconButton>
+      </div>
+
+      <!-- Update entry point. Desktop only, and only once a version the user
+           has not skipped is actually waiting; the overlay owns the rest. -->
+      <div v-if="update.hasUpdate.value" class="update-wrap">
+        <button
+          class="btn-update"
+          type="button"
+          data-testid="sidebar-update"
+          :title="update.availableVersion.value
+            ? t('update.sidebarHint', { version: update.availableVersion.value })
+            : undefined"
+          @click.stop="update.openDialog()"
+        >
+          <Icon name="arrow-up" />
+          <span>{{ t('update.sidebarAction') }}</span>
+        </button>
       </div>
 
       <!-- New chat + new workspace buttons -->
@@ -1196,7 +1214,7 @@ onBeforeUnmount(() => {
 }
 /* macOS desktop: the window uses a hidden title bar, so the traffic lights
    float over the top-left of the sidebar. The brand row sits BELOW them (its
-   own line, like the design-system reference): padding-top clears the lights,
+   own line, like the design-system spec): padding-top clears the lights,
    left padding returns to the normal sidebar gutter, and the whole strip —
    lights zone included — stays a window-drag area while the collapse button
    opts out so it remains clickable. */
@@ -1207,7 +1225,7 @@ onBeforeUnmount(() => {
 .side.macos-desktop .ch-collapse {
   -webkit-app-region: no-drag;
 }
-/* Compact brand lockup on macOS, matching the reference proportions. */
+/* Compact brand lockup on macOS. */
 .side.macos-desktop .ch-logo {
   height: 24px;
   width: 24px;
@@ -1254,6 +1272,39 @@ onBeforeUnmount(() => {
 /* Action buttons — first row of the actions group (New chat + search): rows
    inside the group stack flush (0 gap, same rhythm as the session list rows);
    the group's bottom gap lives on .search-wrap. */
+.update-wrap {
+  display: flex;
+  padding: 0 var(--sb-inset) var(--space-1);
+}
+/* Same row geometry as .btn-new-chat; accent colour is the only difference,
+   so the row reads as an offer rather than another navigation item. */
+.btn-update {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+  padding: 8px calc(var(--sb-pad-x) - var(--sb-inset));
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-accent);
+  font-family: var(--font-ui);
+  font-size: var(--ui-font-size-sm);
+  font-weight: var(--weight-medium);
+  line-height: var(--leading-tight);
+  cursor: pointer;
+  text-align: left;
+}
+.btn-update:hover { background: var(--sb-hover); }
+.btn-update:focus-visible { outline: none; box-shadow: var(--p-focus-ring); }
+.btn-update svg { flex: none; }
+.btn-update span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .btn-wrap {
   display: flex;
   align-items: center;

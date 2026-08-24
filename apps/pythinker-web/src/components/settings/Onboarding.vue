@@ -6,6 +6,10 @@ import Button from '../ui/Button.vue';
 import Icon from '../ui/Icon.vue';
 
 const emit = defineEmits<{ complete: []; skip: [] }>();
+// `embedded` strips the standalone chrome — full-screen shell, brand header,
+// hero panel and its own actions — so the first-run wizard can reuse just the
+// appearance controls as one of its steps instead of duplicating them.
+const { embedded = false } = defineProps<{ embedded?: boolean }>();
 const { t } = useI18n();
 const { colorScheme, accent, setColorScheme, setAccent } = useAppearance();
 
@@ -21,20 +25,28 @@ const accents: { value: Accent; label: string }[] = [
 </script>
 
 <template>
-  <div class="wizard" role="dialog" aria-modal="true" :aria-label="t('onboarding.title')">
+  <div
+    class="wizard"
+    :class="{ 'is-embedded': embedded }"
+    :role="embedded ? undefined : 'dialog'"
+    :aria-modal="embedded ? undefined : 'true'"
+    :aria-label="embedded ? undefined : t('onboarding.title')"
+  >
     <div class="wiz-rail">
       <div class="rail-inner">
-        <span class="eyebrow-pill">{{ t('onboarding.eyebrow') }}</span>
+        <template v-if="!embedded">
+          <span class="eyebrow-pill">{{ t('onboarding.eyebrow') }}</span>
 
-        <PythinkerLogo
-          class="brand-mark"
-          size="lg"
-          :animated="false"
-          label="Pythinker Code"
-        />
+          <PythinkerLogo
+            class="brand-mark"
+            size="lg"
+            :animated="false"
+            label="Pythinker Code"
+          />
 
-        <h1 class="wiz-title">{{ t('onboarding.title') }}</h1>
-        <p class="wiz-sub">{{ t('onboarding.subtitle') }}</p>
+          <h1 class="wiz-title">{{ t('onboarding.title') }}</h1>
+          <p class="wiz-sub">{{ t('onboarding.subtitle') }}</p>
+        </template>
 
         <div class="pref-group">
           <div class="pref-label">{{ t('theme.colorSchemeLabel') }}</div>
@@ -86,7 +98,7 @@ const accents: { value: Accent; label: string }[] = [
           </div>
         </div>
 
-        <div class="wiz-actions">
+        <div v-if="!embedded" class="wiz-actions">
           <Button variant="primary" size="lg" class="wiz-action" data-testid="onboarding-complete" @click="emit('complete')">
             <span>{{ t('onboarding.start') }}</span>
             <Icon name="arrow-right" size="sm" />
@@ -97,11 +109,11 @@ const accents: { value: Accent; label: string }[] = [
           </Button>
         </div>
 
-        <p class="wiz-hint">{{ t('onboarding.hint') }}</p>
+        <p v-if="!embedded" class="wiz-hint">{{ t('onboarding.hint') }}</p>
       </div>
     </div>
 
-    <aside class="wiz-hero" aria-hidden="true">
+    <aside v-if="!embedded" class="wiz-hero" aria-hidden="true">
       <div class="hero-ambient">
         <span class="orb orb-a" />
         <span class="orb orb-b" />
@@ -142,6 +154,15 @@ const accents: { value: Accent; label: string }[] = [
 </template>
 
 <style scoped>
+.wizard.is-embedded {
+  position: static;
+  inset: auto;
+  z-index: auto;
+  width: 100%;
+  overflow: visible;
+  background: transparent;
+}
+.wizard.is-embedded .rail-inner { width: 100%; margin: 0; padding: 0; }
 .wizard {
   position: fixed;
   inset: 0;

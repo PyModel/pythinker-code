@@ -1,6 +1,6 @@
 // apps/pythinker-web/test/continue-turn.test.ts
 //
-// Failed-turn recovery parity with the reference client: the banner's
+// Failed-turn recovery: the banner's
 // "Continue" button must submit a FIXED "Continue" prompt (i18n key
 // conversation.turnFailedResumeText) with no attachments — never a re-send of
 // the user's own last message, which would repeat its instructions and side

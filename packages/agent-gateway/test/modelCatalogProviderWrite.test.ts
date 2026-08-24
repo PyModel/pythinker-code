@@ -294,7 +294,7 @@ describe('server-v2 /api/v1 provider write endpoints', () => {
     expect(auth.body.data).toMatchObject({ ready: true, default_model: 'my-openai/gpt-4.1' });
   });
 
-  it('seeds the first model when the create body names no provider default', async () => {
+  it('adopts a default when the create body names no provider default', async () => {
     await boot();
     const { status } = await postJson<unknown>('/api/v1/providers', {
       id: 'my-openai',
@@ -307,8 +307,9 @@ describe('server-v2 /api/v1 provider write endpoints', () => {
     });
     expect(status).toBe(201);
 
-    const onDisk = await readConfigToml();
-    expect(onDisk['default_model']).toBe('my-openai/gpt-4o-mini');
+    const auth = await getJson<{ ready: boolean; default_model: string | null }>('/api/v1/auth');
+    expect(auth.body.data.default_model).toBe('my-openai/gpt-4.1');
+    expect(auth.body.data.ready).toBe(true);
   });
 
   it('keeps an existing global default_model on create', async () => {
@@ -809,7 +810,7 @@ describe('server-v2 /api/v1 provider write endpoints', () => {
     expect(body.data).toBeNull();
   });
 
-  it('clears omitted provider fields (base_url/default_model) from config.toml for real', async () => {
+  it('clears omitted provider fields from config.toml, leaving only the adopted global default in the response', async () => {
     const FULL_TOML = [
       '[providers.openai]',
       'type = "openai"',
@@ -851,7 +852,7 @@ describe('server-v2 /api/v1 provider write endpoints', () => {
 
     const single = await getJson<Record<string, unknown>>('/api/v1/providers/openai');
     expect(single.body.data).not.toHaveProperty('base_url');
-    expect(single.body.data).not.toHaveProperty('default_model');
+    expect(single.body.data).toHaveProperty('default_model', 'openai/gpt-4.1');
   });
 
   it('does not reveal an empty-string api_key on the single GET', async () => {

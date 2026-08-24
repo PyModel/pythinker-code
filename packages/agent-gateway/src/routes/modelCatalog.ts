@@ -2,6 +2,7 @@ import {
   IConfigService,
   IKosongConfigService,
   IModelCatalog,
+  IModelService,
   IOAuthService,
   IProviderDiscoveryService,
   IModelsDevImportService,
@@ -198,9 +199,9 @@ export function registerModelCatalogRoutes(app: ModelCatalogRouteHost, core: Sco
         }
         const result = await (await loadCatalog(core)).setDefaultModel(parsed.id);
         reply.send(okEnvelope(result, req.id));
-      } catch (err) {
-        if (sendMappedError(reply, req.id, err)) return;
-        throw err;
+      } catch (error) {
+        if (sendMappedError(reply, req.id, error)) return;
+        throw error;
       }
     },
   );
@@ -240,7 +241,7 @@ export function registerModelCatalogRoutes(app: ModelCatalogRouteHost, core: Sco
         [ErrorCode.PROVIDER_ALREADY_EXISTS]: {},
       },
       description:
-        'Create a provider manually (type + credentials + model list). When no global default_model is configured (fresh setup), it is seeded with the new provider default (or first) model; an existing default is never modified.',
+        'Create a provider manually (type + credentials + model list). An explicit default_model seeds the global default when none is configured; otherwise the model registry adopts one that can serve a turn. An existing default is never modified.',
       tags: ['providers'],
       operationId: 'createProvider',
     },
@@ -286,14 +287,11 @@ export function registerModelCatalogRoutes(app: ModelCatalogRouteHost, core: Sco
         }
         await config.set(MODELS_SECTION, aliases);
 
-        const firstModel = req.body.models[0];
-        if (firstModel !== undefined) {
-          await seedDefaultModelWhenUnset(
-            config,
-            provider.defaultModel ?? `${id}/${firstModel.model}`,
-          );
+        if (provider.defaultModel !== undefined) {
+          await seedDefaultModelWhenUnset(config, provider.defaultModel);
         }
 
+        await core.accessor.get(IModelService).settled;
         const created = await core.accessor.get(IModelCatalog).getProvider(id);
         (reply as unknown as StatusReply).code(201).send(okEnvelope(created, req.id));
       });
@@ -551,9 +549,9 @@ export function registerModelCatalogRoutes(app: ModelCatalogRouteHost, core: Sco
           providerId: parsed.id,
         });
         reply.send(okEnvelope(result, req.id));
-      } catch (err) {
-        if (sendMappedError(reply, req.id, err)) return;
-        throw err;
+      } catch (error) {
+        if (sendMappedError(reply, req.id, error)) return;
+        throw error;
       }
     },
   );
@@ -590,9 +588,9 @@ export function registerModelCatalogRoutes(app: ModelCatalogRouteHost, core: Sco
             req.id,
           ),
         );
-      } catch (err) {
-        if (sendMappedError(reply, req.id, err)) return;
-        throw err;
+      } catch (error) {
+        if (sendMappedError(reply, req.id, error)) return;
+        throw error;
       }
     },
   );
@@ -689,9 +687,9 @@ export function registerModelCatalogRoutes(app: ModelCatalogRouteHost, core: Sco
       try {
         const items = await core.accessor.get(IModelsDevImportService).listModelsDevProviders();
         reply.send(okEnvelope({ items }, req.id));
-      } catch (err) {
-        if (sendModelsDevImportError(reply, req.id, err)) return;
-        throw err;
+      } catch (error) {
+        if (sendModelsDevImportError(reply, req.id, error)) return;
+        throw error;
       }
     },
   );
@@ -720,9 +718,9 @@ export function registerModelCatalogRoutes(app: ModelCatalogRouteHost, core: Sco
         const { catalog_id } = req.params;
         const item = await core.accessor.get(IModelsDevImportService).getModelsDevProvider(catalog_id);
         reply.send(okEnvelope(item, req.id));
-      } catch (err) {
-        if (sendModelsDevImportError(reply, req.id, err)) return;
-        throw err;
+      } catch (error) {
+        if (sendModelsDevImportError(reply, req.id, error)) return;
+        throw error;
       }
     },
   );
@@ -802,9 +800,9 @@ async function handleImportCatalog(
           req.id,
         ),
       );
-  } catch (err) {
-    if (sendModelsDevImportError(reply, req.id, err)) return;
-    throw err;
+  } catch (error) {
+    if (sendModelsDevImportError(reply, req.id, error)) return;
+    throw error;
   }
 }
 
@@ -833,9 +831,9 @@ async function handleImportRegistry(
           req.id,
         ),
       );
-  } catch (err) {
-    if (sendModelsDevImportError(reply, req.id, err)) return;
-    throw err;
+  } catch (error) {
+    if (sendModelsDevImportError(reply, req.id, error)) return;
+    throw error;
   }
 }
 

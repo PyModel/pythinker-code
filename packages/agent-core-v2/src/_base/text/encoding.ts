@@ -115,7 +115,7 @@ export function classifyTextSample(sample: Uint8Array): TextClassification {
 /**
  * Detect the encoding of a text file from its leading bytes.
  *
- * Known limitation inherited from the reference implementation: a BOM-less
+ * Known limitation: a BOM-less
  * UTF-16 file whose content carries no zero bytes at all (e.g. purely CJK
  * text) is reported as `'utf-8'`; strict UTF-8 decoding of it will then fail
  * or produce garbage. Notepad and most editors write a BOM, so this is rare

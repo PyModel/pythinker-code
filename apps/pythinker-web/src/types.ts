@@ -263,7 +263,7 @@ export type TurnBlock =
  * One item inside an `activity-run` block: a thinking segment or a tool card.
  * The render layer folds consecutive thinking + tool blocks into runs (see
  * chatTurnRendering); the daemon wire carries no run boundaries, so the fold
- * groups by turn as a best-effort approximation of the reference UI.
+ * groups by turn as a best-effort approximation.
  */
 export type ActivityRunItem =
   | { kind: 'thinking'; thinking: string; startedAt?: string; durationMs?: number }

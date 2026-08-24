@@ -70,7 +70,7 @@ setKaTeXWorker(new katexWorkerModule.default());
 setMermaidWorker(new mermaidWorkerModule.default());
 
 // ---------------------------------------------------------------------------
-// Inline `$…$` math — curated detector (ported from the reference web UI).
+// Inline `$…$` math — curated detector.
 //
 // The stock `math` rule is too permissive for prose: prices, env vars and
 // shell paths (`$5`, `$PATH`, `$HOME/bin`, `US$100`) all look like math. The
@@ -94,7 +94,7 @@ interface MathInlineState {
 
 // matcher is cheap to build per source but the rule runs once per `$`, so
 // cache it on the inline state for the lifetime of a parse run (same WeakMap
-// pattern as the reference).
+// pattern).
 const inlineMathCache = new WeakMap<object, { src: string; match: ReturnType<typeof buildInlineMathMatcher>; lastEnd: number }>();
 
 function inlineMathRule(state: MathInlineState, silent: boolean): boolean {
@@ -120,7 +120,7 @@ function inlineMathRule(state: MathInlineState, silent: boolean): boolean {
   return true;
 }
 
-/** Reference `GBe`: swap the stock inline-math rule for the curated detector. */
+/** Swap the stock inline-math rule for the curated detector. */
 function configureInlineMath(md: MarkdownIt): MarkdownIt {
   md.set({ typographer: false });
   md.inline.ruler.disable('math');
@@ -158,7 +158,7 @@ const props = withDefaults(
 const final = computed(() => !props.streaming);
 
 // A leading `---` YAML block renders as a read-only `<pre class="md-front
-// matter">` before the body (reference `zBe`); every downstream pass sees
+// matter">` before the body; every downstream pass sees
 // only the body.
 const frontmatterSplit = computed(() => splitFrontmatter(props.text ?? ''));
 const textBody = computed(() => frontmatterSplit.value.body);
@@ -337,8 +337,8 @@ function decodeLinkPath(path: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// Mention pills — post-process rendered links into typed pills (reference
-// `x()` + `JP`): `pythinker-code://skill/<name>` links become skill pills, paths
+// Mention pills — post-process rendered links into typed pills:
+// `pythinker-code://skill/<name>` links become skill pills, paths
 // with a trailing slash become folder pills, and everything else local
 // becomes a file pill. The pill shows a file/folder/skill icon + a
 // mid-truncated name, opens the file on Enter/Space/click, and exposes a
@@ -349,7 +349,7 @@ const SKILL_SCHEME = 'pythinker-code://skill/';
 
 type MentionKind = 'file' | 'folder' | 'skill';
 
-/** Reference `JP`: classify a link destination for mention rendering. */
+/** Classify a link destination for mention rendering. */
 function classifyMentionHref(href: string): MentionKind | null {
   if (!href) return null;
   if (href.startsWith(SKILL_SCHEME) && href.length > SKILL_SCHEME.length) return 'skill';
@@ -365,7 +365,7 @@ function classifyMentionHref(href: string): MentionKind | null {
   return 'file';
 }
 
-/** Reference `ej`: decode a `pythinker-code://skill/…` href into the skill name. */
+/** Decode a `pythinker-code://skill/…` href into the skill name. */
 function skillNameFromHref(href: string): string {
   try {
     return decodeURIComponent(href.slice(SKILL_SCHEME.length));
@@ -374,7 +374,7 @@ function skillNameFromHref(href: string): string {
   }
 }
 
-/** Reference `bDe`: unescape the link label written by the mention serializer. */
+/** Unescape the link label written by the mention serializer. */
 function unescapeMentionLabel(label: string): string {
   return label
     .replace(/%0A/g, '\n')
@@ -467,8 +467,8 @@ function pillInfo(pill: HTMLElement): PillInfo {
   return { kind, name, path: pill.dataset.mentionPath ?? '' };
 }
 
-// Tokens read once from the stylesheet (with fallbacks), like the reference's
-// `yg()` cache; `--duration-*` values are seconds here, so convert to ms.
+// Tokens read once from the stylesheet and cached on first access (with
+// fallbacks); `--duration-*` values are seconds here, so convert to ms.
 function cssVarMs(name: string, fallback: number): () => number {
   let cached: number | undefined;
   return () => {
@@ -539,7 +539,7 @@ function skillForName(name: string): AppSkill | undefined {
   return props.skills?.find((skill) => skill.name === name);
 }
 
-/** Path line + copy button (reference `xBe`). */
+/** Path line + copy button. */
 function buildPathTip(path: string): Node {
   const wrap = document.createElement('div');
   wrap.className = 'mention-tip-path';
@@ -585,7 +585,7 @@ function buildPathTip(path: string): Node {
   return wrap;
 }
 
-/** Skill name + open button + description (reference `SBe`). */
+/** Skill name + open button + description. */
 function buildSkillTip(skill: AppSkill): Node {
   const wrap = document.createElement('div');
   wrap.className = 'mention-tip-skill';
@@ -711,12 +711,12 @@ function onTipGlobalScroll(): void {
 
 // ---------------------------------------------------------------------------
 // Table widen toggle — wide markdown tables get a `md-table-toggle` button
-// (shown on wrapper hover/focus-within, reference `c$e`/`c7`) that toggles
+// (shown on wrapper hover/focus-within) that toggles
 // the `md-table-wide` breakout. The breakout CSS lives in the chat-pane scope
 // (see ChatPane.vue: `@container (min-width:760px)`); here we only create and
 // drive the chrome: the toggle button, the right-edge fade, the "at end" state
 // and the scroll-synced transforms. Tables outside `.a-msg .msg` get no
-// toggle, matching the reference `a$e` gate.
+// toggle.
 // ---------------------------------------------------------------------------
 
 const TABLE_WIDE_CLASS = 'md-table-wide';
@@ -734,7 +734,7 @@ function tableFadeOf(wrapper: HTMLElement): HTMLElement | null {
   return wrapper.querySelector(`.${TABLE_FADE_CLASS}`);
 }
 
-/** Pin the toggle to the header row's vertical centre (reference `l$e`). */
+/** Pin the toggle to the header row's vertical centre. */
 function positionTableChrome(wrapper: HTMLElement): void {
   const toggle = tableToggleOf(wrapper);
   if (!toggle) return;
@@ -763,7 +763,7 @@ function syncTableScrollState(wrapper: HTMLElement): void {
   wrapper.classList.toggle(TABLE_AT_END_CLASS, atEnd);
 }
 
-/** Show/hide the toggle (overflowing or user-widened) and the fade (reference `c7`). */
+/** Show/hide the toggle (overflowing or user-widened) and the fade. */
 function refreshTableToggle(wrapper: HTMLElement): void {
   const toggle = tableToggleOf(wrapper);
   if (!toggle) return;
@@ -1253,12 +1253,12 @@ function copyDiff(code: string, idx: number) {
 .md :deep(.code-editor-container diffs-container) {
   --diffs-line-height: 1.65em;
 }
-/* Loading/streaming fallback <pre>: upstream hardcodes show-line-numbers on
-   it while the settled stream-diffs block honors lineNumbers:false — the
+/* Loading/streaming fallback <pre>: the renderer hardcodes show-line-numbers
+   on it while the settled stream-diffs block honors lineNumbers:false — the
    gutter (and its reserved padding) popping in and out on every load is a
    visible flash. Hide the fallback gutter, pin its left inset to the settled
    per-line padding (1ch), and force the shared 1.65 line height over the
-   inline 1.5×-font-size default upstream stamps on the pre, so the
+   inline 1.5×-font-size default the renderer stamps on the pre, so the
    fallback → highlighted swap is layout-stable. */
 .md :deep(.code-pre-fallback > .markstream-pre__line-numbers) {
   display: none;

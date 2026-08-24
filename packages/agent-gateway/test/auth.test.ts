@@ -92,7 +92,7 @@ describe('server-v2 GET /api/v1/auth', () => {
     });
   });
 
-  it('returns ready=false when a provider exists but default_model is missing', async () => {
+  it('adopts a default model so a provider with a usable model is ready', async () => {
     await boot(
       [
         '[providers.x]',
@@ -107,10 +107,63 @@ describe('server-v2 GET /api/v1/auth', () => {
       ].join('\n'),
     );
     const summary = await getAuth();
+    expect(summary.ready).toBe(true);
+    expect(summary.providers_count).toBe(1);
+    expect(summary.default_model).toBe('x');
+    expect(summary.managed_provider).toBeNull();
+  });
+
+  it('adopts a model that can serve a turn, not merely the first one listed', async () => {
+    await boot(
+      [
+        '[providers.demo]',
+        'type = "openai"',
+        'api_key = "sk-test"',
+        '',
+        '[models."demo/embed-only"]',
+        'provider = "demo"',
+        'model = "embed-only"',
+        'max_context_size = 8192',
+        'capabilities = ["image_in"]',
+        '',
+        '[models."demo/chat-small"]',
+        'provider = "demo"',
+        'model = "chat-small"',
+        'max_context_size = 32768',
+        'capabilities = ["tool_use"]',
+        '',
+        '[models."demo/chat-big"]',
+        'provider = "demo"',
+        'model = "chat-big"',
+        'max_context_size = 262144',
+        'capabilities = ["tool_use"]',
+        '',
+      ].join('\n'),
+    );
+    const summary = await getAuth();
+    expect(summary.ready).toBe(true);
+    expect(summary.default_model).toBe('demo/chat-big');
+  });
+
+  it('returns ready=false when the only model cannot serve a turn', async () => {
+    await boot(
+      [
+        '[providers.x]',
+        'type = "pythinker"',
+        'api_key = "sk-test"',
+        '',
+        '[models.x]',
+        'provider = "x"',
+        'model = "x"',
+        'max_context_size = 1000',
+        'capabilities = ["image_in"]',
+        '',
+      ].join('\n'),
+    );
+    const summary = await getAuth();
     expect(summary.ready).toBe(false);
     expect(summary.providers_count).toBe(1);
     expect(summary.default_model).toBeNull();
-    expect(summary.managed_provider).toBeNull();
   });
 
   it('surfaces managed_provider.unauthenticated without a cached token', async () => {

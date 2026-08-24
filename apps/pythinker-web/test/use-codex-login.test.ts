@@ -20,13 +20,16 @@ async function flushPromises(): Promise<void> {
   await Promise.resolve();
 }
 
-function mountLogin(): { wrapper: VueWrapper; login: UseCodexLogin } {
+function mountLogin(reconcile?: () => Promise<boolean> | boolean): {
+  wrapper: VueWrapper;
+  login: UseCodexLogin;
+} {
   let login!: UseCodexLogin;
   const wrapper = mount(
     defineComponent({
       setup() {
         // Keep the composable inside a component so its unmount cleanup is active.
-        login = useCodexLogin();
+        login = useCodexLogin(reconcile);
         return () => null;
       },
     }),
@@ -65,7 +68,7 @@ describe('useCodexLogin', () => {
     expect(open).toHaveBeenCalledWith('about:blank', '_blank');
     expect(login.authorizeUrl.value).toBe(authorizeUrl);
     expect(login.popupBlocked.value).toBe(true);
-    expect(login.state.value).toBe('pending');
+    expect(login.phase.value).toBe('waiting_for_browser');
 
     wrapper.unmount();
     expect(mockApi.cancelCodexLogin).toHaveBeenCalledWith('login_1');
@@ -102,7 +105,9 @@ describe('useCodexLogin', () => {
       expiresAt: '2026-08-17T00:10:00.000Z',
     });
     await first;
-    expect(login.state.value).toBe('pending');
+    // loopback: false — the callback cannot reach this machine, so pasting the
+    // redirect URL is the expected path rather than waiting on the browser.
+    expect(login.phase.value).toBe('waiting_for_code');
     expect(popup.location.href).toContain('state=t');
 
     await login.cancel();
@@ -119,7 +124,7 @@ describe('useCodexLogin', () => {
     await login.start();
 
     expect(popup.close).toHaveBeenCalledOnce();
-    expect(login.state.value).toBe('failed');
+    expect(login.phase.value).toBe('failed');
     expect(login.error.value).toBe('daemon unavailable');
     wrapper.unmount();
   });
@@ -153,6 +158,72 @@ describe('useCodexLogin', () => {
     expect(mockApi.cancelCodexLogin).toHaveBeenCalledWith('login_disposed');
   });
 
+  async function completeVia(
+    login: UseCodexLogin,
+    reconcile: ReturnType<typeof vi.fn>,
+  ): Promise<void> {
+    mockApi.submitCodexLoginRedirect.mockResolvedValue({ loginId: 'login_ok', state: 'completed' });
+    await login.start();
+    await login.submitRedirect('http://localhost:1455/auth/callback?code=c&state=v');
+    expect(reconcile).toHaveBeenCalledOnce();
+  }
+
+  it('reaches connected only once a usable model exists', async () => {
+    mockApi.startCodexLogin.mockResolvedValue({
+      loginId: 'login_ok',
+      authorizeUrl: 'https://auth.openai.com/oauth/authorize?state=v',
+      loopback: false,
+      expiresAt: '2026-08-17T00:10:00.000Z',
+    });
+    vi.spyOn(window, 'open').mockReturnValue(popupWindow());
+    const reconcile = vi.fn().mockResolvedValue(true);
+    const { wrapper, login } = mountLogin(reconcile);
+
+    await completeVia(login, reconcile);
+
+    expect(login.phase.value).toBe('connected');
+    wrapper.unmount();
+  });
+
+  it('does not report connected when the sign-in yields no usable model', async () => {
+    mockApi.startCodexLogin.mockResolvedValue({
+      loginId: 'login_ok',
+      authorizeUrl: 'https://auth.openai.com/oauth/authorize?state=v',
+      loopback: false,
+      expiresAt: '2026-08-17T00:10:00.000Z',
+    });
+    vi.spyOn(window, 'open').mockReturnValue(popupWindow());
+    // OAuth succeeded but model discovery produced nothing runnable — the
+    // caller must not be told it can go ahead.
+    const reconcile = vi.fn().mockResolvedValue(false);
+    const { wrapper, login } = mountLogin(reconcile);
+
+    await completeVia(login, reconcile);
+
+    expect(login.phase.value).toBe('failed');
+    wrapper.unmount();
+  });
+
+  it('reports a server-cancelled attempt as cancelled, without reconciling', async () => {
+    mockApi.startCodexLogin.mockResolvedValue({
+      loginId: 'login_ok',
+      authorizeUrl: 'https://auth.openai.com/oauth/authorize?state=v',
+      loopback: false,
+      expiresAt: '2026-08-17T00:10:00.000Z',
+    });
+    vi.spyOn(window, 'open').mockReturnValue(popupWindow());
+    const reconcile = vi.fn().mockResolvedValue(true);
+    const { wrapper, login } = mountLogin(reconcile);
+
+    mockApi.submitCodexLoginRedirect.mockResolvedValue({ loginId: 'login_ok', state: 'cancelled' });
+    await login.start();
+    await login.submitRedirect('http://localhost:1455/auth/callback?code=c&state=v');
+
+    expect(reconcile).not.toHaveBeenCalled();
+    expect(login.phase.value).toBe('cancelled');
+    wrapper.unmount();
+  });
+
   it('ignores a redirect result that arrives after cancellation', async () => {
     mockApi.startCodexLogin.mockResolvedValue({
       loginId: 'login_3',
@@ -179,7 +250,7 @@ describe('useCodexLogin', () => {
     resolveSubmit({ loginId: 'login_3', state: 'completed' });
     await submit;
 
-    expect(login.state.value).toBeUndefined();
+    expect(login.phase.value).toBe('cancelled');
     expect(mockApi.cancelCodexLogin).toHaveBeenCalledWith('login_3');
     expect(popup.close).toHaveBeenCalledOnce();
     wrapper.unmount();

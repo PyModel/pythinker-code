@@ -112,7 +112,7 @@ const results = computed<ResultEntry[]>(() => {
     });
     if (sessionHits.length >= RESULT_CAP) break;
   }
-  // Section headers only when BOTH kinds are present (reference behaviour).
+  // Section headers only when BOTH kinds are present.
   if (workspaceHits.length > 0 && sessionHits.length > 0) {
     (workspaceHits[0] as ResultEntry).section = { label: t('sidebar.workspaces'), count: workspaceHits.length };
     const first: ResultEntry = { kind: 'session', key: `s:${sessionHits[0]!.session.id}`, hit: sessionHits[0]!, section: { label: t('sidebar.sessionsHeader'), count: sessionHits.length } };

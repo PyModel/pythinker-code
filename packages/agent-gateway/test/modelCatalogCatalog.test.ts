@@ -339,15 +339,16 @@ describe('server-v2 /api/v1 catalog browse + import endpoints', () => {
     expect(config['default_model']).toBe('k2');
   });
 
-  it('seeds the global default_model from the first catalog model on a fresh setup', async () => {
+  it('adopts a usable global default_model on a fresh setup', async () => {
     await boot();
     const { status } = await postJson('/api/v1/providers:import_catalog', {
       catalog_id: 'openai',
       api_key: 'sk-imported',
     });
     expect(status).toBe(201);
-    const config = await readConfigToml();
-    expect(config['default_model']).toBe('openai/gpt-4.1');
+    const auth = await getJson<{ ready: boolean; default_model: string | null }>('/api/v1/auth');
+    expect(auth.body.data.default_model).toBe('openai/gpt-4.1');
+    expect(auth.body.data.ready).toBe(true);
   });
 
   it('re-imports an existing id as a refresh: credentials replaced, stale aliases dropped', async () => {
@@ -587,7 +588,7 @@ describe('server-v2 /api/v1 catalog browse + import endpoints', () => {
     expect(status).toBe(201);
     expect(body.code).toBe(0);
     expect(body.data.models_imported).toBe(2);
-    expect(body.data.providers.map((p) => p['id']).sort()).toEqual(['acme-claude', 'acme-gpt']);
+    expect(body.data.providers.map((p) => p['id']).toSorted()).toEqual(['acme-claude', 'acme-gpt']);
     expect(seen.authorization).toBe('Bearer tok-1');
 
     const config = await readConfigToml();
@@ -632,7 +633,7 @@ describe('server-v2 /api/v1 catalog browse + import endpoints', () => {
     expect(config['default_model']).toBe('k2');
   });
 
-  it('seeds the global default_model from the first registry model on a fresh setup', async () => {
+  it('adopts a usable global default_model from a registry import on a fresh setup', async () => {
     setModelsDevUpstreamForTest({ fetchImpl: registryFetch(REGISTRY_DOC) });
     await boot();
     const { status } = await postJson('/api/v1/providers:import_registry', {
@@ -640,8 +641,9 @@ describe('server-v2 /api/v1 catalog browse + import endpoints', () => {
       api_key: 'tok-1',
     });
     expect(status).toBe(201);
-    const config = await readConfigToml();
-    expect(config['default_model']).toBe('acme-claude/claude-opus');
+    const auth = await getJson<{ ready: boolean; default_model: string | null }>('/api/v1/auth');
+    expect(auth.body.data.default_model).toBe('acme-claude/claude-opus');
+    expect(auth.body.data.ready).toBe(true);
   });
 
   it('re-imports the same URL as a refresh: vanished providers dropped, survivors rebuilt', async () => {

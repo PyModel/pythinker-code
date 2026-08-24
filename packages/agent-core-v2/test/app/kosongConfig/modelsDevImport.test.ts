@@ -15,6 +15,7 @@ import { IKosongConfigService } from '#/app/kosongConfig/kosongConfig';
 import { IModelsDevImportService } from '#/app/kosongConfig/modelsDevImport';
 import '#/app/kosongConfig/modelsDevImportService';
 import { IModelCatalog, type ProviderCatalogItem } from '#/kosong/model/catalog';
+import { IModelService } from '#/kosong/model/model';
 import type { ModelsSection } from '#/kosong/model/model';
 import type { ProvidersSection } from '#/kosong/provider/provider';
 
@@ -130,6 +131,10 @@ function stubModelCatalog(): IModelCatalog {
   } as unknown as IModelCatalog;
 }
 
+function stubModelService(): IModelService {
+  return { _serviceBrand: undefined, settled: Promise.resolve() } as unknown as IModelService;
+}
+
 function createHost(
   sections: Record<string, unknown> = {},
   identitySlug?: string,
@@ -143,6 +148,7 @@ function createHost(
     [IConfigService, config],
     [IKosongConfigService, stubKosongConfig()],
     [IModelCatalog, stubModelCatalog()],
+    [IModelService, stubModelService()],
     [IBootstrapService, stubBootstrap('/home', {}, { requestHeaders: hostHeaders })],
     [IAgentIdentity, stubAgentIdentity({ slug: identitySlug, hostRequestHeaders: hostHeaders })],
   ]);
@@ -154,7 +160,7 @@ async function expectError2(promise: Promise<unknown>, code: string): Promise<Er
     () => {
       throw new Error(`expected the call to throw ${code}`);
     },
-    (cause: unknown) => cause,
+    (error: unknown) => error,
   );
   expect(isError2(err)).toBe(true);
   expect((err as Error2).code).toBe(code);
@@ -288,18 +294,30 @@ describe('IModelsDevImportService', () => {
     expect(config.get('secondaryModel')).toBeUndefined();
   });
 
-  it('seeds default_model from the first imported model only when none is configured', async () => {
+  it('leaves default_model to the model registry rather than seeding the first import', async () => {
     setModelsDevUpstreamForTest({ fetchImpl: fetchJson(CATALOG) });
     const { config, imports } = createHost({ providers: {}, models: {} });
 
     await imports.importModelsDevProvider({ catalogId: 'openai' });
-    expect(config.get('defaultModel')).toBe('openai/gpt-4.1');
+    expect(config.get('defaultModel')).toBeUndefined();
 
     await imports.importModelsDevProvider({
       catalogId: 'gateway',
       baseUrl: 'https://gw.example/v1',
     });
-    expect(config.get('defaultModel')).toBe('openai/gpt-4.1');
+    expect(config.get('defaultModel')).toBeUndefined();
+  });
+
+  it('never overwrites a configured default_model', async () => {
+    setModelsDevUpstreamForTest({ fetchImpl: fetchJson(CATALOG) });
+    const { config, imports } = createHost({
+      providers: {},
+      models: {},
+      defaultModel: 'mine/chosen',
+    });
+
+    await imports.importModelsDevProvider({ catalogId: 'openai' });
+    expect(config.get('defaultModel')).toBe('mine/chosen');
   });
 
   it('keeps the stored api_key on a re-import without one, replaces it when given', async () => {

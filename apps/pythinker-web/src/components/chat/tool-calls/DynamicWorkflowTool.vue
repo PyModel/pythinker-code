@@ -87,7 +87,7 @@ const status = computed<'running' | 'ok' | 'error'>(() => props.tool.status as '
 const aggregateStatus = computed<'running' | 'ok' | 'error'>(() => {
   if (status.value === 'running') return 'running';
   // Only real failures turn the card red — aborted/cancelled work is a neutral
-  // `cancelled` phase (reference SwarmTool).
+  // `cancelled` phase.
   if (status.value === 'error' || (result.value?.failed ?? 0) > 0) return 'error';
   return 'ok';
 });
@@ -174,7 +174,7 @@ function phaseLabel(phase: AppSubagentPhase): string {
 }
 
 /** Result-based done summary: cancelled (aborted) entries get their own count
- *  in the legend line (reference SwarmTool `doneSubWithCancelled`). */
+ *  in the header's overview label (the `.lbl` span, not the phase legend). */
 const doneSummary = computed(() => {
   if (!result.value) return '';
   const aborted = result.value.aborted ?? 0;

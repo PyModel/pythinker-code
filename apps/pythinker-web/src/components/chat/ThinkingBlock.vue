@@ -1,7 +1,7 @@
 <!-- apps/pythinker-web/src/components/chat/ThinkingBlock.vue -->
-<!-- Reference presentation (kimi upstream web UI): a `think-head` row — bulb
-     glyph, "Thinking…"/"Thinking" title, live elapsed time while streaming —
-     above an inline collapsible `think-body` holding the full text. Clicking
+<!-- A `think-head` row — bulb glyph, "Thinking…"/"Thinking" title, live
+     elapsed time while streaming — above an inline collapsible `think-body`
+     holding the full text. Clicking
      the head toggles the body; a block that was open while streaming folds
      itself once the stream ends. -->
 <script setup lang="ts">

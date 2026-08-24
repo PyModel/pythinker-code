@@ -276,7 +276,7 @@ const emit = defineEmits<{
   reorderQueue: [payload: { from: number; to: number }];
   /**
    * Failed-turn recovery: submit a fixed "Continue" prompt (no attachments),
-   * mirroring the reference client's resume path.
+   * on the resume path.
    */
   continueTurn: [text: string];
 }>();
@@ -608,17 +608,17 @@ function onAttachmentClick(att: TurnAttachment): void {
 
 function isStreamingRenderBlock(turn: ChatTurn, block: { sourceIndex: number; kind?: string; durationMs?: number }): boolean {
   if (turn.id !== streamingTurnId.value) return false;
-  // A settled thinking block is never the streaming tail (reference kn): its
+  // A settled thinking block is never the streaming tail: its
   // durationMs froze when the next part started, so it renders collapsed as
   // "Thinking · Ns" instead of shimmering a second "Thinking…" row.
   if (isSettledThinking(block)) return false;
   return block.sourceIndex === turnBlocks(turn).length - 1;
 }
 
-// Live-fold wiring (reference TurnFold): the in-flight turn's fold streams
+// Live-fold wiring for TurnFold: the in-flight turn's fold streams
 // only its single tail item. `streamingTailIndex` is the last source index of
 // the turn's blocks; a live turn with no streamable tail is "parked" (no stream
-// markers, the header keeps ticking "Worked 1m3s"). Parked (reference Pn):
+// markers, the header keeps ticking "Worked 1m3s"). Parked means:
 // no content yet, OR the tail is a running tool the agent is waiting on (a
 // pending approval / question — the dock shows the prompt, the wire streams
 // nothing). A settled thinking tail can't be detected here: the pythinker
@@ -652,7 +652,7 @@ function turnCreatedMs(turn: ChatTurn): number | undefined {
 
 /** True when an `activity-run` block is the streaming tail run of the live
  *  turn (its last item is the turn's last block). A run whose tail thinking
- *  already settled is not streaming (reference jt). */
+ *  already settled is not streaming. */
 function runIsStreaming(
   turn: ChatTurn,
   block: Extract<AssistantRenderBlock, { kind: 'activity-run' }>,
@@ -664,7 +664,7 @@ function runIsStreaming(
 }
 
 // Failed-turn recovery: submit a fixed "Continue" prompt with no attachments,
-// matching the reference client (its ConversationPane submits
+// matching the conversation pane, which submits
 // `conversation.turnFailedResumeText` through the ordinary send path). The
 // user's own last message is deliberately NOT re-sent: that would repeat its
 // instructions and any side effects.
@@ -1068,7 +1068,7 @@ function continueFailedTurn(): void {
   width: 100%;
 }
 
-/* User message → right-aligned surface bubble (reference parity). */
+/* User message → right-aligned surface bubble. */
 .u-bub {
   align-self: flex-end;
   max-width: 78%;

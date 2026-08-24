@@ -1,6 +1,5 @@
 // apps/pythinker-web/src/lib/inlineMath.ts
-// Curated `$…$` inline-math detector, ported from the reference web UI
-// (compiled bundle `VBe`/`ZBe`). The stock markdown-it `math` rule is too
+// Curated `$…$` inline-math detector. The stock markdown-it `math` rule is too
 // permissive for prose that talks about money and shell, so this detector
 // renders real math (`$x^2$`, `$E=mc^2$`) while keeping prices, env vars and
 // paths literal: `$5`, `$10.99`, `$PATH`, `$HOME/bin`, `US$ 100`, `$5 ~ $10`.
@@ -126,7 +125,7 @@ const NO_CANDIDATE = -1;
  * Build a matcher for one source string. `pos` is the index of a `$` in
  * `source`; `lastEnd` is the end of the previous accepted match (lets a
  * match whose closing `$` is also the next opening `$` be resumed). Mirrors
- * the reference `VBe` (cache the result per source string).
+ * cache the result per source string.
  */
 export function buildInlineMathMatcher(source: string): InlineMathMatcher {
   const length = source.length;

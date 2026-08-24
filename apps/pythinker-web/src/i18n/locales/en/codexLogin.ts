@@ -9,6 +9,17 @@ export default {
   pastePlaceholder: 'http://localhost:1455/auth/callback?code=…',
   submit: 'Finish sign-in',
   cancel: 'Cancel',
+  retry: 'Try again',
+  connected: 'Signed in — your models are ready.',
   completed: 'Signed in to OpenAI Codex. Model: {model}',
   failed: 'Sign-in failed: {message}',
+  phase: {
+    starting: 'Starting sign-in…',
+    waiting_for_browser: 'Waiting for the browser sign-in…',
+    waiting_for_code: 'Finish signing in, then paste the redirect URL below.',
+    exchanging: 'Completing sign-in…',
+    loading_models: 'Loading your models…',
+    failed: 'Sign-in did not finish.',
+    cancelled: 'Sign-in cancelled.',
+  },
 } as const;

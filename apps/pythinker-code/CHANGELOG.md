@@ -1,5 +1,29 @@
 # @pymodel/pythinker-code
 
+## 1.2.0
+
+### Minor Changes
+
+- [#172](https://github.com/PyModel/pythinker-code/pull/172) [`c4f78e5`](https://github.com/PyModel/pythinker-code/commit/c4f78e59ad0ca3ee3cdf18c1fc405564e6049a32) Thanks [@elkaix](https://github.com/elkaix)! - Add an Update button to the top of the desktop sidebar that opens a single overlay for the whole update: download it, watch the progress, cancel it mid-transfer, then restart to apply it.
+
+- [#174](https://github.com/PyModel/pythinker-code/pull/174) [`95683a3`](https://github.com/PyModel/pythinker-code/commit/95683a39ad6498f38485b8e8d3e8af401c98d429) Thanks [@elkaix](https://github.com/elkaix)! - Add a guided first-run setup that walks through connecting a provider, choosing a default model, and picking a theme. Signing in with Codex is offered alongside the provider catalog and a custom endpoint.
+
+- [#174](https://github.com/PyModel/pythinker-code/pull/174) [`95683a3`](https://github.com/PyModel/pythinker-code/commit/95683a39ad6498f38485b8e8d3e8af401c98d429) Thanks [@elkaix](https://github.com/elkaix)! - Show a recovery screen naming what broke when an expired credential or a removed model leaves an already-configured app unable to reach a usable model.
+
+### Patch Changes
+
+- [#170](https://github.com/PyModel/pythinker-code/pull/170) [`760faa5`](https://github.com/PyModel/pythinker-code/commit/760faa565a87a4a48060f801881b03b63061ea40) Thanks [@elkaix](https://github.com/elkaix)! - Run a command locally when an ACP client provides no terminal or the command is not a shell, accept stdio MCP servers in ACP sessions, and let a reloaded ACP session bind its runtime again.
+
+- [#174](https://github.com/PyModel/pythinker-code/pull/174) [`95683a3`](https://github.com/PyModel/pythinker-code/commit/95683a39ad6498f38485b8e8d3e8af401c98d429) Thanks [@elkaix](https://github.com/elkaix)! - Pick a model that can hold a conversation as the default instead of whichever one a provider happened to list first.
+
+- [#174](https://github.com/PyModel/pythinker-code/pull/174) [`95683a3`](https://github.com/PyModel/pythinker-code/commit/95683a39ad6498f38485b8e8d3e8af401c98d429) Thanks [@elkaix](https://github.com/elkaix)! - Allow skipping provider setup during first run and connecting one later from Settings.
+
+- [#170](https://github.com/PyModel/pythinker-code/pull/170) [`760faa5`](https://github.com/PyModel/pythinker-code/commit/760faa565a87a4a48060f801881b03b63061ea40) Thanks [@elkaix](https://github.com/elkaix)! - Prevent AskUserQuestion from starting background tasks when task controls are unavailable.
+
+- [#170](https://github.com/PyModel/pythinker-code/pull/170) [`760faa5`](https://github.com/PyModel/pythinker-code/commit/760faa565a87a4a48060f801881b03b63061ea40) Thanks [@elkaix](https://github.com/elkaix)! - Keep the system prompt unchanged for the rest of a session when AGENTS.md is edited.
+
+- [#174](https://github.com/PyModel/pythinker-code/pull/174) [`95683a3`](https://github.com/PyModel/pythinker-code/commit/95683a39ad6498f38485b8e8d3e8af401c98d429) Thanks [@elkaix](https://github.com/elkaix)! - Fix a new install being unable to leave the setup screen after adding a working model provider.
+
 ## 1.1.0
 
 ### Minor Changes

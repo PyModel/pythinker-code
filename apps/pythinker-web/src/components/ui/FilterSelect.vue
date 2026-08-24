@@ -135,7 +135,7 @@ onBeforeUnmount(close);
 .filter-select__value { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .filter-select__menu { position: absolute; top: calc(100% + var(--space-1)); right: 0; z-index: var(--z-dropdown); }
 .filter-select__check { width: 16px; flex: none; }
-/* Per-option status dot (reference `.sa-dot`): small filled circle marking the
+/* Per-option status dot: small filled circle marking the
    option's state; variant classes pick the colour (open/done). */
 .sa-dot { flex: none; width: 8px; height: 8px; border-radius: var(--radius-full); }
 .sa-dot--open { background: var(--color-success); }

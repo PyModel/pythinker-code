@@ -1,6 +1,6 @@
 // apps/pythinker-web/test/model-display.test.ts
 //
-// Subagent model/effort label parity with the reference client: TasksPane,
+// Subagent model/effort labels: TasksPane,
 // SubagentGrid, and AgentDetailPanel resolve raw task/member model ids through
 // the provided `modelDisplay` resolver (friendly displayName → model name →
 // provider-prefix-stripped id) and `subagentEffort` (capitalized effort,

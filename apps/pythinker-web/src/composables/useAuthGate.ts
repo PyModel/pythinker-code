@@ -1,25 +1,24 @@
 // apps/pythinker-web/src/composables/useAuthGate.ts
-// Auth readiness gates the main app. Once the first load finishes and auth is
-// still missing, show a full-page login entry instead of an in-app banner.
+// Keeps the browser URL honest about which top-level surface is showing. While
+// the window is owned by first-run setup or by recovery rather than the app
+// itself, the address bar reads /login, and the path the user arrived on is
+// restored once they reach the app.
 
-import { computed, onUnmounted, ref, watch, type Ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import type { usePythinkerWebClient } from './usePythinkerWebClient';
 
 type PythinkerWebClient = ReturnType<typeof usePythinkerWebClient>;
 
 export interface UseAuthGateOptions {
   client: PythinkerWebClient;
-  /** Template ref to the auth-page logo SVG; owned by the component so the
-      template `ref=` binding links, passed here so the blink handler can drive it. */
-  authLogoRef: Ref<SVGSVGElement | null>;
 }
 
-export function useAuthGate({ client, authLogoRef }: UseAuthGateOptions) {
-  const authReady = computed(() => client.authReady.value);
-  const showAuthGate = computed(() => client.initialized.value && !authReady.value);
+export function useAuthGate({ client }: UseAuthGateOptions) {
+  const showAuthGate = computed(
+    () => client.appState.value === 'first-run' || client.appState.value === 'recovery',
+  );
   const LOGIN_PATH = '/login';
   const authReturnPath = ref<string | null>(null);
-  let authLogoBlinkTimer: ReturnType<typeof setTimeout> | null = null;
 
   function currentPathWithSuffix(): string {
     if (typeof window === 'undefined') return '/';
@@ -46,22 +45,5 @@ export function useAuthGate({ client, authLogoRef }: UseAuthGateOptions) {
     }
   }, { immediate: true });
 
-  function blinkAuthLogo(): void {
-    const el = authLogoRef.value;
-    if (!el) return;
-    el.classList.remove('blink-now');
-    void el.getBoundingClientRect();
-    el.classList.add('blink-now');
-    if (authLogoBlinkTimer !== null) clearTimeout(authLogoBlinkTimer);
-    authLogoBlinkTimer = setTimeout(() => {
-      authLogoBlinkTimer = null;
-      el.classList.remove('blink-now');
-    }, 300);
-  }
-
-  onUnmounted(() => {
-    if (authLogoBlinkTimer !== null) clearTimeout(authLogoBlinkTimer);
-  });
-
-  return { showAuthGate, blinkAuthLogo };
+  return { showAuthGate };
 }

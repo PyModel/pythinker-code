@@ -47,7 +47,7 @@ const statusLabel = computed(() => {
   return status.value;
 });
 /** Header pill: updategoal shows its status (Active/Done/Blocked); creategoal
- *  always shows a constant "Active" pill (reference GoalTool trailing). */
+ *  always shows a constant "Active" pill. */
 const pill = computed<{ label: string; cls: string } | null>(() => {
   if (toolKey.value === 'updategoal' && statusLabel.value) {
     const cls = status.value === 'complete' ? 'pill-done'
