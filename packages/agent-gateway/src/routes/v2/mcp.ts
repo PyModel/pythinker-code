@@ -273,7 +273,7 @@ export function registerV2McpRoutes(app: V2McpRouteHost, core: Scope): void {
       success: { data: z.array(mcpManagedServerSchema) },
       errors: baseErrorSchemas,
       description:
-        'Add a server to the user-level `mcp.json`; a same-named read-only entry (plugin / project layer) is rejected. Returns the refreshed list.',
+        'Add a server to the user-level `mcp.json`; a same-named read-only project entry is rejected, while a plugin entry can be shadowed. Returns the refreshed list.',
       tags: ['v2-mcp'],
     },
     async (req, reply) => {
