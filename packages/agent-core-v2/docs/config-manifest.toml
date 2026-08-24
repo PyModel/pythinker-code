@@ -8,13 +8,14 @@
 # commented "# field: type" lines describe the remaining schema fields.
 # Values resolve as: default -> config.toml -> env overlay -> memory.
 
-# Index (27 sections · 2 overlay(s))
+# Index (28 sections · 2 overlay(s))
 #   advisor                  src/session/advisor/configSection.ts
 #   background               src/agent/task/configSection.ts
 #   builtinProductSkills     src/features/skill/catalog/configSection.ts
 #   cron                     src/features/cron/configSection.ts
 #   defaultPermissionMode    src/agent/permissionMode/configSection.ts
 #   defaultPlanMode          src/features/plan/configSection.ts
+#   dynamicWorkflow          src/features/dynamic_workflow/configSection.ts
 #   experimental             src/app/flag/flag.ts
 #   extraAgentDirs           src/workspace/workspaceAgentProfileLoader/configSection.ts
 #   extraSkillDirs           src/features/skill/catalog/configSection.ts
@@ -119,6 +120,18 @@ manual_tick = false
 # ##########################################################################
 
 default_plan_mode = false
+
+# ##########################################################################
+# dynamicWorkflow (config.toml: dynamic_workflow)
+#   owner: src/features/dynamic_workflow/configSection.ts
+#   scope: core
+#   hooks: stripEnv
+#   env:
+#     timeout_ms <- PYTHINKER_CODE_AGENT_DYNAMIC_WORKFLOW_TIMEOUT_MS (custom parse)
+# ##########################################################################
+
+[dynamic_workflow]
+timeout_ms = 7200000
 
 # ##########################################################################
 # experimental

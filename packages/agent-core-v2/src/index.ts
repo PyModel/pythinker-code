@@ -349,6 +349,7 @@ import '#/features/externalHooks/externalHooksFeature';
 export * from '#/features/debugEvents/debugEvents';
 export * from '#/features/debugEvents/debugEventsService';
 import '#/features/debugEvents/debugEventsFeature';
+export * from '#/features/dynamic_workflow/configSection';
 export * from '#/features/dynamic_workflow/agent/dynamic_workflow';
 export * from '#/features/dynamic_workflow/agent/dynamicWorkflowService';
 export * from '#/features/dynamic_workflow/session/sessionDynamicWorkflow';

@@ -18,7 +18,7 @@ import { AgentContextInjectorService } from '#/agent/contextInjector/contextInje
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { AgentContextMemoryService } from '#/agent/contextMemory/contextMemoryService';
 import type { ContextMessage } from '#/agent/contextMemory/types';
-import { DEFAULT_SUBAGENT_TIMEOUT_MS } from '#/session/subagent/configSection';
+import { DEFAULT_DYNAMIC_WORKFLOW_TIMEOUT_MS, DYNAMIC_WORKFLOW_SECTION } from '#/features/dynamic_workflow/configSection';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionDynamicWorkflowService, type SessionDynamicWorkflowRunResult, type SessionDynamicWorkflowTask } from '#/features/dynamic_workflow/session/sessionDynamicWorkflow';
 import { IAgentStateService } from '#/agent/state/agentState';
@@ -733,7 +733,7 @@ describe('AgentDynamicWorkflowTool', () => {
         dynamicWorkflowItem: 'src/a.ts',
         runInBackground: false,
         signal,
-        timeout: DEFAULT_SUBAGENT_TIMEOUT_MS,
+        timeout: DEFAULT_DYNAMIC_WORKFLOW_TIMEOUT_MS,
         plan: { profileName: 'explore', model: 'provider/fast', thinking: undefined, fork: false },
       },
       {
@@ -752,7 +752,7 @@ describe('AgentDynamicWorkflowTool', () => {
         dynamicWorkflowItem: 'src/b.ts',
         runInBackground: false,
         signal,
-        timeout: DEFAULT_SUBAGENT_TIMEOUT_MS,
+        timeout: DEFAULT_DYNAMIC_WORKFLOW_TIMEOUT_MS,
         plan: { profileName: 'explore', model: 'provider/fast', thinking: undefined, fork: false },
       },
     ] }));
@@ -955,7 +955,7 @@ describe('AgentDynamicWorkflowTool', () => {
         runInBackground: false,
         resumeAgentId: 'agent-old-1',
         signal,
-        timeout: DEFAULT_SUBAGENT_TIMEOUT_MS,
+        timeout: DEFAULT_DYNAMIC_WORKFLOW_TIMEOUT_MS,
       },
       {
         kind: 'resume',
@@ -975,7 +975,7 @@ describe('AgentDynamicWorkflowTool', () => {
         runInBackground: false,
         resumeAgentId: 'agent-old-2',
         signal,
-        timeout: DEFAULT_SUBAGENT_TIMEOUT_MS,
+        timeout: DEFAULT_DYNAMIC_WORKFLOW_TIMEOUT_MS,
       },
       {
         kind: 'spawn',
@@ -993,7 +993,7 @@ describe('AgentDynamicWorkflowTool', () => {
         dynamicWorkflowItem: 'src/new.ts',
         runInBackground: false,
         signal,
-        timeout: DEFAULT_SUBAGENT_TIMEOUT_MS,
+        timeout: DEFAULT_DYNAMIC_WORKFLOW_TIMEOUT_MS,
         plan: { profileName: 'explore', model: 'mock-model', thinking: 'off', fork: false },
       },
     ] }));
@@ -1060,7 +1060,7 @@ describe('AgentDynamicWorkflowTool', () => {
         runInBackground: false,
         resumeAgentId: 'agent-old-1',
         signal,
-        timeout: DEFAULT_SUBAGENT_TIMEOUT_MS,
+        timeout: DEFAULT_DYNAMIC_WORKFLOW_TIMEOUT_MS,
       },
     ] }));
     expect(result.output).toBe(
@@ -1114,9 +1114,37 @@ describe('AgentDynamicWorkflowTool', () => {
     expect(result.isError).toBeUndefined();
   });
 
-  it('passes the configured subagent timeout to dynamic_workflow tasks', async () => {
+  it('passes the configured dynamic workflow timeout to dynamic workflow tasks', async () => {
     const host = mockDynamicWorkflowHost();
     const tool = new AgentDynamicWorkflowTool(host.dynamicWorkflowService, makeAgentScopeContext({ agentId: host.callerAgentId, agentScope: '' }), mockDynamicWorkflowMode(), stubConfig({ timeoutMs: 5_000 }), stubFlag(true), realSubagents(stubDynamicWorkflowCatalog(), stubConfig({ timeoutMs: 5_000 }), stubFlag(true), stubCallerProfile()), stubCallerProfile());
+
+    await executeTool(
+      tool,
+      context({
+        description: 'Review files',
+        prompt_template: 'Review {{item}}',
+        items: ['src/a.ts', 'src/b.ts'],
+      }),
+    );
+
+    expect(host.dynamicWorkflowService.run).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tasks: [
+          expect.objectContaining({ timeout: 5_000 }),
+          expect.objectContaining({ timeout: 5_000 }),
+        ],
+      }),
+    );
+  });
+
+  it('ignores [subagent] timeout_ms and reads only the [dynamic_workflow] section', async () => {
+    const host = mockDynamicWorkflowHost();
+    const sectionAwareConfig = {
+      _serviceBrand: undefined,
+      get: (section: string) =>
+        section === DYNAMIC_WORKFLOW_SECTION ? { timeoutMs: 5_000 } : { timeoutMs: 1_000 },
+    } as unknown as IConfigService;
+    const tool = new AgentDynamicWorkflowTool(host.dynamicWorkflowService, makeAgentScopeContext({ agentId: host.callerAgentId, agentScope: '' }), mockDynamicWorkflowMode(), sectionAwareConfig, stubFlag(true), realSubagents(stubDynamicWorkflowCatalog(), sectionAwareConfig, stubFlag(true), stubCallerProfile()), stubCallerProfile());
 
     await executeTool(
       tool,
