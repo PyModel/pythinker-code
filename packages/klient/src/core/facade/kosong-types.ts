@@ -14,7 +14,7 @@ import type { ResponseFormat } from '@pymodel/agent-core-v2/kosong/contract/prov
 // Provider auth
 // ---------------------------------------------------------------------------
 
-/** How the provider authenticates — API key or managed OAuth. */
+/** How the provider authenticates — API key or an OAuth credential reference. */
 export type ProviderAuth =
   | { method: 'api-key'; apiKey: string }
   | { method: 'oauth' };

@@ -3,8 +3,7 @@
 <!-- controls as big tappable rows — model (opens ModelPicker), thinking level -->
 <!-- (inline cycle picker), plan mode (toggle), permission (cycle), and a -->
 <!-- read-only context-usage meter — plus the desktop settings-popover prefs -->
-<!-- (theme / color scheme) and the sign-in/out entry, which previously -->
-<!-- had no mobile counterpart. -->
+<!-- (theme / color scheme) and provider management. -->
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
@@ -47,7 +46,6 @@ const props = withDefaults(
     dynamicWorkflowMode?: boolean;
     colorScheme?: ColorScheme;
     uiFontSize?: number;
-    authReady?: boolean;
     conversationToc?: boolean;
     /** Server version from GET /api/v1/meta, shown as a read-only row. */
     serverVersion?: string;
@@ -57,7 +55,6 @@ const props = withDefaults(
   {
     colorScheme: 'system',
     uiFontSize: 14,
-    authReady: false,
     serverVersion: '',
     models: () => [],
     goal: null,
@@ -436,8 +433,7 @@ watch(
       <span class="toggle" :class="{ on: conversationToc }" role="switch" :aria-checked="conversationToc" />
     </button>
 
-    <!-- Providers: no managed account in this distribution — the row opens
-         the provider manager instead of an account sign-in. -->
+    <!-- Provider management uses the same setup flow as desktop. -->
     <button type="button" class="srow acct in" @click="onLogin">
       <span class="srow-main">
         <span class="srow-label">{{ t('settings.manageProviders') }}</span>
@@ -613,7 +609,6 @@ watch(
 
 /* Account rows */
 .srow.acct.in .srow-label { color: var(--color-accent-hover); font-weight: 500; }
-.srow.acct.out .srow-label { color: var(--color-danger); }
 
 /* Context meter (96px prototype) */
 .ctx-meter {

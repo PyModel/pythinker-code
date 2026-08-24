@@ -188,7 +188,7 @@ describe('applyCatalogProvider', () => {
     applyCatalogProvider(config, {
       providerId: 'kimi-for-coding',
       wire: 'anthropic',
-      baseUrl: 'https://api.kimi.com/coding',
+      baseUrl: 'https://api.example.test',
       apiKey: 'sk',
       models,
       selectedModelId: 'k3',

@@ -238,7 +238,7 @@ describe('AcpSession ↔ requestPermission bridge (end-to-end via wire)', () => 
     } as unknown as PythinkerHarness;
 
     const { agentStream, clientStream } = makeInMemoryStreamPair();
-    new AgentSideConnection((c) => new AcpServer(harness, c), agentStream);
+    new AgentSideConnection((c) => new AcpServer(harness, c, { disableAuth: true }), agentStream);
     const client = new ApprovalClient();
     client.reply = {
       outcome: { outcome: 'selected', optionId: APPROVE_ONCE_OPTION_ID },
@@ -320,7 +320,7 @@ describe('AcpSession ↔ requestPermission bridge (end-to-end via wire)', () => 
     } as unknown as PythinkerHarness;
 
     const { agentStream, clientStream } = makeInMemoryStreamPair();
-    new AgentSideConnection((c) => new AcpServer(harness, c), agentStream);
+    new AgentSideConnection((c) => new AcpServer(harness, c, { disableAuth: true }), agentStream);
     const client = new ApprovalClient();
     // Override to throw so the bridge falls into the catch branch.
     client.requestPermission = async (_p: RequestPermissionRequest) => {

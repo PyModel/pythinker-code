@@ -364,7 +364,7 @@ onUnmounted(() => {
 });
 
 function onGlobalKeydown(e: KeyboardEvent): void {
-  if (e.key !== 'Escape') return;
+  if (e.key !== 'Escape' || e.isComposing) return;
   // A modal dialog open on top of the side panel owns Escape — leave the event
   // alone so the dialog can close itself instead of the panel behind it.
   if (anyOverlayOpen.value) return;
@@ -531,6 +531,27 @@ const {
 
 // Reference to ConversationPane so we can imperatively switch tabs
 const conversationPaneRef = ref<InstanceType<typeof ConversationPane> | null>(null);
+const sideChatPanelRef = ref<InstanceType<typeof SideChatPanel> | null>(null);
+
+function beginSideChatFocus(): () => void {
+  let interrupted = false;
+  const noteInteraction = (event: Event): void => {
+    if (!(event instanceof KeyboardEvent && event.repeat)) interrupted = true;
+  };
+  document.addEventListener('pointerdown', noteInteraction, true);
+  document.addEventListener('keydown', noteInteraction, true);
+  window.addEventListener('blur', noteInteraction);
+  document.addEventListener('visibilitychange', noteInteraction);
+  return () => {
+    void nextTick(() => {
+      document.removeEventListener('pointerdown', noteInteraction, true);
+      document.removeEventListener('keydown', noteInteraction, true);
+      window.removeEventListener('blur', noteInteraction);
+      document.removeEventListener('visibilitychange', noteInteraction);
+      if (!interrupted && document.hasFocus()) sideChatPanelRef.value?.focusInput();
+    });
+  };
+}
 
 // Dialog visibility refs
 const showModelPicker = ref(false);
@@ -768,7 +789,8 @@ function handleCommand(cmd: string): void {
       // client.closeSideChat() only hides the panel and leaves detailTarget set.
       closeSideChat();
     } else {
-      void openSideChatTab(arg || undefined);
+      const finishFocus = beginSideChatFocus();
+      void openSideChatTab(arg || undefined).then(finishFocus, finishFocus);
     }
     return;
   }
@@ -832,6 +854,10 @@ function handleEditQueued(index: number): void {
 
 function handleReorderQueue(payload: { from: number; to: number }): void {
   client.reorderQueue(payload.from, payload.to);
+}
+
+function handleSteerQueued(index: number): void {
+  void client.steerQueued(index);
 }
 
 async function handleSubmit(payload: SubmitPayload): Promise<void> {
@@ -903,10 +929,8 @@ async function handleAddWorkspacePaths(paths: string[]): Promise<void> {
   }
 }
 
-// Generate a session title via the daemon's managed chat_title tool. The
-// daemon persists the title itself (the list refreshes via the WS event); the
-// result streams back into the rename input through the callback. Unavailable
-// generation surfaces as an info toast.
+// Ask the daemon to generate a session title. The result streams into the
+// rename input through the callback; unavailable generation shows an info toast.
 async function handleGenerateSessionTitle(
   sessionId: string,
   onTitle: (title: string | null) => void,
@@ -1140,6 +1164,7 @@ function openPr(url: string): void {
       @unqueue="handleUnqueue"
       @edit-queued="handleEditQueued"
       @reorder-queue="handleReorderQueue"
+      @steer-queued="handleSteerQueued"
       @set-permission="client.setPermission($event)"
       @set-thinking="client.setThinking($event)"
       @toggle-plan="client.togglePlanMode()"
@@ -1250,6 +1275,7 @@ function openPr(url: string): void {
       />
       <SideChatPanel
         v-else-if="detailTarget === 'btw' && btwVisible"
+        ref="sideChatPanelRef"
         :turns="client.sideChatTurns.value"
         :running="client.sideChatRunning.value"
         :sending="client.sideChatSending.value"
@@ -1438,7 +1464,6 @@ function openPr(url: string): void {
       :dynamic-workflow-mode="client.dynamicWorkflowMode.value"
       :color-scheme="client.colorScheme.value"
       :ui-font-size="client.uiFontSize.value"
-      :auth-ready="client.authReady.value"
       :conversation-toc="client.conversationToc.value"
       :server-version="client.serverVersion.value"
       @pick-model="openModelPicker()"
@@ -1452,7 +1477,6 @@ function openPr(url: string): void {
       @set-ui-font-size="client.setUiFontSize($event)"
       @set-conversation-toc="client.setConversationToc($event)"
       @login="() => { showMobileSettings = false; openLogin(); }"
-      @logout="client.logout"
     />
     </div>
 
@@ -1486,7 +1510,6 @@ function openPr(url: string): void {
       @set-sound="client.setSoundOnComplete($event)"
       @set-conversation-toc="client.setConversationToc($event)"
       @update-config="handleUpdateConfig($event)"
-      @logout="client.logout"
       @open-onboarding="() => { showSettings = false; openOnboarding(); }"
       @close="showSettings = false"
     />

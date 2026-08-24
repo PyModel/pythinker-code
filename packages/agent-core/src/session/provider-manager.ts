@@ -300,13 +300,10 @@ function toKosongProviderConfig(
         // Session affinity: Anthropic's analog of OpenAI `prompt_cache_key` is
         // `metadata.user_id` on the Messages API (cache-affinity / end-user id).
         ...(promptCacheKey !== undefined ? { metadata: { user_id: promptCacheKey } } : {}),
-        // When a Pythinker provider is routed through the Anthropic transport
-        // (`protocol: 'anthropic'`), upstream is the managed Pythinker endpoint,
-        // so align its full outbound identity headers (User-Agent + X-Msh-*)
-        // with the Pythinker OpenAI transport. Plain Anthropic providers only
-        // receive the unified `User-Agent` (no `X-Msh-*` device identity),
-        // matching the other non-Pythinker transports. Provider `customHeaders`
-        // still win on conflict.
+        // When a Pythinker provider is routed through the Anthropic transport,
+        // keep the same caller-supplied headers as its OpenAI transport.
+        // Plain Anthropic providers receive only the product User-Agent.
+        // Provider custom headers still win on conflict.
         ...defaultHeadersField(
           provider.type === 'pythinker' && modelProtocol === 'anthropic'
             ? { ...envCustomHeaders, ...pythinkerRequestHeaders, ...provider.customHeaders }
@@ -423,12 +420,9 @@ function defaultHeadersField(
   return { defaultHeaders: { ...headers } };
 }
 
-// Extract just the `User-Agent` from the Pythinker identity headers so non-Pythinker
-// providers (OpenAI, Anthropic, Google, Vertex) also identify as
-// `pythinker-code-cli/<version>` without leaking the `X-Msh-*` device identity
-// headers to third-party endpoints. The full `pythinkerRequestHeaders` set stays
-// reserved for the Pythinker transport (and the Pythinker-routed Anthropic transport),
-// where upstream is the managed Pythinker endpoint.
+// Extract just the `User-Agent` from Pythinker request headers for third-party
+// providers. The Pythinker transport, including its Anthropic wire mode, keeps
+// the complete caller-supplied header set.
 function pythinkerUserAgentHeader(
   pythinkerRequestHeaders: Record<string, string> | undefined,
 ): Record<string, string> {
@@ -500,8 +494,15 @@ function locationFromVertexAIBaseUrl(baseUrl: string | undefined): string | unde
   if (url === undefined) return undefined;
   try {
     const host = new URL(url).hostname;
-    const suffix = '-aiplatform.googleapis.com';
-    return host.endsWith(suffix) ? nonEmptyString(host.slice(0, -suffix.length)) : undefined;
+    const labels = host.split('.');
+    if (labels.length !== 3 || labels[1] !== 'googleapis' || labels[2] !== 'com') {
+      return undefined;
+    }
+    const service = labels[0]!;
+    const suffix = '-aiplatform';
+    return service.endsWith(suffix)
+      ? nonEmptyString(service.slice(0, -suffix.length))
+      : undefined;
   } catch {
     return undefined;
   }

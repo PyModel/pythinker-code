@@ -9,6 +9,7 @@ import {
   IAppendLogStore,
   IConfigService,
   IEventService,
+  IMcpOAuthService,
   IProviderDiscoveryService,
   ISessionIndex,
   ISessionIndexMirror,
@@ -28,6 +29,7 @@ import {
   createPythinkerDefaultHeaders,
   type PythinkerHostIdentity,
 } from '@pymodel/pythinker-code-oauth';
+import rateLimit from '@fastify/rate-limit';
 import { createAsyncApiDocument } from './protocol/asyncapi';
 import Fastify, { type FastifyInstance } from 'fastify';
 
@@ -76,7 +78,10 @@ import {
 } from './services/telemetry';
 import { TranscriptService } from './services/transcript/transcriptService';
 import { ModelCatalogRefreshScheduler } from './services/modelCatalog/modelCatalogRefreshScheduler';
-import { createAuthFailureLimiter } from './middleware/rateLimit';
+import {
+  AUTH_RATE_LIMIT_ERROR_NAME,
+  createAuthFailureLimiter,
+} from './middleware/rateLimit';
 import {
   createAuthTokenService,
   type IAuthTokenService,
@@ -310,6 +315,7 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
     disableRequestLogging: true,
     genReqId: (req) => resolveRequestId(req.headers),
   }) as unknown as FastifyInstance;
+  app.server.requestTimeout = 0;
   registerRequestLogging(app);
   app.setValidatorCompiler(() => () => true);
   app.setSerializerCompiler(() => (data) => JSON.stringify(data));
@@ -355,6 +361,7 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
     try {
       await drainSessionMetadataWrites();
       await core.accessor.get(ISessionIndexMirror).drain();
+      await core.accessor.get(IMcpOAuthService).shutdown();
       fsWatchBridge.dispose();
       const appendLogStore = core.accessor.get(IAppendLogStore);
       core.dispose();
@@ -455,6 +462,14 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
   }
 
   await registerOpenApi();
+  await app.register(rateLimit, {
+    global: false,
+    errorResponseBuilder: (_request, context) =>
+      Object.assign(new Error('Too many authentication requests'), {
+        code: AUTH_RATE_LIMIT_ERROR_NAME,
+        statusCode: context.statusCode,
+      }),
+  });
 
   await registerApiV1Routes(app, core, {
     serverVersion,

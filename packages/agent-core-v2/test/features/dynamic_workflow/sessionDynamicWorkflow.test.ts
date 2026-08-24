@@ -1242,15 +1242,18 @@ function lifecycleStub(
   handles: Map<string, IAgentScopeHandle>,
   eventBus: IEventBus,
 ): IAgentLifecycleService {
-  const lifecycle = {
+  const contextOf = (handle: IAgentScopeHandle): AgentContext =>
+    handle.accessor.get(IAgentScopeContext).agentContext;
+  const lifecycle: IAgentLifecycleService = {
     _serviceBrand: undefined,
-    onDidCreate: Event.None,
-    onDidCreateScope: Event.None,
-    onDidDispose: Event.None,
+    onDidCreate: Event.None as IAgentLifecycleService['onDidCreate'],
+    onDidCreateScope: Event.None as IAgentLifecycleService['onDidCreateScope'],
+    onWillClose: Event.None as IAgentLifecycleService['onWillClose'],
+    onDidClose: Event.None as IAgentLifecycleService['onDidClose'],
     create: vi.fn(async (opts: CreateAgentOptions = {}) => {
       if (opts.agentId !== undefined) {
         const existing = handles.get(opts.agentId);
-        if (existing !== undefined) return existing;
+        if (existing !== undefined) return contextOf(existing);
       }
       const id = opts.agentId ?? 'agent-new';
       const handle = agentHandle(id, lifecycle as IAgentLifecycleService, eventBus, {
@@ -1259,18 +1262,28 @@ function lifecycleStub(
         thinkingLevel: opts.binding?.thinking ?? 'medium',
       });
       handles.set(id, handle);
-      return handle;
+      return contextOf(handle);
     }),
-    fork: vi.fn(),
-    get: (context: AgentContext) => handles.get(context.agentId),
-    findAgentHandle: (agentId: string) => handles.get(agentId),
-    list: () => [...handles.values()],
+    fork: vi.fn(async (source: AgentContext) => source),
+    get: (agentId: string) => {
+      const handle = handles.get(agentId);
+      return handle === undefined ? undefined : contextOf(handle);
+    },
+    handleOf: (agentId: string) => handles.get(agentId),
+    list: () => [...handles.values()].map(contextOf),
+    resolve: () => { throw new Error('not used'); },
+    inspect: (agent: AgentContext) => ({
+      identity: { agentId: agent.agentId, generation: agent.generation },
+      contributions: [],
+    }),
+    adopt: contextOf,
+    attachRuntimes: () => {},
     remove: async (context: AgentContext) => {
       handles.delete(context.agentId);
     },
     broadcastPermissionMode: () => {},
   };
-  return lifecycle as IAgentLifecycleService;
+  return lifecycle;
 }
 
 function subagentStub(

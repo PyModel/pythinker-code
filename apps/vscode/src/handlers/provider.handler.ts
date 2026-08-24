@@ -49,8 +49,8 @@ function toConfiguredProvider(id: string, provider: any, config: any): Configure
     baseUrl: provider.baseUrl,
     host: hostOf(provider.baseUrl),
     // Never send the key itself to the Webview; only whether one is configured
-    // and where it comes from. A managed provider authenticates over OAuth and
-    // is required by the schema to carry no key at all, so it is not missing one.
+    // and where it comes from. An OAuth provider uses its token reference
+    // instead of a static API key.
     keySource:
       provider.oauth !== undefined
         ? "oauth"

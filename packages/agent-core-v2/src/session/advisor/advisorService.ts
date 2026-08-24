@@ -90,7 +90,7 @@ export class SessionAdvisorService extends Disposable implements ISessionAdvisor
     this._register(this.agents.onDidCreateScope(({ handle }) => {
       this.bindMain(handle);
     }));
-    this._register(this.agents.onDidDispose((agent) => {
+    this._register(this.agents.onDidClose((agent) => {
       if (agent.agentId === MAIN_AGENT_ID) this.disposeMainBindings();
     }));
     this._register(toDisposable(() => {
@@ -98,7 +98,7 @@ export class SessionAdvisorService extends Disposable implements ISessionAdvisor
       this.activeAbort?.abort();
       this.disposeMainBindings();
     }));
-    const main = this.agents.findAgentHandle(MAIN_AGENT_ID);
+    const main = this.agents.handleOf(MAIN_AGENT_ID);
     if (main !== undefined) this.bindMain(main);
   }
 

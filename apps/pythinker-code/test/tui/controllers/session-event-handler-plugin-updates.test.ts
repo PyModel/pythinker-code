@@ -4,7 +4,7 @@ import type { PluginUpdateNotifier } from '#/tui/controllers/plugin-update-notif
 import { SessionEventHandler } from '#/tui/controllers/session-event-handler';
 import { getBuiltInPalette } from '#/tui/theme';
 
-const DATASOURCE_TOOL = 'mcp__plugin-pythinker-datasource_data__call_data_source_tool';
+const DATASOURCE_TOOL = 'mcp__plugin-example-data_data__call_data_source_tool';
 
 function makeHost() {
   const streamingUI = {
@@ -48,9 +48,6 @@ function makeHost() {
     showNotice: vi.fn(),
     updateActivityPane: vi.fn(),
     track: vi.fn(),
-    recordSessionActivity: vi.fn(),
-    noteStepUsage: vi.fn(),
-    noteCompactionFinished: vi.fn(),
     mountEditorReplacement: vi.fn(),
     restoreEditor: vi.fn(),
     restoreInputText: vi.fn(),
@@ -113,7 +110,7 @@ function pluginCommandTurnStarted() {
     origin: {
       kind: 'plugin_command',
       activationId: 'a1',
-      pluginId: 'pythinker-datasource',
+      pluginId: 'example-data',
       commandName: 'setup',
       trigger: 'user-slash',
     },
@@ -175,7 +172,7 @@ describe('SessionEventHandler plugin update notices', () => {
     handler.handleEvent(pluginCommandTurnStarted(), sendQueued);
     handler.handleEvent(turnEnded('completed', 2), sendQueued);
     expect(notifier.handlePluginCommandCompleted).toHaveBeenCalledTimes(1);
-    expect(notifier.handlePluginCommandCompleted).toHaveBeenCalledWith('pythinker-datasource');
+    expect(notifier.handlePluginCommandCompleted).toHaveBeenCalledWith('example-data');
   });
 
   it('skips a cancelled plugin command turn', () => {

@@ -17,7 +17,6 @@ import {
 import type { PythinkerConfig, PythinkerHarness, Session } from '@pymodel/pythinker-code-sdk';
 
 import { AcpServer } from '../src/server';
-import { AUTHED_STATUS, UNAUTHED_STATUS } from './_helpers/harness-stubs';
 
 class StubClient implements Client {
   async requestPermission(_p: RequestPermissionRequest): Promise<RequestPermissionResponse> {
@@ -52,14 +51,6 @@ function startAcpServer(
   return new AgentSideConnection((c) => new AcpServer(harness, c), agentStream);
 }
 
-function makeHarnessWithToken(hasToken: boolean): PythinkerHarness {
-  return {
-    auth: {
-      status: async () => (hasToken ? AUTHED_STATUS : UNAUTHED_STATUS),
-    },
-  } as unknown as PythinkerHarness;
-}
-
 function configuredModelConfig(provider: PythinkerConfig['providers'][string]): PythinkerConfig {
   return {
     providers: { local: provider },
@@ -81,7 +72,7 @@ function makeHarnessWithConfig(config: PythinkerConfig, hasToken = false): {
   const createCalls: Array<{ id?: string; workDir: string }> = [];
   const harness = {
     auth: {
-      status: async () => (hasToken ? AUTHED_STATUS : UNAUTHED_STATUS),
+      getCachedAccessToken: async () => (hasToken ? 'test-token' : undefined),
     },
     getConfig: async () => config,
     createSession: async (options: { id?: string; workDir: string }) => {
@@ -99,7 +90,7 @@ function makeHarnessWithConfig(config: PythinkerConfig, hasToken = false): {
 
 describe('AcpServer auth gate', () => {
   it('rejects session/new with auth_required (-32000) when no token', async () => {
-    const harness = makeHarnessWithToken(false);
+    const harness = {} as PythinkerHarness;
     const { agentStream, clientStream } = makeInMemoryStreamPair();
 
     startAcpServer(harness, agentStream);
@@ -118,9 +109,6 @@ describe('AcpServer auth gate', () => {
   it('does not call createSession when the auth gate fails', async () => {
     let createCalled = false;
     const harness = {
-      auth: {
-        status: async () => UNAUTHED_STATUS,
-      },
       createSession: async (_opts: unknown) => {
         createCalled = true;
         return { id: 'should-not-be-reached' };
@@ -226,6 +214,25 @@ describe('AcpServer auth gate', () => {
     expect(createCalls).toHaveLength(0);
   });
 
+  it('accepts a configured OAuth provider with an explicit token', async () => {
+    const { harness, createCalls } = makeHarnessWithConfig(
+      configuredModelConfig({
+        type: 'pythinker',
+        oauth: { storage: 'file', key: 'example' },
+      }),
+      true,
+    );
+
+    const { agentStream, clientStream } = makeInMemoryStreamPair();
+    startAcpServer(harness, agentStream);
+    const client = new ClientSideConnection((_a) => new StubClient(), clientStream);
+
+    await expect(client.newSession({ cwd: '/tmp/oauth', mcpServers: [] })).resolves.toMatchObject({
+      sessionId: expect.any(String),
+    });
+    expect(createCalls).toHaveLength(1);
+  });
+
   it('rejects Vertex AI service-account config without a resolvable location', async () => {
     const { harness, createCalls } = makeHarnessWithConfig(
       configuredModelConfig({
@@ -245,11 +252,30 @@ describe('AcpServer auth gate', () => {
     expect(createCalls).toHaveLength(0);
   });
 
-  it('keeps the OAuth token short-circuit even when config loading fails', async () => {
+  it('rejects a multi-label lookalike Vertex AI hostname', async () => {
+    const { harness, createCalls } = makeHarnessWithConfig(
+      configuredModelConfig({
+        type: 'vertexai',
+        baseUrl: 'https://proxy.example-us-central1-aiplatform.googleapis.com',
+        env: { GOOGLE_CLOUD_PROJECT: 'project' },
+      }),
+    );
+
+    const { agentStream, clientStream } = makeInMemoryStreamPair();
+    startAcpServer(harness, agentStream);
+    const client = new ClientSideConnection((_a) => new StubClient(), clientStream);
+
+    await expect(client.newSession({ cwd: '/tmp/vertexai', mcpServers: [] })).rejects.toMatchObject({
+      code: -32000,
+    });
+    expect(createCalls).toHaveLength(0);
+  });
+
+  it('rejects when config loading fails even if an OAuth token exists', async () => {
     const createCalls: Array<{ id?: string; workDir: string }> = [];
     const harness = {
       auth: {
-        status: async () => AUTHED_STATUS,
+        getCachedAccessToken: async () => 'test-token',
       },
       getConfig: async () => {
         throw new Error('config unavailable');
@@ -269,61 +295,23 @@ describe('AcpServer auth gate', () => {
     startAcpServer(harness, agentStream);
     const client = new ClientSideConnection((_a) => new StubClient(), clientStream);
 
-    await expect(client.newSession({ cwd: '/tmp/token', mcpServers: [] })).resolves.toMatchObject({
-      sessionId: expect.any(String),
+    await expect(client.newSession({ cwd: '/tmp/token', mcpServers: [] })).rejects.toMatchObject({
+      code: -32000,
     });
-    expect(createCalls).toHaveLength(1);
+    expect(createCalls).toHaveLength(0);
   });
 });
 
 describe('AcpServer.authenticate', () => {
-  it('rejects unknown methodId with invalidParams (-32602)', async () => {
-    const harness = makeHarnessWithToken(true);
+  it.each(['unknown', 'login'])('rejects methodId %s with invalidParams (-32602)', async (methodId) => {
+    const harness = {} as PythinkerHarness;
     const { agentStream, clientStream } = makeInMemoryStreamPair();
 
     startAcpServer(harness, agentStream);
     const client = new ClientSideConnection((_a) => new StubClient(), clientStream);
 
-    await expect(client.authenticate({ methodId: 'unknown' })).rejects.toMatchObject({
+    await expect(client.authenticate({ methodId })).rejects.toMatchObject({
       code: -32602,
     });
-  });
-
-  it('returns void on valid token', async () => {
-    const harness = makeHarnessWithToken(true);
-    const { agentStream, clientStream } = makeInMemoryStreamPair();
-
-    startAcpServer(harness, agentStream);
-    const client = new ClientSideConnection((_a) => new StubClient(), clientStream);
-
-    const result = await client.authenticate({ methodId: 'login' });
-    // ACP allows `AuthenticateResponse | void`; either `null`/`undefined`
-    // or an empty body `{}` is considered a successful ack.
-    expect(result ?? {}).toEqual({});
-  });
-
-  it('throws authRequired (-32000) when harness has no token', async () => {
-    const harness = makeHarnessWithToken(false);
-    const { agentStream, clientStream } = makeInMemoryStreamPair();
-
-    startAcpServer(harness, agentStream);
-    const client = new ClientSideConnection((_a) => new StubClient(), clientStream);
-
-    await expect(client.authenticate({ methodId: 'login' })).rejects.toMatchObject({
-      code: -32000,
-    });
-  });
-
-  it('returns void when config credentials are already usable', async () => {
-    const { harness } = makeHarnessWithConfig(
-      configuredModelConfig({ type: 'pythinker', apiKey: 'sk-pythinker' }),
-    );
-    const { agentStream, clientStream } = makeInMemoryStreamPair();
-
-    startAcpServer(harness, agentStream);
-    const client = new ClientSideConnection((_a) => new StubClient(), clientStream);
-
-    const result = await client.authenticate({ methodId: 'login' });
-    expect(result ?? {}).toEqual({});
   });
 });

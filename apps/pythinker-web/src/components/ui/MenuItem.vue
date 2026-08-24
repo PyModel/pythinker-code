@@ -36,7 +36,7 @@ defineEmits<{ click: [event: MouseEvent] }>();
   width: 100%;
   padding: 6px 10px;
   border: none;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-menu-item);
   background: transparent;
   color: var(--color-text);
   font-family: var(--font-ui);

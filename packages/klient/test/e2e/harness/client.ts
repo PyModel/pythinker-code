@@ -101,10 +101,10 @@ const DEFAULT_CONTROL_ACK_TIMEOUT_MS = 5_000;
  * they need.
  *
  * `model` matches what the existing server-e2e scenarios assume (the
- * default provider exposes `pythinker-code/kimi-for-coding`).
+ * default provider exposes `example/test-model`).
  */
 export const DEFAULT_PROMPT_CONTROLS = {
-  model: 'pythinker-code/kimi-for-coding',
+  model: 'example/test-model',
   thinking: 'off' as PromptThinking,
   permission_mode: 'manual' as PromptPermissionMode,
   plan_mode: false,

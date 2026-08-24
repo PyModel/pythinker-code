@@ -12,6 +12,7 @@ import { ISessionDynamicWorkflowService, type SessionDynamicWorkflowTask } from 
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentDynamicWorkflowService } from '#/features/dynamic_workflow/agent/dynamic_workflow';
+import { resolveDynamicWorkflowTimeoutMs } from '#/features/dynamic_workflow/configSection';
 import { ISessionSubagentService } from '#/session/subagent/subagent';
 import {
   FORK_EXPERIMENTAL_UNAVAILABLE,
@@ -23,7 +24,6 @@ import { SUBAGENT_FORK_FLAG_ID } from '#/session/subagent/flag';
 import {
   buildSubagentModelDescriptions,
   exposesSubagentModelChoice,
-  resolveSubagentTimeoutMs,
   stripSubagentForkParameter,
   stripSubagentModelParameter,
 } from '#/session/subagent/configSection';
@@ -172,7 +172,7 @@ export class AgentDynamicWorkflowTool implements IAgentDynamicWorkflowTool {
       });
     }
     const profileName = plan?.profileName ?? DEFAULT_SUBAGENT_TYPE;
-    const timeoutMs = resolveSubagentTimeoutMs(this.config);
+    const timeoutMs = resolveDynamicWorkflowTimeoutMs(this.config);
     const specs = await createAgentDynamicWorkflowSpecs(args, (agentId) =>
       this.dynamicWorkflowService.getDynamicWorkflowItem({ callerAgentId: this.callerAgentId, agentId }),
     );

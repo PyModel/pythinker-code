@@ -239,7 +239,7 @@ describe('AcpServer session/new MCP forwarding', () => {
 
     let server: AcpServer | undefined;
     const _agentConn: AgentSideConnection = new AgentSideConnectionImpl((c) => {
-      server = new AcpServer(harness, c);
+      server = new AcpServer(harness, c, { disableAuth: true });
       return server;
     }, agentStream);
     const client: ClientSideConnection = new ClientSideConnectionImpl(

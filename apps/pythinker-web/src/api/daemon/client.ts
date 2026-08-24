@@ -42,7 +42,6 @@ import type {
   PythinkerEventConnection,
   PythinkerEventHandlers,
   PythinkerWebApi,
-  OAuthLoginStartResult,
   Page,
   PageRequest,
   PromptSubmission,
@@ -83,9 +82,6 @@ import type {
   WireGoalSnapshot,
   WireMessage,
   WireModel,
-  WireOAuthCancelResult,
-  WireOAuthLoginPollResult,
-  WireOAuthLoginStartResult,
   WirePage,
   WirePromptSubmitResult,
   WirePromptSteerResult,
@@ -100,7 +96,6 @@ import type {
   WireSessionRuntimeStatus,
   WireSessionSnapshot,
   WireWorkspace,
-  WireLogoutResult,
 } from './wire';
 import { DaemonEventSocket } from './ws';
 
@@ -1476,11 +1471,8 @@ export class DaemonPythinkerWebApi implements PythinkerWebApi {
   }
 
   /**
-   * S1: generate a session title via the daemon's managed chat_title tool —
-   * POST /api/v1/sessions/{id}/title/generate (v2 engine). Returns the
-   * generated title. Throws 40923 SESSION_TITLE_UNAVAILABLE when generation
-   * isn't possible (feature flag off, no managed login, no prompt yet, or a
-   * backend failure).
+   * Generate a session title through the v2 daemon. This build returns 40923
+   * SESSION_TITLE_UNAVAILABLE because it has no title-generation backend.
    */
   async generateSessionTitle(
     sessionId: string,
@@ -1562,11 +1554,6 @@ export class DaemonPythinkerWebApi implements PythinkerWebApi {
 
   async refreshAllProviders(): Promise<ProviderRefreshResult> {
     const data = await this.http.post<WireProviderRefreshResult>('/providers:refresh');
-    return toProviderRefreshResult(data);
-  }
-
-  async refreshOAuthProviderModels(): Promise<ProviderRefreshResult> {
-    const data = await this.http.post<WireProviderRefreshResult>('/providers:refresh_oauth');
     return toProviderRefreshResult(data);
   }
 
@@ -1658,64 +1645,13 @@ export class DaemonPythinkerWebApi implements PythinkerWebApi {
     ready: boolean;
     providersCount: number;
     defaultModel: string | null;
-    managedProvider: { status: string } | null;
   }> {
     const data = await this.http.get<WireAuthResult>('/auth');
     return {
       ready: data.ready,
       providersCount: data.providers_count,
       defaultModel: data.default_model,
-      managedProvider: data.managed_provider
-        ? { status: data.managed_provider.status }
-        : null,
     };
-  }
-
-  async startOAuthLogin(): Promise<OAuthLoginStartResult> {
-    const data = await this.http.post<WireOAuthLoginStartResult>('/oauth/login', {});
-    if (data.status === 'authenticated') {
-      return {
-        flowId: data.flow_id,
-        provider: data.provider,
-        status: 'authenticated',
-      };
-    }
-    return {
-      flowId: data.flow_id,
-      provider: data.provider,
-      status: 'pending',
-      verificationUri: data.verification_uri,
-      verificationUriComplete: data.verification_uri_complete,
-      userCode: data.user_code,
-      expiresIn: data.expires_in,
-      interval: data.interval,
-      expiresAt: data.expires_at,
-    };
-  }
-
-  async pollOAuthLogin(): Promise<{
-    flowId: string;
-    status: 'pending' | 'authenticated' | 'expired' | 'cancelled';
-    resolvedAt?: string;
-  } | null> {
-    // data may be null if no flow is active
-    const data = await this.http.get<WireOAuthLoginPollResult | null>('/oauth/login');
-    if (!data) return null;
-    return {
-      flowId: data.flow_id,
-      status: data.status,
-      resolvedAt: data.resolved_at,
-    };
-  }
-
-  async cancelOAuthLogin(): Promise<{ cancelled: boolean; status: string }> {
-    const data = await this.http.delete<WireOAuthCancelResult>('/oauth/login');
-    return { cancelled: data.cancelled, status: data.status };
-  }
-
-  async logout(): Promise<{ loggedOut: boolean }> {
-    const data = await this.http.post<WireLogoutResult>('/oauth/logout', {});
-    return { loggedOut: data.logged_out };
   }
 
   // -------------------------------------------------------------------------

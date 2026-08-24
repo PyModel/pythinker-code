@@ -64,7 +64,6 @@ describe('server-v2 GET /api/v1/auth', () => {
       ready: false,
       providers_count: 0,
       default_model: null,
-      managed_provider: null,
     });
   });
 
@@ -88,7 +87,6 @@ describe('server-v2 GET /api/v1/auth', () => {
       ready: true,
       providers_count: 1,
       default_model: 'x',
-      managed_provider: null,
     });
   });
 
@@ -110,7 +108,6 @@ describe('server-v2 GET /api/v1/auth', () => {
     expect(summary.ready).toBe(true);
     expect(summary.providers_count).toBe(1);
     expect(summary.default_model).toBe('x');
-    expect(summary.managed_provider).toBeNull();
   });
 
   it('adopts a model that can serve a turn, not merely the first one listed', async () => {
@@ -164,26 +161,5 @@ describe('server-v2 GET /api/v1/auth', () => {
     expect(summary.ready).toBe(false);
     expect(summary.providers_count).toBe(1);
     expect(summary.default_model).toBeNull();
-  });
-
-  it('surfaces managed_provider.unauthenticated without a cached token', async () => {
-    await boot(
-      [
-        '[providers."managed:pythinker-code"]',
-        'type = "pythinker"',
-        'base_url = "https://example.test/v1"',
-        '',
-        '[providers."managed:pythinker-code".oauth]',
-        'storage = "file"',
-        'key = "oauth/pythinker-code"',
-        '',
-      ].join('\n'),
-    );
-    const summary = await getAuth();
-    expect(summary.managed_provider).toEqual({
-      name: 'managed:pythinker-code',
-      status: 'unauthenticated',
-    });
-    expect(summary.ready).toBe(false);
   });
 });

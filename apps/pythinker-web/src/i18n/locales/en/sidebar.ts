@@ -25,6 +25,7 @@ export default {
   pinned: 'Pinned',
   collapsePinned: 'Collapse pinned',
   expandPinned: 'Expand pinned',
+  resizePinnedAria: 'Resize pinned sessions',
   setEmoji: 'Set Emoji…',
   sessionEmojiTitle: 'Pick an emoji',
   removeEmoji: 'Remove emoji',
@@ -80,5 +81,5 @@ export default {
   tabWorkspaces: 'Workspaces',
   dropToAddWorkspace: 'Drop to add workspace',
   genTitle: 'Gen Title',
-  genTitleUnavailable: 'Title generation unavailable — needs a managed Pythinker login and at least one message',
+  genTitleUnavailable: 'Title generation is unavailable in this build',
 } as const;

@@ -436,7 +436,6 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
       const result = await api.getAuth();
       rawState.authReady = result.ready;
       rawState.defaultModel = result.defaultModel;
-      rawState.managedProviderStatus = result.managedProvider?.status ?? null;
       connectIssue.value = null;
       return 'proceed';
     } catch (error) {
@@ -1691,25 +1690,36 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
     await submitPromptInternal(sid, text, attachments);
   }
 
-  /**
-   * steerPrompt() — TUI ctrl+s parity: merge any locally queued prompts with the
-   * live composer text and inject the result into the RUNNING turn instead of
-   * waiting for it to finish. Two-step against the daemon: submit (parks the
-   * prompt behind the active one) then POST /prompts:steer. Falls back to a
-   * normal send when the session is idle.
-   */
-  async function steerPrompt(text: string, attachments?: PromptAttachment[]): Promise<void> {
-    const sid = rawState.activeSessionId;
-    if (!sid) return;
+  const steerOperations = new Map<string, Promise<void>>();
 
-    // Merge queued texts (oldest first) + the live text, like the TUI does.
+  function serializeSteer(sid: string, operation: () => Promise<void>): Promise<void> {
+    const pending = (steerOperations.get(sid) ?? Promise.resolve())
+      .catch(() => undefined)
+      .then(operation);
+    steerOperations.set(sid, pending);
+    return pending.finally(() => {
+      if (steerOperations.get(sid) === pending) steerOperations.delete(sid);
+    });
+  }
+
+  function steerPrompt(text: string, attachments?: PromptAttachment[]): Promise<void> {
+    const sid = rawState.activeSessionId;
+    if (!sid) return Promise.resolve();
+    return serializeSteer(sid, () => steerPromptNow(sid, text, attachments));
+  }
+
+  async function steerPromptNow(
+    sid: string,
+    text: string,
+    attachments?: PromptAttachment[],
+  ): Promise<void> {
     const queue = rawState.queuedBySession[sid] ?? [];
     const parts: string[] = [];
     const mergedAttachments: PromptAttachment[] = [];
-    for (const q of queue) {
-      const trimmed = q.text.trim();
+    for (const item of queue) {
+      const trimmed = item.text.trim();
       if (trimmed) parts.push(trimmed);
-      if (q.attachments?.length) mergedAttachments.push(...q.attachments);
+      if (item.attachments?.length) mergedAttachments.push(...item.attachments);
     }
     const live = text.trim();
     if (live) parts.push(live);
@@ -1718,40 +1728,63 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
     if (queue.length > 0) {
       rawState.queuedBySession = { ...rawState.queuedBySession, [sid]: [] };
     }
-    const merged = parts.join('\n\n');
+    const outcome = await submitSteer(sid, parts.join('\n\n'), mergedAttachments);
+    if (outcome !== 'rejected' || queue.length === 0) return;
+    const current = rawState.queuedBySession[sid] ?? [];
+    rawState.queuedBySession = { ...rawState.queuedBySession, [sid]: [...queue, ...current] };
+  }
 
-    // Put back every entry that was merged into this steer when its submit
-    // fails, so the queued prompts aren't silently lost. Entries enqueued
-    // while the submit was in flight stay behind them.
-    const restoreQueue = (): void => {
-      if (queue.length === 0) return;
-      const current = rawState.queuedBySession[sid] ?? [];
-      rawState.queuedBySession = { ...rawState.queuedBySession, [sid]: [...queue, ...current] };
-    };
+  function steerQueued(index: number): Promise<void> {
+    const sid = rawState.activeSessionId;
+    if (!sid) return Promise.resolve();
+    const item = (rawState.queuedBySession[sid] ?? [])[index];
+    if (item === undefined) return Promise.resolve();
+    const key = item.id ?? item.text;
+    return serializeSteer(sid, () => steerQueuedNow(sid, key));
+  }
 
-    // Idle and nothing in flight — there is no turn to steer into; normal send.
+  async function steerQueuedNow(sid: string, key: string): Promise<void> {
+    const queue = rawState.queuedBySession[sid] ?? [];
+    const index = queue.findIndex((item) => (item.id ?? item.text) === key);
+    const item = index >= 0 ? queue[index] : undefined;
+    if (item === undefined) return;
+    const attachments = item.attachments ?? [];
+    if (item.text.trim().length === 0 && attachments.length === 0) return;
+    const next = [...queue];
+    next.splice(index, 1);
+    rawState.queuedBySession = { ...rawState.queuedBySession, [sid]: next };
+    const outcome = await submitSteer(sid, item.text, attachments);
+    if (outcome !== 'rejected' || !rawState.sessions.some((session) => session.id === sid)) return;
+    const current = [...(rawState.queuedBySession[sid] ?? [])];
+    current.splice(Math.min(index, current.length), 0, item);
+    rawState.queuedBySession = { ...rawState.queuedBySession, [sid]: current };
+  }
+
+  async function submitSteer(
+    sid: string,
+    text: string,
+    attachments: PromptAttachment[],
+  ): Promise<'ok' | 'rejected' | 'uncertain'> {
     if (activity.value === 'idle' && !rawState.inFlightBySession[sid]) {
-      const outcome = await submitPromptInternal(sid, merged, mergedAttachments);
-      // Same never-duplicate rule as the running-path catch below: restore
-      // the merged entries only on a definitive rejection.
-      if (outcome === 'rejected') restoreQueue();
-      return;
+      return submitPromptInternal(sid, text, attachments);
     }
 
-    // Optimistic transcript echo (the daemon emits no user-message WS event).
     const content: import('../../api/types').AppMessageContent[] = [];
-    if (merged) content.push({ type: 'text', text: merged });
-    for (const att of mergedAttachments) {
-      if (att.kind === 'video') content.push({ type: 'video', source: { kind: 'file', fileId: att.fileId } });
-      else if (att.kind === 'file') {
+    if (text) content.push({ type: 'text', text });
+    for (const attachment of attachments) {
+      if (attachment.kind === 'video') {
+        content.push({ type: 'video', source: { kind: 'file', fileId: attachment.fileId } });
+      } else if (attachment.kind === 'file') {
         content.push({
           type: 'file',
-          fileId: att.fileId,
-          name: att.name ?? '',
-          mediaType: att.mediaType || 'application/octet-stream',
-          size: att.size ?? 0,
+          fileId: attachment.fileId,
+          name: attachment.name ?? '',
+          mediaType: attachment.mediaType || 'application/octet-stream',
+          size: attachment.size ?? 0,
         });
-      } else content.push({ type: 'image', source: { kind: 'file', fileId: att.fileId } });
+      } else {
+        content.push({ type: 'image', source: { kind: 'file', fileId: attachment.fileId } });
+      }
     }
     const tempId = nextOptimisticMsgId();
     const optimisticMsg: AppMessage = {
@@ -1762,12 +1795,12 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
       createdAt: new Date().toISOString(),
       metadata: { 'pythinkerWeb.optimisticUserMessage': true },
     };
-    updateSessionMessages(sid, (msgs) => [...msgs, optimisticMsg]);
+    updateSessionMessages(sid, (messages) => [...messages, optimisticMsg]);
 
     const localTurnToken = beginLocalTurn(sid);
     try {
       const api = getPythinkerWebApi();
-      const promptSession = rawState.sessions.find((s) => s.id === sid);
+      const promptSession = rawState.sessions.find((session) => session.id === sid);
       const model =
         (promptSession?.model && promptSession.model.length > 0
           ? promptSession.model
@@ -1775,52 +1808,36 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
       const result = await api.submitPrompt(sid, {
         content,
         model,
-        // Resolved against this prompt's own session + model, same as a normal
-        // send (see submitPromptInternal).
         thinking: (await modelProvider.resolveThinkingForPrompt(sid, model)) ?? rawState.thinking,
         permissionMode: rawState.permission,
         planMode: rawState.planModeBySession[sid] ?? false,
         dynamicWorkflowMode: rawState.dynamicWorkflowModeBySession[sid] ?? false,
       });
-
-      // Stamp the real prompt_id onto the optimistic echo. Unlike a normal send,
-      // a steered prompt IS echoed back by the daemon as a messageCreated user
-      // event; matching that echo by prompt_id (instead of content) is what keeps
-      // an image steer from rendering two user bubbles.
-      updateSessionMessages(sid, (msgs) => {
-        const idx = msgs.findIndex((m) => m.id === tempId);
-        if (idx === -1) return msgs;
-        const updated = [...msgs];
-        updated[idx] = { ...updated[idx]!, promptId: updated[idx]!.promptId ?? result.promptId };
+      updateSessionMessages(sid, (messages) => {
+        const index = messages.findIndex((message) => message.id === tempId);
+        if (index === -1) return messages;
+        const updated = [...messages];
+        updated[index] = {
+          ...updated[index]!,
+          promptId: updated[index]!.promptId ?? result.promptId,
+        };
         return updated;
       });
-
       if (result.status !== 'queued') {
-        // The turn ended while the user was typing — the prompt started a turn
-        // of its own. Wire it up like a regular send so :abort keeps working.
         rawState.promptIdBySession = { ...rawState.promptIdBySession, [sid]: result.promptId };
         getEventConn()?.bindNextPromptId(sid, result.promptId);
-        return;
+        return 'ok';
       }
-
       try {
         await api.steerPrompts(sid, [result.promptId]);
       } catch {
-        // The active turn finished between submit and steer — the daemon starts
-        // the parked prompt as its own turn. Nothing to roll back.
+        return 'ok';
       }
+      return 'ok';
     } catch (error) {
-      // Submit failed: drop the optimistic echo so the transcript doesn't show
-      // a delivered-looking message the daemon never received.
-      updateSessionMessages(sid, (msgs) => msgs.filter((m) => m.id !== tempId));
-      // Restore the merged queue entries ONLY on a definitive daemon rejection
-      // (a structured API error means nothing was accepted). On an ambiguous
-      // failure — dropped response, network error — the merged prompt may
-      // already be queued server-side; re-queueing the originals would
-      // duplicate it (the exact ghost-send behavior this change exists to
-      // prevent). The failure toast below tells the user what happened.
-      if (isDaemonApiError(error)) restoreQueue();
+      updateSessionMessages(sid, (messages) => messages.filter((message) => message.id !== tempId));
       pushOperationFailure('steer', error, { sessionId: sid });
+      return isDaemonApiError(error) ? 'rejected' : 'uncertain';
     } finally {
       settleLocalTurn(sid, localTurnToken);
     }
@@ -2345,11 +2362,9 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
     }
   }
 
-  /** Ask the daemon to generate a session title (managed chat_title tool, v2
-   *  engine). Returns the generated title, or null when generation is
-   *  unavailable (flag off, no managed login, no prompt yet, backend failure) —
-   *  the caller surfaces the notice. The daemon persists the title itself and
-   *  emits the session-updated event, so no local rename is needed here. */
+  /** Ask the daemon to generate a session title. Returns the generated title,
+   *  or null when this build has no title-generation backend. The daemon owns
+   *  persistence and emits the session-updated event. */
   async function generateSessionTitle(id: string): Promise<string | null> {
     try {
       const api = getPythinkerWebApi();
@@ -2570,18 +2585,6 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
       beforeId: input?.beforeId,
       pageSize: input?.pageSize ?? 50,
     });
-  }
-
-  /** Logout from the managed Pythinker provider. Re-checks auth and reloads sessions. */
-  async function logout(): Promise<void> {
-    try {
-      const api = getPythinkerWebApi();
-      await api.logout();
-      await checkAuth();
-      await load();
-    } catch (error) {
-      pushOperationFailure('logout', error);
-    }
   }
 
   /**
@@ -2874,6 +2877,7 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
     handleSessionSnapshot,
     sendPrompt,
     steerPrompt,
+    steerQueued,
     uploadImage,
     enqueue,
     unqueue,
@@ -2903,7 +2907,6 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
     exportSession,
     restoreSession,
     loadArchivedSessions,
-    logout,
     compact,
     forkSession,
     undo,

@@ -10,6 +10,7 @@ import { useI18n } from 'vue-i18n';
 import type { SlashCommand } from '../../lib/slashCommands';
 import { computeSlashRanges, splitByRanges } from '../../lib/matchHighlight';
 import { useMenuScrollbar } from '../../composables/useMenuScrollbar';
+import { useOpenMenu } from '../ui/openMenus';
 
 /** Highlight ranges for one slash item, keyed by field. */
 export interface SlashItemRanges {
@@ -25,8 +26,9 @@ const props = withDefaults(
     query?: string;
     /** Per-item highlight ranges; falls back to computing from `query`. */
     ranges?: SlashItemRanges[];
+    layout?: 'popup' | 'sheet';
   }>(),
-  { query: '', ranges: () => [] },
+  { query: '', ranges: () => [], layout: 'popup' },
 );
 
 const emit = defineEmits<{
@@ -37,6 +39,7 @@ const emit = defineEmits<{
 const { t } = useI18n();
 
 const menuEl = ref<HTMLElement | null>(null);
+useOpenMenu(menuEl);
 const scrollEl = ref<HTMLElement | null>(null);
 const activeIndex = computed(() => props.activeIndex);
 const refreshKey = computed(() => props.items);
@@ -47,6 +50,7 @@ const { thumb, scrollStyle, thumbStyle, onScroll, onThumbPointerDown } = useMenu
   maxHeightVar: '--p-slash-menu-h',
   activeIndex,
   refreshKey,
+  fitToViewport: props.layout !== 'sheet',
 });
 
 /** Per-row render data: translated description + highlighted name/desc pieces. */
@@ -65,7 +69,7 @@ const rows = computed(() =>
 </script>
 
 <template>
-  <div ref="menuEl" class="slash-menu" data-menu-frame>
+  <div ref="menuEl" class="slash-menu" :class="{ 'is-sheet': props.layout === 'sheet' }" data-menu-frame>
     <!-- Empty state (no command matches the query) -->
     <div v-if="props.items.length === 0" class="slash-empty" role="status">
       {{ t('composer.noCommands') }}
@@ -125,6 +129,18 @@ const rows = computed(() =>
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-menu);
   z-index: var(--z-dropdown);
+}
+
+.slash-menu.is-sheet[data-menu-frame] {
+  position: static;
+  padding: 0;
+  background: transparent;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  z-index: auto;
 }
 
 .slash-scroll {

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import type { ManagedPythinkerConfigShape, ManagedPythinkerModelAlias } from '../src/managed-pythinker-code';
+import type { ModelAlias, PythinkerConfigShape } from '../src/provider-config';
 import {
   fetchModelsDevCatalog,
   MODELS_DEV_CATALOG_URL,
@@ -26,7 +26,7 @@ function makeProviderRecord() {
  * (ox-alpha has not been imported yet) plus one bare-keyed user alias that
  * refreshes must preserve.
  */
-function makeBaseConfig(): ManagedPythinkerConfigShape {
+function makeBaseConfig(): PythinkerConfigShape {
   const doc = makeDocument();
   const entry = doc[PROVIDER_ID] as Record<string, unknown>;
   const upstreamModels = entry['models'] as Record<string, unknown>;
@@ -94,10 +94,10 @@ function jsonResponse(body: unknown, status = 200): Response {
 interface HostCalls {
   requests: string[];
   removeProvider: string[];
-  setConfigPatches: ManagedPythinkerConfigShape[];
+  setConfigPatches: PythinkerConfigShape[];
 }
 
-function makeHost(initial: ManagedPythinkerConfigShape): {
+function makeHost(initial: PythinkerConfigShape): {
   host: RefreshProviderHost;
   calls: HostCalls;
 } {
@@ -109,7 +109,7 @@ function makeHost(initial: ManagedPythinkerConfigShape): {
       calls.removeProvider.push(providerId);
       delete current.providers[providerId];
       for (const [key, raw] of Object.entries(current.models ?? {})) {
-        if ((raw as ManagedPythinkerModelAlias).provider === providerId) delete current.models?.[key];
+        if ((raw as ModelAlias).provider === providerId) delete current.models?.[key];
       }
       return structuredClone(current);
     },
@@ -121,16 +121,15 @@ function makeHost(initial: ManagedPythinkerConfigShape): {
       if ('thinking' in patch) current.thinking = structuredClone(patch.thinking);
       return structuredClone(current);
     },
-    resolveOAuthToken: async () => 'token',
     userAgent: 'pythinker-code-cli/test',
   };
   return { host, calls };
 }
 
-function lastPatch(calls: HostCalls): ManagedPythinkerConfigShape {
+function lastPatch(calls: HostCalls): PythinkerConfigShape {
   const patch = calls.setConfigPatches.at(-1);
   expect(patch).toBeDefined();
-  return patch as ManagedPythinkerConfigShape;
+  return patch as PythinkerConfigShape;
 }
 
 afterEach(() => {
@@ -169,7 +168,7 @@ describe('refreshProviderModels modelsDev directory providers', () => {
     const patch = lastPatch(calls);
 
     expect(Object.keys(patch.models ?? {})).toContain(`${PROVIDER_ID}/ox-alpha-free`);
-    const added = patch.models?.[`${PROVIDER_ID}/ox-alpha-free`] as ManagedPythinkerModelAlias;
+    const added = patch.models?.[`${PROVIDER_ID}/ox-alpha-free`] as ModelAlias;
     expect(added.model).toBe('ox-alpha-free');
     expect(added.maxContextSize).toBe(262144);
     expect(added.maxOutputSize).toBe(65536);
@@ -178,7 +177,7 @@ describe('refreshProviderModels modelsDev directory providers', () => {
     expect(added.capabilities).toEqual(['image_in', 'video_in', 'always_thinking', 'tool_use']);
     expect(Object.keys(patch.models ?? {})).toContain(`${PROVIDER_ID}/deepseek-v4-flash`);
 
-    expect(patch.models?.['my-favorite'] as ManagedPythinkerModelAlias | undefined).toEqual(
+    expect(patch.models?.['my-favorite'] as ModelAlias | undefined).toEqual(
       base.models?.['my-favorite'],
     );
 
@@ -286,16 +285,6 @@ describe('refreshProviderModels modelsDev directory providers', () => {
       maxContextSize: 128000,
     });
     expect(patch.providers?.['other-go']).toEqual(base.providers['other-go']);
-  });
-
-  it('skips the directory entirely under the oauth scope', async () => {
-    const fetchMock = vi.fn();
-    vi.stubGlobal('fetch', fetchMock);
-    const { host, calls } = makeHost(makeBaseConfig());
-    const result = await refreshProviderModels(host, { scope: 'oauth' });
-    expect(result).toEqual({ changed: [], unchanged: [], failed: [] });
-    expect(fetchMock).not.toHaveBeenCalled();
-    expect(calls.setConfigPatches).toEqual([]);
   });
 
   it('reports upstream fetch failures per provider without touching config', async () => {

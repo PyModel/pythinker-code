@@ -63,26 +63,16 @@ function baseOptions(
 
 describe('CloudAppender', () => {
   let homeDir: string;
-  let savedOauthHost: string | undefined;
-  let savedLegacyOauthHost: string | undefined;
   let savedPythinkerHome: string | undefined;
 
   beforeEach(() => {
     homeDir = mkdtempSync(join(tmpdir(), 'cloud-appender-'));
-    savedOauthHost = process.env['PYTHINKER_CODE_OAUTH_HOST'];
-    savedLegacyOauthHost = process.env['PYTHINKER_OAUTH_HOST'];
     savedPythinkerHome = process.env['PYTHINKER_CODE_HOME'];
-    delete process.env['PYTHINKER_CODE_OAUTH_HOST'];
-    delete process.env['PYTHINKER_OAUTH_HOST'];
     process.env['PYTHINKER_CODE_HOME'] = homeDir;
   });
 
   afterEach(() => {
     rmSync(homeDir, { recursive: true, force: true });
-    if (savedOauthHost === undefined) delete process.env['PYTHINKER_CODE_OAUTH_HOST'];
-    else process.env['PYTHINKER_CODE_OAUTH_HOST'] = savedOauthHost;
-    if (savedLegacyOauthHost === undefined) delete process.env['PYTHINKER_OAUTH_HOST'];
-    else process.env['PYTHINKER_OAUTH_HOST'] = savedLegacyOauthHost;
     if (savedPythinkerHome === undefined) delete process.env['PYTHINKER_CODE_HOME'];
     else process.env['PYTHINKER_CODE_HOME'] = savedPythinkerHome;
   });
@@ -119,26 +109,6 @@ describe('CloudAppender', () => {
     expect(typeof event?.['context_core_version']).toBe('string');
     expect(typeof event?.['event_id']).toBe('string');
     expect(typeof event?.['timestamp']).toBe('number');
-  });
-
-  it('derives the global endpoint when the env pins the global region', async () => {
-    process.env['PYTHINKER_CODE_OAUTH_HOST'] = 'https://auth.kimi.ai';
-    const requests: CapturedRequest[] = [];
-    const appender = new CloudAppender(
-      baseOptions({
-        homeDir,
-        fetchImpl: makeFetch((req) => {
-          requests.push(req);
-          return okResponse();
-        }),
-      }),
-    );
-
-    appender.track('tool.call', { name: 'bash' });
-    await appender.flush();
-
-    expect(requests).toHaveLength(1);
-    expect(requests[0]?.url).toBe('https://telemetry-logs.pythinker.ai/v1/event');
   });
 
   it('reads the install marker from the bootstrapped home for the default endpoint', async () => {

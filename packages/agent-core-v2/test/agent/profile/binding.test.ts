@@ -18,6 +18,7 @@ import { registerAgentProfile } from '#/app/agentProfileCatalog/contribution';
 import type { ToolCall } from '#/kosong/contract/message';
 import { IAgentProfileService, type ResolvedAgentProfile } from '#/agent/profile/profile';
 import { IHostClock } from '#/os/interface/hostClock';
+import type { HostFsChange } from '#/os/interface/hostFsWatch';
 import { IAgentAgentsMdReminderService } from '#/agent/agentsMdReminder/agentsMdReminder';
 import { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
@@ -26,7 +27,7 @@ import { SELECT_TOOLS_TOOL_NAME } from '#/agent/toolSelect/toolSelect';
 import { IAtomicDocumentStore, type IAtomicDocumentStore as AtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
 import { ISessionInstructionsProvider } from '#/session/sessionInstructions/instructionsProvider';
-import { ISessionSkillCatalog } from '#/session/sessionSkillCatalog/skillCatalog';
+import { ISessionSkillCatalog } from '#/features/skill/session/skillCatalog';
 import { ISessionToolPolicy } from '#/session/sessionToolPolicy/sessionToolPolicy';
 import { ISessionToolPolicyGate } from '#/session/sessionToolPolicyGate/sessionToolPolicyGate';
 import { IWireService } from '#/wire/wire';
@@ -249,18 +250,19 @@ describe('AgentProfileService.bind', () => {
     );
   });
 
-  it('refreshes the system prompt from the session cwd after a default bind', async () => {
+  it('keeps the system prompt frozen after a default bind when AGENTS.md changes', async () => {
     const workDir = await mkdtemp(join(tmpdir(), 'pythinker-bind-work-'));
     try {
       await writeFile(join(workDir, 'AGENTS.md'), 'v1 instructions', 'utf-8');
       ctx = createTestAgent(hostEnvironmentServices(homeDir), { cwd: workDir });
       const svc = ctx.get(IAgentProfileService);
       await svc.bind({ profile: DEFAULT_AGENT_PROFILE_NAME, model: MOCK_MODEL });
+      const bound = svc.getSystemPrompt();
+      expect(bound).toContain('v1 instructions');
 
       await writeFile(join(workDir, 'AGENTS.md'), 'v2 instructions', 'utf-8');
-      await svc.refreshSystemPrompt();
 
-      expect(svc.getSystemPrompt()).toContain('v2 instructions');
+      expect(svc.getSystemPrompt()).toBe(bound);
     } finally {
       await rm(workDir, { recursive: true, force: true });
     }
@@ -268,7 +270,7 @@ describe('AgentProfileService.bind', () => {
 
   it('freezes the system prompt when the session instructions change', async () => {
     const persistence = new InMemoryWireRecordPersistence();
-    const emitter = new Emitter<void>();
+    const emitter = new Emitter<readonly HostFsChange[]>();
     let agentsMd = 'v1 instructions';
     ctx = createTestAgent(
       { persistence },
@@ -295,12 +297,10 @@ describe('AgentProfileService.bind', () => {
       );
     const configUpdateCount = configUpdates().length;
 
-    const refreshSpy = vi.spyOn(svc, 'refreshSystemPrompt');
     agentsMd = 'v2 instructions';
-    emitter.fire();
+    emitter.fire([{ path: '/repo/AGENTS.md', action: 'modified', kind: 'file' }]);
     await ctx.get(IWireService).flush();
 
-    expect(refreshSpy).not.toHaveBeenCalled();
     expect(svc.getSystemPrompt()).toBe(before);
     expect(configUpdates()).toHaveLength(configUpdateCount);
   });
@@ -345,7 +345,7 @@ describe('AgentProfileService.bind', () => {
             pythinker: { type: 'pythinker', apiKey: 'test-key', baseUrl: 'https://api.example.test/v1' },
           },
           models: {
-            'pythinker-code/kimi-for-coding': {
+            'example/test-model': {
               provider: 'pythinker',
               model: 'kimi-for-coding',
               maxContextSize: 1_000_000,
@@ -362,14 +362,14 @@ describe('AgentProfileService.bind', () => {
     await expect(
       svc.bind({
         profile: DEFAULT_AGENT_PROFILE_NAME,
-        model: 'pythinker-code/kimi-for-coding',
+        model: 'example/test-model',
         thinking: 'ultra',
         strictThinking: true,
       }),
     ).rejects.toThrow(/not supported by model/);
 
     expect(svc.data().profileName).toBeUndefined();
-    await svc.bind({ profile: DEFAULT_AGENT_PROFILE_NAME, model: 'pythinker-code/kimi-for-coding' });
+    await svc.bind({ profile: DEFAULT_AGENT_PROFILE_NAME, model: 'example/test-model' });
     expect(svc.data().profileName).toBe(DEFAULT_AGENT_PROFILE_NAME);
   });
 
@@ -381,7 +381,7 @@ describe('AgentProfileService.bind', () => {
             pythinker: { type: 'pythinker', apiKey: 'test-key', baseUrl: 'https://api.example.test/v1' },
           },
           models: {
-            'pythinker-code/kimi-for-coding': {
+            'example/test-model': {
               provider: 'pythinker',
               model: 'kimi-for-coding',
               maxContextSize: 1_000_000,
@@ -397,7 +397,7 @@ describe('AgentProfileService.bind', () => {
 
     await svc.bind({
       profile: DEFAULT_AGENT_PROFILE_NAME,
-      model: 'pythinker-code/kimi-for-coding',
+      model: 'example/test-model',
       thinking: 'ultra',
     });
 
@@ -748,7 +748,7 @@ describe('AgentToolPolicyService.setSessionDisabledTools', () => {
     expect(toolPolicy.isToolActive('Bash')).toBe(false);
   });
 
-  it('removes the skill listing when the session disables Skill', async () => {
+  it('keeps the skill listing frozen when the session disables Skill', async () => {
     const skillMarker = 'session-policy-skill-marker';
     ctx = createTestAgent(
       hostEnvironmentServices(homeDir),
@@ -764,12 +764,13 @@ describe('AgentToolPolicyService.setSessionDisabledTools', () => {
     );
     const { profile, toolPolicy } = profileServices(ctx);
     await profile.bind({ profile: DEFAULT_AGENT_PROFILE_NAME, model: MOCK_MODEL });
-    expect(profile.getSystemPrompt()).toContain(skillMarker);
+    const before = profile.getSystemPrompt();
+    expect(before).toContain(skillMarker);
 
     await toolPolicy.setSessionDisabledTools(['Skill']);
 
     expect(toolPolicy.isToolActive('Skill')).toBe(false);
-    expect(profile.getSystemPrompt()).not.toContain(skillMarker);
+    expect(profile.getSystemPrompt()).toBe(before);
   });
 
   it('omits the skill listing when global tools disable Skill', async () => {
@@ -794,7 +795,7 @@ describe('AgentToolPolicyService.setSessionDisabledTools', () => {
     expect(profile.getSystemPrompt()).not.toContain(skillMarker);
   });
 
-  it('refreshes the skill listing when global tool policy changes at runtime', async () => {
+  it('keeps the skill listing frozen when global tool policy changes at runtime', async () => {
     const skillMarker = 'live-global-policy-skill-marker';
     ctx = createTestAgent(
       hostEnvironmentServices(homeDir),
@@ -810,14 +811,15 @@ describe('AgentToolPolicyService.setSessionDisabledTools', () => {
     );
     const { profile, toolPolicy } = profileServices(ctx);
     await profile.bind({ profile: DEFAULT_AGENT_PROFILE_NAME, model: MOCK_MODEL });
-    expect(profile.getSystemPrompt()).toContain(skillMarker);
+    const before = profile.getSystemPrompt();
+    expect(before).toContain(skillMarker);
 
     await ctx
       .get(IConfigService)
       .replace(TOOLS_SECTION, { disabled: ['Skill'] }, ConfigTarget.Memory);
 
     expect(toolPolicy.isToolActive('Skill')).toBe(false);
-    await vi.waitFor(() => expect(profile.getSystemPrompt()).not.toContain(skillMarker));
+    expect(profile.getSystemPrompt()).toBe(before);
   });
 });
 

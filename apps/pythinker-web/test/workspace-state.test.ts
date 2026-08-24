@@ -23,6 +23,7 @@ const apiMock = vi.hoisted(() => ({
   exportSession: vi.fn(),
   updateSession: vi.fn(),
   submitPrompt: vi.fn(),
+  steerPrompts: vi.fn(),
   respondQuestion: vi.fn(),
   respondApproval: vi.fn(),
   dismissQuestion: vi.fn(),
@@ -93,7 +94,6 @@ function createState(): ExtendedState {
     unreadBySession: {},
     authReady: true,
     defaultModel: null,
-    managedProviderStatus: null,
     workspaces: [],
     activeWorkspaceId: null,
     sessionsHasMoreByWorkspace: {},
@@ -1269,7 +1269,7 @@ describe('useWorkspaceState — first-load auth gate', () => {
       apiMock.getAuth
         .mockRejectedValueOnce(new Error('connection refused'))
         .mockRejectedValueOnce(new Error('connection refused'))
-        .mockResolvedValue({ ready: true, defaultModel: 'pythinker-code', managedProvider: null });
+        .mockResolvedValue({ ready: true, defaultModel: 'pythinker-code' });
       const ws = useWorkspaceState(state, createLoadDeps(initialized, connectIssue));
 
       const pending = ws.load();
@@ -1302,7 +1302,7 @@ describe('useWorkspaceState — first-load auth gate', () => {
     const initialized = ref(false);
     const state = createState();
     state.authReady = false;
-    apiMock.getAuth.mockResolvedValue({ ready: false, defaultModel: null, managedProvider: null });
+    apiMock.getAuth.mockResolvedValue({ ready: false, defaultModel: null });
     const ws = useWorkspaceState(state, createLoadDeps(initialized, ref(null)));
 
     await ws.load();
@@ -1348,7 +1348,6 @@ describe('useWorkspaceState — session list loading', () => {
     apiMock.getAuth.mockReset().mockResolvedValue({
       ready: true,
       defaultModel: 'pythinker-code',
-      managedProvider: null,
     });
     apiMock.getHealth.mockReset().mockResolvedValue({ ok: true });
     apiMock.getMeta.mockReset().mockResolvedValue({
@@ -1672,6 +1671,8 @@ describe('useWorkspaceState — snapshot prompt recovery', () => {
   beforeEach(() => {
     apiMock.submitPrompt.mockReset();
     apiMock.submitPrompt.mockResolvedValue({ promptId: 'prompt_new' });
+    apiMock.steerPrompts.mockReset();
+    apiMock.steerPrompts.mockResolvedValue(undefined);
     // Module-level flush failure budget must not leak between tests.
     forgetLocalTurnState('sess_1');
   });
@@ -1856,6 +1857,57 @@ describe('useWorkspaceState — snapshot prompt recovery', () => {
     await ws.steerPrompt('live text');
 
     expect(state.queuedBySession.sess_1).toEqual([{ text: 'queued', attachments: undefined }]);
+  });
+
+  it('steers only the selected queued prompt and preserves the rest', async () => {
+    const state = createState();
+    state.inFlightBySession = { sess_1: true };
+    state.queuedBySession = {
+      sess_1: [
+        { text: 'first', attachments: [{ fileId: 'f_1', kind: 'image' }], id: 'q_1' },
+        { text: 'second', attachments: undefined, id: 'q_2' },
+      ],
+    };
+    apiMock.submitPrompt.mockResolvedValue({ promptId: 'prompt_steer', status: 'queued' });
+    const ws = useWorkspaceState(state, promptDeps());
+
+    await ws.steerQueued(0);
+
+    expect(apiMock.submitPrompt).toHaveBeenCalledWith(
+      'sess_1',
+      expect.objectContaining({
+        content: [
+          { type: 'text', text: 'first' },
+          { type: 'image', source: { kind: 'file', fileId: 'f_1' } },
+        ],
+      }),
+    );
+    expect(apiMock.steerPrompts).toHaveBeenCalledWith('sess_1', ['prompt_steer']);
+    expect(state.queuedBySession.sess_1).toEqual([
+      { text: 'second', attachments: undefined, id: 'q_2' },
+    ]);
+  });
+
+  it('restores a selected queued prompt at its prior position after a definitive rejection', async () => {
+    const state = createState();
+    state.inFlightBySession = { sess_1: true };
+    state.queuedBySession = {
+      sess_1: [
+        { text: 'first', attachments: undefined, id: 'q_1' },
+        { text: 'second', attachments: undefined, id: 'q_2' },
+      ],
+    };
+    apiMock.submitPrompt.mockRejectedValue(
+      new DaemonApiError({ code: 50000, msg: 'boom', requestId: 'r' }),
+    );
+    const ws = useWorkspaceState(state, promptDeps());
+
+    await ws.steerQueued(0);
+
+    expect(state.queuedBySession.sess_1).toEqual([
+      { text: 'first', attachments: undefined, id: 'q_1' },
+      { text: 'second', attachments: undefined, id: 'q_2' },
+    ]);
   });
 
   // A background session's drained prompt must not inherit the thinking level

@@ -26,10 +26,11 @@ Active `/model` provider and `AskUserQuestion` tabs use `selectionBg` for the ba
 | `success` | `#4EC87E` | `#0E7A38` | Success: ✓ marks, "enabled", completed states. |
 | `warning` | `#E8A838` | `#92660A` | Warning: auto/yolo badges, stale markers, plan-mode hint. |
 | `error` | `#E85454` | `#B91C1C` | Error: error messages, failed tool output. |
-| `effortLow` | `#8A8A8A` | `#8A8A8A` | Low thinking effort; colors the editor effort dot. |
-| `effortMedium` | `#6FA8DC` | `#2E6FB8` | Medium thinking effort; colors the editor effort dot. |
-| `effortHigh` | `#D33682` | `#A81D6E` | High thinking effort; colors the editor effort dot. |
-| `effortXHigh` | `#C0392B` | `#8B1A1A` | Extra-high thinking effort; colors the editor effort dot. |
+| `effortOff` | `#8A8A8A` | `#767676` | Off thinking effort; colors the prompt-area border. |
+| `effortLow` | `#B3B3B3` | `#8C8C8C` | Low thinking effort; colors the prompt-area border. |
+| `effortMedium` | `#E8E8E8` | `#404040` | Medium thinking effort; colors the prompt-area border. |
+| `effortHigh` | `#6FA8DC` | `#2E6FB8` | High thinking effort; colors the prompt-area border. |
+| `effortXHigh` | `#A78BFA` | `#7048B6` | Extra-high thinking effort; colors the prompt-area border. |
 | `effortMax` | `#F2C744` | `#B8860B` | Maximum thinking effort; colors the editor effort dot. |
 | `diffAdded` | `#4EC87E` | `#0E7A38` | Added lines. |
 | `diffRemoved` | `#E85454` | `#B91C1C` | Removed lines. |
@@ -40,6 +41,7 @@ Active `/model` provider and `AskUserQuestion` tabs use `selectionBg` for the ba
 | `diffAddedDimmed` | `#57966F` | `#316A48` | De-emphasized added diff context. |
 | `diffRemovedDimmed` | `#B55E68` | `#8D4852` | De-emphasized removed diff context. |
 | `roleUser` | `#FFCB6B` | `#9A4A00` | User-accent hue for skill-activation names and user-specific accents. Assistant/thinking/status bullets reuse text/textDim. |
+| `shellMode` | `#BD93F9` | `#7C3AED` | Shell mode (`!`) prompt, editor border, and echoed command line. |
 | `workflowTitle` | `#EE9983` | `#9C261C` | Coral title used by the Dynamic Workflow mission-control frame. |
 | `agentRed` | `#E2697D` | `#9D2539` | Red identity used by the first agent in Dynamic Workflow progress and grouped output. |
 | `agentOrange` | `#E2B069` | `#9D6B25` | Orange identity used by the second agent in Dynamic Workflow progress and grouped output. |

@@ -238,13 +238,6 @@ function makeHarness(initialSession: Session) {
     withInteractiveAgent: vi.fn((agentId: string, fn: () => unknown) => {
       return interactiveAgentScope.run(agentId, fn);
     }),
-    auth: {
-      status: vi.fn(),
-      login: vi.fn(),
-      logout: vi.fn(),
-      getManagedUsage: vi.fn(),
-      submitFeedback: vi.fn(async () => ({ kind: 'ok', feedbackId: 3 })),
-    },
   };
 }
 
@@ -1490,7 +1483,7 @@ describe('replayBackgroundProjection', () => {
       [agentTask({ model: 'k2-cheap', thinkingEffort: 'low' })],
       {
         'k2-cheap': {
-          provider: 'managed:pythinker-code',
+          provider: 'oauth-example',
           model: 'kimi-k2-cheap',
           displayName: 'Kimi K2 Cheap',
         },

@@ -282,7 +282,7 @@ export async function handleSecondaryModelCommand(host: SlashCommandHost, args: 
   if (Object.keys(models).length === 0) {
     host.showNotice(
       'No models configured',
-      'Run /login to sign in to Pythinker, or /provider to add another provider from a model catalog.',
+      'Run /login or /provider to configure a model.',
     );
     return;
   }
@@ -380,7 +380,7 @@ function showEditorPicker(host: SlashCommandHost): void {
 async function refreshModelsForPicker(host: SlashCommandHost): Promise<void> {
   try {
     const result = await withTimeout(
-      host.authFlow.refreshOAuthProviderModels(),
+      host.authFlow.refreshProviderModels(),
       MODEL_PICKER_REFRESH_TIMEOUT_MS,
     );
     if (result === undefined) return;
@@ -457,7 +457,7 @@ export function showModelPicker(host: SlashCommandHost, selectedValue: string = 
   if (entries.length === 0) {
     host.showNotice(
       'No models configured',
-      'Run /login to sign in to Pythinker, or /provider to add another provider from a model catalog.',
+      'Run /login or /provider to configure a model.',
     );
     return;
   }

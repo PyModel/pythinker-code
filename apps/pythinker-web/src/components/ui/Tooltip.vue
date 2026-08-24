@@ -9,7 +9,9 @@
      line; long text wraps within `maxWidth` and is clamped to `maxLines` lines with
      an ellipsis so the bubble never grows too tall. -->
 <script setup lang="ts">
-import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
+import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+
+import { hasOpenMenu, isInsideOpenMenu } from './openMenus';
 
 type Placement = 'top' | 'bottom' | 'left' | 'right';
 
@@ -84,7 +86,7 @@ function position(): void {
 }
 
 function show(): void {
-  if (!props.text) return;
+  if (!props.text || (hasOpenMenu.value && !isInsideOpenMenu(target))) return;
   window.clearTimeout(showTimer);
   showTimer = window.setTimeout(() => {
     open.value = true;
@@ -95,6 +97,10 @@ function show(): void {
     });
   }, SHOW_DELAY);
 }
+
+watch(hasOpenMenu, (openMenu) => {
+  if (openMenu && !isInsideOpenMenu(target)) hide();
+});
 
 function hide(): void {
   window.clearTimeout(showTimer);
@@ -158,8 +164,8 @@ onBeforeUnmount(() => {
   </span>
   <Teleport to="body">
     <div
+      v-if="open"
       ref="bubble"
-      v-show="open"
       class="ui-tip__bubble"
       :class="{ positioned }"
       :style="[bubbleStyle, { '--tip-lines': maxLines }]"

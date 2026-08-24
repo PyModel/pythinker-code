@@ -23,7 +23,7 @@ describe('server-v2 OpenAPI', () => {
     }
   });
 
-  async function fetchOpenApi(): Promise<Record<string, unknown>> {
+  async function fetchOpenApi(mcpManagement = false): Promise<Record<string, unknown>> {
     home = await mkdtemp(join(tmpdir(), 'pythinker-server-v2-openapi-'));
     server = await startServer({
       hostIdentity: TEST_HOST_IDENTITY,
@@ -31,6 +31,9 @@ describe('server-v2 OpenAPI', () => {
       port: 0,
       homeDir: home,
       logLevel: 'silent',
+      env: {
+        PYTHINKER_CODE_EXPERIMENTAL_MCP_MANAGEMENT: mcpManagement ? '1' : '0',
+      },
     });
     const res = await fetch(`http://127.0.0.1:${server.port}/openapi.json`, {
       headers: authHeaders(server),
@@ -115,6 +118,33 @@ describe('server-v2 OpenAPI', () => {
     const json = asRecord(content['application/json']);
     const schema = asRecord(json['schema']);
     expect(Array.isArray(schema['oneOf'])).toBe(true);
+  });
+
+  it('documents MCP OAuth failures for auth completion', async () => {
+    const doc = await fetchOpenApi(true);
+    const authCompleteOp = operation(doc, '/api/v2/mcp/auth:complete', 'post');
+    const responses = asRecord(authCompleteOp['responses']);
+    const response = asRecord(responses['200']);
+    const content = asRecord(response['content']);
+    const schema = asRecord(asRecord(content['application/json'])['schema']);
+    const variants = schema['oneOf'];
+
+    expect(Array.isArray(variants)).toBe(true);
+    expect(
+      (variants as unknown[]).some((variant) => {
+        const properties = asRecord(asRecord(variant)['properties']);
+        const values = asRecord(properties['code'])['enum'];
+        return Array.isArray(values) && values.includes(40929);
+      }),
+    ).toBe(true);
+  });
+
+  it('omits MCP management paths while the flag is disabled', async () => {
+    const doc = await fetchOpenApi();
+    const paths = asRecord(doc['paths']);
+
+    expect(paths['/api/v2/mcp/servers']).toBeUndefined();
+    expect(paths['/api/v2/mcp/auth:complete']).toBeUndefined();
   });
 });
 

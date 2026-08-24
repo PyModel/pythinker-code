@@ -335,15 +335,15 @@ describe('IModelsDevImportService', () => {
     expect(providers['openai']?.apiKey).toBe('sk-new');
   });
 
-  it('rejects importing over an OAuth-managed provider', async () => {
+  it('replaces an existing provider credential during an explicit import', async () => {
     setModelsDevUpstreamForTest({ fetchImpl: fetchJson(CATALOG) });
-    const { imports } = createHost({
+    const { config, imports } = createHost({
       providers: { openai: { type: 'openai', oauth: { storage: 'file', key: 'oauth/openai' } } },
     });
-    await expectError2(
-      imports.importModelsDevProvider({ catalogId: 'openai' }),
-      codes.PROVIDER_OAUTH_MANAGED,
-    );
+    await imports.importModelsDevProvider({ catalogId: 'openai', apiKey: 'sk-new' });
+    const providers = config.inspect<ProvidersSection>(PROVIDERS_SECTION).userValue ?? {};
+    expect(providers['openai']).toMatchObject({ type: 'openai', apiKey: 'sk-new' });
+    expect(providers['openai']?.oauth).toBeUndefined();
   });
 
   it('rejects non-importable entries and needs-base-url entries without a base_url', async () => {
@@ -442,15 +442,14 @@ describe('IModelsDevImportService', () => {
     expect(models['acme-gpt/gpt-x']).toMatchObject({ provider: 'acme-gpt', model: 'gpt-x' });
   });
 
-  it('rejects a registry import that would rewrite an OAuth-managed provider', async () => {
+  it('replaces an existing provider credential during an explicit registry import', async () => {
     setModelsDevUpstreamForTest({ fetchImpl: fetchJson(REGISTRY_DOC) });
-    const { imports } = createHost({
+    const { config, imports } = createHost({
       providers: { 'acme-gpt': { type: 'openai', oauth: { storage: 'file', key: 'oauth/x' } } },
     });
-    await expectError2(
-      imports.importCustomRegistry({ url: REGISTRY_URL }),
-      codes.PROVIDER_OAUTH_MANAGED,
-    );
+    await imports.importCustomRegistry({ url: REGISTRY_URL });
+    const providers = config.inspect<ProvidersSection>(PROVIDERS_SECTION).userValue ?? {};
+    expect(providers['acme-gpt']?.oauth).toBeUndefined();
   });
 
   it('maps an unreachable registry to provider.registry_import_invalid', async () => {

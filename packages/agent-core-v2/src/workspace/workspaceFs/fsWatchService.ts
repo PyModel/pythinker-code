@@ -81,6 +81,10 @@ export class WorkspaceFsWatchService extends Disposable implements IWorkspaceFsW
     this.syncHandle();
   }
 
+  watchHandleReady(): Promise<void> {
+    return this.handle?.ready ?? Promise.resolve();
+  }
+
   private ensureHandle(): void {
     if (this.handle !== undefined) return;
     this.loadGitignore();
@@ -200,6 +204,10 @@ class WorkspaceFsWatchSubscription implements IWorkspaceFsWatchSubscription {
     return Array.from(this.watched);
   }
 
+  get ready(): Promise<void> {
+    return this.owner.watchHandleReady();
+  }
+
   hasPaths(): boolean {
     return !this.disposed && this.watched.size > 0;
   }
@@ -273,4 +281,3 @@ function isUnderAny(rel: string, parents: ReadonlySet<string>): boolean {
   }
   return false;
 }
-

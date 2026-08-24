@@ -1,9 +1,6 @@
 import { randomBytes } from 'node:crypto';
-
-import {
-  pythinkerRegionProfile,
-  resolvePythinkerRegion,
-} from '@pymodel/pythinker-code-oauth';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 import { isAbortError } from '#/_base/utils/abort';
 import type { IFileSystemStorageService } from '#/persistence/interface/storage';
@@ -57,6 +54,7 @@ export const DISK_EVENT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 export const RETRY_BACKOFFS_MS = [1_000, 4_000, 16_000] as const;
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 10_000;
+const GLOBAL_TELEMETRY_ENDPOINT = 'https://telemetry-logs.pythinker.ai/v1/event';
 const TELEMETRY_SCOPE = 'telemetry';
 const FAILED_PREFIX = 'failed_';
 const JSONL_SUFFIX = '.jsonl';
@@ -65,9 +63,14 @@ const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 
 function defaultTelemetryEndpoint(homeDir?: string, readMarker = true): string {
-  return pythinkerRegionProfile(
-    resolvePythinkerRegion({ readMarker, homeDir }),
-  ).telemetryEndpoint;
+  if (!readMarker || homeDir === undefined) return TELEMETRY_ENDPOINT;
+  try {
+    return readFileSync(join(homeDir, 'region'), 'utf8').trim() === 'global'
+      ? GLOBAL_TELEMETRY_ENDPOINT
+      : TELEMETRY_ENDPOINT;
+  } catch {
+    return TELEMETRY_ENDPOINT;
+  }
 }
 
 export class CloudTransport {
@@ -84,12 +87,7 @@ export class CloudTransport {
   constructor(options: CloudTransportOptions) {
     this.storage = options.storage;
     this.deviceId = options.deviceId;
-    this.endpoint =
-      options.endpoint ??
-      defaultTelemetryEndpoint(
-        options.homeDir,
-        options.readMarker ?? process.env['PYTHINKER_CODE_REGION_MARKER'] !== 'off',
-      );
+    this.endpoint = options.endpoint ?? defaultTelemetryEndpoint(options.homeDir, options.readMarker);
     this.getAccessToken = options.getAccessToken ?? null;
     this.fetchImpl = options.fetchImpl ?? globalThis.fetch.bind(globalThis);
     this.retryBackoffsMs = options.retryBackoffsMs ?? RETRY_BACKOFFS_MS;

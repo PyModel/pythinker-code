@@ -31,7 +31,7 @@ function make(): {
   const onSelect = vi.fn();
   const component = new TabbedModelSelectorComponent({
     models: {
-      k2: model('Kimi K2', 'managed:pythinker-code'),
+      k2: model('Kimi K2', 'oauth-example'),
       gpt: model('GPT-5', 'openai'),
     },
     currentValue: 'k2',
@@ -59,12 +59,12 @@ describe('TabbedModelSelectorComponent', () => {
   it('renders an "All" + per-provider tab strip', () => {
     const out = strip(make().component.render(120).join('\n'));
     expect(out).toContain('All');
-    expect(out).toContain('Pythinker Code');
+    expect(out).toContain('oauth-example');
     expect(out).toContain('openai');
   });
 
   it('highlights the active tab with a filled background (AskUserQuestion style)', () => {
-    // currentValue k2 → the active tab is "Pythinker Code"; its cell carries the
+    // currentValue k2 → the active tab is "oauth-example"; its cell carries the
     // primary background SGR.
     const raw = make().component.render(120).join('\n');
     expect(raw).toContain(PRIMARY_BG);
@@ -136,7 +136,7 @@ describe('TabbedModelSelectorComponent', () => {
     expect(strip(make().component.render(120).join('\n'))).toContain('Select a model');
 
     const titled = new TabbedModelSelectorComponent({
-      models: { k2: model('Kimi K2', 'managed:pythinker-code') },
+      models: { k2: model('Kimi K2', 'oauth-example') },
       currentValue: 'k2',
       currentThinkingEffort: 'off',
       title: ' Choose a model for this task',
@@ -151,7 +151,7 @@ describe('TabbedModelSelectorComponent', () => {
   it('keeps the tab strip between hint and list when a warning line is present', () => {
     const component = new TabbedModelSelectorComponent({
       models: {
-        k2: model('Kimi K2', 'managed:pythinker-code'),
+        k2: model('Kimi K2', 'oauth-example'),
         gpt: model('GPT-5', 'openai'),
       },
       currentValue: 'k2',

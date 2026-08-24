@@ -9,11 +9,9 @@ import { z } from 'zod';
 import type { ServiceContract } from '../types.js';
 
 export const refreshProviderModelsOptionsSchema = z.object({
-  scope: z.enum(['all', 'oauth']).optional(),
   providerId: z.string().optional(),
 });
 
-/** Same shape as `refreshOAuthProviderModelsResponseSchema` in `./auth.js` — keep in sync. */
 export const refreshProviderModelsResponseSchema = z.object({
   changed: z.array(
     z.object({

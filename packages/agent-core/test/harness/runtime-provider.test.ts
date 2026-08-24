@@ -31,17 +31,17 @@ function resolveRuntimeProvider(input: {
 }
 
 const BASE_CONFIG: PythinkerConfig = {
-  defaultModel: 'pythinker-code/kimi-for-coding',
+  defaultModel: 'example/test-model',
   providers: {
-    'managed:pythinker-code': {
+    'oauth-example': {
       type: 'pythinker',
       apiKey: 'test-key',
       baseUrl: 'https://api.example/v1',
     },
   },
   models: {
-    'pythinker-code/kimi-for-coding': {
-      provider: 'managed:pythinker-code',
+    'example/test-model': {
+      provider: 'oauth-example',
       model: 'kimi-for-coding',
       maxContextSize: 1_000_000,
       capabilities: ['thinking', 'image_in', 'video_in', 'tool_use'],
@@ -114,7 +114,7 @@ describe('resolveRuntimeProvider model metadata', () => {
       config: {
         ...BASE_CONFIG,
         providers: {
-          'managed:pythinker-code': {
+          'oauth-example': {
             type: 'pythinker',
             apiKey: '',
             baseUrl: 'https://api.example/v1',
@@ -138,8 +138,8 @@ describe('resolveRuntimeProvider model metadata', () => {
       config: {
         ...BASE_CONFIG,
         models: {
-          'pythinker-code/kimi-for-coding': {
-            provider: 'managed:pythinker-code',
+          'example/test-model': {
+            provider: 'oauth-example',
             model: 'kimi-for-coding',
             maxContextSize: 1_000_000,
           },
@@ -211,7 +211,7 @@ describe('resolveRuntimeProvider model metadata', () => {
       ...BASE_CONFIG,
       models: {
         broken: {
-          provider: 'managed:pythinker-code',
+          provider: 'oauth-example',
           model: 'kimi-for-coding',
           capabilities: ['thinking'],
         },
@@ -657,7 +657,7 @@ describe('resolveRuntimeProvider Pythinker request headers', () => {
       config: {
         ...BASE_CONFIG,
         providers: {
-          'managed:pythinker-code': {
+          'oauth-example': {
             type: 'pythinker',
             apiKey: 'test-key',
             baseUrl: 'https://api.example/v1',
@@ -708,7 +708,7 @@ describe('resolveRuntimeProvider Pythinker request headers', () => {
       config: {
         ...BASE_CONFIG,
         providers: {
-          'managed:pythinker-code': {
+          'oauth-example': {
             type: 'pythinker',
             apiKey: 'test-key',
             baseUrl: 'https://api.example/v1',
@@ -924,7 +924,7 @@ describe('ProviderManager prompt cache key', () => {
       config: BASE_CONFIG,
       promptCacheKey: 'session-test',
     });
-    const resolved = manager.resolveProviderConfig('pythinker-code/kimi-for-coding');
+    const resolved = manager.resolveProviderConfig('example/test-model');
 
     expect(resolved.provider).toMatchObject({
       type: 'pythinker',
@@ -978,7 +978,7 @@ describe('ProviderManager prompt cache key', () => {
 
     sharedConfig = BASE_CONFIG;
 
-    const resolved = manager.resolveProviderConfig('pythinker-code/kimi-for-coding');
+    const resolved = manager.resolveProviderConfig('example/test-model');
     expect(resolved.provider).toMatchObject({
       type: 'pythinker',
       generationKwargs: {
@@ -993,7 +993,7 @@ describe('ProviderManager OAuth auth', () => {
     return {
       ...BASE_CONFIG,
       providers: {
-        'managed:pythinker-code': {
+        'oauth-example': {
           type: 'pythinker',
           apiKey: '',
           baseUrl: 'https://api.example/v1',
@@ -1014,7 +1014,7 @@ describe('ProviderManager OAuth auth', () => {
       }),
     });
 
-    const resolveAuth = manager.resolveAuth('pythinker-code/kimi-for-coding');
+    const resolveAuth = manager.resolveAuth('example/test-model');
     expect(resolveAuth).toBeDefined();
 
     await expect(resolveAuth!(async () => 'ok')).rejects.toBe(tokenError);
@@ -1030,7 +1030,7 @@ describe('ProviderManager OAuth auth', () => {
       }),
     });
 
-    const resolveAuth = manager.resolveAuth('pythinker-code/kimi-for-coding');
+    const resolveAuth = manager.resolveAuth('example/test-model');
     expect(resolveAuth).toBeDefined();
 
     await expect(resolveAuth!(async () => 'ok')).rejects.toMatchObject({
@@ -1204,6 +1204,28 @@ describe('google base URL forwarding', () => {
     });
   });
 
+  it('does not derive a Vertex location from a multi-label lookalike host', () => {
+    const resolved = resolveRuntimeProvider({
+      config: {
+        defaultModel: 'gemini',
+        providers: {
+          vertex: {
+            type: 'vertexai',
+            apiKey: 'v-key',
+            baseUrl: 'https://proxy.example-us-central1-aiplatform.googleapis.com',
+          },
+        },
+        models: {
+          gemini: { provider: 'vertex', model: 'gemini-1.5-pro', maxContextSize: 1_000_000 },
+        },
+      },
+    });
+
+    expect(resolved.provider.type).toBe('vertexai');
+    if (resolved.provider.type !== 'vertexai') throw new Error('expected Vertex provider');
+    expect(resolved.provider.location).toBeUndefined();
+  });
+
   it('derives vertex location from the GOOGLE_VERTEX_BASE_URL env fallback so ADC mode is selected', () => {
     // The env fallback must behave exactly like config `base_url`: when the
     // regional endpoint is supplied via GOOGLE_VERTEX_BASE_URL (with a project
@@ -1244,15 +1266,15 @@ describe('per-model protocol routing', () => {
       config: {
         ...BASE_CONFIG,
         models: {
-          'pythinker-code/kimi-for-coding': {
-            ...BASE_CONFIG.models!['pythinker-code/kimi-for-coding']!,
+          'example/test-model': {
+            ...BASE_CONFIG.models!['example/test-model']!,
             protocol: 'anthropic',
           },
         },
       },
     });
 
-    expect(resolved.providerName).toBe('managed:pythinker-code');
+    expect(resolved.providerName).toBe('oauth-example');
     expect(resolved.provider).toMatchObject({
       type: 'anthropic',
       model: 'kimi-for-coding',
@@ -1314,8 +1336,8 @@ describe('resolveRuntimeProvider model overrides', () => {
       config: {
         ...BASE_CONFIG,
         models: {
-          'pythinker-code/kimi-for-coding': {
-            ...BASE_CONFIG.models!['pythinker-code/kimi-for-coding']!,
+          'example/test-model': {
+            ...BASE_CONFIG.models!['example/test-model']!,
             supportEfforts: ['low', 'high', 'max'],
             overrides: { supportEfforts: ['low', 'high'] },
           },

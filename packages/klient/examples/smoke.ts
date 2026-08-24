@@ -104,8 +104,8 @@ async function main(): Promise<void> {
 
     assert(Array.isArray(await klient.global.flags.list()), 'flags.list returns an array');
     assert(Array.isArray(await klient.global.plugins.list()), 'plugins.list returns an array');
-    const auth = await klient.global.auth.status();
-    assert(typeof auth.loggedIn === 'boolean', 'auth.status returns a status');
+    const auth = await klient.global.auth.summarize();
+    assert(Array.isArray(auth), 'auth.summarize returns an array');
     console.log('[ok] flags / plugins / auth');
 
     let rpcError: { name: string; code?: number } | undefined;

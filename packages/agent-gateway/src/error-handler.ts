@@ -1,6 +1,10 @@
 import { ErrorCodes, isError2 } from '@pymodel/agent-core-v2';
 
 import { errEnvelope } from './envelope';
+import {
+  AUTH_RATE_LIMIT_CODE,
+  AUTH_RATE_LIMIT_ERROR_NAME,
+} from './middleware/rateLimit';
 import { ErrorCode } from './protocol/error-codes';
 import type { FastifyError } from 'fastify';
 
@@ -21,6 +25,12 @@ export function installErrorHandler(app: ErrorHandlerHost): void {
       reply
         .status(200)
         .send(errEnvelope(ErrorCode.VALIDATION_FAILED, err.message, requestId, err.stack));
+      return;
+    }
+    if (err.code === AUTH_RATE_LIMIT_ERROR_NAME) {
+      reply
+        .status(err.statusCode === 403 ? 403 : 429)
+        .send(errEnvelope(AUTH_RATE_LIMIT_CODE, err.message, requestId));
       return;
     }
     req.log.error({ err, request_id: requestId }, 'unhandled error');

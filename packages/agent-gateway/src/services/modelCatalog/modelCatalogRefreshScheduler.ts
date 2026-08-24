@@ -54,7 +54,7 @@ export class ModelCatalogRefreshScheduler {
 
   private async refresh(trigger: 'startup' | 'interval'): Promise<void> {
     try {
-      const result = await this.discovery.refreshProviderModels({ scope: 'all' });
+      const result = await this.discovery.refreshProviderModels();
       if (result.failed.length > 0) {
         this.logger.warn(
           { trigger, failed: result.failed },

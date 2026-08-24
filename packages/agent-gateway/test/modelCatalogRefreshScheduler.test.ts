@@ -47,7 +47,7 @@ describe('ModelCatalogRefreshScheduler', () => {
     await vi.waitFor(() => {
       expect(catalog.refreshProviderModels).toHaveBeenCalledTimes(1);
     });
-    expect(catalog.refreshProviderModels).toHaveBeenCalledWith({ scope: 'all' });
+    expect(catalog.refreshProviderModels).toHaveBeenCalledWith();
 
     await vi.advanceTimersByTimeAsync(6 * 60 * 60 * 1000);
     expect(catalog.refreshProviderModels).toHaveBeenCalledTimes(2);

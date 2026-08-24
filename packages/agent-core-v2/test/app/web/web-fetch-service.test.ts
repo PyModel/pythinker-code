@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
-import { IOAuthService } from '#/app/auth/auth';
+import { IOAuthTokenService } from '#/app/auth/auth';
 import { SERVICES_SECTION, type ServicesConfig } from '#/app/auth/configSection';
 import {
   buildAgentIdentitySnapshot,
@@ -20,7 +20,7 @@ import '#/kosong/provider/providers/pythinker/pythinker.contrib';
 
 import { stubAgentIdentity } from '../agentIdentity/stubs';
 
-const OAUTH_PROVIDER = 'managed:pythinker-code';
+const OAUTH_PROVIDER = 'services:pymodel-fetch';
 const NON_OAUTH_PROVIDER = 'openai-main';
 const HOST_HEADERS = {
   'User-Agent': 'pythinker-code-cli/test',
@@ -48,9 +48,9 @@ describe('WebFetchService', () => {
         reg.definePartialInstance(IProviderService, {
           get: ((name: string) => providers[name]) as IProviderService['get'],
         });
-        reg.definePartialInstance(IOAuthService, {
+        reg.definePartialInstance(IOAuthTokenService, {
           resolveTokenProvider:
-            resolveTokenProvider as unknown as IOAuthService['resolveTokenProvider'],
+            resolveTokenProvider as unknown as IOAuthTokenService['resolveTokenProvider'],
         });
         const snapshot = (): AgentIdentitySnapshot =>
           buildAgentIdentitySnapshot({ slug: identitySlug, hostRequestHeaders: HOST_HEADERS });
@@ -80,13 +80,13 @@ describe('WebFetchService', () => {
     return ix.get(IWebFetchService).getUrlFetcher();
   }
 
-  it('yields the local fetcher when the managed provider is not configured', () => {
+  it('yields the local fetcher when no service endpoint is configured', () => {
     providers = { [NON_OAUTH_PROVIDER]: { type: 'openai', apiKey: 'sk-test' } };
     expect(fetcher()).toBeInstanceOf(LocalFetchURLProvider);
     expect(resolveTokenProvider).not.toHaveBeenCalled();
   });
 
-  it('yields the local fetcher when the managed provider is not an OAuth pythinker provider', () => {
+  it('does not infer a service endpoint from a model provider', () => {
     providers = { [OAUTH_PROVIDER]: { type: 'pythinker', apiKey: 'sk-test' } };
     expect(fetcher()).toBeInstanceOf(LocalFetchURLProvider);
     expect(resolveTokenProvider).not.toHaveBeenCalled();
@@ -147,14 +147,14 @@ describe('WebFetchService', () => {
     expect(headers['User-Agent']).toBe('acme/test');
   });
 
-  it('prefers the services.pymodel_fetch config over the managed oauth provider', () => {
+  it('uses services.pymodel_fetch without consulting model providers', () => {
     servicesConfig = {
       pymodelFetch: { baseUrl: 'https://config.example.com/fetch', apiKey: 'config-key' },
     };
     providers = {
       [OAUTH_PROVIDER]: {
         type: 'pythinker',
-        baseUrl: 'https://managed.example.com/v1',
+        baseUrl: 'https://models.example.com/v1',
         oauth: { storage: 'file', key: 'oauth/pythinker-code' },
       },
     };
@@ -176,7 +176,7 @@ describe('WebFetchService', () => {
     });
   });
 
-  it('yields the local fetcher when services.pymodel_fetch has no baseUrl and no managed oauth', () => {
+  it('yields the local fetcher when services.pymodel_fetch has no baseUrl', () => {
     servicesConfig = { pymodelFetch: { apiKey: 'fetch-key' } };
     expect(fetcher()).toBeInstanceOf(LocalFetchURLProvider);
     expect(resolveTokenProvider).not.toHaveBeenCalled();

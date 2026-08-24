@@ -24,9 +24,12 @@ export interface TestEngine {
   readonly app: ReturnType<typeof bootstrap>['app'];
 }
 
-export async function makeEngine(prefix = 'klient-test-engine-'): Promise<TestEngine> {
+export async function makeEngine(
+  prefix = 'klient-test-engine-',
+  env?: NodeJS.ProcessEnv,
+): Promise<TestEngine> {
   const homeDir = await mkdtemp(join(tmpdir(), prefix));
-  const { app } = bootstrap({ homeDir, clientIdentity: TEST_CLIENT_IDENTITY }, [
+  const { app } = bootstrap({ homeDir, clientIdentity: TEST_CLIENT_IDENTITY, env }, [
     ...logSeed(resolveLoggingConfig({ homeDir, env: process.env })),
   ]);
   return { homeDir, app };

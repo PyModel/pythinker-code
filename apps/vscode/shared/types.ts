@@ -83,7 +83,7 @@ export interface ConfiguredProvider {
   type: string;
   baseUrl?: string;
   keySource: "config" | "env" | "oauth" | "none";
-  /** Host of the provider's base URL, shown so a managed provider is identifiable. */
+  /** Host of the provider's base URL. */
   host?: string;
   apiKeyEnvVar?: string;
   catalogUrl?: string;

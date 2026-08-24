@@ -82,14 +82,15 @@ export function effectiveModelConfig(
   providerType?: string,
 ): ModelRecord {
   const { overrides, ...base } = model;
-  const effective: ModelRecord = overrides === undefined ? model : { ...base, ...overrides };
+  let effective: ModelRecord = overrides === undefined ? model : { ...base, ...overrides };
   if (
     overrides?.supportEfforts !== undefined &&
     overrides.defaultEffort === undefined &&
     effective.defaultEffort !== undefined &&
     !overrides.supportEfforts.includes(effective.defaultEffort)
   ) {
-    delete effective.defaultEffort;
+    const { defaultEffort: _defaultEffort, ...withoutDefaultEffort } = effective;
+    effective = withoutDefaultEffort;
   }
   const clamped =
     effective.maxInputSize !== undefined &&

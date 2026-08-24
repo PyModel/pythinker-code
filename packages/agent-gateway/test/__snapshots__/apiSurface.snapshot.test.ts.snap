@@ -26,15 +26,15 @@ exports[`API surface snapshot > matches the documented v2 route table and meta e
     ],
     [
       "DELETE",
-      "/api/v1/oauth/login",
-    ],
-    [
-      "DELETE",
       "/api/v1/providers/{provider_id}",
     ],
     [
       "DELETE",
       "/api/v1/workspaces/{workspace_id}",
+    ],
+    [
+      "DELETE",
+      "/api/v2/mcp/servers/{name}",
     ],
     [
       "GET",
@@ -139,10 +139,6 @@ exports[`API surface snapshot > matches the documented v2 route table and meta e
     [
       "GET",
       "/api/v1/models",
-    ],
-    [
-      "GET",
-      "/api/v1/oauth/login",
     ],
     [
       "GET",
@@ -278,6 +274,18 @@ exports[`API surface snapshot > matches the documented v2 route table and meta e
     ],
     [
       "GET",
+      "/api/v2/mcp/auth-statuses",
+    ],
+    [
+      "GET",
+      "/api/v2/mcp/servers",
+    ],
+    [
+      "GET",
+      "/api/v2/mcp/servers/{name}",
+    ],
+    [
+      "GET",
       "/api/v2/sessions",
     ],
     [
@@ -330,6 +338,10 @@ exports[`API surface snapshot > matches the documented v2 route table and meta e
     ],
     [
       "POST",
+      "/api/v1/fs:suggest",
+    ],
+    [
+      "POST",
       "/api/v1/gui/store/clear",
     ],
     [
@@ -347,14 +359,6 @@ exports[`API surface snapshot > matches the documented v2 route table and meta e
     [
       "POST",
       "/api/v1/models/{tail}",
-    ],
-    [
-      "POST",
-      "/api/v1/oauth/login",
-    ],
-    [
-      "POST",
-      "/api/v1/oauth/logout",
     ],
     [
       "POST",
@@ -474,6 +478,34 @@ exports[`API surface snapshot > matches the documented v2 route table and meta e
     ],
     [
       "POST",
+      "/api/v2/mcp/auth:begin",
+    ],
+    [
+      "POST",
+      "/api/v2/mcp/auth:cancel",
+    ],
+    [
+      "POST",
+      "/api/v2/mcp/auth:complete",
+    ],
+    [
+      "POST",
+      "/api/v2/mcp/auth:reset",
+    ],
+    [
+      "POST",
+      "/api/v2/mcp/servers",
+    ],
+    [
+      "POST",
+      "/api/v2/mcp/servers:inspect",
+    ],
+    [
+      "POST",
+      "/api/v2/mcp/servers:test",
+    ],
+    [
+      "POST",
       "/api/v2/sessions:archive",
     ],
     [
@@ -483,6 +515,10 @@ exports[`API surface snapshot > matches the documented v2 route table and meta e
     [
       "PUT",
       "/api/v1/providers/{provider_id}",
+    ],
+    [
+      "PUT",
+      "/api/v2/mcp/servers/{name}",
     ],
   ],
 }

@@ -11,7 +11,6 @@ import {
   IFileSystemStorageService,
   IHostRequestHeaders,
   InMemoryStorageService,
-  IOAuthToolkit,
   ITelemetryService,
   noopTelemetryService,
 } from '@pymodel/agent-core-v2';
@@ -80,11 +79,6 @@ describe('server-v2 boot', () => {
     expect(typeof authBody.data.ready).toBe('boolean');
     expect(authBody.data.providers_count).toBeGreaterThanOrEqual(0);
 
-    const oauthPoll = await authedFetch(server, base, '/api/v1/oauth/login');
-    expect(oauthPoll.status).toBe(200);
-    const oauthBody = await oauthPoll.json() as { code: number; data: null };
-    expect(oauthBody.code).toBe(0);
-    expect(oauthBody.data).toBeNull();
   });
 
   it('reports opts.serverVersion as server_version instead of the package version', async () => {
@@ -204,13 +198,6 @@ describe('server-v2 boot', () => {
       if (scope === 'telemetry') throw new Error('telemetry storage unavailable');
       await write(scope, key, data, options);
     });
-    const auth = {
-      _serviceBrand: undefined,
-      getCachedAccessToken: async () => {
-        throw new Error('telemetry auth unavailable');
-      },
-    } as unknown as IOAuthToolkit;
-
     server = await startServer({
       hostIdentity: TEST_HOST_IDENTITY,
       host: '127.0.0.1',
@@ -220,7 +207,6 @@ describe('server-v2 boot', () => {
       telemetry: true,
       seeds: [
         [IFileSystemStorageService, storage],
-        [IOAuthToolkit, auth],
       ],
     });
     const core = server.core;

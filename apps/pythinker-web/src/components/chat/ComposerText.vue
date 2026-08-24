@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
-import { fileTypeIconSvg } from '../../lib/icons';
+import { fileTypeIconSvg, iconSvg } from '../../lib/icons';
 import {
   middleTruncateName,
   parseMentionSegments,
@@ -37,7 +37,7 @@ function onCopy(event: ClipboardEvent): void {
   const fragment = range.cloneContents();
   for (const element of fragment.querySelectorAll<HTMLElement>('.mention-pill')) {
     const { mentionKind: kind, mentionName: name, mentionPath: path } = element.dataset;
-    if ((kind !== 'file' && kind !== 'folder') || name === undefined || path === undefined) continue;
+    if ((kind !== 'file' && kind !== 'folder' && kind !== 'skill') || name === undefined || path === undefined) continue;
     element.replaceWith(document.createTextNode(serializeMention({ kind, name, path })));
   }
   event.clipboardData.setData('text/plain', fragment.textContent ?? '');
@@ -63,7 +63,11 @@ function onCopy(event: ClipboardEvent): void {
         @keydown.space="activate($event, segment.attrs)"
       >
         <!-- eslint-disable-next-line vue/no-v-html -->
-        <span class="mention-pill-icon" aria-hidden="true" v-html="fileTypeIconSvg(segment.attrs.path, segment.attrs.name)" />
+        <span
+          class="mention-pill-icon"
+          aria-hidden="true"
+          v-html="segment.attrs.kind === 'skill' ? iconSvg('sparkles', 'sm') : fileTypeIconSvg(segment.attrs.path, segment.attrs.name)"
+        />
         <span class="mention-pill-name">{{ middleTruncateName(segment.attrs.name) }}</span>
       </span>
     </template>

@@ -8,23 +8,24 @@
 # commented "# field: type" lines describe the remaining schema fields.
 # Values resolve as: default -> config.toml -> env overlay -> memory.
 
-# Index (27 sections · 2 overlay(s))
+# Index (28 sections · 2 overlay(s))
 #   advisor                  src/session/advisor/configSection.ts
 #   background               src/agent/task/configSection.ts
-#   builtinProductSkills     src/app/skillCatalog/configSection.ts
-#   cron                     src/app/cron/configSection.ts
+#   builtinProductSkills     src/features/skill/catalog/configSection.ts
+#   cron                     src/features/cron/configSection.ts
 #   defaultPermissionMode    src/agent/permissionMode/configSection.ts
 #   defaultPlanMode          src/features/plan/configSection.ts
+#   dynamicWorkflow          src/features/dynamic_workflow/configSection.ts
 #   experimental             src/app/flag/flag.ts
 #   extraAgentDirs           src/workspace/workspaceAgentProfileLoader/configSection.ts
-#   extraSkillDirs           src/app/skillCatalog/configSection.ts
+#   extraSkillDirs           src/features/skill/catalog/configSection.ts
 #   hooks                    src/features/externalHooks/configSection.ts
 #   identity                 src/app/agentIdentity/configSection.ts
 #   image                    src/agent/media/configSection.ts
 #   llm                      src/app/kosongConfig/configSection.ts
 #   loopControl              src/agent/loop/configSection.ts
 #   mcp                      src/app/mcpConfig/configSection.ts
-#   mergeAllAvailableSkills  src/app/skillCatalog/configSection.ts
+#   mergeAllAvailableSkills  src/features/skill/catalog/configSection.ts
 #   modelCatalog             src/app/kosongConfig/configSection.ts
 #   models                   src/app/kosongConfig/configSection.ts
 #   permission               src/agent/permissionRules/configSection.ts
@@ -72,7 +73,7 @@ enabled = false
 
 # ##########################################################################
 # builtinProductSkills (config.toml: builtin_product_skills)
-#   owner: src/app/skillCatalog/configSection.ts
+#   owner: src/features/skill/catalog/configSection.ts
 #   scope: core
 #   hooks: stripEnv
 #   env:
@@ -83,7 +84,7 @@ builtin_product_skills = true
 
 # ##########################################################################
 # cron
-#   owner: src/app/cron/configSection.ts
+#   owner: src/features/cron/configSection.ts
 #   scope: core
 #   hooks: stripEnv
 #   env:
@@ -121,6 +122,18 @@ manual_tick = false
 default_plan_mode = false
 
 # ##########################################################################
+# dynamicWorkflow (config.toml: dynamic_workflow)
+#   owner: src/features/dynamic_workflow/configSection.ts
+#   scope: core
+#   hooks: stripEnv
+#   env:
+#     timeout_ms <- PYTHINKER_CODE_AGENT_DYNAMIC_WORKFLOW_TIMEOUT_MS (custom parse)
+# ##########################################################################
+
+[dynamic_workflow]
+timeout_ms = 7200000
+
+# ##########################################################################
 # experimental
 #   owner: src/app/flag/flag.ts
 #   scope: core
@@ -140,7 +153,7 @@ extra_agent_dirs = []
 
 # ##########################################################################
 # extraSkillDirs (config.toml: extra_skill_dirs)
-#   owner: src/app/skillCatalog/configSection.ts
+#   owner: src/features/skill/catalog/configSection.ts
 #   scope: core
 # ##########################################################################
 
@@ -236,7 +249,7 @@ extra_skill_dirs = []
 
 # ##########################################################################
 # mergeAllAvailableSkills (config.toml: merge_all_available_skills)
-#   owner: src/app/skillCatalog/configSection.ts
+#   owner: src/features/skill/catalog/configSection.ts
 #   scope: core
 # ##########################################################################
 

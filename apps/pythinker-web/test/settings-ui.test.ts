@@ -21,7 +21,7 @@ const { api, confirm, copyTextToClipboard } = vi.hoisted(() => ({
     addProvider: vi.fn(),
     deleteProvider: vi.fn(),
     getMeta: vi.fn(),
-    getAuth: vi.fn().mockResolvedValue({ ready: true, defaultModel: 'x', managedProvider: null }),
+    getAuth: vi.fn().mockResolvedValue({ ready: true, defaultModel: 'x' }),
     getConfig: vi.fn().mockResolvedValue({}),
     listModels: vi.fn().mockResolvedValue([]),
   },

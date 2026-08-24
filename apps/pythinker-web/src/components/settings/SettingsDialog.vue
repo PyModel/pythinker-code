@@ -74,7 +74,6 @@ const emit = defineEmits<{
   setNotifyApproval: [on: boolean];
   setSound: [on: boolean];
   setConversationToc: [on: boolean];
-  logout: [];
   openOnboarding: [];
   updateConfig: [patch: Partial<AppConfig>];
   close: [];
@@ -701,8 +700,7 @@ function archiveTime(iso: string): string {
         <section v-show="activeTab === 'account'" class="panel">
           <section class="sec">
             <h3 class="sec-title">{{ t('settings.account') }}</h3>
-            <!-- No managed account in this distribution: the account tab shows
-                 provider readiness and routes to the provider manager. -->
+            <!-- Show provider readiness and route setup to the provider manager. -->
             <div class="row">
               <span class="rlabel">{{ authReady ? t('settings.providers') : t('sidebar.notSignedIn') }}</span>
               <Tooltip :text="accountModel">

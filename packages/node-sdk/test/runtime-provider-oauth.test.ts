@@ -4,24 +4,24 @@ import { ErrorCodes, PythinkerError, type PythinkerConfig, type Logger } from '#
 
 import { ProviderManager } from '../../agent-core/src/session/provider-manager';
 
-function managedConfig(): PythinkerConfig {
+function oauthConfig(): PythinkerConfig {
   return {
     providers: {
-      'managed:pythinker-code': {
-        type: 'pythinker',
-        baseUrl: 'https://api.kimi.com/coding/v1',
+      'oauth-example': {
+        type: 'openai',
+        baseUrl: 'https://api.example.test/v1',
         apiKey: '',
-        oauth: { storage: 'file', key: 'oauth/pythinker-code' },
+        oauth: { storage: 'file', key: 'oauth/example' },
       },
     },
     models: {
-      'pythinker-code/kimi-for-coding': {
-        provider: 'managed:pythinker-code',
-        model: 'kimi-for-coding',
+      'oauth-example/model': {
+        provider: 'oauth-example',
+        model: 'example-model',
         maxContextSize: 262144,
       },
     },
-    defaultModel: 'pythinker-code/kimi-for-coding',
+    defaultModel: 'oauth-example/model',
   };
 }
 
@@ -116,18 +116,18 @@ describe('resolveRuntimeProviderWithOAuth', () => {
     });
 
     const resolved = await resolveRuntimeProviderWithOAuth({
-      config: managedConfig(),
+      config: oauthConfig(),
       resolveOAuthTokenProvider: (_providerName, oauthRef) => {
-        expect(oauthRef).toEqual({ storage: 'file', key: 'oauth/pythinker-code' });
+        expect(oauthRef).toEqual({ storage: 'file', key: 'oauth/example' });
         return { getAccessToken };
       },
     });
 
-    expect(resolved.providerName).toBe('managed:pythinker-code');
+    expect(resolved.providerName).toBe('oauth-example');
     expect(resolved.provider).toMatchObject({
-      type: 'pythinker',
-      model: 'kimi-for-coding',
-      baseUrl: 'https://api.kimi.com/coding/v1',
+      type: 'openai',
+      model: 'example-model',
+      baseUrl: 'https://api.example.test/v1',
     });
     expect(resolved.provider.apiKey).toBeUndefined();
     await expect(resolved.resolveAuth?.()).resolves.toEqual({ apiKey: 'rotated-oauth-token' });
@@ -140,20 +140,20 @@ describe('resolveRuntimeProviderWithOAuth', () => {
   it('throws a clear login-required error when no token provider exists', async () => {
     await expect(
       resolveRuntimeProviderWithOAuth({
-        config: managedConfig(),
+        config: oauthConfig(),
       }),
     ).rejects.toThrow(/requires login/);
   });
 
   it('rejects providers that set both apiKey and oauth on the same config', async () => {
     const conflicting: PythinkerConfig = {
-      ...managedConfig(),
+      ...oauthConfig(),
       providers: {
-        'managed:pythinker-code': {
-          type: 'pythinker',
-          baseUrl: 'https://api.kimi.com/coding/v1',
+        'oauth-example': {
+          type: 'openai',
+          baseUrl: 'https://api.example.test/v1',
           apiKey: 'static-key',
-          oauth: { storage: 'file', key: 'oauth/pythinker-code' },
+          oauth: { storage: 'file', key: 'oauth/example' },
         },
       },
     };
@@ -171,7 +171,7 @@ describe('resolveRuntimeProviderWithOAuth', () => {
   it('wraps token provider failures as login-required errors', async () => {
     await expect(
       resolveRuntimeProviderWithOAuth({
-        config: managedConfig(),
+        config: oauthConfig(),
         resolveOAuthTokenProvider: () => ({
           getAccessToken: vi.fn().mockRejectedValue(new Error('missing token')),
         }),
@@ -186,7 +186,7 @@ describe('resolveRuntimeProviderWithOAuth', () => {
     const log = testLogger();
     await expect(
       resolveRuntimeProviderWithOAuth({
-        config: managedConfig(),
+        config: oauthConfig(),
         log,
         resolveOAuthTokenProvider: () => ({
           getAccessToken: vi.fn().mockRejectedValue(new Error('token endpoint down')),
@@ -196,7 +196,7 @@ describe('resolveRuntimeProviderWithOAuth', () => {
     expect(log.warn).toHaveBeenCalledWith(
       'oauth token fetch failed',
       expect.objectContaining({
-        providerName: 'managed:pythinker-code',
+        providerName: 'oauth-example',
         error: expect.any(Error),
       }),
     );
@@ -204,7 +204,7 @@ describe('resolveRuntimeProviderWithOAuth', () => {
     vi.clearAllMocks();
     await expect(
       resolveRuntimeProviderWithOAuth({
-        config: managedConfig(),
+        config: oauthConfig(),
         log,
         resolveOAuthTokenProvider: () => ({
           getAccessToken: vi.fn().mockRejectedValue(

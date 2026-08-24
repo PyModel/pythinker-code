@@ -1,7 +1,9 @@
 import { createReadStream } from 'node:fs';
 import { appendFile, mkdir } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { dirname } from 'node:path';
 import { ulid } from 'ulid';
+
+import { resolveStoragePath } from '../../../lib/storagePath';
 
 const JOURNAL_VERSION = 1;
 
@@ -70,11 +72,16 @@ export class SessionEventJournal {
   }
 
   /**
-   * Open (or create) the journal for `filePath`. Scans an existing file to
+   * Open (or create) the journal for `sessionId`. Scans an existing file to
    * recover `{epoch, lastSeq}`. A missing file or an unreadable header starts
    * a fresh journal with a new epoch.
    */
-  static async open(filePath: string, logger: JournalLogger = noopLogger): Promise<SessionEventJournal> {
+  static async open(
+    eventsDir: string,
+    sessionId: string,
+    logger: JournalLogger = noopLogger,
+  ): Promise<SessionEventJournal> {
+    const filePath = resolveStoragePath(eventsDir, `${sessionId}.jsonl`);
     let epoch: string | undefined;
     let lastSeq = 0;
     let sawAnyLine = false;
@@ -189,11 +196,6 @@ export class SessionEventJournal {
       );
     }
   }
-}
-
-/** Default per-session journal path under `<eventsDir>/<sessionId>.jsonl`. */
-export function sessionJournalPath(eventsDir: string, sessionId: string): string {
-  return join(eventsDir, `${sessionId}.jsonl`);
 }
 
 function parseJournalLine(raw: string): JournalHeaderLine | JournalEventLine | undefined {

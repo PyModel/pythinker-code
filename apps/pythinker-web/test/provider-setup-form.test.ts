@@ -32,7 +32,7 @@ describe('ProviderSetupForm', () => {
     }]]);
   });
 
-  it('does not offer managed Pythinker providers', () => {
+  it('offers only providers with a supported wire type', () => {
     const wrapper = mount(ProviderSetupForm, {
       global: { plugins: [i18n] },
       props: {

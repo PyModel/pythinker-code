@@ -5,7 +5,7 @@ import {
 } from '@pymodel/kosong';
 
 import { readApiErrorMessage } from './api-error';
-import type { ManagedPythinkerModelAlias } from './managed-pythinker-code';
+import type { ModelAlias } from './provider-config';
 import { isRecord } from './utils';
 
 /**
@@ -76,17 +76,17 @@ function capabilityToStrings(capability: CatalogModel['capability']): string[] |
 export function modelsDevProviderAliases(
   providerId: string,
   entry: unknown,
-): Record<string, ManagedPythinkerModelAlias> {
+): Record<string, ModelAlias> {
   if (!isRecord(entry)) return {};
   const models = catalogProviderModels(entry as CatalogProviderEntry);
-  const out: Record<string, ManagedPythinkerModelAlias> = {};
+  const out: Record<string, ModelAlias> = {};
   for (const model of models) {
     const caps = capabilityToStrings(model.capability);
     const capabilities =
       model.alwaysThinking === true
         ? caps?.map((cap) => (cap === 'thinking' ? 'always_thinking' : cap))
         : caps;
-    const alias: ManagedPythinkerModelAlias = {
+    const alias: ModelAlias = {
       provider: providerId,
       model: model.id,
       maxContextSize: model.capability.max_context_tokens,

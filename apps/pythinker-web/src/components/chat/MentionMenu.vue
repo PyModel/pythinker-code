@@ -12,6 +12,7 @@ import { useMenuScrollbar } from '../../composables/useMenuScrollbar';
 import type { MentionItem } from '../../composables/useMentionMenu';
 import type { FileItem } from '../../types';
 import Spinner from '../ui/Spinner.vue';
+import { useOpenMenu } from '../ui/openMenus';
 
 // Re-exported for the .vue consumers (Composer / ChatDock / ConversationPane)
 // that import FileItem from this component.
@@ -24,8 +25,9 @@ const props = withDefaults(
     loading?: boolean;
     /** True while the shown results belong to a superseded query. */
     stale?: boolean;
+    layout?: 'popup' | 'sheet';
   }>(),
-  { loading: false, stale: false },
+  { loading: false, stale: false, layout: 'popup' },
 );
 
 const emit = defineEmits<{
@@ -36,6 +38,7 @@ const emit = defineEmits<{
 const { t } = useI18n();
 
 const menuEl = ref<HTMLElement | null>(null);
+useOpenMenu(menuEl);
 const scrollEl = ref<HTMLElement | null>(null);
 const activeIndex = computed(() => props.activeIndex);
 const refreshKey = computed(() => props.items);
@@ -46,6 +49,7 @@ const { thumb, scrollStyle, thumbStyle, onScroll, onThumbPointerDown } = useMenu
   maxHeightVar: '--p-mention-menu-h',
   activeIndex,
   refreshKey,
+  fitToViewport: props.layout !== 'sheet',
 });
 
 /** Parent directory of a path ('' when the path has no directory part). */
@@ -74,7 +78,7 @@ function itemKey(item: MentionItem): string {
 </script>
 
 <template>
-  <div ref="menuEl" class="mention-menu" data-menu-frame>
+  <div ref="menuEl" class="mention-menu" :class="{ 'is-sheet': props.layout === 'sheet' }" data-menu-frame>
     <!-- Loading state (no results yet) -->
     <div v-if="props.loading && props.items.length === 0" class="mention-state dim" role="status">
       {{ t('mention.searching') }}
@@ -163,6 +167,18 @@ function itemKey(item: MentionItem): string {
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-menu);
   z-index: var(--z-dropdown);
+}
+
+.mention-menu.is-sheet[data-menu-frame] {
+  position: static;
+  padding: 0;
+  background: transparent;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  z-index: auto;
 }
 
 .mention-scroll {

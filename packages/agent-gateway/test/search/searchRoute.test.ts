@@ -142,7 +142,14 @@ describe('server-v2 /api/v1/search', () => {
     for (let attempt = 0; attempt < 100; attempt++) {
       body = await postSearch({ query: '\u82F9\u679C' });
       expect(body.code).toBe(0);
-      if (body.data.items.length > 0) break;
+      const items = body.data.items;
+      if (
+        ['user', 'assistant', 'title'].every((role) =>
+          items.some((item) => item.role === role),
+        )
+      ) {
+        break;
+      }
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
     expect(body).toBeDefined();

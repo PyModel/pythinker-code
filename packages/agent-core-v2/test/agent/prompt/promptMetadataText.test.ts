@@ -46,6 +46,29 @@ describe('promptMetadataTextFromContentParts', () => {
     expect(text).not.toContain('Image compressed');
   });
 
+  it('redacts private key blocks', () => {
+    const text = promptMetadataTextFromContentParts([
+      {
+        type: 'text',
+        text: 'before -----BEGIN RSA PRIVATE KEY-----\nsecret\n-----END RSA PRIVATE KEY----- after',
+      },
+    ]);
+    expect(text).toBe('before [redacted] after');
+  });
+
+  it('redacts a private key after Unicode case-expanding text', () => {
+    const text = promptMetadataTextFromContentParts([
+      {
+        type: 'text',
+        text:
+          `${'ß'.repeat(60)} -----BEGIN PRIVATE KEY-----\nsecret\n` +
+          '-----END PRIVATE KEY-----',
+      },
+    ]);
+    expect(text).not.toContain('secret');
+    expect(text).toContain('[redacted]');
+  });
+
   it('keeps an upload <image path> tag out of the metadata text', () => {
     const text = promptMetadataTextFromContentParts([
       { type: 'text', text: 'what is this?' },

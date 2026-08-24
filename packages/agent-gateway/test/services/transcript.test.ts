@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 
 import {
+  AgentInteraction,
   IAgentLifecycleService,
   IAgentLoopService,
   IAgentScopeContext,
@@ -12,23 +13,27 @@ import {
   IEventBus,
   IFlagService,
   ISessionIndex,
-  ISessionInteractionService,
   ISessionMetadata,
   ISessionLifecycleService,
   ISessionManager,
   IWorkspaceInstanceManager,
   LifecycleScope,
   makeAgentScopeContext,
-  SessionInteractionService,
-  StateRegistry,
+  type AgentContext,
+  type AgentRuntimeDefinition,
+  type Event2,
+  type RuntimeOf,
+  type Interaction,
+  type InteractionKind,
+  type InteractionPendingChangedEvent,
+  type InteractionRequest,
+  type InteractionResolution,
   TOWER_FLAG_ID,
   _setTowerFeatureAssembledForTests,
-  type AgentContext,
-  type Event2,
   type ISessionScopeHandle,
-  type ISessionStateService,
   type Scope,
 } from '@pymodel/agent-core-v2';
+import { Emitter, Event } from '@pymodel/agent-core-v2/_base/event';
 import { TowerStore } from '@pymodel/agent-core-v2/features/tower/protocol/index';
 import {
   AgentTranscript,
@@ -62,16 +67,30 @@ function ev(payload: Record<string, unknown>): ProjectorBusEvent {
   return payload as unknown as ProjectorBusEvent;
 }
 
-class TestSessionStateService extends StateRegistry implements ISessionStateService {
-  declare readonly _serviceBrand: undefined;
-}
-
 function turnOps(turnId: string, items: ReturnType<AgentTranscript['getItems']>): TranscriptTurn {
   const turn = items.find(
     (item): item is TranscriptTurn => item.kind === 'turn' && item.turnId === turnId,
   );
   if (turn === undefined) throw new Error(`turn ${turnId} not found`);
   return turn;
+}
+
+function coldTranscriptService(home: string): TranscriptService {
+  return new TranscriptService({
+    homeDir: home,
+    core: {
+      accessor: {
+        get: (token: unknown) => {
+          if (token === ISessionManager) return { get: () => undefined, list: () => [] };
+          if (token === IWorkspaceInstanceManager) {
+            return { list: () => [], onDidChange: () => ({ dispose: () => undefined }) };
+          }
+          if (token === ISessionIndex) return { get: async () => ({ workspaceId: 'ws' }) };
+          return undefined;
+        },
+      },
+    } as unknown as Scope,
+  });
 }
 
 describe('AgentTranscriptProjector', () => {
@@ -964,6 +983,8 @@ describe('AgentTranscriptProjector', () => {
         description: 'scan the repo',
         dynamicWorkflowIndex: 0,
         runInBackground: false,
+        model: 'example-model',
+        thinkingEffort: 'high',
       }),
     );
     feed(ev({ type: 'subagent.completed', subagentId: 'agent-0', resultSummary: 'done' }));
@@ -979,6 +1000,8 @@ describe('AgentTranscriptProjector', () => {
       agentId: 'agent-0',
       description: 'scan the repo',
       detached: false,
+      model: 'example-model',
+      thinkingEffort: 'high',
     });
   });
 
@@ -1482,6 +1505,105 @@ describe('AgentTranscriptProjector', () => {
     expect(frame?.kind === 'text' && frame.text).toContain('Background process completed');
   });
 
+  it('attaches a between-steps task notification to the following step', () => {
+    const projector = new AgentTranscriptProjector('main');
+    const tx = new AgentTranscript('main');
+    const feed = (event: ProjectorBusEvent): void => void tx.apply(projector.map(event));
+    const notified = (sourceId: string): ProjectorBusEvent =>
+      ev({
+        type: 'task.notified',
+        notificationType: 'task.completed',
+        title: 'Background agent completed',
+        body: 'Inspection done.',
+        severity: 'info',
+        sourceKind: 'background_task',
+        sourceId,
+      });
+
+    feed(ev({ type: 'turn.started', turnId: 1, origin: { kind: 'user' } }));
+    feed(ev({ type: 'turn.step.started', turnId: 1, step: 1 }));
+    feed(ev({ type: 'turn.step.completed', turnId: 1, step: 1 }));
+    feed(notified('task_1'));
+    feed(notified('task_2'));
+    expect(turnOps('t1', tx.getItems()).steps[0]!.frames).toHaveLength(0);
+
+    feed(ev({ type: 'turn.step.started', turnId: 1, step: 2 }));
+    const steps = turnOps('t1', tx.getItems()).steps;
+    expect(steps).toHaveLength(2);
+    expect(steps[1]!.frames.map((frame) => frame.kind === 'text' && frame.taskId)).toEqual([
+      'task_1',
+      'task_2',
+    ]);
+  });
+
+  it('drops a task notification that is the turn prompt itself', () => {
+    const projector = new AgentTranscriptProjector('main');
+    const tx = new AgentTranscript('main');
+    const feed = (event: ProjectorBusEvent): void => void tx.apply(projector.map(event));
+
+    feed(ev({ type: 'turn.started', turnId: 1, origin: { kind: 'task', taskId: 'task_1' } }));
+    feed(
+      ev({
+        type: 'task.notified',
+        notificationType: 'task.completed',
+        title: 'Background agent completed',
+        body: 'Inspection done.',
+        severity: 'info',
+        sourceKind: 'background_task',
+        sourceId: 'task_1',
+      }),
+    );
+    feed(ev({ type: 'turn.step.started', turnId: 1, step: 1 }));
+    expect(turnOps('t1', tx.getItems()).steps[0]!.frames).toHaveLength(0);
+  });
+
+  it('keeps a different task notification in a task-origin turn', () => {
+    const projector = new AgentTranscriptProjector('main');
+    const tx = new AgentTranscript('main');
+    const feed = (event: ProjectorBusEvent): void => void tx.apply(projector.map(event));
+
+    feed(ev({ type: 'turn.started', turnId: 1, origin: { kind: 'task', taskId: 'task_1' } }));
+    feed(
+      ev({
+        type: 'task.notified',
+        notificationType: 'task.completed',
+        title: 'Background agent completed',
+        body: 'Second task done.',
+        severity: 'info',
+        sourceKind: 'background_task',
+        sourceId: 'task_2',
+      }),
+    );
+    feed(ev({ type: 'turn.step.started', turnId: 1, step: 1 }));
+    const frames = turnOps('t1', tx.getItems()).steps[0]!.frames;
+    expect(frames.map((frame) => frame.kind === 'text' && frame.taskId)).toEqual(['task_2']);
+  });
+
+  it('drops a buffered task notification when the turn ends before the next step', () => {
+    const projector = new AgentTranscriptProjector('main');
+    const tx = new AgentTranscript('main');
+    const feed = (event: ProjectorBusEvent): void => void tx.apply(projector.map(event));
+
+    feed(ev({ type: 'turn.started', turnId: 1, origin: { kind: 'user' } }));
+    feed(ev({ type: 'turn.step.started', turnId: 1, step: 1 }));
+    feed(ev({ type: 'turn.step.completed', turnId: 1, step: 1 }));
+    feed(
+      ev({
+        type: 'task.notified',
+        notificationType: 'task.completed',
+        title: 'Background agent completed',
+        body: 'Inspection done.',
+        severity: 'info',
+        sourceKind: 'background_task',
+        sourceId: 'task_1',
+      }),
+    );
+    feed(ev({ type: 'turn.ended', turnId: 1, reason: 'completed' }));
+    feed(ev({ type: 'turn.started', turnId: 2, origin: { kind: 'user' } }));
+    feed(ev({ type: 'turn.step.started', turnId: 2, step: 1 }));
+    expect(turnOps('t2', tx.getItems()).steps[0]!.frames).toHaveLength(0);
+  });
+
   it('replaces the global todo document on a confirmed TodoList write', () => {
     const projector = new AgentTranscriptProjector('main');
     const tx = new AgentTranscript('main');
@@ -1835,6 +1957,260 @@ describe('AgentTranscriptProjector', () => {
     }
   });
 
+  it('derives cold activity from the final turn state without a live session', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'transcript-cold-activity-'));
+    try {
+      const wireDir = join(home, 'sessions', 'ws', 's1', 'agents', 'main');
+      await mkdir(wireDir, { recursive: true });
+      const write = async (records: unknown[]): Promise<void> =>
+        writeFile(
+          join(wireDir, 'wire.jsonl'),
+          `${records.map((record) => JSON.stringify(record)).join('\n')}\n`,
+        );
+      const user = {
+        type: 'context.append_message',
+        message: {
+          role: 'user',
+          content: [{ type: 'text', text: 'hello' }],
+          toolCalls: [],
+          origin: { kind: 'user' },
+        },
+        time: 1000,
+      };
+      const assistant = {
+        type: 'context.append_message',
+        message: {
+          role: 'assistant',
+          content: [{ type: 'text', text: 'answer' }],
+          toolCalls: [],
+        },
+        time: 2000,
+      };
+
+      await write([
+        user,
+        assistant,
+        { type: 'turn.ended', turnId: 0, reason: 'completed', time: 3000 },
+      ]);
+      expect((await coldTranscriptService(home).readColdSnapshot('s1', 'main'))!.meta.activity)
+        .toBe('idle');
+
+      await write([user, assistant]);
+      expect((await coldTranscriptService(home).readColdSnapshot('s1', 'main'))!.meta.activity)
+        .toBe('idle');
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
+  it('opens a cold task-origin turn only at a turn.prompt boundary', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'transcript-cold-task-turn-'));
+    try {
+      const wireDir = join(home, 'sessions', 'ws', 's1', 'agents', 'main');
+      await mkdir(wireDir, { recursive: true });
+      const notification =
+        '<notification id="task:task_9:completed" category="task" type="task.completed" source_kind="background_task" source_id="task_9">\nTitle: Background agent completed\nSeverity: info\nInspection done.\n</notification>';
+      const taskOrigin = {
+        kind: 'task',
+        taskId: 'task_9',
+        status: 'completed',
+        notificationId: 'n1',
+      };
+      const opening = [
+        {
+          type: 'context.append_message',
+          message: {
+            role: 'user',
+            content: [{ type: 'text', text: 'hello' }],
+            toolCalls: [],
+            origin: { kind: 'user' },
+          },
+          time: 1000,
+        },
+        {
+          type: 'context.append_message',
+          message: {
+            role: 'assistant',
+            content: [{ type: 'text', text: 'answer' }],
+            toolCalls: [],
+          },
+          time: 2000,
+        },
+      ];
+      const boundary = {
+        type: 'turn.prompt',
+        input: [{ type: 'text', text: notification }],
+        origin: taskOrigin,
+        time: 3000,
+      };
+      const delivered = {
+        type: 'context.append_message',
+        message: {
+          role: 'user',
+          content: [{ type: 'text', text: notification }],
+          toolCalls: [],
+          origin: taskOrigin,
+        },
+        time: 4000,
+      };
+      const reply = {
+        type: 'context.append_message',
+        message: {
+          role: 'assistant',
+          content: [{ type: 'text', text: 'reporting back' }],
+          toolCalls: [],
+        },
+        time: 5000,
+      };
+      const write = async (records: unknown[]): Promise<void> =>
+        writeFile(
+          join(wireDir, 'wire.jsonl'),
+          `${records.map((record) => JSON.stringify(record)).join('\n')}\n`,
+        );
+
+      await write([...opening, boundary, delivered, reply]);
+      const withBoundary = await coldTranscriptService(home).readColdSnapshot('s1', 'main');
+      expect(
+        withBoundary!.items
+          .filter((item) => item.kind === 'turn')
+          .map((item) => (item.kind === 'turn' ? item.origin.kind : '')),
+      ).toEqual(['user', 'task']);
+
+      await write([...opening, delivered, reply]);
+      const withoutBoundary = await coldTranscriptService(home).readColdSnapshot('s1', 'main');
+      const turns = withoutBoundary!.items.filter((item) => item.kind === 'turn');
+      expect(turns).toHaveLength(1);
+      const turn = turns[0];
+      if (turn?.kind !== 'turn') throw new Error('expected turn');
+      expect(
+        turn.steps
+          .flatMap((step) => step.frames)
+          .some((frame) => frame.kind === 'text' && frame.role === 'user'),
+      ).toBe(true);
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
+  it('drops undone cold task-turn boundaries before folding a redelivery', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'transcript-cold-undo-boundary-'));
+    try {
+      const wireDir = join(home, 'sessions', 'ws', 's1', 'agents', 'main');
+      await mkdir(wireDir, { recursive: true });
+      const notification =
+        '<notification id="task:task_9:completed" category="task" type="task.completed" source_kind="background_task" source_id="task_9">\nTitle: Background agent completed\nSeverity: info\nInspection done.\n</notification>';
+      const taskOrigin = {
+        kind: 'task',
+        taskId: 'task_9',
+        status: 'completed',
+        notificationId: 'n1',
+      };
+      const opening = [
+        {
+          type: 'context.append_message',
+          message: {
+            role: 'user',
+            content: [{ type: 'text', text: 'hello' }],
+            toolCalls: [],
+            origin: { kind: 'user' },
+          },
+          time: 1000,
+        },
+        {
+          type: 'context.append_message',
+          message: {
+            role: 'assistant',
+            content: [{ type: 'text', text: 'answer' }],
+            toolCalls: [],
+          },
+          time: 2000,
+        },
+      ];
+      const boundary = {
+        type: 'turn.prompt',
+        input: [{ type: 'text', text: notification }],
+        origin: taskOrigin,
+        time: 3000,
+      };
+      const delivered = {
+        type: 'context.append_message',
+        message: {
+          role: 'user',
+          content: [{ type: 'text', text: notification }],
+          toolCalls: [],
+          origin: taskOrigin,
+        },
+        time: 4000,
+      };
+      const reply = {
+        type: 'context.append_message',
+        message: {
+          role: 'assistant',
+          content: [{ type: 'text', text: 'reporting back' }],
+          toolCalls: [],
+        },
+        time: 5000,
+      };
+      const again = {
+        type: 'context.append_message',
+        message: {
+          role: 'user',
+          content: [{ type: 'text', text: 'again' }],
+          toolCalls: [],
+          origin: { kind: 'user' },
+        },
+        time: 7000,
+      };
+      const answer2 = {
+        type: 'context.append_message',
+        message: {
+          role: 'assistant',
+          content: [{ type: 'text', text: 'answer 2' }],
+          toolCalls: [],
+        },
+        time: 8000,
+      };
+      const redelivered = { ...delivered, time: 9000 };
+      const write = async (records: unknown[]): Promise<void> =>
+        writeFile(
+          join(wireDir, 'wire.jsonl'),
+          `${records.map((record) => JSON.stringify(record)).join('\n')}\n`,
+        );
+
+      await write([...opening, boundary, delivered, reply, again, answer2, redelivered]);
+      const withBoundary = await coldTranscriptService(home).readColdSnapshot('s1', 'main');
+      expect(
+        withBoundary!.items
+          .filter((item) => item.kind === 'turn')
+          .map((item) => (item.kind === 'turn' ? item.origin.kind : '')),
+      ).toEqual(['user', 'task', 'user', 'task']);
+
+      await write([
+        ...opening,
+        boundary,
+        delivered,
+        reply,
+        { type: 'context.undo', count: 1, time: 6000 },
+        again,
+        answer2,
+        redelivered,
+      ]);
+      const withUndo = await coldTranscriptService(home).readColdSnapshot('s1', 'main');
+      const turns = withUndo!.items.filter((item) => item.kind === 'turn');
+      expect(turns).toHaveLength(1);
+      const turn = turns[0];
+      if (turn?.kind !== 'turn') throw new Error('expected turn');
+      expect(turn.origin.kind).toBe('user');
+      expect(
+        turn.steps
+          .flatMap((step) => step.frames)
+          .some((frame) => frame.kind === 'text' && frame.text.includes('Inspection done')),
+      ).toBe(false);
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
   it('gates a cold tower badge by flag, assembly, owner, and agent', async () => {
     const home = await mkdtemp(join(tmpdir(), 'transcript-cold-tower-'));
     _setTowerFeatureAssembledForTests(true);
@@ -1946,6 +2322,51 @@ describe('AgentTranscriptProjector', () => {
     expect(turnOps('t0', tx.getItems()).state).toBe('failed');
   });
 
+  it('tracks accepted and queued prompts through terminal states', () => {
+    const projector = new AgentTranscriptProjector('main');
+    const tx = new AgentTranscript('main');
+    const feed = (event: ProjectorBusEvent): void => void tx.apply(projector.map(event));
+
+    feed(ev({ type: 'prompt.accepted', promptId: 'p1' }));
+    expect(tx.getPrompt('p1')).toMatchObject({ status: 'running' });
+    feed(
+      ev({
+        type: 'prompt.queued',
+        promptId: 'p2',
+        content: [{ type: 'text', text: 'later' }],
+        queueLength: 1,
+      }),
+    );
+    expect(tx.getPrompt('p2')).toMatchObject({ status: 'queued' });
+    feed(
+      ev({
+        type: 'prompt.completed',
+        promptId: 'p2',
+        finishedAt: '2026-08-20T00:00:01.000Z',
+        reason: 'completed',
+      }),
+    );
+    expect(tx.getPrompt('p2')).toMatchObject({ status: 'completed' });
+    feed(ev({ type: 'prompt.aborted', promptId: 'p1', abortedAt: '2026-08-20T00:00:02.000Z' }));
+    expect(tx.getPrompt('p1')).toMatchObject({ status: 'aborted' });
+  });
+
+  it('mirrors turn liveness into meta activity', () => {
+    const projector = new AgentTranscriptProjector('main');
+    const tx = new AgentTranscript('main');
+    const feed = (event: ProjectorBusEvent): void => void tx.apply(projector.map(event));
+
+    expect(tx.getMeta().activity).toBeUndefined();
+    feed(ev({ type: 'turn.started', turnId: 1, origin: { kind: 'user' } }));
+    expect(tx.getMeta().activity).toBe('turn');
+    feed(ev({ type: 'turn.ended', turnId: 1, reason: 'completed' }));
+    expect(tx.getMeta().activity).toBe('idle');
+    feed(ev({ type: 'turn.started', turnId: 2, origin: { kind: 'user' } }));
+    expect(tx.getMeta().activity).toBe('turn');
+    feed(ev({ type: 'turn.ended', turnId: 2, reason: 'failed' }));
+    expect(tx.getMeta().activity).toBe('idle');
+  });
+
   it('maps cron / task origins onto the turn header', () => {
     const projector = new AgentTranscriptProjector('main');
     const tx = new AgentTranscript('main');
@@ -2032,36 +2453,186 @@ describe('bindSessionTranscript', () => {
     }
   }
 
+
+  class FakeInteractionKernel {
+    private readonly pending = new Map<string, Interaction>();
+    private readonly changeEmitter = new Emitter<InteractionPendingChangedEvent>();
+    private readonly resolveEmitter = new Emitter<InteractionResolution>();
+    readonly onDidChangePending = this.changeEmitter.event;
+    readonly onDidResolve = this.resolveEmitter.event;
+
+    request<TPayload, TResponse>(req: InteractionRequest<TPayload>): Promise<TResponse> {
+      return new Promise<TResponse>((resolve) => {
+        this.park(req, (response) => resolve(response as TResponse));
+      });
+    }
+
+    enqueue<TPayload>(req: InteractionRequest<TPayload>): Interaction {
+      return this.park(req, () => {});
+    }
+
+    respond(id: string, response: unknown): boolean {
+      if (!this.pending.delete(id)) return false;
+      this.changeEmitter.fire({ pending: [...this.pending.keys()] });
+      this.resolveEmitter.fire({ id, response });
+      return true;
+    }
+
+    listPending(kind?: InteractionKind): readonly Interaction[] {
+      const all = [...this.pending.values()];
+      return kind === undefined ? all : all.filter((i) => i.kind === kind);
+    }
+
+    isRecentlyResolved(): boolean {
+      return false;
+    }
+
+    cancelPendingForTurn(_turnId: number): void {}
+
+    private park<TPayload>(
+      req: InteractionRequest<TPayload>,
+      resolve: (response: unknown) => void,
+    ): Interaction {
+      void resolve;
+      const interaction: Interaction = {
+        id: req.id ?? `interaction-${this.pending.size}`,
+        kind: req.kind,
+        payload: req.payload,
+        origin: req.origin ?? {},
+        createdAt: Date.now(),
+      };
+      this.pending.set(interaction.id, interaction);
+      this.changeEmitter.fire({ pending: [...this.pending.keys()] });
+      return interaction;
+    }
+  }
+
+  class FakeInteractionHub {
+    private readonly entries = new Map<
+      string,
+      { context: AgentContext; kernel: FakeInteractionKernel }
+    >();
+    private readonly createEmitter = new Emitter<AgentContext>();
+    readonly onDidCreate = this.createEmitter.event;
+    readonly onDidClose = Event.None as Event<AgentContext>;
+
+    kernelFor(agentId: string): FakeInteractionKernel {
+      let entry = this.entries.get(agentId);
+      if (entry === undefined) {
+        const context = makeAgentScopeContext({
+          agentId,
+          agentScope: `agents/${agentId}`,
+          generation: 1,
+        }).agentContext;
+        entry = { context, kernel: new FakeInteractionKernel() };
+        this.entries.set(agentId, entry);
+      }
+      return entry.kernel;
+    }
+
+    enqueue(req: InteractionRequest<unknown>): Interaction {
+      return this.kernelFor(req.origin?.agentId ?? 'main').enqueue(req);
+    }
+
+    respond(id: string, response: unknown): void {
+      for (const entry of this.entries.values()) {
+        if (entry.kernel.respond(id, response)) return;
+      }
+    }
+
+    list(): AgentContext[] {
+      return [...this.entries.values()].map((entry) => entry.context);
+    }
+
+    get(agentId: string): AgentContext | undefined {
+      return this.entries.get(agentId)?.context;
+    }
+
+    resolve<Definition extends AgentRuntimeDefinition<any, any>>(
+      context: AgentContext,
+      definition: Definition,
+    ): RuntimeOf<Definition> {
+      if (definition !== AgentInteraction) throw new Error('unsupported runtime');
+      for (const entry of this.entries.values()) {
+        if (entry.context === context) return entry.kernel as RuntimeOf<Definition>;
+      }
+      throw new Error(`unknown agent ${context.agentId}`);
+    }
+
+    handleOf(): undefined {
+      return undefined;
+    }
+  }
+
   interface FakeAgentHandle {
     readonly id: string;
     readonly context: AgentContext;
     readonly bus: FakeBus;
+    readonly kernel: FakeInteractionKernel;
     readonly accessor: { get: (token: unknown) => unknown };
   }
 
   class FakeAgents {
     private readonly handles = new Map<string, FakeAgentHandle>();
+    private readonly kernels = new Map<
+      string,
+      { context: AgentContext; kernel: FakeInteractionKernel }
+    >();
     private readonly createHandlers = new Set<(context: AgentContext) => void>();
-    private readonly disposeHandlers = new Set<(context: AgentContext) => void>();
-    list(): FakeAgentHandle[] {
-      return [...this.handles.values()];
+    private readonly closeHandlers = new Set<(context: AgentContext) => void>();
+    list(): AgentContext[] {
+      const handleIds = new Set(this.handles.keys());
+      return [
+        ...[...this.handles.values()].map((handle) => handle.context),
+        ...[...this.kernels.entries()]
+          .filter(([id]) => !handleIds.has(id))
+          .map(([, entry]) => entry.context),
+      ];
     }
-    get(context: AgentContext): FakeAgentHandle | undefined {
-      return this.handles.get(context.agentId);
+    get(agentId: string): AgentContext | undefined {
+      return this.handles.get(agentId)?.context ?? this.kernels.get(agentId)?.context;
     }
-    findAgentHandle(agentId: string): FakeAgentHandle | undefined {
+    handleOf(agentId: string): FakeAgentHandle | undefined {
       return this.handles.get(agentId);
     }
     byId(id: string): FakeAgentHandle | undefined {
       return this.handles.get(id);
     }
+    kernelFor(id: string): FakeInteractionKernel {
+      const handle = this.handles.get(id);
+      if (handle !== undefined) return handle.kernel;
+      let entry = this.kernels.get(id);
+      if (entry === undefined) {
+        const context = makeAgentScopeContext({
+          agentId: id,
+          agentScope: `agents/${id}`,
+          generation: 1,
+        }).agentContext;
+        entry = { context, kernel: new FakeInteractionKernel() };
+        this.kernels.set(id, entry);
+      }
+      return entry.kernel;
+    }
+    resolve<Definition extends AgentRuntimeDefinition<any, any>>(
+      context: AgentContext,
+      definition: Definition,
+    ): RuntimeOf<Definition> {
+      if (definition !== AgentInteraction) throw new Error('unsupported runtime');
+      for (const handle of this.handles.values()) {
+        if (handle.context === context) return handle.kernel as RuntimeOf<Definition>;
+      }
+      for (const entry of this.kernels.values()) {
+        if (entry.context === context) return entry.kernel as RuntimeOf<Definition>;
+      }
+      throw new Error(`unknown agent ${context.agentId}`);
+    }
     onDidCreate(cb: (context: AgentContext) => void): { dispose: () => void } {
       this.createHandlers.add(cb);
       return { dispose: () => this.createHandlers.delete(cb) };
     }
-    onDidDispose(cb: (context: AgentContext) => void): { dispose: () => void } {
-      this.disposeHandlers.add(cb);
-      return { dispose: () => this.disposeHandlers.delete(cb) };
+    onDidClose(cb: (context: AgentContext) => void): { dispose: () => void } {
+      this.closeHandlers.add(cb);
+      return { dispose: () => this.closeHandlers.delete(cb) };
     }
     add(id: string, opts?: { loopStatus?: unknown; tasks?: readonly unknown[] }): FakeAgentHandle {
       const bus = new FakeBus();
@@ -2070,10 +2641,12 @@ describe('bindSessionTranscript', () => {
         agentScope: `agents/${id}`,
         generation: 1,
       });
+      const kernel = this.kernels.get(id)?.kernel ?? new FakeInteractionKernel();
       const handle: FakeAgentHandle = {
         id,
         context: scope.agentContext,
         bus,
+        kernel,
         accessor: {
           get: (token: unknown) => {
             if (token === IAgentScopeContext) return scope;
@@ -2096,29 +2669,16 @@ describe('bindSessionTranscript', () => {
       const removed = this.handles.get(id);
       this.handles.delete(id);
       if (removed !== undefined) {
-        for (const cb of this.disposeHandlers) cb(removed.context);
+        for (const cb of this.closeHandlers) cb(removed.context);
       }
     }
   }
 
-  function fakeSession(
-    interactions: SessionInteractionService,
-    agents?: FakeAgents,
-  ): ISessionScopeHandle {
+  function fakeSession(manager: FakeAgents | FakeInteractionHub): ISessionScopeHandle {
     return {
       accessor: {
         get: (token: unknown) => {
-          if (token === IAgentLifecycleService) {
-            return (
-              agents ?? {
-                list: () => [],
-                findAgentHandle: () => undefined,
-                onDidCreate: () => ({ dispose: () => undefined }),
-                onDidDispose: () => ({ dispose: () => undefined }),
-              }
-            );
-          }
-          if (token === ISessionInteractionService) return interactions;
+          if (token === IAgentLifecycleService) return manager;
           if (token === ISessionMetadata) return { read: async () => ({ agents: {} }) };
           return undefined;
         },
@@ -2127,7 +2687,7 @@ describe('bindSessionTranscript', () => {
   }
 
   it('registers pre-bind pendings without frames and replays an early resolve at seed time', () => {
-    const interactions = new SessionInteractionService(new TestSessionStateService());
+    const interactions = new FakeInteractionHub();
     interactions.enqueue({
       id: 'apr-1',
       kind: 'approval',
@@ -2159,7 +2719,7 @@ describe('bindSessionTranscript', () => {
     const store = new TranscriptStore('s1');
     const binding = bindSessionTranscript(
       store,
-      fakeSession(new SessionInteractionService(new TestSessionStateService()), agents),
+      fakeSession(agents),
     );
 
     const sub = agents.add('sub-1');
@@ -2195,7 +2755,7 @@ describe('bindSessionTranscript', () => {
     const store = new TranscriptStore('s1');
     const binding = bindSessionTranscript(
       store,
-      fakeSession(new SessionInteractionService(new TestSessionStateService()), agents),
+      fakeSession(agents),
     );
 
     expect(store.getAgent('main')?.getTask('task-9')).toMatchObject({
@@ -2258,11 +2818,11 @@ describe('bindSessionTranscript', () => {
     return home;
   }
 
-  function fakeCoreWithAgents(interactions: SessionInteractionService, agents: FakeAgents): Scope {
+  function fakeCoreWithAgents(agents: FakeAgents): Scope {
     const sessionLifecycle = {
       onDidCloseSession: () => ({ dispose: () => undefined }),
       onDidArchiveSession: () => ({ dispose: () => undefined }),
-      get: (sid: string) => (sid === 's1' ? fakeSession(interactions, agents) : undefined),
+      get: (sid: string) => (sid === 's1' ? fakeSession(agents) : undefined),
     };
     const handler = {
       id: 'ws',
@@ -2296,7 +2856,7 @@ describe('bindSessionTranscript', () => {
     const store = new TranscriptStore('s1');
     const binding = bindSessionTranscript(
       store,
-      fakeSession(new SessionInteractionService(new TestSessionStateService()), agents),
+      fakeSession(agents),
     );
 
     const sub = agents.add('sub-1');
@@ -2417,7 +2977,7 @@ describe('bindSessionTranscript', () => {
     const ops: TranscriptOperation[] = [];
     const binding = bindSessionTranscript(
       store,
-      fakeSession(new SessionInteractionService(new TestSessionStateService()), agents),
+      fakeSession(agents),
       undefined,
       (event) => ops.push(...event.ops),
     );
@@ -2471,7 +3031,7 @@ describe('bindSessionTranscript', () => {
   });
 
   it('seeds pending interactions per agent, not before that agent is backfilled', () => {
-    const interactions = new SessionInteractionService(new TestSessionStateService());
+    const interactions = new FakeInteractionHub();
     interactions.enqueue({ id: 'q-main', kind: 'question', payload: { toolCallId: 'call_main' }, origin: { agentId: 'main', turnId: 0 } });
     interactions.enqueue({ id: 'q-sub', kind: 'question', payload: { toolCallId: 'call_sub' }, origin: { agentId: 'sub-1', turnId: 0 } });
 
@@ -2490,7 +3050,7 @@ describe('bindSessionTranscript', () => {
   });
 
   it('defers pendings created before their owning agent is seeded', () => {
-    const interactions = new SessionInteractionService(new TestSessionStateService());
+    const interactions = new FakeInteractionHub();
     const store = new TranscriptStore('s1');
     const byAgent = new Map<string, TranscriptOperation[]>();
     const binding = bindSessionTranscript(store, fakeSession(interactions), undefined, (event) => {
@@ -2510,15 +3070,14 @@ describe('bindSessionTranscript', () => {
 
   it('announces pendings from live-created agents immediately (their projector is complete)', () => {
     const agents = new FakeAgents();
-    const interactions = new SessionInteractionService(new TestSessionStateService());
     const store = new TranscriptStore('s1');
     const byAgent = new Map<string, TranscriptOperation[]>();
-    const binding = bindSessionTranscript(store, fakeSession(interactions, agents), undefined, (event) => {
+    const binding = bindSessionTranscript(store, fakeSession(agents), undefined, (event) => {
       byAgent.set(event.agentId, [...(byAgent.get(event.agentId) ?? []), ...event.ops]);
     });
 
     agents.add('sub-1');
-    interactions.enqueue({ id: 'q1', kind: 'question', payload: { toolCallId: 'call_q1' }, origin: { agentId: 'sub-1', turnId: 0 } });
+    agents.kernelFor('sub-1').enqueue({ id: 'q1', kind: 'question', payload: { toolCallId: 'call_q1' }, origin: { agentId: 'sub-1', turnId: 0 } });
     expect([...byAgent.keys()]).toEqual(['sub-1']);
     binding.dispose();
   });
@@ -2572,11 +3131,10 @@ describe('bindSessionTranscript', () => {
 
   it('subscribes the bus for an agent whose projector was seeded before its handle existed', () => {
     const agents = new FakeAgents();
-    const interactions = new SessionInteractionService(new TestSessionStateService());
-    interactions.enqueue({ id: 'q-sub', kind: 'question', payload: { toolCallId: 'call_sub' }, origin: { agentId: 'sub-1', turnId: 0 } });
+    agents.kernelFor('sub-1').enqueue({ id: 'q-sub', kind: 'question', payload: { toolCallId: 'call_sub' }, origin: { agentId: 'sub-1', turnId: 0 } });
     const store = new TranscriptStore('s1');
     const byAgent = new Map<string, TranscriptOperation[]>();
-    const binding = bindSessionTranscript(store, fakeSession(interactions, agents), undefined, (event) => {
+    const binding = bindSessionTranscript(store, fakeSession(agents), undefined, (event) => {
       byAgent.set(event.agentId, [...(byAgent.get(event.agentId) ?? []), ...event.ops]);
     });
 
@@ -2596,7 +3154,7 @@ describe('bindSessionTranscript', () => {
       agents.add('main', { loopStatus: { state: 'running', activeTurnId: 0 } });
       const service = new TranscriptService({
         homeDir: home,
-        core: fakeCoreWithAgents(new SessionInteractionService(new TestSessionStateService()), agents),
+        core: fakeCoreWithAgents(agents),
       });
       const store = service.forSessionLive('s1');
       await service.whenReady('s1');
@@ -2617,7 +3175,7 @@ describe('bindSessionTranscript', () => {
       agents.add('main', { loopStatus: { state: 'running', activeTurnId: 0 } });
       const service = new TranscriptService({
         homeDir: home,
-        core: fakeCoreWithAgents(new SessionInteractionService(new TestSessionStateService()), agents),
+        core: fakeCoreWithAgents(agents),
       });
       const store = service.forSessionLive('s1');
       const bus = agents.byId('main')!.bus;
@@ -2659,7 +3217,7 @@ describe('bindSessionTranscript', () => {
       agents.add('main', { loopStatus: { state: 'running', activeTurnId: 0 } });
       const service = new TranscriptService({
         homeDir: home,
-        core: fakeCoreWithAgents(new SessionInteractionService(new TestSessionStateService()), agents),
+        core: fakeCoreWithAgents(agents),
       });
       const store = service.forSessionLive('s1');
       agents
@@ -2683,7 +3241,7 @@ describe('bindSessionTranscript', () => {
       agents.add('main', { loopStatus: { state: 'running', activeTurnId: 0 } });
       const service = new TranscriptService({
         homeDir: home,
-        core: fakeCoreWithAgents(new SessionInteractionService(new TestSessionStateService()), agents),
+        core: fakeCoreWithAgents(agents),
       });
       const store = service.forSessionLive('s1');
       agents.byId('main')!.bus.emit(
@@ -2718,7 +3276,7 @@ describe('bindSessionTranscript', () => {
       agents.add('main', { loopStatus: { state: 'idle' } });
       const service = new TranscriptService({
         homeDir: home,
-        core: fakeCoreWithAgents(new SessionInteractionService(new TestSessionStateService()), agents),
+        core: fakeCoreWithAgents(agents),
       });
       const store = service.forSessionLive('s1');
       const batches: TranscriptOperation[][] = [];
@@ -2773,7 +3331,7 @@ describe('bindSessionTranscript', () => {
       const main = agents.add('main');
       const service = new TranscriptService({
         homeDir: '/nonexistent-home',
-        core: fakeCoreWithAgents(new SessionInteractionService(new TestSessionStateService()), agents),
+        core: fakeCoreWithAgents(agents),
       });
       service.forSessionLive('s1');
       await service.whenReady('s1');
@@ -2814,7 +3372,7 @@ describe('bindSessionTranscript', () => {
       const main = agents.add('main');
       const service = new TranscriptService({
         homeDir: '/nonexistent-home',
-        core: fakeCoreWithAgents(new SessionInteractionService(new TestSessionStateService()), agents),
+        core: fakeCoreWithAgents(agents),
       });
       service.forSessionLive('s1');
       await service.whenReady('s1');

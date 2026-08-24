@@ -285,7 +285,6 @@ function makeAuth(opts: { ensureReadyError?: Error } = {}): IAuthSummaryService 
       ready: true,
       providers_count: 1,
       default_model: 'kimi-k2',
-      managed_provider: null,
     }),
     ensureReady: vi.fn().mockImplementation(async () => {
       if (opts.ensureReadyError) throw opts.ensureReadyError;

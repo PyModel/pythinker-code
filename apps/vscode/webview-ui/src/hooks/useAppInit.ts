@@ -34,7 +34,7 @@ export function resolveInitStatus(input: {
 }
 
 /**
- * Pure view router for App. The `no-models` status (a managed OAuth token
+ * Pure view router for App. The `no-models` status (an OAuth token
  * exists but config.toml has no models — e.g. a first login whose model
  * provisioning failed after the device flow already persisted the token)
  * must always keep a path back to the sign-in screen: Reload alone cannot

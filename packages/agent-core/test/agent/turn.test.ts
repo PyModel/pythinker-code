@@ -1829,7 +1829,7 @@ describe('Agent turn flow', () => {
       tokenCalls.push(options?.force);
       throw new PythinkerError(
         ErrorCodes.PROVIDER_CONNECTION_ERROR,
-        'OAuth provider "managed:pythinker-code" failed to fetch an access token: fetch failed',
+        'OAuth provider "oauth-example" failed to fetch an access token: fetch failed',
       );
     });
     const generate = vi.fn<GenerateFn>();
@@ -2969,7 +2969,7 @@ function oauthAgentOptions(
     initialConfig: {
       defaultModel: 'pythinker-code',
       providers: {
-        'managed:pythinker-code': {
+        'oauth-example': {
           type: 'vertexai',
           baseUrl: 'https://api.example/v1',
           oauth: { storage: 'file', key: 'oauth/pythinker-code' },
@@ -2977,7 +2977,7 @@ function oauthAgentOptions(
       },
       models: {
         'pythinker-code': {
-          provider: 'managed:pythinker-code',
+          provider: 'oauth-example',
           model: 'kimi-for-coding',
           maxContextSize: 1_000_000,
           capabilities: capabilities === undefined ? undefined : [...capabilities],

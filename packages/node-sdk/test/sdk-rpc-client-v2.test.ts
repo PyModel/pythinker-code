@@ -12,11 +12,6 @@ import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promis
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import {
-  FileTokenStorage,
-  resolvePythinkerCodeOAuthRef,
-  resolvePythinkerTokenStorageName,
-} from '@pymodel/pythinker-code-oauth';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -24,31 +19,34 @@ import {
   createPythinkerHarnessV2,
   ErrorCodes,
   isDaemonFileUrl,
+  isPythinkerError,
   PythinkerHarness,
   removeProviderFromConfig,
   SDKRpcClientV2,
-  type Event,
+  toPythinkerErrorPayload,
   type PythinkerConfig,
 } from '#/index';
 import { foldAgentWireReplay } from '#/v2/resume-replay';
 import {
   drainQueryStoreDisposals,
   drainSessionIndexMirror,
+  Error2,
   getLiveSessionById,
-  agentContextOf,
   HostProcessError,
+  AgentTodo,
   IAgentLifecycleService,
   IAgentTowerService,
   IHostRequestHeaders,
+  IMcpManagementService,
+  IMcpOAuthService,
   ISessionManager,
-  ISessionTodoService,
   OsProcessErrors,
 } from '@pymodel/agent-core-v2';
 
 import { McpOAuthService } from '../../agent-core/src/mcp/oauth/service';
+import { McpOAuthService as McpOAuthServiceV2 } from '@pymodel/agent-core-v2/mcpCore/oauth/service';
 
 import { TEST_IDENTITY } from './test-identity';
-import { startMcpAuthStatusServer } from './mcp-auth-status-server';
 import { recordingTelemetry, type TelemetryRecord } from './telemetry';
 
 const hostEnvProbe = vi.hoisted(() => ({ failWithMissingShell: false }));
@@ -134,10 +132,10 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
     }
   });
 
-  it('reports global MCP authorization from the persisted v2 credential store', async () => {
+  it('reports global MCP authorization without probing when verify is false', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-'));
     tempDirs.push(homeDir);
-    const statusServer = await startMcpAuthStatusServer();
+    const implicitOAuthUrl = 'https://implicit-oauth.example.test/mcp';
     const authorizedUrl = 'https://authorized.example.test/mcp';
     const requiredUrl = 'https://required.example.test/mcp';
     const externalOAuth = new McpOAuthService({ pythinkerHomeDir: homeDir });
@@ -145,17 +143,17 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
       .getProvider('oauth-authorized', authorizedUrl)
       .saveTokens({ access_token: 'test-access-token', token_type: 'Bearer' });
     await externalOAuth
-      .getProvider('sse', statusServer.oauthUrl)
+      .getProvider('sse', implicitOAuthUrl)
       .saveTokens({ access_token: 'stale-sse-token', token_type: 'Bearer' });
     await writeFile(
       join(homeDir, 'mcp.json'),
       JSON.stringify({
         mcpServers: {
           stdio: { command: 'local-command' },
-          plain: { transport: 'http', url: statusServer.plainUrl },
-          detected: { transport: 'http', url: statusServer.oauthUrl },
-          sse: { transport: 'sse', url: statusServer.oauthUrl },
-          'sse-oauth': { transport: 'sse', url: statusServer.oauthUrl, auth: 'oauth' },
+          plain: { transport: 'http', url: 'https://plain.example.test/mcp' },
+          detected: { transport: 'http', url: implicitOAuthUrl },
+          sse: { transport: 'sse', url: implicitOAuthUrl },
+          'sse-oauth': { transport: 'sse', url: implicitOAuthUrl, auth: 'oauth' },
           bearer: {
             transport: 'http',
             url: 'https://bearer.example.test/mcp',
@@ -178,10 +176,10 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
     const harness = createPythinkerHarnessV2({ homeDir, identity: TEST_IDENTITY });
 
     try {
-      await expect(harness.listMcpServerAuthStatuses()).resolves.toEqual([
+      await expect(harness.listMcpServerAuthStatuses({ verify: false })).resolves.toEqual([
         { name: 'stdio', authStatus: 'not-applicable' },
         { name: 'plain', authStatus: 'not-applicable' },
-        { name: 'detected', authStatus: 'oauth-required' },
+        { name: 'detected', authStatus: 'not-applicable' },
         { name: 'sse', authStatus: 'not-applicable' },
         { name: 'sse-oauth', authStatus: 'oauth-required' },
         { name: 'bearer', authStatus: 'bearer-token' },
@@ -194,10 +192,10 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
         .saveTokens({ access_token: 'new-test-access-token', token_type: 'Bearer' });
       await externalOAuth.invalidate('oauth-authorized', authorizedUrl, 'tokens');
 
-      await expect(harness.listMcpServerAuthStatuses()).resolves.toEqual([
+      await expect(harness.listMcpServerAuthStatuses({ verify: false })).resolves.toEqual([
         { name: 'stdio', authStatus: 'not-applicable' },
         { name: 'plain', authStatus: 'not-applicable' },
-        { name: 'detected', authStatus: 'oauth-required' },
+        { name: 'detected', authStatus: 'not-applicable' },
         { name: 'sse', authStatus: 'not-applicable' },
         { name: 'sse-oauth', authStatus: 'oauth-required' },
         { name: 'bearer', authStatus: 'bearer-token' },
@@ -206,9 +204,101 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
       ]);
     } finally {
       await harness.close();
-      await statusServer.close();
     }
   }, 15_000);
+
+  it('restates engine MCP management Error2s as PythinkerError, undeclared codes as internal', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-'));
+    tempDirs.push(homeDir);
+    const client = new SDKRpcClientV2({ homeDir, identity: TEST_IDENTITY });
+    try {
+      const management = client.engineAccessor.get(IMcpManagementService);
+      const listSpy = vi.spyOn(management, 'listServers');
+      const captureRejection = async (promise: Promise<unknown>): Promise<unknown> => {
+        try {
+          await promise;
+        } catch (error) {
+          return error;
+        }
+        return expect.unreachable('expected the call to reject');
+      };
+      try {
+        listSpy.mockRejectedValueOnce(
+          new Error2('mcp.oauth_failed', 'OAuth flow timed out', {
+            details: { flowId: 'flow-1' },
+          }),
+        );
+        const oauthError = await captureRejection(client.listGlobalMcpServers());
+        expect(isPythinkerError(oauthError)).toBe(true);
+        expect(oauthError).toMatchObject({
+          code: 'mcp.oauth_failed',
+          message: 'OAuth flow timed out',
+          details: { flowId: 'flow-1' },
+        });
+        expect(toPythinkerErrorPayload(oauthError)).toMatchObject({
+          code: 'mcp.oauth_failed',
+          message: 'OAuth flow timed out',
+        });
+
+        listSpy.mockRejectedValueOnce(new Error2('mcp.future_code' as never, 'from a newer engine'));
+        const unknownError = await captureRejection(client.listGlobalMcpServers());
+        expect(isPythinkerError(unknownError)).toBe(true);
+        expect(unknownError).toMatchObject({
+          code: ErrorCodes.INTERNAL,
+          message: 'from a newer engine',
+        });
+        expect(toPythinkerErrorPayload(unknownError)).toMatchObject({
+          code: ErrorCodes.INTERNAL,
+          message: 'from a newer engine',
+        });
+      } finally {
+        listSpy.mockRestore();
+      }
+    } finally {
+      await client.close();
+    }
+  });
+
+  it('close() awaits the MCP OAuth service shutdown', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-'));
+    tempDirs.push(homeDir);
+    const client = new SDKRpcClientV2({ homeDir, identity: TEST_IDENTITY });
+    client.engineAccessor.get(IMcpOAuthService);
+    let releaseShutdown: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      releaseShutdown = resolve;
+    });
+    const baseShutdown = McpOAuthServiceV2.prototype.shutdown;
+    const shutdownSpy = vi
+      .spyOn(McpOAuthServiceV2.prototype, 'shutdown')
+      .mockImplementation(function (this: McpOAuthServiceV2) {
+        return baseShutdown.call(this).then(() => gate);
+      });
+    try {
+      let closed = false;
+      const closePromise = client.close().then(() => {
+        closed = true;
+      });
+      await vi.waitFor(() => {
+        expect(shutdownSpy).toHaveBeenCalled();
+      });
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(closed).toBe(false);
+      releaseShutdown();
+      await closePromise;
+      expect(closed).toBe(true);
+    } finally {
+      releaseShutdown();
+      shutdownSpy.mockRestore();
+    }
+  });
+
+  it('close() resolves promptly when the MCP OAuth service was never used', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-'));
+    tempDirs.push(homeDir);
+    const client = new SDKRpcClientV2({ homeDir, identity: TEST_IDENTITY });
+    await expect(client.close()).resolves.toBeUndefined();
+  });
 
   it('seeds the host request headers (User-Agent, no device headers) into the engine', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-'));
@@ -309,234 +399,47 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
     }
   });
 
-  it('emits one complete metadata event when a generated title is applied', async () => {
+  it('reports title generation unavailable without emitting metadata', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-'));
     tempDirs.push(homeDir);
     const workDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-work-'));
     tempDirs.push(workDir);
-    const titleBaseUrl = 'https://api.example.test/coding/v1';
-    const titleOAuthRef = resolvePythinkerCodeOAuthRef({ baseUrl: titleBaseUrl });
-    // Storage names strip the `oauth/` prefix (FileTokenStorage rejects
-    // namespaced keys); the engine resolves the same name when reading.
-    await new FileTokenStorage(join(homeDir, 'credentials')).save(
-      resolvePythinkerTokenStorageName({ oauthKey: titleOAuthRef.key }),
-      {
-        accessToken: 'test-access-token',
-        refreshToken: 'test-refresh-token',
-        expiresAt: Math.floor(Date.now() / 1000) + 3600,
-        scope: '',
-        tokenType: 'Bearer',
-        expiresIn: 3600,
-      },
-    );
-    await writeFile(
-      join(homeDir, 'config.toml'),
-      `
-default_model = "stub"
-
-[experimental]
-auto_session_title = true
-
-[providers.stub]
-type = "openai"
-base_url = "https://model.example.test/v1"
-api_key = "stub"
-
-[models.stub]
-provider = "stub"
-model = "stub"
-max_context_size = 1000
-
-[providers."managed:pythinker-code"]
-type = "pythinker"
-base_url = "${titleBaseUrl}"
-
-[providers."managed:pythinker-code".oauth]
-storage = "file"
-key = "${titleOAuthRef.key}"
-`,
-      'utf-8',
-    );
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
-      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
-      if (url === 'https://api.example.test/coding/v1/tools') {
-        return new Response(JSON.stringify({ title: 'Generated title' }), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        });
-      }
-      throw new Error(`Unexpected fetch: ${url}`);
-    });
     const harness = createPythinkerHarnessV2({ homeDir, identity: TEST_IDENTITY });
 
     try {
       const session = await harness.createSession({ id: 'ses_generated_title_event', workDir });
-      await session.importContext(
-        'Generate a concise title for this session',
-        "session 'source-session'",
-      );
-      await expect(
-        harness.auth.getCachedAccessToken('managed:pythinker-code', {
-          storage: titleOAuthRef.storage,
-          key: titleOAuthRef.key,
-        }),
-      ).resolves.toBe('test-access-token');
-      await expect(session.getContext()).resolves.toMatchObject({
-        history: [
-          expect.objectContaining({
-            role: 'user',
-            origin: { kind: 'user' },
-          }),
-        ],
-      });
-      const events: Event[] = [];
+      let metadataUpdates = 0;
       const unsubscribe = session.onEvent((event) => {
-        if (event.type === 'session.meta.updated' && event.title === 'Generated title') {
-          events.push(event);
-        }
+        if (event.type === 'session.meta.updated') metadataUpdates += 1;
       });
 
-      await expect(harness.generateSessionTitle({ id: session.id })).resolves.toBe(
-        'Generated title',
-      );
+      await expect(
+        harness.generateSessionTitle({ id: session.id, force: true }),
+      ).resolves.toBeUndefined();
       unsubscribe();
-
-      expect(events).toEqual([
-        expect.objectContaining({
-          type: 'session.meta.updated',
-          sessionId: session.id,
-          agentId: 'main',
-          title: 'Generated title',
-          patch: { title: 'Generated title', isCustomTitle: false },
-        }),
-      ]);
+      expect(metadataUpdates).toBe(0);
     } finally {
       await harness.close();
-      fetchSpy.mockRestore();
     }
   });
 
-  it('serializes a temporary title-generation close against a public resume', async () => {
+  it('closes the temporary session when title generation is unavailable', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-'));
     tempDirs.push(homeDir);
     const workDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-work-'));
     tempDirs.push(workDir);
-    const titleBaseUrl = 'https://api.example.test/coding/v1';
-    const titleOAuthRef = resolvePythinkerCodeOAuthRef({ baseUrl: titleBaseUrl });
-    await new FileTokenStorage(join(homeDir, 'credentials')).save(
-      resolvePythinkerTokenStorageName({ oauthKey: titleOAuthRef.key }),
-      {
-        accessToken: 'test-access-token',
-        refreshToken: 'test-refresh-token',
-        expiresAt: Math.floor(Date.now() / 1000) + 3600,
-        scope: '',
-        tokenType: 'Bearer',
-        expiresIn: 3600,
-      },
-    );
-    await writeFile(
-      join(homeDir, 'config.toml'),
-      `
-default_model = "stub"
-
-[experimental]
-auto_session_title = true
-
-[providers.stub]
-type = "openai"
-base_url = "https://model.example.test/v1"
-api_key = "stub"
-
-[models.stub]
-provider = "stub"
-model = "stub"
-max_context_size = 1000
-
-[providers."managed:pythinker-code"]
-type = "pythinker"
-base_url = "${titleBaseUrl}"
-
-[providers."managed:pythinker-code".oauth]
-storage = "file"
-key = "${titleOAuthRef.key}"
-`,
-      'utf-8',
-    );
-    let markFetchStarted!: () => void;
-    let resolveFetch!: (response: Response) => void;
-    const fetchStarted = new Promise<void>((resolve) => {
-      markFetchStarted = resolve;
-    });
-    const fetchResponse = new Promise<Response>((resolve) => {
-      resolveFetch = resolve;
-    });
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
-      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
-      if (url === 'https://api.example.test/coding/v1/tools') {
-        markFetchStarted();
-        return fetchResponse;
-      }
-      throw new Error(`Unexpected fetch: ${url}`);
-    });
     const client = new SDKRpcClientV2({ homeDir, identity: TEST_IDENTITY });
 
     try {
       await client.createSession({ id: 'ses_title_race', workDir });
-      await client.importContext({
-        sessionId: 'ses_title_race',
-        content: 'Generate a concise title for this session',
-        source: "session 'source-session'",
-      });
       await client.closeSession({ sessionId: 'ses_title_race' });
+      await expect(
+        client.generateSessionTitle({ id: 'ses_title_race', force: true }),
+      ).resolves.toBeUndefined();
+      expect(client.engineAccessor.get(ISessionManager).get('ses_title_race')).toBeUndefined();
 
-      // The cold session is temporarily resumed for generation; block its
-      // cleanup close inside the will-close hooks so the public resume below
-      // lands while the close is still in flight.
-      const titlePromise = client.generateSessionTitle({ id: 'ses_title_race' });
-      await fetchStarted;
-      const sessionManager = client.engineAccessor.get(ISessionManager);
-      const tempHandle = sessionManager.get('ses_title_race');
-      expect(tempHandle).toBeDefined();
-      let markCloseStarted!: () => void;
-      let openCloseGate!: () => void;
-      const closeStarted = new Promise<void>((resolve) => {
-        markCloseStarted = resolve;
-      });
-      const closeGate = new Promise<void>((resolve) => {
-        openCloseGate = resolve;
-      });
-      sessionManager.onWillCloseSession!((event) => {
-        if (event.sessionId !== 'ses_title_race') return;
-        markCloseStarted();
-        event.waitUntil(closeGate);
-      });
-
-      resolveFetch(
-        new Response(JSON.stringify({ title: 'Generated title' }), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        }),
-      );
-      await closeStarted;
-
-      // The resume must queue behind the in-flight close instead of merging
-      // into the handle that is being torn down.
-      const order: string[] = [];
-      const resumePromise = client.resumeSession({ id: 'ses_title_race' }).then((summary) => {
-        order.push('resumed');
-        return summary;
-      });
-      await new Promise((resolve) => setTimeout(resolve, 0));
-      expect(order).toEqual([]);
-
-      openCloseGate();
-      await expect(titlePromise).resolves.toBe('Generated title');
-      const summary = await resumePromise;
+      const summary = await client.resumeSession({ id: 'ses_title_race' });
       expect(summary.id).toBe('ses_title_race');
-      expect(order).toEqual(['resumed']);
-
-      // The resumed session is a fresh, fully usable scope — not the handle
-      // the temporary path just tore down.
       await client.renameSession({ id: 'ses_title_race', title: 'Resumed title' });
       await expect
         .poll(
@@ -548,7 +451,6 @@ key = "${titleOAuthRef.key}"
         .toBe('Resumed title');
     } finally {
       await client.close();
-      fetchSpy.mockRestore();
     }
   });
 
@@ -893,8 +795,10 @@ key = "${titleOAuthRef.key}"
 
       const handle = getLiveSessionById(client.engineAccessor, 'ses_todos');
       expect(handle).toBeDefined();
-      const main = await handle!.accessor.get(IAgentLifecycleService).create({ agentId: 'main' });
-      await handle!.accessor.get(ISessionTodoService).setTodos(agentContextOf(main), [
+      const manager = handle!.accessor.get(IAgentLifecycleService);
+      const main = await manager.create({ agentId: 'main' });
+      const todo = manager.resolve(main, AgentTodo);
+      await todo.replace([
         { title: 'write tests', status: 'in_progress' },
         { title: 'ship it', status: 'pending' },
       ]);
@@ -905,9 +809,7 @@ key = "${titleOAuthRef.key}"
       ]);
 
       const served = await client.getTodos({ sessionId: 'ses_todos' });
-      const stored = await handle!
-        .accessor.get(ISessionTodoService)
-        .getTodos(agentContextOf(main));
+      const stored = todo.get();
       expect(served).not.toBe(stored);
       expect(served[0]).not.toBe(stored[0]);
       await expect(client.getTodos({ sessionId: 'ses_missing' })).rejects.toMatchObject({
@@ -931,7 +833,7 @@ key = "${titleOAuthRef.key}"
 
       const handle = getLiveSessionById(client.engineAccessor, 'ses_tower');
       expect(handle).toBeDefined();
-      const main = handle!.accessor.get(IAgentLifecycleService).findAgentHandle('main');
+      const main = handle!.accessor.get(IAgentLifecycleService).handleOf('main');
       expect(main).toBeDefined();
       const tower = main!.accessor.get(IAgentTowerService);
 

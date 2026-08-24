@@ -42,7 +42,7 @@ export interface MentionMenuDeps {
   insertSkill?: (name: string) => void;
 }
 
-interface MentionToken {
+export interface MentionToken {
   token: string;
   start: number;
   end: number;
@@ -136,6 +136,15 @@ export function useMentionMenu(deps: MentionMenuDeps) {
     }, 200);
   }
 
+  function close(): void {
+    if (timer !== null) clearTimeout(timer);
+    timer = null;
+    searchId++;
+    open.value = false;
+    loading.value = false;
+    stale.value = false;
+  }
+
   function select(item: MentionItem): void {
     const mt = getMentionToken();
     if (!mt) return;
@@ -164,5 +173,5 @@ export function useMentionMenu(deps: MentionMenuDeps) {
     });
   }
 
-  return { open, items, active, loading, stale, update, select };
+  return { open, items, active, loading, stale, update, select, close, getMentionToken };
 }

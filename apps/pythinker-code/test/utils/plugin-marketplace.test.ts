@@ -68,12 +68,12 @@ describe('loadPluginMarketplace', () => {
         version: '1',
         plugins: [
           {
-            id: 'pythinker-datasource',
+            id: 'example-data',
             tier: 'official',
-            displayName: 'Pythinker Datasource',
+            displayName: 'Example Data',
             version: '1.0.0',
             description: 'Datasource tools',
-            source: './pythinker-datasource',
+            source: './example-data',
             keywords: ['data'],
           },
           {
@@ -100,12 +100,12 @@ describe('loadPluginMarketplace', () => {
     expect(marketplace.version).toBe('1');
     expect(marketplace.plugins.slice(0, 2)).toEqual([
       {
-        id: 'pythinker-datasource',
-        displayName: 'Pythinker Datasource',
+        id: 'example-data',
+        displayName: 'Example Data',
         tier: 'official',
         version: '1.0.0',
         description: 'Datasource tools',
-        source: join(dir, 'pythinker-datasource'),
+        source: join(dir, 'example-data'),
         keywords: ['data'],
         homepage: undefined,
       },
@@ -218,13 +218,6 @@ describe('loadPluginMarketplace', () => {
         version: '6.0.3',
       }),
     );
-    expect(marketplace.plugins).toContainEqual(
-      expect.objectContaining({
-        id: 'pythinker-datasource',
-        tier: 'official',
-        source: join(REPO_ROOT, 'plugins/official/pythinker-datasource'),
-      }),
-    );
   });
 
   it('loads an explicitly configured remote marketplace with injectable fetch', async () => {
@@ -236,9 +229,9 @@ describe('loadPluginMarketplace', () => {
         JSON.stringify({
           plugins: [
             {
-              id: 'pythinker-datasource',
-              displayName: 'Pythinker Datasource',
-              source: './official/pythinker-datasource.zip',
+              id: 'example-data',
+              displayName: 'Example Data',
+              source: './official/example-data.zip',
             },
           ],
         }),
@@ -253,10 +246,10 @@ describe('loadPluginMarketplace', () => {
     expect(fetchImpl).toHaveBeenCalledWith(source);
     expect(marketplace.plugins[0]).toEqual(
       expect.objectContaining({
-        id: 'pythinker-datasource',
-        displayName: 'Pythinker Datasource',
+        id: 'example-data',
+        displayName: 'Example Data',
         source: new URL(
-          './official/pythinker-datasource.zip',
+          './official/example-data.zip',
           source,
         ).toString(),
       }),

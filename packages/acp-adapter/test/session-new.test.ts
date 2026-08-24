@@ -99,7 +99,7 @@ describe('AcpServer session/new', () => {
 
     let server: AcpServer | undefined;
     new AgentSideConnection((c) => {
-      server = new AcpServer(harness, c);
+      server = new AcpServer(harness, c, { disableAuth: true });
       return server;
     }, agentStream);
     const client = new ClientSideConnection((_a) => new StubClient(), clientStream);
@@ -141,7 +141,7 @@ describe('AcpServer session/new', () => {
     } as unknown as PythinkerHarness;
 
     const { agentStream, clientStream } = makeInMemoryStreamPair();
-    new AgentSideConnection((c) => new AcpServer(harness, c), agentStream);
+    new AgentSideConnection((c) => new AcpServer(harness, c, { disableAuth: true }), agentStream);
     const client = new ClientSideConnection((_a) => new StubClient(), clientStream);
 
     const first = await client.newSession({ cwd: '/tmp/a', mcpServers: [] });
@@ -162,7 +162,7 @@ describe('AcpServer session/new', () => {
     const { harness } = makeHarness('sess-modes', captured);
     const { agentStream, clientStream } = makeInMemoryStreamPair();
 
-    new AgentSideConnection((c) => new AcpServer(harness, c), agentStream);
+    new AgentSideConnection((c) => new AcpServer(harness, c, { disableAuth: true }), agentStream);
     const client = new ClientSideConnection((_a) => new StubClient(), clientStream);
 
     const response = await client.newSession({ cwd: '/tmp/work', mcpServers: [] });
@@ -226,7 +226,7 @@ describe('AcpServer session/new', () => {
     const { harness } = makeHarness('sess-thinking-high', captured, 'high');
     const { agentStream, clientStream } = makeInMemoryStreamPair();
 
-    void new AgentSideConnection((c) => new AcpServer(harness, c), agentStream);
+    void new AgentSideConnection((c) => new AcpServer(harness, c, { disableAuth: true }), agentStream);
     const client = new ClientSideConnection((_a) => new StubClient(), clientStream);
 
     const response = await client.newSession({ cwd: '/tmp/work', mcpServers: [] });
@@ -261,7 +261,7 @@ describe('AcpServer session/new', () => {
       );
       const { agentStream, clientStream } = makeInMemoryStreamPair();
 
-      void new AgentSideConnection((c) => new AcpServer(harness, c), agentStream);
+      void new AgentSideConnection((c) => new AcpServer(harness, c, { disableAuth: true }), agentStream);
       const client = new ClientSideConnection((_a) => new StubClient(), clientStream);
 
       const response = await client.newSession({ cwd: '/tmp/work', mcpServers: [] });

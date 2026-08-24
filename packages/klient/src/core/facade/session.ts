@@ -15,7 +15,7 @@ import type {
 import type {
   Interaction,
   InteractionKind,
-} from '@pymodel/agent-core-v2/session/interaction/interaction';
+} from '@pymodel/agent-core-v2/features/interaction/interaction';
 import type {
   QuestionRequest,
   QuestionResult,
@@ -25,7 +25,7 @@ import type {
   SessionMeta,
   SessionMetaPatch,
 } from '@pymodel/agent-core-v2/session/sessionMetadata/sessionMetadata';
-import type { SkillSummary } from '@pymodel/agent-core-v2/app/skillCatalog/types';
+import type { SkillSummary } from '@pymodel/agent-core-v2/features/skill/catalog/types';
 
 import type { ScopeRef } from '../channel.js';
 import type { McpServerConfig } from '../../contract/mcp.js';
@@ -86,9 +86,8 @@ export interface SessionFacade {
   get(): Promise<SessionMeta>;
   setTitle(title: string): Promise<void>;
   /**
-   * Generate and apply a title from the main agent's first prompts via the
-   * managed `chat_title` tool. `undefined` when generation is unavailable
-   * (no managed OAuth login, no prompt yet, or a custom title is set).
+   * Request a generated title from the main agent's first prompts.
+   * Returns `undefined` when no title-generation backend is available.
    * `force` regenerates anyway, overwriting a generated or custom title.
    * `source` picks the conversation excerpt: `user_prompts` (default),
    * `first_turn` (opening prompt + first reply; strict), or `digest`

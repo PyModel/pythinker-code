@@ -26,15 +26,6 @@ export const setDefaultModelResponseSchema = z.object({
 });
 export type SetDefaultModelResponse = z.infer<typeof setDefaultModelResponseSchema>;
 
-export const refreshOAuthProviderModelsResponseSchema = z.object({
-  changed: z.array(providerRefreshChangeSchema),
-  unchanged: z.array(z.string().min(1)),
-  failed: z.array(providerRefreshFailureSchema),
-});
-export type RefreshOAuthProviderModelsResponse = z.infer<
-  typeof refreshOAuthProviderModelsResponseSchema
->;
-
 export const refreshProviderModelsResponseSchema = z.object({
   changed: z.array(providerRefreshChangeSchema),
   unchanged: z.array(z.string().min(1)),

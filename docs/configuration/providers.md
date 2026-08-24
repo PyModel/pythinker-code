@@ -1,6 +1,6 @@
 # Providers and models
 
-Pythinker Code CLI supports connecting to multiple LLM platforms simultaneously — one-click login via the Pythinker Code managed service, connecting Claude with an Anthropic API key, or connecting third-party inference services via the OpenAI-compatible protocol. Each provider corresponds to a specific API protocol; models are declared on top of providers with their own name, context length, and capabilities. This page explains how to configure each type of provider in `config.toml`.
+Pythinker Code CLI supports connecting to multiple LLM platforms simultaneously through API keys or provider-specific authentication. Each provider corresponds to a protocol; models are declared on top of providers with their own name, context length, and capabilities. This page explains how to configure each type of provider in `config.toml`.
 
 ## Supported provider types
 
@@ -8,7 +8,7 @@ The `type` field in the `providers` table determines which protocol implementati
 
 | Type | Protocol | Typical use |
 | --- | --- | --- |
-| `pythinker` | OpenAI-compatible | Pythinker Code managed service, Kimi Platform API key |
+| `pythinker` | OpenAI-compatible | PyModel and Kimi API keys |
 | `anthropic` | Anthropic Messages | Claude model family |
 | `openai` | OpenAI Chat Completions | OpenAI and compatible services, DeepSeek, Qwen, etc. |
 | `openai_responses` | OpenAI Responses API | OpenAI's newer Responses interface |
@@ -34,15 +34,11 @@ Two paths when adding:
 - **Known third-party provider**: fetches the model catalog from [models.dev](https://models.dev/), select a provider → enter an API key → select a default model. Vendors whose protocol the catalog does not declare (e.g. xai, openrouter, and other vendor-specific SDKs) are imported as OpenAI-compatible with a "guessed" note; when the catalog provides no usable endpoint, a base URL prompt appears first; proprietary protocols (Amazon Bedrock, Cohere) and unrecognized explicit protocols are refused. Deprecated and alpha-status models are excluded from the import list. If the public catalog is unreachable, the CLI falls back to a built-in snapshot of the catalog, so the import still works offline or in blocked networks
 - **Custom registry (api.json)**: paste a custom registry URL and Bearer token; the CLI automatically creates the `providers` / `models` entries. On later startup, providers from the same registry URL are refreshed together, so upstream provider additions, removals, and model metadata changes are synced.
 
-::: warning
-Pythinker Code OAuth managed accounts logged in via `/login` do not appear in `/provider`. Use `/login` and `/logout` to manage them.
-:::
-
 The same operations are also available in non-interactive environments via the shell command: [`pythinker provider`](../reference/pythinker-command.md#pythinker-provider).
 
 ## `pythinker`
 
-For connecting to PyModel's OpenAI-compatible interface, including the Pythinker Code managed service and Kimi Platform API keys.
+For connecting to PyModel's OpenAI-compatible interface and Kimi Platform with an API key.
 
 - Default `base_url`: `https://api.moonshot.ai/v1`
 - Credential key names: `PYTHINKER_API_KEY`, `PYTHINKER_BASE_URL`
@@ -54,8 +50,6 @@ type = "pythinker"
 base_url = "https://api.moonshot.ai/v1"
 api_key = "sk-xxxxx"
 ```
-
-> When using the Pythinker Code managed service, running `/login` automatically configures `base_url` and credentials — no manual setup needed.
 
 ## `anthropic`
 
@@ -151,10 +145,6 @@ pythinker
 ```
 
 To route Vertex requests through a custom (e.g. proxied) endpoint, set `base_url` (or the `GOOGLE_VERTEX_BASE_URL` env var); when omitted, the SDK default regional `*-aiplatform.googleapis.com` host is used. As with `google-genai`, give the host root only — the SDK appends `/v1beta1/publishers/google/models/…` itself.
-
-## OAuth and credential injection
-
-The Pythinker Code managed service uses OAuth rather than static API keys. After running `/login`, the built-in authentication toolchain automatically writes and refreshes credentials — no manual configuration is needed in `config.toml` for this.
 
 ## Next steps
 

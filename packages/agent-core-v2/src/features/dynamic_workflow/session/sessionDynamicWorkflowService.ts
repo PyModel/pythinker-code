@@ -82,7 +82,7 @@ export class SessionDynamicWorkflowService implements ISessionDynamicWorkflowSer
       resume: (agentId, options) => this.resumeAttempt(callerAgentId, agentId, options, false),
       retry: (agentId, options) => this.resumeAttempt(callerAgentId, agentId, options, true),
       suspended: (event) => {
-        const caller = this.lifecycle.findAgentHandle(callerAgentId);
+        const caller = this.lifecycle.handleOf(callerAgentId);
         void caller?.accessor.get(IEventDispatcher)?.dispatch(
           new SubagentSuspended({
             subagentId: event.agentId,
@@ -197,7 +197,7 @@ export class SessionDynamicWorkflowService implements ISessionDynamicWorkflowSer
   }
 
   private requireHandle(agentId: string, label: string): IAgentScopeHandle {
-    const handle = this.lifecycle.findAgentHandle(agentId);
+    const handle = this.lifecycle.handleOf(agentId);
     if (handle === undefined) {
       throw new Error2(ErrorCodes.AGENT_NOT_FOUND, `${label} "${agentId}" does not exist`, {
         details: { agentId },

@@ -1,6 +1,8 @@
 import { APIProviderQuotaExhaustedError, APIStatusError } from '@pymodel/kosong';
 import { describe, expect, it } from 'vitest';
 
+import { PythinkerError } from '#/errors/classes';
+import { ErrorCodes, isPythinkerErrorCode, PYTHINKER_ERROR_INFO } from '#/errors/codes';
 import { toPythinkerErrorPayload } from '#/errors/serialize';
 
 const NGINX_413_HTML =
@@ -64,5 +66,33 @@ describe('toPythinkerErrorPayload — quota-exhausted 429', () => {
     expect(payload.retryable).toBe(false);
     expect(payload.message).toContain('recharge');
     expect(payload.details).toMatchObject({ statusCode: 429, requestId: 'req-quota' });
+  });
+});
+
+describe('toPythinkerErrorPayload — mcp.oauth_failed registry entry', () => {
+  it('serializes a PythinkerError stamped with the engine OAuth failure code', () => {
+    // The v2 engine raises `mcp.oauth_failed` from its MCP OAuth service; an
+    // unregistered code would throw on the PYTHINKER_ERROR_INFO lookup here.
+    const payload = toPythinkerErrorPayload(
+      new PythinkerError(ErrorCodes.MCP_OAUTH_FAILED, 'OAuth flow timed out'),
+    );
+    expect(payload).toMatchObject({
+      code: 'mcp.oauth_failed',
+      message: 'OAuth flow timed out',
+      retryable: PYTHINKER_ERROR_INFO['mcp.oauth_failed'].retryable,
+    });
+  });
+});
+
+describe('isPythinkerErrorCode', () => {
+  it('accepts registered codes and rejects unknown or inherited property names', () => {
+    expect(isPythinkerErrorCode('mcp.oauth_failed')).toBe(true);
+    expect(isPythinkerErrorCode('mcp.future_code')).toBe(false);
+    // `in` would walk the prototype chain and admit these.
+    expect(isPythinkerErrorCode('constructor')).toBe(false);
+    expect(isPythinkerErrorCode('toString')).toBe(false);
+    expect(isPythinkerErrorCode('__proto__')).toBe(false);
+    expect(isPythinkerErrorCode(undefined)).toBe(false);
+    expect(isPythinkerErrorCode(42)).toBe(false);
   });
 });

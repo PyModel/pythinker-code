@@ -3,7 +3,7 @@ import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Error2 } from '#/_base/errors/errors';
 
-import { IOAuthService } from '#/app/auth/auth';
+import { IOAuthTokenService } from '#/app/auth/auth';
 import { AuthErrors } from '#/app/auth/errors';
 import { nonEmpty } from '#/kosong/model/modelAuth';
 import { IModelOAuthTokens } from '#/kosong/model/modelOAuth';
@@ -12,7 +12,7 @@ import type { OAuthRef } from '#/kosong/provider/provider';
 export class ModelOAuthTokenAdapter implements IModelOAuthTokens {
   declare readonly _serviceBrand: undefined;
 
-  constructor(@IOAuthService private readonly oauth: IOAuthService) {}
+  constructor(@IOAuthTokenService private readonly oauth: IOAuthTokenService) {}
 
   async hasCachedAccessToken(provider: string, oauthRef: OAuthRef): Promise<boolean> {
     try {
@@ -41,12 +41,12 @@ export class ModelOAuthTokenAdapter implements IModelOAuthTokens {
 function loginRequired(providerKey: string): Error2 {
   return new Error2(
     AuthErrors.codes.AUTH_LOGIN_REQUIRED,
-    `OAuth provider "${providerKey}" requires login before it can be used.`,
+    `OAuth provider "${providerKey}" has no usable stored credential.`,
   );
 }
 
 registerScopedService(
-LifecycleScope.App,
+  LifecycleScope.App,
   IModelOAuthTokens,
   ModelOAuthTokenAdapter,
   ScopeActivation.OnScopeCreated,
