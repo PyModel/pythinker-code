@@ -634,7 +634,7 @@ export class SessionEventBroadcaster {
     if (summary === undefined) return undefined;
     const journal = await SessionEventJournal.open(
       this.opts.eventsDir,
-      sessionId,
+      summary.id,
       this.opts.logger,
     );
     const watermark = { seq: journal.seq, epoch: journal.epoch };

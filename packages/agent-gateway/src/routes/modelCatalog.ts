@@ -262,7 +262,7 @@ export function registerModelCatalogRoutes(app: ModelCatalogRouteHost, core: Sco
         if (req.body.default_model !== undefined) {
           provider.defaultModel = `${id}/${req.body.default_model}`;
         }
-        await config.set(PROVIDERS_SECTION, { [id]: provider });
+        await config.set(PROVIDERS_SECTION, Object.fromEntries([[id, provider]]));
 
         const aliases: Array<readonly [string, ModelRecord]> = [];
         for (const entry of req.body.models) {
