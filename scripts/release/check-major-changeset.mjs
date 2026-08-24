@@ -258,13 +258,13 @@ function main() {
 
   console.error('check-major-changeset: FAILED');
   console.error('');
-  console.error('This pull request adds a major changeset:');
+  console.error('This pull request declares a major changeset:');
   for (const path of result.majors) console.error(`  - ${path}`);
   console.error('');
   console.error('A major bump is a product decision, not a mechanical one: it renames the');
-  console.error('release, breaks every pinned consumer, and cannot be walked back once');
-  console.error('published. Either lower the bump to minor or patch, or have a maintainer');
-  console.error(`add the "${APPROVAL_LABEL}" label to confirm the break is intended.`);
+  console.error('release, breaks every consumer who upgrades to it, and cannot be walked');
+  console.error('back once published. Either lower the bump to minor or patch, or have a');
+  console.error(`maintainer add the "${APPROVAL_LABEL}" label to confirm the break is intended.`);
   process.exit(1);
 }
 
