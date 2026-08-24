@@ -2,7 +2,6 @@ import { mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } from 'node
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { PYTHINKER_CODE_PROVIDER_NAME } from '@pymodel/pythinker-code-oauth';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LifecycleScope } from '#/app/scopes';
 import {
@@ -14,7 +13,7 @@ import { createScopedTestHost, stubPair, type ScopedTestHost } from '#/_base/di/
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IPluginService } from '#/app/plugin/plugin';
 import { PluginService } from '#/app/plugin/pluginService';
-import { IProviderService, type ProviderConfig } from '#/kosong/provider/provider';
+import { IProviderService } from '#/kosong/provider/provider';
 import { ISkillDiscovery } from '#/app/skillCatalog/skillDiscovery';
 import * as pluginStore from '#/app/plugin/store';
 import type { InstalledFile } from '#/app/plugin/store';
@@ -182,6 +181,8 @@ describe('PluginService (plugin boundary)', () => {
     try {
       const svc = host.app.accessor.get(IPluginService);
       await expect(svc.enabledMcpServers()).resolves.toEqual({});
+      const failure = await svc.mcpServerEntries().catch((error: unknown) => error);
+      expect(failure).toMatchObject({ code: 'plugin.load_failed' });
     } finally {
       host.dispose();
     }
@@ -233,7 +234,7 @@ describe('PluginService (plugin boundary)', () => {
       createdDirs.push(pluginRoot);
       await writeInstalledFile(home, JSON.stringify(installedFile('recovery-demo', pluginRoot)));
       const reloads: ReloadSummary[] = [];
-      svc.onDidReload((summary) => reloads.push(summary));
+      svc.onDidReload(({ added, removed, errors }) => reloads.push({ added, removed, errors }));
 
       await expect(svc.reloadPlugins()).resolves.toEqual({
         added: ['recovery-demo'],
@@ -258,7 +259,7 @@ describe('PluginService (plugin boundary)', () => {
     try {
       const svc = host.app.accessor.get(IPluginService);
       const reloads: ReloadSummary[] = [];
-      svc.onDidReload((summary) => reloads.push(summary));
+      svc.onDidReload(({ added, removed, errors }) => reloads.push({ added, removed, errors }));
 
       await svc.installPlugin({ source: pluginRoot });
       await svc.setPluginEnabled({ id: 'notify-demo', enabled: false });
@@ -297,6 +298,73 @@ describe('PluginService (plugin boundary)', () => {
 
       await svc.reloadPlugins();
       expect(mutations).toHaveLength(4);
+    } finally {
+      host.dispose();
+    }
+  });
+
+  it('resolves a mutation only after reload listeners settle their waitUntil work', async () => {
+    const home = await makeHome();
+    const pluginRoot = await makePluginDir('barrier-demo', {});
+    createdDirs.push(pluginRoot);
+    await writeInstalledFile(home, JSON.stringify(installedFile('barrier-demo', pluginRoot)));
+    const host = makeHost(home);
+    try {
+      const svc = host.app.accessor.get(IPluginService);
+      await expect(svc.listPlugins()).resolves.toHaveLength(1);
+
+      const listenerCalled = deferred<void>();
+      const reconcileGate = deferred<void>();
+      let reconciled = false;
+      svc.onDidReload((event) => {
+        listenerCalled.resolve(undefined);
+        event.waitUntil(
+          reconcileGate.promise.then(() => {
+            reconciled = true;
+          }),
+        );
+      });
+
+      const mutation = svc.setPluginEnabled({ id: 'barrier-demo', enabled: false });
+      let mutationSettled = false;
+      void mutation.then(() => {
+        mutationSettled = true;
+      });
+      await listenerCalled.promise;
+      for (let i = 0; i < 5; i++) await Promise.resolve();
+      expect(mutationSettled).toBe(false);
+
+      reconcileGate.resolve(undefined);
+      await mutation;
+      expect(reconciled).toBe(true);
+      await expect(svc.listPlugins()).resolves.toEqual([
+        expect.objectContaining({ id: 'barrier-demo', enabled: false }),
+      ]);
+    } finally {
+      host.dispose();
+    }
+  });
+
+  it('does not reject a mutation when a reload listener waitUntil promise rejects', async () => {
+    const home = await makeHome();
+    const pluginRoot = await makePluginDir('tolerant-demo', {});
+    createdDirs.push(pluginRoot);
+    await writeInstalledFile(home, JSON.stringify(installedFile('tolerant-demo', pluginRoot)));
+    const host = makeHost(home);
+    try {
+      const svc = host.app.accessor.get(IPluginService);
+      await expect(svc.listPlugins()).resolves.toHaveLength(1);
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      svc.onDidReload((event) => {
+        event.waitUntil(Promise.reject(new Error('workspace reconcile failed')));
+      });
+
+      await expect(
+        svc.setPluginEnabled({ id: 'tolerant-demo', enabled: false }),
+      ).resolves.toBeUndefined();
+      await expect(svc.listPlugins()).resolves.toEqual([
+        expect.objectContaining({ id: 'tolerant-demo', enabled: false }),
+      ]);
     } finally {
       host.dispose();
     }
@@ -491,7 +559,7 @@ describe('PluginService (plugin boundary)', () => {
     try {
       const svc = host.app.accessor.get(IPluginService);
       const reloads: ReloadSummary[] = [];
-      svc.onDidReload((summary) => reloads.push(summary));
+      svc.onDidReload(({ added, removed, errors }) => reloads.push({ added, removed, errors }));
 
       const firstList = svc.listPlugins();
       await firstReadStarted.promise;
@@ -555,7 +623,7 @@ describe('PluginService (plugin boundary)', () => {
     }
   });
 
-  it('does not inject managed env when neither env nor the pythinker provider supplies it', async () => {
+  it('returns MCP server entries with plugin provenance and persisted enablement', async () => {
     const home = await makeHome();
     await writeValidInstalledFile(home);
     const host = makeHost(home);
@@ -566,12 +634,21 @@ describe('PluginService (plugin boundary)', () => {
       });
       createdDirs.push(pluginRoot);
       await svc.installPlugin({ source: pluginRoot });
+      await svc.setPluginMcpServerEnabled({ id: 'demo', server: 'finance', enabled: false });
 
-      const servers = await svc.enabledMcpServers();
-      const env = (servers['plugin-demo:finance'] as { env?: Record<string, string> }).env ?? {};
-      expect(env['CUSTOM']).toBe('1');
-      expect(env).not.toHaveProperty('PYTHINKER_CODE_BASE_URL');
-      expect(env).not.toHaveProperty('PYTHINKER_CODE_OAUTH_HOST');
+      const entries = await svc.mcpServerEntries();
+      expect(entries).toEqual([
+        expect.objectContaining({
+          name: 'plugin-demo:finance',
+          pluginId: 'demo',
+          serverName: 'finance',
+          config: expect.objectContaining({
+            transport: 'stdio',
+            enabled: false,
+            env: expect.objectContaining({ CUSTOM: '1' }),
+          }),
+        }),
+      ]);
     } finally {
       host.dispose();
     }
