@@ -26,10 +26,9 @@ import { ISessionManager } from '@pymodel/agent-core-v2/app/sessionManager/sessi
 import { ISessionMetadata } from '@pymodel/agent-core-v2/session/sessionMetadata/sessionMetadata';
 import { ISessionApprovalService } from '@pymodel/agent-core-v2/session/approval/approval';
 import { ISessionQuestionService } from '@pymodel/agent-core-v2/session/question/question';
-import { ISessionSkillCatalog } from '@pymodel/agent-core-v2/session/sessionSkillCatalog/skillCatalog';
+import { ISessionSkillCatalog } from '@pymodel/agent-core-v2/features/skill/session/skillCatalog';
 import { ISessionTitleService } from '@pymodel/agent-core-v2/session/sessionTitle/sessionTitle';
 import { IAgentPromptService } from '@pymodel/agent-core-v2/agent/prompt/prompt';
-import { IAgentSkillService } from '@pymodel/agent-core-v2/agent/skill/skill';
 import { IAgentLoopService } from '@pymodel/agent-core-v2/agent/loop/loop';
 import { IAgentPermissionModeService } from '@pymodel/agent-core-v2/agent/permissionMode/permissionMode';
 import { IAgentCommandService } from '@pymodel/agent-core-v2/agent/command/agentCommand';
@@ -70,7 +69,6 @@ export const serviceTokens: Readonly<Record<string, ServiceIdentifier<unknown>>>
   sessionSkillCatalog: ISessionSkillCatalog,
   sessionTitleService: ISessionTitleService,
   agentPromptService: IAgentPromptService,
-  agentSkillService: IAgentSkillService,
   agentLoopService: IAgentLoopService,
   agentPermissionModeService: IAgentPermissionModeService,
   agentCommandService: IAgentCommandService,

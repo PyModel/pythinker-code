@@ -33,7 +33,7 @@ import type {
   ShellOutput,
   ShellStarted,
 } from '@pymodel/agent-core-v2/agent/shellCommand/shellCommandService';
-import type { SkillActivated } from '@pymodel/agent-core-v2/agent/skill/skillOps';
+import type { SkillActivated } from '@pymodel/agent-core-v2/features/skill/skillOps';
 import type { TurnStepRetrying } from '@pymodel/agent-core-v2/agent/stepRetry/stepRetryService';
 import type {
   TaskNotified,

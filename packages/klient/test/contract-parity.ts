@@ -29,11 +29,11 @@ import type { PermissionMode } from '@pymodel/agent-core-v2/agent/permissionPoli
 import type { IAgentProfileService } from '@pymodel/agent-core-v2/agent/profile/profile';
 import type { IAgentPromptService } from '@pymodel/agent-core-v2/agent/prompt/prompt';
 import type { IAgentShellCommandService } from '@pymodel/agent-core-v2/agent/shellCommand/shellCommand';
-import type { IAgentSkillService } from '@pymodel/agent-core-v2/agent/skill/skill';
+import type { SkillRuntime } from '@pymodel/agent-core-v2/features/skill/skillAgentRuntime';
 import type { ContentPart } from '@pymodel/agent-core-v2/kosong/contract/message';
 import type { PlanData } from '@pymodel/agent-core-v2/features/plan/plan';
 import type { UsageStatus } from '@pymodel/agent-core-v2/agent/usage/usage';
-import type { SkillSummary } from '@pymodel/agent-core-v2/app/skillCatalog/types';
+import type { SkillSummary } from '@pymodel/agent-core-v2/features/skill/catalog/types';
 import type { McpServerEntry } from '@pymodel/agent-core-v2/mcpCore/connection-manager';
 import type {
   GlobalMcpServerConfig,
@@ -600,8 +600,8 @@ const _agentActivityState: AssertEngineToWire<typeof agentActivityStateSchema, A
 type PromptPayload = Parameters<IAgentPromptService['submit']>[0];
 type PromptLaunchResult = NonNullable<Awaited<ReturnType<IAgentPromptService['submit']>>>;
 type SteerPayload = Parameters<IAgentPromptService['submitSteer']>[0];
-type ActivateSkillPayload = Parameters<IAgentSkillService['activate']>[0];
-type PromptWithSkillsPayload = Parameters<IAgentSkillService['promptWithSkills']>[0];
+type ActivateSkillPayload = Parameters<SkillRuntime['activate']>[0];
+type PromptWithSkillsPayload = Parameters<SkillRuntime['promptWithSkills']>[0];
 type PromptSkillActivation = PromptWithSkillsPayload['skills'][number];
 type AgentCommandInfo = ReturnType<IAgentCommandService['list']>[number];
 type RuntimeBinding = ReturnType<IAgentRuntimeBindingService['get']>;
@@ -642,7 +642,7 @@ const _steerPayload: AssertWireToEngine<typeof steerPayloadSchema, SteerPayload>
 const _activateSkillPayload: AssertWire<typeof activateSkillPayloadSchema, ActivateSkillPayload> =
   true;
 const _promptLaunchResult: AssertWire<typeof promptLaunchResultSchema, PromptLaunchResult> = true;
-type PromptWithSkillsResult = Awaited<ReturnType<IAgentSkillService['promptWithSkills']>>;
+type PromptWithSkillsResult = Awaited<ReturnType<SkillRuntime['promptWithSkills']>>;
 const _promptWithSkillsResult: AssertWire<
   typeof promptWithSkillsResultSchema,
   PromptWithSkillsResult
