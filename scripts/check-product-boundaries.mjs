@@ -96,7 +96,6 @@ function excluded(file) {
     file === SELF ||
     file === 'pnpm-lock.yaml' ||
     file.startsWith('.changeset/') ||
-    file.startsWith('blackbox/') ||
     file.includes('/dist-web/') ||
     file.includes('/dist/') ||
     file.toLowerCase().endsWith('changelog.md')

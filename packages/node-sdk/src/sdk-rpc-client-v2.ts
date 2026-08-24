@@ -924,7 +924,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
   }
 
   /**
-   * v1's persist-add project guard ported to the workspace loader. This read
+   * The persisted MCP add guard uses the workspace loader. This read
    * deliberately includes the project layer even while the workspace is
    * untrusted: a user-level write must not create a shadow that springs into
    * conflict when the workspace is trusted later.

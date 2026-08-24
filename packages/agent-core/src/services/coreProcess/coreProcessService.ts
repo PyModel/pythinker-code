@@ -82,8 +82,8 @@ export class CoreProcessService extends Disposable implements ICoreProcessServic
       options.resolveOAuthTokenProvider ??
       CoreProcessService._defaultOAuthTokenResolver(env.homeDir);
 
-    // Default-wire the product User-Agent without legacy X-Msh-*
-    // device headers. Mirrors the in-process TUI path in SDKRpcClient.
+    // Default-wire the product User-Agent without device identity headers.
+    // Mirrors the in-process TUI path in SDKRpcClient.
     // Caller-supplied `pythinkerRequestHeaders` always wins; absent that, we
     // synthesize from `options.identity`. Hosts that pass neither
     // (no identity, no headers) still construct — but their requests will
@@ -194,13 +194,12 @@ export class CoreProcessService extends Disposable implements ICoreProcessServic
   /**
    * Build the default `pythinkerRequestHeaders` from `options.identity` so the
    * outbound User-Agent identifies this process (for example,
-   * `pythinker-code-cli/<ver>`). X-Msh-* device headers stay
-   * absent.
+   * `pythinker-code-cli/<ver>`). Device identity headers stay absent.
    *
    * Returns `undefined` when no identity is provided — preserves the
    * pre-fix contract for hosts that pass headers explicitly via
    * `options.pythinkerRequestHeaders` (or for legacy callers / tests that
-   * don't talk to the managed endpoint at all).
+   * do not send provider requests).
    *
    * Exposed as `static` so tests can assert the wiring without booting
    * the service.
