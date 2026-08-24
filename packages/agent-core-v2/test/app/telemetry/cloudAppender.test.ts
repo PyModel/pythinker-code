@@ -96,9 +96,9 @@ describe('CloudAppender', () => {
 
     expect(requests).toHaveLength(1);
     expect(requests[0]?.url).toBe('https://telemetry-logs.pythinker.com/v1/event');
-    expect(requests[0]?.body.user_id).toBe('kfc_device_id_dev123');
+    expect(requests[0]?.body.user_id).toBe('pfc_device_id_dev123');
     const event = requests[0]?.body.events[0];
-    expect(event?.['event']).toBe('kfc_tool.call');
+    expect(event?.['event']).toBe('pfc_tool.call');
     expect(event?.['device_id']).toBe('dev123');
     expect(event?.['session_id']).toBe('sess1');
     expect(event?.['property_name']).toBe('bash');
