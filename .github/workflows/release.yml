@@ -180,6 +180,39 @@ jobs:
           fi
           echo "Cut ${tag} at ${GITHUB_SHA} (desktop ${prev} -> ${curr})."
 
+      # Release cadence switch. With this on, the version PR merges itself once
+      # every required check passes, so one merge to main becomes one release
+      # and the version tracks each change instead of collapsing a backlog of
+      # changesets into a single jump. Turn it off to go back to releasing by
+      # hand: `gh variable set AUTO_MERGE_RELEASE_PR --body false`.
+      #
+      # This is deliberately not a blanket auto-merge. It only ever targets the
+      # changesets-authored branch, the repository requires its status checks
+      # before any merge, and a major bump is gated separately on the pull
+      # request that introduces the changeset — so an unattended release can
+      # still never rename the major version on its own.
+      #
+      # Never fail the release over this: a version PR that stays open costs a
+      # manual merge, while a failure here would block npm, the Marketplace and
+      # the CDN behind it.
+      - name: Enable auto-merge on the version PR
+        if: steps.changesets.outputs.published != 'true' && vars.AUTO_MERGE_RELEASE_PR == 'true'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ steps.release-bot.outputs.token }}
+        run: |
+          set -uo pipefail
+          pr=$(gh pr list --head changeset-release/main --state open --json number --jq '.[0].number' || true)
+          if [ -z "$pr" ] || [ "$pr" = "null" ]; then
+            echo "::notice::No open version PR; nothing to auto-merge."
+            exit 0
+          fi
+          if gh pr merge "$pr" --squash --auto; then
+            echo "Auto-merge armed on #${pr}; it lands when its required checks pass."
+          else
+            echo "::warning::Could not arm auto-merge on #${pr}. Merge it by hand to cut the release."
+          fi
+
       - name: Request CodeRabbit review on version PR
         if: steps.changesets.outputs.published != 'true'
         env:
