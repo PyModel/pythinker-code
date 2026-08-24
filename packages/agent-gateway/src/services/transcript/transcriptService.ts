@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 
 import {
   IAgentLifecycleService,
+  IAgentPromptService,
   IFlagService,
   ISessionIndex,
   ISessionManager,
@@ -12,7 +13,9 @@ import {
   followSessionLifecycles,
   getLiveSessionById,
   isTowerFeatureAssembled,
+  isUndoAnchor,
   reduceContextTranscript,
+  type ContextMessage,
   type IDisposable,
   type Scope,
   type SessionMeta,
@@ -27,6 +30,7 @@ import {
   groupMessagesIntoSnapshot,
   isPlainAgentId,
   type AgentDescriptor,
+  type ActivityMeta,
   type AgentTranscript,
   type AgentTranscriptSnapshot,
   type TranscriptChangeEvent,
@@ -36,13 +40,14 @@ import {
   type TranscriptTurn,
 } from '@pymodel/transcript';
 
-import { readWireRecords } from './wireRecords';
+import { projectPromptContentParts } from '../messages/messageProjection';
 import {
   bindSessionTranscript,
   descriptorFromMeta,
   type TranscriptBinding,
   type TranscriptBindingLogger,
 } from './coreBinding';
+import { readWireRecords } from './wireRecords';
 
 const SESSIONS_ROOT = 'sessions';
 const AGENTS_DIR = 'agents';
@@ -218,7 +223,8 @@ export class TranscriptService {
         (op) => op.op !== 'attachment.upsert' || !superseded.has(op.attachment.attachmentId),
       );
       const overlay = this.liveTurnOverlay(sessionId, agentId, transcript, snapshot);
-      if (overlay !== undefined) ops.push(overlay);
+      if (overlay !== undefined) ops.push(overlay, { op: 'meta.merge', meta: { activity: 'turn' } });
+      ops.push(...this.livePromptBackfill(sessionId, agentId));
       const result = transcript.apply(ops);
       if (result.gap !== undefined) {
         this.deps.logger?.warn({ sessionId, agentId, gap: result.gap }, 'transcript: backfill append gap');
@@ -408,6 +414,41 @@ export class TranscriptService {
     };
   }
 
+  private livePromptBackfill(sessionId: string, agentId: string): TranscriptOperation[] {
+    const agent = getLiveSessionById(this.deps.core.accessor, sessionId)
+      ?.accessor.get(IAgentLifecycleService)
+      .findAgentHandle(agentId);
+    const promptService = agent === undefined ? undefined : agent.accessor.get(IAgentPromptService);
+    const queue = promptService?.list();
+    if (queue === undefined) return [];
+    const ops: TranscriptOperation[] = [];
+    if (queue.active !== undefined) {
+      ops.push({
+        op: 'prompt.upsert',
+        prompt: {
+          promptId: queue.active.id,
+          status: 'running',
+          userMessageId: queue.active.userMessageId,
+          content: projectPromptContentParts(queue.active.message.content),
+          createdAt: queue.active.createdAt,
+        },
+      });
+    }
+    for (const pending of queue.pending) {
+      ops.push({
+        op: 'prompt.upsert',
+        prompt: {
+          promptId: pending.id,
+          status: 'queued',
+          userMessageId: pending.userMessageId,
+          content: projectPromptContentParts(pending.message.content),
+          createdAt: pending.createdAt,
+        },
+      });
+    }
+    return ops;
+  }
+
   /**
    * Re-read the agent's persisted history and merge the ended turn(s) back
    * into the live store. The projector attaches to the bus at bind time, so
@@ -515,8 +556,54 @@ export class TranscriptService {
       throw error;
     }
     const messages = [...reduceContextTranscript(records).entries];
-    const base = groupMessagesIntoSnapshot(messages);
-    const snapshot = foldWireRecordFacts(records, base);
+    const taskOriginTurnTaskIds = new Set<string>();
+    const anchorStack: { taskIdsSnapshot: Set<string> }[] = [];
+    let anchorFloor = 0;
+    let sawTurnPrompt = false;
+    for (const record of records) {
+      if (record.type === 'context.undo') {
+        const count = typeof record['count'] === 'number' ? record['count'] : 0;
+        for (let i = 0; i < count && anchorStack.length > anchorFloor; i++) {
+          const popped = anchorStack.pop()!;
+          taskOriginTurnTaskIds.clear();
+          for (const id of popped.taskIdsSnapshot) taskOriginTurnTaskIds.add(id);
+        }
+        continue;
+      }
+      if (record.type === 'context.clear') {
+        anchorFloor = anchorStack.length;
+        continue;
+      }
+      if (record.type === 'context.append_message') {
+        const message = (record as { message?: ContextMessage }).message;
+        if (message !== undefined && isUndoAnchor(message)) {
+          anchorStack.push({ taskIdsSnapshot: new Set(taskOriginTurnTaskIds) });
+        }
+        continue;
+      }
+      if (record.type !== 'turn.prompt') continue;
+      sawTurnPrompt = true;
+      const origin = (record as { origin?: { kind?: unknown; taskId?: unknown } }).origin;
+      if (origin === undefined) continue;
+      if (
+        (origin.kind === 'task' || origin.kind === 'background_task') &&
+        typeof origin.taskId === 'string'
+      ) {
+        taskOriginTurnTaskIds.add(origin.taskId);
+      }
+    }
+    const base = groupMessagesIntoSnapshot(
+      messages,
+      sawTurnPrompt ? { taskOriginTurnTaskIds } : undefined,
+    );
+    const folded = foldWireRecordFacts(records, base);
+    const status = getLiveSessionById(this.deps.core.accessor, sessionId)
+      ?.accessor.get(IAgentLifecycleService)
+      .findAgentHandle(agentId)
+      ?.accessor.get(IAgentLoopService)
+      .status();
+    const activity: ActivityMeta = status?.state === 'running' ? 'turn' : 'idle';
+    const snapshot = { ...folded, meta: { ...folded.meta, activity } };
     if (snapshot.meta.modes?.tower === undefined) return snapshot;
     const flags = this.deps.core.accessor.get(IFlagService);
     if (
