@@ -19,7 +19,6 @@ import {
   isOpenPlatformId,
 } from './open-platform';
 import type { ModelAlias, PythinkerConfigShape } from './provider-config';
-import { isRecord } from './utils';
 
 /**
  * Host capabilities the refresh orchestrator needs. Intentionally typed against

@@ -31,7 +31,6 @@ import { resolve } from 'pathe';
 import type { CLIOptions } from '#/cli/options';
 import { copyTextToClipboard } from '#/utils/clipboard/clipboard-text';
 import { appendInputHistory, loadInputHistory } from '#/utils/history/input-history';
-import { openUrl } from '#/utils/open-url';
 import { getInputHistoryFile } from '#/utils/paths';
 import { detectFdPath, ensureFdPath } from '#/utils/process/fd-detect';
 import { quoteShellArg } from '#/utils/shell-quote';
@@ -151,7 +150,6 @@ import {
   resolveOriginalCaptions,
   rewriteMediaPlaceholders,
 } from './utils/image-placeholder';
-import type { ExtractionResult } from './utils/image-placeholder';
 import { installInputLatencyProbe } from './utils/input-latency';
 import { combineSteerInput } from './utils/steer-input';
 import { startupTrace } from '#/utils/startup-trace';
