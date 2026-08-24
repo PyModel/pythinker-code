@@ -643,8 +643,48 @@ jobs:
           RELEASE_TAG: ${{ needs.release.outputs.pythinker_release_tag }}
         run: node apps/pythinker-code/scripts/native/produce-manifest.mjs dist-native-release "$RELEASE_TAG"
 
+      # Unlike the desktop release, which uploads into a draft and refuses to
+      # touch a published one, this release is already live: changesets creates
+      # it when it publishes to npm. `--clobber` therefore replaced the assets
+      # of a shipped version on any re-run of this job — and a re-run after a
+      # source change would put different bytes behind a version number users
+      # already have. A version has to identify one exact build forever.
+      #
+      # These assets are one set, not a bag of files: manifest.json pins a
+      # sha256 for every zip, and install.sh / install.ps1 verify against it.
+      # So the rule is all or nothing. A release that already carries the whole
+      # set is finished and is left alone; an empty one gets everything. A
+      # partial set stops the job, because filling in the gaps would pair zips
+      # from one build with checksums from another, and a rebuild is not
+      # guaranteed to be byte-identical even at the same commit. Sorting that
+      # out is a decision for a person: either what is published is the
+      # release, or it needs a new patch version.
       - name: Upload assets to GitHub Release
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ needs.release.outputs.pythinker_release_tag }}
-        run: gh release upload "$RELEASE_TAG" dist-native-release/* --clobber
+        run: |
+          set -euo pipefail
+          existing="$(gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name')"
+          present=()
+          absent=()
+          for path in dist-native-release/*; do
+            name="$(basename "$path")"
+            if printf '%s\n' "$existing" | grep -qxF "$name"; then
+              present+=("$name")
+            else
+              absent+=("$path")
+            fi
+          done
+          if [ "${#absent[@]}" -eq 0 ]; then
+            echo "::notice::All ${#present[@]} assets are already on ${RELEASE_TAG}; nothing to upload."
+            exit 0
+          fi
+          if [ "${#present[@]}" -gt 0 ]; then
+            echo "::error::${RELEASE_TAG} already carries ${#present[@]} of these assets: ${present[*]}"
+            echo "::error::Adding the rest would mix two builds behind one version - manifest.json pins a sha256 per zip."
+            echo "::error::Resolve by hand: keep what is published, or cut the next patch and release that instead."
+            exit 1
+          fi
+          gh release upload "$RELEASE_TAG" "${absent[@]}"
