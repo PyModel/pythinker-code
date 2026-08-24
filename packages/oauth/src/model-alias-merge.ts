@@ -1,7 +1,7 @@
 import { isRecord } from './utils';
 import type { ModelAlias, ModelAliasOverrides } from './provider-config';
 
-export const MANAGED_PYTHINKER_MODEL_FIELDS: ReadonlySet<string> = new Set([
+export const OPEN_PLATFORM_MODEL_FIELDS: ReadonlySet<string> = new Set([
   'provider',
   'model',
   'maxContextSize',

@@ -1,15 +1,3 @@
-/**
- * OAuth type definitions for managed providers.
- *
- * Only Device Code Flow (RFC 8628) is supported, against
- * `https://auth.kimi.com`.
- *
- * Wire format (on disk / server) uses snake_case to match the server
- * contract; in-process types use camelCase per TS convention.
- */
-
-export type OAuthStorageBackend = 'file';
-
 /** A persisted OAuth token bundle. */
 export interface TokenInfo {
   readonly accessToken: string;
@@ -21,44 +9,6 @@ export interface TokenInfo {
   /** Original expires_in from server response (seconds). */
   readonly expiresIn: number;
 }
-
-/** RFC 8628 §3.2 device authorization response. */
-export interface DeviceAuthorization {
-  readonly userCode: string;
-  readonly deviceCode: string;
-  readonly verificationUri: string;
-  readonly verificationUriComplete: string;
-  /** Seconds until device_code expires (server-reported). May be null. */
-  readonly expiresIn: number | null;
-  /** Polling interval in seconds. */
-  readonly interval: number;
-}
-
-/** OAuth flow endpoint + client configuration. */
-export interface OAuthFlowConfig {
-  /** Logical provider name for storage (e.g. "pythinker-code"). */
-  readonly name: string;
-  /** Base URL of the OAuth server, no trailing slash. */
-  readonly oauthHost: string;
-  /** Client ID registered with the OAuth provider. */
-  readonly clientId: string;
-}
-
-/** Device identification for `X-Msh-*` headers. */
-export type DeviceHeaders = {
-  readonly 'X-Msh-Platform': string;
-  readonly 'X-Msh-Version': string;
-  readonly 'X-Msh-Device-Name': string;
-  readonly 'X-Msh-Device-Model': string;
-  readonly 'X-Msh-Os-Version': string;
-  readonly 'X-Msh-Device-Id': string;
-};
-
-/** Headers sent with OAuth HTTP requests: the `X-Msh-*` device set, plus a
-    product User-Agent when the caller carries a host identity — the OAuth
-    host needs both to tell client families (platform) and runtime surfaces
-    (UA suffix) apart. */
-export type OAuthRequestHeaders = Record<string, string>;
 
 /** JSON wire format for token persistence (snake_case, Python-compatible). */
 export interface TokenInfoWire {

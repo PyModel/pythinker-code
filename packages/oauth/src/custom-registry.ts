@@ -306,7 +306,7 @@ function resolveCapabilities(model: CustomRegistryModelEntry): string[] {
  * Mirrors `applyOpenPlatformConfig`'s shape: provider goes to `config.providers`
  * keyed by `entry.id`, each model in `entry.models` becomes an alias under
  * `config.models[\`${entry.id}/${modelId}\`]`. The `source` blob is parked on the
- * provider object via `ManagedPythinkerProviderConfig`'s index signature so the
+ * provider object via `ProviderConfig`'s index signature so the
  * refresh dispatcher can rediscover it later.
  */
 export function applyCustomRegistryProvider(

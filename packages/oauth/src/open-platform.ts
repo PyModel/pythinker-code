@@ -1,15 +1,15 @@
 import { readApiErrorMessage } from './api-error';
 import { isRecord } from './utils';
 import { parsePythinkerCodeCustomHeaders } from './identity';
-import { parseSupportsThinkingType, parseThinkEfforts } from './managed-pythinker-code';
-import { MANAGED_PYTHINKER_MODEL_FIELDS, mergeRefreshedModelAlias } from './model-alias-merge';
+import { OPEN_PLATFORM_MODEL_FIELDS, mergeRefreshedModelAlias } from './model-alias-merge';
 import type {
-  ManagedPythinkerCodeModelInfo,
-  ManagedPythinkerConfigShape,
-  ManagedPythinkerModelAlias,
-} from './managed-pythinker-code';
+  ModelAlias,
+  ProviderModelInfo,
+  PythinkerConfigShape,
+} from './provider-config';
+import { parseSupportsThinkingType, parseThinkEfforts } from './provider-config';
 
-export type { ManagedPythinkerConfigShape };
+export type { PythinkerConfigShape };
 
 export interface OpenPlatformDefinition {
   readonly id: string;
@@ -44,7 +44,7 @@ export function isOpenPlatformId(id: string): boolean {
   return OPEN_PLATFORMS.some((p) => p.id === id);
 }
 
-function toModelInfo(item: unknown): ManagedPythinkerCodeModelInfo | undefined {
+function toModelInfo(item: unknown): ProviderModelInfo | undefined {
   if (!isRecord(item) || typeof item['id'] !== 'string' || item['id'].length === 0) {
     return undefined;
   }
@@ -75,7 +75,7 @@ function toModelInfo(item: unknown): ManagedPythinkerCodeModelInfo | undefined {
   };
 }
 
-export function capabilitiesForModel(model: ManagedPythinkerCodeModelInfo): string[] | undefined {
+export function capabilitiesForModel(model: ProviderModelInfo): string[] | undefined {
   const caps = new Set<string>();
   // supports_thinking_type is the full three-state declaration and wins over
   // the legacy supports_reasoning boolean; absent (older servers) falls back.
@@ -113,7 +113,7 @@ export async function fetchOpenPlatformModels(
   apiKey: string,
   fetchImpl: typeof fetch = fetch,
   signal?: AbortSignal,
-): Promise<ManagedPythinkerCodeModelInfo[]> {
+): Promise<ProviderModelInfo[]> {
   const res = await fetchImpl(`${platform.baseUrl.replace(/\/+$/, '')}/models`, {
     headers: {
       ...parsePythinkerCodeCustomHeaders(),
@@ -134,13 +134,13 @@ export async function fetchOpenPlatformModels(
   }
   return payload['data']
     .map((item) => toModelInfo(item))
-    .filter((item): item is ManagedPythinkerCodeModelInfo => item !== undefined);
+    .filter((item): item is ProviderModelInfo => item !== undefined);
 }
 
 export function filterModelsByPrefix(
-  models: ManagedPythinkerCodeModelInfo[],
+  models: ProviderModelInfo[],
   platform: OpenPlatformDefinition,
-): ManagedPythinkerCodeModelInfo[] {
+): ProviderModelInfo[] {
   if (!platform.allowedPrefixes || platform.allowedPrefixes.length === 0) {
     return models;
   }
@@ -154,11 +154,11 @@ export interface ApplyOpenPlatformResult {
 }
 
 export function applyOpenPlatformConfig(
-  config: ManagedPythinkerConfigShape,
+  config: PythinkerConfigShape,
   options: {
     readonly platform: OpenPlatformDefinition;
-    readonly models: readonly ManagedPythinkerCodeModelInfo[];
-    readonly selectedModel: ManagedPythinkerCodeModelInfo;
+    readonly models: readonly ProviderModelInfo[];
+    readonly selectedModel: ProviderModelInfo;
     readonly thinking: boolean;
     /** Concrete thinking effort to persist (e.g. 'low'/'high'/'max'). Omit
      * for boolean models, where thinking is simply enabled with no effort. */
@@ -190,7 +190,7 @@ export function applyOpenPlatformConfig(
   for (const model of options.models) {
     const aliasKey = `${providerKey}/${model.id}`;
     const existing = isRecord(existingModels[aliasKey]) ? existingModels[aliasKey] : {};
-    const remoteAlias: ManagedPythinkerModelAlias = {
+    const remoteAlias: ModelAlias = {
       provider: providerKey,
       model: model.id,
       maxContextSize: model.contextLength,
@@ -202,7 +202,7 @@ export function applyOpenPlatformConfig(
     existingModels[aliasKey] = mergeRefreshedModelAlias(
       existing,
       remoteAlias,
-      MANAGED_PYTHINKER_MODEL_FIELDS,
+      OPEN_PLATFORM_MODEL_FIELDS,
     );
   }
 
@@ -218,7 +218,7 @@ export function applyOpenPlatformConfig(
 }
 
 export function removeOpenPlatformConfig(
-  config: ManagedPythinkerConfigShape,
+  config: PythinkerConfigShape,
   platformId: string,
 ): void {
   delete config.providers[platformId];

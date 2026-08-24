@@ -64,13 +64,13 @@ export function parseThinkEfforts(value: unknown): {
 }
 
 export interface OAuthRef {
-  readonly storage: 'file' | 'keyring';
+  readonly storage: 'file';
   readonly key: string;
   readonly oauthHost?: string | undefined;
 }
 
 export interface OAuthRefInput {
-  readonly storage?: 'file' | 'keyring' | undefined;
+  readonly storage?: 'file' | undefined;
   readonly key?: string | undefined;
   readonly oauthHost?: string | undefined;
 }
@@ -113,6 +113,19 @@ export interface ModelAlias {
   adaptiveThinking?: boolean | undefined;
   overrides?: ModelAliasOverrides | undefined;
   readonly [key: string]: unknown;
+}
+
+export interface ProviderModelInfo {
+  readonly id: string;
+  readonly contextLength: number;
+  readonly supportsReasoning: boolean;
+  readonly supportsImageIn: boolean;
+  readonly supportsVideoIn: boolean;
+  readonly supportsToolUse?: boolean | undefined;
+  readonly supportsThinkingType?: SupportsThinkingType | undefined;
+  readonly supportEfforts?: readonly string[] | undefined;
+  readonly defaultEffort?: string | undefined;
+  readonly displayName?: string | undefined;
 }
 
 export interface ServiceConfig {

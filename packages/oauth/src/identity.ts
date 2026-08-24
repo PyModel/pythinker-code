@@ -7,25 +7,16 @@
  * production state.
  */
 
-import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { arch, hostname, release, type } from 'node:os';
 import { join } from 'node:path';
-
-import type { DeviceHeaders } from './types';
 
 export const PYTHINKER_CODE_PLATFORM = 'pythinker_code_cli';
 
 export interface PythinkerHostIdentity {
   readonly productName: string;
   readonly version: string;
-  /**
-   * `X-Msh-Platform` value reported to the OAuth host and managed endpoints
-   * (e.g. `pythinker_code_cli`, `pythinker_code_desktop`). Every host must state its own
-   * explicitly — `PYTHINKER_CODE_PLATFORM` is the CLI's value, not a default to
-   * inherit silently.
-   */
+  /** Host label retained for product telemetry. */
   readonly platform: string;
   readonly userAgentSuffix?: string | undefined;
 }
@@ -74,23 +65,6 @@ export function createPythinkerDeviceId(
   return id;
 }
 
-export function createPythinkerDeviceHeaders(options: {
-  readonly homeDir: string;
-  readonly version: string;
-  /** Required and validated like the version: non-empty ASCII, no fallback —
-      a blank or fabricated platform would silently misreport the host. */
-  readonly platform: string;
-}): DeviceHeaders {
-  return {
-    'X-Msh-Platform': requiredAsciiHeader(options.platform, 'Pythinker identity platform'),
-    'X-Msh-Version': requiredAsciiHeader(options.version, 'Pythinker identity version'),
-    'X-Msh-Device-Name': asciiHeader(hostname()),
-    'X-Msh-Device-Model': asciiHeader(deviceModel()),
-    'X-Msh-Os-Version': asciiHeader(release()),
-    'X-Msh-Device-Id': createPythinkerDeviceId(options.homeDir),
-  };
-}
-
 export function createPythinkerUserAgent(options: {
   readonly productName: string;
   readonly version: string;
@@ -127,9 +101,7 @@ export function replaceUserAgentProduct(userAgent: string, product: string): str
 
 /**
  * Default outbound identity headers. Only the User-Agent: this distribution
- * runs no managed service, so the X-Msh-* device headers (device id, device
- * name, OS version) that upstream reports to its managed endpoints are never
- * attached to provider requests.
+ * includes only the product User-Agent.
  */
 export function createPythinkerDefaultHeaders(options: PythinkerIdentityOptions): Record<string, string> {
   return {
@@ -144,7 +116,7 @@ export function createPythinkerDefaultHeaders(options: PythinkerIdentityOptions)
  * names and values are trimmed.
  *
  * These headers form the lowest-precedence layer — the Pythinker identity headers
- * (User-Agent, X-Msh-*), per-provider `customHeaders`, and request auth
+ * (User-Agent), per-provider `customHeaders`, and request auth
  * (Authorization) all override them.
  *
  * Unlike the device identity headers above, this is intentionally
@@ -176,27 +148,6 @@ export function assertPythinkerHostIdentity(identity: PythinkerHostIdentity | un
   requiredAsciiHeader(identity.productName, 'Pythinker identity product');
   requiredAsciiHeader(identity.version, 'Pythinker identity version');
   return identity;
-}
-
-function deviceModel(): string {
-  const os = type();
-  const version = release();
-  const osArch = arch();
-  if (os === 'Darwin') return `macOS ${macOsProductVersion() ?? version} ${osArch}`;
-  if (os === 'Windows_NT') return `Windows ${version} ${osArch}`;
-  return `${os} ${version} ${osArch}`.trim();
-}
-
-function macOsProductVersion(): string | undefined {
-  try {
-    const version = execFileSync('/usr/bin/sw_vers', ['-productVersion'], {
-      encoding: 'utf-8',
-      timeout: 1000,
-    }).trim();
-    return version.length > 0 ? version : undefined;
-  } catch {
-    return undefined;
-  }
 }
 
 function asciiHeader(value: string, fallback = 'unknown'): string {
