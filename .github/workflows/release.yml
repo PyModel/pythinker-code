@@ -5,7 +5,21 @@ on:
     branches:
       - main
 
+# Never cancel a release in flight: a publish that is interrupted between npm
+# and the git tags cannot be undone. Runs therefore queue instead. GitHub keeps
+# only one pending run per group, so a third push while a release is running
+# silently drops the one waiting behind it — the commits still ship, on the
+# next run, but nothing announces the skip. Keeping this job short is what
+# keeps that window small.
 concurrency: ${{ github.workflow }}-${{ github.ref }}
+
+# This repository installs a local pre-push gate that re-runs the full test
+# suite. It exists to save a CI round trip from a developer's machine; inside
+# CI it is pure duplication, and `scripts/pre-push.sh` reads this to stand
+# down. Set at the workflow level so it reaches every push, including the ones
+# a JS action spawns.
+env:
+  SKIP_HOOKS: "1"
 
 jobs:
   # Publishing to npm is irreversible — never let a commit that fails CI or
@@ -93,6 +107,32 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      # The `prepare` script reinstalls the local hooks during the install
+      # above, so this has to run after it, not before. `SKIP_HOOKS` already
+      # tells the hook to stand down; deleting it as well removes the last way
+      # the suite could run inside this job — an environment that reaches the
+      # hook scrubbed, or a hook that stops honouring the variable.
+      #
+      # Worth the belt and braces: on the publish path, the push these hooks
+      # would gate carries the version tags, and it runs after npm has already
+      # accepted the packages. A hook failure there — one flaky test under
+      # runner load is enough — leaves the release published but untagged, and
+      # skips every job that depends on it: docs, native artifacts, the VS Code
+      # extension, the Homebrew tap, the CDN.
+      - name: Disarm the local git hooks
+        run: |
+          # `--git-path hooks` is git's own resolution of core.hooksPath, so
+          # this deletes from the directory git will actually read rather than
+          # assuming `.git/hooks`.
+          hooks_dir=$(git rev-parse --git-path hooks)
+          rm -f "${hooks_dir}/pre-push" "${hooks_dir}/pre-commit"
+          if [ -e "${hooks_dir}/pre-push" ] || [ -e "${hooks_dir}/pre-commit" ]; then
+            echo "::error::A git hook survived removal in ${hooks_dir}."
+            echo "::error::The release push would re-run the full test suite; fix this before releasing."
+            exit 1
+          fi
+          echo "Local git hooks disarmed (${hooks_dir})."
 
       - name: Generate Pythinker Code built-in catalog
         shell: bash
