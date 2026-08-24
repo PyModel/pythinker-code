@@ -94,7 +94,6 @@ function createState(): ExtendedState {
     unreadBySession: {},
     authReady: true,
     defaultModel: null,
-    managedProviderStatus: null,
     workspaces: [],
     activeWorkspaceId: null,
     sessionsHasMoreByWorkspace: {},
@@ -1270,7 +1269,7 @@ describe('useWorkspaceState — first-load auth gate', () => {
       apiMock.getAuth
         .mockRejectedValueOnce(new Error('connection refused'))
         .mockRejectedValueOnce(new Error('connection refused'))
-        .mockResolvedValue({ ready: true, defaultModel: 'pythinker-code', managedProvider: null });
+        .mockResolvedValue({ ready: true, defaultModel: 'pythinker-code' });
       const ws = useWorkspaceState(state, createLoadDeps(initialized, connectIssue));
 
       const pending = ws.load();
@@ -1303,7 +1302,7 @@ describe('useWorkspaceState — first-load auth gate', () => {
     const initialized = ref(false);
     const state = createState();
     state.authReady = false;
-    apiMock.getAuth.mockResolvedValue({ ready: false, defaultModel: null, managedProvider: null });
+    apiMock.getAuth.mockResolvedValue({ ready: false, defaultModel: null });
     const ws = useWorkspaceState(state, createLoadDeps(initialized, ref(null)));
 
     await ws.load();
@@ -1349,7 +1348,6 @@ describe('useWorkspaceState — session list loading', () => {
     apiMock.getAuth.mockReset().mockResolvedValue({
       ready: true,
       defaultModel: 'pythinker-code',
-      managedProvider: null,
     });
     apiMock.getHealth.mockReset().mockResolvedValue({ ok: true });
     apiMock.getMeta.mockReset().mockResolvedValue({

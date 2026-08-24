@@ -677,7 +677,6 @@ describe('usePythinkerWebClient (resync integration)', () => {
       getAuth: vi.fn(async () => ({
         ready: true,
         defaultModel: 'model-1',
-        managedProvider: null,
       })),
       getHealth: vi.fn(async () => ({ status: 'ok', uptimeSec: 1 })),
       getMeta: vi.fn(async () => ({

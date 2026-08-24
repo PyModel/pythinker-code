@@ -436,7 +436,6 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
       const result = await api.getAuth();
       rawState.authReady = result.ready;
       rawState.defaultModel = result.defaultModel;
-      rawState.managedProviderStatus = result.managedProvider?.status ?? null;
       connectIssue.value = null;
       return 'proceed';
     } catch (error) {
@@ -2363,11 +2362,9 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
     }
   }
 
-  /** Ask the daemon to generate a session title (managed chat_title tool, v2
-   *  engine). Returns the generated title, or null when generation is
-   *  unavailable (flag off, no managed login, no prompt yet, backend failure) —
-   *  the caller surfaces the notice. The daemon persists the title itself and
-   *  emits the session-updated event, so no local rename is needed here. */
+  /** Ask the daemon to generate a session title. Returns the generated title,
+   *  or null when this build has no title-generation backend. The daemon owns
+   *  persistence and emits the session-updated event. */
   async function generateSessionTitle(id: string): Promise<string | null> {
     try {
       const api = getPythinkerWebApi();
@@ -2588,18 +2585,6 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
       beforeId: input?.beforeId,
       pageSize: input?.pageSize ?? 50,
     });
-  }
-
-  /** Logout from the managed Pythinker provider. Re-checks auth and reloads sessions. */
-  async function logout(): Promise<void> {
-    try {
-      const api = getPythinkerWebApi();
-      await api.logout();
-      await checkAuth();
-      await load();
-    } catch (error) {
-      pushOperationFailure('logout', error);
-    }
   }
 
   /**
@@ -2922,7 +2907,6 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
     exportSession,
     restoreSession,
     loadArchivedSessions,
-    logout,
     compact,
     forkSession,
     undo,

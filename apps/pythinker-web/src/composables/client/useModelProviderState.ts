@@ -1,6 +1,6 @@
 // apps/pythinker-web/src/composables/client/useModelProviderState.ts
 // Models, providers, starred/favorite models, the active-session thinking
-// level, session-scoped slash skills, and the managed OAuth device flow.
+// level and session-scoped slash skills.
 // Owns the lazy-loaded model/provider caches plus the new-session "draft"
 // model pick. Cross-dependencies (failure reporting, status refresh, activity,
 // in-flight set, thinking storage) are injected by the facade.
@@ -15,7 +15,6 @@ import type {
   AppSession,
   AppSkill,
   CatalogProviderImportInput,
-  OAuthLoginStartResult,
   ThinkingLevel,
 } from '../../api/types';
 import { safeGetString, safeSetString, STORAGE_KEYS } from '../../lib/storage';
@@ -535,43 +534,6 @@ export function useModelProviderState(
     }
   }
 
-  /** Start managed Pythinker OAuth device flow. Returns flow data or null on error. */
-  async function startOAuthLogin(): Promise<OAuthLoginStartResult | null> {
-    try {
-      const api = getPythinkerWebApi();
-      return await api.startOAuthLogin();
-    } catch {
-      return null;
-    }
-  }
-
-  /** Poll the singleton OAuth flow. Returns null on error or no active flow. */
-  async function pollOAuthLogin(): Promise<{
-    flowId: string;
-    status: 'pending' | 'authenticated' | 'expired' | 'cancelled';
-    resolvedAt?: string;
-  } | null> {
-    try {
-      const api = getPythinkerWebApi();
-      return await api.pollOAuthLogin();
-    } catch (error) {
-      // The dialog counts consecutive nulls and gives up after a few; keep the
-      // cause in the log so a dead daemon is diagnosable.
-      console.warn('[pythinker-web] pollOAuthLogin failed', error);
-      return null;
-    }
-  }
-
-  /** Cancel the current OAuth flow (best-effort). */
-  async function cancelOAuthLogin(): Promise<void> {
-    try {
-      const api = getPythinkerWebApi();
-      await api.cancelOAuthLogin();
-    } catch {
-      // Best-effort
-    }
-  }
-
   /** Persist and apply a new extended-thinking level (also pushed to the active
    *  session profile so the daemon's /status reflects it; still sent per-prompt). */
   function setThinking(level: ThinkingLevel): void {
@@ -618,9 +580,6 @@ export function useModelProviderState(
     deleteProvider,
     refreshProvider,
     refreshAllProviders,
-    startOAuthLogin,
-    pollOAuthLogin,
-    cancelOAuthLogin,
     setThinking,
   };
 }

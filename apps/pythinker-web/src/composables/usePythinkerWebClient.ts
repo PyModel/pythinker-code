@@ -360,7 +360,6 @@ export interface ExtendedState extends PythinkerClientState {
   // Auth state (real daemon)
   authReady: boolean;
   defaultModel: string | null;
-  managedProviderStatus: string | null;
   // Workspace state
   workspaces: AppWorkspace[];
   activeWorkspaceId: string | null;
@@ -428,7 +427,6 @@ const rawState: ExtendedState = reactive({
   unreadBySession: loadUnread(),
   authReady: false,
   defaultModel: null,
-  managedProviderStatus: null,
   workspaces: [],
   activeWorkspaceId: loadActiveWorkspaceFromStorage(),
   fsHome: null,
@@ -2522,7 +2520,6 @@ const appState = computed<AppState>(() =>
 );
 
 const defaultModel = computed<string | null>(() => rawState.defaultModel);
-const managedProviderStatus = computed<string | null>(() => rawState.managedProviderStatus);
 const config = computed<AppConfig | null>(() => rawState.config);
 
 /** path → status map for quick badge lookup in the file tree */
@@ -3289,7 +3286,6 @@ export function usePythinkerWebClient() {
     // Auth state
     authReady,
     defaultModel,
-    managedProviderStatus,
 
     // Config state + actions
     config,
@@ -3298,10 +3294,6 @@ export function usePythinkerWebClient() {
     // Auth actions
     checkAuth: workspaceState.checkAuth,
     refreshRuntimeState,
-    startOAuthLogin: modelProvider.startOAuthLogin,
-    pollOAuthLogin: modelProvider.pollOAuthLogin,
-    cancelOAuthLogin: modelProvider.cancelOAuthLogin,
-    logout: workspaceState.logout,
   };
 }
 

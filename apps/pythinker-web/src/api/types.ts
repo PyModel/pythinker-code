@@ -1021,7 +1021,6 @@ export interface PythinkerWebApi {
   deleteProvider(id: string): Promise<{ deleted: true }>;
   refreshProvider(id: string): Promise<ProviderRefreshResult>;
   refreshAllProviders(): Promise<ProviderRefreshResult>;
-  refreshOAuthProviderModels(): Promise<ProviderRefreshResult>;
   startCodexLogin(): Promise<CodexLoginStart>;
   getCodexLoginStatus(loginId: string): Promise<CodexLoginStatus>;
   submitCodexLoginRedirect(loginId: string, redirectUrl: string): Promise<CodexLoginStatus>;
@@ -1042,33 +1041,5 @@ export interface PythinkerWebApi {
     ready: boolean;
     providersCount: number;
     defaultModel: string | null;
-    managedProvider: { status: string } | null;
   }>;
-  startOAuthLogin(): Promise<OAuthLoginStartResult>;
-  pollOAuthLogin(): Promise<{
-    flowId: string;
-    status: 'pending' | 'authenticated' | 'expired' | 'cancelled';
-    resolvedAt?: string;
-  } | null>;
-  cancelOAuthLogin(): Promise<{ cancelled: boolean; status: string }>;
-  logout(): Promise<{ loggedOut: boolean }>;
 }
-
-/** Result of `startOAuthLogin()`, mirroring the wire discriminated union. */
-export type OAuthLoginStartResult =
-  | {
-      flowId: string;
-      provider: string;
-      status: 'pending';
-      verificationUri: string;
-      verificationUriComplete: string;
-      userCode: string;
-      expiresIn: number;
-      interval: number;
-      expiresAt: string;
-    }
-  | {
-      flowId: string;
-      provider: string;
-      status: 'authenticated';
-    };

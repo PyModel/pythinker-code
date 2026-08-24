@@ -81,5 +81,5 @@ export default {
   tabWorkspaces: 'Workspaces',
   dropToAddWorkspace: 'Drop to add workspace',
   genTitle: 'Gen Title',
-  genTitleUnavailable: 'Title generation unavailable — needs a managed Pythinker login and at least one message',
+  genTitleUnavailable: 'Title generation is unavailable in this build',
 } as const;

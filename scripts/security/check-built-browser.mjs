@@ -91,7 +91,7 @@ function contentType(path) {
 function serveFixtureApi(pathname, response) {
   let data;
   if (pathname === '/api/v1/auth') {
-    data = { ready: true, providers_count: 1, default_model: 'fixture-model', managed_provider: null };
+    data = { ready: true, providers_count: 1, default_model: 'fixture-model' };
   } else if (pathname === '/api/v1/healthz') {
     data = { ok: true };
   } else if (pathname === '/api/v1/meta') {
