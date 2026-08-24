@@ -88,9 +88,9 @@ This repo uses [changesets](https://github.com/changesets/changesets) to manage 
 | `minor` | A capability a user could not reach before | `2.1.3` → `2.2.0` |
 | `major` | A break: something that worked stops working, or works differently | `2.2.0` → `3.0.0` |
 
-Prefer one changeset per pull request. A pull request that needs several is usually several releases wearing one hat, and the changelog cannot attribute the changes afterwards.
+Prefer one changeset per pull request. A pull request that needs several is usually carrying several separate releases, and once they are versioned together the changelog can no longer say which change each entry came from.
 
-A `major` needs a maintainer's sign-off: the `changeset-policy` workflow fails a pull request that adds one unless it carries the `breaking-change-approved` label. A major renames the release and breaks every pinned install, and an npm publish cannot be taken back — so it is a decision, never a side effect of a large branch.
+A `major` needs a maintainer's sign-off: the `changeset-policy` workflow fails a pull request that adds a major changeset, or edits an existing one up to `major`, unless it carries the `breaking-change-approved` label. A pinned install keeps working, but every consumer who upgrades has to deal with the break, and an npm publish cannot be taken back — so it is a decision, never a side effect of a large branch.
 
 ### Release cadence
 
@@ -100,6 +100,8 @@ Changesets keeps a `ci: release packages` pull request open on `main` and rewrit
 - Left to accumulate, a backlog collapses into one bump and the numbers in between never exist.
 
 The repository variable `AUTO_MERGE_RELEASE_PR` chooses between the two. Set to `true`, the release pull request merges itself once its required checks pass, giving one release per change. Unset or `false`, a maintainer merges it when a release is wanted.
+
+Either way there is a window: a changeset that lands while the release pull request is waiting on its checks joins that release instead of starting the next one. That is how changesets works, so a release can still carry more than one change — one changeset per pull request keeps the window small.
 
 ## Pull Requests
 
