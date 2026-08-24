@@ -180,15 +180,102 @@ jobs:
           fi
           echo "Cut ${tag} at ${GITHUB_SHA} (desktop ${prev} -> ${curr})."
 
-      - name: Request CodeRabbit review on version PR
+      # Release cadence switch. With this on, the version PR merges itself once
+      # every required check passes, so one merge to main becomes one release
+      # and the version tracks each change instead of collapsing a backlog of
+      # changesets into a single jump. Turn it off to go back to releasing by
+      # hand: `gh variable set AUTO_MERGE_RELEASE_PR --body false`.
+      #
+      # This is deliberately not a blanket auto-merge. It only ever targets the
+      # changesets-authored branch, the repository requires its status checks
+      # before any merge, and a major bump is gated separately on the pull
+      # request that introduces the changeset — so an unattended release can
+      # still never rename the major version on its own.
+      #
+      # Never fail the release over this: a version PR that stays open costs a
+      # manual merge, while a failure here would block npm, the Marketplace and
+      # the CDN behind it.
+      # Resolve the version PR once, for every step that acts on it.
+      #
+      # The changesets action reports the pull request it just created or
+      # updated, which is the only unambiguous identifier. The fallback covers
+      # the run where changesets had nothing to change, and it is scoped to a
+      # head branch in THIS repository by full `owner/name`: `--head` matches a
+      # branch name only, so a head-name match on its own can select a fork's
+      # branch of the same name, and matching the owner alone would still accept
+      # a different repository belonging to that owner.
+      - name: Resolve the version PR
+        id: version-pr
         if: steps.changesets.outputs.published != 'true'
         env:
           GH_TOKEN: ${{ steps.release-bot.outputs.token }}
+          CHANGESETS_PR: ${{ steps.changesets.outputs.pullRequestNumber }}
         run: |
-          pr=$(gh pr list --head changeset-release/main --state open --json number --jq '.[0].number' || true)
-          if [ -n "$pr" ] && [ "$pr" != "null" ]; then
-            gh pr comment "$pr" --body '@coderabbitai review'
+          set -uo pipefail
+          if [ -n "${CHANGESETS_PR}" ] && [ "${CHANGESETS_PR}" != "null" ]; then
+            echo "number=${CHANGESETS_PR}" >> "${GITHUB_OUTPUT}"
+            echo "Version PR #${CHANGESETS_PR}, as reported by the changesets action."
+            exit 0
           fi
+          if ! open_prs=$(gh pr list \
+              --repo "${GITHUB_REPOSITORY}" \
+              --head changeset-release/main \
+              --base main \
+              --state open \
+              --json number,headRepository); then
+            echo "::warning::Could not look up the version PR. Nothing downstream will run; check it by hand."
+            exit 0
+          fi
+          number=$(printf '%s' "${open_prs}" \
+            | jq -r --arg repo "${GITHUB_REPOSITORY}" \
+                '[.[] | select(.headRepository.nameWithOwner == $repo)][0].number // ""')
+          if [ -z "${number}" ]; then
+            echo "::notice::No open version PR in this repository."
+            exit 0
+          fi
+          echo "number=${number}" >> "${GITHUB_OUTPUT}"
+          echo "Version PR #${number}."
+
+      # Release cadence switch. With this on, the version PR merges itself once
+      # every required check passes, so one merge to main becomes one release
+      # and the version tracks each change instead of collapsing a backlog of
+      # changesets into a single jump. Turn it off to go back to releasing by
+      # hand: `gh variable set AUTO_MERGE_RELEASE_PR --body false`.
+      #
+      # This is deliberately not a blanket auto-merge. It only ever targets the
+      # changesets-authored branch in this repository, the repository requires
+      # its status checks before any merge, and a major bump is gated separately
+      # on the pull request that introduces the changeset — so an unattended
+      # release can still never rename the major version on its own.
+      #
+      # A changeset that lands while this pull request is waiting on its checks
+      # joins the same release rather than starting the next one. That window is
+      # how changesets works, not something this step can close; keeping one
+      # changeset per pull request keeps it small.
+      #
+      # Never fail the release over this: a version PR that stays open costs a
+      # manual merge, while a failure here would block npm, the Marketplace and
+      # the CDN behind it.
+      - name: Enable auto-merge on the version PR
+        if: steps.version-pr.outputs.number != '' && vars.AUTO_MERGE_RELEASE_PR == 'true'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ steps.release-bot.outputs.token }}
+          PR: ${{ steps.version-pr.outputs.number }}
+        run: |
+          set -uo pipefail
+          if gh pr merge "${PR}" --squash --auto; then
+            echo "Auto-merge armed on #${PR}; it lands when its required checks pass."
+          else
+            echo "::warning::Could not arm auto-merge on #${PR}. Merge it by hand to cut the release."
+          fi
+
+      - name: Request CodeRabbit review on version PR
+        if: steps.version-pr.outputs.number != ''
+        env:
+          GH_TOKEN: ${{ steps.release-bot.outputs.token }}
+          PR: ${{ steps.version-pr.outputs.number }}
+        run: gh pr comment "${PR}" --body '@coderabbitai review'
 
       - name: Resolve Pythinker Code native release
         if: steps.changesets.outputs.published == 'true'
