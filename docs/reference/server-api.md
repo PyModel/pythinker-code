@@ -218,6 +218,8 @@ In-session file operations go through `POST /api/v1/sessions/{session_id}/fs:{ac
 | Method and path | Description |
 | --- | --- |
 | `POST /api/v1/workspace/fs:search` | Session-less workspace search (the body carries the workspace reference) |
+| `POST /api/v1/workspace/fs:suggest` | Session-less file and directory suggestions for one workspace reference |
+| `POST /api/v1/fs:suggest` | Session-less suggestions across absolute roots; paths under the first root are relative, and paths under additional roots are absolute |
 | `GET /api/v1/sessions/{session_id}/fs/{path}:download` | Download a session file (binary, see below) |
 | `GET /api/v1/fs:browse` | List host directories (folder picker) |
 | `GET /api/v1/fs:home` | The user's home directory and recent workspaces |
