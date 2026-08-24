@@ -200,9 +200,10 @@ jobs:
       # The changesets action reports the pull request it just created or
       # updated, which is the only unambiguous identifier. The fallback covers
       # the run where changesets had nothing to change, and it is scoped to a
-      # head branch in THIS repository: a head-name match on its own can select
-      # a fork's branch of the same name, which would point the steps below at
-      # somebody else's pull request.
+      # head branch in THIS repository by full `owner/name`: `--head` matches a
+      # branch name only, so a head-name match on its own can select a fork's
+      # branch of the same name, and matching the owner alone would still accept
+      # a different repository belonging to that owner.
       - name: Resolve the version PR
         id: version-pr
         if: steps.changesets.outputs.published != 'true'
@@ -221,13 +222,13 @@ jobs:
               --head changeset-release/main \
               --base main \
               --state open \
-              --json number,headRepositoryOwner); then
+              --json number,headRepository); then
             echo "::warning::Could not look up the version PR. Nothing downstream will run; check it by hand."
             exit 0
           fi
           number=$(printf '%s' "${open_prs}" \
-            | jq -r --arg owner "${GITHUB_REPOSITORY_OWNER}" \
-                '[.[] | select(.headRepositoryOwner.login == $owner)][0].number // ""')
+            | jq -r --arg repo "${GITHUB_REPOSITORY}" \
+                '[.[] | select(.headRepository.nameWithOwner == $repo)][0].number // ""')
           if [ -z "${number}" ]; then
             echo "::notice::No open version PR in this repository."
             exit 0
