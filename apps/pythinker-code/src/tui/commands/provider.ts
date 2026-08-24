@@ -91,7 +91,6 @@ async function handleProviderDelete(host: SlashCommandHost, providerId: string):
   const config = await host.harness.removeProvider(providerId);
   if (activeProvider === providerId) {
     await host.authFlow.refreshConfigAfterLogout();
-    await host.authFlow.clearActiveSessionAfterLogout();
   } else {
     host.setAppState({
       availableProviders: config.providers ?? {},

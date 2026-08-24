@@ -1797,16 +1797,28 @@ describe('PythinkerTUI startup', () => {
     });
   });
 
-  it('removes the current provider and clears the active session', async () => {
+  it('removes the current provider while preserving the active session', async () => {
+    let removed = false;
     const session = makeSession();
-    const removeProvider = vi.fn(async () => {});
+    const removeProvider = vi.fn(async () => {
+      removed = true;
+    });
     const harness = makeHarness(session, {
-      getConfig: vi.fn(async () => ({
-        models: {
-          k2: { provider: 'oauth-example', model: 'moonshot-v1', maxContextSize: 100 },
-        },
-        providers: { 'oauth-example': { type: 'pythinker' } },
-      })),
+      getConfig: vi.fn(async () =>
+        removed
+          ? { models: {}, providers: {} }
+          : {
+              models: {
+                k2: { provider: 'oauth-example', model: 'example-model', maxContextSize: 100 },
+              },
+              providers: {
+                'oauth-example': {
+                  type: 'openai',
+                  baseUrl: 'https://api.example.test/v1',
+                },
+              },
+            },
+      ),
       removeProvider,
     });
     const driver = makeDriver(harness, makeStartupInput());
@@ -1818,13 +1830,61 @@ describe('PythinkerTUI startup', () => {
     await handleLogoutCommand(driver as any);
 
     expect(removeProvider).toHaveBeenCalledWith('oauth-example');
-    expect(session.close).toHaveBeenCalledOnce();
+    expect(session.close).not.toHaveBeenCalled();
+    expect(driver.state.appState).toMatchObject({
+      sessionId: 'ses-1',
+      model: 'k2',
+      sessionTitle: 'Session title',
+      contextTokens: 10,
+      maxContextTokens: 100,
+      availableModels: {},
+      availableProviders: {},
+    });
+    expect(harness.track).toHaveBeenCalledWith('logout', { provider: 'oauth-example' });
+  });
+
+  it('clears the config-derived model when logging out without an active session', async () => {
+    let removed = false;
+    const removeProvider = vi.fn(async () => {
+      removed = true;
+    });
+    const harness = makeHarness(makeSession(), {
+      getConfig: vi.fn(async () =>
+        removed
+          ? { models: {}, providers: {} }
+          : {
+              models: {
+                k2: { provider: 'oauth-example', model: 'example-model', maxContextSize: 100 },
+              },
+              providers: {
+                'oauth-example': {
+                  type: 'openai',
+                  baseUrl: 'https://api.example.test/v1',
+                },
+              },
+              defaultModel: 'k2',
+            },
+      ),
+      removeProvider,
+    });
+    const driver = makeDriver(harness, { ...makeStartupInput(), engineV2: true });
+
+    await expect(driver.init()).resolves.toBe(false);
+    expect(driver.state.appState.model).toBe('k2');
+
+    vi.mocked(promptLogoutProviderSelection).mockResolvedValue('oauth-example');
+    await handleLogoutCommand(driver as any);
+
+    expect(removeProvider).toHaveBeenCalledWith('oauth-example');
+    expect(harness.createSession).not.toHaveBeenCalled();
     expect(driver.state.appState).toMatchObject({
       sessionId: '',
       model: '',
-      sessionTitle: null,
+      contextTokens: 0,
+      maxContextTokens: 0,
+      availableModels: {},
+      availableProviders: {},
     });
-    expect(harness.track).toHaveBeenCalledWith('logout', { provider: 'oauth-example' });
   });
 
   it('keeps the active session when logging out a different provider', async () => {
