@@ -21,6 +21,11 @@ concurrency: ${{ github.workflow }}-${{ github.ref }}
 env:
   SKIP_HOOKS: "1"
 
+# Fail closed: a job gets no token scope it does not ask for, so the repository
+# or organisation default can never quietly hand write access to a job that
+# only reads. Every job below grants itself exactly what it needs.
+permissions: {}
+
 jobs:
   # Publishing to npm is irreversible — never let a commit that fails CI or
   # Nix Build ship. Those workflows run in parallel on the same push, so this
@@ -126,7 +131,7 @@ jobs:
           # this deletes from the directory git will actually read rather than
           # assuming `.git/hooks`.
           hooks_dir=$(git rev-parse --git-path hooks)
-          rm -f "${hooks_dir}/pre-push" "${hooks_dir}/pre-commit"
+          rm -f -- "${hooks_dir}/pre-push" "${hooks_dir}/pre-commit"
           if [ -e "${hooks_dir}/pre-push" ] || [ -e "${hooks_dir}/pre-commit" ]; then
             echo "::error::A git hook survived removal in ${hooks_dir}."
             echo "::error::The release push would re-run the full test suite; fix this before releasing."
@@ -418,6 +423,8 @@ jobs:
   redeploy-cdn:
     timeout-minutes: 10
     name: Redeploy CDN
+    # Posts to a webhook with a secret; it never touches the GitHub API.
+    permissions: {}
     needs:
       - release
       - publish-native-assets
@@ -493,6 +500,9 @@ jobs:
   verify-cdn-release:
     timeout-minutes: 20
     name: Verify release consistency
+    # Checkout only; verify-release-consistency.mjs uses no GitHub token.
+    permissions:
+      contents: read
     needs:
       - release
       - redeploy-cdn
@@ -525,6 +535,9 @@ jobs:
 
   update-brew-tap:
     timeout-minutes: 15
+    # Checkout only; the tap push uses a minted app token, not this one.
+    permissions:
+      contents: read
     name: Update Homebrew tap
     needs: release
     if: needs.release.outputs.packages_published == 'true'
@@ -575,6 +588,10 @@ jobs:
   native-artifacts:
     name: Native release artifact
     needs: release
+    # Matches the `contents: read` that _native-build.yml declares for itself;
+    # a called workflow cannot exceed what the calling job grants.
+    permissions:
+      contents: read
     if: needs.release.outputs.pythinker_native_release == 'true'
     uses: ./.github/workflows/_native-build.yml
     with:
