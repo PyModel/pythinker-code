@@ -92,7 +92,7 @@ Pythinker Code follows semantic versioning. The commit type you would have writt
 
 Each number counts on its own and none of them roll over at nine. Ten fixes on top of `1.2.0` land on `1.2.10`, not `1.3.0`; the minor moves only when a feature ships, and the major only when something breaks:
 
-```
+```text
 1.2.9  + fix      → 1.2.10
 1.9.9  + fix      → 1.9.10
 1.9.9  + feature  → 1.10.0
@@ -116,7 +116,7 @@ Never do any of these:
 
 To correct a bad build, cut the next patch instead: fix the problem, bump, build from that exact commit, sign and notarize, and publish fresh artifacts under the new number. The updater then advertises the new version, and anyone who already installed the old one keeps a build that still matches what it claims to be.
 
-CI enforces this rather than trusting the rule. The desktop release uploads into a draft and refuses to touch a release that is already published; the native CLI job uploads only assets that are missing, so a run that failed part way through still completes while a rebuild of a shipped version is left on the floor.
+CI enforces this rather than trusting the rule. The desktop release uploads into a draft and refuses to touch a release that is already published. The native CLI job treats its assets as one set — `manifest.json` pins a sha256 for every zip — so it uploads all of them or none: a release that already has the full set is left alone, and a partial set stops the job rather than pairing zips from one build with checksums from another.
 
 ### Release cadence
 
