@@ -3112,6 +3112,92 @@ command = "vim"
     ]);
   });
 
+  it('steers fresh input into the running turn while tower mode is active', async () => {
+    const { driver, session } = await makeDriver();
+    driver.state.appState.towerMode = true;
+    driver.state.appState.streamingPhase = 'waiting';
+
+    driver.handleUserInput('second objective');
+
+    expect(session.steer).toHaveBeenCalledWith('second objective');
+    expect(session.prompt).not.toHaveBeenCalled();
+    expect(driver.state.queuedMessages).toEqual([]);
+    expect(driver.state.transcriptEntries).toEqual([
+      expect.objectContaining({ kind: 'user', content: 'second objective' }),
+    ]);
+  });
+
+  it('prompts immediately while tower mode is active and the session is idle', async () => {
+    const { driver, session } = await makeDriver();
+    driver.state.appState.towerMode = true;
+
+    driver.handleUserInput('first objective');
+
+    expect(session.prompt).toHaveBeenCalledWith('first objective', { promptId: undefined });
+    expect(session.steer).not.toHaveBeenCalled();
+  });
+
+  it('queues input while tower mode is active but a foreground shell command is running', async () => {
+    const { driver, session } = await makeDriver();
+    driver.state.appState.towerMode = true;
+    driver.state.appState.streamingPhase = 'shell';
+
+    driver.handleUserInput('objective during shell');
+
+    expect(session.steer).not.toHaveBeenCalled();
+    expect(session.prompt).not.toHaveBeenCalled();
+    expect(driver.state.queuedMessages).toEqual([
+      { text: 'objective during shell', agentId: 'main' },
+    ]);
+  });
+
+  it('queues input while tower mode is active but compaction is running', async () => {
+    const { driver, session } = await makeDriver();
+    driver.state.appState.towerMode = true;
+    driver.state.appState.streamingPhase = 'waiting';
+    driver.state.appState.isCompacting = true;
+
+    driver.handleUserInput('objective during compaction');
+
+    expect(session.steer).not.toHaveBeenCalled();
+    expect(session.prompt).not.toHaveBeenCalled();
+    expect(driver.state.queuedMessages).toEqual([
+      { text: 'objective during compaction', agentId: 'main' },
+    ]);
+  });
+
+  it('steers the compaction backlog ahead of fresh input once compaction ends mid-turn', async () => {
+    const { driver, session } = await makeDriver();
+    driver.state.appState.towerMode = true;
+    driver.state.appState.streamingPhase = 'waiting';
+    driver.state.appState.isCompacting = true;
+    driver.handleUserInput('objective one');
+    expect(driver.state.queuedMessages).toHaveLength(1);
+
+    driver.state.appState.isCompacting = false;
+    driver.handleUserInput('objective two');
+
+    expect(session.steer).toHaveBeenCalledWith('objective one\n\nobjective two');
+    expect(session.prompt).not.toHaveBeenCalled();
+    expect(driver.state.queuedMessages).toEqual([]);
+  });
+
+  it('queues fresh input behind a non-steerable backlog instead of jumping ahead', async () => {
+    const { driver, session } = await makeDriver();
+    driver.state.appState.towerMode = true;
+    driver.state.appState.streamingPhase = 'waiting';
+    driver.state.queuedMessages = [{ text: 'make build', agentId: 'main', mode: 'bash' }];
+
+    driver.handleUserInput('objective two');
+
+    expect(session.steer).not.toHaveBeenCalled();
+    expect(session.prompt).not.toHaveBeenCalled();
+    expect(driver.state.queuedMessages).toEqual([
+      { text: 'make build', agentId: 'main', mode: 'bash' },
+      { text: 'objective two', agentId: 'main' },
+    ]);
+  });
+
   it('resets the streaming phase when steering mid-goal input fails', async () => {
     const session = makeSession({
       steer: vi.fn(async () => {

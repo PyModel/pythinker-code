@@ -190,12 +190,10 @@ export const BUILTIN_SLASH_COMMANDS = [
     priority: 100,
     argumentHint: '[status|teardown|on|off] | <objective>',
     completeArgs: towerArgumentCompletions,
-    availability: (args) => {
-      const sub = args.trim().toLowerCase();
-      return sub === '' || sub === 'on' || sub === 'off' || sub === 'status' || sub === 'teardown'
-        ? 'always'
-        : 'idle-only';
-    },
+    // Every form stays available while busy: objectives steer into the
+    // running coordinator turn (see sendMessage in pythinker-tui.ts), so /tower
+    // commands never wait for the previous one to finish.
+    availability: 'always',
     experimentalFlag: 'tower',
     requiresEngineV2: true,
   },
