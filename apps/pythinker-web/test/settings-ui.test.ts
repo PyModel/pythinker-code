@@ -10,6 +10,7 @@ import {
 } from '../src/composables/client/useAppearance';
 import { i18n } from '../src/i18n';
 import { messages } from '../src/i18n/locales';
+import ProviderForm from '../src/components/settings/ProviderForm.vue';
 import ProvidersPanel from '../src/components/settings/ProvidersPanel.vue';
 import SettingsDialog from '../src/components/settings/SettingsDialog.vue';
 
@@ -53,8 +54,9 @@ describe('settings UI', () => {
     await flushPromises();
 
     api.getAuth.mockClear();
-    const panel = wrapper.vm as unknown as { saved: (id: string) => Promise<void> };
-    await panel.saved('opencode-go');
+    await wrapper.find('.providers-panel__row').trigger('click');
+    await flushPromises();
+    wrapper.findComponent(ProviderForm).vm.$emit('saved', 'opencode-go');
     await flushPromises();
 
     // Without this the setup gate stays up until the window is reloaded: the

@@ -113,8 +113,9 @@ export function collectProviderFormErrors(
     const row: ProviderModelRowErrors = {};
     if (model.model.trim() === '') row.model = 'modelRequired';
     const context = model.maxContextSize.trim();
+    const contextSize = Number(context);
     if (context === '') row.maxContextSize = 'contextSizeRequired';
-    else if (!/^\d+$/.test(context) || Number(context) < 1) {
+    else if (!/^\d+$/.test(context) || !Number.isSafeInteger(contextSize) || contextSize < 1) {
       row.maxContextSize = 'contextSizeInvalid';
     }
     if (row.model !== undefined || row.maxContextSize !== undefined) errors.models[index] = row;

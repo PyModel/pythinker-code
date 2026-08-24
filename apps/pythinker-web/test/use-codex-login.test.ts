@@ -204,6 +204,26 @@ describe('useCodexLogin', () => {
     wrapper.unmount();
   });
 
+  it('reports a server-cancelled attempt as cancelled, without reconciling', async () => {
+    mockApi.startCodexLogin.mockResolvedValue({
+      loginId: 'login_ok',
+      authorizeUrl: 'https://auth.openai.com/oauth/authorize?state=v',
+      loopback: false,
+      expiresAt: '2026-08-17T00:10:00.000Z',
+    });
+    vi.spyOn(window, 'open').mockReturnValue(popupWindow());
+    const reconcile = vi.fn().mockResolvedValue(true);
+    const { wrapper, login } = mountLogin(reconcile);
+
+    mockApi.submitCodexLoginRedirect.mockResolvedValue({ loginId: 'login_ok', state: 'cancelled' });
+    await login.start();
+    await login.submitRedirect('http://localhost:1455/auth/callback?code=c&state=v');
+
+    expect(reconcile).not.toHaveBeenCalled();
+    expect(login.phase.value).toBe('cancelled');
+    wrapper.unmount();
+  });
+
   it('ignores a redirect result that arrives after cancellation', async () => {
     mockApi.startCodexLogin.mockResolvedValue({
       loginId: 'login_3',

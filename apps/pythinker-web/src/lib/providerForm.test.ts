@@ -41,6 +41,10 @@ describe('provider form', () => {
     expect(collectProviderFormErrors(form, required).models[0]).toEqual({
       maxContextSize: 'contextSizeInvalid',
     });
+    form.models[0]!.maxContextSize = '99999999999999999999';
+    expect(collectProviderFormErrors(form, required).models[0]).toEqual({
+      maxContextSize: 'contextSizeInvalid',
+    });
     form.models[0]!.maxContextSize = '128000';
     expect(hasProviderFormErrors(collectProviderFormErrors(form, required))).toBe(false);
   });

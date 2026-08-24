@@ -106,6 +106,12 @@ export function useCodexLogin(reconcile?: CodexLoginReconcile): UseCodexLogin {
       fail(status.message ?? '');
       return;
     }
+    if (status.state === 'cancelled') {
+      phase.value = 'cancelled';
+      closePopup();
+      clearAttempt();
+      return;
+    }
     activePopup = undefined;
     // Credentials are written, but the provider is not usable until its models
     // have been discovered — advancing here would hand the caller a signed-in
