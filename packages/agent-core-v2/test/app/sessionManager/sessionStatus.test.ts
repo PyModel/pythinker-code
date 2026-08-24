@@ -26,7 +26,6 @@ import {
   makeAgentScopeContext,
 } from '#/agent/scopeContext/scopeContext';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
-import { ISessionCronService } from '#/session/cron/sessionCronService';
 
 function accessor(
   entries: ReadonlyArray<readonly [ServiceIdentifier<unknown>, unknown]>,
@@ -99,6 +98,15 @@ function stubSessionChain(ix: TestInstantiationService, session: ISessionScopeHa
   } as unknown as ISessionManager);
 }
 
+function lifecycleFor(agent: IAgentScopeHandle): IAgentLifecycleService {
+  const context = agent.accessor.get(IAgentScopeContext).agentContext;
+  return {
+    create: () => Promise.resolve(context),
+    handleOf: (agentId: string) => agentId === context.agentId ? agent : undefined,
+    list: () => [context],
+  } as unknown as IAgentLifecycleService;
+}
+
 describe('Session status (best-effort runtime state)', () => {
   let disposables: DisposableStore;
   let ix: TestInstantiationService;
@@ -148,18 +156,11 @@ describe('Session status (best-effort runtime state)', () => {
       ]),
       dispose: () => {},
     };
-    const agents = {
-      create: () => Promise.resolve(agent),
-      whenReady: () => Promise.resolve(agent),
-      list: () => [agent],
-    } as unknown as IAgentLifecycleService;
+    const agents = lifecycleFor(agent);
     const session: ISessionScopeHandle = {
       id: 'session-test',
       kind: LifecycleScope.Session,
-      accessor: accessor([
-        [IAgentLifecycleService, agents],
-        [ISessionCronService, { _serviceBrand: undefined }],
-      ]),
+      accessor: accessor([[IAgentLifecycleService, agents]]),
       dispose: () => {},
     };
     stubSessionChain(ix, session);
@@ -209,18 +210,11 @@ describe('Session status (best-effort runtime state)', () => {
       ]),
       dispose: () => {},
     };
-    const agents = {
-      create: () => Promise.resolve(agent),
-      whenReady: () => Promise.resolve(agent),
-      list: () => [agent],
-    } as unknown as IAgentLifecycleService;
+    const agents = lifecycleFor(agent);
     const session: ISessionScopeHandle = {
       id: 'session-unbound',
       kind: LifecycleScope.Session,
-      accessor: accessor([
-        [IAgentLifecycleService, agents],
-        [ISessionCronService, { _serviceBrand: undefined }],
-      ]),
+      accessor: accessor([[IAgentLifecycleService, agents]]),
       dispose: () => {},
     };
     stubSessionChain(ix, session);
@@ -279,18 +273,11 @@ describe('Session status (best-effort runtime state)', () => {
       ]),
       dispose: () => {},
     };
-    const agents = {
-      create: () => Promise.resolve(agent),
-      whenReady: () => Promise.resolve(agent),
-      list: () => [agent],
-    } as unknown as IAgentLifecycleService;
+    const agents = lifecycleFor(agent);
     const session: ISessionScopeHandle = {
       id: 'session-draft',
       kind: LifecycleScope.Session,
-      accessor: accessor([
-        [IAgentLifecycleService, agents],
-        [ISessionCronService, { _serviceBrand: undefined }],
-      ]),
+      accessor: accessor([[IAgentLifecycleService, agents]]),
       dispose: () => {},
     };
     stubSessionChain(ix, session);
@@ -355,18 +342,11 @@ describe('Session status (best-effort runtime state)', () => {
       ]),
       dispose: () => {},
     };
-    const agents = {
-      create: () => Promise.resolve(agent),
-      whenReady: () => Promise.resolve(agent),
-      list: () => [agent],
-    } as unknown as IAgentLifecycleService;
+    const agents = lifecycleFor(agent);
     const session: ISessionScopeHandle = {
       id: 'session-capped',
       kind: LifecycleScope.Session,
-      accessor: accessor([
-        [IAgentLifecycleService, agents],
-        [ISessionCronService, { _serviceBrand: undefined }],
-      ]),
+      accessor: accessor([[IAgentLifecycleService, agents]]),
       dispose: () => {},
     };
     stubSessionChain(ix, session);

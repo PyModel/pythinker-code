@@ -15,7 +15,6 @@ import { stubFlag } from '../../app/flag/stubs';
 import type { IFlagService } from '#/app/flag/flag';
 import { IAgentContextInjectorService } from '#/agent/contextInjector/contextInjector';
 import { AgentContextInjectorService } from '#/agent/contextInjector/contextInjectorService';
-import type { AgentContext } from '#/agent/agentContext/agentContext';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { AgentContextMemoryService } from '#/agent/contextMemory/contextMemoryService';
 import type { ContextMessage } from '#/agent/contextMemory/types';
@@ -236,20 +235,25 @@ function realSubagents(
     },
     dispose: () => {},
   } as unknown as IAgentScopeHandle;
+  const callerContext = makeAgentScopeContext({
+    agentId: callerHandle.id,
+    agentScope: `agents/${callerHandle.id}`,
+  }).agentContext;
   const lifecycle = {
     _serviceBrand: undefined,
     onDidCreate: Event.None,
-    onDidDispose: Event.None,
+    onDidCreateScope: Event.None,
+    onWillClose: Event.None,
+    onDidClose: Event.None,
     create: async (): Promise<never> => {
       throw new Error('AgentDynamicWorkflowTool tests do not reach spawn');
     },
     fork: async (): Promise<never> => {
       throw new Error('AgentDynamicWorkflowTool tests do not reach spawn');
     },
-    get: (context: AgentContext) =>
-      context.agentId === callerHandle.id ? callerHandle : undefined,
-    findAgentHandle: (agentId: string) => (agentId === callerHandle.id ? callerHandle : undefined),
-    list: () => [callerHandle],
+    get: (agentId: string) => agentId === callerHandle.id ? callerContext : undefined,
+    handleOf: (agentId: string) => (agentId === callerHandle.id ? callerHandle : undefined),
+    list: () => [callerContext],
     remove: async () => {},
     broadcastPermissionMode: () => {},
   } as unknown as IAgentLifecycleService;

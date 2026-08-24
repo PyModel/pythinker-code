@@ -162,18 +162,26 @@ function fixture(options: {
   bus.activateAgent(mainContext);
   const createEmitter = new Emitter<typeof mainContext>();
   const createScopeEmitter = new Emitter<AgentScopeCreatedEvent>();
-  const disposeEmitter = new Emitter<typeof mainContext>();
+  const closeEmitter = new Emitter<typeof mainContext>();
   const lifecycle = {
     _serviceBrand: undefined,
     onDidCreate: createEmitter.event,
     onDidCreateScope: createScopeEmitter.event,
-    onDidDispose: disposeEmitter.event,
-    get: (context: typeof mainContext) => context === mainContext ? main : undefined,
-    findAgentHandle: (id: string) => id === 'main' ? main : undefined,
-    list: () => [main],
+    onWillClose: closeEmitter.event,
+    onDidClose: closeEmitter.event,
+    get: (id: string) => id === 'main' ? mainContext : undefined,
+    handleOf: (id: string) => id === 'main' ? main : undefined,
+    list: () => [mainContext],
+    resolve: () => { throw new Error('not used'); },
+    inspect: () => ({
+      identity: { agentId: mainContext.agentId, generation: mainContext.generation },
+      contributions: [],
+    }),
     broadcastPermissionMode: () => {},
-    create: async () => main,
-    fork: async () => main,
+    create: async () => mainContext,
+    fork: async () => mainContext,
+    adopt: () => mainContext,
+    attachRuntimes: () => {},
     remove: async () => {},
   } satisfies IAgentLifecycleService;
   const config: Pick<IConfigService, 'get'> = {
