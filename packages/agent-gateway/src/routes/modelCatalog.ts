@@ -3,7 +3,6 @@ import {
   IKosongConfigService,
   IModelCatalog,
   IModelService,
-  IOAuthService,
   IProviderDiscoveryService,
   IModelsDevImportService,
   isError2,
@@ -125,11 +124,6 @@ async function loadConfig(core: Scope): Promise<IConfigService> {
 async function loadDiscovery(core: Scope): Promise<IProviderDiscoveryService> {
   await core.accessor.get(IConfigService).ready;
   return core.accessor.get(IProviderDiscoveryService);
-}
-
-async function loadOAuth(core: Scope): Promise<IOAuthService> {
-  await core.accessor.get(IConfigService).ready;
-  return core.accessor.get(IOAuthService);
 }
 
 let providerWriteChain: Promise<unknown> = Promise.resolve();
@@ -312,12 +306,11 @@ export function registerModelCatalogRoutes(app: ModelCatalogRouteHost, core: Sco
       success: { data: replaceProviderResponseSchema },
       errors: {
         [ErrorCode.VALIDATION_FAILED]: {},
-        [ErrorCode.PROVIDER_OAUTH_MANAGED]: {},
         [ErrorCode.PROVIDER_NOT_FOUND]: {},
         [ErrorCode.PROVIDER_ALREADY_EXISTS]: {},
       },
       description:
-        'Replace a provider in one save (type + base_url + model list), optionally renaming it via `new_id` (the providers key, model aliases, default_provider and a default_model pointing at an old alias all migrate). `api_key` is tri-state: omitted keeps the stored key, "" clears it, any other value replaces it. The provider\'s model aliases are rebuilt from `models` — aliases no longer listed disappear from config.toml, other providers\' aliases are untouched. Beyond the rename migration, the global default pointers are never modified. Answers 200 with `{provider}`. OAuth-managed providers are rejected: log out via /oauth/logout instead.',
+        'Replace a provider in one save (type + base_url + model list), optionally renaming it via `new_id` (the providers key, model aliases, default_provider and a default_model pointing at an old alias all migrate). `api_key` is tri-state: omitted keeps the stored key, "" clears it, any other value replaces it. The provider\'s model aliases are rebuilt from `models` — aliases no longer listed disappear from config.toml, other providers\' aliases are untouched. Beyond the rename migration, the global default pointers are never modified. Answers 200 with `{provider}`.',
       tags: ['providers'],
       operationId: 'replaceProvider',
     },
@@ -337,17 +330,6 @@ export function registerModelCatalogRoutes(app: ModelCatalogRouteHost, core: Sco
           );
           return;
         }
-        if (target.oauth !== undefined) {
-          reply.send(
-            errEnvelope(
-              ErrorCode.PROVIDER_OAUTH_MANAGED,
-              `provider ${provider_id} is managed by OAuth login; use POST /oauth/logout instead`,
-              req.id,
-            ),
-          );
-          return;
-        }
-
         const newId = req.body.new_id ?? provider_id;
         if (newId !== provider_id && providers[newId] !== undefined) {
           reply.send(
@@ -488,12 +470,11 @@ export function registerModelCatalogRoutes(app: ModelCatalogRouteHost, core: Sco
         [ErrorCode.VALIDATION_FAILED]: {},
         [ErrorCode.CATALOG_IMPORT_INVALID]: {},
         [ErrorCode.REGISTRY_IMPORT_INVALID]: {},
-        [ErrorCode.PROVIDER_OAUTH_MANAGED]: {},
         [ErrorCode.CATALOG_ENTRY_NOT_FOUND]: {},
         [ErrorCode.CATALOG_UNAVAILABLE]: {},
       },
       description:
-        'Provider collection actions. Use `:refresh` for all providers or `:refresh_oauth` for OAuth-backed providers only. Use `:import_catalog` to import a models.dev directory entry as a configured provider (201): the wire protocol and endpoint come from the catalog resolution (`base_url` overrides it; required when the entry resolves to needs-base-url), all catalogued models are written as aliases, and importing an id that already exists is a refresh — the provider entry and its aliases are rewritten from the catalog (OAuth-managed providers are rejected instead). `id` overrides the catalog id as the local provider id. Use `:import_registry` to import a models.dev-shaped private registry (api.json `url` + optional Bearer `api_key`, 201): every listed provider is written with a `source` blob so scheduled refreshes rediscover it, and re-importing the same URL removes providers that disappeared upstream (the URL is the stable registry identity). For both imports the global default_provider/default_model pointers are never modified — except that a default_model is seeded from the first imported model when none is configured at all (fresh setup).',
+        'Provider collection actions. Use `:refresh` for all providers. Use `:import_catalog` to import a models.dev directory entry as a configured provider (201): the wire protocol and endpoint come from the catalog resolution (`base_url` overrides it; required when the entry resolves to needs-base-url), all catalogued models are written as aliases, and importing an id that already exists is a refresh — the provider entry and its aliases are rewritten from the catalog. `id` overrides the catalog id as the local provider id. Use `:import_registry` to import a models.dev-shaped private registry (api.json `url` + optional Bearer `api_key`, 201): every listed provider is written with a `source` blob so scheduled refreshes rediscover it, and re-importing the same URL removes providers that disappeared upstream (the URL is the stable registry identity). For both imports the global default_provider/default_model pointers are never modified — except that a default_model is seeded from the first imported model when none is configured at all (fresh setup).',
       tags: ['providers'],
       operationId: 'providerCollectionAction',
     },
@@ -607,14 +588,13 @@ export function registerModelCatalogRoutes(app: ModelCatalogRouteHost, core: Sco
       params: providerIdParamSchema,
       errors: {
         [ErrorCode.VALIDATION_FAILED]: {},
-        [ErrorCode.PROVIDER_OAUTH_MANAGED]: {},
         [ErrorCode.PROVIDER_NOT_FOUND]: {},
       },
       rawResponse: {
         204: { description: 'Provider deleted.' },
       },
       description:
-        'Delete a provider and all of its model aliases (204, no body). The global default_provider/default_model pointers are left untouched — they are the user\'s settings, not this endpoint\'s to garbage-collect. OAuth-managed providers are rejected: log out via /oauth/logout instead.',
+        'Delete a provider and all of its model aliases (204, no body). The global default_provider/default_model pointers are left untouched — they are the user\'s settings, not this endpoint\'s to garbage-collect.',
       tags: ['providers'],
       operationId: 'deleteProvider',
     },
@@ -634,17 +614,6 @@ export function registerModelCatalogRoutes(app: ModelCatalogRouteHost, core: Sco
           );
           return;
         }
-        if (target.oauth !== undefined) {
-          reply.send(
-            errEnvelope(
-              ErrorCode.PROVIDER_OAUTH_MANAGED,
-              `provider ${provider_id} is managed by OAuth login; use POST /oauth/logout instead`,
-              req.id,
-            ),
-          );
-          return;
-        }
-
         const models = config.inspect<ModelsSection>(MODELS_SECTION).userValue ?? {};
         const restProviders = { ...providers };
         delete restProviders[provider_id];
@@ -753,7 +722,6 @@ const MODELS_DEV_IMPORT_ERROR_CODES: Record<string, number> = {
   [ModelsDevImportErrors.codes.CATALOG_ENTRY_NOT_FOUND]: ErrorCode.CATALOG_ENTRY_NOT_FOUND,
   [ModelsDevImportErrors.codes.CATALOG_IMPORT_INVALID]: ErrorCode.CATALOG_IMPORT_INVALID,
   [ModelsDevImportErrors.codes.REGISTRY_IMPORT_INVALID]: ErrorCode.REGISTRY_IMPORT_INVALID,
-  [ModelsDevImportErrors.codes.PROVIDER_OAUTH_MANAGED]: ErrorCode.PROVIDER_OAUTH_MANAGED,
 };
 
 function sendModelsDevImportError(
@@ -852,22 +820,16 @@ type ProviderCollectionActionCtx = ProviderCollectionActionExtra & {
 };
 
 const providerCollectionActions: ActionTable<
-  'refresh_oauth' | 'refresh' | 'import_catalog' | 'import_registry',
+  'refresh' | 'import_catalog' | 'import_registry',
   ProviderCollectionActionExtra
 > = {
-  refresh_oauth: { handle: refreshOAuthProvidersAction },
   refresh: { handle: refreshProvidersAction },
   import_catalog: { handle: importCatalogProviderAction },
   import_registry: { handle: importRegistryProviderAction },
 };
 
-async function refreshOAuthProvidersAction(ctx: ProviderCollectionActionCtx): Promise<void> {
-  const result = await (await loadOAuth(ctx.core)).refreshOAuthProviderModels();
-  ctx.reply.send(okEnvelope(result, ctx.req.id));
-}
-
 async function refreshProvidersAction(ctx: ProviderCollectionActionCtx): Promise<void> {
-  const result = await (await loadDiscovery(ctx.core)).refreshProviderModels({ scope: 'all' });
+  const result = await (await loadDiscovery(ctx.core)).refreshProviderModels();
   ctx.reply.send(okEnvelope(result, ctx.req.id));
 }
 
@@ -878,4 +840,3 @@ async function importCatalogProviderAction(ctx: ProviderCollectionActionCtx): Pr
 async function importRegistryProviderAction(ctx: ProviderCollectionActionCtx): Promise<void> {
   await enqueueProviderWrite(() => handleImportRegistry(ctx.req, ctx.reply, ctx.core));
 }
-

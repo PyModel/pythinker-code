@@ -7,7 +7,7 @@ import type {
   TelemetryProperties,
 } from '@pymodel/agent-core';
 import type { Pyaos } from '@pymodel/pyaos';
-import type { PythinkerHostIdentity, OAuthRefreshOutcome } from '@pymodel/pythinker-code-oauth';
+import type { PythinkerHostIdentity } from '@pymodel/pythinker-code-oauth';
 import type { ContentPart } from '@pymodel/kosong';
 
 export type JsonPrimitive = string | number | boolean | null;
@@ -84,7 +84,7 @@ export type {
   GlobalMcpServerTestResult as McpTestResult,
 } from '@pymodel/agent-core';
 
-export type { PythinkerHostIdentity, OAuthRefreshOutcome };
+export type { PythinkerHostIdentity };
 export type { TelemetryClient, TelemetryContextPatch, TelemetryProperties };
 export type { ContentPart, Role, ThinkingEffort, ToolCall } from '@pymodel/kosong';
 // Contributed commands are an agent-core-v2 seam; the type is re-exported
@@ -147,7 +147,6 @@ export interface PythinkerHarnessOptions {
   readonly uiMode?: string;
   readonly skillDirs?: readonly string[];
   readonly telemetry?: TelemetryClient | undefined;
-  readonly onOAuthRefresh?: ((outcome: OAuthRefreshOutcome) => void) | undefined;
   readonly sessionStartedProperties?: TelemetryProperties;
 }
 

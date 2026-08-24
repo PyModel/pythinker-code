@@ -10,7 +10,7 @@ const identity: any = { productName: 'pythinker-code-cli', version: '0.0.1-test'
 const h = createPythinkerHarness({ identity, homeDir });
 
 try {
-  const s = await h.createSession({ workDir, id: sessionId, model: 'pythinker-code/kimi-for-coding' });
+  const s = await h.createSession({ workDir, id: sessionId, model: 'example/test-model' });
   console.log(JSON.stringify({ label, ok: true, id: s.id, dir: s.summary?.sessionDir, pid: process.pid }));
 } catch (error: any) {
   console.log(JSON.stringify({ label, ok: false, msg: String(error.message ?? error), code: error.code ?? error.cause?.code, pid: process.pid }));

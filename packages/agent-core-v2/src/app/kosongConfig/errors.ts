@@ -6,7 +6,6 @@ export const ModelsDevImportErrors = {
     CATALOG_ENTRY_NOT_FOUND: 'modelsDev.catalog_entry_not_found',
     CATALOG_IMPORT_INVALID: 'modelsDev.import_invalid',
     REGISTRY_IMPORT_INVALID: 'modelsDev.registry_import_invalid',
-    PROVIDER_OAUTH_MANAGED: 'provider.oauth_managed',
   },
   info: {
     'modelsDev.catalog_unavailable': {
@@ -32,12 +31,6 @@ export const ModelsDevImportErrors = {
       retryable: false,
       public: true,
       action: 'Check the registry URL and credentials.',
-    },
-    'provider.oauth_managed': {
-      title: 'Provider managed by OAuth login',
-      retryable: false,
-      public: true,
-      action: 'Log out via the OAuth flow instead of editing the provider.',
     },
   },
 } as const satisfies ErrorDomain;

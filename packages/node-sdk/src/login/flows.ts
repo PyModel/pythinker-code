@@ -10,8 +10,8 @@ import {
   OpenAICodexApiError,
   OpenPlatformApiError,
   runOpenAICodexOAuthFlow,
-  type ManagedPythinkerCodeModelInfo,
-  type ManagedPythinkerConfigShape,
+  type ProviderModelInfo,
+  type PythinkerConfigShape,
   type OpenAICodexModelInfo,
   type OpenPlatformDefinition,
 } from '@pymodel/pythinker-code-oauth';
@@ -63,7 +63,7 @@ async function handleOpenPlatformLogin(
   };
   ui.cancelInFlight = cancelLogin;
   try {
-    let models: ManagedPythinkerCodeModelInfo[];
+    let models: ProviderModelInfo[];
     try {
       models = filterModelsByPrefix(
         await fetchOpenPlatformModels(platform, apiKey, fetch, controller.signal),
@@ -91,7 +91,7 @@ async function handleOpenPlatformLogin(
     const current = await ui.harness.getConfig({ reload: true });
     controller.signal.throwIfAborted();
     const next = cloneConfig(current);
-    applyOpenPlatformConfig(next as ManagedPythinkerConfigShape, {
+    applyOpenPlatformConfig(next as PythinkerConfigShape, {
       platform,
       models,
       selectedModel,

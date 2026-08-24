@@ -64,13 +64,13 @@ export function parseThinkEfforts(value: unknown): {
 }
 
 export interface OAuthRef {
-  readonly storage: 'file';
+  readonly storage: 'file' | 'keyring';
   readonly key: string;
   readonly oauthHost?: string | undefined;
 }
 
 export interface OAuthRefInput {
-  readonly storage?: 'file' | undefined;
+  readonly storage?: 'file' | 'keyring' | undefined;
   readonly key?: string | undefined;
   readonly oauthHost?: string | undefined;
 }

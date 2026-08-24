@@ -82,10 +82,10 @@ const CATALOG = {
   },
 } as const;
 
-const MANAGED_OPENAI_TOML = [
+const EXPLICIT_OAUTH_OPENAI_TOML = [
   '[providers.openai]',
   'type = "openai"',
-  'api_key = "sk-managed"',
+  'api_key = ""',
   'oauth = { storage = "file", key = "oauth/openai" }',
   '',
 ].join('\n');
@@ -505,13 +505,18 @@ describe('server-v2 /api/v1 catalog browse + import endpoints', () => {
     expect(body.msg).toContain('no importable models');
   });
 
-  it('answers 40003 when the target id is OAuth-managed', async () => {
-    await boot(MANAGED_OPENAI_TOML);
-    const { body } = await postJson('/api/v1/providers:import_catalog', {
+  it('replaces an explicit OAuth credential during catalog import', async () => {
+    await boot(EXPLICIT_OAUTH_OPENAI_TOML);
+    const { status, body } = await postJson('/api/v1/providers:import_catalog', {
       catalog_id: 'openai',
       api_key: 'sk-x',
     });
-    expect(body.code).toBe(40003);
+    expect(status).toBe(201);
+    expect(body.code).toBe(0);
+    const config = await readConfigToml();
+    const provider = (config['providers'] as Record<string, Record<string, unknown>>)['openai'];
+    expect(provider?.['api_key']).toBe('sk-x');
+    expect(provider?.['oauth']).toBeUndefined();
   });
 
   it('answers 40417 when importing an unknown catalog id', async () => {
@@ -689,30 +694,35 @@ describe('server-v2 /api/v1 catalog browse + import endpoints', () => {
     expect(after['default_model']).toBe('k2');
   });
 
-  it('answers 40003 when a registry entry id is OAuth-managed', async () => {
-    const managed = {
-      'managed-one': {
-        id: 'managed-one',
-        name: 'Managed One',
+  it('replaces an explicit OAuth credential during registry import', async () => {
+    const registry = {
+      'oauth-one': {
+        id: 'oauth-one',
+        name: 'OAuth One',
         api: 'https://acme.example/v1',
         type: 'openai',
         models: { m: { id: 'm', limit: { context: 1 } } },
       },
     };
-    const managedToml = [
-      '[providers."managed-one"]',
+    const oauthToml = [
+      '[providers."oauth-one"]',
       'type = "openai"',
-      'api_key = "sk-managed"',
-      'oauth = { storage = "file", key = "oauth/managed-one" }',
+      'api_key = ""',
+      'oauth = { storage = "file", key = "oauth/example" }',
       '',
     ].join('\n');
-    setModelsDevUpstreamForTest({ fetchImpl: registryFetch(managed) });
-    await boot(managedToml);
-    const { body } = await postJson('/api/v1/providers:import_registry', {
+    setModelsDevUpstreamForTest({ fetchImpl: registryFetch(registry) });
+    await boot(oauthToml);
+    const { status, body } = await postJson('/api/v1/providers:import_registry', {
       url: REGISTRY_URL,
       api_key: 'tok-1',
     });
-    expect(body.code).toBe(40003);
+    expect(status).toBe(201);
+    expect(body.code).toBe(0);
+    const config = await readConfigToml();
+    const provider = (config['providers'] as Record<string, Record<string, unknown>>)['oauth-one'];
+    expect(provider?.['api_key']).toBe('tok-1');
+    expect(provider?.['oauth']).toBeUndefined();
   });
 
   it('answers 40005 when the registry is unreachable', async () => {

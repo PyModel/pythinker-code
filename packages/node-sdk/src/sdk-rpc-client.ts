@@ -23,7 +23,6 @@ import type {
   CreateSessionOptions,
   PythinkerHarnessOptions,
   PythinkerHostIdentity,
-  OAuthRefreshOutcome,
   ResumeSessionInput,
   ResumedSessionSummary,
   SessionSummary,
@@ -36,7 +35,6 @@ export interface SDKRpcClientOptions {
   readonly resolveOAuthTokenProvider?: OAuthTokenProviderResolver;
   readonly skillDirs?: readonly string[];
   readonly telemetry?: TelemetryClient;
-  readonly onOAuthRefresh?: (outcome: OAuthRefreshOutcome) => void;
   /**
    * Host UI mode (`'print'` for `pythinker -p`, `'cli'` for the TUI, ...). Forwarded
    * to the v1 core, which applies print-mode config defaults when it is
@@ -67,9 +65,6 @@ export class SDKRpcClient extends SDKRpcClientBase {
     this.telemetry = options.telemetry ?? noopTelemetryClient;
     this.auth = new PythinkerAuthFacade({
       homeDir: this.homeDir,
-      configPath: this.configPath,
-      identity: this.identity,
-      onRefresh: options.onOAuthRefresh,
     });
 
     void getRootLogger().configure(resolveLoggingConfig({ homeDir: this.homeDir }));

@@ -35,9 +35,6 @@ import type {
   ReloadSummary,
 } from './types';
 
-const PYTHINKER_CODE_BASE_URL_ENV = 'PYTHINKER_CODE_BASE_URL';
-const PYTHINKER_CODE_OAUTH_HOST_ENV = 'PYTHINKER_CODE_OAUTH_HOST';
-const PYTHINKER_OAUTH_HOST_ENV = 'PYTHINKER_OAUTH_HOST';
 const NO_ABORT = new AbortController().signal;
 
 interface PluginReloadNotification {
@@ -54,8 +51,6 @@ export class PluginService extends Service implements IPluginService {
   declare readonly _serviceBrand: undefined;
 
   private readonly homeDir: string;
-  private readonly envBaseUrl: string | undefined;
-  private readonly envOAuthHost: string | undefined;
   private readonly manager: PluginManager;
   private initialLoadPromise: Promise<void> | undefined;
   private snapshotLoaded = false;
@@ -74,9 +69,6 @@ export class PluginService extends Service implements IPluginService {
   ) {
     super();
     this.homeDir = bootstrap.homeDir;
-    this.envBaseUrl = bootstrap.getEnv(PYTHINKER_CODE_BASE_URL_ENV);
-    this.envOAuthHost =
-      bootstrap.getEnv(PYTHINKER_CODE_OAUTH_HOST_ENV) ?? bootstrap.getEnv(PYTHINKER_OAUTH_HOST_ENV);
     this.manager = new PluginManager({
       pythinkerHomeDir: this.homeDir,
       discoverSkills: (roots) => discovery.discover(roots),

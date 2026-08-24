@@ -30,7 +30,7 @@ export type {
 export type { TokenInfo, TokenInfoWire } from './types';
 export { tokenFromWire, tokenToWire } from './types';
 export type { TokenStorage } from './storage';
-export { FileTokenStorage } from './storage';
+export { FileTokenStorage, resolveOAuthTokenStorageName } from './storage';
 
 export {
   assertPythinkerHostIdentity,

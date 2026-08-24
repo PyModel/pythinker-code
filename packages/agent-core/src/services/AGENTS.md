@@ -104,7 +104,6 @@ no new suffixes get reintroduced.
 | `tool/` | `tool.ts` | `toolService.ts` | `IToolService` |
 | `mcp/` | `mcp.ts` | `mcpService.ts` | `IMcpService` |
 | `task/` | `task.ts` | `taskService.ts` | `ITaskService` |
-| `oauth/` | `oauth.ts` | `oauthService.ts` | `IOAuthService` |
 | `authSummary/` | `authSummary.ts` | `authSummaryService.ts` | `IAuthSummaryService` |
 
 Adding a new service: create the folder + contracts + impl pair, add a

@@ -298,7 +298,6 @@ import type {
   McpServerLocator,
   McpStartupMetrics,
   McpTestResult,
-  OAuthRefreshOutcome,
   PluginCommandDef,
   PluginInfo,
   PluginSummary,
@@ -351,7 +350,6 @@ export interface SDKRpcClientV2Options {
    */
   readonly skillDirs?: readonly string[];
   readonly telemetry?: TelemetryClient;
-  readonly onOAuthRefresh?: (outcome: OAuthRefreshOutcome) => void;
   readonly uiMode?: string;
 }
 
@@ -433,9 +431,6 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
     this.telemetry = options.telemetry ?? noopTelemetryClient;
     this.auth = new PythinkerAuthFacade({
       homeDir: this.homeDir,
-      configPath: this.configPath,
-      identity: this.identity,
-      onRefresh: options.onOAuthRefresh,
     });
 
     const identity = assertPythinkerHostIdentity(this.identity);
@@ -1309,9 +1304,8 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
   /**
    * v2-only (`ISessionTitleService`, session scope). Like `renameSession`, a
    * closed session is resumed, titled, and closed again so generation does
-   * not leak a live session. `undefined` means generation was unavailable
-   * (no managed OAuth login, no prompt yet, or a custom title is set) — the
-   * current title is kept.
+   * not leak a live session. `undefined` means no title-generation backend is
+   * available, so the current title is kept.
    */
   override async generateSessionTitle(
     input: GenerateSessionTitleInput,

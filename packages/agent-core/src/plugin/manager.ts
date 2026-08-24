@@ -265,28 +265,22 @@ export class PluginManager {
    * Every MCP server declared by a healthy plugin manifest, with the final
    * effective config the engine would run: the `plugin-<id>:` runtime rename,
    * the plugin environment / cwd constraints, the folded enabled flag (plugin
-   * disabled or per-server override → `enabled: false`), and — when the caller
-   * passes `managedEnv` — the host-managed Pythinker env for stdio servers. This is
-   * the single contributor surface the MCP registry and live-session sync read;
+   * disabled or per-server override → `enabled: false`). This is the single
+   * contributor surface the MCP registry and live-session sync read;
    * config ownership stays in the manifest, so entries are read-only for the
    * management plane.
    */
-  mcpServerEntries(options?: {
-    readonly managedEnv?: Record<string, string>;
-  }): readonly PluginMcpServerEntry[] {
+  mcpServerEntries(): readonly PluginMcpServerEntry[] {
     const out: PluginMcpServerEntry[] = [];
     for (const record of this.records.values()) {
       if (record.state !== 'ok' || record.manifest === undefined) continue;
       for (const [name, config] of Object.entries(record.manifest.mcpServers ?? {})) {
         const enabled = record.enabled && isMcpServerEnabled(record, name, config);
-        let effective = withPluginMcpRuntime(
+        const effective = withPluginMcpRuntime(
           withMcpServerEnabled(config, enabled),
           record.root,
           this.pythinkerHomeDir,
         );
-        if (options?.managedEnv !== undefined && effective.transport === 'stdio') {
-          effective = { ...effective, env: { ...effective.env, ...options.managedEnv } };
-        }
         out.push({
           name: pluginMcpRuntimeName(record.id, name),
           config: effective,

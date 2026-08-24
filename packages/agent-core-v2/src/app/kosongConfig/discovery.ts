@@ -27,8 +27,6 @@ export type RefreshProviderModelsResponse = z.infer<
   typeof refreshProviderModelsResponseSchema
 >;
 
-export type RefreshProviderModelsScope = 'all' | 'oauth';
-
 export class ModelCatalogChanged extends Event2<{
   readonly payload: RefreshProviderModelsResponse;
 }> {
@@ -39,7 +37,6 @@ export interface ModelCatalogChanged {
 }
 
 export interface RefreshProviderModelsOptions {
-  readonly scope?: RefreshProviderModelsScope;
   readonly providerId?: string;
 }
 

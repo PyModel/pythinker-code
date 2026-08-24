@@ -1,6 +1,6 @@
 import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
-import { IOAuthService } from '#/app/auth/auth';
+import { IOAuthTokenService } from '#/app/auth/auth';
 import { IAgentIdentity } from '#/app/agentIdentity/agentIdentity';
 import { IConfigService } from '#/app/config/config';
 
@@ -15,7 +15,7 @@ export class WebSearchProviderService implements IWebSearchProviderService {
   declare readonly _serviceBrand: undefined;
 
   constructor(
-    @IOAuthService private readonly oauth: IOAuthService,
+    @IOAuthTokenService private readonly oauth: IOAuthTokenService,
     @IConfigService private readonly config: IConfigService,
     @IAgentIdentity private readonly identity: IAgentIdentity,
   ) {}

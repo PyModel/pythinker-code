@@ -68,15 +68,15 @@ const POOL_TOML = [
 
 const POOL_DANGLING_DEFAULT_TOML = POOL_TOML.replace('default_model = "k2"', 'default_model = "gpt4o"');
 
-const MANAGED_TOML = [
-  '[providers."managed:pythinker-code"]',
+const OAUTH_TOML = [
+  '[providers."file-oauth"]',
   'type = "pythinker"',
   'api_key = ""',
   'base_url = "https://api.example.test/v1"',
-  'oauth = { storage = "file", key = "oauth/pythinker-code" }',
+  'oauth = { storage = "file", key = "oauth/example" }',
   '',
-  '[models."managed:pythinker-code/kimi-k2"]',
-  'provider = "managed:pythinker-code"',
+  '[models."file-oauth/example-model"]',
+  'provider = "file-oauth"',
   'model = "kimi-k2"',
   'max_context_size = 131072',
   '',
@@ -485,14 +485,12 @@ describe('server-v2 /api/v1 provider write endpoints', () => {
     expect(providers.body.data.items).toEqual([]);
   });
 
-  it('rejects deleting an OAuth-managed provider with 40003', async () => {
-    await boot(MANAGED_TOML);
-    const { body } = await deleteJson<unknown>('/api/v1/providers/managed%3Apythinker-code');
-    expect(body?.code).toBe(40003);
-    expect(body?.msg).toContain('/oauth/logout');
-
+  it('deletes a provider with an explicit OAuth credential reference', async () => {
+    await boot(OAUTH_TOML);
+    const { status } = await deleteJson<unknown>('/api/v1/providers/file-oauth');
+    expect(status).toBe(204);
     const providers = await getJson<{ items: Array<{ id: string }> }>('/api/v1/providers');
-    expect(providers.body.data.items.map((p) => p.id)).toEqual(['managed:pythinker-code']);
+    expect(providers.body.data.items).toEqual([]);
   });
 
   it('maps an unknown provider id to 40412 on delete', async () => {
@@ -788,19 +786,18 @@ describe('server-v2 /api/v1 provider write endpoints', () => {
     }
   });
 
-  it('rejects replacing an OAuth-managed provider with 40003', async () => {
-    await boot(MANAGED_TOML);
-    const { body } = await putJson<unknown>(
-      '/api/v1/providers/managed%3Apythinker-code',
-      REPLACE_BODY,
-    );
-    expect(body.code).toBe(40003);
-    expect(body.msg).toContain('/oauth/logout');
-
+  it('replaces a provider with an explicit OAuth credential reference', async () => {
+    await boot(OAUTH_TOML);
+    const { status, body } = await putJson<unknown>('/api/v1/providers/file-oauth', REPLACE_BODY);
+    expect(status).toBe(200);
+    expect(body.code).toBe(0);
     const providers = await getJson<{ items: Array<{ id: string }> }>('/api/v1/providers');
-    expect(providers.body.data.items.map((p) => p.id)).toEqual(['managed:pythinker-code']);
+    expect(providers.body.data.items.map((p) => p.id)).toEqual(['file-oauth']);
     const models = await getJson<{ items: Array<{ model: string }> }>('/api/v1/models');
-    expect(models.body.data.items.map((m) => m.model)).toEqual(['managed:pythinker-code/kimi-k2']);
+    expect(models.body.data.items.map((m) => m.model)).toEqual([
+      'file-oauth/gpt-4.1',
+      'file-oauth/gpt-4o-mini',
+    ]);
   });
 
   it('maps an unknown provider id to 40412 on replace', async () => {

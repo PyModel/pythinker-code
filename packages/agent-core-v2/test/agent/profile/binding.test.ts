@@ -345,7 +345,7 @@ describe('AgentProfileService.bind', () => {
             pythinker: { type: 'pythinker', apiKey: 'test-key', baseUrl: 'https://api.example.test/v1' },
           },
           models: {
-            'pythinker-code/kimi-for-coding': {
+            'example/test-model': {
               provider: 'pythinker',
               model: 'kimi-for-coding',
               maxContextSize: 1_000_000,
@@ -362,14 +362,14 @@ describe('AgentProfileService.bind', () => {
     await expect(
       svc.bind({
         profile: DEFAULT_AGENT_PROFILE_NAME,
-        model: 'pythinker-code/kimi-for-coding',
+        model: 'example/test-model',
         thinking: 'ultra',
         strictThinking: true,
       }),
     ).rejects.toThrow(/not supported by model/);
 
     expect(svc.data().profileName).toBeUndefined();
-    await svc.bind({ profile: DEFAULT_AGENT_PROFILE_NAME, model: 'pythinker-code/kimi-for-coding' });
+    await svc.bind({ profile: DEFAULT_AGENT_PROFILE_NAME, model: 'example/test-model' });
     expect(svc.data().profileName).toBe(DEFAULT_AGENT_PROFILE_NAME);
   });
 
@@ -381,7 +381,7 @@ describe('AgentProfileService.bind', () => {
             pythinker: { type: 'pythinker', apiKey: 'test-key', baseUrl: 'https://api.example.test/v1' },
           },
           models: {
-            'pythinker-code/kimi-for-coding': {
+            'example/test-model': {
               provider: 'pythinker',
               model: 'kimi-for-coding',
               maxContextSize: 1_000_000,
@@ -397,7 +397,7 @@ describe('AgentProfileService.bind', () => {
 
     await svc.bind({
       profile: DEFAULT_AGENT_PROFILE_NAME,
-      model: 'pythinker-code/kimi-for-coding',
+      model: 'example/test-model',
       thinking: 'ultra',
     });
 

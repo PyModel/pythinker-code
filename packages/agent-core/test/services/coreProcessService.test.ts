@@ -266,53 +266,49 @@ describe('CoreProcessService direct construction', () => {
     await expect(core.rpc.getCoreInfo({})).rejects.toThrow(/disposed/);
   });
 
-  it('default-wires a resolveOAuthTokenProvider when caller omits one', () => {
-    const resolver = CoreProcessService._defaultOAuthTokenResolver(tmpHome, join(tmpHome, 'config.toml'));
-    expect(typeof resolver).toBe('function');
-    const tokenProvider = resolver('managed:pythinker-code');
-    expect(tokenProvider).toBeDefined();
-    expect(typeof tokenProvider?.getAccessToken).toBe('function');
-  });
-
-  it('threads identity into the default resolver without managed device headers', async () => {
+  it('reads an explicit file-backed OAuth token', async () => {
     const credentialsDir = join(tmpHome, 'credentials');
     mkdirSync(credentialsDir, { recursive: true });
     writeFileSync(
-      join(credentialsDir, 'pythinker-code.json'),
+      join(credentialsDir, 'example.json'),
+      JSON.stringify({
+        access_token: 'stored-access',
+        refresh_token: '',
+        expires_at: Math.floor(Date.now() / 1000) + 3600,
+        scope: '',
+        token_type: 'Bearer',
+        expires_in: 3600,
+      }),
+    );
+
+    const resolver = CoreProcessService._defaultOAuthTokenResolver(tmpHome);
+    const tokenProvider = resolver('example', { storage: 'file', key: 'oauth/example' });
+
+    await expect(tokenProvider?.getAccessToken()).resolves.toBe('stored-access');
+    expect(resolver('example', { storage: 'keyring', key: 'example' })).toBeUndefined();
+  });
+
+  it('rejects an expired file-backed OAuth token', async () => {
+    const credentialsDir = join(tmpHome, 'credentials');
+    mkdirSync(credentialsDir, { recursive: true });
+    writeFileSync(
+      join(credentialsDir, 'example.json'),
       JSON.stringify({
         access_token: 'expired-access',
-        refresh_token: 'refresh-1',
+        refresh_token: '',
         expires_at: 1,
         scope: '',
         token_type: 'Bearer',
         expires_in: 3600,
       }),
     );
-    const refreshHeaders: Record<string, string>[] = [];
-    vi.stubGlobal('fetch', async (_input: unknown, init?: RequestInit) => {
-      refreshHeaders.push((init?.headers ?? {}) as Record<string, string>);
-      return new Response(
-        JSON.stringify({
-          access_token: 'rotated-access',
-          refresh_token: 'rotated-refresh',
-          expires_in: 3600,
-          scope: '',
-          token_type: 'Bearer',
-        }),
-        { status: 200, headers: { 'Content-Type': 'application/json' } },
-      );
-    });
 
-    const resolver = CoreProcessService._defaultOAuthTokenResolver(
-      tmpHome,
-      join(tmpHome, 'config.toml'),
-      { productName: 'test', version: '0.0.0-test', platform: 'test_platform' },
-    );
-    const tokenProvider = resolver('managed:pythinker-code');
-    await expect(tokenProvider?.getAccessToken()).resolves.toBe('rotated-access');
-    expect(refreshHeaders).toHaveLength(1);
-    expect(refreshHeaders[0]?.['User-Agent']).toMatch(/^test\/0\.0\.0-test/);
-    expect(Object.keys(refreshHeaders[0]!).some((name) => name.startsWith('X-Msh-'))).toBe(false);
+    const resolver = CoreProcessService._defaultOAuthTokenResolver(tmpHome);
+    const tokenProvider = resolver('example', { storage: 'file', key: 'oauth/example' });
+
+    await expect(tokenProvider?.getAccessToken()).rejects.toMatchObject({
+      code: 'auth.login_required',
+    });
   });
 
   it('default-wires pythinkerRequestHeaders from identity when caller omits headers', () => {

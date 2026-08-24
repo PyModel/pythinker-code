@@ -318,8 +318,7 @@ export function defineKlientConformance(
       expect(Array.isArray(await target.klient.global.flags.enabledIds())).toBe(true);
       expect(typeof await target.klient.global.flags.snapshot()).toBe('object');
       expect(Array.isArray(await target.klient.global.plugins.list())).toBe(true);
-      const status = await target.klient.global.auth.status();
-      expect(typeof status.loggedIn).toBe('boolean');
+      expect(Array.isArray(await target.klient.global.auth.summarize())).toBe(true);
     });
 
     it('global mcp round-trips user-level server CRUD', async () => {

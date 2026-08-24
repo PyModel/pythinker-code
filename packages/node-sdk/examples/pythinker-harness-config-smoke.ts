@@ -16,21 +16,21 @@ async function main(): Promise<void> {
   }
 
   await harness.setConfig({
-    defaultModel: 'pythinker-code/kimi-for-coding',
+    defaultModel: 'example/test-model',
     thinking: { enabled: true },
     defaultPermissionMode: 'manual',
     defaultPlanMode: false,
     providers: {
-      'managed:pythinker-code': {
+      'oauth-example': {
         type: 'pythinker',
-        baseUrl: 'https://api.kimi.com/coding/v1',
+        baseUrl: 'https://api.example.test/v1',
         apiKey: '',
         oauth: { storage: 'file', key: 'oauth/pythinker-code' },
       },
     },
     models: {
-      'pythinker-code/kimi-for-coding': {
-        provider: 'managed:pythinker-code',
+      'example/test-model': {
+        provider: 'oauth-example',
         model: 'kimi-for-coding',
         maxContextSize: 262144,
         capabilities: ['image_in', 'thinking', 'video_in'],
@@ -45,12 +45,12 @@ async function main(): Promise<void> {
     },
     services: {
       pymodelSearch: {
-        baseUrl: 'https://api.kimi.com/coding/v1/search',
+        baseUrl: 'https://api.example.test/v1/search',
         apiKey: '',
         oauth: { storage: 'file', key: 'oauth/pythinker-code' },
       },
       pymodelFetch: {
-        baseUrl: 'https://api.kimi.com/coding/v1/fetch',
+        baseUrl: 'https://api.example.test/v1/fetch',
         apiKey: '',
         oauth: { storage: 'file', key: 'oauth/pythinker-code' },
       },
@@ -60,11 +60,11 @@ async function main(): Promise<void> {
   const configPath = join(homeDir, 'config.toml');
   const text = await readFile(configPath, 'utf-8');
   for (const expected of [
-    'default_model = "pythinker-code/kimi-for-coding"',
+    'default_model = "example/test-model"',
     'default_permission_mode = "manual"',
-    '[providers."managed:pythinker-code"]',
-    '[providers."managed:pythinker-code".oauth]',
-    '[models."pythinker-code/kimi-for-coding"]',
+    '[providers."oauth-example"]',
+    '[providers."oauth-example".oauth]',
+    '[models."example/test-model"]',
     '[services.pymodel_search]',
   ]) {
     if (!text.includes(expected)) {
@@ -73,10 +73,10 @@ async function main(): Promise<void> {
   }
 
   const reloaded = await harness.getConfig({ reload: true });
-  if (reloaded.defaultModel !== 'pythinker-code/kimi-for-coding') {
+  if (reloaded.defaultModel !== 'example/test-model') {
     throw new Error('reloaded config did not preserve defaultModel');
   }
-  if (reloaded.providers['managed:pythinker-code']?.oauth?.key !== 'oauth/pythinker-code') {
+  if (reloaded.providers['oauth-example']?.oauth?.key !== 'oauth/pythinker-code') {
     throw new Error('reloaded config did not preserve provider oauth');
   }
 

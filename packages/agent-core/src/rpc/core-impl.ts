@@ -177,14 +177,12 @@ import { proxyWithExtraPayload } from './types';
 import { PyaosShellNotFoundError, LocalPyaos, type Pyaos } from '@pymodel/pyaos';
 import type { ToolServices } from '../tools/support/services';
 
-const PYTHINKER_CODE_PROVIDER_NAME = 'managed:pythinker-code';
-const PYTHINKER_CODE_BASE_URL_ENV = 'PYTHINKER_CODE_BASE_URL';
-const PYTHINKER_CODE_OAUTH_HOST_ENV = 'PYTHINKER_CODE_OAUTH_HOST';
-const PYTHINKER_OAUTH_HOST_ENV = 'PYTHINKER_OAUTH_HOST';
 const WEB_SEARCH_BASE_URL_ENV = 'PYTHINKER_WEB_SEARCH_BASE_URL';
 const WEB_SEARCH_API_KEY_ENV = 'PYTHINKER_WEB_SEARCH_API_KEY';
 const WEB_FETCH_BASE_URL_ENV = 'PYTHINKER_WEB_FETCH_BASE_URL';
 const WEB_FETCH_API_KEY_ENV = 'PYTHINKER_WEB_FETCH_API_KEY';
+const WEB_SEARCH_CREDENTIAL_SLOT = 'services:pymodel-search';
+const WEB_FETCH_CREDENTIAL_SLOT = 'services:pymodel-fetch';
 const DEFAULT_GLOBAL_MCP_AUTH_TIMEOUT_MS = 15 * 60 * 1000;
 type AgentScopedPayload<T> = T & { readonly agentId: string };
 type SessionScopedPayload<T> = T & { readonly sessionId: string };
@@ -310,7 +308,6 @@ export class PythinkerCore implements PromisableMethods<CoreAPI> {
       homeDir: this.homeDir,
       store: this.globalMcpConfig,
       plugins: this.plugins,
-      managedPluginEnv: () => this.managedPythinkerCodeEnvForPlugins(),
     });
     // Re-arm proactive refresh timers for credentials written by earlier
     // processes; token writes in this process re-arm via the provider hook.
@@ -1002,7 +999,7 @@ export class PythinkerCore implements PromisableMethods<CoreAPI> {
   private async syncPluginMcpServersInSessions(): Promise<void> {
     const names = new Set<string>(
       this.plugins
-        .mcpServerEntries({ managedEnv: this.managedPythinkerCodeEnvForPlugins() })
+        .mcpServerEntries()
         .filter((entry) => entry.config.enabled !== false)
         .map((entry) => entry.name),
     );
@@ -1899,10 +1896,10 @@ export class PythinkerCore implements PromisableMethods<CoreAPI> {
 
   private mergePluginMcpConfig(base: SessionMcpConfig | undefined): SessionMcpConfig | undefined {
     // Plugin entries arrive with all contributor-side transforms applied
-    // (runtime rename, env/cwd constraints, managed Pythinker env); disabled ones
+    // (runtime rename and env/cwd constraints); disabled ones
     // stay out of sessions entirely, matching historical behavior.
     const pluginEntries = this.plugins
-      .mcpServerEntries({ managedEnv: this.managedPythinkerCodeEnvForPlugins() })
+      .mcpServerEntries()
       .filter((entry) => entry.config.enabled !== false);
     if (pluginEntries.length === 0) return base;
     const servers: Record<string, McpServerConfig> = { ...base?.servers };
@@ -1953,20 +1950,6 @@ export class PythinkerCore implements PromisableMethods<CoreAPI> {
     cwd: string | undefined,
   ): Promise<McpRegistryEntry | undefined> {
     return this.mcpRegistry.resolveRuntimeTarget(name, { cwd });
-  }
-
-  private managedPythinkerCodeEnvForPlugins(): Record<string, string> {
-    const provider = this.config.providers[PYTHINKER_CODE_PROVIDER_NAME];
-    const envBaseUrl = process.env[PYTHINKER_CODE_BASE_URL_ENV];
-    const envOAuthHost = process.env[PYTHINKER_CODE_OAUTH_HOST_ENV] ?? process.env[PYTHINKER_OAUTH_HOST_ENV];
-    const hasEnvOverride = envBaseUrl !== undefined || envOAuthHost !== undefined;
-    const baseUrl =
-      envBaseUrl !== undefined ? envBaseUrl.replace(/\/+$/, '') : provider?.baseUrl;
-    const oauthHost = hasEnvOverride ? envOAuthHost : provider?.oauth?.oauthHost;
-    const env: Record<string, string> = {};
-    if (baseUrl !== undefined) env[PYTHINKER_CODE_BASE_URL_ENV] = baseUrl;
-    if (oauthHost !== undefined) env[PYTHINKER_CODE_OAUTH_HOST_ENV] = oauthHost;
-    return env;
   }
 
   private requireSession(sessionId: string): Session {
@@ -2225,7 +2208,11 @@ async function createRuntimeConfig(input: {
             baseUrl: fetchService.baseUrl,
             localFallback: localFetcher,
             defaultHeaders: input.pythinkerRequestHeaders,
-            ...serviceCredentials(fetchService, input.resolveOAuthTokenProvider),
+            ...serviceCredentials(
+              fetchService,
+              WEB_FETCH_CREDENTIAL_SLOT,
+              input.resolveOAuthTokenProvider,
+            ),
           }),
     webSearcher:
       searchService?.baseUrl === undefined
@@ -2233,7 +2220,11 @@ async function createRuntimeConfig(input: {
         : new PyModelWebSearchProvider({
             baseUrl: searchService.baseUrl,
             defaultHeaders: input.pythinkerRequestHeaders,
-            ...serviceCredentials(searchService, input.resolveOAuthTokenProvider),
+            ...serviceCredentials(
+              searchService,
+              WEB_SEARCH_CREDENTIAL_SLOT,
+              input.resolveOAuthTokenProvider,
+            ),
           }),
   };
 }
@@ -2264,6 +2255,7 @@ function withServiceEnv(
 
 function serviceCredentials(
   service: PyModelServiceConfig,
+  credentialSlot: string,
   resolveOAuthTokenProvider: OAuthTokenProviderResolver | undefined,
 ): {
   readonly apiKey?: string | undefined;
@@ -2275,7 +2267,7 @@ function serviceCredentials(
     apiKey,
     tokenProvider:
       service.oauth !== undefined
-        ? resolveOAuthTokenProvider?.(PYTHINKER_CODE_PROVIDER_NAME, service.oauth)
+        ? resolveOAuthTokenProvider?.(credentialSlot, service.oauth)
         : undefined,
     customHeaders: service.customHeaders,
   };

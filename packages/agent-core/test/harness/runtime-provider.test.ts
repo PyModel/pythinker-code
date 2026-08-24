@@ -31,17 +31,17 @@ function resolveRuntimeProvider(input: {
 }
 
 const BASE_CONFIG: PythinkerConfig = {
-  defaultModel: 'pythinker-code/kimi-for-coding',
+  defaultModel: 'example/test-model',
   providers: {
-    'managed:pythinker-code': {
+    'oauth-example': {
       type: 'pythinker',
       apiKey: 'test-key',
       baseUrl: 'https://api.example/v1',
     },
   },
   models: {
-    'pythinker-code/kimi-for-coding': {
-      provider: 'managed:pythinker-code',
+    'example/test-model': {
+      provider: 'oauth-example',
       model: 'kimi-for-coding',
       maxContextSize: 1_000_000,
       capabilities: ['thinking', 'image_in', 'video_in', 'tool_use'],
@@ -114,7 +114,7 @@ describe('resolveRuntimeProvider model metadata', () => {
       config: {
         ...BASE_CONFIG,
         providers: {
-          'managed:pythinker-code': {
+          'oauth-example': {
             type: 'pythinker',
             apiKey: '',
             baseUrl: 'https://api.example/v1',
@@ -138,8 +138,8 @@ describe('resolveRuntimeProvider model metadata', () => {
       config: {
         ...BASE_CONFIG,
         models: {
-          'pythinker-code/kimi-for-coding': {
-            provider: 'managed:pythinker-code',
+          'example/test-model': {
+            provider: 'oauth-example',
             model: 'kimi-for-coding',
             maxContextSize: 1_000_000,
           },
@@ -211,7 +211,7 @@ describe('resolveRuntimeProvider model metadata', () => {
       ...BASE_CONFIG,
       models: {
         broken: {
-          provider: 'managed:pythinker-code',
+          provider: 'oauth-example',
           model: 'kimi-for-coding',
           capabilities: ['thinking'],
         },
@@ -657,7 +657,7 @@ describe('resolveRuntimeProvider Pythinker request headers', () => {
       config: {
         ...BASE_CONFIG,
         providers: {
-          'managed:pythinker-code': {
+          'oauth-example': {
             type: 'pythinker',
             apiKey: 'test-key',
             baseUrl: 'https://api.example/v1',
@@ -708,7 +708,7 @@ describe('resolveRuntimeProvider Pythinker request headers', () => {
       config: {
         ...BASE_CONFIG,
         providers: {
-          'managed:pythinker-code': {
+          'oauth-example': {
             type: 'pythinker',
             apiKey: 'test-key',
             baseUrl: 'https://api.example/v1',
@@ -924,7 +924,7 @@ describe('ProviderManager prompt cache key', () => {
       config: BASE_CONFIG,
       promptCacheKey: 'session-test',
     });
-    const resolved = manager.resolveProviderConfig('pythinker-code/kimi-for-coding');
+    const resolved = manager.resolveProviderConfig('example/test-model');
 
     expect(resolved.provider).toMatchObject({
       type: 'pythinker',
@@ -978,7 +978,7 @@ describe('ProviderManager prompt cache key', () => {
 
     sharedConfig = BASE_CONFIG;
 
-    const resolved = manager.resolveProviderConfig('pythinker-code/kimi-for-coding');
+    const resolved = manager.resolveProviderConfig('example/test-model');
     expect(resolved.provider).toMatchObject({
       type: 'pythinker',
       generationKwargs: {
@@ -993,7 +993,7 @@ describe('ProviderManager OAuth auth', () => {
     return {
       ...BASE_CONFIG,
       providers: {
-        'managed:pythinker-code': {
+        'oauth-example': {
           type: 'pythinker',
           apiKey: '',
           baseUrl: 'https://api.example/v1',
@@ -1014,7 +1014,7 @@ describe('ProviderManager OAuth auth', () => {
       }),
     });
 
-    const resolveAuth = manager.resolveAuth('pythinker-code/kimi-for-coding');
+    const resolveAuth = manager.resolveAuth('example/test-model');
     expect(resolveAuth).toBeDefined();
 
     await expect(resolveAuth!(async () => 'ok')).rejects.toBe(tokenError);
@@ -1030,7 +1030,7 @@ describe('ProviderManager OAuth auth', () => {
       }),
     });
 
-    const resolveAuth = manager.resolveAuth('pythinker-code/kimi-for-coding');
+    const resolveAuth = manager.resolveAuth('example/test-model');
     expect(resolveAuth).toBeDefined();
 
     await expect(resolveAuth!(async () => 'ok')).rejects.toMatchObject({
@@ -1244,15 +1244,15 @@ describe('per-model protocol routing', () => {
       config: {
         ...BASE_CONFIG,
         models: {
-          'pythinker-code/kimi-for-coding': {
-            ...BASE_CONFIG.models!['pythinker-code/kimi-for-coding']!,
+          'example/test-model': {
+            ...BASE_CONFIG.models!['example/test-model']!,
             protocol: 'anthropic',
           },
         },
       },
     });
 
-    expect(resolved.providerName).toBe('managed:pythinker-code');
+    expect(resolved.providerName).toBe('oauth-example');
     expect(resolved.provider).toMatchObject({
       type: 'anthropic',
       model: 'kimi-for-coding',
@@ -1314,8 +1314,8 @@ describe('resolveRuntimeProvider model overrides', () => {
       config: {
         ...BASE_CONFIG,
         models: {
-          'pythinker-code/kimi-for-coding': {
-            ...BASE_CONFIG.models!['pythinker-code/kimi-for-coding']!,
+          'example/test-model': {
+            ...BASE_CONFIG.models!['example/test-model']!,
             supportEfforts: ['low', 'high', 'max'],
             overrides: { supportEfforts: ['low', 'high'] },
           },

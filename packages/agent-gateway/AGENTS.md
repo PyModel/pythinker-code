@@ -1,6 +1,6 @@
 # agent-gateway Agent Guide
 
-The Pythinker Code server, backed by the DI × Scope agent engine (`@pymodel/agent-core-v2` — four scopes, App/Workspace/Session/Agent). Exposes sessions over REST + WebSocket (`/api/v1` + `/api/v1/ws`); bootstrapped from `src/start.ts` and consumed by `apps/pythinker-code`.
+The Pythinker Code server, backed by the DI × Scope agent engine (`@pymodel/agent-core-v2` — three scopes, App/Session/Agent). Exposes sessions over REST + WebSocket (`/api/v1` + `/api/v1/ws`); bootstrapped from `src/start.ts` and consumed by `apps/pythinker-code`. Workspace handlers have program lifetime but are not a `LifecycleScope` tier.
 
 ## Comment conventions
 
@@ -8,8 +8,8 @@ No comments — no file headers, no section banners, no statement-level narratio
 
 ## Routes
 
-- Session create/resume/fork routes compose `ISessionIndex` → `IWorkspaceLifecycleService.handlerFor` → the handler's `ISessionLifecycleService`, and the fs routes resolve session → handler → the Workspace-scope fs services. One exception: `fs:search` also accepts a workspace reference (registered id or absolute root) in the `{session_id}` slot, so a not-yet-created draft session's `@` file mention resolves the workspace handler directly; the first-class session-less form is `POST /api/v1/workspace/fs:search` (the workspace reference travels in the body).
-- The RPC surface is `/api/v1/debug/*` — a reflection dispatcher over the ENTIRE scoped DI registry (every Service callable, no whitelist, Workspace scope addressable alongside App/Session/Agent; `src/transport/registerDebugRoutes.ts` + `serviceDispatcherRoutes.ts`), mounted only with `--debug-endpoints` on a loopback bind and gated by the global bearer auth; repo dev scripts pass the flag. Lookup falls back to the Feature contributed-service table (`features/featureRegistry`), so Feature-contributed Services (`contributeService`, which bypasses the static scoped registry) stay callable even though `GET /channels` does not list them; kernel tokens registered neither way (e.g. `instantiationService`) stay unreachable.
+- Session create/resume/fork routes compose `ISessionIndex` → `IWorkspaceLifecycleService.handlerFor` → the handler's `ISessionLifecycleService`, and the fs routes resolve session → handler → the program-owned workspace fs services. One exception: `fs:search` also accepts a workspace reference (registered id or absolute root) in the `{session_id}` slot, so a not-yet-created draft session's `@` file mention resolves the workspace handler directly; the first-class session-less form is `POST /api/v1/workspace/fs:search` (the workspace reference travels in the body).
+- The RPC surface is `/api/v1/debug/*` — a reflection dispatcher over the ENTIRE three-tier scoped DI registry (every App/Session/Agent Service callable, no whitelist; `src/transport/registerDebugRoutes.ts` + `serviceDispatcherRoutes.ts`), mounted only with `--debug-endpoints` on a loopback bind and gated by the global bearer auth; repo dev scripts pass the flag. Workspace program state is exposed by the separate business snapshot routes. Lookup falls back to the Feature contributed-service table (`features/featureRegistry`), so Feature-contributed Services (`contributeService`, which bypasses the static scoped registry) stay callable even though `GET /channels` does not list them; kernel tokens registered neither way (e.g. `instantiationService`) stay unreachable.
 
 ## `/api/v2` surface
 

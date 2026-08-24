@@ -36,9 +36,7 @@ const host = vi.hoisted(() => {
     deleteSession: vi.fn(async () => undefined),
     isAuthenticated: vi.fn(async () => false),
     auth: {
-      status: vi.fn(async () => ({
-        providers: [] as Array<{ providerName: string; hasToken: boolean }>,
-      })),
+      getCachedAccessToken: vi.fn(async () => undefined as string | undefined),
     },
   };
   const showWarningMessage = vi.fn(async () => undefined as string | undefined);
@@ -177,8 +175,8 @@ beforeEach(async () => {
   host.harness.getConfig.mockResolvedValue({ models: {} });
   host.harness.isAuthenticated.mockReset();
   host.harness.isAuthenticated.mockResolvedValue(false);
-  host.harness.auth.status.mockReset();
-  host.harness.auth.status.mockResolvedValue({ providers: [] });
+  host.harness.auth.getCachedAccessToken.mockReset();
+  host.harness.auth.getCachedAccessToken.mockResolvedValue(undefined);
   host.showWarningMessage.mockReset();
   host.showWarningMessage.mockResolvedValue(undefined);
   host.showQuickPick.mockReset();
@@ -327,9 +325,7 @@ describe("Webview RPC boundary (validates requests before host dispatch)", () =>
       models: {},
       providers: { codex: { oauth: "openai-codex" } },
     });
-    host.harness.auth.status.mockResolvedValueOnce({
-      providers: [{ providerName: "openai-codex", hasToken: true }],
-    });
+    host.harness.auth.getCachedAccessToken.mockResolvedValueOnce("token");
 
     const result = await bridge.handle(
       { id: "rpc-login-status", method: Methods.CheckLoginStatus },
@@ -337,7 +333,7 @@ describe("Webview RPC boundary (validates requests before host dispatch)", () =>
     );
 
     expect(result).toEqual({ id: "rpc-login-status", result: { loggedIn: true } });
-    expect(host.harness.auth.status).toHaveBeenCalledWith("codex");
+    expect(host.harness.auth.getCachedAccessToken).toHaveBeenCalledWith("openai-codex");
   });
 
   it("keeps provider identity when configured models share a display name", async () => {

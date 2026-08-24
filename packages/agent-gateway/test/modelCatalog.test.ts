@@ -5,10 +5,8 @@ import { join } from 'node:path';
 import {
   IConfigService,
   IModelCatalog,
-  IOAuthService,
   IProviderDiscoveryService,
   type IModelCatalog as IModelCatalogType,
-  type IOAuthService as IOAuthServiceType,
   type IProviderDiscoveryService as IProviderDiscoveryServiceType,
   type ModelCatalogConfig,
   type ScopeSeed,
@@ -234,18 +232,6 @@ describe('server-v2 /api/v1 model/provider catalog', () => {
     expect(model.body.code).toBe(40413);
   });
 
-  it('returns an empty refresh result through the catalog route', async () => {
-    await boot(CATALOG_TOML);
-    const { status, body } = await postJson<{
-      changed: unknown[];
-      unchanged: unknown[];
-      failed: unknown[];
-    }>('/api/v1/providers:refresh_oauth', {});
-    expect(status).toBe(200);
-    expect(body.code).toBe(0);
-    expect(body.data).toEqual({ changed: [], unchanged: [], failed: [] });
-  });
-
   it('returns an empty refresh result through the providers:refresh route', async () => {
     await boot(CATALOG_TOML);
     const { status, body } = await postJson<{
@@ -291,64 +277,10 @@ describe('server-v2 /api/v1 model/provider catalog', () => {
     return { _serviceBrand: undefined, refreshProviderModels };
   }
 
-  function oauthStub(
-    refreshOAuthProviderModels: IOAuthServiceType['refreshOAuthProviderModels'],
-  ): IOAuthServiceType {
-    return {
-      _serviceBrand: undefined,
-      startLogin: async () => {
-        throw new Error('unused');
-      },
-      getFlow: () => undefined,
-      cancelLogin: async () => {
-        throw new Error('unused');
-      },
-      logout: async () => {
-        throw new Error('unused');
-      },
-      status: async () => ({ loggedIn: false }),
-      refreshOAuthProviderModels,
-      getManagedUsage: async () => ({ kind: 'error' as const, message: 'unused' }),
-      getManagedUserInfo: async () => ({ kind: 'error' as const, message: 'unused' }),
-      resolveTokenProvider: () => undefined,
-      getCachedAccessToken: async () => undefined,
-      getRegion: () => 'mainland-cn',
-    };
-  }
-
-  it('refreshes OAuth provider models through POST /providers:refresh_oauth', async () => {
-    const refreshOAuthProviderModels = vi.fn(async () => ({
-      changed: [
-        { provider_id: 'managed:pythinker-code', provider_name: 'Pythinker Code', added: 1, removed: 0 },
-      ],
-      unchanged: [],
-      failed: [],
-    }));
-    const seeds = [[IOAuthService, oauthStub(refreshOAuthProviderModels)]] as unknown as ScopeSeed;
-    await boot(CATALOG_TOML, seeds);
-
-    const { status, body } = await postJson<{
-      changed: unknown[];
-      unchanged: unknown[];
-      failed: unknown[];
-    }>('/api/v1/providers:refresh_oauth', {});
-
-    expect(status).toBe(200);
-    expect(body.code).toBe(0);
-    expect(body.data).toEqual({
-      changed: [
-        { provider_id: 'managed:pythinker-code', provider_name: 'Pythinker Code', added: 1, removed: 0 },
-      ],
-      unchanged: [],
-      failed: [],
-    });
-    expect(refreshOAuthProviderModels).toHaveBeenCalledTimes(1);
-  });
-
   it('refreshes all provider models through POST /providers:refresh', async () => {
     const refreshProviderModels = vi.fn(async () => ({
       changed: [
-        { provider_id: 'managed:pythinker-code', provider_name: 'Pythinker Code', added: 2, removed: 1 },
+        { provider_id: 'dynamic-provider', provider_name: 'Dynamic Provider', added: 2, removed: 1 },
       ],
       unchanged: ['moonshot-cn'],
       failed: [],
@@ -359,7 +291,7 @@ describe('server-v2 /api/v1 model/provider catalog', () => {
     const { status, body } = await postJson('/api/v1/providers:refresh', {});
     expect(status).toBe(200);
     expect(body.code).toBe(0);
-    expect(refreshProviderModels).toHaveBeenCalledWith({ scope: 'all' });
+    expect(refreshProviderModels).toHaveBeenCalledWith();
   });
 
   it('refreshes a single provider through POST /providers/{id}:refresh', async () => {
@@ -371,10 +303,10 @@ describe('server-v2 /api/v1 model/provider catalog', () => {
     const seeds = [[IProviderDiscoveryService, discoveryStub(refreshProviderModels)]] as unknown as ScopeSeed;
     await boot(CATALOG_TOML, seeds);
 
-    const { status, body } = await postJson('/api/v1/providers/managed%3Apythinker-code:refresh', {});
+    const { status, body } = await postJson('/api/v1/providers/oauth-example:refresh', {});
     expect(status).toBe(200);
     expect(body.code).toBe(0);
-    expect(refreshProviderModels).toHaveBeenCalledWith({ providerId: 'managed:pythinker-code' });
+    expect(refreshProviderModels).toHaveBeenCalledWith({ providerId: 'oauth-example' });
   });
 
   it('rejects unsupported provider actions with 40001', async () => {

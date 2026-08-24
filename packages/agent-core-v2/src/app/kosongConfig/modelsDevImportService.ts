@@ -4,7 +4,7 @@ import {
   removeCustomRegistryProvider,
   type CustomRegistryProviderEntry,
   type CustomRegistrySource,
-  type ManagedPythinkerConfigShape,
+  type PythinkerConfigShape,
 } from '@pymodel/pythinker-code-oauth';
 import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
@@ -165,13 +165,6 @@ export class ModelsDevImportService implements IModelsDevImportService {
     const config = await this.readyConfig();
     const providers = config.inspect<ProvidersSection>(PROVIDERS_SECTION).userValue ?? {};
     const existing = providers[targetId];
-    if (existing?.oauth !== undefined) {
-      throw new Error2(
-        codes.PROVIDER_OAUTH_MANAGED,
-        `provider ${targetId} is managed by OAuth login; use POST /oauth/logout instead`,
-      );
-    }
-
     const provider: ProviderConfig = { type: resolution.wire };
     provider.baseUrl = resolution.baseUrl;
     provider.apiKey = options.apiKey ?? existing?.apiKey;
@@ -227,21 +220,12 @@ export class ModelsDevImportService implements IModelsDevImportService {
       );
     }
 
-    for (const entry of Object.values(entries)) {
-      if (providers[entry.id]?.oauth !== undefined) {
-        throw new Error2(
-          codes.PROVIDER_OAUTH_MANAGED,
-          `provider ${entry.id} is managed by OAuth login; use POST /oauth/logout instead`,
-        );
-      }
-    }
-
     const removed = {
       providers: { ...providers },
       models: {
         ...config.inspect<ModelsSection>(MODELS_SECTION).userValue,
       },
-    } as ManagedPythinkerConfigShape;
+    } as PythinkerConfigShape;
     const surviving = new Set(Object.values(entries).map((entry) => entry.id));
     for (const [providerId, provider] of Object.entries(removed.providers)) {
       if (surviving.has(providerId)) continue;
@@ -267,7 +251,7 @@ export class ModelsDevImportService implements IModelsDevImportService {
     const applied = {
       providers: removed.providers,
       models: removed.models,
-    } as ManagedPythinkerConfigShape;
+    } as PythinkerConfigShape;
     for (const entry of Object.values(entries)) {
       applyCustomRegistryProvider(applied, entry, source);
     }

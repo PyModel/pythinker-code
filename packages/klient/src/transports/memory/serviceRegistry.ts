@@ -13,10 +13,7 @@ import { IModelService } from '@pymodel/agent-core-v2/kosong/model/model';
 import { IModelCatalog } from '@pymodel/agent-core-v2/kosong/model/catalog';
 import { IProviderDiscoveryService } from '@pymodel/agent-core-v2/app/kosongConfig/discovery';
 import { IProviderService } from '@pymodel/agent-core-v2/kosong/provider/provider';
-import {
-  IAuthSummaryService,
-  IOAuthService,
-} from '@pymodel/agent-core-v2/app/auth/auth';
+import { IAuthSummaryService } from '@pymodel/agent-core-v2/app/auth/auth';
 import { IFlagService } from '@pymodel/agent-core-v2/app/flag/flag';
 import { IPluginService } from '@pymodel/agent-core-v2/app/plugin/plugin';
 import { ICapabilityService } from '@pymodel/agent-core-v2/app/capability/capability';
@@ -58,7 +55,6 @@ export const serviceTokens: Readonly<Record<string, ServiceIdentifier<unknown>>>
   modelResolver: IModelCatalog,
   providerDiscovery: IProviderDiscoveryService,
   providerService: IProviderService,
-  oauthService: IOAuthService,
   authSummaryService: IAuthSummaryService,
   flagService: IFlagService,
   pluginService: IPluginService,

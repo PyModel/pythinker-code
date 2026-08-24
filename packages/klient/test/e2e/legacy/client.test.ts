@@ -430,7 +430,7 @@ describe('DaemonClient session action helpers', () => {
   it('model catalog helpers call the catalog and action-suffix routes', async () => {
     const log = createCaseLogger('client helper: model catalog');
     const calls: FetchCall[] = [];
-    const model = testModel({ model: 'pythinker-code/kimi-for-coding' });
+    const model = testModel({ model: 'example/test-model' });
     const provider = testProvider({ id: 'pythinker', models: [model.model] });
     const client = new DaemonClient({
       baseUrl: 'http://server.example.test',
@@ -440,7 +440,6 @@ describe('DaemonClient session action helpers', () => {
             ready: true,
             providers_count: 1,
             default_model: model.model,
-            managed_provider: null,
           }),
           okEnvelope({ items: [model] }),
           okEnvelope({ default_model: model.model, model }),
@@ -464,7 +463,7 @@ describe('DaemonClient session action helpers', () => {
     expect(calls.map((call) => [call.init.method, call.url])).toEqual([
       ['GET', 'http://server.example.test/api/v1/auth'],
       ['GET', 'http://server.example.test/api/v1/models'],
-      ['POST', 'http://server.example.test/api/v1/models/pythinker-code%2Fkimi-for-coding:set_default'],
+      ['POST', 'http://server.example.test/api/v1/models/example%2Ftest-model:set_default'],
       ['GET', 'http://server.example.test/api/v1/providers'],
       ['GET', 'http://server.example.test/api/v1/providers/pythinker'],
     ]);
@@ -707,7 +706,7 @@ function testMessage(overrides: Partial<Message> = {}): Message {
 function testSessionStatus(): SessionStatusResponse {
   return {
     busy: false,
-    model: 'pythinker-code/kimi-for-coding',
+    model: 'example/test-model',
     thinking_level: 'off',
     permission: 'manual',
     plan_mode: false,

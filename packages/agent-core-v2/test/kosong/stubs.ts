@@ -1,5 +1,4 @@
 import { Emitter, type Event } from '#/_base/event';
-import type { IOAuthService } from '#/app/auth/auth';
 import {
   type ConfigChangedEvent,
   type ConfigDiagnostic,
@@ -112,20 +111,6 @@ export function stubTokenProvider(tokens: readonly string[]): StubTokenProvider 
       return Promise.resolve(token ?? '');
     },
   };
-}
-
-export function stubOAuthService(tokenProvider?: StubTokenProvider): IOAuthService {
-  return {
-    _serviceBrand: undefined,
-    startLogin: () => Promise.reject(new Error('not implemented')),
-    getFlow: () => undefined,
-    cancelLogin: () => Promise.reject(new Error('not implemented')),
-    logout: () => Promise.reject(new Error('not implemented')),
-    status: () => Promise.resolve({ loggedIn: false }),
-    refreshOAuthProviderModels: () => Promise.reject(new Error('not implemented')),
-    resolveTokenProvider: () => tokenProvider,
-    getCachedAccessToken: () => Promise.resolve(undefined),
-  } as unknown as IOAuthService;
 }
 
 export function stubModelOAuthTokens(

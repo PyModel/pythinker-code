@@ -117,6 +117,9 @@ function providerEntryToToml(
   rawProvider: unknown,
 ): Record<string, unknown> {
   const out = cloneRecord(rawProvider);
+  for (const key of Object.keys(ProviderConfigSchema.shape)) {
+    if (!Object.hasOwn(provider, key)) delete out[camelToSnake(key)];
+  }
   for (const [key, value] of Object.entries(provider)) {
     if (key === 'oauth' && isPlainObject(value)) {
       out[camelToSnake(key)] = plainObjectToToml(value, undefined);

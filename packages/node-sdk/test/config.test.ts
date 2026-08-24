@@ -46,7 +46,7 @@ extra_skill_dirs = ["~/team-skills", ".agents/team-skills"]
 
 [providers.kimi-for-coding]
 type = "pythinker"
-base_url = "https://api.kimi.com/coding/v1"
+base_url = "https://api.example.test/v1"
 api_key = "sk-xxx"
 custom_headers = { "X-Custom-Header" = "value" }
 
@@ -73,12 +73,12 @@ kill_grace_period_ms = 2000
 print_wait_ceiling_s = 3600
 
 [services.pymodel_search]
-base_url = "https://api.kimi.com/coding/v1/search"
+base_url = "https://api.example.test/v1/search"
 api_key = "sk-search"
 custom_headers = { "X-Search" = "1" }
 
 [services.pymodel_fetch]
-base_url = "https://api.kimi.com/coding/v1/fetch"
+base_url = "https://api.example.test/v1/fetch"
 api_key = "sk-fetch"
 
 [notifications]
@@ -138,7 +138,7 @@ max_context_size = "large"
     const provider = config.providers['kimi-for-coding'];
     expect(provider).toMatchObject({
       type: 'pythinker',
-      baseUrl: 'https://api.kimi.com/coding/v1',
+      baseUrl: 'https://api.example.test/v1',
       apiKey: 'sk-xxx',
       customHeaders: { 'X-Custom-Header': 'value' },
       env: { GOOGLE_CLOUD_PROJECT: 'project-1' },
@@ -308,7 +308,7 @@ GOOGLE_CLOUD_LOCATION = "us-east1"
     const config = await harness.getConfig({ reload: true });
     expect(config.providers['kimi-for-coding']).toMatchObject({
       type: 'pythinker',
-      baseUrl: 'https://api.kimi.com/coding/v1',
+      baseUrl: 'https://api.example.test/v1',
       apiKey: 'sk-updated',
       env: { GOOGLE_CLOUD_PROJECT: 'project-1' },
     });

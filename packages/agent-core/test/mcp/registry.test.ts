@@ -132,7 +132,6 @@ describe('McpServerRegistry', () => {
       homeDir: home,
       store: new GlobalMcpConfigStore(home),
       plugins,
-      managedPluginEnv: () => ({ PYTHINKER_CODE_BASE_URL: 'https://managed.example.com' }),
     });
 
     const entries = await registry.list();
@@ -155,10 +154,7 @@ describe('McpServerRegistry', () => {
     expect(env).toMatchObject({
       PYTHINKER_CODE_HOME: home,
       PYTHINKER_PLUGIN_ROOT: managedRoot,
-      PYTHINKER_CODE_BASE_URL: 'https://managed.example.com',
     });
-
-    // The managed env only applies to stdio servers.
     const docs = byName.get('plugin-demo:docs');
     expect(docs?.config).not.toHaveProperty('env');
     expect(docs?.source).toBe('plugin');
