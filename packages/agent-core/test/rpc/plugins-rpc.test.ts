@@ -214,9 +214,9 @@ oauth = { storage = "file", key = "oauth/pythinker-code-env-1234", oauth_host = 
       await writeFile(
         path.join(pluginRoot, 'pythinker.plugin.json'),
         JSON.stringify({
-          name: 'pythinker-datasource',
+          name: 'example-data',
           mcpServers: {
-            data: { command: 'node', args: ['./bin/pythinker-datasource.mjs'] },
+            data: { command: 'node', args: ['./bin/example-data.mjs'] },
           },
         }),
         'utf8',
@@ -234,7 +234,7 @@ oauth = { storage = "file", key = "oauth/pythinker-code-env-1234", oauth_host = 
         }
       ).mergePluginMcpConfig(undefined);
 
-      expect(mcpConfig.servers['plugin-pythinker-datasource:data']?.env).toEqual(
+      expect(mcpConfig.servers['plugin-example-data:data']?.env).toEqual(
         expect.objectContaining({
           PYTHINKER_CODE_BASE_URL: 'https://api.dev.example.test/coding/v1',
           PYTHINKER_CODE_OAUTH_HOST: 'https://auth.dev.example.test',

@@ -6646,11 +6646,11 @@ command = "vim"
     const session = makeSession();
     const { driver } = await makeDriver(session);
 
-    driver.handleUserInput('/plugins mcp enable pythinker-datasource data');
+    driver.handleUserInput('/plugins mcp enable example-data data');
 
     await vi.waitFor(() => {
       expect(session.setPluginMcpServerEnabled).toHaveBeenCalledWith(
-        'pythinker-datasource',
+        'example-data',
         'data',
         true,
       );
@@ -6675,7 +6675,7 @@ command = "vim"
     const session = makeSession();
     const { driver } = await makeDriver(session);
 
-    driver.handleUserInput('/plugins install ./plugins/pythinker-datasource');
+    driver.handleUserInput('/plugins install ./plugins/example-data');
 
     await vi.waitFor(() => {
       expect(driver.state.editorContainer.children[0]).toBeInstanceOf(
@@ -6688,7 +6688,7 @@ command = "vim"
 
     await vi.waitFor(() => {
       expect(session.installPlugin).toHaveBeenCalledWith(
-        resolve('/tmp/proj-a', './plugins/pythinker-datasource'),
+        resolve('/tmp/proj-a', './plugins/example-data'),
       );
     });
   });
@@ -6696,8 +6696,8 @@ command = "vim"
   it('confirms a former Kimi official URL and does not show a quota note', async () => {
     const session = makeSession({
       installPlugin: vi.fn(async () => ({
-        id: 'pythinker-datasource',
-        displayName: 'Pythinker Datasource',
+        id: 'example-data',
+        displayName: 'Example Data',
         version: '3.3.0',
         enabled: true,
         state: 'ok',
@@ -6706,13 +6706,13 @@ command = "vim"
         enabledMcpServerCount: 1,
         hasErrors: false,
         source: 'zip-url',
-        originalSource: 'https://plugins.example.com/pythinker-code/plugins/official/pythinker-datasource.zip',
+        originalSource: 'https://plugins.example.com/pythinker-code/plugins/official/example-data.zip',
       })),
     });
     const { driver } = await makeDriver(session);
 
     driver.handleUserInput(
-      '/plugins install https://plugins.example.com/pythinker-code/plugins/official/pythinker-datasource.zip',
+      '/plugins install https://plugins.example.com/pythinker-code/plugins/official/example-data.zip',
     );
 
     await vi.waitFor(() => {
@@ -6735,8 +6735,8 @@ command = "vim"
   it('does not show the quota note for a same-id fork installed from a local path', async () => {
     const session = makeSession({
       installPlugin: vi.fn(async () => ({
-        id: 'pythinker-datasource',
-        displayName: 'Pythinker Datasource',
+        id: 'example-data',
+        displayName: 'Example Data',
         version: '3.3.0',
         enabled: true,
         state: 'ok',
@@ -6749,7 +6749,7 @@ command = "vim"
     });
     const { driver } = await makeDriver(session);
 
-    driver.handleUserInput('/plugins install ./plugins/pythinker-datasource-fork');
+    driver.handleUserInput('/plugins install ./plugins/example-data-fork');
 
     await vi.waitFor(() => {
       expect(driver.state.editorContainer.children[0]).toBeInstanceOf(
@@ -6764,7 +6764,7 @@ command = "vim"
     // not the official quota-consuming build.
     await vi.waitFor(() => {
       const transcript = stripSgr(renderTranscript(driver));
-      expect(transcript).toContain('Installed Pythinker Datasource');
+      expect(transcript).toContain('Installed Example Data');
     });
     expect(stripSgr(renderTranscript(driver))).not.toContain(
       'Note: This plugin consumes your quota.',
@@ -6775,7 +6775,7 @@ command = "vim"
     const session = makeSession();
     const { driver } = await makeDriver(session);
 
-    driver.handleUserInput('/plugins install ./plugins/pythinker-datasource');
+    driver.handleUserInput('/plugins install ./plugins/example-data');
 
     await vi.waitFor(() => {
       expect(driver.state.editorContainer.children[0]).toBeInstanceOf(
@@ -6799,11 +6799,11 @@ command = "vim"
       JSON.stringify({
         plugins: [
           {
-            id: 'pythinker-datasource',
+            id: 'example-data',
             tier: 'official',
-            displayName: 'Pythinker Datasource',
+            displayName: 'Example Data',
             description: 'Datasource plugin',
-            source: 'https://example.test/plugins/pythinker-datasource.zip',
+            source: 'https://example.test/plugins/example-data.zip',
           },
         ],
       }),
@@ -6821,7 +6821,7 @@ command = "vim"
     const panel = driver.state.editorContainer.children[0] as PluginsPanelComponent;
     // Official loads its catalog lazily; wait for the entry to render before install.
     await vi.waitFor(() => {
-      expect(stripSgr(panel.render(120).join('\n'))).toContain('Pythinker Datasource');
+      expect(stripSgr(panel.render(120).join('\n'))).toContain('Example Data');
     });
     panel.handleInput('\r');
 
@@ -6836,7 +6836,7 @@ command = "vim"
 
     await vi.waitFor(() => {
       expect(session.installPlugin).toHaveBeenCalledWith(
-        'https://example.test/plugins/pythinker-datasource.zip',
+        'https://example.test/plugins/example-data.zip',
       );
     });
     await vi.waitFor(() => {
@@ -6859,10 +6859,10 @@ command = "vim"
       JSON.stringify({
         plugins: [
           {
-            id: 'pythinker-datasource',
+            id: 'example-data',
             tier: 'official',
-            displayName: 'Pythinker Datasource',
-            source: 'https://example.test/plugins/pythinker-datasource.zip',
+            displayName: 'Example Data',
+            source: 'https://example.test/plugins/example-data.zip',
           },
         ],
       }),
@@ -6882,7 +6882,7 @@ command = "vim"
     });
     const panel = driver.state.editorContainer.children[0] as PluginsPanelComponent;
     await vi.waitFor(() => {
-      expect(stripSgr(panel.render(120).join('\n'))).toContain('Pythinker Datasource');
+      expect(stripSgr(panel.render(120).join('\n'))).toContain('Example Data');
     });
     panel.handleInput('\r');
 
@@ -6899,7 +6899,7 @@ command = "vim"
     // return to the list so the user can retry.
     await vi.waitFor(() => {
       const rendered = stripSgr(panel.render(120).join('\n'));
-      expect(rendered).toContain('Pythinker Datasource');
+      expect(rendered).toContain('Example Data');
       expect(rendered).not.toContain('Installing');
     });
   });
@@ -7027,11 +7027,11 @@ command = "vim"
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
       plugins: [
         {
-          id: 'pythinker-datasource',
+          id: 'example-data',
           tier: 'official',
-          displayName: 'Pythinker Datasource',
+          displayName: 'Example Data',
           description: 'Datasource plugin',
-          source: './official/pythinker-datasource.zip',
+          source: './official/example-data.zip',
         },
       ],
     }))));
@@ -7144,8 +7144,8 @@ command = "vim"
     const session = makeSession({
       listPlugins: vi.fn(async () => [
         {
-          id: 'pythinker-datasource',
-          displayName: 'Pythinker Datasource',
+          id: 'example-data',
+          displayName: 'Example Data',
           version: '1.0.0',
           enabled: true,
           state: 'ok',
@@ -7156,8 +7156,8 @@ command = "vim"
         },
       ]),
       getPluginInfo: vi.fn(async () => ({
-        id: 'pythinker-datasource',
-        displayName: 'Pythinker Datasource',
+        id: 'example-data',
+        displayName: 'Example Data',
         version: '1.0.0',
         enabled: true,
         state: 'ok',
@@ -7166,24 +7166,24 @@ command = "vim"
         enabledMcpServerCount: [...serverEnabled.values()].filter(Boolean).length,
         hasErrors: false,
         source: 'local-path',
-        root: '/plugins/pythinker-datasource',
+        root: '/plugins/example-data',
         manifest: undefined,
         mcpServers: [
           {
             name: 'metadata',
-            runtimeName: 'plugin-pythinker-datasource-metadata',
+            runtimeName: 'plugin-example-data-metadata',
             enabled: serverEnabled.get('metadata') === true,
             transport: 'stdio',
             command: 'node',
-            args: ['./bin/pythinker-datasource.mjs', 'metadata'],
+            args: ['./bin/example-data.mjs', 'metadata'],
           },
           {
             name: 'data',
-            runtimeName: 'plugin-pythinker-datasource-data',
+            runtimeName: 'plugin-example-data-data',
             enabled: serverEnabled.get('data') === true,
             transport: 'stdio',
             command: 'node',
-            args: ['./bin/pythinker-datasource.mjs', 'data'],
+            args: ['./bin/example-data.mjs', 'data'],
           },
         ],
         diagnostics: [],
@@ -7213,7 +7213,7 @@ command = "vim"
 
     await vi.waitFor(() => {
       expect(session.setPluginMcpServerEnabled).toHaveBeenCalledWith(
-        'pythinker-datasource',
+        'example-data',
         'data',
         false,
       );
@@ -7224,7 +7224,7 @@ command = "vim"
     const out = stripSgr(driver.state.editorContainer.children[0]!.render(120).join('\n'));
     expect(out).toContain('❯ data  disabled  run /reload or /new to apply');
     expect(stripSgr(renderTranscript(driver))).not.toContain(
-      'Disabled MCP server data for pythinker-datasource. Run /reload or /new to apply.',
+      'Disabled MCP server data for example-data. Run /reload or /new to apply.',
     );
   });
 

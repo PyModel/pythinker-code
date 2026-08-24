@@ -28,7 +28,7 @@ Fetch pages with **FetchURL** before answering. All page links below are relativ
 | Product news and recent changes | `pythinker-code/whats-new.html` |
 | Community guidelines; contact and feedback | `pythinker-code/community-guidelines.html`, `pythinker-code/contact-and-feedback.html` |
 | `config.toml` fields, providers/models, environment variables, data locations, config overrides | `pythinker-code-cli/configuration/` — `config-files.html`, `providers.html`, `env-vars.html`, `data-locations.html`, `overrides.html` |
-| Skills, MCP, hooks, plugins, themes, agents/sub-agents, Pythinker Datasource | `pythinker-code-cli/customization/` — `skills.html`, `mcp.html`, `hooks.html`, `plugins.html`, `themes.html`, `agents.html`; Pythinker Datasource lives at `plugins.html#pythinker-datasource` |
+| Skills, MCP, hooks, plugins, themes, agents/sub-agents | `pythinker-code-cli/customization/` — `skills.html`, `mcp.html`, `hooks.html`, `plugins.html`, `themes.html`, `agents.html` |
 | Getting started, sessions and context, goals, interaction and input, IDEs, migration, use cases | `pythinker-code-cli/guides/` — `getting-started.html`, `sessions.html`, `goals.html`, `interaction.html`, `ides.html`, `migration.html`, `use-cases.html` |
 | Slash commands, keyboard shortcuts, builtin tools, `pythinker` command flags, ACP | `pythinker-code-cli/reference/` — `slash-commands.html`, `keyboard.html`, `tools.html`, `pythinker-command.html`, `pythinker-acp.html` |
 | CLI changelog | `pythinker-code-cli/release-notes/changelog.html` |

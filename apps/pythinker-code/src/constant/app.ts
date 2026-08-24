@@ -87,6 +87,3 @@ export const FEEDBACK_TELEMETRY_EVENT = 'feedback_submitted';
 export {
   PYTHINKER_CODE_PLUGIN_MARKETPLACE_URL_ENV,
 } from '@pymodel/agent-core-v2/app/plugin/marketplace';
-// Official plugins whose usage bills against the user's plan quota. Installing
-// one of these shows a quota note after the install result.
-export const QUOTA_CONSUMING_PLUGIN_IDS: readonly string[] = ['pythinker-datasource'];
