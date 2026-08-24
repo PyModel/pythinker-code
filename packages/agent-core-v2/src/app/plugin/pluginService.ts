@@ -1,4 +1,3 @@
-import { PYTHINKER_CODE_PROVIDER_NAME } from '@pymodel/pythinker-code-oauth';
 
 import { Service } from '#/_base/di/service';
 import { Emitter, type Event } from '#/_base/event';
@@ -180,14 +179,7 @@ export class PluginService extends Service implements IPluginService {
   }
 
   enabledMcpServers(): Promise<Record<string, McpServerConfig>> {
-    return this.runConsumptionRead({}, async () => {
-      const pluginServers = this.manager.enabledMcpServers();
-      if (!Object.values(pluginServers).some((server) => server.transport === 'stdio')) {
-        return pluginServers;
-      }
-      const managedEnv = await this.managedPythinkerCodeEnvForPlugins();
-      return withManagedPythinkerPluginEnv(pluginServers, managedEnv);
-    });
+    return this.runConsumptionRead({}, async () => this.manager.enabledMcpServers());
   }
 
   enabledHooks(): Promise<readonly HookDef[]> {
@@ -259,35 +251,6 @@ export class PluginService extends Service implements IPluginService {
     );
   }
 
-  private async managedPythinkerCodeEnvForPlugins(): Promise<Record<string, string>> {
-    await this.providers.ready;
-    const provider = this.providers.get(PYTHINKER_CODE_PROVIDER_NAME);
-    const envBaseUrl = this.envBaseUrl;
-    const envOAuthHost = this.envOAuthHost;
-    const hasEnvOverride = envBaseUrl !== undefined || envOAuthHost !== undefined;
-    const baseUrl =
-      envBaseUrl !== undefined ? envBaseUrl.replace(/\/+$/, '') : provider?.baseUrl;
-    const oauthHost = hasEnvOverride ? envOAuthHost : provider?.oauth?.oauthHost;
-    const env: Record<string, string> = {};
-    if (baseUrl !== undefined) env[PYTHINKER_CODE_BASE_URL_ENV] = baseUrl;
-    if (oauthHost !== undefined) env[PYTHINKER_CODE_OAUTH_HOST_ENV] = oauthHost;
-    return env;
-  }
-}
-
-function withManagedPythinkerPluginEnv(
-  pluginServers: Record<string, McpServerConfig>,
-  managedEnv: Record<string, string>,
-): Record<string, McpServerConfig> {
-  if (Object.keys(managedEnv).length === 0) return pluginServers;
-  const out: Record<string, McpServerConfig> = {};
-  for (const [name, server] of Object.entries(pluginServers)) {
-    out[name] =
-      server.transport === 'stdio'
-        ? { ...server, env: { ...server.env, ...managedEnv } }
-        : server;
-  }
-  return out;
 }
 
 registerScopedService(

@@ -20,7 +20,7 @@ import '#/kosong/provider/providers/pythinker/pythinker.contrib';
 
 import { stubAgentIdentity } from '../agentIdentity/stubs';
 
-const OAUTH_PROVIDER = 'managed:pythinker-code';
+const OAUTH_PROVIDER = 'services:pymodel-fetch';
 const NON_OAUTH_PROVIDER = 'openai-main';
 const HOST_HEADERS = {
   'User-Agent': 'pythinker-code-cli/test',

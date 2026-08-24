@@ -1031,7 +1031,7 @@ describe('WebSearchProviderService', () => {
 
     const provider = createService().getWebSearchProvider();
     expect(provider).not.toBeUndefined();
-    expect(resolveTokenProvider).toHaveBeenCalledWith(OAUTH_PROVIDER, {
+    expect(resolveTokenProvider).toHaveBeenCalledWith('services:pymodel-search', {
       storage: 'file',
       key: 'oauth/pythinker-code',
     });

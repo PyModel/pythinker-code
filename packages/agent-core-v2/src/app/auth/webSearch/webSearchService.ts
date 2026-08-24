@@ -1,4 +1,3 @@
-import { PYTHINKER_CODE_PROVIDER_NAME } from '@pymodel/pythinker-code-oauth';
 import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { IOAuthService } from '#/app/auth/auth';
@@ -9,6 +8,8 @@ import { SERVICES_SECTION, type ServicesConfig } from '../configSection';
 import { PyModelWebSearchProvider } from './providers/pymodel-web-search';
 import type { WebSearchProvider } from '#/agent/tools/web-search/web-search';
 import { IWebSearchProviderService } from './webSearch';
+
+const WEB_SEARCH_CREDENTIAL_SLOT = 'services:pymodel-search';
 
 export class WebSearchProviderService implements IWebSearchProviderService {
   declare readonly _serviceBrand: undefined;
@@ -39,7 +40,7 @@ export class WebSearchProviderService implements IWebSearchProviderService {
     const tokenProvider =
       search.oauth === undefined
         ? undefined
-        : this.oauth.resolveTokenProvider(PYTHINKER_CODE_PROVIDER_NAME, search.oauth);
+        : this.oauth.resolveTokenProvider(WEB_SEARCH_CREDENTIAL_SLOT, search.oauth);
     return new PyModelWebSearchProvider({
       baseUrl: search.baseUrl,
       tokenProvider,

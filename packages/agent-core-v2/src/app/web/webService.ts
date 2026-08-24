@@ -1,4 +1,3 @@
-import { PYTHINKER_CODE_PROVIDER_NAME } from '@pymodel/pythinker-code-oauth';
 import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { IOAuthService } from '#/app/auth/auth';
@@ -10,6 +9,8 @@ import { LocalFetchURLProvider } from './providers/local-fetch-url';
 import { PyModelFetchURLProvider } from './providers/pymodel-fetch-url';
 import type { UrlFetcher } from './tools/fetch-url-types';
 import { IWebFetchService } from './web';
+
+const WEB_FETCH_CREDENTIAL_SLOT = 'services:pymodel-fetch';
 
 export class WebFetchService implements IWebFetchService {
   declare readonly _serviceBrand: undefined;
@@ -35,7 +36,7 @@ export class WebFetchService implements IWebFetchService {
     const tokenProvider =
       fetchConfig.oauth === undefined
         ? undefined
-        : this.oauth.resolveTokenProvider(PYTHINKER_CODE_PROVIDER_NAME, fetchConfig.oauth);
+        : this.oauth.resolveTokenProvider(WEB_FETCH_CREDENTIAL_SLOT, fetchConfig.oauth);
     return new PyModelFetchURLProvider({
       baseUrl: fetchConfig.baseUrl,
       tokenProvider,
