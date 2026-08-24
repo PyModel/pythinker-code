@@ -19,6 +19,7 @@ import {
 } from '#/mcpCore/oauth/service';
 import { canonicalMcpOAuthResource } from '#/mcpCore/oauth/store';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
+import { IHostClock } from '#/os/interface/hostClock';
 import { IHostProcessService } from '#/os/interface/hostProcess';
 import { LocalRuntime } from '#/runtime/localRuntime';
 import { RuntimeRegistry } from '#/runtime/runtimeRegistry';
@@ -62,7 +63,7 @@ export class McpManagementService extends Disposable implements IMcpManagementSe
 
   private readonly authFlows = new Map<
     string,
-    { flow: BeginAuthorizationResult; idleTimer: NodeJS.Timeout }
+    { flow: BeginAuthorizationResult; idleTimer: NodeJS.Timeout; expiresAt: number }
   >();
 
   constructor(
@@ -74,6 +75,7 @@ export class McpManagementService extends Disposable implements IMcpManagementSe
     @IRuntimeResolver private readonly runtimeResolver: IRuntimeResolver,
     @IWorkspaceInstanceManager private readonly workspaceInstances: IWorkspaceInstanceManager,
     @IHostEnvironment private readonly hostEnvironment: IHostEnvironment,
+    @IHostClock private readonly clock: IHostClock,
     @IHostProcessService private readonly hostProcess: IHostProcessService,
     @ILogService private readonly log: ILogService,
   ) {
@@ -291,7 +293,11 @@ export class McpManagementService extends Disposable implements IMcpManagementSe
         void expired?.flow.cancel();
       }, AUTH_FLOW_IDLE_TIMEOUT_MS);
       idleTimer.unref();
-      this.authFlows.set(flowId, { flow, idleTimer });
+      this.authFlows.set(flowId, {
+        flow,
+        idleTimer,
+        expiresAt: this.clock.now().getTime() + AUTH_FLOW_IDLE_TIMEOUT_MS,
+      });
       return {
         status: 'authorization-required',
         flowId,
@@ -320,7 +326,11 @@ export class McpManagementService extends Disposable implements IMcpManagementSe
         `MCP OAuth timeoutMs must be an integer between 1 and ${MAX_AUTH_TIMEOUT_MS}`,
       );
     }
-    const active = this.authFlows.get(handle.flowId);
+    let active = this.authFlows.get(handle.flowId);
+    if (active !== undefined && active.expiresAt <= this.clock.now().getTime()) {
+      await this.cancelServerAuth(handle);
+      active = undefined;
+    }
     if (active === undefined) {
       throw new Error2(ErrorCodes.REQUEST_INVALID, `Unknown MCP OAuth flow: ${handle.flowId}`);
     }
