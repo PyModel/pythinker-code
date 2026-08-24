@@ -723,7 +723,7 @@ ${w}`);u+=$}else u+=j;u+=x,d=p?f+1:e.length}return u}function U0e(e,t){if(!e||!t
             })));
           }
         }
-        
+
         if (${b}.value === undefined) {
           if (${C} in input) {
             newResult[${C}] = undefined;
@@ -731,7 +731,7 @@ ${w}`);u+=$}else u+=j;u+=x,d=p?f+1:e.length}return u}function U0e(e,t){if(!e||!t
         } else {
           newResult[${C}] = ${b}.value;
         }
-        
+
       `):$?p.write(`
         if (${b}.issues.length) {
           payload.issues = payload.issues.concat(${b}.issues.map(iss => ({
@@ -739,7 +739,7 @@ ${w}`);u+=$}else u+=j;u+=x,d=p?f+1:e.length}return u}function U0e(e,t){if(!e||!t
             path: iss.path ? [${C}, ...iss.path] : [${C}]
           })));
         }
-        
+
         if (${b}.value === undefined) {
           if (${C} in input) {
             newResult[${C}] = undefined;
@@ -747,7 +747,7 @@ ${w}`);u+=$}else u+=j;u+=x,d=p?f+1:e.length}return u}function U0e(e,t){if(!e||!t
         } else {
           newResult[${C}] = ${b}.value;
         }
-        
+
       `):p.write(`
         const ${b}_present = ${C} in input;
         if (${b}.issues.length) {

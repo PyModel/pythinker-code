@@ -28,4 +28,3 @@ export interface InteractionResolution {
 export interface InteractionPendingChangedEvent {
   readonly pending: readonly string[];
 }
-
