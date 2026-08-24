@@ -53,7 +53,7 @@ Adding an OpenAI-compatible provider requires **zero code changes** — just add
 | `apps/pythinker-inspect` | Web inspector for the agent-gateway `/api/v1/debug` RPC surface | Workspace/session browser, per-session transcript chat, per-scope Service panels, DI unit inspection. See its `AGENTS.md`. |
 | `apps/vis` | Session replay & debugging visualizer | `server/` + `web/` subdirs. |
 | `packages/agent-core` | Agent engine | Agent, Session, profile, skills, tools, plan, permission, DI. |
-| `packages/agent-core-v2` | DI × Scope agent engine (the v2 port behind agent-gateway) | Four `LifecycleScope` tiers — `App` / `Workspace` / `Session` / `Agent` (`app/scopes.ts`) — plus the L3 unit layer (`Service`/`Fiber` units, collection contribution points, the Feature seam in `src/features/`). See its `AGENTS.md` and use the `agent-core-dev` skill. |
+| `packages/agent-core-v2` | DI × Scope agent engine (the v2 port behind agent-gateway) | Three `LifecycleScope` tiers — `App` / `Session` / `Agent` (`app/scopes.ts`). Workspace resources use App-owned `WorkspaceInstance` / `Program` lifetimes, not a DI scope. Also includes the L3 unit layer (`Service`/`Fiber` units, collection contribution points, the Feature seam in `src/features/`). See its `AGENTS.md` and use the `agent-core-dev` skill. |
 | `packages/node-sdk` | Public TS SDK & harness | |
 | `packages/kosong` | LLM provider abstraction | Wire types, catalog, capability registry. |
 | `packages/pyaos` | Execution environment | File/process abstractions. |

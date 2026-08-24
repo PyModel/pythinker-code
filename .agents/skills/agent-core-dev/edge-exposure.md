@@ -13,11 +13,11 @@ The transport (`/api/v2` over HTTP + WS) lives in the **edge** layer (`gateway`/
 
 ## 1. The edge model
 
-Four scopes, four URL shapes, one dispatcher:
+Three DI scopes, four resource address shapes:
 
 ```text
 GET|POST /api/v2/:sa                                       Core
-GET|POST /api/v2/workspace/:workspace_id/:sa               Workspace
+GET|POST /api/v2/workspace/:workspace_id/:sa               Workspace program
 GET|POST /api/v2/session/:session_id/:sa                   Session
 GET|POST /api/v2/session/:session_id/agent/:agent_id/:sa   Agent
 ```
@@ -29,7 +29,7 @@ GET|POST /api/v2/session/:session_id/agent/:agent_id/:sa   Agent
 - `:action` is the method. `GET` for reads, `POST` for writes.
 - Body = the method's single argument (JSON), omitted for no-arg.
 - Response = the project envelope `{ code, msg, data, request_id, details? }`.
-- The dispatcher resolves the **scope** from the URL, the **Service** from an `actionMap`, calls the method, wraps the result.
+- The original dispatcher design resolves an address from the URL, selects a Service from an `actionMap`, calls the method, and wraps the result. A workspace URL identifies a program-owned resource; Workspace is not a `LifecycleScope` value.
 
 ```ts
 // actionMap — the allowlist; hides internal domain names.
