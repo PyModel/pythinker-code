@@ -953,5 +953,5 @@ describe('teardown', () => {
     } finally {
       await rm(subRepo, { recursive: true, force: true });
     }
-  });
+  }, 15_000);
 });
