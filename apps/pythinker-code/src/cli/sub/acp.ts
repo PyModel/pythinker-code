@@ -11,10 +11,6 @@
  *    distinguish ACP sessions from the TUI.
  *  - {@link runAcpServer} owns the JSON-RPC stdio bridge and redirects
  *    rogue `console.*` traffic to stderr.
- *  - `--login` pivots into the device-code login flow instead of
- *    starting the server. This is the entry point ACP clients hit
- *    via the first-class `AuthMethodTerminal` path when they re-invoke
- *    the agent binary with the advertised `args:['--login']` appended.
  *  - On stream close or unhandled error the process exits with the
  *    appropriate code.
  */
@@ -29,13 +25,11 @@ import {
 } from '@pymodel/acp-adapter';
 import { createPythinkerHarness, type Session, type SkillSummary } from '@pymodel/pythinker-code-sdk';
 
-import { PYTHINKER_CODE_HOME_ENV } from '#/constant/app';
 import { createPythinkerCodeHostIdentity, getVersion } from '#/cli/version';
 import { buildSkillSlashCommands } from '#/tui/commands/skills';
 
 import { isLegacyEnabled } from '../experimental-v2';
 import { registerNativeAcpCommand } from './acp-native';
-import { parseRegionFlag, runLoginFlow } from './login-flow';
 
 export function registerAcpCommand(parent: Command): void {
   if (!isLegacyEnabled()) {
@@ -46,45 +40,12 @@ export function registerAcpCommand(parent: Command): void {
   parent
     .command('acp')
     .description('Run pythinker-code as an Agent Client Protocol (ACP) server over stdio.')
-    .option(
-      '--login',
-      'Run the device-code login flow then exit (entry point for ACP terminal-auth).',
-      false,
-    )
-    .option(
-      '--region <region>',
-      'Login region used together with --login: "mainland-cn" (pythinker.com) or "global" (pythinker.ai).',
-    )
-    .action(async (opts: { login?: boolean; region?: string }) => {
-      if (opts.login === true) {
-        await runLoginFlow({
-          region: opts.region === undefined ? undefined : parseRegionFlag(opts.region),
-        });
-        return;
-      }
+    .action(async () => {
       const identity = createPythinkerCodeHostIdentity();
       const harness = createPythinkerHarness({
         identity,
         uiMode: 'acp',
       });
-      // Forward `PYTHINKER_CODE_HOME` (if set) into `authMethods[0].env` so the
-      // `pythinker login` subprocess clients spawn for terminal-auth writes its
-      // token under the same data root the ACP server reads from. Used for
-      // sandboxed test setups (Zed's `agent_servers.*.env.PYTHINKER_CODE_HOME =
-      // /tmp/...`). Production runs leave the env unset and the field stays
-      // empty.
-      const sandboxHome = process.env[PYTHINKER_CODE_HOME_ENV];
-      const terminalAuthEnv =
-        sandboxHome !== undefined && sandboxHome.length > 0
-          ? { [PYTHINKER_CODE_HOME_ENV]: sandboxHome }
-          : undefined;
-      // Legacy `_meta.terminal-auth` fallback for clients that don't yet
-      // honor the first-class `type:'terminal'` (Zed without the
-      // AcpBetaFeatureFlag, current JetBrains plugin, etc.). `command` is
-      // the absolute path to this very binary (`process.argv[1]`) so the
-      // client can spawn it with `args:['login']` for the top-level
-      // `pythinker login` subcommand — matches pythinker-cli `acp/server.py:77-96`.
-      const legacyCommand = process.argv[1];
       const builtinCommands: AvailableCommand[] = (ACP_BUILTIN_SLASH_COMMANDS as readonly AvailableCommand[]).map((cmd) => ({
         name: cmd.name,
         description: cmd.description,
@@ -125,10 +86,6 @@ export function registerAcpCommand(parent: Command): void {
         await runAcpServer(harness, {
           agentInfo: { name: 'Pythinker Code CLI', version: getVersion() },
           slashCommands: resolveSlashCommands,
-          ...(terminalAuthEnv ? { terminalAuthEnv } : {}),
-          ...(legacyCommand !== undefined && legacyCommand.length > 0
-            ? { terminalAuthLegacyCommand: legacyCommand }
-            : {}),
         });
         process.exit(0);
       } catch (error) {

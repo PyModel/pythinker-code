@@ -29,7 +29,6 @@ import type {
   TurnStepInterruptedEvent,
   TurnStepRetryingEvent,
   TurnStepStartedEvent,
-  TokenUsage,
   WarningEvent,
 } from '@pymodel/pythinker-code-sdk';
 
@@ -70,7 +69,6 @@ import {
 import { openUrl } from '#/utils/open-url';
 import { currentTheme } from '#/tui/theme';
 import type { ColorToken } from '#/tui/theme';
-import { errorReportHintLine } from '../constant/feedback';
 import { computeDecodeTps, formatStepDebugTiming } from '#/utils/usage/debug-timing';
 import { nextTranscriptId } from '../utils/transcript-id';
 import type { BtwPanelController } from './btw-panel';
@@ -105,9 +103,6 @@ export interface SessionEventHost {
   showNotice(title: string, detail?: string): void;
   updateActivityPane(): void;
   track(event: string, props?: Record<string, unknown>): void;
-  recordSessionActivity(): void;
-  noteStepUsage(usage: TokenUsage | undefined): void;
-  noteCompactionFinished(): void;
   mountEditorReplacement(panel: Component & Focusable): void;
   restoreEditor(): void;
   restoreInputText(text: string): void;
@@ -394,7 +389,6 @@ export class SessionEventHandler {
     }
     this.host.streamingUI.resetToolUi();
     this.host.streamingUI.finalizeTurn(sendQueued);
-    this.host.recordSessionActivity();
     this.renderPendingModelBlockedFallback();
     this.currentTurnHasAssistantText = false;
     this.goalCompletionTurnEnded = true;
@@ -436,7 +430,6 @@ export class SessionEventHandler {
   private handleStepCompleted(event: TurnStepCompletedEvent): void {
     this.host.streamingUI.flushNow();
     this.clearStepRetry();
-    this.host.noteStepUsage(event.usage);
     this.maybeShowDebugTiming(event);
     this.host.state.footer.setStreamSpeed(
       computeDecodeTps(event.usage?.output, event.llmStreamDurationMs),
@@ -985,7 +978,9 @@ export class SessionEventHandler {
     this.host.showError(formatErrorPayload(event));
     const sessionId = this.host.state.appState.sessionId;
     if (sessionId.length > 0) {
-      this.host.showStatus(errorReportHintLine());
+      this.host.showStatus(
+        "If this persists, run `/export-debug-zip` and share the file with us for diagnosis. Please don't share it publicly.",
+      );
     }
   }
 
@@ -1113,12 +1108,6 @@ export class SessionEventHandler {
       event.result.tokensAfter,
       event.result.summary,
     );
-    // A completed compaction just refreshed and shrank the cached context —
-    // count it as activity so the next submit isn't judged against the
-    // pre-compaction timestamp, and reset the cache-break baseline (the drop
-    // is expected). Cancellations do neither: the context was not cut.
-    this.host.recordSessionActivity();
-    this.host.noteCompactionFinished();
     this.finishCompaction(sendQueued);
   }
 

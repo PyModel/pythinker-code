@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { unlink } from 'node:fs/promises';
 
-import type { DeviceAuthorization } from '@pymodel/pythinker-code-oauth';
 import { effectiveModelAlias, log } from '@pymodel/pythinker-code-sdk';
 import type {
   ApprovalRequest,
@@ -14,7 +13,6 @@ import type {
   PromptPart,
   Session,
   SkillSummary,
-  TokenUsage,
   TurnEndedEvent,
   TurnStartedEvent,
   WorkspaceTrustInfo,
@@ -51,8 +49,6 @@ import {
   type SkillListSession,
 } from './commands';
 import * as slashCommands from './commands/dispatch';
-import { CacheHintController } from './controllers/cache-hint-controller';
-import { DeviceCodeBoxComponent } from './components/chrome/device-code-box';
 import { GutterContainer } from './components/chrome/gutter-container';
 import { MoonLoader, type SpinnerStyle } from './components/chrome/moon-loader';
 import { WelcomeComponent } from './components/chrome/welcome';
@@ -297,7 +293,6 @@ export class PythinkerTUI {
   state: TUIState;
   /** In-flight lazy session creation (v2 engine), shared by concurrent first-use triggers. */
   private ensureSessionPromise: Promise<Session | undefined> | null = null;
-  private readonly cacheHint = new CacheHintController(this);
   /** Staged prompt media lifecycle (daemon uploads + cache copies) — see StagingLeaseTracker. */
   private readonly staging: StagingLeaseTracker;
   private readonly approvalController = new ApprovalController();
@@ -718,9 +713,6 @@ export class PythinkerTUI {
     if (this.session !== undefined) {
       this.sessionEventHandler.startSubscription();
       void this.showSessionWarnings(this.session);
-    }
-    if (shouldReplayHistory) {
-      void this.cacheHint.maybeShowOnResume();
     }
     void this.fetchSessions();
     if (this.session !== undefined) {
@@ -1232,40 +1224,21 @@ export class PythinkerTUI {
     this.updateQueueDisplay();
   }
 
-  async sendNormalUserInput(text: string, preExtracted?: ExtractionResult): Promise<void> {
+  async sendNormalUserInput(text: string): Promise<void> {
     if (this.btwPanelController.sendUserInput(text)) return;
     if (this.state.appState.model.trim().length === 0) {
       this.showError(LLM_NOT_SET_MESSAGE);
       return;
     }
     let extraction: ReturnType<typeof extractMediaAttachments>;
-    if (preExtracted === undefined) {
-      // A just-pasted image/video may still be finishing its background
-      // ingestion (compression/daemon upload): give it a bounded moment so
-      // the submit can use the daemon-ref form — a slower image ingestion
-      // extracts to the inline fallback instead, a slower video upload
-      // refuses the submission below. Undefined when nothing is pending,
-      // keeping the media-free send path synchronous.
-      const ingestionWait = pendingMediaIngestions(
-        text,
-        this.imageStore,
-        MEDIA_INGESTION_SUBMIT_WAIT_MS,
-      );
-      if (ingestionWait !== undefined) await ingestionWait;
-    }
+    const ingestionWait = pendingMediaIngestions(
+      text,
+      this.imageStore,
+      MEDIA_INGESTION_SUBMIT_WAIT_MS,
+    );
+    if (ingestionWait !== undefined) await ingestionWait;
     try {
-      // A cache-hint-swallowed resend passes its pre-dialog extraction back
-      // in: the image store may already be cleared (e.g. after "Start a new
-      // session"), so re-extracting from the text would lose the media.
-      extraction = preExtracted ?? extractMediaAttachments(text, this.imageStore);
-      if (preExtracted !== undefined) {
-        const parts = refreshExpiringImageFileRefs(
-          extraction.parts,
-          extraction.imageAttachmentIds,
-          this.imageStore,
-        );
-        if (parts !== extraction.parts) extraction = { ...extraction, parts };
-      }
+      extraction = extractMediaAttachments(text, this.imageStore);
     } catch (error) {
       // A pasted video's daemon upload was unusable (still in flight,
       // failed, expired); nothing was dispatched.
@@ -1291,16 +1264,6 @@ export class PythinkerTUI {
     );
     if (!this.validateMediaCapabilities(extraction)) {
       this.staging.release(stagingLease);
-      return;
-    }
-    // Idle cache-hint interception sits before session creation; it is
-    // synchronous unless a hint actually fires. Aside from the bounded
-    // ingestion wait above, the send path stays await-free up to sendMessage.
-    if (this.cacheHint.maybeInterceptOnSubmit(text, extraction)) {
-      // The stash owns the extraction from here: its resend re-leases inside
-      // the re-entered send path, its restore goes through releaseRecalled
-      // (see CacheHintController). Detach so the stash is not double-owned.
-      this.staging.defer(stagingLease);
       return;
     }
     let session = this.session;
@@ -1334,7 +1297,6 @@ export class PythinkerTUI {
   async sendInlineSkillUserInput(
     text: string,
     activations: readonly InlineSkillActivation[],
-    preExtracted?: ExtractionResult,
   ): Promise<void> {
     if (this.btwPanelController.sendUserInput(text, activations)) return;
     if (this.state.appState.model.trim().length === 0) {
@@ -1343,13 +1305,12 @@ export class PythinkerTUI {
     }
     let extraction: ReturnType<typeof extractMediaAttachments>;
     try {
-      extraction = preExtracted ?? extractMediaAttachments(text, this.imageStore);
+      extraction = extractMediaAttachments(text, this.imageStore);
     } catch (error) {
       this.showError(`Failed to prepare media attachment: ${formatErrorMessage(error)}`);
       return;
     }
     if (!this.validateMediaCapabilities(extraction)) return;
-    if (this.cacheHint.maybeInterceptOnSubmit(text, extraction, activations)) return;
     let session = this.session;
     if (session === undefined) {
       // Dispatch only routes here on the v2 engine, so the session is created
@@ -1503,20 +1464,6 @@ export class PythinkerTUI {
     return last;
   }
 
-  /**
-   * Cache-hint restore: a dismissed/hand-back interception returns its draft
-   * to the editor — same semantics as a queue recall (consume the stash
-   * extraction's retains; the staged daemon uploads stay alive for the
-   * restored draft).
-   */
-  recallStashedMedia(extraction: ExtractionResult | undefined): void {
-    if (extraction === undefined) return;
-    this.staging.releaseRecalled([
-      ...extraction.imageAttachmentIds,
-      ...extraction.videoAttachmentIds,
-    ]);
-  }
-
   // =========================================================================
   // Session Requests / Queues
   // =========================================================================
@@ -1547,7 +1494,6 @@ export class PythinkerTUI {
   }
 
   beginSessionRequest(): void {
-    this.cacheHint.onTurnBegin();
     this.streamingUI.setTurnId(undefined);
     this.streamingUI.resetLiveText();
     this.streamingUI.resetToolUi();
@@ -2085,8 +2031,6 @@ export class PythinkerTUI {
   }
 
   private async createSessionFromCurrentState(bindStartupAgent = false): Promise<Session> {
-    // Background warm-up of the cache-hint config on every new session.
-    this.cacheHint.refreshConfigInBackground();
     const model = this.state.appState.model.trim();
     if (model.length === 0) {
       throw new Error(LLM_NOT_SET_MESSAGE);
@@ -2425,7 +2369,6 @@ export class PythinkerTUI {
 
   resetSessionRuntime(): void {
     this.aborted = false;
-    this.cacheHint.resetRuntime();
     this.streamingUI.discardPending();
     this.clearQueuedMessages();
     this.state.dynamicWorkflowModeEntry = undefined;
@@ -2515,7 +2458,6 @@ export class PythinkerTUI {
     }
     this.showStatus(statusMessage);
     void this.showSessionWarnings(session);
-    void this.cacheHint.maybeShowOnResume();
   }
 
   async reloadCurrentSessionView(session: Session, statusMessage: string): Promise<void> {
@@ -3085,20 +3027,6 @@ export class PythinkerTUI {
     };
   }
 
-  showLoginAuthorizationPrompt(auth: DeviceAuthorization): LoginProgressSpinnerHandle {
-    openUrl(auth.verificationUriComplete);
-    this.state.transcriptContainer.addChild(
-      new DeviceCodeBoxComponent({
-        title: 'Sign in to Pythinker Code',
-        url: auth.verificationUriComplete,
-        code: auth.userCode,
-        hint: 'Press Ctrl-C to cancel',
-      }),
-    );
-    this.state.ui.requestRender();
-    return this.showLoginProgressSpinner('Waiting for authorization…');
-  }
-
   // =========================================================================
   // Panes / Presentation State
   // =========================================================================
@@ -3585,26 +3513,6 @@ export class PythinkerTUI {
     this.state.editor.setText(text);
     this.updateEditorBorderHighlight(text);
     this.state.ui.requestRender();
-  }
-
-  /** Latest in-process LLM round-trip; feeds the idle cache-hint scenario. */
-  recordSessionActivity(): void {
-    this.cacheHint.recordActivity();
-  }
-
-  /** Per-step usage for the client-side cache-break detector. */
-  noteStepUsage(usage: TokenUsage | undefined): void {
-    this.cacheHint.noteStepUsage(usage);
-  }
-
-  /** Compaction shrinks the cached prefix — reset the cache-break baseline. */
-  noteCompactionFinished(): void {
-    this.cacheHint.resetCacheBreakBaseline();
-  }
-
-  /** /undo cut the context — the next step's cache drop is expected. */
-  noteContextCut(): void {
-    this.cacheHint.resetCacheBreakBaseline();
   }
 
   /**

@@ -472,9 +472,9 @@ describe('pythinker provider list', () => {
         apiKey: 'k',
         source: { kind: 'apiJson', url: REGISTRY_URL, apiKey: 'k' },
       },
-      'managed:pythinker-code': {
+      'oauth-example': {
         type: 'pythinker',
-        baseUrl: 'https://api.kimi.com/coding/v1',
+        baseUrl: 'https://api.example.test/v1',
         oauth: { storage: 'file', key: 'oauth/pythinker-code' },
       },
       manual: { type: 'openai', baseUrl: 'https://y', apiKey: 'm' },
@@ -510,7 +510,7 @@ describe('pythinker provider list', () => {
 
     const out = stdout.join('');
     expect(out).toMatch(/kohub\s+type=anthropic\s+models=2\s+source=apiJson\(/);
-    expect(out).toMatch(/managed:pythinker-code\s+type=pythinker\s+models=0\s+source=oauth/);
+    expect(out).toMatch(/oauth-example\s+type=pythinker\s+models=0\s+source=oauth/);
     expect(out).toMatch(/manual\s+type=openai\s+models=1\s+source=inline/);
     expect(out).toContain('Default model: kohub/a');
   });
@@ -536,8 +536,8 @@ describe('pythinker provider list', () => {
     };
     expect(Object.keys(parsed.providers).toSorted()).toEqual([
       'kohub',
-      'managed:pythinker-code',
       'manual',
+      'oauth-example',
     ]);
     expect(Object.keys(parsed.models)).toContain('kohub/a');
   });

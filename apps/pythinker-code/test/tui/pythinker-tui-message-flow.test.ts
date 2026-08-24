@@ -1,5 +1,4 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { existsSync } from 'node:fs';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -49,61 +48,10 @@ import {
 import { PythinkerTUI, type PythinkerTUIStartupInput, type TUIState } from '#/tui/pythinker-tui';
 import type { SessionReplayRenderer } from '#/tui/controllers/session-replay';
 import type { StreamingUIController } from '#/tui/controllers/streaming-ui';
-import { handleFeedbackCommand } from '#/tui/commands/info';
 import { copyTextToClipboard } from '#/utils/clipboard/clipboard-text';
-import { openUrl } from '#/utils/open-url';
-import { createFeedbackArchivePath } from '../../src/feedback/archive';
-import { packageCodebase, scanCodebase } from '../../src/feedback/codebase';
-import { uploadArchive } from '../../src/feedback/upload';
-import {
-  promptFeedbackAttachment,
-  promptFeedbackInput,
-  runModelSelector,
-  type FeedbackPromptResult,
-} from '#/tui/commands/prompts';
+import { runModelSelector } from '#/tui/commands/prompts';
 import type { QueuedMessage } from '#/tui/types';
 import type { ImageAttachmentStore } from '#/tui/utils/image-attachment-store';
-import {
-  extractMediaAttachments,
-  type ExtractionResult,
-} from '#/tui/utils/image-placeholder';
-
-vi.mock('#/tui/commands/prompts', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('#/tui/commands/prompts')>();
-  return {
-    ...actual,
-    promptFeedbackInput: vi.fn(),
-    promptFeedbackAttachment: vi.fn(),
-  };
-});
-
-vi.mock('../../src/feedback/codebase', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../src/feedback/codebase')>();
-  return {
-    ...actual,
-    scanCodebase: vi.fn().mockResolvedValue(undefined),
-    packageCodebase: vi.fn(),
-  };
-});
-
-vi.mock('../../src/feedback/upload', () => ({
-  uploadArchive: vi.fn(),
-}));
-
-vi.mock('../../src/feedback/archive', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../src/feedback/archive')>();
-  return {
-    ...actual,
-    // Wrap the real implementation so archive packaging keeps working in the
-    // other tests; individual tests can reject it to simulate an unwritable
-    // cache dir.
-    createFeedbackArchivePath: vi.fn(actual.createFeedbackArchivePath),
-  };
-});
-
-// /feedback opens GitHub Issues in a browser when submission fails — stub it
-// out so the test suite never spawns a browser window.
-vi.mock('#/utils/open-url', () => ({ openUrl: vi.fn() }));
 
 // Clipboard access spawns platform tools (pbcopy/wl-copy …) and emits OSC 52 —
 // stub it out so the suite never touches the real clipboard or stdout.
@@ -135,16 +83,10 @@ interface MessageDriver {
   persistInputHistory(text: string): Promise<void>;
   sendQueuedMessage(session: unknown, item: QueuedMessage): void;
   recallLastQueued(): QueuedMessage | undefined;
-  recallStashedMedia(extraction: ExtractionResult | undefined): void;
   clearQueuedMessages(): void;
   closeSession(reason: string): Promise<void>;
   setSession(session: unknown): Promise<void>;
   getCurrentSessionId(): string;
-}
-
-interface FeedbackDriver extends MessageDriver {
-  handleFeedbackCommand(): Promise<void>;
-  promptFeedbackInput(): Promise<FeedbackPromptResult | undefined>;
 }
 
 interface ModelSelectorDriver extends MessageDriver {
@@ -318,24 +260,6 @@ function makeHarness(session = makeSession(), overrides: Record<string, unknown>
       return interactiveAgentScope.run(agentId, fn);
     }),
     getExperimentalFeatures: vi.fn(async () => []),
-    auth: {
-      // /feedback gates on the OAuth token rather than the active model, so
-      // the default mock is a signed-in user; signed-out cases override this.
-      status: vi.fn(async () => ({
-        providers: [{ providerName: 'managed:pythinker-code', hasToken: true }],
-      })),
-      login: vi.fn(),
-      logout: vi.fn(),
-      getManagedUsage: vi.fn(),
-      submitFeedback: vi.fn(
-        async (): Promise<
-          { kind: 'ok'; feedbackId: number } | { kind: 'error'; status?: number; message: string }
-        > => ({
-          kind: 'ok',
-          feedbackId: 3,
-        }),
-      ),
-    },
     ...overrides,
   };
   // The TUI lists sessions through keyset pages; derive the page mock from
@@ -485,14 +409,6 @@ function emitTurn(driver: MessageDriver, turnId: number, between?: () => void): 
     { type: 'turn.ended', agentId: 'main', turnId, reason: 'completed' } as Event,
     () => {},
   );
-}
-
-async function makeExportedSessionZip(content = 'session zip'): Promise<string> {
-  const dir = await mkdtemp(join(tmpdir(), 'pythinker-code-feedback-export-'));
-  tempDirs.push(dir);
-  const zipPath = join(dir, 'session.zip');
-  await writeFile(zipPath, content);
-  return zipPath;
 }
 
 afterEach(async () => {
@@ -1348,7 +1264,7 @@ describe('PythinkerTUI message flow', () => {
   const thinkingModelsConfig = () => ({
     models: {
       k2: {
-        provider: 'managed:pythinker-code',
+        provider: 'oauth-example',
         model: 'kimi-k2',
         maxContextSize: 100,
         capabilities: ['thinking'],
@@ -2121,389 +2037,6 @@ command = "vim"
     const transcript = stripSgr(renderTranscript(driver));
     expect(transcript).toContain('hello before reload');
     expect(transcript).toContain('Session reloaded.');
-  });
-
-  it('prints only the GitHub Issues link when not signed in', async () => {
-    const { driver, harness } = await makeDriver(makeSession());
-    harness.auth.status.mockResolvedValueOnce({
-      providers: [{ providerName: 'managed:pythinker-code', hasToken: false }],
-    });
-    const feedbackDriver = driver as unknown as FeedbackDriver;
-    vi.mocked(promptFeedbackInput).mockImplementation(async () => ({ value: 'useful feedback' }));
-    vi.mocked(openUrl).mockClear();
-
-    await handleFeedbackCommand(feedbackDriver as any);
-
-    expect(openUrl).not.toHaveBeenCalled();
-    expect(promptFeedbackInput).not.toHaveBeenCalled();
-    expect(harness.auth.submitFeedback).not.toHaveBeenCalled();
-    const transcript = stripSgr(renderTranscript(driver));
-    expect(transcript).toContain("You're not signed in");
-    expect(transcript).toContain('https://github.com/PyModel/pythinker-code/issues');
-  });
-
-  it('falls back to GitHub Issues when the sign-in status cannot be read', async () => {
-    const { driver, harness } = await makeDriver(makeSession());
-    harness.auth.status.mockRejectedValueOnce(new Error('token storage unavailable'));
-    const feedbackDriver = driver as unknown as FeedbackDriver;
-    vi.mocked(promptFeedbackInput).mockClear();
-    vi.mocked(openUrl).mockClear();
-
-    await handleFeedbackCommand(feedbackDriver as any);
-
-    expect(openUrl).toHaveBeenCalledTimes(1);
-    expect(openUrl).toHaveBeenCalledWith('https://github.com/PyModel/pythinker-code/issues');
-    expect(promptFeedbackInput).not.toHaveBeenCalled();
-    expect(harness.auth.submitFeedback).not.toHaveBeenCalled();
-    const transcript = stripSgr(renderTranscript(driver));
-    expect(transcript).toContain('Opening GitHub Issues as fallback');
-  });
-
-  it('submits feedback via OAuth for a signed-in user on an API-key model', async () => {
-    const { driver, harness } = await makeDriver(makeSession());
-    driver.state.appState.availableModels = {
-      k2: {
-        provider: 'openai',
-        model: 'gpt-x',
-        maxContextSize: 100,
-        displayName: 'GPT X',
-        capabilities: [],
-      },
-    };
-    const feedbackDriver = driver as unknown as FeedbackDriver;
-    vi.mocked(promptFeedbackInput).mockImplementation(async () => ({ value: 'useful feedback' }));
-    vi.mocked(promptFeedbackAttachment).mockImplementation(async () => 'none');
-    harness.auth.submitFeedback.mockResolvedValueOnce({ kind: 'ok', feedbackId: 7 });
-
-    await handleFeedbackCommand(feedbackDriver as any);
-
-    expect(harness.auth.submitFeedback).toHaveBeenCalledOnce();
-    const transcript = stripSgr(renderTranscript(driver));
-    expect(transcript).toContain('Feedback ID: 7');
-  });
-
-  it('tracks successful feedback submissions only after the request succeeds', async () => {
-    const { driver, harness } = await makeDriver(makeSession());
-    const feedbackDriver = driver as unknown as FeedbackDriver;
-    vi.mocked(promptFeedbackInput).mockImplementation(async () => ({ value: 'useful feedback' }));
-    vi.mocked(promptFeedbackAttachment).mockImplementation(async () => 'none');
-    harness.auth.submitFeedback.mockResolvedValueOnce({ kind: 'ok', feedbackId: 3 });
-    harness.track.mockClear();
-
-    await handleFeedbackCommand(feedbackDriver as any);
-
-    expect(harness.auth.submitFeedback).toHaveBeenCalledWith(
-      expect.objectContaining({
-        content: 'useful feedback',
-        sessionId: 'ses-1',
-        version: 'pythinker-code-0.0.0-test',
-        model: 'k2',
-      }),
-    );
-    expect(harness.track).toHaveBeenCalledWith('feedback_submitted', undefined);
-    const transcript = stripSgr(renderTranscript(driver));
-    expect(transcript).toContain('Feedback ID: 3');
-  });
-
-  it('submits text feedback before preparing requested attachments', async () => {
-    const { driver, harness } = await makeDriver(makeSession());
-    const feedbackDriver = driver as unknown as FeedbackDriver;
-    vi.mocked(promptFeedbackInput).mockImplementation(async () => ({ value: 'useful feedback' }));
-    vi.mocked(promptFeedbackAttachment).mockImplementation(async () => 'logs');
-    harness.auth.submitFeedback.mockResolvedValueOnce({ kind: 'ok', feedbackId: 3 });
-    harness.listSessions.mockResolvedValueOnce([{ id: 'ses-1', sessionDir: '/tmp/session-a' }] as never);
-
-    const zipPath = await makeExportedSessionZip();
-    let resolveExport!: () => void;
-    const exportBlocked = new Promise<{
-      zipPath: string;
-      entries: string[];
-      sessionDir: string;
-      manifest: Record<string, never>;
-    }>((resolve) => {
-      resolveExport = () => {
-        resolve({
-          zipPath,
-          entries: ['manifest.json', 'state.json'],
-          sessionDir: '/tmp/session-a',
-          manifest: {},
-        });
-      };
-    });
-    harness.exportSession.mockImplementationOnce(() => exportBlocked);
-
-    let settled = false;
-    const command = handleFeedbackCommand(feedbackDriver as any).then(() => {
-      settled = true;
-    });
-
-    await vi.waitFor(() => {
-      expect(harness.exportSession).toHaveBeenCalledWith(
-        expect.objectContaining({
-          id: 'ses-1',
-          includeGlobalLog: true,
-          version: '0.0.0-test',
-        }),
-      );
-    });
-    expect(harness.auth.submitFeedback).toHaveBeenCalledWith(
-      expect.objectContaining({ content: 'useful feedback' }),
-    );
-    expect(harness.auth.submitFeedback.mock.invocationCallOrder[0]).toBeLessThan(
-      harness.exportSession.mock.invocationCallOrder[0]!,
-    );
-    expect(settled).toBe(false);
-
-    resolveExport();
-    await command;
-  });
-
-  it('waits for the codebase upload to finish before returning', async () => {
-    const { driver, harness } = await makeDriver(makeSession());
-    const feedbackDriver = driver as unknown as FeedbackDriver;
-    vi.mocked(scanCodebase).mockReset();
-    harness.exportSession.mockReset();
-    vi.mocked(packageCodebase).mockReset();
-    vi.mocked(uploadArchive).mockReset();
-    vi.mocked(promptFeedbackInput).mockImplementation(async () => ({ value: 'useful feedback' }));
-    vi.mocked(promptFeedbackAttachment).mockImplementation(async () => 'logs+codebase');
-    harness.auth.submitFeedback.mockResolvedValueOnce({ kind: 'ok', feedbackId: 3 });
-    harness.listSessions.mockResolvedValueOnce([
-      { id: 'ses-1', sessionDir: '/tmp/session-a' },
-    ] as never);
-
-    vi.mocked(scanCodebase).mockResolvedValueOnce({
-      root: '/tmp/proj-a',
-      files: [{ path: 'keep.ts', size: 4 }],
-      fingerprint: 'fp-123',
-      usedGitIgnore: false,
-    } as any);
-    const sessionZipPath = await makeExportedSessionZip();
-    harness.exportSession.mockResolvedValueOnce({
-      zipPath: sessionZipPath,
-      entries: ['manifest.json', 'state.json'],
-      sessionDir: '/tmp/session-a',
-      manifest: {},
-    });
-    vi.mocked(packageCodebase).mockResolvedValueOnce({
-      path: '/tmp/fake-codebase.zip',
-      size: 4,
-      sha256: 'hash-123',
-      fingerprint: 'fp-123',
-      fileCount: 1,
-    });
-
-    let resolveCodebaseUpload!: () => void;
-    const codebaseUploadBlocked = new Promise<void>((resolve) => {
-      resolveCodebaseUpload = resolve;
-    });
-    vi.mocked(uploadArchive).mockImplementation((_api, archive) => {
-      if (archive.path === sessionZipPath) return Promise.resolve();
-      return codebaseUploadBlocked;
-    });
-
-    let settled = false;
-    const command = handleFeedbackCommand(feedbackDriver as any).then(() => {
-      settled = true;
-    });
-
-    await vi.waitFor(() => {
-      expect(uploadArchive).toHaveBeenCalledTimes(2);
-    });
-    expect(settled).toBe(false);
-
-    resolveCodebaseUpload();
-    await command;
-    expect(settled).toBe(true);
-    expect(uploadArchive).toHaveBeenCalledWith(
-      expect.any(Object),
-      expect.objectContaining({ path: sessionZipPath }),
-      3,
-      { filename: 'session.zip' },
-    );
-    expect(uploadArchive).toHaveBeenCalledWith(
-      expect.any(Object),
-      expect.objectContaining({ path: '/tmp/fake-codebase.zip' }),
-      3,
-      { filename: 'repo.zip' },
-    );
-    expect(harness.auth.submitFeedback).toHaveBeenCalledWith(
-      expect.not.objectContaining({ info: expect.anything() }),
-    );
-  });
-
-  it('uploads session logs when codebase scanning fails but the session directory is available', async () => {
-    const { driver, harness } = await makeDriver(makeSession());
-    const feedbackDriver = driver as unknown as FeedbackDriver;
-    vi.mocked(scanCodebase).mockReset();
-    harness.exportSession.mockReset();
-    vi.mocked(packageCodebase).mockReset();
-    vi.mocked(uploadArchive).mockReset();
-    vi.mocked(promptFeedbackInput).mockImplementation(async () => ({ value: 'useful feedback' }));
-    vi.mocked(promptFeedbackAttachment).mockImplementation(async () => 'logs+codebase');
-    harness.auth.submitFeedback.mockResolvedValueOnce({ kind: 'ok', feedbackId: 3 });
-    harness.listSessions.mockResolvedValueOnce([{ id: 'ses-1', sessionDir: '/tmp/session-a' }] as never);
-    const sessionZipPath = await makeExportedSessionZip();
-    vi.mocked(scanCodebase).mockRejectedValueOnce(new Error('scan failed'));
-    harness.exportSession.mockResolvedValueOnce({
-      zipPath: sessionZipPath,
-      entries: ['manifest.json', 'state.json'],
-      sessionDir: '/tmp/session-a',
-      manifest: {},
-    });
-
-    await handleFeedbackCommand(feedbackDriver as any);
-
-    expect(harness.exportSession).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 'ses-1', includeGlobalLog: true }),
-    );
-    expect(packageCodebase).not.toHaveBeenCalled();
-    expect(uploadArchive).toHaveBeenCalledWith(
-      expect.any(Object),
-      expect.objectContaining({ path: sessionZipPath }),
-      3,
-      { filename: 'session.zip' },
-    );
-    const transcript = stripSgr(renderTranscript(driver));
-    expect(transcript).toContain('Feedback ID: 3');
-    expect(transcript).toContain('attachment upload failed');
-  });
-
-  it('keeps archive-path creation failures as partial failures without the GitHub fallback', async () => {
-    const { driver, harness } = await makeDriver(makeSession());
-    const feedbackDriver = driver as unknown as FeedbackDriver;
-    vi.mocked(promptFeedbackInput).mockImplementation(async () => ({ value: 'useful feedback' }));
-    vi.mocked(promptFeedbackAttachment).mockImplementation(async () => 'logs');
-    harness.auth.submitFeedback.mockResolvedValueOnce({ kind: 'ok', feedbackId: 3 });
-    harness.listSessions.mockResolvedValueOnce([{ id: 'ses-1', sessionDir: '/tmp/session-a' }] as never);
-    vi.mocked(createFeedbackArchivePath).mockRejectedValueOnce(new Error('cache dir not writable'));
-    vi.mocked(openUrl).mockClear();
-
-    await handleFeedbackCommand(feedbackDriver as any);
-
-    expect(openUrl).not.toHaveBeenCalled();
-    const transcript = stripSgr(renderTranscript(driver));
-    expect(transcript).toContain('Feedback submitted, thank you!');
-    expect(transcript).toContain('Feedback ID: 3');
-    expect(transcript).toContain('attachment upload failed');
-  });
-
-  it('tells the user when feedback is sent but codebase packaging fails', async () => {
-    const { driver, harness } = await makeDriver(makeSession());
-    const feedbackDriver = driver as unknown as FeedbackDriver;
-    vi.mocked(scanCodebase).mockReset();
-    vi.mocked(packageCodebase).mockReset();
-    harness.exportSession.mockReset();
-    vi.mocked(uploadArchive).mockReset();
-    vi.mocked(promptFeedbackInput).mockImplementation(async () => ({ value: 'useful feedback' }));
-    vi.mocked(promptFeedbackAttachment).mockImplementation(async () => 'logs+codebase');
-    harness.auth.submitFeedback.mockResolvedValueOnce({ kind: 'ok', feedbackId: 3 });
-    harness.listSessions.mockResolvedValueOnce([{ id: 'ses-1', sessionDir: '/tmp/session-a' }] as never);
-    const sessionZipPath = await makeExportedSessionZip();
-
-    vi.mocked(scanCodebase).mockResolvedValueOnce({
-      root: '/tmp/proj-a',
-      files: [{ path: 'keep.ts', size: 4 }],
-      fingerprint: 'fp-123',
-      usedGitIgnore: false,
-    } as any);
-    harness.exportSession.mockResolvedValueOnce({
-      zipPath: sessionZipPath,
-      entries: ['manifest.json', 'state.json'],
-      sessionDir: '/tmp/session-a',
-      manifest: {},
-    });
-    vi.mocked(packageCodebase).mockRejectedValueOnce(new Error('zip failed'));
-
-    await handleFeedbackCommand(feedbackDriver as any);
-
-    const calls = harness.auth.submitFeedback.mock.calls as unknown as Array<[Record<string, unknown>]>;
-    expect(calls[0]?.[0]?.['info']).toBeUndefined();
-    expect(uploadArchive).toHaveBeenCalledWith(
-      expect.any(Object),
-      expect.objectContaining({ path: sessionZipPath }),
-      3,
-      { filename: 'session.zip' },
-    );
-    const transcript = stripSgr(renderTranscript(driver));
-    expect(transcript).toContain('Feedback ID: 3');
-    expect(transcript).toContain('attachment upload failed');
-  });
-
-  it('tells the user when the codebase upload fails', async () => {
-    const { driver, harness } = await makeDriver(makeSession());
-    const feedbackDriver = driver as unknown as FeedbackDriver;
-    vi.mocked(promptFeedbackInput).mockImplementation(async () => ({ value: 'useful feedback' }));
-    vi.mocked(promptFeedbackAttachment).mockImplementation(async () => 'logs+codebase');
-    harness.auth.submitFeedback.mockResolvedValueOnce({ kind: 'ok', feedbackId: 3 });
-
-    vi.mocked(scanCodebase).mockResolvedValueOnce({
-      root: '/tmp/proj-a',
-      files: [{ path: 'keep.ts', size: 4 }],
-      fingerprint: 'fp-123',
-      usedGitIgnore: false,
-    } as any);
-    vi.mocked(packageCodebase).mockResolvedValueOnce({
-      path: '/tmp/fake-codebase.zip',
-      size: 4,
-      sha256: 'hash-123',
-      fingerprint: 'fp-123',
-      fileCount: 1,
-    });
-    vi.mocked(uploadArchive).mockRejectedValueOnce(new Error('upload failed'));
-
-    await handleFeedbackCommand(feedbackDriver as any);
-
-    expect(harness.auth.submitFeedback).toHaveBeenCalledOnce();
-    const transcript = stripSgr(renderTranscript(driver));
-    expect(transcript).toContain('Feedback ID: 3');
-    expect(transcript).toContain('attachment upload failed');
-  });
-
-  it('shows feedback API error messages without replacing them with HTTP status text', async () => {
-    const { driver, harness } = await makeDriver(makeSession());
-    const feedbackDriver = driver as unknown as FeedbackDriver;
-    vi.mocked(promptFeedbackInput).mockImplementation(async () => ({ value: 'useful feedback' }));
-    vi.mocked(promptFeedbackAttachment).mockImplementation(async () => 'none');
-    harness.auth.submitFeedback.mockResolvedValueOnce({
-      kind: 'error',
-      status: 500,
-      message: 'backend says no',
-    });
-
-    await handleFeedbackCommand(feedbackDriver as any);
-
-    const transcript = stripSgr(renderTranscript(driver));
-    expect(transcript).toContain('backend says no');
-    expect(transcript).toContain('Opening GitHub Issues as fallback');
-    expect(transcript).not.toContain('Failed to submit feedback (HTTP 500).');
-  });
-
-  it('falls back to GitHub Issues when the submission request rejects', async () => {
-    const { driver, harness } = await makeDriver(makeSession());
-    const feedbackDriver = driver as unknown as FeedbackDriver;
-    vi.mocked(promptFeedbackInput).mockImplementation(async () => ({ value: 'useful feedback' }));
-    vi.mocked(promptFeedbackAttachment).mockImplementation(async () => 'none');
-    harness.auth.submitFeedback.mockRejectedValueOnce(new Error('socket hangup'));
-    vi.mocked(openUrl).mockClear();
-
-    await expect(handleFeedbackCommand(feedbackDriver as any)).rejects.toThrow('socket hangup');
-
-    expect(openUrl).toHaveBeenCalledWith('https://github.com/PyModel/pythinker-code/issues');
-    const transcript = stripSgr(renderTranscript(driver));
-    expect(transcript).toContain('Opening GitHub Issues as fallback');
-  });
-
-  it('does not track feedback when the dialog is cancelled', async () => {
-    const { driver, harness } = await makeDriver(makeSession());
-    const feedbackDriver = driver as unknown as FeedbackDriver;
-    vi.mocked(promptFeedbackInput).mockImplementation(async () => undefined);
-    harness.track.mockClear();
-
-    await handleFeedbackCommand(feedbackDriver as any);
-
-    expect(harness.auth.submitFeedback).not.toHaveBeenCalled();
-    expect(harness.track).not.toHaveBeenCalledWith('feedback_submitted', undefined);
   });
 
   it('tracks blocked slash commands as invalid without counting them as executed commands', async () => {
@@ -3329,33 +2862,6 @@ command = "vim"
     await vi.waitFor(() => {
       expect(harness.deleteFile).toHaveBeenCalledWith('file-lazy');
     });
-  });
-
-  it('still deletes the staging upload when a cache-hint dismissal precedes the resend', async () => {
-    const { driver, session, harness } = await makeDriver();
-    const imageStore = (driver as unknown as { imageStore: ImageAttachmentStore }).imageStore;
-    const attachment = stagedImage(imageStore, 'file-dismissed');
-    const text = `describe ${attachment.placeholder}`;
-
-    // Simulate a cache-hint interception dismissed back into the editor: the
-    // submit's extraction is stashed, then restored with recall semantics
-    // (retain consumed, staged upload kept for the restored draft).
-    const extraction = extractMediaAttachments(text, imageStore);
-    driver.recallStashedMedia(extraction);
-
-    // The restored draft resubmits and re-retains; the consuming turn must
-    // still delete the daemon upload — a retain leaked by the dismissal would
-    // keep the count above zero and pin the upload until its TTL.
-    driver.handleUserInput(text);
-
-    expect(session.prompt).toHaveBeenCalledOnce();
-    emitTurn(driver, 1, () => {
-      expect(harness.deleteFile).not.toHaveBeenCalled();
-    });
-    await vi.waitFor(() => {
-      expect(harness.deleteFile).toHaveBeenCalledWith('file-dismissed');
-    });
-    expect(harness.deleteFile).toHaveBeenCalledTimes(1);
   });
 
   it('waits briefly for a pending paste ingestion so the submit uses the daemon-ref form', async () => {
@@ -6049,7 +5555,7 @@ command = "vim"
     const sendQueued = vi.fn();
     driver.state.appState.availableModels = {
       'k2-cheap': {
-        provider: 'managed:pythinker-code',
+        provider: 'oauth-example',
         model: 'kimi-k2-cheap',
         maxContextSize: 100_000,
         displayName: 'Kimi K2 Cheap',
@@ -7283,14 +6789,14 @@ command = "vim"
       getConfig: vi.fn(async () => ({
         models: {
           k2: {
-            provider: 'managed:pythinker-code',
+            provider: 'oauth-example',
             model: 'kimi-k2',
             maxContextSize: 100,
             displayName: 'Kimi K2',
             capabilities: ['thinking'],
           },
           turbo: {
-            provider: 'managed:pythinker-code',
+            provider: 'oauth-example',
             model: 'pythinker-turbo',
             maxContextSize: 100,
             displayName: 'Pythinker Turbo',
@@ -7310,8 +6816,8 @@ command = "vim"
     });
     const picker = driver.state.editorContainer.children[0];
     const pickerOutput = stripSgr((picker as TabbedModelSelectorComponent).render(120).join('\n'));
-    expect(pickerOutput).toMatch(/Kimi K2\s+Pythinker Code ← current/);
-    expect(pickerOutput).toMatch(/❯ Pythinker Turbo\s+Pythinker Code/);
+    expect(pickerOutput).toMatch(/Kimi K2\s+oauth-example ← current/);
+    expect(pickerOutput).toMatch(/❯ Pythinker Turbo\s+oauth-example/);
     (picker as TabbedModelSelectorComponent).handleInput('t');
     (picker as TabbedModelSelectorComponent).handleInput('u');
     const filteredOutput = stripSgr((picker as TabbedModelSelectorComponent).render(120).join('\n'));
@@ -7340,14 +6846,14 @@ command = "vim"
       getConfig: vi.fn(async () => ({
         models: {
           k2: {
-            provider: 'managed:pythinker-code',
+            provider: 'oauth-example',
             model: 'kimi-k2',
             maxContextSize: 100,
             displayName: 'Kimi K2',
             capabilities: ['thinking'],
           },
           turbo: {
-            provider: 'managed:pythinker-code',
+            provider: 'oauth-example',
             model: 'pythinker-turbo',
             maxContextSize: 100,
             displayName: 'Pythinker Turbo',
@@ -7399,7 +6905,7 @@ command = "vim"
       getConfig: vi.fn(async () => ({
         models: {
           k2: {
-            provider: 'managed:pythinker-code',
+            provider: 'oauth-example',
             model: 'kimi-k2',
             maxContextSize: 100,
             capabilities: ['thinking'],
@@ -7407,7 +6913,7 @@ command = "vim"
             defaultEffort: 'ultra',
           },
           turbo: {
-            provider: 'managed:pythinker-code',
+            provider: 'oauth-example',
             model: 'pythinker-turbo',
             maxContextSize: 100,
             capabilities: ['thinking'],
@@ -7446,7 +6952,7 @@ command = "vim"
       getConfig: vi.fn(async () => ({
         models: {
           k2: {
-            provider: 'managed:pythinker-code',
+            provider: 'oauth-example',
             model: 'kimi-k2',
             maxContextSize: 100,
             displayName: 'Kimi K2',
@@ -7494,7 +7000,7 @@ command = "vim"
       getConfig: vi.fn(async () => ({
         models: {
           k2: {
-            provider: 'managed:pythinker-code',
+            provider: 'oauth-example',
             model: 'kimi-k2',
             maxContextSize: 100,
             displayName: 'Kimi K2',
@@ -7546,7 +7052,7 @@ command = "vim"
       getConfig: vi.fn(async () => ({
         models: {
           k2: {
-            provider: 'managed:pythinker-code',
+            provider: 'oauth-example',
             model: 'kimi-k2',
             maxContextSize: 100,
             displayName: 'Kimi K2',
@@ -7555,7 +7061,7 @@ command = "vim"
             defaultEffort: 'high',
           },
           turbo: {
-            provider: 'managed:pythinker-code',
+            provider: 'oauth-example',
             model: 'pythinker-turbo',
             maxContextSize: 100,
             displayName: 'Turbo',
@@ -7587,113 +7093,18 @@ command = "vim"
     });
   });
 
-  it('refreshes only OAuth provider models before opening /model picker', async () => {
-    const { driver } = await makeDriver(makeSession(), {
-      getConfig: vi.fn(async () => ({
-        models: {
-          k2: {
-            provider: 'managed:pythinker-code',
-            model: 'kimi-k2',
-            maxContextSize: 100,
-            displayName: 'Old Kimi K2',
-            capabilities: ['thinking'],
-          },
-        },
-      })),
-    });
-    const tui = driver as unknown as PythinkerTUI;
-    const refreshProviderModels = vi
-      .spyOn(tui.authFlow, 'refreshProviderModels')
-      .mockRejectedValue(new Error('full provider refresh should not run'));
-    const refreshOAuthProviderModels = vi.fn(async () => {
-      await Promise.resolve();
-      tui.setAppState({
-        availableModels: {
-          k2: {
-            provider: 'managed:pythinker-code',
-            model: 'kimi-k2',
-            maxContextSize: 100,
-            displayName: 'Fresh Kimi K2',
-            capabilities: ['thinking'],
-          },
-        },
-      });
-      return { changed: [], unchanged: ['managed:pythinker-code'], failed: [] };
-    });
-    (
-      tui.authFlow as unknown as {
-        refreshOAuthProviderModels: typeof refreshOAuthProviderModels;
-      }
-    ).refreshOAuthProviderModels = refreshOAuthProviderModels;
-
-    driver.handleUserInput('/model');
-
-    await vi.waitFor(() => {
-      const picker = driver.state.editorContainer.children[0];
-      expect(picker).toBeInstanceOf(TabbedModelSelectorComponent);
-      const output = stripSgr((picker as TabbedModelSelectorComponent).render(120).join('\n'));
-      expect(output).toContain('Fresh Kimi K2');
-      expect(output).not.toContain('Old Kimi K2');
-    });
-    expect(refreshOAuthProviderModels).toHaveBeenCalledOnce();
-    expect(refreshProviderModels).not.toHaveBeenCalled();
-  });
-
-  it('opens /model picker after 2s when OAuth refresh is still pending', async () => {
-    const { driver } = await makeDriver(makeSession(), {
-      getConfig: vi.fn(async () => ({
-        models: {
-          k2: {
-            provider: 'managed:pythinker-code',
-            model: 'kimi-k2',
-            maxContextSize: 100,
-            displayName: 'Kimi K2',
-            capabilities: ['thinking'],
-          },
-        },
-      })),
-    });
-    const tui = driver as unknown as PythinkerTUI;
-    const refreshOAuthProviderModels = vi.fn(() => new Promise<never>(() => {}));
-    (
-      tui.authFlow as unknown as {
-        refreshOAuthProviderModels: typeof refreshOAuthProviderModels;
-      }
-    ).refreshOAuthProviderModels = refreshOAuthProviderModels;
-
-    vi.useFakeTimers();
-    try {
-      driver.handleUserInput('/model');
-      await Promise.resolve();
-
-      expect(refreshOAuthProviderModels).toHaveBeenCalledOnce();
-      expect(driver.state.editorContainer.children[0]).not.toBeInstanceOf(TabbedModelSelectorComponent);
-
-      await vi.advanceTimersByTimeAsync(1_999);
-      expect(driver.state.editorContainer.children[0]).not.toBeInstanceOf(TabbedModelSelectorComponent);
-
-      await vi.advanceTimersByTimeAsync(1);
-      const picker = driver.state.editorContainer.children[0];
-      expect(picker).toBeInstanceOf(TabbedModelSelectorComponent);
-      const output = stripSgr((picker as TabbedModelSelectorComponent).render(120).join('\n'));
-      expect(output).toContain('Kimi K2');
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
   it('enables search in the shared model selector helper', async () => {
     const { driver } = await makeDriver();
     const selection = runModelSelector(driver as any, {
       alpha: {
-        provider: 'managed:pythinker-code',
+        provider: 'example',
         model: 'pythinker-alpha',
         maxContextSize: 100,
         displayName: 'Pythinker Alpha',
         capabilities: ['thinking'],
       },
       turbo: {
-        provider: 'managed:pythinker-code',
+        provider: 'example',
         model: 'pythinker-turbo',
         maxContextSize: 100,
         displayName: 'Pythinker Turbo',
@@ -8152,14 +7563,14 @@ describe('/model status displayName override', () => {
       getConfig: vi.fn(async () => ({
         models: {
           k2: {
-            provider: 'managed:pythinker-code',
+            provider: 'oauth-example',
             model: 'kimi-k2',
             maxContextSize: 100,
             displayName: 'Kimi K2',
             capabilities: ['thinking'],
           },
           turbo: {
-            provider: 'managed:pythinker-code',
+            provider: 'oauth-example',
             model: 'pythinker-turbo',
             maxContextSize: 100,
             displayName: 'Remote Turbo',

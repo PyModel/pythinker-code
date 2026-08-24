@@ -18,7 +18,6 @@ import {
   IConfigService,
   IEventBus,
   IFileSystemStorageService,
-  IOAuthToolkit,
   ISessionIndex,
   ISessionManager,
   ITelemetryService,
@@ -244,7 +243,6 @@ function makeFakeHarness() {
         getEnv: () => undefined,
       },
     ],
-    [IOAuthToolkit, { getCachedAccessToken: vi.fn(async () => undefined) }],
     [IFileSystemStorageService, {}],
     [
       ITelemetryService,

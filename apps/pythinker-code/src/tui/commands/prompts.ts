@@ -14,9 +14,9 @@ import {
   OPENAI_CODEX_OAUTH_PLATFORM_ID,
   capabilitiesForModel,
   OPENAI_CODEX_PROVIDER_ID,
-  type ManagedPythinkerCodeModelInfo,
   type OpenAICodexModelInfo,
   type OpenPlatformDefinition,
+  type ProviderModelInfo,
 } from '@pymodel/pythinker-code-oauth';
 
 import {
@@ -25,7 +25,6 @@ import {
   type ApiKeyInputResult,
 } from '../components/dialogs/api-key-input-dialog';
 import { ChoicePickerComponent, type ChoiceOption } from '../components/dialogs/choice-picker';
-import { FeedbackInputDialogComponent, type FeedbackInputDialogResult } from '../components/dialogs/feedback-input-dialog';
 import { ModelSelectorComponent } from '../components/dialogs/model-selector';
 import {
   AuthenticationMethodSelectorComponent,
@@ -165,58 +164,6 @@ export function promptLogoutProviderSelection(
   });
 }
 
-export interface FeedbackPromptResult {
-  readonly value: string;
-}
-
-export function promptFeedbackInput(host: SlashCommandHost): Promise<FeedbackPromptResult | undefined> {
-  return new Promise((resolve) => {
-    const dialog = new FeedbackInputDialogComponent((result: FeedbackInputDialogResult) => {
-      host.restoreEditor();
-      resolve(result.kind === 'ok' ? { value: result.value } : undefined);
-    });
-    host.mountEditorReplacement(dialog);
-  });
-}
-
-export type FeedbackAttachmentLevel = 'none' | 'logs' | 'logs+codebase';
-
-const FEEDBACK_ATTACHMENT_OPTIONS: readonly ChoiceOption[] = [
-  { value: 'none', label: 'No attachment', description: 'Text feedback only' },
-  {
-    value: 'logs',
-    label: 'Logs only',
-    description: 'Upload wire events and diagnostic logs from this session',
-  },
-  {
-    value: 'logs+codebase',
-    label: 'Logs + codebase',
-    description:
-      'Include your codebase for deeper diagnosis. Sensitive files are automatically excluded — e.g. .env, config files, secret keys. We use attachments only for diagnosis and never share them.',
-    descriptionTone: 'warning',
-  },
-];
-
-export function promptFeedbackAttachment(
-  host: SlashCommandHost,
-): Promise<FeedbackAttachmentLevel | undefined> {
-  return new Promise((resolve) => {
-    const picker = new ChoicePickerComponent({
-      title: 'Share diagnostic info to help us investigate?',
-      options: FEEDBACK_ATTACHMENT_OPTIONS,
-      onSelect: (value) => {
-        host.restoreEditor();
-        resolve(value as FeedbackAttachmentLevel);
-      },
-      onCancel: () => {
-        host.restoreEditor();
-        resolve(undefined);
-      },
-    });
-    host.mountEditorReplacement(picker);
-  });
-}
-
 export function promptApiKey(
   host: SlashCommandHost,
   platformName: string,
@@ -299,9 +246,9 @@ export function promptCatalogProviderSelection(host: SlashCommandHost, catalog: 
 
 export async function promptModelSelectionForOpenPlatform(
   host: SlashCommandHost,
-  models: ManagedPythinkerCodeModelInfo[],
+  models: ProviderModelInfo[],
   platform: OpenPlatformDefinition,
-): Promise<{ model: ManagedPythinkerCodeModelInfo; thinking: ThinkingEffort } | undefined> {
+): Promise<{ model: ProviderModelInfo; thinking: ThinkingEffort } | undefined> {
   const modelDict: Record<string, ModelAlias> = {};
   for (const m of models) {
     modelDict[`${platform.id}/${m.id}`] = {

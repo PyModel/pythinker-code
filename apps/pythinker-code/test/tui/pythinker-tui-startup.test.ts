@@ -165,7 +165,7 @@ function createResumeState(overrides: { permissionMode?: string; planMode?: bool
 }
 
 function loginRequiredError(): Error & { readonly code: string } {
-  return Object.assign(new Error('OAuth provider "managed:pythinker-code" requires login.'), {
+  return Object.assign(new Error('OAuth provider "oauth-example" requires login.'), {
     code: 'auth.login_required',
   });
 }
@@ -180,17 +180,12 @@ function makeHarness(session = makeSession(), overrides: Record<string, unknown>
     createSession: vi.fn(async () => session),
     resumeSession: vi.fn(async () => session),
     listSessions: vi.fn(async () => []),
+    removeProvider: vi.fn(async () => {}),
     close: vi.fn(async () => {}),
     track: vi.fn(),
     setTelemetryContext: vi.fn(),
     getExperimentalFeatures: vi.fn(async () => []),
     supportsAtomicSectionReplace: vi.fn(() => false),
-    auth: {
-      status: vi.fn(async () => ({ providers: [] })),
-      login: vi.fn(async () => {}),
-      logout: vi.fn(),
-      getManagedUsage: vi.fn(),
-    },
     ...overrides,
   };
   // The TUI lists sessions through keyset pages; derive the page mock from
@@ -442,14 +437,6 @@ describe('PythinkerTUI startup', () => {
             }
           : { models: {} },
       ),
-      auth: {
-        status: vi.fn(async () => ({ providers: [] })),
-        login: vi.fn(async () => {
-          loggedIn = true;
-        }),
-        logout: vi.fn(),
-        getManagedUsage: vi.fn(),
-      },
     });
     const driver = makeDriver(harness, { ...makeStartupInput(), engineV2: true });
 
@@ -461,7 +448,7 @@ describe('PythinkerTUI startup', () => {
       planMode: false,
     });
 
-    // Simulate a completed provider login (the managed OAuth entry is gone;
+    // Simulate a completed provider login (the hosted OAuth entry is gone;
     // any login path ends in refreshConfigAfterLogin).
     loggedIn = true;
     await driver.authFlow.refreshConfigAfterLogin();
@@ -489,14 +476,6 @@ describe('PythinkerTUI startup', () => {
             }
           : { models: {} },
       ),
-      auth: {
-        status: vi.fn(async () => ({ providers: [] })),
-        login: vi.fn(async () => {
-          loggedIn = true;
-        }),
-        logout: vi.fn(),
-        getManagedUsage: vi.fn(),
-      },
     });
     const driver = makeDriver(harness, { ...makeStartupInput(), engineV2: true });
 
@@ -1818,40 +1797,34 @@ describe('PythinkerTUI startup', () => {
     });
   });
 
-  it('tracks logout after managed credentials and session state are cleared', async () => {
+  it('removes the current provider and clears the active session', async () => {
     const session = makeSession();
+    const removeProvider = vi.fn(async () => {});
     const harness = makeHarness(session, {
       getConfig: vi.fn(async () => ({
         models: {
-          k2: { provider: 'managed:pythinker-code', model: 'moonshot-v1', maxContextSize: 100 },
+          k2: { provider: 'oauth-example', model: 'moonshot-v1', maxContextSize: 100 },
         },
-        providers: { 'managed:pythinker-code': { type: 'pythinker' } },
+        providers: { 'oauth-example': { type: 'pythinker' } },
       })),
-      auth: {
-        status: vi.fn(async () => ({
-          providers: [{ providerName: 'managed:pythinker-code', hasToken: true }],
-        })),
-        login: vi.fn(async () => {}),
-        logout: vi.fn(),
-        getManagedUsage: vi.fn(),
-      },
+      removeProvider,
     });
     const driver = makeDriver(harness, makeStartupInput());
 
     await expect(driver.init()).resolves.toBe(false);
     harness.track.mockClear();
 
-    vi.mocked(promptLogoutProviderSelection).mockResolvedValue('managed:pythinker-code');
+    vi.mocked(promptLogoutProviderSelection).mockResolvedValue('oauth-example');
     await handleLogoutCommand(driver as any);
 
-    expect(harness.auth.logout).toHaveBeenCalledWith('managed:pythinker-code');
+    expect(removeProvider).toHaveBeenCalledWith('oauth-example');
     expect(session.close).toHaveBeenCalledOnce();
     expect(driver.state.appState).toMatchObject({
       sessionId: '',
       model: '',
       sessionTitle: null,
     });
-    expect(harness.track).toHaveBeenCalledWith('logout', { provider: 'managed:pythinker-code' });
+    expect(harness.track).toHaveBeenCalledWith('logout', { provider: 'oauth-example' });
   });
 
   it('keeps the active session when logging out a different provider', async () => {
@@ -1860,22 +1833,14 @@ describe('PythinkerTUI startup', () => {
     const harness = makeHarness(session, {
       getConfig: vi.fn(async () => ({
         models: {
-          k2: { provider: 'managed:pythinker-code', model: 'moonshot-v1', maxContextSize: 100 },
+          k2: { provider: 'oauth-example', model: 'moonshot-v1', maxContextSize: 100 },
         },
         providers: {
-          'managed:pythinker-code': { type: 'pythinker' },
+          'oauth-example': { type: 'pythinker' },
           openai: { type: 'openai', baseUrl: 'https://api.openai.com/v1' },
         },
       })),
       removeProvider,
-      auth: {
-        status: vi.fn(async () => ({
-          providers: [{ providerName: 'managed:pythinker-code', hasToken: true }],
-        })),
-        login: vi.fn(async () => {}),
-        logout: vi.fn(),
-        getManagedUsage: vi.fn(),
-      },
     });
     const driver = makeDriver(harness, makeStartupInput());
 
@@ -1886,43 +1851,12 @@ describe('PythinkerTUI startup', () => {
     await handleLogoutCommand(driver as any);
 
     expect(removeProvider).toHaveBeenCalledWith('openai');
-    expect(harness.auth.logout).not.toHaveBeenCalled();
     expect(session.close).not.toHaveBeenCalled();
     expect(driver.state.appState).toMatchObject({
       sessionId: 'ses-1',
       model: 'k2',
     });
     expect(harness.track).toHaveBeenCalledWith('logout', { provider: 'openai' });
-  });
-
-  it('can log out a stale managed entry even after the OAuth token is gone', async () => {
-    const session = makeSession();
-    const harness = makeHarness(session, {
-      getConfig: vi.fn(async () => ({
-        models: {
-          k2: { provider: 'managed:pythinker-code', model: 'moonshot-v1', maxContextSize: 100 },
-        },
-        providers: { 'managed:pythinker-code': { type: 'pythinker' } },
-      })),
-      auth: {
-        // Token gone (e.g. credentials file deleted) but the managed entry
-        // is still sitting in config.providers.
-        status: vi.fn(async () => ({
-          providers: [{ providerName: 'managed:pythinker-code', hasToken: false }],
-        })),
-        login: vi.fn(async () => {}),
-        logout: vi.fn(),
-        getManagedUsage: vi.fn(),
-      },
-    });
-    const driver = makeDriver(harness, makeStartupInput());
-
-    await expect(driver.init()).resolves.toBe(false);
-
-    vi.mocked(promptLogoutProviderSelection).mockResolvedValue('managed:pythinker-code');
-    await handleLogoutCommand(driver as any);
-
-    expect(harness.auth.logout).toHaveBeenCalledWith('managed:pythinker-code');
   });
 
   it('starts TUI without replaying when --continue needs OAuth login', async () => {

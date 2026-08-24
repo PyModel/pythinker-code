@@ -51,7 +51,7 @@ function makeHost(options?: {
       transcriptEntries: [],
     },
     authFlow: {
-      refreshOAuthProviderModels: vi.fn(async () => undefined),
+      refreshProviderModels: vi.fn(async () => ({ changed: [], unchanged: [], failed: [] })),
     },
     harness: {
       getConfig: vi.fn(async () => ({

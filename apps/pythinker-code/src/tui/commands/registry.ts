@@ -351,7 +351,7 @@ export const BUILTIN_SLASH_COMMANDS = [
   {
     name: 'usage',
     aliases: [],
-    description: 'Show session tokens + context window + plan quotas',
+    description: 'Show session tokens and context window',
     priority: 60,
     availability: 'always',
   },
@@ -359,13 +359,6 @@ export const BUILTIN_SLASH_COMMANDS = [
     name: 'status',
     aliases: [],
     description: 'Show current session and runtime status',
-    priority: 60,
-    availability: 'always',
-  },
-  {
-    name: 'feedback',
-    aliases: ['bug'],
-    description: 'Send feedback to make Pythinker Code better',
     priority: 60,
     availability: 'always',
   },

@@ -1,5 +1,4 @@
 import type { Component, Focusable } from '@pymodel/pi-tui';
-import type { DeviceAuthorization } from '@pymodel/pythinker-code-oauth';
 import type { PythinkerHarness, Session } from '@pymodel/pythinker-code-sdk';
 
 import type { ColorToken, ThemeName } from '#/tui/theme';
@@ -43,7 +42,7 @@ import {
   showSettingsSelector,
 } from './config';
 import { handleGoalCommand } from './goal';
-import { handleFeedbackCommand, showMcpServers, showStatusReport, showUsage } from './info';
+import { showMcpServers, showStatusReport, showUsage } from './info';
 import { handleAddDirCommand } from './add-dir';
 import { parseSlashInput } from './parse';
 import { handlePluginsCommand } from './plugins';
@@ -98,7 +97,7 @@ export {
 } from './config';
 export { handleDynamicWorkflowCommand } from './dynamic_workflow';
 export { handleTowerCommand } from './tower';
-export { handleFeedbackCommand, showMcpServers, showStatusReport, showUsage } from './info';
+export { showMcpServers, showStatusReport, showUsage } from './info';
 export { handlePluginsCommand } from './plugins';
 export { handleReloadCommand, handleReloadTuiCommand } from './reload';
 export { handleGoalCommand } from './goal';
@@ -171,13 +170,9 @@ export interface SlashCommandHost {
   failSessionRequest(message: string): void;
   sendQueuedMessage(session: Session, item: QueuedMessage): void;
   requestQueuedGoalPromotion?(): void;
-  /** Reset the client-side cache-break baseline after the context was cut
-   *  (/undo): the next step's cache-read drop is expected, not a break. */
-  noteContextCut?(): void;
 
   // UI
   showLoginProgressSpinner(label: string): LoginProgressSpinnerHandle;
-  showLoginAuthorizationPrompt(auth: DeviceAuthorization): LoginProgressSpinnerHandle;
   showProgressSpinner(label: string): LoginProgressSpinnerHandle;
 
   // Theme
@@ -555,9 +550,6 @@ async function handleBuiltInSlashCommand(
       return;
     case 'status':
       void showStatusReport(host);
-      return;
-    case 'feedback':
-      await handleFeedbackCommand(host);
       return;
     case 'btw':
       await handleBtwCommand(host, args);

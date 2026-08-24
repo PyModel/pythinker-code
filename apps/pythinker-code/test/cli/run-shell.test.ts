@@ -113,7 +113,6 @@ vi.mock('@pymodel/pythinker-code-oauth', async () => {
   return {
     ...actual,
     createPythinkerDeviceId: mocks.createPythinkerDeviceId,
-    PYTHINKER_CODE_PROVIDER_NAME: 'pythinker-code',
   };
 });
 
@@ -168,9 +167,7 @@ vi.mock('../../src/utils/process/resolve-command', () => ({
 describe('runShell', () => {
   beforeEach(() => {
     vi.stubEnv('PYTHINKER_CODE_LEGACY_FLAG', '1');
-    // Pin region to cn: the telemetry endpoint assertion below must not
-    // follow the dev machine's own login/marker state.
-    vi.stubEnv('PYTHINKER_CODE_OAUTH_HOST', 'https://auth.kimi.com');
+  vi.stubEnv('PYTHINKER_CODE_REGION_MARKER', 'off');
     refreshPythinkerRegion();
   });
 
@@ -338,7 +335,6 @@ describe('runShell', () => {
       model: 'k2',
       sessionId: undefined,
       endpoint: expect.any(Function),
-      getAccessToken: expect.any(Function),
     });
     // The endpoint resolver defers to the active region profile at flush time.
     const telemetryOptions = mocks.initializeTelemetry.mock.calls[0]![0] as {
@@ -576,56 +572,6 @@ describe('runShell', () => {
       init_ms: expect.any(Number),
       mcp_ms: 47,
       tui_mode: 'regular',
-    });
-  });
-
-  it('bridges OAuth refresh outcomes to telemetry', async () => {
-    mocks.loadTuiConfig.mockResolvedValue({
-      theme: 'dark',
-      editorCommand: null,
-      notifications: { enabled: true, condition: 'unfocused' },
-    });
-    mocks.tuiStart.mockResolvedValue(undefined);
-
-    await runShell(
-      {
-        session: undefined,
-        continue: false,
-        yolo: false,
-        auto: false,
-        plan: false,
-        model: undefined,
-        outputFormat: undefined,
-        prompt: undefined,
-        skillsDirs: [],
-        agent: undefined,
-        agentFiles: [],
-      },
-      '1.2.3-test',
-    );
-
-    const [harnessOptions] = mocks.pythinkerHarnessConstructor.mock.calls[0] as [
-      {
-        readonly onOAuthRefresh: (
-          outcome:
-            | { readonly success: true }
-            | { readonly success: false; readonly reason: 'unauthorized' | 'network_or_other' },
-        ) => void;
-      },
-    ];
-
-    harnessOptions.onOAuthRefresh({ success: true });
-    harnessOptions.onOAuthRefresh({ success: false, reason: 'unauthorized' });
-    harnessOptions.onOAuthRefresh({ success: false, reason: 'network_or_other' });
-
-    expect(mocks.telemetryTrack).toHaveBeenCalledWith('oauth_refresh', { outcome: 'success' });
-    expect(mocks.telemetryTrack).toHaveBeenCalledWith('oauth_refresh', {
-      outcome: 'error',
-      reason: 'unauthorized',
-    });
-    expect(mocks.telemetryTrack).toHaveBeenCalledWith('oauth_refresh', {
-      outcome: 'error',
-      reason: 'network_or_other',
     });
   });
 

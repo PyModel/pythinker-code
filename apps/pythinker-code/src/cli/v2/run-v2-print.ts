@@ -30,7 +30,6 @@ import {
   IBootstrapService,
   IConfigService,
   IEventBus,
-  IOAuthToolkit,
   ISessionIndex,
   ISessionManager,
   ITelemetryService,
@@ -160,8 +159,6 @@ export async function runV2Print(
     },
     [...logSeed(logging)],
   );
-  const auth = app.accessor.get(IOAuthToolkit);
-
   const configService = app.accessor.get(IConfigService);
   await configService.ready;
   // Print-mode config defaults (task timeouts / loop step cap / subagent
@@ -215,7 +212,6 @@ export async function runV2Print(
           appName: CLI_USER_AGENT_PRODUCT,
           uiMode: PROMPT_UI_MODE,
           model: opts.model ?? defaultModel,
-          getAccessToken: async () => (await auth.getCachedAccessToken()) ?? null,
         }),
       );
     }
