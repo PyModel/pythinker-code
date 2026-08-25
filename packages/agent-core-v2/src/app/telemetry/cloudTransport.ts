@@ -33,11 +33,7 @@ export interface CloudTransportOptions {
   readonly storage: IFileSystemStorageService;
   readonly deviceId: string;
   readonly endpoint?: string;
-  /** Bootstrapped home for the default endpoint's region resolution (the
-      install marker lives there, not necessarily under PYTHINKER_CODE_HOME). */
   readonly homeDir?: string;
-  /** Pre-resolved marker opt-out from the host's bootstrap env (defaults to
-      reading PYTHINKER_CODE_REGION_MARKER from the process env). */
   readonly readMarker?: boolean;
   readonly getAccessToken?: () => string | null | Promise<string | null>;
   readonly fetchImpl?: typeof fetch;
@@ -48,9 +44,7 @@ export interface CloudTransportOptions {
 }
 
 export const TELEMETRY_ENDPOINT = 'https://telemetry-logs.pythinker.com/v1/event';
-/** Do not change this Pythinker wire prefix. SigNoz dashboards query `pfc_*` events. */
 export const SERVER_EVENT_PREFIX = 'pfc_';
-/** Do not change this Pythinker identity prefix. SigNoz device queries depend on it. */
 export const USER_ID_PREFIX = 'pfc_device_id_';
 export const DISK_EVENT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 export const RETRY_BACKOFFS_MS = [1_000, 4_000, 16_000] as const;

@@ -68,10 +68,10 @@ There is no domain-layer numbering — a domain may import any other domain, gui
 
 ## Comment convention
 
-`packages/agent-core-v2/AGENTS.md` bans comments: no file headers, no section banners, no statement-level narration — the code is the source of truth. The only exception is JSDoc attached to exported symbols, which flows into the generated `.d.ts` and the consumers' IDE hover. Tooling directives (`eslint-disable`, `@ts-expect-error`, …) are banned too: fix the underlying lint/type problem instead, and put negative type-safety cases in compiler-asserted fixtures. DI scope is carried by registration: `LifecycleScope.App`, `LifecycleScope.Session`, or `LifecycleScope.Agent`. A `workspace*` filename marks workspace-domain ownership, not a DI scope (see service-authoring.md).
+`packages/agent-core-v2/AGENTS.md` bans comments entirely: no file headers, no section banners, no statement-level narration, no JSDoc (not even on exported symbols) — the code is the source of truth. The only exception is a load-bearing lint-suppression directive (`oxlint-disable` / `eslint-disable`) for a deliberate pattern; other tooling directives (`@ts-expect-error`, …) are banned: fix the underlying lint/type problem instead, and put negative type-safety cases in compiler-asserted fixtures. DI scope is carried by registration: `LifecycleScope.App`, `LifecycleScope.Session`, or `LifecycleScope.Agent`. A `workspace*` filename marks workspace-domain ownership, not a DI scope (see service-authoring.md).
 
 ## Red lines (this stage)
 
 - Import via the `#/...` alias (mapped to `src/`); never reach into another domain's internals by relative path.
 - Short-lived may inject long-lived; never the reverse.
-- No comments — not file headers, not beside statements; exported-symbol JSDoc is the only exception.
+- No comments — not file headers, not beside statements, not JSDoc; a load-bearing lint-suppression directive is the only exception.

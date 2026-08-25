@@ -84,7 +84,7 @@ The web bundle: `apps/pythinker-code/dist-web` is the committed, prebuilt bundle
 ## Coding Rules
 
 - English-only codebase. Use ASCII/Latin fixtures (e.g. `café`) for unicode tests.
-- `packages/agent-core-v2`, `packages/agent-gateway`, and `packages/transcript` are comment-free zones: no line/block comments; exceptions are JSDoc attached to exported symbols and load-bearing lint-suppression directives (`oxlint-disable` / `eslint-disable`), while other tooling directives (`@ts-expect-error`, …) stay banned. Enforced by `scripts/check-no-comments.mjs`, which runs as part of `pnpm lint`.
+- `packages/agent-core-v2`, `packages/agent-gateway`, and `packages/transcript` are comment-free zones: no line/block comments; no JSDoc either, not even on exported symbols; the only exception is a load-bearing lint-suppression directive (`oxlint-disable` / `eslint-disable`), while other tooling directives (`@ts-expect-error`, …) stay banned. Enforced by `scripts/check-no-comments.mjs`, which runs as part of `pnpm lint`.
 - `packages/acp-adapter`: pin `@agentclientprotocol/sdk` `^0.23.0` (0.24+ broke session-model API).
 - `tsgo` (`@typescript/native-preview`) available via `npx tsgo -p <tsconfig> --noEmit`; committed scripts use `tsc` — run both for type fixes.
 - Pass `undefined` directly for optional props — no conditional spread.

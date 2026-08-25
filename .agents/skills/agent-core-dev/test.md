@@ -21,7 +21,7 @@ Resolving by interface is what makes `registerScopedService(ISut, Sut, …)` par
 
 Pure functions, value objects, and services with **no** `@IService` dependencies may be constructed directly.
 
-The only other exception is a test that genuinely needs **two independent instances** of the same service with different dependencies (e.g. constructing two `TurnService`s with different `ILoopRunner`s). A singleton-per-container resolution cannot produce both, so `ix.createInstance(Impl)` is acceptable there — annotate it with a comment explaining why.
+The only other exception is a test that genuinely needs **two independent instances** of the same service with different dependencies (e.g. constructing two `TurnService`s with different `ILoopRunner`s). A singleton-per-container resolution cannot produce both, so `ix.createInstance(Impl)` is acceptable there — state the reason in the test name and local identifiers.
 
 ## Two harnesses
 

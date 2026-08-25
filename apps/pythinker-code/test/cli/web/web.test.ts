@@ -99,7 +99,6 @@ describe('pythinker web', () => {
     expect(longs).toContain('--allowed-host');
     expect(longs).toContain('--insecure-no-tls');
     expect(longs).toContain('--allow-remote-shutdown');
-    expect(longs).toContain('--allow-remote-terminals');
     expect(longs).toContain('--dangerous-bypass-auth');
     expect(longs).toContain('--log-level');
     expect(longs).toContain('--debug-endpoints');
@@ -112,6 +111,7 @@ describe('pythinker web', () => {
     expect(longs).not.toContain('--keep-alive');
     expect(longs).not.toContain('--daemon');
     expect(longs).not.toContain('--idle-grace-ms');
+    expect(longs).not.toContain('--allow-remote-terminals');
   });
 
   it('routes `pythinker server` and any legacy subcommand to a deprecation notice', async () => {
@@ -409,7 +409,6 @@ describe('`pythinker web` option threading', () => {
         dangerousBypassAuth: true,
         debugEndpoints: true,
         allowRemoteShutdown: true,
-        allowRemoteTerminals: true,
         open: false,
       },
       { startServerForeground: runner, openUrl: vi.fn(), stdout, stderr },
@@ -422,7 +421,6 @@ describe('`pythinker web` option threading', () => {
       debugEndpoints: true,
       insecureNoTls: true,
       allowRemoteShutdown: true,
-      allowRemoteTerminals: true,
       dangerousBypassAuth: true,
       allowedHosts: ['.example.com'],
     });
