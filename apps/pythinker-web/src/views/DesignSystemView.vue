@@ -1123,7 +1123,21 @@ onUnmounted(() => {
                 </div>
               </div>
             </div>
-            <p><b>Wide markdown tables (desktop):</b> regular chat prose stays within the 760px reading column (<code>--p-content-max</code>). On desktop a wide table may grow naturally with its content up to 1040px (<code>--p-table-max</code>), centred within the conversation pane; beyond that the excess scrolls horizontally inside the table's own wrapper — the page and the chat area never scroll sideways. A single column is capped at 700px (<code>--p-table-cell-max</code>), so long cell content wraps inside the cell instead of stretching the table. The conversation outline (TOC) keeps its usual position just outside the reading column; when a table grows past it and scrolls under the rail, the TOC is hidden temporarily and returns as soon as the table leaves, without touching the user's TOC setting. On mobile a table never breaks out of the reading column.</p>
+
+            <h3 class="sub">Conversation outline · connected user-prompt timeline</h3>
+            <p>The desktop outline is one quiet timeline at the chat pane's left edge beside the app sidebar. Each node represents one loaded <b>user prompt</b>; assistant messages and tool calls never become navigation items. The line explains order, while the single accent node identifies the prompt that owns the viewport.</p>
+            <table class="dt">
+              <thead><tr><th>State</th><th>Visual</th><th>Behavior</th></tr></thead>
+              <tbody>
+                <tr><td class="tk">default</td><td><code>--p-hairline</code> neutral line + 7px neutral nodes</td><td>The card stays visually absent while labels are collapsed.</td></tr>
+                <tr><td class="tk">hover / focus-within</td><td>Opaque raised surface, menu border, shadow, and padded one-line rows</td><td>Rows use the shared hover surface; keyboard focus uses <code>--p-focus-ring</code>.</td></tr>
+                <tr><td class="tk">active</td><td>Selected row + accent node + accent label</td><td>The button carries <code>aria-current="location"</code>; the outline keeps it visible in long threads.</td></tr>
+                <tr><td class="tk">keyboard</td><td>One roving tab stop</td><td>Up/Down move one prompt; Home/End move to the first/last prompt; Enter activates the focused button.</td></tr>
+                <tr><td class="tk">constrained</td><td>Outline hidden</td><td>Hide on mobile, while loading, below two prompts, when labels do not fit, or while a wide table covers the rail.</td></tr>
+              </tbody>
+            </table>
+            <div class="callout info"><span class="ico">i</span><div>The macOS, Windows, and Linux desktop applications render this same web component. Do not add a platform-specific conversation outline.</div></div>
+            <p><b>Wide markdown tables (desktop):</b> regular chat prose stays within the 760px reading column (<code>--p-content-max</code>). On desktop a wide table may grow naturally with its content up to 1040px (<code>--p-table-max</code>), centred within the conversation pane; beyond that the excess scrolls horizontally inside the table's own wrapper — the page and the chat area never scroll sideways. A single column is capped at 700px (<code>--p-table-cell-max</code>), so long cell content wraps inside the cell instead of stretching the table. The conversation outline (TOC) stays at the chat pane's left edge beside the app sidebar; when a table grows across that rail, the TOC is hidden temporarily and returns as soon as the table leaves, without touching the user's TOC setting. On mobile a table never breaks out of the reading column.</p>
 
             <h3 class="sub">Tool calls: compact by default, grouped, expand on demand</h3>
             <p>High-frequency calls like <code>read_file</code> / <code>bash</code> / <code>grep</code> are "operational noise" — if each one took a full card, parallel triggers would quickly drown out the conversation.

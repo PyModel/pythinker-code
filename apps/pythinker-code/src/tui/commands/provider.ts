@@ -6,7 +6,6 @@ import {
 } from '@pymodel/pythinker-code-oauth';
 import {
   applyCatalogProvider,
-  cascadeSubagentModelPool,
   catalogProviderModels,
   CatalogFetchError,
   DEFAULT_CATALOG_URL,
@@ -248,14 +247,9 @@ async function handleCatalogProviderAdd(host: SlashCommandHost): Promise<void> {
     models: config.models,
   });
 
-  // removeProvider cascaded the subagent pool against a model table where
-  // every `${providerId}/...` alias was absent; restore the entries that
-  // survived the re-add (aliases the catalog genuinely dropped stay dropped).
+  // Keep the user-owned secondary-model selection after the provider is re-added.
   if (poolSnapshot !== undefined) {
-    const restored = cascadeSubagentModelPool(poolSnapshot, config.models ?? {});
-    if (restored !== null) {
-      await host.harness.setConfig({ secondaryModel: restored ?? poolSnapshot });
-    }
+    await host.harness.setConfig({ secondaryModel: poolSnapshot });
   }
 
   await host.authFlow.refreshConfigAfterLogin();

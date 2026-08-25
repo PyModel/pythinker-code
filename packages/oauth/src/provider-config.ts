@@ -146,11 +146,19 @@ export interface ThinkingShape {
   [key: string]: unknown;
 }
 
+export interface SecondaryModelShape {
+  defaultModel?: string | undefined;
+  model?: string | undefined;
+  models?: Record<string, string> | undefined;
+  [key: string]: unknown;
+}
+
 export interface PythinkerConfigShape {
   providers: Record<string, ProviderConfig | Record<string, unknown>>;
   models?: Record<string, ModelAlias | Record<string, unknown>> | undefined;
   defaultModel?: string | undefined;
   thinking?: ThinkingShape | undefined;
+  secondaryModel?: SecondaryModelShape | undefined;
   services?: ServicesConfig | undefined;
   [key: string]: unknown;
 }

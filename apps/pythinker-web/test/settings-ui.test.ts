@@ -166,6 +166,7 @@ describe('settings UI', () => {
         status: 'idle',
         installedVersion: '9.8.7',
         autoUpdate: true,
+        channel: 'stable',
       } satisfies DesktopUpdateState)),
       onUpdateState: vi.fn(() => () => {}),
     };
@@ -198,12 +199,13 @@ describe('settings UI', () => {
     wrapper.unmount();
   });
 
-  it('keeps the desktop update center live through download and restart', async () => {
+  it('keeps the standalone Updates tab live through channel selection, download, and restart', async () => {
     let state: DesktopUpdateState = {
       status: 'available',
       installedVersion: '1.0.0',
       availableVersion: '1.2.3',
       autoUpdate: true,
+      channel: 'stable',
     };
     let push: ((next: DesktopUpdateState) => void) | undefined;
     const bridge = {
@@ -211,6 +213,10 @@ describe('settings UI', () => {
       getUpdateState: vi.fn(() => Promise.resolve(state)),
       setAutoUpdate: vi.fn((enabled: boolean) => {
         state = { ...state, autoUpdate: enabled };
+        return Promise.resolve(state);
+      }),
+      setUpdateChannel: vi.fn((channel: DesktopUpdateChannel) => {
+        state = { ...state, channel };
         return Promise.resolve(state);
       }),
       checkForUpdates: vi.fn(() => Promise.resolve(state)),
@@ -248,7 +254,22 @@ describe('settings UI', () => {
     await flushPromises();
 
     const updateControls = document.body.querySelector<HTMLElement>('[data-testid="desktop-update-controls"]')!;
+    expect(updateControls.closest<HTMLElement>('.panel')?.style.display).toBe('none');
+    const updatesTab = Array.from(document.body.querySelectorAll<HTMLButtonElement>('[role="tab"]'))
+      .find((tab) => tab.textContent?.trim() === 'Updates');
+    expect(updatesTab).toBeDefined();
+    updatesTab!.click();
+    await flushPromises();
+
+    expect(updateControls.closest<HTMLElement>('.panel')?.style.display).not.toBe('none');
     expect(updateControls.textContent).toContain('Version 1.2.3 is available');
+    const channel = document.body.querySelector<HTMLSelectElement>('[data-testid="desktop-update-channel"]')!;
+    expect(channel.value).toBe('stable');
+    channel.value = 'beta';
+    channel.dispatchEvent(new Event('change', { bubbles: true }));
+    await flushPromises();
+    expect(bridge.setUpdateChannel).toHaveBeenCalledWith('beta');
+
     const automaticChecks = document.body.querySelector<HTMLButtonElement>('[data-testid="automatic-update-checks"]')!;
     expect(automaticChecks.getAttribute('aria-checked')).toBe('true');
     automaticChecks.click();
@@ -282,9 +303,7 @@ describe('settings UI', () => {
     push?.(state);
     bridge.checkForUpdates.mockRejectedValueOnce(new Error('update service unavailable'));
     await flushPromises();
-    Array.from(updateControls.querySelectorAll<HTMLButtonElement>('button'))
-      .find((button) => button.textContent?.includes('Check for updates'))!
-      .click();
+    updateControls.querySelector<HTMLButtonElement>('[data-testid="settings-check-update"]')!.click();
     await flushPromises();
     expect(updateControls.textContent).toContain('update service unavailable');
 
@@ -327,6 +346,7 @@ describe('settings UI', () => {
         notifyQuestion: false,
         notifyApproval: false,
         sound: false,
+        conversationToc: false,
         config: {
           providers: {},
           experimental: { sidebarTabs: true },
@@ -342,8 +362,14 @@ describe('settings UI', () => {
 
     const sidebarTabs = document.body.querySelector<HTMLButtonElement>('[role="switch"][aria-label="Multi-tab sidebar"]');
     const secondaryModel = document.body.querySelector<HTMLButtonElement>('[role="switch"][aria-label="Secondary model for subagents"]');
+    const promptAnchors = document.body.querySelector<HTMLButtonElement>('[role="switch"][aria-label="Chat prompt anchors"]');
     expect(sidebarTabs?.getAttribute('aria-checked')).toBe('true');
     expect(secondaryModel?.getAttribute('aria-checked')).toBe('false');
+    expect(promptAnchors?.closest<HTMLElement>('.panel')?.style.display).not.toBe('none');
+    expect(promptAnchors?.getAttribute('aria-checked')).toBe('false');
+    promptAnchors!.click();
+    await flushPromises();
+    expect(wrapper.emitted('setConversationToc')?.at(-1)).toEqual([true]);
     secondaryModel!.click();
     await flushPromises();
     const emitted = wrapper.emitted('updateConfig');
@@ -379,6 +405,57 @@ describe('settings UI', () => {
     await flushPromises();
     expect(document.body.textContent).toContain('Subagent model');
     wrapper.unmount();
+  });
+
+  it('places subagent model after the default model and can inherit the agent model', async () => {
+    const wrapper = mount(SettingsDialog, {
+      props: {
+        colorScheme: 'system',
+        accent: 'blue',
+        uiFontSize: 14,
+        authReady: true,
+        notify: false,
+        notifyQuestion: false,
+        notifyApproval: false,
+        sound: false,
+        config: {
+          providers: {},
+          defaultModel: 'test/main',
+          secondaryModel: { model: 'test/fast', defaultEffort: 'low' },
+          experimental: { 'secondary-model': true },
+        },
+        models: [
+          { id: 'test/main', provider: 'test', model: 'main', maxContextSize: 100_000 },
+          { id: 'test/fast', provider: 'test', model: 'fast', maxContextSize: 100_000 },
+        ],
+      },
+      global: { plugins: [i18n] },
+    });
+    try {
+      await flushPromises();
+      const agentTab = Array.from(document.body.querySelectorAll<HTMLButtonElement>('[role="tab"]'))
+        .find((tab) => tab.textContent?.trim() === 'Agent');
+      agentTab!.click();
+      await flushPromises();
+
+      const agentPanel = Array.from(document.body.querySelectorAll<HTMLElement>('.panel'))
+        .find((panel) => panel.textContent?.includes('Agent defaults'))!;
+      const text = agentPanel.textContent ?? '';
+      expect(text.indexOf('Default model')).toBeLessThan(text.indexOf('Subagents'));
+      expect(text.indexOf('Subagents')).toBeLessThan(text.indexOf('Default permission'));
+
+      document.body.querySelector<HTMLButtonElement>('.sm-picker__trigger')!.click();
+      await flushPromises();
+      const inherit = Array.from(document.body.querySelectorAll<HTMLButtonElement>('.sm-picker__option'))
+        .find((option) => option.textContent?.includes('Inherit agent model'));
+      expect(inherit).toBeDefined();
+      inherit!.click();
+      await flushPromises();
+
+      expect(wrapper.emitted('updateConfig')?.at(-1)?.[0]).toEqual({ secondaryModel: null });
+    } finally {
+      wrapper.unmount();
+    }
   });
 
   it('emits setAccent with mono when the Black accent option is picked', async () => {

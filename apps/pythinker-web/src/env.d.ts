@@ -20,6 +20,8 @@ declare const __PYTHINKER_WEB_VERSION__: string;
 declare const __PYTHINKER_WEB_DESKTOP__: boolean;
 
 // Update state mirrored from the desktop app's auto-updater (electron-updater).
+type DesktopUpdateChannel = 'stable' | 'beta' | 'nightly';
+
 type DesktopUpdateState = {
   status: 'disabled' | 'idle' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'skipped' | 'error';
   installedVersion: string;
@@ -33,6 +35,7 @@ type DesktopUpdateState = {
   bytesPerSecond?: number;
   message?: string;
   autoUpdate: boolean;
+  channel: DesktopUpdateChannel;
   notifiedVersion?: string;
   skippedVersion?: string;
   completedVersion?: string;
@@ -43,6 +46,7 @@ interface PythinkerDesktopBridge {
   platform: string;
   getUpdateState: () => Promise<DesktopUpdateState>;
   setAutoUpdate: (enabled: boolean) => Promise<DesktopUpdateState>;
+  setUpdateChannel: (channel: DesktopUpdateChannel) => Promise<DesktopUpdateState>;
   checkForUpdates: () => Promise<DesktopUpdateState>;
   downloadUpdate: () => Promise<DesktopUpdateState>;
   cancelUpdateDownload: () => Promise<DesktopUpdateState>;

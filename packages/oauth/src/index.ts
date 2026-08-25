@@ -91,13 +91,14 @@ export type {
   ProviderConfig,
   ProviderModelInfo,
   PythinkerConfigShape,
+  SecondaryModelShape,
   ServiceConfig,
   ServicesConfig,
   SupportsThinkingType,
   ThinkingShape,
 } from './provider-config';
 
-export { refreshProviderModels } from './refreshProviderModels';
+export { preserveSecondaryModelAliases, refreshProviderModels } from './refreshProviderModels';
 export type {
   ProviderChange,
   RefreshProviderHost,

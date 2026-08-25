@@ -734,6 +734,34 @@ describe('AgentGoalService', () => {
         }),
       ]);
     });
+
+    it('does not auto-resume a compaction-paused goal after restart', async () => {
+      await ctx.dispose();
+      const persistence = new InMemoryWireRecordPersistence();
+      ctx = createUnrestoredTestAgent(
+        wireRecordPersistenceServices(persistence),
+        telemetryServices(recordingTelemetry(telemetry)),
+      );
+      goals = ctx.resolve(AgentGoal) as GoalServiceTestManager;
+      await restoreGoalRecords(ctx, goals, [
+        {
+          type: 'goal.create',
+          goalId: 'g1',
+          objective: 'resume after compaction',
+        },
+        {
+          type: 'goal.update',
+          status: 'paused',
+          reason:
+            'Paused because context compaction is in progress; it will resume after compaction completes',
+        },
+      ]);
+
+      expect(goals.getGoal().goal).toMatchObject({
+        status: 'paused',
+        terminalReason: 'Paused because context compaction was interrupted by agent restart',
+      });
+    });
   });
 });
 
@@ -1722,7 +1750,7 @@ describe('goal error catalog metadata', () => {
 
 describe('GoalRuntime API boundary', () => {
   it('exposes only goal commands, queries, and observations', () => {
-    expect(Object.getOwnPropertyNames(GoalRuntime.prototype).sort()).toEqual([
+    expect(Object.getOwnPropertyNames(GoalRuntime.prototype).toSorted()).toEqual([
       'cancelGoal',
       'constructor',
       'createGoal',

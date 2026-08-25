@@ -470,7 +470,7 @@ export interface WireConfig {
   secondary_model?: {
     model?: string;
     defaultEffort?: string;
-  };
+  } | null;
   models?: Record<string, unknown>;
   thinking?: unknown;
   plan_mode?: boolean;

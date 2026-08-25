@@ -8,6 +8,10 @@ import { isPlainRecord } from '#/_base/utils/canonical-args';
 import { IAgentContextInjectorService } from '#/agent/contextInjector/contextInjector';
 import { ContextAppendMessage } from '#/agent/contextMemory/contextEvents';
 import type { ContextMessage, PromptOrigin } from '#/agent/contextMemory/types';
+import {
+  IAgentFullCompactionService,
+  type FullCompactionTask,
+} from '#/agent/fullCompaction/fullCompaction';
 import { GoalInjection, GOAL_WAIT_FOR_GUIDANCE } from '#/features/goal/injection/goalInjection';
 import { LOOP_CONTROL_SECTION, type LoopControl } from '#/agent/loop/configSection';
 import { LoopErrors } from '#/agent/loop/errors';
@@ -105,6 +109,12 @@ const GOAL_RUNTIME_PAUSE_PREFIX = 'Paused after runtime error';
 const GOAL_CONTINUATION_FAILURE_PAUSE_PREFIX = 'Paused after goal continuation failure';
 const GOAL_PROVIDER_FILTERED_PAUSE_REASON = 'Paused after provider safety policy block';
 const GOAL_BUDGET_BLOCK_PREFIX = 'Blocked after goal budget reached';
+export const GOAL_COMPACTION_PAUSE_REASON =
+  'Paused because context compaction is in progress; it will resume after compaction completes';
+const GOAL_COMPACTION_FAILURE_PAUSE_REASON =
+  'Paused because context compaction did not complete';
+const GOAL_COMPACTION_RESTART_PAUSE_REASON =
+  'Paused because context compaction was interrupted by agent restart';
 const LLM_NOT_SET_MESSAGE = 'LLM not set, send "/login" to login';
 
 const GOAL_BUDGET_STOP_REMINDER_NAME = 'goal_budget_stop';
@@ -180,6 +190,13 @@ interface ResumeContinuation {
   readonly goalId: string;
 }
 
+interface GoalCompactionPause {
+  readonly goalId: string;
+  readonly task: FullCompactionTask;
+  autoResume: boolean;
+  settlement?: Promise<void>;
+}
+
 interface GoalEffectState {
   pendingContinuation?: PendingContinuation;
   liveTurnId?: number;
@@ -194,6 +211,7 @@ interface GoalEffectState {
   readonly exhaustedTurnBudgetGoals: Map<number, string>;
   liveWallClockStartedAt?: number;
   resumeContinuation?: ResumeContinuation;
+  compactionPause?: GoalCompactionPause;
 }
 
 interface GoalActorContext {
@@ -370,7 +388,17 @@ function prepareForGoalCreation(context: GoalOperationContext, replace: boolean)
 async function pauseGoal(context: GoalOperationContext, input: GoalReasonInput = {}, actor: GoalActor = 'user'): Promise<GoalSnapshot> {
   assertSupportedAgent(context);
   const state = requireState(context);
-  if (state.status === 'paused') return toSnapshot(context, state);
+  if (state.status === 'paused') {
+    const pause = matchingCompactionPause(context, state.goalId);
+    if (pause === undefined) return toSnapshot(context, state);
+    pause.autoResume = false;
+    return replacePausedReason(
+      context,
+      state,
+      input.reason ?? (actor === 'user' ? 'Paused by user' : 'Paused'),
+      actor,
+    );
+  }
   if (state.status !== 'active') {
     throw new Error2(
       ErrorCodes.GOAL_STATUS_INVALID,
@@ -399,6 +427,14 @@ async function resumeGoal(context: GoalOperationContext, input: ResumeGoalInput 
       ErrorCodes.GOAL_NOT_RESUMABLE,
       `Cannot resume a goal in status "${state.status}"`,
     );
+  }
+  const compactionPause = matchingCompactionPause(context, state.goalId);
+  if (compactionPause !== undefined && state.status === 'paused') {
+    compactionPause.autoResume = true;
+    if (state.terminalReason !== GOAL_COMPACTION_PAUSE_REASON) {
+      return replacePausedReason(context, state, GOAL_COMPACTION_PAUSE_REASON, actor);
+    }
+    return toSnapshot(context, state);
   }
   const continuePaused =
     actor === 'user' && state.status === 'paused' && input.continueIfPaused === true;
@@ -583,7 +619,116 @@ function adoptStarterTurn(context: GoalOperationContext, actor: GoalActor): void
   context.effects.goalStarterTurns.add(turnId);
 }
 
+async function handleCompactionStarted(
+  context: GoalOperationContext,
+  task: FullCompactionTask,
+): Promise<void> {
+  if (task.trigger !== 'auto' || context.effects.compactionPause !== undefined) return;
+  const state = context.runtime.getState().goal;
+  if (state === null || state.status !== 'active') return;
+  const pause: GoalCompactionPause = {
+    goalId: state.goalId,
+    task,
+    autoResume: true,
+  };
+  context.effects.compactionPause = pause;
+  pause.settlement = task.promise.then(
+    () => finishCompactionPause(context, pause, true),
+    () => finishCompactionPause(context, pause, false),
+  );
+  void pause.settlement.catch(() => undefined);
+  await pauseGoalForCompaction(context, pause, state);
+}
+
+async function pauseGoalForCompaction(
+  context: GoalOperationContext,
+  pause: GoalCompactionPause,
+  state: GoalState,
+): Promise<void> {
+  const wallClockMs = settleWallClock(context, state);
+  context.effects.resumeContinuation = undefined;
+  context.runtime.send({ type: 'goal.deadline.clear' });
+  context.effects.liveWallClockStartedAt = undefined;
+  await context.runtime.dispatch(
+    new GoalUpdate({
+      agentId: context.runtime.agent.agentId,
+      goalId: pause.goalId,
+      status: 'paused',
+      reason: GOAL_COMPACTION_PAUSE_REASON,
+      wallClockMs,
+      actor: 'runtime',
+    }),
+  );
+  if (context.effects.compactionPause !== pause) return;
+  const next = context.runtime.getState().goal;
+  if (
+    next === null ||
+    next.goalId !== pause.goalId ||
+    next.status !== 'paused' ||
+    next.terminalReason !== GOAL_COMPACTION_PAUSE_REASON
+  ) return;
+  emitGoalUpdated(context, toSnapshot(context, next), {
+    kind: 'lifecycle',
+    status: 'paused',
+    reason: GOAL_COMPACTION_PAUSE_REASON,
+    actor: 'runtime',
+  });
+  trackStatusChanged(context, next, 'runtime');
+}
+
+async function finishCompactionPause(
+  context: GoalOperationContext,
+  pause: GoalCompactionPause,
+  completed: boolean,
+): Promise<void> {
+  if (context.effects.compactionPause !== pause) return;
+  const state = context.runtime.getState().goal;
+  if (
+    state === null ||
+    state.goalId !== pause.goalId ||
+    state.status !== 'paused' ||
+    !pause.autoResume
+  ) {
+    context.effects.compactionPause = undefined;
+    return;
+  }
+  if (!completed) {
+    context.effects.compactionPause = undefined;
+    if (state.terminalReason === GOAL_COMPACTION_PAUSE_REASON) {
+      replacePausedReason(context, state, GOAL_COMPACTION_FAILURE_PAUSE_REASON, 'runtime');
+    }
+    return;
+  }
+  if (state.terminalReason !== GOAL_COMPACTION_PAUSE_REASON) {
+    context.effects.compactionPause = undefined;
+    return;
+  }
+  const budgetReason = goalBudgetBlockReason(toSnapshot(context, state).budget);
+  context.effects.compactionPause = undefined;
+  if (budgetReason !== undefined) {
+    applyLifecycle(context, state, 'blocked', budgetReason, 'runtime', {
+      preserveLiveContinuation: true,
+    });
+    return;
+  }
+  applyLifecycle(context, state, 'active', undefined, 'runtime');
+  if (!canLaunchContinuation(context)) return;
+  try {
+    launchContinuationTurn(context, pause.goalId);
+  } catch (error) {
+    await settleGoalAfterContinuationFailure(context, error, pause.goalId);
+    throw error;
+  }
+}
+
+async function waitForCompactionPause(context: GoalOperationContext): Promise<void> {
+  const pause = context.effects.compactionPause;
+  if (pause === undefined) return;
+  await pause.settlement;
+}
+
 async function handleBeforeStep(context: GoalOperationContext, ctx: BeforeStepContext): Promise<void> {
+  await waitForCompactionPause(context);
   const goalId = context.effects.goalDrivenTurns.get(ctx.turnId);
   if (goalId === undefined) return;
   if (context.effects.countedGoalTurns.has(ctx.turnId)) return;
@@ -599,7 +744,8 @@ function handleUsageRecorded(context: GoalOperationContext, ctx: UsageRecordedCo
   accountTokenUsage(context, ctx.usage.output, goalId);
 }
 
-function handleAfterStep(context: GoalOperationContext, ctx: AfterStepContext): void {
+async function handleAfterStep(context: GoalOperationContext, ctx: AfterStepContext): Promise<void> {
+  await waitForCompactionPause(context);
   if (stopAfterBudgetReached(context, ctx)) return;
   enqueueGoalOutcomeContinuation(context, ctx);
 }
@@ -720,6 +866,18 @@ async function settleAbnormalTurn(context: GoalOperationContext,
   result: Pick<TurnEnded, 'reason' | 'error'>,
   goalId: string,
 ): Promise<boolean> {
+  const state = context.runtime.getState().goal;
+  if (
+    result.reason === 'cancelled' &&
+    state?.goalId === goalId &&
+    state.status === 'paused' &&
+    (state.terminalReason === GOAL_COMPACTION_PAUSE_REASON ||
+      state.terminalReason === GOAL_COMPACTION_FAILURE_PAUSE_REASON)
+  ) {
+    suppressCompactionAutoResume(context, goalId);
+    replacePausedReason(context, state, 'Paused after interruption', 'user');
+    return true;
+  }
   if (!isActiveGoal(context, goalId)) return false;
   if (result.reason === 'blocked') {
     await markBlocked(context, { reason: 'Blocked by UserPromptSubmit hook' });
@@ -843,6 +1001,20 @@ function normalizeAfterReplay(context: GoalOperationContext): void {
     clearInternal(context, 'runtime', { emit: false, track: false });
     return;
   }
+  if (
+    state.status === 'paused' &&
+    state.terminalReason === GOAL_COMPACTION_PAUSE_REASON
+  ) {
+    void context.runtime.dispatch(
+      new GoalUpdate({
+        agentId: context.runtime.agent.agentId,
+        status: 'paused',
+        reason: GOAL_COMPACTION_RESTART_PAUSE_REASON,
+        actor: 'runtime',
+      }),
+    );
+    return;
+  }
   if (state.status !== 'active') return;
 
   const reason = 'Paused after agent resume';
@@ -871,6 +1043,7 @@ function clearInternal(context: GoalOperationContext,
   opts: { readonly emit?: boolean; readonly track?: boolean; readonly preserveLiveContinuation?: boolean; } = {},
 ): void {
   if (context.runtime.getState().goal === null) return;
+  suppressCompactionAutoResume(context);
   context.effects.resumeContinuation = undefined;
   cancelPendingContinuation(context, opts.preserveLiveContinuation === true);
   context.runtime.send({ type: 'goal.deadline.clear' });
@@ -890,6 +1063,13 @@ function applyLifecycle(context: GoalOperationContext,
     readonly cancellationReason?: unknown;
   } = {},
 ): GoalSnapshot {
+  const compactionPause = matchingCompactionPause(context, state.goalId);
+  if (
+    compactionPause !== undefined &&
+    !(status === 'paused' && reason === GOAL_COMPACTION_PAUSE_REASON && actor === 'runtime')
+  ) {
+    compactionPause.autoResume = false;
+  }
   const wallClockMs = settleWallClock(context, state);
   const wallClockResumedAt = status === 'active' ? Date.now() : undefined;
   if (status === 'active') {
@@ -912,6 +1092,50 @@ function applyLifecycle(context: GoalOperationContext,
   emitGoalUpdated(context, toSnapshot(context, next), { kind: 'lifecycle', status, reason, actor });
   trackStatusChanged(context, next, actor);
   return toSnapshot(context, next);
+}
+
+function replacePausedReason(
+  context: GoalOperationContext,
+  state: GoalState,
+  reason: string,
+  actor: GoalActor,
+): GoalSnapshot {
+  void context.runtime.dispatch(
+    new GoalUpdate({
+      agentId: context.runtime.agent.agentId,
+      goalId: state.goalId,
+      status: 'paused',
+      reason,
+      actor,
+    }),
+  );
+  const next = requireState(context);
+  emitGoalUpdated(context, toSnapshot(context, next), {
+    kind: 'lifecycle',
+    status: 'paused',
+    reason,
+    actor,
+  });
+  trackStatusChanged(context, next, actor);
+  return toSnapshot(context, next);
+}
+
+function matchingCompactionPause(
+  context: GoalOperationContext,
+  goalId: string,
+): GoalCompactionPause | undefined {
+  const pause = context.effects.compactionPause;
+  return pause?.goalId === goalId ? pause : undefined;
+}
+
+function suppressCompactionAutoResume(
+  context: GoalOperationContext,
+  goalId?: string,
+): void {
+  const pause = context.effects.compactionPause;
+  if (pause !== undefined && (goalId === undefined || pause.goalId === goalId)) {
+    pause.autoResume = false;
+  }
 }
 
 function trackStatusChanged(context: GoalOperationContext, state: GoalState, actor: GoalActor): void {
@@ -1172,12 +1396,13 @@ function createGoalEffectHandlers(runtime: AgentRuntimeContext<GoalRuntimeState>
       isWaitForEnabled: () => isWaitForAvailable(context),
     },
     normalize: () => { normalizeAfterReplay(context); },
+    compactionStarted: (task: FullCompactionTask) => handleCompactionStarted(context, task),
     turnStarted: (event: TurnStarted) => { handleTurnLaunched(context, event.turnId, event.origin); },
     usageRecorded: (usage: UsageRecordedContext) => {
       if (usage.agent === runtime.agent) handleUsageRecorded(context, usage);
     },
     beforeStep: (step: BeforeStepContext) => handleBeforeStep(context, step),
-    afterStep: (step: AfterStepContext) => { handleAfterStep(context, step); },
+    afterStep: (step: AfterStepContext) => handleAfterStep(context, step),
     approval: (event: BeforeToolExecuteEvent) => {
       const permissionMode = runtime.get(IAgentPermissionModeService);
       if (
@@ -1248,17 +1473,27 @@ const goalEffects = fromCallback(({
   const disposables: IDisposable[] = [deadline];
   if (input.runtime.agent.agentId === MAIN_AGENT_ID) {
     disposables.push(new GoalInjection(handlers.injection, input.runtime.get(IAgentContextInjectorService)));
-    disposables.push(input.runtime.get(IEventBus).subscribe(TurnStarted, handlers.turnStarted));
+    const eventBus = input.runtime.get(IEventBus);
+    disposables.push(eventBus.subscribe(TurnStarted, handlers.turnStarted));
     disposables.push(input.runtime.get(ISessionUsageService).onDidRecord(handlers.usageRecorded));
+    disposables.push(
+      input.runtime.get(IAgentFullCompactionService).hooks.onWillCompact.register(
+        'goal-compaction-pause',
+        async (task, next) => {
+          await handlers.compactionStarted(task);
+          await next();
+        },
+      ),
+    );
     const loop = input.runtime.get(IAgentLoopService);
     disposables.push(loop.hooks.onWillBeginStep.register('goal-count-turn', async (context, next) => {
       await handlers.beforeStep(context);
       await next();
-    }));
+    }, { after: 'full-compaction' }));
     disposables.push(loop.hooks.onDidFinishStep.register('goal-outcome-continuation', async (context, next) => {
-      handlers.afterStep(context);
+      await handlers.afterStep(context);
       await next();
-    }));
+    }, { after: 'full-compaction' }));
     const tools = input.runtime.get(IAgentToolExecutorService);
     disposables.push(tools.onBeforeExecuteTool(handlers.approval));
     disposables.push(tools.onBeforeExecuteTool(handlers.veto));
@@ -1361,10 +1596,18 @@ export const goalAgentRuntimeProvider = defineAgentRuntimeProvider<GoalRuntimeSt
       if (event instanceof GoalUpdate) {
         const s = state.goal;
         if (s !== null) {
+          if (event.goalId !== undefined && event.goalId !== s.goalId) return;
           if (event.status !== undefined && event.status !== s.status) {
             s.status = event.status;
             s.terminalReason = event.status === 'active' ? undefined : event.reason;
             s.wallClockResumedAt = event.status === 'active' ? event.wallClockResumedAt : undefined;
+          } else if (
+            event.status !== undefined &&
+            event.status !== 'active' &&
+            event.reason !== undefined &&
+            event.reason !== s.terminalReason
+          ) {
+            s.terminalReason = event.reason;
           }
           if (event.turnsUsed !== undefined && event.turnsUsed !== s.turnsUsed) {
             s.turnsUsed = event.turnsUsed;

@@ -25,6 +25,7 @@ function updateState(patch: Partial<DesktopUpdateState> = {}): DesktopUpdateStat
     status: 'idle',
     installedVersion: '1.0.0',
     autoUpdate: true,
+    channel: 'stable',
     ...patch,
   };
 }
@@ -36,6 +37,7 @@ function installBridge(initial: DesktopUpdateState) {
     platform: 'darwin',
     getUpdateState: vi.fn(() => Promise.resolve(current)),
     setAutoUpdate: vi.fn(() => Promise.resolve(current)),
+    setUpdateChannel: vi.fn(() => Promise.resolve(current)),
     checkForUpdates: vi.fn(() => Promise.resolve(current)),
     downloadUpdate: vi.fn(() => {
       current = { ...current, status: 'downloading', percent: 0, transferred: 0 };

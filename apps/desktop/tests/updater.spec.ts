@@ -56,6 +56,9 @@ afterEach(() => {
   vi.clearAllMocks()
   autoUpdater.autoDownload = undefined as unknown as boolean
   autoUpdater.autoInstallOnAppQuit = undefined as unknown as boolean
+  autoUpdater.allowPrerelease = undefined as unknown as boolean
+  autoUpdater.allowDowngrade = undefined as unknown as boolean
+  autoUpdater.channel = null
 })
 
 function temporaryDirectory(): string {
@@ -66,27 +69,35 @@ function temporaryDirectory(): string {
 
 describe('update settings', () => {
   it('defaults automatic updates to enabled when the file is missing', () => {
-    expect(readUpdateSettings(temporaryDirectory())).toEqual({ autoUpdate: true })
+    expect(readUpdateSettings(temporaryDirectory())).toEqual({ autoUpdate: true, channel: 'stable' })
   })
 
   it('defaults automatic updates to enabled when the file is corrupt', () => {
     const directory = temporaryDirectory()
     writeFileSync(join(directory, 'update-settings.json'), '{not-json', 'utf8')
 
-    expect(readUpdateSettings(directory)).toEqual({ autoUpdate: true })
+    expect(readUpdateSettings(directory)).toEqual({ autoUpdate: true, channel: 'stable' })
   })
 
-  it('round-trips the automatic-updates setting', () => {
+  it('round-trips the automatic-updates and channel settings', () => {
     const directory = temporaryDirectory()
-    writeUpdateSettings(directory, { autoUpdate: false })
+    writeUpdateSettings(directory, { autoUpdate: false, channel: 'beta' })
 
-    expect(readUpdateSettings(directory)).toEqual({ autoUpdate: false })
+    expect(readUpdateSettings(directory)).toEqual({ autoUpdate: false, channel: 'beta' })
+  })
+
+  it('falls back to stable when a saved channel is invalid', () => {
+    const directory = temporaryDirectory()
+    writeFileSync(join(directory, 'update-settings.json'), '{"autoUpdate":true,"channel":"preview"}\n', 'utf8')
+
+    expect(readUpdateSettings(directory)).toEqual({ autoUpdate: true, channel: 'stable' })
   })
 
   it('persists update notification, skip, install, and completion receipts separately', () => {
     const directory = temporaryDirectory()
     const value = {
       autoUpdate: true,
+      channel: 'nightly' as const,
       notifiedVersion: '1.2.3',
       skippedVersion: '1.2.3',
       pendingInstallVersion: '1.3.0',
@@ -106,7 +117,12 @@ describe('update telemetry transitions', () => {
     const track = (event: string): void => {
       events.push(event)
     }
-    const previous: UpdateState = { status: 'idle', installedVersion: '1.0.0', autoUpdate: true }
+    const previous: UpdateState = {
+      status: 'idle',
+      installedVersion: '1.0.0',
+      autoUpdate: true,
+      channel: 'stable',
+    }
 
     trackUpdateTransition(previous, { ...previous, status: 'checking' }, track)
     trackUpdateTransition(previous, { ...previous, status: 'available', availableVersion: '0.2.0' }, track)
@@ -136,7 +152,7 @@ describe('release notes URL', () => {
 describe('packaged builds without update metadata', () => {
   it('disables updates without wiring updater events', () => {
     const directory = temporaryDirectory()
-    writeUpdateSettings(directory, { autoUpdate: false })
+    writeUpdateSettings(directory, { autoUpdate: false, channel: 'stable' })
     vi.mocked(app.getPath).mockReturnValue(directory)
     Object.defineProperty(app, 'isPackaged', { configurable: true, value: true })
     Object.defineProperty(process, 'resourcesPath', { configurable: true, value: directory })
@@ -154,6 +170,41 @@ describe('packaged builds without update metadata', () => {
 })
 
 describe('strict update consent', () => {
+  it('applies the selected channel without enabling downloads, installs, or downgrades', async () => {
+    vi.resetModules()
+    const directory = temporaryDirectory()
+    writeFileSync(join(directory, 'app-update.yml'), '', 'utf8')
+    writeFileSync(join(directory, 'update-settings.json'), '{"autoUpdate":false,"channel":"beta"}\n', 'utf8')
+    const { app: localApp } = await import('electron')
+    const { default: localElectronUpdater } = await import('electron-updater')
+    const {
+      initUpdater: initLocalUpdater,
+      setUpdateChannel: setLocalUpdateChannel,
+    } = await import('../src/updater')
+    const localAutoUpdater = localElectronUpdater.autoUpdater
+    vi.mocked(localApp.getPath).mockReturnValue(directory)
+    Object.defineProperty(localApp, 'isPackaged', { configurable: true, value: true })
+    Object.defineProperty(process, 'resourcesPath', { configurable: true, value: directory })
+
+    initLocalUpdater(() => undefined)
+    expect(localAutoUpdater.channel).toBe('beta')
+    expect(localAutoUpdater.allowPrerelease).toBe(true)
+    expect(localAutoUpdater.allowDowngrade).toBe(false)
+
+    expect(setLocalUpdateChannel('nightly')).toMatchObject({ channel: 'nightly', status: 'idle' })
+    expect(localAutoUpdater.channel).toBe('nightly')
+    expect(localAutoUpdater.allowPrerelease).toBe(true)
+    expect(localAutoUpdater.allowDowngrade).toBe(false)
+
+    expect(setLocalUpdateChannel('stable')).toMatchObject({ channel: 'stable', status: 'idle' })
+    expect(localAutoUpdater.channel).toBeNull()
+    expect(localAutoUpdater.allowPrerelease).toBe(false)
+    expect(localAutoUpdater.allowDowngrade).toBe(false)
+    expect(localAutoUpdater.autoDownload).toBe(false)
+    expect(localAutoUpdater.autoInstallOnAppQuit).toBe(false)
+    expect(localAutoUpdater.checkForUpdates).not.toHaveBeenCalled()
+  })
+
   it('manual check cannot download an update', async () => {
     vi.resetModules()
     const directory = temporaryDirectory()

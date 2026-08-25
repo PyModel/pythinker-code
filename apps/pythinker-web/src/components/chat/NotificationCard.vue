@@ -128,11 +128,13 @@ onUnmounted(() => {
             {{ formatBytes(notification.outputFile.bytes) }}
           </span>
           <Button
-            variant="ghost"
+            data-testid="notification-copy-path"
+            variant="secondary"
             size="sm"
             type="button"
             @click="copyPath(notification.outputFile.path, itemKey(notification, index))"
           >
+            <Icon name="copy" size="sm" aria-hidden="true" />
             {{
               copiedKey === itemKey(notification, index)
                 ? t('conversation.notification.copied')

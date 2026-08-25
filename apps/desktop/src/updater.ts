@@ -12,8 +12,11 @@ const INITIAL_CHECK_DELAY_MS = 10_000
 const CHECK_INTERVAL_MS = 4 * 60 * 60 * 1_000
 const RELEASE_REPOSITORY_PATH = '/PyModel/pythinker-desktop-releases/releases/tag/'
 
+export type UpdateChannel = 'stable' | 'beta' | 'nightly'
+
 export interface UpdateSettings {
   readonly autoUpdate: boolean
+  readonly channel: UpdateChannel
   readonly notifiedVersion?: string
   readonly skippedVersion?: string
   readonly pendingInstallVersion?: string
@@ -44,6 +47,7 @@ export type UpdateState = {
   bytesPerSecond?: number
   message?: string
   autoUpdate: boolean
+  channel: UpdateChannel
   notifiedVersion?: string
   skippedVersion?: string
   completedVersion?: string
@@ -54,10 +58,14 @@ export type UpdateTelemetryTrack = (
   properties?: Readonly<Record<string, string>>,
 ) => void
 
-const DEFAULT_SETTINGS: UpdateSettings = { autoUpdate: true }
+const DEFAULT_SETTINGS: UpdateSettings = { autoUpdate: true, channel: 'stable' }
 
 function optionalString(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined
+}
+
+function updateChannel(value: unknown): UpdateChannel {
+  return value === 'beta' || value === 'nightly' ? value : 'stable'
 }
 
 export function readUpdateSettings(dir: string): UpdateSettings {
@@ -68,6 +76,7 @@ export function readUpdateSettings(dir: string): UpdateSettings {
       if (typeof source['autoUpdate'] === 'boolean') {
         return {
           autoUpdate: source['autoUpdate'],
+          channel: updateChannel(source['channel']),
           notifiedVersion: optionalString(source['notifiedVersion']),
           skippedVersion: optionalString(source['skippedVersion']),
           pendingInstallVersion: optionalString(source['pendingInstallVersion']),
@@ -125,6 +134,7 @@ let state: UpdateState = {
   status: app.isPackaged ? 'idle' : 'disabled',
   installedVersion: app.getVersion(),
   autoUpdate: settings.autoUpdate,
+  channel: settings.channel,
 }
 let getWindow: (() => BrowserWindow | undefined) | undefined
 let initialCheckTimer: ReturnType<typeof setTimeout> | undefined
@@ -183,6 +193,7 @@ function updateState(next: Partial<UpdateState>): void {
     ...state,
     ...next,
     autoUpdate: settings.autoUpdate,
+    channel: settings.channel,
     notifiedVersion: settings.notifiedVersion,
     skippedVersion: settings.skippedVersion,
     completedVersion: settings.completedVersion,
@@ -238,6 +249,9 @@ function hasUpdateConfig(): boolean {
 function configureExplicitConsent(): void {
   autoUpdater.autoDownload = false
   autoUpdater.autoInstallOnAppQuit = false
+  autoUpdater.channel = settings.channel === 'stable' ? null : settings.channel
+  autoUpdater.allowPrerelease = settings.channel !== 'stable'
+  autoUpdater.allowDowngrade = false
 }
 
 function disableUpdates(): UpdateState {
@@ -366,6 +380,7 @@ export function initUpdater(
     status: app.isPackaged ? 'idle' : 'disabled',
     installedVersion: app.getVersion(),
     autoUpdate: settings.autoUpdate,
+    channel: settings.channel,
     notifiedVersion: settings.notifiedVersion,
     skippedVersion: settings.skippedVersion,
     completedVersion: settings.completedVersion,
@@ -417,6 +432,43 @@ export function setAutoUpdate(enabled: boolean): UpdateState {
   } else {
     clearTimers()
   }
+  return state
+}
+
+export function setUpdateChannel(channel: UpdateChannel): UpdateState {
+  if (settings.channel === channel) return state
+  if (state.status === 'checking' || state.status === 'downloading' || state.status === 'downloaded') {
+    throw new Error('Cannot change update channel while an update operation is active')
+  }
+
+  persistSettings({
+    ...settings,
+    channel,
+    notifiedVersion: undefined,
+    skippedVersion: undefined,
+  })
+
+  if (app.isPackaged && hasUpdateConfig()) {
+    try {
+      configureExplicitConsent()
+    } catch (error) {
+      stateError(error)
+      return state
+    }
+  }
+
+  updateState({
+    status: app.isPackaged && hasUpdateConfig() ? 'idle' : 'disabled',
+    availableVersion: undefined,
+    releaseDate: undefined,
+    releaseNotes: undefined,
+    lastCheckedAt: undefined,
+    percent: undefined,
+    transferred: undefined,
+    total: undefined,
+    bytesPerSecond: undefined,
+    message: undefined,
+  })
   return state
 }
 

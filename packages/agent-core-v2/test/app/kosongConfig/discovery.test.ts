@@ -306,7 +306,7 @@ describe('refreshProviderModels write behavior', () => {
     }
   });
 
-  it('never exposes a halfway-removed catalog: the registries stay untouched until the single atomic write', async () => {
+  it('persists refresh atomically and preserves aliases referenced by secondary_model', async () => {
     const fetchMock = vi.fn(
       async () =>
         new Response(
@@ -338,8 +338,17 @@ describe('refreshProviderModels write behavior', () => {
       },
       models: {
         'acme/m1': { provider: 'acme', model: 'm1', maxContextSize: 1000 },
+        'acme/old-default': {
+          provider: 'acme',
+          model: 'old-default',
+          maxContextSize: 1000,
+        },
       },
-      defaultModel: 'acme/m1',
+      defaultModel: 'acme/old-default',
+      secondaryModel: {
+        defaultModel: 'acme/m1',
+        models: { 'acme/m1': 'fast' },
+      },
     });
     try {
       let seenDuringWrite: { providers: readonly string[]; models: readonly string[] } | undefined;
@@ -355,11 +364,18 @@ describe('refreshProviderModels write behavior', () => {
       const result = await discovery.refreshProviderModels();
 
       expect(result.failed).toEqual([]);
-      expect(seenDuringWrite).toEqual({ providers: ['acme'], models: ['acme/m1'] });
+      expect(seenDuringWrite).toEqual({
+        providers: ['acme'],
+        models: ['acme/m1', 'acme/old-default'],
+      });
       expect(vi.mocked(config.replaceSections).mock.calls.length).toBe(1);
       expect(providers.list()['acme']).toBeDefined();
       expect(models.list()['acme/m2']).toBeDefined();
-      expect(models.list()['acme/m1']).toBeUndefined();
+      expect(models.list()['acme/m1']).toBeDefined();
+      expect(config.get('secondaryModel')).toEqual({
+        defaultModel: 'acme/m1',
+        models: { 'acme/m1': 'fast' },
+      });
       expect(config.get('defaultModel')).toBeUndefined();
     } finally {
       host.dispose();

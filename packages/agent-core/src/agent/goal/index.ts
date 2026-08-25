@@ -3,6 +3,10 @@ import { randomUUID } from 'node:crypto';
 import { ErrorCodes, PythinkerError } from '#/errors';
 import type { Agent } from '..';
 import type { AgentRecordOf } from '../records/types';
+import type {
+  FullCompactionFinished,
+  FullCompactionTask,
+} from '../compaction/full';
 import {
   type TelemetryProperties,
 } from '../../telemetry';
@@ -39,6 +43,13 @@ const GOAL_FORK_CLEARED_REMINDER = [
   'Ignore earlier active-goal reminders from the source session.',
   'Handle requests normally unless the user starts a new goal.',
 ].join(' ');
+
+export const GOAL_COMPACTION_PAUSE_REASON =
+  'Paused because context compaction is in progress; it will resume after compaction completes';
+const GOAL_COMPACTION_FAILURE_PAUSE_REASON =
+  'Paused because context compaction did not complete';
+const GOAL_COMPACTION_RESTART_PAUSE_REASON =
+  'Paused because context compaction was interrupted by agent restart';
 
 /**
  * Lifecycle status of a goal — deliberately minimal. The durable record only
@@ -134,6 +145,12 @@ interface GoalState {
   terminalReason?: string;
 }
 
+interface GoalCompactionPause {
+  readonly goalId: string;
+  readonly task: FullCompactionTask;
+  autoResume: boolean;
+}
+
 /** Computed budget view exposed through snapshots and tools. */
 export interface GoalBudgetReport {
   readonly tokenBudget: number | null;
@@ -226,8 +243,15 @@ interface GoalReasonInput {
  */
 export class GoalMode {
   private state: GoalState | undefined;
+  private compactionPause: GoalCompactionPause | undefined;
 
   constructor(private readonly agent: Agent) {
+    this.agent.fullCompaction.onDidStartCompaction((task) => {
+      this.handleCompactionStarted(task);
+    });
+    this.agent.fullCompaction.onDidFinishCompaction((event) => {
+      this.handleCompactionFinished(event);
+    });
   }
 
   /**
@@ -256,6 +280,16 @@ export class GoalMode {
       state.terminalReason = reason;
       this.persistState(state, { silent: true });
       this.appendStatusUpdate(state, 'runtime', reason);
+      return;
+    }
+
+    if (
+      state.status === 'paused' &&
+      state.terminalReason === GOAL_COMPACTION_PAUSE_REASON
+    ) {
+      state.terminalReason = GOAL_COMPACTION_RESTART_PAUSE_REASON;
+      this.persistState(state, { silent: true });
+      this.appendStatusUpdate(state, 'runtime', GOAL_COMPACTION_RESTART_PAUSE_REASON);
       return;
     }
 
@@ -347,6 +381,15 @@ export class GoalMode {
     return this.toSnapshot(state);
   }
 
+  async waitForCompactionPause(): Promise<void> {
+    const pause = this.compactionPause;
+    if (pause === undefined) return;
+    try {
+      await pause.task.promise;
+    } catch {
+    }
+  }
+
   // --- Creation ----------------------------------------------------------
 
   async createGoal(input: CreateGoalInput, actor: GoalActor = 'user'): Promise<GoalSnapshot> {
@@ -406,7 +449,16 @@ export class GoalMode {
 
   async pauseGoal(input: GoalReasonInput = {}, actor: GoalActor = 'user'): Promise<GoalSnapshot> {
     const state = this.requireState();
-    if (state.status === 'paused') return this.toSnapshot(state);
+    if (state.status === 'paused') {
+      const pause = this.matchingCompactionPause(state.goalId);
+      if (pause === undefined) return this.toSnapshot(state);
+      pause.autoResume = false;
+      return this.replacePausedReason(
+        state,
+        input.reason ?? (actor === 'user' ? 'Paused by user' : 'Paused'),
+        actor,
+      );
+    }
     if (state.status !== 'active') {
       throw new PythinkerError(
         ErrorCodes.GOAL_STATUS_INVALID,
@@ -450,6 +502,14 @@ export class GoalMode {
         ErrorCodes.GOAL_NOT_RESUMABLE,
         `Cannot resume a goal in status "${state.status}"`,
       );
+    }
+    const compactionPause = this.matchingCompactionPause(state.goalId);
+    if (compactionPause !== undefined && state.status === 'paused') {
+      compactionPause.autoResume = true;
+      if (state.terminalReason !== GOAL_COMPACTION_PAUSE_REASON) {
+        return this.replacePausedReason(state, GOAL_COMPACTION_PAUSE_REASON, actor);
+      }
+      return this.toSnapshot(state);
     }
     // Resuming is a fresh attempt: clear the stop reason so a re-activated goal
     // starts clean.
@@ -565,6 +625,15 @@ export class GoalMode {
    * already-stopped goal is never overwritten.
    */
   async pauseOnInterrupt(input: { reason?: string } = {}): Promise<GoalSnapshot | null> {
+    const state = this.state;
+    if (
+      state?.status === 'paused' &&
+      (state.terminalReason === GOAL_COMPACTION_PAUSE_REASON ||
+        state.terminalReason === GOAL_COMPACTION_FAILURE_PAUSE_REASON)
+    ) {
+      this.suppressCompactionAutoResume(state.goalId);
+      return this.replacePausedReason(state, input.reason ?? 'Paused after interruption', 'user');
+    }
     return this.pauseActiveGoal(input, 'user');
   }
 
@@ -594,12 +663,100 @@ export class GoalMode {
 
   // --- Internals ---------------------------------------------------------
 
+  private handleCompactionStarted(task: FullCompactionTask): void {
+    if (task.source !== 'auto' || this.compactionPause !== undefined) return;
+    const state = this.state;
+    if (state === undefined || state.status !== 'active') return;
+    this.compactionPause = { goalId: state.goalId, task, autoResume: true };
+    this.applyStatus(state, 'paused');
+    state.terminalReason = GOAL_COMPACTION_PAUSE_REASON;
+    this.persistState(state, {
+      change: {
+        kind: 'lifecycle',
+        status: 'paused',
+        reason: GOAL_COMPACTION_PAUSE_REASON,
+        actor: 'runtime',
+      },
+    });
+    this.appendStatusUpdate(state, 'runtime', GOAL_COMPACTION_PAUSE_REASON);
+  }
+
+  private handleCompactionFinished(event: FullCompactionFinished): void {
+    const pause = this.compactionPause;
+    if (pause === undefined || pause.task !== event.task) return;
+    const state = this.state;
+    if (
+      state === undefined ||
+      state.goalId !== pause.goalId ||
+      state.status !== 'paused' ||
+      !pause.autoResume
+    ) {
+      this.compactionPause = undefined;
+      return;
+    }
+    if (!event.completed) {
+      this.compactionPause = undefined;
+      if (state.terminalReason === GOAL_COMPACTION_PAUSE_REASON) {
+        this.replacePausedReason(state, GOAL_COMPACTION_FAILURE_PAUSE_REASON, 'runtime');
+      }
+      return;
+    }
+    if (state.terminalReason !== GOAL_COMPACTION_PAUSE_REASON) {
+      this.compactionPause = undefined;
+      return;
+    }
+    this.compactionPause = undefined;
+    if (this.toSnapshot(state).budget.overBudget) {
+      this.applyStatus(state, 'blocked');
+      state.terminalReason = 'A configured budget was reached';
+      this.persistState(state, {
+        change: {
+          kind: 'lifecycle',
+          status: 'blocked',
+          reason: state.terminalReason,
+          actor: 'runtime',
+        },
+      });
+      this.appendStatusUpdate(state, 'runtime', state.terminalReason);
+      return;
+    }
+    state.terminalReason = undefined;
+    this.applyStatus(state, 'active');
+    this.persistState(state, {
+      change: { kind: 'lifecycle', status: 'active', actor: 'runtime' },
+    });
+    this.appendStatusUpdate(state, 'runtime');
+  }
+
+  private replacePausedReason(
+    state: GoalState,
+    reason: string,
+    actor: GoalActor,
+  ): GoalSnapshot {
+    state.terminalReason = reason;
+    this.persistState(state, {
+      change: { kind: 'lifecycle', status: 'paused', reason, actor },
+    });
+    this.appendStatusUpdate(state, actor, reason);
+    return this.toSnapshot(state);
+  }
+
+  private matchingCompactionPause(goalId: string): GoalCompactionPause | undefined {
+    return this.compactionPause?.goalId === goalId ? this.compactionPause : undefined;
+  }
+
+  private suppressCompactionAutoResume(goalId: string): void {
+    const pause = this.matchingCompactionPause(goalId);
+    if (pause !== undefined) pause.autoResume = false;
+  }
+
   private clearInternal(
     actor: GoalActor,
     opts: { emit?: boolean; track?: boolean } = {},
   ): void {
     const state = this.state;
     if (state === undefined) return; // idempotent
+    this.suppressCompactionAutoResume(state.goalId);
     this.persistState(undefined, { silent: opts.emit === false });
     this.agent.records.logRecord({ type: 'goal.clear' });
     if (opts.track !== false) {

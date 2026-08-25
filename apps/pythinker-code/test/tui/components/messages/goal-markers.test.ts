@@ -49,6 +49,23 @@ describe('buildGoalMarker', () => {
     expect(strip(marker!.render(80))).toBe('\n● Goal paused after runtime error: socket hang up');
   });
 
+  it('shows that a compaction-paused goal will resume', () => {
+    const marker = buildGoalMarker(
+      {
+        kind: 'lifecycle',
+        status: 'paused',
+        reason:
+          'Paused because context compaction is in progress; it will resume after compaction completes',
+      } as GoalChange,
+      false,
+      'runtime',
+    );
+
+    expect(strip(marker!.render(100))).toBe(
+      '\n● Goal paused because context compaction is in progress; it will resume after compaction completes',
+    );
+  });
+
   it('keeps long provider pause markers within the terminal width', () => {
     const reason =
       'Paused after provider API error: 400 {"error":{"message":"request id: 456043b9-6491-11f1-9425-2221bb1af97c, \\"thinking.enabled\\" is not supported for this model. Use \\"thinking.adaptive\\" and \\"output_config.effort\\" to control thinking behavior.","type":"invalid_request_error"}}';

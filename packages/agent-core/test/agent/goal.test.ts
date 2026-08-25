@@ -41,6 +41,10 @@ function makeGoalMode() {
         reminders.push({ content, origin });
       },
     },
+    fullCompaction: {
+      onDidStartCompaction: () => ({ dispose() {} }),
+      onDidFinishCompaction: () => ({ dispose() {} }),
+    },
     replayBuilder: {
       push: (record: AgentReplayRecord) => {
         replay.push(record);
@@ -434,5 +438,27 @@ describe('GoalMode records', () => {
         reason: 'Paused after agent resume',
       }),
     ]);
+  });
+
+  it('does not auto-resume a compaction-paused goal after restart', () => {
+    const { goals } = makeGoalMode();
+
+    goals.restoreCreate({
+      type: 'goal.create',
+      goalId: 'g1',
+      objective: 'resume after compaction',
+    });
+    goals.restoreUpdate({
+      type: 'goal.update',
+      status: 'paused',
+      reason:
+        'Paused because context compaction is in progress; it will resume after compaction completes',
+    });
+    goals.normalizeAfterReplay();
+
+    expect(goals.getGoal().goal).toMatchObject({
+      status: 'paused',
+      terminalReason: 'Paused because context compaction was interrupted by agent restart',
+    });
   });
 });

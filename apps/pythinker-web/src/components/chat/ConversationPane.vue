@@ -410,15 +410,14 @@ function updateTocTableOcclusion(): void {
     !props.mobile && props.conversationToc && pane
       ? pane.closest('.con')?.querySelector<HTMLElement>('.conversation-toc')
       : null;
-  // The hit x is the centre of the fixed rail bar: `.toc-bar` keeps a stable x
-  // even when hover expands the labels rightward, so hovering the TOC itself
-  // never flips the state (the nav centre would).
-  const bar = toc?.querySelector<HTMLElement>('.toc-bar');
+  // Every node shares the fixed rail x even when hover expands labels, so
+  // hovering the outline itself never changes the hit-test coordinate.
+  const node = toc?.querySelector<HTMLElement>('.toc-node');
   let covered = false;
-  if (pane && toc && bar) {
-    const barRect = bar.getBoundingClientRect();
+  if (pane && toc && node) {
+    const nodeRect = node.getBoundingClientRect();
     const tocRect = toc.getBoundingClientRect();
-    const railX = barRect.left + barRect.width / 2;
+    const railX = nodeRect.left + nodeRect.width / 2;
     // Plain geometric overlap: the rail paints above the content, so any table
     // wrapper that covers the bar's x AND overlaps the rail vertically would
     // have its pointer events intercepted by the rail — hide the TOC until the
@@ -1364,8 +1363,8 @@ defineExpose({ loadComposerForEdit, focusComposer });
       @export-session="(id) => emit('exportSession', id)"
     />
 
-    <!-- Conversation outline: right edge rail of vertical bars (one per user
-         query); hover to expand a labeled panel. -->
+    <!-- Conversation outline: timeline beside the app sidebar (one node per
+         user query); hover to reveal labels into the chat. -->
     <ConversationToc
       v-if="conversationToc"
       :items="conversationTocItems"
