@@ -51,18 +51,22 @@ For the directory layout, see [Data locations](../configuration/data-locations.m
 
 ## Updates
 
-The desktop application checks for updates. Open **Settings > Advanced > Version & updates** to see
-the current state and control the process:
+The desktop application checks for updates. Open **Settings > Update** to see the current state and
+control the process:
 
-- **Automatic update checks** — discover new versions in the background. This is the default.
-- **Check for updates** — check immediately.
+- **Update channel** — choose Stable for production releases. Beta and Nightly work when their
+  desktop feeds are published.
+- **Automatically check** — discover new versions in the background. This is the default.
+- **Notify about updates** — show a sidebar alert when a new version is available. Turning this off
+  does not hide the manual update controls.
+- **Check now** — check the selected channel immediately.
 - **Download update** — start the download and show its percentage, transferred size, total size,
   and speed when available.
 - **Restart to update** — appears when an update is downloaded and ready to install.
 
-When a new version is released, the application shows one notification for that version. Choose
-**View notes**, **Skip this version**, or **Download update**. Closing the notification keeps the
-update available in Settings. Skip applies only to that version. A later version appears normally.
+When notifications are enabled, the application shows one alert for each new version. Choose
+**View notes**, **Skip this version**, or **Download update**. Closing the alert keeps the update
+available in the Update tab. Skip applies only to that version. A later version appears normally.
 
 Downloading does not install the update. After the download finishes, choose **Later** to keep it
 ready or **Restart to update** to stop the local Host safely, install it, and restart. A normal quit
