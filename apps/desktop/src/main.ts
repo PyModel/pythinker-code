@@ -45,6 +45,7 @@ import {
   installDownloadedUpdateNow,
   markUpdateNotified,
   setAutoUpdate,
+  setNotifyUpdate,
   setUpdateChannel,
   skipUpdate,
   startUpdateDownload,
@@ -279,6 +280,11 @@ ipcMain.handle('pythinker:update:set-auto', (event, enabled: unknown) => {
 ipcMain.handle('pythinker:update:set-channel', (event, channel: unknown) => {
   assertTrustedSender(event)
   return setUpdateChannel(updateChannel(channel))
+})
+ipcMain.handle('pythinker:update:set-notify', (event, enabled: unknown) => {
+  assertTrustedSender(event)
+  if (typeof enabled !== 'boolean') throw new TypeError('update notifications must be a boolean')
+  return setNotifyUpdate(enabled)
 })
 ipcMain.handle('pythinker:update:check', (event) => {
   assertTrustedSender(event)

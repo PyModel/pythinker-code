@@ -17,6 +17,7 @@ export type UpdateChannel = 'stable' | 'beta' | 'nightly'
 export interface UpdateSettings {
   readonly autoUpdate: boolean
   readonly channel: UpdateChannel
+  readonly notifyUpdate: boolean
   readonly notifiedVersion?: string
   readonly skippedVersion?: string
   readonly pendingInstallVersion?: string
@@ -48,6 +49,7 @@ export type UpdateState = {
   message?: string
   autoUpdate: boolean
   channel: UpdateChannel
+  notifyUpdate: boolean
   notifiedVersion?: string
   skippedVersion?: string
   completedVersion?: string
@@ -58,7 +60,11 @@ export type UpdateTelemetryTrack = (
   properties?: Readonly<Record<string, string>>,
 ) => void
 
-const DEFAULT_SETTINGS: UpdateSettings = { autoUpdate: true, channel: 'stable' }
+const DEFAULT_SETTINGS: UpdateSettings = {
+  autoUpdate: true,
+  channel: 'stable',
+  notifyUpdate: true,
+}
 
 function optionalString(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined
@@ -77,6 +83,7 @@ export function readUpdateSettings(dir: string): UpdateSettings {
         return {
           autoUpdate: source['autoUpdate'],
           channel: updateChannel(source['channel']),
+          notifyUpdate: typeof source['notifyUpdate'] === 'boolean' ? source['notifyUpdate'] : true,
           notifiedVersion: optionalString(source['notifiedVersion']),
           skippedVersion: optionalString(source['skippedVersion']),
           pendingInstallVersion: optionalString(source['pendingInstallVersion']),
@@ -135,6 +142,7 @@ let state: UpdateState = {
   installedVersion: app.getVersion(),
   autoUpdate: settings.autoUpdate,
   channel: settings.channel,
+  notifyUpdate: settings.notifyUpdate,
 }
 let getWindow: (() => BrowserWindow | undefined) | undefined
 let initialCheckTimer: ReturnType<typeof setTimeout> | undefined
@@ -194,6 +202,7 @@ function updateState(next: Partial<UpdateState>): void {
     ...next,
     autoUpdate: settings.autoUpdate,
     channel: settings.channel,
+    notifyUpdate: settings.notifyUpdate,
     notifiedVersion: settings.notifiedVersion,
     skippedVersion: settings.skippedVersion,
     completedVersion: settings.completedVersion,
@@ -381,6 +390,7 @@ export function initUpdater(
     installedVersion: app.getVersion(),
     autoUpdate: settings.autoUpdate,
     channel: settings.channel,
+    notifyUpdate: settings.notifyUpdate,
     notifiedVersion: settings.notifiedVersion,
     skippedVersion: settings.skippedVersion,
     completedVersion: settings.completedVersion,
@@ -469,6 +479,11 @@ export function setUpdateChannel(channel: UpdateChannel): UpdateState {
     bytesPerSecond: undefined,
     message: undefined,
   })
+  return state
+}
+
+export function setNotifyUpdate(enabled: boolean): UpdateState {
+  persistSettings({ ...settings, notifyUpdate: enabled })
   return state
 }
 

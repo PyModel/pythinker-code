@@ -1123,7 +1123,6 @@ onUnmounted(() => {
                 </div>
               </div>
             </div>
-
             <h3 class="sub">Conversation outline · connected user-prompt timeline</h3>
             <p>The desktop outline is one quiet timeline at the chat pane's left edge beside the app sidebar. Each node represents one loaded <b>user prompt</b>; assistant messages and tool calls never become navigation items. The line explains order, while the single accent node identifies the prompt that owns the viewport.</p>
             <table class="dt">

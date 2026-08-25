@@ -1783,6 +1783,7 @@ function selectModel(modelId: string): void {
               :aria-expanded="thinkingDropdownOpen"
               :aria-label="thinkingAriaLabel"
               @click.stop="toggleThinkingDropdown"
+              @keydown.escape.prevent="closeThinkingDropdown"
             >
               <Icon name="thinking" size="sm" />
               <span class="thinking-pill-label">{{ thinkingPillLabel }}</span>
@@ -1873,6 +1874,7 @@ function selectModel(modelId: string): void {
             role="dialog"
             :aria-label="t('composer.thinkingMenuTitle')"
             @click.stop
+            @keydown.escape.prevent="closeThinkingDropdown"
           >
             <div class="thinking-dropdown-title">
               <Icon name="thinking" size="sm" />
@@ -2035,6 +2037,8 @@ function selectModel(modelId: string): void {
     --composer-control-inset: var(--space-2);
     --composer-valve-floor: 4em;
     --composer-valve-expand-margin: 3.4em;
+    --thinking-dropdown-width: 320px;
+    --thinking-dropdown-viewport-gutter: var(--space-6);
     position: relative;
     border: .5px solid var(--color-composer-line);
     border-radius: var(--radius-composer);
@@ -2794,9 +2798,9 @@ function selectModel(modelId: string): void {
 
 
 .thinking-dropdown {
-    width: 320px;
+    width: var(--thinking-dropdown-width);
     min-width: 0;
-    max-width: calc(100vw - 24px);
+    max-width: calc(100vw - var(--thinking-dropdown-viewport-gutter));
     padding: var(--space-3);
     gap: var(--space-3);
     overflow: hidden
@@ -3207,7 +3211,7 @@ function selectModel(modelId: string): void {
     }
 
     .thinking-dropdown {
-        max-width: calc(100vw - 24px)
+        max-width: calc(100vw - var(--thinking-dropdown-viewport-gutter))
     }
 
     .ph {

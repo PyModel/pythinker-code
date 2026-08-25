@@ -75,3 +75,7 @@ export const OAUTH_LOGIN_REQUIRED_CODE = ErrorCodes.AUTH_LOGIN_REQUIRED;
 export {
   PYTHINKER_CODE_PLUGIN_MARKETPLACE_URL_ENV,
 } from '@pymodel/agent-core-v2/app/plugin/marketplace';
+// Bound on each background "latest release" lookup when the TUI fills in
+// marketplace versions. Without it a stalled connection to github.com hangs
+// the version phase for undici's default header timeout (300s).
+export const MARKETPLACE_VERSION_LOOKUP_TIMEOUT_MS = 5000;

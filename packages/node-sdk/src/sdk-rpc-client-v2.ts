@@ -161,7 +161,7 @@ import {
   ensureMainAgent,
   agentContextOf,
   IAgentActivityView,
-  IAgentContextInjectorService,
+  AgentReminder,
   IAgentContextMemoryService,
   AgentCron,
   AgentGoal,
@@ -2054,7 +2054,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
     } else {
       dynamic_workflow.exit();
     }
-    await agent.accessor.get(IAgentContextInjectorService).reconcileWhenIdle('dynamic_workflow_mode');
+    await agent.accessor.get(IAgentLifecycleService).resolve(agentContextOf(agent), AgentReminder).reconcileWhenIdle('dynamic_workflow_mode');
   }
 
   /** v1's `dynamic_workflow()` composition: enter with the one-shot `task` trigger, then prompt. */
@@ -2077,7 +2077,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
     } else {
       tower.exit();
     }
-    await agent.accessor.get(IAgentContextInjectorService).reconcileWhenIdle('tower_mode');
+    await agent.accessor.get(IAgentLifecycleService).resolve(agentContextOf(agent), AgentReminder).reconcileWhenIdle('tower_mode');
   }
 
   // -----------------------------------------------------------------------

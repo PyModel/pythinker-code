@@ -3,7 +3,20 @@ name: Desktop Release
 on:
   push:
     tags: ['desktop-v*']
-  workflow_dispatch: {}
+  workflow_call:
+    inputs:
+      publish_nightly:
+        description: Explicit permission for the reusable workflow to publish Nightly
+        required: true
+        type: boolean
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: Update feed to rehearse without publishing
+        required: true
+        default: stable
+        type: choice
+        options: [stable, beta, nightly]
 
 permissions:
   contents: read
@@ -12,11 +25,9 @@ concurrency:
   group: desktop-release-${{ github.ref }}
   cancel-in-progress: false
 
-# A manual run is a release rehearsal: both platforms build and go through the
-# same signing gates a tag does, with nothing published and the installers
-# attached to the run instead. Only the release-repo steps stay tag-gated, so a
-# credential that has expired or a configuration Electron Builder no longer
-# accepts surfaces on demand rather than on the tag that needed it.
+# Stable and Beta publish from reviewed desktop-v* package versions. Nightly is
+# called only by the default-branch Nightly workflow and derives one version per
+# main commit. A manual run remains a non-publishing release rehearsal.
 jobs:
   # Create one draft before either platform uploads. It stays private until both
   # jobs and the final downloaded-asset validation succeed.
@@ -25,49 +36,40 @@ jobs:
     outputs:
       version: ${{ steps.resolve.outputs.version }}
       tag: ${{ steps.resolve.outputs.tag }}
+      channel: ${{ steps.resolve.outputs.channel }}
+      mac_manifest: ${{ steps.resolve.outputs.mac_manifest }}
+      win_manifest: ${{ steps.resolve.outputs.win_manifest }}
+      publish: ${{ steps.resolve.outputs.publish }}
+      prerelease: ${{ steps.resolve.outputs.prerelease }}
+      build: ${{ steps.release.outputs.build }}
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # pinned from v4
         with:
+          fetch-depth: 0
           persist-credentials: false
 
-      # apps/desktop/package.json is the single source of truth for the version.
-      # The tag only selects which commit ships. Stamping the tag's version into
-      # the tree instead would let `git tag desktop-v9.9.9 <any commit>` silently
-      # rewrite that commit into a release nobody reviewed, so a disagreement is
-      # a hard failure rather than a rewrite.
-      - name: Resolve the desktop version
+      - name: Resolve the desktop release
         id: resolve
         shell: bash
         env:
+          EVENT_NAME: ${{ inputs.publish_nightly && 'workflow_call' || github.event_name }}
+          PUBLISH_NIGHTLY: ${{ inputs.publish_nightly }}
+          REQUESTED_CHANNEL: ${{ inputs.channel }}
           TAG_NAME: ${{ github.ref_name }}
-          IS_TAG: ${{ startsWith(github.ref, 'refs/tags/desktop-v') }}
         run: |
           set -euo pipefail
-          version="$(node -p 'require("./apps/desktop/package.json").version')"
-          if [ -z "$version" ]; then
-            echo 'Could not resolve a desktop version' >&2
-            exit 1
-          fi
-          if [ "$IS_TAG" = 'true' ]; then
-            tag_version="${TAG_NAME#desktop-v}"
-            if [ "$tag_version" != "$version" ]; then
-              echo "::error::Tag ${TAG_NAME} does not match apps/desktop/package.json (${version})." >&2
-              echo 'Bump the package version on main first, then tag that commit.' >&2
-              exit 1
-            fi
-          fi
-          # electron-builder names the GitHub release `v${version}`; the tag we
-          # push here (`desktop-v*`) only triggers the workflow.
-          echo "version=${version}" >> "$GITHUB_OUTPUT"
-          echo "tag=v${version}" >> "$GITHUB_OUTPUT"
-          echo "Releasing desktop ${version} as tag v${version}."
+          package_version="$(node -p 'require("./apps/desktop/package.json").version')"
+          commit_count="$(git rev-list --count HEAD)"
+          node apps/desktop/scripts/desktop-release.mjs resolve \
+            "$EVENT_NAME" "$package_version" "${REQUESTED_CHANNEL:-}" "${TAG_NAME:-}" "$commit_count" \
+            "${PUBLISH_NIGHTLY:-false}"
 
       # A release built from a commit that never landed on main ships code no
       # review gate ever saw. `compare` reports `identical` or `behind` when the
       # commit is an ancestor of main, and `diverged`/`ahead` when it is not.
-      - name: Require the tagged commit to be on main
-        if: startsWith(github.ref, 'refs/tags/desktop-v')
+      - name: Require the release commit to be on main
+        if: steps.resolve.outputs.publish == 'true'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -82,7 +84,7 @@ jobs:
           esac
 
       - name: Mint releases-repo token
-        if: startsWith(github.ref, 'refs/tags/desktop-v')
+        if: steps.resolve.outputs.publish == 'true'
         id: releases_token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # pinned from v3.2.0
         with:
@@ -92,34 +94,65 @@ jobs:
           repositories: pythinker-desktop-releases
           permission-contents: write
 
-      - name: Create the draft release unless it already exists
-        if: startsWith(github.ref, 'refs/tags/desktop-v')
+      - name: Prepare the draft release or rehearsal
+        id: release
         shell: bash
         env:
           GH_TOKEN: ${{ steps.releases_token.outputs.token }}
+          PUBLISH: ${{ steps.resolve.outputs.publish }}
+          PRERELEASE: ${{ steps.resolve.outputs.prerelease }}
+          RELEASE_CHANNEL: ${{ steps.resolve.outputs.channel }}
           RELEASE_TAG: ${{ steps.resolve.outputs.tag }}
           RELEASE_REPO: PyModel/pythinker-desktop-releases
+          SOURCE_URL: ${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}
         run: |
           set -euo pipefail
+          if [ "$PUBLISH" != 'true' ]; then
+            echo 'build=true' >> "$GITHUB_OUTPUT"
+            echo "Rehearsing ${RELEASE_CHANNEL} ${RELEASE_TAG}; nothing will be published."
+            exit 0
+          fi
           # Drafts are safe to resume. A published release is immutable here:
           # platform uploads use --clobber and must never replace live assets.
-          if is_draft="$(gh release view "$RELEASE_TAG" --repo "$RELEASE_REPO" --json isDraft --jq '.isDraft' 2>/dev/null)"; then
+          if release_json="$(gh release view "$RELEASE_TAG" --repo "$RELEASE_REPO" --json body,isDraft,isPrerelease 2>/dev/null)"; then
+            is_draft="$(jq -r '.isDraft' <<< "$release_json")"
+            is_prerelease="$(jq -r '.isPrerelease' <<< "$release_json")"
+            if ! jq -e --arg source_url "$SOURCE_URL" '(.body // "") | contains($source_url)' >/dev/null <<< "$release_json"; then
+              echo "::error::Release ${RELEASE_TAG} belongs to a different source commit." >&2
+              exit 1
+            fi
             if [ "$is_draft" != 'true' ]; then
+              if [ "$RELEASE_CHANNEL" = 'nightly' ] && [ "$is_prerelease" = 'true' ]; then
+                echo 'build=false' >> "$GITHUB_OUTPUT"
+                echo "Nightly release ${RELEASE_TAG} already exists; no new main commit to publish."
+                exit 0
+              fi
               echo "::error::Release ${RELEASE_TAG} already exists and is published; refusing to replace live assets." >&2
               exit 1
             fi
+            if [ "$is_prerelease" != "$PRERELEASE" ]; then
+              echo "::error::Draft ${RELEASE_TAG} has the wrong prerelease state." >&2
+              exit 1
+            fi
+            echo 'build=true' >> "$GITHUB_OUTPUT"
             echo "Draft release ${RELEASE_TAG} already exists; resuming it."
             exit 0
           fi
-          gh release create "$RELEASE_TAG" \
-            --repo "$RELEASE_REPO" \
-            --draft \
-            --title "$RELEASE_TAG" \
-            --notes 'Desktop build in progress. Assets appear as each platform finishes.'
+          args=(
+            "$RELEASE_TAG"
+            --repo "$RELEASE_REPO"
+            --draft
+            --title "$RELEASE_TAG"
+            --notes "Pythinker Desktop ${RELEASE_TAG#v} (${RELEASE_CHANNEL} channel), built from ${SOURCE_URL}."
+          )
+          if [ "$PRERELEASE" = 'true' ]; then args+=(--prerelease); fi
+          gh release create "${args[@]}"
+          echo 'build=true' >> "$GITHUB_OUTPUT"
           echo "Created draft release ${RELEASE_TAG}."
 
   mac:
     needs: prepare
+    if: needs.prepare.outputs.build == 'true'
     runs-on: macos-15
     steps:
       - name: Checkout
@@ -136,6 +169,13 @@ jobs:
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
+
+      - name: Configure desktop release
+        shell: bash
+        env:
+          DESKTOP_CHANNEL: ${{ needs.prepare.outputs.channel }}
+          DESKTOP_VERSION: ${{ needs.prepare.outputs.version }}
+        run: node apps/desktop/scripts/desktop-release.mjs configure apps/desktop/package.json "$DESKTOP_VERSION" "$DESKTOP_CHANNEL"
 
       - name: Build workspace
         run: pnpm --workspace-root run build
@@ -199,7 +239,9 @@ jobs:
       - name: Verify macOS update artifacts
         shell: bash
         env:
+          DESKTOP_CHANNEL: ${{ needs.prepare.outputs.channel }}
           DESKTOP_VERSION: ${{ needs.prepare.outputs.version }}
+          UPDATE_MANIFEST: ${{ needs.prepare.outputs.mac_manifest }}
         run: |
           set -euo pipefail
           app_bundle="$(find apps/desktop/dist -maxdepth 2 -type d -name '*.app' -print -quit)"
@@ -208,7 +250,8 @@ jobs:
             exit 1
           fi
           test -f "$app_bundle/Contents/Resources/app-update.yml"
-          node --import tsx apps/desktop/scripts/verify-update-manifest.ts mac apps/desktop/dist "$DESKTOP_VERSION"
+          node --import tsx apps/desktop/scripts/verify-update-manifest.ts mac apps/desktop/dist "$DESKTOP_VERSION" "$DESKTOP_CHANNEL"
+          test -f "apps/desktop/dist/${UPDATE_MANIFEST}"
 
       - name: Verify macOS signatures and notarization
         shell: bash
@@ -258,7 +301,7 @@ jobs:
           trap - EXIT
 
       - name: Mint releases-repo token
-        if: startsWith(github.ref, 'refs/tags/desktop-v')
+        if: needs.prepare.outputs.publish == 'true'
         id: releases_token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # pinned from v3.2.0
         with:
@@ -268,31 +311,33 @@ jobs:
           repositories: pythinker-desktop-releases
           permission-contents: write
       - name: Upload verified macOS release assets
-        if: startsWith(github.ref, 'refs/tags/desktop-v')
+        if: needs.prepare.outputs.publish == 'true'
         shell: bash
         env:
           GH_TOKEN: ${{ steps.releases_token.outputs.token }}
+          UPDATE_MANIFEST: ${{ needs.prepare.outputs.mac_manifest }}
           RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
           RELEASE_REPO: PyModel/pythinker-desktop-releases
         run: |
           set -euo pipefail
           shopt -s nullglob
-          assets=(apps/desktop/dist/*.dmg apps/desktop/dist/*-mac.zip apps/desktop/dist/*.blockmap apps/desktop/dist/latest-mac.yml)
+          assets=(apps/desktop/dist/*.dmg apps/desktop/dist/*-mac.zip apps/desktop/dist/*.blockmap "apps/desktop/dist/${UPDATE_MANIFEST}")
           gh release upload "$RELEASE_TAG" "${assets[@]}" --repo "$RELEASE_REPO" --clobber
 
       - name: Upload macOS artifacts for manual runs
-        if: github.event_name == 'workflow_dispatch'
+        if: needs.prepare.outputs.publish != 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # pinned from v7
         with:
           name: desktop-macos
           path: |
             apps/desktop/dist/*.dmg
             apps/desktop/dist/*.zip
-            apps/desktop/dist/latest-mac.yml
+            apps/desktop/dist/*.yml
           if-no-files-found: error
 
   windows:
     needs: prepare
+    if: needs.prepare.outputs.build == 'true'
     runs-on: windows-latest
     steps:
       - name: Checkout
@@ -309,6 +354,13 @@ jobs:
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
+
+      - name: Configure desktop release
+        shell: bash
+        env:
+          DESKTOP_CHANNEL: ${{ needs.prepare.outputs.channel }}
+          DESKTOP_VERSION: ${{ needs.prepare.outputs.version }}
+        run: node apps/desktop/scripts/desktop-release.mjs configure apps/desktop/package.json "$DESKTOP_VERSION" "$DESKTOP_CHANNEL"
 
       - name: Build workspace
         run: pnpm --workspace-root run build
@@ -362,18 +414,21 @@ jobs:
       - name: Verify Windows update artifacts
         shell: bash
         env:
+          DESKTOP_CHANNEL: ${{ needs.prepare.outputs.channel }}
           DESKTOP_VERSION: ${{ needs.prepare.outputs.version }}
+          UPDATE_MANIFEST: ${{ needs.prepare.outputs.win_manifest }}
         run: |
           set -euo pipefail
           test -f apps/desktop/dist/win-unpacked/resources/app-update.yml
-          node --import tsx apps/desktop/scripts/verify-update-manifest.ts win apps/desktop/dist "$DESKTOP_VERSION"
+          node --import tsx apps/desktop/scripts/verify-update-manifest.ts win apps/desktop/dist "$DESKTOP_VERSION" "$DESKTOP_CHANNEL"
+          test -f "apps/desktop/dist/${UPDATE_MANIFEST}"
 
       - name: Verify Windows release signatures
         working-directory: apps/desktop
         run: node --import tsx scripts/verify-windows-signatures.ts
 
       - name: Mint releases-repo token
-        if: startsWith(github.ref, 'refs/tags/desktop-v')
+        if: needs.prepare.outputs.publish == 'true'
         id: releases_token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # pinned from v3.2.0
         with:
@@ -383,26 +438,27 @@ jobs:
           repositories: pythinker-desktop-releases
           permission-contents: write
       - name: Upload verified Windows release assets
-        if: startsWith(github.ref, 'refs/tags/desktop-v')
+        if: needs.prepare.outputs.publish == 'true'
         shell: bash
         env:
           GH_TOKEN: ${{ steps.releases_token.outputs.token }}
+          UPDATE_MANIFEST: ${{ needs.prepare.outputs.win_manifest }}
           RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
           RELEASE_REPO: PyModel/pythinker-desktop-releases
         run: |
           set -euo pipefail
           shopt -s nullglob
-          assets=(apps/desktop/dist/*.exe apps/desktop/dist/*.blockmap apps/desktop/dist/latest.yml)
+          assets=(apps/desktop/dist/*.exe apps/desktop/dist/*.blockmap "apps/desktop/dist/${UPDATE_MANIFEST}")
           gh release upload "$RELEASE_TAG" "${assets[@]}" --repo "$RELEASE_REPO" --clobber
 
       - name: Upload Windows artifacts for manual runs
-        if: github.event_name == 'workflow_dispatch'
+        if: needs.prepare.outputs.publish != 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # pinned from v7
         with:
           name: desktop-windows
           path: |
             apps/desktop/dist/*.exe
-            apps/desktop/dist/latest.yml
+            apps/desktop/dist/*.yml
           if-no-files-found: error
 
   # Publishing last, and only once both platforms uploaded, is what makes the
@@ -410,7 +466,7 @@ jobs:
   # which is recoverable by re-running that job; publishing per-platform instead
   # would leave a live release missing an operating system.
   publish:
-    if: startsWith(github.ref, 'refs/tags/desktop-v')
+    if: needs.prepare.outputs.publish == 'true' && needs.prepare.outputs.build == 'true'
     needs: [prepare, mac, windows]
     runs-on: ubuntu-latest
     steps:
@@ -442,6 +498,7 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ steps.releases_token.outputs.token }}
+          DESKTOP_CHANNEL: ${{ needs.prepare.outputs.channel }}
           RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
           RELEASE_REPO: PyModel/pythinker-desktop-releases
           DESKTOP_VERSION: ${{ needs.prepare.outputs.version }}
@@ -449,16 +506,23 @@ jobs:
           set -euo pipefail
           mkdir release-assets
           gh release download "$RELEASE_TAG" --repo "$RELEASE_REPO" --dir release-assets
-          node --import tsx apps/desktop/scripts/verify-update-manifest.ts mac release-assets "$DESKTOP_VERSION"
-          node --import tsx apps/desktop/scripts/verify-update-manifest.ts win release-assets "$DESKTOP_VERSION"
+          node --import tsx apps/desktop/scripts/verify-update-manifest.ts mac release-assets "$DESKTOP_VERSION" "$DESKTOP_CHANNEL"
+          node --import tsx apps/desktop/scripts/verify-update-manifest.ts win release-assets "$DESKTOP_VERSION" "$DESKTOP_CHANNEL"
 
       - name: Publish the release
         shell: bash
         env:
           GH_TOKEN: ${{ steps.releases_token.outputs.token }}
+          EXPECTED_PRERELEASE: ${{ needs.prepare.outputs.prerelease }}
           RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
           RELEASE_REPO: PyModel/pythinker-desktop-releases
         run: |
           set -euo pipefail
           gh release edit "$RELEASE_TAG" --repo "$RELEASE_REPO" --draft=false
+          state="$(gh release view "$RELEASE_TAG" --repo "$RELEASE_REPO" --json isDraft,isPrerelease --jq '[.isDraft, .isPrerelease] | @tsv')"
+          IFS=$'\t' read -r is_draft is_prerelease <<< "$state"
+          if [ "$is_draft" != 'false' ] || [ "$is_prerelease" != "$EXPECTED_PRERELEASE" ]; then
+            echo "::error::Published ${RELEASE_TAG} has the wrong release state." >&2
+            exit 1
+          fi
           echo "Published ${RELEASE_TAG}."

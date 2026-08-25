@@ -18,8 +18,11 @@ mechanics and failure modes.
 - **Private lanes use the push boundary.** `publishedPackages` only lists packages published to npm.
   Desktop and VS Code are private workspaces, so `detect-lane-bumps.mjs` compares their versions at
   `github.event.before` and `github.sha`.
-- **Desktop is tag-driven.** The required `cut-desktop-tag` job creates `desktop-v<version>`, which
-  starts `desktop-release.yml`.
+- **Desktop Stable and Beta are tag-driven.** The required `cut-desktop-tag` job creates
+  `desktop-v<version>`, which starts `desktop-release.yml`; prerelease versions publish to the
+  explicit Beta feed.
+- **Desktop Nightly is default-branch driven.** `nightly.yml` calls `desktop-release.yml` after each
+  scheduled main build and publishes a signed Nightly prerelease only when the main commit changed.
 - **VS Code is isolated.** `vscode-release.yml` supports `workflow_call` and version-checked manual
   dispatch. Existing registry versions are skipped by the publisher scripts, so recovery is safe.
 
@@ -35,6 +38,7 @@ workspace, set its `private` and changesets policy explicitly and update `flake.
 |---|---|---|
 | `Release` | every main push after CI + Nix | Detect lane versions, build, run changesets |
 | `Cut desktop release tag` | desktop version changed | Required and idempotent; App token makes the tag trigger the desktop workflow |
+| `Desktop Nightly` | scheduled main build | Reusable workflow; signed assets and the explicit Nightly update feed |
 | `Publish VS Code extension` | extension version changed | Reusable workflow; six VSIX targets, both registries, provenance |
 | `Native release artifact` | CLI was published | Six signed/tested zips, checksums, provenance |
 | `Publish native release assets` | native builds passed | All-or-nothing immutable upload with `manifest.json` |
@@ -56,6 +60,8 @@ otherwise errors.
   genuinely half-published release — read the log; do not blind-rerun.
 - **Version PR looks wrong.** Never patch the `changeset-release/main` branch by hand. Fix or add
   changesets on `main`; the next workflow run regenerates the PR.
+- **Beta or Nightly checks Stable.** GitHub does not infer update channels. Confirm the release is a
+  prerelease and contains `beta*.yml` or `nightly*.yml`; do not rename Stable manifests.
 - **Native builder fails after npm publish succeeded.** npm state is final. Re-run failed jobs from
   the same run before any assets upload. A complete asset set is an idempotent no-op. A partial set
   must not be filled from a rebuild; keep it or publish a new patch version.
@@ -83,6 +89,7 @@ otherwise errors.
 
 ```bash
 gh run list --workflow=release.yml --branch=main -L 3        # workflow health
+gh run list --workflow=nightly.yml --branch=main -L 3        # Nightly desktop health
 gh pr list --search 'ci: release packages in:title' --state open
 pnpm release:status                                           # all live lanes
 npm view @pymodel/pythinker-code dist-tags --json

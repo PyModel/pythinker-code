@@ -36,6 +36,7 @@ type DesktopUpdateState = {
   message?: string;
   autoUpdate: boolean;
   channel: DesktopUpdateChannel;
+  notifyUpdate: boolean;
   notifiedVersion?: string;
   skippedVersion?: string;
   completedVersion?: string;
@@ -47,6 +48,7 @@ interface PythinkerDesktopBridge {
   getUpdateState: () => Promise<DesktopUpdateState>;
   setAutoUpdate: (enabled: boolean) => Promise<DesktopUpdateState>;
   setUpdateChannel: (channel: DesktopUpdateChannel) => Promise<DesktopUpdateState>;
+  setNotifyUpdate: (enabled: boolean) => Promise<DesktopUpdateState>;
   checkForUpdates: () => Promise<DesktopUpdateState>;
   downloadUpdate: () => Promise<DesktopUpdateState>;
   cancelUpdateDownload: () => Promise<DesktopUpdateState>;

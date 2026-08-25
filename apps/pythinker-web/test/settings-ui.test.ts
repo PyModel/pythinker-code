@@ -167,6 +167,7 @@ describe('settings UI', () => {
         installedVersion: '9.8.7',
         autoUpdate: true,
         channel: 'stable',
+        notifyUpdate: true,
       } satisfies DesktopUpdateState)),
       onUpdateState: vi.fn(() => () => {}),
     };
@@ -199,13 +200,14 @@ describe('settings UI', () => {
     wrapper.unmount();
   });
 
-  it('keeps the standalone Updates tab live through channel selection, download, and restart', async () => {
+  it('keeps the standalone Update tab live through preferences, download, and restart', async () => {
     let state: DesktopUpdateState = {
       status: 'available',
       installedVersion: '1.0.0',
       availableVersion: '1.2.3',
       autoUpdate: true,
       channel: 'stable',
+      notifyUpdate: true,
     };
     let push: ((next: DesktopUpdateState) => void) | undefined;
     const bridge = {
@@ -217,6 +219,10 @@ describe('settings UI', () => {
       }),
       setUpdateChannel: vi.fn((channel: DesktopUpdateChannel) => {
         state = { ...state, channel };
+        return Promise.resolve(state);
+      }),
+      setNotifyUpdate: vi.fn((enabled: boolean) => {
+        state = { ...state, notifyUpdate: enabled };
         return Promise.resolve(state);
       }),
       checkForUpdates: vi.fn(() => Promise.resolve(state)),
@@ -255,14 +261,15 @@ describe('settings UI', () => {
 
     const updateControls = document.body.querySelector<HTMLElement>('[data-testid="desktop-update-controls"]')!;
     expect(updateControls.closest<HTMLElement>('.panel')?.style.display).toBe('none');
-    const updatesTab = Array.from(document.body.querySelectorAll<HTMLButtonElement>('[role="tab"]'))
-      .find((tab) => tab.textContent?.trim() === 'Updates');
-    expect(updatesTab).toBeDefined();
-    updatesTab!.click();
+    const updateTab = Array.from(document.body.querySelectorAll<HTMLButtonElement>('[role="tab"]'))
+      .find((tab) => tab.textContent?.trim() === 'Update');
+    expect(updateTab).toBeDefined();
+    updateTab!.click();
     await flushPromises();
 
     expect(updateControls.closest<HTMLElement>('.panel')?.style.display).not.toBe('none');
     expect(updateControls.textContent).toContain('Version 1.2.3 is available');
+    expect(updateControls.textContent).toContain('Nightly follows the newest main build');
     const channel = document.body.querySelector<HTMLSelectElement>('[data-testid="desktop-update-channel"]')!;
     expect(channel.value).toBe('stable');
     channel.value = 'beta';
@@ -275,6 +282,12 @@ describe('settings UI', () => {
     automaticChecks.click();
     await flushPromises();
     expect(bridge.setAutoUpdate).toHaveBeenCalledWith(false);
+
+    const notifications = document.body.querySelector<HTMLButtonElement>('[data-testid="update-notifications"]')!;
+    expect(notifications.getAttribute('aria-checked')).toBe('true');
+    notifications.click();
+    await flushPromises();
+    expect(bridge.setNotifyUpdate).toHaveBeenCalledWith(false);
 
     document.body.querySelector<HTMLButtonElement>('[data-testid="settings-download-update"]')!.click();
     await flushPromises();

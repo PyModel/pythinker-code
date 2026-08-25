@@ -29,7 +29,7 @@ The four contribution seams (token → fold): config sections — `ConfigSection
 
 ## Comment conventions
 
-- **No comments.** The code is the source of truth; do not write file headers, section banners, or implementation narration. The one exception is JSDoc attached to exported symbols (it flows into the generated `.d.ts` and the consumers' IDE hover); keep it focused on the public contract.
+- **No comments.** The code is the source of truth; do not write file headers, section banners, or implementation narration. No JSDoc either, not even on exported symbols. The one exception is a load-bearing lint-suppression directive (`oxlint-disable` / `eslint-disable`) for a deliberate pattern.
 - **Lint-suppression directives are the tooling exception.** `oxlint-disable` / `eslint-disable` comments are allowed where they suppress an active rule for a deliberate pattern (e.g. the Event2 class+payload-interface merging idiom). `@ts-expect-error`, `@ts-ignore`, and `ts-nocheck` stay banned — fix the underlying type problem instead; negative type-safety cases go into compiler-asserted fixtures.
 
 ## Telemetry
@@ -67,7 +67,7 @@ One accepted exception: `features/tower/protocol` manages the `.tower/` director
 
 ## Model-facing reminders
 
-Two delivery paths only — never introduce a third (no deferred-delivery queues, no mid-step splice channels): reminders that restate current state (goal state, plan mode, date change, …) register a `contextInjector` provider (`register`) that reconciles at every step head (before the step's request is built) and re-emits after compaction or undo; reminders that report a one-off event (goal cancelled, AGENTS.md discovered, `/init` finished, …) append at the event point through `IAgentSystemReminderService.appendSystemReminder` with origin `{ kind: 'injection', variant: '<domain_fact>' }`, where the event point must itself be a safe position (a step/restore hook, an idle moment, or the loop-event fold's deferred append). `kind: 'injection'` is a lifecycle classification (hidden from the UI, not an undo anchor, dropped by compaction), not a provenance claim; prompt-owned attachments additionally carry `ownerPromptId` so undo treats them as part of their host prompt.
+Two delivery paths only — never introduce a third (no deferred-delivery queues, no mid-step splice channels), both owned by the `AgentReminder` Agent Runtime and obtained only through `IAgentLifecycleService.resolve(agentContext, AgentReminder)`: reminders that restate current state (goal state, plan mode, date change, …) call `register(variant, provider)` and reconcile at every step head before the request is built, re-emitting after compaction or undo; reminders that report a one-off event (goal cancelled, AGENTS.md discovered, `/init` finished, …) call `notify(content, { variant, ownerPromptId? })` at a safe event point (a step/restore hook, an idle moment, or the loop-event fold's deferred append). The runtime owns `<system-reminder>` wrapping and stamps `{ kind: 'injection', variant }`; `kind: 'injection'` is a lifecycle classification (hidden from the UI, not an undo anchor, dropped by compaction), not a provenance claim, and prompt-owned attachments carry `ownerPromptId` so undo treats them as part of their host prompt.
 
 ## Docs
 

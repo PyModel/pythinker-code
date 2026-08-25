@@ -295,12 +295,6 @@ type V2SessionIdProjection = z.infer<typeof v2SessionIdProjectionSchema>;
 
 class PageTokenMismatchError extends Error {}
 
-/**
- * Map the core activity facts onto the v2 status enum. A pending interaction
- * outranks an active turn (the turn is parked waiting on it). `failed` is
- * observable live, and for cold sessions from the persisted outcome
- * (completed/cancelled stay `idle`, matching the live fold).
- */
 export function mapActivityStatus(
   facts: SessionFacts,
   persistedLastTurnReason?: 'completed' | 'cancelled' | 'failed',

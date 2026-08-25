@@ -85,16 +85,5 @@ export const ErrorCode = {
 
 } as const;
 
-/**
- * Reserved (intentionally unallocated; do NOT reuse for new variants):
- *   - 40101 auth.invalid_token        (daemon's own token; future)
- *   - 40102 auth.missing_token        (daemon's own token; future)
- *   - 40103 auth.forbidden_origin     (daemon's own token; future)
- *   - 42901 rate.limited
- *   - 50002 protocol.version_mismatch
- *
- * `ErrorCodeReason` is not copied here because the server has no consumer.
- * The protocol package retains number-to-reason mapping for v1 and server E2E.
- */
 
 export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode];

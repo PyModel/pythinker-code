@@ -6,6 +6,14 @@ import test from 'node:test';
 const root = resolve(import.meta.dirname, '../..');
 const read = (path) => readFileSync(resolve(root, path), 'utf8');
 
+void test('desktop releases configure both platforms with Bash', () => {
+  const workflow = read('.github/workflows/desktop-release.yml');
+  const configuredWithBash = /^      - name: Configure desktop release\n        shell: bash$/mu;
+  const windowsStart = workflow.indexOf('\n  windows:');
+  assert.match(workflow.slice(workflow.indexOf('\n  mac:'), windowsStart), configuredWithBash);
+  assert.match(workflow.slice(windowsStart, workflow.indexOf('\n  publish:', windowsStart)), configuredWithBash);
+});
+
 void test('release workflow uses full push-boundary lane signals and isolated jobs', () => {
   const workflow = read('.github/workflows/release.yml');
   const desktopJob = workflow.slice(
@@ -48,6 +56,10 @@ void test('native releases fail without requested signing and attest each zip', 
 
 void test('nightly reconciliation maintains one release drift issue', () => {
   const workflow = read('.github/workflows/nightly.yml');
+  assert.match(workflow, /uses: \.\/\.github\/workflows\/desktop-release\.yml/u);
+  assert.match(workflow, /^  desktop-nightly:/mu);
+  assert.match(workflow, /needs: \[publish, desktop-nightly\]/u);
+  assert.doesNotMatch(workflow, /cron: '0 /u);
   assert.match(workflow, /scripts\/release\/release-status\.mjs/u);
   assert.match(workflow, /Release lane drift detected/u);
   assert.match(workflow, /issues: write/u);

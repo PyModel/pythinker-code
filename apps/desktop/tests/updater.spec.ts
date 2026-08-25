@@ -69,28 +69,48 @@ function temporaryDirectory(): string {
 
 describe('update settings', () => {
   it('defaults automatic updates to enabled when the file is missing', () => {
-    expect(readUpdateSettings(temporaryDirectory())).toEqual({ autoUpdate: true, channel: 'stable' })
+    expect(readUpdateSettings(temporaryDirectory())).toEqual({
+      autoUpdate: true,
+      channel: 'stable',
+      notifyUpdate: true,
+    })
   })
 
   it('defaults automatic updates to enabled when the file is corrupt', () => {
     const directory = temporaryDirectory()
     writeFileSync(join(directory, 'update-settings.json'), '{not-json', 'utf8')
 
-    expect(readUpdateSettings(directory)).toEqual({ autoUpdate: true, channel: 'stable' })
+    expect(readUpdateSettings(directory)).toEqual({
+      autoUpdate: true,
+      channel: 'stable',
+      notifyUpdate: true,
+    })
   })
 
-  it('round-trips the automatic-updates and channel settings', () => {
+  it('round-trips automatic checks, update notifications, and the channel', () => {
     const directory = temporaryDirectory()
-    writeUpdateSettings(directory, { autoUpdate: false, channel: 'beta' })
+    writeUpdateSettings(directory, {
+      autoUpdate: false,
+      channel: 'beta',
+      notifyUpdate: false,
+    })
 
-    expect(readUpdateSettings(directory)).toEqual({ autoUpdate: false, channel: 'beta' })
+    expect(readUpdateSettings(directory)).toEqual({
+      autoUpdate: false,
+      channel: 'beta',
+      notifyUpdate: false,
+    })
   })
 
-  it('falls back to stable when a saved channel is invalid', () => {
+  it('uses safe defaults for missing or invalid new settings', () => {
     const directory = temporaryDirectory()
-    writeFileSync(join(directory, 'update-settings.json'), '{"autoUpdate":true,"channel":"preview"}\n', 'utf8')
+    writeFileSync(join(directory, 'update-settings.json'), '{"autoUpdate":false,"channel":"preview"}\n', 'utf8')
 
-    expect(readUpdateSettings(directory)).toEqual({ autoUpdate: true, channel: 'stable' })
+    expect(readUpdateSettings(directory)).toEqual({
+      autoUpdate: false,
+      channel: 'stable',
+      notifyUpdate: true,
+    })
   })
 
   it('persists update notification, skip, install, and completion receipts separately', () => {
@@ -98,6 +118,7 @@ describe('update settings', () => {
     const value = {
       autoUpdate: true,
       channel: 'nightly' as const,
+      notifyUpdate: true,
       notifiedVersion: '1.2.3',
       skippedVersion: '1.2.3',
       pendingInstallVersion: '1.3.0',
@@ -122,6 +143,7 @@ describe('update telemetry transitions', () => {
       installedVersion: '1.0.0',
       autoUpdate: true,
       channel: 'stable',
+      notifyUpdate: true,
     }
 
     trackUpdateTransition(previous, { ...previous, status: 'checking' }, track)
@@ -152,7 +174,11 @@ describe('release notes URL', () => {
 describe('packaged builds without update metadata', () => {
   it('disables updates without wiring updater events', () => {
     const directory = temporaryDirectory()
-    writeUpdateSettings(directory, { autoUpdate: false, channel: 'stable' })
+    writeUpdateSettings(directory, {
+      autoUpdate: false,
+      channel: 'stable',
+      notifyUpdate: true,
+    })
     vi.mocked(app.getPath).mockReturnValue(directory)
     Object.defineProperty(app, 'isPackaged', { configurable: true, value: true })
     Object.defineProperty(process, 'resourcesPath', { configurable: true, value: directory })
@@ -170,15 +196,20 @@ describe('packaged builds without update metadata', () => {
 })
 
 describe('strict update consent', () => {
-  it('applies the selected channel without enabling downloads, installs, or downgrades', async () => {
+  it('changes channels and notification preference without checking, downloading, installing, or downgrading', async () => {
     vi.resetModules()
     const directory = temporaryDirectory()
     writeFileSync(join(directory, 'app-update.yml'), '', 'utf8')
-    writeFileSync(join(directory, 'update-settings.json'), '{"autoUpdate":false,"channel":"beta"}\n', 'utf8')
+    writeFileSync(
+      join(directory, 'update-settings.json'),
+      '{"autoUpdate":false,"channel":"beta","notifyUpdate":true}\n',
+      'utf8',
+    )
     const { app: localApp } = await import('electron')
     const { default: localElectronUpdater } = await import('electron-updater')
     const {
       initUpdater: initLocalUpdater,
+      setNotifyUpdate: setLocalNotifyUpdate,
       setUpdateChannel: setLocalUpdateChannel,
     } = await import('../src/updater')
     const localAutoUpdater = localElectronUpdater.autoUpdater
@@ -192,10 +223,7 @@ describe('strict update consent', () => {
     expect(localAutoUpdater.allowDowngrade).toBe(false)
 
     expect(setLocalUpdateChannel('nightly')).toMatchObject({ channel: 'nightly', status: 'idle' })
-    expect(localAutoUpdater.channel).toBe('nightly')
-    expect(localAutoUpdater.allowPrerelease).toBe(true)
-    expect(localAutoUpdater.allowDowngrade).toBe(false)
-
+    expect(setLocalNotifyUpdate(false)).toMatchObject({ notifyUpdate: false })
     expect(setLocalUpdateChannel('stable')).toMatchObject({ channel: 'stable', status: 'idle' })
     expect(localAutoUpdater.channel).toBeNull()
     expect(localAutoUpdater.allowPrerelease).toBe(false)
@@ -203,6 +231,8 @@ describe('strict update consent', () => {
     expect(localAutoUpdater.autoDownload).toBe(false)
     expect(localAutoUpdater.autoInstallOnAppQuit).toBe(false)
     expect(localAutoUpdater.checkForUpdates).not.toHaveBeenCalled()
+    expect(localAutoUpdater.downloadUpdate).not.toHaveBeenCalled()
+    expect(localAutoUpdater.quitAndInstall).not.toHaveBeenCalled()
   })
 
   it('manual check cannot download an update', async () => {

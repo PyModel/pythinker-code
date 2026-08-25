@@ -79,7 +79,7 @@ const emit = defineEmits<{
   close: [];
 }>();
 
-type SettingsTab = 'general' | 'agent' | 'account' | 'providers' | 'advanced' | 'updates' | 'lab' | 'archived';
+type SettingsTab = 'general' | 'agent' | 'account' | 'providers' | 'advanced' | 'update' | 'lab' | 'archived';
 
 const activeTab = ref<SettingsTab>(props.initialTab ?? 'general');
 const fontScale = computed(() => uiFontScaleForSize(props.uiFontSize));
@@ -93,7 +93,7 @@ const tabs: { id: SettingsTab; labelKey: string; icon: IconName }[] = [
   { id: 'advanced', labelKey: 'settings.tabs.advanced', icon: 'microscope' },
   ...(desktopBridge === undefined
     ? []
-    : [{ id: 'updates' as const, labelKey: 'settings.tabs.updates', icon: 'download' as const }]),
+    : [{ id: 'update' as const, labelKey: 'settings.tabs.update', icon: 'download' as const }]),
   { id: 'lab', labelKey: 'settings.tabs.lab', icon: 'flask' },
   { id: 'archived', labelKey: 'settings.tabs.archived', icon: 'archive' },
 ];
@@ -263,12 +263,13 @@ function setAutomaticUpdateChecks(enabled: boolean): void {
 }
 
 function setDesktopUpdateChannel(channel: string): void {
-  if (
-    desktopBridge !== undefined
-    && desktopUpdateChannels.includes(channel as DesktopUpdateChannel)
-  ) {
+  if (desktopBridge !== undefined && desktopUpdateChannels.includes(channel as DesktopUpdateChannel)) {
     void runDesktopUpdate(() => desktopBridge.setUpdateChannel(channel as DesktopUpdateChannel));
   }
+}
+
+function setDesktopUpdateNotifications(enabled: boolean): void {
+  if (desktopBridge !== undefined) void runDesktopUpdate(() => desktopBridge.setNotifyUpdate(enabled));
 }
 
 function checkForDesktopUpdate(): void {
@@ -955,15 +956,20 @@ function archiveTime(iso: string): string {
         </section>
 
         <!-- Desktop updates: one standalone control surface for channel and consent. -->
-        <section v-show="activeTab === 'updates'" class="panel">
+        <section v-show="activeTab === 'update'" class="panel">
           <section v-if="desktopBridge" class="sec">
-            <h3 class="sec-title">{{ t('settings.tabs.updates') }}</h3>
-            <div data-testid="desktop-update-controls" class="setting-card desktop-update-card">
+            <h3 class="sec-title">{{ t('settings.tabs.update') }}</h3>
+            <div data-testid="desktop-update-controls" class="desktop-update-card">
               <div class="desktop-update-row desktop-update-summary">
-                <span class="rlabel">
-                  <span class="desktop-update-title" aria-live="polite">{{ desktopUpdateStatus }}</span>
-                  <span class="hint">{{ desktopUpdateLastChecked }}</span>
-                </span>
+                <div class="desktop-update-summary-copy">
+                  <span class="desktop-update-icon" aria-hidden="true">
+                    <Icon name="download" size="md" />
+                  </span>
+                  <span class="rlabel">
+                    <span class="desktop-update-title" aria-live="polite">{{ desktopUpdateStatus }}</span>
+                    <span class="hint">{{ desktopUpdateLastChecked }}</span>
+                  </span>
+                </div>
                 <Button
                   data-testid="settings-check-update"
                   variant="secondary"
@@ -1008,6 +1014,20 @@ function archiveTime(iso: string): string {
                   :disabled="desktopUpdateBusy || desktopUpdateState === undefined || desktopUpdateState.status === 'disabled'"
                   :label="t('settings.desktop.automaticChecks')"
                   @update:model-value="setAutomaticUpdateChecks"
+                />
+              </div>
+
+              <div class="desktop-update-row">
+                <span class="rlabel">
+                  {{ t('settings.desktop.notifyUpdates') }}
+                  <span class="hint">{{ t('settings.desktop.notifyUpdatesHint') }}</span>
+                </span>
+                <Switch
+                  data-testid="update-notifications"
+                  :model-value="desktopUpdateState?.notifyUpdate ?? true"
+                  :disabled="desktopUpdateBusy || desktopUpdateState === undefined"
+                  :label="t('settings.desktop.notifyUpdates')"
+                  @update:model-value="setDesktopUpdateNotifications"
                 />
               </div>
 
@@ -1301,7 +1321,15 @@ function archiveTime(iso: string): string {
 .value-wrap .rvalue { max-width: 100%; }
 .hint { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--color-text-faint); }
 
-.desktop-update-card { background: var(--color-surface-raised); }
+.desktop-update-card {
+  --desktop-update-icon-size: 42px;
+  --desktop-update-select-min-width: 180px;
+  --desktop-update-select-max-width: 220px;
+  overflow: hidden;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-xl);
+  background: var(--color-surface-raised);
+}
 .desktop-update-row {
   display: flex;
   align-items: center;
@@ -1312,13 +1340,30 @@ function archiveTime(iso: string): string {
 .desktop-update-row + .desktop-update-row,
 .desktop-update-detail { border-top: 1px solid var(--color-line); }
 .desktop-update-row .rlabel { min-width: 0; flex: 1; }
+.desktop-update-summary-copy {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+}
+.desktop-update-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--desktop-update-icon-size);
+  height: var(--desktop-update-icon-size);
+  flex: none;
+  border-radius: var(--radius-lg);
+  background: var(--color-success-soft);
+  color: var(--color-success);
+}
 .desktop-update-title {
   font-size: var(--text-lg);
   font-weight: var(--weight-semibold);
 }
 .desktop-update-select {
-  min-width: 180px;
-  max-width: 220px;
+  min-width: var(--desktop-update-select-min-width);
+  max-width: var(--desktop-update-select-max-width);
 }
 .desktop-update-detail {
   display: flex;
@@ -1391,6 +1436,7 @@ function archiveTime(iso: string): string {
     align-items: flex-start;
     flex-direction: column;
   }
+  .desktop-update-summary-copy { width: 100%; }
   .desktop-update-select { max-width: none; }
 }
 /* Archived-sessions tab */
