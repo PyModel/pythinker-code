@@ -35,30 +35,30 @@ function json(body, status = 200) {
 
 function fixtureFetch({ cliAssets = expectedCliAssets } = {}) {
   return async (input) => {
-    const url = String(input);
-    if (url.includes('registry.npmjs.org')) return json({ latest: '1.3.0' });
-    if (url.includes('code.pythinker.com')) {
+    const url = new URL(String(input));
+    if (url.hostname === 'registry.npmjs.org') return json({ latest: '1.3.0' });
+    if (url.hostname === 'code.pythinker.com') {
       return json({
         version: '1.3.0',
         platforms: Object.fromEntries(nativeTargets.map((target) => [target, {}])),
       });
     }
-    if (url.includes('/pythinker-code/releases/tags/')) {
+    if (url.hostname === 'api.github.com' && url.pathname.startsWith('/repos/PyModel/pythinker-code/releases/tags/')) {
       return json({
         tag_name: '@pymodel/pythinker-code@1.3.0',
         assets: cliAssets.map((name) => ({ name })),
       });
     }
-    if (url.endsWith('/pythinker-desktop-releases/releases/latest')) {
+    if (url.hostname === 'api.github.com' && url.pathname === '/repos/PyModel/pythinker-desktop-releases/releases/latest') {
       return json({ tag_name: 'v0.2.1', assets: [{ name: 'latest.yml' }] });
     }
-    if (url.includes('open-vsx.org')) {
+    if (url.hostname === 'open-vsx.org') {
       return json({
         version: '0.9.5',
         downloads: Object.fromEntries(nativeTargets.map((target) => [target, `https://${target}`])),
       });
     }
-    if (url.includes('marketplace.visualstudio.com')) {
+    if (url.hostname === 'marketplace.visualstudio.com') {
       return json({
         results: [{
           extensions: [{
@@ -70,6 +70,14 @@ function fixtureFetch({ cliAssets = expectedCliAssets } = {}) {
     return json({ message: `Unexpected URL: ${url}` }, 404);
   };
 }
+
+void test('fixture routing rejects trusted hostnames outside the URL host', async () => {
+  const response = await fixtureFetch()(
+    'https://example.test/registry.npmjs.org/code.pythinker.com/open-vsx.org/marketplace.visualstudio.com',
+  );
+
+  assert.equal(response.status, 404);
+});
 
 void test('reports all live release lanes aligned', async (t) => {
   const rootDir = await fixtureRoot(t);
