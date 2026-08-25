@@ -2,7 +2,7 @@ name: Nightly
 
 on:
   schedule:
-    - cron: '0 3 * * *'
+    - cron: '17 3 * * *'
   workflow_dispatch:
 
 concurrency:
@@ -61,9 +61,18 @@ jobs:
           fi
           pnpm changeset publish --tag dev --no-git-tag
 
+  desktop-nightly:
+    name: Publish desktop Nightly
+    if: github.repository_owner == 'PyModel'
+    uses: ./.github/workflows/desktop-release.yml
+    with:
+      publish_nightly: true
+    secrets: inherit
+
   release-reconciliation:
     name: Reconcile release lanes
-    if: github.repository_owner == 'PyModel'
+    needs: [publish, desktop-nightly]
+    if: always() && github.repository_owner == 'PyModel'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -72,6 +81,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # pinned from v6.0.2
         with:
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Setup Node.js
@@ -83,11 +93,17 @@ jobs:
         id: release-status
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          UPSTREAM_OK: ${{ needs.publish.result == 'success' && needs.desktop-nightly.result == 'success' }}
         shell: bash
         run: |
           set +e
           node scripts/release/release-status.mjs > "$RUNNER_TEMP/release-status.md" 2>&1
           status=$?
+          if [ "$UPSTREAM_OK" != 'true' ]; then
+            printf '\nNightly publishers did not both succeed. CLI: %s. Desktop: %s.\n' \
+              '${{ needs.publish.result }}' '${{ needs.desktop-nightly.result }}' >> "$RUNNER_TEMP/release-status.md"
+            status=1
+          fi
           set -e
           cat "$RUNNER_TEMP/release-status.md" >> "$GITHUB_STEP_SUMMARY"
           echo "exit_code=$status" >> "$GITHUB_OUTPUT"

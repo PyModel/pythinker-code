@@ -79,10 +79,11 @@ const emit = defineEmits<{
   close: [];
 }>();
 
-type SettingsTab = 'general' | 'agent' | 'account' | 'providers' | 'advanced' | 'lab' | 'archived';
+type SettingsTab = 'general' | 'agent' | 'account' | 'providers' | 'advanced' | 'update' | 'lab' | 'archived';
 
 const activeTab = ref<SettingsTab>(props.initialTab ?? 'general');
 const fontScale = computed(() => uiFontScaleForSize(props.uiFontSize));
+const desktopBridge = typeof window === 'undefined' ? undefined : window.pythinkerDesktop;
 
 const tabs: { id: SettingsTab; labelKey: string; icon: IconName }[] = [
   { id: 'general', labelKey: 'settings.tabs.general', icon: 'sliders' },
@@ -90,6 +91,9 @@ const tabs: { id: SettingsTab; labelKey: string; icon: IconName }[] = [
   { id: 'account', labelKey: 'settings.tabs.account', icon: 'user' },
   { id: 'providers', labelKey: 'settings.tabs.providers', icon: 'bolt' },
   { id: 'advanced', labelKey: 'settings.tabs.advanced', icon: 'microscope' },
+  ...(desktopBridge === undefined
+    ? []
+    : [{ id: 'update' as const, labelKey: 'settings.tabs.update', icon: 'download' as const }]),
   { id: 'lab', labelKey: 'settings.tabs.lab', icon: 'flask' },
   { id: 'archived', labelKey: 'settings.tabs.archived', icon: 'archive' },
 ];
@@ -99,7 +103,6 @@ const appVersion =
   typeof __PYTHINKER_WEB_VERSION__ === 'string' && __PYTHINKER_WEB_VERSION__.trim()
     ? __PYTHINKER_WEB_VERSION__
     : '0.0.0-dev';
-const desktopBridge = typeof window === 'undefined' ? undefined : window.pythinkerDesktop;
 const desktopUpdateState = ref<DesktopUpdateState>();
 const desktopUpdateBusy = ref(false);
 const desktopUpdateActionError = ref<string>();
@@ -178,6 +181,37 @@ const desktopUpdateProgress = computed(() => {
   return value === undefined || !Number.isFinite(value) ? undefined : Math.min(100, Math.max(0, value));
 });
 
+const desktopUpdateChannels: DesktopUpdateChannel[] = ['stable', 'beta', 'nightly'];
+const desktopUpdateChannelDisabled = computed(() => {
+  const status = desktopUpdateState.value?.status;
+  return desktopUpdateBusy.value
+    || status === undefined
+    || status === 'checking'
+    || status === 'downloading'
+    || status === 'downloaded';
+});
+const desktopUpdateCheckDisabled = computed(() => {
+  const status = desktopUpdateState.value?.status;
+  return desktopUpdateBusy.value
+    || status === undefined
+    || status === 'disabled'
+    || status === 'checking'
+    || status === 'downloading'
+    || status === 'downloaded';
+});
+const desktopUpdateLastChecked = computed(() => {
+  const raw = desktopUpdateState.value?.lastCheckedAt;
+  if (raw === undefined) return t('settings.desktop.neverChecked');
+  const date = new Date(raw);
+  if (Number.isNaN(date.getTime())) return t('settings.desktop.neverChecked');
+  return t('settings.desktop.lastChecked', {
+    time: new Intl.DateTimeFormat('en', {
+      dateStyle: 'medium',
+      timeStyle: 'short',
+    }).format(date),
+  });
+});
+
 function formatBytes(value: number): string {
   const units = ['B', 'KB', 'MB', 'GB'];
   let amount = Math.max(0, value);
@@ -226,6 +260,16 @@ async function runDesktopUpdate(action: () => Promise<DesktopUpdateState>): Prom
 
 function setAutomaticUpdateChecks(enabled: boolean): void {
   if (desktopBridge !== undefined) void runDesktopUpdate(() => desktopBridge.setAutoUpdate(enabled));
+}
+
+function setDesktopUpdateChannel(channel: string): void {
+  if (desktopBridge !== undefined && desktopUpdateChannels.includes(channel as DesktopUpdateChannel)) {
+    void runDesktopUpdate(() => desktopBridge.setUpdateChannel(channel as DesktopUpdateChannel));
+  }
+}
+
+function setDesktopUpdateNotifications(enabled: boolean): void {
+  if (desktopBridge !== undefined) void runDesktopUpdate(() => desktopBridge.setNotifyUpdate(enabled));
 }
 
 function checkForDesktopUpdate(): void {
@@ -843,107 +887,6 @@ function archiveTime(iso: string): string {
               </span>
               <span class="rvalue mono">{{ resolvedAppVersion }}</span>
             </div>
-            <div v-if="desktopBridge" data-testid="desktop-update-controls" class="desktop-update-center">
-              <div class="row">
-                <span class="rlabel">
-                  {{ t('settings.desktop.automaticChecks') }}
-                  <span class="hint">{{ t('settings.desktop.automaticChecksHint') }}</span>
-                </span>
-                <Switch
-                  data-testid="automatic-update-checks"
-                  :model-value="desktopUpdateState?.autoUpdate ?? false"
-                  :disabled="desktopUpdateBusy || desktopUpdateState === undefined || desktopUpdateState.status === 'disabled'"
-                  :label="t('settings.desktop.automaticChecks')"
-                  @update:model-value="setAutomaticUpdateChecks"
-                />
-              </div>
-
-              <div class="desktop-update-status">
-                <div class="desktop-update-status-copy">
-                  <span class="rlabel">{{ t('settings.desktop.status') }}</span>
-                  <span class="hint" aria-live="polite">{{ desktopUpdateStatus }}</span>
-                </div>
-
-                <div v-if="desktopUpdateState?.status === 'downloading'" class="desktop-update-progress">
-                  <progress
-                    v-if="desktopUpdateProgress === undefined"
-                    data-testid="settings-update-progress"
-                    max="100"
-                    :aria-label="t('settings.desktop.progressLabel')"
-                  />
-                  <progress
-                    v-else
-                    data-testid="settings-update-progress"
-                    :value="desktopUpdateProgress"
-                    max="100"
-                    :aria-label="t('settings.desktop.progressLabel')"
-                  />
-                  <span data-testid="settings-update-progress-detail">
-                    {{ desktopUpdateProgressDetail || t('settings.desktop.fetching') }}
-                  </span>
-                </div>
-
-                <Banner v-if="desktopUpdateError" variant="danger">
-                  {{ desktopUpdateError }}
-                </Banner>
-
-                <div class="desktop-update-actions">
-                  <Button
-                    v-if="desktopUpdateState?.availableVersion"
-                    variant="ghost"
-                    size="sm"
-                    :disabled="desktopUpdateBusy"
-                    @click="openDesktopUpdateNotes"
-                  >
-                    {{ t('settings.desktop.viewNotes') }}
-                  </Button>
-                  <Button
-                    v-if="desktopUpdateState?.status === 'available'"
-                    variant="ghost"
-                    size="sm"
-                    :disabled="desktopUpdateBusy"
-                    @click="skipDesktopUpdate"
-                  >
-                    {{ t('settings.desktop.skip') }}
-                  </Button>
-                  <Button
-                    v-if="desktopUpdateState?.status === 'available' || (desktopUpdateState?.status === 'error' && desktopUpdateState.availableVersion)"
-                    data-testid="settings-download-update"
-                    size="sm"
-                    :loading="desktopUpdateBusy"
-                    @click="downloadDesktopUpdate"
-                  >
-                    {{ desktopUpdateState?.status === 'error' ? t('settings.desktop.retryDownload') : t('settings.desktop.download') }}
-                  </Button>
-                  <Button
-                    v-if="desktopUpdateState?.status === 'skipped'"
-                    size="sm"
-                    :loading="desktopUpdateBusy"
-                    @click="undoSkippedDesktopUpdate"
-                  >
-                    {{ t('settings.desktop.undoSkip') }}
-                  </Button>
-                  <Button
-                    v-if="desktopUpdateState?.status === 'downloaded'"
-                    data-testid="settings-restart-update"
-                    size="sm"
-                    :loading="desktopUpdateBusy"
-                    @click="restartToDesktopUpdate"
-                  >
-                    {{ t('settings.desktop.restartToUpdate') }}
-                  </Button>
-                  <Button
-                    v-if="desktopUpdateState && ['idle', 'available', 'skipped', 'error'].includes(desktopUpdateState.status)"
-                    variant="secondary"
-                    size="sm"
-                    :disabled="desktopUpdateBusy"
-                    @click="checkForDesktopUpdate"
-                  >
-                    {{ t('settings.desktop.checkForUpdates') }}
-                  </Button>
-                </div>
-              </div>
-            </div>
             <div class="row">
               <span class="rlabel">
                 {{ t('settings.serverVersion') }}
@@ -1012,6 +955,160 @@ function archiveTime(iso: string): string {
               <Button data-testid="copy-diagnostics" variant="secondary" size="sm" @click="copyDiagnostics">
                 {{ diagnosticsCopied ? t('settings.copied') : t('settings.copyDetails') }}
               </Button>
+            </div>
+          </section>
+        </section>
+
+        <!-- Desktop updates: one standalone control surface for channel and consent. -->
+        <section v-show="activeTab === 'update'" class="panel">
+          <section v-if="desktopBridge" class="sec">
+            <h3 class="sec-title">{{ t('settings.tabs.update') }}</h3>
+            <div data-testid="desktop-update-controls" class="desktop-update-card">
+              <div class="desktop-update-row desktop-update-summary">
+                <div class="desktop-update-summary-copy">
+                  <span class="desktop-update-icon" aria-hidden="true">
+                    <Icon name="download" size="md" />
+                  </span>
+                  <span class="rlabel">
+                    <span class="desktop-update-title" aria-live="polite">{{ desktopUpdateStatus }}</span>
+                    <span class="hint">{{ desktopUpdateLastChecked }}</span>
+                  </span>
+                </div>
+                <Button
+                  data-testid="settings-check-update"
+                  variant="secondary"
+                  size="sm"
+                  :loading="desktopUpdateState?.status === 'checking'"
+                  :disabled="desktopUpdateCheckDisabled"
+                  @click="checkForDesktopUpdate"
+                >
+                  {{ t('settings.desktop.checkNow') }}
+                </Button>
+              </div>
+
+              <div class="desktop-update-row">
+                <span class="rlabel">
+                  {{ t('settings.desktop.updateChannel') }}
+                  <span class="hint">{{ t('settings.desktop.updateChannelHint') }}</span>
+                </span>
+                <div class="select-wrap desktop-update-select">
+                  <Select
+                    data-testid="desktop-update-channel"
+                    size="sm"
+                    :model-value="desktopUpdateState?.channel ?? 'stable'"
+                    :disabled="desktopUpdateChannelDisabled"
+                    :aria-label="t('settings.desktop.updateChannel')"
+                    @update:model-value="setDesktopUpdateChannel"
+                  >
+                    <option v-for="channel in desktopUpdateChannels" :key="channel" :value="channel">
+                      {{ t(`settings.desktop.channels.${channel}`) }}
+                    </option>
+                  </Select>
+                </div>
+              </div>
+
+              <div class="desktop-update-row">
+                <span class="rlabel">
+                  {{ t('settings.desktop.automaticChecks') }}
+                  <span class="hint">{{ t('settings.desktop.automaticChecksHint') }}</span>
+                </span>
+                <Switch
+                  data-testid="automatic-update-checks"
+                  :model-value="desktopUpdateState?.autoUpdate ?? false"
+                  :disabled="desktopUpdateBusy || desktopUpdateState === undefined || desktopUpdateState.status === 'disabled'"
+                  :label="t('settings.desktop.automaticChecks')"
+                  @update:model-value="setAutomaticUpdateChecks"
+                />
+              </div>
+
+              <div class="desktop-update-row">
+                <span class="rlabel">
+                  {{ t('settings.desktop.notifyUpdates') }}
+                  <span class="hint">{{ t('settings.desktop.notifyUpdatesHint') }}</span>
+                </span>
+                <Switch
+                  data-testid="update-notifications"
+                  :model-value="desktopUpdateState?.notifyUpdate ?? true"
+                  :disabled="desktopUpdateBusy || desktopUpdateState === undefined"
+                  :label="t('settings.desktop.notifyUpdates')"
+                  @update:model-value="setDesktopUpdateNotifications"
+                />
+              </div>
+
+              <div
+                v-if="desktopUpdateState?.status === 'downloading' || desktopUpdateError || desktopUpdateState?.availableVersion"
+                class="desktop-update-detail"
+              >
+                <div v-if="desktopUpdateState?.status === 'downloading'" class="desktop-update-progress">
+                  <progress
+                    v-if="desktopUpdateProgress === undefined"
+                    data-testid="settings-update-progress"
+                    max="100"
+                    :aria-label="t('settings.desktop.progressLabel')"
+                  />
+                  <progress
+                    v-else
+                    data-testid="settings-update-progress"
+                    :value="desktopUpdateProgress"
+                    max="100"
+                    :aria-label="t('settings.desktop.progressLabel')"
+                  />
+                  <span data-testid="settings-update-progress-detail">
+                    {{ desktopUpdateProgressDetail || t('settings.desktop.fetching') }}
+                  </span>
+                </div>
+
+                <Banner v-if="desktopUpdateError" variant="danger">
+                  {{ desktopUpdateError }}
+                </Banner>
+
+                <div class="desktop-update-actions">
+                  <Button
+                    v-if="desktopUpdateState?.availableVersion"
+                    variant="ghost"
+                    size="sm"
+                    :disabled="desktopUpdateBusy"
+                    @click="openDesktopUpdateNotes"
+                  >
+                    {{ t('settings.desktop.viewNotes') }}
+                  </Button>
+                  <Button
+                    v-if="desktopUpdateState?.status === 'available'"
+                    variant="ghost"
+                    size="sm"
+                    :disabled="desktopUpdateBusy"
+                    @click="skipDesktopUpdate"
+                  >
+                    {{ t('settings.desktop.skip') }}
+                  </Button>
+                  <Button
+                    v-if="desktopUpdateState?.status === 'available' || (desktopUpdateState?.status === 'error' && desktopUpdateState.availableVersion)"
+                    data-testid="settings-download-update"
+                    size="sm"
+                    :loading="desktopUpdateBusy"
+                    @click="downloadDesktopUpdate"
+                  >
+                    {{ desktopUpdateState?.status === 'error' ? t('settings.desktop.retryDownload') : t('settings.desktop.download') }}
+                  </Button>
+                  <Button
+                    v-if="desktopUpdateState?.status === 'skipped'"
+                    size="sm"
+                    :loading="desktopUpdateBusy"
+                    @click="undoSkippedDesktopUpdate"
+                  >
+                    {{ t('settings.desktop.undoSkip') }}
+                  </Button>
+                  <Button
+                    v-if="desktopUpdateState?.status === 'downloaded'"
+                    data-testid="settings-restart-update"
+                    size="sm"
+                    :loading="desktopUpdateBusy"
+                    @click="restartToDesktopUpdate"
+                  >
+                    {{ t('settings.desktop.restartToUpdate') }}
+                  </Button>
+                </div>
+              </div>
             </div>
           </section>
         </section>
@@ -1217,22 +1314,52 @@ function archiveTime(iso: string): string {
 .value-wrap .rvalue { max-width: 100%; }
 .hint { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--color-text-faint); }
 
-.desktop-update-center {
-  border-top: 1px solid var(--color-line);
-  border-bottom: 1px solid var(--color-line);
-  margin: var(--space-2) 0;
-  padding: var(--space-2) 0 var(--space-3);
+.desktop-update-card {
+  overflow: hidden;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-xl);
+  background: var(--color-surface-raised);
 }
-.desktop-update-status {
+.desktop-update-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-4);
+}
+.desktop-update-row + .desktop-update-row,
+.desktop-update-detail { border-top: 1px solid var(--color-line); }
+.desktop-update-row .rlabel { min-width: 0; flex: 1; }
+.desktop-update-summary-copy {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+}
+.desktop-update-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  flex: none;
+  border-radius: var(--radius-lg);
+  background: var(--color-success-soft);
+  color: var(--color-success);
+}
+.desktop-update-title {
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+}
+.desktop-update-select {
+  min-width: 180px;
+  max-width: 220px;
+}
+.desktop-update-detail {
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
-  padding-top: var(--space-2);
-}
-.desktop-update-status-copy {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
+  padding: var(--space-4);
 }
 .desktop-update-progress {
   display: flex;
@@ -1295,6 +1422,12 @@ function archiveTime(iso: string): string {
     width: 100%;
     max-width: none;
   }
+  .desktop-update-row {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .desktop-update-summary-copy { width: 100%; }
+  .desktop-update-select { max-width: none; }
 }
 /* Archived-sessions tab */
 .setting-card { border: 1px solid var(--color-line); border-radius: var(--radius-xl); overflow: hidden; background: var(--color-bg); }

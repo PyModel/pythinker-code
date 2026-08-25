@@ -9,7 +9,6 @@ import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vite
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
-import { IAgentContextInjectorService } from '#/agent/contextInjector/contextInjector';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentScopeContext, makeAgentScopeContext } from '#/agent/scopeContext/scopeContext';
@@ -38,11 +37,13 @@ import { InMemoryStorageService } from '#/persistence/backends/memory/inMemorySt
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
+import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { ToolAccesses } from '#/tool/toolContract';
 import { AGENT_WIRE_RECORD_KEY, type WireRecord } from '#/wire/record';
 
 import { stubToolExecutorEvents, type ToolExecutorEventStubs } from '../../agent/toolExecutor/stubs';
 import { stubFlag } from '../../app/flag/stubs';
+import { createReminderStub, lifecycleWithReminder } from '../reminder/stubs';
 import {
   registerTestAgentWire,
   registerTestEventDispatcher,
@@ -134,10 +135,7 @@ describe('AgentTowerService', () => {
     ix.stub(IConfigService, {
       onDidChangeConfiguration: () => ({ dispose: () => {} }),
     } as unknown as IConfigService);
-    ix.stub(IAgentContextInjectorService, {
-      register: () => ({ dispose: () => {} }),
-      reconcileWhenIdle: async () => {},
-    } as unknown as IAgentContextInjectorService);
+    ix.stub(IAgentLifecycleService, lifecycleWithReminder(createReminderStub()));
     ix.stub(IAgentContextMemoryService, {
       get: () => [],
     } as unknown as IAgentContextMemoryService);

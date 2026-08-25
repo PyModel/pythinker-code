@@ -229,6 +229,19 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
   const enableTerminals = exposureClass === 'loopback' || opts.allowRemoteTerminals === true;
   const debugEndpoints = exposureClass === 'loopback' && opts.debugEndpoints === true;
   const logger = opts.logger ?? createServerLogger({ level: opts.logLevel ?? 'info' });
+  const onUnhandledRejection = (reason: unknown): void => {
+    logger.error(
+      { err: reason instanceof Error ? reason : new Error(String(reason)) },
+      'unhandledRejection',
+    );
+  };
+  const onUncaughtException = (err: unknown): void => {
+    logger.fatal(
+      { err: err instanceof Error ? err : new Error(String(err)) },
+      'uncaughtException',
+    );
+    process.exit(1);
+  };
   const authFailureLimiter =
     exposureClass === 'loopback' ? undefined : createAuthFailureLimiter({ logger });
 
@@ -372,7 +385,12 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
       await drainSessionMetadataWrites();
       await drainLogCloses();
     } finally {
-      await registration.release();
+      try {
+        await registration.release();
+      } finally {
+        process.off('unhandledRejection', onUnhandledRejection);
+        process.off('uncaughtException', onUncaughtException);
+      }
     }
   };
 
@@ -628,6 +646,9 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
       'provider-model catalog auto-refresh failed to start',
     );
   });
+
+  process.on('unhandledRejection', onUnhandledRejection);
+  process.on('uncaughtException', onUncaughtException);
 
   return { app, core, connectionRegistry, authTokenService, host, port: boundPort, close };
 }

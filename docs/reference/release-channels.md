@@ -27,3 +27,21 @@ pnpm changeset pre exit
 The CLI checks a stable update manifest and assigns each device to a deterministic rollout bucket. A new stable version may therefore appear on one device before another. Eligible devices receive the update within 24 hours.
 
 The update CDN at `code.pythinker.com` tracks only the stable `latest` channel. Beta and dev users install updates directly from their npm dist-tags.
+
+## Desktop update channels
+
+Pythinker Desktop uses signed GitHub Releases in the dedicated desktop release repository.
+
+| Channel | Source | Update metadata | GitHub release |
+| --- | --- | --- | --- |
+| Stable | A reviewed stable desktop package version on `main` | `latest.yml`, `latest-mac.yml` | Release |
+| Beta | A reviewed `x.y.z-beta.n` desktop package version on `main` | `beta.yml`, `beta-mac.yml` | Prerelease |
+| Nightly | The current `main` commit | `nightly.yml`, `nightly-mac.yml` | Prerelease |
+
+The Nightly version is the next stable patch plus `nightly.<main-commit-count>`. The same commit has
+the same version, so the scheduled workflow does not rebuild an unchanged commit. All channels use
+the same macOS signing, notarization, Windows signing, manifest validation, and draft-first publish
+gates.
+
+A manual **Desktop Release** workflow run is a rehearsal. Select Stable, Beta, or Nightly to build
+and validate that feed without publishing it.

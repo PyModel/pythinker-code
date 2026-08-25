@@ -56,6 +56,7 @@ const hasUpdate = computed(() => {
   const current = state.value;
   const stage = status.value;
   if (bridge() === undefined || current === undefined || stage === undefined) return false;
+  if (!current.notifyUpdate) return false;
   if (current.availableVersion === undefined) return false;
   if (current.skippedVersion === current.availableVersion) return false;
   return isUpdateStage(stage) || stage === 'error';
