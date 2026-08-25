@@ -129,7 +129,7 @@ describe('UpdateDialog', () => {
     expect(body().querySelector('[data-testid="cancel-update-download"]')).toBeNull();
   });
 
-  it('shows transferred bytes against the total while downloading', async () => {
+  it('shows compact progress, percent, and speed while downloading', async () => {
     const bridge = installBridge(updateState({ status: 'available', availableVersion: '1.2.3' }));
     await mountDialog();
 
@@ -139,11 +139,15 @@ describe('UpdateDialog', () => {
       percent: 42.5,
       transferred: 4_250_000,
       total: 10_000_000,
+      bytesPerSecond: 6.2 * 1024 * 1024,
     }));
     await nextTick();
 
-    const bytes = body().querySelector('[data-testid="update-dialog-bytes"]');
-    expect(bytes?.textContent).toBe('4.1MB of 9.5MB');
+    const meta = body().querySelector('[data-testid="update-dialog-progress-meta"]');
+    expect(meta?.textContent).toContain('4.1MB / 9.5MB');
+    expect(meta?.textContent).toContain('42.5%');
+    expect(meta?.textContent).toContain('6.2MB/s');
+    expect(meta?.querySelectorAll('.update-dialog__separator')).toHaveLength(2);
     const progress = body().querySelector<HTMLProgressElement>('[data-testid="update-dialog-progress"]');
     expect(progress?.value).toBe(42.5);
   });
@@ -282,6 +286,7 @@ describe('sidebar update button', () => {
     const button = wrapper.find('[data-testid="sidebar-update"]');
     expect(button.exists()).toBe(true);
     expect(button.text()).toContain('Update');
+    expect(button.find('[data-testid="sidebar-update-version"]').text()).toBe('v1.2.3');
     expect(update.dialogOpen.value).toBe(false);
 
     await button.trigger('click');

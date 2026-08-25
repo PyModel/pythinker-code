@@ -261,9 +261,11 @@ describe('settings UI', () => {
 
     const updateControls = document.body.querySelector<HTMLElement>('[data-testid="desktop-update-controls"]')!;
     expect(updateControls.closest<HTMLElement>('.panel')?.style.display).toBe('none');
-    const updateTab = Array.from(document.body.querySelectorAll<HTMLButtonElement>('[role="tab"]'))
-      .find((tab) => tab.textContent?.trim() === 'Update');
+    const tabs = Array.from(document.body.querySelectorAll<HTMLButtonElement>('.settings-tabs [role="tab"]'));
+    expect(tabs.slice(-2).map((tab) => tab.textContent?.trim())).toEqual(['Update', 'Advanced']);
+    const updateTab = tabs.find((tab) => tab.textContent?.trim() === 'Update');
     expect(updateTab).toBeDefined();
+    expect(updateTab!.querySelector('.ptx-update-icon')?.getAttribute('width')).toBe('14');
     updateTab!.click();
     await flushPromises();
 

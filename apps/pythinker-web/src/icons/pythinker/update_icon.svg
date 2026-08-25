@@ -1,0 +1,47 @@
+<svg
+  class="ptx ptx-update-icon"
+  xmlns="http://www.w3.org/2000/svg"
+  width="24"
+  height="24"
+  viewBox="0 0 24 24"
+  fill="none"
+  role="img"
+  aria-label="Download update"
+>
+  <style>
+    .ptx-update-icon .arrow {
+      transform-box: fill-box;
+      transform-origin: center;
+      animation: ptx-update-vibrate 3s ease-in-out infinite;
+    }
+
+    @keyframes ptx-update-vibrate {
+      0%, 76%, 100% { transform: translate(0, 0) rotate(0deg); }
+      79% { transform: translate(-.8px, .1px) rotate(-2deg); }
+      82% { transform: translate(.9px, -.1px) rotate(2deg); }
+      85% { transform: translate(-.6px, .1px) rotate(-1.6deg); }
+      88% { transform: translate(.7px, -.1px) rotate(1.6deg); }
+      91% { transform: translate(-.4px, .1px) rotate(-1deg); }
+      94% { transform: translate(.4px, -.1px) rotate(.8deg); }
+      97% { transform: translate(0, 0) rotate(0deg); }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .ptx-update-icon .arrow {
+        animation: none;
+      }
+    }
+  </style>
+
+  <circle cx="12" cy="12" r="9.9" stroke="currentColor" stroke-width="1.6"/>
+  <g
+    class="arrow"
+    stroke="currentColor"
+    stroke-width="1.8"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  >
+    <path d="M12 6.2V16.5"/>
+    <path d="M8.5 13L12 16.5L15.5 13"/>
+  </g>
+</svg>

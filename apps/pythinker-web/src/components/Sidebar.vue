@@ -17,6 +17,7 @@ import SearchSessionsDialog from './dialogs/SearchSessionsDialog.vue';
 import WorkspaceGroup from './WorkspaceGroup.vue';
 import { isDesktop, isMacosDesktop } from '../lib/desktopFlag';
 import { useDesktopUpdate } from '../composables/useDesktopUpdate';
+import Badge from './ui/Badge.vue';
 import IconButton from './ui/IconButton.vue';
 import Icon from './ui/Icon.vue';
 import Kbd from './ui/Kbd.vue';
@@ -687,19 +688,44 @@ onBeforeUnmount(() => {
       </div>
 
       <!-- Update entry point. Desktop only, and only once a version the user
-           has not skipped is actually waiting; the overlay owns the rest. -->
+           has not skipped is actually waiting. It stays in normal document
+           flow, so it pushes New chat and every row below it down without
+           moving the macOS title-bar/traffic-light clearance above. -->
       <div v-if="update.hasUpdate.value" class="update-wrap">
         <button
           class="btn-update"
           type="button"
           data-testid="sidebar-update"
+          :aria-label="update.availableVersion.value
+            ? t('update.sidebarHint', { version: update.availableVersion.value })
+            : t('update.sidebarAction')"
           :title="update.availableVersion.value
             ? t('update.sidebarHint', { version: update.availableVersion.value })
             : undefined"
           @click.stop="update.openDialog()"
         >
-          <Icon name="arrow-up" />
-          <span>{{ t('update.sidebarAction') }}</span>
+          <span class="update-icon-shell" aria-hidden="true">
+            <Icon name="update-available" size="lg" />
+          </span>
+          <span class="update-copy" aria-hidden="true">
+            <span class="btn-update__title">
+              <span
+                class="btn-update__label"
+                :data-label="t('update.sidebarAction')"
+              >{{ t('update.sidebarAction') }}</span>
+              <span class="btn-update__availability">{{ t('update.sidebarAvailable') }}</span>
+            </span>
+            <Badge
+              v-if="update.availableVersion.value"
+              class="update-version"
+              data-testid="sidebar-update-version"
+              variant="info"
+              size="sm"
+            >
+              {{ t('update.sidebarVersion', { version: update.availableVersion.value }) }}
+            </Badge>
+          </span>
+          <span class="update-cta" aria-hidden="true">{{ t('update.sidebarAction') }}</span>
         </button>
       </div>
 
@@ -1254,36 +1280,134 @@ onBeforeUnmount(() => {
    inside the group stack flush (0 gap, same rhythm as the session list rows);
    the group's bottom gap lives on .search-wrap. */
 .update-wrap {
+  flex: none;
   display: flex;
-  padding: 0 var(--sb-inset) var(--space-1);
+  padding: var(--space-1) var(--sb-inset) var(--space-2);
 }
-/* Same row geometry as .btn-new-chat; accent colour is the only difference,
-   so the row reads as an offer rather than another navigation item. */
+/* Temporary update card. It is visually distinct from navigation, but remains
+   compact enough for the sidebar's 270px default width. */
 .btn-update {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-2);
   flex: 1;
   min-width: 0;
-  padding: 8px calc(var(--sb-pad-x) - var(--sb-inset));
-  border: none;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--color-accent);
+  min-height: 72px;
+  padding: var(--space-3);
+  border: 1px solid var(--color-accent-bd);
+  border-radius: var(--radius-lg);
+  background: var(--color-hover);
+  color: var(--color-text);
   font-family: var(--font-ui);
   font-size: var(--ui-font-size-sm);
   font-weight: var(--weight-medium);
   line-height: var(--leading-tight);
   cursor: pointer;
   text-align: left;
+  box-shadow: var(--shadow-xs);
+  transition: background var(--duration-fast) var(--ease-out),
+    border-color var(--duration-fast) var(--ease-out),
+    transform var(--duration-fast) var(--ease-out);
 }
-.btn-update:hover { background: var(--sb-hover); }
+.btn-update:hover {
+  background: var(--color-selected);
+  border-color: var(--color-accent);
+  transform: translateY(-1px);
+}
 .btn-update:focus-visible { outline: none; box-shadow: var(--p-focus-ring); }
 .btn-update svg { flex: none; }
-.btn-update span {
+.update-icon-shell {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--color-accent-bd);
+  border-radius: var(--radius-full);
+  background: var(--color-accent-soft);
+  color: var(--color-accent-hover);
+}
+.update-copy {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-1);
+}
+.btn-update__title {
+  display: flex;
+  min-width: 0;
+  max-width: 100%;
+  gap: var(--space-1);
+  color: var(--color-text);
+  font-size: var(--ui-font-size-sm);
+  font-weight: var(--weight-medium);
+  white-space: nowrap;
+}
+.btn-update__label {
+  position: relative;
+  flex: none;
+}
+.btn-update__availability {
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
+}
+.btn-update__label::after {
+  content: attr(data-label);
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  color: color-mix(in srgb, var(--color-text-on-scrim) 78%, var(--color-text-muted));
+  opacity: 0;
+  clip-path: inset(0 100% 0 0);
+  animation: update-label-shimmer 10s linear infinite;
+}
+.update-version { flex: none; }
+.update-cta {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-md);
+  background: var(--color-accent);
+  color: var(--color-text-on-accent);
+  font-weight: var(--weight-medium);
+  box-shadow: var(--shadow-xs);
+}
+
+@container sidebar-col (max-width: 230px) {
+  .btn-update {
+    gap: var(--space-2);
+    padding: var(--space-2);
+  }
+  .update-icon-shell {
+    width: 32px;
+    height: 32px;
+  }
+  .btn-update__availability { display: none; }
+  .update-cta { padding: 0 var(--space-2); }
+}
+
+@keyframes update-label-shimmer {
+  0%, 10%, 20%, 30%, 40% {
+    opacity: 0.9;
+    clip-path: inset(0 90% 0 0);
+  }
+  9.999%, 19.999%, 29.999%, 39.999%, 49.999% {
+    opacity: 0.9;
+    clip-path: inset(0 0 0 90%);
+  }
+  50%, 100% {
+    opacity: 0;
+    clip-path: inset(0 0 0 100%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .btn-update__label::after { content: none; animation: none; }
 }
 
 .btn-wrap {

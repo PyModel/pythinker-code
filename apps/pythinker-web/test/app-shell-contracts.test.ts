@@ -49,6 +49,25 @@ describe('app shell contracts', () => {
     expect(sidebarBanner).toContain('width="1640" height="180" viewBox="230 395 1640 180"');
   });
 
+  it('shimmers the Update word for five seconds, then rests for five seconds', () => {
+    expect(sidebar).toContain('<Icon name="update-available" size="lg" />');
+    expect(sidebar).toContain('animation: update-label-shimmer 10s linear infinite;');
+    expect(sidebar).toContain('0%, 10%, 20%, 30%, 40%');
+    expect(sidebar).toContain('50%, 100%');
+    expect(sidebar).toContain('content: attr(data-label);');
+    expect(sidebar).toMatch(/\.btn-update\s*\{[^}]*color: var\(--color-text\);/s);
+    expect(sidebar).not.toContain('.btn-update::after');
+    expect(sidebar).toContain('@media (prefers-reduced-motion: reduce)');
+  });
+
+  it('keeps desktop traffic lights clear and separates the Update action', () => {
+    expect(sidebar).toMatch(/\.side\.macos-desktop \.ch\s*\{[^}]*padding-top: 36px;/s);
+    expect(sidebar).toMatch(/\.update-wrap\s*\{[^}]*flex: none;[^}]*padding: var\(--space-1\) var\(--sb-inset\) var\(--space-2\);/s);
+    expect(sidebar).toMatch(/\.btn-update\s*\{[^}]*min-height: 72px;[^}]*padding: var\(--space-3\);[^}]*background: var\(--color-hover\);/s);
+    expect(sidebar.indexOf('<div class="ch">')).toBeLessThan(sidebar.indexOf('class="update-wrap"'));
+    expect(sidebar.indexOf('class="update-wrap"')).toBeLessThan(sidebar.indexOf('<div class="btn-wrap">'));
+  });
+
   it('persists and reorders pinned sessions', () => {
     expect(client).toContain('STORAGE_KEYS.pinnedSessions');
     expect(client).toContain('function togglePinnedSession(id: string)');
