@@ -86,17 +86,16 @@ describe('runCommand', () => {
 
   it('removes the abort listener when stream collection fails', async () => {
     const controller = new AbortController();
+    const stdout = new Readable({ read() {} });
     const proc = {
       ...fakeProcess(),
-      stdout: new Readable({
-        read() {
-          this.destroy(new Error('stream failed'));
-        },
-      }),
+      stdout,
     };
-    await expect(
-      runCommand(fakeRunner(proc), ['echo'], { signal: controller.signal }),
-    ).rejects.toThrow('stream failed');
+    const promise = runCommand(fakeRunner(proc), ['echo'], { signal: controller.signal });
+    await Promise.resolve();
+    expect(listenerCount(controller.signal as unknown as EventEmitter, 'abort')).toBeGreaterThan(0);
+    stdout.destroy(new Error('stream failed'));
+    await expect(promise).rejects.toThrow('stream failed');
     expect(listenerCount(controller.signal as unknown as EventEmitter, 'abort')).toBe(0);
   });
 });
