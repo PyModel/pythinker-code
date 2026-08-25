@@ -164,7 +164,7 @@ What belongs here:
 - **Helper classes / functions** used only by this impl (e.g. a built-in writer, an `extractError` helper) — co-located in the same file.
 - **Top-level `registerScopedService(...)`** — one per Service the file owns; importing the impl file runs the registration.
 
-Base class: extend `Service` (from `#/_base/di/service`) when the unit needs capability calls on `this` — `provide` / `effect` / `on` / `get` / `ref` (e.g. contributing a record to a `collection` token). `Service` extends `Disposable`, so `_register` keeps working; constructor-time `provide` / `on` / `effect` calls are buffered and flushed by the kernel after construction, while `get` / `ref` throw inside the constructor (dependencies stay constructor parameters). Otherwise extend `Disposable` — both are full DI units; a service whose own members collide with the `Service` vocabulary (`name` / `state` / `config` / `get`) must stay on `Disposable` (leave a NOTE comment saying so).
+Base class: extend `Service` (from `#/_base/di/service`) when the unit needs capability calls on `this` — `provide` / `effect` / `on` / `get` / `ref` (e.g. contributing a record to a `collection` token). `Service` extends `Disposable`, so `_register` keeps working; constructor-time `provide` / `on` / `effect` calls are buffered and flushed by the kernel after construction, while `get` / `ref` throw inside the constructor (dependencies stay constructor parameters). Otherwise extend `Disposable` — both are full DI units; a service whose own members collide with the `Service` vocabulary (`name` / `state` / `config` / `get`) must stay on `Disposable`.
 
 ## Constructor conventions
 
@@ -298,7 +298,6 @@ Importing the package therefore fires every `register*` side effect, exactly as 
 
 - **No comments** (orient.md): no file headers, no statement-level narration, no JSDoc; the only exception is a load-bearing lint-suppression directive.
 - **Methods and fields carry no comments by default.** Well-named identifiers and types say *what*; the code is the source of truth for *how*.
-- Write an inline comment only when the *why* is non-obvious (a hidden constraint, a subtle invariant, a workaround). One short line.
 - For unimplemented stubs, throw `NotImplementedError('feature')` rather than `throw new Error('TODO: …')` (errors.md).
 
 ## Complete minimal example

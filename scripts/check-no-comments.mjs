@@ -99,7 +99,7 @@ for (const pkg of PACKAGES) {
         const p = path.join(d, e.name);
         if (e.isDirectory()) {
           if (e.name !== 'node_modules') stack.push(p);
-        } else if (/\.(ts|tsx|mts|mjs)$/.test(e.name)) {
+        } else if (/\.(ts|tsx|js|jsx|mts|mjs)$/.test(e.name)) {
           files.push(p);
         }
       }

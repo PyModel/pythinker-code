@@ -1775,6 +1775,36 @@ describe('AgentTranscriptProjector', () => {
     });
   });
 
+  it('preserves terminal prompt status when prompt.started is replayed', () => {
+    const projector = new AgentTranscriptProjector('main');
+    const tx = new AgentTranscript('main');
+    const feed = (event: ProjectorBusEvent): void => void tx.apply(projector.map(event));
+
+    for (const status of ['completed', 'failed', 'blocked'] as const) {
+      const promptId = `p-${status}`;
+      feed(
+        ev({
+          type: 'prompt.completed',
+          promptId,
+          finishedAt: '2026-01-01T00:00:00.000Z',
+          reason: status,
+        }),
+      );
+      feed(ev({ type: 'prompt.started', promptId }));
+      expect(tx.getPrompt(promptId)?.status).toBe(status);
+    }
+
+    feed(
+      ev({
+        type: 'prompt.aborted',
+        promptId: 'p-aborted',
+        abortedAt: '2026-01-01T00:00:00.000Z',
+      }),
+    );
+    feed(ev({ type: 'prompt.started', promptId: 'p-aborted' }));
+    expect(tx.getPrompt('p-aborted')?.status).toBe('aborted');
+  });
+
   it('projects prompt.steered media content to the wire shape (no daemon ref or path leak)', () => {
     const projector = new AgentTranscriptProjector('main');
     const tx = new AgentTranscript('main');

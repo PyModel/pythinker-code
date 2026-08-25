@@ -1257,7 +1257,7 @@ export class AgentTranscriptProjector {
   private onPromptStarted(event: PromptStartedEvent): TranscriptOperation[] {
     const prompt = this.upsertPrompt(event.promptId, (prev) => ({
       promptId: event.promptId,
-      status: 'running',
+      status: prev !== undefined && isTerminalPromptStatus(prev.status) ? prev.status : 'running',
       userMessageId: prev?.userMessageId,
       content: prev?.content,
       createdAt: prev?.createdAt ?? new Date().toISOString(),

@@ -4,7 +4,7 @@ The Pythinker Code server, backed by the DI × Scope agent engine (`@pymodel/age
 
 ## Comment conventions
 
-No comments — no file headers, no section banners, no statement-level narration; the code is the source of truth. The only exception is JSDoc attached to exported symbols (it flows into the generated `.d.ts` and IDE hover). Lint-suppression directives (`oxlint-disable` / `eslint-disable`) are allowed where they suppress an active rule for a deliberate pattern; other tooling directives (`@ts-expect-error`, `@ts-ignore`, …) stay banned — fix the underlying type problem instead. Enforced by `scripts/check-no-comments.mjs` (part of `pnpm lint`).
+No comments — no file headers, no section banners, no statement-level narration, and no JSDoc. The only exception is a load-bearing lint-suppression directive (`oxlint-disable` / `eslint-disable`) for a deliberate pattern; other tooling directives (`@ts-expect-error`, `@ts-ignore`, …) stay banned — fix the underlying type problem instead. Enforced by `scripts/check-no-comments.mjs` (part of `pnpm lint`).
 
 ## Routes
 

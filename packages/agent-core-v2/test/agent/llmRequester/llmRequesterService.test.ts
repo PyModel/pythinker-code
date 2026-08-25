@@ -390,17 +390,20 @@ describe('AgentLLMRequesterService infinite retry', () => {
   });
 
   it('honors the provider retry-after delay while retrying indefinitely', async () => {
+    vi.useFakeTimers();
     const calls = { value: 0 };
     const requester = createRequester(calls, new APIProviderRateLimitError('slow down', null, 1));
     const { service } = createService(requester, undefined, {
       env: { [PYTHINKER_CODE_INFINITE_RETRY_ENV]: '1' },
     });
 
-    const startedAt = Date.now();
-    await service.request();
+    const promise = service.request();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(calls.value).toBe(1);
+    await vi.advanceTimersByTimeAsync(1);
+    await promise;
 
     expect(calls.value).toBe(2);
-    expect(Date.now() - startedAt).toBeLessThan(500);
   });
 
   it('stops retrying when the caller aborts during the backoff wait', async () => {
