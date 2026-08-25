@@ -44,6 +44,6 @@ export default {
   emptyConversationTitle: 'Pythinker Code',
   emptyConversation: 'No messages yet — type below to start the conversation',
   quickStartPlaceholder: 'Type a message to start a new conversation…',
-  thinkingSuffix: ' · thinking',
-  thinkingSuffixEffort: ' · {level}',
+  thinkingControl: 'Thinking effort: {level}',
+  thinkingMenuTitle: 'Thinking effort',
 } as const;

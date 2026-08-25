@@ -30,6 +30,10 @@ function fakeAgent(opts: { type?: 'main' | 'sub'; goal?: GoalMode } = {}): Agent
     telemetry: { track: () => {} },
     context: { appendSystemReminder: () => {} },
     permission: { mode: 'manual' },
+    fullCompaction: {
+      onDidStartCompaction: () => ({ dispose() {} }),
+      onDidFinishCompaction: () => ({ dispose() {} }),
+    },
   } as unknown as Agent;
   (agent as { goal: GoalMode }).goal = opts.goal ?? new GoalMode(agent);
   return agent;

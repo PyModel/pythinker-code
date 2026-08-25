@@ -14,7 +14,6 @@ import {
   commitLevel,
   effectiveThinkingLevel,
   effortLabel,
-  isThinkingOn,
   modelThinkingAvailability,
   segmentsFor,
 } from '../../lib/modelThinking';
@@ -452,7 +451,14 @@ function focus(): void {
 function loadAttachmentsForEdit(atts: { fileId?: string; kind: 'image' | 'video' | 'file'; url: string; name?: string }[]): void {
   loadAttachments(atts);
 }
-const anyPopupOpen = computed(() => slashOpen.value || mentionOpen.value || dropdownOpen.value || permDropdownOpen.value || modesOpen.value);
+const anyPopupOpen = computed(() =>
+  slashOpen.value
+  || mentionOpen.value
+  || dropdownOpen.value
+  || thinkingDropdownOpen.value
+  || permDropdownOpen.value
+  || modesOpen.value,
+);
 const isEmpty = computed(() => text.value.trim().length === 0 && attachments.value.length === 0);
 defineExpose({ loadForEdit, loadAttachmentsForEdit, focus, anyPopupOpen, isEmpty });
 
@@ -631,6 +637,11 @@ function handleKeydown(e: KeyboardEvent): void {
       closeDropdown();
       return;
     }
+    if (thinkingDropdownOpen.value) {
+      e.preventDefault();
+      closeThinkingDropdown();
+      return;
+    }
     if (permDropdownOpen.value) {
       e.preventDefault();
       closePermDropdown();
@@ -775,17 +786,22 @@ const activePopupOption = computed(() => {
 // ---------------------------------------------------------------------------
 
 const dropdownOpen = ref(false);
+const thinkingDropdownOpen = ref(false);
 const permDropdownOpen = ref(false);
 const toolbarRef = ref<HTMLElement | null>(null);
 const permissionPillRef = ref<HTMLElement | null>(null);
 const modelPillRef = ref<HTMLButtonElement | null>(null);
+const thinkingPillRef = ref<HTMLButtonElement | null>(null);
 const modelNameRef = ref<HTMLElement | null>(null);
 const modelDropdownRef = ref<HTMLElement | null>(null);
+const thinkingDropdownRef = ref<HTMLElement | null>(null);
 const permDropdownRef = ref<HTMLElement | null>(null);
 useOpenMenu(modelDropdownRef);
+useOpenMenu(thinkingDropdownRef);
 useOpenMenu(permDropdownRef);
 const permissionLeft = ref('');
 const modelRight = ref('');
+const thinkingRight = ref('');
 const modelMenuMaxHeight = ref('');
 const modelMenuFlipDown = ref(false);
 
@@ -793,12 +809,32 @@ function toggleDropdown(): void {
   dropdownOpen.value = !dropdownOpen.value;
   if (dropdownOpen.value) {
     measureModelAnchor();
+    thinkingDropdownOpen.value = false;
     permDropdownOpen.value = false;
     closeModes();
     slashOpen.value = false;
     mentionOpen.value = false;
     document.addEventListener('click', onPopupDocClick, true);
   }
+}
+
+function toggleThinkingDropdown(): void {
+  if (thinkingReadonly.value) return;
+  thinkingDropdownOpen.value = !thinkingDropdownOpen.value;
+  if (thinkingDropdownOpen.value) {
+    measureThinkingAnchor();
+    dropdownOpen.value = false;
+    permDropdownOpen.value = false;
+    closeModes();
+    slashOpen.value = false;
+    mentionOpen.value = false;
+    document.addEventListener('click', onPopupDocClick, true);
+  }
+}
+
+function closeThinkingDropdown(): void {
+  thinkingDropdownOpen.value = false;
+  removePopupListenerIfIdle();
 }
 
 function closeDropdown(): void {
@@ -811,6 +847,7 @@ function togglePermDropdown(): void {
   if (permDropdownOpen.value) {
     measurePermissionAnchor();
     dropdownOpen.value = false;
+    thinkingDropdownOpen.value = false;
     closeModes();
     slashOpen.value = false;
     mentionOpen.value = false;
@@ -824,7 +861,7 @@ function closePermDropdown(): void {
 }
 
 function removePopupListenerIfIdle(): void {
-  if (!dropdownOpen.value && !permDropdownOpen.value && !modesOpen.value) {
+  if (!dropdownOpen.value && !thinkingDropdownOpen.value && !permDropdownOpen.value && !modesOpen.value) {
     document.removeEventListener('click', onPopupDocClick, true);
   }
 }
@@ -837,6 +874,7 @@ function onPopupDocClick(event: MouseEvent): void {
     || mobileModesMenuRef.value?.contains(target)
   ) return;
   closeDropdown();
+  closeThinkingDropdown();
   closePermDropdown();
   closeModes();
 }
@@ -853,6 +891,14 @@ function measureModelAnchor(): void {
   const pill = modelPillRef.value;
   const toolbar = toolbarRef.value;
   modelRight.value = pill && toolbar
+    ? `${Math.round(toolbar.getBoundingClientRect().right - pill.getBoundingClientRect().right)}px`
+    : '';
+}
+
+function measureThinkingAnchor(): void {
+  const pill = thinkingPillRef.value;
+  const toolbar = toolbarRef.value;
+  thinkingRight.value = pill && toolbar
     ? `${Math.round(toolbar.getBoundingClientRect().right - pill.getBoundingClientRect().right)}px`
     : '';
 }
@@ -891,23 +937,23 @@ const activeThinkingSegment = computed(() => {
   const segs = thinkingSegments.value;
   return segs.includes(thinkingLevel.value) ? thinkingLevel.value : '';
 });
-const thinkingOn = computed(() => isThinkingOn(thinkingLevel.value));
 // Single-segment (always-on boolean) or unsupported models can't be changed.
 const thinkingReadonly = computed(
   () => thinkingAvailability.value === 'unsupported' || thinkingSegments.value.length <= 1,
 );
-// Footer-style suffix: effort models show the concrete level; boolean models
-// keep the plain "thinking" tag; off shows nothing.
-const thinkingSuffix = computed(() => {
-  if (!thinkingOn.value) return '';
+const thinkingPillLabel = computed(() => {
   const hasEfforts = (currentModel.value?.supportEfforts?.length ?? 0) > 0;
   const level = thinkingLevel.value;
-  if (hasEfforts && level !== 'on') return t('composer.thinkingSuffixEffort', { level });
-  return t('composer.thinkingSuffix');
+  if (hasEfforts && level !== 'on' && level !== 'off') return effortLabel(level);
+  return thinkingSegmentLabel(level);
 });
+const thinkingAriaLabel = computed(() =>
+  t('composer.thinkingControl', { level: thinkingPillLabel.value }),
+);
 function setThinkingSegment(draft: string): void {
   if (thinkingReadonly.value) return;
   emit('setThinking', commitLevel(currentModel.value, draft));
+  closeThinkingDropdown();
 }
 function thinkingSegmentLabel(segment: string): string {
   if (segment === 'on') return t('status.thinkingOn');
@@ -1047,6 +1093,7 @@ function toggleModes(): void {
   }
   // Keep the toolbar menus mutually exclusive so they never overlap.
   closeDropdown();
+  closeThinkingDropdown();
   closePermDropdown();
   slashOpen.value = false;
   mentionOpen.value = false;
@@ -1152,6 +1199,11 @@ const modelMenuStyle = computed<Record<string, string>>(() => {
   const style: Record<string, string> = {};
   if (modelRight.value) style.right = modelRight.value;
   if (modelMenuMaxHeight.value) style.maxHeight = modelMenuMaxHeight.value;
+  return style;
+});
+const thinkingMenuStyle = computed<Record<string, string>>(() => {
+  const style: Record<string, string> = {};
+  if (thinkingRight.value) style.right = thinkingRight.value;
   return style;
 });
 let menuMeasureFrame: number | null = null;
@@ -1285,7 +1337,7 @@ watch(
     permLabel,
     workflowOn,
     showCompact,
-    thinkingSuffix,
+    thinkingPillLabel,
     () => props.status?.model,
     () => props.working,
     locale,
@@ -1303,7 +1355,7 @@ onUnmounted(() => {
 });
 
 // ---------------------------------------------------------------------------
-// Model dropdown — current provider models + thinking + more
+// Model dropdown — current provider models + more
 // ---------------------------------------------------------------------------
 
 const currentProvider = computed(() => {
@@ -1701,7 +1753,7 @@ function selectModel(modelId: string): void {
             </span>
           </Tooltip>
 
-          <Tooltip :text="modelIconOnly ? `${status?.model ?? ''}${thinkingSuffix}` : null">
+          <Tooltip :text="modelIconOnly ? status?.model : null">
             <button
               v-if="status"
               ref="modelPillRef"
@@ -1710,15 +1762,32 @@ function selectModel(modelId: string): void {
               :class="{ open: dropdownOpen, 'icon-only': modelIconOnly }"
               aria-haspopup="menu"
               :aria-expanded="dropdownOpen"
-              :aria-label="modelIconOnly ? `${status.model}${thinkingSuffix}` : undefined"
+              :aria-label="modelIconOnly ? status.model : undefined"
               @click.stop="toggleDropdown"
             >
               <Icon v-if="modelIconOnly" name="cute-bot" size="md" />
               <template v-else>
                 <span ref="modelNameRef" class="mp-name">{{ status.model }}</span>
-                <span v-if="thinkingSuffix" class="think-suffix">{{ thinkingSuffix }}</span>
                 <Icon class="cv" name="chevron-down" size="sm" />
               </template>
+            </button>
+          </Tooltip>
+          <Tooltip v-if="status && thinkingAvailability !== 'unsupported'" :text="thinkingAriaLabel">
+            <button
+              ref="thinkingPillRef"
+              type="button"
+              class="thinking-pill"
+              :class="{ open: thinkingDropdownOpen }"
+              :disabled="thinkingReadonly"
+              aria-haspopup="dialog"
+              :aria-expanded="thinkingDropdownOpen"
+              :aria-label="thinkingAriaLabel"
+              @click.stop="toggleThinkingDropdown"
+              @keydown.escape.prevent="closeThinkingDropdown"
+            >
+              <Icon name="thinking" size="sm" />
+              <span class="thinking-pill-label">{{ thinkingPillLabel }}</span>
+              <Icon v-if="!thinkingReadonly" class="cv" name="chevron-down" size="sm" />
             </button>
           </Tooltip>
           <Tooltip v-if="working" :text="t('composer.interruptTitle')">
@@ -1746,7 +1815,7 @@ function selectModel(modelId: string): void {
           <div
             v-if="dropdownOpen && status"
             ref="modelDropdownRef"
-            class="model-dropdown"
+            class="composer-dropdown model-dropdown"
             :class="{ 'flip-down': modelMenuFlipDown }"
             :style="modelMenuStyle"
             role="menu"
@@ -1784,25 +1853,6 @@ function selectModel(modelId: string): void {
               </button>
             </div>
             <div v-if="providerModels.length > 0" class="md-divider" />
-            <div class="md-thinking">
-              <span class="md-name">{{ t('status.thinkingLabel') }}</span>
-              <span v-if="thinkingAvailability === 'unsupported'" class="md-note">
-                {{ t('status.modeNotSupported') }}
-              </span>
-              <SegmentedControl
-                v-else-if="thinkingSegments.length > 1"
-                :model-value="activeThinkingSegment"
-                :options="thinkingOptions"
-                size="xs"
-                @update:model-value="setThinkingSegment"
-              />
-              <span v-else class="md-note">
-                {{ thinkingSegmentLabel(thinkingSegments[0] ?? thinkingLevel) }}
-              </span>
-            </div>
-            <div class="md-divider" />
-            <div class="md-cache-note">{{ t('status.cacheNote') }}</div>
-            <div class="md-divider" />
             <button
               class="md-row md-row-more"
               role="menuitem"
@@ -1812,6 +1862,31 @@ function selectModel(modelId: string): void {
               <span class="md-name">{{ t('status.moreModels') }}</span>
               <Icon class="md-more-arrow" name="chevron-right" size="sm" />
             </button>
+          </div>
+        </Transition>
+
+        <Transition name="composer-menu-pop">
+          <div
+            v-if="thinkingDropdownOpen && status"
+            ref="thinkingDropdownRef"
+            class="composer-dropdown thinking-dropdown"
+            :style="thinkingMenuStyle"
+            role="dialog"
+            :aria-label="t('composer.thinkingMenuTitle')"
+            @click.stop
+            @keydown.escape.prevent="closeThinkingDropdown"
+          >
+            <div class="thinking-dropdown-title">
+              <Icon name="thinking" size="sm" />
+              <span>{{ t('composer.thinkingMenuTitle') }}</span>
+            </div>
+            <SegmentedControl
+              :model-value="activeThinkingSegment"
+              :options="thinkingOptions"
+              size="sm"
+              @update:model-value="setThinkingSegment"
+            />
+            <div class="thinking-cache-note">{{ t('status.cacheNote') }}</div>
           </div>
         </Transition>
       </div>
@@ -1962,6 +2037,8 @@ function selectModel(modelId: string): void {
     --composer-control-inset: var(--space-2);
     --composer-valve-floor: 4em;
     --composer-valve-expand-margin: 3.4em;
+    --thinking-dropdown-width: 320px;
+    --thinking-dropdown-viewport-gutter: var(--space-6);
     position: relative;
     border: .5px solid var(--color-composer-line);
     border-radius: var(--radius-composer);
@@ -2465,7 +2542,8 @@ function selectModel(modelId: string): void {
 
 .perm-pill,
 .workflow-chip,
-.model-pill {
+.model-pill,
+.thinking-pill {
     position: relative;
     display: inline-flex;
     align-items: center;
@@ -2494,7 +2572,8 @@ function selectModel(modelId: string): void {
 
 .perm-pill:after,
 .workflow-chip:after,
-.model-pill:after {
+.model-pill:after,
+.thinking-pill:after {
     content: "";
     position: absolute;
     inset: 0;
@@ -2508,13 +2587,15 @@ function selectModel(modelId: string): void {
 
 .perm-pill:hover:after,
 .workflow-chip:hover:after,
-.model-pill:hover:after {
+.model-pill:hover:after,
+.thinking-pill:hover:after {
     opacity: 1
 }
 
 
 .perm-pill.open,
-.model-pill.open {
+.model-pill.open,
+.thinking-pill.open {
     background: var(--color-accent-soft)
 }
 
@@ -2569,6 +2650,17 @@ function selectModel(modelId: string): void {
         display: none
 }
 
+.labels-collapsed .thinking-pill {
+        width: var(--composer-control-size);
+        padding: 0;
+        justify-content: center
+}
+
+.labels-collapsed .thinking-pill-label,
+.labels-collapsed .thinking-pill .cv {
+        display: none
+}
+
 
 .ctx-group {
     display: flex;
@@ -2619,14 +2711,39 @@ function selectModel(modelId: string): void {
 }
 
 
-.model-pill .think-suffix {
+.thinking-pill {
+    flex: none;
+    padding: 0 var(--space-2);
     color: var(--color-accent);
-    font-weight: var(--weight-medium);
-    flex-shrink: 0
+    font-size: var(--ui-font-size-sm);
+    transition: background var(--duration-base) var(--ease-out), color var(--duration-base) var(--ease-out), transform var(--duration-fast) var(--ease-out)
 }
 
 
-.model-pill .cv {
+.thinking-pill:active:not(:disabled) {
+    transform: scale(.97)
+}
+
+
+.thinking-pill:focus-visible {
+    outline: none;
+    box-shadow: var(--p-focus-ring)
+}
+
+
+.thinking-pill:disabled {
+    color: var(--muted);
+    cursor: default
+}
+
+
+.thinking-pill:disabled:hover:after {
+    opacity: 0
+}
+
+
+.model-pill .cv,
+.thinking-pill .cv {
     color: var(--faint);
     flex: none;
     transition: transform var(--duration-base) var(--ease-out), color var(--duration-base) var(--ease-out)
@@ -2634,12 +2751,15 @@ function selectModel(modelId: string): void {
 
 
 .model-pill:hover .cv,
-.model-pill.open .cv {
+.model-pill.open .cv,
+.thinking-pill:hover .cv,
+.thinking-pill.open .cv {
     color: var(--dim)
 }
 
 
-.model-pill.open .cv {
+.model-pill.open .cv,
+.thinking-pill.open .cv {
     transform: rotate(180deg)
 }
 
@@ -2654,7 +2774,7 @@ function selectModel(modelId: string): void {
 
 
 
-.model-dropdown {
+.composer-dropdown {
     position: absolute;
     bottom: calc(100% + var(--space-1));
     right: calc(var(--composer-control-inset) + var(--composer-send-size) + var(--space-1));
@@ -2674,6 +2794,38 @@ function selectModel(modelId: string): void {
     transform-origin: bottom right;
     overflow-y: auto;
     overscroll-behavior: contain
+}
+
+
+.thinking-dropdown {
+    width: var(--thinking-dropdown-width);
+    min-width: 0;
+    max-width: calc(100vw - var(--thinking-dropdown-viewport-gutter));
+    padding: var(--space-3);
+    gap: var(--space-3);
+    overflow: hidden
+}
+
+
+.thinking-dropdown-title {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    color: var(--color-text);
+    font-size: var(--ui-font-size);
+    font-weight: var(--weight-semibold)
+}
+
+
+.thinking-dropdown .ui-seg {
+    width: 100%
+}
+
+
+.thinking-cache-note {
+    color: var(--muted);
+    font-size: var(--ui-font-size-xs);
+    line-height: 1.4
 }
 
 
@@ -2833,39 +2985,6 @@ function selectModel(modelId: string): void {
     height: 1px;
     background: var(--line);
     margin: 3px 0
-}
-
-
-.md-thinking {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 6px 9px;
-    border-radius: var(--radius-sm)
-}
-
-
-.md-thinking .md-name {
-    font-family: var(--font-ui);
-    font-size: var(--ui-font-size);
-    color: var(--color-text);
-    flex: none
-}
-
-
-.md-thinking .md-note,
-.md-thinking .ui-seg {
-    margin-left: auto
-}
-
-
-.md-cache-note {
-    width: 0;
-    min-width: 100%;
-    padding: 2px 7px 4px;
-    color: var(--muted);
-    font-size: var(--ui-font-size-xs);
-    line-height: 1.4
 }
 
 
@@ -3091,11 +3210,16 @@ function selectModel(modelId: string): void {
         max-width: calc(100vw - 24px)
     }
 
+    .thinking-dropdown {
+        max-width: calc(100vw - var(--thinking-dropdown-viewport-gutter))
+    }
+
     .ph {
         font-size: 16px
     }
 
     .model-pill,
+    .thinking-pill,
     .attach-btn {
         font-size: var(--ui-font-size)
     }
@@ -3121,15 +3245,6 @@ function selectModel(modelId: string): void {
     .md-row,
     .md-section {
         font-size: var(--ui-font-size)
-    }
-
-    .md-thinking {
-        flex-wrap: wrap;
-        row-gap: 6px
-    }
-
-    .md-thinking .ui-seg {
-        margin-left: 0
     }
 
     .pd-name {

@@ -10,6 +10,10 @@ import { EventBusService } from '#/app/event/eventBusService';
 import { IConfigService } from '#/app/config/config';
 import type { AgentRuntimeSet } from '#/agent/runtime/agentRuntimeSet';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
+import {
+  IAgentFullCompactionService,
+  type FullCompactionTask,
+} from '#/agent/fullCompaction/fullCompaction';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { createReminderStub, lifecycleWithReminder } from '../reminder/stubs';
 import { AgentGoal, type GoalRuntime } from '#/features/goal/goalAgentRuntime';
@@ -26,6 +30,7 @@ import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 import { AGENT_WIRE_RECORD_KEY, type WireRecord } from '#/wire/record';
+import { OrderedHookSlot } from '#/hooks';
 
 import {
   attachGoalRuntime,
@@ -123,6 +128,14 @@ function buildHost(key: string): GoalHost {
   ix.set(IAppendLogStore, new SyncDescriptor(AppendLogStore));
   ix.set(IEventBus, new SyncDescriptor(EventBusService));
   ix.stub(IAgentLoopService, createLoopStub());
+  ix.stub(IAgentFullCompactionService, {
+    _serviceBrand: undefined,
+    compacting: null,
+    begin: () => false,
+    cancel: () => undefined,
+    hooks: { onWillCompact: new OrderedHookSlot<FullCompactionTask>() },
+    onDidFinishCompaction: () => noopDisposable(),
+  } satisfies IAgentFullCompactionService);
   ix.stub(ISessionUsageService, {
     onDidRecord: Event.None,
   } as unknown as ISessionUsageService);
@@ -312,10 +325,11 @@ describe('goal runtime (wire-backed)', () => {
     });
   });
 
-  it('restores a legacy goal update identity without changing state selection', async () => {
+  it('restores a legacy goal update identity without replacing a terminal reason', async () => {
     await restoreGoalDispatcher(dispatcher, log, testWireScope(SCOPE, KEY), [
       { type: 'goal.create', goalId: 'goal-1', objective: 'work' },
       { type: 'goal.update', goalId: 'goal-1', status: 'blocked', reason: 'waiting' },
+      { type: 'goal.update', goalId: 'goal-1', status: 'blocked', reason: 'overwritten' },
     ]);
 
     expect(inspectGoal(runtimes)).toMatchObject({

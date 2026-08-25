@@ -3438,3 +3438,317 @@ describe('goal reminder re-injection after full compaction', () => {
     expect(turnRequest.some((text) => text.includes('Compacted summary.'))).toBe(true);
   });
 });
+
+describe('active goal auto-compaction coordination', () => {
+  const pauseReason =
+    'Paused because context compaction is in progress; it will resume after compaction completes';
+
+  function compactAfterCurrentStep(ctx: TestAgentContext): void {
+    let started = false;
+    ctx.get(IAgentLoopService).hooks.onDidFinishStep.register(
+      'test-goal-auto-compaction',
+      async (_step, next) => {
+        if (!started) {
+          started = true;
+          ctx.get(IAgentFullCompactionService).begin({ source: 'auto' });
+        }
+        await next();
+      },
+      { before: 'goal-outcome-continuation' },
+    );
+  }
+
+  function compactBeforeCurrentStep(ctx: TestAgentContext): void {
+    let started = false;
+    ctx.get(IAgentLoopService).hooks.onWillBeginStep.register(
+      'test-goal-auto-compaction',
+      async (_step, next) => {
+        if (!started) {
+          started = true;
+          ctx.get(IAgentFullCompactionService).begin({ source: 'auto' });
+        }
+        await next();
+      },
+      { before: 'goal-count-turn' },
+    );
+  }
+
+  it('serializes a goal continuation when auto compaction starts after a step', async () => {
+    const compactionRequested = deferred<void>();
+    const releaseCompaction = deferred<void>();
+    const continuationRequested = deferred<void>();
+    let llmCallCount = 0;
+    const llmInputs: string[][] = [];
+    const generate: GenerateFn = async (_provider, _system, _tools, history) => {
+      llmCallCount += 1;
+      llmInputs.push(history.map(messageText));
+      if (llmCallCount === 1) return textResult('First goal slice.');
+      if (llmCallCount === 2) {
+        compactionRequested.resolve();
+        await releaseCompaction.promise;
+        return textResult('Compacted goal summary.');
+      }
+      if (llmCallCount === 3) {
+        continuationRequested.resolve();
+        return textResult('Continued after compaction.');
+      }
+      throw new Error(`Unexpected generate call ${String(llmCallCount)}`);
+    };
+    const ctx = testAgent({ generate });
+    ctx.configure({
+      provider: CATALOGUED_PROVIDER,
+      modelCapabilities: CATALOGUED_MODEL_CAPABILITIES,
+    });
+    const goals = ctx.resolve(AgentGoal);
+    await goals.createGoal({ objective: 'finish the bounded task' });
+    await goals.setBudgetLimits({ budgetLimits: { turnBudget: 2 } });
+    ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
+    compactAfterCurrentStep(ctx);
+    ctx.newEvents();
+    const compactionOutcome = ctx.onceAny(['compaction.completed', 'compaction.cancelled']);
+
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Continue the goal' }] });
+    await compactionRequested.promise;
+    const goalWhileCompacting = goals.getGoal().goal;
+
+    releaseCompaction.resolve();
+    const outcome = await compactionOutcome;
+    await continuationRequested.promise;
+    await ctx.get(IAgentLoopService).settled();
+    const events = ctx.newEvents();
+
+    expect(goalWhileCompacting).toMatchObject({ status: 'paused', terminalReason: pauseReason });
+    expect(outcome).toBe('compaction.completed');
+    expect(llmCallCount).toBe(3);
+    const continuationHistory = llmInputs[2] ?? [];
+    expect(continuationHistory.some((text) => text.includes('active goal'))).toBe(true);
+    expect(continuationHistory.some((text) => text.includes('currently paused'))).toBe(false);
+    expect(countEvents(events, 'compaction.started')).toBe(1);
+    expect(countEvents(events, 'compaction.cancelled')).toBe(0);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        event: 'goal.updated',
+        args: expect.objectContaining({
+          snapshot: expect.objectContaining({ status: 'active' }),
+          change: expect.objectContaining({ kind: 'lifecycle', status: 'active' }),
+        }),
+      }),
+    );
+  });
+
+  it('holds the model request when auto compaction starts before a goal step', async () => {
+    const compactionRequested = deferred<void>();
+    const releaseCompaction = deferred<void>();
+    let llmCallCount = 0;
+    const llmInputs: string[][] = [];
+    const generate: GenerateFn = async (_provider, _system, _tools, history) => {
+      llmCallCount += 1;
+      llmInputs.push(history.map(messageText));
+      if (llmCallCount === 1) {
+        compactionRequested.resolve();
+        await releaseCompaction.promise;
+        return textResult('Compacted before the step.');
+      }
+      if (llmCallCount === 2) return textResult('Model ran after compaction.');
+      throw new Error(`Unexpected generate call ${String(llmCallCount)}`);
+    };
+    const ctx = testAgent({ generate });
+    ctx.configure({
+      provider: CATALOGUED_PROVIDER,
+      modelCapabilities: CATALOGUED_MODEL_CAPABILITIES,
+    });
+    const goals = ctx.resolve(AgentGoal);
+    await goals.createGoal({ objective: 'finish one bounded turn' });
+    await goals.setBudgetLimits({ budgetLimits: { turnBudget: 1 } });
+    ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
+    compactBeforeCurrentStep(ctx);
+    const compactionOutcome = ctx.onceAny(['compaction.completed', 'compaction.cancelled']);
+
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Run after compaction' }] });
+    const turnDone = ctx.get(IAgentLoopService).settled();
+    await compactionRequested.promise;
+    const goalWhileCompacting = goals.getGoal().goal;
+    const callsWhileCompacting = llmCallCount;
+
+    releaseCompaction.resolve();
+    const outcome = await compactionOutcome;
+    await turnDone;
+
+    expect(goalWhileCompacting).toMatchObject({ status: 'paused', terminalReason: pauseReason });
+    expect(callsWhileCompacting).toBe(1);
+    expect(outcome).toBe('compaction.completed');
+    expect(llmCallCount).toBe(2);
+    const answerHistory = llmInputs[1] ?? [];
+    expect(answerHistory.some((text) => text.includes('active goal'))).toBe(true);
+    expect(answerHistory.some((text) => text.includes('currently paused'))).toBe(false);
+    expect(goals.getGoal().goal?.status).toBe('blocked');
+  });
+
+  it('keeps the goal paused when auto compaction fails', async () => {
+    const compactionRequested = deferred<void>();
+    const releaseCompaction = deferred<void>();
+    let llmCallCount = 0;
+    const generate: GenerateFn = async () => {
+      llmCallCount += 1;
+      if (llmCallCount === 1) return textResult('First goal slice.');
+      if (llmCallCount === 2) {
+        compactionRequested.resolve();
+        await releaseCompaction.promise;
+        throw new Error('compaction exploded');
+      }
+      if (llmCallCount === 3) return textResult('Unexpected continuation.');
+      throw new Error(`Unexpected generate call ${String(llmCallCount)}`);
+    };
+    const ctx = testAgent({ generate });
+    ctx.configure({
+      provider: CATALOGUED_PROVIDER,
+      modelCapabilities: CATALOGUED_MODEL_CAPABILITIES,
+    });
+    const goals = ctx.resolve(AgentGoal);
+    await goals.createGoal({ objective: 'finish the bounded task' });
+    await goals.setBudgetLimits({ budgetLimits: { turnBudget: 2 } });
+    ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
+    compactAfterCurrentStep(ctx);
+    const compactionOutcome = ctx.onceAny(['compaction.completed', 'compaction.cancelled']);
+
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Continue the goal' }] });
+    const turnDone = ctx.get(IAgentLoopService).settled();
+    await compactionRequested.promise;
+    releaseCompaction.resolve();
+    const outcome = await compactionOutcome;
+    await turnDone;
+
+    expect(outcome).toBe('compaction.cancelled');
+    expect(llmCallCount).toBe(2);
+    expect(goals.getGoal().goal).toMatchObject({
+      status: 'paused',
+      terminalReason: 'Paused because context compaction did not complete',
+    });
+  });
+
+  it('preserves a user pause when auto compaction later succeeds', async () => {
+    const compactionRequested = deferred<void>();
+    const releaseCompaction = deferred<void>();
+    let llmCallCount = 0;
+    const generate: GenerateFn = async () => {
+      llmCallCount += 1;
+      if (llmCallCount === 1) return textResult('First goal slice.');
+      if (llmCallCount === 2) {
+        compactionRequested.resolve();
+        await releaseCompaction.promise;
+        return textResult('Compacted goal summary.');
+      }
+      return textResult('Unexpected continuation.');
+    };
+    const ctx = testAgent({ generate });
+    ctx.configure({
+      provider: CATALOGUED_PROVIDER,
+      modelCapabilities: CATALOGUED_MODEL_CAPABILITIES,
+    });
+    const goals = ctx.resolve(AgentGoal);
+    await goals.createGoal({ objective: 'finish the bounded task' });
+    ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
+    compactAfterCurrentStep(ctx);
+    const compactionOutcome = ctx.onceAny(['compaction.completed', 'compaction.cancelled']);
+
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Continue the goal' }] });
+    const turnDone = ctx.get(IAgentLoopService).settled();
+    await compactionRequested.promise;
+    await goals.pauseGoal({ reason: 'Paused by user' });
+    releaseCompaction.resolve();
+    const outcome = await compactionOutcome;
+    await turnDone;
+
+    expect(outcome).toBe('compaction.completed');
+    expect(llmCallCount).toBe(2);
+    expect(goals.getGoal().goal).toMatchObject({
+      status: 'paused',
+      terminalReason: 'Paused by user',
+    });
+  });
+
+  it('does not revive a user-cancelled goal after compaction is cancelled', async () => {
+    const compactionRequested = deferred<void>();
+    const releaseCompaction = deferred<void>();
+    let llmCallCount = 0;
+    const generate: GenerateFn = async () => {
+      llmCallCount += 1;
+      if (llmCallCount === 1) return textResult('First goal slice.');
+      if (llmCallCount === 2) {
+        compactionRequested.resolve();
+        await releaseCompaction.promise;
+        return textResult('Compacted goal summary.');
+      }
+      throw new Error(`Unexpected generate call ${String(llmCallCount)}`);
+    };
+    const ctx = testAgent({ generate });
+    ctx.configure({
+      provider: CATALOGUED_PROVIDER,
+      modelCapabilities: CATALOGUED_MODEL_CAPABILITIES,
+    });
+    const goals = ctx.resolve(AgentGoal);
+    await goals.createGoal({ objective: 'finish the bounded task' });
+    ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
+    compactAfterCurrentStep(ctx);
+    const compactionOutcome = ctx.onceAny(['compaction.completed', 'compaction.cancelled']);
+
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Continue the goal' }] });
+    const turnDone = ctx.get(IAgentLoopService).settled();
+    await compactionRequested.promise;
+    await goals.cancelGoal();
+    releaseCompaction.resolve();
+    const outcome = await compactionOutcome;
+    await turnDone;
+
+    expect(outcome).toBe('compaction.cancelled');
+    expect(llmCallCount).toBe(2);
+    expect(goals.getGoal().goal).toBeNull();
+  });
+
+  it('defers an explicit resume until auto compaction succeeds', async () => {
+    const compactionRequested = deferred<void>();
+    const releaseCompaction = deferred<void>();
+    const continuationRequested = deferred<void>();
+    let llmCallCount = 0;
+    const generate: GenerateFn = async () => {
+      llmCallCount += 1;
+      if (llmCallCount === 1) return textResult('First goal slice.');
+      if (llmCallCount === 2) {
+        compactionRequested.resolve();
+        await releaseCompaction.promise;
+        return textResult('Compacted goal summary.');
+      }
+      if (llmCallCount === 3) {
+        continuationRequested.resolve();
+        return textResult('Continued after compaction.');
+      }
+      throw new Error(`Unexpected generate call ${String(llmCallCount)}`);
+    };
+    const ctx = testAgent({ generate });
+    ctx.configure({
+      provider: CATALOGUED_PROVIDER,
+      modelCapabilities: CATALOGUED_MODEL_CAPABILITIES,
+    });
+    const goals = ctx.resolve(AgentGoal);
+    await goals.createGoal({ objective: 'finish the bounded task' });
+    await goals.setBudgetLimits({ budgetLimits: { turnBudget: 2 } });
+    ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
+    compactAfterCurrentStep(ctx);
+    const compactionOutcome = ctx.onceAny(['compaction.completed', 'compaction.cancelled']);
+
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Continue the goal' }] });
+    await compactionRequested.promise;
+    const resumeResult = await goals.resumeGoal({ continueIfPaused: true });
+
+    expect(resumeResult).toMatchObject({ status: 'paused', terminalReason: pauseReason });
+    expect(llmCallCount).toBe(2);
+
+    releaseCompaction.resolve();
+    expect(await compactionOutcome).toBe('compaction.completed');
+    await continuationRequested.promise;
+    await ctx.get(IAgentLoopService).settled();
+
+    expect(llmCallCount).toBe(3);
+    expect(goals.getGoal().goal?.status).toBe('blocked');
+  });
+});
