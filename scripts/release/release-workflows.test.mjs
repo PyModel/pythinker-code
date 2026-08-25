@@ -8,8 +8,10 @@ const read = (path) => readFileSync(resolve(root, path), 'utf8');
 
 void test('desktop releases configure both platforms with Bash', () => {
   const workflow = read('.github/workflows/desktop-release.yml');
-  const configuredWithBash = workflow.match(/^      - name: Configure desktop release\n        shell: bash$/gmu);
-  assert.equal(configuredWithBash?.length ?? 0, 2);
+  const configuredWithBash = /^      - name: Configure desktop release\n        shell: bash$/mu;
+  const windowsStart = workflow.indexOf('\n  windows:');
+  assert.match(workflow.slice(workflow.indexOf('\n  mac:'), windowsStart), configuredWithBash);
+  assert.match(workflow.slice(windowsStart, workflow.indexOf('\n  publish:', windowsStart)), configuredWithBash);
 });
 
 void test('release workflow uses full push-boundary lane signals and isolated jobs', () => {
