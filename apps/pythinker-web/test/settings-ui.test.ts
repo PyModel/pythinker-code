@@ -166,6 +166,8 @@ describe('settings UI', () => {
         status: 'idle',
         installedVersion: '9.8.7',
         autoUpdate: true,
+        channel: 'stable',
+        notifyUpdate: true,
       } satisfies DesktopUpdateState)),
       onUpdateState: vi.fn(() => () => {}),
     };
@@ -198,12 +200,14 @@ describe('settings UI', () => {
     wrapper.unmount();
   });
 
-  it('keeps the desktop update center live through download and restart', async () => {
+  it('keeps the standalone Update tab live through preferences, download, and restart', async () => {
     let state: DesktopUpdateState = {
       status: 'available',
       installedVersion: '1.0.0',
       availableVersion: '1.2.3',
       autoUpdate: true,
+      channel: 'stable',
+      notifyUpdate: true,
     };
     let push: ((next: DesktopUpdateState) => void) | undefined;
     const bridge = {
@@ -211,6 +215,14 @@ describe('settings UI', () => {
       getUpdateState: vi.fn(() => Promise.resolve(state)),
       setAutoUpdate: vi.fn((enabled: boolean) => {
         state = { ...state, autoUpdate: enabled };
+        return Promise.resolve(state);
+      }),
+      setUpdateChannel: vi.fn((channel: DesktopUpdateChannel) => {
+        state = { ...state, channel };
+        return Promise.resolve(state);
+      }),
+      setNotifyUpdate: vi.fn((enabled: boolean) => {
+        state = { ...state, notifyUpdate: enabled };
         return Promise.resolve(state);
       }),
       checkForUpdates: vi.fn(() => Promise.resolve(state)),
@@ -248,12 +260,33 @@ describe('settings UI', () => {
     await flushPromises();
 
     const updateControls = document.body.querySelector<HTMLElement>('[data-testid="desktop-update-controls"]')!;
+    expect(updateControls.closest<HTMLElement>('.panel')?.style.display).toBe('none');
+    const updateTab = Array.from(document.body.querySelectorAll<HTMLButtonElement>('[role="tab"]'))
+      .find((tab) => tab.textContent?.trim() === 'Update');
+    expect(updateTab).toBeDefined();
+    updateTab!.click();
+    await flushPromises();
+
+    expect(updateControls.closest<HTMLElement>('.panel')?.style.display).not.toBe('none');
     expect(updateControls.textContent).toContain('Version 1.2.3 is available');
+    const channel = document.body.querySelector<HTMLSelectElement>('[data-testid="desktop-update-channel"]')!;
+    expect(channel.value).toBe('stable');
+    channel.value = 'beta';
+    channel.dispatchEvent(new Event('change', { bubbles: true }));
+    await flushPromises();
+    expect(bridge.setUpdateChannel).toHaveBeenCalledWith('beta');
+
     const automaticChecks = document.body.querySelector<HTMLButtonElement>('[data-testid="automatic-update-checks"]')!;
     expect(automaticChecks.getAttribute('aria-checked')).toBe('true');
     automaticChecks.click();
     await flushPromises();
     expect(bridge.setAutoUpdate).toHaveBeenCalledWith(false);
+
+    const notifications = document.body.querySelector<HTMLButtonElement>('[data-testid="update-notifications"]')!;
+    expect(notifications.getAttribute('aria-checked')).toBe('true');
+    notifications.click();
+    await flushPromises();
+    expect(bridge.setNotifyUpdate).toHaveBeenCalledWith(false);
 
     document.body.querySelector<HTMLButtonElement>('[data-testid="settings-download-update"]')!.click();
     await flushPromises();
@@ -282,9 +315,7 @@ describe('settings UI', () => {
     push?.(state);
     bridge.checkForUpdates.mockRejectedValueOnce(new Error('update service unavailable'));
     await flushPromises();
-    Array.from(updateControls.querySelectorAll<HTMLButtonElement>('button'))
-      .find((button) => button.textContent?.includes('Check for updates'))!
-      .click();
+    updateControls.querySelector<HTMLButtonElement>('[data-testid="settings-check-update"]')!.click();
     await flushPromises();
     expect(updateControls.textContent).toContain('update service unavailable');
 
