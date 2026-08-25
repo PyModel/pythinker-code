@@ -420,6 +420,57 @@ describe('settings UI', () => {
     wrapper.unmount();
   });
 
+  it('places subagent model after the default model and clears a defaultModel-only override', async () => {
+    const wrapper = mount(SettingsDialog, {
+      props: {
+        colorScheme: 'system',
+        accent: 'blue',
+        uiFontSize: 14,
+        authReady: true,
+        notify: false,
+        notifyQuestion: false,
+        notifyApproval: false,
+        sound: false,
+        config: {
+          providers: {},
+          defaultModel: 'test/main',
+          secondaryModel: { defaultModel: 'test/fast' },
+          experimental: { 'secondary-model': true },
+        },
+        models: [
+          { id: 'test/main', provider: 'test', model: 'main', maxContextSize: 100_000 },
+          { id: 'test/fast', provider: 'test', model: 'fast', maxContextSize: 100_000 },
+        ],
+      },
+      global: { plugins: [i18n] },
+    });
+    try {
+      await flushPromises();
+      const agentTab = Array.from(document.body.querySelectorAll<HTMLButtonElement>('[role="tab"]'))
+        .find((tab) => tab.textContent?.trim() === 'Agent');
+      agentTab!.click();
+      await flushPromises();
+
+      const agentPanel = Array.from(document.body.querySelectorAll<HTMLElement>('.panel'))
+        .find((panel) => panel.textContent?.includes('Agent defaults'))!;
+      const text = agentPanel.textContent ?? '';
+      expect(text.indexOf('Default model')).toBeLessThan(text.indexOf('Subagents'));
+      expect(text.indexOf('Subagents')).toBeLessThan(text.indexOf('Default permission'));
+
+      document.body.querySelector<HTMLButtonElement>('.sm-picker__trigger')!.click();
+      await flushPromises();
+      const inherit = Array.from(document.body.querySelectorAll<HTMLButtonElement>('.sm-picker__option'))
+        .find((option) => option.textContent?.includes('Inherit agent model'));
+      expect(inherit).toBeDefined();
+      inherit!.click();
+      await flushPromises();
+
+      expect(wrapper.emitted('updateConfig')?.at(-1)?.[0]).toEqual({ secondaryModel: null });
+    } finally {
+      wrapper.unmount();
+    }
+  });
+
   it('emits setAccent with mono when the Black accent option is picked', async () => {
     const wrapper = mount(SettingsDialog, {
       props: {

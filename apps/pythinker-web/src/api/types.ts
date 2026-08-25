@@ -803,13 +803,12 @@ export interface AppConfig {
   providers: Record<string, AppConfigProvider>;
   defaultProvider?: string;
   defaultModel?: string;
-  /** Secondary (subagent) model recipe. `model` names a catalog entry or
-   *  config `models` alias; `defaultEffort` mirrors the daemon's
-   *  `secondaryModel` config section (wire key `secondary_model`). */
+  /** Secondary (subagent) model recipe. `null` clears the override so
+   *  subagents inherit their caller's model and thinking effort. */
   secondaryModel?: {
     model?: string;
     defaultEffort?: string;
-  };
+  } | null;
   models?: Record<string, unknown>;
   thinking?: { enabled?: boolean; effort?: string };
   planMode?: boolean;

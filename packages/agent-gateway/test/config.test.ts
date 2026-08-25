@@ -133,6 +133,14 @@ describe('server-v2 /api/v1/config', () => {
     ).not.toContain('provider/fastModel');
   });
 
+  it('POST { secondary_model: null } removes the subagent model override', async () => {
+    await boot('[secondary_model]\nmodel = "provider/fast"\ndefault_effort = "low"\n');
+
+    const cfg = await patchConfig({ secondary_model: null });
+    expect(cfg.secondary_model).toBeUndefined();
+    expect((await getConfig()).secondary_model).toBeUndefined();
+  });
+
   it('POST { providers } converts fields of a provider id colliding with a map-valued key', async () => {
     await boot();
     await patchConfig({

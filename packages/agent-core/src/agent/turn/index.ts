@@ -865,7 +865,11 @@ export class TurnFlow {
             beforeStep: async ({ signal: stepSignal }) => {
               this.agent.microCompaction.detect();
               await this.agent.fullCompaction.beforeStep(stepSignal);
-              await this.agent.goal.waitForCompactionPause();
+              const compactionCompleted = await this.agent.goal.waitForCompactionPause();
+              stepSignal.throwIfAborted();
+              if (!compactionCompleted) {
+                return { block: true, reason: 'Context compaction did not complete' };
+              }
               // Flush steered messages (background-task / cron notifications,
               // user interrupts) AFTER compaction so they land in the
               // post-compaction context instead of being dropped by it. The
@@ -879,9 +883,9 @@ export class TurnFlow {
             afterStep: async ({ usage }) => {
               this.agent.usage.record(model, usage, 'turn');
               await this.agent.fullCompaction.afterStep();
-              await this.agent.goal.waitForCompactionPause();
+              const compactionCompleted = await this.agent.goal.waitForCompactionPause();
               deduper.endStep();
-              return stopForGoalBudget ? { stopTurn: true } : undefined;
+              return !compactionCompleted || stopForGoalBudget ? { stopTurn: true } : undefined;
             },
             // oxlint-disable-next-line no-loop-func -- stop hook continuation state is scoped to this turn.
             shouldContinueAfterStop: async (ctx) => {

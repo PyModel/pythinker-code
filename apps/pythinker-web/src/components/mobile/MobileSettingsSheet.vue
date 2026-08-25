@@ -553,7 +553,7 @@ watch(
   color: var(--color-text-muted);
 }
 
-/* Prompt-cache note under the thinking row — mirrors .md-cache-note in Composer. */
+/* Prompt-cache note under the thinking row. */
 .cache-note {
   padding: 0 var(--space-3) var(--space-2);
   font-size: var(--text-xs);

@@ -191,9 +191,9 @@ export default {
   mergeSkillsHint: 'Show project, plugin, and user skills together',
   secondaryModelSection: 'Subagents',
   secondaryModel: 'Subagent model',
-  secondaryModelHint: 'Model and thinking effort that subagents use by default',
+  secondaryModelHint: 'Use a separate model or inherit the model and thinking effort from the agent that starts each subagent',
   secondaryModelEffort: 'Thinking effort',
-  noSecondaryModel: 'Not set (inherit primary)',
+  noSecondaryModel: 'Inherit agent model',
   secondaryModelEffortAuto: 'Model default',
   lab: {
     sidebarTabs: 'Multi-tab sidebar',

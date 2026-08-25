@@ -149,6 +149,7 @@ interface GoalCompactionPause {
   readonly goalId: string;
   readonly task: FullCompactionTask;
   autoResume: boolean;
+  completed?: boolean;
 }
 
 /** Computed budget view exposed through snapshots and tools. */
@@ -381,10 +382,11 @@ export class GoalMode {
     return this.toSnapshot(state);
   }
 
-  async waitForCompactionPause(): Promise<void> {
+  async waitForCompactionPause(): Promise<boolean> {
     const pause = this.compactionPause;
-    if (pause === undefined) return;
+    if (pause === undefined) return true;
     await pause.task.promise.catch(() => undefined);
+    return pause.completed === true;
   }
 
   // --- Creation ----------------------------------------------------------
@@ -681,6 +683,7 @@ export class GoalMode {
   private handleCompactionFinished(event: FullCompactionFinished): void {
     const pause = this.compactionPause;
     if (pause === undefined || pause.task !== event.task) return;
+    pause.completed = event.completed;
     const state = this.state;
     if (
       state === undefined ||

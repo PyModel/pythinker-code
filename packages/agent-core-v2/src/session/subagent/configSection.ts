@@ -186,15 +186,13 @@ export function assertValidSubagentModelConfig(
 
 export function cascadeSubagentModelPool(
   section: SecondaryModelConfig | undefined,
-  survivingModels: Record<string, unknown>,
+  _survivingModels: Record<string, unknown>,
   renamedAliases: ReadonlyMap<string, string> = new Map(),
-): SecondaryModelConfig | null | undefined {
+): SecondaryModelConfig | undefined {
   if (section === undefined) return undefined;
   const remap = (alias: string): string => renamedAliases.get(alias) ?? alias;
   const nextDefault = section.defaultModel === undefined ? undefined : remap(section.defaultModel);
   const nextLegacyDefault = section.model === undefined ? undefined : remap(section.model);
-  const effectiveDefault = nextDefault ?? nextLegacyDefault;
-  if (effectiveDefault !== undefined && !(effectiveDefault in survivingModels)) return null;
 
   let changed = nextDefault !== section.defaultModel || nextLegacyDefault !== section.model;
   let nextPool: Record<string, string> | undefined;
@@ -202,16 +200,8 @@ export function cascadeSubagentModelPool(
     nextPool = {};
     for (const [alias, description] of Object.entries(section.models)) {
       const key = remap(alias);
-      if (!(key in survivingModels)) {
-        changed = true;
-        continue;
-      }
       if (key !== alias) changed = true;
       nextPool[key] = description;
-    }
-    if (Object.keys(nextPool).length === 0) {
-      nextPool = undefined;
-      changed = true;
     }
   }
   if (!changed) return undefined;

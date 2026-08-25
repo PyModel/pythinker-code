@@ -517,6 +517,11 @@ function setSecondaryModel(selection: { model: string; effort?: string }): void 
   emit('updateConfig', { secondaryModel: next } as Partial<AppConfig>);
 }
 
+function inheritSecondaryModel(): void {
+  if (props.config?.secondaryModel === undefined) return;
+  emit('updateConfig', { secondaryModel: null } as Partial<AppConfig>);
+}
+
 function setFontScale(scale: string): void {
   const size = uiFontSizeForScale(scale);
   if (size !== undefined) emit('setUiFontSize', size);
@@ -787,6 +792,27 @@ function archiveTime(iso: string): string {
                 <span v-else class="rvalue mono">{{ config.defaultModel ?? t('settings.noDefaultModel') }}</span>
               </div>
 
+              <section v-if="secondaryModelFlagEnabled" class="sec">
+                <h3 class="sec-title">{{ t('settings.secondaryModelSection') }}</h3>
+                <div class="row">
+                  <span class="rlabel">
+                    {{ t('settings.secondaryModel') }}
+                    <span class="hint">{{ t('settings.secondaryModelHint') }}</span>
+                  </span>
+                  <SecondaryModelPicker
+                    v-if="modelGroups.length > 0"
+                    :model-value="secondaryModel"
+                    :effort="secondaryModelEffort"
+                    :groups="modelGroups"
+                    :model-info-by-id="modelInfoById"
+                    :disabled="configSaving"
+                    @inherit="inheritSecondaryModel"
+                    @select="setSecondaryModel"
+                  />
+                  <span v-else class="rvalue">{{ t('settings.noSecondaryModel') }}</span>
+                </div>
+              </section>
+
               <div class="row">
                 <span class="rlabel">
                   {{ t('settings.defaultPermission') }}
@@ -838,25 +864,6 @@ function archiveTime(iso: string): string {
                 />
               </div>
 
-              <section v-if="secondaryModelFlagEnabled" class="sec">
-                <h3 class="sec-title">{{ t('settings.secondaryModelSection') }}</h3>
-                <div class="row">
-                  <span class="rlabel">
-                    {{ t('settings.secondaryModel') }}
-                    <span class="hint">{{ t('settings.secondaryModelHint') }}</span>
-                  </span>
-                  <SecondaryModelPicker
-                    v-if="modelGroups.length > 0"
-                    :model-value="secondaryModel"
-                    :effort="secondaryModelEffort"
-                    :groups="modelGroups"
-                    :model-info-by-id="modelInfoById"
-                    :disabled="configSaving"
-                    @select="setSecondaryModel"
-                  />
-                  <span v-else class="rvalue">{{ t('settings.noSecondaryModel') }}</span>
-                </div>
-              </section>
             </template>
 
             <div v-else class="empty-config">
