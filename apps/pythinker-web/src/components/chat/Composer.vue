@@ -1783,6 +1783,7 @@ function selectModel(modelId: string): void {
               :aria-expanded="thinkingDropdownOpen"
               :aria-label="thinkingAriaLabel"
               @click.stop="toggleThinkingDropdown"
+              @keydown.escape.prevent="closeThinkingDropdown"
             >
               <Icon name="thinking" size="sm" />
               <span class="thinking-pill-label">{{ thinkingPillLabel }}</span>
@@ -1873,6 +1874,7 @@ function selectModel(modelId: string): void {
             role="dialog"
             :aria-label="t('composer.thinkingMenuTitle')"
             @click.stop
+            @keydown.escape.prevent="closeThinkingDropdown"
           >
             <div class="thinking-dropdown-title">
               <Icon name="thinking" size="sm" />

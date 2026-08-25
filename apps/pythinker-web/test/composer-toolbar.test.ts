@@ -99,7 +99,7 @@ describe('Composer toolbar overflow valves', () => {
     expect(wrapper.get('.perm-pill-label').text()).toBe('Manual');
   });
 
-  it('opens thinking effort separately from the model list', async () => {
+  it('opens thinking effort separately and closes it with Escape', async () => {
     const wrapper = mount(Composer, {
       props: {
         status: {
@@ -148,9 +148,20 @@ describe('Composer toolbar overflow valves', () => {
     await wrapper.get('.thinking-pill').trigger('click');
     expect(wrapper.find('.model-dropdown').exists()).toBe(false);
     expect(wrapper.find('.thinking-dropdown').exists()).toBe(true);
+
+    await wrapper.get('.thinking-pill').trigger('keydown', { key: 'Escape' });
+    expect(wrapper.find('.thinking-dropdown').exists()).toBe(false);
+
+    await wrapper.get('.thinking-pill').trigger('click');
     const max = wrapper.findAll('.thinking-dropdown [role="tab"]')
       .find((tab) => tab.text() === 'Max');
-    await max!.trigger('click');
+    await max!.trigger('keydown', { key: 'Escape' });
+    expect(wrapper.find('.thinking-dropdown').exists()).toBe(false);
+
+    await wrapper.get('.thinking-pill').trigger('click');
+    const reopenedMax = wrapper.findAll('.thinking-dropdown [role="tab"]')
+      .find((tab) => tab.text() === 'Max');
+    await reopenedMax!.trigger('click');
 
     expect(wrapper.emitted('setThinking')?.at(-1)).toEqual(['max']);
   });
