@@ -13,7 +13,6 @@ import {
 import { moveInOrder, type DropPosition, type WorkspaceSortMode } from '../lib/workspaceOrder';
 import type { Session, WorkspaceGroup as WorkspaceGroupType, WorkspaceView } from '../types';
 import type { AppWorkspace } from '../api/types';
-import PythinkerLogo from './PythinkerLogo.vue';
 import SearchSessionsDialog from './dialogs/SearchSessionsDialog.vue';
 import WorkspaceGroup from './WorkspaceGroup.vue';
 import { isDesktop, isMacosDesktop } from '../lib/desktopFlag';
@@ -667,15 +666,15 @@ onBeforeUnmount(() => {
            drag region so it stays clickable. -->
       <div class="ch">
         <div class="ch-brand">
-          <PythinkerLogo
+          <img
             class="ch-logo"
-            size="sm"
-            :animated="false"
+            src="/brand/pythinker_code_banner_dark.svg"
+            alt="Pythinker Code"
+            draggable="false"
             @pointerdown="onLogoPointerDown"
             @pointerup="onLogoPointerUp"
             @pointercancel="onLogoPointerUp"
           />
-          <span class="ch-name">Pythinker Code</span>
         </div>
         <IconButton
           class="ch-collapse"
@@ -1226,15 +1225,11 @@ onBeforeUnmount(() => {
 .side.macos-desktop .ch-collapse {
   -webkit-app-region: no-drag;
 }
-/* Compact brand lockup on macOS. */
-.side.macos-desktop .ch-logo {
-  height: 24px;
-  width: 24px;
-}
 .ch-logo {
-  height: 28px;
-  width: 28px;
+  width: min(172px, 100%);
+  height: auto;
   object-fit: contain;
+  object-position: left center;
   flex: none;
   display: block;
   cursor: pointer;
@@ -1248,26 +1243,11 @@ onBeforeUnmount(() => {
 .ch-brand {
   display: flex;
   align-items: center;
-  gap: 8px;
   min-width: 0;
   /* Take the row's slack so the action buttons group together on the right. */
   flex: 1;
   user-select: none;
   touch-action: none;
-}
-.ch-name {
-  font-size: var(--ui-font-size);
-  font-weight: 500;
-  line-height: 1.25;
-  color: var(--color-text);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-/* Responsive brand row: below 250px the product name drops out so the logo
-   and action buttons keep their room. */
-@container sidebar-col (max-width: 250px) {
-  .ch-name { display: none; }
 }
 
 /* Action buttons — first row of the actions group (New chat + search): rows

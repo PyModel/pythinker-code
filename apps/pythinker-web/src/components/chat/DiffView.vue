@@ -3,7 +3,7 @@
      line-by-line unified-diff view (fs:diff) when a file is tapped.
      The changed-file list can be viewed as a flat list or as a tree. -->
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import type { DiffViewLine } from '../../types';
 import HighlightedCode from './HighlightedCode.vue';
@@ -109,6 +109,15 @@ const renderDetail = computed(
 );
 const diffLines = computed<DiffViewLine[]>(() => props.fileDiff ?? []);
 const loading = computed(() => props.fileDiffLoading === true);
+const diffScrollRef = ref<HTMLElement | null>(null);
+
+watch(
+  [() => props.selectedDiffPath, loading],
+  ([, isLoading]) => {
+    if (!isLoading && diffScrollRef.value) diffScrollRef.value.scrollLeft = 0;
+  },
+  { flush: 'post' },
+);
 
 function onOpen(path: string): void {
   emit('open', path);
@@ -239,13 +248,19 @@ function treePadding(depth: number): string {
           <span>{{ t('diff.loading') }}</span>
         </div>
 
-        <div v-else-if="diffLines.length > 0" key="lines" class="dv-lines-wrap">
+        <div
+          v-else-if="diffLines.length > 0"
+          key="lines"
+          ref="diffScrollRef"
+          class="dv-lines-wrap"
+        >
           <HighlightedCode
             :lines="diffLines"
             :path="selectedDiffPath ?? undefined"
             :line-numbers="true"
             :framed="false"
             :full-texts="fullTexts"
+            responsive-wrap
           />
         </div>
 
@@ -586,8 +601,10 @@ function treePadding(depth: number): string {
    internally. The line-row styles themselves live in HighlightedCode.vue. */
 .dv-lines-wrap {
   flex: 1;
+  min-width: 0;
   min-height: 0;
   overflow: auto;
+  container-type: inline-size;
 }
 
 /* Fade between the loading / diff / empty states. */
@@ -603,9 +620,8 @@ function treePadding(depth: number): string {
 /* Context rows keep plain colors (inherit). */
 
 /* =========================================================================
-   MOBILE (≤640px): full-width file rows with ≥44px tap height, a clear Back
-   tap target, and the line-by-line panel scrolling horizontally for long
-   lines (the gutter scrolls with it; that's acceptable on a phone). No layout
+   MOBILE (≤640px): full-width file rows with ≥44px tap height and a clear Back
+   tap target. Diff lines wrap through the editor's container query. No layout
    break at 360px.
    ========================================================================= */
 @media (max-width: 640px) {

@@ -46,9 +46,12 @@ function measure(): void {
   const nav = navRef.value;
   const parent = nav?.offsetParent as HTMLElement | null;
   if (!nav || !parent) return;
-  const navLeft = nav.getBoundingClientRect().left;
-  const parentRight = parent.getBoundingClientRect().right;
-  fits.value = parentRight - navLeft >= EXPANDED_WIDTH;
+  const navRect = nav.getBoundingClientRect();
+  const parentRect = parent.getBoundingClientRect();
+  const readingColumn = parent.querySelector<HTMLElement>('.content-wrap');
+  const clearsReadingColumn =
+    readingColumn === null || navRect.right <= readingColumn.getBoundingClientRect().left;
+  fits.value = parentRect.right - navRect.left >= EXPANDED_WIDTH && clearsReadingColumn;
 }
 
 // The outline is only useful once there is something to navigate, and it never
@@ -312,8 +315,8 @@ onBeforeUnmount(() => {
 .toc-row.active:hover .toc-node { border-color: var(--color-accent); }
 .toc-row:hover .toc-label { color: var(--color-text); }
 
-/* When the chat pane cannot fit the expanded labels, the rail stays mounted
-   for measurement but hidden from view and pointer/screen-reader interaction. */
+/* When the chat pane cannot fit the expanded labels or the collapsed rail
+   reaches the reading column, it stays mounted for measurement but hidden. */
 .conversation-toc.toc-clipped {
   visibility: hidden;
   pointer-events: none;

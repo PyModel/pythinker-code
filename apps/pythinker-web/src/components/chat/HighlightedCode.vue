@@ -85,8 +85,10 @@ const props = withDefaults(
     fullTexts?: { before?: string; after?: string } | null;
     /** Extra class for a code row, keyed by that row's line number. */
     lineClass?: (lineNumber: number) => string;
+    /** Wrap long diff rows when the containing editor is narrow. */
+    responsiveWrap?: boolean;
   }>(),
-  { lineNumbers: false, framed: true, fullTexts: null },
+  { lineNumbers: false, framed: true, fullTexts: null, responsiveWrap: false },
 );
 
 const isDark = useIsDark();
@@ -98,6 +100,12 @@ const showGutter = computed(() => props.lineNumbers === true && isDiffMode.value
 const numberList = computed<number[] | null>(() =>
   Array.isArray(props.lineNumbers) ? props.lineNumbers : null,
 );
+const visibleGutterCount = computed(() => {
+  if (showGutter.value) {
+    return Number(hasOldNos.value) + Number(hasNewNos.value);
+  }
+  return numberList.value === null ? 0 : 1;
+});
 const codeLines = computed<string[]>(() => {
   if (Array.isArray(props.code)) return props.code;
   return splitLines(props.code ?? '');
@@ -250,7 +258,14 @@ const gutterChars = computed(() => {
 <template>
   <div
     class="hl-code"
-    :class="{ gutter: showGutter, 'plain-pad': !isDiffMode && numberList === null, framed }"
+    :class="{
+      gutter: showGutter,
+      'plain-pad': !isDiffMode && numberList === null,
+      framed,
+      'responsive-wrap': responsiveWrap,
+      'one-gutter': visibleGutterCount === 1,
+      'two-gutters': visibleGutterCount === 2,
+    }"
     :style="{ '--gutter-ch': `${gutterChars}ch` }"
   >
     <div class="hl-body">
@@ -258,7 +273,7 @@ const gutterChars = computed(() => {
         <div v-for="(line, i) in lines" :key="i" class="hl-row" :class="`row-${line.type}`">
           <template v-if="showGutter">
             <span v-if="hasOldNos" class="hl-gutter">{{ line.oldNo ?? '' }}</span>
-            <span v-if="hasNewNos" class="hl-gutter new">{{ line.newNo ?? '' }}</span>
+            <span v-if="hasNewNos" class="hl-gutter new" :class="{ offset: hasOldNos }">{{ line.newNo ?? '' }}</span>
           </template>
           <span class="hl-sign">{{ sign(line) }}</span>
           <span class="hl-text">
@@ -311,6 +326,12 @@ const gutterChars = computed(() => {
   max-height: none;
   overflow: visible;
 }
+.hl-code.responsive-wrap {
+  --hl-sticky-bg: var(--color-bg);
+  --hl-gutter-width: calc(
+    var(--gutter-ch, 4ch) + var(--space-2) + var(--space-2) + var(--p-hairline)
+  );
+}
 .hl-body {
   width: max-content;
   min-width: 100%;
@@ -350,22 +371,46 @@ const gutterChars = computed(() => {
   white-space: pre;
   color: var(--color-text);
 }
+.hl-code.responsive-wrap .hl-gutter {
+  position: sticky;
+  left: 0;
+  z-index: var(--z-raised);
+  background: var(--hl-sticky-bg);
+}
+.hl-code.responsive-wrap .hl-gutter.new.offset {
+  left: var(--hl-gutter-width);
+}
+.hl-code.responsive-wrap .hl-sign {
+  position: sticky;
+  left: 0;
+  z-index: var(--z-raised);
+  background: var(--hl-sticky-bg);
+}
+.hl-code.responsive-wrap.one-gutter .hl-sign {
+  left: var(--hl-gutter-width);
+}
+.hl-code.responsive-wrap.two-gutters .hl-sign {
+  left: calc(var(--hl-gutter-width) + var(--hl-gutter-width));
+}
 .hl-gutter + .hl-text {
   padding-left: var(--space-2);
 }
 .row-add {
+  --hl-sticky-bg: color-mix(in srgb, var(--color-success) 18%, var(--color-bg));
   background: var(--color-diff-add-bg);
 }
 .row-add .hl-sign {
   color: var(--color-success);
 }
 .row-del {
+  --hl-sticky-bg: color-mix(in srgb, var(--color-danger) 18%, var(--color-bg));
   background: var(--color-diff-del-bg);
 }
 .row-del .hl-sign {
   color: var(--color-danger);
 }
 .row-hunk {
+  --hl-sticky-bg: var(--color-surface-sunken);
   background: var(--color-surface-sunken);
 }
 .row-hunk .hl-text {
@@ -376,5 +421,19 @@ const gutterChars = computed(() => {
 }
 .hl-code.gutter .row-del {
   box-shadow: inset 2px 0 color-mix(in srgb, var(--color-danger) 55%, transparent);
+}
+
+@container (max-width: 560px) {
+  .hl-code.responsive-wrap .hl-body,
+  .hl-code.responsive-wrap .hl-row {
+    width: 100%;
+    min-width: 0;
+  }
+  .hl-code.responsive-wrap .hl-text {
+    flex: 1;
+    min-width: 0;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
 }
 </style>
