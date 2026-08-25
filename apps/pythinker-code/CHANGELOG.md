@@ -1,5 +1,51 @@
 # @pymodel/pythinker-code
 
+## 1.3.0
+
+### Minor Changes
+
+- [#176](https://github.com/PyModel/pythinker-code/pull/176) [`496169d`](https://github.com/PyModel/pythinker-code/commit/496169d7a445e2fd8d6fd51d6be534c0b3238db9) Thanks [@elkaix](https://github.com/elkaix)! - Add an experimental MCP management API enabled with `PYTHINKER_CODE_EXPERIMENTAL_MCP_MANAGEMENT=1`.
+
+- [#176](https://github.com/PyModel/pythinker-code/pull/176) [`496169d`](https://github.com/PyModel/pythinker-code/commit/496169d7a445e2fd8d6fd51d6be534c0b3238db9) Thanks [@elkaix](https://github.com/elkaix)! - Add mobile bottom sheets for composer slash commands, mentions, and model selection.
+
+- [#176](https://github.com/PyModel/pythinker-code/pull/176) [`496169d`](https://github.com/PyModel/pythinker-code/commit/496169d7a445e2fd8d6fd51d6be534c0b3238db9) Thanks [@elkaix](https://github.com/elkaix)! - Add multi-root file suggestions to `POST /api/v1/fs:suggest`.
+
+- [#176](https://github.com/PyModel/pythinker-code/pull/176) [`496169d`](https://github.com/PyModel/pythinker-code/commit/496169d7a445e2fd8d6fd51d6be534c0b3238db9) Thanks [@elkaix](https://github.com/elkaix)! - Remove the built-in hosted provider and its sign-in, usage, feedback, model aliases, and SDK methods; configure a supported provider with its own API key or OAuth instead.
+
+- [#176](https://github.com/PyModel/pythinker-code/pull/176) [`496169d`](https://github.com/PyModel/pythinker-code/commit/496169d7a445e2fd8d6fd51d6be534c0b3238db9) Thanks [@elkaix](https://github.com/elkaix)! - Remove the bundled Datasource plugin.
+
+### Patch Changes
+
+- [#176](https://github.com/PyModel/pythinker-code/pull/176) [`496169d`](https://github.com/PyModel/pythinker-code/commit/496169d7a445e2fd8d6fd51d6be534c0b3238db9) Thanks [@elkaix](https://github.com/elkaix)! - Keep prompt activity and background-task notices consistent between live and reopened transcripts.
+
+- [#176](https://github.com/PyModel/pythinker-code/pull/176) [`496169d`](https://github.com/PyModel/pythinker-code/commit/496169d7a445e2fd8d6fd51d6be534c0b3238db9) Thanks [@elkaix](https://github.com/elkaix)! - Add `[dynamic_workflow].timeout_ms` and `PYTHINKER_CODE_AGENT_DYNAMIC_WORKFLOW_TIMEOUT_MS` timeout settings.
+
+- [#176](https://github.com/PyModel/pythinker-code/pull/176) [`496169d`](https://github.com/PyModel/pythinker-code/commit/496169d7a445e2fd8d6fd51d6be534c0b3238db9) Thanks [@elkaix](https://github.com/elkaix)! - Make skill activation turns editable and reversible without a separate activation card.
+
+- [#181](https://github.com/PyModel/pythinker-code/pull/181) [`199eaa9`](https://github.com/PyModel/pythinker-code/commit/199eaa949a35d7b320ee32154e5da4b296701787) Thanks [@elkaix](https://github.com/elkaix)! - Restore telemetry events and active devices in observability dashboards.
+
+- [#176](https://github.com/PyModel/pythinker-code/pull/176) [`496169d`](https://github.com/PyModel/pythinker-code/commit/496169d7a445e2fd8d6fd51d6be534c0b3238db9) Thanks [@elkaix](https://github.com/elkaix)! - Make Escape handling and focus behavior safe during IME composition.
+
+- [#176](https://github.com/PyModel/pythinker-code/pull/176) [`496169d`](https://github.com/PyModel/pythinker-code/commit/496169d7a445e2fd8d6fd51d6be534c0b3238db9) Thanks [@elkaix](https://github.com/elkaix)! - Make `/tower` commands apply immediately when `PYTHINKER_CODE_EXPERIMENTAL_TOWER=1` is enabled.
+
+- [#176](https://github.com/PyModel/pythinker-code/pull/176) [`496169d`](https://github.com/PyModel/pythinker-code/commit/496169d7a445e2fd8d6fd51d6be534c0b3238db9) Thanks [@elkaix](https://github.com/elkaix)! - Fit model and permission controls into narrow composer layouts.
+
+- [#176](https://github.com/PyModel/pythinker-code/pull/176) [`496169d`](https://github.com/PyModel/pythinker-code/commit/496169d7a445e2fd8d6fd51d6be534c0b3238db9) Thanks [@elkaix](https://github.com/elkaix)! - Preserve the active session and model after provider logout.
+
+- [#176](https://github.com/PyModel/pythinker-code/pull/176) [`496169d`](https://github.com/PyModel/pythinker-code/commit/496169d7a445e2fd8d6fd51d6be534c0b3238db9) Thanks [@elkaix](https://github.com/elkaix)! - Rank file and skill mention suggestions with path-aware matching and highlights.
+
+- [#176](https://github.com/PyModel/pythinker-code/pull/176) [`496169d`](https://github.com/PyModel/pythinker-code/commit/496169d7a445e2fd8d6fd51d6be534c0b3238db9) Thanks [@elkaix](https://github.com/elkaix)! - Refresh provider sign-in state when the browser window regains focus.
+
+- [#176](https://github.com/PyModel/pythinker-code/pull/176) [`496169d`](https://github.com/PyModel/pythinker-code/commit/496169d7a445e2fd8d6fd51d6be534c0b3238db9) Thanks [@elkaix](https://github.com/elkaix)! - Make pinned-session groups resizable and keep their scroll edges visible.
+
+- [#176](https://github.com/PyModel/pythinker-code/pull/176) [`496169d`](https://github.com/PyModel/pythinker-code/commit/496169d7a445e2fd8d6fd51d6be534c0b3238db9) Thanks [@elkaix](https://github.com/elkaix)! - Honor the configured secondary-model thinking effort for subagents.
+
+- [#176](https://github.com/PyModel/pythinker-code/pull/176) [`496169d`](https://github.com/PyModel/pythinker-code/commit/496169d7a445e2fd8d6fd51d6be534c0b3238db9) Thanks [@elkaix](https://github.com/elkaix)! - Steer the first queued prompt into an active session.
+
+- [#176](https://github.com/PyModel/pythinker-code/pull/176) [`496169d`](https://github.com/PyModel/pythinker-code/commit/496169d7a445e2fd8d6fd51d6be534c0b3238db9) Thanks [@elkaix](https://github.com/elkaix)! - Hide button tooltips while their surrounding menu is open.
+
+- [#176](https://github.com/PyModel/pythinker-code/pull/176) [`496169d`](https://github.com/PyModel/pythinker-code/commit/496169d7a445e2fd8d6fd51d6be534c0b3238db9) Thanks [@elkaix](https://github.com/elkaix)! - Keep the model picker inside the visible viewport.
+
 ## 1.2.0
 
 ### Minor Changes
