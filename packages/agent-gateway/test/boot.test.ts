@@ -25,6 +25,7 @@ describe('server-v2 boot', () => {
   let home: string | undefined;
 
   afterEach(async () => {
+    vi.unstubAllGlobals();
     if (server !== undefined) {
       await server.close();
       server = undefined;
@@ -191,6 +192,7 @@ describe('server-v2 boot', () => {
   });
 
   it('completes server cleanup when owned telemetry shutdown fails', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(null, { status: 204 })));
     home = await mkdtemp(join(tmpdir(), 'pythinker-server-v2-telemetry-failure-'));
     const storage = new InMemoryStorageService();
     const write = storage.write.bind(storage);
