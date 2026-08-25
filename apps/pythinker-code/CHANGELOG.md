@@ -1,5 +1,19 @@
 # @pymodel/pythinker-code
 
+## 1.3.1
+
+### Patch Changes
+
+- [#186](https://github.com/PyModel/pythinker-code/pull/186) [`50f1437`](https://github.com/PyModel/pythinker-code/commit/50f1437615eab0cd0fffcd9c36429a4a7ff2a38b) Thanks [@elkaix](https://github.com/elkaix)! - Make task output copy-path actions visually distinct.
+
+- [#186](https://github.com/PyModel/pythinker-code/pull/186) [`50f1437`](https://github.com/PyModel/pythinker-code/commit/50f1437615eab0cd0fffcd9c36429a4a7ff2a38b) Thanks [@elkaix](https://github.com/elkaix)! - Fix chat prompt anchors to use a connected timeline beside the sidebar with keyboard navigation.
+
+- [#186](https://github.com/PyModel/pythinker-code/pull/186) [`50f1437`](https://github.com/PyModel/pythinker-code/commit/50f1437615eab0cd0fffcd9c36429a4a7ff2a38b) Thanks [@elkaix](https://github.com/elkaix)! - Fix the chat composer so model and thinking-effort menus open separately.
+
+- [#186](https://github.com/PyModel/pythinker-code/pull/186) [`50f1437`](https://github.com/PyModel/pythinker-code/commit/50f1437615eab0cd0fffcd9c36429a4a7ff2a38b) Thanks [@elkaix](https://github.com/elkaix)! - Pause active goals during automatic context compaction and resume them after compaction succeeds.
+
+- [#185](https://github.com/PyModel/pythinker-code/pull/185) [`283020c`](https://github.com/PyModel/pythinker-code/commit/283020c9138ec1a0fa809b3f4794d6a0e882ebd7) Thanks [@elkaix](https://github.com/elkaix)! - Fix repeated server crashes when resuming a session that stopped during a turn.
+
 ## 1.3.0
 
 ### Minor Changes
