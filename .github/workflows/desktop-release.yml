@@ -237,29 +237,13 @@ jobs:
         run: pnpm exec electron-builder --mac dmg zip --publish never
 
       # electron-builder notarizes and staples the .app but never the disk
-      # image around it. A quarantined, unnotarized DMG is what Gatekeeper
-      # reports as "damaged" on some macOS builds, so give the image its own
-      # ticket and staple it. The API key is preferred; the Apple ID +
-      # app-specific password pair is the fallback, mirroring electron-builder.
+      # image around it; a quarantined, unnotarized DMG is what Gatekeeper
+      # reports as "damaged". Stapling changes the DMG bytes, so the same
+      # script also rewrites its latest-mac.yml entry and drops the stale
+      # blockmap, keeping the update manifest verification below honest.
       - name: Notarize and staple macOS DMG
-        shell: bash
-        run: |
-          set -euo pipefail
-          dmg_path="$(find apps/desktop/dist -maxdepth 1 -type f -name '*.dmg' -print -quit)"
-          if [ -z "$dmg_path" ]; then
-            echo 'macOS DMG not found' >&2
-            exit 1
-          fi
-          if [ -n "${APPLE_API_KEY:-}" ]; then
-            auth=(--key "$APPLE_API_KEY" --key-id "$APPLE_API_KEY_ID" --issuer "$APPLE_API_ISSUER")
-          elif [ -n "${APPLE_ID:-}" ]; then
-            auth=(--apple-id "$APPLE_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --team-id "$APPLE_TEAM_ID")
-          else
-            echo 'No notarization credentials configured; the DMG cannot be notarized.' >&2
-            exit 1
-          fi
-          xcrun notarytool submit "$dmg_path" "${auth[@]}" --wait --timeout 30m
-          xcrun stapler staple "$dmg_path"
+        working-directory: apps/desktop
+        run: node --import tsx scripts/finalize-mac-artifacts.ts dist
 
       - name: Verify macOS update artifacts
         shell: bash
