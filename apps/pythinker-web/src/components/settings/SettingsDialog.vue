@@ -634,17 +634,6 @@ function archiveTime(iso: string): string {
                 @update:model-value="setFontScale"
               />
             </div>
-            <div class="row">
-              <span class="rlabel">
-                {{ t('settings.conversationToc') }}
-                <span class="hint">{{ t('settings.conversationTocHint') }}</span>
-              </span>
-              <Switch
-                :model-value="conversationToc ?? true"
-                :label="t('settings.conversationToc')"
-                @update:model-value="emit('setConversationToc', $event)"
-              />
-            </div>
           </section>
 
           <section class="sec">
@@ -1020,6 +1009,17 @@ function archiveTime(iso: string): string {
         <section v-show="activeTab === 'lab'" class="panel">
           <section class="sec">
             <h3 class="sec-title">{{ t('settings.tabs.lab') }}</h3>
+            <div class="row">
+              <span class="rlabel">
+                {{ t('settings.conversationToc') }}
+                <span class="hint">{{ t('settings.conversationTocHint') }}</span>
+              </span>
+              <Switch
+                :model-value="conversationToc ?? true"
+                :label="t('settings.conversationToc')"
+                @update:model-value="emit('setConversationToc', $event)"
+              />
+            </div>
             <template v-if="config">
               <div class="row">
                 <span class="rlabel">

@@ -98,4 +98,60 @@ describe('Composer toolbar overflow valves', () => {
     expect(wrapper.get('.model-pill').classes()).not.toContain('icon-only');
     expect(wrapper.get('.perm-pill-label').text()).toBe('Manual');
   });
+
+  it('opens thinking effort separately from the model list', async () => {
+    const wrapper = mount(Composer, {
+      props: {
+        status: {
+          model: 'Example model',
+          modelId: 'model-1',
+          ctxUsed: 10,
+          ctxMax: 100,
+          permission: 'manual',
+          branch: 'main',
+          cwd: '/workspace',
+          isGitRepo: true,
+        },
+        thinking: 'high',
+        models: [{
+          id: 'model-1',
+          provider: 'provider',
+          model: 'Example model',
+          maxContextSize: 100,
+          capabilities: ['thinking', 'always_thinking'],
+          supportEfforts: ['low', 'high', 'max'],
+          defaultEffort: 'high',
+        }],
+      },
+      global: {
+        plugins: [webI18n],
+        stubs: {
+          AttachmentChip: true,
+          CapabilityMenu: true,
+          ContextRing: true,
+          Icon: true,
+          IconButton: slotStub,
+          MentionMenu: true,
+          SlashMenu: true,
+          Spinner: true,
+          Tooltip: slotStub,
+        },
+      },
+    });
+    await nextTick();
+
+    expect(wrapper.get('.model-pill').text()).not.toContain('high');
+    await wrapper.get('.model-pill').trigger('click');
+    expect(wrapper.find('.model-dropdown').exists()).toBe(true);
+    expect(wrapper.find('.model-dropdown .md-thinking').exists()).toBe(false);
+
+    await wrapper.get('.thinking-pill').trigger('click');
+    expect(wrapper.find('.model-dropdown').exists()).toBe(false);
+    expect(wrapper.find('.thinking-dropdown').exists()).toBe(true);
+    const max = wrapper.findAll('.thinking-dropdown [role="tab"]')
+      .find((tab) => tab.text() === 'Max');
+    await max!.trigger('click');
+
+    expect(wrapper.emitted('setThinking')?.at(-1)).toEqual(['max']);
+  });
 });

@@ -327,6 +327,7 @@ describe('settings UI', () => {
         notifyQuestion: false,
         notifyApproval: false,
         sound: false,
+        conversationToc: false,
         config: {
           providers: {},
           experimental: { sidebarTabs: true },
@@ -342,8 +343,14 @@ describe('settings UI', () => {
 
     const sidebarTabs = document.body.querySelector<HTMLButtonElement>('[role="switch"][aria-label="Multi-tab sidebar"]');
     const secondaryModel = document.body.querySelector<HTMLButtonElement>('[role="switch"][aria-label="Secondary model for subagents"]');
+    const promptAnchors = document.body.querySelector<HTMLButtonElement>('[role="switch"][aria-label="Chat prompt anchors"]');
     expect(sidebarTabs?.getAttribute('aria-checked')).toBe('true');
     expect(secondaryModel?.getAttribute('aria-checked')).toBe('false');
+    expect(promptAnchors?.closest<HTMLElement>('.panel')?.style.display).not.toBe('none');
+    expect(promptAnchors?.getAttribute('aria-checked')).toBe('false');
+    promptAnchors!.click();
+    await flushPromises();
+    expect(wrapper.emitted('setConversationToc')?.at(-1)).toEqual([true]);
     secondaryModel!.click();
     await flushPromises();
     const emitted = wrapper.emitted('updateConfig');
