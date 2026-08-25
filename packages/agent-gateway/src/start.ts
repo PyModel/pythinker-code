@@ -114,7 +114,6 @@ export interface ServerStartOptions {
   readonly disableHostCheck?: boolean;
   readonly insecureNoTls?: boolean;
   readonly allowRemoteShutdown?: boolean;
-  readonly allowRemoteTerminals?: boolean;
   readonly authTokenService?: IAuthTokenService;
   readonly disableAuth?: boolean;
   readonly webTitle?: string;
@@ -163,7 +162,7 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
     );
   }
   const enableShutdown = exposureClass === 'loopback' || opts.allowRemoteShutdown === true;
-  const enableTerminals = exposureClass === 'loopback' || opts.allowRemoteTerminals === true;
+  const enableTerminals = exposureClass === 'loopback';
   const debugEndpoints = exposureClass === 'loopback' && opts.debugEndpoints === true;
   const logger = opts.logger ?? createServerLogger({ level: opts.logLevel ?? 'info' });
   const onUnhandledRejection = (reason: unknown): void => {
