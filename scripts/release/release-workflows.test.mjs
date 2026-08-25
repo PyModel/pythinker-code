@@ -6,6 +6,12 @@ import test from 'node:test';
 const root = resolve(import.meta.dirname, '../..');
 const read = (path) => readFileSync(resolve(root, path), 'utf8');
 
+void test('desktop releases configure both platforms with Bash', () => {
+  const workflow = read('.github/workflows/desktop-release.yml');
+  const configuredWithBash = workflow.match(/^      - name: Configure desktop release\n        shell: bash$/gmu);
+  assert.equal(configuredWithBash?.length ?? 0, 2);
+});
+
 void test('release workflow uses full push-boundary lane signals and isolated jobs', () => {
   const workflow = read('.github/workflows/release.yml');
   const desktopJob = workflow.slice(

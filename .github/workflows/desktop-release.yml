@@ -171,6 +171,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
 
       - name: Configure desktop release
+        shell: bash
         env:
           DESKTOP_CHANNEL: ${{ needs.prepare.outputs.channel }}
           DESKTOP_VERSION: ${{ needs.prepare.outputs.version }}
@@ -355,6 +356,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
 
       - name: Configure desktop release
+        shell: bash
         env:
           DESKTOP_CHANNEL: ${{ needs.prepare.outputs.channel }}
           DESKTOP_VERSION: ${{ needs.prepare.outputs.version }}
