@@ -409,7 +409,6 @@ describe('`pythinker web` option threading', () => {
         dangerousBypassAuth: true,
         debugEndpoints: true,
         allowRemoteShutdown: true,
-        allowRemoteTerminals: true,
         open: false,
       },
       { startServerForeground: runner, openUrl: vi.fn(), stdout, stderr },
@@ -422,7 +421,6 @@ describe('`pythinker web` option threading', () => {
       debugEndpoints: true,
       insecureNoTls: true,
       allowRemoteShutdown: true,
-      allowRemoteTerminals: true,
       dangerousBypassAuth: true,
       allowedHosts: ['.example.com'],
     });
