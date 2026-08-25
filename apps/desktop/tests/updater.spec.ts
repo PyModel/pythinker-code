@@ -20,7 +20,7 @@ vi.mock('electron-updater', () => ({
         return this._channel
       },
       set channel(value: string | null) {
-        if (this._channel != null) {
+        if (this._channel !== null) {
           if (typeof value !== 'string') throw new Error(`Channel must be a string, but got: ${String(value)}`)
           if (value.length === 0) throw new Error('Channel must be not an empty string')
         }
