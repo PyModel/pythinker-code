@@ -26,7 +26,6 @@ export interface IWorkspaceFsWatchSubscription extends IDisposable {
 
   readonly watchedPaths: readonly string[];
 
-  /** Resolves when the active OS watcher is ready. Resolves immediately while no paths are watched. */
   readonly ready: Promise<void>;
 
   readonly onDidChangeFiles: Event<FsChangeEvent>;

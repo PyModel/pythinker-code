@@ -29,7 +29,7 @@ The four contribution seams (token → fold): config sections — `ConfigSection
 
 ## Comment conventions
 
-- **No comments.** The code is the source of truth; do not write file headers, section banners, or implementation narration. The one exception is JSDoc attached to exported symbols (it flows into the generated `.d.ts` and the consumers' IDE hover); keep it focused on the public contract.
+- **No comments.** The code is the source of truth; do not write file headers, section banners, or implementation narration. No JSDoc either, not even on exported symbols. The one exception is a load-bearing lint-suppression directive (`oxlint-disable` / `eslint-disable`) for a deliberate pattern.
 - **Lint-suppression directives are the tooling exception.** `oxlint-disable` / `eslint-disable` comments are allowed where they suppress an active rule for a deliberate pattern (e.g. the Event2 class+payload-interface merging idiom). `@ts-expect-error`, `@ts-ignore`, and `ts-nocheck` stay banned — fix the underlying type problem instead; negative type-safety cases go into compiler-asserted fixtures.
 
 ## Telemetry
