@@ -126,7 +126,7 @@ but v1 has no independent continuation launcher. After a background compaction p
 `driveGoal()` exit (`packages/agent-core/src/agent/turn/index.ts:471-536`), `resumeGoal()` only changes
 state. V1 must explicitly launch one continuation after successful compaction when no turn is active.
 
-The current TUI paths are under `apps/pythinker-code`, not `apps/kimi-code`. The live
+The current TUI paths are under `apps/pythinker-code`, not the upstream app path. The live
 `goal.updated` handler already renders lifecycle markers (`session-event-handler.ts:751-801`). A
 pause reason beginning with `Paused ` renders as `Goal paused ...`
 (`components/messages/goal-markers.ts:153-159`), and `/goal status` also shows `terminalReason`
