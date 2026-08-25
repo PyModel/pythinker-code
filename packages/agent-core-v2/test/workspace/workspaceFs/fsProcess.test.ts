@@ -1,4 +1,4 @@
-import { listenerCount, type EventEmitter } from 'node:events';
+import { listenerCount } from 'node:events';
 import { Readable, Writable } from 'node:stream';
 
 import { describe, expect, it } from 'vitest';
@@ -81,7 +81,7 @@ describe('runCommand', () => {
   it('removes the abort listener once the command completes', async () => {
     const controller = new AbortController();
     await runCommand(fakeRunner(fakeProcess()), ['echo'], { signal: controller.signal });
-    expect(listenerCount(controller.signal as unknown as EventEmitter, 'abort')).toBe(0);
+    expect(listenerCount(controller.signal, 'abort')).toBe(0);
   });
 
   it('removes the abort listener when stream collection fails', async () => {
@@ -93,9 +93,9 @@ describe('runCommand', () => {
     };
     const promise = runCommand(fakeRunner(proc), ['echo'], { signal: controller.signal });
     await Promise.resolve();
-    expect(listenerCount(controller.signal as unknown as EventEmitter, 'abort')).toBeGreaterThan(0);
+    expect(listenerCount(controller.signal, 'abort')).toBeGreaterThan(0);
     stdout.destroy(new Error('stream failed'));
     await expect(promise).rejects.toThrow('stream failed');
-    expect(listenerCount(controller.signal as unknown as EventEmitter, 'abort')).toBe(0);
+    expect(listenerCount(controller.signal, 'abort')).toBe(0);
   });
 });
