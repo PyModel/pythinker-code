@@ -25,6 +25,8 @@ function updateState(patch: Partial<DesktopUpdateState> = {}): DesktopUpdateStat
     status: 'idle',
     installedVersion: '1.0.0',
     autoUpdate: true,
+    channel: 'stable',
+    notifyUpdate: true,
     ...patch,
   };
 }
@@ -36,6 +38,8 @@ function installBridge(initial: DesktopUpdateState) {
     platform: 'darwin',
     getUpdateState: vi.fn(() => Promise.resolve(current)),
     setAutoUpdate: vi.fn(() => Promise.resolve(current)),
+    setUpdateChannel: vi.fn(() => Promise.resolve(current)),
+    setNotifyUpdate: vi.fn(() => Promise.resolve(current)),
     checkForUpdates: vi.fn(() => Promise.resolve(current)),
     downloadUpdate: vi.fn(() => {
       current = { ...current, status: 'downloading', percent: 0, transferred: 0 };
@@ -226,6 +230,19 @@ describe('useDesktopUpdate.hasUpdate', () => {
       availableVersion: '1.2.3',
       skippedVersion: '1.2.3',
     }));
+    expect(update.hasUpdate.value).toBe(false);
+  });
+
+  it('hides update alerts when update notifications are off', async () => {
+    installBridge(updateState({
+      status: 'available',
+      availableVersion: '1.2.3',
+      notifyUpdate: false,
+    }));
+    const update = useDesktopUpdate();
+    update.subscribe();
+    await flushPromises();
+
     expect(update.hasUpdate.value).toBe(false);
   });
 });

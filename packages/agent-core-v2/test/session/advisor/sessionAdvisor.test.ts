@@ -1,16 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import type { IDisposable } from '#/_base/di/lifecycle';
+import { toDisposable } from '#/_base/di/lifecycle';
 import type { ServiceIdentifier, ServicesAccessor } from '#/_base/di/instantiation';
 import type { IAgentScopeHandle } from '#/_base/di/scope';
 import type { AgentContext } from '#/agent/agentContext/agentContext';
 import { makeAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { Emitter } from '#/_base/event';
-import {
-  IAgentContextInjectorService,
-  type ContextInjectionContext,
-  type ContextInjectionProvider,
-} from '#/agent/contextInjector/contextInjector';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import type { ContextMessage } from '#/agent/contextMemory/types';
 import { IAgentContextProjectorService } from '#/agent/contextProjector/contextProjector';
@@ -19,6 +14,11 @@ import { IAgentProfileService } from '#/agent/profile/profile';
 import type { IConfigService } from '#/app/config/config';
 import { IEventBus } from '#/app/event/eventBus';
 import { EventBusService } from '#/app/event/eventBusService';
+import { AgentReminder } from '#/features/reminder/reminderAgentRuntime';
+import type {
+  ContextInjectionContext,
+  ContextInjectionProvider,
+} from '#/features/reminder/types';
 import { LifecycleScope } from '#/app/scopes';
 import type { ILogService } from '#/_base/log/log';
 import { UNKNOWN_CAPABILITY } from '#/kosong/contract/capability';
@@ -37,6 +37,7 @@ import type {
 import type { AdvisorConfig } from '#/session/advisor/configSection';
 import { AdvisorConfigSchema } from '#/session/advisor/configSection';
 import { SessionAdvisorService } from '#/session/advisor/advisorService';
+import { createReminderStub } from '../../features/reminder/stubs';
 
 const history: readonly ContextMessage[] = [
   {
@@ -66,28 +67,6 @@ interface Fixture {
   readonly warn: ReturnType<typeof vi.fn>;
   readonly inject: (isNewTurn?: boolean) => Promise<unknown>;
   readonly service: SessionAdvisorService;
-}
-
-class FakeInjector implements IAgentContextInjectorService {
-  declare readonly _serviceBrand: undefined;
-  private invoke: ((isNewTurn: boolean) => unknown) | undefined;
-
-  register<D>(_name: string, provider: ContextInjectionProvider<D>): IDisposable {
-    this.invoke = (isNewTurn) => provider({
-      injectedPositions: [],
-      lastInjectedAt: null,
-      isNewTurn,
-    } as ContextInjectionContext<D>);
-    return {
-      dispose: () => { this.invoke = undefined; },
-    };
-  }
-
-  async reconcileWhenIdle(): Promise<void> {}
-
-  async inject(isNewTurn: boolean): Promise<unknown> {
-    return this.invoke?.(isNewTurn);
-  }
 }
 
 function model(id: string, providerName: string, baseUrl: string): Model {
@@ -125,7 +104,17 @@ function fixture(options: {
     options.advisorProvider ?? 'same-provider',
     options.advisorBaseUrl ?? mainModel.baseUrl!,
   );
-  const injector = new FakeInjector();
+  let inject: ((isNewTurn: boolean) => unknown) | undefined;
+  const reminder = createReminderStub({
+    register: <D>(_variant: string, provider: ContextInjectionProvider<D>) => {
+      inject = (isNewTurn) => provider({
+        injectedPositions: [],
+        lastInjectedAt: null,
+        isNewTurn,
+      } as ContextInjectionContext<D>);
+      return toDisposable(() => { inject = undefined; });
+    },
+  });
   const memory = {
     _serviceBrand: undefined,
     get: () => history,
@@ -141,7 +130,6 @@ function fixture(options: {
   } as IAgentProfileService;
   const services = new Map<unknown, unknown>([
     [IEventBus, bus],
-    [IAgentContextInjectorService, injector],
     [IAgentContextMemoryService, memory],
     [IAgentContextProjectorService, projector],
     [IAgentProfileService, profile],
@@ -172,7 +160,10 @@ function fixture(options: {
     get: (id: string) => id === 'main' ? mainContext : undefined,
     handleOf: (id: string) => id === 'main' ? main : undefined,
     list: () => [mainContext],
-    resolve: () => { throw new Error('not used'); },
+    resolve: (_agent, definition) => {
+      if (definition !== AgentReminder) throw new Error('unexpected runtime');
+      return reminder as never;
+    },
     inspect: () => ({
       identity: { agentId: mainContext.agentId, generation: mainContext.generation },
       contributions: [],
@@ -243,7 +234,7 @@ function fixture(options: {
     debug,
     warn,
     service,
-    inject: async (isNewTurn = true) => injector.inject(isNewTurn),
+    inject: async (isNewTurn = true) => inject?.(isNewTurn),
   };
 }
 

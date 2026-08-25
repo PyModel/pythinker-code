@@ -41,9 +41,11 @@ async function writeArtifacts(
   platform: 'mac' | 'win',
   files: readonly { name: string; content: Buffer }[],
   yaml = manifest(VERSION, files),
+  channel: 'stable' | 'beta' | 'nightly' = 'stable',
 ): Promise<void> {
   for (const file of files) await writeFile(join(dist, file.name), file.content)
-  await writeFile(join(dist, platform === 'mac' ? 'latest-mac.yml' : 'latest.yml'), yaml)
+  const prefix = channel === 'stable' ? 'latest' : channel
+  await writeFile(join(dist, platform === 'mac' ? `${prefix}-mac.yml` : `${prefix}.yml`), yaml)
 }
 
 const macFiles = [
@@ -63,6 +65,18 @@ describe('desktop update manifest verification', () => {
       await writeArtifacts(dist, platform, files)
       await expect(verifyUpdateManifest({ artifactsDir: dist, expectedVersion: VERSION, platform }))
         .resolves.toBeUndefined()
+    })
+  })
+
+  it.each(['beta', 'nightly'] as const)('accepts the %s channel manifest names', async (channel) => {
+    await withFixture(async (dist) => {
+      await writeArtifacts(dist, 'win', winFiles, manifest(VERSION, winFiles), channel)
+      await expect(verifyUpdateManifest({
+        artifactsDir: dist,
+        channel,
+        expectedVersion: VERSION,
+        platform: 'win',
+      })).resolves.toBeUndefined()
     })
   })
 

@@ -4,6 +4,9 @@ contextBridge.exposeInMainWorld('pythinkerDesktop', {
   platform: process.platform,
   getUpdateState: () => ipcRenderer.invoke('pythinker:update:get'),
   setAutoUpdate: (enabled: boolean) => ipcRenderer.invoke('pythinker:update:set-auto', enabled),
+  setUpdateChannel: (channel: 'stable' | 'beta' | 'nightly') =>
+    ipcRenderer.invoke('pythinker:update:set-channel', channel),
+  setNotifyUpdate: (enabled: boolean) => ipcRenderer.invoke('pythinker:update:set-notify', enabled),
   checkForUpdates: () => ipcRenderer.invoke('pythinker:update:check'),
   downloadUpdate: () => ipcRenderer.invoke('pythinker:update:download'),
   cancelUpdateDownload: () => ipcRenderer.invoke('pythinker:update:cancel'),

@@ -72,7 +72,7 @@ Run `pnpm run dist:win` on a native Windows x64 host; cross-building from macOS 
 
 Windows artifacts are signed through Azure Artifact Signing when `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, `AZURE_SIGNING_ENDPOINT`, `AZURE_SIGNING_ACCOUNT`, `AZURE_SIGNING_CERT_PROFILE`, and `AZURE_SIGNING_PUBLISHER_NAME` are all set; they are unsigned when neither signing method is set. The credential variables are read from the environment; the four `AZURE_SIGNING_*` variables map to `azureSignOptions.endpoint`, `azureSignOptions.codeSigningAccountName`, `azureSignOptions.certificateProfileName`, and `azureSignOptions.publisherName`, respectively. Setting only part of either signing method, or setting both methods, is a hard error.
 
-Tagged releases require one complete Windows signing method. CI verifies the installer and packaged app with electron-updater's Authenticode verifier before upload. Both platform jobs also recompute every size and SHA-512 value in `latest.yml` or `latest-mac.yml`. The final job downloads the draft assets and repeats both manifest checks before publication. Manual workflow runs remain private workflow artifacts and cannot publish an unsigned build.
+Tagged releases require one complete Windows signing method. CI verifies the installer and packaged app with electron-updater's Authenticode verifier before upload. Both platform jobs also recompute every size and SHA-512 value in the selected channel manifest (`latest`, `beta`, or `nightly`). The final job downloads the draft assets and repeats both manifest checks before publication. Manual workflow runs remain private workflow artifacts and cannot publish an unsigned build.
 
 ## Known limitations
 
