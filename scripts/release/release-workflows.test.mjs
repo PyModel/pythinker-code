@@ -14,6 +14,9 @@ void test('release workflow uses full push-boundary lane signals and isolated jo
   assert.match(workflow, /uses: \.\/\.github\/workflows\/vscode-release\.yml/u);
   assert.match(workflow, /^  release-summary:/mu);
   assert.doesNotMatch(workflow, /HEAD\^:apps\/vscode\/package\.json/u);
+  assert.match(workflow, /pythinker_release_tag: \$\{\{ steps\.pythinker-release\.outputs\.tag \|\|/u);
+  assert.match(workflow, /APPLE_CERTIFICATE_P12: \$\{\{ secrets\.MAC_CSC_LINK \}\}/u);
+  assert.match(workflow, /APPLE_NOTARIZATION_KEY_P8: \$\{\{ secrets\.APPLE_API_KEY_P8 \}\}/u);
 });
 
 void test('VS Code release supports isolated recovery and attests verified VSIX files', () => {
