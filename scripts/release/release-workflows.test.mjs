@@ -6,6 +6,14 @@ import test from 'node:test';
 const root = resolve(import.meta.dirname, '../..');
 const read = (path) => readFileSync(resolve(root, path), 'utf8');
 
+void test('desktop releases configure both platforms with Bash', () => {
+  const workflow = read('.github/workflows/desktop-release.yml');
+  const configuredWithBash = /^      - name: Configure desktop release\n        shell: bash$/mu;
+  const windowsStart = workflow.indexOf('\n  windows:');
+  assert.match(workflow.slice(workflow.indexOf('\n  mac:'), windowsStart), configuredWithBash);
+  assert.match(workflow.slice(windowsStart, workflow.indexOf('\n  publish:', windowsStart)), configuredWithBash);
+});
+
 void test('release workflow uses full push-boundary lane signals and isolated jobs', () => {
   const workflow = read('.github/workflows/release.yml');
   const desktopJob = workflow.slice(
