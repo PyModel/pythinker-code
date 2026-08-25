@@ -1617,6 +1617,7 @@ export const goalAgentRuntimeProvider = defineAgentRuntimeProvider<GoalRuntimeSt
             s.terminalReason = event.status === 'active' ? undefined : event.reason;
             s.wallClockResumedAt = event.status === 'active' ? event.wallClockResumedAt : undefined;
           } else if (
+            s.status === 'paused' &&
             event.status !== undefined &&
             event.status !== 'active' &&
             event.reason !== undefined &&
