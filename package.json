@@ -30,6 +30,8 @@
     "test:coverage": "vitest run --coverage",
     "clean": "pnpm -r run clean",
     "changeset": "changeset",
+    "release:status": "node scripts/release/release-status.mjs",
+    "test:release": "node --test scripts/release/*.test.mjs",
     "version": "changeset version",
     "version:release": "changeset version",
     "publish": "pnpm run typecheck && pnpm run lint && pnpm run sherif && pnpm run test && pnpm run build && pnpm run lint:pkg && changeset publish",

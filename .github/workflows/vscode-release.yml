@@ -1,0 +1,106 @@
+name: VS Code Release
+
+on:
+  workflow_call:
+    inputs:
+      expected-version:
+        description: Version that must be present in apps/vscode/package.json
+        required: true
+        type: string
+    secrets:
+      VSCE_PAT:
+        required: true
+      OVSX_PAT:
+        required: true
+  workflow_dispatch:
+    inputs:
+      expected-version:
+        description: Version that must be present on the selected ref
+        required: true
+        type: string
+
+permissions: {}
+
+jobs:
+  publish:
+    name: Publish VS Code extension
+    timeout-minutes: 45
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # pinned from v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Require the requested version and publish credentials
+        env:
+          EXPECTED_VERSION: ${{ inputs.expected-version }}
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
+        run: |
+          set -euo pipefail
+          actual="$(node -p 'require("./apps/vscode/package.json").version')"
+          if [ "$actual" != "$EXPECTED_VERSION" ]; then
+            echo "::error::Requested VS Code version ${EXPECTED_VERSION}, but this ref contains ${actual}."
+            exit 1
+          fi
+          if [ -z "$VSCE_PAT" ] || [ -z "$OVSX_PAT" ]; then
+            echo "::error::VSCE_PAT and OVSX_PAT are required. Configure both secrets or set RELEASE_LANE_VSCODE=disabled."
+            exit 1
+          fi
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # pinned from v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # pinned from v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate Pythinker Code built-in catalog
+        shell: bash
+        run: |
+          CATALOG_FILE="$RUNNER_TEMP/pythinker-code-built-in-catalog.json"
+          node apps/pythinker-code/scripts/update-catalog.mjs --out "$CATALOG_FILE"
+          echo "PYTHINKER_CODE_BUILT_IN_CATALOG_FILE=$CATALOG_FILE" >> "$GITHUB_ENV"
+
+      - name: Build workspace packages
+        run: pnpm build
+
+      - name: Package and verify VSIX targets
+        run: pnpm --filter pythinker run package:platform
+
+      - name: Attest VSIX provenance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # pinned from v4.2.2
+        with:
+          subject-path: apps/vscode/artifacts/vsix/*.vsix
+
+      - name: Publish to the Visual Studio Marketplace
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: pnpm --filter pythinker run publish:vsix
+
+      # A registry can fail after the other succeeds. Both publishers skip an
+      # existing version, so a red partial run is safe to dispatch again.
+      - name: Publish to Open VSX
+        env:
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
+        run: pnpm --filter pythinker run publish:ovsx
+
+      - name: Upload VSIX artifacts
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # pinned from v7
+        with:
+          name: pythinker-code-vsix-${{ inputs.expected-version }}
+          path: apps/vscode/artifacts/vsix/*.vsix
+          retention-days: 7
+          if-no-files-found: error
