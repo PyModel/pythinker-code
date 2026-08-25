@@ -1,5 +1,11 @@
 # @pymodel/pythinker-desktop
 
+## 0.3.1
+
+### Patch Changes
+
+- [#190](https://github.com/PyModel/pythinker-code/pull/190) [`ddf4b88`](https://github.com/PyModel/pythinker-code/commit/ddf4b882e4dd8ea5c5198ebcae8704565708371d) Thanks [@elkaix](https://github.com/elkaix)! - Restore downloadable desktop releases for macOS and Windows.
+
 ## 0.3.0
 
 ### Minor Changes
