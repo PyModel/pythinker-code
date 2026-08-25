@@ -420,7 +420,7 @@ describe('settings UI', () => {
     wrapper.unmount();
   });
 
-  it('places subagent model after the default model and can inherit the agent model', async () => {
+  it('places subagent model after the default model and clears a defaultModel-only override', async () => {
     const wrapper = mount(SettingsDialog, {
       props: {
         colorScheme: 'system',
@@ -434,7 +434,7 @@ describe('settings UI', () => {
         config: {
           providers: {},
           defaultModel: 'test/main',
-          secondaryModel: { model: 'test/fast', defaultEffort: 'low' },
+          secondaryModel: { defaultModel: 'test/fast' },
           experimental: { 'secondary-model': true },
         },
         models: [

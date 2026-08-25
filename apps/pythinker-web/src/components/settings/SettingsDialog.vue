@@ -518,7 +518,7 @@ function setSecondaryModel(selection: { model: string; effort?: string }): void 
 }
 
 function inheritSecondaryModel(): void {
-  if (secondaryModel.value === '' && secondaryModelEffort.value === '') return;
+  if (props.config?.secondaryModel === undefined) return;
   emit('updateConfig', { secondaryModel: null } as Partial<AppConfig>);
 }
 

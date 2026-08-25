@@ -128,7 +128,7 @@ state. V1 must explicitly launch one continuation after successful compaction wh
 
 The current TUI paths are under `apps/pythinker-code`, not the upstream app path. The live
 `goal.updated` handler already renders lifecycle markers (`session-event-handler.ts:751-801`). A
-pause reason beginning with `Paused ` renders as `Goal paused ...`
+pause reason with the `Paused` prefix renders as `Goal paused ...`
 (`components/messages/goal-markers.ts:153-159`), and `/goal status` also shows `terminalReason`
 (`components/messages/goal-panel.ts:131-167`). This already supplies the required feedback:
 

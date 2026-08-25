@@ -10,7 +10,12 @@ import { EventBusService } from '#/app/event/eventBusService';
 import { IConfigService } from '#/app/config/config';
 import type { AgentRuntimeSet } from '#/agent/runtime/agentRuntimeSet';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
-import { IAgentFullCompactionService } from '#/agent/fullCompaction/fullCompaction';
+import {
+  IAgentFullCompactionService,
+  type FullCompactionTask,
+} from '#/agent/fullCompaction/fullCompaction';
+import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
+import { createReminderStub, lifecycleWithReminder } from '../reminder/stubs';
 import { AgentGoal, type GoalRuntime } from '#/features/goal/goalAgentRuntime';
 import { IGoalDeadlineScheduler } from '#/features/goal/goalDeadlineScheduler';
 import { GoalDeadlineSchedulerService } from '#/features/goal/goalDeadlineSchedulerService';
@@ -128,9 +133,9 @@ function buildHost(key: string): GoalHost {
     compacting: null,
     begin: () => false,
     cancel: () => undefined,
-    hooks: { onWillCompact: hookSlot() },
-    onDidFinishCompaction: Event.None,
-  } as unknown as IAgentFullCompactionService);
+    hooks: { onWillCompact: new OrderedHookSlot<FullCompactionTask>() },
+    onDidFinishCompaction: () => noopDisposable(),
+  } satisfies IAgentFullCompactionService);
   ix.stub(ISessionUsageService, {
     onDidRecord: Event.None,
   } as unknown as ISessionUsageService);

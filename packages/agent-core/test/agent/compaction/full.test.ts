@@ -2672,7 +2672,7 @@ describe('FullCompaction', () => {
     let llmCallCount = 0;
     const generate: GenerateFn = async () => {
       llmCallCount += 1;
-      if (llmCallCount === 1) return textResult('First goal slice.');
+      if (llmCallCount === 1) return textResult('First goal slice.', [missingToolCall()]);
       if (llmCallCount === 2) {
         compactionRequested.resolve();
         await releaseCompaction.promise;
@@ -2693,6 +2693,57 @@ describe('FullCompaction', () => {
     const turnDone = ctx.agent.turn.waitForCurrentTurn();
     await compactionRequested.promise;
     releaseCompaction.resolve();
+    const outcome = await compactionOutcome;
+    await turnDone;
+
+    expect(outcome).toBe('compaction.cancelled');
+    expect(llmCallCount).toBe(2);
+    expect(ctx.agent.goal.getGoal().goal).toMatchObject({
+      status: 'paused',
+      terminalReason: 'Paused because context compaction did not complete',
+    });
+  });
+
+  it('stops the turn when background auto compaction is cancelled', async () => {
+    const compactionRequested = deferred<void>();
+    let llmCallCount = 0;
+    const generate: GenerateFn = async (
+      _provider,
+      _system,
+      _tools,
+      _history,
+      _callbacks,
+      options,
+    ) => {
+      llmCallCount += 1;
+      if (llmCallCount === 1) return textResult('First goal slice.', [missingToolCall()]);
+      if (llmCallCount === 2) {
+        compactionRequested.resolve();
+        const signal = options?.signal;
+        if (signal === undefined) throw new Error('Expected compaction signal');
+        await new Promise<void>((_resolve, reject) => {
+          if (signal.aborted) {
+            reject(signal.reason);
+            return;
+          }
+          signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+        });
+      }
+      return textResult('Unexpected continuation.');
+    };
+    const ctx = testAgent({ generate, compactionStrategy: compactAfterFirstStep() });
+    ctx.configure({
+      provider: CATALOGUED_PROVIDER,
+      modelCapabilities: CATALOGUED_MODEL_CAPABILITIES,
+    });
+    await ctx.agent.goal.createGoal({ objective: 'finish the bounded task' });
+    ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
+    const compactionOutcome = ctx.onceAny(['compaction.completed', 'compaction.cancelled']);
+
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Continue the goal' }] });
+    const turnDone = ctx.agent.turn.waitForCurrentTurn();
+    await compactionRequested.promise;
+    ctx.agent.fullCompaction.cancel();
     const outcome = await compactionOutcome;
     await turnDone;
 
@@ -2865,13 +2916,13 @@ function providerMaxCompletionTokens(provider: Parameters<GenerateFn>[0]): unkno
   ).modelParameters?.['max_completion_tokens'];
 }
 
-function textResult(text: string): Awaited<ReturnType<GenerateFn>> {
+function textResult(text: string, toolCalls: ToolCall[] = []): Awaited<ReturnType<GenerateFn>> {
   return {
     id: 'mock-compaction-oauth-retry',
     message: {
       role: 'assistant',
       content: [{ type: 'text', text }],
-      toolCalls: [],
+      toolCalls,
     },
     usage: {
       inputOther: 1,
@@ -2879,8 +2930,8 @@ function textResult(text: string): Awaited<ReturnType<GenerateFn>> {
       inputCacheRead: 0,
       inputCacheCreation: 0,
     },
-    finishReason: 'completed',
-    rawFinishReason: 'stop',
+    finishReason: toolCalls.length === 0 ? 'completed' : 'tool_calls',
+    rawFinishReason: toolCalls.length === 0 ? 'stop' : 'tool_calls',
   };
 }
 

@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { assign, fromCallback, sendTo, setup, type Snapshot } from 'xstate';
 
 import { MutableDisposable, type IDisposable } from '#/_base/di/lifecycle';
-import { abortError } from '#/_base/utils/abort';
+import { abortable, abortError } from '#/_base/utils/abort';
 import { isPlainRecord } from '#/_base/utils/canonical-args';
 import { AgentReminder } from '#/features/reminder/reminderAgentRuntime';
 import { ContextAppendMessage } from '#/agent/contextMemory/contextEvents';
@@ -732,7 +732,10 @@ async function finishCompactionPause(
   }
 }
 
-async function waitForCompactionPause(context: GoalOperationContext): Promise<void> {
+async function waitForCompactionPause(
+  context: GoalOperationContext,
+  signal: AbortSignal,
+): Promise<void> {
   let pause = context.effects.compactionPause;
   if (pause === undefined) {
     const task = context.runtime.get(IAgentFullCompactionService).compacting;
@@ -742,11 +745,13 @@ async function waitForCompactionPause(context: GoalOperationContext): Promise<vo
     }
   }
   if (pause === undefined) return;
-  await pause.settlement;
+  const settlement = pause.settlement;
+  if (settlement === undefined) return;
+  await abortable(settlement.catch(() => undefined), signal);
 }
 
 async function handleBeforeStep(context: GoalOperationContext, ctx: BeforeStepContext): Promise<void> {
-  await waitForCompactionPause(context);
+  await waitForCompactionPause(context, ctx.signal);
   const goalId = context.effects.goalDrivenTurns.get(ctx.turnId);
   if (goalId === undefined) return;
   if (context.effects.countedGoalTurns.has(ctx.turnId)) return;
@@ -763,7 +768,7 @@ function handleUsageRecorded(context: GoalOperationContext, ctx: UsageRecordedCo
 }
 
 async function handleAfterStep(context: GoalOperationContext, ctx: AfterStepContext): Promise<void> {
-  await waitForCompactionPause(context);
+  await waitForCompactionPause(context, ctx.signal);
   if (stopAfterBudgetReached(context, ctx)) return;
   enqueueGoalOutcomeContinuation(context, ctx);
 }
@@ -1488,7 +1493,7 @@ const goalEffects = fromCallback(({
   });
   const disposables: IDisposable[] = [deadline];
   if (input.runtime.agent.agentId === MAIN_AGENT_ID) {
-    disposables.push(new GoalInjection(handlers.injection, input.runtime.get(IAgentContextInjectorService)));
+    disposables.push(new GoalInjection(handlers.injection, reminderOf(input.runtime)));
     const eventBus = input.runtime.get(IEventBus);
     disposables.push(eventBus.subscribe(TurnStarted, handlers.turnStarted));
     disposables.push(input.runtime.get(ISessionUsageService).onDidRecord(handlers.usageRecorded));

@@ -247,7 +247,7 @@ function commit(option: string | null): void {
 }
 
 function commitInheritance(): void {
-  if (props.modelValue !== '' || props.effort !== '') emit('inherit');
+  emit('inherit');
   close({ restoreFocus: true });
 }
 
