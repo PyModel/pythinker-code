@@ -8,6 +8,12 @@ import { gt, valid } from 'semver'
 const { autoUpdater } = electronUpdater
 const UPDATE_SETTINGS_FILE = 'update-settings.json'
 const UPDATES_UNAVAILABLE_MESSAGE = 'Updates are not available for this build'
+/**
+ * electron-updater's default channel. Its `channel` setter rejects `null` once a
+ * channel has been set, so switching back to stable must name the channel
+ * explicitly instead of clearing it.
+ */
+const STABLE_UPDATER_CHANNEL = 'latest'
 const INITIAL_CHECK_DELAY_MS = 10_000
 const CHECK_INTERVAL_MS = 4 * 60 * 60 * 1_000
 const RELEASE_REPOSITORY_PATH = '/PyModel/pythinker-desktop-releases/releases/tag/'
@@ -258,7 +264,7 @@ function hasUpdateConfig(): boolean {
 function configureExplicitConsent(): void {
   autoUpdater.autoDownload = false
   autoUpdater.autoInstallOnAppQuit = false
-  autoUpdater.channel = settings.channel === 'stable' ? null : settings.channel
+  autoUpdater.channel = settings.channel === 'stable' ? STABLE_UPDATER_CHANNEL : settings.channel
   autoUpdater.allowPrerelease = settings.channel !== 'stable'
   autoUpdater.allowDowngrade = false
 }

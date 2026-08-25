@@ -15,6 +15,17 @@ vi.mock('electron', () => ({
 vi.mock('electron-updater', () => ({
   default: {
     autoUpdater: {
+      _channel: null as string | null,
+      get channel(): string | null {
+        return this._channel
+      },
+      set channel(value: string | null) {
+        if (this._channel !== null) {
+          if (typeof value !== 'string') throw new Error(`Channel must be a string, but got: ${String(value)}`)
+          if (value.length === 0) throw new Error('Channel must be not an empty string')
+        }
+        this._channel = value
+      },
       on: vi.fn(),
       checkForUpdates: vi.fn(),
       downloadUpdate: vi.fn(() => Promise.resolve([])),
@@ -58,7 +69,7 @@ afterEach(() => {
   autoUpdater.autoInstallOnAppQuit = undefined as unknown as boolean
   autoUpdater.allowPrerelease = undefined as unknown as boolean
   autoUpdater.allowDowngrade = undefined as unknown as boolean
-  autoUpdater.channel = null
+  ;(autoUpdater as unknown as { _channel: string | null })._channel = null
 })
 
 function temporaryDirectory(): string {
@@ -225,7 +236,7 @@ describe('strict update consent', () => {
     expect(setLocalUpdateChannel('nightly')).toMatchObject({ channel: 'nightly', status: 'idle' })
     expect(setLocalNotifyUpdate(false)).toMatchObject({ notifyUpdate: false })
     expect(setLocalUpdateChannel('stable')).toMatchObject({ channel: 'stable', status: 'idle' })
-    expect(localAutoUpdater.channel).toBeNull()
+    expect(localAutoUpdater.channel).toBe('latest')
     expect(localAutoUpdater.allowPrerelease).toBe(false)
     expect(localAutoUpdater.allowDowngrade).toBe(false)
     expect(localAutoUpdater.autoDownload).toBe(false)
