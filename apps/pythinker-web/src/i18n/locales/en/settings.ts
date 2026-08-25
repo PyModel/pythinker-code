@@ -115,7 +115,7 @@ export default {
   desktop: {
     title: 'Desktop app',
     updateChannel: 'Update channel',
-    updateChannelHint: 'Stable gets production releases. Beta and Nightly work when their desktop feeds are published.',
+    updateChannelHint: 'Stable gets production releases. Beta follows preview releases. Nightly follows the newest main build.',
     channels: {
       stable: 'Stable',
       beta: 'Beta',

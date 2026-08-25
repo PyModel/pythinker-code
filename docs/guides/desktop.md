@@ -54,8 +54,8 @@ For the directory layout, see [Data locations](../configuration/data-locations.m
 The desktop application checks for updates. Open **Settings > Update** to see the current state and
 control the process:
 
-- **Update channel** — choose Stable for production releases. Beta and Nightly work when their
-  desktop feeds are published.
+- **Update channel** — choose Stable for production releases, Beta for preview releases, or Nightly
+  for the newest signed build from `main`.
 - **Automatically check** — discover new versions in the background. This is the default.
 - **Notify about updates** — show a sidebar alert when a new version is available. Turning this off
   does not hide the manual update controls.
@@ -73,6 +73,8 @@ ready or **Restart to update** to stop the local Host safely, install it, and re
 never installs a downloaded update.
 
 The update controls apply to installed builds only. A development build shows them as unavailable.
+Changing the channel checks a different feed. It does not download an update, install an update, or
+allow a downgrade.
 
 ## The local Host port
 

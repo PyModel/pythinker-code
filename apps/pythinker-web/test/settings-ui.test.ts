@@ -269,6 +269,7 @@ describe('settings UI', () => {
 
     expect(updateControls.closest<HTMLElement>('.panel')?.style.display).not.toBe('none');
     expect(updateControls.textContent).toContain('Version 1.2.3 is available');
+    expect(updateControls.textContent).toContain('Nightly follows the newest main build');
     const channel = document.body.querySelector<HTMLSelectElement>('[data-testid="desktop-update-channel"]')!;
     expect(channel.value).toBe('stable');
     channel.value = 'beta';

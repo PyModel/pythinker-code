@@ -11,6 +11,20 @@ import {
   renderReleaseStatus,
 } from './release-status.mjs';
 
+const desktopCommitCount = '4102';
+const desktopNightlyVersion = '0.2.2-nightly.4102';
+
+function desktopAssets(version, channel) {
+  const prefix = channel === 'stable' ? 'latest' : channel;
+  return [
+    `${prefix}-mac.yml`,
+    `${prefix}.yml`,
+    `Pythinker-${version}-arm64.dmg`,
+    `Pythinker-${version}-arm64-mac.zip`,
+    `Pythinker-${version}-x64-Setup.exe`,
+  ];
+}
+
 async function writePackage(root, path, version) {
   const absolute = join(root, path);
   await mkdir(dirname(absolute), { recursive: true });
@@ -33,7 +47,10 @@ function json(body, status = 200) {
   });
 }
 
-function fixtureFetch({ cliAssets = expectedCliAssets } = {}) {
+function fixtureFetch({
+  cliAssets = expectedCliAssets,
+  nightlyAssets = desktopAssets(desktopNightlyVersion, 'nightly'),
+} = {}) {
   return async (input) => {
     const url = new URL(String(input));
     if (url.hostname === 'registry.npmjs.org') return json({ latest: '1.3.0' });
@@ -50,7 +67,26 @@ function fixtureFetch({ cliAssets = expectedCliAssets } = {}) {
       });
     }
     if (url.hostname === 'api.github.com' && url.pathname === '/repos/PyModel/pythinker-desktop-releases/releases/latest') {
-      return json({ tag_name: 'v0.2.1', assets: [{ name: 'latest.yml' }] });
+      return json({
+        tag_name: 'v0.2.1',
+        assets: desktopAssets('0.2.1', 'stable').map((name) => ({ name })),
+      });
+    }
+    if (url.hostname === 'api.github.com' && url.pathname === '/repos/PyModel/pythinker-desktop-releases/releases') {
+      return json([
+        {
+          tag_name: `v${desktopNightlyVersion}`,
+          draft: false,
+          prerelease: true,
+          assets: nightlyAssets.map((name) => ({ name })),
+        },
+        {
+          tag_name: 'v0.2.2-beta.1',
+          draft: false,
+          prerelease: true,
+          assets: desktopAssets('0.2.2-beta.1', 'beta').map((name) => ({ name })),
+        },
+      ]);
     }
     if (url.hostname === 'open-vsx.org') {
       return json({
@@ -81,17 +117,23 @@ void test('fixture routing rejects trusted hostnames outside the URL host', asyn
 
 void test('reports all live release lanes aligned', async (t) => {
   const rootDir = await fixtureRoot(t);
-  const result = await collectReleaseStatus({ rootDir, fetchImpl: fixtureFetch() });
+  const result = await collectReleaseStatus({
+    rootDir,
+    desktopCommitCount,
+    fetchImpl: fixtureFetch(),
+  });
 
   assert.equal(result.ok, true);
   assert.equal(result.rows.every((row) => row.ok), true);
   assert.match(renderReleaseStatus(result), /\| npm CLI \| 1\.3\.0 \| 1\.3\.0 \| PASS \|/u);
+  assert.match(renderReleaseStatus(result), /\| Desktop Nightly \| 0\.2\.2-nightly\.4102 \| 0\.2\.2-nightly\.4102 \| PASS \|/u);
 });
 
 void test('fails when a published CLI release is missing one required asset', async (t) => {
   const rootDir = await fixtureRoot(t);
   const result = await collectReleaseStatus({
     rootDir,
+    desktopCommitCount,
     fetchImpl: fixtureFetch({ cliAssets: expectedCliAssets.filter((name) => name !== 'manifest.json') }),
   });
 
@@ -99,4 +141,21 @@ void test('fails when a published CLI release is missing one required asset', as
   const cli = result.rows.find((row) => row.lane === 'npm CLI');
   assert.equal(cli?.ok, false);
   assert.match(cli?.details ?? '', /missing manifest\.json/u);
+});
+
+void test('fails when the current desktop Nightly release is incomplete', async (t) => {
+  const rootDir = await fixtureRoot(t);
+  const result = await collectReleaseStatus({
+    rootDir,
+    desktopCommitCount,
+    fetchImpl: fixtureFetch({
+      nightlyAssets: desktopAssets(desktopNightlyVersion, 'nightly')
+        .filter((name) => name !== 'nightly-mac.yml'),
+    }),
+  });
+
+  assert.equal(result.ok, false);
+  const nightly = result.rows.find((row) => row.lane === 'Desktop Nightly');
+  assert.equal(nightly?.ok, false);
+  assert.match(nightly?.details ?? '', /missing nightly-mac\.yml/u);
 });
