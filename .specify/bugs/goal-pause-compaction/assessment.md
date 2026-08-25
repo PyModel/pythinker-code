@@ -1,7 +1,7 @@
 # Goal pause during compaction assessment
 
 - Date: 2026-08-25
-- Status: confirmed with a root-cause correction
+- Status: implemented and verified
 - Severity: medium
 - Confidence: high for v2; high from source for the v1 custom-strategy path
 
@@ -145,13 +145,14 @@ goal state in `compaction.started`, so adding combined copy there would duplicat
 2. Gate every continuation launch while the token exists. In the goal before-step hook, wait for the
    active auto-compaction task after the `full-compaction` hook so a below-block-ratio step cannot
    race the summary.
-3. Use `IAgentFullCompactionService.onDidFinishCompaction` and the task promise as the authoritative
-   outcome. Resume only on promise success; cancellation and failure remain paused.
+3. Use the compaction task promise as the authoritative outcome. Resume only on promise success;
+   cancellation and failure remain paused.
 4. Add an internal guarded resume. Recheck goal ID, exact pause cause, current status, budget, live
    turn, pending receipt, and loop idle state. Consume the token before any launch.
-5. Let explicit user pause, cancel, and replace actions clear the token. A user resume request keeps
-   the token but launches nothing until success. Normalize a persisted compaction pause after replay
-   to a non-resuming reason. Support same-status reason replacement in the durable goal fold.
+5. Let explicit user pause, cancel, and replace actions suppress automatic resume. A user resume
+   request keeps the token but launches nothing until success. Normalize a persisted compaction
+   pause after replay to a non-resuming reason. Support same-status reason replacement in the
+   durable goal fold.
 
 Recommended constants:
 
@@ -171,13 +172,29 @@ Recommended constants:
 5. V1 custom-background-strategy parity and TUI pause/resume marker copy pass; v1 default synchronous
    behavior remains unchanged.
 
+## Implementation result
+
+V2 now pauses through the official `onWillCompact` hook and also observes the service's active task
+from its ordered before-step and after-step gates. The second path closes a hook-scheduling race in
+which another step hook can start compaction before the goal hook runs. The pause is durable, but its
+task identity and automatic-resume intent remain transient. Successful settlement rechecks goal ID,
+pause reason, status, budget, live turn, pending work, and loop idleness before resuming.
+
+V1 exposes start/finish task events from `FullCompaction`, pauses `GoalMode`, and waits at both turn
+step boundaries. The existing v1 goal driver continues its preserved turn after success. Both
+engines keep failures paused, defer an explicit resume until success, suppress stale resume after a
+user action, and replace a persisted live-compaction reason after process replay.
+
+The TUI uses the existing `goal.updated` lifecycle marker. It renders the required pause reason and
+does not duplicate goal state inside the generic compaction component.
+
 ## Evidence run
 
-- Temporary v2 reproduction: 1 test passed; three attempts, two cancellations; exit 0. File removed.
-- `packages/agent-core-v2`: focused active-goal/default-compaction test: 1 passed, 74 skipped; exit 0.
-- `packages/agent-core`: compaction strategy tests: 7 passed; exit 0.
-- `apps/pythinker-code`: goal marker tests: 9 passed; exit 0.
-
-No runtime source changed. No fix test remains in the tree. The permanent RED test should use a
-configured trigger below `0.85`, not a direct compaction begin hook, so it also protects config
-wiring.
+- RED: the v1 and v2 production-path tests first observed an active goal during compaction. The v1
+  reminder test also observed a stale paused reminder before the post-compaction active reminder.
+- Focused GREEN: v2 coordination 6/6, v2 goal 114/114, v2 goal operations 12/12, v1 compaction
+  63 passed with 1 skipped, v1 goal/injection/tools 66/66, and TUI goal markers 10/10.
+- Full GREEN: `packages/agent-core-v2` 347 files and 5,661 tests; `packages/agent-core` 228 files,
+  4,171 passed, 3 expected failures, 30 skipped, and 1 todo.
+- Static gates: v1/v2 `tsc` and `tsgo`, v2 import lint, repository no-comment check, root lint, and
+  `git diff --check` exit 0. Root lint reports existing warnings and no errors.

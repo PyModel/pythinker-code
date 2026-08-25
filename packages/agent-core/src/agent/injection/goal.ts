@@ -20,7 +20,14 @@ export class GoalInjector extends DynamicInjector {
     const goal = store.getGoal().goal;
     if (goal === null) return undefined;
     if (goal.status === 'paused' && goal.terminalReason === GOAL_COMPACTION_PAUSE_REASON) {
-      return undefined;
+      if (goal.budget.overBudget) {
+        return buildBlockedNote({
+          ...goal,
+          status: 'blocked',
+          terminalReason: 'A configured budget was reached',
+        });
+      }
+      return buildGoalReminder({ ...goal, status: 'active', terminalReason: undefined });
     }
     // Three intensity levels by status:
     // - `active`: full reminder + budget guidance; the goal driver is running turns.

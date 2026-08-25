@@ -194,6 +194,7 @@ interface GoalCompactionPause {
   readonly goalId: string;
   readonly task: FullCompactionTask;
   autoResume: boolean;
+  pausePromise: Promise<void>;
   settlement?: Promise<void>;
 }
 
@@ -623,13 +624,19 @@ async function handleCompactionStarted(
   context: GoalOperationContext,
   task: FullCompactionTask,
 ): Promise<void> {
-  if (task.trigger !== 'auto' || context.effects.compactionPause !== undefined) return;
+  if (task.trigger !== 'auto') return;
+  const existing = context.effects.compactionPause;
+  if (existing !== undefined) {
+    if (existing.task === task) await existing.pausePromise;
+    return;
+  }
   const state = context.runtime.getState().goal;
   if (state === null || state.status !== 'active') return;
   const pause: GoalCompactionPause = {
     goalId: state.goalId,
     task,
     autoResume: true,
+    pausePromise: Promise.resolve(),
   };
   context.effects.compactionPause = pause;
   pause.settlement = task.promise.then(
@@ -637,7 +644,8 @@ async function handleCompactionStarted(
     () => finishCompactionPause(context, pause, false),
   );
   void pause.settlement.catch(() => undefined);
-  await pauseGoalForCompaction(context, pause, state);
+  pause.pausePromise = pauseGoalForCompaction(context, pause, state);
+  await pause.pausePromise;
 }
 
 async function pauseGoalForCompaction(
@@ -681,6 +689,7 @@ async function finishCompactionPause(
   pause: GoalCompactionPause,
   completed: boolean,
 ): Promise<void> {
+  await pause.pausePromise;
   if (context.effects.compactionPause !== pause) return;
   const state = context.runtime.getState().goal;
   if (
@@ -722,7 +731,14 @@ async function finishCompactionPause(
 }
 
 async function waitForCompactionPause(context: GoalOperationContext): Promise<void> {
-  const pause = context.effects.compactionPause;
+  let pause = context.effects.compactionPause;
+  if (pause === undefined) {
+    const task = context.runtime.get(IAgentFullCompactionService).compacting;
+    if (task?.trigger === 'auto') {
+      await handleCompactionStarted(context, task);
+      pause = context.effects.compactionPause;
+    }
+  }
   if (pause === undefined) return;
   await pause.settlement;
 }

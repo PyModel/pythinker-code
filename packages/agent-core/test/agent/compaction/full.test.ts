@@ -2549,6 +2549,62 @@ describe('FullCompaction', () => {
     await ctx.expectResumeMatches();
   });
 
+  it('reinjects the active goal before a step blocked by auto compaction', async () => {
+    let llmCallCount = 0;
+    let answerHistory: string[] = [];
+    let ctx!: TestAgentContext;
+    const generate: GenerateFn = async (_provider, _system, _tools, history) => {
+      llmCallCount += 1;
+      if (llmCallCount === 1) return textResult('Compacted goal summary.');
+      if (llmCallCount === 2) {
+        answerHistory = history.map(messageText);
+        await ctx.agent.goal.markBlocked({ reason: 'test complete' });
+        return textResult('Worked after compaction.');
+      }
+      throw new Error(`Unexpected generate call ${String(llmCallCount)}`);
+    };
+    ctx = testAgent({ generate });
+    ctx.configure({
+      provider: CATALOGUED_PROVIDER,
+      modelCapabilities: CATALOGUED_MODEL_CAPABILITIES,
+    });
+    await ctx.agent.goal.createGoal({ objective: 'finish one bounded turn' });
+    ctx.appendExchange(1, 'old user one', 'old assistant one', 100);
+    ctx.appendExchange(2, 'recent user two', 'recent assistant two', 950_000);
+
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Continue the goal' }] });
+    await ctx.untilTurnEnd();
+
+    expect(llmCallCount).toBe(2);
+    expect(answerHistory.some((text) => text.includes('active goal'))).toBe(true);
+    expect(answerHistory.some((text) => text.includes('currently paused'))).toBe(false);
+    expect(ctx.agent.goal.getGoal().goal?.status).toBe('blocked');
+  });
+
+  it('reinjects a blocked goal when its budget is reached during auto compaction', async () => {
+    const ctx = testAgent();
+    ctx.configure({
+      provider: CATALOGUED_PROVIDER,
+      modelCapabilities: CATALOGUED_MODEL_CAPABILITIES,
+    });
+    await ctx.agent.goal.createGoal({ objective: 'finish one bounded turn' });
+    await ctx.agent.goal.setBudgetLimits({ budgetLimits: { turnBudget: 1 } });
+    ctx.appendExchange(1, 'old user one', 'old assistant one', 100);
+    ctx.appendExchange(2, 'recent user two', 'recent assistant two', 950_000);
+    ctx.mockNextResponse({ type: 'text', text: 'Compacted goal summary.' });
+    ctx.mockNextResponse({ type: 'text', text: 'Stopped after the budget.' });
+
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Continue the goal' }] });
+    await ctx.untilTurnEnd();
+
+    expect(ctx.llmCalls).toHaveLength(2);
+    const answerHistory = ctx.llmCalls[1]?.history.map(messageText) ?? [];
+    expect(answerHistory.some((text) => text.includes('currently blocked'))).toBe(true);
+    expect(answerHistory.some((text) => text.includes('A configured budget was reached'))).toBe(true);
+    expect(answerHistory.some((text) => text.includes('active goal'))).toBe(false);
+    expect(ctx.agent.goal.getGoal().goal?.status).toBe('blocked');
+  });
+
   it('serializes a goal continuation when background auto compaction starts after a step', async () => {
     const compactionRequested = deferred<void>();
     const releaseCompaction = deferred<void>();

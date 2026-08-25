@@ -11,6 +11,7 @@ import { IConfigService } from '#/app/config/config';
 import type { AgentRuntimeSet } from '#/agent/runtime/agentRuntimeSet';
 import { IAgentContextInjectorService } from '#/agent/contextInjector/contextInjector';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
+import { IAgentFullCompactionService } from '#/agent/fullCompaction/fullCompaction';
 import { AgentGoal, type GoalRuntime } from '#/features/goal/goalAgentRuntime';
 import { IGoalDeadlineScheduler } from '#/features/goal/goalDeadlineScheduler';
 import { GoalDeadlineSchedulerService } from '#/features/goal/goalDeadlineSchedulerService';
@@ -137,6 +138,14 @@ function buildHost(key: string): GoalHost {
   ix.set(IAppendLogStore, new SyncDescriptor(AppendLogStore));
   ix.set(IEventBus, new SyncDescriptor(EventBusService));
   ix.stub(IAgentLoopService, createLoopStub());
+  ix.stub(IAgentFullCompactionService, {
+    _serviceBrand: undefined,
+    compacting: null,
+    begin: () => false,
+    cancel: () => undefined,
+    hooks: { onWillCompact: hookSlot() },
+    onDidFinishCompaction: Event.None,
+  } as unknown as IAgentFullCompactionService);
   ix.stub(ISessionUsageService, {
     onDidRecord: Event.None,
   } as unknown as ISessionUsageService);

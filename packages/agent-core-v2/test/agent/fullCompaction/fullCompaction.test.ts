@@ -3539,8 +3539,10 @@ describe('active goal auto-compaction coordination', () => {
     const compactionRequested = deferred<void>();
     const releaseCompaction = deferred<void>();
     let llmCallCount = 0;
-    const generate: GenerateFn = async () => {
+    const llmInputs: string[][] = [];
+    const generate: GenerateFn = async (_provider, _system, _tools, history) => {
       llmCallCount += 1;
+      llmInputs.push(history.map(messageText));
       if (llmCallCount === 1) {
         compactionRequested.resolve();
         await releaseCompaction.promise;
@@ -3575,6 +3577,10 @@ describe('active goal auto-compaction coordination', () => {
     expect(callsWhileCompacting).toBe(1);
     expect(outcome).toBe('compaction.completed');
     expect(llmCallCount).toBe(2);
+    const answerHistory = llmInputs[1] ?? [];
+    expect(answerHistory.some((text) => text.includes('active goal'))).toBe(true);
+    expect(answerHistory.some((text) => text.includes('currently paused'))).toBe(false);
+    expect(goals.getGoal().goal?.status).toBe('blocked');
   });
 
   it('keeps the goal paused when auto compaction fails', async () => {
@@ -3658,6 +3664,44 @@ describe('active goal auto-compaction coordination', () => {
       status: 'paused',
       terminalReason: 'Paused by user',
     });
+  });
+
+  it('does not revive a user-cancelled goal after compaction is cancelled', async () => {
+    const compactionRequested = deferred<void>();
+    const releaseCompaction = deferred<void>();
+    let llmCallCount = 0;
+    const generate: GenerateFn = async () => {
+      llmCallCount += 1;
+      if (llmCallCount === 1) return textResult('First goal slice.');
+      if (llmCallCount === 2) {
+        compactionRequested.resolve();
+        await releaseCompaction.promise;
+        return textResult('Compacted goal summary.');
+      }
+      throw new Error(`Unexpected generate call ${String(llmCallCount)}`);
+    };
+    const ctx = testAgent({ generate });
+    ctx.configure({
+      provider: CATALOGUED_PROVIDER,
+      modelCapabilities: CATALOGUED_MODEL_CAPABILITIES,
+    });
+    const goals = ctx.resolve(AgentGoal);
+    await goals.createGoal({ objective: 'finish the bounded task' });
+    ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
+    compactAfterCurrentStep(ctx);
+    const compactionOutcome = ctx.onceAny(['compaction.completed', 'compaction.cancelled']);
+
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Continue the goal' }] });
+    const turnDone = ctx.get(IAgentLoopService).settled();
+    await compactionRequested.promise;
+    await goals.cancelGoal();
+    releaseCompaction.resolve();
+    const outcome = await compactionOutcome;
+    await turnDone;
+
+    expect(outcome).toBe('compaction.cancelled');
+    expect(llmCallCount).toBe(2);
+    expect(goals.getGoal().goal).toBeNull();
   });
 
   it('defers an explicit resume until auto compaction succeeds', async () => {

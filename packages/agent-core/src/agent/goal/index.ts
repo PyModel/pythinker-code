@@ -384,10 +384,7 @@ export class GoalMode {
   async waitForCompactionPause(): Promise<void> {
     const pause = this.compactionPause;
     if (pause === undefined) return;
-    try {
-      await pause.task.promise;
-    } catch {
-    }
+    await pause.task.promise.catch(() => undefined);
   }
 
   // --- Creation ----------------------------------------------------------

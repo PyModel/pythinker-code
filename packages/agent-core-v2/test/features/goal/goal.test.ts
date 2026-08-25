@@ -742,7 +742,7 @@ describe('AgentGoalService', () => {
         wireRecordPersistenceServices(persistence),
         telemetryServices(recordingTelemetry(telemetry)),
       );
-      goals = ctx.resolve(AgentGoal) as GoalServiceTestManager;
+      goals = ctx.resolve(AgentGoal);
       await restoreGoalRecords(ctx, goals, [
         {
           type: 'goal.create',
