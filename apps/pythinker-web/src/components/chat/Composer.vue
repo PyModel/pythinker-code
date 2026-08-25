@@ -2037,6 +2037,8 @@ function selectModel(modelId: string): void {
     --composer-control-inset: var(--space-2);
     --composer-valve-floor: 4em;
     --composer-valve-expand-margin: 3.4em;
+    --thinking-dropdown-width: 320px;
+    --thinking-dropdown-viewport-gutter: var(--space-6);
     position: relative;
     border: .5px solid var(--color-composer-line);
     border-radius: var(--radius-composer);
@@ -2796,9 +2798,9 @@ function selectModel(modelId: string): void {
 
 
 .thinking-dropdown {
-    width: 320px;
+    width: var(--thinking-dropdown-width);
     min-width: 0;
-    max-width: calc(100vw - 24px);
+    max-width: calc(100vw - var(--thinking-dropdown-viewport-gutter));
     padding: var(--space-3);
     gap: var(--space-3);
     overflow: hidden
@@ -3209,7 +3211,7 @@ function selectModel(modelId: string): void {
     }
 
     .thinking-dropdown {
-        max-width: calc(100vw - 24px)
+        max-width: calc(100vw - var(--thinking-dropdown-viewport-gutter))
     }
 
     .ph {

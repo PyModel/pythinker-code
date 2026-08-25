@@ -1315,6 +1315,9 @@ function archiveTime(iso: string): string {
 .hint { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--color-text-faint); }
 
 .desktop-update-card {
+  --desktop-update-icon-size: 42px;
+  --desktop-update-select-min-width: 180px;
+  --desktop-update-select-max-width: 220px;
   overflow: hidden;
   border: 1px solid var(--color-line);
   border-radius: var(--radius-xl);
@@ -1340,8 +1343,8 @@ function archiveTime(iso: string): string {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 42px;
-  height: 42px;
+  width: var(--desktop-update-icon-size);
+  height: var(--desktop-update-icon-size);
   flex: none;
   border-radius: var(--radius-lg);
   background: var(--color-success-soft);
@@ -1352,8 +1355,8 @@ function archiveTime(iso: string): string {
   font-weight: var(--weight-semibold);
 }
 .desktop-update-select {
-  min-width: 180px;
-  max-width: 220px;
+  min-width: var(--desktop-update-select-min-width);
+  max-width: var(--desktop-update-select-max-width);
 }
 .desktop-update-detail {
   display: flex;
