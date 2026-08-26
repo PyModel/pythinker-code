@@ -997,6 +997,7 @@ export interface PythinkerWebApi {
   getFileDownloadUrl(sessionId: string, path: string): string;
   openFile(sessionId: string, input: { path: string; line?: number }): Promise<{ opened: true }>;
   revealFile(sessionId: string, input: { path: string }): Promise<{ revealed: true }>;
+  revealSavedPlan(sessionId: string, input: { agentId: string; toolCallId: string }): Promise<{ revealed: true }>;
   /** Open the session working directory (or a session-relative path) in an external application. */
   openInApp(sessionId: string, appId: string, path: string, line?: number): Promise<void>;
   connectEvents(handlers: PythinkerEventHandlers): PythinkerEventConnection;

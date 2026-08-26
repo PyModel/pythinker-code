@@ -1111,6 +1111,7 @@ function openPr(url: string): void {
       :plan-mode="client.planMode.value"
       :plan-armed="client.planArmed.value"
       :session-plans="client.sessionPlans.value"
+      :reveal-saved-plan="client.revealSavedPlan"
       :overlay-open="overlayOpen"
       :goal-mode="client.goalMode.value"
       :dynamic-workflow-mode="client.dynamicWorkflowMode.value"
