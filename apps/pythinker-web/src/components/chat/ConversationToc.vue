@@ -29,15 +29,10 @@ const emit = defineEmits<{
 
 const { t } = useI18n();
 
-// Width the rail needs inside the chat once its labels are fully
-// revealed on hover/focus: 24px node column + 10px gap + 220px label, plus a
-// small buffer. Kept in sync with the `.toc-row` / `.toc-label` rules below.
-const EXPANDED_WIDTH = 288;
-
 const navRef = ref<HTMLElement | null>(null);
 const focusTurnId = ref<string | null>(null);
-// Whether the rail, once expanded, fits within the chat pane. When it would
-// overflow, we hide the outline rather than showing a clipped panel.
+// Whether the collapsed line stack fits within the chat pane. Expanded labels
+// may overlay the reading column, but the anchor itself must remain reachable.
 const fits = ref(true);
 
 let observer: ResizeObserver | null = null;
@@ -48,10 +43,7 @@ function measure(): void {
   if (!nav || !parent) return;
   const navRect = nav.getBoundingClientRect();
   const parentRect = parent.getBoundingClientRect();
-  const readingColumn = parent.querySelector<HTMLElement>('.content-wrap');
-  const clearsReadingColumn =
-    readingColumn === null || navRect.right <= readingColumn.getBoundingClientRect().left;
-  fits.value = parentRect.right - navRect.left >= EXPANDED_WIDTH && clearsReadingColumn;
+  fits.value = navRect.left >= parentRect.left && navRect.right <= parentRect.right;
 }
 
 // The outline is only useful once there is something to navigate, and it never
@@ -146,8 +138,8 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <!-- Conversation outline: one connected timeline node per user query,
-       vertically centered beside the chat. Hover or focus reveals labels. -->
+  <!-- Conversation outline: one short line per user query, centered beside
+       the chat. Hover or focus reveals the prompt labels. -->
   <nav
     v-if="visible"
     ref="navRef"
@@ -171,7 +163,7 @@ onBeforeUnmount(() => {
         @keydown="onRowKeydown(index, $event)"
         @click="emit('select', item.id)"
       >
-        <span class="toc-node" aria-hidden="true" />
+        <span class="toc-marker" aria-hidden="true" />
         <span class="toc-label">{{ item.title }}</span>
       </button>
     </div>
@@ -185,15 +177,13 @@ onBeforeUnmount(() => {
   top: 50%;
   transform: translateY(-50%);
   /* The chat pane begins immediately after the app sidebar, so this keeps the
-     timeline beside that sidebar while labels reveal into the chat. */
+     prompt anchor beside that sidebar while labels reveal into the chat. */
   left: var(--space-4);
   display: flex;
   flex-direction: column;
   justify-content: center;
-  opacity: 0.5;
-  transition: opacity var(--duration-base) var(--ease-out);
 }
-/* Invisible hover bridge: the collapsed rail is only 24px wide, so this
+/* Invisible hover bridge: the collapsed line stack is narrow, so this
    extends the hover target on both sides to make the outline easy to open and
    forgiving to stay within. Kept at z-index 0 so it sits behind the rows
    (which are raised to z-index 1) and cannot swallow their clicks. */
@@ -206,21 +196,26 @@ onBeforeUnmount(() => {
   right: -48px;
   z-index: 0;
 }
-.conversation-toc:hover,
-.conversation-toc:focus-within { opacity: 1; }
-
 .toc-scroll {
   position: relative;
   z-index: 1;
   display: flex;
   flex-direction: column;
-  gap: 1px;
-  padding: var(--space-2);
+  gap: 0;
+  padding: var(--space-1);
   border: .5px solid transparent;
   border-radius: var(--radius-lg);
   background: transparent;
   box-shadow: none;
-  max-height: calc(100vh - 200px);
+  max-height: min(
+    50dvh,
+    max(
+      0px,
+      calc(
+        100dvh - var(--chat-dock-height, 0px) - var(--chat-dock-height, 0px) - var(--space-8)
+      )
+    )
+  );
   overflow-y: auto;
   scrollbar-width: none;
   transition:
@@ -231,32 +226,20 @@ onBeforeUnmount(() => {
 .toc-scroll::-webkit-scrollbar { display: none; }
 .conversation-toc:hover .toc-scroll,
 .conversation-toc:focus-within .toc-scroll {
+  padding: var(--space-2);
   border-color: var(--color-line);
   background: var(--color-surface-raised);
   box-shadow: var(--shadow-menu);
 }
-.toc-row::before {
-  content: "";
-  position: absolute;
-  top: -1px;
-  bottom: -1px;
-  left: calc(var(--space-2) + 12px);
-  width: var(--p-hairline);
-  background: var(--color-line);
-  pointer-events: none;
-}
-.toc-row:first-child::before { top: 50%; }
-.toc-row:last-child::before { bottom: 50%; }
-
 .toc-row {
   position: relative;
   display: grid;
-  grid-template-columns: 24px minmax(0, 1fr);
+  grid-template-columns: var(--space-4);
   align-items: center;
-  gap: 10px;
-  min-height: 28px;
-  min-width: 24px;
-  padding: var(--space-1) var(--space-2);
+  gap: 0;
+  min-height: calc(var(--space-2) + var(--space-05));
+  min-width: var(--space-4);
+  padding: 0 var(--space-1);
   border: none;
   border-radius: var(--radius-dropdown-row);
   background: transparent;
@@ -271,23 +254,16 @@ onBeforeUnmount(() => {
 .toc-row:focus-visible { outline: none; box-shadow: var(--p-focus-ring); }
 .toc-row:hover { background: var(--color-hover); }
 
-.toc-node {
-  position: relative;
-  z-index: var(--z-raised);
-  width: 7px;
-  height: 7px;
+.toc-marker {
+  width: var(--space-4);
+  height: var(--space-05);
   margin-inline: auto;
-  border: var(--p-hairline) solid var(--color-text-muted);
   border-radius: var(--radius-full);
-  background: var(--color-bg);
-  transition:
-    transform var(--duration-fast) var(--ease-out),
-    border-color var(--duration-fast) var(--ease-out),
-    background var(--duration-fast) var(--ease-out),
-    box-shadow var(--duration-fast) var(--ease-out);
+  background: var(--color-text-faint);
+  transition: background var(--duration-fast) var(--ease-out);
 }
 .toc-label {
-  display: block;
+  display: none;
   max-width: 0;
   overflow: hidden;
   opacity: 0;
@@ -298,25 +274,35 @@ onBeforeUnmount(() => {
     color var(--duration-fast) var(--ease-out);
 }
 
-/* Hover / focus: reveal labels to the right. */
+/* Hover / focus: replace the line index with the prompt list. */
+.conversation-toc:hover .toc-row,
+.conversation-toc:focus-within .toc-row {
+  grid-template-columns: minmax(0, 1fr);
+  min-height: calc(var(--space-6) + var(--space-1));
+  padding: var(--space-1) var(--space-2);
+}
+.conversation-toc:hover .toc-marker,
+.conversation-toc:focus-within .toc-marker {
+  display: none;
+}
 .conversation-toc:hover .toc-label,
-.conversation-toc:focus-within .toc-label { max-width: 220px; opacity: 1; }
+.conversation-toc:focus-within .toc-label {
+  display: block;
+  max-width: 220px;
+  opacity: 1;
+}
 
-.toc-row.active .toc-node {
-  border-color: var(--color-accent);
-  background: var(--color-accent);
-  box-shadow: var(--p-focus-ring);
-  transform: scale(1.28);
+.toc-row.active .toc-marker {
+  background: var(--color-text-strong);
 }
 .conversation-toc:hover .toc-row.active,
 .conversation-toc:focus-within .toc-row.active { background: var(--color-selected); }
 .toc-row.active .toc-label { color: var(--color-accent); font-weight: var(--weight-medium); }
-.toc-row:hover .toc-node { border-color: var(--color-text); transform: scale(1.28); }
-.toc-row.active:hover .toc-node { border-color: var(--color-accent); }
+.toc-row:hover .toc-marker { background: var(--color-text); }
 .toc-row:hover .toc-label { color: var(--color-text); }
 
-/* When the chat pane cannot fit the expanded labels or the collapsed rail
-   reaches the reading column, it stays mounted for measurement but hidden. */
+/* When the chat pane cannot fit the collapsed line stack, keep it mounted for
+   measurement but hidden. */
 .conversation-toc.toc-clipped {
   visibility: hidden;
   pointer-events: none;

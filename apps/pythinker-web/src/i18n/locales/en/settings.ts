@@ -226,7 +226,7 @@ export default {
   logHint: 'Enable with ?debug=1 to capture',
   exportLogBtn: 'Export log',
   conversationToc: 'Chat prompt anchors',
-  conversationTocHint: 'Show a timeline beside the chat to jump between your prompts',
+  conversationTocHint: 'Show a line index beside the chat to jump between your prompts',
   archivedTitle: 'Archived sessions',
   archivedDesc: 'Browse archived sessions, see their workspace path, name, and archive time, and restore them to the session list.',
   archivedSearch: 'Search archived sessions',

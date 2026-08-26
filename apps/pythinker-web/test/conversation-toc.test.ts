@@ -24,6 +24,10 @@ const source = readFileSync(
   join(import.meta.dirname, '../src/components/chat/ConversationToc.vue'),
   'utf8',
 );
+const paneSource = readFileSync(
+  join(import.meta.dirname, '../src/components/chat/ConversationPane.vue'),
+  'utf8',
+);
 
 function mountToc(activeTurnId = 'user-2'): VueWrapper {
   return mount(ConversationToc, {
@@ -40,23 +44,52 @@ afterEach(() => {
 });
 
 describe('ConversationToc', () => {
-  it('renders a connected user-prompt timeline with one current location', () => {
+  it('renders a line marker for each user prompt with one current location', () => {
     const wrapper = mountToc();
     const rows = wrapper.findAll<HTMLButtonElement>('.toc-row');
 
     expect(rows).toHaveLength(3);
-    expect(wrapper.findAll('.toc-node')).toHaveLength(3);
+    expect(wrapper.findAll('.toc-marker')).toHaveLength(3);
+    expect(wrapper.find('.toc-node').exists()).toBe(false);
     expect(rows[0]!.attributes('aria-current')).toBeUndefined();
     expect(rows[1]!.attributes('aria-current')).toBe('location');
-    expect(source).toMatch(/\.toc-row::before\s*\{/u);
+    expect(source).not.toMatch(/\.toc-row::before\s*\{/u);
+
+    const marker = source.match(/\.toc-marker\s*\{[^}]*\}/u)?.[0];
+    expect(marker).toContain('width: var(--space-4)');
+    expect(marker).toContain('height: var(--space-05)');
+    expect(marker).toContain('background: var(--color-text-faint)');
+    expect(source).toMatch(
+      /\.toc-row\.active \.toc-marker\s*\{[^}]*background:\s*var\(--color-text-strong\)/u,
+    );
+    expect(source).toMatch(
+      /\.toc-row\s*\{[^}]*grid-template-columns:\s*var\(--space-4\)[^}]*min-height:\s*calc\(var\(--space-2\) \+ var\(--space-05\)\)[^}]*padding:\s*0 var\(--space-1\)/u,
+    );
   });
 
-  it('keeps the timeline visible at the chat edge beside the sidebar', async () => {
+  it('centers the anchor and keeps its expanded list above the composer', () => {
+    expect(source).toMatch(
+      /\.conversation-toc\s*\{[\s\S]*?top:\s*50%;[\s\S]*?transform:\s*translateY\(-50%\)/u,
+    );
+    const scroll = source.match(/\.toc-scroll\s*\{[^}]*\}/u)?.[0];
+    expect(scroll).toContain('max-height: min(');
+    expect(scroll).toContain('50dvh');
+    expect(scroll).toContain('var(--chat-dock-height, 0px)');
+    expect(scroll).toContain('overflow-y: auto');
+    expect(paneSource).toMatch(
+      /<section class="con" :class="\{ mobile, 'toc-enabled': conversationToc \}" :style="chatLayoutStyle">/u,
+    );
+    expect(paneSource).toMatch(
+      /@container \(max-width: 952px\)[\s\S]*?\.con\.toc-enabled:not\(\.mobile\) \.content-wrap\.align-center[\s\S]*?padding-left:\s*calc\(var\(--space-8\) \+ var\(--space-8\) \+ var\(--space-8\)\)/u,
+    );
+  });
+
+  it('keeps the prompt anchor visible at the chat edge beside the sidebar', async () => {
     expect(source).toMatch(
       /\.conversation-toc\s*\{[\s\S]*?left:\s*var\(--space-4\)/u,
     );
     expect(source).toMatch(
-      /\.toc-scroll\s*\{[^}]*padding:\s*var\(--space-2\)[^}]*border:\s*\.5px solid transparent[^}]*border-radius:\s*var\(--radius-lg\)/u,
+      /\.toc-scroll\s*\{[^}]*padding:\s*var\(--space-1\)[^}]*border:\s*\.5px solid transparent[^}]*border-radius:\s*var\(--radius-lg\)/u,
     );
     const expandedSurface = source.match(
       /\.conversation-toc:hover \.toc-scroll,[\s\S]*?\.conversation-toc:focus-within \.toc-scroll\s*\{[^}]*\}/u,
@@ -64,8 +97,16 @@ describe('ConversationToc', () => {
     expect(expandedSurface).toContain('background: var(--color-surface-raised)');
     expect(expandedSurface).toContain('border-color: var(--color-line)');
     expect(expandedSurface).toContain('box-shadow: var(--shadow-menu)');
+    expect(expandedSurface).toContain('padding: var(--space-2)');
     expect(source).toMatch(
-      /\.toc-row\s*\{[^}]*padding:\s*var\(--space-1\) var\(--space-2\)/u,
+      /\.conversation-toc:hover \.toc-marker,[\s\S]*?\.conversation-toc:focus-within \.toc-marker\s*\{\s*display:\s*none;\s*\}/u,
+    );
+    expect(source).toMatch(/\.toc-label\s*\{[^}]*display:\s*none;/u);
+    expect(source).toMatch(
+      /\.conversation-toc:hover \.toc-label,[\s\S]*?\.conversation-toc:focus-within \.toc-label\s*\{[^}]*display:\s*block;/u,
+    );
+    expect(source).toMatch(
+      /\.conversation-toc:hover \.toc-row,[\s\S]*?\.conversation-toc:focus-within \.toc-row\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\)[^}]*min-height:\s*calc\(var\(--space-6\) \+ var\(--space-1\)\)[^}]*padding:\s*var\(--space-1\) var\(--space-2\)/u,
     );
     expect(source).toMatch(
       /\.toc-row:hover\s*\{\s*background:\s*var\(--color-hover\)/u,
@@ -86,7 +127,7 @@ describe('ConversationToc', () => {
     expect(wrapper.get('.conversation-toc').classes()).not.toContain('toc-clipped');
   });
 
-  it('hides the timeline before it overlaps the chat reading column', async () => {
+  it('keeps the line anchor visible when expanded labels overlap the reading column', async () => {
     let resize: ResizeObserverCallback | undefined;
     vi.stubGlobal('ResizeObserver', class {
       constructor(callback: ResizeObserverCallback) {
@@ -117,10 +158,10 @@ describe('ConversationToc', () => {
     resize?.([], {} as ResizeObserver);
     await nextTick();
 
-    expect(wrapper.get('.conversation-toc').classes()).toContain('toc-clipped');
+    expect(wrapper.get('.conversation-toc').classes()).not.toContain('toc-clipped');
   });
 
-  it('selects the prompt represented by a node', async () => {
+  it('selects the prompt represented by a line', async () => {
     const wrapper = mountToc();
 
     await wrapper.findAll('.toc-row')[2]!.trigger('click');
@@ -128,7 +169,7 @@ describe('ConversationToc', () => {
     expect(wrapper.emitted('select')).toEqual([['user-3']]);
   });
 
-  it('keeps the collapsed timeline free of padded row cards', () => {
+  it('keeps the collapsed prompt anchor free of padded row cards', () => {
     expect(source).not.toMatch(
       /^\.toc-row\.active\s*\{[^}]*background:\s*var\(--color-selected\)/mu,
     );
