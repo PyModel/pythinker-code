@@ -428,7 +428,13 @@ describe("Pythinker runtime (owns shared SDK sessions for Webviews)", () => {
         type: "StatusUpdate",
         // The permission mode rides along: the chat badge is the only place the
         // user can see which mode a toggle command just landed on.
-        payload: { model: "kimi-test", thinking_effort: "max", plan_mode: true, permission: "manual" },
+        payload: {
+          model: "kimi-test",
+          thinking_effort: "max",
+          plan_mode: true,
+          permission: "manual",
+          context_usage: 0,
+        },
         _sessionId: "saved-1",
       },
       webviewId: "view-1",
@@ -459,7 +465,13 @@ describe("Pythinker runtime (owns shared SDK sessions for Webviews)", () => {
       event: Events.StreamEvent,
       data: {
         type: "StatusUpdate",
-        payload: { model: "kimi-test", thinking_effort: "off", plan_mode: false, permission: "yolo" },
+        payload: {
+          model: "kimi-test",
+          thinking_effort: "off",
+          plan_mode: false,
+          permission: "yolo",
+          context_usage: 0,
+        },
         _sessionId: "saved-1",
       },
       webviewId: "view-1",

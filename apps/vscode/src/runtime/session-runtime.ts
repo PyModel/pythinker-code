@@ -172,6 +172,7 @@ export class SessionRuntime {
           model: status.model,
           thinking_effort: status.thinkingEffort,
           plan_mode: status.planMode,
+          context_usage: status.contextUsage,
           permission: status.permission,
         },
         _sessionId: this.id,

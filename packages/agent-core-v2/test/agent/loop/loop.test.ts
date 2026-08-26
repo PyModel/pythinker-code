@@ -813,6 +813,46 @@ describe('Agent loop', () => {
 
     expect(prompts).toEqual([undefined, 'hi']);
   });
+
+  it('carries session file prompt attachments on turn started when the part id is omitted', async () => {
+    const payloads: Array<readonly { kind: string; fileId: string }[] | undefined> = [];
+    const subscription = ctx.get(IEventBus).subscribe(TurnStarted, (event) => {
+      payloads.push(event.promptAttachments);
+    });
+    ctx.mockNextResponse({ type: 'text', text: 'seen' });
+
+    const turn = (
+      await loop.enqueue(
+        new MessageStepRequest(
+          {
+            role: 'user',
+            content: [
+              { type: 'image_url', imageUrl: { url: 'pythinker-file://file_1', id: 'file_1' } },
+              { type: 'video_url', videoUrl: { url: 'pythinker-file://file_2', id: 'file_2' } },
+              { type: 'image_url', imageUrl: { url: 'pythinker-file://file_3' } },
+              { type: 'image_url', imageUrl: { url: 'pythinker-file://file_4', id: 'other' } },
+              { type: 'image_url', imageUrl: { url: 'https://example.com/no-id.png' } },
+              { type: 'image_url', imageUrl: { url: 'ms://provider-blob', id: 'prov_1' } },
+              { type: 'text', text: 'look' },
+            ],
+            toolCalls: [],
+            origin: { kind: 'user' },
+          },
+          { admission: 'newTurn' },
+        ),
+      ).assigned
+    ).turn;
+    await turn.result;
+    subscription.dispose();
+
+    expect(payloads).toEqual([
+      [
+        { kind: 'image', fileId: 'file_1' },
+        { kind: 'video', fileId: 'file_2' },
+        { kind: 'image', fileId: 'file_3' },
+      ],
+    ]);
+  });
 });
 
 describe('turn telemetry', () => {

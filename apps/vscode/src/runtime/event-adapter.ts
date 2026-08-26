@@ -367,7 +367,8 @@ function mapStatusUpdate(
   sdkEvent: Extract<Event, { type: 'agent.status.updated' }>,
 ): MappedLegacyWireEvent {
   const payload: StatusUpdate = {};
-  if (sdkEvent.contextUsage !== undefined) payload.context_usage = sdkEvent.contextUsage;
+  const contextUsage = contextUsageRatio(sdkEvent);
+  if (contextUsage !== undefined) payload.context_usage = contextUsage;
   if (sdkEvent.planMode !== undefined) payload.plan_mode = sdkEvent.planMode;
   const thinkingLevel = (sdkEvent as any).thinkingLevel ?? (sdkEvent as any).thinkingEffort;
   if (thinkingLevel !== undefined) payload.thinking_effort = thinkingLevel;
@@ -417,6 +418,22 @@ function mapSubagentStatus(
   };
 
   return { state, event: { type: 'SubagentStatus', payload } };
+}
+
+function contextUsageRatio(
+  sdkEvent: Extract<Event, { type: 'agent.status.updated' }>,
+): number | undefined {
+  if (sdkEvent.contextUsage !== undefined) return sdkEvent.contextUsage;
+  const { contextTokens, maxContextTokens } = sdkEvent;
+  if (
+    typeof contextTokens !== 'number' ||
+    typeof maxContextTokens !== 'number' ||
+    !Number.isFinite(contextTokens) ||
+    !Number.isFinite(maxContextTokens)
+  ) {
+    return undefined;
+  }
+  return maxContextTokens > 0 ? contextTokens / maxContextTokens : undefined;
 }
 
 function usageDelta(current: AdapterTokenUsage, previous: AdapterTokenUsage | undefined): TokenUsage {
