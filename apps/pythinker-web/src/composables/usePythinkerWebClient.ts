@@ -3259,6 +3259,7 @@ export function usePythinkerWebClient() {
     openWorkspaceFile: workspaceState.openWorkspaceFile,
     openInApp: workspaceState.openInApp,
     revealWorkspaceFile: workspaceState.revealWorkspaceFile,
+    revealSavedPlan: workspaceState.revealSavedPlan,
     resolveImageUrl: workspaceState.resolveImageUrl,
     getFileUrl: (fileId: string) => getPythinkerWebApi().getFileUrl(fileId),
 

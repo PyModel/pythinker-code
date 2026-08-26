@@ -113,6 +113,7 @@ const props = defineProps<{
   /** True while the active session is pinned. */
   pinned?: boolean;
   recentSessions?: Session[];
+  revealSavedPlan?: (agentId: string, toolCallId: string) => Promise<boolean>;
 }>();
 
 const emit = defineEmits<{
@@ -297,6 +298,11 @@ provide('resolveAgentModel', resolveAgentModel);
 // Let the ExitPlanMode tool card reach the plan markdown captured from the
 // plan_review approval display (client.sessionPlans — survives reloads).
 provide('resolvePlan', (toolCallId: string) => props.sessionPlans?.[toolCallId]);
+provide(
+  'revealSavedPlan',
+  (agentId: string, toolCallId: string) =>
+    props.revealSavedPlan?.(agentId, toolCallId) ?? Promise.resolve(false),
+);
 provide('pinScroll', pinScrollFor);
 const todoDoneCount = computed(() => (props.todos ?? []).filter((td) => td.status === 'done').length);
 const hasDockWork = computed(() =>
@@ -1566,6 +1572,7 @@ defineExpose({ loadComposerForEdit, focusComposer });
         :session-plans="sessionPlans"
         :overlay-open="overlayOpen"
         :open-file="(target) => emit('openFile', target)"
+        :reveal-saved-plan="revealSavedPlan"
         :dock-panel="dockPanel"
         :bash-tasks="bashTasks"
         :subagent-tasks="subagentTasks"

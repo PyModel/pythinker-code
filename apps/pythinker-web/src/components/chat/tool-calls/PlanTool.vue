@@ -3,6 +3,8 @@ import { computed, defineAsyncComponent, inject, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import type { FilePreviewRequest, SessionPlanEntry, ToolCall, ToolMedia } from '../../../types';
 import { toolGlyph, toolLabel } from '../../../lib/toolMeta';
+import Button from '../../ui/Button.vue';
+import Icon from '../../ui/Icon.vue';
 import ToolRow from '../ToolRow.vue';
 import ToolOutputBlock from './ToolOutputBlock.vue';
 
@@ -30,8 +32,10 @@ const { t } = useI18n();
 // The plan markdown projection captured from the plan_review approval display,
 // keyed by tool-call id (provided by ConversationPane from client.sessionPlans).
 const resolvePlan = inject<(toolCallId: string) => SessionPlanEntry | undefined>('resolvePlan');
+const revealSavedPlan = inject<(agentId: string, toolCallId: string) => Promise<boolean>>('revealSavedPlan');
 const plan = computed(() => resolvePlan?.(props.tool.id));
 const planMarkdown = computed(() => (plan.value?.plan && plan.value.plan.length > 0 ? plan.value.plan : ''));
+const savedPlanPath = computed(() => plan.value?.path ?? props.tool.planPath);
 const arg = computed<Record<string, unknown> | null>(() => {
   try {
     const value: unknown = JSON.parse(props.tool.arg);
@@ -62,8 +66,10 @@ function toggle(): void {
   open.value = !open.value;
 }
 
-function openPlan(): void {
-  if (props.tool.planPath) emit('openFile', { path: props.tool.planPath });
+function revealPlan(): void {
+  const savedPlan = plan.value;
+  if (savedPlan?.path === undefined) return;
+  void revealSavedPlan?.(savedPlan.agentId, savedPlan.toolCallId);
 }
 
 watch(
@@ -88,10 +94,19 @@ watch(
     @toggle="toggle"
   >
     <div class="plan-review">{{ reviewLabel }}</div>
-    <button v-if="tool.planPath" class="plan-path" type="button" @click="openPlan">
+    <div v-if="savedPlanPath" class="plan-path">
       <span>{{ t('tools.plan.pathOnlyHint') }}</span>
-      <span class="plan-path-value">{{ tool.planPath }}</span>
-    </button>
+      <span class="plan-path-value">{{ savedPlanPath }}</span>
+      <Button
+        v-if="plan?.path"
+        variant="ghost"
+        size="sm"
+        @click.stop="revealPlan"
+      >
+        <Icon name="external-link" size="sm" />
+        {{ t('tools.plan.revealInFileManager') }}
+      </Button>
+    </div>
     <div v-if="planMarkdown" class="plan-md">
       <Markdown :text="planMarkdown" :open-file="(target) => emit('openFile', target)" />
     </div>
@@ -129,19 +144,14 @@ watch(
   border-radius: var(--radius-md);
   background: var(--color-surface-raised);
   color: var(--color-text-muted);
-  font: inherit;
   text-align: left;
-  cursor: pointer;
-}
-.plan-path:hover {
-  background: var(--color-hover);
-}
-.plan-path:focus-visible {
-  outline: var(--p-focus-ring);
 }
 .plan-path-value {
   color: var(--color-accent);
   word-break: break-all;
+}
+.plan-path :deep(.ui-button) {
+  justify-self: start;
 }
 .plan-option {
   display: grid;

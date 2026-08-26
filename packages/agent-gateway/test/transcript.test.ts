@@ -1,6 +1,6 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 import {
   IAgentContextMemoryService,
@@ -14,6 +14,7 @@ import {
   respondSessionInteraction,
   resumeSessionById,
   IModelCatalog,
+  ISessionContext,
   type ContextMessage,
   type Event2,
   type ScopeSeed,
@@ -21,8 +22,14 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { type RunningServer, startServer } from '../src/start';
+import { launchDetached, revealFileCommandFor } from '../src/lib/fileLaunch';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 import { authHeaders } from './helpers/auth';
+
+vi.mock('../src/lib/fileLaunch', async () => {
+  const actual = await vi.importActual<typeof import('../src/lib/fileLaunch')>('../src/lib/fileLaunch');
+  return { ...actual, launchDetached: vi.fn() };
+});
 
 interface Envelope<T> {
   code: number;
@@ -151,6 +158,8 @@ describe('server-v2 /api/v1/sessions/{sid}/transcript', () => {
       },
     };
     seeds = [[IModelCatalog, modelCatalog]];
+    vi.mocked(launchDetached).mockReset();
+    vi.mocked(launchDetached).mockResolvedValue(undefined);
     await boot();
   });
 
@@ -184,6 +193,15 @@ describe('server-v2 /api/v1/sessions/{sid}/transcript', () => {
     return { status: res.status, body: (await res.json()) as Envelope<T> };
   }
 
+  async function postJson<T>(path: string, body: unknown): Promise<{ status: number; body: Envelope<T> }> {
+    const res = await fetch(`${base}${path}`, {
+      method: 'POST',
+      headers: authHeaders(server as RunningServer, { 'content-type': 'application/json' }),
+      body: JSON.stringify(body),
+    } as never);
+    return { status: res.status, body: (await res.json()) as Envelope<T> };
+  }
+
   async function createSession(): Promise<string> {
     const res = await fetch(`${base}/api/v1/sessions`, {
       method: 'POST',
@@ -207,6 +225,34 @@ describe('server-v2 /api/v1/sessions/{sid}/transcript', () => {
     const session = getLiveSessionById(server!.core.accessor, sessionId);
     const agent = session!.accessor.get(IAgentLifecycleService).handleOf('main');
     return agent!.accessor.get(IEventBus);
+  }
+
+  function savedPlanPath(sessionId: string, filename = 'saved-plan.md'): string {
+    const session = getLiveSessionById(server!.core.accessor, sessionId);
+    return join(session!.accessor.get(ISessionContext).sessionDir, 'agents', 'main', 'plans', filename);
+  }
+
+  async function createSavedPlan(sessionId: string, filename?: string): Promise<string> {
+    const path = savedPlanPath(sessionId, filename);
+    await mkdir(dirname(path), { recursive: true });
+    await writeFile(path, '# Saved plan\n');
+    return path;
+  }
+
+  function publishPlanFrame(sessionId: string, toolCallId: string, path: string): void {
+    const bus = mainAgentBus(sessionId);
+    bus.publish(serverEvent({ type: 'turn.started', turnId: 1, origin: { kind: 'user' } }));
+    bus.publish(serverEvent({ type: 'turn.step.started', turnId: 1, step: 1 }));
+    bus.publish(
+      serverEvent({
+        type: 'tool.call.started',
+        turnId: 1,
+        toolCallId,
+        name: 'ExitPlanMode',
+        args: {},
+        display: { kind: 'plan_review', plan: '# Saved plan', path },
+      }),
+    );
   }
 
   async function seedMainAgentMessages(
@@ -1375,6 +1421,98 @@ describe('server-v2 /api/v1/sessions/{sid}/transcript', () => {
       `/api/v1/sessions/${id}/transcript/plan?agent_id=${encodeURIComponent('../main')}&tool_call_id=call_plan`,
     );
     expect(hostile.body.code).toBe(40001);
+  });
+
+  it('reveals the saved plan from live transcript state', async () => {
+    const id = await createSession();
+    await ensureMainAgent(id);
+    await getJson<TranscriptContract>(`/api/v1/sessions/${id}/transcript?agent_id=main`);
+    const path = await createSavedPlan(id);
+    publishPlanFrame(id, 'call_plan_reveal', path);
+
+    const live = await postJson<{ revealed: true }>(
+      `/api/v1/sessions/${id}/transcript/plan:reveal`,
+      { agent_id: 'main', tool_call_id: 'call_plan_reveal', path: '/ignored/by/the/gateway.md' },
+    );
+    expect(live.body).toMatchObject({ code: 0, data: { revealed: true } });
+    expect(launchDetached).toHaveBeenLastCalledWith(revealFileCommandFor(await realpath(path)));
+  });
+
+  it('reveals the saved plan from cold transcript state', async () => {
+    const id = await createSession();
+    await ensureMainAgent(id);
+    const path = await createSavedPlan(id, 'cold-plan.md');
+    await seedMainAgentMessages(id, [
+      { role: 'user', content: [{ type: 'text', text: 'build it' }], toolCalls: [] },
+      {
+        role: 'assistant',
+        content: [],
+        toolCalls: [{ type: 'function', id: 'call_plan_cold', name: 'ExitPlanMode', arguments: '{}' }],
+      },
+      {
+        role: 'tool',
+        content: [
+          {
+            type: 'text',
+            text: `Exited plan mode. Plan mode deactivated. All tools are now available.\nPlan saved to: ${path}\n\n## Approved Plan:\n# Saved plan`,
+          },
+        ],
+        toolCalls: [],
+        toolCallId: 'call_plan_cold',
+      },
+    ]);
+    await server!.close();
+    server = undefined;
+    await boot();
+
+    const cold = await postJson<{ revealed: true }>(
+      `/api/v1/sessions/${id}/transcript/plan:reveal`,
+      { agent_id: 'main', tool_call_id: 'call_plan_cold' },
+    );
+    expect(cold.body).toMatchObject({ code: 0, data: { revealed: true } });
+    expect(launchDetached).toHaveBeenLastCalledWith(revealFileCommandFor(await realpath(path)));
+  });
+
+  it('rejects an unsafe saved-plan path without launching it', async () => {
+    const id = await createSession();
+    await ensureMainAgent(id);
+    await getJson<TranscriptContract>(`/api/v1/sessions/${id}/transcript?agent_id=main`);
+    const outsidePath = join(home as string, 'outside.md');
+    await writeFile(outsidePath, '# Outside\n');
+    publishPlanFrame(id, 'call_plan_outside', outsidePath);
+
+    const unsafe = await postJson<null>(
+      `/api/v1/sessions/${id}/transcript/plan:reveal`,
+      { agent_id: 'main', tool_call_id: 'call_plan_outside' },
+    );
+    expect(unsafe.body.code).toBe(40407);
+    expect(launchDetached).not.toHaveBeenCalled();
+
+    const hostile = await postJson<null>(
+      `/api/v1/sessions/${id}/transcript/plan:reveal`,
+      { agent_id: '../main', tool_call_id: 'call_plan_outside' },
+    );
+    expect(hostile.body.code).toBe(40001);
+  });
+
+  it('rejects a symlinked saved plan without launching it', async () => {
+    if (process.platform === 'win32') return;
+    const id = await createSession();
+    await ensureMainAgent(id);
+    await getJson<TranscriptContract>(`/api/v1/sessions/${id}/transcript?agent_id=main`);
+    const outsidePath = join(home as string, 'outside.md');
+    await writeFile(outsidePath, '# Outside\n');
+    const path = savedPlanPath(id);
+    await mkdir(dirname(path), { recursive: true });
+    await symlink(outsidePath, path);
+    publishPlanFrame(id, 'call_plan_symlink', path);
+
+    const response = await postJson<null>(
+      `/api/v1/sessions/${id}/transcript/plan:reveal`,
+      { agent_id: 'main', tool_call_id: 'call_plan_symlink' },
+    );
+    expect(response.body.code).toBe(40407);
+    expect(launchDetached).not.toHaveBeenCalled();
   });
 
   it('lists every ExitPlanMode plan of the agent when tool_call_id is omitted', async () => {

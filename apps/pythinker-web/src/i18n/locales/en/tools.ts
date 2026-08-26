@@ -66,6 +66,7 @@ export default {
     selectedOption: 'Selected option',
     feedback: 'Feedback',
     pathOnlyHint: 'The plan was saved to:',
+    revealInFileManager: 'Reveal in file manager',
     review: {
       pending: 'Pending review',
       approved: 'Approved',

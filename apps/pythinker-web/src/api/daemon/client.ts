@@ -1368,6 +1368,16 @@ export class DaemonPythinkerWebApi implements PythinkerWebApi {
     );
   }
 
+  async revealSavedPlan(
+    sessionId: string,
+    input: { agentId: string; toolCallId: string },
+  ): Promise<{ revealed: true }> {
+    return this.http.post<{ revealed: true }>(
+      `/sessions/${encodeURIComponent(sessionId)}/transcript/plan:reveal`,
+      { agent_id: input.agentId, tool_call_id: input.toolCallId },
+    );
+  }
+
   async openInApp(
     sessionId: string,
     appId: string,

@@ -98,8 +98,7 @@ export interface ToolCall {
   output?: string[]; // shown line by line when expanded
   media?: ToolMedia;
   defaultExpanded?: boolean;
-  /** Absolute path of the plan file (ExitPlanMode only) — rendered as a
-   *  clickable link that opens the plan in the file preview. */
+  /** Absolute path of the saved plan file (ExitPlanMode only). */
   planPath?: string;
 }
 

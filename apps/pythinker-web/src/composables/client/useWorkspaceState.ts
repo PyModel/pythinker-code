@@ -2781,6 +2781,18 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
     }
   }
 
+  async function revealSavedPlan(agentId: string, toolCallId: string): Promise<boolean> {
+    const sid = rawState.activeSessionId;
+    if (!sid) return false;
+    try {
+      await getPythinkerWebApi().revealSavedPlan(sid, { agentId, toolCallId });
+      return true;
+    } catch (error) {
+      pushOperationFailure('revealSavedPlan', error, { sessionId: sid });
+      return false;
+    }
+  }
+
   /**
    * Resolve a local image path to a displayable data URL.
    * Non-local URLs (http/https/data) pass through unchanged.
@@ -2916,6 +2928,7 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
     openWorkspaceFile,
     openInApp,
     revealWorkspaceFile,
+    revealSavedPlan,
     resolveImageUrl,
     searchFiles,
     loadOlderMessages,
