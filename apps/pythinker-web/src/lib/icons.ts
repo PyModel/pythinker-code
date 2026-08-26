@@ -121,6 +121,7 @@ import RawPythinkerSearch from '~icons/pythinker/search?raw';
 import RawPythinkerSetting from '~icons/pythinker/setting?raw';
 import RawPythinkerTerminal from '~icons/pythinker/terminal?raw';
 import RawPythinkerThinking from '~icons/pythinker/thinking?raw';
+import RawPythinkerUpdateButton from '~icons/pythinker/update_icon?raw';
 
 // Raw SVG strings (Tabler) ----------------------------------------------------
 import RawTablerCircleCheck from '~icons/tabler/circle-check?raw';
@@ -228,6 +229,7 @@ export type IconName =
   | 'chevron-down'
   | 'chevron-right'
   | 'chevron-up'
+  | 'update-available'
   | 'arrow-up'
   | 'arrow-down'
   | 'arrow-right'
@@ -343,6 +345,7 @@ export const ICONS: Record<IconName, IconEntry> = {
   'chevron-down': entry(RiArrowDownSLine, RawArrowDownSLine),
   'chevron-right': entry(RiArrowRightSLine, RawArrowRightSLine),
   'chevron-up': entry(RiArrowUpSLine, RawArrowUpSLine),
+  'update-available': animatedEntry(RawPythinkerUpdateButton),
   'arrow-up': entry(RiArrowUpLine, RawArrowUpLine),
   'arrow-down': entry(RiArrowDownLine, RawArrowDownLine),
   'arrow-right': entry(RiArrowRightLine, RawArrowRightLine),
@@ -521,6 +524,7 @@ export const ICON_GROUPS: ReadonlyArray<readonly [string, readonly IconName[]]> 
       'chevron-down',
       'chevron-right',
       'chevron-up',
+      'update-available',
       'arrow-up',
       'arrow-down',
       'arrow-right',

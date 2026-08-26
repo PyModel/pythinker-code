@@ -36,6 +36,7 @@ function mountToc(activeTurnId = 'user-2'): VueWrapper {
 afterEach(() => {
   document.body.innerHTML = '';
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 describe('ConversationToc', () => {
@@ -82,7 +83,41 @@ describe('ConversationToc', () => {
 
     await nextTick();
 
-    expect(wrapper.classes()).not.toContain('toc-clipped');
+    expect(wrapper.get('.conversation-toc').classes()).not.toContain('toc-clipped');
+  });
+
+  it('hides the timeline before it overlaps the chat reading column', async () => {
+    let resize: ResizeObserverCallback | undefined;
+    vi.stubGlobal('ResizeObserver', class {
+      constructor(callback: ResizeObserverCallback) {
+        resize = callback;
+      }
+      observe(): void {}
+      disconnect(): void {}
+    });
+    const wrapper = mountToc();
+    const nav = wrapper.get<HTMLElement>('.conversation-toc').element;
+    const parent = document.createElement('div');
+    const content = document.createElement('div');
+    content.className = 'content-wrap';
+    parent.append(content);
+    Object.defineProperty(nav, 'offsetParent', { configurable: true, value: parent });
+    vi.spyOn(nav, 'getBoundingClientRect').mockReturnValue(
+      DOMRect.fromRect({ x: 16, width: 40 }),
+    );
+    vi.spyOn(parent, 'getBoundingClientRect').mockReturnValue(
+      DOMRect.fromRect({ width: 800 }),
+    );
+    vi.spyOn(content, 'getBoundingClientRect').mockReturnValue(
+      DOMRect.fromRect({ x: 48, width: 752 }),
+    );
+
+    await nextTick();
+    expect(resize).toBeDefined();
+    resize?.([], {} as ResizeObserver);
+    await nextTick();
+
+    expect(wrapper.get('.conversation-toc').classes()).toContain('toc-clipped');
   });
 
   it('selects the prompt represented by a node', async () => {

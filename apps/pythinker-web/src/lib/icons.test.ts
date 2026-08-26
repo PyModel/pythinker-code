@@ -5,7 +5,15 @@ import Icon from '../components/ui/Icon.vue';
 import { ICONS, SIZE_PX, getIcon, iconSvg } from './icons';
 
 /** Registry names served as self-animated artwork (raw SVG with its own <style>). */
-const ANIMATED_NAMES = ['terminal', 'cute-bot', 'search', 'folder', 'settings', 'loading-spinner'] as const;
+const ANIMATED_NAMES = [
+  'terminal',
+  'cute-bot',
+  'search',
+  'folder',
+  'settings',
+  'loading-spinner',
+  'update-available',
+] as const;
 
 describe('ICONS registry', () => {
   it('is non-empty', () => {

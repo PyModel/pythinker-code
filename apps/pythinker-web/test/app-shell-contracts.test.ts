@@ -8,6 +8,7 @@ const chatDock = readFileSync(join(import.meta.dirname, '../src/components/chat/
 const conversationPane = readFileSync(join(import.meta.dirname, '../src/components/chat/ConversationPane.vue'), 'utf8');
 const mobileSheet = readFileSync(join(import.meta.dirname, '../src/components/mobile/MobileSettingsSheet.vue'), 'utf8');
 const sidebar = readFileSync(join(import.meta.dirname, '../src/components/Sidebar.vue'), 'utf8');
+const sidebarBanner = readFileSync(join(import.meta.dirname, '../public/brand/pythinker_code_banner_dark.svg'), 'utf8');
 const sessionRow = readFileSync(join(import.meta.dirname, '../src/components/SessionRow.vue'), 'utf8');
 const sideChat = readFileSync(join(import.meta.dirname, '../src/components/chat/SideChatPanel.vue'), 'utf8');
 const client = readFileSync(join(import.meta.dirname, '../src/composables/usePythinkerWebClient.ts'), 'utf8');
@@ -40,11 +41,31 @@ describe('app shell contracts', () => {
     expect(mobileSheet).toContain(':aria-checked="dynamicWorkflowMode" @click="emit(\'toggleWorkflow\')"');
   });
 
-  it('uses the Pythinker robot in the sidebar brand', () => {
-    expect(sidebar).toContain("import PythinkerLogo from './PythinkerLogo.vue';");
-    expect(sidebar).toContain('<PythinkerLogo');
-    expect(sidebar).not.toContain('<svg ref="logoRef"');
-    expect(sidebar).not.toContain("'is-dev': isDev");
+  it('uses the Pythinker banner in the sidebar brand', () => {
+    expect(sidebar).toContain('src="/brand/pythinker_code_banner_dark.svg"');
+    expect(sidebar).toContain('alt="Pythinker Code"');
+    expect(sidebar).not.toContain("import PythinkerLogo from './PythinkerLogo.vue';");
+    expect(sidebar).not.toContain('<span class="ch-name">');
+    expect(sidebarBanner).toContain('width="1640" height="180" viewBox="230 395 1640 180"');
+  });
+
+  it('shimmers the Update word for five seconds, then rests for five seconds', () => {
+    expect(sidebar).toContain('<Icon name="update-available" size="lg" />');
+    expect(sidebar).toContain('animation: update-label-shimmer 10s linear infinite;');
+    expect(sidebar).toContain('0%, 10%, 20%, 30%, 40%');
+    expect(sidebar).toContain('50%, 100%');
+    expect(sidebar).toContain('content: attr(data-label);');
+    expect(sidebar).toMatch(/\.btn-update\s*\{[^}]*color: var\(--color-text\);/s);
+    expect(sidebar).not.toContain('.btn-update::after');
+    expect(sidebar).toContain('@media (prefers-reduced-motion: reduce)');
+  });
+
+  it('keeps desktop traffic lights clear and separates the Update action', () => {
+    expect(sidebar).toMatch(/\.side\.macos-desktop \.ch\s*\{[^}]*padding-top: 36px;/s);
+    expect(sidebar).toMatch(/\.update-wrap\s*\{[^}]*flex: none;[^}]*padding: var\(--space-1\) var\(--sb-inset\) var\(--space-2\);/s);
+    expect(sidebar).toMatch(/\.btn-update\s*\{[^}]*min-height: 72px;[^}]*padding: var\(--space-3\);[^}]*background: var\(--color-hover\);/s);
+    expect(sidebar.indexOf('<div class="ch">')).toBeLessThan(sidebar.indexOf('class="update-wrap"'));
+    expect(sidebar.indexOf('class="update-wrap"')).toBeLessThan(sidebar.indexOf('<div class="btn-wrap">'));
   });
 
   it('persists and reorders pinned sessions', () => {

@@ -90,12 +90,12 @@ const tabs: { id: SettingsTab; labelKey: string; icon: IconName }[] = [
   { id: 'agent', labelKey: 'settings.tabs.agent', icon: 'cute-bot' },
   { id: 'account', labelKey: 'settings.tabs.account', icon: 'user' },
   { id: 'providers', labelKey: 'settings.tabs.providers', icon: 'bolt' },
-  { id: 'advanced', labelKey: 'settings.tabs.advanced', icon: 'microscope' },
-  ...(desktopBridge === undefined
-    ? []
-    : [{ id: 'update' as const, labelKey: 'settings.tabs.update', icon: 'download' as const }]),
   { id: 'lab', labelKey: 'settings.tabs.lab', icon: 'flask' },
   { id: 'archived', labelKey: 'settings.tabs.archived', icon: 'archive' },
+  ...(desktopBridge === undefined
+    ? []
+    : [{ id: 'update' as const, labelKey: 'settings.tabs.update', icon: 'update-available' as const }]),
+  { id: 'advanced', labelKey: 'settings.tabs.advanced', icon: 'microscope' },
 ];
 
 const serverAddress = readPythinkerApiConfig().serverHttpUrl;

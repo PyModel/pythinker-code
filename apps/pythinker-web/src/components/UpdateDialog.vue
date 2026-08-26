@@ -45,6 +45,17 @@ const total = computed(() => {
   return value === undefined ? undefined : formatUpdateBytes(value);
 });
 
+const speed = computed(() => {
+  const value = update.state.value?.bytesPerSecond;
+  return value === undefined ? undefined : formatUpdateBytes(value);
+});
+
+const percent = computed(() => {
+  const value = update.percent.value;
+  if (value === undefined) return undefined;
+  return `${new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 }).format(value)}%`;
+});
+
 const message = computed(() => {
   if (update.status.value === 'error') return update.state.value?.message ?? t('update.failedMessage');
   if (update.status.value === 'downloaded') return t('update.restart');
@@ -72,10 +83,14 @@ function close(): void {
   >
     <template #head>
       <div class="update-dialog__head">
-        <PythinkerLogo class="update-dialog__mark" size="lg" :animated="false" />
+        <PythinkerLogo class="update-dialog__mark" size="md" :animated="false" />
         <div class="update-dialog__titles">
           <div class="update-dialog__title" data-testid="update-dialog-title">{{ title }}</div>
-          <div v-if="releaseDate" class="update-dialog__date" data-testid="update-dialog-date">
+          <div
+            v-if="releaseDate && update.status.value !== 'downloading'"
+            class="update-dialog__date"
+            data-testid="update-dialog-date"
+          >
             {{ releaseDate }}
           </div>
         </div>
@@ -83,15 +98,7 @@ function close(): void {
     </template>
 
     <div v-if="update.status.value === 'downloading'" class="update-dialog__progress">
-      <div class="update-dialog__progress-row">
-        <span class="update-dialog__progress-label">{{ t('update.downloadProgress') }}</span>
-        <span
-          v-if="transferred && total"
-          class="update-dialog__bytes"
-          data-testid="update-dialog-bytes"
-        >{{ t('update.bytesOfTotal', { transferred, total }) }}</span>
-        <span v-else class="update-dialog__bytes">{{ t('update.fetching') }}</span>
-      </div>
+      <span class="update-dialog__progress-label">{{ t('update.downloadProgress') }}</span>
       <progress
         v-if="update.percent.value === undefined"
         data-testid="update-dialog-progress"
@@ -105,6 +112,20 @@ function close(): void {
         max="100"
         :aria-label="t('update.progressLabel')"
       />
+      <div class="update-dialog__progress-meta" data-testid="update-dialog-progress-meta">
+        <span v-if="transferred && total" data-testid="update-dialog-bytes">
+          {{ t('update.bytesProgress', { transferred, total }) }}
+        </span>
+        <span v-else>{{ t('update.fetching') }}</span>
+        <template v-if="percent">
+          <span class="update-dialog__separator" aria-hidden="true">·</span>
+          <span class="update-dialog__percent">{{ percent }}</span>
+        </template>
+        <template v-if="speed">
+          <span class="update-dialog__separator" aria-hidden="true">·</span>
+          <span>{{ t('update.downloadSpeed', { speed }) }}</span>
+        </template>
+      </div>
     </div>
     <p v-else class="update-dialog__message" data-testid="update-dialog-message">{{ message }}</p>
 
@@ -112,7 +133,7 @@ function close(): void {
       <template v-if="update.status.value === 'downloading'">
         <Button
           data-testid="cancel-update-download"
-          variant="ghost"
+          variant="secondary"
           :loading="update.busy.value"
           @click="void update.cancelDownload()"
         >
@@ -156,6 +177,7 @@ function close(): void {
   display: flex;
   align-items: center;
   gap: var(--space-3);
+  flex: 1;
   min-width: 0;
 }
 
@@ -197,15 +219,7 @@ function close(): void {
 .update-dialog__progress {
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
-}
-
-.update-dialog__progress-row {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
   gap: var(--space-3);
-  min-width: 0;
 }
 
 .update-dialog__progress-label {
@@ -214,11 +228,24 @@ function close(): void {
   color: var(--color-text);
 }
 
-.update-dialog__bytes {
+.update-dialog__progress-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
   font-family: var(--font-mono);
   font-size: var(--ui-font-size-sm);
   color: var(--color-text-muted);
   white-space: nowrap;
+}
+
+.update-dialog__separator {
+  color: var(--color-text-faint);
+}
+
+.update-dialog__percent {
+  color: var(--color-accent-hover);
+  font-weight: var(--weight-medium);
 }
 
 .update-dialog__progress progress {
@@ -243,5 +270,12 @@ function close(): void {
 .update-dialog__progress progress::-moz-progress-bar {
   border-radius: var(--radius-full);
   background: var(--color-accent);
+}
+
+@media (max-width: 420px) {
+  .update-dialog__progress-meta {
+    gap: var(--space-1-5);
+    font-size: var(--ui-font-size-xs);
+  }
 }
 </style>
