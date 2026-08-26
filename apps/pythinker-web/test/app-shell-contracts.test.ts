@@ -9,7 +9,6 @@ const conversationPane = readFileSync(join(import.meta.dirname, '../src/componen
 const mobileSheet = readFileSync(join(import.meta.dirname, '../src/components/mobile/MobileSettingsSheet.vue'), 'utf8');
 const sidebar = readFileSync(join(import.meta.dirname, '../src/components/Sidebar.vue'), 'utf8');
 const sidebarBannerDark = readFileSync(join(import.meta.dirname, '../public/brand/pythinker_banner_dark.svg'), 'utf8');
-const sidebarBannerLight = readFileSync(join(import.meta.dirname, '../public/brand/pythinker_banner_light.svg'), 'utf8');
 const sessionRow = readFileSync(join(import.meta.dirname, '../src/components/SessionRow.vue'), 'utf8');
 const sideChat = readFileSync(join(import.meta.dirname, '../src/components/chat/SideChatPanel.vue'), 'utf8');
 const client = readFileSync(join(import.meta.dirname, '../src/composables/usePythinkerWebClient.ts'), 'utf8');
@@ -43,15 +42,15 @@ describe('app shell contracts', () => {
   });
 
   it('uses the Pythinker banner in the sidebar brand', () => {
-    expect(sidebar).toContain("import { useIsDark } from '../composables/useIsDark';");
-    expect(sidebar).toContain("isDark ? '/brand/pythinker_banner_dark.svg' : '/brand/pythinker_banner_light.svg'");
+    expect(sidebar).toContain('src="/brand/pythinker_banner_dark.svg"');
+    expect(sidebar).not.toContain('pythinker_banner_light.svg');
+    expect(sidebar).not.toContain('useIsDark');
     expect(sidebar).toContain('alt="Pythinker Code"');
     expect(sidebar).not.toContain("import PythinkerLogo from './PythinkerLogo.vue';");
     expect(sidebar).not.toContain('<span class="ch-name">');
     expect(sidebar).not.toMatch(/\.ch-logo\s*\{[^}]*top:/s);
     expect(sidebar).toMatch(/\.ch-logo\s*\{[^}]*width: min\(220px, 100%\);/s);
     expect(sidebarBannerDark).toContain('width="1020" height="180" viewBox="238 395 1020 180"');
-    expect(sidebarBannerLight).toContain('width="1020" height="180" viewBox="238 395 1020 180"');
   });
 
   it('shimmers the Update word for five seconds, then rests for five seconds', () => {
