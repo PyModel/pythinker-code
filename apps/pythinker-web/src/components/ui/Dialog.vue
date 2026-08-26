@@ -14,8 +14,9 @@ const props = withDefaults(defineProps<{
   description?: string;
   closeOnOverlay?: boolean;
   closeOnEsc?: boolean;
-  /** md 440 (default) · lg 640 · xl 760 (var(--p-content-max)). */
-  size?: 'md' | 'lg' | 'xl';
+  showClose?: boolean;
+  /** md 440 (default) · md-wide 512 · lg 640 · xl 760 (var(--p-content-max)). */
+  size?: 'md' | 'md-wide' | 'lg' | 'xl';
   /** auto (default) = height tracks content up to max-height; fixed = constant
    *  height so the frame never resizes between tabs/content (body scrolls). */
   height?: 'auto' | 'fixed';
@@ -28,6 +29,7 @@ const props = withDefaults(defineProps<{
 }>(), {
   closeOnOverlay: true,
   closeOnEsc: true,
+  showClose: true,
   size: 'md',
   height: 'auto',
   padded: true,
@@ -149,7 +151,7 @@ onBeforeUnmount(() => {
               <div v-if="description" class="ui-dialog__desc">{{ description }}</div>
             </div>
           </slot>
-          <IconButton class="ui-dialog__close" size="sm" label="Close" @click="close">
+          <IconButton v-if="showClose" class="ui-dialog__close" size="sm" label="Close" @click="close">
             <Icon name="close" size="md" />
           </IconButton>
         </div>
@@ -189,6 +191,7 @@ onBeforeUnmount(() => {
   animation: pythinker-card-in var(--duration-slow) var(--ease-out);
 }
 .ui-dialog--md { width: min(440px, 100%); }
+.ui-dialog--md-wide { width: min(512px, 100%); }
 .ui-dialog--lg { width: min(640px, 100%); }
 .ui-dialog--xl { width: min(var(--p-content-max), 100%); }
 .ui-dialog--fixed-height { height: min(680px, calc(100vh - var(--space-8) * 2)); }

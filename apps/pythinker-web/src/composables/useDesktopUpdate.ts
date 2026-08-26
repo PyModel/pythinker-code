@@ -68,15 +68,14 @@ const percent = computed(() => {
 });
 
 /**
- * One decimal, binary units — matches the byte counts the download itself
- * reports, so `52.3MB / 54.0MB` stays stable rather than jumping a whole unit.
+ * One decimal in the updater's displayed decimal units.
  */
 export function formatUpdateBytes(value: number): string {
   const units = ['B', 'KB', 'MB', 'GB'];
   let amount = Math.max(0, value);
   let unit = 0;
-  while (amount >= 1_024 && unit < units.length - 1) {
-    amount /= 1_024;
+  while (amount >= 1_000 && unit < units.length - 1) {
+    amount /= 1_000;
     unit += 1;
   }
   return `${new Intl.NumberFormat('en', {
@@ -125,6 +124,10 @@ export function useDesktopUpdate() {
     await run(() => bridge()!.cancelUpdateDownload(), 'cancel');
   }
 
+  async function setAutomaticChecks(enabled: boolean): Promise<void> {
+    await run(() => bridge()!.setAutoUpdate(enabled), 'automatic checks');
+  }
+
   async function restart(): Promise<void> {
     const api = bridge();
     if (api === undefined || busy.value) return;
@@ -154,12 +157,6 @@ export function useDesktopUpdate() {
     await run(() => bridge()!.checkForUpdates(), 'retry');
   }
 
-  async function openReleaseNotes(): Promise<void> {
-    const version = state.value?.availableVersion;
-    if (version === undefined) return;
-    await run(() => bridge()!.openUpdateReleaseNotes(version), 'release notes');
-  }
-
   function openDialog(): void {
     dialogOpen.value = true;
     const version = state.value?.availableVersion;
@@ -184,10 +181,10 @@ export function useDesktopUpdate() {
     unsubscribe,
     download,
     cancelDownload,
+    setAutomaticChecks,
     restart,
     skip,
     retry,
-    openReleaseNotes,
     openDialog,
     closeDialog,
   };
