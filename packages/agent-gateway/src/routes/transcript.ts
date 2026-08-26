@@ -1,4 +1,4 @@
-import { basename, dirname, extname, join } from 'node:path';
+import * as path from 'node:path';
 
 import {
   IBootstrapService,
@@ -570,32 +570,46 @@ async function resolveSavedPlanPath(
     workspacePersistenceScope(bootstrap.scope('sessions'), summary.workspaceId),
     summary.id,
   );
-  const planDir = join(sessionDir, 'agents', agentId, 'plans');
-  if (
-    extname(storedPath) !== '.md' ||
-    dirname(storedPath) !== planDir ||
-    join(planDir, basename(storedPath)) !== storedPath
-  ) {
-    return undefined;
-  }
+  const planDir = path.join(sessionDir, 'agents', agentId, 'plans');
+  const planPath = resolveDirectPlanFilePath(storedPath, planDir);
+  if (planPath === undefined) return undefined;
   const hostFs = core.accessor.get(IHostFileSystem);
-  const stat = await hostFs.lstat(storedPath).catch(() => undefined);
+  const stat = await hostFs.lstat(planPath).catch(() => undefined);
   if (stat === undefined || !stat.isFile || stat.isSymbolicLink) return undefined;
   const resolved = await Promise.all([
     hostFs.realpath(sessionDir),
     hostFs.realpath(planDir),
-    hostFs.realpath(storedPath),
+    hostFs.realpath(planPath),
   ]).catch(() => undefined);
   if (resolved === undefined) return undefined;
   const [realSessionDir, realPlanDir, realPlanPath] = resolved;
   if (
-    realPlanDir !== join(realSessionDir, 'agents', agentId, 'plans') ||
-    dirname(realPlanPath) !== realPlanDir ||
-    basename(realPlanPath) !== basename(storedPath)
+    realPlanDir !== path.join(realSessionDir, 'agents', agentId, 'plans') ||
+    path.dirname(realPlanPath) !== realPlanDir ||
+    path.basename(realPlanPath) !== path.basename(planPath)
   ) {
     return undefined;
   }
   return realPlanPath;
+}
+
+type PathOps = Pick<typeof path, 'basename' | 'dirname' | 'extname' | 'join' | 'normalize'>;
+
+export function resolveDirectPlanFilePath(
+  storedPath: string,
+  planDir: string,
+  pathOps: PathOps = path,
+): string | undefined {
+  const normalizedPlanDir = pathOps.normalize(planDir);
+  const normalizedStoredPath = pathOps.normalize(storedPath);
+  if (
+    pathOps.extname(normalizedStoredPath) !== '.md' ||
+    pathOps.dirname(normalizedStoredPath) !== normalizedPlanDir ||
+    pathOps.join(normalizedPlanDir, pathOps.basename(normalizedStoredPath)) !== normalizedStoredPath
+  ) {
+    return undefined;
+  }
+  return normalizedStoredPath;
 }
 
 function projectPlans(

@@ -1,6 +1,6 @@
 import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, join, win32 } from 'node:path';
 
 import {
   IAgentContextMemoryService,
@@ -23,6 +23,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { type RunningServer, startServer } from '../src/start';
 import { launchDetached, revealFileCommandFor } from '../src/lib/fileLaunch';
+import { resolveDirectPlanFilePath } from '../src/routes/transcript';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 import { authHeaders } from './helpers/auth';
 
@@ -254,6 +255,12 @@ describe('server-v2 /api/v1/sessions/{sid}/transcript', () => {
       }),
     );
   }
+
+  it('normalizes Plan mode saved paths before validating them on Windows', () => {
+    const planDir = win32.join('C:\\Users\\example', '.pythinker-code', 'sessions', 'wd_example', 'session', 'agents', 'main', 'plans');
+    const storedPath = 'C:/Users/example/.pythinker-code/sessions/wd_example/session/agents/main/plans/saved-plan.md';
+    expect(resolveDirectPlanFilePath(storedPath, planDir, win32)).toBe(win32.join(planDir, 'saved-plan.md'));
+  });
 
   async function seedMainAgentMessages(
     sessionId: string,
