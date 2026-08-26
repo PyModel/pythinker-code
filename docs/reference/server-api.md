@@ -1,6 +1,6 @@
 # Server API
 
-The local server started by `pythinker web` exposes two programmatic surfaces: a REST API (`/api/v1`, plus `/api/v2/sessions` and the experimental `/api/v2/mcp`) and a WebSocket event stream (`/api/v1/ws`). This page is the protocol reference for both. For how to start the server and its command-line options, see the [pythinker command](./pythinker-command.md#pythinker-web) reference; for an end-to-end walkthrough, see [Local server and API](../guides/server.md).
+The local server started by `pythinker web` exposes two programmatic surfaces: a REST API (`/api/v1`, plus `/api/v2/sessions` and the experimental `/api/v2/mcp`) and a WebSocket event stream (`/api/v1/ws`). This page is the protocol reference for both. For how to start the server and use the browser UI, see [Use Pythinker Code in a browser](../guides/web.md).
 
 The complete request/response schema of every endpoint is owned by the server's live specification documents: `GET /openapi.json` (OpenAPI) and `GET /asyncapi.json` (AsyncAPI). Both require authentication.
 
@@ -22,7 +22,7 @@ All `/api/*` paths (including `/openapi.json` and `/asyncapi.json`) require the 
 - `GET /api/v1/healthz` (liveness probe)
 - Static web assets (non-`/api/` paths)
 
-How to carry it: REST uses the `Authorization: Bearer <token>` header; the WebSocket upgrade accepts the same header or the subprotocol `pythinker-code.bearer.<token>`. Token generation and rotation are covered in [Local server and API: Authentication](../guides/server.md#authentication).
+How to carry it: REST uses the `Authorization: Bearer <token>` header; the WebSocket upgrade accepts the same header or the subprotocol `pythinker-code.bearer.<token>`. The browser URL includes the local token; keep it private. See [Use Pythinker Code in a browser](../guides/web.md).
 
 Failed authentication returns HTTP 401 with envelope code `40101`. On non-loopback binds, a source that fails authentication 10 times within 60 seconds is banned for 60 seconds, during which every request gets HTTP 429 (code `42901`).
 

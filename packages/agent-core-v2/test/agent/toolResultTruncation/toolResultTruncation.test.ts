@@ -42,7 +42,7 @@ describe('ToolResultTruncationService', () => {
     await rm(homeDir, { recursive: true, force: true });
   });
 
-  it('persists oversized string output and renders a bounded model preview', async () => {
+  it('persists oversized string output and appends a bounded model pointer', async () => {
     const fullOutput = `${'x'.repeat(50_001)}tail survives on disk`;
 
     const result = await truncation.truncateForModel<ExecutableToolResult>({
@@ -56,9 +56,8 @@ describe('ToolResultTruncationService', () => {
     const rendered = result.output;
     expect(typeof rendered).toBe('string');
     if (typeof rendered !== 'string') throw new Error('expected string output');
-    expect(rendered).toContain('Tool output exceeded 50000 characters');
-    expect(rendered).toContain('tool_name: Lookup Tool');
-    expect(rendered).toContain('tool_call_id: call:lookup');
+    expect(rendered).toContain('[...truncated]');
+    expect(rendered).toContain('Per-line truncation occurred; the complete output was saved to a file.');
     expect(rendered).not.toContain('tail survives on disk');
 
     const outputPath = renderedOutputPath(rendered);
@@ -85,14 +84,19 @@ describe('ToolResultTruncationService', () => {
 
     expect(result.truncated).toBe(true);
     const rendered = result.output;
-    expect(typeof rendered).toBe('string');
-    if (typeof rendered !== 'string') throw new Error('expected string output');
-    await expect(readFile(renderedOutputPath(rendered), 'utf8')).resolves.toBe(
+    expect(Array.isArray(rendered)).toBe(true);
+    if (!Array.isArray(rendered)) throw new Error('expected content parts output');
+    const texts = rendered
+      .filter((part): part is Extract<ContentPart, { type: 'text' }> => part.type === 'text')
+      .map((part) => part.text)
+      .join('');
+    expect(texts).toContain('Per-line truncation occurred');
+    await expect(readFile(renderedOutputPath(texts), 'utf8')).resolves.toBe(
       `first\n${'y'.repeat(50_001)}`,
     );
   });
 
-  it('keeps already-truncated and mixed-media results unchanged', async () => {
+  it('spills already-truncated and mixed-media results while preserving media', async () => {
     const alreadyTruncated = {
       output: 'z'.repeat(50_001),
       truncated: true,
@@ -104,20 +108,40 @@ describe('ToolResultTruncationService', () => {
       ] satisfies ContentPart[],
     };
 
+    const truncated = await truncation.truncateForModel({
+      toolName: 'Lookup',
+      toolCallId: 'call_truncated',
+      result: alreadyTruncated,
+    });
+    expect(truncated.truncated).toBe(true);
+    expect(truncated.output).toContain('Per-line truncation occurred');
+    await expect(readFile(renderedOutputPath(truncated.output), 'utf8')).resolves.toBe(
+      alreadyTruncated.output,
+    );
+
+    const media = await truncation.truncateForModel({
+      toolName: 'Lookup',
+      toolCallId: 'call_media',
+      result: mixedMedia,
+    });
+    expect(Array.isArray(media.output)).toBe(true);
+    if (!Array.isArray(media.output)) throw new Error('expected content parts output');
+    expect(media.output).toContainEqual(mixedMedia.output[1]);
+    expect(
+      media.output.some((part) => part.type === 'text' && part.text.includes('Per-line truncation occurred')),
+    ).toBe(true);
+  });
+
+  it('passes spill-exempt results through unchanged', async () => {
+    const result = { output: 'z'.repeat(60_000), spillExempt: true as const };
+
     await expect(
       truncation.truncateForModel({
-        toolName: 'Lookup',
-        toolCallId: 'call_truncated',
-        result: alreadyTruncated,
+        toolName: 'Read',
+        toolCallId: 'call_read',
+        result,
       }),
-    ).resolves.toBe(alreadyTruncated);
-    await expect(
-      truncation.truncateForModel({
-        toolName: 'Lookup',
-        toolCallId: 'call_media',
-        result: mixedMedia,
-      }),
-    ).resolves.toBe(mixedMedia);
+    ).resolves.toBe(result);
   });
 
   it('uses unique output files for repeated call ids', async () => {

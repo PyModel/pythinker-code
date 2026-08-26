@@ -48,7 +48,8 @@ import {
   type TranscriptBinding,
   type TranscriptBindingLogger,
 } from './coreBinding';
-import { readWireRecords } from './wireRecords';
+import { readWireRecords, type ContextRecord } from './wireRecords';
+import { toWireQuestion } from '../../protocol/question-wire';
 
 const SESSIONS_ROOT = 'sessions';
 const AGENTS_DIR = 'agents';
@@ -464,12 +465,15 @@ export class TranscriptService {
       }
       throw error;
     }
-    const messages = [...reduceContextTranscript(records).entries];
+    const contextTranscript = reduceContextTranscript(records);
+    const messages = [...contextTranscript.entries];
     const taskOriginTurnTaskIds = new Set<string>();
+    const steeredRecordIndexes = new Set<number>();
+    const pendingSteers: ContextRecord[] = [];
     const anchorStack: { taskIdsSnapshot: Set<string> }[] = [];
     let anchorFloor = 0;
     let sawTurnPrompt = false;
-    for (const record of records) {
+    for (const [recordIndex, record] of records.entries()) {
       if (record.type === 'context.undo') {
         const count = typeof record['count'] === 'number' ? record['count'] : 0;
         for (let i = 0; i < count && anchorStack.length > anchorFloor; i++) {
@@ -488,6 +492,17 @@ export class TranscriptService {
         if (message !== undefined && isUndoAnchor(message)) {
           anchorStack.push({ taskIdsSnapshot: new Set(taskOriginTurnTaskIds) });
         }
+        const steerIndex = pendingSteers.findIndex((steer) =>
+          message !== undefined && steerMatchesMessage(steer, message),
+        );
+        if (steerIndex !== -1) {
+          pendingSteers.splice(steerIndex, 1);
+          steeredRecordIndexes.add(recordIndex);
+        }
+        continue;
+      }
+      if (record.type === 'turn.steer') {
+        if (isUserSteer(record)) pendingSteers.push(record);
         continue;
       }
       if (record.type !== 'turn.prompt') continue;
@@ -501,11 +516,19 @@ export class TranscriptService {
         taskOriginTurnTaskIds.add(origin.taskId);
       }
     }
+    const steeredMessageIndexes = new Set<number>();
+    contextTranscript.recordIndexes.forEach((recordIndex, messageIndex) => {
+      if (recordIndex !== undefined && steeredRecordIndexes.has(recordIndex)) {
+        steeredMessageIndexes.add(messageIndex);
+      }
+    });
     const base = groupMessagesIntoSnapshot(
       messages,
-      sawTurnPrompt ? { taskOriginTurnTaskIds } : undefined,
+      sawTurnPrompt || steeredMessageIndexes.size > 0
+        ? { taskOriginTurnTaskIds, steeredMessageIndexes }
+        : undefined,
     );
-    const folded = foldWireRecordFacts(records, base);
+    const folded = foldWireRecordFacts(projectQuestionInteractionRecords(records, sessionId), base);
     const status = getLiveSessionById(this.deps.core.accessor, sessionId)
       ?.accessor.get(IAgentLifecycleService)
       .handleOf(agentId)
@@ -554,6 +577,22 @@ export class TranscriptService {
     this.live.delete(sessionId);
     entry.binding.dispose();
   }
+}
+
+function steerMatchesMessage(steer: ContextRecord, message: ContextMessage): boolean {
+  if (message.role !== 'user') return false;
+  const input = steer['input'];
+  return Array.isArray(input) && JSON.stringify(input) === JSON.stringify(message.content);
+}
+
+function isUserSteer(record: ContextRecord): boolean {
+  const origin = record['origin'];
+  return (
+    origin !== null &&
+    typeof origin === 'object' &&
+    !Array.isArray(origin) &&
+    (origin as { kind?: unknown }).kind === 'user'
+  );
 }
 
 export function snapshotToOps(
@@ -613,6 +652,38 @@ const TERMINAL_TURN_STATES: ReadonlySet<TranscriptTurn['state']> = new Set([
   'failed',
   'cancelled',
 ]);
+
+function projectQuestionInteractionRecords(
+  records: readonly ContextRecord[],
+  sessionId: string,
+): ContextRecord[] {
+  return records.map((record) => {
+    if (record.type !== 'interaction.request' || record['kind'] !== 'question') return record;
+    const id = record['id'];
+    const request = record['request'];
+    const time = record['time'];
+    if (typeof id !== 'string' || typeof time !== 'number' || !Number.isFinite(time)) {
+      return record;
+    }
+    if (request === null || typeof request !== 'object') return record;
+    try {
+      const innerToolCallId = (request as { toolCallId?: unknown }).toolCallId;
+      const toolCallId =
+        typeof record['toolCallId'] === 'string'
+          ? record['toolCallId']
+          : typeof innerToolCallId === 'string'
+            ? innerToolCallId
+            : undefined;
+      return {
+        ...record,
+        toolCallId,
+        request: toWireQuestion({ id, createdAt: time, payload: request }, sessionId),
+      };
+    } catch {
+      return record;
+    }
+  });
+}
 
 function supersededColdAttachmentIds(
   snapshot: AgentTranscriptSnapshot,

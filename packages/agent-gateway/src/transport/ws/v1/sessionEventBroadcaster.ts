@@ -49,7 +49,7 @@ import {
 } from '@pymodel/transcript';
 
 import { toWireApproval } from '../../../routes/approvals';
-import { toWireQuestion } from '../../../routes/questions';
+import { toWireQuestion } from '../../../protocol/question-wire';
 import { toWireWorkspace } from '../../../routes/workspaces';
 import { projectPromptContentParts } from '../../../services/messages/messageProjection';
 import { readLegacyStatus, toLegacyPhase } from '../../../services/legacyStatus/legacyStatus';
@@ -1150,6 +1150,7 @@ const TRANSCRIPT_PROJECTED_EVENT_TYPES: ReadonlySet<string> = new Set([
   'prompt.completed',
   'prompt.aborted',
   'prompt.steered',
+  'turn.steer',
   'event.question.requested',
   'event.question.dismissed',
   'event.question.answered',
