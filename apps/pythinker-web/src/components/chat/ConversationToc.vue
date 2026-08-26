@@ -31,6 +31,7 @@ const { t } = useI18n();
 
 const navRef = ref<HTMLElement | null>(null);
 const focusTurnId = ref<string | null>(null);
+const hoverTurnId = ref<string | null>(null);
 // Whether the collapsed line stack fits within the chat pane. Expanded labels
 // may overlay the reading column, but the anchor itself must remain reachable.
 const fits = ref(true);
@@ -69,6 +70,10 @@ const tabTurnId = computed(() => {
   }
   return props.items[0]?.id ?? null;
 });
+
+const highlightedTurnId = computed(
+  () => hoverTurnId.value ?? focusTurnId.value ?? props.activeTurnId,
+);
 
 function rows(): HTMLButtonElement[] {
   return navRef.value === null
@@ -155,10 +160,15 @@ onBeforeUnmount(() => {
         :key="item.id"
         type="button"
         class="toc-row"
-        :class="{ active: activeTurnId === item.id }"
+        :class="{
+          active: activeTurnId === item.id,
+          highlighted: highlightedTurnId === item.id,
+        }"
         :data-turn-id="item.id"
         :tabindex="tabTurnId === item.id ? 0 : -1"
         :aria-current="activeTurnId === item.id ? 'location' : undefined"
+        @mouseenter="hoverTurnId = item.id"
+        @mouseleave="hoverTurnId = null"
         @focus="focusTurnId = item.id"
         @keydown="onRowKeydown(index, $event)"
         @click="emit('select', item.id)"
@@ -295,9 +305,9 @@ onBeforeUnmount(() => {
 .toc-row.active .toc-marker {
   background: var(--color-text-strong);
 }
-.conversation-toc:hover .toc-row.active,
-.conversation-toc:focus-within .toc-row.active { background: var(--color-selected); }
-.toc-row.active .toc-label { color: var(--color-accent); font-weight: var(--weight-medium); }
+.conversation-toc:hover .toc-row.highlighted,
+.conversation-toc:focus-within .toc-row.highlighted { background: var(--color-selected); }
+.toc-row.highlighted .toc-label { color: var(--color-accent); font-weight: var(--weight-medium); }
 .toc-row:hover .toc-marker { background: var(--color-text); }
 .toc-row:hover .toc-label { color: var(--color-text); }
 

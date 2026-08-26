@@ -368,7 +368,7 @@ function updateActiveTocQuery(): void {
   // When pinned to the bottom (auto-follow / short content), the latest query is
   // the active one even if its message sits below the pane's vertical middle —
   // otherwise the highlight would lag one query behind at the bottom.
-  if (distanceFromBottom() <= BOTTOM_THRESHOLD) {
+  if (following.value && distanceFromBottom() <= BOTTOM_THRESHOLD) {
     activeTurnId.value = items[items.length - 1]!.id;
     return;
   }
@@ -747,6 +747,7 @@ function scrollToTurn(turnId: string): void {
   if (!target) return;
   cancelActiveScrollWrites();
   following.value = false;
+  activeTurnId.value = turnId;
   showPill.value = distanceFromBottom() > BOTTOM_THRESHOLD;
   target.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }

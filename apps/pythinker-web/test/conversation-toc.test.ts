@@ -29,10 +29,13 @@ const paneSource = readFileSync(
   'utf8',
 );
 
-function mountToc(activeTurnId = 'user-2'): VueWrapper {
+function mountToc(
+  activeTurnId = 'user-2',
+  tocItems: ConversationTocItem[] = items,
+): VueWrapper {
   return mount(ConversationToc, {
     attachTo: document.body,
-    props: { items, activeTurnId },
+    props: { items: tocItems, activeTurnId },
     global: { plugins: [i18n] },
   });
 }
@@ -169,12 +172,41 @@ describe('ConversationToc', () => {
     expect(wrapper.emitted('select')).toEqual([['user-3']]);
   });
 
+  it('highlights only the hovered or focused row with two prompts', async () => {
+    const wrapper = mountToc('user-2', items.slice(0, 2));
+    const rows = wrapper.findAll<HTMLButtonElement>('.toc-row');
+    const firstRow = rows[0];
+    const secondRow = rows[1];
+    if (!firstRow || !secondRow) throw new Error('expected two prompt rows');
+
+    expect(secondRow.classes()).toContain('highlighted');
+
+    await firstRow.trigger('mouseenter');
+    expect(firstRow.classes()).toContain('highlighted');
+    expect(secondRow.classes()).not.toContain('highlighted');
+
+    await firstRow.trigger('mouseleave');
+    firstRow.element.focus();
+    await nextTick();
+    expect(firstRow.classes()).toContain('highlighted');
+    expect(secondRow.classes()).not.toContain('highlighted');
+  });
+
+  it('keeps an explicitly selected prompt active while the anchor scrolls', () => {
+    expect(paneSource).toMatch(
+      /if \(following\.value && distanceFromBottom\(\) <= BOTTOM_THRESHOLD\)/u,
+    );
+    expect(paneSource).toMatch(
+      /function scrollToTurn\(turnId: string\): void \{[\s\S]*?activeTurnId\.value = turnId;[\s\S]*?target\.scrollIntoView/u,
+    );
+  });
+
   it('keeps the collapsed prompt anchor free of padded row cards', () => {
     expect(source).not.toMatch(
       /^\.toc-row\.active\s*\{[^}]*background:\s*var\(--color-selected\)/mu,
     );
     expect(source).toMatch(
-      /\.conversation-toc:hover \.toc-row\.active,[\s\S]*?\.conversation-toc:focus-within \.toc-row\.active\s*\{[^}]*background:\s*var\(--color-selected\)/u,
+      /\.conversation-toc:hover \.toc-row\.highlighted,[\s\S]*?\.conversation-toc:focus-within \.toc-row\.highlighted\s*\{[^}]*background:\s*var\(--color-selected\)/u,
     );
   });
 
