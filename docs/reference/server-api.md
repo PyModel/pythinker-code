@@ -148,6 +148,7 @@ Endpoints are grouped by resource below. A `:{action}` suffix in a path is the a
 | `GET /api/v1/sessions/{session_id}/transcript/ops` | Op-batch catch-up (`since_seq`); `complete: false` means a full refresh is needed |
 | `GET /api/v1/sessions/{session_id}/transcript/user-messages` | Turn-opening user inputs, unpaginated |
 | `GET /api/v1/sessions/{session_id}/transcript/plan` | ExitPlanMode plan content, path, and review outcome |
+| `POST /api/v1/sessions/{session_id}/transcript/plan:reveal` | Reveal the saved plan identified by `agent_id` and `tool_call_id` in the gateway host file manager |
 
 ### Prompts
 
