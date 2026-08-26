@@ -728,7 +728,11 @@ export class SessionEventHandler {
     } else if (event.contextTokens !== undefined || event.maxContextTokens !== undefined) {
       const tokens = patch.contextTokens ?? this.host.state.appState.contextTokens;
       const max = patch.maxContextTokens ?? this.host.state.appState.maxContextTokens;
-      patch.contextUsage = max > 0 ? tokens / max : 0;
+      const usage = tokens / max;
+      patch.contextUsage =
+        Number.isFinite(tokens) && tokens >= 0 && Number.isFinite(max) && max > 0 && Number.isFinite(usage)
+          ? usage
+          : 0;
     }
     if (event.planMode !== undefined) patch.planMode = event.planMode;
     if (event.dynamicWorkflowMode !== undefined) patch.dynamicWorkflowMode = event.dynamicWorkflowMode;

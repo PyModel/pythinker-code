@@ -220,7 +220,7 @@ function renderAppendedSpillPointer(
   const lines = [
     firstLine,
     `output_path: ${outputPath}`,
-    'next_step: Use Read with output_path to page through the saved output, or Grep to search it.]',
+    'next_step: Use Read with output_path to page through the saved output, or Grep to search it. For a line too long for Read, use Bash with cut or sed.]',
   ];
   if (suffix.length > 0) lines.push('', suffix);
   return lines.join('\n');
@@ -272,7 +272,7 @@ function renderPersistedToolResult(
   }
   lines.push(
     `output_path: ${outputPath}`,
-    'next_step: Use Read with output_path to page through the saved output, or Grep to search it.',
+    'next_step: Use Read with output_path to page through the saved output, or Grep to search it. For a line too long for Read, use Bash with cut or sed.',
   );
   appendPreviewLines(lines, previewText);
   if (suffix.length > 0) lines.push('', suffix);

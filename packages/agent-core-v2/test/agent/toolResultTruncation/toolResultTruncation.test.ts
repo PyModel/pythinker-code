@@ -58,6 +58,7 @@ describe('ToolResultTruncationService', () => {
     if (typeof rendered !== 'string') throw new Error('expected string output');
     expect(rendered).toContain('[...truncated]');
     expect(rendered).toContain('Per-line truncation occurred; the complete output was saved to a file.');
+    expect(rendered).toContain('For a line too long for Read, use Bash with cut or sed.');
     expect(rendered).not.toContain('tail survives on disk');
 
     const outputPath = renderedOutputPath(rendered);
@@ -142,6 +143,19 @@ describe('ToolResultTruncationService', () => {
         result,
       }),
     ).resolves.toBe(result);
+  });
+
+  it('guides long-line recovery from the persisted spill pointer', async () => {
+    const output = Array.from({ length: 101 }, () => 'x'.repeat(1_000)).join('\n');
+
+    const result = await truncation.truncateForModel<ExecutableToolResult>({
+      toolName: 'Lookup Tool',
+      toolCallId: 'call:many-lines',
+      result: { output },
+    });
+
+    expect(result.output).toContain('Tool output exceeded');
+    expect(result.output).toContain('For a line too long for Read, use Bash with cut or sed.');
   });
 
   it('uses unique output files for repeated call ids', async () => {

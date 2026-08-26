@@ -5121,6 +5121,35 @@ command = "vim"
     expect(driver.state.appState.contextUsage).toBe(0);
   });
 
+  it('zeroes context usage for invalid fallback token values', async () => {
+    const { driver } = await makeDriver();
+    const invalidValues = [
+      [Number.NaN, 1_000_000],
+      [Number.POSITIVE_INFINITY, 1_000_000],
+      [-1, 1_000_000],
+      [180_000, Number.POSITIVE_INFINITY],
+      [180_000, -1],
+    ] as const;
+
+    for (const [contextTokens, maxContextTokens] of invalidValues) {
+      driver.state.appState.contextTokens = 180_000;
+      driver.state.appState.maxContextTokens = 1_000_000;
+      driver.state.appState.contextUsage = 0.74;
+      driver.sessionEventHandler.handleEvent(
+        {
+          type: 'agent.status.updated',
+          agentId: 'main',
+          sessionId: 'ses-1',
+          contextTokens,
+          maxContextTokens,
+        } as Event,
+        vi.fn(),
+      );
+
+      expect(driver.state.appState.contextUsage).toBe(0);
+    }
+  });
+
   it('applies the effective thinking effort from status updates', async () => {
     const { driver } = await makeDriver();
 

@@ -17,23 +17,21 @@ export interface WireQuestionSource {
 }
 
 function buildOption(opt: QuestionOption, itemIdx: number, optIdx: number): ProtocolQuestionOption {
-  const base: ProtocolQuestionOption = { id: `opt_${itemIdx}_${optIdx}`, label: opt.label };
-  return opt.description === undefined ? base : { ...base, description: opt.description };
+  return { id: `opt_${itemIdx}_${optIdx}`, label: opt.label, description: opt.description };
 }
 
 function buildItem(item: QuestionItem, itemIdx: number): ProtocolQuestionItem {
-  const out: ProtocolQuestionItem = {
+  return {
     id: `q_${itemIdx}`,
     question: item.question,
     options: item.options.map((option, optionIndex) => buildOption(option, itemIdx, optionIndex)),
+    header: item.header,
+    body: item.body,
+    multi_select: item.multiSelect,
+    allow_other: true,
+    other_label: item.otherLabel,
+    other_description: item.otherDescription,
   };
-  if (item.header !== undefined) out.header = item.header;
-  if (item.body !== undefined) out.body = item.body;
-  if (item.multiSelect !== undefined) out.multi_select = item.multiSelect;
-  out.allow_other = true;
-  if (item.otherLabel !== undefined) out.other_label = item.otherLabel;
-  if (item.otherDescription !== undefined) out.other_description = item.otherDescription;
-  return out;
 }
 
 export function toWireQuestion(

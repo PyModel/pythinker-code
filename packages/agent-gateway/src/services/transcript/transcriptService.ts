@@ -492,11 +492,8 @@ export class TranscriptService {
         if (message !== undefined && isUndoAnchor(message)) {
           anchorStack.push({ taskIdsSnapshot: new Set(taskOriginTurnTaskIds) });
         }
-        const steerIndex = pendingSteers.findIndex((steer) =>
-          message !== undefined && steerMatchesMessage(steer, message),
-        );
-        if (steerIndex !== -1) {
-          pendingSteers.splice(steerIndex, 1);
+        const pendingSteer = pendingSteers.shift();
+        if (pendingSteer !== undefined && message !== undefined && steerMatchesMessage(pendingSteer, message)) {
           steeredRecordIndexes.add(recordIndex);
         }
         continue;

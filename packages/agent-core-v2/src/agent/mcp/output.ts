@@ -135,7 +135,8 @@ export async function mcpResultToExecutableOutput(
     }
   }
 
-  const compressed = await compressImageContentParts(wrapped, {
+  const inputCapped = applyBinaryPartCap(wrapped);
+  const compressed = await compressImageContentParts(inputCapped.parts, {
     telemetry:
       options.telemetry === undefined
         ? undefined
@@ -150,13 +151,14 @@ export async function mcpResultToExecutableOutput(
     },
   });
   const capped = applyBinaryPartCap(compressed.parts);
+  const notices = [...inputCapped.notices, ...capped.notices];
   const output = collapseSingleText(capped.parts);
   const note = compressed.captions.length > 0 ? compressed.captions.join('\n') : undefined;
   const base = {
     output,
     note,
-    truncated: capped.truncated ? true : undefined,
-    spill: capped.notices.length > 0 ? { suffix: capped.notices.join('\n') } : undefined,
+    truncated: inputCapped.truncated || capped.truncated ? true : undefined,
+    spill: notices.length > 0 ? { suffix: notices.join('\n') } : undefined,
   };
   return result.isError ? { ...base, isError: true } : base;
 }

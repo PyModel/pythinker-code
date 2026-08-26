@@ -2242,6 +2242,34 @@ describe('AgentTranscriptProjector', () => {
     }
   });
 
+  it('readColdSnapshot drops an unmatched steer before a later identical message', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'transcript-cold-stale-steer-'));
+    try {
+      const wireDir = join(home, 'sessions', 'ws', 's1', 'agents', 'main');
+      await mkdir(wireDir, { recursive: true });
+      const records = [
+        { type: 'context.append_message', message: { role: 'user', content: [{ type: 'text', text: 'active' }], toolCalls: [], origin: { kind: 'user' } }, time: 1000 },
+        { type: 'context.append_message', message: { role: 'assistant', content: [{ type: 'text', text: 'working' }], toolCalls: [] }, time: 2000 },
+        { type: 'turn.steer', input: [{ type: 'text', text: 'steered in' }], origin: { kind: 'user' }, time: 3000 },
+        { type: 'context.append_message', message: { role: 'user', content: [{ type: 'text', text: 'transformed steer' }], toolCalls: [], origin: { kind: 'user' } }, time: 3001 },
+        { type: 'context.append_message', message: { role: 'assistant', content: [{ type: 'text', text: 'noted' }], toolCalls: [] }, time: 4000 },
+        { type: 'context.append_message', message: { role: 'user', content: [{ type: 'text', text: 'steered in' }], toolCalls: [], origin: { kind: 'user' } }, time: 5000 },
+        { type: 'context.append_message', message: { role: 'assistant', content: [{ type: 'text', text: 'later reply' }], toolCalls: [] }, time: 6000 },
+      ];
+      await writeFile(join(wireDir, 'wire.jsonl'), `${records.map((r) => JSON.stringify(r)).join('\n')}\n`);
+
+      const snapshot = await coldTranscriptService(home).readColdSnapshot('s1', 'main');
+      const turns = snapshot!.items.filter((item) => item.kind === 'turn');
+      expect(turns).toHaveLength(3);
+      const later = turns[2];
+      if (later?.kind !== 'turn') throw new Error('expected later turn');
+      expect(later.prompt).toBe('steered in');
+      expect(later.steps).toHaveLength(1);
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
   it('readColdSnapshot keeps a non-user steering record out of user turn grouping', async () => {
     const home = await mkdtemp(join(tmpdir(), 'transcript-cold-nonuser-steer-'));
     try {

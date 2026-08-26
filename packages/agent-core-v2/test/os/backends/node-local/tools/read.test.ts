@@ -72,6 +72,7 @@ function createReadTool(
   skillCatalog: ISessionSkillCatalog = {
     catalog: { getSkillRoots: () => [] },
   } as unknown as ISessionSkillCatalog,
+  resultTruncation = stubToolResultTruncationService(),
 ): ReadTool {
   const runtime = Object.assign(
     new FakeRuntime(
@@ -87,7 +88,7 @@ function createReadTool(
     inspect: () => runtime,
     acquire: () => ({ runtime, track: (resource) => resource, dispose: () => {} }),
   };
-  return new ReadTool(resolver, workspace, skillCatalog, stubToolResultTruncationService());
+  return new ReadTool(resolver, workspace, skillCatalog, resultTruncation);
 }
 
 function createSpiedFs(content: string) {
@@ -217,6 +218,19 @@ describe('ReadTool', () => {
       note: readNote(
         '2 lines read from file starting from line 1. Total lines in file: 2. End of file reached.',
       ),
+    });
+  });
+
+  it('marks saved tool output as spill-exempt', async () => {
+    const { fs } = createSpiedFs('alpha\n');
+    const tool = createReadTool(fs, createTestEnv(), PERMISSIVE_WORKSPACE, undefined, {
+      ...stubToolResultTruncationService(),
+      isSpillFilePath: () => true,
+    });
+
+    await expect(execute(tool, { path: '/tmp/a.txt' })).resolves.toMatchObject({
+      output: '1\talpha',
+      spillExempt: true,
     });
   });
 

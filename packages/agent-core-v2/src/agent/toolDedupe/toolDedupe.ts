@@ -6,11 +6,11 @@ import type { ExecutableToolErrorResult, ExecutableToolSuccessResult } from '#/t
 export type ToolDedupeOutput = string | ContentPart[];
 
 export interface ToolDedupeSuccessResult extends ExecutableToolSuccessResult {
-  readonly message?: string | undefined;
+  readonly message?: string;
 }
 
 export interface ToolDedupeErrorResult extends ExecutableToolErrorResult {
-  readonly message?: string | undefined;
+  readonly message?: string;
 }
 
 export type ToolDedupeResult = ToolDedupeSuccessResult | ToolDedupeErrorResult;
