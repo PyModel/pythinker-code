@@ -262,7 +262,15 @@ describe('sidebar update button', () => {
         activeId: '',
         workspaceSortMode: 'manual' as const,
       },
-      global: { plugins: [i18n] },
+      global: {
+        plugins: [i18n],
+        stubs: {
+          Markdown: {
+            props: ['text'],
+            template: '<div>{{ text }}</div>',
+          },
+        },
+      },
     });
     await flushPromises();
     return mounted;
@@ -275,19 +283,44 @@ describe('sidebar update button', () => {
     expect(wrapper.find('[data-testid="sidebar-update"]').exists()).toBe(false);
   });
 
-  it('appears once a version arrives and opens the overlay when clicked', async () => {
-    const bridge = installBridge(updateState({ status: 'available', availableVersion: '1.2.3' }));
+  it('shows a compact header trigger with release notes on hover and opens the overlay on click', async () => {
+    const bridge = installBridge(updateState({
+      status: 'available',
+      availableVersion: '1.2.3',
+      releaseDate: '2026-08-26T12:00:00.000Z',
+      releaseNotes: '## New Features\n\n- Added the compact updater.',
+    }));
     const update = useDesktopUpdate();
     update.subscribe();
     const wrapper = await mountSidebar();
-    await bridge.emit(updateState({ status: 'available', availableVersion: '1.2.3' }));
+    await bridge.emit(updateState({
+      status: 'available',
+      availableVersion: '1.2.3',
+      releaseDate: '2026-08-26T12:00:00.000Z',
+      releaseNotes: '## New Features\n\n- Added the compact updater.',
+    }));
     await nextTick();
 
     const button = wrapper.find('[data-testid="sidebar-update"]');
     expect(button.exists()).toBe(true);
-    expect(button.text()).toContain('Update');
-    expect(button.find('[data-testid="sidebar-update-version"]').text()).toBe('v1.2.3');
+    expect(button.text()).toBe('');
+    expect(wrapper.find('.update-wrap').exists()).toBe(false);
+    expect(wrapper.find('.ch-actions').exists()).toBe(true);
     expect(update.dialogOpen.value).toBe(false);
+
+    await button.trigger('mouseenter');
+    await flushPromises();
+
+    expect(button.attributes('aria-describedby')).toBe('sidebar-update-notes');
+    expect(button.attributes('aria-expanded')).toBe('true');
+    const notes = body().querySelector('[data-testid="sidebar-update-notes"]');
+    expect(notes).not.toBeNull();
+    expect(notes?.querySelector('[data-testid="sidebar-update-notes-title"]')?.textContent)
+      .toBe('v1.2.3 Release Notes');
+    expect(notes?.textContent).toContain('August 26, 2026');
+    await vi.waitFor(() => {
+      expect(notes?.textContent).toContain('Added the compact updater.');
+    });
 
     await button.trigger('click');
 

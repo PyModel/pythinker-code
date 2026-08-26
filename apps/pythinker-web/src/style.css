@@ -176,6 +176,10 @@ summary {
     --panel-head-inset: calc((var(--panel-head-h) - var(--icon-button-sm)) / 2)
 }
 
+.app.macos-desktop {
+    --macos-titlebar-controls-start: calc(env(titlebar-area-x, 76px) + var(--space-2))
+}
+
 .app:not(.mobile) .chat-header {
     transition: padding-left .28s cubic-bezier(.4, 0, .2, 1)
 }
@@ -185,7 +189,7 @@ summary {
 }
 
 .app.sidebar-collapsed.macos-desktop .chat-header {
-    padding-left: 146px
+    padding-left: calc(var(--macos-titlebar-controls-start) + var(--icon-button-sm) + var(--icon-button-sm) + var(--space-5))
 }
 
 .app.sidebar-collapsed .session-admin .sa-head {
@@ -197,7 +201,7 @@ summary {
 }
 
 .app.sidebar-collapsed.macos-desktop .session-admin .sa-head {
-    padding-left: 146px
+    padding-left: calc(var(--macos-titlebar-controls-start) + var(--icon-button-sm) + var(--icon-button-sm) + var(--space-5))
 }
 
 .app.fullscreen.sidebar-collapsed.macos-desktop .session-admin .sa-head {

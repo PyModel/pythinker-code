@@ -5,6 +5,7 @@ export function windowAppearanceOptions(platform: NodeJS.Platform): BrowserWindo
     return {
       autoHideMenuBar: true,
       titleBarStyle: 'hiddenInset',
+      titleBarOverlay: true,
       trafficLightPosition: { x: 16, y: 16 },
       // A transparent NSWindow is non-opaque with a clear background, which
       // removes native corners and shadow. Vibrancy does not require it.

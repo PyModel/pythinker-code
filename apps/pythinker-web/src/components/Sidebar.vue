@@ -18,7 +18,6 @@ import SearchSessionsDialog from './dialogs/SearchSessionsDialog.vue';
 import WorkspaceGroup from './WorkspaceGroup.vue';
 import { isDesktop, isMacosDesktop } from '../lib/desktopFlag';
 import { useDesktopUpdate } from '../composables/useDesktopUpdate';
-import Badge from './ui/Badge.vue';
 import IconButton from './ui/IconButton.vue';
 import Icon from './ui/Icon.vue';
 import Kbd from './ui/Kbd.vue';
@@ -624,9 +623,76 @@ const showNewWorkspaceButton = false;
 const DesignSystemView = defineAsyncComponent(
   () => import('../views/DesignSystemView.vue'),
 );
+const Markdown = defineAsyncComponent(
+  () => import('./chat/Markdown.vue'),
+);
 const showDesignSystem = ref(false);
 const EGG_HOLD_MS = 1000;
 let logoPressTimer: ReturnType<typeof setTimeout> | undefined;
+
+const updateTriggerElement = ref<HTMLElement | null>(null);
+const updateNotesElement = ref<HTMLElement | null>(null);
+const updateNotesOpen = ref(false);
+const updateNotesStyle = ref<Record<string, string>>({});
+let updateNotesCloseTimer: ReturnType<typeof setTimeout> | undefined;
+
+const updateReleaseDate = computed(() => {
+  const raw = update.state.value?.releaseDate;
+  if (!raw) return '';
+  const date = new Date(raw);
+  if (Number.isNaN(date.getTime())) return raw;
+  return new Intl.DateTimeFormat(undefined, {
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+  }).format(date);
+});
+
+function positionUpdateNotes(): void {
+  const trigger = updateTriggerElement.value;
+  const panel = updateNotesElement.value;
+  if (!trigger || !panel) return;
+  const triggerRect = trigger.getBoundingClientRect();
+  const margin = 16;
+  const gap = 8;
+  const width = panel.offsetWidth;
+  const height = panel.offsetHeight;
+  const left = Math.min(
+    Math.max(triggerRect.left, margin),
+    Math.max(margin, window.innerWidth - margin - width),
+  );
+  const below = triggerRect.bottom + gap;
+  const top = below + height <= window.innerHeight - margin
+    ? below
+    : Math.max(margin, triggerRect.top - height - gap);
+  updateNotesStyle.value = {
+    left: `${Math.round(left)}px`,
+    top: `${Math.round(top)}px`,
+  };
+}
+
+function keepUpdateNotesOpen(): void {
+  clearTimeout(updateNotesCloseTimer);
+}
+
+function showUpdateNotes(event: Event): void {
+  if (event.currentTarget instanceof HTMLElement) updateTriggerElement.value = event.currentTarget;
+  keepUpdateNotesOpen();
+  updateNotesOpen.value = true;
+  void nextTick(positionUpdateNotes);
+}
+
+function scheduleUpdateNotesClose(): void {
+  clearTimeout(updateNotesCloseTimer);
+  updateNotesCloseTimer = setTimeout(() => {
+    updateNotesOpen.value = false;
+  }, 120);
+}
+
+function openUpdateDialog(): void {
+  updateNotesOpen.value = false;
+  update.openDialog();
+}
 
 function onLogoPointerDown(event: PointerEvent): void {
   clearTimeout(logoPressTimer);
@@ -644,6 +710,14 @@ function onLogoPointerUp(event: PointerEvent): void {
 
 onBeforeUnmount(() => {
   clearTimeout(logoPressTimer);
+  clearTimeout(updateNotesCloseTimer);
+  window.removeEventListener('resize', positionUpdateNotes);
+});
+
+onMounted(() => window.addEventListener('resize', positionUpdateNotes));
+
+watch([() => props.collapsed, update.hasUpdate], ([collapsed, hasUpdate]) => {
+  if (collapsed || !hasUpdate) updateNotesOpen.value = false;
 });
 </script>
 
@@ -679,56 +753,34 @@ onBeforeUnmount(() => {
             @pointercancel="onLogoPointerUp"
           />
         </div>
-        <IconButton
-          class="ch-collapse"
-          size="sm"
-          :label="t('sidebar.collapseSidebar')"
-          @click.stop="emit('collapse')"
-        >
-          <Icon name="panel-collapse" />
-        </IconButton>
-      </div>
-
-      <!-- Update entry point. Desktop only, and only once a version the user
-           has not skipped is actually waiting. It stays in normal document
-           flow, so it pushes New chat and every row below it down without
-           moving the macOS title-bar/traffic-light clearance above. -->
-      <div v-if="update.hasUpdate.value" class="update-wrap">
-        <button
-          class="btn-update"
-          type="button"
-          data-testid="sidebar-update"
-          :aria-label="update.availableVersion.value
-            ? t('update.sidebarHint', { version: update.availableVersion.value })
-            : t('update.sidebarAction')"
-          :title="update.availableVersion.value
-            ? t('update.sidebarHint', { version: update.availableVersion.value })
-            : undefined"
-          @click.stop="update.openDialog()"
-        >
-          <span class="update-icon-shell" aria-hidden="true">
-            <Icon name="update-available" size="lg" />
-          </span>
-          <span class="update-copy" aria-hidden="true">
-            <span class="btn-update__title">
-              <span
-                class="btn-update__label"
-                :data-label="t('update.sidebarAction')"
-              >{{ t('update.sidebarAction') }}</span>
-              <span class="btn-update__availability">{{ t('update.sidebarAvailable') }}</span>
-            </span>
-            <Badge
-              v-if="update.availableVersion.value"
-              class="update-version"
-              data-testid="sidebar-update-version"
-              variant="info"
-              size="sm"
-            >
-              {{ t('update.sidebarVersion', { version: update.availableVersion.value }) }}
-            </Badge>
-          </span>
-          <span class="update-cta" aria-hidden="true">{{ t('update.sidebarAction') }}</span>
-        </button>
+        <div class="ch-actions">
+          <IconButton
+            v-if="update.hasUpdate.value"
+            class="sidebar-update-trigger"
+            size="md"
+            data-testid="sidebar-update"
+            :label="update.availableVersion.value
+              ? t('update.sidebarHint', { version: update.availableVersion.value })
+              : t('update.sidebarAction')"
+            :aria-describedby="updateNotesOpen ? 'sidebar-update-notes' : undefined"
+            :aria-expanded="updateNotesOpen"
+            @mouseenter="showUpdateNotes"
+            @mouseleave="scheduleUpdateNotesClose"
+            @focus="showUpdateNotes"
+            @blur="scheduleUpdateNotesClose"
+            @click.stop="openUpdateDialog"
+          >
+            <Icon name="update-button" />
+          </IconButton>
+          <IconButton
+            class="ch-collapse"
+            size="sm"
+            :label="t('sidebar.collapseSidebar')"
+            @click.stop="emit('collapse')"
+          >
+            <Icon name="panel-collapse" />
+          </IconButton>
+        </div>
       </div>
 
       <!-- New chat + new workspace buttons -->
@@ -1140,6 +1192,32 @@ onBeforeUnmount(() => {
          Fragment). Teleport still renders to body regardless of placement. -->
     <Teleport to="body">
       <DesignSystemView v-if="showDesignSystem" @close="showDesignSystem = false" />
+      <section
+        v-if="updateNotesOpen"
+        id="sidebar-update-notes"
+        ref="updateNotesElement"
+        class="sidebar-update-notes"
+        data-testid="sidebar-update-notes"
+        :style="updateNotesStyle"
+        role="tooltip"
+        @mouseenter="keepUpdateNotesOpen"
+        @mouseleave="scheduleUpdateNotesClose"
+      >
+        <div class="sidebar-update-notes__header">
+          <strong data-testid="sidebar-update-notes-title">
+            {{ t('update.releaseNotesTitle', { version: update.availableVersion.value ?? '' }) }}
+          </strong>
+          <span v-if="updateReleaseDate">{{ updateReleaseDate }}</span>
+        </div>
+        <div class="sidebar-update-notes__divider" />
+        <div class="sidebar-update-notes__body">
+          <Markdown
+            v-if="update.state.value?.releaseNotes"
+            :text="update.state.value.releaseNotes"
+          />
+          <p v-else>{{ t('update.releaseNotesUnavailable') }}</p>
+        </div>
+      </section>
     </Teleport>
   </aside>
 </template>
@@ -1250,6 +1328,9 @@ onBeforeUnmount(() => {
 .side.macos-desktop .ch-collapse {
   -webkit-app-region: no-drag;
 }
+.side.macos-desktop .ch-actions {
+  -webkit-app-region: no-drag;
+}
 .ch-logo {
   width: min(220px, 100%);
   height: auto;
@@ -1275,138 +1356,75 @@ onBeforeUnmount(() => {
   touch-action: none;
 }
 
-/* Action buttons — first row of the actions group (New chat + search): rows
-   inside the group stack flush (0 gap, same rhythm as the session list rows);
-   the group's bottom gap lives on .search-wrap. */
-.update-wrap {
-  flex: none;
-  display: flex;
-  padding: var(--space-1) var(--sb-inset) var(--space-2);
-}
-/* Temporary update card. It is visually distinct from navigation, but remains
-   compact enough for the sidebar's 270px default width. */
-.btn-update {
+.ch-actions {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  flex: 1;
-  min-width: 0;
-  min-height: 72px;
-  padding: var(--space-3);
-  border: 1px solid var(--color-accent-bd);
-  border-radius: var(--radius-lg);
-  background: var(--color-hover);
-  color: var(--color-text);
-  font-family: var(--font-ui);
-  font-size: var(--ui-font-size-sm);
-  font-weight: var(--weight-medium);
-  line-height: var(--leading-tight);
-  cursor: pointer;
-  text-align: left;
-  box-shadow: var(--shadow-xs);
-  transition: background var(--duration-fast) var(--ease-out),
-    border-color var(--duration-fast) var(--ease-out),
-    transform var(--duration-fast) var(--ease-out);
-}
-.btn-update:hover {
-  background: var(--color-selected);
-  border-color: var(--color-accent);
-  transform: translateY(-1px);
-}
-.btn-update:focus-visible { outline: none; box-shadow: var(--p-focus-ring); }
-.btn-update svg { flex: none; }
-.update-icon-shell {
   flex: none;
-  display: grid;
-  place-items: center;
-  width: 36px;
-  height: 36px;
-  border: 1px solid var(--color-accent-bd);
-  border-radius: var(--radius-full);
-  background: var(--color-accent-soft);
-  color: var(--color-accent-hover);
 }
-.update-copy {
-  flex: 1;
-  min-width: 0;
+
+.sidebar-update-trigger {
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: var(--radius-full);
+  background: transparent;
+}
+.sidebar-update-trigger :deep(svg) {
+  width: 32px;
+  height: 32px;
+}
+.ch-actions .sidebar-update-trigger:hover:not(:disabled) {
+  background: transparent;
+}
+.sidebar-update-trigger:focus-visible {
+  box-shadow: var(--p-focus-ring-strong);
+}
+
+.sidebar-update-notes {
+  position: fixed;
+  z-index: var(--z-tooltip);
+  box-sizing: border-box;
+  width: min(440px, calc(100vw - 32px));
+  max-height: min(640px, calc(100vh - 32px));
+  overflow: hidden;
+  border: 1px solid var(--color-line-strong);
+  border-radius: var(--radius-xl);
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+  box-shadow: var(--shadow-menu);
+  font-family: var(--font-ui);
+}
+.sidebar-update-notes__header {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
   gap: var(--space-1);
+  padding: var(--space-6) var(--space-6) var(--space-5);
 }
-.btn-update__title {
-  display: flex;
-  min-width: 0;
-  max-width: 100%;
-  gap: var(--space-1);
-  color: var(--color-text);
-  font-size: var(--ui-font-size-sm);
-  font-weight: var(--weight-medium);
-  white-space: nowrap;
+.sidebar-update-notes__header strong {
+  color: var(--color-text-strong);
+  font-size: var(--text-lg);
 }
-.btn-update__label {
-  position: relative;
-  flex: none;
+.sidebar-update-notes__header span {
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
 }
-.btn-update__availability {
-  overflow: hidden;
-  text-overflow: ellipsis;
+.sidebar-update-notes__divider {
+  height: 1px;
+  margin-inline: var(--space-6);
+  background: var(--color-line);
 }
-.btn-update__label::after {
-  content: attr(data-label);
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  color: color-mix(in srgb, var(--color-text-on-scrim) 78%, var(--color-text-muted));
-  opacity: 0;
-  clip-path: inset(0 100% 0 0);
-  animation: update-label-shimmer 10s linear infinite;
+.sidebar-update-notes__body {
+  max-height: min(500px, calc(100vh - 150px));
+  overflow-y: auto;
+  padding: var(--space-5) var(--space-6) var(--space-6);
 }
-.update-version { flex: none; }
-.update-cta {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 34px;
-  padding: 0 var(--space-2);
-  border-radius: var(--radius-md);
-  background: var(--color-accent);
-  color: var(--color-text-on-accent);
-  font-weight: var(--weight-medium);
-  box-shadow: var(--shadow-xs);
+.sidebar-update-notes__body > p {
+  margin: 0;
+  color: var(--color-text-muted);
 }
-
-@container sidebar-col (max-width: 230px) {
-  .btn-update {
-    gap: var(--space-2);
-    padding: var(--space-2);
-  }
-  .update-icon-shell {
-    width: 32px;
-    height: 32px;
-  }
-  .btn-update__availability { display: none; }
-  .update-cta { padding: 0 var(--space-2); }
-}
-
-@keyframes update-label-shimmer {
-  0%, 10%, 20%, 30%, 40% {
-    opacity: 0.9;
-    clip-path: inset(0 90% 0 0);
-  }
-  9.999%, 19.999%, 29.999%, 39.999%, 49.999% {
-    opacity: 0.9;
-    clip-path: inset(0 0 0 90%);
-  }
-  50%, 100% {
-    opacity: 0;
-    clip-path: inset(0 0 0 100%);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .btn-update__label::after { content: none; animation: none; }
+.sidebar-update-notes__body :deep(.md) {
+  font-size: var(--content-font-size);
 }
 
 .btn-wrap {
