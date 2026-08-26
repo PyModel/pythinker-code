@@ -388,7 +388,7 @@ function updateActiveTocQuery(): void {
 }
 
 // --- TOC occlusion by wide tables -------------------------------------------
-// Wide markdown tables (up to --p-table-max) can extend past the TOC rail,
+// Wide markdown tables (up to --p-table-max) can extend past the TOC anchor,
 // which stays anchored to the reading-column edge. While a table actually
 // covers the rail we hide the TOC temporarily so the table stays fully
 // interactive (clicks, text selection, horizontal scroll). The user's TOC
@@ -410,14 +410,14 @@ function updateTocTableOcclusion(): void {
     !props.mobile && props.conversationToc && pane
       ? pane.closest('.con')?.querySelector<HTMLElement>('.conversation-toc')
       : null;
-  // Every node shares the fixed rail x even when hover expands labels, so
+  // Every marker shares the fixed anchor x even when hover expands labels, so
   // hovering the outline itself never changes the hit-test coordinate.
-  const node = toc?.querySelector<HTMLElement>('.toc-node');
+  const marker = toc?.querySelector<HTMLElement>('.toc-marker');
   let covered = false;
-  if (pane && toc && node) {
-    const nodeRect = node.getBoundingClientRect();
+  if (pane && toc && marker) {
+    const markerRect = marker.getBoundingClientRect();
     const tocRect = toc.getBoundingClientRect();
-    const railX = nodeRect.left + nodeRect.width / 2;
+    const anchorX = markerRect.left + markerRect.width / 2;
     // Plain geometric overlap: the rail paints above the content, so any table
     // wrapper that covers the bar's x AND overlaps the rail vertically would
     // have its pointer events intercepted by the rail — hide the TOC until the
@@ -429,8 +429,8 @@ function updateTocTableOcclusion(): void {
     ).some((wrapper) => {
       const rect = wrapper.getBoundingClientRect();
       return (
-        rect.left <= railX &&
-        railX <= rect.right &&
+        rect.left <= anchorX &&
+        anchorX <= rect.right &&
         rect.top < tocRect.bottom &&
         rect.bottom > tocRect.top
       );
@@ -1326,7 +1326,7 @@ defineExpose({ loadComposerForEdit, focusComposer });
 </script>
 
 <template>
-  <section class="con" :class="{ mobile }">
+  <section class="con" :class="{ mobile, 'toc-enabled': conversationToc }" :style="chatLayoutStyle">
     <TranscriptSearch
       v-if="searchOpen && panesRef"
       :pane="panesRef"
@@ -1363,8 +1363,8 @@ defineExpose({ loadComposerForEdit, focusComposer });
       @export-session="(id) => emit('exportSession', id)"
     />
 
-    <!-- Conversation outline: timeline beside the app sidebar (one node per
-         user query); hover to reveal labels into the chat. -->
+    <!-- Conversation outline: centered line stack beside the app sidebar
+         (one marker per user query); hover to reveal labels into the chat. -->
     <ConversationToc
       v-if="conversationToc"
       :items="conversationTocItems"
@@ -1375,7 +1375,7 @@ defineExpose({ loadComposerForEdit, focusComposer });
       @select="scrollToTurn"
     />
 
-    <div class="chat-layout" :style="chatLayoutStyle">
+    <div class="chat-layout">
       <div
         :ref="bindChatPane"
         class="panes chat-scroll"
@@ -1686,6 +1686,11 @@ defineExpose({ loadComposerForEdit, focusComposer });
 }
 .content-wrap.align-center { margin-left: auto; margin-right: auto; }
 .content-wrap.align-left { margin-left: 0; margin-right: auto; }
+@container (max-width: 952px) {
+  .con.toc-enabled:not(.mobile) .content-wrap.align-center {
+    padding-left: calc(var(--space-8) + var(--space-8) + var(--space-8));
+  }
+}
 /* Mobile: bubbles span the full pane width; no reading-column constraint. */
 .content-wrap.align-mobile { max-width: none; }
 @media (max-width: 640px) {

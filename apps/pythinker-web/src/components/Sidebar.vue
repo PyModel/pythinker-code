@@ -6,6 +6,7 @@
 import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { copyTextToClipboard } from '../lib/clipboard';
+import { useIsDark } from '../composables/useIsDark';
 import {
   loadCollapsedWorkspaces,
   saveCollapsedWorkspaces,
@@ -27,6 +28,7 @@ import PinnedSessionList from './PinnedSessionList.vue';
 import SessionRow from './SessionRow.vue';
 
 const { t } = useI18n();
+const isDark = useIsDark();
 const update = useDesktopUpdate();
 
 const props = withDefaults(
@@ -669,7 +671,7 @@ onBeforeUnmount(() => {
         <div class="ch-brand">
           <img
             class="ch-logo"
-            src="/brand/pythinker_code_banner_dark.svg"
+            :src="isDark ? '/brand/pythinker_banner_dark.svg' : '/brand/pythinker_banner_light.svg'"
             alt="Pythinker Code"
             draggable="false"
             @pointerdown="onLogoPointerDown"
@@ -1222,12 +1224,9 @@ onBeforeUnmount(() => {
   position: relative;
 }
 
-/* Header: brand strip (no border — flows into the workspace list). On non-mac
-   platforms the brand sits on the left and the collapse button on the right
-   (justify-content: space-between); on macOS desktop the brand is hidden and
-   the header is a window-drag strip (see below). min-height keeps the 26px
-   control row (50px total with padding) so the list below starts at a stable
-   y. */
+/* Header: brand strip (no border — flows into the workspace list). The brand
+   sits on the left and the collapse button on the right on every platform;
+   macOS also uses the header as a window-drag strip. */
 .ch {
   display: flex;
   align-items: center;
@@ -1252,7 +1251,7 @@ onBeforeUnmount(() => {
   -webkit-app-region: no-drag;
 }
 .ch-logo {
-  width: min(172px, 100%);
+  width: min(220px, 100%);
   height: auto;
   object-fit: contain;
   object-position: left center;
