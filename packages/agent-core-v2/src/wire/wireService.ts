@@ -214,6 +214,9 @@ export class WireService extends Service implements IWireService {
 
   async flush(): Promise<void> {
     await this.persistQueue;
+    if (this.pendingRepair !== undefined && this.persistError === undefined) {
+      await this.repairPendingJournal().catch(() => undefined);
+    }
     const persistError = this.persistError;
     this.persistError = undefined;
     if (persistError !== undefined) throw persistError;

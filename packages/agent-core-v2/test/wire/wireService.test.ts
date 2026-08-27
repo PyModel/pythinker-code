@@ -659,6 +659,47 @@ describe('WireService corruption repair', () => {
     ]);
   });
 
+  it('retries a pending repair on flush even when nothing was appended', async () => {
+    const capture: RepairCapture = { warnings: [], events: [] };
+    const svc = wireWithCapture(KEY, capture);
+    const prefix = `${currentMetadata()}\n`;
+    const raw = `${prefix}GARBAGE\n`;
+    await seedCorrupt(raw);
+    const originalWrite = storage.write.bind(storage);
+    storage.write = async (scope, key, data, options) => {
+      if (key === AGENT_WIRE_RECORD_KEY) throw new Error('disk full');
+      return originalWrite(scope, key, data, options);
+    };
+    await collect(svc.readJournal());
+    storage.write = originalWrite;
+
+    await svc.flush();
+
+    expect(await rawBytes()).toBe(prefix);
+    expect(await rawBytes(BACKUP_KEY)).toBe(raw);
+    expect(capture.events).toMatchObject([
+      { name: 'wire_repair', payload: { outcome: 'failed' } },
+      { name: 'wire_repair', payload: { outcome: 'repaired' } },
+    ]);
+  });
+
+  it('reports the still-broken journal from flush when nothing was appended', async () => {
+    const capture: RepairCapture = { warnings: [], events: [] };
+    const svc = wireWithCapture(KEY, capture);
+    const prefix = `${currentMetadata()}\n`;
+    const raw = `${prefix}GARBAGE\n`;
+    await seedCorrupt(raw);
+    const originalWrite = storage.write.bind(storage);
+    storage.write = async (scope, key, data, options) => {
+      if (key === AGENT_WIRE_RECORD_KEY) throw new Error('disk full');
+      return originalWrite(scope, key, data, options);
+    };
+    await collect(svc.readJournal());
+
+    await expect(svc.flush()).rejects.toThrow('Wire journal repair did not complete');
+    expect(await rawBytes()).toBe(raw);
+  });
+
   it('refuses to append behind the corrupted tail while a failed repair keeps failing', async () => {
     const capture: RepairCapture = { warnings: [], events: [] };
     const svc = wireWithCapture(KEY, capture);
@@ -681,7 +722,7 @@ describe('WireService corruption repair', () => {
       expect(await rawBytes()).toBe(raw);
       expect(unexpected).toHaveLength(1);
       expect(unexpected[0]).toBeInstanceOf(WireError);
-      expect((unexpected[0] as WireError).code).toBe(WireErrors.codes.RECORDS_WRITE_FAILED);
+      expect(unexpected[0]).toMatchObject({ code: WireErrors.codes.RECORDS_WRITE_FAILED });
       expect(capture.events).toEqual([
         {
           name: 'wire_repair',
@@ -729,7 +770,7 @@ describe('WireService corruption repair', () => {
       expect(await rawBytes()).toBe(raw);
       expect(unexpected).toHaveLength(1);
       expect(unexpected[0]).toBeInstanceOf(WireError);
-      expect((unexpected[0] as WireError).code).toBe(WireErrors.codes.RECORDS_WRITE_FAILED);
+      expect(unexpected[0]).toMatchObject({ code: WireErrors.codes.RECORDS_WRITE_FAILED });
       expect(capture.events).toEqual([
         {
           name: 'wire_repair',

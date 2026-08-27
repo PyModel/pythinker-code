@@ -10,7 +10,9 @@ import {
   fetchOpenAICodexModels,
   OPENAI_CODEX_AUTH_INPUT_MAX_LENGTH,
   parseOpenAICodexAuthorizationInput,
+  OAuthAccessDeniedError,
   OPENAI_CODEX_REDIRECT_URI,
+  runOpenAICodexOAuthFlow,
   startOpenAICodexCallbackServer,
   type OpenAICodexConfigShape,
 } from '../src/openai-codex-oauth';
@@ -325,6 +327,33 @@ describe('startOpenAICodexCallbackServer', () => {
     } finally {
       server.close();
     }
+  });
+
+  it('fails the whole flow with OAuthAccessDeniedError when the user denies consent', async () => {
+    const probe = await startOpenAICodexCallbackServer('probe');
+    const loopback = probe.loopback;
+    probe.close();
+    if (!loopback) return;
+
+    let authorizeUrl: string | undefined;
+    const pending = runOpenAICodexOAuthFlow({
+      timeoutMs: 10_000,
+      openBrowser: (url) => {
+        authorizeUrl = url;
+      },
+    });
+    const settled = expect(pending).rejects.toBeInstanceOf(OAuthAccessDeniedError);
+
+    await vi.waitFor(() => expect(authorizeUrl).toBeDefined());
+    const state = new URL(authorizeUrl!).searchParams.get('state');
+    expect(state).toBeTruthy();
+
+    const url = new URL(OPENAI_CODEX_REDIRECT_URI);
+    url.searchParams.set('error', 'access_denied');
+    url.searchParams.set('state', state!);
+    await fetch(url);
+
+    await settled;
   });
 
   it('reports any other callback error as a dead end the user can still paste past', async () => {
