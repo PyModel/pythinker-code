@@ -1,10 +1,22 @@
 import chalk from 'chalk';
 
 import { splitTokenFragment } from '#/cli/sub/web/access-urls';
+import {
+  buildRemoteControlUrl,
+  formatRemoteControlOutput,
+  formatRemoteControlStatus,
+  startRemoteControl,
+  type RemoteControlStatus,
+} from '#/cli/sub/web/remote-control';
+import {
+  formatRemoteControlAlreadyRunning,
+  inspectRemoteControlLock,
+} from '#/cli/sub/web/remote-control-lock';
 import { formatReadyBanner, startServerForeground } from '#/cli/sub/web/run';
 import { parseServerOptions, tryResolveServerToken } from '#/cli/sub/web/shared';
 import { openUrl } from '#/utils/open-url';
 import { getDataDir } from '#/utils/paths';
+import { generateRemoteControlQr } from '#/utils/remote-control-qr';
 
 import { NO_ACTIVE_SESSION_MESSAGE } from '../constant/pythinker-tui';
 import { darkColors } from '../theme/colors';
@@ -27,6 +39,72 @@ export async function handleWebCommand(host: SlashCommandHost): Promise<void> {
   }
 
   startNewServerAfterExit(host, session.id);
+  await host.stop();
+}
+
+/**
+ * `/remote-control` — hand the current session off to a remote device.
+ *
+ * Same exit takeover as `/web`, except the process also opens a relay tunnel
+ * so the session is reachable from a phone or another machine. The relay link
+ * and its QR code print once the tunnel is up.
+ */
+export async function handleRemoteControlCommand(host: SlashCommandHost): Promise<void> {
+  await host.waitForLazyCreation();
+  const session = host.session;
+
+  const holder = await inspectRemoteControlLock(getDataDir());
+  if (holder !== undefined) {
+    host.showError(formatRemoteControlAlreadyRunning(holder));
+    return;
+  }
+
+  host.setExitForegroundTask(async () => {
+    const options = parseServerOptions({});
+    let remoteControl: Awaited<ReturnType<typeof startRemoteControl>> | undefined;
+    try {
+      await startServerForeground(options, {
+        onReady: async (origin) => {
+          const dataDir = getDataDir();
+          const token = tryResolveServerToken(dataDir);
+          if (token === undefined) throw new Error('Unable to read the local server token.');
+          let outputReady = false;
+          const pendingStatuses: string[] = [];
+          const onStatus = (status: RemoteControlStatus): void => {
+            const line = formatRemoteControlStatus(status);
+            if (outputReady) process.stdout.write(line);
+            else pendingStatuses.push(line);
+          };
+          remoteControl = await startRemoteControl({
+            homeDir: dataDir,
+            localOrigin: origin,
+            localServerToken: token,
+            onStatus,
+          });
+          const url = buildRemoteControlUrl(remoteControl.deviceId, session?.id, undefined, token);
+          const qrCode = await generateRemoteControlQr(url, dataDir);
+          process.stdout.write(
+            formatRemoteControlOutput({
+              url,
+              localOrigin: origin,
+              deviceName: remoteControl.deviceName,
+              qrCode: qrCode.terminal,
+              pngPath: qrCode.pngPath,
+            }),
+          );
+          outputReady = true;
+          for (const line of pendingStatuses) process.stdout.write(line);
+          openUrl(url);
+        },
+        onShutdown: async () => {
+          await remoteControl?.close();
+        },
+      });
+    } catch (error) {
+      process.stderr.write(`Failed to start Remote Control: ${formatErrorMessage(error)}\n`);
+      process.exit(1);
+    }
+  });
   await host.stop();
 }
 

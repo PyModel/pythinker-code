@@ -14,7 +14,7 @@ import { join } from 'node:path';
 import { createServerLogger, startServer, type ServerLogger } from '@pymodel/agent-gateway';
 import { shutdownTelemetry, track } from '@pymodel/pythinker-telemetry';
 import chalk from 'chalk';
-import { type Command } from 'commander';
+import { type Command, Option } from 'commander';
 
 import { CLI_SHUTDOWN_TIMEOUT_MS, WEB_USER_AGENT_SUFFIX } from '#/constant/app';
 import { getNativeWebAssetsDir } from '#/native/web-assets';
@@ -25,6 +25,7 @@ import {
 import { darkColors } from '#/tui/theme/colors';
 import { openUrl as defaultOpenUrl } from '#/utils/open-url';
 import { getDataDir } from '#/utils/paths';
+import { generateRemoteControlQr } from '#/utils/remote-control-qr';
 
 import { initializeServerTelemetry } from '../../telemetry';
 import {
@@ -39,6 +40,16 @@ import {
   splitTokenFragment,
 } from './access-urls';
 import { type NetworkAddress } from './networks';
+import {
+  formatRemoteControlOutput,
+  formatRemoteControlStatus,
+  isRemoteControlEnabled,
+  REMOTE_CONTROL_FLAG_ENV,
+  startRemoteControl,
+  type RemoteControlHandle,
+  type RemoteControlOptions,
+  type RemoteControlStatus,
+} from './remote-control';
 import {
   DEFAULT_FOREGROUND_LOG_LEVEL,
   DEFAULT_LAN_HOST,
@@ -66,11 +77,14 @@ interface RoutedServer {
 
 export interface WebCliOptions extends ServerCliOptions {
   open?: boolean;
+  remoteControl?: boolean;
 }
 
 export interface StartForegroundHooks {
   /** Fires once the server is listening, before the foreground runner blocks. */
-  onReady?: (origin: string) => void;
+  onReady?: (origin: string) => void | Promise<void>;
+  /** Fires once shutdown starts, before the server socket is closed. */
+  onShutdown?: (reason: string) => void | Promise<void>;
 }
 
 export interface WebCommandDeps {
@@ -87,6 +101,8 @@ export interface WebCommandDeps {
    * it simply print/open the plain origin.
    */
   resolveToken?: () => string | undefined;
+  /** Remote Control starter; defaults to the real relay client when omitted. */
+  startRemoteControl?: (options: RemoteControlOptions) => Promise<RemoteControlHandle>;
   /**
    * Non-loopback interface addresses to display for a wildcard bind. Defaults
    * to the machine's own interfaces (`listNetworkAddresses()`); inject a fixed
@@ -109,8 +125,12 @@ export function buildWebUrl(origin: string, token: string): string {
 }
 
 /** Build the `web` command, mounting the runner action on `cmd` itself. */
-export function buildWebCommand(cmd: Command): Command {
-  return cmd
+export function buildWebCommand(
+  cmd: Command,
+  opts: { forceRemoteControl?: boolean } = {},
+): Command {
+  const forceRemoteControl = opts.forceRemoteControl === true;
+  const withServerOptions = cmd
     .option(
       '--port <port>',
       `Bind port (default ${DEFAULT_SERVER_PORT})`,
@@ -151,11 +171,24 @@ export function buildWebCommand(cmd: Command): Command {
     .option(
       '--web-title <title>',
       'Set a custom browser tab title for this web UI instance (default: "<workspace dir> | Pythinker Code").',
-    )
+    );
+  if (!forceRemoteControl) {
+    withServerOptions.addOption(
+      new Option(
+        '--rc, --remote-control',
+        'Expose the web UI through Pythinker Remote Control (experimental).',
+      )
+        .default(false)
+        .hideHelp(!isRemoteControlEnabled()),
+    );
+  }
+  return withServerOptions
     .option('--no-open', 'Do not open the web UI in the default browser.', true)
     .action(async (opts: WebCliOptions) => {
       try {
-        await handleWebCommand(opts);
+        await handleWebCommand(
+          forceRemoteControl ? { ...opts, remoteControl: true } : opts,
+        );
       } catch (error) {
         process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
         process.exit(1);
@@ -168,9 +201,21 @@ export async function handleWebCommand(
   deps: WebCommandDeps = DEFAULT_WEB_COMMAND_DEPS,
 ): Promise<void> {
   const parsed = parseServerOptions(opts);
+  if (opts.remoteControl === true && !isRemoteControlEnabled()) {
+    throw new Error(
+      `--remote-control is experimental: set ${REMOTE_CONTROL_FLAG_ENV}=1 (or PYTHINKER_CODE_EXPERIMENTAL_FLAG=1) to enable it.`,
+    );
+  }
+  if (opts.remoteControl === true && parsed.dangerousBypassAuth) {
+    throw new Error('--remote-control cannot be combined with --dangerous-bypass-auth.');
+  }
+  if (opts.remoteControl === true && !isLoopbackHost(parsed.host)) {
+    throw new Error('--remote-control requires a loopback host.');
+  }
   const run = deps.startServerForeground ?? startServerForeground;
+  let remoteControl: RemoteControlHandle | undefined;
   await run(parsed, {
-    onReady: (origin) => {
+    onReady: async (origin) => {
       // Resolve the persistent token only once the server is up: a fresh
       // server writes `server.token` on first boot, so reading it beforehand
       // would miss first-time starts and the browser would hit the auth gate.
@@ -179,6 +224,41 @@ export async function handleWebCommand(
       // token line when unavailable. When auth is bypassed, the token is
       // meaningless and is intentionally NOT shown or carried in the URL.
       const token = parsed.dangerousBypassAuth ? undefined : deps.resolveToken?.();
+      if (opts.remoteControl === true) {
+        if (token === undefined) throw new Error('Unable to read the local server token.');
+        const dataDir = getDataDir();
+        // Status lines can arrive while the relay handshake is still running,
+        // before the banner is printed. Buffer them so they never interleave
+        // with the banner they are supposed to follow.
+        let outputReady = false;
+        const pendingStatuses: string[] = [];
+        const onStatus = (status: RemoteControlStatus): void => {
+          const line = formatRemoteControlStatus(status);
+          if (outputReady) deps.stdout.write(line);
+          else pendingStatuses.push(line);
+        };
+        remoteControl = await (deps.startRemoteControl ?? startRemoteControl)({
+          homeDir: dataDir,
+          localOrigin: origin,
+          localServerToken: token,
+          stderr: deps.stderr,
+          onStatus,
+        });
+        const qrCode = await generateRemoteControlQr(remoteControl.url, dataDir);
+        deps.stdout.write(
+          formatRemoteControlOutput({
+            url: remoteControl.url,
+            localOrigin: origin,
+            deviceName: remoteControl.deviceName,
+            qrCode: qrCode.terminal,
+            pngPath: qrCode.pngPath,
+          }),
+        );
+        outputReady = true;
+        for (const line of pendingStatuses) deps.stdout.write(line);
+        if (opts.open === true) deps.openUrl(remoteControl.url);
+        return;
+      }
       deps.stdout.write(
         parsed.logLevel === DEFAULT_FOREGROUND_LOG_LEVEL
           ? formatReadyBanner(origin, parsed.host, {
@@ -191,6 +271,9 @@ export async function handleWebCommand(
       if (opts.open === true) {
         deps.openUrl(token !== undefined ? buildWebUrl(origin, token) : origin);
       }
+    },
+    onShutdown: async () => {
+      await remoteControl?.close();
     },
   });
 }
@@ -229,7 +312,7 @@ export async function startServerForeground(
   options: ParsedServerOptions,
   hooks: StartForegroundHooks = {},
 ): Promise<never> {
-  return runServerInProcess(options, hooks.onReady);
+  return runServerInProcess(options, hooks);
 }
 
 /**
@@ -238,7 +321,7 @@ export async function startServerForeground(
  */
 async function runServerInProcess(
   options: ParsedServerOptions,
-  onReady?: (origin: string) => void,
+  hooks: StartForegroundHooks = {},
 ): Promise<never> {
   const version = getVersion();
   // Registers the telemetry provider for `track` / `shutdownTelemetry`; the
@@ -252,6 +335,14 @@ async function runServerInProcess(
     if (stopping) return;
     stopping = true;
     running?.logger.info({ reason }, 'server shutting down');
+    try {
+      await hooks.onShutdown?.(reason);
+    } catch (error) {
+      running?.logger.error(
+        { err: error instanceof Error ? error : new Error(String(error)) },
+        'foreground shutdown hook error',
+      );
+    }
     try {
       await running?.close();
       await shutdownTelemetry({ timeoutMs: CLI_SHUTDOWN_TIMEOUT_MS });
@@ -322,7 +413,17 @@ async function runServerInProcess(
 
   running.logger.info({ address: running.address }, 'server ready');
 
-  onReady?.(running.address);
+  try {
+    await hooks.onReady?.(running.address);
+  } catch (error) {
+    try {
+      await hooks.onShutdown?.('startup_failed');
+    } finally {
+      await running.close();
+      await shutdownTelemetry({ timeoutMs: CLI_SHUTDOWN_TIMEOUT_MS });
+    }
+    throw error;
+  }
 
   return new Promise<never>(() => {
     // Keeps the event loop alive; the process ends via shutdown()/process.exit.
