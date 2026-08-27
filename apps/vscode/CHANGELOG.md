@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.7
+
+### Patch Changes
+
+- [#221](https://github.com/PyModel/pythinker-code/pull/221) [`e6778dc`](https://github.com/PyModel/pythinker-code/commit/e6778dcc402e71896186a8375b37035df5067bfa) Thanks [@elkaix](https://github.com/elkaix)! - Fix duplicated streaming output when a session is opened twice at the same time.
+
 ## 0.9.6
 
 ### Patch Changes
