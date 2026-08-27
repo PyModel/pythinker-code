@@ -1,5 +1,25 @@
 # @pymodel/pythinker-code
 
+## 1.5.0
+
+### Minor Changes
+
+- [#222](https://github.com/PyModel/pythinker-code/pull/222) [`6fb46b0`](https://github.com/PyModel/pythinker-code/commit/6fb46b04e4a8dcb6705af3f668333482a30f89ba) Thanks [@elkaix](https://github.com/elkaix)! - Add Remote Control, which makes the local web UI reachable from a phone or another computer. Run `pythinker rc`, or use `/rc` in the terminal UI, and scan the printed QR code. Enable it with `PYTHINKER_CODE_EXPERIMENTAL_REMOTE_CONTROL=1`.
+
+- [#221](https://github.com/PyModel/pythinker-code/pull/221) [`e6778dc`](https://github.com/PyModel/pythinker-code/commit/e6778dcc402e71896186a8375b37035df5067bfa) Thanks [@elkaix](https://github.com/elkaix)! - Add a task detach action to the server API. Call `POST /api/v1/sessions/{session_id}/tasks/{task_id}:detach` to move a running foreground task to the background.
+
+### Patch Changes
+
+- [#221](https://github.com/PyModel/pythinker-code/pull/221) [`e6778dc`](https://github.com/PyModel/pythinker-code/commit/e6778dcc402e71896186a8375b37035df5067bfa) Thanks [@elkaix](https://github.com/elkaix)! - Report a denied OpenAI Codex sign-in as cancelled instead of asking for the redirect URL.
+
+- [#223](https://github.com/PyModel/pythinker-code/pull/223) [`ad27021`](https://github.com/PyModel/pythinker-code/commit/ad27021d4b88f98954433a0d34927819dcc57e76) Thanks [@elkaix](https://github.com/elkaix)! - Remote Control now authenticates to the relay with its own key instead of the local server token. Pass `--relay-key` or set `PYTHINKER_CODE_REMOTE_CONTROL_RELAY_KEY`.
+
+- [#221](https://github.com/PyModel/pythinker-code/pull/221) [`e6778dc`](https://github.com/PyModel/pythinker-code/commit/e6778dcc402e71896186a8375b37035df5067bfa) Thanks [@elkaix](https://github.com/elkaix)! - Show the prompt that started a subagent turn in the transcript.
+
+- [#219](https://github.com/PyModel/pythinker-code/pull/219) [`882835e`](https://github.com/PyModel/pythinker-code/commit/882835e6762cedee5a3b43f7c7e749a4ad05a1fc) Thanks [@elkaix](https://github.com/elkaix)! - Fix sessions that fail to resume when their session journal is truncated or corrupted, for example after the disk fills up.
+
+- [#221](https://github.com/PyModel/pythinker-code/pull/221) [`e6778dc`](https://github.com/PyModel/pythinker-code/commit/e6778dcc402e71896186a8375b37035df5067bfa) Thanks [@elkaix](https://github.com/elkaix)! - Retry a failed session journal repair before writing new records, so no message is appended behind a corrupted tail.
+
 ## 1.4.0
 
 ### Minor Changes

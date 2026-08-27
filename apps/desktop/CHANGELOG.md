@@ -1,5 +1,11 @@
 # @pymodel/pythinker-desktop
 
+## 0.3.8
+
+### Patch Changes
+
+- [#225](https://github.com/PyModel/pythinker-code/pull/225) [`f27686a`](https://github.com/PyModel/pythinker-code/commit/f27686ac14eb82b7b2a7773cf936269522479f6c) Thanks [@elkaix](https://github.com/elkaix)! - Install Windows updates in the background instead of opening the installer wizard, and report an update that did not take effect.
+
 ## 0.3.1
 
 ### Patch Changes
