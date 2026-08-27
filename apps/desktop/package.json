@@ -103,7 +103,7 @@
       ]
     },
     "nsis": {
-      "allowElevation": true,
+      "allowElevation": false,
       "allowToChangeInstallationDirectory": true,
       "artifactName": "Pythinker-${version}-${arch}-Setup.${ext}",
       "createDesktopShortcut": true,

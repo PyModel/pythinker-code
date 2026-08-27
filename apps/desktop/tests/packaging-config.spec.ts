@@ -143,7 +143,7 @@ describe('desktop packaging configuration', () => {
   it('configures the Windows x64 NSIS installer', () => {
     expect(desktopPackage.build.win.target).toEqual([{ target: 'nsis', arch: ['x64'] }])
     expect(desktopPackage.build.nsis).toEqual({
-      allowElevation: true,
+      allowElevation: false,
       allowToChangeInstallationDirectory: true,
       artifactName: 'Pythinker-${version}-${arch}-Setup.${ext}',
       createDesktopShortcut: true,
@@ -160,7 +160,7 @@ describe('desktop packaging configuration', () => {
   it('offers an assisted installer that defaults to a per-user install', () => {
     expect(desktopPackage.build.nsis.oneClick).toBe(false)
     expect(desktopPackage.build.nsis.perMachine).toBe(false)
-    expect(desktopPackage.build.nsis.allowElevation).toBe(true)
+    expect(desktopPackage.build.nsis.allowElevation).toBe(false)
   })
 
   it('exposes desktop commands at the repository root', () => {

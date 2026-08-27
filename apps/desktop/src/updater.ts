@@ -59,6 +59,7 @@ export type UpdateState = {
   notifiedVersion?: string
   skippedVersion?: string
   completedVersion?: string
+  failedInstallVersion?: string
 }
 
 export type UpdateTelemetryTrack = (
@@ -129,16 +130,31 @@ function isVerifiedUpgrade(currentVersion: string, previousVersion: string | und
     && gt(currentVersion, previousVersion)
 }
 
-function reconcileStartupReceipt(value: UpdateSettings, currentVersion: string): UpdateSettings {
+/**
+ * A silent installer reports nothing back: the app quits, the installer runs
+ * hidden, and the only evidence either way is the version that comes back up.
+ * A pending receipt that does not match this launch therefore means the install
+ * did not take effect, and it has to become a visible error rather than silence.
+ */
+function reconcileStartupReceipt(
+  value: UpdateSettings,
+  currentVersion: string,
+): { settings: UpdateSettings, failedInstallVersion?: string } {
   let completedVersion = value.completedVersion === currentVersion ? value.completedVersion : undefined
+  let failedInstallVersion: string | undefined
   if (value.pendingInstallVersion === currentVersion) {
     if (isVerifiedUpgrade(currentVersion, value.lastRunVersion)) completedVersion = currentVersion
+  } else if (value.pendingInstallVersion !== undefined) {
+    failedInstallVersion = value.pendingInstallVersion
   }
   return {
-    ...value,
-    pendingInstallVersion: undefined,
-    completedVersion,
-    lastRunVersion: currentVersion,
+    settings: {
+      ...value,
+      pendingInstallVersion: undefined,
+      completedVersion,
+      lastRunVersion: currentVersion,
+    },
+    failedInstallVersion,
   }
 }
 
@@ -295,7 +311,7 @@ function scheduleChecks(): void {
 async function runCheck(): Promise<UpdateState> {
   if (checkPromise !== undefined) return checkPromise
   checkPromise = (async () => {
-    updateState({ status: 'checking', message: undefined })
+    updateState({ status: 'checking', message: undefined, failedInstallVersion: undefined })
     try {
       configureExplicitConsent()
       await autoUpdater.checkForUpdates()
@@ -329,7 +345,7 @@ function wireUpdaterEvents(): void {
   if (listenersWired) return
   try {
     autoUpdater.on('checking-for-update', () => {
-      updateState({ status: 'checking', message: undefined })
+      updateState({ status: 'checking', message: undefined, failedInstallVersion: undefined })
     })
     autoUpdater.on('update-available', applyAvailableUpdate)
     autoUpdater.on('update-not-available', () => {
@@ -389,12 +405,19 @@ export function initUpdater(
   updateTelemetryTrack = track
   const userData = app.getPath('userData')
   settings = readUpdateSettings(userData)
+  let failedInstallVersion: string | undefined
   if (app.isPackaged) {
-    settings = reconcileStartupReceipt(settings, app.getVersion())
+    const receipt = reconcileStartupReceipt(settings, app.getVersion())
+    settings = receipt.settings
+    failedInstallVersion = receipt.failedInstallVersion
     writeUpdateSettings(userData, settings)
   }
   state = {
-    status: app.isPackaged ? 'idle' : 'disabled',
+    status: app.isPackaged ? (failedInstallVersion === undefined ? 'idle' : 'error') : 'disabled',
+    message: failedInstallVersion === undefined
+      ? undefined
+      : `Update to v${failedInstallVersion} did not complete. Pythinker is still on v${app.getVersion()}.`,
+    failedInstallVersion,
     installedVersion: app.getVersion(),
     autoUpdate: settings.autoUpdate,
     channel: settings.channel,
@@ -619,7 +642,10 @@ export function installDownloadedUpdateNow(): UpdateState {
     } catch {
       // Telemetry must never delay an explicit installation.
     }
-    autoUpdater.quitAndInstall()
+    // Silent NSIS install: `--updated /S --force-run`. Without `isSilent` the
+    // assisted installer opens its wizard, and relaunch falls to
+    // `autoRunAppAfterInstall` instead of `isForceRunAfter`.
+    autoUpdater.quitAndInstall(true, true)
   } catch (error) {
     installRequestedVersion = undefined
     if (settings.pendingInstallVersion === version) {
