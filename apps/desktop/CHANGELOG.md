@@ -1,5 +1,13 @@
 # @pymodel/pythinker-desktop
 
+## 0.3.9
+
+### Patch Changes
+
+- [#228](https://github.com/PyModel/pythinker-code/pull/228) [`62e2e75`](https://github.com/PyModel/pythinker-code/commit/62e2e7519eba322efef292e0e8e74b13fcdd1274) Thanks [@elkaix](https://github.com/elkaix)! - Lay out the update release notes as a readable list with the build reference as a footnote, and show when there is more to scroll.
+
+- [#226](https://github.com/PyModel/pythinker-code/pull/226) [`e9ebda6`](https://github.com/PyModel/pythinker-code/commit/e9ebda62179656ebdac87a529e903ffaf0cdcdcd) Thanks [@elkaix](https://github.com/elkaix)! - Show the changelog for the new version in the update dialog instead of a build stamp with raw HTML tags.
+
 ## 0.3.8
 
 ### Patch Changes
