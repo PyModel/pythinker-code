@@ -45,6 +45,7 @@ import {
   formatRemoteControlStatus,
   isRemoteControlEnabled,
   REMOTE_CONTROL_FLAG_ENV,
+  resolveRelayKey,
   resolveRelayOrigin,
   startRemoteControl,
   type RemoteControlHandle,
@@ -80,6 +81,7 @@ export interface WebCliOptions extends ServerCliOptions {
   open?: boolean;
   remoteControl?: boolean;
   relayOrigin?: string;
+  relayKey?: string;
 }
 
 export interface StartForegroundHooks {
@@ -186,6 +188,12 @@ export function buildWebCommand(
   }
   withServerOptions.addOption(
     new Option(
+      '--relay-key <key>',
+      'Secret the Remote Control relay requires. Defaults to $PYTHINKER_CODE_REMOTE_CONTROL_RELAY_KEY.',
+    ).hideHelp(!isRemoteControlEnabled()),
+  );
+  withServerOptions.addOption(
+    new Option(
       '--relay-origin <url>',
       'Remote Control relay to tunnel through. Defaults to $PYTHINKER_CODE_REMOTE_CONTROL_RELAY.',
     ).hideHelp(!isRemoteControlEnabled()),
@@ -221,6 +229,7 @@ export async function handleWebCommand(
     throw new Error('--remote-control requires a loopback host.');
   }
   const relayOrigin = opts.remoteControl === true ? resolveRelayOrigin(opts.relayOrigin) : undefined;
+  const relayKey = opts.remoteControl === true ? resolveRelayKey(opts.relayKey) : '';
   const run = deps.startServerForeground ?? startServerForeground;
   let remoteControl: RemoteControlHandle | undefined;
   await run(parsed, {
@@ -250,6 +259,7 @@ export async function handleWebCommand(
           homeDir: dataDir,
           localOrigin: origin,
           localServerToken: token,
+          relayKey,
           relayOrigin,
           stderr: deps.stderr,
           onStatus,

@@ -417,7 +417,12 @@ describe('`pythinker web` opens the browser', () => {
     }));
 
     await handleWebCommand(
-      { remoteControl: true, relayOrigin: 'https://relay.example.test', open: false },
+      {
+        remoteControl: true,
+        relayOrigin: 'https://relay.example.test',
+        relayKey: 'relay-key-1',
+        open: false,
+      },
       {
         startServerForeground: runner,
         openUrl: vi.fn(),
@@ -429,8 +434,36 @@ describe('`pythinker web` opens the browser', () => {
     );
 
     expect(startRemoteControl).toHaveBeenCalledWith(
-      expect.objectContaining({ relayOrigin: 'https://relay.example.test' }),
+      expect.objectContaining({
+        relayOrigin: 'https://relay.example.test',
+        relayKey: 'relay-key-1',
+        localServerToken: 'tok-1',
+      }),
     );
+  });
+
+  it('refuses to start Remote Control without a relay key', async () => {
+    vi.stubEnv('PYTHINKER_CODE_EXPERIMENTAL_REMOTE_CONTROL', '1');
+    vi.stubEnv('PYTHINKER_CODE_REMOTE_CONTROL_RELAY_KEY', '');
+    const { handleWebCommand } = await import('#/cli/sub/web/run');
+    const { runner } = makeRunner();
+    const { stdout, stderr } = makeIo();
+    const startRemoteControl = vi.fn();
+
+    await expect(
+      handleWebCommand(
+        { remoteControl: true, relayOrigin: 'https://relay.example.test', open: false },
+        {
+          startServerForeground: runner,
+          openUrl: vi.fn(),
+          resolveToken: () => 'tok-1',
+          startRemoteControl,
+          stdout,
+          stderr,
+        },
+      ),
+    ).rejects.toThrow('Remote Control needs a relay key');
+    expect(startRemoteControl).not.toHaveBeenCalled();
   });
 
   it('rejects Remote Control on a non-loopback host', async () => {

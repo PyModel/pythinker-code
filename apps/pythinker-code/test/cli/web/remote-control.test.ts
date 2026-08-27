@@ -205,6 +205,11 @@ describe('resolveRelayOrigin', () => {
     expect(resolveRelayOrigin('  ', { PYTHINKER_CODE_REMOTE_CONTROL_RELAY: '  ' })).toBe(
       REMOTE_CONTROL_RELAY_ORIGIN,
     );
+    expect(
+      resolveRelayOrigin('   ', {
+        PYTHINKER_CODE_REMOTE_CONTROL_RELAY: 'https://env.example.test',
+      }),
+    ).toBe('https://env.example.test');
   });
 
   it('rejects a relay that is not http(s)', async () => {
@@ -213,6 +218,54 @@ describe('resolveRelayOrigin', () => {
       'Remote Control relay must be an http(s) URL',
     );
     expect(() => resolveRelayOrigin('not-a-url', {})).toThrow();
+  });
+});
+
+describe('resolveRelayKey', () => {
+  it('prefers the explicit key, then the environment', async () => {
+    const { resolveRelayKey } = await import('#/cli/sub/web/remote-control');
+    expect(resolveRelayKey('explicit-key', {})).toBe('explicit-key');
+    expect(
+      resolveRelayKey(undefined, { PYTHINKER_CODE_REMOTE_CONTROL_RELAY_KEY: 'env-key' }),
+    ).toBe('env-key');
+    expect(resolveRelayKey('  spaced-key  ', {})).toBe('spaced-key');
+    expect(
+      resolveRelayKey('   ', { PYTHINKER_CODE_REMOTE_CONTROL_RELAY_KEY: 'env-key' }),
+    ).toBe('env-key');
+  });
+
+  it('refuses to fall back to another credential when no key is given', async () => {
+    const { resolveRelayKey } = await import('#/cli/sub/web/remote-control');
+    expect(() => resolveRelayKey(undefined, {})).toThrow(
+      'PYTHINKER_CODE_REMOTE_CONTROL_RELAY_KEY',
+    );
+    expect(() => resolveRelayKey('   ', { PYTHINKER_CODE_REMOTE_CONTROL_RELAY_KEY: ' ' })).toThrow(
+      'Remote Control needs a relay key',
+    );
+  });
+});
+
+describe('relay credential separation', () => {
+  it('never sends the local server token to the relay', async () => {
+    const homeDir = createRemoteControlHome();
+    const relay = await startAuthRelay();
+    let handle: RemoteControlHandle | undefined;
+    cleanups.push(async () => handle?.close());
+
+    handle = await startRemoteControl({
+      homeDir,
+      localOrigin: 'http://127.0.0.1:1',
+      localServerToken: 'local-server-token',
+      relayKey: RELAY_TOKEN,
+      relayOrigin: `http://127.0.0.1:${relay.port}/coding-relay`,
+      stderr: { write: () => true },
+    });
+
+    expect(relay.requests).toHaveLength(2);
+    for (const request of relay.requests) {
+      expect(JSON.stringify(request)).not.toContain('local-server-token');
+      expect(request.protocol).toBe(`pythinker-code.bearer.${RELAY_TOKEN}`);
+    }
   });
 });
 
@@ -248,6 +301,7 @@ describe('Remote Control tunnel', () => {
         homeDir,
         localOrigin: 'http://127.0.0.1:1',
         localServerToken: 'local-server-token',
+        relayKey: RELAY_TOKEN,
         relayOrigin: `http://127.0.0.1:${relayPort}/coding-relay`,
         stderr: { write: () => true },
       }),
@@ -264,7 +318,8 @@ describe('Remote Control tunnel', () => {
     handle = await startRemoteControl({
       homeDir,
       localOrigin: 'http://127.0.0.1:1',
-      localServerToken: relayToken,
+      localServerToken: 'local-server-token',
+      relayKey: relayToken,
       relayOrigin: `http://127.0.0.1:${relay.port}/coding-relay`,
       stderr: { write: () => true },
     });
@@ -286,7 +341,8 @@ describe('Remote Control tunnel', () => {
     handle = await startRemoteControl({
       homeDir,
       localOrigin: 'http://127.0.0.1:1',
-      localServerToken: relayToken,
+      localServerToken: 'local-server-token',
+      relayKey: relayToken,
       relayOrigin: `http://127.0.0.1:${relay.port}/coding-relay`,
       stderr: { write: () => true },
     });
@@ -313,7 +369,8 @@ describe('Remote Control tunnel', () => {
     handle = await startRemoteControl({
       homeDir,
       localOrigin: 'http://127.0.0.1:1',
-      localServerToken: relayToken,
+      localServerToken: 'local-server-token',
+      relayKey: relayToken,
       relayOrigin: `http://127.0.0.1:${relay.port}/coding-relay`,
       stderr: { write: () => true },
     });
@@ -332,7 +389,8 @@ describe('Remote Control tunnel', () => {
     handle = await startRemoteControl({
       homeDir,
       localOrigin: 'http://127.0.0.1:1',
-      localServerToken: relayToken,
+      localServerToken: 'local-server-token',
+      relayKey: relayToken,
       relayOrigin: `http://127.0.0.1:${relay.port}/coding-relay`,
       stderr: { write: () => true },
     });
@@ -414,6 +472,7 @@ describe('Remote Control tunnel', () => {
       homeDir,
       localOrigin: `http://127.0.0.1:${localPort}`,
       localServerToken: 'local-server-token',
+      relayKey: RELAY_TOKEN,
       relayOrigin: `http://127.0.0.1:${relayPort}/coding-relay`,
       stderr: { write: () => true },
     });
@@ -519,7 +578,8 @@ describe('Remote Control tunnel', () => {
     handle = await startRemoteControl({
       homeDir,
       localOrigin: 'http://127.0.0.1:1',
-      localServerToken: relayToken,
+      localServerToken: 'local-server-token',
+      relayKey: relayToken,
       relayOrigin: `http://127.0.0.1:${relay.port}/coding-relay`,
       stderr: { write: (text) => ((logs += String(text)), true) },
       pingIntervalMs: 50,
@@ -547,7 +607,8 @@ describe('Remote Control tunnel', () => {
     handle = await startRemoteControl({
       homeDir,
       localOrigin: 'http://127.0.0.1:1',
-      localServerToken: relayToken,
+      localServerToken: 'local-server-token',
+      relayKey: relayToken,
       relayOrigin: `http://127.0.0.1:${relay.port}/coding-relay`,
       stderr: { write: (text) => ((logs += String(text)), true) },
     });
@@ -582,7 +643,8 @@ describe('Remote Control single-instance lock', () => {
     first = await startRemoteControl({
       homeDir,
       localOrigin: 'http://127.0.0.1:58627',
-      localServerToken: relayToken,
+      localServerToken: 'local-server-token',
+      relayKey: relayToken,
       relayOrigin: `http://127.0.0.1:${relay.port}`,
       stderr: { write: () => true },
     });
@@ -591,7 +653,8 @@ describe('Remote Control single-instance lock', () => {
       startRemoteControl({
         homeDir,
         localOrigin: 'http://127.0.0.1:58628',
-        localServerToken: relayToken,
+        localServerToken: 'local-server-token',
+        relayKey: relayToken,
         relayOrigin: `http://127.0.0.1:${relay.port}`,
         stderr: { write: () => true },
       }),
@@ -621,7 +684,8 @@ describe('Remote Control single-instance lock', () => {
     handle = await startRemoteControl({
       homeDir,
       localOrigin: 'http://127.0.0.1:58627',
-      localServerToken: relayToken,
+      localServerToken: 'local-server-token',
+      relayKey: relayToken,
       relayOrigin: `http://127.0.0.1:${relay.port}`,
       stderr: { write: () => true },
     });
@@ -639,7 +703,8 @@ describe('Remote Control single-instance lock', () => {
     const options = {
       homeDir,
       localOrigin: 'http://127.0.0.1:58627',
-      localServerToken: relayToken,
+      localServerToken: 'local-server-token',
+      relayKey: relayToken,
       relayOrigin: `http://127.0.0.1:${relay.port}`,
       stderr: { write: () => true },
     };
@@ -659,7 +724,8 @@ describe('Remote Control single-instance lock', () => {
     const handle = await startRemoteControl({
       homeDir,
       localOrigin: 'http://127.0.0.1:58627',
-      localServerToken: relayToken,
+      localServerToken: 'local-server-token',
+      relayKey: relayToken,
       relayOrigin: `http://127.0.0.1:${relay.port}`,
       stderr: { write: () => true },
     });

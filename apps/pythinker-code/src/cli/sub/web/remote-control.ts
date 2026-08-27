@@ -17,6 +17,8 @@ export const REMOTE_CONTROL_FLAG_ENV = 'PYTHINKER_CODE_EXPERIMENTAL_REMOTE_CONTR
 
 export const REMOTE_CONTROL_RELAY_ENV = 'PYTHINKER_CODE_REMOTE_CONTROL_RELAY';
 
+export const REMOTE_CONTROL_RELAY_KEY_ENV = 'PYTHINKER_CODE_REMOTE_CONTROL_RELAY_KEY';
+
 /**
  * Resolve the relay to tunnel through. Pythinker ships no relay, so an operator
  * running their own points at it with `--relay-origin` or the env var; the
@@ -26,11 +28,29 @@ export function resolveRelayOrigin(
   explicit?: string,
   env: Readonly<Record<string, string | undefined>> = process.env,
 ): string {
-  const candidate = explicit?.trim() ?? env[REMOTE_CONTROL_RELAY_ENV]?.trim() ?? '';
+  const candidate = explicit?.trim() || env[REMOTE_CONTROL_RELAY_ENV]?.trim() || '';
   if (candidate.length === 0) return REMOTE_CONTROL_RELAY_ORIGIN;
   const url = new URL(candidate);
   if (url.protocol !== 'http:' && url.protocol !== 'https:') {
     throw new Error(`Remote Control relay must be an http(s) URL: ${candidate}`);
+  }
+  return candidate;
+}
+
+/**
+ * Resolve the secret the relay itself demands. It is deliberately separate from
+ * the local server token, so a relay operator can admit known machines without
+ * ever holding a credential that controls one.
+ */
+export function resolveRelayKey(
+  explicit?: string,
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): string {
+  const candidate = explicit?.trim() || env[REMOTE_CONTROL_RELAY_KEY_ENV]?.trim() || '';
+  if (candidate.length === 0) {
+    throw new Error(
+      `Remote Control needs a relay key. Pass --relay-key or set ${REMOTE_CONTROL_RELAY_KEY_ENV}.`,
+    );
   }
   return candidate;
 }
@@ -109,6 +129,7 @@ export interface RemoteControlOptions {
   readonly homeDir: string;
   readonly localOrigin: string;
   readonly localServerToken: string;
+  readonly relayKey: string;
   readonly relayOrigin?: string;
   readonly stderr?: Pick<NodeJS.WriteStream, 'write'>;
   readonly onStatus?: (status: RemoteControlStatus) => void;
@@ -335,6 +356,11 @@ export async function startRemoteControl(
   if (options.localServerToken.length === 0) {
     throw new Error('Remote Control requires local server authentication.');
   }
+  if (options.relayKey.length === 0) {
+    throw new Error(
+      `Remote Control needs a relay key. Pass --relay-key or set ${REMOTE_CONTROL_RELAY_KEY_ENV}.`,
+    );
+  }
   const relayOrigin = options.relayOrigin ?? REMOTE_CONTROL_RELAY_ORIGIN;
   const deviceId = createPythinkerDeviceId(options.homeDir);
   const deviceName = hostname();
@@ -348,7 +374,7 @@ export async function startRemoteControl(
     ...options,
     relayOrigin,
     deviceId,
-    relayToken: options.localServerToken,
+    relayToken: options.relayKey,
   });
   try {
     await client.start();
