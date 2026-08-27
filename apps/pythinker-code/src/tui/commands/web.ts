@@ -5,6 +5,7 @@ import {
   buildRemoteControlUrl,
   formatRemoteControlOutput,
   formatRemoteControlStatus,
+  resolveRelayKey,
   resolveRelayOrigin,
   startRemoteControl,
   type RemoteControlStatus,
@@ -67,6 +68,7 @@ export async function handleRemoteControlCommand(host: SlashCommandHost): Promis
       // Inside the try: a malformed relay setting throws here, and the user
       // should see it through the same handler as any other startup failure.
       const relayOrigin = resolveRelayOrigin();
+      const relayKey = resolveRelayKey();
       await startServerForeground(options, {
         onReady: async (origin) => {
           const dataDir = getDataDir();
@@ -83,6 +85,7 @@ export async function handleRemoteControlCommand(host: SlashCommandHost): Promis
             homeDir: dataDir,
             localOrigin: origin,
             localServerToken: token,
+            relayKey,
             relayOrigin,
             onStatus,
           });
