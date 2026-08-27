@@ -348,17 +348,32 @@ function tocTitle(turn: ChatTurn): string {
   return 'pythinker';
 }
 
+function tocResponsePreview(userIndex: number): string {
+  for (let index = userIndex + 1; index < props.turns.length; index += 1) {
+    const turn = props.turns[index]!;
+    if (turn.role === 'user') break;
+    if (turn.role !== 'assistant') continue;
+    const text = (turn.text.trim() || turn.thinking?.trim() || '').replaceAll(/\s+/g, ' ');
+    if (text.length > 0) return text;
+  }
+  return '';
+}
+
 // The TOC is keyed by user query: one entry per user turn, not per turn/block.
-const conversationTocItems = computed<ConversationTocItem[]>(() =>
-  props.turns
-    .filter((turn) => turn.role === 'user')
-    .map((turn, index) => ({
+const conversationTocItems = computed<ConversationTocItem[]>(() => {
+  let queryNo = 0;
+  return props.turns.flatMap((turn, index) => {
+    if (turn.role !== 'user') return [];
+    queryNo += 1;
+    return [{
       id: turn.id,
       role: turn.role,
-      no: index + 1,
+      no: queryNo,
       title: tocTitle(turn),
-    })),
-);
+      preview: tocResponsePreview(index),
+    }];
+  });
+});
 
 const activeTurnId = ref<string | null>(null);
 

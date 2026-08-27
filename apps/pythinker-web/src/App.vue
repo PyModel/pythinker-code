@@ -1610,21 +1610,17 @@ function openPr(url: string): void {
   /* Floats over the macOS-desktop window-drag header; keep it clickable. */
   -webkit-app-region: no-drag;
 }
-/* macOS desktop (hidden title bar): the collapsed state floats the button
-   beside the traffic lights (green light's right edge ≈ 68px; 72 keeps a gap
-   that matches the lights' own 8px rhythm); no entrance animation since the
-   drag-region union is recomputed anyway. */
+/* Window Controls Overlay reports the native macOS traffic-light boundary in
+   renderer CSS pixels, including page zoom and display scale. */
 .app.macos-desktop .sidebar-toggle-btn {
-  left: 72px;
+  left: var(--macos-titlebar-controls-start);
   animation: none;
 }
 @keyframes sidebar-toggle-btn-in {
   from { opacity: 0; }
 }
 
-/* Floating "New chat" — sits directly right of the toggle (sm IconButton is
-   26px wide: 16 + 26 = 42; macOS: 72 + 26 = 98). Same fade-in + no-drag
-   contract as the toggle. */
+/* Floating "New chat" — sits directly right of the toggle. */
 .new-chat-btn {
   position: absolute;
   top: 11px;
@@ -1634,7 +1630,7 @@ function openPr(url: string): void {
   -webkit-app-region: no-drag;
 }
 .app.macos-desktop .new-chat-btn {
-  left: 98px;
+  left: calc(var(--macos-titlebar-controls-start) + var(--icon-button-sm));
 }
 
 /* Internal-build tag pinned to the app's bottom-right corner (desktop app
@@ -1714,29 +1710,5 @@ function openPr(url: string): void {
     left: var(--space-3);
     align-items: stretch;
   }
-}
-</style>
-
-<style>
-:root {
-  /* Right-side panel headers (ThinkingPanel / FilePreview / DiffView / SideChatPanel)
-     share the same 48px height as the conversation header so the hairline reads as
-     one continuous line across the layout. */
-  --panel-head-h: 48px;
-}
-
-/* Sidebar collapsed (desktop): the conversation header pads left so its
-   content clears the floating sidebar toggle (.sidebar-toggle-btn) — and the
-   macOS traffic lights on desktop builds. Animated in step with the sidebar
-   width transition. Cross-component rule (ChatHeader renders the header), so
-   it lives in this global block. */
-.app:not(.mobile) .chat-header {
-  transition: padding-left 0.28s cubic-bezier(0.4, 0, 0.2, 1);
-}
-.app.sidebar-collapsed .chat-header {
-  padding-left: 52px;
-}
-.app.sidebar-collapsed.macos-desktop .chat-header {
-  padding-left: 108px;
 }
 </style>

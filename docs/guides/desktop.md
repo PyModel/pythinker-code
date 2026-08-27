@@ -57,16 +57,18 @@ control the process:
 - **Update channel** — choose Stable for production releases, Beta for preview releases, or Nightly
   for the newest signed build from `main`.
 - **Automatically check** — discover new versions in the background. This is the default.
-- **Notify about updates** — show a sidebar alert when a new version is available. Turning this off
-  does not hide the manual update controls.
+- **Notify about updates** — show a green update button in the sidebar when a new version is
+  available. Turning this off does not hide the manual update controls.
 - **Check now** — check the selected channel immediately.
 - **Download update** — start the download and show its percentage, transferred size, total size,
   and speed when available.
 - **Restart to update** — appears when an update is downloaded and ready to install.
 
-When notifications are enabled, the application shows one alert for each new version. Choose
-**View notes**, **Skip this version**, or **Download update**. Closing the alert keeps the update
-available in the Update tab. Skip applies only to that version. A later version appears normally.
+When notifications are enabled, the sidebar shows a green update button for the available version.
+Hover over it, or focus it with the keyboard, to read the release notes. Select it to open the update
+controls, where you can choose **View notes**, **Skip this version**, or **Download update**. Closing
+the controls keeps the update available in the Update tab. Skip applies only to that version. A later
+version appears normally.
 
 Downloading does not install the update. After the download finishes, choose **Later** to keep it
 ready or **Restart to update** to stop the local Host safely, install it, and restart. A normal quit

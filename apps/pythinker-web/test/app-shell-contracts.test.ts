@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const app = readFileSync(join(import.meta.dirname, '../src/App.vue'), 'utf8');
+const appStyles = readFileSync(join(import.meta.dirname, '../src/style.css'), 'utf8');
 const composer = readFileSync(join(import.meta.dirname, '../src/components/chat/Composer.vue'), 'utf8');
 const chatDock = readFileSync(join(import.meta.dirname, '../src/components/chat/ChatDock.vue'), 'utf8');
 const conversationPane = readFileSync(join(import.meta.dirname, '../src/components/chat/ConversationPane.vue'), 'utf8');
@@ -53,23 +54,27 @@ describe('app shell contracts', () => {
     expect(sidebarBannerDark).toContain('width="1020" height="180" viewBox="238 395 1020 180"');
   });
 
-  it('shimmers the Update word for five seconds, then rests for five seconds', () => {
-    expect(sidebar).toContain('<Icon name="update-available" size="lg" />');
-    expect(sidebar).toContain('animation: update-label-shimmer 10s linear infinite;');
-    expect(sidebar).toContain('0%, 10%, 20%, 30%, 40%');
-    expect(sidebar).toContain('50%, 100%');
-    expect(sidebar).toContain('content: attr(data-label);');
-    expect(sidebar).toMatch(/\.btn-update\s*\{[^}]*color: var\(--color-text\);/s);
-    expect(sidebar).not.toContain('.btn-update::after');
-    expect(sidebar).toContain('@media (prefers-reduced-motion: reduce)');
+  it('uses one green update icon with a release-notes hover preview', () => {
+    expect(sidebar).toContain('data-testid="sidebar-update-notes"');
+    expect(sidebar).toContain('<Markdown');
+    expect(sidebar).toContain('<Icon name="update-button" />');
+    expect(sidebar).toMatch(/\.sidebar-update-trigger\s*\{[^}]*width: 32px;[^}]*height: 32px;[^}]*border-radius: var\(--radius-full\);[^}]*background: transparent;/s);
+    expect(sidebar).not.toContain('update-label-shimmer');
+    expect(sidebar).not.toContain('class="update-wrap"');
   });
 
-  it('keeps desktop traffic lights clear and separates the Update action', () => {
+  it('keeps desktop traffic lights clear and places the update trigger in the brand header', () => {
     expect(sidebar).toMatch(/\.side\.macos-desktop \.ch\s*\{[^}]*padding-top: 36px;/s);
-    expect(sidebar).toMatch(/\.update-wrap\s*\{[^}]*flex: none;[^}]*padding: var\(--space-1\) var\(--sb-inset\) var\(--space-2\);/s);
-    expect(sidebar).toMatch(/\.btn-update\s*\{[^}]*min-height: 72px;[^}]*padding: var\(--space-3\);[^}]*background: var\(--color-hover\);/s);
-    expect(sidebar.indexOf('<div class="ch">')).toBeLessThan(sidebar.indexOf('class="update-wrap"'));
-    expect(sidebar.indexOf('class="update-wrap"')).toBeLessThan(sidebar.indexOf('<div class="btn-wrap">'));
+    expect(appStyles).toContain('--macos-titlebar-controls-fallback-x: 76px;');
+    expect(appStyles).toContain('--macos-titlebar-controls-start: calc(env(titlebar-area-x, var(--macos-titlebar-controls-fallback-x)) + var(--space-2))');
+    expect(app).toContain('left: var(--macos-titlebar-controls-start);');
+    expect(app).toContain('left: calc(var(--macos-titlebar-controls-start) + var(--icon-button-sm));');
+    expect(app).not.toContain('left: 72px;');
+    expect(app).not.toContain('left: 98px;');
+    expect(sidebar).toContain('<div class="ch-actions">');
+    expect(sidebar.indexOf('data-testid="sidebar-update"')).toBeLessThan(sidebar.indexOf('class="ch-collapse"'));
+    expect(sidebar.indexOf('data-testid="sidebar-update"')).toBeLessThan(sidebar.indexOf('</div>\n\n      <!-- New chat'));
+    expect(sidebar).not.toMatch(/\.btn-update\s*\{/s);
   });
 
   it('persists and reorders pinned sessions', () => {
