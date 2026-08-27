@@ -226,7 +226,7 @@ importers:
         specifier: ^4.23.5
         version: 4.23.12
       ws:
-        specifier: 8.21.3
+        specifier: ^8.21.3
         version: 8.21.3
       yazl:
         specifier: ^3.3.1

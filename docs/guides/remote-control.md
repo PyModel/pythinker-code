@@ -26,7 +26,9 @@ The terminal prints a QR code, a link, and the path of a PNG copy of the QR code
 
 The link grants control of this machine. Do not share the link or the QR code.
 
-The link carries no access token. Requests reach the local server through the tunnel, and the Pythinker Code process on this machine adds the bearer token to each one, so the token never leaves this machine.
+The link itself carries no access token: requests arrive through the tunnel, and the Pythinker Code process on this machine adds the bearer token to each one before it reaches the local server. The QR code, the printed link, and the PNG on disk hold no credential.
+
+The relay is a different matter. Pythinker Code authenticates to it with the same token, sent in the WebSocket handshake, and every request and response passes through it in the clear. Use a relay you operate or otherwise trust. Rotate the token with `pythinker web rotate-token` if a relay is ever compromised.
 
 ## Relay
 
@@ -40,4 +42,4 @@ pythinker rc --relay-origin https://relay.example.com
 
 ## Stop it
 
-Press `Ctrl+C`. The tunnel closes with the server.
+Press `Ctrl-C`. The tunnel closes with the server.

@@ -117,14 +117,25 @@ describe('Remote Control HTTP forwarding', () => {
     );
     expect(parsed).toMatchObject({ method: 'POST', path: '/api/v1/messages?q=1' });
     expect(parsed.body.toString()).toBe('data');
+    // Content-Length is dropped here and re-derived from the body that is
+    // actually forwarded, so a relay cannot desync the local server with a
+    // length that disagrees with the bytes.
     expect(filterForwardRequestHeaders(parsed.headers, 'local-token')).toEqual([
       'X-Keep',
       'yes',
-      'Content-Length',
-      '4',
       'Authorization',
       'Bearer local-token',
     ]);
+  });
+
+  it('refuses a chunked request body instead of forwarding its framing as data', () => {
+    expect(() =>
+      parseRawHttpRequest(
+        Buffer.from(
+          'POST /api/v1/messages HTTP/1.1\r\nHost: relay.example\r\nTransfer-Encoding: chunked\r\n\r\n4\r\ndata\r\n0\r\n\r\n',
+        ),
+      ),
+    ).toThrow(SyntaxError);
   });
 
   it('rejects absolute-form and malformed request targets', () => {

@@ -426,11 +426,24 @@ async function runServerInProcess(
   try {
     await hooks.onReady?.(running.address);
   } catch (error) {
-    try {
-      await hooks.onShutdown?.('startup_failed');
-    } finally {
-      await running.close();
-      await shutdownTelemetry({ timeoutMs: CLI_SHUTDOWN_TIMEOUT_MS });
+    // Every cleanup step runs even when an earlier one fails, and none of them
+    // may replace the startup error the caller needs to see.
+    for (const step of [
+      async () => hooks.onShutdown?.('startup_failed'),
+      async () => running.close(),
+      async () => shutdownTelemetry({ timeoutMs: CLI_SHUTDOWN_TIMEOUT_MS }),
+    ]) {
+      try {
+        await step();
+      } catch (cleanupError) {
+        running.logger.error(
+          {
+            err:
+              cleanupError instanceof Error ? cleanupError : new Error(String(cleanupError)),
+          },
+          'startup cleanup step failed',
+        );
+      }
     }
     throw error;
   }

@@ -54,6 +54,7 @@ const RELAY_PING_INTERVAL_MS = 30_000;
 const RELAY_SILENCE_TIMEOUT_MS = 300_000;
 const BLOCKED_REQUEST_HEADERS = new Set([
   'authorization',
+  'content-length',
   'cookie',
   'host',
   'origin',
@@ -242,6 +243,17 @@ export function parseRawHttpRequest(raw: Buffer): ParsedRawHttpRequest {
     }
     headers.push([name, value]);
   }
+  // `transfer-encoding` is stripped before forwarding, so a chunked body would
+  // reach the local server with its chunk framing as entity data. The relay
+  // sends whole requests, so refuse the framing instead of decoding it.
+  if (
+    headers.some(
+      ([name, value]) =>
+        name.toLowerCase() === 'transfer-encoding' && value.toLowerCase().includes('chunked'),
+    )
+  ) {
+    throw new SyntaxError('chunked HTTP request bodies are not supported');
+  }
   return {
     method: match[1]!,
     path: match[2]!,
@@ -390,7 +402,11 @@ class RemoteControlClient {
       this.initialResolve = resolve;
       this.initialReject = reject;
     });
-    this.runPromise = this.run();
+    // `run()` settles `initial` from inside its loop, but a throw from outside
+    // that loop's try would leave the caller waiting forever.
+    this.runPromise = this.run().catch((error: unknown) => {
+      this.rejectInitial(error instanceof Error ? error : new Error(String(error)));
+    });
     await initial;
   }
 
@@ -473,6 +489,14 @@ class RemoteControlClient {
     }
 
     const managementEnd = waitForSocketEnd(management);
+    // The relay may send `open_ws` the moment it acknowledges registration.
+    // `waitForRelayMessage` has just detached its own listener, so buffer
+    // everything that lands before the HTTP tunnel is up and replay it.
+    const earlyManagement: RawData[] = [];
+    const bufferManagement = (data: RawData): void => {
+      earlyManagement.push(data);
+    };
+    management.on('message', bufferManagement);
     const http = await this.connectRelay(
       `/v1/remote/http?device_id=${encodeURIComponent(this.deviceId)}`,
     );
@@ -481,8 +505,10 @@ class RemoteControlClient {
     if (management.readyState !== WebSocket.OPEN) {
       throw new Error('management connection closed');
     }
+    management.off('message', bufferManagement);
     management.on('message', (data) => this.handleManagementMessage(data));
     http.on('message', (data) => this.handleHttpMessage(data));
+    for (const data of earlyManagement) this.handleManagementMessage(data);
     this.reconnectAttempt = 0;
     this.relayOnline = true;
     this.onStatus('relay_connected');
@@ -870,6 +896,8 @@ function requestLocalHttp(
         path: parsed.path,
         headers: [
           ...filterForwardRequestHeaders(parsed.headers, serverToken),
+          'Content-Length',
+          String(parsed.body.length),
           'Host',
           origin.host,
         ],

@@ -73,12 +73,20 @@ export async function acquireRemoteControlLock(
       }
       return { release: () => releaseRemoteControlLock(lockPath, info.nonce) };
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'EEXIST' || attempt >= MAX_ACQUIRE_ATTEMPTS) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') {
         throw error;
       }
+      // Read the holder even on the last attempt: a second process can recreate
+      // the lock between our unlink and our open, and a raw EEXIST tells the
+      // user nothing about who holds it or how to stop them.
       const holder = await readRemoteControlLock(lockPath);
       if (holder !== undefined && pidAlive(holder.pid)) {
         throw new RemoteControlAlreadyRunningError(holder);
+      }
+      if (attempt >= MAX_ACQUIRE_ATTEMPTS) {
+        throw new Error(
+          `Unable to acquire the Remote Control lock at ${lockPath}. Another process keeps recreating it.`, { cause: error },
+        );
       }
       await removeFile(lockPath);
     }
@@ -131,6 +139,10 @@ function decodeLock(raw: string): RemoteControlLockInfo | undefined {
     const parsed = JSON.parse(raw) as Partial<RemoteControlLockDisk>;
     if (
       typeof parsed.pid === 'number' &&
+      // `process.kill(0, 0)` signals our own process group and reports "alive",
+      // so a corrupt `"pid": 0` would pin the lock forever.
+      Number.isInteger(parsed.pid) &&
+      parsed.pid > 0 &&
       typeof parsed.nonce === 'string' &&
       typeof parsed.local_origin === 'string' &&
       typeof parsed.device_id === 'string' &&
