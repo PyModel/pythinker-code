@@ -454,6 +454,7 @@ describe('strict update consent', () => {
     expect(installLocalUpdate()).toMatchObject({ status: 'downloaded' })
     expect(installLocalUpdate()).toMatchObject({ status: 'downloaded' })
     expect(localAutoUpdater.quitAndInstall).toHaveBeenCalledOnce()
+    expect(localAutoUpdater.quitAndInstall).toHaveBeenCalledWith(true, true)
     expect(readUpdateSettings(directory)).toMatchObject({ pendingInstallVersion: '1.2.3' })
   })
 
@@ -885,5 +886,59 @@ describe('update prompt receipts', () => {
     expect(getLocalUpdateState().completedVersion).toBeUndefined()
     expect(readLocalUpdateSettings(directory)).toMatchObject({ lastRunVersion: currentVersion })
     expect(readLocalUpdateSettings(directory).pendingInstallVersion).toBeUndefined()
+  })
+
+  it('reports a pending install that did not take effect as an error', async () => {
+    vi.resetModules()
+    const directory = temporaryDirectory()
+    writeFileSync(join(directory, 'app-update.yml'), '', 'utf8')
+    writeFileSync(
+      join(directory, 'update-settings.json'),
+      '{"autoUpdate":false,"lastRunVersion":"1.1.0","pendingInstallVersion":"1.2.0"}\n',
+      'utf8',
+    )
+    const { app: localApp } = await import('electron')
+    const {
+      getUpdateState: getLocalUpdateState,
+      initUpdater: initLocalUpdater,
+    } = await import('../src/updater')
+    vi.mocked(localApp.getPath).mockReturnValue(directory)
+    vi.mocked(localApp.getVersion).mockReturnValue('1.1.0')
+    Object.defineProperty(localApp, 'isPackaged', { configurable: true, value: true })
+    Object.defineProperty(process, 'resourcesPath', { configurable: true, value: directory })
+
+    initLocalUpdater(() => undefined)
+
+    expect(getLocalUpdateState()).toMatchObject({
+      status: 'error',
+      failedInstallVersion: '1.2.0',
+      installedVersion: '1.1.0',
+    })
+    expect(getLocalUpdateState().message).toContain('1.2.0')
+  })
+
+  it('leaves a completed install without a failure receipt', async () => {
+    vi.resetModules()
+    const directory = temporaryDirectory()
+    writeFileSync(join(directory, 'app-update.yml'), '', 'utf8')
+    writeFileSync(
+      join(directory, 'update-settings.json'),
+      '{"autoUpdate":false,"lastRunVersion":"1.1.0","pendingInstallVersion":"1.2.0"}\n',
+      'utf8',
+    )
+    const { app: localApp } = await import('electron')
+    const {
+      getUpdateState: getLocalUpdateState,
+      initUpdater: initLocalUpdater,
+    } = await import('../src/updater')
+    vi.mocked(localApp.getPath).mockReturnValue(directory)
+    vi.mocked(localApp.getVersion).mockReturnValue('1.2.0')
+    Object.defineProperty(localApp, 'isPackaged', { configurable: true, value: true })
+    Object.defineProperty(process, 'resourcesPath', { configurable: true, value: directory })
+
+    initLocalUpdater(() => undefined)
+
+    expect(getLocalUpdateState()).toMatchObject({ status: 'idle', completedVersion: '1.2.0' })
+    expect(getLocalUpdateState().failedInstallVersion).toBeUndefined()
   })
 })
