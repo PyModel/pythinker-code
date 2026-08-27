@@ -184,7 +184,7 @@ describe('handleRemoteControlCommand', () => {
     }
   });
 
-  it('starts the tunnel and saves a session QR code carrying the server token', async () => {
+  it('starts the tunnel and saves a token-free session QR code', async () => {
     vi.clearAllMocks();
     setCapabilities({ images: null, trueColor: true, hyperlinks: false });
     const { mkdtempSync, readFileSync, rmSync } = await import('node:fs');
@@ -196,7 +196,7 @@ describe('handleRemoteControlCommand', () => {
     const entryUrl =
       'https://code-rc.pythinker.com/devices/device-1/?rc=1&from=pythinker_code_cli';
     const sessionUrl =
-      'https://code-rc.pythinker.com/devices/device-1/sessions/ses-1?rc=1&from=pythinker_code_cli#token=local-server-token';
+      'https://code-rc.pythinker.com/devices/device-1/sessions/ses-1?rc=1&from=pythinker_code_cli';
     const pngPath = join(dataDir, 'rc-qrcode.png');
     mocks.getDataDir.mockReturnValue(dataDir);
     mocks.tryResolveServerToken.mockReturnValue('local-server-token');
@@ -244,7 +244,8 @@ describe('handleRemoteControlCommand', () => {
       const png = readFileSync(pngPath);
       expect(png.subarray(0, 8)).toEqual(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
       expect(png).toEqual(await QRCode.toBuffer(sessionUrl));
-      expect(written).toContain('#token=local-server-token');
+      expect(written).not.toContain('local-server-token');
+      expect(written).not.toContain('#token=');
       expect(close).toHaveBeenCalledOnce();
     } finally {
       writeSpy.mockRestore();
@@ -263,7 +264,6 @@ describe('handleRemoteControlCommand', () => {
     const dataDir = join(tempRoot, 'custom-home');
     const entryUrl =
       'https://code-rc.pythinker.com/devices/device-1/?rc=1&from=pythinker_code_cli';
-    const entryUrlWithToken = `${entryUrl}#token=local-server-token`;
     mocks.getDataDir.mockReturnValue(dataDir);
     mocks.tryResolveServerToken.mockReturnValue('local-server-token');
     const close = vi.fn(async () => {});
@@ -300,12 +300,12 @@ describe('handleRemoteControlCommand', () => {
       const task = host.setExitForegroundTask.mock.calls[0]![0] as () => Promise<void>;
       await task();
 
-      expect(mocks.openUrl).toHaveBeenCalledWith(entryUrlWithToken);
+      expect(mocks.openUrl).toHaveBeenCalledWith(entryUrl);
       const written = writeSpy.mock.calls.map((call) => String(call[0])).join('');
-      expect(written).toContain(indentedQr(entryUrlWithToken));
+      expect(written).toContain(indentedQr(entryUrl));
       expect(written).not.toContain('/sessions/');
       expect(readFileSync(join(dataDir, 'rc-qrcode.png'))).toEqual(
-        await QRCode.toBuffer(entryUrlWithToken),
+        await QRCode.toBuffer(entryUrl),
       );
       expect(close).toHaveBeenCalledOnce();
     } finally {

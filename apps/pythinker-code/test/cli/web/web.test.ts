@@ -404,6 +404,35 @@ describe('`pythinker web` opens the browser', () => {
     }
   });
 
+  it('passes the resolved relay origin to the tunnel', async () => {
+    vi.stubEnv('PYTHINKER_CODE_EXPERIMENTAL_REMOTE_CONTROL', '1');
+    const { handleWebCommand } = await import('#/cli/sub/web/run');
+    const { runner } = makeRunner();
+    const { stdout, stderr } = makeIo();
+    const startRemoteControl = vi.fn(async () => ({
+      deviceId: 'device-1',
+      deviceName: 'example-device',
+      url: 'https://relay.example.test/devices/device-1/?rc=1&from=pythinker_code_cli',
+      close: async () => {},
+    }));
+
+    await handleWebCommand(
+      { remoteControl: true, relayOrigin: 'https://relay.example.test', open: false },
+      {
+        startServerForeground: runner,
+        openUrl: vi.fn(),
+        resolveToken: () => 'tok-1',
+        startRemoteControl,
+        stdout,
+        stderr,
+      },
+    );
+
+    expect(startRemoteControl).toHaveBeenCalledWith(
+      expect.objectContaining({ relayOrigin: 'https://relay.example.test' }),
+    );
+  });
+
   it('rejects Remote Control on a non-loopback host', async () => {
     vi.stubEnv('PYTHINKER_CODE_EXPERIMENTAL_REMOTE_CONTROL', '1');
     const { handleWebCommand } = await import('#/cli/sub/web/run');

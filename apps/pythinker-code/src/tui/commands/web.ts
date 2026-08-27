@@ -5,6 +5,7 @@ import {
   buildRemoteControlUrl,
   formatRemoteControlOutput,
   formatRemoteControlStatus,
+  resolveRelayOrigin,
   startRemoteControl,
   type RemoteControlStatus,
 } from '#/cli/sub/web/remote-control';
@@ -61,6 +62,7 @@ export async function handleRemoteControlCommand(host: SlashCommandHost): Promis
 
   host.setExitForegroundTask(async () => {
     const options = parseServerOptions({});
+    const relayOrigin = resolveRelayOrigin();
     let remoteControl: Awaited<ReturnType<typeof startRemoteControl>> | undefined;
     try {
       await startServerForeground(options, {
@@ -79,9 +81,10 @@ export async function handleRemoteControlCommand(host: SlashCommandHost): Promis
             homeDir: dataDir,
             localOrigin: origin,
             localServerToken: token,
+            relayOrigin,
             onStatus,
           });
-          const url = buildRemoteControlUrl(remoteControl.deviceId, session?.id, undefined, token);
+          const url = buildRemoteControlUrl(remoteControl.deviceId, session?.id, relayOrigin);
           const qrCode = await generateRemoteControlQr(url, dataDir);
           process.stdout.write(
             formatRemoteControlOutput({

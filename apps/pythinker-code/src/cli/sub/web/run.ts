@@ -45,6 +45,7 @@ import {
   formatRemoteControlStatus,
   isRemoteControlEnabled,
   REMOTE_CONTROL_FLAG_ENV,
+  resolveRelayOrigin,
   startRemoteControl,
   type RemoteControlHandle,
   type RemoteControlOptions,
@@ -78,6 +79,7 @@ interface RoutedServer {
 export interface WebCliOptions extends ServerCliOptions {
   open?: boolean;
   remoteControl?: boolean;
+  relayOrigin?: string;
 }
 
 export interface StartForegroundHooks {
@@ -182,6 +184,12 @@ export function buildWebCommand(
         .hideHelp(!isRemoteControlEnabled()),
     );
   }
+  withServerOptions.addOption(
+    new Option(
+      '--relay-origin <url>',
+      'Remote Control relay to tunnel through. Defaults to $PYTHINKER_CODE_REMOTE_CONTROL_RELAY.',
+    ).hideHelp(!isRemoteControlEnabled()),
+  );
   return withServerOptions
     .option('--no-open', 'Do not open the web UI in the default browser.', true)
     .action(async (opts: WebCliOptions) => {
@@ -212,6 +220,7 @@ export async function handleWebCommand(
   if (opts.remoteControl === true && !isLoopbackHost(parsed.host)) {
     throw new Error('--remote-control requires a loopback host.');
   }
+  const relayOrigin = opts.remoteControl === true ? resolveRelayOrigin(opts.relayOrigin) : undefined;
   const run = deps.startServerForeground ?? startServerForeground;
   let remoteControl: RemoteControlHandle | undefined;
   await run(parsed, {
@@ -241,6 +250,7 @@ export async function handleWebCommand(
           homeDir: dataDir,
           localOrigin: origin,
           localServerToken: token,
+          relayOrigin,
           stderr: deps.stderr,
           onStatus,
         });

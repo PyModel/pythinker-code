@@ -15,6 +15,26 @@ export const REMOTE_CONTROL_RELAY_ORIGIN = 'https://code-rc.pythinker.com';
 
 export const REMOTE_CONTROL_FLAG_ENV = 'PYTHINKER_CODE_EXPERIMENTAL_REMOTE_CONTROL';
 
+export const REMOTE_CONTROL_RELAY_ENV = 'PYTHINKER_CODE_REMOTE_CONTROL_RELAY';
+
+/**
+ * Resolve the relay to tunnel through. Pythinker ships no relay, so an operator
+ * running their own points at it with `--relay-origin` or the env var; the
+ * default constant is the last resort.
+ */
+export function resolveRelayOrigin(
+  explicit?: string,
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): string {
+  const candidate = explicit?.trim() ?? env[REMOTE_CONTROL_RELAY_ENV]?.trim() ?? '';
+  if (candidate.length === 0) return REMOTE_CONTROL_RELAY_ORIGIN;
+  const url = new URL(candidate);
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    throw new Error(`Remote Control relay must be an http(s) URL: ${candidate}`);
+  }
+  return candidate;
+}
+
 const TRUTHY_ENV_VALUES = new Set(['1', 'true', 'yes', 'on']);
 
 export function isRemoteControlEnabled(
@@ -181,7 +201,6 @@ export function buildRemoteControlUrl(
   deviceId: string,
   sessionId?: string,
   relayOrigin = REMOTE_CONTROL_RELAY_ORIGIN,
-  serverToken?: string,
 ): string {
   const url = new URL(relayOrigin);
   const relayPath = url.pathname.replace(/\/+$/, '');
@@ -191,7 +210,7 @@ export function buildRemoteControlUrl(
       ? `${devicePath}/`
       : `${devicePath}/sessions/${encodeURIComponent(sessionId)}`;
   url.search = new URLSearchParams({ rc: '1', from: 'pythinker_code_cli' }).toString();
-  url.hash = serverToken === undefined ? '' : `token=${serverToken}`;
+  url.hash = '';
   return url.toString();
 }
 
@@ -294,7 +313,7 @@ export async function startRemoteControl(
   const relayOrigin = options.relayOrigin ?? REMOTE_CONTROL_RELAY_ORIGIN;
   const deviceId = createPythinkerDeviceId(options.homeDir);
   const deviceName = hostname();
-  const url = buildRemoteControlUrl(deviceId, undefined, relayOrigin, options.localServerToken);
+  const url = buildRemoteControlUrl(deviceId, undefined, relayOrigin);
   const lock = await acquireRemoteControlLock(options.homeDir, {
     localOrigin: options.localOrigin.replace(/\/+$/, ''),
     deviceId,

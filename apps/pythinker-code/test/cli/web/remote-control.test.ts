@@ -168,6 +168,32 @@ describe('Remote Control HTTP forwarding', () => {
   });
 });
 
+describe('resolveRelayOrigin', () => {
+  it('prefers the explicit value, then the env var, then the built-in default', async () => {
+    const { resolveRelayOrigin, REMOTE_CONTROL_RELAY_ORIGIN } = await import(
+      '#/cli/sub/web/remote-control'
+    );
+    expect(resolveRelayOrigin('https://relay.example.test', {})).toBe('https://relay.example.test');
+    expect(
+      resolveRelayOrigin(undefined, {
+        PYTHINKER_CODE_REMOTE_CONTROL_RELAY: 'https://env.example.test',
+      }),
+    ).toBe('https://env.example.test');
+    expect(resolveRelayOrigin(undefined, {})).toBe(REMOTE_CONTROL_RELAY_ORIGIN);
+    expect(resolveRelayOrigin('  ', { PYTHINKER_CODE_REMOTE_CONTROL_RELAY: '  ' })).toBe(
+      REMOTE_CONTROL_RELAY_ORIGIN,
+    );
+  });
+
+  it('rejects a relay that is not http(s)', async () => {
+    const { resolveRelayOrigin } = await import('#/cli/sub/web/remote-control');
+    expect(() => resolveRelayOrigin('ws://relay.example.test', {})).toThrow(
+      'Remote Control relay must be an http(s) URL',
+    );
+    expect(() => resolveRelayOrigin('not-a-url', {})).toThrow();
+  });
+});
+
 describe('Remote Control tunnel', () => {
   it('surfaces register_nak details', async () => {
     const homeDir = mkdtempSync(join(tmpdir(), 'pythinker-rc-nak-'));

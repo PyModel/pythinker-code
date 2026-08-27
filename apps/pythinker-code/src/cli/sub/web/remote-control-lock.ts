@@ -53,7 +53,8 @@ export async function acquireRemoteControlLock(
   details: { localOrigin: string; deviceId: string; url: string },
 ): Promise<RemoteControlLock> {
   const lockPath = remoteControlLockPath(homeDir);
-  await mkdir(dirname(lockPath), { recursive: true });
+  // The lock sits beside `server.token`; keep the same owner-only permissions.
+  await mkdir(dirname(lockPath), { recursive: true, mode: 0o700 });
   const info: RemoteControlLockInfo = {
     pid: process.pid,
     nonce: randomBytes(8).toString('hex'),
@@ -64,7 +65,7 @@ export async function acquireRemoteControlLock(
   };
   for (let attempt = 0; ; attempt += 1) {
     try {
-      const handle = await open(lockPath, 'wx');
+      const handle = await open(lockPath, 'wx', 0o600);
       try {
         await handle.writeFile(encodeLock(info));
       } finally {

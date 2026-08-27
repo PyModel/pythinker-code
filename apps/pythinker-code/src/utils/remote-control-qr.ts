@@ -21,10 +21,10 @@ export async function generateRemoteControlQr(
   url: string,
   dataDir: string,
 ): Promise<{ terminal: string; pngPath: string }> {
-  await mkdir(dataDir, { recursive: true });
+  await mkdir(dataDir, { recursive: true, mode: 0o700 });
   const pngPath = resolve(dataDir, 'rc-qrcode.png');
   const png = await QRCode.toBuffer(url, { type: 'png', margin: QR_PNG_MARGIN });
-  await writeFile(pngPath, png);
+  await writeFile(pngPath, png, { mode: 0o600 });
   const terminal = renderInlineImageQr(url, png) ?? renderTerminalQr(url);
   return { terminal, pngPath };
 }
