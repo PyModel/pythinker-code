@@ -138,12 +138,18 @@ jobs:
             echo "Draft release ${RELEASE_TAG} already exists; resuming it."
             exit 0
           fi
+          # The body is what the in-app updater shows users, so it carries the
+          # changelog entries for this version. A stable release with no entry
+          # fails here rather than shipping a build nobody can describe.
+          notes_file="$(mktemp)"
+          node apps/desktop/scripts/desktop-release.mjs notes \
+            apps/desktop/CHANGELOG.md "${RELEASE_TAG#v}" "$RELEASE_CHANNEL" "$SOURCE_URL" > "$notes_file"
           args=(
             "$RELEASE_TAG"
             --repo "$RELEASE_REPO"
             --draft
             --title "$RELEASE_TAG"
-            --notes "Pythinker Desktop ${RELEASE_TAG#v} (${RELEASE_CHANNEL} channel), built from ${SOURCE_URL}."
+            --notes-file "$notes_file"
           )
           if [ "$PRERELEASE" = 'true' ]; then args+=(--prerelease); fi
           gh release create "${args[@]}"

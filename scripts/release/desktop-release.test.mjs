@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   configureDesktopPackage,
   desktopManifestName,
+  desktopReleaseNotes,
   nightlyDesktopVersion,
   resolveDesktopRelease,
 } from '../../apps/desktop/scripts/desktop-release.mjs';
@@ -117,4 +118,81 @@ void test('rejects mismatched tags and unsupported prerelease channels', () => {
     commitCount: '4102',
     publishNightly: false,
   }), /explicit Nightly publishing permission/u);
+});
+
+const changelog = [
+  '# @pymodel/pythinker-desktop',
+  '',
+  '## 0.3.8',
+  '',
+  '### Patch Changes',
+  '',
+  '- [#225](https://example.com/pull/225) [`f27686a`](https://example.com/commit/f27686a) Thanks [@someone](https://example.com/someone)! - Install Windows updates in the background.',
+  '- [#226](https://example.com/pull/226) Thanks [@someone](https://example.com/someone)! - Report an update that did not take effect.',
+  '',
+  '## 0.3.1',
+  '',
+  '- [#190](https://example.com/pull/190) Thanks [@someone](https://example.com/someone)! - Restore downloadable desktop releases.',
+  '',
+].join('\n');
+
+void test('release notes carry the changelog entries without changesets attribution', () => {
+  assert.equal(
+    desktopReleaseNotes({
+      changelog,
+      version: '0.3.8',
+      channel: 'stable',
+      sourceUrl: 'https://example.com/commit/f27686a',
+    }),
+    [
+      '- Install Windows updates in the background.',
+      '- Report an update that did not take effect.',
+      '',
+      '---',
+      '',
+      'Built from https://example.com/commit/f27686a.',
+      '',
+    ].join('\n'),
+  );
+});
+
+void test('release notes stop at the next version heading', () => {
+  const notes = desktopReleaseNotes({
+    changelog,
+    version: '0.3.1',
+    channel: 'stable',
+    sourceUrl: 'https://example.com/commit/f27686a',
+  });
+  assert.match(notes, /Restore downloadable desktop releases\./u);
+  assert.doesNotMatch(notes, /Install Windows updates/u);
+});
+
+void test('a stable release without a changelog entry fails instead of shipping', () => {
+  assert.throws(() => desktopReleaseNotes({
+    changelog,
+    version: '0.4.0',
+    channel: 'stable',
+    sourceUrl: 'https://example.com/commit/f27686a',
+  }), /no entries for 0\.4\.0/u);
+});
+
+void test('a preview channel without a changelog entry still describes itself', () => {
+  assert.equal(
+    desktopReleaseNotes({
+      changelog,
+      version: '0.4.0-nightly.4200',
+      channel: 'nightly',
+      sourceUrl: 'https://example.com/commit/f27686a',
+    }),
+    '- Preview build of the nightly channel.\n\n---\n\nBuilt from https://example.com/commit/f27686a.\n',
+  );
+});
+
+void test('release notes require the source commit URL the resume check reads', () => {
+  assert.throws(() => desktopReleaseNotes({
+    changelog,
+    version: '0.3.8',
+    channel: 'stable',
+    sourceUrl: '',
+  }), /source commit URL/u);
 });

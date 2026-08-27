@@ -109,10 +109,61 @@ export function writeUpdateSettings(dir: string, value: UpdateSettings): void {
   writeFileSync(join(dir, UPDATE_SETTINGS_FILE), `${JSON.stringify(value, null, 2)}\n`, 'utf8')
 }
 
+const HTML_MARKUP_PATTERN = /<\/?[a-z][^>]*>/iu
+const NAMED_ENTITIES: Readonly<Record<string, string>> = {
+  amp: '&',
+  apos: "'",
+  gt: '>',
+  lt: '<',
+  nbsp: ' ',
+  quot: '"',
+}
+
+function decodeEntities(value: string): string {
+  return value.replaceAll(/&(#x[0-9a-f]+|#\d+|[a-z]+);/giu, (match, entity: string) => {
+    if (!entity.startsWith('#')) return NAMED_ENTITIES[entity.toLowerCase()] ?? match
+    const code = entity.startsWith('#x') || entity.startsWith('#X')
+      ? Number.parseInt(entity.slice(2), 16)
+      : Number.parseInt(entity.slice(1), 10)
+    return Number.isSafeInteger(code) && code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : match
+  })
+}
+
+/**
+ * The GitHub provider reads the releases Atom feed, whose `<content>` is the
+ * body GitHub has already rendered to HTML. The renderer shows these notes as
+ * Markdown, so the tags would print literally — `PyModel/pythinker-code@<tt>`
+ * and the rest. Reduce the markup to text here, at the boundary that already
+ * owns this field.
+ */
+function plainReleaseNotes(value: string): string {
+  const text = value
+    .replaceAll(/<(script|style)\b[^>]*>[\s\S]*?<\/\1>/giu, '')
+    .replaceAll(/<li\b[^>]*>/giu, '\n- ')
+    .replaceAll(/<br\s*\/?>/giu, '\n')
+    .replaceAll(/<\/(p|div|li|ul|ol|tr|h[1-6])>/giu, '\n')
+    .replaceAll(/<[^>]*>/gu, '')
+  return decodeEntities(text)
+    .replaceAll(/[^\S\n]+\n/gu, '\n')
+    .replaceAll(/\n{3,}/gu, '\n\n')
+    .trim()
+}
+
+function normalizedNote(value: string): string {
+  return HTML_MARKUP_PATTERN.test(value) ? plainReleaseNotes(value) : value.trim()
+}
+
 function releaseNotesText(value: UpdateInfo['releaseNotes']): string | undefined {
-  if (typeof value === 'string') return value
+  if (typeof value === 'string') {
+    const note = normalizedNote(value)
+    return note.length > 0 ? note : undefined
+  }
   if (!Array.isArray(value)) return undefined
-  const notes = value.flatMap(item => typeof item.note === 'string' ? [item.note] : [])
+  const notes = value.flatMap(item => {
+    if (typeof item.note !== 'string') return []
+    const note = normalizedNote(item.note)
+    return note.length > 0 ? [note] : []
+  })
   return notes.length > 0 ? notes.join('\n\n') : undefined
 }
 
