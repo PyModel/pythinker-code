@@ -330,14 +330,14 @@ describe('startOpenAICodexCallbackServer', () => {
   });
 
   it('fails the whole flow with OAuthAccessDeniedError when the user denies consent', async () => {
-    const probe = await startOpenAICodexCallbackServer('probe');
-    const loopback = probe.loopback;
-    probe.close();
-    if (!loopback) return;
-
+    // The flow owns its callback server, so drive that one rather than probing
+    // with a second server first: `close()` returns before the socket is
+    // actually released, and the probe would race the flow for the port.
+    const abort = new AbortController();
     let authorizeUrl: string | undefined;
     const pending = runOpenAICodexOAuthFlow({
       timeoutMs: 10_000,
+      signal: abort.signal,
       openBrowser: (url) => {
         authorizeUrl = url;
       },
@@ -351,7 +351,26 @@ describe('startOpenAICodexCallbackServer', () => {
     const url = new URL(OPENAI_CODEX_REDIRECT_URI);
     url.searchParams.set('error', 'access_denied');
     url.searchParams.set('state', state!);
-    await fetch(url);
+
+    // Reaching the callback is the whole point of this case, so retry rather
+    // than skip on the first refusal; only an environment that never accepts a
+    // loopback listener gets a pass, and it says so.
+    const deadline = Date.now() + 5_000;
+    let delivered = false;
+    while (!delivered && Date.now() < deadline) {
+      try {
+        await fetch(url);
+        delivered = true;
+      } catch {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+    }
+    if (!delivered) {
+      abort.abort();
+      await pending.catch(() => undefined);
+      console.warn('skipped: no loopback listener on the OAuth callback port');
+      return;
+    }
 
     await settled;
   });
