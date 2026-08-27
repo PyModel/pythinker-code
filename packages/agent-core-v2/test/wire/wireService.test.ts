@@ -410,9 +410,9 @@ describe('WireService corruption repair', () => {
     };
     const telemetry: ITelemetryService = {
       ...noopTelemetryService,
-      track2: ((name: string, payload: unknown) => {
+      track2: (name, payload) => {
         capture.events.push({ name, payload });
-      }) as ITelemetryService['track2'],
+      },
     };
     const localIx = disposables.add(new TestInstantiationService());
     return registerTestAgentWire(localIx, testWireScope(SCOPE, key), {
@@ -535,6 +535,27 @@ describe('WireService corruption repair', () => {
           kind: 'corrupted',
           outcome: 'repaired',
           dropped_count: 2,
+          backup_created: true,
+        },
+      },
+    ]);
+  });
+
+  it('counts dropped lines from the damaged line when the repair inserts metadata', async () => {
+    const capture: RepairCapture = { warnings: [], events: [] };
+    const svc = wireWithCapture(KEY, capture);
+    const raw = `${JSON.stringify({ type: 'wire.test.legacy', time: 9 })}\nGARBAGE\n`;
+    await seedCorrupt(raw);
+
+    await collect(svc.readJournal());
+
+    expect(capture.events).toEqual([
+      {
+        name: 'wire_repair',
+        payload: {
+          kind: 'corrupted',
+          outcome: 'repaired',
+          dropped_count: 1,
           backup_created: true,
         },
       },

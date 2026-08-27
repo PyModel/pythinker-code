@@ -32,7 +32,7 @@ export async function repairWireJournal(
   try {
     const original = await storage.read(scope, key);
     if (original !== undefined) {
-      droppedCount = Math.max(0, countJournalLines(original) - records.length);
+      droppedCount = Math.max(0, countJournalLines(original) - truncation.lineNumber + 1);
       const backupKey = wireJournalBackupKey(key);
       if ((await storage.size(scope, backupKey)) === undefined) {
         await storage.write(scope, backupKey, original, { atomic: true });
