@@ -10,7 +10,7 @@ process.env['PYTHINKER_CODE_EXPERIMENTAL_SEARCH_WORKER'] = 'false';
 process.env['PYTHINKER_CODE_EXPERIMENTAL_PERSISTENCE_MINIDB_READMODEL'] = 'false';
 
 const realFetch = globalThis.fetch.bind(globalThis);
-const TELEMETRY_HOSTS = new Set(['telemetry-logs.pythinker.com', 'telemetry-logs.pythinker.ai']);
+const TELEMETRY_HOSTS = new Set(['telemetry-logs.pythinker.com']);
 globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) => {
   const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
   if (TELEMETRY_HOSTS.has(new URL(url).hostname)) {
