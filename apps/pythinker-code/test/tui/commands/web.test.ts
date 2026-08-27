@@ -147,6 +147,21 @@ describe('handleWebCommand', () => {
 });
 
 describe('handleRemoteControlCommand', () => {
+  beforeEach(() => {
+    vi.stubEnv('PYTHINKER_CODE_REMOTE_CONTROL_RELAY_KEY', 'relay-key-1');
+  });
+
+  it('stays in the TUI with a readable error when no relay key is configured', async () => {
+    vi.clearAllMocks();
+    vi.stubEnv('PYTHINKER_CODE_REMOTE_CONTROL_RELAY_KEY', '');
+    const host = makeHost();
+
+    await handleRemoteControlCommand(host);
+
+    expect(host.showError).toHaveBeenCalledWith(expect.stringContaining('relay key'));
+    expect(host.setExitForegroundTask).not.toHaveBeenCalled();
+  });
+
   it('stays in the TUI with a readable error when another instance holds Remote Control', async () => {
     vi.clearAllMocks();
     const { mkdtempSync, mkdirSync, rmSync, writeFileSync } = await import('node:fs');

@@ -61,6 +61,16 @@ export async function handleRemoteControlCommand(host: SlashCommandHost): Promis
     return;
   }
 
+  // Before the takeover: a missing relay key is a configuration problem the
+  // user can still fix, so it must not cost them the terminal UI.
+  let relayKey: string;
+  try {
+    relayKey = resolveRelayKey();
+  } catch (error) {
+    host.showError(formatErrorMessage(error));
+    return;
+  }
+
   host.setExitForegroundTask(async () => {
     const options = parseServerOptions({});
     let remoteControl: Awaited<ReturnType<typeof startRemoteControl>> | undefined;
@@ -68,7 +78,6 @@ export async function handleRemoteControlCommand(host: SlashCommandHost): Promis
       // Inside the try: a malformed relay setting throws here, and the user
       // should see it through the same handler as any other startup failure.
       const relayOrigin = resolveRelayOrigin();
-      const relayKey = resolveRelayKey();
       await startServerForeground(options, {
         onReady: async (origin) => {
           const dataDir = getDataDir();
