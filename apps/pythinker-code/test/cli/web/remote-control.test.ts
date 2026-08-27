@@ -138,6 +138,17 @@ describe('Remote Control HTTP forwarding', () => {
     ).toThrow(SyntaxError);
   });
 
+  it('escapes the injected prefix so it cannot close the script element', () => {
+    const html = rewriteRemoteControlResponse(
+      'text/html',
+      Buffer.from('<html><head></head><body></body></html>'),
+      '/relay</script><script>alert(1)</script>/devices/d1',
+    ).toString();
+    expect(html).not.toContain('</script><script>alert(1)');
+    expect(html).toContain('\\u003c/script\\u003e');
+    expect(html.match(/<script>/g)).toHaveLength(1);
+  });
+
   it('rejects absolute-form and malformed request targets', () => {
     expect(() =>
       parseRawHttpRequest(Buffer.from('GET https://example.test/ HTTP/1.1\r\n\r\n')),

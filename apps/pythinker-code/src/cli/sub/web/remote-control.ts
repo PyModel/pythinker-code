@@ -289,7 +289,7 @@ export function rewriteRemoteControlResponse(
 ): Buffer {
   const normalizedPrefix = publicPrefix.replace(/\/+$/, '');
   if (contentType.toLowerCase().includes('text/html')) {
-    const prefixLiteral = JSON.stringify(normalizedPrefix);
+    const prefixLiteral = scriptStringLiteral(normalizedPrefix);
     const injected = `<script>(function(){var p=${prefixLiteral};try{sessionStorage.setItem('pythinker-desktop-server-origin',location.origin+p)}catch(e){}var w=function(f){return function(s,t,u){if(typeof u==='string'&&u.charAt(0)==='/'&&u.indexOf(p)!==0)u=p+u;return f.apply(this,[s,t,u])}};history.pushState=w(history.pushState);history.replaceState=w(history.replaceState)})();</script>`;
     let text = body.toString('utf8');
     const headMatch = /<head(?:\s[^>]*)?>/i.exec(text);
@@ -314,6 +314,19 @@ export function rewriteRemoteControlResponse(
     return Buffer.from(text);
   }
   return body;
+}
+
+/**
+ * Embed a value in an inline `<script>`. `JSON.stringify` alone is not enough:
+ * `</script>` in the value would close the element, and U+2028/U+2029 are line
+ * terminators inside a JavaScript string literal.
+ */
+function scriptStringLiteral(value: string): string {
+  return JSON.stringify(value)
+    .replaceAll('<', '\\u003c')
+    .replaceAll('>', '\\u003e')
+    .replaceAll('\u2028', '\\u2028')
+    .replaceAll('\u2029', '\\u2029');
 }
 
 export async function startRemoteControl(
