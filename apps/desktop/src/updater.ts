@@ -181,6 +181,18 @@ function skipRawTextElement(value: string, name: string, from: number): number {
 }
 
 /**
+ * Decoding runs after the scan, so `&lt;script&gt;` — which is how GitHub
+ * renders a literal tag an author typed — turns back into `<script>` once the
+ * scan can no longer see it. The update dialog renders this value with a
+ * Markdown component that does render raw HTML, so the decoded text has to
+ * leave here inert. Escaping the angle brackets keeps it readable: a Markdown
+ * renderer prints `&lt;` as `<` text rather than opening an element.
+ */
+function escapeMarkupStarts(value: string): string {
+  return value.replaceAll('<', '&lt;').replaceAll('>', '&gt;')
+}
+
+/**
  * The GitHub provider reads the releases Atom feed, whose `<content>` is the
  * body GitHub has already rendered to HTML. The renderer shows these notes as
  * Markdown, so the tags would print literally — `PyModel/pythinker-code@<tt>`
@@ -214,7 +226,7 @@ function plainReleaseNotes(value: string): string {
     else if (tag.closing && BLOCK_BREAK_TAGS.has(tag.name)) text += '\n'
     index = tag.end + 1
   }
-  return decodeEntities(text)
+  return escapeMarkupStarts(decodeEntities(text))
     .replaceAll(/[^\S\n]+\n/gu, '\n')
     .replaceAll(/\n{3,}/gu, '\n\n')
     .trim()
