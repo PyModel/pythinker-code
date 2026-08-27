@@ -1,5 +1,59 @@
 # @pymodel/pythinker-code
 
+## 1.4.0
+
+### Minor Changes
+
+- [#188](https://github.com/PyModel/pythinker-code/pull/188) [`0097afc`](https://github.com/PyModel/pythinker-code/commit/0097afc534c9019962efbe61f0e6e9e3dd1f908f) Thanks [@elkaix](https://github.com/elkaix)! - Remove the `--allow-remote-terminals` flag from `pythinker web`; PTY terminal routes now stay available on loopback binds only.
+
+- [#188](https://github.com/PyModel/pythinker-code/pull/188) [`0097afc`](https://github.com/PyModel/pythinker-code/commit/0097afc534c9019962efbe61f0e6e9e3dd1f908f) Thanks [@elkaix](https://github.com/elkaix)! - Add `PYTHINKER_CODE_INFINITE_RETRY=1` to retry every failed model request indefinitely with backoff instead of failing the turn, for long unattended runs.
+
+- [#208](https://github.com/PyModel/pythinker-code/pull/208) [`bd0eadd`](https://github.com/PyModel/pythinker-code/commit/bd0eadd67c94553511665181956abbe54b58fb1d) Thanks [@elkaix](https://github.com/elkaix)! - Add an option to reveal saved plan files in your file manager. Select Reveal in file manager from a saved plan.
+
+### Patch Changes
+
+- [#188](https://github.com/PyModel/pythinker-code/pull/188) [`0097afc`](https://github.com/PyModel/pythinker-code/commit/0097afc534c9019962efbe61f0e6e9e3dd1f908f) Thanks [@elkaix](https://github.com/elkaix)! - Silence the MaxListenersExceededWarning that could appear during long agent turns with many parallel tool calls.
+
+- [#188](https://github.com/PyModel/pythinker-code/pull/188) [`0097afc`](https://github.com/PyModel/pythinker-code/commit/0097afc534c9019962efbe61f0e6e9e3dd1f908f) Thanks [@elkaix](https://github.com/elkaix)! - Fix messages sent from one web client not appearing on other clients connected to the same session.
+
+- [#207](https://github.com/PyModel/pythinker-code/pull/207) [`3a1d761`](https://github.com/PyModel/pythinker-code/commit/3a1d7614c9cb080d6b964fd383daf78a752a3b8d) Thanks [@elkaix](https://github.com/elkaix)! - Fix context usage updates in interactive clients.
+
+- [#214](https://github.com/PyModel/pythinker-code/pull/214) [`48510be`](https://github.com/PyModel/pythinker-code/commit/48510be3ef0fd3961cb12d011a94572e496f8025) Thanks [@elkaix](https://github.com/elkaix)! - Complete a Codex sign-in as soon as the browser tab becomes visible again, not only when the window regains focus.
+
+- [#201](https://github.com/PyModel/pythinker-code/pull/201) [`5f087d8`](https://github.com/PyModel/pythinker-code/commit/5f087d88d54375ba0f76757cb9fd2e12a7d63fd5) Thanks [@elkaix](https://github.com/elkaix)! - Make the chat prompt anchor a compact line index that opens prompt and response previews.
+
+- [#188](https://github.com/PyModel/pythinker-code/pull/188) [`0097afc`](https://github.com/PyModel/pythinker-code/commit/0097afc534c9019962efbe61f0e6e9e3dd1f908f) Thanks [@elkaix](https://github.com/elkaix)! - Persist a picked thinking effort as the default only up to the model's own default effort; a more expensive pick stays session-only.
+
+- [#204](https://github.com/PyModel/pythinker-code/pull/204) [`2d76cad`](https://github.com/PyModel/pythinker-code/commit/2d76cad8ce6925320eb1f074e8690baca9618107) Thanks [@elkaix](https://github.com/elkaix)! - Fix prompt anchor selection when a conversation has two prompts.
+
+- [#198](https://github.com/PyModel/pythinker-code/pull/198) [`6be446e`](https://github.com/PyModel/pythinker-code/commit/6be446eb07111b7087775eff31f16714843c673d) Thanks [@elkaix](https://github.com/elkaix)! - Wrap narrow Changes editor lines while keeping line numbers visible.
+
+- [#207](https://github.com/PyModel/pythinker-code/pull/207) [`3a1d761`](https://github.com/PyModel/pythinker-code/commit/3a1d7614c9cb080d6b964fd383daf78a752a3b8d) Thanks [@elkaix](https://github.com/elkaix)! - Fix session history after steering or undoing a turn.
+
+- [#211](https://github.com/PyModel/pythinker-code/pull/211) [`7040eed`](https://github.com/PyModel/pythinker-code/commit/7040eed689981257eeb9604aded7aededa5d3390) Thanks [@elkaix](https://github.com/elkaix)! - Add a setting to pin every subagent to the selected model, use the dark banner in every sidebar, and show Pythinker desktop updates as one continuous download.
+
+- [#188](https://github.com/PyModel/pythinker-code/pull/188) [`0097afc`](https://github.com/PyModel/pythinker-code/commit/0097afc534c9019962efbe61f0e6e9e3dd1f908f) Thanks [@elkaix](https://github.com/elkaix)! - Show the /plugins marketplace catalog as soon as it loads, with latest-version lookups running in the background.
+
+- [#192](https://github.com/PyModel/pythinker-code/pull/192) [`8b6cc70`](https://github.com/PyModel/pythinker-code/commit/8b6cc70cd9ff9964737ec58f6733ee1d4adbe55d) Thanks [@elkaix](https://github.com/elkaix)! - Preserve subagent model aliases when provider models refresh.
+
+- [#215](https://github.com/PyModel/pythinker-code/pull/215) [`e4ed37f`](https://github.com/PyModel/pythinker-code/commit/e4ed37f064df3c0262fa0e1b5de92a40a56e0156) Thanks [@elkaix](https://github.com/elkaix)! - Fix a resumed session showing a stale "manually stopped" or failed state when its last turn had actually completed.
+
+- [#198](https://github.com/PyModel/pythinker-code/pull/198) [`6be446e`](https://github.com/PyModel/pythinker-code/commit/6be446eb07111b7087775eff31f16714843c673d) Thanks [@elkaix](https://github.com/elkaix)! - Show available desktop updates as a sidebar button with release notes and update controls.
+
+- [#192](https://github.com/PyModel/pythinker-code/pull/192) [`8b6cc70`](https://github.com/PyModel/pythinker-code/commit/8b6cc70cd9ff9964737ec58f6733ee1d4adbe55d) Thanks [@elkaix](https://github.com/elkaix)! - Stop goal turns when automatic context compaction is cancelled or fails.
+
+- [#192](https://github.com/PyModel/pythinker-code/pull/192) [`8b6cc70`](https://github.com/PyModel/pythinker-code/commit/8b6cc70cd9ff9964737ec58f6733ee1d4adbe55d) Thanks [@elkaix](https://github.com/elkaix)! - Let subagents inherit the calling agent model from the Agent settings tab.
+
+- [#188](https://github.com/PyModel/pythinker-code/pull/188) [`0097afc`](https://github.com/PyModel/pythinker-code/commit/0097afc534c9019962efbe61f0e6e9e3dd1f908f) Thanks [@elkaix](https://github.com/elkaix)! - Fix foreground subagents being reported as background tasks on the task list.
+
+- [#201](https://github.com/PyModel/pythinker-code/pull/201) [`5f087d8`](https://github.com/PyModel/pythinker-code/commit/5f087d88d54375ba0f76757cb9fd2e12a7d63fd5) Thanks [@elkaix](https://github.com/elkaix)! - Use theme-matched Pythinker banners in the sidebar.
+
+- [#207](https://github.com/PyModel/pythinker-code/pull/207) [`3a1d761`](https://github.com/PyModel/pythinker-code/commit/3a1d7614c9cb080d6b964fd383daf78a752a3b8d) Thanks [@elkaix](https://github.com/elkaix)! - Fix loss of large tool outputs in long conversations.
+
+- [#213](https://github.com/PyModel/pythinker-code/pull/213) [`0753f13`](https://github.com/PyModel/pythinker-code/commit/0753f13ccd236756423cd89aec87134c4bf8b242) Thanks [@elkaix](https://github.com/elkaix)! - Fix the "manually stopped" state lingering after undoing the interrupted turn.
+
+- [#198](https://github.com/PyModel/pythinker-code/pull/198) [`6be446e`](https://github.com/PyModel/pythinker-code/commit/6be446eb07111b7087775eff31f16714843c673d) Thanks [@elkaix](https://github.com/elkaix)! - Replace the sidebar robot icon with the Pythinker Code banner.
+
 ## 1.3.1
 
 ### Patch Changes
