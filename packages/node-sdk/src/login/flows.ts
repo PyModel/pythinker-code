@@ -9,6 +9,7 @@ import {
   OPENAI_CODEX_PROVIDER_ID,
   OpenAICodexApiError,
   OpenPlatformApiError,
+  OAuthAccessDeniedError,
   runOpenAICodexOAuthFlow,
   type ProviderModelInfo,
   type PythinkerConfigShape,
@@ -196,6 +197,10 @@ async function handleOpenAICodexOAuthLogin(ui: LoginUi): Promise<boolean> {
       });
     } catch (error) {
       if (controller.signal.aborted) return false;
+      if (error instanceof OAuthAccessDeniedError) {
+        ui.showError(`OpenAI Codex login cancelled: ${formatErrorMessage(error)}`);
+        return false;
+      }
       ui.showError(`OpenAI Codex login failed: ${formatErrorMessage(error)}`);
       return false;
     }

@@ -10,6 +10,7 @@ import {
   fetchOpenAICodexModels,
   OPENAI_CODEX_AUTH_INPUT_MAX_LENGTH,
   parseOpenAICodexAuthorizationInput,
+  OPENAI_CODEX_REDIRECT_URI,
   startOpenAICodexCallbackServer,
   type OpenAICodexConfigShape,
 } from '../src/openai-codex-oauth';
@@ -310,6 +311,35 @@ describe('startOpenAICodexCallbackServer', () => {
       });
     }
   }
+
+  it('reports a denied consent page as a denial, not as a dead end', async () => {
+    const server = await startOpenAICodexCallbackServer('state-abc');
+    try {
+      if (!server.loopback) return;
+      const pending = server.waitForCode({ timeoutMs: 10_000 });
+      const url = new URL(OPENAI_CODEX_REDIRECT_URI);
+      url.searchParams.set('error', 'access_denied');
+      url.searchParams.set('state', 'state-abc');
+      await fetch(url);
+      await expect(pending).resolves.toEqual({ denied: true });
+    } finally {
+      server.close();
+    }
+  });
+
+  it('reports any other callback error as a dead end the user can still paste past', async () => {
+    const server = await startOpenAICodexCallbackServer('state-abc');
+    try {
+      if (!server.loopback) return;
+      const pending = server.waitForCode({ timeoutMs: 10_000 });
+      const url = new URL(OPENAI_CODEX_REDIRECT_URI);
+      url.searchParams.set('error', 'server_error');
+      await fetch(url);
+      await expect(pending).resolves.toBeNull();
+    } finally {
+      server.close();
+    }
+  });
 
   it('tears the wait down when it is aborted before it starts', async () => {
     const server = await startOpenAICodexCallbackServer('state-abc');
