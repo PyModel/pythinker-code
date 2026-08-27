@@ -165,6 +165,45 @@ export function configureDesktopPackage(value, version, channel) {
   };
 }
 
+const attributionPattern = /^\s*(?:\[[^\]]*\]\([^)]*\)\s*)+(?:Thanks\s+\[[^\]]*\]\([^)]*\)!\s*)?-\s*/u;
+
+function changelogSection(changelog, version) {
+  if (typeof changelog !== 'string') throw new Error('Desktop changelog must be a string.');
+  const lines = changelog.split('\n');
+  const start = lines.findIndex(line => line.trim() === `## ${version}`);
+  if (start === -1) return [];
+  const rest = lines.slice(start + 1);
+  const end = rest.findIndex(line => line.startsWith('## '));
+  return end === -1 ? rest : rest.slice(0, end);
+}
+
+/**
+ * Users read the release body in the updater, so it carries the changelog
+ * entries and nothing else. Changesets prefixes every entry with its PR link,
+ * commit link, and a thanks line; those are noise in an update dialog.
+ */
+export function desktopReleaseNotes(options) {
+  const version = desktopVersion(options?.version);
+  const channel = desktopChannel(options?.channel);
+  const sourceUrl = options?.sourceUrl;
+  if (typeof sourceUrl !== 'string' || sourceUrl.length === 0) {
+    throw new Error('Desktop release notes require the source commit URL.');
+  }
+  const entries = [];
+  for (const line of changelogSection(options?.changelog ?? '', version)) {
+    if (!line.startsWith('- ')) continue;
+    const text = line.slice(2).replace(attributionPattern, '').trim();
+    if (text.length > 0) entries.push(`- ${text}`);
+  }
+  if (entries.length === 0) {
+    if (channel === 'stable') {
+      throw new Error(`apps/desktop/CHANGELOG.md has no entries for ${version}; a stable release must tell users what changed.`);
+    }
+    entries.push(`- Preview build of the ${channel} channel.`);
+  }
+  return `${entries.join('\n')}\n\n---\n\nBuilt from ${sourceUrl}.\n`;
+}
+
 function writeOutputs(result) {
   const lines = [
     `version=${result.version}`,
@@ -201,6 +240,16 @@ function main() {
     }));
     return;
   }
+  if (command === 'notes' && args.length === 4) {
+    const [changelogPath, version, channel, sourceUrl] = args;
+    process.stdout.write(desktopReleaseNotes({
+      changelog: readFileSync(resolve(changelogPath), 'utf8'),
+      version,
+      channel,
+      sourceUrl,
+    }));
+    return;
+  }
   if (command === 'configure' && args.length === 3) {
     const [path, version, channel] = args;
     const packagePath = resolve(path);
@@ -208,7 +257,7 @@ function main() {
     writeFileSync(packagePath, `${JSON.stringify(configured, null, 2)}\n`, 'utf8');
     return;
   }
-  throw new Error('Usage: desktop-release.mjs resolve <event> <package-version> <channel> <tag> <commit-count> <publish-nightly> | configure <package-json> <version> <channel>');
+  throw new Error('Usage: desktop-release.mjs resolve <event> <package-version> <channel> <tag> <commit-count> <publish-nightly> | notes <changelog> <version> <channel> <source-url> | configure <package-json> <version> <channel>');
 }
 
 if (process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

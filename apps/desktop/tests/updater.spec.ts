@@ -888,6 +888,114 @@ describe('update prompt receipts', () => {
     expect(readLocalUpdateSettings(directory).pendingInstallVersion).toBeUndefined()
   })
 
+  it('renders GitHub HTML release notes as text', async () => {
+    vi.resetModules()
+    const directory = temporaryDirectory()
+    writeFileSync(join(directory, 'app-update.yml'), '', 'utf8')
+    const { app: localApp } = await import('electron')
+    const localElectronUpdater = (await import('electron-updater')).default
+    const {
+      getUpdateState: getLocalUpdateState,
+      initUpdater: initLocalUpdater,
+    } = await import('../src/updater')
+    const localAutoUpdater = localElectronUpdater.autoUpdater
+    vi.mocked(localApp.getPath).mockReturnValue(directory)
+    Object.defineProperty(localApp, 'isPackaged', { configurable: true, value: true })
+    Object.defineProperty(process, 'resourcesPath', { configurable: true, value: directory })
+
+    initLocalUpdater(() => undefined)
+    const available = vi.mocked(localAutoUpdater.on).mock.calls
+      .find(([event]) => event === 'update-available')?.[1] as ((info: { version: string, releaseNotes?: string }) => void) | undefined
+    available?.({
+      version: '1.2.3',
+      releaseNotes: '<ul>\n<li>Install Windows updates in the background.</li>\n</ul>\n<hr>\n'
+        + '<p>Built from <a class="commit-link" href="https://example.com/commit/f27686a">PyModel/pythinker-code@<tt>f27686a</tt></a>.</p>',
+    })
+
+    expect(getLocalUpdateState().releaseNotes).toBe(
+      '- Install Windows updates in the background.\n\nBuilt from PyModel/pythinker-code@f27686a.',
+    )
+  })
+
+  it('keeps plain release notes untouched', async () => {
+    vi.resetModules()
+    const directory = temporaryDirectory()
+    writeFileSync(join(directory, 'app-update.yml'), '', 'utf8')
+    const { app: localApp } = await import('electron')
+    const localElectronUpdater = (await import('electron-updater')).default
+    const {
+      getUpdateState: getLocalUpdateState,
+      initUpdater: initLocalUpdater,
+    } = await import('../src/updater')
+    const localAutoUpdater = localElectronUpdater.autoUpdater
+    vi.mocked(localApp.getPath).mockReturnValue(directory)
+    Object.defineProperty(localApp, 'isPackaged', { configurable: true, value: true })
+    Object.defineProperty(process, 'resourcesPath', { configurable: true, value: directory })
+
+    initLocalUpdater(() => undefined)
+    const available = vi.mocked(localAutoUpdater.on).mock.calls
+      .find(([event]) => event === 'update-available')?.[1] as ((info: { version: string, releaseNotes?: string }) => void) | undefined
+    available?.({ version: '1.2.3', releaseNotes: '- One fix\n- Another fix' })
+
+    expect(getLocalUpdateState().releaseNotes).toBe('- One fix\n- Another fix')
+  })
+
+  it('cannot be made to emit markup by nesting or truncating tags', async () => {
+    vi.resetModules()
+    const directory = temporaryDirectory()
+    writeFileSync(join(directory, 'app-update.yml'), '', 'utf8')
+    const { app: localApp } = await import('electron')
+    const localElectronUpdater = (await import('electron-updater')).default
+    const {
+      getUpdateState: getLocalUpdateState,
+      initUpdater: initLocalUpdater,
+    } = await import('../src/updater')
+    const localAutoUpdater = localElectronUpdater.autoUpdater
+    vi.mocked(localApp.getPath).mockReturnValue(directory)
+    Object.defineProperty(localApp, 'isPackaged', { configurable: true, value: true })
+    Object.defineProperty(process, 'resourcesPath', { configurable: true, value: directory })
+
+    initLocalUpdater(() => undefined)
+    const available = vi.mocked(localAutoUpdater.on).mock.calls
+      .find(([event]) => event === 'update-available')?.[1] as ((info: { version: string, releaseNotes?: string }) => void) | undefined
+    available?.({
+      version: '1.2.3',
+      releaseNotes: '<p>Real note.</p><scr<span>ipt>x</script><script>hidden()</script><b>Kept</b><spa',
+    })
+
+    const notes = getLocalUpdateState().releaseNotes ?? ''
+    expect(notes).not.toContain('<')
+    expect(notes).toContain('Real note.')
+    expect(notes).toContain('Kept')
+    expect(notes).not.toContain('hidden()')
+  })
+
+  it('does not let encoded markup decode back into tags', async () => {
+    vi.resetModules()
+    const directory = temporaryDirectory()
+    writeFileSync(join(directory, 'app-update.yml'), '', 'utf8')
+    const { app: localApp } = await import('electron')
+    const localElectronUpdater = (await import('electron-updater')).default
+    const {
+      getUpdateState: getLocalUpdateState,
+      initUpdater: initLocalUpdater,
+    } = await import('../src/updater')
+    const localAutoUpdater = localElectronUpdater.autoUpdater
+    vi.mocked(localApp.getPath).mockReturnValue(directory)
+    Object.defineProperty(localApp, 'isPackaged', { configurable: true, value: true })
+    Object.defineProperty(process, 'resourcesPath', { configurable: true, value: directory })
+
+    initLocalUpdater(() => undefined)
+    const available = vi.mocked(localAutoUpdater.on).mock.calls
+      .find(([event]) => event === 'update-available')?.[1] as ((info: { version: string, releaseNotes?: string }) => void) | undefined
+    available?.({
+      version: '1.2.3',
+      releaseNotes: '<p>Note</p>&lt;script&gt;payload&lt;/script&gt;',
+    })
+
+    expect(getLocalUpdateState().releaseNotes).toBe('Note\n&lt;script&gt;payload&lt;/script&gt;')
+  })
+
   it('reports a pending install that did not take effect as an error', async () => {
     vi.resetModules()
     const directory = temporaryDirectory()

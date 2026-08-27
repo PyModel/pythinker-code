@@ -36,6 +36,12 @@ describe('desktop release workflow', () => {
     expect(workflow).toContain('verify-update-manifest.ts win')
   })
 
+  it('gives users the changelog as the release body instead of a build stamp', () => {
+    expect(workflow).toContain('scripts/desktop-release.mjs notes')
+    expect(workflow).toContain('--notes-file "$notes_file"')
+    expect(workflow).not.toContain('--notes "Pythinker Desktop')
+  })
+
   it('never publishes a manual unsigned build to the release feed', () => {
     expect(workflow).toContain("publish: ${{ steps.resolve.outputs.publish }}")
     expect(workflow).toContain("if: needs.prepare.outputs.publish == 'true'")
