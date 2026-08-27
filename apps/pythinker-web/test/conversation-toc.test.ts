@@ -15,9 +15,9 @@ const i18n = createI18n({
 });
 
 const items: ConversationTocItem[] = [
-  { id: 'user-1', role: 'user', no: 1, title: 'Define the feature' },
-  { id: 'user-2', role: 'user', no: 2, title: 'Choose the timeline' },
-  { id: 'user-3', role: 'user', no: 3, title: 'Verify keyboard access' },
+  { id: 'user-1', role: 'user', no: 1, title: 'Define the feature', preview: 'I will inspect the current flow.' },
+  { id: 'user-2', role: 'user', no: 2, title: 'Choose the timeline', preview: 'The smallest safe change takes one pass.' },
+  { id: 'user-3', role: 'user', no: 3, title: 'Verify keyboard access', preview: 'Arrow keys keep one roving focus target.' },
 ];
 
 const source = readFileSync(
@@ -44,6 +44,7 @@ afterEach(() => {
   document.body.innerHTML = '';
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  vi.useRealTimers();
 });
 
 describe('ConversationToc', () => {
@@ -58,15 +59,16 @@ describe('ConversationToc', () => {
     expect(rows[1]!.attributes('aria-current')).toBe('location');
     expect(source).not.toMatch(/\.toc-row::before\s*\{/u);
 
-    const marker = source.match(/\.toc-marker\s*\{[^}]*\}/u)?.[0];
-    expect(marker).toContain('width: var(--space-4)');
+    const marker = source.match(/^\.toc-marker\s*\{[^}]*\}/mu)?.[0];
+    expect(marker).toContain('width: calc(var(--space-3) + var(--space-05))');
     expect(marker).toContain('height: var(--space-05)');
+    expect(marker).toContain('height var(--duration-base) var(--ease-out)');
     expect(marker).toContain('background: var(--color-text-faint)');
     expect(source).toMatch(
       /\.toc-row\.active \.toc-marker\s*\{[^}]*background:\s*var\(--color-text-strong\)/u,
     );
     expect(source).toMatch(
-      /\.toc-row\s*\{[^}]*grid-template-columns:\s*var\(--space-4\)[^}]*min-height:\s*calc\(var\(--space-2\) \+ var\(--space-05\)\)[^}]*padding:\s*0 var\(--space-1\)/u,
+      /\.toc-row\s*\{[^}]*width:\s*calc\(var\(--space-8\) \+ var\(--space-05\)\)[^}]*min-height:\s*calc\(var\(--space-2\) \+ var\(--space-05\)\)[^}]*padding:\s*0/u,
     );
   });
 
@@ -75,6 +77,7 @@ describe('ConversationToc', () => {
       /\.conversation-toc\s*\{[\s\S]*?top:\s*50%;[\s\S]*?transform:\s*translateY\(-50%\)/u,
     );
     const scroll = source.match(/\.toc-scroll\s*\{[^}]*\}/u)?.[0];
+    expect(scroll).toContain('width: calc(var(--space-8) + var(--space-05))');
     expect(scroll).toContain('max-height: min(');
     expect(scroll).toContain('50dvh');
     expect(scroll).toContain('var(--chat-dock-height, 0px)');
@@ -87,34 +90,39 @@ describe('ConversationToc', () => {
     );
   });
 
-  it('keeps the prompt anchor visible at the chat edge beside the sidebar', async () => {
+  it('keeps the prompt anchor visible and reveals only one prompt preview at a time', async () => {
+    vi.useFakeTimers();
     expect(source).toMatch(
       /\.conversation-toc\s*\{[\s\S]*?left:\s*var\(--space-4\)/u,
     );
-    expect(source).toMatch(
-      /\.toc-scroll\s*\{[^}]*padding:\s*var\(--space-1\)[^}]*border:\s*\.5px solid transparent[^}]*border-radius:\s*var\(--radius-lg\)/u,
-    );
-    const expandedSurface = source.match(
-      /\.conversation-toc:hover \.toc-scroll,[\s\S]*?\.conversation-toc:focus-within \.toc-scroll\s*\{[^}]*\}/u,
-    )?.[0];
-    expect(expandedSurface).toContain('background: var(--color-surface-raised)');
-    expect(expandedSurface).toContain('border-color: var(--color-line)');
-    expect(expandedSurface).toContain('box-shadow: var(--shadow-menu)');
-    expect(expandedSurface).toContain('padding: var(--space-2)');
-    expect(source).toMatch(
-      /\.conversation-toc:hover \.toc-marker,[\s\S]*?\.conversation-toc:focus-within \.toc-marker\s*\{\s*display:\s*none;\s*\}/u,
-    );
-    expect(source).toMatch(/\.toc-label\s*\{[^}]*display:\s*none;/u);
-    expect(source).toMatch(
-      /\.conversation-toc:hover \.toc-label,[\s\S]*?\.conversation-toc:focus-within \.toc-label\s*\{[^}]*display:\s*block;/u,
-    );
-    expect(source).toMatch(
-      /\.conversation-toc:hover \.toc-row,[\s\S]*?\.conversation-toc:focus-within \.toc-row\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\)[^}]*min-height:\s*calc\(var\(--space-6\) \+ var\(--space-1\)\)[^}]*padding:\s*var\(--space-1\) var\(--space-2\)/u,
-    );
-    expect(source).toMatch(
-      /\.toc-row:hover\s*\{\s*background:\s*var\(--color-hover\)/u,
-    );
+    expect(source).not.toContain('.conversation-toc::before');
+    expect(source).toContain('--toc-preview-max-width: 360px');
+    expect(source).toContain('var(--toc-preview-max-width),');
+    expect(source).toMatch(/\.toc-preview\s*\{[^}]*position:\s*absolute;[^}]*background:\s*var\(--color-surface-raised\);[^}]*box-shadow:\s*var\(--shadow-menu\);/u);
+    expect(source).toMatch(/\.toc-row:has\(\+ \.toc-row\.previewing\) \.toc-marker,[\s\S]*?width:\s*calc\(var\(--space-5\) \+ var\(--space-05\)\)/u);
+    expect(source).toMatch(/\.toc-row:has\(\+ \.toc-row \+ \.toc-row\.previewing\) \.toc-marker,[\s\S]*?width:\s*var\(--space-4\)/u);
+    expect(source).toMatch(/\.toc-row\.previewing \.toc-marker,[\s\S]*?\.toc-row:focus \.toc-marker\s*\{[^}]*width:\s*calc\(var\(--space-8\) \+ var\(--space-05\)\)/u);
+    expect(source).toMatch(/\.toc-row\.previewing \.toc-marker,[\s\S]*?height:\s*calc\(var\(--space-05\) \* 1\.5\)/u);
+    expect(source).not.toContain('.toc-row:hover .toc-marker');
+    expect(source).toContain('v-if="previewItem"');
     const wrapper = mountToc();
+    const rows = wrapper.findAll<HTMLButtonElement>('.toc-row');
+    await rows[0]!.trigger('mouseenter');
+    expect(rows[0]!.classes()).toContain('previewing');
+    expect(rows[1]!.classes()).not.toContain('previewing');
+    expect(wrapper.get('.toc-preview__prompt').text()).toBe('Define the feature');
+    expect(wrapper.get('.toc-preview__response').text()).toBe('I will inspect the current flow.');
+    await rows[0]!.trigger('mouseleave');
+    expect(wrapper.find('.toc-preview').exists()).toBe(true);
+    await wrapper.get('.conversation-toc').trigger('mouseleave');
+    expect(wrapper.find('.toc-preview').exists()).toBe(true);
+    await wrapper.get('.toc-preview').trigger('mouseenter');
+    await vi.advanceTimersByTimeAsync(80);
+    expect(wrapper.find('.toc-preview').exists()).toBe(true);
+    await wrapper.get('.conversation-toc').trigger('mouseleave');
+    await vi.advanceTimersByTimeAsync(80);
+    expect(wrapper.find('.toc-preview').exists()).toBe(false);
+    await rows[0]!.trigger('mouseenter');
     const nav = wrapper.get<HTMLElement>('.conversation-toc').element;
     const parent = document.createElement('div');
     Object.defineProperty(nav, 'offsetParent', { configurable: true, value: parent });
@@ -164,12 +172,36 @@ describe('ConversationToc', () => {
     expect(wrapper.get('.conversation-toc').classes()).not.toContain('toc-clipped');
   });
 
-  it('selects the prompt represented by a line', async () => {
+  it('selects the exact prompt from either its line or preview', async () => {
+    vi.useFakeTimers();
     const wrapper = mountToc();
+    const firstRow = wrapper.findAll<HTMLButtonElement>('.toc-row')[0]!;
 
-    await wrapper.findAll('.toc-row')[2]!.trigger('click');
+    firstRow.element.focus();
+    await firstRow.trigger('mouseenter');
+    await nextTick();
+    expect(firstRow.classes()).toContain('previewing');
+    await firstRow.trigger('click');
+    expect(document.activeElement).not.toBe(firstRow.element);
+    expect(firstRow.classes()).not.toContain('previewing');
+    expect(wrapper.find('.toc-preview').exists()).toBe(false);
+    const thirdRow = wrapper.findAll('.toc-row')[2]!;
+    await thirdRow.trigger('mouseenter');
+    await wrapper.get('.conversation-toc').trigger('mouseleave');
+    await wrapper.get('.toc-preview').trigger('mouseenter');
+    await vi.advanceTimersByTimeAsync(80);
+    expect(wrapper.find('.toc-preview').exists()).toBe(true);
+    await wrapper.get('.toc-preview').trigger('click');
 
-    expect(wrapper.emitted('select')).toEqual([['user-3']]);
+    expect(wrapper.emitted('select')).toEqual([['user-1'], ['user-3']]);
+    expect(wrapper.find('.toc-preview').exists()).toBe(false);
+  });
+
+  it('pairs each prompt with the first assistant response before the next prompt', () => {
+    expect(paneSource).toMatch(
+      /function tocResponsePreview\(userIndex: number\): string \{[\s\S]*?if \(turn\.role === 'user'\) break;[\s\S]*?if \(turn\.role !== 'assistant'\) continue;[\s\S]*?return text;/u,
+    );
+    expect(paneSource).toContain('preview: tocResponsePreview(index)');
   });
 
   it('highlights only the hovered or focused row with two prompts', async () => {
@@ -205,9 +237,8 @@ describe('ConversationToc', () => {
     expect(source).not.toMatch(
       /^\.toc-row\.active\s*\{[^}]*background:\s*var\(--color-selected\)/mu,
     );
-    expect(source).toMatch(
-      /\.conversation-toc:hover \.toc-row\.highlighted,[\s\S]*?\.conversation-toc:focus-within \.toc-row\.highlighted\s*\{[^}]*background:\s*var\(--color-selected\)/u,
-    );
+    expect(source).not.toMatch(/\.conversation-toc:hover \.toc-scroll/u);
+    expect(source).not.toMatch(/\.toc-row:hover\s*\{[^}]*background:/u);
   });
 
   it('moves one roving focus target with arrow, Home, and End keys', async () => {

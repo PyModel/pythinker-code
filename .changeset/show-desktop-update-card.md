@@ -2,4 +2,4 @@
 "@pymodel/pythinker-code": patch
 ---
 
-Show available desktop updates in a sidebar card with compact download progress.
+Show available desktop updates as a sidebar button with release notes and update controls.

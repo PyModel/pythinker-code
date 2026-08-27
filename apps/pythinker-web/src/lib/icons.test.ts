@@ -12,6 +12,7 @@ const ANIMATED_NAMES = [
   'folder',
   'settings',
   'loading-spinner',
+  'update-button',
   'update-available',
 ] as const;
 
