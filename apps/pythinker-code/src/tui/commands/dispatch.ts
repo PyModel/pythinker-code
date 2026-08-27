@@ -70,7 +70,7 @@ import {
 import { handleDynamicWorkflowCommand } from './dynamic_workflow';
 import { handleTowerCommand } from './tower';
 import { handleUndoCommand } from './undo';
-import { handleWebCommand } from './web';
+import { handleRemoteControlCommand, handleWebCommand } from './web';
 
 // ---------------------------------------------------------------------------
 // Re-exports — keep existing consumers working
@@ -109,7 +109,7 @@ export {
   handleTitleCommand,
 } from './session';
 export { handleUndoCommand } from './undo';
-export { handleWebCommand } from './web';
+export { handleRemoteControlCommand, handleWebCommand } from './web';
 
 // ---------------------------------------------------------------------------
 // Host interface
@@ -604,6 +604,9 @@ async function handleBuiltInSlashCommand(
       return;
     case 'web':
       await handleWebCommand(host);
+      return;
+    case 'remote-control':
+      await handleRemoteControlCommand(host);
       return;
     default:
       host.showError(`Unknown slash command: /${String(name)}`);
