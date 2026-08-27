@@ -357,9 +357,13 @@ describe('startOpenAICodexCallbackServer', () => {
     // loopback listener gets a pass, and it says so.
     const deadline = Date.now() + 5_000;
     let delivered = false;
-    while (!delivered && Date.now() < deadline) {
+    while (!delivered) {
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) break;
       try {
-        await fetch(url);
+        // Cap each attempt too: a listener that accepts but never answers
+        // would otherwise hold this past the deadline.
+        await fetch(url, { signal: AbortSignal.timeout(remaining) });
         delivered = true;
       } catch {
         await new Promise((resolve) => setTimeout(resolve, 50));
