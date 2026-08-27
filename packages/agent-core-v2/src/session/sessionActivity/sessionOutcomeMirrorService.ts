@@ -129,6 +129,11 @@ export class SessionOutcomeMirror extends Disposable implements ISessionOutcomeM
       this.write(undefined, { touchUpdatedAt: false });
       return;
     }
+    const replayed = replayedOutcome(lastEnded.reason);
+    if (replayed !== undefined && replayed !== this.lastPersisted) {
+      this.write(replayed, { touchUpdatedAt: false, turnId: lastEnded.turnId });
+      return;
+    }
     if (this.lastPersistedTurnId === undefined) this.lastPersistedTurnId = lastEnded.turnId;
   }
 
@@ -164,3 +169,9 @@ registerScopedService(
   ScopeActivation.OnScopeCreated,
   'sessionActivity',
 );
+
+function replayedOutcome(reason: TurnEnded['reason']): SessionTurnOutcome | undefined {
+  if (reason === 'completed') return 'completed';
+  if (reason === 'failed' || reason === 'blocked') return 'failed';
+  return undefined;
+}
