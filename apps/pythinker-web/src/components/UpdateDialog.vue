@@ -8,7 +8,9 @@ import { computed, onMounted, onUnmounted } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { formatUpdateBytes, useDesktopUpdate } from '../composables/useDesktopUpdate';
 import Button from './ui/Button.vue';
+import Checkbox from './ui/Checkbox.vue';
 import Dialog from './ui/Dialog.vue';
+import Icon from './ui/Icon.vue';
 import PythinkerLogo from './PythinkerLogo.vue';
 
 const { t } = useI18n();
@@ -45,17 +47,6 @@ const total = computed(() => {
   return value === undefined ? undefined : formatUpdateBytes(value);
 });
 
-const speed = computed(() => {
-  const value = update.state.value?.bytesPerSecond;
-  return value === undefined ? undefined : formatUpdateBytes(value);
-});
-
-const percent = computed(() => {
-  const value = update.percent.value;
-  if (value === undefined) return undefined;
-  return `${new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 }).format(value)}%`;
-});
-
 const message = computed(() => {
   if (update.status.value === 'error') return update.state.value?.message ?? t('update.failedMessage');
   if (update.status.value === 'downloaded') return t('update.restart');
@@ -78,27 +69,39 @@ function close(): void {
     :description="releaseDate || undefined"
     :close-on-overlay="dismissable"
     :close-on-esc="dismissable"
-    size="md"
+    :show-close="false"
+    size="md-wide"
     @close="close"
   >
     <template #head>
       <div class="update-dialog__head">
-        <PythinkerLogo class="update-dialog__mark" size="md" :animated="false" />
+        <span class="update-dialog__brand" data-testid="update-dialog-brand">
+          <PythinkerLogo size="sm" :animated="false" />
+        </span>
         <div class="update-dialog__titles">
           <div class="update-dialog__title" data-testid="update-dialog-title">{{ title }}</div>
           <div
-            v-if="releaseDate && update.status.value !== 'downloading'"
+            v-if="releaseDate"
             class="update-dialog__date"
             data-testid="update-dialog-date"
           >
-            {{ releaseDate }}
+            <Icon name="calendar-schedule" size="sm" aria-hidden="true" />
+            <span>{{ releaseDate }}</span>
           </div>
         </div>
       </div>
     </template>
 
     <div v-if="update.status.value === 'downloading'" class="update-dialog__progress">
-      <span class="update-dialog__progress-label">{{ t('update.downloadProgress') }}</span>
+      <div class="update-dialog__progress-row">
+        <span class="update-dialog__progress-label">{{ t('update.downloadProgress') }}</span>
+        <span class="update-dialog__progress-meta" data-testid="update-dialog-progress-meta">
+          <span v-if="transferred && total" data-testid="update-dialog-bytes">
+            {{ t('update.bytesProgress', { transferred, total }) }}
+          </span>
+          <span v-else>{{ t('update.fetching') }}</span>
+        </span>
+      </div>
       <progress
         v-if="update.percent.value === undefined"
         data-testid="update-dialog-progress"
@@ -112,21 +115,16 @@ function close(): void {
         max="100"
         :aria-label="t('update.progressLabel')"
       />
-      <div class="update-dialog__progress-meta" data-testid="update-dialog-progress-meta">
-        <span v-if="transferred && total" data-testid="update-dialog-bytes">
-          {{ t('update.bytesProgress', { transferred, total }) }}
-        </span>
-        <span v-else>{{ t('update.fetching') }}</span>
-        <template v-if="percent">
-          <span class="update-dialog__separator" aria-hidden="true">·</span>
-          <span class="update-dialog__percent">{{ percent }}</span>
-        </template>
-        <template v-if="speed">
-          <span class="update-dialog__separator" aria-hidden="true">·</span>
-          <span>{{ t('update.downloadSpeed', { speed }) }}</span>
-        </template>
-      </div>
     </div>
+    <Checkbox
+      v-else-if="update.status.value === 'available'"
+      data-testid="automatic-update-preference"
+      :model-value="update.state.value?.autoUpdate ?? false"
+      :disabled="update.busy.value"
+      @update:model-value="void update.setAutomaticChecks($event)"
+    >
+      {{ t('update.automaticChecks') }}
+    </Checkbox>
     <p v-else class="update-dialog__message" data-testid="update-dialog-message">{{ message }}</p>
 
     <template #foot>
@@ -153,17 +151,11 @@ function close(): void {
         </Button>
       </template>
       <template v-else>
-        <Button
-          v-if="version"
-          data-testid="view-update-notes"
-          variant="ghost"
-          @click="void update.openReleaseNotes()"
-        >
-          {{ t('update.viewNotes') }}
-        </Button>
-        <Button data-testid="skip-update" variant="ghost" @click="void update.skip()">
+        <Button data-testid="skip-update" variant="secondary" @click="void update.skip()">
           {{ t('update.skip') }}
         </Button>
+        <span class="update-dialog__foot-spacer" />
+        <Button data-testid="later-update" variant="secondary" @click="close">{{ t('update.later') }}</Button>
         <Button data-testid="download-update" :loading="update.busy.value" @click="void update.download()">
           {{ t('update.download') }}
         </Button>
@@ -181,9 +173,17 @@ function close(): void {
   min-width: 0;
 }
 
-.update-dialog__mark {
+.update-dialog__brand {
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   flex: none;
-  border-radius: var(--radius-md);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-sunken);
+  overflow: hidden;
 }
 
 .update-dialog__titles {
@@ -204,6 +204,9 @@ function close(): void {
 }
 
 .update-dialog__date {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1-5);
   font-family: var(--font-ui);
   font-size: var(--ui-font-size-sm);
   color: var(--color-text-muted);
@@ -222,6 +225,14 @@ function close(): void {
   gap: var(--space-3);
 }
 
+.update-dialog__progress-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
 .update-dialog__progress-label {
   font-family: var(--font-ui);
   font-size: var(--ui-font-size-sm);
@@ -229,24 +240,15 @@ function close(): void {
 }
 
 .update-dialog__progress-meta {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
   min-width: 0;
   font-family: var(--font-mono);
   font-size: var(--ui-font-size-sm);
   color: var(--color-text-muted);
+  text-align: right;
   white-space: nowrap;
 }
 
-.update-dialog__separator {
-  color: var(--color-text-faint);
-}
-
-.update-dialog__percent {
-  color: var(--color-accent-hover);
-  font-weight: var(--weight-medium);
-}
+.update-dialog__foot-spacer { flex: 1; }
 
 .update-dialog__progress progress {
   width: 100%;
@@ -273,9 +275,15 @@ function close(): void {
 }
 
 @media (max-width: 420px) {
-  .update-dialog__progress-meta {
+  .update-dialog__progress-row {
+    align-items: flex-start;
+    flex-direction: column;
     gap: var(--space-1-5);
+  }
+
+  .update-dialog__progress-meta {
     font-size: var(--ui-font-size-xs);
+    text-align: left;
   }
 }
 </style>

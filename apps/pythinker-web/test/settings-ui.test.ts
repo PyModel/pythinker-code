@@ -412,13 +412,13 @@ describe('settings UI', () => {
       .find((tab) => tab.textContent?.trim() === 'Agent');
     agentTab!.click();
     await flushPromises();
-    expect(document.body.textContent).not.toContain('Subagent model');
+    expect(document.body.textContent).not.toContain('Default subagent model');
 
     await wrapper.setProps({
       config: { providers: {}, experimental: { 'secondary-model': true } },
     });
     await flushPromises();
-    expect(document.body.textContent).toContain('Subagent model');
+    expect(document.body.textContent).toContain('Default subagent model');
     wrapper.unmount();
   });
 
@@ -468,6 +468,56 @@ describe('settings UI', () => {
       await flushPromises();
 
       expect(wrapper.emitted('updateConfig')?.at(-1)?.[0]).toEqual({ secondaryModel: null });
+    } finally {
+      wrapper.unmount();
+    }
+  });
+
+  it('hard-pins a legacy subagent model with the canonical v2 config', async () => {
+    const wrapper = mount(SettingsDialog, {
+      props: {
+        colorScheme: 'system',
+        accent: 'blue',
+        uiFontSize: 14,
+        authReady: true,
+        notify: false,
+        notifyQuestion: false,
+        notifyApproval: false,
+        sound: false,
+        config: {
+          providers: {},
+          secondaryModel: { model: 'test/fast', defaultEffort: 'max' },
+          experimental: { 'secondary-model': true },
+        },
+        models: [
+          { id: 'test/main', provider: 'test', model: 'main', maxContextSize: 100_000 },
+          { id: 'test/fast', provider: 'test', model: 'fast', maxContextSize: 100_000 },
+        ],
+      },
+      global: { plugins: [i18n] },
+    });
+    try {
+      await flushPromises();
+      const agentTab = Array.from(document.body.querySelectorAll<HTMLButtonElement>('[role="tab"]'))
+        .find((tab) => tab.textContent?.trim() === 'Agent');
+      agentTab!.click();
+      await flushPromises();
+
+      const pin = document.body.querySelector<HTMLButtonElement>(
+        '[role="switch"][aria-label="Always use this model"]',
+      );
+      expect(pin?.getAttribute('aria-checked')).toBe('false');
+
+      pin!.click();
+      await flushPromises();
+
+      expect(wrapper.emitted('updateConfig')?.at(-1)?.[0]).toEqual({
+        secondaryModel: {
+          defaultModel: 'test/fast',
+          defaultEffort: 'max',
+          force: true,
+        },
+      });
     } finally {
       wrapper.unmount();
     }

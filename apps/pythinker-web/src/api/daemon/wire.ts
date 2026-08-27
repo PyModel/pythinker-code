@@ -468,6 +468,9 @@ export interface WireConfig {
   /** Daemon `secondaryModel` config section (nested keys stay camelCase —
    *  the gateway snake_cases only top-level config domains). */
   secondary_model?: {
+    defaultModel?: string;
+    models?: Record<string, string>;
+    force?: boolean;
     model?: string;
     defaultEffort?: string;
   } | null;
