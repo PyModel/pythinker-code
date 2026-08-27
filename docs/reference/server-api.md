@@ -177,6 +177,7 @@ Endpoints are grouped by resource below. A `:{action}` suffix in a path is the a
 | `GET /api/v1/sessions/{session_id}/tasks` | List background tasks |
 | `GET /api/v1/sessions/{session_id}/tasks/{task_id}` | Read a task (optional output preview) |
 | `POST /api/v1/sessions/{session_id}/tasks/{task_id}:cancel` | Cancel a task |
+| `POST /api/v1/sessions/{session_id}/tasks/{task_id}:detach` | Move a foreground task to the background |
 
 ### Skills, tools, and MCP
 

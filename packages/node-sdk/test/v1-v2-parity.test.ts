@@ -371,6 +371,7 @@ function projectBackgroundTask(info: BackgroundTaskInfo): unknown {
   delete projected['endedAt'];
   delete projected['timeoutMs'];
   delete projected['terminalNotificationSuppressed'];
+  delete projected['parentToolCallId'];
   return projected;
 }
 
