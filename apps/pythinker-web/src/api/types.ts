@@ -803,9 +803,12 @@ export interface AppConfig {
   providers: Record<string, AppConfigProvider>;
   defaultProvider?: string;
   defaultModel?: string;
-  /** Secondary (subagent) model recipe. `null` clears the override so
+  /** Secondary (subagent) model selection. `null` clears the override so
    *  subagents inherit their caller's model and thinking effort. */
   secondaryModel?: {
+    defaultModel?: string;
+    models?: Record<string, string>;
+    force?: boolean;
     model?: string;
     defaultEffort?: string;
   } | null;

@@ -37,7 +37,10 @@ function installBridge(initial: DesktopUpdateState) {
   const bridge = {
     platform: 'darwin',
     getUpdateState: vi.fn(() => Promise.resolve(current)),
-    setAutoUpdate: vi.fn(() => Promise.resolve(current)),
+    setAutoUpdate: vi.fn((enabled: boolean) => {
+      current = { ...current, autoUpdate: enabled };
+      return Promise.resolve(current);
+    }),
     setUpdateChannel: vi.fn(() => Promise.resolve(current)),
     setNotifyUpdate: vi.fn(() => Promise.resolve(current)),
     checkForUpdates: vi.fn(() => Promise.resolve(current)),
@@ -111,31 +114,47 @@ afterEach(() => {
 });
 
 describe('formatUpdateBytes', () => {
-  it('keeps one decimal above bytes so the totals do not jump a whole unit', () => {
-    expect(formatUpdateBytes(54_000_000)).toBe('51.5MB');
-    expect(formatUpdateBytes(52_300_000)).toBe('49.9MB');
+  it('matches the decimal byte totals reported by the updater feed', () => {
+    expect(formatUpdateBytes(54_000_000)).toBe('54.0MB');
+    expect(formatUpdateBytes(52_300_000)).toBe('52.3MB');
     expect(formatUpdateBytes(512)).toBe('512B');
   });
 });
 
 describe('UpdateDialog', () => {
-  it('offers download, skip, and notes before any bytes move', async () => {
-    installBridge(updateState({ status: 'available', availableVersion: '1.2.3' }));
+  it('matches the updater prompt layout with Pythinker branding', async () => {
+    const bridge = installBridge(updateState({
+      status: 'available',
+      availableVersion: '1.2.3',
+      releaseDate: '2026-08-26T12:00:00.000Z',
+      autoUpdate: false,
+    }));
     await mountDialog();
 
+    expect(body().querySelector('[data-testid="update-dialog-title"]')?.textContent).toBe('New version v1.2.3');
+    expect(body().querySelector('.ui-dialog--md-wide')).not.toBeNull();
+    expect(body().querySelector<HTMLImageElement>('[data-testid="update-dialog-brand"] img')?.src).toContain('/brand/icon.svg');
+    expect(body().querySelector('[data-testid="update-dialog-date"]')).not.toBeNull();
+    expect(body().querySelector('[data-testid="automatic-update-preference"]')).not.toBeNull();
     expect(body().querySelector('[data-testid="download-update"]')).not.toBeNull();
     expect(body().querySelector('[data-testid="skip-update"]')).not.toBeNull();
-    expect(body().querySelector('[data-testid="view-update-notes"]')).not.toBeNull();
+    expect(body().querySelector('[data-testid="later-update"]')).not.toBeNull();
+    expect(body().querySelector('[data-testid="view-update-notes"]')).toBeNull();
     expect(body().querySelector('[data-testid="cancel-update-download"]')).toBeNull();
+
+    body().querySelector<HTMLInputElement>('[data-testid="automatic-update-preference"] input')?.click();
+    await flushPromises();
+    expect(bridge.setAutoUpdate).toHaveBeenCalledWith(true);
   });
 
-  it('shows compact progress, percent, and speed while downloading', async () => {
+  it('shows one byte counter and one progress bar while downloading', async () => {
     const bridge = installBridge(updateState({ status: 'available', availableVersion: '1.2.3' }));
     await mountDialog();
 
     await bridge.emit(updateState({
       status: 'downloading',
       availableVersion: '1.2.3',
+      releaseDate: '2026-08-26T12:00:00.000Z',
       percent: 42.5,
       transferred: 4_250_000,
       total: 10_000_000,
@@ -144,10 +163,11 @@ describe('UpdateDialog', () => {
     await nextTick();
 
     const meta = body().querySelector('[data-testid="update-dialog-progress-meta"]');
-    expect(meta?.textContent).toContain('4.1MB / 9.5MB');
-    expect(meta?.textContent).toContain('42.5%');
-    expect(meta?.textContent).toContain('6.2MB/s');
-    expect(meta?.querySelectorAll('.update-dialog__separator')).toHaveLength(2);
+    expect(meta?.textContent).toContain('4.3MB / 10.0MB');
+    expect(meta?.textContent).not.toContain('42.5%');
+    expect(meta?.textContent).not.toContain('6.2MB/s');
+    expect(body().querySelector('[data-testid="update-dialog-date"]')).not.toBeNull();
+    expect(body().querySelectorAll('[data-testid="update-dialog-progress"]')).toHaveLength(1);
     const progress = body().querySelector<HTMLProgressElement>('[data-testid="update-dialog-progress"]');
     expect(progress?.value).toBe(42.5);
   });
@@ -209,9 +229,8 @@ describe('UpdateDialog', () => {
 
     update.openDialog();
     await nextTick();
-    const close = body().querySelector<HTMLElement>('.ui-dialog__close');
-    expect(close).not.toBeNull();
-    close?.click();
+    expect(body().querySelector('.ui-dialog__close')).toBeNull();
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
     await nextTick();
 
     expect(update.dialogOpen.value).toBe(true);

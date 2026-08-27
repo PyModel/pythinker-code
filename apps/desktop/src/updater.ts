@@ -264,6 +264,7 @@ function hasUpdateConfig(): boolean {
 function configureExplicitConsent(): void {
   autoUpdater.autoDownload = false
   autoUpdater.autoInstallOnAppQuit = false
+  autoUpdater.disableDifferentialDownload = true
   autoUpdater.channel = settings.channel === 'stable' ? STABLE_UPDATER_CHANNEL : settings.channel
   autoUpdater.allowPrerelease = settings.channel !== 'stable'
   autoUpdater.allowDowngrade = false
@@ -346,6 +347,7 @@ function wireUpdaterEvents(): void {
       })
     })
     autoUpdater.on('download-progress', (progress: ProgressInfo) => {
+      if (state.status !== 'downloading') return
       updateState({
         status: 'downloading',
         percent: progress.percent,
@@ -444,7 +446,7 @@ export function setAutoUpdate(enabled: boolean): UpdateState {
   }
   if (enabled) {
     scheduleChecks()
-    if (!wasEnabled) void checkForUpdatesNow()
+    if (!wasEnabled && state.availableVersion === undefined) void checkForUpdatesNow()
   } else {
     clearTimers()
   }

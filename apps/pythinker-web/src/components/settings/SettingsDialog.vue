@@ -487,13 +487,14 @@ async function copyServerAddress(): Promise<void> {
   scheduleCopyFlashReset();
 }
 
-// Secondary (subagent) model — the Agent tab section:
-// it renders only while the daemon's `secondary-model` experimental flag is
-// on, and writes `config.secondaryModel` ({ model, defaultEffort }) through
-// the regular config update path (wire key `secondary_model`).
+// Secondary (subagent) model — the Agent tab section. The legacy `model`
+// field remains readable while every write uses the canonical v2 contract.
 const secondaryModelFlagEnabled = computed(() => experimentalFlag('secondary-model'));
-const secondaryModel = computed(() => props.config?.secondaryModel?.model ?? '');
+const secondaryModel = computed(
+  () => props.config?.secondaryModel?.defaultModel ?? props.config?.secondaryModel?.model ?? '',
+);
 const secondaryModelEffort = computed(() => props.config?.secondaryModel?.defaultEffort ?? '');
+const secondaryModelForced = computed(() => props.config?.secondaryModel?.force === true);
 const modelInfoById = computed<Record<string, AppModel>>(() =>
   Object.fromEntries((props.models ?? []).map((model) => [model.id, model])),
 );
@@ -507,13 +508,28 @@ function toggleExperimental(flag: string, value: boolean): void {
   emit('updateConfig', { experimental: next } as Partial<AppConfig>);
 }
 
+function secondaryModelConfig(model: string, effort: string, force: boolean): NonNullable<AppConfig['secondaryModel']> {
+  const next: NonNullable<AppConfig['secondaryModel']> = { defaultModel: model };
+  if (effort) next.defaultEffort = effort;
+  if (force) next.force = true;
+  return next;
+}
+
 function setSecondaryModel(selection: { model: string; effort?: string }): void {
-  const next = selection.effort
-    ? { model: selection.model, defaultEffort: selection.effort }
-    : { model: selection.model };
-  if (next.model === secondaryModel.value && (selection.effort ?? '') === secondaryModelEffort.value) {
+  const effort = selection.effort ?? '';
+  if (
+    props.config?.secondaryModel?.defaultModel === selection.model &&
+    effort === secondaryModelEffort.value
+  ) {
     return;
   }
+  const next = secondaryModelConfig(selection.model, effort, secondaryModelForced.value);
+  emit('updateConfig', { secondaryModel: next } as Partial<AppConfig>);
+}
+
+function setSecondaryModelForced(force: boolean): void {
+  if (!secondaryModel.value || force === secondaryModelForced.value) return;
+  const next = secondaryModelConfig(secondaryModel.value, secondaryModelEffort.value, force);
   emit('updateConfig', { secondaryModel: next } as Partial<AppConfig>);
 }
 
@@ -810,6 +826,18 @@ function archiveTime(iso: string): string {
                     @select="setSecondaryModel"
                   />
                   <span v-else class="rvalue">{{ t('settings.noSecondaryModel') }}</span>
+                </div>
+                <div v-if="secondaryModel" class="row">
+                  <span class="rlabel">
+                    {{ t('settings.forceSecondaryModel') }}
+                    <span class="hint">{{ t('settings.forceSecondaryModelHint') }}</span>
+                  </span>
+                  <Switch
+                    :model-value="secondaryModelForced"
+                    :disabled="configSaving"
+                    :label="t('settings.forceSecondaryModel')"
+                    @update:model-value="setSecondaryModelForced"
+                  />
                 </div>
               </section>
 

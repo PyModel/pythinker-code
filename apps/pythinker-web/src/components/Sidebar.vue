@@ -6,7 +6,6 @@
 import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { copyTextToClipboard } from '../lib/clipboard';
-import { useIsDark } from '../composables/useIsDark';
 import {
   loadCollapsedWorkspaces,
   saveCollapsedWorkspaces,
@@ -27,7 +26,6 @@ import PinnedSessionList from './PinnedSessionList.vue';
 import SessionRow from './SessionRow.vue';
 
 const { t } = useI18n();
-const isDark = useIsDark();
 const update = useDesktopUpdate();
 
 const props = withDefaults(
@@ -745,7 +743,7 @@ watch([() => props.collapsed, update.hasUpdate], ([collapsed, hasUpdate]) => {
         <div class="ch-brand">
           <img
             class="ch-logo"
-            :src="isDark ? '/brand/pythinker_banner_dark.svg' : '/brand/pythinker_banner_light.svg'"
+            src="/brand/pythinker_banner_dark.svg"
             alt="Pythinker Code"
             draggable="false"
             @pointerdown="onLogoPointerDown"
