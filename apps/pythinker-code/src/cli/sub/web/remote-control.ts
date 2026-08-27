@@ -28,7 +28,7 @@ export function resolveRelayOrigin(
   explicit?: string,
   env: Readonly<Record<string, string | undefined>> = process.env,
 ): string {
-  const candidate = explicit?.trim() ?? env[REMOTE_CONTROL_RELAY_ENV]?.trim() ?? '';
+  const candidate = explicit?.trim() || env[REMOTE_CONTROL_RELAY_ENV]?.trim() || '';
   if (candidate.length === 0) return REMOTE_CONTROL_RELAY_ORIGIN;
   const url = new URL(candidate);
   if (url.protocol !== 'http:' && url.protocol !== 'https:') {
@@ -46,7 +46,7 @@ export function resolveRelayKey(
   explicit?: string,
   env: Readonly<Record<string, string | undefined>> = process.env,
 ): string {
-  const candidate = explicit?.trim() ?? env[REMOTE_CONTROL_RELAY_KEY_ENV]?.trim() ?? '';
+  const candidate = explicit?.trim() || env[REMOTE_CONTROL_RELAY_KEY_ENV]?.trim() || '';
   if (candidate.length === 0) {
     throw new Error(
       `Remote Control needs a relay key. Pass --relay-key or set ${REMOTE_CONTROL_RELAY_KEY_ENV}.`,

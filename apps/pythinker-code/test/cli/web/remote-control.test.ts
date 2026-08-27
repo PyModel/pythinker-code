@@ -205,6 +205,11 @@ describe('resolveRelayOrigin', () => {
     expect(resolveRelayOrigin('  ', { PYTHINKER_CODE_REMOTE_CONTROL_RELAY: '  ' })).toBe(
       REMOTE_CONTROL_RELAY_ORIGIN,
     );
+    expect(
+      resolveRelayOrigin('   ', {
+        PYTHINKER_CODE_REMOTE_CONTROL_RELAY: 'https://env.example.test',
+      }),
+    ).toBe('https://env.example.test');
   });
 
   it('rejects a relay that is not http(s)', async () => {
@@ -224,6 +229,9 @@ describe('resolveRelayKey', () => {
       resolveRelayKey(undefined, { PYTHINKER_CODE_REMOTE_CONTROL_RELAY_KEY: 'env-key' }),
     ).toBe('env-key');
     expect(resolveRelayKey('  spaced-key  ', {})).toBe('spaced-key');
+    expect(
+      resolveRelayKey('   ', { PYTHINKER_CODE_REMOTE_CONTROL_RELAY_KEY: 'env-key' }),
+    ).toBe('env-key');
   });
 
   it('refuses to fall back to another credential when no key is given', async () => {
