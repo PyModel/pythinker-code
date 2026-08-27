@@ -129,20 +129,91 @@ function decodeEntities(value: string): string {
   })
 }
 
+const BLOCK_BREAK_TAGS: ReadonlySet<string> = new Set([
+  'blockquote',
+  'div',
+  'h1',
+  'h2',
+  'h3',
+  'h4',
+  'h5',
+  'h6',
+  'li',
+  'ol',
+  'p',
+  'pre',
+  'table',
+  'tr',
+  'ul',
+])
+
+const RAW_TEXT_TAGS: ReadonlySet<string> = new Set(['script', 'style'])
+
+const TAG_NAME_CHARACTER = /[a-z0-9]/iu
+
+interface HtmlTag {
+  name: string
+  closing: boolean
+  end: number
+}
+
+function readTag(value: string, start: number): HtmlTag | undefined {
+  const end = value.indexOf('>', start)
+  if (end < 0) return undefined
+  const closing = value[start + 1] === '/'
+  const nameStart = start + (closing ? 2 : 1)
+  let cursor = nameStart
+  while (cursor < end && TAG_NAME_CHARACTER.test(value[cursor] ?? '')) cursor += 1
+  return { name: value.slice(nameStart, cursor).toLowerCase(), closing, end }
+}
+
+function skipRawTextElement(value: string, name: string, from: number): number {
+  let index = from
+  while (index < value.length) {
+    const next = value.indexOf('<', index)
+    if (next < 0) return value.length
+    const tag = readTag(value, next)
+    if (tag === undefined) return value.length
+    if (tag.closing && tag.name === name) return tag.end + 1
+    index = tag.end + 1
+  }
+  return value.length
+}
+
 /**
  * The GitHub provider reads the releases Atom feed, whose `<content>` is the
  * body GitHub has already rendered to HTML. The renderer shows these notes as
  * Markdown, so the tags would print literally — `PyModel/pythinker-code@<tt>`
  * and the rest. Reduce the markup to text here, at the boundary that already
  * owns this field.
+ *
+ * This walks the input once and copies out only the text it passes, rather
+ * than deleting tags from the string. Deletion is what lets `<scr<x>ipt>`
+ * close back up into markup; a scan that never re-reads what it emitted cannot
+ * produce a tag that was not already there. Markup the scan cannot terminate
+ * ends the walk, so an unclosed `<` is dropped with the rest of the tail.
  */
 function plainReleaseNotes(value: string): string {
-  const text = value
-    .replaceAll(/<(script|style)\b[^>]*>[\s\S]*?<\/\1>/giu, '')
-    .replaceAll(/<li\b[^>]*>/giu, '\n- ')
-    .replaceAll(/<br\s*\/?>/giu, '\n')
-    .replaceAll(/<\/(p|div|li|ul|ol|tr|h[1-6])>/giu, '\n')
-    .replaceAll(/<[^>]*>/gu, '')
+  let text = ''
+  let index = 0
+  while (index < value.length) {
+    const next = value.indexOf('<', index)
+    if (next < 0) {
+      text += value.slice(index)
+      break
+    }
+    text += value.slice(index, next)
+    const tag = readTag(value, next)
+    if (tag === undefined) break
+    if (!tag.closing && RAW_TEXT_TAGS.has(tag.name)) {
+      index = skipRawTextElement(value, tag.name, tag.end + 1)
+      continue
+    }
+    if (tag.name === 'li' && !tag.closing) text += '\n- '
+    else if (tag.name === 'br') text += '\n'
+    else if (tag.closing && BLOCK_BREAK_TAGS.has(tag.name)) text += '\n'
+    index = tag.end + 1
+  }
   return decodeEntities(text)
     .replaceAll(/[^\S\n]+\n/gu, '\n')
     .replaceAll(/\n{3,}/gu, '\n\n')
