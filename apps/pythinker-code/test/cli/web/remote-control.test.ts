@@ -146,7 +146,7 @@ describe('Remote Control HTTP forwarding', () => {
     ).toString();
     expect(html).not.toContain('</script><script>alert(1)');
     expect(html).toContain('\\u003c/script\\u003e');
-    expect(html.match(/<script>/g)).toHaveLength(1);
+    expect(html.split('<script>')).toHaveLength(2);
   });
 
   it('rejects absolute-form and malformed request targets', () => {

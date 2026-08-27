@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto';
+import { setTimeout as sleep } from 'node:timers/promises';
 import { mkdir, open, readFile, unlink } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
@@ -47,6 +48,7 @@ export interface RemoteControlLock {
 }
 
 const MAX_ACQUIRE_ATTEMPTS = 3;
+const ACQUIRE_RETRY_DELAY_MS = 25;
 
 export async function acquireRemoteControlLock(
   homeDir: string,
@@ -82,6 +84,15 @@ export async function acquireRemoteControlLock(
       const holder = await readRemoteControlLock(lockPath);
       if (holder !== undefined && pidAlive(holder.pid)) {
         throw new RemoteControlAlreadyRunningError(holder);
+      }
+      // `open(…, 'wx')` publishes an empty file before its JSON is written, so
+      // an unreadable lock may simply be a rival mid-write. Deleting it there
+      // would let both processes believe they hold the lock. Give the writer a
+      // moment and re-read; only sweep it once it is still unreadable at the
+      // end, which is the genuinely corrupt case.
+      if (holder === undefined && attempt < MAX_ACQUIRE_ATTEMPTS) {
+        await sleep(ACQUIRE_RETRY_DELAY_MS);
+        continue;
       }
       if (attempt >= MAX_ACQUIRE_ATTEMPTS) {
         throw new Error(
