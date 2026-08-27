@@ -1307,6 +1307,25 @@ describe('BashTool', () => {
     expect(description).toContain('run_in_background=true');
   });
 
+  it('strips every background sentence from the description when background execution is off', () => {
+    const { runner } = createTestRunner(processWithOutput());
+    const tool = bashTool(
+      runner,
+      createTestEnv(),
+      createTestCtx(),
+      createFakeTaskService().service,
+      stubToolPolicy((name) => name !== 'TaskList'),
+    );
+
+    const description = tool.description;
+    expect(description).toContain('Background execution is disabled for this agent.');
+    expect(description).not.toContain('background-task panel');
+    expect(description).not.toContain('run_in_background=true`,');
+    expect(description).not.toContain('move a running foreground command to the background');
+    expect(description).not.toContain('moved to the background instead of being killed');
+    expect(description).toContain('a foreground command that hits its timeout is killed');
+  });
+
   it('disables background execution when TaskList is inactive even if TaskOutput/TaskStop are active', async () => {
     const { runner, exec } = createTestRunner(processWithOutput());
     const tool = bashTool(
