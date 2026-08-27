@@ -9,12 +9,15 @@ export interface PythinkerRegionProfile {
   readonly telemetryEndpoint: string;
 }
 
+// Pythinker runs a single telemetry host, so every region reports to it.
+const TELEMETRY_ENDPOINT = 'https://telemetry-logs.pythinker.com/v1/event';
+
 const PROFILES: Record<PythinkerRegion, PythinkerRegionProfile> = {
   'mainland-cn': {
-    telemetryEndpoint: 'https://telemetry-logs.pythinker.com/v1/event',
+    telemetryEndpoint: TELEMETRY_ENDPOINT,
   },
   global: {
-    telemetryEndpoint: 'https://telemetry-logs.pythinker.ai/v1/event',
+    telemetryEndpoint: TELEMETRY_ENDPOINT,
   },
 };
 
