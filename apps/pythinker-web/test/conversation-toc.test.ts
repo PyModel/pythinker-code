@@ -44,6 +44,7 @@ afterEach(() => {
   document.body.innerHTML = '';
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  vi.useRealTimers();
 });
 
 describe('ConversationToc', () => {
@@ -90,6 +91,7 @@ describe('ConversationToc', () => {
   });
 
   it('keeps the prompt anchor visible and reveals only one prompt preview at a time', async () => {
+    vi.useFakeTimers();
     expect(source).toMatch(
       /\.conversation-toc\s*\{[\s\S]*?left:\s*var\(--space-4\)/u,
     );
@@ -113,6 +115,12 @@ describe('ConversationToc', () => {
     await rows[0]!.trigger('mouseleave');
     expect(wrapper.find('.toc-preview').exists()).toBe(true);
     await wrapper.get('.conversation-toc').trigger('mouseleave');
+    expect(wrapper.find('.toc-preview').exists()).toBe(true);
+    await wrapper.get('.toc-preview').trigger('mouseenter');
+    await vi.advanceTimersByTimeAsync(80);
+    expect(wrapper.find('.toc-preview').exists()).toBe(true);
+    await wrapper.get('.conversation-toc').trigger('mouseleave');
+    await vi.advanceTimersByTimeAsync(80);
     expect(wrapper.find('.toc-preview').exists()).toBe(false);
     await rows[0]!.trigger('mouseenter');
     const nav = wrapper.get<HTMLElement>('.conversation-toc').element;
@@ -165,6 +173,7 @@ describe('ConversationToc', () => {
   });
 
   it('selects the exact prompt from either its line or preview', async () => {
+    vi.useFakeTimers();
     const wrapper = mountToc();
     const firstRow = wrapper.findAll<HTMLButtonElement>('.toc-row')[0]!;
 
@@ -178,7 +187,9 @@ describe('ConversationToc', () => {
     expect(wrapper.find('.toc-preview').exists()).toBe(false);
     const thirdRow = wrapper.findAll('.toc-row')[2]!;
     await thirdRow.trigger('mouseenter');
-    await thirdRow.trigger('mouseleave');
+    await wrapper.get('.conversation-toc').trigger('mouseleave');
+    await wrapper.get('.toc-preview').trigger('mouseenter');
+    await vi.advanceTimersByTimeAsync(80);
     expect(wrapper.find('.toc-preview').exists()).toBe(true);
     await wrapper.get('.toc-preview').trigger('click');
 

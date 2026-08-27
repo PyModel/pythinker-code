@@ -80,6 +80,21 @@ const previewItem = computed(() => {
   return id === null ? undefined : props.items.find((item) => item.id === id);
 });
 const previewTop = ref(0);
+const previewCloseDelayMs = 80;
+let previewCloseTimer: ReturnType<typeof setTimeout> | null = null;
+
+function keepPreviewOpen(): void {
+  if (previewCloseTimer !== null) clearTimeout(previewCloseTimer);
+  previewCloseTimer = null;
+}
+
+function schedulePreviewClose(): void {
+  keepPreviewOpen();
+  previewCloseTimer = setTimeout(() => {
+    hoverTurnId.value = null;
+    previewCloseTimer = null;
+  }, previewCloseDelayMs);
+}
 
 function rows(): HTMLButtonElement[] {
   return navRef.value === null
@@ -107,16 +122,19 @@ function positionPreview(row?: HTMLElement): void {
 }
 
 function previewOnHover(itemId: string, event: MouseEvent): void {
+  keepPreviewOpen();
   hoverTurnId.value = itemId;
   positionPreview(event.currentTarget as HTMLElement);
 }
 
 function previewOnFocus(itemId: string, event: FocusEvent): void {
+  keepPreviewOpen();
   focusTurnId.value = itemId;
   positionPreview(event.currentTarget as HTMLElement);
 }
 
 function selectTurn(itemId: string): void {
+  keepPreviewOpen();
   const active = document.activeElement;
   if (active instanceof HTMLElement && navRef.value?.contains(active)) active.blur();
   hoverTurnId.value = null;
@@ -169,6 +187,7 @@ watch(
 );
 
 onBeforeUnmount(() => {
+  keepPreviewOpen();
   observer?.disconnect();
   observer = null;
 });
@@ -184,7 +203,8 @@ onBeforeUnmount(() => {
     :class="{ 'toc-clipped': !fits || occluded }"
     :aria-label="t('conversation.toc')"
     :aria-hidden="fits && !occluded ? undefined : true"
-    @mouseleave="hoverTurnId = null"
+    @mouseenter="keepPreviewOpen"
+    @mouseleave="schedulePreviewClose"
     @focusout="onFocusout"
   >
     <div class="toc-scroll" @scroll="positionPreview()">
@@ -217,6 +237,7 @@ onBeforeUnmount(() => {
       :style="{ top: `${previewTop}px` }"
       :aria-label="previewItem.title"
       tabindex="-1"
+      @mouseenter="keepPreviewOpen"
       @click="selectTurn(previewItem.id)"
     >
       <span class="toc-preview__prompt">{{ previewItem.title }}</span>

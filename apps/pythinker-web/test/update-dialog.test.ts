@@ -274,6 +274,7 @@ describe('useDesktopUpdate.hasUpdate', () => {
 describe('sidebar update button', () => {
   async function mountSidebar() {
     mounted = mount(Sidebar, {
+      attachTo: document.body,
       props: {
         activeWorkspace: null,
         activeWorkspaceId: null,
@@ -331,7 +332,8 @@ describe('sidebar update button', () => {
     await button.trigger('mouseenter');
     await flushPromises();
 
-    expect(button.attributes('aria-describedby')).toBe('sidebar-update-notes');
+    expect(button.attributes('aria-controls')).toBe('sidebar-update-notes');
+    expect(button.attributes('aria-haspopup')).toBe('dialog');
     expect(button.attributes('aria-expanded')).toBe('true');
     const notes = body().querySelector('[data-testid="sidebar-update-notes"]');
     expect(notes).not.toBeNull();
@@ -360,31 +362,24 @@ describe('sidebar update button', () => {
     await flushPromises();
 
     const button = wrapper.get('[data-testid="sidebar-update"]');
-    await button.trigger('mouseenter');
+    button.element.focus();
     await nextTick();
     const notes = body().querySelector<HTMLElement>('[data-testid="sidebar-update-notes"]');
-    const links = notes?.querySelectorAll<HTMLAnchorElement>('a');
-    if (!notes || !links || links.length !== 2) throw new Error('expected update notes links');
+    const [firstLink, secondLink] = Array.from(notes?.querySelectorAll<HTMLAnchorElement>('a') ?? []);
+    if (!notes || !firstLink || !secondLink) throw new Error('expected update notes links');
+    expect(notes.getAttribute('role')).toBe('dialog');
 
-    await button.trigger('blur');
-    links[0]!.dispatchEvent(new FocusEvent('focusin', {
-      bubbles: true,
-      relatedTarget: button.element,
-    }));
+    await button.trigger('keydown', { key: 'Tab' });
     await vi.advanceTimersByTimeAsync(120);
+    expect(document.activeElement).toBe(firstLink);
     expect(body().querySelector('[data-testid="sidebar-update-notes"]')).toBe(notes);
 
-    links[0]!.dispatchEvent(new FocusEvent('focusout', {
-      bubbles: true,
-      relatedTarget: links[1],
-    }));
+    secondLink.focus();
     await vi.advanceTimersByTimeAsync(120);
+    expect(document.activeElement).toBe(secondLink);
     expect(body().querySelector('[data-testid="sidebar-update-notes"]')).toBe(notes);
 
-    links[1]!.dispatchEvent(new FocusEvent('focusout', {
-      bubbles: true,
-      relatedTarget: document.body,
-    }));
+    wrapper.get<HTMLButtonElement>('.ch-collapse').element.focus();
     await vi.advanceTimersByTimeAsync(120);
     expect(body().querySelector('[data-testid="sidebar-update-notes"]')).toBeNull();
   });

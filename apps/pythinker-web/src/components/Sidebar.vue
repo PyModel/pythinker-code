@@ -687,10 +687,30 @@ function scheduleUpdateNotesClose(): void {
   }, 120);
 }
 
+function scheduleUpdateNotesPointerClose(): void {
+  const active = document.activeElement;
+  if (
+    active instanceof Node &&
+    (updateTriggerElement.value?.contains(active) || updateNotesElement.value?.contains(active))
+  ) return;
+  scheduleUpdateNotesClose();
+}
+
 function onUpdateNotesFocusout(event: FocusEvent): void {
   const next = event.relatedTarget;
   if (next instanceof Node && updateNotesElement.value?.contains(next)) return;
   scheduleUpdateNotesClose();
+}
+
+function focusUpdateNotes(event: KeyboardEvent): void {
+  if (event.shiftKey) return;
+  const target = updateNotesElement.value?.querySelector<HTMLElement>(
+    'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])',
+  );
+  if (!target) return;
+  event.preventDefault();
+  keepUpdateNotesOpen();
+  target.focus();
 }
 
 function openUpdateDialog(): void {
@@ -766,12 +786,14 @@ watch([() => props.collapsed, update.hasUpdate], ([collapsed, hasUpdate]) => {
             :label="update.availableVersion.value
               ? t('update.sidebarHint', { version: update.availableVersion.value })
               : t('update.sidebarAction')"
-            :aria-describedby="updateNotesOpen ? 'sidebar-update-notes' : undefined"
+            :aria-controls="updateNotesOpen ? 'sidebar-update-notes' : undefined"
             :aria-expanded="updateNotesOpen"
+            aria-haspopup="dialog"
             @mouseenter="showUpdateNotes"
-            @mouseleave="scheduleUpdateNotesClose"
+            @mouseleave="scheduleUpdateNotesPointerClose"
             @focus="showUpdateNotes"
             @blur="scheduleUpdateNotesClose"
+            @keydown.tab="focusUpdateNotes"
             @click.stop="openUpdateDialog"
           >
             <Icon name="update-button" />
@@ -1203,14 +1225,15 @@ watch([() => props.collapsed, update.hasUpdate], ([collapsed, hasUpdate]) => {
         class="sidebar-update-notes"
         data-testid="sidebar-update-notes"
         :style="updateNotesStyle"
-        role="tooltip"
+        role="dialog"
+        aria-labelledby="sidebar-update-notes-title"
         @mouseenter="keepUpdateNotesOpen"
-        @mouseleave="scheduleUpdateNotesClose"
+        @mouseleave="scheduleUpdateNotesPointerClose"
         @focusin="keepUpdateNotesOpen"
         @focusout="onUpdateNotesFocusout"
       >
         <div class="sidebar-update-notes__header">
-          <strong data-testid="sidebar-update-notes-title">
+          <strong id="sidebar-update-notes-title" data-testid="sidebar-update-notes-title">
             {{ t('update.releaseNotesTitle', { version: update.availableVersion.value ?? '' }) }}
           </strong>
           <span v-if="updateReleaseDate">{{ updateReleaseDate }}</span>
