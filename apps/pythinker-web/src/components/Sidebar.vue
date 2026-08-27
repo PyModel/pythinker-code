@@ -23,6 +23,7 @@ import Kbd from './ui/Kbd.vue';
 import Menu from './ui/Menu.vue';
 import MenuItem from './ui/MenuItem.vue';
 import PinnedSessionList from './PinnedSessionList.vue';
+import ReleaseNotes from './ReleaseNotes.vue';
 import SessionRow from './SessionRow.vue';
 
 const { t } = useI18n();
@@ -621,15 +622,17 @@ const showNewWorkspaceButton = false;
 const DesignSystemView = defineAsyncComponent(
   () => import('../views/DesignSystemView.vue'),
 );
-const Markdown = defineAsyncComponent(
-  () => import('./chat/Markdown.vue'),
-);
 const showDesignSystem = ref(false);
 const EGG_HOLD_MS = 1000;
 let logoPressTimer: ReturnType<typeof setTimeout> | undefined;
 
 const updateTriggerElement = ref<HTMLElement | null>(null);
 const updateNotesElement = ref<HTMLElement | null>(null);
+const updateNotesBodyElement = ref<HTMLElement | null>(null);
+// A fade over the last rows says "there is more below". It has to be true to be
+// useful, so it tracks the scroller instead of being painted unconditionally:
+// short notes get no fade, and the fade clears once the reader reaches the end.
+const updateNotesScrollable = ref(false);
 const updateNotesOpen = ref(false);
 const updateNotesStyle = ref<Record<string, string>>({});
 let updateNotesCloseTimer: ReturnType<typeof setTimeout> | undefined;
@@ -645,6 +648,15 @@ const updateReleaseDate = computed(() => {
     year: 'numeric',
   }).format(date);
 });
+
+function syncUpdateNotesScroll(): void {
+  const body = updateNotesBodyElement.value;
+  if (!body) {
+    updateNotesScrollable.value = false;
+    return;
+  }
+  updateNotesScrollable.value = body.scrollHeight - body.scrollTop - body.clientHeight > 1;
+}
 
 function positionUpdateNotes(): void {
   const trigger = updateTriggerElement.value;
@@ -663,6 +675,7 @@ function positionUpdateNotes(): void {
   const top = below + height <= window.innerHeight - margin
     ? below
     : Math.max(margin, triggerRect.top - height - gap);
+  syncUpdateNotesScroll();
   updateNotesStyle.value = {
     left: `${Math.round(left)}px`,
     top: `${Math.round(top)}px`,
@@ -1223,6 +1236,7 @@ watch([() => props.collapsed, update.hasUpdate], ([collapsed, hasUpdate]) => {
         id="sidebar-update-notes"
         ref="updateNotesElement"
         class="sidebar-update-notes"
+        :class="{ 'is-scrollable': updateNotesScrollable }"
         data-testid="sidebar-update-notes"
         :style="updateNotesStyle"
         role="dialog"
@@ -1239,12 +1253,19 @@ watch([() => props.collapsed, update.hasUpdate], ([collapsed, hasUpdate]) => {
           <span v-if="updateReleaseDate">{{ updateReleaseDate }}</span>
         </div>
         <div class="sidebar-update-notes__divider" />
-        <div class="sidebar-update-notes__body">
-          <Markdown
-            v-if="update.state.value?.releaseNotes"
-            :text="update.state.value.releaseNotes"
-          />
-          <p v-else>{{ t('update.releaseNotesUnavailable') }}</p>
+        <!-- The notes scroll when they outgrow the panel, so the region has to
+             be reachable by keyboard on its own: without a tab stop there is no
+             way to scroll it without a pointer. -->
+        <div
+          ref="updateNotesBodyElement"
+          class="sidebar-update-notes__body"
+          data-testid="sidebar-update-notes-body"
+          tabindex="0"
+          role="group"
+          :aria-label="t('update.releaseNotesRegion')"
+          @scroll="syncUpdateNotesScroll"
+        >
+          <ReleaseNotes :text="update.state.value?.releaseNotes ?? ''" />
         </div>
       </section>
     </Teleport>
@@ -1443,17 +1464,38 @@ watch([() => props.collapsed, update.hasUpdate], ([collapsed, hasUpdate]) => {
   margin-inline: var(--space-6);
   background: var(--color-line);
 }
+/* Long notes scroll inside the body. A cut-off line reads as the end of the
+   list unless something says otherwise, so the shell paints a fade over the
+   last rows. It is pointer-events: none so it never eats a click or a scroll,
+   and it sits on the shell rather than the scroller so it does not travel
+   with the content. */
+.sidebar-update-notes.is-scrollable::after {
+  content: '';
+  position: absolute;
+  inset-inline: 1px;
+  inset-block-end: 1px;
+  height: var(--space-6);
+  border-end-start-radius: var(--radius-xl);
+  border-end-end-radius: var(--radius-xl);
+  background: linear-gradient(to bottom, transparent, var(--color-surface-raised));
+  pointer-events: none;
+}
 .sidebar-update-notes__body {
+  /* min-width: 0 keeps a long unbreakable token (a commit URL) from setting
+     the min-content width — the shell is overflow: hidden, so it would clip
+     rather than scroll. overflow-x: clip catches anything that still escapes,
+     so the popover can never scroll sideways. */
+  min-width: 0;
   max-height: min(500px, calc(100vh - 150px));
+  overflow-x: clip;
   overflow-y: auto;
   padding: var(--space-5) var(--space-6) var(--space-6);
+  overscroll-behavior: contain;
 }
-.sidebar-update-notes__body > p {
-  margin: 0;
-  color: var(--color-text-muted);
-}
-.sidebar-update-notes__body :deep(.md) {
-  font-size: var(--content-font-size);
+.sidebar-update-notes__body:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+  border-radius: var(--radius-md);
 }
 
 .btn-wrap {

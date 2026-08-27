@@ -285,12 +285,6 @@ describe('sidebar update button', () => {
       },
       global: {
         plugins: [i18n],
-        stubs: {
-          Markdown: {
-            props: ['text'],
-            template: '<div><a href="#notes">{{ text }}</a><a href="#more">More</a></div>',
-          },
-        },
       },
     });
     await flushPromises();
@@ -354,7 +348,7 @@ describe('sidebar update button', () => {
     installBridge(updateState({
       status: 'available',
       availableVersion: '1.2.3',
-      releaseNotes: 'Read the release notes.',
+      releaseNotes: 'Read the release notes.\n\n---\n\nBuilt from https://example.com/commit/abcdef1234567.',
     }));
     const update = useDesktopUpdate();
     update.subscribe();
@@ -365,18 +359,21 @@ describe('sidebar update button', () => {
     button.element.focus();
     await nextTick();
     const notes = body().querySelector<HTMLElement>('[data-testid="sidebar-update-notes"]');
-    const [firstLink, secondLink] = Array.from(notes?.querySelectorAll<HTMLAnchorElement>('a') ?? []);
-    if (!notes || !firstLink || !secondLink) throw new Error('expected update notes links');
+    const scrollRegion = notes?.querySelector<HTMLElement>('[data-testid="sidebar-update-notes-body"]');
+    const provenanceLink = notes?.querySelector<HTMLAnchorElement>(
+      '[data-testid="release-notes-provenance"] a',
+    );
+    if (!notes || !scrollRegion || !provenanceLink) throw new Error('expected update notes targets');
     expect(notes.getAttribute('role')).toBe('dialog');
 
     await button.trigger('keydown', { key: 'Tab' });
     await vi.advanceTimersByTimeAsync(120);
-    expect(document.activeElement).toBe(firstLink);
+    expect(document.activeElement).toBe(scrollRegion);
     expect(body().querySelector('[data-testid="sidebar-update-notes"]')).toBe(notes);
 
-    secondLink.focus();
+    provenanceLink.focus();
     await vi.advanceTimersByTimeAsync(120);
-    expect(document.activeElement).toBe(secondLink);
+    expect(document.activeElement).toBe(provenanceLink);
     expect(body().querySelector('[data-testid="sidebar-update-notes"]')).toBe(notes);
 
     wrapper.get<HTMLButtonElement>('.ch-collapse').element.focus();
