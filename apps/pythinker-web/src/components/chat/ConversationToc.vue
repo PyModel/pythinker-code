@@ -203,7 +203,6 @@ onBeforeUnmount(() => {
         :aria-current="activeTurnId === item.id ? 'location' : undefined"
         :aria-label="item.title"
         @mouseenter="previewOnHover(item.id, $event)"
-        @mouseleave="hoverTurnId = null"
         @focus="previewOnFocus(item.id, $event)"
         @keydown="onRowKeydown(index, $event)"
         @click="selectTurn(item.id)"
@@ -228,6 +227,8 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .conversation-toc {
+  --toc-preview-max-width: 360px;
+
   position: absolute;
   z-index: var(--z-sticky);
   top: 50%;
@@ -312,7 +313,7 @@ onBeforeUnmount(() => {
   flex-direction: column;
   gap: var(--space-4);
   width: min(
-    360px,
+    var(--toc-preview-max-width),
     calc(
       100cqw - var(--space-4) - var(--space-8) - var(--space-4) - var(--space-4)
     )

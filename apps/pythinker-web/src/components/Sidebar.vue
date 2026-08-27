@@ -687,6 +687,12 @@ function scheduleUpdateNotesClose(): void {
   }, 120);
 }
 
+function onUpdateNotesFocusout(event: FocusEvent): void {
+  const next = event.relatedTarget;
+  if (next instanceof Node && updateNotesElement.value?.contains(next)) return;
+  scheduleUpdateNotesClose();
+}
+
 function openUpdateDialog(): void {
   updateNotesOpen.value = false;
   update.openDialog();
@@ -1200,6 +1206,8 @@ watch([() => props.collapsed, update.hasUpdate], ([collapsed, hasUpdate]) => {
         role="tooltip"
         @mouseenter="keepUpdateNotesOpen"
         @mouseleave="scheduleUpdateNotesClose"
+        @focusin="keepUpdateNotesOpen"
+        @focusout="onUpdateNotesFocusout"
       >
         <div class="sidebar-update-notes__header">
           <strong data-testid="sidebar-update-notes-title">

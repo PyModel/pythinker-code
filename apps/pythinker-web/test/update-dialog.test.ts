@@ -111,6 +111,7 @@ afterEach(() => {
   resetDesktopUpdateStateForTests();
   delete (window as unknown as { pythinkerDesktop?: unknown }).pythinkerDesktop;
   vi.restoreAllMocks();
+  vi.useRealTimers();
 });
 
 describe('formatUpdateBytes', () => {
@@ -286,7 +287,7 @@ describe('sidebar update button', () => {
         stubs: {
           Markdown: {
             props: ['text'],
-            template: '<div>{{ text }}</div>',
+            template: '<div><a href="#notes">{{ text }}</a><a href="#more">More</a></div>',
           },
         },
       },
@@ -344,5 +345,47 @@ describe('sidebar update button', () => {
     await button.trigger('click');
 
     expect(update.dialogOpen.value).toBe(true);
+  });
+
+  it('keeps release notes open while keyboard focus moves into and within the panel', async () => {
+    vi.useFakeTimers();
+    installBridge(updateState({
+      status: 'available',
+      availableVersion: '1.2.3',
+      releaseNotes: 'Read the release notes.',
+    }));
+    const update = useDesktopUpdate();
+    update.subscribe();
+    const wrapper = await mountSidebar();
+    await flushPromises();
+
+    const button = wrapper.get('[data-testid="sidebar-update"]');
+    await button.trigger('mouseenter');
+    await nextTick();
+    const notes = body().querySelector<HTMLElement>('[data-testid="sidebar-update-notes"]');
+    const links = notes?.querySelectorAll<HTMLAnchorElement>('a');
+    if (!notes || !links || links.length !== 2) throw new Error('expected update notes links');
+
+    await button.trigger('blur');
+    links[0]!.dispatchEvent(new FocusEvent('focusin', {
+      bubbles: true,
+      relatedTarget: button.element,
+    }));
+    await vi.advanceTimersByTimeAsync(120);
+    expect(body().querySelector('[data-testid="sidebar-update-notes"]')).toBe(notes);
+
+    links[0]!.dispatchEvent(new FocusEvent('focusout', {
+      bubbles: true,
+      relatedTarget: links[1],
+    }));
+    await vi.advanceTimersByTimeAsync(120);
+    expect(body().querySelector('[data-testid="sidebar-update-notes"]')).toBe(notes);
+
+    links[1]!.dispatchEvent(new FocusEvent('focusout', {
+      bubbles: true,
+      relatedTarget: document.body,
+    }));
+    await vi.advanceTimersByTimeAsync(120);
+    expect(body().querySelector('[data-testid="sidebar-update-notes"]')).toBeNull();
   });
 });

@@ -65,7 +65,8 @@ describe('app shell contracts', () => {
 
   it('keeps desktop traffic lights clear and places the update trigger in the brand header', () => {
     expect(sidebar).toMatch(/\.side\.macos-desktop \.ch\s*\{[^}]*padding-top: 36px;/s);
-    expect(appStyles).toContain('--macos-titlebar-controls-start: calc(env(titlebar-area-x, 76px) + var(--space-2))');
+    expect(appStyles).toContain('--macos-titlebar-controls-fallback-x: 76px;');
+    expect(appStyles).toContain('--macos-titlebar-controls-start: calc(env(titlebar-area-x, var(--macos-titlebar-controls-fallback-x)) + var(--space-2))');
     expect(app).toContain('left: var(--macos-titlebar-controls-start);');
     expect(app).toContain('left: calc(var(--macos-titlebar-controls-start) + var(--icon-button-sm));');
     expect(app).not.toContain('left: 72px;');

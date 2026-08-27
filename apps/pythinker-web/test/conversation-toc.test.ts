@@ -94,6 +94,8 @@ describe('ConversationToc', () => {
       /\.conversation-toc\s*\{[\s\S]*?left:\s*var\(--space-4\)/u,
     );
     expect(source).not.toContain('.conversation-toc::before');
+    expect(source).toContain('--toc-preview-max-width: 360px');
+    expect(source).toContain('var(--toc-preview-max-width),');
     expect(source).toMatch(/\.toc-preview\s*\{[^}]*position:\s*absolute;[^}]*background:\s*var\(--color-surface-raised\);[^}]*box-shadow:\s*var\(--shadow-menu\);/u);
     expect(source).toMatch(/\.toc-row:has\(\+ \.toc-row\.previewing\) \.toc-marker,[\s\S]*?width:\s*calc\(var\(--space-5\) \+ var\(--space-05\)\)/u);
     expect(source).toMatch(/\.toc-row:has\(\+ \.toc-row \+ \.toc-row\.previewing\) \.toc-marker,[\s\S]*?width:\s*var\(--space-4\)/u);
@@ -109,6 +111,8 @@ describe('ConversationToc', () => {
     expect(wrapper.get('.toc-preview__prompt').text()).toBe('Define the feature');
     expect(wrapper.get('.toc-preview__response').text()).toBe('I will inspect the current flow.');
     await rows[0]!.trigger('mouseleave');
+    expect(wrapper.find('.toc-preview').exists()).toBe(true);
+    await wrapper.get('.conversation-toc').trigger('mouseleave');
     expect(wrapper.find('.toc-preview').exists()).toBe(false);
     await rows[0]!.trigger('mouseenter');
     const nav = wrapper.get<HTMLElement>('.conversation-toc').element;
@@ -172,7 +176,10 @@ describe('ConversationToc', () => {
     expect(document.activeElement).not.toBe(firstRow.element);
     expect(firstRow.classes()).not.toContain('previewing');
     expect(wrapper.find('.toc-preview').exists()).toBe(false);
-    await wrapper.findAll('.toc-row')[2]!.trigger('mouseenter');
+    const thirdRow = wrapper.findAll('.toc-row')[2]!;
+    await thirdRow.trigger('mouseenter');
+    await thirdRow.trigger('mouseleave');
+    expect(wrapper.find('.toc-preview').exists()).toBe(true);
     await wrapper.get('.toc-preview').trigger('click');
 
     expect(wrapper.emitted('select')).toEqual([['user-1'], ['user-3']]);
