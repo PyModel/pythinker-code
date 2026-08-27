@@ -26,6 +26,8 @@ export default {
   sidebarHint: 'Version {version} is ready to download',
   releaseNotesTitle: 'v{version} Release Notes',
   releaseNotesUnavailable: 'Release notes are not available for this version.',
+  builtFrom: 'Built from {ref}',
+  releaseNotesRegion: 'Release notes',
   dialogDownloading: 'Downloading v{version}',
   dialogAvailable: 'New version v{version}',
   dialogReady: 'Pythinker v{version} is ready',

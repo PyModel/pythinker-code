@@ -56,7 +56,10 @@ describe('app shell contracts', () => {
 
   it('uses one green update icon with a release-notes hover preview', () => {
     expect(sidebar).toContain('data-testid="sidebar-update-notes"');
-    expect(sidebar).toContain('<Markdown');
+    expect(sidebar).toContain('<ReleaseNotes');
+    // The chat renderer drags katex, mermaid and shiki into the popover and
+    // renders raw HTML as live DOM. Release notes get their own renderer.
+    expect(sidebar).not.toContain("import('./chat/Markdown.vue')");
     expect(sidebar).toContain('<Icon name="update-button" />');
     expect(sidebar).toMatch(/\.sidebar-update-trigger\s*\{[^}]*width: 32px;[^}]*height: 32px;[^}]*border-radius: var\(--radius-full\);[^}]*background: transparent;/s);
     expect(sidebar).not.toContain('update-label-shimmer');
