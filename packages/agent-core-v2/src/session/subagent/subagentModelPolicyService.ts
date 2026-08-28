@@ -34,6 +34,8 @@ import {
 export class SubagentModelPolicyService implements ISubagentModelPolicyService {
   declare readonly _serviceBrand: undefined;
 
+  private commitChain: Promise<unknown> = Promise.resolve();
+
   constructor(
     @IConfigService private readonly config: IConfigService,
     @IFlagService private readonly flags: IFlagService,
@@ -148,7 +150,19 @@ export class SubagentModelPolicyService implements ISubagentModelPolicyService {
     }
   }
 
-  private async commit(
+  private commit(
+    section: LegacySecondaryModelConfig | undefined,
+    expectedVersion: string | undefined,
+  ): Promise<void> {
+    const run = this.commitChain.then(
+      () => this.commitNow(section, expectedVersion),
+      () => this.commitNow(section, expectedVersion),
+    );
+    this.commitChain = run.catch(() => undefined);
+    return run;
+  }
+
+  private async commitNow(
     section: LegacySecondaryModelConfig | undefined,
     expectedVersion: string | undefined,
   ): Promise<void> {

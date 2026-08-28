@@ -125,6 +125,26 @@ describe('SubagentModelPolicyService', () => {
     expect(await codeOf(() => service.clear(before))).toBe(ErrorCodes.CONFIG_VERSION_CONFLICT);
   });
 
+  it('serializes concurrent commits so a stale expectedVersion cannot slip past the version check', async () => {
+    const service = setup({ [SECONDARY_MODEL_SECTION]: { defaultModel: 'acme/sol' } });
+    const replace = config.replace.bind(config);
+    config.replace = async (domain, value) => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      await replace(domain, value);
+    };
+    const version = service.get().resourceVersion;
+    const [first, second] = await Promise.allSettled([
+      service.set({ mode: 'default', defaultModel: 'acme/luna' }, version),
+      service.set({ mode: 'force', defaultModel: 'acme/sol' }, version),
+    ]);
+    expect(first.status).toBe('fulfilled');
+    expect(second.status).toBe('rejected');
+    expect((second as PromiseRejectedResult).reason).toMatchObject({
+      code: ErrorCodes.CONFIG_VERSION_CONFLICT,
+    });
+    expect(config.get(SECONDARY_MODEL_SECTION)).toEqual({ defaultModel: 'acme/luna', defaultEffort: undefined });
+  });
+
   it('getEffective reports inherit while the feature is disabled and keeps the configured policy', () => {
     const service = setup(
       { [SECONDARY_MODEL_SECTION]: { defaultModel: 'acme/sol', force: true } },

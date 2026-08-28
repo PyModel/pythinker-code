@@ -1,4 +1,4 @@
-import { metaResponseSchema } from '../src/protocol/rest-meta';
+import { type ExperimentalFlagStateResponse, metaResponseSchema } from '../src/protocol/rest-meta';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -11,21 +11,11 @@ import { type RunningServer, startServer } from '../src/start';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 import { authedFetch } from './helpers/auth';
 
-interface MetaFlagState {
-  id: string;
-  enabled: boolean;
-  source: string;
-  config_value?: boolean;
-  default_enabled: boolean;
-  externally_controlled: boolean;
-  overridden: boolean;
-}
-
 interface MetaBody {
   code: number;
   data: {
     experimental_flags?: Record<string, boolean>;
-    experimental_flag_states?: MetaFlagState[];
+    experimental_flag_states?: ExperimentalFlagStateResponse[];
   };
 }
 
@@ -107,7 +97,7 @@ describe('/api/v1/meta experimental_flags', () => {
     expect((await getMetaFlags(base))['tool-select']).toBe(true);
   });
 
-  async function getMetaFlagState(base: string, id: string): Promise<MetaFlagState> {
+  async function getMetaFlagState(base: string, id: string): Promise<ExperimentalFlagStateResponse> {
     const res = await authedFetch(server as RunningServer, base, '/api/v1/meta');
     const body = (await res.json()) as MetaBody;
     const data = metaResponseSchema.parse(body.data);

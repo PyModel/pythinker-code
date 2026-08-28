@@ -150,6 +150,37 @@ describe('settings UI', () => {
     wrapper.unmount();
   });
 
+  it('keeps the newest /meta response when an older request resolves last', async () => {
+    let resolveFirst: (meta: unknown) => void = () => {};
+    api.getMeta.mockImplementationOnce(
+      () => new Promise((resolve) => { resolveFirst = resolve; }),
+    );
+    const wrapper = mount(SettingsDialog, {
+      props: {
+        colorScheme: 'system',
+        accent: 'blue',
+        uiFontSize: 14,
+        authReady: true,
+        notify: false,
+        notifyQuestion: false,
+        notifyApproval: false,
+        sound: false,
+        config: { providers: {} },
+      },
+      global: { plugins: [i18n] },
+    });
+    await flushPromises();
+
+    api.getMeta.mockResolvedValueOnce({ serverVersion: '2.0.0', serverId: 'newer', backend: 'v2' });
+    await wrapper.setProps({ config: { providers: {}, experimental: {} } });
+    await flushPromises();
+    resolveFirst({ serverVersion: '1.0.0', serverId: 'older', backend: 'v2' });
+    await flushPromises();
+
+    expect(wrapper.vm.$.setupState.serverMeta.serverId).toBe('newer');
+    wrapper.unmount();
+  });
+
   it('copies app and server diagnostics', async () => {
     api.getMeta.mockResolvedValueOnce({
       serverVersion: '2.4.0',

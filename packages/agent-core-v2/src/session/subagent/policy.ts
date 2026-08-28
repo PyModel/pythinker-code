@@ -183,21 +183,25 @@ function assertModelResolves(
   field: string,
   context: SubagentPolicyValidationContext,
 ): SubagentPolicyModelInfo {
+  const label =
+    field === 'models'
+      ? `[secondary_model.models] entry "${alias}"`
+      : `[secondary_model].default_model "${alias}"`;
   let info: SubagentPolicyModelInfo | undefined;
   try {
     info = context.resolveModel(alias);
   } catch (error) {
     throw new Error2(
       ErrorCodes.CONFIG_INVALID,
-      `[secondary_model.models] entry "${alias}" could not be resolved: ${error instanceof Error ? error.message : String(error)}`,
+      `${label} could not be resolved: ${error instanceof Error ? error.message : String(error)}`,
       { cause: error, details: { section: SECONDARY_MODEL_SECTION, field, model: alias } },
     );
   }
   if (info === undefined) {
-    throw invalid(
-      `[secondary_model.models] entry "${alias}" could not be resolved: Model "${alias}" is not configured in config.toml.`,
-      { field, model: alias },
-    );
+    throw invalid(`${label} could not be resolved: Model "${alias}" is not configured in config.toml.`, {
+      field,
+      model: alias,
+    });
   }
   return info;
 }
