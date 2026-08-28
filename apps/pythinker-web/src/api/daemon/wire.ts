@@ -461,6 +461,16 @@ export interface WireHook {
   async?: boolean;
 }
 
+export interface WireExperimentalFlagState {
+  id: string;
+  enabled: boolean;
+  source: 'master-env' | 'env' | 'config' | 'default';
+  config_value?: boolean;
+  default_enabled: boolean;
+  externally_controlled: boolean;
+  overridden: boolean;
+}
+
 export interface WireConfig {
   providers: Record<string, WireConfigProvider>;
   default_provider?: string;

@@ -6,6 +6,7 @@ import type { PythinkerApiConfig } from '../config';
 import { buildRestUrl, buildWsUrl } from '../config';
 import { traceKeyEvent } from '../../debug/trace';
 import type {
+  AppServerMeta,
   AppConfig,
   AppGoal,
   AppMessage,
@@ -51,6 +52,7 @@ import type {
 import { createAgentProjector } from './agentEventProjector';
 import { DaemonHttpClient } from './http';
 import {
+  toAppExperimentalFlagStates,
   toAppApprovalRequest,
   toAppConfig,
   toAppEvent,
@@ -71,6 +73,7 @@ import {
   wireEventSessionId,
 } from './mappers';
 import type {
+  WireExperimentalFlagState,
   WireAuthResult,
   WireTask,
   WireConfig,
@@ -164,6 +167,7 @@ interface WireMeta {
   dangerous_bypass_auth?: boolean;
   /** Engine generation serving the API; older (v1) servers omit the field. */
   backend?: 'v1' | 'v2';
+  experimental_flag_states?: WireExperimentalFlagState[];
 }
 
 interface WireAbortResult {
@@ -430,16 +434,7 @@ export class DaemonPythinkerWebApi implements PythinkerWebApi {
     return { status: 'ok', uptimeSec: data.uptime_sec ?? 0 };
   }
 
-  async getMeta(): Promise<{
-    serverVersion: string;
-    serverId: string;
-    startedAt: string;
-    capabilities: Record<string, boolean>;
-    openInApps: string[];
-    dangerousBypassAuth: boolean;
-    /** Engine generation: 'v2' = agent-gateway / agent-core-v2; absent ⇒ 'v1'. */
-    backend: 'v1' | 'v2';
-  }> {
+  async getMeta(): Promise<AppServerMeta> {
     const data = await this.http.get<WireMeta>('/meta');
     return {
       serverVersion: data.server_version,
@@ -448,7 +443,9 @@ export class DaemonPythinkerWebApi implements PythinkerWebApi {
       capabilities: data.capabilities,
       openInApps: Array.isArray(data.open_in_apps) ? data.open_in_apps : [],
       dangerousBypassAuth: data.dangerous_bypass_auth === true,
+      // Engine generation: 'v2' = agent-gateway / agent-core-v2; absent ⇒ 'v1'.
       backend: data.backend === 'v2' ? 'v2' : 'v1',
+      experimentalFlagStates: toAppExperimentalFlagStates(data.experimental_flag_states),
     };
   }
 

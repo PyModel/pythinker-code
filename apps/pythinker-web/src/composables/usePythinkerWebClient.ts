@@ -55,6 +55,7 @@ import {
 } from './client/useWorkspaceState';
 
 import type {
+  AppExperimentalFlagState,
   AppEvent,
   AppApprovalRequest,
   AppConfig,
@@ -315,6 +316,8 @@ export interface ExtendedState extends PythinkerClientState {
    * backend badge in the Sidebar.
    */
   backend: 'v1' | 'v2';
+  /** Effective experimental flag states from `/meta`; the server decides them. */
+  experimentalFlagStates: AppExperimentalFlagState[];
   workspaceName: string;
   connection: ConnectionState;
   permission: PermissionMode;
@@ -406,6 +409,7 @@ const rawState: ExtendedState = reactive({
   serverVersion: '',
   dangerousBypassAuth: false,
   backend: 'v1',
+  experimentalFlagStates: [],
   workspaceName: 'pythinker-web',
   connection: 'disconnected' as ConnectionState,
   permission: loadPermissionFromStorage() ?? 'manual',
@@ -2267,6 +2271,12 @@ const loadMoreMessagesError = computed<boolean>(() => {
 });
 const serverVersion = computed<string>(() => rawState.serverVersion);
 const backend = computed<'v1' | 'v2'>(() => rawState.backend);
+const experimentalFlagStates = computed<AppExperimentalFlagState[]>(
+  () => rawState.experimentalFlagStates,
+);
+function experimentalFlagState(id: string): AppExperimentalFlagState | undefined {
+  return rawState.experimentalFlagStates.find((state) => state.id === id);
+}
 const dangerousBypassAuth = computed<boolean>(() => rawState.dangerousBypassAuth);
 
 /**
@@ -3119,6 +3129,8 @@ export function usePythinkerWebClient() {
     loadMoreMessagesError,
     serverVersion,
     backend,
+    experimentalFlagStates,
+    experimentalFlagState,
     dangerousBypassAuth,
     clearDangerousBypassAuth,
     initialized,
@@ -3291,6 +3303,7 @@ export function usePythinkerWebClient() {
     // Config state + actions
     config,
     updateConfig: workspaceState.updateConfig,
+    refreshServerMeta: workspaceState.refreshServerMeta,
 
     // Auth actions
     checkAuth: workspaceState.checkAuth,

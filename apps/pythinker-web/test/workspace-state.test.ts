@@ -77,6 +77,7 @@ function createState(): ExtendedState {
     serverVersion: '',
     dangerousBypassAuth: false,
     backend: 'v1',
+    experimentalFlagStates: [],
     workspaceName: 'pythinker-web',
     connection: 'connected',
     permission: 'manual',
@@ -1640,6 +1641,34 @@ describe('useWorkspaceState — refreshServerMeta', () => {
     expect(state.availableOpenInApps).toEqual(['finder']);
     expect(state.dangerousBypassAuth).toBe(true);
     expect(state.backend).toBe('v2');
+  });
+
+  it('stores the effective experimental flag states from /meta', async () => {
+    apiMock.getMeta.mockResolvedValue({
+      serverVersion: '9.9.9',
+      openInApps: [],
+      dangerousBypassAuth: false,
+      backend: 'v2',
+      experimentalFlagStates: [
+        {
+          id: 'secondary-model',
+          enabled: true,
+          source: 'env',
+          configValue: false,
+          defaultEnabled: false,
+          externallyControlled: true,
+          overridden: true,
+        },
+      ],
+    });
+    const state = createState();
+    const ws = useWorkspaceState(state, createDeps());
+
+    await ws.refreshServerMeta();
+
+    expect(state.experimentalFlagStates).toEqual([
+      expect.objectContaining({ id: 'secondary-model', source: 'env', overridden: true }),
+    ]);
   });
 
   it('keeps the previous meta when /meta fails', async () => {

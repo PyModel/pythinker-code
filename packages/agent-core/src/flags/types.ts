@@ -38,6 +38,10 @@ export interface ExperimentalFeatureState {
   readonly enabled: boolean;
   readonly source: ExperimentalFlagSource;
   readonly configValue?: boolean;
+  /** True when an environment variable decides the flag (source `env` or `master-env`). */
+  readonly externallyControlled: boolean;
+  /** True when a saved config value exists and differs from the effective value. */
+  readonly overridden: boolean;
 }
 
 export interface ExperimentalFlagResolver {

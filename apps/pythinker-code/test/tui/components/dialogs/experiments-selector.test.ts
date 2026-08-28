@@ -27,6 +27,8 @@ function feature(
     defaultEnabled: true,
     enabled: true,
     source: 'default',
+    externallyControlled: false,
+    overridden: false,
     ...overrides,
   };
 }

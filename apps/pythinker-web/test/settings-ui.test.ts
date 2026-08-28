@@ -150,6 +150,37 @@ describe('settings UI', () => {
     wrapper.unmount();
   });
 
+  it('keeps the newest /meta response when an older request resolves last', async () => {
+    let resolveFirst: (meta: unknown) => void = () => {};
+    api.getMeta.mockImplementationOnce(
+      () => new Promise((resolve) => { resolveFirst = resolve; }),
+    );
+    const wrapper = mount(SettingsDialog, {
+      props: {
+        colorScheme: 'system',
+        accent: 'blue',
+        uiFontSize: 14,
+        authReady: true,
+        notify: false,
+        notifyQuestion: false,
+        notifyApproval: false,
+        sound: false,
+        config: { providers: {} },
+      },
+      global: { plugins: [i18n] },
+    });
+    await flushPromises();
+
+    api.getMeta.mockResolvedValueOnce({ serverVersion: '2.0.0', serverId: 'newer', backend: 'v2' });
+    await wrapper.setProps({ config: { providers: {}, experimental: {} } });
+    await flushPromises();
+    resolveFirst({ serverVersion: '1.0.0', serverId: 'older', backend: 'v2' });
+    await flushPromises();
+
+    expect(wrapper.vm.$.setupState.serverMeta.serverId).toBe('newer');
+    wrapper.unmount();
+  });
+
   it('copies app and server diagnostics', async () => {
     api.getMeta.mockResolvedValueOnce({
       serverVersion: '2.4.0',
@@ -389,6 +420,58 @@ describe('settings UI', () => {
     await flushPromises();
     const emitted = wrapper.emitted('updateConfig');
     expect(emitted?.at(-1)?.[0]).toEqual({ experimental: { sidebarTabs: true, 'secondary-model': true } });
+    wrapper.unmount();
+  });
+
+  it('shows Lab chips from the effective flag state, each independently', async () => {
+    const flagState = (
+      overrides: Partial<{ source: 'env' | 'config' | 'default'; externallyControlled: boolean; overridden: boolean }>,
+    ) => ({
+      id: 'secondary-model',
+      enabled: true,
+      source: 'config' as const,
+      configValue: true,
+      defaultEnabled: false,
+      externallyControlled: false,
+      overridden: false,
+      ...overrides,
+    });
+    const mountWith = (states: ReturnType<typeof flagState>[]) =>
+      mount(SettingsDialog, {
+        props: {
+          colorScheme: 'system',
+          accent: 'blue',
+          uiFontSize: 14,
+          authReady: true,
+          notify: false,
+          notifyQuestion: false,
+          notifyApproval: false,
+          sound: false,
+          config: { providers: {}, experimental: { 'secondary-model': false } },
+          experimentalFlagStates: states,
+        },
+        global: { plugins: [i18n] },
+      });
+    const chipsFor = (root: HTMLElement) =>
+      Array.from(root.querySelectorAll<HTMLElement>('.flag-chip')).map((chip) => chip.textContent?.trim());
+    const rowFor = () =>
+      document.body
+        .querySelector<HTMLElement>('[role="switch"][aria-label="Secondary model for subagents"]')!
+        .closest<HTMLElement>('.row')!;
+
+    let wrapper = mountWith([flagState({ source: 'env', externallyControlled: true, overridden: true })]);
+    await flushPromises();
+    expect(chipsFor(rowFor())).toEqual(['Environment controlled', 'Saved setting overridden']);
+    wrapper.unmount();
+
+    wrapper = mountWith([flagState({ source: 'env', externallyControlled: true, overridden: false })]);
+    await flushPromises();
+    expect(chipsFor(rowFor())).toEqual(['Environment controlled']);
+    wrapper.unmount();
+
+    wrapper = mountWith([flagState({ source: 'config' })]);
+    await flushPromises();
+    expect(chipsFor(rowFor())).toEqual([]);
     wrapper.unmount();
   });
 
