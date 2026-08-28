@@ -1,4 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
@@ -144,6 +145,7 @@ describe('SessionSubagentRoutingService', () => {
   let childData: ProfileData;
   let childProvenance: SubagentBindingProvenance | undefined;
   let featureEnabled: boolean;
+  let telemetry: ITelemetryService & { track2: ReturnType<typeof vi.fn> };
 
   const profiles = [
     normalizeAgentProfile({ name: 'coder', description: 'Coder', systemPrompt: () => 'coder' }),
@@ -184,6 +186,7 @@ describe('SessionSubagentRoutingService', () => {
     ix = disposables.add(new TestInstantiationService());
     featureEnabled = true;
     childProvenance = undefined;
+    telemetry = { _serviceBrand: undefined, track2: vi.fn(), track: vi.fn() } as unknown as ITelemetryService & { track2: ReturnType<typeof vi.fn> };
     callerData = {
       profileName: 'orchestrator',
       modelAlias: 'acme/sol',
@@ -236,6 +239,7 @@ describe('SessionSubagentRoutingService', () => {
       list: () => profiles,
       inspect: () => ({ sourceId: 'builtin' }),
     } as unknown as ISessionAgentProfileCatalog);
+    ix.stub(ITelemetryService, telemetry);
     ix.set(ISubagentModelPolicyService, new SyncDescriptor(SubagentModelPolicyService));
     ix.set(ISubagentRoutingService, new SyncDescriptor(SessionSubagentRoutingService));
     return ix.get(ISubagentRoutingService);
@@ -324,6 +328,50 @@ describe('SessionSubagentRoutingService', () => {
     });
     expect(resumed.routing?.resolvedFromRoutingEnvironmentRevision).toBe(revisionA);
     expect(resumed.currentRoutingEnvironmentRevision).toBe(revisionB);
+  });
+
+  it('honors an explicit thinking effort and folds it into the decision fingerprint only', async () => {
+    const svc = service({});
+    const plain = await svc.resolve({ callerAgentId: 'main', profileName: 'coder' });
+    const explicit = await svc.resolve({ callerAgentId: 'main', profileName: 'coder', thinking: 'low' });
+    expect(plain.thinking).toBe('high');
+    expect(explicit.thinking).toBe('low');
+    expect(explicit.routing.resolvedFromRoutingEnvironmentRevision).toBe(plain.routing.resolvedFromRoutingEnvironmentRevision);
+    expect(explicit.routing.routeDecisionFingerprint).not.toBe(plain.routing.routeDecisionFingerprint);
+  });
+
+  it('emits subagent_spawn_plan_resolved with the routing attribute set and no prompt content', async () => {
+    const svc = service({ [SECONDARY_MODEL_SECTION]: { defaultModel: 'acme/luna', force: true } });
+    const plan = await svc.resolve({ callerAgentId: 'main', profileName: 'explore' });
+    expect(telemetry.track2).toHaveBeenCalledTimes(1);
+    const [name, payload] = telemetry.track2.mock.calls[0] as [string, Record<string, unknown>];
+    expect(name).toBe('subagent_spawn_plan_resolved');
+    expect(payload).toEqual({
+      operation: 'spawn',
+      profile_source: 'requested',
+      model_source: 'policy-force',
+      policy_mode: 'force',
+      policy_source: 'config',
+      feature_source: 'config',
+      routing_env_revision: plan.routing.resolvedFromRoutingEnvironmentRevision,
+      route_decision: plan.routing.routeDecisionFingerprint,
+      explicit_profile: true,
+      explicit_model: false,
+      explicit_thinking: false,
+    });
+    expect(Object.keys(payload).toSorted()).toEqual([
+      'explicit_model',
+      'explicit_profile',
+      'explicit_thinking',
+      'feature_source',
+      'model_source',
+      'operation',
+      'policy_mode',
+      'policy_source',
+      'profile_source',
+      'route_decision',
+      'routing_env_revision',
+    ]);
   });
 
   it('resume without a recorded provenance still reports the current revision', () => {

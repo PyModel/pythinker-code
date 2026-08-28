@@ -59,9 +59,11 @@ function parseInput(arg: string): DynamicWorkflowInput {
   try {
     const obj = JSON.parse(arg) as Record<string, unknown>;
     const items = Array.isArray(obj['items']) ? obj['items'] : undefined;
+    const tasks = Array.isArray(obj['tasks']) ? obj['tasks'] : undefined;
+    const itemCount = items === undefined && tasks === undefined ? undefined : (items?.length ?? 0) + (tasks?.length ?? 0);
     return {
       description: typeof obj['description'] === 'string' ? obj['description'] : undefined,
-      itemCount: items?.length,
+      itemCount,
     };
   } catch {
     return {};
@@ -543,7 +545,7 @@ function rowHasSavedResult(row: DynamicWorkflowCardRow): boolean {
 .head {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   width: 100%;
   min-height: 32px;
   padding: 0 11px;
@@ -596,7 +598,7 @@ function rowHasSavedResult(row: DynamicWorkflowCardRow): boolean {
   margin-left: auto;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   flex: none;
   color: var(--color-text-muted);
   font-size: var(--text-xs);
@@ -666,7 +668,7 @@ function rowHasSavedResult(row: DynamicWorkflowCardRow): boolean {
 .routing-breakdown {
   display: inline-flex;
   flex-wrap: wrap;
-  gap: 4px 8px;
+  gap: var(--space-1) var(--space-2);
 }
 .routing-bd {
   font: var(--text-xs) var(--font-mono);
@@ -700,7 +702,7 @@ function rowHasSavedResult(row: DynamicWorkflowCardRow): boolean {
 }
 .notice {
   margin-bottom: 6px;
-  padding: 4px 8px;
+  padding: var(--space-1) var(--space-2);
   border-radius: var(--radius-sm);
   background: var(--color-warning-soft);
   border: 1px solid var(--color-warning-bd);
@@ -710,7 +712,7 @@ function rowHasSavedResult(row: DynamicWorkflowCardRow): boolean {
 .overview-line {
   display: flex;
   align-items: baseline;
-  gap: 8px;
+  gap: var(--space-2);
 }
 .lbl {
   color: var(--color-text-muted);
@@ -830,7 +832,7 @@ function rowHasSavedResult(row: DynamicWorkflowCardRow): boolean {
 .member-head {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   width: 100%;
   min-height: 32px;
   padding: 4px 11px;
@@ -871,14 +873,14 @@ function rowHasSavedResult(row: DynamicWorkflowCardRow): boolean {
 .member-line {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   min-width: 0;
 }
 .member-meta {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 4px 8px;
+  gap: var(--space-1) var(--space-2);
   min-width: 0;
 }
 .mname {

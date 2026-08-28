@@ -58,7 +58,9 @@ describe('SubagentRosterTracker', () => {
       }),
     ]);
     t.apply(SID, spawn('agent-plain'));
-    expect(t.get(SID).find((entry) => entry.id === 'agent-plain')?.routing).toBeUndefined();
+    const plain = t.get(SID).find((entry) => entry.id === 'agent-plain');
+    expect(plain).toBeDefined();
+    expect(plain?.routing).toBeUndefined();
   });
 
   it('seeds a roster entry from subagent.spawned with the dynamic_workflow identity metadata', () => {

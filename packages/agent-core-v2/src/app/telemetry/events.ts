@@ -389,6 +389,20 @@ export interface SubagentCreatedEvent {
   model?: string;
 }
 
+export interface SubagentSpawnPlanResolvedEvent {
+  operation: 'spawn' | 'fork';
+  profile_source: 'requested' | 'default' | 'fork-inherit' | 'resume-existing';
+  model_source: 'caller' | 'policy-default' | 'policy-pool' | 'policy-force' | 'fork-inherit' | 'resume-existing';
+  policy_mode: 'inherit' | 'default' | 'pool' | 'force';
+  policy_source: 'config' | 'default';
+  feature_source: 'master-env' | 'env' | 'config' | 'default';
+  routing_env_revision: string;
+  route_decision: string;
+  explicit_profile: boolean;
+  explicit_model: boolean;
+  explicit_thinking: boolean;
+}
+
 export interface McpConnectedEvent {
   server_count: number;
   total_count: number;
@@ -959,6 +973,23 @@ export const telemetryEventDefinitions = {
       parent_agent_id: 'Parent (caller) agent id',
       parent_tool_call_id: "Tool call id of the launching call in the parent agent; '' when not launched from a tool call",
       model: 'Model alias the subagent binds to (secondary-model choice or inherited caller model); omitted when no binding was resolved',
+    },
+  }),
+  subagent_spawn_plan_resolved: defineTelemetryEvent<SubagentSpawnPlanResolvedEvent>({
+    owner: 'pythinker-code',
+    comment: 'The routing resolver produced a spawn plan for a new subagent (no prompt content).',
+    properties: {
+      operation: 'spawn or fork',
+      profile_source: 'Where the profile came from: requested, default, or fork-inherit',
+      model_source: 'Where the model came from: caller, policy-default, policy-pool, policy-force, or fork-inherit',
+      policy_mode: 'Effective subagent model policy mode',
+      policy_source: 'Whether the policy came from config or the default',
+      feature_source: 'Where the secondary-model feature state came from',
+      routing_env_revision: 'Hash of the ambient routing inputs the plan was resolved from',
+      route_decision: 'Hash of the routing environment plus the request intent',
+      explicit_profile: 'Whether the request named a subagent type',
+      explicit_model: 'Whether the request named a model',
+      explicit_thinking: 'Whether the request named a thinking effort',
     },
   }),
   mcp_connected: defineTelemetryEvent<McpConnectedEvent>({

@@ -324,22 +324,25 @@ function clampDanglingDefault(config: PythinkerConfigShape): void {
 // a dangling pool entry is pruned so the rest of the pool keeps working. The
 // discovery service validates the section against the refreshed catalog and
 // would otherwise reject the whole provider patch.
-function clampDanglingSecondaryModel(config: PythinkerConfigShape): void {
+/** Drops dangling secondary-model bindings; returns true when the section changed. */
+function clampDanglingSecondaryModel(config: PythinkerConfigShape): boolean {
   const section = config.secondaryModel;
-  if (section === undefined) return;
+  if (section === undefined) return false;
   for (const bound of [section.defaultModel, section.model]) {
     if (bound !== undefined && readModel(config, bound) === undefined) {
       config.secondaryModel = undefined;
-      return;
+      return true;
     }
   }
-  if (section.models === undefined) return;
+  if (section.models === undefined) return false;
   const models = Object.fromEntries(
     Object.entries(section.models).filter(([alias]) => readModel(config, alias) !== undefined),
   );
   if (Object.keys(models).length !== Object.keys(section.models).length) {
     config.secondaryModel = { ...section, models };
+    return true;
   }
+  return false;
 }
 
 function clearDefaultThinkingWhenDefaultRemoved(
@@ -456,11 +459,20 @@ export async function refreshProviderModels(
       preserveSecondaryModelAliases(config, next);
       restoreDefaultSelection(next, config.defaultModel, config.thinking?.enabled);
       clampDanglingDefault(next);
-      clampDanglingSecondaryModel(next);
+      const secondaryModelCleaned = clampDanglingSecondaryModel(next);
       clearDefaultThinkingWhenDefaultRemoved(next, config.defaultModel);
 
       if (providerModelsEqual(config, next, providerId, refreshedAliasKeys)) {
         unchanged.push(providerId);
+        if (secondaryModelCleaned) {
+          config = await host.setConfig({
+            providers: next.providers,
+            models: next.models,
+            defaultModel: next.defaultModel,
+            thinking: next.thinking,
+            secondaryModel: next.secondaryModel,
+          });
+        }
       } else {
         const { added, removed } = computeChanges(
           collectModelIdsForAliases(config, refreshedAliasKeys),
@@ -605,10 +617,10 @@ export async function refreshProviderModels(
         }
       }
 
-      if (changedProviders.length > 0 || hasUnreportedConfigChange) {
+      const secondaryModelCleaned = clampDanglingSecondaryModel(next);
+      if (changedProviders.length > 0 || hasUnreportedConfigChange || secondaryModelCleaned) {
         restoreDefaultSelection(next, config.defaultModel, config.thinking?.enabled);
         clampDanglingDefault(next);
-        clampDanglingSecondaryModel(next);
         clearDefaultThinkingWhenDefaultRemoved(next, config.defaultModel);
         for (const providerId of providersToRemoveBeforeSet) {
           await host.removeProvider(providerId);
@@ -717,10 +729,10 @@ export async function refreshProviderModels(
         changedProviders.push({ providerId, providerName: providerId, added, removed });
         providersToRemoveBeforeSet.add(providerId);
       }
-      if (changedProviders.length > 0) {
+      const secondaryModelCleaned = clampDanglingSecondaryModel(next);
+      if (changedProviders.length > 0 || secondaryModelCleaned) {
         restoreDefaultSelection(next, config.defaultModel, config.thinking?.enabled);
         clampDanglingDefault(next);
-        clampDanglingSecondaryModel(next);
         clearDefaultThinkingWhenDefaultRemoved(next, config.defaultModel);
         for (const providerId of providersToRemoveBeforeSet) {
           await host.removeProvider(providerId);
