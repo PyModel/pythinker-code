@@ -1709,6 +1709,8 @@ describe('Agent tool execution contract', () => {
     expect(spawned[0]).toMatchObject({
       subagentId: 'agent-child',
       taskId: expect.any(String),
+      routing: expect.objectContaining({ operation: 'spawn', modelSource: 'caller' }),
+      currentRoutingEnvironmentRevision: expect.stringMatching(/^route-env:/),
     });
   });
 

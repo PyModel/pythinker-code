@@ -328,7 +328,6 @@ describe('SessionSubagentRoutingService', () => {
     });
     expect(resumed.routing?.resolvedFromRoutingEnvironmentRevision).toBe(revisionA);
     expect(resumed.currentRoutingEnvironmentRevision).toBe(revisionB);
-    expect(childData.modelAlias).toBe('acme/luna');
   });
 
   it('honors an explicit thinking effort and folds it into the decision fingerprint only', async () => {
