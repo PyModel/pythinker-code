@@ -39,6 +39,10 @@ import TablerCircleDashed from '~icons/tabler/circle-dashed';
 import TablerSidebarLeftCollapse from '~icons/tabler/layout-sidebar-left-collapse';
 import TablerSidebarLeftExpand from '~icons/tabler/layout-sidebar-left-expand';
 import TablerPaperclip from '~icons/tabler/paperclip';
+import TablerListNumbers from '~icons/tabler/list-numbers';
+import TablerPictureInPicture from '~icons/tabler/picture-in-picture';
+import TablerTextWrap from '~icons/tabler/text-wrap';
+import TablerTextWrapDisabled from '~icons/tabler/text-wrap-disabled';
 
 // Components (Remix) ---------------------------------------------------------
 import RiAddLine from '~icons/ri/add-line';
@@ -130,6 +134,10 @@ import RawTablerCircleDashed from '~icons/tabler/circle-dashed?raw';
 import RawTablerSidebarLeftCollapse from '~icons/tabler/layout-sidebar-left-collapse?raw';
 import RawTablerSidebarLeftExpand from '~icons/tabler/layout-sidebar-left-expand?raw';
 import RawTablerPaperclip from '~icons/tabler/paperclip?raw';
+import RawTablerListNumbers from '~icons/tabler/list-numbers?raw';
+import RawTablerPictureInPicture from '~icons/tabler/picture-in-picture?raw';
+import RawTablerTextWrap from '~icons/tabler/text-wrap?raw';
+import RawTablerTextWrapDisabled from '~icons/tabler/text-wrap-disabled?raw';
 
 // Raw SVG strings (Remix) ----------------------------------------------------
 import RawAddLine from '~icons/ri/add-line?raw';
@@ -240,6 +248,10 @@ export type IconName =
   | 'panel-expand'
   | 'expand'
   | 'collapse'
+  | 'list-numbers'
+  | 'text-wrap'
+  | 'text-wrap-disabled'
+  | 'pip'
   | 'list'
   | 'sort'
   | 'grip'
@@ -357,6 +369,10 @@ export const ICONS: Record<IconName, IconEntry> = {
   'panel-expand': entry(TablerSidebarLeftExpand, RawTablerSidebarLeftExpand),
   expand: entry(RiExpandDiagonalLine, RawExpandDiagonalLine),
   collapse: entry(RiCollapseDiagonalLine, RawCollapseDiagonalLine),
+  'list-numbers': entry(TablerListNumbers, RawTablerListNumbers),
+  'text-wrap': entry(TablerTextWrap, RawTablerTextWrap),
+  'text-wrap-disabled': entry(TablerTextWrapDisabled, RawTablerTextWrapDisabled),
+  pip: entry(TablerPictureInPicture, RawTablerPictureInPicture),
   list: entry(RiListUnordered, RawListUnordered),
   sort: entry(RiSortDesc, RawSortDesc),
   grip: entry(RiDraggable, RawDraggable),
@@ -537,6 +553,10 @@ export const ICON_GROUPS: ReadonlyArray<readonly [string, readonly IconName[]]> 
       'panel-expand',
       'expand',
       'collapse',
+      'list-numbers',
+      'text-wrap',
+      'text-wrap-disabled',
+      'pip',
       'list',
       'sort',
       'grip',
