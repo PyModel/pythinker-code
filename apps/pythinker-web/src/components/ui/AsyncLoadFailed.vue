@@ -3,14 +3,28 @@
      Same panel as ErrorBoundary, different copy: a chunk that never loaded
      cannot be retried in place, so the reader is told to close the view. -->
 <script setup lang="ts">
+import { inject } from 'vue';
 import { useI18n } from 'vue-i18n';
 import Icon from './Icon.vue';
+import IconButton from './IconButton.vue';
 
 const { t } = useI18n();
+/** Provided by the view host (e.g. the sidebar's design-system overlay) so a
+ *  chunk that never loaded still leaves the reader a way out. */
+const closeAsyncView = inject<(() => void) | undefined>('closeAsyncView', undefined);
 </script>
 
 <template>
   <div class="error-boundary fullscreen" role="alert">
+    <IconButton
+      v-if="closeAsyncView"
+      class="error-boundary-close"
+      size="sm"
+      :label="t('thinking.close')"
+      @click="closeAsyncView()"
+    >
+      <Icon name="close" size="sm" />
+    </IconButton>
     <Icon class="error-boundary-icon" name="alert-triangle" size="lg" />
     <p class="error-boundary-title">{{ t('common.asyncLoadFailed') }}</p>
   </div>
@@ -32,6 +46,11 @@ const { t } = useI18n();
   inset: 0;
   z-index: var(--z-modal);
   background: var(--color-bg);
+}
+.error-boundary-close {
+  position: absolute;
+  top: var(--space-3);
+  right: var(--space-3);
 }
 .error-boundary-icon {
   color: var(--color-warning);

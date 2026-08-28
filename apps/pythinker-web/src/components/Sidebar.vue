@@ -3,7 +3,7 @@
      The old workspace rail and workspace tabs have been removed;
      workspace switching, folding and renaming all live in the group header. -->
 <script setup lang="ts">
-import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref, watch, provide } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { copyTextToClipboard } from '../lib/clipboard';
 import {
@@ -628,6 +628,11 @@ const DesignSystemView = defineAsyncComponent({
   errorComponent: AsyncLoadFailed,
 });
 const showDesignSystem = ref(false);
+// Lets the async-load failure panel close the overlay (a failed chunk never
+// reaches the ErrorBoundary, so it needs its own way out).
+provide('closeAsyncView', () => {
+  showDesignSystem.value = false;
+});
 const EGG_HOLD_MS = 1000;
 let logoPressTimer: ReturnType<typeof setTimeout> | undefined;
 

@@ -71,6 +71,17 @@ describe('ErrorBoundary', () => {
     const wrapper = mount(AsyncLoadFailed, { global: { plugins: [webI18n] } });
     expect(wrapper.get('.error-boundary-title').text())
       .toBe('Failed to load. Close this view and try again.');
+    expect(wrapper.find('.error-boundary-close').exists()).toBe(false);
+  });
+
+  it('offers a close control when the host provides a way out of the async view', async () => {
+    const closeAsyncView = vi.fn();
+    const wrapper = mount(AsyncLoadFailed, {
+      global: { plugins: [webI18n], provide: { closeAsyncView } },
+    });
+    await wrapper.get('.error-boundary-close').trigger('click');
+    expect(closeAsyncView).toHaveBeenCalledTimes(1);
+    expect(sidebarSource).toMatch(/provide\('closeAsyncView'/u);
   });
 
   it('wraps the lazily loaded design-system overlay', () => {

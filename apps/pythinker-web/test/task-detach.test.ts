@@ -151,6 +151,11 @@ describe('detachable-task predicate', () => {
     expect(probe([task({ parentToolCallId: 'parent-tool' })])).toBe(true);
   });
 
+  it('matches a task keyed by the tool call id itself, not only by parent', () => {
+    expect(probe([task({ id: 'parent-tool' })])).toBe(true);
+    expect(probe([task({ id: 'parent-tool', runInBackground: true })])).toBe(false);
+  });
+
   it('reports not detachable once the task runs in the background', () => {
     expect(probe([task({ parentToolCallId: 'parent-tool', runInBackground: true })])).toBe(false);
   });

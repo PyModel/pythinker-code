@@ -290,7 +290,7 @@ provide('resolveAgentTaskId', resolveAgentTaskId);
 // `undefined` (no task matched — a task list that has not arrived yet) means
 // "show the button"; only an explicit false hides it.
 function resolveDetachableTask(toolCallId: string): boolean | undefined {
-  const matches = props.tasks.filter((tk) => tk.parentToolCallId === toolCallId);
+  const matches = props.tasks.filter((tk) => tk.id === toolCallId || tk.parentToolCallId === toolCallId);
   if (matches.length === 0) return undefined;
   return matches.some((tk) => tk.state === 'run' && tk.runInBackground !== true);
 }
