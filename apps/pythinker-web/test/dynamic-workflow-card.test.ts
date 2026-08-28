@@ -78,6 +78,14 @@ describe('DynamicWorkflowTool card', () => {
     expect(wrapper.text().match(/1 \/ 2/g)).toHaveLength(1);
   });
 
+  it('counts task entries before any live member resolves', async () => {
+    const wrapper = mountCard([]);
+    await wrapper.setProps({
+      tool: { ...wrapper.props('tool'), arg: JSON.stringify({ description: 'Review files', tasks: [{ item: 'a' }, { item: 'b' }, { item: 'c' }] }) },
+    });
+    expect(wrapper.get('.head .chip').text()).toBe('0 / 3');
+  });
+
   it('renders one cell per task up to 12 and a grouped bar beyond', () => {
     const nine = mountCard(Array.from({ length: 9 }, (_, i) => member(i + 1)));
     expect(nine.findAll('[data-testid="segments-cells"] .cell')).toHaveLength(9);

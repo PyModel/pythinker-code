@@ -808,6 +808,17 @@ describe('keepLiveSubagents', () => {
     const merged = keepLiveSubagents(rest, live);
     expect(merged).toHaveLength(1);
     expect(merged[0]).toMatchObject({ id: 'a1', routing, currentRoutingEnvRevision: 'route-env:v1:rest' });
+
+    const liveRouting = { ...routing, modelSource: 'policy-force' as const };
+    const withLiveRouting = keepLiveSubagents(rest, [
+      subagent('a1', {
+        agentId: 'a1',
+        backgroundTaskId: 'bg-1',
+        routing: liveRouting,
+        currentRoutingEnvRevision: 'route-env:v1:live',
+      }),
+    ]);
+    expect(withLiveRouting[0]).toMatchObject({ routing: liveRouting, currentRoutingEnvRevision: 'route-env:v1:live' });
   });
 
   it('returns the REST list untouched when no live-only subagent exists', () => {

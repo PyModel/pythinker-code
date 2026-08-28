@@ -3453,6 +3453,23 @@ describe('AgentDynamicWorkflow tool execution contract', () => {
       prompt: 'Finish review',
     });
   });
+
+  it('counts task-based subagents in the display name', async () => {
+    ctx = createTestAgent();
+
+    const execution = await agentDynamicWorkflowTool(ctx).resolveExecution({
+      description: 'Split review',
+      prompt_template: 'Review {{item}}',
+      tasks: [{ item: 'src/a.ts' }, { item: 'src/b.ts', model: 'acme/luna' }],
+      resume_agent_ids: { 'agent-old-1': 'Continue previous review A' },
+    });
+
+    if (execution.isError === true) throw new Error('AgentDynamicWorkflow resolveExecution returned an error');
+    expect(execution.display).toMatchObject({
+      agent_name: 'dynamic_workflow (3 subagents)',
+      prompt: 'Split review',
+    });
+  });
 });
 
 describe('Agent tools', () => {

@@ -116,7 +116,8 @@ export class AgentDynamicWorkflowTool implements IAgentDynamicWorkflowTool {
   }
 
   resolveExecution(args: AgentDynamicWorkflowToolInput): ToolExecution {
-    const agentCount = (args.items?.length ?? 0) + Object.keys(args.resume_agent_ids ?? {}).length;
+    const agentCount =
+      (args.items?.length ?? 0) + (args.tasks?.length ?? 0) + Object.keys(args.resume_agent_ids ?? {}).length;
     return {
       accesses: ToolAccesses.all(),
       description: `Launching agent dynamic_workflow: ${args.description}`,

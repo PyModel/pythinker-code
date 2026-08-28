@@ -261,6 +261,26 @@ describe('refreshProviderModels modelsDev directory providers', () => {
     expect((await host.getConfig()).secondaryModel).toBeUndefined();
   });
 
+  it('persists a secondary_model cleanup even when no provider catalog changed', async () => {
+    const document = makeDocument();
+    const entry = document[PROVIDER_ID] as Record<string, unknown>;
+    delete (entry['models'] as Record<string, unknown>)['ox-alpha-free'];
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(document)));
+    const base = makeBaseConfig();
+    base.secondaryModel = { defaultModel: 'other/gone' };
+
+    const { host, calls } = makeHost(base);
+    const result = await refreshProviderModels(host);
+
+    expect(result.unchanged).toEqual([PROVIDER_ID]);
+    expect(result.changed).toEqual([]);
+    expect(calls.setConfigPatches).toHaveLength(1);
+    const patch = lastPatch(calls);
+    expect('secondaryModel' in patch).toBe(true);
+    expect(patch.secondaryModel).toBeUndefined();
+    expect((await host.getConfig()).secondaryModel).toBeUndefined();
+  });
+
   it('prunes vanished pool entries from secondary_model but keeps the rest of the pool', async () => {
     vi.stubGlobal(
       'fetch',
