@@ -5,4 +5,13 @@ export default {
   skills: 'Skills',
   openSkill: 'Open skill file',
   copyPath: 'Copy path',
+  attachmentUploadFailed: 'Upload failed — remove the attachment, or drop the file in again to retry',
+  attachmentUploadInterrupted: 'Upload interrupted — remove the attachment, or drop the file in again to retry',
+  viewFullscreen: 'View fullscreen',
+  mediaPreviewLoading: 'Loading preview…',
+  mediaPreviewUploading: 'Uploading…',
+  mediaPreviewUnavailable: 'Preview unavailable',
+  stateUploading: 'Uploading',
+  stateUploaded: 'Uploaded',
+  stateUploadFailed: 'Upload failed',
 } as const;

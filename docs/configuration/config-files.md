@@ -240,6 +240,8 @@ Constraints between the fields:
 - `default_effort`: applies to every model selected from this section. Leave it unset to use each model entry's default.
 - `primary` is a reserved alias (see below) and cannot be a pool key.
 
+Pool aliases reference the current `[models]` table. If a provider is deleted or logged out, or a refresh removes an alias, session startup reports the broken alias. Fix or remove that entry. Pythinker Code never rewrites `[secondary_model]` automatically.
+
 In the interactive TUI, the [`/secondary-model`](../reference/slash-commands.md) command (alias `/subagent-model`) opens a model selector: the choice is written to `default_model` (when a models table exists and the picked alias is not in it, an entry with an empty description is added), and newly spawned subagents pick up the new default immediately — no session restart needed.
 
 A configured pool — an explicit `models` table or a lone `default_model` — enables model selection: the `Agent` / `AgentDynamicWorkflow` tools gain a `model` parameter, and the tool description lists the pool (the default marked `[default]`) so the main agent can choose per spawn. Pool keys can only reference configured [`[models]`](#models) entries:

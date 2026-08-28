@@ -5,7 +5,7 @@
 
 import { computed, ref, type Ref } from 'vue';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { AppApprovalRequest, AppQuestionRequest, AppSession, AppTask } from '../src/api/types';
+import type { AppApprovalRequest, AppQuestionRequest, AppSession, AppSessionGroupPage, AppTask } from '../src/api/types';
 import { DaemonApiError } from '../src/api/errors';
 import { createInitialState } from '../src/api/daemon/eventReducer';
 import { mergeWorkspaces } from '../src/lib/mergeWorkspaces';
@@ -37,6 +37,7 @@ const apiMock = vi.hoisted(() => ({
   getHealth: vi.fn(),
   getMeta: vi.fn(),
   listSessions: vi.fn(),
+  listSessionGroupsV2: vi.fn(),
   listWorkspaces: vi.fn(),
 }));
 
@@ -82,6 +83,7 @@ function createState(): ExtendedState {
     workspaceName: 'pythinker-web',
     connection: 'connected',
     permission: 'manual',
+    permissionBySession: { sess_1: 'manual' },
     thinking: 'high',
     thinkingBySession: {},
     planModeBySession: {},
@@ -144,7 +146,6 @@ function createDeps(): UseWorkspaceStateDeps {
     workspacesView: computed(() => []),
     status: computed(() => ({})),
     workspaceIdForSession: vi.fn(),
-    savePermissionToStorage: vi.fn(),
     seedPermissionFromDaemonDefault: vi.fn(),
     savePlanModeToStorage: vi.fn(),
     saveDynamicWorkflowModeToStorage: vi.fn(),
@@ -357,7 +358,7 @@ describe('useWorkspaceState — updateConfig agent defaults', () => {
     expect(deps.persistSessionProfile).not.toHaveBeenCalled();
   });
 
-  it('applies a saved default permission mode like an explicit pick', async () => {
+  it('keeps the active session permission when the global default changes', async () => {
     apiMock.setConfig.mockResolvedValue({ defaultPermissionMode: 'auto' });
     const state = createState();
     state.permission = 'manual';
@@ -366,9 +367,21 @@ describe('useWorkspaceState — updateConfig agent defaults', () => {
 
     await workspace.updateConfig({ defaultPermissionMode: 'auto' });
 
+    expect(state.permission).toBe('manual');
+    expect(deps.persistSessionProfile).not.toHaveBeenCalled();
+  });
+
+  it('applies a saved default permission mode to a new-session draft', async () => {
+    apiMock.setConfig.mockResolvedValue({ defaultPermissionMode: 'auto' });
+    const state = createState();
+    state.activeSessionId = undefined;
+    const deps = createConfigDeps(state);
+    const workspace = useWorkspaceState(state, deps);
+
+    await workspace.updateConfig({ defaultPermissionMode: 'auto' });
+
     expect(state.permission).toBe('auto');
-    expect(deps.savePermissionToStorage).toHaveBeenCalledWith('auto');
-    expect(deps.persistSessionProfile).toHaveBeenCalledWith({ permissionMode: 'auto' });
+    expect(deps.persistSessionProfile).not.toHaveBeenCalled();
   });
 
   it('leaves permission untouched when the daemon rejects the save', async () => {
@@ -383,7 +396,7 @@ describe('useWorkspaceState — updateConfig agent defaults', () => {
     await expect(workspace.updateConfig({ defaultPermissionMode: 'auto' })).resolves.toBe(false);
 
     expect(state.permission).toBe('manual');
-    expect(deps.savePermissionToStorage).not.toHaveBeenCalled();
+    expect(deps.persistSessionProfile).not.toHaveBeenCalled();
   });
 });
 
@@ -1445,6 +1458,7 @@ describe('useWorkspaceState — session list loading', () => {
     apiMock.listWorkspaces.mockReset().mockResolvedValue([]);
     apiMock.getFsHome.mockReset().mockResolvedValue({ home: '', recentRoots: [] });
     apiMock.listSessions.mockReset();
+    apiMock.listSessionGroupsV2.mockReset();
   });
 
   function createSessionLoadRig(sessions: AppSession[]) {
@@ -1478,6 +1492,78 @@ describe('useWorkspaceState — session list loading', () => {
 
     expect(deps.pushOperationFailure).toHaveBeenCalledOnce();
     expect(deps.pushOperationFailure).toHaveBeenCalledWith('load', error);
+  });
+
+  it('finishes v2 startup after the first grouped page and loads later groups in the background', async () => {
+    const first = {
+      ...createSession(),
+      id: 'sess_a',
+      workspaceId: 'wd_a',
+      cwd: '/workspace-a',
+      lastPrompt: 'First prompt',
+      busy: false,
+    };
+    const later = {
+      ...createSession(),
+      id: 'sess_b',
+      workspaceId: 'wd_b',
+      cwd: '/workspace-b',
+      lastPrompt: 'Later prompt',
+      updatedAt: '2026-01-02T00:00:00.000Z',
+      busy: false,
+    };
+    let resolveNextPage!: (page: AppSessionGroupPage) => void;
+    const nextPage = new Promise<AppSessionGroupPage>((resolve) => {
+      resolveNextPage = resolve;
+    });
+    apiMock.getMeta.mockResolvedValue({
+      serverVersion: '0.0.0',
+      openInApps: [],
+      dangerousBypassAuth: false,
+      backend: 'v2',
+    });
+    apiMock.listWorkspaces.mockResolvedValue([
+      workspace('wd_a', '/workspace-a', 'A'),
+      workspace('wd_b', '/workspace-b', 'B'),
+    ]);
+    apiMock.listSessionGroupsV2
+      .mockResolvedValueOnce({
+        groups: [
+          {
+            workspace: { id: 'wd_a', cwd: '/workspace-a' },
+            sessions: [first],
+            total: 1,
+          },
+        ],
+        hasMore: true,
+        nextPageToken: 'next',
+        total: 2,
+      })
+      .mockReturnValueOnce(nextPage);
+    const { state, workspaceState } = createSessionLoadRig([first]);
+
+    await workspaceState.load();
+
+    expect(state.sessions.map((session) => session.id)).toEqual(['sess_a']);
+    expect(apiMock.listSessionGroupsV2).toHaveBeenCalledTimes(2);
+
+    resolveNextPage({
+      groups: [
+        {
+          workspace: { id: 'wd_b', cwd: '/workspace-b' },
+          sessions: [later],
+          total: 1,
+        },
+      ],
+      hasMore: false,
+      nextPageToken: null,
+      total: 2,
+    });
+
+    await vi.waitFor(() => {
+      expect(state.sessions.map((session) => session.id)).toEqual(['sess_b', 'sess_a']);
+    });
+    expect(state.sessionsHasMoreByWorkspace).toEqual({ wd_a: false, wd_b: false });
   });
 
   it('keeps failed workspace sessions while replacing a successful shared-root workspace', async () => {
@@ -2050,6 +2136,25 @@ describe('useWorkspaceState — snapshot prompt recovery', () => {
     expect(apiMock.submitPrompt).toHaveBeenCalledWith(
       'sess_a',
       expect.objectContaining({ model: 'provider/gone-model', thinking: 'max' }),
+    );
+  });
+
+  it('keeps a permission pick on its session when the active view changes', async () => {
+    const state = createState();
+    const deps = promptDeps();
+    const ws = useWorkspaceState(state, deps);
+
+    ws.setPermission('auto');
+    expect(state.permissionBySession.sess_1).toBe('auto');
+    expect(deps.persistSessionProfile).toHaveBeenCalledWith({ permissionMode: 'auto' }, 'sess_1');
+
+    state.activeSessionId = 'sess_2';
+    state.permission = 'yolo';
+    await ws.submitPromptInternal('sess_1', 'background prompt');
+
+    expect(apiMock.submitPrompt).toHaveBeenCalledWith(
+      'sess_1',
+      expect.objectContaining({ permissionMode: 'auto' }),
     );
   });
 

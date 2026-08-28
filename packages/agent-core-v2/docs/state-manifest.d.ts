@@ -726,6 +726,12 @@ export interface AgentStateSnapshot {
           readonly skillPath?: string;
           readonly skillSource?: 'project' | 'user' | 'extra' | 'builtin';
         }[];
+        readonly attachments?: readonly /* PromptFileAttachment — packages/agent-core-v2/src/agent/contextMemory/types.ts */ {
+          readonly name: string;
+          readonly mediaType: string;
+          readonly size: number;
+          readonly path: string;
+        }[];
       } | /* SkillActivationOrigin — packages/agent-core-v2/src/agent/contextMemory/types.ts */ {
         readonly kind: 'skill_activation';
         readonly activationId: string;
@@ -735,6 +741,12 @@ export interface AgentStateSnapshot {
         readonly skillType?: string;
         readonly skillPath?: string;
         readonly skillSource?: 'project' | 'user' | 'extra' | 'builtin';
+        readonly attachments?: readonly /* PromptFileAttachment — packages/agent-core-v2/src/agent/contextMemory/types.ts */ {
+          readonly name: string;
+          readonly mediaType: string;
+          readonly size: number;
+          readonly path: string;
+        }[];
       } | /* PluginCommandOrigin — packages/agent-core-v2/src/agent/contextMemory/types.ts */ {
         readonly kind: 'plugin_command';
         readonly activationId: string;
@@ -859,6 +871,12 @@ export interface AgentStateSnapshot {
         readonly skillPath?: string;
         readonly skillSource?: 'project' | 'user' | 'extra' | 'builtin';
       }[];
+      readonly attachments?: readonly /* PromptFileAttachment — packages/agent-core-v2/src/agent/contextMemory/types.ts */ {
+        readonly name: string;
+        readonly mediaType: string;
+        readonly size: number;
+        readonly path: string;
+      }[];
     } | /* SkillActivationOrigin — packages/agent-core-v2/src/agent/contextMemory/types.ts */ {
       readonly kind: 'skill_activation';
       readonly activationId: string;
@@ -868,6 +886,12 @@ export interface AgentStateSnapshot {
       readonly skillType?: string;
       readonly skillPath?: string;
       readonly skillSource?: 'project' | 'user' | 'extra' | 'builtin';
+      readonly attachments?: readonly /* PromptFileAttachment — packages/agent-core-v2/src/agent/contextMemory/types.ts */ {
+        readonly name: string;
+        readonly mediaType: string;
+        readonly size: number;
+        readonly path: string;
+      }[];
     } | /* PluginCommandOrigin — packages/agent-core-v2/src/agent/contextMemory/types.ts */ {
       readonly kind: 'plugin_command';
       readonly activationId: string;
@@ -924,6 +948,12 @@ export interface AgentStateSnapshot {
           readonly skillPath?: string;
           readonly skillSource?: 'project' | 'user' | 'extra' | 'builtin';
         }[];
+        readonly attachments?: readonly /* PromptFileAttachment — packages/agent-core-v2/src/agent/contextMemory/types.ts */ {
+          readonly name: string;
+          readonly mediaType: string;
+          readonly size: number;
+          readonly path: string;
+        }[];
       } | /* SkillActivationOrigin — packages/agent-core-v2/src/agent/contextMemory/types.ts */ {
         readonly kind: 'skill_activation';
         readonly activationId: string;
@@ -933,6 +963,12 @@ export interface AgentStateSnapshot {
         readonly skillType?: string;
         readonly skillPath?: string;
         readonly skillSource?: 'project' | 'user' | 'extra' | 'builtin';
+        readonly attachments?: readonly /* PromptFileAttachment — packages/agent-core-v2/src/agent/contextMemory/types.ts */ {
+          readonly name: string;
+          readonly mediaType: string;
+          readonly size: number;
+          readonly path: string;
+        }[];
       } | /* PluginCommandOrigin — packages/agent-core-v2/src/agent/contextMemory/types.ts */ {
         readonly kind: 'plugin_command';
         readonly activationId: string;
@@ -1067,6 +1103,12 @@ export interface AgentStateSnapshot {
         readonly skillPath?: string;
         readonly skillSource?: 'project' | 'user' | 'extra' | 'builtin';
       }[];
+      readonly attachments?: readonly /* PromptFileAttachment — packages/agent-core-v2/src/agent/contextMemory/types.ts */ {
+        readonly name: string;
+        readonly mediaType: string;
+        readonly size: number;
+        readonly path: string;
+      }[];
     } | /* SkillActivationOrigin — packages/agent-core-v2/src/agent/contextMemory/types.ts */ {
       readonly kind: 'skill_activation';
       readonly activationId: string;
@@ -1076,6 +1118,12 @@ export interface AgentStateSnapshot {
       readonly skillType?: string;
       readonly skillPath?: string;
       readonly skillSource?: 'project' | 'user' | 'extra' | 'builtin';
+      readonly attachments?: readonly /* PromptFileAttachment — packages/agent-core-v2/src/agent/contextMemory/types.ts */ {
+        readonly name: string;
+        readonly mediaType: string;
+        readonly size: number;
+        readonly path: string;
+      }[];
     } | /* PluginCommandOrigin — packages/agent-core-v2/src/agent/contextMemory/types.ts */ {
       readonly kind: 'plugin_command';
       readonly activationId: string;
@@ -1331,6 +1379,7 @@ export interface AgentStateSnapshot {
     readonly endedAt: number | null;
     readonly stopReason?: string;
     readonly terminalNotificationSuppressed?: boolean;
+    readonly resumeReminded?: boolean;
     readonly timeoutMs?: number;
   } | /* SubagentTaskInfo — packages/agent-core-v2/src/agent/tools/agent/subagent-task.ts */ {
     readonly kind: 'agent';
@@ -1347,6 +1396,7 @@ export interface AgentStateSnapshot {
     readonly endedAt: number | null;
     readonly stopReason?: string;
     readonly terminalNotificationSuppressed?: boolean;
+    readonly resumeReminded?: boolean;
     readonly timeoutMs?: number;
   } | /* ProcessTaskInfo — packages/agent-core-v2/src/agent/tools/os/bash/process-task.ts */ {
     readonly kind: 'process';
@@ -1362,6 +1412,7 @@ export interface AgentStateSnapshot {
     readonly endedAt: number | null;
     readonly stopReason?: string;
     readonly terminalNotificationSuppressed?: boolean;
+    readonly resumeReminded?: boolean;
     readonly timeoutMs?: number;
   }>;
   // src/agent/task/taskService.ts
@@ -1379,6 +1430,7 @@ export interface AgentStateSnapshot {
     readonly endedAt: number | null;
     readonly stopReason?: string;
     readonly terminalNotificationSuppressed?: boolean;
+    readonly resumeReminded?: boolean;
     readonly timeoutMs?: number;
   } | /* SubagentTaskInfo — packages/agent-core-v2/src/agent/tools/agent/subagent-task.ts */ {
     readonly kind: 'agent';
@@ -1395,6 +1447,7 @@ export interface AgentStateSnapshot {
     readonly endedAt: number | null;
     readonly stopReason?: string;
     readonly terminalNotificationSuppressed?: boolean;
+    readonly resumeReminded?: boolean;
     readonly timeoutMs?: number;
   } | /* ProcessTaskInfo — packages/agent-core-v2/src/agent/tools/os/bash/process-task.ts */ {
     readonly kind: 'process';
@@ -1410,6 +1463,7 @@ export interface AgentStateSnapshot {
     readonly endedAt: number | null;
     readonly stopReason?: string;
     readonly terminalNotificationSuppressed?: boolean;
+    readonly resumeReminded?: boolean;
     readonly timeoutMs?: number;
   }>;
   // replayable · durable · undoable — folds: ContextAppendMessage, TaskWaitDelivered

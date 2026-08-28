@@ -200,4 +200,10 @@ describe('detach plumbing', () => {
     expect(read('../src/composables/usePythinkerWebClient.ts'))
       .toContain('detachTask: workspaceState.detachTask,');
   });
+
+  it('keeps the touch detach button compact with a 44px hit target', () => {
+    const source = read('../src/components/chat/tool-calls/BashTool.vue');
+    expect(source).toContain('.tl-detach.touch {\n  width: 16px;\n  height: 16px;\n}');
+    expect(source).toContain(".tl-detach.touch::after {\n  content: '';\n  position: absolute;\n  inset: -14px;");
+  });
 });

@@ -223,10 +223,6 @@ async function handleCatalogProviderAdd(host: SlashCommandHost): Promise<void> {
   // entered. The model selector that follows is just a convenience to pick the
   // default model; ESC leaves the provider in place without a default selection.
   const existingConfig = await host.harness.getConfig();
-  const poolSnapshot =
-    existingConfig.providers[providerId] !== undefined
-      ? existingConfig.secondaryModel
-      : undefined;
   if (existingConfig.providers[providerId] !== undefined) {
     await host.harness.removeProvider(providerId);
   }
@@ -246,11 +242,6 @@ async function handleCatalogProviderAdd(host: SlashCommandHost): Promise<void> {
     providers: config.providers,
     models: config.models,
   });
-
-  // Keep the user-owned secondary-model selection after the provider is re-added.
-  if (poolSnapshot !== undefined) {
-    await host.harness.setConfig({ secondaryModel: poolSnapshot });
-  }
 
   await host.authFlow.refreshConfigAfterLogin();
   host.track('connect', { provider: providerId, method: 'catalog' });

@@ -36,6 +36,7 @@ const props = defineProps<{
   sessionDone?: boolean;
   /** True while the session is pinned (sidebar pinned section). */
   pinned?: boolean;
+  panelVisible?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -49,6 +50,7 @@ const emit = defineEmits<{
   archiveSession: [id: string];
   restoreSession: [id: string];
   exportSession: [id: string];
+  togglePanel: [];
 }>();
 
 const ahead = computed(() => props.ahead ?? 0);
@@ -261,6 +263,13 @@ function restoreSession(): void {
         <span class="ch-ses">{{ sessionTitle }}</span>
       </Tooltip>
     </div>
+
+    <IconButton
+      v-if="!panelVisible"
+      class="ch-panel"
+      :label="t('panel.openPanel')"
+      @click="emit('togglePanel')"
+    ><Icon name="panel-expand-right" size="md" /></IconButton>
 
     <!-- More menu trigger: copy-all + session actions -->
     <IconButton

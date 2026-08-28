@@ -701,6 +701,18 @@ describe('usePythinkerWebClient (resync integration)', () => {
       ]),
       getFsHome: vi.fn(async () => ({ home: '/home/test', recentRoots: [] })),
       listSessions: vi.fn(async () => ({ items: [session], hasMore: false })),
+      listSessionGroupsV2: vi.fn(async () => ({
+        groups: [
+          {
+            workspace: { id: 'workspace-1', cwd: '/workspace' },
+            sessions: [{ ...session, busy: true, lastPrompt: 'Prompt' }],
+            total: 1,
+          },
+        ],
+        hasMore: false,
+        nextPageToken: null,
+        total: 1,
+      })),
       getSessionSnapshot,
       getSessionStatus: vi.fn(async () => ({
         model: 'model-1',

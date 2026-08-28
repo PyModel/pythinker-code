@@ -1,10 +1,11 @@
 import { mount } from '@vue/test-utils';
 import { createI18n, type I18n } from 'vue-i18n';
-import { defineComponent, nextTick } from 'vue';
+import { defineComponent, nextTick, ref } from 'vue';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import AgentDetailPanel from '../src/components/chat/AgentDetailPanel.vue';
+import { usePanelTabs } from '../src/composables/usePanelTabs';
 import type { AgentMember, ChatTurn } from '../src/types';
 
 vi.mock('markstream-vue', () => {
@@ -304,4 +305,28 @@ describe('AgentDetailPanel', () => {
     wrapper.unmount();
   });
 
+});
+
+describe('panel tabs', () => {
+  it('keeps multiple tabs and restores restorable tabs per session', async () => {
+    const sessionKey = ref('session-a');
+    const panel = usePanelTabs(sessionKey);
+    panel.openTab({ type: 'agent', title: 'Agent', icon: 'agent', key: 'agent-1' });
+    panel.openTab({ type: 'file', title: 'File', icon: 'file', key: '/repo/file.ts' });
+    panel.openTab({ type: 'compaction', title: 'Compaction', icon: 'compact', key: 'turn-1' });
+
+    expect(panel.tabs.value.map((tab) => tab.type)).toEqual(['agent', 'file', 'compaction']);
+
+    sessionKey.value = 'session-b';
+    await nextTick();
+    expect(panel.tabs.value).toEqual([]);
+    panel.openTab({ type: 'btw', title: 'Side chat', icon: 'message', key: 'agent-2' });
+
+    sessionKey.value = 'session-a';
+    await nextTick();
+
+    expect(panel.tabs.value.map((tab) => tab.type)).toEqual(['agent', 'compaction']);
+    expect(panel.activeTab.value?.type).toBe('compaction');
+    expect(panel.visible.value).toBe(true);
+  });
 });

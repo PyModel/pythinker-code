@@ -1,9 +1,4 @@
-import {
-  ConfigChanged,
-  IConfigService,
-  IEventService,
-  type Scope,
-} from '@pymodel/agent-core-v2';
+import { IConfigService, type Scope } from '@pymodel/agent-core-v2';
 
 import { errEnvelope, okEnvelope } from '../envelope';
 import { requestLog } from '../lib/requestLog';
@@ -80,9 +75,6 @@ export function registerConfigRoutes(app: ConfigRouteHost, core: Scope): void {
         }
         const response = toConfigResponse(config.getAll());
         const changedFields = Object.keys(req.body as Record<string, unknown>);
-        core.accessor.get(IEventService).publish(
-          new ConfigChanged({ payload: { changedFields, config: response } }),
-        );
         requestLog(req)?.info({ changedFields }, 'config updated');
         reply.send(okEnvelope(response, req.id));
       } catch (error) {
@@ -95,10 +87,17 @@ export function registerConfigRoutes(app: ConfigRouteHost, core: Scope): void {
   app.post(setRoute.path, setRoute.options, setRoute.handler as Parameters<ConfigRouteHost['post']>[2]);
 }
 
-function toConfigResponse(resolved: Record<string, unknown>): ConfigResponse {
+export function toConfigResponse(resolved: Record<string, unknown>): ConfigResponse {
   const wire: Record<string, unknown> = {};
   for (const [domain, value] of Object.entries(resolved)) {
-    wire[camelToSnake(domain)] = domain === 'providers' ? toProviderResponses(value) : value;
+    wire[camelToSnake(domain)] =
+      domain === 'providers'
+        ? toProviderResponses(value)
+        : domain === 'models'
+          ? toModelResponses(value)
+          : domain === 'services'
+            ? toServiceResponses(value)
+            : value;
   }
   const defaultPermissionMode = resolved['defaultPermissionMode'];
   if (typeof defaultPermissionMode === 'string') {
@@ -137,6 +136,47 @@ function hasProviderCredential(provider: ProviderLike): boolean {
   if (nonEmpty(provider.apiKey) !== undefined) return true;
   if (provider.oauth !== undefined) return true;
   return false;
+}
+
+interface CredentialLike {
+  readonly apiKey?: unknown;
+  readonly oauth?: unknown;
+}
+
+function toModelResponses(value: unknown): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  if (!isPlainObject(value)) return result;
+  for (const [id, raw] of Object.entries(value)) {
+    if (!isPlainObject(raw)) {
+      result[id] = raw;
+      continue;
+    }
+    const { apiKey: _apiKey, oauth: _oauth, ...rest } = raw;
+    result[id] = { ...rest, has_api_key: hasCredential(raw) };
+  }
+  return result;
+}
+
+function toServiceResponses(value: unknown): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  if (!isPlainObject(value)) return result;
+  for (const [id, raw] of Object.entries(value)) {
+    if (!isPlainObject(raw)) {
+      result[id] = raw;
+      continue;
+    }
+    const { apiKey: _apiKey, oauth: _oauth, customHeaders, ...rest } = raw;
+    result[id] = {
+      ...rest,
+      has_api_key: hasCredential(raw),
+      custom_header_keys: isPlainObject(customHeaders) ? Object.keys(customHeaders) : undefined,
+    };
+  }
+  return result;
+}
+
+function hasCredential(value: CredentialLike): boolean {
+  return nonEmpty(value.apiKey) !== undefined || value.oauth !== undefined;
 }
 
 function nonEmpty(value: unknown): string | undefined {

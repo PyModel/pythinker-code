@@ -76,6 +76,75 @@ function createApi(): DaemonPythinkerWebApi {
   });
 }
 
+describe('DaemonPythinkerWebApi.listSessionGroupsV2', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('uses the v2 grouped route and maps its session summary', async () => {
+    vi.stubGlobal('location', { search: '?debug=1' });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        envelope({
+          groups: [
+            {
+              workspace: { id: 'ws_1', cwd: '/repo' },
+              sessions: [
+                {
+                  id: 'sess_1',
+                  workspace: { id: 'ws_1', cwd: '/repo' },
+                  meta: {
+                    title: null,
+                    last_prompt: 'Fix startup',
+                    created_at: Date.parse('2026-08-01T00:00:00.000Z'),
+                    updated_at: Date.parse('2026-08-02T00:00:00.000Z'),
+                    archived: false,
+                    archived_at: null,
+                  },
+                  activity: { status: 'approval', model: 'test/model' },
+                },
+              ],
+              total: 7,
+            },
+          ],
+          total: 1,
+          has_more: true,
+          next_page_token: 'next',
+        }),
+      ),
+    );
+
+    const page = await createApi().listSessionGroupsV2({
+      groupPageSize: 5,
+      hasPrompt: true,
+      pageToken: 'cursor',
+    });
+
+    expect(vi.mocked(fetch).mock.calls[0]?.[0]).toBe(
+      'http://daemon.test/api/v2/sessions?view=by_workspace&group.page_size=5&meta.has_prompt=true&page_token=cursor',
+    );
+    expect(page).toMatchObject({
+      hasMore: true,
+      nextPageToken: 'next',
+      groups: [
+        {
+          total: 7,
+          sessions: [
+            {
+              id: 'sess_1',
+              title: 'Fix startup',
+              pendingInteraction: 'approval',
+              cwd: '/repo',
+              model: 'test/model',
+            },
+          ],
+        },
+      ],
+    });
+  });
+});
+
 describe('DaemonPythinkerWebApi.exportSession', () => {
   beforeEach(() => {
     vi.stubGlobal('location', { search: '?debug=1' });

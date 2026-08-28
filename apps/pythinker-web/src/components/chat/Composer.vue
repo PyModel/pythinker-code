@@ -36,6 +36,7 @@ import Input from '../ui/Input.vue';
 import AttachmentChip from './AttachmentChip.vue';
 import CapabilityMenu from '../CapabilityMenu.vue';
 import BottomSheet from '../dialogs/BottomSheet.vue';
+import Toast from '../ui/Toast.vue';
 import { useOpenMenu } from '../ui/openMenus';
 
 // ---------------------------------------------------------------------------
@@ -127,6 +128,42 @@ const { text, textareaRef, autosize, loadForEdit, clearDraft } = useComposerDraf
   sessionId: () => props.sessionId,
 });
 
+type ComposerQuote = {
+  id: number;
+  text: string;
+  comment?: string;
+  source?: string;
+};
+
+const quotes = ref<ComposerQuote[]>([]);
+let nextQuoteId = 1;
+
+function insertQuote(payload: { quote: string; comment?: string; source?: string }): void {
+  const quote = payload.quote.trim();
+  if (!quote) return;
+  quotes.value.push({
+    id: nextQuoteId++,
+    text: quote,
+    comment: payload.comment?.trim() || undefined,
+    source: payload.source?.trim() || undefined,
+  });
+  void nextTick(focus);
+}
+
+function removeQuote(id: number): void {
+  quotes.value = quotes.value.filter((quote) => quote.id !== id);
+}
+
+function quotePayloadText(trimmed: string): string {
+  const blocks = quotes.value.map((quote) => {
+    const quoted = quote.text.split('\n').map((line) => `> ${line}`).join('\n');
+    return [quote.source ? `From ${quote.source}:` : undefined, quoted, quote.comment]
+      .filter((part): part is string => Boolean(part))
+      .join('\n');
+  });
+  return [...blocks, trimmed].filter(Boolean).join('\n\n');
+}
+
 function togglePlanMode(): void {
   if (props.planArmed || props.planMode) return;
   if (props.goalMode) emit('toggleGoal');
@@ -209,6 +246,7 @@ watch(() => props.sessionId, () => {
   expanded.value = false;
   slashOpen.value = false;
   mentionOpen.value = false;
+  quotes.value = [];
 });
 
 // ---------------------------------------------------------------------------
@@ -459,8 +497,24 @@ const anyPopupOpen = computed(() =>
   || permDropdownOpen.value
   || modesOpen.value,
 );
-const isEmpty = computed(() => text.value.trim().length === 0 && attachments.value.length === 0);
-defineExpose({ loadForEdit, loadAttachmentsForEdit, focus, anyPopupOpen, isEmpty });
+const isEmpty = computed(() => text.value.trim().length === 0 && attachments.value.length === 0 && quotes.value.length === 0);
+defineExpose({ loadForEdit, loadAttachmentsForEdit, insertQuote, focus, anyPopupOpen, isEmpty });
+
+const commandWarning = ref<string | null>(null);
+let commandWarningTimer: ReturnType<typeof setTimeout> | null = null;
+
+function showCommandWarning(command: string): void {
+  commandWarning.value = t('composer.noArgCommand', { cmd: command });
+  if (commandWarningTimer !== null) clearTimeout(commandWarningTimer);
+  commandWarningTimer = setTimeout(() => {
+    commandWarning.value = null;
+    commandWarningTimer = null;
+  }, 3000);
+}
+
+onUnmounted(() => {
+  if (commandWarningTimer !== null) clearTimeout(commandWarningTimer);
+});
 
 // Build the wire-bound attachment payload: images/videos only need the fileId,
 // while file parts also carry name/mediaType/size for the daemon's file shape.
@@ -481,6 +535,7 @@ function onAttachmentActivate(att: Attachment): void {
 
 function handleSubmit(): void {
   const trimmed = text.value.trim();
+  const submittedText = quotePayloadText(trimmed);
 
   // An upload is still in flight — submitting now would silently send the
   // message WITHOUT the image. Keep the text + chips (the chip shows its
@@ -490,14 +545,10 @@ function handleSubmit(): void {
   // Allow submission with images even when text is empty
   const readyAttachments = attachments.value.filter((a) => !a.uploading && !a.error && a.fileId);
 
-  if (!trimmed && readyAttachments.length === 0) return;
+  if (!submittedText && readyAttachments.length === 0) return;
 
-  // Record for ↑/↓ recall before the slash branch so commands (with or without
-  // args) are recallable too, not just plain messages. `push` ignores empty /
-  // whitespace, so an image-only send adds nothing.
-  history.push(trimmed);
-
-  if (trimmed === '/plan') {
+  if (quotes.value.length === 0 && trimmed === '/plan') {
+    history.push(trimmed);
     text.value = '';
     clearDraft();
     slashOpen.value = false;
@@ -505,7 +556,8 @@ function handleSubmit(): void {
     togglePlanMode();
     return;
   }
-  if (trimmed === '/goal') {
+  if (quotes.value.length === 0 && trimmed === '/goal') {
+    history.push(trimmed);
     text.value = '';
     clearDraft();
     slashOpen.value = false;
@@ -518,14 +570,19 @@ function handleSubmit(): void {
   // `/dynamic_workflow <task>`, `/btw <question>`, slash skills with args, and bare
   // commands such as `/model`. A hand-typed bare skill name (`/deploy`) also
   // resolves to its prefixed menu entry (`/skill:deploy`), mirroring the TUI.
-  if (trimmed) {
+  if (quotes.value.length === 0 && trimmed) {
     const parsed = parseSlash(trimmed);
     const known = parsed
-      ? buildSlashItems(props.skills).some(
+      ? buildSlashItems(props.skills).find(
           (item) => item.name === parsed.cmd || item.name === `/${SKILL_COMMAND_PREFIX}${parsed.cmd.slice(1)}`,
         )
-      : false;
+      : undefined;
     if (parsed && known) {
+      if (parsed.arg.trim() && known.acceptsInput !== true) {
+        showCommandWarning(parsed.cmd);
+        return;
+      }
+      history.push(trimmed);
       text.value = '';
       clearDraft();
       slashOpen.value = false;
@@ -535,8 +592,10 @@ function handleSubmit(): void {
     }
   }
 
+  if (trimmed) history.push(trimmed);
+
   const payload = {
-    text: trimmed,
+    text: submittedText,
     attachments: readyAttachments.map((a) => toPromptAttachment(a)),
   };
 
@@ -545,6 +604,7 @@ function handleSubmit(): void {
   clearAfterSubmit();
 
   text.value = '';
+  quotes.value = [];
   clearDraft();
   slashOpen.value = false;
   mentionOpen.value = false;
@@ -562,16 +622,18 @@ function handleSteer(): void {
   if (attachments.value.some((a) => a.uploading)) return;
 
   const trimmed = text.value.trim();
+  const submittedText = quotePayloadText(trimmed);
   const readyAttachments = attachments.value.filter((a) => !a.uploading && !a.error && a.fileId);
-  if (!trimmed && readyAttachments.length === 0 && props.queued.length === 0) return;
+  if (!submittedText && readyAttachments.length === 0 && props.queued.length === 0) return;
 
   const payload = {
-    text: trimmed,
+    text: submittedText,
     attachments: readyAttachments.map((a) => toPromptAttachment(a)),
   };
   clearAfterSubmit();
-  history.push(trimmed);
+  if (trimmed) history.push(trimmed);
   text.value = '';
+  quotes.value = [];
   clearDraft();
   slashOpen.value = false;
   mentionOpen.value = false;
@@ -768,7 +830,7 @@ const sendLabel = computed(() => t('composer.send'));
 const hasUpload = computed(() => !!props.uploadImage);
 const canSend = computed(
   () => !attachments.value.some((attachment) => attachment.uploading)
-    && (text.value.trim() !== '' || attachments.value.some((attachment) => !attachment.error && attachment.fileId)),
+    && (text.value.trim() !== '' || quotes.value.length > 0 || attachments.value.some((attachment) => !attachment.error && attachment.fileId)),
 );
 const popupControls = computed(() => {
   if (slashOpen.value) return 'composer-slash-menu';
@@ -1537,6 +1599,22 @@ function selectModel(modelId: string): void {
     </div>
 
     <div class="composer-card" :class="{ 'labels-collapsed': labelsCollapsed }">
+      <div v-if="quotes.length > 0" class="quote-strip" :aria-label="t('selection.quoteLabel')">
+        <div v-for="quote in quotes" :key="quote.id" class="quote-chip">
+          <span class="quote-copy">
+            <span v-if="quote.source" class="quote-source">{{ quote.source }}</span>
+            <span class="quote-text">{{ quote.text }}</span>
+            <span v-if="quote.comment" class="quote-comment">{{ quote.comment }}</span>
+          </span>
+          <IconButton
+            size="sm"
+            :label="t('composer.removeNamed', { name: quote.text })"
+            @click="removeQuote(quote.id)"
+          >
+            <Icon name="close" size="sm" />
+          </IconButton>
+        </div>
+      </div>
       <div v-if="attachments.length > 0" class="att-strip">
         <div
           ref="attachmentScrollRef"
@@ -1964,6 +2042,17 @@ function selectModel(modelId: string): void {
       </div>
     </div>
     <Teleport to="body">
+      <Transition name="composer-warning">
+        <div v-if="commandWarning" class="composer-warning-toast" role="status" aria-live="polite">
+          <Toast
+            variant="warning"
+            :title="commandWarning"
+            :dismiss-label="t('common.dismiss')"
+            @dismiss="commandWarning = null"
+          />
+        </div>
+      </Transition>
+
       <BottomSheet
         :model-value="isMobile && slashOpen"
         :title="t('composer.slashSheetTitle')"
@@ -2055,6 +2144,18 @@ function selectModel(modelId: string): void {
     transition: background .12s
 }
 
+.composer-warning-toast {
+  position: fixed;
+  right: var(--space-4);
+  bottom: var(--space-4);
+  z-index: var(--z-toast);
+  max-width: calc(100vw - 2 * var(--space-4));
+}
+.composer-warning-enter-active,
+.composer-warning-leave-active { transition: opacity 0.15s ease, transform 0.15s ease; }
+.composer-warning-enter-from,
+.composer-warning-leave-to { opacity: 0; transform: translateY(6px); }
+
 
 .composer.drag-over {
     background: var(--color-accent-soft)
@@ -2132,6 +2233,46 @@ function selectModel(modelId: string): void {
 
 .composer-card:focus-within:after {
     opacity: 1
+}
+
+.quote-strip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    padding: calc(var(--space-4) + var(--space-05)) var(--space-4) 0
+}
+
+.quote-chip {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    max-width: 100%;
+    min-width: 0;
+    padding: var(--space-1) var(--space-1) var(--space-1) var(--space-2);
+    border: .5px solid var(--color-line);
+    border-left: 2px solid var(--color-accent);
+    border-radius: var(--radius-md);
+    background: var(--color-surface-raised)
+}
+
+.quote-copy {
+    display: grid;
+    min-width: 0;
+    max-width: min(420px, 70vw)
+}
+
+.quote-source,
+.quote-comment {
+    color: var(--color-text-muted);
+    font-size: var(--text-xs)
+}
+
+.quote-text {
+    overflow: hidden;
+    color: var(--color-text);
+    font-size: var(--text-sm);
+    text-overflow: ellipsis;
+    white-space: nowrap
 }
 
 

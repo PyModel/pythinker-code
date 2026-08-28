@@ -228,7 +228,7 @@ const v2SessionSchema = z.object({
     archived: z.boolean(),
     archived_at: z.number().int().nullable(),
   }),
-  activity: z.object({ status: v2ActivityStatusSchema }),
+  activity: z.object({ status: v2ActivityStatusSchema, model: z.string().nullable() }),
   git: v2GitDomainSchema.optional(),
 });
 
@@ -585,6 +585,7 @@ export function registerV2SessionsRoutes(app: V2SessionsRouteHost, core: Scope):
         }
         return summaries.map((summary) => {
           const cwd = cwdOf(summary);
+          const facts = factsOf(summary.id);
           return {
             id: summary.id,
             workspace: { id: summary.workspaceId, cwd },
@@ -596,7 +597,10 @@ export function registerV2SessionsRoutes(app: V2SessionsRouteHost, core: Scope):
               archived: summary.archived,
               archived_at: summary.archivedAt ?? null,
             },
-            activity: { status: mapActivityStatus(factsOf(summary.id), summary.lastTurnReason) },
+            activity: {
+              status: mapActivityStatus(facts, summary.lastTurnReason),
+              model: facts.model ?? null,
+            },
             git:
               gitByCwd === undefined
                 ? undefined

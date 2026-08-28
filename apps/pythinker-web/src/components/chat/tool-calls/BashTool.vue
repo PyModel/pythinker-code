@@ -119,9 +119,13 @@ watch(
   box-shadow: var(--p-focus-ring);
 }
 .tl-detach.touch {
-  width: 44px;
-  height: 44px;
-  margin-left: 14px;
+  width: 16px;
+  height: 16px;
+}
+.tl-detach.touch::after {
+  content: '';
+  position: absolute;
+  inset: -14px;
 }
 .bash-command {
   padding: var(--space-3);

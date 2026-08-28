@@ -78,11 +78,6 @@ export function useDetailPanel({
   const compactionPanelVisible = computed(() => compactionPanelText.value !== null);
 
   function openCompactionPanel(target: { turnId: string }): void {
-    if (compactionTarget.value?.turnId === target.turnId) {
-      compactionTarget.value = null;
-      if (detailTarget.value === 'compaction') detailTarget.value = null;
-      return;
-    }
     detailTarget.value = 'compaction';
     compactionTarget.value = target;
   }
@@ -193,14 +188,6 @@ export function useDetailPanel({
     const sessionId = client.activeSessionId.value;
     if (!target || !sessionId) return;
     const subagentId = resolveAgentId(target);
-    if (
-      detailTarget.value === 'agent' &&
-      agentTarget.value?.sessionId === sessionId &&
-      agentTarget.value.subagentId === subagentId
-    ) {
-      closeAgentPanel();
-      return;
-    }
     const previous = agentTarget.value;
     if (previous && previous.subagentId !== subagentId) {
       client.auxiliaryTranscripts.deactivate(previous.sessionId, previous.subagentId);
@@ -256,10 +243,6 @@ export function useDetailPanel({
   const toolDiffVisible = computed(() => toolDiffTarget.value !== null);
 
   function openToolDiff(id: string): void {
-    if (detailTarget.value === 'toolDiff' && toolDiffToolId.value === id) {
-      closeToolDiff();
-      return;
-    }
     detailTarget.value = 'toolDiff';
     toolDiffToolId.value = id;
   }
@@ -276,10 +259,6 @@ export function useDetailPanel({
   const detailDiffPath = ref<string | null>(null);
 
   function openDiffDetail(): void {
-    if (detailTarget.value === 'diff') {
-      closeDiffDetail();
-      return;
-    }
     detailTarget.value = 'diff';
     detailDiffMode.value = 'list';
     detailDiffPath.value = null;
@@ -342,68 +321,6 @@ export function useDetailPanel({
       transition is disabled so the panel follows the pointer 1:1. */
   const panelDragging = ref(false);
 
-  // ---------------------------------------------------------------------------
-  // Per-session panel snapshot (in-memory only). Switching sessions still closes
-  // the right-side detail layer, but for the transient panels whose content is
-  // re-derived from the session's turns (compaction / agent /
-  // toolDiff) or already stored per session (btw), we remember which one was
-  // open and restore it when the user switches back.
-  //
-  // File preview ('file') and git diff ('diff') are intentionally excluded:
-  // their content is tied to the active session's cwd / git state and is
-  // re-fetched on demand, so restoring them across sessions would be ambiguous.
-  // ---------------------------------------------------------------------------
-  type PanelSnapshot =
-    | { kind: 'compaction'; turnId: string }
-    | { kind: 'agent'; sessionId: string; subagentId: string }
-    | { kind: 'toolDiff'; toolId: string }
-    | { kind: 'btw' };
-
-  const snapshotBySession = ref<Record<string, PanelSnapshot>>({});
-
-  function captureSnapshot(): PanelSnapshot | null {
-    switch (detailTarget.value) {
-      case 'compaction':
-        return compactionTarget.value ? { kind: 'compaction', ...compactionTarget.value } : null;
-      case 'agent':
-        return agentTarget.value ? { kind: 'agent', ...agentTarget.value } : null;
-      case 'toolDiff':
-        return toolDiffToolId.value ? { kind: 'toolDiff', toolId: toolDiffToolId.value } : null;
-      case 'btw':
-        return { kind: 'btw' };
-      default:
-        return null;
-    }
-  }
-
-  function restoreSnapshot(snap: PanelSnapshot | undefined): void {
-    if (!snap) return;
-    switch (snap.kind) {
-      case 'compaction':
-        compactionTarget.value = { turnId: snap.turnId };
-        detailTarget.value = 'compaction';
-        break;
-      case 'agent': {
-        const sessionId = client.activeSessionId.value;
-        if (!sessionId) break;
-        const subagentId = resolveAgentId(snap.subagentId);
-        agentTarget.value = { sessionId, subagentId };
-        detailTarget.value = 'agent';
-        client.auxiliaryTranscripts.activate(sessionId, subagentId);
-        break;
-      }
-      case 'toolDiff':
-        toolDiffToolId.value = snap.toolId;
-        detailTarget.value = 'toolDiff';
-        break;
-      case 'btw':
-        // Only re-open the BTW panel if this session still has a live side chat;
-        // the snapshot can outlive it if the user closed the side chat explicitly.
-        if (client.sideChatVisible.value) detailTarget.value = 'btw';
-        break;
-    }
-  }
-
   // Escape closes whichever transient right-side detail panel is open.
   function closeOpenSidePanel(): boolean {
     if (detailTarget.value === 'compaction' && compactionPanelVisible.value) { closeCompactionPanel(); return true; }
@@ -415,25 +332,13 @@ export function useDetailPanel({
     return false;
   }
 
-  watch(client.activeSessionId, (newId, oldId) => {
-    // Remember the leaving session's open panel (restorable kinds only) before
-    // the close calls below wipe the target refs.
-    if (oldId) {
-      const snap = captureSnapshot();
-      if (snap) snapshotBySession.value[oldId] = snap;
-      else delete snapshotBySession.value[oldId];
-    }
-    // Close everything for the incoming session (unchanged behavior).
+  watch(client.activeSessionId, () => {
     closeFilePreview();
     closeCompactionPanel();
     closeAgentPanel();
     closeToolDiff();
     closeDiffDetail();
     hideSideChatPanel();
-    // Restore the entering session's panel, if it had one.
-    if (newId) {
-      restoreSnapshot(snapshotBySession.value[newId]);
-    }
   });
 
   return {

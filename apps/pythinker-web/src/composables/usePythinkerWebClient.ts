@@ -114,7 +114,6 @@ const sound = useSoundNotification();
 // Internal reactive state (plain object wrapped in reactive())
 // ---------------------------------------------------------------------------
 
-const PERMISSION_STORAGE_KEY = STORAGE_KEYS.permission;
 const ACTIVE_WORKSPACE_KEY = STORAGE_KEYS.activeWorkspace;
 const PLAN_MODE_STORAGE_KEY = STORAGE_KEYS.planMode;
 const PLAN_ARMED_STORAGE_KEY = STORAGE_KEYS.planArmed;
@@ -141,27 +140,7 @@ safeRemove(STORAGE_KEYS.theme);
 // The per-model thinking pick store was dropped in favor of the daemon's
 // per-session thinking state — clear the old key so stale picks can't linger.
 safeRemove(STORAGE_KEYS.thinking);
-
-/** The explicit permission pick persisted for this browser, or null when the
- *  user never picked one locally — an unset pick means the chat page follows
- *  the daemon's default_permission_mode instead of a hardcoded fallback. */
-function loadPermissionFromStorage(): PermissionMode | null {
-  try {
-    const v = safeGetString(PERMISSION_STORAGE_KEY);
-    if (v === 'auto' || v === 'yolo' || v === 'manual') return v;
-  } catch {
-    // localStorage not available (e.g. jsdom without config)
-  }
-  return null;
-}
-
-function savePermissionToStorage(mode: PermissionMode): void {
-  try {
-    safeSetString(PERMISSION_STORAGE_KEY, mode);
-  } catch {
-    // ignore
-  }
-}
+safeRemove(STORAGE_KEYS.permission);
 
 // Plan / dynamic_workflow / goal modes are per-session. Each is persisted as a compact
 // JSON map of only the `true` entries (cleared sessions are dropped), keyed by
@@ -318,6 +297,7 @@ export interface ExtendedState extends PythinkerClientState {
   workspaceName: string;
   connection: ConnectionState;
   permission: PermissionMode;
+  permissionBySession: Record<string, PermissionMode>;
   /** The thinking level shown and submitted for the ACTIVE session. Resolved by
    *  useModelProviderState: the session's own daemon-reported level
    *  (`thinkingBySession`) when the model still declares it, else the model's
@@ -408,7 +388,8 @@ const rawState: ExtendedState = reactive({
   backend: 'v1',
   workspaceName: 'pythinker-web',
   connection: 'disconnected' as ConnectionState,
-  permission: loadPermissionFromStorage() ?? 'manual',
+  permission: 'manual',
+  permissionBySession: {},
   // Resolved per session/model once the catalog/session is known (loadModels
   // and the active-session watcher in useModelProviderState) — the per-session
   // map below starts empty and is fed by /status folds.
@@ -462,16 +443,9 @@ const draftModes = reactive<{ planMode: boolean; dynamicWorkflowMode: boolean; g
   goalMode: false,
 });
 
-/** True once this browser has an explicit permission pick in localStorage.
- *  Without one, the chat page follows the daemon's default_permission_mode
- *  (seeded on config load) instead of showing a hardcoded 'manual'. */
-const hasExplicitPermissionPick = loadPermissionFromStorage() !== null;
-
-/** Adopt the daemon's default permission mode for browsers that never picked
- *  one locally. Called after GET /config resolves; a later explicit pick (via
- *  setPermission) wins from then on because it writes localStorage. */
+/** Apply the daemon default to the not-yet-created draft session. */
 function seedPermissionFromDaemonDefault(): void {
-  if (hasExplicitPermissionPick) return;
+  if (rawState.activeSessionId) return;
   const mode = rawState.config?.defaultPermissionMode;
   if (mode === 'auto' || mode === 'yolo' || mode === 'manual') {
     rawState.permission = mode;
@@ -707,11 +681,11 @@ async function refreshSessionStatus(sessionId: string): Promise<void> {
   }));
   rawState.dynamicWorkflowModeBySession = { ...rawState.dynamicWorkflowModeBySession, [sessionId]: st.dynamicWorkflowMode };
   rawState.planModeBySession = { ...rawState.planModeBySession, [sessionId]: st.planMode };
-  // Fold the session's effective permission mode too — the pill must reflect
-  // what the daemon will actually enforce for the active session (the daemon
-  // applies config defaults at agent creation), not a stale local value.
+  // Fold the effective permission into this session only. A delayed response
+  // from a background session must not change the active session's control.
   if (st.permission === 'auto' || st.permission === 'yolo' || st.permission === 'manual') {
-    rawState.permission = st.permission;
+    rawState.permissionBySession = { ...rawState.permissionBySession, [sessionId]: st.permission };
+    if (rawState.activeSessionId === sessionId) rawState.permission = st.permission;
   }
   // Fold the session's own thinking level too — per-session state wins over the
   // per-model storage pick (see thinkingBySession on ExtendedState).
@@ -2506,7 +2480,9 @@ const status = computed<ConversationStatus>(() => {
     modelId: matched?.id ?? rawModel,
     ctxUsed: activeSession?.usage.contextTokens ?? 0,
     ctxMax: activeSession?.usage.contextLimit ?? 0,
-    permission: rawState.permission,
+    permission: activeSession
+      ? rawState.permissionBySession[activeSession.id] ?? rawState.permission
+      : rawState.permission,
     branch,
     cwd: activeSession?.cwd ?? '',
     isGitRepo: gitInfo.value !== null,
@@ -2921,7 +2897,6 @@ const workspaceState = useWorkspaceState(rawState, {
   workspacesView,
   status,
   workspaceIdForSession,
-  savePermissionToStorage,
   seedPermissionFromDaemonDefault,
   savePlanModeToStorage,
   saveDynamicWorkflowModeToStorage,
