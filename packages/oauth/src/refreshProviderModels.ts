@@ -327,10 +327,11 @@ function clampDanglingDefault(config: PythinkerConfigShape): void {
 function clampDanglingSecondaryModel(config: PythinkerConfigShape): void {
   const section = config.secondaryModel;
   if (section === undefined) return;
-  const bound = section.defaultModel ?? section.model;
-  if (bound !== undefined && readModel(config, bound) === undefined) {
-    config.secondaryModel = undefined;
-    return;
+  for (const bound of [section.defaultModel, section.model]) {
+    if (bound !== undefined && readModel(config, bound) === undefined) {
+      config.secondaryModel = undefined;
+      return;
+    }
   }
   if (section.models === undefined) return;
   const models = Object.fromEntries(
