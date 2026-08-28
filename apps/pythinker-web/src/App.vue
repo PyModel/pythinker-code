@@ -735,7 +735,9 @@ async function handleUpdateConfig(patch: Partial<AppConfig>): Promise<void> {
   try {
     const saved = await client.updateConfig(patch);
     if (saved) {
-      await client.refreshRuntimeState();
+      // Flag state and other server-decided metadata may change with the
+      // saved config; re-read /meta so the Lab chips reflect the new state.
+      await Promise.all([client.refreshRuntimeState(), client.refreshServerMeta()]);
     }
   } finally {
     configSaving.value = false;

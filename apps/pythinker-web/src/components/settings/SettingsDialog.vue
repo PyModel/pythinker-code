@@ -318,6 +318,15 @@ async function loadServerMeta(): Promise<void> {
   }
 }
 
+// A saved config can change what the server decides (flag sources, effective
+// values); re-read the metadata so the Lab chips never show a pre-save state.
+watch(
+  () => props.config,
+  () => {
+    void loadServerMeta();
+  },
+);
+
 function exportLog(): void {
   downloadTraceLog();
 }
@@ -1371,9 +1380,9 @@ function archiveTime(iso: string): string {
 .flag-chip {
   display: inline-block;
   width: fit-content;
-  margin-top: 4px;
-  padding: 1px 8px;
-  border-radius: 999px;
+  margin-top: var(--space-1);
+  padding: 1px var(--space-2);
+  border-radius: var(--radius-full);
   border: 1px solid var(--color-line);
   font-family: var(--font-ui);
   font-size: var(--text-xs);

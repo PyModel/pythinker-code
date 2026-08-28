@@ -1,3 +1,4 @@
+import { metaResponseSchema } from '../src/protocol/rest-meta';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -109,9 +110,10 @@ describe('/api/v1/meta experimental_flags', () => {
   async function getMetaFlagState(base: string, id: string): Promise<MetaFlagState> {
     const res = await authedFetch(server as RunningServer, base, '/api/v1/meta');
     const body = (await res.json()) as MetaBody;
-    const state = body.data.experimental_flag_states?.find((entry) => entry.id === id);
-    expect(state).toBeDefined();
-    return state as MetaFlagState;
+    const data = metaResponseSchema.parse(body.data);
+    const state = data.experimental_flag_states?.find((entry) => entry.id === id);
+    if (state === undefined) throw new Error(`flag state "${id}" missing from /meta`);
+    return state;
   }
 
   it('reports env-enabled + config-disabled as externally controlled and overridden', async () => {

@@ -3303,6 +3303,7 @@ export function usePythinkerWebClient() {
     // Config state + actions
     config,
     updateConfig: workspaceState.updateConfig,
+    refreshServerMeta: workspaceState.refreshServerMeta,
 
     // Auth actions
     checkAuth: workspaceState.checkAuth,
