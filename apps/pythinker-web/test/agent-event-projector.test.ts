@@ -647,7 +647,9 @@ describe('background subagent task registration', () => {
   it('clears suspendedReason when a later subagent.suspended carries no reason', () => {
     const projector = createAgentProjector();
     projector.project('subagent.spawned', { subagentId: 'agent-1', description: 'Explore repo' }, 's1');
-    projector.project('subagent.suspended', { subagentId: 'agent-1', reason: 'waiting for input' }, 's1');
+    const first = projector.project('subagent.suspended', { subagentId: 'agent-1', reason: 'waiting for input' }, 's1');
+    expect(first).toHaveLength(1);
+    expect((first[0] as { task: Record<string, unknown> }).task['suspendedReason']).toBe('waiting for input');
 
     const events = projector.project('subagent.suspended', { subagentId: 'agent-1' }, 's1');
 
