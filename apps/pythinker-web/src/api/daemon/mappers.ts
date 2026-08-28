@@ -3,6 +3,7 @@
 // All snake_case ↔ camelCase conversion happens ONLY here.
 
 import type {
+  AppSubagentRouting,
   AppExperimentalFlagState,
   AppApprovalRequest,
   AppCatalogProvider,
@@ -33,6 +34,7 @@ import type {
 } from '../types';
 
 import type {
+  WireSubagentRouting,
   WireExperimentalFlagState,
   WireApprovalRequest,
   WireApprovalResponse,
@@ -369,6 +371,73 @@ export function toWireQuestionResponse(input: QuestionResponse): WireQuestionRes
 // Task mapper
 // ---------------------------------------------------------------------------
 
+export function toAppSubagentRouting(wire: unknown): AppSubagentRouting | undefined {
+  if (typeof wire !== 'object' || wire === null) return undefined;
+  const r = wire as Partial<WireSubagentRouting>;
+  if (
+    typeof r.operation !== 'string' ||
+    typeof r.profile_source !== 'string' ||
+    typeof r.model_source !== 'string' ||
+    typeof r.policy_mode !== 'string' ||
+    typeof r.policy_source !== 'string' ||
+    typeof r.feature_source !== 'string' ||
+    typeof r.routing_env_revision !== 'string' ||
+    typeof r.route_decision !== 'string'
+  ) {
+    return undefined;
+  }
+  return {
+    operation: r.operation,
+    profileSource: r.profile_source,
+    modelSource: r.model_source,
+    policyMode: r.policy_mode,
+    policySource: r.policy_source,
+    featureSource: r.feature_source,
+    routingEnvRevision: r.routing_env_revision,
+    routeDecision: r.route_decision,
+  };
+}
+
+/** Engine-side camelCase provenance (WS `subagent.spawned` / `task.started` payloads). */
+export function toAppSubagentRoutingFromEvent(payload: unknown): AppSubagentRouting | undefined {
+  if (typeof payload !== 'object' || payload === null) return undefined;
+  const r = payload as Record<string, unknown>;
+  const str = (key: string): string | undefined => {
+    const value = r[key];
+    return typeof value === 'string' ? value : undefined;
+  };
+  const operation = str('operation');
+  const profileSource = str('profileSource');
+  const modelSource = str('modelSource');
+  const policyMode = str('policyMode');
+  const policySource = str('policySource');
+  const featureSource = str('featureSource');
+  const routingEnvRevision = str('resolvedFromRoutingEnvironmentRevision');
+  const routeDecision = str('routeDecisionFingerprint');
+  if (
+    operation === undefined ||
+    profileSource === undefined ||
+    modelSource === undefined ||
+    policyMode === undefined ||
+    policySource === undefined ||
+    featureSource === undefined ||
+    routingEnvRevision === undefined ||
+    routeDecision === undefined
+  ) {
+    return undefined;
+  }
+  return {
+    operation: operation as AppSubagentRouting['operation'],
+    profileSource: profileSource as AppSubagentRouting['profileSource'],
+    modelSource: modelSource as AppSubagentRouting['modelSource'],
+    policyMode: policyMode as AppSubagentRouting['policyMode'],
+    policySource: policySource as AppSubagentRouting['policySource'],
+    featureSource: featureSource as AppSubagentRouting['featureSource'],
+    routingEnvRevision,
+    routeDecision,
+  };
+}
+
 export function toAppTask(wire: WireTask): AppTask {
   return {
     id: wire.id,
@@ -385,6 +454,8 @@ export function toAppTask(wire: WireTask): AppTask {
     agentId: wire.agent_id,
     model: wire.model,
     thinkingEffort: wire.thinking_effort,
+    routing: toAppSubagentRouting(wire.routing),
+    currentRoutingEnvRevision: wire.current_routing_env_revision,
     subagentPhase: wire.subagent_phase,
     subagentType: wire.subagent_type,
     parentToolCallId: wire.parent_tool_call_id,

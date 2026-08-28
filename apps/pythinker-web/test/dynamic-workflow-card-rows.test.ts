@@ -115,3 +115,76 @@ describe('buildDynamicWorkflowCardRows', () => {
     expect(rows.map((r) => r.id)).toEqual(['a1']);
   });
 });
+
+describe('buildDynamicWorkflowCardRows binding pass-through', () => {
+  const routing = {
+    operation: 'spawn' as const,
+    profileSource: 'default' as const,
+    modelSource: 'policy-force' as const,
+    policyMode: 'force' as const,
+    policySource: 'config' as const,
+    featureSource: 'env' as const,
+    routingEnvRevision: 'route-env:v1:aaa',
+    routeDecision: 'route-decision:v1:bbb',
+  };
+
+  it('keeps profile, model, effort, routing and timestamps from live members', () => {
+    const rows = buildDynamicWorkflowCardRows(
+      [
+        {
+          ...member('t1', 'Review #1'),
+          subagentType: 'explore',
+          model: 'acme/luna',
+          thinkingEffort: 'low',
+          routing,
+          currentRoutingEnvRevision: 'route-env:v1:now',
+          startedAt: '2026-01-01T00:00:00.000Z',
+          completedAt: '2026-01-01T00:00:05.000Z',
+        },
+      ],
+      null,
+    );
+    expect(rows[0]).toMatchObject({
+      live: true,
+      profile: 'explore',
+      model: 'acme/luna',
+      thinkingEffort: 'low',
+      routing,
+      currentRoutingEnvRevision: 'route-env:v1:now',
+      startedAt: '2026-01-01T00:00:00.000Z',
+      completedAt: '2026-01-01T00:00:05.000Z',
+    });
+  });
+
+  it('keeps the durable binding attributes on result-only rows after a reload', () => {
+    const rows = buildDynamicWorkflowCardRows(
+      [],
+      result([
+        {
+          outcome: 'completed',
+          item: 'alpha',
+          agentId: 'a1',
+          body: 'done',
+          profile: 'explore',
+          model: 'acme/luna',
+          thinking: 'low',
+          routing,
+          startedAt: '2026-01-01T00:00:00.000Z',
+          completedAt: '2026-01-01T00:00:05.000Z',
+        },
+        { outcome: 'completed', item: 'beta', body: 'old row' },
+      ]),
+    );
+    expect(rows[0]).toMatchObject({
+      live: false,
+      profile: 'explore',
+      model: 'acme/luna',
+      thinkingEffort: 'low',
+      routing,
+      startedAt: '2026-01-01T00:00:00.000Z',
+      completedAt: '2026-01-01T00:00:05.000Z',
+    });
+    expect(rows[1]?.routing).toBeUndefined();
+    expect(rows[1]?.model).toBeUndefined();
+  });
+});

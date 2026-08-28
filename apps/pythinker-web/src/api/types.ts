@@ -317,6 +317,30 @@ export interface QuestionResponse {
 export type AppTaskStatus = 'running' | 'completed' | 'failed' | 'cancelled';
 export type AppSubagentPhase = 'queued' | 'working' | 'suspended' | 'completed' | 'failed' | 'cancelled';
 
+export type AppSubagentRoutingOperation = 'spawn' | 'fork' | 'resume';
+export type AppSubagentProfileSource = 'requested' | 'default' | 'fork-inherit' | 'resume-existing';
+export type AppSubagentModelSource =
+  | 'caller'
+  | 'policy-default'
+  | 'policy-pool'
+  | 'policy-force'
+  | 'fork-inherit'
+  | 'resume-existing';
+export type AppSubagentPolicyMode = 'inherit' | 'default' | 'pool' | 'force';
+export type AppSubagentPolicySource = 'config' | 'default';
+export type AppSubagentFeatureSource = 'master-env' | 'env' | 'config' | 'default';
+
+export interface AppSubagentRouting {
+  operation: AppSubagentRoutingOperation;
+  profileSource: AppSubagentProfileSource;
+  modelSource: AppSubagentModelSource;
+  policyMode: AppSubagentPolicyMode;
+  policySource: AppSubagentPolicySource;
+  featureSource: AppSubagentFeatureSource;
+  routingEnvRevision: string;
+  routeDecision: string;
+}
+
 export interface AppTask {
   id: string;
   sessionId: string;
@@ -333,6 +357,10 @@ export interface AppTask {
   agentId?: string;
   model?: string;
   thinkingEffort?: string;
+  /** Why the subagent is bound the way it is (stable enum ids from the server). */
+  routing?: AppSubagentRouting;
+  /** The caller's routing environment revision when this task was observed. */
+  currentRoutingEnvRevision?: string;
   outputLines?: string[]; // accumulated by eventReducer from task.progress chunks
   /** The subagent's concatenated live output (assistant.delta), accumulated by
    *  the event reducer from `taskProgress` chunks of kind `text`. Grows in the

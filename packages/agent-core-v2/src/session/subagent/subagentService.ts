@@ -10,26 +10,17 @@ import {
 import { Emitter } from '#/_base/event';
 import type { AgentProfileSummaryPolicy } from '#/app/agentProfileCatalog/agentProfileCatalog';
 import { applyProfilePromptPrefix } from '#/app/agentProfileCatalog/promptPrefix';
-import {
-  rootDelegationExtras,
-  subagentAllowlistFor,
-  subagentTypeNotAllowedMessage,
-  withoutDelegatingTargets,
-} from '#/app/agentProfileCatalog/profile-shared';
 import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import { IAgentUserToolService } from '#/agent/userTool/userTool';
 import { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
 import type { Runtime } from '#/runtime/runtime';
-import { IConfigService } from '#/app/config/config';
-import { IFlagService } from '#/app/flag/flag';
-import { IModelCatalog, type Model } from '#/kosong/model/catalog';
 import { ILogService } from '#/_base/log/log';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { RuntimeWorkspaceView } from '#/runtime/runtimeWorkspaceView';
 import { createHooks } from '#/hooks';
-import { IAgentLifecycleService, MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
+import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { agentContextOf } from '#/agent/scopeContext/scopeContext';
 
 import {
@@ -41,19 +32,16 @@ import {
   type RunAgentOptions,
 } from './subagent';
 import { runAgentTurn } from './runAgentTurn';
+import { wrapSubagentModelError } from './configSection';
+import { IAgentBindingProvenanceService } from './bindingProvenance';
 import {
-  resolveSubagentBinding,
-  resolveSubagentThinking,
-  wrapSubagentModelError,
-} from './configSection';
-import {
-  DEFAULT_PROFILE_NAME,
   FORK_CONTEXT_NOTICE,
   type SpawnSubagentOptions,
   type SpawnedSubagent,
   type SubagentSpawnPlan,
   type SubagentSpawnPlanInput,
 } from './spawn';
+import { ISubagentRoutingService } from './subagentRoutingService';
 
 export class SessionSubagentService extends Service implements ISessionSubagentService {
   declare readonly _serviceBrand: undefined;
@@ -70,11 +58,9 @@ export class SessionSubagentService extends Service implements ISessionSubagentS
   constructor(
     @IAgentLifecycleService private readonly agentLifecycle: IAgentLifecycleService,
     @ISessionAgentProfileCatalog private readonly catalog: ISessionAgentProfileCatalog,
-    @IConfigService private readonly configService: IConfigService,
-    @IFlagService private readonly flags: IFlagService,
-    @IModelCatalog private readonly modelCatalog: IModelCatalog,
     @ISessionContext private readonly sessionContext: ISessionContext,
     @ILogService private readonly log: ILogService,
+    @ISubagentRoutingService private readonly routing: ISubagentRoutingService,
   ) {
     super();
   }
@@ -94,61 +80,7 @@ export class SessionSubagentService extends Service implements ISessionSubagentS
   }
 
   async planSpawn(input: SubagentSpawnPlanInput): Promise<SubagentSpawnPlan> {
-    const caller = this.requireCaller(input.callerAgentId);
-    const fork = input.fork === true;
-    await this.catalog.ready;
-    const own = caller.accessor.get(IAgentProfileService).data();
-    const requested = input.profileName !== undefined && input.profileName.length > 0
-      ? input.profileName
-      : undefined;
-    const requestedProfileName =
-      requested ?? (fork ? (own.profileName ?? DEFAULT_PROFILE_NAME) : DEFAULT_PROFILE_NAME);
-    const extras =
-      input.callerAgentId === MAIN_AGENT_ID
-        ? rootDelegationExtras(this.catalog, own, this.catalog.list())
-        : undefined;
-    let allowlist = subagentAllowlistFor(this.catalog, own, extras);
-    if (allowlist !== undefined && own.subagents === undefined) {
-      allowlist = withoutDelegatingTargets(this.catalog, allowlist);
-    }
-    if (!fork && allowlist !== undefined && !allowlist.includes(requestedProfileName)) {
-      throw new Error2(
-        ErrorCodes.AGENT_TYPE_NOT_ALLOWED,
-        subagentTypeNotAllowedMessage(requestedProfileName, allowlist),
-        { details: { profileName: requestedProfileName, allowlist } },
-      );
-    }
-    const profile = this.catalog.get(requestedProfileName);
-    if (!fork && profile === undefined) {
-      throw new Error2(ErrorCodes.PROFILE_UNKNOWN, `Unknown agent type: "${requestedProfileName}"`, {
-        details: { profileName: requestedProfileName },
-      });
-    }
-    if (own.modelAlias === undefined) {
-      throw new Error2(ErrorCodes.MODEL_NOT_CONFIGURED, 'Caller agent has no model bound', {
-        details: { agentId: input.callerAgentId },
-      });
-    }
-    const binding = fork
-      ? { model: own.modelAlias, thinking: own.thinkingLevel }
-      : resolveSubagentBinding(
-          this.configService,
-          this.flags,
-          { modelAlias: own.modelAlias, thinkingLevel: own.thinkingLevel },
-          input.model,
-        );
-    let model: Model;
-    try {
-      model = this.modelCatalog.get(binding.model);
-    } catch (error) {
-      throw wrapSubagentModelError(error, binding.model, own.modelAlias);
-    }
-    return {
-      profileName: profile?.name ?? requestedProfileName,
-      model: binding.model,
-      thinking: resolveSubagentThinking(this.configService, model, binding.thinking),
-      fork,
-    };
+    return this.routing.resolve(input);
   }
 
   async spawn(opts: SpawnSubagentOptions): Promise<SpawnedSubagent> {
@@ -183,6 +115,9 @@ export class SessionSubagentService extends Service implements ISessionSubagentS
           plan.model,
           caller.accessor.get(IAgentProfileService).data().modelAlias,
         );
+      }
+      if (plan.routing !== undefined) {
+        created.accessor.get(IAgentBindingProvenanceService).record(plan.routing);
       }
       created.accessor
         .get(IAgentPermissionModeService)

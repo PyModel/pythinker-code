@@ -64,6 +64,55 @@ describe('subagent streaming text', () => {
     });
   });
 
+  it('keeps the routing provenance and current revision from subagent.spawned on the task', () => {
+    const projector = createAgentProjector();
+    const events = projector.project(
+      'subagent.spawned',
+      {
+        subagentId: 'sub-r',
+        subagentName: 'coder',
+        description: 'Fix it',
+        model: 'acme/luna',
+        thinkingEffort: 'low',
+        routing: {
+          operation: 'resume',
+          profileSource: 'resume-existing',
+          modelSource: 'resume-existing',
+          policyMode: 'inherit',
+          policySource: 'default',
+          featureSource: 'config',
+          resolvedFromRoutingEnvironmentRevision: 'route-env:v1:old',
+          routeDecisionFingerprint: 'route-decision:v1:x',
+        },
+        currentRoutingEnvironmentRevision: 'route-env:v1:new',
+      },
+      's1',
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: 'taskCreated',
+        task: expect.objectContaining({
+          id: 'sub-r',
+          model: 'acme/luna',
+          routing: {
+            operation: 'resume',
+            profileSource: 'resume-existing',
+            modelSource: 'resume-existing',
+            policyMode: 'inherit',
+            policySource: 'default',
+            featureSource: 'config',
+            routingEnvRevision: 'route-env:v1:old',
+            routeDecision: 'route-decision:v1:x',
+          },
+          currentRoutingEnvRevision: 'route-env:v1:new',
+        }),
+      }),
+    );
+    const plain = projector.project('subagent.spawned', { subagentId: 'sub-p', description: 'Plain' }, 's1');
+    const task = (plain.find((e) => e.type === 'taskCreated') as { task?: { routing?: unknown } } | undefined)?.task;
+    expect(task?.routing).toBeUndefined();
+  });
+
   it('drops an empty subagent assistant.delta', () => {
     const projector = createAgentProjector();
     const events = projector.project('assistant.delta', { agentId: 'sub-1', delta: '' }, 's1');

@@ -25,7 +25,8 @@ import type {
 } from '../types';
 import { i18n } from '../../i18n';
 import { toolLabel, toolSummary } from '../../lib/toolMeta';
-import { toAppMessageContent } from './mappers';
+import {
+  toAppSubagentRoutingFromEvent, toAppMessageContent } from './mappers';
 import type { WireMessageContent } from './wire';
 
 // Subagent turns share the parent session id: their turn / step / delta / tool
@@ -1177,6 +1178,11 @@ export function createAgentProjector(): AgentProjector {
           model: typeof p?.model === 'string' ? p.model : undefined,
           thinkingEffort:
             typeof p?.thinkingEffort === 'string' ? p.thinkingEffort : undefined,
+          routing: toAppSubagentRoutingFromEvent(p?.routing),
+          currentRoutingEnvRevision:
+            typeof p?.currentRoutingEnvironmentRevision === 'string'
+              ? p.currentRoutingEnvironmentRevision
+              : undefined,
           parentToolCallId: typeof p?.parentToolCallId === 'string' ? p.parentToolCallId : undefined,
           dynamicWorkflowIndex: typeof p?.dynamicWorkflowIndex === 'number' ? p.dynamicWorkflowIndex : undefined,
           runInBackground: p?.runInBackground === true,
@@ -1357,6 +1363,11 @@ export function createAgentProjector(): AgentProjector {
               model: typeof info.model === 'string' ? info.model : undefined,
               thinkingEffort:
                 typeof info.thinkingEffort === 'string' ? info.thinkingEffort : undefined,
+              routing: toAppSubagentRoutingFromEvent(info.routing),
+              currentRoutingEnvRevision:
+                typeof info.currentRoutingEnvironmentRevision === 'string'
+                  ? info.currentRoutingEnvironmentRevision
+                  : undefined,
               runInBackground: true,
             });
             if (task) out.push({ type: 'taskCreated', sessionId, task });

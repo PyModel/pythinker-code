@@ -4,6 +4,7 @@ import {
   getLiveSessionById,
   type AgentTaskInfo,
   type Scope,
+  type SubagentBindingProvenance,
 } from '@pymodel/agent-core-v2';
 import { ErrorCode } from '../protocol/error-codes';
 import {
@@ -14,7 +15,7 @@ import {
   listTasksQuerySchema,
   listTasksResponseSchema,
 } from '../protocol/rest-task';
-import type { Task, TaskKind, TaskStatus } from '../protocol/task';
+import type { SubagentRoutingWire, Task, TaskKind, TaskStatus } from '../protocol/task';
 import { z } from 'zod';
 
 import { errEnvelope, okEnvelope } from '../envelope';
@@ -298,6 +299,12 @@ function toWireTask(
   if (info.kind === 'agent' && info.thinkingEffort !== undefined) {
     base.thinking_effort = info.thinkingEffort;
   }
+  if (info.kind === 'agent' && info.routing !== undefined) {
+    base.routing = toRoutingWire(info.routing);
+  }
+  if (info.kind === 'agent' && info.currentRoutingEnvironmentRevision !== undefined) {
+    base.current_routing_env_revision = info.currentRoutingEnvironmentRevision;
+  }
   if (info.kind === 'agent' && info.agentId !== undefined) {
     base.agent_id = info.agentId;
   }
@@ -315,6 +322,19 @@ function toWireTask(
     base.output_bytes = output.bytes;
   }
   return base;
+}
+
+export function toRoutingWire(routing: SubagentBindingProvenance): SubagentRoutingWire {
+  return {
+    operation: routing.operation,
+    profile_source: routing.profileSource,
+    model_source: routing.modelSource,
+    policy_mode: routing.policyMode,
+    policy_source: routing.policySource,
+    feature_source: routing.featureSource,
+    routing_env_revision: routing.resolvedFromRoutingEnvironmentRevision,
+    route_decision: routing.routeDecisionFingerprint,
+  };
 }
 
 function sessionNotFound(sid: string, requestId: string): unknown {

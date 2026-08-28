@@ -60,6 +60,8 @@ import {
   type RunAgentOptions,
 } from '#/session/subagent/subagent';
 import { IEventBus } from '#/app/event/eventBus';
+import { IAgentBindingProvenanceService } from '#/session/subagent/bindingProvenance';
+import type { SubagentBindingProvenance } from '#/session/subagent/routing';
 import type { Event2 } from '#/app/event/event2';
 import { IConfigService } from '#/app/config/config';
 import { IFlagService } from '#/app/flag/flag';
@@ -263,6 +265,7 @@ function createAgentLifecycleStub(options: AgentLifecycleStubOptions = {}): Agen
     }
     return context;
   };
+  const recordedProvenance = new Map<string, SubagentBindingProvenance>();
   const handle = (agentId: string): IAgentScopeHandle => ({
     id: agentId,
     kind: LifecycleScope.Agent,
@@ -272,6 +275,15 @@ function createAgentLifecycleStub(options: AgentLifecycleStubOptions = {}): Agen
         if (service !== undefined) return service as never;
         if (serviceId === IAgentLifecycleService) return lifecycle as never;
         if (serviceId === ISessionSubagentService) return lifecycle as never;
+        if (serviceId === IAgentBindingProvenanceService) {
+          return {
+            _serviceBrand: undefined,
+            current: () => recordedProvenance.get(agentId),
+            record: (provenance: SubagentBindingProvenance) => {
+              if (!recordedProvenance.has(agentId)) recordedProvenance.set(agentId, provenance);
+            },
+          } as never;
+        }
         if (serviceId === IAgentScopeContext) {
           return {
             _serviceBrand: undefined,
@@ -2968,7 +2980,7 @@ describe('AgentDynamicWorkflow tool execution contract', () => {
           runInBackground: false,
           signal,
           timeout: DEFAULT_SUBAGENT_TIMEOUT_MS,
-          plan: { profileName: 'explore', model: 'mock-model', thinking: 'off', fork: false },
+          plan: expect.objectContaining({ profileName: 'explore', model: 'mock-model', thinking: 'off', fork: false }),
         },
         {
           kind: 'spawn',
@@ -2982,7 +2994,7 @@ describe('AgentDynamicWorkflow tool execution contract', () => {
           runInBackground: false,
           signal,
           timeout: DEFAULT_SUBAGENT_TIMEOUT_MS,
-          plan: { profileName: 'explore', model: 'mock-model', thinking: 'off', fork: false },
+          plan: expect.objectContaining({ profileName: 'explore', model: 'mock-model', thinking: 'off', fork: false }),
         },
       ],
     });
@@ -3046,11 +3058,11 @@ describe('AgentDynamicWorkflow tool execution contract', () => {
         tasks: [
           expect.objectContaining({
             kind: 'spawn',
-            plan: { profileName: 'explore', model: 'provider/fast', thinking: undefined, fork: false },
+            plan: expect.objectContaining({ profileName: 'explore', model: 'provider/fast', thinking: undefined, fork: false }),
           }),
           expect.objectContaining({
             kind: 'spawn',
-            plan: { profileName: 'explore', model: 'provider/fast', thinking: undefined, fork: false },
+            plan: expect.objectContaining({ profileName: 'explore', model: 'provider/fast', thinking: undefined, fork: false }),
           }),
         ],
       }),
@@ -3108,11 +3120,11 @@ describe('AgentDynamicWorkflow tool execution contract', () => {
         tasks: [
           expect.objectContaining({
             kind: 'spawn',
-            plan: { profileName: 'explore', model: 'mock-model', thinking: 'off', fork: false },
+            plan: expect.objectContaining({ profileName: 'explore', model: 'mock-model', thinking: 'off', fork: false }),
           }),
           expect.objectContaining({
             kind: 'spawn',
-            plan: { profileName: 'explore', model: 'mock-model', thinking: 'off', fork: false },
+            plan: expect.objectContaining({ profileName: 'explore', model: 'mock-model', thinking: 'off', fork: false }),
           }),
         ],
       }),
@@ -3231,7 +3243,7 @@ describe('AgentDynamicWorkflow tool execution contract', () => {
           runInBackground: false,
           signal,
           timeout: DEFAULT_SUBAGENT_TIMEOUT_MS,
-          plan: { profileName: 'explore', model: 'mock-model', thinking: 'off', fork: false },
+          plan: expect.objectContaining({ profileName: 'explore', model: 'mock-model', thinking: 'off', fork: false }),
         },
       ],
     });

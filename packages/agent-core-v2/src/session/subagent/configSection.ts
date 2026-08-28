@@ -34,6 +34,7 @@ import {
   subagentPolicyModelChoices,
   validateSubagentModelPolicy,
 } from './policy';
+import { resolveSubagentModelRoute } from './routing';
 
 export {
   PRIMARY_SUBAGENT_MODEL_CHOICE,
@@ -197,49 +198,8 @@ export function resolveSubagentBinding(
 ): { model: string; thinking?: string } {
   const enabled = flags.enabled(SECONDARY_MODEL_FLAG_ID);
   const policy = enabled ? configuredPolicy(config) : INHERIT_SUBAGENT_MODEL_POLICY;
-  if (policy.mode === 'force') {
-    if (requested !== undefined) {
-      throw new Error2(
-        ErrorCodes.CONFIG_INVALID,
-        `Invalid model "${requested}": [secondary_model].force is set, so every subagent binds "${policy.defaultModel}" (omit the model parameter).`,
-        { details: { model: requested } },
-      );
-    }
-    return { model: policy.defaultModel, thinking: policy.defaultEffort };
-  }
-  if (requested === PRIMARY_SUBAGENT_MODEL_CHOICE) {
-    return { model: own.modelAlias, thinking: own.thinkingLevel };
-  }
-  if (policy.mode === 'inherit') {
-    if (requested !== undefined) {
-      throw new Error2(
-        ErrorCodes.CONFIG_INVALID,
-        `Invalid model "${requested}": no [secondary_model.models] pool is configured, so subagents inherit the caller's model (pass "primary" or omit the model parameter).`,
-        { details: { model: requested } },
-      );
-    }
-    return { model: own.modelAlias, thinking: own.thinkingLevel };
-  }
-  const choices = subagentPolicyModelChoices(policy) ?? {};
-  if (Object.hasOwn(choices, PRIMARY_SUBAGENT_MODEL_CHOICE)) {
-    throw new Error2(ErrorCodes.CONFIG_INVALID, SECONDARY_MODEL_PRIMARY_MODEL_RESERVED_MESSAGE, {
-      details: {
-        section: SECONDARY_MODEL_SECTION,
-        field: 'models',
-        model: PRIMARY_SUBAGENT_MODEL_CHOICE,
-      },
-    });
-  }
-  const choice = requested ?? policy.defaultModel;
-  if (!Object.hasOwn(choices, choice)) {
-    const available = [...Object.keys(choices), PRIMARY_SUBAGENT_MODEL_CHOICE];
-    throw new Error2(
-      ErrorCodes.CONFIG_INVALID,
-      `Invalid model "${choice}". Available models: ${available.join(', ')}.`,
-      { details: { model: choice, availableModels: available } },
-    );
-  }
-  return { model: choice, thinking: policy.defaultEffort };
+  const route = resolveSubagentModelRoute({ policy, own, requested });
+  return { model: route.model, thinking: route.thinking };
 }
 
 export function resolveSubagentThinking(
