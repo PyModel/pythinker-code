@@ -16,10 +16,13 @@ import {
 } from '#/session/agentLifecycle/subagentMetadata';
 import { emitAgentRunSpawned, mirrorAgentRun } from '#/session/subagent/mirrorAgentRun';
 import { ISessionSubagentService } from '#/session/subagent/subagent';
+import type { SubagentBindingProvenance } from '#/session/subagent/routing';
+import { ISubagentRoutingService } from '#/session/subagent/subagentRoutingService';
 import { ISessionMetadata, type AgentMeta } from '#/session/sessionMetadata/sessionMetadata';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 
 import {
+  type SubagentRunBinding,
   ISessionDynamicWorkflowService,
   type SessionDynamicWorkflowRunArgs,
   type SessionDynamicWorkflowRunResult,
@@ -56,6 +59,7 @@ export class SessionDynamicWorkflowService implements ISessionDynamicWorkflowSer
     @IAgentLifecycleService private readonly lifecycle: IAgentLifecycleService,
     @ISessionSubagentService private readonly subagents: ISessionSubagentService,
     @ISessionMetadata private readonly metadata: ISessionMetadata,
+    @ISubagentRoutingService private readonly routing: ISubagentRoutingService,
   ) {}
 
   async getDynamicWorkflowItem(args: {
@@ -126,6 +130,8 @@ export class SessionDynamicWorkflowService implements ISessionDynamicWorkflowSer
       runInBackground: options.runInBackground,
       fork: plan.fork,
       model: plan.model,
+      routing: plan.routing,
+      currentRoutingEnvironmentRevision: plan.routing?.resolvedFromRoutingEnvironmentRevision,
     });
     const child = this.requireHandle(spawned.agentId, 'Agent instance');
     return this.observe(
@@ -137,6 +143,10 @@ export class SessionDynamicWorkflowService implements ISessionDynamicWorkflowSer
         prompt: spawned.promptText,
       },
       options,
+      {
+        routing: plan.routing,
+        currentRoutingEnvironmentRevision: plan.routing?.resolvedFromRoutingEnvironmentRevision,
+      },
     );
   }
 
@@ -153,6 +163,7 @@ export class SessionDynamicWorkflowService implements ISessionDynamicWorkflowSer
     this.requireIdleSubagent(agentId, child);
     const profileName =
       child.accessor.get(IAgentProfileService).data().profileName ?? RESUMED_PROFILE_FALLBACK;
+    const resumedRouting = this.routing.resumed(callerAgentId, child);
     if (!retryTurn) {
       const resumedModel = child.accessor.get(IAgentProfileService).data().modelAlias;
       emitAgentRunSpawned(caller, agentId, {
@@ -163,12 +174,14 @@ export class SessionDynamicWorkflowService implements ISessionDynamicWorkflowSer
         dynamicWorkflowIndex: options.dynamicWorkflowIndex,
         runInBackground: options.runInBackground,
         model: resumedModel,
+        routing: resumedRouting.routing,
+        currentRoutingEnvironmentRevision: resumedRouting.currentRoutingEnvironmentRevision,
       });
     }
     const request = retryTurn
       ? ({ kind: 'retry' } as const)
       : ({ kind: 'prompt', prompt: options.prompt } as const);
-    return this.observe(caller, child, profileName, request, options);
+    return this.observe(caller, child, profileName, request, options, resumedRouting);
   }
 
   private async observe(
@@ -177,8 +190,21 @@ export class SessionDynamicWorkflowService implements ISessionDynamicWorkflowSer
     profileName: string,
     request: { kind: 'prompt'; prompt: string } | { kind: 'retry' },
     options: AgentRunAttemptOptions,
+    routing: {
+      readonly routing?: SubagentBindingProvenance;
+      readonly currentRoutingEnvironmentRevision?: string;
+    },
   ): Promise<AgentRunAttemptHandle> {
     const agentId = child.id;
+    const childProfile = child.accessor.get(IAgentProfileService);
+    const binding: SubagentRunBinding = {
+      profileName,
+      model: childProfile.data().modelAlias,
+      thinking: childProfile.getEffectiveThinkingLevel(),
+      routing: routing.routing,
+      currentRoutingEnvironmentRevision: routing.currentRoutingEnvironmentRevision,
+      startedAt: Date.now(),
+    };
     const run = await this.subagents.run(agentContextOf(child), request, {
       signal: options.signal,
       onReady: options.onReady,
@@ -192,6 +218,7 @@ export class SessionDynamicWorkflowService implements ISessionDynamicWorkflowSer
     return {
       agentId,
       profileName,
+      binding,
       completion: mirrored.then((r) => ({ result: r.summary, usage: r.usage })),
     };
   }

@@ -8,7 +8,8 @@ import { Error2, ErrorCodes } from '#/errors';
 import { toInputJsonSchema } from '#/tool/input-schema';
 import { IConfigService } from '#/app/config/config';
 import { IFlagService } from '#/app/flag/flag';
-import { ISessionDynamicWorkflowService, type SessionDynamicWorkflowTask } from '#/features/dynamic_workflow/session/sessionDynamicWorkflow';
+import {
+  type SessionDynamicWorkflowRunResult, ISessionDynamicWorkflowService, type SessionDynamicWorkflowTask } from '#/features/dynamic_workflow/session/sessionDynamicWorkflow';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentDynamicWorkflowService } from '#/features/dynamic_workflow/agent/dynamic_workflow';
@@ -66,6 +67,7 @@ interface DynamicWorkflowRunResult {
   readonly state?: 'started' | 'not_started';
   readonly result?: string;
   readonly error?: string;
+  readonly binding?: SessionDynamicWorkflowRunResult['binding'];
 }
 
 export class AgentDynamicWorkflowTool implements IAgentDynamicWorkflowTool {
@@ -319,14 +321,37 @@ function renderDynamicWorkflowResults(results: readonly DynamicWorkflowRunResult
     const mode = result.spec.kind === 'resume' ? ' mode="resume"' : '';
     const item = result.spec.item === undefined ? '' : ` item="${escapeXmlAttribute(result.spec.item)}"`;
     const state = result.state === undefined ? '' : ` state="${result.state}"`;
+    const binding = renderBindingAttributes(result.binding);
     const body = result.status === 'completed' ? (result.result ?? '') : (result.error ?? 'unknown error');
     lines.push(
-      `<subagent${mode}${agentId}${item}${state} outcome="${result.status}">${body}</subagent>`,
+      `<subagent${mode}${agentId}${item}${state}${binding} outcome="${result.status}">${body}</subagent>`,
     );
   }
 
   lines.push('</agent_dynamic_workflow_result>');
   return lines.join('\n');
+}
+
+function renderBindingAttributes(binding: DynamicWorkflowRunResult['binding']): string {
+  if (binding === undefined) return '';
+  const attrs: Array<[string, string | undefined]> = [
+    ['profile', binding.profileName],
+    ['model', binding.model],
+    ['thinking', binding.thinking],
+    ['profile_source', binding.routing?.profileSource],
+    ['model_source', binding.routing?.modelSource],
+    ['policy_mode', binding.routing?.policyMode],
+    ['policy_source', binding.routing?.policySource],
+    ['feature_source', binding.routing?.featureSource],
+    ['routing_env_revision', binding.routing?.resolvedFromRoutingEnvironmentRevision],
+    ['route_decision', binding.routing?.routeDecisionFingerprint],
+    ['started_at', new Date(binding.startedAt).toISOString()],
+    ['completed_at', new Date(binding.completedAt).toISOString()],
+  ];
+  return attrs
+    .filter((entry): entry is [string, string] => entry[1] !== undefined && entry[1].length > 0)
+    .map(([name, value]) => ` ${name}="${escapeXmlAttribute(value)}"`)
+    .join('');
 }
 
 function normalizeOptionalString(value: string | undefined): string | undefined {

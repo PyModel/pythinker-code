@@ -1,4 +1,5 @@
 import { PRIMARY_SUBAGENT_MODEL_CHOICE } from './configSection';
+import type { SubagentBindingProvenance } from './routing';
 
 export const DEFAULT_PROFILE_NAME = 'coder';
 
@@ -56,6 +57,7 @@ export interface SubagentSpawnPlan {
   readonly model: string;
   readonly thinking?: string;
   readonly fork: boolean;
+  readonly routing?: SubagentBindingProvenance;
 }
 
 export interface SpawnSubagentOptions {

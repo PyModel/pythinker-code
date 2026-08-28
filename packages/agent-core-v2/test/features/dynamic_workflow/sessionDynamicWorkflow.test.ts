@@ -1,3 +1,4 @@
+import { ISubagentRoutingService } from '#/session/subagent/subagentRoutingService';
 import { createControlledPromise } from '@antfu/utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -908,6 +909,12 @@ describe('SessionDynamicWorkflowService metadata compatibility', () => {
       registerAgent: async (agentId, meta) => {
         agents[agentId] = meta;
       },
+    });
+    ix.stub(ISubagentRoutingService, {
+      _serviceBrand: undefined,
+      resolve: () => Promise.reject(new Error('not stubbed')),
+      resumed: () => ({ routing: undefined, currentRoutingEnvironmentRevision: 'route-env:v1:test' }),
+      currentRevision: () => 'route-env:v1:test',
     });
     ix.set(ISessionDynamicWorkflowService, new SyncDescriptor(SessionDynamicWorkflowService));
   });
