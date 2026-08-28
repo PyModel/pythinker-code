@@ -2,6 +2,7 @@ export default {
   tag: 'tasks',
   summary: '{run} running · {done} done',
   copy: 'Copy',
+  toBackground: 'To background',
   calling: 'Calling {label}',
   fieldTask: 'Task',
   fieldOutput: 'Output',

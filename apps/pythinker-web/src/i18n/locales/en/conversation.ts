@@ -100,6 +100,11 @@ export default {
   // Markdown table widen toggle
   widenTable: 'Widen table',
   restoreTableWidth: 'Restore default width',
+  wrapCode: 'Enable word wrap',
+  unwrapCode: 'Disable word wrap',
+  showLineNumbers: 'Show line numbers',
+  hideLineNumbers: 'Hide line numbers',
+  backToBottom: 'Back to bottom',
   // Failed-turn recovery banner (ChatPane.vue)
   turnFailedResume: 'Continue',
   /** Fixed prompt text submitted by the failed-turn "Continue" button. */

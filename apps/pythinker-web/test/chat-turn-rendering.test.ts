@@ -107,6 +107,28 @@ describe('toolStackPosition', () => {
   });
 });
 
+describe('message folding settings', () => {
+  it('keeps consecutive tools as separate rows when the run summary is off', () => {
+    const turn = assistantTurn([toolBlock('a'), toolBlock('b')]);
+    expect(assistantRenderBlocks(turn, true)[0]?.kind).toBe('activity-run');
+
+    const rendered = assistantRenderBlocks(turn, false);
+    expect(rendered).toHaveLength(2);
+    expect(rendered.map((block) => block.kind)).toEqual(['tool', 'tool']);
+  });
+
+  it('folds nothing when auto-fold is off', () => {
+    const blocks = assistantRenderBlocks(
+      assistantTurn([toolBlock('a'), toolBlock('b'), { kind: 'text', text: 'done' }]),
+    );
+    expect(foldRenderBlocks(blocks, true).folded.length).toBeGreaterThan(0);
+
+    const off = foldRenderBlocks(blocks, false);
+    expect(off.folded).toEqual([]);
+    expect(off.visible).toEqual(blocks);
+  });
+});
+
 describe('assistantRenderBlocks', () => {
   it('folds consecutive renderable tools into one activity-run', () => {
     const rendered = assistantRenderBlocks(assistantTurn([toolBlock('a'), toolBlock('b')]));

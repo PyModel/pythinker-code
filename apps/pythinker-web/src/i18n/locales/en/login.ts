@@ -13,6 +13,7 @@ export default {
   waitingAutoClose: 'Waiting for authorization, signs in automatically…',
   success: 'Authorized',
   successHint: 'Loading, will close automatically…',
+  deniedTitle: 'Sign-in cancelled',
   expiredTitle: 'Authorization code expired',
   expiredHint: 'Please restart the authorization flow',
   retry: 'Retry',
