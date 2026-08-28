@@ -471,6 +471,8 @@ export class SubagentTool implements ISubagentTool {
           fork: args.fork === true,
           model: handle.model,
           taskId,
+          routing: handle.routing,
+          currentRoutingEnvironmentRevision: handle.currentRoutingEnvironmentRevision,
         });
         void requester.accessor
           .get(IEventDispatcher)

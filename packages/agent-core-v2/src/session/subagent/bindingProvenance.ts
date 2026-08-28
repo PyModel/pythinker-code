@@ -12,9 +12,27 @@ import { IEventDispatcher } from '#/state/eventDispatcher';
 
 import type { SubagentBindingProvenance } from './routing';
 
+export const subagentBindingProvenanceSchema = z.object({
+  operation: z.enum(['spawn', 'fork', 'resume']),
+  profileSource: z.enum(['requested', 'default', 'fork-inherit', 'resume-existing']),
+  modelSource: z.enum([
+    'caller',
+    'policy-default',
+    'policy-pool',
+    'policy-force',
+    'fork-inherit',
+    'resume-existing',
+  ]),
+  policyMode: z.enum(['inherit', 'default', 'pool', 'force']),
+  policySource: z.enum(['config', 'default']),
+  featureSource: z.enum(['master-env', 'env', 'config', 'default']),
+  resolvedFromRoutingEnvironmentRevision: z.string().min(1),
+  routeDecisionFingerprint: z.string().min(1),
+}) satisfies z.ZodType<SubagentBindingProvenance>;
+
 const subagentBindingProvenanceRecordedSchema = z.object({
   agentId: z.string(),
-  provenance: z.custom<SubagentBindingProvenance>(),
+  provenance: subagentBindingProvenanceSchema,
 });
 
 export class SubagentBindingProvenanceRecorded extends AgentEvent2<
@@ -33,7 +51,7 @@ export const subagentBindingProvenanceKey = defineState(
   'subagent.bindingProvenance',
   (): SubagentBindingProvenance | undefined => undefined,
 )
-  .replayable({ schema: z.custom<SubagentBindingProvenance | undefined>() })
+  .replayable({ schema: subagentBindingProvenanceSchema.optional() })
   .on(SubagentBindingProvenanceRecorded, (_state, event) => event.provenance);
 
 export interface IAgentBindingProvenanceService {
@@ -58,7 +76,7 @@ export class AgentBindingProvenanceService implements IAgentBindingProvenanceSer
   }
 
   current(): SubagentBindingProvenance | undefined {
-    return this.agentState.get(subagentBindingProvenanceKey) as SubagentBindingProvenance | undefined;
+    return this.agentState.get(subagentBindingProvenanceKey);
   }
 
   record(provenance: SubagentBindingProvenance): void {
