@@ -45,6 +45,8 @@ export interface ExperimentalFeatureState {
   readonly enabled: boolean;
   readonly source: ExperimentalFlagSource;
   readonly configValue?: boolean;
+  readonly externallyControlled: boolean;
+  readonly overridden: boolean;
 }
 
 export interface IFlagService {

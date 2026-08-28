@@ -7,7 +7,13 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { usePythinkerWebClient } from '../../composables/usePythinkerWebClient';
 import { getPythinkerWebApi } from '../../api';
-import type { AppConfig, AppModel, AppSession } from '../../api/types';
+import type {
+  AppConfig,
+  AppExperimentalFlagState,
+  AppModel,
+  AppServerMeta,
+  AppSession,
+} from '../../api/types';
 import { useDialogFocus } from '../../composables/useDialogFocus';
 import { useConfirmDialog } from '../../composables/useConfirmDialog';
 import {
@@ -62,6 +68,8 @@ const props = defineProps<{
   serverVersion?: string;
   /** Backend engine generation from GET /api/v1/meta ('v1' legacy, 'v2' agent-gateway). */
   backend?: 'v1' | 'v2';
+  /** Effective experimental flag states from GET /api/v1/meta. */
+  experimentalFlagStates?: AppExperimentalFlagState[];
   initialTab?: 'general' | 'providers';
 }>();
 
@@ -108,7 +116,7 @@ const desktopUpdateBusy = ref(false);
 const desktopUpdateActionError = ref<string>();
 let removeDesktopUpdateListener: (() => void) | undefined;
 const resolvedAppVersion = computed(() => desktopUpdateState.value?.installedVersion ?? appVersion);
-const serverMeta = ref<{ serverVersion: string; serverId: string; backend: 'v1' | 'v2' } | null>(null);
+const serverMeta = ref<Pick<AppServerMeta, 'serverVersion' | 'serverId' | 'backend'> & Partial<AppServerMeta> | null>(null);
 const resolvedServerVersion = computed(() => serverMeta.value?.serverVersion || props.serverVersion || '-');
 const resolvedBackend = computed(() => serverMeta.value?.backend ?? props.backend ?? 'v1');
 const backendLabel = computed(() =>
@@ -501,6 +509,13 @@ const modelInfoById = computed<Record<string, AppModel>>(() =>
 
 function experimentalFlag(flag: string): boolean {
   return props.config?.experimental?.[flag] === true;
+}
+
+// Effective state comes from the server: the switch edits the saved setting,
+// the chips explain when that setting is not what currently applies.
+function experimentalFlagState(flag: string): AppExperimentalFlagState | undefined {
+  const fromMeta = serverMeta.value?.experimentalFlagStates?.find((state) => state.id === flag);
+  return fromMeta ?? props.experimentalFlagStates?.find((state) => state.id === flag);
 }
 
 function toggleExperimental(flag: string, value: boolean): void {
@@ -1158,6 +1173,8 @@ function archiveTime(iso: string): string {
                 <span class="rlabel">
                   {{ t('settings.lab.sidebarTabs') }}
                   <span class="hint">{{ t('settings.lab.sidebarTabsHint') }}</span>
+                  <span v-if="experimentalFlagState('sidebarTabs')?.externallyControlled" class="flag-chip">{{ t('settings.lab.environmentControlled') }}</span>
+                  <span v-if="experimentalFlagState('sidebarTabs')?.overridden" class="flag-chip flag-chip--warn">{{ t('settings.lab.savedSettingOverridden') }}</span>
                 </span>
                 <Switch
                   :model-value="experimentalFlag('sidebarTabs')"
@@ -1170,6 +1187,8 @@ function archiveTime(iso: string): string {
                 <span class="rlabel">
                   {{ t('settings.lab.secondaryModel') }}
                   <span class="hint">{{ t('settings.lab.secondaryModelHint') }}</span>
+                  <span v-if="experimentalFlagState('secondary-model')?.externallyControlled" class="flag-chip">{{ t('settings.lab.environmentControlled') }}</span>
+                  <span v-if="experimentalFlagState('secondary-model')?.overridden" class="flag-chip flag-chip--warn">{{ t('settings.lab.savedSettingOverridden') }}</span>
                 </span>
                 <Switch
                   :model-value="experimentalFlag('secondary-model')"
@@ -1349,6 +1368,18 @@ function archiveTime(iso: string): string {
 }
 .value-wrap .rvalue { max-width: 100%; }
 .hint { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--color-text-faint); }
+.flag-chip {
+  display: inline-block;
+  width: fit-content;
+  margin-top: 4px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--color-line);
+  font-family: var(--font-ui);
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+}
+.flag-chip--warn { color: var(--color-warning); border-color: var(--color-warning-bd); background: var(--color-warning-soft); }
 
 .desktop-update-card {
   --desktop-update-icon-size: 42px;

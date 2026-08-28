@@ -97,6 +97,21 @@ export async function registerApiV1Routes(
           await core.accessor.get(IConfigService).ready;
           return core.accessor.get(IFlagService).snapshot();
         },
+        getExperimentalFlagStates: async () => {
+          await core.accessor.get(IConfigService).ready;
+          return core.accessor
+            .get(IFlagService)
+            .explainAll()
+            .map((state) => ({
+              id: state.id,
+              enabled: state.enabled,
+              source: state.source,
+              config_value: state.configValue,
+              default_enabled: state.defaultEnabled,
+              externally_controlled: state.externallyControlled,
+              overridden: state.overridden,
+            }));
+        },
         getFeatures: () =>
           core.accessor
             .get(IFeatureManager)

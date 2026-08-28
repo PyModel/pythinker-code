@@ -10,9 +10,22 @@ import { type RunningServer, startServer } from '../src/start';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 import { authedFetch } from './helpers/auth';
 
+interface MetaFlagState {
+  id: string;
+  enabled: boolean;
+  source: string;
+  config_value?: boolean;
+  default_enabled: boolean;
+  externally_controlled: boolean;
+  overridden: boolean;
+}
+
 interface MetaBody {
   code: number;
-  data: { experimental_flags?: Record<string, boolean> };
+  data: {
+    experimental_flags?: Record<string, boolean>;
+    experimental_flag_states?: MetaFlagState[];
+  };
 }
 
 describe('/api/v1/meta experimental_flags', () => {
@@ -91,6 +104,49 @@ describe('/api/v1/meta experimental_flags', () => {
     expect(res.status).toBe(200);
 
     expect((await getMetaFlags(base))['tool-select']).toBe(true);
+  });
+
+  async function getMetaFlagState(base: string, id: string): Promise<MetaFlagState> {
+    const res = await authedFetch(server as RunningServer, base, '/api/v1/meta');
+    const body = (await res.json()) as MetaBody;
+    const state = body.data.experimental_flag_states?.find((entry) => entry.id === id);
+    expect(state).toBeDefined();
+    return state as MetaFlagState;
+  }
+
+  it('reports env-enabled + config-disabled as externally controlled and overridden', async () => {
+    vi.stubEnv('PYTHINKER_CODE_EXPERIMENTAL_TOOL_SELECT', '1');
+    const base = await boot('[experimental]\n"tool-select" = false\n');
+    expect(await getMetaFlagState(base, 'tool-select')).toEqual({
+      id: 'tool-select',
+      enabled: true,
+      source: 'env',
+      config_value: false,
+      default_enabled: false,
+      externally_controlled: true,
+      overridden: true,
+    });
+  });
+
+  it('reports env-enabled + config-enabled as externally controlled only', async () => {
+    vi.stubEnv('PYTHINKER_CODE_EXPERIMENTAL_TOOL_SELECT', '1');
+    const base = await boot('[experimental]\n"tool-select" = true\n');
+    expect(await getMetaFlagState(base, 'tool-select')).toMatchObject({
+      enabled: true,
+      source: 'env',
+      config_value: true,
+      externally_controlled: true,
+      overridden: false,
+    });
+  });
+
+  it('reports a default-sourced flag as neither controlled nor overridden', async () => {
+    const base = await boot();
+    const state = await getMetaFlagState(base, 'tool-select');
+    expect(state.source).toBe('default');
+    expect(state.config_value).toBeUndefined();
+    expect(state.externally_controlled).toBe(false);
+    expect(state.overridden).toBe(false);
   });
 
   it('keeps an env-forced flag on when the config section disables it', async () => {

@@ -3,6 +3,7 @@
 // All snake_case ↔ camelCase conversion happens ONLY here.
 
 import type {
+  AppExperimentalFlagState,
   AppApprovalRequest,
   AppCatalogProvider,
   AppConfig,
@@ -32,6 +33,7 @@ import type {
 } from '../types';
 
 import type {
+  WireExperimentalFlagState,
   WireApprovalRequest,
   WireApprovalResponse,
   WireCatalogProvider,
@@ -804,6 +806,21 @@ export function toCatalogProviderImportResult(
     provider: toAppCatalogProvider(wire.provider),
     modelsImported: wire.models_imported,
   };
+}
+
+export function toAppExperimentalFlagStates(
+  wire: readonly WireExperimentalFlagState[] | undefined,
+): AppExperimentalFlagState[] {
+  if (!Array.isArray(wire)) return [];
+  return wire.map((state) => ({
+    id: state.id,
+    enabled: state.enabled === true,
+    source: state.source,
+    configValue: typeof state.config_value === 'boolean' ? state.config_value : undefined,
+    defaultEnabled: state.default_enabled === true,
+    externallyControlled: state.externally_controlled === true,
+    overridden: state.overridden === true,
+  }));
 }
 
 export function toAppConfig(wire: WireConfig): AppConfig {
