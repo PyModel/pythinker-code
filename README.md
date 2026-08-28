@@ -4,9 +4,8 @@
 
 ### A coding agent you can run as a desktop app
 
-[![release](https://img.shields.io/npm/v/@pymodel/pythinker-code?style=flat-square&label=release&color=4f46e5)](https://www.npmjs.com/package/@pymodel/pythinker-code)
-[![downloads](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FPyModel%2Fpythinker-code%2Fbadges%2Fdesktop-total.json&style=flat-square&label=downloads&labelColor=000000&color=dfb317)](https://code.pythinker.com/)
-[![license](https://img.shields.io/badge/license-MIT-16a34a?style=flat-square)](LICENSE)
+[![release](https://img.shields.io/github/v/release/PyModel/pythinker-desktop-releases?style=flat-square&label=release&color=4f46e5)](https://github.com/PyModel/pythinker-desktop-releases/releases/latest)
+[![downloads](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FPyModel%2Fpythinker-code%2Fbadges%2Fdownloads-total.json&style=flat-square&label=downloads&labelColor=000000&color=dfb317)](https://code.pythinker.com/)
 [![macOS](https://img.shields.io/badge/macOS-e5e7eb?style=flat-square&logo=apple&logoColor=000000)](https://code.pythinker.com/) | [![Windows](https://img.shields.io/badge/Windows-e5e7eb?style=flat-square&logo=data:image/svg%2Bxml;base64,PHN2ZyByb2xlPSJpbWciIHZpZXdCb3g9IjAgMCAyNCAyNCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48dGl0bGU+V2luZG93cyAxMTwvdGl0bGU+PHBhdGggZmlsbD0iIzAwNzhENCIgZD0iTTAsMEgxMS4zNzdWMTEuMzcySDBaTTEyLjYyMywwSDI0VjExLjM3MkgxMi42MjNaTTAsMTIuNjIzSDExLjM3N1YyNEgwWm0xMi42MjMsMEgyNFYyNEgxMi42MjMiLz48L3N2Zz4=)](https://code.pythinker.com/)
 [![Node.js](https://img.shields.io/badge/Node.js-24.15%2B-339933?style=flat-square&logo=nodedotjs&logoColor=white)](package.json)
 [![visitors](https://komarev.com/ghpvc/?username=PyModel-pythinker-code&label=visitors&color=4f46e5&style=flat-square)](https://github.com/PyModel/pythinker-code)
