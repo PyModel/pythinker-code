@@ -562,4 +562,45 @@ describe('settings UI', () => {
     expect(css).toContain('html[data-color-scheme=dark][data-accent=mono]');
     expect(css).toContain('html[data-color-scheme=system][data-accent=mono]');
   });
+
+  it('exposes the message folding switches and reports both toggles', async () => {
+    const wrapper = mount(SettingsDialog, {
+      props: {
+        colorScheme: 'system',
+        accent: 'blue',
+        uiFontSize: 14,
+        authReady: true,
+        notify: false,
+        notifyQuestion: false,
+        notifyApproval: false,
+        sound: false,
+        turnFolding: true,
+        activityRunFolding: false,
+      },
+      global: { plugins: [i18n] },
+    });
+    await flushPromises();
+
+    const sections = Array.from(document.body.querySelectorAll<HTMLElement>('.sec'));
+    const folding = sections.find(
+      (node) => node.querySelector('.sec-title')?.textContent?.trim() === 'Message folding',
+    );
+    expect(folding).toBeDefined();
+
+    const rows = Array.from(folding!.querySelectorAll<HTMLElement>('.row'));
+    expect(rows).toHaveLength(2);
+    expect(rows[0]!.querySelector('.rlabel')?.textContent).toContain('Auto-fold messages');
+    expect(rows[1]!.querySelector('.rlabel')?.textContent).toContain('Tool call summary');
+
+    const toggles = Array.from(folding!.querySelectorAll<HTMLElement>('.ui-switch'));
+    expect(toggles).toHaveLength(2);
+    toggles[0]!.click();
+    toggles[1]!.click();
+    await flushPromises();
+
+    expect(wrapper.emitted('setTurnFolding')?.at(-1)).toEqual([false]);
+    expect(wrapper.emitted('setActivityRunFolding')?.at(-1)).toEqual([true]);
+    wrapper.unmount();
+  });
+
 });

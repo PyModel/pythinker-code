@@ -1275,10 +1275,25 @@ function choosePermission(mode: PermissionMode): void {
 const permInfo = computed(() => PERM_MODES.find((p) => p.mode === props.status?.permission));
 const permLabel = computed(() => (permInfo.value ? t(permInfo.value.labelKey) : ''));
 const permIcon = computed(() => permInfo.value?.icon ?? 'fingerprint');
+// Toolbar overflow valve — four degradation stages, each engaged in order and
+// released only once the row grows back past the width it engaged at (plus a
+// margin, so a stage cannot flap on a one-pixel resize).
+//   1 labelsCollapsed — drop the pill labels
+//   2 modelIconOnly   — the model pill becomes its glyph
+//   3 compactGone     — hide the /compact chip
+//   4 modelGone       — hide the model pill entirely
+// Stages 1 and 2 are driven by the model name overflowing. Stages 3 and 4 need
+// more than that: they only engage when something in the right-hand row is
+// actually clipped past the row's own left edge (rowCollides).
 const labelsCollapsed = ref(false);
 const modelIconOnly = ref(false);
+const compactGone = ref(false);
+const modelGone = ref(false);
 let labelsCollapsedAt = 0;
 let modelIconOnlyAt = 0;
+let compactGoneAt = 0;
+let modelGoneAt = 0;
+const toolbarRightRef = ref<HTMLElement | null>(null);
 let toolbarResizeObserver: ResizeObserver | null = null;
 
 function toolbarMetric(style: CSSStyleDeclaration, property: string, fallback: number): number {
@@ -1293,6 +1308,16 @@ function modelNameOverflows(element: HTMLElement): boolean {
     || (element.clientWidth === 0 && (element.textContent?.length ?? 0) > 0);
 }
 
+/** True when a child of the row is clipped past the row's own left edge. */
+function rowCollides(row: HTMLElement): boolean {
+  const left = row.getBoundingClientRect().left;
+  for (const child of row.querySelectorAll('.compact-chip, .ctx-group, .model-pill, .stop, .send')) {
+    const rect = child.getBoundingClientRect();
+    if (rect.width > 0 && rect.left < left - 1) return true;
+  }
+  return false;
+}
+
 function measureToolbarOverflow(): void {
   const toolbar = toolbarRef.value;
   if (!toolbar) return;
@@ -1300,9 +1325,43 @@ function measureToolbarOverflow(): void {
   const floor = toolbarMetric(style, '--composer-valve-floor', 56);
   const margin = toolbarMetric(style, '--composer-valve-expand-margin', 48);
   const width = toolbar.getBoundingClientRect().width;
+  const row = toolbarRightRef.value;
+  if (modelGone.value) {
+    if (width > modelGoneAt + margin) {
+      modelGone.value = false;
+      void nextTick(measureToolbarOverflow);
+    }
+    return;
+  }
+  if (compactGone.value) {
+    if (width > compactGoneAt + margin) {
+      compactGone.value = false;
+      void nextTick(measureToolbarOverflow);
+      return;
+    }
+    if (row && rowCollides(row)) {
+      modelGoneAt = width;
+      modelGone.value = true;
+      void nextTick(measureToolbarOverflow);
+    }
+    return;
+  }
   if (modelIconOnly.value) {
     if (width > modelIconOnlyAt + margin) {
       modelIconOnly.value = false;
+      void nextTick(measureToolbarOverflow);
+      return;
+    }
+    if (row && rowCollides(row)) {
+      // Give up the /compact chip first when there is one; otherwise the model
+      // pill is the only thing left to drop.
+      if (showCompact.value) {
+        compactGoneAt = width;
+        compactGone.value = true;
+      } else {
+        modelGoneAt = width;
+        modelGone.value = true;
+      }
       void nextTick(measureToolbarOverflow);
     }
     return;
@@ -1345,6 +1404,8 @@ watch(
   () => {
     labelsCollapsed.value = false;
     modelIconOnly.value = false;
+    compactGone.value = false;
+    modelGone.value = false;
     void nextTick(measureToolbarOverflow);
   },
 );
@@ -1738,8 +1799,13 @@ function selectModel(modelId: string): void {
           </span>
         </div>
 
-        <div class="toolbar-right">
-          <button v-if="showCompact" class="compact-chip" @click.stop="emit('compact')">/compact</button>
+        <div ref="toolbarRightRef" class="toolbar-right">
+          <button
+            v-if="showCompact"
+            class="compact-chip"
+            :class="{ gone: compactGone }"
+            @click.stop="emit('compact')"
+          >/compact</button>
 
           <Tooltip :text="ctxTooltip">
             <span
@@ -1759,7 +1825,7 @@ function selectModel(modelId: string): void {
               ref="modelPillRef"
               type="button"
               class="model-pill"
-              :class="{ open: dropdownOpen, 'icon-only': modelIconOnly }"
+              :class="{ open: dropdownOpen, 'icon-only': modelIconOnly, 'model-gone': modelGone }"
               aria-haspopup="menu"
               :aria-expanded="dropdownOpen"
               :aria-label="modelIconOnly ? status.model : undefined"
@@ -2233,6 +2299,10 @@ function selectModel(modelId: string): void {
 }
 
 
+.compact-chip.gone,
+.model-pill.model-gone {
+  display: none;
+}
 .compact-chip {
     height: var(--composer-control-size);
     padding: 0 var(--space-2);

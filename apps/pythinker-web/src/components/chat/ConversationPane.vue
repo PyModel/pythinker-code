@@ -102,6 +102,10 @@ const props = defineProps<{
   pr?: { number: number; state: string; url: string } | null;
   /** Conversation outline: proportional bubbles, viewport indicator, hover tooltip. */
   conversationToc?: boolean;
+  /** Fold a finished turn's work away, leaving the summary. */
+  turnFolding?: boolean;
+  /** Summarise consecutive tool calls into one activity-run row. */
+  activityRunFolding?: boolean;
   /** Completion reason for the active session's last turn. */
   lastTurnReason?: 'completed' | 'cancelled' | 'failed';
   /** Step-limit variant of the failed-turn banner (turn.step.interrupted
@@ -1539,6 +1543,8 @@ defineExpose({ loadComposerForEdit, focusComposer });
               :loading-more-error="loadingMoreError"
               :is-following="following"
               :tool-diff-panel="true"
+              :turn-folding="turnFolding ?? true"
+              :activity-run-folding="activityRunFolding ?? true"
               :last-turn-reason="lastTurnReason"
               :turn-error-kind="turnErrorKind"
               :turn-error-message="turnErrorMessage"

@@ -129,6 +129,10 @@ const props = withDefaults(
     toolDiffPanel?: boolean;
     readOnly?: boolean;
     inspector?: boolean;
+    /** Fold a finished turn's work away, leaving the summary. */
+    turnFolding?: boolean;
+    /** Summarise consecutive tool calls into one activity-run row. */
+    activityRunFolding?: boolean;
     /** Session completion reason for the failed-turn banner. */
     lastTurnReason?: 'completed' | 'cancelled' | 'failed';
     /** Step-limit variant of the failed-turn banner header (turn.step.interrupted
@@ -164,6 +168,8 @@ const props = withDefaults(
     toolDiffPanel: false,
     readOnly: false,
     inspector: false,
+    turnFolding: true,
+    activityRunFolding: true,
     queued: () => [],
   },
 );
@@ -241,8 +247,8 @@ const assistantTurnModels = computed(() => {
   const models = new Map<string, AssistantTurnModel>();
   for (const turn of props.turns) {
     if (turn.role !== 'assistant') continue;
-    const all = assistantRenderBlocks(turn);
-    const { folded, visible } = foldRenderBlocks(all);
+    const all = assistantRenderBlocks(turn, props.activityRunFolding);
+    const { folded, visible } = foldRenderBlocks(all, props.turnFolding);
     models.set(turn.id, { all, folded, visible, changes: turnFileChanges(turn) });
   }
   return models;
