@@ -580,6 +580,9 @@ html[data-color-scheme=dark][data-accent=mono] {
     --icon-button-sm: 26px;
     --touch-target-min: 44px;
     --p-chip-num: 20px;
+    /* Keyboard resize step for the drag handles; Shift takes the large one. */
+    --resize-handle-step: 16px;
+    --resize-handle-step-lg: 48px;
     --p-sidebar-w: 264px;
     --p-content-max: 760px;
     --p-content-wide: 920px;

@@ -1882,6 +1882,7 @@ function toUiQuestion(q: AppQuestionRequest): UIQuestion {
       multiSelect: qi.multiSelect,
       allowOther: qi.allowOther,
       otherLabel: qi.otherLabel,
+      otherDescription: qi.otherDescription,
     })),
   };
 }
