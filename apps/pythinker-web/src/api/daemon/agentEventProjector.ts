@@ -1357,9 +1357,12 @@ export function createAgentProjector(): AgentProjector {
             // client (subscribed late): later agent-scoped progress frames are
             // routed by agent id, and seeding subagentMeta here keeps them on
             // this one row instead of synthesizing a second one.
-            // `task.started` may omit the routing provenance that
-            // `subagent.spawned` already stored; never overwrite it with
-            // `undefined`.
+            // `task.started` may omit fields that `subagent.spawned` already
+            // stored (model, effort, routing provenance); never overwrite them
+            // with `undefined`.
+            const model = typeof info.model === 'string' ? info.model : undefined;
+            const thinkingEffort =
+              typeof info.thinkingEffort === 'string' ? info.thinkingEffort : undefined;
             const routing = toAppSubagentRoutingFromEvent(info.routing);
             const currentRoutingEnvRevision =
               typeof info.currentRoutingEnvironmentRevision === 'string'
@@ -1368,9 +1371,8 @@ export function createAgentProjector(): AgentProjector {
             const task = patchSubagent(s, sessionId, agentId, {
               description,
               backgroundTaskId: taskId,
-              model: typeof info.model === 'string' ? info.model : undefined,
-              thinkingEffort:
-                typeof info.thinkingEffort === 'string' ? info.thinkingEffort : undefined,
+              ...(model !== undefined ? { model } : {}),
+              ...(thinkingEffort !== undefined ? { thinkingEffort } : {}),
               ...(routing !== undefined ? { routing } : {}),
               ...(currentRoutingEnvRevision !== undefined ? { currentRoutingEnvRevision } : {}),
               runInBackground: true,
