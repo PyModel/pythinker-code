@@ -200,6 +200,16 @@ provide(
   'resolveDynamicWorkflowMembers',
   (toolCallId: string): DynamicWorkflowMember[] => client.dynamicWorkflowMembersByToolCallId.value.get(toolCallId) ?? [],
 );
+// The session's own binding, so the Dynamic Workflow card can show MAIN next
+// to SUBAGENTS; the Override chip on that card opens Settings → Agent.
+provide('mainModelBinding', (): { model?: string; effort?: string } | undefined => {
+  const modelId = client.status.value.modelId;
+  if (!modelId) return undefined;
+  return { model: modelId, effort: client.thinking.value };
+});
+provide('openAgentSettings', (): void => {
+  openSettings('agent');
+});
 const { t } = useI18n();
 const { confirm } = useConfirmDialog();
 
@@ -559,7 +569,7 @@ const showModelPicker = ref(false);
 const showAddWorkspace = ref(false);
 const showStatusPanel = ref(false);
 const showSettings = ref(false);
-const settingsInitialTab = ref<'general' | 'providers'>('general');
+const settingsInitialTab = ref<'general' | 'providers' | 'agent'>('general');
 const overlayOpen = computed(() =>
   openDialogCount.value > 0 ||
   showModelPicker.value ||
@@ -619,7 +629,7 @@ async function openModelPicker(): Promise<void> {
   }
 }
 
-function openSettings(tab: 'general' | 'providers' = 'general'): void {
+function openSettings(tab: 'general' | 'providers' | 'agent' = 'general'): void {
   settingsInitialTab.value = tab;
   showSettings.value = true;
 }

@@ -70,7 +70,7 @@ const props = defineProps<{
   backend?: 'v1' | 'v2';
   /** Effective experimental flag states from GET /api/v1/meta. */
   experimentalFlagStates?: AppExperimentalFlagState[];
-  initialTab?: 'general' | 'providers';
+  initialTab?: 'general' | 'providers' | 'agent';
 }>();
 
 const emit = defineEmits<{

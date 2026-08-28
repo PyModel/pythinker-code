@@ -134,3 +134,88 @@ export function buildDynamicWorkflowCardRows(members: DynamicWorkflowMember[], r
 
   return memberRows.length > 0 ? [...memberRows, ...resultOnly] : result.subagents.map((s, i) => resultRow(s, i));
 }
+
+// ---------------------------------------------------------------------------
+// Grouping + elapsed time (pure, unit-tested; the component only renders).
+// ---------------------------------------------------------------------------
+
+export interface DynamicWorkflowRowGroup {
+  phase: AppSubagentPhase;
+  rows: DynamicWorkflowCardRow[];
+  /** Failed and Suspended always start expanded; Completed starts collapsed
+   *  while the workflow still runs so the active rows stay in view. */
+  expanded: boolean;
+}
+
+const RUNNING_WITH_FAILURES: readonly AppSubagentPhase[] = ['failed', 'suspended', 'working', 'queued', 'completed', 'cancelled'];
+const RUNNING_HEALTHY: readonly AppSubagentPhase[] = ['working', 'suspended', 'queued', 'completed', 'cancelled'];
+const SETTLED: readonly AppSubagentPhase[] = ['failed', 'suspended', 'cancelled', 'completed', 'working', 'queued'];
+
+/**
+ * Severity-aware grouping. Nothing is filtered: every phase that has rows is a
+ * group, in the order that matters for the card's state. Running with at least
+ * one failure puts Failed first; running healthy leads with Working; a settled
+ * workflow leads with Failed and keeps any residual Working/Queued rows visible
+ * (a malformed restored state must not hide work).
+ */
+export function groupDynamicWorkflowRows(rows: DynamicWorkflowCardRow[], running: boolean): DynamicWorkflowRowGroup[] {
+  const byPhase = new Map<AppSubagentPhase, DynamicWorkflowCardRow[]>();
+  for (const row of rows) {
+    const list = byPhase.get(row.phase) ?? [];
+    list.push(row);
+    byPhase.set(row.phase, list);
+  }
+  const failed = byPhase.get('failed')?.length ?? 0;
+  const order = running ? (failed > 0 ? RUNNING_WITH_FAILURES : RUNNING_HEALTHY) : SETTLED;
+  const groups: DynamicWorkflowRowGroup[] = [];
+  const seen = new Set<AppSubagentPhase>();
+  for (const phase of order) {
+    const list = byPhase.get(phase);
+    seen.add(phase);
+    if (!list || list.length === 0) continue;
+    groups.push({ phase, rows: list, expanded: phase !== 'completed' || !running });
+  }
+  for (const [phase, list] of byPhase) {
+    if (seen.has(phase) || list.length === 0) continue;
+    groups.push({ phase, rows: list, expanded: true });
+  }
+  return groups;
+}
+
+function parseIso(value: string | undefined): number | undefined {
+  if (!value) return undefined;
+  const ms = Date.parse(value);
+  return Number.isFinite(ms) ? ms : undefined;
+}
+
+/**
+ * Elapsed milliseconds for a row: `now - startedAt` while it is active,
+ * `completedAt - startedAt` once settled. Undefined when the row never started
+ * or the timestamps are unusable — the card then shows nothing rather than a
+ * fake duration.
+ */
+export function dynamicWorkflowRowElapsedMs(row: Pick<DynamicWorkflowCardRow, 'phase' | 'startedAt' | 'completedAt'>, now: number): number | undefined {
+  const started = parseIso(row.startedAt);
+  if (started === undefined) return undefined;
+  const settled = row.phase === 'completed' || row.phase === 'failed' || row.phase === 'cancelled';
+  if (settled) {
+    const completed = parseIso(row.completedAt);
+    if (completed === undefined) return undefined;
+    return Math.max(0, completed - started);
+  }
+  return Math.max(0, now - started);
+}
+
+/** `m:ss` under an hour, `h:mm:ss` above. */
+export function formatElapsed(ms: number): string {
+  const totalSeconds = Math.floor(ms / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  const mm = hours > 0 ? String(minutes).padStart(2, '0') : String(minutes);
+  return `${hours > 0 ? `${hours}:` : ''}${mm}:${String(seconds).padStart(2, '0')}`;
+}
+
+/** Segmented progress stays one cell per task up to this many rows; larger
+ *  workflows fall back to a proportional grouped bar. */
+export const DYNAMIC_WORKFLOW_SEGMENT_CELL_MAX = 12;
