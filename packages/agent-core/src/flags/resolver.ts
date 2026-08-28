@@ -87,6 +87,8 @@ export class FlagResolver {
       enabled,
       source,
       configValue,
+      externallyControlled: source === 'env' || source === 'master-env',
+      overridden: configValue !== undefined && enabled !== configValue,
     };
   }
 }

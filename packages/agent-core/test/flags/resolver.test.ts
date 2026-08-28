@@ -106,6 +106,36 @@ describe('FlagResolver', () => {
     expect(resolver.enabled('b-off-default' as FlagId)).toBe(true);
   });
 
+  it('reports externallyControlled and overridden the same way the v2 engine does', () => {
+    const agreeing = new FlagResolver({ [DEFS[0].env]: '0' }, DEFS, { 'a-on-default': false } as never);
+    expect(agreeing.explain('a-on-default' as FlagId)).toMatchObject({
+      enabled: false,
+      source: 'env',
+      configValue: false,
+      externallyControlled: true,
+      overridden: false,
+    });
+    const overriding = new FlagResolver({ [DEFS[0].env]: '1' }, DEFS, { 'a-on-default': false } as never);
+    expect(overriding.explain('a-on-default' as FlagId)).toMatchObject({
+      enabled: true,
+      source: 'env',
+      externallyControlled: true,
+      overridden: true,
+    });
+    const saved = new FlagResolver({}, DEFS, { 'a-on-default': false } as never);
+    expect(saved.explain('a-on-default' as FlagId)).toMatchObject({
+      source: 'config',
+      externallyControlled: false,
+      overridden: false,
+    });
+    expect(new FlagResolver({}, DEFS).explain('a-on-default' as FlagId)).toMatchObject({
+      source: 'default',
+      configValue: undefined,
+      externallyControlled: false,
+      overridden: false,
+    });
+  });
+
   it('ignores obsolete config override ids outside the registry', () => {
     const resolver = new FlagResolver({}, DEFS, {
       'a-on-default': false,
