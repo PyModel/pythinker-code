@@ -110,6 +110,7 @@ describe('subagent streaming text', () => {
     );
     const plain = projector.project('subagent.spawned', { subagentId: 'sub-p', description: 'Plain' }, 's1');
     const task = (plain.find((e) => e.type === 'taskCreated') as { task?: { routing?: unknown } } | undefined)?.task;
+    expect(task).toBeDefined();
     expect(task?.routing).toBeUndefined();
   });
 
@@ -661,6 +662,8 @@ describe('background subagent task registration', () => {
         subagentId: 'agent-1',
         description: 'Explore repo',
         runInBackground: true,
+        model: 'provider/fast',
+        thinkingEffort: 'low',
         routing,
         currentRoutingEnvironmentRevision: 'route-env:v1:aaa',
       },
@@ -680,6 +683,8 @@ describe('background subagent task registration', () => {
         task: expect.objectContaining({
           id: 'agent-1',
           backgroundTaskId: 'task-9',
+          model: 'provider/fast',
+          thinkingEffort: 'low',
           routing: expect.objectContaining({ operation: 'spawn', routeDecision: 'route-decision:v1:bbb' }),
           currentRoutingEnvRevision: 'route-env:v1:aaa',
         }),
