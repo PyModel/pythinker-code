@@ -202,6 +202,8 @@ export default {
     sidebarTabsHint: 'The sidebar shows Open / Done / Workspaces tabs',
     secondaryModel: 'Secondary model for subagents',
     secondaryModelHint: 'Let subagents use a separate model by default (unlocks the Agent tab section)',
+    environmentControlled: 'Environment controlled',
+    savedSettingOverridden: 'Saved setting overridden',
   },
   copyServerVersion: 'Copy server version',
   copyServerAddress: 'Copy server address',

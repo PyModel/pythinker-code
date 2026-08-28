@@ -1,7 +1,10 @@
 import {
   ConfigChanged,
+  IConfigRegistry,
   IConfigService,
   IEventService,
+  ISubagentModelPolicyService,
+  prospectiveModelView,
   type Scope,
 } from '@pymodel/agent-core-v2';
 
@@ -10,7 +13,9 @@ import { requestLog } from '../lib/requestLog';
 import { defineRoute } from '../middleware/defineRoute';
 import { ErrorCode } from '../protocol/error-codes';
 import { configResponseSchema, patchConfigRequestSchema } from '../protocol/rest-config';
-import type { ConfigResponse } from '../protocol/rest-config';
+import type { ConfigResponse, LegacySecondaryModelRequest } from '../protocol/rest-config';
+
+const SECONDARY_MODEL_DOMAIN = 'secondaryModel';
 
 type ProviderResponse = ConfigResponse['providers'][string];
 
@@ -65,19 +70,29 @@ export function registerConfigRoutes(app: ConfigRouteHost, core: Scope): void {
     async (req, reply) => {
       try {
         const config = core.accessor.get(IConfigService);
+        const registry = core.accessor.get(IConfigRegistry);
         await config.ready;
-        const camelPatch = convertKeysSnakeToCamel(req.body) as Record<string, unknown>;
+        const { secondary_model: secondaryModel, ...ordinary } = req.body;
+        const converted = convertKeysSnakeToCamel(ordinary);
+        const camelPatch: Record<string, unknown> = isPlainObject(converted) ? converted : {};
         if (camelPatch['yolo'] === true) {
           camelPatch['defaultPermissionMode'] = 'yolo';
         }
         delete camelPatch['yolo'];
+        const staged: Record<string, unknown> = {};
         for (const domain of Object.keys(camelPatch)) {
-          if (domain === 'secondaryModel' && camelPatch[domain] === null) {
-            await config.replace(domain, undefined);
-          } else {
-            await config.set(domain, camelPatch[domain]);
-          }
+          const base = config.inspect(domain).userValue;
+          staged[domain] = registry.merge(domain, base, camelPatch[domain]);
         }
+        if (secondaryModel !== undefined) {
+          const preview = config.previewReplaceSections(staged);
+          const prepared = core.accessor.get(ISubagentModelPolicyService).prepareLegacyMutation(
+            secondaryModel === null ? null : toSecondaryModelReplacement(secondaryModel),
+            prospectiveModelView(preview['providers'], preview['models']),
+          );
+          staged[SECONDARY_MODEL_DOMAIN] = prepared.section ?? null;
+        }
+        await config.replaceSections(staged);
         const response = toConfigResponse(config.getAll());
         const changedFields = Object.keys(req.body as Record<string, unknown>);
         core.accessor.get(IEventService).publish(
@@ -93,6 +108,18 @@ export function registerConfigRoutes(app: ConfigRouteHost, core: Scope): void {
     },
   );
   app.post(setRoute.path, setRoute.options, setRoute.handler as Parameters<ConfigRouteHost['post']>[2]);
+}
+
+function toSecondaryModelReplacement(legacy: LegacySecondaryModelRequest): Record<string, unknown> {
+  const replacement: Record<string, unknown> = {};
+  const defaultModel = legacy.default_model ?? legacy.defaultModel;
+  const defaultEffort = legacy.default_effort ?? legacy.defaultEffort;
+  if (defaultModel !== undefined) replacement['defaultModel'] = defaultModel;
+  if (legacy.model !== undefined) replacement['model'] = legacy.model;
+  if (defaultEffort !== undefined) replacement['defaultEffort'] = defaultEffort;
+  if (legacy.models !== undefined) replacement['models'] = legacy.models;
+  if (legacy.force === true) replacement['force'] = true;
+  return replacement;
 }
 
 function toConfigResponse(resolved: Record<string, unknown>): ConfigResponse {

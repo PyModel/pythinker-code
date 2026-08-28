@@ -160,6 +160,17 @@ describe('server-v2 /api/v1/sessions/{sid}/tasks', () => {
               parentToolCallId: 'call-parent-1',
               model: 'provider/secondary',
               thinkingEffort: 'low',
+              routing: {
+                operation: 'spawn',
+                profileSource: 'requested',
+                modelSource: 'policy-pool',
+                policyMode: 'pool',
+                policySource: 'config',
+                featureSource: 'env',
+                resolvedFromRoutingEnvironmentRevision: 'route-env:v1:aaa',
+                routeDecisionFingerprint: 'route-decision:v1:bbb',
+              },
+              currentRoutingEnvironmentRevision: 'route-env:v1:aaa',
             };
           case 'question':
             return { ...base, kind: 'question', questionCount: 1 };
@@ -218,6 +229,17 @@ describe('server-v2 /api/v1/sessions/{sid}/tasks', () => {
       subagent_type: 'explore',
       parent_tool_call_id: 'call-parent-1',
       run_in_background: true,
+      routing: {
+        operation: 'spawn',
+        profile_source: 'requested',
+        model_source: 'policy-pool',
+        policy_mode: 'pool',
+        policy_source: 'config',
+        feature_source: 'env',
+        routing_env_revision: 'route-env:v1:aaa',
+        route_decision: 'route-decision:v1:bbb',
+      },
+      current_routing_env_revision: 'route-env:v1:aaa',
     });
     expect(byId.get(agentId)?.command).toBeUndefined();
 

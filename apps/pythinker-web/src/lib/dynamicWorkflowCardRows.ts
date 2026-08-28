@@ -4,7 +4,7 @@
 // `<agent_dynamic_workflow_result>` payload (terminal result) — kept in plain TS so it can
 // be unit-tested without mounting the component.
 
-import type { AppSubagentPhase } from '../api/types';
+import type { AppSubagentPhase, AppSubagentRouting } from '../api/types';
 import type { DynamicWorkflowMember } from '../composables/dynamicWorkflowGroups';
 import type { DynamicWorkflowResult, DynamicWorkflowResultSubagent } from './parseDynamicWorkflowResult';
 
@@ -22,6 +22,15 @@ export interface DynamicWorkflowCardRow {
    *  row corresponds to a real subagent — lets a settled row open the agent
    *  detail panel. */
   agentId?: string;
+  /** Binding facts: live members carry them from the task; settled rows read
+   *  the durable `<subagent>` attributes. Labels are derived by the component. */
+  profile?: string;
+  model?: string;
+  thinkingEffort?: string;
+  routing?: AppSubagentRouting;
+  currentRoutingEnvRevision?: string;
+  startedAt?: string;
+  completedAt?: string;
 }
 
 function lastNonEmptyLine(text: string | undefined): string {
@@ -66,6 +75,12 @@ function resultRow(sub: DynamicWorkflowResultSubagent, index: number): DynamicWo
     body: sub.body,
     live: false,
     agentId: sub.agentId,
+    profile: sub.profile,
+    model: sub.model,
+    thinkingEffort: sub.thinking,
+    routing: sub.routing,
+    startedAt: sub.startedAt,
+    completedAt: sub.completedAt,
   };
 }
 
@@ -99,6 +114,13 @@ export function buildDynamicWorkflowCardRows(members: DynamicWorkflowMember[], r
     phase: m.phase,
     body: dynamicWorkflowMemberBody(m),
     live: true,
+    profile: m.subagentType,
+    model: m.model,
+    thinkingEffort: m.thinkingEffort,
+    routing: m.routing,
+    currentRoutingEnvRevision: m.currentRoutingEnvRevision,
+    startedAt: m.startedAt,
+    completedAt: m.completedAt,
   }));
   if (!result) return memberRows;
 

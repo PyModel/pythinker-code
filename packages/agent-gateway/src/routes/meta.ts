@@ -1,7 +1,11 @@
 import { okEnvelope } from '../envelope';
 import { defineRoute } from '../middleware/defineRoute';
 import { metaResponseSchema } from '../protocol/rest-meta';
-import type { MetaFeature, MetaResponse } from '../protocol/rest-meta';
+import type {
+  ExperimentalFlagStateResponse,
+  MetaFeature,
+  MetaResponse,
+} from '../protocol/rest-meta';
 
 interface RouteHost {
   get(
@@ -21,6 +25,9 @@ export interface MetaRouteOptions {
   readonly dangerousBypassAuth: boolean;
   readonly webTitle?: string;
   readonly getExperimentalFlags: () => Record<string, boolean> | Promise<Record<string, boolean>>;
+  readonly getExperimentalFlagStates: () =>
+    | ExperimentalFlagStateResponse[]
+    | Promise<ExperimentalFlagStateResponse[]>;
   readonly getFeatures: () => MetaFeature[] | Promise<MetaFeature[]>;
 }
 
@@ -56,6 +63,7 @@ export function registerMetaRoute(app: RouteHost, opts: MetaRouteOptions): void 
       const data: MetaResponse = {
         ...staticData,
         experimental_flags: await opts.getExperimentalFlags(),
+        experimental_flag_states: await opts.getExperimentalFlagStates(),
         features: await opts.getFeatures(),
       };
       reply.send(okEnvelope(data, req.id));

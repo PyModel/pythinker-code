@@ -77,6 +77,7 @@ const V2_ONLY_RECORD_TYPES: ReadonlySet<string> = new Set([
 ]);
 
 const V2_RECORD_TYPES: ReadonlySet<string> = new Set([
+  'subagent.binding_provenance.recorded',
   'tower_mode.enter',
   'tower_mode.exit',
   'task.started',

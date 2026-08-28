@@ -150,6 +150,37 @@ describe('settings UI', () => {
     wrapper.unmount();
   });
 
+  it('keeps the newest /meta response when an older request resolves last', async () => {
+    let resolveFirst: (meta: unknown) => void = () => {};
+    api.getMeta.mockImplementationOnce(
+      () => new Promise((resolve) => { resolveFirst = resolve; }),
+    );
+    const wrapper = mount(SettingsDialog, {
+      props: {
+        colorScheme: 'system',
+        accent: 'blue',
+        uiFontSize: 14,
+        authReady: true,
+        notify: false,
+        notifyQuestion: false,
+        notifyApproval: false,
+        sound: false,
+        config: { providers: {} },
+      },
+      global: { plugins: [i18n] },
+    });
+    await flushPromises();
+
+    api.getMeta.mockResolvedValueOnce({ serverVersion: '2.0.0', serverId: 'newer', backend: 'v2' });
+    await wrapper.setProps({ config: { providers: {}, experimental: {} } });
+    await flushPromises();
+    resolveFirst({ serverVersion: '1.0.0', serverId: 'older', backend: 'v2' });
+    await flushPromises();
+
+    expect(wrapper.vm.$.setupState.serverMeta.serverId).toBe('newer');
+    wrapper.unmount();
+  });
+
   it('copies app and server diagnostics', async () => {
     api.getMeta.mockResolvedValueOnce({
       serverVersion: '2.4.0',
@@ -392,6 +423,58 @@ describe('settings UI', () => {
     wrapper.unmount();
   });
 
+  it('shows Lab chips from the effective flag state, each independently', async () => {
+    const flagState = (
+      overrides: Partial<{ source: 'env' | 'config' | 'default'; externallyControlled: boolean; overridden: boolean }>,
+    ) => ({
+      id: 'secondary-model',
+      enabled: true,
+      source: 'config' as const,
+      configValue: true,
+      defaultEnabled: false,
+      externallyControlled: false,
+      overridden: false,
+      ...overrides,
+    });
+    const mountWith = (states: ReturnType<typeof flagState>[]) =>
+      mount(SettingsDialog, {
+        props: {
+          colorScheme: 'system',
+          accent: 'blue',
+          uiFontSize: 14,
+          authReady: true,
+          notify: false,
+          notifyQuestion: false,
+          notifyApproval: false,
+          sound: false,
+          config: { providers: {}, experimental: { 'secondary-model': false } },
+          experimentalFlagStates: states,
+        },
+        global: { plugins: [i18n] },
+      });
+    const chipsFor = (root: HTMLElement) =>
+      Array.from(root.querySelectorAll<HTMLElement>('.flag-chip')).map((chip) => chip.textContent?.trim());
+    const rowFor = () =>
+      document.body
+        .querySelector<HTMLElement>('[role="switch"][aria-label="Secondary model for subagents"]')!
+        .closest<HTMLElement>('.row')!;
+
+    let wrapper = mountWith([flagState({ source: 'env', externallyControlled: true, overridden: true })]);
+    await flushPromises();
+    expect(chipsFor(rowFor())).toEqual(['Environment controlled', 'Saved setting overridden']);
+    wrapper.unmount();
+
+    wrapper = mountWith([flagState({ source: 'env', externallyControlled: true, overridden: false })]);
+    await flushPromises();
+    expect(chipsFor(rowFor())).toEqual(['Environment controlled']);
+    wrapper.unmount();
+
+    wrapper = mountWith([flagState({ source: 'config' })]);
+    await flushPromises();
+    expect(chipsFor(rowFor())).toEqual([]);
+    wrapper.unmount();
+  });
+
   it('shows the subagent model section only while the secondary-model flag is on', async () => {
     const wrapper = mount(SettingsDialog, {
       props: {
@@ -517,6 +600,52 @@ describe('settings UI', () => {
           defaultEffort: 'max',
           force: true,
         },
+      });
+    } finally {
+      wrapper.unmount();
+    }
+  });
+
+  it('serializes force: false explicitly when the pin is switched off (compatibility with merging gateways; correctness does not depend on it)', async () => {
+    const wrapper = mount(SettingsDialog, {
+      props: {
+        colorScheme: 'system',
+        accent: 'blue',
+        uiFontSize: 14,
+        authReady: true,
+        notify: false,
+        notifyQuestion: false,
+        notifyApproval: false,
+        sound: false,
+        config: {
+          providers: {},
+          secondaryModel: { defaultModel: 'test/fast', defaultEffort: 'max', force: true },
+          experimental: { 'secondary-model': true },
+        },
+        models: [
+          { id: 'test/main', provider: 'test', model: 'main', maxContextSize: 100_000 },
+          { id: 'test/fast', provider: 'test', model: 'fast', maxContextSize: 100_000 },
+        ],
+      },
+      global: { plugins: [i18n] },
+    });
+    try {
+      await flushPromises();
+      const agentTab = Array.from(document.body.querySelectorAll<HTMLButtonElement>('[role="tab"]'))
+        .find((tab) => tab.textContent?.trim() === 'Agent');
+      agentTab!.click();
+      await flushPromises();
+
+      const pin = document.body.querySelector<HTMLButtonElement>(
+        '[role="switch"][aria-label="Always use this model"]',
+      );
+      expect(pin?.getAttribute('aria-checked')).toBe('true');
+
+      pin!.click();
+      await flushPromises();
+
+      expect(wrapper.emitted('updateConfig')?.at(-1)?.[0]).toEqual({
+        secondaryModel: { defaultModel: 'test/fast', defaultEffort: 'max', force: false },
       });
     } finally {
       wrapper.unmount();

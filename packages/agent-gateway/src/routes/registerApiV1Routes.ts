@@ -15,6 +15,7 @@ import { registerAuthRoute } from './auth';
 import { registerCapabilitiesRoutes } from './capabilities';
 import { registerCodexLoginRoutes } from './codex';
 import { registerConfigRoutes } from './config';
+import { registerSubagentModelPolicyRoutes } from './subagentModelPolicy';
 import { registerConnectionsRoutes } from './connections';
 import { registerFilesRoutes } from './files';
 import { registerFsRoutes } from './fs';
@@ -97,6 +98,21 @@ export async function registerApiV1Routes(
           await core.accessor.get(IConfigService).ready;
           return core.accessor.get(IFlagService).snapshot();
         },
+        getExperimentalFlagStates: async () => {
+          await core.accessor.get(IConfigService).ready;
+          return core.accessor
+            .get(IFlagService)
+            .explainAll()
+            .map((state) => ({
+              id: state.id,
+              enabled: state.enabled,
+              source: state.source,
+              config_value: state.configValue,
+              default_enabled: state.defaultEnabled,
+              externally_controlled: state.externallyControlled,
+              overridden: state.overridden,
+            }));
+        },
         getFeatures: () =>
           core.accessor
             .get(IFeatureManager)
@@ -114,6 +130,10 @@ export async function registerApiV1Routes(
         core,
       );
       registerConfigRoutes(apiV1 as unknown as Parameters<typeof registerConfigRoutes>[0], core);
+      registerSubagentModelPolicyRoutes(
+        apiV1 as unknown as Parameters<typeof registerSubagentModelPolicyRoutes>[0],
+        core,
+      );
       registerModelCatalogRoutes(
         apiV1 as unknown as Parameters<typeof registerModelCatalogRoutes>[0],
         core,

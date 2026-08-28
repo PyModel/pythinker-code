@@ -23,6 +23,44 @@ function spawn(subagentId: string, extra: Record<string, unknown> = {}): Event {
 }
 
 describe('SubagentRosterTracker', () => {
+  it('carries the routing provenance and current revision from subagent.spawned', () => {
+    const t = new SubagentRosterTracker();
+    t.apply(
+      SID,
+      spawn('agent-r', {
+        routing: {
+          operation: 'resume',
+          profileSource: 'resume-existing',
+          modelSource: 'resume-existing',
+          policyMode: 'inherit',
+          policySource: 'default',
+          featureSource: 'default',
+          resolvedFromRoutingEnvironmentRevision: 'route-env:v1:old',
+          routeDecisionFingerprint: 'route-decision:v1:x',
+        },
+        currentRoutingEnvironmentRevision: 'route-env:v1:new',
+      }),
+    );
+    expect(t.get(SID)).toEqual([
+      expect.objectContaining({
+        id: 'agent-r',
+        routing: {
+          operation: 'resume',
+          profile_source: 'resume-existing',
+          model_source: 'resume-existing',
+          policy_mode: 'inherit',
+          policy_source: 'default',
+          feature_source: 'default',
+          routing_env_revision: 'route-env:v1:old',
+          route_decision: 'route-decision:v1:x',
+        },
+        current_routing_env_revision: 'route-env:v1:new',
+      }),
+    ]);
+    t.apply(SID, spawn('agent-plain'));
+    expect(t.get(SID).find((entry) => entry.id === 'agent-plain')?.routing).toBeUndefined();
+  });
+
   it('seeds a roster entry from subagent.spawned with the dynamic_workflow identity metadata', () => {
     const t = new SubagentRosterTracker();
     t.apply(SID, spawn('agent-1', { dynamicWorkflowIndex: 2, model: 'provider/secondary', thinkingEffort: 'low' }));

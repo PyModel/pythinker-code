@@ -388,6 +388,33 @@ export interface ProcessTaskInfo extends TaskInfoBase {
   readonly exitCode: number | null;
 }
 
+export type SubagentRoutingOperation = 'spawn' | 'fork' | 'resume';
+export type SubagentProfileSource = 'requested' | 'default' | 'fork-inherit' | 'resume-existing';
+export type SubagentModelSource =
+  | 'caller'
+  | 'policy-default'
+  | 'policy-pool'
+  | 'policy-force'
+  | 'fork-inherit'
+  | 'resume-existing';
+export type SubagentPolicyMode = 'inherit' | 'default' | 'pool' | 'force';
+export type SubagentPolicySource = 'config' | 'default';
+export type SubagentFeatureSource = 'master-env' | 'env' | 'config' | 'default';
+
+/** Why a subagent is bound the way it is. Recorded once when the child is
+ *  created; a resumed child keeps its original provenance. Stable enum ids
+ *  only — display labels belong to the presentation layer. */
+export interface SubagentRoutingProvenance {
+  readonly operation: SubagentRoutingOperation;
+  readonly profileSource: SubagentProfileSource;
+  readonly modelSource: SubagentModelSource;
+  readonly policyMode: SubagentPolicyMode;
+  readonly policySource: SubagentPolicySource;
+  readonly featureSource: SubagentFeatureSource;
+  readonly resolvedFromRoutingEnvironmentRevision: string;
+  readonly routeDecisionFingerprint: string;
+}
+
 export interface AgentTaskInfo extends TaskInfoBase {
   readonly kind: 'agent';
   readonly agentId?: string;
@@ -396,6 +423,10 @@ export interface AgentTaskInfo extends TaskInfoBase {
   readonly model?: string;
   /** The subagent's effective thinking effort at spawn (v2 engine). */
   readonly thinkingEffort?: string;
+  /** Routing provenance copied from the child's binding (v2 engine). */
+  readonly routing?: SubagentRoutingProvenance;
+  /** The caller's routing environment revision when this task was observed. */
+  readonly currentRoutingEnvironmentRevision?: string;
 }
 
 export interface QuestionTaskInfo extends TaskInfoBase {
@@ -869,6 +900,10 @@ export interface SubagentSpawnedEvent {
   /** The child's effective thinking effort at spawn (same vocabulary as
    *  `agent.status.updated`). Optional for cross-version tolerance. */
   readonly thinkingEffort?: string;
+  /** Routing provenance copied from the child's binding (v2 engine). */
+  readonly routing?: SubagentRoutingProvenance;
+  /** The caller's routing environment revision at spawn/resume time. */
+  readonly currentRoutingEnvironmentRevision?: string;
   /** Background-task id the run registered under in the caller's task store.
    *  Emitted after task registration, so cancel/status actions can bind to
    *  the task store without waiting for `task.started`. Optional for
@@ -1426,12 +1461,32 @@ export const processTaskInfoSchema = taskInfoBaseSchema.extend({
   exitCode: z.number().nullable(),
 }) satisfies z.ZodType<ProcessTaskInfo>;
 
+export const subagentRoutingProvenanceSchema = z.object({
+  operation: z.enum(['spawn', 'fork', 'resume']),
+  profileSource: z.enum(['requested', 'default', 'fork-inherit', 'resume-existing']),
+  modelSource: z.enum([
+    'caller',
+    'policy-default',
+    'policy-pool',
+    'policy-force',
+    'fork-inherit',
+    'resume-existing',
+  ]),
+  policyMode: z.enum(['inherit', 'default', 'pool', 'force']),
+  policySource: z.enum(['config', 'default']),
+  featureSource: z.enum(['master-env', 'env', 'config', 'default']),
+  resolvedFromRoutingEnvironmentRevision: z.string(),
+  routeDecisionFingerprint: z.string(),
+}) satisfies z.ZodType<SubagentRoutingProvenance>;
+
 export const agentTaskInfoSchema = taskInfoBaseSchema.extend({
   kind: z.literal('agent'),
   agentId: z.string().optional(),
   subagentType: z.string().optional(),
   model: z.string().optional(),
   thinkingEffort: z.string().optional(),
+  routing: subagentRoutingProvenanceSchema.optional(),
+  currentRoutingEnvironmentRevision: z.string().optional(),
 }) satisfies z.ZodType<AgentTaskInfo>;
 
 export const questionTaskInfoSchema = taskInfoBaseSchema.extend({
@@ -1816,6 +1871,8 @@ export const subagentSpawnedEventSchema = z.object({
   runInBackground: z.boolean(),
   model: z.string().optional(),
   thinkingEffort: z.string().optional(),
+  routing: subagentRoutingProvenanceSchema.optional(),
+  currentRoutingEnvironmentRevision: z.string().optional(),
   taskId: z.string().optional(),
 }) satisfies z.ZodType<SubagentSpawnedEvent>;
 
