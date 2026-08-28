@@ -2,12 +2,60 @@ import { mkdtemp, mkdir, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 
 import { join } from 'pathe';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
 
+const fsReadHook = vi.hoisted(() => ({
+  transform: undefined as
+    | ((path: string, bytes: Uint8Array) => Uint8Array | undefined)
+    | undefined,
+}));
+
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>();
+  return {
+    ...actual,
+    readFile: async (...args: Parameters<typeof actual.readFile>) => {
+      const bytes = await actual.readFile(...args);
+      if (typeof bytes === 'string') return bytes;
+      const path = args[0];
+      return typeof path === 'string' ? (fsReadHook.transform?.(path, bytes) ?? bytes) : bytes;
+    },
+  };
+});
+
 const isWin = process.platform === 'win32';
 const encoder = new TextEncoder();
+
+describe('FileStorageService — consistent reads', () => {
+  let dir: string;
+
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'fss-read-'));
+  });
+
+  afterEach(async () => {
+    fsReadHook.transform = undefined;
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it('retries when the bytes read are shorter than the file size', async () => {
+    const path = join(dir, 'scope', 'k.json');
+    const expected = encoder.encode('{"model":"ready"}');
+    const svc = new FileStorageService(dir);
+    await svc.write('scope', 'k.json', expected);
+    let reads = 0;
+    fsReadHook.transform = (readPath, bytes) => {
+      if (readPath !== path) return undefined;
+      reads += 1;
+      return reads === 1 ? bytes.subarray(0, 4) : bytes;
+    };
+
+    expect(new TextDecoder().decode(await svc.read('scope', 'k.json'))).toBe('{"model":"ready"}');
+    expect(reads).toBe(2);
+  });
+});
 
 describe('FileStorageService — file permissions', () => {
   let dir: string;
