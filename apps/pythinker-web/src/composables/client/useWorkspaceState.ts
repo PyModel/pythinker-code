@@ -93,6 +93,7 @@ const pendingQuestionActions = reactive<Record<string, 'answer' | 'dismiss'>>({}
 const pendingApprovalActions = reactive<Record<string, true>>({});
 /** Task ids with an in-flight cancel, keyed by taskId. */
 const pendingTaskCancellations = reactive<Record<string, true>>({});
+const pendingTaskDetachments = reactive<Record<string, true>>({});
 /**
  * Workspace ids whose empty-session first prompt is currently being created +
  * submitted. The empty-composer path (`startSessionAndSendPrompt`) awaits
@@ -2194,6 +2195,69 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
     }
   }
 
+  /**
+   * Release a running foreground task (a Bash command or a foreground subagent)
+   * so it keeps running in the background. Takes the SPAWNING TOOL CALL id, the
+   * same id the tool rows carry; the REST task id is resolved from the store.
+   */
+  async function detachTask(toolCallId: string): Promise<void> {
+    const sid = rawState.activeSessionId;
+    if (!sid) return;
+    // Guard against a second click while the first detach is in flight.
+    if (pendingTaskDetachments[toolCallId]) return;
+    pendingTaskDetachments[toolCallId] = true;
+    try {
+      const api = getPythinkerWebApi();
+      const owns = (t: { id: string; parentToolCallId?: string }): boolean =>
+        t.id === toolCallId || t.parentToolCallId === toolCallId;
+      let task = (rawState.tasksBySession[sid] ?? []).find(owns);
+      // The row can offer the button before the task list has reached the
+      // store (the buttons treat "no task yet" as "show"). Ask the server
+      // rather than dropping the click on the floor.
+      let restTaskId: string | undefined;
+      if (task === undefined) {
+        let listed;
+        try {
+          listed = await api.listTasks(sid);
+        } catch (error) {
+          pushOperationFailure('detachTask', error, { sessionId: sid });
+          return;
+        }
+        const found = listed.find(owns);
+        if (found === undefined) return;
+        task = found;
+        restTaskId = found.id;
+      }
+      const target = task;
+      // A background subagent row is keyed by agent id, but REST `/tasks` only
+      // knows its background-task id.
+      restTaskId ??= target.backgroundTaskId ?? target.id;
+      const result = await api.detachTask(sid, restTaskId);
+      const list = rawState.tasksBySession[sid] ?? [];
+      rawState.tasksBySession = {
+        ...rawState.tasksBySession,
+        [sid]: list.map((t) => {
+          if (t.id !== target.id) return t;
+          // Still running: it simply moved to the background. Otherwise the
+          // task finished first and the server reports its terminal status.
+          if (result.status === 'running') return { ...t, runInBackground: true };
+          return {
+            ...t,
+            status: result.status,
+            completedAt: t.completedAt ?? new Date().toISOString(),
+            completedAtEstimated: t.completedAt === undefined ? true : t.completedAtEstimated,
+          };
+        }),
+      };
+    } catch (error) {
+      if (!isTaskAlreadyFinishedError(error)) {
+        pushOperationFailure('detachTask', error, { sessionId: sid });
+      }
+    } finally {
+      delete pendingTaskDetachments[toolCallId];
+    }
+  }
+
   async function cancelTask(taskId: string): Promise<void> {
     const sid = rawState.activeSessionId;
     if (!sid) return;
@@ -2950,6 +3014,7 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
     pendingQuestionActions,
     pendingApprovalActions,
     cancelTask,
+    detachTask,
     setPlanMode,
     togglePlanMode,
     setDynamicWorkflowMode,

@@ -37,6 +37,11 @@ async function submit(): Promise<void> {
 <template>
   <div class="codex-signin">
     <template v-if="login.phase.value === 'idle' || login.phase.value === 'cancelled'">
+      <!-- A cancelled flow otherwise leaves only the start button, which reads
+           as if nothing happened. Name the outcome before offering the retry. -->
+      <p v-if="login.phase.value === 'cancelled'" class="codex-signin__denied" role="status">
+        {{ t('login.deniedTitle') }}
+      </p>
       <Button variant="primary" data-testid="codex-signin-start" @click="login.start()">
         <Icon name="log-in" size="sm" />
         <span>{{ t('codexLogin.signIn') }}</span>
@@ -99,6 +104,11 @@ async function submit(): Promise<void> {
 </template>
 
 <style scoped>
+.codex-signin__denied {
+  margin: 0;
+  color: var(--color-text-muted);
+  font: var(--text-sm)/var(--leading-normal) var(--font-ui);
+}
 .codex-signin { display: flex; flex-direction: column; gap: var(--space-3); }
 .codex-signin__status,
 .codex-signin__ok { display: flex; align-items: center; gap: var(--space-2); font-size: var(--text-sm); }

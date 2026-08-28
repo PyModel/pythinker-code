@@ -359,7 +359,10 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
                 <span class="rad">{{ isOtherSelected(current.id) ? '●' : '○' }}</span>
               </template>
             </span>
-            <span class="qopt-label">{{ current.otherLabel ?? t('question.otherDefault') }}</span>
+            <span class="qopt-text qopt-text-other">
+              <span class="qopt-label">{{ current.otherLabel ?? t('question.otherDefault') }}</span>
+              <span v-if="current.otherDescription" class="qopt-desc">{{ current.otherDescription }}</span>
+            </span>
             <input
               ref="otherInputEl"
               v-model="otherTexts[current.id]"
@@ -562,6 +565,11 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
   flex-direction: column;
   gap: 2px;
 }
+/* The Other row shares its line with the free-text input, so its label block
+   takes only the width it needs instead of pushing the input off the row. */
+.qopt-text-other {
+  flex: 0 1 auto;
+}
 .qopt-label {
   color: var(--color-text);
   font-size: var(--text-base);
@@ -576,7 +584,8 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
 .chk, .rad { font: var(--text-base) var(--font-mono); }
 
 .other-input {
-  flex: 1;
+  flex: 1 1 8ch;
+  min-width: 8ch;
   font: var(--text-base) var(--font-ui);
   border: none;
   border-bottom: 1px solid var(--color-line);

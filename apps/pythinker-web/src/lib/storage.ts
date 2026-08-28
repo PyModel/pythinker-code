@@ -32,6 +32,10 @@ export const STORAGE_KEYS = {
   // users who explicitly turned it off while it was experimental keep their
   // preference after it became on-by-default.
   conversationToc: 'pythinker-web.beta-toc',
+  // Message folding: fold a finished turn's work away, and summarise a run of
+  // consecutive tool calls into one row. Both on by default.
+  turnFolding: 'pythinker-web.turn-folding',
+  activityRunFolding: 'pythinker-web.activity-run-folding',
   notifyOnComplete: 'pythinker-web.notify-on-complete',
   notifyOnQuestion: 'pythinker-web.notify-on-question',
   notifyOnApproval: 'pythinker-web.notify-on-approval',

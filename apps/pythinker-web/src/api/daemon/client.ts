@@ -201,6 +201,11 @@ interface WireCancelResult {
   cancelled: true;
 }
 
+interface WireDetachResult {
+  detached: boolean;
+  status: AppTaskStatus;
+}
+
 interface WireSkillDescriptor {
   name: string;
   description: string;
@@ -973,6 +978,16 @@ export class DaemonPythinkerWebApi implements PythinkerWebApi {
   async cancelTask(sessionId: string, taskId: string): Promise<{ cancelled: true }> {
     const data = await this.http.post<WireCancelResult>(
       `/sessions/${encodeURIComponent(sessionId)}/tasks/${encodeURIComponent(taskId)}:cancel`,
+    );
+    return data;
+  }
+
+  async detachTask(
+    sessionId: string,
+    taskId: string,
+  ): Promise<{ detached: boolean; status: AppTaskStatus }> {
+    const data = await this.http.post<WireDetachResult>(
+      `/sessions/${encodeURIComponent(sessionId)}/tasks/${encodeURIComponent(taskId)}:detach`,
     );
     return data;
   }
