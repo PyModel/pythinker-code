@@ -77,6 +77,7 @@ function createState(): ExtendedState {
     serverVersion: '',
     dangerousBypassAuth: false,
     backend: 'v1',
+    experimentalFlagStates: [],
     workspaceName: 'pythinker-web',
     connection: 'connected',
     permission: 'manual',
