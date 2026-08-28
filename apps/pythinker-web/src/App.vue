@@ -1191,6 +1191,7 @@ function openPr(url: string): void {
       @open-media="openMediaPreview($event)"
       @open-compaction="openCompactionPanel($event)"
       @open-agent="openAgentPanel($event)"
+      @detach-task="client.detachTask($event)"
       @open-tool-diff="openToolDiff($event)"
       @open-turn-diff="openTurnDiff($event)"
       @edit-message="handleEditMessage"

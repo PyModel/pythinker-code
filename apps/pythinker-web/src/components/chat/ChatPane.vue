@@ -272,6 +272,7 @@ const emit = defineEmits<{
   /** Show a subagent's live detail in the right-side panel (keyed by the
    *  spawning `Agent` tool-call id). */
   openAgent: [toolCallId: string];
+  detachTask: [toolCallId: string];
   /** Show an Edit/Write tool call's diff in the right-side panel. */
   openToolDiff: [id: string];
   /** Show the aggregate file changes for one assistant turn. */
@@ -852,6 +853,7 @@ function continueFailedTurn(): void {
           @open-file="emit('openFile', $event)"
           @open-tool-diff="emit('openToolDiff', $event)"
           @open-agent="emit('openAgent', $event)"
+          @detach="emit('detachTask', $event)"
         />
         <template v-for="(blk, bi) in assistantTurnModels.get(turn.id)?.visible ?? []" :key="renderBlockKey(blk, bi)">
           <ThinkingBlock v-if="blk.kind === 'thinking'" :text="blk.thinking" mobile :streaming="isStreamingRenderBlock(turn, blk)" :started-at-ms="blockStartedMs(blk.startedAt)" :duration-ms="blk.durationMs" />
@@ -866,8 +868,9 @@ function continueFailedTurn(): void {
             @open-file="emit('openFile', $event)"
             @open-tool-diff="emit('openToolDiff', $event)"
             @open-agent="emit('openAgent', $event)"
+            @detach="emit('detachTask', $event)"
           />
-          <ToolCall v-else-if="blk.kind === 'tool'" :tool="blk.tool" mobile :tool-diff-panel="toolDiffPanel" @open-media="emit('openMedia', $event)" @open-file="emit('openFile', $event)" @open-tool-diff="emit('openToolDiff', $event)" @open-agent="emit('openAgent', $event)" />
+          <ToolCall v-else-if="blk.kind === 'tool'" :tool="blk.tool" mobile :tool-diff-panel="toolDiffPanel" @open-media="emit('openMedia', $event)" @open-file="emit('openFile', $event)" @open-tool-diff="emit('openToolDiff', $event)" @open-agent="emit('openAgent', $event)" @detach="emit('detachTask', $event)" />
           <NotificationCard v-else-if="blk.kind === 'notification'" :items="blk.items" />
         </template>
         <TurnFilesSummary

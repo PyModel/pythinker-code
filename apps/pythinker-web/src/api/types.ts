@@ -985,6 +985,8 @@ export interface PythinkerWebApi {
   listTasks(sessionId: string, status?: AppTaskStatus): Promise<AppTask[]>;
   getTask(sessionId: string, taskId: string, input?: { withOutput?: boolean; outputBytes?: number }): Promise<AppTask>;
   cancelTask(sessionId: string, taskId: string): Promise<{ cancelled: true }>;
+  /** Release a running foreground task so it keeps running in the background. */
+  detachTask(sessionId: string, taskId: string): Promise<{ detached: boolean; status: AppTaskStatus }>;
   listTerminals(sessionId: string): Promise<AppTerminal[]>;
   createTerminal(sessionId: string, input?: { cwd?: string; shell?: string; cols?: number; rows?: number }): Promise<AppTerminal>;
   getTerminal(sessionId: string, terminalId: string): Promise<AppTerminal>;

@@ -90,6 +90,7 @@ const pendingQuestionActions = reactive<Record<string, 'answer' | 'dismiss'>>({}
 const pendingApprovalActions = reactive<Record<string, true>>({});
 /** Task ids with an in-flight cancel, keyed by taskId. */
 const pendingTaskCancellations = reactive<Record<string, true>>({});
+const pendingTaskDetachments = reactive<Record<string, true>>({});
 /**
  * Workspace ids whose empty-session first prompt is currently being created +
  * submitted. The empty-composer path (`startSessionAndSendPrompt`) awaits
@@ -2148,6 +2149,52 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
     }
   }
 
+  /**
+   * Release a running foreground task (a Bash command or a foreground subagent)
+   * so it keeps running in the background. Takes the SPAWNING TOOL CALL id, the
+   * same id the tool rows carry; the REST task id is resolved from the store.
+   */
+  async function detachTask(toolCallId: string): Promise<void> {
+    const sid = rawState.activeSessionId;
+    if (!sid) return;
+    // Guard against a second click while the first detach is in flight.
+    if (pendingTaskDetachments[toolCallId]) return;
+    pendingTaskDetachments[toolCallId] = true;
+    try {
+      const api = getPythinkerWebApi();
+      const task = (rawState.tasksBySession[sid] ?? []).find(
+        (t) => t.id === toolCallId || t.parentToolCallId === toolCallId,
+      );
+      if (task === undefined) return;
+      // A background subagent row is keyed by agent id, but REST `/tasks` only
+      // knows its background-task id.
+      const restTaskId = task.backgroundTaskId ?? task.id;
+      const result = await api.detachTask(sid, restTaskId);
+      const list = rawState.tasksBySession[sid] ?? [];
+      rawState.tasksBySession = {
+        ...rawState.tasksBySession,
+        [sid]: list.map((t) => {
+          if (t.id !== task.id) return t;
+          // Still running: it simply moved to the background. Otherwise the
+          // task finished first and the server reports its terminal status.
+          if (result.status === 'running') return { ...t, runInBackground: true };
+          return {
+            ...t,
+            status: result.status,
+            completedAt: t.completedAt ?? new Date().toISOString(),
+            completedAtEstimated: t.completedAt === undefined ? true : t.completedAtEstimated,
+          };
+        }),
+      };
+    } catch (error) {
+      if (!isTaskAlreadyFinishedError(error)) {
+        pushOperationFailure('detachTask', error, { sessionId: sid });
+      }
+    } finally {
+      delete pendingTaskDetachments[toolCallId];
+    }
+  }
+
   async function cancelTask(taskId: string): Promise<void> {
     const sid = rawState.activeSessionId;
     if (!sid) return;
@@ -2901,6 +2948,7 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
     pendingQuestionActions,
     pendingApprovalActions,
     cancelTask,
+    detachTask,
     setPlanMode,
     togglePlanMode,
     setDynamicWorkflowMode,

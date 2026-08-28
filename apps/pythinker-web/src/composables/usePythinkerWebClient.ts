@@ -3249,6 +3249,7 @@ export function usePythinkerWebClient() {
     pendingQuestionActions: workspaceState.pendingQuestionActions,
     pendingApprovalActions: workspaceState.pendingApprovalActions,
     cancelTask: workspaceState.cancelTask,
+    detachTask: workspaceState.detachTask,
 
     // New Phase 1 actions
     setPermission: workspaceState.setPermission,

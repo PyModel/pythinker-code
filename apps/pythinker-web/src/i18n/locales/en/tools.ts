@@ -111,5 +111,12 @@ export default {
   agent: {
     foreground: 'Foreground',
     background: 'Background',
+    status: {
+      running: 'Running',
+      ok: 'Completed',
+      error: 'Failed',
+      cancelled: 'Cancelled',
+      suspended: 'Suspended',
+    },
   },
 } as const;
