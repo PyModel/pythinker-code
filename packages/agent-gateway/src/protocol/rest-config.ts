@@ -34,6 +34,7 @@ export const configResponseSchema = z.object({
 export type ConfigResponse = z.infer<typeof configResponseSchema>;
 
 const optionalModelAlias = z.string().min(1).optional();
+const droppedLegacyMetadata = z.unknown().optional();
 
 export const legacySecondaryModelRequestSchema = z
   .object({
@@ -44,6 +45,23 @@ export const legacySecondaryModelRequestSchema = z
     defaultEffort: z.string().optional(),
     models: z.record(z.string(), z.string()).optional(),
     force: z.boolean().optional(),
+    max_context_size: droppedLegacyMetadata,
+    maxContextSize: droppedLegacyMetadata,
+    max_input_size: droppedLegacyMetadata,
+    maxInputSize: droppedLegacyMetadata,
+    max_output_size: droppedLegacyMetadata,
+    maxOutputSize: droppedLegacyMetadata,
+    capabilities: droppedLegacyMetadata,
+    display_name: droppedLegacyMetadata,
+    displayName: droppedLegacyMetadata,
+    reasoning_key: droppedLegacyMetadata,
+    reasoningKey: droppedLegacyMetadata,
+    adaptive_thinking: droppedLegacyMetadata,
+    adaptiveThinking: droppedLegacyMetadata,
+    support_efforts: droppedLegacyMetadata,
+    supportEfforts: droppedLegacyMetadata,
+    off_effort: droppedLegacyMetadata,
+    offEffort: droppedLegacyMetadata,
   })
   .strict();
 export type LegacySecondaryModelRequest = z.infer<typeof legacySecondaryModelRequestSchema>;
