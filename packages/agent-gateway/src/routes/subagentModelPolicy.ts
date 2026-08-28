@@ -172,12 +172,13 @@ export function registerSubagentModelPolicyRoutes(app: PolicyRouteHost, core: Sc
         await core.accessor.get(IConfigService).ready;
         const expectedVersion = parseIfMatch(req.headers['if-match']);
         await policyService().set(fromWirePolicy(req.body), expectedVersion);
-        publish(['secondary_model']);
-        requestLog(req)?.info({ changedFields: ['secondary_model'] }, 'subagent model policy updated');
-        respond(typedReply, req.id);
       } catch (error) {
         fail(req as PolicyRequest, typedReply, error);
+        return;
       }
+      publish(['secondary_model']);
+      requestLog(req)?.info({ changedFields: ['secondary_model'] }, 'subagent model policy updated');
+      respond(typedReply, req.id);
     },
   );
   app.put(putRoute.path, putRoute.options, putRoute.handler as unknown as Parameters<PolicyRouteHost['put']>[2]);
@@ -200,12 +201,13 @@ export function registerSubagentModelPolicyRoutes(app: PolicyRouteHost, core: Sc
         await core.accessor.get(IConfigService).ready;
         const expectedVersion = parseIfMatch(req.headers['if-match']);
         await policyService().clear(expectedVersion);
-        publish(['secondary_model']);
-        requestLog(req)?.info({ changedFields: ['secondary_model'] }, 'subagent model policy cleared');
-        respond(typedReply, req.id);
       } catch (error) {
         fail(req as PolicyRequest, typedReply, error);
+        return;
       }
+      publish(['secondary_model']);
+      requestLog(req)?.info({ changedFields: ['secondary_model'] }, 'subagent model policy cleared');
+      respond(typedReply, req.id);
     },
   );
   app.delete(deleteRoute.path, deleteRoute.options, deleteRoute.handler as unknown as Parameters<PolicyRouteHost['delete']>[2]);

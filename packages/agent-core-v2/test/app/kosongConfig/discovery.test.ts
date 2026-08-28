@@ -7,6 +7,7 @@ import { IAgentIdentity } from '#/app/agentIdentity/agentIdentity';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
 import {
+  LegacySecondaryModelConfigSchema,
   normalizeLegacySecondaryModel,
   toPersistedSecondaryModel,
 } from '#/session/subagent/policy';
@@ -71,9 +72,7 @@ function stubLogService(): ILogService {
 function stubSubagentModelPolicy(): ISubagentModelPolicyService {
   const prepare = (input: unknown): PreparedSubagentPolicyMutation => {
     const policy = normalizeLegacySecondaryModel(
-      input === null || input === undefined
-        ? undefined
-        : (input as Parameters<typeof normalizeLegacySecondaryModel>[0]),
+      input === null || input === undefined ? undefined : LegacySecondaryModelConfigSchema.parse(input),
     );
     return { policy, section: toPersistedSecondaryModel(policy) };
   };

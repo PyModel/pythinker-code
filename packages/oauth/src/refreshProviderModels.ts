@@ -319,6 +319,28 @@ function clampDanglingDefault(config: PythinkerConfigShape): void {
   }
 }
 
+// The same refresh can drop a model that `[secondary_model]` binds. A dangling
+// default binding clears the section (subagents inherit the caller model again);
+// a dangling pool entry is pruned so the rest of the pool keeps working. The
+// discovery service validates the section against the refreshed catalog and
+// would otherwise reject the whole provider patch.
+function clampDanglingSecondaryModel(config: PythinkerConfigShape): void {
+  const section = config.secondaryModel;
+  if (section === undefined) return;
+  const bound = section.defaultModel ?? section.model;
+  if (bound !== undefined && readModel(config, bound) === undefined) {
+    config.secondaryModel = undefined;
+    return;
+  }
+  if (section.models === undefined) return;
+  const models = Object.fromEntries(
+    Object.entries(section.models).filter(([alias]) => readModel(config, alias) !== undefined),
+  );
+  if (Object.keys(models).length !== Object.keys(section.models).length) {
+    config.secondaryModel = { ...section, models };
+  }
+}
+
 function clearDefaultThinkingWhenDefaultRemoved(
   config: PythinkerConfigShape,
   previousDefaultModel: string | undefined,
@@ -433,6 +455,7 @@ export async function refreshProviderModels(
       preserveSecondaryModelAliases(config, next);
       restoreDefaultSelection(next, config.defaultModel, config.thinking?.enabled);
       clampDanglingDefault(next);
+      clampDanglingSecondaryModel(next);
       clearDefaultThinkingWhenDefaultRemoved(next, config.defaultModel);
 
       if (providerModelsEqual(config, next, providerId, refreshedAliasKeys)) {
@@ -584,6 +607,7 @@ export async function refreshProviderModels(
       if (changedProviders.length > 0 || hasUnreportedConfigChange) {
         restoreDefaultSelection(next, config.defaultModel, config.thinking?.enabled);
         clampDanglingDefault(next);
+        clampDanglingSecondaryModel(next);
         clearDefaultThinkingWhenDefaultRemoved(next, config.defaultModel);
         for (const providerId of providersToRemoveBeforeSet) {
           await host.removeProvider(providerId);
@@ -695,6 +719,7 @@ export async function refreshProviderModels(
       if (changedProviders.length > 0) {
         restoreDefaultSelection(next, config.defaultModel, config.thinking?.enabled);
         clampDanglingDefault(next);
+        clampDanglingSecondaryModel(next);
         clearDefaultThinkingWhenDefaultRemoved(next, config.defaultModel);
         for (const providerId of providersToRemoveBeforeSet) {
           await host.removeProvider(providerId);

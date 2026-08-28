@@ -643,6 +643,50 @@ describe('background subagent task registration', () => {
     ]);
   });
 
+  it('keeps the spawned routing provenance when task.started omits it', () => {
+    const projector = createAgentProjector();
+    const routing = {
+      operation: 'spawn',
+      profileSource: 'requested',
+      modelSource: 'caller',
+      policyMode: 'inherit',
+      policySource: 'default',
+      featureSource: 'default',
+      resolvedFromRoutingEnvironmentRevision: 'route-env:v1:aaa',
+      routeDecisionFingerprint: 'route-decision:v1:bbb',
+    };
+    projector.project(
+      'subagent.spawned',
+      {
+        subagentId: 'agent-1',
+        description: 'Explore repo',
+        runInBackground: true,
+        routing,
+        currentRoutingEnvironmentRevision: 'route-env:v1:aaa',
+      },
+      's1',
+    );
+
+    const events = projector.project(
+      'task.started',
+      { info: { taskId: 'task-9', kind: 'agent', detached: true, agentId: 'agent-1' } },
+      's1',
+    );
+
+    expect(events).toEqual([
+      {
+        type: 'taskCreated',
+        sessionId: 's1',
+        task: expect.objectContaining({
+          id: 'agent-1',
+          backgroundTaskId: 'task-9',
+          routing: expect.objectContaining({ operation: 'spawn', routeDecision: 'route-decision:v1:bbb' }),
+          currentRoutingEnvRevision: 'route-env:v1:aaa',
+        }),
+      },
+    ]);
+  });
+
   it('keys a late registration by agent id so later progress frames stay on one row', () => {
     const projector = createAgentProjector();
     const events = projector.project(
