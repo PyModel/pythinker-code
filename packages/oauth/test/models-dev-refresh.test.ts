@@ -238,7 +238,46 @@ describe('refreshProviderModels modelsDev directory providers', () => {
     expect(patch.providers?.[PROVIDER_ID]).toBeUndefined();
     expect(patch.defaultModel).toBeUndefined();
     expect(patch.thinking).toBeUndefined();
-    expect(patch.secondaryModel).toEqual(base.secondaryModel);
+    expect(patch.secondaryModel).toBeUndefined();
+  });
+
+  it('clears secondary_model when only the legacy model key dangles beside a valid default_model', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse({ 'brand-new-guy': makeDocument()['brand-new-guy'] })),
+    );
+    const base = makeBaseConfig();
+    base.models = { ...base.models, 'other/kept': { provider: 'other', model: 'kept' } };
+    base.secondaryModel = { defaultModel: 'other/kept', model: `${PROVIDER_ID}/deepseek-v4-flash` };
+
+    const { host, calls } = makeHost(base);
+    await refreshProviderModels(host);
+
+    expect(lastPatch(calls).secondaryModel).toBeUndefined();
+  });
+
+  it('prunes vanished pool entries from secondary_model but keeps the rest of the pool', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse({ 'brand-new-guy': makeDocument()['brand-new-guy'] })),
+    );
+    const base = makeBaseConfig();
+    base.models = {
+      ...base.models,
+      'other/kept': { provider: 'other', model: 'kept' },
+    };
+    base.secondaryModel = {
+      defaultModel: 'other/kept',
+      models: { 'other/kept': '', [`${PROVIDER_ID}/deepseek-v4-flash`]: 'fast' },
+    };
+
+    const { host, calls } = makeHost(base);
+    await refreshProviderModels(host);
+
+    expect(lastPatch(calls).secondaryModel).toEqual({
+      defaultModel: 'other/kept',
+      models: { 'other/kept': '' },
+    });
   });
 
   it('reports a failure without writing when an entry lists no usable models', async () => {

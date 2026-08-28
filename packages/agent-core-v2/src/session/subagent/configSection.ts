@@ -18,9 +18,33 @@ import {
 } from '#/kosong/model/thinking';
 
 import { SECONDARY_MODEL_FLAG_ID } from './flag';
+import {
+  type CanonicalSubagentModelPolicy,
+  INHERIT_SUBAGENT_MODEL_POLICY,
+  type LegacySecondaryModelConfig,
+  LegacySecondaryModelConfigSchema,
+  normalizeLegacySecondaryModel,
+  normalizeLegacySecondaryModelOrInherit,
+  PRIMARY_SUBAGENT_MODEL_CHOICE,
+  SECONDARY_MODEL_DEFAULT_MODEL_REQUIRED_MESSAGE,
+  SECONDARY_MODEL_FORCE_EXCLUDES_MODELS_MESSAGE,
+  SECONDARY_MODEL_FORCE_REQUIRES_DEFAULT_MESSAGE,
+  SECONDARY_MODEL_PRIMARY_MODEL_RESERVED_MESSAGE,
+  SECONDARY_MODEL_SECTION,
+  subagentPolicyModelChoices,
+  validateSubagentModelPolicy,
+} from './policy';
+
+export {
+  PRIMARY_SUBAGENT_MODEL_CHOICE,
+  SECONDARY_MODEL_DEFAULT_MODEL_REQUIRED_MESSAGE,
+  SECONDARY_MODEL_FORCE_EXCLUDES_MODELS_MESSAGE,
+  SECONDARY_MODEL_FORCE_REQUIRES_DEFAULT_MESSAGE,
+  SECONDARY_MODEL_PRIMARY_MODEL_RESERVED_MESSAGE,
+  SECONDARY_MODEL_SECTION,
+};
 
 export const SUBAGENT_SECTION = 'subagent';
-export const SECONDARY_MODEL_SECTION = 'secondaryModel';
 
 export const SubagentConfigSchema = z.object({
   timeoutMs: z.number().int().min(0).optional(),
@@ -28,24 +52,9 @@ export const SubagentConfigSchema = z.object({
 
 export type SubagentConfig = z.infer<typeof SubagentConfigSchema>;
 
-export const SecondaryModelConfigSchema = z.object({
-  defaultModel: z.string().min(1).optional(),
-  models: z.record(z.string(), z.string()).optional(),
-  force: z.boolean().optional(),
-  model: z.string().min(1).optional(),
-  maxContextSize: z.number().int().min(1).optional(),
-  maxInputSize: z.number().int().min(1).optional(),
-  maxOutputSize: z.number().int().min(1).optional(),
-  capabilities: z.array(z.string()).optional(),
-  displayName: z.string().optional(),
-  reasoningKey: z.string().optional(),
-  adaptiveThinking: z.boolean().optional(),
-  supportEfforts: z.array(z.string()).optional(),
-  defaultEffort: z.string().optional(),
-  offEffort: z.string().optional(),
-});
+export const SecondaryModelConfigSchema = LegacySecondaryModelConfigSchema;
 
-export type SecondaryModelConfig = z.infer<typeof SecondaryModelConfigSchema>;
+export type SecondaryModelConfig = LegacySecondaryModelConfig;
 
 export const DEFAULT_SUBAGENT_TIMEOUT_MS = 2 * 60 * 60 * 1000;
 
@@ -71,7 +80,7 @@ registerConfigSection(SUBAGENT_SECTION, SubagentConfigSchema, {
   stripEnv: stripSubagentEnv,
 });
 
-registerConfigSection(SECONDARY_MODEL_SECTION, SecondaryModelConfigSchema);
+registerConfigSection('secondaryModel', SecondaryModelConfigSchema);
 
 export function resolveSubagentTimeoutMs(config: IConfigService): number {
   return (
@@ -80,35 +89,32 @@ export function resolveSubagentTimeoutMs(config: IConfigService): number {
   );
 }
 
-export const PRIMARY_SUBAGENT_MODEL_CHOICE = 'primary';
-
 export interface SubagentModelPool {
   readonly defaultModel?: string;
   readonly models: Record<string, string>;
 }
 
-export function resolveSubagentModelPool(config: IConfigService): SubagentModelPool | undefined {
-  const section = config.get<SecondaryModelConfig | undefined>(SECONDARY_MODEL_SECTION);
-  if (section?.models !== undefined) {
-    return { defaultModel: section.defaultModel, models: section.models };
-  }
-  if (section?.defaultModel !== undefined) {
-    return { defaultModel: section.defaultModel, models: { [section.defaultModel]: '' } };
-  }
-  if (section?.model !== undefined) {
-    return { defaultModel: section.model, models: { [section.model]: '' } };
-  }
-  return undefined;
+function configuredPolicy(config: IConfigService): CanonicalSubagentModelPolicy {
+  return normalizeLegacySecondaryModel(
+    config.get<LegacySecondaryModelConfig | undefined>(SECONDARY_MODEL_SECTION),
+  );
 }
 
-export const SECONDARY_MODEL_FORCE_REQUIRES_DEFAULT_MESSAGE =
-  '[secondary_model].default_model is required when [secondary_model].force is set';
+function configuredPolicyOrInherit(config: IConfigService): CanonicalSubagentModelPolicy {
+  return normalizeLegacySecondaryModelOrInherit(
+    config.get<LegacySecondaryModelConfig | undefined>(SECONDARY_MODEL_SECTION),
+  );
+}
 
-export const SECONDARY_MODEL_FORCE_EXCLUDES_MODELS_MESSAGE =
-  '[secondary_model].force cannot be combined with [secondary_model.models]: the pool table only exists to offer the main agent a choice, and force removes that choice';
+export function resolveSubagentModelPool(config: IConfigService): SubagentModelPool | undefined {
+  const policy = configuredPolicyOrInherit(config);
+  const models = subagentPolicyModelChoices(policy);
+  if (policy.mode === 'inherit' || models === undefined) return undefined;
+  return { defaultModel: policy.defaultModel, models: { ...models } };
+}
 
 export function isSubagentModelForced(config: IConfigService): boolean {
-  return config.get<SecondaryModelConfig | undefined>(SECONDARY_MODEL_SECTION)?.force === true;
+  return configuredPolicyOrInherit(config).mode === 'force';
 }
 
 export function exposesSubagentModelChoice(config: IConfigService, flags: IFlagService): boolean {
@@ -117,10 +123,14 @@ export function exposesSubagentModelChoice(config: IConfigService, flags: IFlagS
   return resolveSubagentModelPool(config) !== undefined;
 }
 
-export const SECONDARY_MODEL_DEFAULT_MODEL_REQUIRED_MESSAGE =
-  '[secondary_model].default_model is required when [secondary_model.models] is configured';
-
-export const SECONDARY_MODEL_PRIMARY_MODEL_RESERVED_MESSAGE = `[secondary_model.models] key "${PRIMARY_SUBAGENT_MODEL_CHOICE}" is reserved: it always binds the caller's own model. Rename the pool entry.`;
+function catalogValidationContext(modelCatalog: IModelCatalog) {
+  return {
+    resolveModel(alias: string) {
+      const model = modelCatalog.get(alias);
+      return { id: model.id, defaultEffort: model.defaultEffort, supportEfforts: model.supportEfforts };
+    },
+  };
+}
 
 export function assertValidSubagentModelPool(
   pool: SubagentModelPool,
@@ -135,30 +145,15 @@ export function assertValidSubagentModelPool(
       },
     });
   }
-  const aliases = Object.keys(pool.models);
   if (pool.defaultModel === undefined) {
     throw new Error2(ErrorCodes.CONFIG_INVALID, SECONDARY_MODEL_DEFAULT_MODEL_REQUIRED_MESSAGE, {
       details: { section: SECONDARY_MODEL_SECTION, field: 'defaultModel' },
     });
   }
-  if (!Object.hasOwn(pool.models, pool.defaultModel)) {
-    throw new Error2(
-      ErrorCodes.CONFIG_INVALID,
-      `[secondary_model].default_model "${pool.defaultModel}" is not a [secondary_model.models] key. Available models: ${aliases.join(', ')}.`,
-      { details: { model: pool.defaultModel, availableModels: aliases } },
-    );
-  }
-  for (const alias of aliases) {
-    try {
-      modelCatalog.get(alias);
-    } catch (error) {
-      throw new Error2(
-        ErrorCodes.CONFIG_INVALID,
-        `[secondary_model.models] entry "${alias}" could not be resolved: ${error instanceof Error ? error.message : String(error)}`,
-        { cause: error, details: { model: alias } },
-      );
-    }
-  }
+  validateSubagentModelPolicy(
+    { mode: 'pool', defaultModel: pool.defaultModel, models: { ...pool.models } },
+    catalogValidationContext(modelCatalog),
+  );
 }
 
 export function assertValidSubagentModelConfig(
@@ -167,21 +162,7 @@ export function assertValidSubagentModelConfig(
   modelCatalog: IModelCatalog,
 ): void {
   if (!flags.enabled(SECONDARY_MODEL_FLAG_ID)) return;
-  const section = config.get<SecondaryModelConfig | undefined>(SECONDARY_MODEL_SECTION);
-  if (section?.force === true) {
-    if (section.models !== undefined) {
-      throw new Error2(ErrorCodes.CONFIG_INVALID, SECONDARY_MODEL_FORCE_EXCLUDES_MODELS_MESSAGE, {
-        details: { section: SECONDARY_MODEL_SECTION, field: 'force' },
-      });
-    }
-    if (section.defaultModel === undefined && section.model === undefined) {
-      throw new Error2(ErrorCodes.CONFIG_INVALID, SECONDARY_MODEL_FORCE_REQUIRES_DEFAULT_MESSAGE, {
-        details: { section: SECONDARY_MODEL_SECTION, field: 'defaultModel' },
-      });
-    }
-  }
-  const pool = resolveSubagentModelPool(config);
-  if (pool !== undefined) assertValidSubagentModelPool(pool, modelCatalog);
+  validateSubagentModelPolicy(configuredPolicy(config), catalogValidationContext(modelCatalog));
 }
 
 export function cascadeSubagentModelPool(
@@ -215,33 +196,21 @@ export function resolveSubagentBinding(
   requested?: string,
 ): { model: string; thinking?: string } {
   const enabled = flags.enabled(SECONDARY_MODEL_FLAG_ID);
-  const section = config.get<SecondaryModelConfig | undefined>(SECONDARY_MODEL_SECTION);
-  if (enabled && section?.force === true) {
-    if (section.models !== undefined) {
-      throw new Error2(ErrorCodes.CONFIG_INVALID, SECONDARY_MODEL_FORCE_EXCLUDES_MODELS_MESSAGE, {
-        details: { section: SECONDARY_MODEL_SECTION, field: 'force' },
-      });
-    }
-    const forcedModel = section.defaultModel ?? section.model;
-    if (forcedModel === undefined) {
-      throw new Error2(ErrorCodes.CONFIG_INVALID, SECONDARY_MODEL_FORCE_REQUIRES_DEFAULT_MESSAGE, {
-        details: { section: SECONDARY_MODEL_SECTION, field: 'defaultModel' },
-      });
-    }
+  const policy = enabled ? configuredPolicy(config) : INHERIT_SUBAGENT_MODEL_POLICY;
+  if (policy.mode === 'force') {
     if (requested !== undefined) {
       throw new Error2(
         ErrorCodes.CONFIG_INVALID,
-        `Invalid model "${requested}": [secondary_model].force is set, so every subagent binds "${forcedModel}" (omit the model parameter).`,
+        `Invalid model "${requested}": [secondary_model].force is set, so every subagent binds "${policy.defaultModel}" (omit the model parameter).`,
         { details: { model: requested } },
       );
     }
-    return { model: forcedModel, thinking: section.defaultEffort };
+    return { model: policy.defaultModel, thinking: policy.defaultEffort };
   }
   if (requested === PRIMARY_SUBAGENT_MODEL_CHOICE) {
     return { model: own.modelAlias, thinking: own.thinkingLevel };
   }
-  const pool = enabled ? resolveSubagentModelPool(config) : undefined;
-  if (pool === undefined) {
+  if (policy.mode === 'inherit') {
     if (requested !== undefined) {
       throw new Error2(
         ErrorCodes.CONFIG_INVALID,
@@ -251,7 +220,8 @@ export function resolveSubagentBinding(
     }
     return { model: own.modelAlias, thinking: own.thinkingLevel };
   }
-  if (Object.hasOwn(pool.models, PRIMARY_SUBAGENT_MODEL_CHOICE)) {
+  const choices = subagentPolicyModelChoices(policy) ?? {};
+  if (Object.hasOwn(choices, PRIMARY_SUBAGENT_MODEL_CHOICE)) {
     throw new Error2(ErrorCodes.CONFIG_INVALID, SECONDARY_MODEL_PRIMARY_MODEL_RESERVED_MESSAGE, {
       details: {
         section: SECONDARY_MODEL_SECTION,
@@ -260,21 +230,16 @@ export function resolveSubagentBinding(
       },
     });
   }
-  const choice = requested ?? pool.defaultModel;
-  if (choice === undefined) {
-    throw new Error2(ErrorCodes.CONFIG_INVALID, SECONDARY_MODEL_DEFAULT_MODEL_REQUIRED_MESSAGE, {
-      details: { section: SECONDARY_MODEL_SECTION, field: 'defaultModel' },
-    });
-  }
-  if (!Object.hasOwn(pool.models, choice)) {
-    const available = [...Object.keys(pool.models), PRIMARY_SUBAGENT_MODEL_CHOICE];
+  const choice = requested ?? policy.defaultModel;
+  if (!Object.hasOwn(choices, choice)) {
+    const available = [...Object.keys(choices), PRIMARY_SUBAGENT_MODEL_CHOICE];
     throw new Error2(
       ErrorCodes.CONFIG_INVALID,
       `Invalid model "${choice}". Available models: ${available.join(', ')}.`,
       { details: { model: choice, availableModels: available } },
     );
   }
-  return { model: choice, thinking: section?.defaultEffort };
+  return { model: choice, thinking: policy.defaultEffort };
 }
 
 export function resolveSubagentThinking(

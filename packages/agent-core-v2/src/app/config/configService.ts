@@ -487,6 +487,24 @@ export class ConfigService extends Disposable implements IConfigService {
     });
   }
 
+  previewReplaceSections(sections: Readonly<Record<string, unknown>>): ResolvedConfig {
+    const stagedRaw: ResolvedConfig = { ...this.raw };
+    const stagedRawSnake = cloneRecord(this.rawSnake);
+    for (const domain of Object.keys(sections)) {
+      const value = sections[domain] === null ? undefined : sections[domain];
+      const stripped = this.stripEnv(domain, value, stagedRaw, stagedRawSnake);
+      if (stripped === undefined) {
+        delete stagedRaw[domain];
+      } else {
+        stagedRaw[domain] = this.registry.validate(domain, stripped);
+      }
+    }
+    const next: ResolvedConfig = { ...this.buildValidated(stagedRaw, false) };
+    this.applySectionEnvBindings(next, false);
+    this.applyEnvOverlay(next, false);
+    return { ...next, ...this.memory };
+  }
+
   private stripEnv(
     domain: string,
     value: unknown,
@@ -599,12 +617,13 @@ export class ConfigService extends Disposable implements IConfigService {
     }
   }
 
-  private buildValidated(raw: ResolvedConfig): ResolvedConfig {
+  private buildValidated(raw: ResolvedConfig, report = true): ResolvedConfig {
     const validated: ResolvedConfig = {};
     for (const [domain, value] of Object.entries(raw)) {
       try {
         validated[domain] = this.registry.validate(domain, value);
       } catch (error) {
+        if (!report) continue;
         this.pushDiagnostic({
           domain,
           severity: 'warning',

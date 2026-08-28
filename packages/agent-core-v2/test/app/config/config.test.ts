@@ -89,6 +89,7 @@ import {
   type SubagentConfig,
   wrapSubagentModelError,
 } from '#/session/subagent/configSection';
+import { prospectiveModelView, validateSubagentModelPolicy } from '#/session/subagent/policy';
 import { SECONDARY_MODEL_FLAG_ID } from '#/session/subagent/flag';
 import {
   DEFAULT_DYNAMIC_WORKFLOW_TIMEOUT_MS,
@@ -2698,6 +2699,85 @@ describe('ConfigService replaceSections', () => {
     expect(onDisk).not.toContain('force');
     await config.reload();
     expect(config.get(SECONDARY_MODEL_SECTION)).toEqual({ defaultModel: 'acme/m1' });
+
+    disposables.dispose();
+  });
+
+  it('previewReplaceSections returns the prospective effective config with zero side effects', async () => {
+    const { config, disposables, store, storage } = await createSectionsConfig();
+    const setSpy = vi.spyOn(store, 'set');
+    const events: string[] = [];
+    disposables.add(config.onDidChangeConfiguration((e) => events.push(e.domain)));
+    const diskBefore = new TextDecoder().decode(await storage.read('', 'config.toml'));
+
+    const preview = config.previewReplaceSections({
+      [MODELS_SECTION]: { 'acme/m2': { provider: 'acme', model: 'm2', maxContextSize: 2000 } },
+      [DEFAULT_MODEL_SECTION]: null,
+    });
+
+    expect(Object.keys(preview[MODELS_SECTION] as Record<string, unknown>)).toEqual(['acme/m2']);
+    expect(preview[DEFAULT_MODEL_SECTION]).toBeUndefined();
+    expect(preview[PROVIDERS_SECTION]).toEqual({ acme: { type: 'openai', apiKey: 'sk-acme' } });
+    expect(preview[THINKING_SECTION]).toEqual({ enabled: true });
+    expect(setSpy).not.toHaveBeenCalled();
+    expect(events).toEqual([]);
+    expect(config.get(DEFAULT_MODEL_SECTION)).toBe('acme/m1');
+    expect(Object.keys(config.get<Record<string, unknown>>(MODELS_SECTION))).toEqual(['acme/m1']);
+    expect(new TextDecoder().decode(await storage.read('', 'config.toml'))).toBe(diskBefore);
+
+    await config.replaceSections({
+      [MODELS_SECTION]: { 'acme/m2': { provider: 'acme', model: 'm2', maxContextSize: 2000 } },
+      [DEFAULT_MODEL_SECTION]: null,
+    });
+    expect(config.get(MODELS_SECTION)).toEqual(preview[MODELS_SECTION]);
+    expect(config.get(DEFAULT_MODEL_SECTION)).toBeUndefined();
+
+    expect(() => config.previewReplaceSections({ [MODELS_SECTION]: { broken: 'x' } })).toThrow();
+    expect(setSpy).toHaveBeenCalledTimes(1);
+
+    disposables.dispose();
+  });
+
+  it('a prospective model view from previewReplaceSections validates removals and swaps before any write', async () => {
+    const seed = [
+      '[providers.acme]',
+      'type = "openai"',
+      'api_key = "sk-acme"',
+      '',
+      '[models."acme/luna"]',
+      'provider = "acme"',
+      'model = "luna"',
+      'max_context_size = 1000',
+      '',
+    ].join('\n');
+    const { config, disposables, store } = await createSectionsConfig(seed);
+    const setSpy = vi.spyOn(store, 'set');
+    const luna = { mode: 'default', defaultModel: 'acme/luna' } as const;
+    const sol = { mode: 'default', defaultModel: 'acme/sol' } as const;
+    const solRecord = { provider: 'acme', model: 'sol', maxContextSize: 1000 };
+
+    const current = config.previewReplaceSections({});
+    expect(() =>
+      validateSubagentModelPolicy(luna, prospectiveModelView(current[PROVIDERS_SECTION], current[MODELS_SECTION])),
+    ).not.toThrow();
+
+    const removed = config.previewReplaceSections({ [MODELS_SECTION]: {} });
+    expect(() =>
+      validateSubagentModelPolicy(luna, prospectiveModelView(removed[PROVIDERS_SECTION], removed[MODELS_SECTION])),
+    ).toThrow(/acme\/luna/);
+
+    const swapped = config.previewReplaceSections({ [MODELS_SECTION]: { 'acme/sol': solRecord } });
+    const swappedView = prospectiveModelView(swapped[PROVIDERS_SECTION], swapped[MODELS_SECTION]);
+    expect(() => validateSubagentModelPolicy(sol, swappedView)).not.toThrow();
+    expect(() => validateSubagentModelPolicy(luna, swappedView)).toThrow();
+    expect(setSpy).not.toHaveBeenCalled();
+
+    await config.replaceSections({
+      [MODELS_SECTION]: { 'acme/sol': solRecord },
+      [SECONDARY_MODEL_SECTION]: { defaultModel: 'acme/sol' },
+    });
+    expect(setSpy).toHaveBeenCalledTimes(1);
+    expect(config.get(SECONDARY_MODEL_SECTION)).toEqual({ defaultModel: 'acme/sol' });
 
     disposables.dispose();
   });

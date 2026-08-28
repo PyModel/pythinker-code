@@ -100,8 +100,31 @@ describe('server-v2 /api/v1/config', () => {
     expect(after.yolo).toBe(false);
   });
 
+  const FAST_MODELS_TOML = [
+    '[providers.provider]',
+    'type = "openai"',
+    'api_key = "sk-test"',
+    'base_url = "https://provider.example.test"',
+    '',
+    '[models."provider/fast"]',
+    'provider = "provider"',
+    'model = "fast"',
+    'max_context_size = 1000',
+    '',
+    '[models."provider/fast_model"]',
+    'provider = "provider"',
+    'model = "fast-model"',
+    'max_context_size = 1000',
+    '',
+    '[models."provider/slow"]',
+    'provider = "provider"',
+    'model = "slow"',
+    'max_context_size = 1000',
+    '',
+  ].join('\n');
+
   it('POST { secondary_model } persists the subagent model pool and GET echoes it', async () => {
-    await boot();
+    await boot(FAST_MODELS_TOML);
     const cfg = await patchConfig({
       secondary_model: {
         default_model: 'provider/fast',
@@ -118,7 +141,7 @@ describe('server-v2 /api/v1/config', () => {
   });
 
   it('POST { secondary_model } preserves pool alias keys containing underscores', async () => {
-    await boot();
+    await boot(FAST_MODELS_TOML);
     await patchConfig({
       secondary_model: { default_model: 'provider/fast_model', models: { 'provider/fast_model': '' } },
     });
@@ -134,7 +157,7 @@ describe('server-v2 /api/v1/config', () => {
   });
 
   it('POST { secondary_model: null } removes the subagent model override', async () => {
-    await boot('[secondary_model]\nmodel = "provider/fast"\ndefault_effort = "low"\n');
+    await boot(`${FAST_MODELS_TOML}[secondary_model]\nmodel = "provider/fast"\ndefault_effort = "low"\n`);
 
     const cfg = await patchConfig({ secondary_model: null });
     expect(cfg.secondary_model).toBeUndefined();
@@ -238,8 +261,26 @@ describe('server-v2 /api/v1/config secondary_model replacement and request atomi
     return readFile(join(home as string, 'config.toml'), 'utf-8');
   }
 
+  const MODELS_TOML = [
+    '[providers.provider]',
+    'type = "openai"',
+    'api_key = "sk-test"',
+    'base_url = "https://provider.example.test"',
+    '',
+    '[models."provider/fast"]',
+    'provider = "provider"',
+    'model = "fast"',
+    'max_context_size = 1000',
+    '',
+    '[models."provider/slow"]',
+    'provider = "provider"',
+    'model = "slow"',
+    'max_context_size = 1000',
+    '',
+  ].join('\n');
+
   it('force true -> false drops the force field instead of keeping the stale value', async () => {
-    await boot();
+    await boot(MODELS_TOML);
     await post({ secondary_model: { default_model: 'provider/fast', force: true } });
     expect((await getConfig()).secondary_model).toMatchObject({ force: true });
 
@@ -250,8 +291,23 @@ describe('server-v2 /api/v1/config secondary_model replacement and request atomi
     expect(await diskToml()).not.toContain('force');
   });
 
+  it('accepts legacy secondary_model metadata echoed by GET and drops it on write', async () => {
+    await boot(
+      `${MODELS_TOML}[secondary_model]\ndefault_model = "provider/fast"\nmax_context_size = 1000\ncapabilities = ["thinking"]\n`,
+    );
+    const echoed = (await getConfig()).secondary_model as Record<string, unknown>;
+    expect(echoed).toMatchObject({ defaultModel: 'provider/fast', maxContextSize: 1000 });
+
+    const res = await post({ secondary_model: { ...echoed, default_effort: 'low' } });
+    expect(res.body.code).toBe(0);
+    expect((await getConfig()).secondary_model).toEqual({
+      defaultModel: 'provider/fast',
+      defaultEffort: 'low',
+    });
+  });
+
   it('pool -> default drops the models table', async () => {
-    await boot();
+    await boot(MODELS_TOML);
     await post({
       secondary_model: {
         default_model: 'provider/fast',
@@ -264,7 +320,7 @@ describe('server-v2 /api/v1/config secondary_model replacement and request atomi
   });
 
   it('pool -> force drops the models table and keeps force', async () => {
-    await boot();
+    await boot(MODELS_TOML);
     await post({
       secondary_model: { default_model: 'provider/fast', models: { 'provider/fast': '' } },
     });
@@ -276,7 +332,7 @@ describe('server-v2 /api/v1/config secondary_model replacement and request atomi
   });
 
   it('default -> inherit removes the section from disk', async () => {
-    await boot();
+    await boot(MODELS_TOML);
     await post({ secondary_model: { default_model: 'provider/fast' } });
     await post({ secondary_model: null });
     expect((await getConfig()).secondary_model).toBeUndefined();
@@ -299,7 +355,7 @@ describe('server-v2 /api/v1/config secondary_model replacement and request atomi
   });
 
   it('accepts the web client camelCase secondary_model shape and drops force: false', async () => {
-    await boot();
+    await boot(MODELS_TOML);
     const res = await post({
       secondary_model: { defaultModel: 'provider/fast', defaultEffort: 'low', force: false },
     });
@@ -331,6 +387,64 @@ describe('server-v2 /api/v1/config secondary_model replacement and request atomi
     expect(res.body.code).toBe(0);
     expect((await getConfig()).subagent).toEqual({ timeoutMs: 1234 });
     expect(await diskToml()).not.toContain('timeout_ms');
+  });
+
+  it('validates secondary_model against the prospective post-request model configuration', async () => {
+    await boot(MODELS_TOML);
+    const luna = { provider: 'provider', model: 'luna', max_context_size: 1000 };
+
+    const unknown = await post({ secondary_model: { default_model: 'provider/luna' } });
+    expect(unknown.body.code).toBe(ErrorCode.VALIDATION_FAILED);
+    expect(await diskToml()).not.toContain('secondary_model');
+
+    const together = await post({
+      models: { 'provider/luna': luna },
+      secondary_model: { default_model: 'provider/luna', models: { 'provider/luna': 'new' } },
+    });
+    expect(together.body.code).toBe(0);
+    expect((await getConfig()).secondary_model).toMatchObject({ defaultModel: 'provider/luna' });
+    expect(await diskToml()).toContain('[models."provider/luna"]');
+
+    const mixedInvalid = await post({
+      models: { 'provider/sol': { provider: 'provider', model: 'sol', max_context_size: 1000 } },
+      secondary_model: { default_model: 'provider/sol', models: { 'provider/sol': '', 'provider/nope': '' } },
+    });
+    expect(mixedInvalid.body.code).toBe(ErrorCode.VALIDATION_FAILED);
+    expect(await diskToml()).not.toContain('[models."provider/sol"]');
+    expect((await getConfig()).secondary_model).toMatchObject({ defaultModel: 'provider/luna' });
+
+    const swap = await post({
+      models: { 'provider/sol': { provider: 'provider', model: 'sol', max_context_size: 1000 } },
+      secondary_model: { default_model: 'provider/sol' },
+    });
+    expect(swap.body.code).toBe(0);
+    expect(await diskToml()).toContain('[models."provider/sol"]');
+    expect((await getConfig()).secondary_model).toEqual({ defaultModel: 'provider/sol' });
+  });
+
+  it('validates secondary_model against the effective configuration including the env model overlay', async () => {
+    await boot(MODELS_TOML, {
+      ...process.env,
+      PYTHINKER_MODEL_NAME: 'env-model',
+      PYTHINKER_API_KEY: 'sk-env',
+      PYTHINKER_BASE_URL: 'https://env.example.test',
+    });
+    const cfg = await getConfig();
+    expect(Object.keys(cfg.models ?? {})).toContain('__pythinker_env_model__');
+
+    const envAlias = await post({ secondary_model: { default_model: '__pythinker_env_model__' } });
+    expect(envAlias.body.code).toBe(0);
+    expect((await getConfig()).secondary_model).toEqual({ defaultModel: '__pythinker_env_model__' });
+
+    const both = await post({
+      models: { 'provider/extra': { provider: 'provider', model: 'extra', max_context_size: 1000 } },
+      secondary_model: {
+        default_model: '__pythinker_env_model__',
+        models: { '__pythinker_env_model__': '', 'provider/fast': '', 'provider/extra': '' },
+      },
+    });
+    expect(both.body.code).toBe(0);
+    expect((await getConfig()).secondary_model).toMatchObject({ defaultModel: '__pythinker_env_model__' });
   });
 
   it('rejects a malformed secondary_model body with VALIDATION_FAILED and writes nothing', async () => {
