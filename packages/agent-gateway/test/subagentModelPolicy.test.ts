@@ -207,7 +207,11 @@ describe('server-v2 /api/v1/config/subagent-model-policy', () => {
     await boot();
     await call('PUT', { mode: 'force', default_model: 'acme/sol', default_effort: 'low' });
     const viaPut = await disk();
-    await call('DELETE');
+    expect(viaPut).toContain('[secondary_model]');
+    const removed = await call('DELETE');
+    expect(removed.body.code).toBe(0);
+    expect(removed.body.data?.policy).toEqual({ mode: 'inherit' });
+    expect(await disk()).not.toContain('secondary_model');
     const legacy = await authedFetch(server as RunningServer, base, '/api/v1/config', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
