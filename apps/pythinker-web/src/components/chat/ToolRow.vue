@@ -187,6 +187,8 @@ function onHeadClick(): void {
 }
 .tm {
   color: var(--color-text-faint);
+  flex: none;
+  white-space: nowrap;
 }
 :slotted(.chip) {
   color: var(--color-text-muted);

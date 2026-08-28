@@ -203,6 +203,7 @@ describe('AgentDetailPanel', () => {
     const textRule = /\.bh-text\s*\{([^}]*)\}/.exec(source)?.[1] ?? '';
     const rtRule = /\n\.rt\s*\{([^}]*)\}/.exec(source)?.[1] ?? '';
     const chipRule = /:slotted\(\.chip\)\s*\{([^}]*)\}/.exec(source)?.[1] ?? '';
+    const timeRule = /\n\.tm\s*\{([^}]*)\}/.exec(source)?.[1] ?? '';
 
     expect(textRule).toMatch(/overflow:\s*hidden/);
     expect(rtRule).toMatch(/min-width:\s*0/);
@@ -210,5 +211,7 @@ describe('AgentDetailPanel', () => {
     expect(chipRule).toMatch(/min-width:\s*0/);
     expect(chipRule).toMatch(/text-overflow:\s*ellipsis/);
     expect(chipRule).not.toMatch(/flex:\s*none/);
+    expect(timeRule).toMatch(/flex:\s*none/);
+    expect(timeRule).toMatch(/white-space:\s*nowrap/);
   });
 });
