@@ -238,7 +238,9 @@ describe('refreshProviderModels modelsDev directory providers', () => {
     expect(patch.providers?.[PROVIDER_ID]).toBeUndefined();
     expect(patch.defaultModel).toBeUndefined();
     expect(patch.thinking).toBeUndefined();
+    expect('secondaryModel' in patch).toBe(true);
     expect(patch.secondaryModel).toBeUndefined();
+    expect((await host.getConfig()).secondaryModel).toBeUndefined();
   });
 
   it('clears secondary_model when only the legacy model key dangles beside a valid default_model', async () => {
@@ -253,7 +255,10 @@ describe('refreshProviderModels modelsDev directory providers', () => {
     const { host, calls } = makeHost(base);
     await refreshProviderModels(host);
 
-    expect(lastPatch(calls).secondaryModel).toBeUndefined();
+    const patch = lastPatch(calls);
+    expect('secondaryModel' in patch).toBe(true);
+    expect(patch.secondaryModel).toBeUndefined();
+    expect((await host.getConfig()).secondaryModel).toBeUndefined();
   });
 
   it('prunes vanished pool entries from secondary_model but keeps the rest of the pool', async () => {
