@@ -179,7 +179,9 @@ describe('AgentDetailPanel', () => {
     if (path === undefined) throw new Error('PanelHeader.vue was not found');
     const source = readFileSync(path, 'utf8');
     const template = /<template>([\s\S]*)<\/template>/.exec(source)?.[1] ?? '';
-    const mainEnd = template.indexOf('</div>', template.indexOf('ui-panel-header__main'));
+    const mainStart = template.indexOf('class="ui-panel-header__main"');
+    expect(mainStart).toBeGreaterThan(-1);
+    const mainEnd = template.indexOf('</div>', mainStart);
     const closeStart = template.indexOf('ui-panel-header__close');
     expect(mainEnd).toBeGreaterThan(-1);
     expect(closeStart).toBeGreaterThan(mainEnd);
