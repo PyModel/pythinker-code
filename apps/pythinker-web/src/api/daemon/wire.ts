@@ -490,6 +490,24 @@ export interface WireExperimentalFlagState {
   overridden: boolean;
 }
 
+export interface WireSubagentModelPolicy {
+  mode: 'inherit' | 'default' | 'pool' | 'force';
+  default_model?: string;
+  models?: Record<string, string>;
+  default_effort?: string;
+}
+
+export interface WireSubagentModelPolicyResponse {
+  policy: WireSubagentModelPolicy;
+  resource_version: string;
+  effective: {
+    configured_policy: WireSubagentModelPolicy;
+    effective_policy: WireSubagentModelPolicy;
+    policy_source: 'config' | 'default';
+    feature: { enabled: boolean; source: 'master-env' | 'env' | 'config' | 'default' };
+  };
+}
+
 export interface WireConfig {
   providers: Record<string, WireConfigProvider>;
   default_provider?: string;

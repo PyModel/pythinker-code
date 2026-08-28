@@ -3,6 +3,8 @@
 // All snake_case ↔ camelCase conversion happens ONLY here.
 
 import type {
+  AppSubagentModelPolicy,
+  AppSubagentModelPolicyState,
   AppSubagentRouting,
   AppExperimentalFlagState,
   AppApprovalRequest,
@@ -34,6 +36,8 @@ import type {
 } from '../types';
 
 import type {
+  WireSubagentModelPolicy,
+  WireSubagentModelPolicyResponse,
   WireSubagentRouting,
   WireExperimentalFlagState,
   WireApprovalRequest,
@@ -435,6 +439,53 @@ export function toAppSubagentRoutingFromEvent(payload: unknown): AppSubagentRout
     featureSource: featureSource as AppSubagentRouting['featureSource'],
     routingEnvRevision,
     routeDecision,
+  };
+}
+
+export function toAppSubagentModelPolicy(wire: WireSubagentModelPolicy): AppSubagentModelPolicy {
+  switch (wire.mode) {
+    case 'default':
+      return { mode: 'default', defaultModel: wire.default_model ?? '', defaultEffort: wire.default_effort };
+    case 'pool':
+      return {
+        mode: 'pool',
+        defaultModel: wire.default_model ?? '',
+        models: wire.models ?? {},
+        defaultEffort: wire.default_effort,
+      };
+    case 'force':
+      return { mode: 'force', defaultModel: wire.default_model ?? '', defaultEffort: wire.default_effort };
+    default:
+      return { mode: 'inherit' };
+  }
+}
+
+export function toWireSubagentModelPolicy(policy: AppSubagentModelPolicy): WireSubagentModelPolicy {
+  switch (policy.mode) {
+    case 'default':
+      return { mode: 'default', default_model: policy.defaultModel, default_effort: policy.defaultEffort || undefined };
+    case 'pool':
+      return {
+        mode: 'pool',
+        default_model: policy.defaultModel,
+        models: policy.models,
+        default_effort: policy.defaultEffort || undefined,
+      };
+    case 'force':
+      return { mode: 'force', default_model: policy.defaultModel, default_effort: policy.defaultEffort || undefined };
+    default:
+      return { mode: 'inherit' };
+  }
+}
+
+export function toAppSubagentModelPolicyState(wire: WireSubagentModelPolicyResponse): AppSubagentModelPolicyState {
+  return {
+    policy: toAppSubagentModelPolicy(wire.policy),
+    resourceVersion: wire.resource_version,
+    configuredPolicy: toAppSubagentModelPolicy(wire.effective.configured_policy),
+    effectivePolicy: toAppSubagentModelPolicy(wire.effective.effective_policy),
+    policySource: wire.effective.policy_source,
+    feature: { enabled: wire.effective.feature.enabled, source: wire.effective.feature.source },
   };
 }
 

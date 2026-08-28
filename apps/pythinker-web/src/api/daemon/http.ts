@@ -179,6 +179,17 @@ export class DaemonHttpClient {
     return this.request<T>('POST', path, body, undefined, opts?.allowCodes);
   }
 
+  /** PUT/DELETE/GET with extra request headers and the response headers back.
+   *  Non-zero envelope codes listed in `allowCodes` are returned instead of
+   *  thrown, so callers can react to e.g. a version conflict (412). */
+  async exchange<T>(
+    method: 'GET' | 'PUT' | 'DELETE',
+    path: string,
+    opts: { body?: unknown; headers?: Record<string, string>; allowCodes?: number[] } = {},
+  ): Promise<{ data: T; code: number; headers: Headers }> {
+    return this.request<T>(method, path, opts.body, undefined, opts.allowCodes ?? [], opts.headers, true);
+  }
+
   /** POST JSON and receive a raw ZIP. The request trace accepts a separate
    * metadata-only body so large/sensitive export logs never enter the trace. */
   async postZip(
@@ -427,8 +438,28 @@ export class DaemonHttpClient {
     path: string,
     body?: unknown,
     query?: Record<string, string | number | boolean | undefined>,
+    allowCodes?: number[],
+    extraHeaders?: Record<string, string>,
+    withHeaders?: false,
+  ): Promise<T>;
+  private async request<T>(
+    method: string,
+    path: string,
+    body: unknown,
+    query: Record<string, string | number | boolean | undefined> | undefined,
+    allowCodes: number[],
+    extraHeaders: Record<string, string> | undefined,
+    withHeaders: true,
+  ): Promise<{ data: T; code: number; headers: Headers }>;
+  private async request<T>(
+    method: string,
+    path: string,
+    body?: unknown,
+    query?: Record<string, string | number | boolean | undefined>,
     allowCodes: number[] = [],
-  ): Promise<T> {
+    extraHeaders?: Record<string, string>,
+    withHeaders?: boolean,
+  ): Promise<T | { data: T; code: number; headers: Headers }> {
     // Build URL, appending query string (omit undefined values)
     let url = buildRestUrl(this.origin, path);
     if (query) {
@@ -451,6 +482,7 @@ export class DaemonHttpClient {
     if (body !== undefined) {
       headers['Content-Type'] = 'application/json; charset=utf-8';
     }
+    if (extraHeaders !== undefined) Object.assign(headers, extraHeaders);
 
     const startedAt = Date.now();
     traceRestRequest({ method, path, url, requestId, body });
@@ -533,6 +565,7 @@ export class DaemonHttpClient {
 
     // For both code=0 and allowed non-zero codes, return the data field.
     // Callers that pass allowCodes handle the null/non-null data themselves.
+    if (withHeaders === true) return { data: envelope.data as T, code: envelope.code, headers: response.headers };
     return envelope.data as T;
   }
 

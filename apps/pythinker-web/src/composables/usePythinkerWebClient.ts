@@ -55,6 +55,7 @@ import {
 } from './client/useWorkspaceState';
 
 import type {
+  AppSubagentModelPolicyState,
   AppExperimentalFlagState,
   AppEvent,
   AppApprovalRequest,
@@ -318,6 +319,9 @@ export interface ExtendedState extends PythinkerClientState {
   backend: 'v1' | 'v2';
   /** Effective experimental flag states from `/meta`; the server decides them. */
   experimentalFlagStates: AppExperimentalFlagState[];
+  /** Saved + effective subagent model routing policy (dedicated endpoint); null until loaded. */
+  subagentModelPolicy: AppSubagentModelPolicyState | null;
+  subagentModelPolicySaving: boolean;
   workspaceName: string;
   connection: ConnectionState;
   permission: PermissionMode;
@@ -410,6 +414,8 @@ const rawState: ExtendedState = reactive({
   dangerousBypassAuth: false,
   backend: 'v1',
   experimentalFlagStates: [],
+  subagentModelPolicy: null,
+  subagentModelPolicySaving: false,
   workspaceName: 'pythinker-web',
   connection: 'disconnected' as ConnectionState,
   permission: loadPermissionFromStorage() ?? 'manual',
@@ -2274,6 +2280,8 @@ const backend = computed<'v1' | 'v2'>(() => rawState.backend);
 const experimentalFlagStates = computed<AppExperimentalFlagState[]>(
   () => rawState.experimentalFlagStates,
 );
+const subagentModelPolicy = computed<AppSubagentModelPolicyState | null>(() => rawState.subagentModelPolicy);
+const subagentModelPolicySaving = computed<boolean>(() => rawState.subagentModelPolicySaving);
 function experimentalFlagState(id: string): AppExperimentalFlagState | undefined {
   return rawState.experimentalFlagStates.find((state) => state.id === id);
 }
@@ -3131,6 +3139,11 @@ export function usePythinkerWebClient() {
     backend,
     experimentalFlagStates,
     experimentalFlagState,
+    subagentModelPolicy,
+    subagentModelPolicySaving,
+    saveSubagentModelPolicy: workspaceState.saveSubagentModelPolicy,
+    clearSubagentModelPolicy: workspaceState.clearSubagentModelPolicy,
+    reloadSubagentModelPolicy: workspaceState.loadSubagentModelPolicy,
     dangerousBypassAuth,
     clearDangerousBypassAuth,
     initialized,
