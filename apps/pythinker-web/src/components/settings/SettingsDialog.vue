@@ -1678,6 +1678,10 @@ function archiveTime(iso: string): string {
   width: 0;
   height: 0;
 }
+.routing-mode:has(input:focus-visible) {
+  outline: none;
+  box-shadow: var(--p-focus-ring);
+}
 .routing-mode-title {
   font-family: var(--font-ui);
   font-size: var(--text-sm);
