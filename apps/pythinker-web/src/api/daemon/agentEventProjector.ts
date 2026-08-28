@@ -264,9 +264,14 @@ function patchSubagent(
           suspendedReason: prev.suspendedReason,
         }
       : patch;
+  // A patch that omits a field (or carries `undefined`) keeps the value that an
+  // earlier event stored, so `task.started` cannot erase `subagent.spawned` metadata.
+  const definedPatch = Object.fromEntries(
+    Object.entries(effectivePatch).filter(([, value]) => value !== undefined),
+  ) as Partial<AppTask>;
   const next: AppTask = {
     ...prev,
-    ...effectivePatch,
+    ...definedPatch,
     id: subagentId,
     agentId: subagentId,
     sessionId,
@@ -1357,24 +1362,17 @@ export function createAgentProjector(): AgentProjector {
             // client (subscribed late): later agent-scoped progress frames are
             // routed by agent id, and seeding subagentMeta here keeps them on
             // this one row instead of synthesizing a second one.
-            // `task.started` may omit fields that `subagent.spawned` already
-            // stored (model, effort, routing provenance); never overwrite them
-            // with `undefined`.
-            const model = typeof info.model === 'string' ? info.model : undefined;
-            const thinkingEffort =
-              typeof info.thinkingEffort === 'string' ? info.thinkingEffort : undefined;
-            const routing = toAppSubagentRoutingFromEvent(info.routing);
-            const currentRoutingEnvRevision =
-              typeof info.currentRoutingEnvironmentRevision === 'string'
-                ? info.currentRoutingEnvironmentRevision
-                : undefined;
             const task = patchSubagent(s, sessionId, agentId, {
               description,
               backgroundTaskId: taskId,
-              ...(model !== undefined ? { model } : {}),
-              ...(thinkingEffort !== undefined ? { thinkingEffort } : {}),
-              ...(routing !== undefined ? { routing } : {}),
-              ...(currentRoutingEnvRevision !== undefined ? { currentRoutingEnvRevision } : {}),
+              model: typeof info.model === 'string' ? info.model : undefined,
+              thinkingEffort:
+                typeof info.thinkingEffort === 'string' ? info.thinkingEffort : undefined,
+              routing: toAppSubagentRoutingFromEvent(info.routing),
+              currentRoutingEnvRevision:
+                typeof info.currentRoutingEnvironmentRevision === 'string'
+                  ? info.currentRoutingEnvironmentRevision
+                  : undefined,
               runInBackground: true,
             });
             if (task) out.push({ type: 'taskCreated', sessionId, task });

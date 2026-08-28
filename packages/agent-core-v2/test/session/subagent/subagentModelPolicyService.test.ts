@@ -10,7 +10,10 @@ import { ErrorCodes, Error2, isError2 } from '#/errors';
 import { IModelCatalog, type Model } from '#/kosong/model/catalog';
 import { SECONDARY_MODEL_FLAG_ID } from '#/session/subagent/flag';
 import { SECONDARY_MODEL_SECTION } from '#/session/subagent/policy';
-import { ISubagentModelPolicyService } from '#/session/subagent/subagentModelPolicy';
+import {
+  ISubagentModelPolicyService,
+  type SubagentModelPolicySnapshot,
+} from '#/session/subagent/subagentModelPolicy';
 import { SubagentModelPolicyService } from '#/session/subagent/subagentModelPolicyService';
 
 import { StubConfigService } from '../../kosong/stubs';
@@ -143,6 +146,12 @@ describe('SubagentModelPolicyService', () => {
       code: ErrorCodes.CONFIG_VERSION_CONFLICT,
     });
     expect(config.get(SECONDARY_MODEL_SECTION)).toEqual({ defaultModel: 'acme/luna', defaultEffort: undefined });
+    const recovered = await service.set(
+      { mode: 'force', defaultModel: 'acme/sol' },
+      (first as PromiseFulfilledResult<SubagentModelPolicySnapshot>).value.resourceVersion,
+    );
+    expect(recovered.policy).toEqual({ mode: 'force', defaultModel: 'acme/sol' });
+    expect(config.get(SECONDARY_MODEL_SECTION)).toEqual({ defaultModel: 'acme/sol', force: true, defaultEffort: undefined });
   });
 
   it('getEffective reports inherit while the feature is disabled and keeps the configured policy', () => {
