@@ -521,17 +521,6 @@ function truncatePath(path: string, maxLen = 55): string {
         <IconButton v-if="externalActions" size="sm" :label="t('filePreview.reveal')" @click="emit('reveal')">
           <Icon name="folder" size="md" />
         </IconButton>
-        <a
-          v-if="downloadUrl"
-          class="fp-download"
-          :href="downloadUrl"
-          target="_blank"
-          rel="noreferrer"
-          download
-          :aria-label="t('filePreview.download')"
-        >
-          <Icon name="download" size="md" />
-        </a>
         <IconButton
           v-if="!file.isBinary && contentKind !== 'image'"
           size="sm"
@@ -788,29 +777,6 @@ function truncatePath(path: string, maxLen = 55): string {
   text-align: right;
 }
 
-/* Download is a real link (<a href download>), so it can't be an IconButton;
-   mirror the IconButton sm look so the action row stays visually uniform. */
-.fp-download {
-  display: inline-grid;
-  place-items: center;
-  width: 26px;
-  height: 26px;
-  flex: none;
-  border-radius: var(--radius-sm);
-  color: var(--color-text-muted);
-}
-.fp-download:hover {
-  background: var(--color-surface-sunken);
-  color: var(--color-text);
-}
-.fp-download:focus-visible {
-  outline: none;
-  box-shadow: var(--p-focus-ring);
-}
-.fp-download svg {
-  width: var(--p-ic-sm);
-  height: var(--p-ic-sm);
-}
 
 /* "Copied" confirmation: tint the check glyph green. */
 .fp-check {

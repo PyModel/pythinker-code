@@ -170,4 +170,24 @@ describe('AgentDetailPanel', () => {
     expect(titleRule).toMatch(/white-space:\s*nowrap/);
     expect(closeRule).toMatch(/flex:\s*none/);
   });
+
+  it('keeps the Close control out of the wrapping content row', () => {
+    const path = [
+      'src/components/ui/PanelHeader.vue',
+      'apps/pythinker-web/src/components/ui/PanelHeader.vue',
+    ].find(existsSync);
+    if (path === undefined) throw new Error('PanelHeader.vue was not found');
+    const source = readFileSync(path, 'utf8');
+    const template = /<template>([\s\S]*)<\/template>/.exec(source)?.[1] ?? '';
+    const mainEnd = template.indexOf('</div>', template.indexOf('ui-panel-header__main'));
+    const closeStart = template.indexOf('ui-panel-header__close');
+    expect(mainEnd).toBeGreaterThan(-1);
+    expect(closeStart).toBeGreaterThan(mainEnd);
+
+    const wrapRule = /\.ui-panel-header\.wrap\s*\{([^}]*)\}/.exec(source)?.[1] ?? '';
+    const wrapMainRule = /\.ui-panel-header\.wrap \.ui-panel-header__main\s*\{([^}]*)\}/.exec(source)?.[1] ?? '';
+    expect(wrapRule).not.toMatch(/flex-wrap/);
+    expect(wrapRule).toMatch(/align-items:\s*flex-start/);
+    expect(wrapMainRule).toMatch(/flex-wrap:\s*wrap/);
+  });
 });
