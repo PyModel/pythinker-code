@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
-import { createReadStream, createWriteStream, type Stats } from 'node:fs';
-import { mkdir, readFile, realpath, stat } from 'node:fs/promises';
+import { constants, createWriteStream, type Stats } from 'node:fs';
+import { mkdir, open, realpath, stat, type FileHandle } from 'node:fs/promises';
 import { basename, extname, isAbsolute } from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
@@ -58,10 +58,8 @@ export async function assertPromptPathRefs(content: WireContent): Promise<void> 
     if (!isAbsolute(path)) {
       throw new Error2('validation.failed', `attachment path must be absolute: ${path}`);
     }
-    const { resolvedPath } = await statAttachmentFile(path);
-    if (isSensitiveFile(resolvedPath)) {
-      throw new Error2('validation.failed', `attachment path is a sensitive file: ${path}`);
-    }
+    const { handle } = await openAttachmentFile(path);
+    await handle.close();
   }
 }
 
@@ -77,12 +75,34 @@ function promptPartPath(part: WireContent[number]): string | undefined {
   return undefined;
 }
 
-async function statAttachmentFile(sourcePath: string): Promise<{ resolvedPath: string; info: Stats }> {
+interface OpenAttachmentFile {
+  readonly resolvedPath: string;
+  readonly info: Stats;
+  readonly handle: FileHandle;
+}
+
+async function openAttachmentFile(sourcePath: string): Promise<OpenAttachmentFile> {
   const resolvedPath = await realpath(sourcePath).catch(() => undefined);
   if (resolvedPath === undefined) throw fileNotFoundError(sourcePath);
-  const info = await stat(resolvedPath).catch(() => undefined);
-  if (info === undefined || !info.isFile()) throw fileNotFoundError(sourcePath);
-  return { resolvedPath, info };
+  if (isSensitiveFile(resolvedPath)) {
+    throw new Error2('validation.failed', `attachment path is a sensitive file: ${sourcePath}`);
+  }
+  let handle: FileHandle;
+  try {
+    handle = await open(resolvedPath, constants.O_RDONLY | constants.O_NOFOLLOW);
+  } catch (error) {
+    if (isFsError(error)) throw fileNotFoundError(sourcePath);
+    throw error;
+  }
+  try {
+    const info = await handle.stat();
+    if (!info.isFile()) throw fileNotFoundError(sourcePath);
+    return { resolvedPath, info, handle };
+  } catch (error) {
+    await handle.close().catch(() => undefined);
+    if (isFsError(error)) throw fileNotFoundError(sourcePath);
+    throw error;
+  }
 }
 
 function isFsError(error: unknown): boolean {
@@ -254,16 +274,30 @@ export async function resolvePromptMediaFiles(
 
       if (part.type === 'file') {
         if (part.path !== undefined) {
-          const { resolvedPath, info } = await statAttachmentFile(part.path);
-          const name = part.name ?? basename(resolvedPath);
-          const mediaType = part.media_type ?? 'application/octet-stream';
-          content.push({
-            type: 'text',
-            text: buildAttachedFileNotice(name, mediaType, info.size, resolvedPath),
-          });
-          attachments.push({ name, mediaType, size: info.size, path: resolvedPath });
-          changed = true;
-          continue;
+          const { resolvedPath, handle } = await openAttachmentFile(part.path);
+          try {
+            const name = part.name ?? basename(resolvedPath);
+            const mediaType = part.media_type ?? 'application/octet-stream';
+            const saved = await store.save(
+              handle.createReadStream({ autoClose: false }),
+              name,
+              { mimeType: mediaType },
+            );
+            ownedFileIds.add(saved.id);
+            const attachedPath = await materializeAttachmentToDir(
+              await store.get(saved.id),
+              await resolveAttachmentsDir(),
+            );
+            content.push({
+              type: 'text',
+              text: buildAttachedFileNotice(name, mediaType, saved.size, attachedPath),
+            });
+            attachments.push({ name, mediaType, size: saved.size, path: attachedPath });
+            changed = true;
+            continue;
+          } finally {
+            await handle.close();
+          }
         }
         if (part.file_id === undefined) {
           throw new Error2('validation.failed', 'file part requires file_id or path');
@@ -286,90 +320,111 @@ export async function resolvePromptMediaFiles(
 
       if (part.type === 'image' && part.source.kind === 'path') {
         const sourcePath = part.source.path;
-        const { resolvedPath, info } = await statAttachmentFile(sourcePath);
-        if (info.size > MAX_IMAGE_DECODE_BYTES) {
-          throw new Error2(
-            'validation.failed',
-            `${sourcePath} is ${info.size} bytes, over the ${MAX_IMAGE_DECODE_BYTES}-byte image decode limit — attach it as a file instead`,
-          );
-        }
-        const data = await readFile(resolvedPath).catch((error: unknown) => {
-          if (isFsError(error)) throw fileNotFoundError(sourcePath);
-          throw error;
-        });
-        const name = basename(resolvedPath);
-        const declared = pathMediaMime(resolvedPath, data, 'image');
-        if (!declared.startsWith('image/')) {
-          throw new Error2('validation.failed', `${sourcePath} is ${declared}, not an image`);
-        }
-        let mediaType = resolveEffectiveImageMime(declared, data);
-        if (!isModelAcceptedImageMime(mediaType)) {
-          content.push({
-            type: 'text',
-            text: buildAttachedFileNotice(name, mediaType, data.length, resolvedPath),
+        const { resolvedPath, info, handle } = await openAttachmentFile(sourcePath);
+        try {
+          if (info.size > MAX_IMAGE_DECODE_BYTES) {
+            throw imageDecodeLimitError(sourcePath, info.size);
+          }
+          const data = await handle.readFile().catch((error: unknown) => {
+            if (isFsError(error)) throw fileNotFoundError(sourcePath);
+            throw error;
           });
-          attachments.push({ name, mediaType, size: data.length, path: resolvedPath });
+          if (data.length > MAX_IMAGE_DECODE_BYTES) {
+            throw imageDecodeLimitError(sourcePath, data.length);
+          }
+          const name = basename(resolvedPath);
+          const declared = pathMediaMime(resolvedPath, data, 'image');
+          if (!declared.startsWith('image/')) {
+            throw new Error2('validation.failed', `${sourcePath} is ${declared}, not an image`);
+          }
+          let mediaType = resolveEffectiveImageMime(declared, data);
+          if (!isModelAcceptedImageMime(mediaType)) {
+            const saved = await store.save(Readable.from(data), name, { mimeType: mediaType });
+            ownedFileIds.add(saved.id);
+            const attachedPath = await materializeAttachmentToDir(
+              await store.get(saved.id),
+              await resolveAttachmentsDir(),
+            );
+            content.push({
+              type: 'text',
+              text: buildAttachedFileNotice(name, mediaType, saved.size, attachedPath),
+            });
+            attachments.push({ name, mediaType, size: saved.size, path: attachedPath });
+            changed = true;
+            continue;
+          }
+          mediaType = normalizeImageMime(mediaType);
+          const compressed = await compressImageForModel(data, mediaType, {
+            telemetry: telemetryFor('prompt_file'),
+          });
+          if (compressed.changed) {
+            const originalPath = await persistOriginalImage(data, mediaType, {
+              dir: await resolveOriginalsDir(),
+            });
+            content.push({
+              type: 'text',
+              text: buildImageCompressionCaption({
+                original: {
+                  width: compressed.originalWidth,
+                  height: compressed.originalHeight,
+                  byteLength: compressed.originalByteLength,
+                  mimeType: mediaType,
+                },
+                final: {
+                  width: compressed.width,
+                  height: compressed.height,
+                  byteLength: compressed.finalByteLength,
+                  mimeType: compressed.mimeType,
+                },
+                originalPath,
+              }),
+            });
+          }
+          const saved = await store.save(
+            Readable.from(compressed.changed ? Buffer.from(compressed.data) : data),
+            compressed.changed ? compressedUploadName(name, compressed.mimeType) : name,
+            { mimeType: compressed.changed ? compressed.mimeType : mediaType },
+          );
+          ownedFileIds.add(saved.id);
+          content.push({
+            type: 'image',
+            source: { kind: 'url', url: buildDaemonFileUrl(saved.id) },
+          });
           changed = true;
           continue;
+        } finally {
+          await handle.close();
         }
-        mediaType = normalizeImageMime(mediaType);
-        const compressed = await compressImageForModel(data, mediaType, {
-          telemetry: telemetryFor('prompt_file'),
-        });
-        if (compressed.changed) {
-          content.push({
-            type: 'text',
-            text: buildImageCompressionCaption({
-              original: {
-                width: compressed.originalWidth,
-                height: compressed.originalHeight,
-                byteLength: compressed.originalByteLength,
-                mimeType: mediaType,
-              },
-              final: {
-                width: compressed.width,
-                height: compressed.height,
-                byteLength: compressed.finalByteLength,
-                mimeType: compressed.mimeType,
-              },
-              originalPath: resolvedPath,
-            }),
-          });
-        }
-        const saved = await store.save(
-          Readable.from(compressed.changed ? Buffer.from(compressed.data) : data),
-          compressed.changed ? compressedUploadName(name, compressed.mimeType) : name,
-          { mimeType: compressed.changed ? compressed.mimeType : mediaType },
-        );
-        ownedFileIds.add(saved.id);
-        content.push({
-          type: 'image',
-          source: { kind: 'url', url: buildDaemonFileUrl(saved.id) },
-        });
-        changed = true;
-        continue;
       }
 
       if (part.type === 'video' && part.source.kind === 'path') {
         const sourcePath = part.source.path;
-        const { resolvedPath } = await statAttachmentFile(sourcePath);
-        const mediaType = pathMediaMime(resolvedPath, undefined, 'video');
-        if (!mediaType.startsWith('video/')) {
-          throw new Error2('validation.failed', `${sourcePath} is ${mediaType}, not a video`);
-        }
-        const saved = await store
-          .save(createReadStream(resolvedPath), basename(resolvedPath), { mimeType: mediaType })
-          .catch((error: unknown) => {
-            if (isFsError(error)) throw fileNotFoundError(sourcePath);
-            throw error;
+        const { resolvedPath, handle } = await openAttachmentFile(sourcePath);
+        try {
+          const mediaType = pathMediaMime(resolvedPath, undefined, 'video');
+          if (!mediaType.startsWith('video/')) {
+            throw new Error2('validation.failed', `${sourcePath} is ${mediaType}, not a video`);
+          }
+          const saved = await store
+            .save(
+              handle.createReadStream({ autoClose: false }),
+              basename(resolvedPath),
+              { mimeType: mediaType },
+            )
+            .catch((error: unknown) => {
+              if (isFsError(error)) throw fileNotFoundError(sourcePath);
+              throw error;
+            });
+          ownedFileIds.add(saved.id);
+          content.push({
+            type: 'video',
+            source: { kind: 'url', url: buildDaemonFileUrl(saved.id) },
           });
-        ownedFileIds.add(saved.id);
-        content.push({
-          type: 'video',
-          source: { kind: 'url', url: buildDaemonFileUrl(saved.id) },
-        });
-        changed = true;
-        continue;
+          changed = true;
+          continue;
+        } finally {
+          await handle.close();
+        }
       }
 
       if ((part.type !== 'image' && part.type !== 'video') || part.source.kind !== 'file') {
@@ -465,6 +520,13 @@ export async function resolvePromptMediaFiles(
 function compressedUploadName(originalName: string, mimeType: string): string {
   const base = originalName.replace(/\.[^./\\]*$/, '');
   return `${base.length > 0 ? base : 'image'}.${imageExtensionForMime(mimeType)}`;
+}
+
+function imageDecodeLimitError(sourcePath: string, size: number): Error2 {
+  return new Error2(
+    'validation.failed',
+    `${sourcePath} is ${size} bytes, over the ${MAX_IMAGE_DECODE_BYTES}-byte image decode limit — attach it as a file instead`,
+  );
 }
 
 const ATTACHMENT_NAME_MAX = 100;

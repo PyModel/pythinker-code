@@ -838,7 +838,6 @@ export function toAppConfig(wire: WireConfig): AppConfig {
     background: wire.background,
     experimental: wire.experimental,
     telemetry: wire.telemetry,
-    raw: wire.raw,
   };
 }
 

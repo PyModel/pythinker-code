@@ -10,6 +10,7 @@ import type {
 import {
   type ICoreProcessService,
   type IEnvironmentService,
+  ConfigService,
   ModelCatalogService,
   ModelNotFoundError,
   ProviderNotFoundError,
@@ -181,6 +182,45 @@ describe('model catalog adapters', () => {
       status: 'connected',
       models: ['k2', 'turbo'],
     });
+  });
+});
+
+describe('ConfigService', () => {
+  it('redacts service credentials and raw TOML from responses and events', async () => {
+    const configRef = { current: catalogConfig() };
+    configRef.current.services = {
+      pymodelSearch: {
+        baseUrl: 'https://search.example.test',
+        apiKey: 'service-api-key-canary',
+        oauth: { storage: 'file', key: 'service-oauth-canary' },
+        customHeaders: {
+          Authorization: 'Bearer service-header-canary',
+          'x-team': 'core',
+        },
+      },
+    };
+    configRef.current.raw = { credential: 'raw-config-canary' };
+    const { core } = makeCore(configRef);
+    const { svc: eventService, published } = makeEventService();
+    const service = new ConfigService(core, eventService);
+
+    const response = await service.get();
+    expect(response.services).toEqual({
+      pymodelSearch: {
+        baseUrl: 'https://search.example.test',
+        has_api_key: true,
+        custom_header_keys: ['Authorization', 'x-team'],
+      },
+    });
+    expect(response).not.toHaveProperty('raw');
+
+    await service.set({ telemetry: false });
+    expect(published).toHaveLength(1);
+    const serialized = JSON.stringify({ response, event: published[0] });
+    expect(serialized).not.toContain('service-api-key-canary');
+    expect(serialized).not.toContain('service-oauth-canary');
+    expect(serialized).not.toContain('service-header-canary');
+    expect(serialized).not.toContain('raw-config-canary');
   });
 });
 

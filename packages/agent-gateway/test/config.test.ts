@@ -193,6 +193,21 @@ describe('server-v2 /api/v1/config', () => {
     expect(JSON.stringify(config)).not.toContain('oauth/search');
   });
 
+  it('strips unlisted config domains from the raw HTTP response', async () => {
+    await boot(
+      '[identity]\nname = "identity-canary"\n\n[raw]\napi_key = "raw-canary"\n',
+    );
+    const res = await authedFetch(server as RunningServer, base, '/api/v1/config');
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    const body = JSON.parse(text) as Envelope<Record<string, unknown>>;
+    expect(body.code).toBe(0);
+    expect(body.data).not.toHaveProperty('identity');
+    expect(body.data).not.toHaveProperty('raw');
+    expect(text).not.toContain('identity-canary');
+    expect(text).not.toContain('raw-canary');
+  });
+
   it('publishes engine config writes to WebSocket clients', async () => {
     await boot();
     const live = server as RunningServer;
@@ -214,11 +229,21 @@ describe('server-v2 /api/v1/config', () => {
     await config.ready;
     await config.replace('defaultModel', 'example-model');
 
-    await vi.waitFor(() => expect(frames).toHaveLength(1));
+    await vi.waitFor(() => {
+      expect(frames).toHaveLength(1);
+    });
     expect(frames[0]?.payload).toMatchObject({
       changedFields: ['defaultModel'],
       config: { default_model: 'example-model', providers: {} },
     });
+
+    await config.replace('identity', { name: 'credential-canary' });
+    await vi.waitFor(() => {
+      expect(frames).toHaveLength(2);
+    });
+    expect(frames[1]?.payload.changedFields).toEqual(['identity']);
+    expect(frames[1]?.payload.config).not.toHaveProperty('identity');
+    expect(JSON.stringify(frames[1]?.payload.config)).not.toContain('credential-canary');
     socket.close();
   });
 

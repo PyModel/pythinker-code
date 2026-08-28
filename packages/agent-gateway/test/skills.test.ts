@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -323,10 +323,10 @@ describe('server-v2 /api/v1 skills', () => {
           message.role === 'user' &&
           message.content.some((part) => part.text?.includes('User activated the skill')),
       );
-      expect(userMessage?.content[1]).toEqual({
-        type: 'text',
-        text: `Attached file "note.txt" (application/octet-stream, ${noteBytes.length} bytes): ${await realpath(sourcePath)} — open it with the Read tool`,
-      });
+      const attachmentText = userMessage?.content[1]?.text ?? '';
+      const attachedPath = /bytes\): (.+) — open it with the Read tool$/.exec(attachmentText)?.[1];
+      expect(attachedPath).toContain('/attachments/');
+      expect(await readFile(attachedPath as string)).toEqual(noteBytes);
 
       const transcript = await getJson<{
         items: Array<{ kind: string; attachmentIds?: string[] }>;

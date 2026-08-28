@@ -843,7 +843,6 @@ export interface AppConfig {
   background?: unknown;
   experimental?: Record<string, boolean>;
   telemetry?: boolean;
-  raw?: Record<string, unknown>;
 }
 
 /** A session-scoped skill the user can invoke from the slash menu. */

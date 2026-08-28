@@ -1738,7 +1738,6 @@ export class DaemonPythinkerWebApi implements PythinkerWebApi {
       background: 'background',
       experimental: 'experimental',
       telemetry: 'telemetry',
-      raw: 'raw',
     };
     for (const [key, value] of Object.entries(patch)) {
       const wireKey = keyMap[key as keyof AppConfig];

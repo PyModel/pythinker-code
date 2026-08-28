@@ -16,12 +16,14 @@ export const configResponseSchema = z.object({
   thinking: z.unknown().optional(),
   plan_mode: z.boolean().optional(),
   yolo: z.boolean().optional(),
+  default_thinking: z.boolean().optional(),
   default_permission_mode: z.string().optional(),
   default_plan_mode: z.boolean().optional(),
   permission: z.unknown().optional(),
   hooks: z.array(z.unknown()).optional(),
   services: z.unknown().optional(),
   merge_all_available_skills: z.boolean().optional(),
+  disabled_skills: z.array(z.string()).optional(),
   extra_skill_dirs: z.array(z.string()).optional(),
   loop_control: z.unknown().optional(),
   background: z.unknown().optional(),
@@ -29,8 +31,7 @@ export const configResponseSchema = z.object({
   secondary_model: z.unknown().optional(),
   experimental: z.record(z.string(), z.boolean()).optional(),
   telemetry: z.boolean().optional(),
-  raw: z.record(z.string(), z.unknown()).optional(),
-}).passthrough();
+});
 export type ConfigResponse = z.infer<typeof configResponseSchema>;
 
 export const patchConfigRequestSchema = z.object({
@@ -41,12 +42,14 @@ export const patchConfigRequestSchema = z.object({
   thinking: z.unknown().optional(),
   plan_mode: z.boolean().optional(),
   yolo: z.boolean().optional(),
+  default_thinking: z.boolean().optional(),
   default_permission_mode: z.string().optional(),
   default_plan_mode: z.boolean().optional(),
   permission: z.unknown().optional(),
   hooks: z.array(z.unknown()).optional(),
   services: z.unknown().optional(),
   merge_all_available_skills: z.boolean().optional(),
+  disabled_skills: z.array(z.string()).optional(),
   extra_skill_dirs: z.array(z.string()).optional(),
   loop_control: z.unknown().optional(),
   background: z.unknown().optional(),

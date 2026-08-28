@@ -491,7 +491,6 @@ export interface WireConfig {
   background?: unknown;
   experimental?: Record<string, boolean>;
   telemetry?: boolean;
-  raw?: Record<string, unknown>;
 }
 
 // ---------------------------------------------------------------------------

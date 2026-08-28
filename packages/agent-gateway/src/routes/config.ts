@@ -106,7 +106,7 @@ export function toConfigResponse(resolved: Record<string, unknown>): ConfigRespo
   if (wire['providers'] === undefined) {
     wire['providers'] = {};
   }
-  return wire as ConfigResponse;
+  return configResponseSchema.parse(wire);
 }
 
 interface ProviderLike {

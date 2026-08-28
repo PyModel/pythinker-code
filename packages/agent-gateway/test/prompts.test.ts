@@ -1,6 +1,6 @@
 import { chmod, mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { deflateSync } from 'node:zlib';
 
 import {
@@ -24,6 +24,7 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { type RunningServer, startServer } from '../src/start';
+import { assertPromptPathRefs, resolvePromptMediaFiles } from '../src/lib/promptMedia';
 import { projectPromptSnapshot, watchPromptSettlements } from '../src/routes/prompts';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 import { authHeaders } from './helpers/auth';
@@ -1063,7 +1064,7 @@ describe('server-v2 /api/v1 prompts', () => {
     expect(await readFile(attachedPath)).toEqual(scriptBytes);
   });
 
-  it('attaches a server-local file by canonical path without copying it', async () => {
+  it('materializes a server-local file from one verified file handle', async () => {
     const id = await createSession(home as string);
     await createMainAgent(id);
     const outside = await mkdtemp(join(tmpdir(), 'pythinker-attach-path-'));
@@ -1079,17 +1080,16 @@ describe('server-v2 /api/v1 prompts', () => {
         content: [{ type: 'text', text: 'read this' }, { type: 'file', path: linkPath }],
       });
       expect(submitted.body.code).toBe(0);
-      expect(submitted.body.data.content).toEqual([
-        { type: 'text', text: 'read this' },
-        {
-          type: 'text',
-          text: `Attached file "notes.txt" (application/octet-stream, ${bytes.length} bytes): ${canonicalPath} — open it with the Read tool`,
-        },
-      ]);
+      const content = submitted.body.data.content as Array<{ type: string; text?: string }>;
+      expect(content[0]).toEqual({ type: 'text', text: 'read this' });
+      const attachedPath = attachedPathFrom(content[1]?.text ?? '');
+      expect(attachedPath).not.toBe(canonicalPath);
+      expect(await readFile(attachedPath)).toEqual(bytes);
 
       const session = getLiveSessionById(server!.core.accessor, id);
       const attachmentsDir = join(session!.accessor.get(ISessionContext).sessionDir, 'attachments');
-      await expect(readdir(attachmentsDir)).rejects.toMatchObject({ code: 'ENOENT' });
+      expect(dirname(attachedPath)).toBe(attachmentsDir);
+      expect(await readdir(attachmentsDir)).toEqual([basename(attachedPath)]);
       const main = session!.accessor.get(IAgentLifecycleService).handleOf('main')!;
       await vi.waitFor(() => {
         const promptMessage = main
@@ -1103,7 +1103,7 @@ describe('server-v2 /api/v1 prompts', () => {
               name: 'notes.txt',
               mediaType: 'application/octet-stream',
               size: bytes.length,
-              path: canonicalPath,
+              path: attachedPath,
             },
           ],
         });
@@ -1137,6 +1137,35 @@ describe('server-v2 /api/v1 prompts', () => {
       content: [{ type: 'file', path: join(home as string, 'missing.txt') }],
     });
     expect(missing.body.code).toBe(40407);
+  });
+
+  it('rechecks a server-local path after attachment validation', async () => {
+    const outside = await mkdtemp(join(tmpdir(), 'pythinker-attach-swap-'));
+    try {
+      const sourcePath = join(outside, 'notes.txt');
+      const secretPath = join(outside, '.env');
+      const linkPath = join(outside, 'alias.txt');
+      await writeFile(sourcePath, 'safe');
+      await writeFile(secretPath, 'TOKEN=secret');
+      await symlink(sourcePath, linkPath);
+      const content: Parameters<typeof assertPromptPathRefs>[0] = [
+        { type: 'file', path: linkPath },
+      ];
+
+      await assertPromptPathRefs(content);
+      await rm(linkPath);
+      await symlink(secretPath, linkPath);
+
+      await expect(
+        resolvePromptMediaFiles(
+          content,
+          server!.core.accessor.get(IFileService),
+          server!.core.accessor.get(IBootstrapService).cacheDir,
+        ),
+      ).rejects.toMatchObject({ code: 'validation.failed' });
+    } finally {
+      await rm(outside, { recursive: true, force: true });
+    }
   });
 
   it('rejects path attachments on a non-local runtime before filesystem access', async () => {
@@ -1179,6 +1208,24 @@ describe('server-v2 /api/v1 prompts', () => {
     } finally {
       await rm(outside, { recursive: true, force: true });
     }
+  });
+
+  it('materializes an unsupported server-local image before exposing its path', async () => {
+    const id = await createSession(home as string);
+    await createMainAgent(id);
+    const sourcePath = join(home as string, 'diagram.svg');
+    const svg = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"></svg>');
+    await writeFile(sourcePath, svg);
+
+    const submitted = await call<PromptItemWire>('POST', `/api/v1/sessions/${id}/prompts`, {
+      content: [{ type: 'image', source: { kind: 'path', path: sourcePath } }],
+    });
+    expect(submitted.body.code).toBe(0);
+    const content = submitted.body.data.content as Array<{ type: string; text?: string }>;
+    const attachedPath = attachedPathFrom(content[0]?.text ?? '');
+    expect(attachedPath).not.toBe(sourcePath);
+    expect(attachedPath).toContain('/attachments/');
+    expect(await readFile(attachedPath)).toEqual(svg);
   });
 
   it('returns 40402 when aborting a prompt that already settled', async () => {
