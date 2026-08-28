@@ -1243,7 +1243,8 @@ const diffKeys = computed(() => {
 watch(diffKeys, (keys) => {
   const live = new Set(keys);
   for (const set of [wrappedDiffs, numberedDiffs]) {
-    for (const key of [...set]) if (!live.has(key)) set.delete(key);
+    const stale = Array.from(set).filter((key) => !live.has(key));
+    for (const key of stale) set.delete(key);
   }
 });
 
