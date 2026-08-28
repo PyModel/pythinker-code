@@ -508,10 +508,11 @@ function toggleExperimental(flag: string, value: boolean): void {
   emit('updateConfig', { experimental: next } as Partial<AppConfig>);
 }
 
+// `force` is always serialized, including `false`: a gateway that merges
+// instead of replacing the section would otherwise keep a stale `force = true`.
 function secondaryModelConfig(model: string, effort: string, force: boolean): NonNullable<AppConfig['secondaryModel']> {
-  const next: NonNullable<AppConfig['secondaryModel']> = { defaultModel: model };
+  const next: NonNullable<AppConfig['secondaryModel']> = { defaultModel: model, force };
   if (effort) next.defaultEffort = effort;
-  if (force) next.force = true;
   return next;
 }
 

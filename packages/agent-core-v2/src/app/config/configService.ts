@@ -45,6 +45,7 @@ import {
   camelToSnake,
   cloneRecord,
   describeTomlSyntaxError,
+  type SectionWriteMode,
   TomlError,
   transformTomlData,
 } from './toml';
@@ -443,7 +444,7 @@ export class ConfigService extends Disposable implements IConfigService {
         } else {
           stagedRaw[domain] = this.registry.validate(domain, stripped);
         }
-      });
+      }, 'replace');
       this.rebuildEffective('set', [domain]);
     });
   }
@@ -481,7 +482,7 @@ export class ConfigService extends Disposable implements IConfigService {
             stagedRaw[domain] = this.registry.validate(domain, stripped);
           }
         }
-      });
+      }, 'replace');
       this.rebuildEffective('set', domains);
     });
   }
@@ -759,13 +760,15 @@ export class ConfigService extends Disposable implements IConfigService {
   private async persist(
     domain: string,
     rebase: (stagedRaw: ResolvedConfig, stagedRawSnake: ResolvedConfig) => void,
+    mode: SectionWriteMode = 'merge',
   ): Promise<void> {
-    await this.persistDomains([domain], rebase);
+    await this.persistDomains([domain], rebase, mode);
   }
 
   private async persistDomains(
     domains: readonly string[],
     rebase: (stagedRaw: ResolvedConfig, stagedRawSnake: ResolvedConfig) => void,
+    mode: SectionWriteMode = 'merge',
   ): Promise<void> {
     this.assertPersistable();
     let onDisk: ResolvedConfig = {};
@@ -793,7 +796,7 @@ export class ConfigService extends Disposable implements IConfigService {
     const stagedRaw = transformTomlData(onDisk, this.registry);
     rebase(stagedRaw, stagedRawSnake);
     for (const domain of domains) {
-      applySectionToToml(stagedRawSnake, domain, stagedRaw[domain], this.registry);
+      applySectionToToml(stagedRawSnake, domain, stagedRaw[domain], this.registry, mode);
     }
     await this.documentStore.set(CONFIG_SCOPE, this.configKey, stagedRawSnake);
     this.rawSnake = stagedRawSnake;

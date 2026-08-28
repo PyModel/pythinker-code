@@ -33,6 +33,21 @@ export const configResponseSchema = z.object({
 });
 export type ConfigResponse = z.infer<typeof configResponseSchema>;
 
+const optionalModelAlias = z.string().min(1).optional();
+
+export const legacySecondaryModelRequestSchema = z
+  .object({
+    default_model: optionalModelAlias,
+    defaultModel: optionalModelAlias,
+    model: optionalModelAlias,
+    default_effort: z.string().optional(),
+    defaultEffort: z.string().optional(),
+    models: z.record(z.string(), z.string()).optional(),
+    force: z.boolean().optional(),
+  })
+  .strict();
+export type LegacySecondaryModelRequest = z.infer<typeof legacySecondaryModelRequestSchema>;
+
 export const patchConfigRequestSchema = z.object({
   providers: z.record(z.string(), z.unknown()).optional(),
   default_provider: z.string().optional(),
@@ -51,7 +66,7 @@ export const patchConfigRequestSchema = z.object({
   loop_control: z.unknown().optional(),
   background: z.unknown().optional(),
   subagent: z.unknown().optional(),
-  secondary_model: z.unknown().optional(),
+  secondary_model: legacySecondaryModelRequestSchema.nullable().optional(),
   experimental: z.record(z.string(), z.boolean()).optional(),
   telemetry: z.boolean().optional(),
 });
