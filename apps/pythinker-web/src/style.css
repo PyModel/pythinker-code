@@ -218,9 +218,9 @@ summary {
     -webkit-app-region: no-drag
 }
 
-.app.macos-desktop:has(.ch-menu, .open-in-menu, .dock-work-panel, .copy-menu-open) .chat-header,
-.app.macos-desktop:has(.ch-menu, .open-in-menu, .dock-work-panel, .copy-menu-open) .side .ch,
-.app.macos-desktop:has(.ch-menu, .open-in-menu, .dock-work-panel, .copy-menu-open) .global-preview .ui-panel-header {
+.app.macos-desktop:has(.ch-menu, .open-in-menu, .dock-work-panel) .chat-header,
+.app.macos-desktop:has(.ch-menu, .open-in-menu, .dock-work-panel) .side .ch,
+.app.macos-desktop:has(.ch-menu, .open-in-menu, .dock-work-panel) .global-preview .ui-panel-header {
     -webkit-app-region: no-drag
 }
 

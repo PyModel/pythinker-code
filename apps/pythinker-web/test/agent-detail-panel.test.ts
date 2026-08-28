@@ -1,7 +1,8 @@
 import { mount } from '@vue/test-utils';
 import { createI18n, type I18n } from 'vue-i18n';
-import { defineComponent } from 'vue';
+import { defineComponent, nextTick } from 'vue';
 import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import AgentDetailPanel from '../src/components/chat/AgentDetailPanel.vue';
 import type { AgentMember, ChatTurn } from '../src/types';
@@ -41,8 +42,11 @@ const i18n = createI18n({
   messages: {
     en: {
       thinking: { close: 'Close' },
+      conversation: { backToBottom: 'Back to bottom' },
       tasks: {
         copy: 'Copy',
+        expand: 'Expand',
+        collapse: 'Collapse',
         copyCommand: 'Copy command',
         copyOutput: 'Copy output',
         copyAll: 'Copy all',
@@ -57,6 +61,11 @@ const i18n = createI18n({
     },
   },
 });
+
+const panelSource = readFileSync(
+  join(import.meta.dirname, '../src/components/chat/AgentDetailPanel.vue'),
+  'utf8',
+);
 
 const member: AgentMember = {
   id: 'agent_1',
@@ -214,4 +223,85 @@ describe('AgentDetailPanel', () => {
     expect(timeRule).toMatch(/flex:\s*none/);
     expect(timeRule).toMatch(/white-space:\s*nowrap/);
   });
+
+  it('shows the subagent meta line and its originating prompt as a user bubble', () => {
+    const wrapper = mountPanel({
+      provide: {
+        modelDisplay: (modelId) => (modelId === 'secondary/model' ? 'Secondary Model' : modelId),
+        subagentEffort: (effort) => (effort === 'high' ? 'High' : effort),
+      },
+    });
+
+    expect(wrapper.get('.agent-meta-text').text()).toBe('review · Secondary Model · High');
+    expect(wrapper.get('.agent-prompt-bubble').text()).toContain('Review the current changes');
+    wrapper.unmount();
+  });
+
+  it('renders a slash-command prompt as a command instead of markdown', () => {
+    const wrapper = mountPanel({ member: { ...member, prompt: '/compact' } });
+
+    expect(wrapper.get('.agent-prompt-text').classes()).toContain('is-command');
+    expect(wrapper.get('.agent-prompt-text').text()).toBe('/compact');
+    wrapper.unmount();
+  });
+
+  it('clamps a long prompt and expands it from the pill', async () => {
+    const wrapper = mountPanel({ member: { ...member, prompt: 'x\n'.repeat(40) } });
+    const text = wrapper.get('.agent-prompt-text').element as HTMLElement;
+    // jsdom reports no layout, so stand in for the clamped overflow.
+    Object.defineProperties(text, {
+      scrollHeight: { configurable: true, get: () => 400 },
+      clientHeight: { configurable: true, get: () => 100 },
+    });
+    await wrapper.setProps({ member: { ...member, prompt: `${'y\n'.repeat(40)}` } });
+    await nextTick();
+    await nextTick();
+
+    expect(wrapper.get('.agent-prompt-wrap').classes()).toContain('is-clamped');
+    const toggle = wrapper.get('.agent-prompt-toggle');
+    expect(toggle.text()).toContain('Expand');
+    expect(toggle.attributes('aria-expanded')).toBe('false');
+
+    await toggle.trigger('click');
+    await nextTick();
+
+    expect(wrapper.get('.agent-prompt-wrap').classes()).not.toContain('is-clamped');
+    expect(wrapper.get('.agent-prompt-toggle').text()).toContain('Collapse');
+    expect(wrapper.get('.agent-prompt-toggle').attributes('aria-expanded')).toBe('true');
+    wrapper.unmount();
+  });
+
+  it('centres the transcript body on the reading column', () => {
+    const wrapper = mountPanel();
+    expect(wrapper.find('.agent-transcript .agent-transcript-inner').exists()).toBe(true);
+    expect(panelSource).toMatch(
+      /\.agent-transcript-inner \{[^}]*max-width: var\(--p-content-max\)[^}]*margin-inline: auto/u,
+    );
+    wrapper.unmount();
+  });
+
+  it('offers Back to bottom only once the reader scrolls away from the tail', async () => {
+    const wrapper = mountPanel();
+    expect(wrapper.find('.agent-jump-btn').exists()).toBe(false);
+
+    const scroller = wrapper.get('.agent-transcript').element as HTMLElement;
+    Object.defineProperties(scroller, {
+      scrollHeight: { configurable: true, get: () => 1000 },
+      clientHeight: { configurable: true, get: () => 200 },
+    });
+    scroller.scrollTop = 0;
+    await wrapper.get('.agent-transcript').trigger('scroll');
+    await nextTick();
+
+    const jump = wrapper.get('.agent-jump-btn');
+    expect(jump.text()).toContain('Back to bottom');
+
+    await jump.trigger('click');
+    await nextTick();
+    await nextTick();
+
+    expect(wrapper.find('.agent-jump-btn').exists()).toBe(false);
+    wrapper.unmount();
+  });
+
 });
