@@ -3,9 +3,12 @@
 // Wiring: the composable is real; daemon requests and unrelated facade collaborators are stubbed.
 // Run: pnpm --filter @pymodel/pythinker-web exec vitest run test/workspace-state.test.ts
 
+import { SubagentModelPolicyConflictError } from '../src/api/types';
 import { computed, ref, type Ref } from 'vue';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { AppApprovalRequest, AppQuestionRequest, AppSession, AppTask } from '../src/api/types';
+import type {
+  AppSubagentModelPolicy,
+  AppSubagentModelPolicyState, AppApprovalRequest, AppQuestionRequest, AppSession, AppTask } from '../src/api/types';
 import { DaemonApiError } from '../src/api/errors';
 import { createInitialState } from '../src/api/daemon/eventReducer';
 import { mergeWorkspaces } from '../src/lib/mergeWorkspaces';
@@ -33,6 +36,9 @@ const apiMock = vi.hoisted(() => ({
   getAuth: vi.fn(),
   getConfig: vi.fn(),
   setConfig: vi.fn(),
+  getSubagentModelPolicy: vi.fn(),
+  setSubagentModelPolicy: vi.fn(),
+  clearSubagentModelPolicy: vi.fn(),
   getFsHome: vi.fn(),
   getHealth: vi.fn(),
   getMeta: vi.fn(),
@@ -80,6 +86,8 @@ function createState(): ExtendedState {
     dangerousBypassAuth: false,
     backend: 'v1',
     experimentalFlagStates: [],
+    subagentModelPolicy: null,
+    subagentModelPolicySaving: false,
     workspaceName: 'pythinker-web',
     connection: 'connected',
     permission: 'manual',
@@ -2365,5 +2373,56 @@ describe('useWorkspaceState — upsertWorkspacePreserveOrder hidden roots', () =
     ws.upsertWorkspacePreserveOrder(workspace('wd_y', '/home/foo', 'foo'));
 
     expect(state.hiddenWorkspaceRoots).toEqual(['/home/Foo']);
+  });
+});
+
+describe('useWorkspaceState — subagent model policy', () => {
+  const state = (policy: AppSubagentModelPolicy, version: string): AppSubagentModelPolicyState => ({
+    policy,
+    resourceVersion: version,
+    configuredPolicy: policy,
+    effectivePolicy: policy,
+    policySource: policy.mode === 'inherit' ? 'default' : 'config',
+    feature: { enabled: true, source: 'config' },
+  });
+
+  beforeEach(() => {
+    apiMock.getSubagentModelPolicy.mockReset();
+    apiMock.setSubagentModelPolicy.mockReset();
+    apiMock.clearSubagentModelPolicy.mockReset();
+  });
+
+  it('loads the policy with the config and writes with the last read version', async () => {
+    apiMock.getSubagentModelPolicy.mockResolvedValue(state({ mode: 'inherit' }, 'v1'));
+    const saved = state({ mode: 'force', defaultModel: 'acme/sol' }, 'v2');
+    apiMock.setSubagentModelPolicy.mockResolvedValue(saved);
+    const s = createState();
+    const ws = useWorkspaceState(s, createDeps());
+
+    await ws.loadSubagentModelPolicy();
+    expect(s.subagentModelPolicy?.resourceVersion).toBe('v1');
+
+    expect(await ws.saveSubagentModelPolicy({ mode: 'force', defaultModel: 'acme/sol' })).toBe(true);
+    expect(apiMock.setSubagentModelPolicy).toHaveBeenCalledWith({ mode: 'force', defaultModel: 'acme/sol' }, 'v1');
+    expect(s.subagentModelPolicy).toEqual(saved);
+    expect(s.subagentModelPolicySaving).toBe(false);
+  });
+
+  it('adopts the server state and surfaces the conflict on a stale version (412)', async () => {
+    const current = state({ mode: 'default', defaultModel: 'acme/luna' }, 'v9');
+    apiMock.clearSubagentModelPolicy.mockRejectedValue(new SubagentModelPolicyConflictError(current));
+    const s = createState();
+    s.subagentModelPolicy = state({ mode: 'force', defaultModel: 'acme/sol' }, 'v1');
+    const deps = createDeps();
+    const ws = useWorkspaceState(s, deps);
+
+    expect(await ws.clearSubagentModelPolicy()).toBe(false);
+    expect(apiMock.clearSubagentModelPolicy).toHaveBeenCalledWith('v1');
+    expect(s.subagentModelPolicy).toEqual(current);
+    expect(deps.pushOperationFailure).toHaveBeenCalledWith(
+      'saveSubagentModelPolicy',
+      expect.any(SubagentModelPolicyConflictError),
+      expect.objectContaining({ message: expect.stringContaining('changed on the server') }),
+    );
   });
 });

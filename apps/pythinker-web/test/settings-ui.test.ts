@@ -1,3 +1,4 @@
+import type { AppSubagentModelPolicy, AppSubagentModelPolicyState } from '../src/api/types';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -475,8 +476,23 @@ describe('settings UI', () => {
     wrapper.unmount();
   });
 
-  it('shows the subagent model section only while the secondary-model flag is on', async () => {
-    const wrapper = mount(SettingsDialog, {
+  function policyState(
+    policy: AppSubagentModelPolicy,
+    overrides: Partial<AppSubagentModelPolicyState> = {},
+  ): AppSubagentModelPolicyState {
+    return {
+      policy,
+      resourceVersion: 'subagent-policy-v1:aaa',
+      configuredPolicy: policy,
+      effectivePolicy: policy,
+      policySource: policy.mode === 'inherit' ? 'default' : 'config',
+      feature: { enabled: true, source: 'config' },
+      ...overrides,
+    };
+  }
+
+  function mountRouting(state: AppSubagentModelPolicyState | null) {
+    return mount(SettingsDialog, {
       props: {
         colorScheme: 'system',
         accent: 'blue',
@@ -486,169 +502,113 @@ describe('settings UI', () => {
         notifyQuestion: false,
         notifyApproval: false,
         sound: false,
-        config: { providers: {} },
+        config: { providers: {}, defaultModel: 'test/main', experimental: { 'secondary-model': true } },
+        models: [
+          { id: 'test/main', provider: 'test', model: 'main', maxContextSize: 100_000 },
+          { id: 'test/fast', provider: 'test', model: 'fast', maxContextSize: 100_000 },
+        ],
+        subagentModelPolicy: state,
       },
       global: { plugins: [i18n] },
     });
+  }
+
+  async function openAgentTab(): Promise<void> {
     await flushPromises();
     const agentTab = Array.from(document.body.querySelectorAll<HTMLButtonElement>('[role="tab"]'))
       .find((tab) => tab.textContent?.trim() === 'Agent');
     agentTab!.click();
     await flushPromises();
-    expect(document.body.textContent).not.toContain('Default subagent model');
+  }
 
-    await wrapper.setProps({
-      config: { providers: {}, experimental: { 'secondary-model': true } },
-    });
-    await flushPromises();
-    expect(document.body.textContent).toContain('Default subagent model');
-    wrapper.unmount();
-  });
+  function radio(mode: string): HTMLInputElement {
+    return document.body.querySelector<HTMLInputElement>(`input[name="subagent-routing-mode"][value="${mode}"]`)!;
+  }
 
-  it('places subagent model after the default model and clears a defaultModel-only override', async () => {
-    const wrapper = mount(SettingsDialog, {
-      props: {
-        colorScheme: 'system',
-        accent: 'blue',
-        uiFontSize: 14,
-        authReady: true,
-        notify: false,
-        notifyQuestion: false,
-        notifyApproval: false,
-        sound: false,
-        config: {
-          providers: {},
-          defaultModel: 'test/main',
-          secondaryModel: { defaultModel: 'test/fast' },
-          experimental: { 'secondary-model': true },
-        },
-        models: [
-          { id: 'test/main', provider: 'test', model: 'main', maxContextSize: 100_000 },
-          { id: 'test/fast', provider: 'test', model: 'fast', maxContextSize: 100_000 },
-        ],
-      },
-      global: { plugins: [i18n] },
-    });
+  it('shows the routing section only once the policy state is loaded, after the default model', async () => {
+    const without = mountRouting(null);
+    await openAgentTab();
+    expect(document.body.querySelector('[data-testid="subagent-routing"]')).toBeNull();
+    without.unmount();
+
+    const wrapper = mountRouting(policyState({ mode: 'inherit' }));
     try {
-      await flushPromises();
-      const agentTab = Array.from(document.body.querySelectorAll<HTMLButtonElement>('[role="tab"]'))
-        .find((tab) => tab.textContent?.trim() === 'Agent');
-      agentTab!.click();
-      await flushPromises();
-
+      await openAgentTab();
       const agentPanel = Array.from(document.body.querySelectorAll<HTMLElement>('.panel'))
         .find((panel) => panel.textContent?.includes('Agent defaults'))!;
       const text = agentPanel.textContent ?? '';
-      expect(text.indexOf('Default model')).toBeLessThan(text.indexOf('Subagents'));
-      expect(text.indexOf('Subagents')).toBeLessThan(text.indexOf('Default permission'));
-
-      document.body.querySelector<HTMLButtonElement>('.sm-picker__trigger')!.click();
-      await flushPromises();
-      const inherit = Array.from(document.body.querySelectorAll<HTMLButtonElement>('.sm-picker__option'))
-        .find((option) => option.textContent?.includes('Inherit agent model'));
-      expect(inherit).toBeDefined();
-      inherit!.click();
-      await flushPromises();
-
-      expect(wrapper.emitted('updateConfig')?.at(-1)?.[0]).toEqual({ secondaryModel: null });
+      expect(text.indexOf('Default model')).toBeLessThan(text.indexOf('Subagent Model Routing'));
+      expect(text.indexOf('Subagent Model Routing')).toBeLessThan(text.indexOf('Default permission'));
+      expect(radio('inherit').checked).toBe(true);
     } finally {
       wrapper.unmount();
     }
   });
 
-  it('hard-pins a legacy subagent model with the canonical v2 config', async () => {
-    const wrapper = mount(SettingsDialog, {
-      props: {
-        colorScheme: 'system',
-        accent: 'blue',
-        uiFontSize: 14,
-        authReady: true,
-        notify: false,
-        notifyQuestion: false,
-        notifyApproval: false,
-        sound: false,
-        config: {
-          providers: {},
-          secondaryModel: { model: 'test/fast', defaultEffort: 'max' },
-          experimental: { 'secondary-model': true },
-        },
-        models: [
-          { id: 'test/main', provider: 'test', model: 'main', maxContextSize: 100_000 },
-          { id: 'test/fast', provider: 'test', model: 'fast', maxContextSize: 100_000 },
-        ],
-      },
-      global: { plugins: [i18n] },
-    });
+  it('emits one payload per mode: inherit clears, default and force carry the picked model, pool carries the models', async () => {
+    const wrapper = mountRouting(policyState({ mode: 'default', defaultModel: 'test/fast', defaultEffort: 'max' }));
     try {
-      await flushPromises();
-      const agentTab = Array.from(document.body.querySelectorAll<HTMLButtonElement>('[role="tab"]'))
-        .find((tab) => tab.textContent?.trim() === 'Agent');
-      agentTab!.click();
-      await flushPromises();
+      await openAgentTab();
+      expect(radio('default').checked).toBe(true);
 
-      const pin = document.body.querySelector<HTMLButtonElement>(
-        '[role="switch"][aria-label="Always use this model"]',
-      );
-      expect(pin?.getAttribute('aria-checked')).toBe('false');
-
-      pin!.click();
+      radio('force').click();
       await flushPromises();
-
-      expect(wrapper.emitted('updateConfig')?.at(-1)?.[0]).toEqual({
-        secondaryModel: {
-          defaultModel: 'test/fast',
-          defaultEffort: 'max',
-          force: true,
-        },
+      expect(wrapper.emitted('saveSubagentModelPolicy')?.at(-1)?.[0]).toEqual({
+        mode: 'force',
+        defaultModel: 'test/fast',
+        defaultEffort: 'max',
       });
+
+      radio('pool').click();
+      await flushPromises();
+      expect(wrapper.emitted('saveSubagentModelPolicy')?.at(-1)?.[0]).toEqual({
+        mode: 'pool',
+        defaultModel: 'test/fast',
+        models: { 'test/fast': '' },
+        defaultEffort: 'max',
+      });
+      const mainCheckbox = document.body.querySelector<HTMLInputElement>('[data-testid="routing-pool"] input[value="test/main"]')!;
+      mainCheckbox.click();
+      await flushPromises();
+      expect(wrapper.emitted('saveSubagentModelPolicy')?.at(-1)?.[0]).toEqual({
+        mode: 'pool',
+        defaultModel: 'test/fast',
+        models: { 'test/fast': '', 'test/main': '' },
+        defaultEffort: 'max',
+      });
+
+      radio('inherit').click();
+      await flushPromises();
+      expect(wrapper.emitted('clearSubagentModelPolicy')).toHaveLength(1);
+      expect(wrapper.emitted('updateConfig')).toBeUndefined();
     } finally {
       wrapper.unmount();
     }
   });
 
-  it('serializes force: false explicitly when the pin is switched off (compatibility with merging gateways; correctness does not depend on it)', async () => {
-    const wrapper = mount(SettingsDialog, {
-      props: {
-        colorScheme: 'system',
-        accent: 'blue',
-        uiFontSize: 14,
-        authReady: true,
-        notify: false,
-        notifyQuestion: false,
-        notifyApproval: false,
-        sound: false,
-        config: {
-          providers: {},
-          secondaryModel: { defaultModel: 'test/fast', defaultEffort: 'max', force: true },
-          experimental: { 'secondary-model': true },
-        },
-        models: [
-          { id: 'test/main', provider: 'test', model: 'main', maxContextSize: 100_000 },
-          { id: 'test/fast', provider: 'test', model: 'fast', maxContextSize: 100_000 },
-        ],
-      },
-      global: { plugins: [i18n] },
-    });
+  it('shows the saved policy next to the effective routing and names a disabled feature', async () => {
+    const wrapper = mountRouting(
+      policyState(
+        { mode: 'force', defaultModel: 'test/fast' },
+        { effectivePolicy: { mode: 'inherit' }, policySource: 'default', feature: { enabled: false, source: 'default' } },
+      ),
+    );
     try {
-      await flushPromises();
-      const agentTab = Array.from(document.body.querySelectorAll<HTMLButtonElement>('[role="tab"]'))
-        .find((tab) => tab.textContent?.trim() === 'Agent');
-      agentTab!.click();
-      await flushPromises();
-
-      const pin = document.body.querySelector<HTMLButtonElement>(
-        '[role="switch"][aria-label="Always use this model"]',
-      );
-      expect(pin?.getAttribute('aria-checked')).toBe('true');
-
-      pin!.click();
-      await flushPromises();
-
-      expect(wrapper.emitted('updateConfig')?.at(-1)?.[0]).toEqual({
-        secondaryModel: { defaultModel: 'test/fast', defaultEffort: 'max', force: false },
-      });
+      await openAgentTab();
+      expect(document.body.querySelector('[data-testid="saved-policy"]')?.textContent?.trim()).toBe('Force · fast');
+      expect(document.body.querySelector('[data-testid="effective-policy"]')?.textContent?.trim()).toBe('Inherit agent model');
+      expect(document.body.querySelector('[data-testid="feature-disabled"]')).not.toBeNull();
     } finally {
       wrapper.unmount();
+    }
+
+    const enabled = mountRouting(policyState({ mode: 'pool', defaultModel: 'test/fast', models: { 'test/fast': '', 'test/main': '' } }));
+    try {
+      await openAgentTab();
+      expect(document.body.querySelector('[data-testid="effective-policy"]')?.textContent?.trim()).toBe('Pool · 2 models · default fast');
+      expect(document.body.querySelector('[data-testid="feature-disabled"]')).toBeNull();
+    } finally {
+      enabled.unmount();
     }
   });
 

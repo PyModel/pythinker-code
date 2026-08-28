@@ -827,6 +827,31 @@ export interface AppConfigProvider {
   hasApiKey: boolean;
 }
 
+export type AppSubagentModelPolicy =
+  | { mode: 'inherit' }
+  | { mode: 'default'; defaultModel: string; defaultEffort?: string }
+  | { mode: 'pool'; defaultModel: string; models: Record<string, string>; defaultEffort?: string }
+  | { mode: 'force'; defaultModel: string; defaultEffort?: string };
+
+/** GET/PUT/DELETE `/config/subagent-model-policy`: the saved policy, its
+ *  strong resource version (the HTTP ETag), and what currently applies. */
+export interface AppSubagentModelPolicyState {
+  policy: AppSubagentModelPolicy;
+  resourceVersion: string;
+  configuredPolicy: AppSubagentModelPolicy;
+  effectivePolicy: AppSubagentModelPolicy;
+  policySource: 'config' | 'default';
+  feature: { enabled: boolean; source: 'master-env' | 'env' | 'config' | 'default' };
+}
+
+/** Thrown by the policy writes when the server's version moved (HTTP 412). */
+export class SubagentModelPolicyConflictError extends Error {
+  constructor(readonly current: AppSubagentModelPolicyState) {
+    super('The subagent model policy changed on the server; reloaded the saved policy.');
+    this.name = 'SubagentModelPolicyConflictError';
+  }
+}
+
 export interface AppConfig {
   providers: Record<string, AppConfigProvider>;
   defaultProvider?: string;
@@ -1096,6 +1121,10 @@ export interface PythinkerWebApi {
   // Config — REAL endpoints
   getConfig(): Promise<AppConfig>;
   setConfig(patch: Partial<AppConfig>): Promise<AppConfig>;
+  getSubagentModelPolicy(): Promise<AppSubagentModelPolicyState>;
+  /** `expectedVersion` is sent as If-Match; a stale version rejects with SubagentModelPolicyConflictError. */
+  setSubagentModelPolicy(policy: AppSubagentModelPolicy, expectedVersion?: string): Promise<AppSubagentModelPolicyState>;
+  clearSubagentModelPolicy(expectedVersion?: string): Promise<AppSubagentModelPolicyState>;
 
   // Auth — REAL endpoints
   getAuth(): Promise<{
