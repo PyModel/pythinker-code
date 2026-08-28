@@ -5,7 +5,7 @@
 // the provided `modelDisplay` resolver (friendly displayName → model name →
 // provider-prefix-stripped id) and `subagentEffort` (capitalized effort,
 // hiding the degenerate on/off levels).
-import { mount } from '@vue/test-utils';
+import { flushPromises, mount } from '@vue/test-utils';
 import { createI18n } from 'vue-i18n';
 import { defineComponent, nextTick, ref } from 'vue';
 import { describe, expect, it, vi } from 'vitest';
@@ -15,6 +15,7 @@ import DynamicWorkflowTool from '../src/components/chat/tool-calls/DynamicWorkfl
 import SubagentGrid from '../src/components/chat/SubagentGrid.vue';
 import TasksPane from '../src/components/chat/TasksPane.vue';
 import type { DynamicWorkflowMember } from '../src/composables/dynamicWorkflowGroups';
+import type { ChatTurn } from '../src/types';
 import type { TaskItem } from '../src/types';
 
 vi.mock('markstream-vue', () => {
@@ -46,6 +47,14 @@ vi.mock('markstream-vue/workers/mermaidParser.worker?worker&type=module', () => 
   },
 }));
 
+const { copyTextToClipboard } = vi.hoisted(() => ({
+  copyTextToClipboard: vi.fn(async () => true),
+}));
+vi.mock('../src/lib/clipboard', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  copyTextToClipboard,
+}));
+
 const i18n = createI18n({
   legacy: false,
   locale: 'en',
@@ -59,6 +68,9 @@ const i18n = createI18n({
         stateFail: 'failed',
         stateCancelled: 'cancelled',
         stop: 'stop',
+        copy: 'Copy',
+        expand: 'Expand',
+        collapse: 'Collapse',
       },
     },
   },
@@ -250,7 +262,7 @@ describe('subagent model/effort display resolvers', () => {
   });
 });
 
-describe('copy menu keyboard and focus behavior', () => {
+describe('agent detail transcript copy', () => {
   const member = {
     id: 'm1',
     name: 'Review modified files',
@@ -262,11 +274,11 @@ describe('copy menu keyboard and focus behavior', () => {
     prompt: 'Review the current changes',
   };
 
-  function mountPanelWithMenu() {
+  function mountPanel(turns: ChatTurn[] = []) {
     return mount(AgentDetailPanel, {
       props: {
         member,
-        turns: [],
+        turns,
         running: true,
         loading: false,
         loadError: false,
@@ -282,84 +294,34 @@ describe('copy menu keyboard and focus behavior', () => {
     });
   }
 
-  function copyTrigger(wrapper: ReturnType<typeof mountPanelWithMenu>) {
-    return wrapper.find('button[aria-haspopup="menu"]');
-  }
+  it('offers one copy action, with no bespoke dropdown', () => {
+    const wrapper = mountPanel();
 
-  it('teleports the open menu to body and focuses its first item', async () => {
-    const wrapper = mountPanelWithMenu();
-    await copyTrigger(wrapper).trigger('click');
-    await nextTick();
-    // Menu lives under document.body (teleported), not inside the panel root.
-    const teleported = document.body.querySelector(':scope > .agent-panel .copy-menu');
-    expect(teleported).toBeNull();
-    const menu = document.body.querySelector('.copy-menu');
-    expect(menu).not.toBeNull();
-    expect(document.activeElement?.classList.contains('ui-menu-item')).toBe(true);
-    wrapper.unmount();
-  });
-
-  it('opens on ArrowDown from the trigger with focus landing on a menu item', async () => {
-    const wrapper = mountPanelWithMenu();
-    await copyTrigger(wrapper).trigger('keydown.down');
-    await nextTick();
-    expect(copyTrigger(wrapper).attributes('aria-expanded')).toBe('true');
-    expect(document.activeElement?.classList.contains('ui-menu-item')).toBe(true);
-    wrapper.unmount();
-  });
-
-  it('cycles focus with ArrowDown/ArrowUp inside the menu without leaving it', async () => {
-    const wrapper = mountPanelWithMenu();
-    await copyTrigger(wrapper).trigger('click');
-    await nextTick();
-    const items = Array.from(document.body.querySelectorAll<HTMLElement>('.copy-menu .ui-menu-item'));
-    expect(items.length).toBeGreaterThanOrEqual(3);
-    // First item is focused after open; ArrowUp wraps to the last item.
-    document.activeElement!.dispatchEvent(
-      new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }),
-    );
-    expect(document.activeElement).toBe(items.at(-1));
-    document.activeElement!.dispatchEvent(
-      new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }),
-    );
-    expect(document.activeElement).toBe(items[0]);
-    wrapper.unmount();
-  });
-
-  it('closes when focusout leaves both trigger and menu', async () => {
-    const wrapper = mountPanelWithMenu();
-    await copyTrigger(wrapper).trigger('click');
-    await nextTick();
-    expect(document.body.querySelector('.copy-menu')).not.toBeNull();
-    // Simulate focus moving to an unrelated element outside the pair.
-    const outside = document.createElement('button');
-    document.body.append(outside);
-    outside.focus();
-    const menuEl = document.body.querySelector('.copy-menu')!;
-    menuEl.dispatchEvent(new FocusEvent('focusout', { relatedTarget: outside, bubbles: true }));
-    await nextTick();
+    expect(wrapper.find('button[aria-haspopup="menu"]').exists()).toBe(false);
     expect(document.body.querySelector('.copy-menu')).toBeNull();
-    outside.remove();
+    const copy = wrapper.findAll('button').filter((b) => b.attributes('aria-label') === 'Copy');
+    expect(copy).toHaveLength(1);
     wrapper.unmount();
   });
 
-  it('does not leak menu listeners when the member switches mid-open', async () => {
-    const addSpy = vi.spyOn(window, 'addEventListener');
-    const removeSpy = vi.spyOn(window, 'removeEventListener');
-    const wrapper = mountPanelWithMenu();
-    const trigger = copyTrigger(wrapper);
-    // Kick off the open; its continuation resumes after the nextTick await.
-    const opening = trigger.trigger('click');
-    // The member switch closes the menu inside that window.
-    void wrapper.setProps({ member: { ...member, id: 'm2' } });
-    await opening;
-    await nextTick();
-    expect(document.body.querySelector('.copy-menu')).toBeNull();
-    const added = addSpy.mock.calls.filter(([type]) => type === 'keydown');
-    const removed = removeSpy.mock.calls.filter(([type]) => type === 'keydown');
-    expect(removed.length).toBeGreaterThanOrEqual(added.length);
-    addSpy.mockRestore();
-    removeSpy.mockRestore();
+  it('routes the copy action through the turn list when there is a transcript', async () => {
+    copyTextToClipboard.mockClear();
+    const turns: ChatTurn[] = [
+      { id: 't1', role: 'user', no: 1, text: 'hello' },
+      { id: 't2', role: 'assistant', no: 2, text: 'world' },
+    ];
+    const wrapper = mountPanel(turns);
+
+    await wrapper.findAll('button')
+      .find((b) => b.attributes('aria-label') === 'Copy')!
+      .trigger('click');
+    await flushPromises();
+
+    // The conversation-level path labels each turn; the raw prompt/output
+    // fallback never does.
+    const copied = copyTextToClipboard.mock.calls.at(-1)?.[0] as string;
+    expect(copied).toContain('**User**');
+    expect(copied).toContain('**Assistant**');
     wrapper.unmount();
   });
 });

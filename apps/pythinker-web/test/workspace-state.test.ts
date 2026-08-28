@@ -31,6 +31,8 @@ const apiMock = vi.hoisted(() => ({
   respondApproval: vi.fn(),
   dismissQuestion: vi.fn(),
   cancelTask: vi.fn(),
+  detachTask: vi.fn(),
+  listTasks: vi.fn(),
   getAuth: vi.fn(),
   getConfig: vi.fn(),
   setConfig: vi.fn(),
@@ -768,6 +770,89 @@ describe('useWorkspaceState — respondApproval', () => {
     expect(apiMock.respondApproval).toHaveBeenCalledOnce();
     expect(state.approvalsBySession['sess_1']).toEqual([]);
     expect(deps.pushOperationFailure).not.toHaveBeenCalled();
+  });
+});
+
+describe('useWorkspaceState — detachTask', () => {
+  beforeEach(() => {
+    apiMock.detachTask.mockReset();
+    apiMock.listTasks.mockReset();
+  });
+
+  it('marks a still-running task as backgrounded and targets the REST task id', async () => {
+    apiMock.detachTask.mockResolvedValue({ detached: true, status: 'running' });
+    const state = createState();
+    state.tasksBySession = {
+      sess_1: [{ ...task('t_1', 'running'), parentToolCallId: 'call_1', backgroundTaskId: 'bg_1' }],
+    };
+    const deps = createDeps();
+    const ws = useWorkspaceState(state, deps);
+
+    await ws.detachTask('call_1');
+
+    expect(apiMock.detachTask).toHaveBeenCalledWith('sess_1', 'bg_1');
+    expect(state.tasksBySession['sess_1']?.[0]?.runInBackground).toBe(true);
+    expect(state.tasksBySession['sess_1']?.[0]?.status).toBe('running');
+    expect(deps.pushOperationFailure).not.toHaveBeenCalled();
+  });
+
+  it('applies the terminal status when the task finished before it could detach', async () => {
+    apiMock.detachTask.mockResolvedValue({ detached: false, status: 'completed' });
+    const state = createState();
+    state.tasksBySession = { sess_1: [{ ...task('t_1', 'running'), parentToolCallId: 'call_1' }] };
+    const deps = createDeps();
+    const ws = useWorkspaceState(state, deps);
+
+    await ws.detachTask('call_1');
+
+    expect(apiMock.detachTask).toHaveBeenCalledWith('sess_1', 't_1');
+    expect(state.tasksBySession['sess_1']?.[0]?.status).toBe('completed');
+    expect(state.tasksBySession['sess_1']?.[0]?.runInBackground).toBeUndefined();
+    expect(state.tasksBySession['sess_1']?.[0]?.completedAtEstimated).toBe(true);
+  });
+
+  it('asks the server when the task has not reached the store yet', async () => {
+    apiMock.listTasks.mockResolvedValue([{ ...task('t_9', 'running'), parentToolCallId: 'call_1' }]);
+    apiMock.detachTask.mockResolvedValue({ detached: true, status: 'running' });
+    const state = createState();
+    state.tasksBySession = { sess_1: [] };
+    const ws = useWorkspaceState(state, createDeps());
+
+    await ws.detachTask('call_1');
+
+    expect(apiMock.listTasks).toHaveBeenCalledWith('sess_1');
+    expect(apiMock.detachTask).toHaveBeenCalledWith('sess_1', 't_9');
+  });
+
+  it('does nothing when the server knows no task for the tool call either', async () => {
+    apiMock.listTasks.mockResolvedValue([task('t_1', 'running')]);
+    const state = createState();
+    state.tasksBySession = { sess_1: [task('t_1', 'running')] };
+    const ws = useWorkspaceState(state, createDeps());
+
+    await ws.detachTask('call_1');
+
+    expect(apiMock.detachTask).not.toHaveBeenCalled();
+  });
+
+  it('drops a duplicate detach while the first is still in flight', async () => {
+    let resolveDetach!: (value: { detached: boolean; status: 'running' }) => void;
+    apiMock.detachTask.mockReturnValue(
+      new Promise<{ detached: boolean; status: 'running' }>((r) => {
+        resolveDetach = r;
+      }),
+    );
+    const state = createState();
+    state.tasksBySession = { sess_1: [{ ...task('t_1', 'running'), parentToolCallId: 'call_1' }] };
+    const ws = useWorkspaceState(state, createDeps());
+
+    const first = ws.detachTask('call_1');
+    await ws.detachTask('call_1');
+
+    expect(apiMock.detachTask).toHaveBeenCalledOnce();
+
+    resolveDetach({ detached: true, status: 'running' });
+    await first;
   });
 });
 

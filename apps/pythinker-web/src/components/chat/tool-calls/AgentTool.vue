@@ -8,6 +8,9 @@ import { computed, inject, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import type { FilePreviewRequest, ToolCall, ToolMedia } from '../../../types';
 import { toolGlyph, toolLabel } from '../../../lib/toolMeta';
+import Icon from '../../ui/Icon.vue';
+import IconButton from '../../ui/IconButton.vue';
+import Tooltip from '../../ui/Tooltip.vue';
 import ToolRow from '../ToolRow.vue';
 
 const { t } = useI18n();
@@ -28,6 +31,8 @@ const emit = defineEmits<{
   openToolDiff: [id: string];
   /** Open this subagent's live progress in the right-side detail panel. */
   openAgent: [toolCallId: string];
+  /** Let this foreground subagent finish in the background. */
+  detach: [toolCallId: string];
 }>();
 
 interface AgentInput {
@@ -60,6 +65,7 @@ const canExpand = computed(
 const open = ref(props.tool.defaultExpanded === true && canExpand.value);
 
 const status = computed<'running' | 'ok' | 'error'>(() => props.tool.status as 'running' | 'ok' | 'error');
+const statusLabel = computed(() => t(`tools.agent.status.${props.tool.status}`));
 const label = computed(() => toolLabel(props.tool.name));
 const glyph = computed(() => toolGlyph(props.tool.name));
 const summary = computed(() => input.value.description || input.value.subagentType || '');
@@ -85,6 +91,21 @@ const canOpenAgent = computed(() => {
   return resolveAgentTaskId(props.tool.id) !== undefined;
 });
 
+// Provided by the conversation pane. `undefined` (no REST task matched yet)
+// means "show"; only an explicit false hides the button. A subagent that was
+// already spawned in the background has nothing to detach.
+const resolveDetachableTask = inject<((toolCallId: string) => boolean | undefined) | undefined>(
+  'resolveDetachableTask',
+  undefined,
+);
+const canDetach = computed(
+  () =>
+    input.value.runInBackground !== true &&
+    props.tool.status === 'running' &&
+    resolveDetachableTask !== undefined &&
+    resolveDetachableTask(props.tool.id) !== false,
+);
+
 function toggle(): void {
   if (canExpand.value) open.value = !open.value;
 }
@@ -100,6 +121,7 @@ watch(
 <template>
   <ToolRow
     :status="status"
+    :status-label="statusLabel"
     :icon="glyph"
     :name="label"
     :arg="!open ? summary : ''"
@@ -112,6 +134,17 @@ watch(
   >
     <template #trailing>
       <span class="chip">{{ runMetadata }}</span>
+      <Tooltip v-if="canDetach" :text="t('tasks.toBackground')">
+        <IconButton
+          class="detach"
+          :class="{ touch: mobile }"
+          size="sm"
+          :label="t('tasks.toBackground')"
+          @click.stop="emit('detach', tool.id)"
+        >
+          <Icon name="pip" size="sm" />
+        </IconButton>
+      </Tooltip>
       <button v-if="canOpenAgent" type="button" class="at-open" @click.stop="emit('openAgent', tool.id)">
         {{ t('tasks.openDetail') }}
       </button>
@@ -125,6 +158,18 @@ watch(
 </template>
 
 <style scoped>
+/* "To background" — sits before the Open button; on touch layouts an invisible
+   inset grows the hit area to 44px without changing the row's height. */
+.detach {
+  position: relative;
+  flex: none;
+  margin-right: var(--space-1);
+}
+.detach.touch::after {
+  content: '';
+  position: absolute;
+  inset: -9px;
+}
 .at-open {
   flex: none;
   background: none;

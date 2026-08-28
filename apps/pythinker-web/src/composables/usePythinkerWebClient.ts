@@ -828,6 +828,37 @@ function setConversationToc(v: boolean): void {
 }
 
 // ---------------------------------------------------------------------------
+// Message folding: `turnFolding` folds a finished turn's work away and leaves
+// the summary; `activityRunFolding` summarises consecutive tool calls into one
+// row while the answer is still running. Both on by default, persisted per
+// browser.
+// ---------------------------------------------------------------------------
+function loadFoldingFromStorage(key: string): boolean {
+  try {
+    return safeGetString(key) !== 'false';
+  } catch {
+    return true;
+  }
+}
+function saveFoldingToStorage(key: string, v: boolean): void {
+  try {
+    safeSetString(key, v ? 'true' : 'false');
+  } catch {
+    // ignore
+  }
+}
+const turnFolding = ref<boolean>(loadFoldingFromStorage(STORAGE_KEYS.turnFolding));
+function setTurnFolding(v: boolean): void {
+  turnFolding.value = v;
+  saveFoldingToStorage(STORAGE_KEYS.turnFolding, v);
+}
+const activityRunFolding = ref<boolean>(loadFoldingFromStorage(STORAGE_KEYS.activityRunFolding));
+function setActivityRunFolding(v: boolean): void {
+  activityRunFolding.value = v;
+  saveFoldingToStorage(STORAGE_KEYS.activityRunFolding, v);
+}
+
+// ---------------------------------------------------------------------------
 // Onboarding: a "has the user been onboarded" flag that gates the first-run
 // onboarding screen. Persisted; can be reset to re-open
 // the screen from the settings popover.
@@ -1861,6 +1892,7 @@ function toUiQuestion(q: AppQuestionRequest): UIQuestion {
       multiSelect: qi.multiSelect,
       allowOther: qi.allowOther,
       otherLabel: qi.otherLabel,
+      otherDescription: qi.otherDescription,
     })),
   };
 }
@@ -3177,6 +3209,12 @@ export function usePythinkerWebClient() {
     conversationToc,
     setConversationToc,
 
+    // Message folding
+    turnFolding,
+    setTurnFolding,
+    activityRunFolding,
+    setActivityRunFolding,
+
     // Color scheme
     colorScheme: appearance.colorScheme,
     setColorScheme: appearance.setColorScheme,
@@ -3237,6 +3275,7 @@ export function usePythinkerWebClient() {
     pendingQuestionActions: workspaceState.pendingQuestionActions,
     pendingApprovalActions: workspaceState.pendingApprovalActions,
     cancelTask: workspaceState.cancelTask,
+    detachTask: workspaceState.detachTask,
 
     // New Phase 1 actions
     setPermission: workspaceState.setPermission,

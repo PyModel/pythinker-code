@@ -3,7 +3,7 @@
      The old workspace rail and workspace tabs have been removed;
      workspace switching, folding and renaming all live in the group header. -->
 <script setup lang="ts">
-import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref, watch, provide } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { copyTextToClipboard } from '../lib/clipboard';
 import {
@@ -17,6 +17,8 @@ import SearchSessionsDialog from './dialogs/SearchSessionsDialog.vue';
 import WorkspaceGroup from './WorkspaceGroup.vue';
 import { isDesktop, isMacosDesktop } from '../lib/desktopFlag';
 import { useDesktopUpdate } from '../composables/useDesktopUpdate';
+import AsyncLoadFailed from './ui/AsyncLoadFailed.vue';
+import ErrorBoundary from './ui/ErrorBoundary.vue';
 import IconButton from './ui/IconButton.vue';
 import Icon from './ui/Icon.vue';
 import Kbd from './ui/Kbd.vue';
@@ -619,10 +621,18 @@ const showNewWorkspaceButton = false;
 // Logo long-press easter-egg: holding the Pythinker mark for 1 second opens the
 // design system as a full-screen overlay.
 // Pointer capture keeps the hold alive even if the pointer drifts off the mark.
-const DesignSystemView = defineAsyncComponent(
-  () => import('../views/DesignSystemView.vue'),
-);
+const DesignSystemView = defineAsyncComponent({
+  loader: () => import('../views/DesignSystemView.vue'),
+  // A failed chunk load is not a render error, so the boundary never sees it —
+  // it gets its own copy here.
+  errorComponent: AsyncLoadFailed,
+});
 const showDesignSystem = ref(false);
+// Lets the async-load failure panel close the overlay (a failed chunk never
+// reaches the ErrorBoundary, so it needs its own way out).
+provide('closeAsyncView', () => {
+  showDesignSystem.value = false;
+});
 const EGG_HOLD_MS = 1000;
 let logoPressTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -1127,12 +1137,15 @@ watch([() => props.collapsed, update.hasUpdate], ([collapsed, hasUpdate]) => {
         </template>
       </div>
 
-      <!-- Footer: settings entry pinned under the session list -->
+      <!-- Footer: settings entry pinned under the session list. The row is the
+           growing side that truncates; a fixed side would sit beside it. -->
       <div class="side-footer">
-        <button class="btn-settings" type="button" @click.stop="emit('openSettings')">
-          <Icon name="settings" />
-          <span>{{ t('settings.title') }}</span>
-        </button>
+        <div class="side-footer-account">
+          <button class="btn-settings" type="button" @click.stop="emit('openSettings')">
+            <Icon name="settings" />
+            <span class="btn-settings-label">{{ t('settings.title') }}</span>
+          </button>
+        </div>
       </div>
 
       <!-- Folder-drop overlay (desktop): covers the column while a folder drag
@@ -1230,7 +1243,14 @@ watch([() => props.collapsed, update.hasUpdate], ([collapsed, hasUpdate]) => {
          which breaks v-show on the host (Vue can't apply display:none to a
          Fragment). Teleport still renders to body regardless of placement. -->
     <Teleport to="body">
-      <DesignSystemView v-if="showDesignSystem" @close="showDesignSystem = false" />
+      <ErrorBoundary
+        v-if="showDesignSystem"
+        fullscreen
+        closable
+        @close="showDesignSystem = false"
+      >
+        <DesignSystemView @close="showDesignSystem = false" />
+      </ErrorBoundary>
       <section
         v-if="updateNotesOpen"
         id="sidebar-update-notes"
@@ -1635,8 +1655,22 @@ watch([() => props.collapsed, update.hasUpdate], ([collapsed, hasUpdate]) => {
    sunken — not a Button). */
 .side-footer {
   flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
   padding: var(--space-2) var(--sb-inset);
   border-top: 1px solid var(--line);
+}
+/* Grows and truncates: a long label is ellipsized instead of pushing the row. */
+.side-footer-account {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.btn-settings-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .btn-settings {
   display: flex;

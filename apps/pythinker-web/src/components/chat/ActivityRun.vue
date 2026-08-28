@@ -69,6 +69,7 @@ const emit = defineEmits<{
   openFile: [target: FilePreviewRequest];
   openToolDiff: [id: string];
   openAgent: [toolCallId: string];
+  detach: [toolCallId: string];
 }>();
 
 const { t } = useI18n();
@@ -374,6 +375,7 @@ function isItemStreaming(item: RunItem): boolean {
             @open-file="emit('openFile', $event)"
             @open-tool-diff="emit('openToolDiff', $event)"
             @open-agent="emit('openAgent', $event)"
+            @detach="emit('detach', $event)"
           />
         </template>
       </div>
