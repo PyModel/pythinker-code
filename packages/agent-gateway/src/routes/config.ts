@@ -70,14 +70,9 @@ export function registerConfigRoutes(app: ConfigRouteHost, core: Scope): void {
         const config = core.accessor.get(IConfigService);
         const registry = core.accessor.get(IConfigRegistry);
         await config.ready;
-        const body = req.body as Record<string, unknown>;
-        const secondaryModel = body['secondary_model'] as
-          | LegacySecondaryModelRequest
-          | null
-          | undefined;
-        const ordinary = { ...body };
-        delete ordinary['secondary_model'];
-        const camelPatch = convertKeysSnakeToCamel(ordinary) as Record<string, unknown>;
+        const { secondary_model: secondaryModel, ...ordinary } = req.body;
+        const converted = convertKeysSnakeToCamel(ordinary);
+        const camelPatch: Record<string, unknown> = isPlainObject(converted) ? converted : {};
         if (camelPatch['yolo'] === true) {
           camelPatch['defaultPermissionMode'] = 'yolo';
         }

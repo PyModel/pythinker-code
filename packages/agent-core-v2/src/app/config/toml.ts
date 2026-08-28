@@ -65,7 +65,7 @@ export function applySectionToToml(
   }
 
   if (toToml !== undefined) {
-    const rawSub = cloneRecord(rawSnake[snakeKey]);
+    const rawSub = mode === 'replace' ? undefined : cloneRecord(rawSnake[snakeKey]);
     const converted = toToml(value, rawSub);
     if (converted === undefined || converted === null) {
       delete rawSnake[snakeKey];

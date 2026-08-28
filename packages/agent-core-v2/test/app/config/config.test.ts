@@ -2659,6 +2659,18 @@ describe('ConfigService replaceSections', () => {
     disposables.dispose();
   });
 
+  it('replace drops omitted keys from a section with a custom TOML serializer', async () => {
+    const seed = ['[loop_control]', 'max_steps_per_turn = 5', 'max_attempts_per_step = 3', ''].join('\n');
+    const { config, disposables, storage } = await createSectionsConfig(seed);
+    await config.replace(LOOP_CONTROL_SECTION, { maxStepsPerTurn: 7 });
+    const onDisk = new TextDecoder().decode(await storage.read('', 'config.toml'));
+    expect(onDisk).toContain('max_steps_per_turn = 7');
+    expect(onDisk).not.toContain('max_attempts_per_step');
+    await config.reload();
+    expect(config.get(LOOP_CONTROL_SECTION)).toEqual({ maxStepsPerTurn: 7 });
+    disposables.dispose();
+  });
+
   it('replace and replaceSections drop keys the new value does not carry from disk', async () => {
     const seed = [
       '[secondary_model]',
