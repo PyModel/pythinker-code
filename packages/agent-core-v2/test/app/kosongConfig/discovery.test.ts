@@ -6,6 +6,14 @@ import { ILogService, type LogPayload } from '#/_base/log/log';
 import { IAgentIdentity } from '#/app/agentIdentity/agentIdentity';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
+import {
+  normalizeLegacySecondaryModel,
+  toPersistedSecondaryModel,
+} from '#/session/subagent/policy';
+import {
+  ISubagentModelPolicyService,
+  type PreparedSubagentPolicyMutation,
+} from '#/session/subagent/subagentModelPolicy';
 import { ConfigRegistry } from '#/app/config/configService';
 import { IEventService } from '#/app/event/event';
 import { IProviderDiscoveryService } from '#/app/kosongConfig/discovery';
@@ -60,6 +68,31 @@ function stubLogService(): ILogService {
   } satisfies ILogService;
 }
 
+function stubSubagentModelPolicy(): ISubagentModelPolicyService {
+  const prepare = (input: unknown): PreparedSubagentPolicyMutation => {
+    const policy = normalizeLegacySecondaryModel(
+      input === null || input === undefined
+        ? undefined
+        : (input as Parameters<typeof normalizeLegacySecondaryModel>[0]),
+    );
+    return { policy, section: toPersistedSecondaryModel(policy) };
+  };
+  return {
+    _serviceBrand: undefined,
+    get: () => ({ policy: { mode: 'inherit' }, resourceVersion: 'stub' }),
+    getEffective: () => ({
+      configuredPolicy: { mode: 'inherit' },
+      effectivePolicy: { mode: 'inherit' },
+      policySource: 'default',
+      feature: { enabled: false, source: 'default' },
+    }),
+    set: () => Promise.reject(new Error('not stubbed')),
+    clear: () => Promise.reject(new Error('not stubbed')),
+    prepareLegacyMutation: prepare,
+    resolveRevision: () => 'stub',
+  };
+}
+
 async function createHost(
   sections: Record<string, unknown> = {},
 ): Promise<{
@@ -75,6 +108,7 @@ async function createHost(
   const host = createScopedTestHost([
     [IConfigService, config],
     [IEventService, events],
+    [ISubagentModelPolicyService, stubSubagentModelPolicy()],
     [ILogService, stubLogService()],
     [
       IBootstrapService,

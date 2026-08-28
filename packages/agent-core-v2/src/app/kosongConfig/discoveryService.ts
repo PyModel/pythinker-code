@@ -25,9 +25,8 @@ import {
   PROVIDERS_SECTION,
   THINKING_SECTION,
 } from './configSection';
-import {
-  SECONDARY_MODEL_SECTION,
-} from '#/session/subagent/configSection';
+import { prospectiveModelView, SECONDARY_MODEL_SECTION } from '#/session/subagent/policy';
+import { ISubagentModelPolicyService } from '#/session/subagent/subagentModelPolicy';
 import {
   IProviderDiscoveryService,
   ModelCatalogChanged,
@@ -54,6 +53,7 @@ export class ProviderDiscoveryService implements IProviderDiscoveryService {
     @IConfigService private readonly config: IConfigService,
     @IEventService private readonly events: IEventService,
     @IAgentIdentity private readonly identity: IAgentIdentity,
+    @ISubagentModelPolicyService private readonly subagentPolicy: ISubagentModelPolicyService,
   ) {}
 
   refreshProviderModels(
@@ -216,7 +216,11 @@ export class ProviderDiscoveryService implements IProviderDiscoveryService {
       sections[THINKING_SECTION] = restoreDefault ? exclusion.thinking : patch.thinking;
     }
     if ('secondaryModel' in patch) {
-      sections[SECONDARY_MODEL_SECTION] = patch.secondaryModel;
+      const preview = this.config.previewReplaceSections(sections);
+      sections[SECONDARY_MODEL_SECTION] = this.subagentPolicy.prepareLegacyMutation(
+        patch.secondaryModel,
+        prospectiveModelView(preview[PROVIDERS_SECTION], preview[MODELS_SECTION]),
+      ).section;
     }
     await this.config.replaceSections(sections);
     return {

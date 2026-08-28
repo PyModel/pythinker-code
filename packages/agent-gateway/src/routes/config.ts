@@ -3,6 +3,8 @@ import {
   IConfigRegistry,
   IConfigService,
   IEventService,
+  ISubagentModelPolicyService,
+  prospectiveModelView,
   type Scope,
 } from '@pymodel/agent-core-v2';
 
@@ -83,8 +85,12 @@ export function registerConfigRoutes(app: ConfigRouteHost, core: Scope): void {
           staged[domain] = registry.merge(domain, base, camelPatch[domain]);
         }
         if (secondaryModel !== undefined) {
-          staged[SECONDARY_MODEL_DOMAIN] =
-            secondaryModel === null ? null : toSecondaryModelReplacement(secondaryModel);
+          const preview = config.previewReplaceSections(staged);
+          const prepared = core.accessor.get(ISubagentModelPolicyService).prepareLegacyMutation(
+            secondaryModel === null ? null : toSecondaryModelReplacement(secondaryModel),
+            prospectiveModelView(preview['providers'], preview['models']),
+          );
+          staged[SECONDARY_MODEL_DOMAIN] = prepared.section ?? null;
         }
         await config.replaceSections(staged);
         const response = toConfigResponse(config.getAll());
