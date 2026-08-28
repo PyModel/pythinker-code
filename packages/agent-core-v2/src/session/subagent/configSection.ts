@@ -80,7 +80,7 @@ registerConfigSection(SUBAGENT_SECTION, SubagentConfigSchema, {
   stripEnv: stripSubagentEnv,
 });
 
-registerConfigSection(SECONDARY_MODEL_SECTION, SecondaryModelConfigSchema);
+registerConfigSection('secondaryModel', SecondaryModelConfigSchema);
 
 export function resolveSubagentTimeoutMs(config: IConfigService): number {
   return (
