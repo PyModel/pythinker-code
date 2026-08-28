@@ -241,11 +241,14 @@ describe('subagent model/effort display resolvers', () => {
       },
     });
 
-    expect(wrapper.get('.model-meta').text()).toBe('Example Model · High');
+    expect(wrapper.get('.routing-sub').text()).toContain('Example Model · High');
+    expect(wrapper.get('.routing-sub').attributes('data-state')).toBe('override');
+    expect(wrapper.findAll('.mmeta').map((node) => node.text())).toEqual(['Example Model · High', 'Example Model · High']);
 
     members.value[1].thinkingEffort = 'medium';
     await nextTick();
-    expect(wrapper.find('.model-meta').exists()).toBe(false);
+    expect(wrapper.get('.routing-sub').attributes('data-state')).toBe('mixed');
+    expect(wrapper.findAll('.routing-bd')).toHaveLength(2);
 
     members.value[1] = {
       id: 'agent_2',
@@ -254,7 +257,8 @@ describe('subagent model/effort display resolvers', () => {
       dynamicWorkflowIndex: 1,
     };
     await nextTick();
-    expect(wrapper.find('.model-meta').exists()).toBe(false);
+    expect(wrapper.get('.routing-sub').attributes('data-state')).toBe('override');
+    expect(wrapper.findAll('.mmeta').map((node) => node.text())).toEqual(['Example Model · High']);
   });
 });
 

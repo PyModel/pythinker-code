@@ -2,7 +2,14 @@ import { describe, expect, it } from 'vitest';
 import type { AppSubagentPhase } from '../src/api/types';
 import type { DynamicWorkflowMember } from '../src/composables/dynamicWorkflowGroups';
 import type { DynamicWorkflowResult } from '../src/lib/parseDynamicWorkflowResult';
-import { buildDynamicWorkflowCardRows, dynamicWorkflowMemberActivity } from '../src/lib/dynamicWorkflowCardRows';
+import {
+  buildDynamicWorkflowCardRows,
+  dynamicWorkflowMemberActivity,
+  dynamicWorkflowRowElapsedMs,
+  type DynamicWorkflowCardRow,
+  formatElapsed,
+  groupDynamicWorkflowRows,
+} from '../src/lib/dynamicWorkflowCardRows';
 
 function member(
   id: string,
@@ -186,5 +193,71 @@ describe('buildDynamicWorkflowCardRows binding pass-through', () => {
     });
     expect(rows[1]?.routing).toBeUndefined();
     expect(rows[1]?.model).toBeUndefined();
+  });
+});
+
+describe('groupDynamicWorkflowRows', () => {
+  const row = (id: string, phase: AppSubagentPhase, extra: Partial<DynamicWorkflowCardRow> = {}): DynamicWorkflowCardRow => ({
+    id,
+    name: id,
+    activity: '',
+    phase,
+    body: '',
+    live: true,
+    ...extra,
+  });
+
+  it('puts Failed first while running with failures and keeps every phase', () => {
+    const groups = groupDynamicWorkflowRows(
+      [row('a', 'completed'), row('b', 'working'), row('c', 'failed'), row('d', 'queued'), row('e', 'suspended'), row('f', 'cancelled')],
+      true,
+    );
+    expect(groups.map((g) => g.phase)).toEqual(['failed', 'suspended', 'working', 'queued', 'completed', 'cancelled']);
+    expect(groups.flatMap((g) => g.rows).map((r) => r.id).sort()).toEqual(['a', 'b', 'c', 'd', 'e', 'f']);
+    expect(groups.find((g) => g.phase === 'failed')?.expanded).toBe(true);
+    expect(groups.find((g) => g.phase === 'suspended')?.expanded).toBe(true);
+    expect(groups.find((g) => g.phase === 'completed')?.expanded).toBe(false);
+  });
+
+  it('leads with Working while running healthy', () => {
+    const groups = groupDynamicWorkflowRows([row('a', 'completed'), row('b', 'working'), row('d', 'queued')], true);
+    expect(groups.map((g) => g.phase)).toEqual(['working', 'queued', 'completed']);
+  });
+
+  it('leads with Failed once settled and keeps residual Working/Queued rows visible and expanded', () => {
+    const groups = groupDynamicWorkflowRows(
+      [row('a', 'completed'), row('b', 'working'), row('c', 'failed'), row('f', 'cancelled'), row('q', 'queued')],
+      false,
+    );
+    expect(groups.map((g) => g.phase)).toEqual(['failed', 'cancelled', 'completed', 'working', 'queued']);
+    expect(groups.every((g) => g.expanded)).toBe(true);
+  });
+
+  it('omits empty phases', () => {
+    expect(groupDynamicWorkflowRows([row('a', 'completed')], false).map((g) => g.phase)).toEqual(['completed']);
+    expect(groupDynamicWorkflowRows([], true)).toEqual([]);
+  });
+});
+
+describe('elapsed time', () => {
+  const NOW = Date.parse('2026-01-01T00:10:00.000Z');
+
+  it('uses now - startedAt for active rows and completedAt - startedAt for settled rows', () => {
+    expect(dynamicWorkflowRowElapsedMs({ phase: 'working', startedAt: '2026-01-01T00:08:30.000Z' }, NOW)).toBe(90_000);
+    expect(
+      dynamicWorkflowRowElapsedMs(
+        { phase: 'completed', startedAt: '2026-01-01T00:00:00.000Z', completedAt: '2026-01-01T00:01:05.000Z' },
+        NOW,
+      ),
+    ).toBe(65_000);
+    expect(dynamicWorkflowRowElapsedMs({ phase: 'failed', startedAt: '2026-01-01T00:00:00.000Z' }, NOW)).toBeUndefined();
+    expect(dynamicWorkflowRowElapsedMs({ phase: 'queued' }, NOW)).toBeUndefined();
+    expect(dynamicWorkflowRowElapsedMs({ phase: 'working', startedAt: 'not a date' }, NOW)).toBeUndefined();
+  });
+
+  it('formats m:ss and h:mm:ss', () => {
+    expect(formatElapsed(0)).toBe('0:00');
+    expect(formatElapsed(65_000)).toBe('1:05');
+    expect(formatElapsed(3_725_000)).toBe('1:02:05');
   });
 });
