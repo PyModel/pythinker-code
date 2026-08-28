@@ -523,6 +523,52 @@ describe('settings UI', () => {
     }
   });
 
+  it('serializes force: false explicitly when the pin is switched off (compatibility with merging gateways; correctness does not depend on it)', async () => {
+    const wrapper = mount(SettingsDialog, {
+      props: {
+        colorScheme: 'system',
+        accent: 'blue',
+        uiFontSize: 14,
+        authReady: true,
+        notify: false,
+        notifyQuestion: false,
+        notifyApproval: false,
+        sound: false,
+        config: {
+          providers: {},
+          secondaryModel: { defaultModel: 'test/fast', defaultEffort: 'max', force: true },
+          experimental: { 'secondary-model': true },
+        },
+        models: [
+          { id: 'test/main', provider: 'test', model: 'main', maxContextSize: 100_000 },
+          { id: 'test/fast', provider: 'test', model: 'fast', maxContextSize: 100_000 },
+        ],
+      },
+      global: { plugins: [i18n] },
+    });
+    try {
+      await flushPromises();
+      const agentTab = Array.from(document.body.querySelectorAll<HTMLButtonElement>('[role="tab"]'))
+        .find((tab) => tab.textContent?.trim() === 'Agent');
+      agentTab!.click();
+      await flushPromises();
+
+      const pin = document.body.querySelector<HTMLButtonElement>(
+        '[role="switch"][aria-label="Always use this model"]',
+      );
+      expect(pin?.getAttribute('aria-checked')).toBe('true');
+
+      pin!.click();
+      await flushPromises();
+
+      expect(wrapper.emitted('updateConfig')?.at(-1)?.[0]).toEqual({
+        secondaryModel: { defaultModel: 'test/fast', defaultEffort: 'max', force: false },
+      });
+    } finally {
+      wrapper.unmount();
+    }
+  });
+
   it('emits setAccent with mono when the Black accent option is picked', async () => {
     const wrapper = mount(SettingsDialog, {
       props: {

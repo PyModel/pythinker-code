@@ -47,11 +47,14 @@ export function transformTomlData(
   return result;
 }
 
+export type SectionWriteMode = 'merge' | 'replace';
+
 export function applySectionToToml(
   rawSnake: Record<string, unknown>,
   domain: string,
   value: unknown,
   registry: IConfigRegistry,
+  mode: SectionWriteMode = 'merge',
 ): void {
   const snakeKey = camelToSnake(domain);
   const toToml = registry.getSection(domain)?.toToml;
@@ -78,7 +81,7 @@ export function applySectionToToml(
     setDefined(rawSnake, snakeKey, value);
     return;
   }
-  const rawSub = cloneRecord(rawSnake[snakeKey]);
+  const rawSub = mode === 'replace' ? undefined : cloneRecord(rawSnake[snakeKey]);
   const converted = plainObjectToToml(value, rawSub);
   if (Object.keys(converted).length > 0) {
     rawSnake[snakeKey] = converted;

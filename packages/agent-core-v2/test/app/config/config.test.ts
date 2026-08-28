@@ -2659,6 +2659,37 @@ describe('ConfigService replaceSections', () => {
     disposables.dispose();
   });
 
+  it('replace and replaceSections drop keys the new value does not carry from disk', async () => {
+    const seed = [
+      '[secondary_model]',
+      'default_model = "acme/m1"',
+      'default_effort = "low"',
+      'force = true',
+      '',
+      '[secondary_model.models]',
+      '"acme/m1" = "fast"',
+      '',
+    ].join('\n');
+    const { config, disposables, storage } = await createSectionsConfig(seed);
+
+    await config.replaceSections({ [SECONDARY_MODEL_SECTION]: { defaultModel: 'acme/m1' } });
+    let onDisk = new TextDecoder().decode(await storage.read('', 'config.toml'));
+    expect(onDisk).not.toContain('force');
+    expect(onDisk).not.toContain('default_effort');
+    expect(onDisk).not.toContain('[secondary_model.models]');
+    await config.reload();
+    expect(config.get(SECONDARY_MODEL_SECTION)).toEqual({ defaultModel: 'acme/m1' });
+
+    await config.replace(SECONDARY_MODEL_SECTION, { defaultModel: 'acme/m1', force: true });
+    await config.replace(SECONDARY_MODEL_SECTION, { defaultModel: 'acme/m1' });
+    onDisk = new TextDecoder().decode(await storage.read('', 'config.toml'));
+    expect(onDisk).not.toContain('force');
+    await config.reload();
+    expect(config.get(SECONDARY_MODEL_SECTION)).toEqual({ defaultModel: 'acme/m1' });
+
+    disposables.dispose();
+  });
+
   it('fires change events only after all domains have taken effect', async () => {
     const { config, disposables } = await createSectionsConfig();
     const domains: string[] = [];

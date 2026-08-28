@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -180,5 +180,168 @@ describe('server-v2 /api/v1/config', () => {
     });
     const body = (await res.json()) as Envelope<{ id: string }>;
     expect(body.code).toBe(0);
+  });
+});
+
+describe('server-v2 /api/v1/config secondary_model replacement and request atomicity', () => {
+  let server: RunningServer | undefined;
+  let home: string | undefined;
+  let base: string;
+
+  beforeEach(async () => {
+    home = await mkdtemp(join(tmpdir(), 'pythinker-server-v2-config-atomic-'));
+  });
+
+  afterEach(async () => {
+    if (server !== undefined) {
+      await server.close();
+      server = undefined;
+    }
+    if (home !== undefined) {
+      await rm(home, { recursive: true, force: true });
+      home = undefined;
+    }
+  });
+
+  async function boot(toml?: string, env?: NodeJS.ProcessEnv): Promise<void> {
+    if (toml !== undefined) {
+      await writeFile(join(home as string, 'config.toml'), toml, 'utf-8');
+    }
+    server = await startServer({
+      hostIdentity: TEST_HOST_IDENTITY,
+      host: '127.0.0.1',
+      port: 0,
+      homeDir: home,
+      logLevel: 'silent',
+      env,
+    });
+    base = `http://127.0.0.1:${server.port}`;
+  }
+
+  async function post(patch: unknown): Promise<{ status: number; body: Envelope<unknown> }> {
+    const res = await authedFetch(server as RunningServer, base, '/api/v1/config', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(patch),
+    });
+    return { status: res.status, body: (await res.json()) as Envelope<unknown> };
+  }
+
+  async function getConfig(): Promise<ConfigResponse> {
+    const res = await authedFetch(server as RunningServer, base, '/api/v1/config');
+    const body = (await res.json()) as Envelope<ConfigResponse>;
+    expect(body.code).toBe(0);
+    return configResponseSchema.parse(body.data);
+  }
+
+  async function diskToml(): Promise<string> {
+    return readFile(join(home as string, 'config.toml'), 'utf-8');
+  }
+
+  it('force true -> false drops the force field instead of keeping the stale value', async () => {
+    await boot();
+    await post({ secondary_model: { default_model: 'provider/fast', force: true } });
+    expect((await getConfig()).secondary_model).toMatchObject({ force: true });
+
+    const res = await post({ secondary_model: { default_model: 'provider/fast', force: false } });
+    expect(res.body.code).toBe(0);
+    const after = await getConfig();
+    expect(after.secondary_model).toEqual({ defaultModel: 'provider/fast' });
+    expect(await diskToml()).not.toContain('force');
+  });
+
+  it('pool -> default drops the models table', async () => {
+    await boot();
+    await post({
+      secondary_model: {
+        default_model: 'provider/fast',
+        models: { 'provider/fast': 'fast', 'provider/slow': 'slow' },
+      },
+    });
+    await post({ secondary_model: { default_model: 'provider/slow' } });
+    expect((await getConfig()).secondary_model).toEqual({ defaultModel: 'provider/slow' });
+    expect(await diskToml()).not.toContain('[secondary_model.models]');
+  });
+
+  it('pool -> force drops the models table and keeps force', async () => {
+    await boot();
+    await post({
+      secondary_model: { default_model: 'provider/fast', models: { 'provider/fast': '' } },
+    });
+    await post({ secondary_model: { default_model: 'provider/fast', force: true } });
+    expect((await getConfig()).secondary_model).toEqual({
+      defaultModel: 'provider/fast',
+      force: true,
+    });
+  });
+
+  it('default -> inherit removes the section from disk', async () => {
+    await boot();
+    await post({ secondary_model: { default_model: 'provider/fast' } });
+    await post({ secondary_model: null });
+    expect((await getConfig()).secondary_model).toBeUndefined();
+    expect(await diskToml()).not.toContain('secondary_model');
+  });
+
+  it('an invalid domain in a multi-domain request leaves every participating domain unchanged', async () => {
+    await boot('default_permission_mode = "auto"\n');
+    const res = await post({
+      default_permission_mode: 'yolo',
+      subagent: { timeout_ms: 'not-a-number' },
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.code).toBe(ErrorCode.VALIDATION_FAILED);
+    const after = await getConfig();
+    expect(after.default_permission_mode).toBe('auto');
+    expect(after.subagent).toEqual({ timeoutMs: 7_200_000 });
+    expect(await diskToml()).toContain('default_permission_mode = "auto"');
+    expect(await diskToml()).not.toContain('yolo');
+  });
+
+  it('accepts the web client camelCase secondary_model shape and drops force: false', async () => {
+    await boot();
+    const res = await post({
+      secondary_model: { defaultModel: 'provider/fast', defaultEffort: 'low', force: false },
+    });
+    expect(res.body.code).toBe(0);
+    expect((await getConfig()).secondary_model).toEqual({
+      defaultModel: 'provider/fast',
+      defaultEffort: 'low',
+    });
+  });
+
+  it('a providers patch still merges with the existing providers table', async () => {
+    await boot();
+    await post({
+      providers: { alpha: { type: 'openai', base_url: 'https://alpha.example.test' } },
+    });
+    await post({
+      providers: { beta: { type: 'openai', base_url: 'https://beta.example.test' } },
+    });
+    const after = await getConfig();
+    expect(Object.keys(after.providers).sort()).toEqual(['alpha', 'beta']);
+    expect(after.providers['alpha']?.base_url).toBe('https://alpha.example.test');
+  });
+
+  it('a section patch never writes environment or default values into the user layer', async () => {
+    await boot(undefined, { ...process.env, PYTHINKER_SUBAGENT_TIMEOUT_MS: '1234' });
+    expect((await getConfig()).subagent).toEqual({ timeoutMs: 1234 });
+
+    const res = await post({ subagent: {} });
+    expect(res.body.code).toBe(0);
+    expect((await getConfig()).subagent).toEqual({ timeoutMs: 1234 });
+    expect(await diskToml()).not.toContain('timeout_ms');
+  });
+
+  it('rejects a malformed secondary_model body with VALIDATION_FAILED and writes nothing', async () => {
+    await boot();
+    const res = await post({ secondary_model: { default_model: 42, force: 'yes' } });
+    expect(res.body.code).toBe(ErrorCode.VALIDATION_FAILED);
+    expect(res.body.msg).toContain('secondary_model');
+    expect((await getConfig()).secondary_model).toBeUndefined();
+
+    const unknownField = await post({ secondary_model: { default_model: 'p/m', bogus: 1 } });
+    expect(unknownField.body.code).toBe(ErrorCode.VALIDATION_FAILED);
+    expect((await getConfig()).secondary_model).toBeUndefined();
   });
 });
