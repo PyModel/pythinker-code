@@ -12,6 +12,8 @@ withDefaults(
     /** Inline-SVG glyph string (toolGlyph), or empty for none. */
     icon?: string;
     name: string;
+    /** Accessible name for the status glyph; defaults to the raw status. */
+    statusLabel?: string;
     arg?: string;
     time?: string;
     open?: boolean;
@@ -66,7 +68,7 @@ function onHeadClick(): void {
         </slot>
       </span>
       <span class="rt">
-        <span class="status" :class="status" role="status" :aria-label="status">
+        <span class="status" :class="status" role="status" :aria-label="statusLabel ?? status">
           <Icon v-if="status === 'ok'" name="check" size="sm" />
           <Icon v-else-if="status === 'error'" name="close" size="sm" />
           <StatusDot v-else-if="status === 'suspended'" status="suspended" />

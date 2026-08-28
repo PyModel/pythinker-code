@@ -58,6 +58,10 @@ const props = defineProps<{
   sound: boolean;
   /** Conversation outline (proportional bubbles, viewport indicator, hover tooltip). */
   conversationToc?: boolean;
+  /** Fold a finished turn's work away, leaving the summary. */
+  turnFolding?: boolean;
+  /** Summarise consecutive tool calls into one row while the answer runs. */
+  activityRunFolding?: boolean;
   /** Global daemon config from GET /api/v1/config. Secrets are redacted server-side. */
   config?: AppConfig | null;
   /** Models from the daemon catalog, used to label default-model choices. */
@@ -82,6 +86,8 @@ const emit = defineEmits<{
   setNotifyApproval: [on: boolean];
   setSound: [on: boolean];
   setConversationToc: [on: boolean];
+  setTurnFolding: [on: boolean];
+  setActivityRunFolding: [on: boolean];
   openOnboarding: [];
   updateConfig: [patch: Partial<AppConfig>];
   close: [];
@@ -729,6 +735,32 @@ function archiveTime(iso: string): string {
                 :options="uiFontScaleOptions"
                 :aria-label="t('settings.uiFontSize')"
                 @update:model-value="setFontScale"
+              />
+            </div>
+          </section>
+
+          <section class="sec">
+            <h3 class="sec-title">{{ t('settings.messageFolding') }}</h3>
+            <div class="row">
+              <span class="rlabel">
+                {{ t('settings.turnFolding') }}
+                <span class="hint">{{ t('settings.turnFoldingHint') }}</span>
+              </span>
+              <Switch
+                :model-value="turnFolding ?? true"
+                :label="t('settings.turnFolding')"
+                @update:model-value="emit('setTurnFolding', $event)"
+              />
+            </div>
+            <div class="row">
+              <span class="rlabel">
+                {{ t('settings.activityRunFolding') }}
+                <span class="hint">{{ t('settings.activityRunFoldingHint') }}</span>
+              </span>
+              <Switch
+                :model-value="activityRunFolding ?? true"
+                :label="t('settings.activityRunFolding')"
+                @update:model-value="emit('setActivityRunFolding', $event)"
               />
             </div>
           </section>

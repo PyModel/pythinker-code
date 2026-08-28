@@ -21,11 +21,12 @@ import { copyCodeBlockFallback, copyTextToClipboard } from '../../lib/clipboard'
 import { buildInlineMathMatcher } from '../../lib/inlineMath';
 import { splitFrontmatter } from '../../lib/markdownFrontmatter';
 import { middleTruncateName } from '../../lib/mentions';
-import { fileTypeIconSvg, iconSvg } from '../../lib/icons';
+import { fileTypeIconSvg, iconSvg, type IconName } from '../../lib/icons';
 import * as katexWorkerModule from 'markstream-vue/workers/katexRenderer.worker?worker&type=module';
 import * as mermaidWorkerModule from 'markstream-vue/workers/mermaidParser.worker?worker&type=module';
 import Tooltip from '../ui/Tooltip.vue';
 import Icon from '../ui/Icon.vue';
+import IconButton from '../ui/IconButton.vue';
 // px-based CSS build (our app is px, not rem). Imported here so the styles
 // load wherever Markdown is used; scoped overrides below re-skin it to
 // Terminal Pro. Importing the same file from multiple components is a no-op
@@ -128,7 +129,7 @@ function configureInlineMath(md: MarkdownIt): MarkdownIt {
   return md;
 }
 
-const { t } = useI18n();
+const { t, locale } = useI18n();
 
 const resolveImage = inject<(src: string) => Promise<string>>('resolveImage');
 const mdRef = ref<HTMLElement | null>(null);
@@ -828,6 +829,227 @@ function refreshAllTableToggles(): void {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Code block view toggles — every rendered markdown code block gets two extra
+// header buttons: word wrap and line numbers. Both follow the table-widen
+// pattern above: markstream owns the header DOM, so we inject the buttons into
+// the rendered header and drive the state with classes on the container.
+//
+// The rendered code lives inside a `diffs-container` shadow root (@pierre/diffs),
+// so the numbering CSS cannot come from this component's scoped styles. The
+// renderer accepts an `unsafeCSS` option, but the markstream adapter we depend
+// on does not forward it, so the stylesheet is appended to the (open) shadow
+// root here instead. The renderer re-renders into that same shadow root, which
+// can drop the style element — hence a MutationObserver that re-applies the
+// whole state, stylesheet included.
+// ---------------------------------------------------------------------------
+
+const CODE_WRAP_CLASS = 'md-code-wrap';
+const CODE_WRAP_TOGGLE_CLASS = 'md-code-wrap-toggle';
+const CODE_NUMS_CLASS = 'md-code-nums';
+const CODE_NUMS_TOGGLE_CLASS = 'md-code-nums-toggle';
+const CODE_SHADOW_STYLE_ATTR = 'data-md-code-css';
+
+/** Gutter width in `ch` for a block with `count` lines (4ch covers <=999). */
+function numsGutter(count: number): string {
+  return `${Math.max(String(count).length + 1, 4)}ch`;
+}
+
+// Shipped into the code block's shadow root: the selection colours and the
+// CSS-counter gutter. `--md-nums-gutter` is set per block from its digit count;
+// the 4ch fallback covers up to 999 lines.
+const CODE_SHADOW_CSS = `
+[data-line], [data-no-newline] { padding-inline: var(--space-3); }
+pre::selection, pre ::selection {
+  background: var(--color-code-selection);
+  color: var(--color-code-selection-text);
+}
+pre[data-md-nums="on"] {
+  counter-reset: md-code-line;
+  position: relative;
+  /* Local stacking context: the gutter band and the number ink stay scoped to
+     this pre instead of leaking into the page-level stacking context. Inside
+     it the order is row backgrounds < band (1) < number ink (2). */
+  isolation: isolate;
+}
+pre[data-md-nums="on"]::after {
+  content: '';
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: calc(var(--space-3) + var(--md-nums-gutter, 4ch));
+  background: var(--color-selected);
+  border-right: var(--p-hairline) solid var(--color-line);
+  pointer-events: none;
+  user-select: none;
+  /* Gutter band + separator as one solid pseudo block (the design system
+     forbids gradient backgrounds). Absolutely positioned inside the scroller,
+     so it travels with the numbers on horizontal scroll and runs unbroken
+     across wrapped lines. */
+  z-index: 1;
+}
+pre[data-md-nums="on"] [data-line],
+pre[data-md-nums="on"] [data-no-newline] {
+  padding-left: calc(var(--space-3) + var(--md-nums-gutter, 4ch));
+}
+pre[data-md-nums="on"] [data-line] { counter-increment: md-code-line; }
+pre[data-md-nums="on"] [data-line]::before {
+  content: counter(md-code-line);
+  display: inline-block;
+  position: relative;
+  z-index: 2;
+  width: calc(var(--md-nums-gutter, 4ch) - 1ch);
+  overflow: visible;
+  margin-left: calc(-1 * var(--md-nums-gutter, 4ch));
+  margin-right: 1ch;
+  text-align: right;
+  color: var(--color-text-faint);
+  user-select: none;
+}
+`;
+
+interface CodeToggleSpec {
+  stateClass: string;
+  toggleClass: string;
+  iconOn: IconName;
+  iconOff: IconName;
+  labelOn: () => string;
+  labelOff: () => string;
+}
+
+const CODE_NUMS_SPEC: CodeToggleSpec = {
+  stateClass: CODE_NUMS_CLASS,
+  toggleClass: CODE_NUMS_TOGGLE_CLASS,
+  iconOn: 'list-numbers',
+  iconOff: 'list-numbers',
+  labelOn: () => t('conversation.hideLineNumbers'),
+  labelOff: () => t('conversation.showLineNumbers'),
+};
+
+const CODE_WRAP_SPEC: CodeToggleSpec = {
+  stateClass: CODE_WRAP_CLASS,
+  toggleClass: CODE_WRAP_TOGGLE_CLASS,
+  iconOn: 'text-wrap-disabled',
+  iconOff: 'text-wrap',
+  labelOn: () => t('conversation.unwrapCode'),
+  labelOff: () => t('conversation.wrapCode'),
+};
+
+const codeShadowObservers = new WeakMap<Element, MutationObserver>();
+
+/** Push wrap / line-number state through the shadow boundary. */
+function applyCodeBlockState(container: HTMLElement): void {
+  const host = container.querySelector('diffs-container');
+  const root = host?.shadowRoot;
+  if (!host || !root) return;
+  if (!codeShadowObservers.has(host)) {
+    const observer = new MutationObserver(() => applyCodeBlockState(container));
+    observer.observe(root, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['data-overflow', 'data-md-nums'],
+    });
+    codeShadowObservers.set(host, observer);
+  }
+  if (!root.querySelector(`style[${CODE_SHADOW_STYLE_ATTR}]`)) {
+    const style = document.createElement('style');
+    style.setAttribute(CODE_SHADOW_STYLE_ATTR, '');
+    style.textContent = CODE_SHADOW_CSS;
+    root.append(style);
+  }
+  const pre = root.querySelector<HTMLElement>('pre[data-overflow]');
+  if (!pre) return;
+  const overflow = container.classList.contains(CODE_WRAP_CLASS) ? 'wrap' : 'scroll';
+  if (pre.getAttribute('data-overflow') !== overflow) pre.setAttribute('data-overflow', overflow);
+  const nums = container.classList.contains(CODE_NUMS_CLASS) ? 'on' : 'off';
+  if (pre.getAttribute('data-md-nums') !== nums) pre.setAttribute('data-md-nums', nums);
+  if (nums === 'on') {
+    const gutter = numsGutter(root.querySelectorAll('[data-line]').length);
+    if (pre.style.getPropertyValue('--md-nums-gutter') !== gutter) {
+      pre.style.setProperty('--md-nums-gutter', gutter);
+    }
+  } else if (pre.style.getPropertyValue('--md-nums-gutter')) {
+    pre.style.removeProperty('--md-nums-gutter');
+  }
+}
+
+/** Bring one toggle's icon, label and aria-pressed in line with the state. */
+function refreshCodeToggle(container: HTMLElement, spec: CodeToggleSpec): void {
+  const button = container.querySelector<HTMLButtonElement>(`button.${spec.toggleClass}`);
+  if (!button) return;
+  const on = container.classList.contains(spec.stateClass);
+  const label = on ? spec.labelOn() : spec.labelOff();
+  const icon = iconSvg(on ? spec.iconOn : spec.iconOff, 'sm');
+  if (button.innerHTML !== icon) button.innerHTML = icon;
+  button.setAttribute('aria-label', label);
+  button.setAttribute('aria-pressed', String(on));
+  button.title = label;
+}
+
+function refreshCodeBlock(container: HTMLElement): void {
+  refreshCodeToggle(container, CODE_NUMS_SPEC);
+  refreshCodeToggle(container, CODE_WRAP_SPEC);
+  applyCodeBlockState(container);
+}
+
+/**
+ * Create the toggle if it is missing. The button clones the existing copy
+ * button's class so it inherits markstream's own action-button styling; the
+ * line-number toggle is inserted before the word-wrap toggle.
+ */
+function ensureCodeToggle(
+  container: HTMLElement,
+  anchor: { row: HTMLElement; anchor: HTMLElement } | null,
+  spec: CodeToggleSpec,
+): HTMLButtonElement | null {
+  const existing = container.querySelector<HTMLButtonElement>(`button.${spec.toggleClass}`);
+  if (existing) {
+    refreshCodeToggle(container, spec);
+    return existing;
+  }
+  if (!anchor) return null;
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = `${anchor.anchor.className} ${spec.toggleClass}`;
+  button.addEventListener('click', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    container.classList.toggle(spec.stateClass);
+    refreshCodeBlock(container);
+  });
+  const before = spec === CODE_NUMS_SPEC
+    ? container.querySelector<HTMLElement>(`button.${CODE_WRAP_TOGGLE_CLASS}`) ?? anchor.anchor
+    : anchor.anchor;
+  anchor.row.insertBefore(button, before);
+  refreshCodeToggle(container, spec);
+  return button;
+}
+
+/** The copy button we clone position + styling from. */
+function codeToggleAnchor(
+  container: HTMLElement,
+): { row: HTMLElement; anchor: HTMLElement } | null {
+  const anchor = container.querySelector<HTMLElement>(
+    `.code-block-header .code-action-btn:not([disabled]):not(.${CODE_WRAP_TOGGLE_CLASS}):not(.${CODE_NUMS_TOGGLE_CLASS})`,
+  );
+  const row = anchor?.parentElement;
+  return anchor && row ? { row, anchor } : null;
+}
+
+function processCodeBlockToggles(): void {
+  if (!mdRef.value || props.streaming) return;
+  for (const container of mdRef.value.querySelectorAll<HTMLElement>('.code-block-container')) {
+    const anchor = codeToggleAnchor(container);
+    // Line numbers need the shadow-DOM renderer; a plain-<pre> fallback block
+    // has no `[data-line]` rows to count, so it only gets the wrap toggle.
+    if (container.querySelector('diffs-container')) {
+      ensureCodeToggle(container, anchor, CODE_NUMS_SPEC);
+    }
+    ensureCodeToggle(container, anchor, CODE_WRAP_SPEC);
+    applyCodeBlockState(container);
+  }
+}
+
 function scheduleFileLinkProcessing(): void {
   // Content is about to change — a tooltip anchored on a pill that may get
   // re-rendered must not linger.
@@ -836,11 +1058,20 @@ function scheduleFileLinkProcessing(): void {
     processFileLinks();
     processMentionLinks();
     processTableToggles();
+    processCodeBlockToggles();
   });
 }
 
 watch(() => props.text, scheduleFileLinkProcessing);
 watch(() => props.streaming, scheduleFileLinkProcessing);
+// Locale change only rewrites the injected buttons' labels — the DOM is intact.
+watch(locale, () => {
+  if (!mdRef.value) return;
+  for (const container of mdRef.value.querySelectorAll<HTMLElement>('.code-block-container')) {
+    refreshCodeToggle(container, CODE_NUMS_SPEC);
+    refreshCodeToggle(container, CODE_WRAP_SPEC);
+  }
+});
 
 let observer: MutationObserver | null = null;
 let tableResizeObserver: ResizeObserver | null = null;
@@ -989,6 +1220,75 @@ function diffLines(code: string): DiffRow[] {
   });
 }
 
+// ---------------------------------------------------------------------------
+// Diff block view toggles (A local mirror of the code-block header toggles.)
+// State is keyed by the block's content, de-duplicated with an occurrence
+// index, so it survives a re-render or a streaming update that rebuilds the
+// segment list.
+// ---------------------------------------------------------------------------
+
+const wrappedDiffs = reactive(new Set<string>());
+const numberedDiffs = reactive(new Set<string>());
+
+const diffKeys = computed(() => {
+  const seen = new Map<string, number>();
+  return segments.value.map((seg) => {
+    if (seg.kind !== 'diff') return '';
+    const count = (seen.get(seg.code) ?? 0) + 1;
+    seen.set(seg.code, count);
+    return `${count}#${seg.code}`;
+  });
+});
+
+watch(diffKeys, (keys) => {
+  const live = new Set(keys);
+  for (const set of [wrappedDiffs, numberedDiffs]) {
+    const stale = Array.from(set).filter((key) => !live.has(key));
+    for (const key of stale) set.delete(key);
+  }
+});
+
+function toggleDiffState(set: Set<string>, index: number): void {
+  const key = diffKeys.value[index];
+  if (key === undefined || key === '') return;
+  if (set.has(key)) set.delete(key);
+  else set.add(key);
+}
+
+function isDiffWrapped(index: number): boolean {
+  const key = diffKeys.value[index];
+  return key !== undefined && key !== '' && wrappedDiffs.has(key);
+}
+
+function isDiffNumbered(index: number): boolean {
+  const key = diffKeys.value[index];
+  return key !== undefined && key !== '' && numberedDiffs.has(key);
+}
+
+function toggleDiffWrap(index: number): void {
+  toggleDiffState(wrappedDiffs, index);
+}
+
+function toggleDiffNums(index: number): void {
+  toggleDiffState(numberedDiffs, index);
+}
+
+/** Size each numbered diff's gutter from its own line count. */
+function syncDiffGutters(): void {
+  for (const pre of mdRef.value?.querySelectorAll<HTMLElement>('.diff-wrap .diff-pre') ?? []) {
+    if (!pre.closest('.diff-wrap')?.classList.contains(CODE_NUMS_CLASS)) {
+      pre.style.removeProperty('--md-nums-gutter');
+      continue;
+    }
+    const count = pre.querySelectorAll('.diff-line:not(.diff-hunk)').length;
+    pre.style.setProperty('--md-nums-gutter', numsGutter(count));
+  }
+}
+
+watch([() => numberedDiffs.size, segments], () => {
+  void nextTick(syncDiffGutters);
+});
+
 // Copy state for local diff blocks (keyed by segment index).
 const copiedDiff = ref<number | null>(null);
 function copyDiff(code: string, idx: number) {
@@ -1027,9 +1327,37 @@ function copyDiff(code: string, idx: number) {
       />
 
       <!-- ```diff fence → local renderer (preserves +/- markers + colours) -->
-      <div v-else class="diff-wrap">
+      <div
+        v-else
+        class="diff-wrap"
+        :class="{ 'md-code-wrap': isDiffWrapped(i), 'md-code-nums': isDiffNumbered(i) }"
+      >
         <div class="diff-bar">
           <span class="diff-lang">diff</span>
+          <Tooltip
+            :text="isDiffNumbered(i) ? t('conversation.hideLineNumbers') : t('conversation.showLineNumbers')"
+          >
+            <IconButton
+              size="sm"
+              :label="isDiffNumbered(i) ? t('conversation.hideLineNumbers') : t('conversation.showLineNumbers')"
+              :aria-pressed="isDiffNumbered(i)"
+              @click="toggleDiffNums(i)"
+            >
+              <Icon name="list-numbers" size="sm" />
+            </IconButton>
+          </Tooltip>
+          <Tooltip
+            :text="isDiffWrapped(i) ? t('conversation.unwrapCode') : t('conversation.wrapCode')"
+          >
+            <IconButton
+              size="sm"
+              :label="isDiffWrapped(i) ? t('conversation.unwrapCode') : t('conversation.wrapCode')"
+              :aria-pressed="isDiffWrapped(i)"
+              @click="toggleDiffWrap(i)"
+            >
+              <Icon :name="isDiffWrapped(i) ? 'text-wrap-disabled' : 'text-wrap'" size="sm" />
+            </IconButton>
+          </Tooltip>
           <Tooltip :text="t('filePreview.copyCode')">
             <button class="diff-copy" :aria-label="t('filePreview.copyCode')" @click="copyDiff(seg.code, i)">
               <Icon :name="copiedDiff === i ? 'check' : 'copy'" size="sm" />
@@ -1234,6 +1562,34 @@ function copyDiff(code: string, idx: number) {
 }
 .md :deep(.code-block-header .code-action-btn *) {
   pointer-events: none;
+}
+/* Header view toggles (word wrap + line numbers). The buttons are injected
+   into markstream's header, so they inherit `.code-action-btn`; only the
+   pressed state and the wrap effect are ours. */
+.md :deep(.code-block-header .code-header-title) {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+}
+.md :deep(.code-block-header .code-action-btn:hover *) {
+  color: var(--color-text);
+}
+.md :deep(.code-block-container.md-code-wrap pre) {
+  white-space: pre-wrap !important;
+  overflow-wrap: anywhere;
+}
+.md :deep(.code-block-header .md-code-nums-toggle[aria-pressed='true']),
+.md :deep(.code-block-header .md-code-wrap-toggle[aria-pressed='true']) {
+  background: var(--color-selected);
+  color: var(--color-text);
+}
+.md :deep(.code-block-header .md-code-nums-toggle[aria-pressed='true'] *),
+.md :deep(.code-block-header .md-code-wrap-toggle[aria-pressed='true'] *) {
+  background: transparent;
+  color: var(--color-text);
+}
+.md :deep(.code-block-header .md-code-nums-toggle[aria-pressed='true']:hover),
+.md :deep(.code-block-header .md-code-wrap-toggle[aria-pressed='true']:hover) {
+  background: var(--color-selected-hover);
 }
 /* The code body wrapper was renamed in 1.0.9: `.code-block-content` is gone,
    the shiki (stream-diffs) block now mounts under `.code-block-shell-content`. */
@@ -1525,6 +1881,8 @@ function copyDiff(code: string, idx: number) {
    render diffs ourselves.
 --------------------------------------------------------------------------- */
 .diff-wrap {
+  --diff-sign-col: 14px;
+  --diff-pad-x: 14px;
   margin: 0.6em 0;
   border: 1px solid var(--color-line);
   border-radius: var(--radius-md);
@@ -1584,11 +1942,11 @@ function copyDiff(code: string, idx: number) {
 .diff-line {
   display: block;
   width: 100%;
-  padding: 0 14px;
+  padding: 0 var(--diff-pad-x);
 }
 .diff-sign {
   display: inline-block;
-  width: 14px;
+  width: var(--diff-sign-col);
   text-align: center;
   color: var(--color-text-muted);
   user-select: none;
@@ -1615,6 +1973,75 @@ function copyDiff(code: string, idx: number) {
 }
 .diff-hunk .diff-text {
   color: var(--color-text-muted);
+}
+
+/* Diff view toggles — pressed state, the wrap effect, and the CSS-counter
+   gutter. `--md-nums-gutter` is set per block from its own line count
+   (syncDiffGutters); the 4ch fallback covers up to 999 lines. */
+.diff-bar :deep(.ui-icon-button[aria-pressed='true']) {
+  background: var(--color-selected);
+  color: var(--color-text);
+}
+.diff-bar :deep(.ui-icon-button[aria-pressed='true']:hover) {
+  background: var(--color-selected-hover);
+}
+.diff-bar :deep(.ui-icon-button svg) {
+  width: var(--p-ic-sm);
+  height: var(--p-ic-sm);
+}
+.diff-wrap.md-code-wrap .diff-pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.diff-wrap.md-code-wrap .diff-pre code {
+  width: auto;
+}
+.diff-wrap.md-code-wrap:not(.md-code-nums) .diff-line {
+  padding-left: calc(var(--diff-pad-x) + var(--diff-sign-col));
+}
+.diff-wrap.md-code-wrap:not(.md-code-nums) .diff-sign {
+  margin-left: calc(-1 * var(--diff-sign-col));
+}
+.diff-wrap.md-code-nums .diff-pre {
+  counter-reset: md-diff-line;
+  position: relative;
+  isolation: isolate;
+}
+.diff-wrap.md-code-nums .diff-pre::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: calc(var(--diff-pad-x) + var(--md-nums-gutter, 4ch));
+  background: var(--color-selected);
+  border-right: var(--p-hairline) solid var(--color-line);
+  pointer-events: none;
+  user-select: none;
+  z-index: 1;
+}
+.diff-wrap.md-code-nums .diff-line {
+  padding-left: calc(var(--diff-pad-x) + var(--md-nums-gutter, 4ch) + var(--diff-sign-col));
+}
+.diff-wrap.md-code-nums .diff-line:not(.diff-hunk) {
+  counter-increment: md-diff-line;
+}
+.diff-wrap.md-code-nums .diff-line:not(.diff-hunk)::before {
+  content: counter(md-diff-line);
+  display: inline-block;
+  position: relative;
+  z-index: 2;
+  width: calc(var(--md-nums-gutter, 4ch) - 1ch);
+  overflow: visible;
+  margin-left: calc(-1 * (var(--md-nums-gutter, 4ch) + var(--diff-sign-col)));
+  margin-right: 1ch;
+  text-align: right;
+  color: var(--color-text-faint);
+  user-select: none;
+}
+.md .diff-wrap ::selection {
+  background: var(--color-code-selection);
+  color: var(--color-code-selection-text);
 }
 
 .md,
