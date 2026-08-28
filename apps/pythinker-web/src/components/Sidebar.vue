@@ -1656,7 +1656,7 @@ watch([() => props.collapsed, update.hasUpdate], ([collapsed, hasUpdate]) => {
   padding: var(--space-2) var(--sb-inset);
   border-top: 1px solid var(--line);
 }
-/* Grows and truncates: a long label ellipsises instead of pushing the row. */
+/* Grows and truncates: a long label is ellipsized instead of pushing the row. */
 .side-footer-account {
   flex: 1 1 auto;
   min-width: 0;
