@@ -48,6 +48,11 @@ interface AgentDynamicWorkflowSpawnSpec {
   readonly index: number;
   readonly item: string;
   readonly prompt: string;
+  readonly task?: {
+    readonly subagent_type?: string;
+    readonly model?: string;
+    readonly thinking?: string;
+  };
 }
 
 interface AgentDynamicWorkflowResumeSpec {
@@ -173,12 +178,41 @@ export class AgentDynamicWorkflowTool implements IAgentDynamicWorkflowTool {
         fork,
       });
     }
-    const profileName = plan?.profileName ?? DEFAULT_SUBAGENT_TYPE;
     const timeoutMs = resolveDynamicWorkflowTimeoutMs(this.config);
     const specs = await createAgentDynamicWorkflowSpecs(args, (agentId) =>
       this.dynamicWorkflowService.getDynamicWorkflowItem({ callerAgentId: this.callerAgentId, agentId }),
     );
+    const plansByIndex = new Map<number, SubagentSpawnPlan>();
+    for (const spec of specs) {
+      if (spec.kind !== 'spawn') continue;
+      if (spec.task === undefined) {
+        plansByIndex.set(spec.index, plan!);
+        continue;
+      }
+      const profileName = spec.task.subagent_type ?? args.defaults?.subagent_type ?? args.subagent_type;
+      if (fork) {
+        const incompatible = forkIncompatibility(
+          { subagent_type: profileName, model: spec.task.model ?? args.model },
+          this.profile.data(),
+        );
+        if (incompatible !== undefined) {
+          throw new Error2(ErrorCodes.VALIDATION_FAILED, incompatible);
+        }
+      }
+      plansByIndex.set(
+        spec.index,
+        await this.subagents.planSpawn({
+          callerAgentId: this.callerAgentId,
+          profileName,
+          model: spec.task.model ?? args.model,
+          thinking: spec.task.thinking,
+          fork,
+        }),
+      );
+    }
     const tasks: SessionDynamicWorkflowTask<AgentDynamicWorkflowSpec>[] = specs.map((spec) => {
+      const specPlan = spec.kind === 'spawn' ? plansByIndex.get(spec.index) : undefined;
+      const profileName = specPlan?.profileName ?? DEFAULT_SUBAGENT_TYPE;
       const descriptionName = spec.kind === 'resume' ? 'resume' : profileName;
       const common = {
         data: spec,
@@ -202,7 +236,7 @@ export class AgentDynamicWorkflowTool implements IAgentDynamicWorkflowTool {
       return {
         ...common,
         kind: 'spawn' as const,
-        plan: plan!,
+        plan: specPlan!,
       };
     });
     const results = await this.dynamicWorkflowService.run({
@@ -223,7 +257,8 @@ async function createAgentDynamicWorkflowSpecs(
     agentId: agentId.trim(),
     prompt: prompt.trim(),
   }));
-  const items = (args.items ?? []).map((item) => item.trim());
+  const taskEntries = (args.tasks ?? []).map((task) => ({ ...task, item: task.item.trim() }));
+  const items = taskEntries.length > 0 ? taskEntries.map((task) => task.item) : (args.items ?? []).map((item) => item.trim());
   const itemCount = items.length;
   const resumeCount = resumeEntries.length;
   const totalCount = resumeCount + itemCount;
@@ -279,11 +314,13 @@ async function createAgentDynamicWorkflowSpecs(
         );
       }
       seenPrompts.set(prompt, index + 1);
+      const task = taskEntries[index];
       specs.push({
         kind: 'spawn',
         index: specs.length + 1,
         item,
         prompt,
+        task: task === undefined ? undefined : { subagent_type: task.subagent_type, model: task.model, thinking: task.thinking },
       });
     });
   }

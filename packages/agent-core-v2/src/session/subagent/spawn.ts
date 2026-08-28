@@ -49,6 +49,7 @@ export interface SubagentSpawnPlanInput {
   readonly callerAgentId: string;
   readonly profileName?: string;
   readonly model?: string;
+  readonly thinking?: string;
   readonly fork?: boolean;
 }
 

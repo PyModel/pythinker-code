@@ -1,3 +1,4 @@
+import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { SubagentModelPolicyService } from '#/session/subagent/subagentModelPolicyService';
 import { SessionSubagentRoutingService } from '#/session/subagent/subagentRoutingService';
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
@@ -275,6 +276,7 @@ function realSubagents(
     config,
     modelCatalog,
     new SubagentModelPolicyService(config, flags, modelCatalog),
+    { _serviceBrand: undefined, track2: vi.fn(), track: vi.fn() } as unknown as ITelemetryService,
   );
   return new SessionSubagentService(lifecycle, catalog, sessionContext, stubLog(), routing);
 }
@@ -665,6 +667,50 @@ describe('dynamic_workflow context reconciliation', () => {
 });
 
 describe('AgentDynamicWorkflowTool', () => {
+  it('resolves a plan per task so a workflow can mix subagent types, models, and thinking', async () => {
+    const host = mockDynamicWorkflowHost({
+      run: vi.fn().mockImplementation(async ({ tasks }) =>
+        tasks.map((task: { kind: string; data: { index: number; item?: string }; plan?: unknown }) => ({
+          task,
+          agentId: `agent-${task.data.index}`,
+          status: 'completed',
+          result: `done ${task.data.item ?? ''}`,
+        })),
+      ),
+    });
+    const dynamicWorkflowMode = mockDynamicWorkflowMode();
+    const cfg = stubConfig({
+      defaultModel: 'provider/fast',
+      models: { 'provider/fast': 'fast and cheap', 'provider/smart': 'hard tasks' },
+    });
+    const tool = new AgentDynamicWorkflowTool(host.dynamicWorkflowService, makeAgentScopeContext({ agentId: host.callerAgentId, agentScope: '' }), dynamicWorkflowMode, cfg, stubFlag(true), realSubagents(stubDynamicWorkflowCatalog(), cfg, stubFlag(true), stubCallerProfile()), stubCallerProfile());
+    const input = {
+      description: 'Review files',
+      prompt_template: 'Review {{item}}',
+      defaults: { subagent_type: 'explore' },
+      tasks: [
+        { item: 'src/a.ts' },
+        { item: 'src/b.ts', subagent_type: 'coder', model: 'provider/smart', thinking: 'low' },
+        { item: 'src/c.ts', model: 'primary' },
+      ],
+    };
+    expect(AgentDynamicWorkflowToolInputSchema.safeParse(input).success).toBe(true);
+    expect(AgentDynamicWorkflowToolInputSchema.safeParse({ ...input, items: ['src/d.ts'] }).success).toBe(false);
+
+    const result = await executeTool(tool, context(input));
+    expect(result.isError).toBeUndefined();
+    const call = (host.dynamicWorkflowService.run as ReturnType<typeof vi.fn>).mock.calls[0]![0] as {
+      tasks: Array<{ kind: string; profileName: string; plan: { profileName: string; model: string; thinking?: string; routing?: { modelSource: string } } }>;
+    };
+    expect(call.tasks.map((task) => [task.profileName, task.plan.model, task.plan.thinking, task.plan.routing?.modelSource])).toEqual([
+      ['explore', 'provider/fast', undefined, 'policy-pool'],
+      ['coder', 'provider/smart', 'low', 'policy-pool'],
+      ['explore', 'mock-model', 'off', 'caller'],
+    ]);
+    expect(result.output).toContain('<subagent agent_id="agent-1" item="src/a.ts"');
+    expect(result.output).toContain('<subagent agent_id="agent-2" item="src/b.ts"');
+  });
+
   it('renders durable binding attributes on each subagent row and escapes them', async () => {
     const host = mockDynamicWorkflowHost({
       run: vi.fn().mockResolvedValue([

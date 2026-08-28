@@ -14,6 +14,8 @@ import { IAgentProfileService } from '#/agent/profile/profile';
 import { IConfigService } from '#/app/config/config';
 import { IModelCatalog, type Model } from '#/kosong/model/catalog';
 import { IAgentLifecycleService, MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
+import type { SubagentSpawnPlanResolvedEvent } from '#/app/telemetry/events';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
 
 import { IAgentBindingProvenanceService } from './bindingProvenance';
 import { resolveSubagentThinking, wrapSubagentModelError } from './configSection';
@@ -57,6 +59,7 @@ export class SessionSubagentRoutingService implements ISubagentRoutingService {
     @IConfigService private readonly configService: IConfigService,
     @IModelCatalog private readonly modelCatalog: IModelCatalog,
     @ISubagentModelPolicyService private readonly policy: ISubagentModelPolicyService,
+    @ITelemetryService private readonly telemetry: ITelemetryService,
   ) {}
 
   async resolve(input: SubagentSpawnPlanInput): Promise<ResolvedSpawnPlan> {
@@ -115,27 +118,44 @@ export class SessionSubagentRoutingService implements ISubagentRoutingService {
       throw wrapSubagentModelError(error, route.model, own.modelAlias);
     }
     const operation = fork ? 'fork' : 'spawn';
-    return {
+    const routing: SubagentBindingProvenance = {
+      operation,
+      profileSource,
+      modelSource: route.source,
+      policyMode: effective.effectivePolicy.mode,
+      policySource: effective.policySource,
+      featureSource: effective.feature.source,
+      resolvedFromRoutingEnvironmentRevision: environmentRevision,
+      routeDecisionFingerprint: routeDecisionFingerprint({
+        routingEnvironmentRevision: environmentRevision,
+        operation,
+        profile: requested,
+        model: input.model,
+        thinking: input.thinking,
+      }),
+    };
+    const plan: ResolvedSpawnPlan = {
       profileName: profile?.name ?? requestedProfileName,
       model: route.model,
-      thinking: resolveSubagentThinking(this.configService, model, route.thinking),
+      thinking: resolveSubagentThinking(this.configService, model, input.thinking ?? route.thinking),
       fork,
-      routing: {
-        operation,
-        profileSource,
-        modelSource: route.source,
-        policyMode: effective.effectivePolicy.mode,
-        policySource: effective.policySource,
-        featureSource: effective.feature.source,
-        resolvedFromRoutingEnvironmentRevision: environmentRevision,
-        routeDecisionFingerprint: routeDecisionFingerprint({
-          routingEnvironmentRevision: environmentRevision,
-          operation,
-          profile: requested,
-          model: input.model,
-        }),
-      },
+      routing,
     };
+    const telemetryEvent: SubagentSpawnPlanResolvedEvent = {
+      operation,
+      profile_source: profileSource,
+      model_source: route.source,
+      policy_mode: routing.policyMode,
+      policy_source: routing.policySource,
+      feature_source: routing.featureSource,
+      routing_env_revision: environmentRevision,
+      route_decision: routing.routeDecisionFingerprint,
+      explicit_profile: requested !== undefined,
+      explicit_model: input.model !== undefined,
+      explicit_thinking: input.thinking !== undefined,
+    };
+    this.telemetry.track2('subagent_spawn_plan_resolved', telemetryEvent);
+    return plan;
   }
 
   resumed(callerAgentId: string, child: IAgentScopeHandle): ResumedSubagentRouting {

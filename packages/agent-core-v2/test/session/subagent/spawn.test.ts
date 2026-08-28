@@ -1,3 +1,4 @@
+import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
@@ -66,6 +67,7 @@ describe('SessionSubagentService planSpawn and spawn', () => {
   let caller: IAgentScopeHandle;
   let createdHandles: Map<string, IAgentScopeHandle>;
   let recordedProvenance: Map<string, SubagentBindingProvenance>;
+  let telemetry: ITelemetryService;
   let createAgent: ReturnType<typeof vi.fn>;
   let forkAgent: ReturnType<typeof vi.fn>;
   let acquireRuntime: ReturnType<typeof vi.fn>;
@@ -183,6 +185,7 @@ describe('SessionSubagentService planSpawn and spawn', () => {
     };
     createdHandles = new Map();
     recordedProvenance = new Map();
+    telemetry = { _serviceBrand: undefined, track2: vi.fn(), track: vi.fn() } as unknown as ITelemetryService;
     createAgent = vi.fn(async (input: { readonly agentId?: string } = {}) => {
       const agentId = input.agentId ?? 'agent-child';
       createdHandles.set(agentId, createdHandle(agentId));
@@ -247,6 +250,7 @@ describe('SessionSubagentService planSpawn and spawn', () => {
       IFlagService,
       stubFlag((id) => secondaryModelEnabled && id === SECONDARY_MODEL_FLAG_ID),
     );
+    ix.stub(ITelemetryService, telemetry);
     ix.set(ISubagentModelPolicyService, new SyncDescriptor(SubagentModelPolicyService));
     ix.set(ISubagentRoutingService, new SyncDescriptor(SessionSubagentRoutingService));
     ix.set(ISessionSubagentService, new SyncDescriptor(SessionSubagentService));
