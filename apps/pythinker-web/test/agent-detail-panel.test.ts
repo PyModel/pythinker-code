@@ -192,4 +192,23 @@ describe('AgentDetailPanel', () => {
     expect(wrapRule).toMatch(/align-items:\s*flex-start/);
     expect(wrapMainRule).toMatch(/flex-wrap:\s*wrap/);
   });
+
+  it('lets the ToolRow trailing chip truncate instead of covering the title', () => {
+    const path = [
+      'src/components/chat/ToolRow.vue',
+      'apps/pythinker-web/src/components/chat/ToolRow.vue',
+    ].find(existsSync);
+    if (path === undefined) throw new Error('ToolRow.vue was not found');
+    const source = readFileSync(path, 'utf8');
+    const textRule = /\.bh-text\s*\{([^}]*)\}/.exec(source)?.[1] ?? '';
+    const rtRule = /\n\.rt\s*\{([^}]*)\}/.exec(source)?.[1] ?? '';
+    const chipRule = /:slotted\(\.chip\)\s*\{([^}]*)\}/.exec(source)?.[1] ?? '';
+
+    expect(textRule).toMatch(/overflow:\s*hidden/);
+    expect(rtRule).toMatch(/min-width:\s*0/);
+    expect(rtRule).not.toMatch(/flex:\s*none/);
+    expect(chipRule).toMatch(/min-width:\s*0/);
+    expect(chipRule).toMatch(/text-overflow:\s*ellipsis/);
+    expect(chipRule).not.toMatch(/flex:\s*none/);
+  });
 });
