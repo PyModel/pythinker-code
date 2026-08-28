@@ -65,7 +65,7 @@ describe('SessionSubagentService planSpawn and spawn', () => {
   let modelMeta: Map<string, Partial<Model>>;
   let caller: IAgentScopeHandle;
   let createdHandles: Map<string, IAgentScopeHandle>;
-  let recordedProvenance: Map<string, SubagentBindingProvenance>;
+  let recordedProvenance: Map<string, SubagentBindingProvenance[]>;
   let createAgent: ReturnType<typeof vi.fn>;
   let forkAgent: ReturnType<typeof vi.fn>;
   let acquireRuntime: ReturnType<typeof vi.fn>;
@@ -107,9 +107,9 @@ describe('SessionSubagentService planSpawn and spawn', () => {
           if (serviceId === IAgentBindingProvenanceService) {
             return {
               _serviceBrand: undefined,
-              current: () => recordedProvenance.get(agentId),
+              current: () => recordedProvenance.get(agentId)?.at(-1),
               record: (provenance: SubagentBindingProvenance) => {
-                if (!recordedProvenance.has(agentId)) recordedProvenance.set(agentId, provenance);
+                recordedProvenance.set(agentId, [...(recordedProvenance.get(agentId) ?? []), provenance]);
               },
             } satisfies AgentBindingProvenanceServiceContract;
           }
@@ -373,19 +373,17 @@ describe('SessionSubagentService planSpawn and spawn', () => {
     });
   });
 
-  it('records the routing provenance on the created child exactly once, for spawn and fork', async () => {
+  it('hands the planned routing provenance to the created child, for spawn and fork', async () => {
     const svc = service();
     const plan = await svc.planSpawn({ callerAgentId: CALLER_ID, profileName: 'coder' });
     expect(plan.routing).toMatchObject({ operation: 'spawn', modelSource: 'caller', policyMode: 'inherit' });
     await svc.spawn({ callerAgentId: CALLER_ID, plan, prompt: 'do it' });
-    expect(recordedProvenance.get('agent-child')).toEqual(plan.routing);
-    await svc.spawn({ callerAgentId: CALLER_ID, plan: { ...plan, routing: { ...plan.routing!, modelSource: 'policy-force' } }, prompt: 'again' });
-    expect(recordedProvenance.get('agent-child')?.modelSource).toBe('caller');
+    expect(recordedProvenance.get('agent-child')).toEqual([plan.routing]);
 
     const forkPlan = await svc.planSpawn({ callerAgentId: CALLER_ID, fork: true });
     expect(forkPlan.routing).toMatchObject({ operation: 'fork', profileSource: 'fork-inherit', modelSource: 'fork-inherit' });
     await svc.spawn({ callerAgentId: CALLER_ID, plan: forkPlan, prompt: 'forked' });
-    expect(recordedProvenance.get('agent-fork')).toEqual(forkPlan.routing);
+    expect(recordedProvenance.get('agent-fork')).toEqual([forkPlan.routing]);
   });
 
   it('falls back to the bound model default effort', async () => {

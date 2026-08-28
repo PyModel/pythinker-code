@@ -291,6 +291,21 @@ describe('server-v2 /api/v1/config secondary_model replacement and request atomi
     expect(await diskToml()).not.toContain('force');
   });
 
+  it('accepts legacy secondary_model metadata echoed by GET and drops it on write', async () => {
+    await boot(
+      `${MODELS_TOML}[secondary_model]\ndefault_model = "provider/fast"\nmax_context_size = 1000\ncapabilities = ["thinking"]\n`,
+    );
+    const echoed = (await getConfig()).secondary_model as Record<string, unknown>;
+    expect(echoed).toMatchObject({ defaultModel: 'provider/fast', maxContextSize: 1000 });
+
+    const res = await post({ secondary_model: { ...echoed, default_effort: 'low' } });
+    expect(res.body.code).toBe(0);
+    expect((await getConfig()).secondary_model).toEqual({
+      defaultModel: 'provider/fast',
+      defaultEffort: 'low',
+    });
+  });
+
   it('pool -> default drops the models table', async () => {
     await boot(MODELS_TOML);
     await post({

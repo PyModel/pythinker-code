@@ -317,12 +317,19 @@ function restartToDesktopUpdate(): void {
   if (desktopBridge !== undefined) void runDesktopUpdate(() => desktopBridge.restartToUpdate());
 }
 
+// Config saves and the parent refresh can overlap; only the newest request may
+// write, so a slow older `/meta` response never leaves stale flag chips behind.
+let serverMetaRequest = 0;
+
 async function loadServerMeta(): Promise<void> {
+  const request = ++serverMetaRequest;
+  let next: typeof serverMeta.value;
   try {
-    serverMeta.value = await getPythinkerWebApi().getMeta();
+    next = await getPythinkerWebApi().getMeta();
   } catch {
-    serverMeta.value = null;
+    next = null;
   }
+  if (request === serverMetaRequest) serverMeta.value = next;
 }
 
 // A saved config can change what the server decides (flag sources, effective

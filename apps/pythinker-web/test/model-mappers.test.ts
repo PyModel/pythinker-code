@@ -53,6 +53,23 @@ describe('subagent routing mappers', () => {
     expect(toAppSubagentRoutingFromEvent({ operation: 'spawn' })).toBeUndefined();
   });
 
+  it('rejects values outside the routing contract instead of casting them through', () => {
+    expect(toAppSubagentRouting({ ...wire, policy_mode: 'invalid' })).toBeUndefined();
+    expect(toAppSubagentRouting({ ...wire, routing_env_revision: '' })).toBeUndefined();
+    expect(
+      toAppSubagentRoutingFromEvent({
+        operation: 'spawn',
+        profileSource: 'requested',
+        modelSource: 'policy-force',
+        policyMode: 'force',
+        policySource: 'config',
+        featureSource: 'somewhere-else',
+        resolvedFromRoutingEnvironmentRevision: 'route-env:v1:aaa',
+        routeDecisionFingerprint: 'route-decision:v1:bbb',
+      }),
+    ).toBeUndefined();
+  });
+
   it('toAppTask carries routing and the current revision', () => {
     const task: WireTask = {
       id: 't1',

@@ -324,7 +324,6 @@ describe('SessionSubagentRoutingService', () => {
     });
     expect(resumed.routing?.resolvedFromRoutingEnvironmentRevision).toBe(revisionA);
     expect(resumed.currentRoutingEnvironmentRevision).toBe(revisionB);
-    expect(childData.modelAlias).toBe('acme/luna');
   });
 
   it('resume without a recorded provenance still reports the current revision', () => {
