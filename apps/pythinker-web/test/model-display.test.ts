@@ -15,8 +15,7 @@ import DynamicWorkflowTool from '../src/components/chat/tool-calls/DynamicWorkfl
 import SubagentGrid from '../src/components/chat/SubagentGrid.vue';
 import TasksPane from '../src/components/chat/TasksPane.vue';
 import type { DynamicWorkflowMember } from '../src/composables/dynamicWorkflowGroups';
-import type { ChatTurn } from '../src/types';
-import type { TaskItem } from '../src/types';
+import type { ChatTurn, TaskItem } from '../src/types';
 
 vi.mock('markstream-vue', () => {
   const noop = (): void => undefined;
@@ -180,7 +179,7 @@ describe('subagent model/effort display resolvers', () => {
     vi.unstubAllGlobals();
   });
 
-  it('AgentTool shows resolved model and effort in its inline metadata', () => {
+  it('keeps AgentTool metadata with the title and the status in the trailing controls', () => {
     const wrapper = mount(AgentTool, {
       props: {
         tool: {
@@ -199,7 +198,10 @@ describe('subagent model/effort display resolvers', () => {
       },
     });
 
-    expect(wrapper.get('.chip').text()).toContain('Example Model · High');
+    expect(wrapper.get('.bh-text .p').text()).toBe('Inspect UI');
+    expect(wrapper.get('.bh-text .chip').text()).toContain('Example Model · High');
+    expect(wrapper.find('.rt .chip').exists()).toBe(false);
+    expect(wrapper.get('.rt > .status').classes()).toContain('running');
   });
 
   it('DynamicWorkflowTool shows only shared model and effort metadata', async () => {

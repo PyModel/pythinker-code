@@ -132,8 +132,10 @@ watch(
     :stack-position="stackPosition"
     @toggle="toggle"
   >
-    <template #trailing>
+    <template #meta>
       <span class="chip">{{ runMetadata }}</span>
+    </template>
+    <template #trailing>
       <Tooltip v-if="canDetach" :text="t('tasks.toBackground')">
         <IconButton
           class="detach"
