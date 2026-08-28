@@ -67,28 +67,20 @@ describe('ErrorBoundary', () => {
     spy.mockRestore();
   });
 
-  it('renders the async-load copy when a lazy chunk never arrives', () => {
+  it('renders the async-load copy and emits close', async () => {
     const wrapper = mount(AsyncLoadFailed, { global: { plugins: [webI18n] } });
     expect(wrapper.get('.error-boundary-title').text())
       .toBe('Failed to load. Close this view and try again.');
-    expect(wrapper.find('.error-boundary-close').exists()).toBe(false);
-  });
-
-  it('offers a close control when the host provides a way out of the async view', async () => {
-    const closeAsyncView = vi.fn();
-    const wrapper = mount(AsyncLoadFailed, {
-      global: { plugins: [webI18n], provide: { closeAsyncView } },
-    });
     await wrapper.get('.error-boundary-close').trigger('click');
-    expect(closeAsyncView).toHaveBeenCalledTimes(1);
-    expect(sidebarSource).toMatch(/provide\('closeAsyncView'/u);
+    expect(wrapper.emitted('close')).toHaveLength(1);
   });
 
   it('wraps the lazily loaded design-system overlay', () => {
     expect(sidebarSource).toMatch(
       /<ErrorBoundary[\s\S]{0,200}fullscreen[\s\S]{0,200}<DesignSystemView/u,
     );
-    expect(sidebarSource).toMatch(/errorComponent: AsyncLoadFailed/u);
+    expect(sidebarSource).toMatch(/errorComponent: DesignSystemLoadFailed/u);
+    expect(sidebarSource).toContain('h(AsyncLoadFailed, { onClose: closeDesignSystem })');
   });
 });
 

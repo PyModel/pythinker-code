@@ -123,6 +123,29 @@ function serveFixtureApi(pathname, response) {
     data = { home: '/workspace', recent_roots: [] };
   } else if (pathname === '/api/v1/sessions') {
     data = { items: [fixtureSession], has_more: false };
+  } else if (pathname === '/api/v2/sessions') {
+    data = {
+      groups: [{
+        workspace: { id: fixtureWorkspaceId, cwd: '/workspace' },
+        sessions: [{
+          id: fixtureSessionId,
+          workspace: { id: fixtureWorkspaceId, cwd: '/workspace' },
+          meta: {
+            title: fixtureSession.title,
+            last_prompt: 'Artifact security fixture',
+            created_at: Date.parse(fixtureTimestamp),
+            updated_at: Date.parse(fixtureTimestamp),
+            archived: false,
+            archived_at: null,
+          },
+          activity: { status: 'idle', model: 'fixture-model' },
+        }],
+        total: 1,
+      }],
+      total: 1,
+      has_more: false,
+      next_page_token: null,
+    };
   } else if (pathname === `/api/v1/sessions/${fixtureSessionId}/snapshot`) {
     data = {
       as_of_seq: 1,

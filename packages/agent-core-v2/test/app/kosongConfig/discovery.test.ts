@@ -339,7 +339,7 @@ describe('refreshProviderModels write behavior', () => {
     }
   });
 
-  it('persists refresh atomically and preserves aliases referenced by secondary_model', async () => {
+  it('persists refresh atomically without rewriting secondary model aliases', async () => {
     const fetchMock = vi.fn(
       async () =>
         new Response(
@@ -404,7 +404,7 @@ describe('refreshProviderModels write behavior', () => {
       expect(vi.mocked(config.replaceSections).mock.calls.length).toBe(1);
       expect(providers.list()['acme']).toBeDefined();
       expect(models.list()['acme/m2']).toBeDefined();
-      expect(models.list()['acme/m1']).toBeDefined();
+      expect(models.list()['acme/m1']).toBeUndefined();
       expect(config.get('secondaryModel')).toEqual({
         defaultModel: 'acme/m1',
         models: { 'acme/m1': 'fast' },

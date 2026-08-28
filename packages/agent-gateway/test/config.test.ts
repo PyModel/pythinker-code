@@ -2,13 +2,16 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { IConfigService } from '@pymodel/agent-core-v2';
 import { configResponseSchema, type ConfigResponse } from '../src/protocol/rest-config';
 import { ErrorCode } from '../src/protocol/error-codes';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { WebSocket } from 'ws';
 
 import { type RunningServer, startServer } from '../src/start';
+import { toConfigResponse } from '../src/routes/config';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
-import { authedFetch } from './helpers/auth';
+import { authedFetch, bearerToken } from './helpers/auth';
 
 interface Envelope<T> {
   code: number;
@@ -178,6 +181,93 @@ describe('server-v2 /api/v1/config', () => {
       base_url: 'https://example.test',
       has_api_key: true,
     });
+  });
+
+  it('redacts inline model and service credentials from config snapshots', () => {
+    const config = toConfigResponse({
+      providers: {},
+      models: {
+        flat: {
+          baseUrl: 'https://model.example.test',
+          model: 'gpt',
+          apiKey: 'sk-model-secret',
+        },
+      },
+      services: {
+        pymodelSearch: {
+          baseUrl: 'https://search.example.test',
+          oauth: { storage: 'file', key: 'oauth/search' },
+          customHeaders: { Authorization: 'Bearer secret', 'x-team': 'core' },
+        },
+      },
+    });
+    expect(config.models?.['flat']).toEqual({
+      baseUrl: 'https://model.example.test',
+      model: 'gpt',
+      has_api_key: true,
+    });
+    expect((config.services as Record<string, unknown>)['pymodelSearch']).toEqual({
+      baseUrl: 'https://search.example.test',
+      has_api_key: true,
+      custom_header_keys: ['Authorization', 'x-team'],
+    });
+    expect(JSON.stringify(config)).not.toContain('sk-model-secret');
+    expect(JSON.stringify(config)).not.toContain('Bearer secret');
+    expect(JSON.stringify(config)).not.toContain('oauth/search');
+  });
+
+  it('strips unlisted config domains from the raw HTTP response', async () => {
+    await boot(
+      '[identity]\nname = "identity-canary"\n\n[raw]\napi_key = "raw-canary"\n',
+    );
+    const res = await authedFetch(server as RunningServer, base, '/api/v1/config');
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    const body = JSON.parse(text) as Envelope<Record<string, unknown>>;
+    expect(body.code).toBe(0);
+    expect(body.data).not.toHaveProperty('identity');
+    expect(body.data).not.toHaveProperty('raw');
+    expect(text).not.toContain('identity-canary');
+    expect(text).not.toContain('raw-canary');
+  });
+
+  it('publishes engine config writes to WebSocket clients', async () => {
+    await boot();
+    const live = server as RunningServer;
+    const frames: Array<{
+      type: string;
+      payload: { changedFields: string[]; config: Record<string, unknown> };
+    }> = [];
+    const socket = new WebSocket(`ws://127.0.0.1:${live.port}/api/v1/ws`, [
+      `pythinker-code.bearer.${bearerToken(live)}`,
+    ]);
+    socket.on('message', (data) => {
+      const frame = JSON.parse((data as Buffer).toString()) as (typeof frames)[number];
+      if (frame.type === 'event.config.changed') frames.push(frame);
+    });
+    await new Promise((resolve) => socket.on('open', resolve));
+    socket.send(JSON.stringify({ type: 'client_hello', payload: { client_id: 'config-test' } }));
+
+    const config = live.core.accessor.get(IConfigService);
+    await config.ready;
+    await config.replace('defaultModel', 'example-model');
+
+    await vi.waitFor(() => {
+      expect(frames).toHaveLength(1);
+    });
+    expect(frames[0]?.payload).toMatchObject({
+      changedFields: ['defaultModel'],
+      config: { default_model: 'example-model', providers: {} },
+    });
+
+    await config.replace('identity', { name: 'credential-canary' });
+    await vi.waitFor(() => {
+      expect(frames).toHaveLength(2);
+    });
+    expect(frames[1]?.payload.changedFields).toEqual(['identity']);
+    expect(frames[1]?.payload.config).not.toHaveProperty('identity');
+    expect(JSON.stringify(frames[1]?.payload.config)).not.toContain('credential-canary');
+    socket.close();
   });
 
   it('session create with a broken subagent model pool fails with VALIDATION_FAILED', async () => {

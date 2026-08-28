@@ -20,6 +20,7 @@ import { getVisibleWorkspaces } from '../../lib/workspacePicker';
 import { safeRemove, STORAGE_KEYS } from '../../lib/storage';
 import type { TurnFileChange } from '../../lib/turnFiles';
 import WorkspaceRecentSessions from '../WorkspaceRecentSessions.vue';
+import type { DetailTarget } from '../../composables/useFilePreview';
 
 const { t } = useI18n();
 
@@ -118,6 +119,10 @@ const props = defineProps<{
   pinned?: boolean;
   recentSessions?: Session[];
   revealSavedPlan?: (agentId: string, toolCallId: string) => Promise<boolean>;
+  panelVisible?: boolean;
+  panelExpanded?: boolean;
+  activePanelType?: DetailTarget;
+  togglePanel?: () => void;
 }>();
 
 const emit = defineEmits<{
@@ -527,6 +532,7 @@ const chatLayoutStyle = computed(() => ({
 type ComposerHandle = {
   loadForEdit: (value: string) => boolean | void;
   loadAttachmentsForEdit: (atts: { fileId?: string; kind: 'image' | 'video' | 'file'; url: string; name?: string }[]) => void;
+  insertQuote: (payload: { quote: string; comment?: string; source?: string }) => void;
   focus: () => void;
 };
 type RefArg = Element | (ComponentPublicInstance & Partial<ComposerHandle>) | null;
@@ -562,6 +568,10 @@ function bindChatDock(el: RefArg): void {
       loadAttachmentsForEdit:
         'loadAttachmentsForEdit' in el && typeof el.loadAttachmentsForEdit === 'function'
           ? el.loadAttachmentsForEdit.bind(el)
+          : () => {},
+      insertQuote:
+        'insertQuote' in el && typeof el.insertQuote === 'function'
+          ? el.insertQuote.bind(el)
           : () => {},
       focus: el.focus.bind(el),
     };
@@ -1360,7 +1370,11 @@ function focusComposer(): void {
   (dockedComposerRef.value ?? emptyComposerRef.value)?.focus();
 }
 
-defineExpose({ loadComposerForEdit, focusComposer });
+function insertComposerQuote(payload: { quote: string; comment?: string; source?: string }): void {
+  (dockedComposerRef.value ?? emptyComposerRef.value)?.insertQuote(payload);
+}
+
+defineExpose({ loadComposerForEdit, focusComposer, insertComposerQuote });
 </script>
 
 <template>
@@ -1389,6 +1403,7 @@ defineExpose({ loadComposerForEdit, focusComposer });
       :copied="copyConversationCopied"
       :session-done="sessionDone"
       :pinned="pinned"
+      :panel-visible="panelVisible"
       @open-changes="emit('openChanges')"
       @copy-all="chatPaneRef?.copyConversation()"
       @copy-final-summary="chatPaneRef?.copyFinalSummary()"
@@ -1399,7 +1414,15 @@ defineExpose({ loadComposerForEdit, focusComposer });
       @archive-session="(id) => emit('archiveSession', id)"
       @restore-session="(id) => emit('restoreSession', id)"
       @export-session="(id) => emit('exportSession', id)"
+      @toggle-panel="togglePanel?.()"
     />
+
+    <IconButton
+      v-if="!mobile && !panelVisible && turns.length === 0 && !sessionLoading"
+      class="empty-panel-btn"
+      :label="t('panel.openPanel')"
+      @click="togglePanel?.()"
+    ><Icon name="panel-expand-right" /></IconButton>
 
     <!-- Conversation outline: centered line stack beside the app sidebar
          (one marker per user query); hover to reveal labels into the chat. -->
@@ -1581,7 +1604,8 @@ defineExpose({ loadComposerForEdit, focusComposer });
           </template>
         </div>
       </div>
-      <ChatDock
+      <Teleport defer to=".pfc-host" :disabled="!panelExpanded || activePanelType === 'btw'">
+        <ChatDock
         v-if="!(turns.length === 0 && !sessionLoading)"
         :ref="bindChatDock"
         :style="chatDockStyle"
@@ -1643,7 +1667,8 @@ defineExpose({ loadComposerForEdit, focusComposer });
           @compact="emit('compact')"
           @pick-model="emit('pickModel')"
           @select-model="emit('selectModel', $event)"
-      />
+        />
+      </Teleport>
     </div>
 
     <!-- "New messages" pill — only visible when scrolled up and new content arrives. -->
@@ -1684,6 +1709,7 @@ defineExpose({ loadComposerForEdit, focusComposer });
   position: relative;
   container-type: inline-size;
 }
+.empty-panel-btn { position: absolute; top: 10px; right: 16px; z-index: var(--z-sticky); }
 
 .panes {
   flex: 1;

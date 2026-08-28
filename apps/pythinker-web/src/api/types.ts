@@ -98,6 +98,19 @@ export interface AppSession {
   parentSessionId?: string;
 }
 
+export interface AppSessionGroup {
+  workspace: { id: string; cwd: string | null };
+  sessions: AppSession[];
+  total: number;
+}
+
+export interface AppSessionGroupPage {
+  groups: AppSessionGroup[];
+  hasMore: boolean;
+  nextPageToken: string | null;
+  total: number;
+}
+
 /**
  * Live runtime state from GET /sessions/{id}/status — the source of truth for
  * the current model + context usage (Session.agent_config.model can be "").
@@ -883,7 +896,6 @@ export interface AppConfig {
   background?: unknown;
   experimental?: Record<string, boolean>;
   telemetry?: boolean;
-  raw?: Record<string, unknown>;
 }
 
 /** A session-scoped skill the user can invoke from the slash menu. */
@@ -1011,6 +1023,7 @@ export interface PythinkerWebApi {
   getHealth(): Promise<{ status: 'ok'; uptimeSec: number }>;
   getMeta(): Promise<AppServerMeta>;
   listSessions(input?: PageRequest & { busy?: boolean; workspaceId?: string; includeArchive?: boolean; archivedOnly?: boolean; excludeEmpty?: boolean }): Promise<Page<AppSession>>;
+  listSessionGroupsV2(input?: { groupPageSize?: number; hasPrompt?: boolean; pageSize?: number; pageToken?: string }): Promise<AppSessionGroupPage>;
   createSession(input: { title?: string; cwd?: string; model?: string; workspaceId?: string }): Promise<AppSession>;
   /** Fetch one session by id (deep links beyond the first listSessions page). */
   getSession(sessionId: string): Promise<AppSession>;

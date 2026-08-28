@@ -242,7 +242,7 @@ describe('IModelsDevImportService', () => {
     expect(config.get('defaultModel')).toBe('k2');
   });
 
-  it('preserves pool aliases a catalog import drops', async () => {
+  it('leaves the pool untouched when a catalog import drops an alias', async () => {
     setModelsDevUpstreamForTest({ fetchImpl: fetchJson(CATALOG) });
     const { config, imports } = createHost({
       providers: { openai: { type: 'openai', apiKey: 'sk-old' } },
@@ -262,10 +262,10 @@ describe('IModelsDevImportService', () => {
       defaultModel: 'k2',
       models: { k2: 'fast', 'openai/gpt-4o': 'smart' },
     });
-    expect(config.get<Record<string, unknown>>('models')['openai/gpt-4o']).toBeDefined();
+    expect(config.get<Record<string, unknown>>('models')['openai/gpt-4o']).toBeUndefined();
   });
 
-  it('preserves the pool when a catalog import drops its default alias', async () => {
+  it('leaves the pool untouched when a catalog import drops its default alias', async () => {
     setModelsDevUpstreamForTest({ fetchImpl: fetchJson(CATALOG) });
     const { config, imports } = createHost({
       providers: { openai: { type: 'openai', apiKey: 'sk-old' } },
@@ -278,10 +278,10 @@ describe('IModelsDevImportService', () => {
     await imports.importModelsDevProvider({ catalogId: 'openai' });
 
     expect(config.get('secondaryModel')).toEqual({ defaultModel: 'openai/gpt-4o' });
-    expect(config.get<Record<string, unknown>>('models')['openai/gpt-4o']).toBeDefined();
+    expect(config.get<Record<string, unknown>>('models')['openai/gpt-4o']).toBeUndefined();
   });
 
-  it('preserves the pool on custom-registry re-import', async () => {
+  it('leaves the pool untouched on custom-registry re-import', async () => {
     setModelsDevUpstreamForTest({ fetchImpl: fetchJson(REGISTRY_DOC) });
     const { config, imports } = createHost({
       providers: { 'acme-gpt': { type: 'openai', apiKey: 'sk-old' } },
@@ -294,7 +294,7 @@ describe('IModelsDevImportService', () => {
     await imports.importCustomRegistry({ url: REGISTRY_URL });
 
     expect(config.get('secondaryModel')).toEqual({ defaultModel: 'acme-gpt/gpt-old' });
-    expect(config.get<Record<string, unknown>>('models')['acme-gpt/gpt-old']).toBeDefined();
+    expect(config.get<Record<string, unknown>>('models')['acme-gpt/gpt-old']).toBeUndefined();
   });
 
   it('leaves default_model to the model registry rather than seeding the first import', async () => {

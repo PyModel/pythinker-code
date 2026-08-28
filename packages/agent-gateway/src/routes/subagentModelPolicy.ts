@@ -1,8 +1,6 @@
 import {
-  ConfigChanged,
   ErrorCodes,
   IConfigService,
-  IEventService,
   isError2,
   ISubagentModelPolicyService,
   type CanonicalSubagentModelPolicy,
@@ -130,14 +128,6 @@ export function registerSubagentModelPolicyRoutes(app: PolicyRouteHost, core: Sc
     reply.send(errEnvelope(ErrorCode.VALIDATION_FAILED, message, req.id));
   };
 
-  const publish = (changedFields: string[]): void => {
-    core.accessor.get(IEventService).publish(
-      new ConfigChanged({
-        payload: { changedFields, config: core.accessor.get(IConfigService).getAll() },
-      }),
-    );
-  };
-
   const getRoute = defineRoute(
     {
       method: 'GET',
@@ -176,7 +166,6 @@ export function registerSubagentModelPolicyRoutes(app: PolicyRouteHost, core: Sc
         fail(req as PolicyRequest, typedReply, error);
         return;
       }
-      publish(['secondary_model']);
       requestLog(req)?.info({ changedFields: ['secondary_model'] }, 'subagent model policy updated');
       respond(typedReply, req.id);
     },
@@ -205,7 +194,6 @@ export function registerSubagentModelPolicyRoutes(app: PolicyRouteHost, core: Sc
         fail(req as PolicyRequest, typedReply, error);
         return;
       }
-      publish(['secondary_model']);
       requestLog(req)?.info({ changedFields: ['secondary_model'] }, 'subagent model policy cleared');
       respond(typedReply, req.id);
     },

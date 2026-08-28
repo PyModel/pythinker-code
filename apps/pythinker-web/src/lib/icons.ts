@@ -38,6 +38,8 @@ import TablerCircleCheck from '~icons/tabler/circle-check';
 import TablerCircleDashed from '~icons/tabler/circle-dashed';
 import TablerSidebarLeftCollapse from '~icons/tabler/layout-sidebar-left-collapse';
 import TablerSidebarLeftExpand from '~icons/tabler/layout-sidebar-left-expand';
+import TablerSidebarRightCollapse from '~icons/tabler/layout-sidebar-right-collapse';
+import TablerSidebarRightExpand from '~icons/tabler/layout-sidebar-right-expand';
 import TablerPaperclip from '~icons/tabler/paperclip';
 import TablerListNumbers from '~icons/tabler/list-numbers';
 import TablerPictureInPicture from '~icons/tabler/picture-in-picture';
@@ -133,6 +135,8 @@ import RawTablerCircleCheck from '~icons/tabler/circle-check?raw';
 import RawTablerCircleDashed from '~icons/tabler/circle-dashed?raw';
 import RawTablerSidebarLeftCollapse from '~icons/tabler/layout-sidebar-left-collapse?raw';
 import RawTablerSidebarLeftExpand from '~icons/tabler/layout-sidebar-left-expand?raw';
+import RawTablerSidebarRightCollapse from '~icons/tabler/layout-sidebar-right-collapse?raw';
+import RawTablerSidebarRightExpand from '~icons/tabler/layout-sidebar-right-expand?raw';
 import RawTablerPaperclip from '~icons/tabler/paperclip?raw';
 import RawTablerListNumbers from '~icons/tabler/list-numbers?raw';
 import RawTablerPictureInPicture from '~icons/tabler/picture-in-picture?raw';
@@ -246,6 +250,8 @@ export type IconName =
   | 'minus'
   | 'panel-collapse'
   | 'panel-expand'
+  | 'panel-collapse-right'
+  | 'panel-expand-right'
   | 'expand'
   | 'collapse'
   | 'list-numbers'
@@ -279,6 +285,7 @@ export type IconName =
   | 'message'
   | 'mail'
   | 'user'
+  | 'robot'
   | 'info'
   | 'help-circle'
   | 'alert-triangle'
@@ -367,6 +374,8 @@ export const ICONS: Record<IconName, IconEntry> = {
   minus: entry(RiSubtractLine, RawSubtractLine),
   'panel-collapse': entry(TablerSidebarLeftCollapse, RawTablerSidebarLeftCollapse),
   'panel-expand': entry(TablerSidebarLeftExpand, RawTablerSidebarLeftExpand),
+  'panel-collapse-right': entry(TablerSidebarRightCollapse, RawTablerSidebarRightCollapse),
+  'panel-expand-right': entry(TablerSidebarRightExpand, RawTablerSidebarRightExpand),
   expand: entry(RiExpandDiagonalLine, RawExpandDiagonalLine),
   collapse: entry(RiCollapseDiagonalLine, RawCollapseDiagonalLine),
   'list-numbers': entry(TablerListNumbers, RawTablerListNumbers),
@@ -400,6 +409,7 @@ export const ICONS: Record<IconName, IconEntry> = {
   message: entry(RiMessageLine, RawMessageLine),
   mail: entry(RiMailLine, RawMailLine),
   user: entry(RiUserLine, RawUserLine),
+  robot: animatedEntry(RawPythinkerCuteBot),
   info: entry(RiInformationLine, RawInformationLine),
   'help-circle': entry(RiQuestionLine, RawQuestionLine),
   'alert-triangle': entry(RiAlertLine, RawAlertLine),
@@ -551,6 +561,8 @@ export const ICON_GROUPS: ReadonlyArray<readonly [string, readonly IconName[]]> 
       'minus',
       'panel-collapse',
       'panel-expand',
+      'panel-collapse-right',
+      'panel-expand-right',
       'expand',
       'collapse',
       'list-numbers',
@@ -592,7 +604,7 @@ export const ICON_GROUPS: ReadonlyArray<readonly [string, readonly IconName[]]> 
       'calendar-close',
     ],
   ],
-  ['Communication', ['message', 'mail', 'user']],
+  ['Communication', ['message', 'mail', 'user', 'robot']],
   [
     'Status & media',
     [

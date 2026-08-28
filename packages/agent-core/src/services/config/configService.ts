@@ -61,21 +61,45 @@ function toConfigResponse(config: PythinkerConfig): ConfigResponse {
     default_plan_mode: config.defaultPlanMode,
     permission: config.permission,
     hooks: config.hooks,
-    services: config.services,
+    services: toServiceResponses(config.services),
     merge_all_available_skills: config.mergeAllAvailableSkills,
     extra_skill_dirs: config.extraSkillDirs,
     loop_control: config.loopControl,
     background: config.background,
     experimental: config.experimental,
     telemetry: config.telemetry,
-    raw: config.raw,
   };
 }
 
+interface ServiceResponse {
+  readonly baseUrl?: string;
+  readonly has_api_key: boolean;
+  readonly custom_header_keys?: string[];
+}
+
+function toServiceResponses(
+  services: PythinkerConfig['services'],
+): Record<string, ServiceResponse> | undefined {
+  if (services === undefined) return undefined;
+  const result: Record<string, ServiceResponse> = {};
+  for (const [id, service] of Object.entries(services)) {
+    if (service === undefined) continue;
+    result[id] = {
+      baseUrl: service.baseUrl,
+      has_api_key: hasCredential(service),
+      custom_header_keys:
+        service.customHeaders === undefined ? undefined : Object.keys(service.customHeaders),
+    };
+  }
+  return result;
+}
+
 function hasProviderCredential(provider: ProviderConfig): boolean {
-  if (nonEmpty(provider.apiKey) !== undefined) return true;
-  if (provider.oauth !== undefined) return true;
-  return false;
+  return hasCredential(provider);
+}
+
+function hasCredential(value: { readonly apiKey?: string; readonly oauth?: unknown }): boolean {
+  return nonEmpty(value.apiKey) !== undefined || value.oauth !== undefined;
 }
 
 function nonEmpty(value: string | undefined): string | undefined {

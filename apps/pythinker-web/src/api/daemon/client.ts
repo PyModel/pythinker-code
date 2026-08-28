@@ -30,6 +30,7 @@ import type {
   CodexLoginStatus,
   ProviderRefreshResult,
   AppSession,
+  AppSessionGroupPage,
   AppSkill,
   AppSessionCursor,
   AppSessionRuntimeStatus,
@@ -175,6 +176,65 @@ interface WireMeta {
   /** Engine generation serving the API; older (v1) servers omit the field. */
   backend?: 'v1' | 'v2';
   experimental_flag_states?: WireExperimentalFlagState[];
+}
+
+interface WireV2Session {
+  id: string;
+  workspace: { id: string; cwd: string | null };
+  meta: {
+    title: string | null;
+    last_prompt: string | null;
+    created_at: number;
+    updated_at: number;
+    archived: boolean;
+    archived_at: number | null;
+  };
+  activity: {
+    status: 'running' | 'approval' | 'question' | 'failed' | 'idle';
+    model: string | null;
+  };
+}
+
+interface WireV2SessionGroupPage {
+  groups: Array<{
+    workspace: { id: string; cwd: string | null };
+    sessions: WireV2Session[];
+    total: number;
+  }>;
+  has_more: boolean;
+  next_page_token: string | null;
+  total: number;
+}
+
+function toAppV2Session(wire: WireV2Session): AppSession {
+  const status = wire.activity.status;
+  return {
+    id: wire.id,
+    title: wire.meta.title ?? wire.meta.last_prompt ?? wire.id.slice(0, 12),
+    createdAt: new Date(wire.meta.created_at).toISOString(),
+    updatedAt: new Date(wire.meta.updated_at).toISOString(),
+    busy: status === 'running',
+    pendingInteraction:
+      status === 'approval' ? 'approval' : status === 'question' ? 'question' : undefined,
+    lastTurnReason: status === 'failed' ? 'failed' : undefined,
+    archived: wire.meta.archived,
+    lastPrompt: wire.meta.last_prompt ?? undefined,
+    cwd: wire.workspace.cwd ?? '',
+    model: wire.activity.model ?? '',
+    usage: {
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheCreationTokens: 0,
+      totalCostUsd: 0,
+      contextTokens: 0,
+      contextLimit: 0,
+      turnCount: 0,
+    },
+    messageCount: 0,
+    lastSeq: 0,
+    workspaceId: wire.workspace.id || undefined,
+  };
 }
 
 interface WireAbortResult {
@@ -427,16 +487,19 @@ const SUBAGENT_POLICY_VERSION_CONFLICT = 41201;
 
 export class DaemonPythinkerWebApi implements PythinkerWebApi {
   private readonly http: DaemonHttpClient;
+  private readonly httpV2: DaemonHttpClient;
   private readonly config: PythinkerApiConfig;
 
   constructor(config: PythinkerApiConfig) {
     this.config = config;
-    this.http = new DaemonHttpClient(config.serverHttpUrl, {
+    const identity = {
       clientId: config.clientId,
       clientName: config.clientName,
       clientVersion: config.clientVersion,
       clientUiMode: config.clientUiMode,
-    });
+    };
+    this.http = new DaemonHttpClient(config.serverHttpUrl, identity);
+    this.httpV2 = new DaemonHttpClient(config.serverHttpUrl, identity, 'v2');
   }
 
   // -------------------------------------------------------------------------
@@ -493,6 +556,31 @@ export class DaemonPythinkerWebApi implements PythinkerWebApi {
     return {
       items: data.items.map(toAppSession),
       hasMore: data.has_more,
+    };
+  }
+
+  async listSessionGroupsV2(input?: {
+    groupPageSize?: number;
+    hasPrompt?: boolean;
+    pageSize?: number;
+    pageToken?: string;
+  }): Promise<AppSessionGroupPage> {
+    const data = await this.httpV2.get<WireV2SessionGroupPage>('/sessions', {
+      view: 'by_workspace',
+      'group.page_size': input?.groupPageSize,
+      'meta.has_prompt': input?.hasPrompt,
+      page_size: input?.pageSize,
+      page_token: input?.pageToken,
+    });
+    return {
+      groups: data.groups.map((group) => ({
+        workspace: group.workspace,
+        sessions: group.sessions.map(toAppV2Session),
+        total: group.total,
+      })),
+      hasMore: data.has_more,
+      nextPageToken: data.next_page_token,
+      total: data.total,
     };
   }
 
@@ -1657,7 +1745,6 @@ export class DaemonPythinkerWebApi implements PythinkerWebApi {
       background: 'background',
       experimental: 'experimental',
       telemetry: 'telemetry',
-      raw: 'raw',
     };
     for (const [key, value] of Object.entries(patch)) {
       const wireKey = keyMap[key as keyof AppConfig];

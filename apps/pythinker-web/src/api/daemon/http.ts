@@ -93,6 +93,7 @@ export class DaemonHttpClient {
   constructor(
     private readonly origin: string,
     private readonly identity?: DaemonHttpClientIdentity,
+    private readonly apiVersion: 'v1' | 'v2' = 'v1',
   ) {}
 
   async get<T>(path: string, query?: Record<string, string | number | boolean | undefined>): Promise<T> {
@@ -104,7 +105,7 @@ export class DaemonHttpClient {
    *  fetches natively and cannot authorize on its own. Returns the body as a
    *  Blob on 2xx; otherwise parses the daemon envelope and throws. */
   async getBlob(path: string): Promise<Blob> {
-    const url = buildRestUrl(this.origin, path);
+    const url = buildRestUrl(this.origin, path, this.apiVersion);
     const requestId = createRequestId();
     const headers: Record<string, string> = { 'X-Request-Id': requestId };
     this.addClientHeaders(headers);
@@ -198,7 +199,7 @@ export class DaemonHttpClient {
     traceBody: Record<string, number>,
   ): Promise<{ blob: Blob; contentDisposition?: string }> {
     const method = 'POST';
-    const url = buildRestUrl(this.origin, path);
+    const url = buildRestUrl(this.origin, path, this.apiVersion);
     const requestId = createRequestId();
     const headers: Record<string, string> = {
       'X-Request-Id': requestId,
@@ -347,7 +348,7 @@ export class DaemonHttpClient {
 
   /** Send multipart/form-data (FormData). Does NOT set Content-Type — browser sets it with boundary. */
   async postForm<T>(path: string, formData: FormData): Promise<T> {
-    const url = buildRestUrl(this.origin, path);
+    const url = buildRestUrl(this.origin, path, this.apiVersion);
     const requestId = createRequestId();
     const headers: Record<string, string> = {
       'X-Request-Id': requestId,
@@ -461,7 +462,7 @@ export class DaemonHttpClient {
     withHeaders?: boolean,
   ): Promise<T | { data: T; code: number; headers: Headers }> {
     // Build URL, appending query string (omit undefined values)
-    let url = buildRestUrl(this.origin, path);
+    let url = buildRestUrl(this.origin, path, this.apiVersion);
     if (query) {
       const params = new URLSearchParams();
       for (const [key, value] of Object.entries(query)) {

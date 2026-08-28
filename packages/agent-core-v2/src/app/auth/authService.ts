@@ -8,10 +8,11 @@ import { IConfigService } from '#/app/config/config';
 import { LifecycleScope } from '#/app/scopes';
 import { IModelService, type ModelRecord } from '#/kosong/model/model';
 import {
-  deriveProviderId,
   effectiveModelConfig,
   nonEmpty,
+  providerNameFromFlatModel,
   resolveModelAuthMaterial,
+  resolveModelForReady,
 } from '#/kosong/model/modelAuth';
 import { IProviderService, type OAuthRef } from '#/kosong/provider/provider';
 
@@ -100,27 +101,33 @@ export class AuthSummaryService implements IAuthSummaryService {
     if (Object.keys(providers).length === 0 && !isProviderlessModel(configured)) {
       throw new AuthProvisioningRequiredError();
     }
-    if (modelId === undefined || modelId === '') {
-      throw new AuthModelNotResolvedError(undefined);
-    }
-    if (configured === undefined) {
-      throw new AuthModelNotResolvedError(modelId);
+    const resolution = resolveModelForReady(
+      modelId,
+      models,
+      providers,
+      this.providerService.getDefaultProvider(),
+    );
+    if (!resolution.resolved) {
+      if (resolution.reason === 'no-default') {
+        throw new AuthModelNotResolvedError(undefined);
+      }
+      const effective = configured === undefined ? undefined : effectiveModelConfig(configured);
+      const providerId =
+        effective?.providerId ?? effective?.provider ?? this.providerService.getDefaultProvider();
+      throw new AuthModelNotResolvedError(
+        modelId,
+        resolution.reason === 'provider-missing' ? providerId : undefined,
+      );
     }
 
-    const model = effectiveModelConfig(configured);
-    const providerId = model.providerId ?? model.provider;
+    const model = effectiveModelConfig(configured as ModelRecord);
+    const providerId =
+      model.providerId ?? model.provider ?? this.providerService.getDefaultProvider();
     const provider = providerId === undefined ? undefined : this.providerService.get(providerId);
-    if (providerId !== undefined && provider === undefined) {
-      throw new AuthModelNotResolvedError(modelId, providerId);
-    }
-
-    const providerName = providerId ?? providerNameFromFlatModel(model);
-    if (providerName === undefined) {
-      throw new AuthModelNotResolvedError(modelId);
-    }
+    const providerName = (providerId ?? providerNameFromFlatModel(model)) as string;
 
     const auth = resolveModelAuthMaterial({
-      modelId,
+      modelId: modelId as string,
       model,
       provider,
       providerName,
@@ -144,11 +151,6 @@ function isProviderlessModel(model: ModelRecord | undefined): boolean {
     effective.provider === undefined &&
     providerNameFromFlatModel(effective) !== undefined
   );
-}
-
-function providerNameFromFlatModel(model: ModelRecord): string | undefined {
-  const baseUrl = nonEmpty(model.baseUrl);
-  return baseUrl === undefined ? undefined : deriveProviderId(baseUrl);
 }
 
 registerScopedService(

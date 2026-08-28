@@ -274,9 +274,14 @@ function focus(): void {
   composerRef.value?.focus();
 }
 
+function insertQuote(payload: { quote: string; comment?: string; source?: string }): void {
+  composerRef.value?.insertQuote(payload);
+}
+
 defineExpose({
   loadForEdit,
   loadAttachmentsForEdit,
+  insertQuote,
   focus,
   anyPopupOpen: composerPopupOpen,
   isEmpty: computed(() => composerRef.value?.isEmpty ?? true),

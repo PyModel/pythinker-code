@@ -1,7 +1,6 @@
 import {
   applyCustomRegistryProvider,
   fetchCustomRegistry,
-  preserveSecondaryModelAliases,
   removeCustomRegistryProvider,
   type CustomRegistryProviderEntry,
   type CustomRegistrySource,
@@ -20,9 +19,6 @@ import { modelsDevProviderModels, resolveModelsDevImport } from './modelsDev';
 import { MODELS_SECTION, PROVIDERS_SECTION } from './configSection';
 import { ModelsDevImportErrors } from './errors';
 import { IKosongConfigService } from './kosongConfig';
-import {
-  SECONDARY_MODEL_SECTION,
-} from '#/session/subagent/configSection';
 import {
   IModelsDevImportService,
   PROVIDER_ID_PATTERN,
@@ -156,13 +152,6 @@ export class ModelsDevImportService implements IModelsDevImportService {
     provider.apiKey = options.apiKey ?? existing?.apiKey;
     provider.source = { kind: 'modelsDev', url: MODELS_DEV_URL };
     const records = config.inspect<ModelsSection>(MODELS_SECTION).userValue ?? {};
-    const current = {
-      providers,
-      models: records,
-      secondaryModel: config.inspect<PythinkerConfigShape['secondaryModel']>(
-        SECONDARY_MODEL_SECTION,
-      ).userValue,
-    } as PythinkerConfigShape;
     const nextProviders = { ...providers, [targetId]: provider };
     await config.replace(PROVIDERS_SECTION, nextProviders);
 
@@ -174,13 +163,7 @@ export class ModelsDevImportService implements IModelsDevImportService {
     for (const model of models) {
       nextModels[`${targetId}/${model.id}`] = modelsDevModelToRecord(targetId, model);
     }
-    const next = {
-      providers: nextProviders,
-      models: nextModels,
-      secondaryModel: current.secondaryModel,
-    } as PythinkerConfigShape;
-    preserveSecondaryModelAliases(current, next);
-    await config.replace(MODELS_SECTION, (next.models ?? {}) as ModelsSection);
+    await config.replace(MODELS_SECTION, nextModels);
 
     await this.models.settled;
     const imported = await this.modelCatalog.getProvider(targetId);
@@ -194,13 +177,6 @@ export class ModelsDevImportService implements IModelsDevImportService {
     const config = await this.readyConfig();
     const providers = config.inspect<ProvidersSection>(PROVIDERS_SECTION).userValue ?? {};
     const models = config.inspect<ModelsSection>(MODELS_SECTION).userValue ?? {};
-    const current = {
-      providers,
-      models,
-      secondaryModel: config.inspect<PythinkerConfigShape['secondaryModel']>(
-        SECONDARY_MODEL_SECTION,
-      ).userValue,
-    } as PythinkerConfigShape;
     const source: CustomRegistrySource = {
       kind: 'apiJson',
       url,
@@ -230,7 +206,6 @@ export class ModelsDevImportService implements IModelsDevImportService {
     const removed = {
       providers: { ...providers },
       models: { ...models },
-      secondaryModel: current.secondaryModel,
     } as PythinkerConfigShape;
     const surviving = new Set(Object.values(entries).map((entry) => entry.id));
     for (const [providerId, provider] of Object.entries(removed.providers)) {
@@ -257,12 +232,10 @@ export class ModelsDevImportService implements IModelsDevImportService {
     const applied = {
       providers: removed.providers,
       models: removed.models,
-      secondaryModel: removed.secondaryModel,
     } as PythinkerConfigShape;
     for (const entry of Object.values(entries)) {
       applyCustomRegistryProvider(applied, entry, source);
     }
-    preserveSecondaryModelAliases(current, applied);
     await config.replace(PROVIDERS_SECTION, applied.providers as ProvidersSection);
     await config.replace(MODELS_SECTION, (applied.models ?? {}) as ModelsSection);
 

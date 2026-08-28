@@ -718,7 +718,7 @@ describe('server-v2 /api/v1 provider write endpoints', () => {
     expect(onDisk['default_model']).toBe('gpt4o');
   });
 
-  it('repoints secondary_model pool entries on provider rename', async () => {
+  it('leaves secondary_model pool entries untouched on provider rename', async () => {
     await boot(POOL_TOML);
     const { status } = await putJson<unknown>('/api/v1/providers/openai', {
       type: 'openai',
@@ -730,7 +730,7 @@ describe('server-v2 /api/v1 provider write endpoints', () => {
     const onDisk = await readConfigToml();
     expect(onDisk['secondary_model']).toEqual({
       default_model: 'k2',
-      models: { k2: 'fast', 'my-openai/gpt-4o': 'smart' },
+      models: { k2: 'fast', gpt4o: 'smart' },
     });
   });
 

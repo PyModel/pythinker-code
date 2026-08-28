@@ -100,7 +100,7 @@ export type {
   ThinkingShape,
 } from './provider-config';
 
-export { preserveSecondaryModelAliases, refreshProviderModels } from './refreshProviderModels';
+export { refreshProviderModels } from './refreshProviderModels';
 export type {
   ProviderChange,
   RefreshProviderHost,

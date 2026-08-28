@@ -32,6 +32,7 @@ export default {
   addPlanDesc: 'Turn plan mode on',
   addWorkflowDesc: 'Turn workflow mode on',
   noCommands: 'No commands',
+  noArgCommand: '{cmd} takes no arguments',
   slashSheetTitle: 'Commands',
   slashSearchPlaceholder: 'Search commands…',
   mentionSheetTitle: 'Files',

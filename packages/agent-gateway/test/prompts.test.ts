@@ -1,17 +1,20 @@
-import { chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { deflateSync } from 'node:zlib';
 
 import {
   agentContextOf,
+  agentRuntimeBindingKey,
   IAgentTitlePromptSource,
   IAgentContextMemoryService,
   IAgentLifecycleService,
   IAgentPermissionModeService,
   IAgentProfileService,
+  IAgentStateService,
   IAgentToolPolicyService,
   IBootstrapService,
+  IConfigService,
   IFileService,
   ISessionContext,
   ISessionMetadata,
@@ -21,6 +24,7 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { type RunningServer, startServer } from '../src/start';
+import { assertPromptPathRefs, resolvePromptMediaFiles } from '../src/lib/promptMedia';
 import { projectPromptSnapshot, watchPromptSettlements } from '../src/routes/prompts';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 import { authHeaders } from './helpers/auth';
@@ -62,6 +66,11 @@ const PROMPT_TOML = [
   'max_context_size = 1000',
   '',
 ].join('\n');
+
+const PROMPT_TOML_DANGLING_DEFAULT = PROMPT_TOML.replace(
+  'default_model = "stub"',
+  'default_model = "missing"',
+);
 
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 const CRC32_TABLE = makeCrc32Table();
@@ -217,6 +226,15 @@ describe('server-v2 /api/v1 prompts', () => {
     await session.accessor.get(IAgentLifecycleService).create({ agentId: 'main' });
   }
 
+  async function setSessionModel(sessionId: string, model: string): Promise<void> {
+    await server!.core.accessor.get(IConfigService).reload();
+    const session = getLiveSessionById(server!.core.accessor, sessionId);
+    if (session === undefined) throw new Error(`session ${sessionId} not found`);
+    const agent = session.accessor.get(IAgentLifecycleService).handleOf('main');
+    if (agent === undefined) throw new Error(`main agent of session ${sessionId} not found`);
+    await agent.accessor.get(IAgentProfileService).setModel(model);
+  }
+
   it('submits a prompt and lists it as active', async () => {
     const id = await createSession(home as string);
     await createMainAgent(id);
@@ -238,6 +256,30 @@ describe('server-v2 /api/v1 prompts', () => {
       expect(list.body.data.active.prompt_id).toBe(submitted.body.data.prompt_id);
     }
     expect(Array.isArray(list.body.data.queued)).toBe(true);
+  });
+
+  it('accepts a prompt-carried model when default_model dangles', async () => {
+    await writeFile(join(home as string, 'config.toml'), PROMPT_TOML_DANGLING_DEFAULT, 'utf-8');
+    const id = await createSession(home as string);
+    await createMainAgent(id);
+
+    const submitted = await call<PromptItemWire>('POST', `/api/v1/sessions/${id}/prompts`, {
+      content: [{ type: 'text', text: 'hello' }],
+      model: 'stub',
+    });
+    expect(submitted.body.code).toBe(0);
+  });
+
+  it('accepts the session-bound model when default_model dangles', async () => {
+    await writeFile(join(home as string, 'config.toml'), PROMPT_TOML_DANGLING_DEFAULT, 'utf-8');
+    const id = await createSession(home as string);
+    await createMainAgent(id);
+    await setSessionModel(id, 'stub');
+
+    const submitted = await call<PromptItemWire>('POST', `/api/v1/sessions/${id}/prompts`, {
+      content: [{ type: 'text', text: 'hello' }],
+    });
+    expect(submitted.body.code).toBe(0);
   });
 
   it('submits a bundled skill prompt through the skills field', async () => {
@@ -1020,6 +1062,170 @@ describe('server-v2 /api/v1 prompts', () => {
     expect(dirname(attachedPath).endsWith('/attachments')).toBe(true);
     expect((await realpath(attachedPath)).startsWith(await realpath(home as string))).toBe(true);
     expect(await readFile(attachedPath)).toEqual(scriptBytes);
+  });
+
+  it('materializes a server-local file from one verified file handle', async () => {
+    const id = await createSession(home as string);
+    await createMainAgent(id);
+    const outside = await mkdtemp(join(tmpdir(), 'pythinker-attach-path-'));
+    try {
+      const sourcePath = join(outside, 'notes.txt');
+      const linkPath = join(outside, 'alias.txt');
+      const bytes = Buffer.from('path attachment body');
+      await writeFile(sourcePath, bytes);
+      await symlink(sourcePath, linkPath);
+      const canonicalPath = await realpath(linkPath);
+
+      const submitted = await call<PromptItemWire>('POST', `/api/v1/sessions/${id}/prompts`, {
+        content: [{ type: 'text', text: 'read this' }, { type: 'file', path: linkPath }],
+      });
+      expect(submitted.body.code).toBe(0);
+      const content = submitted.body.data.content as Array<{ type: string; text?: string }>;
+      expect(content[0]).toEqual({ type: 'text', text: 'read this' });
+      const attachedPath = attachedPathFrom(content[1]?.text ?? '');
+      expect(attachedPath).not.toBe(canonicalPath);
+      expect(await readFile(attachedPath)).toEqual(bytes);
+
+      const session = getLiveSessionById(server!.core.accessor, id);
+      const attachmentsDir = join(session!.accessor.get(ISessionContext).sessionDir, 'attachments');
+      expect(dirname(attachedPath)).toBe(attachmentsDir);
+      expect(await readdir(attachmentsDir)).toEqual([basename(attachedPath)]);
+      const main = session!.accessor.get(IAgentLifecycleService).handleOf('main')!;
+      await vi.waitFor(() => {
+        const promptMessage = main
+          .accessor.get(IAgentContextMemoryService)
+          .get()
+          .find((entry) => entry.origin?.kind === 'user');
+        expect(promptMessage?.origin).toEqual({
+          kind: 'user',
+          attachments: [
+            {
+              name: 'notes.txt',
+              mediaType: 'application/octet-stream',
+              size: bytes.length,
+              path: attachedPath,
+            },
+          ],
+        });
+      });
+    } finally {
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects invalid and sensitive server-local paths', async () => {
+    const id = await createSession(home as string);
+    await createMainAgent(id);
+    const secretPath = join(home as string, '.env');
+    const linkPath = join(home as string, 'innocent.txt');
+    await writeFile(secretPath, 'TOKEN=secret');
+    await symlink(secretPath, linkPath);
+
+    const relative = await call<null>('POST', `/api/v1/sessions/${id}/prompts`, {
+      content: [{ type: 'file', path: 'relative/notes.txt' }],
+    });
+    expect(relative.body.code).toBe(40001);
+
+    for (const path of [secretPath, linkPath]) {
+      const sensitive = await call<null>('POST', `/api/v1/sessions/${id}/prompts`, {
+        content: [{ type: 'file', path }],
+      });
+      expect(sensitive.body.code).toBe(40001);
+    }
+
+    const missing = await call<null>('POST', `/api/v1/sessions/${id}/prompts`, {
+      content: [{ type: 'file', path: join(home as string, 'missing.txt') }],
+    });
+    expect(missing.body.code).toBe(40407);
+  });
+
+  it('rechecks a server-local path after attachment validation', async () => {
+    const outside = await mkdtemp(join(tmpdir(), 'pythinker-attach-swap-'));
+    try {
+      const sourcePath = join(outside, 'notes.txt');
+      const secretPath = join(outside, '.env');
+      const linkPath = join(outside, 'alias.txt');
+      await writeFile(sourcePath, 'safe');
+      await writeFile(secretPath, 'TOKEN=secret');
+      await symlink(sourcePath, linkPath);
+      const content: Parameters<typeof assertPromptPathRefs>[0] = [
+        { type: 'file', path: linkPath },
+      ];
+
+      await assertPromptPathRefs(content);
+      await rm(linkPath);
+      await symlink(secretPath, linkPath);
+
+      await expect(
+        resolvePromptMediaFiles(
+          content,
+          server!.core.accessor.get(IFileService),
+          server!.core.accessor.get(IBootstrapService).cacheDir,
+        ),
+      ).rejects.toMatchObject({ code: 'validation.failed' });
+    } finally {
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects path attachments on a non-local runtime before filesystem access', async () => {
+    const id = await createSession(home as string);
+    await createMainAgent(id);
+    const session = getLiveSessionById(server!.core.accessor, id);
+    const main = session!.accessor.get(IAgentLifecycleService).handleOf('main')!;
+    main.accessor.get(IAgentStateService).set(agentRuntimeBindingKey, {
+      workspaceId: session!.accessor.get(ISessionContext).workspaceId,
+      runtimeId: 'fake-remote',
+    });
+
+    const response = await call<null>('POST', `/api/v1/sessions/${id}/prompts`, {
+      content: [{ type: 'file', path: join(home as string, 'missing.txt') }],
+    });
+    expect(response.body.code).toBe(40001);
+    expect(response.body.msg).toContain('local runtime');
+  });
+
+  it('carries a server-local image by path as session media', async () => {
+    const id = await createSession(home as string);
+    await createMainAgent(id);
+    const outside = await mkdtemp(join(tmpdir(), 'pythinker-attach-image-'));
+    try {
+      const smallPng = solidPng(10, 10);
+      const sourcePath = join(outside, 'small.png');
+      await writeFile(sourcePath, smallPng);
+
+      const submitted = await call<PromptItemWire>('POST', `/api/v1/sessions/${id}/prompts`, {
+        content: [{ type: 'image', source: { kind: 'path', path: sourcePath } }],
+      });
+      expect(submitted.body.code).toBe(0);
+      const content = submitted.body.data.content as Array<Record<string, unknown>>;
+      const image = content[0] as { type: string; source: { kind: string; file_id: string } };
+      expect(image.type).toBe('image');
+      expect(image.source.kind).toBe('session_media');
+      await expectSessionMedia(server!, id, `${image.source.file_id}.png`, smallPng);
+      expect(JSON.stringify(content)).not.toContain(sourcePath);
+      expect(JSON.stringify(content)).not.toContain('pythinker-file://');
+    } finally {
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+
+  it('materializes an unsupported server-local image before exposing its path', async () => {
+    const id = await createSession(home as string);
+    await createMainAgent(id);
+    const sourcePath = join(home as string, 'diagram.svg');
+    const svg = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"></svg>');
+    await writeFile(sourcePath, svg);
+
+    const submitted = await call<PromptItemWire>('POST', `/api/v1/sessions/${id}/prompts`, {
+      content: [{ type: 'image', source: { kind: 'path', path: sourcePath } }],
+    });
+    expect(submitted.body.code).toBe(0);
+    const content = submitted.body.data.content as Array<{ type: string; text?: string }>;
+    const attachedPath = attachedPathFrom(content[0]?.text ?? '');
+    expect(attachedPath).not.toBe(sourcePath);
+    expect(attachedPath).toContain('/attachments/');
+    expect(await readFile(attachedPath)).toEqual(svg);
   });
 
   it('returns 40402 when aborting a prompt that already settled', async () => {

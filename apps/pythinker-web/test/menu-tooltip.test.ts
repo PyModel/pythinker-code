@@ -4,6 +4,7 @@ import { mount, type VueWrapper } from '@vue/test-utils';
 
 import webI18n from '../src/i18n';
 import Composer from '../src/components/chat/Composer.vue';
+import AttachmentChip from '../src/components/chat/AttachmentChip.vue';
 import Menu from '../src/components/ui/Menu.vue';
 import Tooltip from '../src/components/ui/Tooltip.vue';
 
@@ -95,5 +96,38 @@ describe('menu tooltip ownership', () => {
     await nextTick();
 
     expect(document.body.querySelector('.ui-tip__bubble')).toBeNull();
+  });
+});
+
+describe('attachment media preview', () => {
+  it('keeps the preview open while the pointer crosses from the pill to its actions', async () => {
+    vi.useFakeTimers();
+    const wrapper = mount(AttachmentChip, {
+      attachTo: document.body,
+      props: {
+        kind: 'image',
+        name: 'example.png',
+        url: 'data:image/png;base64,AAAA',
+      },
+      global: { plugins: [webI18n] },
+    });
+    wrappers.push(wrapper);
+
+    await wrapper.get('.att-chip').trigger('mouseenter');
+    await nextTick();
+    const tip = document.body.querySelector<HTMLElement>('.att-tip');
+    expect(tip).not.toBeNull();
+
+    await wrapper.get('.att-chip').trigger('mouseleave');
+    tip!.dispatchEvent(new MouseEvent('mouseenter'));
+    await vi.advanceTimersByTimeAsync(150);
+    expect(document.body.querySelector('.att-tip')).not.toBeNull();
+
+    document.body.querySelector<HTMLButtonElement>('.att-tip-open')?.click();
+    expect(wrapper.emitted('activate')).toHaveLength(1);
+
+    tip!.dispatchEvent(new MouseEvent('mouseleave'));
+    await vi.advanceTimersByTimeAsync(121);
+    expect(document.body.querySelector('.att-tip')).toBeNull();
   });
 });

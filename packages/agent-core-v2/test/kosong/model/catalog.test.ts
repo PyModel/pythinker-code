@@ -419,6 +419,26 @@ describe('Model assembly (pure data)', () => {
     }
   });
 
+  it('supports a flat model when the default provider is blank', () => {
+    const { host, catalog } = createHost({
+      defaultProvider: '   ',
+      models: {
+        flat: {
+          protocol: 'openai',
+          model: 'my-model',
+          baseUrl: 'https://flat.example.test/v1',
+          apiKey: 'sk-flat',
+          maxContextSize: 4096,
+        },
+      },
+    });
+    try {
+      expect(catalog.get('flat').providerName).toBe('flat.example.test');
+    } finally {
+      host.dispose();
+    }
+  });
+
   it('falls back to defaultProvider when a model names no provider', () => {
     const { host, catalog } = createHost({
       ...pythinkerSections,

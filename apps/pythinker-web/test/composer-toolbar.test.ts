@@ -3,6 +3,7 @@ import { defineComponent, nextTick } from 'vue';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import webI18n from '../src/i18n';
 import Composer from '../src/components/chat/Composer.vue';
+import SelectionActionBar from '../src/components/chat/SelectionActionBar.vue';
 
 vi.mock('@chenglou/pretext', () => ({
   prepareWithSegments: () => ({}),
@@ -16,9 +17,94 @@ const slotStub = defineComponent({
   template: '<span :data-tooltip="text"><slot /></span>',
 });
 
+describe('selection action bar', () => {
+  it('adds selected panel text to the composer payload', async () => {
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      callback(0);
+      return 1;
+    });
+    vi.stubGlobal('cancelAnimationFrame', vi.fn());
+    const source = document.createElement('div');
+    source.className = 'pt-body';
+    source.textContent = 'selected text';
+    document.body.append(source);
+    const range = document.createRange();
+    range.selectNodeContents(source);
+    range.getBoundingClientRect = () =>
+      ({ left: 100, bottom: 80, width: 120, height: 20 }) as DOMRect;
+    const selection = window.getSelection()!;
+    selection.removeAllRanges();
+    selection.addRange(range);
+    const wrapper = mount(SelectionActionBar, {
+      attachTo: document.body,
+      props: { enabled: true, panelSource: 'src/example.ts' },
+      global: { plugins: [webI18n], stubs: { Icon: true, teleport: true } },
+    });
+
+    document.dispatchEvent(new Event('selectionchange'));
+    await nextTick();
+    await wrapper.findAll('.sab-action')[1]!.trigger('click');
+
+    expect(wrapper.emitted('add')).toEqual([[
+      { quote: 'selected text', comment: undefined, source: 'src/example.ts' },
+    ]]);
+    wrapper.unmount();
+    source.remove();
+    selection.removeAllRanges();
+    vi.unstubAllGlobals();
+  });
+
+  it('consumes Escape without closing another document-level surface', async () => {
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      callback(0);
+      return 1;
+    });
+    vi.stubGlobal('cancelAnimationFrame', vi.fn());
+    const source = document.createElement('div');
+    source.className = 'pt-body';
+    source.textContent = 'selected text';
+    document.body.append(source);
+    const range = document.createRange();
+    range.selectNodeContents(source);
+    range.getBoundingClientRect = () =>
+      ({ left: 100, bottom: 80, width: 120, height: 20 }) as DOMRect;
+    const selection = window.getSelection()!;
+    selection.removeAllRanges();
+    selection.addRange(range);
+    const wrapper = mount(SelectionActionBar, {
+      attachTo: document.body,
+      props: { enabled: true },
+      global: { plugins: [webI18n], stubs: { Icon: true, teleport: true } },
+    });
+    document.dispatchEvent(new Event('selectionchange'));
+    await nextTick();
+    expect(wrapper.find('.sab').exists()).toBe(true);
+
+    const laterHandler = vi.fn();
+    document.addEventListener('keydown', laterHandler, true);
+    const escape = new KeyboardEvent('keydown', {
+      key: 'Escape',
+      bubbles: true,
+      cancelable: true,
+    });
+    document.dispatchEvent(escape);
+    await nextTick();
+
+    expect(escape.defaultPrevented).toBe(true);
+    expect(laterHandler).not.toHaveBeenCalled();
+    expect(wrapper.find('.sab').exists()).toBe(false);
+    document.removeEventListener('keydown', laterHandler, true);
+    wrapper.unmount();
+    source.remove();
+    selection.removeAllRanges();
+    vi.unstubAllGlobals();
+  });
+});
+
 describe('Composer toolbar overflow valves', () => {
   beforeEach(() => {
     toolbarObserver = undefined;
+    window.localStorage.clear();
     vi.stubGlobal(
       'ResizeObserver',
       class {
@@ -298,6 +384,69 @@ describe('Composer toolbar overflow valves', () => {
     expect(wrapper.get('.model-pill').classes()).toContain('icon-only');
     expect(wrapper.get('.compact-chip').classes()).not.toContain('gone');
     expect(wrapper.get('.model-pill').classes()).not.toContain('model-gone');
+  });
+
+  it('warns instead of dispatching arguments to a no-argument command', async () => {
+    const wrapper = mount(Composer, {
+      attachTo: document.body,
+      global: {
+        plugins: [webI18n],
+        stubs: {
+          AttachmentChip: true,
+          CapabilityMenu: true,
+          ContextRing: true,
+          Icon: true,
+          IconButton: slotStub,
+          MentionMenu: true,
+          SegmentedControl: true,
+          SlashMenu: true,
+          Spinner: true,
+          Tooltip: slotStub,
+        },
+      },
+    });
+
+    const input = wrapper.get('textarea');
+    await input.setValue('/clear later');
+    await input.trigger('keydown', { key: 'Enter' });
+    await nextTick();
+
+    expect(wrapper.emitted('command')).toBeUndefined();
+    expect(input.element.value).toBe('/clear later');
+    expect(document.body.textContent).toContain('/clear takes no arguments');
+    wrapper.unmount();
+  });
+
+  it('submits a selected quote with its source and comment', async () => {
+    const wrapper = mount(Composer, {
+      global: {
+        plugins: [webI18n],
+        stubs: {
+          AttachmentChip: true,
+          CapabilityMenu: true,
+          ContextRing: true,
+          Icon: true,
+          IconButton: slotStub,
+          MentionMenu: true,
+          SegmentedControl: true,
+          SlashMenu: true,
+          Spinner: true,
+          Tooltip: slotStub,
+        },
+      },
+    });
+
+    wrapper.vm.insertQuote({ quote: 'selected text', comment: 'check this', source: 'src/example.ts' });
+    await nextTick();
+
+    expect(wrapper.get('.quote-chip').text()).toContain('selected text');
+    await wrapper.get('.send').trigger('click');
+
+    expect(wrapper.emitted('submit')?.at(-1)).toEqual([{
+      text: 'From src/example.ts:\n> selected text\ncheck this',
+      attachments: [],
+    }]);
+    expect(wrapper.find('.quote-chip').exists()).toBe(false);
   });
 
 });

@@ -1482,6 +1482,70 @@ describe('SessionEventBroadcaster', () => {
       expect(globalView.deliveries).toEqual(['immediate']);
     });
 
+    it('delivers validated config and model-catalog changes to global targets', async () => {
+      const globalView = collectingTarget();
+      bc.addGlobalTarget(globalView.target);
+
+      eventBus.emit({
+        type: 'event.config.changed',
+        payload: {
+          changedFields: ['defaultModel'],
+          config: { providers: {}, default_model: 'example-model' },
+        },
+      });
+      eventBus.emit({
+        type: 'event.model_catalog.changed',
+        payload: {
+          changed: [
+            {
+              provider_id: 'example',
+              provider_name: 'Example',
+              added: 2,
+              removed: 1,
+            },
+          ],
+          unchanged: ['stable'],
+          failed: [{ provider: 'broken', reason: 'offline' }],
+        },
+      });
+
+      await vi.waitFor(() => expect(globalView.envelopes).toHaveLength(2));
+      expect(globalView.envelopes[0]).toMatchObject({
+        type: 'event.config.changed',
+        session_id: '__global__',
+        payload: {
+          changedFields: ['defaultModel'],
+          config: { providers: {}, default_model: 'example-model' },
+        },
+      });
+      expect(globalView.envelopes[1]).toMatchObject({
+        type: 'event.model_catalog.changed',
+        session_id: '__global__',
+        payload: {
+          changed: [{ provider_id: 'example', added: 2, removed: 1 }],
+          unchanged: ['stable'],
+          failed: [{ provider: 'broken', reason: 'offline' }],
+        },
+      });
+    });
+
+    it('drops malformed config and model-catalog changes', async () => {
+      const globalView = collectingTarget();
+      bc.addGlobalTarget(globalView.target);
+
+      eventBus.emit({
+        type: 'event.config.changed',
+        payload: { changedFields: [''], config: { providers: {} } },
+      });
+      eventBus.emit({
+        type: 'event.model_catalog.changed',
+        payload: { changed: [{ provider_id: '', added: -1 }], unchanged: [], failed: [] },
+      });
+      await new Promise((resolve) => setTimeout(resolve, 20));
+
+      expect(globalView.envelopes).toHaveLength(0);
+    });
+
     it('fans out event.plugin.changed and event.capability.changed to global targets', async () => {
       const globalView = collectingTarget();
       bc.addGlobalTarget(globalView.target);
