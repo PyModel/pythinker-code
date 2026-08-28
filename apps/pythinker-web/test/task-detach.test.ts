@@ -173,7 +173,7 @@ describe('detachTask API client', () => {
     const api = new DaemonPythinkerWebApi({
       serverHttpUrl: 'http://example.test:58627',
       clientId: 'web_test',
-      clientName: 'pythinker-code-web',
+      clientName: 'test',
       clientVersion: '0.1.1',
       clientUiMode: 'web',
     });

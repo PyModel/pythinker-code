@@ -40,6 +40,7 @@ interface SessionIndexLine {
 describe('WorkspaceAliasesService (file-backed)', () => {
   let homeDir: string;
   let currentHost: ReturnType<typeof createScopedTestHost> | undefined;
+  let currentPersistence: FileWorkspacePersistence | undefined;
 
   beforeEach(async () => {
     _clearScopedRegistryForTests();
@@ -70,6 +71,8 @@ describe('WorkspaceAliasesService (file-backed)', () => {
   afterEach(async () => {
     currentHost?.dispose();
     currentHost = undefined;
+    currentPersistence?.dispose();
+    currentPersistence = undefined;
     await fsp.rm(homeDir, { recursive: true, force: true });
   });
 
@@ -288,9 +291,8 @@ describe('WorkspaceAliasesService (file-backed)', () => {
     const legacyId = 'wd_proj_deadbeef0002';
     await writeWorkspacesJson({ [typedId]: entry(typedRoot) });
     const storage = new FileStorageService(homeDir);
-    const persistence = new GatedPersistence(
-      new FileWorkspacePersistence(new JsonAtomicDocumentStore(storage)),
-    );
+    currentPersistence = new FileWorkspacePersistence(new JsonAtomicDocumentStore(storage));
+    const persistence = new GatedPersistence(currentPersistence);
     const aliases = build(undefined, storage, persistence);
     const ws = (id: string, root: string): Workspace => ({
       id,

@@ -870,6 +870,42 @@ describe('groupMessagesIntoSnapshot (cold path)', () => {
     expect(turn.attachmentIds).toEqual(['att_1']);
   });
 
+  it.each(['user', 'skill_activation'] as const)(
+    'filters malformed origin file attachments on %s messages',
+    (kind) => {
+      const snapshot = groupMessagesIntoSnapshot([
+        {
+          role: 'user',
+          content: [{ type: 'text', text: 'attached files' }],
+          toolCalls: [],
+          origin: {
+            kind,
+            ...(kind === 'skill_activation' ? { trigger: 'user-slash' } : {}),
+            attachments: [
+              null,
+              { name: 'wrong-size.txt', mediaType: 'text/plain', size: '12' },
+              { name: 'note.txt', mediaType: 'text/plain', size: 12, path: '/data/note.txt' },
+              { name: 'wrong-path.txt', mediaType: 'text/plain', size: 12, path: 42 },
+            ],
+          } as { kind: string; trigger?: string; attachments: unknown },
+        },
+        { role: 'assistant', content: [{ type: 'text', text: 'done' }], toolCalls: [] },
+      ]);
+
+      expect(snapshot.attachments).toEqual([
+        {
+          attachmentId: 'att_1',
+          mediaType: 'text/plain',
+          name: 'note.txt',
+          size: 12,
+        },
+      ]);
+      const turn = snapshot.items.find((item) => item.kind === 'turn');
+      if (turn?.kind !== 'turn') throw new Error('expected turn');
+      expect(turn.attachmentIds).toEqual(['att_1']);
+    },
+  );
+
   it('maps persisted pythinker-file media refs to attachments', () => {
     const snapshot = groupMessagesIntoSnapshot([
       {
