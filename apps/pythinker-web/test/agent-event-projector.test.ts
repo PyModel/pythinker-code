@@ -644,6 +644,19 @@ describe('background subagent task registration', () => {
     ]);
   });
 
+  it('clears suspendedReason when a later subagent.suspended carries no reason', () => {
+    const projector = createAgentProjector();
+    projector.project('subagent.spawned', { subagentId: 'agent-1', description: 'Explore repo' }, 's1');
+    projector.project('subagent.suspended', { subagentId: 'agent-1', reason: 'waiting for input' }, 's1');
+
+    const events = projector.project('subagent.suspended', { subagentId: 'agent-1' }, 's1');
+
+    expect(events).toHaveLength(1);
+    const task = (events[0] as { task: Record<string, unknown> }).task;
+    expect(task['subagentPhase']).toBe('suspended');
+    expect('suspendedReason' in task).toBe(false);
+  });
+
   it('keeps the spawned routing provenance when task.started omits it', () => {
     const projector = createAgentProjector();
     const routing = {

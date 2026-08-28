@@ -238,6 +238,7 @@ function patchSubagent(
   sessionId: string,
   subagentId: unknown,
   patch: Partial<AppTask>,
+  clear: ReadonlyArray<keyof AppTask> = [],
 ): AppTask | null {
   if (typeof subagentId !== 'string' || subagentId.length === 0) return null;
   const prev = state.subagentMeta.get(subagentId) ?? {
@@ -266,6 +267,7 @@ function patchSubagent(
       : patch;
   // A patch that omits a field (or carries `undefined`) keeps the value that an
   // earlier event stored, so `task.started` cannot erase `subagent.spawned` metadata.
+  // Fields listed in `clear` are dropped explicitly (unless the terminal guard kept them).
   const definedPatch = Object.fromEntries(
     Object.entries(effectivePatch).filter(([, value]) => value !== undefined),
   ) as Partial<AppTask>;
@@ -277,6 +279,9 @@ function patchSubagent(
     sessionId,
     kind: 'subagent',
   };
+  for (const key of clear) {
+    if (!(key in definedPatch)) delete next[key];
+  }
   state.subagentMeta.set(subagentId, next);
   return next;
 }
@@ -1212,11 +1217,17 @@ export function createAgentProjector(): AgentProjector {
       }
 
       case 'subagent.suspended': {
-        const task = patchSubagent(s, sessionId, p?.subagentId, {
-          subagentPhase: 'suspended',
-          status: 'running',
-          suspendedReason: typeof p?.reason === 'string' ? p.reason : undefined,
-        });
+        const task = patchSubagent(
+          s,
+          sessionId,
+          p?.subagentId,
+          {
+            subagentPhase: 'suspended',
+            status: 'running',
+            suspendedReason: typeof p?.reason === 'string' ? p.reason : undefined,
+          },
+          ['suspendedReason'],
+        );
         if (task) out.push({ type: 'taskCreated', sessionId, task });
         break;
       }
