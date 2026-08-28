@@ -29,6 +29,7 @@ const apiMock = vi.hoisted(() => ({
   dismissQuestion: vi.fn(),
   cancelTask: vi.fn(),
   detachTask: vi.fn(),
+  listTasks: vi.fn(),
   getAuth: vi.fn(),
   getConfig: vi.fn(),
   setConfig: vi.fn(),
@@ -766,6 +767,7 @@ describe('useWorkspaceState — respondApproval', () => {
 describe('useWorkspaceState — detachTask', () => {
   beforeEach(() => {
     apiMock.detachTask.mockReset();
+    apiMock.listTasks.mockReset();
   });
 
   it('marks a still-running task as backgrounded and targets the REST task id', async () => {
@@ -800,7 +802,21 @@ describe('useWorkspaceState — detachTask', () => {
     expect(state.tasksBySession['sess_1']?.[0]?.completedAtEstimated).toBe(true);
   });
 
-  it('does nothing when no task belongs to the tool call', async () => {
+  it('asks the server when the task has not reached the store yet', async () => {
+    apiMock.listTasks.mockResolvedValue([{ ...task('t_9', 'running'), parentToolCallId: 'call_1' }]);
+    apiMock.detachTask.mockResolvedValue({ detached: true, status: 'running' });
+    const state = createState();
+    state.tasksBySession = { sess_1: [] };
+    const ws = useWorkspaceState(state, createDeps());
+
+    await ws.detachTask('call_1');
+
+    expect(apiMock.listTasks).toHaveBeenCalledWith('sess_1');
+    expect(apiMock.detachTask).toHaveBeenCalledWith('sess_1', 't_9');
+  });
+
+  it('does nothing when the server knows no task for the tool call either', async () => {
+    apiMock.listTasks.mockResolvedValue([task('t_1', 'running')]);
     const state = createState();
     state.tasksBySession = { sess_1: [task('t_1', 'running')] };
     const ws = useWorkspaceState(state, createDeps());

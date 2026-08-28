@@ -2162,19 +2162,36 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
     pendingTaskDetachments[toolCallId] = true;
     try {
       const api = getPythinkerWebApi();
-      const task = (rawState.tasksBySession[sid] ?? []).find(
-        (t) => t.id === toolCallId || t.parentToolCallId === toolCallId,
-      );
-      if (task === undefined) return;
+      const owns = (t: { id: string; parentToolCallId?: string }): boolean =>
+        t.id === toolCallId || t.parentToolCallId === toolCallId;
+      let task = (rawState.tasksBySession[sid] ?? []).find(owns);
+      // The row can offer the button before the task list has reached the
+      // store (the buttons treat "no task yet" as "show"). Ask the server
+      // rather than dropping the click on the floor.
+      let restTaskId: string | undefined;
+      if (task === undefined) {
+        let listed;
+        try {
+          listed = await api.listTasks(sid);
+        } catch (error) {
+          pushOperationFailure('detachTask', error, { sessionId: sid });
+          return;
+        }
+        const found = listed.find(owns);
+        if (found === undefined) return;
+        task = found;
+        restTaskId = found.id;
+      }
+      const target = task;
       // A background subagent row is keyed by agent id, but REST `/tasks` only
       // knows its background-task id.
-      const restTaskId = task.backgroundTaskId ?? task.id;
+      restTaskId ??= target.backgroundTaskId ?? target.id;
       const result = await api.detachTask(sid, restTaskId);
       const list = rawState.tasksBySession[sid] ?? [];
       rawState.tasksBySession = {
         ...rawState.tasksBySession,
         [sid]: list.map((t) => {
-          if (t.id !== task.id) return t;
+          if (t.id !== target.id) return t;
           // Still running: it simply moved to the background. Otherwise the
           // task finished first and the server reports its terminal status.
           if (result.status === 'running') return { ...t, runInBackground: true };

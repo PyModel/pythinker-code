@@ -92,7 +92,6 @@ describe('sidebar footer', () => {
     expect(sidebarSource).toMatch(
       /\.side-footer-account \{\s*flex: 1 1 auto;\s*min-width: 0;\s*\}/u,
     );
-    expect(sidebarSource).toMatch(/\.side-footer-settings \{\s*flex: none;\s*\}/u);
     // The label truncates instead of pushing the fixed side out of the row.
     expect(sidebarSource).toMatch(
       /\.btn-settings-label \{[^}]*text-overflow: ellipsis;[^}]*\}/u,

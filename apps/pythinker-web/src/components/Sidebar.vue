@@ -1132,18 +1132,14 @@ watch([() => props.collapsed, update.hasUpdate], ([collapsed, hasUpdate]) => {
         </template>
       </div>
 
-      <!-- Footer: settings entry pinned under the session list. The row splits
-           into a growing account side that truncates and a fixed side that
-           never shrinks. -->
+      <!-- Footer: settings entry pinned under the session list. The row is the
+           growing side that truncates; a fixed side would sit beside it. -->
       <div class="side-footer">
         <div class="side-footer-account">
           <button class="btn-settings" type="button" @click.stop="emit('openSettings')">
             <Icon name="settings" />
             <span class="btn-settings-label">{{ t('settings.title') }}</span>
           </button>
-        </div>
-        <div v-if="$slots.footerAction" class="side-footer-settings">
-          <slot name="footerAction" />
         </div>
       </div>
 
@@ -1664,10 +1660,6 @@ watch([() => props.collapsed, update.hasUpdate], ([collapsed, hasUpdate]) => {
 .side-footer-account {
   flex: 1 1 auto;
   min-width: 0;
-}
-/* Never shrinks: a fixed-width action keeps its full hit area. */
-.side-footer-settings {
-  flex: none;
 }
 .btn-settings-label {
   min-width: 0;
