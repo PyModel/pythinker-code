@@ -154,6 +154,8 @@ function onHeadClick(): void {
   gap: inherit;
   flex: 1;
   min-width: 0;
+  /* Backstop: whatever cannot fit is clipped here, never painted under `.rt`. */
+  overflow: hidden;
 }
 .a {
   color: var(--emph);
@@ -170,6 +172,9 @@ function onHeadClick(): void {
   flex: 1;
   min-width: 0;
 }
+/* The right cluster may shrink: a long trailing chip ("Foreground · model ·
+   effort") truncates before it can slide over the row title. Status dot, time
+   and buttons stay `flex: none` so only the chip gives way. */
 .rt {
   margin-left: auto;
   color: var(--color-text-muted);
@@ -177,16 +182,23 @@ function onHeadClick(): void {
   display: flex;
   align-items: center;
   gap: 6px;
-  flex: none;
+  flex: 0 1 auto;
+  min-width: 0;
 }
 .tm {
   color: var(--color-text-faint);
+  flex: none;
+  white-space: nowrap;
 }
 :slotted(.chip) {
   color: var(--color-text-muted);
   font-family: var(--font-ui);
   font-size: var(--text-xs);
-  flex: none;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Status indicator at the right edge of the row: done = green ✓, error = red ✗,
