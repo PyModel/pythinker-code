@@ -21,6 +21,20 @@ void test('leaves a changeset that already names desktop alone', () => {
   assert.equal(linkDesktop(linkDesktop(cliOnly)), null);
 });
 
+void test('accepts quoted bump values and does not duplicate the desktop entry', () => {
+  const quoted = '---\n"@pymodel/pythinker-code": "minor"\n---\n\nx\n';
+  assert.equal(linkDesktop(quoted), '---\n"@pymodel/pythinker-code": "minor"\n"@pymodel/pythinker-desktop": minor\n---\n\nx\n');
+  assert.equal(linkDesktop(linkDesktop(quoted)), null);
+  assert.equal(linkDesktop("---\n'@pymodel/pythinker-desktop': 'patch'\n\"@pymodel/pythinker-code\": 'patch'\n---\n\nx\n"), null);
+});
+
+void test('reuses the CLI entry indentation', () => {
+  assert.equal(
+    linkDesktop('---\n  "@pymodel/pythinker-code": patch\n---\n\nx\n'),
+    '---\n  "@pymodel/pythinker-code": patch\n  "@pymodel/pythinker-desktop": patch\n---\n\nx\n',
+  );
+});
+
 void test('ignores changesets that do not name the CLI', () => {
   assert.equal(linkDesktop('---\n"@pymodel/klient": patch\n---\n\nx\n'), null);
   assert.equal(linkDesktop('no frontmatter\n'), null);

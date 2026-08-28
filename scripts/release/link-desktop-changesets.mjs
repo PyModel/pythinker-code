@@ -15,11 +15,12 @@
 
 import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 export const CLI_PACKAGE = '@pymodel/pythinker-code';
 export const DESKTOP_PACKAGE = '@pymodel/pythinker-desktop';
 
-const FRONTMATTER_LINE = /^(\s*)(?:"([^"]+)"|'([^']+)'|([^:'"]+?))\s*:\s*([A-Za-z]+)\s*$/u;
+const FRONTMATTER_LINE = /^(\s*)(?:"([^"]+)"|'([^']+)'|([^:'"]+?))\s*:\s*(?:"([A-Za-z]+)"|'([A-Za-z]+)'|([A-Za-z]+))\s*$/u;
 
 /**
  * Add the desktop package to one changeset when it names the CLI alone.
@@ -36,6 +37,7 @@ export function linkDesktop(source) {
 
   let cliLine = -1;
   let cliLevel = null;
+  let cliIndent = '';
   for (const [index, line] of lines.entries()) {
     const match = FRONTMATTER_LINE.exec(line);
     if (match === null) continue;
@@ -43,12 +45,13 @@ export function linkDesktop(source) {
     if (name === DESKTOP_PACKAGE) return null;
     if (name === CLI_PACKAGE) {
       cliLine = index;
-      cliLevel = match[5].toLowerCase();
+      cliLevel = (match[5] ?? match[6] ?? match[7]).toLowerCase();
+      cliIndent = match[1];
     }
   }
   if (cliLine === -1) return null;
 
-  lines.splice(cliLine + 1, 0, `"${DESKTOP_PACKAGE}": ${cliLevel}`);
+  lines.splice(cliLine + 1, 0, `${cliIndent}"${DESKTOP_PACKAGE}": ${cliLevel}`);
   return `---\n${lines.join('\n')}${normalized.slice(end + 1)}`;
 }
 
@@ -71,7 +74,7 @@ export function linkDesktopChangesets(dir) {
   return changed;
 }
 
-if (process.argv[1] !== undefined && import.meta.url === new URL(`file://${process.argv[1]}`).href) {
+if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const changed = linkDesktopChangesets(process.argv[2] ?? '.changeset');
   for (const name of changed) console.log(`linked desktop bump: ${name}`);
   console.log(`${changed.length} changeset(s) now bump ${DESKTOP_PACKAGE} alongside ${CLI_PACKAGE}.`);
