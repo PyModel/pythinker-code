@@ -4,6 +4,7 @@ import {
   FLAG_DEFINITIONS,
   MASTER_ENV,
   FlagResolver,
+  type ExperimentalFlagConfig,
   type FlagDefinitionInput,
   type FlagId,
 } from '../../src/flags';
@@ -30,6 +31,12 @@ const DEFS = [
 ] as const satisfies readonly FlagDefinitionInput[];
 
 type Env = Record<string, string | undefined>;
+
+// Config overrides keyed by the fake ids: a string-keyed record satisfies the
+// partial FlagId record without an assertion.
+function overrides(values: Record<string, boolean>): ExperimentalFlagConfig {
+  return values;
+}
 
 function make(env: Env) {
   const resolver = new FlagResolver(env, DEFS);
@@ -97,17 +104,17 @@ describe('FlagResolver', () => {
   });
 
   it('uses config overrides between env and registry defaults', () => {
-    const resolver = new FlagResolver({}, DEFS, {
+    const resolver = new FlagResolver({}, DEFS, overrides({
       'a-on-default': false,
       'b-off-default': true,
-    } as never);
+    }));
 
     expect(resolver.enabled('a-on-default' as FlagId)).toBe(false);
     expect(resolver.enabled('b-off-default' as FlagId)).toBe(true);
   });
 
   it('reports externallyControlled and overridden the same way the v2 engine does', () => {
-    const agreeing = new FlagResolver({ [DEFS[0].env]: '0' }, DEFS, { 'a-on-default': false } as never);
+    const agreeing = new FlagResolver({ [DEFS[0].env]: '0' }, DEFS, overrides({ 'a-on-default': false }));
     expect(agreeing.explain('a-on-default' as FlagId)).toMatchObject({
       enabled: false,
       source: 'env',
@@ -115,14 +122,14 @@ describe('FlagResolver', () => {
       externallyControlled: true,
       overridden: false,
     });
-    const overriding = new FlagResolver({ [DEFS[0].env]: '1' }, DEFS, { 'a-on-default': false } as never);
+    const overriding = new FlagResolver({ [DEFS[0].env]: '1' }, DEFS, overrides({ 'a-on-default': false }));
     expect(overriding.explain('a-on-default' as FlagId)).toMatchObject({
       enabled: true,
       source: 'env',
       externallyControlled: true,
       overridden: true,
     });
-    const saved = new FlagResolver({}, DEFS, { 'a-on-default': false } as never);
+    const saved = new FlagResolver({}, DEFS, overrides({ 'a-on-default': false }));
     expect(saved.explain('a-on-default' as FlagId)).toMatchObject({
       source: 'config',
       externallyControlled: false,
@@ -137,10 +144,10 @@ describe('FlagResolver', () => {
   });
 
   it('ignores obsolete config override ids outside the registry', () => {
-    const resolver = new FlagResolver({}, DEFS, {
+    const resolver = new FlagResolver({}, DEFS, overrides({
       'a-on-default': false,
       'legacy_feature': true,
-    } as never);
+    }));
 
     expect(resolver.enabled('a-on-default' as FlagId)).toBe(false);
     expect(resolver.enabled('legacy_feature' as FlagId)).toBe(false);
@@ -162,10 +169,10 @@ describe('FlagResolver', () => {
         PYTHINKER_CODE_EXPERIMENTAL_B: '0',
       },
       DEFS,
-      {
+      overrides({
         'a-on-default': false,
         'b-off-default': true,
-      } as never,
+      }),
     );
 
     expect(resolver.enabled('a-on-default' as FlagId)).toBe(true);
@@ -173,13 +180,13 @@ describe('FlagResolver', () => {
   });
 
   it('updates config overrides without leaking into another resolver', () => {
-    const first = new FlagResolver({}, DEFS, { 'b-off-default': true } as never);
+    const first = new FlagResolver({}, DEFS, overrides({ 'b-off-default': true }));
     const second = new FlagResolver({}, DEFS);
 
     expect(first.enabled('b-off-default' as FlagId)).toBe(true);
     expect(second.enabled('b-off-default' as FlagId)).toBe(false);
 
-    first.setConfigOverrides({ 'b-off-default': false } as never);
+    first.setConfigOverrides(overrides({ 'b-off-default': false }));
 
     expect(first.enabled('b-off-default' as FlagId)).toBe(false);
     expect(second.enabled('b-off-default' as FlagId)).toBe(false);
@@ -194,7 +201,7 @@ describe('FlagResolver', () => {
       configValue: undefined,
     });
 
-    const configured = new FlagResolver({}, DEFS, { 'b-off-default': true } as never);
+    const configured = new FlagResolver({}, DEFS, overrides({ 'b-off-default': true }));
     expect(configured.explain('b-off-default' as FlagId)).toMatchObject({
       enabled: true,
       source: 'config',
@@ -204,7 +211,7 @@ describe('FlagResolver', () => {
     const fromEnv = new FlagResolver(
       { PYTHINKER_CODE_EXPERIMENTAL_B: '0' },
       DEFS,
-      { 'b-off-default': true } as never,
+      overrides({ 'b-off-default': true }),
     );
     expect(fromEnv.explain('b-off-default' as FlagId)).toMatchObject({
       enabled: false,
