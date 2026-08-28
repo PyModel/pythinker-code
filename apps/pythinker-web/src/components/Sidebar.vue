@@ -3,7 +3,7 @@
      The old workspace rail and workspace tabs have been removed;
      workspace switching, folding and renaming all live in the group header. -->
 <script setup lang="ts">
-import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, defineAsyncComponent, defineComponent, h, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { copyTextToClipboard } from '../lib/clipboard';
 import {
@@ -621,13 +621,20 @@ const showNewWorkspaceButton = false;
 // Logo long-press easter-egg: holding the Pythinker mark for 1 second opens the
 // design system as a full-screen overlay.
 // Pointer capture keeps the hold alive even if the pointer drifts off the mark.
+const showDesignSystem = ref(false);
+function closeDesignSystem(): void {
+  showDesignSystem.value = false;
+}
+const DesignSystemLoadFailed = defineComponent({
+  inheritAttrs: false,
+  setup: () => () => h(AsyncLoadFailed, { onClose: closeDesignSystem }),
+});
 const DesignSystemView = defineAsyncComponent({
   loader: () => import('../views/DesignSystemView.vue'),
   // A failed chunk load is not a render error, so the boundary never sees it —
   // it gets its own copy here.
-  errorComponent: AsyncLoadFailed,
+  errorComponent: DesignSystemLoadFailed,
 });
-const showDesignSystem = ref(false);
 const EGG_HOLD_MS = 1000;
 let logoPressTimer: ReturnType<typeof setTimeout> | undefined;
 

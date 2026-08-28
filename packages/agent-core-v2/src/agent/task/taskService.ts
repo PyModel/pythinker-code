@@ -131,6 +131,7 @@ interface ManagedTask {
   foregroundRelease?: ForegroundRelease;
   stopReason?: string;
   terminalNotificationSuppressed?: boolean;
+  stoppedOnExit?: boolean;
   terminalFired: boolean;
   readonly abortController: AbortController;
   foregroundSignalCleanup?: () => void;
@@ -806,7 +807,13 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
     await Promise.all(
       active
         .filter((task) => task.detached === true)
-        .map((task) => this.suppressTerminalNotification(task.taskId)),
+        .map(async (task) => {
+          const entry = this.tasks.get(task.taskId);
+          if (entry === undefined) return;
+          entry.stoppedOnExit = true;
+          entry.terminalNotificationSuppressed = true;
+          await this.persistLive(entry);
+        }),
     );
     return this.stopAll(reason);
   }
@@ -1377,6 +1384,7 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
       endedAt: entry.endedAt,
       stopReason: entry.stopReason,
       terminalNotificationSuppressed: entry.terminalNotificationSuppressed,
+      stoppedOnExit: entry.stoppedOnExit,
       timeoutMs: entry.options.timeoutMs,
     };
     if (entry.toInfoFn) return entry.toInfoFn(base);
@@ -1569,7 +1577,7 @@ function isPreviousSessionTermination(info: AgentTaskInfo): boolean {
   return (
     info.status === 'killed' &&
     info.terminalNotificationSuppressed === true &&
-    info.stopReason === SESSION_CLOSED_REASON
+    (info.stoppedOnExit === true || info.stopReason === SESSION_CLOSED_REASON)
   );
 }
 

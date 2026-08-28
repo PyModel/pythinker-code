@@ -116,7 +116,9 @@ export async function mcpResultToExecutableOutput(
 
   const wrapped = wrapMediaOnly(converted, qualifiedToolName);
   const hasUsableContent = converted.some((part) =>
-    part.type === 'text' ? part.text.trim().length > 0 : true,
+    part.type === 'text'
+      ? part.text.trim().length > 0 && !part.text.startsWith('[MCP content dropped:')
+      : true,
   );
   const structuredExtras: Record<string, unknown> = {};
   if (result.structuredContent !== undefined && !hasUsableContent) {

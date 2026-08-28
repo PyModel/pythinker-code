@@ -107,6 +107,7 @@ function onDocumentPointer(event: PointerEvent): void {
 function onDocumentKeydown(event: KeyboardEvent): void {
   if (event.key === 'Escape' && visible.value) {
     event.preventDefault();
+    event.stopImmediatePropagation();
     close();
   }
 }

@@ -135,6 +135,18 @@ describe('ProviderService', () => {
     expect(pointerEvents).toEqual(['pymodel', undefined]);
   });
 
+  it('normalizes only a blank default provider at the service boundary', async () => {
+    const service = createService();
+    const pointerEvents: Array<string | undefined> = [];
+    service.onDidChangeDefaultProvider((e) => pointerEvents.push(e.id));
+
+    await service.setDefaultProvider('  pymodel  ');
+    await service.setDefaultProvider('   ');
+
+    expect(service.getDefaultProvider()).toBeUndefined();
+    expect(pointerEvents).toEqual(['  pymodel  ', undefined]);
+  });
+
   it('a mutation resolves only after the listeners’ waitUntil work completes', async () => {
     const service = createService();
     let persistDone = false;

@@ -35,7 +35,7 @@ export interface HistoryMessage {
   readonly toolCalls?: readonly HistoryToolCall[];
   readonly toolCallId?: string;
   readonly isError?: boolean;
-  readonly origin?: { readonly kind: string };
+  readonly origin?: { readonly kind: string; readonly attachments?: unknown };
 }
 
 interface TurnDraft {
@@ -453,7 +453,7 @@ interface OriginFileAttachment {
 
 function originFileAttachments(message: HistoryMessage): readonly OriginFileAttachment[] {
   if (message.origin?.kind !== 'user' && message.origin?.kind !== 'skill_activation') return [];
-  const attachments = (message.origin as { readonly attachments?: unknown }).attachments;
+  const attachments = message.origin.attachments;
   if (!Array.isArray(attachments)) return [];
   return attachments.filter(
     (attachment): attachment is OriginFileAttachment =>

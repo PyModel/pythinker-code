@@ -1379,6 +1379,7 @@ export interface AgentStateSnapshot {
     readonly endedAt: number | null;
     readonly stopReason?: string;
     readonly terminalNotificationSuppressed?: boolean;
+    readonly stoppedOnExit?: boolean;
     readonly resumeReminded?: boolean;
     readonly timeoutMs?: number;
   } | /* SubagentTaskInfo — packages/agent-core-v2/src/agent/tools/agent/subagent-task.ts */ {
@@ -1396,6 +1397,7 @@ export interface AgentStateSnapshot {
     readonly endedAt: number | null;
     readonly stopReason?: string;
     readonly terminalNotificationSuppressed?: boolean;
+    readonly stoppedOnExit?: boolean;
     readonly resumeReminded?: boolean;
     readonly timeoutMs?: number;
   } | /* ProcessTaskInfo — packages/agent-core-v2/src/agent/tools/os/bash/process-task.ts */ {
@@ -1412,6 +1414,7 @@ export interface AgentStateSnapshot {
     readonly endedAt: number | null;
     readonly stopReason?: string;
     readonly terminalNotificationSuppressed?: boolean;
+    readonly stoppedOnExit?: boolean;
     readonly resumeReminded?: boolean;
     readonly timeoutMs?: number;
   }>;
@@ -1430,6 +1433,7 @@ export interface AgentStateSnapshot {
     readonly endedAt: number | null;
     readonly stopReason?: string;
     readonly terminalNotificationSuppressed?: boolean;
+    readonly stoppedOnExit?: boolean;
     readonly resumeReminded?: boolean;
     readonly timeoutMs?: number;
   } | /* SubagentTaskInfo — packages/agent-core-v2/src/agent/tools/agent/subagent-task.ts */ {
@@ -1447,6 +1451,7 @@ export interface AgentStateSnapshot {
     readonly endedAt: number | null;
     readonly stopReason?: string;
     readonly terminalNotificationSuppressed?: boolean;
+    readonly stoppedOnExit?: boolean;
     readonly resumeReminded?: boolean;
     readonly timeoutMs?: number;
   } | /* ProcessTaskInfo — packages/agent-core-v2/src/agent/tools/os/bash/process-task.ts */ {
@@ -1463,6 +1468,7 @@ export interface AgentStateSnapshot {
     readonly endedAt: number | null;
     readonly stopReason?: string;
     readonly terminalNotificationSuppressed?: boolean;
+    readonly stoppedOnExit?: boolean;
     readonly resumeReminded?: boolean;
     readonly timeoutMs?: number;
   }>;

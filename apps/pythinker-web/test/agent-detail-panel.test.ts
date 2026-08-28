@@ -311,9 +311,9 @@ describe('panel tabs', () => {
   it('keeps multiple tabs and restores restorable tabs per session', async () => {
     const sessionKey = ref('session-a');
     const panel = usePanelTabs(sessionKey);
-    panel.openTab({ type: 'agent', title: 'Agent', icon: 'agent', key: 'agent-1' });
+    panel.openTab({ type: 'agent', title: 'Agent', icon: 'robot', key: 'agent-1' });
     panel.openTab({ type: 'file', title: 'File', icon: 'file', key: '/repo/file.ts' });
-    panel.openTab({ type: 'compaction', title: 'Compaction', icon: 'compact', key: 'turn-1' });
+    panel.openTab({ type: 'compaction', title: 'Compaction', icon: 'thinking', key: 'turn-1' });
 
     expect(panel.tabs.value.map((tab) => tab.type)).toEqual(['agent', 'file', 'compaction']);
 

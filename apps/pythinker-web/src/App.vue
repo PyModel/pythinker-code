@@ -579,6 +579,7 @@ watch(client.activeAppTasks, (tasks) => {
 });
 
 function openToolDiff(id: string): void {
+  showToolDiff(id);
   const current = toolDiffTarget.value;
   openTab({ type: 'toolDiff', key: id, title: current?.path ? pathTitle(current.path) : current?.title ?? t('panel.tabs.diff'), icon: 'file-edit', payload: { id } });
 }

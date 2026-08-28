@@ -340,6 +340,28 @@ describe('mcpResultToExecutableOutput', () => {
     expect(joined).toContain('"structuredContent":{"foo":1}');
   });
 
+  test('uses structuredContent when content only reports a dropped block', async () => {
+    const out = await mcpResultToExecutableOutput(
+      {
+        content: [{
+          type: 'resource',
+          resource: {
+            uri: 'file:///doc.pdf',
+            mimeType: 'application/pdf',
+            blob: 'XXX',
+          },
+        }],
+        isError: false,
+        structuredContent: { answer: 42 },
+      },
+      'mcp__s__t',
+    );
+    const parts = out.output as ContentPart[];
+    const joined = parts.map((part) => (part.type === 'text' ? part.text : '')).join('');
+    expect(joined).toContain('MCP content dropped');
+    expect(joined).toContain('"structuredContent":{"answer":42}');
+  });
+
   test('strips literal closing tags inside the structured payload', async () => {
     const out = await mcpResultToExecutableOutput(
       {

@@ -498,20 +498,21 @@ describe('AgentTaskService', () => {
     };
   }
 
-  it('stopAllOnExit suppresses and persists terminal state for detached tasks', async () => {
+  it('stopAllOnExit persists shutdown provenance independently of its reason', async () => {
     const writes = stubTaskWrites();
     const svc = ix.get(IAgentTaskService);
     const first = svc.registerTask(fakeProcessTask());
     const second = svc.registerTask(fakeProcessTask());
 
-    const stopped = await svc.stopAllOnExit('Session closed');
+    const stopped = await svc.stopAllOnExit('maintenance shutdown');
 
     expect(stopped.map((info) => info.taskId).toSorted()).toEqual([first, second].toSorted());
     for (const taskId of [first, second]) {
       const info = svc.getTask(taskId);
       expect(info?.status).toBe('killed');
-      expect(info?.stopReason).toBe('Session closed');
+      expect(info?.stopReason).toBe('maintenance shutdown');
       expect(info?.terminalNotificationSuppressed).toBe(true);
+      expect(info?.stoppedOnExit).toBe(true);
       const persisted = writes.filter((write) => write.taskId === taskId);
       expect(
         persisted.some(
@@ -521,7 +522,9 @@ describe('AgentTaskService', () => {
       ).toBe(true);
       expect(persisted.at(-1)).toMatchObject({
         status: 'killed',
+        stopReason: 'maintenance shutdown',
         terminalNotificationSuppressed: true,
+        stoppedOnExit: true,
       });
     }
   });

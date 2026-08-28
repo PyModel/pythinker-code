@@ -22,6 +22,7 @@ import type { IConfigService } from '#/app/config/config';
 import type { IAgentIdentity } from '#/app/agentIdentity/agentIdentity';
 import type { IModelService, ModelRecord } from '#/kosong/model/model';
 import type { IProviderService, ProviderConfig } from '#/kosong/provider/provider';
+import { ProviderService } from '#/kosong/provider/providerService';
 import '#/kosong/provider/providers/pythinker/pythinker.contrib';
 
 import { stubAgentIdentity } from '../agentIdentity/stubs';
@@ -154,6 +155,38 @@ describe('AuthSummaryService', () => {
       details: { provider_id: 'oauth' },
     });
     expect(getCachedAccessToken).toHaveBeenCalledWith('oauth', oauthRef);
+  });
+
+  it('resolves a providerless OAuth model when the default provider is blank', async () => {
+    const providerService = new ProviderService();
+    providerService.loadAll({}, '   ');
+    const modelService = {
+      list: () => ({
+        flat: {
+          protocol: 'openai',
+          model: 'model',
+          baseUrl: 'https://flat.example.test/v1',
+          oauth: oauthRef,
+          maxContextSize: 4096,
+        },
+      }),
+      getDefaultModel: () => 'flat',
+    } as unknown as IModelService;
+    const getCachedAccessToken = vi
+      .fn<IOAuthTokenService['getCachedAccessToken']>()
+      .mockResolvedValue('access-token');
+    const oauth = {
+      _serviceBrand: undefined,
+      status: vi.fn(),
+      getCachedAccessToken,
+      resolveTokenProvider: () => undefined,
+    } as unknown as IOAuthTokenService;
+    const config = { reload: async () => {} } as unknown as IConfigService;
+    const log = { warn: vi.fn() } as unknown as ILogger;
+    const service = new AuthSummaryService(providerService, modelService, config, oauth, log);
+
+    await expect(service.ensureReady('flat')).resolves.toBeUndefined();
+    expect(getCachedAccessToken).toHaveBeenCalledWith('flat.example.test', oauthRef);
   });
 });
 

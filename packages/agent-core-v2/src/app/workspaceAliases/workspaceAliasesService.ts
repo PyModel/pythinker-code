@@ -153,6 +153,7 @@ export class WorkspaceAliasesService extends Disposable implements IWorkspaceAli
   }> {
     try {
       const generation = this.invalidationGeneration;
+      const size = await this.storage.size(SESSION_INDEX_SCOPE, SESSION_INDEX_KEY);
       const entries = await readSessionIndexEntries(this.storage);
       const snapshot: SessionIndexSnapshot = {
         idsByRootKey: rootKeyIndex(entries, (entry) => entry.workDir, (entry) =>
@@ -160,10 +161,7 @@ export class WorkspaceAliasesService extends Disposable implements IWorkspaceAli
         ),
       };
       if (generation === this.invalidationGeneration) {
-        this.sessionIndexCache = {
-          snapshot,
-          size: await this.storage.size(SESSION_INDEX_SCOPE, SESSION_INDEX_KEY),
-        };
+        this.sessionIndexCache = { snapshot, size };
       }
       return { snapshot, generation };
     } finally {

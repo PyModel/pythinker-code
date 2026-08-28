@@ -5,12 +5,22 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n';
 import Icon from './Icon.vue';
+import IconButton from './IconButton.vue';
 
 const { t } = useI18n();
+const emit = defineEmits<{ close: [] }>();
 </script>
 
 <template>
   <div class="error-boundary fullscreen" role="alert">
+    <IconButton
+      class="error-boundary-close"
+      size="sm"
+      :label="t('thinking.close')"
+      @click="emit('close')"
+    >
+      <Icon name="close" size="sm" />
+    </IconButton>
     <Icon class="error-boundary-icon" name="alert-triangle" size="lg" />
     <p class="error-boundary-title">{{ t('common.asyncLoadFailed') }}</p>
   </div>
@@ -32,6 +42,11 @@ const { t } = useI18n();
   inset: 0;
   z-index: var(--z-modal);
   background: var(--color-bg);
+}
+.error-boundary-close {
+  position: absolute;
+  top: var(--space-4);
+  right: var(--space-4);
 }
 .error-boundary-icon {
   color: var(--color-warning);

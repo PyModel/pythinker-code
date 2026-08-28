@@ -410,6 +410,60 @@ describe('WorkspaceAliasesService (file-backed)', () => {
     );
   });
 
+  it('does not cache an old session-index snapshot with a newer size', async () => {
+    class GatedSizeStorage extends FileStorageService {
+      sizeCalls = 0;
+      gate: Promise<void> | undefined;
+      override async size(scope: string, key: string): Promise<number | undefined> {
+        if (key === 'session_index.jsonl') {
+          this.sizeCalls += 1;
+          if (this.gate !== undefined) await this.gate;
+        }
+        return super.size(scope, key);
+      }
+    }
+    const typedRoot = 'C:\\Users\\Foo\\Proj';
+    const typedId = encodeWorkDirKey(typedRoot);
+    const indexOnlyId = encodeWorkDirKey('c:\\Users\\Foo\\Proj');
+    await writeWorkspacesJson({
+      [typedId]: {
+        root: typedRoot,
+        name: 'proj',
+        created_at: '2026-01-01T00:00:00.000Z',
+        last_opened_at: '2026-01-01T00:00:00.000Z',
+      },
+    });
+    const storage = new GatedSizeStorage(homeDir);
+    const aliases = build(undefined, storage);
+    await aliases.resolveAliasIds(typedId);
+    const appendLogs = currentHost!.app.accessor.get(IAppendLogStore);
+    appendLogs.append('', 'session_index.jsonl', {
+      sessionId: 's1',
+      sessionDir: 'sessions/a/s1',
+      workDir: join(homeDir, 'unrelated'),
+    });
+    await appendLogs.flush();
+
+    let release: (() => void) | undefined;
+    storage.gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const baseline = storage.sizeCalls;
+    const pending = aliases.resolveAliasIds(typedId);
+    await vi.waitFor(() => {
+      expect(storage.sizeCalls).toBe(baseline + 1);
+    });
+    appendLogs.append('', 'session_index.jsonl', {
+      sessionId: 's2',
+      sessionDir: 'sessions/b/s2',
+      workDir: 'c:\\Users\\Foo\\Proj',
+    });
+    await appendLogs.flush();
+    release!();
+
+    expect((await pending).toSorted()).toEqual([indexOnlyId, typedId].toSorted());
+  });
+
   it('resolveAliasIds picks up catalog and session index changes', async () => {
     const entry = (root: string): PersistedWorkspaceEntry => ({
       root,

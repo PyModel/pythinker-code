@@ -53,6 +53,52 @@ describe('selection action bar', () => {
     selection.removeAllRanges();
     vi.unstubAllGlobals();
   });
+
+  it('consumes Escape without closing another document-level surface', async () => {
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      callback(0);
+      return 1;
+    });
+    vi.stubGlobal('cancelAnimationFrame', vi.fn());
+    const source = document.createElement('div');
+    source.className = 'pt-body';
+    source.textContent = 'selected text';
+    document.body.append(source);
+    const range = document.createRange();
+    range.selectNodeContents(source);
+    range.getBoundingClientRect = () =>
+      ({ left: 100, bottom: 80, width: 120, height: 20 }) as DOMRect;
+    const selection = window.getSelection()!;
+    selection.removeAllRanges();
+    selection.addRange(range);
+    const wrapper = mount(SelectionActionBar, {
+      attachTo: document.body,
+      props: { enabled: true },
+      global: { plugins: [webI18n], stubs: { Icon: true, teleport: true } },
+    });
+    document.dispatchEvent(new Event('selectionchange'));
+    await nextTick();
+    expect(wrapper.find('.sab').exists()).toBe(true);
+
+    const laterHandler = vi.fn();
+    document.addEventListener('keydown', laterHandler, true);
+    const escape = new KeyboardEvent('keydown', {
+      key: 'Escape',
+      bubbles: true,
+      cancelable: true,
+    });
+    document.dispatchEvent(escape);
+    await nextTick();
+
+    expect(escape.defaultPrevented).toBe(true);
+    expect(laterHandler).not.toHaveBeenCalled();
+    expect(wrapper.find('.sab').exists()).toBe(false);
+    document.removeEventListener('keydown', laterHandler, true);
+    wrapper.unmount();
+    source.remove();
+    selection.removeAllRanges();
+    vi.unstubAllGlobals();
+  });
 });
 
 describe('Composer toolbar overflow valves', () => {

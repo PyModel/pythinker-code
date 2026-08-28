@@ -883,6 +883,44 @@ describe('AgentTaskService — notification delivery', () => {
     }
   });
 
+  it('reminds once for a task stopped on exit with a custom reason', async () => {
+    const sessionDir = await mkdtemp(join(tmpdir(), 'pythinker-bg-agent-exit-'));
+    let fixture: TaskServiceFixture | undefined;
+    try {
+      const persistence = createAgentTaskPersistence(sessionDir);
+      await persistence.writeTask(
+        persistedAgent({
+          taskId: 'agent-exit0000',
+          description: 'interrupted task',
+          status: 'killed',
+          stopReason: 'maintenance shutdown',
+          terminalNotificationSuppressed: true,
+          stoppedOnExit: true,
+        }),
+      );
+      fixture = createAgentTaskService({ sessionDir });
+      const { agent, ctx, manager } = fixture;
+
+      await manager.loadFromDisk();
+      await manager.reconcile();
+
+      expect(firstAppendedContextMessage(agent).origin).toMatchObject({
+        kind: 'injection',
+        variant: 'task_resume_termination',
+      });
+      expect(
+        ctx.contextData().history.filter((message) => message.origin?.kind === 'task'),
+      ).toEqual([]);
+      await vi.waitFor(async () => {
+        await expect(persistence.readTask('agent-exit0000')).resolves.toMatchObject({
+          resumeReminded: true,
+        });
+      });
+    } finally {
+      await cleanupSessionDir(sessionDir, fixture);
+    }
+  });
+
   it('does not repeat a restored lost-task reminder when its marker is missing', async () => {
     const sessionDir = await mkdtemp(join(tmpdir(), 'pythinker-bg-agent-reminded-'));
     let fixture: TaskServiceFixture | undefined;

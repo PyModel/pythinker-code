@@ -110,6 +110,15 @@ describe('app shell contracts', () => {
     expect(sideChat).toContain('defineExpose({ focusInput });');
   });
 
+  it('selects a tool diff before deriving its tab title', () => {
+    const openToolDiff = app.slice(
+      app.indexOf('function openToolDiff(id: string): void {'),
+      app.indexOf('function openDiffDetail(): void {'),
+    );
+    expect(openToolDiff.indexOf('showToolDiff(id);'))
+      .toBeLessThan(openToolDiff.indexOf('const current = toolDiffTarget.value;'));
+  });
+
   it('fits the model menu to the visual viewport', () => {
     expect(composer).toContain("'flip-down': modelMenuFlipDown");
     expect(composer).toContain('window.visualViewport');
