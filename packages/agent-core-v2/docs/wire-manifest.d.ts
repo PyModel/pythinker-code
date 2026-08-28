@@ -572,12 +572,11 @@ interface StaleGuardRecordedPayload {
 interface SubagentBindingProvenanceRecordedPayload {
   _name: 'subagent.binding_provenance.recorded';
   agentId: string;
-  /** SubagentBindingProvenance */
   provenance: {
     operation: 'spawn' | 'fork' | 'resume';
     profileSource: 'requested' | 'default' | 'fork-inherit' | 'resume-existing';
     modelSource: 'caller' | 'policy-default' | 'policy-pool' | 'policy-force' | 'fork-inherit' | 'resume-existing';
-    policyMode: CanonicalSubagentModelPolicy['mode'];
+    policyMode: 'inherit' | 'default' | 'pool' | 'force';
     policySource: 'config' | 'default';
     featureSource: 'master-env' | 'env' | 'config' | 'default';
     resolvedFromRoutingEnvironmentRevision: string;
