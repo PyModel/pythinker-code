@@ -1,11 +1,15 @@
 // apps/pythinker-web/src/api/daemon/client.ts
 // DaemonPythinkerWebApi — implements PythinkerWebApi using the daemon REST + WS APIs.
 
+import { SubagentModelPolicyConflictError } from '../types';
 import { transcriptResponseSchema } from '@pymodel/transcript';
 import type { PythinkerApiConfig } from '../config';
 import { buildRestUrl, buildWsUrl } from '../config';
 import { traceKeyEvent } from '../../debug/trace';
 import type {
+  AppSubagentModelPolicy,
+  AppSubagentModelPolicyState,
+  AppServerMeta,
   AppConfig,
   AppGoal,
   AppMessage,
@@ -52,6 +56,9 @@ import type {
 import { createAgentProjector } from './agentEventProjector';
 import { DaemonHttpClient } from './http';
 import {
+  toAppSubagentModelPolicyState,
+  toWireSubagentModelPolicy,
+  toAppExperimentalFlagStates,
   toAppApprovalRequest,
   toAppConfig,
   toAppEvent,
@@ -72,6 +79,9 @@ import {
   wireEventSessionId,
 } from './mappers';
 import type {
+  WireSubagentModelPolicy,
+  WireSubagentModelPolicyResponse,
+  WireExperimentalFlagState,
   WireAuthResult,
   WireTask,
   WireConfig,
@@ -165,6 +175,7 @@ interface WireMeta {
   dangerous_bypass_auth?: boolean;
   /** Engine generation serving the API; older (v1) servers omit the field. */
   backend?: 'v1' | 'v2';
+  experimental_flag_states?: WireExperimentalFlagState[];
 }
 
 interface WireV2Session {
@@ -471,6 +482,9 @@ function isCompactionReason(reason: string): boolean {
 // DaemonPythinkerWebApi
 // ---------------------------------------------------------------------------
 
+/** Gateway envelope code for a stale If-Match on the subagent model policy (HTTP 412). */
+const SUBAGENT_POLICY_VERSION_CONFLICT = 41201;
+
 export class DaemonPythinkerWebApi implements PythinkerWebApi {
   private readonly http: DaemonHttpClient;
   private readonly httpV2: DaemonHttpClient;
@@ -498,16 +512,7 @@ export class DaemonPythinkerWebApi implements PythinkerWebApi {
     return { status: 'ok', uptimeSec: data.uptime_sec ?? 0 };
   }
 
-  async getMeta(): Promise<{
-    serverVersion: string;
-    serverId: string;
-    startedAt: string;
-    capabilities: Record<string, boolean>;
-    openInApps: string[];
-    dangerousBypassAuth: boolean;
-    /** Engine generation: 'v2' = agent-gateway / agent-core-v2; absent ⇒ 'v1'. */
-    backend: 'v1' | 'v2';
-  }> {
+  async getMeta(): Promise<AppServerMeta> {
     const data = await this.http.get<WireMeta>('/meta');
     return {
       serverVersion: data.server_version,
@@ -516,7 +521,9 @@ export class DaemonPythinkerWebApi implements PythinkerWebApi {
       capabilities: data.capabilities,
       openInApps: Array.isArray(data.open_in_apps) ? data.open_in_apps : [],
       dangerousBypassAuth: data.dangerous_bypass_auth === true,
+      // Engine generation: 'v2' = agent-gateway / agent-core-v2; absent ⇒ 'v1'.
       backend: data.backend === 'v2' ? 'v2' : 'v1',
+      experimentalFlagStates: toAppExperimentalFlagStates(data.experimental_flag_states),
     };
   }
 
@@ -1747,6 +1754,36 @@ export class DaemonPythinkerWebApi implements PythinkerWebApi {
     }
     const data = await this.http.post<WireConfig>('/config', wirePatch);
     return toAppConfig(data);
+  }
+
+  async getSubagentModelPolicy(): Promise<AppSubagentModelPolicyState> {
+    const res = await this.http.exchange<WireSubagentModelPolicyResponse>('GET', '/config/subagent-model-policy');
+    return toAppSubagentModelPolicyState(res.data);
+  }
+
+  async setSubagentModelPolicy(policy: AppSubagentModelPolicy, expectedVersion?: string): Promise<AppSubagentModelPolicyState> {
+    return this.subagentModelPolicyWrite('PUT', toWireSubagentModelPolicy(policy), expectedVersion);
+  }
+
+  async clearSubagentModelPolicy(expectedVersion?: string): Promise<AppSubagentModelPolicyState> {
+    return this.subagentModelPolicyWrite('DELETE', undefined, expectedVersion);
+  }
+
+  private async subagentModelPolicyWrite(
+    method: 'PUT' | 'DELETE',
+    body: WireSubagentModelPolicy | undefined,
+    expectedVersion: string | undefined,
+  ): Promise<AppSubagentModelPolicyState> {
+    const headers = expectedVersion === undefined ? undefined : { 'If-Match': `"${expectedVersion}"` };
+    const res = await this.http.exchange<WireSubagentModelPolicyResponse | null>(method, '/config/subagent-model-policy', {
+      body,
+      headers,
+      allowCodes: [SUBAGENT_POLICY_VERSION_CONFLICT],
+    });
+    if (res.code === SUBAGENT_POLICY_VERSION_CONFLICT || res.data === null) {
+      throw new SubagentModelPolicyConflictError(await this.getSubagentModelPolicy());
+    }
+    return toAppSubagentModelPolicyState(res.data);
   }
 
   // -------------------------------------------------------------------------

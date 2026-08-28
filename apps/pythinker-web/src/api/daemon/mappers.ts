@@ -3,6 +3,10 @@
 // All snake_case ↔ camelCase conversion happens ONLY here.
 
 import type {
+  AppSubagentModelPolicy,
+  AppSubagentModelPolicyState,
+  AppSubagentRouting,
+  AppExperimentalFlagState,
   AppApprovalRequest,
   AppCatalogProvider,
   AppConfig,
@@ -32,6 +36,10 @@ import type {
 } from '../types';
 
 import type {
+  WireSubagentModelPolicy,
+  WireSubagentModelPolicyResponse,
+  WireSubagentRouting,
+  WireExperimentalFlagState,
   WireApprovalRequest,
   WireApprovalResponse,
   WireCatalogProvider,
@@ -367,6 +375,155 @@ export function toWireQuestionResponse(input: QuestionResponse): WireQuestionRes
 // Task mapper
 // ---------------------------------------------------------------------------
 
+const ROUTING_OPERATIONS: readonly AppSubagentRouting['operation'][] = ['spawn', 'fork', 'resume'];
+const ROUTING_PROFILE_SOURCES: readonly AppSubagentRouting['profileSource'][] = [
+  'requested',
+  'default',
+  'fork-inherit',
+  'resume-existing',
+];
+const ROUTING_MODEL_SOURCES: readonly AppSubagentRouting['modelSource'][] = [
+  'caller',
+  'policy-default',
+  'policy-pool',
+  'policy-force',
+  'fork-inherit',
+  'resume-existing',
+];
+const ROUTING_POLICY_MODES: readonly AppSubagentRouting['policyMode'][] = ['inherit', 'default', 'pool', 'force'];
+const ROUTING_POLICY_SOURCES: readonly AppSubagentRouting['policySource'][] = ['config', 'default'];
+const ROUTING_FEATURE_SOURCES: readonly AppSubagentRouting['featureSource'][] = [
+  'master-env',
+  'env',
+  'config',
+  'default',
+];
+
+function oneOf<T extends string>(allowed: readonly T[], value: unknown): T | undefined {
+  return typeof value === 'string' && (allowed as readonly string[]).includes(value) ? (value as T) : undefined;
+}
+
+function nonEmptyString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+/** Builds the app routing object only when every field carries a value from its contract. */
+function toAppSubagentRoutingFromKeys(
+  r: Record<string, unknown>,
+  keys: Record<keyof AppSubagentRouting, string>,
+): AppSubagentRouting | undefined {
+  const operation = oneOf(ROUTING_OPERATIONS, r[keys.operation]);
+  const profileSource = oneOf(ROUTING_PROFILE_SOURCES, r[keys.profileSource]);
+  const modelSource = oneOf(ROUTING_MODEL_SOURCES, r[keys.modelSource]);
+  const policyMode = oneOf(ROUTING_POLICY_MODES, r[keys.policyMode]);
+  const policySource = oneOf(ROUTING_POLICY_SOURCES, r[keys.policySource]);
+  const featureSource = oneOf(ROUTING_FEATURE_SOURCES, r[keys.featureSource]);
+  const routingEnvRevision = nonEmptyString(r[keys.routingEnvRevision]);
+  const routeDecision = nonEmptyString(r[keys.routeDecision]);
+  if (
+    operation === undefined ||
+    profileSource === undefined ||
+    modelSource === undefined ||
+    policyMode === undefined ||
+    policySource === undefined ||
+    featureSource === undefined ||
+    routingEnvRevision === undefined ||
+    routeDecision === undefined
+  ) {
+    return undefined;
+  }
+  return {
+    operation,
+    profileSource,
+    modelSource,
+    policyMode,
+    policySource,
+    featureSource,
+    routingEnvRevision,
+    routeDecision,
+  };
+}
+
+const REST_ROUTING_KEYS: Record<keyof AppSubagentRouting, keyof WireSubagentRouting> = {
+  operation: 'operation',
+  profileSource: 'profile_source',
+  modelSource: 'model_source',
+  policyMode: 'policy_mode',
+  policySource: 'policy_source',
+  featureSource: 'feature_source',
+  routingEnvRevision: 'routing_env_revision',
+  routeDecision: 'route_decision',
+};
+
+const EVENT_ROUTING_KEYS: Record<keyof AppSubagentRouting, string> = {
+  operation: 'operation',
+  profileSource: 'profileSource',
+  modelSource: 'modelSource',
+  policyMode: 'policyMode',
+  policySource: 'policySource',
+  featureSource: 'featureSource',
+  routingEnvRevision: 'resolvedFromRoutingEnvironmentRevision',
+  routeDecision: 'routeDecisionFingerprint',
+};
+
+export function toAppSubagentRouting(wire: unknown): AppSubagentRouting | undefined {
+  if (typeof wire !== 'object' || wire === null) return undefined;
+  return toAppSubagentRoutingFromKeys(wire as Record<string, unknown>, REST_ROUTING_KEYS);
+}
+
+/** Engine-side camelCase provenance (WS `subagent.spawned` / `task.started` payloads). */
+export function toAppSubagentRoutingFromEvent(payload: unknown): AppSubagentRouting | undefined {
+  if (typeof payload !== 'object' || payload === null) return undefined;
+  return toAppSubagentRoutingFromKeys(payload as Record<string, unknown>, EVENT_ROUTING_KEYS);
+}
+
+export function toAppSubagentModelPolicy(wire: WireSubagentModelPolicy): AppSubagentModelPolicy {
+  switch (wire.mode) {
+    case 'default':
+      return { mode: 'default', defaultModel: wire.default_model ?? '', defaultEffort: wire.default_effort };
+    case 'pool':
+      return {
+        mode: 'pool',
+        defaultModel: wire.default_model ?? '',
+        models: wire.models ?? {},
+        defaultEffort: wire.default_effort,
+      };
+    case 'force':
+      return { mode: 'force', defaultModel: wire.default_model ?? '', defaultEffort: wire.default_effort };
+    default:
+      return { mode: 'inherit' };
+  }
+}
+
+export function toWireSubagentModelPolicy(policy: AppSubagentModelPolicy): WireSubagentModelPolicy {
+  switch (policy.mode) {
+    case 'default':
+      return { mode: 'default', default_model: policy.defaultModel, default_effort: policy.defaultEffort || undefined };
+    case 'pool':
+      return {
+        mode: 'pool',
+        default_model: policy.defaultModel,
+        models: policy.models,
+        default_effort: policy.defaultEffort || undefined,
+      };
+    case 'force':
+      return { mode: 'force', default_model: policy.defaultModel, default_effort: policy.defaultEffort || undefined };
+    default:
+      return { mode: 'inherit' };
+  }
+}
+
+export function toAppSubagentModelPolicyState(wire: WireSubagentModelPolicyResponse): AppSubagentModelPolicyState {
+  return {
+    policy: toAppSubagentModelPolicy(wire.policy),
+    resourceVersion: wire.resource_version,
+    configuredPolicy: toAppSubagentModelPolicy(wire.effective.configured_policy),
+    effectivePolicy: toAppSubagentModelPolicy(wire.effective.effective_policy),
+    policySource: wire.effective.policy_source,
+    feature: { enabled: wire.effective.feature.enabled, source: wire.effective.feature.source },
+  };
+}
+
 export function toAppTask(wire: WireTask): AppTask {
   return {
     id: wire.id,
@@ -383,6 +540,8 @@ export function toAppTask(wire: WireTask): AppTask {
     agentId: wire.agent_id,
     model: wire.model,
     thinkingEffort: wire.thinking_effort,
+    routing: toAppSubagentRouting(wire.routing),
+    currentRoutingEnvRevision: wire.current_routing_env_revision,
     subagentPhase: wire.subagent_phase,
     subagentType: wire.subagent_type,
     parentToolCallId: wire.parent_tool_call_id,
@@ -804,6 +963,21 @@ export function toCatalogProviderImportResult(
     provider: toAppCatalogProvider(wire.provider),
     modelsImported: wire.models_imported,
   };
+}
+
+export function toAppExperimentalFlagStates(
+  wire: readonly WireExperimentalFlagState[] | undefined,
+): AppExperimentalFlagState[] {
+  if (!Array.isArray(wire)) return [];
+  return wire.map((state) => ({
+    id: state.id,
+    enabled: state.enabled === true,
+    source: state.source,
+    configValue: typeof state.config_value === 'boolean' ? state.config_value : undefined,
+    defaultEnabled: state.default_enabled === true,
+    externallyControlled: state.externally_controlled === true,
+    overridden: state.overridden === true,
+  }));
 }
 
 export function toAppConfig(wire: WireConfig): AppConfig {

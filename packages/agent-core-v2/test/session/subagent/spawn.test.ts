@@ -1,3 +1,4 @@
+import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
@@ -31,6 +32,17 @@ import { SECONDARY_MODEL_FLAG_ID } from '#/session/subagent/flag';
 import { ISessionSubagentService } from '#/session/subagent/subagent';
 import { SessionSubagentService } from '#/session/subagent/subagentService';
 import {
+  IAgentBindingProvenanceService,
+  type IAgentBindingProvenanceService as AgentBindingProvenanceServiceContract,
+} from '#/session/subagent/bindingProvenance';
+import type { SubagentBindingProvenance } from '#/session/subagent/routing';
+import { ISubagentModelPolicyService } from '#/session/subagent/subagentModelPolicy';
+import { SubagentModelPolicyService } from '#/session/subagent/subagentModelPolicyService';
+import {
+  ISubagentRoutingService,
+  SessionSubagentRoutingService,
+} from '#/session/subagent/subagentRoutingService';
+import {
   FORK_CONTEXT_NOTICE,
   type SpawnedSubagent,
   type SpawnSubagentOptions,
@@ -54,6 +66,8 @@ describe('SessionSubagentService planSpawn and spawn', () => {
   let modelMeta: Map<string, Partial<Model>>;
   let caller: IAgentScopeHandle;
   let createdHandles: Map<string, IAgentScopeHandle>;
+  let recordedProvenance: Map<string, SubagentBindingProvenance[]>;
+  let telemetry: ITelemetryService;
   let createAgent: ReturnType<typeof vi.fn>;
   let forkAgent: ReturnType<typeof vi.fn>;
   let acquireRuntime: ReturnType<typeof vi.fn>;
@@ -92,6 +106,15 @@ describe('SessionSubagentService planSpawn and spawn', () => {
           }
           if (serviceId === IAgentPermissionModeService) return createdPermissionMode;
           if (serviceId === IAgentUserToolService) return createdUserTools;
+          if (serviceId === IAgentBindingProvenanceService) {
+            return {
+              _serviceBrand: undefined,
+              current: () => recordedProvenance.get(agentId)?.at(-1),
+              record: (provenance: SubagentBindingProvenance) => {
+                recordedProvenance.set(agentId, [...(recordedProvenance.get(agentId) ?? []), provenance]);
+              },
+            } satisfies AgentBindingProvenanceServiceContract;
+          }
           return undefined;
         },
       } as IAgentScopeHandle['accessor'],
@@ -161,6 +184,8 @@ describe('SessionSubagentService planSpawn and spawn', () => {
       dispose: () => {},
     };
     createdHandles = new Map();
+    recordedProvenance = new Map();
+    telemetry = { _serviceBrand: undefined, track2: vi.fn(), track: vi.fn() } as unknown as ITelemetryService;
     createAgent = vi.fn(async (input: { readonly agentId?: string } = {}) => {
       const agentId = input.agentId ?? 'agent-child';
       createdHandles.set(agentId, createdHandle(agentId));
@@ -225,6 +250,9 @@ describe('SessionSubagentService planSpawn and spawn', () => {
       IFlagService,
       stubFlag((id) => secondaryModelEnabled && id === SECONDARY_MODEL_FLAG_ID),
     );
+    ix.stub(ITelemetryService, telemetry);
+    ix.set(ISubagentModelPolicyService, new SyncDescriptor(SubagentModelPolicyService));
+    ix.set(ISubagentRoutingService, new SyncDescriptor(SessionSubagentRoutingService));
     ix.set(ISessionSubagentService, new SyncDescriptor(SessionSubagentService));
     return ix.get(ISessionSubagentService);
   }
@@ -341,12 +369,25 @@ describe('SessionSubagentService planSpawn and spawn', () => {
       true,
     );
 
-    expect(await svc.planSpawn({ callerAgentId: CALLER_ID, profileName: 'coder' })).toEqual({
+    expect(await svc.planSpawn({ callerAgentId: CALLER_ID, profileName: 'coder' })).toMatchObject({
       profileName: 'coder',
       model: 'provider/fast',
       thinking: 'max',
       fork: false,
     });
+  });
+
+  it('hands the planned routing provenance to the created child, for spawn and fork', async () => {
+    const svc = service();
+    const plan = await svc.planSpawn({ callerAgentId: CALLER_ID, profileName: 'coder' });
+    expect(plan.routing).toMatchObject({ operation: 'spawn', modelSource: 'caller', policyMode: 'inherit' });
+    await svc.spawn({ callerAgentId: CALLER_ID, plan, prompt: 'do it' });
+    expect(recordedProvenance.get('agent-child')).toEqual([plan.routing]);
+
+    const forkPlan = await svc.planSpawn({ callerAgentId: CALLER_ID, fork: true });
+    expect(forkPlan.routing).toMatchObject({ operation: 'fork', profileSource: 'fork-inherit', modelSource: 'fork-inherit' });
+    await svc.spawn({ callerAgentId: CALLER_ID, plan: forkPlan, prompt: 'forked' });
+    expect(recordedProvenance.get('agent-fork')).toEqual([forkPlan.routing]);
   });
 
   it('falls back to the bound model default effort', async () => {
@@ -429,7 +470,7 @@ describe('SessionSubagentService planSpawn and spawn', () => {
       true,
     );
 
-    expect(await svc.planSpawn({ callerAgentId: CALLER_ID, profileName: 'coder' })).toEqual({
+    expect(await svc.planSpawn({ callerAgentId: CALLER_ID, profileName: 'coder' })).toMatchObject({
       profileName: 'coder',
       model: 'provider/fast',
       thinking: 'max',
@@ -460,7 +501,7 @@ describe('SessionSubagentService planSpawn and spawn', () => {
 
     const plan = await svc.planSpawn({ callerAgentId: CALLER_ID, fork: true });
 
-    expect(plan).toEqual({
+    expect(plan).toMatchObject({
       profileName: 'orchestrator',
       model: 'main-model',
       thinking: 'high',

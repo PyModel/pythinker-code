@@ -1,4 +1,5 @@
-import type { AppSubagentPhase, AppTask } from '../api/types';
+import type {
+  AppSubagentRouting, AppSubagentPhase, AppTask } from '../api/types';
 
 export interface DynamicWorkflowMember {
   id: string;
@@ -6,6 +7,10 @@ export interface DynamicWorkflowMember {
   subagentType?: string;
   model?: string;
   thinkingEffort?: string;
+  routing?: AppSubagentRouting;
+  currentRoutingEnvRevision?: string;
+  startedAt?: string;
+  completedAt?: string;
   phase: AppSubagentPhase;
   summary?: string;
   outputLines?: string[];
@@ -59,6 +64,10 @@ export function buildDynamicWorkflowGroups(tasks: AppTask[]): DynamicWorkflowGro
       subagentType: task.subagentType,
       model: task.model,
       thinkingEffort: task.thinkingEffort,
+      routing: task.routing,
+      currentRoutingEnvRevision: task.currentRoutingEnvRevision,
+      startedAt: task.startedAt,
+      completedAt: task.completedAt,
       phase: phaseForTask(task),
       summary: task.outputPreview,
       outputLines: task.outputLines,
@@ -116,6 +125,10 @@ export function dynamicWorkflowMembersByToolCall(tasks: AppTask[]): Map<string, 
       subagentType: task.subagentType,
       model: task.model,
       thinkingEffort: task.thinkingEffort,
+      routing: task.routing,
+      currentRoutingEnvRevision: task.currentRoutingEnvRevision,
+      startedAt: task.startedAt,
+      completedAt: task.completedAt,
       phase: phaseForTask(task),
       summary: task.outputPreview,
       outputLines: task.outputLines,

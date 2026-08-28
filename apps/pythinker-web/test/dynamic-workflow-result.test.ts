@@ -70,3 +70,46 @@ describe('parseDynamicWorkflowResult', () => {
     expect(result?.subagents[1]?.body).toBe('just B');
   });
 });
+
+describe('parseDynamicWorkflowResult binding attributes', () => {
+  it('reads the durable binding attributes and unescapes them; old rows stay compatible', () => {
+    const output = [
+      '<agent_dynamic_workflow_result>',
+      '<summary>completed: 2</summary>',
+      '<subagent agent_id="a1" item="alpha" profile="explore" model="acme/&quot;q&quot; &amp; &lt;m&gt;" thinking="low" profile_source="requested" model_source="policy-pool" policy_mode="pool" policy_source="config" feature_source="env" routing_env_revision="route-env:v1:aaa" route_decision="route-decision:v1:bbb" started_at="2026-01-01T00:00:00.000Z" completed_at="2026-01-01T00:00:05.000Z" outcome="completed">first</subagent>',
+      '<subagent mode="resume" agent_id="a2" item="beta" profile="coder" model="acme/luna" profile_source="resume-existing" model_source="resume-existing" policy_mode="inherit" policy_source="default" feature_source="default" routing_env_revision="route-env:v1:old" route_decision="route-decision:v1:x" outcome="completed">second</subagent>',
+      '<subagent item="gamma" outcome="failed">boom</subagent>',
+      '</agent_dynamic_workflow_result>',
+    ];
+    const result = parseDynamicWorkflowResult(output);
+    expect(result?.subagents[0]).toEqual({
+      outcome: 'completed',
+      item: 'alpha',
+      agentId: 'a1',
+      body: 'first',
+      profile: 'explore',
+      model: 'acme/"q" & <m>',
+      thinking: 'low',
+      routing: {
+        operation: 'spawn',
+        profileSource: 'requested',
+        modelSource: 'policy-pool',
+        policyMode: 'pool',
+        policySource: 'config',
+        featureSource: 'env',
+        routingEnvRevision: 'route-env:v1:aaa',
+        routeDecision: 'route-decision:v1:bbb',
+      },
+      startedAt: '2026-01-01T00:00:00.000Z',
+      completedAt: '2026-01-01T00:00:05.000Z',
+    });
+    expect(result?.subagents[1]).toMatchObject({
+      mode: 'resume',
+      profile: 'coder',
+      model: 'acme/luna',
+      routing: { operation: 'resume', modelSource: 'resume-existing', routingEnvRevision: 'route-env:v1:old' },
+    });
+    expect(result?.subagents[1]?.thinking).toBeUndefined();
+    expect(result?.subagents[2]).toEqual({ outcome: 'failed', item: 'gamma', body: 'boom' });
+  });
+});

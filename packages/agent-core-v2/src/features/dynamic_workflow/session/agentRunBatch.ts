@@ -6,7 +6,17 @@ import { isUserCancellation } from '#/_base/utils/abort';
 import { setClampedTimeout } from '#/_base/utils/timer';
 import { BugIndicatingError, Error2, ErrorCodes } from '#/errors';
 import type { SubagentSpawnPlan } from '#/session/subagent/spawn';
-import type { SessionDynamicWorkflowRunResult, SessionDynamicWorkflowTask } from './sessionDynamicWorkflow';
+import type {
+  SessionDynamicWorkflowRunResult,
+  SessionDynamicWorkflowTask,
+  SubagentRunBinding,
+} from './sessionDynamicWorkflow';
+
+function settledBinding(
+  binding: SubagentRunBinding | undefined,
+): (SubagentRunBinding & { readonly completedAt: number }) | undefined {
+  return binding === undefined ? undefined : { ...binding, completedAt: Date.now() };
+}
 
 export interface AgentRunAttemptOptions {
   readonly parentToolCallId: string;
@@ -29,6 +39,7 @@ export interface AgentSpawnAttemptOptions extends AgentRunAttemptOptions {
 export type AgentRunAttemptHandle = {
   readonly agentId: string;
   readonly profileName: string;
+  readonly binding?: SubagentRunBinding;
   readonly completion: Promise<{
     readonly result: string;
     readonly usage?: TokenUsage;
@@ -311,6 +322,7 @@ export class AgentRunBatch<T> {
         status: 'completed',
         result: completion.result,
         usage: completion.usage,
+        binding: settledBinding(handle.binding),
       };
     } catch (error) {
       if (isProviderRateLimitError(error)) {
@@ -321,7 +333,7 @@ export class AgentRunBatch<T> {
         };
       }
 
-      return this.failedAttemptOutcome(attempt, error);
+      return { ...this.failedAttemptOutcome(attempt, error), binding: settledBinding(handle.binding) };
     }
   }
 

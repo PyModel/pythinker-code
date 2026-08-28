@@ -7,6 +7,7 @@
 // the view-model computeds stay in the facade; cross-dependencies are injected
 // here as params.
 
+import { SubagentModelPolicyConflictError } from '../../api/types';
 import { reactive, type ComputedRef, type Ref } from 'vue';
 import { getPythinkerWebApi } from '../../api';
 import { i18n } from '../../i18n';
@@ -15,6 +16,8 @@ import { isDaemonApiError } from '../../api/errors';
 import { SERVER_AUTH_UNAUTHORIZED_CODE } from '../../api/daemon/http';
 import { isPlaceholderSessionUsage } from '../../api/daemon/mappers';
 import type {
+  AppSubagentModelPolicy,
+  AppSubagentModelPolicyState,
   AppConfig,
   AppInFlightTurn,
   AppMessage,
@@ -485,8 +488,50 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
     }
   }
 
+  /** Fetch the saved + effective subagent model routing policy. Defensive —
+   *  an older server without the endpoint leaves the state null. */
+  async function loadSubagentModelPolicy(): Promise<void> {
+    try {
+      rawState.subagentModelPolicy = await getPythinkerWebApi().getSubagentModelPolicy();
+    } catch {
+      rawState.subagentModelPolicy = null;
+    }
+  }
+
+  /** Write the policy with If-Match on the version we last read. A 412 means
+   *  another client wrote first: adopt the server's current state and surface
+   *  the conflict instead of overwriting it. Returns true when saved. */
+  async function writeSubagentModelPolicy(
+    write: (expectedVersion: string | undefined) => Promise<AppSubagentModelPolicyState>,
+  ): Promise<boolean> {
+    rawState.subagentModelPolicySaving = true;
+    try {
+      rawState.subagentModelPolicy = await write(rawState.subagentModelPolicy?.resourceVersion);
+      return true;
+    } catch (error) {
+      if (error instanceof SubagentModelPolicyConflictError) {
+        rawState.subagentModelPolicy = error.current;
+        pushOperationFailure('saveSubagentModelPolicy', error, { message: error.message });
+        return false;
+      }
+      pushOperationFailure('saveSubagentModelPolicy', error);
+      return false;
+    } finally {
+      rawState.subagentModelPolicySaving = false;
+    }
+  }
+
+  function saveSubagentModelPolicy(policy: AppSubagentModelPolicy): Promise<boolean> {
+    return writeSubagentModelPolicy((version) => getPythinkerWebApi().setSubagentModelPolicy(policy, version));
+  }
+
+  function clearSubagentModelPolicy(): Promise<boolean> {
+    return writeSubagentModelPolicy((version) => getPythinkerWebApi().clearSubagentModelPolicy(version));
+  }
+
   /** Fetch global config from GET /api/v1/config. Defensive — never throws. */
   async function loadConfig(): Promise<void> {
+    await loadSubagentModelPolicy();
     try {
       const api = getPythinkerWebApi();
       rawState.config = await api.getConfig();
@@ -1061,6 +1106,7 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
     rawState.availableOpenInApps = m.openInApps;
     rawState.dangerousBypassAuth = m.dangerousBypassAuth;
     rawState.backend = m.backend;
+    rawState.experimentalFlagStates = m.experimentalFlagStates;
     rawState.serverCapabilities = m.capabilities;
   }
 
@@ -3105,6 +3151,9 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
     checkAuth,
     loadConfig,
     updateConfig,
+    loadSubagentModelPolicy,
+    saveSubagentModelPolicy,
+    clearSubagentModelPolicy,
     listAllSessionsGlobal,
     load,
     refreshServerMeta,

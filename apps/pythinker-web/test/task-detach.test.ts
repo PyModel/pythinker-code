@@ -151,6 +151,11 @@ describe('detachable-task predicate', () => {
     expect(probe([task({ parentToolCallId: 'parent-tool' })])).toBe(true);
   });
 
+  it('matches a task keyed by the tool call id itself, not only by parent', () => {
+    expect(probe([task({ id: 'parent-tool' })])).toBe(true);
+    expect(probe([task({ id: 'parent-tool', runInBackground: true })])).toBe(false);
+  });
+
   it('reports not detachable once the task runs in the background', () => {
     expect(probe([task({ parentToolCallId: 'parent-tool', runInBackground: true })])).toBe(false);
   });
@@ -173,7 +178,7 @@ describe('detachTask API client', () => {
     const api = new DaemonPythinkerWebApi({
       serverHttpUrl: 'http://example.test:58627',
       clientId: 'web_test',
-      clientName: 'test',
+      clientName: 'pythinker-code-web',
       clientVersion: '0.1.1',
       clientUiMode: 'web',
     });
@@ -199,11 +204,5 @@ describe('detach plumbing', () => {
       .toContain("@detach-task=\"client.detachTask($event)\"");
     expect(read('../src/composables/usePythinkerWebClient.ts'))
       .toContain('detachTask: workspaceState.detachTask,');
-  });
-
-  it('keeps the touch detach button compact with a 44px hit target', () => {
-    const source = read('../src/components/chat/tool-calls/BashTool.vue');
-    expect(source).toContain('.tl-detach.touch {\n  width: 16px;\n  height: 16px;\n}');
-    expect(source).toContain(".tl-detach.touch::after {\n  content: '';\n  position: absolute;\n  inset: -14px;");
   });
 });

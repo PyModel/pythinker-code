@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n';
 import type { FilePreviewRequest, ToolCall, ToolMedia } from '../../../types';
 import { toolGlyph, toolLabel, toolSummary } from '../../../lib/toolMeta';
 import Icon from '../../ui/Icon.vue';
+import IconButton from '../../ui/IconButton.vue';
 import Tooltip from '../../ui/Tooltip.vue';
 import ToolRow from '../ToolRow.vue';
 import ToolOutputBlock from './ToolOutputBlock.vue';
@@ -73,15 +74,15 @@ watch(
   >
     <template #trailing>
       <Tooltip v-if="canDetach" :text="t('tasks.toBackground')">
-        <button
+        <IconButton
           class="tl-detach"
           :class="{ touch: mobile }"
-          type="button"
-          :aria-label="t('tasks.toBackground')"
+          size="sm"
+          :label="t('tasks.toBackground')"
           @click.stop="emit('detach', tool.id)"
         >
-          <Icon name="pip" size="sm" aria-hidden="true" />
-        </button>
+          <Icon name="pip" size="sm" />
+        </IconButton>
       </Tooltip>
       <span v-if="tool.timing" class="chip">{{ tool.timing }}</span>
     </template>
@@ -94,38 +95,17 @@ watch(
 </template>
 
 <style scoped>
-/* "To background" — a quiet glyph in the row's trailing slot, with a 44px hit
-   area on touch layouts. */
+/* "To background" — the shared IconButton in the row's trailing slot; on touch
+   layouts the hit area grows through an invisible inset, so the collapsed row
+   keeps its height (same approach as AgentTool). */
 .tl-detach {
   position: relative;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  align-self: center;
-  width: 16px;
-  height: 16px;
-  border: none;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--color-text-faint);
-  cursor: pointer;
   flex: none;
-}
-.tl-detach:hover {
-  color: var(--color-text);
-}
-.tl-detach:focus-visible {
-  outline: none;
-  box-shadow: var(--p-focus-ring);
-}
-.tl-detach.touch {
-  width: 16px;
-  height: 16px;
 }
 .tl-detach.touch::after {
   content: '';
   position: absolute;
-  inset: -14px;
+  inset: -9px;
 }
 .bash-command {
   padding: var(--space-3);

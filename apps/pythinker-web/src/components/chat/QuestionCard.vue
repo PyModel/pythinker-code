@@ -584,7 +584,8 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
 .chk, .rad { font: var(--text-base) var(--font-mono); }
 
 .other-input {
-  flex: 1;
+  flex: 1 1 8ch;
+  min-width: 8ch;
   font: var(--text-base) var(--font-ui);
   border: none;
   border-bottom: 1px solid var(--color-line);

@@ -330,6 +330,30 @@ export interface QuestionResponse {
 export type AppTaskStatus = 'running' | 'completed' | 'failed' | 'cancelled';
 export type AppSubagentPhase = 'queued' | 'working' | 'suspended' | 'completed' | 'failed' | 'cancelled';
 
+export type AppSubagentRoutingOperation = 'spawn' | 'fork' | 'resume';
+export type AppSubagentProfileSource = 'requested' | 'default' | 'fork-inherit' | 'resume-existing';
+export type AppSubagentModelSource =
+  | 'caller'
+  | 'policy-default'
+  | 'policy-pool'
+  | 'policy-force'
+  | 'fork-inherit'
+  | 'resume-existing';
+export type AppSubagentPolicyMode = 'inherit' | 'default' | 'pool' | 'force';
+export type AppSubagentPolicySource = 'config' | 'default';
+export type AppSubagentFeatureSource = 'master-env' | 'env' | 'config' | 'default';
+
+export interface AppSubagentRouting {
+  operation: AppSubagentRoutingOperation;
+  profileSource: AppSubagentProfileSource;
+  modelSource: AppSubagentModelSource;
+  policyMode: AppSubagentPolicyMode;
+  policySource: AppSubagentPolicySource;
+  featureSource: AppSubagentFeatureSource;
+  routingEnvRevision: string;
+  routeDecision: string;
+}
+
 export interface AppTask {
   id: string;
   sessionId: string;
@@ -346,6 +370,10 @@ export interface AppTask {
   agentId?: string;
   model?: string;
   thinkingEffort?: string;
+  /** Why the subagent is bound the way it is (stable enum ids from the server). */
+  routing?: AppSubagentRouting;
+  /** The caller's routing environment revision when this task was observed. */
+  currentRoutingEnvRevision?: string;
   outputLines?: string[]; // accumulated by eventReducer from task.progress chunks
   /** The subagent's concatenated live output (assistant.delta), accumulated by
    *  the event reducer from `taskProgress` chunks of kind `text`. Grows in the
@@ -812,6 +840,31 @@ export interface AppConfigProvider {
   hasApiKey: boolean;
 }
 
+export type AppSubagentModelPolicy =
+  | { mode: 'inherit' }
+  | { mode: 'default'; defaultModel: string; defaultEffort?: string }
+  | { mode: 'pool'; defaultModel: string; models: Record<string, string>; defaultEffort?: string }
+  | { mode: 'force'; defaultModel: string; defaultEffort?: string };
+
+/** GET/PUT/DELETE `/config/subagent-model-policy`: the saved policy, its
+ *  strong resource version (the HTTP ETag), and what currently applies. */
+export interface AppSubagentModelPolicyState {
+  policy: AppSubagentModelPolicy;
+  resourceVersion: string;
+  configuredPolicy: AppSubagentModelPolicy;
+  effectivePolicy: AppSubagentModelPolicy;
+  policySource: 'config' | 'default';
+  feature: { enabled: boolean; source: 'master-env' | 'env' | 'config' | 'default' };
+}
+
+/** Thrown by the policy writes when the server's version moved (HTTP 412). */
+export class SubagentModelPolicyConflictError extends Error {
+  constructor(readonly current: AppSubagentModelPolicyState) {
+    super('The subagent model policy changed on the server; reloaded the saved policy.');
+    this.name = 'SubagentModelPolicyConflictError';
+  }
+}
+
 export interface AppConfig {
   providers: Record<string, AppConfigProvider>;
   defaultProvider?: string;
@@ -938,9 +991,37 @@ export interface AppSessionWarning {
   severity: 'info' | 'warning' | 'error';
 }
 
+export type AppExperimentalFlagSource = 'master-env' | 'env' | 'config' | 'default';
+
+/** Effective state of one experimental flag as decided by the server. */
+export interface AppExperimentalFlagState {
+  id: string;
+  /** What currently applies at runtime. */
+  enabled: boolean;
+  source: AppExperimentalFlagSource;
+  /** The saved `[experimental]` value, when one exists. */
+  configValue?: boolean;
+  defaultEnabled: boolean;
+  /** True when an environment variable decides the flag; the saved setting has no runtime effect. */
+  externallyControlled: boolean;
+  /** True when a saved setting exists and the effective value differs from it. */
+  overridden: boolean;
+}
+
+export interface AppServerMeta {
+  serverVersion: string;
+  serverId: string;
+  startedAt: string;
+  capabilities: Record<string, boolean>;
+  openInApps: string[];
+  dangerousBypassAuth: boolean;
+  backend: 'v1' | 'v2';
+  experimentalFlagStates: AppExperimentalFlagState[];
+}
+
 export interface PythinkerWebApi {
   getHealth(): Promise<{ status: 'ok'; uptimeSec: number }>;
-  getMeta(): Promise<{ serverVersion: string; serverId: string; startedAt: string; capabilities: Record<string, boolean>; openInApps: string[]; dangerousBypassAuth: boolean; backend: 'v1' | 'v2' }>;
+  getMeta(): Promise<AppServerMeta>;
   listSessions(input?: PageRequest & { busy?: boolean; workspaceId?: string; includeArchive?: boolean; archivedOnly?: boolean; excludeEmpty?: boolean }): Promise<Page<AppSession>>;
   listSessionGroupsV2(input?: { groupPageSize?: number; hasPrompt?: boolean; pageSize?: number; pageToken?: string }): Promise<AppSessionGroupPage>;
   createSession(input: { title?: string; cwd?: string; model?: string; workspaceId?: string }): Promise<AppSession>;
@@ -1053,6 +1134,10 @@ export interface PythinkerWebApi {
   // Config — REAL endpoints
   getConfig(): Promise<AppConfig>;
   setConfig(patch: Partial<AppConfig>): Promise<AppConfig>;
+  getSubagentModelPolicy(): Promise<AppSubagentModelPolicyState>;
+  /** `expectedVersion` is sent as If-Match; a stale version rejects with SubagentModelPolicyConflictError. */
+  setSubagentModelPolicy(policy: AppSubagentModelPolicy, expectedVersion?: string): Promise<AppSubagentModelPolicyState>;
+  clearSubagentModelPolicy(expectedVersion?: string): Promise<AppSubagentModelPolicyState>;
 
   // Auth — REAL endpoints
   getAuth(): Promise<{

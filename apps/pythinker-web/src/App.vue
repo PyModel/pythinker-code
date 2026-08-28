@@ -203,6 +203,16 @@ provide(
   'resolveDynamicWorkflowMembers',
   (toolCallId: string): DynamicWorkflowMember[] => client.dynamicWorkflowMembersByToolCallId.value.get(toolCallId) ?? [],
 );
+// The session's own binding, so the Dynamic Workflow card can show MAIN next
+// to SUBAGENTS; the Override chip on that card opens Settings → Agent.
+provide('mainModelBinding', (): { model?: string; effort?: string } | undefined => {
+  const modelId = client.status.value.modelId;
+  if (!modelId) return undefined;
+  return { model: modelId, effort: client.thinking.value };
+});
+provide('openAgentSettings', (): void => {
+  openSettings('agent');
+});
 const { t } = useI18n();
 const { confirm } = useConfirmDialog();
 
@@ -673,7 +683,7 @@ const showModelPicker = ref(false);
 const showAddWorkspace = ref(false);
 const showStatusPanel = ref(false);
 const showSettings = ref(false);
-const settingsInitialTab = ref<'general' | 'providers'>('general');
+const settingsInitialTab = ref<'general' | 'providers' | 'agent'>('general');
 const overlayOpen = computed(() =>
   openDialogCount.value > 0 ||
   showModelPicker.value ||
@@ -740,7 +750,7 @@ async function openModelPicker(): Promise<void> {
   }
 }
 
-function openSettings(tab: 'general' | 'providers' = 'general'): void {
+function openSettings(tab: 'general' | 'providers' | 'agent' = 'general'): void {
   settingsInitialTab.value = tab;
   showSettings.value = true;
 }
@@ -856,7 +866,9 @@ async function handleUpdateConfig(patch: Partial<AppConfig>): Promise<void> {
   try {
     const saved = await client.updateConfig(patch);
     if (saved) {
-      await client.refreshRuntimeState();
+      // Flag state and other server-decided metadata may change with the
+      // saved config; re-read /meta so the Lab chips reflect the new state.
+      await Promise.all([client.refreshRuntimeState(), client.refreshServerMeta()]);
     }
   } finally {
     configSaving.value = false;
@@ -1657,6 +1669,11 @@ function openPr(url: string): void {
       :config-saving="configSaving"
       :server-version="client.serverVersion.value"
       :backend="client.backend.value"
+      :experimental-flag-states="client.experimentalFlagStates.value"
+      :subagent-model-policy="client.subagentModelPolicy.value"
+      :subagent-model-policy-saving="client.subagentModelPolicySaving.value"
+      @save-subagent-model-policy="(policy) => void client.saveSubagentModelPolicy(policy)"
+      @clear-subagent-model-policy="void client.clearSubagentModelPolicy()"
       :initial-tab="settingsInitialTab"
       @set-color-scheme="client.setColorScheme($event)"
       @set-accent="client.setAccent($event)"

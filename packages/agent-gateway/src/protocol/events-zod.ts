@@ -36,6 +36,7 @@ import type {
   GoalSnapshot,
   GoalStatus,
   GoalToolResult,
+  SubagentBindingProvenance,
 } from '@pymodel/agent-core-v2';
 import type {
   AssistantDeltaPayload,
@@ -893,6 +894,24 @@ export const toolResultEventSchema = z.object({
   synthetic: z.boolean().optional(),
 }) satisfies z.ZodType<ToolResultEventPayload>;
 
+const subagentRoutingProvenanceSchema = z.object({
+  operation: z.enum(['spawn', 'fork', 'resume']),
+  profileSource: z.enum(['requested', 'default', 'fork-inherit', 'resume-existing']),
+  modelSource: z.enum([
+    'caller',
+    'policy-default',
+    'policy-pool',
+    'policy-force',
+    'fork-inherit',
+    'resume-existing',
+  ]),
+  policyMode: z.enum(['inherit', 'default', 'pool', 'force']),
+  policySource: z.enum(['config', 'default']),
+  featureSource: z.enum(['master-env', 'env', 'config', 'default']),
+  resolvedFromRoutingEnvironmentRevision: z.string(),
+  routeDecisionFingerprint: z.string(),
+}) satisfies z.ZodType<SubagentBindingProvenance>;
+
 export const subagentSpawnedEventSchema = z.object({
   type: z.literal('subagent.spawned'),
   subagentId: z.string(),
@@ -906,6 +925,8 @@ export const subagentSpawnedEventSchema = z.object({
   runInBackground: z.boolean(),
   model: z.string().optional(),
   thinkingEffort: z.string().optional(),
+  routing: subagentRoutingProvenanceSchema.optional(),
+  currentRoutingEnvironmentRevision: z.string().optional(),
   taskId: z.string().optional(),
 }) satisfies z.ZodType<SubagentSpawnedPayload>;
 
