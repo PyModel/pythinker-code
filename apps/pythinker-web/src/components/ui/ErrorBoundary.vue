@@ -25,7 +25,6 @@ const emit = defineEmits<{ close: [] }>();
 
 const { t } = useI18n();
 const failed = ref(false);
-const attempt = ref(0);
 
 onErrorCaptured((error) => {
   failed.value = true;
@@ -34,9 +33,9 @@ onErrorCaptured((error) => {
   return false;
 });
 
+// Clearing the flag swaps the v-if branch, which remounts the slot subtree.
 function retry(): void {
   failed.value = false;
-  attempt.value += 1;
 }
 
 defineExpose({ failed, retry });
@@ -59,7 +58,7 @@ defineExpose({ failed, retry });
       {{ t('common.errorBoundaryRetry') }}
     </Button>
   </div>
-  <slot v-else :key="attempt" />
+  <slot v-else />
 </template>
 
 <style scoped>
