@@ -554,11 +554,15 @@ function assistantRunEndingAt(index: number): ChatTurn[] {
   return run;
 }
 
+// The run's answer is the last turn that ends in text; earlier turns in the
+// same run are steps toward it, not part of it.
 function assistantRunFinalText(index: number): string {
-  return assistantRunEndingAt(index)
-    .map((t) => turnFinalText(t))
-    .filter(Boolean)
-    .join('\n\n');
+  const run = assistantRunEndingAt(index);
+  for (let i = run.length - 1; i >= 0; i -= 1) {
+    const text = turnFinalText(run[i]!);
+    if (text.trim()) return text;
+  }
+  return '';
 }
 
 function finalSummaryText(): string {

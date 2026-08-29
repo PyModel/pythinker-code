@@ -254,10 +254,21 @@ export function foldRenderBlocks(
   };
 }
 
+/**
+ * The answer the user reads: only the text blocks after the last tool call.
+ * Narration emitted before a tool call ("I'll rerun it…") is progress, not
+ * the result, and must not end up on the clipboard.
+ */
 export function turnFinalText(turn: ChatTurn): string {
-  return turnBlocks(turn)
-    .flatMap((blk) => (blk.kind === 'text' && blk.text ? [blk.text] : []))
-    .join('\n\n');
+  const trailing: string[] = [];
+  for (const blk of turnBlocks(turn)) {
+    if (blk.kind === 'text') {
+      if (blk.text) trailing.push(blk.text);
+    } else if (blk.kind === 'tool' || blk.kind === 'tool-stack' || blk.kind === 'activity-run') {
+      trailing.length = 0;
+    }
+  }
+  return trailing.join('\n\n');
 }
 
 /** Convert a single turn to Markdown. */
