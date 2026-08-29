@@ -71,6 +71,7 @@ describe('app shell contracts', () => {
     // into the same pill instead of opening the overlay dialog.
     expect(sidebar).toContain('data-testid="sidebar-update-text"');
     expect(sidebar).toContain('@click.stop="onUpdateTriggerClick"');
+    expect(sidebar).toMatch(/\.ch-actions \.sidebar-update-trigger\.is-error\s*\{[^}]*background: var\(--color-danger\);/s);
     expect(sidebar).not.toContain('update.openDialog()');
     expect(sidebar).not.toContain('update-label-shimmer');
     expect(sidebar).not.toContain('class="update-wrap"');

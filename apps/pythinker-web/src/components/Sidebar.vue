@@ -1533,7 +1533,7 @@ watch([() => props.collapsed, update.hasUpdate], ([collapsed, hasUpdate]) => {
 .sidebar-update-trigger.is-downloading {
   cursor: progress;
 }
-.sidebar-update-trigger.is-error {
+.ch-actions .sidebar-update-trigger.is-error {
   background: var(--color-danger);
 }
 .ch-actions .sidebar-update-trigger:disabled {
