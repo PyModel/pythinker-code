@@ -26,7 +26,12 @@ import {
   type SubagentBindingProvenance,
   type SubagentProfileSource,
 } from './routing';
-import { DEFAULT_PROFILE_NAME, type SubagentSpawnPlan, type SubagentSpawnPlanInput } from './spawn';
+import {
+  DEFAULT_PROFILE_NAME,
+  forkIncompatibility,
+  type SubagentSpawnPlan,
+  type SubagentSpawnPlanInput,
+} from './spawn';
 import { ISubagentModelPolicyService } from './subagentModelPolicy';
 import './subagentModelPolicyService';
 
@@ -67,6 +72,19 @@ export class SessionSubagentRoutingService implements ISubagentRoutingService {
     const fork = input.fork === true;
     await this.catalog.ready;
     const own = caller.accessor.get(IAgentProfileService).data();
+    if (fork) {
+      const incompatible = forkIncompatibility(
+        {
+          subagent_type: input.profileName,
+          model: input.model,
+          thinking: input.thinking,
+        },
+        own,
+      );
+      if (incompatible !== undefined) {
+        throw new Error2(ErrorCodes.VALIDATION_FAILED, incompatible);
+      }
+    }
     const requested =
       input.profileName !== undefined && input.profileName.length > 0 ? input.profileName : undefined;
     const requestedProfileName =
@@ -81,7 +99,12 @@ export class SessionSubagentRoutingService implements ISubagentRoutingService {
     if (allowlist !== undefined && own.subagents === undefined) {
       allowlist = withoutDelegatingTargets(this.catalog, allowlist);
     }
-    if (!fork && allowlist !== undefined && !allowlist.includes(requestedProfileName)) {
+    if (
+      !fork &&
+      input.allowUnlistedProfile !== true &&
+      allowlist !== undefined &&
+      !allowlist.includes(requestedProfileName)
+    ) {
       throw new Error2(
         ErrorCodes.AGENT_TYPE_NOT_ALLOWED,
         subagentTypeNotAllowedMessage(requestedProfileName, allowlist),
@@ -104,12 +127,15 @@ export class SessionSubagentRoutingService implements ISubagentRoutingService {
       modelAlias: own.modelAlias,
       thinkingLevel: own.thinkingLevel,
     });
+    const requestedModel =
+      input.model ??
+      (effective.effectivePolicy.mode === 'force' ? undefined : input.preferredModel);
     const route = fork
       ? { model: own.modelAlias, thinking: own.thinkingLevel, source: 'fork-inherit' as const }
       : resolveSubagentModelRoute({
           policy: effective.effectivePolicy,
           own: { modelAlias: own.modelAlias, thinkingLevel: own.thinkingLevel },
-          requested: input.model,
+          requested: requestedModel,
         });
     let model: Model;
     try {
@@ -130,7 +156,7 @@ export class SessionSubagentRoutingService implements ISubagentRoutingService {
         routingEnvironmentRevision: environmentRevision,
         operation,
         profile: requested,
-        model: input.model,
+        model: requestedModel,
         thinking: input.thinking,
       }),
     };

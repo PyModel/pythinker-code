@@ -309,6 +309,7 @@ export class SubagentTool implements ISubagentTool {
         plan,
         labels: subagentLabels(this.callerAgentId),
         prompt: args.prompt,
+        signal: controller.signal,
       });
       agentId = spawned.agentId;
       profileName = spawned.profileName;

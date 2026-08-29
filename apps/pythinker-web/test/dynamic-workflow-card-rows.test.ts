@@ -105,6 +105,20 @@ describe('buildDynamicWorkflowCardRows', () => {
     expect(rows[2]?.body).toBe('C never started');
   });
 
+  it('recovers every uncovered terminal row after a partial live-event stream', () => {
+    const rows = buildDynamicWorkflowCardRows(
+      [member('a1', 'subtask A', { phase: 'completed' })],
+      result([
+        { outcome: 'completed', item: 'A', agentId: 'a1', body: 'A body' },
+        { outcome: 'completed', item: 'B', agentId: 'a2', body: 'B body' },
+        { outcome: 'failed', item: 'C', agentId: 'a3', body: 'C failed' },
+      ]),
+    );
+
+    expect(rows.map((row) => row.id)).toEqual(['a1', 'a2', 'a3']);
+    expect(rows.map((row) => row.phase)).toEqual(['completed', 'completed', 'failed']);
+  });
+
   it('does not duplicate a result row that a live member already covers', () => {
     const rows = buildDynamicWorkflowCardRows(
       [member('a1', 'subtask A', { phase: 'failed' })],
@@ -114,12 +128,28 @@ describe('buildDynamicWorkflowCardRows', () => {
     expect(rows[0]?.phase).toBe('failed');
   });
 
-  it('matches by item substring when agent ids disagree', () => {
+  it('does not hide a result whose item is only a substring of a member name', () => {
     const rows = buildDynamicWorkflowCardRows(
       [member('a1', 'find unused exports in src', { phase: 'completed' })],
-      result([{ outcome: 'aborted', item: 'unused exports', state: 'not_started', body: 'x' }]),
+      result([
+        {
+          outcome: 'aborted',
+          item: 'unused exports',
+          agentId: 'a2',
+          state: 'not_started',
+          body: 'x',
+        },
+      ]),
     );
-    expect(rows.map((r) => r.id)).toEqual(['a1']);
+    expect(rows.map((r) => r.id)).toEqual(['a1', 'a2']);
+  });
+
+  it('keeps a never-started result even when its item matches a live member name', () => {
+    const rows = buildDynamicWorkflowCardRows(
+      [member('a1', 'unused exports', { phase: 'completed' })],
+      result([{ outcome: 'aborted', item: 'unused exports', state: 'not_started', body: 'not started' }]),
+    );
+    expect(rows.map((r) => r.id)).toEqual(['a1', 'unused exports']);
   });
 });
 
@@ -213,7 +243,7 @@ describe('groupDynamicWorkflowRows', () => {
       true,
     );
     expect(groups.map((g) => g.phase)).toEqual(['failed', 'suspended', 'working', 'queued', 'completed', 'cancelled']);
-    expect(groups.flatMap((g) => g.rows).map((r) => r.id).sort()).toEqual(['a', 'b', 'c', 'd', 'e', 'f']);
+    expect(groups.flatMap((g) => g.rows).map((r) => r.id).toSorted()).toEqual(['a', 'b', 'c', 'd', 'e', 'f']);
     expect(groups.find((g) => g.phase === 'failed')?.expanded).toBe(true);
     expect(groups.find((g) => g.phase === 'suspended')?.expanded).toBe(true);
     expect(groups.find((g) => g.phase === 'completed')?.expanded).toBe(false);

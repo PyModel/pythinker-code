@@ -298,7 +298,7 @@ describe('FullCompaction', () => {
       properties: expect.objectContaining({
         agent_id: 'main',
         source: 'manual',
-        tokens_before: 6_504,
+        tokens_before: 6_475,
         tokens_after: expect.any(Number),
         duration_ms: expect.any(Number),
         compacted_count: 6,
@@ -572,7 +572,7 @@ describe('FullCompaction', () => {
       session_id: 'test-session',
       cwd: dir,
       trigger: 'auto',
-      token_count: 6_504,
+      token_count: 6_475,
     });
     expect(post).toMatchObject({
       hook_event_name: 'PostCompact',
@@ -658,7 +658,7 @@ describe('FullCompaction', () => {
       event: 'compaction_finished',
       properties: expect.objectContaining({
         source: 'manual',
-        tokens_before: 18_190,
+        tokens_before: 18_161,
         retry_count: 1,
         trace_id: 'trace-compact-1',
       }),
@@ -1125,7 +1125,7 @@ describe('FullCompaction', () => {
       properties: expect.objectContaining({
         agent_id: 'main',
         source: 'manual',
-        tokens_before: 18_190,
+        tokens_before: 18_161,
         duration_ms: expect.any(Number),
         round: 1,
         retry_count: 0,
@@ -1350,7 +1350,7 @@ describe('FullCompaction', () => {
       event: 'compaction_failed',
       properties: expect.objectContaining({
         source: 'manual',
-        tokens_before: 18_190,
+        tokens_before: 18_161,
         duration_ms: expect.any(Number),
         retry_count: 4,
         error_type: 'APIConnectionError',
@@ -1723,8 +1723,8 @@ describe('FullCompaction', () => {
       event: 'compaction_finished',
       properties: expect.objectContaining({
         source: 'auto',
-        tokens_before: 6_511,
-        tokens_after: 6_495,
+        tokens_before: 6_482,
+        tokens_after: 6_466,
         compacted_count: 7,
         retry_count: 0,
       }),

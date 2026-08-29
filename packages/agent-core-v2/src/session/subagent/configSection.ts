@@ -252,9 +252,35 @@ export function stripSubagentModelParameter(
   parameters: Record<string, unknown>,
 ): Record<string, unknown> {
   const properties = parameters['properties'];
-  if (!isPlainObject(properties) || !('model' in properties)) return parameters;
+  if (!isPlainObject(properties)) return parameters;
+  let changed = false;
   const nextProperties = { ...properties };
-  delete nextProperties['model'];
+  if ('model' in nextProperties) {
+    delete nextProperties['model'];
+    changed = true;
+  }
+  const tasks = nextProperties['tasks'];
+  if (isPlainObject(tasks)) {
+    const items = tasks['items'];
+    if (isPlainObject(items)) {
+      const taskProperties = items['properties'];
+      if (isPlainObject(taskProperties) && 'model' in taskProperties) {
+        const nextTaskProperties = { ...taskProperties };
+        delete nextTaskProperties['model'];
+        const nextItems: Record<string, unknown> = {
+          ...items,
+          properties: nextTaskProperties,
+        };
+        const taskRequired = items['required'];
+        if (Array.isArray(taskRequired) && taskRequired.includes('model')) {
+          nextItems['required'] = taskRequired.filter((entry) => entry !== 'model');
+        }
+        nextProperties['tasks'] = { ...tasks, items: nextItems };
+        changed = true;
+      }
+    }
+  }
+  if (!changed) return parameters;
   const next: Record<string, unknown> = { ...parameters, properties: nextProperties };
   const required = parameters['required'];
   if (Array.isArray(required) && required.includes('model')) {

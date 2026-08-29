@@ -93,6 +93,8 @@ import { prospectiveModelView, validateSubagentModelPolicy } from '#/session/sub
 import { SECONDARY_MODEL_FLAG_ID } from '#/session/subagent/flag';
 import {
   DEFAULT_DYNAMIC_WORKFLOW_TIMEOUT_MS,
+  DYNAMIC_WORKFLOW_MAX_CONCURRENCY_ENV,
+  resolveDynamicWorkflowMaxConcurrency,
   resolveDynamicWorkflowTimeoutMs,
   DYNAMIC_WORKFLOW_SECTION,
   DYNAMIC_WORKFLOW_TIMEOUT_ENV,
@@ -220,7 +222,7 @@ describe('Agent config', () => {
     });
 
     expect(ctx.newEvents()).toMatchInlineSnapshot(`
-      [wire] config.update            { "agentId": "main", "profileName": "test-profile", "systemPrompt": "Profile system prompt.", "environmentDisclosure": { "cwd": "<cwd>", "date": { "disclosed": false } }, "agentsMdPaths": [], "disallowedTools": [], "time": "<time>" }
+      [wire] config.update            { "agentId": "main", "profileName": "test-profile", "systemPrompt": "Profile system prompt.", "environmentDisclosure": { "cwd": "<cwd>" }, "agentsMdPaths": [], "disallowedTools": [], "time": "<time>" }
       [emit] agent.status.updated     { "time": "<time>", "agentId": "main", "model": "mock-model", "maxContextTokens": 1000000 }
       [wire] tools.set_active_tools   { "agentId": "main", "names": [ "Read" ], "time": "<time>" }
     `);
@@ -1695,6 +1697,37 @@ describe('dynamic workflow config section', () => {
 
     env[DYNAMIC_WORKFLOW_TIMEOUT_ENV] = '3000';
     expect(resolveDynamicWorkflowTimeoutMs(config)).toBe(3000);
+
+    env[DYNAMIC_WORKFLOW_TIMEOUT_ENV] = '0';
+    expect(resolveDynamicWorkflowTimeoutMs(config)).toBe(0);
+
+    env[DYNAMIC_WORKFLOW_TIMEOUT_ENV] = '';
+    expect(resolveDynamicWorkflowTimeoutMs(config)).toBe(DEFAULT_DYNAMIC_WORKFLOW_TIMEOUT_MS);
+
+    disposables.dispose();
+  });
+
+  it('resolves max_concurrency through the config and environment layers', async () => {
+    const env: Record<string, string> = {};
+    const { config, disposables } = await createConfig(
+      env,
+      '[dynamic_workflow]\nmax_concurrency = 3\n',
+    );
+
+    expect(resolveDynamicWorkflowMaxConcurrency(config, env[DYNAMIC_WORKFLOW_MAX_CONCURRENCY_ENV])).toBe(3);
+
+    env[DYNAMIC_WORKFLOW_MAX_CONCURRENCY_ENV] = '2';
+    expect(resolveDynamicWorkflowMaxConcurrency(config, env[DYNAMIC_WORKFLOW_MAX_CONCURRENCY_ENV])).toBe(2);
+
+    env[DYNAMIC_WORKFLOW_MAX_CONCURRENCY_ENV] = 'invalid';
+    expect(() =>
+      resolveDynamicWorkflowMaxConcurrency(
+        config,
+        env[DYNAMIC_WORKFLOW_MAX_CONCURRENCY_ENV],
+      ),
+    ).toThrow(
+      'PYTHINKER_CODE_AGENT_DYNAMIC_WORKFLOW_MAX_CONCURRENCY must be a positive integer, got "invalid".',
+    );
 
     disposables.dispose();
   });

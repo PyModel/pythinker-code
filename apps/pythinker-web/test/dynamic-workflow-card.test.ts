@@ -86,6 +86,44 @@ describe('DynamicWorkflowTool card', () => {
     expect(wrapper.get('.head .chip').text()).toBe('0 / 3');
   });
 
+  it('counts resumed agents before any live member resolves', async () => {
+    const wrapper = mountCard([]);
+    await wrapper.setProps({
+      tool: {
+        ...wrapper.props('tool'),
+        arg: JSON.stringify({
+          description: 'Resume review',
+          resume_agent_ids: { a1: 'continue A', a2: 'continue B', a3: 'continue C' },
+        }),
+      },
+    });
+
+    expect(wrapper.get('.head .chip').text()).toBe('0 / 3');
+  });
+
+  it('keeps the declared total while live rows arrive', async () => {
+    const wrapper = mountCard(Array.from({ length: 20 }, (_, index) => member(index + 1)));
+    await wrapper.setProps({
+      tool: {
+        ...wrapper.props('tool'),
+        arg: JSON.stringify({
+          description: 'Review files',
+          items: Array.from({ length: 24 }, (_, index) => `item-${String(index + 1)}`),
+        }),
+      },
+    });
+
+    expect(wrapper.get('.head .chip').text()).toBe('0 / 24');
+  });
+
+  it('keeps a running status while a terminal tool envelope still has live work', () => {
+    const wrapper = mountCard([member(1), member(2)], { status: 'ok' });
+
+    expect(wrapper.get('.head .status').classes()).toContain('status-running');
+    expect(wrapper.get('.head .status-txt').text()).toBe('2 in progress');
+    expect(wrapper.find('.head .status .kw-dot--running').exists()).toBe(true);
+  });
+
   it('renders one cell per task up to 12 and a grouped bar beyond', () => {
     const nine = mountCard(Array.from({ length: 9 }, (_, i) => member(i + 1)));
     expect(nine.findAll('[data-testid="segments-cells"] .cell')).toHaveLength(9);

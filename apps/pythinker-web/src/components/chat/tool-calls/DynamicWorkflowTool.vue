@@ -60,7 +60,17 @@ function parseInput(arg: string): DynamicWorkflowInput {
     const obj = JSON.parse(arg) as Record<string, unknown>;
     const items = Array.isArray(obj['items']) ? obj['items'] : undefined;
     const tasks = Array.isArray(obj['tasks']) ? obj['tasks'] : undefined;
-    const itemCount = items === undefined && tasks === undefined ? undefined : (items?.length ?? 0) + (tasks?.length ?? 0);
+    const resumeAgentIds = obj['resume_agent_ids'];
+    const resumeCount =
+      resumeAgentIds !== null &&
+      typeof resumeAgentIds === 'object' &&
+      !Array.isArray(resumeAgentIds)
+        ? Object.keys(resumeAgentIds).length
+        : 0;
+    const itemCount =
+      items === undefined && tasks === undefined && resumeCount === 0
+        ? undefined
+        : (items?.length ?? 0) + (tasks?.length ?? 0) + resumeCount;
     return {
       description: typeof obj['description'] === 'string' ? obj['description'] : undefined,
       itemCount,
@@ -86,13 +96,6 @@ const members = computed(() => resolveDynamicWorkflowMembers?.(props.tool.id) ??
 const result = computed(() => parseDynamicWorkflowResult(props.tool.output));
 
 const status = computed<'running' | 'ok' | 'error'>(() => props.tool.status as 'running' | 'ok' | 'error');
-const aggregateStatus = computed<'running' | 'ok' | 'error'>(() => {
-  if (status.value === 'running') return 'running';
-  // Only real failures turn the card red — aborted/cancelled work is a neutral
-  // `cancelled` phase.
-  if (status.value === 'error' || (result.value?.failed ?? 0) > 0) return 'error';
-  return 'ok';
-});
 
 interface PhaseCounts {
   completed: number;
@@ -114,10 +117,17 @@ const counts = computed<PhaseCounts>(() => {
   return c;
 });
 
-const total = computed(() => (rows.value.length > 0 ? rows.value.length : (input.value.itemCount ?? 0)));
+const total = computed(() =>
+  Math.max(rows.value.length, input.value.itemCount ?? 0, result.value?.total ?? 0),
+);
 const done = computed(() => counts.value.completed + counts.value.failed + counts.value.cancelled);
 const inProgress = computed(() => counts.value.working + counts.value.suspended + counts.value.queued);
 const running = computed(() => status.value === 'running' || inProgress.value > 0);
+const aggregateStatus = computed<'running' | 'ok' | 'error'>(() => {
+  if (running.value) return 'running';
+  if (status.value === 'error' || (result.value?.failed ?? 0) > 0) return 'error';
+  return 'ok';
+});
 
 const PHASE_CLASS: Record<AppSubagentPhase, string> = {
   completed: 's-ok',
