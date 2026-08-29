@@ -84,26 +84,17 @@ function resultRow(sub: DynamicWorkflowResultSubagent, index: number): DynamicWo
   };
 }
 
-/**
- * Whether a live member already accounts for a result subagent. Members may
- * come from the projector (task id / description) while the result references
- * agent_id / item; the two ids don't always match, so also treat item ⊆
- * description as a match.
- */
-function memberCoversResult(member: DynamicWorkflowMember, sub: DynamicWorkflowResultSubagent): boolean {
-  if (sub.agentId && member.id === sub.agentId) return true;
-  if (sub.item && member.name.includes(sub.item)) return true;
-  return false;
+function membersCoverResult(members: DynamicWorkflowMember[], sub: DynamicWorkflowResultSubagent): boolean {
+  return sub.agentId !== undefined && members.some((member) => member.id === sub.agentId);
 }
 
 /**
  * Merge the live members with the agent_dynamic_workflow_result payload into one row list.
  *
  * - Members are authoritative while present (real-time phase + streamed text).
- * - When a parsed result is also present, append result rows that no member
- *   covers — e.g. interrupted dynamic workflows emit `state="not_started"` /
- *   `outcome="aborted"` entries for items that never spawned a task, which
- *   would otherwise be invisible until a refresh dropped the live tasks.
+ * - When a parsed result is also present, append every result row that no
+ *   member covers. This keeps failed starts and interrupted, never-started
+ *   items visible while live task rows still exist.
  * - When no members are present (post-refresh), fall back to result-only rows.
  */
 export function buildDynamicWorkflowCardRows(members: DynamicWorkflowMember[], result: DynamicWorkflowResult | null): DynamicWorkflowCardRow[] {
@@ -125,11 +116,7 @@ export function buildDynamicWorkflowCardRows(members: DynamicWorkflowMember[], r
   if (!result) return memberRows;
 
   const resultOnly = result.subagents
-    .filter(
-      (sub) =>
-        (sub.outcome === 'aborted' || sub.state === 'not_started') &&
-        !members.some((m) => memberCoversResult(m, sub)),
-    )
+    .filter((sub) => !membersCoverResult(members, sub))
     .map((sub, i) => resultRow(sub, i));
 
   return memberRows.length > 0 ? [...memberRows, ...resultOnly] : result.subagents.map((s, i) => resultRow(s, i));

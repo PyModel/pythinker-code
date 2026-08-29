@@ -4,8 +4,9 @@ import * as retry from 'retry';
 
 import { isUserCancellation } from '#/_base/utils/abort';
 import { setClampedTimeout } from '#/_base/utils/timer';
-import { BugIndicatingError, Error2, ErrorCodes } from '#/errors';
+import { BugIndicatingError } from '#/errors';
 import type { SubagentSpawnPlan } from '#/session/subagent/spawn';
+import { SubagentRunStartError } from '#/session/subagent/subagent';
 import type {
   SessionDynamicWorkflowRunResult,
   SessionDynamicWorkflowTask,
@@ -26,6 +27,7 @@ export interface AgentRunAttemptOptions {
   readonly dynamicWorkflowIndex?: number;
   readonly runInBackground: boolean;
   readonly signal: AbortSignal;
+  readonly onAgentKnown?: (agentId: string) => void;
   readonly onReady?: () => void;
   readonly suppressRateLimitFailureEvent?: boolean;
 }
@@ -53,8 +55,6 @@ const RATE_LIMIT_RETRY_FACTOR = 2;
 const RATE_LIMIT_CAPACITY_SHRINK_INTERVAL_MS = 2000;
 const RATE_LIMIT_CAPACITY_RECOVERY_INTERVAL_MS = 3 * 60 * 1000;
 const RATE_LIMIT_SUSPENDED_REASON = 'Provider rate limit; subagent requeued for retry.';
-
-const AGENT_DYNAMIC_WORKFLOW_MAX_CONCURRENCY_ENV = 'PYTHINKER_CODE_AGENT_DYNAMIC_WORKFLOW_MAX_CONCURRENCY';
 
 export type QueuedAgentRunTask<T = unknown> = SessionDynamicWorkflowTask<T>;
 
@@ -233,6 +233,7 @@ export class AgentRunBatch<T> {
 
     const now = Date.now();
     this.recoverRateLimitCapacity(now);
+    if (this.isAtConcurrencyLimit()) return;
     if (this.active.size >= this.rateLimitCapacity) {
       this.scheduleRateLimitWakeup(this.nextRateLimitCapacityRecoveryAt(), now);
       return;
@@ -287,6 +288,9 @@ export class AgentRunBatch<T> {
       dynamicWorkflowIndex: task.dynamicWorkflowIndex,
       runInBackground: task.runInBackground,
       signal: attempt.controller.signal,
+      onAgentKnown: (agentId) => {
+        attempt.state.agentId = agentId;
+      },
       onReady: () => {
         this.markAttemptReady(attempt);
       },
@@ -310,6 +314,9 @@ export class AgentRunBatch<T> {
         handle = await this.launcher.spawn(spawnOptions);
       }
     } catch (error) {
+      if (error instanceof SubagentRunStartError) {
+        attempt.state.agentId = error.agentId;
+      }
       return this.failedAttemptOutcome(attempt, error);
     }
 
@@ -502,6 +509,7 @@ export class AgentRunBatch<T> {
 
   private scheduleNextRateLimitWakeup(now: number): void {
     if (this.pending.length === 0) return;
+    if (this.isAtConcurrencyLimit()) return;
 
     const nextWakeupAt =
       this.active.size >= this.rateLimitCapacity
@@ -534,16 +542,22 @@ export class AgentRunBatch<T> {
 
   private finishWithUserCancellation(): void {
     if (this.finished) return;
+    const activeStates = new Set(Array.from(this.active, (attempt) => attempt.state));
 
     this.finish(
       this.states.map((state) => {
         const result = this.results[state.index];
         if (result !== undefined) return result;
+        const agentId =
+          state.agentId ??
+          (state.task.kind === 'resume' && activeStates.has(state)
+            ? state.task.resumeAgentId
+            : undefined);
 
-        if (state.started || state.agentId !== undefined) {
+        if (state.started || agentId !== undefined) {
           return {
             task: state.task,
-            agentId: state.agentId,
+            agentId,
             status: 'aborted',
             state: 'started',
             error:
@@ -639,20 +653,3 @@ export class AgentRunBatch<T> {
     return error instanceof Error ? error.message : String(error);
   }
 }
-
-export function resolveDynamicWorkflowMaxConcurrency(
-  env: Readonly<Record<string, string | undefined>> = process.env,
-): number | undefined {
-  const raw = env[AGENT_DYNAMIC_WORKFLOW_MAX_CONCURRENCY_ENV];
-  if (raw === undefined || raw.trim() === '') return undefined;
-  const value = Number(raw);
-  if (!Number.isInteger(value) || value <= 0) {
-    throw new Error2(
-      ErrorCodes.VALIDATION_FAILED,
-      `${AGENT_DYNAMIC_WORKFLOW_MAX_CONCURRENCY_ENV} must be a positive integer, got ${JSON.stringify(raw)}.`,
-      { details: { value: raw } },
-    );
-  }
-  return value;
-}
-

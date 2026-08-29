@@ -2960,7 +2960,7 @@ describe('v1↔v2 agent interaction parity', () => {
       });
       await expect(pair.v2.generateAgentsMd(input)).rejects.toMatchObject({
         code: ErrorCodes.SESSION_INIT_FAILED,
-        message: 'Main agent has no model bound',
+        message: 'Caller agent has no model bound',
       });
       await expect(pair.v1.generateAgentsMd({ sessionId: 'session_missing' })).rejects.toMatchObject(
         { code: ErrorCodes.SESSION_NOT_FOUND },

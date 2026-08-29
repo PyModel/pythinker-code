@@ -69,6 +69,21 @@ describe('parseDynamicWorkflowResult', () => {
     expect(result?.subagents[0]?.body).toContain('inner');
     expect(result?.subagents[1]?.body).toBe('just B');
   });
+
+  it('decodes framed bodies without treating unmatched child tags as result rows', () => {
+    const text = [
+      '<agent_dynamic_workflow_result><summary>completed: 2</summary>',
+      '<subagent item="a" body_encoding="xml" outcome="completed">literal &lt;subagent item="broken"&gt; &amp;amp; text</subagent>',
+      '<subagent item="b" outcome="completed">plain sibling</subagent>',
+      '</agent_dynamic_workflow_result>',
+    ].join('');
+
+    const result = parseDynamicWorkflowResult(text);
+
+    expect(result?.subagents.map((subagent) => subagent.item)).toEqual(['a', 'b']);
+    expect(result?.subagents[0]?.body).toBe('literal <subagent item="broken"> &amp; text');
+    expect(result?.subagents[1]?.body).toBe('plain sibling');
+  });
 });
 
 describe('parseDynamicWorkflowResult binding attributes', () => {

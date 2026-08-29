@@ -36,10 +36,9 @@ export interface DynamicWorkflowResult {
 const SUMMARY_RE = /<summary>([\s\S]*?)<\/summary>/;
 const RESUME_HINT_RE = /<resume_hint>([\s\S]*?)<\/resume_hint>/;
 // Marks either a subagent opening tag (captures attributes) or a `</subagent>`
-// closing tag. Body parsing tracks a depth so literal `<subagent ..>` /
-// `</subagent>` text inside a row's body (e.g. a subagent emitting an
-// AgentDynamicWorkflow snippet) does not register as a top-level row — producer writes
-// body unescaped.
+// closing tag. Body parsing tracks a depth for legacy unescaped payloads so
+// literal `<subagent ..>` / `</subagent>` text inside a row's body does not
+// register as a top-level row. Current producers XML-encode ambiguous bodies.
 const TOKEN_RE = /<subagent\b([^>]*)>|<\/subagent>/g;
 const SUBAGENT_CLOSE = '</subagent>';
 const COUNT_RE = /(completed|failed|aborted):\s*(\d+)/g;
@@ -116,7 +115,7 @@ function parseSubagent(attrs: string, body: string): DynamicWorkflowResultSubage
     agentId: parsed['agent_id'],
     mode: parsed['mode'],
     state: parsed['state'],
-    body: body.trim(),
+    body: (parsed['body_encoding'] === 'xml' ? unescapeAttr(body) : body).trim(),
   };
   if (parsed['profile'] !== undefined) sub.profile = parsed['profile'];
   if (parsed['model'] !== undefined) sub.model = parsed['model'];

@@ -203,18 +203,24 @@ describe('AgentDetailPanel', () => {
     expect(wrapMainRule).toMatch(/flex-wrap:\s*wrap/);
   });
 
-  it('lets the ToolRow trailing chip truncate instead of covering the title', () => {
+  it('keeps ToolRow icons aligned and trailing chips clear of the title', () => {
     const path = [
       'src/components/chat/ToolRow.vue',
       'apps/pythinker-web/src/components/chat/ToolRow.vue',
     ].find(existsSync);
     if (path === undefined) throw new Error('ToolRow.vue was not found');
     const source = readFileSync(path, 'utf8');
+    const iconSlotRule = /\.gl,\s*:slotted\(\.tl-ficon\)\s*\{([^}]*)\}/.exec(source)?.[1] ?? '';
     const textRule = /\.bh-text\s*\{([^}]*)\}/.exec(source)?.[1] ?? '';
     const rtRule = /\n\.rt\s*\{([^}]*)\}/.exec(source)?.[1] ?? '';
     const chipRule = /:slotted\(\.chip\)\s*\{([^}]*)\}/.exec(source)?.[1] ?? '';
     const timeRule = /\n\.tm\s*\{([^}]*)\}/.exec(source)?.[1] ?? '';
 
+    expect(iconSlotRule).toMatch(/width:\s*var\(--p-ic-sm\)/);
+    expect(iconSlotRule).toMatch(/height:\s*var\(--p-ic-sm\)/);
+    expect(iconSlotRule).toMatch(/justify-content:\s*center/);
+    expect(iconSlotRule).toMatch(/line-height:\s*0/);
+    expect(iconSlotRule).not.toMatch(/transform:\s*translateY/);
     expect(textRule).toMatch(/overflow:\s*hidden/);
     expect(rtRule).toMatch(/min-width:\s*0/);
     expect(rtRule).not.toMatch(/flex:\s*none/);

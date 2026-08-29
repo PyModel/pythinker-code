@@ -66,6 +66,7 @@ function onHeadClick(): void {
             <span v-if="arg" class="p">{{ arg }}</span>
           </Tooltip>
         </slot>
+        <slot name="meta" />
       </span>
       <span class="rt">
         <span class="status" :class="status" role="status" :aria-label="statusLabel ?? status">
@@ -144,11 +145,18 @@ function onHeadClick(): void {
   background: color-mix(in srgb, var(--color-danger) 7%, var(--bg));
 }
 
-.gl {
+.gl,
+:slotted(.tl-ficon) {
   display: inline-flex;
   align-items: center;
-  color: var(--color-text-faint);
+  justify-content: center;
+  width: var(--p-ic-sm);
+  height: var(--p-ic-sm);
+  line-height: 0;
   flex: none;
+}
+.gl {
+  color: var(--color-text-faint);
 }
 .bh-text {
   display: flex;
@@ -174,9 +182,8 @@ function onHeadClick(): void {
   flex: 1;
   min-width: 0;
 }
-/* The right cluster may shrink: a long trailing chip ("Foreground · model ·
-   effort") truncates before it can slide over the row title. Status dot, time
-   and buttons stay `flex: none` so only the chip gives way. */
+/* The right cluster may shrink. Status dot, time and buttons stay `flex: none`;
+   flexible text and chips truncate before they can slide over the row title. */
 .rt {
   margin-left: auto;
   color: var(--color-text-muted);
