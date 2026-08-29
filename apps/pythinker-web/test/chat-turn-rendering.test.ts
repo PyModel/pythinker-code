@@ -319,7 +319,7 @@ describe('foldRenderBlocks', () => {
 });
 
 describe('turnFinalText', () => {
-  it('keeps only the text after the last tool call, dropping narration and thinking', () => {
+  it('returns the last text block, matching the fold anchor', () => {
     const turn = assistantTurn([
       { kind: 'thinking', thinking: 'plan' },
       { kind: 'text', text: 'I will run the tool.' },
@@ -328,7 +328,7 @@ describe('turnFinalText', () => {
       { kind: 'thinking', thinking: 'more' },
       { kind: 'text', text: 'third' },
     ]);
-    expect(turnFinalText(turn)).toBe('second\n\nthird');
+    expect(turnFinalText(turn)).toBe('third');
   });
 
   it('is empty when the turn ends in a tool call', () => {
