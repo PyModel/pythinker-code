@@ -161,6 +161,7 @@ function deliverFire(
   runtime: AgentRuntimeContext<CronModelState>,
   task: CronTask,
   context: { readonly coalescedCount: number; readonly firedAt: number },
+  isDisposed: () => boolean,
 ): Promise<boolean> {
   const origin: CronJobOrigin = {
     kind: 'cron_job',
@@ -181,11 +182,14 @@ function deliverFire(
   try {
     launched = runtime.get(IAgentPromptService).inject(message);
   } catch (error) {
-    debugLog(runtime, `steer threw for task ${task.id}: ${error instanceof Error ? error.message : String(error)}`);
+    if (!isDisposed()) {
+      debugLog(runtime, `steer threw for task ${task.id}: ${error instanceof Error ? error.message : String(error)}`);
+    }
     return Promise.resolve(false);
   }
   return launched.then(
     () => {
+      if (isDisposed()) return false;
       void runtime.dispatch(new CronFired({ origin, prompt: task.prompt }));
       telemetryOf(runtime).track2(CRON_FIRED, {
         recurring: task.recurring !== false,
@@ -196,7 +200,9 @@ function deliverFire(
       return true;
     },
     (error: unknown) => {
-      debugLog(runtime, `steer launch rejected for task ${task.id}: ${error instanceof Error ? error.message : String(error)}`);
+      if (!isDisposed()) {
+        debugLog(runtime, `steer launch rejected for task ${task.id}: ${error instanceof Error ? error.message : String(error)}`);
+      }
       return false;
     },
   );
@@ -207,6 +213,7 @@ async function processDue(
   state: CronEffectState,
   task: CronTask,
   now: number,
+  isDisposed: () => boolean,
 ): Promise<void> {
   if (state.inFlight.has(task.id)) return;
   let parsed: ParsedCronExpression;
@@ -242,13 +249,15 @@ async function processDue(
   const firedAt = state.clocks.wallNow();
   let delivered = false;
   try {
-    delivered = await deliverFire(runtime, task, { coalescedCount, firedAt });
+    delivered = await deliverFire(runtime, task, { coalescedCount, firedAt }, isDisposed);
   } catch (error) {
-    debugLog(runtime, `deliverDue threw for task ${task.id}: ${error instanceof Error ? error.message : String(error)}`);
+    if (!isDisposed()) {
+      debugLog(runtime, `deliverDue threw for task ${task.id}: ${error instanceof Error ? error.message : String(error)}`);
+    }
   } finally {
-    state.inFlight.delete(task.id);
+    if (!isDisposed()) state.inFlight.delete(task.id);
   }
-  if (!delivered) return;
+  if (isDisposed() || !delivered) return;
   if (task.recurring === false || isStaleAt(runtime, task, firedAt)) {
     const removed = removeTasks(runtime, [task.id]);
     state.lastSeenAt.delete(task.id);
@@ -277,7 +286,9 @@ async function tickCron(
   if (readCronConfig(config).disabled || runtime.getState().size === 0) return;
   if (runtime.get(IAgentLoopService).status().state === 'running') return;
   const now = state.clocks.wallNow();
-  await Promise.all([...runtime.getState().values()].map((task) => processDue(runtime, state, task, now)));
+  await Promise.all(
+    [...runtime.getState().values()].map((task) => processDue(runtime, state, task, now, isDisposed)),
+  );
 }
 
 const cronEffects = fromCallback(({

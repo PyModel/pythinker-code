@@ -132,7 +132,8 @@ export function SessionList({ onClose }: SessionListProps) {
   const groupedSessions = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     const filtered = q ? sessions.filter((s) => cleanSystemTags(s.brief).toLowerCase().includes(q)) : sessions;
-    const sorted = [...filtered].toSorted((a, b) => (sortOrder === "recent" ? b.updatedAt - a.updatedAt : a.updatedAt - b.updatedAt));
+    // oxlint-disable-next-line eslint-plugin-unicorn/no-array-sort -- The copied array is safe to sort in place.
+    const sorted = [...filtered].sort((a, b) => (sortOrder === "recent" ? b.updatedAt - a.updatedAt : a.updatedAt - b.updatedAt));
 
     const now = new Date();
     // Calendar-day arithmetic, not fixed 24h offsets — a DST change makes a

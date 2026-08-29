@@ -254,6 +254,24 @@ describe('ToolCallComponent', () => {
     expect(out).toContain('line2');
   });
 
+  it('uses a Unicode ellipsis when truncating live Bash output', () => {
+    const component = new ToolCallComponent(
+      {
+        id: 'call_shell_live_truncated',
+        name: 'Bash',
+        args: { command: 'printf output' },
+      },
+      undefined,
+    );
+
+    component.setExpanded(true);
+    component.appendLiveOutput('x'.repeat(50_001));
+
+    const out = strip(component.render(1000).join('\n'));
+    expect(out).toContain('[…truncated]');
+    expect(out).not.toContain('[...truncated]');
+  });
+
   it('clears live Bash output when the final result arrives', () => {
     const component = new ToolCallComponent(
       {
@@ -1751,7 +1769,7 @@ describe('ToolCallComponent', () => {
     const out = strip(component.render(100).join('\n'));
     expect(out).toContain('Using Edit');
     expect(out).toContain('foo.ts');
-    expect(out).toContain('Preparing changes for foo.ts...');
+    expect(out).toContain('Preparing changes for foo.ts…');
     expect(out).toContain('4s elapsed');
     expect(out).toMatch(/\d+(?:\.\d+)? (?:B|KB|MB)/);
     expect(out).not.toContain('old20');
