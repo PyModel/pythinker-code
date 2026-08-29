@@ -163,7 +163,7 @@ describe('AgentDynamicWorkflowProgressComponent', () => {
 
     expect(output).toContain('Agent DynamicWorkflow');
     expect(output).toContain('Review changed files');
-    expect(output).toContain('Orchestrating...');
+    expect(output).toContain('Orchestrating…');
     expect(output).not.toContain('01');
   });
 
@@ -229,7 +229,7 @@ describe('AgentDynamicWorkflowProgressComponent', () => {
 
       expect(strip(rendered)).toContain('Agent DynamicWorkflow');
       expect(strip(rendered)).toContain('001 [');
-      expect(strip(rendered)).toContain('Working...');
+      expect(strip(rendered)).toContain('Working…');
       expect(rendered).toMatch(/\u001B\[38;2;\d+;\d+;\d+m━/);
       expect(memberColor('001')).toBeDefined();
       expect(memberColor('002')).toBeDefined();
@@ -273,8 +273,8 @@ describe('AgentDynamicWorkflowProgressComponent', () => {
 
     const output = renderText(component);
 
-    expect(output).toContain('001 Queued...');
-    expect(output).toContain('002 Queued...');
+    expect(output).toContain('001 Queued…');
+    expect(output).toContain('002 Queued…');
     expect(output).not.toContain('001 [');
     expect(output).not.toContain('002 [');
     expect(output).not.toContain('agents=2');
@@ -286,11 +286,11 @@ describe('AgentDynamicWorkflowProgressComponent', () => {
     registerSubagents(component, 3);
 
     const lines = renderLines(component, 97);
-    const queuedLine = lines.find((line) => line.includes('001 Queued...'));
+    const queuedLine = lines.find((line) => line.includes('001 Queued…'));
 
     expect(queuedLine).toBeDefined();
-    expect(queuedLine).toContain('002 Queued...');
-    expect(queuedLine).toContain('003 Queued...');
+    expect(queuedLine).toContain('002 Queued…');
+    expect(queuedLine).toContain('003 Queued…');
   });
 
   it('omits subagent text when the compact grid is needed to fit available height', () => {
@@ -388,7 +388,7 @@ describe('AgentDynamicWorkflowProgressComponent', () => {
     let output = renderText(component);
     expect(output).toContain('001 [');
     expect(output).toContain('Running');
-    expect(output).toContain('002 Queued...');
+    expect(output).toContain('002 Queued…');
     expect(output).not.toContain('002 [');
 
     component.markCompleted('agent-1');
@@ -437,8 +437,8 @@ describe('AgentDynamicWorkflowProgressComponent', () => {
     });
 
     let output = renderText(component);
-    expect(output).toContain('Rate limited...');
-    expect(output).not.toContain('Queued...');
+    expect(output).toContain('Rate limited…');
+    expect(output).not.toContain('Queued…');
     expect(output).not.toContain('Provider rate limit');
     expect(output).not.toContain('Failed');
 
@@ -446,7 +446,7 @@ describe('AgentDynamicWorkflowProgressComponent', () => {
 
     output = renderText(component);
     expect(output).toContain('Running');
-    expect(output).not.toContain('Rate limited...');
+    expect(output).not.toContain('Rate limited…');
   });
 
   it('renders rate-limited subagents as cancelled when cancelled', () => {
@@ -465,7 +465,7 @@ describe('AgentDynamicWorkflowProgressComponent', () => {
 
     expect(cellLine).toBeDefined();
     expect(cellLine).toContain('⊘ Cancelled.');
-    expect(cellLine).not.toContain('Rate limited...');
+    expect(cellLine).not.toContain('Rate limited…');
   });
 
   it('renders failure details from AgentDynamicWorkflow result output', () => {
@@ -630,7 +630,7 @@ describe('AgentDynamicWorkflowProgressComponent', () => {
     });
 
     const promptLine = renderLines(prompting, 80)
-      .find((line) => line.includes('Prompting...'));
+      .find((line) => line.includes('Prompting…'));
     expect(promptLine).toBeDefined();
 
     const working = createComponent();
@@ -638,15 +638,15 @@ describe('AgentDynamicWorkflowProgressComponent', () => {
     startSubagents(working, 1);
 
     const workingLine = renderLines(working, 80)
-      .find((line) => line.includes('Working...'));
+      .find((line) => line.includes('Working…'));
     expect(workingLine).toBeDefined();
 
     const promptTextIndex = promptLine?.indexOf('Review the changed') ?? -1;
     const progressBarIndex = workingLine?.indexOf('━') ?? -1;
     expect(promptTextIndex).toBeGreaterThan(0);
     expect(progressBarIndex).toBeGreaterThan(0);
-    expect(promptTextIndex).toBe(visibleWidth('  Prompting... '));
-    expect(progressBarIndex).toBe(visibleWidth('  Working...  '));
+    expect(promptTextIndex).toBe(visibleWidth('  Prompting… '));
+    expect(progressBarIndex).toBe(visibleWidth('  Working…  '));
   });
 
   it('renders the activity spinner before the total status line', () => {
@@ -657,10 +657,10 @@ describe('AgentDynamicWorkflowProgressComponent', () => {
     component.setActivitySpinnerText(() => '⣷');
 
     const statusLine = renderLines(component, 80)
-      .find((line) => line.includes('Working...'));
+      .find((line) => line.includes('Working…'));
 
     expect(statusLine).toBeDefined();
-    expect(statusLine?.startsWith(' ⣷ Working...')).toBe(true);
+    expect(statusLine?.startsWith(' ⣷ Working…')).toBe(true);
   });
 
   it('keeps a two-cell placeholder after the AgentDynamicWorkflow tool call ends', () => {
@@ -673,10 +673,10 @@ describe('AgentDynamicWorkflowProgressComponent', () => {
     component.setActivitySpinnerText(() => '⣯');
 
     const statusLine = renderLines(component, 80)
-      .find((line) => line.includes('Working...'));
+      .find((line) => line.includes('Working…'));
 
     expect(statusLine).toBeDefined();
-    expect(statusLine?.startsWith('    Working...')).toBe(true);
+    expect(statusLine?.startsWith('    Working…')).toBe(true);
     expect(statusLine).not.toContain('⣷');
     expect(statusLine).not.toContain('⣯');
   });
@@ -719,7 +719,7 @@ describe('AgentDynamicWorkflowProgressComponent', () => {
     });
 
     const promptLine = renderLines(prompting, 50)
-      .find((line) => line.includes('Prompting...'));
+      .find((line) => line.includes('Prompting…'));
 
     expect(promptLine).toBeDefined();
     expect(visibleWidth(promptLine ?? '')).toBeLessThan(50);
@@ -843,7 +843,7 @@ describe('AgentDynamicWorkflowProgressComponent', () => {
 
     registerSubagents(component, 1);
     let output = renderText(component);
-    expect(output).toContain('001 Queued...');
+    expect(output).toContain('001 Queued…');
     expect(output).not.toContain('001 [');
     expect(output).not.toContain('002');
 
@@ -852,15 +852,15 @@ describe('AgentDynamicWorkflowProgressComponent', () => {
       description: `${DEFAULT_DESCRIPTION} #2 (coder)`,
     });
     output = renderText(component);
-    expect(output).toContain('001 Queued...');
-    expect(output).toContain('002 Queued...');
+    expect(output).toContain('001 Queued…');
+    expect(output).toContain('002 Queued…');
     expect(output).not.toContain('001 [');
     expect(output).not.toContain('002 [');
 
     component.markInputComplete();
     output = renderText(component);
-    expect(output).toContain('001 Queued...');
-    expect(output).toContain('002 Queued...');
+    expect(output).toContain('001 Queued…');
+    expect(output).toContain('002 Queued…');
     expect(output).not.toContain('001 [');
   });
 

@@ -395,7 +395,7 @@ describe('PythinkerTUI resume message replay', () => {
     ]);
 
     const transcript = stripAnsi(driver.state.transcriptContainer.render(140).join('\n'));
-    expect(transcript).toContain('... (20 more lines, ctrl+o to expand)');
+    expect(transcript).toContain('… (20 more lines, ctrl+o to expand)');
     expect(transcript).toContain('row-01');
     expect(transcript).not.toContain('row-11');
   });
