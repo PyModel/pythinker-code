@@ -58,7 +58,7 @@ function onHeadClick(): void {
     }"
   >
     <div class="bh" ref="bhEl" @click="onHeadClick">
-      <span v-if="icon" class="gl" v-html="icon" aria-hidden="true" />
+      <span v-if="icon" class="gl" :class="{ 'ptx-live': status === 'running' }" v-html="icon" aria-hidden="true" />
       <span class="bh-text">
         <slot name="title">
           <span class="a">{{ name }}</span>

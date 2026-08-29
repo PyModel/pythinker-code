@@ -1909,7 +1909,7 @@ function selectModel(modelId: string): void {
               :aria-label="modelIconOnly ? status.model : undefined"
               @click.stop="toggleDropdown"
             >
-              <Icon v-if="modelIconOnly" name="cute-bot" size="md" />
+              <Icon v-if="modelIconOnly" name="cute-bot" size="md" :live="running" />
               <template v-else>
                 <span ref="modelNameRef" class="mp-name">{{ status.model }}</span>
                 <Icon class="cv" name="chevron-down" size="sm" />
