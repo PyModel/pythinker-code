@@ -264,13 +264,6 @@ function restoreSession(): void {
       </Tooltip>
     </div>
 
-    <IconButton
-      v-if="!panelVisible"
-      class="ch-panel"
-      :label="t('panel.openPanel')"
-      @click="emit('togglePanel')"
-    ><Icon name="panel-expand-right" size="md" /></IconButton>
-
     <!-- More menu trigger: copy-all + session actions -->
     <IconButton
       ref="kebabRef"
@@ -385,6 +378,13 @@ function restoreSession(): void {
       </Button>
     </template>
 
+    <!-- Right-panel toggle: rightmost, beside the git status. -->
+    <IconButton
+      v-if="!panelVisible"
+      class="ch-panel"
+      :label="t('panel.openPanel')"
+      @click="emit('togglePanel')"
+    ><Icon name="panel-expand-right" size="md" /></IconButton>
   </header>
 </template>
 

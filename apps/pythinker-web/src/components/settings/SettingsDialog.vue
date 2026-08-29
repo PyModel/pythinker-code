@@ -1158,7 +1158,7 @@ function archiveTime(iso: string): string {
               <div class="desktop-update-row desktop-update-summary">
                 <div class="desktop-update-summary-copy">
                   <span class="desktop-update-icon" aria-hidden="true">
-                    <Icon name="download" size="md" />
+                    <Icon name="update-button" />
                   </span>
                   <span class="rlabel">
                     <span class="desktop-update-title" aria-live="polite">{{ desktopUpdateStatus }}</span>
@@ -1561,12 +1561,13 @@ function archiveTime(iso: string): string {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  flex: none;
   width: var(--desktop-update-icon-size);
   height: var(--desktop-update-icon-size);
-  flex: none;
-  border-radius: var(--radius-lg);
-  background: var(--color-success-soft);
-  color: var(--color-success);
+}
+.desktop-update-icon :deep(svg) {
+  width: var(--desktop-update-icon-size);
+  height: var(--desktop-update-icon-size);
 }
 .desktop-update-title {
   font-size: var(--text-lg);

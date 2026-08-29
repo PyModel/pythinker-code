@@ -61,7 +61,12 @@ describe('app shell contracts', () => {
     // renders raw HTML as live DOM. Release notes get their own renderer.
     expect(sidebar).not.toContain("import('./chat/Markdown.vue')");
     expect(sidebar).toContain('<Icon name="update-button" />');
-    expect(sidebar).toMatch(/\.sidebar-update-trigger\s*\{[^}]*width: 32px;[^}]*height: 32px;[^}]*border-radius: var\(--radius-full\);[^}]*background: transparent;/s);
+    expect(sidebar).toMatch(/\.sidebar-update-trigger\s*\{[^}]*width: var\(--sidebar-update-size\);[^}]*height: var\(--sidebar-update-size\);[^}]*border-radius: var\(--radius-full\);[^}]*background: transparent;/s);
+    // Hover swaps the icon for the "Update" word; download progress paints
+    // into the same pill instead of opening the overlay dialog.
+    expect(sidebar).toContain('data-testid="sidebar-update-text"');
+    expect(sidebar).toContain('@click.stop="onUpdateTriggerClick"');
+    expect(sidebar).not.toContain('update.openDialog()');
     expect(sidebar).not.toContain('update-label-shimmer');
     expect(sidebar).not.toContain('class="update-wrap"');
   });

@@ -157,10 +157,14 @@ export function useDesktopUpdate() {
     await run(() => bridge()!.checkForUpdates(), 'retry');
   }
 
+  async function markNotified(version: string): Promise<void> {
+    await bridge()?.markUpdateNotified(version).catch(() => {});
+  }
+
   function openDialog(): void {
     dialogOpen.value = true;
     const version = state.value?.availableVersion;
-    if (version !== undefined) void bridge()?.markUpdateNotified(version).catch(() => {});
+    if (version !== undefined) void markNotified(version);
   }
 
   function closeDialog(): void {
@@ -185,6 +189,7 @@ export function useDesktopUpdate() {
     restart,
     skip,
     retry,
+    markNotified,
     openDialog,
     closeDialog,
   };

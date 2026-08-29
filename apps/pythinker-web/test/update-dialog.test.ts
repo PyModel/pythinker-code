@@ -298,7 +298,7 @@ describe('sidebar update button', () => {
     expect(wrapper.find('[data-testid="sidebar-update"]').exists()).toBe(false);
   });
 
-  it('shows a compact header trigger with release notes on hover and opens the overlay on click', async () => {
+  it('shows a compact header trigger with release notes on hover and downloads inline on click', async () => {
     const bridge = installBridge(updateState({
       status: 'available',
       availableVersion: '1.2.3',
@@ -318,7 +318,8 @@ describe('sidebar update button', () => {
 
     const button = wrapper.find('[data-testid="sidebar-update"]');
     expect(button.exists()).toBe(true);
-    expect(button.text()).toBe('');
+    expect(button.text()).toBe('Update');
+    expect(button.classes()).toContain('is-available');
     expect(wrapper.find('.update-wrap').exists()).toBe(false);
     expect(wrapper.find('.ch-actions').exists()).toBe(true);
     expect(update.dialogOpen.value).toBe(false);
@@ -339,8 +340,41 @@ describe('sidebar update button', () => {
     });
 
     await button.trigger('click');
+    await flushPromises();
 
-    expect(update.dialogOpen.value).toBe(true);
+    expect(update.dialogOpen.value).toBe(false);
+    expect(bridge.downloadUpdate).toHaveBeenCalledTimes(1);
+    expect(bridge.markUpdateNotified).toHaveBeenCalledWith('1.2.3');
+  });
+
+  it('paints download progress, restart, and retry into the same trigger', async () => {
+    const bridge = installBridge(updateState({ status: 'available', availableVersion: '1.2.3' }));
+    const update = useDesktopUpdate();
+    update.subscribe();
+    const wrapper = await mountSidebar();
+    const button = wrapper.get('[data-testid="sidebar-update"]');
+
+    await button.trigger('click');
+    await flushPromises();
+    await bridge.emit(updateState({ status: 'downloading', availableVersion: '1.2.3', percent: 11.4 }));
+    await nextTick();
+    expect(button.text()).toBe('11%');
+    expect(button.classes()).toContain('is-downloading');
+    expect(button.attributes('aria-busy')).toBe('true');
+
+    await bridge.emit(updateState({ status: 'downloaded', availableVersion: '1.2.3' }));
+    await nextTick();
+    expect(button.text()).toBe('Restart');
+    await button.trigger('click');
+    await flushPromises();
+    expect(bridge.restartToUpdate).toHaveBeenCalledTimes(1);
+
+    await bridge.emit(updateState({ status: 'error', availableVersion: '1.2.3', message: 'boom' }));
+    await nextTick();
+    expect(button.text()).toBe('Retry');
+    await button.trigger('click');
+    await flushPromises();
+    expect(bridge.downloadUpdate).toHaveBeenCalledTimes(2);
   });
 
   it('keeps release notes open while keyboard focus moves into and within the panel', async () => {
