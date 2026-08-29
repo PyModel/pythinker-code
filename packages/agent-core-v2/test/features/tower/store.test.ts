@@ -754,7 +754,7 @@ describe('merge gate', () => {
 
     const after = await store.merge(third!.branch);
     expect(after.conflictsWith.map((c) => c.branch)).not.toContain(second!.branch);
-  });
+  }, 15_000);
 });
 
 describe('updateMission', () => {

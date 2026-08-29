@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
+import { DisposableStore } from '#/_base/di/lifecycle';
+import { createServices } from '#/_base/di/test';
+import type { AgentContext } from '#/agent/agentContext/agentContext';
+import { AgentRuntimeSet } from '#/agent/runtime/agentRuntimeSet';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
-import { AgentCron } from '#/features/cron/cronAgentRuntime';
+import { IConfigService } from '#/app/config/config';
+import { DEFAULT_CRON_CONFIG } from '#/features/cron/configSection';
+import { AgentCron, cronAgentRuntimeProvider } from '#/features/cron/cronAgentRuntime';
 import { CronCursor } from '#/features/cron/cronOps';
 
 import {
@@ -21,6 +27,51 @@ async function bootCronContext(options: TestAgentOptions = {}): Promise<TestAgen
 }
 
 describe('session cron wire persistence', () => {
+  it('settles an in-flight tick without reading services after close', async () => {
+    let releaseReady!: () => void;
+    const ready = new Promise<void>((resolve) => { releaseReady = resolve; });
+    let markTickStarted!: () => void;
+    const tickStarted = new Promise<void>((resolve) => { markTickStarted = resolve; });
+    let readyReads = 0;
+    let closed = false;
+    const disposables = new DisposableStore();
+    const services = createServices(disposables, {
+      additionalServices: (reg) => {
+        reg.definePartialInstance(IConfigService, {
+          get ready() {
+            readyReads += 1;
+            if (readyReads === 2) markTickStarted();
+            return ready;
+          },
+          get: <T>() => {
+            if (closed) throw new Error('config read after close');
+            return DEFAULT_CRON_CONFIG as T;
+          },
+        });
+      },
+    });
+    const agent = { agentId: 'main', generation: 1, space: {} } as AgentContext;
+    const runtimes = new AgentRuntimeSet(agent, services);
+    runtimes.apply({
+      definition: AgentCron,
+      provider: cronAgentRuntimeProvider,
+      generation: 1,
+      active: true,
+    });
+    runtimes.attachDurable({ attach: () => ({ dispose: () => {} }) });
+
+    const restoring = runtimes.restore();
+    const ticking = runtimes.resolve(AgentCron).tick();
+    await tickStarted;
+    await runtimes.close();
+    closed = true;
+    disposables.dispose();
+    releaseReady();
+
+    await expect(ticking).resolves.toBeUndefined();
+    await expect(restoring).resolves.toBeUndefined();
+  });
+
   it('writes cron ops as durable wire records and rebuilds the task table on replay', async () => {
     const persistence = new InMemoryWireRecordPersistence();
     const first = await bootCronContext({ persistence });

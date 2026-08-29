@@ -68,8 +68,12 @@ function configOf(runtime: AgentRuntimeContext<CronModelState>): IConfigService 
   return runtime.get(IConfigService);
 }
 
+function readCronConfig(config: IConfigService): CronConfig {
+  return config.get<CronConfig>(CRON_SECTION) ?? DEFAULT_CRON_CONFIG;
+}
+
 function cronConfigOf(runtime: AgentRuntimeContext<CronModelState>): CronConfig {
-  return configOf(runtime).get<CronConfig>(CRON_SECTION) ?? DEFAULT_CRON_CONFIG;
+  return readCronConfig(configOf(runtime));
 }
 
 function clocksOf(runtime: AgentRuntimeContext<CronModelState>): ClockSources {
@@ -265,9 +269,12 @@ async function processDue(
 async function tickCron(
   runtime: AgentRuntimeContext<CronModelState>,
   state: CronEffectState,
+  config: IConfigService,
+  isDisposed: () => boolean,
 ): Promise<void> {
-  await configOf(runtime).ready;
-  if (cronConfigOf(runtime).disabled || runtime.getState().size === 0) return;
+  await config.ready;
+  if (isDisposed()) return;
+  if (readCronConfig(config).disabled || runtime.getState().size === 0) return;
   if (runtime.get(IAgentLoopService).status().state === 'running') return;
   const now = state.clocks.wallNow();
   await Promise.all([...runtime.getState().values()].map((task) => processDue(runtime, state, task, now)));
@@ -286,6 +293,7 @@ const cronEffects = fromCallback(({
   sendBack: (event: CronActorEvent) => void;
 }) => {
   if (input.runtime.agent.agentId !== MAIN_AGENT_ID) return;
+  const config = configOf(input.runtime);
   const timer = new IntervalTimer({ unref: true });
   const state: CronEffectState = {
     clocks: SYSTEM_CLOCKS,
@@ -297,18 +305,22 @@ const cronEffects = fromCallback(({
   let disposed = false;
   let signalHandler: NodeJS.SignalsListener | undefined;
   receive((event) => {
-    void tickCron(input.runtime, state).then(event.resolve, event.reject);
+    if (disposed) {
+      event.resolve?.();
+      return;
+    }
+    void tickCron(input.runtime, state, config, () => disposed).then(event.resolve, event.reject);
   });
-  input.restore.waitUntil(configOf(input.runtime).ready.then(() => {
+  input.restore.waitUntil(config.ready.then(() => {
     if (disposed) return;
-    const config = cronConfigOf(input.runtime);
-    state.clocks = resolveClockSources(config.clock, config.debug) ?? SYSTEM_CLOCKS;
-    const poll = config.manualTick ? null : config.pollIntervalMs;
+    const current = readCronConfig(config);
+    state.clocks = resolveClockSources(current.clock, current.debug) ?? SYSTEM_CLOCKS;
+    const poll = current.manualTick ? null : current.pollIntervalMs;
     const interval = poll === undefined ? DEFAULT_POLL_INTERVAL_MS : poll;
     if (interval !== null && interval !== 0) {
       timer.cancelAndSet(() => { sendBack({ type: 'cron.tick' }); }, interval);
     }
-    if (process.platform !== 'win32' && config.manualTick) {
+    if (process.platform !== 'win32' && current.manualTick) {
       signalHandler = () => { sendBack({ type: 'cron.tick' }); };
       process.on('SIGUSR1', signalHandler);
     }
