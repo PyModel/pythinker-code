@@ -93,6 +93,8 @@ import { prospectiveModelView, validateSubagentModelPolicy } from '#/session/sub
 import { SECONDARY_MODEL_FLAG_ID } from '#/session/subagent/flag';
 import {
   DEFAULT_DYNAMIC_WORKFLOW_TIMEOUT_MS,
+  DYNAMIC_WORKFLOW_MAX_CONCURRENCY_ENV,
+  resolveDynamicWorkflowMaxConcurrency,
   resolveDynamicWorkflowTimeoutMs,
   DYNAMIC_WORKFLOW_SECTION,
   DYNAMIC_WORKFLOW_TIMEOUT_ENV,
@@ -1695,6 +1697,24 @@ describe('dynamic workflow config section', () => {
 
     env[DYNAMIC_WORKFLOW_TIMEOUT_ENV] = '3000';
     expect(resolveDynamicWorkflowTimeoutMs(config)).toBe(3000);
+
+    disposables.dispose();
+  });
+
+  it('resolves max_concurrency through the config and environment layers', async () => {
+    const env: Record<string, string> = {};
+    const { config, disposables } = await createConfig(
+      env,
+      '[dynamic_workflow]\nmax_concurrency = 3\n',
+    );
+
+    expect(resolveDynamicWorkflowMaxConcurrency(config)).toBe(3);
+
+    env[DYNAMIC_WORKFLOW_MAX_CONCURRENCY_ENV] = '2';
+    expect(resolveDynamicWorkflowMaxConcurrency(config)).toBe(2);
+
+    env[DYNAMIC_WORKFLOW_MAX_CONCURRENCY_ENV] = 'invalid';
+    expect(resolveDynamicWorkflowMaxConcurrency(config)).toBe(3);
 
     disposables.dispose();
   });

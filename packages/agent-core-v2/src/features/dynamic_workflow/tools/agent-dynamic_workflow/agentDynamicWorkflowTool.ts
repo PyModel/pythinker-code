@@ -193,7 +193,11 @@ export class AgentDynamicWorkflowTool implements IAgentDynamicWorkflowTool {
       const profileName = spec.task.subagent_type ?? args.defaults?.subagent_type ?? args.subagent_type;
       if (fork) {
         const incompatible = forkIncompatibility(
-          { subagent_type: profileName, model: spec.task.model ?? args.model },
+          {
+            subagent_type: profileName,
+            model: spec.task.model ?? args.model,
+            thinking: spec.task.thinking,
+          },
           this.profile.data(),
         );
         if (incompatible !== undefined) {
@@ -361,8 +365,10 @@ function renderDynamicWorkflowResults(results: readonly DynamicWorkflowRunResult
     const state = result.state === undefined ? '' : ` state="${result.state}"`;
     const binding = renderBindingAttributes(result.binding);
     const body = result.status === 'completed' ? (result.result ?? '') : (result.error ?? 'unknown error');
+    const encodedBody = /[&<>]/.test(body) ? escapeXmlText(body) : body;
+    const bodyEncoding = encodedBody === body ? '' : ' body_encoding="xml"';
     lines.push(
-      `<subagent${mode}${agentId}${item}${state}${binding} outcome="${result.status}">${body}</subagent>`,
+      `<subagent${mode}${agentId}${item}${state}${binding}${bodyEncoding} outcome="${result.status}">${encodedBody}</subagent>`,
     );
   }
 
@@ -410,6 +416,13 @@ function escapeXmlAttribute(value: string): string {
   return value
     .replaceAll('&', '&amp;')
     .replaceAll('"', '&quot;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;');
+}
+
+function escapeXmlText(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
     .replaceAll('<', '&lt;')
     .replaceAll('>', '&gt;');
 }

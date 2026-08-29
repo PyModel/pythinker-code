@@ -37,6 +37,8 @@ describe('SessionInitService', () => {
   let flush: ReturnType<typeof vi.fn>;
   let republishStatus: ReturnType<typeof vi.fn>;
   let create: ReturnType<typeof vi.fn>;
+  let planSpawn: ReturnType<typeof vi.fn>;
+  let spawn: ReturnType<typeof vi.fn>;
   let run: ReturnType<typeof vi.fn>;
   let runCompletion: Promise<{ summary: string; usage?: undefined }>;
 
@@ -53,6 +55,18 @@ describe('SessionInitService', () => {
     runCompletion = Promise.resolve({ summary: 'Explored and wrote AGENTS.md', usage: undefined });
 
     const handles: Record<string, { id: string; accessor: { get: (id: unknown) => unknown } }> = {};
+    planSpawn = vi.fn(async () => ({
+      profileName: 'coder',
+      model: 'mock-model',
+      thinking: 'off',
+      fork: false,
+    }));
+    spawn = vi.fn(async ({ plan, prompt }: { plan: { profileName: string; model: string }; prompt: string }) => ({
+      agentId: 'agent-0',
+      profileName: plan.profileName,
+      model: plan.model,
+      promptText: prompt,
+    }));
     const lifecycle = {
       _serviceBrand: undefined,
       hooks: {
@@ -62,6 +76,8 @@ describe('SessionInitService', () => {
       handleOf: vi.fn((agentId: string) => handles[agentId]),
       resolve: vi.fn(() => ({ notify: appendReminder })),
       create: vi.fn(async () => stubAgentContext('agent-0', 1)),
+      planSpawn,
+      spawn,
       run: vi.fn(async (agent: AgentContext) => ({
         agentId: agent.agentId,
         turn: {},
@@ -158,10 +174,14 @@ describe('SessionInitService', () => {
     const svc = ix.get(ISessionInitService);
     await svc.generateAgentsMd();
 
-    expect(create).toHaveBeenCalledTimes(1);
-    expect(create.mock.calls[0]![0]).toMatchObject({
-      binding: { profile: 'coder', model: 'mock-model', thinking: 'off' },
+    expect(planSpawn).toHaveBeenCalledWith({ callerAgentId: 'main', profileName: 'coder' });
+    expect(spawn).toHaveBeenCalledWith({
+      callerAgentId: 'main',
+      plan: { profileName: 'coder', model: 'mock-model', thinking: 'off', fork: false },
+      labels: { parentAgentId: 'main' },
+      prompt: expect.stringContaining('Task requirements:'),
     });
+    expect(create).not.toHaveBeenCalled();
 
     expect(run).toHaveBeenCalledTimes(1);
     const runArgs = run.mock.calls[0]!;
@@ -215,6 +235,7 @@ describe('SessionInitService', () => {
     expect(error).toBeInstanceOf(Error2);
     expect((error as Error2).code).toBe(ErrorCodes.SESSION_INIT_FAILED);
     expect((error as Error2).message).toContain('coder exploded');
+    expect((error as Error2).details).toEqual({ agentId: 'agent-0' });
   });
 
   it('throws AGENT_NOT_FOUND when the main agent is missing', async () => {

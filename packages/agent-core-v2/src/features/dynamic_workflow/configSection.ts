@@ -12,6 +12,7 @@ export const DYNAMIC_WORKFLOW_SECTION = 'dynamicWorkflow';
 
 export const DynamicWorkflowConfigSchema = z.object({
   timeoutMs: z.number().int().min(0).optional(),
+  maxConcurrency: z.number().int().positive().optional(),
 });
 
 export type DynamicWorkflowConfig = z.infer<typeof DynamicWorkflowConfigSchema>;
@@ -20,8 +21,10 @@ export const DEFAULT_DYNAMIC_WORKFLOW_TIMEOUT_MS = 2 * 60 * 60 * 1000;
 
 export const DYNAMIC_WORKFLOW_TIMEOUT_ENV =
   'PYTHINKER_CODE_AGENT_DYNAMIC_WORKFLOW_TIMEOUT_MS';
+export const DYNAMIC_WORKFLOW_MAX_CONCURRENCY_ENV =
+  'PYTHINKER_CODE_AGENT_DYNAMIC_WORKFLOW_MAX_CONCURRENCY';
 
-function parseTimeoutMsEnv(raw: string): number | undefined {
+function parsePositiveIntegerEnv(raw: string): number | undefined {
   const parsed = Number(raw);
   return Number.isInteger(parsed) && parsed >= 1 ? parsed : undefined;
 }
@@ -29,7 +32,11 @@ function parseTimeoutMsEnv(raw: string): number | undefined {
 export const dynamicWorkflowEnvBindings: EnvBindings<DynamicWorkflowConfig> = envBindings(
   DynamicWorkflowConfigSchema,
   {
-    timeoutMs: { env: DYNAMIC_WORKFLOW_TIMEOUT_ENV, parse: parseTimeoutMsEnv },
+    timeoutMs: { env: DYNAMIC_WORKFLOW_TIMEOUT_ENV, parse: parsePositiveIntegerEnv },
+    maxConcurrency: {
+      env: DYNAMIC_WORKFLOW_MAX_CONCURRENCY_ENV,
+      parse: parsePositiveIntegerEnv,
+    },
   },
 );
 
@@ -46,4 +53,10 @@ export function resolveDynamicWorkflowTimeoutMs(config: IConfigService): number 
     config.get<DynamicWorkflowConfig | undefined>(DYNAMIC_WORKFLOW_SECTION)?.timeoutMs ??
     DEFAULT_DYNAMIC_WORKFLOW_TIMEOUT_MS
   );
+}
+
+export function resolveDynamicWorkflowMaxConcurrency(
+  config: IConfigService,
+): number | undefined {
+  return config.get<DynamicWorkflowConfig | undefined>(DYNAMIC_WORKFLOW_SECTION)?.maxConcurrency;
 }

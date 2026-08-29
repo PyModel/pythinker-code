@@ -1,9 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import type { AgentContext } from '#/agent/agentContext/agentContext';
-import { IAgentProfileService } from '#/agent/profile/profile';
-import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { agentContextOf, IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import { IAgentTaskService } from '#/agent/task/task';
 import {
@@ -20,9 +18,6 @@ import {
 } from '#/features/tower/protocol/index';
 import { IAgentTowerService, TOWER_WORKER_PROFILE } from '#/features/tower/tower';
 import { ITowerRateLimitService } from '#/features/tower/towerRateLimit';
-import { IConfigService } from '#/app/config/config';
-import { IFlagService } from '#/app/flag/flag';
-import { IModelCatalog } from '#/kosong/model/catalog';
 import { toInputJsonSchema } from '#/tool/input-schema';
 import {
   type ExecutableToolContext,
@@ -32,22 +27,16 @@ import {
 import { IAgentLifecycleService, MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
 import { subagentLabels } from '#/session/agentLifecycle/subagentMetadata';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
-import {
-  DEFAULT_SUBAGENT_TIMEOUT_MS,
-  resolveSubagentBinding,
-  resolveSubagentThinking,
-  wrapSubagentModelError,
-} from '#/session/subagent/configSection';
+import { DEFAULT_SUBAGENT_TIMEOUT_MS } from '#/session/subagent/configSection';
 import { emitAgentRunSpawned, mirrorAgentRun } from '#/session/subagent/mirrorAgentRun';
-import { ISessionSubagentService } from '#/session/subagent/subagent';
+import { ISessionSubagentService, SubagentRunStartError } from '#/session/subagent/subagent';
+import type { SubagentSpawnPlan } from '#/session/subagent/spawn';
 
 import { SubagentTask, type SubagentHandle } from '#/agent/tools/agent/subagent-task';
 
 import { TOWER_MAIN_AGENT_ONLY } from '../support';
 import { ITowerSpawnTool, TowerSpawnToolInputSchema, type TowerSpawnToolInput } from './spawn';
 import DESCRIPTION from './spawn.md?raw';
-
-type SubagentBinding = ReturnType<typeof resolveSubagentBinding>;
 
 export class TowerSpawnTool implements ITowerSpawnTool {
   declare readonly _serviceBrand: undefined;
@@ -65,10 +54,6 @@ export class TowerSpawnTool implements ITowerSpawnTool {
     @IAgentLifecycleService private readonly agentLifecycle: IAgentLifecycleService,
     @ISessionSubagentService private readonly subagents: ISessionSubagentService,
     @IAgentTaskService private readonly tasks: IAgentTaskService,
-    @IAgentProfileService private readonly profile: IAgentProfileService,
-    @IConfigService private readonly config: IConfigService,
-    @IFlagService private readonly flags: IFlagService,
-    @IModelCatalog private readonly modelCatalog: IModelCatalog,
   ) {
     this.callerAgentId = scopeContext.agentId;
   }
@@ -158,20 +143,25 @@ export class TowerSpawnTool implements ITowerSpawnTool {
       let slotHeld = true;
       try {
         const controller = new AbortController();
-        const own = this.profile.data();
-        const binding =
-          own.modelAlias === undefined
-            ? undefined
-            : resolveSubagentBinding(
-                this.config,
-                this.flags,
-                { modelAlias: own.modelAlias, thinkingLevel: own.thinkingLevel },
-                args.kind === 'reviewer' ? 'primary' : undefined,
-              );
+        let plan: SubagentSpawnPlan;
         let handle: SubagentHandle;
         try {
-          handle = await this.launch(prompt, description, toolCallId, controller, binding);
+          plan = await this.subagents.planSpawn({
+            callerAgentId: this.callerAgentId,
+            profileName: TOWER_WORKER_PROFILE,
+            preferredModel: args.kind === 'reviewer' ? 'primary' : undefined,
+            allowUnlistedProfile: true,
+          });
+          handle = await this.launch(prompt, description, toolCallId, controller, plan);
         } catch (error) {
+          if (error instanceof SubagentRunStartError) {
+            return {
+              output:
+                `tower spawn failed after creating agent "${error.agentId}": ${error.message}\n` +
+                `recover with Agent(resume="${error.agentId}", prompt="continue")`,
+              isError: true,
+            };
+          }
           return {
             output: `tower spawn failed: ${error instanceof Error ? error.message : String(error)}`,
             isError: true,
@@ -189,7 +179,31 @@ export class TowerSpawnTool implements ITowerSpawnTool {
           controller.abort();
           void handle.completion.catch(() => {});
           return {
-            output: error instanceof Error ? error.message : String(error),
+            output:
+              `tower task registration failed after creating agent "${handle.agentId}": ${error instanceof Error ? error.message : String(error)}\n` +
+              `recover with Agent(resume="${handle.agentId}", prompt="continue") after the aborted run stops`,
+            isError: true,
+          };
+        }
+        try {
+          await store.registerAgent({
+            name: args.name,
+            agentId: handle.agentId,
+            sessionId: this.sessionContext.sessionId,
+            kind: args.kind,
+            missionId: mission?.id,
+            reviewTarget,
+            worktree: mission?.worktree,
+            branch: mission?.branch,
+            spawnedAt: new Date().toISOString(),
+          });
+        } catch (error) {
+          controller.abort();
+          void handle.completion.catch(() => {});
+          return {
+            output:
+              `tower roster registration failed after creating agent "${handle.agentId}": ${error instanceof Error ? error.message : String(error)}\n` +
+              `recover with Agent(resume="${handle.agentId}", prompt="continue") after the aborted run stops`,
             isError: true,
           };
         }
@@ -199,41 +213,41 @@ export class TowerSpawnTool implements ITowerSpawnTool {
             this.rateLimit.release();
           });
         slotHeld = false;
-
-        await store.registerAgent({
-          name: args.name,
-          agentId: handle.agentId,
-          sessionId: this.sessionContext.sessionId,
-          kind: args.kind,
-          missionId: mission?.id,
-          reviewTarget,
-          worktree: mission?.worktree,
-          branch: mission?.branch,
-          spawnedAt: new Date().toISOString(),
-        });
         if (mission !== undefined) {
-          await store.updateMission(
+          try {
+            await store.updateMission(
+              TOWER_NAME,
+              mission.id,
+              { status: 'active', owner: args.name },
+              { silent: true },
+            );
+          } catch (error) {
+            notes.push(
+              `mission status warning (agent is running): ${error instanceof Error ? error.message : String(error)}`,
+            );
+          }
+        }
+        try {
+          await store.appendLog(
             TOWER_NAME,
-            mission.id,
-            { status: 'active', owner: args.name },
-            { silent: true },
+            'spawn',
+            {
+              name: args.name,
+              kind: args.kind,
+              agent: handle.agentId,
+              mission: mission?.id,
+              target: reviewTarget,
+              model: plan.model,
+            },
+            mission !== undefined
+              ? join(MISSIONS_DIR, missionFileName(mission.id, mission.slug))
+              : undefined,
+          );
+        } catch (error) {
+          notes.push(
+            `activity log warning (agent is running): ${error instanceof Error ? error.message : String(error)}`,
           );
         }
-        await store.appendLog(
-          TOWER_NAME,
-          'spawn',
-          {
-            name: args.name,
-            kind: args.kind,
-            agent: handle.agentId,
-            mission: mission?.id,
-            target: reviewTarget,
-            model: binding?.model,
-          },
-          mission !== undefined
-            ? join(MISSIONS_DIR, missionFileName(mission.id, mission.slug))
-            : undefined,
-        );
 
         return {
           output: [
@@ -242,7 +256,7 @@ export class TowerSpawnTool implements ITowerSpawnTool {
             `agent_id: ${handle.agentId}`,
             `task_id: ${taskId}`,
             'status: running',
-            ...(binding !== undefined ? [`model: ${binding.model}`] : []),
+            `model: ${plan.model}`,
             ...(mission !== undefined
               ? [
                   `mission: ${mission.id} — ${mission.title}`,
@@ -271,58 +285,66 @@ export class TowerSpawnTool implements ITowerSpawnTool {
     description: string,
     toolCallId: string,
     controller: AbortController,
-    binding: SubagentBinding | undefined,
+    plan: SubagentSpawnPlan,
   ): Promise<SubagentHandle> {
     const requester = this.agentLifecycle.handleOf(this.callerAgentId);
     if (requester === undefined) {
       throw new Error(`Caller agent "${this.callerAgentId}" does not exist`);
     }
 
-    let createdContext: AgentContext;
-    try {
-      const model = binding === undefined ? undefined : this.modelCatalog.get(binding.model);
-      createdContext = await this.agentLifecycle.create({
-        binding: {
-          profile: TOWER_WORKER_PROFILE,
-          model: binding?.model,
-          thinking: resolveSubagentThinking(this.config, model, binding?.thinking),
-        },
-        labels: subagentLabels(this.callerAgentId),
-      });
-    } catch (error) {
-      throw binding === undefined
-        ? error
-        : wrapSubagentModelError(error, binding.model, this.profile.data().modelAlias);
-    }
-    const created = this.agentLifecycle.handleOf(createdContext.agentId)!;
-    created.accessor.get(IAgentPermissionModeService).setMode('auto');
-    const agentId = createdContext.agentId;
-
-    emitAgentRunSpawned(requester, agentId, {
-      profileName: TOWER_WORKER_PROFILE,
-      parentToolCallId: toolCallId,
-      description,
-      runInBackground: true,
-    });
-
-    const run = await this.subagents.run(
-      createdContext,
-      { kind: 'prompt', prompt },
-      { signal: controller.signal },
-    );
-    const mirrored = mirrorAgentRun(requester, run, {
-      profileName: TOWER_WORKER_PROFILE,
+    const spawned = await this.subagents.spawn({
+      callerAgentId: this.callerAgentId,
+      plan,
+      labels: subagentLabels(this.callerAgentId),
       prompt,
-      signal: controller.signal,
-      cancel: (reason) => {
-        controller.abort(reason);
-      },
     });
-    return {
-      agentId,
-      profileName: TOWER_WORKER_PROFILE,
-      completion: mirrored.then((r) => ({ result: r.summary, usage: r.usage })),
-    };
+    const agentId = spawned.agentId;
+    try {
+      const created = this.agentLifecycle.handleOf(agentId);
+      if (created === undefined) {
+        throw new Error(`Agent instance "${agentId}" does not exist`);
+      }
+      created.accessor.get(IAgentPermissionModeService).setMode('auto');
+
+      emitAgentRunSpawned(requester, agentId, {
+        profileName: plan.profileName,
+        parentToolCallId: toolCallId,
+        description,
+        runInBackground: true,
+        fork: plan.fork,
+        model: plan.model,
+        routing: plan.routing,
+        currentRoutingEnvironmentRevision:
+          plan.routing?.resolvedFromRoutingEnvironmentRevision,
+      });
+
+      const run = await this.subagents.run(
+        agentContextOf(created),
+        { kind: 'prompt', prompt: spawned.promptText },
+        { signal: controller.signal },
+      );
+      const mirrored = mirrorAgentRun(requester, run, {
+        profileName: plan.profileName,
+        prompt: spawned.promptText,
+        signal: controller.signal,
+        cancel: (reason) => {
+          controller.abort(reason);
+        },
+      });
+      return {
+        agentId,
+        profileName: plan.profileName,
+        parentToolCallId: toolCallId,
+        model: plan.model,
+        thinkingEffort: plan.thinking,
+        routing: plan.routing,
+        currentRoutingEnvironmentRevision:
+          plan.routing?.resolvedFromRoutingEnvironmentRevision,
+        completion: mirrored.then((r) => ({ result: r.summary, usage: r.usage })),
+      };
+    } catch (error) {
+      throw new SubagentRunStartError(agentId, error);
+    }
   }
 
   private async buildPrompt(

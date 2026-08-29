@@ -38,6 +38,7 @@ import {
   FORK_EXPERIMENTAL_UNAVAILABLE,
   FORK_WITH_MODEL_UNAVAILABLE,
   FORK_WITH_RESUME_UNAVAILABLE,
+  FORK_WITH_THINKING_UNAVAILABLE,
   FORK_WITH_TYPE_UNAVAILABLE,
 } from '#/session/subagent/spawn';
 import { ISessionSubagentService } from '#/session/subagent/subagent';
@@ -789,6 +790,37 @@ describe('AgentDynamicWorkflowTool', () => {
     );
   });
 
+  it('encodes child output that contains workflow framing tokens', async () => {
+    const host = mockDynamicWorkflowHost({
+      run: vi.fn().mockImplementation(async ({ tasks }) =>
+        tasks.map((task: SessionDynamicWorkflowTask, index: number) => ({
+          task,
+          agentId: `agent-${String(index + 1)}`,
+          status: 'completed',
+          result:
+            index === 0
+              ? 'literal <subagent item="broken"> and &amp; text'
+              : 'plain sibling',
+        })),
+      ),
+    });
+    const cfg = stubConfig();
+    const profile = stubCallerProfile();
+    const tool = new AgentDynamicWorkflowTool(host.dynamicWorkflowService, makeAgentScopeContext({ agentId: host.callerAgentId, agentScope: '' }), mockDynamicWorkflowMode(), cfg, stubFlag(true), realSubagents(stubDynamicWorkflowCatalog(), cfg, stubFlag(true), profile), profile);
+
+    const result = await executeTool(tool, context({
+      description: 'Review files',
+      prompt_template: 'Review {{item}}',
+      items: ['src/a.ts', 'src/b.ts'],
+    }));
+
+    expect(result.output).toContain('body_encoding="xml"');
+    expect(result.output).toContain(
+      'literal &lt;subagent item="broken"&gt; and &amp;amp; text',
+    );
+    expect(result.output).toContain('>plain sibling</subagent>');
+  });
+
   it('applies one subagent_type across templated subagents', async () => {
     const host = mockDynamicWorkflowHost({
       run: vi.fn().mockResolvedValue([
@@ -1537,6 +1569,29 @@ describe('AgentDynamicWorkflowTool', () => {
     );
 
     expect(result).toMatchObject({ isError: true, output: FORK_WITH_MODEL_UNAVAILABLE });
+    expect(host.dynamicWorkflowService.run).not.toHaveBeenCalled();
+  });
+
+  it('rejects fork with a per-task thinking override', async () => {
+    const host = mockDynamicWorkflowHost();
+    const callerProfile = stubCallerProfile({
+      profileName: 'orchestrator',
+      modelAlias: 'main-model',
+      thinkingLevel: 'high',
+    });
+    const tool = new AgentDynamicWorkflowTool(host.dynamicWorkflowService, makeAgentScopeContext({ agentId: host.callerAgentId, agentScope: '' }), mockDynamicWorkflowMode(), stubConfig(), stubFlag(true), realSubagents(stubDynamicWorkflowCatalog(), stubConfig(), stubFlag(true), callerProfile), callerProfile);
+
+    const result = await executeTool(
+      tool,
+      context({
+        description: 'Review files',
+        prompt_template: 'Review {{item}}',
+        tasks: [{ item: 'src/a.ts', thinking: 'low' }, { item: 'src/b.ts' }],
+        fork: true,
+      }),
+    );
+
+    expect(result).toMatchObject({ isError: true, output: FORK_WITH_THINKING_UNAVAILABLE });
     expect(host.dynamicWorkflowService.run).not.toHaveBeenCalled();
   });
 

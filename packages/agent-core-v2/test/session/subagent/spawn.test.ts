@@ -44,6 +44,7 @@ import {
 } from '#/session/subagent/subagentRoutingService';
 import {
   FORK_CONTEXT_NOTICE,
+  FORK_WITH_THINKING_UNAVAILABLE,
   type SpawnedSubagent,
   type SpawnSubagentOptions,
   type SubagentSpawnPlan,
@@ -70,6 +71,7 @@ describe('SessionSubagentService planSpawn and spawn', () => {
   let telemetry: ITelemetryService;
   let createAgent: ReturnType<typeof vi.fn>;
   let forkAgent: ReturnType<typeof vi.fn>;
+  let removeAgent: ReturnType<typeof vi.fn>;
   let acquireRuntime: ReturnType<typeof vi.fn>;
   let callerPermissionMode: { mode: string; setMode: ReturnType<typeof vi.fn> };
   let createdPermissionMode: { mode: string; setMode: ReturnType<typeof vi.fn> };
@@ -106,6 +108,14 @@ describe('SessionSubagentService planSpawn and spawn', () => {
           }
           if (serviceId === IAgentPermissionModeService) return createdPermissionMode;
           if (serviceId === IAgentUserToolService) return createdUserTools;
+          if (serviceId === IAgentScopeContext) {
+            return {
+              _serviceBrand: undefined,
+              agentId,
+              agentContext: stubAgentContext(agentId, 1),
+              scope: () => '',
+            };
+          }
           if (serviceId === IAgentBindingProvenanceService) {
             return {
               _serviceBrand: undefined,
@@ -195,6 +205,9 @@ describe('SessionSubagentService planSpawn and spawn', () => {
       createdHandles.set('agent-fork', createdHandle('agent-fork'));
       return stubAgentContext('agent-fork', 1);
     });
+    removeAgent = vi.fn(async (agent: { readonly agentId: string }) => {
+      createdHandles.delete(agent.agentId);
+    });
     ix.stub(IAgentLifecycleService, {
       _serviceBrand: undefined,
       onDidCreate: Event.None,
@@ -207,7 +220,7 @@ describe('SessionSubagentService planSpawn and spawn', () => {
       handleOf: (agentId: string) =>
         agentId === CALLER_ID ? caller : createdHandles.get(agentId),
       list: () => [stubAgentContext(CALLER_ID, 1)],
-      remove: async () => {},
+      remove: removeAgent,
       broadcastPermissionMode: () => {},
     } as unknown as IAgentLifecycleService);
     ix.stub(ISessionAgentProfileCatalog, {
@@ -320,6 +333,26 @@ describe('SessionSubagentService planSpawn and spawn', () => {
     expect(error.message).toBe(
       'Subagent type "coder" is not allowed for this agent. Allowed subagent types: explore.',
     );
+  });
+
+  it('allows a known internal profile through an explicit trusted route', async () => {
+    profiles.push(
+      normalizeAgentProfile({
+        name: 'tower-worker',
+        description: 'Tower worker',
+        systemPrompt: () => 'tower worker',
+      }),
+    );
+    callerData = { ...callerData, subagents: ['explore'] };
+    const svc = service();
+
+    await expect(
+      svc.planSpawn({
+        callerAgentId: CALLER_ID,
+        profileName: 'tower-worker',
+        allowUnlistedProfile: true,
+      }),
+    ).resolves.toMatchObject({ profileName: 'tower-worker', model: 'main-model' });
   });
 
   it('rejects when the caller agent has no model bound', async () => {
@@ -478,6 +511,27 @@ describe('SessionSubagentService planSpawn and spawn', () => {
     });
   });
 
+  it('treats a preferred model as a fallback under a forced policy', async () => {
+    modelIds.add('provider/fast');
+    const svc = service(
+      {
+        [SECONDARY_MODEL_SECTION]: {
+          force: true,
+          defaultModel: 'provider/fast',
+        },
+      },
+      true,
+    );
+
+    await expect(
+      svc.planSpawn({
+        callerAgentId: CALLER_ID,
+        profileName: 'coder',
+        preferredModel: 'primary',
+      }),
+    ).resolves.toMatchObject({ model: 'provider/fast', routing: { modelSource: 'policy-force' } });
+  });
+
   it('skips the allowlist check when forking', async () => {
     callerData = { ...callerData, profileName: 'coder', subagents: ['explore'] };
     const svc = service();
@@ -507,6 +561,19 @@ describe('SessionSubagentService planSpawn and spawn', () => {
       thinking: 'high',
       fork: true,
     });
+  });
+
+  it('rejects a direct fork plan with a different thinking level', async () => {
+    const svc = service();
+
+    const error = await planSpawnError(svc, {
+      callerAgentId: CALLER_ID,
+      fork: true,
+      thinking: 'low',
+    });
+
+    expect(error.code).toBe(ErrorCodes.VALIDATION_FAILED);
+    expect(error.message).toBe(FORK_WITH_THINKING_UNAVAILABLE);
   });
 
   it('creates the child with the plan binding when the plan is not a fork', async () => {
@@ -576,6 +643,30 @@ describe('SessionSubagentService planSpawn and spawn', () => {
     await spawnNonForkChild(svc);
 
     expect(lease.dispose).toHaveBeenCalled();
+  });
+
+  it('removes a created child when post-create setup fails', async () => {
+    createdPermissionMode.setMode.mockImplementationOnce(() => {
+      throw new Error('permission setup failed');
+    });
+    const svc = service();
+
+    await expect(spawnNonForkChild(svc)).rejects.toThrow('permission setup failed');
+
+    expect(removeAgent).toHaveBeenCalledWith(expect.objectContaining({ agentId: 'agent-child' }));
+    expect(createdHandles.has('agent-child')).toBe(false);
+  });
+
+  it('removes a child when creation returns without an agent scope', async () => {
+    createAgent.mockResolvedValueOnce(stubAgentContext('agent-missing', 1));
+    const svc = service();
+
+    await expect(spawnNonForkChild(svc)).rejects.toMatchObject({
+      code: ErrorCodes.AGENT_NOT_FOUND,
+      details: { agentId: 'agent-missing' },
+    });
+
+    expect(removeAgent).toHaveBeenCalledWith(expect.objectContaining({ agentId: 'agent-missing' }));
   });
 
   it('delegates to manager.fork with the caller labels when the plan is a fork', async () => {
