@@ -24,6 +24,7 @@ import Icon from './ui/Icon.vue';
 import Kbd from './ui/Kbd.vue';
 import Menu from './ui/Menu.vue';
 import MenuItem from './ui/MenuItem.vue';
+import Pill from './ui/Pill.vue';
 import PinnedSessionList from './PinnedSessionList.vue';
 import ReleaseNotes from './ReleaseNotes.vue';
 import SessionRow from './SessionRow.vue';
@@ -833,9 +834,8 @@ watch([() => props.collapsed, update.hasUpdate], ([collapsed, hasUpdate]) => {
           />
         </div>
         <div class="ch-actions">
-          <button
+          <Pill
             v-if="update.hasUpdate.value"
-            type="button"
             class="sidebar-update-trigger"
             :class="`is-${updateStage}`"
             data-testid="sidebar-update"
@@ -858,7 +858,7 @@ watch([() => props.collapsed, update.hasUpdate], ([collapsed, hasUpdate]) => {
             <span class="sidebar-update-trigger__text" data-testid="sidebar-update-text">
               {{ updateTriggerText }}
             </span>
-          </button>
+          </Pill>
           <IconButton
             class="ch-collapse"
             size="sm"
@@ -1480,15 +1480,9 @@ watch([() => props.collapsed, update.hasUpdate], ([collapsed, hasUpdate]) => {
   width: var(--sidebar-update-size);
   height: var(--sidebar-update-size);
   padding: 0;
-  border: none;
   border-radius: var(--radius-full);
-  background: transparent;
   color: var(--color-text);
-  font: inherit;
   font-size: var(--text-xs);
-  font-weight: 600;
-  line-height: 1;
-  cursor: pointer;
   overflow: hidden;
   transition: width var(--duration-base) var(--ease-out),
     background var(--duration-base) var(--ease-out),
@@ -1512,28 +1506,28 @@ watch([() => props.collapsed, update.hasUpdate], ([collapsed, hasUpdate]) => {
   opacity: 0;
   pointer-events: none;
 }
-.sidebar-update-trigger:hover,
-.sidebar-update-trigger:focus-visible,
-.sidebar-update-trigger.is-downloading,
-.sidebar-update-trigger.is-downloaded,
-.sidebar-update-trigger.is-error {
+.ch-actions .sidebar-update-trigger:hover:not(:disabled),
+.ch-actions .sidebar-update-trigger:focus-visible,
+.ch-actions .sidebar-update-trigger.is-downloading,
+.ch-actions .sidebar-update-trigger.is-downloaded,
+.ch-actions .sidebar-update-trigger.is-error {
   width: auto;
   min-width: 56px;
   background: var(--color-accent);
   color: var(--color-text-on-accent);
 }
-.sidebar-update-trigger:hover .sidebar-update-trigger__icon,
-.sidebar-update-trigger:focus-visible .sidebar-update-trigger__icon,
-.sidebar-update-trigger.is-downloading .sidebar-update-trigger__icon,
-.sidebar-update-trigger.is-downloaded .sidebar-update-trigger__icon,
-.sidebar-update-trigger.is-error .sidebar-update-trigger__icon {
+.ch-actions .sidebar-update-trigger:hover:not(:disabled) .sidebar-update-trigger__icon,
+.ch-actions .sidebar-update-trigger:focus-visible .sidebar-update-trigger__icon,
+.ch-actions .sidebar-update-trigger.is-downloading .sidebar-update-trigger__icon,
+.ch-actions .sidebar-update-trigger.is-downloaded .sidebar-update-trigger__icon,
+.ch-actions .sidebar-update-trigger.is-error .sidebar-update-trigger__icon {
   opacity: 0;
 }
-.sidebar-update-trigger:hover .sidebar-update-trigger__text,
-.sidebar-update-trigger:focus-visible .sidebar-update-trigger__text,
-.sidebar-update-trigger.is-downloading .sidebar-update-trigger__text,
-.sidebar-update-trigger.is-downloaded .sidebar-update-trigger__text,
-.sidebar-update-trigger.is-error .sidebar-update-trigger__text {
+.ch-actions .sidebar-update-trigger:hover:not(:disabled) .sidebar-update-trigger__text,
+.ch-actions .sidebar-update-trigger:focus-visible .sidebar-update-trigger__text,
+.ch-actions .sidebar-update-trigger.is-downloading .sidebar-update-trigger__text,
+.ch-actions .sidebar-update-trigger.is-downloaded .sidebar-update-trigger__text,
+.ch-actions .sidebar-update-trigger.is-error .sidebar-update-trigger__text {
   opacity: 1;
 }
 .sidebar-update-trigger.is-downloading {
@@ -1542,10 +1536,10 @@ watch([() => props.collapsed, update.hasUpdate], ([collapsed, hasUpdate]) => {
 .sidebar-update-trigger.is-error {
   background: var(--color-danger);
 }
-.sidebar-update-trigger:disabled {
+.ch-actions .sidebar-update-trigger:disabled {
   cursor: progress;
 }
-.sidebar-update-trigger:focus-visible {
+.ch-actions .sidebar-update-trigger:focus-visible {
   outline: none;
   box-shadow: var(--p-focus-ring-strong);
 }
