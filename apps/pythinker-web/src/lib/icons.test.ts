@@ -8,13 +8,12 @@ import { ICONS, SIZE_PX, getIcon, iconSvg } from './icons';
 const ANIMATED_NAMES = [
   'terminal',
   'cute-bot',
-  'search',
-  'folder',
-  'settings',
   'loading-spinner',
   'update-button',
   'update-available',
 ] as const;
+
+const STATIC_IDLE_NAMES = ['search', 'folder', 'settings'] as const;
 
 describe('ICONS registry', () => {
   it('is non-empty', () => {
@@ -117,6 +116,17 @@ describe('animated registry icons', () => {
     expect(html).toContain('aria-hidden="true"');
     const sheet = document.head.querySelector('style[data-ptx-icon-style="terminal"]');
     expect(sheet?.textContent).toContain('@keyframes ptx-term-blink-cursor');
+  });
+});
+
+describe('idle sidebar icons', () => {
+  it.each(STATIC_IDLE_NAMES)('%s is static artwork without an animation stylesheet', (name) => {
+    const target = getIcon(name);
+    expect(target.animated).toBeUndefined();
+    expect(target.component).toBeDefined();
+    expect(target.svg).not.toContain('<style');
+    expect(target.svg).not.toContain('@keyframes');
+    expect(target.svg).not.toContain('animation:');
   });
 });
 

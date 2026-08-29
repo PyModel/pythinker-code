@@ -17,7 +17,7 @@ describe('thinking indicator', () => {
     expect(wrapper.attributes('role')).toBe('status');
   });
 
-  it('uses the same mark in the running page title', async () => {
+  it('keeps one stable mark in the running page title without a timer', async () => {
     vi.useFakeTimers();
     const running = ref(false);
     const showAuthGate = ref(false);
@@ -37,9 +37,10 @@ describe('thinking indicator', () => {
     await nextTick();
 
     expect(document.title).toBe('⣷ Pythinker Code Web');
+    expect(vi.getTimerCount()).toBe(0);
     vi.advanceTimersByTime(BRAILLE_SPINNER_FRAME_MS);
     await nextTick();
-    expect(document.title).toBe('⣯ Pythinker Code Web');
+    expect(document.title).toBe('⣷ Pythinker Code Web');
     wrapper.unmount();
     vi.useRealTimers();
   });

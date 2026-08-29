@@ -243,13 +243,39 @@ interface AssistantTurnModel {
   changes: TurnFileChange[];
 }
 
+const assistantTurnModelCache = new WeakMap<
+  ChatTurn,
+  {
+    activityRunFolding: boolean;
+    turnFolding: boolean;
+    model: AssistantTurnModel;
+  }
+>();
+
+function assistantTurnModel(turn: ChatTurn): AssistantTurnModel {
+  const cached = assistantTurnModelCache.get(turn);
+  if (
+    cached?.activityRunFolding === props.activityRunFolding &&
+    cached.turnFolding === props.turnFolding
+  ) {
+    return cached.model;
+  }
+  const all = assistantRenderBlocks(turn, props.activityRunFolding);
+  const { folded, visible } = foldRenderBlocks(all, props.turnFolding);
+  const model = { all, folded, visible, changes: turnFileChanges(turn) };
+  assistantTurnModelCache.set(turn, {
+    activityRunFolding: props.activityRunFolding,
+    turnFolding: props.turnFolding,
+    model,
+  });
+  return model;
+}
+
 const assistantTurnModels = computed(() => {
   const models = new Map<string, AssistantTurnModel>();
   for (const turn of props.turns) {
     if (turn.role !== 'assistant') continue;
-    const all = assistantRenderBlocks(turn, props.activityRunFolding);
-    const { folded, visible } = foldRenderBlocks(all, props.turnFolding);
-    models.set(turn.id, { all, folded, visible, changes: turnFileChanges(turn) });
+    models.set(turn.id, assistantTurnModel(turn));
   }
   return models;
 });

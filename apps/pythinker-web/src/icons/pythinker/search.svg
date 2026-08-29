@@ -1,57 +1,12 @@
-<svg class="ptx ptx-search" width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Animated search icon">
-  <style>
-    .ptx-search .scan-line {
-      stroke: currentColor;
-      stroke-width: 1.35;
-      stroke-linecap: round;
-      path-length: 1;
-      stroke-dasharray: 1;
-      stroke-dashoffset: 1;
-      opacity: 0;
-      transform-box: fill-box;
-      transform-origin: center;
-      animation: ptx-search-reveal-line 2.4s ease-in-out infinite;
-    }
-
-    .ptx-search .line-1 { animation-delay: 0s; }
-    .ptx-search .line-2 { animation-delay: .18s; }
-    .ptx-search .line-3 { animation-delay: .36s; }
-
-    @keyframes ptx-search-reveal-line {
-      0%, 8% {
-        stroke-dashoffset: 1;
-        opacity: 0;
-        transform: scaleX(.72);
-      }
-      24%, 58% {
-        stroke-dashoffset: 0;
-        opacity: .9;
-        transform: scaleX(1);
-      }
-      76%, 100% {
-        stroke-dashoffset: -1;
-        opacity: 0;
-        transform: scaleX(.82);
-      }
-    }
-
-    @media (prefers-reduced-motion: reduce) {
-      .ptx-search .scan-line {
-        animation: none;
-        stroke-dashoffset: 0;
-        opacity: .72;
-        transform: none;
-      }
-    }
-  </style>
+<svg class="ptx ptx-search" width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Search icon">
 
   <!-- Original search icon -->
   <path d="M11.5 3C16.1944 3 20 6.80558 20 11.5C20 13.523 19.2933 15.381 18.1132 16.8404L21.1364 19.8636C21.4879 20.2151 21.4879 20.7849 21.1364 21.1364C20.7849 21.4879 20.2151 21.4879 19.8636 21.1364L16.8404 18.1132C15.381 19.2933 13.523 20 11.5 20C6.80558 20 3 16.1944 3 11.5C3 6.80558 6.80558 3 11.5 3ZM11.5 18.2C15.2003 18.2 18.2 15.2003 18.2 11.5C18.2 7.79969 15.2003 4.8 11.5 4.8C7.79969 4.8 4.8 7.79969 4.8 11.5C4.8 15.2003 7.79969 18.2 11.5 18.2Z" fill="currentColor"/>
 
-  <!-- Animated result/search lines inside the lens -->
-  <g aria-hidden="true">
-    <path class="scan-line line-1" pathLength="1" d="M8 8.7H14.9"/>
-    <path class="scan-line line-2" pathLength="1" d="M8 11.5H13.4"/>
-    <path class="scan-line line-3" pathLength="1" d="M8 14.3H15.7"/>
+  <!-- Result/search lines inside the lens -->
+  <g aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" opacity=".72">
+    <path d="M8 8.7H14.9"/>
+    <path d="M8 11.5H13.4"/>
+    <path d="M8 14.3H15.7"/>
   </g>
 </svg>

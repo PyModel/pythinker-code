@@ -30,7 +30,10 @@ import { fileIconSvg } from './fileIcons';
 // Components (Pythinker collection) ----------------------------------------------
 import PythinkerAddConversation from '~icons/pythinker/add-conversation';
 import PythinkerFolder from '~icons/pythinker/folder';
+import PythinkerFolderOpen from '~icons/pythinker/folder-open';
 import PythinkerMore from '~icons/pythinker/more';
+import PythinkerSearch from '~icons/pythinker/search';
+import PythinkerSetting from '~icons/pythinker/setting';
 import PythinkerThinking from '~icons/pythinker/thinking';
 
 // Components (Tabler) ---------------------------------------------------------
@@ -347,7 +350,7 @@ export const ICONS: Record<IconName, IconEntry> = {
   close: entry(RiCloseLine, RawCloseLine),
   check: entry(RiCheckLine, RawCheckLine),
   archive: entry(RiArchiveLine, RawArchiveLine),
-  search: animatedEntry(RawPythinkerSearch),
+  search: entry(PythinkerSearch, RawPythinkerSearch),
   copy: entry(RiFileCopyLine, RawFileCopyLine),
   link: entry(RiLinksLine, RawLinksLine),
   'external-link': entry(RiExternalLinkLine, RawExternalLinkLine),
@@ -355,7 +358,7 @@ export const ICONS: Record<IconName, IconEntry> = {
   undo: entry(RiArrowGoBackLine, RawArrowGoBackLine),
   send: entry(RiArrowUpLine, RawArrowUpLine),
   image: entry(RiImageLine, RawImageLine),
-  settings: animatedEntry(RawPythinkerSetting),
+  settings: entry(PythinkerSetting, RawPythinkerSetting),
   sliders: entry(RiEqualizerLine, RawEqualizerLine),
   'cute-bot': animatedEntry(RawPythinkerCuteBot),
   microscope: entry(RiMicroscopeLine, RawMicroscopeLine),
@@ -385,7 +388,7 @@ export const ICONS: Record<IconName, IconEntry> = {
   list: entry(RiListUnordered, RawListUnordered),
   sort: entry(RiSortDesc, RawSortDesc),
   grip: entry(RiDraggable, RawDraggable),
-  folder: animatedEntry(RawPythinkerFolderOpen),
+  folder: entry(PythinkerFolderOpen, RawPythinkerFolderOpen),
   'folder-closed': entry(PythinkerFolder, RawPythinkerFolder),
   'folder-plus': entry(RiFolderAddLine, RawFolderAddLine),
   'folder-solid': entry(RiFolderFill, RawFolderFill),
