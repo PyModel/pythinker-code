@@ -9,7 +9,9 @@ interface DesktopPackage {
     readonly afterPack: string
     readonly appId: string
     readonly dmg: {
+      readonly background: string
       readonly contents: readonly {
+        readonly name?: string
         readonly path?: string
         readonly type: string
         readonly x: number
@@ -135,9 +137,37 @@ describe('desktop packaging configuration', () => {
       window: { height: 400, width: 660 },
     })
     expect(desktopPackage.build.dmg.contents).toEqual([
-      { x: 180, y: 200, type: 'file' },
-      { x: 480, y: 200, type: 'link', path: '/Applications' },
+      { x: 180, y: 250, type: 'file' },
+      { x: 480, y: 250, type: 'link', path: '/Applications' },
+      {
+        name: '.background.png',
+        path: 'build/background.png',
+        type: 'file',
+        x: 760,
+        y: 520,
+      },
+      {
+        name: '.VolumeIcon.icns',
+        path: 'dist/.icon-icns/icon.icns',
+        type: 'file',
+        x: 760,
+        y: 520,
+      },
     ])
+  })
+
+  it('uses the branded 660x400 macOS DMG background', () => {
+    const backgroundPath = resolve(desktopRoot, 'build/background.png')
+
+    expect(desktopPackage.build.dmg.background).toBe('build/background.png')
+    expect(existsSync(backgroundPath)).toBe(true)
+
+    const background = readFileSync(backgroundPath)
+    expect(createHash('sha256').update(background).digest('hex'))
+      .toBe('95e8b785add86919d269b198844d8a903280190f8fd33d5f8ffdca404c113fa8')
+    expect(background.subarray(0, 8).toString('hex')).toBe('89504e470d0a1a0a')
+    expect(background.readUInt32BE(16)).toBe(660)
+    expect(background.readUInt32BE(20)).toBe(400)
   })
 
   it('configures the Windows x64 NSIS installer', () => {
