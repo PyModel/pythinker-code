@@ -9,7 +9,7 @@ import { AgentRuntimeSet } from '#/agent/runtime/agentRuntimeSet';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { IConfigService } from '#/app/config/config';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { DEFAULT_CRON_CONFIG } from '#/features/cron/configSection';
+import { CRON_SECTION, DEFAULT_CRON_CONFIG } from '#/features/cron/configSection';
 import { AgentCron, cronAgentRuntimeProvider } from '#/features/cron/cronAgentRuntime';
 import { CronCursor, type CronModelState } from '#/features/cron/cronOps';
 import { IEventDispatcher } from '#/state/eventDispatcher';
@@ -22,6 +22,7 @@ import {
   type TestAgentContext,
   type TestAgentOptions,
 } from '../../harness';
+import { StubConfigService } from '../../kosong/stubs';
 
 async function bootCronContext(options: TestAgentOptions = {}): Promise<TestAgentContext> {
   const ctx = createTestAgent(options);
@@ -40,19 +41,23 @@ describe('session cron wire persistence', () => {
     const injectStarted = new Promise<void>((resolve) => { markInjectStarted = resolve; });
     let closed = false;
     let postCloseReads = 0;
+    const configReads: string[] = [];
     const recordRead = (): void => {
       if (closed) postCloseReads += 1;
     };
+    class TrackedConfigService extends StubConfigService {
+      override get<T = unknown>(domain: string): T {
+        configReads.push(domain);
+        recordRead();
+        return super.get<T>(domain);
+      }
+    }
     const disposables = new DisposableStore();
     const services = createServices(disposables, {
       additionalServices: (reg) => {
-        reg.definePartialInstance(IConfigService, {
-          ready: Promise.resolve(),
-          get: <T>() => {
-            recordRead();
-            return { ...DEFAULT_CRON_CONFIG, noJitter: true, manualTick: true } as T;
-          },
-        });
+        reg.defineInstance(IConfigService, new TrackedConfigService({
+          [CRON_SECTION]: { ...DEFAULT_CRON_CONFIG, noJitter: true, manualTick: true },
+        }));
         reg.defineInstance(IAgentLoopService, stubLoopWithHooks());
         reg.definePartialInstance(IAgentPromptService, {
           inject: () => {
@@ -104,6 +109,7 @@ describe('session cron wire persistence', () => {
 
       await expect(ticking).resolves.toBeUndefined();
       expect(postCloseReads).toBe(0);
+      expect(new Set(configReads)).toEqual(new Set([CRON_SECTION]));
     } finally {
       await runtimes.close();
       disposables.dispose();
