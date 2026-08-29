@@ -43,7 +43,22 @@ function requestSignal(
   try {
     return AbortSignal.any([callerSignal, timeout]);
   } catch {
-    return callerSignal;
+    const signals = [callerSignal, timeout];
+    const controller = new AbortController();
+    const cleanup = (): void => {
+      for (const signal of signals) signal.removeEventListener('abort', forwardAbort);
+    };
+    const forwardAbort = (event: Event): void => {
+      cleanup();
+      controller.abort((event.target as AbortSignal).reason);
+    };
+    for (const signal of signals) signal.addEventListener('abort', forwardAbort, { once: true });
+    const aborted = signals.find((signal) => signal.aborted);
+    if (aborted !== undefined) {
+      cleanup();
+      controller.abort(aborted.reason);
+    }
+    return controller.signal;
   }
 }
 

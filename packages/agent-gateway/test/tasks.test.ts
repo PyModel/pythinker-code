@@ -364,7 +364,9 @@ describe('server-v2 /api/v1/sessions/{sid}/tasks', () => {
       `/api/v1/sessions/${id}/tasks?with_output=false`,
     );
     expect(listed.body.code).toBe(0);
-    expect(listed.body.data.items[0]?.output_preview).toBeUndefined();
+    const listedTask = listed.body.data.items.find((item) => item.id === taskId);
+    expect(listedTask).toBeDefined();
+    expect(listedTask!.output_preview).toBeUndefined();
 
     const task = await getJson<TaskWire>(
       `/api/v1/sessions/${id}/tasks/${taskId}?with_output=false`,
@@ -402,7 +404,9 @@ describe('server-v2 /api/v1/sessions/{sid}/tasks', () => {
     expect(listed.body.code).toBe(0);
     const byId = new Map(listed.body.data.items.map((task) => [task.id, task]));
     expect(byId.get(runningId)?.output_preview).toBe('running output');
-    expect(byId.get(terminalId)?.output_preview).toBeUndefined();
+    const terminalTask = byId.get(terminalId);
+    expect(terminalTask).toBeDefined();
+    expect(terminalTask!.output_preview).toBeUndefined();
   });
 
   it('rejects list output limits above 32 KiB', async () => {

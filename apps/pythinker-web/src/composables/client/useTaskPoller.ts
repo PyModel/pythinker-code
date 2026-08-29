@@ -72,8 +72,9 @@ export function useTaskPoller(
   let pollTimer: ReturnType<typeof setTimeout> | null = null;
   let finalRefreshTimer: ReturnType<typeof setTimeout> | null = null;
   let taskClockTimer: ReturnType<typeof setInterval> | null = null;
-  let pollController: AbortController | null = null;
-  let loadController: AbortController | null = null;
+  let requestController: AbortController | null = null;
+  let requestPromise: Promise<void> | null = null;
+  let requestGeneration = 0;
   let polledSessionId: string | undefined;
   let outputSessionId: string | undefined;
   const fetchedTerminalTaskOutputIds = new Set<string>();
@@ -105,26 +106,50 @@ export function useTaskPoller(
     );
   }
 
-  async function loadTasksForSession(sessionId: string): Promise<void> {
-    if (rawState.activeSessionId !== sessionId) return;
-    selectOutputSession(sessionId);
-    loadController?.abort();
-    const controller = new AbortController();
-    loadController = controller;
+  async function loadTaskListForSession(sessionId: string, signal: AbortSignal): Promise<void> {
     try {
       const taskList = await getPythinkerWebApi().listTasks(sessionId, {
         withOutput: true,
         outputBytes: TASK_OUTPUT_FINAL_BYTES,
         outputStatus: 'all',
-        signal: controller.signal,
+        signal,
       });
-      if (controller.signal.aborted || rawState.activeSessionId !== sessionId) return;
+      if (signal.aborted || rawState.activeSessionId !== sessionId) return;
       markTerminalOutputsFetched(taskList);
       applyTaskList(sessionId, taskList);
     } catch {
       return;
+    }
+  }
+
+  async function loadTasksForSession(sessionId: string): Promise<void> {
+    if (rawState.activeSessionId !== sessionId) return;
+    selectOutputSession(sessionId);
+    const generation = ++requestGeneration;
+    const previousRequest = requestPromise;
+    requestController?.abort();
+    if (previousRequest !== null) await previousRequest;
+    if (generation !== requestGeneration || rawState.activeSessionId !== sessionId) return;
+
+    const controller = new AbortController();
+    const request = loadTaskListForSession(sessionId, controller.signal);
+    requestController = controller;
+    requestPromise = request;
+    try {
+      await request;
     } finally {
-      if (loadController === controller) loadController = null;
+      if (requestPromise === request) {
+        requestPromise = null;
+        requestController = null;
+      }
+    }
+    if (
+      generation === requestGeneration &&
+      polledSessionId === sessionId &&
+      rawState.activeSessionId === sessionId &&
+      hasRunningTask(sessionId)
+    ) {
+      schedulePoll(sessionId, TASK_OUTPUT_POLL_INTERVAL_MS);
     }
   }
 
@@ -183,12 +208,26 @@ export function useTaskPoller(
       // Idle while hidden; `visibilitychange` below resumes with an immediate poll.
       return;
     }
+    if (requestPromise !== null) {
+      schedulePoll(sessionId, TASK_OUTPUT_POLL_INTERVAL_MS);
+      return;
+    }
 
+    const generation = ++requestGeneration;
     const controller = new AbortController();
-    pollController = controller;
-    await pollTaskOutputForSession(sessionId, controller.signal);
-    if (pollController === controller) pollController = null;
+    const request = pollTaskOutputForSession(sessionId, controller.signal);
+    requestController = controller;
+    requestPromise = request;
+    try {
+      await request;
+    } finally {
+      if (requestPromise === request) {
+        requestPromise = null;
+        requestController = null;
+      }
+    }
     if (
+      generation === requestGeneration &&
       !controller.signal.aborted &&
       polledSessionId === sessionId &&
       rawState.activeSessionId === sessionId &&
@@ -200,7 +239,7 @@ export function useTaskPoller(
 
   function onVisibilityChange(): void {
     if (document.visibilityState !== 'visible' || polledSessionId === undefined) return;
-    if (pollTimer !== null || pollController !== null) return;
+    if (pollTimer !== null || requestPromise !== null) return;
     void runPoll(polledSessionId);
   }
   if (typeof document !== 'undefined') {
@@ -212,8 +251,7 @@ export function useTaskPoller(
       clearTimeout(pollTimer);
       pollTimer = null;
     }
-    pollController?.abort();
-    pollController = null;
+    requestController?.abort();
     polledSessionId = undefined;
   }
 
@@ -254,8 +292,7 @@ export function useTaskPoller(
         finalRefreshTimer = null;
       }
       if (sessionId !== previousSessionId) {
-        loadController?.abort();
-        loadController = null;
+        requestController?.abort();
         selectOutputSession(sessionId);
       }
       if (sessionId !== undefined && hasRunning) {
@@ -278,14 +315,13 @@ export function useTaskPoller(
   );
 
   function dispose(): void {
+    requestGeneration += 1;
     if (typeof document !== 'undefined') {
       document.removeEventListener('visibilitychange', onVisibilityChange);
     }
     stopTaskClockWatch();
     stopPollingWatch();
     stopTaskOutputPolling();
-    loadController?.abort();
-    loadController = null;
     if (finalRefreshTimer !== null) clearTimeout(finalRefreshTimer);
     finalRefreshTimer = null;
     if (taskClockTimer !== null) clearInterval(taskClockTimer);
