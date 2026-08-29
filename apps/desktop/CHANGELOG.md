@@ -1,5 +1,33 @@
 # @pymodel/pythinker-desktop
 
+## 0.5.0
+
+### Minor Changes
+
+- [#250](https://github.com/PyModel/pythinker-code/pull/250) [`5a71940`](https://github.com/PyModel/pythinker-code/commit/5a71940f4ef3265c6f2f050b38644f02e274c5af) Thanks [@elkaix](https://github.com/elkaix)! - Download desktop updates from the sidebar pill with inline progress, move the panel toggle to the header's right edge, and reuse the update icon in Settings.
+
+### Patch Changes
+
+- [#246](https://github.com/PyModel/pythinker-code/pull/246) [`d72066a`](https://github.com/PyModel/pythinker-code/commit/d72066ae562c456e6d511e8ddd3e00da8fe6afae) Thanks [@elkaix](https://github.com/elkaix)! - Align tool-call icons and completion indicators with their labels in web conversations.
+
+- [#250](https://github.com/PyModel/pythinker-code/pull/250) [`5a71940`](https://github.com/PyModel/pythinker-code/commit/5a71940f4ef3265c6f2f050b38644f02e274c5af) Thanks [@elkaix](https://github.com/elkaix)! - Animate tool icons on hover and while the agent works.
+
+- [#246](https://github.com/PyModel/pythinker-code/pull/246) [`d72066a`](https://github.com/PyModel/pythinker-code/commit/d72066ae562c456e6d511e8ddd3e00da8fe6afae) Thanks [@elkaix](https://github.com/elkaix)! - Brand the macOS installer with the Pythinker Code drag-to-Applications layout.
+
+- [#250](https://github.com/PyModel/pythinker-code/pull/250) [`5a71940`](https://github.com/PyModel/pythinker-code/commit/5a71940f4ef3265c6f2f050b38644f02e274c5af) Thanks [@elkaix](https://github.com/elkaix)! - Copy only the assistant's final answer from the web message copy button, not the interim progress lines.
+
+- [#246](https://github.com/PyModel/pythinker-code/pull/246) [`d72066a`](https://github.com/PyModel/pythinker-code/commit/d72066ae562c456e6d511e8ddd3e00da8fe6afae) Thanks [@elkaix](https://github.com/elkaix)! - Fix Dynamic Workflow subagent selection, recovery, and progress reporting during partial failures.
+
+- [#245](https://github.com/PyModel/pythinker-code/pull/245) [`99e728d`](https://github.com/PyModel/pythinker-code/commit/99e728dbbecb366b7b89647e9c7d88a7e43d385b) Thanks [@elkaix](https://github.com/elkaix)! - Reduce interface slowdowns during long conversations with many background tasks and show a static running marker in the browser tab title.
+
+- [#246](https://github.com/PyModel/pythinker-code/pull/246) [`d72066a`](https://github.com/PyModel/pythinker-code/commit/d72066ae562c456e6d511e8ddd3e00da8fe6afae) Thanks [@elkaix](https://github.com/elkaix)! - Fix models and providers briefly disappearing when an external editor saves the configuration.
+
+- [#249](https://github.com/PyModel/pythinker-code/pull/249) [`622dbe9`](https://github.com/PyModel/pythinker-code/commit/622dbe9d0a4104687672380913d92a06bf7d2650) Thanks [@elkaix](https://github.com/elkaix)! - Prevent cron ticks from continuing after an agent shuts down.
+
+- [#246](https://github.com/PyModel/pythinker-code/pull/246) [`d72066a`](https://github.com/PyModel/pythinker-code/commit/d72066ae562c456e6d511e8ddd3e00da8fe6afae) Thanks [@elkaix](https://github.com/elkaix)! - Use the login shell's executable order for tools started by the desktop app.
+
+- [#249](https://github.com/PyModel/pythinker-code/pull/249) [`622dbe9`](https://github.com/PyModel/pythinker-code/commit/622dbe9d0a4104687672380913d92a06bf7d2650) Thanks [@elkaix](https://github.com/elkaix)! - Use the Unicode ellipsis in terminal status and truncation text.
+
 ## 0.4.0
 
 ### Minor Changes
