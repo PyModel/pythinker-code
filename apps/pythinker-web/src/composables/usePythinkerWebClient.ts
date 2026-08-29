@@ -80,10 +80,16 @@ import type {
   PythinkerEventMeta,
   ThinkingLevel,
 } from '../api/types';
-import { createInitialState, reduceAppEvent, type CompactionStatus, type PythinkerClientState } from '../api/daemon/eventReducer';
+import {
+  createInitialState,
+  patchAssistantDeltaInPlace,
+  reduceAppEvent,
+  type CompactionStatus,
+  type PythinkerClientState,
+} from '../api/daemon/eventReducer';
 import { isPlaceholderSessionUsage, toAppEvent } from '../api/daemon/mappers';
 
-import { messagesToTurns } from './messagesToTurns';
+import { createMessagesToTurnsProjector } from './messagesToTurns';
 import { latestTodos } from './latestTodos';
 import { buildDynamicWorkflowGroups, countDynamicWorkflowMembers, dynamicWorkflowMembersByToolCall } from './dynamicWorkflowGroups';
 import type { DynamicWorkflowGroup, DynamicWorkflowMember } from './dynamicWorkflowGroups';
@@ -469,7 +475,25 @@ function seedPermissionFromDaemonDefault(): void {
 // injected into the workspace/model modules (via deps) so no module assigns
 // rawState.sessions directly.
 // ---------------------------------------------------------------------------
+function sameArrayEntries<T>(left: readonly T[], right: readonly T[]): boolean {
+  return (
+    left === right ||
+    (left.length === right.length && left.every((value, index) => value === right[index]))
+  );
+}
+
+function sameRecordEntries<T>(left: Record<string, T>, right: Record<string, T>): boolean {
+  if (left === right) return true;
+  const leftKeys = Object.keys(left);
+  const rightKeys = Object.keys(right);
+  return (
+    leftKeys.length === rightKeys.length &&
+    leftKeys.every((key) => left[key] === right[key])
+  );
+}
+
 function setSessions(next: AppSession[]): void {
+  if (sameArrayEntries(rawState.sessions, next)) return;
   rawState.sessions = next;
 }
 /** Replace one session in place (matched by id); no-op if it isn't loaded. */
@@ -572,6 +596,7 @@ function setActiveSessionId(id: string | undefined): void {
 // ---------------------------------------------------------------------------
 /** Replace the whole messages map (e.g. from the reducer snapshot). */
 function setMessagesBySession(next: Record<string, AppMessage[]>): void {
+  if (sameRecordEntries(rawState.messagesBySession, next)) return;
   rawState.messagesBySession = next;
 }
 /** Set one session's message list. */
@@ -875,6 +900,18 @@ function nextOptimisticMsgId(): string {
 
 // Helper: mutate rawState by applying a reducer on a snapshot then re-assigning fields
 function applyEvent(event: ReturnType<typeof toAppEvent>, sessionId: string, seq: number): void {
+  if (event.type === 'assistantDelta') {
+    const messages = rawState.messagesBySession[event.sessionId] ?? [];
+    if (messages.at(-1)?.id === event.messageId) {
+      patchAssistantDeltaInPlace(messages, event);
+      const previousSeq = rawState.lastSeqBySession[sessionId] ?? 0;
+      if (seq > 0 && seq > previousSeq) {
+        rawState.lastSeqBySession = { ...rawState.lastSeqBySession, [sessionId]: seq };
+      }
+      return;
+    }
+  }
+
   const snapshot: PythinkerClientState = {
     sessions: rawState.sessions,
     activeSessionId: rawState.activeSessionId,
@@ -896,17 +933,36 @@ function applyEvent(event: ReturnType<typeof toAppEvent>, sessionId: string, seq
   setSessions(next.sessions);
   setActiveSessionId(next.activeSessionId);
   setMessagesBySession(next.messagesBySession);
-  rawState.approvalsBySession = next.approvalsBySession;
-  rawState.planReviewByToolCallId = next.planReviewByToolCallId;
-  rawState.questionsBySession = next.questionsBySession;
-  rawState.tasksBySession = next.tasksBySession;
-  rawState.goalBySession = next.goalBySession;
-  rawState.goalVersionBySession = next.goalVersionBySession;
-  rawState.lastSeqBySession = next.lastSeqBySession;
-  rawState.turnActiveBySession = next.turnActiveBySession;
-  rawState.compactionBySession = next.compactionBySession;
-  rawState.config = next.config ?? null;
-  rawState.warnings = next.warnings;
+  if (!sameRecordEntries(rawState.approvalsBySession, next.approvalsBySession)) {
+    rawState.approvalsBySession = next.approvalsBySession;
+  }
+  if (!sameRecordEntries(rawState.planReviewByToolCallId, next.planReviewByToolCallId)) {
+    rawState.planReviewByToolCallId = next.planReviewByToolCallId;
+  }
+  if (!sameRecordEntries(rawState.questionsBySession, next.questionsBySession)) {
+    rawState.questionsBySession = next.questionsBySession;
+  }
+  if (!sameRecordEntries(rawState.tasksBySession, next.tasksBySession)) {
+    rawState.tasksBySession = next.tasksBySession;
+  }
+  if (!sameRecordEntries(rawState.goalBySession, next.goalBySession)) {
+    rawState.goalBySession = next.goalBySession;
+  }
+  if (!sameRecordEntries(rawState.goalVersionBySession, next.goalVersionBySession)) {
+    rawState.goalVersionBySession = next.goalVersionBySession;
+  }
+  if (!sameRecordEntries(rawState.lastSeqBySession, next.lastSeqBySession)) {
+    rawState.lastSeqBySession = next.lastSeqBySession;
+  }
+  if (!sameRecordEntries(rawState.turnActiveBySession, next.turnActiveBySession)) {
+    rawState.turnActiveBySession = next.turnActiveBySession;
+  }
+  if (!sameRecordEntries(rawState.compactionBySession, next.compactionBySession)) {
+    rawState.compactionBySession = next.compactionBySession;
+  }
+  const nextConfig = next.config ?? null;
+  if (rawState.config !== nextConfig) rawState.config = nextConfig;
+  if (!sameArrayEntries(rawState.warnings, next.warnings)) rawState.warnings = next.warnings;
 
   if (event.type === 'configChanged') {
     rawState.defaultModel = event.config.defaultModel ?? null;
@@ -2150,16 +2206,55 @@ const activeAppTasks = computed<AppTask[]>(() => {
 
 const taskPoller = useTaskPoller(rawState, activeAppTasks);
 
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => taskPoller.dispose());
+}
+
+const projectMessagesToTurns = createMessagesToTurnsProjector();
+const transcriptFileUrl = (fileId: string): string => getPythinkerWebApi().getFileUrl(fileId);
+const emptyApprovals: AppApprovalRequest[] = [];
+const emptyMessages: AppMessage[] = [];
+const emptyHiddenIds: string[] = [];
+
+// Memoized side-chat filter: keeps the filtered array's identity stable across
+// tail-only delta patches so the turns projector can take its incremental path.
+let visibleMessagesCache:
+  | { source: AppMessage[]; length: number; hiddenIds: string[]; last: AppMessage | undefined; result: AppMessage[] }
+  | undefined;
+function visibleMessages(sessionMessages: AppMessage[], hiddenIds: string[]): AppMessage[] {
+  if (hiddenIds.length === 0) return sessionMessages;
+  const last = sessionMessages.at(-1);
+  const cache = visibleMessagesCache;
+  if (
+    cache !== undefined &&
+    cache.source === sessionMessages &&
+    cache.length === sessionMessages.length &&
+    cache.hiddenIds === hiddenIds
+  ) {
+    if (cache.last === last) return cache.result;
+    const tail = cache.result.at(-1);
+    if (last !== undefined && tail !== undefined && cache.last?.id === last.id && tail.id === last.id) {
+      cache.result[cache.result.length - 1] = last;
+      cache.last = last;
+      return cache.result;
+    }
+  }
+  const result = sessionMessages.filter((message) => !hiddenIds.includes(message.id));
+  visibleMessagesCache = { source: sessionMessages, length: sessionMessages.length, hiddenIds, last, result };
+  return result;
+}
+
 const turns = computed<ChatTurn[]>(() => {
   const sid = rawState.activeSessionId;
   if (!sid) return [];
-  const hiddenIds = new Set(rawState.sideChatUserMessageIdsBySession[sid] ?? []);
-  const messages = (rawState.messagesBySession[sid] ?? []).filter((m) => !hiddenIds.has(m.id));
-  const approvals = rawState.approvalsBySession[sid] ?? [];
-  return messagesToTurns(
+  const hiddenMessageIds = rawState.sideChatUserMessageIdsBySession[sid] ?? emptyHiddenIds;
+  const sessionMessages = rawState.messagesBySession[sid] ?? emptyMessages;
+  const messages = visibleMessages(sessionMessages, hiddenMessageIds);
+  const approvals = rawState.approvalsBySession[sid] ?? emptyApprovals;
+  return projectMessagesToTurns(
     messages,
     approvals,
-    (fileId) => getPythinkerWebApi().getFileUrl(fileId),
+    transcriptFileUrl,
     turnActive.value,
     rawState.planReviewByToolCallId,
   );

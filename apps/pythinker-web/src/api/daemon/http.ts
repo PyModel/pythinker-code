@@ -27,12 +27,38 @@ export interface DaemonHttpClientIdentity {
   readonly clientUiMode: string;
 }
 
-/** AbortSignal.timeout with a fallback for older environments (jsdom). */
-function timeoutSignal(timeoutMs = REQUEST_TIMEOUT_MS): AbortSignal | undefined {
+/** AbortSignal.timeout with caller cancellation and an older-environment fallback. */
+function requestSignal(
+  callerSignal?: AbortSignal,
+  timeoutMs = REQUEST_TIMEOUT_MS,
+): AbortSignal | undefined {
+  let timeout: AbortSignal | undefined;
   try {
-    return AbortSignal.timeout(timeoutMs);
+    timeout = AbortSignal.timeout(timeoutMs);
   } catch {
-    return undefined;
+    timeout = undefined;
+  }
+  if (callerSignal === undefined) return timeout;
+  if (timeout === undefined) return callerSignal;
+  try {
+    return AbortSignal.any([callerSignal, timeout]);
+  } catch {
+    const signals = [callerSignal, timeout];
+    const controller = new AbortController();
+    const cleanup = (): void => {
+      for (const signal of signals) signal.removeEventListener('abort', forwardAbort);
+    };
+    const forwardAbort = (event: Event): void => {
+      cleanup();
+      controller.abort((event.target as AbortSignal).reason);
+    };
+    for (const signal of signals) signal.addEventListener('abort', forwardAbort, { once: true });
+    const aborted = signals.find((signal) => signal.aborted);
+    if (aborted !== undefined) {
+      cleanup();
+      controller.abort(aborted.reason);
+    }
+    return controller.signal;
   }
 }
 
@@ -96,8 +122,12 @@ export class DaemonHttpClient {
     private readonly apiVersion: 'v1' | 'v2' = 'v1',
   ) {}
 
-  async get<T>(path: string, query?: Record<string, string | number | boolean | undefined>): Promise<T> {
-    return this.request<T>('GET', path, undefined, query);
+  async get<T>(
+    path: string,
+    query?: Record<string, string | number | boolean | undefined>,
+    options?: { signal?: AbortSignal },
+  ): Promise<T> {
+    return this.request<T>('GET', path, undefined, query, [], undefined, false, options?.signal);
   }
 
   /** Authenticated raw-binary GET (no envelope). Used for file downloads that
@@ -113,7 +143,7 @@ export class DaemonHttpClient {
     traceRestRequest({ method: 'GET', path, url, requestId });
     let response: Response;
     try {
-      response = await fetch(url, { method: 'GET', headers, signal: timeoutSignal() });
+      response = await fetch(url, { method: 'GET', headers, signal: requestSignal() });
     } catch (err) {
       traceRestFailure({
         method: 'GET',
@@ -215,7 +245,7 @@ export class DaemonHttpClient {
         method,
         headers,
         body: JSON.stringify(body),
-        signal: timeoutSignal(EXPORT_TIMEOUT_MS),
+        signal: requestSignal(undefined, EXPORT_TIMEOUT_MS),
       });
     } catch (error) {
       traceRestFailure({
@@ -358,7 +388,7 @@ export class DaemonHttpClient {
     traceRestRequest({ method: 'POST', path, url, requestId, body: describeFormData(formData) });
     let response: Response;
     try {
-      response = await fetch(url, { method: 'POST', headers, body: formData, signal: timeoutSignal() });
+      response = await fetch(url, { method: 'POST', headers, body: formData, signal: requestSignal() });
     } catch (error) {
       traceRestFailure({ method: 'POST', path, requestId, phase: 'fetch', durationMs: Date.now() - startedAt, error: error });
       throw new DaemonNetworkError({
@@ -442,6 +472,7 @@ export class DaemonHttpClient {
     allowCodes?: number[],
     extraHeaders?: Record<string, string>,
     withHeaders?: false,
+    signal?: AbortSignal,
   ): Promise<T>;
   private async request<T>(
     method: string,
@@ -451,6 +482,7 @@ export class DaemonHttpClient {
     allowCodes: number[],
     extraHeaders: Record<string, string> | undefined,
     withHeaders: true,
+    signal?: AbortSignal,
   ): Promise<{ data: T; code: number; headers: Headers }>;
   private async request<T>(
     method: string,
@@ -460,6 +492,7 @@ export class DaemonHttpClient {
     allowCodes: number[] = [],
     extraHeaders?: Record<string, string>,
     withHeaders?: boolean,
+    signal?: AbortSignal,
   ): Promise<T | { data: T; code: number; headers: Headers }> {
     // Build URL, appending query string (omit undefined values)
     let url = buildRestUrl(this.origin, path, this.apiVersion);
@@ -495,7 +528,7 @@ export class DaemonHttpClient {
         method,
         headers,
         body: body !== undefined ? JSON.stringify(body) : undefined,
-        signal: timeoutSignal(),
+        signal: requestSignal(signal),
       });
     } catch (error) {
       traceRestFailure({ method, path, requestId, phase: 'fetch', durationMs: Date.now() - startedAt, error: error });

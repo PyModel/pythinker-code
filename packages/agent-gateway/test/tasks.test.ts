@@ -336,6 +336,88 @@ describe('server-v2 /api/v1/sessions/{sid}/tasks', () => {
     expect(plain.body.data.output_bytes).toBeUndefined();
   });
 
+  it('includes bounded output for every task in one list response', async () => {
+    const id = await createSession();
+    const tasks = await mainAgentTasks(id);
+    const firstId = tasks.registerTask(fakeTask('process', 'first output'));
+    const secondId = tasks.registerTask(fakeTask('process', 'second output'));
+    await flush();
+
+    const listed = await getJson<ListWire>(
+      `/api/v1/sessions/${id}/tasks?with_output=true&output_bytes=6`,
+    );
+    expect(listed.body.code).toBe(0);
+    const byId = new Map(listed.body.data.items.map((task) => [task.id, task]));
+    expect(byId.get(firstId)?.output_preview).toBe('output');
+    expect(byId.get(firstId)?.output_bytes).toBe(6);
+    expect(byId.get(secondId)?.output_preview).toBe('output');
+    expect(byId.get(secondId)?.output_bytes).toBe(6);
+  });
+
+  it('does not include output when with_output is false', async () => {
+    const id = await createSession();
+    const tasks = await mainAgentTasks(id);
+    const taskId = tasks.registerTask(fakeTask('process', 'private output'));
+    await flush();
+
+    const listed = await getJson<ListWire>(
+      `/api/v1/sessions/${id}/tasks?with_output=false`,
+    );
+    expect(listed.body.code).toBe(0);
+    const listedTask = listed.body.data.items.find((item) => item.id === taskId);
+    expect(listedTask).toBeDefined();
+    expect(listedTask!.output_preview).toBeUndefined();
+
+    const task = await getJson<TaskWire>(
+      `/api/v1/sessions/${id}/tasks/${taskId}?with_output=false`,
+    );
+    expect(task.body.code).toBe(0);
+    expect(task.body.data.output_preview).toBeUndefined();
+  });
+
+  it('limits list output by UTF-8 bytes', async () => {
+    const id = await createSession();
+    const tasks = await mainAgentTasks(id);
+    const taskId = tasks.registerTask(fakeTask('process', '界'.repeat(10)));
+    await flush();
+
+    const listed = await getJson<ListWire>(
+      `/api/v1/sessions/${id}/tasks?with_output=true&output_bytes=6`,
+    );
+    expect(listed.body.code).toBe(0);
+    const task = listed.body.data.items.find((item) => item.id === taskId);
+    expect(task?.output_preview).toBe('界界');
+    expect(task?.output_bytes).toBe(6);
+  });
+
+  it('limits periodic list output to running tasks', async () => {
+    const id = await createSession();
+    const tasks = await mainAgentTasks(id);
+    const runningId = tasks.registerTask(fakeTask('process', 'running output'));
+    const terminalId = tasks.registerTask(fakeTask('process', 'terminal output'));
+    await tasks.stop(terminalId);
+    await flush();
+
+    const listed = await getJson<ListWire>(
+      `/api/v1/sessions/${id}/tasks?with_output=true&output_bytes=32&output_status=running`,
+    );
+    expect(listed.body.code).toBe(0);
+    const byId = new Map(listed.body.data.items.map((task) => [task.id, task]));
+    expect(byId.get(runningId)?.output_preview).toBe('running output');
+    const terminalTask = byId.get(terminalId);
+    expect(terminalTask).toBeDefined();
+    expect(terminalTask!.output_preview).toBeUndefined();
+  });
+
+  it('rejects list output limits above 32 KiB', async () => {
+    const id = await createSession();
+    const response = await getJson<null>(
+      `/api/v1/sessions/${id}/tasks?with_output=true&output_bytes=${32 * 1024 + 1}`,
+    );
+
+    expect(response.body.code).toBe(40001);
+  });
+
   it('cancels a running task and reports 40904 on a second cancel', async () => {
     const id = await createSession();
     const tasks = await mainAgentTasks(id);

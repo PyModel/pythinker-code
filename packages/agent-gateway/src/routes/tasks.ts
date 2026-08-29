@@ -14,6 +14,7 @@ import {
   getTaskResponseSchema,
   listTasksQuerySchema,
   listTasksResponseSchema,
+  type ListTasksQuery,
 } from '../protocol/rest-task';
 import type { SubagentRoutingWire, Task, TaskKind, TaskStatus } from '../protocol/task';
 import { z } from 'zod';
@@ -79,12 +80,25 @@ export function registerTasksRoutes(app: TasksRouteHost, core: Scope): void {
         return;
       }
 
-      const all = (resolved.tasks?.list(false) ?? []).map((info) =>
-        toWireTask(session_id, info),
+      const query = req.query as ListTasksQuery;
+      const infos = (resolved.tasks?.list(false) ?? []).filter(
+        (info) => query.status === undefined || mapStatus(info.status) === query.status,
       );
-      const query = req.query as { status?: TaskStatus };
-      const items =
-        query.status !== undefined ? all.filter((t) => t.status === query.status) : all;
+      const items = await Promise.all(
+        infos.map(async (info) => {
+          const output =
+            query.with_output === true &&
+            resolved.tasks !== undefined &&
+            (query.output_status !== 'running' || mapStatus(info.status) === 'running')
+              ? await readTaskOutput(
+                  resolved.tasks,
+                  info.taskId,
+                  query.output_bytes ?? DEFAULT_TASK_OUTPUT_PREVIEW_BYTES,
+                )
+              : undefined;
+          return toWireTask(session_id, info, output);
+        }),
+      );
       reply.send(okEnvelope({ items }, req.id));
     },
   );
@@ -120,17 +134,14 @@ export function registerTasksRoutes(app: TasksRouteHost, core: Scope): void {
       }
 
       const query = req.query as { with_output?: boolean; output_bytes?: number };
-      let output: { preview: string; bytes: number } | undefined;
-      if (query.with_output === true && resolved.tasks !== undefined) {
-        const tailBytes = query.output_bytes ?? DEFAULT_TASK_OUTPUT_PREVIEW_BYTES;
-        try {
-          const preview = await resolved.tasks.readOutput(task_id, tailBytes);
-          if (preview.length > 0) {
-            output = { preview, bytes: Buffer.byteLength(preview, 'utf-8') };
-          }
-        } catch {
-        }
-      }
+      const output =
+        query.with_output === true && resolved.tasks !== undefined
+          ? await readTaskOutput(
+              resolved.tasks,
+              task_id,
+              query.output_bytes ?? DEFAULT_TASK_OUTPUT_PREVIEW_BYTES,
+            )
+          : undefined;
 
       reply.send(okEnvelope(toWireTask(session_id, found, output), req.id));
     },
@@ -268,6 +279,20 @@ const TERMINAL_WIRE_STATUSES: ReadonlySet<TaskStatus> = new Set([
 
 function isTerminalStatus(status: TaskStatus): boolean {
   return TERMINAL_WIRE_STATUSES.has(status);
+}
+
+async function readTaskOutput(
+  tasks: IAgentTaskService,
+  taskId: string,
+  tailBytes: number,
+): Promise<{ preview: string; bytes: number } | undefined> {
+  try {
+    const output = await tasks.getOutputSnapshot(taskId, tailBytes);
+    if (output.preview.length === 0) return undefined;
+    return { preview: output.preview, bytes: output.previewBytes };
+  } catch {
+    return undefined;
+  }
 }
 
 function toWireTask(

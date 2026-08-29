@@ -397,6 +397,14 @@ export interface AppTask {
   backgroundTaskId?: string;
 }
 
+export interface AppTaskListOptions {
+  status?: AppTaskStatus;
+  withOutput?: boolean;
+  outputBytes?: number;
+  outputStatus?: 'running' | 'all';
+  signal?: AbortSignal;
+}
+
 // ---------------------------------------------------------------------------
 // Goal
 // ---------------------------------------------------------------------------
@@ -1076,8 +1084,8 @@ export interface PythinkerWebApi {
   listPlugins(): Promise<AppPlugin[]>;
   setPluginEnabled(pluginId: string, enabled: boolean): Promise<{ id: string; enabled: boolean }>;
   listSubagents(workDir: string): Promise<AppSubagent[]>;
-  listTasks(sessionId: string, status?: AppTaskStatus): Promise<AppTask[]>;
-  getTask(sessionId: string, taskId: string, input?: { withOutput?: boolean; outputBytes?: number }): Promise<AppTask>;
+  listTasks(sessionId: string, input?: AppTaskListOptions): Promise<AppTask[]>;
+  getTask(sessionId: string, taskId: string, input?: { withOutput?: boolean; outputBytes?: number; signal?: AbortSignal }): Promise<AppTask>;
   cancelTask(sessionId: string, taskId: string): Promise<{ cancelled: true }>;
   /** Release a running foreground task so it keeps running in the background. */
   detachTask(sessionId: string, taskId: string): Promise<{ detached: boolean; status: AppTaskStatus }>;

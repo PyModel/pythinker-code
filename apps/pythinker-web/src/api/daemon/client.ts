@@ -38,6 +38,7 @@ import type {
   AppTranscriptPage,
   AppTranscriptPageRequest,
   AppTask,
+  AppTaskListOptions,
   AppTaskStatus,
   AppTerminal,
   AppWorkspace,
@@ -1036,13 +1037,17 @@ export class DaemonPythinkerWebApi implements PythinkerWebApi {
   // Tasks
   // -------------------------------------------------------------------------
 
-  async listTasks(sessionId: string, status?: AppTaskStatus): Promise<AppTask[]> {
-    const query: Record<string, string | undefined> = {
-      status: status,
+  async listTasks(sessionId: string, input?: AppTaskListOptions): Promise<AppTask[]> {
+    const query: Record<string, string | number | boolean | undefined> = {
+      status: input?.status,
+      with_output: input?.withOutput,
+      output_bytes: input?.outputBytes,
+      output_status: input?.outputStatus,
     };
     const data = await this.http.get<{ items: WireTask[] }>(
       `/sessions/${encodeURIComponent(sessionId)}/tasks`,
       query,
+      { signal: input?.signal },
     );
     return data.items.map(toAppTask);
   }
@@ -1050,7 +1055,7 @@ export class DaemonPythinkerWebApi implements PythinkerWebApi {
   async getTask(
     sessionId: string,
     taskId: string,
-    input?: { withOutput?: boolean; outputBytes?: number },
+    input?: { withOutput?: boolean; outputBytes?: number; signal?: AbortSignal },
   ): Promise<AppTask> {
     const query: Record<string, string | number | boolean | undefined> = {
       with_output: input?.withOutput,
@@ -1059,6 +1064,7 @@ export class DaemonPythinkerWebApi implements PythinkerWebApi {
     const data = await this.http.get<WireTask>(
       `/sessions/${encodeURIComponent(sessionId)}/tasks/${encodeURIComponent(taskId)}`,
       query,
+      { signal: input?.signal },
     );
     return toAppTask(data);
   }
