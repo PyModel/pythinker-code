@@ -138,6 +138,7 @@ export function systemPromptVars(
     os: context.osKind ?? '',
     windows_notes: context.osKind === 'Windows' ? `\n\n${WINDOWS_NOTES}\n\n` : '',
     shell: shellName.length > 0 ? `${shellName} (\`${shellPath}\`)` : '',
+    now: context.now ?? new Date().toISOString(),
     cwd: context.cwd ?? '',
     cwd_listing: context.cwdListing ?? '',
     agents_md: context.agentsMd ?? '',

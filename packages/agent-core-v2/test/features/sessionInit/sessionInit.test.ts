@@ -180,6 +180,7 @@ describe('SessionInitService', () => {
       plan: { profileName: 'coder', model: 'mock-model', thinking: 'off', fork: false },
       labels: { parentAgentId: 'main' },
       prompt: expect.stringContaining('Task requirements:'),
+      signal: expect.any(AbortSignal),
     });
     expect(create).not.toHaveBeenCalled();
 

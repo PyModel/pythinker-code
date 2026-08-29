@@ -23,6 +23,7 @@ export interface AgentProfileContext {
   readonly osKind?: string;
   readonly shellName?: string;
   readonly shellPath?: string;
+  readonly now?: string;
   readonly skills?: string;
   readonly skillActive?: boolean;
   readonly pluginSections?: string;

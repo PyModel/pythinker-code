@@ -142,13 +142,19 @@ describe('AgentProfileService.bind', () => {
   });
 
   it('binds an environment disclosure snapshot with only the session cwd', async () => {
+    const currentTime = '2099-12-31T23:59:59.000Z';
+    const toISOString = vi.spyOn(Date.prototype, 'toISOString').mockReturnValue(currentTime);
     ctx = createTestAgent(hostEnvironmentServices(homeDir));
     const svc = ctx.get(IAgentProfileService);
 
-    await svc.bind({ profile: DEFAULT_AGENT_PROFILE_NAME, model: MOCK_MODEL });
+    try {
+      await svc.bind({ profile: DEFAULT_AGENT_PROFILE_NAME, model: MOCK_MODEL });
 
-    expect(svc.getSystemPrompt()).not.toContain('2026-07-29');
-    expect(svc.data().environmentDisclosure).toEqual({ cwd: ctx.get(ISessionContext).cwd });
+      expect(svc.getSystemPrompt()).not.toContain(currentTime);
+      expect(svc.data().environmentDisclosure).toEqual({ cwd: ctx.get(ISessionContext).cwd });
+    } finally {
+      toISOString.mockRestore();
+    }
   });
 
   it('persists the complete binding in one journal record', async () => {

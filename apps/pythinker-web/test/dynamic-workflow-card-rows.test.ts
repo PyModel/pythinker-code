@@ -128,12 +128,28 @@ describe('buildDynamicWorkflowCardRows', () => {
     expect(rows[0]?.phase).toBe('failed');
   });
 
-  it('matches by item substring when agent ids disagree', () => {
+  it('does not hide a result whose item is only a substring of a member name', () => {
     const rows = buildDynamicWorkflowCardRows(
       [member('a1', 'find unused exports in src', { phase: 'completed' })],
-      result([{ outcome: 'aborted', item: 'unused exports', state: 'not_started', body: 'x' }]),
+      result([
+        {
+          outcome: 'aborted',
+          item: 'unused exports',
+          agentId: 'a2',
+          state: 'not_started',
+          body: 'x',
+        },
+      ]),
     );
-    expect(rows.map((r) => r.id)).toEqual(['a1']);
+    expect(rows.map((r) => r.id)).toEqual(['a1', 'a2']);
+  });
+
+  it('keeps a never-started result even when its item matches a live member name', () => {
+    const rows = buildDynamicWorkflowCardRows(
+      [member('a1', 'unused exports', { phase: 'completed' })],
+      result([{ outcome: 'aborted', item: 'unused exports', state: 'not_started', body: 'not started' }]),
+    );
+    expect(rows.map((r) => r.id)).toEqual(['a1', 'unused exports']);
   });
 });
 

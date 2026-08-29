@@ -17,6 +17,8 @@ import type {
 import { toStorageIoError } from '#/persistence/interface/storage';
 
 const WATCH_DEBOUNCE_MS = 150;
+const WATCH_WRITE_STABILITY_MS = 400;
+const WATCH_WRITE_POLL_MS = 25;
 const TORN_READ_RETRIES = 3;
 const TORN_READ_RETRY_DELAY_MS = 15;
 
@@ -192,11 +194,20 @@ export class FileStorageService implements IFileSystemStorageService {
         mkdirSync(dir, { recursive: true, mode: this.dirMode });
         watcher = new FSWatcher({
           ignoreInitial: true,
-          awaitWriteFinish: false,
+          atomic: WATCH_WRITE_STABILITY_MS,
+          awaitWriteFinish: {
+            stabilityThreshold: WATCH_WRITE_STABILITY_MS,
+            pollInterval: WATCH_WRITE_POLL_MS,
+          },
           depth: 0,
         });
-        watcher.on('all', (_event, changedPath) => {
-          if (normalize(changedPath) === normalizedTarget) schedule();
+        watcher.on('all', (event, changedPath) => {
+          if (normalize(changedPath) !== normalizedTarget) return;
+          if (event === 'add' || event === 'change') {
+            emitter.fire();
+          } else {
+            schedule();
+          }
         });
         watcher.on('error', (error: unknown) => onUnexpectedError(error));
         watcher.add(dir);

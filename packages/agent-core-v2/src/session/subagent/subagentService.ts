@@ -84,12 +84,17 @@ export class SessionSubagentService extends Service implements ISessionSubagentS
   }
 
   async spawn(opts: SpawnSubagentOptions): Promise<SpawnedSubagent> {
+    opts.signal?.throwIfAborted();
     const caller = this.requireCaller(opts.callerAgentId);
     const { plan } = opts;
     const lease = plan.fork
       ? undefined
       : caller.accessor.get(IAgentRuntimeService).acquire(['process']);
     try {
+      const promptText = plan.fork
+        ? `${FORK_CONTEXT_NOTICE}\n\n${opts.prompt}`
+        : await this.applyPromptPrefix(plan.profileName, opts.prompt, lease!.runtime);
+      opts.signal?.throwIfAborted();
       let createdContext: AgentContext;
       try {
         if (plan.fork) {
@@ -113,6 +118,10 @@ export class SessionSubagentService extends Service implements ISessionSubagentS
           plan.model,
           caller.accessor.get(IAgentProfileService).data().modelAlias,
         );
+      }
+      if (opts.signal?.aborted === true) {
+        await this.removeFailedSpawn(createdContext);
+        opts.signal.throwIfAborted();
       }
       const created = this.agentLifecycle.handleOf(createdContext.agentId);
       if (created === undefined) {
@@ -138,9 +147,7 @@ export class SessionSubagentService extends Service implements ISessionSubagentS
         } else {
           createdUserTools.inheritUserTools(callerUserTools);
         }
-        const promptText = plan.fork
-          ? `${FORK_CONTEXT_NOTICE}\n\n${opts.prompt}`
-          : await this.applyPromptPrefix(plan.profileName, opts.prompt, lease!.runtime);
+        opts.onAgentCreated?.(created.id);
         return {
           agentId: created.id,
           profileName: plan.profileName,

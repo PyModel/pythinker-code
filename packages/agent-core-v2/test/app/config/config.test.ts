@@ -1698,6 +1698,12 @@ describe('dynamic workflow config section', () => {
     env[DYNAMIC_WORKFLOW_TIMEOUT_ENV] = '3000';
     expect(resolveDynamicWorkflowTimeoutMs(config)).toBe(3000);
 
+    env[DYNAMIC_WORKFLOW_TIMEOUT_ENV] = '0';
+    expect(resolveDynamicWorkflowTimeoutMs(config)).toBe(0);
+
+    env[DYNAMIC_WORKFLOW_TIMEOUT_ENV] = '';
+    expect(resolveDynamicWorkflowTimeoutMs(config)).toBe(DEFAULT_DYNAMIC_WORKFLOW_TIMEOUT_MS);
+
     disposables.dispose();
   });
 
@@ -1708,13 +1714,20 @@ describe('dynamic workflow config section', () => {
       '[dynamic_workflow]\nmax_concurrency = 3\n',
     );
 
-    expect(resolveDynamicWorkflowMaxConcurrency(config)).toBe(3);
+    expect(resolveDynamicWorkflowMaxConcurrency(config, env[DYNAMIC_WORKFLOW_MAX_CONCURRENCY_ENV])).toBe(3);
 
     env[DYNAMIC_WORKFLOW_MAX_CONCURRENCY_ENV] = '2';
-    expect(resolveDynamicWorkflowMaxConcurrency(config)).toBe(2);
+    expect(resolveDynamicWorkflowMaxConcurrency(config, env[DYNAMIC_WORKFLOW_MAX_CONCURRENCY_ENV])).toBe(2);
 
     env[DYNAMIC_WORKFLOW_MAX_CONCURRENCY_ENV] = 'invalid';
-    expect(resolveDynamicWorkflowMaxConcurrency(config)).toBe(3);
+    expect(() =>
+      resolveDynamicWorkflowMaxConcurrency(
+        config,
+        env[DYNAMIC_WORKFLOW_MAX_CONCURRENCY_ENV],
+      ),
+    ).toThrow(
+      'PYTHINKER_CODE_AGENT_DYNAMIC_WORKFLOW_MAX_CONCURRENCY must be a positive integer, got "invalid".',
+    );
 
     disposables.dispose();
   });

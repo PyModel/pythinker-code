@@ -398,8 +398,9 @@ In print mode (`pythinker -p "<prompt>"`), Pythinker Code stays alive after the 
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
 | `timeout_ms` | `integer` | `7200000` (2 hours) | Maximum wall-clock time (milliseconds) a single `AgentDynamicWorkflow` subagent is allowed to run. On timeout that subagent is aborted and marked as failed in the aggregated report (`Subagent timed out.`); the other subagents are unaffected. `0` means no timeout — the subagent runs until it finishes or the model stops it. In print mode (`pythinker -p`) the default is `0` unless explicitly set. Note: any value above `2147483647` (about 24.8 days) is clamped to roughly 24.8 days by the runtime |
+| `max_concurrency` | `integer` | unset (no cap) | Maximum number of `AgentDynamicWorkflow` subagents that can run at the same time during the initial ramp. Must be a positive integer |
 
-`timeout_ms` can be overridden by the `PYTHINKER_CODE_AGENT_DYNAMIC_WORKFLOW_TIMEOUT_MS` environment variable, which takes higher priority than `config.toml`.
+`timeout_ms` and `max_concurrency` can be overridden by the `PYTHINKER_CODE_AGENT_DYNAMIC_WORKFLOW_TIMEOUT_MS` and `PYTHINKER_CODE_AGENT_DYNAMIC_WORKFLOW_MAX_CONCURRENCY` environment variables respectively, which take higher priority than `config.toml`.
 
 ## `mcp`
 

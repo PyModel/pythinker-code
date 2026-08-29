@@ -5,6 +5,7 @@ import { linkAbortSignal, userCancellationReason } from '#/_base/utils/abort';
 import type { IAgentScopeHandle } from '#/_base/di/scope';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentLoopService } from '#/agent/loop/loop';
+import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { Event2 } from '#/app/event/event2';
 import { IConfigService } from '#/app/config/config';
 import { agentContextOf } from '#/agent/scopeContext/scopeContext';
@@ -36,7 +37,10 @@ import {
   type AgentRunBatchLauncher,
   type AgentRunAttemptHandle,
 } from './agentRunBatch';
-import { resolveDynamicWorkflowMaxConcurrency } from '../configSection';
+import {
+  DYNAMIC_WORKFLOW_MAX_CONCURRENCY_ENV,
+  resolveDynamicWorkflowMaxConcurrency,
+} from '../configSection';
 
 export interface SubagentSuspendedPayload {
   readonly subagentId: string;
@@ -62,6 +66,7 @@ export class SessionDynamicWorkflowService implements ISessionDynamicWorkflowSer
     @ISessionMetadata private readonly metadata: ISessionMetadata,
     @ISubagentRoutingService private readonly routing: ISubagentRoutingService,
     @IConfigService private readonly config: IConfigService,
+    @IBootstrapService private readonly bootstrap: IBootstrapService,
   ) {}
 
   async getDynamicWorkflowItem(args: {
@@ -111,7 +116,10 @@ export class SessionDynamicWorkflowService implements ISessionDynamicWorkflowSer
       if (this.inFlight.get(callerAgentId) === controller) this.inFlight.delete(callerAgentId);
     };
     try {
-      const maxConcurrency = resolveDynamicWorkflowMaxConcurrency(this.config);
+      const maxConcurrency = resolveDynamicWorkflowMaxConcurrency(
+        this.config,
+        this.bootstrap.getEnv(DYNAMIC_WORKFLOW_MAX_CONCURRENCY_ENV),
+      );
       return new AgentRunBatch(launcher, linkedTasks, { maxConcurrency }).run().finally(cleanup);
     } catch (error) {
       cleanup();
@@ -135,6 +143,8 @@ export class SessionDynamicWorkflowService implements ISessionDynamicWorkflowSer
       plan,
       labels: subagentLabels(callerAgentId, { dynamicWorkflowItem: options.dynamicWorkflowItem }),
       prompt: options.prompt,
+      signal: options.signal,
+      onAgentCreated: options.onAgentKnown,
     });
     try {
       const currentRoutingEnvironmentRevision =
@@ -183,6 +193,7 @@ export class SessionDynamicWorkflowService implements ISessionDynamicWorkflowSer
     const caller = this.requireHandle(callerAgentId, 'Caller agent');
     const child = this.requireHandle(agentId, 'Agent instance');
     this.requireIdleSubagent(agentId, child);
+    options.onAgentKnown?.(agentId);
     const profileName =
       child.accessor.get(IAgentProfileService).data().profileName ?? RESUMED_PROFILE_FALLBACK;
     try {

@@ -29,10 +29,15 @@ function parsePositiveIntegerEnv(raw: string): number | undefined {
   return Number.isInteger(parsed) && parsed >= 1 ? parsed : undefined;
 }
 
+function parseNonNegativeIntegerEnv(raw: string): number | undefined {
+  const parsed = Number(raw);
+  return raw.trim() !== '' && Number.isInteger(parsed) && parsed >= 0 ? parsed : undefined;
+}
+
 export const dynamicWorkflowEnvBindings: EnvBindings<DynamicWorkflowConfig> = envBindings(
   DynamicWorkflowConfigSchema,
   {
-    timeoutMs: { env: DYNAMIC_WORKFLOW_TIMEOUT_ENV, parse: parsePositiveIntegerEnv },
+    timeoutMs: { env: DYNAMIC_WORKFLOW_TIMEOUT_ENV, parse: parseNonNegativeIntegerEnv },
     maxConcurrency: {
       env: DYNAMIC_WORKFLOW_MAX_CONCURRENCY_ENV,
       parse: parsePositiveIntegerEnv,
@@ -57,6 +62,16 @@ export function resolveDynamicWorkflowTimeoutMs(config: IConfigService): number 
 
 export function resolveDynamicWorkflowMaxConcurrency(
   config: IConfigService,
+  rawEnv?: string,
 ): number | undefined {
+  if (
+    rawEnv !== undefined &&
+    rawEnv.trim() !== '' &&
+    parsePositiveIntegerEnv(rawEnv) === undefined
+  ) {
+    throw new Error(
+      `${DYNAMIC_WORKFLOW_MAX_CONCURRENCY_ENV} must be a positive integer, got ${JSON.stringify(rawEnv)}.`,
+    );
+  }
   return config.get<DynamicWorkflowConfig | undefined>(DYNAMIC_WORKFLOW_SECTION)?.maxConcurrency;
 }

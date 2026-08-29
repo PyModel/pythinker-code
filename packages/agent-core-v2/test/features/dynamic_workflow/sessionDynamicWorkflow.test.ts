@@ -10,6 +10,7 @@ import { TestInstantiationService } from '#/_base/di/test';
 import { Event } from '#/_base/event';
 import type { AgentContext } from '#/agent/agentContext/agentContext';
 import { userCancellationReason } from '#/_base/utils/abort';
+import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentProfileService, type ProfileData } from '#/agent/profile/profile';
@@ -56,6 +57,7 @@ import { ISessionDynamicWorkflowService, type SessionDynamicWorkflowSpawnTask, t
 import { SessionDynamicWorkflowService } from '#/features/dynamic_workflow/session/sessionDynamicWorkflowService';
 
 import { stubAgentContext } from '../../agent/agentContext/stubs';
+import { stubBootstrap } from '../../app/bootstrap/stubs';
 
 describe('AgentRunBatch scheduling contract', () => {
   it('normal phase starts five tasks immediately, then one task every 700ms', async () => {
@@ -192,6 +194,48 @@ describe('AgentRunBatch scheduling contract', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('keeps only the active resume agent id when cancellation interrupts validation', async () => {
+    const controller = new AbortController();
+    const resuming = createControlledPromise<AgentRunAttemptHandle>();
+    const launcher: AgentRunBatchLauncher = {
+      spawn: vi.fn(async () => {
+        throw new Error('unexpected spawn');
+      }),
+      resume: vi.fn(() => resuming),
+      retry: vi.fn(async () => {
+        throw new Error('unexpected retry');
+      }),
+    };
+    const running = new AgentRunBatch(
+      launcher,
+      [
+        { ...resumeSessionTask('agent-active'), signal: controller.signal },
+        { ...resumeSessionTask('agent-queued'), signal: controller.signal },
+      ],
+      { maxConcurrency: 1 },
+    ).run();
+    await vi.waitFor(() => {
+      expect(launcher.resume).toHaveBeenCalledOnce();
+    });
+
+    controller.abort(userCancellationReason());
+    resuming.reject(userCancellationReason());
+
+    const results = await running;
+    expect(results).toMatchObject([
+      {
+        agentId: 'agent-active',
+        status: 'aborted',
+        state: 'started',
+      },
+      {
+        status: 'aborted',
+        state: 'not_started',
+      },
+    ]);
+    expect(results[1]).not.toHaveProperty('agentId');
   });
 
   it('normal phase keeps processing completions while waiting for the next launch', async () => {
@@ -897,6 +941,7 @@ describe('SessionDynamicWorkflowService metadata compatibility', () => {
     ix.stub(IConfigService, {
       get: () => undefined,
     } as unknown as IConfigService);
+    ix.stub(IBootstrapService, stubBootstrap());
     ix.stub(ISessionMetadata, {
       _serviceBrand: undefined,
       ready: Promise.resolve(),
@@ -1009,12 +1054,15 @@ describe('SessionDynamicWorkflowService metadata compatibility', () => {
       },
     ]);
 
-    expect(spawnAgent).toHaveBeenCalledWith({
-      callerAgentId: 'main',
-      plan: { profileName: 'coder', model: 'pythinker-test', thinking: 'medium', fork: false },
-      labels: { parentAgentId: 'main', dynamicWorkflowItem: 'src/a.ts' },
-      prompt: 'Review the file',
-    });
+    expect(spawnAgent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        callerAgentId: 'main',
+        plan: { profileName: 'coder', model: 'pythinker-test', thinking: 'medium', fork: false },
+        labels: { parentAgentId: 'main', dynamicWorkflowItem: 'src/a.ts' },
+        prompt: 'Review the file',
+        onAgentCreated: expect.any(Function),
+      }),
+    );
   });
 
   it('keeps v1 resume ownership errors inside the per-subagent result', async () => {
@@ -1196,6 +1244,37 @@ describe('SessionDynamicWorkflowService metadata compatibility', () => {
         status: 'failed',
         state: 'started',
         error: 'run setup boom',
+      },
+    ]);
+  });
+
+  it('keeps the created child id when cancellation interrupts spawn setup', async () => {
+    const spawning = createControlledPromise<
+      Awaited<ReturnType<ISessionSubagentService['spawn']>>
+    >();
+    spawnAgent.mockReturnValueOnce(spawning);
+    const service = ix.get(ISessionDynamicWorkflowService);
+    const running = service.run({
+      callerAgentId: 'main',
+      tasks: [spawnSessionTask('src/a.ts')],
+    });
+    await vi.waitFor(() => {
+      expect(spawnAgent).toHaveBeenCalledTimes(1);
+    });
+    handles.set('agent-new', agentHandle('agent-new', lifecycle, eventBus));
+    const options = spawnAgent.mock.calls[0]?.[0] as SpawnSubagentOptions;
+    expect(options.signal).toBeInstanceOf(AbortSignal);
+    options.onAgentCreated?.('agent-new');
+
+    service.cancel({ callerAgentId: 'main' });
+    expect(options.signal?.aborted).toBe(true);
+    spawning.reject(userCancellationReason());
+
+    await expect(running).resolves.toMatchObject([
+      {
+        agentId: 'agent-new',
+        status: 'aborted',
+        state: 'started',
       },
     ]);
   });
@@ -1402,6 +1481,7 @@ function subagentStub(
         modelAlias: opts.plan.model,
       });
       handles.set('agent-new', handle);
+      opts.onAgentCreated?.('agent-new');
       return {
         agentId: 'agent-new',
         profileName: opts.plan.profileName,

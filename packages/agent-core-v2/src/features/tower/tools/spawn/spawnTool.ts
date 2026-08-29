@@ -297,6 +297,7 @@ export class TowerSpawnTool implements ITowerSpawnTool {
       plan,
       labels: subagentLabels(this.callerAgentId),
       prompt,
+      signal: controller.signal,
     });
     const agentId = spawned.agentId;
     try {

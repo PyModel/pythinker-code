@@ -58,6 +58,7 @@ export class SessionInitService implements ISessionInitService {
         plan,
         labels: subagentLabels(MAIN_AGENT_ID),
         prompt: DEFAULT_INIT_PROMPT,
+        signal: controller.signal,
       });
       spawnedAgentId = spawned.agentId;
       const child = this.agentLifecycle.handleOf(spawned.agentId);

@@ -2908,9 +2908,11 @@ describe('AgentDynamicWorkflow tool description', () => {
     ctx = createTestAgent();
 
     const properties = agentDynamicWorkflowParameters()['properties'] as Record<string, unknown>;
+    const tasks = properties['tasks'] as { items?: { required?: string[] } };
 
     expect(properties).not.toHaveProperty('model');
     expect(agentDynamicWorkflowTaskProperties()).not.toHaveProperty('model');
+    expect(tasks.items?.required).not.toContain('model');
     expect(properties).toHaveProperty('prompt_template');
   });
 

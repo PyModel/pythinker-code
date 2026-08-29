@@ -7,6 +7,7 @@ import { TestInstantiationService } from '#/_base/di/test';
 import { Event } from '#/_base/event';
 import { LifecycleScope } from '#/app/scopes';
 import type { IAgentScopeHandle } from '#/_base/di/scope';
+import type { AgentContext } from '#/agent/agentContext/agentContext';
 import { IConfigService } from '#/app/config/config';
 import { IFlagService } from '#/app/flag/flag';
 import { ILogService } from '#/_base/log/log';
@@ -637,6 +638,102 @@ describe('SessionSubagentService planSpawn and spawn', () => {
     });
   });
 
+  it('creates and reports the child after async prompt-prefix setup completes', async () => {
+    let resolvePrefix!: (value: string) => void;
+    const prefix = new Promise<string>((resolve) => {
+      resolvePrefix = resolve;
+    });
+    profiles = [
+      normalizeAgentProfile({
+        name: 'coder',
+        description: 'Coder',
+        promptPrefix: async () => prefix,
+        systemPrompt: () => 'coder',
+      }),
+    ];
+    const onAgentCreated = vi.fn();
+    const svc = service();
+    const spawning = svc.spawn({
+      callerAgentId: CALLER_ID,
+      plan: { profileName: 'coder', model: 'provider/fast', thinking: 'low', fork: false },
+      labels: { parentAgentId: 'main' },
+      prompt: 'Review the file',
+      onAgentCreated,
+    });
+
+    expect(onAgentCreated).not.toHaveBeenCalled();
+    expect(createAgent).not.toHaveBeenCalled();
+    resolvePrefix('FIXED-PREFIX');
+    await expect(spawning).resolves.toMatchObject({ agentId: 'agent-child' });
+    expect(onAgentCreated).toHaveBeenCalledWith('agent-child');
+  });
+
+  it('does not create a child when cancellation interrupts prompt-prefix setup', async () => {
+    let resolvePrefix!: (value: string) => void;
+    const prefix = new Promise<string>((resolve) => {
+      resolvePrefix = resolve;
+    });
+    profiles = [
+      normalizeAgentProfile({
+        name: 'coder',
+        description: 'Coder',
+        promptPrefix: async () => prefix,
+        systemPrompt: () => 'coder',
+      }),
+    ];
+    const controller = new AbortController();
+    const reason = new Error('cancelled');
+    const onAgentCreated = vi.fn();
+    const svc = service();
+    const spawning = svc.spawn({
+      callerAgentId: CALLER_ID,
+      plan: { profileName: 'coder', model: 'provider/fast', thinking: 'low', fork: false },
+      prompt: 'Review the file',
+      signal: controller.signal,
+      onAgentCreated,
+    });
+
+    controller.abort(reason);
+    resolvePrefix('FIXED-PREFIX');
+
+    await expect(spawning).rejects.toBe(reason);
+    expect(createAgent).not.toHaveBeenCalled();
+    expect(onAgentCreated).not.toHaveBeenCalled();
+  });
+
+  it('removes a child created while cancellation is pending', async () => {
+    let resolveCreate!: (agent: AgentContext) => void;
+    const creating = new Promise<AgentContext>((resolve) => {
+      resolveCreate = (agent) => {
+        createdHandles.set(agent.agentId, createdHandle(agent.agentId));
+        resolve(agent);
+      };
+    });
+    createAgent.mockReturnValueOnce(creating);
+    const controller = new AbortController();
+    const reason = new Error('cancelled');
+    const onAgentCreated = vi.fn();
+    const svc = service();
+    const spawning = svc.spawn({
+      callerAgentId: CALLER_ID,
+      plan: { profileName: 'coder', model: 'provider/fast', thinking: 'low', fork: false },
+      prompt: 'Review the file',
+      signal: controller.signal,
+      onAgentCreated,
+    });
+    await vi.waitFor(() => {
+      expect(createAgent).toHaveBeenCalledOnce();
+    });
+
+    controller.abort(reason);
+    resolveCreate(stubAgentContext('agent-child', 1));
+
+    await expect(spawning).rejects.toBe(reason);
+    expect(removeAgent).toHaveBeenCalledWith(expect.objectContaining({ agentId: 'agent-child' }));
+    expect(createdHandles.has('agent-child')).toBe(false);
+    expect(onAgentCreated).not.toHaveBeenCalled();
+  });
+
   it('releases the runtime lease after spawn', async () => {
     const svc = service();
 
@@ -649,12 +746,21 @@ describe('SessionSubagentService planSpawn and spawn', () => {
     createdPermissionMode.setMode.mockImplementationOnce(() => {
       throw new Error('permission setup failed');
     });
+    const onAgentCreated = vi.fn();
     const svc = service();
 
-    await expect(spawnNonForkChild(svc)).rejects.toThrow('permission setup failed');
+    await expect(
+      svc.spawn({
+        callerAgentId: CALLER_ID,
+        plan: { profileName: 'coder', model: 'provider/fast', thinking: 'low', fork: false },
+        prompt: 'Review the file',
+        onAgentCreated,
+      }),
+    ).rejects.toThrow('permission setup failed');
 
     expect(removeAgent).toHaveBeenCalledWith(expect.objectContaining({ agentId: 'agent-child' }));
     expect(createdHandles.has('agent-child')).toBe(false);
+    expect(onAgentCreated).not.toHaveBeenCalled();
   });
 
   it('removes a child when creation returns without an agent scope', async () => {

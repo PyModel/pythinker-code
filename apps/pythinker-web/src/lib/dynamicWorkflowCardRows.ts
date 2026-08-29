@@ -84,16 +84,8 @@ function resultRow(sub: DynamicWorkflowResultSubagent, index: number): DynamicWo
   };
 }
 
-/**
- * Whether a live member already accounts for a result subagent. Members may
- * come from the projector (task id / description) while the result references
- * agent_id / item; the two ids don't always match, so also treat item ⊆
- * description as a match.
- */
-function memberCoversResult(member: DynamicWorkflowMember, sub: DynamicWorkflowResultSubagent): boolean {
-  if (sub.agentId && member.id === sub.agentId) return true;
-  if (sub.item && member.name.includes(sub.item)) return true;
-  return false;
+function membersCoverResult(members: DynamicWorkflowMember[], sub: DynamicWorkflowResultSubagent): boolean {
+  return sub.agentId !== undefined && members.some((member) => member.id === sub.agentId);
 }
 
 /**
@@ -124,7 +116,7 @@ export function buildDynamicWorkflowCardRows(members: DynamicWorkflowMember[], r
   if (!result) return memberRows;
 
   const resultOnly = result.subagents
-    .filter((sub) => !members.some((m) => memberCoversResult(m, sub)))
+    .filter((sub) => !membersCoverResult(members, sub))
     .map((sub, i) => resultRow(sub, i));
 
   return memberRows.length > 0 ? [...memberRows, ...resultOnly] : result.subagents.map((s, i) => resultRow(s, i));

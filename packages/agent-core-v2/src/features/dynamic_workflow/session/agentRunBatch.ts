@@ -27,6 +27,7 @@ export interface AgentRunAttemptOptions {
   readonly dynamicWorkflowIndex?: number;
   readonly runInBackground: boolean;
   readonly signal: AbortSignal;
+  readonly onAgentKnown?: (agentId: string) => void;
   readonly onReady?: () => void;
   readonly suppressRateLimitFailureEvent?: boolean;
 }
@@ -287,6 +288,9 @@ export class AgentRunBatch<T> {
       dynamicWorkflowIndex: task.dynamicWorkflowIndex,
       runInBackground: task.runInBackground,
       signal: attempt.controller.signal,
+      onAgentKnown: (agentId) => {
+        attempt.state.agentId = agentId;
+      },
       onReady: () => {
         this.markAttemptReady(attempt);
       },
@@ -538,16 +542,22 @@ export class AgentRunBatch<T> {
 
   private finishWithUserCancellation(): void {
     if (this.finished) return;
+    const activeStates = new Set(Array.from(this.active, (attempt) => attempt.state));
 
     this.finish(
       this.states.map((state) => {
         const result = this.results[state.index];
         if (result !== undefined) return result;
+        const agentId =
+          state.agentId ??
+          (state.task.kind === 'resume' && activeStates.has(state)
+            ? state.task.resumeAgentId
+            : undefined);
 
-        if (state.started || state.agentId !== undefined) {
+        if (state.started || agentId !== undefined) {
           return {
             task: state.task,
-            agentId: state.agentId,
+            agentId,
             status: 'aborted',
             state: 'started',
             error:

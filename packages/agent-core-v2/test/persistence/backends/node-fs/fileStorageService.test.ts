@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 
 import { join } from 'pathe';
@@ -54,6 +54,76 @@ describe('FileStorageService — consistent reads', () => {
 
     expect(new TextDecoder().decode(await svc.read('scope', 'k.json'))).toBe('{"model":"ready"}');
     expect(reads).toBe(2);
+  });
+
+  it('waits for a non-atomic replacement to settle before notifying readers', async () => {
+    const path = join(dir, 'scope', 'config.toml');
+    const svc = new FileStorageService(dir);
+    await svc.write('scope', 'config.toml', encoder.encode('model = "old"\n'));
+    const snapshots: string[] = [];
+    let resolveFirst!: () => void;
+    const first = new Promise<void>((resolve) => {
+      resolveFirst = resolve;
+    });
+    const subscription = svc.watch('scope', 'config.toml')(async () => {
+      snapshots.push(new TextDecoder().decode(await svc.read('scope', 'config.toml')));
+      resolveFirst();
+    });
+
+    try {
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, 100);
+      });
+      await writeFile(path, '');
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, 250);
+      });
+      await writeFile(path, 'model = "ready"\n');
+      await first;
+      subscription.dispose();
+
+      expect(snapshots).toEqual(['model = "ready"\n']);
+    } finally {
+      subscription.dispose();
+    }
+  });
+
+  it('waits for a delayed atomic replacement before notifying readers', async () => {
+    const path = join(dir, 'scope', 'config.toml');
+    const replacement = join(dir, 'scope', 'config.toml.next');
+    const svc = new FileStorageService(dir);
+    await svc.write('scope', 'config.toml', encoder.encode('model = "old"\n'));
+    const snapshots: string[] = [];
+    let resolveFirst!: () => void;
+    const first = new Promise<void>((resolve) => {
+      resolveFirst = resolve;
+    });
+    const subscription = svc.watch('scope', 'config.toml')(async () => {
+      try {
+        snapshots.push(new TextDecoder().decode(await svc.read('scope', 'config.toml')));
+      } catch {
+        snapshots.push('<missing>');
+      }
+      resolveFirst();
+    });
+
+    try {
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, 100);
+      });
+      await writeFile(replacement, 'model = "ready"\n');
+      await rm(path);
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, 300);
+      });
+      await rename(replacement, path);
+      await first;
+      subscription.dispose();
+
+      expect(snapshots).toEqual(['model = "ready"\n']);
+    } finally {
+      subscription.dispose();
+    }
   });
 });
 
