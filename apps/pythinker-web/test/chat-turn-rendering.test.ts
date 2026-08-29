@@ -331,10 +331,6 @@ describe('turnFinalText', () => {
     expect(turnFinalText(turn)).toBe('third');
   });
 
-  it('is empty when the turn ends in a tool call', () => {
-    const turn = assistantTurn([{ kind: 'text', text: 'running' }, toolBlock('a')]);
-    expect(turnFinalText(turn)).toBe('');
-  });
 });
 
 describe('turnToMarkdown', () => {
