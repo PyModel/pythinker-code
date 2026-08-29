@@ -319,15 +319,18 @@ describe('foldRenderBlocks', () => {
 });
 
 describe('turnFinalText', () => {
-  it('joins only the text blocks, dropping thinking and tools', () => {
+  it('returns the last text block, matching the fold anchor', () => {
     const turn = assistantTurn([
       { kind: 'thinking', thinking: 'plan' },
-      { kind: 'text', text: 'first' },
+      { kind: 'text', text: 'I will run the tool.' },
       toolBlock('a'),
       { kind: 'text', text: 'second' },
+      { kind: 'thinking', thinking: 'more' },
+      { kind: 'text', text: 'third' },
     ]);
-    expect(turnFinalText(turn)).toBe('first\n\nsecond');
+    expect(turnFinalText(turn)).toBe('third');
   });
+
 });
 
 describe('turnToMarkdown', () => {

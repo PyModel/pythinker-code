@@ -24,6 +24,7 @@ import Icon from './ui/Icon.vue';
 import Kbd from './ui/Kbd.vue';
 import Menu from './ui/Menu.vue';
 import MenuItem from './ui/MenuItem.vue';
+import Pill from './ui/Pill.vue';
 import PinnedSessionList from './PinnedSessionList.vue';
 import ReleaseNotes from './ReleaseNotes.vue';
 import SessionRow from './SessionRow.vue';
@@ -738,9 +739,39 @@ function focusUpdateNotes(event: KeyboardEvent): void {
   target.focus();
 }
 
-function openUpdateDialog(): void {
+const updateStage = computed(() => update.status.value);
+const updatePercentLabel = computed(() => {
+  const value = update.percent.value;
+  return value === undefined ? '' : `${Math.round(value)}%`;
+});
+const updateTriggerText = computed(() => {
+  switch (updateStage.value) {
+    case 'downloading': return updatePercentLabel.value || t('update.sidebarFetching');
+    case 'downloaded': return t('update.sidebarRestart');
+    case 'error': return t('update.sidebarRetry');
+    default: return t('update.sidebarAction');
+  }
+});
+const updateTriggerLabel = computed(() => {
+  const version = update.availableVersion.value;
+  switch (updateStage.value) {
+    case 'downloading': return t('update.dialogDownloading', { version: version ?? '' });
+    case 'downloaded': return t('update.restartAction');
+    case 'error': return t('update.retryDownload');
+    default: return version ? t('update.sidebarHint', { version }) : t('update.sidebarAction');
+  }
+});
+
+function onUpdateTriggerClick(): void {
   updateNotesOpen.value = false;
-  update.openDialog();
+  const version = update.availableVersion.value;
+  if (version !== undefined) void update.markNotified(version);
+  switch (updateStage.value) {
+    case 'downloading': return;
+    case 'downloaded': void update.restart(); return;
+    case 'error': void update.retry(); return;
+    default: void update.download();
+  }
 }
 
 function onLogoPointerDown(event: PointerEvent): void {
@@ -803,14 +834,14 @@ watch([() => props.collapsed, update.hasUpdate], ([collapsed, hasUpdate]) => {
           />
         </div>
         <div class="ch-actions">
-          <IconButton
+          <Pill
             v-if="update.hasUpdate.value"
             class="sidebar-update-trigger"
-            size="md"
+            :class="`is-${updateStage}`"
             data-testid="sidebar-update"
-            :label="update.availableVersion.value
-              ? t('update.sidebarHint', { version: update.availableVersion.value })
-              : t('update.sidebarAction')"
+            :aria-label="updateTriggerLabel"
+            :aria-busy="updateStage === 'downloading' ? 'true' : undefined"
+            :disabled="update.busy.value"
             :aria-controls="updateNotesOpen ? 'sidebar-update-notes' : undefined"
             :aria-expanded="updateNotesOpen"
             aria-haspopup="dialog"
@@ -819,10 +850,15 @@ watch([() => props.collapsed, update.hasUpdate], ([collapsed, hasUpdate]) => {
             @focus="showUpdateNotes"
             @blur="scheduleUpdateNotesClose"
             @keydown.tab="focusUpdateNotes"
-            @click.stop="openUpdateDialog"
+            @click.stop="onUpdateTriggerClick"
           >
-            <Icon name="update-button" />
-          </IconButton>
+            <span class="sidebar-update-trigger__icon" aria-hidden="true">
+              <Icon name="update-button" />
+            </span>
+            <span class="sidebar-update-trigger__text" data-testid="sidebar-update-text">
+              {{ updateTriggerText }}
+            </span>
+          </Pill>
           <IconButton
             class="ch-collapse"
             size="sm"
@@ -1436,20 +1472,75 @@ watch([() => props.collapsed, update.hasUpdate], ([collapsed, hasUpdate]) => {
 }
 
 .sidebar-update-trigger {
-  width: 32px;
-  height: 32px;
-  border: none;
+  --sidebar-update-size: 32px;
+  position: relative;
+  display: inline-grid;
+  grid-template-areas: 'slot';
+  place-items: center;
+  width: var(--sidebar-update-size);
+  height: var(--sidebar-update-size);
+  padding: 0;
   border-radius: var(--radius-full);
-  background: transparent;
+  color: var(--color-text);
+  font-size: var(--text-xs);
+  overflow: hidden;
+  transition: width var(--duration-base) var(--ease-out),
+    background var(--duration-base) var(--ease-out),
+    color var(--duration-base) var(--ease-out);
 }
-.sidebar-update-trigger :deep(svg) {
-  width: 32px;
-  height: 32px;
+.sidebar-update-trigger__icon,
+.sidebar-update-trigger__text {
+  grid-area: slot;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity var(--duration-base) var(--ease-out);
 }
-.ch-actions .sidebar-update-trigger:hover:not(:disabled) {
-  background: transparent;
+.sidebar-update-trigger__icon :deep(svg) {
+  width: var(--sidebar-update-size);
+  height: var(--sidebar-update-size);
 }
-.sidebar-update-trigger:focus-visible {
+.sidebar-update-trigger__text {
+  padding: 0 var(--space-3);
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+}
+.ch-actions .sidebar-update-trigger:hover:not(:disabled),
+.ch-actions .sidebar-update-trigger:focus-visible,
+.ch-actions .sidebar-update-trigger.is-downloading,
+.ch-actions .sidebar-update-trigger.is-downloaded,
+.ch-actions .sidebar-update-trigger.is-error {
+  width: auto;
+  min-width: 56px;
+  background: var(--color-accent);
+  color: var(--color-text-on-accent);
+}
+.ch-actions .sidebar-update-trigger:hover:not(:disabled) .sidebar-update-trigger__icon,
+.ch-actions .sidebar-update-trigger:focus-visible .sidebar-update-trigger__icon,
+.ch-actions .sidebar-update-trigger.is-downloading .sidebar-update-trigger__icon,
+.ch-actions .sidebar-update-trigger.is-downloaded .sidebar-update-trigger__icon,
+.ch-actions .sidebar-update-trigger.is-error .sidebar-update-trigger__icon {
+  opacity: 0;
+}
+.ch-actions .sidebar-update-trigger:hover:not(:disabled) .sidebar-update-trigger__text,
+.ch-actions .sidebar-update-trigger:focus-visible .sidebar-update-trigger__text,
+.ch-actions .sidebar-update-trigger.is-downloading .sidebar-update-trigger__text,
+.ch-actions .sidebar-update-trigger.is-downloaded .sidebar-update-trigger__text,
+.ch-actions .sidebar-update-trigger.is-error .sidebar-update-trigger__text {
+  opacity: 1;
+}
+.sidebar-update-trigger.is-downloading {
+  cursor: progress;
+}
+.ch-actions .sidebar-update-trigger.is-error {
+  background: var(--color-danger);
+}
+.ch-actions .sidebar-update-trigger:disabled {
+  cursor: progress;
+}
+.ch-actions .sidebar-update-trigger:focus-visible {
+  outline: none;
   box-shadow: var(--p-focus-ring-strong);
 }
 

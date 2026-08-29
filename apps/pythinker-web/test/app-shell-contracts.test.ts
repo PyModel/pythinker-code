@@ -15,11 +15,14 @@ const sideChat = readFileSync(join(import.meta.dirname, '../src/components/chat/
 const client = readFileSync(join(import.meta.dirname, '../src/composables/usePythinkerWebClient.ts'), 'utf8');
 
 describe('app shell contracts', () => {
-  it('mounts the desktop chrome', () => {
+  it('mounts the desktop chrome and owns the update feed', () => {
     expect(app).toContain("import WindowControls from './components/WindowControls.vue';");
-    expect(app).toContain("import UpdateDialog from './components/UpdateDialog.vue';");
+    expect(app).toContain("import { useDesktopUpdate } from './composables/useDesktopUpdate';");
     expect(app).toContain('<WindowControls />');
-    expect(app).toContain('<UpdateDialog />');
+    expect(app).toContain('const desktopUpdate = useDesktopUpdate();');
+    expect(app).toContain('desktopUpdate.subscribe();');
+    expect(app).toContain('desktopUpdate.unsubscribe();');
+    expect(app).not.toContain('UpdateDialog');
   });
 
   it('mounts the session capability menu in the composer', () => {
@@ -60,8 +63,16 @@ describe('app shell contracts', () => {
     // The chat renderer drags katex, mermaid and shiki into the popover and
     // renders raw HTML as live DOM. Release notes get their own renderer.
     expect(sidebar).not.toContain("import('./chat/Markdown.vue')");
+    expect(sidebar).toContain("import Pill from './ui/Pill.vue';");
+    expect(sidebar).toMatch(/<Pill[\s\S]*?class="sidebar-update-trigger"/);
     expect(sidebar).toContain('<Icon name="update-button" />');
-    expect(sidebar).toMatch(/\.sidebar-update-trigger\s*\{[^}]*width: 32px;[^}]*height: 32px;[^}]*border-radius: var\(--radius-full\);[^}]*background: transparent;/s);
+    expect(sidebar).toMatch(/\.sidebar-update-trigger\s*\{[^}]*width: var\(--sidebar-update-size\);[^}]*height: var\(--sidebar-update-size\);[^}]*border-radius: var\(--radius-full\);/s);
+    // Hover swaps the icon for the "Update" word; download progress paints
+    // into the same pill instead of opening the overlay dialog.
+    expect(sidebar).toContain('data-testid="sidebar-update-text"');
+    expect(sidebar).toContain('@click.stop="onUpdateTriggerClick"');
+    expect(sidebar).toMatch(/\.ch-actions \.sidebar-update-trigger\.is-error\s*\{[^}]*background: var\(--color-danger\);/s);
+    expect(sidebar).not.toContain('update.openDialog()');
     expect(sidebar).not.toContain('update-label-shimmer');
     expect(sidebar).not.toContain('class="update-wrap"');
   });

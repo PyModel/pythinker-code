@@ -23,7 +23,6 @@ import AddWorkspaceDialog from './components/dialogs/AddWorkspaceDialog.vue';
 import ConfirmDialogHost from './components/dialogs/ConfirmDialogHost.vue';
 import StatusPanel from './components/chat/StatusPanel.vue';
 import WarningToasts from './components/WarningToasts.vue';
-import UpdateDialog from './components/UpdateDialog.vue';
 import ActionToast from './components/ui/ActionToast.vue';
 import WindowControls from './components/WindowControls.vue';
 import MobileTopBar from './components/mobile/MobileTopBar.vue';
@@ -42,6 +41,7 @@ import type { FilePreviewRequest, ToolMedia, TurnAttachment } from './types';
 import { useAuthGate } from './composables/useAuthGate';
 import { usePageTitle } from './composables/usePageTitle';
 import { useSidebarLayout } from './composables/useSidebarLayout';
+import { useDesktopUpdate } from './composables/useDesktopUpdate';
 import { resolveMediaUrl, useFilePreview, type DetailTarget } from './composables/useFilePreview';
 import {
   closeFileEditor,
@@ -75,6 +75,7 @@ const authRequired = ref(false);
 let offAuthRequired: (() => void) | null = null;
 
 const client = usePythinkerWebClient();
+const desktopUpdate = useDesktopUpdate();
 const archivedSessions = ref<import('./types').Session[]>([]);
 const showSessionAdmin = ref(false);
 const sessionActionToast = ref<{
@@ -339,6 +340,7 @@ function syncAppHeight(): void {
 }
 
 onMounted(() => {
+  desktopUpdate.subscribe();
   // Register the 401 listener before the first requests go out, so a token
   // rejection during the initial load() can never be missed.
   offAuthRequired = onAuthRequired(() => {
@@ -359,6 +361,7 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+  desktopUpdate.unsubscribe();
   closeMediaLightbox();
   document.removeEventListener('keydown', onGlobalKeydown, true);
   window.visualViewport?.removeEventListener('resize', syncAppHeight);
@@ -1559,7 +1562,6 @@ function openPr(url: string): void {
 
     <!-- Floating warnings / agent errors (e.g. a 403 from the model provider) -->
     <WarningToasts :warnings="client.warnings.value" @dismiss="client.dismissWarning" />
-    <UpdateDialog />
     <div class="action-toast-stack">
       <ActionToast
         v-if="sessionActionToast"

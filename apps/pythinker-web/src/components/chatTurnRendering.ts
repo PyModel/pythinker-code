@@ -254,10 +254,18 @@ export function foldRenderBlocks(
   };
 }
 
+/**
+ * The answer the user reads. Mirrors the fold anchor in `foldRenderBlocks`:
+ * text from the last non-empty text block onward. Narration emitted before a
+ * tool call ("I'll rerun it…") folds away on screen, so it must not end up on
+ * the clipboard either.
+ */
 export function turnFinalText(turn: ChatTurn): string {
-  return turnBlocks(turn)
-    .flatMap((blk) => (blk.kind === 'text' && blk.text ? [blk.text] : []))
-    .join('\n\n');
+  const texts = turnBlocks(turn).flatMap((blk) => (blk.kind === 'text' && blk.text ? [blk.text] : []));
+  for (let index = texts.length - 1; index >= 0; index -= 1) {
+    if (texts[index]!.trim()) return texts[index]!;
+  }
+  return '';
 }
 
 /** Convert a single turn to Markdown. */
