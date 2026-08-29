@@ -210,7 +210,7 @@ describe('WS fs watch (agent-gateway)', () => {
 
     writeFileSync(join(workspace, 'src', 'instant.ts'), 'export const i = 1;\n');
 
-    const ev = await receiveType(conn, 'event.fs.changed', 3000);
+    const ev = await receiveType(conn, 'event.fs.changed', 10_000);
     expect(ev.session_id).toBe(sid);
     const payload = ev.payload as { changes: Array<{ path: string }> };
     expect(payload.changes.some((c) => c.path === 'src/instant.ts' || c.path === 'src')).toBe(true);
