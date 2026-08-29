@@ -1,6 +1,6 @@
 import { ISubagentRoutingService } from '#/session/subagent/subagentRoutingService';
 import { createControlledPromise } from '@antfu/utils';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
 
 import type { IAgentScopeHandle } from '#/_base/di/scope';
 import { LifecycleScope } from '#/app/scopes';
@@ -918,7 +918,7 @@ describe('SessionDynamicWorkflowService metadata compatibility', () => {
   let handles: Map<string, IAgentScopeHandle>;
   let lifecycle: IAgentLifecycleService;
   let subagents: ISessionSubagentService;
-  let spawnAgent: ReturnType<typeof vi.fn>;
+  let spawnAgent: Mock<ISessionSubagentService['spawn']>;
   let runAgent: ReturnType<typeof vi.fn>;
   let eventBus: IEventBus;
   let currentRoutingRevision: string;
@@ -931,7 +931,7 @@ describe('SessionDynamicWorkflowService metadata compatibility', () => {
     eventBus = eventBusStub();
     lifecycle = lifecycleStub(handles, eventBus);
     subagents = subagentStub(handles, lifecycle, eventBus);
-    spawnAgent = subagents.spawn as ReturnType<typeof vi.fn>;
+    spawnAgent = subagents.spawn as Mock<ISessionSubagentService['spawn']>;
     runAgent = subagents.run as ReturnType<typeof vi.fn>;
     currentRoutingRevision = 'route-env:v1:test';
     handles.set('main', agentHandle('main', lifecycle, eventBus));
@@ -1252,7 +1252,11 @@ describe('SessionDynamicWorkflowService metadata compatibility', () => {
     const spawning = createControlledPromise<
       Awaited<ReturnType<ISessionSubagentService['spawn']>>
     >();
-    spawnAgent.mockReturnValueOnce(spawning);
+    let spawnOptions: SpawnSubagentOptions | undefined;
+    spawnAgent.mockImplementationOnce((options) => {
+      spawnOptions = options;
+      return spawning;
+    });
     const service = ix.get(ISessionDynamicWorkflowService);
     const running = service.run({
       callerAgentId: 'main',
@@ -1262,12 +1266,12 @@ describe('SessionDynamicWorkflowService metadata compatibility', () => {
       expect(spawnAgent).toHaveBeenCalledTimes(1);
     });
     handles.set('agent-new', agentHandle('agent-new', lifecycle, eventBus));
-    const options = spawnAgent.mock.calls[0]?.[0] as SpawnSubagentOptions;
-    expect(options.signal).toBeInstanceOf(AbortSignal);
-    options.onAgentCreated?.('agent-new');
+    if (spawnOptions === undefined) throw new Error('spawn options were not captured');
+    expect(spawnOptions.signal).toBeInstanceOf(AbortSignal);
+    spawnOptions.onAgentCreated?.('agent-new');
 
     service.cancel({ callerAgentId: 'main' });
-    expect(options.signal?.aborted).toBe(true);
+    expect(spawnOptions.signal?.aborted).toBe(true);
     spawning.reject(userCancellationReason());
 
     await expect(running).resolves.toMatchObject([
