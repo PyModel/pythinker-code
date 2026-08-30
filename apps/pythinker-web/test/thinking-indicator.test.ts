@@ -36,11 +36,11 @@ describe('thinking indicator', () => {
     running.value = true;
     await nextTick();
 
-    expect(document.title).toBe('⣷ Pythinker Code Web');
+    expect(document.title).toBe('• Pythinker Code Web');
     expect(vi.getTimerCount()).toBe(0);
     vi.advanceTimersByTime(BRAILLE_SPINNER_FRAME_MS);
     await nextTick();
-    expect(document.title).toBe('⣷ Pythinker Code Web');
+    expect(document.title).toBe('• Pythinker Code Web');
     wrapper.unmount();
     vi.useRealTimers();
   });

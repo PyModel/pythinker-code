@@ -183,6 +183,18 @@ describe('AgentTaskPersistence', () => {
       expect(await persistence.readTaskOutputBytes('bash-page0000', 26, 10)).toBe('');
     });
 
+    it('keeps a persisted UTF-8 output preview within its byte limit', async () => {
+      const taskId = 'bash-utf80001';
+      await persistence.appendTaskOutput(taskId, 'éé');
+
+      expect(await persistence.readTaskOutputSnapshot(taskId, 3)).toMatchObject({
+        outputSizeBytes: 4,
+        previewBytes: 2,
+        truncated: true,
+        preview: 'é',
+      });
+    });
+
     it('readTaskOutputBytes returns empty string when output.log is absent', async () => {
       expect(await persistence.readTaskOutputBytes('bash-none0001', 0, 100)).toBe('');
     });

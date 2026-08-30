@@ -375,19 +375,19 @@ describe('server-v2 /api/v1/sessions/{sid}/tasks', () => {
     expect(task.body.data.output_preview).toBeUndefined();
   });
 
-  it('limits list output by UTF-8 bytes', async () => {
+  it('keeps list output valid when the UTF-8 boundary exceeds the byte limit', async () => {
     const id = await createSession();
     const tasks = await mainAgentTasks(id);
-    const taskId = tasks.registerTask(fakeTask('process', '界'.repeat(10)));
+    const taskId = tasks.registerTask(fakeTask('process', 'é'.repeat(10)));
     await flush();
 
     const listed = await getJson<ListWire>(
-      `/api/v1/sessions/${id}/tasks?with_output=true&output_bytes=6`,
+      `/api/v1/sessions/${id}/tasks?with_output=true&output_bytes=3`,
     );
     expect(listed.body.code).toBe(0);
     const task = listed.body.data.items.find((item) => item.id === taskId);
-    expect(task?.output_preview).toBe('界界');
-    expect(task?.output_bytes).toBe(6);
+    expect(task?.output_preview).toBe('é');
+    expect(task?.output_bytes).toBe(2);
   });
 
   it('limits periodic list output to running tasks', async () => {

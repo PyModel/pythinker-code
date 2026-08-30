@@ -60,7 +60,7 @@ import {
   type RegisterAgentTaskOptions,
 } from './task';
 import { resolveAgentTaskConfig } from './configSection';
-import { AgentTaskPersistence } from './persist';
+import { AgentTaskPersistence, utf8TailPreview } from './persist';
 import { taskKey, TaskNotified, TaskStarted, TaskTerminated, TaskWaitDelivered } from './taskOps';
 import { formatTaskList } from '#/agent/tools/task/task-list/taskListTool';
 import '#/agent/tools/task/task-output/taskOutputTool';
@@ -590,14 +590,16 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
     if (entry === undefined) return emptyOutputSnapshot();
 
     const available = Buffer.from(entry.outputChunks.join(''), 'utf-8');
-    const previewBytes = Math.min(previewLimit, available.byteLength, entry.outputSizeBytes);
-    const previewOffset = Math.max(0, available.byteLength - previewBytes);
+    const preview = utf8TailPreview(
+      available,
+      Math.min(previewLimit, entry.outputSizeBytes),
+    );
     return {
       outputSizeBytes: entry.outputSizeBytes,
-      previewBytes,
-      truncated: entry.outputSizeBytes > previewBytes,
+      previewBytes: preview.bytes,
+      truncated: entry.outputSizeBytes > preview.bytes,
       fullOutputAvailable: false,
-      preview: available.subarray(previewOffset).toString('utf-8'),
+      preview: preview.text,
     };
   }
 

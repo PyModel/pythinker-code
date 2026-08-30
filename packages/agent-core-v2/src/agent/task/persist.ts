@@ -15,6 +15,19 @@ const JSON_SUFFIX = '.json';
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 
+interface Utf8TailPreview {
+  readonly text: string;
+  readonly bytes: number;
+}
+
+export function utf8TailPreview(data: Uint8Array, maxBytes: number): Utf8TailPreview {
+  const limit = Math.max(0, Math.trunc(maxBytes));
+  let start = Math.max(0, data.byteLength - limit);
+  while (start < data.byteLength && (data[start]! & 0xc0) === 0x80) start += 1;
+  const tail = data.subarray(start);
+  return { text: textDecoder.decode(tail), bytes: tail.byteLength };
+}
+
 type PersistedTask = AgentTaskInfo;
 
 type DiskPersistedTask = PersistedTask | LegacyPersistedTask;
@@ -131,15 +144,13 @@ export class AgentTaskPersistence {
   ): Promise<AgentTaskStoredOutputSnapshot | undefined> {
     const output = await this.readTaskOutputData(taskId);
     if (output === undefined) return undefined;
-    const previewLimit = Math.max(0, Math.trunc(maxPreviewBytes));
-    const previewBytes = Math.min(previewLimit, output.data.byteLength);
-    const previewOffset = output.data.byteLength - previewBytes;
+    const preview = utf8TailPreview(output.data, maxPreviewBytes);
     return {
       outputPath: this.taskOutputFileAt(taskId, output.root),
       outputSizeBytes: output.data.byteLength,
-      previewBytes,
-      truncated: previewOffset > 0,
-      preview: textDecoder.decode(output.data.subarray(previewOffset)),
+      previewBytes: preview.bytes,
+      truncated: output.data.byteLength > preview.bytes,
+      preview: preview.text,
     };
   }
 
