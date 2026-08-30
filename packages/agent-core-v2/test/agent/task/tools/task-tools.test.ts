@@ -1185,6 +1185,7 @@ describe('WaitForTool (harness)', () => {
 
       const slow = controllableProcess();
       const taskA = tasks.registerTask(new ProcessTask(slow.proc, 'sleep 30', 'slow'));
+      const waitDelivered = ctx.once('task.waitDelivered');
       const pending = executeTool(tool!, context('wait_race', { timeout: 30 }));
 
       const late = controllableProcess();
@@ -1205,6 +1206,7 @@ describe('WaitForTool (harness)', () => {
       slow.pushOutput('A-OUT\n');
       slow.resolveWait(0);
       const result = await pending;
+      await waitDelivered;
       const output = outputString(result);
 
       expect(result.isError ?? false).toBe(false);
