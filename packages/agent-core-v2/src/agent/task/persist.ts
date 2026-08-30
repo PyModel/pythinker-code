@@ -23,7 +23,11 @@ interface Utf8TailPreview {
 export function utf8TailPreview(data: Uint8Array, maxBytes: number): Utf8TailPreview {
   const limit = Math.max(0, Math.trunc(maxBytes));
   let start = Math.max(0, data.byteLength - limit);
-  while (start < data.byteLength && (data[start]! & 0xc0) === 0x80) start += 1;
+  while (start < data.byteLength) {
+    const byte = data[start];
+    if (byte === undefined || (byte & 0xc0) !== 0x80) break;
+    start += 1;
+  }
   const tail = data.subarray(start);
   return { text: textDecoder.decode(tail), bytes: tail.byteLength };
 }
