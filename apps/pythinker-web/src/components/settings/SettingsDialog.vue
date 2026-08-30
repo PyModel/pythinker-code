@@ -3,7 +3,7 @@
      scattered in the sidebar account popover: appearance, account,
      connection, plus notifications and the troubleshooting-log export. -->
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, inject, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { usePythinkerWebClient } from '../../composables/usePythinkerWebClient';
 import { getPythinkerWebApi } from '../../api';
@@ -18,6 +18,7 @@ import type {
 } from '../../api/types';
 import { useDialogFocus } from '../../composables/useDialogFocus';
 import { useConfirmDialog } from '../../composables/useConfirmDialog';
+import { expertTalkContextKey } from '../../composables/expertTalkContext';
 import {
   uiFontScaleForSize,
   uiFontScaleOptions,
@@ -36,11 +37,13 @@ import SegmentedControl from '../ui/SegmentedControl.vue';
 import Select from '../ui/Select.vue';
 import Tooltip from '../ui/Tooltip.vue';
 import Banner from '../ui/Banner.vue';
+import Field from '../ui/Field.vue';
 import type { IconName } from '../../lib/icons';
 import ProvidersPanel from './ProvidersPanel.vue';
 import SecondaryModelPicker from './SecondaryModelPicker.vue';
 
 const { t } = useI18n();
+const expertTalk = inject(expertTalkContextKey);
 
 const props = defineProps<{
   colorScheme: ColorScheme;
@@ -79,7 +82,7 @@ const props = defineProps<{
   /** Saved + effective subagent model routing policy (dedicated endpoint). */
   subagentModelPolicy?: AppSubagentModelPolicyState | null;
   subagentModelPolicySaving?: boolean;
-  initialTab?: 'general' | 'providers' | 'agent';
+  initialTab?: 'general' | 'providers' | 'agent' | 'expertOpinion';
 }>();
 
 const emit = defineEmits<{
@@ -100,7 +103,7 @@ const emit = defineEmits<{
   close: [];
 }>();
 
-type SettingsTab = 'general' | 'agent' | 'account' | 'providers' | 'advanced' | 'update' | 'lab' | 'archived';
+type SettingsTab = 'general' | 'agent' | 'expertOpinion' | 'account' | 'providers' | 'advanced' | 'update' | 'lab' | 'archived';
 
 const activeTab = ref<SettingsTab>(props.initialTab ?? 'general');
 const fontScale = computed(() => uiFontScaleForSize(props.uiFontSize));
@@ -109,6 +112,7 @@ const desktopBridge = typeof window === 'undefined' ? undefined : window.pythink
 const tabs: { id: SettingsTab; labelKey: string; icon: IconName }[] = [
   { id: 'general', labelKey: 'settings.tabs.general', icon: 'sliders' },
   { id: 'agent', labelKey: 'settings.tabs.agent', icon: 'cute-bot' },
+  { id: 'expertOpinion', labelKey: 'settings.tabs.expertOpinion', icon: 'sparkles' },
   { id: 'account', labelKey: 'settings.tabs.account', icon: 'user' },
   { id: 'providers', labelKey: 'settings.tabs.providers', icon: 'bolt' },
   { id: 'lab', labelKey: 'settings.tabs.lab', icon: 'flask' },
@@ -547,6 +551,73 @@ function toggleExperimental(flag: string, value: boolean): void {
   emit('updateConfig', { experimental: next } as Partial<AppConfig>);
 }
 
+const expertOpinionModels = computed(() => (props.models ?? []).filter((model) =>
+  model.maxContextSize > 0 &&
+  (model.capabilities ?? []).some((capability) =>
+    capability.trim().toLowerCase().replaceAll('-', '_') === 'tool_use'
+  ),
+));
+const expertOpinionModelIds = computed(() =>
+  new Set(expertOpinionModels.value.map((model) => model.id)),
+);
+const expertOpinionModelGroups = computed(() => modelGroups.value
+  .map((group) => ({
+    provider: group.provider,
+    options: group.options.filter((option) => expertOpinionModelIds.value.has(option.id)),
+  }))
+  .filter((group) => group.options.length > 0),
+);
+const expertOpinionStatus = computed(() => expertTalk?.status.value);
+const expertOpinionEnabled = computed(() =>
+  experimentalFlagState('expert_talk')?.enabled
+    ?? expertOpinionStatus.value?.feature === 'enabled',
+);
+const expertOpinionLeadModelId = ref('');
+const expertOpinionPeerModelId = ref('');
+const expertOpinionPairValid = computed(() =>
+  expertOpinionLeadModelId.value !== expertOpinionPeerModelId.value &&
+  expertOpinionModelIds.value.has(expertOpinionLeadModelId.value) &&
+  expertOpinionModelIds.value.has(expertOpinionPeerModelId.value),
+);
+const expertOpinionPairSaved = computed(() =>
+  expertOpinionStatus.value?.config?.fusionLeadModelId === expertOpinionLeadModelId.value &&
+  expertOpinionStatus.value.config.peerModelId === expertOpinionPeerModelId.value,
+);
+
+function syncExpertOpinionPair(): void {
+  const configured = expertOpinionStatus.value?.config;
+  const first = expertOpinionModels.value[0]?.id ?? '';
+  expertOpinionLeadModelId.value = configured?.fusionLeadModelId ?? first;
+  expertOpinionPeerModelId.value = configured?.peerModelId
+    ?? expertOpinionModels.value.find((model) => model.id !== expertOpinionLeadModelId.value)?.id
+    ?? '';
+}
+
+watch(
+  [expertOpinionModels, () => expertOpinionStatus.value?.config],
+  syncExpertOpinionPair,
+  { immediate: true, deep: true },
+);
+
+async function setExpertOpinionEnabled(value: boolean): Promise<void> {
+  if (!value && expertOpinionStatus.value?.activation.state === 'armed') {
+    await expertTalk?.disarm();
+  }
+  toggleExperimental('expert_talk', value);
+}
+
+async function saveExpertOpinionPair(): Promise<void> {
+  if (!expertOpinionPairValid.value) return;
+  await expertTalk?.configurePair(
+    expertOpinionLeadModelId.value,
+    expertOpinionPeerModelId.value,
+  );
+}
+
+function expertOpinionModelAvailable(modelId: string): boolean {
+  return expertOpinionModelIds.value.has(modelId);
+}
+
 const ROUTING_MODES = ['inherit', 'default', 'pool', 'force'] as const;
 type RoutingMode = (typeof ROUTING_MODES)[number];
 
@@ -651,6 +722,19 @@ function setFontScale(scale: string): void {
 // through the composable so the sidebar list updates automatically.
 // ---------------------------------------------------------------------------
 const client = usePythinkerWebClient();
+
+watch(activeTab, (tab) => {
+  if (tab !== 'expertOpinion') return;
+  void client.refreshAllProviders();
+  void expertTalk?.refresh();
+});
+
+watch(
+  () => experimentalFlagState('expert_talk')?.enabled,
+  () => {
+    if (activeTab.value === 'expertOpinion') void expertTalk?.refresh();
+  },
+);
 
 const archivedItems = ref<AppSession[]>([]);
 const archivedLoading = ref(false);
@@ -1064,6 +1148,107 @@ function archiveTime(iso: string): string {
             <div v-else class="empty-config">
               {{ t('settings.configUnavailable') }}
             </div>
+          </section>
+        </section>
+
+        <section v-show="activeTab === 'expertOpinion'" class="panel" data-testid="expert-opinion-settings">
+          <section class="sec">
+            <div class="sec-head">
+              <h3 class="sec-title">{{ t('settings.expertOpinion.title') }}</h3>
+              <span v-if="configSaving || expertTalk?.busy.value" class="saving">{{ t('settings.saving') }}</span>
+            </div>
+
+            <div class="row">
+              <span class="rlabel">
+                {{ t('settings.expertOpinion.enabled') }}
+                <span class="hint">{{ t('settings.expertOpinion.enabledHint') }}</span>
+                <span v-if="experimentalFlagState('expert_talk')?.externallyControlled" class="flag-chip">{{ t('settings.lab.environmentControlled') }}</span>
+                <span v-if="experimentalFlagState('expert_talk')?.overridden" class="flag-chip flag-chip--warn">{{ t('settings.lab.savedSettingOverridden') }}</span>
+              </span>
+              <Switch
+                data-testid="expert-opinion-enabled"
+                :model-value="experimentalFlag('expert_talk')"
+                :disabled="configSaving || !config"
+                :label="t('settings.expertOpinion.enabled')"
+                @update:model-value="setExpertOpinionEnabled"
+              />
+            </div>
+
+            <Banner v-if="resolvedBackend !== 'v2' || !expertTalk" variant="warning">
+              {{ t('settings.expertOpinion.unavailable') }}
+            </Banner>
+            <template v-else>
+              <Banner v-if="expertOpinionModels.length < 2" variant="warning">
+                {{ t('settings.expertOpinion.modelsRequired') }}
+              </Banner>
+
+              <div class="expert-opinion-flow">
+                <Field :label="t('settings.expertOpinion.lead')" :hint="t('settings.expertOpinion.leadHint')">
+                  <Select
+                    v-model="expertOpinionLeadModelId"
+                    data-testid="expert-opinion-lead"
+                    :disabled="!expertOpinionEnabled || expertTalk.busy.value"
+                  >
+                    <option
+                      v-if="expertOpinionLeadModelId && !expertOpinionModelAvailable(expertOpinionLeadModelId)"
+                      :value="expertOpinionLeadModelId"
+                      disabled
+                    >
+                      {{ t('settings.expertOpinion.missingModel', { id: expertOpinionLeadModelId }) }}
+                    </option>
+                    <optgroup v-for="group in expertOpinionModelGroups" :key="group.provider" :label="group.provider">
+                      <option v-for="model in group.options" :key="model.id" :value="model.id">
+                        {{ model.label }}
+                      </option>
+                    </optgroup>
+                  </Select>
+                </Field>
+
+                <Icon class="expert-opinion-arrow" name="chevron-right" size="md" />
+
+                <Field :label="t('settings.expertOpinion.peer')" :hint="t('settings.expertOpinion.peerHint')">
+                  <Select
+                    v-model="expertOpinionPeerModelId"
+                    data-testid="expert-opinion-peer"
+                    :disabled="!expertOpinionEnabled || expertTalk.busy.value"
+                  >
+                    <option
+                      v-if="expertOpinionPeerModelId && !expertOpinionModelAvailable(expertOpinionPeerModelId)"
+                      :value="expertOpinionPeerModelId"
+                      disabled
+                    >
+                      {{ t('settings.expertOpinion.missingModel', { id: expertOpinionPeerModelId }) }}
+                    </option>
+                    <optgroup v-for="group in expertOpinionModelGroups" :key="group.provider" :label="group.provider">
+                      <option v-for="model in group.options" :key="model.id" :value="model.id">
+                        {{ model.label }}
+                      </option>
+                    </optgroup>
+                  </Select>
+                </Field>
+              </div>
+
+              <Banner v-if="expertOpinionLeadModelId === expertOpinionPeerModelId" variant="warning">
+                {{ t('settings.expertOpinion.distinctRequired') }}
+              </Banner>
+              <Banner v-else-if="expertOpinionStatus?.pairValidation.reason" variant="warning">
+                {{ expertOpinionStatus.pairValidation.reason }}
+              </Banner>
+              <Banner>{{ t('expertTalk.disclosure') }}</Banner>
+
+              <div class="actions expert-opinion-actions">
+                <Button
+                  data-testid="expert-opinion-save"
+                  variant="primary"
+                  size="sm"
+                  :disabled="!expertOpinionEnabled || !expertOpinionPairValid || expertTalk.busy.value"
+                  @click="saveExpertOpinionPair"
+                >
+                  {{ t('settings.expertOpinion.savePair') }}
+                </Button>
+                <span v-if="expertOpinionPairSaved" class="hint">{{ t('settings.expertOpinion.saved') }}</span>
+              </div>
+            </template>
           </section>
         </section>
 
@@ -1626,6 +1811,16 @@ function archiveTime(iso: string): string {
 
 .actions { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-2); }
 
+.expert-opinion-flow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-3);
+  margin: var(--space-4) 0;
+}
+.expert-opinion-arrow { color: var(--color-text-faint); }
+.expert-opinion-actions { align-items: center; }
+
 @media (max-width: 640px) {
   .sd { flex-direction: column; }
   .settings-tabs {
@@ -1648,6 +1843,8 @@ function archiveTime(iso: string): string {
     align-items: flex-start;
     flex-direction: column;
   }
+  .expert-opinion-flow { grid-template-columns: 1fr; }
+  .expert-opinion-arrow { display: none; }
   .desktop-update-summary-copy { width: 100%; }
   .desktop-update-select { max-width: none; }
 }

@@ -243,6 +243,7 @@ export interface PromptSubmission {
   dynamicWorkflowMode?: boolean;
   goalObjective?: string;
   goalControl?: 'pause' | 'resume' | 'cancel';
+  expertTalkArmId?: string;
 }
 
 export interface PromptSubmitResult {
@@ -251,6 +252,98 @@ export interface PromptSubmitResult {
   /** 'running' when the prompt started a turn immediately; 'queued' when
       another prompt is active and the daemon parked it (steerable). */
   status?: 'running' | 'queued';
+  expertTalkRunId?: string;
+}
+
+export type AppExpertTalkRole = 'fusion_lead' | 'peer';
+export type AppExpertTalkStage = 'preparing' | 'opening' | 'review' | 'fusion' | 'terminal';
+
+export interface AppExpertTalkArtifact {
+  role: AppExpertTalkRole;
+  stage: 'opening' | 'review' | 'fusion';
+  state: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled' | 'unavailable';
+  text?: string;
+  thinking?: string;
+  tools?: { id: string; name?: string }[];
+  partial: boolean;
+  startedAt?: string;
+  endedAt?: string;
+  usage?: {
+    inputOther: number;
+    output: number;
+    inputCacheRead: number;
+    inputCacheCreation: number;
+  };
+  requestCount?: number;
+  providerAttemptCount?: number;
+  toolCallCount?: number;
+  toolResultTokens?: number;
+  error?: string;
+  errorReason?: string;
+}
+
+export interface AppExpertTalkRun {
+  runId: string;
+  sessionId: string;
+  turnId: number;
+  promptId: string;
+  retryOf?: string;
+  state: 'preparing' | 'running' | 'waiting' | 'completed' | 'cancelled' | 'failed' | 'interrupted';
+  stage: AppExpertTalkStage;
+  createdAt: string;
+  startedAt?: string;
+  endedAt?: string;
+  updatedAt: string;
+  bindings: {
+    fusionLead: { requestedModelId: string; effectiveModelId: string };
+    peer: { requestedModelId: string; effectiveModelId: string };
+  };
+  opening: { lead: AppExpertTalkArtifact; peer: AppExpertTalkArtifact };
+  review: { lead: AppExpertTalkArtifact };
+  fusion?: AppExpertTalkArtifact;
+  result?: {
+    answer: string;
+    notes: {
+      consensus: string[];
+      divergence: string[];
+      uncertainty: string[];
+    };
+  };
+  usage: {
+    complete: boolean;
+    requestCount: number;
+    providerAttemptCount: number;
+  };
+  error?: {
+    reason: string;
+    message: string;
+    stage: AppExpertTalkStage;
+    role?: AppExpertTalkRole;
+    retryable: boolean;
+    action: string;
+  };
+  progressRevision?: number;
+  revision: number;
+}
+
+export interface AppExpertTalkStatus {
+  feature: 'enabled' | 'disabled';
+  resourceVersion: string;
+  config: {
+    fusionLeadModelId: string;
+    peerModelId: string;
+  } | null;
+  activation: {
+    state: 'idle' | 'armed';
+    armId?: string;
+    armedAt?: string;
+  };
+  activeRunId?: string;
+  latestRunId?: string;
+  pairValidation: {
+    state: 'valid' | 'stale' | 'ineligible' | 'collapsed' | 'unknown';
+    reason?: string;
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -492,6 +585,7 @@ export type AppEvent =
       lastTurnReason?: 'completed' | 'cancelled' | 'failed';
     }
   | { type: 'sessionMetaUpdated'; sessionId: string; title?: string; lastPrompt?: string }
+  | { type: 'expertTalkChanged'; sessionId: string; status: AppExpertTalkStatus }
   | { type: 'sessionUsageUpdated'; sessionId: string; usage: AppSessionUsage; model?: string; dynamicWorkflowMode?: boolean; planMode?: boolean; thinking?: string }
   | { type: 'historyCompacted'; sessionId: string; beforeSeq: number; reason: string; summaryMessageId?: string }
   | { type: 'compactionStarted'; sessionId: string; trigger: 'manual' | 'auto'; instruction?: string }
@@ -1037,6 +1131,18 @@ export interface PythinkerWebApi {
   getSession(sessionId: string): Promise<AppSession>;
   updateSession(sessionId: string, input: { title?: string; cwd?: string; model?: string; permissionMode?: string; planMode?: boolean; dynamicWorkflowMode?: boolean; goalObjective?: string; goalControl?: 'pause' | 'resume' | 'cancel'; thinking?: string; tools?: string[]; mcpServers?: string[] }): Promise<AppSession>;
   getSessionStatus(sessionId: string): Promise<AppSessionRuntimeStatus>;
+  getExpertTalkStatus(sessionId: string): Promise<AppExpertTalkStatus>;
+  configureExpertTalk(sessionId: string, input: { fusionLeadModelId: string; peerModelId: string }, expectedVersion?: string): Promise<AppExpertTalkStatus>;
+  clearExpertTalk(sessionId: string, expectedVersion?: string): Promise<AppExpertTalkStatus>;
+  armExpertTalk(sessionId: string, expectedVersion?: string): Promise<AppExpertTalkStatus>;
+  disarmExpertTalk(sessionId: string, armId?: string): Promise<AppExpertTalkStatus>;
+  listExpertTalkRuns(sessionId: string): Promise<AppExpertTalkRun[]>;
+  getExpertTalkRun(sessionId: string, runId: string): Promise<AppExpertTalkRun>;
+  cancelExpertTalkRun(sessionId: string, runId: string): Promise<AppExpertTalkRun>;
+  reviewExpertTalkRun(sessionId: string, runId: string): Promise<AppExpertTalkRun>;
+  finishExpertTalkRun(sessionId: string, runId: string): Promise<AppExpertTalkRun>;
+  fuseExpertTalkRun(sessionId: string, runId: string): Promise<AppExpertTalkRun>;
+  retryExpertTalkRun(sessionId: string, runId: string): Promise<AppExpertTalkRun>;
   /** Current goal snapshot, or null when the session has no active goal. */
   getSessionGoal(sessionId: string): Promise<AppGoal | null>;
   getSessionWarnings(sessionId: string): Promise<AppSessionWarning[]>;

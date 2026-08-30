@@ -24,6 +24,27 @@ export interface AgentRuntimeBinding {
 export type { CapabilityStatus } from '@pymodel/agent-core-v2/app/capability/types';
 
 export type {
+  ExpertTalkArmV1,
+  ExpertTalkBindingV1,
+  ExpertTalkConfigV1,
+  ExpertTalkFailureReason,
+  ExpertTalkPairV1,
+  ExpertTalkPairValidationV1,
+  ExpertTalkResultV1,
+  ExpertTalkRole,
+  ExpertTalkRunArtifactsV1,
+  ExpertTalkRunErrorV1,
+  ExpertTalkRunStatus,
+  ExpertTalkRunProgressV1,
+  ExpertTalkRunV1,
+  ExpertTalkStageArtifactV1,
+  ExpertTalkStageProgressV1,
+  ExpertTalkToolProgressV1,
+  ExpertTalkStartResult,
+  ExpertTalkStatusV1,
+} from '@pymodel/agent-core-v2/session/expertTalk/expertTalk';
+
+export type {
   AgentReplayRecord,
   AgentBackgroundTaskInfo,
   AppMcpServerAuthState,

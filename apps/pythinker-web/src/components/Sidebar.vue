@@ -66,6 +66,7 @@ const props = withDefaults(
     dragging?: boolean;
     /** Enables the experimental Open / Done / Workspaces tab strip. */
     tabsEnabled?: boolean;
+    expertOpinionAvailable?: boolean;
   }>(),
   {
     activeWorkspace: null,
@@ -81,12 +82,14 @@ const props = withDefaults(
     collapsed: false,
     dragging: false,
     tabsEnabled: false,
+    expertOpinionAvailable: false,
   },
 );
 
 const emit = defineEmits<{
   select: [sessionId: string];
   create: [];
+  createExpertOpinion: [];
   createInWorkspace: [workspaceId: string];
   selectWorkspace: [workspaceId: string];
   addWorkspace: [];
@@ -915,6 +918,17 @@ watch([() => props.collapsed, update.hasUpdate], ([collapsed, hasUpdate]) => {
           <Icon name="folder" />
         </IconButton>
       </div>
+      <div v-if="expertOpinionAvailable" class="btn-wrap expert-opinion-wrap">
+        <button
+          class="btn-new-chat btn-expert-opinion"
+          type="button"
+          data-testid="new-expert-opinion"
+          @click.stop="emit('createExpertOpinion')"
+        >
+          <Icon name="expert-opinion" />
+          <span>{{ t('sidebar.newExpertOpinion') }}</span>
+        </button>
+      </div>
 
       <!-- Session search — opens the Spotlight-style search dialog. Last fixed
            row above the list, so it carries the scroll-linked seam. -->
@@ -1683,6 +1697,10 @@ watch([() => props.collapsed, update.hasUpdate], ([collapsed, hasUpdate]) => {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.btn-expert-opinion {
+  width: 100%;
+}
+
 .status-tabs {
   display: flex;
   align-items: center;

@@ -23,8 +23,21 @@ Use `/web` in the terminal UI to open the current session in the browser.
 - Stream assistant output and tool activity
 - Review approvals and file changes
 - Browse workspace files and open them from **Explorer** in the sidebar
+- Compare two models with **New Discussion**, optional Architect review, and fresh Fusion
 - Use supported slash commands, including `/goal` and `/compact`
 - View the same session data as the terminal UI
+
+## Compare models with Discussion
+
+Discussion is experimental and requires the v2 engine. Start the web UI with the feature enabled:
+
+```sh
+PYTHINKER_CODE_EXPERIMENTAL_EXPERT_TALK=1 pythinker web
+```
+
+Select **New Discussion**, choose different Architect and Builder models, then select **Use for next message**. The models give independent, read-only opinions for that message. You can then ask the Architect to review the Builder, finish with the Architect answer, or create Fusion with a fresh Architect model.
+
+The selected pair remains available in the session, but each activation applies to one accepted message. **Take** and **Build from Fusion** remain explicit actions.
 
 ## Server options
 

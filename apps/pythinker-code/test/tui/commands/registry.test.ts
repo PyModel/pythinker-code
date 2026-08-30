@@ -86,6 +86,18 @@ describe('built-in slash command registry', () => {
     expect(towerArgumentCompletions('')).toHaveLength(4);
   });
 
+  it('registers Discussion as an engine-v2 experiment with the old command as an alias', () => {
+    const command = findBuiltInSlashCommand('discussion');
+    expect(command).toBeDefined();
+    expect(command?.aliases).toContain('expert-opinion');
+    expect((command as PythinkerSlashCommand).experimentalFlag).toBe('expert_talk');
+    expect((command as PythinkerSlashCommand).requiresEngineV2).toBe(true);
+    expect(resolveSlashCommandAvailability(command!, 'cancel')).toBe('always');
+    expect((command as PythinkerSlashCommand).completeArgs?.('')).toHaveLength(12);
+    expect((command as PythinkerSlashCommand).completeArgs?.('rev')?.[0]?.value).toBe('review');
+    expect((command as PythinkerSlashCommand).completeArgs?.('fin')?.[0]?.value).toBe('finish');
+  });
+
   it('offers add-dir list and directory argument completions', () => {
     const values = (prefix: string): string[] | null => {
       const items = addDirArgumentCompletions(prefix);

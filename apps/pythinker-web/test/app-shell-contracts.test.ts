@@ -4,12 +4,17 @@ import { describe, expect, it } from 'vitest';
 
 const app = readFileSync(join(import.meta.dirname, '../src/App.vue'), 'utf8');
 const appStyles = readFileSync(join(import.meta.dirname, '../src/style.css'), 'utf8');
+const icons = readFileSync(join(import.meta.dirname, '../src/lib/icons.ts'), 'utf8');
 const composer = readFileSync(join(import.meta.dirname, '../src/components/chat/Composer.vue'), 'utf8');
 const chatDock = readFileSync(join(import.meta.dirname, '../src/components/chat/ChatDock.vue'), 'utf8');
 const conversationPane = readFileSync(join(import.meta.dirname, '../src/components/chat/ConversationPane.vue'), 'utf8');
 const mobileSheet = readFileSync(join(import.meta.dirname, '../src/components/mobile/MobileSettingsSheet.vue'), 'utf8');
 const sidebar = readFileSync(join(import.meta.dirname, '../src/components/Sidebar.vue'), 'utf8');
 const workspaceGroup = readFileSync(join(import.meta.dirname, '../src/components/WorkspaceGroup.vue'), 'utf8');
+const expertOpinionIcon = readFileSync(
+  join(import.meta.dirname, '../src/icons/pythinker/expert_opinion.svg'),
+  'utf8',
+);
 const sidebarBannerDark = readFileSync(join(import.meta.dirname, '../public/brand/pythinker_banner_dark.svg'), 'utf8');
 const sessionRow = readFileSync(join(import.meta.dirname, '../src/components/SessionRow.vue'), 'utf8');
 const sideChat = readFileSync(join(import.meta.dirname, '../src/components/chat/SideChatPanel.vue'), 'utf8');
@@ -30,6 +35,57 @@ describe('app shell contracts', () => {
     expect(composer).toContain("import CapabilityMenu from '../CapabilityMenu.vue';");
     expect(composer).toContain('<CapabilityMenu ref="capMenuRef" :session-id="sessionId" triggerless />');
     expect(composer).toContain("id: 'capabilities'");
+  });
+
+  it('offers Expert Opinion from the composer and right-side launchers', () => {
+    expect(composer).toContain("id: 'expertOpinion'");
+    expect(composer).toContain('action: openExpertOpinion');
+    expect(composer).toContain('@build="loadForEdit"');
+    expect(app).toContain("import ExpertTalkControl from './components/chat/ExpertTalkControl.vue';");
+    expect(app).toContain('trigger="launcher"');
+    expect(app).toContain('@build="handleExpertTalkBuild"');
+    expect(app).toContain('loadComposerForEdit(prompt)');
+    expect(app).toContain('.panel-launcher :deep(.expert-talk__launcher) { grid-column: 1 / -1; }');
+  });
+
+  it('offers Expert Opinion as a dedicated new-session mode', () => {
+    expect(sidebar).toContain('createExpertOpinion: [];');
+    expect(sidebar).toContain("emit('createExpertOpinion')");
+    expect(sidebar).toContain('class="btn-wrap expert-opinion-wrap"');
+    expect(sidebar).toContain('<Icon name="expert-opinion" />');
+    expect(sidebar).not.toMatch(/\.btn-expert-opinion\s*\{[^}]*color:/s);
+    expect(icons).toContain("| 'expert-opinion'");
+    expect(icons).toContain("'expert-opinion': animatedEntry(RawPythinkerExpertOpinion)");
+    expect(expertOpinionIcon).toContain('class="ptx ptx-expert-opinion"');
+    expect(expertOpinionIcon).toContain('class="sparkle"');
+    expect(app).toContain('@create-expert-opinion="handleCreateExpertOpinionSession"');
+  });
+
+  it('opens Explorer from workspace hover actions', () => {
+    expect(sidebar).toContain("import WorkspaceExplorer from './WorkspaceExplorer.vue';");
+    expect(sidebar).toContain('<WorkspaceExplorer');
+    expect(sidebar).toContain('@toggle-explorer="toggleExplorer"');
+    expect(workspaceGroup).toContain('class="gh-explorer"');
+    expect(workspaceGroup).toContain("toggleExplorer: [workspaceId: string];");
+    expect(workspaceGroup).toMatch(/class="gh-explorer"[\s\S]*?<Icon name="folder-solid" \/>[\s\S]*?class="gh-add"/);
+    expect(sidebar).toContain("@open-file=\"emit('openFile', $event)\"");
+    expect(app).toContain('@open-file="openFilePreview($event)"');
+  });
+
+  it('routes the shared Stop action to the active Expert Opinion run', () => {
+    expect(client).toContain('async function abortCurrentPrompt(): Promise<void>');
+    expect(client).toContain('expertTalk.status.value?.activeRunId !== undefined');
+    expect(client).toContain('await expertTalk.cancel();');
+    expect(client).toContain('await workspaceState.abortCurrentPrompt();');
+    expect(client).toContain('abortCurrentPrompt,');
+    expect(client).not.toContain('abortCurrentPrompt: workspaceState.abortCurrentPrompt');
+  });
+
+  it('uses a neutral gray sidebar in light mode', () => {
+    expect(appStyles).toContain('--color-sidebar-bg: #f3f3f1;');
+    expect(appStyles).toContain('--color-sidebar-glass: rgba(243, 243, 241, .92);');
+    expect(appStyles).toContain('--color-sidebar-wash: none;');
+    expect(appStyles).toContain('--color-sidebar-bg: #2c343a;');
   });
 
   it('offers Dynamic Workflow from the same surfaces as Goal and Plan', () => {

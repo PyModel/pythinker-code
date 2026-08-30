@@ -1,0 +1,95 @@
+<svg
+  class="ptx ptx-expert-opinion"
+  xmlns="http://www.w3.org/2000/svg"
+  width="24"
+  height="24"
+  viewBox="0 0 24 24"
+  fill="none"
+  role="img"
+  aria-label="Discussion session"
+>
+  <style>
+    .ptx-expert-opinion {
+      overflow: visible;
+      cursor: pointer;
+    }
+
+    .ptx-expert-opinion .bubble,
+    .ptx-expert-opinion .person,
+    .ptx-expert-opinion .sparkle {
+      transform-box: fill-box;
+      transform-origin: center;
+      transition:
+        transform 180ms ease,
+        opacity 180ms ease,
+        filter 180ms ease;
+    }
+
+    .ptx-expert-opinion .sparkle {
+      transform-origin: 16.75px 8.55px;
+    }
+
+    :is(.ptx-expert-opinion:hover, :is(button, a, [role="button"], .ptx-hover):hover .ptx-expert-opinion) .bubble {
+      transform: translateY(-0.6px);
+      filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.1));
+    }
+
+    :is(.ptx-expert-opinion:hover, :is(button, a, [role="button"], .ptx-hover):hover .ptx-expert-opinion) .person {
+      transform: translateY(-0.4px) scale(1.03);
+    }
+
+    :is(.ptx-expert-opinion:hover, :is(button, a, [role="button"], .ptx-hover):hover .ptx-expert-opinion) .sparkle {
+      transform: rotate(14deg) scale(1.14);
+    }
+
+    :is(.ptx-expert-opinion:active, :is(button, a, [role="button"], .ptx-hover):active .ptx-expert-opinion) .bubble,
+    :is(.ptx-expert-opinion:active, :is(button, a, [role="button"], .ptx-hover):active .ptx-expert-opinion) .person,
+    :is(.ptx-expert-opinion:active, :is(button, a, [role="button"], .ptx-hover):active .ptx-expert-opinion) .sparkle {
+      transform: scale(0.98);
+      filter: none;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .ptx-expert-opinion .bubble,
+      .ptx-expert-opinion .person,
+      .ptx-expert-opinion .sparkle {
+        transition: none;
+      }
+    }
+  </style>
+
+  <g class="bubble">
+    <path
+      d="M5.25 4.5h13.5A2.75 2.75 0 0 1 21.5 7.25v8a2.75 2.75 0 0 1-2.75 2.75H10l-4.75 2.75V18A2.75 2.75 0 0 1 2.5 15.25v-8A2.75 2.75 0 0 1 5.25 4.5Z"
+      stroke="currentColor"
+      stroke-width="1.7"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    />
+  </g>
+
+  <g class="person">
+    <circle
+      cx="10.2"
+      cy="9.15"
+      r="2.05"
+      stroke="currentColor"
+      stroke-width="1.7"
+    />
+    <path
+      d="M6.85 15c.55-1.9 1.9-3.05 3.35-3.05 1.44 0 2.8 1.15 3.35 3.05"
+      stroke="currentColor"
+      stroke-width="1.7"
+      stroke-linecap="round"
+    />
+  </g>
+
+  <g class="sparkle">
+    <path
+      d="M16.75 7.1c.18.72.73 1.27 1.45 1.45-.72.18-1.27.73-1.45 1.45-.18-.72-.73-1.27-1.45-1.45.72-.18 1.27-.73 1.45-1.45Z"
+      stroke="currentColor"
+      stroke-width="1.45"
+      stroke-linejoin="round"
+    />
+  </g>
+</svg>

@@ -160,6 +160,7 @@ import {
   ensurePythinkerHome,
   ensureMainAgent,
   agentContextOf,
+  applyPromptMetadataUpdate,
   IAgentActivityView,
   AgentReminder,
   IAgentContextMemoryService,
@@ -217,6 +218,7 @@ import {
   logSeed,
   MAIN_AGENT_ID,
   prepareSystemPromptContext,
+  promptMetadataTextFromContentParts,
   PRINT_MAX_TURNS_DEFAULT,
   PRINT_WAIT_CEILING_S_DEFAULT,
   ProfileError,
@@ -276,6 +278,12 @@ import type {
   ConfigDiagnostics,
   CreateGoalInput,
   CreateSessionOptions,
+  ExpertTalkArmV1,
+  ExpertTalkConfigV1,
+  ExpertTalkPairV1,
+  ExpertTalkRunV1,
+  ExpertTalkStartResult,
+  ExpertTalkStatusV1,
   ExportSessionInput,
   ExportSessionResult,
   FileMeta,
@@ -796,6 +804,81 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
 
   async installCapability(id: string): Promise<CapabilityStatus> {
     return this.klient.global.capabilities.install(id);
+  }
+
+  async getExpertTalkStatus(input: SessionIdRpcInput): Promise<ExpertTalkStatusV1> {
+    this.requireLiveSession(input.sessionId);
+    return this.klient.session(input.sessionId).expertTalk.get();
+  }
+
+  async configureExpertTalk(input: {
+    readonly sessionId: string;
+    readonly pair: ExpertTalkPairV1;
+    readonly expectedVersion?: string;
+  }): Promise<ExpertTalkConfigV1> {
+    this.requireLiveSession(input.sessionId);
+    return this.klient
+      .session(input.sessionId)
+      .expertTalk.configure(input.pair, input.expectedVersion);
+  }
+
+  async clearExpertTalk(input: {
+    readonly sessionId: string;
+    readonly expectedVersion?: string;
+  }): Promise<ExpertTalkConfigV1> {
+    this.requireLiveSession(input.sessionId);
+    return this.klient.session(input.sessionId).expertTalk.clear(input.expectedVersion);
+  }
+
+  async armExpertTalk(input: {
+    readonly sessionId: string;
+    readonly expectedVersion?: string;
+  }): Promise<ExpertTalkArmV1> {
+    this.requireLiveSession(input.sessionId);
+    return this.klient.session(input.sessionId).expertTalk.arm(input.expectedVersion);
+  }
+
+  async disarmExpertTalk(input: {
+    readonly sessionId: string;
+    readonly armId?: string;
+  }): Promise<void> {
+    this.requireLiveSession(input.sessionId);
+    await this.klient.session(input.sessionId).expertTalk.disarm(input.armId);
+  }
+
+  async listExpertTalkRuns(input: SessionIdRpcInput): Promise<readonly ExpertTalkRunV1[]> {
+    this.requireLiveSession(input.sessionId);
+    return this.klient.session(input.sessionId).expertTalk.listRuns();
+  }
+
+  async getExpertTalkRun(input: SessionIdRpcInput & { readonly runId: string }): Promise<ExpertTalkRunV1> {
+    this.requireLiveSession(input.sessionId);
+    return this.klient.session(input.sessionId).expertTalk.getRun(input.runId);
+  }
+
+  async cancelExpertTalkRun(input: SessionIdRpcInput & { readonly runId: string }): Promise<ExpertTalkRunV1> {
+    this.requireLiveSession(input.sessionId);
+    return this.klient.session(input.sessionId).expertTalk.cancel(input.runId);
+  }
+
+  async reviewExpertTalkRun(input: SessionIdRpcInput & { readonly runId: string }): Promise<ExpertTalkRunV1> {
+    this.requireLiveSession(input.sessionId);
+    return this.klient.session(input.sessionId).expertTalk.review(input.runId);
+  }
+
+  async finishExpertTalkRun(input: SessionIdRpcInput & { readonly runId: string }): Promise<ExpertTalkRunV1> {
+    this.requireLiveSession(input.sessionId);
+    return this.klient.session(input.sessionId).expertTalk.finish(input.runId);
+  }
+
+  async fuseExpertTalkRun(input: SessionIdRpcInput & { readonly runId: string }): Promise<ExpertTalkRunV1> {
+    this.requireLiveSession(input.sessionId);
+    return this.klient.session(input.sessionId).expertTalk.fuse(input.runId);
+  }
+
+  async retryExpertTalkRun(input: SessionIdRpcInput & { readonly runId: string }): Promise<ExpertTalkStartResult> {
+    this.requireLiveSession(input.sessionId);
+    return this.klient.session(input.sessionId).expertTalk.retry(input.runId);
   }
 
   /**
@@ -1873,6 +1956,26 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
    * where v2 queues it FIFO.
    */
   override async prompt(input: SessionPromptRpcInput): Promise<void> {
+    if (input.expertTalkArmId !== undefined) {
+      const session = this.requireLiveSession(input.sessionId);
+      const content = input.input;
+      await applyPromptMetadataUpdate(
+        {
+          metadata: session.accessor.get(ISessionMetadata),
+          eventService: this.engineAccessor.get(IEventService),
+          sessionId: input.sessionId,
+        },
+        promptMetadataTextFromContentParts(content),
+      );
+      await this.klient.session(input.sessionId).expertTalk.start({
+        armId: input.expertTalkArmId,
+        prompt: expertTalkPromptText(content),
+        promptId: input.promptId,
+        modalities: expertTalkModalities(content),
+        content,
+      });
+      return;
+    }
     const agent = await this.agentFacade(input.sessionId);
     await agent.prompt({
       input: input.input,
@@ -2645,6 +2748,26 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
     }
     return entry as McpServerInfo;
   }
+}
+
+function expertTalkPromptText(parts: SessionPromptRpcInput['input']): string {
+  const text = parts
+    .filter((part): part is Extract<(typeof parts)[number], { type: 'text' }> => part.type === 'text')
+    .map((part) => part.text)
+    .join('\n')
+    .trim();
+  return text.length > 0 ? text : 'Analyze the attached media.';
+}
+
+function expertTalkModalities(
+  parts: SessionPromptRpcInput['input'],
+): readonly ('image' | 'audio' | 'video')[] {
+  const values = parts.flatMap((part) => {
+    if (part.type === 'image_url') return ['image' as const];
+    if (part.type === 'video_url') return ['video' as const];
+    return [];
+  });
+  return [...new Set(values)];
 }
 
 export function createPythinkerHarnessV2(options: PythinkerHarnessOptions): PythinkerHarness {

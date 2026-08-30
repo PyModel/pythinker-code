@@ -85,6 +85,7 @@ import { ToolInputDisplaySchema } from './display';
 import { configResponseSchema } from './rest-config';
 import { sessionPendingInteractionSchema, sessionSchema } from './session';
 import { workspaceSchema } from './workspace';
+import { expertTalkStatusSchema } from './rest-expert-talk';
 
 export const tokenUsageSchema = z.object({
   inputOther: z.number(),
@@ -675,6 +676,11 @@ export const capabilityChangedEventSchema = z.object({
   }),
 });
 
+export const expertTalkChangedEventSchema = z.object({
+  type: z.literal('expert_talk.changed'),
+  status: expertTalkStatusSchema,
+});
+
 export const diUnitChangedEventSchema = z.object({
   type: z.literal('event.di.unit_changed'),
   scope: z.string().min(1),
@@ -1087,6 +1093,7 @@ export const agentEventSchema = z.discriminatedUnion('type', [
   diUnitChangedEventSchema,
   pluginChangedEventSchema,
   capabilityChangedEventSchema,
+  expertTalkChangedEventSchema,
   goalUpdatedEventSchema,
   skillActivatedEventSchema,
   pluginCommandActivatedEventSchema,

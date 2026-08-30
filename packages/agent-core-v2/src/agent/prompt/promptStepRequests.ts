@@ -48,8 +48,9 @@ export class PromptStepRequest extends UserMessageStepRequest {
     message: ContextMessage,
     captions: readonly string[],
     reminders: ReminderRuntime,
+    maxOutputSize?: number,
   ) {
-    super(message, captions, reminders, { admission: 'newTurn' });
+    super(message, captions, reminders, { admission: 'newTurn', maxOutputSize });
   }
 
   override get turnSeed(): TurnSeed {

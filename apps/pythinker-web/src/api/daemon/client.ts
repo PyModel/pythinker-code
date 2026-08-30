@@ -9,6 +9,8 @@ import { traceKeyEvent } from '../../debug/trace';
 import type {
   AppSubagentModelPolicy,
   AppSubagentModelPolicyState,
+  AppExpertTalkRun,
+  AppExpertTalkStatus,
   AppServerMeta,
   AppConfig,
   AppGoal,
@@ -58,6 +60,8 @@ import { createAgentProjector } from './agentEventProjector';
 import { DaemonHttpClient } from './http';
 import {
   toAppSubagentModelPolicyState,
+  toAppExpertTalkRun,
+  toAppExpertTalkStatus,
   toWireSubagentModelPolicy,
   toAppExperimentalFlagStates,
   toAppApprovalRequest,
@@ -82,6 +86,8 @@ import {
 import type {
   WireSubagentModelPolicy,
   WireSubagentModelPolicyResponse,
+  WireExpertTalkRun,
+  WireExpertTalkStatus,
   WireExperimentalFlagState,
   WireAuthResult,
   WireTask,
@@ -680,6 +686,117 @@ export class DaemonPythinkerWebApi implements PythinkerWebApi {
     };
   }
 
+  async getExpertTalkStatus(sessionId: string): Promise<AppExpertTalkStatus> {
+    return toAppExpertTalkStatus(await this.http.get<WireExpertTalkStatus>(
+      `/sessions/${encodeURIComponent(sessionId)}/expert-talk`,
+    ));
+  }
+
+  async configureExpertTalk(
+    sessionId: string,
+    input: { fusionLeadModelId: string; peerModelId: string },
+    expectedVersion?: string,
+  ): Promise<AppExpertTalkStatus> {
+    const result = await this.http.exchange<WireExpertTalkStatus>(
+      'PUT',
+      `/sessions/${encodeURIComponent(sessionId)}/expert-talk`,
+      {
+        body: {
+          fusion_lead_model_id: input.fusionLeadModelId,
+          peer_model_id: input.peerModelId,
+        },
+        headers: expectedVersion === undefined
+          ? undefined
+          : { 'If-Match': `"${expectedVersion}"` },
+      },
+    );
+    return toAppExpertTalkStatus(result.data);
+  }
+
+  async clearExpertTalk(
+    sessionId: string,
+    expectedVersion?: string,
+  ): Promise<AppExpertTalkStatus> {
+    const result = await this.http.exchange<WireExpertTalkStatus>(
+      'DELETE',
+      `/sessions/${encodeURIComponent(sessionId)}/expert-talk`,
+      {
+        headers: expectedVersion === undefined
+          ? undefined
+          : { 'If-Match': `"${expectedVersion}"` },
+      },
+    );
+    return toAppExpertTalkStatus(result.data);
+  }
+
+  async armExpertTalk(
+    sessionId: string,
+    expectedVersion?: string,
+  ): Promise<AppExpertTalkStatus> {
+    const result = await this.http.exchange<WireExpertTalkStatus>(
+      'POST',
+      `/sessions/${encodeURIComponent(sessionId)}/expert-talk:arm`,
+      {
+        headers: expectedVersion === undefined
+          ? undefined
+          : { 'If-Match': `"${expectedVersion}"` },
+      },
+    );
+    return toAppExpertTalkStatus(result.data);
+  }
+
+  async disarmExpertTalk(sessionId: string, armId?: string): Promise<AppExpertTalkStatus> {
+    return toAppExpertTalkStatus(await this.http.post<WireExpertTalkStatus>(
+      `/sessions/${encodeURIComponent(sessionId)}/expert-talk:disarm`,
+      { arm_id: armId },
+    ));
+  }
+
+  async listExpertTalkRuns(sessionId: string): Promise<AppExpertTalkRun[]> {
+    const data = await this.http.get<{ runs: WireExpertTalkRun[] }>(
+      `/sessions/${encodeURIComponent(sessionId)}/expert-talk/runs`,
+    );
+    return data.runs.map(toAppExpertTalkRun);
+  }
+
+  async getExpertTalkRun(sessionId: string, runId: string): Promise<AppExpertTalkRun> {
+    return toAppExpertTalkRun(await this.http.get<WireExpertTalkRun>(
+      `/sessions/${encodeURIComponent(sessionId)}/expert-talk/runs/${encodeURIComponent(runId)}`,
+    ));
+  }
+
+  async cancelExpertTalkRun(sessionId: string, runId: string): Promise<AppExpertTalkRun> {
+    return toAppExpertTalkRun(await this.http.post<WireExpertTalkRun>(
+      `/sessions/${encodeURIComponent(sessionId)}/expert-talk/runs/${encodeURIComponent(runId)}/cancel`,
+      {},
+    ));
+  }
+
+  async reviewExpertTalkRun(sessionId: string, runId: string): Promise<AppExpertTalkRun> {
+    return toAppExpertTalkRun(await this.http.post<WireExpertTalkRun>(
+      `/sessions/${encodeURIComponent(sessionId)}/expert-talk/runs/${encodeURIComponent(runId)}/review`,
+    ));
+  }
+
+  async finishExpertTalkRun(sessionId: string, runId: string): Promise<AppExpertTalkRun> {
+    return toAppExpertTalkRun(await this.http.post<WireExpertTalkRun>(
+      `/sessions/${encodeURIComponent(sessionId)}/expert-talk/runs/${encodeURIComponent(runId)}/finish`,
+    ));
+  }
+
+  async fuseExpertTalkRun(sessionId: string, runId: string): Promise<AppExpertTalkRun> {
+    return toAppExpertTalkRun(await this.http.post<WireExpertTalkRun>(
+      `/sessions/${encodeURIComponent(sessionId)}/expert-talk/runs/${encodeURIComponent(runId)}/fusion`,
+    ));
+  }
+
+  async retryExpertTalkRun(sessionId: string, runId: string): Promise<AppExpertTalkRun> {
+    return toAppExpertTalkRun(await this.http.post<WireExpertTalkRun>(
+      `/sessions/${encodeURIComponent(sessionId)}/expert-talk/runs/${encodeURIComponent(runId)}/retry`,
+      {},
+    ));
+  }
+
   /**
    * GET /sessions/{id}/goal — the session's current goal, or null when no goal
    * is active.
@@ -879,6 +996,7 @@ export class DaemonPythinkerWebApi implements PythinkerWebApi {
         promptId: data.prompt_id,
         userMessageId: data.user_message_id,
         status: data.status,
+        expertTalkRunId: data.expert_talk_run_id,
       };
     } catch (error) {
       traceKeyEvent('prompt:failed', {
@@ -1878,6 +1996,16 @@ export class DaemonPythinkerWebApi implements PythinkerWebApi {
       // -----------------------------------------------------------------------
       onRawAgentEvent: (frame) => {
         const { type, seq, session_id: sessionId, payload, offset } = frame;
+        if (type === 'expert_talk.changed') {
+          const status = (payload as { status?: WireExpertTalkStatus } | null)?.status;
+          if (status !== undefined) {
+            handlers.onEvent(
+              { type: 'expertTalkChanged', sessionId, status: toAppExpertTalkStatus(status) },
+              { sessionId, seq },
+            );
+          }
+          return;
+        }
         const appEvents = projector.project(type, payload, sessionId, { offset });
         for (const appEvent of appEvents) {
           const turnId = (payload as { turnId?: unknown } | null)?.turnId;

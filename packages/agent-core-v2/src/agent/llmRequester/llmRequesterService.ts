@@ -47,7 +47,10 @@ import { THINKING_SECTION, LLM_SECTION, type LlmConfig } from '#/app/kosongConfi
 import type { Protocol } from '#/kosong/protocol/protocol';
 import type { ApiErrorEvent } from '#/app/telemetry/events';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import {
+  IAgentScopeContext,
+  scopedModelRequester,
+} from '#/agent/scopeContext/scopeContext';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 import { WarningIssued } from '#/agent/profile/profileOps';
 
@@ -657,7 +660,11 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
           ? this.tokenCounting.get(this.scopeContext.agentContext).measured
           : undefined,
     });
-    const requester = this.modelCatalog.getRequester(resolved.modelAlias);
+    const requester = scopedModelRequester(
+      this.scopeContext,
+      this.modelCatalog,
+      resolved.modelAlias,
+    );
 
     const messages = overrides.messages ?? this.context.get();
     return {

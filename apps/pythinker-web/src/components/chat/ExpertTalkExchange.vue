@@ -1,0 +1,771 @@
+<script setup lang="ts">
+import { computed, inject, onUnmounted, ref } from 'vue';
+import { useI18n } from 'vue-i18n';
+
+import type { AppExpertTalkArtifact, AppExpertTalkRun, AppModel } from '../../api/types';
+import { expertTalkContextKey } from '../../composables/expertTalkContext';
+import { copyTextToClipboard } from '../../lib/clipboard';
+import { formatTokens } from '../../lib/formatTokens';
+import Badge from '../ui/Badge.vue';
+import Button from '../ui/Button.vue';
+import Icon from '../ui/Icon.vue';
+import StatusDot from '../ui/StatusDot.vue';
+import Markdown from './Markdown.vue';
+
+const props = withDefaults(defineProps<{
+  run: AppExpertTalkRun;
+  models?: AppModel[];
+}>(), {
+  models: () => [],
+});
+const emit = defineEmits<{
+  build: [answer: string];
+}>();
+const { t } = useI18n();
+const expertTalk = inject(expertTalkContextKey, undefined);
+
+type PhaseState = 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
+
+function artifactPhase(artifacts: readonly AppExpertTalkArtifact[]): PhaseState {
+  if (artifacts.some((artifact) => artifact.state === 'running')) return 'running';
+  if (artifacts.some((artifact) => artifact.state === 'failed' || artifact.state === 'cancelled')) {
+    return 'failed';
+  }
+  if (artifacts.length > 0 && artifacts.every((artifact) => artifact.state === 'unavailable')) {
+    return 'skipped';
+  }
+  if (artifacts.every((artifact) =>
+    artifact.state === 'completed' || artifact.state === 'unavailable'
+  )) {
+    return 'completed';
+  }
+  return 'pending';
+}
+
+const phases = computed(() => [
+  {
+    id: 'opening',
+    label: t('expertTalk.opinions'),
+    state: artifactPhase([props.run.opening.lead, props.run.opening.peer]),
+  },
+  {
+    id: 'review',
+    label: t('expertTalk.review'),
+    state: artifactPhase([props.run.review.lead]),
+  },
+  {
+    id: 'fusion',
+    label: t('expertTalk.fusion'),
+    state: props.run.fusion === undefined
+      ? 'pending' as const
+      : artifactPhase([props.run.fusion]),
+  },
+]);
+
+function modelLabel(modelId: string): string {
+  const model = props.models.find((candidate) => candidate.id === modelId);
+  return model?.displayName ?? model?.model ?? modelId;
+}
+
+interface ExchangeStage {
+  key: string;
+  label: string;
+  artifact: AppExpertTalkArtifact;
+}
+
+interface ExchangeColumn {
+  key: 'architect' | 'builder';
+  role: string;
+  model: string;
+  symbol: '◆' | '▲';
+  stages: ExchangeStage[];
+  answer?: string;
+}
+
+function latestAnswer(...artifacts: AppExpertTalkArtifact[]): string | undefined {
+  return artifacts
+    .map((artifact) => artifact.text?.trim())
+    .find((text): text is string => text !== undefined && text.length > 0);
+}
+
+const exchangeColumns = computed<ExchangeColumn[]>(() => [
+  {
+    key: 'architect',
+    role: t('expertTalk.model1'),
+    model: modelLabel(props.run.bindings.fusionLead.effectiveModelId),
+    symbol: '◆',
+    stages: [
+      { key: 'architect-opening', label: t('expertTalk.opening'), artifact: props.run.opening.lead },
+    ],
+    answer: latestAnswer(props.run.opening.lead),
+  },
+  {
+    key: 'builder',
+    role: t('expertTalk.model2'),
+    model: modelLabel(props.run.bindings.peer.effectiveModelId),
+    symbol: '▲',
+    stages: [
+      { key: 'builder-opening', label: t('expertTalk.opening'), artifact: props.run.opening.peer },
+    ],
+    answer: latestAnswer(props.run.opening.peer),
+  },
+]);
+
+const reviewExchange = computed(() => {
+  const artifact = props.run.review.lead;
+  if (artifact.state === 'unavailable') return undefined;
+  if (artifact.state === 'pending' && props.run.stage === 'opening') return undefined;
+  return {
+    model: modelLabel(props.run.bindings.fusionLead.effectiveModelId),
+    artifact,
+    answer: artifact.text?.trim(),
+  };
+});
+
+const fusionExchange = computed(() => {
+  if (props.run.fusion === undefined && props.run.stage !== 'fusion') return undefined;
+  return {
+    model: modelLabel(props.run.bindings.fusionLead.effectiveModelId),
+    artifact: props.run.fusion,
+    state: props.run.fusion?.state ?? 'running' as const,
+    answer: props.run.result?.answer.trim() || props.run.fusion?.text?.trim(),
+  };
+});
+
+const opinionsReady = computed(() => props.run.state === 'waiting' && props.run.stage === 'opening');
+const reviewReady = computed(() => props.run.state === 'waiting' && props.run.stage === 'review');
+
+async function reviewBuilder(): Promise<void> {
+  await expertTalk?.review();
+}
+
+async function finishNow(): Promise<void> {
+  await expertTalk?.finish();
+}
+
+async function fuseNow(): Promise<void> {
+  await expertTalk?.fuse();
+}
+
+type CopyTarget = 'architect' | 'builder' | 'review' | 'fusion';
+const copiedTarget = ref<CopyTarget>();
+let copiedTimer: ReturnType<typeof setTimeout> | undefined;
+
+async function takeAnswer(target: CopyTarget, answer: string): Promise<void> {
+  if (!await copyTextToClipboard(answer)) return;
+  copiedTarget.value = target;
+  if (copiedTimer !== undefined) clearTimeout(copiedTimer);
+  copiedTimer = setTimeout(() => {
+    copiedTarget.value = undefined;
+    copiedTimer = undefined;
+  }, 1500);
+}
+
+onUnmounted(() => {
+  if (copiedTimer !== undefined) clearTimeout(copiedTimer);
+});
+
+interface ArtifactMetric {
+  label: string;
+  value: string;
+}
+
+function elapsedSeconds(artifact: AppExpertTalkArtifact): number | undefined {
+  if (artifact.startedAt === undefined || artifact.endedAt === undefined) return undefined;
+  const startedAt = Date.parse(artifact.startedAt);
+  const endedAt = Date.parse(artifact.endedAt);
+  if (!Number.isFinite(startedAt) || !Number.isFinite(endedAt) || endedAt < startedAt) {
+    return undefined;
+  }
+  return (endedAt - startedAt) / 1000;
+}
+
+function artifactMetrics(artifact: AppExpertTalkArtifact | undefined): ArtifactMetric[] {
+  if (artifact === undefined) return [];
+  const metrics: ArtifactMetric[] = [];
+  const seconds = elapsedSeconds(artifact);
+  if (seconds !== undefined) {
+    metrics.push({
+      label: t('expertTalk.metric.time'),
+      value: `${seconds < 10 ? seconds.toFixed(1) : Math.round(seconds)}s`,
+    });
+  }
+  if (artifact.usage !== undefined) {
+    const input = artifact.usage.inputOther
+      + artifact.usage.inputCacheRead
+      + artifact.usage.inputCacheCreation;
+    metrics.push(
+      { label: t('expertTalk.metric.input'), value: formatTokens(input) },
+      { label: t('expertTalk.metric.output'), value: formatTokens(artifact.usage.output) },
+    );
+    if (seconds !== undefined && seconds > 0 && artifact.usage.output > 0) {
+      metrics.push({
+        label: t('expertTalk.metric.tps'),
+        value: String(Math.round(artifact.usage.output / seconds)),
+      });
+    }
+  }
+  if (artifact.toolCallCount !== undefined) {
+    metrics.push({ label: t('expertTalk.metric.tools'), value: String(artifact.toolCallCount) });
+  }
+  return metrics;
+}
+
+function artifactVariant(
+  state: AppExpertTalkArtifact['state'],
+): 'success' | 'danger' | 'info' | 'neutral' {
+  if (state === 'completed') return 'success';
+  if (state === 'failed' || state === 'cancelled') return 'danger';
+  if (state === 'running') return 'info';
+  return 'neutral';
+}
+
+function statusVariant(state: AppExpertTalkRun['state']): 'success' | 'danger' | 'info' | 'neutral' {
+  if (state === 'completed') return 'success';
+  if (state === 'failed' || state === 'cancelled' || state === 'interrupted') return 'danger';
+  if (state === 'running' || state === 'preparing') return 'info';
+  return 'neutral';
+}
+</script>
+
+<template>
+  <section class="expert-opinion-exchange" :aria-label="t('expertTalk.flowLabel')">
+    <header class="expert-opinion-exchange__top">
+      <div class="expert-opinion-exchange__title">
+        <span aria-hidden="true">◆</span>
+        <span>{{ t('expertTalk.flowTitle') }}</span>
+      </div>
+      <Badge :variant="statusVariant(run.state)" dot>{{ t(`expertTalk.runState.${run.state}`) }}</Badge>
+    </header>
+
+    <ol class="expert-opinion-exchange__phases">
+      <li v-for="phase in phases" :key="phase.id" :data-state="phase.state">
+        <StatusDot :status="phase.state" />
+        <span>{{ phase.label }}</span>
+      </li>
+    </ol>
+
+    <p v-if="run.error" class="expert-opinion-exchange__error" role="alert">
+      {{ run.error.message }} {{ run.error.action }}
+    </p>
+
+    <div class="expert-talk__agent-grid">
+      <article
+        v-for="column in exchangeColumns"
+        :key="column.key"
+        class="expert-talk__agent-column"
+        :class="`expert-talk__agent-column--${column.key}`"
+      >
+        <header class="expert-talk__agent-head">
+          <span class="expert-talk__agent-symbol" aria-hidden="true">{{ column.symbol }}</span>
+          <span class="expert-talk__agent-role">{{ column.role }}</span>
+          <span class="expert-talk__agent-model">{{ column.model }}</span>
+        </header>
+        <section v-for="stageEntry in column.stages" :key="stageEntry.key" class="expert-talk__stage">
+          <header class="expert-talk__stage-head">
+            <span>{{ stageEntry.label }}</span>
+            <Badge size="sm" :variant="artifactVariant(stageEntry.artifact.state)" dot>
+              {{ t(`expertTalk.artifactState.${stageEntry.artifact.state}`) }}
+            </Badge>
+          </header>
+          <dl v-if="artifactMetrics(stageEntry.artifact).length > 0" class="expert-talk__metrics">
+            <div v-for="metric in artifactMetrics(stageEntry.artifact)" :key="metric.label">
+              <dt>{{ metric.label }}</dt>
+              <dd>{{ metric.value }}</dd>
+            </div>
+          </dl>
+          <div class="expert-talk__artifact-body">
+            <div v-if="stageEntry.artifact.thinking" class="expert-talk__thinking">
+              <strong>▹ {{ t('expertTalk.thinking') }}</strong>
+              <span>{{ stageEntry.artifact.thinking }}</span>
+            </div>
+            <ul v-if="stageEntry.artifact.tools?.length" class="expert-talk__tools">
+              <li v-for="tool in stageEntry.artifact.tools" :key="tool.id">
+                <span aria-hidden="true">▸</span>
+                {{ tool.name ?? t('expertTalk.tool') }}
+              </li>
+            </ul>
+            <div v-if="stageEntry.artifact.text" class="expert-talk__artifact-text">
+              <Markdown
+                :text="stageEntry.artifact.text"
+                :streaming="stageEntry.artifact.state === 'running'"
+              />
+            </div>
+            <p v-else>
+              {{ stageEntry.artifact.error ?? t(`expertTalk.artifactState.${stageEntry.artifact.state}`) }}
+            </p>
+          </div>
+        </section>
+        <footer v-if="column.answer" class="expert-talk__agent-actions">
+          <Button size="sm" variant="secondary" @click="takeAnswer(column.key, column.answer)">
+            <Icon :name="copiedTarget === column.key ? 'check' : 'copy'" size="sm" />
+            {{ copiedTarget === column.key
+              ? t('expertTalk.copied')
+              : t(column.key === 'architect' ? 'expertTalk.takeModel1' : 'expertTalk.takeModel2') }}
+          </Button>
+        </footer>
+      </article>
+    </div>
+
+    <footer v-if="opinionsReady" class="expert-talk__decision-actions">
+      <span>{{ t('expertTalk.opinionsReady') }}</span>
+      <div>
+        <Button
+          size="sm"
+          variant="secondary"
+          data-testid="expert-opinion-finish"
+          :loading="expertTalk?.busy.value"
+          @click="finishNow"
+        >
+          {{ t('expertTalk.finishWithArchitect') }}
+        </Button>
+        <Button
+          size="sm"
+          variant="secondary"
+          data-testid="expert-opinion-review"
+          :loading="expertTalk?.busy.value"
+          @click="reviewBuilder"
+        >
+          {{ t('expertTalk.reviewBuilder') }}
+        </Button>
+        <Button
+          size="sm"
+          data-testid="expert-opinion-fuse"
+          :loading="expertTalk?.busy.value"
+          @click="fuseNow"
+        >
+          {{ t('expertTalk.fuseNow') }}
+        </Button>
+      </div>
+    </footer>
+
+    <article v-if="reviewExchange" class="expert-talk__review">
+      <header class="expert-talk__agent-head">
+        <span class="expert-talk__agent-symbol" aria-hidden="true">◆</span>
+        <span class="expert-talk__agent-role">{{ t('expertTalk.review') }}</span>
+        <span class="expert-talk__agent-model">{{ reviewExchange.model }}</span>
+        <Badge size="sm" :variant="artifactVariant(reviewExchange.artifact.state)" dot>
+          {{ t(`expertTalk.artifactState.${reviewExchange.artifact.state}`) }}
+        </Badge>
+      </header>
+      <dl v-if="artifactMetrics(reviewExchange.artifact).length > 0" class="expert-talk__metrics">
+        <div v-for="metric in artifactMetrics(reviewExchange.artifact)" :key="metric.label">
+          <dt>{{ metric.label }}</dt>
+          <dd>{{ metric.value }}</dd>
+        </div>
+      </dl>
+      <div class="expert-talk__artifact-body">
+        <div v-if="reviewExchange.artifact.thinking" class="expert-talk__thinking">
+          <strong>▹ {{ t('expertTalk.thinking') }}</strong>
+          <span>{{ reviewExchange.artifact.thinking }}</span>
+        </div>
+        <ul v-if="reviewExchange.artifact.tools?.length" class="expert-talk__tools">
+          <li v-for="tool in reviewExchange.artifact.tools" :key="tool.id">
+            <span aria-hidden="true">▸</span>
+            {{ tool.name ?? t('expertTalk.tool') }}
+          </li>
+        </ul>
+        <div v-if="reviewExchange.answer" class="expert-talk__artifact-text">
+          <Markdown
+            :text="reviewExchange.answer"
+            :streaming="reviewExchange.artifact.state === 'running'"
+          />
+        </div>
+        <p v-else>
+          {{ reviewExchange.artifact.error ?? t(`expertTalk.artifactState.${reviewExchange.artifact.state}`) }}
+        </p>
+      </div>
+      <footer v-if="reviewExchange.answer" class="expert-talk__review-actions">
+        <Button
+          size="sm"
+          variant="secondary"
+          @click="takeAnswer('review', reviewExchange.answer)"
+        >
+          <Icon :name="copiedTarget === 'review' ? 'check' : 'copy'" size="sm" />
+          {{ copiedTarget === 'review' ? t('expertTalk.copied') : t('expertTalk.takeReview') }}
+        </Button>
+      </footer>
+    </article>
+
+    <footer v-if="reviewReady" class="expert-talk__decision-actions">
+      <span>{{ t('expertTalk.reviewReady') }}</span>
+      <div>
+        <Button
+          size="sm"
+          variant="secondary"
+          data-testid="expert-opinion-finish"
+          :loading="expertTalk?.busy.value"
+          @click="finishNow"
+        >
+          {{ t('expertTalk.finishWithArchitect') }}
+        </Button>
+        <Button
+          size="sm"
+          data-testid="expert-opinion-fuse"
+          :loading="expertTalk?.busy.value"
+          @click="fuseNow"
+        >
+          {{ t('expertTalk.fuseNow') }}
+        </Button>
+      </div>
+    </footer>
+
+    <article v-if="fusionExchange" class="expert-talk__fusion">
+      <header class="expert-talk__agent-head">
+        <span class="expert-talk__agent-symbol" aria-hidden="true">⧉</span>
+        <span class="expert-talk__agent-role">{{ t('expertTalk.fusion') }}</span>
+        <span class="expert-talk__agent-model">
+          {{ fusionExchange.model }} · {{ t('expertTalk.freshFusion') }}
+        </span>
+        <Badge size="sm" :variant="artifactVariant(fusionExchange.state)" dot>
+          {{ t(`expertTalk.artifactState.${fusionExchange.state}`) }}
+        </Badge>
+      </header>
+      <dl v-if="artifactMetrics(fusionExchange.artifact).length > 0" class="expert-talk__metrics">
+        <div v-for="metric in artifactMetrics(fusionExchange.artifact)" :key="metric.label">
+          <dt>{{ metric.label }}</dt>
+          <dd>{{ metric.value }}</dd>
+        </div>
+      </dl>
+      <div class="expert-talk__artifact-body">
+        <div v-if="fusionExchange.artifact?.thinking" class="expert-talk__thinking">
+          <strong>▹ {{ t('expertTalk.thinking') }}</strong>
+          <span>{{ fusionExchange.artifact.thinking }}</span>
+        </div>
+        <ul v-if="fusionExchange.artifact?.tools?.length" class="expert-talk__tools">
+          <li v-for="tool in fusionExchange.artifact.tools" :key="tool.id">
+            <span aria-hidden="true">▸</span>
+            {{ tool.name ?? t('expertTalk.tool') }}
+          </li>
+        </ul>
+        <div v-if="fusionExchange.answer" class="expert-talk__artifact-text">
+          <Markdown
+            :text="fusionExchange.answer"
+            :streaming="fusionExchange.state === 'running'"
+          />
+        </div>
+        <p v-else>
+          {{ fusionExchange.artifact?.error ?? t(`expertTalk.artifactState.${fusionExchange.state}`) }}
+        </p>
+      </div>
+      <footer v-if="fusionExchange.answer" class="expert-talk__fusion-actions">
+        <Button size="sm" variant="secondary" @click="takeAnswer('fusion', fusionExchange.answer)">
+          <Icon :name="copiedTarget === 'fusion' ? 'check' : 'copy'" size="sm" />
+          {{ copiedTarget === 'fusion' ? t('expertTalk.copied') : t('expertTalk.takeFusion') }}
+        </Button>
+        <Button size="sm" data-testid="expert-opinion-build" @click="emit('build', fusionExchange.answer)">
+          <Icon name="play" size="sm" />
+          {{ t('expertTalk.buildFusion') }}
+        </Button>
+      </footer>
+    </article>
+  </section>
+</template>
+
+<style scoped>
+.expert-opinion-exchange {
+  min-width: 0;
+  border: var(--p-hairline) solid var(--color-line);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-sunken);
+  overflow: hidden;
+}
+
+.expert-opinion-exchange__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: var(--p-hairline) solid var(--color-line);
+  background: var(--color-surface-raised);
+}
+
+.expert-opinion-exchange__title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  color: var(--color-accent);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.expert-opinion-exchange__phases {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  margin: 0;
+  border-bottom: var(--p-hairline) solid var(--color-line);
+  list-style: none;
+}
+
+.expert-opinion-exchange__phases li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.expert-opinion-exchange__error {
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  border-bottom: var(--p-hairline) solid var(--color-line);
+  color: var(--color-danger);
+  font-size: var(--text-sm);
+}
+
+.expert-talk__agent-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  min-width: 0;
+}
+
+.expert-talk__agent-column {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.expert-talk__agent-column + .expert-talk__agent-column {
+  border-left: var(--p-hairline) solid var(--color-line);
+}
+
+.expert-talk__agent-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: var(--space-3) var(--space-4);
+  border-bottom: var(--p-hairline) solid var(--color-line);
+  background: var(--color-surface-raised);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+.expert-talk__agent-symbol,
+.expert-talk__agent-role {
+  flex: none;
+}
+
+.expert-talk__agent-role {
+  color: var(--color-text);
+  font-weight: var(--weight-semibold);
+}
+
+.expert-talk__agent-model {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-text-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.expert-talk__agent-column--architect .expert-talk__agent-symbol {
+  color: var(--color-accent);
+}
+
+.expert-talk__agent-column--builder .expert-talk__agent-symbol {
+  color: var(--color-warning);
+}
+
+.expert-talk__stage {
+  min-width: 0;
+  padding: var(--space-4);
+}
+
+.expert-talk__stage + .expert-talk__stage {
+  border-top: var(--p-hairline) solid var(--color-line);
+}
+
+.expert-talk__stage-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  color: var(--color-text-strong);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+}
+
+.expert-talk__metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  padding: 0;
+  margin: var(--space-3) 0 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.expert-talk__metrics div {
+  display: inline-flex;
+  gap: var(--space-1);
+}
+
+.expert-talk__metrics dt {
+  color: var(--color-text-faint);
+}
+
+.expert-talk__metrics dd {
+  margin: 0;
+  color: var(--color-text);
+}
+
+.expert-talk__artifact-body {
+  min-width: 0;
+  margin-top: var(--space-3);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  line-height: var(--leading-relaxed);
+  overflow-wrap: anywhere;
+}
+
+.expert-talk__artifact-body p {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.expert-talk__artifact-text {
+  min-width: 0;
+}
+
+.expert-talk__thinking {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  margin-bottom: var(--space-3);
+  border-left: 2px solid var(--color-accent);
+  color: var(--color-text-faint);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  white-space: pre-wrap;
+}
+
+.expert-talk__thinking strong {
+  color: var(--color-accent);
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.expert-talk__tools {
+  display: grid;
+  gap: var(--space-1);
+  padding: 0;
+  margin: 0 0 var(--space-3);
+  color: var(--color-text-faint);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  list-style: none;
+}
+
+.expert-talk__tools li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.expert-talk__tools li span {
+  color: var(--color-warning);
+}
+
+.expert-talk__agent-actions,
+.expert-talk__review-actions,
+.expert-talk__fusion-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-top: var(--p-hairline) solid var(--color-line);
+}
+
+.expert-talk__decision-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  min-width: 0;
+  padding: var(--space-3) var(--space-4);
+  border-top: var(--p-hairline) solid var(--color-line);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.expert-talk__decision-actions > div {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+.expert-talk__agent-actions {
+  margin-top: auto;
+}
+
+.expert-talk__review,
+.expert-talk__fusion {
+  min-width: 0;
+  border-top: var(--p-hairline) solid var(--color-line);
+  background: var(--color-surface-raised);
+}
+
+.expert-talk__review > .expert-talk__agent-head,
+.expert-talk__fusion > .expert-talk__agent-head {
+  border-bottom: 0;
+  background: transparent;
+}
+
+.expert-talk__review .expert-talk__agent-symbol {
+  color: var(--color-accent);
+}
+
+.expert-talk__fusion .expert-talk__agent-symbol {
+  color: var(--color-success);
+}
+
+.expert-talk__review .ui-badge,
+.expert-talk__fusion .ui-badge {
+  margin-left: auto;
+}
+
+.expert-talk__review > .expert-talk__metrics,
+.expert-talk__review > .expert-talk__artifact-body,
+.expert-talk__fusion > .expert-talk__metrics,
+.expert-talk__fusion > .expert-talk__artifact-body {
+  margin-right: var(--space-4);
+  margin-left: var(--space-4);
+}
+
+.expert-talk__review > .expert-talk__artifact-body,
+.expert-talk__fusion > .expert-talk__artifact-body {
+  padding-bottom: var(--space-4);
+}
+
+@media (max-width: 720px) {
+  .expert-opinion-exchange__phases,
+  .expert-talk__agent-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .expert-talk__agent-column + .expert-talk__agent-column {
+    border-top: var(--p-hairline) solid var(--color-line);
+    border-left: 0;
+  }
+
+  .expert-talk__decision-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .expert-talk__decision-actions > div {
+    justify-content: flex-start;
+  }
+}
+</style>

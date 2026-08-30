@@ -31,6 +31,21 @@ const ADD_DIR_ARG_COMPLETIONS: readonly ArgCompletionSpec[] = [
   { value: 'list', description: 'Show configured additional workspace directories' },
 ];
 
+const DISCUSSION_ARG_COMPLETIONS: readonly ArgCompletionSpec[] = [
+  { value: 'help', description: 'Open the Discussion action menu' },
+  { value: 'status', description: 'Show Discussion state and progress' },
+  { value: 'configure', description: 'Select Architect and Builder models' },
+  { value: 'arm', description: 'Use Discussion for the next message' },
+  { value: 'disarm', description: 'Return the next message to normal chat' },
+  { value: 'review', description: 'Ask Architect to review Builder' },
+  { value: 'finish', description: 'Finish with the latest Architect answer' },
+  { value: 'fuse', description: 'Run fresh Architect Fusion' },
+  { value: 'cancel', description: 'Stop the active Discussion stage' },
+  { value: 'retry', description: 'Retry the whole Discussion' },
+  { value: 'exchange', description: 'Show the complete exchange' },
+  { value: 'reset', description: 'Remove the configured model pair' },
+];
+
 /** Argument autocompletion for the `/goal` command (subcommands). */
 export function goalArgumentCompletions(argumentPrefix: string): AutocompleteItem[] | null {
   const nextMatch = argumentPrefix.match(/^next\s+(\S*)$/i);
@@ -61,6 +76,10 @@ export function addDirArgumentCompletions(argumentPrefix: string): AutocompleteI
     return completeAddDirPath(argumentPrefix);
   }
   return completeLeadingArg(ADD_DIR_ARG_COMPLETIONS, argumentPrefix);
+}
+
+export function discussionArgumentCompletions(argumentPrefix: string): AutocompleteItem[] | null {
+  return completeLeadingArg(DISCUSSION_ARG_COMPLETIONS, argumentPrefix);
 }
 
 function isPathLikeAddDirArgument(argumentPrefix: string): boolean {
@@ -195,6 +214,17 @@ export const BUILTIN_SLASH_COMMANDS = [
     // commands never wait for the previous one to finish.
     availability: 'always',
     experimentalFlag: 'tower',
+    requiresEngineV2: true,
+  },
+  {
+    name: 'discussion',
+    aliases: ['expert-opinion', 'expertopinion'],
+    description: 'Configure, arm, inspect, or stop a two-model Discussion',
+    priority: 100,
+    argumentHint: '[help|status|configure|arm|disarm|review|finish|fuse|cancel|retry|exchange|reset]',
+    completeArgs: discussionArgumentCompletions,
+    availability: 'always',
+    experimentalFlag: 'expert_talk',
     requiresEngineV2: true,
   },
   {

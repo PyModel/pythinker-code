@@ -35,6 +35,7 @@ import Tooltip from '../ui/Tooltip.vue';
 import Input from '../ui/Input.vue';
 import AttachmentChip from './AttachmentChip.vue';
 import CapabilityMenu from '../CapabilityMenu.vue';
+import ExpertTalkControl from './ExpertTalkControl.vue';
 import BottomSheet from '../dialogs/BottomSheet.vue';
 import Toast from '../ui/Toast.vue';
 import { useOpenMenu } from '../ui/openMenus';
@@ -1072,6 +1073,7 @@ watch(workMode, async (mode) => {
 
 // The "+" add menu (Files / Connectors / Goal / Plan).
 const capMenuRef = ref<InstanceType<typeof CapabilityMenu> | null>(null);
+const expertTalkControlRef = ref<InstanceType<typeof ExpertTalkControl> | null>(null);
 const modesOpen = ref(false);
 const modesMenuRef = ref<HTMLElement | null>(null);
 const mobileModesMenuRef = ref<HTMLElement | null>(null);
@@ -1102,6 +1104,9 @@ const addMenuRows = computed<AddMenuRow[]>(() => {
   }
   rows.push(
     { id: 'capabilities', icon: 'sliders', nameKey: 'capabilityMenu.trigger', action: openCapabilities },
+    ...(expertTalkControlRef.value?.available
+      ? [{ id: 'expertOpinion', icon: 'sparkles' as const, nameKey: 'expertTalk.title', descKey: 'composer.addExpertOpinionDesc', action: openExpertOpinion }]
+      : []),
     { id: 'goal', icon: 'target', nameKey: 'status.goalLabel', descKey: 'composer.addGoalDesc', action: openGoalMode },
     { id: 'plan', icon: 'file-edit', nameKey: 'status.planLabel', descKey: 'composer.addPlanDesc', action: openPlanMode },
     { id: 'workflow', icon: 'sparkles', nameKey: 'status.dynamicWorkflowLabel', descKey: 'composer.addWorkflowDesc', action: openWorkflowMode },
@@ -1221,6 +1226,11 @@ function openMentionSheet(): void {
 function openCapabilities(): void {
   closeModes();
   capMenuRef.value?.toggleOpen();
+}
+
+function openExpertOpinion(): void {
+  closeModes();
+  expertTalkControlRef.value?.openDialog();
 }
 
 function openGoalMode(): void {
@@ -1814,6 +1824,12 @@ function selectModel(modelId: string): void {
           </IconButton>
 
           <CapabilityMenu ref="capMenuRef" :session-id="sessionId" triggerless />
+
+          <ExpertTalkControl
+            ref="expertTalkControlRef"
+            :models="models"
+            @build="loadForEdit"
+          />
 
           <span
             v-if="status"

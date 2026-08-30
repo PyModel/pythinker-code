@@ -87,6 +87,7 @@ export class WsConnectionV1 implements BroadcastTarget {
 
   private closed = false;
   private gotClientHello = false;
+  private expertTalkEvents = false;
   readonly subscriptions = new Map<string, SessionSubscription>();
   private controlQueue: Promise<void> = Promise.resolve();
 
@@ -137,6 +138,10 @@ export class WsConnectionV1 implements BroadcastTarget {
 
   get hasClientHello(): boolean {
     return this.gotClientHello;
+  }
+
+  get supportsExpertTalkEvents(): boolean {
+    return this.expertTalkEvents;
   }
 
   get subscriptionSessionIds(): readonly string[] {
@@ -206,6 +211,11 @@ export class WsConnectionV1 implements BroadcastTarget {
     this.gotClientHello = true;
 
     const payload = frame.payload ?? {};
+    const clientCapabilities = payload['client_capabilities'];
+    this.expertTalkEvents =
+      typeof clientCapabilities === 'object' &&
+      clientCapabilities !== null &&
+      (clientCapabilities as { expert_talk_v1?: unknown }).expert_talk_v1 === true;
     const subscriptions = asStringArray(payload['subscriptions']);
     const cursors = payload['cursors'] as Record<string, SessionCursor> | undefined;
     const agentFilter = parseAgentFilter(payload['agent_filter']);

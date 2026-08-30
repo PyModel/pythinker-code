@@ -68,6 +68,7 @@ import {
   handleTitleCommand,
 } from './session';
 import { handleDynamicWorkflowCommand } from './dynamic_workflow';
+import { handleExpertTalkCommand } from './expert-talk';
 import { handleTowerCommand } from './tower';
 import { handleUndoCommand } from './undo';
 import { handleRemoteControlCommand, handleWebCommand } from './web';
@@ -96,6 +97,7 @@ export {
   showSettingsSelector,
 } from './config';
 export { handleDynamicWorkflowCommand } from './dynamic_workflow';
+export { handleExpertTalkCommand } from './expert-talk';
 export { handleTowerCommand } from './tower';
 export { showMcpServers, showStatusReport, showUsage } from './info';
 export { handlePluginsCommand } from './plugins';
@@ -424,6 +426,7 @@ const SESSION_REQUIRING_COMMANDS: ReadonlySet<BuiltinSlashCommandName> = new Set
   'init',
   'plan',
   'dynamic_workflow',
+  'discussion',
   'undo',
   'web',
 ]);
@@ -571,6 +574,9 @@ async function handleBuiltInSlashCommand(
       return;
     case 'tower':
       await handleTowerCommand(host, args);
+      return;
+    case 'discussion':
+      await handleExpertTalkCommand(host, args);
       return;
     case 'compact':
       await handleCompactCommand(host, args);

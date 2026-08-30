@@ -2,6 +2,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch, type ComponentPublicInstance } from 'vue';
 import { useI18n } from 'vue-i18n';
+import type { AppExpertTalkRun, AppModel } from '../../api/types';
 import type { ChatTurn, ApprovalBlock, FilePreviewRequest, ToolMedia, QueuedPromptView, TurnAttachment, UIQuestion } from '../../types';
 import ToolCall from './ToolCall.vue';
 import ActivityRun from './ActivityRun.vue';
@@ -21,6 +22,7 @@ import Button from '../ui/Button.vue';
 import TurnFold from './TurnFold.vue';
 import TurnFilesSummary from './TurnFilesSummary.vue';
 import WorkingIndicator from './WorkingIndicator.vue';
+import ExpertTalkExchange from './ExpertTalkExchange.vue';
 import { useConfirmDialog } from '../../composables/useConfirmDialog';
 import { copyTextToClipboard } from '../../lib/clipboard';
 import { openFileAttachment } from '../../lib/openFileAttachment';
@@ -73,6 +75,8 @@ onUnmounted(() => {
 const props = withDefaults(
   defineProps<{
     turns: ChatTurn[];
+    expertTalkRuns?: AppExpertTalkRun[];
+    expertTalkModels?: AppModel[];
     approvals?: { approvalId: string; block: ApprovalBlock; agentName?: string; toolCallId?: string }[];
     /** Pending questions (conversation dock). `toolCallId` correlates an
         awaiting-question tool to its transcript card for the parked turn. */
@@ -156,6 +160,8 @@ const props = withDefaults(
   }>(),
   {
     approvals: () => [],
+    expertTalkRuns: () => [],
+    expertTalkModels: () => [],
     questions: () => [],
     turnActive: false,
     working: false,
@@ -318,7 +324,21 @@ const emit = defineEmits<{
    * on the resume path.
    */
   continueTurn: [text: string];
+  buildExpertTalk: [answer: string];
 }>();
+
+const expertTalkRunsByPrompt = computed(() => {
+  const runs = new Map<string, AppExpertTalkRun>();
+  for (const run of props.expertTalkRuns) {
+    runs.set(run.promptId, run);
+    runs.set(`t${run.turnId}`, run);
+  }
+  return runs;
+});
+
+function expertTalkRunForTurn(turn: ChatTurn): AppExpertTalkRun | undefined {
+  return turn.promptId === undefined ? undefined : expertTalkRunsByPrompt.value.get(turn.promptId);
+}
 
 const expandedUserTurns = ref<Record<string, boolean>>({});
 const overflowingUserTurns = ref<Record<string, boolean>>({});
@@ -840,6 +860,13 @@ function continueFailedTurn(): void {
             <MessageTime v-if="turn.createdAt" :time="turn.createdAt" />
           </div>
         </div>
+        <div v-if="expertTalkRunForTurn(turn)" class="expert-opinion-turn">
+          <ExpertTalkExchange
+            :run="expertTalkRunForTurn(turn)!"
+            :models="expertTalkModels"
+            @build="emit('buildExpertTalk', $event)"
+          />
+        </div>
       </template>
 
       <!-- Compaction divider — prior turns stay untouched; summary opens in
@@ -862,6 +889,8 @@ function continueFailedTurn(): void {
       <!-- Cron notice — a turn triggered by a scheduled reminder, rendered as
            a lightweight in-transcript notice rather than a user bubble. -->
       <CronNotice v-else-if="turn.role === 'cron'" :text="turn.text" :cron="turn.cron" :turn-id="turn.id" :created-at="turn.createdAt" />
+
+      <template v-else-if="turn.role === 'assistant' && expertTalkRunForTurn(turn)" />
 
       <!-- Assistant turn → left-aligned, no name/role label. -->
       <div v-else class="a-msg turn-anchor" :data-turn-id="turn.id">
@@ -1112,6 +1141,11 @@ function continueFailedTurn(): void {
   margin-top: var(--chat-turn-gap);
 }
 .chat > .a-msg {
+  margin-top: 10px;
+}
+.chat > .expert-opinion-turn {
+  width: 100%;
+  min-width: 0;
   margin-top: 10px;
 }
 .chat > .u-turn:first-child,

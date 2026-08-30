@@ -8,6 +8,7 @@ import type { AgentPhase } from '../../../services/legacyStatus/legacyStatus';
 import type { ConfigResponse } from '../../../protocol/rest-config';
 import type { Session, SessionPendingInteraction } from '../../../protocol/session';
 import type { Workspace } from '../../../protocol/workspace';
+import type { ExpertTalkStatusWire } from '../../../protocol/rest-expert-talk';
 
 export interface AgentStatusUpdatedEvent {
   readonly type: 'agent.status.updated';
@@ -137,6 +138,11 @@ export interface CapabilityChangedEvent {
   };
 }
 
+export interface ExpertTalkChangedEvent {
+  readonly type: 'expert_talk.changed';
+  readonly status: ExpertTalkStatusWire;
+}
+
 export interface DiUnitChangedEvent {
   readonly type: 'event.di.unit_changed';
   readonly scope: string;
@@ -228,6 +234,7 @@ export type AgentEvent =
   | ModelCatalogChangedEvent
   | PluginChangedEvent
   | CapabilityChangedEvent
+  | ExpertTalkChangedEvent
   | DiUnitChangedEvent
   | PromptSubmittedEvent
   | BackgroundTaskStartedEvent

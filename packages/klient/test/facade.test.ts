@@ -122,6 +122,65 @@ describe('facade routing', () => {
     ]);
   });
 
+  it('routes Expert Talk through the session service with one stable client identity', async () => {
+    const channel = new FakeChannel();
+    const klient = createKlientFromChannel(channel);
+    const expertTalk = klient.session('s1').expertTalk;
+    const pair = { fusionLeadModelId: 'lead', peerModelId: 'peer' };
+    const config = {
+      version: 'expert_talk/v1' as const,
+      resourceVersion: 'v2',
+      pair,
+    };
+    const arm = { armId: 'arm-1', armedAt: '2026-08-29T00:00:00Z' };
+    const started = {
+      runId: 'run-1',
+      promptId: 'prompt-1',
+      status: 'PREPARING' as const,
+      createdAt: '2026-08-29T00:00:00Z',
+    };
+    channel.results.set('sessionExpertTalkService.configure', config);
+    channel.results.set('sessionExpertTalkService.arm', arm);
+    channel.results.set('sessionExpertTalkService.disarm', undefined);
+    channel.results.set('sessionExpertTalkService.start', started);
+
+    await expect(expertTalk.configure(pair, 'v1')).resolves.toEqual(config);
+    await expect(expertTalk.arm('v2')).resolves.toEqual(arm);
+    await expect(expertTalk.disarm('arm-1')).resolves.toBeUndefined();
+    await expect(
+      expertTalk.start({ armId: 'arm-1', prompt: 'Compare', content: [{ type: 'text', text: 'Compare' }] }),
+    ).resolves.toEqual(started);
+
+    const configureCall = channel.calls[0];
+    const armCall = channel.calls[1];
+    const disarmCall = channel.calls[2];
+    const startCall = channel.calls[3];
+    expect(configureCall).toEqual({
+      scope: { sessionId: 's1' },
+      service: 'sessionExpertTalkService',
+      method: 'configure',
+      args: [pair, 'v1'],
+    });
+    expect(armCall).toMatchObject({
+      scope: { sessionId: 's1' },
+      service: 'sessionExpertTalkService',
+      method: 'arm',
+      args: [expect.any(String), 'v2'],
+    });
+    expect(disarmCall).toMatchObject({
+      scope: { sessionId: 's1' },
+      service: 'sessionExpertTalkService',
+      method: 'disarm',
+      args: [armCall?.args[0], 'arm-1'],
+    });
+    expect(startCall).toMatchObject({
+      scope: { sessionId: 's1' },
+      service: 'sessionExpertTalkService',
+      method: 'start',
+      args: [{ armId: 'arm-1', clientId: armCall?.args[0], prompt: 'Compare' }],
+    });
+  });
+
   it('env() fans out property reads and merges them', async () => {
     const channel = new FakeChannel();
     const klient = createKlientFromChannel(channel);

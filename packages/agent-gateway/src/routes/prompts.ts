@@ -26,6 +26,7 @@ import {
   type PromptWithSkillsResult,
   reservePrompt,
   ISessionContext,
+  ISessionExpertTalkService,
   resumeSessionById,
   ITelemetryService,
   applyPromptMetadataUpdate,
@@ -35,6 +36,7 @@ import {
   sessionMediaOriginalsDir,
   type ISessionScopeHandle,
   type Scope,
+  type ContentPart,
 } from '@pymodel/agent-core-v2';
 import { ErrorCode } from '../protocol/error-codes';
 import { projectPromptContentParts } from '../services/messages/messageProjection';
@@ -46,6 +48,7 @@ import {
   promptSubmissionSchema,
   promptSubmitResultSchema,
   type PromptSkillActivation,
+  type PromptSubmission,
 } from '../protocol/rest-prompt';
 import { z } from 'zod';
 
@@ -208,6 +211,15 @@ export function registerPromptsRoutes(app: PromptRouteHost, core: Scope): void {
         [ErrorCode.FILE_NOT_FOUND]: {},
         [ErrorCode.PROMPT_ID_CONFLICT]: {},
         [ErrorCode.PROMPT_ALREADY_COMPLETED]: { dataSchema: z.object({ aborted: z.literal(false) }) },
+        [ErrorCode.EXPERT_TALK_FEATURE_DISABLED]: {},
+        [ErrorCode.EXPERT_TALK_PAIR_NOT_CONFIGURED]: {},
+        [ErrorCode.EXPERT_TALK_PAIR_INVALID]: {},
+        [ErrorCode.EXPERT_TALK_PAIR_COLLAPSED]: {},
+        [ErrorCode.EXPERT_TALK_NOT_ARMED]: {},
+        [ErrorCode.EXPERT_TALK_BUSY]: {},
+        [ErrorCode.EXPERT_TALK_CLIENT_UNSUPPORTED]: {},
+        [ErrorCode.EXPERT_TALK_CONTEXT_INSUFFICIENT]: {},
+        [ErrorCode.EXPERT_TALK_BUDGET_EXCEEDED]: {},
       },
       description: 'Submit a prompt to a session',
       tags: ['prompts'],
@@ -220,6 +232,21 @@ export function registerPromptsRoutes(app: PromptRouteHost, core: Scope): void {
       let enqueued = false;
       try {
         const session = await resolveSession(core, session_id);
+        const expertTalk = session.accessor.get(ISessionExpertTalkService);
+        await expertTalk.ready;
+        const expertTalkArmId = req.body.expert_talk_arm_id;
+        const expertTalkStatus = expertTalk.status();
+        if (expertTalkArmId === undefined && expertTalkStatus.arm !== undefined) {
+          if (selectsAnotherTurnController(req.body)) {
+            expertTalk.disarm(promptClientId(req.headers), expertTalkStatus.arm.armId);
+          } else {
+            throw new Error2(
+              ErrorCodes.EXPERT_TALK_CLIENT_UNSUPPORTED,
+              'This session has an armed Expert Talk turn; refresh this client before submitting',
+            );
+          }
+        }
+        if (expertTalkArmId !== undefined) assertExpertTalkSubmission(req.body);
         let resolved: Awaited<ReturnType<typeof resolvePromptFromSession>> | undefined;
         if (contentHasPathRefs(req.body.content)) {
           resolved = await resolvePromptFromSession(session, req.body.agent_id);
@@ -249,14 +276,16 @@ export function registerPromptsRoutes(app: PromptRouteHost, core: Scope): void {
           session.accessor.get(ISessionMediaStore),
         );
         resolved ??= await resolvePromptFromSession(session, req.body.agent_id);
-        reservation = reservePrompt(resolved.prompt, req.body.prompt_id);
-        const sessionModel = resolved.profile.getModel();
-        const switchingProfile =
-          req.body.profile !== undefined &&
-          req.body.profile !== resolved.profile.data().profileName;
-        await resolved.auth.ensureReady(
-          req.body.model ?? (switchingProfile ? undefined : sessionModel || undefined),
-        );
+        if (expertTalkArmId === undefined) {
+          reservation = reservePrompt(resolved.prompt, req.body.prompt_id);
+          const sessionModel = resolved.profile.getModel();
+          const switchingProfile =
+            req.body.profile !== undefined &&
+            req.body.profile !== resolved.profile.data().profileName;
+          await resolved.auth.ensureReady(
+            req.body.model ?? (switchingProfile ? undefined : sessionModel || undefined),
+          );
+        }
 
         const telemetry = core.accessor.get(ITelemetryService).withContext({ sessionId: session_id });
         preparedMedia = await resolvePromptMediaFiles(
@@ -280,6 +309,35 @@ export function registerPromptsRoutes(app: PromptRouteHost, core: Scope): void {
         const resolvedContent = preparedMedia.content;
         const promptAttachments =
           preparedMedia.attachments.length > 0 ? preparedMedia.attachments : undefined;
+
+        const parts = contentToCoreParts(resolvedContent);
+        if (expertTalkArmId !== undefined) {
+          await applyPromptMetadataUpdate({
+            metadata: session.accessor.get(ISessionMetadata),
+            eventService: core.accessor.get(IEventService),
+            sessionId: session_id,
+          }, promptMetadataTextFromContentParts(parts));
+          const started = await expertTalk.start({
+            armId: expertTalkArmId,
+            clientId: promptClientId(req.headers),
+            prompt: expertTalkPromptText(parts),
+            promptId: req.body.prompt_id,
+            modalities: expertTalkModalities(parts),
+            content: parts,
+            attachments: promptAttachments,
+          });
+          enqueued = true;
+          releaseExpertTalkMedia(expertTalk, started.runId, preparedMedia);
+          reply.send(okEnvelope({
+            prompt_id: started.promptId,
+            user_message_id: started.promptId,
+            status: 'running',
+            content: projectPromptContentParts(parts),
+            created_at: started.createdAt,
+            expert_talk_run_id: started.runId,
+          }, req.id));
+          return;
+        }
 
         let thinkingConsumed = false;
         if (req.body.profile !== undefined) {
@@ -305,7 +363,6 @@ export function registerPromptsRoutes(app: PromptRouteHost, core: Scope): void {
             throw error;
           }
         }
-        const parts = contentToCoreParts(resolvedContent);
         if (req.body.skills !== undefined) {
           if (req.body.agent_id !== undefined && req.body.agent_id !== MAIN_AGENT_ID) {
             await applyPromptMetadataUpdate({
@@ -347,6 +404,9 @@ export function registerPromptsRoutes(app: PromptRouteHost, core: Scope): void {
           eventService: core.accessor.get(IEventService),
           sessionId: session_id,
         }, promptMetadataTextFromContentParts(parts));
+        if (reservation === undefined) {
+          throw new Error2(ErrorCodes.INTERNAL, 'Prompt reservation was not created');
+        }
         const handle = await reservation.submit({
           role: 'user',
           content: parts,
@@ -589,6 +649,33 @@ function sendMappedError(
       case 'skill.type_unsupported':
         reply.send(errEnvelope(ErrorCode.SKILL_NOT_ACTIVATABLE, err.message, requestId, err.stack));
         return;
+      case 'expert_talk.feature_disabled':
+        reply.send(errEnvelope(ErrorCode.EXPERT_TALK_FEATURE_DISABLED, err.message, requestId));
+        return;
+      case 'expert_talk.pair_not_configured':
+        reply.send(errEnvelope(ErrorCode.EXPERT_TALK_PAIR_NOT_CONFIGURED, err.message, requestId));
+        return;
+      case 'expert_talk.pair_invalid':
+        reply.send(errEnvelope(ErrorCode.EXPERT_TALK_PAIR_INVALID, err.message, requestId));
+        return;
+      case 'expert_talk.pair_collapsed':
+        reply.send(errEnvelope(ErrorCode.EXPERT_TALK_PAIR_COLLAPSED, err.message, requestId));
+        return;
+      case 'expert_talk.not_armed':
+        reply.send(errEnvelope(ErrorCode.EXPERT_TALK_NOT_ARMED, err.message, requestId));
+        return;
+      case 'expert_talk.busy':
+        reply.send(errEnvelope(ErrorCode.EXPERT_TALK_BUSY, err.message, requestId));
+        return;
+      case 'expert_talk.client_unsupported':
+        reply.send(errEnvelope(ErrorCode.EXPERT_TALK_CLIENT_UNSUPPORTED, err.message, requestId));
+        return;
+      case 'expert_talk.context_insufficient':
+        reply.send(errEnvelope(ErrorCode.EXPERT_TALK_CONTEXT_INSUFFICIENT, err.message, requestId));
+        return;
+      case 'expert_talk.budget_exceeded':
+        reply.send(errEnvelope(ErrorCode.EXPERT_TALK_BUDGET_EXCEEDED, err.message, requestId));
+        return;
       case 'auth.provisioning_required':
         reply.send({
           code: ErrorCode.AUTH_PROVISIONING_REQUIRED,
@@ -666,6 +753,92 @@ function sendMappedError(
       err instanceof Error ? err.stack : undefined,
     ),
   );
+}
+
+function assertExpertTalkSubmission(input: PromptSubmission): void {
+  if (input.agent_id !== undefined && input.agent_id !== MAIN_AGENT_ID) {
+    throw new Error2(ErrorCodes.REQUEST_INVALID, 'Expert Talk controls the main conversation only');
+  }
+  const conflicts = [
+    input.profile === undefined ? undefined : 'profile',
+    input.model === undefined ? undefined : 'model',
+    input.thinking === undefined ? undefined : 'thinking',
+    input.permission_mode === undefined ? undefined : 'permission_mode',
+    input.plan_mode === true ? 'plan_mode' : undefined,
+    input.dynamic_workflow_mode === true ? 'dynamic_workflow_mode' : undefined,
+    input.goal_objective === undefined ? undefined : 'goal_objective',
+    input.goal_control === undefined ? undefined : 'goal_control',
+    input.disabled_tools === undefined ? undefined : 'disabled_tools',
+    input.skills === undefined ? undefined : 'skills',
+  ].filter((value): value is string => value !== undefined);
+  if (conflicts.length > 0) {
+    throw new Error2(
+      ErrorCodes.REQUEST_INVALID,
+      `Expert Talk cannot be combined with ${conflicts.join(', ')}`,
+    );
+  }
+  if (input.content.some((part) => part.type === 'tool_use' || part.type === 'tool_result' || part.type === 'thinking')) {
+    throw new Error2(
+      ErrorCodes.REQUEST_INVALID,
+      'Expert Talk accepts only user text and media input',
+    );
+  }
+}
+
+function selectsAnotherTurnController(input: PromptSubmission): boolean {
+  return input.dynamic_workflow_mode === true || input.profile === 'tower-worker';
+}
+
+function promptClientId(headers: Record<string, unknown>): string {
+  const value = headers['x-pythinker-client-id'];
+  if (typeof value === 'string' && value.trim().length > 0) return value.trim();
+  throw new Error2(
+    ErrorCodes.EXPERT_TALK_CLIENT_UNSUPPORTED,
+    'Expert Talk requires a stable client identity',
+  );
+}
+
+function expertTalkPromptText(parts: readonly ContentPart[]): string {
+  const text = parts
+    .filter((part): part is Extract<ContentPart, { type: 'text' }> => part.type === 'text')
+    .map((part) => part.text)
+    .join('\n')
+    .trim();
+  return text.length > 0 ? text : 'Analyze the attached media.';
+}
+
+function expertTalkModalities(parts: readonly ContentPart[]): ('image' | 'audio' | 'video')[] {
+  const values = parts.flatMap((part) => {
+    if (part.type === 'image_url') return ['image' as const];
+    if (part.type === 'audio_url') return ['audio' as const];
+    if (part.type === 'video_url') return ['video' as const];
+    return [];
+  });
+  return [...new Set(values)];
+}
+
+function releaseExpertTalkMedia(
+  service: ISessionExpertTalkService,
+  runId: string,
+  preparation: PromptMediaPreparation,
+): void {
+  const terminal = new Set([
+    'COMPLETED',
+    'CANCELLED',
+    'FAILED_OPENING',
+    'FAILED_REVIEW',
+    'FAILED_FUSION',
+    'INTERRUPTED',
+  ]);
+  let subscription: ReturnType<ISessionExpertTalkService['onDidChange']> | undefined;
+  const settle = (): void => {
+    const run = service.getRun(runId);
+    if (!terminal.has(run.status)) return;
+    subscription?.dispose();
+    void preparation.discard();
+  };
+  subscription = service.onDidChange(settle);
+  settle();
 }
 
 function authProviderDetails(err: Error2): { provider_id: string } | undefined {

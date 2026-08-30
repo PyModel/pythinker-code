@@ -26,6 +26,15 @@ import type {
   SessionMetaPatch,
 } from '@pymodel/agent-core-v2/session/sessionMetadata/sessionMetadata';
 import type { SkillSummary } from '@pymodel/agent-core-v2/features/skill/catalog/types';
+import type {
+  ExpertTalkArmV1,
+  ExpertTalkConfigV1,
+  ExpertTalkPairV1,
+  ExpertTalkRunV1,
+  ExpertTalkStartInput,
+  ExpertTalkStartResult,
+  ExpertTalkStatusV1,
+} from '@pymodel/agent-core-v2/session/expertTalk/expertTalk';
 
 import type { ScopeRef } from '../channel.js';
 import type { McpServerConfig } from '../../contract/mcp.js';
@@ -74,6 +83,22 @@ export interface SessionSkillsFacade {
   list(): Promise<readonly SkillSummary[]>;
 }
 
+export interface SessionExpertTalkFacade {
+  get(): Promise<ExpertTalkStatusV1>;
+  configure(pair: ExpertTalkPairV1, expectedVersion?: string): Promise<ExpertTalkConfigV1>;
+  clear(expectedVersion?: string): Promise<ExpertTalkConfigV1>;
+  arm(expectedVersion?: string): Promise<ExpertTalkArmV1>;
+  disarm(armId?: string): Promise<void>;
+  start(input: Omit<ExpertTalkStartInput, 'clientId'>): Promise<ExpertTalkStartResult>;
+  listRuns(): Promise<readonly ExpertTalkRunV1[]>;
+  getRun(runId: string): Promise<ExpertTalkRunV1>;
+  cancel(runId: string): Promise<ExpertTalkRunV1>;
+  review(runId: string): Promise<ExpertTalkRunV1>;
+  finish(runId: string): Promise<ExpertTalkRunV1>;
+  fuse(runId: string): Promise<ExpertTalkRunV1>;
+  retry(runId: string): Promise<ExpertTalkStartResult>;
+}
+
 /**
  * Derived session lifecycle phase. The engine retired its `sessionActivity`
  * service (#1751) — busy is now derived from agent activity views — so the
@@ -112,11 +137,16 @@ export interface SessionFacade {
   readonly questions: SessionQuestionsFacade;
   readonly interactions: SessionInteractionsFacade;
   readonly skills: SessionSkillsFacade;
+  readonly expertTalk: SessionExpertTalkFacade;
   /** Agent id → metadata for every agent registered in this session. */
   agents(): Promise<Readonly<Record<string, AgentMeta>>>;
 }
 
-export function createSessionFacade(call: ScopedCaller, sessionId: string): SessionFacade {
+export function createSessionFacade(
+  call: ScopedCaller,
+  sessionId: string,
+  clientId: string,
+): SessionFacade {
   const scope: ScopeRef = { sessionId };
   const read = (): Promise<SessionMeta> =>
     call(scope, 'sessionMetadata', 'read', []) as Promise<SessionMeta>;
@@ -206,6 +236,34 @@ export function createSessionFacade(call: ScopedCaller, sessionId: string): Sess
     skills: {
       list: () =>
         call(scope, 'sessionSkillCatalog', 'list', []) as Promise<readonly SkillSummary[]>,
+    },
+
+    expertTalk: {
+      get: () => call(scope, 'sessionExpertTalkService', 'status', []) as Promise<ExpertTalkStatusV1>,
+      configure: (pair, expectedVersion) =>
+        call(scope, 'sessionExpertTalkService', 'configure', [pair, expectedVersion]) as Promise<ExpertTalkConfigV1>,
+      clear: (expectedVersion) =>
+        call(scope, 'sessionExpertTalkService', 'clear', [expectedVersion]) as Promise<ExpertTalkConfigV1>,
+      arm: (expectedVersion) =>
+        call(scope, 'sessionExpertTalkService', 'arm', [clientId, expectedVersion]) as Promise<ExpertTalkArmV1>,
+      disarm: (armId) =>
+        call(scope, 'sessionExpertTalkService', 'disarm', [clientId, armId]) as Promise<void>,
+      start: (input) =>
+        call(scope, 'sessionExpertTalkService', 'start', [{ ...input, clientId }]) as Promise<ExpertTalkStartResult>,
+      listRuns: () =>
+        call(scope, 'sessionExpertTalkService', 'listRuns', []) as Promise<readonly ExpertTalkRunV1[]>,
+      getRun: (runId) =>
+        call(scope, 'sessionExpertTalkService', 'getRun', [runId]) as Promise<ExpertTalkRunV1>,
+      cancel: (runId) =>
+        call(scope, 'sessionExpertTalkService', 'cancel', [runId]) as Promise<ExpertTalkRunV1>,
+      review: (runId) =>
+        call(scope, 'sessionExpertTalkService', 'review', [runId]) as Promise<ExpertTalkRunV1>,
+      finish: (runId) =>
+        call(scope, 'sessionExpertTalkService', 'finish', [runId]) as Promise<ExpertTalkRunV1>,
+      fuse: (runId) =>
+        call(scope, 'sessionExpertTalkService', 'fuse', [runId]) as Promise<ExpertTalkRunV1>,
+      retry: (runId) =>
+        call(scope, 'sessionExpertTalkService', 'retry', [runId]) as Promise<ExpertTalkStartResult>,
     },
 
     agents: async () => {
