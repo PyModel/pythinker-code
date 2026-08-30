@@ -150,7 +150,7 @@ Switches that control the behavior of subsystems such as telemetry, background t
 | `PYTHINKER_WEB_FETCH_BASE_URL` | API URL of the web fetch (`FetchURL`) service; takes higher priority than `[services.pymodel_fetch] base_url`. Persisted credentials and custom headers are not forwarded to an env-selected endpoint | Non-blank string; blank values are ignored |
 | `PYTHINKER_WEB_FETCH_API_KEY` | API key of the web fetch (`FetchURL`) service; replaces both the configured API key and OAuth credential when set | Non-blank string; blank values are ignored |
 | `PYTHINKER_CODE_EXPERIMENTAL_FLAG` | Enable all registered experimental features for this process; it does not select the agent engine | `1`, `true`, `yes`, `on` |
-| `PYTHINKER_CODE_LEGACY_FLAG` | Use the legacy `agent-core` engine for `pythinker`, `pythinker -p`, `pythinker doctor`, `pythinker acp`, `pythinker export`, and `pythinker provider`; these commands use `agent-core-v2` by default | `1`, `true`, `yes`, `on` |
+| `PYTHINKER_CODE_LEGACY_FLAG` | Use the legacy `agent-core` engine for `pythinker`, `pythinker -p`, `pythinker acp`, `pythinker export`, and `pythinker provider`; these commands use `agent-core-v2` by default | `1`, `true`, `yes`, `on` |
 | `PYTHINKER_SHELL_PATH` | Override the Git Bash path on Windows (used when auto-detection fails) | Absolute path |
 | `PYTHINKER_MODEL_MAX_COMPLETION_TOKENS` | Hard cap on `max_completion_tokens` per LLM step; applies to the `pythinker` provider only | Positive integer; `0` or negative disables clamping |
 | `PYTHINKER_MODEL_TEMPERATURE` | Sampling temperature for every request; applies to the `pythinker` provider only (global — independent of `PYTHINKER_MODEL_NAME`) | Number, e.g. `0.3` |
