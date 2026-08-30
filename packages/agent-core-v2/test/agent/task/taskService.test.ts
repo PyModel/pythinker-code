@@ -174,6 +174,7 @@ describe('AgentTaskService', () => {
       append: async () => {},
       list: async () => [],
       delete: async () => {},
+      size: async () => undefined,
       flush: async () => {},
       close: async () => {},
     });
@@ -1142,6 +1143,7 @@ describe('AgentTaskService', () => {
       },
       list: async () => [],
       delete: async () => {},
+      size: async () => undefined,
       flush: async () => {},
       close: async () => {},
     });

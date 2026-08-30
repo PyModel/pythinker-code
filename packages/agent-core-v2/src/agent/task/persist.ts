@@ -142,14 +142,38 @@ export class AgentTaskPersistence {
     taskId: string,
     maxPreviewBytes: number,
   ): Promise<AgentTaskStoredOutputSnapshot | undefined> {
-    const output = await this.readTaskOutputData(taskId);
-    if (output === undefined) return undefined;
-    const preview = utf8TailPreview(output.data, maxPreviewBytes);
+    let root = this.primaryRoot();
+    let outputSizeBytes = await this.bytes.size(this.taskOutputScope(taskId, root), OUTPUT_LOG_KEY);
+    if (outputSizeBytes === undefined) {
+      const fallbackRoot = this.fallbackRoot;
+      if (fallbackRoot === undefined) return undefined;
+      root = fallbackRoot;
+      outputSizeBytes = await this.bytes.size(this.taskOutputScope(taskId, root), OUTPUT_LOG_KEY);
+      if (outputSizeBytes === undefined) return undefined;
+    }
+
+    const previewLimit = Math.min(outputSizeBytes, Math.max(0, Math.trunc(maxPreviewBytes)));
+    const data = new Uint8Array(previewLimit);
+    let offset = 0;
+    if (previewLimit > 0) {
+      const start = outputSizeBytes - previewLimit;
+      for await (const chunk of this.bytes.readStream(
+        this.taskOutputScope(taskId, root),
+        OUTPUT_LOG_KEY,
+        { start, end: outputSizeBytes - 1 },
+      )) {
+        const slice = chunk.subarray(0, previewLimit - offset);
+        data.set(slice, offset);
+        offset += slice.byteLength;
+        if (offset === previewLimit) break;
+      }
+    }
+    const preview = utf8TailPreview(data.subarray(0, offset), previewLimit);
     return {
-      outputPath: this.taskOutputFileAt(taskId, output.root),
-      outputSizeBytes: output.data.byteLength,
+      outputPath: this.taskOutputFileAt(taskId, root),
+      outputSizeBytes,
       previewBytes: preview.bytes,
-      truncated: output.data.byteLength > preview.bytes,
+      truncated: outputSizeBytes > preview.bytes,
       preview: preview.text,
     };
   }
