@@ -1,7 +1,9 @@
 import { resetCapabilitiesCache, setCapabilities, visibleWidth } from '@pymodel/pi-tui';
-import { afterEach, describe, expect, it } from 'vitest';
+import chalk from 'chalk';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { UserMessageComponent } from '#/tui/components/messages/user-message';
+import { currentTheme } from '#/tui/theme';
 import type { ImageAttachment } from '#/tui/utils/image-attachment-store';
 
 function stripAnsi(text: string): string {
@@ -11,8 +13,27 @@ function stripAnsi(text: string): string {
 }
 
 describe('UserMessageComponent', () => {
+  const previousChalkLevel = chalk.level;
+
+  beforeEach(() => {
+    chalk.level = 3;
+  });
+
   afterEach(() => {
+    chalk.level = previousChalkLevel;
     resetCapabilitiesCache();
+  });
+
+  it('renders role text on a full-width highlighted surface', () => {
+    setCapabilities({ images: null, trueColor: true, hyperlinks: true });
+    const lines = new UserMessageComponent('hello', []).render(20);
+    const contentLine = lines.find((line) => line.includes('hello'));
+
+    expect(contentLine).toBeDefined();
+    expect(contentLine).toContain(currentTheme.boldFg('roleUser', '✨ '));
+    expect(contentLine).toContain(currentTheme.fg('textStrong', 'hello'));
+    expect(contentLine).toContain('\u001B[48;2;28;34;56m');
+    expect(visibleWidth(contentLine ?? '')).toBe(20);
   });
 
   it('renders video placeholders as plain text, not inline image escapes', () => {
@@ -105,6 +126,17 @@ describe('UserMessageComponent', () => {
     expect(stripAnsi(lines.join('\n'))).not.toContain('✨');
     // The `$` sits at the leading column where the bullet used to be.
     expect(contentLine?.startsWith('$ ls')).toBe(true);
+  });
+
+  it('preserves bulletless shell echoes without a message surface', () => {
+    setCapabilities({ images: null, trueColor: true, hyperlinks: true });
+    const shellEcho = currentTheme.fg('shellMode', '$ ls');
+    const contentLine = new UserMessageComponent(shellEcho, [], '')
+      .render(20)
+      .find((line) => line.includes('$ ls'));
+
+    expect(contentLine).toContain(shellEcho);
+    expect(contentLine).not.toContain('\u001B[48;2;28;34;56m');
   });
 
   it('marks the rendered zone with OSC 133 markers, once across cache hits', () => {

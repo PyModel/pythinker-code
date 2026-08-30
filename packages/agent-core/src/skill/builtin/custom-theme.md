@@ -61,10 +61,10 @@ Only set tokens from this set — unknown keys are silently ignored at load. If 
 
 | Token | Controls |
 | --- | --- |
-| `primary` | The most-used color: links, inline code, the selected item in nearly every dialog, the focused editor border, plan/"running" badges, spinners |
-| `accent` | Secondary highlight: approval `▶` prefix, device-code box, image placeholder, BTW / queue panes, registry import |
-| `text` | Body text: dialog bodies, todo titles, footer model label, Markdown headings, assistant/tool message bullets, list bullets |
-| `textStrong` | Emphasized / bold text: input dialogs, status messages |
+| `primary` | The most-used color: links, inline code, selected dialog items, focused editor border, plan/running badges, spinners, footer model |
+| `accent` | Coral secondary highlight: approval `▶` prefix, device-code box, image placeholder, BTW / queue panes, registry import |
+| `text` | Body text: dialog bodies, todo titles, tool/read output, tool/agent/read message bullets |
+| `textStrong` | Emphasized text: input dialogs, status messages, Markdown and transcript summary headings, user transcript text |
 | `textDim` | Secondary, dimmed text (the most widely used dim shade): thinking, hints, descriptions, completed todos, Markdown quotes, footer status bar |
 | `textMuted` | Faintest text: counters, scroll info, descriptions, Markdown link URLs, code-block borders |
 | `border` | Pane and editor borders, Markdown horizontal rule |
@@ -84,7 +84,7 @@ Only set tokens from this set — unknown keys are silently ignored at load. If 
 | `diffRemovedStrong` | Diff intra-line changed words, removed (bold) |
 | `diffGutter` | Diff line-number gutter |
 | `diffMeta` | Diff meta / hunk headers |
-| `roleUser` | User message bullet and text, skill-activation name (the one role color with its own hue) |
+| `roleUser` | User message bullet and skill-activation name (the one role color with its own hue) |
 | `shellMode` | Shell mode (`!`) prompt, editor border, and the echoed `$ command` line |
 
 ## Workflow

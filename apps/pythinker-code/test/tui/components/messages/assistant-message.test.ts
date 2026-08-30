@@ -1,9 +1,11 @@
 import { Markdown, visibleWidth } from '@pymodel/pi-tui';
+import chalk from 'chalk';
 import * as cliHighlight from 'cli-highlight';
 import { describe, expect, it, vi } from 'vitest';
 
 import { AssistantMessageComponent } from '#/tui/components/messages/assistant-message';
 import { STATUS_BULLET } from '#/tui/constant/symbols';
+import { currentTheme } from '#/tui/theme';
 import { createMarkdownTheme } from '#/tui/theme/pi-tui-theme';
 import { setMarkdownRenderLatex } from '#/tui/utils/markdown-options';
 
@@ -37,6 +39,25 @@ describe('AssistantMessageComponent', () => {
     const lines = component.render(8).map(strip);
     expect(lines).toEqual(['', `${STATUS_BULLET}abcdef`]);
     expect(visibleWidth(lines[1] ?? '')).toBe(8);
+  });
+
+  it('uses semantic colors for the reply marker and Markdown hierarchy', () => {
+    const previousChalkLevel = chalk.level;
+    chalk.level = 3;
+    try {
+      const component = new AssistantMessageComponent();
+      component.updateContent('hello');
+      const rendered = component.render(80).join('\n');
+      const theme = createMarkdownTheme();
+
+      expect(rendered).toContain(currentTheme.fg('textDim', STATUS_BULLET));
+      expect(theme.heading('Heading')).toBe(
+        chalk.bold.hex(currentTheme.color('textStrong'))('Heading'),
+      );
+      expect(theme.listBullet('-')).toBe(chalk.hex(currentTheme.color('textDim'))('•'));
+    } finally {
+      chalk.level = previousChalkLevel;
+    }
   });
 
   it('keeps assistant lines within very narrow widths', () => {
