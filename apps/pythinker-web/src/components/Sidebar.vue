@@ -11,10 +11,16 @@ import {
   saveCollapsedWorkspaces,
 } from '../lib/storage';
 import { moveInOrder, type DropPosition, type WorkspaceSortMode } from '../lib/workspaceOrder';
-import type { Session, WorkspaceGroup as WorkspaceGroupType, WorkspaceView } from '../types';
+import type {
+  FilePreviewRequest,
+  Session,
+  WorkspaceGroup as WorkspaceGroupType,
+  WorkspaceView,
+} from '../types';
 import type { AppWorkspace } from '../api/types';
 import SearchSessionsDialog from './dialogs/SearchSessionsDialog.vue';
 import WorkspaceGroup from './WorkspaceGroup.vue';
+import WorkspaceExplorer from './WorkspaceExplorer.vue';
 import { isDesktop, isMacosDesktop } from '../lib/desktopFlag';
 import { useDesktopUpdate } from '../composables/useDesktopUpdate';
 import AsyncLoadFailed from './ui/AsyncLoadFailed.vue';
@@ -106,10 +112,13 @@ const emit = defineEmits<{
   loadAllSessions: [];
   openSettings: [];
   openSessionAdmin: [];
+  openFile: [target: FilePreviewRequest];
   collapse: [];
 }>();
 
 const statusView = ref<'open' | 'done' | 'workspaces'>('open');
+const explorerOpen = ref(false);
+const explorerWorkspaceId = ref<string | null>(null);
 const listView = ref<'flat' | 'grouped'>('grouped');
 watch(() => props.tabsEnabled, (enabled) => {
   if (!enabled) statusView.value = 'open';
@@ -141,6 +150,18 @@ const doneGroups = computed(() =>
     }))
     .filter((group) => group.sessions.length > 0),
 );
+const explorerGroup = computed(
+  () => props.groups.find((group) => group.workspace.id === explorerWorkspaceId.value) ?? null,
+);
+const explorerWorkspace = computed(() => explorerGroup.value?.workspace ?? null);
+const explorerSessionId = computed(() => {
+  const group = explorerGroup.value;
+  if (!group) return null;
+  if (props.activeId && group.sessions.some((session) => session.id === props.activeId)) {
+    return props.activeId;
+  }
+  return group.sessions[0]?.id ?? null;
+});
 
 function showStatus(status: 'open' | 'done' | 'workspaces'): void {
   statusView.value = status;
@@ -155,6 +176,15 @@ function chooseListView(view: 'flat' | 'grouped'): void {
 function openSessionAdmin(): void {
   closeSectionMenu();
   emit('openSessionAdmin');
+}
+
+function toggleExplorer(workspaceId: string): void {
+  if (explorerOpen.value && explorerWorkspaceId.value === workspaceId) {
+    explorerOpen.value = false;
+    return;
+  }
+  explorerWorkspaceId.value = workspaceId;
+  explorerOpen.value = true;
 }
 
 // ---------------------------------------------------------------------------
@@ -314,9 +344,9 @@ function onGroupDrop(targetId: string): void {
 }
 
 function handleGhClick(wsId: string, e: MouseEvent): void {
-  // Ignore clicks that land on the group's action buttons (kebab / add); those
+  // Ignore clicks that land on the group's action buttons; those
   // have their own handlers and must not also toggle collapse.
-  if ((e.target as Element).closest('.gh-more, .gh-add')) return;
+  if ((e.target as Element).closest('.gh-more, .gh-explorer, .gh-add')) return;
   toggleCollapse(wsId);
 }
 
@@ -896,7 +926,16 @@ watch([() => props.collapsed, update.hasUpdate], ([collapsed, hasUpdate]) => {
         </button>
       </div>
 
-      <div v-if="tabsEnabled" class="status-tabs" role="tablist">
+      <WorkspaceExplorer
+        v-show="explorerOpen"
+        :active="explorerOpen"
+        :workspace="explorerWorkspace"
+        :session-id="explorerSessionId"
+        @close="explorerOpen = false"
+        @open-file="emit('openFile', $event)"
+      />
+
+      <div v-if="!explorerOpen && tabsEnabled" class="status-tabs" role="tablist">
         <button
           type="button"
           role="tab"
@@ -937,7 +976,7 @@ watch([() => props.collapsed, update.hasUpdate], ([collapsed, hasUpdate]) => {
       </div>
 
       <PinnedSessionList
-        v-if="statusView === 'open'"
+        v-if="!explorerOpen && statusView === 'open'"
         :sessions="pinnedSessions"
         :active-id="activeId"
         :collapsed="pinnedCollapsed"
@@ -956,7 +995,7 @@ watch([() => props.collapsed, update.hasUpdate], ([collapsed, hasUpdate]) => {
       />
 
       <!-- Session list — grouped by workspace -->
-      <div class="sessions" @scroll="onSessionsScroll">
+      <div v-if="!explorerOpen" class="sessions" @scroll="onSessionsScroll">
 
         <!-- Done tab — done sessions grouped by workspace with count headers.
              The group header collapses like an open-tab workspace group and
@@ -1147,12 +1186,14 @@ watch([() => props.collapsed, update.hasUpdate], ([collapsed, hasUpdate]) => {
               :unread-by-session="unreadBySession"
               :pinned-ids="pinnedIds"
               :ws-menu-open-id="wsMenuOpenId"
+              :explorer-active="explorerOpen && explorerWorkspaceId === g.workspace.id"
               :dragging="draggingWsId === g.workspace.id"
               :is-collapsed="isCollapsed"
               :is-expanded="isExpanded"
               @group-click="handleGhClick"
               @group-contextmenu="openGhMenu"
               @toggle-ws-menu="toggleWsMenu"
+              @toggle-explorer="toggleExplorer"
               @create-in-workspace="(id) => emit('createInWorkspace', id)"
               @select-session="onSelectSession"
               @rename-session="(id, title) => emit('rename', id, title)"
@@ -1642,7 +1683,6 @@ watch([() => props.collapsed, update.hasUpdate], ([collapsed, hasUpdate]) => {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-
 .status-tabs {
   display: flex;
   align-items: center;

@@ -9,6 +9,7 @@ const chatDock = readFileSync(join(import.meta.dirname, '../src/components/chat/
 const conversationPane = readFileSync(join(import.meta.dirname, '../src/components/chat/ConversationPane.vue'), 'utf8');
 const mobileSheet = readFileSync(join(import.meta.dirname, '../src/components/mobile/MobileSettingsSheet.vue'), 'utf8');
 const sidebar = readFileSync(join(import.meta.dirname, '../src/components/Sidebar.vue'), 'utf8');
+const workspaceGroup = readFileSync(join(import.meta.dirname, '../src/components/WorkspaceGroup.vue'), 'utf8');
 const sidebarBannerDark = readFileSync(join(import.meta.dirname, '../public/brand/pythinker_banner_dark.svg'), 'utf8');
 const sessionRow = readFileSync(join(import.meta.dirname, '../src/components/SessionRow.vue'), 'utf8');
 const sideChat = readFileSync(join(import.meta.dirname, '../src/components/chat/SideChatPanel.vue'), 'utf8');
@@ -55,6 +56,18 @@ describe('app shell contracts', () => {
     expect(sidebar).not.toMatch(/\.ch-logo\s*\{[^}]*top:/s);
     expect(sidebar).toMatch(/\.ch-logo\s*\{[^}]*width: min\(220px, 100%\);/s);
     expect(sidebarBannerDark).toContain('width="1020" height="180" viewBox="238 395 1020 180"');
+  });
+
+  it('opens Explorer beside each workspace New Chat action', () => {
+    expect(sidebar).toContain("import WorkspaceExplorer from './WorkspaceExplorer.vue';");
+    expect(sidebar).not.toContain('class="btn-new-chat btn-explorer"');
+    expect(sidebar).toContain('<WorkspaceExplorer');
+    expect(sidebar).toContain('@toggle-explorer="toggleExplorer"');
+    expect(workspaceGroup).toContain('class="gh-explorer"');
+    expect(workspaceGroup).toContain("toggleExplorer: [workspaceId: string];");
+    expect(workspaceGroup).toMatch(/class="gh-explorer"[\s\S]*?<Icon name="folder-solid" \/>[\s\S]*?class="gh-add"/);
+    expect(sidebar).toContain("@open-file=\"emit('openFile', $event)\"");
+    expect(app).toContain('@open-file="openFilePreview($event)"');
   });
 
   it('uses one green update icon with a release-notes hover preview', () => {
