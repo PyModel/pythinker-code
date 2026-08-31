@@ -86,6 +86,18 @@ describe('built-in slash command registry', () => {
     expect(towerArgumentCompletions('')).toHaveLength(4);
   });
 
+  it('registers Expert Talk as an engine-v2 experiment without legacy aliases', () => {
+    const command = findBuiltInSlashCommand('expert-talk');
+    expect(command).toBeDefined();
+    expect(command?.aliases).toEqual([]);
+    expect((command as PythinkerSlashCommand).experimentalFlag).toBe('expert_talk');
+    expect((command as PythinkerSlashCommand).requiresEngineV2).toBe(true);
+    expect(resolveSlashCommandAvailability(command!, 'cancel')).toBe('always');
+    expect((command as PythinkerSlashCommand).completeArgs?.('')).toHaveLength(9);
+    expect((command as PythinkerSlashCommand).completeArgs?.('rev')).toBeNull();
+    expect((command as PythinkerSlashCommand).completeArgs?.('fin')).toBeNull();
+  });
+
   it('offers add-dir list and directory argument completions', () => {
     const values = (prefix: string): string[] | null => {
       const items = addDirArgumentCompletions(prefix);

@@ -150,38 +150,45 @@ function onHeaderDragStart(event: DragEvent): void {
           class="gh-actions"
           :class="{ open: wsMenuOpenId === group.workspace.id }"
         >
-          <IconButton
-            class="gh-more"
-            :class="{ open: wsMenuOpenId === group.workspace.id }"
-            size="sm"
-            :label="t('sidebar.options')"
-            aria-haspopup="menu"
-            :aria-expanded="wsMenuOpenId === group.workspace.id"
-            @click.stop="emit('toggleWsMenu', group.workspace, $event)"
-          >
-            <Icon name="dots-horizontal" />
-          </IconButton>
+          <Tooltip :text="t('sidebar.options')">
+            <IconButton
+              class="gh-more"
+              :class="{ open: wsMenuOpenId === group.workspace.id }"
+              size="sm"
+              :label="t('sidebar.options')"
+              aria-haspopup="menu"
+              :aria-expanded="wsMenuOpenId === group.workspace.id"
+              @click.stop="emit('toggleWsMenu', group.workspace, $event)"
+            >
+              <Icon name="dots-horizontal" />
+            </IconButton>
+          </Tooltip>
 
-          <IconButton
-            class="gh-explorer"
-            :class="{ open: explorerActive }"
-            size="sm"
-            :label="t('sidebar.explorer')"
-            aria-controls="workspace-explorer"
-            :aria-expanded="explorerActive"
-            @click.stop="emit('toggleExplorer', group.workspace.id)"
-          >
-            <Icon name="folder-solid" />
-          </IconButton>
+          <Tooltip :text="t('sidebar.showFiles')">
+            <IconButton
+              class="gh-explorer"
+              :class="{ open: explorerActive }"
+              size="sm"
+              :label="t('sidebar.showFiles')"
+              :data-workspace-files-id="group.workspace.id"
+              aria-controls="workspace-explorer"
+              :aria-expanded="explorerActive"
+              @click.stop="emit('toggleExplorer', group.workspace.id)"
+            >
+              <Icon name="list" />
+            </IconButton>
+          </Tooltip>
 
-          <IconButton
-            class="gh-add"
-            size="sm"
-            :label="t('workspace.newInGroup')"
-            @click.stop="emit('createInWorkspace', group.workspace.id)"
-          >
-            <Icon name="chat-new" />
-          </IconButton>
+          <Tooltip :text="t('workspace.newInGroup')">
+            <IconButton
+              class="gh-add"
+              size="sm"
+              :label="t('workspace.newInGroup')"
+              @click.stop="emit('createInWorkspace', group.workspace.id)"
+            >
+              <Icon name="chat-new" />
+            </IconButton>
+          </Tooltip>
         </div>
       </div>
     </div>
@@ -341,6 +348,7 @@ function onHeaderDragStart(event: DragEvent): void {
   z-index: 0;
   border-radius: var(--radius-sm);
   background: transparent;
+  pointer-events: none;
 }
 .gh:hover .gh-actions::after {
   background: var(--sb-hover, var(--color-surface-sunken));

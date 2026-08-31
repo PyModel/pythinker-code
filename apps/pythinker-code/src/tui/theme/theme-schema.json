@@ -45,7 +45,7 @@
         "warning": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$", "description": "Warning state color" },
         "error": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$", "description": "Error state color" },
         "toolPendingBg": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$", "description": "Background tint for a running tool card" },
-        "toolSuccessBg": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$", "description": "Background tint for a successful tool card" },
+        "toolSuccessBg": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$", "description": "Legacy custom-theme token; completed tool cards use the terminal background" },
         "toolErrorBg": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$", "description": "Background tint for a failed tool card" },
         "effortOff": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$", "description": "Prompt border at off thinking effort" },
         "effortLow": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$", "description": "Prompt border at low thinking effort" },
@@ -87,8 +87,8 @@
         "inverseText": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$", "description": "Foreground for active tabs; pair with `selectionBg` at 4.5:1 contrast or higher." },
         "selectionBg": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$", "description": "Background for active tabs; pair with `inverseText` at 4.5:1 contrast or higher." },
         "surfaceHighlight": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$", "description": "Highlighted row and message fill" },
-        "progressFill": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$", "description": "Filled segment of the Dynamic Workflow aggregate progress line." },
-        "progressHead": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$", "description": "Static head of the Dynamic Workflow aggregate progress track." },
+        "progressFill": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$", "description": "Active Dynamic Workflow progress bars and status labels." },
+        "progressHead": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$", "description": "Leading highlight for active Dynamic Workflow progress." },
         "progressEmpty": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$", "description": "Empty segment of the Dynamic Workflow aggregate progress line." }
       },
       "additionalProperties": {

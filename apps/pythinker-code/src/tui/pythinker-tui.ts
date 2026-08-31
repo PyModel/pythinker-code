@@ -41,6 +41,7 @@ import {
   buildPluginSlashCommands,
   buildSkillSlashCommands,
   goalObjectiveLengthWarning,
+  handleExpertTalkPromptAccepted,
   isExperimentalFlagEnabled,
   setExperimentalFeatures,
   sortSlashCommands,
@@ -1666,7 +1667,21 @@ export class PythinkerTUI {
       });
       return;
     }
-    this.staging.trackDispatch(stagingLease, session.prompt(sdkInput, { promptId: submissionId }), (error) => {
+    const expertTalkArmId = this.state.appState.expertTalkArmId;
+    const request = session.prompt(sdkInput, { promptId: submissionId, expertTalkArmId });
+    if (expertTalkArmId !== undefined) {
+      void request.then(
+        () => {
+          void handleExpertTalkPromptAccepted(this, session, expertTalkArmId).catch(
+            (error: unknown) => {
+              this.showError(`Expert Talk status: ${formatErrorMessage(error)}`);
+            },
+          );
+        },
+        () => undefined,
+      );
+    }
+    this.staging.trackDispatch(stagingLease, request, (error) => {
       this.failSessionRequest(`Failed to send: ${formatErrorMessage(error)}`);
     });
   }
@@ -2219,6 +2234,8 @@ export class PythinkerTUI {
       planMode: status.planMode,
       dynamicWorkflowMode: status.dynamicWorkflowMode ?? false,
       towerMode: status.towerMode ?? false,
+      expertTalkArmId: undefined,
+      expertTalkRunId: undefined,
       contextTokens: status.contextTokens,
       maxContextTokens: status.maxContextTokens,
       contextUsage: status.contextUsage,

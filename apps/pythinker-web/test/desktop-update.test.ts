@@ -280,7 +280,7 @@ describe('sidebar update button', () => {
 });
 
 describe('sidebar Explorer', () => {
-  it('clears the session-list scroll seam while Explorer is open', async () => {
+  it('clears the session-list scroll seam after Explorer closes', async () => {
     const wrapper = await mountSidebar([
       {
         workspace: {
@@ -304,6 +304,9 @@ describe('sidebar Explorer', () => {
     expect(search.classes()).toContain('search-wrap--scrolled');
 
     await wrapper.get('.gh-explorer').trigger('click');
-    expect(search.classes()).not.toContain('search-wrap--scrolled');
+    expect(wrapper.find('.search-wrap').exists()).toBe(false);
+
+    await wrapper.get('.explorer-back').trigger('click');
+    expect(wrapper.get('.search-wrap').classes()).not.toContain('search-wrap--scrolled');
   });
 });

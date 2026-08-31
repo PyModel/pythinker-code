@@ -15,6 +15,7 @@ import AgentDetailPanel from './components/chat/AgentDetailPanel.vue';
 import ToolDiffPanel from './components/chat/ToolDiffPanel.vue';
 import TurnDiffPanel from './components/chat/TurnDiffPanel.vue';
 import SideChatPanel from './components/chat/SideChatPanel.vue';
+import ExpertTalkControl from './components/chat/ExpertTalkControl.vue';
 import DiffView from './components/chat/DiffView.vue';
 import PanelTabBar from './components/panel/PanelTabBar.vue';
 import ModelPicker from './components/settings/ModelPicker.vue';
@@ -63,7 +64,9 @@ import { composeTitle } from './lib/sessionEmoji';
 import { getTurnInterruption } from './api/daemon/agentEventProjector';
 import IconButton from './components/ui/IconButton.vue';
 import Icon from './components/ui/Icon.vue';
+import Tooltip from './components/ui/Tooltip.vue';
 import { isMacosDesktop } from './lib/desktopFlag';
+import { expertTalkContextKey } from './composables/expertTalkContext';
 
 // Hydrate the server-transport credential (fragment token or localStorage)
 // BEFORE the client connects, so the first REST/WS calls already carry it.
@@ -75,6 +78,7 @@ const authRequired = ref(false);
 let offAuthRequired: (() => void) | null = null;
 
 const client = usePythinkerWebClient();
+provide(expertTalkContextKey, client.expertTalk);
 const desktopUpdate = useDesktopUpdate();
 const archivedSessions = ref<import('./types').Session[]>([]);
 const showSessionAdmin = ref(false);
@@ -658,6 +662,10 @@ function closeActivePanelTab(): void {
 
 // Reference to ConversationPane so we can imperatively switch tabs
 const conversationPaneRef = ref<InstanceType<typeof ConversationPane> | null>(null);
+
+function handleExpertTalkBuild(prompt: string): void {
+  conversationPaneRef.value?.loadComposerForEdit(prompt);
+}
 const sideChatPanelRef = ref<InstanceType<typeof SideChatPanel> | null>(null);
 
 function beginSideChatFocus(): () => void {
@@ -686,7 +694,7 @@ const showModelPicker = ref(false);
 const showAddWorkspace = ref(false);
 const showStatusPanel = ref(false);
 const showSettings = ref(false);
-const settingsInitialTab = ref<'general' | 'providers' | 'agent'>('general');
+const settingsInitialTab = ref<'general' | 'providers' | 'agent' | 'expertOpinion'>('general');
 const overlayOpen = computed(() =>
   openDialogCount.value > 0 ||
   showModelPicker.value ||
@@ -753,7 +761,7 @@ async function openModelPicker(): Promise<void> {
   }
 }
 
-function openSettings(tab: 'general' | 'providers' | 'agent' = 'general'): void {
+function openSettings(tab: 'general' | 'providers' | 'agent' | 'expertOpinion' = 'general'): void {
   settingsInitialTab.value = tab;
   showSettings.value = true;
 }
@@ -1100,6 +1108,47 @@ function handleCreateSession(): void {
   focusComposerAfterDraft();
 }
 
+const expertOpinionSessionAvailable = computed(() =>
+  client.backend.value === 'v2' && client.experimentalFlagState('expert_talk')?.enabled === true,
+);
+
+async function handleCreateExpertOpinionSession(): Promise<void> {
+  const workspaceId = client.activeWorkspaceId.value;
+  if (workspaceId === null) return;
+  const eligibleModels = client.models.value.filter((model) =>
+    model.maxContextSize > 0 &&
+    (model.capabilities ?? []).some((capability) =>
+      capability.trim().toLowerCase().replaceAll('-', '_') === 'tool_use'
+    ),
+  );
+  const configured = client.expertTalk.status.value?.config;
+  const eligibleModelIds = new Set(eligibleModels.map((model) => model.id));
+  const configuredPair = configured !== undefined
+    && configured !== null
+    && configured.fusionLeadModelId !== configured.peerModelId
+    && eligibleModelIds.has(configured.fusionLeadModelId)
+    && eligibleModelIds.has(configured.peerModelId)
+    ? configured
+    : undefined;
+  const fusionLeadModelId = configuredPair?.fusionLeadModelId ?? eligibleModels[0]?.id;
+  const peerModelId = configuredPair?.peerModelId
+    ?? eligibleModels.find((model) => model.id !== fusionLeadModelId)?.id;
+  if (fusionLeadModelId === undefined || peerModelId === undefined) {
+    openSettings('expertOpinion');
+    return;
+  }
+  const started = await client.startExpertOpinionSession(
+    workspaceId,
+    fusionLeadModelId,
+    peerModelId,
+  );
+  if (!started) {
+    openSettings('expertOpinion');
+    return;
+  }
+  focusComposerAfterDraft();
+}
+
 // Workspace-level "+ New" (sidebar group or mobile switcher): enter the draft
 // state in the chosen workspace. No backend session is created until the user
 // actually sends a message.
@@ -1162,8 +1211,10 @@ function openPr(url: string): void {
         :workspace-sort-mode="client.workspaceSortMode.value"
         :workspaces="client.workspacesView.value"
         :tabs-enabled="client.config.value?.experimental?.sidebarTabs === true"
+        :expert-opinion-available="expertOpinionSessionAvailable"
         @select="client.selectSession($event)"
         @create="handleCreateSession"
+        @create-expert-opinion="handleCreateExpertOpinionSession"
         @create-in-workspace="handleCreateSessionInWorkspace($event)"
         @select-workspace="client.openWorkspace($event)"
         @add-workspace="showAddWorkspace = true"
@@ -1234,6 +1285,7 @@ function openPr(url: string): void {
       ref="conversationPaneRef"
       :mobile="isMobile"
       :turns="client.turns.value"
+      :expert-talk-runs="client.expertTalk.runs.value"
       :session-id="client.activeSessionId.value"
       :approvals="client.pendingApprovals.value"
       :changes="client.changes.value"
@@ -1293,6 +1345,7 @@ function openPr(url: string): void {
       :pinned="client.pinnedSessionIds.value.includes(client.activeSessionId.value ?? '')"
       :recent-sessions="activeWorkspaceRecentSessions"
       @open-changes="openDiffDetail()"
+      @build-expert-talk="handleExpertTalkBuild"
       @select-workspace="handleCreateSessionInWorkspace($event)"
       @add-workspace="showAddWorkspace = true"
       @open-pr="openPr"
@@ -1345,28 +1398,33 @@ function openPr(url: string): void {
          no-drag rects subtract), so a no-drag element placed before the
          ChatHeader drag region would have its hole painted back over —
          making the button an inert drag area. -->
-    <IconButton
+    <Tooltip
       v-if="!isMobile && sidebarCollapsed"
-      class="sidebar-toggle-btn"
-      size="sm"
-      :label="sidebarCollapsed ? t('sidebar.expandSidebar') : t('sidebar.collapseSidebar')"
-      @click="toggleSidebarCollapse"
+      :text="sidebarCollapsed ? t('sidebar.expandSidebar') : t('sidebar.collapseSidebar')"
     >
-      <Icon :name="sidebarCollapsed ? 'panel-expand' : 'panel-collapse'" />
-    </IconButton>
+      <IconButton
+        class="sidebar-toggle-btn"
+        size="sm"
+        :label="sidebarCollapsed ? t('sidebar.expandSidebar') : t('sidebar.collapseSidebar')"
+        @click="toggleSidebarCollapse"
+      >
+        <Icon :name="sidebarCollapsed ? 'panel-expand' : 'panel-collapse'" />
+      </IconButton>
+    </Tooltip>
 
     <!-- Floating "New chat" while the sidebar is collapsed: mirrors the
          sidebar's + New action (draft in the active workspace). Rendered next
          to the toggle button and hidden on mobile. -->
-    <IconButton
-      v-if="!isMobile && sidebarCollapsed"
-      class="new-chat-btn"
-      size="sm"
-      :label="t('sidebar.newChat')"
-      @click="handleCreateSession"
-    >
-      <Icon name="chat-new" />
-    </IconButton>
+    <Tooltip v-if="!isMobile && sidebarCollapsed" :text="t('sidebar.newChat')">
+      <IconButton
+        class="new-chat-btn"
+        size="sm"
+        :label="t('sidebar.newChat')"
+        @click="handleCreateSession"
+      >
+        <Icon name="chat-new" />
+      </IconButton>
+    </Tooltip>
 
     <aside
       v-if="!showSessionAdmin && (!isMobile || panelVisible)"
@@ -1411,6 +1469,11 @@ function openPr(url: string): void {
             <button type="button" :disabled="!client.activeWorkspaceId.value" @click="openSideChatTab()">
               <Icon name="message" /><span>{{ t('sideChat.title') }}</span>
             </button>
+            <ExpertTalkControl
+              trigger="launcher"
+              :models="client.models.value"
+              @build="handleExpertTalkBuild"
+            />
           </div>
           <ThinkingPanel
             v-else-if="detailTarget === 'compaction' && compactionPanelVisible"
@@ -1851,10 +1914,11 @@ function openPr(url: string): void {
 .pfc-host { flex: none; min-width: 0; background: var(--bg); }
 .pfc-host:empty { display: none; }
 .panel-launcher { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-content: center; gap: var(--space-3); padding: var(--space-6); }
-.panel-launcher button { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--space-2); min-height: 104px; border: 1px solid var(--color-line); border-radius: var(--radius-lg); background: var(--color-surface-raised); color: var(--color-text); font: var(--text-sm) var(--font-ui); cursor: pointer; }
-.panel-launcher button:hover:not(:disabled) { border-color: var(--color-accent-bd); background: var(--color-accent-soft); }
-.panel-launcher button:focus-visible { outline: none; box-shadow: var(--p-focus-ring); }
-.panel-launcher button:disabled { color: var(--color-text-faint); cursor: default; }
+.panel-launcher :deep(button) { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--space-2); min-height: 104px; border: 1px solid var(--color-line); border-radius: var(--radius-lg); background: var(--color-surface-raised); color: var(--color-text); font: var(--text-sm) var(--font-ui); cursor: pointer; }
+.panel-launcher :deep(button:hover:not(:disabled)) { border-color: var(--color-accent-bd); background: var(--color-accent-soft); }
+.panel-launcher :deep(button:focus-visible) { outline: none; box-shadow: var(--p-focus-ring); }
+.panel-launcher :deep(button:disabled) { color: var(--color-text-faint); cursor: default; }
+.panel-launcher :deep(.expert-talk__launcher) { grid-column: 1 / -1; }
 .app.panel-expanded.sidebar-collapsed .panel-tab-bar { padding-left: var(--header-collapsed-clearance, 78px); }
 .app.panel-expanded.sidebar-collapsed.macos-desktop .panel-tab-bar { padding-left: calc(var(--macos-titlebar-controls-start) + var(--icon-button-sm) + var(--icon-button-sm) + var(--space-5)); }
 .global-preview.mobile {

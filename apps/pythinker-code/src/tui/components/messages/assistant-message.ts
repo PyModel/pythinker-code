@@ -1,7 +1,7 @@
 /**
  * Renders an assistant message using pi-tui Markdown.
  *
- * Displays a white bullet prefix with markdown content indented
+ * Displays a neutral bullet prefix with markdown content indented
  * to align after the bullet.
  */
 
@@ -122,7 +122,7 @@ export class AssistantMessageComponent implements Component {
     const lines: string[] = [''];
     for (let i = 0; i < contentLines.length; i++) {
       const p =
-        i === 0 && this.showBullet ? currentTheme.fg('text', STATUS_BULLET) : MESSAGE_INDENT;
+        i === 0 && this.showBullet ? currentTheme.fg('textDim', STATUS_BULLET) : MESSAGE_INDENT;
       lines.push(p + contentLines[i]);
     }
     const rendered = markOsc133Zone(lines.map((line) => truncateToWidth(line, safeWidth, '…')));

@@ -71,6 +71,9 @@ export type AgentFilter = z.infer<typeof agentFilterSchema>;
 
 export const clientHelloPayloadSchema = z.object({
   client_id: z.string(),
+  client_capabilities: z.object({
+    expert_talk_v1: z.boolean().optional(),
+  }).optional(),
   subscriptions: z.array(z.string()).optional(),
   cursors: cursorsBySessionSchema.optional(),
   agent_filter: agentFilterSchema.optional(),

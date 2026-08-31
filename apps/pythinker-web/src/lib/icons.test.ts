@@ -13,7 +13,7 @@ const ANIMATED_NAMES = [
   'update-available',
 ] as const;
 
-const STATIC_IDLE_NAMES = ['search', 'folder', 'settings'] as const;
+const STATIC_IDLE_NAMES = ['chat-new', 'search', 'folder', 'settings'] as const;
 
 describe('ICONS registry', () => {
   it('is non-empty', () => {
@@ -144,6 +144,11 @@ describe('idle sidebar icons', () => {
     expect(target.svg).not.toContain('<style');
     expect(target.svg).not.toContain('@keyframes');
     expect(target.svg).not.toContain('animation:');
+  });
+
+  it('adds the hover-animation hook to the new chat icon', () => {
+    const wrapper = mount(Icon, { props: { name: 'chat-new' } });
+    expect(wrapper.get('svg').classes()).toContain('ui-icon--chat-new');
   });
 });
 

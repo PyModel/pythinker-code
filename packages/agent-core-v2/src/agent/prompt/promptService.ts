@@ -134,6 +134,8 @@ export interface PromptStarted extends PromptStartedPayload {}
 
 interface Deferred<T> { readonly promise: Promise<T>; resolve(value: T): void; reject(reason: unknown): void }
 interface Record extends PromptSnapshot {
+  readonly maxOutputSize: number | undefined;
+  readonly infiniteRetry: boolean | undefined;
   state: PromptState;
   readonly launchedDeferred: Deferred<Turn | undefined>;
   readonly completionDeferred: Deferred<PromptCompletion>;
@@ -263,6 +265,8 @@ export class AgentPromptService implements IAgentPromptService {
     const record = {} as Record;
     Object.assign(record, {
       id, userMessageId: id, createdAt: new Date().toISOString(), state: 'pending', message,
+      maxOutputSize: input.maxOutputSize,
+      infiniteRetry: input.infiniteRetry,
       launchedDeferred, completionDeferred,
     });
     record.handle = {
@@ -453,7 +457,15 @@ export class AgentPromptService implements IAgentPromptService {
         item.completionDeferred.resolve({ promptId: item.id, result: undefined, state: 'blocked' });
         this.publishCompleted(item.id, 'blocked'); return;
       }
-      const turn = (await this.loop.enqueue(new PromptStepRequest(message, captions, this.reminder())).assigned).turn;
+      const turn = (await this.loop.enqueue(
+        new PromptStepRequest(
+          message,
+          captions,
+          this.reminder(),
+          item.maxOutputSize,
+          item.infiniteRetry,
+        ),
+      ).assigned).turn;
       if (turn === undefined) { this.pending.unshift(item); return; }
       item.state = 'running'; item.launchedDeferred.resolve(turn); this.active = Object.assign(item, { turn });
       this.publishStarted(item);

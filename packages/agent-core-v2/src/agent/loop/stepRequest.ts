@@ -21,6 +21,8 @@ export interface StepRequestOptions {
   readonly mergeable?: boolean;
   readonly turnScoped?: boolean;
   readonly admission?: StepRequestAdmission;
+  readonly maxOutputSize?: number;
+  readonly infiniteRetry?: boolean;
 }
 
 export abstract class StepRequest {
@@ -29,6 +31,8 @@ export abstract class StepRequest {
   readonly mergeable: boolean;
   readonly turnScoped: boolean;
   readonly admission: StepRequestAdmission;
+  readonly maxOutputSize: number | undefined;
+  readonly infiniteRetry: boolean | undefined;
 
   private _state: StepRequestState = 'pending';
 
@@ -36,6 +40,8 @@ export abstract class StepRequest {
     this.mergeable = options.mergeable ?? false;
     this.turnScoped = options.turnScoped ?? true;
     this.admission = options.admission ?? 'activeOrNextTurn';
+    this.maxOutputSize = options.maxOutputSize;
+    this.infiniteRetry = options.infiniteRetry;
   }
 
   get turnSeed(): TurnSeed | undefined {

@@ -47,6 +47,7 @@ import { useSoundNotification } from './client/useSoundNotification';
 import { useTaskPoller } from './client/useTaskPoller';
 import { useModelProviderState } from './client/useModelProviderState';
 import { useSideChat } from './client/useSideChat';
+import { useExpertTalkState } from './client/useExpertTalkState';
 import { createAuxiliaryTranscripts } from './auxiliaryTranscripts';
 import {
   forgetLocalTurnState,
@@ -1008,6 +1009,10 @@ function applyEvent(event: ReturnType<typeof toAppEvent>, sessionId: string, seq
 // strict ordering barriers and are never dropped or merged.
 
 function processEvent(appEvent: AppEvent, meta: PythinkerEventMeta): void {
+  if (appEvent.type === 'expertTalkChanged') {
+    expertTalk.applyStatus(appEvent.sessionId, appEvent.status);
+    return;
+  }
   // Capture BEFORE applyEvent advances lastSeqBySession: turn-end side
   // effects below only run when this event actually moves the durable cursor
   // forward. A late duplicate idle (e.g. replayed after a snapshot already
@@ -2973,6 +2978,12 @@ const availableOpenInApps = computed<string[]>(() => rawState.availableOpenInApp
 /** True when the connected server advertises the session fs:write action. */
 const fsWriteSupported = computed<boolean>(() => rawState.serverCapabilities['fs_write'] === true);
 
+const expertTalk = useExpertTalkState(
+  activeSessionId,
+  computed(() => rawState.serverCapabilities['expert_talk_v1'] === true),
+  pushOperationFailure,
+);
+
 // ---------------------------------------------------------------------------
 // Per-session turn-end cleanup + queue auto-flush.
 // Driven by the main agent's turn.ended boundary (wired in
@@ -3020,12 +3031,38 @@ const workspaceState = useWorkspaceState(rawState, {
   saveHiddenWorkspacesToStorage,
   goalErrorMessage,
   resetFastMoon: appearance.resetFastMoon,
+  getExpertTalkArmId: expertTalk.armIdForSession,
+  onExpertTalkPromptAccepted: expertTalk.promptAccepted,
   initialized,
   connectIssue,
   selectedDiffPath,
   fileDiffLines,
   fileDiffLoading,
 });
+
+async function abortCurrentPrompt(): Promise<void> {
+  if (expertTalk.status.value?.activeRunId !== undefined) {
+    await expertTalk.cancel();
+    return;
+  }
+  await workspaceState.abortCurrentPrompt();
+}
+
+async function startExpertOpinionSession(
+  workspaceId: string,
+  fusionLeadModelId: string,
+  peerModelId: string,
+): Promise<boolean> {
+  try {
+    const sessionId = await workspaceState.createDraftSession(workspaceId);
+    if (sessionId === null) return false;
+    await expertTalk.useForNextMessage(fusionLeadModelId, peerModelId);
+    return expertTalk.status.value?.activation.state === 'armed';
+  } catch (cause) {
+    pushOperationFailure('expertOpinionSession', cause);
+    return false;
+  }
+}
 
 /** Re-read every piece of daemon state a configuration change can invalidate.
  *
@@ -3229,6 +3266,7 @@ export function usePythinkerWebClient() {
     pendingApprovals,
     availableOpenInApps,
     fsWriteSupported,
+    expertTalk,
 
     // New Phase 1 computed
     connection,
@@ -3318,6 +3356,7 @@ export function usePythinkerWebClient() {
     selectWorkspace: workspaceState.selectWorkspace,
     openWorkspace: workspaceState.openWorkspace,
     openWorkspaceDraft: workspaceState.openWorkspaceDraft,
+    startExpertOpinionSession,
     startSessionAndSendPrompt: workspaceState.startSessionAndSendPrompt,
     startSessionAndActivateSkill: workspaceState.startSessionAndActivateSkill,
     startSessionAndOpenSideChat: workspaceState.startSessionAndOpenSideChat,
@@ -3338,7 +3377,7 @@ export function usePythinkerWebClient() {
     closeSideChat: sideChat.closeSideChat,
     sendSideChatPrompt: sideChat.sendSideChatPrompt,
     uploadImage: workspaceState.uploadImage,
-    abortCurrentPrompt: workspaceState.abortCurrentPrompt,
+    abortCurrentPrompt,
     respondApproval: workspaceState.respondApproval,
     respondQuestion: workspaceState.respondQuestion,
     dismissQuestion: workspaceState.dismissQuestion,

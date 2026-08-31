@@ -9,6 +9,7 @@ import en_composer from './en/composer';
 import en_conversation from './en/conversation';
 import en_diff from './en/diff';
 import en_editor from './en/editor';
+import en_expertTalk from './en/expertTalk';
 import en_filePreview from './en/filePreview';
 import en_firstRun from './en/firstRun';
 import en_fileTree from './en/fileTree';
@@ -52,6 +53,7 @@ export const messages = {
     conversation: en_conversation,
     diff: en_diff,
     editor: en_editor,
+    expertTalk: en_expertTalk,
     filePreview: en_filePreview,
     firstRun: en_firstRun,
     fileTree: en_fileTree,

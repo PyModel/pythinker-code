@@ -23,6 +23,7 @@ export {
   showSettingsSelector,
 } from './config';
 export { handleDynamicWorkflowCommand } from './dynamic_workflow';
+export { handleExpertTalkCommand, handleExpertTalkPromptAccepted } from './expert-talk';
 export { handleTowerCommand } from './tower';
 export { showMcpServers, showStatusReport, showUsage } from './info';
 export { handlePluginsCommand } from './plugins';

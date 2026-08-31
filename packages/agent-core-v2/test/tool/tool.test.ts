@@ -3749,6 +3749,30 @@ describe('Agent tools', () => {
         'Subagent turn failed before completing its final summary: reason=max_tokens',
       );
     });
+
+    it('passes supplied content parts into an agent run', async () => {
+      ctx.mockNextResponse({ type: 'text', text: 'I inspected the image.' });
+      const content = [
+        { type: 'text' as const, text: 'Inspect this image' },
+        {
+          type: 'image_url' as const,
+          imageUrl: { url: 'data:image/png;base64,AAAA' },
+        },
+      ];
+
+      const run = await runAgentTurn(
+        currentAgentHandle(ctx, 'agent-child'),
+        { kind: 'prompt', prompt: 'Inspect this image', content },
+        { signal },
+      );
+      await run.completion;
+
+      expect(ctx.contextData().history).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ role: 'user', content }),
+        ]),
+      );
+    });
   });
 
   describe('registered user tool failure hooks', () => {

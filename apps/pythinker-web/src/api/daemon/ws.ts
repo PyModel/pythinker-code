@@ -578,6 +578,7 @@ export class DaemonEventSocket {
       id: this.nextId(),
       payload: {
         client_id: this.clientId,
+        client_capabilities: { expert_talk_v1: true },
         subscriptions: allSessionIds,
         cursors,
       },

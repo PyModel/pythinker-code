@@ -20,8 +20,8 @@ export interface ColorPalette {
    *  in nearly every dialog, the focused editor border, plan/"running" badges,
    *  spinners. The most widely used token. */
   primary: string;
-  /** Secondary highlight: approval "▶" prefix, device-code box, image
-   *  placeholder, BTW / queue panes, custom-registry import. */
+  /** Coral secondary highlight: approval "▶" prefix,
+   *  device-code box, image placeholder, BTW / queue panes, custom-registry import. */
   accent: string;
 
   // ── Shimmer ──
@@ -37,11 +37,11 @@ export interface ColorPalette {
   textDimShimmer: string;
 
   // ── Text ──
-  /** Default body text: dialog bodies, todo titles, footer model label,
-   *  markdown headings, tool/read output, and assistant-side message bullets
-   *  (assistant / tool / agent / read) plus markdown list bullets. */
+  /** Default body text: dialog bodies, todo titles, tool/read output, and
+   *  tool / agent / read message bullets. */
   text: string;
-  /** Emphasised / bold text: input dialogs, status messages. */
+  /** Emphasised text: input dialogs, status messages, Markdown headings,
+   *  transcript summary headings, user transcript text. */
   textStrong: string;
   /** Secondary, dimmed text (the most widely used dim shade): thinking blocks,
    *  hints, descriptions, completed todos, markdown quotes, and the footer
@@ -66,7 +66,7 @@ export interface ColorPalette {
   error: string;
   /** Background tint for a running tool card. */
   toolPendingBg: string;
-  /** Background tint for a successful tool card. */
+  /** Legacy custom-theme token retained while successful tool cards stay unfilled. */
   toolSuccessBg: string;
   /** Background tint for a failed tool card. */
   toolErrorBg: string;
@@ -104,14 +104,14 @@ export interface ColorPalette {
   diffRemovedDimmed: string;
 
   // ── Roles ──
-  /** User message: bullet & text, skill-activation name. The one role colour
-   *  with its own hue — assistant/thinking/status bullets reuse text/textDim. */
+  /** User message bullet and skill-activation name. The one role colour with
+   *  its own hue — assistant/thinking/status bullets use other semantic tokens. */
   roleUser: string;
 
   // ── Shell mode ──
   /** Shell mode (`!`): the `!` prompt symbol, bash-mode editor border, and the
-   *  echoed `$ command` line. Its own hue (violet), distinct from
-   *  plan-mode (primary) and the user role (roleUser). */
+   *  echoed `$ command` line. Defaults to primary cyan but stays separate so
+   *  custom themes can distinguish it. */
   shellMode: string;
 
   // ── Workflow ──
@@ -173,29 +173,29 @@ export interface ColorPalette {
   surfaceHighlight: string;
 
   // ── Progress ──
-  /** Filled segment of the Dynamic Workflow aggregate progress line. */
+  /** Active Dynamic Workflow progress bars and status labels. */
   progressFill: string;
-  /** Static head of the Dynamic Workflow aggregate progress track. */
+  /** Leading highlight for active Dynamic Workflow progress. */
   progressHead: string;
   /** Empty segment of the Dynamic Workflow aggregate progress line. */
   progressEmpty: string;
 }
 
 export const darkColors: ColorPalette = {
-  /* Slightly darker periwinkle used for selection, menus, and focus on dark terminals. */
-  primary: '#BBC6FF',
-  accent: '#7B8CE8',
+  /* Clean cyan used for actions, links, menus, and focus on dark terminals. */
+  primary: '#5FC3E8',
+  accent: '#EE9983',
 
-  primaryShimmer: '#F4F5FF',
-  accentShimmer: '#AAB7FF',
+  primaryShimmer: '#A5E3F7',
+  accentShimmer: '#FFC4B8',
   warningShimmer: '#FFD474',
   borderShimmer: '#848CA8',
   textDimShimmer: '#B6B9C7',
 
   text: '#E0E0E0',
   textStrong: '#F5F5F5',
-  textDim: '#888888',
-  textMuted: '#6B6B6B',
+  textDim: '#A3A3A3',
+  textMuted: '#858585',
 
   border: '#5A5A5A',
   borderFocus: '#E8A838',
@@ -224,7 +224,7 @@ export const darkColors: ColorPalette = {
   diffRemovedDimmed: '#B55E68',
 
   roleUser: '#FFCB6B',
-  shellMode: '#BD93F9',
+  shellMode: '#5FC3E8',
 
   workflowTitle: '#EE9983',
 
@@ -246,7 +246,7 @@ export const darkColors: ColorPalette = {
   rainbowViolet: '#C763E9',
 
   modeAutoAccept: '#66D49A',
-  modePlan: '#A9B8FF',
+  modePlan: '#5FC3E8',
   modePermission: '#D99AF0',
   modeFast: '#FFB45E',
 
@@ -255,18 +255,18 @@ export const darkColors: ColorPalette = {
   selectionBg: '#344274',
   surfaceHighlight: '#1C2238',
 
-  progressFill: '#25764A',
-  progressHead: '#4EC87E',
+  progressFill: '#5FC3E8',
+  progressHead: '#A5E3F7',
   progressEmpty: '#D9DEE8',
 };
 
 export const lightColors: ColorPalette = {
-  /* Darker periwinkle for ≥3:1 contrast on light terminal backgrounds. */
-  primary: '#4A5BC4',
-  accent: '#5566CC',
+  /* Dark cyan for WCAG AA contrast on light terminal backgrounds. */
+  primary: '#006A88',
+  accent: '#9C261C',
 
-  primaryShimmer: '#263BA8',
-  accentShimmer: '#3F4DB5',
+  primaryShimmer: '#004B63',
+  accentShimmer: '#7C1C12',
   warningShimmer: '#6F4700',
   borderShimmer: '#4F567A',
   textDimShimmer: '#222A4A',
@@ -303,7 +303,7 @@ export const lightColors: ColorPalette = {
   diffRemovedDimmed: '#8D4852',
 
   roleUser: '#9A4A00',
-  shellMode: '#7C3AED',
+  shellMode: '#006A88',
 
   workflowTitle: '#9C261C',
 
@@ -325,7 +325,7 @@ export const lightColors: ColorPalette = {
   rainbowViolet: '#7C1C9C',
 
   modeAutoAccept: '#26704C',
-  modePlan: '#4A5BC4',
+  modePlan: '#006A88',
   modePermission: '#7A3C96',
   modeFast: '#9A570F',
 
@@ -334,8 +334,8 @@ export const lightColors: ColorPalette = {
   selectionBg: '#C9D1FA',
   surfaceHighlight: '#E8EBFC',
 
-  progressFill: '#3B9A65',
-  progressHead: '#0E7A38',
+  progressFill: '#006A88',
+  progressHead: '#004B63',
   progressEmpty: '#6B7280',
 };
 

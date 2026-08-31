@@ -11,8 +11,8 @@ const SGR = new RegExp(`${ESC}\\[[0-9;]*m`, 'g');
 const strip = (s: string): string => s.replaceAll(SGR, '');
 const TAB = '\t';
 const RIGHT = `${ESC}[C`;
-// chalk.bgHex(colors.primary) → background truecolor for #4FA8FF.
-const PRIMARY_BG = '48;2;187;198;255';
+// chalk.bgHex(colors.selectionBg) → background truecolor for #344274.
+const SELECTION_BG = '48;2;52;66;116';
 
 function model(displayName: string, provider: string): ModelAlias {
   return {
@@ -65,9 +65,9 @@ describe('TabbedModelSelectorComponent', () => {
 
   it('highlights the active tab with a filled background (AskUserQuestion style)', () => {
     // currentValue k2 → the active tab is "oauth-example"; its cell carries the
-    // primary background SGR.
+    // accessible selection background SGR.
     const raw = make().component.render(120).join('\n');
-    expect(raw).toContain(PRIMARY_BG);
+    expect(raw).toContain(SELECTION_BG);
   });
 
   it('repaints the tab strip from the current theme palette without remounting', () => {

@@ -2,8 +2,11 @@
 // Logic tests for the useConfirmDialog singleton: boolean confirm/cancel,
 // supersede, and the async `action` flow (busy state, close-on-settle,
 // rejection propagation).
+import { mount } from '@vue/test-utils';
 import { beforeEach, describe, expect, it } from 'vitest';
+import ConfirmDialog from '../src/components/dialogs/ConfirmDialog.vue';
 import { useConfirmDialog } from '../src/composables/useConfirmDialog';
+import { i18n } from '../src/i18n';
 
 function deferred<T = void>(): {
   promise: Promise<T>;
@@ -137,5 +140,20 @@ describe('useConfirmDialog', () => {
     await expect(first).resolves.toBe(true);
     expect(busy.value).toBe(false);
     expect(current.value).toBeNull();
+  });
+});
+
+describe('ConfirmDialog', () => {
+  it('uses the stacked modal layer above an already-open dialog', () => {
+    const wrapper = mount(ConfirmDialog, {
+      props: {
+        open: true,
+        title: 'Delete provider',
+      },
+      global: { plugins: [i18n] },
+    });
+
+    expect(document.body.querySelector('.ui-dialog__overlay--stacked')).not.toBeNull();
+    wrapper.unmount();
   });
 });
