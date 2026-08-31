@@ -1674,7 +1674,7 @@ export class PythinkerTUI {
         () => {
           void handleExpertTalkPromptAccepted(this, session, expertTalkArmId).catch(
             (error: unknown) => {
-              this.showError(`Discussion status: ${formatErrorMessage(error)}`);
+              this.showError(`Expert Talk status: ${formatErrorMessage(error)}`);
             },
           );
         },

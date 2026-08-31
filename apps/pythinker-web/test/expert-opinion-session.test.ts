@@ -29,8 +29,8 @@ vi.mock('markstream-vue/workers/mermaidParser.worker?worker&type=module', () => 
 }));
 
 const models: AppModel[] = [
-  { id: 'provider/architect', provider: 'Provider A', model: 'Architect Model', maxContextSize: 128000, capabilities: ['tool_use'] },
-  { id: 'provider/builder', provider: 'Provider B', model: 'Builder Model', maxContextSize: 128000, capabilities: ['tool_use'] },
+  { id: 'provider/lead', provider: 'Provider A', model: 'Lead Model', maxContextSize: 128000, capabilities: ['tool_use'] },
+  { id: 'provider/peer', provider: 'Provider B', model: 'Peer Model', maxContextSize: 128000, capabilities: ['tool_use'] },
 ];
 
 const run: AppExpertTalkRun = {
@@ -43,22 +43,23 @@ const run: AppExpertTalkRun = {
   createdAt: '2026-08-30T12:00:00.000Z',
   updatedAt: '2026-08-30T12:00:08.000Z',
   bindings: {
-    fusionLead: { requestedModelId: 'provider/architect', effectiveModelId: 'provider/architect' },
-    peer: { requestedModelId: 'provider/builder', effectiveModelId: 'provider/builder' },
+    fusionLead: { requestedModelId: 'provider/lead', effectiveModelId: 'provider/lead' },
+    peer: { requestedModelId: 'provider/peer', effectiveModelId: 'provider/peer' },
   },
   opening: {
-    lead: { role: 'fusion_lead', stage: 'opening', state: 'completed', text: 'Architect opening', partial: false },
-    peer: { role: 'peer', stage: 'opening', state: 'completed', text: 'Builder opening', partial: false },
+    lead: { role: 'fusion_lead', stage: 'opening', state: 'completed', text: 'Fusion Lead opening', partial: false },
+    peer: { role: 'peer', stage: 'opening', state: 'completed', text: 'Peer Expert opening', partial: false },
   },
   review: {
-    lead: { role: 'fusion_lead', stage: 'review', state: 'completed', text: 'Architect review of Builder', partial: false },
+    lead: { role: 'fusion_lead', stage: 'review', state: 'completed', text: 'Fusion Lead review of Peer Expert', partial: false },
+    peer: { role: 'peer', stage: 'review', state: 'completed', text: 'Peer Expert review of Fusion Lead', partial: false },
   },
   fusion: { role: 'fusion_lead', stage: 'fusion', state: 'completed', text: 'Raw fusion', partial: false },
   result: {
     answer: 'Consolidated answer',
     notes: { consensus: [], divergence: [], uncertainty: [] },
   },
-  usage: { complete: true, requestCount: 4, providerAttemptCount: 4 },
+  usage: { complete: true, requestCount: 5, providerAttemptCount: 5 },
   revision: 6,
 };
 
@@ -87,17 +88,17 @@ function mountPane(promptId = 'prompt-1') {
   });
 }
 
-describe('Discussion session transcript', () => {
+describe('Expert Talk session transcript', () => {
   afterEach(() => vi.unstubAllGlobals());
 
   it('renders the complete exchange inline and replaces the duplicate assistant answer', () => {
     const wrapper = mountPane();
 
     expect(wrapper.findAll('.expert-opinion-exchange')).toHaveLength(1);
-    expect(wrapper.text()).toContain('Architect opening');
-    expect(wrapper.text()).toContain('Builder opening');
-    expect(wrapper.text()).toContain('Architect review of Builder');
-    expect(wrapper.text()).not.toContain('Builder review of Architect');
+    expect(wrapper.text()).toContain('Fusion Lead opening');
+    expect(wrapper.text()).toContain('Peer Expert opening');
+    expect(wrapper.text()).toContain('Fusion Lead review of Peer Expert');
+    expect(wrapper.text()).toContain('Peer Expert review of Fusion Lead');
     expect(wrapper.text()).toContain('Consolidated answer');
     expect(wrapper.findAll('.a-msg')).toHaveLength(0);
   });
@@ -115,24 +116,4 @@ describe('Discussion session transcript', () => {
     expect(wrapper.emitted('buildExpertTalk')).toEqual([['Consolidated answer']]);
   });
 
-  it('shows a static waiting mascot while Discussion pauses for an action', async () => {
-    const wrapper = mountPane();
-    const waitingRun: AppExpertTalkRun = {
-      ...run,
-      state: 'waiting',
-      stage: 'review',
-      fusion: undefined,
-      result: undefined,
-    };
-
-    await wrapper.setProps({
-      turns: [turns()[0]!],
-      expertTalkRuns: [waitingRun],
-      working: true,
-    });
-
-    expect(wrapper.get('.wi-label').text()).toBe('Waiting…');
-    expect(wrapper.get('.wi-label').classes()).not.toContain('ui-shimmer');
-    expect(wrapper.get('.wi-mascot img').attributes('src')).toContain('mascot-idle');
-  });
 });

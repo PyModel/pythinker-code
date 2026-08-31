@@ -256,7 +256,7 @@ export interface PromptSubmitResult {
 }
 
 export type AppExpertTalkRole = 'fusion_lead' | 'peer';
-export type AppExpertTalkStage = 'preparing' | 'opening' | 'review' | 'fusion' | 'terminal';
+export type AppExpertTalkStage = 'opening' | 'review' | 'fusion' | 'terminal';
 
 export interface AppExpertTalkArtifact {
   role: AppExpertTalkRole;
@@ -288,7 +288,7 @@ export interface AppExpertTalkRun {
   turnId: number;
   promptId: string;
   retryOf?: string;
-  state: 'preparing' | 'running' | 'waiting' | 'completed' | 'cancelled' | 'failed' | 'interrupted';
+  state: 'running' | 'completed' | 'cancelled' | 'failed' | 'interrupted';
   stage: AppExpertTalkStage;
   createdAt: string;
   startedAt?: string;
@@ -299,7 +299,7 @@ export interface AppExpertTalkRun {
     peer: { requestedModelId: string; effectiveModelId: string };
   };
   opening: { lead: AppExpertTalkArtifact; peer: AppExpertTalkArtifact };
-  review: { lead: AppExpertTalkArtifact };
+  review: { lead: AppExpertTalkArtifact; peer: AppExpertTalkArtifact };
   fusion?: AppExpertTalkArtifact;
   result?: {
     answer: string;
@@ -309,10 +309,12 @@ export interface AppExpertTalkRun {
       uncertainty: string[];
     };
   };
+  resultVersion?: string;
+  resultUnsupported?: boolean;
   usage: {
     complete: boolean;
-    requestCount: number;
-    providerAttemptCount: number;
+    requestCount?: number;
+    providerAttemptCount?: number;
   };
   error?: {
     reason: string;
@@ -344,6 +346,16 @@ export interface AppExpertTalkStatus {
     state: 'valid' | 'stale' | 'ineligible' | 'collapsed' | 'unknown';
     reason?: string;
   };
+}
+
+export interface AppExpertTalkRunPage {
+  runs: AppExpertTalkRun[];
+  nextCursor?: string;
+}
+
+export interface AppExpertTalkListRunsOptions {
+  cursor?: string;
+  limit?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -1136,12 +1148,12 @@ export interface PythinkerWebApi {
   clearExpertTalk(sessionId: string, expectedVersion?: string): Promise<AppExpertTalkStatus>;
   armExpertTalk(sessionId: string, expectedVersion?: string): Promise<AppExpertTalkStatus>;
   disarmExpertTalk(sessionId: string, armId?: string): Promise<AppExpertTalkStatus>;
-  listExpertTalkRuns(sessionId: string): Promise<AppExpertTalkRun[]>;
+  listExpertTalkRuns(
+    sessionId: string,
+    options?: AppExpertTalkListRunsOptions,
+  ): Promise<AppExpertTalkRunPage>;
   getExpertTalkRun(sessionId: string, runId: string): Promise<AppExpertTalkRun>;
   cancelExpertTalkRun(sessionId: string, runId: string): Promise<AppExpertTalkRun>;
-  reviewExpertTalkRun(sessionId: string, runId: string): Promise<AppExpertTalkRun>;
-  finishExpertTalkRun(sessionId: string, runId: string): Promise<AppExpertTalkRun>;
-  fuseExpertTalkRun(sessionId: string, runId: string): Promise<AppExpertTalkRun>;
   retryExpertTalkRun(sessionId: string, runId: string): Promise<AppExpertTalkRun>;
   /** Current goal snapshot, or null when the session has no active goal. */
   getSessionGoal(sessionId: string): Promise<AppGoal | null>;

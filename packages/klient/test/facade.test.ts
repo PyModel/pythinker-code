@@ -136,13 +136,17 @@ describe('facade routing', () => {
     const started = {
       runId: 'run-1',
       promptId: 'prompt-1',
-      status: 'PREPARING' as const,
+      status: 'OPENING' as const,
       createdAt: '2026-08-29T00:00:00Z',
     };
     channel.results.set('sessionExpertTalkService.configure', config);
     channel.results.set('sessionExpertTalkService.arm', arm);
     channel.results.set('sessionExpertTalkService.disarm', undefined);
     channel.results.set('sessionExpertTalkService.start', started);
+    channel.results.set('sessionExpertTalkService.listRuns', {
+      items: [],
+      nextCursor: 'run-1',
+    });
 
     await expect(expertTalk.configure(pair, 'v1')).resolves.toEqual(config);
     await expect(expertTalk.arm('v2')).resolves.toEqual(arm);
@@ -150,11 +154,16 @@ describe('facade routing', () => {
     await expect(
       expertTalk.start({ armId: 'arm-1', prompt: 'Compare', content: [{ type: 'text', text: 'Compare' }] }),
     ).resolves.toEqual(started);
+    await expect(expertTalk.listRuns({ cursor: 'run-2', limit: 1 })).resolves.toEqual({
+      items: [],
+      nextCursor: 'run-1',
+    });
 
     const configureCall = channel.calls[0];
     const armCall = channel.calls[1];
     const disarmCall = channel.calls[2];
     const startCall = channel.calls[3];
+    const listCall = channel.calls[4];
     expect(configureCall).toEqual({
       scope: { sessionId: 's1' },
       service: 'sessionExpertTalkService',
@@ -178,6 +187,12 @@ describe('facade routing', () => {
       service: 'sessionExpertTalkService',
       method: 'start',
       args: [{ armId: 'arm-1', clientId: armCall?.args[0], prompt: 'Compare' }],
+    });
+    expect(listCall).toEqual({
+      scope: { sessionId: 's1' },
+      service: 'sessionExpertTalkService',
+      method: 'listRuns',
+      args: [{ cursor: 'run-2', limit: 1 }],
     });
   });
 

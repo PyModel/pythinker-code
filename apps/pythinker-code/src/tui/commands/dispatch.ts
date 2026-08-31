@@ -426,7 +426,7 @@ const SESSION_REQUIRING_COMMANDS: ReadonlySet<BuiltinSlashCommandName> = new Set
   'init',
   'plan',
   'dynamic_workflow',
-  'discussion',
+  'expert-talk',
   'undo',
   'web',
 ]);
@@ -575,7 +575,7 @@ async function handleBuiltInSlashCommand(
     case 'tower':
       await handleTowerCommand(host, args);
       return;
-    case 'discussion':
+    case 'expert-talk':
       await handleExpertTalkCommand(host, args);
       return;
     case 'compact':

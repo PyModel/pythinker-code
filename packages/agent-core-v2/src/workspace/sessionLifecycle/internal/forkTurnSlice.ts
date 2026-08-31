@@ -58,6 +58,42 @@ export function sliceMainRecordsAtTurn(
   };
 }
 
+export function sliceMainRecordsBeforePrompt(
+  records: readonly WireRecord[],
+  sourceSessionId: string,
+  promptId: string,
+): MainTurnSlice {
+  const turnStarts: number[] = [];
+  let activeTurnIndex = -1;
+  for (let index = 0; index < records.length; index += 1) {
+    const record = records[index]!;
+    if (!isUserVisibleTurnRecord(record)) continue;
+    turnStarts.push(index);
+    if (messageId(record) === promptId) activeTurnIndex = turnStarts.length - 1;
+  }
+  if (activeTurnIndex === -1) {
+    throw new Error2(
+      ErrorCodes.REQUEST_INVALID,
+      `Prompt "${promptId}" was not found in session "${sourceSessionId}"`,
+      { details: { promptId } },
+    );
+  }
+  if (activeTurnIndex > 0) {
+    return sliceMainRecordsAtTurn(records, sourceSessionId, activeTurnIndex - 1);
+  }
+  const activeStart = turnStarts[0]!;
+  const retained = records
+    .slice(0, activeStart)
+    .filter((record) => !isUserVisibleTurnInputRecord(record));
+  const cutoffTimes = retained
+    .map(recordTime)
+    .filter((time): time is number => time !== undefined);
+  return {
+    records: retained,
+    cutoffTime: cutoffTimes.length === 0 ? undefined : Math.max(...cutoffTimes),
+  };
+}
+
 export function sliceSubagentRecordsAtTime(
   records: readonly WireRecord[],
   cutoffTime: number | undefined,
@@ -91,6 +127,12 @@ function isUserVisibleTurnRecord(record: WireRecord): boolean {
     default:
       return false;
   }
+}
+
+function messageId(record: WireRecord): string | undefined {
+  if (record.type !== 'context.append_message') return undefined;
+  const message = asRecord(record['message']);
+  return typeof message?.['id'] === 'string' ? message['id'] : undefined;
 }
 
 function isUserVisibleTurnInputRecord(record: WireRecord): boolean {

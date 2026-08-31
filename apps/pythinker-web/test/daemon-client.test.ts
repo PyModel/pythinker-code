@@ -371,19 +371,6 @@ describe('DaemonPythinkerWebApi Expert Talk', () => {
     expect(new Headers(armInit?.headers).get('If-Match')).toBe('"7"');
   });
 
-  it('posts the finish-with-Architect action', async () => {
-    vi.mocked(fetch).mockResolvedValueOnce(envelope(WIRE_EXPERT_TALK_RUN));
-
-    const run = await createApi().finishExpertTalkRun('sess_1', 'run_1');
-
-    expect(run.runId).toBe('run_1');
-    const [url, init] = vi.mocked(fetch).mock.calls[0]!;
-    expect(url).toBe(
-      'http://daemon.test/api/v1/sessions/sess_1/expert-talk/runs/run_1/finish',
-    );
-    expect(init?.method).toBe('POST');
-  });
-
   it('maps a run and sends the owned arm with the prompt', async () => {
     vi.mocked(fetch)
       .mockResolvedValueOnce(envelope(WIRE_EXPERT_TALK_RUN))
@@ -403,6 +390,7 @@ describe('DaemonPythinkerWebApi Expert Talk', () => {
 
     expect(run.stage).toBe('review');
     expect(run.opening.peer.text).toBe('Peer opening');
+    expect(run.review.peer.state).toBe('pending');
     expect(run.opening.lead).toMatchObject({
       startedAt: '2026-01-01T00:00:00.000Z',
       endedAt: '2026-01-01T00:00:02.000Z',
@@ -418,6 +406,24 @@ describe('DaemonPythinkerWebApi Expert Talk', () => {
     const body = init?.body;
     if (typeof body !== 'string') throw new Error('Expected a JSON request body');
     expect(JSON.parse(body)).toMatchObject({ expert_talk_arm_id: 'arm_1' });
+  });
+
+  it('maps paginated runs and sends the cursor and limit', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(envelope({
+      runs: [WIRE_EXPERT_TALK_RUN],
+      next_cursor: 'run_1',
+    }));
+    const api = createApi();
+
+    const page = await api.listExpertTalkRuns('sess_1', { cursor: 'run_2', limit: 1 });
+
+    expect(page.runs).toHaveLength(1);
+    expect(page.nextCursor).toBe('run_1');
+    const [rawUrl] = vi.mocked(fetch).mock.calls[0]!;
+    if (typeof rawUrl !== 'string') throw new TypeError('expected a string URL');
+    const url = new URL(rawUrl);
+    expect(url.pathname).toBe('/api/v1/sessions/sess_1/expert-talk/runs');
+    expect(Object.fromEntries(url.searchParams)).toEqual({ cursor: 'run_2', limit: '1' });
   });
 });
 

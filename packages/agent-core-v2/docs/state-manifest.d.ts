@@ -668,7 +668,7 @@ export interface SessionStateSnapshot {
       readonly sessionId: string;
       readonly turnId: number;
       readonly promptId: string;
-      readonly status: /* ExpertTalkRunStatus — packages/agent-core-v2/src/session/expertTalk/expertTalk.ts */ 'PREPARING' | 'OPENING' | 'OPINIONS_READY' | 'REVIEWING' | 'REVIEW_READY' | 'FUSING' | 'COMPLETED' | 'CANCELLED' | 'FAILED_OPENING' | 'FAILED_REVIEW' | 'FAILED_FUSION' | 'INTERRUPTED';
+      readonly status: /* ExpertTalkRunStatus — packages/agent-core-v2/src/session/expertTalk/expertTalk.ts */ 'OPENING' | 'REVIEWING' | 'FUSING' | 'COMPLETED' | 'CANCELLED' | 'FAILED_OPENING' | 'FAILED_REVIEW' | 'FAILED_FUSION' | 'INTERRUPTED';
       readonly prompt: string;
       readonly modalities: readonly ('image' | 'audio' | 'video')[];
       readonly createdAt: string;
@@ -730,6 +730,10 @@ export interface SessionStateSnapshot {
           readonly error?: string;
           readonly errorReason?: 'CANCELLED' | 'INTERRUPTED' | 'TOOL_NOT_ALLOWED' | 'TOOL_RESULT_BUDGET_EXCEEDED' | 'STAGE_REQUEST_BUDGET_EXCEEDED' | 'STAGE_TIMEOUT' | 'OPENING_FAILED' | 'REVIEW_FAILED' | 'FUSION_FAILED' | 'FUSION_RESULT_INVALID';
           readonly digest?: string;
+          readonly tools?: readonly /* ExpertTalkToolProgressV1 — packages/agent-core-v2/src/session/expertTalk/expertTalk.ts */ {
+            readonly id: string;
+            readonly name?: string;
+          }[];
           readonly partial?: boolean;
           readonly startedAt?: string;
           readonly endedAt?: string;
@@ -750,6 +754,10 @@ export interface SessionStateSnapshot {
           readonly error?: string;
           readonly errorReason?: 'CANCELLED' | 'INTERRUPTED' | 'TOOL_NOT_ALLOWED' | 'TOOL_RESULT_BUDGET_EXCEEDED' | 'STAGE_REQUEST_BUDGET_EXCEEDED' | 'STAGE_TIMEOUT' | 'OPENING_FAILED' | 'REVIEW_FAILED' | 'FUSION_FAILED' | 'FUSION_RESULT_INVALID';
           readonly digest?: string;
+          readonly tools?: readonly /* ExpertTalkToolProgressV1 — packages/agent-core-v2/src/session/expertTalk/expertTalk.ts */ {
+            readonly id: string;
+            readonly name?: string;
+          }[];
           readonly partial?: boolean;
           readonly startedAt?: string;
           readonly endedAt?: string;
@@ -770,6 +778,34 @@ export interface SessionStateSnapshot {
           readonly error?: string;
           readonly errorReason?: 'CANCELLED' | 'INTERRUPTED' | 'TOOL_NOT_ALLOWED' | 'TOOL_RESULT_BUDGET_EXCEEDED' | 'STAGE_REQUEST_BUDGET_EXCEEDED' | 'STAGE_TIMEOUT' | 'OPENING_FAILED' | 'REVIEW_FAILED' | 'FUSION_FAILED' | 'FUSION_RESULT_INVALID';
           readonly digest?: string;
+          readonly tools?: readonly /* ExpertTalkToolProgressV1 — packages/agent-core-v2/src/session/expertTalk/expertTalk.ts */ {
+            readonly id: string;
+            readonly name?: string;
+          }[];
+          readonly partial?: boolean;
+          readonly startedAt?: string;
+          readonly endedAt?: string;
+          readonly usage?: /* TokenUsage — packages/agent-core-v2/src/kosong/contract/usage.ts */ {
+            inputOther: number;
+            output: number;
+            inputCacheRead: number;
+            inputCacheCreation: number;
+          };
+          readonly requestCount?: number;
+          readonly providerAttemptCount?: number;
+          readonly toolCallCount?: number;
+          readonly toolResultTokens?: number;
+        };
+        readonly peerReview?: /* ExpertTalkStageArtifactV1 — packages/agent-core-v2/src/session/expertTalk/expertTalk.ts */ {
+          readonly status: 'completed' | 'failed' | 'unavailable';
+          readonly text?: string;
+          readonly error?: string;
+          readonly errorReason?: 'CANCELLED' | 'INTERRUPTED' | 'TOOL_NOT_ALLOWED' | 'TOOL_RESULT_BUDGET_EXCEEDED' | 'STAGE_REQUEST_BUDGET_EXCEEDED' | 'STAGE_TIMEOUT' | 'OPENING_FAILED' | 'REVIEW_FAILED' | 'FUSION_FAILED' | 'FUSION_RESULT_INVALID';
+          readonly digest?: string;
+          readonly tools?: readonly /* ExpertTalkToolProgressV1 — packages/agent-core-v2/src/session/expertTalk/expertTalk.ts */ {
+            readonly id: string;
+            readonly name?: string;
+          }[];
           readonly partial?: boolean;
           readonly startedAt?: string;
           readonly endedAt?: string;
@@ -790,6 +826,10 @@ export interface SessionStateSnapshot {
           readonly error?: string;
           readonly errorReason?: 'CANCELLED' | 'INTERRUPTED' | 'TOOL_NOT_ALLOWED' | 'TOOL_RESULT_BUDGET_EXCEEDED' | 'STAGE_REQUEST_BUDGET_EXCEEDED' | 'STAGE_TIMEOUT' | 'OPENING_FAILED' | 'REVIEW_FAILED' | 'FUSION_FAILED' | 'FUSION_RESULT_INVALID';
           readonly digest?: string;
+          readonly tools?: readonly /* ExpertTalkToolProgressV1 — packages/agent-core-v2/src/session/expertTalk/expertTalk.ts */ {
+            readonly id: string;
+            readonly name?: string;
+          }[];
           readonly partial?: boolean;
           readonly startedAt?: string;
           readonly endedAt?: string;

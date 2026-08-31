@@ -254,6 +254,11 @@ export class EditorKeyboardController {
         this.clearPendingUndoEsc();
         return;
       }
+      if (host.state.appState.expertTalkRunId !== undefined) {
+        this.cancelExpertTalkRun(host.state.appState.expertTalkRunId);
+        this.clearPendingUndoEsc();
+        return;
+      }
       if (host.state.appState.streamingPhase !== 'idle') {
         this.cancelCurrentStream();
         this.clearPendingUndoEsc();
@@ -525,6 +530,14 @@ export class EditorKeyboardController {
     // addition to the agent turn, so Esc / Ctrl+C interrupts it too.
     this.host.cancelRunningShellCommand();
     void this.host.session?.cancel();
+  }
+
+  private cancelExpertTalkRun(runId: string): void {
+    const session = this.host.session;
+    if (session === undefined) return;
+    void session.cancelExpertTalkRun(runId).catch((error: unknown) => {
+      this.host.showError(`Failed to cancel Expert Talk: ${formatErrorMessage(error)}`);
+    });
   }
 
   /** Guards Shift-Tab cycling while a setThinking round-trip is still pending. */

@@ -10,6 +10,8 @@ import type {
   AppSubagentModelPolicy,
   AppSubagentModelPolicyState,
   AppExpertTalkRun,
+  AppExpertTalkRunPage,
+  AppExpertTalkListRunsOptions,
   AppExpertTalkStatus,
   AppServerMeta,
   AppConfig,
@@ -87,6 +89,7 @@ import type {
   WireSubagentModelPolicy,
   WireSubagentModelPolicyResponse,
   WireExpertTalkRun,
+  WireExpertTalkRunPage,
   WireExpertTalkStatus,
   WireExperimentalFlagState,
   WireAuthResult,
@@ -752,11 +755,18 @@ export class DaemonPythinkerWebApi implements PythinkerWebApi {
     ));
   }
 
-  async listExpertTalkRuns(sessionId: string): Promise<AppExpertTalkRun[]> {
-    const data = await this.http.get<{ runs: WireExpertTalkRun[] }>(
+  async listExpertTalkRuns(
+    sessionId: string,
+    options?: AppExpertTalkListRunsOptions,
+  ): Promise<AppExpertTalkRunPage> {
+    const data = await this.http.get<WireExpertTalkRunPage>(
       `/sessions/${encodeURIComponent(sessionId)}/expert-talk/runs`,
+      { cursor: options?.cursor, limit: options?.limit },
     );
-    return data.runs.map(toAppExpertTalkRun);
+    return {
+      runs: data.runs.map(toAppExpertTalkRun),
+      nextCursor: data.next_cursor,
+    };
   }
 
   async getExpertTalkRun(sessionId: string, runId: string): Promise<AppExpertTalkRun> {
@@ -769,24 +779,6 @@ export class DaemonPythinkerWebApi implements PythinkerWebApi {
     return toAppExpertTalkRun(await this.http.post<WireExpertTalkRun>(
       `/sessions/${encodeURIComponent(sessionId)}/expert-talk/runs/${encodeURIComponent(runId)}/cancel`,
       {},
-    ));
-  }
-
-  async reviewExpertTalkRun(sessionId: string, runId: string): Promise<AppExpertTalkRun> {
-    return toAppExpertTalkRun(await this.http.post<WireExpertTalkRun>(
-      `/sessions/${encodeURIComponent(sessionId)}/expert-talk/runs/${encodeURIComponent(runId)}/review`,
-    ));
-  }
-
-  async finishExpertTalkRun(sessionId: string, runId: string): Promise<AppExpertTalkRun> {
-    return toAppExpertTalkRun(await this.http.post<WireExpertTalkRun>(
-      `/sessions/${encodeURIComponent(sessionId)}/expert-talk/runs/${encodeURIComponent(runId)}/finish`,
-    ));
-  }
-
-  async fuseExpertTalkRun(sessionId: string, runId: string): Promise<AppExpertTalkRun> {
-    return toAppExpertTalkRun(await this.http.post<WireExpertTalkRun>(
-      `/sessions/${encodeURIComponent(sessionId)}/expert-talk/runs/${encodeURIComponent(runId)}/fusion`,
     ));
   }
 

@@ -234,13 +234,16 @@ export type AgentEvent =
   | ModelCatalogChangedEvent
   | PluginChangedEvent
   | CapabilityChangedEvent
-  | ExpertTalkChangedEvent
   | DiUnitChangedEvent
   | PromptSubmittedEvent
   | BackgroundTaskStartedEvent
   | BackgroundTaskTerminatedEvent;
 
-export type Event = AgentEvent & { agentId: string; sessionId: string; readonly time?: number };
+export type Event = (AgentEvent | ExpertTalkChangedEvent) & {
+  agentId: string;
+  sessionId: string;
+  readonly time?: number;
+};
 
 export const VOLATILE_EVENT_TYPES = [
   'assistant.delta',

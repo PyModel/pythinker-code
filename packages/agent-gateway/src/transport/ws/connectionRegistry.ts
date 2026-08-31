@@ -4,6 +4,7 @@ export interface ConnectionLike {
   readonly remoteAddress: string | null;
   readonly userAgent: string | null;
   readonly hasClientHello: boolean;
+  readonly clientId?: string;
   readonly subscriptionSessionIds: readonly string[];
   close(code?: number, reason?: string): void;
 }

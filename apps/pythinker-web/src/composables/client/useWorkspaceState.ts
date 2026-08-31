@@ -1794,7 +1794,7 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
       };
       updateSessionMessages(sid, (msgs) => [...msgs, optimisticMsg]);
 
-      // Ordinary prompts carry model and thinking. Discussion owns those bindings.
+      // Ordinary prompts carry model and thinking. Expert Talk owns those bindings.
       const promptSession = rawState.sessions.find((s) => s.id === sid);
       const model =
         (promptSession?.model && promptSession.model.length > 0

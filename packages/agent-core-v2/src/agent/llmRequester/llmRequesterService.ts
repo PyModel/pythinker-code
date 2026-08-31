@@ -109,6 +109,7 @@ interface ResolvedLLMRequest {
   readonly tools: readonly Tool[];
   readonly messages: Message[];
   readonly source: AgentLLMRequestSource | undefined;
+  readonly infiniteRetry: boolean | undefined;
   readonly logFields: AgentLLMRequestLogFields;
 }
 
@@ -487,6 +488,7 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
         }
         const raw = unwrapErrorCause(error);
         if (
+          request.infiniteRetry === false ||
           !this.infiniteRetryEnabled ||
           isAbortError(error) ||
           signal?.aborted === true ||
@@ -677,6 +679,7 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
       tools: [...(overrides.tools ?? this.defaultTools())],
       messages: [...messages],
       source: overrides.source,
+      infiniteRetry: overrides.infiniteRetry,
       logFields: logFieldsForSource(overrides.source),
     };
   }

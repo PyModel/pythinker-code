@@ -19,7 +19,9 @@ import type {
   CreateGoalInput,
   ExpertTalkArmV1,
   ExpertTalkConfigV1,
+  ExpertTalkListRunsOptions,
   ExpertTalkPairV1,
+  ExpertTalkRunPageV1,
   ExpertTalkRunV1,
   ExpertTalkStartResult,
   ExpertTalkStatusV1,
@@ -94,24 +96,14 @@ interface ExpertTalkRpcSurface {
   }): Promise<void>;
   listExpertTalkRuns(input: {
     readonly sessionId: string;
-  }): Promise<readonly ExpertTalkRunV1[]>;
+    readonly cursor?: string;
+    readonly limit?: number;
+  }): Promise<ExpertTalkRunPageV1>;
   getExpertTalkRun(input: {
     readonly sessionId: string;
     readonly runId: string;
   }): Promise<ExpertTalkRunV1>;
   cancelExpertTalkRun(input: {
-    readonly sessionId: string;
-    readonly runId: string;
-  }): Promise<ExpertTalkRunV1>;
-  reviewExpertTalkRun(input: {
-    readonly sessionId: string;
-    readonly runId: string;
-  }): Promise<ExpertTalkRunV1>;
-  finishExpertTalkRun(input: {
-    readonly sessionId: string;
-    readonly runId: string;
-  }): Promise<ExpertTalkRunV1>;
-  fuseExpertTalkRun(input: {
     readonly sessionId: string;
     readonly runId: string;
   }): Promise<ExpertTalkRunV1>;
@@ -144,9 +136,6 @@ function expertTalkRpc(rpc: SDKRpcClientBase): ExpertTalkRpcSurface {
     typeof candidate.listExpertTalkRuns !== 'function' ||
     typeof candidate.getExpertTalkRun !== 'function' ||
     typeof candidate.cancelExpertTalkRun !== 'function' ||
-    typeof candidate.reviewExpertTalkRun !== 'function' ||
-    typeof candidate.finishExpertTalkRun !== 'function' ||
-    typeof candidate.fuseExpertTalkRun !== 'function' ||
     typeof candidate.retryExpertTalkRun !== 'function'
   ) {
     throw new TypeError('The Expert Talk surface is unavailable on this engine (requires v2).');
@@ -264,9 +253,9 @@ export class Session {
     await expertTalkRpc(this.rpc).disarmExpertTalk({ sessionId: this.id, armId });
   }
 
-  async listExpertTalkRuns(): Promise<readonly ExpertTalkRunV1[]> {
+  async listExpertTalkRuns(options?: ExpertTalkListRunsOptions): Promise<ExpertTalkRunPageV1> {
     this.ensureOpen();
-    return expertTalkRpc(this.rpc).listExpertTalkRuns({ sessionId: this.id });
+    return expertTalkRpc(this.rpc).listExpertTalkRuns({ sessionId: this.id, ...options });
   }
 
   async getExpertTalkRun(runId: string): Promise<ExpertTalkRunV1> {
@@ -277,21 +266,6 @@ export class Session {
   async cancelExpertTalkRun(runId: string): Promise<ExpertTalkRunV1> {
     this.ensureOpen();
     return expertTalkRpc(this.rpc).cancelExpertTalkRun({ sessionId: this.id, runId });
-  }
-
-  async reviewExpertTalkRun(runId: string): Promise<ExpertTalkRunV1> {
-    this.ensureOpen();
-    return expertTalkRpc(this.rpc).reviewExpertTalkRun({ sessionId: this.id, runId });
-  }
-
-  async finishExpertTalkRun(runId: string): Promise<ExpertTalkRunV1> {
-    this.ensureOpen();
-    return expertTalkRpc(this.rpc).finishExpertTalkRun({ sessionId: this.id, runId });
-  }
-
-  async fuseExpertTalkRun(runId: string): Promise<ExpertTalkRunV1> {
-    this.ensureOpen();
-    return expertTalkRpc(this.rpc).fuseExpertTalkRun({ sessionId: this.id, runId });
   }
 
   async retryExpertTalkRun(runId: string): Promise<ExpertTalkStartResult> {

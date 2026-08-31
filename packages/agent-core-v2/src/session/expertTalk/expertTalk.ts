@@ -13,11 +13,8 @@ export const EXPERT_TALK_SCHEMA_VERSION = 1 as const;
 export type ExpertTalkRole = 'fusion_lead' | 'peer';
 
 export type ExpertTalkRunStatus =
-  | 'PREPARING'
   | 'OPENING'
-  | 'OPINIONS_READY'
   | 'REVIEWING'
-  | 'REVIEW_READY'
   | 'FUSING'
   | 'COMPLETED'
   | 'CANCELLED'
@@ -64,6 +61,7 @@ export interface ExpertTalkStageArtifactV1 {
   readonly error?: string;
   readonly errorReason?: ExpertTalkFailureReason;
   readonly digest?: string;
+  readonly tools?: readonly ExpertTalkToolProgressV1[];
   readonly partial?: boolean;
   readonly startedAt?: string;
   readonly endedAt?: string;
@@ -91,6 +89,7 @@ export interface ExpertTalkRunProgressV1 {
   readonly leadOpening?: ExpertTalkStageProgressV1;
   readonly peerOpening?: ExpertTalkStageProgressV1;
   readonly leadReview?: ExpertTalkStageProgressV1;
+  readonly peerReview?: ExpertTalkStageProgressV1;
   readonly fusion?: ExpertTalkStageProgressV1;
 }
 
@@ -138,6 +137,7 @@ export interface ExpertTalkRunArtifactsV1 {
   readonly leadOpening?: ExpertTalkStageArtifactV1;
   readonly peerOpening?: ExpertTalkStageArtifactV1;
   readonly leadReview?: ExpertTalkStageArtifactV1;
+  readonly peerReview?: ExpertTalkStageArtifactV1;
   readonly fusion?: ExpertTalkStageArtifactV1;
 }
 
@@ -198,6 +198,16 @@ export interface ExpertTalkStartResult {
   readonly createdAt: string;
 }
 
+export interface ExpertTalkListRunsOptions {
+  readonly cursor?: string;
+  readonly limit?: number;
+}
+
+export interface ExpertTalkRunPageV1 {
+  readonly items: readonly ExpertTalkRunV1[];
+  readonly nextCursor?: string;
+}
+
 export interface ExpertTalkChangedEvent {
   readonly status: ExpertTalkStatusV1;
 }
@@ -213,13 +223,13 @@ export interface ISessionExpertTalkService {
   arm(clientId: string, expectedVersion?: string): ExpertTalkArmV1;
   disarm(clientId: string, armId?: string): void;
   start(input: ExpertTalkStartInput): Promise<ExpertTalkStartResult>;
-  listRuns(): readonly ExpertTalkRunV1[];
+  listRuns(options?: ExpertTalkListRunsOptions): ExpertTalkRunPageV1;
+  hasPromptId(promptId: string): boolean;
   getRun(runId: string): ExpertTalkRunV1;
   cancel(runId: string): Promise<ExpertTalkRunV1>;
-  review(runId: string): Promise<ExpertTalkRunV1>;
-  finish(runId: string): Promise<ExpertTalkRunV1>;
-  fuse(runId: string): Promise<ExpertTalkRunV1>;
   retry(runId: string): Promise<ExpertTalkStartResult>;
+  prepareControllerActivation(): void;
+  releaseClient(clientId: string): void;
 }
 
 export const ISessionExpertTalkService: ServiceIdentifier<ISessionExpertTalkService> =

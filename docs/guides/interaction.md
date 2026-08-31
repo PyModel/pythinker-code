@@ -66,19 +66,19 @@ After producing a plan the agent pauses for your review — you can approve it, 
 YOLO mode skips confirmation for file writes and command execution. Only use it in working directories you trust.
 :::
 
-### Discussion
+### Expert Talk
 
-Discussion asks two different models for independent, read-only opinions. The optional Architect comparison appears below them with Agreement, Divergence, and Final analysis sections. You can also finish with the Architect answer or ask a fresh Architect model to create Fusion.
+Expert Talk asks two different models for independent, read-only openings. Each model reviews the other opening. The Fusion Lead then creates one fresh final answer. The normal transcript shows the user message and final answer; the complete exchange remains available in a collapsed panel.
 
-Discussion is experimental and requires the v2 engine. Set the flag before you start Pythinker Code CLI:
+Expert Talk is experimental and requires the v2 engine. Set the flag before you start Pythinker Code CLI:
 
 ```sh
 PYTHINKER_CODE_EXPERIMENTAL_EXPERT_TALK=1 pythinker
 ```
 
-Run `/discussion configure` to select the Architect and Builder. Run `/discussion arm` to apply the pair to the next accepted message only. The selected pair remains available in the session until you run `/discussion reset`.
+Run `/expert-talk configure` to select the Fusion Lead and Peer Expert. Run `/expert-talk` or `/expert-talk arm` to apply the pair to the next accepted message only. The selected pair remains available in the session until you run `/expert-talk reset`.
 
-After the independent opinions complete, run `/discussion review` to compare them, `/discussion finish`, or `/discussion fuse`. All model stages can only use read-only tools. See the [slash commands reference](../reference/slash-commands.md#modes--run-control) for the full command list.
+The full protocol runs automatically. Run `/expert-talk cancel` or press `Esc` to stop an active run. Run `/expert-talk retry` to repeat the complete run with a new ID. All model stages can only use read-only tools. See the [slash commands reference](../reference/slash-commands.md#modes--run-control) for the full command list.
 
 ### Shell mode
 

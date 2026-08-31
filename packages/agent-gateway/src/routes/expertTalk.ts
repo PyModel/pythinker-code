@@ -20,6 +20,7 @@ import {
   expertTalkConfigureSchema,
   expertTalkDisarmSchema,
   expertTalkRunListSchema,
+  expertTalkRunListQuerySchema,
   expertTalkRunParamsSchema,
   expertTalkRunSchema,
   expertTalkSessionParamsSchema,
@@ -29,11 +30,13 @@ import {
 } from '../protocol/rest-expert-talk';
 import { mapError } from '../transport/errors';
 import { etagOf, parseIfMatch } from './subagentModelPolicy';
+import type { IConnectionRegistry } from '../transport/ws/connectionRegistry';
 
 interface ExpertTalkRequest {
   readonly id: string;
   readonly body?: unknown;
   readonly params: unknown;
+  readonly query?: unknown;
   readonly headers: Record<string, unknown>;
 }
 
@@ -67,7 +70,11 @@ const expertTalkErrors = {
   [ErrorCode.CONFIG_VERSION_CONFLICT]: {},
 };
 
-export function registerExpertTalkRoutes(app: ExpertTalkRouteHost, core: Scope): void {
+export function registerExpertTalkRoutes(
+  app: ExpertTalkRouteHost,
+  core: Scope,
+  connections?: IConnectionRegistry,
+): void {
   const getRoute = defineRoute(
     {
       method: 'GET',
@@ -140,7 +147,20 @@ export function registerExpertTalkRoutes(app: ExpertTalkRouteHost, core: Scope):
       operationId: 'armExpertTalk',
     },
     async (req, reply) => withService(core, req.params.session_id, req.id, reply, (service) => {
-      service.arm(clientId(req.headers), parseIfMatch(req.headers['if-match']));
+      const ownerId = clientId(req.headers);
+      if (
+        connections !== undefined &&
+        !Array.from(connections.values()).some((connection) =>
+          connection.hasClientHello &&
+          connection.clientId === ownerId &&
+          connection.subscriptionSessionIds.includes(req.params.session_id))
+      ) {
+        throw new Error2(
+          ErrorCodes.EXPERT_TALK_CLIENT_UNSUPPORTED,
+          'Expert Talk requires a connected client event stream',
+        );
+      }
+      service.arm(ownerId, parseIfMatch(req.headers['if-match']));
       sendStatus(reply as ExpertTalkReply, req.id, service.status());
     }),
   );
@@ -170,6 +190,7 @@ export function registerExpertTalkRoutes(app: ExpertTalkRouteHost, core: Scope):
       method: 'GET',
       path: '/sessions/{session_id}/expert-talk/runs',
       params: expertTalkSessionParamsSchema,
+      querystring: expertTalkRunListQuerySchema,
       success: { data: expertTalkRunListSchema },
       errors: expertTalkErrors,
       description: 'List durable Expert Talk runs for a session',
@@ -177,7 +198,11 @@ export function registerExpertTalkRoutes(app: ExpertTalkRouteHost, core: Scope):
       operationId: 'listExpertTalkRuns',
     },
     async (req, reply) => withService(core, req.params.session_id, req.id, reply, (service) => {
-      reply.send(okEnvelope({ runs: service.listRuns().map(projectRun) }, req.id));
+      const page = service.listRuns({ cursor: req.query.cursor, limit: req.query.limit });
+      reply.send(okEnvelope({
+        runs: page.items.map(projectRun),
+        next_cursor: page.nextCursor,
+      }, req.id));
     }),
   );
   app.get(listRunsRoute.path, listRunsRoute.options, listRunsRoute.handler as unknown as Parameters<ExpertTalkRouteHost['get']>[2]);
@@ -215,57 +240,6 @@ export function registerExpertTalkRoutes(app: ExpertTalkRouteHost, core: Scope):
     }),
   );
   app.post(cancelRoute.path, cancelRoute.options, cancelRoute.handler as unknown as Parameters<ExpertTalkRouteHost['post']>[2]);
-
-  const reviewRoute = defineRoute(
-    {
-      method: 'POST',
-      path: '/sessions/{session_id}/expert-talk/runs/{run_id}/review',
-      params: expertTalkRunParamsSchema,
-      success: { data: expertTalkRunSchema },
-      errors: expertTalkErrors,
-      description: 'Run the Architect review of the Builder opinion',
-      tags: ['expert-talk'],
-      operationId: 'reviewExpertTalkRun',
-    },
-    async (req, reply) => withService(core, req.params.session_id, req.id, reply, async (service) => {
-      reply.send(okEnvelope(projectRun(await service.review(req.params.run_id)), req.id));
-    }),
-  );
-  app.post(reviewRoute.path, reviewRoute.options, reviewRoute.handler as unknown as Parameters<ExpertTalkRouteHost['post']>[2]);
-
-  const finishRoute = defineRoute(
-    {
-      method: 'POST',
-      path: '/sessions/{session_id}/expert-talk/runs/{run_id}/finish',
-      params: expertTalkRunParamsSchema,
-      success: { data: expertTalkRunSchema },
-      errors: expertTalkErrors,
-      description: 'Finish Expert Talk with the latest Architect answer',
-      tags: ['expert-talk'],
-      operationId: 'finishExpertTalkRun',
-    },
-    async (req, reply) => withService(core, req.params.session_id, req.id, reply, async (service) => {
-      reply.send(okEnvelope(projectRun(await service.finish(req.params.run_id)), req.id));
-    }),
-  );
-  app.post(finishRoute.path, finishRoute.options, finishRoute.handler as unknown as Parameters<ExpertTalkRouteHost['post']>[2]);
-
-  const fusionRoute = defineRoute(
-    {
-      method: 'POST',
-      path: '/sessions/{session_id}/expert-talk/runs/{run_id}/fusion',
-      params: expertTalkRunParamsSchema,
-      success: { data: expertTalkRunSchema },
-      errors: expertTalkErrors,
-      description: 'Run fresh Architect Fusion from the available opinions and review',
-      tags: ['expert-talk'],
-      operationId: 'fuseExpertTalkRun',
-    },
-    async (req, reply) => withService(core, req.params.session_id, req.id, reply, async (service) => {
-      reply.send(okEnvelope(projectRun(await service.fuse(req.params.run_id)), req.id));
-    }),
-  );
-  app.post(fusionRoute.path, fusionRoute.options, fusionRoute.handler as unknown as Parameters<ExpertTalkRouteHost['post']>[2]);
 
   const retryRoute = defineRoute(
     {
@@ -369,20 +343,12 @@ function projectRun(run: ExpertTalkRunV1): ExpertTalkRunWire {
     },
     review: {
       lead: projectArtifact(run, 'fusion_lead', 'review', artifacts.leadReview),
+      peer: projectArtifact(run, 'peer', 'review', artifacts.peerReview),
     },
     fusion: stageOrder(stage) >= stageOrder('fusion')
       ? projectArtifact(run, 'fusion_lead', 'fusion', artifacts.fusion)
       : undefined,
-    result: run.result === undefined ? undefined : {
-      version: run.result.version,
-      answer: run.result.answer,
-      notes: {
-        consensus: [...run.result.notes.consensus],
-        divergence: [...run.result.notes.divergence],
-        uncertainty: [...run.result.notes.uncertainty],
-        attribution: run.result.notes.attribution.map((entry) => ({ ...entry })),
-      },
-    },
+    result: projectResult(run.result),
     usage: projectUsage(run),
     error: run.error === undefined ? undefined : {
       reason: run.error.reason,
@@ -397,6 +363,28 @@ function projectRun(run: ExpertTalkRunV1): ExpertTalkRunWire {
       : [...run.orphanedParticipantIds],
     progress_revision: run.progress?.revision,
     revision: run.revision,
+  };
+}
+
+function projectResult(result: ExpertTalkRunV1['result']): ExpertTalkRunWire['result'] {
+  if (result === undefined) return undefined;
+  const stored = result as {
+    readonly version: string;
+    readonly answer: string;
+    readonly notes?: NonNullable<ExpertTalkRunV1['result']>['notes'];
+  };
+  if (stored.version !== 'expert_talk_result/v1' || stored.notes === undefined) {
+    return { version: stored.version, answer: stored.answer };
+  }
+  return {
+    version: stored.version,
+    answer: stored.answer,
+    notes: {
+      consensus: [...stored.notes.consensus],
+      divergence: [...stored.notes.divergence],
+      uncertainty: [...stored.notes.uncertainty],
+      attribution: stored.notes.attribution.map((entry) => ({ ...entry })),
+    },
   };
 }
 
@@ -432,7 +420,7 @@ function projectArtifact(
       state: artifact.status,
       text: artifact.text,
       thinking: progress?.thinking,
-      tools: progress?.tools.map((tool) => ({ ...tool })) ?? [],
+      tools: (artifact.tools ?? progress?.tools)?.map((tool) => ({ ...tool })) ?? [],
       digest: artifact.digest ?? (artifact.text === undefined ? undefined : digest(artifact.text)),
       partial: artifact.partial ?? false,
       started_at: artifact.startedAt,
@@ -466,7 +454,9 @@ function stageProgress(
   if (stage === 'opening') {
     return role === 'fusion_lead' ? run.progress?.leadOpening : run.progress?.peerOpening;
   }
-  if (stage === 'review') return run.progress?.leadReview;
+  if (stage === 'review') {
+    return role === 'fusion_lead' ? run.progress?.leadReview : run.progress?.peerReview;
+  }
   return run.progress?.fusion;
 }
 
@@ -485,6 +475,7 @@ function projectUsage(run: ExpertTalkRunV1) {
     run.artifacts.leadOpening,
     run.artifacts.peerOpening,
     run.artifacts.leadReview,
+    run.artifacts.peerReview,
     run.artifacts.fusion,
   ];
   const executed = artifacts.filter(
@@ -493,7 +484,8 @@ function projectUsage(run: ExpertTalkRunV1) {
   const usages = artifacts.flatMap((artifact) => artifact?.usage === undefined ? [] : [artifact.usage]);
   const total = usages.length === 0 ? undefined : usages.reduce(addUsage, emptyUsage());
   return {
-    complete: run.status === 'COMPLETED' && executed.every((artifact) => artifact.usage !== undefined),
+    complete: run.status === 'COMPLETED' && executed.length === 5 &&
+      executed.every((artifact) => artifact.usage !== undefined),
     total: total === undefined ? undefined : projectTokenUsage(total),
     request_count: sum(artifacts, 'requestCount'),
     provider_attempt_count: sum(artifacts, 'providerAttemptCount'),
@@ -527,18 +519,18 @@ function addUsage(left: TokenUsage, right: TokenUsage): TokenUsage {
 function sum(
   artifacts: readonly (ExpertTalkStageArtifactV1 | undefined)[],
   key: 'requestCount' | 'providerAttemptCount' | 'toolCallCount' | 'toolResultTokens',
-): number {
-  return artifacts.reduce((total, artifact) => total + (artifact?.[key] ?? 0), 0);
+): number | undefined {
+  const values = artifacts.flatMap((artifact) => artifact?.[key] === undefined
+    ? []
+    : [artifact[key]]);
+  return values.length === 0 ? undefined : values.reduce((total, value) => total + value, 0);
 }
 
 function runState(run: ExpertTalkRunV1): ExpertTalkRunWire['state'] {
   switch (run.status) {
-    case 'PREPARING': return 'preparing';
     case 'OPENING':
     case 'REVIEWING':
     case 'FUSING': return 'running';
-    case 'OPINIONS_READY':
-    case 'REVIEW_READY': return 'waiting';
     case 'COMPLETED': return 'completed';
     case 'CANCELLED': return 'cancelled';
     case 'INTERRUPTED': return 'interrupted';
@@ -550,12 +542,9 @@ function runState(run: ExpertTalkRunV1): ExpertTalkRunWire['state'] {
 
 function runStage(run: ExpertTalkRunV1): ExpertTalkRunWire['stage'] {
   switch (run.status) {
-    case 'PREPARING': return 'preparing';
     case 'OPENING':
-    case 'OPINIONS_READY':
     case 'FAILED_OPENING': return 'opening';
     case 'REVIEWING':
-    case 'REVIEW_READY':
     case 'FAILED_REVIEW': return 'review';
     case 'FUSING':
     case 'FAILED_FUSION': return 'fusion';
@@ -563,22 +552,21 @@ function runStage(run: ExpertTalkRunV1): ExpertTalkRunWire['stage'] {
     case 'CANCELLED':
     case 'INTERRUPTED':
       if (run.artifacts.fusion !== undefined) return 'fusion';
-      if (run.artifacts.leadReview !== undefined) return 'review';
+      if (run.artifacts.leadReview !== undefined || run.artifacts.peerReview !== undefined) {
+        return 'review';
+      }
       return 'opening';
   }
 }
 
 function stageOrder(stage: ExpertTalkRunWire['stage']): number {
-  return ['preparing', 'opening', 'review', 'fusion', 'terminal'].indexOf(stage);
+  return ['opening', 'review', 'fusion', 'terminal'].indexOf(stage);
 }
 
 function isTerminal(run: ExpertTalkRunV1): boolean {
   return ![
-    'PREPARING',
     'OPENING',
-    'OPINIONS_READY',
     'REVIEWING',
-    'REVIEW_READY',
     'FUSING',
   ].includes(run.status);
 }

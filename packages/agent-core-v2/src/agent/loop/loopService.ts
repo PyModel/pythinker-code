@@ -647,6 +647,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
             runtime.job !== undefined && begun.step.number === 1,
             begun.step.uuid,
             runtime.maxOutputSize,
+            runtime.infiniteRetry,
             options.onStarted,
           );
           const completed = this.completeLoopStep(runtime, result);
@@ -672,6 +673,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
       lastStopReason: undefined,
       current: undefined,
       maxOutputSize: job?.request.maxOutputSize,
+      infiniteRetry: job?.request.infiniteRetry,
     };
   }
 
@@ -835,6 +837,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     firstStepOfTurn: boolean,
     stepUuid: string,
     maxOutputSize: number | undefined,
+    infiniteRetry: boolean | undefined,
     onStarted: ((step: number) => void) | undefined,
   ): Promise<StepExecutionResult> {
     this.activeRequestTrace = undefined;
@@ -844,7 +847,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     try {
       const streamParts = this.createStreamPartHandler(turnId, markStepStarted);
       const request = this.llmRequester.start(
-        { source: { type: 'turn', turnId, step: currentStep }, maxOutputSize },
+        { source: { type: 'turn', turnId, step: currentStep }, maxOutputSize, infiniteRetry },
         streamParts.handle,
         signal,
       );
@@ -1238,6 +1241,7 @@ interface LoopRuntime {
   lastStopReason: FinishReason | undefined;
   current: StepRuntime | undefined;
   readonly maxOutputSize: number | undefined;
+  readonly infiniteRetry: boolean | undefined;
 }
 
 interface StepRuntime {

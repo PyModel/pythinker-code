@@ -34,10 +34,6 @@ export function isExpertTalkRunTerminal(run: ExpertTalkRunV1): boolean {
   return TERMINAL_RUN_STATUSES.has(run.status);
 }
 
-export function isExpertTalkRunWaiting(run: ExpertTalkRunV1): boolean {
-  return run.status === 'OPINIONS_READY' || run.status === 'REVIEW_READY';
-}
-
 function displayModel(id: string, models: Record<string, ModelAlias>): string {
   return modelDisplayName(id, models[id]);
 }
@@ -83,7 +79,7 @@ export function buildExpertTalkStatusLines(
 
   if (leadId !== undefined && peerId !== undefined) {
     lines.push(
-      `${muted('Architect')} ${value(displayModel(leadId, models))} ${accent('↔')} ${muted('Builder')} ${value(displayModel(peerId, models))}`,
+      `${muted('Fusion Lead')} ${value(displayModel(leadId, models))} ${accent('↔')} ${muted('Peer Expert')} ${value(displayModel(peerId, models))}`,
     );
   } else {
     lines.push(muted('No model pair configured.'));
@@ -108,9 +104,12 @@ export function buildExpertTalkStatusLines(
         ),
       ),
       phaseLine(
-        'Discussion comparison',
+        'Reciprocal reviews',
         phaseState(
-          [artifactState(run, 'review', run.artifacts.leadReview)],
+          [
+            artifactState(run, 'review', run.artifacts.leadReview),
+            artifactState(run, 'review', run.artifacts.peerReview),
+          ],
           run.status === 'REVIEWING',
         ),
       ),
@@ -125,14 +124,30 @@ export function buildExpertTalkStatusLines(
     if (run.error !== undefined) {
       lines.push('', currentTheme.fg('error', run.error.message), muted(run.error.action));
     }
+    const artifacts = Object.values(run.artifacts);
+    const requestCount = sumArtifactMetric(artifacts, 'requestCount');
+    const providerAttemptCount = sumArtifactMetric(artifacts, 'providerAttemptCount');
+    lines.push('', muted(
+      `REQUESTS ${requestCount ?? 'unavailable'} · PROVIDER ATTEMPTS ${providerAttemptCount ?? 'unavailable'} · COST unavailable`,
+    ));
   }
 
   lines.push(
     '',
-    muted('2–4 model stages · at most 56 provider attempts'),
-    muted('Discussion comparison and Fusion are optional · read-only tools'),
+    muted('5–12 model requests · at most 24 provider attempts'),
+    muted('Openings, reciprocal reviews, and Fusion are automatic · read-only tools'),
   );
   return lines;
+}
+
+function sumArtifactMetric(
+  artifacts: readonly ExpertTalkStageArtifactV1[],
+  key: 'requestCount' | 'providerAttemptCount',
+): number | undefined {
+  const values = artifacts.flatMap((artifact) => artifact[key] === undefined
+    ? []
+    : [artifact[key]]);
+  return values.length === 0 ? undefined : values.reduce((total, value) => total + value, 0);
 }
 
 function artifactState(
@@ -141,16 +156,10 @@ function artifactState(
   artifact: ExpertTalkStageArtifactV1 | undefined,
 ): ArtifactState {
   if (artifact !== undefined) return artifact.status;
-  const current = run.status === 'PREPARING'
-    ? 0
-    : run.status === 'OPENING'
+  const current = run.status === 'OPENING'
       ? 1
-      : run.status === 'OPINIONS_READY'
-        ? 1
       : run.status === 'REVIEWING'
         ? 2
-        : run.status === 'REVIEW_READY'
-          ? 2
         : run.status === 'FUSING'
           ? 3
           : 4;
@@ -257,17 +266,27 @@ function renderArtifact(
 
 function renderModelColumn(
   run: ExpertTalkRunV1,
-  role: 'Architect' | 'Builder',
+  role: 'Fusion Lead' | 'Peer Expert',
   model: string,
   width: number,
 ): string[] {
-  const model1 = role === 'Architect';
+  const model1 = role === 'Fusion Lead';
   const symbol = currentTheme.fg(model1 ? 'primary' : 'warning', model1 ? '◆' : '▲');
   const opening = model1 ? run.artifacts.leadOpening : run.artifacts.peerOpening;
-  const progress = model1 ? run.progress?.leadOpening : run.progress?.peerOpening;
+  const openingProgress = model1 ? run.progress?.leadOpening : run.progress?.peerOpening;
+  const review = model1 ? run.artifacts.leadReview : run.artifacts.peerReview;
+  const reviewProgress = model1 ? run.progress?.leadReview : run.progress?.peerReview;
   return [
     `${symbol} ${currentTheme.boldFg('text', role)} ${currentTheme.fg('textDim', `| ${model}`)}`,
-    ...renderArtifact(run, 'opening', 'Independent analysis', opening, progress, width),
+    ...renderArtifact(run, 'opening', 'Independent analysis', opening, openingProgress, width),
+    ...renderArtifact(
+      run,
+      'review',
+      model1 ? 'Review of Peer Expert' : 'Review of Fusion Lead',
+      review,
+      reviewProgress,
+      width,
+    ),
   ];
 }
 
@@ -308,62 +327,28 @@ export function buildExpertTalkExchangeLines(
   const columnWidth = Math.floor((safeWidth - GRID_GUTTER_WIDTH) / 2);
   const grid = columnWidth < MIN_AGENT_COLUMN_WIDTH
     ? renderAgentGrid(
-        renderModelColumn(run, 'Architect', lead, safeWidth),
-        renderModelColumn(run, 'Builder', peer, safeWidth),
+        renderModelColumn(run, 'Fusion Lead', lead, safeWidth),
+        renderModelColumn(run, 'Peer Expert', peer, safeWidth),
         safeWidth,
       )
     : renderAgentGrid(
-        renderModelColumn(run, 'Architect', lead, columnWidth),
-        renderModelColumn(run, 'Builder', peer, columnWidth),
+        renderModelColumn(run, 'Fusion Lead', lead, columnWidth),
+        renderModelColumn(run, 'Peer Expert', peer, columnWidth),
         safeWidth,
       );
-  const review = run.artifacts.leadReview;
-  const showReview = review !== undefined || [
-    'REVIEWING',
-    'REVIEW_READY',
-    'FAILED_REVIEW',
-  ].includes(run.status);
   const fusion = run.artifacts.fusion;
   const showFusion = fusion !== undefined || run.status === 'FUSING' || isExpertTalkRunTerminal(run);
   const lines = [
     currentTheme.boldFg('primary', '◆ OPINIONS — SELECTED MODELS'),
     ...grid,
   ];
-  if (run.status === 'OPINIONS_READY') {
-    lines.push(
-      '',
-      currentTheme.fg('primary', 'NEXT  /discussion finish  ·  /discussion review  ·  /discussion fuse'),
-    );
-  }
-  if (showReview) {
-    lines.push(
-      '',
-      ...renderSectionHeader(
-        currentTheme.fg('primary', '◆'),
-        'DISCUSSION — AGREEMENT & DIVERGENCE',
-        `${lead} · Architect comparison`,
-        safeWidth,
-      ),
-      ...renderArtifact(
-        run,
-        'review',
-        'Discussion comparison',
-        review,
-        run.progress?.leadReview,
-        safeWidth,
-      ),
-    );
-  }
-  if (run.status === 'REVIEW_READY') {
-    lines.push('', currentTheme.fg('primary', 'NEXT  /discussion finish  ·  /discussion fuse'));
-  }
   if (showFusion) {
     lines.push(
       '',
       ...renderSectionHeader(
         currentTheme.fg('success', '⧉'),
         'FUSION',
-        `${lead} · fresh Architect inference`,
+        `${lead} · fresh Fusion Lead inference`,
         safeWidth,
       ),
       ...renderArtifact(run, 'fusion', 'Critical fusion', fusion, run.progress?.fusion, safeWidth),
@@ -393,7 +378,7 @@ export class ExpertTalkPanelComponent extends UsagePanelComponent {
     private readonly models: Record<string, ModelAlias>,
   ) {
     const holder = { status };
-    super(() => buildExpertTalkStatusLines(holder.status, models), 'primary', ' Discussion ');
+    super(() => buildExpertTalkStatusLines(holder.status, models), 'primary', ' Expert Talk ');
     this.holder = holder;
   }
 

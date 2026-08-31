@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { noResult } from '../helpers.js';
+import { noResult, pageOf } from '../helpers.js';
 import type { ServiceContract } from '../types.js';
 
 const roleSchema = z.enum(['fusion_lead', 'peer']);
@@ -107,7 +107,7 @@ const expertTalkStageProgressSchema = z.object({
   startedAt: z.string().min(1),
 });
 
-export const expertTalkResultSchema = z.object({
+const expertTalkResultV1Schema = z.object({
   version: z.literal('expert_talk_result/v1'),
   answer: z.string().min(1),
   notes: z.object({
@@ -121,6 +121,14 @@ export const expertTalkResultSchema = z.object({
     })),
   }),
 });
+
+export const expertTalkResultSchema = z.union([
+  expertTalkResultV1Schema,
+  z.object({
+    version: z.string().min(1),
+    answer: z.string().min(1),
+  }),
+]);
 
 const expertTalkRunErrorSchema = z.object({
   reason: failureReasonSchema,
@@ -139,11 +147,8 @@ export const expertTalkRunSchema = z.object({
   turnId: z.number(),
   promptId: z.string().min(1),
   status: z.enum([
-    'PREPARING',
     'OPENING',
-    'OPINIONS_READY',
     'REVIEWING',
-    'REVIEW_READY',
     'FUSING',
     'COMPLETED',
     'CANCELLED',
@@ -164,6 +169,7 @@ export const expertTalkRunSchema = z.object({
     leadOpening: expertTalkArtifactSchema.optional(),
     peerOpening: expertTalkArtifactSchema.optional(),
     leadReview: expertTalkArtifactSchema.optional(),
+    peerReview: expertTalkArtifactSchema.optional(),
     fusion: expertTalkArtifactSchema.optional(),
   }),
   progress: z.object({
@@ -171,6 +177,7 @@ export const expertTalkRunSchema = z.object({
     leadOpening: expertTalkStageProgressSchema.optional(),
     peerOpening: expertTalkStageProgressSchema.optional(),
     leadReview: expertTalkStageProgressSchema.optional(),
+    peerReview: expertTalkStageProgressSchema.optional(),
     fusion: expertTalkStageProgressSchema.optional(),
   }).optional(),
   result: expertTalkResultSchema.optional(),
@@ -224,11 +231,14 @@ export const sessionExpertTalkContract = {
   },
   disarm: { input: z.tuple([z.string(), z.string().optional()]), output: noResult },
   start: { input: z.tuple([expertTalkStartInputSchema]), output: expertTalkStartResultSchema },
-  listRuns: { input: z.tuple([]), output: z.array(expertTalkRunSchema) },
+  listRuns: {
+    input: z.tuple([z.object({
+      cursor: z.string().optional(),
+      limit: z.number().int().min(1).max(100).optional(),
+    }).optional()]),
+    output: pageOf(expertTalkRunSchema),
+  },
   getRun: { input: z.tuple([z.string()]), output: expertTalkRunSchema },
   cancel: { input: z.tuple([z.string()]), output: expertTalkRunSchema },
-  review: { input: z.tuple([z.string()]), output: expertTalkRunSchema },
-  finish: { input: z.tuple([z.string()]), output: expertTalkRunSchema },
-  fuse: { input: z.tuple([z.string()]), output: expertTalkRunSchema },
   retry: { input: z.tuple([z.string()]), output: expertTalkStartResultSchema },
 } satisfies ServiceContract;

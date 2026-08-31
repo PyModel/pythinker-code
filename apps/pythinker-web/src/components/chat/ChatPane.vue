@@ -286,12 +286,9 @@ const assistantTurnModels = computed(() => {
   return models;
 });
 
-const workingState = computed<'running' | 'waiting'>(() => (
-  props.expertTalkRuns.some((run) => run.state === 'waiting') ? 'waiting' : 'running'
-));
+const workingState = 'running' as const;
 
 const workingLabel = computed(() => {
-  if (workingState.value === 'waiting') return t('conversation.waiting');
   const last = props.turns.at(-1);
   if (last?.role !== 'assistant') return t('conversation.requesting');
   const hasContent = assistantTurnModels.value.get(last.id)?.all.some((block) =>

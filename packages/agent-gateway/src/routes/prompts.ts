@@ -236,6 +236,15 @@ export function registerPromptsRoutes(app: PromptRouteHost, core: Scope): void {
         await expertTalk.ready;
         const expertTalkArmId = req.body.expert_talk_arm_id;
         const expertTalkStatus = expertTalk.status();
+        if (
+          req.body.prompt_id !== undefined &&
+          expertTalk.hasPromptId(req.body.prompt_id)
+        ) {
+          throw new Error2(
+            ErrorCodes.PROMPT_ID_CONFLICT,
+            `Prompt id "${req.body.prompt_id}" already exists`,
+          );
+        }
         if (expertTalkArmId === undefined && expertTalkStatus.arm !== undefined) {
           if (selectsAnotherTurnController(req.body)) {
             expertTalk.disarm(promptClientId(req.headers), expertTalkStatus.arm.armId);
@@ -276,8 +285,8 @@ export function registerPromptsRoutes(app: PromptRouteHost, core: Scope): void {
           session.accessor.get(ISessionMediaStore),
         );
         resolved ??= await resolvePromptFromSession(session, req.body.agent_id);
+        reservation = reservePrompt(resolved.prompt, req.body.prompt_id);
         if (expertTalkArmId === undefined) {
-          reservation = reservePrompt(resolved.prompt, req.body.prompt_id);
           const sessionModel = resolved.profile.getModel();
           const switchingProfile =
             req.body.profile !== undefined &&
@@ -312,21 +321,23 @@ export function registerPromptsRoutes(app: PromptRouteHost, core: Scope): void {
 
         const parts = contentToCoreParts(resolvedContent);
         if (expertTalkArmId !== undefined) {
-          await applyPromptMetadataUpdate({
-            metadata: session.accessor.get(ISessionMetadata),
-            eventService: core.accessor.get(IEventService),
-            sessionId: session_id,
-          }, promptMetadataTextFromContentParts(parts));
           const started = await expertTalk.start({
             armId: expertTalkArmId,
             clientId: promptClientId(req.headers),
             prompt: expertTalkPromptText(parts),
-            promptId: req.body.prompt_id,
+            promptId: reservation.id,
             modalities: expertTalkModalities(parts),
             content: parts,
             attachments: promptAttachments,
           });
           enqueued = true;
+          void applyPromptMetadataUpdate({
+            metadata: session.accessor.get(ISessionMetadata),
+            eventService: core.accessor.get(IEventService),
+            sessionId: session_id,
+          }, promptMetadataTextFromContentParts(parts)).catch((error: unknown) => {
+            requestLog(req)?.warn({ err: error, session_id }, 'Expert Talk metadata update failed');
+          });
           releaseExpertTalkMedia(expertTalk, started.runId, preparedMedia);
           reply.send(okEnvelope({
             prompt_id: started.promptId,

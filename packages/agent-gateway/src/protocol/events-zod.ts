@@ -1093,7 +1093,6 @@ export const agentEventSchema = z.discriminatedUnion('type', [
   diUnitChangedEventSchema,
   pluginChangedEventSchema,
   capabilityChangedEventSchema,
-  expertTalkChangedEventSchema,
   goalUpdatedEventSchema,
   skillActivatedEventSchema,
   pluginCommandActivatedEventSchema,
@@ -1135,7 +1134,7 @@ export const agentEventSchema = z.discriminatedUnion('type', [
   promptSteeredEventSchema,
 ]);
 
-export const eventSchema = agentEventSchema.and(
+export const eventSchema = z.union([agentEventSchema, expertTalkChangedEventSchema]).and(
   z.object({
     agentId: z.string(),
     sessionId: z.string(),

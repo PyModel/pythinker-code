@@ -150,6 +150,7 @@ onBeforeUnmount(() => {
         :class="[`ui-dialog--${size}`, { 'ui-dialog--flush': !padded, 'ui-dialog--fixed-height': height === 'fixed' }]"
         role="dialog"
         aria-modal="true"
+        :aria-label="title"
         tabindex="-1"
       >
         <div v-if="title || $slots.head" class="ui-dialog__head">

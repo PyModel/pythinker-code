@@ -442,19 +442,7 @@ exports[`API surface snapshot > matches the documented v2 route table and meta e
     ],
     [
       "POST",
-      "/api/v1/sessions/{session_id}/expert-talk/runs/{run_id}/finish",
-    ],
-    [
-      "POST",
-      "/api/v1/sessions/{session_id}/expert-talk/runs/{run_id}/fusion",
-    ],
-    [
-      "POST",
       "/api/v1/sessions/{session_id}/expert-talk/runs/{run_id}/retry",
-    ],
-    [
-      "POST",
-      "/api/v1/sessions/{session_id}/expert-talk/runs/{run_id}/review",
     ],
     [
       "POST",

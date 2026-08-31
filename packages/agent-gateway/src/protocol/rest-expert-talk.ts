@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { isoDateTimeSchema } from '@pymodel/agent-core-v2/_base/utils/isoDateTime';
 
 const roleSchema = z.enum(['fusion_lead', 'peer']);
-const stageSchema = z.enum(['preparing', 'opening', 'review', 'fusion', 'terminal']);
+const stageSchema = z.enum(['opening', 'review', 'fusion', 'terminal']);
 const artifactStateSchema = z.enum(['pending', 'running', 'completed', 'failed', 'cancelled', 'unavailable']);
 
 const tokenUsageSchema = z.object({
@@ -63,7 +63,7 @@ export const expertTalkArtifactSchema = z.object({
   error_reason: z.string().min(1).optional(),
 });
 
-export const expertTalkResultSchema = z.object({
+const expertTalkResultV1Schema = z.object({
   version: z.literal('expert_talk_result/v1'),
   answer: z.string().min(1),
   notes: z.object({
@@ -78,6 +78,14 @@ export const expertTalkResultSchema = z.object({
   }),
 });
 
+export const expertTalkResultSchema = z.union([
+  expertTalkResultV1Schema,
+  z.object({
+    version: z.string().min(1),
+    answer: z.string().min(1),
+  }),
+]);
+
 const runErrorSchema = z.object({
   reason: z.string().min(1),
   message: z.string().min(1),
@@ -90,10 +98,10 @@ const runErrorSchema = z.object({
 const runUsageSchema = z.object({
   complete: z.boolean(),
   total: tokenUsageSchema.optional(),
-  request_count: z.number().int().nonnegative(),
-  provider_attempt_count: z.number().int().nonnegative(),
-  tool_call_count: z.number().int().nonnegative(),
-  tool_result_tokens: z.number().int().nonnegative(),
+  request_count: z.number().int().nonnegative().optional(),
+  provider_attempt_count: z.number().int().nonnegative().optional(),
+  tool_call_count: z.number().int().nonnegative().optional(),
+  tool_result_tokens: z.number().int().nonnegative().optional(),
 });
 
 export const expertTalkRunSchema = z.object({
@@ -104,9 +112,7 @@ export const expertTalkRunSchema = z.object({
   prompt_id: z.string().min(1),
   retry_of: z.string().min(1).optional(),
   state: z.enum([
-    'preparing',
     'running',
-    'waiting',
     'completed',
     'cancelled',
     'failed',
@@ -127,6 +133,7 @@ export const expertTalkRunSchema = z.object({
   }),
   review: z.object({
     lead: expertTalkArtifactSchema,
+    peer: expertTalkArtifactSchema,
   }),
   fusion: expertTalkArtifactSchema.optional(),
   result: expertTalkResultSchema.optional(),
@@ -169,6 +176,12 @@ export const expertTalkDisarmSchema = z.object({
 
 export const expertTalkRunListSchema = z.object({
   runs: z.array(expertTalkRunSchema),
+  next_cursor: z.string().min(1).optional(),
+});
+
+export const expertTalkRunListQuerySchema = z.object({
+  cursor: z.string().min(1).optional(),
+  limit: z.coerce.number().int().min(1).max(100).optional(),
 });
 
 export const expertTalkRunParamsSchema = z.object({

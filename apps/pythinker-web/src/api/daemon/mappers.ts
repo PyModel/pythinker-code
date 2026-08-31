@@ -366,9 +366,10 @@ export function toAppExpertTalkRun(wire: WireExpertTalkRun): AppExpertTalkRun {
     },
     review: {
       lead: toAppExpertTalkArtifact(wire.review.lead),
+      peer: toAppExpertTalkArtifact(wire.review.peer),
     },
     fusion: wire.fusion === undefined ? undefined : toAppExpertTalkArtifact(wire.fusion),
-    result: wire.result === undefined
+    result: wire.result?.version !== 'expert_talk_result/v1' || wire.result.notes === undefined
       ? undefined
       : {
           answer: wire.result.answer,
@@ -378,6 +379,9 @@ export function toAppExpertTalkRun(wire: WireExpertTalkRun): AppExpertTalkRun {
             uncertainty: [...wire.result.notes.uncertainty],
           },
         },
+    resultVersion: wire.result?.version,
+    resultUnsupported: wire.result !== undefined &&
+      (wire.result.version !== 'expert_talk_result/v1' || wire.result.notes === undefined),
     usage: {
       complete: wire.usage.complete,
       requestCount: wire.usage.request_count,

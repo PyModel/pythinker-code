@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import type {
   ExpertTalkStatusV1,
+  ExpertTalkRunV1,
   ModelAlias,
   Session,
 } from '@pymodel/pythinker-code-sdk';
@@ -24,37 +25,6 @@ function status(pair = true): ExpertTalkStatusV1 {
     },
     pairValidation: { state: pair ? 'valid' : 'unknown' },
   };
-}
-
-function readyStatus(stage: 'OPINIONS_READY' | 'REVIEW_READY'): ExpertTalkStatusV1 {
-  const base = status();
-  const run = {
-    schemaVersion: 1,
-    version: 'expert_talk/v1',
-    runId: 'run-1',
-    sessionId: 'session-1',
-    turnId: 1,
-    promptId: 'prompt-1',
-    status: stage,
-    prompt: 'Decide',
-    modalities: [],
-    createdAt: '2026-08-30T00:00:00Z',
-    startedAt: '2026-08-30T00:00:00Z',
-    updatedAt: '2026-08-30T00:00:01Z',
-    bindings: [
-      { role: 'fusion_lead', effectiveModelId: 'lead' },
-      { role: 'peer', effectiveModelId: 'peer' },
-    ],
-    artifacts: {
-      leadOpening: { status: 'completed', text: 'Architect opinion' },
-      peerOpening: { status: 'completed', text: 'Builder opinion' },
-      leadReview: stage === 'REVIEW_READY'
-        ? { status: 'completed', text: 'Architect review' }
-        : undefined,
-    },
-    revision: 3,
-  } as unknown as NonNullable<ExpertTalkStatusV1['activeRun']>;
-  return { ...base, activeRun: run, latestRun: run };
 }
 
 function model(provider: string, name: string): ModelAlias {
@@ -91,9 +61,12 @@ function makeHost(initial = status(), engineV2 = true) {
     }),
     armExpertTalk: vi.fn(async () => ({ armId: 'arm-1', armedAt: '2026-08-29T00:00:00Z' })),
     disarmExpertTalk: vi.fn(async () => {}),
-    reviewExpertTalkRun: vi.fn(async () => current.activeRun!),
-    finishExpertTalkRun: vi.fn(async () => current.activeRun!),
-    fuseExpertTalkRun: vi.fn(async () => current.activeRun!),
+    retryExpertTalkRun: vi.fn(async () => ({
+      runId: 'retry-1',
+      promptId: 'prompt-1',
+      status: 'OPENING' as const,
+      createdAt: '2026-08-29T00:00:00Z',
+    })),
   };
   const host = {
     engineV2,
@@ -122,7 +95,7 @@ function makeHost(initial = status(), engineV2 = true) {
   return { host, session, mounted: () => mounted };
 }
 
-describe('Discussion command', () => {
+describe('Expert Talk command', () => {
   it('arms the configured pair for the next message', async () => {
     const { host, session } = makeHost();
 
@@ -134,19 +107,37 @@ describe('Discussion command', () => {
       expertTalkRunId: undefined,
     });
     expect(host.showNotice).toHaveBeenCalledWith(
-      'Discussion armed',
+      'Expert Talk armed',
       'Send the next message to start the exchange.',
     );
+  });
+
+  it('arms an existing pair when the command has no arguments', async () => {
+    const { host, session } = makeHost();
+
+    await handleExpertTalkCommand(host, '');
+
+    expect(session.armExpertTalk).toHaveBeenCalledWith('v1');
+  });
+
+  it('uses off as the canonical disarm command', async () => {
+    const armed = { ...status(), arm: { armId: 'arm-1', armedAt: '2026-08-29T00:00:00Z' } };
+    const { host, session } = makeHost(armed);
+
+    await handleExpertTalkCommand(host, 'off');
+
+    expect(session.disarmExpertTalk).toHaveBeenCalledWith('arm-1');
+    expect(host.setAppState).toHaveBeenCalledWith({ expertTalkArmId: undefined });
   });
 
   it('selects two distinct eligible models, configures them, and arms', async () => {
     const { host, session, mounted } = makeHost(status(false));
 
     await handleExpertTalkCommand(host, 'configure');
-    expect(mounted()!.render(120).join('\n')).toContain('Select Architect');
+    expect(mounted()!.render(120).join('\n')).toContain('Select Fusion Lead');
     mounted()!.handleInput!('\r');
-    expect(mounted()!.render(120).join('\n')).toContain('Select Builder');
-    expect(mounted()!.render(120).join('\n')).toContain('Architect: lead');
+    expect(mounted()!.render(120).join('\n')).toContain('Select Peer Expert');
+    expect(mounted()!.render(120).join('\n')).toContain('Fusion Lead: lead');
     mounted()!.handleInput!('\r');
 
     await vi.waitFor(() => {
@@ -165,7 +156,7 @@ describe('Discussion command', () => {
 
     await handleExpertTalkCommand(host, 'arm');
 
-    expect(host.showError).toHaveBeenCalledWith('Discussion requires the v2 engine.');
+    expect(host.showError).toHaveBeenCalledWith('Expert Talk requires the v2 engine.');
     expect(host.ensureSession).not.toHaveBeenCalled();
   });
 
@@ -181,23 +172,34 @@ describe('Discussion command', () => {
     });
   });
 
-  it('runs review, finish, and Fusion only from explicit commands', async () => {
-    const reviewContext = makeHost(readyStatus('OPINIONS_READY'));
+  it('shows the provider disclosure before a direct retry', async () => {
+    const initial = {
+      ...status(),
+      latestRun: {
+        runId: 'failed-1',
+        error: { retryable: true },
+      } as ExpertTalkRunV1,
+    };
+    const { host, session, mounted } = makeHost(initial);
 
-    await handleExpertTalkCommand(reviewContext.host, 'review');
+    await handleExpertTalkCommand(host, 'retry');
 
-    expect(reviewContext.session.reviewExpertTalkRun).toHaveBeenCalledWith('run-1');
+    expect(session.retryExpertTalkRun).not.toHaveBeenCalled();
+    expect(mounted()!.render(120).join('\n')).toContain('at most 24 provider attempts');
+    mounted()!.handleInput!('\r');
+    await vi.waitFor(() => expect(session.retryExpertTalkRun).toHaveBeenCalledWith('failed-1'));
+  });
 
-    const finishContext = makeHost(readyStatus('REVIEW_READY'));
+  it('rejects removed manual stage commands', async () => {
+    const { host } = makeHost();
 
-    await handleExpertTalkCommand(finishContext.host, 'finish');
+    for (const action of ['review', 'finish', 'fuse']) {
+      await handleExpertTalkCommand(host, action);
+    }
 
-    expect(finishContext.session.finishExpertTalkRun).toHaveBeenCalledWith('run-1');
-
-    const fusionContext = makeHost(readyStatus('REVIEW_READY'));
-
-    await handleExpertTalkCommand(fusionContext.host, 'fuse');
-
-    expect(fusionContext.session.fuseExpertTalkRun).toHaveBeenCalledWith('run-1');
+    expect(host.showError).toHaveBeenCalledTimes(3);
+    expect(host.showError).toHaveBeenLastCalledWith(
+      'Usage: /expert-talk [help|status|configure|arm|off|cancel|retry|exchange|reset]',
+    );
   });
 });

@@ -1,13 +1,17 @@
 import { describe, expect, it } from 'vitest';
 
-import { sliceMainRecordsAtTurn } from '#/workspace/sessionLifecycle/internal/forkTurnSlice';
+import {
+  sliceMainRecordsAtTurn,
+  sliceMainRecordsBeforePrompt,
+} from '#/workspace/sessionLifecycle/internal/forkTurnSlice';
 import type { WireRecord } from '#/wire/record';
 
-function userTurnRecord(text: string, time: number): WireRecord {
+function userTurnRecord(text: string, time: number, id?: string): WireRecord {
   return {
     type: 'context.append_message',
     message: {
       role: 'user',
+      id,
       content: [{ type: 'text', text }],
       origin: { kind: 'user' },
     },
@@ -40,5 +44,50 @@ describe('sliceMainRecordsAtTurn', () => {
     ).toHaveLength(1);
     expect(types).toContain('metadata');
     expect(types).toContain('context.append_message');
+  });
+});
+
+describe('sliceMainRecordsBeforePrompt', () => {
+  it('keeps the completed turn before an active Expert Talk prompt', () => {
+    const records: WireRecord[] = [
+      { type: 'metadata', protocol_version: '1.5', created_at: 1 },
+      { type: 'turn.prompt', input: [{ type: 'text', text: 'first' }], origin: { kind: 'user' }, time: 2 },
+      userTurnRecord('first', 3, 'prompt-1'),
+      { type: 'assistant.delta', delta: 'answer one', time: 4 },
+      { type: 'turn.prompt', input: [{ type: 'text', text: 'active' }], origin: { kind: 'user' }, time: 5 },
+      userTurnRecord('active', 6, 'prompt-2'),
+      { type: 'assistant.delta', delta: 'partial exchange', time: 7 },
+    ];
+
+    const slice = sliceMainRecordsBeforePrompt(records, 'ses_source', 'prompt-2');
+
+    expect(slice.records).toContainEqual(userTurnRecord('first', 3, 'prompt-1'));
+    expect(slice.records).not.toContainEqual(userTurnRecord('active', 6, 'prompt-2'));
+    expect(slice.records.some((record) => record['delta'] === 'partial exchange')).toBe(false);
+    expect(slice.lastPrompt).toBe('first');
+    expect(slice.cutoffTime).toBe(4);
+  });
+
+  it('keeps only pre-turn records when the active Expert Talk prompt is first', () => {
+    const records: WireRecord[] = [
+      { type: 'metadata', protocol_version: '1.5', created_at: 1 },
+      { type: 'turn.prompt', input: [{ type: 'text', text: 'active' }], origin: { kind: 'user' }, time: 2 },
+      userTurnRecord('active', 3, 'prompt-1'),
+      { type: 'assistant.delta', delta: 'partial exchange', time: 4 },
+    ];
+
+    const slice = sliceMainRecordsBeforePrompt(records, 'ses_source', 'prompt-1');
+
+    expect(slice.records).toEqual([{ type: 'metadata', protocol_version: '1.5', created_at: 1 }]);
+    expect(slice.cutoffTime).toBe(1);
+    expect(slice.lastPrompt).toBeUndefined();
+  });
+
+  it('rejects an unknown active prompt', () => {
+    expect(() => sliceMainRecordsBeforePrompt(
+      [userTurnRecord('first', 1, 'prompt-1')],
+      'ses_source',
+      'missing',
+    )).toThrow('Prompt "missing" was not found');
   });
 });

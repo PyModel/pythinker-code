@@ -1,5 +1,7 @@
 import type { WebSocket } from 'ws';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import * as agentCore from '@pymodel/agent-core-v2';
+import type { Scope } from '@pymodel/agent-core-v2';
 
 import type { IConnectionRegistry } from '../src/transport/ws/connectionRegistry';
 import type { SessionEventBroadcaster } from '../src/transport/ws/v1/sessionEventBroadcaster';
@@ -190,6 +192,63 @@ describe('coalesceFrames', () => {
     const out = coalesceFrames([only]);
     expect(out).toHaveLength(1);
     expect(out[0]).toBe(only);
+  });
+});
+
+describe('WsConnectionV1 Expert Talk ownership', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  function coreWithRelease(releaseClient: ReturnType<typeof vi.fn>): Scope {
+    vi.spyOn(agentCore, 'resumeSessionById').mockResolvedValue({
+      accessor: {
+        get: () => ({ ready: Promise.resolve(), releaseClient }),
+      },
+    } as never);
+    return { accessor: {} } as Scope;
+  }
+
+  it('stores the client identity and releases its arm on full unsubscribe', async () => {
+    const releaseClient = vi.fn();
+    const socket = new FakeSocket();
+    const conn = makeConn(socket, { core: coreWithRelease(releaseClient) });
+
+    socket.emit('message', JSON.stringify({
+      type: 'client_hello',
+      id: 'hello-1',
+      payload: { client_id: ' client-a ', subscriptions: ['s1'] },
+    }));
+    await vi.waitFor(() => expect(conn.subscriptionSessionIds).toEqual(['s1']));
+    expect(conn.clientId).toBe('client-a');
+
+    socket.emit('message', JSON.stringify({
+      type: 'unsubscribe',
+      id: 'unsubscribe-1',
+      payload: { session_ids: ['s1'] },
+    }));
+    await vi.waitFor(() => expect(releaseClient).toHaveBeenCalledWith('client-a'));
+    expect(conn.subscriptionSessionIds).toEqual([]);
+    conn.close();
+  });
+
+  it('releases the client arm for every subscribed session on disconnect', async () => {
+    const releaseClient = vi.fn();
+    const socket = new FakeSocket();
+    const conn = makeConn(socket, { core: coreWithRelease(releaseClient) });
+
+    socket.emit('message', JSON.stringify({
+      type: 'client_hello',
+      id: 'hello-1',
+      payload: { client_id: 'client-a', subscriptions: ['s1', 's2'] },
+    }));
+    await vi.waitFor(() => expect(conn.subscriptionSessionIds).toEqual(['s1', 's2']));
+
+    socket.close();
+
+    await vi.waitFor(() => expect(releaseClient).toHaveBeenCalledTimes(2));
+    expect(releaseClient).toHaveBeenNthCalledWith(1, 'client-a');
+    expect(releaseClient).toHaveBeenNthCalledWith(2, 'client-a');
   });
 });
 

@@ -53,7 +53,7 @@ Some commands are only available in the idle state. Executing these commands whi
 | `/plan clear` | — | Clear the current plan | No |
 | `/dynamic_workflow on\|off` | — | Turn dynamic_workflow mode on or off without sending a prompt. | Yes |
 | `/dynamic_workflow <task>` | — | Turn dynamic_workflow mode on, then send `<task>` as a normal prompt. If the turn completes normally, dynamic_workflow mode turns off automatically. In `manual` permission mode, Pythinker Code asks whether to switch to `auto` or `yolo` before starting. | No |
-| `/discussion [help\|status\|configure\|arm\|disarm\|review\|finish\|fuse\|cancel\|retry\|exchange\|reset]` | `/expert-opinion`, `/expertopinion` | Configure a two-model Discussion, apply it to the next message, inspect or stop its run, then optionally review or fuse the opinions | Yes |
+| `/expert-talk [help\|status\|configure\|arm\|off\|cancel\|retry\|exchange\|reset]` | — | Configure, arm, inspect, cancel, or retry an automatic two-model Expert Talk run | Yes |
 | `/tower [status\|on\|off\|teardown]` | — | Report tower status, turn workspace-wide tower coordination on or off, or ask the active tower to stop all agents | Yes |
 | `/tower <objective>` | — | Turn tower mode on and send `<objective>` as the shared objective for coordinated subagents | No |
 | `/goal [...]` | — | Start or manage an autonomous goal | See below |
@@ -64,7 +64,7 @@ Some commands are only available in the idle state. Executing these commands whi
 
 `/tower` is experimental and hidden by default. Set `PYTHINKER_CODE_EXPERIMENTAL_TOWER=1` before starting Pythinker Code CLI to enable it. It requires the `agent-core-v2` engine and is unavailable when `PYTHINKER_CODE_LEGACY_FLAG=1`. A workspace can have one active tower at a time.
 
-`/discussion` is experimental and hidden by default. Set `PYTHINKER_CODE_EXPERIMENTAL_EXPERT_TALK=1` before starting Pythinker Code CLI to enable it. It requires the v2 engine. The configured pair persists in the session, while `/discussion arm` applies only to the next accepted message. Discussion model stages have read-only tools. After the opinions complete, `/discussion review` asks the Architect to show Agreement, Divergence, and Final analysis, `/discussion finish` uses the latest Architect answer, and `/discussion fuse` asks a fresh Architect model to create Fusion.
+`/expert-talk` is experimental and hidden by default. Set `PYTHINKER_CODE_EXPERIMENTAL_EXPERT_TALK=1` before starting Pythinker Code CLI to enable it. It requires the v2 engine. The configured Fusion Lead and Peer Expert persist in the session. `/expert-talk` or `/expert-talk arm` applies the pair to the next accepted message only; `/expert-talk off` disarms it. Both openings, both reciprocal reviews, and a fresh Fusion Lead answer then run automatically with read-only tools. `/expert-talk retry` starts the complete protocol again with a new run.
 
 ## Autonomous Goal
 

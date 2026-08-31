@@ -411,7 +411,7 @@ export class FooterComponent implements Component {
     if (state.dynamicWorkflowMode) modes.push(chalk.hex(colors.accent).bold('dynamic_workflow'));
     if (state.towerMode) modes.push(chalk.hex(colors.accent).bold('tower'));
     if (state.expertTalkArmId !== undefined || state.expertTalkRunId !== undefined) {
-      modes.push(chalk.hex(colors.accent).bold('discussion'));
+      modes.push(chalk.hex(colors.accent).bold('expert-talk'));
     }
     if (modes.length > 0) slots['mode'] = [modes.join(' ')];
 

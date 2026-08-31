@@ -265,8 +265,8 @@ export interface WireExpertTalkRun {
   turn_id: number;
   prompt_id: string;
   retry_of?: string;
-  state: 'preparing' | 'running' | 'waiting' | 'completed' | 'cancelled' | 'failed' | 'interrupted';
-  stage: 'preparing' | 'opening' | 'review' | 'fusion' | 'terminal';
+  state: 'running' | 'completed' | 'cancelled' | 'failed' | 'interrupted';
+  stage: 'opening' | 'review' | 'fusion' | 'terminal';
   created_at: string;
   started_at?: string;
   ended_at?: string;
@@ -276,11 +276,12 @@ export interface WireExpertTalkRun {
     peer: { requested_model_id: string; effective_model_id: string };
   };
   opening: { lead: WireExpertTalkArtifact; peer: WireExpertTalkArtifact };
-  review: { lead: WireExpertTalkArtifact };
+  review: { lead: WireExpertTalkArtifact; peer: WireExpertTalkArtifact };
   fusion?: WireExpertTalkArtifact;
   result?: {
+    version: string;
     answer: string;
-    notes: {
+    notes?: {
       consensus: string[];
       divergence: string[];
       uncertainty: string[];
@@ -288,19 +289,24 @@ export interface WireExpertTalkRun {
   };
   usage: {
     complete: boolean;
-    request_count: number;
-    provider_attempt_count: number;
+    request_count?: number;
+    provider_attempt_count?: number;
   };
   error?: {
     reason: string;
     message: string;
-    stage: 'preparing' | 'opening' | 'review' | 'fusion' | 'terminal';
+    stage: 'opening' | 'review' | 'fusion' | 'terminal';
     role?: 'fusion_lead' | 'peer';
     retryable: boolean;
     action: string;
   };
   progress_revision?: number;
   revision: number;
+}
+
+export interface WireExpertTalkRunPage {
+  runs: WireExpertTalkRun[];
+  next_cursor?: string;
 }
 
 export interface WireExpertTalkStatus {

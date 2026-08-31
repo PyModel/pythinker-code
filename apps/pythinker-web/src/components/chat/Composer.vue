@@ -282,6 +282,10 @@ const {
       toggleGoalMode();
       return;
     }
+    if (cmd === '/expert-talk') {
+      openExpertOpinion();
+      return;
+    }
     emit('command', cmd);
   },
   historyPush: (entry) => history.push(entry),
@@ -766,6 +770,11 @@ function handleKeydown(e: KeyboardEvent): void {
     }
   }
 
+  if (e.key === 'Escape' && expertTalkControlRef.value?.cancelActive()) {
+    e.preventDefault();
+    return;
+  }
+
   // Ctrl+S / Cmd+S — steer into the running turn (TUI parity)
   if (e.key === 's' && (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey) {
     if (props.running) {
@@ -1230,7 +1239,7 @@ function openCapabilities(): void {
 
 function openExpertOpinion(): void {
   closeModes();
-  expertTalkControlRef.value?.openDialog();
+  void expertTalkControlRef.value?.activate();
 }
 
 function openGoalMode(): void {
@@ -1744,6 +1753,8 @@ function selectModel(modelId: string): void {
             />
           </div>
         </Transition>
+
+        <ExpertTalkControl :models="models" trigger="widget" />
 
         <div class="input-row">
           <span v-if="workMode" ref="workModePillRef" class="wm-pill">

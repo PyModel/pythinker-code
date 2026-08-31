@@ -15,7 +15,6 @@ const { api, copyTextToClipboard } = vi.hoisted(() => ({
     listExpertTalkRuns: vi.fn(),
     configureExpertTalk: vi.fn(),
     armExpertTalk: vi.fn(),
-    finishExpertTalkRun: vi.fn(),
   },
   copyTextToClipboard: vi.fn().mockResolvedValue(true),
 }));
@@ -42,7 +41,7 @@ function status() {
 describe('ExpertTalkControl', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    api.listExpertTalkRuns.mockResolvedValue([]);
+    api.listExpertTalkRuns.mockResolvedValue({ runs: [] });
   });
 
   it('saves a model pair without arming the next message', async () => {
@@ -104,9 +103,6 @@ describe('ExpertTalkControl', () => {
       clear: vi.fn(),
       cancel: vi.fn(),
       retry: vi.fn(),
-      review: vi.fn(),
-      finish: vi.fn(),
-      fuse: vi.fn(),
       applyStatus: vi.fn(),
       armIdForSession: vi.fn(),
       promptAccepted: vi.fn(),
@@ -131,7 +127,7 @@ describe('ExpertTalkControl', () => {
     await wrapper.get('.expert-talk__launcher').trigger('click');
     await nextTick();
 
-    expect(wrapper.text()).toContain('2-4 model stages, at most 56 provider attempts');
+    expect(wrapper.text()).toContain('5-12 model requests, at most 24 provider attempts');
     expect(wrapper.findAll('select')).toHaveLength(0);
     const modelPickers = wrapper.findAll('.expert-talk__model-select');
     expect(modelPickers).toHaveLength(2);
@@ -154,7 +150,68 @@ describe('ExpertTalkControl', () => {
     wrapper.unmount();
   });
 
-  it('shows Architect and Builder side by side with full-width Architect Fusion', async () => {
+  it('shows the one-shot widget and exposes activation and Escape cancellation', async () => {
+    const currentStatus = ref<AppExpertTalkStatus>({
+      ...status(),
+      config: { fusionLeadModelId: 'provider/lead', peerModelId: 'provider/peer' },
+      activation: { state: 'armed', armId: 'arm-1' },
+      pairValidation: { state: 'valid' },
+    });
+    const currentRun = ref<AppExpertTalkRun>();
+    const useForNextMessage = vi.fn().mockResolvedValue(undefined);
+    const cancel = vi.fn().mockResolvedValue(undefined);
+    const context = {
+      available: computed(() => true),
+      status: computed(() => currentStatus.value),
+      run: computed(() => currentRun.value),
+      runs: computed(() => []),
+      busy: ref(false),
+      error: ref<string>(),
+      refresh: vi.fn(),
+      configurePair: vi.fn(),
+      useForNextMessage,
+      disarm: vi.fn(),
+      clear: vi.fn(),
+      cancel,
+      retry: vi.fn(),
+      applyStatus: vi.fn(),
+      armIdForSession: vi.fn(),
+      promptAccepted: vi.fn(),
+    };
+    const wrapper = mount(ExpertTalkControl, {
+      props: {
+        trigger: 'widget',
+        models: [
+          { id: 'provider/lead', provider: 'Provider A', model: 'Lead', maxContextSize: 128000, capabilities: ['tool_use'] },
+          { id: 'provider/peer', provider: 'Provider B', model: 'Peer', maxContextSize: 128000, capabilities: ['tool_use'] },
+        ],
+      },
+      global: {
+        plugins: [webI18n],
+        provide: { [expertTalkContextKey as symbol]: context },
+        stubs: { Icon: true, teleport: true },
+      },
+    });
+
+    expect(wrapper.get('.expert-talk__one-shot').text()).toContain('▶ ONE-SHOT →');
+    expect(wrapper.get('.expert-talk__one-shot').text()).toContain('◆ Lead');
+    expect(wrapper.get('.expert-talk__one-shot').text()).toContain('▲ Peer');
+    const control = wrapper.vm as unknown as {
+      activate(): Promise<void>;
+      cancelActive(): boolean;
+    };
+    currentStatus.value = { ...currentStatus.value, activation: { state: 'idle' } };
+    await control.activate();
+    expect(useForNextMessage).toHaveBeenCalledWith('provider/lead', 'provider/peer');
+
+    currentRun.value = { state: 'running' } as AppExpertTalkRun;
+    await nextTick();
+    expect(control.cancelActive()).toBe(true);
+    expect(cancel).toHaveBeenCalledOnce();
+    wrapper.unmount();
+  });
+
+  it('shows reciprocal reviews side by side with full-width Fusion', async () => {
     const currentRun = ref<AppExpertTalkRun>({
       runId: 'run-1',
       sessionId: 'session-1',
@@ -193,16 +250,14 @@ describe('ExpertTalkControl', () => {
           role: 'fusion_lead' as const,
           stage: 'review' as const,
           state: 'completed' as const,
-          text: [
-            '## Agreement',
-            '- Both use the shared resolver.',
-            '',
-            '## Divergence',
-            '- Architect requires strict mode; Builder prefers fallback.',
-            '',
-            '## Final analysis',
-            'Use the shared resolver in strict mode.',
-          ].join('\n'),
+          text: 'Fusion Lead review of Peer Expert',
+          partial: false,
+        },
+        peer: {
+          role: 'peer' as const,
+          stage: 'review' as const,
+          state: 'completed' as const,
+          text: 'Peer Expert review of Fusion Lead',
           partial: false,
         },
       },
@@ -217,7 +272,7 @@ describe('ExpertTalkControl', () => {
         answer: 'Fused answer users receive',
         notes: { consensus: [], divergence: [], uncertainty: [] },
       },
-      usage: { complete: true, requestCount: 4, providerAttemptCount: 4 },
+      usage: { complete: true, requestCount: 5, providerAttemptCount: 5 },
       revision: 6,
     });
     const currentStatus = ref<AppExpertTalkStatus>({
@@ -243,9 +298,6 @@ describe('ExpertTalkControl', () => {
       clear: vi.fn(),
       cancel: vi.fn(),
       retry: vi.fn(),
-      review: vi.fn(),
-      finish: vi.fn(),
-      fuse: vi.fn(),
       applyStatus: vi.fn(),
       armIdForSession: vi.fn(),
       promptAccepted: vi.fn(),
@@ -272,161 +324,40 @@ describe('ExpertTalkControl', () => {
 
     const columns = wrapper.findAll('.expert-talk__agent-column');
     expect(columns).toHaveLength(2);
-    expect(columns[0]!.text()).toContain('Architect');
+    expect(columns[0]!.text()).toContain('Fusion Lead');
     expect(columns[0]!.text()).toContain('GPT Test');
     expect(columns[0]!.text()).toContain('Model one opening');
     expect(columns[0]!.text()).toContain('Time2.0s');
     expect(columns[0]!.text()).toContain('Tokens in1.5k');
     expect(columns[0]!.text()).toContain('TPS300');
-    expect(columns[1]!.text()).toContain('Builder');
+    expect(columns[0]!.text()).toContain('Fusion Lead review of Peer Expert');
+    expect(columns[1]!.text()).toContain('Peer Expert');
     expect(columns[1]!.text()).toContain('GLM Test');
     expect(columns[1]!.text()).toContain('Model two opening');
-    expect(wrapper.get('.expert-talk__review').text()).toContain('Discussion');
-    expect(wrapper.get('.expert-talk__comparison--agreement').text()).toContain('Both use the shared resolver.');
-    expect(wrapper.get('.expert-talk__comparison--divergence').text()).toContain('Architect requires strict mode');
-    expect(wrapper.get('.expert-talk__comparison--analysis').text()).toContain('Use the shared resolver in strict mode.');
+    expect(columns[1]!.text()).toContain('Peer Expert review of Fusion Lead');
     expect(wrapper.get('.expert-talk__fusion').text()).toContain('Fused answer users receive');
     expect(wrapper.get('.expert-talk__fusion').text()).not.toContain('Fused final answer');
     expect(wrapper.get('.expert-talk__fusion .expert-talk__agent-symbol').text()).toBe('⧉');
-    expect(wrapper.find('details').exists()).toBe(false);
+    const exchange = wrapper.get('details');
+    expect((exchange.element as HTMLDetailsElement).open).toBe(false);
+    expect(exchange.get('summary').text()).toContain('View exchange and fusion notes');
 
     const button = (label: string) => wrapper.findAll('button')
-      .find((candidate) => candidate.text().includes(label))!;
-    expect(wrapper.get('.expert-talk__fusion').text()).toContain('Fresh Architect inference');
-    await button('Take Architect').trigger('click');
-    expect(copyTextToClipboard).toHaveBeenLastCalledWith('Model one opening');
-    await button('Take Builder').trigger('click');
-    expect(copyTextToClipboard).toHaveBeenLastCalledWith('Model two opening');
-    await button('Take comparison').trigger('click');
-    expect(copyTextToClipboard).toHaveBeenLastCalledWith(currentRun.value.review.lead.text);
+      .find((candidate) => candidate.text().trim() === label)!;
+    expect(wrapper.get('.expert-talk__fusion').text()).toContain('Fresh Fusion Lead inference');
+    expect(wrapper.find('[data-testid="expert-opinion-review"]').exists()).toBe(false);
+    expect(wrapper.find('[data-testid="expert-opinion-finish"]').exists()).toBe(false);
+    expect(wrapper.find('[data-testid="expert-opinion-fuse"]').exists()).toBe(false);
+    await button('Take Fusion Lead').trigger('click');
+    expect(copyTextToClipboard).toHaveBeenLastCalledWith('Fusion Lead review of Peer Expert');
+    await button('Take Peer Expert').trigger('click');
+    expect(copyTextToClipboard).toHaveBeenLastCalledWith('Peer Expert review of Fusion Lead');
     await button('Take Fusion').trigger('click');
     expect(copyTextToClipboard).toHaveBeenLastCalledWith('Fused answer users receive');
     await button('Build from Fusion').trigger('click');
     expect(disarm).toHaveBeenCalledOnce();
     expect(wrapper.emitted('build')).toEqual([['Fused answer users receive']]);
     wrapper.unmount();
-  });
-
-  it('offers Architect review and direct Fusion only after both opinions are ready', async () => {
-    const review = vi.fn();
-    const finish = vi.fn();
-    const fuse = vi.fn();
-    const run: AppExpertTalkRun = {
-      runId: 'run-ready',
-      sessionId: 'session-1',
-      turnId: 2,
-      promptId: 'prompt-ready',
-      state: 'waiting',
-      stage: 'opening',
-      createdAt: '2026-08-30T12:00:00.000Z',
-      updatedAt: '2026-08-30T12:00:02.000Z',
-      bindings: {
-        fusionLead: { requestedModelId: 'provider/lead', effectiveModelId: 'provider/lead' },
-        peer: { requestedModelId: 'provider/peer', effectiveModelId: 'provider/peer' },
-      },
-      opening: {
-        lead: { role: 'fusion_lead', stage: 'opening', state: 'completed', text: 'Architect opinion', partial: false },
-        peer: { role: 'peer', stage: 'opening', state: 'completed', text: 'Builder opinion', partial: false },
-      },
-      review: {
-        lead: { role: 'fusion_lead', stage: 'review', state: 'pending', partial: false },
-      },
-      usage: { complete: false, requestCount: 2, providerAttemptCount: 2 },
-      revision: 3,
-    };
-    const context = {
-      available: computed(() => true),
-      status: computed(() => undefined),
-      run: computed(() => run),
-      runs: computed(() => [run]),
-      busy: ref(false),
-      error: ref<string>(),
-      refresh: vi.fn(),
-      configurePair: vi.fn(),
-      useForNextMessage: vi.fn(),
-      disarm: vi.fn(),
-      clear: vi.fn(),
-      cancel: vi.fn(),
-      retry: vi.fn(),
-      review,
-      finish,
-      fuse,
-      applyStatus: vi.fn(),
-      armIdForSession: vi.fn(),
-      promptAccepted: vi.fn(),
-    };
-    const wrapper = mount(ExpertTalkExchange, {
-      props: {
-        run,
-        models: [
-          { id: 'provider/lead', provider: 'Provider A', model: 'GPT Test', maxContextSize: 128000 },
-          { id: 'provider/peer', provider: 'Provider B', model: 'GLM Test', maxContextSize: 128000 },
-        ],
-      },
-      global: {
-        plugins: [webI18n],
-        provide: { [expertTalkContextKey as symbol]: context },
-        stubs: { Icon: true },
-      },
-    });
-
-    const buttons = wrapper.findAll('button');
-    await buttons.find((button) => button.text().includes('Compare opinions'))!.trigger('click');
-    await buttons.find((button) => button.text().includes('Finish with Architect'))!.trigger('click');
-    await buttons.find((button) => button.text().includes('Fuse now'))!.trigger('click');
-
-    expect(review).toHaveBeenCalledOnce();
-    expect(finish).toHaveBeenCalledOnce();
-    expect(fuse).toHaveBeenCalledOnce();
-  });
-
-  it('marks an omitted review as skipped after direct Fusion', () => {
-    const run: AppExpertTalkRun = {
-      runId: 'run-direct-fusion',
-      sessionId: 'session-1',
-      turnId: 4,
-      promptId: 'prompt-direct-fusion',
-      state: 'completed',
-      stage: 'terminal',
-      createdAt: '2026-08-30T12:00:00.000Z',
-      updatedAt: '2026-08-30T12:00:04.000Z',
-      bindings: {
-        fusionLead: { requestedModelId: 'provider/lead', effectiveModelId: 'provider/lead' },
-        peer: { requestedModelId: 'provider/peer', effectiveModelId: 'provider/peer' },
-      },
-      opening: {
-        lead: { role: 'fusion_lead', stage: 'opening', state: 'completed', text: 'Architect opinion', partial: false },
-        peer: { role: 'peer', stage: 'opening', state: 'completed', text: 'Builder opinion', partial: false },
-      },
-      review: {
-        lead: { role: 'fusion_lead', stage: 'review', state: 'unavailable', partial: false },
-      },
-      fusion: {
-        role: 'fusion_lead',
-        stage: 'fusion',
-        state: 'completed',
-        text: 'Direct Fusion answer',
-        partial: false,
-      },
-      result: {
-        answer: 'Direct Fusion answer',
-        notes: { consensus: [], divergence: [], uncertainty: [] },
-      },
-      usage: { complete: true, requestCount: 3, providerAttemptCount: 3 },
-      revision: 4,
-    };
-    const wrapper = mount(ExpertTalkExchange, {
-      props: { run },
-      global: {
-        plugins: [webI18n],
-        stubs: { Icon: true },
-      },
-    });
-
-    expect(wrapper.findAll('.expert-opinion-exchange__phases li')[1]?.attributes('data-state'))
-      .toBe('skipped');
-    expect(wrapper.find('.expert-talk__review').exists()).toBe(false);
-    expect(wrapper.get('.expert-talk__fusion').text()).toContain('Direct Fusion answer');
   });
 
   it('shows live answer, thinking, and tool activity for each model', () => {
@@ -448,7 +379,7 @@ describe('ExpertTalkControl', () => {
           role: 'fusion_lead',
           stage: 'opening',
           state: 'running',
-          text: '# Architect draft',
+          text: '# Fusion Lead draft',
           thinking: 'Checking the evidence.',
           tools: [{ id: 'tool-1', name: 'Read' }],
           partial: true,
@@ -457,6 +388,7 @@ describe('ExpertTalkControl', () => {
       },
       review: {
         lead: { role: 'fusion_lead', stage: 'review', state: 'pending', partial: false },
+        peer: { role: 'peer', stage: 'review', state: 'pending', partial: false },
       },
       usage: { complete: false, requestCount: 1, providerAttemptCount: 1 },
       revision: 2,
@@ -478,7 +410,7 @@ describe('ExpertTalkControl', () => {
       },
     });
 
-    expect(wrapper.get('.markdown-stub').text()).toBe('# Architect draft');
+    expect(wrapper.get('.markdown-stub').text()).toBe('# Fusion Lead draft');
     expect(wrapper.get('.expert-talk__thinking').text()).toContain('▹');
     expect(wrapper.get('.expert-talk__thinking').text()).toContain('Checking the evidence.');
     expect(wrapper.get('.expert-talk__tools').text()).toContain('Read');

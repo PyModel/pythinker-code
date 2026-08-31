@@ -27,6 +27,7 @@ export interface RunAgentTurnOptions {
   readonly signal: AbortSignal;
   readonly onReady?: () => void;
   readonly maxOutputSize?: number;
+  readonly infiniteRetry?: boolean;
 }
 
 export async function runAgentTurn(
@@ -40,6 +41,7 @@ export async function runAgentTurn(
     request.kind === 'prompt'
       ? await (await promptService.enqueue({
           maxOutputSize: options.maxOutputSize,
+          infiniteRetry: options.infiniteRetry,
           message: {
           role: 'user',
           content: request.content === undefined

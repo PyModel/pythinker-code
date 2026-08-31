@@ -1,9 +1,8 @@
 <script setup lang="ts">
-import { computed, inject, onUnmounted, ref } from 'vue';
+import { computed, onUnmounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 
 import type { AppExpertTalkArtifact, AppExpertTalkRun, AppModel } from '../../api/types';
-import { expertTalkContextKey } from '../../composables/expertTalkContext';
 import { copyTextToClipboard } from '../../lib/clipboard';
 import { formatTokens } from '../../lib/formatTokens';
 import Badge from '../ui/Badge.vue';
@@ -22,7 +21,30 @@ const emit = defineEmits<{
   build: [answer: string];
 }>();
 const { t } = useI18n();
-const expertTalk = inject(expertTalkContextKey, undefined);
+
+const isRunning = computed(() => props.run.state === 'running');
+const exchangeSummary = computed(() => isRunning.value
+  ? t('expertTalk.flowTitle')
+  : t('expertTalk.viewExchange'));
+const liveAnnouncement = computed(() => t('expertTalk.liveAnnouncement', {
+  state: t(`expertTalk.runState.${props.run.state}`),
+  stage: t(`expertTalk.stage.${props.run.stage}`),
+}));
+const runMetrics = computed(() => [
+  {
+    label: t('expertTalk.metric.requests'),
+    value: props.run.usage.requestCount === undefined
+      ? t('expertTalk.unavailable')
+      : String(props.run.usage.requestCount),
+  },
+  {
+    label: t('expertTalk.metric.attempts'),
+    value: props.run.usage.providerAttemptCount === undefined
+      ? t('expertTalk.unavailable')
+      : String(props.run.usage.providerAttemptCount),
+  },
+  { label: t('expertTalk.metric.cost'), value: t('expertTalk.unavailable') },
+]);
 
 type PhaseState = 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
 
@@ -51,7 +73,7 @@ const phases = computed(() => [
   {
     id: 'review',
     label: t('expertTalk.review'),
-    state: artifactPhase([props.run.review.lead]),
+    state: artifactPhase([props.run.review.lead, props.run.review.peer]),
   },
   {
     id: 'fusion',
@@ -74,7 +96,7 @@ interface ExchangeStage {
 }
 
 interface ExchangeColumn {
-  key: 'architect' | 'builder';
+  key: 'lead' | 'peer';
   role: string;
   model: string;
   symbol: '◆' | '▲';
@@ -90,61 +112,28 @@ function latestAnswer(...artifacts: AppExpertTalkArtifact[]): string | undefined
 
 const exchangeColumns = computed<ExchangeColumn[]>(() => [
   {
-    key: 'architect',
+    key: 'lead',
     role: t('expertTalk.model1'),
     model: modelLabel(props.run.bindings.fusionLead.effectiveModelId),
     symbol: '◆',
     stages: [
-      { key: 'architect-opening', label: t('expertTalk.opening'), artifact: props.run.opening.lead },
+      { key: 'lead-opening', label: t('expertTalk.opening'), artifact: props.run.opening.lead },
+      { key: 'lead-review', label: t('expertTalk.reviewPeer'), artifact: props.run.review.lead },
     ],
-    answer: latestAnswer(props.run.opening.lead),
+    answer: latestAnswer(props.run.review.lead, props.run.opening.lead),
   },
   {
-    key: 'builder',
+    key: 'peer',
     role: t('expertTalk.model2'),
     model: modelLabel(props.run.bindings.peer.effectiveModelId),
     symbol: '▲',
     stages: [
-      { key: 'builder-opening', label: t('expertTalk.opening'), artifact: props.run.opening.peer },
+      { key: 'peer-opening', label: t('expertTalk.opening'), artifact: props.run.opening.peer },
+      { key: 'peer-review', label: t('expertTalk.reviewLead'), artifact: props.run.review.peer },
     ],
-    answer: latestAnswer(props.run.opening.peer),
+    answer: latestAnswer(props.run.review.peer, props.run.opening.peer),
   },
 ]);
-
-const reviewExchange = computed(() => {
-  const artifact = props.run.review.lead;
-  if (artifact.state === 'unavailable') return undefined;
-  if (artifact.state === 'pending' && props.run.stage === 'opening') return undefined;
-  return {
-    model: modelLabel(props.run.bindings.fusionLead.effectiveModelId),
-    artifact,
-    answer: artifact.text?.trim(),
-  };
-});
-
-interface DiscussionComparison {
-  agreement: string;
-  divergence: string;
-  finalAnalysis: string;
-}
-
-function parseDiscussionComparison(answer: string): DiscussionComparison | undefined {
-  const sections = new Map(answer.split(/^## /m).map((section) => {
-    const [heading = '', ...body] = section.split(/\r?\n/);
-    return [heading.trim().toLowerCase(), body.join('\n').trim()] as const;
-  }));
-  const agreement = sections.get('agreement');
-  const divergence = sections.get('divergence');
-  const finalAnalysis = sections.get('final analysis');
-  if (!agreement || !divergence || !finalAnalysis) return undefined;
-  return { agreement, divergence, finalAnalysis };
-}
-
-const reviewComparison = computed(() => {
-  if (reviewExchange.value?.artifact.state !== 'completed') return undefined;
-  const answer = reviewExchange.value.answer;
-  return answer === undefined ? undefined : parseDiscussionComparison(answer);
-});
 
 const fusionExchange = computed(() => {
   if (props.run.fusion === undefined && props.run.stage !== 'fusion') return undefined;
@@ -156,22 +145,7 @@ const fusionExchange = computed(() => {
   };
 });
 
-const opinionsReady = computed(() => props.run.state === 'waiting' && props.run.stage === 'opening');
-const reviewReady = computed(() => props.run.state === 'waiting' && props.run.stage === 'review');
-
-async function reviewBuilder(): Promise<void> {
-  await expertTalk?.review();
-}
-
-async function finishNow(): Promise<void> {
-  await expertTalk?.finish();
-}
-
-async function fuseNow(): Promise<void> {
-  await expertTalk?.fuse();
-}
-
-type CopyTarget = 'architect' | 'builder' | 'review' | 'fusion';
+type CopyTarget = 'lead' | 'peer' | 'fusion';
 const copiedTarget = ref<CopyTarget>();
 let copiedTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -247,20 +221,24 @@ function artifactVariant(
 function statusVariant(state: AppExpertTalkRun['state']): 'success' | 'danger' | 'info' | 'neutral' {
   if (state === 'completed') return 'success';
   if (state === 'failed' || state === 'cancelled' || state === 'interrupted') return 'danger';
-  if (state === 'running' || state === 'preparing') return 'info';
+  if (state === 'running') return 'info';
   return 'neutral';
 }
 </script>
 
 <template>
   <section class="expert-opinion-exchange" :aria-label="t('expertTalk.flowLabel')">
-    <header class="expert-opinion-exchange__top">
-      <div class="expert-opinion-exchange__title">
-        <span aria-hidden="true">◆</span>
-        <span>{{ t('expertTalk.flowTitle') }}</span>
-      </div>
-      <Badge :variant="statusVariant(run.state)" dot>{{ t(`expertTalk.runState.${run.state}`) }}</Badge>
-    </header>
+    <p class="expert-talk__sr-only" role="status" aria-live="polite" aria-atomic="true">
+      {{ liveAnnouncement }}
+    </p>
+    <details :open="isRunning">
+      <summary class="expert-opinion-exchange__top">
+        <span class="expert-opinion-exchange__title">
+          <span aria-hidden="true">◆</span>
+          <span>{{ exchangeSummary }}</span>
+        </span>
+        <Badge :variant="statusVariant(run.state)" dot>{{ t(`expertTalk.runState.${run.state}`) }}</Badge>
+      </summary>
 
     <ol class="expert-opinion-exchange__phases">
       <li v-for="phase in phases" :key="phase.id" :data-state="phase.state">
@@ -268,6 +246,17 @@ function statusVariant(state: AppExpertTalkRun['state']): 'success' | 'danger' |
         <span>{{ phase.label }}</span>
       </li>
     </ol>
+
+    <dl class="expert-talk__run-metrics">
+      <div v-for="metric in runMetrics" :key="metric.label">
+        <dt>{{ metric.label }}</dt>
+        <dd>{{ metric.value }}</dd>
+      </div>
+    </dl>
+
+    <p v-if="run.resultUnsupported" class="expert-opinion-exchange__error" role="status">
+      {{ t('expertTalk.unsupportedResult', { version: run.resultVersion }) }}
+    </p>
 
     <p v-if="run.error" class="expert-opinion-exchange__error" role="alert">
       {{ run.error.message }} {{ run.error.action }}
@@ -279,6 +268,7 @@ function statusVariant(state: AppExpertTalkRun['state']): 'success' | 'danger' |
         :key="column.key"
         class="expert-talk__agent-column"
         :class="`expert-talk__agent-column--${column.key}`"
+        :aria-label="`${column.role}: ${column.model}`"
       >
         <header class="expert-talk__agent-head">
           <span class="expert-talk__agent-symbol" aria-hidden="true">{{ column.symbol }}</span>
@@ -325,131 +315,17 @@ function statusVariant(state: AppExpertTalkRun['state']): 'success' | 'danger' |
             <Icon :name="copiedTarget === column.key ? 'check' : 'copy'" size="sm" />
             {{ copiedTarget === column.key
               ? t('expertTalk.copied')
-              : t(column.key === 'architect' ? 'expertTalk.takeModel1' : 'expertTalk.takeModel2') }}
+              : t(column.key === 'lead' ? 'expertTalk.takeModel1' : 'expertTalk.takeModel2') }}
           </Button>
         </footer>
       </article>
     </div>
 
-    <footer v-if="opinionsReady" class="expert-talk__decision-actions">
-      <span>{{ t('expertTalk.opinionsReady') }}</span>
-      <div>
-        <Button
-          size="sm"
-          variant="secondary"
-          data-testid="expert-opinion-finish"
-          :loading="expertTalk?.busy.value"
-          @click="finishNow"
-        >
-          {{ t('expertTalk.finishWithArchitect') }}
-        </Button>
-        <Button
-          size="sm"
-          variant="secondary"
-          data-testid="expert-opinion-review"
-          :loading="expertTalk?.busy.value"
-          @click="reviewBuilder"
-        >
-          {{ t('expertTalk.reviewBuilder') }}
-        </Button>
-        <Button
-          size="sm"
-          data-testid="expert-opinion-fuse"
-          :loading="expertTalk?.busy.value"
-          @click="fuseNow"
-        >
-          {{ t('expertTalk.fuseNow') }}
-        </Button>
-      </div>
-    </footer>
-
-    <article v-if="reviewExchange" class="expert-talk__review">
-      <header class="expert-talk__agent-head">
-        <span class="expert-talk__agent-symbol" aria-hidden="true">◆</span>
-        <span class="expert-talk__agent-role">{{ t('expertTalk.review') }}</span>
-        <span class="expert-talk__agent-model">{{ reviewExchange.model }}</span>
-        <Badge size="sm" :variant="artifactVariant(reviewExchange.artifact.state)" dot>
-          {{ t(`expertTalk.artifactState.${reviewExchange.artifact.state}`) }}
-        </Badge>
-      </header>
-      <dl v-if="artifactMetrics(reviewExchange.artifact).length > 0" class="expert-talk__metrics">
-        <div v-for="metric in artifactMetrics(reviewExchange.artifact)" :key="metric.label">
-          <dt>{{ metric.label }}</dt>
-          <dd>{{ metric.value }}</dd>
-        </div>
-      </dl>
-      <div class="expert-talk__artifact-body">
-        <div v-if="reviewExchange.artifact.thinking" class="expert-talk__thinking">
-          <strong>▹ {{ t('expertTalk.thinking') }}</strong>
-          <span>{{ reviewExchange.artifact.thinking }}</span>
-        </div>
-        <ul v-if="reviewExchange.artifact.tools?.length" class="expert-talk__tools">
-          <li v-for="tool in reviewExchange.artifact.tools" :key="tool.id">
-            <span aria-hidden="true">▸</span>
-            {{ tool.name ?? t('expertTalk.tool') }}
-          </li>
-        </ul>
-        <div v-if="reviewExchange.answer" class="expert-talk__artifact-text">
-          <div v-if="reviewComparison" class="expert-talk__comparison">
-            <section class="expert-talk__comparison-section expert-talk__comparison--agreement">
-              <h3>{{ t('expertTalk.agreement') }}</h3>
-              <Markdown :text="reviewComparison.agreement" />
-            </section>
-            <section class="expert-talk__comparison-section expert-talk__comparison--divergence">
-              <h3>{{ t('expertTalk.divergence') }}</h3>
-              <Markdown :text="reviewComparison.divergence" />
-            </section>
-            <section class="expert-talk__comparison-section expert-talk__comparison--analysis">
-              <h3>{{ t('expertTalk.finalAnalysis') }}</h3>
-              <Markdown :text="reviewComparison.finalAnalysis" />
-            </section>
-          </div>
-          <Markdown
-            v-else
-            :text="reviewExchange.answer"
-            :streaming="reviewExchange.artifact.state === 'running'"
-          />
-        </div>
-        <p v-else>
-          {{ reviewExchange.artifact.error ?? t(`expertTalk.artifactState.${reviewExchange.artifact.state}`) }}
-        </p>
-      </div>
-      <footer v-if="reviewExchange.answer" class="expert-talk__review-actions">
-        <Button
-          size="sm"
-          variant="secondary"
-          @click="takeAnswer('review', reviewExchange.answer)"
-        >
-          <Icon :name="copiedTarget === 'review' ? 'check' : 'copy'" size="sm" />
-          {{ copiedTarget === 'review' ? t('expertTalk.copied') : t('expertTalk.takeReview') }}
-        </Button>
-      </footer>
-    </article>
-
-    <footer v-if="reviewReady" class="expert-talk__decision-actions">
-      <span>{{ t('expertTalk.reviewReady') }}</span>
-      <div>
-        <Button
-          size="sm"
-          variant="secondary"
-          data-testid="expert-opinion-finish"
-          :loading="expertTalk?.busy.value"
-          @click="finishNow"
-        >
-          {{ t('expertTalk.finishWithArchitect') }}
-        </Button>
-        <Button
-          size="sm"
-          data-testid="expert-opinion-fuse"
-          :loading="expertTalk?.busy.value"
-          @click="fuseNow"
-        >
-          {{ t('expertTalk.fuseNow') }}
-        </Button>
-      </div>
-    </footer>
-
-    <article v-if="fusionExchange" class="expert-talk__fusion">
+    <article
+      v-if="fusionExchange"
+      class="expert-talk__fusion"
+      :aria-label="`${t('expertTalk.fusion')}: ${fusionExchange.model}`"
+    >
       <header class="expert-talk__agent-head">
         <span class="expert-talk__agent-symbol" aria-hidden="true">⧉</span>
         <span class="expert-talk__agent-role">{{ t('expertTalk.fusion') }}</span>
@@ -498,6 +374,7 @@ function statusVariant(state: AppExpertTalkRun['state']): 'success' | 'danger' |
         </Button>
       </footer>
     </article>
+    </details>
   </section>
 </template>
 
@@ -520,17 +397,30 @@ function statusVariant(state: AppExpertTalkRun['state']): 'success' | 'danger' |
   background: var(--color-surface-raised);
 }
 
+summary.expert-opinion-exchange__top {
+  cursor: pointer;
+  list-style: none;
+}
+
+summary.expert-opinion-exchange__top::-webkit-details-marker {
+  display: none;
+}
+
 .expert-opinion-exchange__title {
   display: flex;
   align-items: center;
   gap: var(--space-2);
   min-width: 0;
-  color: var(--color-accent);
+  color: color-mix(in srgb, var(--color-accent) 75%, var(--color-text-strong));
   font-family: var(--font-mono);
   font-size: var(--text-xs);
   font-weight: var(--weight-semibold);
   letter-spacing: 0.04em;
   text-transform: uppercase;
+}
+
+.expert-opinion-exchange :deep(.ui-badge--danger) {
+  color: color-mix(in srgb, var(--color-danger) 70%, var(--color-text-strong));
 }
 
 .expert-opinion-exchange__phases {
@@ -558,6 +448,42 @@ function statusVariant(state: AppExpertTalkRun['state']): 'success' | 'danger' |
   border-bottom: var(--p-hairline) solid var(--color-line);
   color: var(--color-danger);
   font-size: var(--text-sm);
+}
+
+.expert-talk__run-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  margin: 0;
+  border-bottom: var(--p-hairline) solid var(--color-line);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.expert-talk__run-metrics div {
+  display: flex;
+  gap: var(--space-1);
+}
+
+.expert-talk__run-metrics dt {
+  color: var(--color-text-faint);
+}
+
+.expert-talk__run-metrics dd {
+  margin: 0;
+  color: var(--color-text);
+}
+
+.expert-talk__sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .expert-talk__agent-grid {
@@ -606,12 +532,12 @@ function statusVariant(state: AppExpertTalkRun['state']): 'success' | 'danger' |
   white-space: nowrap;
 }
 
-.expert-talk__agent-column--architect .expert-talk__agent-symbol {
-  color: var(--color-accent);
+.expert-talk__agent-column--lead .expert-talk__agent-symbol {
+  color: #a78bfa;
 }
 
-.expert-talk__agent-column--builder .expert-talk__agent-symbol {
-  color: var(--color-warning);
+.expert-talk__agent-column--peer .expert-talk__agent-symbol {
+  color: #f59e0b;
 }
 
 .expert-talk__stage {
@@ -675,50 +601,6 @@ function statusVariant(state: AppExpertTalkRun['state']): 'success' | 'danger' |
   min-width: 0;
 }
 
-.expert-talk__comparison {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--space-3);
-  min-width: 0;
-}
-
-.expert-talk__comparison-section {
-  min-width: 0;
-  padding: var(--space-3);
-  border: var(--p-hairline) solid;
-  border-left-width: 3px;
-  border-radius: var(--radius-md);
-}
-
-.expert-talk__comparison-section h3 {
-  margin: 0 0 var(--space-2);
-  color: var(--color-text-strong);
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  font-weight: var(--weight-semibold);
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-.expert-talk__comparison--agreement {
-  border-color: var(--color-success-bd);
-  border-left-color: var(--color-success);
-  background: var(--color-success-soft);
-}
-
-.expert-talk__comparison--divergence {
-  border-color: var(--color-warning-bd);
-  border-left-color: var(--color-warning);
-  background: var(--color-warning-soft);
-}
-
-.expert-talk__comparison--analysis {
-  grid-column: 1 / -1;
-  border-color: var(--color-accent-bd);
-  border-left-color: var(--color-accent);
-  background: var(--color-accent-soft);
-}
-
 .expert-talk__thinking {
   display: grid;
   gap: var(--space-1);
@@ -760,7 +642,6 @@ function statusVariant(state: AppExpertTalkRun['state']): 'success' | 'danger' |
 }
 
 .expert-talk__agent-actions,
-.expert-talk__review-actions,
 .expert-talk__fusion-actions {
   display: flex;
   justify-content: flex-end;
@@ -769,64 +650,35 @@ function statusVariant(state: AppExpertTalkRun['state']): 'success' | 'danger' |
   border-top: var(--p-hairline) solid var(--color-line);
 }
 
-.expert-talk__decision-actions {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
-  min-width: 0;
-  padding: var(--space-3) var(--space-4);
-  border-top: var(--p-hairline) solid var(--color-line);
-  color: var(--color-text-muted);
-  font-size: var(--text-sm);
-}
-
-.expert-talk__decision-actions > div {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: var(--space-2);
-}
-
 .expert-talk__agent-actions {
   margin-top: auto;
 }
 
-.expert-talk__review,
 .expert-talk__fusion {
   min-width: 0;
   border-top: var(--p-hairline) solid var(--color-line);
   background: var(--color-surface-raised);
 }
 
-.expert-talk__review > .expert-talk__agent-head,
 .expert-talk__fusion > .expert-talk__agent-head {
   border-bottom: 0;
   background: transparent;
 }
 
-.expert-talk__review .expert-talk__agent-symbol {
-  color: var(--color-accent);
-}
-
 .expert-talk__fusion .expert-talk__agent-symbol {
-  color: var(--color-success);
+  color: #22d3ee;
 }
 
-.expert-talk__review .ui-badge,
 .expert-talk__fusion .ui-badge {
   margin-left: auto;
 }
 
-.expert-talk__review > .expert-talk__metrics,
-.expert-talk__review > .expert-talk__artifact-body,
 .expert-talk__fusion > .expert-talk__metrics,
 .expert-talk__fusion > .expert-talk__artifact-body {
   margin-right: var(--space-4);
   margin-left: var(--space-4);
 }
 
-.expert-talk__review > .expert-talk__artifact-body,
 .expert-talk__fusion > .expert-talk__artifact-body {
   padding-bottom: var(--space-4);
 }
@@ -842,21 +694,5 @@ function statusVariant(state: AppExpertTalkRun['state']): 'success' | 'danger' |
     border-left: 0;
   }
 
-  .expert-talk__comparison {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .expert-talk__comparison--analysis {
-    grid-column: auto;
-  }
-
-  .expert-talk__decision-actions {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .expert-talk__decision-actions > div {
-    justify-content: flex-start;
-  }
 }
 </style>

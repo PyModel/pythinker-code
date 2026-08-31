@@ -7,7 +7,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { transcriptResponseSchema } from '@pymodel/transcript';
 
 import { ErrorCode } from '../src/protocol/error-codes';
-import { expertTalkRunSchema, expertTalkStatusSchema } from '../src/protocol/rest-expert-talk';
+import {
+  expertTalkRunListSchema,
+  expertTalkRunSchema,
+  expertTalkStatusSchema,
+} from '../src/protocol/rest-expert-talk';
 import { type RunningServer, startServer } from '../src/start';
 import { authedFetch } from './helpers/auth';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
@@ -31,12 +35,22 @@ interface MockLlm {
 const FUSION_MARKDOWN = [
   '## Recommendation',
   '',
-  'Fused answer from the manual flow.',
+  'Fused answer from Expert Talk.',
   '',
   '## Consensus & Divergence',
   '',
   '- Consensus: both experts agree.',
 ].join('\n');
+const FUSION_RESULT = JSON.stringify({
+  version: 'expert_talk_result/v1',
+  answer: FUSION_MARKDOWN,
+  notes: {
+    consensus: ['Both experts agree.'],
+    divergence: [],
+    uncertainty: [],
+    attribution: [{ role: 'fusion_lead', stage: 'review', claim: 'Use the shared resolver.' }],
+  },
+});
 
 function sseText(text: string, completionTokens = 4): string {
   const events = [
@@ -116,15 +130,50 @@ async function startMockLlm(): Promise<MockLlm> {
       if (
         model === 'lead'
         && body.includes('One opening fails.')
-        && body.includes('DISCUSSION OPENING CONTRACT')
+        && body.includes('EXPERT TALK OPENING CONTRACT')
       ) {
         res.writeHead(200, { 'content-type': 'text/event-stream' });
         res.end(sseToolCall('call_write', 'Write', JSON.stringify({ path: 'forbidden.txt' })));
         return;
       }
 
+      const isOpening = body.includes('EXPERT TALK OPENING CONTRACT');
+      const isReview = body.includes('REVIEW OF') && body.includes('CONTRACT');
+      const isFusion = body.includes('EXPERT TALK FUSION CONTRACT');
+      if (
+        isReview
+        && (body.includes('Both reviews fail.')
+          || (model === 'peer' && body.includes('One review fails.')))
+      ) {
+        res.writeHead(200, { 'content-type': 'text/event-stream' });
+        res.end(sseToolCall('call_write_review', 'Write', JSON.stringify({ path: 'forbidden.txt' })));
+        return;
+      }
+      if (isFusion && body.includes('Fusion returns malformed output.')) {
+        res.writeHead(200, { 'content-type': 'text/event-stream' });
+        res.end(sseText('not a typed fusion result'));
+        return;
+      }
+      if (
+        model === 'lead'
+        && isOpening
+        && body.includes('Retry one opening.')
+        && requests.filter((request) =>
+          request.model === 'lead'
+          && request.body.includes('Retry one opening.')
+          && request.body.includes('EXPERT TALK OPENING CONTRACT')
+        ).length === 1
+      ) {
+        res.writeHead(429, {
+          'content-type': 'application/json',
+          'retry-after': '0',
+        });
+        res.end(JSON.stringify({ error: { message: 'retry opening', type: 'rate_limit_error' } }));
+        return;
+      }
+
       const toolResults = parsed.messages?.filter((message) => message.role === 'tool').length ?? 0;
-      if (body.includes('Stream live progress.') && body.includes('DISCUSSION OPENING CONTRACT')) {
+      if (body.includes('Stream live progress.') && body.includes('EXPERT TALK OPENING CONTRACT')) {
         res.writeHead(200, { 'content-type': 'text/event-stream' });
         res.write(`data: ${JSON.stringify({
           id: 'chatcmpl-live-discussion',
@@ -163,17 +212,14 @@ async function startMockLlm(): Promise<MockLlm> {
       if (model === 'peer' && body.includes('Use eight read-only tool calls before answering.')) {
         text = 'Peer opening after eight reads.';
       }
-      if (body.includes('ARCHITECT REVIEW OF BUILDER CONTRACT')) {
-        text = 'Architect review marker.';
+      if (body.includes('REVIEW OF') && body.includes('CONTRACT')) {
+        text = `${model} review marker.`;
       }
-      if (body.includes('DISCUSSION FUSION CONTRACT')) {
-        text = FUSION_MARKDOWN;
+      if (isFusion) {
+        text = FUSION_RESULT;
       }
 
-      const completionTokens = model === 'peer'
-        && body.includes('DISCUSSION OPENING CONTRACT')
-        ? 4_943
-        : 4;
+      const completionTokens = body.includes('Provider reports overflow.') ? 4_943 : 4;
       res.writeHead(200, { 'content-type': 'text/event-stream' });
       res.end(sseText(text, completionTokens));
     })();
@@ -211,6 +257,13 @@ function modelsToml(port: number): string {
   'max_context_size = 100000',
   'capabilities = ["tool_use"]',
   '',
+  '[secondary_model]',
+  'default_model = "acme/peer"',
+  '',
+  '[secondary_model.models]',
+  '"acme/lead" = "Fusion Lead"',
+  '"acme/peer" = "Peer Expert"',
+  '',
   ].join('\n');
 }
 
@@ -222,6 +275,7 @@ describe('server-v2 Expert Talk', () => {
 
   beforeEach(async () => {
     vi.stubEnv('PYTHINKER_CODE_EXPERIMENTAL_EXPERT_TALK', '1');
+    vi.stubEnv('PYTHINKER_CODE_EXPERIMENTAL_SECONDARY_MODEL', '1');
     llm = await startMockLlm();
     home = await mkdtemp(join(tmpdir(), 'pythinker-expert-talk-'));
     await writeFile(join(home, 'config.toml'), modelsToml(llm.port), 'utf8');
@@ -263,6 +317,20 @@ describe('server-v2 Expert Talk', () => {
     body?: unknown,
     etag?: string,
   ): Promise<{ status: number; etag: string | null; body: Envelope<T> }> {
+    const connectionId = `test-${clientId}`;
+    if (server?.connectionRegistry.get(connectionId) === undefined) {
+      const sessionId = path.match(/^\/api\/v1\/sessions\/([^/]+)/)?.[1];
+      server?.connectionRegistry.add({
+        id: connectionId,
+        clientId,
+        connectedAt: new Date().toISOString(),
+        remoteAddress: '127.0.0.1',
+        userAgent: 'test',
+        hasClientHello: true,
+        subscriptionSessionIds: sessionId === undefined ? [] : [decodeURIComponent(sessionId)],
+        close: () => {},
+      });
+    }
     const response = await authedFetch(server as RunningServer, base, path, {
       method,
       headers: {
@@ -277,6 +345,59 @@ describe('server-v2 Expert Talk', () => {
       etag: response.headers.get('etag'),
       body: await response.json() as Envelope<T>,
     };
+  }
+
+  async function startRun(prompt: string) {
+    const sessionId = await createSession();
+    const expertTalkPath = `/api/v1/sessions/${sessionId}/expert-talk`;
+    const initial = await call<unknown>('GET', expertTalkPath, 'client-a');
+    const configured = await call<unknown>(
+      'PUT',
+      expertTalkPath,
+      'client-a',
+      { fusion_lead_model_id: 'acme/lead', peer_model_id: 'acme/peer' },
+      initial.etag ?? undefined,
+    );
+    const armed = await call<unknown>(
+      'POST',
+      `${expertTalkPath}:arm`,
+      'client-a',
+      undefined,
+      configured.etag ?? undefined,
+    );
+    expect(armed.body.code, JSON.stringify(armed.body)).toBe(0);
+    const armId = expertTalkStatusSchema.parse(armed.body.data).activation.arm_id;
+    const submitted = await call<{ expert_talk_run_id?: string }>(
+      'POST',
+      `/api/v1/sessions/${sessionId}/prompts`,
+      'client-a',
+      {
+        content: [{ type: 'text', text: prompt }],
+        expert_talk_arm_id: armId,
+      },
+    );
+    expect(submitted.body.code, JSON.stringify(submitted.body)).toBe(0);
+    const runId = submitted.body.data.expert_talk_run_id;
+    expect(runId).toBeDefined();
+    return {
+      sessionId,
+      expertTalkPath,
+      runPath: `${expertTalkPath}/runs/${String(runId)}`,
+      runId: String(runId),
+    };
+  }
+
+  async function waitForTerminal(runPath: string) {
+    let run = expertTalkRunSchema.parse(
+      (await call<unknown>('GET', runPath, 'client-a')).body.data,
+    );
+    await vi.waitFor(async () => {
+      run = expertTalkRunSchema.parse(
+        (await call<unknown>('GET', runPath, 'client-a')).body.data,
+      );
+      expect(run.state).not.toBe('running');
+    }, { timeout: 30_000, interval: 100 });
+    return run;
   }
 
   it('configures, arms, protects the pending turn, and disarms by owner', async () => {
@@ -306,6 +427,7 @@ describe('server-v2 Expert Talk', () => {
       undefined,
       configured.etag ?? undefined,
     );
+    expect(armed.body.code, JSON.stringify(armed.body)).toBe(0);
     const armedStatus = expertTalkStatusSchema.parse(armed.body.data);
     expect(armedStatus.activation.state).toBe('armed');
 
@@ -348,364 +470,40 @@ describe('server-v2 Expert Talk', () => {
     expect(response.body.code).toBe(ErrorCode.EXPERT_TALK_PAIR_INVALID);
   });
 
-  it('allows the full eight-tool opening budget plus the final answer request', async () => {
-    const sessionId = await createSession();
-    const expertTalkPath = `/api/v1/sessions/${sessionId}/expert-talk`;
-    const initial = await call<unknown>('GET', expertTalkPath, 'client-a');
-    const configured = await call<unknown>(
-      'PUT',
-      expertTalkPath,
-      'client-a',
-      { fusion_lead_model_id: 'acme/lead', peer_model_id: 'acme/peer' },
-      initial.etag ?? undefined,
+  it('runs both openings, reciprocal reviews, and fusion automatically', async () => {
+    const { sessionId, expertTalkPath, runPath, runId: firstRunId } = await startRun(
+      'Resolve this with both experts.',
     );
-    const armed = await call<unknown>(
-      'POST',
-      `${expertTalkPath}:arm`,
-      'client-a',
-      undefined,
-      configured.etag ?? undefined,
-    );
-    const armId = expertTalkStatusSchema.parse(armed.body.data).activation.arm_id;
-    const submitted = await call<{ expert_talk_run_id?: string }>(
-      'POST',
-      `/api/v1/sessions/${sessionId}/prompts`,
-      'client-a',
-      {
-        content: [{ type: 'text', text: 'Use eight read-only tool calls before answering.' }],
-        expert_talk_arm_id: armId,
-      },
-    );
-    const runPath = `${expertTalkPath}/runs/${String(submitted.body.data.expert_talk_run_id)}`;
-    let settled = expertTalkRunSchema.parse(
-      (await call<unknown>('GET', runPath, 'client-a')).body.data,
-    );
-    await vi.waitFor(async () => {
-      settled = expertTalkRunSchema.parse(
-        (await call<unknown>('GET', runPath, 'client-a')).body.data,
-      );
-      expect(settled.state).not.toBe('running');
-    }, { timeout: 30_000, interval: 100 });
-
-    expect(settled).toMatchObject({
-      state: 'waiting',
-      stage: 'opening',
-      opening: {
-        peer: {
-          state: 'completed',
-          request_count: 9,
-          tool_call_count: 8,
-          tools: Array.from({ length: 8 }, (_, index) => ({
-            id: `call_read_${String(index + 1)}`,
-            name: 'Read',
-          })),
-          text: 'Peer opening after eight reads.',
-        },
-      },
-    });
-    expect(llm?.requests.filter((request) => request.model === 'peer')).toHaveLength(9);
-  });
-
-  it('projects live answer and thinking deltas while both opinions run', async () => {
-    const sessionId = await createSession();
-    const expertTalkPath = `/api/v1/sessions/${sessionId}/expert-talk`;
-    const initial = await call<unknown>('GET', expertTalkPath, 'client-a');
-    const configured = await call<unknown>(
-      'PUT',
-      expertTalkPath,
-      'client-a',
-      { fusion_lead_model_id: 'acme/lead', peer_model_id: 'acme/peer' },
-      initial.etag ?? undefined,
-    );
-    const armed = await call<unknown>(
-      'POST',
-      `${expertTalkPath}:arm`,
-      'client-a',
-      undefined,
-      configured.etag ?? undefined,
-    );
-    const armId = expertTalkStatusSchema.parse(armed.body.data).activation.arm_id;
-    const submitted = await call<{ expert_talk_run_id?: string }>(
-      'POST',
-      `/api/v1/sessions/${sessionId}/prompts`,
-      'client-a',
-      {
-        content: [{ type: 'text', text: 'Stream live progress.' }],
-        expert_talk_arm_id: armId,
-      },
-    );
-    const runPath = `${expertTalkPath}/runs/${String(submitted.body.data.expert_talk_run_id)}`;
-
-    await vi.waitFor(async () => {
-      const live = expertTalkRunSchema.parse(
-        (await call<unknown>('GET', runPath, 'client-a')).body.data,
-      );
-      expect(live.opening.lead).toMatchObject({
-        state: 'running',
-        text: 'lead draft.',
-        thinking: 'lead reasoning.',
-        partial: true,
-      });
-    }, { timeout: 5_000, interval: 50 });
-
-    await vi.waitFor(async () => {
-      const settled = expertTalkRunSchema.parse(
-        (await call<unknown>('GET', runPath, 'client-a')).body.data,
-      );
-      expect(settled.state).toBe('waiting');
-    }, { timeout: 5_000, interval: 50 });
-  });
-
-  it('cancels both active opening requests', async () => {
-    const sessionId = await createSession();
-    const expertTalkPath = `/api/v1/sessions/${sessionId}/expert-talk`;
-    const initial = await call<unknown>('GET', expertTalkPath, 'client-a');
-    const configured = await call<unknown>(
-      'PUT',
-      expertTalkPath,
-      'client-a',
-      { fusion_lead_model_id: 'acme/lead', peer_model_id: 'acme/peer' },
-      initial.etag ?? undefined,
-    );
-    const armed = await call<unknown>(
-      'POST',
-      `${expertTalkPath}:arm`,
-      'client-a',
-      undefined,
-      configured.etag ?? undefined,
-    );
-    const armId = expertTalkStatusSchema.parse(armed.body.data).activation.arm_id;
-    const submitted = await call<{ expert_talk_run_id?: string }>(
-      'POST',
-      `/api/v1/sessions/${sessionId}/prompts`,
-      'client-a',
-      {
-        content: [{ type: 'text', text: 'Wait until cancellation.' }],
-        expert_talk_arm_id: armId,
-      },
-    );
-    const runId = submitted.body.data.expert_talk_run_id;
-    expect(runId).toBeDefined();
-    await vi.waitFor(() => expect(llm?.requests).toHaveLength(2));
-
-    const cancelled = await call<unknown>(
-      'POST',
-      `${expertTalkPath}/runs/${String(runId)}/cancel`,
-      'client-a',
-    );
-
-    expect(expertTalkRunSchema.parse(cancelled.body.data).state).toBe('cancelled');
-    expect(llm?.requests).toHaveLength(2);
-  });
-
-  it('finishes with the Architect opinion without running Fusion', async () => {
-    const sessionId = await createSession();
-    const expertTalkPath = `/api/v1/sessions/${sessionId}/expert-talk`;
-    const initial = await call<unknown>('GET', expertTalkPath, 'client-a');
-    const configured = await call<unknown>(
-      'PUT',
-      expertTalkPath,
-      'client-a',
-      { fusion_lead_model_id: 'acme/lead', peer_model_id: 'acme/peer' },
-      initial.etag ?? undefined,
-    );
-    const armed = await call<unknown>(
-      'POST',
-      `${expertTalkPath}:arm`,
-      'client-a',
-      undefined,
-      configured.etag ?? undefined,
-    );
-    const armId = expertTalkStatusSchema.parse(armed.body.data).activation.arm_id;
-    const submitted = await call<{ expert_talk_run_id?: string }>(
-      'POST',
-      `/api/v1/sessions/${sessionId}/prompts`,
-      'client-a',
-      {
-        content: [{ type: 'text', text: 'Finish after the two opinions.' }],
-        expert_talk_arm_id: armId,
-      },
-    );
-    const runPath = `${expertTalkPath}/runs/${String(submitted.body.data.expert_talk_run_id)}`;
-    await vi.waitFor(async () => {
-      expect(expertTalkRunSchema.parse(
-        (await call<unknown>('GET', runPath, 'client-a')).body.data,
-      )).toMatchObject({ state: 'waiting', stage: 'opening' });
-    }, { timeout: 30_000, interval: 100 });
-
-    const completed = expertTalkRunSchema.parse((await call<unknown>(
-      'POST',
-      `${runPath}/finish`,
-      'client-a',
-    )).body.data);
+    const completed = await waitForTerminal(runPath);
 
     expect(completed).toMatchObject({
       state: 'completed',
       stage: 'terminal',
-      result: { answer: 'Lead opening marker.' },
-      review: { lead: { state: 'unavailable' } },
-      fusion: { state: 'unavailable' },
-    });
-    expect(llm?.requests).toHaveLength(2);
-    const transcript = transcriptResponseSchema.parse(
-      (await call<unknown>(
-        'GET',
-        `/api/v1/sessions/${sessionId}/transcript?agent_id=main`,
-        'client-a',
-      )).body.data,
-    );
-    const transcriptText = transcript.items
-      .filter((item) => item.kind === 'turn')
-      .flatMap((turn) => turn.steps)
-      .flatMap((step) => step.frames)
-      .filter((frame) => frame.kind === 'text')
-      .map((frame) => frame.text)
-      .join('');
-    expect(transcriptText).toContain('Lead opening marker.');
-    expect(transcriptText).not.toContain('Peer opening marker.');
-  });
-
-  it('keeps the successful opinion when the other opening fails', async () => {
-    const sessionId = await createSession();
-    const expertTalkPath = `/api/v1/sessions/${sessionId}/expert-talk`;
-    const initial = await call<unknown>('GET', expertTalkPath, 'client-a');
-    const configured = await call<unknown>(
-      'PUT',
-      expertTalkPath,
-      'client-a',
-      { fusion_lead_model_id: 'acme/lead', peer_model_id: 'acme/peer' },
-      initial.etag ?? undefined,
-    );
-    const armed = await call<unknown>(
-      'POST',
-      `${expertTalkPath}:arm`,
-      'client-a',
-      undefined,
-      configured.etag ?? undefined,
-    );
-    const armId = expertTalkStatusSchema.parse(armed.body.data).activation.arm_id;
-    const submitted = await call<{ expert_talk_run_id?: string }>(
-      'POST',
-      `/api/v1/sessions/${sessionId}/prompts`,
-      'client-a',
-      {
-        content: [{ type: 'text', text: 'One opening fails.' }],
-        expert_talk_arm_id: armId,
+      opening: {
+        lead: { state: 'completed', text: 'Lead opening marker.' },
+        peer: { state: 'completed', text: 'Peer opening marker.' },
       },
-    );
-    const runPath = `${expertTalkPath}/runs/${String(submitted.body.data.expert_talk_run_id)}`;
-    let failed = expertTalkRunSchema.parse(
-      (await call<unknown>('GET', runPath, 'client-a')).body.data,
-    );
-    await vi.waitFor(async () => {
-      failed = expertTalkRunSchema.parse(
-        (await call<unknown>('GET', runPath, 'client-a')).body.data,
-      );
-      expect(failed.state).toBe('failed');
-    }, { timeout: 30_000, interval: 100 });
-
-    expect(failed.opening.lead.state).toBe('failed');
-    expect(failed.opening.peer).toMatchObject({
-      state: 'completed',
-      text: 'Peer opening marker.',
-    });
-    expect(llm?.requests.some((request) => request.model === 'peer')).toBe(true);
-  });
-
-  it('waits after opinions, runs only the Architect review on request, then fuses', async () => {
-    const sessionId = await createSession();
-    const expertTalkPath = `/api/v1/sessions/${sessionId}/expert-talk`;
-    const initial = await call<unknown>('GET', expertTalkPath, 'client-a');
-    const configured = await call<unknown>(
-      'PUT',
-      expertTalkPath,
-      'client-a',
-      { fusion_lead_model_id: 'acme/lead', peer_model_id: 'acme/peer' },
-      initial.etag ?? undefined,
-    );
-    const armed = await call<unknown>(
-      'POST',
-      `${expertTalkPath}:arm`,
-      'client-a',
-      undefined,
-      configured.etag ?? undefined,
-    );
-    const armId = expertTalkStatusSchema.parse(armed.body.data).activation.arm_id;
-    expect(armId).toBeDefined();
-
-    const submitted = await call<{ expert_talk_run_id?: string }>(
-      'POST',
-      `/api/v1/sessions/${sessionId}/prompts`,
-      'client-a',
-      {
-        content: [{ type: 'text', text: 'Resolve this with both experts.' }],
-        expert_talk_arm_id: armId,
+      review: {
+        lead: { state: 'completed', text: 'lead review marker.' },
+        peer: { state: 'completed', text: 'peer review marker.' },
       },
-    );
-    expect(submitted.body.code, JSON.stringify(submitted.body)).toBe(0);
-    const runId = submitted.body.data.expert_talk_run_id;
-    expect(runId).toBeDefined();
-
-    const runPath = `${expertTalkPath}/runs/${String(runId)}`;
-    await vi.waitFor(async () => {
-      const response = await call<unknown>('GET', runPath, 'client-a');
-      expect(expertTalkRunSchema.parse(response.body.data)).toMatchObject({
-        state: 'waiting',
-        stage: 'opening',
-      });
-    }, { timeout: 30_000, interval: 100 });
-    expect(llm?.requests).toHaveLength(2);
-
-    const reviewStarted = expertTalkRunSchema.parse((await call<unknown>(
-      'POST',
-      `${runPath}/review`,
-      'client-a',
-    )).body.data);
-    expect(reviewStarted).toMatchObject({ state: 'running', stage: 'review' });
-    await vi.waitFor(async () => {
-      const response = await call<unknown>('GET', runPath, 'client-a');
-      expect(expertTalkRunSchema.parse(response.body.data)).toMatchObject({
-        state: 'waiting',
-        stage: 'review',
-        review: { lead: { state: 'completed', text: 'Architect review marker.' } },
-      });
-    }, { timeout: 30_000, interval: 100 });
-    expect(llm?.requests).toHaveLength(3);
-    expect(llm?.requests.at(-1)).toMatchObject({ model: 'lead' });
-
-    const fusionStarted = expertTalkRunSchema.parse((await call<unknown>(
-      'POST',
-      `${runPath}/fusion`,
-      'client-a',
-    )).body.data);
-    expect(fusionStarted).toMatchObject({ state: 'running', stage: 'fusion' });
-    await vi.waitFor(async () => {
-      const response = await call<unknown>('GET', runPath, 'client-a');
-      expect(expertTalkRunSchema.parse(response.body.data).state).toBe('completed');
-    }, { timeout: 30_000, interval: 100 });
-
-    const completed = expertTalkRunSchema.parse(
-      (await call<unknown>('GET', runPath, 'client-a')).body.data,
-    );
-    expect(completed.result?.answer).toBe(FUSION_MARKDOWN);
-    expect(completed.opening.peer.usage?.output).toBe(4_943);
-    expect(completed.usage.request_count).toBe(4);
-    const finalStatus = expertTalkStatusSchema.parse(
-      (await call<unknown>('GET', expertTalkPath, 'client-a')).body.data,
-    );
-    expect(finalStatus.pair_validation).toEqual({ state: 'valid' });
-    expect(llm?.requests).toHaveLength(4);
-    expect(llm?.requests.filter((request) => request.model === 'lead')).toHaveLength(3);
-    expect(llm?.requests.filter((request) => request.model === 'peer')).toHaveLength(1);
-
+      fusion: { state: 'completed' },
+      result: { version: 'expert_talk_result/v1', answer: FUSION_MARKDOWN },
+      usage: { complete: true, request_count: 5, provider_attempt_count: 5 },
+    });
+    expect(llm?.requests).toHaveLength(5);
     const leadReview = llm?.requests.find((request) =>
-      request.model === 'lead' && request.body.includes('ARCHITECT REVIEW OF BUILDER CONTRACT'));
+      request.body.includes('FUSION LEAD REVIEW OF PEER EXPERT CONTRACT'));
     const peerReview = llm?.requests.find((request) =>
-      request.model === 'peer' && request.body.includes('ARCHITECT REVIEW OF BUILDER CONTRACT'));
+      request.body.includes('PEER EXPERT REVIEW OF FUSION LEAD CONTRACT'));
     expect(leadReview?.body).toContain('Peer opening marker.');
-    expect(peerReview).toBeUndefined();
+    expect(peerReview?.body).toContain('Lead opening marker.');
     expect(llm?.requests.at(-1)).toMatchObject({ model: 'lead' });
-    expect(llm?.requests.at(-1)?.body).toContain('Architect review marker.');
+    expect(llm?.requests.at(-1)?.body).toContain('lead review marker.');
+    expect(llm?.requests.at(-1)?.body).toContain('peer review marker.');
+    expect(expertTalkStatusSchema.parse(
+      (await call<unknown>('GET', expertTalkPath, 'client-a')).body.data,
+    ).pair_validation).toEqual({ state: 'valid' });
 
     const transcript = transcriptResponseSchema.parse(
       (await call<unknown>(
@@ -722,56 +520,240 @@ describe('server-v2 Expert Talk', () => {
       .filter((frame) => frame.kind === 'text')
       .map((frame) => frame.text)
       .join('');
-    expect(transcriptText).toContain('Fused answer from the manual flow.');
+    expect(transcriptText).toContain('Fused answer from Expert Talk.');
     expect(transcriptText).not.toContain('opening marker');
     expect(transcriptText).not.toContain('review marker');
-  });
 
-  it('can fuse directly from two opinions without a review', async () => {
-    const sessionId = await createSession();
-    const expertTalkPath = `/api/v1/sessions/${sessionId}/expert-talk`;
-    const initial = await call<unknown>('GET', expertTalkPath, 'client-a');
-    const configured = await call<unknown>(
-      'PUT',
-      expertTalkPath,
-      'client-a',
-      { fusion_lead_model_id: 'acme/lead', peer_model_id: 'acme/peer' },
-      initial.etag ?? undefined,
-    );
-    const armed = await call<unknown>(
+    const current = await call<unknown>('GET', expertTalkPath, 'client-a');
+    const rearmed = await call<unknown>(
       'POST',
       `${expertTalkPath}:arm`,
       'client-a',
       undefined,
-      configured.etag ?? undefined,
+      current.etag ?? undefined,
     );
-    const armId = expertTalkStatusSchema.parse(armed.body.data).activation.arm_id;
-    const submitted = await call<{ expert_talk_run_id?: string }>(
+    const secondArmId = expertTalkStatusSchema.parse(rearmed.body.data).activation.arm_id;
+    const second = await call<{ expert_talk_run_id?: string }>(
       'POST',
       `/api/v1/sessions/${sessionId}/prompts`,
       'client-a',
       {
-        content: [{ type: 'text', text: 'Fuse these opinions directly.' }],
-        expert_talk_arm_id: armId,
+        content: [{ type: 'text', text: 'Resolve a second request.' }],
+        expert_talk_arm_id: secondArmId,
       },
     );
-    const runPath = `${expertTalkPath}/runs/${String(submitted.body.data.expert_talk_run_id)}`;
-    await vi.waitFor(async () => {
-      expect(expertTalkRunSchema.parse(
-        (await call<unknown>('GET', runPath, 'client-a')).body.data,
-      ).state).toBe('waiting');
-    }, { timeout: 30_000, interval: 100 });
+    const secondRunId = String(second.body.data.expert_talk_run_id);
+    await waitForTerminal(`${expertTalkPath}/runs/${secondRunId}`);
+    const firstPage = expertTalkRunListSchema.parse(
+      (await call<unknown>('GET', `${expertTalkPath}/runs?limit=1`, 'client-a')).body.data,
+    );
+    expect(firstPage.runs.map((run) => run.run_id)).toEqual([secondRunId]);
+    expect(firstPage.next_cursor).toBe(secondRunId);
+    const secondPage = expertTalkRunListSchema.parse(
+      (await call<unknown>(
+        'GET',
+        `${expertTalkPath}/runs?cursor=${encodeURIComponent(secondRunId)}&limit=1`,
+        'client-a',
+      )).body.data,
+    );
+    expect(secondPage.runs.map((run) => run.run_id)).toEqual([firstRunId]);
+    expect(secondPage.next_cursor).toBeUndefined();
+  });
 
-    await call<unknown>('POST', `${runPath}/fusion`, 'client-a');
-    await vi.waitFor(async () => {
-      expect(expertTalkRunSchema.parse(
-        (await call<unknown>('GET', runPath, 'client-a')).body.data,
-      ).state).toBe('completed');
-    }, { timeout: 30_000, interval: 100 });
+  it('projects live answer and thinking deltas before automatic completion', async () => {
+    const { runPath } = await startRun('Stream live progress.');
 
-    expect(llm?.requests).toHaveLength(3);
-    expect(llm?.requests.filter((request) =>
-      request.body.includes('ARCHITECT REVIEW OF BUILDER CONTRACT'))).toHaveLength(0);
+    await vi.waitFor(async () => {
+      const live = expertTalkRunSchema.parse(
+        (await call<unknown>('GET', runPath, 'client-a')).body.data,
+      );
+      expect(live.opening.lead).toMatchObject({
+        state: 'running',
+        text: 'lead draft.',
+        thinking: 'lead reasoning.',
+        partial: true,
+      });
+    }, { timeout: 5_000, interval: 50 });
+
+    expect((await waitForTerminal(runPath)).state).toBe('completed');
+  });
+
+  it('cancels both active opening requests', async () => {
+    const { expertTalkPath, runId } = await startRun('Wait until cancellation.');
+    await vi.waitFor(() => expect(llm?.requests).toHaveLength(2));
+
+    const cancelled = await call<unknown>(
+      'POST',
+      `${expertTalkPath}/runs/${runId}/cancel`,
+      'client-a',
+    );
+
+    expect(expertTalkRunSchema.parse(cancelled.body.data).state).toBe('cancelled');
+    expect(llm?.requests).toHaveLength(2);
+  });
+
+  it('terminalizes a live run after restart even when the feature is disabled', async () => {
+    const { sessionId, runPath } = await startRun('Wait until cancellation.');
+    await vi.waitFor(() => expect(llm?.requests).toHaveLength(2));
+    await server?.close();
+    server = undefined;
+    vi.stubEnv('PYTHINKER_CODE_EXPERIMENTAL_EXPERT_TALK', '0');
+    server = await startServer({
+      hostIdentity: TEST_HOST_IDENTITY,
+      host: '127.0.0.1',
+      port: 0,
+      homeDir: home,
+      logLevel: 'silent',
+    });
+    base = `http://127.0.0.1:${server.port}`;
+
+    const recovered = expertTalkRunSchema.parse(
+      (await call<unknown>('GET', runPath, 'client-a')).body.data,
+    );
+    expect(recovered).toMatchObject({
+      state: 'interrupted',
+      error: { reason: 'INTERRUPTED' },
+    });
+    const status = expertTalkStatusSchema.parse(
+      (await call<unknown>(
+        'GET',
+        `/api/v1/sessions/${sessionId}/expert-talk`,
+        'client-a',
+      )).body.data,
+    );
+    expect(status.feature).toBe('disabled');
+    expect(status.active_run_id).toBeUndefined();
+    const transcript = transcriptResponseSchema.parse(
+      (await call<unknown>(
+        'GET',
+        `/api/v1/sessions/${sessionId}/transcript?agent_id=main`,
+        'client-a',
+      )).body.data,
+    );
+    expect(transcript.items.find((item) => item.kind === 'turn')?.state).toBe('failed');
+    expect(llm?.requests).toHaveLength(2);
+  });
+
+  it('fails when either mandatory opening fails', async () => {
+    const { runPath } = await startRun('One opening fails.');
+    const failed = await waitForTerminal(runPath);
+
+    expect(failed).toMatchObject({
+      state: 'failed',
+      stage: 'opening',
+      opening: {
+        lead: { state: 'failed', error_reason: 'TOOL_NOT_ALLOWED' },
+        peer: { state: 'failed' },
+      },
+      error: { reason: 'OPENING_FAILED', role: 'fusion_lead' },
+    });
+  });
+
+  it('continues to fusion when one reciprocal review fails', async () => {
+    const { runPath } = await startRun('One review fails.');
+    const completed = await waitForTerminal(runPath);
+
+    expect(completed).toMatchObject({
+      state: 'completed',
+      review: {
+        lead: { state: 'completed' },
+        peer: { state: 'failed', error_reason: 'TOOL_NOT_ALLOWED' },
+      },
+      fusion: { state: 'completed' },
+      result: { version: 'expert_talk_result/v1' },
+    });
+    expect(llm?.requests).toHaveLength(5);
     expect(llm?.requests.at(-1)?.body).toContain('[review unavailable]');
+  });
+
+  it('stops before fusion when both reciprocal reviews fail', async () => {
+    const { runPath } = await startRun('Both reviews fail.');
+    const failed = await waitForTerminal(runPath);
+
+    expect(failed).toMatchObject({
+      state: 'failed',
+      stage: 'review',
+      review: {
+        lead: { state: 'failed', error_reason: 'TOOL_NOT_ALLOWED' },
+        peer: { state: 'failed', error_reason: 'TOOL_NOT_ALLOWED' },
+      },
+      error: { reason: 'REVIEW_FAILED' },
+    });
+    expect(failed.fusion).toBeUndefined();
+    expect(llm?.requests).toHaveLength(4);
+  });
+
+  it('publishes no assistant answer when fusion output is malformed', async () => {
+    const { sessionId, runPath } = await startRun('Fusion returns malformed output.');
+    const failed = await waitForTerminal(runPath);
+
+    expect(failed).toMatchObject({
+      state: 'failed',
+      stage: 'fusion',
+      error: { reason: 'FUSION_RESULT_INVALID' },
+    });
+    expect(failed.result).toBeUndefined();
+    const transcript = transcriptResponseSchema.parse(
+      (await call<unknown>(
+        'GET',
+        `/api/v1/sessions/${sessionId}/transcript?agent_id=main`,
+        'client-a',
+      )).body.data,
+    );
+    const transcriptText = transcript.items.filter((item) => item.kind === 'turn')
+      .flatMap((turn) => turn.steps)
+      .flatMap((step) => step.frames)
+      .filter((frame) => frame.kind === 'text')
+      .map((frame) => frame.text)
+      .join('');
+    expect(transcriptText).not.toContain('not a typed fusion result');
+  });
+
+  it('retries one transient provider failure without adding a model request', async () => {
+    const { runPath } = await startRun('Retry one opening.');
+    const completed = await waitForTerminal(runPath);
+
+    expect(completed).toMatchObject({
+      state: 'completed',
+      opening: {
+        lead: { state: 'completed', request_count: 1, provider_attempt_count: 2 },
+      },
+      usage: { request_count: 5, provider_attempt_count: 6 },
+    });
+    expect(llm?.requests).toHaveLength(6);
+  });
+
+  it('stops an opening before a fourth model request', async () => {
+    const { runPath } = await startRun('Use eight read-only tool calls before answering.');
+    const failed = await waitForTerminal(runPath);
+
+    expect(failed).toMatchObject({
+      state: 'failed',
+      stage: 'opening',
+      opening: {
+        peer: {
+          state: 'failed',
+          error_reason: 'STAGE_REQUEST_BUDGET_EXCEEDED',
+          request_count: 3,
+          provider_attempt_count: 3,
+          tool_call_count: 3,
+        },
+      },
+    });
+    expect(llm?.requests.filter((request) => request.model === 'peer')).toHaveLength(3);
+  });
+
+  it('fails when provider usage exceeds the opening output cap', async () => {
+    const { runPath } = await startRun('Provider reports overflow.');
+    const failed = await waitForTerminal(runPath);
+
+    expect(failed).toMatchObject({
+      state: 'failed',
+      stage: 'opening',
+      opening: {
+        lead: { state: 'failed', error_reason: 'STAGE_REQUEST_BUDGET_EXCEEDED' },
+        peer: { state: 'failed', error_reason: 'STAGE_REQUEST_BUDGET_EXCEEDED' },
+      },
+    });
   });
 });

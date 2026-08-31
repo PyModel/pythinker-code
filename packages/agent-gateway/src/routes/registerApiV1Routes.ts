@@ -179,6 +179,7 @@ export async function registerApiV1Routes(
       registerExpertTalkRoutes(
         apiV1 as unknown as Parameters<typeof registerExpertTalkRoutes>[0],
         core,
+        opts.connectionRegistry,
       );
       registerWorkspacesRoutes(
         apiV1 as unknown as Parameters<typeof registerWorkspacesRoutes>[0],

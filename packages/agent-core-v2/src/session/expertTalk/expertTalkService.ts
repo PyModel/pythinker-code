@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 
 import { Disposable } from '#/_base/di/lifecycle';
 import { Emitter, type Event } from '#/_base/event';
@@ -12,6 +12,7 @@ import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService, type IAgentScopeHandle } from '#/_base/di/scope';
 import { IFlagService } from '#/app/flag/flag';
 import { IEventBus } from '#/app/event/eventBus';
+import { DEFAULT_AGENT_PROFILE_NAME } from '#/app/agentProfileCatalog/agentProfileCatalog';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { newMessageId } from '#/agent/contextMemory/messageId';
 import type { ContextMessage, PromptFileAttachment } from '#/agent/contextMemory/types';
@@ -39,6 +40,8 @@ import { IAgentProfileService } from '#/agent/profile/profile';
 import { denyToolExecution } from '#/agent/toolExecutor/beforeToolExecuteEvent';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
+import { IAgentDynamicWorkflowService } from '#/features/dynamic_workflow/agent/dynamic_workflow';
+import { IAgentTowerService } from '#/features/tower/tower';
 import { agentContextOf } from '#/agent/scopeContext/scopeContext';
 import { Error2, ErrorCodes, toPythinkerErrorPayload, unwrapErrorCause } from '#/errors';
 import { isRetryableGenerateError } from '#/kosong/contract/errors';
@@ -53,11 +56,11 @@ import {
   MAIN_AGENT_ID,
 } from '#/session/agentLifecycle/agentLifecycle';
 import { runAgentTurn } from '#/session/subagent/runAgentTurn';
+import { ISubagentRoutingService } from '#/session/subagent/subagentRoutingService';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionTokenCountingService } from '#/session/tokenCounting/sessionTokenCounting';
 import { ISessionUsageService } from '#/session/usage/sessionUsage';
 import { ISubagentModelPolicyService } from '#/session/subagent/subagentModelPolicy';
-import { routeDecisionFingerprint } from '#/session/subagent/policy';
 import { ISessionStateService } from '#/session/state/sessionState';
 import { defineState } from '#/state/state';
 import { IEventDispatcher } from '#/state/eventDispatcher';
@@ -70,7 +73,9 @@ import {
   type ExpertTalkChangedEvent,
   type ExpertTalkConfigV1,
   type ExpertTalkFailureReason,
+  type ExpertTalkListRunsOptions,
   type ExpertTalkPairV1,
+  type ExpertTalkRunPageV1,
   type ExpertTalkRunStatus,
   type ExpertTalkRunProgressV1,
   type ExpertTalkRunV1,
@@ -90,15 +95,21 @@ import {
   admissionTokens,
   bindingFor,
   canonicalModelId,
-  estimateAdmissionTokens,
+  estimateInputTokens,
+  EXPERT_TALK_FUSION_MAX_REQUESTS,
   EXPERT_TALK_FUSION_OUTPUT_TOKENS,
+  EXPERT_TALK_FUSION_TOOL_RESULT_TOKENS,
+  EXPERT_TALK_OPENING_MAX_REQUESTS,
   EXPERT_TALK_OPENING_OUTPUT_TOKENS,
+  EXPERT_TALK_OPENING_TOOL_RESULT_TOKENS,
+  EXPERT_TALK_REVIEW_MAX_REQUESTS,
   EXPERT_TALK_REVIEW_OUTPUT_TOKENS,
+  EXPERT_TALK_REVIEW_TOOL_RESULT_TOKENS,
   parseFusionResult,
   resourceVersion,
 } from './expertTalkPure';
 import { fusionPrompt, openingPrompt, reviewPrompt } from './expertTalkPrompts';
-import { EXPERT_TALK_PROFILE } from './profile';
+import { EXPERT_TALK_PROFILE, EXPERT_TALK_TOOLS } from './profile';
 
 type ExpertTalkPersistentRun = Omit<ExpertTalkRunV1, 'progress'>;
 
@@ -139,23 +150,23 @@ type ExpertTalkProgressKey = Exclude<keyof ExpertTalkRunProgressV1, 'revision'>;
 const EXPERT_TALK_STATE_KEY = 'state.json';
 const OPENING_LIMITS: StageLimits = {
   timeoutMs: 240_000,
-  maxRequests: 9,
+  maxRequests: EXPERT_TALK_OPENING_MAX_REQUESTS,
   maxToolCalls: 8,
-  maxToolResultTokens: 8_192,
+  maxToolResultTokens: EXPERT_TALK_OPENING_TOOL_RESULT_TOKENS,
   maxOutputTokens: EXPERT_TALK_OPENING_OUTPUT_TOKENS,
 };
 const REVIEW_LIMITS: StageLimits = {
   timeoutMs: 180_000,
-  maxRequests: 5,
+  maxRequests: EXPERT_TALK_REVIEW_MAX_REQUESTS,
   maxToolCalls: 4,
-  maxToolResultTokens: 4_096,
+  maxToolResultTokens: EXPERT_TALK_REVIEW_TOOL_RESULT_TOKENS,
   maxOutputTokens: EXPERT_TALK_REVIEW_OUTPUT_TOKENS,
 };
 const FUSION_LIMITS: StageLimits = {
   timeoutMs: 180_000,
-  maxRequests: 5,
+  maxRequests: EXPERT_TALK_FUSION_MAX_REQUESTS,
   maxToolCalls: 4,
-  maxToolResultTokens: 4_096,
+  maxToolResultTokens: EXPERT_TALK_FUSION_TOOL_RESULT_TOKENS,
   maxOutputTokens: EXPERT_TALK_FUSION_OUTPUT_TOKENS,
 };
 const WHOLE_RUN_TIMEOUT_MS = 600_000;
@@ -200,6 +211,7 @@ export class SessionExpertTalkService extends Disposable implements ISessionExpe
     @IModelCatalog private readonly models: IModelCatalog,
     @IAgentLifecycleService private readonly agents: IAgentLifecycleService,
     @ISubagentModelPolicyService private readonly routingPolicy: ISubagentModelPolicyService,
+    @ISubagentRoutingService private readonly routing: ISubagentRoutingService,
   ) {
     super();
     this.states.contributeState(expertTalkStateKey);
@@ -249,7 +261,7 @@ export class SessionExpertTalkService extends Disposable implements ISessionExpe
       if (canonical.fusionLeadModelId === canonical.peerModelId) {
         throw new Error2(
           ErrorCodes.EXPERT_TALK_PAIR_INVALID,
-          'Architect and Builder must be different configured models',
+          'Fusion Lead and Peer Expert must be different configured models',
         );
       }
       assertEligibleBinding(bindingFor('fusion_lead', canonical.fusionLeadModelId, lead), []);
@@ -284,15 +296,16 @@ export class SessionExpertTalkService extends Disposable implements ISessionExpe
     if (this.data.pair === undefined) {
       throw new Error2(
         ErrorCodes.EXPERT_TALK_PAIR_NOT_CONFIGURED,
-        'Configure a Discussion pair before arming it',
+        'Configure an Expert Talk pair before arming it',
       );
     }
     if (this.armValue !== undefined) {
-      throw new Error2(ErrorCodes.EXPERT_TALK_ALREADY_ARMED, 'Discussion is already armed');
+      throw new Error2(ErrorCodes.EXPERT_TALK_ALREADY_ARMED, 'Expert Talk is already armed');
     }
     if (this.activeRun() !== undefined) {
-      throw new Error2(ErrorCodes.EXPERT_TALK_BUSY, 'A Discussion run is already active');
+      throw new Error2(ErrorCodes.EXPERT_TALK_BUSY, 'An Expert Talk run is already active');
     }
+    this.assertNoOtherController();
     this.armValue = { armId: randomUUID(), armedAt: new Date().toISOString() };
     this.armOwnerId = clientId;
     this.emitChange();
@@ -307,7 +320,7 @@ export class SessionExpertTalkService extends Disposable implements ISessionExpe
       this.armOwnerId !== clientId ||
       (armId !== undefined && arm.armId !== armId)
     ) {
-      throw new Error2(ErrorCodes.EXPERT_TALK_NOT_ARMED, 'Discussion is not armed');
+      throw new Error2(ErrorCodes.EXPERT_TALK_NOT_ARMED, 'Expert Talk is not armed');
     }
     this.armValue = undefined;
     this.armOwnerId = undefined;
@@ -318,8 +331,27 @@ export class SessionExpertTalkService extends Disposable implements ISessionExpe
     return this.enqueue(() => this.accept(input, undefined, true));
   }
 
-  listRuns(): readonly ExpertTalkRunV1[] {
-    return this.data.runs.map((run) => this.withProgress(run)!);
+  listRuns(options: ExpertTalkListRunsOptions = {}): ExpertTalkRunPageV1 {
+    const limit = options.limit ?? 50;
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) {
+      throw new Error2(ErrorCodes.REQUEST_INVALID, 'Expert Talk run limit must be from 1 to 100');
+    }
+    const runs = this.data.runs.toReversed();
+    const start = options.cursor === undefined
+      ? 0
+      : runs.findIndex((run) => run.runId === options.cursor) + 1;
+    if (options.cursor !== undefined && start === 0) {
+      throw new Error2(ErrorCodes.REQUEST_INVALID, 'Expert Talk run cursor is invalid');
+    }
+    const items = runs.slice(start, start + limit).map((run) => this.withProgress(run)!);
+    return {
+      items,
+      nextCursor: start + limit < runs.length ? items.at(-1)?.runId : undefined,
+    };
+  }
+
+  hasPromptId(promptId: string): boolean {
+    return this.data.runs.some((run) => run.promptId === promptId);
   }
 
   getRun(runId: string): ExpertTalkRunV1 {
@@ -327,20 +359,18 @@ export class SessionExpertTalkService extends Disposable implements ISessionExpe
     if (run !== undefined) return this.withProgress(run)!;
     throw new Error2(
       ErrorCodes.EXPERT_TALK_RUN_NOT_FOUND,
-      `Discussion run "${runId}" was not found`,
+      `Expert Talk run "${runId}" was not found`,
       { details: { runId } },
     );
   }
 
-  async cancel(runId: string): Promise<ExpertTalkRunV1> {
-    const settled = await this.enqueue(async () => {
+  cancel(runId: string): Promise<ExpertTalkRunV1> {
+    return this.enqueue(async () => {
+      await this.ready;
       const run = this.getRun(runId);
       if (TERMINAL_STATUSES.has(run.status)) return run;
-      if (run.status !== 'OPINIONS_READY' && run.status !== 'REVIEW_READY') {
-        this.activeAbort?.abort(userCancellationReason());
-        return undefined;
-      }
-      const failure = runError('CANCELLED', 'Discussion was cancelled', stageOf(run.status));
+      this.activeAbort?.abort(userCancellationReason());
+      const failure = runError('CANCELLED', 'Expert Talk was cancelled', stageOf(run.status));
       await this.updateRun(runId, {
         status: 'CANCELLED',
         error: failure,
@@ -353,94 +383,6 @@ export class SessionExpertTalkService extends Disposable implements ISessionExpe
       this.acceptedRuns.delete(runId);
       return this.getRun(runId);
     });
-    if (settled !== undefined) return settled;
-    return new Promise<ExpertTalkRunV1>((resolve) => {
-      let timer: ReturnType<typeof setTimeout> | undefined;
-      const subscription = this.onDidChange(() => {
-        const current = this.getRun(runId);
-        if (!TERMINAL_STATUSES.has(current.status)) return;
-        if (timer !== undefined) clearTimeout(timer);
-        subscription.dispose();
-        resolve(current);
-      });
-      timer = setTimeout(() => {
-        subscription.dispose();
-        resolve(this.getRun(runId));
-      }, CLEANUP_TIMEOUT_MS);
-    });
-  }
-
-  review(runId: string): Promise<ExpertTalkRunV1> {
-    return this.enqueue(async () => {
-      await this.ready;
-      this.assertEnabled();
-      const run = this.getRun(runId);
-      if (run.status !== 'OPINIONS_READY') {
-        throw new Error2(
-          ErrorCodes.EXPERT_TALK_RUN_NOT_RETRYABLE,
-          `Discussion run "${runId}" is not ready for Architect review`,
-          { details: { runId, status: run.status } },
-        );
-      }
-      const accepted = this.requireAcceptedRun(runId);
-      const controller = new AbortController();
-      this.activeAbort = controller;
-      await this.updateRun(runId, { status: 'REVIEWING' });
-      void this.executeReview(accepted, controller).finally(() => {
-        if (this.activeAbort === controller) this.activeAbort = undefined;
-      });
-      return this.getRun(runId);
-    });
-  }
-
-  finish(runId: string): Promise<ExpertTalkRunV1> {
-    return this.enqueue(async () => {
-      await this.ready;
-      this.assertEnabled();
-      const run = this.getRun(runId);
-      if (run.status !== 'OPINIONS_READY' && run.status !== 'REVIEW_READY') {
-        throw new Error2(
-          ErrorCodes.EXPERT_TALK_RUN_NOT_RETRYABLE,
-          `Discussion run "${runId}" is not ready to finish`,
-          { details: { runId, status: run.status } },
-        );
-      }
-      const answer = run.status === 'REVIEW_READY'
-        ? run.artifacts.leadReview?.text
-        : run.artifacts.leadOpening?.text;
-      const result = parseFusionResult(answer ?? '');
-      await this.updateRun(runId, {
-        status: 'COMPLETED',
-        completedAt: new Date().toISOString(),
-        result,
-      });
-      await this.completeTranscript(this.getRun(runId));
-      this.acceptedRuns.delete(runId);
-      return this.getRun(runId);
-    });
-  }
-
-  fuse(runId: string): Promise<ExpertTalkRunV1> {
-    return this.enqueue(async () => {
-      await this.ready;
-      this.assertEnabled();
-      const run = this.getRun(runId);
-      if (run.status !== 'OPINIONS_READY' && run.status !== 'REVIEW_READY') {
-        throw new Error2(
-          ErrorCodes.EXPERT_TALK_RUN_NOT_RETRYABLE,
-          `Discussion run "${runId}" is not ready for Fusion`,
-          { details: { runId, status: run.status } },
-        );
-      }
-      const accepted = this.requireAcceptedRun(runId);
-      const controller = new AbortController();
-      this.activeAbort = controller;
-      await this.updateRun(runId, { status: 'FUSING' });
-      void this.executeFusion(accepted, controller).finally(() => {
-        if (this.activeAbort === controller) this.activeAbort = undefined;
-      });
-      return this.getRun(runId);
-    });
   }
 
   retry(runId: string): Promise<ExpertTalkStartResult> {
@@ -449,7 +391,7 @@ export class SessionExpertTalkService extends Disposable implements ISessionExpe
       if (!TERMINAL_STATUSES.has(source.status) || source.status === 'COMPLETED') {
         throw new Error2(
           ErrorCodes.EXPERT_TALK_RUN_NOT_RETRYABLE,
-          `Discussion run "${runId}" cannot be retried`,
+          `Expert Talk run "${runId}" cannot be retried`,
           { details: { runId, status: source.status } },
         );
       }
@@ -468,6 +410,26 @@ export class SessionExpertTalkService extends Disposable implements ISessionExpe
     });
   }
 
+  prepareControllerActivation(): void {
+    if (this.activeRun() !== undefined) {
+      throw new Error2(
+        ErrorCodes.EXPERT_TALK_BUSY,
+        'Cancel the active Expert Talk run before changing turn controllers',
+      );
+    }
+    if (this.armValue === undefined) return;
+    this.armValue = undefined;
+    this.armOwnerId = undefined;
+    this.emitChange();
+  }
+
+  releaseClient(clientId: string): void {
+    if (this.armOwnerId !== clientId) return;
+    this.armValue = undefined;
+    this.armOwnerId = undefined;
+    this.emitChange();
+  }
+
   private async accept(
     input: ExpertTalkStartInput,
     retryOf: string | undefined,
@@ -476,22 +438,23 @@ export class SessionExpertTalkService extends Disposable implements ISessionExpe
     await this.ready;
     this.assertEnabled();
     if (this.activeRun() !== undefined) {
-      throw new Error2(ErrorCodes.EXPERT_TALK_BUSY, 'A Discussion run is already active');
+      throw new Error2(ErrorCodes.EXPERT_TALK_BUSY, 'An Expert Talk run is already active');
     }
+    this.assertNoOtherController();
     const arm = this.armValue;
     if (
       requireArm &&
       (arm === undefined || arm.armId !== input.armId || this.armOwnerId !== input.clientId)
     ) {
-      throw new Error2(ErrorCodes.EXPERT_TALK_NOT_ARMED, 'The Discussion arm is missing or stale');
+      throw new Error2(ErrorCodes.EXPERT_TALK_NOT_ARMED, 'The Expert Talk arm is missing or stale');
     }
     const prompt = input.prompt.trim();
     if (prompt.length === 0) {
-      throw new Error2(ErrorCodes.REQUEST_INVALID, 'Discussion prompt must not be empty');
+      throw new Error2(ErrorCodes.REQUEST_INVALID, 'Expert Talk prompt must not be empty');
     }
     const source = retryOf === undefined ? undefined : this.getRun(retryOf);
     const sourceInput = retryOf === undefined ? undefined : this.data.inputs?.[retryOf];
-    const accepted = this.preflight(
+    const accepted = await this.preflight(
       prompt,
       input.modalities ?? [],
       input.promptId,
@@ -503,6 +466,7 @@ export class SessionExpertTalkService extends Disposable implements ISessionExpe
     );
     this.clearProgress();
     const previousArm = this.armValue;
+    const previousArmOwner = this.armOwnerId;
     if (requireArm) this.armValue = undefined;
     if (requireArm) this.armOwnerId = undefined;
     this.data = {
@@ -512,11 +476,6 @@ export class SessionExpertTalkService extends Disposable implements ISessionExpe
     };
     try {
       await this.persist();
-      if (accepted.opensTranscript) {
-        await this.openTranscript(accepted);
-      } else {
-        this.transcriptTurns.set(accepted.run.runId, accepted.run.turnId);
-      }
     } catch (error) {
       this.data = {
         ...this.data,
@@ -526,15 +485,34 @@ export class SessionExpertTalkService extends Disposable implements ISessionExpe
         ),
       };
       this.armValue = previousArm;
-      this.armOwnerId = requireArm ? input.clientId : undefined;
+      this.armOwnerId = previousArmOwner;
       await this.persist().catch(() => undefined);
+      throw error;
+    }
+    try {
+      if (accepted.opensTranscript) {
+        await this.openTranscript(accepted);
+      } else {
+        this.transcriptTurns.set(accepted.run.runId, accepted.run.turnId);
+      }
+    } catch (error) {
+      const failure = runError(
+        'INTERRUPTED',
+        'Expert Talk could not open its accepted transcript turn',
+        'opening',
+      );
+      await this.updateRun(accepted.run.runId, {
+        status: 'INTERRUPTED',
+        error: failure,
+        completedAt: new Date().toISOString(),
+      });
       throw error;
     }
     const controller = new AbortController();
     this.activeAbort = controller;
     this.acceptedRuns.set(accepted.run.runId, accepted);
     this.emitChange();
-    void this.executeOpenings(accepted, controller).finally(() => {
+    void this.executeRun(accepted, controller).finally(() => {
       if (this.activeAbort === controller) this.activeAbort = undefined;
     });
     return {
@@ -545,7 +523,7 @@ export class SessionExpertTalkService extends Disposable implements ISessionExpe
     };
   }
 
-  private preflight(
+  private async preflight(
     prompt: string,
     modalities: readonly ('image' | 'audio' | 'video')[],
     promptId: string | undefined,
@@ -554,62 +532,69 @@ export class SessionExpertTalkService extends Disposable implements ISessionExpe
     attachments: readonly PromptFileAttachment[] | undefined,
     source: ExpertTalkRunV1 | undefined,
     sourceInput: ExpertTalkInputSnapshot | undefined,
-  ): AcceptedRun {
+  ): Promise<AcceptedRun> {
     const pair = this.data.pair;
     if (pair === undefined) {
       throw new Error2(
         ErrorCodes.EXPERT_TALK_PAIR_NOT_CONFIGURED,
-        'Configure a Discussion pair before starting a run',
+        'Configure an Expert Talk pair before starting a run',
       );
     }
     const main = this.requireMain();
+    const mainProfile = main.accessor.get(IAgentProfileService);
+    if (mainProfile.data().modelAlias === undefined) {
+      await mainProfile.bind({
+        profile: mainProfile.data().profileName ?? DEFAULT_AGENT_PROFILE_NAME,
+      });
+    }
     const loop = main.accessor.get(IAgentLoopService);
     if (loop.status().state !== 'idle' || loop.hasPendingRequests()) {
       throw new Error2(
         ErrorCodes.EXPERT_TALK_BUSY,
-        'Discussion requires an idle main conversation',
+        'Expert Talk requires an idle main conversation',
       );
     }
-    const own = main.accessor.get(IAgentProfileService).data();
-    const mainModelAlias = own.modelAlias ?? pair.fusionLeadModelId;
-    const policy = this.routingPolicy.getEffective().effectivePolicy;
-    const environmentRevision = this.routingPolicy.resolveRevision({
-      modelAlias: mainModelAlias,
-      thinkingLevel: own.thinkingLevel,
-    });
-    const resolve = (role: 'fusion_lead' | 'peer', requestedModelId: string) => {
+    const resolve = async (role: 'fusion_lead' | 'peer', requestedModelId: string) => {
       let requester: ModelRequester;
+      let routingEnvironmentRevision: string;
+      let decisionFingerprint: string;
       try {
-        if (policy.mode === 'force') {
-          throw new Error(
-            `The forced subagent model policy requires "${policy.defaultModel}"`,
-          );
-        }
-        requester = this.models.getRequester(requestedModelId);
+        const plan = await this.routing.resolve({
+          callerAgentId: MAIN_AGENT_ID,
+          profileName: EXPERT_TALK_PROFILE,
+          model: requestedModelId,
+          allowUnlistedProfile: true,
+        });
+        requester = this.models.getRequester(plan.model);
+        routingEnvironmentRevision = plan.routing.resolvedFromRoutingEnvironmentRevision;
+        decisionFingerprint = plan.routing.routeDecisionFingerprint;
       } catch (error) {
         throw new Error2(
           ErrorCodes.EXPERT_TALK_PAIR_INVALID,
-          `Routing policy rejected Discussion model "${requestedModelId}"`,
+          `Routing policy rejected Expert Talk model "${requestedModelId}": ${errorMessage(error)}`,
           { cause: error, details: { modelId: requestedModelId } },
         );
       }
       return {
         binding: bindingFor(role, requestedModelId, requester.model, {
-          environmentRevision,
-          decisionFingerprint: routeDecisionFingerprint({
-            routingEnvironmentRevision: environmentRevision,
-            operation: 'spawn',
-            profile: EXPERT_TALK_PROFILE,
-            model: requestedModelId,
-          }),
+          environmentRevision: routingEnvironmentRevision,
+          decisionFingerprint,
         }),
         requester,
       };
     };
-    const leadResolution = resolve('fusion_lead', pair.fusionLeadModelId);
-    const peerResolution = resolve('peer', pair.peerModelId);
+    const [leadResolution, peerResolution] = await Promise.all([
+      resolve('fusion_lead', pair.fusionLeadModelId),
+      resolve('peer', pair.peerModelId),
+    ]);
     const lead = leadResolution.binding;
     const peer = peerResolution.binding;
+    if (lead.routingEnvironmentRevision !== peer.routingEnvironmentRevision) {
+      throw new Error2(
+        ErrorCodes.EXPERT_TALK_PAIR_INVALID,
+        'Expert Talk routing changed during preflight; retry the prompt',
+      );
+    }
     assertEligibleBinding(lead, modalities);
     assertEligibleBinding(peer, modalities);
     assertDistinctBindings(lead, peer);
@@ -624,8 +609,18 @@ export class SessionExpertTalkService extends Disposable implements ISessionExpe
     assertContextAdmission(
       lead,
       peer,
-      estimateAdmissionTokens(`${conversation}\n${prompt}`, mediaTokens),
+      estimateInputTokens(`${conversation}\n${prompt}`, mediaTokens),
     );
+    const acceptedPromptId = source?.promptId ?? promptId ?? newMessageId();
+    if (
+      source === undefined &&
+      this.data.runs.some((candidate) => candidate.promptId === acceptedPromptId)
+    ) {
+      throw new Error2(
+        ErrorCodes.PROMPT_ID_CONFLICT,
+        `Prompt id "${acceptedPromptId}" already exists`,
+      );
+    }
     const now = new Date().toISOString();
     const turnId = source?.turnId ?? main.accessor.get(IAgentStateService).get(turnKey).nextTurnId;
     return {
@@ -642,8 +637,8 @@ export class SessionExpertTalkService extends Disposable implements ISessionExpe
         runId: randomUUID(),
         sessionId: this.sessionId,
         turnId,
-        promptId: source?.promptId ?? promptId ?? newMessageId(),
-        status: 'PREPARING',
+        promptId: acceptedPromptId,
+        status: 'OPENING',
         prompt,
         modalities: [...new Set(modalities)],
         createdAt: now,
@@ -657,14 +652,13 @@ export class SessionExpertTalkService extends Disposable implements ISessionExpe
     };
   }
 
-  private async executeOpenings(accepted: AcceptedRun, controller: AbortController): Promise<void> {
+  private async executeRun(accepted: AcceptedRun, controller: AbortController): Promise<void> {
     const wholeSignal = AbortSignal.any([
       controller.signal,
       AbortSignal.timeout(WHOLE_RUN_TIMEOUT_MS),
     ]);
     const participants: Participant[] = [];
     try {
-      await this.updateRun(accepted.run.runId, { status: 'OPENING' });
       const [lead, peer] = await Promise.all([
         this.createParticipant(
           accepted.run,
@@ -681,42 +675,48 @@ export class SessionExpertTalkService extends Disposable implements ISessionExpe
       ]);
       participants.push(lead, peer);
       const leadOpeningPrompt = openingPrompt({
-        role: 'Architect',
+        role: 'Fusion Lead',
         leadModel: accepted.run.bindings[0].effectiveModelId,
         peerModel: accepted.run.bindings[1].effectiveModelId,
         conversation: accepted.input.conversation,
         request: accepted.run.prompt,
       });
       const peerOpeningPrompt = openingPrompt({
-        role: 'Builder',
+        role: 'Peer Expert',
         leadModel: accepted.run.bindings[0].effectiveModelId,
         peerModel: accepted.run.bindings[1].effectiveModelId,
         conversation: accepted.input.conversation,
         request: accepted.run.prompt,
       });
+      const openingAbort = new AbortController();
+      const openingSignal = AbortSignal.any([wholeSignal, openingAbort.signal]);
+      const opening = (work: Promise<ExpertTalkStageArtifactV1>) => work.catch((error) => {
+        openingAbort.abort(error);
+        throw error;
+      });
       const openingResults = await Promise.allSettled([
-        this.runStage(
+        opening(this.runStage(
           lead.handle,
           accepted.run.bindings[0],
           'lead opening',
           leadOpeningPrompt,
           OPENING_LIMITS,
-          wholeSignal,
+          openingSignal,
           `${accepted.run.runId}-lead-opening`,
           { runId: accepted.run.runId, key: 'leadOpening' },
           accepted.input.content,
-        ),
-        this.runStage(
+        )),
+        opening(this.runStage(
           peer.handle,
           accepted.run.bindings[1],
           'peer opening',
           peerOpeningPrompt,
           OPENING_LIMITS,
-          wholeSignal,
+          openingSignal,
           `${accepted.run.runId}-peer-opening`,
           { runId: accepted.run.runId, key: 'peerOpening' },
           accepted.input.content,
-        ),
+        )),
       ]);
       const leadOpening = settledArtifact(openingResults[0]);
       const peerOpening = settledArtifact(openingResults[1]);
@@ -730,47 +730,23 @@ export class SessionExpertTalkService extends Disposable implements ISessionExpe
         throw new StageFailure(
           'FAILED_OPENING',
           'OPENING_FAILED',
-          'A Discussion opening failed',
+          'An Expert Talk opening failed',
         );
       }
-      await this.updateRun(accepted.run.runId, { status: 'OPINIONS_READY' });
-    } catch (error) {
-      if (!this.disposing) await this.failAcceptedRun(accepted, error, wholeSignal);
-    } finally {
-      if (!this.disposing) await this.cleanupParticipants(accepted.run.runId, participants);
-    }
-  }
-
-  private async executeReview(accepted: AcceptedRun, controller: AbortController): Promise<void> {
-    const wholeSignal = AbortSignal.any([
-      controller.signal,
-      AbortSignal.timeout(WHOLE_RUN_TIMEOUT_MS),
-    ]);
-    const participants: Participant[] = [];
-    try {
+      wholeSignal.throwIfAborted();
+      await this.updateRun(accepted.run.runId, { status: 'REVIEWING' });
       const run = this.getRun(accepted.run.runId);
-      const leadOpening = run.artifacts.leadOpening;
-      const peerOpening = run.artifacts.peerOpening;
-      if (leadOpening?.status !== 'completed' || peerOpening?.status !== 'completed') {
-        throw new StageFailure('FAILED_REVIEW', 'REVIEW_FAILED', 'Discussion opinions are incomplete');
-      }
-      const architect = await this.createParticipant(
-        run,
-        'lead',
-        run.bindings[0],
-        accepted.requesters[0],
-      );
-      participants.push(architect);
-      let leadReview: ExpertTalkStageArtifactV1;
-      try {
-        leadReview = await this.runStage(
-          architect.handle,
+      const reviewResults = await Promise.allSettled([
+        this.runStage(
+          lead.handle,
           run.bindings[0],
-          'Architect review of Builder',
+          'Fusion Lead review of Peer Expert',
           reviewPrompt({
             request: run.prompt,
+            ownRole: 'Fusion Lead',
             ownModel: run.bindings[0].effectiveModelId,
             ownOpening: leadOpening.text!,
+            peerRole: 'Peer Expert',
             peerModel: run.bindings[1].effectiveModelId,
             peerOpening: peerOpening.text!,
           }),
@@ -778,37 +754,36 @@ export class SessionExpertTalkService extends Disposable implements ISessionExpe
           wholeSignal,
           `${run.runId}-lead-review`,
           { runId: run.runId, key: 'leadReview' },
-        );
-      } catch (error) {
-        await this.updateRun(run.runId, {
-          artifacts: { ...this.getRun(run.runId).artifacts, leadReview: failedArtifact(error) },
-        });
-        throw new StageFailure('FAILED_REVIEW', 'REVIEW_FAILED', 'Architect review failed');
-      }
+        ),
+        this.runStage(
+          peer.handle,
+          run.bindings[1],
+          'Peer Expert review of Fusion Lead',
+          reviewPrompt({
+            request: run.prompt,
+            ownRole: 'Peer Expert',
+            ownModel: run.bindings[1].effectiveModelId,
+            ownOpening: peerOpening.text!,
+            peerRole: 'Fusion Lead',
+            peerModel: run.bindings[0].effectiveModelId,
+            peerOpening: leadOpening.text!,
+          }),
+          REVIEW_LIMITS,
+          wholeSignal,
+          `${run.runId}-peer-review`,
+          { runId: run.runId, key: 'peerReview' },
+        ),
+      ]);
+      const leadReview = settledArtifact(reviewResults[0]);
+      const peerReview = settledArtifact(reviewResults[1]);
       await this.updateRun(run.runId, {
-        status: 'REVIEW_READY',
-        artifacts: { ...this.getRun(run.runId).artifacts, leadReview },
+        artifacts: { ...this.getRun(run.runId).artifacts, leadReview, peerReview },
       });
-    } catch (error) {
-      if (!this.disposing) await this.failAcceptedRun(accepted, error, wholeSignal);
-    } finally {
-      if (!this.disposing) await this.cleanupParticipants(accepted.run.runId, participants);
-    }
-  }
-
-  private async executeFusion(accepted: AcceptedRun, controller: AbortController): Promise<void> {
-    const wholeSignal = AbortSignal.any([
-      controller.signal,
-      AbortSignal.timeout(WHOLE_RUN_TIMEOUT_MS),
-    ]);
-    const participants: Participant[] = [];
-    try {
-      const run = this.getRun(accepted.run.runId);
-      const leadOpening = run.artifacts.leadOpening;
-      const peerOpening = run.artifacts.peerOpening;
-      if (leadOpening?.status !== 'completed' || peerOpening?.status !== 'completed') {
-        throw new StageFailure('FAILED_FUSION', 'FUSION_FAILED', 'Discussion opinions are incomplete');
+      if (leadReview.status !== 'completed' && peerReview.status !== 'completed') {
+        throw new StageFailure('FAILED_REVIEW', 'REVIEW_FAILED', 'Both Expert Talk reviews failed');
       }
+      wholeSignal.throwIfAborted();
+      await this.updateRun(run.runId, { status: 'FUSING' });
       const fusion = await this.createParticipant(
         run,
         'fusion',
@@ -828,7 +803,8 @@ export class SessionExpertTalkService extends Disposable implements ISessionExpe
             peerModel: run.bindings[1].effectiveModelId,
             leadOpening: leadOpening.text!,
             peerOpening: peerOpening.text!,
-            leadReview: run.artifacts.leadReview?.text,
+            leadReview: leadReview.status === 'completed' ? leadReview.text : undefined,
+            peerReview: peerReview.status === 'completed' ? peerReview.text : undefined,
           }),
           FUSION_LIMITS,
           wholeSignal,
@@ -840,7 +816,7 @@ export class SessionExpertTalkService extends Disposable implements ISessionExpe
         await this.updateRun(run.runId, {
           artifacts: { ...this.getRun(run.runId).artifacts, fusion: failedArtifact(error) },
         });
-        throw new StageFailure('FAILED_FUSION', 'FUSION_FAILED', 'Discussion fusion failed');
+        throw new StageFailure('FAILED_FUSION', 'FUSION_FAILED', 'Expert Talk fusion failed');
       }
       await this.updateRun(run.runId, {
         artifacts: { ...this.getRun(run.runId).artifacts, fusion: fusionArtifact },
@@ -852,7 +828,7 @@ export class SessionExpertTalkService extends Disposable implements ISessionExpe
         throw new StageFailure(
           'FAILED_FUSION',
           'FUSION_RESULT_INVALID',
-          'Fusion returned an empty Markdown answer',
+          'Fusion returned an invalid typed result',
         );
       }
       await this.updateRun(run.runId, {
@@ -863,7 +839,12 @@ export class SessionExpertTalkService extends Disposable implements ISessionExpe
       await this.completeTranscript(this.getRun(run.runId));
       this.acceptedRuns.delete(run.runId);
     } catch (error) {
-      if (!this.disposing) await this.failAcceptedRun(accepted, error, wholeSignal);
+      if (
+        !this.disposing &&
+        !TERMINAL_STATUSES.has(this.getRun(accepted.run.runId).status)
+      ) {
+        await this.failAcceptedRun(accepted, error, wholeSignal);
+      }
     } finally {
       if (!this.disposing) await this.cleanupParticipants(accepted.run.runId, participants);
     }
@@ -936,7 +917,7 @@ export class SessionExpertTalkService extends Disposable implements ISessionExpe
     });
     const handle = this.agents.handleOf(agentId);
     if (handle === undefined) {
-      throw new Error2(ErrorCodes.INTERNAL, `Discussion participant "${agentId}" was not created`);
+      throw new Error2(ErrorCodes.INTERNAL, `Expert Talk participant "${agentId}" was not created`);
     }
     return { context, handle };
   }
@@ -996,7 +977,7 @@ export class SessionExpertTalkService extends Disposable implements ISessionExpe
     let providerAttemptCount = 0;
     let toolCallCount = 0;
     let toolResultTokens = 0;
-    let toolResultBudgetExceeded = false;
+    let forbiddenToolName: string | undefined;
     let retryPending = false;
     const retriedDrivers = new Set<string>();
     const requestBudget = loop.hooks.onWillBeginStep.register(
@@ -1005,15 +986,16 @@ export class SessionExpertTalkService extends Disposable implements ISessionExpe
         if (retryPending) {
           retryPending = false;
         } else {
-          requestCount += 1;
-          if (requestCount > limits.maxRequests) {
+          if (requestCount >= limits.maxRequests) {
             throw new Error2(
               ErrorCodes.EXPERT_TALK_BUDGET_EXCEEDED,
-              `Discussion stage exceeded ${String(limits.maxRequests)} model requests`,
+              `Expert Talk stage exceeded ${String(limits.maxRequests)} model requests`,
             );
           }
+          requestCount += 1;
         }
         providerAttemptCount += 1;
+        this.assertStageAdmission(handle, binding, stage, undefined, limits.maxOutputTokens);
         await next();
       },
     );
@@ -1037,25 +1019,33 @@ export class SessionExpertTalkService extends Disposable implements ISessionExpe
     );
     const toolBudget = tools.onBeforeExecuteTool((event) => {
       toolCallCount += 1;
-      if (toolCallCount <= limits.maxToolCalls && !toolResultBudgetExceeded) return;
+      if (toolCallCount <= limits.maxToolCalls) return;
       event.veto(
         denyToolExecution(
-          toolResultBudgetExceeded
-            ? `Discussion stage exceeded ${String(limits.maxToolResultTokens)} tool-result tokens`
-            : `Discussion stage exceeded ${String(limits.maxToolCalls)} read-only tool calls`,
+          `Expert Talk stage exceeded ${String(limits.maxToolCalls)} read-only tool calls`,
         ),
       );
     });
     const toolResultBudget = tools.hooks.onDidExecuteTool.register(
       `${budgetId}-tool-results`,
       async (context, next) => {
+        if (!EXPERT_TALK_TOOLS.some((name) => name === context.toolCall.name)) {
+          forbiddenToolName = context.toolCall.name;
+          context.result = {
+            output: `Tool "${context.toolCall.name}" is not allowed in Expert Talk.`,
+            isError: true,
+          };
+          context.stopTurn = true;
+          await next();
+          return;
+        }
         const tokens = estimateToolResultTokens(context.result.output);
         if (toolResultTokens + tokens <= limits.maxToolResultTokens) {
           toolResultTokens += tokens;
         } else {
-          toolResultBudgetExceeded = true;
+          const remaining = Math.max(0, limits.maxToolResultTokens - toolResultTokens);
           context.result = {
-            output: 'Discussion tool-result budget exceeded.',
+            output: `Expert Talk tool result exceeded the remaining ${String(remaining)} token budget. Request a narrower read.`,
             isError: true,
           };
           toolResultTokens += estimateToolResultTokens(context.result.output);
@@ -1072,24 +1062,33 @@ export class SessionExpertTalkService extends Disposable implements ISessionExpe
           prompt,
           content,
         },
-        { signal, maxOutputSize: limits.maxOutputTokens },
+        { signal, maxOutputSize: limits.maxOutputTokens, infiniteRetry: false },
       );
       const completion = await result.completion;
       signal.throwIfAborted();
+      if (forbiddenToolName !== undefined) {
+        throw new Error(`Tool "${forbiddenToolName}" is not allowed in Expert Talk`);
+      }
       const text = completion.summary.trim();
-      if (text.length === 0) throw new Error('Discussion stage returned an empty answer');
-      const outputTokens = handle.accessor.get(ISessionTokenCountingService).estimateText(text);
+      if (text.length === 0) throw new Error('Expert Talk stage returned an empty answer');
+      const estimatedOutputTokens = handle.accessor
+        .get(ISessionTokenCountingService)
+        .estimateText(text);
+      const usage = usageDelta(usageService.status(agentContext).total, usageBefore);
+      const outputTokens = Math.max(estimatedOutputTokens, usage?.output ?? 0);
       if (outputTokens > limits.maxOutputTokens) {
         throw new Error2(
           ErrorCodes.EXPERT_TALK_BUDGET_EXCEEDED,
-          `Discussion stage exceeded ${String(limits.maxOutputTokens)} output tokens`,
+          `Expert Talk stage exceeded ${String(limits.maxOutputTokens)} output tokens`,
           { details: { outputTokens, limit: limits.maxOutputTokens } },
         );
       }
-      const usage = usageDelta(usageService.status(agentContext).total, usageBefore);
+      const tools = this.progressByRun.get(progressTarget.runId)?.[progressTarget.key]?.tools;
       return {
         status: 'completed',
         text,
+        digest: digestText(text),
+        tools,
         startedAt,
         endedAt: new Date().toISOString(),
         usage,
@@ -1103,11 +1102,14 @@ export class SessionExpertTalkService extends Disposable implements ISessionExpe
         handle.accessor.get(IAgentContextMemoryService).get(),
       ).trim();
       const safeError = safeStageError(error);
+      const tools = this.progressByRun.get(progressTarget.runId)?.[progressTarget.key]?.tools;
       throw new StageExecutionError(
         safeError,
         {
           status: 'failed',
           text: partialText.length === 0 ? undefined : partialText,
+          digest: partialText.length === 0 ? undefined : digestText(partialText),
+          tools,
           error: safeError,
           errorReason: stageErrorReason(error),
           partial: partialText.length > 0,
@@ -1136,7 +1138,7 @@ export class SessionExpertTalkService extends Disposable implements ISessionExpe
     handle: IAgentScopeHandle,
     binding: ExpertTalkBindingV1,
     stage: string,
-    content: readonly ContentPart[],
+    content: readonly ContentPart[] | undefined,
     outputTokens: number,
   ): void {
     const tokenCounting = handle.accessor.get(ISessionTokenCountingService);
@@ -1147,10 +1149,10 @@ export class SessionExpertTalkService extends Disposable implements ISessionExpe
       parameters: tool.parameters ?? {},
       deferred: tool.disclosure === 'deferred' ? true as const : undefined,
     }));
-    const messages = [
-      ...handle.accessor.get(IAgentContextMemoryService).get(),
-      { role: 'user' as const, content: [...content], toolCalls: [] },
-    ];
+    const memory = handle.accessor.get(IAgentContextMemoryService).get();
+    const messages = content === undefined
+      ? memory
+      : [...memory, { role: 'user' as const, content: [...content], toolCalls: [] }];
     const estimate = admissionTokens(
       tokenCounting.estimateText(profile.getSystemPrompt()) +
       tokenCounting.estimateTools(tools) +
@@ -1220,7 +1222,7 @@ export class SessionExpertTalkService extends Disposable implements ISessionExpe
     const main = this.requireMain();
     const dispatcher = main.accessor.get(IEventDispatcher);
     const memory = main.accessor.get(IAgentContextMemoryService);
-    const turnId = this.transcriptTurns.get(run.runId) ?? 0;
+    const turnId = this.transcriptTurns.get(run.runId) ?? run.turnId;
     memory.append({
       role: 'assistant',
       content: [{ type: 'text', text: result.answer }],
@@ -1254,7 +1256,7 @@ export class SessionExpertTalkService extends Disposable implements ISessionExpe
   ): Promise<void> {
     const main = this.requireMain();
     const dispatcher = main.accessor.get(IEventDispatcher);
-    const turnId = this.transcriptTurns.get(run.runId) ?? 0;
+    const turnId = this.transcriptTurns.get(run.runId) ?? run.turnId;
     const cancelled = status === 'CANCELLED';
     void dispatcher.dispatch(
       new TurnStepInterrupted({
@@ -1410,7 +1412,22 @@ export class SessionExpertTalkService extends Disposable implements ISessionExpe
     if (this.flags.enabled(EXPERT_TALK_FLAG_ID)) return;
     throw new Error2(
       ErrorCodes.EXPERT_TALK_FEATURE_DISABLED,
-      'Discussion is disabled by the experimental feature flag',
+      'Expert Talk is disabled by the experimental feature flag',
+    );
+  }
+
+  private assertNoOtherController(): void {
+    const main = this.agents.handleOf(MAIN_AGENT_ID);
+    if (main === undefined) return;
+    if (
+      !main.accessor.get(IAgentDynamicWorkflowService).isActive &&
+      !main.accessor.get(IAgentTowerService).isActive
+    ) {
+      return;
+    }
+    throw new Error2(
+      ErrorCodes.EXPERT_TALK_BUSY,
+      'Disable Dynamic Workflow or Tower before arming Expert Talk',
     );
   }
 
@@ -1420,7 +1437,7 @@ export class SessionExpertTalkService extends Disposable implements ISessionExpe
     if (expectedVersion === currentVersion) return;
     throw new Error2(
       ErrorCodes.EXPERT_TALK_CONFIG_VERSION_CONFLICT,
-      'Discussion configuration changed since it was read',
+      'Expert Talk configuration changed since it was read',
       { details: { expectedVersion, currentVersion } },
     );
   }
@@ -1449,17 +1466,7 @@ export class SessionExpertTalkService extends Disposable implements ISessionExpe
     if (this.activeRun() === undefined) return;
     throw new Error2(
       ErrorCodes.EXPERT_TALK_BUSY,
-      'Discussion configuration cannot change while a run is active',
-    );
-  }
-
-  private requireAcceptedRun(runId: string): AcceptedRun {
-    const accepted = this.acceptedRuns.get(runId);
-    if (accepted !== undefined) return accepted;
-    throw new Error2(
-      ErrorCodes.EXPERT_TALK_RUN_NOT_RETRYABLE,
-      `Discussion run "${runId}" cannot continue after process restart`,
-      { details: { runId } },
+      'Expert Talk configuration cannot change while a run is active',
     );
   }
 
@@ -1497,8 +1504,9 @@ export class SessionExpertTalkService extends Disposable implements ISessionExpe
   private async load(): Promise<void> {
     const stored = await this.store.get<ExpertTalkPersistentState>(this.scope, EXPERT_TALK_STATE_KEY);
     if (stored === undefined) return;
+    const forked = (stored.runs ?? []).some((run) => run.sessionId !== this.sessionId);
     const interruptedAt = new Date().toISOString();
-    const runs = (stored.runs ?? []).map((run) =>
+    const runs = (forked ? [] : stored.runs ?? []).map((run) =>
       TERMINAL_STATUSES.has(run.status)
         ? run
         : {
@@ -1506,11 +1514,12 @@ export class SessionExpertTalkService extends Disposable implements ISessionExpe
             status: 'INTERRUPTED' as const,
             error: runError(
               'INTERRUPTED',
-              'Discussion was interrupted by process shutdown',
+              'Expert Talk was interrupted by process shutdown',
               stageOf(run.status),
             ),
             updatedAt: interruptedAt,
             completedAt: interruptedAt,
+            revision: run.revision + 1,
           },
     );
     const orphans = this.agents.list({ prefix: 'expert-talk-' });
@@ -1527,9 +1536,29 @@ export class SessionExpertTalkService extends Disposable implements ISessionExpe
             ],
           };
     });
-    this.data = { pair: stored.pair, runs: recoveredRuns, inputs: stored.inputs ?? {} };
+    this.data = {
+      pair: stored.pair,
+      runs: recoveredRuns,
+      inputs: forked ? {} : stored.inputs ?? {},
+    };
     await Promise.allSettled(orphans.map((agent) => this.agents.remove(agent)));
-    if (recoveredRuns.some((run, index) => run !== stored.runs[index]) || orphans.length > 0) {
+    const recoveredInterruptedRuns = recoveredRuns.filter((run, index) =>
+      run.status === 'INTERRUPTED'
+      && !TERMINAL_STATUSES.has(stored.runs[index]?.status ?? 'INTERRUPTED')
+    );
+    if (recoveredInterruptedRuns.length > 0) {
+      if (this.agents.handleOf(MAIN_AGENT_ID) === undefined) {
+        await this.agents.create({ agentId: MAIN_AGENT_ID });
+      }
+      for (const run of recoveredInterruptedRuns) {
+        await this.failTranscript(
+          run,
+          'INTERRUPTED',
+          run.error ?? runError('INTERRUPTED', 'Expert Talk was interrupted', stageOf(run.status)),
+        );
+      }
+    }
+    if (forked || recoveredRuns.some((run, index) => run !== stored.runs[index]) || orphans.length > 0) {
       await this.persist();
     }
   }
@@ -1602,12 +1631,9 @@ function terminalStatus(
 
 function stageFailureStatus(status: ExpertTalkRunStatus): ExpertTalkRunStatus {
   switch (status) {
-    case 'PREPARING':
     case 'OPENING':
-    case 'OPINIONS_READY':
       return 'FAILED_OPENING';
     case 'REVIEWING':
-    case 'REVIEW_READY':
       return 'FAILED_REVIEW';
     case 'FUSING':
       return 'FAILED_FUSION';
@@ -1661,17 +1687,18 @@ function runFailure(
 ): NonNullable<ExpertTalkRunV1['error']> {
   const stage = stageOf(run.status);
   if (status === 'CANCELLED') {
-    return runError('CANCELLED', 'Discussion was cancelled', stage);
+    return runError('CANCELLED', 'Expert Talk was cancelled', stage);
   }
   if (status === 'INTERRUPTED') {
-    return runError('INTERRUPTED', 'Discussion was interrupted', stage);
+    return runError('INTERRUPTED', 'Expert Talk was interrupted', stage);
   }
   const failed = stageArtifacts(run)
     .find((entry) => entry.artifact?.errorReason !== undefined);
   const reason = signal.aborted && signal.reason instanceof DOMException && signal.reason.name === 'TimeoutError'
     ? 'STAGE_TIMEOUT'
-    : failed?.artifact?.errorReason
-      ?? (error instanceof StageFailure ? error.reason : failureReasonForStatus(status));
+    : error instanceof StageFailure
+      ? error.reason
+      : failed?.artifact?.errorReason ?? failureReasonForStatus(status);
   return runError(reason, failureMessage(reason), stage, failed?.role);
 }
 
@@ -1701,7 +1728,10 @@ function stageArtifacts(run: ExpertTalkRunV1) {
         { role: 'peer' as const, artifact: run.artifacts.peerOpening },
       ];
     case 'review':
-      return [{ role: 'fusion_lead' as const, artifact: run.artifacts.leadReview }];
+      return [
+        { role: 'fusion_lead' as const, artifact: run.artifacts.leadReview },
+        { role: 'peer' as const, artifact: run.artifacts.peerReview },
+      ];
     case 'fusion':
       return [{ role: 'fusion_lead' as const, artifact: run.artifacts.fusion }];
     case 'terminal':
@@ -1709,17 +1739,18 @@ function stageArtifacts(run: ExpertTalkRunV1) {
   }
 }
 
+function digestText(text: string): string {
+  return createHash('sha256').update(text).digest('hex');
+}
+
 function stageOf(
   status: ExpertTalkRunStatus,
 ): NonNullable<ExpertTalkRunV1['error']>['stage'] {
   switch (status) {
-    case 'PREPARING':
     case 'OPENING':
-    case 'OPINIONS_READY':
     case 'FAILED_OPENING':
       return 'opening';
     case 'REVIEWING':
-    case 'REVIEW_READY':
     case 'FAILED_REVIEW':
       return 'review';
     case 'FUSING':
@@ -1746,11 +1777,11 @@ function stageErrorReason(error: unknown): ExpertTalkFailureReason | undefined {
 
 function safeStageError(error: unknown): string {
   switch (stageErrorReason(error)) {
-    case 'TOOL_NOT_ALLOWED': return 'Discussion attempted a tool that is not allowed.';
-    case 'TOOL_RESULT_BUDGET_EXCEEDED': return 'Discussion exceeded the tool-result budget.';
-    case 'STAGE_REQUEST_BUDGET_EXCEEDED': return 'Discussion exceeded the stage request budget.';
-    case 'STAGE_TIMEOUT': return 'Discussion stage timed out.';
-    default: return 'Discussion provider request failed.';
+    case 'TOOL_NOT_ALLOWED': return 'Expert Talk attempted a tool that is not allowed.';
+    case 'TOOL_RESULT_BUDGET_EXCEEDED': return 'Expert Talk exceeded the tool-result budget.';
+    case 'STAGE_REQUEST_BUDGET_EXCEEDED': return 'Expert Talk exceeded the stage request budget.';
+    case 'STAGE_TIMEOUT': return 'Expert Talk stage timed out.';
+    default: return 'Expert Talk provider request failed.';
   }
 }
 
@@ -1767,16 +1798,16 @@ function failureReasonForStatus(status: ExpertTalkRunStatus): ExpertTalkFailureR
 
 function failureMessage(reason: ExpertTalkFailureReason): string {
   switch (reason) {
-    case 'TOOL_NOT_ALLOWED': return 'Discussion attempted a tool that is not allowed.';
-    case 'TOOL_RESULT_BUDGET_EXCEEDED': return 'Discussion exceeded the tool-result budget.';
-    case 'STAGE_REQUEST_BUDGET_EXCEEDED': return 'Discussion exceeded the stage request budget.';
-    case 'STAGE_TIMEOUT': return 'Discussion stage timed out.';
-    case 'OPENING_FAILED': return 'A Discussion opening failed.';
-    case 'REVIEW_FAILED': return 'Architect review failed.';
-    case 'FUSION_FAILED': return 'Discussion fusion failed.';
-    case 'FUSION_RESULT_INVALID': return 'Discussion fusion returned an invalid result.';
-    case 'CANCELLED': return 'Discussion was cancelled.';
-    case 'INTERRUPTED': return 'Discussion was interrupted.';
+    case 'TOOL_NOT_ALLOWED': return 'Expert Talk attempted a tool that is not allowed.';
+    case 'TOOL_RESULT_BUDGET_EXCEEDED': return 'Expert Talk exceeded the tool-result budget.';
+    case 'STAGE_REQUEST_BUDGET_EXCEEDED': return 'Expert Talk exceeded the stage request budget.';
+    case 'STAGE_TIMEOUT': return 'Expert Talk stage timed out.';
+    case 'OPENING_FAILED': return 'An Expert Talk opening failed.';
+    case 'REVIEW_FAILED': return 'Both Expert Talk reviews failed.';
+    case 'FUSION_FAILED': return 'Expert Talk fusion failed.';
+    case 'FUSION_RESULT_INVALID': return 'Expert Talk fusion returned an invalid result.';
+    case 'CANCELLED': return 'Expert Talk was cancelled.';
+    case 'INTERRUPTED': return 'Expert Talk was interrupted.';
   }
 }
 

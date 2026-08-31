@@ -31,6 +31,8 @@ import type {
   ExpertTalkConfigV1,
   ExpertTalkPairV1,
   ExpertTalkRunV1,
+  ExpertTalkListRunsOptions,
+  ExpertTalkRunPageV1,
   ExpertTalkStartInput,
   ExpertTalkStartResult,
   ExpertTalkStatusV1,
@@ -90,12 +92,9 @@ export interface SessionExpertTalkFacade {
   arm(expectedVersion?: string): Promise<ExpertTalkArmV1>;
   disarm(armId?: string): Promise<void>;
   start(input: Omit<ExpertTalkStartInput, 'clientId'>): Promise<ExpertTalkStartResult>;
-  listRuns(): Promise<readonly ExpertTalkRunV1[]>;
+  listRuns(options?: ExpertTalkListRunsOptions): Promise<ExpertTalkRunPageV1>;
   getRun(runId: string): Promise<ExpertTalkRunV1>;
   cancel(runId: string): Promise<ExpertTalkRunV1>;
-  review(runId: string): Promise<ExpertTalkRunV1>;
-  finish(runId: string): Promise<ExpertTalkRunV1>;
-  fuse(runId: string): Promise<ExpertTalkRunV1>;
   retry(runId: string): Promise<ExpertTalkStartResult>;
 }
 
@@ -250,18 +249,12 @@ export function createSessionFacade(
         call(scope, 'sessionExpertTalkService', 'disarm', [clientId, armId]) as Promise<void>,
       start: (input) =>
         call(scope, 'sessionExpertTalkService', 'start', [{ ...input, clientId }]) as Promise<ExpertTalkStartResult>,
-      listRuns: () =>
-        call(scope, 'sessionExpertTalkService', 'listRuns', []) as Promise<readonly ExpertTalkRunV1[]>,
+      listRuns: (options) =>
+        call(scope, 'sessionExpertTalkService', 'listRuns', [options]) as Promise<ExpertTalkRunPageV1>,
       getRun: (runId) =>
         call(scope, 'sessionExpertTalkService', 'getRun', [runId]) as Promise<ExpertTalkRunV1>,
       cancel: (runId) =>
         call(scope, 'sessionExpertTalkService', 'cancel', [runId]) as Promise<ExpertTalkRunV1>,
-      review: (runId) =>
-        call(scope, 'sessionExpertTalkService', 'review', [runId]) as Promise<ExpertTalkRunV1>,
-      finish: (runId) =>
-        call(scope, 'sessionExpertTalkService', 'finish', [runId]) as Promise<ExpertTalkRunV1>,
-      fuse: (runId) =>
-        call(scope, 'sessionExpertTalkService', 'fuse', [runId]) as Promise<ExpertTalkRunV1>,
       retry: (runId) =>
         call(scope, 'sessionExpertTalkService', 'retry', [runId]) as Promise<ExpertTalkStartResult>,
     },

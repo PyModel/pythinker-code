@@ -31,17 +31,14 @@ const ADD_DIR_ARG_COMPLETIONS: readonly ArgCompletionSpec[] = [
   { value: 'list', description: 'Show configured additional workspace directories' },
 ];
 
-const DISCUSSION_ARG_COMPLETIONS: readonly ArgCompletionSpec[] = [
-  { value: 'help', description: 'Open the Discussion action menu' },
-  { value: 'status', description: 'Show Discussion state and progress' },
-  { value: 'configure', description: 'Select Architect and Builder models' },
-  { value: 'arm', description: 'Use Discussion for the next message' },
-  { value: 'disarm', description: 'Return the next message to normal chat' },
-  { value: 'review', description: 'Ask Architect to review Builder' },
-  { value: 'finish', description: 'Finish with the latest Architect answer' },
-  { value: 'fuse', description: 'Run fresh Architect Fusion' },
-  { value: 'cancel', description: 'Stop the active Discussion stage' },
-  { value: 'retry', description: 'Retry the whole Discussion' },
+const EXPERT_TALK_ARG_COMPLETIONS: readonly ArgCompletionSpec[] = [
+  { value: 'help', description: 'Open the Expert Talk action menu' },
+  { value: 'status', description: 'Show Expert Talk state and progress' },
+  { value: 'configure', description: 'Select Fusion Lead and Peer Expert models' },
+  { value: 'arm', description: 'Use Expert Talk for the next message' },
+  { value: 'off', description: 'Return the next message to normal chat' },
+  { value: 'cancel', description: 'Stop the active Expert Talk run' },
+  { value: 'retry', description: 'Retry the whole Expert Talk run' },
   { value: 'exchange', description: 'Show the complete exchange' },
   { value: 'reset', description: 'Remove the configured model pair' },
 ];
@@ -78,8 +75,8 @@ export function addDirArgumentCompletions(argumentPrefix: string): AutocompleteI
   return completeLeadingArg(ADD_DIR_ARG_COMPLETIONS, argumentPrefix);
 }
 
-export function discussionArgumentCompletions(argumentPrefix: string): AutocompleteItem[] | null {
-  return completeLeadingArg(DISCUSSION_ARG_COMPLETIONS, argumentPrefix);
+export function expertTalkArgumentCompletions(argumentPrefix: string): AutocompleteItem[] | null {
+  return completeLeadingArg(EXPERT_TALK_ARG_COMPLETIONS, argumentPrefix);
 }
 
 function isPathLikeAddDirArgument(argumentPrefix: string): boolean {
@@ -217,12 +214,12 @@ export const BUILTIN_SLASH_COMMANDS = [
     requiresEngineV2: true,
   },
   {
-    name: 'discussion',
-    aliases: ['expert-opinion', 'expertopinion'],
-    description: 'Configure, arm, inspect, or stop a two-model Discussion',
+    name: 'expert-talk',
+    aliases: [],
+    description: 'Configure, arm, inspect, or stop an Expert Talk run',
     priority: 100,
-    argumentHint: '[help|status|configure|arm|disarm|review|finish|fuse|cancel|retry|exchange|reset]',
-    completeArgs: discussionArgumentCompletions,
+    argumentHint: '[help|status|configure|arm|off|cancel|retry|exchange|reset]',
+    completeArgs: expertTalkArgumentCompletions,
     availability: 'always',
     experimentalFlag: 'expert_talk',
     requiresEngineV2: true,

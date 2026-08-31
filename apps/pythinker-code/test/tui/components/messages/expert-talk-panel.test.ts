@@ -53,11 +53,12 @@ describe('Expert Talk status panel', () => {
       peer: { provider: 'local', model: 'glm-test', displayName: 'GLM Test', maxContextSize: 1 },
     }).map(strip).join('\n');
 
-    expect(output).toContain('Architect GPT Test ↔ Builder GLM Test');
+    expect(output).toContain('Fusion Lead GPT Test ↔ Peer Expert GLM Test');
     expect(output).toContain('✓ Independent opinions');
-    expect(output).toContain('◐ Discussion comparison');
+    expect(output).toContain('◐ Reciprocal reviews');
     expect(output).toContain('○ Fusion');
-    expect(output).toContain('at most 56 provider attempts');
+    expect(output).toContain('REQUESTS unavailable · PROVIDER ATTEMPTS unavailable');
+    expect(output).toContain('at most 24 provider attempts');
     expect(output).toContain('read-only tools');
   });
 
@@ -85,7 +86,7 @@ describe('Expert Talk status panel', () => {
             '- Both use the shared resolver.',
             '',
             '## Divergence',
-            '- Architect requires strict mode; Builder prefers fallback.',
+            '- Fusion Lead requires strict mode; Peer Expert prefers fallback.',
             '',
             '## Final analysis',
             'Use strict mode.',
@@ -100,35 +101,32 @@ describe('Expert Talk status panel', () => {
     };
 
     const wide = buildExpertTalkExchangeLines(run, models, 100).map(strip);
-    expect(wide.some((line) => line.includes('Architect') && line.includes(' │ ') && line.includes('Builder'))).toBe(true);
+    expect(wide.some((line) => line.includes('Fusion Lead') && line.includes(' │ ') && line.includes('Peer Expert'))).toBe(true);
     expect(wide.join('\n')).toContain('TIME 2.0s  TOKENS IN 1.5k  OUT 600  TPS 300');
     expect(wide.join('\n')).toContain('TOOLS 1');
     expect(wide.findIndex((line) => line.includes('FUSION'))).toBeGreaterThan(
-      wide.findIndex((line) => line.includes('Builder')),
+      wide.findIndex((line) => line.includes('Peer Expert')),
     );
     expect(wide.join('\n')).toContain('Fused final answer');
     expect(wide.join('\n')).toContain('⧉ FUSION');
-    expect(wide.join('\n')).toContain('DISCUSSION — AGREEMENT & DIVERGENCE');
     expect(wide.join('\n')).toContain('Agreement');
     expect(wide.join('\n')).toContain('Divergence');
     expect(wide.join('\n')).toContain('Final analysis');
     expect(wide.join('\n')).not.toContain('Model two review');
 
     const narrow = buildExpertTalkExchangeLines(run, models, 60).map(strip);
-    const model1 = narrow.findIndex((line) => line.includes('Architect'));
-    const model2 = narrow.findIndex((line) => line.includes('Builder'));
+    const model1 = narrow.findIndex((line) => line.includes('Fusion Lead'));
+    const model2 = narrow.findIndex((line) => line.includes('Peer Expert'));
     const fusion = narrow.findIndex((line) => line.includes('FUSION'));
     expect(narrow.some((line) => line.includes(' │ '))).toBe(false);
     expect(model2).toBeGreaterThan(model1);
     expect(fusion).toBeGreaterThan(model2);
-    expect(narrow.join('\n')).toContain('fresh Architect inference');
+    expect(narrow.join('\n')).toContain('fresh Fusion Lead inference');
 
     const veryNarrow = buildExpertTalkExchangeLines(run, models, 30).map(strip);
-    const comparisonIndex = veryNarrow.findIndex((line) => line.includes('comparison'));
-    expect(comparisonIndex).toBeGreaterThan(0);
-    expect(veryNarrow.slice(comparisonIndex - 1, comparisonIndex + 1).join(' ').replaceAll(/\s+/g, ' '))
-      .toContain('GPT Test · Architect comparison');
-    expect(veryNarrow[comparisonIndex]).not.toContain('…');
+    expect(veryNarrow.some((line) => line.includes('Fusion Lead'))).toBe(true);
+    expect(veryNarrow.some((line) => line.includes('Peer Expert'))).toBe(true);
+    expect(veryNarrow.every((line) => strip(line).length <= 30)).toBe(true);
   });
 
   it('renders live model answer, thinking, and tool activity', () => {
@@ -141,7 +139,7 @@ describe('Expert Talk status panel', () => {
       artifacts: {},
       progress: {
         leadOpening: {
-          text: '# Architect draft',
+          text: '# Fusion Lead draft',
           thinking: 'Checking the evidence.',
           tools: [{ id: 'tool-1', name: 'Read' }],
           startedAt: '2026-08-30T12:00:00.000Z',
@@ -153,23 +151,24 @@ describe('Expert Talk status panel', () => {
       peer: { provider: 'local', model: 'glm-test', displayName: 'GLM Test', maxContextSize: 1 },
     }, 100).map(strip).join('\n');
 
-    expect(output).toContain('Architect draft');
-    expect(output).not.toContain('# Architect draft');
+    expect(output).toContain('Fusion Lead draft');
+    expect(output).not.toContain('# Fusion Lead draft');
     expect(output).toContain('▹ Checking the evidence.');
     expect(output).toContain('▸ Read');
   });
 
-  it('marks review as skipped after direct Fusion', () => {
+  it('marks both failed reviews and unavailable Fusion', () => {
     const run = {
-      status: 'COMPLETED',
+      status: 'FAILED_REVIEW',
       bindings: [
         { role: 'fusion_lead', effectiveModelId: 'lead' },
         { role: 'peer', effectiveModelId: 'peer' },
       ],
       artifacts: {
-        leadOpening: { status: 'completed', text: 'Architect opinion' },
-        peerOpening: { status: 'completed', text: 'Builder opinion' },
-        fusion: { status: 'completed', text: 'Fusion answer' },
+        leadOpening: { status: 'completed', text: 'Fusion Lead opinion' },
+        peerOpening: { status: 'completed', text: 'Peer Expert opinion' },
+        leadReview: { status: 'failed', error: 'Lead review failed' },
+        peerReview: { status: 'failed', error: 'Peer review failed' },
       },
     } as unknown as ExpertTalkRunV1;
     const status = {
@@ -188,8 +187,9 @@ describe('Expert Talk status panel', () => {
     const phases = buildExpertTalkStatusLines(status, models).map(strip).join('\n');
     const exchange = buildExpertTalkExchangeLines(run, models).map(strip).join('\n');
 
-    expect(phases).toContain('– Discussion comparison');
-    expect(phases).toContain('✓ Fusion');
-    expect(exchange).not.toContain('DISCUSSION — AGREEMENT & DIVERGENCE');
+    expect(phases).toContain('✗ Reciprocal reviews');
+    expect(phases).toContain('– Fusion');
+    expect(exchange).toContain('Lead review failed');
+    expect(exchange).toContain('Peer review failed');
   });
 });

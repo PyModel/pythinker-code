@@ -280,6 +280,7 @@ import type {
   CreateSessionOptions,
   ExpertTalkArmV1,
   ExpertTalkConfigV1,
+  ExpertTalkRunPageV1,
   ExpertTalkPairV1,
   ExpertTalkRunV1,
   ExpertTalkStartResult,
@@ -846,9 +847,15 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
     await this.klient.session(input.sessionId).expertTalk.disarm(input.armId);
   }
 
-  async listExpertTalkRuns(input: SessionIdRpcInput): Promise<readonly ExpertTalkRunV1[]> {
+  async listExpertTalkRuns(input: SessionIdRpcInput & {
+    readonly cursor?: string;
+    readonly limit?: number;
+  }): Promise<ExpertTalkRunPageV1> {
     this.requireLiveSession(input.sessionId);
-    return this.klient.session(input.sessionId).expertTalk.listRuns();
+    return this.klient.session(input.sessionId).expertTalk.listRuns({
+      cursor: input.cursor,
+      limit: input.limit,
+    });
   }
 
   async getExpertTalkRun(input: SessionIdRpcInput & { readonly runId: string }): Promise<ExpertTalkRunV1> {
@@ -859,21 +866,6 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
   async cancelExpertTalkRun(input: SessionIdRpcInput & { readonly runId: string }): Promise<ExpertTalkRunV1> {
     this.requireLiveSession(input.sessionId);
     return this.klient.session(input.sessionId).expertTalk.cancel(input.runId);
-  }
-
-  async reviewExpertTalkRun(input: SessionIdRpcInput & { readonly runId: string }): Promise<ExpertTalkRunV1> {
-    this.requireLiveSession(input.sessionId);
-    return this.klient.session(input.sessionId).expertTalk.review(input.runId);
-  }
-
-  async finishExpertTalkRun(input: SessionIdRpcInput & { readonly runId: string }): Promise<ExpertTalkRunV1> {
-    this.requireLiveSession(input.sessionId);
-    return this.klient.session(input.sessionId).expertTalk.finish(input.runId);
-  }
-
-  async fuseExpertTalkRun(input: SessionIdRpcInput & { readonly runId: string }): Promise<ExpertTalkRunV1> {
-    this.requireLiveSession(input.sessionId);
-    return this.klient.session(input.sessionId).expertTalk.fuse(input.runId);
   }
 
   async retryExpertTalkRun(input: SessionIdRpcInput & { readonly runId: string }): Promise<ExpertTalkStartResult> {

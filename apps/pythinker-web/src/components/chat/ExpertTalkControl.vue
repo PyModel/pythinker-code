@@ -15,7 +15,7 @@ const ExpertTalkExchange = defineAsyncComponent(() => import('./ExpertTalkExchan
 
 const props = withDefaults(defineProps<{
   models: AppModel[];
-  trigger?: 'pill' | 'launcher';
+  trigger?: 'pill' | 'launcher' | 'widget';
 }>(), {
   trigger: 'pill',
 });
@@ -58,12 +58,15 @@ const modelOptions = computed(() => modelGroups.value.flatMap((group) =>
 const status = computed(() => expertTalk?.status.value);
 const run = computed(() => expertTalk?.run.value);
 const available = computed(() => expertTalk?.available.value === true);
-const active = computed(() =>
-  run.value?.state === 'preparing' ||
-  run.value?.state === 'running' ||
-  run.value?.state === 'waiting'
-);
+const active = computed(() => run.value?.state === 'running');
 const armed = computed(() => status.value?.activation.state === 'armed');
+const configuredPair = computed(() => status.value?.config);
+const armedLead = computed(() => configuredPair.value === null || configuredPair.value === undefined
+  ? ''
+  : modelLabel(configuredPair.value.fusionLeadModelId));
+const armedPeer = computed(() => configuredPair.value === null || configuredPair.value === undefined
+  ? ''
+  : modelLabel(configuredPair.value.peerModelId));
 const pairValid = computed(() =>
   leadModelId.value.length > 0 &&
   peerModelId.value.length > 0 &&
@@ -75,7 +78,7 @@ const terminalFailure = computed(() => {
 });
 const triggerLabel = computed(() => {
   if (armed.value) return t('expertTalk.next');
-  if (active.value) return t(`expertTalk.stage.${run.value?.stage ?? 'preparing'}`);
+  if (active.value) return t(`expertTalk.stage.${run.value?.stage ?? 'opening'}`);
   return t('expertTalk.title');
 });
 
@@ -101,7 +104,22 @@ function openDialog(): void {
   if (available.value) open.value = true;
 }
 
-defineExpose({ available, openDialog });
+async function activate(): Promise<void> {
+  const pair = configuredPair.value;
+  if (!expertTalk || pair === null || pair === undefined || active.value || armed.value) {
+    openDialog();
+    return;
+  }
+  await expertTalk.useForNextMessage(pair.fusionLeadModelId, pair.peerModelId);
+}
+
+function cancelActive(): boolean {
+  if (!expertTalk || !active.value) return false;
+  void expertTalk.cancel();
+  return true;
+}
+
+defineExpose({ available, openDialog, activate, cancelActive });
 
 async function useNext(): Promise<void> {
   if (!expertTalk || !pairValid.value) return;
@@ -123,7 +141,22 @@ async function buildFromFusion(answer: string): Promise<void> {
 <template>
   <template v-if="available">
     <button
-      v-if="trigger === 'launcher'"
+      v-if="trigger === 'widget' && armed"
+      type="button"
+      class="expert-talk__one-shot"
+      :aria-label="t('expertTalk.armedLabel', { lead: armedLead, peer: armedPeer })"
+      @click="openDialog"
+    >
+      <span class="expert-talk__one-shot-title">{{ t('expertTalk.oneShot') }}</span>
+      <span class="expert-talk__one-shot-pair">
+        <span class="expert-talk__one-shot-lead">◆ {{ armedLead }}</span>
+        <span aria-hidden="true">⊕</span>
+        <span class="expert-talk__one-shot-peer">▲ {{ armedPeer }}</span>
+      </span>
+      <span class="expert-talk__one-shot-scope">{{ t('expertTalk.oneShotScope') }}</span>
+    </button>
+    <button
+      v-else-if="trigger === 'launcher'"
       type="button"
       class="expert-talk__launcher"
       aria-haspopup="dialog"
@@ -132,7 +165,7 @@ async function buildFromFusion(answer: string): Promise<void> {
       <Icon name="sparkles" size="md" />
       <span>{{ triggerLabel }}</span>
     </button>
-    <Pill v-else :active="armed || active" :aria-pressed="armed" @click="openDialog">
+    <Pill v-else-if="trigger === 'pill'" :active="armed || active" :aria-pressed="armed" @click="openDialog">
       <Icon name="sparkles" size="sm" />
       <span>{{ triggerLabel }}</span>
     </Pill>
@@ -144,6 +177,11 @@ async function buildFromFusion(answer: string): Promise<void> {
       size="xl"
     >
       <div class="expert-talk">
+        <section v-if="!status?.config && !run" class="expert-talk__boot" :aria-label="t('expertTalk.bootTitle')">
+          <strong>{{ t('expertTalk.bootTitle') }}</strong>
+          <span>{{ t('expertTalk.bootSubtitle') }}</span>
+          <span class="expert-talk__boot-pair" aria-hidden="true">●&nbsp; + &nbsp;●</span>
+        </section>
         <section class="expert-talk__pair" aria-labelledby="expert-talk-pair-title">
           <div id="expert-talk-pair-title" class="expert-talk__section-title">
             {{ t('expertTalk.pair') }}
@@ -154,7 +192,7 @@ async function buildFromFusion(answer: string): Promise<void> {
                 v-model="leadModelId"
                 class="expert-talk__model-select"
                 :label="''"
-                :aria-label="t('expertTalk.lead')"
+                :aria-label="`${t('expertTalk.lead')}: ${modelLabel(leadModelId)}`"
                 :options="modelOptions"
                 :disabled="active || armed || expertTalk?.busy.value"
               />
@@ -167,7 +205,7 @@ async function buildFromFusion(answer: string): Promise<void> {
                 v-model="peerModelId"
                 class="expert-talk__model-select"
                 :label="''"
-                :aria-label="t('expertTalk.peer')"
+                :aria-label="`${t('expertTalk.peer')}: ${modelLabel(peerModelId)}`"
                 :options="modelOptions"
                 :disabled="active || armed || expertTalk?.busy.value"
               />
@@ -206,47 +244,49 @@ async function buildFromFusion(answer: string): Promise<void> {
       </div>
 
       <template #foot>
-        <Button
-          v-if="status?.config && !active && !armed"
-          variant="ghost"
-          :disabled="expertTalk?.busy.value"
-          @click="expertTalk?.clear()"
-        >
-          {{ t('expertTalk.clear') }}
-        </Button>
-        <Button
-          v-if="armed"
-          variant="secondary"
-          :loading="expertTalk?.busy.value"
-          @click="expertTalk?.disarm()"
-        >
-          {{ t('expertTalk.disarm') }}
-        </Button>
-        <Button
-          v-else-if="active"
-          variant="danger-soft"
-          :loading="expertTalk?.busy.value"
-          @click="expertTalk?.cancel()"
-        >
-          {{ t('expertTalk.stop') }}
-        </Button>
-        <Button
-          v-else-if="terminalFailure && run?.error?.retryable"
-          variant="secondary"
-          :loading="expertTalk?.busy.value"
-          @click="expertTalk?.retry()"
-        >
-          {{ t('expertTalk.retry') }}
-        </Button>
-        <Button
-          v-if="!active && !armed"
-          :disabled="!pairValid || models.length < 2"
-          :loading="expertTalk?.busy.value"
-          @click="useNext"
-        >
-          <Icon name="sparkles" size="sm" />
-          {{ t('expertTalk.useNext') }}
-        </Button>
+        <div class="expert-talk__actions">
+          <Button
+            v-if="status?.config && !active && !armed"
+            variant="ghost"
+            :disabled="expertTalk?.busy.value"
+            @click="expertTalk?.clear()"
+          >
+            {{ t('expertTalk.clear') }}
+          </Button>
+          <Button
+            v-if="armed"
+            variant="secondary"
+            :loading="expertTalk?.busy.value"
+            @click="expertTalk?.disarm()"
+          >
+            {{ t('expertTalk.disarm') }}
+          </Button>
+          <Button
+            v-else-if="active"
+            variant="danger-soft"
+            :loading="expertTalk?.busy.value"
+            @click="expertTalk?.cancel()"
+          >
+            {{ t('expertTalk.stop') }}
+          </Button>
+          <Button
+            v-else-if="terminalFailure && run?.error?.retryable"
+            variant="secondary"
+            :loading="expertTalk?.busy.value"
+            @click="expertTalk?.retry()"
+          >
+            {{ t('expertTalk.retry') }}
+          </Button>
+          <Button
+            v-if="!active && !armed"
+            :disabled="!pairValid || models.length < 2"
+            :loading="expertTalk?.busy.value"
+            @click="useNext"
+          >
+            <Icon name="sparkles" size="sm" />
+            {{ t('expertTalk.useNext') }}
+          </Button>
+        </div>
       </template>
     </Dialog>
   </template>
@@ -257,6 +297,83 @@ async function buildFromFusion(answer: string): Promise<void> {
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
+}
+
+.expert-talk__one-shot {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-width: 0;
+  padding: var(--space-2) var(--space-3);
+  border: var(--p-hairline) solid #a78bfa;
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-sunken);
+  color: var(--color-text);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  text-align: left;
+  cursor: pointer;
+}
+
+.expert-talk__one-shot-title {
+  color: #a78bfa;
+  font-weight: var(--weight-semibold);
+}
+
+.expert-talk__one-shot-pair {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.expert-talk__one-shot-lead,
+.expert-talk__one-shot-peer {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.expert-talk__one-shot-lead {
+  color: #a78bfa;
+}
+
+.expert-talk__one-shot-peer {
+  color: #f59e0b;
+}
+
+.expert-talk__one-shot-scope {
+  color: var(--color-text-faint);
+}
+
+.expert-talk__boot {
+  display: grid;
+  justify-items: center;
+  gap: var(--space-1);
+  padding: var(--space-4);
+  border: var(--p-hairline) solid var(--color-line);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-sunken);
+  font-family: var(--font-mono);
+  text-align: center;
+}
+
+.expert-talk__boot strong {
+  color: #a78bfa;
+  letter-spacing: 0.08em;
+}
+
+.expert-talk__boot span {
+  color: var(--color-text-muted);
+}
+
+.expert-talk__boot-pair {
+  color: #22d3ee !important;
 }
 
 .expert-talk__pair {
@@ -300,6 +417,10 @@ async function buildFromFusion(answer: string): Promise<void> {
   min-width: 0;
 }
 
+.expert-talk__pair :deep(.ui-field__hint) {
+  color: var(--color-text-muted);
+}
+
 .expert-talk__exchange {
   color: var(--color-text-faint);
   padding-top: var(--space-2);
@@ -329,7 +450,35 @@ async function buildFromFusion(answer: string): Promise<void> {
   font-size: var(--text-sm);
 }
 
+.expert-talk__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  width: 100%;
+  min-width: 0;
+}
+
+.expert-talk__actions :deep(.ui-button--primary) {
+  border-color: color-mix(in srgb, var(--color-accent) 72%, black);
+  background: color-mix(in srgb, var(--color-accent) 72%, black);
+}
+
+.expert-talk__actions :deep(.ui-button--primary:not(:disabled):hover) {
+  border-color: color-mix(in srgb, var(--color-accent) 78%, black);
+  background: color-mix(in srgb, var(--color-accent) 78%, black);
+}
+
 @media (max-width: 640px) {
+  .expert-talk__one-shot {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .expert-talk__one-shot-title,
+  .expert-talk__one-shot-scope {
+    text-align: center;
+  }
+
   .expert-talk__fields {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -338,5 +487,14 @@ async function buildFromFusion(answer: string): Promise<void> {
     display: none;
   }
 
+  .expert-talk__actions {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .expert-talk__actions > * {
+    width: 100%;
+    min-width: 0;
+  }
 }
 </style>

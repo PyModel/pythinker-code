@@ -55,12 +55,12 @@ export function useExpertTalkState(
   async function refresh(sessionId = activeSessionId.value): Promise<void> {
     if (!capability.value || sessionId.length === 0) return;
     try {
-      const [nextStatus, nextRuns] = await Promise.all([
+      const [nextStatus, nextRunPage] = await Promise.all([
         getPythinkerWebApi().getExpertTalkStatus(sessionId),
         getPythinkerWebApi().listExpertTalkRuns(sessionId),
       ]);
       setStatus(sessionId, nextStatus);
-      for (const nextRun of nextRuns) setRun(nextRun);
+      for (const nextRun of nextRunPage.runs) setRun(nextRun);
     } catch (cause) {
       error.value = cause instanceof Error ? cause.message : String(cause);
     }
@@ -157,33 +157,6 @@ export function useExpertTalkState(
     });
   }
 
-  async function review(): Promise<void> {
-    await operate('expertTalkReview', async (sessionId) => {
-      const runId = statusBySession.value[sessionId]?.activeRunId;
-      if (runId === undefined) return;
-      setRun(await getPythinkerWebApi().reviewExpertTalkRun(sessionId, runId));
-      await refresh(sessionId);
-    });
-  }
-
-  async function finish(): Promise<void> {
-    await operate('expertTalkFinish', async (sessionId) => {
-      const runId = statusBySession.value[sessionId]?.activeRunId;
-      if (runId === undefined) return;
-      setRun(await getPythinkerWebApi().finishExpertTalkRun(sessionId, runId));
-      await refresh(sessionId);
-    });
-  }
-
-  async function fuse(): Promise<void> {
-    await operate('expertTalkFusion', async (sessionId) => {
-      const runId = statusBySession.value[sessionId]?.activeRunId;
-      if (runId === undefined) return;
-      setRun(await getPythinkerWebApi().fuseExpertTalkRun(sessionId, runId));
-      await refresh(sessionId);
-    });
-  }
-
   function applyStatus(sessionId: string, next: AppExpertTalkStatus): void {
     setStatus(sessionId, next);
   }
@@ -228,9 +201,6 @@ export function useExpertTalkState(
     clear,
     cancel,
     retry,
-    review,
-    finish,
-    fuse,
     applyStatus,
     armIdForSession,
     promptAccepted,

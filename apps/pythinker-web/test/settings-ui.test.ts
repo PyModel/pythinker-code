@@ -376,7 +376,7 @@ describe('settings UI', () => {
     expect(Object.keys(messages)).toEqual(['en']);
   });
 
-  it('configures Discussion from eligible models across every provider', async () => {
+  it('configures Expert Talk from eligible models across every provider', async () => {
     const currentStatus = ref({
       feature: 'enabled' as const,
       resourceVersion: 'expert-opinion-v1',
@@ -450,16 +450,16 @@ describe('settings UI', () => {
     });
     await flushPromises();
     const tab = Array.from(document.body.querySelectorAll<HTMLButtonElement>('[role="tab"]'))
-      .find((item) => item.textContent?.trim() === 'Discussion');
+      .find((item) => item.textContent?.trim() === 'Expert Talk');
     tab!.click();
     await flushPromises();
 
     expect(api.refreshAllProviders).toHaveBeenCalledOnce();
     const panel = document.body.querySelector<HTMLElement>('[data-testid="expert-opinion-settings"]')!;
     expect(panel.style.display).not.toBe('none');
-    expect(panel.textContent).toContain('two-model Fusion Harness workflow');
-    expect(panel.textContent).toContain('Architect');
-    expect(panel.textContent).toContain('Builder');
+    expect(panel.textContent).toContain('two-expert Fusion workflow');
+    expect(panel.textContent).toContain('Fusion Lead');
+    expect(panel.textContent).toContain('Peer Expert');
     const selects = Array.from(panel.querySelectorAll<HTMLSelectElement>('select'));
     expect(selects).toHaveLength(2);
     expect(selects.map((select) =>
