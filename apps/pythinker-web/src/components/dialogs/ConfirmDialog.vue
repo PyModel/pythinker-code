@@ -75,6 +75,7 @@ onBeforeUnmount(() => {
     :open="open"
     :title="title"
     height="auto"
+    stacked
     initial-focus=".confirm-dialog__confirm"
     :close-on-esc="!loading"
     :close-on-overlay="!loading"

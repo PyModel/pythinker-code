@@ -24,6 +24,7 @@ import { isWithinDirectory } from '#/tool/path-access';
 import type { ToolFileAccess } from '#/tool/toolContract';
 
 import { TowerModeInjection } from './injection/towerModeInjection';
+import { ISessionExpertTalkService } from '#/session/expertTalk/expertTalk';
 import { TowerStore, WORKTREES_DIR, resolveTowerRepoRoot } from './protocol/index';
 import {
   IAgentTowerService,
@@ -54,6 +55,7 @@ export class AgentTowerService extends Disposable implements IAgentTowerService 
     @IAgentLifecycleService agentLifecycle: IAgentLifecycleService,
     @IAgentContextMemoryService context: IAgentContextMemoryService,
     @IEventBus eventBus: IEventBus,
+    @ISessionExpertTalkService private readonly expertTalk: ISessionExpertTalkService,
   ) {
     super();
     this.agentState.contributeState(towerKey);
@@ -167,6 +169,7 @@ export class AgentTowerService extends Disposable implements IAgentTowerService 
     if (!this.flags.enabled(TOWER_FLAG_ID)) return;
     if (!isTowerFeatureAssembled(this.flags)) return;
     if (this.isActive) return;
+    this.expertTalk.prepareControllerActivation();
     const owner = await this.resolveTowerOwner();
     if (
       owner !== undefined &&

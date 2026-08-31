@@ -156,6 +156,14 @@ describe('FooterComponent', () => {
     expect(footer.render(120).join('\n')).toContain('tower');
   });
 
+  it('shows Expert Talk mode in the footer', () => {
+    const footer = new FooterComponent({ ...appState, expertTalkArmId: 'arm-1' });
+    const rendered = footer.render(120).join('\n');
+
+    expect(rendered).toContain('expert-talk');
+    expect(rendered).not.toContain('discussion');
+  });
+
   it('repaints from the active palette on the next render (no setColors needed)', () => {
     const footer = new FooterComponent(appState);
     const before = footer.render(120).join('\n');

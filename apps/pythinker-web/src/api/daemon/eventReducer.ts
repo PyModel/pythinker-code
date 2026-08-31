@@ -855,6 +855,7 @@ export function reduceAppEvent(
     // web layer, not the session reducer. Advance seq silently.
     case 'agentDelta':
     case 'agentTurnEnded':
+    case 'expertTalkChanged':
       break;
 
     // -------------------------------------------------------------------------

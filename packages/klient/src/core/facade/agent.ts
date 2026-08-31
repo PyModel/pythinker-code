@@ -22,6 +22,10 @@ import type { IAgentTaskService } from '@pymodel/agent-core-v2/agent/task/task';
 import type { ISessionUsageService } from '@pymodel/agent-core-v2/session/usage/sessionUsage';
 import type { ContentPart } from '@pymodel/agent-core-v2/kosong/contract/message';
 import type { PermissionMode } from '@pymodel/agent-core-v2/agent/permissionPolicy/types';
+import type {
+  ExpertTalkRunV1,
+  ExpertTalkStartResult,
+} from '@pymodel/agent-core-v2/session/expertTalk/expertTalk';
 
 import type { ScopeRef } from '../channel.js';
 import type { ScopedCaller } from './session.js';
@@ -29,6 +33,9 @@ import type { ScopedCaller } from './session.js';
 // Wire-type aliases derived through the engine service interfaces (keeps
 // klient free of protocol-package imports).
 export type PromptLaunchResult = Awaited<ReturnType<IAgentPromptService['submit']>>;
+export type AgentPromptLaunchResult =
+  | (Exclude<PromptLaunchResult, undefined> & { readonly expert_talk_run_id?: string })
+  | undefined;
 export type PromptWithSkillsInput = Parameters<SkillRuntime['promptWithSkills']>[0];
 export type PromptWithSkillsResult = Awaited<ReturnType<SkillRuntime['promptWithSkills']>>;
 export type ShellCommandResult = Awaited<ReturnType<IAgentShellCommandService['run']>>;
@@ -50,7 +57,8 @@ export interface AgentFacade {
     input: readonly ContentPart[];
     disabledTools?: readonly string[];
     promptId?: string;
-  }): Promise<PromptLaunchResult>;
+    expertTalkArmId?: string;
+  }): Promise<AgentPromptLaunchResult>;
   /**
    * Submit one prompt with one or more skill activations bundled into the
    * same user message: the skills are validated up front (an unknown name or
@@ -104,10 +112,50 @@ export interface AgentFacade {
   compact(input?: { instruction?: string }): Promise<boolean>;
 }
 
-export function createAgentFacade(call: ScopedCaller, scope: ScopeRef): AgentFacade {
+export function createAgentFacade(
+  call: ScopedCaller,
+  scope: ScopeRef,
+  clientId: string,
+): AgentFacade {
   return {
-    prompt: (input) =>
-      call(scope, 'agentPromptService', 'submit', [input]) as Promise<PromptLaunchResult>,
+    prompt: async (input) => {
+      if (input.expertTalkArmId === undefined) {
+        return call(scope, 'agentPromptService', 'submit', [input]) as Promise<PromptLaunchResult>;
+      }
+      if (scope.sessionId === undefined || scope.agentId !== 'main') {
+        throw new Error('Expert Talk prompts require the main session agent');
+      }
+      if (input.disabledTools !== undefined) {
+        throw new Error('Expert Talk prompts cannot override tools');
+      }
+      const prompt = input.input
+        .filter((part): part is Extract<ContentPart, { type: 'text' }> => part.type === 'text')
+        .map((part) => part.text)
+        .join('\n')
+        .trim();
+      const modalities = [...new Set(input.input.flatMap((part) => {
+        if (part.type === 'image_url') return ['image' as const];
+        if (part.type === 'audio_url') return ['audio' as const];
+        if (part.type === 'video_url') return ['video' as const];
+        return [];
+      }))];
+      const sessionScope = { sessionId: scope.sessionId };
+      const started = await call(sessionScope, 'sessionExpertTalkService', 'start', [{
+        armId: input.expertTalkArmId,
+        clientId,
+        prompt,
+        promptId: input.promptId,
+        modalities,
+        content: input.input,
+      }]) as ExpertTalkStartResult;
+      const run = await call(
+        sessionScope,
+        'sessionExpertTalkService',
+        'getRun',
+        [started.runId],
+      ) as ExpertTalkRunV1;
+      return { turn_id: run.turnId, expert_talk_run_id: run.runId };
+    },
     promptWithSkills: (input) =>
       call(scope, 'agentSkillService', 'promptWithSkills', [input]) as Promise<PromptWithSkillsResult>,
     steer: (input) =>

@@ -15,6 +15,7 @@ import {
   IAgentLifecycleService,
   IEventBus,
   IEventService,
+  ISessionExpertTalkService,
   ISessionActivityView,
   ISessionIndex,
   MAIN_AGENT_ID,
@@ -23,6 +24,7 @@ import {
   onSessionInteractionDidChangePending,
   onSessionInteractionDidResolve,
 } from '@pymodel/agent-core-v2';
+import type { ExpertTalkStatusV1 } from '@pymodel/agent-core-v2';
 import type {
   ConfigWarningItem,
   DiUnitChangedEvent,
@@ -62,6 +64,7 @@ import { readLegacyStatus, toLegacyPhase } from '../../../services/legacyStatus/
 import type { TranscriptService } from '../../../services/transcript/transcriptService';
 import { InFlightTurnTracker } from './inFlightTurnTracker';
 import { SubagentRosterTracker } from './subagentRosterTracker';
+import { projectExpertTalkStatus } from '../../../routes/expertTalk';
 import {
   type EventEnvelope,
   type JournalLogger,
@@ -87,6 +90,7 @@ export interface SessionSnapshotState {
 export type BroadcastDelivery = 'subscription' | 'immediate';
 
 export interface BroadcastTarget {
+  readonly supportsExpertTalkEvents?: boolean;
   send(envelope: EventEnvelope, delivery?: BroadcastDelivery): void;
 }
 
@@ -120,6 +124,8 @@ interface SessionState {
     BroadcastTarget,
     { readonly spec: TranscriptGradeSpec; readonly transcriptSince?: Record<string, number> }
   >;
+  expertTalk?: ISessionExpertTalkService;
+  readonly expertTalkSeeded: Set<BroadcastTarget>;
 }
 
 export const DEFAULT_MAX_BUFFER_SIZE = 1000;
@@ -180,6 +186,15 @@ export class SessionEventBroadcaster {
     if (state === undefined) return false;
     const prev = state.targets.get(target);
     state.targets.set(target, { agentFilter: filter, transcriptGrades });
+    if (target.supportsExpertTalkEvents === true && state.expertTalk !== undefined) {
+      await state.expertTalk.ready;
+      state.queue = state.queue.then(() => {
+        if (!state.targets.has(target)) return;
+        this.sendExpertTalkSnapshot(state, target, state.expertTalk!.status());
+        state.expertTalkSeeded.add(target);
+      });
+      await state.queue;
+    }
     if (transcriptGrades !== undefined) {
       if (opts?.deferTranscriptReset === true) {
         state.transcriptSeeded.delete(target);
@@ -214,6 +229,7 @@ export class SessionEventBroadcaster {
     const store = service.forSessionLive(state.sessionId);
     if (store === undefined) return false;
     for (const descriptor of store.agents()) {
+      if (isExpertTalkParticipant(descriptor.agentId)) continue;
       const grade = gradeFor(spec, descriptor.agentId);
       if (grade === 'off') continue;
       if (needsResetOnTransition(gradeFor(prev?.transcriptGrades, descriptor.agentId), grade)) {
@@ -239,6 +255,7 @@ export class SessionEventBroadcaster {
     state.targets.delete(target);
     state.transcriptSeeded.delete(target);
     state.deferredTranscriptSeeds.delete(target);
+    state.expertTalkSeeded.delete(target);
   }
 
   unsubscribeTranscript(
@@ -277,6 +294,7 @@ export class SessionEventBroadcaster {
       Object.keys(spec).filter((agentId) => agentId !== '*' && gradeFor(spec, agentId) !== 'off'),
     );
     for (const descriptor of store.agents()) {
+      if (isExpertTalkParticipant(descriptor.agentId)) continue;
       if (gradeFor(spec, descriptor.agentId) !== 'off') backfill.add(descriptor.agentId);
     }
     await Promise.all(
@@ -287,6 +305,7 @@ export class SessionEventBroadcaster {
     const currentSpec = current.transcriptGrades;
     this.ensureTranscriptStream(state, store);
     for (const descriptor of store.agents()) {
+      if (isExpertTalkParticipant(descriptor.agentId)) continue;
       const grade = gradeFor(currentSpec, descriptor.agentId);
       if (grade === 'off') continue;
       const transcript = store.getAgent(descriptor.agentId);
@@ -335,7 +354,11 @@ export class SessionEventBroadcaster {
     if (service === undefined) return;
     const stream: TranscriptStream = {
       store,
-      knownAgents: new Set(store.agents().map((d) => d.agentId)),
+      knownAgents: new Set(
+        store.agents()
+          .map((descriptor) => descriptor.agentId)
+          .filter((agentId) => !isExpertTalkParticipant(agentId)),
+      ),
     };
     state.transcriptStream = stream;
 
@@ -362,6 +385,7 @@ export class SessionEventBroadcaster {
     state.lifecycleDisposables.push(
       store.onRosterChange((agents) => {
         for (const descriptor of agents) {
+          if (isExpertTalkParticipant(descriptor.agentId)) continue;
           if (stream.knownAgents.has(descriptor.agentId)) continue;
           stream.knownAgents.add(descriptor.agentId);
           const transcript = store.getAgent(descriptor.agentId);
@@ -561,12 +585,14 @@ export class SessionEventBroadcaster {
       knownInteractions: new Map(),
       transcriptSeeded: new Set(),
       deferredTranscriptSeeds: new Map(),
+      expertTalkSeeded: new Set(),
     };
     this.sessions.set(sessionId, state);
     try {
       this.attachWorkView(session, state);
       this.attachAgents(sessionId, session, state);
       this.attachInteractions(sessionId, session, state);
+      this.attachExpertTalk(session, state);
     } catch (error) {
       this.sessions.delete(sessionId);
       await disposeSessionState(state);
@@ -610,6 +636,7 @@ export class SessionEventBroadcaster {
       knownInteractions: new Map(),
       transcriptSeeded: new Set(),
       deferredTranscriptSeeds: new Map(),
+      expertTalkSeeded: new Set(),
     };
     this.sessions.set(GLOBAL_SESSION_ID, state);
     return state;
@@ -788,6 +815,45 @@ export class SessionEventBroadcaster {
       .catch((error: unknown) => this.logDispatchDropped(state.sessionId, event.type, error));
   }
 
+  private attachExpertTalk(session: ISessionScopeHandle, state: SessionState): void {
+    const expertTalk = session.accessor.get(ISessionExpertTalkService);
+    if (expertTalk === undefined) return;
+    state.expertTalk = expertTalk;
+    state.lifecycleDisposables.push(
+      expertTalk.onDidChange(({ status }) => {
+        state.queue = state.queue
+          .then(() => {
+            for (const target of state.expertTalkSeeded) {
+              if (!state.targets.has(target)) continue;
+              this.sendExpertTalkSnapshot(state, target, status);
+            }
+          })
+          .catch((error: unknown) =>
+            this.logDispatchDropped(state.sessionId, 'expert_talk.changed', error),
+          );
+      }),
+    );
+  }
+
+  private sendExpertTalkSnapshot(
+    state: SessionState,
+    target: BroadcastTarget,
+    status: ExpertTalkStatusV1,
+  ): void {
+    const event: Event = {
+      type: 'expert_talk.changed',
+      status: projectExpertTalkStatus(status),
+      agentId: MAIN_AGENT_ID,
+      sessionId: state.sessionId,
+    };
+    target.send(
+      this.buildEnvelope(state.journal.seq, state.sessionId, event, {
+        epoch: state.journal.epoch,
+        volatile: true,
+      }),
+    );
+  }
+
   private attachWorkView(session: ISessionScopeHandle, state: SessionState): void {
     const workView = session.accessor.get(ISessionActivityView);
     workView.state();
@@ -821,11 +887,13 @@ export class SessionEventBroadcaster {
       state.agentDisposables.set(handle.id, this.attachAgent(sessionId, handle));
     };
     for (const agent of agents.list()) {
+      if (isExpertTalkParticipant(agent.agentId)) continue;
       const handle = agents.handleOf(agent.agentId);
       if (handle !== undefined) subscribeAgent(handle);
     }
     state.lifecycleDisposables.push(
       agents.onDidCreate((context) => {
+        if (isExpertTalkParticipant(context.agentId)) return;
         const handle = agents.handleOf(context.agentId);
         if (handle !== undefined) subscribeAgent(handle);
         this.enqueueDurable(state, {
@@ -1460,4 +1528,8 @@ function modelCatalogChangedPayload(
   const parsed = modelCatalogChangedPayloadSchema.safeParse(payload);
   if (!parsed.success) return undefined;
   return parsed.data;
+}
+
+function isExpertTalkParticipant(agentId: string): boolean {
+  return agentId.startsWith('expert-talk-');
 }

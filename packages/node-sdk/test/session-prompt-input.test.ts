@@ -99,6 +99,27 @@ describe('Session.prompt input normalization', () => {
     });
   });
 
+  it('forwards an Expert Talk arm with the accepted prompt', async () => {
+    const prompt = vi.fn(async () => {});
+    const session = new Session({
+      id: 'ses_expert_talk',
+      workDir: '/tmp/work',
+      rpc: { prompt } as unknown as SDKRpcClientBase,
+    });
+
+    await session.prompt('compare these approaches', {
+      promptId: 'prompt-1',
+      expertTalkArmId: 'arm-1',
+    });
+
+    expect(prompt).toHaveBeenCalledWith({
+      sessionId: 'ses_expert_talk',
+      input: [{ type: 'text', text: 'compare these approaches' }],
+      promptId: 'prompt-1',
+      expertTalkArmId: 'arm-1',
+    });
+  });
+
   it('rejects an empty caller-chosen promptId before calling RPC', async () => {
     const prompt = vi.fn(async () => {});
     const session = new Session({

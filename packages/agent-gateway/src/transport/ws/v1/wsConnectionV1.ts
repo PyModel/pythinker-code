@@ -10,6 +10,11 @@ import {
 } from '@pymodel/transcript';
 import { ulid } from 'ulid';
 import type { RawData, WebSocket } from 'ws';
+import {
+  ISessionExpertTalkService,
+  resumeSessionById,
+  type Scope,
+} from '@pymodel/agent-core-v2';
 
 import type { CredentialValidator } from '../../../services/auth/credentials';
 import type { IConnectionRegistry } from '../connectionRegistry';
@@ -53,6 +58,7 @@ interface InboundFrame {
 }
 
 export interface WsConnectionV1Options {
+  readonly core?: Scope;
   readonly socket: WebSocket;
   readonly broadcaster: SessionEventBroadcaster;
   readonly fsWatchBridge?: FsWatchBridge;
@@ -84,9 +90,12 @@ export class WsConnectionV1 implements BroadcastTarget {
   private readonly highWaterMarkBytes: number;
   private readonly heartbeatIntervalMs: number;
   private readonly logger?: JournalLogger;
+  private readonly core?: Scope;
 
   private closed = false;
   private gotClientHello = false;
+  private clientIdValue: string | undefined;
+  private expertTalkEvents = false;
   readonly subscriptions = new Map<string, SessionSubscription>();
   private controlQueue: Promise<void> = Promise.resolve();
 
@@ -104,6 +113,7 @@ export class WsConnectionV1 implements BroadcastTarget {
     this.remoteAddress = opts.remoteAddress;
     this.userAgent = opts.userAgent;
     this.socket = opts.socket;
+    this.core = opts.core;
     this.broadcaster = opts.broadcaster;
     this.fsWatchBridge = opts.fsWatchBridge;
     this.validateCredential = opts.validateCredential;
@@ -137,6 +147,14 @@ export class WsConnectionV1 implements BroadcastTarget {
 
   get hasClientHello(): boolean {
     return this.gotClientHello;
+  }
+
+  get supportsExpertTalkEvents(): boolean {
+    return this.expertTalkEvents;
+  }
+
+  get clientId(): string | undefined {
+    return this.clientIdValue;
   }
 
   get subscriptionSessionIds(): readonly string[] {
@@ -206,6 +224,15 @@ export class WsConnectionV1 implements BroadcastTarget {
     this.gotClientHello = true;
 
     const payload = frame.payload ?? {};
+    const nextClientId = payload['client_id'];
+    this.clientIdValue = typeof nextClientId === 'string' && nextClientId.trim().length > 0
+      ? nextClientId.trim()
+      : undefined;
+    const clientCapabilities = payload['client_capabilities'];
+    this.expertTalkEvents =
+      typeof clientCapabilities === 'object' &&
+      clientCapabilities !== null &&
+      (clientCapabilities as { expert_talk_v1?: unknown }).expert_talk_v1 === true;
     const subscriptions = asStringArray(payload['subscriptions']);
     const cursors = payload['cursors'] as Record<string, SessionCursor> | undefined;
     const agentFilter = parseAgentFilter(payload['agent_filter']);
@@ -332,6 +359,7 @@ export class WsConnectionV1 implements BroadcastTarget {
     const payload = frame.payload ?? {};
     const sessionIds = asStringArray(payload['session_ids']);
     for (const sid of sessionIds) {
+      await this.releaseExpertTalkArm(sid);
       this.broadcaster.unsubscribe(sid, this);
       this.subscriptions.delete(sid);
     }
@@ -450,6 +478,16 @@ export class WsConnectionV1 implements BroadcastTarget {
     return true;
   }
 
+  private async releaseExpertTalkArm(sessionId: string): Promise<void> {
+    const clientId = this.clientIdValue;
+    if (clientId === undefined || this.core === undefined) return;
+    const session = await resumeSessionById(this.core.accessor, sessionId);
+    if (session === undefined) return;
+    const expertTalk = session.accessor.get(ISessionExpertTalkService);
+    await expertTalk.ready;
+    expertTalk.releaseClient(clientId);
+  }
+
   private sendSubscribedFrame(msg: unknown): void {
     if (this.closed) return;
     this.outbound.push(msg);
@@ -535,7 +573,12 @@ export class WsConnectionV1 implements BroadcastTarget {
     if (this.heartbeatTimer !== undefined) clearInterval(this.heartbeatTimer);
     this.outbound = [];
     this.broadcaster.removeGlobalTarget(this);
-    for (const sid of this.subscriptions.keys()) this.broadcaster.unsubscribe(sid, this);
+    for (const sid of this.subscriptions.keys()) {
+      void this.releaseExpertTalkArm(sid).catch((error: unknown) =>
+        this.logger?.warn({ error, session_id: sid }, 'Expert Talk arm cleanup failed'),
+      );
+      this.broadcaster.unsubscribe(sid, this);
+    }
     this.fsWatchBridge?.detachConnection(this);
   }
 }

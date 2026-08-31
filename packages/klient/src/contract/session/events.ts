@@ -12,6 +12,7 @@ import type {
   InteractionResolution,
 } from '@pymodel/agent-core-v2/features/interaction/interaction';
 import type { SessionMetadataChangedEvent } from '@pymodel/agent-core-v2/session/sessionMetadata/sessionMetadata';
+import type { ExpertTalkChangedEvent } from '@pymodel/agent-core-v2/session/expertTalk/expertTalk';
 
 import type { EventRegistration } from '../types.js';
 import {
@@ -19,6 +20,7 @@ import {
   interactionSchema,
 } from './interaction.js';
 import { sessionMetadataChangedEventSchema } from './metadata.js';
+import { expertTalkChangedEventSchema } from './expertTalk.js';
 
 /**
  * Scope-stream registration (`kind: 'stream'`). Declared structurally here
@@ -41,6 +43,7 @@ export interface SessionEventPayloads {
   'interactions.resolved': InteractionResolution;
   /** The merged skill catalog changed; the payload is the changed source id. */
   'skills.changed': string;
+  'expert_talk.changed': ExpertTalkChangedEvent;
 }
 
 export type SessionEventName = keyof SessionEventPayloads;
@@ -58,6 +61,12 @@ export const sessionEvents = {
     service: 'sessionSkillCatalog',
     event: 'onDidChange',
     schema: z.string(),
+  },
+  'expert_talk.changed': {
+    kind: 'emitter',
+    service: 'sessionExpertTalkService',
+    event: 'onDidChange',
+    schema: expertTalkChangedEventSchema,
   },
   // Passthrough stream (no `type` filter): the source pushes the full
   // pending interaction set on every change.

@@ -9,6 +9,7 @@ import type {
 } from '#/agent/runtime/agentRuntime';
 import type { PermissionMode } from '#/agent/permissionPolicy/types';
 import type { BindAgentInput } from '#/agent/profile/profile';
+import type { ModelRequester } from '#/kosong/model/modelRequester';
 
 export interface AgentScopeCreatedEvent {
   readonly context: AgentContext;
@@ -23,6 +24,7 @@ export interface CreateAgentOptions {
   readonly runtimeId?: string;
   readonly forkedFrom?: string;
   readonly labels?: Readonly<Record<string, string>>;
+  readonly modelRequester?: ModelRequester;
 }
 
 export interface ForkAgentOptions {

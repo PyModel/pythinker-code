@@ -14,6 +14,8 @@ export interface PromptSubmitContext {
 export interface PromptInput {
   readonly id?: string;
   readonly message: ContextMessage;
+  readonly maxOutputSize?: number;
+  readonly infiniteRetry?: boolean;
 }
 
 export type PromptState =

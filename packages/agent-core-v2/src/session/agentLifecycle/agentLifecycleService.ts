@@ -214,6 +214,7 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
       agentScope,
       forkedFrom: opts.forkedFrom,
       generation,
+      modelRequester: opts.modelRequester,
     });
     const agent = scopeContext.agentContext;
     const eventBus = this.instantiation.invokeFunction((accessor) =>

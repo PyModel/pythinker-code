@@ -121,6 +121,7 @@ import RiUserLine from '~icons/ri/user-line';
 
 // Raw SVG strings (Pythinker collection) -----------------------------------------
 import RawPythinkerCuteBot from '~icons/pythinker/cute-bot?raw';
+import RawPythinkerExpertOpinion from '~icons/pythinker/expert_opinion?raw';
 import RawPythinkerFolder from '~icons/pythinker/folder?raw';
 import RawPythinkerFolderOpen from '~icons/pythinker/folder-open?raw';
 import RawPythinkerLoadingSpinner from '~icons/pythinker/loading-spinner?raw';
@@ -220,6 +221,7 @@ import RawUserLine from '~icons/ri/user-line?raw';
 export type IconName =
   | 'plus'
   | 'chat-new'
+  | 'expert-opinion'
   | 'calendar-close'
   | 'calendar-schedule'
   | 'calendar-todo'
@@ -344,6 +346,7 @@ function animatedEntry(svg: string): IconEntry {
 export const ICONS: Record<IconName, IconEntry> = {
   plus: entry(RiAddLine, RawAddLine),
   'chat-new': entry(RiChatNewLine, RawChatNewLine),
+  'expert-opinion': animatedEntry(RawPythinkerExpertOpinion),
   'calendar-close': entry(RiCalendarCloseLine, RawCalendarCloseLine),
   'calendar-schedule': entry(RiCalendarScheduleLine, RawCalendarScheduleLine),
   'calendar-todo': entry(RiCalendarTodoLine, RawCalendarTodoLine),
@@ -530,6 +533,7 @@ export const ICON_GROUPS: ReadonlyArray<readonly [string, readonly IconName[]]> 
       'plus',
       'attachment',
       'chat-new',
+      'expert-opinion',
       'close',
       'check',
       'search',

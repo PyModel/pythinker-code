@@ -26,6 +26,8 @@ export interface RunAgentTurnOptions {
   readonly summaryPolicy?: AgentProfileSummaryPolicy;
   readonly signal: AbortSignal;
   readonly onReady?: () => void;
+  readonly maxOutputSize?: number;
+  readonly infiniteRetry?: boolean;
 }
 
 export async function runAgentTurn(
@@ -37,12 +39,18 @@ export async function runAgentTurn(
   const promptService = target.accessor.get(IAgentPromptService);
   const turn =
     request.kind === 'prompt'
-      ? await (await promptService.enqueue({ message: {
+      ? await (await promptService.enqueue({
+          maxOutputSize: options.maxOutputSize,
+          infiniteRetry: options.infiniteRetry,
+          message: {
           role: 'user',
-          content: [{ type: 'text', text: request.prompt }],
+          content: request.content === undefined
+            ? [{ type: 'text', text: request.prompt }]
+            : [...request.content],
           toolCalls: [],
           origin: AGENT_RUN_PROMPT_ORIGIN,
-        } })).launched
+          },
+        })).launched
       : await promptService.retry();
   if (turn === undefined) throw new Error2(ErrorCodes.INTERNAL, 'Agent turn could not be started');
 

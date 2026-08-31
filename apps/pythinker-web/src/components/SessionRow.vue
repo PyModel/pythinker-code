@@ -284,16 +284,17 @@ defineExpose({ closeMenu });
             @blur="onRenameBlur"
           />
           <Spinner v-if="generating" size="sm" :label="t('sidebar.genTitle')" />
-          <IconButton
-            v-else
-            class="gen-title-btn"
-            size="sm"
-            :label="t('sidebar.genTitle')"
-            @mousedown.prevent.stop
-            @click.stop="startGenerateTitle"
-          >
-            <Icon name="gen-title" />
-          </IconButton>
+          <Tooltip v-else :text="t('sidebar.genTitle')">
+            <IconButton
+              class="gen-title-btn"
+              size="sm"
+              :label="t('sidebar.genTitle')"
+              @mousedown.prevent.stop
+              @click.stop="startGenerateTitle"
+            >
+              <Icon name="gen-title" />
+            </IconButton>
+          </Tooltip>
         </div>
         <span v-else class="t" @dblclick.stop="startRename">{{ titleParts.rest }}</span>
       </div>
@@ -344,17 +345,18 @@ defineExpose({ closeMenu });
            don't reflow on hover — see design-system §07 "Session row". -->
       <span class="act">
         <span class="ts">{{ session.time }}</span>
-        <IconButton
-          ref="kebabRef"
-          v-if="!renaming"
-          class="kebab"
-          :class="{ open: menuOpen }"
-          size="sm"
-          :label="t('sidebar.options')"
-          @click.stop="toggleMenu($event)"
-        >
-          <Icon name="dots-horizontal" />
-        </IconButton>
+        <Tooltip v-if="!renaming" :text="t('sidebar.options')">
+          <IconButton
+            ref="kebabRef"
+            class="kebab"
+            :class="{ open: menuOpen }"
+            size="sm"
+            :label="t('sidebar.options')"
+            @click.stop="toggleMenu($event)"
+          >
+            <Icon name="dots-horizontal" />
+          </IconButton>
+        </Tooltip>
       </span>
     </div>
 

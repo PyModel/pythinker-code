@@ -47,7 +47,10 @@ import { THINKING_SECTION, LLM_SECTION, type LlmConfig } from '#/app/kosongConfi
 import type { Protocol } from '#/kosong/protocol/protocol';
 import type { ApiErrorEvent } from '#/app/telemetry/events';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import {
+  IAgentScopeContext,
+  scopedModelRequester,
+} from '#/agent/scopeContext/scopeContext';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 import { WarningIssued } from '#/agent/profile/profileOps';
 
@@ -106,6 +109,7 @@ interface ResolvedLLMRequest {
   readonly tools: readonly Tool[];
   readonly messages: Message[];
   readonly source: AgentLLMRequestSource | undefined;
+  readonly infiniteRetry: boolean | undefined;
   readonly logFields: AgentLLMRequestLogFields;
 }
 
@@ -484,6 +488,7 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
         }
         const raw = unwrapErrorCause(error);
         if (
+          request.infiniteRetry === false ||
           !this.infiniteRetryEnabled ||
           isAbortError(error) ||
           signal?.aborted === true ||
@@ -657,7 +662,11 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
           ? this.tokenCounting.get(this.scopeContext.agentContext).measured
           : undefined,
     });
-    const requester = this.modelCatalog.getRequester(resolved.modelAlias);
+    const requester = scopedModelRequester(
+      this.scopeContext,
+      this.modelCatalog,
+      resolved.modelAlias,
+    );
 
     const messages = overrides.messages ?? this.context.get();
     return {
@@ -670,6 +679,7 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
       tools: [...(overrides.tools ?? this.defaultTools())],
       messages: [...messages],
       source: overrides.source,
+      infiniteRetry: overrides.infiniteRetry,
       logFields: logFieldsForSource(overrides.source),
     };
   }

@@ -3,6 +3,7 @@ export default {
   clear: { desc: 'Clear and start a new session' },
   login: { desc: 'Sign in to Pythinker in the browser' },
   plan: { desc: 'Toggle plan mode on/off' },
+  expertTalk: { desc: 'Configure and arm Expert Talk for the next message' },
   dynamicWorkflow: { desc: 'Toggle Dynamic Workflow mode; /workflow <task> runs a task in parallel' },
   goal: { desc: 'Create/control a goal: /goal <objective>, /goal pause|resume|cancel' },
   btw: { desc: 'Side chat: /btw <question> asks a forked side session' },

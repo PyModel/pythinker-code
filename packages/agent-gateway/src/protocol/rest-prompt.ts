@@ -30,6 +30,7 @@ export const promptSubmissionSchema = z.object({
   goal_control: z.enum(['pause', 'resume', 'cancel']).optional(),
   disabled_tools: z.array(z.string()).optional(),
   prompt_id: z.string().min(1).optional(),
+  expert_talk_arm_id: z.string().min(1).optional(),
   skills: z.array(promptSkillActivationSchema).min(1).optional(),
 });
 export type PromptSubmission = z.infer<typeof promptSubmissionSchema>;
@@ -52,7 +53,9 @@ export const promptListResponseSchema = z.object({
 });
 export type PromptListResponse = z.infer<typeof promptListResponseSchema>;
 
-export const promptSubmitResultSchema = promptItemSchema;
+export const promptSubmitResultSchema = promptItemSchema.extend({
+  expert_talk_run_id: z.string().min(1).optional(),
+});
 export type PromptSubmitResult = z.infer<typeof promptSubmitResultSchema>;
 
 export const promptSteerRequestSchema = z.object({

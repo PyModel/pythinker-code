@@ -21,9 +21,9 @@ describe('MascotSprite', () => {
     expect(wrapper.get('img').attributes('src')).toBe(src);
   });
 
-  it('alternates its APNG poses after each full play', async () => {
+  it('alternates its APNG poses after each full play while running', async () => {
     vi.useFakeTimers();
-    const wrapper = mount(MascotSprite, { props: { state: 'waiting' } });
+    const wrapper = mount(MascotSprite, { props: { state: 'running' } });
 
     expect(wrapper.get('img').attributes('src')).toContain('mascot-laptop');
 

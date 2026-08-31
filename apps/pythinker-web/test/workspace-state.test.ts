@@ -172,6 +172,8 @@ function createDeps(): UseWorkspaceStateDeps {
     goalErrorMessage: vi.fn(),
     basename: (path: string) => path.split('/').at(-1) ?? path,
     resetFastMoon: vi.fn(),
+    getExpertTalkArmId: () => undefined,
+    onExpertTalkPromptAccepted: vi.fn(),
     initialized: ref(true),
     selectedDiffPath: ref(null),
     fileDiffLines: ref([]),
@@ -2199,6 +2201,33 @@ describe('useWorkspaceState — snapshot prompt recovery', () => {
       'sess_1',
       expect.objectContaining({ permissionMode: 'auto' }),
     );
+  });
+
+  it('submits the owned Expert Talk arm and records its accepted run', async () => {
+    apiMock.submitPrompt.mockResolvedValue({
+      promptId: 'prompt_expert',
+      expertTalkRunId: 'et_run_1',
+    });
+    const accepted = vi.fn();
+    const deps = promptDeps({
+      getExpertTalkArmId: () => 'arm_1',
+      onExpertTalkPromptAccepted: accepted,
+    });
+    const ws = useWorkspaceState(createState(), deps);
+
+    await ws.submitPromptInternal('sess_1', 'Compare both approaches');
+
+    expect(apiMock.submitPrompt).toHaveBeenCalledWith(
+      'sess_1',
+      expect.objectContaining({ expertTalkArmId: 'arm_1' }),
+    );
+    const submission = apiMock.submitPrompt.mock.calls.at(0)?.at(1);
+    expect(submission.model).toBeUndefined();
+    expect(submission.thinking).toBeUndefined();
+    expect(submission.permissionMode).toBeUndefined();
+    expect(submission.planMode).toBeUndefined();
+    expect(submission.dynamicWorkflowMode).toBeUndefined();
+    expect(accepted).toHaveBeenCalledWith('sess_1', 'et_run_1');
   });
 
   it('clears local prompt state when busy disproves a stale snapshot turn', () => {

@@ -27,7 +27,7 @@
 // references become '(circular)', and class instances collapse to a '(ClassName)'
 // marker — the wire shape of an entry is the JSON projection of the type here.
 //
-// Index (App: 0 keys · Workspace: 6 keys · Session: 9 keys · Agent: 85 keys)
+// Index (App: 0 keys · Workspace: 6 keys · Session: 10 keys · Agent: 85 keys)
 //   App
 //   Workspace
 //     workspaceDirs.ephemeralDirs          src/workspace/workspaceDirs/workspaceDirsService.ts
@@ -37,6 +37,7 @@
 //     workspaceSkillCatalog.merged         src/features/skill/workspace/workspaceSkillCatalogService.ts
 //     workspaceTrust.trusted               src/workspace/workspaceTrust/workspaceTrustService.ts
 //   Session
+//     expertTalk.state                   src/session/expertTalk/expertTalkService.ts
 //     sessionActivity.current            src/session/sessionActivity/sessionActivityService.ts
 //     sessionActivity.folds              src/session/sessionActivity/sessionActivityService.ts
 //     sessionLog.rootLevel               src/session/sessionLog/sessionLogService.ts
@@ -654,21 +655,272 @@ export interface SessionStateSnapshot {
     getPythinkerSkillsDescription: () => string;
     getModelSkillListing: () => string;
   };
+  // src/session/expertTalk/expertTalkService.ts
+  'expertTalk.state': /* ExpertTalkPersistentState — packages/agent-core-v2/src/session/expertTalk/expertTalkService.ts */ {
+    readonly pair?: /* ExpertTalkPairV1 — packages/agent-core-v2/src/session/expertTalk/expertTalk.ts */ {
+      readonly fusionLeadModelId: string;
+      readonly peerModelId: string;
+    };
+    readonly runs: readonly /* ExpertTalkPersistentRun — packages/agent-core-v2/src/session/expertTalk/expertTalkService.ts */ {
+      readonly schemaVersion: 1;
+      readonly version: 'expert_talk/v1';
+      readonly runId: string;
+      readonly sessionId: string;
+      readonly turnId: number;
+      readonly promptId: string;
+      readonly status: /* ExpertTalkRunStatus — packages/agent-core-v2/src/session/expertTalk/expertTalk.ts */ 'OPENING' | 'REVIEWING' | 'FUSING' | 'COMPLETED' | 'CANCELLED' | 'FAILED_OPENING' | 'FAILED_REVIEW' | 'FAILED_FUSION' | 'INTERRUPTED';
+      readonly prompt: string;
+      readonly modalities: readonly ('image' | 'audio' | 'video')[];
+      readonly createdAt: string;
+      readonly startedAt: string;
+      readonly updatedAt: string;
+      readonly completedAt?: string;
+      readonly retryOf?: string;
+      readonly bindings: [/* ExpertTalkBindingV1 — packages/agent-core-v2/src/session/expertTalk/expertTalk.ts */ {
+        readonly role: /* ExpertTalkRole — packages/agent-core-v2/src/session/expertTalk/expertTalk.ts */ 'fusion_lead' | 'peer';
+        readonly requestedModelId: string;
+        readonly effectiveModelId: string;
+        readonly protocol: 'anthropic' | 'openai' | 'openai_responses' | 'google-genai';
+        readonly provider: string;
+        readonly wireModel: string;
+        readonly targetFingerprint: string;
+        readonly capabilities: /* ModelCapability — packages/agent-core-v2/src/kosong/contract/capability.ts */ {
+          readonly image_in: boolean;
+          readonly video_in: boolean;
+          readonly audio_in: boolean;
+          readonly thinking: boolean;
+          readonly tool_use: boolean;
+          readonly max_context_tokens: number;
+          readonly max_input_tokens?: number;
+          readonly dynamically_loaded_tools?: boolean;
+        };
+        readonly maxContextSize: number;
+        readonly maxInputSize?: number;
+        readonly maxOutputSize?: number;
+        readonly routingEnvironmentRevision: string;
+        readonly routeDecisionFingerprint: string;
+      }, /* ExpertTalkBindingV1 — packages/agent-core-v2/src/session/expertTalk/expertTalk.ts */ {
+        readonly role: /* ExpertTalkRole — packages/agent-core-v2/src/session/expertTalk/expertTalk.ts */ 'fusion_lead' | 'peer';
+        readonly requestedModelId: string;
+        readonly effectiveModelId: string;
+        readonly protocol: 'anthropic' | 'openai' | 'openai_responses' | 'google-genai';
+        readonly provider: string;
+        readonly wireModel: string;
+        readonly targetFingerprint: string;
+        readonly capabilities: /* ModelCapability — packages/agent-core-v2/src/kosong/contract/capability.ts */ {
+          readonly image_in: boolean;
+          readonly video_in: boolean;
+          readonly audio_in: boolean;
+          readonly thinking: boolean;
+          readonly tool_use: boolean;
+          readonly max_context_tokens: number;
+          readonly max_input_tokens?: number;
+          readonly dynamically_loaded_tools?: boolean;
+        };
+        readonly maxContextSize: number;
+        readonly maxInputSize?: number;
+        readonly maxOutputSize?: number;
+        readonly routingEnvironmentRevision: string;
+        readonly routeDecisionFingerprint: string;
+      }];
+      readonly artifacts: /* ExpertTalkRunArtifactsV1 — packages/agent-core-v2/src/session/expertTalk/expertTalk.ts */ {
+        readonly leadOpening?: /* ExpertTalkStageArtifactV1 — packages/agent-core-v2/src/session/expertTalk/expertTalk.ts */ {
+          readonly status: 'completed' | 'failed' | 'unavailable';
+          readonly text?: string;
+          readonly error?: string;
+          readonly errorReason?: 'CANCELLED' | 'INTERRUPTED' | 'TOOL_NOT_ALLOWED' | 'TOOL_RESULT_BUDGET_EXCEEDED' | 'STAGE_REQUEST_BUDGET_EXCEEDED' | 'STAGE_TIMEOUT' | 'OPENING_FAILED' | 'REVIEW_FAILED' | 'FUSION_FAILED' | 'FUSION_RESULT_INVALID';
+          readonly digest?: string;
+          readonly tools?: readonly /* ExpertTalkToolProgressV1 — packages/agent-core-v2/src/session/expertTalk/expertTalk.ts */ {
+            readonly id: string;
+            readonly name?: string;
+          }[];
+          readonly partial?: boolean;
+          readonly startedAt?: string;
+          readonly endedAt?: string;
+          readonly usage?: /* TokenUsage — packages/agent-core-v2/src/kosong/contract/usage.ts */ {
+            inputOther: number;
+            output: number;
+            inputCacheRead: number;
+            inputCacheCreation: number;
+          };
+          readonly requestCount?: number;
+          readonly providerAttemptCount?: number;
+          readonly toolCallCount?: number;
+          readonly toolResultTokens?: number;
+        };
+        readonly peerOpening?: /* ExpertTalkStageArtifactV1 — packages/agent-core-v2/src/session/expertTalk/expertTalk.ts */ {
+          readonly status: 'completed' | 'failed' | 'unavailable';
+          readonly text?: string;
+          readonly error?: string;
+          readonly errorReason?: 'CANCELLED' | 'INTERRUPTED' | 'TOOL_NOT_ALLOWED' | 'TOOL_RESULT_BUDGET_EXCEEDED' | 'STAGE_REQUEST_BUDGET_EXCEEDED' | 'STAGE_TIMEOUT' | 'OPENING_FAILED' | 'REVIEW_FAILED' | 'FUSION_FAILED' | 'FUSION_RESULT_INVALID';
+          readonly digest?: string;
+          readonly tools?: readonly /* ExpertTalkToolProgressV1 — packages/agent-core-v2/src/session/expertTalk/expertTalk.ts */ {
+            readonly id: string;
+            readonly name?: string;
+          }[];
+          readonly partial?: boolean;
+          readonly startedAt?: string;
+          readonly endedAt?: string;
+          readonly usage?: /* TokenUsage — packages/agent-core-v2/src/kosong/contract/usage.ts */ {
+            inputOther: number;
+            output: number;
+            inputCacheRead: number;
+            inputCacheCreation: number;
+          };
+          readonly requestCount?: number;
+          readonly providerAttemptCount?: number;
+          readonly toolCallCount?: number;
+          readonly toolResultTokens?: number;
+        };
+        readonly leadReview?: /* ExpertTalkStageArtifactV1 — packages/agent-core-v2/src/session/expertTalk/expertTalk.ts */ {
+          readonly status: 'completed' | 'failed' | 'unavailable';
+          readonly text?: string;
+          readonly error?: string;
+          readonly errorReason?: 'CANCELLED' | 'INTERRUPTED' | 'TOOL_NOT_ALLOWED' | 'TOOL_RESULT_BUDGET_EXCEEDED' | 'STAGE_REQUEST_BUDGET_EXCEEDED' | 'STAGE_TIMEOUT' | 'OPENING_FAILED' | 'REVIEW_FAILED' | 'FUSION_FAILED' | 'FUSION_RESULT_INVALID';
+          readonly digest?: string;
+          readonly tools?: readonly /* ExpertTalkToolProgressV1 — packages/agent-core-v2/src/session/expertTalk/expertTalk.ts */ {
+            readonly id: string;
+            readonly name?: string;
+          }[];
+          readonly partial?: boolean;
+          readonly startedAt?: string;
+          readonly endedAt?: string;
+          readonly usage?: /* TokenUsage — packages/agent-core-v2/src/kosong/contract/usage.ts */ {
+            inputOther: number;
+            output: number;
+            inputCacheRead: number;
+            inputCacheCreation: number;
+          };
+          readonly requestCount?: number;
+          readonly providerAttemptCount?: number;
+          readonly toolCallCount?: number;
+          readonly toolResultTokens?: number;
+        };
+        readonly peerReview?: /* ExpertTalkStageArtifactV1 — packages/agent-core-v2/src/session/expertTalk/expertTalk.ts */ {
+          readonly status: 'completed' | 'failed' | 'unavailable';
+          readonly text?: string;
+          readonly error?: string;
+          readonly errorReason?: 'CANCELLED' | 'INTERRUPTED' | 'TOOL_NOT_ALLOWED' | 'TOOL_RESULT_BUDGET_EXCEEDED' | 'STAGE_REQUEST_BUDGET_EXCEEDED' | 'STAGE_TIMEOUT' | 'OPENING_FAILED' | 'REVIEW_FAILED' | 'FUSION_FAILED' | 'FUSION_RESULT_INVALID';
+          readonly digest?: string;
+          readonly tools?: readonly /* ExpertTalkToolProgressV1 — packages/agent-core-v2/src/session/expertTalk/expertTalk.ts */ {
+            readonly id: string;
+            readonly name?: string;
+          }[];
+          readonly partial?: boolean;
+          readonly startedAt?: string;
+          readonly endedAt?: string;
+          readonly usage?: /* TokenUsage — packages/agent-core-v2/src/kosong/contract/usage.ts */ {
+            inputOther: number;
+            output: number;
+            inputCacheRead: number;
+            inputCacheCreation: number;
+          };
+          readonly requestCount?: number;
+          readonly providerAttemptCount?: number;
+          readonly toolCallCount?: number;
+          readonly toolResultTokens?: number;
+        };
+        readonly fusion?: /* ExpertTalkStageArtifactV1 — packages/agent-core-v2/src/session/expertTalk/expertTalk.ts */ {
+          readonly status: 'completed' | 'failed' | 'unavailable';
+          readonly text?: string;
+          readonly error?: string;
+          readonly errorReason?: 'CANCELLED' | 'INTERRUPTED' | 'TOOL_NOT_ALLOWED' | 'TOOL_RESULT_BUDGET_EXCEEDED' | 'STAGE_REQUEST_BUDGET_EXCEEDED' | 'STAGE_TIMEOUT' | 'OPENING_FAILED' | 'REVIEW_FAILED' | 'FUSION_FAILED' | 'FUSION_RESULT_INVALID';
+          readonly digest?: string;
+          readonly tools?: readonly /* ExpertTalkToolProgressV1 — packages/agent-core-v2/src/session/expertTalk/expertTalk.ts */ {
+            readonly id: string;
+            readonly name?: string;
+          }[];
+          readonly partial?: boolean;
+          readonly startedAt?: string;
+          readonly endedAt?: string;
+          readonly usage?: /* TokenUsage — packages/agent-core-v2/src/kosong/contract/usage.ts */ {
+            inputOther: number;
+            output: number;
+            inputCacheRead: number;
+            inputCacheCreation: number;
+          };
+          readonly requestCount?: number;
+          readonly providerAttemptCount?: number;
+          readonly toolCallCount?: number;
+          readonly toolResultTokens?: number;
+        };
+      };
+      readonly result?: /* ExpertTalkResultV1 — packages/agent-core-v2/src/session/expertTalk/expertTalk.ts */ {
+        readonly version: 'expert_talk_result/v1';
+        readonly answer: string;
+        readonly notes: /* ExpertTalkFusionNotesV1 — packages/agent-core-v2/src/session/expertTalk/expertTalk.ts */ {
+          readonly consensus: readonly string[];
+          readonly divergence: readonly string[];
+          readonly uncertainty: readonly string[];
+          readonly attribution: readonly /* ExpertTalkAttributionV1 — packages/agent-core-v2/src/session/expertTalk/expertTalk.ts */ {
+            readonly role: /* ExpertTalkRole — packages/agent-core-v2/src/session/expertTalk/expertTalk.ts */ 'fusion_lead' | 'peer';
+            readonly stage: 'opening' | 'review';
+            readonly claim: string;
+          }[];
+        };
+      };
+      readonly error?: /* ExpertTalkRunErrorV1 — packages/agent-core-v2/src/session/expertTalk/expertTalk.ts */ {
+        readonly reason: /* ExpertTalkFailureReason — packages/agent-core-v2/src/session/expertTalk/expertTalk.ts */ 'CANCELLED' | 'INTERRUPTED' | 'TOOL_NOT_ALLOWED' | 'TOOL_RESULT_BUDGET_EXCEEDED' | 'STAGE_REQUEST_BUDGET_EXCEEDED' | 'STAGE_TIMEOUT' | 'OPENING_FAILED' | 'REVIEW_FAILED' | 'FUSION_FAILED' | 'FUSION_RESULT_INVALID';
+        readonly message: string;
+        readonly stage: 'opening' | 'review' | 'fusion' | 'terminal';
+        readonly role?: 'fusion_lead' | 'peer';
+        readonly retryable: boolean;
+        readonly action: string;
+      };
+      readonly orphanedParticipantIds?: readonly string[];
+      readonly revision: number;
+    }[];
+    readonly inputs?: Readonly<Record<string, /* ExpertTalkInputSnapshot — packages/agent-core-v2/src/session/expertTalk/expertTalkService.ts */ {
+      readonly conversation: string;
+      readonly content: readonly (/* ContentPart — packages/agent-core-v2/src/kosong/contract/message.ts */ /* TextPart — packages/agent-core-v2/src/kosong/contract/message.ts */ {
+        type: 'text';
+        text: string;
+      } | /* ThinkPart — packages/agent-core-v2/src/kosong/contract/message.ts */ {
+        type: 'think';
+        think: string;
+        encrypted?: string;
+      } | /* ImageURLPart — packages/agent-core-v2/src/kosong/contract/message.ts */ {
+        type: 'image_url';
+        imageUrl: {
+          url: string;
+          id?: string;
+        };
+      } | /* AudioURLPart — packages/agent-core-v2/src/kosong/contract/message.ts */ {
+        type: 'audio_url';
+        audioUrl: {
+          url: string;
+          id?: string;
+        };
+      } | /* VideoURLPart — packages/agent-core-v2/src/kosong/contract/message.ts */ {
+        type: 'video_url';
+        videoUrl: {
+          url: string;
+          id?: string;
+        };
+      })[];
+      readonly attachments?: readonly /* PromptFileAttachment — packages/agent-core-v2/src/agent/contextMemory/types.ts */ {
+        readonly name: string;
+        readonly mediaType: string;
+        readonly size: number;
+        readonly path: string;
+      }[];
+    }>>;
+  };
   // src/session/sessionActivity/sessionActivityService.ts
   'sessionActivity.current': /* SessionActivityState — packages/agent-core-v2/src/session/sessionActivity/sessionActivity.ts */ {
     readonly busy: boolean;
     readonly mainTurnActive: boolean;
     readonly pendingInteraction: /* SessionPendingInteraction — packages/agent-core-v2/src/session/sessionActivity/sessionActivity.ts */ 'none' | 'approval' | 'question';
-    readonly lastTurnReason?: 'completed' | 'cancelled' | 'failed';
+    readonly lastTurnReason?: 'completed' | 'failed' | 'cancelled';
   };
   'sessionActivity.folds': Map<string, /* AgentWorkFold — packages/agent-core-v2/src/session/sessionActivity/sessionActivityService.ts */ {
     turnActive: boolean;
     background: number;
-    lastTurnReason?: 'completed' | 'cancelled' | 'failed';
+    lastTurnReason?: 'completed' | 'failed' | 'cancelled';
   }>;
   // src/session/sessionLog/sessionLogService.ts
   'sessionLog.rootLevel': /* LogLevelState — packages/agent-core-v2/src/_base/log/logService.ts */ {
-    level: /* LogLevel — packages/agent-core-v2/src/_base/log/log.ts */ 'info' | 'off' | 'error' | 'warn' | 'debug';
+    level: /* LogLevel — packages/agent-core-v2/src/_base/log/log.ts */ 'error' | 'info' | 'off' | 'warn' | 'debug';
   };
   // src/session/sessionMetadata/sessionMetadataService.ts
   'sessionMetadata.data': /* SessionMeta — packages/agent-core-v2/src/session/sessionMetadata/sessionMetadata.ts */ {
@@ -692,7 +944,7 @@ export interface SessionStateSnapshot {
       readonly dynamicWorkflowItem?: string;
     }>>;
     readonly custom?: Record<string, unknown>;
-    readonly lastTurnReason?: 'completed' | 'cancelled' | 'failed';
+    readonly lastTurnReason?: 'completed' | 'failed' | 'cancelled';
   } | undefined;
   // src/session/sessionToolPolicy/sessionToolPolicyService.ts
   'sessionToolPolicy.state': /* SessionToolPolicyState — packages/agent-core-v2/src/session/sessionToolPolicy/sessionToolPolicyService.ts */ {
@@ -762,7 +1014,7 @@ export interface AgentStateSnapshot {
         readonly disclosure?: unknown;
       } | /* ShellCommandOrigin — packages/agent-core-v2/src/agent/contextMemory/types.ts */ {
         readonly kind: 'shell_command';
-        readonly phase: 'input' | 'output';
+        readonly phase: 'output' | 'input';
         readonly isError?: boolean;
       } | /* CompactionSummaryOrigin — packages/agent-core-v2/src/agent/contextMemory/types.ts */ {
         readonly kind: 'compaction_summary';
@@ -819,7 +1071,7 @@ export interface AgentStateSnapshot {
     };
     readonly lastTurn?: /* ActivityLastTurnState — packages/agent-core-v2/src/agent/activityView/activityView.ts */ {
       readonly turnId: number;
-      readonly reason: /* TurnEndReason — packages/agent-core-v2/src/agent/loop/turnEvents.ts */ 'completed' | 'cancelled' | 'failed' | 'blocked';
+      readonly reason: /* TurnEndReason — packages/agent-core-v2/src/agent/loop/turnEvents.ts */ 'completed' | 'failed' | 'cancelled' | 'blocked';
       readonly durationMs?: number;
       readonly at: number;
     };
@@ -831,7 +1083,7 @@ export interface AgentStateSnapshot {
   };
   'activityView.lastTurn': /* ActivityLastTurnState — packages/agent-core-v2/src/agent/activityView/activityView.ts */ {
     readonly turnId: number;
-    readonly reason: /* TurnEndReason — packages/agent-core-v2/src/agent/loop/turnEvents.ts */ 'completed' | 'cancelled' | 'failed' | 'blocked';
+    readonly reason: /* TurnEndReason — packages/agent-core-v2/src/agent/loop/turnEvents.ts */ 'completed' | 'failed' | 'cancelled' | 'blocked';
     readonly durationMs?: number;
     readonly at: number;
   } | undefined;
@@ -907,7 +1159,7 @@ export interface AgentStateSnapshot {
       readonly disclosure?: unknown;
     } | /* ShellCommandOrigin — packages/agent-core-v2/src/agent/contextMemory/types.ts */ {
       readonly kind: 'shell_command';
-      readonly phase: 'input' | 'output';
+      readonly phase: 'output' | 'input';
       readonly isError?: boolean;
     } | /* CompactionSummaryOrigin — packages/agent-core-v2/src/agent/contextMemory/types.ts */ {
       readonly kind: 'compaction_summary';
@@ -984,7 +1236,7 @@ export interface AgentStateSnapshot {
         readonly disclosure?: unknown;
       } | /* ShellCommandOrigin — packages/agent-core-v2/src/agent/contextMemory/types.ts */ {
         readonly kind: 'shell_command';
-        readonly phase: 'input' | 'output';
+        readonly phase: 'output' | 'input';
         readonly isError?: boolean;
       } | /* CompactionSummaryOrigin — packages/agent-core-v2/src/agent/contextMemory/types.ts */ {
         readonly kind: 'compaction_summary';
@@ -1139,7 +1391,7 @@ export interface AgentStateSnapshot {
       readonly disclosure?: unknown;
     } | /* ShellCommandOrigin — packages/agent-core-v2/src/agent/contextMemory/types.ts */ {
       readonly kind: 'shell_command';
-      readonly phase: 'input' | 'output';
+      readonly phase: 'output' | 'input';
       readonly isError?: boolean;
     } | /* CompactionSummaryOrigin — packages/agent-core-v2/src/agent/contextMemory/types.ts */ {
       readonly kind: 'compaction_summary';
@@ -1246,7 +1498,7 @@ export interface AgentStateSnapshot {
     readonly anchorTurnIds: readonly number[];
     readonly lastEnded?: {
       readonly turnId: number;
-      readonly reason: 'completed' | 'cancelled' | 'failed' | 'blocked';
+      readonly reason: 'completed' | 'failed' | 'cancelled' | 'blocked';
       readonly durationMs?: number;
     };
   };

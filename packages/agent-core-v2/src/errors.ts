@@ -9,6 +9,7 @@ import { CapabilityErrors } from '#/app/capability/errors';
 import { CronErrors } from '#/features/cron/errors';
 import { DebugErrors } from '#/debug/errors';
 import { EventErrors } from '#/app/event/errors';
+import { ExpertTalkErrors } from '#/session/expertTalk/errors';
 import { FileErrors } from '#/app/file/fileService';
 import { FsErrors } from '#/workspace/workspaceFs/internal/errors';
 import { FullCompactionErrors } from '#/agent/fullCompaction/errors';
@@ -70,6 +71,7 @@ export { WebErrors } from '#/app/web/errors';
 export { WireErrors } from '#/wire/errors';
 export { WorkspaceErrors } from '#/app/workspace/errors';
 export { EventErrors } from '#/app/event/errors';
+export { ExpertTalkErrors } from '#/session/expertTalk/errors';
 export { StateErrors } from '#/state/errors';
 
 export const ErrorCodes = {
@@ -106,6 +108,7 @@ export const ErrorCodes = {
   ...WireErrors.codes,
   ...WorkspaceErrors.codes,
   ...EventErrors.codes,
+  ...ExpertTalkErrors.codes,
   ...StateErrors.codes,
 } as const;
 

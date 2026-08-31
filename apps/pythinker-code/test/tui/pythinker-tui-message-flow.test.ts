@@ -486,6 +486,34 @@ describe('PythinkerTUI message flow', () => {
     expect(driver.getCurrentSessionId()).toBe('ses-lazy');
   });
 
+  it('binds an armed Expert Talk activation to exactly the next prompt', async () => {
+    const session = makeSession({
+      getExpertTalkStatus: vi.fn(async () => ({
+        version: 'expert_talk/v1',
+        enabled: true,
+        featureSource: 'env',
+        config: {
+          version: 'expert_talk/v1',
+          resourceVersion: 'v1',
+          pair: { fusionLeadModelId: 'lead', peerModelId: 'peer' },
+        },
+        pairValidation: { state: 'valid' },
+      })),
+    });
+    const { driver } = await makeDriver(session);
+    driver.state.appState.expertTalkArmId = 'arm-1';
+
+    driver.handleUserInput('compare these approaches');
+
+    await vi.waitFor(() => {
+      expect(session.prompt).toHaveBeenCalledWith('compare these approaches', {
+        promptId: undefined,
+        expertTalkArmId: 'arm-1',
+      });
+      expect(driver.state.appState.expertTalkArmId).toBeUndefined();
+    });
+  });
+
   it('lazily creates the session for session-requiring slash commands (v2 engine)', async () => {
     const session = makeSession({ id: 'ses-lazy' });
     const startupInput: PythinkerTUIStartupInput = {

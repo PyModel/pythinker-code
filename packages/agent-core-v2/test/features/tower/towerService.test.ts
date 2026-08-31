@@ -36,6 +36,7 @@ import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
 import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
+import { ISessionExpertTalkService } from '#/session/expertTalk/expertTalk';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { ToolAccesses } from '#/tool/toolContract';
@@ -105,6 +106,7 @@ describe('AgentTowerService', () => {
   let executorEvents: ToolExecutorEventStubs;
   let permissionGateRan: boolean;
   let formatDenyMessage: Mock<(message: string) => string>;
+  let prepareControllerActivation: Mock<() => void>;
   let towerFlagOn: boolean;
 
   beforeEach(() => {
@@ -118,6 +120,10 @@ describe('AgentTowerService', () => {
     ix.stub(IAgentToolExecutorService, executorEvents.executor);
     formatDenyMessage = vi.fn((message: string) => message);
     ix.stub(IAgentToolApprovalService, { formatDenyMessage });
+    prepareControllerActivation = vi.fn();
+    ix.stub(ISessionExpertTalkService, {
+      prepareControllerActivation,
+    } as unknown as ISessionExpertTalkService);
     towerFlagOn = true;
     ix.stub(IFlagService, stubFlag((id) => towerFlagOn && id === TOWER_FLAG_ID));
     let activeTools: string[] | undefined;
@@ -178,6 +184,7 @@ describe('AgentTowerService', () => {
     expect(tower.isActive).toBe(false);
     await tower.enter();
     expect(tower.isActive).toBe(true);
+    expect(prepareControllerActivation).toHaveBeenCalledOnce();
     tower.exit();
     expect(tower.isActive).toBe(false);
 
