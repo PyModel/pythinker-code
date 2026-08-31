@@ -11,6 +11,8 @@ const conversationPane = readFileSync(join(import.meta.dirname, '../src/componen
 const mobileSheet = readFileSync(join(import.meta.dirname, '../src/components/mobile/MobileSettingsSheet.vue'), 'utf8');
 const sidebar = readFileSync(join(import.meta.dirname, '../src/components/Sidebar.vue'), 'utf8');
 const workspaceGroup = readFileSync(join(import.meta.dirname, '../src/components/WorkspaceGroup.vue'), 'utf8');
+const workspaceExplorer = readFileSync(join(import.meta.dirname, '../src/components/WorkspaceExplorer.vue'), 'utf8');
+const pinnedSessionList = readFileSync(join(import.meta.dirname, '../src/components/PinnedSessionList.vue'), 'utf8');
 const expertOpinionIcon = readFileSync(
   join(import.meta.dirname, '../src/icons/pythinker/expert_opinion.svg'),
   'utf8',
@@ -19,6 +21,16 @@ const sidebarBannerDark = readFileSync(join(import.meta.dirname, '../public/bran
 const sessionRow = readFileSync(join(import.meta.dirname, '../src/components/SessionRow.vue'), 'utf8');
 const sideChat = readFileSync(join(import.meta.dirname, '../src/components/chat/SideChatPanel.vue'), 'utf8');
 const client = readFileSync(join(import.meta.dirname, '../src/composables/usePythinkerWebClient.ts'), 'utf8');
+
+function expectIconButtonsWrappedWithTooltips(source: string): void {
+  const template = source.slice(source.indexOf('<template>'), source.lastIndexOf('</template>'));
+  const iconButtons = [...template.matchAll(/<IconButton\b/g)];
+  expect(iconButtons.length).toBeGreaterThan(0);
+  for (const iconButton of iconButtons) {
+    const before = template.slice(0, iconButton.index);
+    expect(before.lastIndexOf('<Tooltip')).toBeGreaterThan(before.lastIndexOf('</Tooltip>'));
+  }
+}
 
 describe('app shell contracts', () => {
   it('mounts the desktop chrome and owns the update feed', () => {
@@ -81,6 +93,19 @@ describe('app shell contracts', () => {
     expect(workspaceGroup).toContain(':data-workspace-files-id="group.workspace.id"');
     expect(sidebar).toContain("@open-file=\"emit('openFile', $event)\"");
     expect(app).toContain('@open-file="openFilePreview($event)"');
+  });
+
+  it('shows hover and focus labels for every icon-only sidebar control', () => {
+    for (const source of [
+      app,
+      sidebar,
+      workspaceGroup,
+      workspaceExplorer,
+      pinnedSessionList,
+      sessionRow,
+    ]) {
+      expectIconButtonsWrappedWithTooltips(source);
+    }
   });
 
   it('routes the shared Stop action to the active Expert Opinion run', () => {

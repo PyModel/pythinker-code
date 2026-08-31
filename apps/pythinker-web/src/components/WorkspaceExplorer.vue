@@ -9,6 +9,7 @@ import Icon from './ui/Icon.vue';
 import IconButton from './ui/IconButton.vue';
 import Input from './ui/Input.vue';
 import Spinner from './ui/Spinner.vue';
+import Tooltip from './ui/Tooltip.vue';
 
 const props = defineProps<{
   active: boolean;
@@ -250,12 +251,16 @@ watch(
       <span class="explorer-workspace-name" :title="workspace.root">{{ workspace.name }}</span>
       <div class="explorer-workspace-actions">
         <Spinner v-if="rootLoading && !searchActive" size="sm" :label="t('sidebar.loadingWorkspaceFiles')" />
-        <IconButton size="sm" :label="t('sidebar.collapseFolders')" @click="collapseFolders">
-          <Icon name="collapse" />
-        </IconButton>
-        <IconButton size="sm" :label="t('sidebar.refreshFiles')" @click="refreshTree">
-          <Icon name="undo" />
-        </IconButton>
+        <Tooltip :text="t('sidebar.collapseFolders')">
+          <IconButton size="sm" :label="t('sidebar.collapseFolders')" @click="collapseFolders">
+            <Icon name="collapse" />
+          </IconButton>
+        </Tooltip>
+        <Tooltip :text="t('sidebar.refreshFiles')">
+          <IconButton size="sm" :label="t('sidebar.refreshFiles')" @click="refreshTree">
+            <Icon name="undo" />
+          </IconButton>
+        </Tooltip>
       </div>
     </div>
 

@@ -150,17 +150,19 @@ function onHeaderDragStart(event: DragEvent): void {
           class="gh-actions"
           :class="{ open: wsMenuOpenId === group.workspace.id }"
         >
-          <IconButton
-            class="gh-more"
-            :class="{ open: wsMenuOpenId === group.workspace.id }"
-            size="sm"
-            :label="t('sidebar.options')"
-            aria-haspopup="menu"
-            :aria-expanded="wsMenuOpenId === group.workspace.id"
-            @click.stop="emit('toggleWsMenu', group.workspace, $event)"
-          >
-            <Icon name="dots-horizontal" />
-          </IconButton>
+          <Tooltip :text="t('sidebar.options')">
+            <IconButton
+              class="gh-more"
+              :class="{ open: wsMenuOpenId === group.workspace.id }"
+              size="sm"
+              :label="t('sidebar.options')"
+              aria-haspopup="menu"
+              :aria-expanded="wsMenuOpenId === group.workspace.id"
+              @click.stop="emit('toggleWsMenu', group.workspace, $event)"
+            >
+              <Icon name="dots-horizontal" />
+            </IconButton>
+          </Tooltip>
 
           <Tooltip :text="t('sidebar.showFiles')">
             <IconButton
@@ -177,14 +179,16 @@ function onHeaderDragStart(event: DragEvent): void {
             </IconButton>
           </Tooltip>
 
-          <IconButton
-            class="gh-add"
-            size="sm"
-            :label="t('workspace.newInGroup')"
-            @click.stop="emit('createInWorkspace', group.workspace.id)"
-          >
-            <Icon name="chat-new" />
-          </IconButton>
+          <Tooltip :text="t('workspace.newInGroup')">
+            <IconButton
+              class="gh-add"
+              size="sm"
+              :label="t('workspace.newInGroup')"
+              @click.stop="emit('createInWorkspace', group.workspace.id)"
+            >
+              <Icon name="chat-new" />
+            </IconButton>
+          </Tooltip>
         </div>
       </div>
     </div>

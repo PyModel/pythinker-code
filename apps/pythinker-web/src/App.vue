@@ -64,6 +64,7 @@ import { composeTitle } from './lib/sessionEmoji';
 import { getTurnInterruption } from './api/daemon/agentEventProjector';
 import IconButton from './components/ui/IconButton.vue';
 import Icon from './components/ui/Icon.vue';
+import Tooltip from './components/ui/Tooltip.vue';
 import { isMacosDesktop } from './lib/desktopFlag';
 import { expertTalkContextKey } from './composables/expertTalkContext';
 
@@ -1397,28 +1398,33 @@ function openPr(url: string): void {
          no-drag rects subtract), so a no-drag element placed before the
          ChatHeader drag region would have its hole painted back over —
          making the button an inert drag area. -->
-    <IconButton
+    <Tooltip
       v-if="!isMobile && sidebarCollapsed"
-      class="sidebar-toggle-btn"
-      size="sm"
-      :label="sidebarCollapsed ? t('sidebar.expandSidebar') : t('sidebar.collapseSidebar')"
-      @click="toggleSidebarCollapse"
+      :text="sidebarCollapsed ? t('sidebar.expandSidebar') : t('sidebar.collapseSidebar')"
     >
-      <Icon :name="sidebarCollapsed ? 'panel-expand' : 'panel-collapse'" />
-    </IconButton>
+      <IconButton
+        class="sidebar-toggle-btn"
+        size="sm"
+        :label="sidebarCollapsed ? t('sidebar.expandSidebar') : t('sidebar.collapseSidebar')"
+        @click="toggleSidebarCollapse"
+      >
+        <Icon :name="sidebarCollapsed ? 'panel-expand' : 'panel-collapse'" />
+      </IconButton>
+    </Tooltip>
 
     <!-- Floating "New chat" while the sidebar is collapsed: mirrors the
          sidebar's + New action (draft in the active workspace). Rendered next
          to the toggle button and hidden on mobile. -->
-    <IconButton
-      v-if="!isMobile && sidebarCollapsed"
-      class="new-chat-btn"
-      size="sm"
-      :label="t('sidebar.newChat')"
-      @click="handleCreateSession"
-    >
-      <Icon name="chat-new" />
-    </IconButton>
+    <Tooltip v-if="!isMobile && sidebarCollapsed" :text="t('sidebar.newChat')">
+      <IconButton
+        class="new-chat-btn"
+        size="sm"
+        :label="t('sidebar.newChat')"
+        @click="handleCreateSession"
+      >
+        <Icon name="chat-new" />
+      </IconButton>
+    </Tooltip>
 
     <aside
       v-if="!showSessionAdmin && (!isMobile || panelVisible)"

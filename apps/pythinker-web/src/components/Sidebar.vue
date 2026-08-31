@@ -31,6 +31,7 @@ import Kbd from './ui/Kbd.vue';
 import Menu from './ui/Menu.vue';
 import MenuItem from './ui/MenuItem.vue';
 import Pill from './ui/Pill.vue';
+import Tooltip from './ui/Tooltip.vue';
 import PinnedSessionList from './PinnedSessionList.vue';
 import ReleaseNotes from './ReleaseNotes.vue';
 import SessionRow from './SessionRow.vue';
@@ -912,14 +913,16 @@ watch([() => props.collapsed, update.hasUpdate], ([collapsed, hasUpdate]) => {
               {{ updateTriggerText }}
             </span>
           </Pill>
-          <IconButton
-            class="ch-collapse"
-            size="sm"
-            :label="t('sidebar.collapseSidebar')"
-            @click.stop="emit('collapse')"
-          >
-            <Icon name="panel-collapse" />
-          </IconButton>
+          <Tooltip :text="t('sidebar.collapseSidebar')">
+            <IconButton
+              class="ch-collapse"
+              size="sm"
+              :label="t('sidebar.collapseSidebar')"
+              @click.stop="emit('collapse')"
+            >
+              <Icon name="panel-collapse" />
+            </IconButton>
+          </Tooltip>
         </div>
       </div>
 
@@ -929,14 +932,15 @@ watch([() => props.collapsed, update.hasUpdate], ([collapsed, hasUpdate]) => {
           <Icon name="chat-new" />
           <span>{{ t('sidebar.newChat') }}</span>
         </button>
-        <IconButton
-          v-if="showNewWorkspaceButton"
-          size="sm"
-          :label="t('sidebar.newWorkspace')"
-          @click.stop="emit('addWorkspace')"
-        >
-          <Icon name="folder" />
-        </IconButton>
+        <Tooltip v-if="showNewWorkspaceButton" :text="t('sidebar.newWorkspace')">
+          <IconButton
+            size="sm"
+            :label="t('sidebar.newWorkspace')"
+            @click.stop="emit('addWorkspace')"
+          >
+            <Icon name="folder" />
+          </IconButton>
+        </Tooltip>
       </div>
       <div v-if="!explorerOpen && expertOpinionAvailable" class="btn-wrap expert-opinion-wrap">
         <button
@@ -998,16 +1002,18 @@ watch([() => props.collapsed, update.hasUpdate], ([collapsed, hasUpdate]) => {
         >
           {{ t('sidebar.tabWorkspaces') }}
         </button>
-        <IconButton
-          class="status-view-switcher side-section-kebab"
-          size="sm"
-          :label="t('sidebar.viewSwitcher')"
-          aria-haspopup="menu"
-          :aria-expanded="sectionMenuOpen"
-          @click.stop="toggleSectionMenu($event)"
-        >
-          <Icon name="sliders" />
-        </IconButton>
+        <Tooltip :text="t('sidebar.viewSwitcher')">
+          <IconButton
+            class="status-view-switcher side-section-kebab"
+            size="sm"
+            :label="t('sidebar.viewSwitcher')"
+            aria-haspopup="menu"
+            :aria-expanded="sectionMenuOpen"
+            @click.stop="toggleSectionMenu($event)"
+          >
+            <Icon name="sliders" />
+          </IconButton>
+        </Tooltip>
       </div>
 
       <PinnedSessionList
@@ -1048,15 +1054,17 @@ watch([() => props.collapsed, update.hasUpdate], ([collapsed, hasUpdate]) => {
               />
               <span class="done-gh-name">{{ dg.workspace.name }}</span>
               <span class="done-gh-count">{{ dg.sessions.length }}</span>
-              <IconButton
-                class="done-gh-more gh-more"
-                :class="{ open: wsMenuOpenId === dg.workspace.id }"
-                size="sm"
-                :label="t('sidebar.options')"
-                @click.stop="toggleWsMenu(dg.workspace, $event)"
-              >
-                <Icon name="dots-horizontal" />
-              </IconButton>
+              <Tooltip :text="t('sidebar.options')">
+                <IconButton
+                  class="done-gh-more gh-more"
+                  :class="{ open: wsMenuOpenId === dg.workspace.id }"
+                  size="sm"
+                  :label="t('sidebar.options')"
+                  @click.stop="toggleWsMenu(dg.workspace, $event)"
+                >
+                  <Icon name="dots-horizontal" />
+                </IconButton>
+              </Tooltip>
             </div>
             <div v-if="!isCollapsed(dg.workspace.id)" class="done-gh-sessions">
               <SessionRow
@@ -1090,14 +1098,16 @@ watch([() => props.collapsed, update.hasUpdate], ([collapsed, hasUpdate]) => {
           <div class="side-section-label">
             <span class="side-section-title">{{ t('sidebar.tabWorkspaces') }}</span>
             <div class="side-section-actions">
-              <IconButton
-                class="side-section-toggle"
-                size="sm"
-                :label="t('sidebar.newWorkspace')"
-                @click.stop="emit('addWorkspace')"
-              >
-                <Icon name="folder-plus" />
-              </IconButton>
+              <Tooltip :text="t('sidebar.newWorkspace')">
+                <IconButton
+                  class="side-section-toggle"
+                  size="sm"
+                  :label="t('sidebar.newWorkspace')"
+                  @click.stop="emit('addWorkspace')"
+                >
+                  <Icon name="folder-plus" />
+                </IconButton>
+              </Tooltip>
             </div>
           </div>
           <div
@@ -1124,16 +1134,17 @@ watch([() => props.collapsed, update.hasUpdate], ([collapsed, hasUpdate]) => {
               <span v-else class="ws-dir-name" @dblclick.stop="startRenameWorkspace(g.workspace.id, g.workspace.name)">
                 {{ g.workspace.name }}
               </span>
-              <IconButton
-                v-if="renamingId !== g.workspace.id"
-                class="gh-more ws-dir-act"
-                :class="{ open: wsMenuOpenId === g.workspace.id }"
-                size="sm"
-                :label="t('sidebar.options')"
-                @click.stop="toggleWsMenu(g.workspace, $event)"
-              >
-                <Icon name="dots-horizontal" />
-              </IconButton>
+              <Tooltip v-if="renamingId !== g.workspace.id" :text="t('sidebar.options')">
+                <IconButton
+                  class="gh-more ws-dir-act"
+                  :class="{ open: wsMenuOpenId === g.workspace.id }"
+                  size="sm"
+                  :label="t('sidebar.options')"
+                  @click.stop="toggleWsMenu(g.workspace, $event)"
+                >
+                  <Icon name="dots-horizontal" />
+                </IconButton>
+              </Tooltip>
             </div>
             <div class="ws-dir-sub">{{ g.workspace.root }}</div>
           </div>
@@ -1178,25 +1189,29 @@ watch([() => props.collapsed, update.hasUpdate], ([collapsed, hasUpdate]) => {
           <div class="side-section-label">
             <span class="side-section-title">{{ t('sidebar.workspaces') }}</span>
             <div class="side-section-actions">
-              <IconButton
-                class="side-section-toggle"
-                size="sm"
-                :label="allCollapsed ? t('sidebar.expandAll') : t('sidebar.collapseAll')"
-                @click.stop="allCollapsed ? expandAllWorkspaces() : collapseAllWorkspaces()"
-              >
-                <Icon v-if="allCollapsed" name="expand" />
-                <Icon v-else name="collapse" />
-              </IconButton>
-              <IconButton
-                class="side-section-toggle side-section-kebab"
-                size="sm"
-                :label="t('sidebar.options')"
-                aria-haspopup="menu"
-                :aria-expanded="sectionMenuOpen"
-                @click.stop="toggleSectionMenu($event)"
-              >
-                <Icon name="dots-horizontal" />
-              </IconButton>
+              <Tooltip :text="allCollapsed ? t('sidebar.expandAll') : t('sidebar.collapseAll')">
+                <IconButton
+                  class="side-section-toggle"
+                  size="sm"
+                  :label="allCollapsed ? t('sidebar.expandAll') : t('sidebar.collapseAll')"
+                  @click.stop="allCollapsed ? expandAllWorkspaces() : collapseAllWorkspaces()"
+                >
+                  <Icon v-if="allCollapsed" name="expand" />
+                  <Icon v-else name="collapse" />
+                </IconButton>
+              </Tooltip>
+              <Tooltip :text="t('sidebar.options')">
+                <IconButton
+                  class="side-section-toggle side-section-kebab"
+                  size="sm"
+                  :label="t('sidebar.options')"
+                  aria-haspopup="menu"
+                  :aria-expanded="sectionMenuOpen"
+                  @click.stop="toggleSectionMenu($event)"
+                >
+                  <Icon name="dots-horizontal" />
+                </IconButton>
+              </Tooltip>
             </div>
           </div>
           <div
