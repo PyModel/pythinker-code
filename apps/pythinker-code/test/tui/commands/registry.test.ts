@@ -86,10 +86,12 @@ describe('built-in slash command registry', () => {
     expect(towerArgumentCompletions('')).toHaveLength(4);
   });
 
-  it('registers Expert Talk as an engine-v2 experiment without legacy aliases', () => {
-    const command = findBuiltInSlashCommand('expert-talk');
+  it('registers Discussion as the canonical engine-v2 command with compatibility aliases', () => {
+    const command = findBuiltInSlashCommand('discussion');
     expect(command).toBeDefined();
-    expect(command?.aliases).toEqual([]);
+    expect(command?.aliases).toEqual(['expert-talk', 'expert-opinion']);
+    expect(findBuiltInSlashCommand('expert-talk')).toBe(command);
+    expect(findBuiltInSlashCommand('expert-opinion')).toBe(command);
     expect((command as PythinkerSlashCommand).experimentalFlag).toBe('expert_talk');
     expect((command as PythinkerSlashCommand).requiresEngineV2).toBe(true);
     expect(resolveSlashCommandAvailability(command!, 'cancel')).toBe('always');

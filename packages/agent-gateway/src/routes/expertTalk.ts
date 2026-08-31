@@ -82,7 +82,7 @@ export function registerExpertTalkRoutes(
       params: expertTalkSessionParamsSchema,
       success: { data: expertTalkStatusSchema },
       errors: expertTalkErrors,
-      description: 'Get Expert Talk configuration, activation, and current run status',
+      description: 'Get Discussion configuration, activation, and current run status',
       tags: ['expert-talk'],
       operationId: 'getExpertTalk',
     },
@@ -100,7 +100,7 @@ export function registerExpertTalkRoutes(
       body: expertTalkConfigureSchema,
       success: { data: expertTalkStatusSchema },
       errors: expertTalkErrors,
-      description: 'Configure the ordered Expert Talk model pair',
+      description: 'Configure the ordered Discussion model pair',
       tags: ['expert-talk'],
       operationId: 'configureExpertTalk',
     },
@@ -109,6 +109,8 @@ export function registerExpertTalkRoutes(
         {
           fusionLeadModelId: req.body.fusion_lead_model_id,
           peerModelId: req.body.peer_model_id,
+          fusionLeadThinkingEffort: req.body.fusion_lead_thinking_effort,
+          peerThinkingEffort: req.body.peer_thinking_effort,
         },
         parseIfMatch(req.headers['if-match']),
       );
@@ -124,7 +126,7 @@ export function registerExpertTalkRoutes(
       params: expertTalkSessionParamsSchema,
       success: { data: expertTalkStatusSchema },
       errors: expertTalkErrors,
-      description: 'Clear the Expert Talk model pair',
+      description: 'Clear the Discussion model pair',
       tags: ['expert-talk'],
       operationId: 'clearExpertTalk',
     },
@@ -142,7 +144,7 @@ export function registerExpertTalkRoutes(
       params: expertTalkSessionParamsSchema,
       success: { data: expertTalkStatusSchema },
       errors: expertTalkErrors,
-      description: 'Arm Expert Talk for the next accepted prompt from this client',
+      description: 'Arm Discussion for the next accepted prompt from this client',
       tags: ['expert-talk'],
       operationId: 'armExpertTalk',
     },
@@ -157,7 +159,7 @@ export function registerExpertTalkRoutes(
       ) {
         throw new Error2(
           ErrorCodes.EXPERT_TALK_CLIENT_UNSUPPORTED,
-          'Expert Talk requires a connected client event stream',
+          'Discussion requires a connected client event stream',
         );
       }
       service.arm(ownerId, parseIfMatch(req.headers['if-match']));
@@ -174,7 +176,7 @@ export function registerExpertTalkRoutes(
       body: expertTalkDisarmSchema,
       success: { data: expertTalkStatusSchema },
       errors: expertTalkErrors,
-      description: 'Disarm a pending Expert Talk activation',
+      description: 'Disarm a pending Discussion activation',
       tags: ['expert-talk'],
       operationId: 'disarmExpertTalk',
     },
@@ -193,7 +195,7 @@ export function registerExpertTalkRoutes(
       querystring: expertTalkRunListQuerySchema,
       success: { data: expertTalkRunListSchema },
       errors: expertTalkErrors,
-      description: 'List durable Expert Talk runs for a session',
+      description: 'List durable Discussion runs for a session',
       tags: ['expert-talk'],
       operationId: 'listExpertTalkRuns',
     },
@@ -214,7 +216,7 @@ export function registerExpertTalkRoutes(
       params: expertTalkRunParamsSchema,
       success: { data: expertTalkRunSchema },
       errors: expertTalkErrors,
-      description: 'Get one durable Expert Talk run',
+      description: 'Get one durable Discussion run',
       tags: ['expert-talk'],
       operationId: 'getExpertTalkRun',
     },
@@ -231,7 +233,7 @@ export function registerExpertTalkRoutes(
       params: expertTalkRunParamsSchema,
       success: { data: expertTalkRunSchema },
       errors: expertTalkErrors,
-      description: 'Cancel an Expert Talk run and its active branches',
+      description: 'Cancel a Discussion run and its active branches',
       tags: ['expert-talk'],
       operationId: 'cancelExpertTalkRun',
     },
@@ -248,7 +250,7 @@ export function registerExpertTalkRoutes(
       params: expertTalkRunParamsSchema,
       success: { data: expertTalkRunSchema },
       errors: expertTalkErrors,
-      description: 'Retry a terminal Expert Talk run as a full new exchange',
+      description: 'Retry a terminal Discussion run as a full new exchange',
       tags: ['expert-talk'],
       operationId: 'retryExpertTalkRun',
     },
@@ -285,7 +287,7 @@ function clientId(headers: Record<string, unknown>): string {
   if (typeof value === 'string' && value.trim().length > 0) return value.trim();
   throw new Error2(
     ErrorCodes.EXPERT_TALK_CLIENT_UNSUPPORTED,
-    'Expert Talk requires a stable client identity',
+    'Discussion requires a stable client identity',
   );
 }
 
@@ -307,6 +309,8 @@ export function projectExpertTalkStatus(status: ExpertTalkStatusV1): ExpertTalkS
       : {
           fusion_lead_model_id: pair.fusionLeadModelId,
           peer_model_id: pair.peerModelId,
+          fusion_lead_thinking_effort: pair.fusionLeadThinkingEffort,
+          peer_thinking_effort: pair.peerThinkingEffort,
         },
     activation: arm === undefined
       ? { state: 'idle' }
@@ -393,6 +397,7 @@ function projectBinding(binding: ExpertTalkBindingV1) {
     role: binding.role,
     requested_model_id: binding.requestedModelId,
     effective_model_id: binding.effectiveModelId,
+    thinking_effort: binding.thinkingEffort,
     protocol: binding.protocol,
     provider: binding.provider,
     wire_model: binding.wireModel,

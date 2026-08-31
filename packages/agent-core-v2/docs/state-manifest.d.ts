@@ -660,6 +660,8 @@ export interface SessionStateSnapshot {
     readonly pair?: /* ExpertTalkPairV1 — packages/agent-core-v2/src/session/expertTalk/expertTalk.ts */ {
       readonly fusionLeadModelId: string;
       readonly peerModelId: string;
+      readonly fusionLeadThinkingEffort?: string;
+      readonly peerThinkingEffort?: string;
     };
     readonly runs: readonly /* ExpertTalkPersistentRun — packages/agent-core-v2/src/session/expertTalk/expertTalkService.ts */ {
       readonly schemaVersion: 1;
@@ -680,6 +682,7 @@ export interface SessionStateSnapshot {
         readonly role: /* ExpertTalkRole — packages/agent-core-v2/src/session/expertTalk/expertTalk.ts */ 'fusion_lead' | 'peer';
         readonly requestedModelId: string;
         readonly effectiveModelId: string;
+        readonly thinkingEffort?: string;
         readonly protocol: 'anthropic' | 'openai' | 'openai_responses' | 'google-genai';
         readonly provider: string;
         readonly wireModel: string;
@@ -703,6 +706,7 @@ export interface SessionStateSnapshot {
         readonly role: /* ExpertTalkRole — packages/agent-core-v2/src/session/expertTalk/expertTalk.ts */ 'fusion_lead' | 'peer';
         readonly requestedModelId: string;
         readonly effectiveModelId: string;
+        readonly thinkingEffort?: string;
         readonly protocol: 'anthropic' | 'openai' | 'openai_responses' | 'google-genai';
         readonly provider: string;
         readonly wireModel: string;

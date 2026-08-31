@@ -24,14 +24,18 @@ export interface SecondaryModelSelection {
   effort?: string;
 }
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   modelValue: string;
   effort: string;
   groups: SecondaryModelGroup[];
   modelInfoById: Record<string, AppModel>;
-  /** True while the parent config is saving; the trigger stops opening. */
   disabled?: boolean;
-}>();
+  allowEmpty?: boolean;
+  emptyLabel?: string;
+  ariaLabel?: string;
+}>(), {
+  allowEmpty: true,
+});
 
 const emit = defineEmits<{
   inherit: [];
@@ -69,9 +73,11 @@ const FLYOUT_FLIP_PX = 188;
 let closeTimer: ReturnType<typeof setTimeout> | null = null;
 
 const flat = computed<SecondaryModelOption[]>(() => [
-  { id: '', label: t('settings.noSecondaryModel') },
+  ...(props.allowEmpty ? [{ id: '', label: t('settings.noSecondaryModel') }] : []),
   ...props.groups.flatMap((group) => group.options),
 ]);
+
+const emptyLabel = computed(() => props.emptyLabel ?? t('settings.noSecondaryModel'));
 
 const selectedLabel = computed(() =>
   props.modelValue
@@ -84,7 +90,7 @@ const triggerLabel = computed(() =>
     ? props.effort
       ? `${selectedLabel.value} · ${props.effort}`
       : selectedLabel.value
-    : t('settings.noSecondaryModel'),
+    : emptyLabel.value,
 );
 
 /** Effort options for the hovered model: `null` is the "model default" entry,
@@ -373,7 +379,7 @@ onUnmounted(() => {
       :aria-controls="menuId"
       :aria-expanded="opened"
       aria-haspopup="dialog"
-      :aria-label="t('settings.secondaryModel')"
+      :aria-label="ariaLabel ?? t('settings.secondaryModel')"
       :disabled="disabled"
       @click="toggle"
       @keydown="onTriggerKeydown"
@@ -393,10 +399,11 @@ onUnmounted(() => {
         :class="{ 'sm-picker__menu--up': upward }"
         :style="menuStyle"
         role="dialog"
-        :aria-label="t('settings.secondaryModel')"
+        :aria-label="ariaLabel ?? t('settings.secondaryModel')"
       >
-        <div class="sm-picker__models" role="listbox" :aria-label="t('settings.secondaryModel')">
+        <div class="sm-picker__models" role="listbox" :aria-label="ariaLabel ?? t('settings.secondaryModel')">
           <button
+            v-if="allowEmpty"
             :ref="(el) => setOptionEl(el, '')"
             type="button"
             class="sm-picker__option"
@@ -413,7 +420,7 @@ onUnmounted(() => {
             <Icon class="sm-picker__check" name="check" size="sm" />
             <span class="sm-picker__option-label">{{ t('settings.noSecondaryModel') }}</span>
           </button>
-          <div class="sm-picker__divider" />
+          <div v-if="allowEmpty" class="sm-picker__divider" />
           <template v-for="group in groups" :key="group.provider">
             <div class="sm-picker__group">{{ group.provider }}</div>
             <button

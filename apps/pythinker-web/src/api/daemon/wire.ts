@@ -272,8 +272,8 @@ export interface WireExpertTalkRun {
   ended_at?: string;
   updated_at: string;
   bindings: {
-    fusion_lead: { requested_model_id: string; effective_model_id: string };
-    peer: { requested_model_id: string; effective_model_id: string };
+    fusion_lead: { requested_model_id: string; effective_model_id: string; thinking_effort?: string };
+    peer: { requested_model_id: string; effective_model_id: string; thinking_effort?: string };
   };
   opening: { lead: WireExpertTalkArtifact; peer: WireExpertTalkArtifact };
   review: { lead: WireExpertTalkArtifact; peer: WireExpertTalkArtifact };
@@ -316,6 +316,8 @@ export interface WireExpertTalkStatus {
   config: {
     fusion_lead_model_id: string;
     peer_model_id: string;
+    fusion_lead_thinking_effort?: string;
+    peer_thinking_effort?: string;
   } | null;
   activation: {
     state: 'idle' | 'armed';

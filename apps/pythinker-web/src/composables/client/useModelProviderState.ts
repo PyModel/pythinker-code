@@ -17,7 +17,13 @@ import type {
   CatalogProviderImportInput,
   ThinkingLevel,
 } from '../../api/types';
-import { safeGetString, safeSetString, STORAGE_KEYS } from '../../lib/storage';
+import {
+  safeGetJson,
+  safeGetString,
+  safeSetJson,
+  safeSetString,
+  STORAGE_KEYS,
+} from '../../lib/storage';
 import {
   defaultThinkingLevelFor,
   levelDeclaredBy,
@@ -56,6 +62,16 @@ function saveStarredModelsToStorage(v: string[]): void {
   } catch {
     // ignore
   }
+}
+
+function loadThinkingPreferences(): Record<string, ThinkingLevel> {
+  const parsed = safeGetJson<unknown>(STORAGE_KEYS.thinking);
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+  return Object.fromEntries(
+    Object.entries(parsed).filter((entry): entry is [string, ThinkingLevel] =>
+      typeof entry[1] === 'string' && entry[1].length > 0
+    ),
+  );
 }
 
 export interface PersistSessionProfilePatch {
@@ -106,6 +122,7 @@ export function useModelProviderState(
   // Models + Providers reactive state (lazy-loaded, cached)
   const models = ref<AppModel[]>([]);
   const starredModelIds = ref<string[]>(loadStarredModelsFromStorage());
+  const thinkingByModel = ref<Record<string, ThinkingLevel>>(loadThinkingPreferences());
 
   // Session-scoped skills (slash-invocable). Loaded lazily per session; the active
   // session's list feeds the composer's `/` menu.
@@ -149,7 +166,14 @@ export function useModelProviderState(
   function thinkingLevelForModelId(modelId: string | undefined): ThinkingLevel | undefined {
     if (modelId === undefined) return undefined;
     const model = modelById(modelId);
-    return model === undefined ? undefined : defaultThinkingLevelFor(model);
+    return model === undefined ? undefined : preferredThinkingLevel(model);
+  }
+
+  function preferredThinkingLevel(model: AppModel): ThinkingLevel {
+    const preferred = thinkingByModel.value[model.id];
+    return preferred !== undefined && levelDeclaredBy(model, preferred)
+      ? preferred
+      : defaultThinkingLevelFor(model);
   }
 
   /**
@@ -169,7 +193,7 @@ export function useModelProviderState(
         ? undefined
         : rawState.thinkingBySession[sessionId];
     if (sessionLevel !== undefined && levelDeclaredBy(model, sessionLevel)) return sessionLevel;
-    return defaultThinkingLevelFor(model);
+    return preferredThinkingLevel(model);
   }
 
   /** thinkingLevelForSession by session + model id, for prompt submission
@@ -338,10 +362,21 @@ export function useModelProviderState(
     const prevSessionModel = sid
       ? rawState.sessions.find((s) => s.id === sid)?.model
       : undefined;
+    const prevThinkingBySession = rawState.thinkingBySession;
     const isSwitch = currentModelId() !== (targetModel?.id ?? modelId);
     // On a real switch, pre-select the target model's catalog default (see
     // thinkingLevelForModelSwitch); re-selecting keeps the live level.
-    const nextThinking = thinkingLevelForModelSwitch(targetModel, prevThinking, isSwitch);
+    const preferredThinking = targetModel === undefined
+      ? undefined
+      : thinkingByModel.value[targetModel.id];
+    const explicitThinking = preferredThinking !== undefined
+      && targetModel !== undefined
+      && levelDeclaredBy(targetModel, preferredThinking)
+      ? preferredThinking
+      : undefined;
+    const nextThinking = isSwitch && targetModel !== undefined
+      ? explicitThinking ?? preferredThinkingLevel(targetModel)
+      : thinkingLevelForModelSwitch(targetModel, prevThinking, isSwitch);
     if (!sid) {
       // New-session draft (onboarding composer): no backend session to update.
       // Remember the pick — startSessionAndSendPrompt applies it at create time.
@@ -350,9 +385,6 @@ export function useModelProviderState(
       // masquerade as an explicit choice later).
       draftModel.value = modelId;
       rawState.thinking = nextThinking;
-      if (nextThinking !== prevThinking && nextThinking !== undefined) {
-        persistGlobalThinking(nextThinking);
-      }
       return true;
     }
     // Optimistic: show the chosen model immediately, but remember the previous
@@ -360,16 +392,15 @@ export function useModelProviderState(
     updateSession(sid, (s) => ({ ...s, model: modelId }));
     if (nextThinking !== prevThinking) {
       rawState.thinking = nextThinking;
-      // Keep the session's own entry in sync optimistically — the /status echo
-      // after the profile write folds the authoritative value back in.
-      if (nextThinking !== undefined) {
-        rawState.thinkingBySession = { ...rawState.thinkingBySession, [sid]: nextThinking };
-      }
+      const nextBySession = { ...rawState.thinkingBySession };
+      if (explicitThinking === undefined) delete nextBySession[sid];
+      else nextBySession[sid] = explicitThinking;
+      rawState.thinkingBySession = nextBySession;
     }
     try {
       await getPythinkerWebApi().updateSession(sid, {
         model: modelId,
-        thinking: nextThinking !== prevThinking ? nextThinking : undefined,
+        thinking: nextThinking !== prevThinking ? explicitThinking : undefined,
       });
     } catch (error) {
       // The model change rides HTTP, not the WS, so a dropped socket alone does
@@ -379,17 +410,10 @@ export function useModelProviderState(
       updateSession(sid, (s) => ({ ...s, model: prevSessionModel ?? s.model }));
       if (nextThinking !== prevThinking) {
         rawState.thinking = prevThinking;
-        if (prevThinking !== undefined) {
-          rawState.thinkingBySession = { ...rawState.thinkingBySession, [sid]: prevThinking };
-        }
+        rawState.thinkingBySession = prevThinkingBySession;
       }
       pushOperationFailure('setModel', error, { sessionId: sid });
       return false;
-    }
-    // The switch reached the daemon: also persist the thinking pick as the
-    // daemon-wide default (mirrors the TUI). Skipped on rollback above.
-    if (nextThinking !== prevThinking && nextThinking !== undefined) {
-      persistGlobalThinking(nextThinking);
     }
     // refreshSessionStatus folds the authoritative current model from /status
     // back into the session (the profile echo can return ''). Best-effort: a
@@ -538,6 +562,11 @@ export function useModelProviderState(
    *  session profile so the daemon's /status reflects it; still sent per-prompt). */
   function setThinking(level: ThinkingLevel): void {
     const next = applyThinkingLevel(level);
+    const modelId = currentModelId();
+    if (next !== undefined && modelId !== undefined) {
+      thinkingByModel.value = { ...thinkingByModel.value, [modelId]: next };
+      safeSetJson(STORAGE_KEYS.thinking, thinkingByModel.value);
+    }
     void persistSessionProfile({ thinking: next });
     if (next !== undefined) persistGlobalThinking(next);
   }

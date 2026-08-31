@@ -71,6 +71,9 @@ describe('app shell contracts', () => {
     expect(expertOpinionIcon).toContain('class="ptx ptx-expert-opinion"');
     expect(expertOpinionIcon).toContain('class="sparkle"');
     expect(app).toContain('@create-expert-opinion="handleCreateExpertOpinionSession"');
+    expect(app).toContain('if (configuredPair === undefined) {');
+    expect(app).toContain('workspaceId,\n    configuredPair,');
+    expect(app).not.toContain('configuredPair?.fusionLeadModelId ?? eligibleModels[0]?.id');
   });
 
   it('opens Explorer from workspace hover actions', () => {

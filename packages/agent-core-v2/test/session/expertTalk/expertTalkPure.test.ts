@@ -21,7 +21,10 @@ import { fusionPrompt, openingPrompt, reviewPrompt } from '#/session/expertTalk/
 
 function model(
   id: string,
-  overrides: Partial<Pick<Model, 'name' | 'baseUrl' | 'maxContextSize' | 'capabilities'>> = {},
+  overrides: Partial<Pick<
+    Model,
+    'name' | 'baseUrl' | 'maxContextSize' | 'capabilities' | 'supportEfforts' | 'defaultEffort'
+  >> = {},
 ): Model {
   return {
     id,
@@ -41,6 +44,8 @@ function model(
     maxContextSize: overrides.maxContextSize ?? 64_000,
     providerName: id,
     alwaysThinking: false,
+    supportEfforts: overrides.supportEfforts,
+    defaultEffort: overrides.defaultEffort,
     authProvider: { getAuth: async () => undefined },
   };
 }
@@ -75,6 +80,32 @@ describe('Expert Talk protocol admission', () => {
     const lead = bindingFor('fusion_lead', 'lead', model('lead'));
     const peer = bindingFor('peer', 'peer', model('peer'));
     expect(() => assertDistinctBindings(lead, peer)).not.toThrow();
+  });
+
+  it('freezes the resolved thinking effort in each participant binding', () => {
+    const binding = bindingFor(
+      'fusion_lead',
+      'lead',
+      model('lead', {
+        capabilities: {
+          image_in: true,
+          video_in: true,
+          audio_in: true,
+          thinking: true,
+          tool_use: true,
+          max_context_tokens: 64_000,
+        },
+        supportEfforts: ['low', 'high', 'max'],
+        defaultEffort: 'high',
+      }),
+      {
+        environmentRevision: 'routing-v1',
+        decisionFingerprint: 'decision-v1',
+        thinkingEffort: 'max',
+      },
+    );
+
+    expect(binding.thinkingEffort).toBe('max');
   });
 
   it('requires tool use and every requested modality', () => {
@@ -257,6 +288,16 @@ describe('Expert Talk config version', () => {
     const second = { fusionLeadModelId: 'peer', peerModelId: 'lead' };
     expect(resourceVersion(first)).toBe(resourceVersion(first));
     expect(resourceVersion(first)).not.toBe(resourceVersion(second));
+  });
+
+  it('changes when a role thinking effort changes', () => {
+    const automatic = { fusionLeadModelId: 'lead', peerModelId: 'peer' };
+    const explicit = {
+      ...automatic,
+      fusionLeadThinkingEffort: 'max',
+    };
+
+    expect(resourceVersion(automatic)).not.toBe(resourceVersion(explicit));
   });
 
   it('uses coded errors', () => {

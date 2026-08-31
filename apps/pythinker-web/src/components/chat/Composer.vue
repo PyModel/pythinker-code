@@ -262,6 +262,22 @@ const history = useInputHistory({ text, textareaRef, autosize, sessionId: () => 
 // keeps the keydown orchestration (arrow keys / Enter / Escape) because it also
 // juggles the mention menu and history recall.
 // ---------------------------------------------------------------------------
+function dispatchSlashCommand(cmd: string): void {
+  if (cmd === '/plan') {
+    togglePlanMode();
+    return;
+  }
+  if (cmd === '/goal') {
+    toggleGoalMode();
+    return;
+  }
+  if (cmd === '/discussion' || cmd === '/expert-talk' || cmd === '/expert-opinion') {
+    openExpertOpinion();
+    return;
+  }
+  emit('command', cmd);
+}
+
 const {
   open: slashOpen,
   items: slashItems,
@@ -273,21 +289,7 @@ const {
   textareaRef,
   autosize,
   skills: () => props.skills,
-  emitCommand: (cmd) => {
-    if (cmd === '/plan') {
-      togglePlanMode();
-      return;
-    }
-    if (cmd === '/goal') {
-      toggleGoalMode();
-      return;
-    }
-    if (cmd === '/expert-talk') {
-      openExpertOpinion();
-      return;
-    }
-    emit('command', cmd);
-  },
+  emitCommand: dispatchSlashCommand,
   historyPush: (entry) => history.push(entry),
   clearDraft,
 });
@@ -577,9 +579,14 @@ function handleSubmit(): void {
   // resolves to its prefixed menu entry (`/skill:deploy`), mirroring the TUI.
   if (quotes.value.length === 0 && trimmed) {
     const parsed = parseSlash(trimmed);
+    const command = parsed === null
+      ? ''
+      : parsed.cmd === '/expert-talk' || parsed.cmd === '/expert-opinion'
+        ? '/discussion'
+        : parsed.cmd;
     const known = parsed
       ? buildSlashItems(props.skills).find(
-          (item) => item.name === parsed.cmd || item.name === `/${SKILL_COMMAND_PREFIX}${parsed.cmd.slice(1)}`,
+          (item) => item.name === command || item.name === `/${SKILL_COMMAND_PREFIX}${command.slice(1)}`,
         )
       : undefined;
     if (parsed && known) {
@@ -592,7 +599,7 @@ function handleSubmit(): void {
       clearDraft();
       slashOpen.value = false;
       collapseAndRefit();
-      emit('command', parsed.arg ? `${parsed.cmd} ${parsed.arg}` : parsed.cmd);
+      dispatchSlashCommand(parsed.arg ? `${command} ${parsed.arg}` : command);
       return;
     }
   }

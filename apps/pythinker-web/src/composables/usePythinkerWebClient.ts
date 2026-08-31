@@ -57,6 +57,7 @@ import {
 
 import type {
   AppSubagentModelPolicyState,
+  AppExpertTalkPair,
   AppExperimentalFlagState,
   AppEvent,
   AppApprovalRequest,
@@ -146,9 +147,6 @@ safeRemove(STORAGE_KEYS.codeFont);
 // look. Clear the old persisted key so users who once picked one aren't frozen
 // on a value the UI no longer reads.
 safeRemove(STORAGE_KEYS.theme);
-// The per-model thinking pick store was dropped in favor of the daemon's
-// per-session thinking state — clear the old key so stale picks can't linger.
-safeRemove(STORAGE_KEYS.thinking);
 safeRemove(STORAGE_KEYS.permission);
 
 // Plan / dynamic_workflow / goal modes are per-session. Each is persisted as a compact
@@ -1010,7 +1008,7 @@ function applyEvent(event: ReturnType<typeof toAppEvent>, sessionId: string, seq
 
 function processEvent(appEvent: AppEvent, meta: PythinkerEventMeta): void {
   if (appEvent.type === 'expertTalkChanged') {
-    expertTalk.applyStatus(appEvent.sessionId, appEvent.status);
+    expertTalk.applyStatus(appEvent.sessionId, appEvent.status, meta.seq);
     return;
   }
   // Capture BEFORE applyEvent advances lastSeqBySession: turn-end side
@@ -3050,13 +3048,12 @@ async function abortCurrentPrompt(): Promise<void> {
 
 async function startExpertOpinionSession(
   workspaceId: string,
-  fusionLeadModelId: string,
-  peerModelId: string,
+  pair: AppExpertTalkPair,
 ): Promise<boolean> {
   try {
     const sessionId = await workspaceState.createDraftSession(workspaceId);
     if (sessionId === null) return false;
-    await expertTalk.useForNextMessage(fusionLeadModelId, peerModelId);
+    await expertTalk.useForNextMessage(pair);
     return expertTalk.status.value?.activation.state === 'armed';
   } catch (cause) {
     pushOperationFailure('expertOpinionSession', cause);

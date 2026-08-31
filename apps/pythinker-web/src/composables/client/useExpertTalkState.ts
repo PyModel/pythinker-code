@@ -1,7 +1,7 @@
 import { computed, ref, watch, type ComputedRef } from 'vue';
 
 import { getPythinkerWebApi } from '../../api';
-import type { AppExpertTalkRun, AppExpertTalkStatus } from '../../api/types';
+import type { AppExpertTalkPair, AppExpertTalkRun, AppExpertTalkStatus } from '../../api/types';
 
 export function useExpertTalkState(
   activeSessionId: ComputedRef<string>,
@@ -12,6 +12,9 @@ export function useExpertTalkState(
   const runsById = ref<Record<string, AppExpertTalkRun>>({});
   const busy = ref(false);
   const error = ref<string>();
+  const requestEpochBySession = new Map<string, number>();
+  const lastEventSeqBySession = new Map<string, number>();
+  const protectedVersionBySession = new Map<string, string>();
 
   const status = computed(() => statusBySession.value[activeSessionId.value]);
   const run = computed(() => {
@@ -30,6 +33,17 @@ export function useExpertTalkState(
     statusBySession.value = { ...statusBySession.value, [sessionId]: next };
     const runId = next.activeRunId ?? next.latestRunId;
     if (runId !== undefined) void refreshRun(sessionId, runId);
+  }
+
+  function advanceRequestEpoch(sessionId: string): number {
+    const next = (requestEpochBySession.get(sessionId) ?? 0) + 1;
+    requestEpochBySession.set(sessionId, next);
+    return next;
+  }
+
+  function setMutationStatus(sessionId: string, next: AppExpertTalkStatus): void {
+    protectedVersionBySession.set(sessionId, next.resourceVersion);
+    setStatus(sessionId, next);
   }
 
   function setRun(next: AppExpertTalkRun): void {
@@ -54,11 +68,14 @@ export function useExpertTalkState(
 
   async function refresh(sessionId = activeSessionId.value): Promise<void> {
     if (!capability.value || sessionId.length === 0) return;
+    const requestEpoch = advanceRequestEpoch(sessionId);
     try {
       const [nextStatus, nextRunPage] = await Promise.all([
         getPythinkerWebApi().getExpertTalkStatus(sessionId),
         getPythinkerWebApi().listExpertTalkRuns(sessionId),
       ]);
+      if (requestEpochBySession.get(sessionId) !== requestEpoch) return;
+      protectedVersionBySession.delete(sessionId);
       setStatus(sessionId, nextStatus);
       for (const nextRun of nextRunPage.runs) setRun(nextRun);
     } catch (cause) {
@@ -72,6 +89,7 @@ export function useExpertTalkState(
   ): Promise<void> {
     const sessionId = activeSessionId.value;
     if (sessionId.length === 0 || busy.value) return;
+    advanceRequestEpoch(sessionId);
     busy.value = true;
     error.value = undefined;
     try {
@@ -86,36 +104,39 @@ export function useExpertTalkState(
 
   async function configure(
     sessionId: string,
-    fusionLeadModelId: string,
-    peerModelId: string,
+    pair: AppExpertTalkPair,
   ): Promise<AppExpertTalkStatus> {
-    if (fusionLeadModelId === peerModelId) throw new Error('Select two different models');
+    if (pair.fusionLeadModelId === pair.peerModelId) throw new Error('Select two different models');
     let current = statusBySession.value[sessionId]
       ?? await getPythinkerWebApi().getExpertTalkStatus(sessionId);
     if (
-      current.config?.fusionLeadModelId !== fusionLeadModelId ||
-      current.config.peerModelId !== peerModelId
+      current.config?.fusionLeadModelId !== pair.fusionLeadModelId ||
+      current.config.peerModelId !== pair.peerModelId ||
+      current.config.fusionLeadThinkingEffort !== pair.fusionLeadThinkingEffort ||
+      current.config.peerThinkingEffort !== pair.peerThinkingEffort
     ) {
       current = await getPythinkerWebApi().configureExpertTalk(
         sessionId,
-        { fusionLeadModelId, peerModelId },
+        pair,
         current.resourceVersion,
       );
+      setMutationStatus(sessionId, current);
+      return current;
     }
     setStatus(sessionId, current);
     return current;
   }
 
-  async function configurePair(fusionLeadModelId: string, peerModelId: string): Promise<void> {
+  async function configurePair(pair: AppExpertTalkPair): Promise<void> {
     await operate('expertTalkConfigure', async (sessionId) => {
-      await configure(sessionId, fusionLeadModelId, peerModelId);
+      await configure(sessionId, pair);
     });
   }
 
-  async function useForNextMessage(fusionLeadModelId: string, peerModelId: string): Promise<void> {
+  async function useForNextMessage(pair: AppExpertTalkPair): Promise<void> {
     await operate('expertTalkArm', async (sessionId) => {
-      const configured = await configure(sessionId, fusionLeadModelId, peerModelId);
-      setStatus(sessionId, await getPythinkerWebApi().armExpertTalk(
+      const configured = await configure(sessionId, pair);
+      setMutationStatus(sessionId, await getPythinkerWebApi().armExpertTalk(
         sessionId,
         configured.resourceVersion,
       ));
@@ -125,14 +146,14 @@ export function useExpertTalkState(
   async function disarm(): Promise<void> {
     await operate('expertTalkDisarm', async (sessionId) => {
       const armId = statusBySession.value[sessionId]?.activation.armId;
-      setStatus(sessionId, await getPythinkerWebApi().disarmExpertTalk(sessionId, armId));
+      setMutationStatus(sessionId, await getPythinkerWebApi().disarmExpertTalk(sessionId, armId));
     });
   }
 
   async function clear(): Promise<void> {
     await operate('expertTalkClear', async (sessionId) => {
       const current = statusBySession.value[sessionId];
-      setStatus(sessionId, await getPythinkerWebApi().clearExpertTalk(
+      setMutationStatus(sessionId, await getPythinkerWebApi().clearExpertTalk(
         sessionId,
         current?.resourceVersion,
       ));
@@ -157,7 +178,15 @@ export function useExpertTalkState(
     });
   }
 
-  function applyStatus(sessionId: string, next: AppExpertTalkStatus): void {
+  function applyStatus(sessionId: string, next: AppExpertTalkStatus, sequence?: number): void {
+    if (sequence !== undefined) {
+      const lastSequence = lastEventSeqBySession.get(sessionId) ?? 0;
+      if (sequence <= lastSequence) return;
+      lastEventSeqBySession.set(sessionId, sequence);
+    }
+    const protectedVersion = protectedVersionBySession.get(sessionId);
+    if (protectedVersion !== undefined && next.resourceVersion !== protectedVersion) return;
+    if (protectedVersion === next.resourceVersion) protectedVersionBySession.delete(sessionId);
     setStatus(sessionId, next);
   }
 

@@ -52,6 +52,8 @@ const contentPartSchema = z.discriminatedUnion('type', [
 export const expertTalkPairSchema = z.object({
   fusionLeadModelId: z.string().min(1),
   peerModelId: z.string().min(1),
+  fusionLeadThinkingEffort: z.string().min(1).optional(),
+  peerThinkingEffort: z.string().min(1).optional(),
 });
 
 export const expertTalkConfigSchema = z.object({
@@ -69,6 +71,7 @@ export const expertTalkBindingSchema = z.object({
   role: roleSchema,
   requestedModelId: z.string().min(1),
   effectiveModelId: z.string().min(1),
+  thinkingEffort: z.string().min(1).optional(),
   protocol: z.enum(['anthropic', 'openai', 'openai_responses', 'google-genai']),
   provider: z.string().min(1),
   wireModel: z.string().min(1),

@@ -1130,17 +1130,13 @@ async function handleCreateExpertOpinionSession(): Promise<void> {
     && eligibleModelIds.has(configured.peerModelId)
     ? configured
     : undefined;
-  const fusionLeadModelId = configuredPair?.fusionLeadModelId ?? eligibleModels[0]?.id;
-  const peerModelId = configuredPair?.peerModelId
-    ?? eligibleModels.find((model) => model.id !== fusionLeadModelId)?.id;
-  if (fusionLeadModelId === undefined || peerModelId === undefined) {
+  if (configuredPair === undefined) {
     openSettings('expertOpinion');
     return;
   }
   const started = await client.startExpertOpinionSession(
     workspaceId,
-    fusionLeadModelId,
-    peerModelId,
+    configuredPair,
   );
   if (!started) {
     openSettings('expertOpinion');

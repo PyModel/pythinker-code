@@ -536,7 +536,7 @@ export class EditorKeyboardController {
     const session = this.host.session;
     if (session === undefined) return;
     void session.cancelExpertTalkRun(runId).catch((error: unknown) => {
-      this.host.showError(`Failed to cancel Expert Talk: ${formatErrorMessage(error)}`);
+      this.host.showError(`Failed to cancel Discussion: ${formatErrorMessage(error)}`);
     });
   }
 

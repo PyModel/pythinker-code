@@ -227,4 +227,11 @@ describe('DynamicWorkflowTool card', () => {
       vi.useRealTimers();
     }
   });
+
+  it('aligns the status dot with the primary member line', () => {
+    const wrapper = mountCard([member(1)]);
+
+    expect(wrapper.find('.member-meta').exists()).toBe(true);
+    expect(wrapper.find('.member-main > .row-dot').exists()).toBe(true);
+  });
 });

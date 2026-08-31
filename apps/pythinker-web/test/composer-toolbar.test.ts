@@ -134,7 +134,7 @@ describe('Composer toolbar overflow valves', () => {
     );
   });
 
-  it('opens Expert Talk from the add menu', async () => {
+  it('opens Discussion from the add menu', async () => {
     const wrapper = mount(Composer, {
       attachTo: document.body,
       global: {
@@ -158,7 +158,7 @@ describe('Composer toolbar overflow valves', () => {
 
     await wrapper.get('.composer-attach').trigger('click');
     const row = wrapper.findAll('.am-row').find((candidate) =>
-      candidate.text().includes('Expert Talk')
+      candidate.text().includes('Discussion')
     );
     expect(row?.text()).toContain('Use two models for the next message');
     await row!.trigger('click');
@@ -166,6 +166,39 @@ describe('Composer toolbar overflow valves', () => {
     expect(openExpertOpinion).toHaveBeenCalledOnce();
     wrapper.unmount();
   });
+
+  it.each(['/discussion', '/expert-talk', '/expert-opinion'])(
+    'opens Discussion when %s is typed',
+    async (command) => {
+      const wrapper = mount(Composer, {
+        global: {
+          plugins: [webI18n],
+          stubs: {
+            AttachmentChip: true,
+            CapabilityMenu: true,
+            ContextRing: true,
+            ExpertTalkControl: expertTalkControlStub,
+            Icon: true,
+            IconButton: slotStub,
+            MentionMenu: true,
+            SegmentedControl: true,
+            SlashMenu: true,
+            Spinner: true,
+            Tooltip: slotStub,
+          },
+        },
+      });
+      const input = wrapper.get('textarea');
+
+      await input.setValue(command);
+      await input.trigger('keydown', { key: 'Enter' });
+      await nextTick();
+
+      expect(openExpertOpinion).toHaveBeenCalledOnce();
+      expect(wrapper.emitted('submit')).toBeUndefined();
+      wrapper.unmount();
+    },
+  );
 
   it('uses Escape to cancel an active Expert Talk run', async () => {
     cancelActiveExpertTalk.mockReturnValueOnce(true);

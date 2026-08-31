@@ -249,13 +249,17 @@ function modelsToml(port: number): string {
   'provider = "acme"',
   'model = "lead"',
   'max_context_size = 100000',
-  'capabilities = ["tool_use"]',
+  'capabilities = ["tool_use", "thinking"]',
+  'support_efforts = ["low", "high", "max"]',
+  'default_effort = "high"',
   '',
   '[models."acme/peer"]',
   'provider = "acme"',
   'model = "peer"',
   'max_context_size = 100000',
-  'capabilities = ["tool_use"]',
+  'capabilities = ["tool_use", "thinking"]',
+  'support_efforts = ["low", "high", "max"]',
+  'default_effort = "high"',
   '',
   '[secondary_model]',
   'default_model = "acme/peer"',
@@ -347,7 +351,15 @@ describe('server-v2 Expert Talk', () => {
     };
   }
 
-  async function startRun(prompt: string) {
+  async function startRun(
+    prompt: string,
+    pair: {
+      fusion_lead_model_id: string;
+      peer_model_id: string;
+      fusion_lead_thinking_effort?: string;
+      peer_thinking_effort?: string;
+    } = { fusion_lead_model_id: 'acme/lead', peer_model_id: 'acme/peer' },
+  ) {
     const sessionId = await createSession();
     const expertTalkPath = `/api/v1/sessions/${sessionId}/expert-talk`;
     const initial = await call<unknown>('GET', expertTalkPath, 'client-a');
@@ -355,7 +367,7 @@ describe('server-v2 Expert Talk', () => {
       'PUT',
       expertTalkPath,
       'client-a',
-      { fusion_lead_model_id: 'acme/lead', peer_model_id: 'acme/peer' },
+      pair,
       initial.etag ?? undefined,
     );
     const armed = await call<unknown>(
@@ -468,6 +480,83 @@ describe('server-v2 Expert Talk', () => {
     );
 
     expect(response.body.code).toBe(ErrorCode.EXPERT_TALK_PAIR_INVALID);
+  });
+
+  it('persists supported role efforts, freezes them in bindings, and rejects unknown effort', async () => {
+    const { runPath, expertTalkPath } = await startRun(
+      'Use the selected effort for both experts.',
+      {
+        fusion_lead_model_id: 'acme/lead',
+        peer_model_id: 'acme/peer',
+        fusion_lead_thinking_effort: 'max',
+        peer_thinking_effort: 'low',
+      },
+    );
+    const configured = expertTalkStatusSchema.parse(
+      (await call<unknown>('GET', expertTalkPath, 'client-a')).body.data,
+    );
+    expect(configured.config).toEqual({
+      fusion_lead_model_id: 'acme/lead',
+      peer_model_id: 'acme/peer',
+      fusion_lead_thinking_effort: 'max',
+      peer_thinking_effort: 'low',
+    });
+
+    const completed = await waitForTerminal(runPath);
+    expect(completed.bindings).toMatchObject({
+      fusion_lead: { thinking_effort: 'max' },
+      peer: { thinking_effort: 'low' },
+    });
+    expect(llm?.requests.filter((request) => request.model === 'lead').every((request) =>
+      (JSON.parse(request.body) as { reasoning_effort?: string }).reasoning_effort === 'max'
+    )).toBe(true);
+    expect(llm?.requests.filter((request) => request.model === 'peer').every((request) =>
+      (JSON.parse(request.body) as { reasoning_effort?: string }).reasoning_effort === 'low'
+    )).toBe(true);
+
+    const invalid = await call<unknown>(
+      'PUT',
+      expertTalkPath,
+      'client-a',
+      {
+        fusion_lead_model_id: 'acme/lead',
+        peer_model_id: 'acme/peer',
+        fusion_lead_thinking_effort: 'ultra',
+      },
+      (await call<unknown>('GET', expertTalkPath, 'client-a')).etag ?? undefined,
+    );
+    expect(invalid.body.code).toBe(ErrorCode.EXPERT_TALK_PAIR_INVALID);
+  });
+
+  it('marks a saved pair ineligible when the routing policy can no longer route it', async () => {
+    const sessionId = await createSession();
+    const path = `/api/v1/sessions/${sessionId}/expert-talk`;
+    const initial = await call<unknown>('GET', path, 'client-a');
+    const configured = await call<unknown>(
+      'PUT',
+      path,
+      'client-a',
+      { fusion_lead_model_id: 'acme/lead', peer_model_id: 'acme/peer' },
+      initial.etag ?? undefined,
+    );
+    expect(configured.body.code).toBe(0);
+
+    const policyCleared = await authedFetch(
+      server as RunningServer,
+      base,
+      '/api/v1/config',
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ secondary_model: null }),
+      },
+    );
+    expect(policyCleared.status).toBe(200);
+
+    const current = expertTalkStatusSchema.parse(
+      (await call<unknown>('GET', path, 'client-a')).body.data,
+    );
+    expect(current.pair_validation).toMatchObject({ state: 'ineligible' });
   });
 
   it('runs both openings, reciprocal reviews, and fusion automatically', async () => {

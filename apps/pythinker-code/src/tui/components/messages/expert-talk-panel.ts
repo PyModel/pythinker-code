@@ -378,7 +378,7 @@ export class ExpertTalkPanelComponent extends UsagePanelComponent {
     private readonly models: Record<string, ModelAlias>,
   ) {
     const holder = { status };
-    super(() => buildExpertTalkStatusLines(holder.status, models), 'primary', ' Expert Talk ');
+    super(() => buildExpertTalkStatusLines(holder.status, models), 'primary', ' Discussion ');
     this.holder = holder;
   }
 

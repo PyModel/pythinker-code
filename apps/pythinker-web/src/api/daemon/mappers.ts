@@ -322,6 +322,8 @@ export function toAppExpertTalkStatus(wire: WireExpertTalkStatus): AppExpertTalk
       : {
           fusionLeadModelId: wire.config.fusion_lead_model_id,
           peerModelId: wire.config.peer_model_id,
+          fusionLeadThinkingEffort: wire.config.fusion_lead_thinking_effort,
+          peerThinkingEffort: wire.config.peer_thinking_effort,
         },
     activation: {
       state: wire.activation.state,
@@ -354,10 +356,12 @@ export function toAppExpertTalkRun(wire: WireExpertTalkRun): AppExpertTalkRun {
       fusionLead: {
         requestedModelId: wire.bindings.fusion_lead.requested_model_id,
         effectiveModelId: wire.bindings.fusion_lead.effective_model_id,
+        thinkingEffort: wire.bindings.fusion_lead.thinking_effort,
       },
       peer: {
         requestedModelId: wire.bindings.peer.requested_model_id,
         effectiveModelId: wire.bindings.peer.effective_model_id,
+        thinkingEffort: wire.bindings.peer.thinking_effort,
       },
     },
     opening: {

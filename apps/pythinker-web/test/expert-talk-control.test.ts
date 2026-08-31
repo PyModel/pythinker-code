@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import ExpertTalkControl from '../src/components/chat/ExpertTalkControl.vue';
 import ExpertTalkExchange from '../src/components/chat/ExpertTalkExchange.vue';
+import SecondaryModelPicker from '../src/components/settings/SecondaryModelPicker.vue';
 import type { AppExpertTalkRun, AppExpertTalkStatus } from '../src/api/types';
 import { useExpertTalkState } from '../src/composables/client/useExpertTalkState';
 import { expertTalkContextKey } from '../src/composables/expertTalkContext';
@@ -71,19 +72,106 @@ describe('ExpertTalkControl', () => {
     ))!;
     await flushPromises();
 
-    await state.configurePair('provider/lead', 'provider/peer');
+    const pair = {
+      fusionLeadModelId: 'provider/lead',
+      peerModelId: 'provider/peer',
+      fusionLeadThinkingEffort: 'max',
+      peerThinkingEffort: 'low',
+    };
+    await state.configurePair(pair);
 
     expect(api.configureExpertTalk).toHaveBeenCalledWith(
       'session-1',
-      { fusionLeadModelId: 'provider/lead', peerModelId: 'provider/peer' },
+      pair,
       '1',
     );
     expect(api.armExpertTalk).not.toHaveBeenCalled();
 
-    await state.useForNextMessage('provider/lead', 'provider/peer');
+    await state.useForNextMessage(pair);
 
     expect(api.armExpertTalk).toHaveBeenCalledWith('session-1', '2');
     scope.stop();
+  });
+
+  it('does not let an older refresh overwrite a confirmed pair save', async () => {
+    let resolveStale!: (value: ReturnType<typeof status>) => void;
+    const stale = new Promise<ReturnType<typeof status>>((resolve) => {
+      resolveStale = resolve;
+    });
+    api.getExpertTalkStatus
+      .mockImplementationOnce(() => stale)
+      .mockResolvedValueOnce(status());
+    const confirmed = {
+      ...status(),
+      resourceVersion: '2',
+      config: {
+        fusionLeadModelId: 'provider/lead',
+        peerModelId: 'provider/peer',
+        fusionLeadThinkingEffort: 'max',
+      },
+    };
+    api.configureExpertTalk.mockResolvedValue(confirmed);
+    const scope = effectScope();
+    const state = scope.run(() => useExpertTalkState(
+      computed(() => 'session-1'),
+      computed(() => true),
+      vi.fn(),
+    ))!;
+    const pair = {
+      fusionLeadModelId: 'provider/lead',
+      peerModelId: 'provider/peer',
+      fusionLeadThinkingEffort: 'max',
+    };
+
+    await state.configurePair(pair);
+    expect(state.status.value?.resourceVersion).toBe('2');
+    resolveStale(status());
+    await flushPromises();
+
+    expect(state.status.value?.resourceVersion).toBe('2');
+    expect(state.status.value?.config).toEqual(pair);
+    state.applyStatus('session-1', status(), 10);
+    expect(state.status.value?.resourceVersion).toBe('2');
+    state.applyStatus('session-1', confirmed, 11);
+    state.applyStatus('session-1', status(), 10);
+    expect(state.status.value?.resourceVersion).toBe('2');
+    scope.stop();
+  });
+
+  it('hides the composer pill until Discussion is armed or running', () => {
+    const currentStatus = ref<AppExpertTalkStatus>({
+      ...status(),
+      config: { fusionLeadModelId: 'provider/lead', peerModelId: 'provider/peer' },
+    });
+    const context = {
+      available: computed(() => true),
+      status: computed(() => currentStatus.value),
+      run: computed(() => undefined),
+      runs: computed(() => []),
+      busy: ref(false),
+      error: ref<string>(),
+      refresh: vi.fn(),
+      configurePair: vi.fn(),
+      useForNextMessage: vi.fn(),
+      disarm: vi.fn(),
+      clear: vi.fn(),
+      cancel: vi.fn(),
+      retry: vi.fn(),
+      applyStatus: vi.fn(),
+      armIdForSession: vi.fn(),
+      promptAccepted: vi.fn(),
+    };
+    const wrapper = mount(ExpertTalkControl, {
+      props: { models: [] },
+      global: {
+        plugins: [webI18n],
+        provide: { [expertTalkContextKey as symbol]: context },
+        stubs: { Icon: true, teleport: true },
+      },
+    });
+
+    expect(wrapper.find('.ui-pill').exists()).toBe(false);
+    wrapper.unmount();
   });
 
   it('shows the protocol disclosure and arms an ordered distinct pair', async () => {
@@ -112,8 +200,8 @@ describe('ExpertTalkControl', () => {
       props: {
         trigger: 'launcher',
         models: [
-          { id: 'provider/lead', provider: 'Provider A', model: 'Lead', maxContextSize: 128000, capabilities: ['tool_use'] },
-          { id: 'provider/peer', provider: 'Provider B', model: 'Peer', maxContextSize: 128000, capabilities: ['tool_use'] },
+          { id: 'provider/lead', provider: 'Provider A', model: 'Lead', maxContextSize: 128000, capabilities: ['tool_use', 'thinking'], supportEfforts: ['low', 'high', 'max'], defaultEffort: 'high' },
+          { id: 'provider/peer', provider: 'Provider B', model: 'Peer', maxContextSize: 128000, capabilities: ['tool_use', 'thinking'], supportEfforts: ['low', 'high', 'max'], defaultEffort: 'high' },
           { id: 'provider/text', provider: 'Provider C', model: 'Text only', maxContextSize: 128000, capabilities: [] },
         ],
       },
@@ -129,24 +217,24 @@ describe('ExpertTalkControl', () => {
 
     expect(wrapper.text()).toContain('5-12 model requests, at most 24 provider attempts');
     expect(wrapper.findAll('select')).toHaveLength(0);
-    const modelPickers = wrapper.findAll('.expert-talk__model-select');
+    const modelPickers = wrapper.findAllComponents(SecondaryModelPicker);
     expect(modelPickers).toHaveLength(2);
-    await modelPickers[0]!.get('.filter-select__trigger').trigger('click');
-    const modelMenu = modelPickers[0]!.get('.filter-select__menu');
-    expect(modelMenu.findAll('.filter-select__group').map((group) => group.text())).toEqual([
-      'Provider A',
-      'Provider B',
+    expect(modelPickers[0]!.props('groups')).toEqual([
+      { provider: 'Provider A', options: [{ id: 'provider/lead', label: 'Lead' }] },
+      { provider: 'Provider B', options: [{ id: 'provider/peer', label: 'Peer' }] },
     ]);
-    const modelItems = modelMenu.findAll('[role="menuitem"]');
-    expect(modelItems).toHaveLength(2);
-    await modelItems[0]!.trigger('keydown', { key: 'Escape' });
+    modelPickers[0]!.vm.$emit('select', { model: 'provider/lead', effort: 'max' });
+    modelPickers[1]!.vm.$emit('select', { model: 'provider/peer', effort: 'low' });
     await nextTick();
-    expect(wrapper.find('.ui-dialog').exists()).toBe(true);
-    expect(modelPickers[0]!.find('.filter-select__menu').exists()).toBe(false);
     await wrapper.findAll('button').find((button) => button.text().includes('Use for next message'))!.trigger('click');
     await nextTick();
 
-    expect(useForNextMessage).toHaveBeenCalledWith('provider/lead', 'provider/peer');
+    expect(useForNextMessage).toHaveBeenCalledWith({
+      fusionLeadModelId: 'provider/lead',
+      peerModelId: 'provider/peer',
+      fusionLeadThinkingEffort: 'max',
+      peerThinkingEffort: 'low',
+    });
     wrapper.unmount();
   });
 
@@ -202,7 +290,10 @@ describe('ExpertTalkControl', () => {
     };
     currentStatus.value = { ...currentStatus.value, activation: { state: 'idle' } };
     await control.activate();
-    expect(useForNextMessage).toHaveBeenCalledWith('provider/lead', 'provider/peer');
+    expect(useForNextMessage).toHaveBeenCalledWith({
+      fusionLeadModelId: 'provider/lead',
+      peerModelId: 'provider/peer',
+    });
 
     currentRun.value = { state: 'running' } as AppExpertTalkRun;
     await nextTick();
@@ -270,7 +361,11 @@ describe('ExpertTalkControl', () => {
       },
       result: {
         answer: 'Fused answer users receive',
-        notes: { consensus: [], divergence: [], uncertainty: [] },
+        notes: {
+          consensus: ['Both experts recommend the safe migration path.'],
+          divergence: ['Fusion Lead prefers a staged rollout; Peer Expert prefers one release.'],
+          uncertainty: ['Production traffic data is not available.'],
+        },
       },
       usage: { complete: true, requestCount: 5, providerAttemptCount: 5 },
       revision: 6,
@@ -338,6 +433,17 @@ describe('ExpertTalkControl', () => {
     expect(wrapper.get('.expert-talk__fusion').text()).toContain('Fused answer users receive');
     expect(wrapper.get('.expert-talk__fusion').text()).not.toContain('Fused final answer');
     expect(wrapper.get('.expert-talk__fusion .expert-talk__agent-symbol').text()).toBe('⧉');
+    const comparison = wrapper.get('[data-testid="discussion-comparison"]');
+    expect(comparison.text()).toContain('Final comparison');
+    expect(comparison.get('.expert-talk__comparison-card--agreement').text()).toContain(
+      'Both experts recommend the safe migration path.',
+    );
+    expect(comparison.get('.expert-talk__comparison-card--difference').text()).toContain(
+      'Fusion Lead prefers a staged rollout; Peer Expert prefers one release.',
+    );
+    expect(comparison.get('.expert-talk__comparison-card--uncertainty').text()).toContain(
+      'Production traffic data is not available.',
+    );
     const exchange = wrapper.get('details');
     expect((exchange.element as HTMLDetailsElement).open).toBe(false);
     expect(exchange.get('summary').text()).toContain('View exchange and fusion notes');

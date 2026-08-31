@@ -26,6 +26,8 @@ export type ExpertTalkRunStatus =
 export interface ExpertTalkPairV1 {
   readonly fusionLeadModelId: string;
   readonly peerModelId: string;
+  readonly fusionLeadThinkingEffort?: string;
+  readonly peerThinkingEffort?: string;
 }
 
 export interface ExpertTalkConfigV1 {
@@ -43,6 +45,7 @@ export interface ExpertTalkBindingV1 {
   readonly role: ExpertTalkRole;
   readonly requestedModelId: string;
   readonly effectiveModelId: string;
+  readonly thinkingEffort?: string;
   readonly protocol: Protocol;
   readonly provider: string;
   readonly wireModel: string;

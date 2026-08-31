@@ -27,12 +27,17 @@ function status(pair = true): ExpertTalkStatusV1 {
   };
 }
 
-function model(provider: string, name: string): ModelAlias {
+const ESC = String.fromCodePoint(27);
+const RIGHT = `${ESC}[C`;
+
+function model(provider: string, name: string, defaultEffort: string): ModelAlias {
   return {
     provider,
     model: name,
     maxContextSize: 128_000,
-    capabilities: ['tool_use'],
+    capabilities: ['tool_use', 'thinking'],
+    supportEfforts: ['low', 'high', 'max'],
+    defaultEffort,
   };
 }
 
@@ -75,8 +80,8 @@ function makeHost(initial = status(), engineV2 = true) {
     state: {
       appState: {
         availableModels: {
-          lead: model('openai', 'gpt-test'),
-          peer: model('local', 'glm-test'),
+          lead: model('openai', 'gpt-test', 'high'),
+          peer: model('local', 'glm-test', 'low'),
           noTools: { provider: 'local', model: 'plain', maxContextSize: 128_000 },
         },
       },
@@ -107,7 +112,7 @@ describe('Expert Talk command', () => {
       expertTalkRunId: undefined,
     });
     expect(host.showNotice).toHaveBeenCalledWith(
-      'Expert Talk armed',
+      'Discussion armed',
       'Send the next message to start the exchange.',
     );
   });
@@ -135,6 +140,7 @@ describe('Expert Talk command', () => {
 
     await handleExpertTalkCommand(host, 'configure');
     expect(mounted()!.render(120).join('\n')).toContain('Select Fusion Lead');
+    mounted()!.handleInput!(RIGHT);
     mounted()!.handleInput!('\r');
     expect(mounted()!.render(120).join('\n')).toContain('Select Peer Expert');
     expect(mounted()!.render(120).join('\n')).toContain('Fusion Lead: lead');
@@ -142,7 +148,12 @@ describe('Expert Talk command', () => {
 
     await vi.waitFor(() => {
       expect(session.configureExpertTalk).toHaveBeenCalledWith(
-        { fusionLeadModelId: 'lead', peerModelId: 'peer' },
+        {
+          fusionLeadModelId: 'lead',
+          peerModelId: 'peer',
+          fusionLeadThinkingEffort: 'max',
+          peerThinkingEffort: 'low',
+        },
         'v1',
       );
     });
@@ -156,7 +167,7 @@ describe('Expert Talk command', () => {
 
     await handleExpertTalkCommand(host, 'arm');
 
-    expect(host.showError).toHaveBeenCalledWith('Expert Talk requires the v2 engine.');
+    expect(host.showError).toHaveBeenCalledWith('Discussion requires the v2 engine.');
     expect(host.ensureSession).not.toHaveBeenCalled();
   });
 
@@ -199,7 +210,7 @@ describe('Expert Talk command', () => {
 
     expect(host.showError).toHaveBeenCalledTimes(3);
     expect(host.showError).toHaveBeenLastCalledWith(
-      'Usage: /expert-talk [help|status|configure|arm|off|cancel|retry|exchange|reset]',
+      'Usage: /discussion [help|status|configure|arm|off|cancel|retry|exchange|reset]',
     );
   });
 });

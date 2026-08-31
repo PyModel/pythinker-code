@@ -363,6 +363,53 @@ function statusVariant(state: AppExpertTalkRun['state']): 'success' | 'danger' |
           {{ fusionExchange.artifact?.error ?? t(`expertTalk.artifactState.${fusionExchange.state}`) }}
         </p>
       </div>
+      <section
+        v-if="run.result && (
+          run.result.notes.consensus.length > 0 ||
+          run.result.notes.divergence.length > 0 ||
+          run.result.notes.uncertainty.length > 0
+        )"
+        class="expert-talk__comparison"
+        data-testid="discussion-comparison"
+        :aria-label="t('expertTalk.finalComparison')"
+      >
+        <h3>{{ t('expertTalk.finalComparison') }}</h3>
+        <div class="expert-talk__comparison-grid">
+          <section
+            v-if="run.result.notes.consensus.length > 0"
+            class="expert-talk__comparison-card expert-talk__comparison-card--agreement"
+          >
+            <h4><span aria-hidden="true">✓</span>{{ t('expertTalk.agreement') }}</h4>
+            <ul>
+              <li v-for="item in run.result.notes.consensus" :key="item">
+                <Markdown :text="item" />
+              </li>
+            </ul>
+          </section>
+          <section
+            v-if="run.result.notes.divergence.length > 0"
+            class="expert-talk__comparison-card expert-talk__comparison-card--difference"
+          >
+            <h4><span aria-hidden="true">↔</span>{{ t('expertTalk.differences') }}</h4>
+            <ul>
+              <li v-for="item in run.result.notes.divergence" :key="item">
+                <Markdown :text="item" />
+              </li>
+            </ul>
+          </section>
+          <section
+            v-if="run.result.notes.uncertainty.length > 0"
+            class="expert-talk__comparison-card expert-talk__comparison-card--uncertainty"
+          >
+            <h4><span aria-hidden="true">?</span>{{ t('expertTalk.uncertainty') }}</h4>
+            <ul>
+              <li v-for="item in run.result.notes.uncertainty" :key="item">
+                <Markdown :text="item" />
+              </li>
+            </ul>
+          </section>
+        </div>
+      </section>
       <footer v-if="fusionExchange.answer" class="expert-talk__fusion-actions">
         <Button size="sm" variant="secondary" @click="takeAnswer('fusion', fusionExchange.answer)">
           <Icon :name="copiedTarget === 'fusion' ? 'check' : 'copy'" size="sm" />
@@ -683,6 +730,79 @@ summary.expert-opinion-exchange__top::-webkit-details-marker {
   padding-bottom: var(--space-4);
 }
 
+.expert-talk__comparison {
+  display: grid;
+  gap: var(--space-3);
+  padding: 0 var(--space-4) var(--space-4);
+}
+
+.expert-talk__comparison > h3 {
+  margin: 0;
+  color: var(--color-text-strong);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+}
+
+.expert-talk__comparison-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.expert-talk__comparison-card {
+  min-width: 0;
+  padding: var(--space-3);
+  border: var(--p-hairline) solid;
+  border-left-width: 3px;
+  border-radius: var(--radius-md);
+}
+
+.expert-talk__comparison-card h4 {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-2);
+  color: var(--color-text-strong);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.expert-talk__comparison-card ul {
+  display: grid;
+  gap: var(--space-2);
+  padding-left: var(--space-4);
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.expert-talk__comparison-card :deep(p) {
+  margin: 0;
+}
+
+.expert-talk__comparison-card--agreement {
+  border-color: var(--color-success-bd);
+  border-left-color: var(--color-success);
+  background: var(--color-success-soft);
+}
+
+.expert-talk__comparison-card--difference {
+  border-color: var(--color-warning-bd);
+  border-left-color: var(--color-warning);
+  background: var(--color-warning-soft);
+}
+
+.expert-talk__comparison-card--uncertainty {
+  grid-column: 1 / -1;
+  border-color: var(--color-accent-bd);
+  border-left-color: var(--color-accent);
+  background: var(--color-accent-soft);
+}
+
 @media (max-width: 720px) {
   .expert-opinion-exchange__phases,
   .expert-talk__agent-grid {
@@ -692,6 +812,14 @@ summary.expert-opinion-exchange__top::-webkit-details-marker {
   .expert-talk__agent-column + .expert-talk__agent-column {
     border-top: var(--p-hairline) solid var(--color-line);
     border-left: 0;
+  }
+
+  .expert-talk__comparison-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .expert-talk__comparison-card--uncertainty {
+    grid-column: auto;
   }
 
 }

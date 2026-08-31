@@ -488,8 +488,8 @@ function rowHasSavedResult(row: DynamicWorkflowCardRow): boolean {
                 :aria-expanded="row.live || row.agentId ? undefined : isRowOpen(row.id)"
                 @click="openMember(row)"
               >
-                <StatusDot class="row-dot" :class="{ pulse: row.phase === 'working' }" :status="row.phase" />
                 <span class="member-main">
+                  <StatusDot class="row-dot" :class="{ pulse: row.phase === 'working' }" :status="row.phase" />
                   <span class="member-line">
                     <Tooltip :text="row.name">
                       <span class="mname">{{ row.name }}</span>
@@ -865,6 +865,8 @@ function rowHasSavedResult(row: DynamicWorkflowCardRow): boolean {
 }
 .row-dot {
   flex: none;
+  grid-column: 1;
+  grid-row: 1;
 }
 .row-dot.pulse {
   animation: dw-pulse 1.6s ease-in-out infinite;
@@ -874,9 +876,11 @@ function rowHasSavedResult(row: DynamicWorkflowCardRow): boolean {
   50% { opacity: 0.45; }
 }
 .member-main {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  column-gap: var(--space-2);
+  row-gap: 1px;
+  align-items: center;
   flex: 1;
   min-width: 0;
 }
@@ -884,6 +888,8 @@ function rowHasSavedResult(row: DynamicWorkflowCardRow): boolean {
   display: flex;
   align-items: center;
   gap: var(--space-2);
+  grid-column: 2;
+  grid-row: 1;
   min-width: 0;
 }
 .member-meta {
@@ -891,6 +897,8 @@ function rowHasSavedResult(row: DynamicWorkflowCardRow): boolean {
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-1) var(--space-2);
+  grid-column: 2;
+  grid-row: 2;
   min-width: 0;
 }
 .mname {
