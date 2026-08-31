@@ -20,16 +20,6 @@ function render(labels: readonly string[], width: number, activeIndex = 0): stri
   }
 }
 
-function renderRaw(labels: readonly string[], width: number, activeIndex = 0): string {
-  const previousChalkLevel = chalk.level;
-  chalk.level = 3;
-  try {
-    return renderTabStrip({ labels, activeIndex, width, colors: darkColors });
-  } finally {
-    chalk.level = previousChalkLevel;
-  }
-}
-
 describe('renderTabStrip', () => {
   const labels = ['Installed', 'Official', 'Third-party', 'Custom'];
   // Cell widths: ` ${label} ` → 11 / 10 / 13 / 8 = 42, plus 3 separators and a
@@ -59,12 +49,18 @@ describe('renderTabStrip', () => {
   });
 
   it('uses the accessible active-tab color pair', () => {
-    const out = renderRaw(labels, FULL_WIDTH);
-    const active = chalk
-      .bgHex(darkColors.selectionBg)
-      .hex(darkColors.inverseText)
-      .bold(' Installed ');
+    const previousChalkLevel = chalk.level;
+    chalk.level = 3;
+    try {
+      const out = renderTabStrip({ labels, activeIndex: 0, width: FULL_WIDTH, colors: darkColors });
+      const active = chalk
+        .bgHex(darkColors.selectionBg)
+        .hex(darkColors.inverseText)
+        .bold(' Installed ');
 
-    expect(out).toContain(active);
+      expect(out).toContain(active);
+    } finally {
+      chalk.level = previousChalkLevel;
+    }
   });
 });
