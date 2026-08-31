@@ -225,6 +225,9 @@ const sessionsScrolled = ref(false);
 function onSessionsScroll(e: Event): void {
   sessionsScrolled.value = (e.target as HTMLElement).scrollTop > 0;
 }
+watch(explorerOpen, (open) => {
+  if (open) sessionsScrolled.value = false;
+});
 
 // ---------------------------------------------------------------------------
 // Collapse groups
