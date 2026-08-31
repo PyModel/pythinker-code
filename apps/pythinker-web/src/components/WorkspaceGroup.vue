@@ -26,6 +26,7 @@ const props = defineProps<{
   unreadBySession: Record<string, boolean>;
   pinnedIds: string[];
   wsMenuOpenId: string | null;
+  explorerActive: boolean;
   /** True while this group is the active drag source (drag-to-reorder). */
   dragging: boolean;
   isCollapsed: (id: string) => boolean;
@@ -38,6 +39,7 @@ const emit = defineEmits<{
   groupClick: [workspaceId: string, event: MouseEvent];
   groupContextmenu: [workspace: WorkspaceView, event: MouseEvent];
   toggleWsMenu: [workspace: WorkspaceView, event: MouseEvent];
+  toggleExplorer: [workspaceId: string];
   createInWorkspace: [workspaceId: string];
   selectSession: [sessionId: string];
   renameSession: [id: string, title: string];
@@ -158,6 +160,18 @@ function onHeaderDragStart(event: DragEvent): void {
             @click.stop="emit('toggleWsMenu', group.workspace, $event)"
           >
             <Icon name="dots-horizontal" />
+          </IconButton>
+
+          <IconButton
+            class="gh-explorer"
+            :class="{ open: explorerActive }"
+            size="sm"
+            :label="t('sidebar.explorer')"
+            aria-controls="workspace-explorer"
+            :aria-expanded="explorerActive"
+            @click.stop="emit('toggleExplorer', group.workspace.id)"
+          >
+            <Icon name="folder-solid" />
           </IconButton>
 
           <IconButton
@@ -342,6 +356,9 @@ function onHeaderDragStart(event: DragEvent): void {
   pointer-events: auto;
 }
 .gh-more.open { color: var(--color-text); background: var(--color-line); }
+.gh-explorer { color: var(--faint); }
+.gh-explorer:hover { color: var(--dim); }
+.gh-explorer.open { color: var(--color-text); background: var(--color-selected); }
 
 .group-empty {
   /* Left padding lands the text at the same x as session titles / the
