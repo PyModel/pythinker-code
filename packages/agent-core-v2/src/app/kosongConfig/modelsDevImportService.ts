@@ -4,7 +4,7 @@ import {
   removeCustomRegistryProvider,
   type CustomRegistryProviderEntry,
   type CustomRegistrySource,
-  type ManagedPythinkerConfigShape,
+  type PythinkerConfigShape,
 } from '@pymodel/pythinker-code-oauth';
 import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
@@ -19,11 +19,6 @@ import { modelsDevProviderModels, resolveModelsDevImport } from './modelsDev';
 import { MODELS_SECTION, PROVIDERS_SECTION } from './configSection';
 import { ModelsDevImportErrors } from './errors';
 import { IKosongConfigService } from './kosongConfig';
-import {
-  SECONDARY_MODEL_SECTION,
-  cascadeSubagentModelPool,
-  type SecondaryModelConfig,
-} from '#/session/subagent/configSection';
 import {
   IModelsDevImportService,
   PROVIDER_ID_PATTERN,
@@ -106,19 +101,6 @@ export class ModelsDevImportService implements IModelsDevImportService {
     return this.config;
   }
 
-  private async cascadePool(
-    config: IConfigService,
-    nextModels: Record<string, unknown>,
-  ): Promise<void> {
-    const cascaded = cascadeSubagentModelPool(
-      config.inspect<SecondaryModelConfig>(SECONDARY_MODEL_SECTION).userValue,
-      nextModels,
-    );
-    if (cascaded !== undefined) {
-      await config.replace(SECONDARY_MODEL_SECTION, cascaded);
-    }
-  }
-
   private async doImportModelsDevProvider(
     options: ImportModelsDevProviderOptions,
   ): Promise<ImportModelsDevProviderResult> {
@@ -165,20 +147,14 @@ export class ModelsDevImportService implements IModelsDevImportService {
     const config = await this.readyConfig();
     const providers = config.inspect<ProvidersSection>(PROVIDERS_SECTION).userValue ?? {};
     const existing = providers[targetId];
-    if (existing?.oauth !== undefined) {
-      throw new Error2(
-        codes.PROVIDER_OAUTH_MANAGED,
-        `provider ${targetId} is managed by OAuth login; use POST /oauth/logout instead`,
-      );
-    }
-
     const provider: ProviderConfig = { type: resolution.wire };
     provider.baseUrl = resolution.baseUrl;
     provider.apiKey = options.apiKey ?? existing?.apiKey;
     provider.source = { kind: 'modelsDev', url: MODELS_DEV_URL };
-    await config.replace(PROVIDERS_SECTION, { ...providers, [targetId]: provider });
-
     const records = config.inspect<ModelsSection>(MODELS_SECTION).userValue ?? {};
+    const nextProviders = { ...providers, [targetId]: provider };
+    await config.replace(PROVIDERS_SECTION, nextProviders);
+
     const withoutTarget = Object.fromEntries(
       Object.entries(records).filter(([, record]) => record.provider !== targetId),
     );
@@ -188,7 +164,6 @@ export class ModelsDevImportService implements IModelsDevImportService {
       nextModels[`${targetId}/${model.id}`] = modelsDevModelToRecord(targetId, model);
     }
     await config.replace(MODELS_SECTION, nextModels);
-    await this.cascadePool(config, nextModels);
 
     await this.models.settled;
     const imported = await this.modelCatalog.getProvider(targetId);
@@ -201,6 +176,7 @@ export class ModelsDevImportService implements IModelsDevImportService {
     const { url } = options;
     const config = await this.readyConfig();
     const providers = config.inspect<ProvidersSection>(PROVIDERS_SECTION).userValue ?? {};
+    const models = config.inspect<ModelsSection>(MODELS_SECTION).userValue ?? {};
     const source: CustomRegistrySource = {
       kind: 'apiJson',
       url,
@@ -227,21 +203,10 @@ export class ModelsDevImportService implements IModelsDevImportService {
       );
     }
 
-    for (const entry of Object.values(entries)) {
-      if (providers[entry.id]?.oauth !== undefined) {
-        throw new Error2(
-          codes.PROVIDER_OAUTH_MANAGED,
-          `provider ${entry.id} is managed by OAuth login; use POST /oauth/logout instead`,
-        );
-      }
-    }
-
     const removed = {
       providers: { ...providers },
-      models: {
-        ...config.inspect<ModelsSection>(MODELS_SECTION).userValue,
-      },
-    } as ManagedPythinkerConfigShape;
+      models: { ...models },
+    } as PythinkerConfigShape;
     const surviving = new Set(Object.values(entries).map((entry) => entry.id));
     for (const [providerId, provider] of Object.entries(removed.providers)) {
       if (surviving.has(providerId)) continue;
@@ -267,13 +232,12 @@ export class ModelsDevImportService implements IModelsDevImportService {
     const applied = {
       providers: removed.providers,
       models: removed.models,
-    } as ManagedPythinkerConfigShape;
+    } as PythinkerConfigShape;
     for (const entry of Object.values(entries)) {
       applyCustomRegistryProvider(applied, entry, source);
     }
     await config.replace(PROVIDERS_SECTION, applied.providers as ProvidersSection);
     await config.replace(MODELS_SECTION, (applied.models ?? {}) as ModelsSection);
-    await this.cascadePool(config, applied.models ?? {});
 
     await this.models.settled;
     const imported = [];

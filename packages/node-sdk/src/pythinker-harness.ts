@@ -543,27 +543,37 @@ export class PythinkerHarness {
    */
   async inspectAppMcpServers(
     targets?: readonly McpServerLocator[],
+    options: { readonly cwd?: string } = {},
   ): Promise<readonly AppMcpServerInspection[]> {
-    return this.rpc.inspectAppMcpServers(targets);
+    return this.rpc.inspectAppMcpServers(targets, options);
   }
 
-  async addMcpServer(server: McpServerConfig): Promise<readonly McpManagedServerInfo[]> {
-    return this.rpc.addGlobalMcpServer(server);
+  async addMcpServer(
+    server: McpServerConfig,
+    options: { readonly cwd?: string } = {},
+  ): Promise<readonly McpManagedServerInfo[]> {
+    return this.rpc.addGlobalMcpServer(server, options);
   }
 
-  async updateMcpServer(server: McpServerConfig): Promise<readonly McpManagedServerInfo[]> {
-    return this.rpc.updateGlobalMcpServer(server);
+  async updateMcpServer(
+    server: McpServerConfig,
+    options: { readonly cwd?: string } = {},
+  ): Promise<readonly McpManagedServerInfo[]> {
+    return this.rpc.updateGlobalMcpServer(server, options);
   }
 
-  async removeMcpServer(name: string): Promise<readonly McpManagedServerInfo[]> {
-    return this.rpc.removeGlobalMcpServer(name);
+  async removeMcpServer(
+    name: string,
+    options: { readonly cwd?: string } = {},
+  ): Promise<readonly McpManagedServerInfo[]> {
+    return this.rpc.removeGlobalMcpServer(name, options);
   }
 
   async authenticateMcpServer(
     name: string,
     options: AuthenticateMcpServerOptions,
   ): Promise<void> {
-    const started = await this.rpc.beginGlobalMcpServerAuth(name);
+    const started = await this.rpc.beginGlobalMcpServerAuth(name, { cwd: options.cwd });
     if (started.status === 'already-authorized') return;
     try {
       const opened = await options.onAuthorizationUrl(started.authorizationUrl);
@@ -580,8 +590,11 @@ export class PythinkerHarness {
     }
   }
 
-  async resetMcpServerAuth(name: string): Promise<void> {
-    return this.rpc.resetGlobalMcpServerAuth(name);
+  async resetMcpServerAuth(
+    name: string,
+    options: { readonly cwd?: string } = {},
+  ): Promise<void> {
+    return this.rpc.resetGlobalMcpServerAuth(name, options);
   }
 
   /**
@@ -593,7 +606,7 @@ export class PythinkerHarness {
     locator: McpServerLocator,
     options: AuthenticateMcpServerOptions,
   ): Promise<void> {
-    const started = await this.rpc.beginMcpServerAuth(locator);
+    const started = await this.rpc.beginMcpServerAuth(locator, { cwd: options.cwd });
     if (started.status === 'already-authorized') return;
     try {
       const opened = await options.onAuthorizationUrl(started.authorizationUrl);
@@ -611,8 +624,11 @@ export class PythinkerHarness {
   }
 
   /** The locator-addressed variant of {@link resetMcpServerAuth}. */
-  async resetAppMcpServerAuth(locator: McpServerLocator): Promise<void> {
-    return this.rpc.resetMcpServerAuth(locator);
+  async resetAppMcpServerAuth(
+    locator: McpServerLocator,
+    options: { readonly cwd?: string } = {},
+  ): Promise<void> {
+    return this.rpc.resetMcpServerAuth(locator, options);
   }
 
   async testMcpServer(

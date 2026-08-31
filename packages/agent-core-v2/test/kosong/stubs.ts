@@ -1,5 +1,4 @@
 import { Emitter, type Event } from '#/_base/event';
-import type { IOAuthService } from '#/app/auth/auth';
 import {
   type ConfigChangedEvent,
   type ConfigDiagnostic,
@@ -65,6 +64,18 @@ export class StubConfigService implements IConfigService {
     return Promise.resolve();
   }
 
+  previewReplaceSections(sections: Readonly<Record<string, unknown>>): ResolvedConfig {
+    const next = Object.fromEntries(this._values) as ResolvedConfig;
+    for (const [domain, value] of Object.entries(sections)) {
+      if (value === undefined || value === null) {
+        delete next[domain];
+      } else {
+        next[domain] = value;
+      }
+    }
+    return next;
+  }
+
   replaceSections(sections: Readonly<Record<string, unknown>>): Promise<void> {
     for (const [domain, value] of Object.entries(sections)) {
       const previousValue = this._values.get(domain);
@@ -112,20 +123,6 @@ export function stubTokenProvider(tokens: readonly string[]): StubTokenProvider 
       return Promise.resolve(token ?? '');
     },
   };
-}
-
-export function stubOAuthService(tokenProvider?: StubTokenProvider): IOAuthService {
-  return {
-    _serviceBrand: undefined,
-    startLogin: () => Promise.reject(new Error('not implemented')),
-    getFlow: () => undefined,
-    cancelLogin: () => Promise.reject(new Error('not implemented')),
-    logout: () => Promise.reject(new Error('not implemented')),
-    status: () => Promise.resolve({ loggedIn: false }),
-    refreshOAuthProviderModels: () => Promise.reject(new Error('not implemented')),
-    resolveTokenProvider: () => tokenProvider,
-    getCachedAccessToken: () => Promise.resolve(undefined),
-  } as unknown as IOAuthService;
 }
 
 export function stubModelOAuthTokens(

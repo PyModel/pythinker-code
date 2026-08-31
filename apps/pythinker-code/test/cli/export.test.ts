@@ -90,7 +90,6 @@ vi.mock('@pymodel/pythinker-code-oauth', async () => {
   return {
     ...actual,
     createPythinkerDeviceId: mocks.createPythinkerDeviceId,
-    PYTHINKER_CODE_PROVIDER_NAME: 'pythinker-code',
   };
 });
 
@@ -106,9 +105,7 @@ beforeEach(() => {
   // Pin the legacy engine so the default-deps cases keep exercising the legacy
   // SDK harness this suite asserts on; the routing cases below re-stub it.
   vi.stubEnv('PYTHINKER_CODE_LEGACY_FLAG', '1');
-  // Pin region to cn: the telemetry endpoint assertion must not follow the
-  // dev machine's own login/marker state.
-  vi.stubEnv('PYTHINKER_CODE_OAUTH_HOST', 'https://auth.kimi.com');
+  vi.stubEnv('PYTHINKER_CODE_REGION_MARKER', 'off');
   refreshPythinkerRegion();
   tmp = mkdtempSync(join(tmpdir(), 'pythinker-export-'));
 });
@@ -433,7 +430,6 @@ describe('pythinker export', () => {
       model: 'k2',
       sessionId: undefined,
       endpoint: expect.any(Function),
-      getAccessToken: expect.any(Function),
     });
     // The endpoint resolver defers to the active region profile at flush time.
     const telemetryOptions = mocks.initializeTelemetry.mock.calls[0]![0] as {

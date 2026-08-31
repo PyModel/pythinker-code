@@ -20,6 +20,7 @@ import {
 } from '@pymodel/kosong';
 
 import type { Agent } from '..';
+import { Emitter, type Event } from '../../base/common/event';
 import type { GenerateOptionsWithRequestLogFields } from '../llm-request-logger';
 import type { ContextMessage } from '../context/types';
 import { stripDynamicToolContext } from '../context/dynamic-tools';
@@ -60,6 +61,22 @@ const DEFAULT_COMPACTION_MAX_COMPLETION_TOKENS = 128 * 1024;
 const OVERFLOW_CONTEXT_SAFETY_RATIO = 0.85;
 const OVERFLOW_STATUS_RECOVERY_RATIO = 0.5;
 
+export interface FullCompactionTask {
+  readonly source: CompactionBeginData['source'];
+  readonly promise: Promise<void>;
+}
+
+export interface FullCompactionFinished {
+  readonly task: FullCompactionTask;
+  readonly completed: boolean;
+}
+
+interface ActiveCompaction extends FullCompactionTask {
+  readonly abortController: AbortController;
+  promise: Promise<void>;
+  blockedByTurn: boolean;
+}
+
 class CompactionTruncatedError extends Error {
   constructor() {
     super('Compaction response was truncated before producing a complete summary.');
@@ -69,11 +86,12 @@ class CompactionTruncatedError extends Error {
 
 export class FullCompaction {
   protected compactionCountInTurn = 0;
-  protected compacting: {
-    abortController: AbortController;
-    promise: Promise<void>;
-    blockedByTurn: boolean;
-  } | null = null;
+  protected compacting: ActiveCompaction | null = null;
+  private readonly _onDidStartCompaction = new Emitter<FullCompactionTask>();
+  readonly onDidStartCompaction: Event<FullCompactionTask> = this._onDidStartCompaction.event;
+  private readonly _onDidFinishCompaction = new Emitter<FullCompactionFinished>();
+  readonly onDidFinishCompaction: Event<FullCompactionFinished> =
+    this._onDidFinishCompaction.event;
   private readonly observedMaxContextTokensByModel = new Map<string, number>();
   // Token count right after the last successful compaction. While no new
   // content has been appended (tokenCountWithPending <= this value), the
@@ -203,12 +221,15 @@ export class FullCompaction {
       trigger: data.source,
       instruction: data.instruction,
     });
-    const abortController = new AbortController();
-    this.compacting = {
-      abortController,
-      promise: this.compactionWorker(abortController.signal, data),
+    const active: ActiveCompaction = {
+      source: data.source,
+      abortController: new AbortController(),
+      promise: Promise.resolve(),
       blockedByTurn: false,
     };
+    this.compacting = active;
+    active.promise = this.compactionWorker(active, data);
+    this._onDidStartCompaction.fire(active);
   }
 
   cancel(): void {
@@ -330,9 +351,11 @@ export class FullCompaction {
   }
 
   private async compactionWorker(
-    signal: AbortSignal,
+    active: ActiveCompaction,
     data: Readonly<CompactionBeginData>,
   ): Promise<void> {
+    const signal = active.abortController.signal;
+    let completed = false;
     try {
       const result = await this.compactionRound(signal, data);
       if (!result) return;
@@ -356,6 +379,7 @@ export class FullCompaction {
       // input replays (markCompleted), so only genuinely new content counts.
       this.lastCompactedTokenCount = this.tokenCountWithPending;
       this.markCompleted();
+      completed = true;
       const { contextSummary: _contextSummary, ...eventResult } = result;
       void _contextSummary;
       this.agent.emitEvent({ type: 'compaction.completed', result: eventResult });
@@ -373,6 +397,7 @@ export class FullCompaction {
         ...toPythinkerErrorPayload(error),
       });
     } finally {
+      this._onDidFinishCompaction.fire({ task: active, completed });
       // Replay prompts/steers deferred while compaction held the context — on the
       // success path (after reinjection above), on an A1 prefix/tail cancel
       // (`!result`), and on failure/abort. `compacting` is null by now in every

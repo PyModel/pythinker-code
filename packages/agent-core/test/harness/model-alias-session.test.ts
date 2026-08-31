@@ -22,15 +22,15 @@ import {
 } from '../fixtures/telemetry';
 
 const CONFIG = `
-default_model = "pythinker-code/kimi-for-coding"
+default_model = "example/test-model"
 
-[providers."managed:pythinker-code"]
+[providers."oauth-example"]
 type = "pythinker"
 api_key = "test-key"
 base_url = "https://api.example/v1"
 
-[models."pythinker-code/kimi-for-coding"]
-provider = "managed:pythinker-code"
+[models."example/test-model"]
+provider = "oauth-example"
 model = "kimi-for-coding"
 max_context_size = 1000000
 capabilities = ["thinking"]
@@ -90,29 +90,29 @@ default_effort = "${defaultEffort}"
     const rpc = await createTestRpc();
     const created = await rpc.createSession({
       workDir,
-      model: 'pythinker-code/kimi-for-coding',
+      model: 'example/test-model',
     });
 
     expect(await rpc.getModel({ sessionId: created.id, agentId: 'main' })).toBe(
-      'pythinker-code/kimi-for-coding',
+      'example/test-model',
     );
 
     const config = await rpc.getConfig({ sessionId: created.id, agentId: 'main' });
-    expect(config.modelAlias).toBe('pythinker-code/kimi-for-coding');
+    expect(config.modelAlias).toBe('example/test-model');
     expect(config.provider?.model).toBe('kimi-for-coding');
     expect(config.modelCapabilities?.max_context_tokens).toBe(1_000_000);
 
     await rpc.setModel({
       sessionId: created.id,
       agentId: 'main',
-      model: 'pythinker-code/kimi-for-coding',
+      model: 'example/test-model',
     });
 
     const freshRpc = await createTestRpc();
     await freshRpc.resumeSession({ sessionId: created.id });
 
     expect(await freshRpc.getModel({ sessionId: created.id, agentId: 'main' })).toBe(
-      'pythinker-code/kimi-for-coding',
+      'example/test-model',
     );
   });
 
@@ -218,7 +218,7 @@ max_context_size = 200000
     const rpc = await createTestRpc();
     const created = await rpc.createSession({
       workDir,
-      model: 'pythinker-code/kimi-for-coding',
+      model: 'example/test-model',
     });
     await rpc.closeSession({ sessionId: created.id });
 
@@ -236,10 +236,10 @@ max_context_size = 200000
     await freshRpc.resumeSession({ sessionId: created.id });
 
     expect(await freshRpc.getModel({ sessionId: created.id, agentId: 'main' })).toBe(
-      'pythinker-code/kimi-for-coding',
+      'example/test-model',
     );
     const config = await freshRpc.getConfig({ sessionId: created.id, agentId: 'main' });
-    expect(config.modelAlias).toBe('pythinker-code/kimi-for-coding');
+    expect(config.modelAlias).toBe('example/test-model');
     expect(config.systemPrompt.length).toBeGreaterThan(0);
   });
 
@@ -247,7 +247,7 @@ max_context_size = 200000
     const rpc = await createTestRpc();
     const created = await rpc.createSession({
       workDir,
-      model: 'pythinker-code/kimi-for-coding',
+      model: 'example/test-model',
     });
 
     const updatedConfig = await rpc.setPythinkerConfig({
@@ -352,8 +352,8 @@ reason = "no rm"
     await writeFile(
       configPath,
       CONFIG.replace(
-        'default_model = "pythinker-code/kimi-for-coding"',
-        'default_model = "pythinker-code/kimi-for-coding"\ndefault_permission_mode = "auto"',
+        'default_model = "example/test-model"',
+        'default_model = "example/test-model"\ndefault_permission_mode = "auto"',
       ),
     );
     const rpc = await createTestRpc();
@@ -391,7 +391,7 @@ reason = "no rm"
 
   it('keeps the resumed model alias visible when it no longer resolves', async () => {
     const rpc = await createTestRpc();
-    const created = await rpc.createSession({ workDir, model: 'pythinker-code/kimi-for-coding' });
+    const created = await rpc.createSession({ workDir, model: 'example/test-model' });
     await rpc.closeSession({ sessionId: created.id });
 
     // The config now has no models and no default model — the alias replayed
@@ -404,14 +404,14 @@ reason = "no rm"
     // The stale alias stays visible so the UI can surface which model the
     // user had selected. The next prompt will raise MODEL_NOT_CONFIGURED.
     expect(await freshRpc.getModel({ sessionId: created.id, agentId: 'main' })).toBe(
-      'pythinker-code/kimi-for-coding',
+      'example/test-model',
     );
   });
 
   it('logs app_version when resuming a session', async () => {
     await getRootLogger().configure(resolveLoggingConfig({ homeDir }));
     const rpc = await createTestRpc();
-    const created = await rpc.createSession({ workDir, model: 'pythinker-code/kimi-for-coding' });
+    const created = await rpc.createSession({ workDir, model: 'example/test-model' });
     await rpc.closeSession({ sessionId: created.id });
 
     const freshRpc = await createTestRpc({ appVersion: '1.2.3-test' });
@@ -425,7 +425,7 @@ reason = "no rm"
 
   it('surfaces a config error when a resumed model is configured but unresolvable', async () => {
     const rpc = await createTestRpc();
-    const created = await rpc.createSession({ workDir, model: 'pythinker-code/kimi-for-coding' });
+    const created = await rpc.createSession({ workDir, model: 'example/test-model' });
     await rpc.closeSession({ sessionId: created.id });
 
     // The model alias is still in config, but it now references a provider
@@ -434,14 +434,14 @@ reason = "no rm"
     await writeFile(
       configPath,
       `
-default_model = "pythinker-code/kimi-for-coding"
+default_model = "example/test-model"
 
-[providers."managed:pythinker-code"]
+[providers."oauth-example"]
 type = "pythinker"
 api_key = "test-key"
 base_url = "https://api.example/v1"
 
-[models."pythinker-code/kimi-for-coding"]
+[models."example/test-model"]
 provider = "ghost-provider"
 model = "kimi-for-coding"
 max_context_size = 1000000
@@ -457,7 +457,7 @@ max_context_size = 1000000
     const createRpc = await createTestRpc({ telemetry: recordingContextTelemetry(createRecords) });
     const created = await createRpc.createSession({
       workDir,
-      model: 'pythinker-code/kimi-for-coding',
+      model: 'example/test-model',
     });
 
     await createRpc.setPermission({ sessionId: created.id, agentId: 'main', mode: 'yolo' });

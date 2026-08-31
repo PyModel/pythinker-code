@@ -12,7 +12,7 @@ import type { ConfigChangedEvent } from '@pymodel/agent-core-v2/app/config/confi
 import type { ModelsChangedEvent } from '@pymodel/agent-core-v2/kosong/model/model';
 import type { ProvidersChangedEvent } from '@pymodel/agent-core-v2/kosong/provider/provider';
 import type { ReloadSummary } from '@pymodel/agent-core-v2/app/plugin/types';
-import type { IOAuthService } from '@pymodel/agent-core-v2/app/auth/auth';
+import type { IProviderDiscoveryService } from '@pymodel/agent-core-v2/app/kosongConfig/discovery';
 
 import { stringDeltaSchema } from '../helpers.js';
 import type { EventRegistration } from '../types.js';
@@ -34,9 +34,9 @@ export interface SessionMetaUpdatedPayload {
   };
 }
 
-/** Payload of `event.model_catalog.changed` — same shape as an OAuth refresh result. */
+/** Payload of `event.model_catalog.changed`. */
 export type CatalogChangedPayload = Awaited<
-  ReturnType<IOAuthService['refreshOAuthProviderModels']>
+  ReturnType<IProviderDiscoveryService['refreshProviderModels']>
 >;
 
 /** Public event name → payload type. Keys must stay in sync with `globalEvents`. */

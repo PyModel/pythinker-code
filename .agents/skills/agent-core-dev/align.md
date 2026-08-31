@@ -14,7 +14,7 @@ v1 is a **VSCode-style singleton container**: services self-register with `regis
 |---|---|---|
 | Registration | `registerSingleton(IX, X, InstantiationType.Delayed)` | `registerScopedService(LifecycleScope.X, IX, X, ScopeActivation.OnDemand, 'domain')` |
 | DI import | `from '../../di'` | `from '#/_base/di/scope'` / `'#/_base/di/instantiation'` / `'#/_base/di/lifecycle'` |
-| Lifetime | implicit singleton-per-container | explicit `LifecycleScope` (App/Workspace/Session/Agent) — see orient.md |
+| Lifetime | implicit singleton-per-container | explicit `LifecycleScope` (App/Session/Agent); workspace resources use the separate `WorkspaceInstance` / `Program` lifetime — see orient.md |
 | Domain granularity | coarse (`session`, `tool`, `loop`) | fine, split by scope + responsibility |
 | Test import | `from '@pymodel/agent-core/di/test'` | `from '#/_base/di/test'` |
 | Resolve SUT in tests | `ix.createInstance(Impl)` (common) | `ix.get(IX)` by interface — see test.md |

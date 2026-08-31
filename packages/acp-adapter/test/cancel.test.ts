@@ -72,7 +72,7 @@ describe('AcpServer cancel', () => {
     } as unknown as PythinkerHarness;
 
     const { agentStream, clientStream } = makeInMemoryStreamPair();
-    new AgentSideConnection((c) => new AcpServer(harness, c), agentStream);
+    new AgentSideConnection((c) => new AcpServer(harness, c, { disableAuth: true }), agentStream);
     const client = new ClientSideConnection((_a) => new StubClient(), clientStream);
 
     await client.newSession({ cwd: '/tmp/x', mcpServers: [] });
@@ -96,7 +96,7 @@ describe('AcpServer cancel', () => {
     } as unknown as PythinkerHarness;
 
     const { agentStream, clientStream } = makeInMemoryStreamPair();
-    new AgentSideConnection((c) => new AcpServer(harness, c), agentStream);
+    new AgentSideConnection((c) => new AcpServer(harness, c, { disableAuth: true }), agentStream);
     const client = new ClientSideConnection((_a) => new StubClient(), clientStream);
 
     // Notification: no response, no throw.
@@ -127,7 +127,7 @@ describe('AcpServer cancel', () => {
     } as unknown as PythinkerHarness;
 
     const { agentStream, clientStream } = makeInMemoryStreamPair();
-    new AgentSideConnection((c) => new AcpServer(harness, c), agentStream);
+    new AgentSideConnection((c) => new AcpServer(harness, c, { disableAuth: true }), agentStream);
     const client = new ClientSideConnection((_a) => new StubClient(), clientStream);
 
     await client.newSession({ cwd: '/tmp/x', mcpServers: [] });
@@ -158,7 +158,7 @@ describe('AcpServer cancel', () => {
     } as unknown as PythinkerHarness;
 
     const { agentStream, clientStream } = makeInMemoryStreamPair();
-    new AgentSideConnection((c) => new AcpServer(harness, c), agentStream);
+    new AgentSideConnection((c) => new AcpServer(harness, c, { disableAuth: true }), agentStream);
     const client = new ClientSideConnection((_a) => new StubClient(), clientStream);
 
     const { sessionId } = await client.newSession({ cwd: '/tmp/x', mcpServers: [] });
@@ -198,7 +198,7 @@ describe('AcpServer cancel', () => {
     } as unknown as PythinkerHarness;
 
     const { agentStream, clientStream } = makeInMemoryStreamPair();
-    new AgentSideConnection((c) => new AcpServer(harness, c), agentStream);
+    new AgentSideConnection((c) => new AcpServer(harness, c, { disableAuth: true }), agentStream);
     const client = new ClientSideConnection((_a) => new StubClient(), clientStream);
 
     const { sessionId } = await client.newSession({ cwd: '/tmp/x', mcpServers: [] });

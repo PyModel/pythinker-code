@@ -98,6 +98,19 @@ export interface AppSession {
   parentSessionId?: string;
 }
 
+export interface AppSessionGroup {
+  workspace: { id: string; cwd: string | null };
+  sessions: AppSession[];
+  total: number;
+}
+
+export interface AppSessionGroupPage {
+  groups: AppSessionGroup[];
+  hasMore: boolean;
+  nextPageToken: string | null;
+  total: number;
+}
+
 /**
  * Live runtime state from GET /sessions/{id}/status — the source of truth for
  * the current model + context usage (Session.agent_config.model can be "").
@@ -317,6 +330,30 @@ export interface QuestionResponse {
 export type AppTaskStatus = 'running' | 'completed' | 'failed' | 'cancelled';
 export type AppSubagentPhase = 'queued' | 'working' | 'suspended' | 'completed' | 'failed' | 'cancelled';
 
+export type AppSubagentRoutingOperation = 'spawn' | 'fork' | 'resume';
+export type AppSubagentProfileSource = 'requested' | 'default' | 'fork-inherit' | 'resume-existing';
+export type AppSubagentModelSource =
+  | 'caller'
+  | 'policy-default'
+  | 'policy-pool'
+  | 'policy-force'
+  | 'fork-inherit'
+  | 'resume-existing';
+export type AppSubagentPolicyMode = 'inherit' | 'default' | 'pool' | 'force';
+export type AppSubagentPolicySource = 'config' | 'default';
+export type AppSubagentFeatureSource = 'master-env' | 'env' | 'config' | 'default';
+
+export interface AppSubagentRouting {
+  operation: AppSubagentRoutingOperation;
+  profileSource: AppSubagentProfileSource;
+  modelSource: AppSubagentModelSource;
+  policyMode: AppSubagentPolicyMode;
+  policySource: AppSubagentPolicySource;
+  featureSource: AppSubagentFeatureSource;
+  routingEnvRevision: string;
+  routeDecision: string;
+}
+
 export interface AppTask {
   id: string;
   sessionId: string;
@@ -333,6 +370,10 @@ export interface AppTask {
   agentId?: string;
   model?: string;
   thinkingEffort?: string;
+  /** Why the subagent is bound the way it is (stable enum ids from the server). */
+  routing?: AppSubagentRouting;
+  /** The caller's routing environment revision when this task was observed. */
+  currentRoutingEnvRevision?: string;
   outputLines?: string[]; // accumulated by eventReducer from task.progress chunks
   /** The subagent's concatenated live output (assistant.delta), accumulated by
    *  the event reducer from `taskProgress` chunks of kind `text`. Grows in the
@@ -354,6 +395,14 @@ export interface AppTask {
    *  this links the two so the REST copy can be folded into this row and so
    *  cancel can target the id REST actually knows. */
   backgroundTaskId?: string;
+}
+
+export interface AppTaskListOptions {
+  status?: AppTaskStatus;
+  withOutput?: boolean;
+  outputBytes?: number;
+  outputStatus?: 'running' | 'all';
+  signal?: AbortSignal;
 }
 
 // ---------------------------------------------------------------------------
@@ -799,17 +848,44 @@ export interface AppConfigProvider {
   hasApiKey: boolean;
 }
 
+export type AppSubagentModelPolicy =
+  | { mode: 'inherit' }
+  | { mode: 'default'; defaultModel: string; defaultEffort?: string }
+  | { mode: 'pool'; defaultModel: string; models: Record<string, string>; defaultEffort?: string }
+  | { mode: 'force'; defaultModel: string; defaultEffort?: string };
+
+/** GET/PUT/DELETE `/config/subagent-model-policy`: the saved policy, its
+ *  strong resource version (the HTTP ETag), and what currently applies. */
+export interface AppSubagentModelPolicyState {
+  policy: AppSubagentModelPolicy;
+  resourceVersion: string;
+  configuredPolicy: AppSubagentModelPolicy;
+  effectivePolicy: AppSubagentModelPolicy;
+  policySource: 'config' | 'default';
+  feature: { enabled: boolean; source: 'master-env' | 'env' | 'config' | 'default' };
+}
+
+/** Thrown by the policy writes when the server's version moved (HTTP 412). */
+export class SubagentModelPolicyConflictError extends Error {
+  constructor(readonly current: AppSubagentModelPolicyState) {
+    super('The subagent model policy changed on the server; reloaded the saved policy.');
+    this.name = 'SubagentModelPolicyConflictError';
+  }
+}
+
 export interface AppConfig {
   providers: Record<string, AppConfigProvider>;
   defaultProvider?: string;
   defaultModel?: string;
-  /** Secondary (subagent) model recipe. `model` names a catalog entry or
-   *  config `models` alias; `defaultEffort` mirrors the daemon's
-   *  `secondaryModel` config section (wire key `secondary_model`). */
+  /** Secondary (subagent) model selection. `null` clears the override so
+   *  subagents inherit their caller's model and thinking effort. */
   secondaryModel?: {
+    defaultModel?: string;
+    models?: Record<string, string>;
+    force?: boolean;
     model?: string;
     defaultEffort?: string;
-  };
+  } | null;
   models?: Record<string, unknown>;
   thinking?: { enabled?: boolean; effort?: string };
   planMode?: boolean;
@@ -828,7 +904,6 @@ export interface AppConfig {
   background?: unknown;
   experimental?: Record<string, boolean>;
   telemetry?: boolean;
-  raw?: Record<string, unknown>;
 }
 
 /** A session-scoped skill the user can invoke from the slash menu. */
@@ -924,10 +999,39 @@ export interface AppSessionWarning {
   severity: 'info' | 'warning' | 'error';
 }
 
+export type AppExperimentalFlagSource = 'master-env' | 'env' | 'config' | 'default';
+
+/** Effective state of one experimental flag as decided by the server. */
+export interface AppExperimentalFlagState {
+  id: string;
+  /** What currently applies at runtime. */
+  enabled: boolean;
+  source: AppExperimentalFlagSource;
+  /** The saved `[experimental]` value, when one exists. */
+  configValue?: boolean;
+  defaultEnabled: boolean;
+  /** True when an environment variable decides the flag; the saved setting has no runtime effect. */
+  externallyControlled: boolean;
+  /** True when a saved setting exists and the effective value differs from it. */
+  overridden: boolean;
+}
+
+export interface AppServerMeta {
+  serverVersion: string;
+  serverId: string;
+  startedAt: string;
+  capabilities: Record<string, boolean>;
+  openInApps: string[];
+  dangerousBypassAuth: boolean;
+  backend: 'v1' | 'v2';
+  experimentalFlagStates: AppExperimentalFlagState[];
+}
+
 export interface PythinkerWebApi {
   getHealth(): Promise<{ status: 'ok'; uptimeSec: number }>;
-  getMeta(): Promise<{ serverVersion: string; serverId: string; startedAt: string; capabilities: Record<string, boolean>; openInApps: string[]; dangerousBypassAuth: boolean; backend: 'v1' | 'v2' }>;
+  getMeta(): Promise<AppServerMeta>;
   listSessions(input?: PageRequest & { busy?: boolean; workspaceId?: string; includeArchive?: boolean; archivedOnly?: boolean; excludeEmpty?: boolean }): Promise<Page<AppSession>>;
+  listSessionGroupsV2(input?: { groupPageSize?: number; hasPrompt?: boolean; pageSize?: number; pageToken?: string }): Promise<AppSessionGroupPage>;
   createSession(input: { title?: string; cwd?: string; model?: string; workspaceId?: string }): Promise<AppSession>;
   /** Fetch one session by id (deep links beyond the first listSessions page). */
   getSession(sessionId: string): Promise<AppSession>;
@@ -980,9 +1084,11 @@ export interface PythinkerWebApi {
   listPlugins(): Promise<AppPlugin[]>;
   setPluginEnabled(pluginId: string, enabled: boolean): Promise<{ id: string; enabled: boolean }>;
   listSubagents(workDir: string): Promise<AppSubagent[]>;
-  listTasks(sessionId: string, status?: AppTaskStatus): Promise<AppTask[]>;
-  getTask(sessionId: string, taskId: string, input?: { withOutput?: boolean; outputBytes?: number }): Promise<AppTask>;
+  listTasks(sessionId: string, input?: AppTaskListOptions): Promise<AppTask[]>;
+  getTask(sessionId: string, taskId: string, input?: { withOutput?: boolean; outputBytes?: number; signal?: AbortSignal }): Promise<AppTask>;
   cancelTask(sessionId: string, taskId: string): Promise<{ cancelled: true }>;
+  /** Release a running foreground task so it keeps running in the background. */
+  detachTask(sessionId: string, taskId: string): Promise<{ detached: boolean; status: AppTaskStatus }>;
   listTerminals(sessionId: string): Promise<AppTerminal[]>;
   createTerminal(sessionId: string, input?: { cwd?: string; shell?: string; cols?: number; rows?: number }): Promise<AppTerminal>;
   getTerminal(sessionId: string, terminalId: string): Promise<AppTerminal>;
@@ -998,6 +1104,7 @@ export interface PythinkerWebApi {
   getFileDownloadUrl(sessionId: string, path: string): string;
   openFile(sessionId: string, input: { path: string; line?: number }): Promise<{ opened: true }>;
   revealFile(sessionId: string, input: { path: string }): Promise<{ revealed: true }>;
+  revealSavedPlan(sessionId: string, input: { agentId: string; toolCallId: string }): Promise<{ revealed: true }>;
   /** Open the session working directory (or a session-relative path) in an external application. */
   openInApp(sessionId: string, appId: string, path: string, line?: number): Promise<void>;
   connectEvents(handlers: PythinkerEventHandlers): PythinkerEventConnection;
@@ -1021,7 +1128,6 @@ export interface PythinkerWebApi {
   deleteProvider(id: string): Promise<{ deleted: true }>;
   refreshProvider(id: string): Promise<ProviderRefreshResult>;
   refreshAllProviders(): Promise<ProviderRefreshResult>;
-  refreshOAuthProviderModels(): Promise<ProviderRefreshResult>;
   startCodexLogin(): Promise<CodexLoginStart>;
   getCodexLoginStatus(loginId: string): Promise<CodexLoginStatus>;
   submitCodexLoginRedirect(loginId: string, redirectUrl: string): Promise<CodexLoginStatus>;
@@ -1036,39 +1142,15 @@ export interface PythinkerWebApi {
   // Config — REAL endpoints
   getConfig(): Promise<AppConfig>;
   setConfig(patch: Partial<AppConfig>): Promise<AppConfig>;
+  getSubagentModelPolicy(): Promise<AppSubagentModelPolicyState>;
+  /** `expectedVersion` is sent as If-Match; a stale version rejects with SubagentModelPolicyConflictError. */
+  setSubagentModelPolicy(policy: AppSubagentModelPolicy, expectedVersion?: string): Promise<AppSubagentModelPolicyState>;
+  clearSubagentModelPolicy(expectedVersion?: string): Promise<AppSubagentModelPolicyState>;
 
   // Auth — REAL endpoints
   getAuth(): Promise<{
     ready: boolean;
     providersCount: number;
     defaultModel: string | null;
-    managedProvider: { status: string } | null;
   }>;
-  startOAuthLogin(): Promise<OAuthLoginStartResult>;
-  pollOAuthLogin(): Promise<{
-    flowId: string;
-    status: 'pending' | 'authenticated' | 'expired' | 'cancelled';
-    resolvedAt?: string;
-  } | null>;
-  cancelOAuthLogin(): Promise<{ cancelled: boolean; status: string }>;
-  logout(): Promise<{ loggedOut: boolean }>;
 }
-
-/** Result of `startOAuthLogin()`, mirroring the wire discriminated union. */
-export type OAuthLoginStartResult =
-  | {
-      flowId: string;
-      provider: string;
-      status: 'pending';
-      verificationUri: string;
-      verificationUriComplete: string;
-      userCode: string;
-      expiresIn: number;
-      interval: number;
-      expiresAt: string;
-    }
-  | {
-      flowId: string;
-      provider: string;
-      status: 'authenticated';
-    };

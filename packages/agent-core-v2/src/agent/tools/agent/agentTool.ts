@@ -1,3 +1,5 @@
+import type { SubagentBindingProvenance } from '#/session/subagent/routing';
+import { ISubagentRoutingService } from '#/session/subagent/subagentRoutingService';
 import { type CollectionView } from '#/_base/di/collection';
 import type { IAgentScopeHandle } from '#/_base/di/scope';
 import {
@@ -18,7 +20,6 @@ import {
   resolveActiveToolNames,
 } from '#/agent/toolPolicy/evaluate';
 import { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
-import type { AgentContext } from '#/agent/agentContext/agentContext';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentLoopService } from '#/agent/loop/loop';
 import {
@@ -94,13 +95,12 @@ export class SubagentTool implements ISubagentTool {
   }
 
   private readonly callerAgentId: string;
-  private readonly callerAgent: AgentContext;
   private readonly canRunInBackground: () => boolean;
   private catalogReady = false;
   private frozenCatalogProfiles: readonly AgentProfile[] | undefined;
 
   constructor(
-    @IAgentLifecycleService private readonly lifecycle: IAgentLifecycleService,
+    @IAgentLifecycleService private readonly agentLifecycle: IAgentLifecycleService,
     @ISessionSubagentService private readonly subagents: ISessionSubagentService,
     @ISessionAgentProfileCatalog private readonly catalog: ISessionAgentProfileCatalog,
     @IAgentScopeContext scopeContext: IAgentScopeContext,
@@ -113,9 +113,9 @@ export class SubagentTool implements ISubagentTool {
     @IConfigService private readonly config: IConfigService,
     @IFlagService private readonly flags: IFlagService,
     @AgentToolContribution private readonly contributions: CollectionView<AgentToolContribution>,
+    @ISubagentRoutingService private readonly routing: ISubagentRoutingService,
   ) {
     this.callerAgentId = scopeContext.agentId;
-    this.callerAgent = scopeContext.agentContext;
     this.canRunInBackground = () =>
       this.toolPolicy.isToolActive('TaskList') &&
       this.toolPolicy.isToolActive('TaskOutput') &&
@@ -254,7 +254,7 @@ export class SubagentTool implements ISubagentTool {
   }
 
   private resumeProfileName(agentId: string): string | undefined {
-    const target = this.lifecycle.findAgentHandle(agentId);
+    const target = this.agentLifecycle.handleOf(agentId);
     if (target === undefined) return undefined;
     return target.accessor.get(IAgentProfileService).data().profileName;
   }
@@ -264,7 +264,7 @@ export class SubagentTool implements ISubagentTool {
     toolCallId: string,
     controller: AbortController,
   ): Promise<SubagentHandle> {
-    const requester = this.lifecycle.get(this.callerAgent);
+    const requester = this.agentLifecycle.handleOf(this.callerAgentId);
     if (requester === undefined) {
       throw new Error2(
         ErrorCodes.AGENT_NOT_FOUND,
@@ -279,9 +279,11 @@ export class SubagentTool implements ISubagentTool {
     let agentId: string;
     let profileName: string;
     let displayModel: string | undefined;
+    let routing: SubagentBindingProvenance | undefined;
+    let currentRoutingEnvironmentRevision: string | undefined;
     let promptText = args.prompt;
     if (isResume) {
-      const target = this.lifecycle.findAgentHandle(resumeAgentId);
+      const target = this.agentLifecycle.handleOf(resumeAgentId);
       if (target === undefined) {
         throw new Error2(ErrorCodes.AGENT_NOT_FOUND, `Agent instance "${resumeAgentId}" does not exist`, {
           details: { agentId: resumeAgentId },
@@ -292,6 +294,9 @@ export class SubagentTool implements ISubagentTool {
       const resumed = target.accessor.get(IAgentProfileService).data();
       profileName = resumed.profileName ?? RESUMED_LABEL;
       displayModel = resumed.modelAlias;
+      const resumedRouting = this.routing.resumed(this.callerAgentId, target);
+      routing = resumedRouting.routing;
+      currentRoutingEnvironmentRevision = resumedRouting.currentRoutingEnvironmentRevision;
     } else {
       const plan = await this.subagents.planSpawn({
         callerAgentId: this.callerAgentId,
@@ -304,14 +309,17 @@ export class SubagentTool implements ISubagentTool {
         plan,
         labels: subagentLabels(this.callerAgentId),
         prompt: args.prompt,
+        signal: controller.signal,
       });
       agentId = spawned.agentId;
       profileName = spawned.profileName;
       displayModel = spawned.model;
+      routing = plan.routing;
+      currentRoutingEnvironmentRevision = plan.routing?.resolvedFromRoutingEnvironmentRevision;
       promptText = spawned.promptText;
     }
 
-    const target = this.lifecycle.findAgentHandle(agentId);
+    const target = this.agentLifecycle.handleOf(agentId);
     if (target === undefined) throw new Error(`Agent "${agentId}" does not exist`);
     const run = await this.subagents.run(
       target.accessor.get(IAgentScopeContext).agentContext,
@@ -332,9 +340,11 @@ export class SubagentTool implements ISubagentTool {
       profileName,
       parentToolCallId: toolCallId,
       model: displayModel,
-      thinkingEffort: this.lifecycle.findAgentHandle(agentId)
+      thinkingEffort: this.agentLifecycle.handleOf(agentId)
         ?.accessor.get(IAgentProfileService)
         .getEffectiveThinkingLevel(),
+      routing,
+      currentRoutingEnvironmentRevision,
       completion: mirrored.then((r) => ({ result: r.summary, usage: r.usage })),
     };
   }
@@ -452,7 +462,7 @@ export class SubagentTool implements ISubagentTool {
         };
       }
 
-      const requester = this.lifecycle.get(this.callerAgent);
+      const requester = this.agentLifecycle.handleOf(this.callerAgentId);
       if (requester !== undefined) {
         emitAgentRunSpawned(requester, handle.agentId, {
           profileName: handle.profileName,
@@ -462,6 +472,8 @@ export class SubagentTool implements ISubagentTool {
           fork: args.fork === true,
           model: handle.model,
           taskId,
+          routing: handle.routing,
+          currentRoutingEnvironmentRevision: handle.currentRoutingEnvironmentRevision,
         });
         void requester.accessor
           .get(IEventDispatcher)
@@ -470,14 +482,14 @@ export class SubagentTool implements ISubagentTool {
 
       if (runInBackground) {
         return {
-          output: formatBackgroundAgentResult(taskId, handle, args.description, allowBackground),
+          output: formatBackgroundAgentResult(taskId, handle, args.description, allowBackground, false),
         };
       }
 
       const release = await this.tasks.waitForForegroundRelease(taskId);
       if (release === 'detached') {
         return {
-          output: formatBackgroundAgentResult(taskId, handle, args.description, allowBackground),
+          output: formatBackgroundAgentResult(taskId, handle, args.description, allowBackground, true),
         };
       }
       return await this.formatForegroundResult(taskId, handle, timeoutMs);
@@ -563,7 +575,11 @@ function formatBackgroundAgentResult(
   handle: SubagentHandle,
   description: string,
   allowBackground: boolean,
+  detachedByUser: boolean,
 ): string {
+  const nextStep = allowBackground
+    ? `next_step: The completion arrives automatically in a later turn — do NOT wait, poll, or call TaskOutput on it; continue with other work or hand back to the user. (If you have nothing to do until it finishes, run such tasks in the foreground next time.)`
+    : 'next_step: The completion arrives automatically in a later turn.';
   return [
     `task_id: ${taskId}`,
     'status: running',
@@ -573,9 +589,7 @@ function formatBackgroundAgentResult(
     '',
     `description: ${description}`,
     '',
-    allowBackground
-      ? `next_step: The completion arrives automatically in a later turn — do NOT wait, poll, or call TaskOutput on it; continue with other work or hand back to the user. (If you have nothing to do until it finishes, run such tasks in the foreground next time.)`
-      : 'next_step: The completion arrives automatically in a later turn.',
+    detachedByUser ? `note: The user moved this subagent to the background.\n${nextStep}` : nextStep,
     `resume_hint: To continue or recover this same subagent later, call Agent(resume="${handle.agentId}", prompt="..."). The parameter is agent_id ("${handle.agentId}"), NOT task_id ("${taskId}") or source_id from a later <notification>. Recovery cases: a later <notification type="task.lost" | "task.failed" | "task.killed"> for this subagent — its conversation history is preserved across session restarts and resume will pick it up.`,
   ].join('\n');
 }

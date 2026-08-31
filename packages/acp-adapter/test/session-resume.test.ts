@@ -156,7 +156,7 @@ describe('AcpServer.resumeSession', () => {
     const harness = makeHarness({ hasUsableToken: true, session });
 
     const { agentStream, clientStream } = makeInMemoryStreamPair();
-    new AgentSideConnection((c) => new AcpServer(harness, c), agentStream);
+    new AgentSideConnection((c) => new AcpServer(harness, c, { disableAuth: true }), agentStream);
     const clientConn = new ClientSideConnection((_a) => new CapturingClient(), clientStream);
 
     const response = await clientConn.resumeSession({
@@ -216,7 +216,7 @@ describe('AcpServer.resumeSession', () => {
     const harness = makeHarness({ hasUsableToken: true, session });
 
     const { agentStream, clientStream } = makeInMemoryStreamPair();
-    new AgentSideConnection((c) => new AcpServer(harness, c), agentStream);
+    new AgentSideConnection((c) => new AcpServer(harness, c, { disableAuth: true }), agentStream);
     const client = new CapturingClient();
     const clientConn = new ClientSideConnection((_a) => client, clientStream);
 
@@ -241,7 +241,7 @@ describe('AcpServer.resumeSession', () => {
       resumeError: new PythinkerError(ErrorCodes.SESSION_NOT_FOUND, 'Session "ghost" was not found'),
     });
     const { agentStream, clientStream } = makeInMemoryStreamPair();
-    new AgentSideConnection((c) => new AcpServer(harness, c), agentStream);
+    new AgentSideConnection((c) => new AcpServer(harness, c, { disableAuth: true }), agentStream);
     const clientConn = new ClientSideConnection((_a) => new CapturingClient(), clientStream);
 
     await expect(
@@ -256,7 +256,7 @@ describe('AcpServer.resumeSession', () => {
     const { agentStream, clientStream } = makeInMemoryStreamPair();
     let server: AcpServer | undefined;
     new AgentSideConnection((c) => {
-      server = new AcpServer(harness, c);
+      server = new AcpServer(harness, c, { disableAuth: true });
       return server;
     }, agentStream);
     const clientConn = new ClientSideConnection((_a) => new CapturingClient(), clientStream);

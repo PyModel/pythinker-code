@@ -6,6 +6,7 @@ import Sidebar from './components/Sidebar.vue';
 import SessionAdminView, { type AdminSession } from './components/SessionAdminView.vue';
 import ResizeHandle from './components/ResizeHandle.vue';
 import ConversationPane from './components/chat/ConversationPane.vue';
+import SelectionActionBar from './components/chat/SelectionActionBar.vue';
 import MediaLightbox from './components/MediaLightbox.vue';
 import FilePreview from './components/FilePreview.vue';
 import EditorPanel from './components/editor/EditorPanel.vue';
@@ -15,13 +16,13 @@ import ToolDiffPanel from './components/chat/ToolDiffPanel.vue';
 import TurnDiffPanel from './components/chat/TurnDiffPanel.vue';
 import SideChatPanel from './components/chat/SideChatPanel.vue';
 import DiffView from './components/chat/DiffView.vue';
+import PanelTabBar from './components/panel/PanelTabBar.vue';
 import ModelPicker from './components/settings/ModelPicker.vue';
 import SettingsDialog from './components/settings/SettingsDialog.vue';
 import AddWorkspaceDialog from './components/dialogs/AddWorkspaceDialog.vue';
 import ConfirmDialogHost from './components/dialogs/ConfirmDialogHost.vue';
 import StatusPanel from './components/chat/StatusPanel.vue';
 import WarningToasts from './components/WarningToasts.vue';
-import UpdateDialog from './components/UpdateDialog.vue';
 import ActionToast from './components/ui/ActionToast.vue';
 import WindowControls from './components/WindowControls.vue';
 import MobileTopBar from './components/mobile/MobileTopBar.vue';
@@ -36,10 +37,11 @@ import { isTraceEnabled } from './debug/trace';
 import { usePythinkerWebClient } from './composables/usePythinkerWebClient';
 import { useConfirmDialog } from './composables/useConfirmDialog';
 import type { PromptAttachment } from './composables/usePythinkerWebClient';
-import type { ToolMedia, TurnAttachment } from './types';
+import type { FilePreviewRequest, ToolMedia, TurnAttachment } from './types';
 import { useAuthGate } from './composables/useAuthGate';
 import { usePageTitle } from './composables/usePageTitle';
 import { useSidebarLayout } from './composables/useSidebarLayout';
+import { useDesktopUpdate } from './composables/useDesktopUpdate';
 import { resolveMediaUrl, useFilePreview, type DetailTarget } from './composables/useFilePreview';
 import {
   closeFileEditor,
@@ -48,6 +50,7 @@ import {
 } from './composables/useWorkspaceEditor';
 import type { TurnFileChange } from './lib/turnFiles';
 import { useDetailPanel } from './composables/useDetailPanel';
+import { usePanelTabs, type PanelTab } from './composables/usePanelTabs';
 import { useIsMobile } from './composables/useIsMobile';
 import { openDialogCount } from './composables/dialogStack';
 import type { DynamicWorkflowMember } from './composables/dynamicWorkflowGroups';
@@ -72,6 +75,7 @@ const authRequired = ref(false);
 let offAuthRequired: (() => void) | null = null;
 
 const client = usePythinkerWebClient();
+const desktopUpdate = useDesktopUpdate();
 const archivedSessions = ref<import('./types').Session[]>([]);
 const showSessionAdmin = ref(false);
 const sessionActionToast = ref<{
@@ -200,6 +204,16 @@ provide(
   'resolveDynamicWorkflowMembers',
   (toolCallId: string): DynamicWorkflowMember[] => client.dynamicWorkflowMembersByToolCallId.value.get(toolCallId) ?? [],
 );
+// The session's own binding, so the Dynamic Workflow card can show MAIN next
+// to SUBAGENTS; the Override chip on that card opens Settings → Agent.
+provide('mainModelBinding', (): { model?: string; effort?: string } | undefined => {
+  const modelId = client.status.value.modelId;
+  if (!modelId) return undefined;
+  return { model: modelId, effort: client.thinking.value };
+});
+provide('openAgentSettings', (): void => {
+  openSettings('agent');
+});
 const { t } = useI18n();
 const { confirm } = useConfirmDialog();
 
@@ -326,6 +340,7 @@ function syncAppHeight(): void {
 }
 
 onMounted(() => {
+  desktopUpdate.subscribe();
   // Register the 401 listener before the first requests go out, so a token
   // rejection during the initial load() can never be missed.
   offAuthRequired = onAuthRequired(() => {
@@ -346,6 +361,7 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+  desktopUpdate.unsubscribe();
   closeMediaLightbox();
   document.removeEventListener('keydown', onGlobalKeydown, true);
   window.visualViewport?.removeEventListener('resize', syncAppHeight);
@@ -364,34 +380,44 @@ onUnmounted(() => {
 });
 
 function onGlobalKeydown(e: KeyboardEvent): void {
-  if (e.key !== 'Escape') return;
+  if (e.key !== 'Escape' || e.isComposing) return;
   // A modal dialog open on top of the side panel owns Escape — leave the event
   // alone so the dialog can close itself instead of the panel behind it.
   if (anyOverlayOpen.value) return;
-  if (detailTarget.value === 'turnDiff') closeTurnDiff();
-  else if (!closeOpenSidePanel()) return;
+  if (!hidePanel()) return;
   e.stopPropagation();
   e.preventDefault();
 }
 
 // ---------------------------------------------------------------------------
-// Unified right-side detail layer. Only one detail is open at a time. The
-// shared `detailTarget` ref lives here so the file-preview and detail-panel
-// composables can both claim the single right-side slot.
+// Right-side detail content remains architecture-native, while the tab model
+// keeps several targets open and activates one content instance at a time.
 // ---------------------------------------------------------------------------
 const detailTarget = ref<DetailTarget | null>(null);
 const turnDiffTarget = ref<{ turnId: string; changes: TurnFileChange[] } | null>(null);
+const panelSessionKey = computed(
+  () => client.activeSessionId.value ?? `__draft__:${client.activeWorkspaceId.value ?? 'none'}`,
+);
+const {
+  tabs: panelTabs,
+  activeTabId: activePanelTabId,
+  activeTab: activePanelTab,
+  visible: panelVisible,
+  expanded: panelExpanded,
+  openTab,
+  activateTab,
+  closeTab,
+  hidePanel,
+  togglePanel,
+  toggleExpanded: togglePanelExpanded,
+} = usePanelTabs(panelSessionKey);
 
-function openTurnDiff(target: { turnId: string; changes: TurnFileChange[] }): void {
-  if (detailTarget.value === 'turnDiff' && turnDiffTarget.value?.turnId === target.turnId) {
-    closeTurnDiff();
-    return;
-  }
+function showTurnDiff(target: { turnId: string; changes: TurnFileChange[] }): void {
   turnDiffTarget.value = target;
   detailTarget.value = 'turnDiff';
 }
 
-function closeTurnDiff(): void {
+function clearTurnDiff(): void {
   turnDiffTarget.value = null;
   if (detailTarget.value === 'turnDiff') detailTarget.value = null;
 }
@@ -401,7 +427,7 @@ function closeTurnDiff(): void {
 // animating open from zero.
 const panelSwitching = ref(false);
 watch(client.activeSessionId, () => {
-  closeTurnDiff();
+  clearTurnDiff();
   panelSwitching.value = true;
   void nextTick(() => { panelSwitching.value = false; });
 });
@@ -413,21 +439,22 @@ const {
   previewError,
   previewDownloadUrl,
   previewExternalActions,
-  openFilePreview,
-  closeFilePreview,
+  openFilePreview: showFilePreview,
+  closeFilePreview: clearFilePreview,
   openPreviewInEditor,
   revealPreviewFile,
 } = useFilePreview({ client, detailTarget });
 
 installEditorSessionSource(() => client.activeSessionId.value);
 
-function handleOpenInEditor(path: string): void {
+function showEditor(path: string): void {
   detailTarget.value = 'editor';
   void openFileEditor({ path, line: previewTarget.value?.line });
 }
 
-function handleCloseEditor(): void {
+function clearEditor(): void {
   if (detailTarget.value === 'editor') detailTarget.value = null;
+  closeFileEditor();
 }
 
 watch(detailTarget, (target, previous) => {
@@ -464,11 +491,7 @@ function closeMediaLightbox(): void {
   lightboxSrc.value = null;
 }
 
-// True while the right-side slot is actually occupied, so the sidebar reserves
-// room for it and the conversation can never be squeezed. Keyed off detailTarget
-// (the real occupant) rather than previewTarget, which can stay set after the
-// panel is hidden.
-const previewOpen = computed(() => detailTarget.value !== null);
+const previewOpen = computed(() => panelVisible.value);
 
 // ---------------------------------------------------------------------------
 // Layout: resizable session column. ResizeHandle owns the column width (with
@@ -500,8 +523,8 @@ const {
   previewPanelWidth,
   compactionPanelText,
   compactionPanelVisible,
-  openCompactionPanel,
-  closeCompactionPanel,
+  openCompactionPanel: showCompactionPanel,
+  closeCompactionPanel: clearCompactionPanel,
   agentPanelMember,
   agentPanelTurns,
   agentPanelLoading,
@@ -510,27 +533,152 @@ const {
   agentPanelLoadMoreError,
   agentPanelHasMore,
   agentPanelRunning,
-  openAgentPanel,
-  closeAgentPanel,
+  openAgentPanel: showAgentPanel,
+  closeAgentPanel: clearAgentPanel,
   loadOlderAgentMessages,
   toolDiffTarget,
-  openToolDiff,
-  closeToolDiff,
+  openToolDiff: showToolDiff,
+  closeToolDiff: clearToolDiff,
   detailDiffMode,
   detailDiffPath,
-  openDiffDetail,
-  closeDiffDetail,
+  openDiffDetail: showDiffDetail,
+  closeDiffDetail: clearDiffDetail,
   selectDiffFile,
   btwVisible,
-  openSideChatTab,
-  closeSideChat,
-  sidePanelVisible,
+  openSideChatTab: startSideChat,
+  closeSideChat: stopSideChat,
+  hideSideChatPanel,
   panelDragging,
-  closeOpenSidePanel,
-} = useDetailPanel({ client, sideWidth, detailTarget, closeFilePreview });
+} = useDetailPanel({ client, sideWidth, detailTarget, closeFilePreview: clearFilePreview });
+
+function pathTitle(path: string): string {
+  return path.split(/[\\/]/).filter(Boolean).at(-1) ?? path;
+}
+
+function openFilePreview(target: FilePreviewRequest): void {
+  openTab({ type: 'file', key: target.path, title: pathTitle(target.path), icon: 'file-text', payload: target });
+}
+
+function handleOpenInEditor(path: string): void {
+  openTab({ type: 'editor', key: path, title: pathTitle(path), icon: 'file-edit', payload: { path } });
+}
+
+function openCompactionPanel(target: { turnId: string }): void {
+  openTab({ type: 'compaction', key: target.turnId, title: t('panel.tabs.compaction'), icon: 'thinking', payload: target });
+}
+
+function openAgentPanel(target: string): void {
+  const task = client.activeAppTasks.value.find((candidate) =>
+    candidate.agentId === target || candidate.id === target || candidate.backgroundTaskId === target || candidate.parentToolCallId === target,
+  );
+  openTab({
+    type: 'agent',
+    key: task?.agentId ?? task?.id ?? target,
+    title: task?.description || t('panel.tabs.agent'),
+    icon: 'robot',
+    payload: { target },
+  });
+}
+
+watch(client.activeAppTasks, (tasks) => {
+  for (const tab of panelTabs.value) {
+    if (tab.type !== 'agent') continue;
+    const target = (tab.payload as { target?: string } | undefined)?.target ?? tab.key;
+    const task = tasks.find((candidate) =>
+      candidate.agentId === target || candidate.id === target || candidate.backgroundTaskId === target || candidate.parentToolCallId === target,
+    );
+    if (task?.description) tab.title = task.description;
+  }
+});
+
+function openToolDiff(id: string): void {
+  showToolDiff(id);
+  const current = toolDiffTarget.value;
+  openTab({ type: 'toolDiff', key: id, title: current?.path ? pathTitle(current.path) : current?.title ?? t('panel.tabs.diff'), icon: 'file-edit', payload: { id } });
+}
+
+function openDiffDetail(): void {
+  openTab({ type: 'diff', key: 'workspace', title: t('panel.tabs.diff'), icon: 'git-fork' });
+}
+
+function openTurnDiff(target: { turnId: string; changes: TurnFileChange[] }): void {
+  const existing = panelTabs.value.find((tab) => tab.type === 'turnDiff' && tab.key === target.turnId);
+  if (existing?.id === activePanelTabId.value) {
+    closePanelTab(existing.id);
+    return;
+  }
+  openTab({ type: 'turnDiff', key: target.turnId, title: t('panel.tabs.turnDiff'), icon: 'git-fork', payload: target });
+}
+
+async function openSideChatTab(prompt?: string): Promise<void> {
+  await startSideChat(prompt);
+  openTab({ type: 'btw', key: 'side-chat', title: t('sideChat.title'), icon: 'message', payload: { prompt } });
+}
+
+function deactivatePanelTab(tab: PanelTab): void {
+  if (tab.type === 'file') clearFilePreview();
+  else if (tab.type === 'editor') clearEditor();
+  else if (tab.type === 'compaction') clearCompactionPanel();
+  else if (tab.type === 'agent') clearAgentPanel();
+  else if (tab.type === 'toolDiff') clearToolDiff();
+  else if (tab.type === 'diff') clearDiffDetail();
+  else if (tab.type === 'turnDiff') clearTurnDiff();
+  else if (tab.type === 'btw') hideSideChatPanel();
+}
+
+function activatePanelContent(tab: PanelTab | null): void {
+  if (tab === null) {
+    detailTarget.value = null;
+    return;
+  }
+  if (tab.type === 'file') void showFilePreview(tab.payload as FilePreviewRequest);
+  else if (tab.type === 'editor') showEditor((tab.payload as { path: string }).path);
+  else if (tab.type === 'compaction') showCompactionPanel(tab.payload as { turnId: string });
+  else if (tab.type === 'agent') showAgentPanel((tab.payload as { target: string }).target);
+  else if (tab.type === 'toolDiff') showToolDiff((tab.payload as { id: string }).id);
+  else if (tab.type === 'diff') showDiffDetail();
+  else if (tab.type === 'turnDiff') showTurnDiff(tab.payload as { turnId: string; changes: TurnFileChange[] });
+  else if (tab.type === 'btw') detailTarget.value = 'btw';
+}
+
+watch(activePanelTab, (tab, previous) => {
+  if (previous && previous.id !== tab?.id) deactivatePanelTab(previous);
+  activatePanelContent(tab);
+}, { flush: 'post' });
+
+function closePanelTab(id: string): void {
+  const tab = panelTabs.value.find((candidate) => candidate.id === id);
+  if (tab?.type === 'btw') stopSideChat();
+  closeTab(id);
+}
+
+function closeActivePanelTab(): void {
+  if (activePanelTabId.value) closePanelTab(activePanelTabId.value);
+}
 
 // Reference to ConversationPane so we can imperatively switch tabs
 const conversationPaneRef = ref<InstanceType<typeof ConversationPane> | null>(null);
+const sideChatPanelRef = ref<InstanceType<typeof SideChatPanel> | null>(null);
+
+function beginSideChatFocus(): () => void {
+  let interrupted = false;
+  const noteInteraction = (event: Event): void => {
+    if (!(event instanceof KeyboardEvent && event.repeat)) interrupted = true;
+  };
+  document.addEventListener('pointerdown', noteInteraction, true);
+  document.addEventListener('keydown', noteInteraction, true);
+  window.addEventListener('blur', noteInteraction);
+  document.addEventListener('visibilitychange', noteInteraction);
+  return () => {
+    void nextTick(() => {
+      document.removeEventListener('pointerdown', noteInteraction, true);
+      document.removeEventListener('keydown', noteInteraction, true);
+      window.removeEventListener('blur', noteInteraction);
+      document.removeEventListener('visibilitychange', noteInteraction);
+      if (!interrupted && document.hasFocus()) sideChatPanelRef.value?.focusInput();
+    });
+  };
+}
 
 // Dialog visibility refs
 const showModelPicker = ref(false);
@@ -538,7 +686,7 @@ const showModelPicker = ref(false);
 const showAddWorkspace = ref(false);
 const showStatusPanel = ref(false);
 const showSettings = ref(false);
-const settingsInitialTab = ref<'general' | 'providers'>('general');
+const settingsInitialTab = ref<'general' | 'providers' | 'agent'>('general');
 const overlayOpen = computed(() =>
   openDialogCount.value > 0 ||
   showModelPicker.value ||
@@ -549,6 +697,13 @@ const overlayOpen = computed(() =>
   showMobileSettings.value ||
   lightboxMedia.value !== null,
 );
+
+const panelSelectionSource = computed(() => activePanelTab.value?.title);
+
+function addSelectionToComposer(payload: { quote: string; comment?: string; source?: string }): void {
+  conversationPaneRef.value?.insertComposerQuote(payload);
+  if (isMobile.value && panelVisible.value) hidePanel();
+}
 
 type SubmitPayload = {
   text: string;
@@ -598,7 +753,7 @@ async function openModelPicker(): Promise<void> {
   }
 }
 
-function openSettings(tab: 'general' | 'providers' = 'general'): void {
+function openSettings(tab: 'general' | 'providers' | 'agent' = 'general'): void {
   settingsInitialTab.value = tab;
   showSettings.value = true;
 }
@@ -714,7 +869,9 @@ async function handleUpdateConfig(patch: Partial<AppConfig>): Promise<void> {
   try {
     const saved = await client.updateConfig(patch);
     if (saved) {
-      await client.refreshRuntimeState();
+      // Flag state and other server-decided metadata may change with the
+      // saved config; re-read /meta so the Lab chips reflect the new state.
+      await Promise.all([client.refreshRuntimeState(), client.refreshServerMeta()]);
     }
   } finally {
     configSaving.value = false;
@@ -763,12 +920,11 @@ function handleCommand(cmd: string): void {
   // `/btw` toggles the side-chat tab for the active session.
   if (cmd === '/btw' || cmd.startsWith('/btw ')) {
     const arg = cmd.slice('/btw'.length).trim();
-    if (!arg && client.sideChatVisible.value) {
-      // Use the detail-layer close so detailTarget is cleared too; the bare
-      // client.closeSideChat() only hides the panel and leaves detailTarget set.
-      closeSideChat();
+    if (!arg && activePanelTab.value?.type === 'btw') {
+      closeActivePanelTab();
     } else {
-      void openSideChatTab(arg || undefined);
+      const finishFocus = beginSideChatFocus();
+      void openSideChatTab(arg || undefined).then(finishFocus, finishFocus);
     }
     return;
   }
@@ -832,6 +988,10 @@ function handleEditQueued(index: number): void {
 
 function handleReorderQueue(payload: { from: number; to: number }): void {
   client.reorderQueue(payload.from, payload.to);
+}
+
+function handleSteerQueued(index: number): void {
+  void client.steerQueued(index);
 }
 
 async function handleSubmit(payload: SubmitPayload): Promise<void> {
@@ -903,10 +1063,8 @@ async function handleAddWorkspacePaths(paths: string[]): Promise<void> {
   }
 }
 
-// Generate a session title via the daemon's managed chat_title tool. The
-// daemon persists the title itself (the list refreshes via the WS event); the
-// result streams back into the rename input through the callback. Unavailable
-// generation surfaces as an info toast.
+// Ask the daemon to generate a session title. The result streams into the
+// rename input through the callback; unavailable generation shows an info toast.
 async function handleGenerateSessionTitle(
   sessionId: string,
   onTitle: (title: string | null) => void,
@@ -980,6 +1138,7 @@ function openPr(url: string): void {
         mobile: isMobile,
         'sidebar-collapsed': sidebarCollapsed && !isMobile,
         'macos-desktop': isMacosDesktop,
+        'panel-expanded': panelExpanded,
       }"
       :style="{ '--preview-w': previewPanelWidth + 'px' }"
     >
@@ -1087,6 +1246,7 @@ function openPr(url: string): void {
       :plan-mode="client.planMode.value"
       :plan-armed="client.planArmed.value"
       :session-plans="client.sessionPlans.value"
+      :reveal-saved-plan="client.revealSavedPlan"
       :overlay-open="overlayOpen"
       :goal-mode="client.goalMode.value"
       :dynamic-workflow-mode="client.dynamicWorkflowMode.value"
@@ -1118,7 +1278,13 @@ function openPr(url: string): void {
       :active-workspace-id="client.activeWorkspaceId.value"
       :session-title="activeSessionTitle"
       :pr="client.activePullRequest.value"
+      :panel-visible="panelVisible"
+      :panel-expanded="panelExpanded"
+      :active-panel-type="activePanelTab?.type"
+      :toggle-panel="togglePanel"
       :conversation-toc="client.conversationToc.value"
+      :turn-folding="client.turnFolding.value"
+      :activity-run-folding="client.activityRunFolding.value"
       :last-turn-reason="activeLastTurnReason"
       :turn-error-kind="activeTurnError?.reason === 'max_steps' ? 'max_steps' : undefined"
       :turn-error-message="activeTurnError?.message"
@@ -1140,6 +1306,7 @@ function openPr(url: string): void {
       @unqueue="handleUnqueue"
       @edit-queued="handleEditQueued"
       @reorder-queue="handleReorderQueue"
+      @steer-queued="handleSteerQueued"
       @set-permission="client.setPermission($event)"
       @set-thinking="client.setThinking($event)"
       @toggle-plan="client.togglePlanMode()"
@@ -1163,6 +1330,7 @@ function openPr(url: string): void {
       @open-media="openMediaPreview($event)"
       @open-compaction="openCompactionPanel($event)"
       @open-agent="openAgentPanel($event)"
+      @detach-task="client.detachTask($event)"
       @open-tool-diff="openToolDiff($event)"
       @open-turn-diff="openTurnDiff($event)"
       @edit-message="handleEditMessage"
@@ -1199,108 +1367,130 @@ function openPr(url: string): void {
       <Icon name="chat-new" />
     </IconButton>
 
-    <ResizeHandle
-      v-if="!showSessionAdmin && sidePanelVisible && !isMobile"
-      class="preview-handle"
-      :storage-key="PREVIEW_WIDTH_KEY"
-      :default-width="previewDefaultWidth"
-      :min="PREVIEW_MIN"
-      :max="previewMax"
-      reverse
-      :aria-label="t('layout.resizePreviewAria')"
-      @update:width="previewWidth = $event"
-      @update:dragging="panelDragging = $event"
-    />
-
-    <!-- Desktop: the aside is a PERMANENT grid column whose width transitions
-         0 ↔ var(--preview-w) — opening genuinely squeezes the chat column over
-         (one animation, no slide-over hacks). Mobile mounts only when open
-         (full-screen overlay). Content stays v-if'd, so a closed panel is a
-         zero-width empty shell. -->
     <aside
-      v-if="!showSessionAdmin && (!isMobile || sidePanelVisible)"
+      v-if="!showSessionAdmin && (!isMobile || panelVisible)"
       class="global-preview"
-      :class="{ open: sidePanelVisible, mobile: isMobile, 'no-anim': panelDragging || panelSwitching }"
+      :class="{ open: panelVisible, mobile: isMobile, expanded: panelExpanded, 'no-anim': panelDragging || panelSwitching }"
       role="complementary"
       :aria-label="t('layout.detailPanelAria')"
-      :aria-hidden="!sidePanelVisible"
+      :aria-hidden="!panelVisible"
     >
-      <ThinkingPanel
-        v-if="detailTarget === 'compaction' && compactionPanelVisible"
-        :text="compactionPanelText ?? ''"
-        :subtitle="t('conversation.summaryTitle')"
-        @close="closeCompactionPanel"
-      />
-      <AgentDetailPanel
-        v-else-if="detailTarget === 'agent' && agentPanelMember"
-        :member="agentPanelMember"
-        :turns="agentPanelTurns"
-        :running="agentPanelRunning"
-        :loading="agentPanelLoading"
-        :load-error="agentPanelLoadError"
-        :has-more="agentPanelHasMore"
-        :loading-more="agentPanelLoadingMore"
-        :load-more-error="agentPanelLoadMoreError"
-        @close="closeAgentPanel"
-        @load-older-messages="loadOlderAgentMessages"
-        @open-file="openFilePreview($event)"
-        @open-media="openMediaPreview($event)"
-        @open-agent="openAgentPanel($event)"
-        @open-turn-diff="openTurnDiff($event)"
-      />
-      <SideChatPanel
-        v-else-if="detailTarget === 'btw' && btwVisible"
-        :turns="client.sideChatTurns.value"
-        :running="client.sideChatRunning.value"
-        :sending="client.sideChatSending.value"
-        @send="client.sendSideChatPrompt($event)"
-        @close="closeSideChat"
-      />
-      <DiffView
-        v-else-if="detailTarget === 'diff'"
-        :mode="detailDiffMode"
-        :changes="client.changes.value"
-        :git-info="client.gitInfo.value"
-        :file-diff="client.fileDiff.value"
-        :selected-diff-path="client.selectedDiffPath.value"
-        :file-diff-loading="client.fileDiffLoading.value"
-        closable
-        @open="selectDiffFile"
-        @back="detailDiffMode = 'list'; detailDiffPath = null; client.clearFileDiff()"
-        @close="closeDiffDetail"
-      />
-      <ToolDiffPanel
-        v-else-if="detailTarget === 'toolDiff' && toolDiffTarget"
-        :target="toolDiffTarget"
-        @close="closeToolDiff"
-      />
-      <TurnDiffPanel
-        v-else-if="detailTarget === 'turnDiff' && turnDiffTarget"
-        :changes="turnDiffTarget.changes"
-        :cwd="client.visibleWorkspace.value?.root ?? client.status.value.cwd"
-        @open-file="openFilePreview($event)"
-        @close="closeTurnDiff"
-      />
-      <EditorPanel
-        v-else-if="detailTarget === 'editor'"
-        @close="handleCloseEditor"
-      />
-      <FilePreview
-        v-else-if="detailTarget === 'file'"
-        :file="previewFile"
-        :loading="previewLoading"
-        :error="previewError"
-        :line="previewTarget?.line"
-        :download-url="previewDownloadUrl"
-        closable
-        :external-actions="previewExternalActions"
-        :editable="client.fsWriteSupported.value && client.activeSessionId.value !== null"
-        :open-file="openFilePreview"
-        @close="closeFilePreview"
-        @open-external="openPreviewInEditor"
-        @reveal="revealPreviewFile"
-        @open-editor="handleOpenInEditor($event)"
-      />
+      <div class="pt-shell">
+        <ResizeHandle
+          v-if="panelVisible && !isMobile && !panelExpanded"
+          class="panel-resize"
+          :storage-key="PREVIEW_WIDTH_KEY"
+          :default-width="previewDefaultWidth"
+          :min="PREVIEW_MIN"
+          :max="previewMax"
+          reverse
+          :aria-label="t('layout.resizePreviewAria')"
+          @update:width="previewWidth = $event"
+          @update:dragging="panelDragging = $event"
+        />
+        <PanelTabBar
+          :tabs="panelTabs"
+          :active-id="activePanelTabId"
+          :expanded="panelExpanded"
+          :mobile="isMobile"
+          :can-open-diff="client.status.value.isGitRepo && client.activeSessionId.value !== null"
+          :can-open-side-chat="!!client.activeWorkspaceId.value"
+          @activate="activateTab"
+          @close="closePanelTab"
+          @toggle-expanded="togglePanelExpanded"
+          @hide="hidePanel"
+          @open-diff="openDiffDetail"
+          @open-side-chat="openSideChatTab()"
+        />
+        <div class="pt-body">
+          <div v-if="activePanelTab === null" class="panel-launcher" role="group" :aria-label="t('panel.launcherAria')">
+            <button type="button" :disabled="!client.status.value.isGitRepo || client.activeSessionId.value === null" @click="openDiffDetail">
+              <Icon name="git-fork" /><span>{{ t('panel.tabs.diff') }}</span>
+            </button>
+            <button type="button" :disabled="!client.activeWorkspaceId.value" @click="openSideChatTab()">
+              <Icon name="message" /><span>{{ t('sideChat.title') }}</span>
+            </button>
+          </div>
+          <ThinkingPanel
+            v-else-if="detailTarget === 'compaction' && compactionPanelVisible"
+            :text="compactionPanelText ?? ''"
+            :subtitle="t('conversation.summaryTitle')"
+            @close="closeActivePanelTab"
+          />
+          <AgentDetailPanel
+            v-else-if="detailTarget === 'agent' && agentPanelMember"
+            :member="agentPanelMember"
+            :turns="agentPanelTurns"
+            :running="agentPanelRunning"
+            :loading="agentPanelLoading"
+            :load-error="agentPanelLoadError"
+            :has-more="agentPanelHasMore"
+            :loading-more="agentPanelLoadingMore"
+            :load-more-error="agentPanelLoadMoreError"
+            @close="closeActivePanelTab"
+            @load-older-messages="loadOlderAgentMessages"
+            @open-file="openFilePreview($event)"
+            @open-media="openMediaPreview($event)"
+            @open-agent="openAgentPanel($event)"
+            @open-turn-diff="openTurnDiff($event)"
+          />
+          <SideChatPanel
+            v-else-if="detailTarget === 'btw' && btwVisible"
+            ref="sideChatPanelRef"
+            :turns="client.sideChatTurns.value"
+            :running="client.sideChatRunning.value"
+            :sending="client.sideChatSending.value"
+            @send="client.sendSideChatPrompt($event)"
+            @close="closeActivePanelTab"
+          />
+          <DiffView
+            v-else-if="detailTarget === 'diff'"
+            :mode="detailDiffMode"
+            :changes="client.changes.value"
+            :git-info="client.gitInfo.value"
+            :file-diff="client.fileDiff.value"
+            :selected-diff-path="client.selectedDiffPath.value"
+            :file-diff-loading="client.fileDiffLoading.value"
+            closable
+            @open="selectDiffFile"
+            @back="detailDiffMode = 'list'; detailDiffPath = null; client.clearFileDiff()"
+            @close="closeActivePanelTab"
+          />
+          <ToolDiffPanel
+            v-else-if="detailTarget === 'toolDiff' && toolDiffTarget"
+            :target="toolDiffTarget"
+            @close="closeActivePanelTab"
+          />
+          <TurnDiffPanel
+            v-else-if="detailTarget === 'turnDiff' && turnDiffTarget"
+            :changes="turnDiffTarget.changes"
+            :cwd="client.visibleWorkspace.value?.root ?? client.status.value.cwd"
+            @open-file="openFilePreview($event)"
+            @close="closeActivePanelTab"
+          />
+          <EditorPanel
+            v-else-if="detailTarget === 'editor'"
+            @close="closeActivePanelTab"
+          />
+          <FilePreview
+            v-else-if="detailTarget === 'file'"
+            :file="previewFile"
+            :loading="previewLoading"
+            :error="previewError"
+            :line="previewTarget?.line"
+            :download-url="previewDownloadUrl"
+            closable
+            :external-actions="previewExternalActions"
+            :editable="client.fsWriteSupported.value && client.activeSessionId.value !== null"
+            :open-file="openFilePreview"
+            @close="closeActivePanelTab"
+            @open-external="openPreviewInEditor"
+            @reveal="revealPreviewFile"
+            @open-editor="handleOpenInEditor($event)"
+          />
+        </div>
+        <div class="pfc-host" />
+      </div>
     </aside>
 
     <MediaLightbox
@@ -1308,6 +1498,12 @@ function openPr(url: string): void {
       :media="lightboxMedia"
       :src="lightboxSrc"
       @close="closeMediaLightbox"
+    />
+
+    <SelectionActionBar
+      :enabled="!overlayOpen"
+      :panel-source="panelSelectionSource"
+      @add="addSelectionToComposer"
     />
 
     <!-- Model Picker overlay -->
@@ -1366,7 +1562,6 @@ function openPr(url: string): void {
 
     <!-- Floating warnings / agent errors (e.g. a 403 from the model provider) -->
     <WarningToasts :warnings="client.warnings.value" @dismiss="client.dismissWarning" />
-    <UpdateDialog />
     <div class="action-toast-stack">
       <ActionToast
         v-if="sessionActionToast"
@@ -1438,7 +1633,6 @@ function openPr(url: string): void {
       :dynamic-workflow-mode="client.dynamicWorkflowMode.value"
       :color-scheme="client.colorScheme.value"
       :ui-font-size="client.uiFontSize.value"
-      :auth-ready="client.authReady.value"
       :conversation-toc="client.conversationToc.value"
       :server-version="client.serverVersion.value"
       @pick-model="openModelPicker()"
@@ -1452,7 +1646,6 @@ function openPr(url: string): void {
       @set-ui-font-size="client.setUiFontSize($event)"
       @set-conversation-toc="client.setConversationToc($event)"
       @login="() => { showMobileSettings = false; openLogin(); }"
-      @logout="client.logout"
     />
     </div>
 
@@ -1471,11 +1664,18 @@ function openPr(url: string): void {
       :notify-permission="client.notifyPermission.value"
       :sound="client.soundOnComplete.value"
       :conversation-toc="client.conversationToc.value"
+      :turn-folding="client.turnFolding.value"
+      :activity-run-folding="client.activityRunFolding.value"
       :config="client.config.value"
       :models="client.models.value"
       :config-saving="configSaving"
       :server-version="client.serverVersion.value"
       :backend="client.backend.value"
+      :experimental-flag-states="client.experimentalFlagStates.value"
+      :subagent-model-policy="client.subagentModelPolicy.value"
+      :subagent-model-policy-saving="client.subagentModelPolicySaving.value"
+      @save-subagent-model-policy="(policy) => void client.saveSubagentModelPolicy(policy)"
+      @clear-subagent-model-policy="void client.clearSubagentModelPolicy()"
       :initial-tab="settingsInitialTab"
       @set-color-scheme="client.setColorScheme($event)"
       @set-accent="client.setAccent($event)"
@@ -1485,8 +1685,9 @@ function openPr(url: string): void {
       @set-notify-approval="client.setNotifyOnApproval($event)"
       @set-sound="client.setSoundOnComplete($event)"
       @set-conversation-toc="client.setConversationToc($event)"
+      @set-turn-folding="client.setTurnFolding($event)"
+      @set-activity-run-folding="client.setActivityRunFolding($event)"
       @update-config="handleUpdateConfig($event)"
-      @logout="client.logout"
       @open-onboarding="() => { showSettings = false; openOnboarding(); }"
       @close="showSettings = false"
     />
@@ -1540,15 +1741,13 @@ function openPr(url: string): void {
   min-height: 0;
   position: relative;
   display: grid;
-  /* sidebar | 0-width handle | conversation | 0-width handle | right panel.
-     The 4px ResizeHandles overflow their zero-width tracks via negative margins
-     so the whole strip is grabbable without consuming layout space. */
+  /* sidebar | handle | conversation | right panel. */
   /* Both side tracks are PERMANENT (auto = follows the aside's width, 0 when
      closed/collapsed) — opening or collapsing animates the aside's width, so
      the conversation column is squeezed over smoothly instead of snapping to a
      new template. Every column is pinned explicitly (grid-column 1–5) so a
      display:none handle can't shift auto-placement. */
-  grid-template-columns: auto 0 minmax(0, 1fr) 0 auto;
+  grid-template-columns: auto 0 minmax(0, 1fr) auto;
   background: var(--bg);
   color: var(--color-text);
   overflow: hidden;
@@ -1567,7 +1766,9 @@ function openPr(url: string): void {
 .app > .side { grid-column: 1; }
 .side-handle { grid-column: 2; }
 .app:not(.mobile) > .con { grid-column: 3; }
-.preview-handle { grid-column: 4; }
+.app > .global-preview { grid-column: 4; }
+.app.panel-expanded { grid-template-columns: auto 0 0 minmax(0, 1fr); }
+.app.panel-expanded > .con { display: none; }
 
 /* Sidebar toggle — floating button pinned to the top-left corner. On macOS
    desktop it is resident (rendered in both states beside the traffic lights);
@@ -1586,21 +1787,17 @@ function openPr(url: string): void {
   /* Floats over the macOS-desktop window-drag header; keep it clickable. */
   -webkit-app-region: no-drag;
 }
-/* macOS desktop (hidden title bar): the collapsed state floats the button
-   beside the traffic lights (green light's right edge ≈ 68px; 72 keeps a gap
-   that matches the lights' own 8px rhythm); no entrance animation since the
-   drag-region union is recomputed anyway. */
+/* Window Controls Overlay reports the native macOS traffic-light boundary in
+   renderer CSS pixels, including page zoom and display scale. */
 .app.macos-desktop .sidebar-toggle-btn {
-  left: 72px;
+  left: var(--macos-titlebar-controls-start);
   animation: none;
 }
 @keyframes sidebar-toggle-btn-in {
   from { opacity: 0; }
 }
 
-/* Floating "New chat" — sits directly right of the toggle (sm IconButton is
-   26px wide: 16 + 26 = 42; macOS: 72 + 26 = 98). Same fade-in + no-drag
-   contract as the toggle. */
+/* Floating "New chat" — sits directly right of the toggle. */
 .new-chat-btn {
   position: absolute;
   top: 11px;
@@ -1610,7 +1807,7 @@ function openPr(url: string): void {
   -webkit-app-region: no-drag;
 }
 .app.macos-desktop .new-chat-btn {
-  left: 98px;
+  left: calc(var(--macos-titlebar-controls-start) + var(--icon-button-sm));
 }
 
 /* Internal-build tag pinned to the app's bottom-right corner (desktop app
@@ -1627,7 +1824,6 @@ function openPr(url: string): void {
    0 ↔ var(--preview-w). The CONTENT keeps a fixed width (and carries the
    left hairline) so it clips during the transition instead of reflowing. */
 .global-preview {
-  grid-column: 5;
   min-width: 0;
   min-height: 0;
   width: 0;
@@ -1638,16 +1834,28 @@ function openPr(url: string): void {
 .global-preview.open {
   width: var(--preview-w);
 }
+.global-preview.expanded { width: auto; }
 /* While dragging the resize handle, follow the pointer 1:1. */
 .global-preview.no-anim {
   transition: none;
 }
-.global-preview:not(.mobile) > * {
+.global-preview:not(.mobile):not(.expanded) .pt-shell {
   width: var(--preview-w);
-  height: 100%;
-  box-sizing: border-box;
   border-left: 1px solid var(--line);
 }
+.pt-shell { position: relative; display: flex; flex-direction: column; min-width: 0; height: 100%; box-sizing: border-box; background: var(--bg); }
+.pt-body { flex: 1; min-height: 0; min-width: 0; overflow: hidden; }
+.pt-body > * { width: 100%; height: 100%; box-sizing: border-box; }
+.panel-resize { position: absolute; left: 0; top: 0; bottom: 0; z-index: var(--z-dropdown); }
+.pfc-host { flex: none; min-width: 0; background: var(--bg); }
+.pfc-host:empty { display: none; }
+.panel-launcher { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-content: center; gap: var(--space-3); padding: var(--space-6); }
+.panel-launcher button { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--space-2); min-height: 104px; border: 1px solid var(--color-line); border-radius: var(--radius-lg); background: var(--color-surface-raised); color: var(--color-text); font: var(--text-sm) var(--font-ui); cursor: pointer; }
+.panel-launcher button:hover:not(:disabled) { border-color: var(--color-accent-bd); background: var(--color-accent-soft); }
+.panel-launcher button:focus-visible { outline: none; box-shadow: var(--p-focus-ring); }
+.panel-launcher button:disabled { color: var(--color-text-faint); cursor: default; }
+.app.panel-expanded.sidebar-collapsed .panel-tab-bar { padding-left: var(--header-collapsed-clearance, 78px); }
+.app.panel-expanded.sidebar-collapsed.macos-desktop .panel-tab-bar { padding-left: calc(var(--macos-titlebar-controls-start) + var(--icon-button-sm) + var(--icon-button-sm) + var(--space-5)); }
 .global-preview.mobile {
   position: fixed;
   inset: 0;
@@ -1656,6 +1864,7 @@ function openPr(url: string): void {
   transition: none;
   border-top: 2px solid var(--color-text);
 }
+.global-preview.mobile .pt-shell { width: 100%; }
 
 .action-toast-stack {
   position: fixed;
@@ -1690,29 +1899,5 @@ function openPr(url: string): void {
     left: var(--space-3);
     align-items: stretch;
   }
-}
-</style>
-
-<style>
-:root {
-  /* Right-side panel headers (ThinkingPanel / FilePreview / DiffView / SideChatPanel)
-     share the same 48px height as the conversation header so the hairline reads as
-     one continuous line across the layout. */
-  --panel-head-h: 48px;
-}
-
-/* Sidebar collapsed (desktop): the conversation header pads left so its
-   content clears the floating sidebar toggle (.sidebar-toggle-btn) — and the
-   macOS traffic lights on desktop builds. Animated in step with the sidebar
-   width transition. Cross-component rule (ChatHeader renders the header), so
-   it lives in this global block. */
-.app:not(.mobile) .chat-header {
-  transition: padding-left 0.28s cubic-bezier(0.4, 0, 0.2, 1);
-}
-.app.sidebar-collapsed .chat-header {
-  padding-left: 52px;
-}
-.app.sidebar-collapsed.macos-desktop .chat-header {
-  padding-left: 108px;
 }
 </style>

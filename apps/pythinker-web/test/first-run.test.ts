@@ -10,7 +10,7 @@ const { api } = vi.hoisted(() => ({
     listCatalogProviders: vi.fn().mockResolvedValue([]),
     listModels: vi.fn().mockResolvedValue([]),
     getConfig: vi.fn().mockResolvedValue({}),
-    getAuth: vi.fn().mockResolvedValue({ ready: false, defaultModel: null, managedProvider: null }),
+    getAuth: vi.fn().mockResolvedValue({ ready: false, defaultModel: null }),
     updateConfig: vi.fn(),
     addProvider: vi.fn(),
   },
@@ -31,7 +31,7 @@ async function mountConnected(models: ReturnType<typeof model>[], defaultModel: 
     { id: 'p', type: 'openai', hasApiKey: true, status: 'connected', models: models.map((m) => m.id) },
   ]);
   api.listModels.mockResolvedValue(models);
-  api.getAuth.mockResolvedValue({ ready: true, defaultModel, managedProvider: null });
+  api.getAuth.mockResolvedValue({ ready: true, defaultModel });
   const wrapper = mount(FirstRun, { global: { plugins: [i18n] } });
   await flushPromises();
   const vm = wrapper.vm as unknown as FirstRunVm;
@@ -44,7 +44,7 @@ describe('FirstRun', () => {
   it('opens on the connect step with all three routes and no way forward', async () => {
     api.listProviders.mockResolvedValue([]);
     api.listModels.mockResolvedValue([]);
-    api.getAuth.mockResolvedValue({ ready: false, defaultModel: null, managedProvider: null });
+    api.getAuth.mockResolvedValue({ ready: false, defaultModel: null });
     const wrapper = mount(FirstRun, { global: { plugins: [i18n] } });
     await flushPromises();
 

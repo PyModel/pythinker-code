@@ -7,7 +7,6 @@ export {
 export type { AcpBuiltinSlashCommandName } from './builtin-commands';
 export { CURRENT_VERSION, MIN_PROTOCOL_VERSION, negotiateVersion } from './version';
 export type { AcpVersionSpec } from './version';
-export { TERMINAL_AUTH_METHOD, buildTerminalAuthMethod } from './auth-methods';
 export { AcpServer, runAcpServer, runAcpServerWithStream } from './server';
 export type { SlashCommandsSnapshot } from './server';
 export { AcpSession } from './session';

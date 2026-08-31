@@ -57,6 +57,60 @@ export function deployTargetArgument(workspaceRoot: string, target: string): str
   return relative(workspaceRoot, target)
 }
 
+/** How many times the deploy is attempted before the build gives up. */
+export const DEPLOY_ATTEMPTS = 3
+
+/**
+ * Back-off before a retry, in milliseconds, indexed by the retry number.
+ *
+ * `pnpm deploy --legacy` re-resolves from the registry and ignores the
+ * lockfile, so a package published in a partially-propagated state fails the
+ * build even though every pin here is installable. That happened with
+ * `@tanstack/react-query@5.102.3`, whose `query-core` peer of the same version
+ * was not yet resolvable — the desktop packaging gate went red for a package
+ * nothing in the shipped runtime uses.
+ *
+ * A deterministic failure still fails; it just costs the sum of these waits
+ * first. That is the trade: about half a minute added to a genuinely broken
+ * build, against a release gate that no longer turns red because npm was
+ * mid-publish.
+ * @param retry - 1 for the first retry, 2 for the second.
+ * @returns Milliseconds to wait before that retry.
+ */
+export function deployRetryDelayMs(retry: number): number {
+  return retry <= 1 ? 5_000 : 20_000
+}
+
+/**
+ * Run an operation, retrying a failure up to {@link DEPLOY_ATTEMPTS} times.
+ *
+ * `sleep` and `onRetry` are injected so the policy is testable without a real
+ * wait or a real registry.
+ * @param operation - Receives the 1-based attempt number.
+ * @param options - Injected clock and retry reporter.
+ * @returns Nothing; the last failure is rethrown when every attempt fails.
+ */
+export async function withDeployRetries(
+  operation: (attempt: number) => Promise<void>,
+  options: {
+    readonly attempts?: number
+    readonly sleep: (milliseconds: number) => Promise<void>
+    readonly onRetry?: (attempt: number, error: unknown) => void
+  },
+): Promise<void> {
+  const attempts = options.attempts ?? DEPLOY_ATTEMPTS
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      await operation(attempt)
+      return
+    } catch (error) {
+      if (attempt >= attempts) throw error
+      options.onRetry?.(attempt, error)
+      await options.sleep(deployRetryDelayMs(attempt))
+    }
+  }
+}
+
 async function run(command: string, args: readonly string[]): Promise<void> {
   const invocation = packageManagerInvocation(process.platform, command, args)
   await new Promise<void>((accept, reject) => {
@@ -109,12 +163,21 @@ async function materializeLinks(): Promise<void> {
 async function deploy(target: string): Promise<void> {
   const savedWorkspaceState = existsSync(workspaceState) ? await readFile(workspaceState) : undefined
   try {
-    await run('pnpm', [
-      '--config.verify-deps-before-run=false', '--filter', deployPackage, 'deploy', '--legacy', '--prod',
-      '--config.node-linker=hoisted', '--config.auto-install-peers=false', '--config.link-workspace-packages=true',
-      '--config.allow-unused-patches=true',
-      deployTargetArgument(repositoryRoot, target),
-    ])
+    await withDeployRetries(
+      () => run('pnpm', [
+        '--config.verify-deps-before-run=false', '--filter', deployPackage, 'deploy', '--legacy', '--prod',
+        '--config.node-linker=hoisted', '--config.auto-install-peers=false', '--config.link-workspace-packages=true',
+        '--config.allow-unused-patches=true',
+        deployTargetArgument(repositoryRoot, target),
+      ]),
+      {
+        sleep: (milliseconds) => new Promise(resolve => { setTimeout(resolve, milliseconds) }),
+        onRetry: (attempt, error) => {
+          const reason = error instanceof Error ? error.message : String(error)
+          console.warn(`desktop runtime staging attempt ${attempt} failed, retrying: ${reason}`)
+        },
+      },
+    )
   } finally {
     if (savedWorkspaceState === undefined) await rm(workspaceState, { force: true })
     else await writeFile(workspaceState, savedWorkspaceState)

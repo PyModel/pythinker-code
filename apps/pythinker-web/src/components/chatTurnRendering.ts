@@ -117,7 +117,15 @@ export function toolStackPosition(index: number, count: number): ToolStackPositi
   return 'middle';
 }
 
-export function assistantRenderBlocks(turn: ChatTurn): AssistantRenderBlock[] {
+/**
+ * @param groupRuns  When false, consecutive thinking/tool items stay separate
+ *   rows instead of collapsing into one `activity-run` summary (the
+ *   "Tool call summary" setting).
+ */
+export function assistantRenderBlocks(
+  turn: ChatTurn,
+  groupRuns = true,
+): AssistantRenderBlock[] {
   // Run grouping is per-turn BY CONSTRUCTION, not a wire mapping. The reference
   // UI renders one `activity-run` per daemon run/round (an LLM-loop iteration
   // between user turns), but the pythinker wire carries NO run, segment, or
@@ -148,13 +156,18 @@ export function assistantRenderBlocks(turn: ChatTurn): AssistantRenderBlock[] {
       }
     | null = null;
 
+  const pushRunItem = (item: RunItem) => {
+    if (item.kind === 'thinking') rendered.push({ kind: 'thinking', thinking: item.thinking, startedAt: item.startedAt, durationMs: item.durationMs, sourceIndex: item.sourceIndex });
+    else rendered.push({ kind: 'tool', tool: item.tool, sourceIndex: item.sourceIndex });
+  };
+
   const flushRun = () => {
     const [item] = run;
     if (run.length === 1 && item) {
-      if (item.kind === 'thinking') rendered.push({ kind: 'thinking', thinking: item.thinking, startedAt: item.startedAt, durationMs: item.durationMs, sourceIndex: item.sourceIndex });
-      else rendered.push({ kind: 'tool', tool: item.tool, sourceIndex: item.sourceIndex });
+      pushRunItem(item);
     } else if (run.length > 1) {
-      rendered.push({ kind: 'activity-run', items: run });
+      if (groupRuns) rendered.push({ kind: 'activity-run', items: run });
+      else for (const runItem of run) pushRunItem(runItem);
     }
     run = [];
   };
@@ -207,9 +220,15 @@ export function assistantRenderBlocks(turn: ChatTurn): AssistantRenderBlock[] {
   return rendered;
 }
 
+/**
+ * @param enabled  When false, nothing folds: every block stays visible (the
+ *   "Auto-fold messages" setting).
+ */
 export function foldRenderBlocks(
   blocks: AssistantRenderBlock[],
+  enabled = true,
 ): { folded: AssistantRenderBlock[]; visible: AssistantRenderBlock[] } {
+  if (!enabled) return { folded: [], visible: blocks };
   let anchor = -1;
   for (let index = blocks.length - 1; index >= 0; index -= 1) {
     const block = blocks[index];
@@ -235,10 +254,18 @@ export function foldRenderBlocks(
   };
 }
 
+/**
+ * The answer the user reads. Mirrors the fold anchor in `foldRenderBlocks`:
+ * text from the last non-empty text block onward. Narration emitted before a
+ * tool call ("I'll rerun it…") folds away on screen, so it must not end up on
+ * the clipboard either.
+ */
 export function turnFinalText(turn: ChatTurn): string {
-  return turnBlocks(turn)
-    .flatMap((blk) => (blk.kind === 'text' && blk.text ? [blk.text] : []))
-    .join('\n\n');
+  const texts = turnBlocks(turn).flatMap((blk) => (blk.kind === 'text' && blk.text ? [blk.text] : []));
+  for (let index = texts.length - 1; index >= 0; index -= 1) {
+    if (texts[index]!.trim()) return texts[index]!;
+  }
+  return '';
 }
 
 /** Convert a single turn to Markdown. */

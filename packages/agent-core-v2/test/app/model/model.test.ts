@@ -113,7 +113,7 @@ describe('effectiveModelConfig', () => {
 
   it('does not infer Anthropic effort metadata for a Pythinker provider routed through the Anthropic protocol', () => {
     const model: ModelRecord = {
-      provider: 'managed:pythinker-code',
+      provider: 'oauth-example',
       model: 'kimi-for-coding',
       maxContextSize: 262144,
       capabilities: ['thinking', 'always_thinking'],

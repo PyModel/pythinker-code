@@ -177,14 +177,12 @@ import { proxyWithExtraPayload } from './types';
 import { PyaosShellNotFoundError, LocalPyaos, type Pyaos } from '@pymodel/pyaos';
 import type { ToolServices } from '../tools/support/services';
 
-const PYTHINKER_CODE_PROVIDER_NAME = 'managed:pythinker-code';
-const PYTHINKER_CODE_BASE_URL_ENV = 'PYTHINKER_CODE_BASE_URL';
-const PYTHINKER_CODE_OAUTH_HOST_ENV = 'PYTHINKER_CODE_OAUTH_HOST';
-const PYTHINKER_OAUTH_HOST_ENV = 'PYTHINKER_OAUTH_HOST';
 const WEB_SEARCH_BASE_URL_ENV = 'PYTHINKER_WEB_SEARCH_BASE_URL';
 const WEB_SEARCH_API_KEY_ENV = 'PYTHINKER_WEB_SEARCH_API_KEY';
 const WEB_FETCH_BASE_URL_ENV = 'PYTHINKER_WEB_FETCH_BASE_URL';
 const WEB_FETCH_API_KEY_ENV = 'PYTHINKER_WEB_FETCH_API_KEY';
+const WEB_SEARCH_CREDENTIAL_SLOT = 'services:pymodel-search';
+const WEB_FETCH_CREDENTIAL_SLOT = 'services:pymodel-fetch';
 const DEFAULT_GLOBAL_MCP_AUTH_TIMEOUT_MS = 15 * 60 * 1000;
 type AgentScopedPayload<T> = T & { readonly agentId: string };
 type SessionScopedPayload<T> = T & { readonly sessionId: string };
@@ -310,7 +308,6 @@ export class PythinkerCore implements PromisableMethods<CoreAPI> {
       homeDir: this.homeDir,
       store: this.globalMcpConfig,
       plugins: this.plugins,
-      managedPluginEnv: () => this.managedPythinkerCodeEnvForPlugins(),
     });
     // Re-arm proactive refresh timers for credentials written by earlier
     // processes; token writes in this process re-arm via the provider hook.
@@ -855,24 +852,23 @@ export class PythinkerCore implements PromisableMethods<CoreAPI> {
   ): Promise<readonly GlobalMcpServerAuthStatus[]> {
     await this.awaitMcpRegistryReady();
     const entries = await this.mcpRegistry.list({ cwd: input?.cwd });
-    const verify = input?.verify === true;
     return Promise.all(
       entries.map(async (entry) => ({
         name: entry.name,
-        authStatus: await this.mcpServerAuthState(entry, input?.cwd, verify),
+        authStatus: await this.mcpServerAuthState(entry, input?.cwd, input?.verify),
       })),
     );
   }
 
   async addGlobalMcpServer(
-    { server }: PutGlobalMcpServerPayload,
+    { server, cwd }: PutGlobalMcpServerPayload,
   ): Promise<readonly McpManagedServerInfo[]> {
     await this.awaitMcpRegistryReady();
     // Normalize once: the store trims names, so the read-only guard, the
     // persisted key, and live-session reconciliation must all agree (a padded
     // name would otherwise persist trimmed but reconcile the raw name).
     const name = normalizeServerName(server.name);
-    const existing = await this.mcpRegistry.get(name).catch(() => undefined);
+    const existing = await this.mcpRegistry.get(name, { cwd }).catch(() => undefined);
     if (existing !== undefined && !(existing.source === 'global' && existing.mutable)) {
       // A same-named plugin / project-layer entry already exists; writing a
       // user-level shadow would silently change precedence, so reject. A
@@ -882,15 +878,15 @@ export class PythinkerCore implements PromisableMethods<CoreAPI> {
     }
     await this.globalMcpConfig.add({ ...server, name });
     await this.reconcileMcpServerInSessions([name], 'global-add');
-    return this.listGlobalMcpServers({});
+    return this.listGlobalMcpServers({ cwd });
   }
 
   async updateGlobalMcpServer(
-    { server }: PutGlobalMcpServerPayload,
+    { server, cwd }: PutGlobalMcpServerPayload,
   ): Promise<readonly McpManagedServerInfo[]> {
     await this.awaitMcpRegistryReady();
     const name = normalizeServerName(server.name);
-    const existing = await this.mcpRegistry.get(name).catch(() => undefined);
+    const existing = await this.mcpRegistry.get(name, { cwd }).catch(() => undefined);
     if (existing === undefined) {
       // Preserve the store's not-found error (and its config validation).
       await this.globalMcpConfig.update({ ...server, name });
@@ -899,19 +895,19 @@ export class PythinkerCore implements PromisableMethods<CoreAPI> {
       await this.globalMcpConfig.update({ ...server, name });
       await this.reconcileMcpServerInSessions([name], 'global-update');
     }
-    return this.listGlobalMcpServers({});
+    return this.listGlobalMcpServers({ cwd });
   }
 
   async removeGlobalMcpServer(
-    { name }: GlobalMcpServerNamePayload,
+    { name, cwd }: GlobalMcpServerNamePayload,
   ): Promise<readonly McpManagedServerInfo[]> {
     await this.awaitMcpRegistryReady();
     const normalized = normalizeServerName(name);
-    const existing = await this.mcpRegistry.get(normalized).catch(() => undefined);
+    const existing = await this.mcpRegistry.get(normalized, { cwd }).catch(() => undefined);
     if (existing !== undefined) this.throwReadOnlyMcpServer(existing);
     await this.globalMcpConfig.remove(normalized);
     await this.reconcileMcpServerInSessions([normalized], 'global-remove');
-    return this.listGlobalMcpServers({});
+    return this.listGlobalMcpServers({ cwd });
   }
 
   private throwReadOnlyMcpServer(entry: McpRegistryEntry): void {
@@ -1003,7 +999,7 @@ export class PythinkerCore implements PromisableMethods<CoreAPI> {
   private async syncPluginMcpServersInSessions(): Promise<void> {
     const names = new Set<string>(
       this.plugins
-        .mcpServerEntries({ managedEnv: this.managedPythinkerCodeEnvForPlugins() })
+        .mcpServerEntries()
         .filter((entry) => entry.config.enabled !== false)
         .map((entry) => entry.name),
     );
@@ -1016,15 +1012,16 @@ export class PythinkerCore implements PromisableMethods<CoreAPI> {
   }
 
   async beginGlobalMcpServerAuth(
-    { name }: GlobalMcpServerNamePayload,
+    { name, cwd }: GlobalMcpServerNamePayload,
   ): Promise<BeginGlobalMcpServerAuthResult> {
-    return this.beginAppMcpServerAuth(await this.resolveLegacyNamedAppMcpServer(name));
+    return this.beginAppMcpServerAuth(await this.resolveLegacyNamedAppMcpServer(name, cwd));
   }
 
   async beginMcpServerAuth({
     locator,
+    cwd,
   }: McpServerLocatorPayload): Promise<BeginGlobalMcpServerAuthResult> {
-    return this.beginAppMcpServerAuth(await this.resolveAppMcpServer(locator));
+    return this.beginAppMcpServerAuth(await this.resolveAppMcpServer(locator, cwd));
   }
 
   private async beginAppMcpServerAuth(
@@ -1086,14 +1083,14 @@ export class PythinkerCore implements PromisableMethods<CoreAPI> {
     await active.flow.cancel();
   }
 
-  async resetGlobalMcpServerAuth({ name }: GlobalMcpServerNamePayload): Promise<void> {
+  async resetGlobalMcpServerAuth({ name, cwd }: GlobalMcpServerNamePayload): Promise<void> {
     // The legacy name-based surface resolves through the registry too, so a
     // plugin runtime name works here as well.
-    await this.appMcpServerDescriptorReset(await this.resolveLegacyNamedAppMcpServer(name));
+    await this.appMcpServerDescriptorReset(await this.resolveLegacyNamedAppMcpServer(name, cwd));
   }
 
-  async resetMcpServerAuth({ locator }: McpServerLocatorPayload): Promise<void> {
-    await this.appMcpServerDescriptorReset(await this.resolveAppMcpServer(locator));
+  async resetMcpServerAuth({ locator, cwd }: McpServerLocatorPayload): Promise<void> {
+    await this.appMcpServerDescriptorReset(await this.resolveAppMcpServer(locator, cwd));
   }
 
   private async appMcpServerDescriptorReset(
@@ -1107,17 +1104,20 @@ export class PythinkerCore implements PromisableMethods<CoreAPI> {
 
   async inspectAppMcpServers({
     targets,
+    cwd,
   }: InspectAppMcpServersPayload): Promise<readonly AppMcpServerInspection[]> {
-    const catalog = await this.appMcpServerDescriptors();
+    const catalog = await this.appMcpServerDescriptors(cwd);
     const descriptors = selectAppMcpServerDescriptors(catalog, targets);
     const inspections = await this.inspectAppMcpServerDescriptors(descriptors, catalog);
     return inspections.map(sanitizeAppMcpServerInspection);
   }
 
   /** The registry catalog in the locator-addressed shape, with full configs. */
-  private async appMcpServerDescriptors(): Promise<readonly AppMcpServerRuntimeDescriptor[]> {
+  private async appMcpServerDescriptors(
+    cwd?: string,
+  ): Promise<readonly AppMcpServerRuntimeDescriptor[]> {
     await this.awaitMcpRegistryReady();
-    return (await this.mcpRegistry.list()).map((entry) => this.appMcpServerDescriptor(entry));
+    return (await this.mcpRegistry.list({ cwd })).map((entry) => this.appMcpServerDescriptor(entry));
   }
 
   private appMcpServerDescriptor(entry: McpRegistryEntry): AppMcpServerRuntimeDescriptor {
@@ -1142,8 +1142,9 @@ export class PythinkerCore implements PromisableMethods<CoreAPI> {
 
   private async resolveAppMcpServer(
     locator: McpServerLocator,
+    cwd?: string,
   ): Promise<AppMcpServerRuntimeDescriptor> {
-    const catalog = await this.appMcpServerDescriptors();
+    const catalog = await this.appMcpServerDescriptors(cwd);
     const server = selectAppMcpServerDescriptors(catalog, [locator])[0]!;
     this.requireUnambiguousRuntimeName(catalog, server);
     return server;
@@ -1157,11 +1158,12 @@ export class PythinkerCore implements PromisableMethods<CoreAPI> {
    */
   private async resolveLegacyNamedAppMcpServer(
     name: string,
+    cwd?: string,
   ): Promise<AppMcpServerRuntimeDescriptor> {
     await this.awaitMcpRegistryReady();
     // get() first, preserving its not-found error for unknown names.
-    await this.mcpRegistry.get(name);
-    const catalog = await this.appMcpServerDescriptors();
+    await this.mcpRegistry.get(name, { cwd });
+    const catalog = await this.appMcpServerDescriptors(cwd);
     const matches = catalog.filter((candidate) => candidate.runtimeName === name);
     // The sole enabled owner wins over disabled shadows (matching the runtime
     // and the connection-test path); ambiguity is then judged among the
@@ -1357,7 +1359,7 @@ export class PythinkerCore implements PromisableMethods<CoreAPI> {
   private async mcpServerAuthState(
     entry: McpRegistryEntry,
     cwd: string | undefined,
-    verify: boolean,
+    verify: boolean | undefined,
   ): Promise<GlobalMcpServerAuthState> {
     const server = entry.config;
     // A disabled server never participates in OAuth; keep the historical
@@ -1389,11 +1391,12 @@ export class PythinkerCore implements PromisableMethods<CoreAPI> {
         return offline();
       });
 
-    if (verify) {
+    if (verify === true) {
       // Online verification: a real connection probe settles states the
       // offline view cannot distinguish (revoked grant, dead refresh token).
       return probe();
     }
+    if (verify === false) return offline();
     if (tokens.hasTokens) return offline();
     if (server.auth === 'oauth') return 'oauth-required';
     // Unpinned auth with no stored grant: probe once to detect whether the
@@ -1893,10 +1896,10 @@ export class PythinkerCore implements PromisableMethods<CoreAPI> {
 
   private mergePluginMcpConfig(base: SessionMcpConfig | undefined): SessionMcpConfig | undefined {
     // Plugin entries arrive with all contributor-side transforms applied
-    // (runtime rename, env/cwd constraints, managed Pythinker env); disabled ones
+    // (runtime rename and env/cwd constraints); disabled ones
     // stay out of sessions entirely, matching historical behavior.
     const pluginEntries = this.plugins
-      .mcpServerEntries({ managedEnv: this.managedPythinkerCodeEnvForPlugins() })
+      .mcpServerEntries()
       .filter((entry) => entry.config.enabled !== false);
     if (pluginEntries.length === 0) return base;
     const servers: Record<string, McpServerConfig> = { ...base?.servers };
@@ -1947,20 +1950,6 @@ export class PythinkerCore implements PromisableMethods<CoreAPI> {
     cwd: string | undefined,
   ): Promise<McpRegistryEntry | undefined> {
     return this.mcpRegistry.resolveRuntimeTarget(name, { cwd });
-  }
-
-  private managedPythinkerCodeEnvForPlugins(): Record<string, string> {
-    const provider = this.config.providers[PYTHINKER_CODE_PROVIDER_NAME];
-    const envBaseUrl = process.env[PYTHINKER_CODE_BASE_URL_ENV];
-    const envOAuthHost = process.env[PYTHINKER_CODE_OAUTH_HOST_ENV] ?? process.env[PYTHINKER_OAUTH_HOST_ENV];
-    const hasEnvOverride = envBaseUrl !== undefined || envOAuthHost !== undefined;
-    const baseUrl =
-      envBaseUrl !== undefined ? envBaseUrl.replace(/\/+$/, '') : provider?.baseUrl;
-    const oauthHost = hasEnvOverride ? envOAuthHost : provider?.oauth?.oauthHost;
-    const env: Record<string, string> = {};
-    if (baseUrl !== undefined) env[PYTHINKER_CODE_BASE_URL_ENV] = baseUrl;
-    if (oauthHost !== undefined) env[PYTHINKER_CODE_OAUTH_HOST_ENV] = oauthHost;
-    return env;
   }
 
   private requireSession(sessionId: string): Session {
@@ -2219,7 +2208,11 @@ async function createRuntimeConfig(input: {
             baseUrl: fetchService.baseUrl,
             localFallback: localFetcher,
             defaultHeaders: input.pythinkerRequestHeaders,
-            ...serviceCredentials(fetchService, input.resolveOAuthTokenProvider),
+            ...serviceCredentials(
+              fetchService,
+              WEB_FETCH_CREDENTIAL_SLOT,
+              input.resolveOAuthTokenProvider,
+            ),
           }),
     webSearcher:
       searchService?.baseUrl === undefined
@@ -2227,7 +2220,11 @@ async function createRuntimeConfig(input: {
         : new PyModelWebSearchProvider({
             baseUrl: searchService.baseUrl,
             defaultHeaders: input.pythinkerRequestHeaders,
-            ...serviceCredentials(searchService, input.resolveOAuthTokenProvider),
+            ...serviceCredentials(
+              searchService,
+              WEB_SEARCH_CREDENTIAL_SLOT,
+              input.resolveOAuthTokenProvider,
+            ),
           }),
   };
 }
@@ -2258,6 +2255,7 @@ function withServiceEnv(
 
 function serviceCredentials(
   service: PyModelServiceConfig,
+  credentialSlot: string,
   resolveOAuthTokenProvider: OAuthTokenProviderResolver | undefined,
 ): {
   readonly apiKey?: string | undefined;
@@ -2269,7 +2267,7 @@ function serviceCredentials(
     apiKey,
     tokenProvider:
       service.oauth !== undefined
-        ? resolveOAuthTokenProvider?.(PYTHINKER_CODE_PROVIDER_NAME, service.oauth)
+        ? resolveOAuthTokenProvider?.(credentialSlot, service.oauth)
         : undefined,
     customHeaders: service.customHeaders,
   };

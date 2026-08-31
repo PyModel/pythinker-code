@@ -16,7 +16,7 @@ async function main(): Promise<void> {
 
   const session = await harness.createSession({
     workDir,
-    model: 'pythinker-code/kimi-for-coding',
+    model: 'example/test-model',
   });
   const summary = (await harness.listSessions({ workDir })).find((item) => item.id === session.id);
   if (summary === undefined) {

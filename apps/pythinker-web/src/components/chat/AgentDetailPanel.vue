@@ -8,10 +8,9 @@ import { useIsMobile } from '../../composables/useIsMobile';
 import Badge from '../ui/Badge.vue';
 import Icon from '../ui/Icon.vue';
 import IconButton from '../ui/IconButton.vue';
-import Menu from '../ui/Menu.vue';
-import MenuItem from '../ui/MenuItem.vue';
 import PanelHeader from '../ui/PanelHeader.vue';
 import ChatPane from './ChatPane.vue';
+import Markdown from './Markdown.vue';
 
 const props = defineProps<{
   member: AgentMember;
@@ -35,15 +34,11 @@ const emit = defineEmits<{
 
 const { t } = useI18n();
 const isMobile = useIsMobile();
-const copyMenuItemSize = computed(() => (isMobile.value ? 'lg' : 'md'));
 const copyButtonSize = computed(() => (isMobile.value ? 'lg' : 'sm'));
 const bodyEl = ref<HTMLElement | null>(null);
+const chatPaneRef = ref<InstanceType<typeof ChatPane> | null>(null);
 const following = ref(true);
-const copyMenuOpen = ref(false);
-const copyTriggerRef = ref<InstanceType<typeof IconButton> | null>(null);
-const copyMenuRef = ref<InstanceType<typeof Menu> | null>(null);
-const copyMenuStyle = ref<Record<string, string>>({});
-const copiedKind = ref<'command' | 'output' | 'all' | null>(null);
+const copied = ref(false);
 let copiedTimer: ReturnType<typeof setTimeout> | null = null;
 let copyGeneration = 0;
 
@@ -76,7 +71,9 @@ const outputText = computed(() =>
 const modelDisplay = inject<(modelId: string | undefined) => string | undefined>('modelDisplay');
 const subagentEffort = inject<(effort: string | undefined) => string | undefined>('subagentEffort');
 
-const subtitle = computed(() =>
+// Type / model / effort ride under the header as one muted meta line, above
+// the originating prompt.
+const metaText = computed(() =>
   [
     props.member.subagentType,
     modelDisplay?.(props.member.model),
@@ -84,6 +81,48 @@ const subtitle = computed(() =>
   ]
     .filter(Boolean)
     .join(' · ') || undefined,
+);
+
+const promptText = computed(() => props.member.prompt?.trim() ?? '');
+// A slash-command prompt reads as a command, not prose — keep it monospaced and
+// out of the markdown renderer.
+const promptIsCommand = computed(
+  () => promptText.value.startsWith('/') && !promptText.value.includes('\n'),
+);
+
+const fallbackVisible = computed(
+  () => props.turns.length === 0 && !props.loading && (props.loadError || fallbackLines.value.length > 0),
+);
+
+// ---------------------------------------------------------------------------
+// Prompt clamp — a long originating prompt collapses to six line-heights with
+// a centered expand pill floating over the fade.
+// ---------------------------------------------------------------------------
+const promptTextEl = ref<HTMLElement | null>(null);
+const promptClamped = ref(true);
+const promptOverflowing = ref(false);
+
+function measurePromptOverflow(): void {
+  const element = promptTextEl.value;
+  if (!element) {
+    promptOverflowing.value = false;
+    return;
+  }
+  promptOverflowing.value = element.scrollHeight > element.clientHeight + 1;
+}
+
+function togglePromptClamp(): void {
+  promptClamped.value = !promptClamped.value;
+  void nextTick(measurePromptOverflow);
+}
+
+watch(
+  () => [props.member.id, promptText.value] as const,
+  () => {
+    promptClamped.value = true;
+    void nextTick(measurePromptOverflow);
+  },
+  { immediate: true },
 );
 
 function onTranscriptScroll(): void {
@@ -97,6 +136,11 @@ function scrollToBottom(): void {
     const element = bodyEl.value;
     if (element) element.scrollTop = element.scrollHeight;
   });
+}
+
+function jumpToBottom(): void {
+  following.value = true;
+  scrollToBottom();
 }
 
 provide('pinScroll', (element: HTMLElement) => {
@@ -124,121 +168,29 @@ function phaseLabel(phase: AgentMember['phase']): string {
   return t(`tools.dynamic_workflow.phase${suffix}`);
 }
 
-function positionCopyMenu(): void {
-  const button = copyTriggerRef.value?.el;
-  const menu = copyMenuRef.value?.el;
-  if (!button || !menu) return;
-  const rect = button.getBoundingClientRect();
-  const gap = 8;
-  const margin = 8;
-  const left = Math.max(
-    margin,
-    Math.min(rect.right - menu.offsetWidth, window.innerWidth - menu.offsetWidth - margin),
-  );
-  if (rect.bottom + gap + menu.offsetHeight <= window.innerHeight - margin) {
-    copyMenuStyle.value = { left: `${left}px`, top: `${rect.bottom + gap}px` };
-  } else {
-    copyMenuStyle.value = {
-      left: `${left}px`,
-      bottom: `${window.innerHeight - rect.top + gap}px`,
-    };
-  }
+function flashCopied(): void {
+  if (copiedTimer !== null) clearTimeout(copiedTimer);
+  copied.value = true;
+  copiedTimer = setTimeout(() => {
+    copiedTimer = null;
+    copied.value = false;
+  }, 1400);
 }
 
-function focusCopyMenuItem(): void {
-  const menu = copyMenuRef.value?.el;
-  menu?.querySelector<HTMLElement>('.ui-menu-item:not(:disabled)')?.focus();
-}
-
-function closeCopyMenu(refocus = false): void {
-  if (!copyMenuOpen.value) return;
-  copyMenuOpen.value = false;
-  window.removeEventListener('mousedown', onDocumentMouseDown, true);
-  window.removeEventListener('keydown', onMenuEscape, true);
-  window.removeEventListener('resize', positionCopyMenu);
-  window.removeEventListener('scroll', positionCopyMenu, true);
-  if (refocus) copyTriggerRef.value?.el?.focus();
-}
-
-async function openCopyMenu(): Promise<void> {
-  if (copyMenuOpen.value) {
-    closeCopyMenu(true);
+/**
+ * One copy action. The turn list owns the conversation-level copy path; the
+ * fallback view has no turns, so it copies the raw prompt + output instead.
+ */
+async function copyTranscript(): Promise<void> {
+  if (!fallbackVisible.value && props.turns.length > 0) {
+    chatPaneRef.value?.copyConversation();
     return;
   }
-  copyMenuOpen.value = true;
-  await nextTick();
-  // A member switch or unmount during the tick can have closed the menu and
-  // torn its listeners down; resuming here would leak them until unmount.
-  if (!copyMenuOpen.value) return;
-  positionCopyMenu();
-  focusCopyMenuItem();
-  window.addEventListener('mousedown', onDocumentMouseDown, true);
-  window.addEventListener('keydown', onMenuEscape, true);
-  window.addEventListener('resize', positionCopyMenu);
-  window.addEventListener('scroll', positionCopyMenu, true);
-}
-
-function onTriggerArrowKey(event: KeyboardEvent): void {
-  event.preventDefault();
-  void openCopyMenu();
-}
-
-function onDocumentMouseDown(event: MouseEvent): void {
-  const target = event.target as Node | null;
-  if (!target) return;
-  if (copyMenuRef.value?.el?.contains(target) || copyTriggerRef.value?.el?.contains(target)) return;
-  closeCopyMenu();
-}
-
-function onMenuEscape(event: KeyboardEvent): void {
-  if (event.key !== 'Escape') return;
-  event.preventDefault();
-  event.stopImmediatePropagation();
-  closeCopyMenu(true);
-}
-
-function onMenuKeyDown(event: KeyboardEvent): void {
-  if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
-  event.preventDefault();
-  const items = Array.from(
-    copyMenuRef.value?.el?.querySelectorAll<HTMLElement>('.ui-menu-item:not(:disabled)') ?? [],
-  );
-  if (items.length === 0) return;
-  const currentIndex = items.indexOf(document.activeElement as HTMLElement);
-  const nextIndex = event.key === 'ArrowDown'
-    ? (currentIndex + 1) % items.length
-    : (currentIndex - 1 + items.length) % items.length;
-  items[nextIndex]?.focus();
-}
-
-function onCopyFocusOut(event: FocusEvent): void {
-  const related = event.relatedTarget as Node | null;
-  if (
-    related &&
-    (copyMenuRef.value?.el?.contains(related) || copyTriggerRef.value?.el?.contains(related))
-  ) {
-    return;
-  }
-  closeCopyMenu();
-}
-
-async function copyToClipboard(kind: 'command' | 'output' | 'all'): Promise<void> {
-  const text =
-    kind === 'command'
-      ? props.member.prompt
-      : kind === 'output'
-        ? outputText.value
-        : [props.member.prompt?.trim(), outputText.value].filter(Boolean).join('\n\n');
+  const text = [props.member.prompt?.trim(), outputText.value].filter(Boolean).join('\n\n');
   if (!text) return;
   const generation = ++copyGeneration;
   if (!(await copyTextToClipboard(text)) || generation !== copyGeneration) return;
-  if (copiedTimer !== null) clearTimeout(copiedTimer);
-  copiedKind.value = kind;
-  copiedTimer = setTimeout(() => {
-    copiedTimer = null;
-    copiedKind.value = null;
-  }, 1400);
-  closeCopyMenu(true);
+  flashCopied();
 }
 
 watch(
@@ -247,14 +199,12 @@ watch(
     copyGeneration += 1;
     if (copiedTimer !== null) clearTimeout(copiedTimer);
     copiedTimer = null;
-    copiedKind.value = null;
-    closeCopyMenu();
+    copied.value = false;
   },
 );
 
 onUnmounted(() => {
   if (copiedTimer !== null) clearTimeout(copiedTimer);
-  closeCopyMenu();
 });
 </script>
 
@@ -262,88 +212,90 @@ onUnmounted(() => {
   <div class="agent-panel">
     <PanelHeader
       :title="member.name"
-      :subtitle="subtitle"
       :close-label="t('thinking.close')"
       @close="emit('close')"
     >
       <Badge variant="neutral" size="sm">{{ phaseLabel(member.phase) }}</Badge>
       <IconButton
-        v-if="member.prompt || outputText"
-        ref="copyTriggerRef"
+        v-if="member.prompt || outputText || turns.length > 0"
         :size="copyButtonSize"
-        :class="{ 'copy-menu-open': copyMenuOpen }"
         :label="t('tasks.copy')"
-        :tooltip="t('tasks.copy')"
-        aria-haspopup="menu"
-        :aria-expanded="copyMenuOpen"
-        @click="openCopyMenu"
-        @keydown.down.prevent="onTriggerArrowKey"
-        @keydown.up.prevent="onTriggerArrowKey"
-        @focusout="onCopyFocusOut"
+        @click="copyTranscript"
       >
-        <Icon :name="copiedKind ? 'check' : 'copy'" size="sm" />
+        <Icon :name="copied ? 'check' : 'copy'" size="sm" />
       </IconButton>
     </PanelHeader>
 
-    <div ref="bodyEl" class="agent-transcript" @scroll.passive="onTranscriptScroll">
-      <div
-        v-if="turns.length === 0 && !loading && (loadError || fallbackLines.length > 0)"
-        class="agent-fallback"
-      >
-        <div v-if="loadError" class="agent-error">{{ t('tasks.transcriptLoadError') }}</div>
-        <pre v-if="fallbackLines.length > 0" class="fallback-lines">{{ fallbackLines.join('\n') }}</pre>
-      </div>
-      <ChatPane
-        v-else
-        :turns="turns"
-        :turn-active="running"
-        :session-loading="loading && turns.length === 0"
-        :has-more-messages="hasMore"
-        :loading-more="loadingMore"
-        :loading-more-error="loadMoreError"
-        :is-following="following"
-        read-only
-        inspector
-        @load-older-messages="emit('loadOlderMessages')"
-        @open-agent="emit('openAgent', $event)"
-        @open-file="emit('openFile', $event)"
-        @open-media="emit('openMedia', $event)"
-        @open-turn-diff="emit('openTurnDiff', $event)"
-      />
+    <div v-if="metaText" class="agent-meta">
+      <span class="agent-meta-text">{{ metaText }}</span>
     </div>
 
-    <Teleport to="body">
-      <Menu
-        v-if="copyMenuOpen"
-        ref="copyMenuRef"
-        class="copy-menu"
-        :style="copyMenuStyle"
-        @keydown="onMenuKeyDown"
-        @focusout="onCopyFocusOut"
-      >
-        <MenuItem
-          v-if="member.prompt"
-          :size="copyMenuItemSize"
-          @click="copyToClipboard('command')"
-        >
-          <Icon name="terminal" size="sm" />
-          <span>{{ t('tasks.copyCommand') }}</span>
-        </MenuItem>
-        <MenuItem
-          :size="copyMenuItemSize"
-          :disabled="!outputText"
-          @click="copyToClipboard('output')"
-        >
-          <Icon name="file-text" size="sm" />
-          <span>{{ t('tasks.copyOutput') }}</span>
-        </MenuItem>
-        <MenuItem separator />
-        <MenuItem :size="copyMenuItemSize" @click="copyToClipboard('all')">
-          <Icon name="copy" size="sm" />
-          <span>{{ t('tasks.copyAll') }}</span>
-        </MenuItem>
-      </Menu>
-    </Teleport>
+    <!-- The prompt the subagent was given, as the originating user bubble. -->
+    <div v-if="promptText" class="agent-prompt">
+      <div class="agent-prompt-bubble">
+        <div class="agent-prompt-wrap" :class="{ 'is-clamped': promptClamped }">
+          <div
+            ref="promptTextEl"
+            class="agent-prompt-text"
+            :class="{ 'is-command': promptIsCommand }"
+          >
+            <template v-if="promptIsCommand">{{ promptText }}</template>
+            <Markdown v-else :text="promptText" :open-file="(target) => emit('openFile', target)" />
+          </div>
+          <button
+            v-if="promptOverflowing || !promptClamped"
+            type="button"
+            class="agent-prompt-toggle"
+            :aria-expanded="!promptClamped"
+            @click="togglePromptClamp"
+          >
+            <span>{{ promptClamped ? t('tasks.expand') : t('tasks.collapse') }}</span>
+            <Icon
+              class="agent-prompt-toggle-car"
+              :class="{ open: !promptClamped }"
+              name="chevron-down"
+              size="sm"
+              aria-hidden="true"
+            />
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div ref="bodyEl" class="agent-transcript" @scroll.passive="onTranscriptScroll">
+      <div class="agent-transcript-inner">
+        <div v-if="fallbackVisible" class="agent-fallback">
+          <div v-if="loadError" class="agent-error">{{ t('tasks.transcriptLoadError') }}</div>
+          <pre v-if="fallbackLines.length > 0" class="fallback-lines">{{ fallbackLines.join('\n') }}</pre>
+        </div>
+        <ChatPane
+          v-else
+          ref="chatPaneRef"
+          :turns="turns"
+          :turn-active="running"
+          :session-loading="loading && turns.length === 0"
+          :has-more-messages="hasMore"
+          :loading-more="loadingMore"
+          :loading-more-error="loadMoreError"
+          :is-following="following"
+          read-only
+          inspector
+          @load-older-messages="emit('loadOlderMessages')"
+          @open-agent="emit('openAgent', $event)"
+          @open-file="emit('openFile', $event)"
+          @open-media="emit('openMedia', $event)"
+          @open-turn-diff="emit('openTurnDiff', $event)"
+          @copy-conversation-copied="flashCopied"
+        />
+      </div>
+
+      <Transition name="agent-jump">
+        <button v-if="!following" type="button" class="agent-jump-btn" @click="jumpToBottom">
+          <Icon class="agent-jump-car" name="arrow-down" size="sm" aria-hidden="true" />
+          <span>{{ t('conversation.backToBottom') }}</span>
+        </button>
+      </Transition>
+    </div>
   </div>
 </template>
 
@@ -355,10 +307,120 @@ onUnmounted(() => {
   flex-direction: column;
   background: var(--color-bg);
 }
+/* Meta line: a muted label whose trailing hairline fills the rest of the row. */
+.agent-meta {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-3) var(--space-2);
+  user-select: none;
+}
+.agent-meta::after {
+  content: '';
+  flex: 1;
+  height: var(--p-hairline);
+  background: var(--color-line);
+}
+.agent-meta-text {
+  font: var(--text-xs)/1 var(--font-ui);
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.agent-prompt {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  padding: 0 var(--space-3) var(--space-2);
+}
+.agent-prompt-bubble {
+  display: flex;
+  flex-direction: column;
+  align-self: flex-end;
+  max-width: 78%;
+  padding: 10px 12px;
+  background: var(--color-user-bubble-bg);
+  border-radius: var(--radius-lg);
+}
+.agent-prompt-wrap {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+.agent-prompt-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: var(--content-font-size);
+  line-height: var(--leading-normal);
+  color: var(--color-text);
+}
+.agent-prompt-text.is-command {
+  font-family: var(--font-mono);
+}
+/* Six line-heights, with the last line fading out under the pill. */
+.agent-prompt-wrap.is-clamped > .agent-prompt-text {
+  max-height: 6lh;
+  overflow: hidden;
+  mask-image: linear-gradient(to bottom, black calc(100% - 2.5lh), transparent calc(100% - 0.5lh));
+  -webkit-mask-image: linear-gradient(to bottom, black calc(100% - 2.5lh), transparent calc(100% - 0.5lh));
+}
+.agent-prompt-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  align-self: center;
+  margin-top: var(--space-1);
+  padding: var(--space-1) var(--space-3);
+  border: none;
+  border-radius: var(--radius-full);
+  background: var(--color-surface-raised);
+  box-shadow: var(--shadow-sm);
+  color: var(--color-text);
+  font-family: var(--font-ui);
+  font-size: var(--ui-font-size-sm);
+  line-height: 1;
+  cursor: pointer;
+  user-select: none;
+  transition: box-shadow var(--duration-base) var(--ease-out);
+}
+.agent-prompt-toggle:hover {
+  box-shadow: var(--shadow-md);
+}
+.agent-prompt-toggle:focus-visible {
+  outline: none;
+  box-shadow: var(--p-focus-ring);
+}
+.agent-prompt-wrap.is-clamped .agent-prompt-toggle {
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  transform: translate(-50%);
+  margin-top: 0;
+}
+.agent-prompt-toggle-car {
+  transition: transform var(--duration-base) var(--ease-out);
+}
+.agent-prompt-toggle-car.open {
+  transform: rotate(180deg);
+}
 .agent-transcript {
+  position: relative;
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+}
+/* Centre the transcript on the same reading column as the main conversation. */
+.agent-transcript-inner {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+  width: 100%;
+  max-width: var(--p-content-max);
+  margin-inline: auto;
 }
 .agent-transcript :deep(.think-body),
 .agent-transcript :deep(.ar-body),
@@ -384,8 +446,46 @@ onUnmounted(() => {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
-.copy-menu {
-  position: fixed;
-  z-index: var(--z-dropdown);
+/* Floating "Back to bottom" — only while the reader has scrolled away. */
+.agent-jump-btn {
+  position: sticky;
+  left: 50%;
+  bottom: var(--space-3);
+  transform: translate(-50%);
+  z-index: var(--z-sticky);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px var(--space-3);
+  border: var(--p-hairline) solid var(--color-line);
+  border-radius: var(--radius-full);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-sm);
+  color: var(--color-text);
+  font-family: var(--font-ui);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-ui-strong);
+  line-height: 1.5;
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+}
+.agent-jump-btn:focus-visible {
+  outline: none;
+  box-shadow: var(--p-focus-ring);
+}
+.agent-jump-car {
+  width: 12px;
+  height: 12px;
+}
+.agent-jump-enter-active,
+.agent-jump-leave-active {
+  transition: opacity var(--duration-base) var(--ease-out),
+    transform var(--duration-base) var(--ease-out);
+}
+.agent-jump-enter-from,
+.agent-jump-leave-to {
+  opacity: 0;
+  transform: translate(-50%, 6px);
 }
 </style>

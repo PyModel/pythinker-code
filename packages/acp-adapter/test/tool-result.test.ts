@@ -152,7 +152,7 @@ describe('AcpServer tool.result → tool_call_update', () => {
     } as unknown as PythinkerHarness;
 
     const { agentStream, clientStream } = makeInMemoryStreamPair();
-    new AgentSideConnection((c) => new AcpServer(harness, c), agentStream);
+    new AgentSideConnection((c) => new AcpServer(harness, c, { disableAuth: true }), agentStream);
     const collecting = new CollectingClient();
     const client = new ClientSideConnection(() => collecting, clientStream);
     await client.newSession({ cwd: '/tmp/x', mcpServers: [] });
@@ -203,7 +203,7 @@ describe('AcpServer tool.result → tool_call_update', () => {
     } as unknown as PythinkerHarness;
 
     const { agentStream, clientStream } = makeInMemoryStreamPair();
-    new AgentSideConnection((c) => new AcpServer(harness, c), agentStream);
+    new AgentSideConnection((c) => new AcpServer(harness, c, { disableAuth: true }), agentStream);
     const collecting = new CollectingClient();
     const client = new ClientSideConnection(() => collecting, clientStream);
     await client.newSession({ cwd: '/tmp/x', mcpServers: [] });
@@ -250,7 +250,7 @@ describe('AcpServer tool.result → tool_call_update', () => {
     } as unknown as PythinkerHarness;
 
     const { agentStream, clientStream } = makeInMemoryStreamPair();
-    new AgentSideConnection((c) => new AcpServer(harness, c), agentStream);
+    new AgentSideConnection((c) => new AcpServer(harness, c, { disableAuth: true }), agentStream);
     const collecting = new CollectingClient();
     const client = new ClientSideConnection(() => collecting, clientStream);
     await client.newSession({ cwd: '/tmp/x', mcpServers: [] });
@@ -296,7 +296,7 @@ describe('AcpServer tool.call.started with diff display', () => {
     } as unknown as PythinkerHarness;
 
     const { agentStream, clientStream } = makeInMemoryStreamPair();
-    new AgentSideConnection((c) => new AcpServer(harness, c), agentStream);
+    new AgentSideConnection((c) => new AcpServer(harness, c, { disableAuth: true }), agentStream);
     const collecting = new CollectingClient();
     const client = new ClientSideConnection(() => collecting, clientStream);
     await client.newSession({ cwd: '/tmp/x', mcpServers: [] });
@@ -353,7 +353,7 @@ describe('AcpServer tool.call.started with diff display', () => {
     } as unknown as PythinkerHarness;
 
     const { agentStream, clientStream } = makeInMemoryStreamPair();
-    new AgentSideConnection((c) => new AcpServer(harness, c), agentStream);
+    new AgentSideConnection((c) => new AcpServer(harness, c, { disableAuth: true }), agentStream);
     const collecting = new CollectingClient();
     const client = new ClientSideConnection(() => collecting, clientStream);
     await client.newSession({ cwd: '/tmp/x', mcpServers: [] });
@@ -394,7 +394,7 @@ describe('AcpServer tool.call.started with diff display', () => {
     } as unknown as PythinkerHarness;
 
     const { agentStream, clientStream } = makeInMemoryStreamPair();
-    new AgentSideConnection((c) => new AcpServer(harness, c), agentStream);
+    new AgentSideConnection((c) => new AcpServer(harness, c, { disableAuth: true }), agentStream);
     const collecting = new CollectingClient();
     const client = new ClientSideConnection(() => collecting, clientStream);
     await client.newSession({ cwd: '/tmp/x', mcpServers: [] });

@@ -36,9 +36,28 @@ describe('desktop release workflow', () => {
     expect(workflow).toContain('verify-update-manifest.ts win')
   })
 
+  it('gives users the changelog as the release body instead of a build stamp', () => {
+    expect(workflow).toContain('scripts/desktop-release.mjs notes')
+    expect(workflow).toContain('--notes-file "$notes_file"')
+    expect(workflow).not.toContain('--notes "Pythinker Desktop')
+  })
+
   it('never publishes a manual unsigned build to the release feed', () => {
-    expect(workflow).toContain("publish:\n    if: startsWith(github.ref, 'refs/tags/desktop-v')")
-    expect(workflow).toContain("if: startsWith(github.ref, 'refs/tags/desktop-v')\n        shell: bash\n        env:\n          GH_TOKEN:")
+    expect(workflow).toContain("publish: ${{ steps.resolve.outputs.publish }}")
+    expect(workflow).toContain("if: needs.prepare.outputs.publish == 'true'")
+    expect(workflow).toContain("if: needs.prepare.outputs.publish != 'true'")
+  })
+
+  it('uses one signed build path for Stable, Beta, and Nightly feeds', () => {
+    expect(workflow).toContain('workflow_call:')
+    expect(workflow).toContain('type: choice')
+    expect(workflow).toContain('options: [stable, beta, nightly]')
+    expect(workflow).toContain('scripts/desktop-release.mjs resolve')
+    expect(workflow).toContain('PUBLISH_NIGHTLY: ${{ inputs.publish_nightly }}')
+    expect(workflow.match(/scripts\/desktop-release\.mjs configure/gu)).toHaveLength(2)
+    expect(workflow).toContain('needs.prepare.outputs.mac_manifest')
+    expect(workflow).toContain('needs.prepare.outputs.win_manifest')
+    expect(workflow).toContain('--prerelease')
   })
 
   it('runs every signing gate on a manual rehearsal, not only on a tag', () => {
@@ -70,8 +89,10 @@ describe('desktop release workflow', () => {
   })
 
   it('refuses to overwrite an existing published release', () => {
-    expect(workflow).toContain("--json isDraft --jq '.isDraft'")
+    expect(workflow).toContain('--json body,isDraft,isPrerelease')
+    expect(workflow).toContain('belongs to a different source commit')
     expect(workflow).toContain('already exists and is published; refusing to replace live assets')
+    expect(workflow).toContain('Nightly release ${RELEASE_TAG} already exists; no new main commit to publish.')
   })
 
   it('limits release tokens to repository contents writes', () => {

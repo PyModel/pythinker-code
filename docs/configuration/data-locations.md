@@ -67,7 +67,7 @@ Each top-level file under the data root serves a specific purpose; most are mana
 - **`mcp.json`**: user-level MCP server declarations, merged with the project-local `.pythinker-code/mcp.json` on startup. See [MCP](../customization/mcp.md).
 - **`skills/`**: Pythinker-specific user-level Skills. This directory moves with `PYTHINKER_CODE_HOME`; generic cross-tool Skills can still live under `~/.agents/skills/`. See [Agent Skills](../customization/skills.md).
 - **`plugins/installed.json`**: records installed plugins, each plugin's enabled state, and MCP server capability state changes made via `/plugins` or `/plugins mcp disable|enable`. Files installed from local paths or zip URLs are copied to `plugins/managed/<id>/`. See [Plugins](../customization/plugins.md).
-- **`credentials/`**: OAuth credential directory, with permissions `0o700` (directory) / `0o600` (files), readable and writable only by the current user. Managed provider credentials are stored as `credentials/<name>.json`; MCP server credentials are stored under `credentials/mcp/`. Credentials are written using an atomic flow (tmp → fsync → rename) to prevent corruption.
+- **`credentials/`**: OAuth credential directory, with permissions `0o700` (directory) / `0o600` (files), readable and writable only by the current user. Provider credentials are stored as `credentials/<name>.json`; MCP server credentials are stored under `credentials/mcp/`. Credentials are written using an atomic flow (tmp → fsync → rename) to prevent corruption.
 
 ## Session data
 
@@ -83,6 +83,8 @@ Inside each session directory:
 - **`logs/pythinker-code.log`**: diagnostic log for this session; only present when a diagnostic event occurs.
 - **`tasks/`**: background task persistence — `tasks/<task_id>.json` stores status/pid/exit code; `tasks/<task_id>/output.log` stores output.
 - **`cron/`**: scheduled task persistence; reloaded into the scheduler when the session is resumed with `pythinker --session`. See [Scheduled tasks](../reference/tools.md#scheduled-tasks).
+
+Saved plan files can be outside the workspace. In the web interface, select **Reveal in file manager** next to a saved plan to select it in the operating system file manager.
 
 ## Built-in tool cache
 

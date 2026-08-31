@@ -24,14 +24,13 @@ import { MASTER_ENV } from '#/app/flag/flagService';
 import { estimateTokensForMessages } from '#/kosong/contract/tokens';
 import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
 import type { TestAgentContext, TestAgentOptions, TestAgentServiceOverride } from '../../harness';
-import { agentService, appServices, createCommandRunner, execEnvServices, hostEnvironmentServices, sessionServices, testAgent } from '../../harness';
+import { agentService, appServices, createCommandRunner, execEnvServices, hostEnvironmentServices, sessionServices, testAgent as createTestAgent } from '../../harness';
 import { IAgentToolSelectAnnouncementsService } from '#/agent/toolSelect/toolSelectAnnouncements';
 import {
   IAgentFullCompactionService,
   IModelOAuthTokens,
   IAgentProfileService,
   IAgentToolRegistryService,
-  ISessionTodoService,
   DYNAMIC_TOOL_SCHEMA_VARIANT,
   normalizeAgentProfile,
   type ExecutableTool,
@@ -39,11 +38,20 @@ import {
   type ToolExecution,
 } from '#/index';
 import { IAgentLoopService } from '#/agent/loop/loop';
-import { IAgentGoalService } from '#/features/goal/goal';
+import { AgentTodo } from '#/features/todo/todoAgentRuntime';
+import { AgentGoal } from '#/features/goal/goalAgentRuntime';
 import { IAgentTelemetryContextService } from '#/app/telemetry/agentTelemetryContext';
 import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
 
 type GenerateFn = NonNullable<TestAgentOptions['generate']>;
+
+function testAgent(
+  ...inputs: readonly (TestAgentServiceOverride | TestAgentOptions)[]
+): TestAgentContext {
+  const context = createTestAgent(...inputs);
+  void context.restoreRuntimes();
+  return context;
+}
 
 const CATALOGUED_PROVIDER = {
   type: 'pythinker',
@@ -69,7 +77,7 @@ const SNAPSHOT_VISIBLE_TOOLS = [
   'ExitPlanMode',
 ] as const;
 const LARGE_MCP_TOOL = 'mcp__srv__large';
-const EXACT_COMPACTION_REFRESH_PROFILE: ResolvedAgentProfile = normalizeAgentProfile({
+const EXACT_COMPACTION_PROFILE: ResolvedAgentProfile = normalizeAgentProfile({
   name: 'exact-compaction-refresh',
   systemPrompt: (context) =>
     [
@@ -290,7 +298,7 @@ describe('FullCompaction', () => {
       properties: expect.objectContaining({
         agent_id: 'main',
         source: 'manual',
-        tokens_before: 6_257,
+        tokens_before: 6_475,
         tokens_after: expect.any(Number),
         duration_ms: expect.any(Number),
         compacted_count: 6,
@@ -343,7 +351,7 @@ describe('FullCompaction', () => {
     hook.dispose();
   });
 
-  it('refreshes the active profile system prompt after compaction without resetting active tools', async () => {
+  it('keeps the active profile system prompt frozen after compaction without resetting active tools', async () => {
     const homeDir = mkdtempSync(join(tmpdir(), 'pythinker-compact-refresh-home-'));
     const workDir = mkdtempSync(join(tmpdir(), 'pythinker-compact-refresh-work-'));
     try {
@@ -355,14 +363,12 @@ describe('FullCompaction', () => {
       );
       ctx.configureRuntimeModel(CATALOGUED_PROVIDER, CATALOGUED_MODEL_CAPABILITIES);
       const profile = ctx.get(IAgentProfileService);
-      await profile.applyProfile(EXACT_COMPACTION_REFRESH_PROFILE);
+      await profile.applyProfile(EXACT_COMPACTION_PROFILE);
       profile.update({ activeToolNames: ['Read'] });
 
-      expect(profile.data().systemPrompt).toBe(
-        exactCompactionRefreshPrompt(workDir, 'old project instructions'),
-      );
+      const before = profile.data().systemPrompt;
+      expect(before).toBe(exactCompactionPrompt(workDir, 'old project instructions'));
 
-      const refreshSpy = vi.spyOn(profile, 'refreshSystemPrompt');
       writeFileSync(join(workDir, 'AGENTS.md'), 'new project instructions', 'utf-8');
       ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
       ctx.appendExchange(2, 'recent user two', 'recent assistant two', 80);
@@ -372,10 +378,7 @@ describe('FullCompaction', () => {
       await ctx.rpc.beginCompaction({});
       await completed;
 
-      expect(refreshSpy).toHaveBeenCalledTimes(1);
-      expect(profile.data().systemPrompt).toBe(
-        exactCompactionRefreshPrompt(workDir, 'new project instructions'),
-      );
+      expect(profile.data().systemPrompt).toBe(before);
       expect(profile.getActiveToolNames()).toEqual(['Read']);
     } finally {
       rmSync(homeDir, { recursive: true, force: true });
@@ -569,7 +572,7 @@ describe('FullCompaction', () => {
       session_id: 'test-session',
       cwd: dir,
       trigger: 'auto',
-      token_count: 6_257,
+      token_count: 6_475,
     });
     expect(post).toMatchObject({
       hook_event_name: 'PostCompact',
@@ -655,11 +658,64 @@ describe('FullCompaction', () => {
       event: 'compaction_finished',
       properties: expect.objectContaining({
         source: 'manual',
-        tokens_before: 17_935,
+        tokens_before: 18_161,
         retry_count: 1,
         trace_id: 'trace-compact-1',
       }),
     });
+    await ctx.expectResumeMatches();
+  });
+
+  it('retries any compaction request error indefinitely when PYTHINKER_CODE_INFINITE_RETRY is set', async () => {
+    vi.stubEnv('PYTHINKER_CODE_INFINITE_RETRY', '1');
+    let attempts = 0;
+    const generate: GenerateFn = async () => {
+      attempts += 1;
+      if (attempts === 1) throw new APIStatusError(400, 'endpoint broken', null, 1);
+      if (attempts === 2) throw new APIStatusError(404, 'model not found', null, 1);
+      return textResult('Recovered compacted summary.');
+    };
+    const ctx = testAgent({ generate });
+    ctx.configure({
+      provider: CATALOGUED_PROVIDER,
+      modelCapabilities: CATALOGUED_MODEL_CAPABILITIES,
+    });
+    ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
+    ctx.appendExchange(2, 'recent user two', 'recent assistant two', 80);
+    const compacted = ctx.once('full_compaction.complete');
+    const completed = ctx.once('compaction.completed');
+
+    await ctx.rpc.beginCompaction({});
+    await compacted;
+    await completed;
+
+    expect(attempts).toBe(3);
+    await ctx.expectResumeMatches();
+  });
+
+  it('lets context overflow reach compaction shrink instead of retrying when PYTHINKER_CODE_INFINITE_RETRY is set', async () => {
+    vi.stubEnv('PYTHINKER_CODE_INFINITE_RETRY', '1');
+    let attempts = 0;
+    const generate: GenerateFn = async () => {
+      attempts += 1;
+      if (attempts === 1) throw new APIContextOverflowError(400, 'context length exceeded');
+      return textResult('Recovered compacted summary.');
+    };
+    const ctx = testAgent({ generate });
+    ctx.configure({
+      provider: CATALOGUED_PROVIDER,
+      modelCapabilities: CATALOGUED_MODEL_CAPABILITIES,
+    });
+    ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
+    ctx.appendExchange(2, 'recent user two', 'recent assistant two', 80);
+    const compacted = ctx.once('full_compaction.complete');
+    const completed = ctx.once('compaction.completed');
+
+    await ctx.rpc.beginCompaction({});
+    await compacted;
+    await completed;
+
+    expect(attempts).toBe(2);
     await ctx.expectResumeMatches();
   });
 
@@ -1069,7 +1125,7 @@ describe('FullCompaction', () => {
       properties: expect.objectContaining({
         agent_id: 'main',
         source: 'manual',
-        tokens_before: 17_935,
+        tokens_before: 18_161,
         duration_ms: expect.any(Number),
         round: 1,
         retry_count: 0,
@@ -1294,7 +1350,7 @@ describe('FullCompaction', () => {
       event: 'compaction_failed',
       properties: expect.objectContaining({
         source: 'manual',
-        tokens_before: 17_935,
+        tokens_before: 18_161,
         duration_ms: expect.any(Number),
         retry_count: 4,
         error_type: 'APIConnectionError',
@@ -1667,8 +1723,8 @@ describe('FullCompaction', () => {
       event: 'compaction_finished',
       properties: expect.objectContaining({
         source: 'auto',
-        tokens_before: 6_264,
-        tokens_after: 6_248,
+        tokens_before: 6_482,
+        tokens_after: 6_466,
         compacted_count: 7,
         retry_count: 0,
       }),
@@ -2932,17 +2988,12 @@ describe('FullCompaction', () => {
       { title: 'Fix the auth bug', status: 'in_progress' },
       { title: 'Add tests', status: 'pending' },
     ] as const;
-    const ctx = testAgent(
-      sessionServices((reg) => {
-        reg.definePartialInstance(ISessionTodoService, {
-          getTodos: async () => todos,
-        });
-      }),
-    );
+    const ctx = testAgent();
     ctx.configure({
       provider: CATALOGUED_PROVIDER,
       modelCapabilities: CATALOGUED_MODEL_CAPABILITIES,
     });
+    await ctx.resolve(AgentTodo).replace(todos);
     ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
     ctx.appendExchange(2, 'recent user two', 'recent assistant two', 80);
 
@@ -3011,7 +3062,7 @@ function countEvents(events: ReturnType<TestAgentContext['newEvents']>, type: st
   }).length;
 }
 
-function exactCompactionRefreshPrompt(workDir: string, agentsMd: string): string {
+function exactCompactionPrompt(workDir: string, agentsMd: string): string {
   return [
     `cwd:${workDir}`,
     'os:Linux',
@@ -3032,7 +3083,7 @@ function oauthTestAgentOptions(
     initialConfig: {
       defaultModel: 'pythinker-code',
       providers: {
-        'managed:pythinker-code': {
+        'oauth-example': {
           type: 'google-genai',
           baseUrl: 'https://api.example/v1',
           oauth: { storage: 'file', key: 'oauth/pythinker-code' },
@@ -3040,7 +3091,7 @@ function oauthTestAgentOptions(
       },
       models: {
         'pythinker-code': {
-          provider: 'managed:pythinker-code',
+          provider: 'oauth-example',
           model: 'kimi-for-coding',
           maxContextSize: 1_000_000,
         },
@@ -3342,7 +3393,8 @@ describe('goal reminder re-injection after full compaction', () => {
       provider: CATALOGUED_PROVIDER,
       modelCapabilities: CATALOGUED_MODEL_CAPABILITIES,
     });
-    await ctx.get(IAgentGoalService).createGoal({ objective: GOAL_OBJECTIVE });
+    await ctx.restoreRuntimes();
+    await ctx.resolve(AgentGoal).createGoal({ objective: GOAL_OBJECTIVE });
     ctx.appendExchange(1, 'old user one', 'old assistant one', 100);
     ctx.appendExchange(2, 'recent user two', 'recent assistant two', 950_000);
 
@@ -3363,7 +3415,7 @@ describe('goal reminder re-injection after full compaction', () => {
       provider: CATALOGUED_PROVIDER,
       modelCapabilities: CATALOGUED_MODEL_CAPABILITIES,
     });
-    await ctx.get(IAgentGoalService).createGoal({ objective: GOAL_OBJECTIVE });
+    await ctx.resolve(AgentGoal).createGoal({ objective: GOAL_OBJECTIVE });
     ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
     ctx.appendExchange(2, 'recent user two', 'recent assistant two', 80);
     const completed = ctx.once('compaction.completed');
@@ -3417,7 +3469,7 @@ describe('goal reminder re-injection after full compaction', () => {
       provider: CATALOGUED_PROVIDER,
       modelCapabilities: CATALOGUED_MODEL_CAPABILITIES,
     });
-    await ctx.get(IAgentGoalService).createGoal({ objective: GOAL_OBJECTIVE });
+    await ctx.resolve(AgentGoal).createGoal({ objective: GOAL_OBJECTIVE });
     ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
     ctx.appendExchange(2, 'recent user two', 'recent assistant two', 80);
     const completed = ctx.once('compaction.completed');
@@ -3437,5 +3489,361 @@ describe('goal reminder re-injection after full compaction', () => {
     expect(turnRequest).toContain('deferred prompt');
     expect(goalReminderCount(turnRequest)).toBeGreaterThanOrEqual(1);
     expect(turnRequest.some((text) => text.includes('Compacted summary.'))).toBe(true);
+  });
+});
+
+describe('active goal auto-compaction coordination', () => {
+  const pauseReason =
+    'Paused because context compaction is in progress; it will resume after compaction completes';
+
+  function compactAfterCurrentStep(ctx: TestAgentContext): void {
+    let started = false;
+    ctx.get(IAgentLoopService).hooks.onDidFinishStep.register(
+      'test-goal-auto-compaction',
+      async (_step, next) => {
+        if (!started) {
+          started = true;
+          ctx.get(IAgentFullCompactionService).begin({ source: 'auto' });
+        }
+        await next();
+      },
+      { before: 'goal-outcome-continuation' },
+    );
+  }
+
+  function compactBeforeCurrentStep(ctx: TestAgentContext): void {
+    let started = false;
+    ctx.get(IAgentLoopService).hooks.onWillBeginStep.register(
+      'test-goal-auto-compaction',
+      async (_step, next) => {
+        if (!started) {
+          started = true;
+          ctx.get(IAgentFullCompactionService).begin({ source: 'auto' });
+        }
+        await next();
+      },
+      { before: 'goal-count-turn' },
+    );
+  }
+
+  it('serializes a goal continuation when auto compaction starts after a step', async () => {
+    const compactionRequested = deferred<void>();
+    const releaseCompaction = deferred<void>();
+    const continuationRequested = deferred<void>();
+    let llmCallCount = 0;
+    const llmInputs: string[][] = [];
+    const generate: GenerateFn = async (_provider, _system, _tools, history) => {
+      llmCallCount += 1;
+      llmInputs.push(history.map(messageText));
+      if (llmCallCount === 1) return textResult('First goal slice.');
+      if (llmCallCount === 2) {
+        compactionRequested.resolve();
+        await releaseCompaction.promise;
+        return textResult('Compacted goal summary.');
+      }
+      if (llmCallCount === 3) {
+        continuationRequested.resolve();
+        return textResult('Continued after compaction.');
+      }
+      throw new Error(`Unexpected generate call ${String(llmCallCount)}`);
+    };
+    const ctx = testAgent({ generate });
+    ctx.configure({
+      provider: CATALOGUED_PROVIDER,
+      modelCapabilities: CATALOGUED_MODEL_CAPABILITIES,
+    });
+    const goals = ctx.resolve(AgentGoal);
+    await goals.createGoal({ objective: 'finish the bounded task' });
+    await goals.setBudgetLimits({ budgetLimits: { turnBudget: 2 } });
+    ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
+    compactAfterCurrentStep(ctx);
+    ctx.newEvents();
+    const compactionOutcome = ctx.onceAny(['compaction.completed', 'compaction.cancelled']);
+
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Continue the goal' }] });
+    await compactionRequested.promise;
+    const goalWhileCompacting = goals.getGoal().goal;
+
+    releaseCompaction.resolve();
+    const outcome = await compactionOutcome;
+    await continuationRequested.promise;
+    await ctx.get(IAgentLoopService).settled();
+    const events = ctx.newEvents();
+
+    expect(goalWhileCompacting).toMatchObject({ status: 'paused', terminalReason: pauseReason });
+    expect(outcome).toBe('compaction.completed');
+    expect(llmCallCount).toBe(3);
+    const continuationHistory = llmInputs[2] ?? [];
+    expect(continuationHistory.some((text) => text.includes('active goal'))).toBe(true);
+    expect(continuationHistory.some((text) => text.includes('currently paused'))).toBe(false);
+    expect(countEvents(events, 'compaction.started')).toBe(1);
+    expect(countEvents(events, 'compaction.cancelled')).toBe(0);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        event: 'goal.updated',
+        args: expect.objectContaining({
+          snapshot: expect.objectContaining({ status: 'active' }),
+          change: expect.objectContaining({ kind: 'lifecycle', status: 'active' }),
+        }),
+      }),
+    );
+  });
+
+  it('holds the model request when auto compaction starts before a goal step', async () => {
+    const compactionRequested = deferred<void>();
+    const releaseCompaction = deferred<void>();
+    let llmCallCount = 0;
+    const llmInputs: string[][] = [];
+    const generate: GenerateFn = async (_provider, _system, _tools, history) => {
+      llmCallCount += 1;
+      llmInputs.push(history.map(messageText));
+      if (llmCallCount === 1) {
+        compactionRequested.resolve();
+        await releaseCompaction.promise;
+        return textResult('Compacted before the step.');
+      }
+      if (llmCallCount === 2) return textResult('Model ran after compaction.');
+      throw new Error(`Unexpected generate call ${String(llmCallCount)}`);
+    };
+    const ctx = testAgent({ generate });
+    ctx.configure({
+      provider: CATALOGUED_PROVIDER,
+      modelCapabilities: CATALOGUED_MODEL_CAPABILITIES,
+    });
+    const goals = ctx.resolve(AgentGoal);
+    await goals.createGoal({ objective: 'finish one bounded turn' });
+    await goals.setBudgetLimits({ budgetLimits: { turnBudget: 1 } });
+    ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
+    compactBeforeCurrentStep(ctx);
+    const compactionOutcome = ctx.onceAny(['compaction.completed', 'compaction.cancelled']);
+
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Run after compaction' }] });
+    const turnDone = ctx.get(IAgentLoopService).settled();
+    await compactionRequested.promise;
+    const goalWhileCompacting = goals.getGoal().goal;
+    const callsWhileCompacting = llmCallCount;
+
+    releaseCompaction.resolve();
+    const outcome = await compactionOutcome;
+    await turnDone;
+
+    expect(goalWhileCompacting).toMatchObject({ status: 'paused', terminalReason: pauseReason });
+    expect(callsWhileCompacting).toBe(1);
+    expect(outcome).toBe('compaction.completed');
+    expect(llmCallCount).toBe(2);
+    const answerHistory = llmInputs[1] ?? [];
+    expect(answerHistory.some((text) => text.includes('active goal'))).toBe(true);
+    expect(answerHistory.some((text) => text.includes('currently paused'))).toBe(false);
+    expect(goals.getGoal().goal?.status).toBe('blocked');
+  });
+
+  it('keeps the goal paused when auto compaction fails', async () => {
+    const compactionRequested = deferred<void>();
+    const releaseCompaction = deferred<void>();
+    let llmCallCount = 0;
+    const generate: GenerateFn = async () => {
+      llmCallCount += 1;
+      if (llmCallCount === 1) return textResult('First goal slice.');
+      if (llmCallCount === 2) {
+        compactionRequested.resolve();
+        await releaseCompaction.promise;
+        throw new Error('compaction exploded');
+      }
+      if (llmCallCount === 3) return textResult('Unexpected continuation.');
+      throw new Error(`Unexpected generate call ${String(llmCallCount)}`);
+    };
+    const ctx = testAgent({ generate });
+    ctx.configure({
+      provider: CATALOGUED_PROVIDER,
+      modelCapabilities: CATALOGUED_MODEL_CAPABILITIES,
+    });
+    const goals = ctx.resolve(AgentGoal);
+    await goals.createGoal({ objective: 'finish the bounded task' });
+    await goals.setBudgetLimits({ budgetLimits: { turnBudget: 2 } });
+    ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
+    compactAfterCurrentStep(ctx);
+    const compactionOutcome = ctx.onceAny(['compaction.completed', 'compaction.cancelled']);
+
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Continue the goal' }] });
+    const turnDone = ctx.get(IAgentLoopService).settled();
+    await compactionRequested.promise;
+    releaseCompaction.resolve();
+    const outcome = await compactionOutcome;
+    await turnDone;
+
+    expect(outcome).toBe('compaction.cancelled');
+    expect(llmCallCount).toBe(2);
+    expect(goals.getGoal().goal).toMatchObject({
+      status: 'paused',
+      terminalReason: 'Paused because context compaction did not complete',
+    });
+  });
+
+  it('lets a cancelled turn stop while auto compaction remains pending', async () => {
+    const compactionRequested = deferred<void>();
+    const releaseCompaction = deferred<void>();
+    let llmCallCount = 0;
+    const generate: GenerateFn = async () => {
+      llmCallCount += 1;
+      if (llmCallCount === 1) return textResult('First goal slice.');
+      if (llmCallCount === 2) {
+        compactionRequested.resolve();
+        await releaseCompaction.promise;
+        return textResult('Compacted goal summary.');
+      }
+      throw new Error(`Unexpected generate call ${String(llmCallCount)}`);
+    };
+    const ctx = testAgent({ generate });
+    ctx.configure({
+      provider: CATALOGUED_PROVIDER,
+      modelCapabilities: CATALOGUED_MODEL_CAPABILITIES,
+    });
+    const goals = ctx.resolve(AgentGoal);
+    await goals.createGoal({ objective: 'finish the bounded task' });
+    ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
+    compactAfterCurrentStep(ctx);
+    const loop = ctx.get(IAgentLoopService);
+    const compactionOutcome = ctx.onceAny(['compaction.completed', 'compaction.cancelled']);
+
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Continue the goal' }] });
+    const turnDone = loop.settled();
+    await compactionRequested.promise;
+    loop.cancelFromUser();
+    const settledBeforeCompaction = await Promise.race([
+      turnDone.then(() => true),
+      new Promise<false>((resolve) => setTimeout(() => resolve(false), 100)),
+    ]);
+    releaseCompaction.resolve();
+    await compactionOutcome;
+    await turnDone;
+
+    expect(settledBeforeCompaction).toBe(true);
+    expect(llmCallCount).toBe(2);
+  });
+
+  it('preserves a user pause when auto compaction later succeeds', async () => {
+    const compactionRequested = deferred<void>();
+    const releaseCompaction = deferred<void>();
+    let llmCallCount = 0;
+    const generate: GenerateFn = async () => {
+      llmCallCount += 1;
+      if (llmCallCount === 1) return textResult('First goal slice.');
+      if (llmCallCount === 2) {
+        compactionRequested.resolve();
+        await releaseCompaction.promise;
+        return textResult('Compacted goal summary.');
+      }
+      return textResult('Unexpected continuation.');
+    };
+    const ctx = testAgent({ generate });
+    ctx.configure({
+      provider: CATALOGUED_PROVIDER,
+      modelCapabilities: CATALOGUED_MODEL_CAPABILITIES,
+    });
+    const goals = ctx.resolve(AgentGoal);
+    await goals.createGoal({ objective: 'finish the bounded task' });
+    ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
+    compactAfterCurrentStep(ctx);
+    const compactionOutcome = ctx.onceAny(['compaction.completed', 'compaction.cancelled']);
+
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Continue the goal' }] });
+    const turnDone = ctx.get(IAgentLoopService).settled();
+    await compactionRequested.promise;
+    await goals.pauseGoal({ reason: 'Paused by user' });
+    releaseCompaction.resolve();
+    const outcome = await compactionOutcome;
+    await turnDone;
+
+    expect(outcome).toBe('compaction.completed');
+    expect(llmCallCount).toBe(2);
+    expect(goals.getGoal().goal).toMatchObject({
+      status: 'paused',
+      terminalReason: 'Paused by user',
+    });
+  });
+
+  it('does not revive a user-cancelled goal after compaction is cancelled', async () => {
+    const compactionRequested = deferred<void>();
+    const releaseCompaction = deferred<void>();
+    let llmCallCount = 0;
+    const generate: GenerateFn = async () => {
+      llmCallCount += 1;
+      if (llmCallCount === 1) return textResult('First goal slice.');
+      if (llmCallCount === 2) {
+        compactionRequested.resolve();
+        await releaseCompaction.promise;
+        return textResult('Compacted goal summary.');
+      }
+      throw new Error(`Unexpected generate call ${String(llmCallCount)}`);
+    };
+    const ctx = testAgent({ generate });
+    ctx.configure({
+      provider: CATALOGUED_PROVIDER,
+      modelCapabilities: CATALOGUED_MODEL_CAPABILITIES,
+    });
+    const goals = ctx.resolve(AgentGoal);
+    await goals.createGoal({ objective: 'finish the bounded task' });
+    ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
+    compactAfterCurrentStep(ctx);
+    const compactionOutcome = ctx.onceAny(['compaction.completed', 'compaction.cancelled']);
+
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Continue the goal' }] });
+    const turnDone = ctx.get(IAgentLoopService).settled();
+    await compactionRequested.promise;
+    await goals.cancelGoal();
+    releaseCompaction.resolve();
+    const outcome = await compactionOutcome;
+    await turnDone;
+
+    expect(outcome).toBe('compaction.cancelled');
+    expect(llmCallCount).toBe(2);
+    expect(goals.getGoal().goal).toBeNull();
+  });
+
+  it('defers an explicit resume until auto compaction succeeds', async () => {
+    const compactionRequested = deferred<void>();
+    const releaseCompaction = deferred<void>();
+    const continuationRequested = deferred<void>();
+    let llmCallCount = 0;
+    const generate: GenerateFn = async () => {
+      llmCallCount += 1;
+      if (llmCallCount === 1) return textResult('First goal slice.');
+      if (llmCallCount === 2) {
+        compactionRequested.resolve();
+        await releaseCompaction.promise;
+        return textResult('Compacted goal summary.');
+      }
+      if (llmCallCount === 3) {
+        continuationRequested.resolve();
+        return textResult('Continued after compaction.');
+      }
+      throw new Error(`Unexpected generate call ${String(llmCallCount)}`);
+    };
+    const ctx = testAgent({ generate });
+    ctx.configure({
+      provider: CATALOGUED_PROVIDER,
+      modelCapabilities: CATALOGUED_MODEL_CAPABILITIES,
+    });
+    const goals = ctx.resolve(AgentGoal);
+    await goals.createGoal({ objective: 'finish the bounded task' });
+    await goals.setBudgetLimits({ budgetLimits: { turnBudget: 2 } });
+    ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
+    compactAfterCurrentStep(ctx);
+    const compactionOutcome = ctx.onceAny(['compaction.completed', 'compaction.cancelled']);
+
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Continue the goal' }] });
+    await compactionRequested.promise;
+    const resumeResult = await goals.resumeGoal({ continueIfPaused: true });
+
+    expect(resumeResult).toMatchObject({ status: 'paused', terminalReason: pauseReason });
+    expect(llmCallCount).toBe(2);
+
+    releaseCompaction.resolve();
+    expect(await compactionOutcome).toBe('compaction.completed');
+    await continuationRequested.promise;
+    await ctx.get(IAgentLoopService).settled();
+
+    expect(llmCallCount).toBe(3);
+    expect(goals.getGoal().goal?.status).toBe('blocked');
   });
 });

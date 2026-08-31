@@ -3,16 +3,15 @@ import type { IAgentScopeHandle } from '#/_base/di/scope';
 import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { ILogService } from '#/_base/log/log';
-import {
-  IAgentContextInjectorService,
-  type ContextInjectionContent,
-} from '#/agent/contextInjector/contextInjector';
+import type { AgentContext } from '#/agent/agentContext/agentContext';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { IAgentContextProjectorService } from '#/agent/contextProjector/contextProjector';
 import { TurnEnded, TurnPrompt } from '#/agent/loop/turnOps';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { IConfigService } from '#/app/config/config';
 import { IEventBus } from '#/app/event/eventBus';
+import { AgentReminder } from '#/features/reminder/reminderAgentRuntime';
+import type { ContextInjectionContent } from '#/features/reminder/types';
 import { extractText, createUserMessage } from '#/kosong/contract/message';
 import { IModelCatalog } from '#/kosong/model/catalog';
 import { IModelService, type ModelRecord } from '#/kosong/model/model';
@@ -87,10 +86,10 @@ export class SessionAdvisorService extends Disposable implements ISessionAdvisor
     @ILogService private readonly log: Pick<ILogService, 'debug' | 'warn'>,
   ) {
     super();
-    this._register(this.agents.onDidCreateScope(({ handle }) => {
-      this.bindMain(handle);
+    this._register(this.agents.onDidCreateScope(({ context, handle }) => {
+      this.bindMain(handle, context);
     }));
-    this._register(this.agents.onDidDispose((agent) => {
+    this._register(this.agents.onDidClose((agent) => {
       if (agent.agentId === MAIN_AGENT_ID) this.disposeMainBindings();
     }));
     this._register(toDisposable(() => {
@@ -98,11 +97,12 @@ export class SessionAdvisorService extends Disposable implements ISessionAdvisor
       this.activeAbort?.abort();
       this.disposeMainBindings();
     }));
-    const main = this.agents.findAgentHandle(MAIN_AGENT_ID);
-    if (main !== undefined) this.bindMain(main);
+    const main = this.agents.handleOf(MAIN_AGENT_ID);
+    const mainContext = this.agents.get(MAIN_AGENT_ID);
+    if (main !== undefined && mainContext !== undefined) this.bindMain(main, mainContext);
   }
 
-  private bindMain(handle: IAgentScopeHandle): void {
+  private bindMain(handle: IAgentScopeHandle, context: AgentContext): void {
     if (handle.id !== MAIN_AGENT_ID) return;
     this.disposeMainBindings();
     const bindings = new DisposableStore();
@@ -115,7 +115,7 @@ export class SessionAdvisorService extends Disposable implements ISessionAdvisor
       if (userTurn && event.reason === 'completed') this.startReview(handle);
     }));
     bindings.add(
-      handle.accessor.get(IAgentContextInjectorService).register(
+      this.agents.resolve(context, AgentReminder).register(
         ADVISOR_INJECTION,
         ({ isNewTurn }) => this.takeAdvisory(isNewTurn),
       ),

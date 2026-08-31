@@ -63,22 +63,10 @@ export const PYTHINKER_CODE_INPUT_HISTORY_DIR_NAME = 'user-history';
 export const PYTHINKER_CODE_BANNER_DIR_NAME = 'banner';
 export const PYTHINKER_CODE_BANNER_STATE_FILE_NAME = 'state.json';
 
-// Managed Pythinker auth provider key shared with OAuth/SDK config.
-export const DEFAULT_OAUTH_PROVIDER_NAME = 'managed:pythinker-code';
-
 // SDK/core error code that tells the TUI to show a login-required startup
 // notice. Derived from sdk's ErrorCodes so a future rename in core
 // auto-propagates instead of silently breaking the startup recovery path.
 export const OAUTH_LOGIN_REQUIRED_CODE = ErrorCodes.AUTH_LOGIN_REQUIRED;
-
-export const FEEDBACK_ISSUE_URL = 'https://github.com/PyModel/pythinker-code/issues';
-
-// Sent in the feedback `version` field so the backend can distinguish this
-// TypeScript client from clients that send a bare version.
-export const FEEDBACK_VERSION_PREFIX = 'pythinker-code-';
-
-// Telemetry event name; keep stable for dashboard queries.
-export const FEEDBACK_TELEMETRY_EVENT = 'feedback_submitted';
 
 // The marketplace catalog location constants live in the shared
 // agent-core-v2 plugin domain (agent-gateway consumes them from there).
@@ -87,6 +75,7 @@ export const FEEDBACK_TELEMETRY_EVENT = 'feedback_submitted';
 export {
   PYTHINKER_CODE_PLUGIN_MARKETPLACE_URL_ENV,
 } from '@pymodel/agent-core-v2/app/plugin/marketplace';
-// Official plugins whose usage bills against the user's plan quota. Installing
-// one of these shows a quota note after the install result.
-export const QUOTA_CONSUMING_PLUGIN_IDS: readonly string[] = ['pythinker-datasource'];
+// Bound on each background "latest release" lookup when the TUI fills in
+// marketplace versions. Without it a stalled connection to github.com hangs
+// the version phase for undici's default header timeout (300s).
+export const MARKETPLACE_VERSION_LOOKUP_TIMEOUT_MS = 5000;

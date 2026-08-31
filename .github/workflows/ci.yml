@@ -114,6 +114,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm run lint
       - run: pnpm run sherif
+      - run: pnpm run test:release
 
   typecheck:
     runs-on: ubuntu-latest

@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { createInitialState, reduceAppEvent } from '../src/api/daemon/eventReducer';
+import {
+  createInitialState,
+  patchAssistantDeltaInPlace,
+  reduceAppEvent,
+} from '../src/api/daemon/eventReducer';
 import type { AppMessage, AppSession, AppTask } from '../src/api/types';
 import { i18n } from '../src/i18n';
 
@@ -702,6 +706,34 @@ describe('reduceAppEvent sessions reference stability', () => {
     );
     expect(next.sessions).not.toBe(state.sessions);
     expect(next.sessions.map((s) => s.id)).toEqual(['s2', 's1']);
+  });
+});
+
+describe('assistant delta reference stability', () => {
+  it('patches only the target message slot', () => {
+    const user = makeMessage('s1', '2026-01-01T00:00:00.000Z');
+    const assistant: AppMessage = {
+      id: 'msg_a',
+      sessionId: 's1',
+      role: 'assistant',
+      content: [{ type: 'text', text: 'hel' }],
+      createdAt: '2026-01-01T00:00:01.000Z',
+    };
+    const messages = [user, assistant];
+
+    expect(
+      patchAssistantDeltaInPlace(messages, {
+        type: 'assistantDelta',
+        sessionId: 's1',
+        messageId: 'msg_a',
+        contentIndex: 0,
+        delta: { text: 'lo' },
+      }),
+    ).toBe(true);
+
+    expect(messages[0]).toBe(user);
+    expect(messages[1]).not.toBe(assistant);
+    expect(messages[1]?.content).toEqual([{ type: 'text', text: 'hello' }]);
   });
 });
 

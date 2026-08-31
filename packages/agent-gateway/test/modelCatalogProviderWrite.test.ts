@@ -68,15 +68,15 @@ const POOL_TOML = [
 
 const POOL_DANGLING_DEFAULT_TOML = POOL_TOML.replace('default_model = "k2"', 'default_model = "gpt4o"');
 
-const MANAGED_TOML = [
-  '[providers."managed:pythinker-code"]',
+const OAUTH_TOML = [
+  '[providers."file-oauth"]',
   'type = "pythinker"',
   'api_key = ""',
   'base_url = "https://api.example.test/v1"',
-  'oauth = { storage = "file", key = "oauth/pythinker-code" }',
+  'oauth = { storage = "file", key = "oauth/example" }',
   '',
-  '[models."managed:pythinker-code/kimi-k2"]',
-  'provider = "managed:pythinker-code"',
+  '[models."file-oauth/example-model"]',
+  'provider = "file-oauth"',
   'model = "kimi-k2"',
   'max_context_size = 131072',
   '',
@@ -447,7 +447,7 @@ describe('server-v2 /api/v1 provider write endpoints', () => {
     });
   });
 
-  it('filters secondary_model pool entries whose provider was deleted', async () => {
+  it('preserves secondary_model when its provider is deleted', async () => {
     await boot(POOL_TOML);
     const { status } = await deleteJson<unknown>('/api/v1/providers/openai');
     expect(status).toBe(204);
@@ -455,17 +455,20 @@ describe('server-v2 /api/v1 provider write endpoints', () => {
     const onDisk = await readConfigToml();
     expect(onDisk['secondary_model']).toEqual({
       default_model: 'k2',
-      models: { k2: 'fast' },
+      models: { k2: 'fast', gpt4o: 'smart' },
     });
   });
 
-  it('drops the secondary_model section when its default dangles after deletion', async () => {
+  it('preserves secondary_model when its default dangles after deletion', async () => {
     await boot(POOL_DANGLING_DEFAULT_TOML);
     const { status } = await deleteJson<unknown>('/api/v1/providers/openai');
     expect(status).toBe(204);
 
     const onDisk = await readConfigToml();
-    expect(onDisk['secondary_model']).toBeUndefined();
+    expect(onDisk['secondary_model']).toEqual({
+      default_model: 'gpt4o',
+      models: { k2: 'fast', gpt4o: 'smart' },
+    });
   });
 
   it('round-trips a created provider: delete removes every trace from config.toml', async () => {
@@ -485,19 +488,23 @@ describe('server-v2 /api/v1 provider write endpoints', () => {
     expect(providers.body.data.items).toEqual([]);
   });
 
-  it('rejects deleting an OAuth-managed provider with 40003', async () => {
-    await boot(MANAGED_TOML);
-    const { body } = await deleteJson<unknown>('/api/v1/providers/managed%3Apythinker-code');
-    expect(body?.code).toBe(40003);
-    expect(body?.msg).toContain('/oauth/logout');
-
+  it('deletes a provider with an explicit OAuth credential reference', async () => {
+    await boot(OAUTH_TOML);
+    const { status } = await deleteJson<unknown>('/api/v1/providers/file-oauth');
+    expect(status).toBe(204);
     const providers = await getJson<{ items: Array<{ id: string }> }>('/api/v1/providers');
-    expect(providers.body.data.items.map((p) => p.id)).toEqual(['managed:pythinker-code']);
+    expect(providers.body.data.items).toEqual([]);
   });
 
   it('maps an unknown provider id to 40412 on delete', async () => {
     await boot(KEEP_DEFAULT_TOML);
     const { body } = await deleteJson<unknown>('/api/v1/providers/missing');
+    expect(body?.code).toBe(40412);
+  });
+
+  it('does not treat inherited object properties as provider ids', async () => {
+    await boot(KEEP_DEFAULT_TOML);
+    const { body } = await deleteJson<unknown>('/api/v1/providers/toString');
     expect(body?.code).toBe(40412);
   });
 
@@ -711,7 +718,7 @@ describe('server-v2 /api/v1 provider write endpoints', () => {
     expect(onDisk['default_model']).toBe('gpt4o');
   });
 
-  it('repoints secondary_model pool entries on provider rename', async () => {
+  it('leaves secondary_model pool entries untouched on provider rename', async () => {
     await boot(POOL_TOML);
     const { status } = await putJson<unknown>('/api/v1/providers/openai', {
       type: 'openai',
@@ -723,11 +730,11 @@ describe('server-v2 /api/v1 provider write endpoints', () => {
     const onDisk = await readConfigToml();
     expect(onDisk['secondary_model']).toEqual({
       default_model: 'k2',
-      models: { k2: 'fast', 'my-openai/gpt-4o': 'smart' },
+      models: { k2: 'fast', gpt4o: 'smart' },
     });
   });
 
-  it('filters secondary_model pool entries dropped by a provider edit', async () => {
+  it('preserves secondary_model pool entries dropped by a provider edit', async () => {
     await boot(POOL_TOML);
     const { status } = await putJson<unknown>('/api/v1/providers/openai', REPLACE_BODY);
     expect(status).toBe(200);
@@ -735,17 +742,20 @@ describe('server-v2 /api/v1 provider write endpoints', () => {
     const onDisk = await readConfigToml();
     expect(onDisk['secondary_model']).toEqual({
       default_model: 'k2',
-      models: { k2: 'fast' },
+      models: { k2: 'fast', gpt4o: 'smart' },
     });
   });
 
-  it('drops the secondary_model section when a provider edit orphans its default', async () => {
+  it('preserves secondary_model when a provider edit orphans its default', async () => {
     await boot(POOL_DANGLING_DEFAULT_TOML);
     const { status } = await putJson<unknown>('/api/v1/providers/openai', REPLACE_BODY);
     expect(status).toBe(200);
 
     const onDisk = await readConfigToml();
-    expect(onDisk['secondary_model']).toBeUndefined();
+    expect(onDisk['secondary_model']).toEqual({
+      default_model: 'gpt4o',
+      models: { k2: 'fast', gpt4o: 'smart' },
+    });
   });
 
   it('rejects a rename to an existing provider id with 40921', async () => {
@@ -788,19 +798,18 @@ describe('server-v2 /api/v1 provider write endpoints', () => {
     }
   });
 
-  it('rejects replacing an OAuth-managed provider with 40003', async () => {
-    await boot(MANAGED_TOML);
-    const { body } = await putJson<unknown>(
-      '/api/v1/providers/managed%3Apythinker-code',
-      REPLACE_BODY,
-    );
-    expect(body.code).toBe(40003);
-    expect(body.msg).toContain('/oauth/logout');
-
+  it('replaces a provider with an explicit OAuth credential reference', async () => {
+    await boot(OAUTH_TOML);
+    const { status, body } = await putJson<unknown>('/api/v1/providers/file-oauth', REPLACE_BODY);
+    expect(status).toBe(200);
+    expect(body.code).toBe(0);
     const providers = await getJson<{ items: Array<{ id: string }> }>('/api/v1/providers');
-    expect(providers.body.data.items.map((p) => p.id)).toEqual(['managed:pythinker-code']);
+    expect(providers.body.data.items.map((p) => p.id)).toEqual(['file-oauth']);
     const models = await getJson<{ items: Array<{ model: string }> }>('/api/v1/models');
-    expect(models.body.data.items.map((m) => m.model)).toEqual(['managed:pythinker-code/kimi-k2']);
+    expect(models.body.data.items.map((m) => m.model)).toEqual([
+      'file-oauth/gpt-4.1',
+      'file-oauth/gpt-4o-mini',
+    ]);
   });
 
   it('maps an unknown provider id to 40412 on replace', async () => {
@@ -808,6 +817,12 @@ describe('server-v2 /api/v1 provider write endpoints', () => {
     const { body } = await putJson<unknown>('/api/v1/providers/missing', REPLACE_BODY);
     expect(body.code).toBe(40412);
     expect(body.data).toBeNull();
+  });
+
+  it('rejects a prototype property name as a provider id', async () => {
+    await boot(KEEP_DEFAULT_TOML);
+    const { body } = await putJson<unknown>('/api/v1/providers/__proto__', REPLACE_BODY);
+    expect(body.code).toBe(40001);
   });
 
   it('clears omitted provider fields from config.toml, leaving only the adopted global default in the response', async () => {

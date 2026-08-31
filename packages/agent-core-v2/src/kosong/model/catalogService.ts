@@ -9,7 +9,6 @@ import type { ProviderRequestAuth } from '#/kosong/contract/provider';
 import type { TokenUsage } from '#/kosong/contract/usage';
 import {
   IProtocolAdapterRegistry,
-  ProtocolSchema,
   type Protocol,
   type ProtocolProviderOptions,
 } from '#/kosong/protocol/protocol';
@@ -60,6 +59,7 @@ import {
   effectiveModelConfig,
   nonEmpty,
   resolveModelAuthMaterial,
+  resolveModelProtocol,
 } from './modelAuth';
 import { IModelOAuthTokens } from './modelOAuth';
 import type { ResolvedModelAuthMaterial } from './model.types';
@@ -461,33 +461,15 @@ export class ModelCatalog extends Disposable implements IModelCatalog {
     provider: ProviderConfig | undefined,
     trace: ResolutionTraceCollector,
   ): Protocol {
-    if (model.protocol !== undefined) {
-      trace.record('resolved.protocol', { kind: 'config', detail: 'model.protocol' });
-      return model.protocol;
+    const resolution = resolveModelProtocol(model, provider);
+    if (resolution === undefined) {
+      throw new Error2(
+        CONFIG_INVALID_ERROR_CODE,
+        `Model "${id}" must declare a wire protocol (config: models.<id>.protocol).`,
+      );
     }
-    const providerType = provider?.type;
-    if (providerType !== undefined) {
-      const asProtocol = ProtocolSchema.safeParse(providerType);
-      if (asProtocol.success) {
-        trace.record('resolved.protocol', {
-          kind: 'config',
-          detail: `provider type '${providerType}' is itself a wire protocol`,
-        });
-        return asProtocol.data;
-      }
-      const definition = getProviderDefinition(providerType);
-      if (definition !== undefined) {
-        trace.record('resolved.protocol', {
-          kind: 'builtin',
-          detail: `vendor '${providerType}' declared baseProtocol`,
-        });
-        return definition.baseProtocol;
-      }
-    }
-    throw new Error2(
-      CONFIG_INVALID_ERROR_CODE,
-      `Model "${id}" must declare a wire protocol (config: models.<id>.protocol).`,
-    );
+    trace.record('resolved.protocol', resolution.source);
+    return resolution.protocol;
   }
 
   private buildAuthProvider(providerName: string, auth: ResolvedModelAuthMaterial): AuthProvider {
@@ -634,8 +616,13 @@ function locationFromVertexAIBaseUrl(baseUrl: string | undefined): string | unde
   if (url === undefined) return undefined;
   try {
     const host = new URL(url).hostname;
-    const suffix = '-aiplatform.googleapis.com';
-    return host.endsWith(suffix) ? nonEmpty(host.slice(0, -suffix.length)) : undefined;
+    const labels = host.split('.');
+    if (labels.length !== 3 || labels[1] !== 'googleapis' || labels[2] !== 'com') {
+      return undefined;
+    }
+    const service = labels[0]!;
+    const suffix = '-aiplatform';
+    return service.endsWith(suffix) ? nonEmpty(service.slice(0, -suffix.length)) : undefined;
   } catch {
     return undefined;
   }

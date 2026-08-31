@@ -1,6 +1,5 @@
-import { createPythinkerDeviceId, PYTHINKER_CODE_PROVIDER_NAME } from '@pymodel/pythinker-code-oauth';
+import { createPythinkerDeviceId } from '@pymodel/pythinker-code-oauth';
 import {
-  PythinkerAuthFacade,
   loadRuntimeConfigSafe,
   resolveConfigPath,
   resolvePythinkerHome,
@@ -18,8 +17,6 @@ import {
 
 import { CLI_USER_AGENT_PRODUCT, WEB_UI_MODE } from '#/constant/app';
 import { currentPythinkerProfile } from '#/utils/region';
-
-import { createPythinkerCodeHostIdentity } from './version';
 
 export interface CliTelemetryBootstrap {
   readonly homeDir: string;
@@ -59,8 +56,6 @@ export function initializeCliTelemetry(options: InitializeCliTelemetryOptions): 
     model: options.model ?? options.config.defaultModel,
     sessionId: options.sessionId,
     endpoint: () => currentPythinkerProfile().telemetryEndpoint,
-    getAccessToken: async () =>
-      (await options.harness.auth.getCachedAccessToken(PYTHINKER_CODE_PROVIDER_NAME)) ?? null,
   });
   if (options.bootstrap.firstLaunch) {
     options.harness.track('first_launch');
@@ -93,11 +88,6 @@ export function initializeServerTelemetry(
   const bootstrap = createCliTelemetryBootstrap();
   const configPath = resolveConfigPath({ homeDir: bootstrap.homeDir });
   const config = readServerTelemetryConfig(configPath);
-  const auth = new PythinkerAuthFacade({
-    homeDir: bootstrap.homeDir,
-    configPath,
-    identity: createPythinkerCodeHostIdentity(options.version),
-  });
 
   initializeTelemetry({
     homeDir: bootstrap.homeDir,
@@ -108,7 +98,6 @@ export function initializeServerTelemetry(
     uiMode: WEB_UI_MODE,
     model: config.defaultModel,
     endpoint: () => currentPythinkerProfile().telemetryEndpoint,
-    getAccessToken: async () => (await auth.getCachedAccessToken(PYTHINKER_CODE_PROVIDER_NAME)) ?? null,
   });
 
   return {

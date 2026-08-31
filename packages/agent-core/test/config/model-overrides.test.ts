@@ -5,7 +5,7 @@ import type { ModelAlias } from '#/config/schema';
 
 function alias(overrides?: ModelAlias['overrides']): ModelAlias {
   return {
-    provider: 'managed:pythinker-code',
+    provider: 'oauth-example',
     model: 'kimi-k2',
     maxContextSize: 262144,
     capabilities: ['thinking'],
@@ -127,7 +127,7 @@ describe('effectiveModelAlias', () => {
 
   it('does not infer Anthropic effort metadata for a Pythinker provider routed through the Anthropic protocol', () => {
     const model: ModelAlias = {
-      provider: 'managed:pythinker-code',
+      provider: 'oauth-example',
       model: 'kimi-for-coding',
       maxContextSize: 262144,
       capabilities: ['thinking', 'always_thinking'],

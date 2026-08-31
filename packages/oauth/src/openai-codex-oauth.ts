@@ -3,7 +3,7 @@ import { createServer, type Server } from 'node:http';
 
 import { readApiErrorMessage } from './api-error';
 import { renderOAuthErrorPage, renderOpenAICodexOAuthSuccessPage } from './oauth-pages';
-import { parseSupportsThinkingType, type SupportsThinkingType } from './managed-pythinker-code';
+import { parseSupportsThinkingType, type SupportsThinkingType } from './provider-config';
 import { capabilitiesForModel } from './open-platform';
 import { isRecord } from './utils';
 
@@ -63,6 +63,27 @@ export interface OpenAICodexTokenBundle {
   readonly accountId: string;
 }
 
+/**
+ * `{ denied: true }` is the consent page answering `error=access_denied` — the
+ * user pressed Deny, so there is nothing to retry and no URL worth pasting.
+ * `null` is every other dead end, where manual input can still rescue the flow.
+ */
+export type OpenAICodexCallbackResult =
+  | { readonly code: string }
+  | { readonly denied: true }
+  | null;
+
+/**
+ * The user denied the authorization request on the consent page. Callers
+ * report it as a cancellation, not a failure.
+ */
+export class OAuthAccessDeniedError extends Error {
+  constructor(message = 'Authorization denied.') {
+    super(message);
+    this.name = 'OAuthAccessDeniedError';
+  }
+}
+
 export interface OpenAICodexCallbackServer {
   readonly redirectUri: string;
   /**
@@ -73,7 +94,7 @@ export interface OpenAICodexCallbackServer {
   waitForCode(opts?: {
     readonly signal?: AbortSignal | undefined;
     readonly timeoutMs?: number | undefined;
-  }): Promise<{ readonly code: string } | null>;
+  }): Promise<OpenAICodexCallbackResult>;
   cancelWait(): void;
   close(): void;
 }
@@ -246,10 +267,10 @@ export async function exchangeOpenAICodexAuthorizationCode(
 export async function startOpenAICodexCallbackServer(
   expectedState: string,
 ): Promise<OpenAICodexCallbackServer> {
-  let settleWait: ((value: { code: string } | null) => void) | undefined;
+  let settleWait: ((value: OpenAICodexCallbackResult) => void) | undefined;
   let server: Server | undefined;
 
-  const waitPromise = new Promise<{ code: string } | null>((resolve) => {
+  const waitPromise = new Promise<OpenAICodexCallbackResult>((resolve) => {
     settleWait = resolve;
   });
 
@@ -267,6 +288,8 @@ export async function startOpenAICodexCallbackServer(
     cancelWait: () => {},
     close: () => {},
   };
+  const errorPage = renderOAuthErrorPage();
+  const successPage = renderOpenAICodexOAuthSuccessPage();
 
   return new Promise((resolve) => {
     const callbackServer = createServer((req, res) => {
@@ -279,16 +302,16 @@ export async function startOpenAICodexCallbackServer(
         const errorParam = url.searchParams.get('error');
         if (errorParam !== null) {
           res.writeHead(400, { 'content-type': 'text/html; charset=utf-8' }).end(
-            renderOAuthErrorPage(),
+            errorPage,
           );
-          settleWait?.(null);
+          settleWait?.(errorParam === 'access_denied' ? { denied: true } : null);
           settleWait = undefined;
           return;
         }
         const stateParam = url.searchParams.get('state');
         if (stateParam !== expectedState) {
           res.writeHead(400, { 'content-type': 'text/html; charset=utf-8' }).end(
-            renderOAuthErrorPage(),
+            errorPage,
           );
           settleWait?.(null);
           settleWait = undefined;
@@ -297,14 +320,14 @@ export async function startOpenAICodexCallbackServer(
         const code = url.searchParams.get('code');
         if (code === null || code.length === 0) {
           res.writeHead(400, { 'content-type': 'text/html; charset=utf-8' }).end(
-            renderOAuthErrorPage(),
+            errorPage,
           );
           settleWait?.(null);
           settleWait = undefined;
           return;
         }
         res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }).end(
-          renderOpenAICodexOAuthSuccessPage(),
+          successPage,
         );
         settleWait?.({ code });
         settleWait = undefined;
@@ -323,7 +346,7 @@ export async function startOpenAICodexCallbackServer(
           loopback: true,
           waitForCode: async (opts = {}) => {
             const timeoutMs = opts.timeoutMs ?? DEFAULT_CALLBACK_TIMEOUT_MS;
-            return new Promise<{ code: string } | null>((resolveWait, rejectWait) => {
+            return new Promise<OpenAICodexCallbackResult>((resolveWait, rejectWait) => {
               let timer: NodeJS.Timeout | undefined;
               const onAbort = (): void => {
                 // Tear down here rather than leaning on the `waitPromise.then`
@@ -405,7 +428,10 @@ export async function runOpenAICodexOAuthFlow(
       signal: options.signal,
       timeoutMs: options.timeoutMs,
     });
-    if (callbackResult?.code !== undefined) {
+    if (callbackResult !== null && 'denied' in callbackResult) {
+      throw new OAuthAccessDeniedError();
+    }
+    if (callbackResult !== null) {
       code = callbackResult.code;
     } else if (options.onManualInput !== undefined) {
       const manualInput = await options.onManualInput();

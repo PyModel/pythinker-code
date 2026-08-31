@@ -6,7 +6,6 @@ import {
   bootstrap,
   type ITelemetryAppender,
   ITelemetryService,
-  IOAuthToolkit,
   logSeed,
   resolveConfigPath,
   resolveLoggingConfig,
@@ -103,11 +102,8 @@ describe('server telemetry', () => {
   });
 
   it('returns at the deadline when cloud delivery never settles', async () => {
-    const auth = {
-      _serviceBrand: undefined,
-      getCachedAccessToken: () => new Promise<undefined>(() => {}),
-    } as unknown as IOAuthToolkit;
-    const app = await bootCore(undefined, undefined, [[IOAuthToolkit, auth]]);
+    vi.stubGlobal('fetch', () => new Promise<Response>(() => {}));
+    const app = await bootCore();
     const telemetry = await initializeServerTelemetry(app, home as string);
     app.accessor.get(ITelemetryService).track('server_probe');
 

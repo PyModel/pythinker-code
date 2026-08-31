@@ -13,7 +13,7 @@ import {
   type ServicesAccessor,
 } from '#/_base/di/instantiation';
 import { agentContextOf } from '#/agent/scopeContext/scopeContext';
-import { IAgentGoalService } from '#/features/goal/goal';
+import { AgentGoal } from '#/features/goal/goalAgentRuntime';
 import { ISessionTokenCountingService } from '#/session/tokenCounting/sessionTokenCounting';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import { IAgentPlanService } from '#/features/plan/plan';
@@ -53,7 +53,12 @@ export class SessionStatusService implements ISessionStatusService {
     if (session === undefined) {
       throw new Error2(ErrorCodes.SESSION_NOT_FOUND, `session ${sessionId} does not exist`);
     }
-    return ensureMainAgent(session);
+    const context = await ensureMainAgent(session);
+    const handle = session.accessor.get(IAgentLifecycleService).handleOf(context.agentId);
+    if (handle === undefined) {
+      throw new Error2(ErrorCodes.AGENT_NOT_FOUND, `agent ${context.agentId} does not exist`);
+    }
+    return handle;
   }
 
   async status(sessionId: string): Promise<SessionStatusResponse> {
@@ -98,8 +103,10 @@ export class SessionStatusService implements ISessionStatusService {
   private readBusy(sessionId: string): boolean {
     const handle = getLiveSessionById(this.services, sessionId);
     if (handle === undefined) return false;
-    for (const agent of handle.accessor.get(IAgentLifecycleService).list()) {
-      const state = agent.accessor.get(IAgentActivityView).state();
+    const lifecycle = handle.accessor.get(IAgentLifecycleService);
+    for (const agent of lifecycle.list()) {
+      const state = lifecycle.handleOf(agent.agentId)?.accessor.get(IAgentActivityView).state();
+      if (state === undefined) continue;
       if (state.turn !== undefined || state.background.length > 0) return true;
     }
     return false;
@@ -107,7 +114,8 @@ export class SessionStatusService implements ISessionStatusService {
 
   async goal(sessionId: string): Promise<GoalSnapshot | null> {
     const agent = await this.resolveMainAgent(sessionId);
-    return agent.accessor.get(IAgentGoalService).getGoal().goal;
+    const lifecycle = agent.accessor.get(IAgentLifecycleService);
+    return lifecycle.resolve(agentContextOf(agent), AgentGoal).getGoal().goal;
   }
 }
 

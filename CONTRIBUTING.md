@@ -80,6 +80,55 @@ This repo uses [changesets](https://github.com/changesets/changesets) to manage 
 - Generate one with `pnpm changeset` and follow the prompts (which packages are touched, which bump level).
 - For repo-specific conventions on package selection and bump levels, see `.changeset/README.md`. When working in this repo with coding agents, use the `gen-changesets` skill.
 
+### Bump levels
+
+Pythinker Code follows semantic versioning. The commit type you would have written decides the level:
+
+| Commit type | Level | Use for | Example |
+| --- | --- | --- | --- |
+| `fix`, `perf`, `security` | `patch` | A fix, a speed-up, or a small addition to something that already exists | `1.2.0` → `1.2.1` |
+| `feat` | `minor` | A capability a user could not reach before | `1.2.8` → `1.3.0` |
+| a break | `major` | Something that worked stops working, or works differently | `1.x` → `2.0.0` |
+
+Each number counts on its own and none of them roll over at nine. Ten fixes on top of `1.2.0` land on `1.2.10`, not `1.3.0`; the minor moves only when a feature ships, and the major only when something breaks:
+
+```text
+1.2.9  + fix      → 1.2.10
+1.9.9  + fix      → 1.9.10
+1.9.9  + feature  → 1.10.0
+1.x    + break    → 2.0.0
+```
+
+Prefer one changeset per pull request. A pull request that needs several is usually carrying several separate releases, and once they are versioned together the changelog can no longer say which change each entry came from.
+
+A `major` needs a maintainer's sign-off: the `changeset-policy` workflow fails a pull request that adds a major changeset, or edits an existing one up to `major`, unless it carries the `breaking-change-approved` label. A pinned install keeps working, but every consumer who upgrades has to deal with the break, and an npm publish cannot be taken back — so it is a decision, never a side effect of a large branch. Nothing else can reach a major: no amount of counting gets there on its own.
+
+### A released version is one exact build, forever
+
+Once a version exists, everything published under it is frozen. This matters most for the desktop app and the native CLI bundles, where a version number is what an updater resolves to a specific set of bytes it has already advertised.
+
+Never do any of these:
+
+- Overwrite the assets on a published release
+- Move a tag that has shipped
+- Rebuild binaries and publish them under a version that already exists
+- Replace `latest.yml` / `latest-mac.yml` / `manifest.json` for a version whose binaries are already out
+
+To correct a bad build, cut the next patch instead: fix the problem, bump, build from that exact commit, sign and notarize, and publish fresh artifacts under the new number. The updater then advertises the new version, and anyone who already installed the old one keeps a build that still matches what it claims to be.
+
+CI enforces this rather than trusting the rule. The desktop release uploads into a draft and refuses to touch a release that is already published. The native CLI job treats its assets as one set — `manifest.json` pins a sha256 for every zip — so it uploads all of them or none: a release that already has the full set is left alone, and a partial set stops the job rather than pairing zips from one build with checksums from another.
+
+### Release cadence
+
+Changesets keeps a `ci: release packages` pull request open on `main` and rewrites it as changesets land. Merging it cuts exactly one release, so how often it is merged is what decides the version sequence:
+
+- Merged per change, versions follow each change: `1.2.1`, `1.2.2`, `1.2.3`, `1.3.0`.
+- Left to accumulate, a backlog collapses into one bump and the numbers in between never exist.
+
+The repository variable `AUTO_MERGE_RELEASE_PR` chooses between the two. Set to `true`, the release pull request merges itself once its required checks pass, giving one release per change. Unset or `false`, a maintainer merges it when a release is wanted.
+
+Either way there is a window: a changeset that lands while the release pull request is waiting on its checks joins that release instead of starting the next one. That is how changesets works, so a release can still carry more than one change — one changeset per pull request keeps the window small.
+
 ## Pull Requests
 
 Every PR opens with the [PR template](.github/pull_request_template.md). PR titles must follow [Conventional Commits](#commit-convention); CI runs `pnpm lint`, `pnpm typecheck`, and `pnpm test` on every PR. Update user-facing docs in `docs/` when behavior changes — use the `gen-docs` skill when working with coding agents.

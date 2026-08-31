@@ -54,8 +54,6 @@ export interface McpServerRegistryOptions {
   readonly homeDir?: string;
   readonly store: GlobalMcpConfigStore;
   readonly plugins: PluginManager;
-  /** Host-managed env merged into plugin stdio servers (see PythinkerCore). */
-  readonly managedPluginEnv?: () => Record<string, string>;
 }
 
 export interface McpRegistryQuery {
@@ -106,8 +104,7 @@ export class McpServerRegistry {
       }
     }
 
-    const managedEnv = this.options.managedPluginEnv?.();
-    for (const entry of this.options.plugins.mcpServerEntries({ managedEnv })) {
+    for (const entry of this.options.plugins.mcpServerEntries()) {
       // A plugin entry whose runtime name collides with a global one is kept,
       // not dropped: the management plane must show the collision (the app
       // inspection surfaces it as `unavailable`) instead of hiding one side.

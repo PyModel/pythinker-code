@@ -1,15 +1,12 @@
 import {
   refreshProviderModels,
-  type ManagedPythinkerConfigShape,
-  type ManagedPythinkerOAuthRef,
+  type PythinkerConfigShape,
   type RefreshProviderHost,
   type RefreshResult,
 } from '@pymodel/pythinker-code-oauth';
 import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Error2 } from '#/_base/errors/errors';
-import { IOAuthService } from '#/app/auth/auth';
-import { AuthErrors } from '#/app/auth/errors';
 import { IAgentIdentity } from '#/app/agentIdentity/agentIdentity';
 import { IConfigService } from '#/app/config/config';
 import { IEventService } from '#/app/event/event';
@@ -18,7 +15,6 @@ import { type ModelRecord } from '#/kosong/model/model';
 import {
   IProviderService,
   type ModelSource,
-  type OAuthRef,
   type ProviderConfig,
 } from '#/kosong/provider/provider';
 import { getProviderDefinition } from '#/kosong/provider/providerDefinition';
@@ -29,11 +25,8 @@ import {
   PROVIDERS_SECTION,
   THINKING_SECTION,
 } from './configSection';
-import {
-  SECONDARY_MODEL_SECTION,
-  cascadeSubagentModelPool,
-  type SecondaryModelConfig,
-} from '#/session/subagent/configSection';
+import { prospectiveModelView, SECONDARY_MODEL_SECTION } from '#/session/subagent/policy';
+import { ISubagentModelPolicyService } from '#/session/subagent/subagentModelPolicy';
 import {
   IProviderDiscoveryService,
   ModelCatalogChanged,
@@ -45,7 +38,7 @@ interface StaticExclusion {
   readonly providers: Readonly<Record<string, ProviderConfig>>;
   readonly models: Readonly<Record<string, ModelRecord>>;
   readonly defaultModel?: string;
-  readonly thinking?: ManagedPythinkerConfigShape['thinking'];
+  readonly thinking?: PythinkerConfigShape['thinking'];
 }
 
 const EMPTY_EXCLUSION: StaticExclusion = { providers: {}, models: {} };
@@ -58,9 +51,9 @@ export class ProviderDiscoveryService implements IProviderDiscoveryService {
   constructor(
     @IProviderService private readonly providerService: IProviderService,
     @IConfigService private readonly config: IConfigService,
-    @IOAuthService private readonly oauth: IOAuthService,
     @IEventService private readonly events: IEventService,
     @IAgentIdentity private readonly identity: IAgentIdentity,
+    @ISubagentModelPolicyService private readonly subagentPolicy: ISubagentModelPolicyService,
   ) {}
 
   refreshProviderModels(
@@ -93,10 +86,10 @@ export class ProviderDiscoveryService implements IProviderDiscoveryService {
 
     const exclusion = this.computeStaticExclusion();
     const { outboundUserAgent } = await this.identity.resolved();
-    const result = await refreshProviderModels(this.buildRefreshHost(exclusion, outboundUserAgent), {
-      scope: options.scope,
-      providerId: options.providerId,
-    });
+    const result = await refreshProviderModels(
+      this.buildRefreshHost(exclusion, outboundUserAgent),
+      { providerId: options.providerId },
+    );
     const response = mapRefreshResult(result);
     if (response.changed.length > 0) {
       this.events.publish(new ModelCatalogChanged({ payload: response }));
@@ -133,7 +126,7 @@ export class ProviderDiscoveryService implements IProviderDiscoveryService {
       }
     }
     const defaultModel = this.config.inspect<string>(DEFAULT_MODEL_SECTION).userValue;
-    const thinking = this.config.inspect<ManagedPythinkerConfigShape['thinking']>(
+    const thinking = this.config.inspect<PythinkerConfigShape['thinking']>(
       THINKING_SECTION,
     ).userValue;
     return {
@@ -151,28 +144,31 @@ export class ProviderDiscoveryService implements IProviderDiscoveryService {
       getConfig: async () => this.readUserConfigShape(exclusion),
       removeProvider: (providerId) => this.shapeWithoutProvider(providerId),
       setConfig: (patch) => this.applyRefreshPatch(patch, exclusion),
-      resolveOAuthToken: (providerName, oauthRef) => this.resolveOAuthToken(providerName, oauthRef),
       userAgent,
     };
   }
 
-  private readUserConfigShape(exclusion: StaticExclusion = EMPTY_EXCLUSION): ManagedPythinkerConfigShape {
+  private readUserConfigShape(exclusion: StaticExclusion = EMPTY_EXCLUSION): PythinkerConfigShape {
     const providers =
       this.config.inspect<Record<string, ProviderConfig>>(PROVIDERS_SECTION).userValue ?? {};
     const models =
       this.config.inspect<Record<string, ModelRecord>>(MODELS_SECTION).userValue ?? {};
     const defaultModel = this.config.inspect<string>(DEFAULT_MODEL_SECTION).userValue;
     const thinking =
-      this.config.inspect<ManagedPythinkerConfigShape['thinking']>(THINKING_SECTION).userValue;
+      this.config.inspect<PythinkerConfigShape['thinking']>(THINKING_SECTION).userValue;
+    const secondaryModel = this.config.inspect<PythinkerConfigShape['secondaryModel']>(
+      SECONDARY_MODEL_SECTION,
+    ).userValue;
     return {
-      providers: withoutKeys(providers, exclusion.providers) as ManagedPythinkerConfigShape['providers'],
-      models: withoutKeys(models, exclusion.models) as ManagedPythinkerConfigShape['models'],
+      providers: withoutKeys(providers, exclusion.providers) as PythinkerConfigShape['providers'],
+      models: withoutKeys(models, exclusion.models) as PythinkerConfigShape['models'],
       defaultModel,
       thinking: thinking === undefined ? undefined : { ...thinking },
+      secondaryModel: secondaryModel === undefined ? undefined : { ...secondaryModel },
     };
   }
 
-  private shapeWithoutProvider(providerId: string): Promise<ManagedPythinkerConfigShape> {
+  private shapeWithoutProvider(providerId: string): Promise<PythinkerConfigShape> {
     const current = this.readUserConfigShape();
     const providers = current.providers as Record<string, ProviderConfig>;
     const restProviders = Object.fromEntries(
@@ -186,13 +182,13 @@ export class ProviderDiscoveryService implements IProviderDiscoveryService {
       ...current,
       providers: restProviders,
       models: restModels,
-    } as ManagedPythinkerConfigShape);
+    } as PythinkerConfigShape);
   }
 
   private async applyRefreshPatch(
-    patch: ManagedPythinkerConfigShape,
+    patch: PythinkerConfigShape,
     exclusion: StaticExclusion,
-  ): Promise<ManagedPythinkerConfigShape> {
+  ): Promise<PythinkerConfigShape> {
     const userProviders =
       this.config.inspect<Record<string, ProviderConfig>>(PROVIDERS_SECTION).userValue ?? {};
     const userModels =
@@ -219,26 +215,23 @@ export class ProviderDiscoveryService implements IProviderDiscoveryService {
     if ('thinking' in patch) {
       sections[THINKING_SECTION] = restoreDefault ? exclusion.thinking : patch.thinking;
     }
-    const nextModels = sections[MODELS_SECTION] as Record<string, ModelRecord> | undefined;
-    if (nextModels !== undefined) {
-      const cascadedPool = cascadeSubagentModelPool(
-        this.config.inspect<SecondaryModelConfig>(SECONDARY_MODEL_SECTION).userValue,
-        nextModels,
-      );
-      if (cascadedPool !== undefined) {
-        sections[SECONDARY_MODEL_SECTION] = cascadedPool ?? undefined;
-      }
+    if ('secondaryModel' in patch) {
+      const preview = this.config.previewReplaceSections(sections);
+      sections[SECONDARY_MODEL_SECTION] = this.subagentPolicy.prepareLegacyMutation(
+        patch.secondaryModel,
+        prospectiveModelView(preview[PROVIDERS_SECTION], preview[MODELS_SECTION]),
+      ).section;
     }
     await this.config.replaceSections(sections);
     return {
       providers:
         patch.providers !== undefined
-          ? ({ ...exclusion.providers, ...patch.providers } as ManagedPythinkerConfigShape['providers'])
-          : (userProviders as ManagedPythinkerConfigShape['providers']),
+          ? ({ ...exclusion.providers, ...patch.providers } as PythinkerConfigShape['providers'])
+          : (userProviders as PythinkerConfigShape['providers']),
       models:
         patch.models !== undefined
-          ? ({ ...exclusion.models, ...patch.models } as ManagedPythinkerConfigShape['models'])
-          : (userModels as ManagedPythinkerConfigShape['models']),
+          ? ({ ...exclusion.models, ...patch.models } as PythinkerConfigShape['models'])
+          : (userModels as PythinkerConfigShape['models']),
       defaultModel:
         'defaultModel' in patch
           ? restoreDefault
@@ -250,24 +243,13 @@ export class ProviderDiscoveryService implements IProviderDiscoveryService {
           ? restoreDefault
             ? exclusion.thinking
             : patch.thinking
-          : this.config.inspect<ManagedPythinkerConfigShape['thinking']>(THINKING_SECTION).userValue,
+          : this.config.inspect<PythinkerConfigShape['thinking']>(THINKING_SECTION).userValue,
+      secondaryModel:
+        'secondaryModel' in patch
+          ? patch.secondaryModel
+          : this.config.inspect<PythinkerConfigShape['secondaryModel']>(SECONDARY_MODEL_SECTION)
+              .userValue,
     };
-  }
-
-  private async resolveOAuthToken(
-    providerName: string,
-    oauthRef?: ManagedPythinkerOAuthRef,
-  ): Promise<string> {
-    const tokenProvider = this.oauth.resolveTokenProvider(
-      providerName,
-      oauthRef as unknown as OAuthRef | undefined,
-    );
-    if (tokenProvider === undefined) {
-      throw new Error2(AuthErrors.codes.AUTH_TOKEN_MISSING, 'OAuth token provider is not configured.', {
-        details: { provider_id: providerName },
-      });
-    }
-    return tokenProvider.getAccessToken();
   }
 }
 

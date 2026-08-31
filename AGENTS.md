@@ -17,7 +17,7 @@ TypeScript monorepo for **pythinker-code**, a provider-agnostic AI coding agent.
 | `openai_responses` | OpenAI Responses API    | OpenAI (GPT-4.1/5.x, o-series)                  |
 | `google-genai`     | `@google/genai`         | Google (Gemini 2.0–3.x)                          |
 | `vertexai`         | Google Vertex AI        | Google Cloud–hosted Gemini                       |
-| `pythinker`        | Pythinker managed API   | Any model proxied through Pythinker              |
+| `pythinker`        | Pythinker-compatible API | PyModel, Kimi, and custom compatible endpoints   |
 
 Any OpenAI-compatible endpoint (DeepSeek, Qwen, GLM, Grok, Together AI, Fireworks, etc.) works via the `openai`/`openai_responses` wire with a custom `baseURL`.
 
@@ -53,7 +53,7 @@ Adding an OpenAI-compatible provider requires **zero code changes** — just add
 | `apps/pythinker-inspect` | Web inspector for the agent-gateway `/api/v1/debug` RPC surface | Workspace/session browser, per-session transcript chat, per-scope Service panels, DI unit inspection. See its `AGENTS.md`. |
 | `apps/vis` | Session replay & debugging visualizer | `server/` + `web/` subdirs. |
 | `packages/agent-core` | Agent engine | Agent, Session, profile, skills, tools, plan, permission, DI. |
-| `packages/agent-core-v2` | DI × Scope agent engine (the v2 port behind agent-gateway) | Four `LifecycleScope` tiers — `App` / `Workspace` / `Session` / `Agent` (`app/scopes.ts`) — plus the L3 unit layer (`Service`/`Fiber` units, collection contribution points, the Feature seam in `src/features/`). See its `AGENTS.md` and use the `agent-core-dev` skill. |
+| `packages/agent-core-v2` | DI × Scope agent engine (the v2 port behind agent-gateway) | Three `LifecycleScope` tiers — `App` / `Session` / `Agent` (`app/scopes.ts`). Workspace resources use App-owned `WorkspaceInstance` / `Program` lifetimes, not a DI scope. Also includes the L3 unit layer (`Service`/`Fiber` units, collection contribution points, the Feature seam in `src/features/`). See its `AGENTS.md` and use the `agent-core-dev` skill. |
 | `packages/node-sdk` | Public TS SDK & harness | |
 | `packages/kosong` | LLM provider abstraction | Wire types, catalog, capability registry. |
 | `packages/pyaos` | Execution environment | File/process abstractions. |
@@ -84,7 +84,7 @@ The web bundle: `apps/pythinker-code/dist-web` is the committed, prebuilt bundle
 ## Coding Rules
 
 - English-only codebase. Use ASCII/Latin fixtures (e.g. `café`) for unicode tests.
-- `packages/agent-core-v2`, `packages/agent-gateway`, and `packages/transcript` are comment-free zones: no line/block comments; exceptions are JSDoc attached to exported symbols and load-bearing lint-suppression directives (`oxlint-disable` / `eslint-disable`), while other tooling directives (`@ts-expect-error`, …) stay banned. Enforced by `scripts/check-no-comments.mjs`, which runs as part of `pnpm lint`.
+- `packages/agent-core-v2`, `packages/agent-gateway`, and `packages/transcript` are comment-free zones: no line/block comments; no JSDoc either, not even on exported symbols; the only exception is a load-bearing lint-suppression directive (`oxlint-disable` / `eslint-disable`), while other tooling directives (`@ts-expect-error`, …) stay banned. Enforced by `scripts/check-no-comments.mjs`, which runs as part of `pnpm lint`.
 - `packages/acp-adapter`: pin `@agentclientprotocol/sdk` `^0.23.0` (0.24+ broke session-model API).
 - `tsgo` (`@typescript/native-preview`) available via `npx tsgo -p <tsconfig> --noEmit`; committed scripts use `tsc` — run both for type fixes.
 - Pass `undefined` directly for optional props — no conditional spread.
@@ -118,6 +118,7 @@ Gate behind flags. Env: `PYTHINKER_CODE_EXPERIMENTAL_<NAME>` toggles one; `PYTHI
 - PR titles: Conventional Commit style (e.g. `chore: remove legacy format commands`).
 - Fill in `.github/pull_request_template.md` — link the issue, describe changes. No placeholder text or vague AI-generated PR summaries; the human author must understand the change well enough to explain the code, edge cases, and why the approach fits.
 - Run `gen-changesets` skill before submitting PRs. Changesets must strictly follow its rules: one short user-facing sentence stating only what changed; skip any change users cannot perceive. Never decide `major` on your own — stop, explain, and get explicit user confirmation first; default to `minor`, fall back to `patch`.
+- Changeset text is shipped text: the desktop release body is generated from `apps/desktop/CHANGELOG.md`, and the in-app updater shows it to users verbatim. A release body must state what changed for users — never a build stamp, a commit hash, or placeholder text. `desktop-release.yml` fails a stable release whose version has no changelog entry.
 - Prefer `import ... from '#/...'` (equivalent to `@/...`).
 - Do not commit throwaway scratch or exploratory files. Never stage agent working notes or handoff documents (e.g. `HANDOVER-*.md`, `HANDOFF-*.md`, `handoff.md`), or throwaway UI/UX prototypes or design mockups (e.g. `*-designs.html`, `*-mockup.html`, `*-demo(s).html`). The only tracked `.html` files should be Vite `index.html` entrypoints. Put scratch work under `.tmp/` (gitignored).
 

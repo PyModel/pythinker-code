@@ -35,7 +35,7 @@ describe('built-in slash command registry', () => {
     expect(findBuiltInSlashCommand('quit')?.name).toBe('exit');
     expect(findBuiltInSlashCommand('q')?.name).toBe('exit');
     expect(findBuiltInSlashCommand('clear')?.name).toBe('new');
-    expect(findBuiltInSlashCommand('bug')?.name).toBe('feedback');
+    expect(findBuiltInSlashCommand('bug')).toBeUndefined();
     expect(findBuiltInSlashCommand('btw')?.name).toBe('btw');
     expect(findBuiltInSlashCommand('mcp')?.name).toBe('mcp');
     expect(findBuiltInSlashCommand('status')?.name).toBe('status');
@@ -82,7 +82,7 @@ describe('built-in slash command registry', () => {
     expect((tower as PythinkerSlashCommand).experimentalFlag).toBe('tower');
     expect((tower as PythinkerSlashCommand).requiresEngineV2).toBe(true);
     expect(resolveSlashCommandAvailability(tower!, 'status')).toBe('always');
-    expect(resolveSlashCommandAvailability(tower!, 'Ship feature X')).toBe('idle-only');
+    expect(resolveSlashCommandAvailability(tower!, 'Ship feature X')).toBe('always');
     expect(towerArgumentCompletions('')).toHaveLength(4);
   });
 
@@ -206,6 +206,23 @@ describe('built-in slash command registry', () => {
     const command = findBuiltInSlashCommand('secondary-model');
     expect(command).toBeDefined();
     expect((command as PythinkerSlashCommand).experimentalFlag).toBe('secondary-model');
+    expect(resolveSlashCommandAvailability(command!, '')).toBe('always');
+  });
+  it('keeps every tower subcommand always available, including objectives', () => {
+    const command = findBuiltInSlashCommand('tower');
+    expect(command).toBeDefined();
+    expect(resolveSlashCommandAvailability(command!, '')).toBe('always');
+    expect(resolveSlashCommandAvailability(command!, 'on')).toBe('always');
+    expect(resolveSlashCommandAvailability(command!, 'off')).toBe('always');
+    expect(resolveSlashCommandAvailability(command!, 'status')).toBe('always');
+    expect(resolveSlashCommandAvailability(command!, 'teardown')).toBe('always');
+    expect(resolveSlashCommandAvailability(command!, 'Ship feature X')).toBe('always');
+  });
+
+  it('gates remote-control behind the remote-control experiment, always available', () => {
+    const command = findBuiltInSlashCommand('remote-control');
+    expect(command).toBeDefined();
+    expect((command as PythinkerSlashCommand).experimentalFlag).toBe('remote-control');
     expect(resolveSlashCommandAvailability(command!, '')).toBe('always');
   });
 });

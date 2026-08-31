@@ -38,6 +38,13 @@ export interface TokenStorage {
   list(): Promise<string[]>;
 }
 
+export function resolveOAuthTokenStorageName(key: string): string {
+  const prefix = 'oauth/';
+  const name = key.startsWith(prefix) ? key.slice(prefix.length) : key;
+  if (name.length > 0 && name === basename(name) && !name.startsWith('.')) return name;
+  throw new Error(`Invalid OAuth token key: "${key}".`);
+}
+
 export class FileTokenStorage implements TokenStorage {
   private readonly dir: string;
 

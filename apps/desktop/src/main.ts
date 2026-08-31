@@ -45,10 +45,13 @@ import {
   installDownloadedUpdateNow,
   markUpdateNotified,
   setAutoUpdate,
+  setNotifyUpdate,
+  setUpdateChannel,
   skipUpdate,
   startUpdateDownload,
   undoSkippedUpdate,
   updateReleaseNotesUrl,
+  type UpdateChannel,
 } from './updater'
 import { windowAppearanceOptions } from './window-options'
 import { createDesktopLifecycle, type DesktopLifecycle } from './window-lifecycle'
@@ -200,6 +203,13 @@ function updateVersion(value: unknown): string {
   return value
 }
 
+function updateChannel(value: unknown): UpdateChannel {
+  if (value !== 'stable' && value !== 'beta' && value !== 'nightly') {
+    throw new TypeError('update channel must be stable, beta, or nightly')
+  }
+  return value
+}
+
 /** Install navigation and permission policy before the first renderer loads. */
 function hardenSession(): void {
   const desktopSession = session.defaultSession
@@ -266,6 +276,15 @@ ipcMain.handle('pythinker:update:set-auto', (event, enabled: unknown) => {
   assertTrustedSender(event)
   if (typeof enabled !== 'boolean') throw new TypeError('automatic update checks must be a boolean')
   return setAutoUpdate(enabled)
+})
+ipcMain.handle('pythinker:update:set-channel', (event, channel: unknown) => {
+  assertTrustedSender(event)
+  return setUpdateChannel(updateChannel(channel))
+})
+ipcMain.handle('pythinker:update:set-notify', (event, enabled: unknown) => {
+  assertTrustedSender(event)
+  if (typeof enabled !== 'boolean') throw new TypeError('update notifications must be a boolean')
+  return setNotifyUpdate(enabled)
 })
 ipcMain.handle('pythinker:update:check', (event) => {
   assertTrustedSender(event)

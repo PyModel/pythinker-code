@@ -1,16 +1,15 @@
-import { PYTHINKER_CODE_PROVIDER_NAME } from '@pymodel/pythinker-code-oauth';
 
-import { Service } from '#/_base/di/service';
-import { Emitter, type Event } from '#/_base/event';
-import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
-import { BugIndicatingError, Error2, PluginErrors } from '#/errors';
+import { Service } from '#/_base/di/service';
+import { AsyncEmitter, Emitter, type Event } from '#/_base/event';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
+import { LifecycleScope } from '#/app/scopes';
+import { ISkillDiscovery } from '#/features/skill/catalog/skillDiscovery';
+import type { SkillRoot } from '#/features/skill/catalog/types';
+import { BugIndicatingError, Error2, PluginErrors } from '#/errors';
 import { IProviderService } from '#/kosong/provider/provider';
-import { ISkillDiscovery } from '#/app/skillCatalog/skillDiscovery';
 import type { HookDef } from '#/features/externalHooks/internal/types';
 import type { McpServerConfig } from '#/mcpCore/config-schema';
-import type { SkillRoot } from '#/app/skillCatalog/types';
 
 import { PluginManager } from './manager';
 import {
@@ -27,32 +26,40 @@ import type {
   PluginCommandDef,
   PluginInfo,
   PluginAgentRoot,
+  PluginMcpServerEntry,
   PluginMutation,
   PluginMutationSummary,
+  PluginReloadEvent,
   PluginSummary,
   PluginUpdateStatus,
   ReloadSummary,
 } from './types';
 
-const PYTHINKER_CODE_BASE_URL_ENV = 'PYTHINKER_CODE_BASE_URL';
-const PYTHINKER_CODE_OAUTH_HOST_ENV = 'PYTHINKER_CODE_OAUTH_HOST';
-const PYTHINKER_OAUTH_HOST_ENV = 'PYTHINKER_OAUTH_HOST';
+const NO_ABORT = new AbortController().signal;
+
+interface PluginReloadNotification {
+  readonly summary: ReloadSummary;
+  readonly delivery: Promise<void>;
+}
+
+interface PluginMutationOutcome<T> {
+  readonly result: T;
+  readonly notification: PluginReloadNotification;
+}
 
 export class PluginService extends Service implements IPluginService {
   declare readonly _serviceBrand: undefined;
 
   private readonly homeDir: string;
-  private readonly envBaseUrl: string | undefined;
-  private readonly envOAuthHost: string | undefined;
   private readonly manager: PluginManager;
   private initialLoadPromise: Promise<void> | undefined;
   private snapshotLoaded = false;
   private loadError: Error | undefined;
   private mutationQueue: Promise<void> = Promise.resolve();
-  private readonly onDidReloadEmitter = this._register(new Emitter<ReloadSummary>());
+  private readonly onDidReloadEmitter = this._register(new AsyncEmitter<PluginReloadEvent>());
   private readonly onDidMutateEmitter = this._register(new Emitter<PluginMutationSummary>());
 
-  readonly onDidReload: Event<ReloadSummary> = this.onDidReloadEmitter.event;
+  readonly onDidReload: Event<PluginReloadEvent> = this.onDidReloadEmitter.event;
   readonly onDidMutate: Event<PluginMutationSummary> = this.onDidMutateEmitter.event;
 
   constructor(
@@ -62,9 +69,6 @@ export class PluginService extends Service implements IPluginService {
   ) {
     super();
     this.homeDir = bootstrap.homeDir;
-    this.envBaseUrl = bootstrap.getEnv(PYTHINKER_CODE_BASE_URL_ENV);
-    this.envOAuthHost =
-      bootstrap.getEnv(PYTHINKER_CODE_OAUTH_HOST_ENV) ?? bootstrap.getEnv(PYTHINKER_OAUTH_HOST_ENV);
     this.manager = new PluginManager({
       pythinkerHomeDir: this.homeDir,
       discoverSkills: (roots) => discovery.discover(roots),
@@ -76,52 +80,64 @@ export class PluginService extends Service implements IPluginService {
   }
 
   installPlugin(input: InstallPluginInput): Promise<PluginSummary> {
-    return this.runSerializedOperation(async () => {
+    return this.runNotifiedMutation(async () => {
       const record = await this.manager.install(input.source);
       const info = this.manager.info(record.id);
       if (info === undefined)
         throw new BugIndicatingError(`Plugin "${record.id}" missing right after install`);
-      await this.reloadAndNotify({ mutation: { kind: 'install', id: record.id } });
-      return info;
+      const notification = await this.reloadAndNotify({
+        mutation: { kind: 'install', id: record.id },
+      });
+      return { result: info, notification };
     });
   }
 
   setPluginEnabled(input: SetPluginEnabledInput): Promise<void> {
-    return this.runSerializedOperation(async () => {
+    return this.runNotifiedMutation(async () => {
       await this.manager.setEnabled(input.id, input.enabled);
-      await this.reloadAndNotify({
+      const notification = await this.reloadAndNotify({
         mutation: { kind: input.enabled ? 'enable' : 'disable', id: input.id },
       });
+      return { result: undefined, notification };
     });
   }
 
   setPluginMcpServerEnabled(input: SetPluginMcpServerEnabledInput): Promise<void> {
-    return this.runSerializedOperation(async () => {
+    return this.runNotifiedMutation(async () => {
       await this.manager.setMcpServerEnabled(input.id, input.server, input.enabled);
-      await this.reloadAndNotify({ mutation: { kind: 'mcp-server', id: input.id } });
+      const notification = await this.reloadAndNotify({
+        mutation: { kind: 'mcp-server', id: input.id },
+      });
+      return { result: undefined, notification };
     });
   }
 
   removePlugin(input: RemovePluginInput): Promise<void> {
-    return this.runSerializedOperation(async () => {
+    return this.runNotifiedMutation(async () => {
       await this.manager.remove(input.id);
-      await this.reloadAndNotify({ mutation: { kind: 'remove', id: input.id } });
+      const notification = await this.reloadAndNotify({
+        mutation: { kind: 'remove', id: input.id },
+      });
+      return { result: undefined, notification };
     });
   }
 
   reloadPlugins(): Promise<ReloadSummary> {
-    const reload = this.enqueueMutation(async () => {
-      try {
-        return await this.reloadAndNotify();
-      } catch (error) {
-        this.loadError = error instanceof Error ? error : new Error(String(error));
-        throw new Error2(
-          PluginErrors.codes.PLUGIN_LOAD_FAILED,
-          `Failed to reload plugins: ${this.loadError.message}`,
-          { cause: this.loadError, details: { pythinkerHomeDir: this.homeDir } },
-        );
-      }
-    });
+    const reload = this.awaitReloadDelivery(
+      this.enqueueMutation(async () => {
+        try {
+          const notification = await this.reloadAndNotify();
+          return { result: notification.summary, notification };
+        } catch (error) {
+          this.loadError = error instanceof Error ? error : new Error(String(error));
+          throw new Error2(
+            PluginErrors.codes.PLUGIN_LOAD_FAILED,
+            `Failed to reload plugins: ${this.loadError.message}`,
+            { cause: this.loadError, details: { pythinkerHomeDir: this.homeDir } },
+          );
+        }
+      }),
+    );
     this.initialLoadPromise ??= reload.then(
       () => undefined,
       () => undefined,
@@ -131,14 +147,24 @@ export class PluginService extends Service implements IPluginService {
 
   private async reloadAndNotify(options?: {
     readonly mutation: PluginMutation;
-  }): Promise<ReloadSummary> {
+  }): Promise<PluginReloadNotification> {
     const summary = await this.manager.reload();
     this.snapshotLoaded = true;
     this.loadError = undefined;
-    this.onDidReloadEmitter.fire(summary);
+    const delivery = this.onDidReloadEmitter.fireAsyncConcurrent(summary, NO_ABORT);
     if (options?.mutation !== undefined)
       this.onDidMutateEmitter.fire({ ...summary, mutation: options.mutation });
-    return summary;
+    return { summary, delivery };
+  }
+
+  private runNotifiedMutation<T>(operation: () => Promise<PluginMutationOutcome<T>>): Promise<T> {
+    return this.awaitReloadDelivery(this.runSerializedOperation(operation));
+  }
+
+  private async awaitReloadDelivery<T>(operation: Promise<PluginMutationOutcome<T>>): Promise<T> {
+    const { result, notification } = await operation;
+    await notification.delivery;
+    return result;
   }
 
   getPluginInfo(input: GetPluginInfoInput): Promise<PluginInfo> {
@@ -180,14 +206,11 @@ export class PluginService extends Service implements IPluginService {
   }
 
   enabledMcpServers(): Promise<Record<string, McpServerConfig>> {
-    return this.runConsumptionRead({}, async () => {
-      const pluginServers = this.manager.enabledMcpServers();
-      if (!Object.values(pluginServers).some((server) => server.transport === 'stdio')) {
-        return pluginServers;
-      }
-      const managedEnv = await this.managedPythinkerCodeEnvForPlugins();
-      return withManagedPythinkerPluginEnv(pluginServers, managedEnv);
-    });
+    return this.runConsumptionRead({}, async () => this.manager.enabledMcpServers());
+  }
+
+  mcpServerEntries(): Promise<readonly PluginMcpServerEntry[]> {
+    return this.runManagementRead(async () => this.manager.mcpServerEntries());
   }
 
   enabledHooks(): Promise<readonly HookDef[]> {
@@ -259,35 +282,6 @@ export class PluginService extends Service implements IPluginService {
     );
   }
 
-  private async managedPythinkerCodeEnvForPlugins(): Promise<Record<string, string>> {
-    await this.providers.ready;
-    const provider = this.providers.get(PYTHINKER_CODE_PROVIDER_NAME);
-    const envBaseUrl = this.envBaseUrl;
-    const envOAuthHost = this.envOAuthHost;
-    const hasEnvOverride = envBaseUrl !== undefined || envOAuthHost !== undefined;
-    const baseUrl =
-      envBaseUrl !== undefined ? envBaseUrl.replace(/\/+$/, '') : provider?.baseUrl;
-    const oauthHost = hasEnvOverride ? envOAuthHost : provider?.oauth?.oauthHost;
-    const env: Record<string, string> = {};
-    if (baseUrl !== undefined) env[PYTHINKER_CODE_BASE_URL_ENV] = baseUrl;
-    if (oauthHost !== undefined) env[PYTHINKER_CODE_OAUTH_HOST_ENV] = oauthHost;
-    return env;
-  }
-}
-
-function withManagedPythinkerPluginEnv(
-  pluginServers: Record<string, McpServerConfig>,
-  managedEnv: Record<string, string>,
-): Record<string, McpServerConfig> {
-  if (Object.keys(managedEnv).length === 0) return pluginServers;
-  const out: Record<string, McpServerConfig> = {};
-  for (const [name, server] of Object.entries(pluginServers)) {
-    out[name] =
-      server.transport === 'stdio'
-        ? { ...server, env: { ...server.env, ...managedEnv } }
-        : server;
-  }
-  return out;
 }
 
 registerScopedService(

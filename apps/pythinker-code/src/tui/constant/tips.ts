@@ -20,11 +20,6 @@ export const WORKING_TIPS: readonly ToolbarTip[] = [
   { text: '/tasks to check progress and status for background tasks', priority: 2 },
   { text: '/init: generate AGENTS.md', priority: 2 },
   { text: 'Try /hatch for a hidden Easter egg' },
-  {
-    text: '/plugins: manage plugins — try the "Pythinker Datasource" for reliable financial, economic, and academic data',
-    solo: true,
-    priority: 3,
-  },
   { text: 'ask Pythinker to schedule tasks, e.g. "remind me at 5pm"', solo: true, priority: 3 },
   { text: '/sessions to browse and resume earlier sessions', solo: true },
   { text: '/goal for multi-step work with a clear finish line', priority: 2, solo: true  },

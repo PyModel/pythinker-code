@@ -1,6 +1,12 @@
 import { isAbsolute, join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { deployTargetArgument, packageManagerInvocation } from '../scripts/stage-runtime'
+import {
+  DEPLOY_ATTEMPTS,
+  deployRetryDelayMs,
+  deployTargetArgument,
+  packageManagerInvocation,
+  withDeployRetries,
+} from '../scripts/stage-runtime'
 
 describe('package manager invocation', () => {
   it('leaves non-Windows invocations untouched', () => {
@@ -48,5 +54,58 @@ describe('deploy target argument', () => {
     const target = '/repo/node_modules/.pythinker-desktop-staging/runtime-abc123'
 
     expect(deployTargetArgument('/repo', target)).not.toBe(target)
+  })
+})
+
+describe('deploy retries', () => {
+  function recorder() {
+    const waits: number[] = []
+    return { waits, sleep: async (milliseconds: number) => { waits.push(milliseconds) } }
+  }
+
+  it('does not retry a first-attempt success', async () => {
+    const { waits, sleep } = recorder()
+    let calls = 0
+
+    await withDeployRetries(async () => { calls += 1 }, { sleep })
+
+    expect(calls).toBe(1)
+    expect(waits).toEqual([])
+  })
+
+  it('retries a transient failure and resolves', async () => {
+    const { waits, sleep } = recorder()
+    const retried: number[] = []
+
+    await withDeployRetries(
+      async (attempt) => { if (attempt < 3) throw new Error('ERR_PNPM_NO_MATCHING_VERSION') },
+      { sleep, onRetry: (attempt) => retried.push(attempt) },
+    )
+
+    expect(retried).toEqual([1, 2])
+    expect(waits).toEqual([5_000, 20_000])
+  })
+
+  // A deterministic failure must still fail the build, and must surface its own
+  // error rather than a wrapper that hides which command broke.
+  it('rethrows the last failure once the attempts run out', async () => {
+    const { waits, sleep } = recorder()
+    let calls = 0
+
+    await expect(withDeployRetries(
+      async () => { calls += 1; throw new Error(`attempt ${String(calls)} failed`) },
+      { sleep },
+    )).rejects.toThrow('attempt 3 failed')
+
+    expect(calls).toBe(DEPLOY_ATTEMPTS)
+    expect(waits).toHaveLength(DEPLOY_ATTEMPTS - 1)
+  })
+
+  // Ordering alone would accept a 0ms/1ms backoff, which retries faster than a
+  // registry propagates and turns one retry into three failures in a row.
+  it('waits five seconds before the first retry and twenty before the second', () => {
+    expect(deployRetryDelayMs(1)).toBe(5_000)
+    expect(deployRetryDelayMs(2)).toBe(20_000)
+    expect(deployRetryDelayMs(2)).toBeGreaterThan(deployRetryDelayMs(1))
   })
 })

@@ -1,4 +1,4 @@
-import type { GoalSnapshot } from '../goal';
+import { GOAL_COMPACTION_PAUSE_REASON, type GoalSnapshot } from '../goal';
 import { DynamicInjector } from './injector';
 
 /**
@@ -19,6 +19,16 @@ export class GoalInjector extends DynamicInjector {
     const store = this.agent.goal;
     const goal = store.getGoal().goal;
     if (goal === null) return undefined;
+    if (goal.status === 'paused' && goal.terminalReason === GOAL_COMPACTION_PAUSE_REASON) {
+      if (goal.budget.overBudget) {
+        return buildBlockedNote({
+          ...goal,
+          status: 'blocked',
+          terminalReason: 'A configured budget was reached',
+        });
+      }
+      return buildGoalReminder({ ...goal, status: 'active', terminalReason: undefined });
+    }
     // Three intensity levels by status:
     // - `active`: full reminder + budget guidance; the goal driver is running turns.
     // - `blocked`: a light, non-demanding note so the model stays aware of the

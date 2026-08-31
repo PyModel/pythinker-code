@@ -2,7 +2,7 @@ import { mkdir, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'pathe';
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
@@ -59,6 +59,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   disposables.dispose();
   await rm(sessionDir, { recursive: true, force: true });
 });
@@ -181,6 +182,39 @@ describe('AgentTaskPersistence', () => {
       expect(await persistence.readTaskOutputBytes('bash-page0000', 0, 3)).toBe('abc');
       expect(await persistence.readTaskOutputBytes('bash-page0000', 20, 100)).toBe('uvwxyz');
       expect(await persistence.readTaskOutputBytes('bash-page0000', 26, 10)).toBe('');
+    });
+
+    it('keeps a persisted UTF-8 output preview within its byte limit', async () => {
+      const taskId = 'bash-utf80001';
+      await persistence.appendTaskOutput(taskId, 'éé');
+
+      expect(await persistence.readTaskOutputSnapshot(taskId, 3)).toMatchObject({
+        outputSizeBytes: 4,
+        previewBytes: 2,
+        truncated: true,
+        preview: 'é',
+      });
+    });
+
+    it('reads only the requested persisted output tail for a snapshot', async () => {
+      const taskId = 'bash-tail0000';
+      const output = `${'x'.repeat(1024 * 1024)}tail`;
+      await persistence.appendTaskOutput(taskId, output);
+      const read = vi.spyOn(bytes, 'read');
+      const readStream = vi.spyOn(bytes, 'readStream');
+
+      expect(await persistence.readTaskOutputSnapshot(taskId, 4)).toMatchObject({
+        outputSizeBytes: output.length,
+        previewBytes: 4,
+        truncated: true,
+        preview: 'tail',
+      });
+      expect(read).not.toHaveBeenCalled();
+      expect(readStream).toHaveBeenCalledWith(
+        `${SESSION_SCOPE}/tasks/${taskId}`,
+        'output.log',
+        { start: output.length - 4, end: output.length - 1 },
+      );
     });
 
     it('readTaskOutputBytes returns empty string when output.log is absent', async () => {

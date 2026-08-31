@@ -69,6 +69,7 @@ const emit = defineEmits<{
   openFile: [target: FilePreviewRequest];
   openToolDiff: [id: string];
   openAgent: [toolCallId: string];
+  detach: [toolCallId: string];
 }>();
 
 const { t } = useI18n();
@@ -374,6 +375,7 @@ function isItemStreaming(item: RunItem): boolean {
             @open-file="emit('openFile', $event)"
             @open-tool-diff="emit('openToolDiff', $event)"
             @open-agent="emit('openAgent', $event)"
+            @detach="emit('detach', $event)"
           />
         </template>
       </div>
@@ -405,7 +407,16 @@ function isItemStreaming(item: RunItem): boolean {
 }
 .ar-head:hover { color: var(--color-text); }
 .ar-head:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--color-accent-soft); }
-.ar-glyph { display: inline-flex; align-items: center; flex: none; color: var(--color-text-faint); }
+.ar-glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--p-ic-sm);
+  height: var(--p-ic-sm);
+  line-height: 0;
+  flex: none;
+  color: var(--color-text-faint);
+}
 .ar-glyph.ok { color: var(--color-success); }
 .ar-glyph.err { color: var(--color-danger); }
 .ar-glyph.run {

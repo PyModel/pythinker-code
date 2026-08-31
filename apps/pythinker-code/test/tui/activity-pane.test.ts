@@ -181,7 +181,7 @@ describe('updateActivityPane terminal progress', () => {
       expect(state.activitySpinner).not.toBeNull();
       expect(state.activityContainer.children).toHaveLength(0);
       const rendered = strip(progress.render(80).join('\n'));
-      expect(rendered).toContain('Working...');
+      expect(rendered).toContain('Working…');
       expect(BRAILLE_SPINNER_FRAMES.some((frame) => rendered.includes(frame))).toBe(true);
 
       state.activitySpinner?.instance.stop();
@@ -212,8 +212,8 @@ describe('updateActivityPane terminal progress', () => {
       expect(state.activitySpinner).not.toBeNull();
       expect(state.activityContainer.children).toHaveLength(1);
       const output = strip(progress.render(80).join('\n'));
-      expect(output).toContain('  Working...');
-      expect(output).not.toContain('⣷ Working...');
+      expect(output).toContain('  Working…');
+      expect(output).not.toContain('⣷ Working…');
 
       state.activitySpinner?.instance.stop();
       driver.sessionEventHandler.clearAgentDynamicWorkflowProgress();

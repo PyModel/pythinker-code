@@ -76,8 +76,12 @@ export function serverEndpointLabel(): string {
 }
 
 // The real server serves everything (incl. healthz + ws) under the /api/v1 prefix.
-export function buildRestUrl(origin: string, path: string): string {
-  return `${origin}/api/v1${path.startsWith('/') ? path : `/${path}`}`;
+export function buildRestUrl(
+  origin: string,
+  path: string,
+  version: 'v1' | 'v2' = 'v1',
+): string {
+  return `${origin}/api/${version}${path.startsWith('/') ? path : `/${path}`}`;
 }
 
 export function buildWsUrl(origin: string, clientId: string): string {

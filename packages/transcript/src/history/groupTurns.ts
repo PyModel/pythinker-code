@@ -35,7 +35,7 @@ export interface HistoryMessage {
   readonly toolCalls?: readonly HistoryToolCall[];
   readonly toolCallId?: string;
   readonly isError?: boolean;
-  readonly origin?: { readonly kind: string };
+  readonly origin?: { readonly kind: string; readonly attachments?: unknown };
 }
 
 interface TurnDraft {
@@ -65,10 +65,21 @@ const FALLBACK_ORIGIN: TurnOrigin = { kind: 'other' };
 
 export function groupMessagesIntoSnapshot(
   messages: readonly HistoryMessage[],
+  options?: {
+    readonly taskOriginTurnTaskIds?: ReadonlySet<string>;
+    readonly steeredMessageIndexes?: ReadonlySet<number>;
+  },
 ): AgentTranscriptSnapshot {
   const items: TranscriptItem[] = [];
   const attachments: TranscriptAttachment[] = [];
   let turn: TurnDraft | undefined;
+  let pendingNotificationFrames: {
+    text: string;
+    taskId: string | undefined;
+    attachmentIds?: string[];
+    promptIds?: readonly string[];
+    steered?: boolean;
+  }[] = [];
   let nextOrdinal = 0;
   let markerCount = 0;
 
@@ -124,6 +135,16 @@ export function groupMessagesIntoSnapshot(
         ids.push(entity.attachmentId);
       }
     }
+    for (const attachment of originFileAttachments(message)) {
+      const entity: TranscriptAttachment = {
+        attachmentId: `att_${attachments.length + 1}`,
+        mediaType: attachment.mediaType,
+        name: attachment.name,
+        size: attachment.size,
+      };
+      attachments.push(entity);
+      ids.push(entity.attachmentId);
+    }
     return { text: texts.join(''), attachmentIds: ids.length > 0 ? ids : undefined };
   };
 
@@ -137,9 +158,33 @@ export function groupMessagesIntoSnapshot(
     return turn;
   };
 
+  const flushSteeredLeftovers = (): void => {
+    const leftovers = pendingNotificationFrames.filter((pending) => pending.steered);
+    if (leftovers.length === 0) return;
+    pendingNotificationFrames = pendingNotificationFrames.filter((pending) => !pending.steered);
+    for (const pending of leftovers) {
+      const lastStep = turn?.steps.at(-1);
+      if (turn === undefined || lastStep === undefined) {
+        startTurn({ kind: 'user' }, pending.text, pending.attachmentIds);
+        continue;
+      }
+      lastStep.frames.push({
+        kind: 'text',
+        frameId: `${lastStep.stepId}.f${lastStep.frames.length + 1}`,
+        role: 'user',
+        text: pending.text,
+        attachmentIds: pending.attachmentIds,
+        promptIds: pending.promptIds,
+      });
+      syncTurnItem(items, turn);
+    }
+  };
+
   const startTurn = (origin: TurnOrigin, prompt?: string, attachmentIds?: string[]): TurnDraft => {
+    flushSteeredLeftovers();
     const ordinal = nextOrdinal;
     nextOrdinal += 1;
+    pendingNotificationFrames = [];
     turn = { turnId: `t${ordinal}`, ordinal, origin, prompt, attachmentIds, steps: [] };
     items.push(draftToTurnItem(turn));
     return turn;
@@ -151,15 +196,43 @@ export function groupMessagesIntoSnapshot(
     items.push(item);
   };
 
-  for (const message of messages) {
+  let prevNonTaskRole: string | undefined;
+  for (const [messageIndex, message] of messages.entries()) {
     if (message.role === 'system') continue;
     const originKind = message.origin?.kind;
+    const isTaskOrigin =
+      originKind === 'task' || originKind === 'background_task' || originKind === 'task_notification';
+    const prevRoleAtEntry = prevNonTaskRole;
+    if (!isTaskOrigin) prevNonTaskRole = message.role;
 
     if (message.role === 'user') {
       if (originKind !== undefined && HIDDEN_USER_ORIGINS.has(originKind)) {
         if (opensOwnTurn(message)) {
-          startTurn(mapOrigin(message));
+          const opening =
+            (message.origin as { name?: unknown }).name === 'subagent'
+              ? foldTurnOpeningInput(message)
+              : undefined;
+          startTurn(mapOrigin(message), opening?.text || undefined, opening?.attachmentIds);
         }
+        continue;
+      }
+      if (options?.steeredMessageIndexes?.has(messageIndex)) {
+        const bundled = bundledSkillActivations(message);
+        const parts = message.content ?? [];
+        bundled.forEach((activation, index) => {
+          const block = parts[index];
+          pushMarker('skill', {
+            text: block !== undefined && block.type === 'text' && 'text' in block ? block.text : '',
+            origin: { kind: 'skill_activation', trigger: 'user-slash', ...activation },
+          });
+        });
+        const opening = foldTurnOpeningInput({ ...message, content: parts.slice(bundled.length) });
+        pendingNotificationFrames.push({
+          text: opening.text,
+          taskId: undefined,
+          attachmentIds: opening.attachmentIds,
+          steered: true,
+        });
         continue;
       }
       const markerKey = originKind !== undefined ? MARKER_USER_ORIGINS[originKind] : undefined;
@@ -169,6 +242,22 @@ export function groupMessagesIntoSnapshot(
         if (opening !== undefined) {
           startTurn(mapOrigin(message), opening.text, opening.attachmentIds);
         }
+        continue;
+      }
+      if (isTaskOrigin) {
+        const origin = message.origin as { taskId?: unknown } | undefined;
+        const taskId = typeof origin?.taskId === 'string' ? origin.taskId : undefined;
+        const opensOwn = options?.taskOriginTurnTaskIds === undefined
+          ? prevRoleAtEntry !== 'assistant' && prevRoleAtEntry !== 'tool'
+          : taskId === undefined ||
+            options.taskOriginTurnTaskIds.has(taskId) ||
+            originKind === 'background_task';
+        if (opensOwn) {
+          const opening = foldTurnOpeningInput(message);
+          startTurn(mapOrigin(message), opening.text, opening.attachmentIds);
+          continue;
+        }
+        pendingNotificationFrames.push({ text: notificationFrameText(textOf(message)), taskId });
         continue;
       }
       const bundled = bundledSkillActivations(message);
@@ -205,6 +294,18 @@ export function groupMessagesIntoSnapshot(
         frameCount += 1;
         return `${step.stepId}.f${frameCount}`;
       };
+      for (const pending of pendingNotificationFrames) {
+        step.frames.push({
+          kind: 'text',
+          frameId: nextFrameId(),
+          role: 'user',
+          text: pending.text,
+          taskId: pending.taskId,
+          attachmentIds: pending.attachmentIds,
+          promptIds: pending.promptIds,
+        });
+      }
+      pendingNotificationFrames = [];
       for (const part of message.content ?? []) {
         if (part.type === 'text' && 'text' in part && typeof part.text === 'string' && part.text.length > 0) {
           step.frames.push({ kind: 'text', frameId: nextFrameId(), role: 'assistant', text: part.text });
@@ -242,7 +343,39 @@ export function groupMessagesIntoSnapshot(
     }
   }
 
+  flushSteeredLeftovers();
+
   return { items, tasks: [], interactions: [], attachments, todos: [], prompts: [], meta: {} };
+}
+
+function notificationFrameText(text: string): string {
+  if (!text.startsWith('<notification')) return text;
+  const openingEnd = text.indexOf('>');
+  const closingStart = text.lastIndexOf('</notification>');
+  if (openingEnd === -1 || closingStart <= openingEnd) return text;
+  const inner = text.slice(openingEnd + 1, closingStart);
+  const lines = inner.split('\n');
+  let headerEnd = 0;
+  while (headerEnd < lines.length && lines[headerEnd]!.trim() === '') headerEnd += 1;
+  let title = '';
+  let bodyStart = headerEnd;
+  const titleLine = lines[bodyStart];
+  if (titleLine !== undefined && titleLine.startsWith('Title: ')) {
+    title = titleLine.slice('Title: '.length);
+    bodyStart += 1;
+  }
+  const severityLine = lines[bodyStart];
+  if (severityLine !== undefined && severityLine.startsWith('Severity: ')) {
+    bodyStart += 1;
+  }
+  const bodyLines = lines.slice(bodyStart);
+  const childStart = bodyLines.findIndex((line) => {
+    const trimmed = line.trimStart();
+    return trimmed.startsWith('<output-file') || trimmed.startsWith('<output-preview');
+  });
+  const body = (childStart === -1 ? bodyLines : bodyLines.slice(0, childStart)).join('\n').trim();
+  if (title.length > 0 && body.length > 0) return `${title}\n${body}`;
+  return title.length > 0 ? title : body.length > 0 ? body : text;
 }
 
 function opensOwnTurn(message: HistoryMessage): boolean {
@@ -308,6 +441,28 @@ function bundledSkillActivations(message: HistoryMessage): readonly BundledSkill
       activation !== null &&
       typeof (activation as { activationId?: unknown }).activationId === 'string' &&
       typeof (activation as { skillName?: unknown }).skillName === 'string',
+  );
+}
+
+interface OriginFileAttachment {
+  readonly name: string;
+  readonly mediaType: string;
+  readonly size: number;
+  readonly path: string;
+}
+
+function originFileAttachments(message: HistoryMessage): readonly OriginFileAttachment[] {
+  if (message.origin?.kind !== 'user' && message.origin?.kind !== 'skill_activation') return [];
+  const attachments = message.origin.attachments;
+  if (!Array.isArray(attachments)) return [];
+  return attachments.filter(
+    (attachment): attachment is OriginFileAttachment =>
+      typeof attachment === 'object' &&
+      attachment !== null &&
+      typeof (attachment as { name?: unknown }).name === 'string' &&
+      typeof (attachment as { mediaType?: unknown }).mediaType === 'string' &&
+      typeof (attachment as { size?: unknown }).size === 'number' &&
+      typeof (attachment as { path?: unknown }).path === 'string',
   );
 }
 

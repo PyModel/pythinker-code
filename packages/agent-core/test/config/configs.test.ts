@@ -62,7 +62,7 @@ function expectPythinkerErrorCode(fn: () => unknown, code: string): void {
 }
 
 const COMPLETE_TOML = `
-default_model = "pythinker-code/kimi-for-coding"
+default_model = "example/test-model"
 default_permission_mode = "auto"
 default_plan_mode = false
 merge_all_available_skills = true
@@ -70,17 +70,17 @@ extra_skill_dirs = ["~/team-skills", ".agents/team-skills"]
 telemetry = false
 theme = "dark"
 
-[providers."managed:pythinker-code"]
+[providers."oauth-example"]
 type = "pythinker"
-base_url = "https://api.kimi.com/coding/v1"
+base_url = "https://api.example.test/v1"
 api_key = "sk-file"
 custom_headers = { "X-Test" = "1" }
 
-[providers."managed:pythinker-code".env]
+[providers."oauth-example".env]
 GOOGLE_CLOUD_PROJECT = "project-1"
 
-[models."pythinker-code/kimi-for-coding"]
-provider = "managed:pythinker-code"
+[models."example/test-model"]
+provider = "oauth-example"
 model = "kimi-for-coding"
 max_context_size = 262144
 capabilities = ["image_in", "thinking", "video_in"]
@@ -139,12 +139,12 @@ event = "Stop"
 command = "echo stop"
 
 [services.pymodel_search]
-base_url = "https://api.kimi.com/coding/v1/search"
+base_url = "https://api.example.test/v1/search"
 api_key = "sk-search"
 custom_headers = { "X-Search" = "1" }
 
 [services.pymodel_fetch]
-base_url = "https://api.kimi.com/coding/v1/fetch"
+base_url = "https://api.example.test/v1/fetch"
 api_key = "sk-fetch"
 
 [notifications]
@@ -155,22 +155,22 @@ describe('harness config TOML loader', () => {
   it('parses the current config.toml shape through explicit field mappings', () => {
     const config = parseConfigString(COMPLETE_TOML, 'config.toml');
 
-    expect(config.defaultModel).toBe('pythinker-code/kimi-for-coding');
+    expect(config.defaultModel).toBe('example/test-model');
     expect(config.thinking?.enabled).toBe(true);
     expect(config.defaultPermissionMode).toBe('auto');
     expect(config.defaultPlanMode).toBe(false);
     expect(config.mergeAllAvailableSkills).toBe(true);
     expect(config.extraSkillDirs).toEqual(['~/team-skills', '.agents/team-skills']);
     expect(config.telemetry).toBe(false);
-    expect(config.providers['managed:pythinker-code']).toMatchObject({
+    expect(config.providers['oauth-example']).toMatchObject({
       type: 'pythinker',
-      baseUrl: 'https://api.kimi.com/coding/v1',
+      baseUrl: 'https://api.example.test/v1',
       apiKey: 'sk-file',
       env: { GOOGLE_CLOUD_PROJECT: 'project-1' },
       customHeaders: { 'X-Test': '1' },
     });
-    expect(config.models?.['pythinker-code/kimi-for-coding']).toMatchObject({
-      provider: 'managed:pythinker-code',
+    expect(config.models?.['example/test-model']).toMatchObject({
+      provider: 'oauth-example',
       model: 'kimi-for-coding',
       maxContextSize: 262144,
       capabilities: ['image_in', 'thinking', 'video_in'],
@@ -278,7 +278,7 @@ source = { kind = "apiJson", url = "https://registry.example/api.json", apiKey =
     const dir = makeTempDir();
     const configPath = join(dir, 'oauth-ref.toml');
     const toml = `
-[providers."managed:pythinker-code"]
+[providers."oauth-example"]
 type = "pythinker"
 base_url = "https://api.dev.example.test/coding/v1"
 api_key = ""
@@ -290,7 +290,7 @@ api_key = ""
 oauth = { storage = "file", key = "oauth/pythinker-code-env-1234", oauth_host = "https://auth.dev.example.test" }
 `;
     const config = parseConfigString(toml, configPath);
-    expect(config.providers['managed:pythinker-code']?.oauth).toEqual({
+    expect(config.providers['oauth-example']?.oauth).toEqual({
       storage: 'file',
       key: 'oauth/pythinker-code-env-1234',
       oauthHost: 'https://auth.dev.example.test',
@@ -301,7 +301,7 @@ oauth = { storage = "file", key = "oauth/pythinker-code-env-1234", oauth_host = 
     const text = await readFile(configPath, 'utf-8');
     expect(text).toContain('oauth_host = "https://auth.dev.example.test"');
     const roundTripped = parseConfigString(text, configPath);
-    expect(roundTripped.providers['managed:pythinker-code']?.oauth?.oauthHost).toBe(
+    expect(roundTripped.providers['oauth-example']?.oauth?.oauthHost).toBe(
       'https://auth.dev.example.test',
     );
   });
@@ -361,7 +361,7 @@ removed_flag = true
     expect(loopControl).toBeDefined();
     await writeConfigFile(configPath, {
       ...config,
-      defaultModel: 'pythinker-code/kimi-for-coding',
+      defaultModel: 'example/test-model',
       loopControl: {
         ...loopControl!,
         maxStepsPerTurn: 7,
@@ -369,7 +369,7 @@ removed_flag = true
     });
 
     const text = await readFile(configPath, 'utf-8');
-    expect(text).toContain('default_model = "pythinker-code/kimi-for-coding"');
+    expect(text).toContain('default_model = "example/test-model"');
     expect(text).toContain('default_permission_mode = "auto"');
     expect(text).toContain('extra_skill_dirs = [ "~/team-skills", ".agents/team-skills" ]');
     expect(text).toContain('telemetry = false');
@@ -557,13 +557,13 @@ describe('harness config schema and patch merge', () => {
     const base = parseConfigString(COMPLETE_TOML);
     const merged = mergeConfigPatch(base, {
       providers: {
-        'managed:pythinker-code': {
+        'oauth-example': {
           apiKey: 'sk-patched',
           baseUrl: undefined,
         },
       },
       models: {
-        'pythinker-code/kimi-for-coding': {
+        'example/test-model': {
           capabilities: ['tool_use'],
         },
       },
@@ -572,14 +572,14 @@ describe('harness config schema and patch merge', () => {
       },
     });
 
-    expect(merged.providers['managed:pythinker-code']).toMatchObject({
+    expect(merged.providers['oauth-example']).toMatchObject({
       type: 'pythinker',
-      baseUrl: 'https://api.kimi.com/coding/v1',
+      baseUrl: 'https://api.example.test/v1',
       apiKey: 'sk-patched',
       env: { GOOGLE_CLOUD_PROJECT: 'project-1' },
     });
-    expect(merged.models?.['pythinker-code/kimi-for-coding']).toMatchObject({
-      provider: 'managed:pythinker-code',
+    expect(merged.models?.['example/test-model']).toMatchObject({
+      provider: 'oauth-example',
       model: 'kimi-for-coding',
       maxContextSize: 262144,
       capabilities: ['tool_use'],
@@ -958,7 +958,7 @@ describe('model overrides TOML', () => {
   it('parses nested model overrides from snake_case TOML', () => {
     const config = parseConfigString(`
 [models."pythinker-code/kimi-k2"]
-provider = "managed:pythinker-code"
+provider = "oauth-example"
 model = "kimi-k2"
 max_context_size = 262144
 support_efforts = ["low", "high", "max"]
@@ -977,7 +977,7 @@ default_effort = "high"
   it('writes nested model overrides back as snake_case TOML data', () => {
     const config = parseConfigString(`
 [models."pythinker-code/kimi-k2"]
-provider = "managed:pythinker-code"
+provider = "oauth-example"
 model = "kimi-k2"
 max_context_size = 262144
 

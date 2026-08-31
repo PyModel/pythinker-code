@@ -23,19 +23,19 @@ TOML field names always use snake_case, for example `default_model` and `max_con
 The following example covers the most commonly used configuration fields. You can copy it and adjust as needed:
 
 ```toml
-default_model = "pythinker-code/k3"
+default_model = "example/k3"
 default_permission_mode = "manual"
 default_plan_mode = false
 merge_all_available_skills = true
 telemetry = true
 
-[providers."managed:pythinker-code"]
+[providers.example]
 type = "pythinker"
-base_url = "https://api.kimi.com/coding/v1"
-api_key = ""
+base_url = "https://api.example.test/v1"
+api_key = "YOUR_API_KEY"
 
-[models."pythinker-code/k3"]
-provider = "managed:pythinker-code"
+[models."example/k3"]
+provider = "example"
 model = "k3"
 max_context_size = 1048576
 capabilities = [ "thinking", "always_thinking", "image_in", "video_in", "tool_use" ]
@@ -43,15 +43,15 @@ display_name = "K3"
 support_efforts = [ "low", "high", "max" ]
 default_effort = "max"
 
-[models."pythinker-code/kimi-for-coding"]
-provider = "managed:pythinker-code"
-model = "kimi-for-coding"
+[models."example/test-model"]
+provider = "example"
+model = "test-model"
 max_context_size = 262144
 capabilities = [ "thinking", "always_thinking", "image_in", "video_in", "tool_use" ]
 
-[models."pythinker-code/kimi-for-coding-highspeed"]
-provider = "managed:pythinker-code"
-model = "kimi-for-coding-highspeed"
+[models."example/test-model-fast"]
+provider = "example"
+model = "test-model-fast"
 max_context_size = 262144
 capabilities = [ "thinking", "always_thinking", "image_in", "video_in", "tool_use" ]
 
@@ -69,12 +69,12 @@ max_running_tasks = 4
 keep_alive_on_exit = false
 
 [services.pymodel_search]
-base_url = "https://api.kimi.com/coding/v1/search"
-api_key = ""
+base_url = "https://api.example.test/v1/search"
+api_key = "YOUR_API_KEY"
 
 [services.pymodel_fetch]
-base_url = "https://api.kimi.com/coding/v1/fetch"
-api_key = ""
+base_url = "https://api.example.test/v1/fetch"
+api_key = "YOUR_API_KEY"
 
 [[permission.rules]]
 decision = "allow"
@@ -177,14 +177,14 @@ max_context_size = 1047576
 Use `[models."<alias>".overrides]` for user overrides that must survive provider-model refreshes. Runtime consumers read the effective value: the override when present, otherwise the top-level field.
 
 ```toml
-[models."pythinker-code/kimi-for-coding"]
-provider = "managed:pythinker-code"
-model = "kimi-for-coding"
+[models."example/test-model"]
+provider = "example"
+model = "test-model"
 max_context_size = 262144
 
-[models."pythinker-code/kimi-for-coding".overrides]
+[models."example/test-model".overrides]
 max_context_size = 131072
-display_name = "Pythinker for Coding (custom)"
+display_name = "Test Model (custom)"
 ```
 
 `[models."<alias>".overrides]` accepts ordinary model fields such as `max_context_size`, `max_input_size`, `max_output_size`, `capabilities`, `display_name`, `reasoning_key`, `adaptive_thinking`, `support_efforts`, `default_effort`, and `off_effort`. It does not accept identity / routing fields: `provider`, `model`, `protocol`, `beta_api`, and `base_url`.
@@ -222,7 +222,7 @@ The minimal configuration is one line — a lone `default_model` is a pool with 
 
 ```toml
 [secondary_model]
-default_model = "pythinker-code/kimi-for-coding-highspeed"
+default_model = "example/test-model-fast"
 ```
 
 | Field | Type | Default | Description |
@@ -230,25 +230,29 @@ default_model = "pythinker-code/kimi-for-coding-highspeed"
 | `default_model` | `string` | — | The default model for subagents |
 | `models` | `table<string, string>` | — | Subagent model pool. Each key is the alias of a configured [`[models]`](#models) entry; each value is the selection hint shown to the main agent |
 | `force` | `boolean` | `false` | Pin every subagent to `default_model`, taking the choice away from the main agent |
+| `default_effort` | `string` | — | Thinking effort for every spawned subagent; takes priority over the bound model entry's `default_effort` |
 
 Constraints between the fields:
 
 - `default_model`: required when a `models` table is configured, and must be one of its keys.
 - `models`: values may be Chinese or English; an empty string lists the alias with no hint.
 - `force`: requires `default_model` and cannot be combined with a `models` table — the table exists to offer a choice, and force removes it.
+- `default_effort`: applies to every model selected from this section. Leave it unset to use each model entry's default.
 - `primary` is a reserved alias (see below) and cannot be a pool key.
+
+Pool aliases reference the current `[models]` table. If a provider is deleted or logged out, or a refresh removes an alias, session startup reports the broken alias. Fix or remove that entry. Pythinker Code never rewrites `[secondary_model]` automatically.
 
 In the interactive TUI, the [`/secondary-model`](../reference/slash-commands.md) command (alias `/subagent-model`) opens a model selector: the choice is written to `default_model` (when a models table exists and the picked alias is not in it, an entry with an empty description is added), and newly spawned subagents pick up the new default immediately — no session restart needed.
 
-A configured pool — an explicit `models` table or a lone `default_model` — enables model selection: the `Agent` / `AgentDynamicWorkflow` tools gain a `model` parameter, and the tool description lists the pool (the default marked `[default]`) so the main agent can choose per spawn. Pool keys can only reference configured [`[models]`](#models) entries — the `pythinker-code/*` aliases below are provisioned by `/login`:
+A configured pool — an explicit `models` table or a lone `default_model` — enables model selection: the `Agent` / `AgentDynamicWorkflow` tools gain a `model` parameter, and the tool description lists the pool (the default marked `[default]`) so the main agent can choose per spawn. Pool keys can only reference configured [`[models]`](#models) entries:
 
 ```toml
 [secondary_model]
-default_model = "pythinker-code/kimi-for-coding-highspeed"
+default_model = "example/test-model-fast"
 [secondary_model.models]
-"pythinker-code/k3" = "Pick this for hard problems. Strong at complex reasoning, algorithm design, deep debugging, math, and systematic challenges."
-"pythinker-code/kimi-for-coding-highspeed" = "Fast but priced higher. Good for latency-sensitive tasks: daily refactoring, code explanation, small edits, and summaries."
-"pythinker-code/kimi-for-coding" = "A balanced coding workhorse. Good for most feature development and code-change tasks."
+"example/k3" = "Pick this for hard problems. Strong at complex reasoning, algorithm design, deep debugging, math, and systematic challenges."
+"example/test-model-fast" = "Fast but priced higher. Good for latency-sensitive tasks: daily refactoring, code explanation, small edits, and summaries."
+"example/test-model" = "A balanced coding workhorse. Good for most feature development and code-change tasks."
 ```
 
 A spawn resolves the subagent's model in this order:
@@ -260,7 +264,7 @@ Rules for the `model` parameter:
 
 - It accepts any pool alias, or `"primary"` — the model the caller itself is running, always valid even when not in the pool.
 - When neither `default_model` nor `models` is configured, the parameter is not advertised and subagents inherit the caller's model.
-- Binding a pool alias carries no explicit thinking effort: the subagent resolves it as "global `[thinking]` config → the bound model's default effort" instead of inheriting the caller's level.
+- Binding a pool alias does not inherit the caller's thinking effort. The section's `default_effort` wins when set. Otherwise, `[thinking].enabled = false` keeps Thinking off. When Thinking is enabled, the bound model entry's valid `default_effort` is used before global fallback resolution.
 - `"primary"` inherits both the model and the effort level from the caller.
 - A value that is neither a pool alias nor `"primary"` fails the spawn with an error listing the available choices.
 
@@ -268,7 +272,7 @@ To take the choice away from the main agent and run every subagent on one fixed 
 
 ```toml
 [secondary_model]
-default_model = "pythinker-code/kimi-for-coding-highspeed"
+default_model = "example/test-model-fast"
 force = true
 ```
 
@@ -282,10 +286,10 @@ Binding a pool alias lands the subagent on the bound model's default effort. You
 2. List both the original alias and the variant alias in the pool.
 
 ```toml
-# "pythinker-code/k3" is provisioned by /login (default: high); this registers
-# a max-effort variant of the same model
+# "example/k3" is configured above with high effort; this registers a
+# max-effort variant of the same model.
 [models.k3-max]
-provider = "managed:pythinker-code"
+provider = "example"
 model = "k3"
 max_context_size = 1048576
 capabilities = [ "thinking", "always_thinking", "image_in", "video_in", "tool_use" ]
@@ -295,18 +299,18 @@ support_efforts = [ "low", "high", "max" ]
 default_effort = "max"
 
 [secondary_model]
-default_model = "pythinker-code/k3"
+default_model = "example/k3"
 [secondary_model.models]
-"pythinker-code/k3" = "Default high effort. Good for most implementation, analysis, and multi-turn interaction tasks."
+"example/k3" = "Default high effort. Good for most implementation, analysis, and multi-turn interaction tasks."
 k3-max = "The same model at max thinking effort. Good for the hardest subtasks."
 ```
 
 Two prerequisites:
 
-- The underlying model must declare `support_efforts` (under `managed:pythinker-code` only the k3 family currently declares effort levels).
+- The underlying model must declare `support_efforts` (in this example, only the k3 family declares effort levels).
 - The variant is a standalone entry and does not inherit fields from the entry it points at — copy `capabilities`, `support_efforts`, and the other metadata over in full, otherwise `default_effort` has no effect (it must be a member of `support_efforts`).
 
-Also note that `default_effort` stays a model-level default: once a global `[thinking].effort` is set, it wins for the main agent and subagents alike, and the variant's default only applies when no global effort is set. Value and fallback rules follow the [`[models]` entry's `default_effort`](#models).
+For the main agent, global `[thinking].effort` takes priority over a model entry's `default_effort`. For pool-bound subagents, the model entry's valid `default_effort` is used before global fallback resolution, and only `[secondary_model].default_effort` takes higher priority. Value and fallback rules follow the [`[models]` entry's `default_effort`](#models).
 
 ::: warning Note
 Configuration errors fail loudly instead of falling back silently. Session creation, resume, and fork all fail at startup when:
@@ -375,17 +379,28 @@ Retries only apply to transient failures — connection errors, timeouts, HTTP 4
 
 `keep_alive_on_exit` can be overridden by the `PYTHINKER_CODE_BACKGROUND_KEEP_ALIVE_ON_EXIT` environment variable, and `max_running_tasks` by `PYTHINKER_CODE_BACKGROUND_MAX_RUNNING_TASKS`; both take higher priority than `config.toml`.
 
-In print mode (`pythinker -p "<prompt>"`), Pythinker Code stays alive after the main agent's turn as long as background tasks are still pending: each completion is fed back to the main agent as a synthetic user message, steering it into a new turn (`print_background_mode = "steer"` by default), and the run exits once a turn ends with nothing pending. The loop is bounded by `print_wait_ceiling_s` and `print_max_turns`, both effectively unbounded by default. Background work is never killed by a wall-clock cap in print mode either: background `Bash` tasks default to no timeout (`bash_task_timeout_s = 0`), and subagents run without a timeout (`[subagent] timeout_ms = 0`), so only the model itself stops a task. Set `print_background_mode` to `"drain"` to wait for tasks without feeding results back, or `"exit"` to end the run as soon as the main agent finishes.
+In print mode (`pythinker -p "<prompt>"`), Pythinker Code stays alive after the main agent's turn as long as background tasks are still pending: each completion is fed back to the main agent as a synthetic user message, steering it into a new turn (`print_background_mode = "steer"` by default), and the run exits once a turn ends with nothing pending. The loop is bounded by `print_wait_ceiling_s` and `print_max_turns`, both effectively unbounded by default. Background work is never killed by a wall-clock cap in print mode either: background `Bash` tasks default to no timeout (`bash_task_timeout_s = 0`), and subagents run without a timeout (`[subagent] timeout_ms` and `[dynamic_workflow] timeout_ms` both default to `0` unless explicitly set), so only the model itself stops a task. Set `print_background_mode` to `"drain"` to wait for tasks without feeding results back, or `"exit"` to end the run as soon as the main agent finishes.
 
 ## `subagent`
 
-`subagent` controls how spawned subagents (`Agent` / `AgentDynamicWorkflow`) run.
+`subagent` controls how subagents spawned by the `Agent` tool run.
 
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
-| `timeout_ms` | `integer` | `7200000` (2 hours) | Maximum wall-clock time (milliseconds) a single subagent (`Agent` / `AgentDynamicWorkflow`) is allowed to run before it is settled as `timed_out`. `0` means no timeout — the subagent runs until it finishes or the model stops it. This is the background-task manager's per-task timeout for each subagent task, so it applies to both foreground and background subagents. In print mode (`pythinker -p`) the default is `0` unless explicitly set. Note: any value above `2147483647` (about 24.8 days) is clamped to roughly 24.8 days by the runtime |
+| `timeout_ms` | `integer` | `7200000` (2 hours) | Maximum wall-clock time (milliseconds) a single `Agent` subagent is allowed to run before it is settled as `timed_out`. `0` means no timeout — the subagent runs until it finishes or the model stops it. This is the background-task manager's per-task timeout for each subagent task, so it applies to both foreground and background subagents. In print mode (`pythinker -p`) the default is `0` unless explicitly set. Note: any value above `2147483647` (about 24.8 days) is clamped to roughly 24.8 days by the runtime |
 
 `timeout_ms` can be overridden by the `PYTHINKER_SUBAGENT_TIMEOUT_MS` environment variable, which takes higher priority than `config.toml`.
+
+## `dynamic_workflow`
+
+`dynamic_workflow` controls how subagents launched by the `AgentDynamicWorkflow` tool run, independently of `[subagent]`.
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `timeout_ms` | `integer` | `7200000` (2 hours) | Maximum wall-clock time (milliseconds) a single `AgentDynamicWorkflow` subagent is allowed to run. On timeout that subagent is aborted and marked as failed in the aggregated report (`Subagent timed out.`); the other subagents are unaffected. `0` means no timeout — the subagent runs until it finishes or the model stops it. In print mode (`pythinker -p`) the default is `0` unless explicitly set. Note: any value above `2147483647` (about 24.8 days) is clamped to roughly 24.8 days by the runtime |
+| `max_concurrency` | `integer` | unset (no cap) | Maximum number of `AgentDynamicWorkflow` subagents that can run at the same time across all execution phases. Must be a positive integer |
+
+`timeout_ms` and `max_concurrency` can be overridden by the `PYTHINKER_CODE_AGENT_DYNAMIC_WORKFLOW_TIMEOUT_MS` and `PYTHINKER_CODE_AGENT_DYNAMIC_WORKFLOW_MAX_CONCURRENCY` environment variables respectively, which take higher priority than `config.toml`.
 
 ## `mcp`
 

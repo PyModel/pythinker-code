@@ -34,6 +34,7 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
+  inherit: [];
   select: [selection: SecondaryModelSelection];
 }>();
 
@@ -67,7 +68,10 @@ const FLYOUT_FLIP_PX = 188;
 
 let closeTimer: ReturnType<typeof setTimeout> | null = null;
 
-const flat = computed<SecondaryModelOption[]>(() => props.groups.flatMap((group) => group.options));
+const flat = computed<SecondaryModelOption[]>(() => [
+  { id: '', label: t('settings.noSecondaryModel') },
+  ...props.groups.flatMap((group) => group.options),
+]);
 
 const selectedLabel = computed(() =>
   props.modelValue
@@ -88,7 +92,7 @@ const triggerLabel = computed(() =>
  *  declares stays in the list so the current selection stays visible. */
 const effortOptions = computed<(string | null)[]>(() => {
   const model = hoveredModel.value;
-  if (model === null) return [];
+  if (model === null || model === '') return [];
   const segments = segmentsFor(props.modelInfoById[model]);
   const options = props.effort === '' ? [null, ...segments] : [...segments];
   if (
@@ -216,6 +220,11 @@ function hideFlyout(): void {
 function focusModel(id: string, { moveFocus = false } = {}): void {
   setActiveModel(id);
   cancelClose();
+  if (id === '') {
+    hoveredModel.value = null;
+    pane.value = 'models';
+    return;
+  }
   hoveredModel.value = id;
   void nextTick(positionFlyout);
   if (moveFocus) {
@@ -234,6 +243,11 @@ function commit(option: string | null): void {
   if (selection.model !== props.modelValue || (selection.effort ?? '') !== props.effort) {
     emit('select', selection);
   }
+  close({ restoreFocus: true });
+}
+
+function commitInheritance(): void {
+  emit('inherit');
   close({ restoreFocus: true });
 }
 
@@ -283,13 +297,14 @@ function onTriggerKeydown(event: KeyboardEvent): void {
     else stepEffort(-1);
   } else if (event.key === 'ArrowRight') {
     event.preventDefault();
-    focusModel(activeModel.value, { moveFocus: true });
+    if (activeModel.value !== '') focusModel(activeModel.value, { moveFocus: true });
   } else if (event.key === 'ArrowLeft') {
     event.preventDefault();
     if (hoveredModel.value !== null) hideFlyout();
   } else if (event.key === 'Enter' || event.key === ' ') {
     event.preventDefault();
-    if (pane.value === 'models') focusModel(activeModel.value, { moveFocus: true });
+    if (pane.value === 'models' && activeModel.value === '') commitInheritance();
+    else if (pane.value === 'models') focusModel(activeModel.value, { moveFocus: true });
     else commit(effortOptions.value[effortIndex.value] ?? null);
   } else if (event.key === 'Home' || event.key === 'End') {
     event.preventDefault();
@@ -381,6 +396,24 @@ onUnmounted(() => {
         :aria-label="t('settings.secondaryModel')"
       >
         <div class="sm-picker__models" role="listbox" :aria-label="t('settings.secondaryModel')">
+          <button
+            :ref="(el) => setOptionEl(el, '')"
+            type="button"
+            class="sm-picker__option"
+            :class="{
+              'is-selected': modelValue === '',
+              'is-active': activeModel === '',
+              'is-kb-active': pane === 'models' && activeModel === '',
+            }"
+            role="option"
+            :aria-selected="modelValue === ''"
+            @mouseenter="focusModel('')"
+            @click="commitInheritance"
+          >
+            <Icon class="sm-picker__check" name="check" size="sm" />
+            <span class="sm-picker__option-label">{{ t('settings.noSecondaryModel') }}</span>
+          </button>
+          <div class="sm-picker__divider" />
           <template v-for="group in groups" :key="group.provider">
             <div class="sm-picker__group">{{ group.provider }}</div>
             <button
@@ -556,6 +589,12 @@ onUnmounted(() => {
   color: var(--color-text-faint);
   font-size: var(--text-xs);
   font-weight: var(--weight-medium);
+}
+
+.sm-picker__divider {
+  height: 1px;
+  margin: var(--space-1) var(--space-2);
+  background: var(--color-line);
 }
 
 .sm-picker__option {

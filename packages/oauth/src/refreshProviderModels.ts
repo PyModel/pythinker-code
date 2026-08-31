@@ -12,37 +12,24 @@ import {
   modelsDevProviderAliases,
 } from './models-dev-catalog';
 import {
-  applyManagedApiKeyProviderModels,
-  applyManagedPythinkerCodeConfig,
-  fetchManagedPythinkerCodeModels,
-  PYTHINKER_CODE_PLATFORM_ID,
-  PYTHINKER_CODE_PROVIDER_NAME,
-  resolvePythinkerCodeRuntimeAuth,
-  type ManagedPythinkerConfigShape,
-  type ManagedPythinkerModelAlias,
-  type ManagedPythinkerOAuthRef,
-} from './managed-pythinker-code';
-import { isManagedPythinkerCodeBaseUrl } from './managed-usage';
-import {
   applyOpenPlatformConfig,
   fetchOpenPlatformModels,
   filterModelsByPrefix,
   getOpenPlatformById,
   isOpenPlatformId,
 } from './open-platform';
-import { isRecord } from './utils';
+import type { ModelAlias, PythinkerConfigShape } from './provider-config';
 
 /**
  * Host capabilities the refresh orchestrator needs. Intentionally typed against
- * {@link ManagedPythinkerConfigShape} (the oauth package's own minimal config shape)
+ * {@link PythinkerConfigShape} (the oauth package's own minimal config shape)
  * rather than the SDK's full `PythinkerConfig`, so this module has no dependency on
  * `agent-core` / the SDK and can be reused by both the CLI and the daemon.
  */
 export interface RefreshProviderHost {
-  getConfig(): Promise<ManagedPythinkerConfigShape>;
-  removeProvider(providerId: string): Promise<ManagedPythinkerConfigShape>;
-  setConfig(patch: ManagedPythinkerConfigShape): Promise<ManagedPythinkerConfigShape>;
-  resolveOAuthToken(providerName: string, oauthRef?: ManagedPythinkerOAuthRef): Promise<string>;
+  getConfig(): Promise<PythinkerConfigShape>;
+  removeProvider(providerId: string): Promise<PythinkerConfigShape>;
+  setConfig(patch: PythinkerConfigShape): Promise<PythinkerConfigShape>;
   /**
    * Product User-Agent sent on custom-registry (api.json) fetches, e.g.
    * `pythinker-code-cli/1.2.3`. When omitted the fetch falls back to the runtime
@@ -67,12 +54,9 @@ export interface RefreshResult {
   readonly failed: ReadonlyArray<{ readonly provider: string; readonly reason: string }>;
 }
 
-export type RefreshProviderScope = 'all' | 'oauth';
-
 export interface RefreshProviderOptions {
-  readonly scope?: RefreshProviderScope;
   /**
-   * Refresh only this provider. When set, managed / open-platform branches
+   * Refresh only this provider. When set, open-platform branches
    * skip every other provider; for a custom-registry provider the registry
    * group it belongs to is fetched but only the target entry is applied.
    */
@@ -80,32 +64,12 @@ export interface RefreshProviderOptions {
 }
 
 interface ProviderView {
-  readonly type?: string;
-  readonly baseUrl?: string;
   readonly apiKey?: string;
-  readonly oauth?: ManagedPythinkerOAuthRef;
   readonly source?: unknown;
-  readonly env?: unknown;
-}
-
-/**
- * Mirrors the runtime credential resolution for `type: 'pythinker'` providers
- * (`providerApiKey` in agent-core's provider-manager): the inline `apiKey`
- * wins, with `env.PYTHINKER_API_KEY` as the documented config-file fallback.
- */
-function resolveProviderApiKey(provider: ProviderView): string | undefined {
-  if (typeof provider.apiKey === 'string' && provider.apiKey.length > 0) {
-    return provider.apiKey;
-  }
-  if (isRecord(provider.env)) {
-    const fromEnv = provider.env['PYTHINKER_API_KEY'];
-    if (typeof fromEnv === 'string' && fromEnv.length > 0) return fromEnv;
-  }
-  return undefined;
 }
 
 function readProvider(
-  config: ManagedPythinkerConfigShape,
+  config: PythinkerConfigShape,
   providerId: string,
 ): ProviderView | undefined {
   const provider = config.providers[providerId];
@@ -114,12 +78,12 @@ function readProvider(
 }
 
 function readModel(
-  config: ManagedPythinkerConfigShape,
+  config: PythinkerConfigShape,
   alias: string,
-): ManagedPythinkerModelAlias | undefined {
+): ModelAlias | undefined {
   const model = config.models?.[alias];
   if (model === undefined) return undefined;
-  return model as ManagedPythinkerModelAlias;
+  return model as ModelAlias;
 }
 
 function readCustomRegistrySource(provider: ProviderView): CustomRegistrySource | undefined {
@@ -166,7 +130,7 @@ async function fetchCustomRegistryFromSources(
 }
 
 function collectModelIdsForAliases(
-  config: ManagedPythinkerConfigShape,
+  config: PythinkerConfigShape,
   aliasKeys: ReadonlySet<string>,
 ): Set<string> {
   const ids = new Set<string>();
@@ -179,22 +143,22 @@ function collectModelIdsForAliases(
   return ids;
 }
 
-function providerAliasKeys(config: ManagedPythinkerConfigShape, providerId: string): Set<string> {
+function providerAliasKeys(config: PythinkerConfigShape, providerId: string): Set<string> {
   const keys = new Set<string>();
   for (const [alias, raw] of Object.entries(config.models ?? {})) {
-    if ((raw as ManagedPythinkerModelAlias).provider === providerId) keys.add(alias);
+    if ((raw as ModelAlias).provider === providerId) keys.add(alias);
   }
   return keys;
 }
 
 function generatedProviderAliasKeys(
-  config: ManagedPythinkerConfigShape,
+  config: PythinkerConfigShape,
   providerId: string,
   aliasPrefix: string,
 ): Set<string> {
   const keys = new Set<string>();
   for (const [alias, raw] of Object.entries(config.models ?? {})) {
-    const model = raw as ManagedPythinkerModelAlias;
+    const model = raw as ModelAlias;
     if (model.provider === providerId && alias.startsWith(aliasPrefix)) {
       keys.add(alias);
     }
@@ -216,7 +180,7 @@ function computeChanges(oldIds: Set<string>, newIds: Set<string>): { added: numb
 
 interface ProviderModelSnapshot {
   readonly alias: string;
-  readonly model: ManagedPythinkerModelAlias;
+  readonly model: ModelAlias;
 }
 
 // Compare the full model metadata for the relevant aliases, not just model IDs:
@@ -225,7 +189,7 @@ interface ProviderModelSnapshot {
 // automatically; only `capabilities` needs normalizing because its order is not
 // meaningful.
 function providerModelSnapshot(
-  config: ManagedPythinkerConfigShape,
+  config: PythinkerConfigShape,
   providerId: string,
   aliasKeys: ReadonlySet<string>,
 ): string {
@@ -246,8 +210,8 @@ function providerModelSnapshot(
 }
 
 function providerModelsEqual(
-  config: ManagedPythinkerConfigShape,
-  nextConfig: ManagedPythinkerConfigShape,
+  config: PythinkerConfigShape,
+  nextConfig: PythinkerConfigShape,
   providerId: string,
   aliasKeys: ReadonlySet<string>,
 ): boolean {
@@ -257,21 +221,21 @@ function providerModelsEqual(
   );
 }
 
-function providerConfigSnapshot(config: ManagedPythinkerConfigShape, providerId: string): string {
+function providerConfigSnapshot(config: PythinkerConfigShape, providerId: string): string {
   return JSON.stringify(config.providers[providerId] ?? null);
 }
 
 function providerConfigEqual(
-  config: ManagedPythinkerConfigShape,
-  nextConfig: ManagedPythinkerConfigShape,
+  config: PythinkerConfigShape,
+  nextConfig: PythinkerConfigShape,
   providerId: string,
 ): boolean {
   return providerConfigSnapshot(config, providerId) === providerConfigSnapshot(nextConfig, providerId);
 }
 
 function providerRefreshAliasKeys(
-  config: ManagedPythinkerConfigShape,
-  nextConfig: ManagedPythinkerConfigShape,
+  config: PythinkerConfigShape,
+  nextConfig: PythinkerConfigShape,
   providerId: string,
   aliasPrefix: string,
 ): Set<string> {
@@ -281,13 +245,13 @@ function providerRefreshAliasKeys(
 }
 
 function preserveUserProviderAliases(
-  config: ManagedPythinkerConfigShape,
+  config: PythinkerConfigShape,
   providerId: string,
   refreshedAliasKeys: ReadonlySet<string>,
-): Record<string, ManagedPythinkerModelAlias> {
-  const preserved: Record<string, ManagedPythinkerModelAlias> = {};
+): Record<string, ModelAlias> {
+  const preserved: Record<string, ModelAlias> = {};
   for (const [alias, raw] of Object.entries(config.models ?? {})) {
-    const model = raw as ManagedPythinkerModelAlias;
+    const model = raw as ModelAlias;
     if (model.provider !== providerId || refreshedAliasKeys.has(alias)) continue;
     preserved[alias] = structuredClone(model);
   }
@@ -295,8 +259,8 @@ function preserveUserProviderAliases(
 }
 
 function restoreProviderAliases(
-  config: ManagedPythinkerConfigShape,
-  aliases: Record<string, ManagedPythinkerModelAlias>,
+  config: PythinkerConfigShape,
+  aliases: Record<string, ModelAlias>,
 ): void {
   if (Object.keys(aliases).length === 0) return;
   config.models = {
@@ -306,7 +270,7 @@ function restoreProviderAliases(
 }
 
 function restoreDefaultSelection(
-  config: ManagedPythinkerConfigShape,
+  config: PythinkerConfigShape,
   defaultModel: string | undefined,
   defaultEnabled: boolean | undefined,
 ): void {
@@ -325,7 +289,7 @@ function restoreDefaultSelection(
 // (e.g. the previously-selected model was dropped from the registry). The host's
 // `setConfig` deep-merge cannot clear a key, so the matching `removeProvider`
 // call handles disk cleanup while this drops the dangling reference in memory.
-function clampDanglingDefault(config: ManagedPythinkerConfigShape): void {
+function clampDanglingDefault(config: PythinkerConfigShape): void {
   if (config.defaultModel !== undefined && readModel(config, config.defaultModel) === undefined) {
     config.defaultModel = undefined;
     config.thinking = undefined;
@@ -333,7 +297,7 @@ function clampDanglingDefault(config: ManagedPythinkerConfigShape): void {
 }
 
 function clearDefaultThinkingWhenDefaultRemoved(
-  config: ManagedPythinkerConfigShape,
+  config: PythinkerConfigShape,
   previousDefaultModel: string | undefined,
 ): void {
   if (previousDefaultModel !== undefined && config.defaultModel === undefined) {
@@ -348,14 +312,14 @@ function clearDefaultThinkingWhenDefaultRemoved(
  * lose to fresh metadata while everything else survives).
  */
 function applyModelsDevAliases(
-  config: ManagedPythinkerConfigShape,
+  config: PythinkerConfigShape,
   providerId: string,
-  aliases: Record<string, ManagedPythinkerModelAlias>,
+  aliases: Record<string, ModelAlias>,
 ): void {
   const models = config.models ?? {};
   const upstreamKeys = new Set(Object.keys(aliases));
   for (const [key, raw] of Object.entries(models)) {
-    if ((raw as ManagedPythinkerModelAlias).provider === providerId && !upstreamKeys.has(key)) {
+    if ((raw as ModelAlias).provider === providerId && !upstreamKeys.has(key)) {
       delete models[key];
     }
   }
@@ -366,7 +330,7 @@ function applyModelsDevAliases(
 }
 
 function pickDefaultModel(
-  config: ManagedPythinkerConfigShape,
+  config: PythinkerConfigShape,
   providerId: string,
   models: Array<{ id: string }>,
 ): string {
@@ -387,23 +351,13 @@ function pickDefaultModel(
 }
 
 /**
- * Refresh remote model metadata for the configured providers and persist any
- * changes through the host. Handles five provider kinds, in order:
- *
- *  1. Managed Pythinker Code (OAuth) — `GET /models` against the runtime endpoint.
- *  2. Open platforms (moonshot-cn, moonshot-ai, …) — platform catalog fetch.
- *  2.5. Managed-endpoint API-key providers — hand-written `type: 'pythinker'`
- *     providers (including a hand-written `managed:pythinker-code` without an oauth
- *     ref) whose baseUrl is exactly the managed Pythinker Code endpoint; refreshed
- *     via `GET /models` with the configured API key as Bearer. Only model
- *     aliases are merged; the provider record is user-owned and never
- *     rewritten.
- *  3. Custom registries (models.dev-style, keyed by `provider.source`).
+ * Refresh remote model metadata for configured API-key platforms, custom
+ * registries, and models.dev providers.
  *
  * Each branch diffs old vs new and only writes when something actually changed
  * (`removeProvider` then `setConfig`). Failures are collected per-provider and
  * never abort the whole refresh. Pass `providerId` to scope the refresh to a
- * single provider; pass `scope: 'oauth'` to refresh only the managed provider.
+ * single provider.
  */
 export async function refreshProviderModels(
   host: RefreshProviderHost,
@@ -412,95 +366,12 @@ export async function refreshProviderModels(
   const changed: ProviderChange[] = [];
   const unchanged: string[] = [];
   const failed: Array<{ provider: string; reason: string }> = [];
-  const scope = options.scope ?? 'all';
   const targetId = options.providerId;
 
   let config = await host.getConfig();
 
   // ---------------------------------------------------------------------------
-  // 1. Managed Pythinker Code (OAuth)
-  // ---------------------------------------------------------------------------
-  const managedProvider = readProvider(config, PYTHINKER_CODE_PROVIDER_NAME);
-  const managedWanted = targetId === undefined || targetId === PYTHINKER_CODE_PROVIDER_NAME;
-  if (
-    managedWanted &&
-    managedProvider !== undefined &&
-    managedProvider.type === 'pythinker' &&
-    managedProvider.oauth !== undefined
-  ) {
-    try {
-      const auth = resolvePythinkerCodeRuntimeAuth({
-        configuredBaseUrl: managedProvider.baseUrl,
-        configuredOAuthRef: managedProvider.oauth,
-      });
-      const accessToken = await host.resolveOAuthToken(PYTHINKER_CODE_PROVIDER_NAME, auth.oauthRef);
-      const models = await fetchManagedPythinkerCodeModels({
-        accessToken,
-        baseUrl: auth.baseUrl,
-      });
-      if (models.length > 0) {
-        const next = structuredClone(config);
-        applyManagedPythinkerCodeConfig(next, {
-          models,
-          baseUrl: auth.baseUrl,
-          oauthKey: auth.oauthRef.key,
-          oauthHost: auth.oauthRef.oauthHost,
-          preserveDefaultModel: true,
-        });
-        const refreshedAliasKeys = providerRefreshAliasKeys(
-          config,
-          next,
-          PYTHINKER_CODE_PROVIDER_NAME,
-          `${PYTHINKER_CODE_PLATFORM_ID}/`,
-        );
-        restoreProviderAliases(
-          next,
-          preserveUserProviderAliases(config, PYTHINKER_CODE_PROVIDER_NAME, refreshedAliasKeys),
-        );
-        restoreDefaultSelection(next, config.defaultModel, config.thinking?.enabled);
-        clampDanglingDefault(next);
-        clearDefaultThinkingWhenDefaultRemoved(next, config.defaultModel);
-
-        if (providerModelsEqual(config, next, PYTHINKER_CODE_PROVIDER_NAME, refreshedAliasKeys)) {
-          unchanged.push(PYTHINKER_CODE_PROVIDER_NAME);
-        } else {
-          const { added, removed } = computeChanges(
-            collectModelIdsForAliases(config, refreshedAliasKeys),
-            collectModelIdsForAliases(next, refreshedAliasKeys),
-          );
-          await host.removeProvider(PYTHINKER_CODE_PROVIDER_NAME);
-          config = await host.setConfig({
-            providers: next.providers,
-            models: next.models,
-            defaultModel: next.defaultModel,
-            thinking: next.thinking,
-          });
-          changed.push({
-            providerId: PYTHINKER_CODE_PROVIDER_NAME,
-            providerName: 'Pythinker Code',
-            added,
-            removed,
-          });
-        }
-      }
-    } catch (error) {
-      failed.push({
-        provider: PYTHINKER_CODE_PROVIDER_NAME,
-        reason: error instanceof Error ? error.message : String(error),
-      });
-    }
-  }
-
-  // The oauth scope stops here, but a targeted refresh of the managed provider
-  // must fall through: branch 2 no-ops on a non-open-platform id, branch 2.5
-  // handles a hand-written `managed:pythinker-code` that carries an API key instead
-  // of an oauth ref, and branch 3 no-ops when no registry group contains it.
-  if (scope === 'oauth') {
-    return { changed, unchanged, failed };
-  }
-
-  // ---------------------------------------------------------------------------
-  // 2. Open Platforms (moonshot-cn, moonshot-ai, …)
+  // 1. Open Platforms (moonshot-cn, moonshot-ai, …)
   // ---------------------------------------------------------------------------
   const openPlatformIds = Object.keys(config.providers).filter((id) => isOpenPlatformId(id));
   for (const providerId of openPlatformIds) {
@@ -570,84 +441,7 @@ export async function refreshProviderModels(
   }
 
   // ---------------------------------------------------------------------------
-  // 2.5. Managed-endpoint API-key providers (hand-configured distributed keys)
-  // ---------------------------------------------------------------------------
-  // A hand-written `type: 'pythinker'` provider whose baseUrl is exactly the managed
-  // Pythinker Code endpoint, carrying an API key (inline or via `env.PYTHINKER_API_KEY`)
-  // instead of an oauth ref, gets its model list refreshed from
-  // `{baseUrl}/models` just like the OAuth branch. Strict baseUrl matching
-  // keeps proxies / gateways with an untrusted `/models` schema out.
-  for (const providerId of Object.keys(config.providers)) {
-    if (isOpenPlatformId(providerId)) continue;
-    if (targetId !== undefined && targetId !== providerId) continue;
-    const provider = readProvider(config, providerId);
-    if (provider === undefined) continue;
-    if (provider.type !== 'pythinker') continue;
-    if (provider.oauth !== undefined) continue;
-    if (readCustomRegistrySource(provider) !== undefined) continue;
-    if (!isManagedPythinkerCodeBaseUrl(provider.baseUrl)) continue;
-    const apiKey = resolveProviderApiKey(provider);
-    if (apiKey === undefined) continue;
-
-    try {
-      const models = await fetchManagedPythinkerCodeModels({
-        accessToken: apiKey,
-        baseUrl: provider.baseUrl,
-        credentialKind: 'apiKey',
-      });
-      if (models.length === 0) continue;
-
-      // A hand-written `managed:pythinker-code` shares the OAuth branch's
-      // `pythinker-code/` alias prefix so the two shapes merge cleanly if the user
-      // later logs in via OAuth; ordinary providers use their own id.
-      const aliasPrefix =
-        providerId === PYTHINKER_CODE_PROVIDER_NAME ? `${PYTHINKER_CODE_PLATFORM_ID}/` : `${providerId}/`;
-      const next = structuredClone(config);
-      applyManagedApiKeyProviderModels(next, providerId, models, aliasPrefix);
-      const refreshedAliasKeys = providerRefreshAliasKeys(config, next, providerId, aliasPrefix);
-      restoreProviderAliases(
-        next,
-        preserveUserProviderAliases(config, providerId, refreshedAliasKeys),
-      );
-      restoreDefaultSelection(next, config.defaultModel, config.thinking?.enabled);
-      clampDanglingDefault(next);
-      clearDefaultThinkingWhenDefaultRemoved(next, config.defaultModel);
-
-      if (providerModelsEqual(config, next, providerId, refreshedAliasKeys)) {
-        unchanged.push(providerId);
-      } else {
-        const { added, removed } = computeChanges(
-          collectModelIdsForAliases(config, refreshedAliasKeys),
-          collectModelIdsForAliases(next, refreshedAliasKeys),
-        );
-        await host.removeProvider(providerId);
-        config = await host.setConfig({
-          providers: next.providers,
-          models: next.models,
-          defaultModel: next.defaultModel,
-          thinking: next.thinking,
-          // The v1 `removeProvider` RPC clears `defaultProvider` when it points
-          // at this provider; the clone still holds the original value, so
-          // write it back — a refresh must not silently drop the fallback.
-          defaultProvider: next['defaultProvider'],
-        });
-        changed.push({
-          providerId,
-          providerName: providerId,
-          added,
-          removed,
-        });
-      }
-    } catch (error) {
-      failed.push({
-        provider: providerId,
-        reason: error instanceof Error ? error.message : String(error),
-      });
-    }
-  }
-
-  // ---------------------------------------------------------------------------
-  // 3. Custom Registry providers (grouped by URL, with API-key candidates).
+  // 2. Custom Registry providers (grouped by URL, with API-key candidates).
   // Private registries only — models.dev directory providers are handled by
   // branch 3.5 below, which never rewrites provider records nor adds siblings.
   // ---------------------------------------------------------------------------
@@ -660,7 +454,6 @@ export async function refreshProviderModels(
     }
   >();
   for (const providerId of Object.keys(config.providers)) {
-    if (providerId === PYTHINKER_CODE_PROVIDER_NAME) continue;
     if (isOpenPlatformId(providerId)) continue;
     const provider = readProvider(config, providerId);
     if (provider === undefined) continue;
@@ -736,7 +529,6 @@ export async function refreshProviderModels(
         if (existed) {
           restoreProviderAliases(next, preserveUserProviderAliases(config, providerId, refreshedAliasKeys));
         }
-
         if (
           existed &&
           providerModelsEqual(config, next, providerId, refreshedAliasKeys) &&

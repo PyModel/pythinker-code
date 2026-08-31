@@ -191,7 +191,6 @@ describeLive('refresh-replay (live server required)', () => {
       ready: boolean;
       providers_count: number;
       default_model: string | null;
-      managed_provider: { name: string; status: string } | null;
     }>('/auth', log);
     log('data', auth);
     expect(typeof auth.ready).toBe('boolean');

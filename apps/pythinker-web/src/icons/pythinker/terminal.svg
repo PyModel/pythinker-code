@@ -24,35 +24,27 @@
       opacity: .78;
       transform-box: fill-box;
       transform-origin: center;
-      animation: ptx-term-dot-pulse 2.8s ease-in-out infinite;
     }
-
-    .ptx-terminal .dot-2 { animation-delay: .12s; }
-    .ptx-terminal .dot-3 { animation-delay: .24s; }
 
     .ptx-terminal .prompt {
       stroke-width: 1.55;
       path-length: 1;
       stroke-dasharray: 1;
-      stroke-dashoffset: 1;
-      animation: ptx-term-draw-prompt 2.8s ease-in-out infinite;
+      stroke-dashoffset: 0;
+      opacity: .82;
     }
 
     .ptx-terminal .typed-line {
       stroke-width: 1.3;
       path-length: 1;
       stroke-dasharray: 1;
-      stroke-dashoffset: 1;
-      opacity: 0;
-      animation: ptx-term-type-line 2.8s ease-in-out infinite;
+      stroke-dashoffset: 0;
+      opacity: .82;
     }
-
-    .ptx-terminal .line-1 { animation-delay: .24s; }
-    .ptx-terminal .line-2 { animation-delay: .46s; }
 
     .ptx-terminal .cursor {
       stroke-width: 1.45;
-      animation: ptx-term-blink-cursor .92s steps(1, end) infinite;
+      opacity: .78;
     }
 
     @keyframes ptx-term-draw-prompt {
@@ -94,6 +86,16 @@
       0%, 100% { opacity: .66; transform: scale(.94); }
       42%, 58% { opacity: .92; transform: scale(1); }
     }
+
+    /* motion runs only while the host is working (.ptx-live) or hovered */
+    :is(.ptx-live .ptx-terminal, .ptx-terminal:hover, :is(button, a, [role="button"], .ptx-hover):hover .ptx-terminal) .traffic-dot { animation: ptx-term-dot-pulse 2.8s ease-in-out infinite; }
+    :is(.ptx-live .ptx-terminal, .ptx-terminal:hover, :is(button, a, [role="button"], .ptx-hover):hover .ptx-terminal) .dot-2 { animation-delay: .12s; }
+    :is(.ptx-live .ptx-terminal, .ptx-terminal:hover, :is(button, a, [role="button"], .ptx-hover):hover .ptx-terminal) .dot-3 { animation-delay: .24s; }
+    :is(.ptx-live .ptx-terminal, .ptx-terminal:hover, :is(button, a, [role="button"], .ptx-hover):hover .ptx-terminal) .prompt { animation: ptx-term-draw-prompt 2.8s ease-in-out infinite; }
+    :is(.ptx-live .ptx-terminal, .ptx-terminal:hover, :is(button, a, [role="button"], .ptx-hover):hover .ptx-terminal) .typed-line { animation: ptx-term-type-line 2.8s ease-in-out infinite; }
+    :is(.ptx-live .ptx-terminal, .ptx-terminal:hover, :is(button, a, [role="button"], .ptx-hover):hover .ptx-terminal) .line-1 { animation-delay: .24s; }
+    :is(.ptx-live .ptx-terminal, .ptx-terminal:hover, :is(button, a, [role="button"], .ptx-hover):hover .ptx-terminal) .line-2 { animation-delay: .46s; }
+    :is(.ptx-live .ptx-terminal, .ptx-terminal:hover, :is(button, a, [role="button"], .ptx-hover):hover .ptx-terminal) .cursor { animation: ptx-term-blink-cursor .92s steps(1, end) infinite; }
 
     @media (prefers-reduced-motion: reduce) {
       .ptx-terminal .traffic-dot,

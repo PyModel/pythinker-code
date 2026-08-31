@@ -415,13 +415,13 @@ describe('EditorKeyboardController Shift-Tab effort cycle', () => {
         'kimi-k2':
           options.supportEfforts === undefined
             ? {
-                provider: 'managed:pythinker-code',
+                provider: 'oauth-example',
                 model: 'kimi-k2',
                 maxContextSize: 262144,
                 capabilities: options.capabilities ?? ['thinking'],
               }
             : {
-                provider: 'managed:pythinker-code',
+                provider: 'oauth-example',
                 model: 'kimi-k2',
                 maxContextSize: 262144,
                 supportEfforts: options.supportEfforts,

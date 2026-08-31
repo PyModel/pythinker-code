@@ -41,7 +41,7 @@ const MODELS: OpenAICodexModelInfo[] = [
 
 function callback(
   loopback = false,
-  waitForCode: () => Promise<{ code: string } | null> = async () => null,
+  waitForCode: OpenAICodexCallbackServer['waitForCode'] = async () => null,
 ): OpenAICodexCallbackServer {
   return {
     loopback,
@@ -187,6 +187,19 @@ describe('CodexLoginFlow', () => {
     await new Promise<void>((resolve) => queueMicrotask(resolve));
 
     expect(flow.status(start.login_id).state).toBe('pending');
+    flow.dispose();
+  });
+
+  it('reports a cancelled state when the consent page denies authorization', async () => {
+    const flow = new CodexLoginFlow(
+      configStub().service,
+      deps({ startCallbackServer: async () => callback(true, async () => ({ denied: true })) }),
+    );
+
+    const start = await flow.start();
+    await vi.waitFor(() => expect(flow.status(start.login_id).state).toBe('cancelled'));
+
+    expect(flow.status(start.login_id).message).toBe('OpenAI Codex authorization was denied.');
     flow.dispose();
   });
 

@@ -47,12 +47,6 @@ function makeHarness() {
     close: vi.fn(async () => {}),
     track: vi.fn(),
     setTelemetryContext: vi.fn(),
-    auth: {
-      status: vi.fn(async () => ({ providers: [] })),
-      login: vi.fn(),
-      logout: vi.fn(),
-      getManagedUsage: vi.fn(),
-    },
   };
 }
 

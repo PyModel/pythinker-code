@@ -1,6 +1,6 @@
 # Server API
 
-The local server started by `pythinker web` exposes two programmatic surfaces: a REST API (`/api/v1`, plus `/api/v2/sessions`) and a WebSocket event stream (`/api/v1/ws`). This page is the protocol reference for both. For how to start the server and its command-line options, see the [pythinker command](./pythinker-command.md#pythinker-web) reference; for an end-to-end walkthrough, see [Local server and API](../guides/server.md).
+The local server started by `pythinker web` exposes two programmatic surfaces: a REST API (`/api/v1`, plus `/api/v2/sessions` and the experimental `/api/v2/mcp`) and a WebSocket event stream (`/api/v1/ws`). This page is the protocol reference for both. For how to start the server and use the browser UI, see [Use Pythinker Code in a browser](../guides/web.md).
 
 The complete request/response schema of every endpoint is owned by the server's live specification documents: `GET /openapi.json` (OpenAPI) and `GET /asyncapi.json` (AsyncAPI). Both require authentication.
 
@@ -22,7 +22,7 @@ All `/api/*` paths (including `/openapi.json` and `/asyncapi.json`) require the 
 - `GET /api/v1/healthz` (liveness probe)
 - Static web assets (non-`/api/` paths)
 
-How to carry it: REST uses the `Authorization: Bearer <token>` header; the WebSocket upgrade accepts the same header or the subprotocol `pythinker-code.bearer.<token>`. Token generation and rotation are covered in [Local server and API: Authentication](../guides/server.md#authentication).
+How to carry it: REST uses the `Authorization: Bearer <token>` header; the WebSocket upgrade accepts the same header or the subprotocol `pythinker-code.bearer.<token>`. The browser URL includes the local token; keep it private. See [Use Pythinker Code in a browser](../guides/web.md).
 
 Failed authentication returns HTTP 401 with envelope code `40101`. On non-loopback binds, a source that fails authentication 10 times within 60 seconds is banned for 60 seconds, during which every request gets HTTP 429 (code `42901`).
 
@@ -62,7 +62,7 @@ Error codes are grouped by band:
 | Band | Meaning | Examples |
 | --- | --- | --- |
 | `0` | Success | |
-| `400xx` | Bad request | `40001` validation failed (`details` lists each field), `40003` provider is OAuth-managed |
+| `400xx` | Bad request | `40001` validation failed (`details` lists each field) |
 | `401xx` | Auth and readiness | `40101` unauthorized, `40110` no provider configured, `40113` model not resolved |
 | `404xx` | Not found | `40401` session, `40408` MCP server, `40409` file path |
 | `409xx` | State conflict | `40901` session busy, `40902` approval already resolved, `40922` page conditions mismatch `page_token`, `40928` `fs:write` `base_etag` is stale |
@@ -91,17 +91,11 @@ Endpoints are grouped by resource below. A `:{action}` suffix in a path is the a
 | `GET /api/v1/meta` | Server version, capability map, `server_id`, experimental flags |
 | `POST /api/v1/shutdown` | Graceful shutdown (replies 200 first); mounted only on loopback binds |
 
-### Login and usage
+### Authentication
 
 | Method and path | Description |
 | --- | --- |
 | `GET /api/v1/auth` | Auth readiness snapshot |
-| `POST /api/v1/oauth/login` | Start the OAuth device-code login flow |
-| `GET /api/v1/oauth/login` | Poll the login flow state |
-| `DELETE /api/v1/oauth/login` | Cancel a pending login flow |
-| `POST /api/v1/oauth/logout` | Log out the managed provider |
-| `GET /api/v1/oauth/usage` | Plan usage and limits |
-| `GET /api/v1/oauth/userinfo` | Account profile |
 
 ### Config
 
@@ -122,7 +116,7 @@ Endpoints are grouped by resource below. A `:{action}` suffix in a path is the a
 | `PUT /api/v1/providers/{provider_id}` | Replace a provider |
 | `DELETE /api/v1/providers/{provider_id}` | Delete a provider (204) |
 | `POST /api/v1/providers/{provider_id}:refresh` | Refresh one provider's model metadata |
-| `POST /api/v1/providers:{action}` | Collection actions: `refresh` / `refresh_oauth` / `import_catalog` / `import_registry` |
+| `POST /api/v1/providers:{action}` | Collection actions: `refresh` / `import_catalog` / `import_registry` |
 | `GET /api/v1/catalog/providers` | Browse the models.dev directory (server-proxied) |
 | `GET /api/v1/catalog/providers/{catalog_id}` | Read one directory entry |
 
@@ -154,6 +148,7 @@ Endpoints are grouped by resource below. A `:{action}` suffix in a path is the a
 | `GET /api/v1/sessions/{session_id}/transcript/ops` | Op-batch catch-up (`since_seq`); `complete: false` means a full refresh is needed |
 | `GET /api/v1/sessions/{session_id}/transcript/user-messages` | Turn-opening user inputs, unpaginated |
 | `GET /api/v1/sessions/{session_id}/transcript/plan` | ExitPlanMode plan content, path, and review outcome |
+| `POST /api/v1/sessions/{session_id}/transcript/plan:reveal` | Reveal the saved plan identified by `agent_id` and `tool_call_id` in the gateway host file manager |
 
 ### Prompts
 
@@ -182,6 +177,7 @@ Endpoints are grouped by resource below. A `:{action}` suffix in a path is the a
 | `GET /api/v1/sessions/{session_id}/tasks` | List background tasks |
 | `GET /api/v1/sessions/{session_id}/tasks/{task_id}` | Read a task (optional output preview) |
 | `POST /api/v1/sessions/{session_id}/tasks/{task_id}:cancel` | Cancel a task |
+| `POST /api/v1/sessions/{session_id}/tasks/{task_id}:detach` | Move a foreground task to the background |
 
 ### Skills, tools, and MCP
 
@@ -224,6 +220,8 @@ In-session file operations go through `POST /api/v1/sessions/{session_id}/fs:{ac
 | Method and path | Description |
 | --- | --- |
 | `POST /api/v1/workspace/fs:search` | Session-less workspace search (the body carries the workspace reference) |
+| `POST /api/v1/workspace/fs:suggest` | Session-less file and directory suggestions for one workspace reference |
+| `POST /api/v1/fs:suggest` | Session-less suggestions across absolute roots; paths under the first root are relative, and paths under additional roots are absolute |
 | `GET /api/v1/sessions/{session_id}/fs/{path}:download` | Download a session file (binary, see below) |
 | `GET /api/v1/fs:browse` | List host directories (folder picker) |
 | `GET /api/v1/fs:home` | The user's home directory and recent workspaces |
@@ -268,6 +266,7 @@ overwriting the other change. Re-read the file, rebase the edit, and retry.
 | `GET /api/v2/sessions` | Next-generation session list, see below |
 | `POST /api/v2/sessions:archive` | Batch-archive sessions, see below |
 | `POST /api/v2/sessions:restore` | Batch-restore archived sessions, see below |
+| `/api/v2/mcp/*` | Experimental unified MCP management plane, see below |
 | `/api/v1/debug/*` | Reflection debug RPC; mounted only with `--debug-endpoints` on loopback, not a stable protocol |
 
 ### `GET /api/v2/sessions`
@@ -338,6 +337,114 @@ Only a body validation failure fails the whole request (`40001`). Otherwise the 
   "request_id": "req_..."
 }
 ```
+
+### MCP management (`/api/v2/mcp`)
+
+The `/api/v2/mcp/*` routes manage the MCP server registry independently of any session: global user-level CRUD with per-entry validation, connection tests, a locator-addressed inspection catalog, per-server auth status, and the full OAuth flow lifecycle.
+
+::: info Experimental feature
+This surface is disabled by default. Set `PYTHINKER_CODE_EXPERIMENTAL_MCP_MANAGEMENT=1` before starting the server to register these routes and include them in `/openapi.json`. When the flag is off, `/api/v2/mcp/*` is absent.
+:::
+
+| Method and path | Description |
+| --- | --- |
+| `GET /api/v2/mcp/servers` | List every known MCP server |
+| `GET /api/v2/mcp/servers/{name}` | Get one server by runtime name |
+| `POST /api/v2/mcp/servers` | Add a server to the user-level `mcp.json` |
+| `PUT /api/v2/mcp/servers/{name}` | Replace a user-level entry |
+| `DELETE /api/v2/mcp/servers/{name}` | Remove a user-level entry |
+| `POST /api/v2/mcp/servers:test` | Probe a real connection to one server |
+| `POST /api/v2/mcp/servers:inspect` | Return a locator-addressed catalog with a batched connection probe |
+| `GET /api/v2/mcp/auth-statuses` | List per-server OAuth state |
+| `POST /api/v2/mcp/auth:begin` | Begin an interactive OAuth flow |
+| `POST /api/v2/mcp/auth:complete` | Await the browser callback and finish the code exchange |
+| `POST /api/v2/mcp/auth:cancel` | Tear down a begun OAuth flow |
+| `POST /api/v2/mcp/auth:reset` | Clear a server's stored credentials |
+
+The CRUD routes and `servers:test` take a plain runtime `name`. Inspection and OAuth routes take a **locator**: `{ "source": "global", "name" }` for a file-layer entry or `{ "source": "plugin", "pluginId", "serverName" }` for a plugin-manifest entry. This removes ambiguity when a plugin entry and a file entry share a runtime name. Inspection items also carry a stable `serverId`: `global:<name>` or `plugin:<pluginId>:<serverName>` (URL-encoded).
+
+Most routes accept an optional `cwd`, either as a query parameter or a body field on `:` action routes. Without it, the catalog covers user-level files and plugin manifests. With it, trusted project-root and project-local layers join the catalog; untrusted project layers are skipped. For a stdio `servers:test`, `cwd` is also the child process working directory. Connection probes and OAuth calls wait for configuration loading to finish.
+
+#### `GET /api/v2/mcp/servers` and `GET /api/v2/mcp/servers/{name}`
+
+The first route lists all known MCP servers. The second returns the server with the given runtime name.
+
+| Parameter | In | Type | Description |
+| --- | --- | --- | --- |
+| `name` | path | string | **Required for get.** Runtime name of the server |
+| `cwd` | query | string | Include the trusted project layers of this directory |
+
+On success, `data` is an array of managed servers, or one object for the get route. Each entry is `{ name, config, source, origin, mutable, plugin? }`:
+
+- `source`: `global` for a config-file layer, or `plugin` for a plugin manifest
+- `origin`: the defining file path or plugin id
+- `mutable`: only user-level entries are mutable; plugin and project entries are read-only
+- `config`: mutable entries carry the full config; read-only entries expose only sorted `envKeys` and `headerKeys`, never secret values
+- `plugin`: `{ id, name }`, present on plugin entries
+
+- `40001`: validation failure
+- `40408`: no server with that name
+
+#### `POST` / `PUT` / `DELETE /api/v2/mcp/servers`
+
+These routes change the user-level `mcp.json`. The add body is a complete server config including `name`; `transport` (`stdio`, `http`, or `sse`) selects the config shape. The update body has the same shape without `name`, because the path names the entry. Delete has no body. All three return the refreshed server list in `data`.
+
+A write whose name collides with a project-layer entry is rejected as read-only. A same-named plugin entry does not block the write; the new file entry shadows it.
+
+- `40001`: validation failure, or the target entry is read-only
+- `40408`: update or delete target not found
+
+#### `POST /api/v2/mcp/servers:test`
+
+This route probes a real connection without persisting changes. Pass `name` for a registry entry or `server` for a complete inline config. If both are present, `name` must match `server.name`; passing neither returns `40001`.
+
+| Parameter | In | Type | Description |
+| --- | --- | --- | --- |
+| `name` | body | string | Runtime name of a registry entry |
+| `server` | body | object | Inline server config to probe |
+| `cwd` | body | string | Add trusted project layers and set the stdio working directory |
+
+On success, `data` is `{ success, output }`. A successful connection lists the server tools in `output`; a failed connection returns failure text there.
+
+- `40001`: invalid target form, mismatched names, invalid inline config, or an ambiguous runtime name
+- `40408`: no server with that name
+
+#### `POST /api/v2/mcp/servers:inspect`
+
+This route returns the redacted locator-addressed catalog and probes every OAuth candidate.
+
+| Parameter | In | Type | Description |
+| --- | --- | --- | --- |
+| `targets` | body | array | Locators that narrow the catalog; omit to inspect all servers |
+| `cwd` | body | string | Include the trusted project layers of this directory |
+
+On success, `data` is an array of `{ serverId, locator, runtimeName, canonicalUrl?, origin, config, enabled, editable, authStatus, checkedAt?, error? }`. `authStatus` is `not-applicable`, `bearer-token`, `oauth-required`, `oauth-authorized`, `oauth-expired`, or `unavailable`. An ambiguous runtime name reports `unavailable` with an `error`. A probe can refresh or invalidate an expired grant.
+
+- `40001`: validation failure
+- `40408`: a target locator matches nothing
+
+#### `GET /api/v2/mcp/auth-statuses`
+
+This is the lightweight auth-only alternative to `servers:inspect`.
+
+| Parameter | In | Type | Description |
+| --- | --- | --- | --- |
+| `cwd` | query | string | Include the trusted project layers of this directory |
+| `verify` | query | string | `true` probes every OAuth candidate; `false` is fully offline; omit for implicit OAuth detection |
+
+On success, `data` is an array of `{ name, authStatus }` using the same status values as `servers:inspect`. Verification probes can refresh or invalidate stored credentials.
+
+#### `POST /api/v2/mcp/auth:begin` / `:complete` / `:cancel` / `:reset`
+
+`auth:begin` takes a locator body and optional `cwd` query. It returns `{ status: "authorization-required", flowId, authorizationUrl }`, or `{ status: "already-authorized" }`. The target must use `http` or `sse` and must not use a static bearer token. Static headers require `auth: "oauth"`.
+
+`auth:complete` takes `{ flowId, timeoutMs? }`, waits for the browser callback, and returns `null` on success. The wait defaults to 15 minutes; idle flows expire after 15 minutes, and closing the HTTP connection aborts the wait.
+
+`auth:cancel` takes `{ flowId }`; unknown flows are ignored. `auth:reset` takes a locator and clears stored credentials, notifying live sessions.
+
+- `40001`: validation failure, unknown completion flow, or a server that cannot use OAuth
+- `40408`: begin or reset target not found
+- `40929`: OAuth flow failure
 
 ## WebSocket protocol
 

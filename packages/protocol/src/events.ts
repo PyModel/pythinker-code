@@ -388,6 +388,33 @@ export interface ProcessTaskInfo extends TaskInfoBase {
   readonly exitCode: number | null;
 }
 
+export type SubagentRoutingOperation = 'spawn' | 'fork' | 'resume';
+export type SubagentProfileSource = 'requested' | 'default' | 'fork-inherit' | 'resume-existing';
+export type SubagentModelSource =
+  | 'caller'
+  | 'policy-default'
+  | 'policy-pool'
+  | 'policy-force'
+  | 'fork-inherit'
+  | 'resume-existing';
+export type SubagentPolicyMode = 'inherit' | 'default' | 'pool' | 'force';
+export type SubagentPolicySource = 'config' | 'default';
+export type SubagentFeatureSource = 'master-env' | 'env' | 'config' | 'default';
+
+/** Why a subagent is bound the way it is. Recorded once when the child is
+ *  created; a resumed child keeps its original provenance. Stable enum ids
+ *  only — display labels belong to the presentation layer. */
+export interface SubagentRoutingProvenance {
+  readonly operation: SubagentRoutingOperation;
+  readonly profileSource: SubagentProfileSource;
+  readonly modelSource: SubagentModelSource;
+  readonly policyMode: SubagentPolicyMode;
+  readonly policySource: SubagentPolicySource;
+  readonly featureSource: SubagentFeatureSource;
+  readonly resolvedFromRoutingEnvironmentRevision: string;
+  readonly routeDecisionFingerprint: string;
+}
+
 export interface AgentTaskInfo extends TaskInfoBase {
   readonly kind: 'agent';
   readonly agentId?: string;
@@ -396,6 +423,10 @@ export interface AgentTaskInfo extends TaskInfoBase {
   readonly model?: string;
   /** The subagent's effective thinking effort at spawn (v2 engine). */
   readonly thinkingEffort?: string;
+  /** Routing provenance copied from the child's binding (v2 engine). */
+  readonly routing?: SubagentRoutingProvenance;
+  /** The caller's routing environment revision when this task was observed. */
+  readonly currentRoutingEnvironmentRevision?: string;
 }
 
 export interface QuestionTaskInfo extends TaskInfoBase {
@@ -612,6 +643,16 @@ export interface ConfigChangedEvent {
   readonly config: ConfigResponse;
 }
 
+export interface ConfigWarningItem {
+  readonly domain?: string;
+  readonly message: string;
+}
+
+export interface ConfigWarningEvent {
+  readonly type: 'event.config.warning';
+  readonly warnings: readonly ConfigWarningItem[];
+}
+
 /**
  * Pushed when the daemon refreshes provider model metadata (manual or
  * scheduled) and the effective catalog changed. Carries the per-provider
@@ -684,6 +725,16 @@ export interface WarningEvent {
   readonly code?: string;
 }
 
+export type TurnPromptAttachment =
+  | { readonly kind: 'image' | 'video' | 'audio'; readonly fileId: string }
+  | {
+      readonly kind: 'file';
+      readonly name: string;
+      readonly mediaType: string;
+      readonly size: number;
+      readonly path: string;
+    };
+
 export interface TurnStartedEvent {
   readonly type: 'turn.started';
   readonly turnId: number;
@@ -692,7 +743,7 @@ export interface TurnStartedEvent {
   /** The prompt record id when the turn was opened by a prompt submission. */
   readonly promptId?: string;
   /** Session-media references carried by the prompt (transcript attachments). */
-  readonly promptAttachments?: readonly { kind: 'image' | 'video' | 'audio'; fileId: string }[];
+  readonly promptAttachments?: readonly TurnPromptAttachment[];
 }
 
 export interface TurnEndedEvent {
@@ -869,6 +920,10 @@ export interface SubagentSpawnedEvent {
   /** The child's effective thinking effort at spawn (same vocabulary as
    *  `agent.status.updated`). Optional for cross-version tolerance. */
   readonly thinkingEffort?: string;
+  /** Routing provenance copied from the child's binding (v2 engine). */
+  readonly routing?: SubagentRoutingProvenance;
+  /** The caller's routing environment revision at spawn/resume time. */
+  readonly currentRoutingEnvironmentRevision?: string;
   /** Background-task id the run registered under in the caller's task store.
    *  Emitted after task registration, so cancel/status actions can bind to
    *  the task store without waiting for `task.started`. Optional for
@@ -1016,6 +1071,7 @@ export type AgentEvent =
   | SessionWorkChangedEvent
   | SessionStatusChangedEvent
   | ConfigChangedEvent
+  | ConfigWarningEvent
   | ModelCatalogChangedEvent
   | PluginChangedEvent
   | CapabilityChangedEvent
@@ -1426,12 +1482,32 @@ export const processTaskInfoSchema = taskInfoBaseSchema.extend({
   exitCode: z.number().nullable(),
 }) satisfies z.ZodType<ProcessTaskInfo>;
 
+export const subagentRoutingProvenanceSchema = z.object({
+  operation: z.enum(['spawn', 'fork', 'resume']),
+  profileSource: z.enum(['requested', 'default', 'fork-inherit', 'resume-existing']),
+  modelSource: z.enum([
+    'caller',
+    'policy-default',
+    'policy-pool',
+    'policy-force',
+    'fork-inherit',
+    'resume-existing',
+  ]),
+  policyMode: z.enum(['inherit', 'default', 'pool', 'force']),
+  policySource: z.enum(['config', 'default']),
+  featureSource: z.enum(['master-env', 'env', 'config', 'default']),
+  resolvedFromRoutingEnvironmentRevision: z.string(),
+  routeDecisionFingerprint: z.string(),
+}) satisfies z.ZodType<SubagentRoutingProvenance>;
+
 export const agentTaskInfoSchema = taskInfoBaseSchema.extend({
   kind: z.literal('agent'),
   agentId: z.string().optional(),
   subagentType: z.string().optional(),
   model: z.string().optional(),
   thinkingEffort: z.string().optional(),
+  routing: subagentRoutingProvenanceSchema.optional(),
+  currentRoutingEnvironmentRevision: z.string().optional(),
 }) satisfies z.ZodType<AgentTaskInfo>;
 
 export const questionTaskInfoSchema = taskInfoBaseSchema.extend({
@@ -1599,9 +1675,19 @@ export const sessionStatusChangedEventSchema = z.object({
 
 export const configChangedEventSchema = z.object({
   type: z.literal('event.config.changed'),
-  changedFields: z.array(z.string()),
+  changedFields: z.array(z.string().min(1)),
   config: configResponseSchema,
 }) satisfies z.ZodType<ConfigChangedEvent>;
+
+export const configWarningEventSchema = z.object({
+  type: z.literal('event.config.warning'),
+  warnings: z.array(
+    z.object({
+      domain: z.string().optional(),
+      message: z.string(),
+    }),
+  ),
+}) satisfies z.ZodType<ConfigWarningEvent>;
 
 export const modelCatalogChangedEventSchema = z.object({
   type: z.literal('event.model_catalog.changed'),
@@ -1668,7 +1754,18 @@ export const turnStartedEventSchema = z.object({
   prompt: z.string().optional(),
   promptId: z.string().optional(),
   promptAttachments: z
-    .array(z.object({ kind: z.enum(['image', 'video', 'audio']), fileId: z.string() }))
+    .array(
+      z.union([
+        z.object({ kind: z.enum(['image', 'video', 'audio']), fileId: z.string() }),
+        z.object({
+          kind: z.literal('file'),
+          name: z.string(),
+          mediaType: z.string(),
+          size: z.number(),
+          path: z.string(),
+        }),
+      ]),
+    )
     .optional(),
 }) satisfies z.ZodType<TurnStartedEvent>;
 
@@ -1816,6 +1913,8 @@ export const subagentSpawnedEventSchema = z.object({
   runInBackground: z.boolean(),
   model: z.string().optional(),
   thinkingEffort: z.string().optional(),
+  routing: subagentRoutingProvenanceSchema.optional(),
+  currentRoutingEnvironmentRevision: z.string().optional(),
   taskId: z.string().optional(),
 }) satisfies z.ZodType<SubagentSpawnedEvent>;
 
@@ -1956,6 +2055,8 @@ export const agentEventSchema = z.discriminatedUnion('type', [
   workspaceDeletedEventSchema,
   sessionWorkChangedEventSchema,
   sessionStatusChangedEventSchema,
+  configChangedEventSchema,
+  configWarningEventSchema,
   modelCatalogChangedEventSchema,
   pluginChangedEventSchema,
   capabilityChangedEventSchema,

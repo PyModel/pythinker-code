@@ -19,7 +19,6 @@ const mocks = vi.hoisted(() => ({
       fileError: undefined,
     }),
   ),
-  getCachedAccessToken: vi.fn(async () => 'tok'),
 }));
 
 vi.mock('@pymodel/pythinker-telemetry', () => ({
@@ -36,7 +35,6 @@ vi.mock('@pymodel/pythinker-code-oauth', async (importOriginal) => {
   return {
     ...actual,
     createPythinkerDeviceId: mocks.createPythinkerDeviceId,
-    PYTHINKER_CODE_PROVIDER_NAME: 'managed:pythinker-code',
   };
 });
 
@@ -47,9 +45,6 @@ vi.mock('@pymodel/pythinker-code-sdk', async (importOriginal) => {
     resolvePythinkerHome: mocks.resolvePythinkerHome,
     resolveConfigPath: mocks.resolveConfigPath,
     loadRuntimeConfigSafe: mocks.loadRuntimeConfigSafe,
-    PythinkerAuthFacade: vi.fn(function () {
-      return { getCachedAccessToken: mocks.getCachedAccessToken };
-    }),
   };
 });
 

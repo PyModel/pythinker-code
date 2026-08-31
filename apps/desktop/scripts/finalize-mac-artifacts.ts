@@ -10,7 +10,8 @@ import {
   unlinkSync,
   writeFileSync,
 } from 'node:fs'
-import { basename, join } from 'node:path'
+import { basename, join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { resolveNotarizationCredentials } from './release-preflight'
 
 export interface CommandResult {
@@ -190,4 +191,16 @@ export function finalizeMacArtifacts(options: FinalizeMacArtifactsOptions): void
   }
 
   writeFileSync(metadataPath, metadata)
+}
+
+const invokedPath = process.argv[1]
+if (invokedPath !== undefined && resolve(invokedPath) === fileURLToPath(import.meta.url)) {
+  const distDir = process.argv[2]
+  try {
+    if (distDir === undefined) throw new Error('Usage: finalize-mac-artifacts.ts <dist-directory>')
+    finalizeMacArtifacts({ distDir: resolve(distDir), env: process.env })
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error))
+    process.exitCode = 1
+  }
 }

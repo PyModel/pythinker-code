@@ -1,13 +1,20 @@
-import { PYTHINKER_CODE_PROVIDER_NAME } from '@pymodel/pythinker-code-oauth';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { createScopedTestHost } from '#/_base/di/test';
 import { isError2 } from '#/_base/errors/errors';
 import { ILogService, type LogPayload } from '#/_base/log/log';
-import { IOAuthService } from '#/app/auth/auth';
 import { IAgentIdentity } from '#/app/agentIdentity/agentIdentity';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
+import {
+  LegacySecondaryModelConfigSchema,
+  normalizeLegacySecondaryModel,
+  toPersistedSecondaryModel,
+} from '#/session/subagent/policy';
+import {
+  ISubagentModelPolicyService,
+  type PreparedSubagentPolicyMutation,
+} from '#/session/subagent/subagentModelPolicy';
 import { ConfigRegistry } from '#/app/config/configService';
 import { IEventService } from '#/app/event/event';
 import { IProviderDiscoveryService } from '#/app/kosongConfig/discovery';
@@ -29,7 +36,7 @@ import '#/kosong/provider/providerService';
 import '#/kosong/provider/providers/pythinker/pythinker.contrib';
 import '#/kosong/provider/providers/standard.contrib';
 
-import { StubConfigService, stubOAuthService, stubTokenProvider } from '../../kosong/stubs';
+import { StubConfigService } from '../../kosong/stubs';
 import { stubBootstrap } from '../bootstrap/stubs';
 import { stubAgentIdentity } from '../agentIdentity/stubs';
 
@@ -62,9 +69,31 @@ function stubLogService(): ILogService {
   } satisfies ILogService;
 }
 
+function stubSubagentModelPolicy(): ISubagentModelPolicyService {
+  const prepare = (input: unknown): PreparedSubagentPolicyMutation => {
+    const policy = normalizeLegacySecondaryModel(
+      input === null || input === undefined ? undefined : LegacySecondaryModelConfigSchema.parse(input),
+    );
+    return { policy, section: toPersistedSecondaryModel(policy) };
+  };
+  return {
+    _serviceBrand: undefined,
+    get: () => ({ policy: { mode: 'inherit' }, resourceVersion: 'stub' }),
+    getEffective: () => ({
+      configuredPolicy: { mode: 'inherit' },
+      effectivePolicy: { mode: 'inherit' },
+      policySource: 'default',
+      feature: { enabled: false, source: 'default' },
+    }),
+    set: () => Promise.reject(new Error('not stubbed')),
+    clear: () => Promise.reject(new Error('not stubbed')),
+    prepareLegacyMutation: prepare,
+    resolveRevision: () => 'stub',
+  };
+}
+
 async function createHost(
   sections: Record<string, unknown> = {},
-  oauth: IOAuthService = stubOAuthService(),
 ): Promise<{
   host: ReturnType<typeof createScopedTestHost>;
   config: StubConfigService;
@@ -77,8 +106,8 @@ async function createHost(
   const events = stubEvents();
   const host = createScopedTestHost([
     [IConfigService, config],
-    [IOAuthService, oauth],
     [IEventService, events],
+    [ISubagentModelPolicyService, stubSubagentModelPolicy()],
     [ILogService, stubLogService()],
     [
       IBootstrapService,
@@ -139,7 +168,7 @@ describe('refreshProviderModels modelSource short-circuit', () => {
   it('returns an empty result when nothing is refreshable', async () => {
     const { host, discovery, events } = await createHost(staticSections);
     try {
-      const result = await discovery.refreshProviderModels({ scope: 'all' });
+      const result = await discovery.refreshProviderModels();
       expect(result).toEqual({ changed: [], unchanged: [], failed: [] });
       expect(events.published).toEqual([]);
     } finally {
@@ -179,7 +208,7 @@ describe('refreshProviderModels modelSource short-circuit', () => {
       thinking: { enabled: true },
     });
     try {
-      const result = await discovery.refreshProviderModels({ scope: 'all' });
+      const result = await discovery.refreshProviderModels();
       expect(result.changed).toEqual([
         { provider_id: 'acme', provider_name: 'Acme', added: 1, removed: 0 },
       ]);
@@ -216,19 +245,19 @@ describe('refreshProviderModels modelSource short-circuit', () => {
 
 describe('refreshProviderModels write behavior', () => {
   it('serializes concurrent runs so they never overlap', async () => {
-    const { host, discovery } = await createHost(
-      {
-        providers: {
-          [PYTHINKER_CODE_PROVIDER_NAME]: {
-            type: 'pythinker',
-            baseUrl: 'https://api.example.test/v1',
-            oauth: { storage: 'file', key: 'oauth/pythinker-code' },
+    const { host, discovery } = await createHost({
+      providers: {
+        acme: {
+          type: 'openai',
+          source: {
+            kind: 'apiJson',
+            url: 'https://registry.example.test/api.json',
+            apiKey: 'registry-key',
           },
         },
-        models: {},
       },
-      stubOAuthService(stubTokenProvider(['access-token'])),
-    );
+      models: {},
+    });
     try {
       let inFlight = 0;
       let maxInFlight = 0;
@@ -237,25 +266,24 @@ describe('refreshProviderModels write behavior', () => {
         maxInFlight = Math.max(maxInFlight, inFlight);
         await new Promise((resolve) => setTimeout(resolve, 20));
         inFlight--;
-        return {
-          ok: true,
-          json: async () => ({
-            data: [
-              {
-                id: 'kimi-k2',
-                context_length: 131072,
-                supports_reasoning: true,
-                display_name: 'Kimi K2',
-              },
-            ],
+        return new Response(
+          JSON.stringify({
+            acme: {
+              id: 'acme',
+              name: 'Acme',
+              api: 'https://acme.example.test/v1',
+              type: 'openai',
+              models: { m1: { id: 'm1', name: 'M1' } },
+            },
           }),
-        };
+          { headers: { 'Content-Type': 'application/json' } },
+        );
       });
       vi.stubGlobal('fetch', fetchMock);
 
       await Promise.all([
-        discovery.refreshProviderModels({ scope: 'all' }),
-        discovery.refreshProviderModels({ scope: 'all' }),
+        discovery.refreshProviderModels(),
+        discovery.refreshProviderModels(),
       ]);
 
       expect(maxInFlight).toBe(1);
@@ -298,7 +326,7 @@ describe('refreshProviderModels write behavior', () => {
       models: {},
     });
     try {
-      await discovery.refreshProviderModels({ scope: 'all' });
+      await discovery.refreshProviderModels();
 
       expect(fetchMock).toHaveBeenCalledWith(
         'https://registry.example.test/api.json',
@@ -311,200 +339,7 @@ describe('refreshProviderModels write behavior', () => {
     }
   });
 
-  it('refreshes a hand-configured API-key provider at the managed endpoint', async () => {
-    const baseUrl = 'https://api.managed.example.test/coding/v1';
-    vi.stubEnv('PYTHINKER_CODE_BASE_URL', baseUrl);
-    const fetchMock = vi.fn(
-      async () =>
-        new Response(
-          JSON.stringify({
-            data: [
-              {
-                id: 'kimi-k2',
-                context_length: 262144,
-                supports_reasoning: true,
-                display_name: 'Fresh K2',
-              },
-              { id: 'kimi-k2.5', context_length: 131072 },
-            ],
-          }),
-          { status: 200, headers: { 'Content-Type': 'application/json' } },
-        ),
-    );
-    vi.stubGlobal('fetch', fetchMock);
-
-    const { host, config, discovery, events, providers, models } = await createHost({
-      providers: {
-        'my-pythinker': { type: 'pythinker', baseUrl, apiKey: 'sk-distributed-key' },
-      },
-      models: {
-        'my-pythinker/kimi-k2': {
-          provider: 'my-pythinker',
-          model: 'kimi-k2',
-          maxContextSize: 262144,
-          displayName: 'Old K2',
-        },
-      },
-      defaultModel: 'my-pythinker/kimi-k2',
-    });
-    try {
-      const result = await discovery.refreshProviderModels({ scope: 'all' });
-
-      expect(result.failed).toEqual([]);
-      expect(result.changed).toEqual([
-        { provider_id: 'my-pythinker', provider_name: 'my-pythinker', added: 1, removed: 0 },
-      ]);
-      expect(events.published).toEqual([
-        expect.objectContaining({ type: 'event.model_catalog.changed' }),
-      ]);
-      expect(fetchMock).toHaveBeenCalledWith(
-        `${baseUrl}/models`,
-        expect.objectContaining({
-          headers: expect.objectContaining({ Authorization: 'Bearer sk-distributed-key' }),
-        }),
-      );
-      expect(providers.list()['my-pythinker']).toEqual({
-        type: 'pythinker',
-        baseUrl,
-        apiKey: 'sk-distributed-key',
-      });
-      const modelRecords = models.list();
-      expect(modelRecords['my-pythinker/kimi-k2']?.displayName).toBe('Fresh K2');
-      expect(modelRecords['my-pythinker/kimi-k2.5']).toBeDefined();
-      expect(config.get<string>('defaultModel')).toBe('my-pythinker/kimi-k2');
-    } finally {
-      host.dispose();
-    }
-  });
-
-  it('clears a stale defaultModel whose alias upstream dropped', async () => {
-    const baseUrl = 'https://api.managed.example.test/coding/v1';
-    vi.stubEnv('PYTHINKER_CODE_BASE_URL', baseUrl);
-    const fetchMock = vi.fn(
-      async () =>
-        new Response(
-          JSON.stringify({
-            data: [{ id: 'kimi-k3', context_length: 1048576, supports_reasoning: true }],
-          }),
-          { status: 200, headers: { 'Content-Type': 'application/json' } },
-        ),
-    );
-    vi.stubGlobal('fetch', fetchMock);
-
-    const { host, config, discovery, models } = await createHost({
-      providers: {
-        'my-pythinker': { type: 'pythinker', baseUrl, apiKey: 'sk-distributed-key' },
-      },
-      models: {
-        'my-pythinker/kimi-k2': {
-          provider: 'my-pythinker',
-          model: 'kimi-k2',
-          maxContextSize: 262144,
-          displayName: 'Old K2',
-        },
-      },
-      defaultModel: 'my-pythinker/kimi-k2',
-      thinking: { enabled: true },
-    });
-    try {
-      const result = await discovery.refreshProviderModels({ scope: 'all' });
-
-      expect(result.failed).toEqual([]);
-      expect(result.changed).toEqual([
-        { provider_id: 'my-pythinker', provider_name: 'my-pythinker', added: 1, removed: 1 },
-      ]);
-      expect(config.get('defaultModel')).toBeUndefined();
-      expect(config.get('thinking')).toBeUndefined();
-      const modelRecords = models.list();
-      expect(modelRecords['my-pythinker/kimi-k3']).toBeDefined();
-      expect(modelRecords['my-pythinker/kimi-k2']).toBeUndefined();
-    } finally {
-      host.dispose();
-    }
-  });
-
-  it('clears the subagent model pool when a refresh drops its default alias', async () => {
-    const baseUrl = 'https://api.managed.example.test/coding/v1';
-    vi.stubEnv('PYTHINKER_CODE_BASE_URL', baseUrl);
-    const fetchMock = vi.fn(
-      async () =>
-        new Response(
-          JSON.stringify({
-            data: [{ id: 'kimi-k3', context_length: 1048576, supports_reasoning: true }],
-          }),
-          { status: 200, headers: { 'Content-Type': 'application/json' } },
-        ),
-    );
-    vi.stubGlobal('fetch', fetchMock);
-
-    const { host, config, discovery } = await createHost({
-      providers: {
-        'my-pythinker': { type: 'pythinker', baseUrl, apiKey: 'sk-distributed-key' },
-      },
-      models: {
-        'my-pythinker/kimi-k2': { provider: 'my-pythinker', model: 'kimi-k2', maxContextSize: 262144 },
-      },
-      secondaryModel: {
-        defaultModel: 'my-pythinker/kimi-k2',
-        models: { 'my-pythinker/kimi-k2': 'fast and cheap' },
-      },
-    });
-    try {
-      const result = await discovery.refreshProviderModels({ scope: 'all' });
-
-      expect(result.changed).toEqual([
-        { provider_id: 'my-pythinker', provider_name: 'my-pythinker', added: 1, removed: 1 },
-      ]);
-      expect(config.get('secondaryModel')).toBeUndefined();
-    } finally {
-      host.dispose();
-    }
-  });
-
-  it('filters pool entries a refresh dropped while keeping a surviving default', async () => {
-    const baseUrl = 'https://api.managed.example.test/coding/v1';
-    vi.stubEnv('PYTHINKER_CODE_BASE_URL', baseUrl);
-    const fetchMock = vi.fn(
-      async () =>
-        new Response(
-          JSON.stringify({
-            data: [{ id: 'kimi-k3', context_length: 1048576, supports_reasoning: true }],
-          }),
-          { status: 200, headers: { 'Content-Type': 'application/json' } },
-        ),
-    );
-    vi.stubGlobal('fetch', fetchMock);
-
-    const { host, config, discovery } = await createHost({
-      providers: {
-        ...staticProviders,
-        'my-pythinker': { type: 'pythinker', baseUrl, apiKey: 'sk-distributed-key' },
-      },
-      models: {
-        ...staticModels,
-        'my-pythinker/kimi-k2': { provider: 'my-pythinker', model: 'kimi-k2', maxContextSize: 262144 },
-      },
-      secondaryModel: {
-        defaultModel: 's1',
-        models: { s1: 'static fallback', 'my-pythinker/kimi-k2': 'managed' },
-      },
-    });
-    try {
-      const result = await discovery.refreshProviderModels({ scope: 'all' });
-
-      expect(result.changed).toEqual([
-        { provider_id: 'my-pythinker', provider_name: 'my-pythinker', added: 1, removed: 1 },
-      ]);
-      expect(config.get('secondaryModel')).toEqual({
-        defaultModel: 's1',
-        models: { s1: 'static fallback' },
-      });
-    } finally {
-      host.dispose();
-    }
-  });
-
-  it('never exposes a halfway-removed catalog: the registries stay untouched until the single atomic write', async () => {
+  it('persists refresh atomically without rewriting secondary model aliases', async () => {
     const fetchMock = vi.fn(
       async () =>
         new Response(
@@ -536,8 +371,17 @@ describe('refreshProviderModels write behavior', () => {
       },
       models: {
         'acme/m1': { provider: 'acme', model: 'm1', maxContextSize: 1000 },
+        'acme/old-default': {
+          provider: 'acme',
+          model: 'old-default',
+          maxContextSize: 1000,
+        },
       },
-      defaultModel: 'acme/m1',
+      defaultModel: 'acme/old-default',
+      secondaryModel: {
+        defaultModel: 'acme/m1',
+        models: { 'acme/m1': 'fast' },
+      },
     });
     try {
       let seenDuringWrite: { providers: readonly string[]; models: readonly string[] } | undefined;
@@ -550,14 +394,21 @@ describe('refreshProviderModels write behavior', () => {
         await originalReplaceSections(sections);
       });
 
-      const result = await discovery.refreshProviderModels({ scope: 'all' });
+      const result = await discovery.refreshProviderModels();
 
       expect(result.failed).toEqual([]);
-      expect(seenDuringWrite).toEqual({ providers: ['acme'], models: ['acme/m1'] });
+      expect(seenDuringWrite).toEqual({
+        providers: ['acme'],
+        models: ['acme/m1', 'acme/old-default'],
+      });
       expect(vi.mocked(config.replaceSections).mock.calls.length).toBe(1);
       expect(providers.list()['acme']).toBeDefined();
       expect(models.list()['acme/m2']).toBeDefined();
       expect(models.list()['acme/m1']).toBeUndefined();
+      expect(config.get('secondaryModel')).toEqual({
+        defaultModel: 'acme/m1',
+        models: { 'acme/m1': 'fast' },
+      });
       expect(config.get('defaultModel')).toBeUndefined();
     } finally {
       host.dispose();

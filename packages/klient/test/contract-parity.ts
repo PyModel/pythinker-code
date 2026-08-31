@@ -29,12 +29,32 @@ import type { PermissionMode } from '@pymodel/agent-core-v2/agent/permissionPoli
 import type { IAgentProfileService } from '@pymodel/agent-core-v2/agent/profile/profile';
 import type { IAgentPromptService } from '@pymodel/agent-core-v2/agent/prompt/prompt';
 import type { IAgentShellCommandService } from '@pymodel/agent-core-v2/agent/shellCommand/shellCommand';
-import type { IAgentSkillService } from '@pymodel/agent-core-v2/agent/skill/skill';
+import type { SkillRuntime } from '@pymodel/agent-core-v2/features/skill/skillAgentRuntime';
 import type { ContentPart } from '@pymodel/agent-core-v2/kosong/contract/message';
 import type { PlanData } from '@pymodel/agent-core-v2/features/plan/plan';
 import type { UsageStatus } from '@pymodel/agent-core-v2/agent/usage/usage';
-import type { SkillSummary } from '@pymodel/agent-core-v2/app/skillCatalog/types';
+import type { SkillSummary } from '@pymodel/agent-core-v2/features/skill/catalog/types';
 import type { McpServerEntry } from '@pymodel/agent-core-v2/mcpCore/connection-manager';
+import type {
+  GlobalMcpServerConfig,
+  McpAuthStatusQuery,
+  McpManagedServer,
+  McpServerAuthBeginResult,
+  McpServerAuthFlowHandle,
+  McpServerAuthState,
+  McpServerAuthStatus,
+  McpServerInspection,
+  McpServerLocator,
+  McpServerTestResult,
+  McpServerTestTarget,
+} from '@pymodel/agent-core-v2/app/mcpManagement/mcpManagement';
+import type {
+  McpRegistryPluginOrigin,
+  McpRegistryQuery,
+  McpServerSource,
+} from '@pymodel/agent-core-v2/app/mcpRegistry/mcpRegistry';
+import type { McpServerConfig } from '@pymodel/agent-core-v2/mcpCore/config-schema';
+import type { McpServerConfigView } from '@pymodel/agent-core-v2/mcpCore/configView';
 import type { FullCompactionInput } from '@pymodel/agent-core-v2/agent/fullCompaction/fullCompaction';
 import type { ISessionScopeHandle } from '@pymodel/agent-core-v2/_base/di/scope';
 import type {
@@ -50,7 +70,7 @@ import type {
 import type {
   Interaction,
   InteractionResolution,
-} from '@pymodel/agent-core-v2/session/interaction/interaction';
+} from '@pymodel/agent-core-v2/features/interaction/interaction';
 import type {
   QuestionAnswers,
   QuestionItem,
@@ -66,10 +86,7 @@ import type {
   SessionMetaPatch,
 } from '@pymodel/agent-core-v2/session/sessionMetadata/sessionMetadata';
 import type { ISessionTitleService } from '@pymodel/agent-core-v2/session/sessionTitle/sessionTitle';
-import type {
-  AuthStatus,
-  IOAuthService,
-} from '@pymodel/agent-core-v2/app/auth/auth';
+import type { AuthStatus } from '@pymodel/agent-core-v2/app/auth/auth';
 import type { IBootstrapService } from '@pymodel/agent-core-v2/app/bootstrap/bootstrap';
 import type {
   ConfigDiagnostic,
@@ -238,11 +255,6 @@ import { sessionTitleContract } from '../src/contract/session/title.js';
 
 import {
   authStatusSchema,
-  oAuthFlowSnapshotSchema,
-  oAuthFlowStartSchema,
-  oAuthLoginCancelResponseSchema,
-  oAuthLogoutResponseSchema,
-  refreshOAuthProviderModelsResponseSchema,
 } from '../src/contract/global/auth.js';
 import {
   configDiagnosticSchema,
@@ -273,6 +285,23 @@ import {
   fsHomeResponseSchema,
 } from '../src/contract/global/hostFs.js';
 import { modelConfigSchema } from '../src/contract/global/models.js';
+import {
+  globalMcpServerConfigSchema,
+  mcpAuthStatusQuerySchema,
+  mcpManagedServerSchema,
+  mcpRegistryPluginOriginSchema,
+  mcpRegistryQuerySchema,
+  mcpServerAuthBeginResultSchema,
+  mcpServerAuthFlowHandleSchema,
+  mcpServerAuthStateSchema,
+  mcpServerAuthStatusSchema,
+  mcpServerConfigDataSchema,
+  mcpServerInspectionSchema,
+  mcpServerLocatorSchema,
+  mcpServerSourceSchema,
+  mcpServerTestResultSchema,
+  mcpServerTestTargetSchema,
+} from '../src/contract/global/mcpManagement.js';
 import {
   getPluginInfoInputSchema,
   installPluginInputSchema,
@@ -316,15 +345,6 @@ type AssertWireToEngine<TSchema extends z.ZodType, TEngine> = [z.infer<TSchema>]
   ? true
   : never;
 
-// Protocol wire shapes, derived from the engine interfaces (no direct
-// `@pymodel/protocol` dependency in klient).
-type OAuthFlowStart = Awaited<ReturnType<IOAuthService['startLogin']>>;
-type OAuthFlowSnapshot = NonNullable<ReturnType<IOAuthService['getFlow']>>;
-type OAuthLoginCancelResponse = Awaited<ReturnType<IOAuthService['cancelLogin']>>;
-type OAuthLogoutResponse = Awaited<ReturnType<IOAuthService['logout']>>;
-type RefreshOAuthProviderModelsResponse = Awaited<
-  ReturnType<IOAuthService['refreshOAuthProviderModels']>
->;
 /** String-enum value union (`'user' | 'memory'`). */
 type ConfigTargetValues = `${ConfigTarget}`;
 
@@ -358,19 +378,7 @@ const _capabilityStatus: AssertWire<typeof capabilityStatusSchema, CapabilitySta
 const _providerConfig: AssertWire<typeof providerConfigSchema, ProviderConfig> = true;
 
 // auth.ts
-const _oAuthFlowStart: AssertWire<typeof oAuthFlowStartSchema, OAuthFlowStart> = true;
-const _oAuthFlowSnapshot: AssertWire<typeof oAuthFlowSnapshotSchema, OAuthFlowSnapshot> = true;
-const _oAuthLoginCancelResponse: AssertWire<
-  typeof oAuthLoginCancelResponseSchema,
-  OAuthLoginCancelResponse
-> = true;
-const _oAuthLogoutResponse: AssertWire<typeof oAuthLogoutResponseSchema, OAuthLogoutResponse> =
-  true;
 const _authStatus: AssertWire<typeof authStatusSchema, AuthStatus> = true;
-const _refreshOAuthProviderModelsResponse: AssertWire<
-  typeof refreshOAuthProviderModelsResponseSchema,
-  RefreshOAuthProviderModelsResponse
-> = true;
 
 // flags.ts
 const _experimentalFeatureState: AssertWire<
@@ -440,6 +448,50 @@ const _setPluginMcpServerEnabledInput: AssertWire<
 > = true;
 const _removePluginInput: AssertWire<typeof removePluginInputSchema, RemovePluginInput> = true;
 const _getPluginInfoInput: AssertWire<typeof getPluginInfoInputSchema, GetPluginInfoInput> = true;
+
+// global/mcpManagement.ts — the `McpServerConfig | McpServerConfigView` union
+// a managed server's `config` carries (full for mutable entries, redacted for
+// read-only ones) is mirrored by one schema covering both shapes; the
+// inspection's `config` is always the redacted view, and both assignability
+// directions hold against either engine type.
+const _mcpServerSource: AssertWire<typeof mcpServerSourceSchema, McpServerSource> = true;
+const _mcpRegistryPluginOrigin: AssertWire<
+  typeof mcpRegistryPluginOriginSchema,
+  McpRegistryPluginOrigin
+> = true;
+const _mcpRegistryQuery: AssertWire<typeof mcpRegistryQuerySchema, McpRegistryQuery> = true;
+const _mcpAuthStatusQuery: AssertWire<typeof mcpAuthStatusQuerySchema, McpAuthStatusQuery> = true;
+const _globalMcpServerConfig: AssertWire<
+  typeof globalMcpServerConfigSchema,
+  GlobalMcpServerConfig
+> = true;
+const _mcpServerConfigData: AssertWire<
+  typeof mcpServerConfigDataSchema,
+  McpServerConfig | McpServerConfigView
+> = true;
+const _mcpServerConfigViewData: AssertWire<
+  typeof mcpServerConfigDataSchema,
+  McpServerConfigView
+> = true;
+const _mcpManagedServer: AssertWire<typeof mcpManagedServerSchema, McpManagedServer> = true;
+const _mcpServerTestTarget: AssertWire<typeof mcpServerTestTargetSchema, McpServerTestTarget> =
+  true;
+const _mcpServerTestResult: AssertWire<typeof mcpServerTestResultSchema, McpServerTestResult> =
+  true;
+const _mcpServerLocator: AssertWire<typeof mcpServerLocatorSchema, McpServerLocator> = true;
+const _mcpServerAuthState: AssertWire<typeof mcpServerAuthStateSchema, McpServerAuthState> = true;
+const _mcpServerInspection: AssertWire<typeof mcpServerInspectionSchema, McpServerInspection> =
+  true;
+const _mcpServerAuthStatus: AssertWire<typeof mcpServerAuthStatusSchema, McpServerAuthStatus> =
+  true;
+const _mcpServerAuthBeginResult: AssertWire<
+  typeof mcpServerAuthBeginResultSchema,
+  McpServerAuthBeginResult
+> = true;
+const _mcpServerAuthFlowHandle: AssertWire<
+  typeof mcpServerAuthFlowHandleSchema,
+  McpServerAuthFlowHandle
+> = true;
 
 // env.ts has no named schemas; `platform` narrows to `NodeJS.Platform` in the
 // engine — assert the bootstrap properties are all strings instead. The
@@ -548,8 +600,8 @@ const _agentActivityState: AssertEngineToWire<typeof agentActivityStateSchema, A
 type PromptPayload = Parameters<IAgentPromptService['submit']>[0];
 type PromptLaunchResult = NonNullable<Awaited<ReturnType<IAgentPromptService['submit']>>>;
 type SteerPayload = Parameters<IAgentPromptService['submitSteer']>[0];
-type ActivateSkillPayload = Parameters<IAgentSkillService['activate']>[0];
-type PromptWithSkillsPayload = Parameters<IAgentSkillService['promptWithSkills']>[0];
+type ActivateSkillPayload = Parameters<SkillRuntime['activate']>[0];
+type PromptWithSkillsPayload = Parameters<SkillRuntime['promptWithSkills']>[0];
 type PromptSkillActivation = PromptWithSkillsPayload['skills'][number];
 type AgentCommandInfo = ReturnType<IAgentCommandService['list']>[number];
 type RuntimeBinding = ReturnType<IAgentRuntimeBindingService['get']>;
@@ -590,7 +642,7 @@ const _steerPayload: AssertWireToEngine<typeof steerPayloadSchema, SteerPayload>
 const _activateSkillPayload: AssertWire<typeof activateSkillPayloadSchema, ActivateSkillPayload> =
   true;
 const _promptLaunchResult: AssertWire<typeof promptLaunchResultSchema, PromptLaunchResult> = true;
-type PromptWithSkillsResult = Awaited<ReturnType<IAgentSkillService['promptWithSkills']>>;
+type PromptWithSkillsResult = Awaited<ReturnType<SkillRuntime['promptWithSkills']>>;
 const _promptWithSkillsResult: AssertWire<
   typeof promptWithSkillsResultSchema,
   PromptWithSkillsResult

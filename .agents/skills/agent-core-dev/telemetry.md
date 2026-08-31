@@ -73,7 +73,6 @@ telemetry.addAppender(new ConsoleAppender({ prefix: '[dev]' }));   // dev echo
 telemetry.addAppender(new CloudAppender({                          // production
   homeDir, deviceId, sessionId,
   appName: 'pythinker-code', version, uiMode: 'shell', model,
-  getAccessToken: () => auth.getCachedAccessToken(PYTHINKER_CODE_PROVIDER_NAME),
 }));
 ```
 

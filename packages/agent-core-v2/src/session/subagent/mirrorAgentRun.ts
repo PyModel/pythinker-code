@@ -1,4 +1,5 @@
 /* oxlint-disable typescript-eslint/no-unsafe-declaration-merging, eslint-plugin-import/namespace -- Event2 class+payload-interface declaration merging is the sanctioned event-declaration idiom. */
+import type { SubagentBindingProvenance } from './routing';
 import type { IAgentScopeHandle } from '#/_base/di/scope';
 import { userCancellationReason } from '#/_base/utils/abort';
 import { ISessionTokenCountingService } from '#/session/tokenCounting/sessionTokenCounting';
@@ -28,6 +29,8 @@ export interface SubagentSpawnedPayload {
   readonly model?: string;
   readonly thinkingEffort?: string;
   readonly taskId?: string;
+  readonly routing?: SubagentBindingProvenance;
+  readonly currentRoutingEnvironmentRevision?: string;
 }
 
 export class SubagentSpawned extends Event2<SubagentSpawnedPayload> {
@@ -80,6 +83,8 @@ export interface AgentRunSpawnedMeta {
   readonly fork?: boolean;
   readonly model?: string;
   readonly taskId?: string;
+  readonly routing?: SubagentBindingProvenance;
+  readonly currentRoutingEnvironmentRevision?: string;
 }
 
 export interface MirrorAgentRunOptions {
@@ -98,7 +103,7 @@ export function emitAgentRunSpawned(
 ): void {
   const childProfile = requester.accessor
     .get(IAgentLifecycleService)
-    .findAgentHandle(targetAgentId)
+    .handleOf(targetAgentId)
     ?.accessor.get(IAgentProfileService);
   void requester.accessor.get(IEventDispatcher)?.dispatch(
     new SubagentSpawned({
@@ -114,6 +119,8 @@ export function emitAgentRunSpawned(
       model: meta.model,
       thinkingEffort: childProfile?.getEffectiveThinkingLevel(),
       taskId: meta.taskId,
+      routing: meta.routing,
+      currentRoutingEnvironmentRevision: meta.currentRoutingEnvironmentRevision,
     }),
   );
   childProfile?.republishStatus();
@@ -202,7 +209,7 @@ function childContextTokens(
   agentLifecycle: IAgentLifecycleService,
   agentId: string,
 ): number | undefined {
-  const child = agentLifecycle.findAgentHandle(agentId);
+  const child = agentLifecycle.handleOf(agentId);
   if (child === undefined) return undefined;
   const context = tryAgentContextOf(child);
   if (context === undefined) return undefined;

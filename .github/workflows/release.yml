@@ -5,7 +5,26 @@ on:
     branches:
       - main
 
+# Never cancel a release in flight: a publish that is interrupted between npm
+# and the git tags cannot be undone. Runs therefore queue instead. GitHub keeps
+# only one pending run per group, so a third push while a release is running
+# silently drops the one waiting behind it — the commits still ship, on the
+# next run, but nothing announces the skip. Keeping this job short is what
+# keeps that window small.
 concurrency: ${{ github.workflow }}-${{ github.ref }}
+
+# This repository installs a local pre-push gate that re-runs the full test
+# suite. It exists to save a CI round trip from a developer's machine; inside
+# CI it is pure duplication, and `scripts/pre-push.sh` reads this to stand
+# down. Set at the workflow level so it reaches every push, including the ones
+# a JS action spawns.
+env:
+  SKIP_HOOKS: "1"
+
+# Fail closed: a job gets no token scope it does not ask for, so the repository
+# or organisation default can never quietly hand write access to a job that
+# only reads. Every job below grants itself exactly what it needs.
+permissions: {}
 
 jobs:
   # Publishing to npm is irreversible — never let a commit that fails CI or
@@ -53,9 +72,21 @@ jobs:
     if: github.repository_owner == 'PyModel'
     outputs:
       packages_published: ${{ steps.changesets.outputs.published }}
-      extension_version_bumped: ${{ steps.extension-version.outputs.bumped }}
-      pythinker_native_release: ${{ steps.pythinker-release.outputs.should_publish }}
-      pythinker_release_tag: ${{ steps.pythinker-release.outputs.tag }}
+      cli_version_bumped: ${{ steps.lane-versions.outputs.cli_version_bumped }}
+      cli_version: ${{ steps.lane-versions.outputs.cli_version }}
+      desktop_version_bumped: ${{ steps.lane-versions.outputs.desktop_version_bumped }}
+      desktop_version: ${{ steps.lane-versions.outputs.desktop_version }}
+      extension_version_bumped: ${{ steps.lane-versions.outputs.extension_version_bumped }}
+      extension_version: ${{ steps.lane-versions.outputs.extension_version }}
+      # The Changesets output is true on the first publish. The push-boundary
+      # signal remains true on a rerun, where the idempotent wrapper correctly
+      # exits without republishing an npm version that is already live.
+      pythinker_native_release: ${{ steps.pythinker-release.outputs.should_publish == 'true' || steps.lane-versions.outputs.cli_version_bumped == 'true' }}
+      # `pythinker-release` only runs when changesets publishes, so on the
+      # rerun path above its tag output is empty. Fall back to the same string
+      # resolve-release.mjs builds, or publish-native-assets would run
+      # `gh release view ""`.
+      pythinker_release_tag: ${{ steps.pythinker-release.outputs.tag || format('@pymodel/pythinker-code@{0}', steps.lane-versions.outputs.cli_version) }}
     permissions:
       contents: write
       pull-requests: write
@@ -79,20 +110,43 @@ jobs:
       - name: Upgrade npm for Trusted Publishing
         run: npm install -g npm@11
 
-      # Machine-readable signal for the VS Code extension publish gate: the
-      # release PR merge is a squash whose only meaningful delta for the
-      # extension is the version field, so compare it against the previous
-      # commit instead of trusting the commit-message prefix.
-      - name: Detect extension version bump
-        id: extension-version
-        run: |
-          prev=$(git show 'HEAD^:apps/vscode/package.json' | node -p 'JSON.parse(require("fs").readFileSync(0, "utf8")).version')
-          curr=$(node -p 'require("./apps/vscode/package.json").version')
-          if [ "$prev" = "$curr" ]; then bumped=false; else bumped=true; fi
-          echo "bumped=$bumped" >> "$GITHUB_OUTPUT"
+      # `github.event.before` is the exact start of this push. HEAD^ only sees
+      # the final commit and misses version bumps in a multi-commit push.
+      - name: Detect release lane version bumps
+        id: lane-versions
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+          AFTER_SHA: ${{ github.sha }}
+        run: node scripts/release/detect-lane-bumps.mjs "$BEFORE_SHA" "$AFTER_SHA"
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      # The `prepare` script reinstalls the local hooks during the install
+      # above, so this has to run after it, not before. `SKIP_HOOKS` already
+      # tells the hook to stand down; deleting it as well removes the last way
+      # the suite could run inside this job — an environment that reaches the
+      # hook scrubbed, or a hook that stops honouring the variable.
+      #
+      # Worth the belt and braces: on the publish path, the push these hooks
+      # would gate carries the version tags, and it runs after npm has already
+      # accepted the packages. A hook failure there — one flaky test under
+      # runner load is enough — leaves the release published but untagged, and
+      # skips every job that depends on it: docs, native artifacts, the VS Code
+      # extension, the Homebrew tap, the CDN.
+      - name: Disarm the local git hooks
+        run: |
+          # `--git-path hooks` is git's own resolution of core.hooksPath, so
+          # this deletes from the directory git will actually read rather than
+          # assuming `.git/hooks`.
+          hooks_dir=$(git rev-parse --git-path hooks)
+          rm -f -- "${hooks_dir}/pre-push" "${hooks_dir}/pre-commit"
+          if [ -e "${hooks_dir}/pre-push" ] || [ -e "${hooks_dir}/pre-commit" ]; then
+            echo "::error::A git hook survived removal in ${hooks_dir}."
+            echo "::error::The release push would re-run the full test suite; fix this before releasing."
+            exit 1
+          fi
+          echo "Local git hooks disarmed (${hooks_dir})."
 
       - name: Generate Pythinker Code built-in catalog
         shell: bash
@@ -126,69 +180,102 @@ jobs:
           # No NPM_TOKEN on purpose: changesets prefers it over OIDC when set, so
           # defining it would silently downgrade publishing to a long-lived token.
 
-      # apps/desktop is a private workspace package: changesets bumps its
-      # version but nothing publishes it, and Desktop Release only fires on a
-      # `desktop-v*` tag. A bump that nobody tags therefore leaves every
-      # installed desktop client on the previous version with nothing red to
-      # show for it — which is exactly how 0.2.0 sat unreleased behind 0.1.6.
-      # Read both versions out of git rather than the working tree: the
-      # changesets action rewrites package.json in place on the run that opens
-      # the version PR, and that rewrite is not a release.
-      # The App token matters: a tag pushed with GITHUB_TOKEN would not start
-      # Desktop Release, because GitHub refuses to trigger workflows from it.
-      # A desktop tag that fails to cut costs one manual `git tag`; a failed step
-      # here would block npm, the Marketplace and the CDN behind it. Never let
-      # this be the thing that stops a release — but annotate every skip, since
-      # a silent no-op is the exact failure being fixed.
-      - name: Cut the desktop release tag on a version bump
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ steps.release-bot.outputs.token }}
-        run: |
-          set -uo pipefail
-          # Read the pushed commit by sha, never HEAD. The changesets action
-          # checks out changeset-release/main and commits the bumped
-          # package.json files on the run that opens the version PR, so by the
-          # time this step runs HEAD can be a bump that is not a release — and
-          # tagging it would burn the next real version's tag name, which the
-          # already-exists check below would then treat as done.
-          read_version() { git show "$1:apps/desktop/package.json" 2>/dev/null | node -p 'JSON.parse(require("fs").readFileSync(0, "utf8")).version' 2>/dev/null; }
-          prev="$(read_version "${GITHUB_SHA}^" || true)"
-          curr="$(read_version "${GITHUB_SHA}" || true)"
-          if [ -z "$prev" ] || [ -z "$curr" ] || [ "$prev" = "$curr" ]; then
-            echo "::notice::Desktop version unchanged or unreadable (prev='${prev}' curr='${curr}'); no tag cut."
-            exit 0
-          fi
-          tag="desktop-v${curr}"
-          # A tag on this commit is a re-run. A tag on a different commit is an
-          # anomaly that would otherwise silently swallow this release.
-          existing="$(git ls-remote --tags origin "refs/tags/${tag}" "refs/tags/${tag}^{}" |
-            awk '$2 ~ /\^\{\}$/ { peeled=$1 } $2 !~ /\^\{\}$/ { direct=$1 } END { print (peeled ? peeled : direct) }')"
-          if [ -n "$existing" ]; then
-            if [ "$existing" = "$GITHUB_SHA" ]; then
-              echo "::notice::${tag} already points here; nothing to do."
-            else
-              echo "::error::${tag} exists at ${existing}, not ${GITHUB_SHA}. Desktop ${curr} will not ship until that is resolved."
-            fi
-            exit 0
-          fi
-          if ! gh api "repos/${GITHUB_REPOSITORY}/git/refs" \
-            -f ref="refs/tags/${tag}" \
-            -f sha="${GITHUB_SHA}" > /dev/null; then
-            echo "::error::Could not cut ${tag}. Desktop ${curr} will not ship until someone pushes it: git tag ${tag} ${GITHUB_SHA} && git push origin ${tag}"
-            exit 1
-          fi
-          echo "Cut ${tag} at ${GITHUB_SHA} (desktop ${prev} -> ${curr})."
-
-      - name: Request CodeRabbit review on version PR
+      # Release cadence switch. With this on, the version PR merges itself once
+      # every required check passes, so one merge to main becomes one release
+      # and the version tracks each change instead of collapsing a backlog of
+      # changesets into a single jump. Turn it off to go back to releasing by
+      # hand: `gh variable set AUTO_MERGE_RELEASE_PR --body false`.
+      #
+      # This is deliberately not a blanket auto-merge. It only ever targets the
+      # changesets-authored branch, the repository requires its status checks
+      # before any merge, and a major bump is gated separately on the pull
+      # request that introduces the changeset — so an unattended release can
+      # still never rename the major version on its own.
+      #
+      # Never fail the release over this: a version PR that stays open costs a
+      # manual merge, while a failure here would block npm, the Marketplace and
+      # the CDN behind it.
+      # Resolve the version PR once, for every step that acts on it.
+      #
+      # The changesets action reports the pull request it just created or
+      # updated, which is the only unambiguous identifier. The fallback covers
+      # the run where changesets had nothing to change, and it is scoped to a
+      # head branch in THIS repository by full `owner/name`: `--head` matches a
+      # branch name only, so a head-name match on its own can select a fork's
+      # branch of the same name, and matching the owner alone would still accept
+      # a different repository belonging to that owner.
+      - name: Resolve the version PR
+        id: version-pr
         if: steps.changesets.outputs.published != 'true'
         env:
           GH_TOKEN: ${{ steps.release-bot.outputs.token }}
+          CHANGESETS_PR: ${{ steps.changesets.outputs.pullRequestNumber }}
         run: |
-          pr=$(gh pr list --head changeset-release/main --state open --json number --jq '.[0].number' || true)
-          if [ -n "$pr" ] && [ "$pr" != "null" ]; then
-            gh pr comment "$pr" --body '@coderabbitai review'
+          set -uo pipefail
+          if [ -n "${CHANGESETS_PR}" ] && [ "${CHANGESETS_PR}" != "null" ]; then
+            echo "number=${CHANGESETS_PR}" >> "${GITHUB_OUTPUT}"
+            echo "Version PR #${CHANGESETS_PR}, as reported by the changesets action."
+            exit 0
           fi
+          if ! open_prs=$(gh pr list \
+              --repo "${GITHUB_REPOSITORY}" \
+              --head changeset-release/main \
+              --base main \
+              --state open \
+              --json number,headRepository); then
+            echo "::warning::Could not look up the version PR. Nothing downstream will run; check it by hand."
+            exit 0
+          fi
+          number=$(printf '%s' "${open_prs}" \
+            | jq -r --arg repo "${GITHUB_REPOSITORY}" \
+                '[.[] | select(.headRepository.nameWithOwner == $repo)][0].number // ""')
+          if [ -z "${number}" ]; then
+            echo "::notice::No open version PR in this repository."
+            exit 0
+          fi
+          echo "number=${number}" >> "${GITHUB_OUTPUT}"
+          echo "Version PR #${number}."
+
+      # Release cadence switch. With this on, the version PR merges itself once
+      # every required check passes, so one merge to main becomes one release
+      # and the version tracks each change instead of collapsing a backlog of
+      # changesets into a single jump. Turn it off to go back to releasing by
+      # hand: `gh variable set AUTO_MERGE_RELEASE_PR --body false`.
+      #
+      # This is deliberately not a blanket auto-merge. It only ever targets the
+      # changesets-authored branch in this repository, the repository requires
+      # its status checks before any merge, and a major bump is gated separately
+      # on the pull request that introduces the changeset — so an unattended
+      # release can still never rename the major version on its own.
+      #
+      # A changeset that lands while this pull request is waiting on its checks
+      # joins the same release rather than starting the next one. That window is
+      # how changesets works, not something this step can close; keeping one
+      # changeset per pull request keeps it small.
+      #
+      # Never fail the release over this: a version PR that stays open costs a
+      # manual merge, while a failure here would block npm, the Marketplace and
+      # the CDN behind it.
+      - name: Enable auto-merge on the version PR
+        if: steps.version-pr.outputs.number != '' && vars.AUTO_MERGE_RELEASE_PR == 'true'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ steps.release-bot.outputs.token }}
+          PR: ${{ steps.version-pr.outputs.number }}
+        run: |
+          set -uo pipefail
+          if gh pr merge "${PR}" --squash --auto; then
+            echo "Auto-merge armed on #${PR}; it lands when its required checks pass."
+          else
+            echo "::warning::Could not arm auto-merge on #${PR}. Merge it by hand to cut the release."
+          fi
+
+      - name: Request CodeRabbit review on version PR
+        if: steps.version-pr.outputs.number != ''
+        env:
+          GH_TOKEN: ${{ steps.release-bot.outputs.token }}
+          PR: ${{ steps.version-pr.outputs.number }}
+        run: gh pr comment "${PR}" --body '@coderabbitai review'
 
       - name: Resolve Pythinker Code native release
         if: steps.changesets.outputs.published == 'true'
@@ -197,83 +284,79 @@ jobs:
         env:
           CHANGESETS_PUBLISHED_PACKAGES: ${{ steps.changesets.outputs.publishedPackages }}
 
-  # The VS Code extension is a private workspace package: changesets bumps its
-  # version but never publishes it to npm, so it ships from here instead. Both
-  # publish scripts skip packages that already exist in the registry, so this
-  # job is a no-op on releases that did not touch the extension. Extension-only
-  # releases publish nothing to npm, so the gate also covers a version bump.
-  publish-vscode-extension:
-    timeout-minutes: 45
-    name: Publish VS Code extension
+  # Desktop tagging is isolated from npm and VS Code. A tag failure turns this
+  # workflow red without preventing the other lanes from reporting their state.
+  cut-desktop-tag:
+    timeout-minutes: 10
+    name: Cut desktop release tag
     needs: release
     if: >-
-      needs.release.outputs.packages_published == 'true'
-      || needs.release.outputs.extension_version_bumped == 'true'
+      needs.release.outputs.desktop_version_bumped == 'true'
+      && vars.RELEASE_LANE_DESKTOP != 'disabled'
     runs-on: ubuntu-latest
     permissions:
       contents: read
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # pinned from v6.0.2
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # pinned from v6
-
-      - name: Setup Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # pinned from v7.0.0
         with:
-          node-version-file: .nvmrc
-          cache: "pnpm"
+          fetch-depth: 0
+          persist-credentials: false
 
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+      # GITHUB_TOKEN-created tags cannot trigger another workflow. The App
+      # token makes `desktop-v*` start desktop-release.yml.
+      - name: Mint release-bot token
+        id: release-bot
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # pinned from v2
+        with:
+          app-id: ${{ vars.RELEASE_BOT_APP_ID }}
+          private-key: ${{ secrets.RELEASE_BOT_PRIVATE_KEY }}
+          permission-contents: write
 
-      - name: Generate Pythinker Code built-in catalog
-        shell: bash
-        run: |
-          CATALOG_FILE="$RUNNER_TEMP/pythinker-code-built-in-catalog.json"
-          node apps/pythinker-code/scripts/update-catalog.mjs --out "$CATALOG_FILE"
-          echo "PYTHINKER_CODE_BUILT_IN_CATALOG_FILE=$CATALOG_FILE" >> "$GITHUB_ENV"
-
-      - name: Build workspace packages
-        run: pnpm build
-
-      # Packages all six platform targets and runs the VSIX audit on each one.
-      # A failure here must stop the job before anything reaches a registry.
-      - name: Package and verify VSIX targets
-        run: pnpm --filter pythinker run package:platform
-
-      - name: Publish to the Visual Studio Marketplace
+      - name: Cut required desktop tag
         env:
-          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+          GH_TOKEN: ${{ steps.release-bot.outputs.token }}
+          DESKTOP_VERSION: ${{ needs.release.outputs.desktop_version }}
         run: |
-          if [ -z "$VSCE_PAT" ]; then
-            echo "::warning::VSCE_PAT secret not set — skipping Marketplace publish."
+          set -euo pipefail
+          tag="desktop-v${DESKTOP_VERSION}"
+          existing="$(git ls-remote --tags origin "refs/tags/${tag}" "refs/tags/${tag}^{}" |
+            awk '$2 ~ /\^\{\}$/ { peeled=$1 } $2 !~ /\^\{\}$/ { direct=$1 } END { print (peeled ? peeled : direct) }')"
+          if [ -n "$existing" ]; then
+            if [ "$existing" != "$GITHUB_SHA" ]; then
+              echo "::error::${tag} exists at ${existing}, not ${GITHUB_SHA}."
+              exit 1
+            fi
+            echo "::notice::${tag} already points at ${GITHUB_SHA}; nothing to do."
             exit 0
           fi
-          pnpm --filter pythinker run publish:vsix
-
-      # Open VSX serves Cursor / VSCodium / Windsurf. A failure here must not
-      # undo an already-successful Marketplace publish, so it only warns.
-      - name: Publish to Open VSX
-        continue-on-error: true
-        env:
-          OVSX_PAT: ${{ secrets.OVSX_PAT }}
-        run: |
-          if [ -z "$OVSX_PAT" ]; then
-            echo "::warning::OVSX_PAT secret not set — skipping Open VSX publish."
-            exit 0
+          if ! gh api "repos/${GITHUB_REPOSITORY}/git/refs" \
+            -f ref="refs/tags/${tag}" \
+            -f sha="${GITHUB_SHA}" > /dev/null; then
+            echo "::error::Could not cut ${tag}. Recovery: git tag ${tag} ${GITHUB_SHA} && git push origin ${tag}"
+            exit 1
           fi
-          pnpm --filter pythinker run publish:ovsx
+          echo "Cut ${tag} at ${GITHUB_SHA}."
 
-      - name: Upload VSIX artifacts
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # pinned from v7
-        with:
-          name: pythinker-code-vsix
-          path: apps/vscode/artifacts/vsix/*.vsix
-          retention-days: 7
-          if-no-files-found: error
+  # The extension lane runs only when its own version changes. The reusable
+  # workflow also supports a version-checked manual recovery run.
+  publish-vscode-extension:
+    name: Publish VS Code extension
+    needs: release
+    if: >-
+      needs.release.outputs.extension_version_bumped == 'true'
+      && vars.RELEASE_LANE_VSCODE != 'disabled'
+    uses: ./.github/workflows/vscode-release.yml
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    with:
+      expected-version: ${{ needs.release.outputs.extension_version }}
+    secrets:
+      VSCE_PAT: ${{ secrets.VSCE_PAT }}
+      OVSX_PAT: ${{ secrets.OVSX_PAT }}
 
   # code.pythinker.com redeploys via Dokploy autodeploy on push to main (app
   # Pythinker/code builds apps/site/Dockerfile from the repo). That autodeploy
@@ -291,6 +374,8 @@ jobs:
   redeploy-cdn:
     timeout-minutes: 10
     name: Redeploy CDN
+    # Posts to a webhook with a secret; it never touches the GitHub API.
+    permissions: {}
     needs:
       - release
       - publish-native-assets
@@ -304,10 +389,9 @@ jobs:
     if: >-
       always()
       && needs.release.result == 'success'
-      && (needs.release.outputs.pythinker_native_release != 'true'
-          || needs.publish-native-assets.result == 'success')
-      && (needs.release.outputs.packages_published == 'true'
-          || startsWith(github.event.head_commit.message, 'ci: release packages'))
+      && needs.release.outputs.pythinker_native_release == 'true'
+      && needs.publish-native-assets.result == 'success'
+      && vars.RELEASE_LANE_CDN != 'disabled'
     runs-on: ubuntu-latest
     steps:
       - name: Trigger Dokploy rebuild
@@ -315,18 +399,16 @@ jobs:
           WEBHOOK: ${{ secrets.DOKPLOY_CDN_DEPLOY_WEBHOOK }}
         run: |
           if [ -z "$WEBHOOK" ]; then
-            echo "::warning::DOKPLOY_CDN_DEPLOY_WEBHOOK not set — skipping CDN redeploy."
-            exit 0
+            echo "::error::DOKPLOY_CDN_DEPLOY_WEBHOOK is required. Configure it or set RELEASE_LANE_CDN=disabled."
+            exit 1
           fi
           # The URL is itself the deploy credential, so never send it over a
-          # scheme that puts it on the wire in cleartext. Warn rather than fail:
-          # verify-cdn-release runs only if this job succeeds, and failing here
-          # would drop the consistency gate instead of tripping it.
+          # scheme that puts it on the wire in cleartext.
           case "$WEBHOOK" in
             https://*) ;;
             *)
-              echo "::warning::DOKPLOY_CDN_DEPLOY_WEBHOOK is not an https:// URL — refusing to send the deploy credential in cleartext."
-              exit 0
+              echo "::error::DOKPLOY_CDN_DEPLOY_WEBHOOK must use https://."
+              exit 1
               ;;
           esac
           # The webhook reads the branch from the body, but only when the
@@ -366,6 +448,9 @@ jobs:
   verify-cdn-release:
     timeout-minutes: 20
     name: Verify release consistency
+    # Checkout only; verify-release-consistency.mjs uses no GitHub token.
+    permissions:
+      contents: read
     needs:
       - release
       - redeploy-cdn
@@ -377,8 +462,9 @@ jobs:
     if: >-
       always()
       && needs.release.result == 'success'
-      && (needs.release.outputs.packages_published == 'true'
-          || startsWith(github.event.head_commit.message, 'ci: release packages'))
+      && vars.RELEASE_LANE_CDN != 'disabled'
+      && (needs.release.outputs.pythinker_native_release == 'true'
+          || needs.release.outputs.cli_version_bumped == 'true')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -398,9 +484,14 @@ jobs:
 
   update-brew-tap:
     timeout-minutes: 15
+    # Checkout only; the tap push uses a minted app token, not this one.
+    permissions:
+      contents: read
     name: Update Homebrew tap
     needs: release
-    if: needs.release.outputs.packages_published == 'true'
+    if: >-
+      needs.release.outputs.pythinker_native_release == 'true'
+      && vars.RELEASE_LANE_BREW != 'disabled'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -427,13 +518,7 @@ jobs:
       - name: Bump formula
         env:
           TAP_GITHUB_TOKEN: ${{ steps.tap-token.outputs.token }}
-        run: |
-          # The token comes from the App installation, not a PAT.
-          if [ -z "$TAP_GITHUB_TOKEN" ]; then
-            echo "TAP_GITHUB_TOKEN secret not set — skipping tap update" >&2
-            exit 0
-          fi
-          node scripts/release/update-brew-formula.mjs
+        run: node scripts/release/update-brew-formula.mjs
 
   deploy-docs:
     name: Deploy docs
@@ -448,18 +533,29 @@ jobs:
   native-artifacts:
     name: Native release artifact
     needs: release
+    # A called workflow cannot elevate the permissions granted here.
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+      artifact-metadata: write
     if: needs.release.outputs.pythinker_native_release == 'true'
     uses: ./.github/workflows/_native-build.yml
     with:
       upload-artifact-prefix: pythinker-code-native
       retention-days: 7
       sign-macos: true
+    # One certificate, one notary key, one set of secret names. These are the
+    # names desktop-release.yml already ships signed and notarized from; the
+    # APPLE_CERTIFICATE_*/APPLE_NOTARIZATION_* names this workflow used to read
+    # were never set on this repository, which is why every darwin CLI bundle
+    # so far shipped ad-hoc signed behind a green job.
     secrets:
-      APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
-      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-      APPLE_NOTARIZATION_KEY_P8: ${{ secrets.APPLE_NOTARIZATION_KEY_P8 }}
-      APPLE_NOTARIZATION_KEY_ID: ${{ secrets.APPLE_NOTARIZATION_KEY_ID }}
-      APPLE_NOTARIZATION_ISSUER_ID: ${{ secrets.APPLE_NOTARIZATION_ISSUER_ID }}
+      APPLE_CERTIFICATE_P12: ${{ secrets.MAC_CSC_LINK }}
+      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+      APPLE_NOTARIZATION_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+      APPLE_NOTARIZATION_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+      APPLE_NOTARIZATION_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER }}
 
   publish-native-assets:
     timeout-minutes: 15
@@ -499,8 +595,93 @@ jobs:
           RELEASE_TAG: ${{ needs.release.outputs.pythinker_release_tag }}
         run: node apps/pythinker-code/scripts/native/produce-manifest.mjs dist-native-release "$RELEASE_TAG"
 
+      # Unlike the desktop release, which uploads into a draft and refuses to
+      # touch a published one, this release is already live: changesets creates
+      # it when it publishes to npm. `--clobber` therefore replaced the assets
+      # of a shipped version on any re-run of this job — and a re-run after a
+      # source change would put different bytes behind a version number users
+      # already have. A version has to identify one exact build forever.
+      #
+      # These assets are one set, not a bag of files: manifest.json pins a
+      # sha256 for every zip, and install.sh / install.ps1 verify against it.
+      # So the rule is all or nothing. A release that already carries the whole
+      # set is finished and is left alone; an empty one gets everything. A
+      # partial set stops the job, because filling in the gaps would pair zips
+      # from one build with checksums from another, and a rebuild is not
+      # guaranteed to be byte-identical even at the same commit. Sorting that
+      # out is a decision for a person: either what is published is the
+      # release, or it needs a new patch version.
       - name: Upload assets to GitHub Release
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ needs.release.outputs.pythinker_release_tag }}
-        run: gh release upload "$RELEASE_TAG" dist-native-release/* --clobber
+        run: |
+          set -euo pipefail
+          existing="$(gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name')"
+          present=()
+          absent=()
+          for path in dist-native-release/*; do
+            name="$(basename "$path")"
+            if printf '%s\n' "$existing" | grep -qxF "$name"; then
+              present+=("$name")
+            else
+              absent+=("$path")
+            fi
+          done
+          if [ "${#absent[@]}" -eq 0 ]; then
+            echo "::notice::All ${#present[@]} assets are already on ${RELEASE_TAG}; nothing to upload."
+            exit 0
+          fi
+          if [ "${#present[@]}" -gt 0 ]; then
+            echo "::error::${RELEASE_TAG} already carries ${#present[@]} of these assets: ${present[*]}"
+            echo "::error::Adding the rest would mix two builds behind one version - manifest.json pins a sha256 per zip."
+            echo "::error::Resolve by hand: keep what is published, or cut the next patch and release that instead."
+            exit 1
+          fi
+          gh release upload "$RELEASE_TAG" "${absent[@]}"
+
+  release-summary:
+    name: Release lane summary
+    if: always() && github.repository_owner == 'PyModel'
+    needs:
+      - release
+      - cut-desktop-tag
+      - publish-vscode-extension
+      - native-artifacts
+      - publish-native-assets
+      - redeploy-cdn
+      - verify-cdn-release
+      - update-brew-tap
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # pinned from v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # pinned from v7.0.0
+        with:
+          node-version-file: .nvmrc
+
+      - name: Render and enforce lane summary
+        env:
+          RELEASE_RESULT: ${{ needs.release.result }}
+          CLI_EXPECTED: ${{ needs.release.outputs.cli_version_bumped == 'true' || needs.release.outputs.pythinker_native_release == 'true' }}
+          CLI_PUBLISHED: ${{ needs.release.outputs.pythinker_native_release }}
+          NATIVE_RESULT: ${{ needs.publish-native-assets.result }}
+          CDN_ENABLED: ${{ vars.RELEASE_LANE_CDN != 'disabled' }}
+          CDN_DEPLOY_RESULT: ${{ needs.redeploy-cdn.result }}
+          CDN_VERIFY_RESULT: ${{ needs.verify-cdn-release.result }}
+          BREW_ENABLED: ${{ vars.RELEASE_LANE_BREW != 'disabled' }}
+          BREW_RESULT: ${{ needs.update-brew-tap.result }}
+          DESKTOP_EXPECTED: ${{ needs.release.outputs.desktop_version_bumped }}
+          DESKTOP_ENABLED: ${{ vars.RELEASE_LANE_DESKTOP != 'disabled' }}
+          DESKTOP_RESULT: ${{ needs.cut-desktop-tag.result }}
+          VSCODE_EXPECTED: ${{ needs.release.outputs.extension_version_bumped }}
+          VSCODE_ENABLED: ${{ vars.RELEASE_LANE_VSCODE != 'disabled' }}
+          VSCODE_RESULT: ${{ needs.publish-vscode-extension.result }}
+        run: node scripts/release/render-summary.mjs

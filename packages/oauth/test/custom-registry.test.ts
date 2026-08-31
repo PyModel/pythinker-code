@@ -11,7 +11,7 @@ import {
   removeCustomRegistryProvider,
   type CustomRegistryProviderEntry,
   type CustomRegistrySource,
-  type ManagedPythinkerConfigShape,
+  type PythinkerConfigShape,
 } from '../src/custom-registry';
 
 function makeKokubResponseBody(): Record<string, CustomRegistryProviderEntry> {
@@ -177,7 +177,7 @@ describe('fetchCustomRegistry', () => {
     const error = await fetchCustomRegistry(
       KOKUB_SOURCE,
       { fetchImpl: fetchMock as unknown as typeof fetch },
-    ).catch((caught: unknown) => caught);
+    ).catch((error: unknown) => error);
 
     expect(error).toBeInstanceOf(CustomRegistryApiError);
     expect((error as CustomRegistryApiError).status).toBe(401);
@@ -236,7 +236,7 @@ describe('fetchCustomRegistry', () => {
 
 describe('applyCustomRegistryProvider', () => {
   it('writes provider + model aliases for a kokub-shaped entry with default fallbacks', () => {
-    const config: ManagedPythinkerConfigShape = { providers: {} };
+    const config: PythinkerConfigShape = { providers: {} };
     const entry: CustomRegistryProviderEntry = {
       id: 'registry_chat-completions',
       name: 'Sample Registry (chat completions)',
@@ -276,7 +276,7 @@ describe('applyCustomRegistryProvider', () => {
   });
 
   it('falls back to the model id for displayName when name is absent', () => {
-    const config: ManagedPythinkerConfigShape = { providers: {} };
+    const config: PythinkerConfigShape = { providers: {} };
     const entry: CustomRegistryProviderEntry = {
       id: 'demo',
       name: 'Demo',
@@ -297,7 +297,7 @@ describe('applyCustomRegistryProvider', () => {
   });
 
   it('derives rich capabilities and limit-based context size when rich fields are present', () => {
-    const config: ManagedPythinkerConfigShape = { providers: {} };
+    const config: PythinkerConfigShape = { providers: {} };
     const entry: CustomRegistryProviderEntry = {
       id: 'rich',
       name: 'Rich Provider',
@@ -331,7 +331,7 @@ describe('applyCustomRegistryProvider', () => {
   });
 
   it('clears stale aliases for the same provider before re-populating', () => {
-    const config: ManagedPythinkerConfigShape = {
+    const config: PythinkerConfigShape = {
       providers: {
         'registry_chat-completions': {
           type: 'openai',
@@ -373,7 +373,7 @@ describe('applyCustomRegistryProvider', () => {
   });
 
   it('preserves hand-edited fields that upstream does not declare', () => {
-    const config: ManagedPythinkerConfigShape = {
+    const config: PythinkerConfigShape = {
       providers: {},
       models: {
         'registry_chat-completions/gpt-5.5': {
@@ -406,7 +406,7 @@ describe('applyCustomRegistryProvider', () => {
   });
 
   it('maps support_efforts / default_effort onto the model alias', () => {
-    const config: ManagedPythinkerConfigShape = { providers: {} };
+    const config: PythinkerConfigShape = { providers: {} };
     const entry: CustomRegistryProviderEntry = {
       id: 'rich',
       name: 'Rich Provider',
@@ -435,7 +435,7 @@ describe('applyCustomRegistryProvider', () => {
   });
 
   it('treats support_efforts as a thinking capability hint without reasoning: true', () => {
-    const config: ManagedPythinkerConfigShape = { providers: {} };
+    const config: PythinkerConfigShape = { providers: {} };
     const entry: CustomRegistryProviderEntry = {
       id: 'rich',
       name: 'Rich Provider',
@@ -463,7 +463,7 @@ describe('applyCustomRegistryProvider', () => {
   });
 
   it('drops stale effort fields when a refresh no longer declares them', () => {
-    const config: ManagedPythinkerConfigShape = {
+    const config: PythinkerConfigShape = {
       providers: {},
       models: {
         'registry_chat-completions/gpt-5.5': {
@@ -498,7 +498,7 @@ describe('applyCustomRegistryProvider', () => {
 
 describe('removeCustomRegistryProvider', () => {
   it('removes the provider and every alias for it, and clears matching defaultModel', () => {
-    const config: ManagedPythinkerConfigShape = {
+    const config: PythinkerConfigShape = {
       providers: {
         'registry_chat-completions': {
           type: 'openai',
@@ -534,7 +534,7 @@ describe('removeCustomRegistryProvider', () => {
   });
 
   it('leaves defaultModel intact when it belongs to another provider', () => {
-    const config: ManagedPythinkerConfigShape = {
+    const config: PythinkerConfigShape = {
       providers: {
         'registry_chat-completions': {
           type: 'openai',
@@ -576,11 +576,11 @@ describe('applyCustomRegistryEntries', () => {
       c: { id: 'c', name: 'C', api: 'https://c.test/v1', type: 'openai', models: { 'm1': { id: 'm1' } } },
     };
 
-    const config: ManagedPythinkerConfigShape = { providers: {} };
+    const config: PythinkerConfigShape = { providers: {} };
     applyCustomRegistryEntries(config, entries, source);
     applyCustomRegistryEntries(config, entries, source);
 
-    expect(Object.keys(config.providers).sort()).toEqual(['a', 'b', 'c']);
+    expect(Object.keys(config.providers).toSorted()).toEqual(['a', 'b', 'c']);
     expect(config.models?.['a/m1']).toBeDefined();
     expect(config.models?.['b/m1']).toBeDefined();
     expect(config.models?.['c/m1']).toBeDefined();
@@ -592,7 +592,7 @@ describe('applyCustomRegistryEntries', () => {
       url: 'https://registry.example.test/api.json',
       apiKey: 'sk-new',
     };
-    const config: ManagedPythinkerConfigShape = {
+    const config: PythinkerConfigShape = {
       providers: {
         x: { type: 'openai', baseUrl: 'https://x-old.test/v1', apiKey: 'sk-old' },
       },
@@ -646,7 +646,7 @@ describe('applyCustomRegistryEntries', () => {
       b: { id: 'b', name: 'B', api: 'https://b.test/v1', type: 'openai', models: { m1: { id: 'm1' } } },
     };
 
-    const config: ManagedPythinkerConfigShape = {
+    const config: PythinkerConfigShape = {
       providers: {
         // Provider from an unrelated source — must not be touched.
         keepme: {
@@ -701,7 +701,7 @@ describe('applyCustomRegistryEntries', () => {
       apiKey: 'sk-b',
     };
 
-    const config: ManagedPythinkerConfigShape = { providers: {} };
+    const config: PythinkerConfigShape = { providers: {} };
     applyCustomRegistryEntries(
       config,
       {

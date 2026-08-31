@@ -68,7 +68,6 @@ export default {
   saved: 'Provider saved',
   added: 'Provider added',
   apiKeySet: 'Set - enter a new key to replace',
-  managedHint: 'Managed providers sign in and out from the account controls',
   showApiKey: 'Show API key',
   hideApiKey: 'Hide API key',
   catalog: {

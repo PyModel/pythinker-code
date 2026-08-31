@@ -92,9 +92,10 @@ export class ProviderService extends Disposable implements IProviderService {
   }
 
   private async applyDefaultProvider(id: string | undefined): Promise<void> {
-    if (this.defaultProvider === id) return;
-    this.defaultProvider = id;
-    await this._onDidChangeDefaultProvider.fireAsync({ id }, NO_ABORT);
+    const normalized = id !== undefined && id.trim().length === 0 ? undefined : id;
+    if (this.defaultProvider === normalized) return;
+    this.defaultProvider = normalized;
+    await this._onDidChangeDefaultProvider.fireAsync({ id: normalized }, NO_ABORT);
   }
 }
 

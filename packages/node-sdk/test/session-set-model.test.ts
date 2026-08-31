@@ -57,7 +57,7 @@ describe('Session.setModel', () => {
     }
   });
 
-  it('resolves managed OAuth aliases before updating the runtime provider', async () => {
+  it('resolves OAuth aliases before updating the runtime provider', async () => {
     const homeDir = await makeTempDir(tempDirs, 'pythinker-sdk-model-home-');
     const workDir = await makeTempDir(tempDirs, 'pythinker-sdk-model-work-');
     await new FileTokenStorage(join(homeDir, 'credentials')).save('pythinker-code', freshToken());
@@ -66,21 +66,21 @@ describe('Session.setModel', () => {
     try {
       await harness.setConfig({
         providers: {
-          'managed:pythinker-code': {
+          'oauth-example': {
             type: 'pythinker',
-            baseUrl: 'https://api.kimi.com/coding/v1',
+            baseUrl: 'https://api.example.test/v1',
             apiKey: '',
             oauth: { storage: 'file', key: 'oauth/pythinker-code' },
           },
         },
         models: {
           'pythinker-code/initial': {
-            provider: 'managed:pythinker-code',
+            provider: 'oauth-example',
             model: 'pythinker-initial',
             maxContextSize: 262144,
           },
-          'pythinker-code/kimi-for-coding': {
-            provider: 'managed:pythinker-code',
+          'example/test-model': {
+            provider: 'oauth-example',
             model: 'kimi-for-coding',
             maxContextSize: 262144,
           },
@@ -93,20 +93,20 @@ describe('Session.setModel', () => {
         model: 'pythinker-code/initial',
       });
 
-      await session.setModel('pythinker-code/kimi-for-coding');
+      await session.setModel('example/test-model');
 
       await expect(session.getStatus()).resolves.toMatchObject({
-        model: 'pythinker-code/kimi-for-coding',
+        model: 'example/test-model',
       });
       const configEvent = await waitForAgentWireEvent(
         homeDir,
         session.id,
         'config.update',
-        (event) => event['modelAlias'] === 'pythinker-code/kimi-for-coding',
+        (event) => event['modelAlias'] === 'example/test-model',
       );
       expect(configEvent).toMatchObject({
         type: 'config.update',
-        modelAlias: 'pythinker-code/kimi-for-coding',
+        modelAlias: 'example/test-model',
       });
       expect(configEvent).not.toHaveProperty('provider');
     } finally {

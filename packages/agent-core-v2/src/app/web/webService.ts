@@ -1,7 +1,6 @@
-import { PYTHINKER_CODE_PROVIDER_NAME } from '@pymodel/pythinker-code-oauth';
 import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
-import { IOAuthService } from '#/app/auth/auth';
+import { IOAuthTokenService } from '#/app/auth/auth';
 import { SERVICES_SECTION, type ServicesConfig } from '#/app/auth/configSection';
 import { IAgentIdentity } from '#/app/agentIdentity/agentIdentity';
 import { IConfigService } from '#/app/config/config';
@@ -11,12 +10,14 @@ import { PyModelFetchURLProvider } from './providers/pymodel-fetch-url';
 import type { UrlFetcher } from './tools/fetch-url-types';
 import { IWebFetchService } from './web';
 
+const WEB_FETCH_CREDENTIAL_SLOT = 'services:pymodel-fetch';
+
 export class WebFetchService implements IWebFetchService {
   declare readonly _serviceBrand: undefined;
   private readonly localFetcher: UrlFetcher;
 
   constructor(
-    @IOAuthService private readonly oauth: IOAuthService,
+    @IOAuthTokenService private readonly oauth: IOAuthTokenService,
     @IConfigService private readonly config: IConfigService,
     @IAgentIdentity private readonly identity: IAgentIdentity,
   ) {
@@ -35,7 +36,7 @@ export class WebFetchService implements IWebFetchService {
     const tokenProvider =
       fetchConfig.oauth === undefined
         ? undefined
-        : this.oauth.resolveTokenProvider(PYTHINKER_CODE_PROVIDER_NAME, fetchConfig.oauth);
+        : this.oauth.resolveTokenProvider(WEB_FETCH_CREDENTIAL_SLOT, fetchConfig.oauth);
     return new PyModelFetchURLProvider({
       baseUrl: fetchConfig.baseUrl,
       tokenProvider,
@@ -45,7 +46,6 @@ export class WebFetchService implements IWebFetchService {
       localFallback: this.localFetcher,
     });
   }
-
 }
 
 function nonEmptyString(value: string | undefined): string | undefined {

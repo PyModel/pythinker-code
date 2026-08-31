@@ -3,7 +3,7 @@
 // poll the server until it has written the credentials, and offer the paste
 // fallback when the loopback callback cannot reach this machine.
 
-import { computed, onUnmounted, readonly, ref, type Ref } from 'vue';
+import { computed, onMounted, onUnmounted, readonly, ref, type Ref } from 'vue';
 
 import { getPythinkerWebApi } from '../api';
 import type { CodexLoginStatus } from '../api/types';
@@ -62,6 +62,7 @@ export function useCodexLogin(reconcile?: CodexLoginReconcile): UseCodexLogin {
   let timer: ReturnType<typeof setInterval> | undefined;
   let activePopup: Window | undefined;
   let disposed = false;
+  let polling = false;
 
   /** The server keeps reporting `pending` across every phase where we are
    *  still waiting on the browser, so "is this attempt live?" is a local
@@ -132,15 +133,26 @@ export function useCodexLogin(reconcile?: CodexLoginReconcile): UseCodexLogin {
   }
 
   async function poll(): Promise<void> {
-    if (disposed || !isAwaitingBrowser()) return;
+    if (disposed || polling || !isAwaitingBrowser()) return;
     const id = loginId.value;
     if (id === undefined) return;
+    polling = true;
     try {
       await settle(id, await getPythinkerWebApi().getCodexLoginStatus(id));
     } catch {
       // A single failed poll says nothing — the next tick tries again. Only a
       // reported `failed` state ends the login.
+    } finally {
+      polling = false;
     }
+  }
+
+  function onWindowFocus(): void {
+    void poll();
+  }
+
+  function onVisibilityChange(): void {
+    if (document.visibilityState === 'visible') void poll();
   }
 
   async function start(): Promise<void> {
@@ -229,8 +241,15 @@ export function useCodexLogin(reconcile?: CodexLoginReconcile): UseCodexLogin {
     }
   }
 
+  onMounted(() => {
+    window.addEventListener('focus', onWindowFocus);
+    document.addEventListener('visibilitychange', onVisibilityChange);
+  });
+
   onUnmounted(() => {
     disposed = true;
+    window.removeEventListener('focus', onWindowFocus);
+    document.removeEventListener('visibilitychange', onVisibilityChange);
     stopPolling();
     closePopup();
     const id = loginId.value;

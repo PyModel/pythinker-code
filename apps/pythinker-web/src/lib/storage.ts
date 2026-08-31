@@ -32,6 +32,10 @@ export const STORAGE_KEYS = {
   // users who explicitly turned it off while it was experimental keep their
   // preference after it became on-by-default.
   conversationToc: 'pythinker-web.beta-toc',
+  // Message folding: fold a finished turn's work away, and summarise a run of
+  // consecutive tool calls into one row. Both on by default.
+  turnFolding: 'pythinker-web.turn-folding',
+  activityRunFolding: 'pythinker-web.activity-run-folding',
   notifyOnComplete: 'pythinker-web.notify-on-complete',
   notifyOnQuestion: 'pythinker-web.notify-on-question',
   notifyOnApproval: 'pythinker-web.notify-on-approval',
@@ -42,6 +46,7 @@ export const STORAGE_KEYS = {
   debug: 'pythinker-web.debug',
   openInLastTarget: 'pythinker-web.open-in.last-target',
   sidebarCollapsed: 'pythinker-web.sidebar-collapsed',
+  sidebarPinnedHeight: 'pythinker-web.sidebar-pinned-height',
   sidebarWidth: 'pythinker-web.sidebar-width',
   // deprecated cleanups (kept so the removals still fire for old users)
   codeFont: 'pythinker-web.code-font',

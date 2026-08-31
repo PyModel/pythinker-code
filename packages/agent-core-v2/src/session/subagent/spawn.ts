@@ -1,4 +1,5 @@
 import { PRIMARY_SUBAGENT_MODEL_CHOICE } from './configSection';
+import type { SubagentBindingProvenance } from './routing';
 
 export const DEFAULT_PROFILE_NAME = 'coder';
 
@@ -8,6 +9,8 @@ export const FORK_WITH_TYPE_UNAVAILABLE =
   'Cannot set a different subagent_type when forking the current context. A fork inherits this agent\'s own agent type.';
 export const FORK_WITH_MODEL_UNAVAILABLE =
   'Cannot override the model when forking the current context. A fork inherits this agent\'s model.';
+export const FORK_WITH_THINKING_UNAVAILABLE =
+  'Cannot override thinking when forking the current context. A fork inherits this agent\'s thinking level.';
 export const FORK_EXPERIMENTAL_UNAVAILABLE =
   'fork is disabled: the subagent_fork experimental flag is off.';
 export const FORK_CONTEXT_NOTICE =
@@ -17,11 +20,16 @@ export interface ForkCompatibilityArgs {
   readonly resume?: string;
   readonly subagent_type?: string;
   readonly model?: string;
+  readonly thinking?: string;
 }
 
 export function forkIncompatibility(
   args: ForkCompatibilityArgs,
-  own: { readonly profileName?: string; readonly modelAlias?: string },
+  own: {
+    readonly profileName?: string;
+    readonly modelAlias?: string;
+    readonly thinkingLevel?: string;
+  },
 ): string | undefined {
   const resumeAgentId = args.resume?.trim();
   if (resumeAgentId !== undefined && resumeAgentId.length > 0) {
@@ -41,6 +49,9 @@ export function forkIncompatibility(
   ) {
     return FORK_WITH_MODEL_UNAVAILABLE;
   }
+  if (args.thinking !== undefined && args.thinking !== own.thinkingLevel) {
+    return FORK_WITH_THINKING_UNAVAILABLE;
+  }
   return undefined;
 }
 
@@ -48,7 +59,10 @@ export interface SubagentSpawnPlanInput {
   readonly callerAgentId: string;
   readonly profileName?: string;
   readonly model?: string;
+  readonly preferredModel?: string;
+  readonly thinking?: string;
   readonly fork?: boolean;
+  readonly allowUnlistedProfile?: boolean;
 }
 
 export interface SubagentSpawnPlan {
@@ -56,6 +70,7 @@ export interface SubagentSpawnPlan {
   readonly model: string;
   readonly thinking?: string;
   readonly fork: boolean;
+  readonly routing?: SubagentBindingProvenance;
 }
 
 export interface SpawnSubagentOptions {
@@ -63,6 +78,8 @@ export interface SpawnSubagentOptions {
   readonly plan: SubagentSpawnPlan;
   readonly labels?: Readonly<Record<string, string>>;
   readonly prompt: string;
+  readonly signal?: AbortSignal;
+  readonly onAgentCreated?: (agentId: string) => void;
 }
 
 export interface SpawnedSubagent {

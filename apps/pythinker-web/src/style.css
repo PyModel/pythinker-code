@@ -176,6 +176,11 @@ summary {
     --panel-head-inset: calc((var(--panel-head-h) - var(--icon-button-sm)) / 2)
 }
 
+.app.macos-desktop {
+    --macos-titlebar-controls-fallback-x: 76px;
+    --macos-titlebar-controls-start: calc(env(titlebar-area-x, var(--macos-titlebar-controls-fallback-x)) + var(--space-2))
+}
+
 .app:not(.mobile) .chat-header {
     transition: padding-left .28s cubic-bezier(.4, 0, .2, 1)
 }
@@ -185,7 +190,7 @@ summary {
 }
 
 .app.sidebar-collapsed.macos-desktop .chat-header {
-    padding-left: 146px
+    padding-left: calc(var(--macos-titlebar-controls-start) + var(--icon-button-sm) + var(--icon-button-sm) + var(--space-5))
 }
 
 .app.sidebar-collapsed .session-admin .sa-head {
@@ -197,7 +202,7 @@ summary {
 }
 
 .app.sidebar-collapsed.macos-desktop .session-admin .sa-head {
-    padding-left: 146px
+    padding-left: calc(var(--macos-titlebar-controls-start) + var(--icon-button-sm) + var(--icon-button-sm) + var(--space-5))
 }
 
 .app.fullscreen.sidebar-collapsed.macos-desktop .session-admin .sa-head {
@@ -213,9 +218,9 @@ summary {
     -webkit-app-region: no-drag
 }
 
-.app.macos-desktop:has(.ch-menu, .open-in-menu, .dock-work-panel, .copy-menu-open) .chat-header,
-.app.macos-desktop:has(.ch-menu, .open-in-menu, .dock-work-panel, .copy-menu-open) .side .ch,
-.app.macos-desktop:has(.ch-menu, .open-in-menu, .dock-work-panel, .copy-menu-open) .global-preview .ui-panel-header {
+.app.macos-desktop:has(.ch-menu, .open-in-menu, .dock-work-panel) .chat-header,
+.app.macos-desktop:has(.ch-menu, .open-in-menu, .dock-work-panel) .side .ch,
+.app.macos-desktop:has(.ch-menu, .open-in-menu, .dock-work-panel) .global-preview .ui-panel-header {
     -webkit-app-region: no-drag
 }
 
@@ -452,6 +457,10 @@ html[data-color-scheme=dark][data-accent=mono] {
     --radius-composer: 32px;
     --corner-shape-composer: superellipse(1.5);
     --radius-menu-row: var(--radius-sm);
+    --menu-pad: 3.5px;
+    --radius-menu-item: calc(var(--radius-lg) - var(--menu-pad) - var(--p-hairline));
+    --radius-select-option: calc(var(--radius-md) - var(--space-1) - var(--p-hairline));
+    --radius-dropdown-row: calc(var(--radius-lg) - var(--space-1) - var(--p-hairline));
     --corner-shape-menu: var(--corner-shape-composer);
     --color-menu-bg-frost: color-mix(in srgb, var(--color-bg) 70%, transparent);
     --color-menu-scrollbar: color-mix(in srgb, var(--color-text) 16%, transparent);
@@ -558,6 +567,8 @@ html[data-color-scheme=dark][data-accent=mono] {
     --p-focus-ring: 0 0 0 3px var(--color-accent-soft);
     --p-focus-ring-strong: 0 0 0 3px var(--color-accent-soft), 0 0 0 1px var(--color-accent);
     --p-selection: rgba(23, 131, 255, .2);
+    --color-code-selection: rgba(23, 131, 255, .346);
+    --color-code-selection-text: currentcolor;
     --p-ic-sm: 14px;
     --p-ic-md: 16px;
     --p-ring-stroke: 1.5px;
@@ -569,6 +580,9 @@ html[data-color-scheme=dark][data-accent=mono] {
     --icon-button-sm: 26px;
     --touch-target-min: 44px;
     --p-chip-num: 20px;
+    /* Keyboard resize step for the drag handles; Shift takes the large one. */
+    --resize-handle-step: 16px;
+    --resize-handle-step-lg: 48px;
     --p-sidebar-w: 264px;
     --p-content-max: 760px;
     --p-content-wide: 920px;
@@ -702,6 +716,8 @@ html[data-color-scheme=dark] {
     --color-accent-soft: rgba(26, 136, 255, .1);
     --color-accent-bd: rgba(26, 136, 255, .28);
     --p-selection: rgba(26, 136, 255, .2);
+    --color-code-selection: rgba(26, 136, 255, .27);
+    --color-code-selection-text: currentcolor;
     --color-success: #3fb950;
     --color-success-soft: rgba(63, 185, 80, .14);
     --color-success-bd: rgba(63, 185, 80, .28);
@@ -771,6 +787,8 @@ html[data-color-scheme=dark] {
         --color-accent-soft: rgba(26, 136, 255, .1);
         --color-accent-bd: rgba(26, 136, 255, .28);
         --p-selection: rgba(26, 136, 255, .2);
+        --color-code-selection: rgba(26, 136, 255, .27);
+        --color-code-selection-text: currentcolor;
         --color-success: #3fb950;
         --color-success-soft: rgba(63, 185, 80, .14);
         --color-success-bd: rgba(63, 185, 80, .28);

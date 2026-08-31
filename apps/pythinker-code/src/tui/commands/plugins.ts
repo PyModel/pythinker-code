@@ -32,11 +32,16 @@ import { formatErrorMessage } from '../utils/event-payload';
 import { createMarkdownOptions } from '../utils/markdown-options';
 import {
   formatPluginSourceLabel,
-  isOfficialPluginInstall,
   isOfficialPluginSource,
 } from '../utils/plugin-source-label';
-import { PYTHINKER_CODE_PLUGIN_MARKETPLACE_URL_ENV, QUOTA_CONSUMING_PLUGIN_IDS } from '#/constant/app';
-import { loadPluginMarketplace, type PluginMarketplaceEntry } from '#/utils/plugin-marketplace';
+import { PYTHINKER_CODE_PLUGIN_MARKETPLACE_URL_ENV } from '#/constant/app';
+import {
+  loadPluginMarketplace,
+  withBuiltInEntries,
+  withMarketplaceLatestVersions,
+  type PluginMarketplace,
+  type PluginMarketplaceEntry,
+} from '#/utils/plugin-marketplace';
 import type { SlashCommandHost } from './dispatch';
 
 interface ShowPluginsPickerOptions {
@@ -344,18 +349,49 @@ async function loadMarketplaceCatalog(
   source: string | undefined,
   capabilities: readonly CapabilityStatus[],
 ): Promise<void> {
+  const builtInEntries =
+    host.engineV2 && isDefaultMarketplaceCatalog(source)
+      ? capabilities.map(capabilityMarketplaceEntry)
+      : undefined;
+  let marketplace: PluginMarketplace;
+  let catalog: PluginMarketplace;
   try {
-    const marketplace = await loadPluginMarketplace({
+    // Phase 1: render the catalog as soon as it arrives. Version lookups
+    // (GitHub releases/latest round trips) must not gate the first paint.
+    // Keep the raw parsed catalog for phase 2: injecting built-ins first
+    // would mask the matching catalog entries' GitHub sources behind
+    // `capability:<id>` rows, making their versions unresolvable.
+    catalog = await loadPluginMarketplace({
       workDir: host.state.appState.workDir,
       source,
-      builtInEntries:
-        host.engineV2 && isDefaultMarketplaceCatalog(source)
-          ? capabilities.map(capabilityMarketplaceEntry)
-          : undefined,
+      skipLatestVersions: true,
     });
+    marketplace =
+      builtInEntries !== undefined ? withBuiltInEntries(catalog, builtInEntries) : catalog;
     panel.setMarketplace(marketplace.plugins, marketplace.source);
+    host.state.ui.requestRender();
   } catch (error) {
+    // Any phase-1 failure (unreachable OR malformed catalog) surfaces as an
+    // error: the panel keeps built-in capability rows installable in the
+    // Official tab while the error is shown, and a broken catalog must not
+    // be masked as a successfully loaded, built-ins-only marketplace.
     panel.setMarketplaceError(formatErrorMessage(error));
+    host.state.ui.requestRender();
+    return;
+  }
+  try {
+    // Phase 2: resolve latest versions in the background (against the raw
+    // catalog), re-apply the built-in injection so resolved versions flow
+    // onto capability rows, then refresh so update badges appear. Failures
+    // degrade to badge-less rows and never clobber the rendered list.
+    const enrichedCatalog = await withMarketplaceLatestVersions(catalog);
+    const enriched =
+      builtInEntries !== undefined
+        ? withBuiltInEntries(enrichedCatalog, builtInEntries)
+        : enrichedCatalog;
+    panel.setMarketplace(enriched.plugins, enriched.source);
+  } catch (error) {
+    log.warn('marketplace version lookup failed', { error });
   }
   host.state.ui.requestRender();
 }
@@ -593,7 +629,7 @@ async function installFromPanel(
   if (official) {
     panel.setInstalling(truncateForStatus(label));
   } else {
-    host.showStatus(`Installing or updating ${label} from marketplace...`);
+    host.showStatus(`Installing or updating ${label} from marketplace…`);
   }
   host.state.ui.requestRender();
   try {
@@ -786,7 +822,6 @@ const WEBBRIDGE_POST_INSTALL_MARKDOWN = [
   '2. Run `/reload` or `/new` to apply it.',
 ].join('\n');
 
-const PLUGIN_QUOTA_NOTE = 'Note: This plugin consumes your quota.';
 
 function showPluginInstallResult(
   host: SlashCommandHost,
@@ -802,11 +837,6 @@ function showPluginInstallResult(
   const action = describeInstallAction(previous, summary);
   host.showStatus(`${action} (${summary.id}).${mcpHint}`);
   host.showStatus(PLUGIN_RELOAD_HINT, 'warning');
-  // Gate on provenance, not just the id: a local/GitHub fork whose manifest
-  // reuses a billed plugin's id is not the official quota-consuming build.
-  if (QUOTA_CONSUMING_PLUGIN_IDS.includes(summary.id) && isOfficialPluginInstall(summary)) {
-    host.showStatus(PLUGIN_QUOTA_NOTE, 'warning');
-  }
 }
 
 function describeInstallAction(

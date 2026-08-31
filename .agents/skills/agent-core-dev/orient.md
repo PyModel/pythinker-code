@@ -12,27 +12,27 @@ When writing business code you declare three things; the container handles the r
 
 Classes talk only to interfaces and never care how an implementation is constructed.
 
-## The four `LifecycleScope` tiers
+## The three `LifecycleScope` tiers
 
-Lifetimes form a tree, from longest to shortest:
+DI lifetimes form a tree, from longest to shortest:
 
 ```text
 App                 process-wide, single global instance
- └── Workspace        one workspace handler (a materialized workspace root)
-      └── Session       one session
-           └── Agent      one agent
+ └── Session          one session
+      └── Agent         one agent
 ```
 
 ```ts
-// src/app/scopes.ts — the business layer declares the tiers and their order;
-// the DI kernel only knows opaque string kinds plus the declared topology.
 export enum LifecycleScope {
   App = 'app',
-  Workspace = 'workspace',
   Session = 'session',
   Agent = 'agent',
 }
 ```
+
+Workspace resources have a separate lifetime. The App-scoped `IWorkspaceInstanceManager`
+materializes one `WorkspaceInstance` per workspace. Its `Program` constructs and disposes the
+workspace services. `Workspace` is a domain identity, not a `LifecycleScope` value.
 
 - Later in the topology = shorter life = closer to a leaf.
 - "Singleton" means **one per scope**: `ILogService` is global once; each `Session` scope has its own `ISessionMetadata`.
@@ -49,7 +49,7 @@ A child scope sees its ancestors; a parent never sees its children. Resolution w
 
 ### Disposal order
 
-Deterministic: **child scopes die first; within one scope, teardown runs in strict reverse registration order, one entry at a time.** The mechanism is the Ledger (`src/_base/lifecycle/`): ordered effect bookkeeping, dual-track (sync + async disposers), serial reverse-order teardown (never parallel), with the teardown reason (`'scope-close' | 'cascade' | 'unload'`) passed through to every disposer. `Disposable` / `DisposableStore` (`src/_base/di/lifecycle.ts`) delegate to it — "reverse construction order" is a Ledger property, not a container convention. Business code declares which tier it lives in and never disposes by hand.
+Deterministic: **child scopes die first; within one scope, teardown runs in strict reverse registration order, one entry at a time.** The mechanism is the Ledger (`src/_base/lifecycle/`): ordered effect bookkeeping, dual-track (sync + async disposers), serial reverse-order teardown (never parallel), with the teardown reason (`'scope-close' | 'cascade' | 'unload'`) passed through to every disposer. `Disposable` / `DisposableStore` (`src/_base/di/lifecycle.ts`) delegate to it — "reverse construction order" is a Ledger property, not a container convention. Scoped business code declares its DI tier. Workspace programs explicitly own their manually constructed resources.
 
 ## Dynamic DI: units and cascades
 
@@ -68,10 +68,10 @@ There is no domain-layer numbering — a domain may import any other domain, gui
 
 ## Comment convention
 
-`packages/agent-core-v2/AGENTS.md` bans comments: no file headers, no section banners, no statement-level narration — the code is the source of truth. The only exception is JSDoc attached to exported symbols, which flows into the generated `.d.ts` and the consumers' IDE hover. Tooling directives (`eslint-disable`, `@ts-expect-error`, …) are banned too: fix the underlying lint/type problem instead, and put negative type-safety cases in compiler-asserted fixtures. Scope is carried by the filename: `workspace*.ts` = Workspace, `session*.ts` = Session, `agent*.ts` = Agent, no prefix = App (see service-authoring.md).
+`packages/agent-core-v2/AGENTS.md` bans comments entirely: no file headers, no section banners, no statement-level narration, no JSDoc (not even on exported symbols) — the code is the source of truth. The only exception is a load-bearing lint-suppression directive (`oxlint-disable` / `eslint-disable`) for a deliberate pattern; other tooling directives (`@ts-expect-error`, …) are banned: fix the underlying lint/type problem instead, and put negative type-safety cases in compiler-asserted fixtures. DI scope is carried by registration: `LifecycleScope.App`, `LifecycleScope.Session`, or `LifecycleScope.Agent`. A `workspace*` filename marks workspace-domain ownership, not a DI scope (see service-authoring.md).
 
 ## Red lines (this stage)
 
 - Import via the `#/...` alias (mapped to `src/`); never reach into another domain's internals by relative path.
 - Short-lived may inject long-lived; never the reverse.
-- No comments — not file headers, not beside statements; exported-symbol JSDoc is the only exception.
+- No comments — not file headers, not beside statements, not JSDoc; a load-bearing lint-suppression directive is the only exception.

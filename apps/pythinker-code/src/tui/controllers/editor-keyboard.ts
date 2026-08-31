@@ -595,7 +595,7 @@ export class EditorKeyboardController {
     const harness = this.host.harness;
     if (harness === undefined || alias !== this.host.state.appState.model) return;
     try {
-      await harness.setConfig({ thinking: thinkingEffortToConfig(effort, model.supportEfforts) });
+      await harness.setConfig({ thinking: thinkingEffortToConfig(effort, model) });
     } catch (error) {
       this.host.showError(
         `Thinking effort set to ${effort}, but failed to save default: ${formatErrorMessage(error)}`,

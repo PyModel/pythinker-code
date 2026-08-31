@@ -127,9 +127,11 @@ describe('server-v2 /api/v1/sessions/{sid}/tasks', () => {
   async function mainAgentTasks(sessionId: string): Promise<IAgentTaskService> {
     const session = getLiveSessionById(server!.core.accessor, sessionId);
     if (session === undefined) throw new Error(`session ${sessionId} not found`);
-    const agent =
-      session.accessor.get(IAgentLifecycleService).findAgentHandle('main') ??
-      (await session.accessor.get(IAgentLifecycleService).create({ agentId: 'main' }));
+    let agent = session.accessor.get(IAgentLifecycleService).handleOf('main');
+    if (agent === undefined) {
+      await session.accessor.get(IAgentLifecycleService).create({ agentId: 'main' });
+      agent = session.accessor.get(IAgentLifecycleService).handleOf('main')!;
+    }
     return agent.accessor.get(IAgentTaskService);
   }
 
@@ -158,6 +160,17 @@ describe('server-v2 /api/v1/sessions/{sid}/tasks', () => {
               parentToolCallId: 'call-parent-1',
               model: 'provider/secondary',
               thinkingEffort: 'low',
+              routing: {
+                operation: 'spawn',
+                profileSource: 'requested',
+                modelSource: 'policy-pool',
+                policyMode: 'pool',
+                policySource: 'config',
+                featureSource: 'env',
+                resolvedFromRoutingEnvironmentRevision: 'route-env:v1:aaa',
+                routeDecisionFingerprint: 'route-decision:v1:bbb',
+              },
+              currentRoutingEnvironmentRevision: 'route-env:v1:aaa',
             };
           case 'question':
             return { ...base, kind: 'question', questionCount: 1 };
@@ -216,6 +229,17 @@ describe('server-v2 /api/v1/sessions/{sid}/tasks', () => {
       subagent_type: 'explore',
       parent_tool_call_id: 'call-parent-1',
       run_in_background: true,
+      routing: {
+        operation: 'spawn',
+        profile_source: 'requested',
+        model_source: 'policy-pool',
+        policy_mode: 'pool',
+        policy_source: 'config',
+        feature_source: 'env',
+        routing_env_revision: 'route-env:v1:aaa',
+        route_decision: 'route-decision:v1:bbb',
+      },
+      current_routing_env_revision: 'route-env:v1:aaa',
     });
     expect(byId.get(agentId)?.command).toBeUndefined();
 
@@ -233,21 +257,21 @@ describe('server-v2 /api/v1/sessions/{sid}/tasks', () => {
     expect(byId.get(questionId)?.parent_tool_call_id).toBeUndefined();
   });
 
-  it('reports run_in_background false for a foreground (non-detached) task', async () => {
+  it('reports run_in_background from the task detached flag', async () => {
     const id = await createSession();
     const tasks = await mainAgentTasks(id);
+    const backgroundId = tasks.registerTask(fakeTask('agent'));
     const foregroundId = tasks.registerTask(fakeTask('agent'), { detached: false });
     await flush();
 
-    const listed = await getJson<ListWire>(`/api/v1/sessions/${id}/tasks`);
-    expect(listed.body.code).toBe(0);
-    const entry = listed.body.data.items.find((t) => t.id === foregroundId);
-    expect(entry).toMatchObject({ kind: 'subagent', status: 'running' });
-    expect(entry?.run_in_background).toBe(false);
+    const { body } = await getJson<ListWire>(`/api/v1/sessions/${id}/tasks`);
+    expect(body.code).toBe(0);
+    const byId = new Map(body.data.items.map((t) => [t.id, t]));
+    expect(byId.get(backgroundId)?.run_in_background).toBe(true);
+    expect(byId.get(foregroundId)?.run_in_background).toBe(false);
 
-    const got = await getJson<TaskWire>(`/api/v1/sessions/${id}/tasks/${foregroundId}`);
-    expect(got.body.code).toBe(0);
-    expect(got.body.data.run_in_background).toBe(false);
+    const single = await getJson<TaskWire>(`/api/v1/sessions/${id}/tasks/${foregroundId}`);
+    expect(single.body.data.run_in_background).toBe(false);
   });
 
   it('filters the list by wire status', async () => {
@@ -312,6 +336,88 @@ describe('server-v2 /api/v1/sessions/{sid}/tasks', () => {
     expect(plain.body.data.output_bytes).toBeUndefined();
   });
 
+  it('includes bounded output for every task in one list response', async () => {
+    const id = await createSession();
+    const tasks = await mainAgentTasks(id);
+    const firstId = tasks.registerTask(fakeTask('process', 'first output'));
+    const secondId = tasks.registerTask(fakeTask('process', 'second output'));
+    await flush();
+
+    const listed = await getJson<ListWire>(
+      `/api/v1/sessions/${id}/tasks?with_output=true&output_bytes=6`,
+    );
+    expect(listed.body.code).toBe(0);
+    const byId = new Map(listed.body.data.items.map((task) => [task.id, task]));
+    expect(byId.get(firstId)?.output_preview).toBe('output');
+    expect(byId.get(firstId)?.output_bytes).toBe(6);
+    expect(byId.get(secondId)?.output_preview).toBe('output');
+    expect(byId.get(secondId)?.output_bytes).toBe(6);
+  });
+
+  it('does not include output when with_output is false', async () => {
+    const id = await createSession();
+    const tasks = await mainAgentTasks(id);
+    const taskId = tasks.registerTask(fakeTask('process', 'private output'));
+    await flush();
+
+    const listed = await getJson<ListWire>(
+      `/api/v1/sessions/${id}/tasks?with_output=false`,
+    );
+    expect(listed.body.code).toBe(0);
+    const listedTask = listed.body.data.items.find((item) => item.id === taskId);
+    expect(listedTask).toBeDefined();
+    expect(listedTask!.output_preview).toBeUndefined();
+
+    const task = await getJson<TaskWire>(
+      `/api/v1/sessions/${id}/tasks/${taskId}?with_output=false`,
+    );
+    expect(task.body.code).toBe(0);
+    expect(task.body.data.output_preview).toBeUndefined();
+  });
+
+  it('keeps list output valid when the UTF-8 boundary exceeds the byte limit', async () => {
+    const id = await createSession();
+    const tasks = await mainAgentTasks(id);
+    const taskId = tasks.registerTask(fakeTask('process', 'é'.repeat(10)));
+    await flush();
+
+    const listed = await getJson<ListWire>(
+      `/api/v1/sessions/${id}/tasks?with_output=true&output_bytes=3`,
+    );
+    expect(listed.body.code).toBe(0);
+    const task = listed.body.data.items.find((item) => item.id === taskId);
+    expect(task?.output_preview).toBe('é');
+    expect(task?.output_bytes).toBe(2);
+  });
+
+  it('limits periodic list output to running tasks', async () => {
+    const id = await createSession();
+    const tasks = await mainAgentTasks(id);
+    const runningId = tasks.registerTask(fakeTask('process', 'running output'));
+    const terminalId = tasks.registerTask(fakeTask('process', 'terminal output'));
+    await tasks.stop(terminalId);
+    await flush();
+
+    const listed = await getJson<ListWire>(
+      `/api/v1/sessions/${id}/tasks?with_output=true&output_bytes=32&output_status=running`,
+    );
+    expect(listed.body.code).toBe(0);
+    const byId = new Map(listed.body.data.items.map((task) => [task.id, task]));
+    expect(byId.get(runningId)?.output_preview).toBe('running output');
+    const terminalTask = byId.get(terminalId);
+    expect(terminalTask).toBeDefined();
+    expect(terminalTask!.output_preview).toBeUndefined();
+  });
+
+  it('rejects list output limits above 32 KiB', async () => {
+    const id = await createSession();
+    const response = await getJson<null>(
+      `/api/v1/sessions/${id}/tasks?with_output=true&output_bytes=${32 * 1024 + 1}`,
+    );
+
+    expect(response.body.code).toBe(40001);
+  });
+
   it('cancels a running task and reports 40904 on a second cancel', async () => {
     const id = await createSession();
     const tasks = await mainAgentTasks(id);
@@ -350,6 +456,84 @@ describe('server-v2 /api/v1/sessions/{sid}/tasks', () => {
     expect(body.code).toBe(40001);
   });
 
+  it('detaches a running foreground task and flips run_in_background', async () => {
+    const id = await createSession();
+    const tasks = await mainAgentTasks(id);
+    const taskId = tasks.registerTask(fakeTask('process'), { detached: false });
+    await flush();
+
+    const detached = await postJson<{ detached: boolean; status: string }>(
+      `/api/v1/sessions/${id}/tasks/${taskId}:detach`,
+    );
+    expect(detached.body.code).toBe(0);
+    expect(detached.body.data).toEqual({ detached: true, status: 'running' });
+    expect(tasks.getTask(taskId)?.detached).toBe(true);
+
+    const got = await getJson<TaskWire>(`/api/v1/sessions/${id}/tasks/${taskId}`);
+    expect(got.body.data.run_in_background).toBe(true);
+  });
+
+  it('answers concurrent detach requests idempotently', async () => {
+    const id = await createSession();
+    const tasks = await mainAgentTasks(id);
+    const taskId = tasks.registerTask(fakeTask('process'), { detached: false });
+    await flush();
+
+    const [first, second] = await Promise.all([
+      postJson<{ detached: boolean; status: string }>(
+        `/api/v1/sessions/${id}/tasks/${taskId}:detach`,
+      ),
+      postJson<{ detached: boolean; status: string }>(
+        `/api/v1/sessions/${id}/tasks/${taskId}:detach`,
+      ),
+    ]);
+    expect(first.body.code).toBe(0);
+    expect(second.body.code).toBe(0);
+    const detachedFlags = [first.body.data.detached, second.body.data.detached].toSorted();
+    expect(detachedFlags).toEqual([false, true]);
+    expect(first.body.data.status).toBe('running');
+    expect(second.body.data.status).toBe('running');
+  });
+
+  it('reports detached: false for an already-background task', async () => {
+    const id = await createSession();
+    const tasks = await mainAgentTasks(id);
+    const taskId = tasks.registerTask(fakeTask('process'));
+    await flush();
+
+    const { body } = await postJson<{ detached: boolean; status: string }>(
+      `/api/v1/sessions/${id}/tasks/${taskId}:detach`,
+    );
+    expect(body.code).toBe(0);
+    expect(body.data).toEqual({ detached: false, status: 'running' });
+  });
+
+  it('reports detached: false with the current status for a finished task', async () => {
+    const id = await createSession();
+    const tasks = await mainAgentTasks(id);
+    const taskId = tasks.registerTask({
+      ...fakeTask('process'),
+      start: (sink) => {
+        void sink.settle({ status: 'completed' });
+      },
+    });
+    await flush();
+    expect(tasks.getTask(taskId)?.status).toBe('completed');
+
+    const { body } = await postJson<{ detached: boolean; status: string }>(
+      `/api/v1/sessions/${id}/tasks/${taskId}:detach`,
+    );
+    expect(body.code).toBe(0);
+    expect(body.data).toEqual({ detached: false, status: 'completed' });
+  });
+
+  it('detaching an unknown task returns 40406', async () => {
+    const id = await createSession();
+    await mainAgentTasks(id);
+    const { body } = await postJson<null>(`/api/v1/sessions/${id}/tasks/nope:detach`);
+    expect(body.code).toBe(40406);
+  });
+
   it('returns 40401 for an unknown session on all three endpoints', async () => {
     const list = await getJson<null>('/api/v1/sessions/nope/tasks');
     expect(list.body.code).toBe(40401);
@@ -359,5 +543,8 @@ describe('server-v2 /api/v1/sessions/{sid}/tasks', () => {
 
     const cancelled = await postJson<null>('/api/v1/sessions/nope/tasks/tid:cancel');
     expect(cancelled.body.code).toBe(40401);
+
+    const detached = await postJson<null>('/api/v1/sessions/nope/tasks/tid:detach');
+    expect(detached.body.code).toBe(40401);
   });
 });

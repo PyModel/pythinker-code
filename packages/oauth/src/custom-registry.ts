@@ -1,9 +1,9 @@
 import { readApiErrorMessage } from './api-error';
 import { CUSTOM_REGISTRY_MODEL_FIELDS, mergeRefreshedModelAlias } from './model-alias-merge';
 import { isRecord } from './utils';
-import type { ManagedPythinkerConfigShape, ManagedPythinkerModelAlias } from './managed-pythinker-code';
+import type { ModelAlias, PythinkerConfigShape } from './provider-config';
 
-export type { ManagedPythinkerConfigShape };
+export type { PythinkerConfigShape };
 
 /**
  * Identifies where a custom-registry-managed provider came from. The same
@@ -306,11 +306,11 @@ function resolveCapabilities(model: CustomRegistryModelEntry): string[] {
  * Mirrors `applyOpenPlatformConfig`'s shape: provider goes to `config.providers`
  * keyed by `entry.id`, each model in `entry.models` becomes an alias under
  * `config.models[\`${entry.id}/${modelId}\`]`. The `source` blob is parked on the
- * provider object via `ManagedPythinkerProviderConfig`'s index signature so the
+ * provider object via `ProviderConfig`'s index signature so the
  * refresh dispatcher can rediscover it later.
  */
 export function applyCustomRegistryProvider(
-  config: ManagedPythinkerConfigShape,
+  config: PythinkerConfigShape,
   entry: CustomRegistryProviderEntry,
   source: CustomRegistrySource,
 ): void {
@@ -345,7 +345,7 @@ export function applyCustomRegistryProvider(
       typeof model.name === 'string' && model.name.length > 0 ? model.name : model.id;
     const existing = isRecord(existingModels[aliasKey]) ? existingModels[aliasKey] : {};
 
-    const remoteAlias: ManagedPythinkerModelAlias = {
+    const remoteAlias: ModelAlias = {
       provider: providerKey,
       model: model.id,
       maxContextSize,
@@ -370,7 +370,7 @@ export function applyCustomRegistryProvider(
  * `removeOpenPlatformConfig`.
  */
 export function removeCustomRegistryProvider(
-  config: ManagedPythinkerConfigShape,
+  config: PythinkerConfigShape,
   providerId: string,
 ): void {
   delete config.providers[providerId];
@@ -414,7 +414,7 @@ export function removeCustomRegistryProvider(
  * registry".
  */
 export function applyCustomRegistryEntries(
-  config: ManagedPythinkerConfigShape,
+  config: PythinkerConfigShape,
   entries: Record<string, CustomRegistryProviderEntry>,
   source: CustomRegistrySource,
 ): void {

@@ -2,47 +2,47 @@ import { describe, expect, it } from 'vitest';
 
 import {
   CUSTOM_REGISTRY_MODEL_FIELDS,
-  MANAGED_PYTHINKER_MODEL_FIELDS,
+  OPEN_PLATFORM_MODEL_FIELDS,
   mergeRefreshedModelAlias,
 } from '../src/model-alias-merge';
 
 describe('mergeRefreshedModelAlias', () => {
-  it('preserves overrides while refreshing managed fields', () => {
+  it('preserves overrides while refreshing platform fields', () => {
     const merged = mergeRefreshedModelAlias(
       {
-        provider: 'managed:pythinker-code',
-        model: 'kimi-k2',
+        provider: 'platform',
+        model: 'model-a',
         maxContextSize: 262144,
         supportEfforts: ['low'],
         overrides: { supportEfforts: ['low'] },
       },
       {
-        provider: 'managed:pythinker-code',
-        model: 'kimi-k2',
+        provider: 'platform',
+        model: 'model-a',
         maxContextSize: 262144,
         supportEfforts: ['low', 'high', 'max'],
       },
-      MANAGED_PYTHINKER_MODEL_FIELDS,
+      OPEN_PLATFORM_MODEL_FIELDS,
     );
 
     expect(merged.supportEfforts).toEqual(['low', 'high', 'max']);
     expect(merged.overrides).toEqual({ supportEfforts: ['low'] });
   });
 
-  it('drops managed top-level fields when upstream stops declaring them', () => {
+  it('drops platform top-level fields when the remote stops declaring them', () => {
     const merged = mergeRefreshedModelAlias(
       {
-        provider: 'managed:pythinker-code',
-        model: 'kimi-k2',
+        provider: 'platform',
+        model: 'model-a',
         maxContextSize: 262144,
         supportEfforts: ['low'],
       },
       {
-        provider: 'managed:pythinker-code',
-        model: 'kimi-k2',
+        provider: 'platform',
+        model: 'model-a',
         maxContextSize: 262144,
       },
-      MANAGED_PYTHINKER_MODEL_FIELDS,
+      OPEN_PLATFORM_MODEL_FIELDS,
     );
 
     expect(merged.supportEfforts).toBeUndefined();

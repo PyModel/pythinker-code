@@ -1,4 +1,5 @@
 import type { TokenUsage } from '#/kosong/contract/usage';
+import type { SubagentBindingProvenance } from '#/session/subagent/routing';
 
 import { isAbortError } from '#/_base/utils/abort';
 import {
@@ -18,6 +19,8 @@ export type SubagentHandle = {
   readonly parentToolCallId?: string;
   readonly model?: string;
   readonly thinkingEffort?: string;
+  readonly routing?: SubagentBindingProvenance;
+  readonly currentRoutingEnvironmentRevision?: string;
   readonly completion: Promise<SubagentCompletion>;
 };
 
@@ -28,6 +31,8 @@ export interface SubagentTaskInfo extends AgentTaskInfoBase {
   readonly parentToolCallId?: string;
   readonly model?: string;
   readonly thinkingEffort?: string;
+  readonly routing?: SubagentBindingProvenance;
+  readonly currentRoutingEnvironmentRevision?: string;
 }
 
 declare module '#/agent/task/types' {
@@ -77,6 +82,8 @@ export class SubagentTask implements AgentTask {
   readonly parentToolCallId?: string;
   readonly model?: string;
   readonly thinkingEffort?: string;
+  readonly routing?: SubagentBindingProvenance;
+  readonly currentRoutingEnvironmentRevision?: string;
 
   constructor(
     private readonly handle: SubagentHandle,
@@ -88,6 +95,8 @@ export class SubagentTask implements AgentTask {
     this.parentToolCallId = handle.parentToolCallId;
     this.model = handle.model;
     this.thinkingEffort = handle.thinkingEffort;
+    this.routing = handle.routing;
+    this.currentRoutingEnvironmentRevision = handle.currentRoutingEnvironmentRevision;
   }
 
   async start(sink: AgentTaskSink): Promise<void> {
@@ -124,6 +133,8 @@ export class SubagentTask implements AgentTask {
       parentToolCallId: this.parentToolCallId,
       model: this.model,
       thinkingEffort: this.thinkingEffort,
+      routing: this.routing,
+      currentRoutingEnvironmentRevision: this.currentRoutingEnvironmentRevision,
     };
   }
 }

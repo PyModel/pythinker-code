@@ -56,7 +56,7 @@ const ModelAliasBaseSchema = z.object({
   adaptiveThinking: z.boolean().optional(),
   // Efforts (e.g. ["low", "high", "max"]) the model supports for
   // extended thinking, plus the catalog default. Generic to any provider:
-  // managed models fill these from the catalog, others can be set by hand in
+  // catalog models fill these automatically; others can be set by hand in
   // config.toml. The user's chosen effort is stored globally in thinking.effort.
   supportEfforts: z.array(z.string()).optional(),
   defaultEffort: z.string().optional(),
@@ -67,7 +67,7 @@ const ModelAliasBaseSchema = z.object({
   offEffort: z.string().optional(),
   // Route the Anthropic transport through the beta Messages API
   // (`POST /v1/messages?beta=true`) instead of the standard endpoint. Used by
-  // managed Pythinker Code models that declare `protocol: 'anthropic'`.
+  // Pythinker models that declare `protocol: 'anthropic'`.
   betaApi: z.boolean().optional(),
   // Per-model endpoint override, paired with `protocol`. Catalog imports set
   // it when a gateway provider serves this model over a different endpoint

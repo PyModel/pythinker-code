@@ -88,14 +88,7 @@ async function getSourceCheckoutLocation(): Promise<MarketplaceLocation | undefi
 }
 
 export interface PluginsRouteOptions {
-  /** Resolved catalog URL (server option / env already applied by start.ts). */
   readonly marketplaceUrl?: string;
-  /**
-   * True when the catalog location is the built-in default (neither the
-   * server option nor the env var set) — only then does a failed remote read
-   * fall back to the source-checkout catalog and get capability markers
-   * (an explicitly configured catalog fails hard and stays unmarked).
-   */
   readonly marketplaceIsDefault?: boolean;
   readonly fetchImpl?: typeof fetch;
 }

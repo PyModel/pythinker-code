@@ -1,11 +1,15 @@
 // apps/pythinker-web/src/api/daemon/client.ts
 // DaemonPythinkerWebApi — implements PythinkerWebApi using the daemon REST + WS APIs.
 
+import { SubagentModelPolicyConflictError } from '../types';
 import { transcriptResponseSchema } from '@pymodel/transcript';
 import type { PythinkerApiConfig } from '../config';
 import { buildRestUrl, buildWsUrl } from '../config';
 import { traceKeyEvent } from '../../debug/trace';
 import type {
+  AppSubagentModelPolicy,
+  AppSubagentModelPolicyState,
+  AppServerMeta,
   AppConfig,
   AppGoal,
   AppMessage,
@@ -26,6 +30,7 @@ import type {
   CodexLoginStatus,
   ProviderRefreshResult,
   AppSession,
+  AppSessionGroupPage,
   AppSkill,
   AppSessionCursor,
   AppSessionRuntimeStatus,
@@ -33,6 +38,7 @@ import type {
   AppTranscriptPage,
   AppTranscriptPageRequest,
   AppTask,
+  AppTaskListOptions,
   AppTaskStatus,
   AppTerminal,
   AppWorkspace,
@@ -42,7 +48,6 @@ import type {
   PythinkerEventConnection,
   PythinkerEventHandlers,
   PythinkerWebApi,
-  OAuthLoginStartResult,
   Page,
   PageRequest,
   PromptSubmission,
@@ -52,6 +57,9 @@ import type {
 import { createAgentProjector } from './agentEventProjector';
 import { DaemonHttpClient } from './http';
 import {
+  toAppSubagentModelPolicyState,
+  toWireSubagentModelPolicy,
+  toAppExperimentalFlagStates,
   toAppApprovalRequest,
   toAppConfig,
   toAppEvent,
@@ -72,6 +80,9 @@ import {
   wireEventSessionId,
 } from './mappers';
 import type {
+  WireSubagentModelPolicy,
+  WireSubagentModelPolicyResponse,
+  WireExperimentalFlagState,
   WireAuthResult,
   WireTask,
   WireConfig,
@@ -83,9 +94,6 @@ import type {
   WireGoalSnapshot,
   WireMessage,
   WireModel,
-  WireOAuthCancelResult,
-  WireOAuthLoginPollResult,
-  WireOAuthLoginStartResult,
   WirePage,
   WirePromptSubmitResult,
   WirePromptSteerResult,
@@ -100,7 +108,6 @@ import type {
   WireSessionRuntimeStatus,
   WireSessionSnapshot,
   WireWorkspace,
-  WireLogoutResult,
 } from './wire';
 import { DaemonEventSocket } from './ws';
 
@@ -169,6 +176,66 @@ interface WireMeta {
   dangerous_bypass_auth?: boolean;
   /** Engine generation serving the API; older (v1) servers omit the field. */
   backend?: 'v1' | 'v2';
+  experimental_flag_states?: WireExperimentalFlagState[];
+}
+
+interface WireV2Session {
+  id: string;
+  workspace: { id: string; cwd: string | null };
+  meta: {
+    title: string | null;
+    last_prompt: string | null;
+    created_at: number;
+    updated_at: number;
+    archived: boolean;
+    archived_at: number | null;
+  };
+  activity: {
+    status: 'running' | 'approval' | 'question' | 'failed' | 'idle';
+    model: string | null;
+  };
+}
+
+interface WireV2SessionGroupPage {
+  groups: Array<{
+    workspace: { id: string; cwd: string | null };
+    sessions: WireV2Session[];
+    total: number;
+  }>;
+  has_more: boolean;
+  next_page_token: string | null;
+  total: number;
+}
+
+function toAppV2Session(wire: WireV2Session): AppSession {
+  const status = wire.activity.status;
+  return {
+    id: wire.id,
+    title: wire.meta.title ?? wire.meta.last_prompt ?? wire.id.slice(0, 12),
+    createdAt: new Date(wire.meta.created_at).toISOString(),
+    updatedAt: new Date(wire.meta.updated_at).toISOString(),
+    busy: status === 'running',
+    pendingInteraction:
+      status === 'approval' ? 'approval' : status === 'question' ? 'question' : undefined,
+    lastTurnReason: status === 'failed' ? 'failed' : undefined,
+    archived: wire.meta.archived,
+    lastPrompt: wire.meta.last_prompt ?? undefined,
+    cwd: wire.workspace.cwd ?? '',
+    model: wire.activity.model ?? '',
+    usage: {
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheCreationTokens: 0,
+      totalCostUsd: 0,
+      contextTokens: 0,
+      contextLimit: 0,
+      turnCount: 0,
+    },
+    messageCount: 0,
+    lastSeq: 0,
+    workspaceId: wire.workspace.id || undefined,
+  };
 }
 
 interface WireAbortResult {
@@ -193,6 +260,11 @@ interface WireQuestionResolveResult {
 
 interface WireCancelResult {
   cancelled: true;
+}
+
+interface WireDetachResult {
+  detached: boolean;
+  status: AppTaskStatus;
 }
 
 interface WireSkillDescriptor {
@@ -411,18 +483,24 @@ function isCompactionReason(reason: string): boolean {
 // DaemonPythinkerWebApi
 // ---------------------------------------------------------------------------
 
+/** Gateway envelope code for a stale If-Match on the subagent model policy (HTTP 412). */
+const SUBAGENT_POLICY_VERSION_CONFLICT = 41201;
+
 export class DaemonPythinkerWebApi implements PythinkerWebApi {
   private readonly http: DaemonHttpClient;
+  private readonly httpV2: DaemonHttpClient;
   private readonly config: PythinkerApiConfig;
 
   constructor(config: PythinkerApiConfig) {
     this.config = config;
-    this.http = new DaemonHttpClient(config.serverHttpUrl, {
+    const identity = {
       clientId: config.clientId,
       clientName: config.clientName,
       clientVersion: config.clientVersion,
       clientUiMode: config.clientUiMode,
-    });
+    };
+    this.http = new DaemonHttpClient(config.serverHttpUrl, identity);
+    this.httpV2 = new DaemonHttpClient(config.serverHttpUrl, identity, 'v2');
   }
 
   // -------------------------------------------------------------------------
@@ -435,16 +513,7 @@ export class DaemonPythinkerWebApi implements PythinkerWebApi {
     return { status: 'ok', uptimeSec: data.uptime_sec ?? 0 };
   }
 
-  async getMeta(): Promise<{
-    serverVersion: string;
-    serverId: string;
-    startedAt: string;
-    capabilities: Record<string, boolean>;
-    openInApps: string[];
-    dangerousBypassAuth: boolean;
-    /** Engine generation: 'v2' = agent-gateway / agent-core-v2; absent ⇒ 'v1'. */
-    backend: 'v1' | 'v2';
-  }> {
+  async getMeta(): Promise<AppServerMeta> {
     const data = await this.http.get<WireMeta>('/meta');
     return {
       serverVersion: data.server_version,
@@ -453,7 +522,9 @@ export class DaemonPythinkerWebApi implements PythinkerWebApi {
       capabilities: data.capabilities,
       openInApps: Array.isArray(data.open_in_apps) ? data.open_in_apps : [],
       dangerousBypassAuth: data.dangerous_bypass_auth === true,
+      // Engine generation: 'v2' = agent-gateway / agent-core-v2; absent ⇒ 'v1'.
       backend: data.backend === 'v2' ? 'v2' : 'v1',
+      experimentalFlagStates: toAppExperimentalFlagStates(data.experimental_flag_states),
     };
   }
 
@@ -486,6 +557,31 @@ export class DaemonPythinkerWebApi implements PythinkerWebApi {
     return {
       items: data.items.map(toAppSession),
       hasMore: data.has_more,
+    };
+  }
+
+  async listSessionGroupsV2(input?: {
+    groupPageSize?: number;
+    hasPrompt?: boolean;
+    pageSize?: number;
+    pageToken?: string;
+  }): Promise<AppSessionGroupPage> {
+    const data = await this.httpV2.get<WireV2SessionGroupPage>('/sessions', {
+      view: 'by_workspace',
+      'group.page_size': input?.groupPageSize,
+      'meta.has_prompt': input?.hasPrompt,
+      page_size: input?.pageSize,
+      page_token: input?.pageToken,
+    });
+    return {
+      groups: data.groups.map((group) => ({
+        workspace: group.workspace,
+        sessions: group.sessions.map(toAppV2Session),
+        total: group.total,
+      })),
+      hasMore: data.has_more,
+      nextPageToken: data.next_page_token,
+      total: data.total,
     };
   }
 
@@ -941,13 +1037,17 @@ export class DaemonPythinkerWebApi implements PythinkerWebApi {
   // Tasks
   // -------------------------------------------------------------------------
 
-  async listTasks(sessionId: string, status?: AppTaskStatus): Promise<AppTask[]> {
-    const query: Record<string, string | undefined> = {
-      status: status,
+  async listTasks(sessionId: string, input?: AppTaskListOptions): Promise<AppTask[]> {
+    const query: Record<string, string | number | boolean | undefined> = {
+      status: input?.status,
+      with_output: input?.withOutput,
+      output_bytes: input?.outputBytes,
+      output_status: input?.outputStatus,
     };
     const data = await this.http.get<{ items: WireTask[] }>(
       `/sessions/${encodeURIComponent(sessionId)}/tasks`,
       query,
+      { signal: input?.signal },
     );
     return data.items.map(toAppTask);
   }
@@ -955,7 +1055,7 @@ export class DaemonPythinkerWebApi implements PythinkerWebApi {
   async getTask(
     sessionId: string,
     taskId: string,
-    input?: { withOutput?: boolean; outputBytes?: number },
+    input?: { withOutput?: boolean; outputBytes?: number; signal?: AbortSignal },
   ): Promise<AppTask> {
     const query: Record<string, string | number | boolean | undefined> = {
       with_output: input?.withOutput,
@@ -964,6 +1064,7 @@ export class DaemonPythinkerWebApi implements PythinkerWebApi {
     const data = await this.http.get<WireTask>(
       `/sessions/${encodeURIComponent(sessionId)}/tasks/${encodeURIComponent(taskId)}`,
       query,
+      { signal: input?.signal },
     );
     return toAppTask(data);
   }
@@ -971,6 +1072,16 @@ export class DaemonPythinkerWebApi implements PythinkerWebApi {
   async cancelTask(sessionId: string, taskId: string): Promise<{ cancelled: true }> {
     const data = await this.http.post<WireCancelResult>(
       `/sessions/${encodeURIComponent(sessionId)}/tasks/${encodeURIComponent(taskId)}:cancel`,
+    );
+    return data;
+  }
+
+  async detachTask(
+    sessionId: string,
+    taskId: string,
+  ): Promise<{ detached: boolean; status: AppTaskStatus }> {
+    const data = await this.http.post<WireDetachResult>(
+      `/sessions/${encodeURIComponent(sessionId)}/tasks/${encodeURIComponent(taskId)}:detach`,
     );
     return data;
   }
@@ -1373,6 +1484,16 @@ export class DaemonPythinkerWebApi implements PythinkerWebApi {
     );
   }
 
+  async revealSavedPlan(
+    sessionId: string,
+    input: { agentId: string; toolCallId: string },
+  ): Promise<{ revealed: true }> {
+    return this.http.post<{ revealed: true }>(
+      `/sessions/${encodeURIComponent(sessionId)}/transcript/plan:reveal`,
+      { agent_id: input.agentId, tool_call_id: input.toolCallId },
+    );
+  }
+
   async openInApp(
     sessionId: string,
     appId: string,
@@ -1476,11 +1597,8 @@ export class DaemonPythinkerWebApi implements PythinkerWebApi {
   }
 
   /**
-   * S1: generate a session title via the daemon's managed chat_title tool —
-   * POST /api/v1/sessions/{id}/title/generate (v2 engine). Returns the
-   * generated title. Throws 40923 SESSION_TITLE_UNAVAILABLE when generation
-   * isn't possible (feature flag off, no managed login, no prompt yet, or a
-   * backend failure).
+   * Generate a session title through the v2 daemon. This build returns 40923
+   * SESSION_TITLE_UNAVAILABLE because it has no title-generation backend.
    */
   async generateSessionTitle(
     sessionId: string,
@@ -1565,11 +1683,6 @@ export class DaemonPythinkerWebApi implements PythinkerWebApi {
     return toProviderRefreshResult(data);
   }
 
-  async refreshOAuthProviderModels(): Promise<ProviderRefreshResult> {
-    const data = await this.http.post<WireProviderRefreshResult>('/providers:refresh_oauth');
-    return toProviderRefreshResult(data);
-  }
-
   async startCodexLogin(): Promise<CodexLoginStart> {
     const data = await this.http.post<WireCodexLoginStart>('/auth/codex:start');
     return {
@@ -1638,7 +1751,6 @@ export class DaemonPythinkerWebApi implements PythinkerWebApi {
       background: 'background',
       experimental: 'experimental',
       telemetry: 'telemetry',
-      raw: 'raw',
     };
     for (const [key, value] of Object.entries(patch)) {
       const wireKey = keyMap[key as keyof AppConfig];
@@ -1650,6 +1762,36 @@ export class DaemonPythinkerWebApi implements PythinkerWebApi {
     return toAppConfig(data);
   }
 
+  async getSubagentModelPolicy(): Promise<AppSubagentModelPolicyState> {
+    const res = await this.http.exchange<WireSubagentModelPolicyResponse>('GET', '/config/subagent-model-policy');
+    return toAppSubagentModelPolicyState(res.data);
+  }
+
+  async setSubagentModelPolicy(policy: AppSubagentModelPolicy, expectedVersion?: string): Promise<AppSubagentModelPolicyState> {
+    return this.subagentModelPolicyWrite('PUT', toWireSubagentModelPolicy(policy), expectedVersion);
+  }
+
+  async clearSubagentModelPolicy(expectedVersion?: string): Promise<AppSubagentModelPolicyState> {
+    return this.subagentModelPolicyWrite('DELETE', undefined, expectedVersion);
+  }
+
+  private async subagentModelPolicyWrite(
+    method: 'PUT' | 'DELETE',
+    body: WireSubagentModelPolicy | undefined,
+    expectedVersion: string | undefined,
+  ): Promise<AppSubagentModelPolicyState> {
+    const headers = expectedVersion === undefined ? undefined : { 'If-Match': `"${expectedVersion}"` };
+    const res = await this.http.exchange<WireSubagentModelPolicyResponse | null>(method, '/config/subagent-model-policy', {
+      body,
+      headers,
+      allowCodes: [SUBAGENT_POLICY_VERSION_CONFLICT],
+    });
+    if (res.code === SUBAGENT_POLICY_VERSION_CONFLICT || res.data === null) {
+      throw new SubagentModelPolicyConflictError(await this.getSubagentModelPolicy());
+    }
+    return toAppSubagentModelPolicyState(res.data);
+  }
+
   // -------------------------------------------------------------------------
   // Auth — REAL endpoints
   // -------------------------------------------------------------------------
@@ -1658,64 +1800,13 @@ export class DaemonPythinkerWebApi implements PythinkerWebApi {
     ready: boolean;
     providersCount: number;
     defaultModel: string | null;
-    managedProvider: { status: string } | null;
   }> {
     const data = await this.http.get<WireAuthResult>('/auth');
     return {
       ready: data.ready,
       providersCount: data.providers_count,
       defaultModel: data.default_model,
-      managedProvider: data.managed_provider
-        ? { status: data.managed_provider.status }
-        : null,
     };
-  }
-
-  async startOAuthLogin(): Promise<OAuthLoginStartResult> {
-    const data = await this.http.post<WireOAuthLoginStartResult>('/oauth/login', {});
-    if (data.status === 'authenticated') {
-      return {
-        flowId: data.flow_id,
-        provider: data.provider,
-        status: 'authenticated',
-      };
-    }
-    return {
-      flowId: data.flow_id,
-      provider: data.provider,
-      status: 'pending',
-      verificationUri: data.verification_uri,
-      verificationUriComplete: data.verification_uri_complete,
-      userCode: data.user_code,
-      expiresIn: data.expires_in,
-      interval: data.interval,
-      expiresAt: data.expires_at,
-    };
-  }
-
-  async pollOAuthLogin(): Promise<{
-    flowId: string;
-    status: 'pending' | 'authenticated' | 'expired' | 'cancelled';
-    resolvedAt?: string;
-  } | null> {
-    // data may be null if no flow is active
-    const data = await this.http.get<WireOAuthLoginPollResult | null>('/oauth/login');
-    if (!data) return null;
-    return {
-      flowId: data.flow_id,
-      status: data.status,
-      resolvedAt: data.resolved_at,
-    };
-  }
-
-  async cancelOAuthLogin(): Promise<{ cancelled: boolean; status: string }> {
-    const data = await this.http.delete<WireOAuthCancelResult>('/oauth/login');
-    return { cancelled: data.cancelled, status: data.status };
-  }
-
-  async logout(): Promise<{ loggedOut: boolean }> {
-    const data = await this.http.post<WireLogoutResult>('/oauth/logout', {});
-    return { loggedOut: data.logged_out };
   }
 
   // -------------------------------------------------------------------------

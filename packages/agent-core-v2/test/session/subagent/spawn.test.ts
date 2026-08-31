@@ -1,3 +1,4 @@
+import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
@@ -6,6 +7,7 @@ import { TestInstantiationService } from '#/_base/di/test';
 import { Event } from '#/_base/event';
 import { LifecycleScope } from '#/app/scopes';
 import type { IAgentScopeHandle } from '#/_base/di/scope';
+import type { AgentContext } from '#/agent/agentContext/agentContext';
 import { IConfigService } from '#/app/config/config';
 import { IFlagService } from '#/app/flag/flag';
 import { ILogService } from '#/_base/log/log';
@@ -18,6 +20,7 @@ import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMo
 import { IAgentUserToolService } from '#/agent/userTool/userTool';
 import { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
 import { Error2, ErrorCodes, isError2 } from '#/errors';
+import { UNKNOWN_CAPABILITY } from '#/kosong/contract/capability';
 import { IModelCatalog, type Model } from '#/kosong/model/catalog';
 import type { RuntimeLease } from '#/runtime/runtime';
 import { FakeRuntime } from '#/runtime/fakeRuntime';
@@ -30,7 +33,19 @@ import { SECONDARY_MODEL_FLAG_ID } from '#/session/subagent/flag';
 import { ISessionSubagentService } from '#/session/subagent/subagent';
 import { SessionSubagentService } from '#/session/subagent/subagentService';
 import {
+  IAgentBindingProvenanceService,
+  type IAgentBindingProvenanceService as AgentBindingProvenanceServiceContract,
+} from '#/session/subagent/bindingProvenance';
+import type { SubagentBindingProvenance } from '#/session/subagent/routing';
+import { ISubagentModelPolicyService } from '#/session/subagent/subagentModelPolicy';
+import { SubagentModelPolicyService } from '#/session/subagent/subagentModelPolicyService';
+import {
+  ISubagentRoutingService,
+  SessionSubagentRoutingService,
+} from '#/session/subagent/subagentRoutingService';
+import {
   FORK_CONTEXT_NOTICE,
+  FORK_WITH_THINKING_UNAVAILABLE,
   type SpawnedSubagent,
   type SpawnSubagentOptions,
   type SubagentSpawnPlan,
@@ -50,9 +65,14 @@ describe('SessionSubagentService planSpawn and spawn', () => {
   let callerData: ProfileData;
   let profiles: AgentProfile[];
   let modelIds: Set<string>;
+  let modelMeta: Map<string, Partial<Model>>;
   let caller: IAgentScopeHandle;
+  let createdHandles: Map<string, IAgentScopeHandle>;
+  let recordedProvenance: Map<string, SubagentBindingProvenance[]>;
+  let telemetry: ITelemetryService;
   let createAgent: ReturnType<typeof vi.fn>;
   let forkAgent: ReturnType<typeof vi.fn>;
+  let removeAgent: ReturnType<typeof vi.fn>;
   let acquireRuntime: ReturnType<typeof vi.fn>;
   let callerPermissionMode: { mode: string; setMode: ReturnType<typeof vi.fn> };
   let createdPermissionMode: { mode: string; setMode: ReturnType<typeof vi.fn> };
@@ -89,6 +109,23 @@ describe('SessionSubagentService planSpawn and spawn', () => {
           }
           if (serviceId === IAgentPermissionModeService) return createdPermissionMode;
           if (serviceId === IAgentUserToolService) return createdUserTools;
+          if (serviceId === IAgentScopeContext) {
+            return {
+              _serviceBrand: undefined,
+              agentId,
+              agentContext: stubAgentContext(agentId, 1),
+              scope: () => '',
+            };
+          }
+          if (serviceId === IAgentBindingProvenanceService) {
+            return {
+              _serviceBrand: undefined,
+              current: () => recordedProvenance.get(agentId)?.at(-1),
+              record: (provenance: SubagentBindingProvenance) => {
+                recordedProvenance.set(agentId, [...(recordedProvenance.get(agentId) ?? []), provenance]);
+              },
+            } satisfies AgentBindingProvenanceServiceContract;
+          }
           return undefined;
         },
       } as IAgentScopeHandle['accessor'],
@@ -119,6 +156,7 @@ describe('SessionSubagentService planSpawn and spawn', () => {
       }),
     ];
     modelIds = new Set(['main-model']);
+    modelMeta = new Map();
     callerPermissionMode = { mode: 'auto', setMode: vi.fn() };
     createdPermissionMode = { mode: 'manual', setMode: vi.fn() };
     callerUserTools = userToolsStub();
@@ -156,20 +194,34 @@ describe('SessionSubagentService planSpawn and spawn', () => {
       } as IAgentScopeHandle['accessor'],
       dispose: () => {},
     };
-    createAgent = vi.fn(async (input: { readonly agentId?: string } = {}) =>
-      createdHandle(input.agentId ?? 'agent-child'),
-    );
-    forkAgent = vi.fn(async () => createdHandle('agent-fork'));
+    createdHandles = new Map();
+    recordedProvenance = new Map();
+    telemetry = { _serviceBrand: undefined, track2: vi.fn(), track: vi.fn() } as unknown as ITelemetryService;
+    createAgent = vi.fn(async (input: { readonly agentId?: string } = {}) => {
+      const agentId = input.agentId ?? 'agent-child';
+      createdHandles.set(agentId, createdHandle(agentId));
+      return stubAgentContext(agentId, 1);
+    });
+    forkAgent = vi.fn(async () => {
+      createdHandles.set('agent-fork', createdHandle('agent-fork'));
+      return stubAgentContext('agent-fork', 1);
+    });
+    removeAgent = vi.fn(async (agent: { readonly agentId: string }) => {
+      createdHandles.delete(agent.agentId);
+    });
     ix.stub(IAgentLifecycleService, {
       _serviceBrand: undefined,
       onDidCreate: Event.None,
-      onDidDispose: Event.None,
+      onDidCreateScope: Event.None,
+      onWillClose: Event.None,
+      onDidClose: Event.None,
       create: createAgent,
       fork: forkAgent,
-      get: (agentId: string) => (agentId === CALLER_ID ? caller : undefined),
-      findAgentHandle: (agentId: string) => (agentId === CALLER_ID ? caller : undefined),
-      list: () => [caller],
-      remove: async () => {},
+      get: (agentId: string) => (agentId === CALLER_ID ? stubAgentContext(CALLER_ID, 1) : undefined),
+      handleOf: (agentId: string) =>
+        agentId === CALLER_ID ? caller : createdHandles.get(agentId),
+      list: () => [stubAgentContext(CALLER_ID, 1)],
+      remove: removeAgent,
       broadcastPermissionMode: () => {},
     } as unknown as IAgentLifecycleService);
     ix.stub(ISessionAgentProfileCatalog, {
@@ -192,7 +244,7 @@ describe('SessionSubagentService planSpawn and spawn', () => {
             { details: { model: alias } },
           );
         }
-        return { id: alias } as Model;
+        return { id: alias, ...modelMeta.get(alias) } as Model;
       },
     } as unknown as IModelCatalog);
     ix.stub(ISessionContext, { _serviceBrand: undefined, cwd: '/repo' } as unknown as ISessionContext);
@@ -212,6 +264,9 @@ describe('SessionSubagentService planSpawn and spawn', () => {
       IFlagService,
       stubFlag((id) => secondaryModelEnabled && id === SECONDARY_MODEL_FLAG_ID),
     );
+    ix.stub(ITelemetryService, telemetry);
+    ix.set(ISubagentModelPolicyService, new SyncDescriptor(SubagentModelPolicyService));
+    ix.set(ISubagentRoutingService, new SyncDescriptor(SessionSubagentRoutingService));
     ix.set(ISessionSubagentService, new SyncDescriptor(SessionSubagentService));
     return ix.get(ISessionSubagentService);
   }
@@ -281,6 +336,26 @@ describe('SessionSubagentService planSpawn and spawn', () => {
     );
   });
 
+  it('allows a known internal profile through an explicit trusted route', async () => {
+    profiles.push(
+      normalizeAgentProfile({
+        name: 'tower-worker',
+        description: 'Tower worker',
+        systemPrompt: () => 'tower worker',
+      }),
+    );
+    callerData = { ...callerData, subagents: ['explore'] };
+    const svc = service();
+
+    await expect(
+      svc.planSpawn({
+        callerAgentId: CALLER_ID,
+        profileName: 'tower-worker',
+        allowUnlistedProfile: true,
+      }),
+    ).resolves.toMatchObject({ profileName: 'tower-worker', model: 'main-model' });
+  });
+
   it('rejects when the caller agent has no model bound', async () => {
     callerData = { ...callerData, modelAlias: undefined };
     const svc = service();
@@ -309,6 +384,155 @@ describe('SessionSubagentService planSpawn and spawn', () => {
     expect(error.message).toContain('comes from [secondary_model.models]');
   });
 
+  it('uses the section effort for a secondary-bound subagent', async () => {
+    modelIds.add('provider/fast');
+    modelMeta.set('provider/fast', {
+      capabilities: { ...UNKNOWN_CAPABILITY, thinking: true },
+      supportEfforts: ['low', 'high', 'max'],
+      defaultEffort: 'high',
+    });
+    const svc = service(
+      {
+        [SECONDARY_MODEL_SECTION]: {
+          defaultModel: 'provider/fast',
+          models: { 'provider/fast': 'fast model' },
+          defaultEffort: 'max',
+        },
+        thinking: { enabled: false },
+      },
+      true,
+    );
+
+    expect(await svc.planSpawn({ callerAgentId: CALLER_ID, profileName: 'coder' })).toMatchObject({
+      profileName: 'coder',
+      model: 'provider/fast',
+      thinking: 'max',
+      fork: false,
+    });
+  });
+
+  it('hands the planned routing provenance to the created child, for spawn and fork', async () => {
+    const svc = service();
+    const plan = await svc.planSpawn({ callerAgentId: CALLER_ID, profileName: 'coder' });
+    expect(plan.routing).toMatchObject({ operation: 'spawn', modelSource: 'caller', policyMode: 'inherit' });
+    await svc.spawn({ callerAgentId: CALLER_ID, plan, prompt: 'do it' });
+    expect(recordedProvenance.get('agent-child')).toEqual([plan.routing]);
+
+    const forkPlan = await svc.planSpawn({ callerAgentId: CALLER_ID, fork: true });
+    expect(forkPlan.routing).toMatchObject({ operation: 'fork', profileSource: 'fork-inherit', modelSource: 'fork-inherit' });
+    await svc.spawn({ callerAgentId: CALLER_ID, plan: forkPlan, prompt: 'forked' });
+    expect(recordedProvenance.get('agent-fork')).toEqual([forkPlan.routing]);
+  });
+
+  it('falls back to the bound model default effort', async () => {
+    modelIds.add('provider/fast');
+    modelMeta.set('provider/fast', {
+      capabilities: { ...UNKNOWN_CAPABILITY, thinking: true },
+      supportEfforts: ['low', 'high', 'max'],
+      defaultEffort: 'max',
+    });
+    const svc = service(
+      {
+        [SECONDARY_MODEL_SECTION]: {
+          defaultModel: 'provider/fast',
+          models: { 'provider/fast': 'fast model' },
+        },
+      },
+      true,
+    );
+
+    expect((await svc.planSpawn({ callerAgentId: CALLER_ID, profileName: 'coder' })).thinking).toBe(
+      'max',
+    );
+  });
+
+  it('keeps thinking unset when global thinking is disabled', async () => {
+    modelIds.add('provider/fast');
+    modelMeta.set('provider/fast', {
+      capabilities: { ...UNKNOWN_CAPABILITY, thinking: true },
+      supportEfforts: ['low', 'high', 'max'],
+      defaultEffort: 'max',
+    });
+    const svc = service(
+      {
+        [SECONDARY_MODEL_SECTION]: {
+          defaultModel: 'provider/fast',
+          models: { 'provider/fast': 'fast model' },
+        },
+        thinking: { enabled: false },
+      },
+      true,
+    );
+
+    expect(
+      (await svc.planSpawn({ callerAgentId: CALLER_ID, profileName: 'coder' })).thinking,
+    ).toBeUndefined();
+  });
+
+  it('ignores an invalid bound model default effort', async () => {
+    modelIds.add('provider/fast');
+    modelMeta.set('provider/fast', {
+      capabilities: { ...UNKNOWN_CAPABILITY, thinking: true },
+      supportEfforts: ['low', 'high'],
+      defaultEffort: 'max',
+    });
+    const svc = service(
+      {
+        [SECONDARY_MODEL_SECTION]: {
+          defaultModel: 'provider/fast',
+          models: { 'provider/fast': 'fast model' },
+        },
+      },
+      true,
+    );
+
+    expect(
+      (await svc.planSpawn({ callerAgentId: CALLER_ID, profileName: 'coder' })).thinking,
+    ).toBeUndefined();
+  });
+
+  it('uses the section effort with a forced secondary model', async () => {
+    modelIds.add('provider/fast');
+    const svc = service(
+      {
+        [SECONDARY_MODEL_SECTION]: {
+          force: true,
+          defaultModel: 'provider/fast',
+          defaultEffort: 'max',
+        },
+      },
+      true,
+    );
+
+    expect(await svc.planSpawn({ callerAgentId: CALLER_ID, profileName: 'coder' })).toMatchObject({
+      profileName: 'coder',
+      model: 'provider/fast',
+      thinking: 'max',
+      fork: false,
+    });
+  });
+
+  it('treats a preferred model as a fallback under a forced policy', async () => {
+    modelIds.add('provider/fast');
+    const svc = service(
+      {
+        [SECONDARY_MODEL_SECTION]: {
+          force: true,
+          defaultModel: 'provider/fast',
+        },
+      },
+      true,
+    );
+
+    await expect(
+      svc.planSpawn({
+        callerAgentId: CALLER_ID,
+        profileName: 'coder',
+        preferredModel: 'primary',
+      }),
+    ).resolves.toMatchObject({ model: 'provider/fast', routing: { modelSource: 'policy-force' } });
+  });
+
   it('skips the allowlist check when forking', async () => {
     callerData = { ...callerData, profileName: 'coder', subagents: ['explore'] };
     const svc = service();
@@ -332,12 +556,25 @@ describe('SessionSubagentService planSpawn and spawn', () => {
 
     const plan = await svc.planSpawn({ callerAgentId: CALLER_ID, fork: true });
 
-    expect(plan).toEqual({
+    expect(plan).toMatchObject({
       profileName: 'orchestrator',
       model: 'main-model',
       thinking: 'high',
       fork: true,
     });
+  });
+
+  it('rejects a direct fork plan with a different thinking level', async () => {
+    const svc = service();
+
+    const error = await planSpawnError(svc, {
+      callerAgentId: CALLER_ID,
+      fork: true,
+      thinking: 'low',
+    });
+
+    expect(error.code).toBe(ErrorCodes.VALIDATION_FAILED);
+    expect(error.message).toBe(FORK_WITH_THINKING_UNAVAILABLE);
   });
 
   it('creates the child with the plan binding when the plan is not a fork', async () => {
@@ -401,6 +638,102 @@ describe('SessionSubagentService planSpawn and spawn', () => {
     });
   });
 
+  it('creates and reports the child after async prompt-prefix setup completes', async () => {
+    let resolvePrefix!: (value: string) => void;
+    const prefix = new Promise<string>((resolve) => {
+      resolvePrefix = resolve;
+    });
+    profiles = [
+      normalizeAgentProfile({
+        name: 'coder',
+        description: 'Coder',
+        promptPrefix: async () => prefix,
+        systemPrompt: () => 'coder',
+      }),
+    ];
+    const onAgentCreated = vi.fn();
+    const svc = service();
+    const spawning = svc.spawn({
+      callerAgentId: CALLER_ID,
+      plan: { profileName: 'coder', model: 'provider/fast', thinking: 'low', fork: false },
+      labels: { parentAgentId: 'main' },
+      prompt: 'Review the file',
+      onAgentCreated,
+    });
+
+    expect(onAgentCreated).not.toHaveBeenCalled();
+    expect(createAgent).not.toHaveBeenCalled();
+    resolvePrefix('FIXED-PREFIX');
+    await expect(spawning).resolves.toMatchObject({ agentId: 'agent-child' });
+    expect(onAgentCreated).toHaveBeenCalledWith('agent-child');
+  });
+
+  it('does not create a child when cancellation interrupts prompt-prefix setup', async () => {
+    let resolvePrefix!: (value: string) => void;
+    const prefix = new Promise<string>((resolve) => {
+      resolvePrefix = resolve;
+    });
+    profiles = [
+      normalizeAgentProfile({
+        name: 'coder',
+        description: 'Coder',
+        promptPrefix: async () => prefix,
+        systemPrompt: () => 'coder',
+      }),
+    ];
+    const controller = new AbortController();
+    const reason = new Error('cancelled');
+    const onAgentCreated = vi.fn();
+    const svc = service();
+    const spawning = svc.spawn({
+      callerAgentId: CALLER_ID,
+      plan: { profileName: 'coder', model: 'provider/fast', thinking: 'low', fork: false },
+      prompt: 'Review the file',
+      signal: controller.signal,
+      onAgentCreated,
+    });
+
+    controller.abort(reason);
+    resolvePrefix('FIXED-PREFIX');
+
+    await expect(spawning).rejects.toBe(reason);
+    expect(createAgent).not.toHaveBeenCalled();
+    expect(onAgentCreated).not.toHaveBeenCalled();
+  });
+
+  it('removes a child created while cancellation is pending', async () => {
+    let resolveCreate!: (agent: AgentContext) => void;
+    const creating = new Promise<AgentContext>((resolve) => {
+      resolveCreate = (agent) => {
+        createdHandles.set(agent.agentId, createdHandle(agent.agentId));
+        resolve(agent);
+      };
+    });
+    createAgent.mockReturnValueOnce(creating);
+    const controller = new AbortController();
+    const reason = new Error('cancelled');
+    const onAgentCreated = vi.fn();
+    const svc = service();
+    const spawning = svc.spawn({
+      callerAgentId: CALLER_ID,
+      plan: { profileName: 'coder', model: 'provider/fast', thinking: 'low', fork: false },
+      prompt: 'Review the file',
+      signal: controller.signal,
+      onAgentCreated,
+    });
+    await vi.waitFor(() => {
+      expect(createAgent).toHaveBeenCalledOnce();
+    });
+
+    controller.abort(reason);
+    resolveCreate(stubAgentContext('agent-child', 1));
+
+    await expect(spawning).rejects.toBe(reason);
+    expect(removeAgent).toHaveBeenCalledWith(expect.objectContaining({ agentId: 'agent-child' }));
+    expect(createdHandles.has('agent-child')).toBe(false);
+    expect(onAgentCreated).not.toHaveBeenCalled();
+  });
+
   it('releases the runtime lease after spawn', async () => {
     const svc = service();
 
@@ -409,7 +742,40 @@ describe('SessionSubagentService planSpawn and spawn', () => {
     expect(lease.dispose).toHaveBeenCalled();
   });
 
-  it('delegates to lifecycle.fork with the caller labels when the plan is a fork', async () => {
+  it('removes a created child when post-create setup fails', async () => {
+    createdPermissionMode.setMode.mockImplementationOnce(() => {
+      throw new Error('permission setup failed');
+    });
+    const onAgentCreated = vi.fn();
+    const svc = service();
+
+    await expect(
+      svc.spawn({
+        callerAgentId: CALLER_ID,
+        plan: { profileName: 'coder', model: 'provider/fast', thinking: 'low', fork: false },
+        prompt: 'Review the file',
+        onAgentCreated,
+      }),
+    ).rejects.toThrow('permission setup failed');
+
+    expect(removeAgent).toHaveBeenCalledWith(expect.objectContaining({ agentId: 'agent-child' }));
+    expect(createdHandles.has('agent-child')).toBe(false);
+    expect(onAgentCreated).not.toHaveBeenCalled();
+  });
+
+  it('removes a child when creation returns without an agent scope', async () => {
+    createAgent.mockResolvedValueOnce(stubAgentContext('agent-missing', 1));
+    const svc = service();
+
+    await expect(spawnNonForkChild(svc)).rejects.toMatchObject({
+      code: ErrorCodes.AGENT_NOT_FOUND,
+      details: { agentId: 'agent-missing' },
+    });
+
+    expect(removeAgent).toHaveBeenCalledWith(expect.objectContaining({ agentId: 'agent-missing' }));
+  });
+
+  it('delegates to manager.fork with the caller labels when the plan is a fork', async () => {
     const svc = service();
 
     await spawnForkChild(svc);

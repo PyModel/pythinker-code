@@ -66,7 +66,7 @@ function makeHarness(
 
 function openConn(harness: PythinkerHarness): ClientSideConnection {
   const { agentStream, clientStream } = makeInMemoryStreamPair();
-  new AgentSideConnection((c) => new AcpServer(harness, c), agentStream);
+  new AgentSideConnection((c) => new AcpServer(harness, c, { disableAuth: true }), agentStream);
   return new ClientSideConnection((_a) => new StubClient(), clientStream);
 }
 

@@ -200,7 +200,7 @@ describe('Phase 9.3 e2e · newSession emits available_commands_update once', () 
     } as unknown as PythinkerHarness;
 
     const { agentStream, clientStream } = makeInMemoryStreamPair();
-    new AgentSideConnection((c) => new AcpServer(harness, c), agentStream);
+    new AgentSideConnection((c) => new AcpServer(harness, c, { disableAuth: true }), agentStream);
     const collecting = new CollectingClient();
     const client = new ClientSideConnection(() => collecting, clientStream);
 
@@ -253,7 +253,7 @@ describe('Phase 9.3 e2e · loadSession emits available_commands_update once', ()
     } as unknown as PythinkerHarness;
 
     const { agentStream, clientStream } = makeInMemoryStreamPair();
-    new AgentSideConnection((c) => new AcpServer(harness, c), agentStream);
+    new AgentSideConnection((c) => new AcpServer(harness, c, { disableAuth: true }), agentStream);
     const collecting = new CollectingClient();
     const client = new ClientSideConnection(() => collecting, clientStream);
 
@@ -300,7 +300,7 @@ describe('Phase 9.3 e2e · todo_list display block becomes a plan session_update
     } as unknown as PythinkerHarness;
 
     const { agentStream, clientStream } = makeInMemoryStreamPair();
-    new AgentSideConnection((c) => new AcpServer(harness, c), agentStream);
+    new AgentSideConnection((c) => new AcpServer(harness, c, { disableAuth: true }), agentStream);
     const collecting = new CollectingClient();
     const client = new ClientSideConnection(() => collecting, clientStream);
 
@@ -345,7 +345,7 @@ describe('Phase 9.3 e2e · todo_list display block becomes a plan session_update
     } as unknown as PythinkerHarness;
 
     const { agentStream, clientStream } = makeInMemoryStreamPair();
-    new AgentSideConnection((c) => new AcpServer(harness, c), agentStream);
+    new AgentSideConnection((c) => new AcpServer(harness, c, { disableAuth: true }), agentStream);
     const collecting = new CollectingClient();
     const client = new ClientSideConnection(() => collecting, clientStream);
 

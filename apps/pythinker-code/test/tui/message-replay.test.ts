@@ -238,13 +238,6 @@ function makeHarness(initialSession: Session) {
     withInteractiveAgent: vi.fn((agentId: string, fn: () => unknown) => {
       return interactiveAgentScope.run(agentId, fn);
     }),
-    auth: {
-      status: vi.fn(),
-      login: vi.fn(),
-      logout: vi.fn(),
-      getManagedUsage: vi.fn(),
-      submitFeedback: vi.fn(async () => ({ kind: 'ok', feedbackId: 3 })),
-    },
   };
 }
 
@@ -402,7 +395,7 @@ describe('PythinkerTUI resume message replay', () => {
     ]);
 
     const transcript = stripAnsi(driver.state.transcriptContainer.render(140).join('\n'));
-    expect(transcript).toContain('... (20 more lines, ctrl+o to expand)');
+    expect(transcript).toContain('… (20 more lines, ctrl+o to expand)');
     expect(transcript).toContain('row-01');
     expect(transcript).not.toContain('row-11');
   });
@@ -1490,7 +1483,7 @@ describe('replayBackgroundProjection', () => {
       [agentTask({ model: 'k2-cheap', thinkingEffort: 'low' })],
       {
         'k2-cheap': {
-          provider: 'managed:pythinker-code',
+          provider: 'oauth-example',
           model: 'kimi-k2-cheap',
           displayName: 'Kimi K2 Cheap',
         },

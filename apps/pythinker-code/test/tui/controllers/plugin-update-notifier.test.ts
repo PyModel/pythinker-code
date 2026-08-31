@@ -12,12 +12,12 @@ import {
 } from '#/tui/controllers/plugin-update-notifier';
 import type { PluginMarketplace } from '#/utils/plugin-marketplace';
 
-const DATASOURCE_TOOL = 'mcp__plugin-pythinker-datasource_data__call_data_source_tool';
+const DATASOURCE_TOOL = 'mcp__plugin-example-data_data__call_data_source_tool';
 
 function makePluginSummary(): PluginSummary {
   return {
-    id: 'pythinker-datasource',
-    displayName: 'Pythinker Datasource',
+    id: 'example-data',
+    displayName: 'Example Data',
     version: '3.3.0',
     enabled: true,
     state: 'ok',
@@ -29,7 +29,7 @@ function makePluginSummary(): PluginSummary {
     hasErrors: false,
     source: 'zip-url',
     originalSource:
-      'https://plugins.example.com/pythinker-code/plugins/official/pythinker-datasource.zip',
+      'https://plugins.example.com/pythinker-code/plugins/official/example-data.zip',
   };
 }
 
@@ -38,10 +38,10 @@ function makeMarketplace(source: string): PluginMarketplace {
     source,
     plugins: [
       {
-        id: 'pythinker-datasource',
-        displayName: 'Pythinker Datasource',
+        id: 'example-data',
+        displayName: 'Example Data',
         source:
-          'https://plugins.example.com/pythinker-code/plugins/official/pythinker-datasource.zip',
+          'https://plugins.example.com/pythinker-code/plugins/official/example-data.zip',
         tier: 'official',
         version: '3.4.0',
       },
@@ -57,7 +57,7 @@ describe('PluginUpdateNotifier', () => {
   beforeEach(async () => {
     tempDir = await mkdtemp(join(tmpdir(), 'plugin-update-notifier-'));
     session = {
-      listMcpServers: vi.fn(async () => [{ name: 'plugin-pythinker-datasource:data' }]),
+      listMcpServers: vi.fn(async () => [{ name: 'plugin-example-data:data' }]),
       listPlugins: vi.fn(async () => [makePluginSummary()]),
     };
     notify = vi.fn();
@@ -87,14 +87,14 @@ describe('PluginUpdateNotifier', () => {
   it('does not notify for a Kimi marketplace source', async () => {
     await notifier(
       makeMarketplace('https://plugins.example.com/pythinker-code/plugins/marketplace.json'),
-    ).handlePluginCommandCompleted('pythinker-datasource');
+    ).handlePluginCommandCompleted('example-data');
 
     expect(session.listPlugins).not.toHaveBeenCalled();
     expect(notify).not.toHaveBeenCalled();
   });
 
   it('does not notify for a former Kimi official install in the built-in catalog', async () => {
-    await notifier(makeMarketplace('')).handlePluginCommandCompleted('pythinker-datasource');
+    await notifier(makeMarketplace('')).handlePluginCommandCompleted('example-data');
 
     expect(session.listPlugins).toHaveBeenCalled();
     expect(notify).not.toHaveBeenCalled();

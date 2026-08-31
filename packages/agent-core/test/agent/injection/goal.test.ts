@@ -11,6 +11,10 @@ function makeStore() {
     records: { logRecord: () => {} },
     emitEvent: () => {},
     telemetry: { track: () => {} },
+    fullCompaction: {
+      onDidStartCompaction: () => ({ dispose() {} }),
+      onDidFinishCompaction: () => ({ dispose() {} }),
+    },
   } as unknown as Agent;
   return new GoalMode(agent);
 }

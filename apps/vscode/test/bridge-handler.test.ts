@@ -36,9 +36,7 @@ const host = vi.hoisted(() => {
     deleteSession: vi.fn(async () => undefined),
     isAuthenticated: vi.fn(async () => false),
     auth: {
-      status: vi.fn(async () => ({
-        providers: [] as Array<{ providerName: string; hasToken: boolean }>,
-      })),
+      getCachedAccessToken: vi.fn(async () => undefined as string | undefined),
     },
   };
   const showWarningMessage = vi.fn(async () => undefined as string | undefined);
@@ -177,8 +175,8 @@ beforeEach(async () => {
   host.harness.getConfig.mockResolvedValue({ models: {} });
   host.harness.isAuthenticated.mockReset();
   host.harness.isAuthenticated.mockResolvedValue(false);
-  host.harness.auth.status.mockReset();
-  host.harness.auth.status.mockResolvedValue({ providers: [] });
+  host.harness.auth.getCachedAccessToken.mockReset();
+  host.harness.auth.getCachedAccessToken.mockResolvedValue(undefined);
   host.showWarningMessage.mockReset();
   host.showWarningMessage.mockResolvedValue(undefined);
   host.showQuickPick.mockReset();
@@ -327,9 +325,7 @@ describe("Webview RPC boundary (validates requests before host dispatch)", () =>
       models: {},
       providers: { codex: { oauth: "openai-codex" } },
     });
-    host.harness.auth.status.mockResolvedValueOnce({
-      providers: [{ providerName: "openai-codex", hasToken: true }],
-    });
+    host.harness.auth.getCachedAccessToken.mockResolvedValueOnce("token");
 
     const result = await bridge.handle(
       { id: "rpc-login-status", method: Methods.CheckLoginStatus },
@@ -337,7 +333,7 @@ describe("Webview RPC boundary (validates requests before host dispatch)", () =>
     );
 
     expect(result).toEqual({ id: "rpc-login-status", result: { loggedIn: true } });
-    expect(host.harness.auth.status).toHaveBeenCalledWith("codex");
+    expect(host.harness.auth.getCachedAccessToken).toHaveBeenCalledWith("openai-codex");
   });
 
   it("keeps provider identity when configured models share a display name", async () => {
@@ -427,6 +423,36 @@ describe("Webview RPC boundary (validates requests before host dispatch)", () =>
           support_efforts: ["low", "high"],
           default_effort: "high",
           contextWindow: 96_000,
+        }],
+      },
+    });
+  });
+
+  it("resolves the fallback-profile default effort with the provider type", async () => {
+    // claude-latest declares efforts but no default; the Anthropic fallback
+    // profile only matches when the provider type joins the resolution.
+    host.harness.getConfig.mockResolvedValueOnce({
+      defaultModel: "custom/claude",
+      providers: {
+        custom: { type: "anthropic", apiKey: "test-key" },
+      },
+      models: {
+        "custom/claude": {
+          provider: "custom",
+          model: "claude-latest",
+          supportEfforts: ["low", "medium", "high", "xhigh", "max"],
+        },
+      },
+    });
+
+    const result = await bridge.handle({ id: "rpc-models", method: Methods.GetModels }, "view-1");
+
+    expect(result).toMatchObject({
+      result: {
+        models: [{
+          id: "custom/claude",
+          support_efforts: ["low", "medium", "high", "xhigh", "max"],
+          default_effort: "high",
         }],
       },
     });
@@ -652,7 +678,7 @@ describe("Webview config saves (thinking effort persistence parity with the TUI)
     });
   });
 
-  it("keeps the model's top declared tier session-only", async () => {
+  it("keeps a pick above the model's delivered default session-only", async () => {
     mockConfig({ enabled: false });
 
     await bridge.handle(
@@ -662,6 +688,42 @@ describe("Webview config saves (thinking effort persistence parity with the TUI)
 
     expect(host.harness.setConfig).toHaveBeenCalledWith({
       defaultModel: "kimi/reasoning",
+      thinking: { enabled: true },
+    });
+  });
+
+  it("persists the top tier when the model's delivered default is the top tier", async () => {
+    host.harness.getConfig.mockResolvedValue({
+      defaultModel: "pythinker/reasoning",
+      models: { "pythinker/reasoning": { ...effortModel, defaultEffort: "max" } },
+    } as never);
+
+    await bridge.handle(
+      { id: "rpc-1", method: Methods.SaveConfig, params: { model: "pythinker/reasoning", thinking: true, effort: "max" } },
+      "view-1",
+    );
+
+    expect(host.harness.setConfig).toHaveBeenCalledWith({
+      defaultModel: "pythinker/reasoning",
+      thinking: { enabled: true, effort: "max" },
+    });
+  });
+
+  it("keeps an xhigh pick session-only when the default comes from the Anthropic profile inference", async () => {
+    // claude-opus-4-7 declares no efforts; the profile inference supplies
+    // [low, medium, high, xhigh, max] and resolves the default to "high".
+    host.harness.getConfig.mockResolvedValue({
+      defaultModel: "custom/claude",
+      models: { "custom/claude": { provider: "custom", model: "claude-opus-4-7" } },
+    } as never);
+
+    await bridge.handle(
+      { id: "rpc-1", method: Methods.SaveConfig, params: { model: "custom/claude", thinking: true, effort: "xhigh" } },
+      "view-1",
+    );
+
+    expect(host.harness.setConfig).toHaveBeenCalledWith({
+      defaultModel: "custom/claude",
       thinking: { enabled: true },
     });
   });
