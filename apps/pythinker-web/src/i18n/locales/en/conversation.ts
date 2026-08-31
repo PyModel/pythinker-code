@@ -4,6 +4,7 @@ export default {
   newMessages: 'Latest messages',
   loading: 'Loading…',
   working: 'Working…',
+  waiting: 'Waiting…',
   requesting: 'Requesting…',
   starting: 'Starting conversation…',
   emptyWorkspaceHint: 'Send in {name}',

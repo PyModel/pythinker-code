@@ -19,6 +19,7 @@ export const metaCapabilitiesSchema = z.object({
   mcp: z.literal(true),
   tasks: z.literal(true),
   terminal: z.literal(true),
+  expert_talk_v1: z.literal(true).optional(),
 });
 
 export type MetaCapabilities = z.infer<typeof metaCapabilitiesSchema>;

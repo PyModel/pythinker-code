@@ -267,6 +267,8 @@ export interface UseWorkspaceStateDeps {
   saveHiddenWorkspacesToStorage: (roots: string[]) => void;
   goalErrorMessage: (err: unknown) => string | undefined;
   resetFastMoon: () => void;
+  getExpertTalkArmId: (sessionId: string) => string | undefined;
+  onExpertTalkPromptAccepted: (sessionId: string, runId: string) => void;
   initialized: Ref<boolean>;
   /** Diagnostic for the connecting splash, set by checkAuth on transient
    *  failures and cleared once a check gets through. */
@@ -315,6 +317,8 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
     saveHiddenWorkspacesToStorage,
     goalErrorMessage,
     resetFastMoon,
+    getExpertTalkArmId,
+    onExpertTalkPromptAccepted,
     initialized,
     connectIssue,
     selectedDiffPath,
@@ -1790,14 +1794,13 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
       };
       updateSessionMessages(sid, (msgs) => [...msgs, optimisticMsg]);
 
-      // The daemon now requires `model` + `thinking` on every prompt. Resolve the
-      // model from the session (falls back to the daemon's default_model) and the
-      // thinking level from the user's setting.
+      // Ordinary prompts carry model and thinking. Expert Talk owns those bindings.
       const promptSession = rawState.sessions.find((s) => s.id === sid);
       const model =
         (promptSession?.model && promptSession.model.length > 0
           ? promptSession.model
           : rawState.defaultModel) ?? undefined;
+      const expertTalkArmId = getExpertTalkArmId(sid);
 
       // Modes are per-session: read this session's own toggles (not the global
       // active-session value), so a prompt enqueued for a background session uses
@@ -1821,18 +1824,25 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
 
       const result = await api.submitPrompt(sid, {
         content,
-        model,
+        model: expertTalkArmId === undefined ? model : undefined,
         // Resolved against THIS prompt's session + model: the session's own
         // daemon-reported level when declared, else the model's stored pick or
         // catalog default — never the active-session rawState.thinking, which
         // tracks whatever session the user is looking at now: a queue drain for
         // a background session would otherwise submit the level of the session
         // the user switched to since enqueueing.
-        thinking: (await modelProvider.resolveThinkingForPrompt(sid, model)) ?? rawState.thinking,
-        permissionMode: permissionForSession(sid),
-        planMode,
-        dynamicWorkflowMode,
+        thinking: expertTalkArmId === undefined
+          ? (await modelProvider.resolveThinkingForPrompt(sid, model)) ?? rawState.thinking
+          : undefined,
+        permissionMode: expertTalkArmId === undefined ? permissionForSession(sid) : undefined,
+        planMode: expertTalkArmId === undefined ? planMode : undefined,
+        dynamicWorkflowMode: expertTalkArmId === undefined ? dynamicWorkflowMode : undefined,
+        expertTalkArmId,
       });
+
+      if (result.expertTalkRunId !== undefined) {
+        onExpertTalkPromptAccepted(sid, result.expertTalkRunId);
+      }
 
       // Goal mode is a one-shot flag: consumed by this send, then cleared.
       if (goalMode) {
@@ -3166,6 +3176,7 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
     applyWorkspaceEvent,
     clearActiveSession,
     openWorkspaceDraft,
+    createDraftSession,
     startSessionAndSendPrompt,
     startSessionAndActivateSkill,
     startSessionAndOpenSideChat,

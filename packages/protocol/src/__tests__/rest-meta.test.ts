@@ -12,6 +12,7 @@ describe('metaResponseSchema', () => {
       mcp: true,
       tasks: true,
       terminal: true,
+      expert_talk_v1: true,
     },
     server_id: '01HXYZABCDEFGHJKMNPQRSTVWX',
     started_at: '2026-06-04T10:30:00.000Z',
@@ -75,6 +76,12 @@ describe('metaResponseSchema', () => {
   it('accepts a missing backend (treated as v1)', () => {
     const parsed = metaResponseSchema.parse(sample);
     expect(parsed.backend).toBeUndefined();
+  });
+
+  it('accepts a server without the optional Expert Talk capability', () => {
+    const { expert_talk_v1: _omit, ...capabilities } = sample.capabilities;
+    const parsed = metaResponseSchema.parse({ ...sample, capabilities });
+    expect(parsed.capabilities.expert_talk_v1).toBeUndefined();
   });
 
   it('rejects an unknown backend value', () => {

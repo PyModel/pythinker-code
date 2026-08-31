@@ -40,6 +40,8 @@ export interface AppState {
   inputMode: 'prompt' | 'bash';
   dynamicWorkflowMode: boolean;
   towerMode: boolean;
+  expertTalkArmId?: string;
+  expertTalkRunId?: string;
   /** Live thinking effort of the active session (e.g. 'off', 'on', 'high');
    * mirrors the runtime. The single source of truth for the thinking state in
    * the TUI. */

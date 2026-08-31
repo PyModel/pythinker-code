@@ -11,6 +11,9 @@ import type {
   AppCatalogProvider,
   AppConfig,
   AppEvent,
+  AppExpertTalkArtifact,
+  AppExpertTalkRun,
+  AppExpertTalkStatus,
   AppGoal,
   AppModel,
   AppProvider,
@@ -62,6 +65,9 @@ import type {
   WireSessionUsage,
   WireWorkspace,
   WireEvent,
+  WireExpertTalkArtifact,
+  WireExpertTalkRun,
+  WireExpertTalkStatus,
   WireConfig,
 } from './wire';
 
@@ -275,6 +281,115 @@ export function toWirePromptSubmission(input: PromptSubmission): WirePromptSubmi
     dynamic_workflow_mode: input.dynamicWorkflowMode,
     goal_objective: input.goalObjective,
     goal_control: input.goalControl,
+    expert_talk_arm_id: input.expertTalkArmId,
+  };
+}
+
+function toAppExpertTalkArtifact(wire: WireExpertTalkArtifact): AppExpertTalkArtifact {
+  return {
+    role: wire.role,
+    stage: wire.stage,
+    state: wire.state,
+    text: wire.text,
+    thinking: wire.thinking,
+    tools: wire.tools?.map((tool) => ({ ...tool })) ?? [],
+    partial: wire.partial,
+    startedAt: wire.started_at,
+    endedAt: wire.ended_at,
+    usage: wire.usage === undefined
+      ? undefined
+      : {
+          inputOther: wire.usage.input_other,
+          output: wire.usage.output,
+          inputCacheRead: wire.usage.input_cache_read,
+          inputCacheCreation: wire.usage.input_cache_creation,
+        },
+    requestCount: wire.request_count,
+    providerAttemptCount: wire.provider_attempt_count,
+    toolCallCount: wire.tool_call_count,
+    toolResultTokens: wire.tool_result_tokens,
+    error: wire.error,
+    errorReason: wire.error_reason,
+  };
+}
+
+export function toAppExpertTalkStatus(wire: WireExpertTalkStatus): AppExpertTalkStatus {
+  return {
+    feature: wire.feature,
+    resourceVersion: wire.resource_version,
+    config: wire.config === null
+      ? null
+      : {
+          fusionLeadModelId: wire.config.fusion_lead_model_id,
+          peerModelId: wire.config.peer_model_id,
+        },
+    activation: {
+      state: wire.activation.state,
+      armId: wire.activation.arm_id,
+      armedAt: wire.activation.armed_at,
+    },
+    activeRunId: wire.active_run_id,
+    latestRunId: wire.latest_run_id,
+    pairValidation: {
+      state: wire.pair_validation.state,
+      reason: wire.pair_validation.reason,
+    },
+  };
+}
+
+export function toAppExpertTalkRun(wire: WireExpertTalkRun): AppExpertTalkRun {
+  return {
+    runId: wire.run_id,
+    sessionId: wire.session_id,
+    turnId: wire.turn_id,
+    promptId: wire.prompt_id,
+    retryOf: wire.retry_of,
+    state: wire.state,
+    stage: wire.stage,
+    createdAt: wire.created_at,
+    startedAt: wire.started_at,
+    endedAt: wire.ended_at,
+    updatedAt: wire.updated_at,
+    bindings: {
+      fusionLead: {
+        requestedModelId: wire.bindings.fusion_lead.requested_model_id,
+        effectiveModelId: wire.bindings.fusion_lead.effective_model_id,
+      },
+      peer: {
+        requestedModelId: wire.bindings.peer.requested_model_id,
+        effectiveModelId: wire.bindings.peer.effective_model_id,
+      },
+    },
+    opening: {
+      lead: toAppExpertTalkArtifact(wire.opening.lead),
+      peer: toAppExpertTalkArtifact(wire.opening.peer),
+    },
+    review: {
+      lead: toAppExpertTalkArtifact(wire.review.lead),
+      peer: toAppExpertTalkArtifact(wire.review.peer),
+    },
+    fusion: wire.fusion === undefined ? undefined : toAppExpertTalkArtifact(wire.fusion),
+    result: wire.result?.version !== 'expert_talk_result/v1' || wire.result.notes === undefined
+      ? undefined
+      : {
+          answer: wire.result.answer,
+          notes: {
+            consensus: [...wire.result.notes.consensus],
+            divergence: [...wire.result.notes.divergence],
+            uncertainty: [...wire.result.notes.uncertainty],
+          },
+        },
+    resultVersion: wire.result?.version,
+    resultUnsupported: wire.result !== undefined &&
+      (wire.result.version !== 'expert_talk_result/v1' || wire.result.notes === undefined),
+    usage: {
+      complete: wire.usage.complete,
+      requestCount: wire.usage.request_count,
+      providerAttemptCount: wire.usage.provider_attempt_count,
+    },
+    error: wire.error === undefined ? undefined : { ...wire.error },
+    progressRevision: wire.progress_revision,
+    revision: wire.revision,
   };
 }
 

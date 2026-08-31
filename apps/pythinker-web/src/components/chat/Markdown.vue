@@ -979,8 +979,11 @@ function refreshCodeToggle(container: HTMLElement, spec: CodeToggleSpec): void {
   if (!button) return;
   const on = container.classList.contains(spec.stateClass);
   const label = on ? spec.labelOn() : spec.labelOff();
-  const icon = iconSvg(on ? spec.iconOn : spec.iconOff, 'sm');
-  if (button.innerHTML !== icon) button.innerHTML = icon;
+  const icon = on ? spec.iconOn : spec.iconOff;
+  if (button.dataset.mdIcon !== icon) {
+    button.innerHTML = iconSvg(icon, 'sm');
+    button.dataset.mdIcon = icon;
+  }
   button.setAttribute('aria-label', label);
   button.setAttribute('aria-pressed', String(on));
   button.title = label;

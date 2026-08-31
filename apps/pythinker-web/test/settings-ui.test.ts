@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { flushPromises, mount } from '@vue/test-utils';
+import { computed, ref } from 'vue';
 
 import {
   uiFontScaleForSize,
@@ -14,6 +15,7 @@ import { messages } from '../src/i18n/locales';
 import ProviderForm from '../src/components/settings/ProviderForm.vue';
 import ProvidersPanel from '../src/components/settings/ProvidersPanel.vue';
 import SettingsDialog from '../src/components/settings/SettingsDialog.vue';
+import { expertTalkContextKey } from '../src/composables/expertTalkContext';
 
 const { api, confirm, copyTextToClipboard } = vi.hoisted(() => ({
   api: {
@@ -25,6 +27,7 @@ const { api, confirm, copyTextToClipboard } = vi.hoisted(() => ({
     getAuth: vi.fn().mockResolvedValue({ ready: true, defaultModel: 'x' }),
     getConfig: vi.fn().mockResolvedValue({}),
     listModels: vi.fn().mockResolvedValue([]),
+    refreshAllProviders: vi.fn().mockResolvedValue({ refreshed: [], failed: [] }),
   },
   confirm: vi.fn(),
   copyTextToClipboard: vi.fn(),
@@ -371,6 +374,122 @@ describe('settings UI', () => {
   it('ships English as the only interface language', () => {
     expect(i18n.global.locale.value).toBe('en');
     expect(Object.keys(messages)).toEqual(['en']);
+  });
+
+  it('configures Expert Talk from eligible models across every provider', async () => {
+    const currentStatus = ref({
+      feature: 'enabled' as const,
+      resourceVersion: 'expert-opinion-v1',
+      config: {
+        fusionLeadModelId: 'provider-a/lead',
+        peerModelId: 'provider-b/peer',
+      },
+      activation: { state: 'idle' as const },
+      pairValidation: { state: 'valid' as const },
+    });
+    const configurePair = vi.fn().mockResolvedValue(undefined);
+    const useForNextMessage = vi.fn().mockResolvedValue(undefined);
+    const context = {
+      available: computed(() => true),
+      status: computed(() => currentStatus.value),
+      run: computed(() => undefined),
+      runs: computed(() => []),
+      busy: ref(false),
+      error: ref<string>(),
+      refresh: vi.fn().mockResolvedValue(undefined),
+      configurePair,
+      useForNextMessage,
+      disarm: vi.fn().mockResolvedValue(undefined),
+      clear: vi.fn(),
+      cancel: vi.fn(),
+      retry: vi.fn(),
+      applyStatus: vi.fn(),
+      armIdForSession: vi.fn(),
+      promptAccepted: vi.fn(),
+    };
+    const flagState = {
+      id: 'expert_talk',
+      enabled: true,
+      source: 'config' as const,
+      configValue: true,
+      defaultEnabled: false,
+      externallyControlled: false,
+      overridden: false,
+    };
+    api.getMeta.mockResolvedValueOnce({
+      serverVersion: '2.0.0',
+      serverId: 'expert-opinion-test',
+      backend: 'v2',
+      experimentalFlagStates: [flagState],
+    });
+    api.refreshAllProviders.mockClear();
+    const wrapper = mount(SettingsDialog, {
+      props: {
+        colorScheme: 'system',
+        accent: 'blue',
+        uiFontSize: 14,
+        authReady: true,
+        notify: false,
+        notifyQuestion: false,
+        notifyApproval: false,
+        sound: false,
+        backend: 'v2',
+        config: { providers: {}, experimental: { expert_talk: true } },
+        experimentalFlagStates: [flagState],
+        models: [
+          { id: 'provider-a/lead', provider: 'Provider A', model: 'Lead', maxContextSize: 128_000, capabilities: ['tool_use'] },
+          { id: 'provider-b/peer', provider: 'Provider B', model: 'Peer', maxContextSize: 128_000, capabilities: ['tool-use'] },
+          { id: 'provider-c/other', provider: 'Provider C', model: 'Other', maxContextSize: 128_000, capabilities: ['tool_use'] },
+          { id: 'provider-d/text', provider: 'Provider D', model: 'Text only', maxContextSize: 128_000, capabilities: [] },
+        ],
+      },
+      global: {
+        plugins: [i18n],
+        provide: { [expertTalkContextKey as symbol]: context },
+      },
+    });
+    await flushPromises();
+    const tab = Array.from(document.body.querySelectorAll<HTMLButtonElement>('[role="tab"]'))
+      .find((item) => item.textContent?.trim() === 'Expert Talk');
+    tab!.click();
+    await flushPromises();
+
+    expect(api.refreshAllProviders).toHaveBeenCalledOnce();
+    const panel = document.body.querySelector<HTMLElement>('[data-testid="expert-opinion-settings"]')!;
+    expect(panel.style.display).not.toBe('none');
+    expect(panel.textContent).toContain('two-expert Fusion workflow');
+    expect(panel.textContent).toContain('Fusion Lead');
+    expect(panel.textContent).toContain('Peer Expert');
+    const selects = Array.from(panel.querySelectorAll<HTMLSelectElement>('select'));
+    expect(selects).toHaveLength(2);
+    expect(selects.map((select) =>
+      Array.from(select.querySelectorAll('optgroup')).map((group) => group.label)
+    )).toEqual([
+      ['Provider A', 'Provider B', 'Provider C'],
+      ['Provider A', 'Provider B', 'Provider C'],
+    ]);
+
+    selects[1]!.value = 'provider-c/other';
+    selects[1]!.dispatchEvent(new Event('change', { bubbles: true }));
+    await flushPromises();
+    panel.querySelector<HTMLButtonElement>('[data-testid="expert-opinion-save"]')!.click();
+    await flushPromises();
+    expect(configurePair).toHaveBeenCalledWith('provider-a/lead', 'provider-c/other');
+    expect(useForNextMessage).not.toHaveBeenCalled();
+
+    const enabled = panel.querySelector<HTMLButtonElement>('[data-testid="expert-opinion-enabled"]')!;
+    enabled.click();
+    await flushPromises();
+    expect(wrapper.emitted('updateConfig')?.at(-1)?.[0]).toEqual({
+      experimental: { expert_talk: false },
+    });
+    await wrapper.setProps({ config: { providers: {}, experimental: { expert_talk: false } } });
+    enabled.click();
+    await flushPromises();
+    expect(wrapper.emitted('updateConfig')?.at(-1)?.[0]).toEqual({
+      experimental: { expert_talk: true },
+    });
+    wrapper.unmount();
   });
 
   it('shows the Pythinker logo beside the empty-conversation heading', () => {

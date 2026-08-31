@@ -392,6 +392,7 @@ onUnmounted(() => {
                 <tr><td class="tk">--z-dropdown</td><td class="val">200</td><td>dropdown menu / tooltip</td></tr>
                 <tr><td class="tk">--z-overlay</td><td class="val">300</td><td>overlay / bottom Sheet</td></tr>
                 <tr><td class="tk">--z-modal</td><td class="val">400</td><td>dialog</td></tr>
+                <tr><td class="tk">--z-modal-dropdown</td><td class="val">500</td><td>modal dropdown / nested confirmation</td></tr>
                 <tr><td class="tk">--z-toast</td><td class="val">600</td><td>toast</td></tr>
                 <tr><td class="tk">--z-max</td><td class="val">9999</td><td>reserved: only this tier for extreme fallback</td></tr>
               </tbody>

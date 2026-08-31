@@ -48,6 +48,7 @@ import { ISessionSkillCatalogData } from '#/features/skill/session/skillCatalogD
 import { ISessionInstructionsProvider } from '#/session/sessionInstructions/instructionsProvider';
 import { ISessionMcpHandle } from '#/session/mcp/sessionMcpHandle';
 import { ISessionWorkspaceInfo } from '#/session/workspaceInfo/workspaceInfo';
+import { ISessionExpertTalkService } from '#/session/expertTalk/expertTalk';
 import { drainSessionMetadataWrites, toEpochMs } from '#/session/sessionMetadata/sessionMetadataService';
 import { ISessionToolPolicy } from '#/session/sessionToolPolicy/sessionToolPolicy';
 import { IEventDispatcher } from '#/state/eventDispatcher';
@@ -85,6 +86,7 @@ import { agentScopeOf, sessionDirOf, sessionScopeOf } from './internal/addressin
 import { SessionArchived } from './sessionLifecycleEvents';
 import {
   assertForkTurnIndex,
+  sliceMainRecordsBeforePrompt,
   sliceMainRecordsAtTurn,
   sliceSubagentRecordsAtTime,
 } from './internal/forkTurnSlice';
@@ -473,18 +475,33 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
     ) {
       throw new Error2(ErrorCodes.SESSION_NOT_FOUND, `session ${sourceId} does not exist`);
     }
+    let activeExpertTalkPromptId: string | undefined;
+    let activeExpertTalkAgentPrefix: string | undefined;
     if (sourceHandle !== undefined) {
       const sourceAgents = sourceHandle.accessor.get(IAgentLifecycleService);
+      const activeExpertTalk = sourceHandle.accessor
+        .get(ISessionExpertTalkService)
+        .status()
+        .activeRun;
+      activeExpertTalkPromptId = activeExpertTalk?.promptId;
+      activeExpertTalkAgentPrefix = activeExpertTalk === undefined
+        ? undefined
+        : `expert-talk-${activeExpertTalk.runId.slice(0, 8)}-`;
       for (const agent of sourceAgents.list()) {
         const agentHandle = sourceAgents.handleOf(agent.agentId);
         if (agentHandle === undefined) continue;
-        if (agentHandle.accessor.get(IAgentActivityView).state().turn !== undefined) {
-          throw new Error2(
-            ErrorCodes.SESSION_FORK_ACTIVE_TURN,
-            `Session "${sourceId}" cannot be forked while a turn is running`,
-            { details: { sessionId: sourceId } },
-          );
-        }
+        if (agentHandle.accessor.get(IAgentActivityView).state().turn === undefined) continue;
+        const isExpertTalkParticipant = activeExpertTalkAgentPrefix !== undefined &&
+          agent.agentId.startsWith(activeExpertTalkAgentPrefix);
+        if (
+          activeExpertTalkPromptId !== undefined &&
+          (agent.agentId === MAIN_AGENT_ID || isExpertTalkParticipant)
+        ) continue;
+        throw new Error2(
+          ErrorCodes.SESSION_FORK_ACTIVE_TURN,
+          `Session "${sourceId}" cannot be forked while a turn is running`,
+          { details: { sessionId: sourceId } },
+        );
       }
     }
     assertForkTurnIndex(opts.turnIndex);
@@ -508,13 +525,18 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
         );
       }
 
-      const turnSlice =
-        opts.turnIndex === undefined
+      const turnSlice = opts.turnIndex !== undefined
+        ? sliceMainRecordsAtTurn(
+            await this.readSourceWireRecords(sourceHandle, sourceId, MAIN_AGENT_ID),
+            sourceId,
+            opts.turnIndex,
+          )
+        : activeExpertTalkPromptId === undefined
           ? undefined
-          : sliceMainRecordsAtTurn(
+          : sliceMainRecordsBeforePrompt(
               await this.readSourceWireRecords(sourceHandle, sourceId, MAIN_AGENT_ID),
               sourceId,
-              opts.turnIndex,
+              activeExpertTalkPromptId,
             );
 
       targetSessionDir = sessionDirOf(this.bootstrap.homeDir, this.handlerScope, targetId);

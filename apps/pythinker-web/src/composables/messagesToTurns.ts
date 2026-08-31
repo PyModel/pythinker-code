@@ -629,6 +629,7 @@ export function messagesToTurns(
     }
     turns.push({
       id: g.id,
+      promptId: g.promptId,
       role: 'assistant',
       no: no++,
       text: g.textParts.join('\n'),
@@ -927,6 +928,7 @@ export function messagesToTurns(
       }
       turns.push({
         id: msg.id,
+        promptId: msg.promptId,
         role: 'user',
         no: no++,
         text: textParts.join('\n'),

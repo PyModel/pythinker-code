@@ -17,6 +17,14 @@ import type {
   CapabilityStatus,
   CompactOptions,
   CreateGoalInput,
+  ExpertTalkArmV1,
+  ExpertTalkConfigV1,
+  ExpertTalkListRunsOptions,
+  ExpertTalkPairV1,
+  ExpertTalkRunPageV1,
+  ExpertTalkRunV1,
+  ExpertTalkStartResult,
+  ExpertTalkStatusV1,
   GetCronTasksResult,
   GoalSnapshot,
   GoalToolResult,
@@ -67,6 +75,44 @@ interface CapabilityRpcSurface {
   installCapability(id: string): Promise<CapabilityStatus>;
 }
 
+interface ExpertTalkRpcSurface {
+  getExpertTalkStatus(input: { readonly sessionId: string }): Promise<ExpertTalkStatusV1>;
+  configureExpertTalk(input: {
+    readonly sessionId: string;
+    readonly pair: ExpertTalkPairV1;
+    readonly expectedVersion?: string;
+  }): Promise<ExpertTalkConfigV1>;
+  clearExpertTalk(input: {
+    readonly sessionId: string;
+    readonly expectedVersion?: string;
+  }): Promise<ExpertTalkConfigV1>;
+  armExpertTalk(input: {
+    readonly sessionId: string;
+    readonly expectedVersion?: string;
+  }): Promise<ExpertTalkArmV1>;
+  disarmExpertTalk(input: {
+    readonly sessionId: string;
+    readonly armId?: string;
+  }): Promise<void>;
+  listExpertTalkRuns(input: {
+    readonly sessionId: string;
+    readonly cursor?: string;
+    readonly limit?: number;
+  }): Promise<ExpertTalkRunPageV1>;
+  getExpertTalkRun(input: {
+    readonly sessionId: string;
+    readonly runId: string;
+  }): Promise<ExpertTalkRunV1>;
+  cancelExpertTalkRun(input: {
+    readonly sessionId: string;
+    readonly runId: string;
+  }): Promise<ExpertTalkRunV1>;
+  retryExpertTalkRun(input: {
+    readonly sessionId: string;
+    readonly runId: string;
+  }): Promise<ExpertTalkStartResult>;
+}
+
 export function capabilityRpc(rpc: SDKRpcClientBase): CapabilityRpcSurface {
   const candidate = rpc as Partial<CapabilityRpcSurface>;
   if (
@@ -77,6 +123,24 @@ export function capabilityRpc(rpc: SDKRpcClientBase): CapabilityRpcSurface {
     throw new TypeError('The capability surface is unavailable on this engine (requires v2).');
   }
   return candidate as CapabilityRpcSurface;
+}
+
+function expertTalkRpc(rpc: SDKRpcClientBase): ExpertTalkRpcSurface {
+  const candidate = rpc as Partial<ExpertTalkRpcSurface>;
+  if (
+    typeof candidate.getExpertTalkStatus !== 'function' ||
+    typeof candidate.configureExpertTalk !== 'function' ||
+    typeof candidate.clearExpertTalk !== 'function' ||
+    typeof candidate.armExpertTalk !== 'function' ||
+    typeof candidate.disarmExpertTalk !== 'function' ||
+    typeof candidate.listExpertTalkRuns !== 'function' ||
+    typeof candidate.getExpertTalkRun !== 'function' ||
+    typeof candidate.cancelExpertTalkRun !== 'function' ||
+    typeof candidate.retryExpertTalkRun !== 'function'
+  ) {
+    throw new TypeError('The Expert Talk surface is unavailable on this engine (requires v2).');
+  }
+  return candidate as ExpertTalkRpcSurface;
 }
 
 export class Session {
@@ -138,16 +202,75 @@ export class Session {
     this.rpc.setQuestionHandler(this.id, handler);
   }
 
-  async prompt(input: string | PromptInput, options?: { promptId?: string }): Promise<void> {
+  async prompt(
+    input: string | PromptInput,
+    options?: { promptId?: string; expertTalkArmId?: string },
+  ): Promise<void> {
     this.ensureOpen();
     if (options?.promptId !== undefined && options.promptId.length === 0) {
       throw new TypeError('promptId must not be empty');
+    }
+    if (options?.expertTalkArmId !== undefined && options.expertTalkArmId.length === 0) {
+      throw new TypeError('expertTalkArmId must not be empty');
     }
     await this.rpc.prompt({
       sessionId: this.id,
       input: normalizePromptInput(input),
       promptId: options?.promptId,
+      expertTalkArmId: options?.expertTalkArmId,
     });
+  }
+
+  async getExpertTalkStatus(): Promise<ExpertTalkStatusV1> {
+    this.ensureOpen();
+    return expertTalkRpc(this.rpc).getExpertTalkStatus({ sessionId: this.id });
+  }
+
+  async configureExpertTalk(
+    pair: ExpertTalkPairV1,
+    expectedVersion?: string,
+  ): Promise<ExpertTalkConfigV1> {
+    this.ensureOpen();
+    return expertTalkRpc(this.rpc).configureExpertTalk({
+      sessionId: this.id,
+      pair,
+      expectedVersion,
+    });
+  }
+
+  async clearExpertTalk(expectedVersion?: string): Promise<ExpertTalkConfigV1> {
+    this.ensureOpen();
+    return expertTalkRpc(this.rpc).clearExpertTalk({ sessionId: this.id, expectedVersion });
+  }
+
+  async armExpertTalk(expectedVersion?: string): Promise<ExpertTalkArmV1> {
+    this.ensureOpen();
+    return expertTalkRpc(this.rpc).armExpertTalk({ sessionId: this.id, expectedVersion });
+  }
+
+  async disarmExpertTalk(armId?: string): Promise<void> {
+    this.ensureOpen();
+    await expertTalkRpc(this.rpc).disarmExpertTalk({ sessionId: this.id, armId });
+  }
+
+  async listExpertTalkRuns(options?: ExpertTalkListRunsOptions): Promise<ExpertTalkRunPageV1> {
+    this.ensureOpen();
+    return expertTalkRpc(this.rpc).listExpertTalkRuns({ sessionId: this.id, ...options });
+  }
+
+  async getExpertTalkRun(runId: string): Promise<ExpertTalkRunV1> {
+    this.ensureOpen();
+    return expertTalkRpc(this.rpc).getExpertTalkRun({ sessionId: this.id, runId });
+  }
+
+  async cancelExpertTalkRun(runId: string): Promise<ExpertTalkRunV1> {
+    this.ensureOpen();
+    return expertTalkRpc(this.rpc).cancelExpertTalkRun({ sessionId: this.id, runId });
+  }
+
+  async retryExpertTalkRun(runId: string): Promise<ExpertTalkStartResult> {
+    this.ensureOpen();
+    return expertTalkRpc(this.rpc).retryExpertTalkRun({ sessionId: this.id, runId });
   }
 
   /**

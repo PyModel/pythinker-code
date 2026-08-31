@@ -23,6 +23,8 @@ const props = withDefaults(defineProps<{
   /** When false, the body has no padding so the consumer controls layout
    *  (e.g. a full-bleed side-nav). */
   padded?: boolean;
+  /** Paint above a parent modal, including its dropdown surfaces. */
+  stacked?: boolean;
   /** Element (or selector / resolver) to receive focus when the dialog opens.
    *  Falls back to the first focusable element, then the dialog panel. */
   initialFocus?: HTMLElement | string | (() => HTMLElement | null | undefined);
@@ -33,6 +35,7 @@ const props = withDefaults(defineProps<{
   size: 'md',
   height: 'auto',
   padded: true,
+  stacked: false,
 });
 
 const emit = defineEmits<{
@@ -135,13 +138,19 @@ onBeforeUnmount(() => {
 
 <template>
   <Teleport to="body">
-    <div v-if="open" class="ui-dialog__overlay" @mousedown="onOverlayClick">
+    <div
+      v-if="open"
+      class="ui-dialog__overlay"
+      :class="{ 'ui-dialog__overlay--stacked': stacked }"
+      @mousedown="onOverlayClick"
+    >
       <div
         ref="panel"
         class="ui-dialog"
         :class="[`ui-dialog--${size}`, { 'ui-dialog--flush': !padded, 'ui-dialog--fixed-height': height === 'fixed' }]"
         role="dialog"
         aria-modal="true"
+        :aria-label="title"
         tabindex="-1"
       >
         <div v-if="title || $slots.head" class="ui-dialog__head">
@@ -174,6 +183,7 @@ onBeforeUnmount(() => {
   background: rgba(13, 17, 23, 0.45);
   animation: pythinker-dialog-overlay-in var(--duration-base) var(--ease-out);
 }
+.ui-dialog__overlay--stacked { z-index: var(--z-modal-dropdown); }
 @keyframes pythinker-dialog-overlay-in {
   from { opacity: 0; }
   to { opacity: 1; }

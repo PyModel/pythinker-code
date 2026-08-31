@@ -172,6 +172,22 @@ describe('markdown code block header toggles', () => {
     expect(wrap!.getAttribute('aria-label')).toBe('Enable word wrap');
   });
 
+  it('keeps normalized toggle icon nodes across observer passes', async () => {
+    const view = mountMarkdown('plain text');
+    await settle();
+
+    const root = view.get('.md').element;
+    root.append(buildCodeBlock(2));
+    await settle();
+
+    const wrap = root.querySelector<HTMLButtonElement>('button.md-code-wrap-toggle')!;
+    const icon = wrap.firstElementChild;
+    root.append(document.createTextNode('updated'));
+    await settle();
+
+    expect(wrap.firstElementChild).toBe(icon);
+  });
+
   it('pushes wrap + line-number state through the shadow boundary', async () => {
     const view = mountMarkdown('plain text');
     await settle();

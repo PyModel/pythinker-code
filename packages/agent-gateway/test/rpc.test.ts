@@ -383,7 +383,7 @@ describe('server-v2 /api/v1/debug RPC', () => {
       `/api/v1/sessions/${id}/runtime`,
       { runtime_id: 'missing-runtime' },
     );
-    expect(invalid.body.code).toBe(40420);
+    expect(invalid.body.code).toBe(40422);
 
     const unchanged = await call<{ workspace_id: string; runtime_id: string }>(
       'GET',

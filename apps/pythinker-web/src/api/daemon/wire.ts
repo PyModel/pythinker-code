@@ -223,6 +223,7 @@ export interface WirePromptSubmission {
   dynamic_workflow_mode?: boolean;
   goal_objective?: string;
   goal_control?: 'pause' | 'resume' | 'cancel';
+  expert_talk_arm_id?: string;
 }
 
 export interface WirePromptSubmitResult {
@@ -230,6 +231,103 @@ export interface WirePromptSubmitResult {
   user_message_id: string;
   /** 'running' = started immediately; 'queued' = parked behind the active prompt. */
   status?: 'running' | 'queued';
+  expert_talk_run_id?: string;
+}
+
+export interface WireExpertTalkArtifact {
+  role: 'fusion_lead' | 'peer';
+  stage: 'opening' | 'review' | 'fusion';
+  state: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled' | 'unavailable';
+  text?: string;
+  thinking?: string;
+  tools?: { id: string; name?: string }[];
+  partial: boolean;
+  started_at?: string;
+  ended_at?: string;
+  usage?: {
+    input_other: number;
+    output: number;
+    input_cache_read: number;
+    input_cache_creation: number;
+  };
+  request_count?: number;
+  provider_attempt_count?: number;
+  tool_call_count?: number;
+  tool_result_tokens?: number;
+  error?: string;
+  error_reason?: string;
+}
+
+export interface WireExpertTalkRun {
+  schema_version: 1;
+  run_id: string;
+  session_id: string;
+  turn_id: number;
+  prompt_id: string;
+  retry_of?: string;
+  state: 'running' | 'completed' | 'cancelled' | 'failed' | 'interrupted';
+  stage: 'opening' | 'review' | 'fusion' | 'terminal';
+  created_at: string;
+  started_at?: string;
+  ended_at?: string;
+  updated_at: string;
+  bindings: {
+    fusion_lead: { requested_model_id: string; effective_model_id: string };
+    peer: { requested_model_id: string; effective_model_id: string };
+  };
+  opening: { lead: WireExpertTalkArtifact; peer: WireExpertTalkArtifact };
+  review: { lead: WireExpertTalkArtifact; peer: WireExpertTalkArtifact };
+  fusion?: WireExpertTalkArtifact;
+  result?: {
+    version: string;
+    answer: string;
+    notes?: {
+      consensus: string[];
+      divergence: string[];
+      uncertainty: string[];
+    };
+  };
+  usage: {
+    complete: boolean;
+    request_count?: number;
+    provider_attempt_count?: number;
+  };
+  error?: {
+    reason: string;
+    message: string;
+    stage: 'opening' | 'review' | 'fusion' | 'terminal';
+    role?: 'fusion_lead' | 'peer';
+    retryable: boolean;
+    action: string;
+  };
+  progress_revision?: number;
+  revision: number;
+}
+
+export interface WireExpertTalkRunPage {
+  runs: WireExpertTalkRun[];
+  next_cursor?: string;
+}
+
+export interface WireExpertTalkStatus {
+  schema_version: 1;
+  feature: 'enabled' | 'disabled';
+  resource_version: string;
+  config: {
+    fusion_lead_model_id: string;
+    peer_model_id: string;
+  } | null;
+  activation: {
+    state: 'idle' | 'armed';
+    arm_id?: string;
+    armed_at?: string;
+  };
+  active_run_id?: string;
+  latest_run_id?: string;
+  pair_validation: {
+    state: 'valid' | 'stale' | 'ineligible' | 'collapsed' | 'unknown';
+    reason?: string;
+  };
 }
 
 export interface WirePromptSteerResult {

@@ -15,9 +15,14 @@ interface Harness {
   readonly cancelCompaction: ReturnType<typeof vi.fn>;
   readonly btwCancelRunning: ReturnType<typeof vi.fn>;
   readonly btwCloseOrCancel: ReturnType<typeof vi.fn>;
+  readonly cancelExpertTalkRun: ReturnType<typeof vi.fn>;
 }
 
-function createHarness(options: { streamingPhase?: string; isCompacting?: boolean } = {}): Harness {
+function createHarness(options: {
+  streamingPhase?: string;
+  isCompacting?: boolean;
+  expertTalkRunId?: string;
+} = {}): Harness {
   const editor: Record<string, ((...args: never[]) => unknown) | undefined> = {
     setHistoryFilter: vi.fn() as unknown as (...args: never[]) => unknown,
     setInputMode: vi.fn() as unknown as (...args: never[]) => unknown,
@@ -29,7 +34,8 @@ function createHarness(options: { streamingPhase?: string; isCompacting?: boolea
   const cancelCompaction = vi.fn(async () => {});
   const btwCancelRunning = vi.fn(() => false);
   const btwCloseOrCancel = vi.fn(() => false);
-  const session = { cancel: vi.fn(async () => {}), cancelCompaction };
+  const cancelExpertTalkRun = vi.fn(async () => undefined);
+  const session = { cancel: vi.fn(async () => {}), cancelCompaction, cancelExpertTalkRun };
 
   const host = {
     state: {
@@ -38,6 +44,7 @@ function createHarness(options: { streamingPhase?: string; isCompacting?: boolea
       appState: {
         streamingPhase: options.streamingPhase ?? 'idle',
         isCompacting: options.isCompacting ?? false,
+        expertTalkRunId: options.expertTalkRunId,
       },
       footer: { setTransientHint: vi.fn() },
       ui: { requestRender: vi.fn() },
@@ -64,6 +71,7 @@ function createHarness(options: { streamingPhase?: string; isCompacting?: boolea
     cancelCompaction,
     btwCancelRunning,
     btwCloseOrCancel,
+    cancelExpertTalkRun,
   };
 }
 
@@ -144,6 +152,18 @@ describe('EditorKeyboardController double-Esc undo', () => {
     expect(cancelRunningShellCommand).toHaveBeenCalled();
     const session = host.session as unknown as { cancel: ReturnType<typeof vi.fn> };
     expect(session.cancel).toHaveBeenCalled();
+  });
+
+  it('cancels an active Expert Talk run before the ordinary stream', () => {
+    const { editor, cancelExpertTalkRun, cancelRunningShellCommand } = createHarness({
+      expertTalkRunId: 'run-1',
+      streamingPhase: 'waiting',
+    });
+
+    pressEscape(editor);
+
+    expect(cancelExpertTalkRun).toHaveBeenCalledWith('run-1');
+    expect(cancelRunningShellCommand).not.toHaveBeenCalled();
   });
 });
 
