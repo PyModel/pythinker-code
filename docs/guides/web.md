@@ -22,6 +22,7 @@ Use `/web` in the terminal UI to open the current session in the browser.
 - Start and resume sessions
 - Stream assistant output and tool activity
 - Review approvals and file changes
+- Browse workspace files and open them from **Explorer** in the sidebar
 - Use supported slash commands, including `/goal` and `/compact`
 - View the same session data as the terminal UI
 

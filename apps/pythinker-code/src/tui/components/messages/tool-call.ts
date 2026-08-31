@@ -710,7 +710,7 @@ export class ToolCallComponent extends Container {
           : 'toolPendingBg'
         : this.result.is_error === true
           ? 'toolErrorBg'
-          : 'toolSuccessBg';
+          : undefined;
     const rendered =
       background === undefined
         ? out
@@ -1523,7 +1523,7 @@ export class ToolCallComponent extends Container {
         return `${bullet}${currentTheme.fg('error', 'Truncated')} ${currentTheme.boldFg('primary', 'Bash')}`;
       }
       const label = isFinished ? 'Ran a command' : 'Running a command';
-      const tone = isError ? 'error' : 'primary';
+      const tone = isError ? 'error' : 'textStrong';
       const chipStr = isFinished && result !== undefined ? this.buildHeaderChip(result) : '';
       return `${bullet}${currentTheme.boldFg(tone, label)}${chipStr}`;
     }

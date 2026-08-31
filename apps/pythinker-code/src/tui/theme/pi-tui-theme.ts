@@ -28,7 +28,7 @@ export function createMarkdownTheme(options?: { transient?: boolean }): Markdown
   const stripHash = (text: string): string => text.replace(HEADING_HASH_PREFIX, '$1');
 
   return {
-    heading: (text) => chalk.bold.hex(currentTheme.color('text'))(stripHash(text)),
+    heading: (text) => chalk.bold.hex(currentTheme.color('textStrong'))(stripHash(text)),
     link: (text) => chalk.hex(currentTheme.color('primary'))(text),
     linkUrl: (text) => chalk.hex(currentTheme.color('textMuted'))(text),
     code: (text) => chalk.hex(currentTheme.color('primary'))(text),
@@ -37,10 +37,10 @@ export function createMarkdownTheme(options?: { transient?: boolean }): Markdown
     quote: (text) => chalk.hex(currentTheme.color('textDim'))(text),
     quoteBorder: (text) => chalk.hex(currentTheme.color('textDim'))(text),
     hr: (text) => chalk.hex(currentTheme.color('border'))(text),
-    // Match the assistant-message bullet so list markers read like a reply
-    // prefix. Ordered lists arrive as "1. " / "2. " and are left
-    // untouched by the leading-dash anchor.
-    listBullet: (text) => chalk.hex(currentTheme.color('text'))(text.replace(/^-/, '•')),
+    // Match the assistant-message bullet so list markers keep prose neutral.
+    // Ordered lists arrive as "1. " / "2. " and are left untouched by the
+    // leading-dash anchor.
+    listBullet: (text) => chalk.hex(currentTheme.color('textDim'))(text.replace(/^-/, '•')),
     bold: (text) => chalk.bold(text),
     italic: (text) => chalk.italic(text),
     strikethrough: (text) => chalk.strikethrough(text),

@@ -1,8 +1,8 @@
 /**
  * Agent engine routing gates for the CLI surfaces.
  *
- * `pythinker -p`, the interactive TUI, and `pythinker doctor` use the native
- * agent-core-v2 path by default. A truthy `PYTHINKER_CODE_LEGACY_FLAG` selects the
+ * `pythinker -p` and the interactive TUI use the native agent-core-v2 path by
+ * default. A truthy `PYTHINKER_CODE_LEGACY_FLAG` selects the
  * legacy agent-core-backed path instead. `PYTHINKER_CODE_EXPERIMENTAL_FLAG` remains
  * the master switch for experimental features within either engine; it does
  * not select the engine.

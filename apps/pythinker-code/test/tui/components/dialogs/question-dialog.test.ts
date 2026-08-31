@@ -354,7 +354,10 @@ describe('QuestionDialogComponent', () => {
 
     const out = dialog.render(80).join('\n');
     expect(out).toContain(
-      chalk.bgHex(currentTheme.color('primary')).hex(currentTheme.color('text')).bold(' First '),
+      chalk
+        .bgHex(currentTheme.color('selectionBg'))
+        .hex(currentTheme.color('inverseText'))
+        .bold(' First '),
     );
     expect(out).not.toContain('(●) First');
   });

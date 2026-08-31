@@ -166,7 +166,7 @@ export class AgentGroupComponent extends Container {
       const totalTools = snapshots.reduce((acc, s) => acc + s.toolCount, 0);
       const totalTokens = snapshots.reduce((acc, s) => acc + s.tokens, 0);
       const tail = formatHeaderTail({ toolCount: totalTools, tokens: totalTokens, elapsedSeconds });
-      return `${bullet}${currentTheme.boldFg('primary', headerLabel)}${tail}`;
+      return `${bullet}${currentTheme.boldFg('textStrong', headerLabel)}${tail}`;
     }
 
     const parts = formatBreakdownParts(counts);
@@ -174,7 +174,7 @@ export class AgentGroupComponent extends Container {
       ? `Running ${String(total)} agents (${parts.join(', ')})`
       : `Running ${String(total)} agents`;
     const tail = formatHeaderTail({ toolCount: 0, tokens: 0, elapsedSeconds });
-    return `${bullet}${currentTheme.boldFg('primary', headerText)}${tail}`;
+    return `${bullet}${currentTheme.boldFg('textStrong', headerText)}${tail}`;
   }
 
   private appendLines(snap: ToolCallSubagentSnapshot, isLast: boolean): void {
