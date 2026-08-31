@@ -40,8 +40,8 @@ export interface CoreProcessServiceOptions extends PythinkerCoreOptions {
    * Host identity (product name + version). When set and
    * `pythinkerRequestHeaders` is omitted, the adapter default-wires
    * `createPythinkerDefaultHeaders({ homeDir, ...identity })` into PythinkerCore
-   * so providers see `User-Agent: <product>/<version>`. This distribution does
-   * not attach managed-service `X-Msh-*` device headers.
+   * so providers see `User-Agent: <product>/<version>` without device identity
+   * headers.
    *
    * `identity.version` also feeds `appVersion` so session records carry
    * the host CLI version — same wiring `SDKRpcClient` does in node-sdk.

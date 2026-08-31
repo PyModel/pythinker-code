@@ -11,7 +11,7 @@ const harnessB = createPythinkerHarness({ identity, homeDir });
 
 async function run(label: string, h: PythinkerHarness): Promise<void> {
   try {
-    const s = await h.createSession({ workDir, id: sessionId, model: 'pythinker-code/kimi-for-coding' });
+    const s = await h.createSession({ workDir, id: sessionId, model: 'example/test-model' });
     console.log(JSON.stringify({ label, ok: true, id: s.id, dir: s.summary?.sessionDir }));
   } catch (error: any) {
     console.log(JSON.stringify({ label, ok: false, msg: String(error.message ?? error), code: error.code ?? error.cause?.code }));

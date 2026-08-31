@@ -13,10 +13,7 @@ import { IModelService } from '@pymodel/agent-core-v2/kosong/model/model';
 import { IModelCatalog } from '@pymodel/agent-core-v2/kosong/model/catalog';
 import { IProviderDiscoveryService } from '@pymodel/agent-core-v2/app/kosongConfig/discovery';
 import { IProviderService } from '@pymodel/agent-core-v2/kosong/provider/provider';
-import {
-  IAuthSummaryService,
-  IOAuthService,
-} from '@pymodel/agent-core-v2/app/auth/auth';
+import { IAuthSummaryService } from '@pymodel/agent-core-v2/app/auth/auth';
 import { IFlagService } from '@pymodel/agent-core-v2/app/flag/flag';
 import { IPluginService } from '@pymodel/agent-core-v2/app/plugin/plugin';
 import { ICapabilityService } from '@pymodel/agent-core-v2/app/capability/capability';
@@ -27,13 +24,11 @@ import { IHostFolderBrowser } from '@pymodel/agent-core-v2/app/hostFolderBrowser
 import { IWorkspaceInstanceManager } from '@pymodel/agent-core-v2/workspace/workspaceInstance/workspaceInstanceManager';
 import { ISessionManager } from '@pymodel/agent-core-v2/app/sessionManager/sessionManager';
 import { ISessionMetadata } from '@pymodel/agent-core-v2/session/sessionMetadata/sessionMetadata';
-import { ISessionInteractionService } from '@pymodel/agent-core-v2/session/interaction/interaction';
 import { ISessionApprovalService } from '@pymodel/agent-core-v2/session/approval/approval';
 import { ISessionQuestionService } from '@pymodel/agent-core-v2/session/question/question';
-import { ISessionSkillCatalog } from '@pymodel/agent-core-v2/session/sessionSkillCatalog/skillCatalog';
+import { ISessionSkillCatalog } from '@pymodel/agent-core-v2/features/skill/session/skillCatalog';
 import { ISessionTitleService } from '@pymodel/agent-core-v2/session/sessionTitle/sessionTitle';
 import { IAgentPromptService } from '@pymodel/agent-core-v2/agent/prompt/prompt';
-import { IAgentSkillService } from '@pymodel/agent-core-v2/agent/skill/skill';
 import { IAgentLoopService } from '@pymodel/agent-core-v2/agent/loop/loop';
 import { IAgentPermissionModeService } from '@pymodel/agent-core-v2/agent/permissionMode/permissionMode';
 import { IAgentCommandService } from '@pymodel/agent-core-v2/agent/command/agentCommand';
@@ -48,6 +43,7 @@ import { IAgentTaskService } from '@pymodel/agent-core-v2/agent/task/task';
 import { ISessionUsageService } from '@pymodel/agent-core-v2/session/usage/sessionUsage';
 import { IAgentMcpService } from '@pymodel/agent-core-v2/agent/mcp/mcp';
 import { IAgentFullCompactionService } from '@pymodel/agent-core-v2/agent/fullCompaction/fullCompaction';
+import { IMcpManagementService } from '@pymodel/agent-core-v2/app/mcpManagement/mcpManagement';
 
 /** Wire service name (decorator id string) → token. */
 export const serviceTokens: Readonly<Record<string, ServiceIdentifier<unknown>>> = {
@@ -58,7 +54,6 @@ export const serviceTokens: Readonly<Record<string, ServiceIdentifier<unknown>>>
   modelResolver: IModelCatalog,
   providerDiscovery: IProviderDiscoveryService,
   providerService: IProviderService,
-  oauthService: IOAuthService,
   authSummaryService: IAuthSummaryService,
   flagService: IFlagService,
   pluginService: IPluginService,
@@ -69,13 +64,11 @@ export const serviceTokens: Readonly<Record<string, ServiceIdentifier<unknown>>>
   workspaceInstanceManager: IWorkspaceInstanceManager,
   sessionManager: ISessionManager,
   sessionMetadata: ISessionMetadata,
-  sessionInteractionService: ISessionInteractionService,
   sessionApprovalService: ISessionApprovalService,
   sessionQuestionService: ISessionQuestionService,
   sessionSkillCatalog: ISessionSkillCatalog,
   sessionTitleService: ISessionTitleService,
   agentPromptService: IAgentPromptService,
-  agentSkillService: IAgentSkillService,
   agentLoopService: IAgentLoopService,
   agentPermissionModeService: IAgentPermissionModeService,
   agentCommandService: IAgentCommandService,
@@ -90,6 +83,7 @@ export const serviceTokens: Readonly<Record<string, ServiceIdentifier<unknown>>>
   agentTaskService: IAgentTaskService,
   agentMcpService: IAgentMcpService,
   agentFullCompactionService: IAgentFullCompactionService,
+  mcpManagementService: IMcpManagementService,
 };
 
 export { IEventService };

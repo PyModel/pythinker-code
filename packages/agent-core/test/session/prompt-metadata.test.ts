@@ -66,6 +66,35 @@ describe('promptMetadataTextFromPayload', () => {
     expect(text).not.toContain('<system>');
     expect(text).not.toContain('Image compressed');
   });
+
+  it('redacts private key blocks with many unmatched headers', () => {
+    const text = promptMetadataTextFromPayload({
+      input: [
+        {
+          type: 'text',
+          text:
+            'before -----BEGIN PRIVATE KEY-----\nsecret\n-----END PRIVATE KEY----- after ' +
+            '-----BEGIN PRIVATE KEY-----'.repeat(35_000),
+        },
+      ],
+    });
+    expect(text?.startsWith('before [redacted] after')).toBe(true);
+  });
+
+  it('redacts a private key after Unicode case-expanding text', () => {
+    const text = promptMetadataTextFromPayload({
+      input: [
+        {
+          type: 'text',
+          text:
+            `${'ß'.repeat(60)} -----BEGIN PRIVATE KEY-----\nsecret\n` +
+            '-----END PRIVATE KEY-----',
+        },
+      ],
+    });
+    expect(text).not.toContain('secret');
+    expect(text).toContain('[redacted]');
+  });
 });
 
 describe('SessionAPIImpl prompt metadata', () => {

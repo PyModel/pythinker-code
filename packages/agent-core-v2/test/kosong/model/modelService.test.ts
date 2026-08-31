@@ -103,7 +103,15 @@ describe('ModelService', () => {
     expect(events.at(-1)).toEqual({ added: [], removed: ['k1'], changed: [] });
   });
 
-  it('replaceAll replaces the records and keeps the default pointer', async () => {
+  it('replaceAll keeps a default the new records still contain', async () => {
+    const service = createService({ a: { model: 'm-a' }, b: { model: 'm-b' } });
+    await service.setDefaultModel('b');
+
+    await service.replaceAll({ b: { model: 'm-b' }, c: { model: 'm-c' } });
+    expect(service.getDefaultModel()).toBe('b');
+  });
+
+  it('replaceAll keeps a pointer the new records dropped, rather than re-picking', async () => {
     const service = createService({ a: { model: 'm-a' }, b: { model: 'm-b' } });
     await service.setDefaultModel('a');
 
@@ -113,7 +121,7 @@ describe('ModelService', () => {
   });
 
   it('fires the pointer event only on real pointer changes', async () => {
-    const service = createService({ k1: { model: 'kimi-k2' } });
+    const service = createService();
     const pointerEvents: Array<string | undefined> = [];
     service.onDidChangeDefaultModel((e) => pointerEvents.push(e.id));
 
@@ -123,5 +131,55 @@ describe('ModelService', () => {
 
     await service.setDefaultModel(undefined);
     expect(pointerEvents).toEqual(['k1', undefined]);
+  });
+
+  it('adopts an eligible default when the catalog arrives without one', () => {
+    const service = new ModelService();
+    service.loadAll(
+      {
+        embed: { model: 'embed', capabilities: ['image_in'], maxContextSize: 8192 },
+        chat: { model: 'chat', capabilities: ['tool_use'], maxContextSize: 262144 },
+      },
+      undefined,
+    );
+    expect(service.getDefaultModel()).toBe('chat');
+  });
+
+  it('never replaces a default the user already chose', () => {
+    const service = new ModelService();
+    service.loadAll(
+      {
+        small: { model: 'small', capabilities: ['tool_use'], maxContextSize: 8192 },
+        big: { model: 'big', capabilities: ['tool_use'], maxContextSize: 1_000_000 },
+      },
+      'small',
+    );
+    expect(service.getDefaultModel()).toBe('small');
+  });
+
+  it('leaves the default unset when no model is eligible', () => {
+    const service = new ModelService();
+    service.loadAll({ embed: { model: 'embed', capabilities: ['image_in'] } }, undefined);
+    expect(service.getDefaultModel()).toBeUndefined();
+  });
+
+  it('adopts on the first catalog write when the registry started empty', async () => {
+    const service = createService();
+    expect(service.getDefaultModel()).toBeUndefined();
+
+    await service.set('a', { model: 'm-a', capabilities: ['tool_use'], maxContextSize: 1000 });
+    expect(service.getDefaultModel()).toBe('a');
+  });
+
+  it('adopts again once an explicit clear leaves no default', async () => {
+    const service = createService({
+      a: { model: 'm-a', capabilities: ['tool_use'], maxContextSize: 1000 },
+      b: { model: 'm-b', capabilities: ['tool_use'], maxContextSize: 2000 },
+    });
+    expect(service.getDefaultModel()).toBe('b');
+
+    await service.setDefaultModel(undefined);
+    await service.delete('b');
+    expect(service.getDefaultModel()).toBe('a');
   });
 });

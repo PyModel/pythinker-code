@@ -27,7 +27,7 @@ jobs:
         uses: DeterminateSystems/nix-installer-action@1d87d45818068401a10cf16bdc5f00b24994a83f # pinned from main
 
       - name: Update flake.lock and open PR
-        uses: DeterminateSystems/update-flake-lock@5ba4a20ae344a5edd7b97ed3002219974f4d20d7 # pinned from main
+        uses: DeterminateSystems/update-flake-lock@f21d5f4a9e57815a4941a2e7c3860f4664cb3a96 # pinned from main
         with:
           pr-title: "chore(nix): monthly flake.lock update"
           pr-labels: dependencies

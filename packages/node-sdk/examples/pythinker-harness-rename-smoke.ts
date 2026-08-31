@@ -19,7 +19,7 @@ async function main(): Promise<void> {
     const session = await harness.createSession({
       id: 'ses_rename_smoke',
       workDir,
-      model: 'pythinker-code/kimi-for-coding',
+      model: 'example/test-model',
     });
     const events: Event[] = [];
     session.onEvent((event) => {

@@ -16,7 +16,7 @@ const RIGHT = `${ESC}[C`;
 
 function model(displayName: string, capabilities: string[] = ['thinking']): ModelAlias {
   return {
-    provider: 'managed:pythinker-code',
+    provider: 'oauth-example',
     model: displayName.toLowerCase().replaceAll(' ', '-'),
     maxContextSize: 200_000,
     displayName,
@@ -31,7 +31,7 @@ function effortModel(
   capabilities: string[] = ['thinking'],
 ): ModelAlias {
   return {
-    provider: 'managed:pythinker-code',
+    provider: 'oauth-example',
     model: displayName.toLowerCase().replaceAll(' ', '-'),
     maxContextSize: 200_000,
     displayName,
@@ -57,9 +57,9 @@ describe('ModelSelectorComponent', () => {
 
     const out = text(picker);
     // Model name on the left, provider on the right, with the current marker.
-    expect(out).toMatch(/❯ Kimi K2\s+Pythinker Code ← current/);
+    expect(out).toMatch(/❯ Kimi K2\s+oauth-example ← current/);
     // Provider is no longer inlined in parentheses next to the name.
-    expect(out).not.toContain('Kimi K2 (Pythinker Code)');
+    expect(out).not.toContain('Kimi K2 (oauth-example)');
   });
 
   it('toggles thinking with Left/Right (not with "/")', () => {

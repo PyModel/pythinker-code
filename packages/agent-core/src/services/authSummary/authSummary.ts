@@ -15,16 +15,8 @@
  * logic in one place + makes it cheap to add new gated entries (PATCH session
  * model, etc.).
  *
- * Status mapping note: we only return `'authenticated'` (token cached) or
- * `'unauthenticated'` (no token). The `'expired' / 'revoked'` states require
- * runtime OAuth introspection; this gate intentionally does NOT try to
- * differentiate them.
- *
- * **Implementation** (`AuthSummaryService`): Reads the live config via
- * `ICoreProcessService.rpc.getPythinkerConfig({})` and the managed-OAuth credential
- * state via a cached-token lookup. Both are cheap (in-process RPC +
- * a token-file existence probe), so we run them on every call instead of
- * caching — keeps the staleness window at zero.
+ * **Implementation** (`AuthSummaryService`): Reads live config and explicit
+ * file-backed OAuth credentials on every call.
  */
 
 import { createDecorator } from '../../di';
@@ -57,7 +49,7 @@ export const IAuthSummaryService = createDecorator<IAuthSummaryService>(
  */
 export class AuthProvisioningRequiredError extends Error {
   constructor() {
-    super('no provider configured; complete onboarding via /login or POST /v1/providers');
+    super('no provider configured; configure one through a supported sign-in flow or provider settings');
     this.name = 'AuthProvisioningRequiredError';
   }
 }
@@ -71,20 +63,6 @@ export class AuthTokenMissingError extends Error {
   constructor(providerId: string) {
     super(`provider ${providerId} has no credential configured`);
     this.name = 'AuthTokenMissingError';
-    this.providerId = providerId;
-  }
-}
-
-/**
- * `40112 auth.token_unauthorized` — OAuth refresh returned 401; user has
- * revoked the grant. Not produced by the static gate (would require a
- * round-trip to the OAuth host); reserved for the reactive-refresh path.
- */
-export class AuthTokenUnauthorizedError extends Error {
-  readonly providerId: string;
-  constructor(providerId: string) {
-    super(`provider ${providerId} oauth grant revoked; re-login required`);
-    this.name = 'AuthTokenUnauthorizedError';
     this.providerId = providerId;
   }
 }

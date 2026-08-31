@@ -39,6 +39,11 @@ import {
 } from '../chatTurnRendering';
 import type { AssistantRenderBlock } from '../chatTurnRendering';
 import { turnFileChanges, type TurnFileChange } from '../../lib/turnFiles';
+import {
+  isRevivableSkillActivation,
+  serializeSkillActivation,
+  skillActivationDisplayText,
+} from '../../lib/mentions';
 
 const { t } = useI18n();
 const { confirm } = useConfirmDialog();
@@ -124,6 +129,10 @@ const props = withDefaults(
     toolDiffPanel?: boolean;
     readOnly?: boolean;
     inspector?: boolean;
+    /** Fold a finished turn's work away, leaving the summary. */
+    turnFolding?: boolean;
+    /** Summarise consecutive tool calls into one activity-run row. */
+    activityRunFolding?: boolean;
     /** Session completion reason for the failed-turn banner. */
     lastTurnReason?: 'completed' | 'cancelled' | 'failed';
     /** Step-limit variant of the failed-turn banner header (turn.step.interrupted
@@ -159,6 +168,8 @@ const props = withDefaults(
     toolDiffPanel: false,
     readOnly: false,
     inspector: false,
+    turnFolding: true,
+    activityRunFolding: true,
     queued: () => [],
   },
 );
@@ -232,13 +243,39 @@ interface AssistantTurnModel {
   changes: TurnFileChange[];
 }
 
+const assistantTurnModelCache = new WeakMap<
+  ChatTurn,
+  {
+    activityRunFolding: boolean;
+    turnFolding: boolean;
+    model: AssistantTurnModel;
+  }
+>();
+
+function assistantTurnModel(turn: ChatTurn): AssistantTurnModel {
+  const cached = assistantTurnModelCache.get(turn);
+  if (
+    cached?.activityRunFolding === props.activityRunFolding &&
+    cached.turnFolding === props.turnFolding
+  ) {
+    return cached.model;
+  }
+  const all = assistantRenderBlocks(turn, props.activityRunFolding);
+  const { folded, visible } = foldRenderBlocks(all, props.turnFolding);
+  const model = { all, folded, visible, changes: turnFileChanges(turn) };
+  assistantTurnModelCache.set(turn, {
+    activityRunFolding: props.activityRunFolding,
+    turnFolding: props.turnFolding,
+    model,
+  });
+  return model;
+}
+
 const assistantTurnModels = computed(() => {
   const models = new Map<string, AssistantTurnModel>();
   for (const turn of props.turns) {
     if (turn.role !== 'assistant') continue;
-    const all = assistantRenderBlocks(turn);
-    const { folded, visible } = foldRenderBlocks(all);
-    models.set(turn.id, { all, folded, visible, changes: turnFileChanges(turn) });
+    models.set(turn.id, assistantTurnModel(turn));
   }
   return models;
 });
@@ -261,6 +298,7 @@ const emit = defineEmits<{
   /** Show a subagent's live detail in the right-side panel (keyed by the
    *  spawning `Agent` tool-call id). */
   openAgent: [toolCallId: string];
+  detachTask: [toolCallId: string];
   /** Show an Edit/Write tool call's diff in the right-side panel. */
   openToolDiff: [id: string];
   /** Show the aggregate file changes for one assistant turn. */
@@ -274,9 +312,10 @@ const emit = defineEmits<{
   editQueued: [index: number];
   /** Drag-to-reorder a queued message within the active session's queue. */
   reorderQueue: [payload: { from: number; to: number }];
+  steerQueued: [index: number];
   /**
    * Failed-turn recovery: submit a fixed "Continue" prompt (no attachments),
-   * mirroring the reference client's resume path.
+   * on the resume path.
    */
   continueTurn: [text: string];
 }>();
@@ -386,12 +425,22 @@ const lastUserTurnId = computed<string | null>(() => {
     while the conversation has nothing unfinished and it isn't a slash activation. */
 function canEditTurn(turn: ChatTurn): boolean {
   return (
+    !props.readOnly &&
     turn.role === 'user' &&
     turn.id === lastUserTurnId.value &&
     !props.working &&
-    !turn.skillActivation &&
-    !turn.pluginCommand
+    !turn.pluginCommand &&
+    !(
+      turn.skillActivation &&
+      !isRevivableSkillActivation(turn.skillActivation, { revivePill: false })
+    )
   );
+}
+
+function userTurnText(turn: ChatTurn): string | null {
+  if (turn.skillActivation) return skillActivationDisplayText(turn.skillActivation);
+  if (turn.pluginCommand) return turn.pluginCommand.args || null;
+  return turn.text || null;
 }
 
 /** Divider label: "Context compacted"/"auto-compacted" + optional token stats. */
@@ -438,7 +487,10 @@ async function onUndo(turn: ChatTurn): Promise<void> {
 function confirmEditMessage(turn: ChatTurn): void {
   if (undoingTurnId.value !== null) return;
   undoingTurnId.value = turn.id;
-  emit('editMessage', { text: turn.text, attachments: turn.attachments });
+  const text = turn.skillActivation
+    ? (serializeSkillActivation(turn.skillActivation, { revivePill: false }) ?? turn.text)
+    : turn.text;
+  emit('editMessage', { text, attachments: turn.attachments });
   // Fallback: if the server undo never removes the turn (e.g. it failed),
   // release the guard so the user can retry.
   undoFallbackTimer = setTimeout(() => {
@@ -502,11 +554,15 @@ function assistantRunEndingAt(index: number): ChatTurn[] {
   return run;
 }
 
+// The run's answer is the last turn that ends in text; earlier turns in the
+// same run are steps toward it, not part of it.
 function assistantRunFinalText(index: number): string {
-  return assistantRunEndingAt(index)
-    .map((t) => turnFinalText(t))
-    .filter(Boolean)
-    .join('\n\n');
+  const run = assistantRunEndingAt(index);
+  for (let i = run.length - 1; i >= 0; i -= 1) {
+    const text = turnFinalText(run[i]!);
+    if (text.trim()) return text;
+  }
+  return '';
 }
 
 function finalSummaryText(): string {
@@ -608,17 +664,17 @@ function onAttachmentClick(att: TurnAttachment): void {
 
 function isStreamingRenderBlock(turn: ChatTurn, block: { sourceIndex: number; kind?: string; durationMs?: number }): boolean {
   if (turn.id !== streamingTurnId.value) return false;
-  // A settled thinking block is never the streaming tail (reference kn): its
+  // A settled thinking block is never the streaming tail: its
   // durationMs froze when the next part started, so it renders collapsed as
   // "Thinking · Ns" instead of shimmering a second "Thinking…" row.
   if (isSettledThinking(block)) return false;
   return block.sourceIndex === turnBlocks(turn).length - 1;
 }
 
-// Live-fold wiring (reference TurnFold): the in-flight turn's fold streams
+// Live-fold wiring for TurnFold: the in-flight turn's fold streams
 // only its single tail item. `streamingTailIndex` is the last source index of
 // the turn's blocks; a live turn with no streamable tail is "parked" (no stream
-// markers, the header keeps ticking "Worked 1m3s"). Parked (reference Pn):
+// markers, the header keeps ticking "Worked 1m3s"). Parked means:
 // no content yet, OR the tail is a running tool the agent is waiting on (a
 // pending approval / question — the dock shows the prompt, the wire streams
 // nothing). A settled thinking tail can't be detected here: the pythinker
@@ -652,7 +708,7 @@ function turnCreatedMs(turn: ChatTurn): number | undefined {
 
 /** True when an `activity-run` block is the streaming tail run of the live
  *  turn (its last item is the turn's last block). A run whose tail thinking
- *  already settled is not streaming (reference jt). */
+ *  already settled is not streaming. */
 function runIsStreaming(
   turn: ChatTurn,
   block: Extract<AssistantRenderBlock, { kind: 'activity-run' }>,
@@ -664,7 +720,7 @@ function runIsStreaming(
 }
 
 // Failed-turn recovery: submit a fixed "Continue" prompt with no attachments,
-// matching the reference client (its ConversationPane submits
+// matching the conversation pane, which submits
 // `conversation.turnFailedResumeText` through the ordinary send path). The
 // user's own last message is deliberately NOT re-sent: that would repeat its
 // instructions and any side effects.
@@ -728,30 +784,26 @@ function continueFailedTurn(): void {
                 @activate="onAttachmentClick(att)"
               />
             </div>
-            <!-- Skill activation card (replaces raw XML) -->
-            <div v-if="turn.skillActivation" class="skill-act">
-              <div class="skill-act-head">
-                <span class="skill-act-arrow">▶</span>
-                <span>{{ t('conversation.activatedSkill', { name: turn.skillActivation.name }) }}</span>
-              </div>
-              <div v-if="turn.skillActivation.args" class="skill-act-args">{{ turn.skillActivation.args }}</div>
-            </div>
             <!-- Plugin command card (replaces expanded body) -->
-            <div v-else-if="turn.pluginCommand" class="skill-act">
+            <div v-if="turn.pluginCommand" class="skill-act">
               <div class="skill-act-head">
                 <span class="skill-act-arrow">▶</span>
                 <span>/{{ turn.pluginCommand.pluginId }}:{{ turn.pluginCommand.commandName }}</span>
               </div>
-              <div v-if="turn.pluginCommand.args" class="skill-act-args">{{ turn.pluginCommand.args }}</div>
             </div>
             <!-- User input renders verbatim (pre-wrap), never through Markdown -->
             <div
-              v-else
+              v-if="userTurnText(turn) !== null"
               :ref="(value) => bindUserText(turn.id, value)"
               class="u-text-wrap"
-              :class="{ 'is-clamped': overflowingUserTurns[turn.id] && !expandedUserTurns[turn.id] }"
+              :class="{
+                'u-text-wrap-args': !!turn.pluginCommand,
+                'is-clamped': overflowingUserTurns[turn.id] && !expandedUserTurns[turn.id],
+              }"
             >
-              <div class="u-text"><ComposerText :text="turn.text" :open-file="(target) => emit('openFile', target)" /></div>
+              <div :class="turn.pluginCommand ? 'skill-act-args' : 'u-text'">
+                <ComposerText :text="userTurnText(turn) ?? ''" :open-file="(target) => emit('openFile', target)" />
+              </div>
               <button
                 v-if="overflowingUserTurns[turn.id]"
                 type="button"
@@ -831,6 +883,7 @@ function continueFailedTurn(): void {
           @open-file="emit('openFile', $event)"
           @open-tool-diff="emit('openToolDiff', $event)"
           @open-agent="emit('openAgent', $event)"
+          @detach="emit('detachTask', $event)"
         />
         <template v-for="(blk, bi) in assistantTurnModels.get(turn.id)?.visible ?? []" :key="renderBlockKey(blk, bi)">
           <ThinkingBlock v-if="blk.kind === 'thinking'" :text="blk.thinking" mobile :streaming="isStreamingRenderBlock(turn, blk)" :started-at-ms="blockStartedMs(blk.startedAt)" :duration-ms="blk.durationMs" />
@@ -845,8 +898,9 @@ function continueFailedTurn(): void {
             @open-file="emit('openFile', $event)"
             @open-tool-diff="emit('openToolDiff', $event)"
             @open-agent="emit('openAgent', $event)"
+            @detach="emit('detachTask', $event)"
           />
-          <ToolCall v-else-if="blk.kind === 'tool'" :tool="blk.tool" mobile :tool-diff-panel="toolDiffPanel" @open-media="emit('openMedia', $event)" @open-file="emit('openFile', $event)" @open-tool-diff="emit('openToolDiff', $event)" @open-agent="emit('openAgent', $event)" />
+          <ToolCall v-else-if="blk.kind === 'tool'" :tool="blk.tool" mobile :tool-diff-panel="toolDiffPanel" @open-media="emit('openMedia', $event)" @open-file="emit('openFile', $event)" @open-tool-diff="emit('openToolDiff', $event)" @open-agent="emit('openAgent', $event)" @detach="emit('detachTask', $event)" />
           <NotificationCard v-else-if="blk.kind === 'notification'" :items="blk.items" />
         </template>
         <TurnFilesSummary
@@ -903,13 +957,13 @@ function continueFailedTurn(): void {
       <div class="q-head">
         <span class="q-title">
           <Icon name="mail" size="sm" />
-          {{ t('composer.queueLabel') }} · <b>{{ queued.length }}</b>
+          {{ t('composer.queueLabel') }} ·
+          <b>{{ t('composer.queuePending', { n: queued.length }) }}</b>
         </span>
-        <span class="q-hint">{{ t('composer.queueAutoDrain') }}</span>
       </div>
       <div
         v-for="(item, qi) in queued"
-        :key="qi"
+        :key="item.id"
         class="u-turn q-turn"
         :class="{
           'q-dragging': dragFrom === qi,
@@ -919,6 +973,16 @@ function continueFailedTurn(): void {
         @dragover="onQueueDragOver(qi, $event)"
         @drop="onQueueDrop(qi, $event)"
       >
+        <Tooltip v-if="qi === 0" :text="t('composer.queueSteer')">
+          <button
+            type="button"
+            class="q-send"
+            :aria-label="t('composer.queueSteer')"
+            @click.stop="emit('steerQueued', qi)"
+          >
+            <Icon name="send" size="lg" />
+          </button>
+        </Tooltip>
         <div class="u-bub q-bub">
           <span
             class="q-grip"
@@ -935,7 +999,9 @@ function continueFailedTurn(): void {
             :title="t('composer.editQueued')"
             @click="onQueueEdit(qi)"
           >
-            <span v-if="item.text" class="u-text q-text">{{ item.text }}</span>
+            <span v-if="item.text" class="u-text q-text">
+              <ComposerText :text="item.text" :interactive="false" />
+            </span>
             <span v-else class="q-text q-text-placeholder">
               <Icon name="file" size="sm" />
               {{ t('composer.queuedAttachments', { n: item.attachments?.length ?? 0 }) }}
@@ -958,8 +1024,6 @@ function continueFailedTurn(): void {
               />
             </template>
           </div>
-          <span v-if="qi === 0" class="q-tag q-tag-next">{{ t('composer.queueNext') }}</span>
-          <span v-else class="q-tag q-tag-idx">#{{ qi + 1 }}</span>
           <button
             type="button"
             class="q-rm"
@@ -1068,7 +1132,7 @@ function continueFailedTurn(): void {
   width: 100%;
 }
 
-/* User message → right-aligned surface bubble (reference parity). */
+/* User message → right-aligned surface bubble. */
 .u-bub {
   align-self: flex-end;
   max-width: 78%;
@@ -1420,6 +1484,7 @@ function continueFailedTurn(): void {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+.u-text-wrap-args { margin-top: var(--space-1); }
 
 /* Mobile font bump (+2px) */
 @media (max-width: 640px) {
@@ -1557,26 +1622,47 @@ function continueFailedTurn(): void {
   color: var(--color-accent-hover);
   font-weight: var(--weight-medium);
 }
-.q-hint {
-  color: var(--color-text-faint);
-}
 .q-turn {
   position: relative;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
 }
 .q-bub {
   display: flex;
   align-items: center;
   gap: 8px;
   width: fit-content;
-  background: var(--color-surface-raised);
-  border: 1px dashed var(--color-accent-bd);
+  background: var(--color-user-bubble-bg);
   padding: 8px 8px 8px 6px;
-  transition: border-color 0.12s ease, background 0.12s ease;
+  transition: background var(--duration-fast) var(--ease-out);
 }
 .q-bub:hover {
-  border-color: var(--color-accent);
-  background: var(--color-accent-soft);
+  background: var(--color-hover);
 }
+.q-send {
+  flex: none;
+  width: var(--space-6);
+  height: var(--space-6);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-full);
+  background: var(--color-accent);
+  color: var(--color-text-on-accent);
+  box-shadow: var(--shadow-xs);
+  cursor: pointer;
+  transition:
+    background var(--duration-fast) var(--ease-out),
+    transform var(--duration-fast) var(--ease-out);
+}
+.q-send:hover { background: var(--color-accent-hover); }
+.q-send:active { transform: scale(0.92); }
+.q-send:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 1px; }
+.q-send :deep(svg) { display: block; flex: none; }
 .q-grip {
   flex: none;
   display: inline-flex;
@@ -1647,25 +1733,6 @@ function continueFailedTurn(): void {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.q-tag {
-  flex: none;
-  padding: 1px 6px;
-  border-radius: var(--radius-full);
-  font-size: var(--ui-font-size-xs);
-  font-weight: var(--weight-medium);
-  line-height: 1.4;
-  white-space: nowrap;
-}
-.q-tag-next {
-  color: var(--color-accent-hover);
-  background: var(--color-accent-soft);
-  border: 1px solid var(--color-accent-bd);
-}
-.q-tag-idx {
-  color: var(--color-text-faint);
-  background: var(--color-surface-sunken);
-  border: 1px solid var(--color-line);
 }
 .q-rm {
   flex: none;

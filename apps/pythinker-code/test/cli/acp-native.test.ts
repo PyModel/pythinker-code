@@ -85,7 +85,7 @@ describe('pythinker acp', () => {
     expect(exitSpy).toHaveBeenCalledWith(0);
   });
 
-  it('forwards PYTHINKER_CODE_HOME to terminalAuthEnv and homeDir when set', async () => {
+  it('uses PYTHINKER_CODE_HOME as homeDir when set', async () => {
     const previous = process.env['PYTHINKER_CODE_HOME'];
     process.env['PYTHINKER_CODE_HOME'] = '/tmp/pythinker-debug';
     try {
@@ -98,7 +98,6 @@ describe('pythinker acp', () => {
       expect(optsArg).toEqual(
         expect.objectContaining({
           homeDir: '/tmp/pythinker-debug',
-          terminalAuthEnv: { PYTHINKER_CODE_HOME: '/tmp/pythinker-debug' },
         }),
       );
     } finally {
@@ -110,72 +109,4 @@ describe('pythinker acp', () => {
     }
   });
 
-  it('omits terminalAuthEnv when PYTHINKER_CODE_HOME is unset', async () => {
-    const previous = process.env['PYTHINKER_CODE_HOME'];
-    delete process.env['PYTHINKER_CODE_HOME'];
-    try {
-      const program = new Command('pythinker').exitOverride();
-      registerNativeAcpCommand(program);
-
-      await expect(program.parseAsync(['node', 'pythinker', 'acp'])).rejects.toThrow(ExitCalled);
-
-      const optsArg = vi.mocked(runAcpServer).mock.calls[0]?.[0] as {
-        terminalAuthEnv?: unknown;
-      };
-      expect(optsArg.terminalAuthEnv).toBeUndefined();
-    } finally {
-      if (previous === undefined) {
-        delete process.env['PYTHINKER_CODE_HOME'];
-      } else {
-        process.env['PYTHINKER_CODE_HOME'] = previous;
-      }
-    }
-  });
-
-  it('forwards process.argv[1] as terminalAuthLegacyCommand', async () => {
-    const program = new Command('pythinker').exitOverride();
-    registerNativeAcpCommand(program);
-
-    await expect(program.parseAsync(['node', 'pythinker', 'acp'])).rejects.toThrow(ExitCalled);
-
-    const optsArg = vi.mocked(runAcpServer).mock.calls[0]?.[0] as {
-      terminalAuthLegacyCommand?: string;
-    };
-    expect(typeof optsArg.terminalAuthLegacyCommand).toBe('string');
-    expect((optsArg.terminalAuthLegacyCommand ?? '').length).toBeGreaterThan(0);
-    expect(optsArg.terminalAuthLegacyCommand).toBe(process.argv[1]);
-  });
-
-  it('exits without starting the ACP server when --login is passed', async () => {
-    // Stub the SDK harness so runLoginFlow doesn't hit a real OAuth endpoint:
-    // harness.auth.login resolves immediately and triggers exit 0.
-    const loginStub = vi.fn(async () => ({ providerName: 'pythinker-code' }));
-    vi.doMock(import('@pymodel/pythinker-code-sdk'), async (importOriginal) => {
-      const actual = await importOriginal();
-      return {
-        ...actual,
-        createPythinkerHarness: () =>
-          ({
-            auth: { login: loginStub },
-          }) as unknown as ReturnType<typeof actual.createPythinkerHarness>,
-      };
-    });
-    vi.resetModules();
-    const { registerNativeAcpCommand: freshRegister } = await import('#/cli/sub/acp-native');
-    try {
-      const program = new Command('pythinker').exitOverride();
-      freshRegister(program);
-
-      await expect(program.parseAsync(['node', 'pythinker', 'acp', '--login'])).rejects.toThrow(
-        ExitCalled,
-      );
-
-      expect(loginStub).toHaveBeenCalledTimes(1);
-      expect(runAcpServer).not.toHaveBeenCalled();
-      expect(exitSpy).toHaveBeenCalledWith(0);
-    } finally {
-      vi.doUnmock('@pymodel/pythinker-code-sdk');
-      vi.resetModules();
-    }
-  });
 });

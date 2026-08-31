@@ -350,6 +350,7 @@ describe('Local logging — harness integration', () => {
     expect(exposed).toContain('log');
     expect(exposed).toContain('redact');
     expect(exposed).toContain('flushDiagnosticLogs');
+    expect(exposed).toContain('cascadeSubagentModelPool');
     expect(exposed).not.toContain('getLogger');
     expect(exposed).not.toContain('getRootLogger');
     expect(exposed).not.toContain('resolveLoggingConfig');

@@ -1,4 +1,14 @@
-import { MAIN_AGENT_ID, type Scope } from '@pymodel/agent-core-v2';
+import * as path from 'node:path';
+
+import {
+  IBootstrapService,
+  IHostFileSystem,
+  ISessionIndex,
+  MAIN_AGENT_ID,
+  sessionDirOf,
+  workspacePersistenceScope,
+  type Scope,
+} from '@pymodel/agent-core-v2';
 import {
   isPlainAgentId,
   paginateTurns,
@@ -16,8 +26,9 @@ import {
 import { z } from 'zod';
 
 import { errEnvelope, okEnvelope } from '../envelope';
-import { ErrorCode } from '../protocol/error-codes';
+import { launchDetached, revealFileCommandFor } from '../lib/fileLaunch';
 import { defineRoute } from '../middleware/defineRoute';
+import { ErrorCode } from '../protocol/error-codes';
 import type { TranscriptService } from '../services/transcript/transcriptService';
 
 interface TranscriptRouteHost {
@@ -26,6 +37,14 @@ interface TranscriptRouteHost {
     options: { preHandler: unknown[]; schema?: Record<string, unknown> } | undefined,
     handler: (
       req: { id: string; query: unknown; params: unknown },
+      reply: { send(payload: unknown): unknown },
+    ) => Promise<void> | void,
+  ): unknown;
+  post(
+    path: string,
+    options: { preHandler: unknown[]; schema?: Record<string, unknown> } | undefined,
+    handler: (
+      req: { id: string; body: unknown; params: unknown },
       reply: { send(payload: unknown): unknown },
     ) => Promise<void> | void,
   ): unknown;
@@ -112,13 +131,29 @@ const planQueryCoercion = z
     }
   });
 
+const planRevealBodySchema = z
+  .object({
+    agent_id: z.string().min(1),
+    tool_call_id: z.string().min(1),
+  })
+  .superRefine((value, ctx) => {
+    if (!isPlainAgentId(value.agent_id)) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'agent_id must be a plain agent id (no path separators)',
+        path: ['agent_id'],
+        params: { code: ErrorCode.VALIDATION_FAILED },
+      });
+    }
+  });
+
 export interface TranscriptRouteDeps {
   readonly core: Scope;
   readonly transcriptService: TranscriptService;
 }
 
 export function registerTranscriptRoutes(app: TranscriptRouteHost, deps: TranscriptRouteDeps): void {
-  const { transcriptService } = deps;
+  const { core, transcriptService } = deps;
 
   const route = defineRoute(
     {
@@ -160,6 +195,7 @@ export function registerTranscriptRoutes(app: TranscriptRouteHost, deps: Transcr
               interactions: [...transcript.getInteractions().values()],
               attachments: [...transcript.getAttachments().values()],
               todos: [...transcript.getTodos().values()],
+              prompts: [...transcript.getPrompts().values()],
               meta: transcript.getMeta(),
               agents: store.agents(),
               pending_interactions: transcript.listPendingInteractions(),
@@ -197,6 +233,7 @@ export function registerTranscriptRoutes(app: TranscriptRouteHost, deps: Transcr
             interactions: snapshot.interactions,
             attachments: snapshot.attachments,
             todos: snapshot.todos,
+            prompts: snapshot.prompts,
             meta: snapshot.meta,
             agents: roster,
             pending_interactions: [],
@@ -345,31 +382,11 @@ export function registerTranscriptRoutes(app: TranscriptRouteHost, deps: Transcr
     async (req, reply) => {
       const { session_id } = req.params;
       const { agent_id, tool_call_id } = req.query;
-
-      const store = transcriptService.forSessionLive(session_id);
-      if (store !== undefined) {
-        await transcriptService.whenReady(session_id);
-        await transcriptService.ensureAgentHistory(session_id, agent_id);
-        const transcript = store.ensureAgent(agent_id);
-        const plans = projectPlans(
-          transcript.getItems(),
-          [...transcript.getInteractions().values()],
-          tool_call_id,
-        );
-        if (tool_call_id !== undefined && plans.length === 0) {
-          sendToolCallNotFound(reply, req.id, tool_call_id);
-          return;
-        }
-        reply.send(okEnvelope({ agent_id, plans }, req.id));
-        return;
-      }
-
-      const snapshot = await transcriptService.readColdSnapshot(session_id, agent_id);
-      if (snapshot === undefined) {
+      const plans = await readPlans(transcriptService, session_id, agent_id, tool_call_id);
+      if (plans === undefined) {
         sendSessionNotFound(reply, req.id, session_id);
         return;
       }
-      const plans = projectPlans(snapshot.items, snapshot.interactions, tool_call_id);
       if (tool_call_id !== undefined && plans.length === 0) {
         sendToolCallNotFound(reply, req.id, tool_call_id);
         return;
@@ -378,6 +395,58 @@ export function registerTranscriptRoutes(app: TranscriptRouteHost, deps: Transcr
     },
   );
   app.get(planRoute.path, planRoute.options, planRoute.handler as Parameters<TranscriptRouteHost['get']>[2]);
+
+  const revealPlanRoute = defineRoute(
+    {
+      method: 'POST',
+      path: '/sessions/{session_id}/transcript/plan::reveal',
+      params: sessionIdParamSchema,
+      body: planRevealBodySchema,
+      success: { data: z.object({ revealed: z.literal(true) }) },
+      errors: {
+        [ErrorCode.VALIDATION_FAILED]: { detailsSchema },
+        [ErrorCode.SESSION_NOT_FOUND]: {},
+        [ErrorCode.TOOL_CALL_NOT_FOUND]: {},
+        [ErrorCode.FILE_NOT_FOUND]: {},
+        [ErrorCode.INTERNAL_ERROR]: {},
+      },
+      description:
+        'Reveal an ExitPlanMode Markdown file in the host file manager. The client identifies the projected plan by agent_id and tool_call_id; the gateway resolves and verifies the saved plan location without accepting a path from the client',
+      tags: ['transcript'],
+      operationId: 'revealSavedPlan',
+    },
+    async (req, reply) => {
+      const { session_id } = req.params;
+      const { agent_id, tool_call_id } = req.body;
+      const plans = await readPlans(transcriptService, session_id, agent_id, tool_call_id);
+      if (plans === undefined) {
+        sendSessionNotFound(reply, req.id, session_id);
+        return;
+      }
+      const plan = plans[0];
+      if (plan === undefined) {
+        sendToolCallNotFound(reply, req.id, tool_call_id);
+        return;
+      }
+      const planPath = await resolveSavedPlanPath(core, session_id, agent_id, plan.path);
+      if (planPath === undefined) {
+        reply.send(errEnvelope(ErrorCode.FILE_NOT_FOUND, 'saved plan file not found', req.id));
+        return;
+      }
+      try {
+        await launchDetached(revealFileCommandFor(planPath));
+      } catch {
+        reply.send(errEnvelope(ErrorCode.INTERNAL_ERROR, 'failed to reveal saved plan', req.id));
+        return;
+      }
+      reply.send(okEnvelope({ revealed: true as const }, req.id));
+    },
+  );
+  app.post(
+    revealPlanRoute.path,
+    revealPlanRoute.options,
+    revealPlanRoute.handler as Parameters<TranscriptRouteHost['post']>[2],
+  );
 }
 
 interface UserMessageEntry {
@@ -461,6 +530,86 @@ interface PlanReviewDisplayInfo {
   plan: string;
   path?: string;
   options?: { label: string; description?: string }[];
+}
+
+async function readPlans(
+  transcriptService: TranscriptService,
+  sessionId: string,
+  agentId: string,
+  toolCallId?: string,
+): Promise<PlanInfo[] | undefined> {
+  const store = transcriptService.forSessionLive(sessionId);
+  if (store !== undefined) {
+    await transcriptService.whenReady(sessionId);
+    await transcriptService.ensureAgentHistory(sessionId, agentId);
+    const transcript = store.ensureAgent(agentId);
+    return projectPlans(
+      transcript.getItems(),
+      [...transcript.getInteractions().values()],
+      toolCallId,
+    );
+  }
+  const snapshot = await transcriptService.readColdSnapshot(sessionId, agentId);
+  return snapshot === undefined
+    ? undefined
+    : projectPlans(snapshot.items, snapshot.interactions, toolCallId);
+}
+
+async function resolveSavedPlanPath(
+  core: Scope,
+  sessionId: string,
+  agentId: string,
+  storedPath: string | undefined,
+): Promise<string | undefined> {
+  if (storedPath === undefined) return undefined;
+  const summary = await core.accessor.get(ISessionIndex).get(sessionId);
+  if (summary === undefined) return undefined;
+  const bootstrap = core.accessor.get(IBootstrapService);
+  const sessionDir = sessionDirOf(
+    bootstrap.homeDir,
+    workspacePersistenceScope(bootstrap.scope('sessions'), summary.workspaceId),
+    summary.id,
+  );
+  const planDir = path.join(sessionDir, 'agents', agentId, 'plans');
+  const planPath = resolveDirectPlanFilePath(storedPath, planDir);
+  if (planPath === undefined) return undefined;
+  const hostFs = core.accessor.get(IHostFileSystem);
+  const stat = await hostFs.lstat(planPath).catch(() => undefined);
+  if (stat === undefined || !stat.isFile || stat.isSymbolicLink) return undefined;
+  const resolved = await Promise.all([
+    hostFs.realpath(sessionDir),
+    hostFs.realpath(planDir),
+    hostFs.realpath(planPath),
+  ]).catch(() => undefined);
+  if (resolved === undefined) return undefined;
+  const [realSessionDir, realPlanDir, realPlanPath] = resolved;
+  if (
+    realPlanDir !== path.join(realSessionDir, 'agents', agentId, 'plans') ||
+    path.dirname(realPlanPath) !== realPlanDir ||
+    path.basename(realPlanPath) !== path.basename(planPath)
+  ) {
+    return undefined;
+  }
+  return realPlanPath;
+}
+
+type PathOps = Pick<typeof path, 'basename' | 'dirname' | 'extname' | 'join' | 'normalize'>;
+
+export function resolveDirectPlanFilePath(
+  storedPath: string,
+  planDir: string,
+  pathOps: PathOps = path,
+): string | undefined {
+  const normalizedPlanDir = pathOps.normalize(planDir);
+  const normalizedStoredPath = pathOps.normalize(storedPath);
+  if (
+    pathOps.extname(normalizedStoredPath) !== '.md' ||
+    pathOps.dirname(normalizedStoredPath) !== normalizedPlanDir ||
+    pathOps.join(normalizedPlanDir, pathOps.basename(normalizedStoredPath)) !== normalizedStoredPath
+  ) {
+    return undefined;
+  }
+  return normalizedStoredPath;
 }
 
 function projectPlans(

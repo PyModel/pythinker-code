@@ -29,6 +29,16 @@ export interface AgentRunHandle {
   readonly completion: Promise<{ readonly summary: string; readonly usage?: TokenUsage }>;
 }
 
+export class SubagentRunStartError extends Error {
+  constructor(
+    readonly agentId: string,
+    cause: unknown,
+  ) {
+    super(cause instanceof Error ? cause.message : String(cause), { cause });
+    this.name = 'SubagentRunStartError';
+  }
+}
+
 export interface AgentTaskStartHookContext {
   readonly agentName: string;
   readonly prompt: string;

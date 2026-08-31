@@ -155,7 +155,7 @@ describe('AcpSession slash routing', () => {
     // session skill map is seeded before the prompt fires.
     new AgentSideConnection(
       (c) =>
-        new AcpServer(harness, c, {
+        new AcpServer(harness, c, { disableAuth: true,
           slashCommands: async (s) => {
             const skills = await s.listSkills();
             const map = new Map<string, string>();
@@ -196,7 +196,7 @@ describe('AcpSession slash routing', () => {
     const { agentStream, clientStream } = makeInMemoryStreamPair();
     new AgentSideConnection(
       (c) =>
-        new AcpServer(harness, c, {
+        new AcpServer(harness, c, { disableAuth: true,
           slashCommands: async (s) => {
             const skills = await s.listSkills();
             const map = new Map<string, string>();
@@ -235,7 +235,7 @@ describe('AcpSession slash routing', () => {
     const { agentStream, clientStream } = makeInMemoryStreamPair();
     new AgentSideConnection(
       (c) =>
-        new AcpServer(harness, c, {
+        new AcpServer(harness, c, { disableAuth: true,
           slashCommands: async (s) => {
             const skills = await s.listSkills();
             const map = new Map<string, string>();
@@ -281,7 +281,7 @@ describe('AcpSession slash routing', () => {
     } as unknown as PythinkerHarness;
 
     const { agentStream, clientStream } = makeInMemoryStreamPair();
-    new AgentSideConnection((c) => new AcpServer(harness, c), agentStream);
+    new AgentSideConnection((c) => new AcpServer(harness, c, { disableAuth: true }), agentStream);
     const collecting = new CollectingClient();
     const client = new ClientSideConnection(() => collecting, clientStream);
 
@@ -308,7 +308,7 @@ describe('AcpSession slash routing', () => {
     } as unknown as PythinkerHarness;
 
     const { agentStream, clientStream } = makeInMemoryStreamPair();
-    new AgentSideConnection((c) => new AcpServer(harness, c), agentStream);
+    new AgentSideConnection((c) => new AcpServer(harness, c, { disableAuth: true }), agentStream);
     const collecting = new CollectingClient();
     const client = new ClientSideConnection(() => collecting, clientStream);
 
@@ -351,7 +351,7 @@ describe('AcpSession slash routing', () => {
     } as unknown as PythinkerHarness;
 
     const { agentStream, clientStream } = makeInMemoryStreamPair();
-    new AgentSideConnection((c) => new AcpServer(harness, c), agentStream);
+    new AgentSideConnection((c) => new AcpServer(harness, c, { disableAuth: true }), agentStream);
     const collecting = new CollectingClient();
     const client = new ClientSideConnection(() => collecting, clientStream);
 

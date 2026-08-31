@@ -50,7 +50,7 @@ function camelToSnake(str: string): string {
 const DEFAULT_CONFIG_FILE_TEXT = `# ~/.pythinker-code/config.toml
 # Runtime settings for Pythinker Code.
 # This file starts empty so built-in defaults can apply.
-# Login will populate managed Pythinker provider and model entries.
+# Use /login or /provider to configure a provider and model.
 `;
 
 export async function ensureConfigFile(filePath: string): Promise<void> {

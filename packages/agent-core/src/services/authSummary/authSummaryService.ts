@@ -3,9 +3,9 @@
  */
 
 import { Disposable, InstantiationType, registerSingleton } from '../../di';
-import type { PythinkerConfig } from '../../config';
+import type { OAuthRef, PythinkerConfig } from '../../config';
 import type { AuthSummary } from '@pymodel/protocol';
-import { createManagedAuthFacade, type ServicesAuthFacade } from '../auth/managedAuth';
+import { OAuthTokenReader } from '../auth/oauthToken';
 import { IEnvironmentService } from '../environment/environment';
 import { ICoreProcessService } from '../coreProcess/coreProcess';
 import {
@@ -15,22 +15,19 @@ import {
   AuthModelNotResolvedError,
 } from './authSummary';
 
-/** Wire name of the OAuth-managed provider (`@pymodel/pythinker-code-oauth`'s `PYTHINKER_CODE_PROVIDER_NAME`). */
-const MANAGED_PROVIDER_NAME = 'managed:pythinker-code';
-
 export class AuthSummaryService
   extends Disposable
   implements IAuthSummaryService {
   readonly _serviceBrand: undefined;
 
-  private readonly _authFacade: ServicesAuthFacade;
+  private readonly tokens: OAuthTokenReader;
 
   constructor(
     @IEnvironmentService private readonly env: IEnvironmentService,
     @ICoreProcessService private readonly core: ICoreProcessService,
   ) {
     super();
-    this._authFacade = createManagedAuthFacade(env, env.identity);
+    this.tokens = new OAuthTokenReader(env.homeDir);
   }
 
   async get(): Promise<AuthSummary> {
@@ -39,21 +36,8 @@ export class AuthSummaryService
     const providers_count = Object.keys(providers).length;
     const default_model = nonEmpty(config.defaultModel);
 
-    let managed_provider: AuthSummary['managed_provider'] = null;
-    if (providers[MANAGED_PROVIDER_NAME] !== undefined) {
-      const hasToken = await this._hasCachedToken(MANAGED_PROVIDER_NAME);
-      managed_provider = {
-        name: MANAGED_PROVIDER_NAME,
-        status: hasToken ? 'authenticated' : 'unauthenticated',
-      };
-    }
-
-    const ready =
-      providers_count >= 1 &&
-      default_model !== null &&
-      (managed_provider === null || managed_provider.status !== 'revoked');
-
-    return { ready, providers_count, default_model, managed_provider };
+    const ready = providers_count >= 1 && default_model !== null;
+    return { ready, models_ready: ready, providers_count, default_model };
   }
 
   async ensureReady(modelOverride?: string): Promise<void> {
@@ -90,7 +74,7 @@ export class AuthSummaryService
     if (hasInlineKey) return;
 
     if (providerConfig.oauth !== undefined) {
-      const hasToken = await this._hasCachedToken(providerName);
+      const hasToken = await this._hasCachedToken(providerConfig.oauth);
       if (hasToken) return;
       throw new AuthTokenMissingError(providerName);
     }
@@ -111,18 +95,17 @@ export class AuthSummaryService
 
   private async _readConfig(): Promise<PythinkerConfig> {
     // `reload: true` forces PythinkerCore to re-read `config.toml` from disk
-    // before returning. Critical for the auth probe path: writes from
-    // `OAuthService` (toolkit's provisioning) and `IProviderService`
-    // future RW endpoints land on disk via `writeConfigFile`, but
+    // before returning. Critical for the auth probe path: provider settings
+    // can change on disk while PythinkerCore still holds an older config, but
     // PythinkerCore's `this.config` only refreshes when something explicitly
     // asks for `reload`. Without this flag, `GET /v1/auth` would stay
     // `ready:false` for the entire daemon lifetime after first login.
     return this.core.rpc.getPythinkerConfig({ reload: true });
   }
 
-  private async _hasCachedToken(providerName: string): Promise<boolean> {
+  private async _hasCachedToken(oauthRef: OAuthRef): Promise<boolean> {
     try {
-      const token = await this._authFacade.getCachedAccessToken(providerName);
+      const token = await this.tokens.getCachedAccessToken(oauthRef);
       return typeof token === 'string' && token.trim().length > 0;
     } catch {
       // FileTokenStorage throws if the credential dir or file is unreadable;

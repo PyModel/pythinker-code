@@ -1,5 +1,5 @@
 import type {
-  ManagedPythinkerCodeModelInfo,
+  ProviderModelInfo,
   OpenAICodexModelInfo,
   OpenPlatformDefinition,
 } from '@pymodel/pythinker-code-oauth';
@@ -8,7 +8,7 @@ import type { Catalog, CatalogModel } from '#/catalog';
 import type { PythinkerHarness } from '#/pythinker-harness';
 
 export type LoginPlatformModelInfo =
-  | ManagedPythinkerCodeModelInfo
+  | ProviderModelInfo
   | OpenAICodexModelInfo;
 
 export type LoginPlatformDefinition =

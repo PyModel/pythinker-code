@@ -4,7 +4,6 @@ import {
   IBootstrapService,
   IConfigService,
   type IDisposable,
-  IOAuthToolkit,
   ITelemetryService,
   type Scope,
 } from '@pymodel/agent-core-v2';
@@ -18,7 +17,6 @@ const TELEMETRY_DISABLE_ENV_VALUES = new Set(['1', 'true', 't', 'yes', 'y']);
 const TELEMETRY_SHUTDOWN_TIMEOUT_MS = 3_000;
 
 export interface ServerTelemetry {
-  /** Present only when telemetry is enabled by both config and environment. */
   readonly appender?: CloudAppender;
   readonly registration?: IDisposable;
 }
@@ -38,13 +36,11 @@ export async function initializeServerTelemetry(
   const enabled = config.get('telemetry') !== false;
   if (!enabled || isTelemetryDisabledByEnv(core)) return {};
 
-  const auth = core.accessor.get(IOAuthToolkit);
   const appender = createCloudAppender(core.accessor, {
     deviceId: createPythinkerDeviceId(homeDir),
     appName: SERVER_TELEMETRY_APP_NAME,
     uiMode: SERVER_TELEMETRY_UI_MODE,
     model: config.get<string>('defaultModel') ?? undefined,
-    getAccessToken: async () => (await auth.getCachedAccessToken()) ?? null,
   });
   const registration = service.addAppender(appender);
   try {

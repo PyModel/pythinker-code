@@ -6,7 +6,13 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi } from 'vitest';
 
 import { PYTHINKER_CODE_PLUGIN_MARKETPLACE_URL_ENV } from '#/constant/app';
-import { computeUpdateStatus, loadPluginMarketplace } from '#/utils/plugin-marketplace';
+import {
+  computeUpdateStatus,
+  loadPluginMarketplace,
+  withBuiltInEntries,
+  withMarketplaceLatestVersions,
+  type PluginMarketplaceEntry,
+} from '#/utils/plugin-marketplace';
 
 const REPO_ROOT = join(import.meta.dirname, '../../../..');
 
@@ -68,12 +74,12 @@ describe('loadPluginMarketplace', () => {
         version: '1',
         plugins: [
           {
-            id: 'pythinker-datasource',
+            id: 'example-data',
             tier: 'official',
-            displayName: 'Pythinker Datasource',
+            displayName: 'Example Data',
             version: '1.0.0',
             description: 'Datasource tools',
-            source: './pythinker-datasource',
+            source: './example-data',
             keywords: ['data'],
           },
           {
@@ -100,12 +106,12 @@ describe('loadPluginMarketplace', () => {
     expect(marketplace.version).toBe('1');
     expect(marketplace.plugins.slice(0, 2)).toEqual([
       {
-        id: 'pythinker-datasource',
-        displayName: 'Pythinker Datasource',
+        id: 'example-data',
+        displayName: 'Example Data',
         tier: 'official',
         version: '1.0.0',
         description: 'Datasource tools',
-        source: join(dir, 'pythinker-datasource'),
+        source: join(dir, 'example-data'),
         keywords: ['data'],
         homepage: undefined,
       },
@@ -218,13 +224,6 @@ describe('loadPluginMarketplace', () => {
         version: '6.0.3',
       }),
     );
-    expect(marketplace.plugins).toContainEqual(
-      expect.objectContaining({
-        id: 'pythinker-datasource',
-        tier: 'official',
-        source: join(REPO_ROOT, 'plugins/official/pythinker-datasource'),
-      }),
-    );
   });
 
   it('loads an explicitly configured remote marketplace with injectable fetch', async () => {
@@ -236,9 +235,9 @@ describe('loadPluginMarketplace', () => {
         JSON.stringify({
           plugins: [
             {
-              id: 'pythinker-datasource',
-              displayName: 'Pythinker Datasource',
-              source: './official/pythinker-datasource.zip',
+              id: 'example-data',
+              displayName: 'Example Data',
+              source: './official/example-data.zip',
             },
           ],
         }),
@@ -253,10 +252,10 @@ describe('loadPluginMarketplace', () => {
     expect(fetchImpl).toHaveBeenCalledWith(source);
     expect(marketplace.plugins[0]).toEqual(
       expect.objectContaining({
-        id: 'pythinker-datasource',
-        displayName: 'Pythinker Datasource',
+        id: 'example-data',
+        displayName: 'Example Data',
         source: new URL(
-          './official/pythinker-datasource.zip',
+          './official/example-data.zip',
           source,
         ).toString(),
       }),
@@ -580,6 +579,129 @@ describe('loadPluginMarketplace', () => {
     await expect(loadPluginMarketplace({ workDir: '/tmp/work', source: file })).rejects.toThrow(
       /Legacy aliases "managed" and "guide" are also accepted/,
     );
+  });
+
+  describe('two-phase version lookup', () => {
+    async function writeCatalog(dir: string) {
+      const file = join(dir, 'marketplace.json');
+      await writeFile(
+        file,
+        JSON.stringify({
+          plugins: [
+            { id: 'demo', displayName: 'Demo', source: 'https://github.com/owner/repo' },
+          ],
+        }),
+        'utf8',
+      );
+      return file;
+    }
+
+    it('skipLatestVersions returns the catalog without querying GitHub', async () => {
+      const fetchImpl = vi.fn(async () => {
+        throw new Error('should not be called');
+      }) as unknown as typeof fetch;
+      const dir = await mkdtemp(join(tmpdir(), 'pythinker-plugin-marketplace-'));
+      const file = await writeCatalog(dir);
+
+      const marketplace = await loadPluginMarketplace({
+        workDir: dir,
+        source: file,
+        fetchImpl,
+        skipLatestVersions: true,
+      });
+
+      expect(marketplace.plugins[0]?.version).toBeUndefined();
+      expect(fetchImpl).not.toHaveBeenCalled();
+    });
+
+    it('withMarketplaceLatestVersions fills versions from the latest release redirect', async () => {
+      const fetchImpl = vi.fn(async (input: unknown) => ({
+        ok: false,
+        status: 302,
+        headers: new Headers({
+          location: 'https://github.com/owner/repo/releases/tag/v1.2.3',
+        }),
+        text: async () => '',
+      })) as unknown as typeof fetch;
+      const dir = await mkdtemp(join(tmpdir(), 'pythinker-plugin-marketplace-'));
+      const file = await writeCatalog(dir);
+      const marketplace = await loadPluginMarketplace({
+        workDir: dir,
+        source: file,
+        skipLatestVersions: true,
+      });
+
+      const enriched = await withMarketplaceLatestVersions(marketplace, fetchImpl);
+
+      expect(fetchImpl).toHaveBeenCalledWith(
+        'https://github.com/owner/repo/releases/latest',
+        expect.objectContaining({ redirect: 'manual', signal: expect.any(AbortSignal) }),
+      );
+      expect(enriched.plugins[0]?.version).toBe('1.2.3');
+    });
+
+    it('withMarketplaceLatestVersions degrades to a missing version when the lookup aborts', async () => {
+      const fetchImpl = vi.fn(async (_input: unknown, init?: { signal?: AbortSignal }) => {
+        // Simulate the lookup hitting the timeout: undici rejects with the
+        // signal's reason once the AbortSignal fires.
+        throw init?.signal?.aborted === true
+          ? init.signal.reason
+          : new DOMException('This operation was aborted', 'AbortError');
+      }) as unknown as typeof fetch;
+      const dir = await mkdtemp(join(tmpdir(), 'pythinker-plugin-marketplace-'));
+      const file = await writeCatalog(dir);
+      const marketplace = await loadPluginMarketplace({
+        workDir: dir,
+        source: file,
+        skipLatestVersions: true,
+      });
+
+      const enriched = await withMarketplaceLatestVersions(marketplace, fetchImpl);
+
+      expect(enriched.plugins[0]?.version).toBeUndefined();
+      expect(enriched.plugins[0]?.id).toBe('demo');
+    });
+
+    it('carries a resolved catalog version onto a built-in row injected after enrichment', async () => {
+      // Regression for the resolve-before-inject ordering: enriching the
+      // built-in-masked marketplace cannot see the catalog entry's GitHub
+      // source, so built-in rows would never get update badges.
+      const fetchImpl = vi.fn(async () => ({
+        ok: false,
+        status: 302,
+        headers: new Headers({
+          location: 'https://github.com/owner/repo/releases/tag/v2.0.0',
+        }),
+        text: async () => '',
+      })) as unknown as typeof fetch;
+      const dir = await mkdtemp(join(tmpdir(), 'pythinker-plugin-marketplace-'));
+      const file = join(dir, 'marketplace.json');
+      await writeFile(
+        file,
+        JSON.stringify({
+          plugins: [{ id: 'demo', displayName: 'Demo', source: 'https://github.com/owner/repo' }],
+        }),
+        'utf8',
+      );
+      const catalog = await loadPluginMarketplace({
+        workDir: dir,
+        source: file,
+        skipLatestVersions: true,
+      });
+      const builtIns: readonly PluginMarketplaceEntry[] = [
+        { id: 'demo', displayName: 'Demo Capability', source: 'capability:demo', builtIn: true },
+      ];
+
+      const enriched = withBuiltInEntries(
+        await withMarketplaceLatestVersions(catalog, fetchImpl),
+        builtIns,
+      );
+
+      expect(enriched.plugins).toHaveLength(1);
+      expect(enriched.plugins[0]).toEqual(
+        expect.objectContaining({ id: 'demo', builtIn: true, version: '2.0.0' }),
+      );
+    });
   });
 
 });

@@ -19,6 +19,8 @@ export const experimentalFeatureStateSchema = z.object({
   enabled: z.boolean(),
   source: z.enum(['master-env', 'env', 'config', 'default']),
   configValue: z.boolean().optional(),
+  externallyControlled: z.boolean(),
+  overridden: z.boolean(),
 });
 
 export const flagsContract = {

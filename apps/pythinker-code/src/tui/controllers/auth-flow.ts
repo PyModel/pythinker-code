@@ -3,7 +3,6 @@ import {
   type CreateSessionOptions,
   type PythinkerConfig,
   type PythinkerHarness,
-  type OAuthRef,
   type Session,
   type ThinkingEffort,
 } from '@pymodel/pythinker-code-sdk';
@@ -16,7 +15,6 @@ import { OAUTH_LOGIN_REQUIRED_STARTUP_NOTICE } from '../constant/pythinker-tui';
 import {
   refreshAllProviderModels,
   type RefreshProviderHost,
-  type RefreshProviderScope,
   type RefreshResult,
 } from '../utils/refresh-providers';
 import { thinkingEffortFromConfig } from '../utils/thinking-config';
@@ -40,7 +38,6 @@ export interface AuthFlowHost {
   resetSessionRuntime(): void;
   setSession(session: Session): Promise<void>;
   syncRuntimeState(session?: Session): Promise<void>;
-  closeSession(reason: string): Promise<void>;
   appendStartupNotice(extra: string): void;
   hydrateLazyConfigDefaults(): Promise<void>;
   readonly sessionEventHandler: SessionEventHandler;
@@ -134,18 +131,6 @@ export class AuthFlowController {
     void host.refreshPluginCommands(host.session);
   }
 
-  async clearActiveSessionAfterLogout(): Promise<void> {
-    await this.host.closeSession('logged out');
-    this.host.resetSessionRuntime();
-    this.host.setAppState({
-      sessionId: '',
-      model: '',
-      sessionTitle: null,
-    });
-    await this.host.refreshSkillCommands();
-    await this.host.refreshPluginCommands();
-  }
-
   async refreshConfigAfterLogin(): Promise<void> {
     const { host } = this;
     const config = await host.harness.getConfig({ reload: true });
@@ -183,9 +168,17 @@ export class AuthFlowController {
 
   async refreshConfigAfterLogout(): Promise<void> {
     const config = await this.host.harness.getConfig({ reload: true });
+    const availableModels = config.models ?? {};
+    const availableProviders = config.providers ?? {};
+
+    if (this.host.session !== undefined) {
+      this.host.setAppState({ availableModels, availableProviders });
+      return;
+    }
+
     this.host.setAppState({
-      availableModels: config.models ?? {},
-      availableProviders: config.providers ?? {},
+      availableModels,
+      availableProviders,
       model: '',
       thinkingEffort: 'off',
       maxContextTokens: 0,
@@ -196,20 +189,12 @@ export class AuthFlowController {
 
   /**
    * Re-fetch model lists from every provider whose upstream supports it
-   * (managed OAuth, open platforms, custom registries) and update local
+   * (open platforms, custom registries, and models.dev providers) and update local
    * config.  Runs best-effort: individual provider failures are collected
    * and returned instead of thrown.
    */
   async refreshProviderModels(): Promise<RefreshResult> {
-    return this.refreshProviderModelsWithScope('all');
-  }
-
-  async refreshOAuthProviderModels(): Promise<RefreshResult> {
-    return this.refreshProviderModelsWithScope('oauth');
-  }
-
-  private async refreshProviderModelsWithScope(scope: RefreshProviderScope): Promise<RefreshResult> {
-    const result = await refreshAllProviderModels(this.buildRefreshHost(), { scope });
+    const result = await refreshAllProviderModels(this.buildRefreshHost());
     if (result.changed.length > 0) {
       await this.refreshAvailableModels();
     }
@@ -229,17 +214,12 @@ export class AuthFlowController {
    */
   private buildRefreshHost(): RefreshProviderHost {
     const { host } = this;
-    const resolveOAuthToken = async (providerName: string, oauthRef?: OAuthRef): Promise<string> => {
-      const tokenProvider = host.harness.auth.resolveOAuthTokenProvider(providerName, oauthRef);
-      return tokenProvider.getAccessToken();
-    };
     const userAgent = createPythinkerCodeUserAgent();
     if (!host.harness.supportsAtomicSectionReplace()) {
       return {
         getConfig: () => host.harness.getConfig({ reload: true }),
         removeProvider: (id) => host.harness.removeProvider(id),
         setConfig: (patch) => host.harness.setConfig(patch),
-        resolveOAuthToken,
         userAgent,
       };
     }
@@ -269,7 +249,6 @@ export class AuthFlowController {
         await host.harness.replaceConfigSections(Object.fromEntries(Object.entries(patch)));
         return staged;
       },
-      resolveOAuthToken,
       userAgent,
     };
   }

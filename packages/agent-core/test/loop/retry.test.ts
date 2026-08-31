@@ -116,12 +116,12 @@ describe('chatWithRetry: terminated stream drops', () => {
           tokenCalls += 1;
           throw new PythinkerError(
             ErrorCodes.PROVIDER_CONNECTION_ERROR,
-            'OAuth provider "managed:pythinker-code" failed to fetch an access token: fetch failed',
+            'OAuth provider "oauth-example" failed to fetch an access token: fetch failed',
           );
         },
       }),
     });
-    const resolveAuth = manager.resolveAuth('pythinker-code/kimi-for-coding');
+    const resolveAuth = manager.resolveAuth('example/test-model');
     if (resolveAuth === undefined) throw new Error('expected OAuth auth resolver');
 
     let chatCalls = 0;
@@ -283,9 +283,9 @@ describe('chatWithRetry: honors server retry-after', () => {
 
 function oauthConfig(): PythinkerConfig {
   return {
-    defaultModel: 'pythinker-code/kimi-for-coding',
+    defaultModel: 'example/test-model',
     providers: {
-      'managed:pythinker-code': {
+      'oauth-example': {
         type: 'pythinker',
         apiKey: '',
         baseUrl: 'https://api.example/v1',
@@ -293,8 +293,8 @@ function oauthConfig(): PythinkerConfig {
       },
     },
     models: {
-      'pythinker-code/kimi-for-coding': {
-        provider: 'managed:pythinker-code',
+      'example/test-model': {
+        provider: 'oauth-example',
         model: 'kimi-for-coding',
         maxContextSize: 1_000_000,
       },

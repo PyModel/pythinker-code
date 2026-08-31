@@ -1,12 +1,13 @@
 import { mount } from '@vue/test-utils';
 import { createI18n } from 'vue-i18n';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import BashTool from '../src/components/chat/tool-calls/BashTool.vue';
 import GenericTool from '../src/components/chat/tool-calls/GenericTool.vue';
 import GlobTool from '../src/components/chat/tool-calls/GlobTool.vue';
 import GoalTool from '../src/components/chat/tool-calls/GoalTool.vue';
 import GrepTool from '../src/components/chat/tool-calls/GrepTool.vue';
+import PlanPanel from '../src/components/chat/PlanPanel.vue';
 import PlanTool from '../src/components/chat/tool-calls/PlanTool.vue';
 import ReadTool from '../src/components/chat/tool-calls/ReadTool.vue';
 import TodoTool from '../src/components/chat/tool-calls/TodoTool.vue';
@@ -15,6 +16,8 @@ import WebFetchTool from '../src/components/chat/tool-calls/WebFetchTool.vue';
 import { resolveToolRenderer } from '../src/components/chat/tool-calls/toolRegistry';
 import { messages } from '../src/i18n/locales';
 import type { ToolCall } from '../src/types';
+
+vi.mock('../src/components/chat/Markdown.vue', () => ({ default: { template: '<div />' } }));
 
 const i18n = createI18n({
   legacy: false,
@@ -97,14 +100,51 @@ describe('specialized tool renderers', () => {
     expect(wrapper.text()).toContain('needle in src');
   });
 
-  it('emits the Plan path when its affordance is clicked', async () => {
-    const wrapper = mountTool(PlanTool, tool('ExitPlanMode', {
-      planPath: '/repo/plan.md',
-      defaultExpanded: true,
-    }));
+  it('reveals the saved Plan through its agent and tool-call ids', async () => {
+    const revealSavedPlan = vi.fn().mockResolvedValue(true);
+    const wrapper = mount(PlanTool, {
+      props: {
+        tool: tool('ExitPlanMode', { planPath: '/repo/plan.md', defaultExpanded: true }),
+      },
+      global: {
+        plugins: [i18n],
+        provide: {
+          resolvePlan: () => ({
+            agentId: 'main',
+            toolCallId: 'tool-ExitPlanMode',
+            turnId: 't1',
+            source: 'interaction',
+            path: '/repo/plan.md',
+          }),
+          revealSavedPlan,
+        },
+      },
+    });
 
     expect(wrapper.text()).toContain('/repo/plan.md');
-    await wrapper.get('.plan-path').trigger('click');
-    expect(wrapper.emitted('openFile')).toEqual([[{ path: '/repo/plan.md' }]]);
+    await wrapper.get('.plan-path .ui-button').trigger('click');
+    expect(revealSavedPlan).toHaveBeenCalledWith('main', 'tool-ExitPlanMode');
+    expect(wrapper.emitted('openFile')).toBeUndefined();
+  });
+
+  it('reveals a path-only Plan panel through its agent and tool-call ids', async () => {
+    const revealSavedPlan = vi.fn().mockResolvedValue(true);
+    const wrapper = mount(PlanPanel, {
+      props: {
+        plan: {
+          agentId: 'main',
+          toolCallId: 'call_plan_panel',
+          turnId: 't1',
+          source: 'output',
+          path: '/repo/plan.md',
+        },
+        revealSavedPlan,
+      },
+      global: { plugins: [i18n] },
+    });
+
+    expect(wrapper.get('.plan-path').text()).toBe('/repo/plan.md');
+    await wrapper.get('.plan-path-only .ui-button').trigger('click');
+    expect(revealSavedPlan).toHaveBeenCalledWith('main', 'call_plan_panel');
   });
 });

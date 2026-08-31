@@ -67,16 +67,6 @@ export async function runShell(
     identity: createPythinkerCodeHostIdentity(version),
     skillDirs: opts.skillsDirs,
     telemetry: telemetryClient,
-    onOAuthRefresh: (outcome) => {
-      if (outcome.success) {
-        track('oauth_refresh', { outcome: 'success' });
-        return;
-      }
-      track('oauth_refresh', {
-        outcome: 'error',
-        reason: outcome.reason,
-      });
-    },
     sessionStartedProperties: { yolo: opts.yolo, auto: opts.auto, plan: opts.plan, afk: false },
   };
   // The agent-core-v2 route is the default (same engine gate as `pythinker -p`):

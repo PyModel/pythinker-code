@@ -15,6 +15,23 @@ const JSON_SUFFIX = '.json';
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 
+interface Utf8TailPreview {
+  readonly text: string;
+  readonly bytes: number;
+}
+
+export function utf8TailPreview(data: Uint8Array, maxBytes: number): Utf8TailPreview {
+  const limit = Math.max(0, Math.trunc(maxBytes));
+  let start = Math.max(0, data.byteLength - limit);
+  while (start < data.byteLength) {
+    const byte = data[start];
+    if (byte === undefined || (byte & 0xc0) !== 0x80) break;
+    start += 1;
+  }
+  const tail = data.subarray(start);
+  return { text: textDecoder.decode(tail), bytes: tail.byteLength };
+}
+
 type PersistedTask = AgentTaskInfo;
 
 type DiskPersistedTask = PersistedTask | LegacyPersistedTask;
@@ -129,17 +146,39 @@ export class AgentTaskPersistence {
     taskId: string,
     maxPreviewBytes: number,
   ): Promise<AgentTaskStoredOutputSnapshot | undefined> {
-    const output = await this.readTaskOutputData(taskId);
-    if (output === undefined) return undefined;
-    const previewLimit = Math.max(0, Math.trunc(maxPreviewBytes));
-    const previewBytes = Math.min(previewLimit, output.data.byteLength);
-    const previewOffset = output.data.byteLength - previewBytes;
+    let root = this.primaryRoot();
+    let outputSizeBytes = await this.bytes.size(this.taskOutputScope(taskId, root), OUTPUT_LOG_KEY);
+    if (outputSizeBytes === undefined) {
+      const fallbackRoot = this.fallbackRoot;
+      if (fallbackRoot === undefined) return undefined;
+      root = fallbackRoot;
+      outputSizeBytes = await this.bytes.size(this.taskOutputScope(taskId, root), OUTPUT_LOG_KEY);
+      if (outputSizeBytes === undefined) return undefined;
+    }
+
+    const previewLimit = Math.min(outputSizeBytes, Math.max(0, Math.trunc(maxPreviewBytes)));
+    const data = new Uint8Array(previewLimit);
+    let offset = 0;
+    if (previewLimit > 0) {
+      const start = outputSizeBytes - previewLimit;
+      for await (const chunk of this.bytes.readStream(
+        this.taskOutputScope(taskId, root),
+        OUTPUT_LOG_KEY,
+        { start, end: outputSizeBytes - 1 },
+      )) {
+        const slice = chunk.subarray(0, previewLimit - offset);
+        data.set(slice, offset);
+        offset += slice.byteLength;
+        if (offset === previewLimit) break;
+      }
+    }
+    const preview = utf8TailPreview(data.subarray(0, offset), previewLimit);
     return {
-      outputPath: this.taskOutputFileAt(taskId, output.root),
-      outputSizeBytes: output.data.byteLength,
-      previewBytes,
-      truncated: previewOffset > 0,
-      preview: textDecoder.decode(output.data.subarray(previewOffset)),
+      outputPath: this.taskOutputFileAt(taskId, root),
+      outputSizeBytes,
+      previewBytes: preview.bytes,
+      truncated: outputSizeBytes > preview.bytes,
+      preview: preview.text,
     };
   }
 

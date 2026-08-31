@@ -26,6 +26,7 @@
   },
   "dependencies": {
     "@fastify/multipart": "^10.0.0",
+    "@fastify/rate-limit": "^11.2.0",
     "@fastify/swagger": "^9.7.0",
     "@pymodel/agent-core-v2": "workspace:^",
     "@pymodel/minidb": "workspace:*",

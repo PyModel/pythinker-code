@@ -23,7 +23,6 @@ import {
   type UpdateManifest,
 } from '#/cli/update/types';
 import type { TuiConfig } from '#/tui/config';
-import { refreshPythinkerRegion } from '#/utils/region';
 
 const mocks = vi.hoisted(() => ({
   readUpdateCache: vi.fn(),
@@ -238,10 +237,6 @@ describe('runUpdatePreflight', () => {
     // regardless of the host environment (the flag bypasses batch holds).
     // Tests that exercise the bypass opt back in with `vi.stubEnv(..., '1')`.
     vi.stubEnv('PYTHINKER_CODE_EXPERIMENTAL_FLAG', '');
-    // Pin the region to cn so address assertions don't follow the dev
-    // machine's own login/marker state; global tests override below.
-    vi.stubEnv('PYTHINKER_CODE_OAUTH_HOST', 'https://auth.kimi.com');
-    refreshPythinkerRegion();
     mocks.readUpdateInstallState.mockResolvedValue(emptyUpdateInstallState());
     mocks.writeUpdateInstallState.mockResolvedValue(undefined);
     mocks.loadTuiConfig.mockResolvedValue(tuiConfig());
@@ -254,7 +249,7 @@ describe('runUpdatePreflight', () => {
     mocks.resolveCommandPath.mockImplementation((cmd: string) => cmd);
   });
 
-  afterEach(() => { vi.clearAllMocks(); vi.unstubAllEnvs(); refreshPythinkerRegion(); });
+  afterEach(() => { vi.clearAllMocks(); vi.unstubAllEnvs(); });
 
   it('skips all update work when PYTHINKER_CODE_NO_AUTO_UPDATE is set', async () => {
     vi.stubEnv('PYTHINKER_CODE_NO_AUTO_UPDATE', '1');
@@ -547,29 +542,6 @@ describe('runUpdatePreflight', () => {
       expect(stdout.join('')).toContain('See https://github.com/PyModel/pythinker-code/releases');
     } finally {
       Object.defineProperty(process, 'platform', { value: originalPlatform });
-    }
-  });
-
-  it('global region keeps native and Homebrew update instructions on Pythinker sources', async () => {
-    vi.stubEnv('PYTHINKER_CODE_OAUTH_HOST', 'https://auth.kimi.ai');
-    refreshPythinkerRegion();
-    mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-    const originalPlatform = process.platform;
-    Object.defineProperty(process, 'platform', { value: 'win32' });
-    try {
-      expect(installCommandFor('native', '0.5.0', 'win32')).toBe(
-        'See https://github.com/PyModel/pythinker-code/releases',
-      );
-
-      mocks.detectInstallSource.mockResolvedValue('homebrew');
-      const brew = captureOutput();
-      await expect(runUpdatePreflight('0.4.0', brew.options)).resolves.toBe('continue');
-      expect(brew.stdout.join('')).toContain('brew upgrade pythinker-code');
-      expect(mocks.spawn).not.toHaveBeenCalled();
-    } finally {
-      Object.defineProperty(process, 'platform', { value: originalPlatform });
-      refreshPythinkerRegion();
     }
   });
 

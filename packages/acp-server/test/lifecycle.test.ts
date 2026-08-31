@@ -1,14 +1,9 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import {
-  IOAuthToolkit,
-  ISessionManager,
-  ISessionMcpHandle,
-  IWorkspaceInstanceManager,
-} from '@pymodel/agent-core-v2';
+import { ISessionManager, ISessionMcpHandle, IWorkspaceInstanceManager } from '@pymodel/agent-core-v2';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import type { SessionSummary } from '@pymodel/klient';
@@ -22,45 +17,6 @@ import { createScriptedProvider } from './_helpers/scriptedProvider';
 const STDIO_MCP_FIXTURE = fileURLToPath(
   new URL('../../agent-core-v2/test/mcpCore/fixtures/mock-stdio-server.mjs', import.meta.url),
 );
-
-/**
- * config.toml declaring one OAuth provider so `auth.summarize()` considers it;
- * the token itself lives in the seeded fake `IOAuthToolkit`.
- */
-const OAUTH_PROVIDER_CONFIG = `[providers.test-oauth]
-type = "pythinker"
-baseUrl = "http://localhost"
-
-[providers.test-oauth.oauth]
-storage = "file"
-key = "test-key"
-`;
-
-/**
- * In-memory `IOAuthToolkit` stub: starts logged in, `logout()` clears the
- * token. Seeded at App scope so the real `OAuthService` / `AuthSummaryService`
- * chain runs against it.
- */
-function createFakeOAuthToolkit(): {
-  readonly seed: readonly [typeof IOAuthToolkit, IOAuthToolkit];
-  hasToken(): boolean;
-} {
-  let token: string | undefined = 'fake-token';
-  const fake = {
-    login: () => Promise.reject(new Error('fakeOAuthToolkit: login not implemented')),
-    logout: (providerName?: string) => {
-      token = undefined;
-      return Promise.resolve({ providerName: providerName ?? 'test-oauth' });
-    },
-    getCachedAccessToken: () => Promise.resolve(token),
-    tokenProvider: () => {
-      throw new Error('fakeOAuthToolkit: tokenProvider not implemented');
-    },
-    getManagedUsage: () => Promise.reject(new Error('fakeOAuthToolkit: not implemented')),
-    getManagedUserInfo: () => Promise.reject(new Error('fakeOAuthToolkit: not implemented')),
-  } as unknown as IOAuthToolkit;
-  return { seed: [IOAuthToolkit, fake], hasToken: () => token !== undefined };
-}
 
 describe('acp-server session lifecycle', () => {
   let homeDir: string | undefined;
@@ -291,10 +247,10 @@ describe('acp-server session lifecycle', () => {
   );
 
   it(
-    'session/new rejects stdio MCP servers without runtime identity',
+    'session/new connects ACP mcpServers as ephemeral session servers',
     async () => {
       const c = await boot();
-      await expect(c.send('session/new', {
+      const created = (await c.send('session/new', {
         cwd: homeDir,
         mcpServers: [
           {
@@ -304,16 +260,19 @@ describe('acp-server session lifecycle', () => {
             env: [{ name: 'PYTHINKER_TEST_MCP_START_DELAY_MS', value: '0' }],
           },
         ],
-      })).rejects.toThrow('ACP stdio MCP server mock does not declare a runtime identity');
+      })) as { sessionId: string };
+      expect(created.sessionId).toMatch(/^session_/);
 
       // Engine-side assertion: the session scope's MCP handle is the overlay
       // view and the converted server ended up connected under its ACP name.
+      const entries = await sessionMcpEntries(c, created.sessionId);
+      expect(entries.find((e) => e.name === 'mock')?.status).toBe('connected');
     },
     30_000,
   );
 
   it(
-    'session/load rejects stdio MCP servers without runtime identity',
+    'session/load forwards mcpServers to the re-materialized session',
     async () => {
       const c = await boot();
       const created = (await c.send('session/new', { cwd: homeDir, mcpServers: [] })) as {
@@ -321,13 +280,16 @@ describe('acp-server session lifecycle', () => {
       };
       await c.send('session/close', { sessionId: created.sessionId });
 
-      await expect(c.send('session/load', {
+      await c.send('session/load', {
         sessionId: created.sessionId,
         cwd: homeDir,
         mcpServers: [
           { name: 'mock', command: process.execPath, args: [STDIO_MCP_FIXTURE], env: [] },
         ],
-      })).rejects.toThrow('ACP stdio MCP server mock does not declare a runtime identity');
+      });
+
+      const entries = await sessionMcpEntries(c, created.sessionId);
+      expect(entries.find((e) => e.name === 'mock')?.status).toBe('connected');
     },
     30_000,
   );
@@ -374,52 +336,6 @@ describe('acp-server session lifecycle', () => {
       const notification = await c.waitForSessionUpdate('session_info_update', 10_000);
       const update = (notification.params as { update?: { title?: string | null } }).update;
       expect(update?.title).toBe('Renamed Session');
-    },
-    30_000,
-  );
-
-  it(
-    'logout drops the token and the auth gate closes again',
-    async () => {
-      homeDir = await mkdtemp(join(tmpdir(), 'acp-logout-'));
-      await writeFile(join(homeDir, 'config.toml'), OAUTH_PROVIDER_CONFIG, 'utf8');
-      const toolkit = createFakeOAuthToolkit();
-      client = await createTestClient({
-        homeDir,
-        disableAuth: false,
-        extraSeeds: [toolkit.seed],
-      });
-      const c = client;
-      await c.send('initialize', { protocolVersion: 1, clientCapabilities: {} });
-
-      // Provider hydration from config.toml is async (kosongConfig initialize
-      // → providerService.loadAll); wait until summarize sees the fake token.
-      await expect
-        .poll(
-          async () => (await c.server.klient.global.auth.summarize()).some((s) => s.loggedIn),
-          { timeout: 10_000 },
-        )
-        .toBe(true);
-
-      // Logged in (fake token present): the gate lets session/new through.
-      const created = (await c.send('session/new', { cwd: homeDir, mcpServers: [] })) as {
-        sessionId: string;
-      };
-      expect(created.sessionId).toMatch(/^session_/);
-
-      await c.send('logout', {});
-      expect(toolkit.hasToken()).toBe(false);
-
-      // Logged out: the summarize-driven gate rejects with auth_required.
-      await expect
-        .poll(
-          async () => (await c.server.klient.global.auth.summarize()).some((s) => s.loggedIn),
-          { timeout: 10_000 },
-        )
-        .toBe(false);
-      await expect(c.send('session/new', { cwd: homeDir, mcpServers: [] })).rejects.toThrow(
-        /[Aa]uthentication required/,
-      );
     },
     30_000,
   );

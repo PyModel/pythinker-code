@@ -86,35 +86,12 @@ describe('facade routing', () => {
       args: [{ id: 'p', server: 's', enabled: true }],
     });
 
-    channel.results.set('oauthService.status', { loggedIn: false });
-    await klient.global.auth.status();
+    channel.results.set('authSummaryService.summarize', []);
+    await klient.global.auth.summarize();
     expect(channel.calls[2]).toMatchObject({
-      service: 'oauthService',
-      method: 'status',
-      args: [undefined],
-    });
-  });
-
-  it('forwards the login region option through the wire contract', async () => {
-    const channel = new FakeChannel();
-    const klient = createKlientFromChannel(channel);
-
-    channel.results.set('oauthService.startLogin', {
-      flow_id: 'f1',
-      provider: 'managed:pythinker-code',
-      status: 'pending',
-      verification_uri: 'https://example.com/device',
-      verification_uri_complete: 'https://example.com/device?user_code=ABCD',
-      user_code: 'ABCD',
-      expires_in: 1800,
-      expires_at: '2026-08-19T15:00:00.000Z',
-      interval: 5,
-    });
-    await klient.global.auth.startLogin('managed:pythinker-code', { region: 'global' });
-    expect(channel.calls[0]).toMatchObject({
-      service: 'oauthService',
-      method: 'startLogin',
-      args: ['managed:pythinker-code', { region: 'global' }],
+      service: 'authSummaryService',
+      method: 'summarize',
+      args: [],
     });
   });
 

@@ -23,7 +23,7 @@
 //                           task_id: <id>
 //                           description: <one-line summary>
 //   A `timed_out` wait is NOT an error — the tool says so itself — so the card
-//   renders it in the warning tone like the reference UI.
+//   renders it in the warning tone.
 
 export type WaitForStatus = 'completed' | 'timed_out' | 'no_tasks';
 

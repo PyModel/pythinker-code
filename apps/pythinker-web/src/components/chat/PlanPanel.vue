@@ -5,10 +5,11 @@ import Button from '../ui/Button.vue';
 import Icon from '../ui/Icon.vue';
 import Markdown from './Markdown.vue';
 
-const props = defineProps<{
+defineProps<{
   plan?: SessionPlanEntry;
   planModeOn?: boolean;
   openFile?: (target: FilePreviewRequest) => void;
+  revealSavedPlan?: (agentId: string, toolCallId: string) => Promise<boolean>;
 }>();
 
 const { t } = useI18n();
@@ -27,7 +28,16 @@ const { t } = useI18n();
     <Markdown v-if="plan?.plan" :text="plan.plan" :open-file="openFile" />
     <div v-else-if="plan?.path" class="plan-path-only">
       <span class="plan-path-hint">{{ t('tools.plan.pathOnlyHint') }}</span>
-      <Button class="plan-path" variant="ghost" size="sm" @click="props.openFile?.({ path: plan.path! })">{{ plan.path }}</Button>
+      <span class="plan-path">{{ plan.path }}</span>
+      <Button
+        v-if="revealSavedPlan"
+        variant="ghost"
+        size="sm"
+        @click="void revealSavedPlan(plan.agentId, plan.toolCallId)"
+      >
+        <Icon name="external-link" size="sm" />
+        {{ t('tools.plan.revealInFileManager') }}
+      </Button>
     </div>
     <div v-else class="plan-empty">
       <Icon class="plan-empty-ico" name="file-edit" size="lg" />

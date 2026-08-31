@@ -25,7 +25,7 @@ import {
   agentTokenCountingContract,
   agentUsageContract,
 } from './agent/services.js';
-import { authContract, authSummaryContract } from './global/auth.js';
+import { authSummaryContract } from './global/auth.js';
 import { capabilitiesContract } from './global/capabilities.js';
 import { catalogContract } from './global/catalog.js';
 import { providerDiscoveryContract } from './global/providerDiscovery.js';
@@ -35,6 +35,7 @@ import { filesContract } from './global/files.js';
 import { flagsContract } from './global/flags.js';
 import { hostFsContract } from './global/hostFs.js';
 import { modelsContract } from './global/models.js';
+import { mcpManagementContract } from './global/mcpManagement.js';
 import { pluginsContract } from './global/plugins.js';
 import { providersContract } from './global/providers.js';
 import { sessionsContract } from './global/sessions.js';
@@ -56,7 +57,6 @@ export const globalContract: KlientContract = {
   modelService: modelsContract,
   modelResolver: catalogContract,
   providerDiscovery: providerDiscoveryContract,
-  oauthService: authContract,
   authSummaryService: authSummaryContract,
   flagService: flagsContract,
   pluginService: pluginsContract,
@@ -64,6 +64,7 @@ export const globalContract: KlientContract = {
   hostFolderBrowser: hostFsContract,
   bootstrapService: envContract,
   fileService: filesContract,
+  mcpManagementService: mcpManagementContract,
   sessionManager: sessionManagerContract,
   // session scope
   sessionMetadata: sessionMetadataContract,

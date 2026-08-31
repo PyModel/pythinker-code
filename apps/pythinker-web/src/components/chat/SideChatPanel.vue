@@ -99,6 +99,12 @@ function autosize(): void {
   el.style.height = 'auto';
   el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
 }
+
+function focusInput(): void {
+  inputRef.value?.focus();
+}
+
+defineExpose({ focusInput });
 </script>
 
 <template>

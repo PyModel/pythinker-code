@@ -4,16 +4,19 @@ import {
   getLiveSessionById,
   type AgentTaskInfo,
   type Scope,
+  type SubagentBindingProvenance,
 } from '@pymodel/agent-core-v2';
 import { ErrorCode } from '../protocol/error-codes';
 import {
   cancelTaskResultSchema,
+  detachTaskResultSchema,
   getTaskQuerySchema,
   getTaskResponseSchema,
   listTasksQuerySchema,
   listTasksResponseSchema,
+  type ListTasksQuery,
 } from '../protocol/rest-task';
-import type { Task, TaskKind, TaskStatus } from '../protocol/task';
+import type { SubagentRoutingWire, Task, TaskKind, TaskStatus } from '../protocol/task';
 import { z } from 'zod';
 
 import { errEnvelope, okEnvelope } from '../envelope';
@@ -77,12 +80,25 @@ export function registerTasksRoutes(app: TasksRouteHost, core: Scope): void {
         return;
       }
 
-      const all = (resolved.tasks?.list(false) ?? []).map((info) =>
-        toWireTask(session_id, info),
+      const query = req.query as ListTasksQuery;
+      const infos = (resolved.tasks?.list(false) ?? []).filter(
+        (info) => query.status === undefined || mapStatus(info.status) === query.status,
       );
-      const query = req.query as { status?: TaskStatus };
-      const items =
-        query.status !== undefined ? all.filter((t) => t.status === query.status) : all;
+      const items = await Promise.all(
+        infos.map(async (info) => {
+          const output =
+            query.with_output === true &&
+            resolved.tasks !== undefined &&
+            (query.output_status !== 'running' || mapStatus(info.status) === 'running')
+              ? await readTaskOutput(
+                  resolved.tasks,
+                  info.taskId,
+                  query.output_bytes ?? DEFAULT_TASK_OUTPUT_PREVIEW_BYTES,
+                )
+              : undefined;
+          return toWireTask(session_id, info, output);
+        }),
+      );
       reply.send(okEnvelope({ items }, req.id));
     },
   );
@@ -118,28 +134,25 @@ export function registerTasksRoutes(app: TasksRouteHost, core: Scope): void {
       }
 
       const query = req.query as { with_output?: boolean; output_bytes?: number };
-      let output: { preview: string; bytes: number } | undefined;
-      if (query.with_output === true && resolved.tasks !== undefined) {
-        const tailBytes = query.output_bytes ?? DEFAULT_TASK_OUTPUT_PREVIEW_BYTES;
-        try {
-          const preview = await resolved.tasks.readOutput(task_id, tailBytes);
-          if (preview.length > 0) {
-            output = { preview, bytes: Buffer.byteLength(preview, 'utf-8') };
-          }
-        } catch {
-        }
-      }
+      const output =
+        query.with_output === true && resolved.tasks !== undefined
+          ? await readTaskOutput(
+              resolved.tasks,
+              task_id,
+              query.output_bytes ?? DEFAULT_TASK_OUTPUT_PREVIEW_BYTES,
+            )
+          : undefined;
 
       reply.send(okEnvelope(toWireTask(session_id, found, output), req.id));
     },
   );
   app.get(getRoute.path, getRoute.options, getRoute.handler as Parameters<TasksRouteHost['get']>[2]);
 
-  const cancelRoute = defineRoute(
+  const taskActionRoute = defineRoute(
     {
       method: 'POST',
       path: '/sessions/{session_id}/tasks/{tail}',
-      success: { data: cancelTaskResultSchema },
+      success: { data: z.union([cancelTaskResultSchema, detachTaskResultSchema]) },
       errors: {
         [ErrorCode.VALIDATION_FAILED]: { detailsSchema },
         [ErrorCode.SESSION_NOT_FOUND]: {},
@@ -149,9 +162,9 @@ export function registerTasksRoutes(app: TasksRouteHost, core: Scope): void {
           detailsSchema: z.object({ current_status: z.string() }),
         },
       },
-      description: 'Cancel a task',
+      description: 'Run a task action',
       tags: ['tasks'],
-      operationId: 'cancelTask',
+      operationId: 'runTaskAction',
     },
     async (req, reply) => {
       const { session_id, tail } = req.params as {
@@ -160,7 +173,7 @@ export function registerTasksRoutes(app: TasksRouteHost, core: Scope): void {
       };
       const parsed = parseActionSuffix({
         tail,
-        allowedActions: ['cancel'] as const,
+        allowedActions: ['cancel', 'detach'] as const,
         resourceLabel: 'task',
       });
       if (parsed.kind === 'invalid') {
@@ -190,18 +203,29 @@ export function registerTasksRoutes(app: TasksRouteHost, core: Scope): void {
         reply.send(taskNotFound(session_id, task_id, req.id));
         return;
       }
-      const wireStatus = toWireTask(session_id, found).status;
-      if (isTerminalStatus(wireStatus)) {
-        reply.send(taskAlreadyFinished(session_id, task_id, wireStatus, req.id));
+
+      if (parsed.action === 'cancel') {
+        const wireStatus = toWireTask(session_id, found).status;
+        if (isTerminalStatus(wireStatus)) {
+          reply.send(taskAlreadyFinished(session_id, task_id, wireStatus, req.id));
+          return;
+        }
+
+        await resolved.tasks?.stopByUser(task_id);
+        requestLog(req)?.info({ session_id, task_id }, 'task cancelled');
+        reply.send(okEnvelope({ cancelled: true as const }, req.id));
         return;
       }
 
-      await resolved.tasks?.stopByUser(task_id);
-      requestLog(req)?.info({ session_id, task_id }, 'task cancelled');
-      reply.send(okEnvelope({ cancelled: true as const }, req.id));
+      const detached = found.status === 'running' && found.detached === false;
+      const info = resolved.tasks?.detach(task_id) ?? found;
+      if (detached) {
+        requestLog(req)?.info({ session_id, task_id }, 'task detached');
+      }
+      reply.send(okEnvelope({ detached, status: mapStatus(info.status) }, req.id));
     },
   );
-  app.post(cancelRoute.path, cancelRoute.options, cancelRoute.handler as Parameters<TasksRouteHost['post']>[2]);
+  app.post(taskActionRoute.path, taskActionRoute.options, taskActionRoute.handler as Parameters<TasksRouteHost['post']>[2]);
 }
 
 type ResolvedTasks =
@@ -257,6 +281,20 @@ function isTerminalStatus(status: TaskStatus): boolean {
   return TERMINAL_WIRE_STATUSES.has(status);
 }
 
+async function readTaskOutput(
+  tasks: IAgentTaskService,
+  taskId: string,
+  tailBytes: number,
+): Promise<{ preview: string; bytes: number } | undefined> {
+  try {
+    const output = await tasks.getOutputSnapshot(taskId, tailBytes);
+    if (output.preview.length === 0) return undefined;
+    return { preview: output.preview, bytes: output.previewBytes };
+  } catch {
+    return undefined;
+  }
+}
+
 function toWireTask(
   sessionId: string,
   info: AgentTaskInfo,
@@ -272,7 +310,7 @@ function toWireTask(
     status,
     created_at: createdIso,
     started_at: createdIso,
-    run_in_background: info.detached !== false,
+    run_in_background: info.detached ?? true,
   };
   if (info.endedAt !== null && info.endedAt !== undefined) {
     base.completed_at = new Date(info.endedAt).toISOString();
@@ -286,13 +324,22 @@ function toWireTask(
   if (info.kind === 'agent' && info.thinkingEffort !== undefined) {
     base.thinking_effort = info.thinkingEffort;
   }
+  if (info.kind === 'agent' && info.routing !== undefined) {
+    base.routing = toRoutingWire(info.routing);
+  }
+  if (info.kind === 'agent' && info.currentRoutingEnvironmentRevision !== undefined) {
+    base.current_routing_env_revision = info.currentRoutingEnvironmentRevision;
+  }
   if (info.kind === 'agent' && info.agentId !== undefined) {
     base.agent_id = info.agentId;
   }
   if (info.kind === 'agent' && info.subagentType !== undefined) {
     base.subagent_type = info.subagentType;
   }
-  if (info.kind === 'agent' && info.parentToolCallId !== undefined) {
+  if (
+    (info.kind === 'agent' || info.kind === 'process') &&
+    info.parentToolCallId !== undefined
+  ) {
     base.parent_tool_call_id = info.parentToolCallId;
   }
   if (output !== undefined) {
@@ -300,6 +347,19 @@ function toWireTask(
     base.output_bytes = output.bytes;
   }
   return base;
+}
+
+export function toRoutingWire(routing: SubagentBindingProvenance): SubagentRoutingWire {
+  return {
+    operation: routing.operation,
+    profile_source: routing.profileSource,
+    model_source: routing.modelSource,
+    policy_mode: routing.policyMode,
+    policy_source: routing.policySource,
+    feature_source: routing.featureSource,
+    routing_env_revision: routing.resolvedFromRoutingEnvironmentRevision,
+    route_decision: routing.routeDecisionFingerprint,
+  };
 }
 
 function sessionNotFound(sid: string, requestId: string): unknown {

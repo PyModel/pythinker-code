@@ -73,7 +73,7 @@ describe('AcpServer ext method surface', () => {
     const harness = makeMinimalHarness();
     const { agentStream, clientStream } = makeInMemoryStreamPair();
 
-    new AgentSideConnection((c) => new AcpServer(harness, c), agentStream);
+    new AgentSideConnection((c) => new AcpServer(harness, c, { disableAuth: true }), agentStream);
     const client = new ClientSideConnection((_a) => new StubClient(), clientStream);
 
     await expect(client.extMethod('myorg.unsupported', {})).rejects.toMatchObject({

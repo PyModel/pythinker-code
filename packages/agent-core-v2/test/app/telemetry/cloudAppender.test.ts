@@ -63,26 +63,16 @@ function baseOptions(
 
 describe('CloudAppender', () => {
   let homeDir: string;
-  let savedOauthHost: string | undefined;
-  let savedLegacyOauthHost: string | undefined;
   let savedPythinkerHome: string | undefined;
 
   beforeEach(() => {
     homeDir = mkdtempSync(join(tmpdir(), 'cloud-appender-'));
-    savedOauthHost = process.env['PYTHINKER_CODE_OAUTH_HOST'];
-    savedLegacyOauthHost = process.env['PYTHINKER_OAUTH_HOST'];
     savedPythinkerHome = process.env['PYTHINKER_CODE_HOME'];
-    delete process.env['PYTHINKER_CODE_OAUTH_HOST'];
-    delete process.env['PYTHINKER_OAUTH_HOST'];
     process.env['PYTHINKER_CODE_HOME'] = homeDir;
   });
 
   afterEach(() => {
     rmSync(homeDir, { recursive: true, force: true });
-    if (savedOauthHost === undefined) delete process.env['PYTHINKER_CODE_OAUTH_HOST'];
-    else process.env['PYTHINKER_CODE_OAUTH_HOST'] = savedOauthHost;
-    if (savedLegacyOauthHost === undefined) delete process.env['PYTHINKER_OAUTH_HOST'];
-    else process.env['PYTHINKER_OAUTH_HOST'] = savedLegacyOauthHost;
     if (savedPythinkerHome === undefined) delete process.env['PYTHINKER_CODE_HOME'];
     else process.env['PYTHINKER_CODE_HOME'] = savedPythinkerHome;
   });
@@ -106,9 +96,9 @@ describe('CloudAppender', () => {
 
     expect(requests).toHaveLength(1);
     expect(requests[0]?.url).toBe('https://telemetry-logs.pythinker.com/v1/event');
-    expect(requests[0]?.body.user_id).toBe('kfc_device_id_dev123');
+    expect(requests[0]?.body.user_id).toBe('pfc_device_id_dev123');
     const event = requests[0]?.body.events[0];
-    expect(event?.['event']).toBe('kfc_tool.call');
+    expect(event?.['event']).toBe('pfc_tool.call');
     expect(event?.['device_id']).toBe('dev123');
     expect(event?.['session_id']).toBe('sess1');
     expect(event?.['property_name']).toBe('bash');
@@ -121,53 +111,12 @@ describe('CloudAppender', () => {
     expect(typeof event?.['timestamp']).toBe('number');
   });
 
-  it('derives the global endpoint when the env pins the global region', async () => {
-    process.env['PYTHINKER_CODE_OAUTH_HOST'] = 'https://auth.kimi.ai';
-    const requests: CapturedRequest[] = [];
-    const appender = new CloudAppender(
-      baseOptions({
-        homeDir,
-        fetchImpl: makeFetch((req) => {
-          requests.push(req);
-          return okResponse();
-        }),
-      }),
-    );
-
-    appender.track('tool.call', { name: 'bash' });
-    await appender.flush();
-
-    expect(requests).toHaveLength(1);
-    expect(requests[0]?.url).toBe('https://telemetry-logs.pythinker.ai/v1/event');
-  });
-
-  it('reads the install marker from the bootstrapped home for the default endpoint', async () => {
+  it('reports to the single telemetry host whatever the install marker says', async () => {
     writeFileSync(join(homeDir, 'region'), 'global\n');
     const requests: CapturedRequest[] = [];
     const appender = new CloudAppender(
       baseOptions({
         homeDir,
-        fetchImpl: makeFetch((req) => {
-          requests.push(req);
-          return okResponse();
-        }),
-      }),
-    );
-
-    appender.track('tool.call', { name: 'bash' });
-    await appender.flush();
-
-    expect(requests).toHaveLength(1);
-    expect(requests[0]?.url).toBe('https://telemetry-logs.pythinker.ai/v1/event');
-  });
-
-  it('honors the marker opt-out from the bootstrap env bag (no process.env needed)', async () => {
-    writeFileSync(join(homeDir, 'region'), 'global\n');
-    const requests: CapturedRequest[] = [];
-    const appender = new CloudAppender(
-      baseOptions({
-        homeDir,
-        bootstrapEnv: { PYTHINKER_CODE_REGION_MARKER: 'off' },
         fetchImpl: makeFetch((req) => {
           requests.push(req);
           return okResponse();
@@ -180,33 +129,6 @@ describe('CloudAppender', () => {
 
     expect(requests).toHaveLength(1);
     expect(requests[0]?.url).toBe('https://telemetry-logs.pythinker.com/v1/event');
-  });
-
-  it('honors PYTHINKER_CODE_REGION_MARKER=off so embedded servers ignore the install marker', async () => {
-    writeFileSync(join(homeDir, 'region'), 'global\n');
-    const savedMarkerFlag = process.env['PYTHINKER_CODE_REGION_MARKER'];
-    process.env['PYTHINKER_CODE_REGION_MARKER'] = 'off';
-    try {
-      const requests: CapturedRequest[] = [];
-      const appender = new CloudAppender(
-        baseOptions({
-          homeDir,
-          fetchImpl: makeFetch((req) => {
-            requests.push(req);
-            return okResponse();
-          }),
-        }),
-      );
-
-      appender.track('tool.call', { name: 'bash' });
-      await appender.flush();
-
-      expect(requests).toHaveLength(1);
-      expect(requests[0]?.url).toBe('https://telemetry-logs.pythinker.com/v1/event');
-    } finally {
-      if (savedMarkerFlag === undefined) delete process.env['PYTHINKER_CODE_REGION_MARKER'];
-      else process.env['PYTHINKER_CODE_REGION_MARKER'] = savedMarkerFlag;
-    }
   });
 
   it('applies setContext sessionId and model updates to subsequent events', async () => {

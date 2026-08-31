@@ -50,7 +50,7 @@ function makeRunner(origin = 'http://127.0.0.1:58627'): {
   const calls: { options: ParsedServerOptions | undefined } = { options: undefined };
   const runner: ForegroundRunner = async (options, hooks) => {
     calls.options = options;
-    hooks?.onReady?.(origin);
+    await hooks?.onReady?.(origin);
     return undefined as never;
   };
   return { runner, calls };
@@ -99,11 +99,12 @@ describe('pythinker web', () => {
     expect(longs).toContain('--allowed-host');
     expect(longs).toContain('--insecure-no-tls');
     expect(longs).toContain('--allow-remote-shutdown');
-    expect(longs).toContain('--allow-remote-terminals');
     expect(longs).toContain('--dangerous-bypass-auth');
     expect(longs).toContain('--log-level');
     expect(longs).toContain('--debug-endpoints');
     expect(longs).toContain('--web-title');
+    const remoteControl = web!.options.find((option) => option.long === '--remote-control');
+    expect(remoteControl?.short).toBe('--rc');
     // web opens the browser by default → the option is the negative --no-open.
     expect(longs).toContain('--no-open');
     // The background/daemon era flags are gone: the server always runs in the
@@ -112,6 +113,7 @@ describe('pythinker web', () => {
     expect(longs).not.toContain('--keep-alive');
     expect(longs).not.toContain('--daemon');
     expect(longs).not.toContain('--idle-grace-ms');
+    expect(longs).not.toContain('--allow-remote-terminals');
   });
 
   it('routes `pythinker server` and any legacy subcommand to a deprecation notice', async () => {
@@ -392,6 +394,119 @@ describe('`pythinker web` opens the browser', () => {
 
     expect(openUrl).not.toHaveBeenCalled();
   });
+
+  it('maps --remote-control and --rc to the same option', () => {
+    for (const flag of ['--remote-control', '--rc']) {
+      const program = makeProgram();
+      const web = program.commands.find((command) => command.name() === 'web')!;
+      web.parseOptions([flag]);
+      expect(web.opts()).toMatchObject({ remoteControl: true });
+    }
+  });
+
+  it('passes the resolved relay origin to the tunnel', async () => {
+    vi.stubEnv('PYTHINKER_CODE_EXPERIMENTAL_REMOTE_CONTROL', '1');
+    const { handleWebCommand } = await import('#/cli/sub/web/run');
+    const { runner } = makeRunner();
+    const { stdout, stderr } = makeIo();
+    const startRemoteControl = vi.fn(async () => ({
+      deviceId: 'device-1',
+      deviceName: 'example-device',
+      url: 'https://relay.example.test/devices/device-1/?rc=1&from=pythinker_code_cli',
+      close: async () => {},
+    }));
+
+    await handleWebCommand(
+      {
+        remoteControl: true,
+        relayOrigin: 'https://relay.example.test',
+        relayKey: 'relay-key-1',
+        open: false,
+      },
+      {
+        startServerForeground: runner,
+        openUrl: vi.fn(),
+        resolveToken: () => 'tok-1',
+        startRemoteControl,
+        stdout,
+        stderr,
+      },
+    );
+
+    expect(startRemoteControl).toHaveBeenCalledWith(
+      expect.objectContaining({
+        relayOrigin: 'https://relay.example.test',
+        relayKey: 'relay-key-1',
+        localServerToken: 'tok-1',
+      }),
+    );
+  });
+
+  it('refuses to start Remote Control without a relay key', async () => {
+    vi.stubEnv('PYTHINKER_CODE_EXPERIMENTAL_REMOTE_CONTROL', '1');
+    vi.stubEnv('PYTHINKER_CODE_REMOTE_CONTROL_RELAY_KEY', '');
+    const { handleWebCommand } = await import('#/cli/sub/web/run');
+    const { runner } = makeRunner();
+    const { stdout, stderr } = makeIo();
+    const startRemoteControl = vi.fn();
+
+    await expect(
+      handleWebCommand(
+        { remoteControl: true, relayOrigin: 'https://relay.example.test', open: false },
+        {
+          startServerForeground: runner,
+          openUrl: vi.fn(),
+          resolveToken: () => 'tok-1',
+          startRemoteControl,
+          stdout,
+          stderr,
+        },
+      ),
+    ).rejects.toThrow('Remote Control needs a relay key');
+    expect(startRemoteControl).not.toHaveBeenCalled();
+  });
+
+  it('rejects Remote Control on a non-loopback host', async () => {
+    vi.stubEnv('PYTHINKER_CODE_EXPERIMENTAL_REMOTE_CONTROL', '1');
+    const { handleWebCommand } = await import('#/cli/sub/web/run');
+    const { runner } = makeRunner();
+    const { stdout, stderr } = makeIo();
+
+    await expect(
+      handleWebCommand(
+        { remoteControl: true, host: '0.0.0.0', open: false },
+        { startServerForeground: runner, openUrl: vi.fn(), stdout, stderr },
+      ),
+    ).rejects.toThrow('--remote-control requires a loopback host.');
+  });
+
+  it('rejects --remote-control while the experimental flag is off', async () => {
+    vi.stubEnv('PYTHINKER_CODE_EXPERIMENTAL_FLAG', '0');
+    vi.stubEnv('PYTHINKER_CODE_EXPERIMENTAL_REMOTE_CONTROL', '0');
+    const { handleWebCommand } = await import('#/cli/sub/web/run');
+    const { runner } = makeRunner();
+    const { stdout, stderr } = makeIo();
+
+    await expect(
+      handleWebCommand(
+        { remoteControl: true, open: false },
+        { startServerForeground: runner, openUrl: vi.fn(), stdout, stderr },
+      ),
+    ).rejects.toThrow('--remote-control is experimental:');
+  });
+
+  it('hides --remote-control from help unless the experimental flag is on', () => {
+    const remoteControlOption = () =>
+      makeProgram()
+        .commands.find((command) => command.name() === 'web')!
+        .options.find((option) => option.long === '--remote-control');
+
+    vi.stubEnv('PYTHINKER_CODE_EXPERIMENTAL_FLAG', '0');
+    vi.stubEnv('PYTHINKER_CODE_EXPERIMENTAL_REMOTE_CONTROL', '0');
+    expect(remoteControlOption()?.hidden).toBe(true);
+    vi.stubEnv('PYTHINKER_CODE_EXPERIMENTAL_REMOTE_CONTROL', '1');
+    expect(remoteControlOption()?.hidden).toBe(false);
+  });
 });
 
 describe('`pythinker web` option threading', () => {
@@ -409,7 +524,6 @@ describe('`pythinker web` option threading', () => {
         dangerousBypassAuth: true,
         debugEndpoints: true,
         allowRemoteShutdown: true,
-        allowRemoteTerminals: true,
         open: false,
       },
       { startServerForeground: runner, openUrl: vi.fn(), stdout, stderr },
@@ -422,7 +536,6 @@ describe('`pythinker web` option threading', () => {
       debugEndpoints: true,
       insecureNoTls: true,
       allowRemoteShutdown: true,
-      allowRemoteTerminals: true,
       dangerousBypassAuth: true,
       allowedHosts: ['.example.com'],
     });
@@ -1027,5 +1140,56 @@ describe('filterDisplayAddresses', () => {
       { address: '10.0.0.1', family: 'IPv4' },
       { address: '2001:db8::1', family: 'IPv6' },
     ]);
+  });
+});
+
+describe('pythinker rc', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('registers `rc` with the `remote` alias and the web server options, without a --remote-control flag', () => {
+    const program = makeProgram();
+    const rc = program.commands.find((c) => c.name() === 'rc');
+    expect(rc).toBeDefined();
+    expect(rc!.alias()).toBe('remote');
+    const longs = rc!.options.map((o) => o.long).filter(Boolean);
+    expect(longs).toContain('--port');
+    expect(longs).toContain('--host');
+    expect(longs).toContain('--no-open');
+    expect(longs).not.toContain('--remote-control');
+  });
+
+  it('hides `rc` from help unless the experimental flag is on', () => {
+    vi.stubEnv('PYTHINKER_CODE_EXPERIMENTAL_FLAG', '0');
+    vi.stubEnv('PYTHINKER_CODE_EXPERIMENTAL_REMOTE_CONTROL', '0');
+    expect(makeProgram().helpInformation()).not.toContain('rc|remote');
+    vi.stubEnv('PYTHINKER_CODE_EXPERIMENTAL_REMOTE_CONTROL', '1');
+    expect(makeProgram().helpInformation()).toContain('rc|remote');
+  });
+
+  it('forces Remote Control for both `rc` and `remote`', async () => {
+    vi.stubEnv('PYTHINKER_CODE_EXPERIMENTAL_FLAG', '0');
+    vi.stubEnv('PYTHINKER_CODE_EXPERIMENTAL_REMOTE_CONTROL', '0');
+    for (const name of ['rc', 'remote']) {
+      const program = makeProgram();
+      let stderr = '';
+      const errSpy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+        stderr += String(chunk);
+        return true;
+      });
+      const exitSpy = vi
+        .spyOn(process, 'exit')
+        .mockImplementation(() => undefined as never);
+      try {
+        await program.parseAsync(['node', 'pythinker', name]);
+      } finally {
+        errSpy.mockRestore();
+        exitSpy.mockRestore();
+      }
+      // The flag-off experimental error proves remoteControl was forced before
+      // the runner could start.
+      expect(stderr).toContain('--remote-control is experimental:');
+    }
   });
 });

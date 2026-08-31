@@ -15,6 +15,7 @@ import { IKosongConfigService } from '#/app/kosongConfig/kosongConfig';
 import { IModelsDevImportService } from '#/app/kosongConfig/modelsDevImport';
 import '#/app/kosongConfig/modelsDevImportService';
 import { IModelCatalog, type ProviderCatalogItem } from '#/kosong/model/catalog';
+import { IModelService } from '#/kosong/model/model';
 import type { ModelsSection } from '#/kosong/model/model';
 import type { ProvidersSection } from '#/kosong/provider/provider';
 
@@ -130,6 +131,10 @@ function stubModelCatalog(): IModelCatalog {
   } as unknown as IModelCatalog;
 }
 
+function stubModelService(): IModelService {
+  return { _serviceBrand: undefined, settled: Promise.resolve() } as unknown as IModelService;
+}
+
 function createHost(
   sections: Record<string, unknown> = {},
   identitySlug?: string,
@@ -143,6 +148,7 @@ function createHost(
     [IConfigService, config],
     [IKosongConfigService, stubKosongConfig()],
     [IModelCatalog, stubModelCatalog()],
+    [IModelService, stubModelService()],
     [IBootstrapService, stubBootstrap('/home', {}, { requestHeaders: hostHeaders })],
     [IAgentIdentity, stubAgentIdentity({ slug: identitySlug, hostRequestHeaders: hostHeaders })],
   ]);
@@ -154,7 +160,7 @@ async function expectError2(promise: Promise<unknown>, code: string): Promise<Er
     () => {
       throw new Error(`expected the call to throw ${code}`);
     },
-    (cause: unknown) => cause,
+    (error: unknown) => error,
   );
   expect(isError2(err)).toBe(true);
   expect((err as Error2).code).toBe(code);
@@ -236,7 +242,7 @@ describe('IModelsDevImportService', () => {
     expect(config.get('defaultModel')).toBe('k2');
   });
 
-  it('filters pool entries a catalog import drops, keeping a surviving default', async () => {
+  it('leaves the pool untouched when a catalog import drops an alias', async () => {
     setModelsDevUpstreamForTest({ fetchImpl: fetchJson(CATALOG) });
     const { config, imports } = createHost({
       providers: { openai: { type: 'openai', apiKey: 'sk-old' } },
@@ -254,11 +260,12 @@ describe('IModelsDevImportService', () => {
 
     expect(config.get('secondaryModel')).toEqual({
       defaultModel: 'k2',
-      models: { k2: 'fast' },
+      models: { k2: 'fast', 'openai/gpt-4o': 'smart' },
     });
+    expect(config.get<Record<string, unknown>>('models')['openai/gpt-4o']).toBeUndefined();
   });
 
-  it('clears the pool when a catalog import orphans its default', async () => {
+  it('leaves the pool untouched when a catalog import drops its default alias', async () => {
     setModelsDevUpstreamForTest({ fetchImpl: fetchJson(CATALOG) });
     const { config, imports } = createHost({
       providers: { openai: { type: 'openai', apiKey: 'sk-old' } },
@@ -270,10 +277,11 @@ describe('IModelsDevImportService', () => {
 
     await imports.importModelsDevProvider({ catalogId: 'openai' });
 
-    expect(config.get('secondaryModel')).toBeUndefined();
+    expect(config.get('secondaryModel')).toEqual({ defaultModel: 'openai/gpt-4o' });
+    expect(config.get<Record<string, unknown>>('models')['openai/gpt-4o']).toBeUndefined();
   });
 
-  it('cascades the pool on custom-registry imports too', async () => {
+  it('leaves the pool untouched on custom-registry re-import', async () => {
     setModelsDevUpstreamForTest({ fetchImpl: fetchJson(REGISTRY_DOC) });
     const { config, imports } = createHost({
       providers: { 'acme-gpt': { type: 'openai', apiKey: 'sk-old' } },
@@ -285,21 +293,34 @@ describe('IModelsDevImportService', () => {
 
     await imports.importCustomRegistry({ url: REGISTRY_URL });
 
-    expect(config.get('secondaryModel')).toBeUndefined();
+    expect(config.get('secondaryModel')).toEqual({ defaultModel: 'acme-gpt/gpt-old' });
+    expect(config.get<Record<string, unknown>>('models')['acme-gpt/gpt-old']).toBeUndefined();
   });
 
-  it('seeds default_model from the first imported model only when none is configured', async () => {
+  it('leaves default_model to the model registry rather than seeding the first import', async () => {
     setModelsDevUpstreamForTest({ fetchImpl: fetchJson(CATALOG) });
     const { config, imports } = createHost({ providers: {}, models: {} });
 
     await imports.importModelsDevProvider({ catalogId: 'openai' });
-    expect(config.get('defaultModel')).toBe('openai/gpt-4.1');
+    expect(config.get('defaultModel')).toBeUndefined();
 
     await imports.importModelsDevProvider({
       catalogId: 'gateway',
       baseUrl: 'https://gw.example/v1',
     });
-    expect(config.get('defaultModel')).toBe('openai/gpt-4.1');
+    expect(config.get('defaultModel')).toBeUndefined();
+  });
+
+  it('never overwrites a configured default_model', async () => {
+    setModelsDevUpstreamForTest({ fetchImpl: fetchJson(CATALOG) });
+    const { config, imports } = createHost({
+      providers: {},
+      models: {},
+      defaultModel: 'mine/chosen',
+    });
+
+    await imports.importModelsDevProvider({ catalogId: 'openai' });
+    expect(config.get('defaultModel')).toBe('mine/chosen');
   });
 
   it('keeps the stored api_key on a re-import without one, replaces it when given', async () => {
@@ -317,15 +338,15 @@ describe('IModelsDevImportService', () => {
     expect(providers['openai']?.apiKey).toBe('sk-new');
   });
 
-  it('rejects importing over an OAuth-managed provider', async () => {
+  it('replaces an existing provider credential during an explicit import', async () => {
     setModelsDevUpstreamForTest({ fetchImpl: fetchJson(CATALOG) });
-    const { imports } = createHost({
+    const { config, imports } = createHost({
       providers: { openai: { type: 'openai', oauth: { storage: 'file', key: 'oauth/openai' } } },
     });
-    await expectError2(
-      imports.importModelsDevProvider({ catalogId: 'openai' }),
-      codes.PROVIDER_OAUTH_MANAGED,
-    );
+    await imports.importModelsDevProvider({ catalogId: 'openai', apiKey: 'sk-new' });
+    const providers = config.inspect<ProvidersSection>(PROVIDERS_SECTION).userValue ?? {};
+    expect(providers['openai']).toMatchObject({ type: 'openai', apiKey: 'sk-new' });
+    expect(providers['openai']?.oauth).toBeUndefined();
   });
 
   it('rejects non-importable entries and needs-base-url entries without a base_url', async () => {
@@ -424,15 +445,14 @@ describe('IModelsDevImportService', () => {
     expect(models['acme-gpt/gpt-x']).toMatchObject({ provider: 'acme-gpt', model: 'gpt-x' });
   });
 
-  it('rejects a registry import that would rewrite an OAuth-managed provider', async () => {
+  it('replaces an existing provider credential during an explicit registry import', async () => {
     setModelsDevUpstreamForTest({ fetchImpl: fetchJson(REGISTRY_DOC) });
-    const { imports } = createHost({
+    const { config, imports } = createHost({
       providers: { 'acme-gpt': { type: 'openai', oauth: { storage: 'file', key: 'oauth/x' } } },
     });
-    await expectError2(
-      imports.importCustomRegistry({ url: REGISTRY_URL }),
-      codes.PROVIDER_OAUTH_MANAGED,
-    );
+    await imports.importCustomRegistry({ url: REGISTRY_URL });
+    const providers = config.inspect<ProvidersSection>(PROVIDERS_SECTION).userValue ?? {};
+    expect(providers['acme-gpt']?.oauth).toBeUndefined();
   });
 
   it('maps an unreachable registry to provider.registry_import_invalid', async () => {

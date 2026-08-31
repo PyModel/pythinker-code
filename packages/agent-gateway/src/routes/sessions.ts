@@ -4,6 +4,7 @@ import {
   IAgentProfileService,
   IAgentConversationUndoService,
   IAgentFullCompactionService,
+  IAgentLifecycleService,
   IAgentLoopService,
   IAuthSummaryService,
   ISessionActivityView,
@@ -26,6 +27,7 @@ import {
   Error2,
   type ContextMessage,
   type IAgentScopeHandle,
+  type ISessionScopeHandle,
   type Scope,
   type SessionSummary,
 } from '@pymodel/agent-core-v2';
@@ -62,7 +64,8 @@ import { z } from 'zod';
 import { errEnvelope, okEnvelope } from '../envelope';
 import { requestLog } from '../lib/requestLog';
 import { defineRoute } from '../middleware/defineRoute';
-import { ensureMainAgent } from '../transport/mainAgent';
+import { readLegacyStatus } from '../services/legacyStatus/legacyStatus';
+import { ensureMainAgent, MAIN_AGENT_ID } from '../transport/mainAgent';
 import { type ActionTable, dispatchAction } from './action-dispatch';
 import { applySessionAgentConfig } from './sessionAgentConfig';
 import { updateSessionProfile } from './sessionProfile';
@@ -539,7 +542,7 @@ export function registerSessionsRoutes(app: SessionRouteHost, core: Scope): void
         [ErrorCode.SESSION_NOT_FOUND]: {},
         [ErrorCode.SESSION_TITLE_UNAVAILABLE]: {},
       },
-      description: 'Generate the session title via the managed chat_title tool',
+      description: 'Request session title generation; this build returns SESSION_TITLE_UNAVAILABLE',
       tags: ['sessions'],
     },
     async (req, reply) => {
@@ -559,7 +562,7 @@ export function registerSessionsRoutes(app: SessionRouteHost, core: Scope): void
           reply.send(
             errEnvelope(
               ErrorCode.SESSION_TITLE_UNAVAILABLE,
-              'session title generation is unavailable (no managed OAuth login, no prompt yet, or the backend request failed)',
+              'session title generation is unavailable in this build',
               req.id,
             ),
           );
@@ -944,7 +947,9 @@ async function btwSessionAction(ctx: SessionActionCtx): Promise<void> {
   if (session === undefined) {
     throw new Error2(ErrorCodes.SESSION_NOT_FOUND, `session ${id} does not exist`);
   }
-  await core.accessor.get(IAuthSummaryService).ensureReady();
+  const agent = await ensureMainAgent(session);
+  const sessionModel = agent.accessor.get(IAgentProfileService).getModel();
+  await core.accessor.get(IAuthSummaryService).ensureReady(sessionModel || undefined);
   const agentId = await session.accessor.get(ISessionBtwService).start();
   reply.send(okEnvelope({ agent_id: agentId }, req.id));
 }
@@ -1011,7 +1016,7 @@ export function toWireSession(
     archived: fields.archived,
     last_prompt: fields.lastPrompt,
     metadata: buildWireMetadata(fields.custom, cwd),
-    agent_config: { model: '' },
+    agent_config: { model: facts.model ?? '' },
     usage: emptySessionUsage(),
     permission_rules: [],
     message_count: 0,
@@ -1019,24 +1024,15 @@ export function toWireSession(
   };
 }
 
-/** Live activity and interaction facts projected onto the wire `Session`. */
 export interface SessionFacts {
   readonly busy: boolean;
   readonly mainTurnActive: boolean;
   readonly pendingInteraction: SessionPendingInteraction;
   readonly lastTurnReason?: 'completed' | 'cancelled' | 'failed';
-  /** False when no live handle exists (cold session); live warm sessions
-   *  always report their own outcome, never the persisted fallback. */
   readonly live?: boolean;
+  readonly model?: string;
 }
 
-/**
- * Resolve a session's live wire facts from the core `ISessionActivityView`
- * aggregate (`busy` = any agent with an active turn or background task; the
- * reason is the main agent's latest turn outcome, `blocked` folds into
- * `failed`). A cold session (no live handle) is not busy and carries no
- * outcome.
- */
 export function resolveSessionFacts(core: Scope, sessionId: string): SessionFacts {
   const handle = getLiveSessionById(core.accessor, sessionId);
   if (handle === undefined) {
@@ -1047,7 +1043,16 @@ export function resolveSessionFacts(core: Scope, sessionId: string): SessionFact
       live: false,
     };
   }
-  return { ...handle.accessor.get(ISessionActivityView).state(), live: true };
+  return {
+    ...handle.accessor.get(ISessionActivityView).state(),
+    live: true,
+    model: readLiveSessionModel(handle),
+  };
+}
+
+function readLiveSessionModel(session: ISessionScopeHandle): string | undefined {
+  const main = session.accessor.get(IAgentLifecycleService).handleOf(MAIN_AGENT_ID);
+  return main === undefined ? undefined : readLegacyStatus(main)?.model;
 }
 
 async function resolveMainAgent(core: Scope, sessionId: string): Promise<IAgentScopeHandle> {

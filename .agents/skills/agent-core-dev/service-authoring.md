@@ -17,7 +17,7 @@ One folder per domain, **camelCase**: `session/`, `sessionActivity/`, `contextMe
 ```
 
 - **Strictly one service per file.** An interface file holds exactly one injectable interface and exactly one `createDecorator(...)`; an impl file holds exactly one service implementation class and exactly one `registerScopedService(...)`. No exceptions for "tightly-coupled" groups: even same-scope collaborators each get their own `<name>.ts` + `<name>Service.ts` pair.
-- **Scope is in the filename.** `workspace*.ts` = Workspace, `session*.ts` = Session, `agent*.ts` = Agent, no scope prefix = App (see [Naming](#naming)).
+- **Ownership is in the filename.** `workspace*.ts` belongs to a program-owned workspace lifetime; `session*.ts` and `agent*.ts` bind to their matching DI scopes; no prefix means App (see [Naming](#naming)).
 - A domain therefore has as many impl files as it has services (e.g. `logService.ts` for the App `ILogService`, `sessionLogService.ts` for the Session `ISessionLogService`). See [Multi-Service domains](#multi-service-domains).
 
 The package entry `src/index.ts` imports and `export *`s every domain's leaf files precisely (one line per leaf), so importing the package still runs every `registerScopedService(...)` side effect — exactly as the old per-domain barrels did.
@@ -28,12 +28,12 @@ The package entry `src/index.ts` imports and `export *`s every domain's leaf fil
 
 | Artifact | Rule | Example |
 |---|---|---|
-| Interface | `I` + scope prefix + PascalCase domain + role suffix. Scope prefix: `Workspace` / `Session` / `Agent` / none (= App). Role suffix is usually `Service`. | `IWorkspaceDirs`, `ISessionLogService`, `IAgentLoopService`, `ILogService` (App) |
+| Interface | `I` + owner prefix + PascalCase domain + role suffix. Prefix: `Workspace` for program-owned resources, `Session` / `Agent` for DI scopes, or none for App. Role suffix is usually `Service`. | `IWorkspaceDirs`, `ISessionLogService`, `IAgentLoopService`, `ILogService` (App) |
 | Class | the interface name minus the leading `I`, plus `Service` if it does not already end in `Service`; `implements` the interface | `SessionLogService implements ISessionLogService`, `AppendLogStoreService implements IAppendLogStore` |
 | Decorator string | lowerCamelCase of the interface name minus the leading `I`; **globally unique and stable** (it surfaces in `CyclicDependencyError.path` and "no service registered" errors) | `createDecorator<ISessionLogService>('sessionLogService')` |
 | Model / non-service types | PascalCase, no `I` prefix | `SessionMeta`, `LogEntry`, `ConfigSection` |
 
-The scope prefix makes a service's lifetime readable from its name. App services carry **no** prefix (App is the default, longest-lived tier); Workspace, Session and Agent services always carry `Workspace` / `Session` / `Agent`. The prefix applies to the interface, the class, and therefore the file names.
+The owner prefix makes a service's lifetime readable from its name. App services carry **no** prefix. Session and Agent services use their DI-scope prefix. Program-owned workspace resources use `Workspace`. The prefix applies to the interface, the class, and therefore the file names.
 
 > Do **not** use the scope prefix to re-merge domains by lifetime. `IAgentEntityService`, `IAgentDataService`, and `ISessionEntityService` are still banned — the prefix marks lifetime, the rest of the name must still be the real owning domain (`IBackgroundTaskEntityService`, `ISessionMetadata`, `IPermissionRulesService`). See [domain-boundaries.md](domain-boundaries.md).
 
@@ -164,7 +164,7 @@ What belongs here:
 - **Helper classes / functions** used only by this impl (e.g. a built-in writer, an `extractError` helper) — co-located in the same file.
 - **Top-level `registerScopedService(...)`** — one per Service the file owns; importing the impl file runs the registration.
 
-Base class: extend `Service` (from `#/_base/di/service`) when the unit needs capability calls on `this` — `provide` / `effect` / `on` / `get` / `ref` (e.g. contributing a record to a `collection` token). `Service` extends `Disposable`, so `_register` keeps working; constructor-time `provide` / `on` / `effect` calls are buffered and flushed by the kernel after construction, while `get` / `ref` throw inside the constructor (dependencies stay constructor parameters). Otherwise extend `Disposable` — both are full DI units; a service whose own members collide with the `Service` vocabulary (`name` / `state` / `config` / `get`) must stay on `Disposable` (leave a NOTE comment saying so).
+Base class: extend `Service` (from `#/_base/di/service`) when the unit needs capability calls on `this` — `provide` / `effect` / `on` / `get` / `ref` (e.g. contributing a record to a `collection` token). `Service` extends `Disposable`, so `_register` keeps working; constructor-time `provide` / `on` / `effect` calls are buffered and flushed by the kernel after construction, while `get` / `ref` throw inside the constructor (dependencies stay constructor parameters). Otherwise extend `Disposable` — both are full DI units; a service whose own members collide with the `Service` vocabulary (`name` / `state` / `config` / `get`) must stay on `Disposable`.
 
 ## Constructor conventions
 
@@ -296,9 +296,8 @@ Importing the package therefore fires every `register*` side effect, exactly as 
 
 ## Comments
 
-- **No comments** (orient.md): no file headers, no statement-level narration; the only exception is JSDoc attached to exported symbols.
+- **No comments** (orient.md): no file headers, no statement-level narration, no JSDoc; the only exception is a load-bearing lint-suppression directive.
 - **Methods and fields carry no comments by default.** Well-named identifiers and types say *what*; the code is the source of truth for *how*.
-- Write an inline comment only when the *why* is non-obvious (a hidden constraint, a subtle invariant, a workaround). One short line.
 - For unimplemented stubs, throw `NotImplementedError('feature')` rather than `throw new Error('TODO: …')` (errors.md).
 
 ## Complete minimal example

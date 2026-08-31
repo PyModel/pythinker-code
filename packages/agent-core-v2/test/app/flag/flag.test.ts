@@ -99,7 +99,50 @@ describe('FlagService', () => {
     const state = flags.explain('example_flag');
     expect(state?.enabled).toBe(true);
     expect(state?.source).toBe('default');
+    expect(state?.configValue).toBeUndefined();
+    expect(state?.externallyControlled).toBe(false);
+    expect(state?.overridden).toBe(false);
     expect(flags.enabled('example_flag')).toBe(true);
+  });
+
+  it('marks env-controlled flags and separates override from mere control', async () => {
+    const agreeing = makeFlags({ PYTHINKER_CODE_EXPERIMENTAL_EXAMPLE_FLAG: 'true' });
+    await agreeing.config.set(EXPERIMENTAL_SECTION, { example_flag: true });
+    expect(agreeing.flags.explain('example_flag')).toMatchObject({
+      enabled: true,
+      source: 'env',
+      configValue: true,
+      externallyControlled: true,
+      overridden: false,
+    });
+
+    const overriding = makeFlags({ PYTHINKER_CODE_EXPERIMENTAL_EXAMPLE_FLAG: 'true' });
+    await overriding.config.set(EXPERIMENTAL_SECTION, { example_flag: false });
+    expect(overriding.flags.explain('example_flag')).toMatchObject({
+      enabled: true,
+      source: 'env',
+      configValue: false,
+      externallyControlled: true,
+      overridden: true,
+    });
+
+    const master = makeFlags({ [MASTER_ENV]: '1' });
+    await master.config.set(EXPERIMENTAL_SECTION, { example_flag: false });
+    expect(master.flags.explain('example_flag')).toMatchObject({
+      source: 'master-env',
+      externallyControlled: true,
+      overridden: true,
+    });
+
+    const saved = makeFlags();
+    await saved.config.set(EXPERIMENTAL_SECTION, { example_flag: false });
+    expect(saved.flags.explain('example_flag')).toMatchObject({
+      enabled: false,
+      source: 'config',
+      configValue: false,
+      externallyControlled: false,
+      overridden: false,
+    });
   });
 
   it('returns undefined for an unregistered flag', () => {

@@ -1,6 +1,4 @@
-import { DEFAULT_OAUTH_PROVIDER_NAME } from '#/constant/app';
-
-export { DEFAULT_OAUTH_PROVIDER_NAME, OAUTH_LOGIN_REQUIRED_CODE, PRODUCT_NAME } from '#/constant/app';
+export { OAUTH_LOGIN_REQUIRED_CODE, PRODUCT_NAME } from '#/constant/app';
 
 export const LLM_NOT_SET_MESSAGE = 'LLM not set, send "/login" to login';
 export const NO_ACTIVE_SESSION_MESSAGE = 'No active session. Send /login to login.';
@@ -22,9 +20,3 @@ export const DOUBLE_ESC_WINDOW_MS = 600;
 
 /** Session picker page size: one backend keyset page and one picker window. */
 export const SESSION_LIST_PAGE_SIZE = 50;
-
-export function isManagedUsageProvider(
-  providerKey: string | undefined,
-): providerKey is typeof DEFAULT_OAUTH_PROVIDER_NAME {
-  return providerKey === DEFAULT_OAUTH_PROVIDER_NAME;
-}

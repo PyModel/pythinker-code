@@ -3,18 +3,17 @@ import type { PythinkerConfig, ModelAlias, ProviderConfig, ProviderType } from '
 import type {
   ModelCatalogItem,
   ProviderCatalogItem,
-  RefreshOAuthProviderModelsResponse,
   RefreshProviderModelsResponse,
   SetDefaultModelResponse,
 } from '@pymodel/protocol';
 import {
   refreshProviderModels,
-  type ManagedPythinkerOAuthRef,
+  type PythinkerConfigShape,
   type RefreshProviderHost,
   type RefreshResult,
 } from '@pymodel/pythinker-code-oauth';
 
-import { createManagedAuthFacade, type ServicesAuthFacade } from '../auth/managedAuth';
+import { OAuthTokenReader } from '../auth/oauthToken';
 import { ICoreProcessService } from '../coreProcess/coreProcess';
 import { IEnvironmentService } from '../environment/environment';
 import { IEventService } from '../event/event';
@@ -32,7 +31,7 @@ export class ModelCatalogService
   implements IModelCatalogService {
   readonly _serviceBrand: undefined;
 
-  private _authFacade: ServicesAuthFacade;
+  private oauthTokens: Pick<OAuthTokenReader, 'getCachedAccessToken'>;
 
   /** Serializes refresh runs so a scheduled refresh and a manual one (or two
    *  manual ones with different options) never race on writing config.toml. */
@@ -44,18 +43,7 @@ export class ModelCatalogService
     @IEventService private readonly eventService: IEventService,
   ) {
     super();
-    this._authFacade = createManagedAuthFacade(env, env.identity);
-  }
-
-  static _createForTest(
-    env: IEnvironmentService,
-    core: ICoreProcessService,
-    authFacade: ServicesAuthFacade,
-    eventService: IEventService = noopEventService,
-  ): ModelCatalogService {
-    const service = new ModelCatalogService(env, core, eventService);
-    service._authFacade = authFacade;
-    return service;
+    this.oauthTokens = new OAuthTokenReader(env.homeDir);
   }
 
   async listModels(): Promise<readonly ModelCatalogItem[]> {
@@ -107,10 +95,6 @@ export class ModelCatalogService
     return config.providers[providerId ?? '']?.type;
   }
 
-  async refreshOAuthProviderModels(): Promise<RefreshOAuthProviderModelsResponse> {
-    return this.refreshProviderModels({ scope: 'oauth' });
-  }
-
   refreshProviderModels(
     options: RefreshProviderModelsOptions = {},
   ): Promise<RefreshProviderModelsResponse> {
@@ -133,7 +117,6 @@ export class ModelCatalogService
     }
 
     const result = await refreshProviderModels(this._buildRefreshHost(), {
-      scope: options.scope,
       providerId: options.providerId,
     });
     const response = mapRefreshResult(result);
@@ -154,24 +137,13 @@ export class ModelCatalogService
 
   private _buildRefreshHost(): RefreshProviderHost {
     return {
-      getConfig: () => this._readConfig(),
-      removeProvider: (providerId) => this.core.rpc.removePythinkerProvider({ providerId }),
-      setConfig: (patch) => this.core.rpc.setPythinkerConfig(patch as Record<string, unknown>),
-      resolveOAuthToken: (providerName, oauthRef) =>
-        this._resolveOAuthToken(providerName, oauthRef),
+      getConfig: () => this._readConfig() as Promise<PythinkerConfigShape>,
+      removeProvider: (providerId) =>
+        this.core.rpc.removePythinkerProvider({ providerId }) as Promise<PythinkerConfigShape>,
+      setConfig: (patch) =>
+        this.core.rpc.setPythinkerConfig(patch as Record<string, unknown>) as Promise<PythinkerConfigShape>,
       userAgent: this.core.pythinkerRequestHeaders?.['User-Agent'],
     };
-  }
-
-  private async _resolveOAuthToken(
-    providerName: string,
-    oauthRef?: ManagedPythinkerOAuthRef,
-  ): Promise<string> {
-    const tokenProvider = this._authFacade.resolveOAuthTokenProvider(providerName, oauthRef);
-    if (tokenProvider === undefined) {
-      throw new Error('OAuth token provider is not configured.');
-    }
-    return tokenProvider.getAccessToken();
   }
 
   private async _readConfig(): Promise<PythinkerConfig> {
@@ -184,23 +156,17 @@ export class ModelCatalogService
     provider: ProviderConfig,
   ): Promise<ProviderCatalogItem> {
     const hasApiKey = hasConfiguredApiKey(provider);
-    const hasOAuthToken = await this._hasCachedToken(providerId, provider);
+    const hasOAuthToken = await this._hasCachedToken(provider);
     return toProtocolProvider(providerId, provider, config, {
       hasApiKey,
       hasOAuthToken,
     });
   }
 
-  private async _hasCachedToken(
-    providerId: string,
-    provider: ProviderConfig,
-  ): Promise<boolean> {
+  private async _hasCachedToken(provider: ProviderConfig): Promise<boolean> {
     if (provider.oauth === undefined) return false;
     try {
-      const token = await this._authFacade.getCachedAccessToken(
-        providerId,
-        provider.oauth,
-      );
+      const token = await this.oauthTokens.getCachedAccessToken(provider.oauth);
       return nonEmpty(token) !== undefined;
     } catch {
       return false;
@@ -250,11 +216,5 @@ function nonEmpty(value: string | undefined): string | undefined {
   const trimmed = value.trim();
   return trimmed.length === 0 ? undefined : trimmed;
 }
-
-const noopEventService: IEventService = {
-  _serviceBrand: undefined,
-  onDidPublish: () => ({ dispose: () => undefined }),
-  publish: () => undefined,
-};
 
 registerSingleton(IModelCatalogService, ModelCatalogService, InstantiationType.Delayed);

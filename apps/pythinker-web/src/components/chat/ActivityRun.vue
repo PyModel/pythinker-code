@@ -1,5 +1,5 @@
 <!-- apps/pythinker-web/src/components/chat/ActivityRun.vue -->
-<!-- Aggregate per-run block (reference ActivityRun): folds a run of
+<!-- Aggregate per-run block: folds a run of
      consecutive thinking + tool items into a collapsible row whose header
      pins the status glyph to the last running item, joins a clause summary
      ("current · done") and ticks a live elapsed timer while the run is
@@ -24,7 +24,7 @@ type ClauseFragment = { text: string; tone?: 'normal' | 'danger' | 'faint' };
 type Clause = { fragments: ClauseFragment[] };
 
 /** Tool kinds with a dedicated localized done/doing clause; everything else
- *  falls back to the generic "tool call" summary (reference `tools.activity`). */
+ *  falls back to the generic "tool call" summary. */
 const CLAUSE_KINDS = new Set([
   'read',
   'bash',
@@ -69,6 +69,7 @@ const emit = defineEmits<{
   openFile: [target: FilePreviewRequest];
   openToolDiff: [id: string];
   openAgent: [toolCallId: string];
+  detach: [toolCallId: string];
 }>();
 
 const { t } = useI18n();
@@ -303,7 +304,7 @@ function toggle(): void {
 
 /** Only the run's last thinking item streams (the daemon streams one tail
  *  item at a time; a settled thinking block never animates). The durationMs
- *  guard mirrors the reference `_()`: a thinking whose step ended keeps its
+ *  guard: a thinking whose step ended keeps its
  *  frozen "Thinking · Ns" label instead of shimmering forever while the run
  *  stays open. */
 function isItemStreaming(item: RunItem): boolean {
@@ -374,6 +375,7 @@ function isItemStreaming(item: RunItem): boolean {
             @open-file="emit('openFile', $event)"
             @open-tool-diff="emit('openToolDiff', $event)"
             @open-agent="emit('openAgent', $event)"
+            @detach="emit('detach', $event)"
           />
         </template>
       </div>
@@ -405,7 +407,16 @@ function isItemStreaming(item: RunItem): boolean {
 }
 .ar-head:hover { color: var(--color-text); }
 .ar-head:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--color-accent-soft); }
-.ar-glyph { display: inline-flex; align-items: center; flex: none; color: var(--color-text-faint); }
+.ar-glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--p-ic-sm);
+  height: var(--p-ic-sm);
+  line-height: 0;
+  flex: none;
+  color: var(--color-text-faint);
+}
 .ar-glyph.ok { color: var(--color-success); }
 .ar-glyph.err { color: var(--color-danger); }
 .ar-glyph.run {

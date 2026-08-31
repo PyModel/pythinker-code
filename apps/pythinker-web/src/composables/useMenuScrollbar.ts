@@ -2,8 +2,7 @@
 // Shared scroll affordances for the composer popup menus (mention / slash):
 // a custom drag-able scrollbar thumb, edge-fade mask over the scroller, and a
 // viewport-aware max-height so the popup never overflows above the composer.
-// Ported from the upstream reference menu implementation; the tokens it reads
-// (--menu-*, --p-*-menu-h) are defined in src/style.css.
+// The tokens it reads (--menu-*, --p-*-menu-h) are defined in src/style.css.
 import { computed, nextTick, onMounted, onUnmounted, ref, watch, type ComputedRef, type Ref } from 'vue';
 
 export interface MenuScrollbarOptions {
@@ -17,6 +16,8 @@ export interface MenuScrollbarOptions {
   activeIndex?: Ref<number>;
   /** Re-measure when this reference changes identity (e.g. the items array). */
   refreshKey?: Ref<unknown>;
+  /** Fit popup height to the viewport. Sheet layouts already own their height. */
+  fitToViewport?: boolean;
 }
 
 export interface MenuScrollbarState {
@@ -43,7 +44,7 @@ function readVar(el: HTMLElement, name: string, fallback: number): number {
 }
 
 export function useMenuScrollbar(options: MenuScrollbarOptions): MenuScrollbarState {
-  const { menuEl, scrollEl, maxHeightVar, activeIndex, refreshKey } = options;
+  const { menuEl, scrollEl, maxHeightVar, activeIndex, refreshKey, fitToViewport = true } = options;
 
   const atTop = ref(false);
   const atBottom = ref(false);
@@ -170,13 +171,17 @@ export function useMenuScrollbar(options: MenuScrollbarOptions): MenuScrollbarSt
         }
       });
       resizeObserver.observe(scrollEl.value);
-      const anchor = menuEl.value?.offsetParent;
-      if (anchor) resizeObserver.observe(anchor);
+      if (fitToViewport) {
+        const anchor = menuEl.value?.offsetParent;
+        if (anchor) resizeObserver.observe(anchor);
+      }
     }
-    window.addEventListener('resize', fitHeight);
-    window.visualViewport?.addEventListener('resize', fitHeight);
-    window.visualViewport?.addEventListener('scroll', fitHeight);
-    fitHeight();
+    if (fitToViewport) {
+      window.addEventListener('resize', fitHeight);
+      window.visualViewport?.addEventListener('resize', fitHeight);
+      window.visualViewport?.addEventListener('scroll', fitHeight);
+      fitHeight();
+    }
     update();
   });
 

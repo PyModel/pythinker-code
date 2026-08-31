@@ -2,7 +2,7 @@ name: Nightly
 
 on:
   schedule:
-    - cron: '0 3 * * *'
+    - cron: '17 3 * * *'
   workflow_dispatch:
 
 concurrency:
@@ -20,15 +20,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # pinned from v6.0.2
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v6
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # pinned from v6
 
       - name: Setup Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # pinned from v7.0.0
         with:
           node-version-file: .nvmrc
           cache: "pnpm"
@@ -59,3 +60,90 @@ jobs:
             exit 0
           fi
           pnpm changeset publish --tag dev --no-git-tag
+
+  desktop-nightly:
+    name: Publish desktop Nightly
+    if: github.repository_owner == 'PyModel'
+    uses: ./.github/workflows/desktop-release.yml
+    with:
+      publish_nightly: true
+    secrets: inherit
+
+  release-reconciliation:
+    name: Reconcile release lanes
+    needs: [publish, desktop-nightly]
+    if: always() && github.repository_owner == 'PyModel'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # pinned from v6.0.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # pinned from v7.0.0
+        with:
+          node-version-file: .nvmrc
+
+      - name: Check release lane status
+        id: release-status
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          UPSTREAM_OK: ${{ needs.publish.result == 'success' && needs.desktop-nightly.result == 'success' }}
+        shell: bash
+        run: |
+          set +e
+          node scripts/release/release-status.mjs > "$RUNNER_TEMP/release-status.md" 2>&1
+          status=$?
+          if [ "$UPSTREAM_OK" != 'true' ]; then
+            printf '\nNightly publishers did not both succeed. CLI: %s. Desktop: %s.\n' \
+              '${{ needs.publish.result }}' '${{ needs.desktop-nightly.result }}' >> "$RUNNER_TEMP/release-status.md"
+            status=1
+          fi
+          set -e
+          cat "$RUNNER_TEMP/release-status.md" >> "$GITHUB_STEP_SUMMARY"
+          echo "exit_code=$status" >> "$GITHUB_OUTPUT"
+
+      - name: Sync release drift issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_STATUS: ${{ steps.release-status.outputs.exit_code }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          title='Release lane drift detected'
+          mapfile -t issues < <(gh issue list \
+            --state open \
+            --limit 100 \
+            --json number,title \
+            --jq '.[] | select(.title == "Release lane drift detected") | .number')
+
+          if [ "$RELEASE_STATUS" = '0' ]; then
+            for issue in "${issues[@]}"; do
+              gh issue close "$issue" --comment 'Automated release reconciliation is clean.'
+            done
+            exit 0
+          fi
+
+          body="$RUNNER_TEMP/release-drift-issue.md"
+          {
+            echo 'The nightly release reconciliation found drift or could not query a release surface.'
+            echo
+            echo "Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            echo
+            cat "$RUNNER_TEMP/release-status.md"
+          } > "$body"
+
+          if [ "${#issues[@]}" -eq 0 ]; then
+            gh issue create --title "$title" --body-file "$body"
+          else
+            gh issue edit "${issues[0]}" --title "$title" --body-file "$body"
+            for issue in "${issues[@]:1}"; do
+              gh issue close "$issue" --comment "Duplicate of #${issues[0]}."
+            done
+          fi
+          exit "$RELEASE_STATUS"

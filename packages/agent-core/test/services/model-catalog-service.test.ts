@@ -7,18 +7,16 @@ import type {
   PythinkerConfigPatch,
   SetPythinkerConfigPayload,
 } from '../../src';
-import { PYTHINKER_CODE_PROVIDER_NAME } from '@pymodel/pythinker-code-oauth';
-
 import {
   type ICoreProcessService,
   type IEnvironmentService,
+  ConfigService,
   ModelCatalogService,
   ModelNotFoundError,
   ProviderNotFoundError,
   toProtocolModel,
   toProtocolProvider,
 } from '../../src/services';
-import type { ServicesAuthFacade } from '../../src/services/auth/managedAuth';
 import type { IEventService } from '../../src/services/event/event';
 import type { Event as ProtocolEvent } from '@pymodel/protocol';
 
@@ -89,17 +87,6 @@ function makeCore(configRef: { current: PythinkerConfig }): {
     getCalls,
     setCalls,
     removeCalls,
-  };
-}
-
-function authFacade(accessToken = 'token-test'): ServicesAuthFacade {
-  return {
-    login: vi.fn(),
-    logout: vi.fn(),
-    getCachedAccessToken: vi.fn(async () => accessToken),
-    resolveOAuthTokenProvider: vi.fn(() => ({
-      getAccessToken: vi.fn(async () => accessToken),
-    })),
   };
 }
 
@@ -195,6 +182,45 @@ describe('model catalog adapters', () => {
       status: 'connected',
       models: ['k2', 'turbo'],
     });
+  });
+});
+
+describe('ConfigService', () => {
+  it('redacts service credentials and raw TOML from responses and events', async () => {
+    const configRef = { current: catalogConfig() };
+    configRef.current.services = {
+      pymodelSearch: {
+        baseUrl: 'https://search.example.test',
+        apiKey: 'service-api-key-canary',
+        oauth: { storage: 'file', key: 'service-oauth-canary' },
+        customHeaders: {
+          Authorization: 'Bearer service-header-canary',
+          'x-team': 'core',
+        },
+      },
+    };
+    configRef.current.raw = { credential: 'raw-config-canary' };
+    const { core } = makeCore(configRef);
+    const { svc: eventService, published } = makeEventService();
+    const service = new ConfigService(core, eventService);
+
+    const response = await service.get();
+    expect(response.services).toEqual({
+      pymodelSearch: {
+        baseUrl: 'https://search.example.test',
+        has_api_key: true,
+        custom_header_keys: ['Authorization', 'x-team'],
+      },
+    });
+    expect(response).not.toHaveProperty('raw');
+
+    await service.set({ telemetry: false });
+    expect(published).toHaveLength(1);
+    const serialized = JSON.stringify({ response, event: published[0] });
+    expect(serialized).not.toContain('service-api-key-canary');
+    expect(serialized).not.toContain('service-oauth-canary');
+    expect(serialized).not.toContain('service-header-canary');
+    expect(serialized).not.toContain('raw-config-canary');
   });
 });
 
@@ -304,211 +330,61 @@ describe('ModelCatalogService', () => {
     );
   });
 
-  it('refreshes managed OAuth models and preserves always-thinking defaults', async () => {
+  it('publishes one catalog event when a custom registry changes', async () => {
     const configRef: { current: PythinkerConfig } = {
       current: {
         providers: {
-          [PYTHINKER_CODE_PROVIDER_NAME]: {
-            type: 'pythinker',
-            apiKey: '',
-            baseUrl: 'https://api.example.test/coding/v1',
-            oauth: { storage: 'file', key: 'oauth/pythinker-code' },
+          acme: {
+            type: 'openai',
+            apiKey: 'sk-acme',
+            source: {
+              kind: 'apiJson',
+              url: 'https://registry.example.test/api.json',
+              apiKey: 'sk-registry',
+            },
           },
         },
-        defaultModel: 'pythinker-code/kimi-for-coding',
-        thinking: { enabled: false },
-        models: {
-          'pythinker-code/kimi-for-coding': {
-            provider: PYTHINKER_CODE_PROVIDER_NAME,
-            model: 'kimi-for-coding',
-            maxContextSize: 131_072,
-            capabilities: ['thinking'],
-          },
-        },
+        models: {},
       },
     };
-    const { core, removeCalls, setCalls } = makeCore(configRef);
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
-      data: [
-        {
-          id: 'kimi-for-coding',
-          context_length: 262_144,
-          supports_reasoning: true,
-          supports_thinking_type: 'only',
-          supports_image_in: false,
-          supports_video_in: false,
-        },
-      ],
-    })));
-    vi.stubGlobal('fetch', fetchMock);
-    const svc = ModelCatalogService._createForTest(makeEnv(), core, authFacade());
-
-    await expect(svc.refreshOAuthProviderModels()).resolves.toMatchObject({
-      changed: [{ provider_id: PYTHINKER_CODE_PROVIDER_NAME, added: 0, removed: 0 }],
-      failed: [],
-    });
-
-    expect(removeCalls).toEqual([PYTHINKER_CODE_PROVIDER_NAME]);
-    expect(setCalls.at(-1)).toMatchObject({
-      defaultModel: 'pythinker-code/kimi-for-coding',
-      thinking: { enabled: true },
-      models: {
-        'pythinker-code/kimi-for-coding': {
-          capabilities: ['thinking', 'always_thinking', 'tool_use'],
-          maxContextSize: 262_144,
-        },
-      },
-    });
-  });
-
-  it('keeps the pythinker-code provider on the REST base and records the model protocol when anthropic', async () => {
-    const configRef: { current: PythinkerConfig } = {
-      current: {
-        providers: {
-          [PYTHINKER_CODE_PROVIDER_NAME]: {
-            type: 'pythinker',
-            apiKey: '',
-            baseUrl: 'https://api.example.test/coding/v1',
-            oauth: { storage: 'file', key: 'oauth/pythinker-code' },
-          },
-        },
-        defaultModel: 'pythinker-code/kimi-for-coding',
-        models: {
-          'pythinker-code/kimi-for-coding': {
-            provider: PYTHINKER_CODE_PROVIDER_NAME,
-            model: 'kimi-for-coding',
-            maxContextSize: 200_000,
-          },
-        },
-      },
-    };
-    const { core, setCalls } = makeCore(configRef);
+    const { core } = makeCore(configRef);
     vi.stubGlobal(
       'fetch',
       vi.fn(async () =>
         new Response(
           JSON.stringify({
-            data: [
-              {
-                id: 'kimi-for-coding',
-                context_length: 200_000,
-                protocol: 'anthropic',
-              },
-            ],
+            acme: {
+              id: 'acme',
+              name: 'Acme',
+              api: 'https://acme.example.test/v1',
+              type: 'openai',
+              models: { m1: { id: 'm1', name: 'M1' } },
+            },
           }),
         ),
       ),
     );
-    const svc = ModelCatalogService._createForTest(makeEnv(), core, authFacade());
-
-    await svc.refreshOAuthProviderModels();
-
-    const last = setCalls.at(-1) as Record<string, unknown>;
-    const providers = last['providers'] as Record<string, { type: string; baseUrl: string }>;
-    const models = last['models'] as Record<string, { provider: string; protocol?: string }>;
-    // Provider type/baseUrl stay on the pythinker wire + REST base; the anthropic
-    // transport is carried on the model alias for per-model resolution.
-    expect(providers[PYTHINKER_CODE_PROVIDER_NAME]?.type).toBe('pythinker');
-    expect(providers[PYTHINKER_CODE_PROVIDER_NAME]?.baseUrl).toBe('https://api.example.test/coding/v1');
-    expect(models['pythinker-code/kimi-for-coding']?.provider).toBe(PYTHINKER_CODE_PROVIDER_NAME);
-    expect(models['pythinker-code/kimi-for-coding']?.protocol).toBe('anthropic');
-  });
-
-  it('publishes event.model_catalog.changed when a broad refresh changes the catalog', async () => {
-    const configRef: { current: PythinkerConfig } = {
-      current: {
-        providers: {
-          [PYTHINKER_CODE_PROVIDER_NAME]: {
-            type: 'pythinker',
-            apiKey: '',
-            baseUrl: 'https://api.example.test/coding/v1',
-            oauth: { storage: 'file', key: 'oauth/pythinker-code' },
-          },
-        },
-        defaultModel: 'pythinker-code/kimi-for-coding',
-        models: {
-          'pythinker-code/kimi-for-coding': {
-            provider: PYTHINKER_CODE_PROVIDER_NAME,
-            model: 'kimi-for-coding',
-            maxContextSize: 131_072,
-            capabilities: ['thinking'],
-          },
-        },
-      },
-    };
-    const { core } = makeCore(configRef);
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(
-        async () =>
-          new Response(
-            JSON.stringify({
-              data: [{ id: 'kimi-for-coding', context_length: 262_144, supports_reasoning: true }],
-            }),
-          ),
-      ),
-    );
     const { svc: eventService, published } = makeEventService();
-    const svc = ModelCatalogService._createForTest(makeEnv(), core, authFacade(), eventService);
+    const svc = new ModelCatalogService(makeEnv(), core, eventService);
 
-    const result = await svc.refreshProviderModels();
+    const changed = await svc.refreshProviderModels();
+    const unchanged = await svc.refreshProviderModels();
 
-    expect(result.changed).toEqual([
-      { provider_id: PYTHINKER_CODE_PROVIDER_NAME, provider_name: 'Pythinker Code', added: 0, removed: 0 },
+    expect(changed.changed).toEqual([
+      expect.objectContaining({ provider_id: 'acme', provider_name: 'Acme' }),
     ]);
+    expect(unchanged.changed).toEqual([]);
+    expect(unchanged.unchanged).toEqual(['acme']);
     expect(published).toEqual([
       {
         type: 'event.model_catalog.changed',
         agentId: 'main',
         sessionId: '__global__',
-        changed: result.changed,
-        unchanged: result.unchanged,
-        failed: [],
+        changed: changed.changed,
+        unchanged: changed.unchanged,
+        failed: changed.failed,
       },
     ]);
-  });
-
-  it('does not publish an event when the refresh is a no-op', async () => {
-    const configRef: { current: PythinkerConfig } = {
-      current: {
-        providers: {
-          [PYTHINKER_CODE_PROVIDER_NAME]: {
-            type: 'pythinker',
-            apiKey: '',
-            baseUrl: 'https://api.example.test/coding/v1',
-            oauth: { storage: 'file', key: 'oauth/pythinker-code' },
-          },
-        },
-        models: {
-          'pythinker-code/kimi-for-coding': {
-            provider: PYTHINKER_CODE_PROVIDER_NAME,
-            model: 'kimi-for-coding',
-            maxContextSize: 262_144,
-            capabilities: ['thinking', 'tool_use'],
-          },
-        },
-      },
-    };
-    const { core } = makeCore(configRef);
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(
-        async () =>
-          new Response(
-            JSON.stringify({
-              data: [{ id: 'kimi-for-coding', context_length: 262_144, supports_reasoning: true }],
-            }),
-          ),
-      ),
-    );
-    const { svc: eventService, published } = makeEventService();
-    const svc = ModelCatalogService._createForTest(makeEnv(), core, authFacade(), eventService);
-
-    const result = await svc.refreshProviderModels();
-
-    expect(result.changed).toEqual([]);
-    expect(result.unchanged).toEqual([PYTHINKER_CODE_PROVIDER_NAME]);
-    expect(published).toEqual([]);
   });
 
   it('sends the host User-Agent on custom-registry fetches', async () => {
@@ -547,7 +423,7 @@ describe('ModelCatalogService', () => {
         ),
     );
     vi.stubGlobal('fetch', fetchMock);
-    const svc = ModelCatalogService._createForTest(makeEnv(), core, authFacade());
+    const svc = new ModelCatalogService(makeEnv(), core, makeEventService().svc);
 
     await svc.refreshProviderModels();
 

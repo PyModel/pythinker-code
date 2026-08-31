@@ -146,6 +146,7 @@ describe('reduceContextTranscript', () => {
 
     expect(result.entries.map((m) => m.role)).toEqual(['user', 'assistant', 'tool', 'user']);
     expect(result.times).toEqual([100, 200, 220, undefined]);
+    expect(result.recordIndexes).toEqual([0, 1, 3, 5]);
   });
 
   it('preserves the pre-compaction assistant reply after a later undo', () => {

@@ -189,62 +189,39 @@ describe('PythinkerCore plugin RPCs', () => {
     expect(oauth.hasTokens('plugin-demo:remote', 'https://mcp.example.test/service')).toBe(true);
   });
 
-  it('injects persisted managed Pythinker Code environment into the datasource plugin MCP server', async () => {
-    const previousBaseUrl = process.env['PYTHINKER_CODE_BASE_URL'];
-    const previousCodeOAuthHost = process.env['PYTHINKER_CODE_OAUTH_HOST'];
-    const previousOAuthHost = process.env['PYTHINKER_OAUTH_HOST'];
-    delete process.env['PYTHINKER_CODE_BASE_URL'];
-    delete process.env['PYTHINKER_CODE_OAUTH_HOST'];
-    delete process.env['PYTHINKER_OAUTH_HOST'];
-
+  it('does not inject provider credentials into plugin MCP servers', async () => {
     const home = await mkdtemp(path.join(tmpdir(), 'pythinker-home-'));
     const pluginRoot = await mkdtemp(path.join(tmpdir(), 'plugin-'));
-    try {
-      await writeFile(
-        path.join(home, 'config.toml'),
-        `
-[providers."managed:pythinker-code"]
-type = "pythinker"
-base_url = "https://api.dev.example.test/coding/v1"
-api_key = ""
-oauth = { storage = "file", key = "oauth/pythinker-code-env-1234", oauth_host = "https://auth.dev.example.test" }
-`,
-        'utf8',
-      );
-      await writeFile(
-        path.join(pluginRoot, 'pythinker.plugin.json'),
-        JSON.stringify({
-          name: 'pythinker-datasource',
-          mcpServers: {
-            data: { command: 'node', args: ['./bin/pythinker-datasource.mjs'] },
-          },
-        }),
-        'utf8',
-      );
+    await writeFile(
+      path.join(pluginRoot, 'pythinker.plugin.json'),
+      JSON.stringify({
+        name: 'example-data',
+        mcpServers: {
+          data: { command: 'node', args: ['./bin/example-data.mjs'] },
+        },
+      }),
+      'utf8',
+    );
 
-      const core = new PythinkerCore(async () => ({}) as never, { homeDir: home });
-      await new Promise((r) => setImmediate(r));
-      await core.installPlugin({ source: pluginRoot });
+    const core = new PythinkerCore(async () => ({}) as never, { homeDir: home });
+    await new Promise((r) => setImmediate(r));
+    await core.installPlugin({ source: pluginRoot });
 
-      const mcpConfig = (
-        core as unknown as {
-          mergePluginMcpConfig(base: undefined): {
-            servers: Record<string, { env?: Record<string, string> }>;
-          };
-        }
-      ).mergePluginMcpConfig(undefined);
+    const mcpConfig = (
+      core as unknown as {
+        mergePluginMcpConfig(base: undefined): {
+          servers: Record<string, { env?: Record<string, string> }>;
+        };
+      }
+    ).mergePluginMcpConfig(undefined);
 
-      expect(mcpConfig.servers['plugin-pythinker-datasource:data']?.env).toEqual(
-        expect.objectContaining({
-          PYTHINKER_CODE_BASE_URL: 'https://api.dev.example.test/coding/v1',
-          PYTHINKER_CODE_OAUTH_HOST: 'https://auth.dev.example.test',
-        }),
-      );
-    } finally {
-      restoreEnv('PYTHINKER_CODE_BASE_URL', previousBaseUrl);
-      restoreEnv('PYTHINKER_CODE_OAUTH_HOST', previousCodeOAuthHost);
-      restoreEnv('PYTHINKER_OAUTH_HOST', previousOAuthHost);
-    }
+    const env = mcpConfig.servers['plugin-example-data:data']?.env;
+    expect(env).toMatchObject({
+      PYTHINKER_CODE_HOME: home,
+      PYTHINKER_PLUGIN_ROOT: expect.any(String),
+    });
+    expect(env).not.toHaveProperty('PYTHINKER_CODE_BASE_URL');
+    expect(env).not.toHaveProperty('PYTHINKER_CODE_OAUTH_HOST');
   });
 
   it('throws PLUGIN_LOAD_FAILED on every RPC when installed.json is corrupt', async () => {
@@ -313,11 +290,3 @@ oauth = { storage = "file", key = "oauth/pythinker-code-env-1234", oauth_host = 
     );
   });
 });
-
-function restoreEnv(name: string, value: string | undefined): void {
-  if (value === undefined) {
-    delete process.env[name];
-    return;
-  }
-  process.env[name] = value;
-}

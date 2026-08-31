@@ -2,6 +2,25 @@ import { z } from 'zod';
 
 import { isoDateTimeSchema } from '@pymodel/agent-core-v2/_base/utils/isoDateTime';
 
+export const subagentRoutingWireSchema = z.object({
+  operation: z.enum(['spawn', 'fork', 'resume']),
+  profile_source: z.enum(['requested', 'default', 'fork-inherit', 'resume-existing']),
+  model_source: z.enum([
+    'caller',
+    'policy-default',
+    'policy-pool',
+    'policy-force',
+    'fork-inherit',
+    'resume-existing',
+  ]),
+  policy_mode: z.enum(['inherit', 'default', 'pool', 'force']),
+  policy_source: z.enum(['config', 'default']),
+  feature_source: z.enum(['master-env', 'env', 'config', 'default']),
+  routing_env_revision: z.string(),
+  route_decision: z.string(),
+});
+export type SubagentRoutingWire = z.infer<typeof subagentRoutingWireSchema>;
+
 export const taskKindSchema = z.enum(['subagent', 'bash', 'tool']);
 export type TaskKind = z.infer<typeof taskKindSchema>;
 
@@ -27,9 +46,11 @@ export const taskSchema = z.object({
   output_bytes: z.number().int().nonnegative().optional(),
   model: z.string().optional(),
   thinking_effort: z.string().optional(),
+  routing: subagentRoutingWireSchema.optional(),
+  current_routing_env_revision: z.string().optional(),
   agent_id: z.string().optional(),
   subagent_type: z.string().optional(),
   parent_tool_call_id: z.string().optional(),
-  run_in_background: z.boolean().optional(),
+  run_in_background: z.boolean(),
 });
 export type Task = z.infer<typeof taskSchema>;

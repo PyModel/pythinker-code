@@ -13,6 +13,8 @@ const props = withDefaults(
     size?: IconSize;
     /** Accessible label. When omitted the icon is decorative (aria-hidden). */
     label?: string;
+    /** Animated artwork only: keep the motion running (e.g. while the agent works). Otherwise it plays on hover. */
+    live?: boolean;
   }>(),
   { size: 'md' },
 );
@@ -27,6 +29,7 @@ const animatedHtml = computed(() =>
 <template>
   <span
     v-if="entry?.animated"
+    :class="{ 'ptx-live': live }"
     :aria-label="label"
     :aria-hidden="label ? undefined : true"
     v-html="animatedHtml"

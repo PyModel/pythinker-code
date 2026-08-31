@@ -1,11 +1,14 @@
 import { readFile } from 'node:fs/promises';
 
+import { resolveStoragePath } from '../../lib/storagePath';
+
 export interface ContextRecord {
   readonly type: string;
   readonly [key: string]: unknown;
 }
 
-export async function readWireRecords(wirePath: string): Promise<ContextRecord[]> {
+export async function readWireRecords(root: string, ...segments: string[]): Promise<ContextRecord[]> {
+  const wirePath = resolveStoragePath(root, ...segments);
   const raw = await readFile(wirePath, 'utf8');
   const lines = raw.split('\n');
   const records: ContextRecord[] = [];

@@ -359,11 +359,21 @@ describe('Model assembly (pure data)', () => {
           baseUrl: 'https://us-east4-aiplatform.googleapis.com',
           env: { GOOGLE_CLOUD_PROJECT: 'my-project' },
         },
+        vertexLookalike: {
+          type: 'google-genai',
+          baseUrl: 'https://proxy.example-us-east4-aiplatform.googleapis.com',
+          env: { GOOGLE_CLOUD_PROJECT: 'my-project' },
+        },
         plain: { type: 'google-genai', apiKey: 'sk-g' },
       },
       models: {
         v: { provider: 'vertex', model: 'gemini-2.5-flash', maxContextSize: 1000 },
         v2: { provider: 'vertexUrl', model: 'gemini-2.5-flash', maxContextSize: 1000 },
+        lookalike: {
+          provider: 'vertexLookalike',
+          model: 'gemini-2.5-flash',
+          maxContextSize: 1000,
+        },
         g: { provider: 'plain', model: 'gemini-2.5-flash', maxContextSize: 1000 },
       },
     });
@@ -380,6 +390,7 @@ describe('Model assembly (pure data)', () => {
         project: 'my-project',
         location: 'us-east4',
       });
+      expect(catalog.get('lookalike').providerOptions).toBeUndefined();
       expect(catalog.get('g').providerOptions).toBeUndefined();
     } finally {
       host.dispose();
@@ -403,6 +414,26 @@ describe('Model assembly (pure data)', () => {
       expect(model.providerName).toBe('flat.example.test');
       expect(model.providerType).toBe('openai');
       expect(model.baseUrl).toBe('https://flat.example.test/v1');
+    } finally {
+      host.dispose();
+    }
+  });
+
+  it('supports a flat model when the default provider is blank', () => {
+    const { host, catalog } = createHost({
+      defaultProvider: '   ',
+      models: {
+        flat: {
+          protocol: 'openai',
+          model: 'my-model',
+          baseUrl: 'https://flat.example.test/v1',
+          apiKey: 'sk-flat',
+          maxContextSize: 4096,
+        },
+      },
+    });
+    try {
+      expect(catalog.get('flat').providerName).toBe('flat.example.test');
     } finally {
       host.dispose();
     }
@@ -1338,6 +1369,13 @@ describe('ModelCatalog setDefaultModel', () => {
     const { host, models, catalog } = createHost({
       providers: {},
       models: {
+        good: {
+          model: 'good-model',
+          baseUrl: 'https://x.test/v1',
+          apiKey: 'sk',
+          capabilities: ['tool_use'],
+          maxContextSize: 262144,
+        },
         bad: {
           model: 'bad-model',
           baseUrl: 'https://x.test/v1',
@@ -1347,8 +1385,9 @@ describe('ModelCatalog setDefaultModel', () => {
       },
     });
     try {
+      expect(models.getDefaultModel()).toBe('good');
       await expect(catalog.setDefaultModel('bad')).rejects.toThrow();
-      expect(models.getDefaultModel()).toBeUndefined();
+      expect(models.getDefaultModel()).toBe('good');
     } finally {
       host.dispose();
     }

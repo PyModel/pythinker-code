@@ -62,9 +62,9 @@ describe('server-v2 GET /api/v1/auth', () => {
     await boot();
     expect(await getAuth()).toEqual({
       ready: false,
+      models_ready: false,
       providers_count: 0,
       default_model: null,
-      managed_provider: null,
     });
   });
 
@@ -86,13 +86,13 @@ describe('server-v2 GET /api/v1/auth', () => {
     );
     expect(await getAuth()).toEqual({
       ready: true,
+      models_ready: true,
       providers_count: 1,
       default_model: 'x',
-      managed_provider: null,
     });
   });
 
-  it('returns ready=false when a provider exists but default_model is missing', async () => {
+  it('adopts a default model so a provider with a usable model is ready', async () => {
     await boot(
       [
         '[providers.x]',
@@ -107,30 +107,99 @@ describe('server-v2 GET /api/v1/auth', () => {
       ].join('\n'),
     );
     const summary = await getAuth();
-    expect(summary.ready).toBe(false);
+    expect(summary.ready).toBe(true);
     expect(summary.providers_count).toBe(1);
-    expect(summary.default_model).toBeNull();
-    expect(summary.managed_provider).toBeNull();
+    expect(summary.default_model).toBe('x');
   });
 
-  it('surfaces managed_provider.unauthenticated without a cached token', async () => {
+  it('adopts a model that can serve a turn, not merely the first one listed', async () => {
     await boot(
       [
-        '[providers."managed:pythinker-code"]',
-        'type = "pythinker"',
-        'base_url = "https://example.test/v1"',
+        '[providers.demo]',
+        'type = "openai"',
+        'api_key = "sk-test"',
         '',
-        '[providers."managed:pythinker-code".oauth]',
-        'storage = "file"',
-        'key = "oauth/pythinker-code"',
+        '[models."demo/embed-only"]',
+        'provider = "demo"',
+        'model = "embed-only"',
+        'max_context_size = 8192',
+        'capabilities = ["image_in"]',
+        '',
+        '[models."demo/chat-small"]',
+        'provider = "demo"',
+        'model = "chat-small"',
+        'max_context_size = 32768',
+        'capabilities = ["tool_use"]',
+        '',
+        '[models."demo/chat-big"]',
+        'provider = "demo"',
+        'model = "chat-big"',
+        'max_context_size = 262144',
+        'capabilities = ["tool_use"]',
         '',
       ].join('\n'),
     );
     const summary = await getAuth();
-    expect(summary.managed_provider).toEqual({
-      name: 'managed:pythinker-code',
-      status: 'unauthenticated',
-    });
+    expect(summary.ready).toBe(true);
+    expect(summary.default_model).toBe('demo/chat-big');
+  });
+
+  it('returns ready=false when the only model cannot serve a turn', async () => {
+    await boot(
+      [
+        '[providers.x]',
+        'type = "pythinker"',
+        'api_key = "sk-test"',
+        '',
+        '[models.x]',
+        'provider = "x"',
+        'model = "x"',
+        'max_context_size = 1000',
+        'capabilities = ["image_in"]',
+        '',
+      ].join('\n'),
+    );
+    const summary = await getAuth();
     expect(summary.ready).toBe(false);
+    expect(summary.models_ready).toBe(false);
+    expect(summary.providers_count).toBe(1);
+    expect(summary.default_model).toBeNull();
+  });
+
+  it('returns models_ready=false when the default model dangles', async () => {
+    await boot(
+      [
+        'default_model = "gone"',
+        '',
+        '[providers.x]',
+        'type = "openai"',
+        'api_key = "sk-test"',
+        '',
+      ].join('\n'),
+    );
+    const summary = await getAuth();
+    expect(summary.ready).toBe(false);
+    expect(summary.models_ready).toBe(false);
+    expect(summary.default_model).toBe('gone');
+  });
+
+  it('returns models_ready=true for a providerless flat default model', async () => {
+    await boot(
+      [
+        'default_model = "flat"',
+        '',
+        '[models.flat]',
+        'base_url = "https://example.test/v1"',
+        'model = "gpt"',
+        'protocol = "openai"',
+        'max_context_size = 4096',
+        'api_key = "sk-test"',
+        '',
+      ].join('\n'),
+    );
+    const summary = await getAuth();
+    expect(summary.ready).toBe(true);
+    expect(summary.models_ready).toBe(true);
+    expect(summary.providers_count).toBe(0);
   });
 });

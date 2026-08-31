@@ -35,14 +35,14 @@ export interface MentionMenuDeps {
    */
   searchSkills?: () => ((q: string) => Promise<MentionSkillItem[]>) | undefined;
   /**
-   * Optional insertion hook for a selected skill. The reference editor needs a
-   * parent-side callback to serialize a skill mention; without one, selecting
-   * a skill closes the menu without inserting anything (mirrors upstream).
+   * Optional insertion hook for a selected skill. Serializing a skill mention
+   * needs a parent-side callback; without one, selecting a skill closes the
+   * menu without inserting anything.
    */
   insertSkill?: (name: string) => void;
 }
 
-interface MentionToken {
+export interface MentionToken {
   token: string;
   start: number;
   end: number;
@@ -136,12 +136,21 @@ export function useMentionMenu(deps: MentionMenuDeps) {
     }, 200);
   }
 
+  function close(): void {
+    if (timer !== null) clearTimeout(timer);
+    timer = null;
+    searchId++;
+    open.value = false;
+    loading.value = false;
+    stale.value = false;
+  }
+
   function select(item: MentionItem): void {
     const mt = getMentionToken();
     if (!mt) return;
     open.value = false;
     // Skills are not plain file mentions: hand the choice to the parent hook
-    // (if any) and otherwise just dismiss the menu, mirroring upstream.
+    // (if any) and otherwise just dismiss the menu.
     if (item.kind === 'skill') {
       insertSkill?.(item.skill.name);
       return;
@@ -164,5 +173,5 @@ export function useMentionMenu(deps: MentionMenuDeps) {
     });
   }
 
-  return { open, items, active, loading, stale, update, select };
+  return { open, items, active, loading, stale, update, select, close, getMentionToken };
 }

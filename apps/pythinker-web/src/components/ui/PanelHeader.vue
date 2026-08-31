@@ -25,11 +25,16 @@ defineEmits<{ close: [] }>();
 
 <template>
   <div class="ui-panel-header" :class="{ wrap }">
-    <span class="ui-panel-header__title">{{ title }}</span>
-    <Tooltip :text="subtitle">
-      <span v-if="subtitle" class="ui-panel-header__sub">{{ subtitle }}</span>
-    </Tooltip>
-    <slot />
+    <!-- Everything except Close lives in __main so the close control never
+         joins the wrapping flow: it stays pinned to the top-right corner at
+         every panel width, however many rows the content needs. -->
+    <div class="ui-panel-header__main">
+      <span class="ui-panel-header__title">{{ title }}</span>
+      <Tooltip :text="subtitle">
+        <span v-if="subtitle" class="ui-panel-header__sub">{{ subtitle }}</span>
+      </Tooltip>
+      <slot />
+    </div>
     <IconButton
       v-if="closable"
       class="ui-panel-header__close"
@@ -55,6 +60,13 @@ defineEmits<{ close: [] }>();
   border-bottom: 0.5px solid var(--color-line);
   background: var(--color-surface);
 }
+.ui-panel-header__main {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
 .ui-panel-header__title {
   flex: 0 1 auto;
   min-width: 0;
@@ -79,14 +91,22 @@ defineEmits<{ close: [] }>();
   margin-left: auto;
 }
 .ui-panel-header.wrap {
-  flex-wrap: wrap;
+  align-items: flex-start;
   height: auto;
   min-height: var(--panel-head-h, 48px);
   padding-top: 3px;
   padding-bottom: 3px;
+}
+.ui-panel-header.wrap .ui-panel-header__main {
+  flex-wrap: wrap;
   gap: 4px 6px;
+  /* Keep the first row vertically centred against the 48px minimum height
+     while extra rows grow downward. */
+  min-height: calc(var(--panel-head-h, 48px) - 6px);
+  align-content: center;
 }
 .ui-panel-header.wrap .ui-panel-header__close {
-  margin-left: 0;
+  /* Pin to the corner: same vertical centre as a single-row header. */
+  margin-top: calc((var(--panel-head-h, 48px) - 6px - 26px) / 2);
 }
 </style>

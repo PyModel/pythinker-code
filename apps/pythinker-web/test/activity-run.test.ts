@@ -7,6 +7,8 @@
 
 import { mount } from '@vue/test-utils';
 import { createI18n } from 'vue-i18n';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import ActivityRun from '../src/components/chat/ActivityRun.vue';
@@ -21,6 +23,11 @@ const i18n = createI18n({
   fallbackWarn: false,
   messages: { en: { conversation: enConversation, thinking: enThinking, tools: enTools } },
 });
+
+const activityRunSource = readFileSync(
+  join(import.meta.dirname, '../src/components/chat/ActivityRun.vue'),
+  'utf8',
+);
 
 function thinking(overrides: Partial<Extract<RunItem, { kind: 'thinking' }>> = {}): RunItem {
   return { kind: 'thinking', thinking: 'weighing options', sourceIndex: 0, ...overrides };
@@ -52,6 +59,16 @@ function mountRun(items: RunItem[], streaming: boolean) {
 }
 
 describe('ActivityRun header glyph', () => {
+  it('centers the status glyph in a fixed slot without a downward offset', () => {
+    const glyphRule = /\.ar-glyph\s*\{([^}]*)\}/.exec(activityRunSource)?.[1] ?? '';
+
+    expect(glyphRule).toMatch(/width:\s*var\(--p-ic-sm\)/);
+    expect(glyphRule).toMatch(/height:\s*var\(--p-ic-sm\)/);
+    expect(glyphRule).toMatch(/justify-content:\s*center/);
+    expect(glyphRule).toMatch(/line-height:\s*0/);
+    expect(glyphRule).not.toMatch(/transform:\s*translateY/);
+  });
+
   it('animates the bulb while the thinking tail is still streaming', () => {
     const wrapper = mountRun([thinking()], true);
     expect(wrapper.get('.ar-glyph').classes()).toContain('bulb');

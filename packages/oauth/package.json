@@ -2,7 +2,7 @@
   "name": "@pymodel/pythinker-code-oauth",
   "version": "0.4.0",
   "private": true,
-  "description": "Pythinker OAuth toolkit for managed Pythinker Code authentication",
+  "description": "Authentication and provider configuration utilities for Pythinker Code",
   "license": "MIT",
   "author": "PyModel",
   "homepage": "https://github.com/PyModel/pythinker-code/tree/main/packages/oauth#readme",
@@ -32,10 +32,6 @@
     ".": {
       "types": "./src/index.ts",
       "default": "./src/index.ts"
-    },
-    "./device": {
-      "types": "./src/device.ts",
-      "default": "./src/device.ts"
     }
   },
   "scripts": {
@@ -46,10 +42,6 @@
   },
   "dependencies": {
     "@pymodel/kosong": "workspace:^",
-    "proper-lockfile": "^4.1.2",
     "zod": "catalog:"
-  },
-  "devDependencies": {
-    "@types/proper-lockfile": "^4.1.4"
   }
 }

@@ -2,8 +2,16 @@ import { z } from 'zod';
 
 import { taskSchema, taskStatusSchema } from './task';
 
+const queryBooleanSchema = z.union([
+  z.boolean(),
+  z.enum(['true', 'false']).transform((value) => value === 'true'),
+]);
+
 export const listTasksQuerySchema = z.object({
   status: taskStatusSchema.optional(),
+  with_output: queryBooleanSchema.optional(),
+  output_bytes: z.coerce.number().int().nonnegative().max(32 * 1024).optional(),
+  output_status: z.enum(['running', 'all']).optional(),
 });
 export type ListTasksQuery = z.infer<typeof listTasksQuerySchema>;
 
@@ -13,7 +21,7 @@ export const listTasksResponseSchema = z.object({
 export type ListTasksResponse = z.infer<typeof listTasksResponseSchema>;
 
 export const getTaskQuerySchema = z.object({
-  with_output: z.coerce.boolean().optional(),
+  with_output: queryBooleanSchema.optional(),
   output_bytes: z.coerce.number().int().nonnegative().optional(),
 });
 export type GetTaskQuery = z.infer<typeof getTaskQuerySchema>;
@@ -25,6 +33,12 @@ export const cancelTaskResultSchema = z.object({
   cancelled: z.literal(true),
 });
 export type CancelTaskResult = z.infer<typeof cancelTaskResultSchema>;
+
+export const detachTaskResultSchema = z.object({
+  detached: z.boolean(),
+  status: taskStatusSchema,
+});
+export type DetachTaskResult = z.infer<typeof detachTaskResultSchema>;
 
 export const taskAlreadyFinishedDataSchema = z.object({
   cancelled: z.literal(false),

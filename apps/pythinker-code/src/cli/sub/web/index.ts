@@ -15,6 +15,7 @@ import type { Command } from 'commander';
 import { registerDeprecatedServerCommand } from './deprecated-server';
 import { registerRotateTokenCommand } from './rotate-token';
 import { buildWebCommand } from './run';
+import { isRemoteControlEnabled } from './remote-control';
 
 export function registerWebCommand(program: Command): void {
   const web = buildWebCommand(
@@ -23,5 +24,14 @@ export function registerWebCommand(program: Command): void {
       .description('Run the local Pythinker server and open the web UI.'),
   );
   registerRotateTokenCommand(web);
+  buildWebCommand(
+    program
+      .command('rc', { hidden: !isRemoteControlEnabled() })
+      .alias('remote')
+      .description(
+        'Run the local Pythinker server and open the web UI through Remote Control (experimental).',
+      ),
+    { forceRemoteControl: true },
+  );
   registerDeprecatedServerCommand(program);
 }

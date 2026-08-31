@@ -5,22 +5,17 @@
  * 0600 is enforced; corrupted files return undefined rather than throwing.
  */
 
-import { chmodSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { FileTokenStorage } from '../src/storage';
+import { FileTokenStorage, resolveOAuthTokenStorageName } from '../src/storage';
 import type { TokenInfo } from '../src/types';
 
 function makeTmpDir(): string {
-  const dir = join(
-    tmpdir(),
-    `pythinker-storage-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-  );
-  mkdirSync(dir, { recursive: true });
-  return dir;
+  return mkdtempSync(join(tmpdir(), 'pythinker-storage-test-'));
 }
 
 function sampleToken(overrides: Partial<TokenInfo> = {}): TokenInfo {
@@ -211,4 +206,18 @@ describe('FileTokenStorage', () => {
     expect(typeof loaded?.scope).toBe('string');
     expect(typeof loaded?.tokenType).toBe('string');
   });
+});
+
+describe('resolveOAuthTokenStorageName', () => {
+  it('maps an explicit oauth credential key to its storage file name', () => {
+    expect(resolveOAuthTokenStorageName('oauth/example')).toBe('example');
+    expect(resolveOAuthTokenStorageName('example')).toBe('example');
+  });
+
+  it.each(['', 'oauth/', '../token', 'oauth/nested/token', '.hidden'])(
+    'rejects unsafe credential key %j',
+    (key) => {
+      expect(() => resolveOAuthTokenStorageName(key)).toThrow(/Invalid OAuth token key/);
+    },
+  );
 });

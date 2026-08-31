@@ -138,7 +138,7 @@ const feedbackRef = ref<HTMLTextAreaElement | null>(null);
 // ---------------------------------------------------------------------------
 // Feedback textarea autosize: grows with its content up to 40% of the visual
 // viewport height, then scrolls. Re-measured on resize / font-scale change /
-// width changes (mirrors the reference, which re-measures on the same cues).
+// width changes (re-measured on the same cues).
 // ---------------------------------------------------------------------------
 
 const FEEDBACK_MAX_HEIGHT_RATIO = 0.4;

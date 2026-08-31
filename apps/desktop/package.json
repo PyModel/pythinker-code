@@ -1,7 +1,7 @@
 {
   "name": "@pymodel/pythinker-desktop",
   "description": "Pythinker desktop application with tray-owned Host lifecycle",
-  "version": "0.2.1",
+  "version": "0.5.0",
   "private": true,
   "type": "module",
   "main": "dist/main.js",
@@ -19,6 +19,7 @@
     "@pymodel/pythinker-telemetry": "workspace:*",
     "@types/node": "^26.1.2",
     "@types/semver": "^7.7.0",
+    "builder-util-runtime": "9.7.0",
     "electron": "43.4.0",
     "electron-builder": "26.15.3",
     "electron-updater": "6.8.9",
@@ -69,6 +70,7 @@
       ]
     },
     "dmg": {
+      "background": "build/background.png",
       "sign": true,
       "title": "Pythinker ${version}",
       "window": {
@@ -79,14 +81,28 @@
       "contents": [
         {
           "x": 180,
-          "y": 200,
+          "y": 250,
           "type": "file"
         },
         {
           "x": 480,
-          "y": 200,
+          "y": 250,
           "type": "link",
           "path": "/Applications"
+        },
+        {
+          "name": ".background.png",
+          "path": "build/background.png",
+          "type": "file",
+          "x": 760,
+          "y": 520
+        },
+        {
+          "name": ".VolumeIcon.icns",
+          "path": "dist/.icon-icns/icon.icns",
+          "type": "file",
+          "x": 760,
+          "y": 520
         }
       ]
     },
@@ -102,7 +118,7 @@
       ]
     },
     "nsis": {
-      "allowElevation": true,
+      "allowElevation": false,
       "allowToChangeInstallationDirectory": true,
       "artifactName": "Pythinker-${version}-${arch}-Setup.${ext}",
       "createDesktopShortcut": true,

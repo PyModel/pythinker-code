@@ -6,7 +6,7 @@ import Icon from '../ui/Icon.vue';
 import IconButton from '../ui/IconButton.vue';
 import StatusGlyph from './StatusGlyph.vue';
 
-type ReferenceTaskItem = Omit<TaskItem, 'state'> & {
+type ExtendedTaskItem = Omit<TaskItem, 'state'> & {
   agentId?: string;
   model?: string;
   thinkingEffort?: string;
@@ -22,8 +22,8 @@ const emit = defineEmits<{
 
 const { t } = useI18n();
 
-function referenceTask(task: TaskItem): ReferenceTaskItem {
-  return task as ReferenceTaskItem;
+function extendedTask(task: TaskItem): ExtendedTaskItem {
+  return task as ExtendedTaskItem;
 }
 
 function emptyKey(filter: string): string {
@@ -39,11 +39,11 @@ function isOpenable(task: TaskItem): boolean {
 
 function openTask(task: TaskItem): void {
   if (!isOpenable(task)) return;
-  emit('open', referenceTask(task).agentId ?? task.id);
+  emit('open', extendedTask(task).agentId ?? task.id);
 }
 
 function stateLabel(task: TaskItem): string {
-  const state = referenceTask(task).state;
+  const state = extendedTask(task).state;
   if (state === 'done') return t('tasks.stateDone');
   if (state === 'fail') return t('tasks.stateFail');
   if (state === 'cancelled') return t('tasks.stateCancelled');
@@ -55,13 +55,13 @@ const subagentEffort = inject<(effort: string | undefined) => string | undefined
 
 function modelDisplay(task: TaskItem): string | undefined {
   if (task.kind !== 'subagent') return undefined;
-  const raw = referenceTask(task).model;
+  const raw = extendedTask(task).model;
   return modelDisplayResolver?.(raw) ?? raw;
 }
 
 function thinkingDisplay(task: TaskItem): string | undefined {
   if (task.kind !== 'subagent') return undefined;
-  return subagentEffort?.(referenceTask(task).thinkingEffort);
+  return subagentEffort?.(extendedTask(task).thinkingEffort);
 }
 </script>
 
@@ -75,7 +75,7 @@ function thinkingDisplay(task: TaskItem): string | undefined {
         :key="task.id"
         class="tp-row"
         :class="{
-          fail: referenceTask(task).state === 'fail',
+          fail: extendedTask(task).state === 'fail',
           expandable: isOpenable(task),
         }"
       >
@@ -88,10 +88,10 @@ function thinkingDisplay(task: TaskItem): string | undefined {
             @click="openTask(task)"
           />
           <span class="tp-glyph" role="img" :aria-label="stateLabel(task)">
-            <StatusGlyph v-if="referenceTask(task).state === 'run'" status="run" />
-            <Icon v-else-if="referenceTask(task).state === 'done'" class="tp-done" name="check" size="sm" />
+            <StatusGlyph v-if="extendedTask(task).state === 'run'" status="run" />
+            <Icon v-else-if="extendedTask(task).state === 'done'" class="tp-done" name="check" size="sm" />
             <Icon
-              v-else-if="referenceTask(task).state === 'cancelled'"
+              v-else-if="extendedTask(task).state === 'cancelled'"
               class="tp-cancelled"
               name="close"
               size="sm"
@@ -104,7 +104,7 @@ function thinkingDisplay(task: TaskItem): string | undefined {
           <span v-if="thinkingDisplay(task)" class="tp-model">{{ thinkingDisplay(task) }}</span>
           <span v-if="task.timing" class="tp-time">{{ task.timing }}</span>
           <IconButton
-            v-if="referenceTask(task).state === 'run'"
+            v-if="extendedTask(task).state === 'run'"
             class="tp-stop"
             size="sm"
             :label="t('tasks.stop')"

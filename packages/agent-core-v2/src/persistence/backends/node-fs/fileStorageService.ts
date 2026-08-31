@@ -17,6 +17,10 @@ import type {
 import { toStorageIoError } from '#/persistence/interface/storage';
 
 const WATCH_DEBOUNCE_MS = 150;
+const WATCH_WRITE_STABILITY_MS = 400;
+const WATCH_WRITE_POLL_MS = 25;
+const TORN_READ_RETRIES = 3;
+const TORN_READ_RETRY_DELAY_MS = 15;
 
 function isEnoent(error: unknown): boolean {
   return (error as NodeJS.ErrnoException).code === 'ENOENT';
@@ -35,11 +39,25 @@ export class FileStorageService implements IFileSystemStorageService {
 
   async read(scope: string, key: string): Promise<Uint8Array | undefined> {
     const filePath = this.pathFor(scope, key);
-    try {
-      return await readFile(filePath);
-    } catch (error) {
-      if (isEnoent(error)) return undefined;
-      throw toStorageIoError(error, { path: filePath, op: 'read' });
+    for (let attempt = 0; ; attempt += 1) {
+      let bytes: Uint8Array;
+      try {
+        bytes = await readFile(filePath);
+      } catch (error) {
+        if (isEnoent(error)) return undefined;
+        throw toStorageIoError(error, { path: filePath, op: 'read' });
+      }
+      if (attempt >= TORN_READ_RETRIES) return bytes;
+      let size: number | undefined;
+      try {
+        size = (await stat(filePath)).size;
+      } catch {
+        size = undefined;
+      }
+      if (size === undefined || size === bytes.length) return bytes;
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, TORN_READ_RETRY_DELAY_MS);
+      });
     }
   }
 
@@ -176,11 +194,20 @@ export class FileStorageService implements IFileSystemStorageService {
         mkdirSync(dir, { recursive: true, mode: this.dirMode });
         watcher = new FSWatcher({
           ignoreInitial: true,
-          awaitWriteFinish: false,
+          atomic: WATCH_WRITE_STABILITY_MS,
+          awaitWriteFinish: {
+            stabilityThreshold: WATCH_WRITE_STABILITY_MS,
+            pollInterval: WATCH_WRITE_POLL_MS,
+          },
           depth: 0,
         });
-        watcher.on('all', (_event, changedPath) => {
-          if (normalize(changedPath) === normalizedTarget) schedule();
+        watcher.on('all', (event, changedPath) => {
+          if (normalize(changedPath) !== normalizedTarget) return;
+          if (event === 'add' || event === 'change') {
+            emitter.fire();
+          } else {
+            schedule();
+          }
         });
         watcher.on('error', (error: unknown) => onUnexpectedError(error));
         watcher.add(dir);

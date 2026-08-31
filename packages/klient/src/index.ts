@@ -7,6 +7,7 @@
  */
 
 export type {
+  CallOptions,
   EventSourceRef,
   IDisposable,
   KlientChannel,
@@ -34,15 +35,12 @@ export type {
   GlobalFlagsFacade,
   GlobalHostFsFacade,
   GlobalKosongFacade,
+  GlobalMcpFacade,
   GlobalPluginsFacade,
   GlobalSessionsFacade,
   GlobalWorkspacesFacade,
   KlientEnvInfo,
   ModelCatalogItem,
-  OAuthFlowSnapshot,
-  OAuthFlowStart,
-  OAuthLoginCancelResponse,
-  OAuthLogoutResponse,
   ProviderCatalogItem,
   RefreshProviderModelsOptions,
   RefreshProviderModelsResponse,
@@ -139,7 +137,18 @@ export type {
 export type {
   Interaction,
   InteractionKind,
-} from '@pymodel/agent-core-v2/session/interaction/interaction';
-export type { SkillSummary } from '@pymodel/agent-core-v2/app/skillCatalog/types';
+} from '@pymodel/agent-core-v2/features/interaction/interaction';
+export type { SkillSummary } from '@pymodel/agent-core-v2/features/skill/catalog/types';
+export type {
+  GlobalMcpServerConfig,
+  McpManagedServer,
+  McpServerAuthBeginResult,
+  McpServerAuthState,
+  McpServerAuthStatus,
+  McpServerInspection,
+  McpServerLocator,
+  McpServerTestResult,
+  McpServerTestTarget,
+} from '@pymodel/agent-core-v2/app/mcpManagement/mcpManagement';
 export type { ContentPart } from '@pymodel/agent-core-v2/kosong/contract/message';
 export type { PermissionMode } from '@pymodel/agent-core-v2/agent/permissionPolicy/types';

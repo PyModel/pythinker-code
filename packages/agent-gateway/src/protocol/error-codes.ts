@@ -3,7 +3,6 @@ export const ErrorCode = {
 
   VALIDATION_FAILED: 40001,
   REQUEST_MALFORMED: 40002,
-  PROVIDER_OAUTH_MANAGED: 40003,
   CATALOG_IMPORT_INVALID: 40004,
   REGISTRY_IMPORT_INVALID: 40005,
 
@@ -63,6 +62,7 @@ export const ErrorCode = {
   RUNTIME_UNAVAILABLE: 40926,
   PROMPT_ID_CONFLICT: 40927,
   FS_CONFLICT: 40928,
+  MCP_OAUTH_FAILED: 40929,
 
   APPROVAL_EXPIRED: 41001,
   QUESTION_EXPIRED: 41002,
@@ -73,6 +73,8 @@ export const ErrorCode = {
   FS_TOO_MANY_RESULTS: 41303,
   FS_PATH_ESCAPES_SESSION: 41304,
   FS_GREP_TIMEOUT: 41305,
+
+  CONFIG_VERSION_CONFLICT: 41201,
 
   FS_WATCH_LIMIT_EXCEEDED: 42902,
 
@@ -85,16 +87,5 @@ export const ErrorCode = {
 
 } as const;
 
-/**
- * Reserved (intentionally unallocated; do NOT reuse for new variants):
- *   - 40101 auth.invalid_token        (daemon's own token; future)
- *   - 40102 auth.missing_token        (daemon's own token; future)
- *   - 40103 auth.forbidden_origin     (daemon's own token; future)
- *   - 42901 rate.limited
- *   - 50002 protocol.version_mismatch
- *
- * `ErrorCodeReason` is not copied here because the server has no consumer.
- * The protocol package retains number-to-reason mapping for v1 and server E2E.
- */
 
 export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode];

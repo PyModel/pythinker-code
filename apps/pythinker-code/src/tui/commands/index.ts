@@ -24,18 +24,17 @@ export {
 } from './config';
 export { handleDynamicWorkflowCommand } from './dynamic_workflow';
 export { handleTowerCommand } from './tower';
-export { handleFeedbackCommand, showMcpServers, showStatusReport, showUsage } from './info';
+export { showMcpServers, showStatusReport, showUsage } from './info';
 export { handlePluginsCommand } from './plugins';
 export { handleReloadCommand, handleReloadTuiCommand } from './reload';
 export { handleGoalCommand, parseGoalCommand, goalObjectiveLengthWarning } from './goal';
 export { goalArgumentCompletions, towerArgumentCompletions } from './registry';
 export { handleForkCommand, handleInitCommand, handleTitleCommand } from './session';
 export { handleUndoCommand } from './undo';
-export { handleWebCommand } from './web';
+export { handleRemoteControlCommand, handleWebCommand } from './web';
 export {
   promptApiKey,
   promptCatalogProviderSelection,
-  promptFeedbackInput,
   promptLogoutProviderSelection,
   promptModelSelectionForCatalog,
   promptModelSelectionForCodex,

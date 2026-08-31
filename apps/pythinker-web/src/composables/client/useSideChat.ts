@@ -230,7 +230,7 @@ export function useSideChat(rawState: ExtendedState, deps: UseSideChatDeps) {
         agentId,
         model,
         thinking: (await resolveThinkingForPrompt(sid, model)) ?? rawState.thinking,
-        permissionMode: rawState.permission,
+        permissionMode: rawState.permissionBySession[sid] ?? rawState.permission,
         planMode: rawState.planModeBySession[sid] ?? false,
         dynamicWorkflowMode: rawState.dynamicWorkflowModeBySession[sid] ?? false,
       });

@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { PathSecurityError } from '#/tool/path-access';
 import { MEDIA_SNIFF_BYTES } from '#/agent/media/file-type';
-import type { ISessionSkillCatalog } from '#/session/sessionSkillCatalog/skillCatalog';
+import type { ISessionSkillCatalog } from '#/features/skill/session/skillCatalog';
 import { stubWorkspaceContext } from '../../../../session/workspaceContext/stub-workspace-context';
 import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import {
@@ -14,6 +14,7 @@ import {
   TRANSCODE_MAX_BYTES,
 } from '#/agent/tools/os/read/read';
 import { ReadTool } from '#/agent/tools/os/read/readTool';
+import { stubToolResultTruncationService } from '../../../../agent/toolResultTruncation/stubs';
 import type { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
 import { FakeRuntime } from '#/runtime/fakeRuntime';
 import { RuntimeRegistry } from '#/runtime/runtimeRegistry';
@@ -71,6 +72,7 @@ function createReadTool(
   skillCatalog: ISessionSkillCatalog = {
     catalog: { getSkillRoots: () => [] },
   } as unknown as ISessionSkillCatalog,
+  resultTruncation = stubToolResultTruncationService(),
 ): ReadTool {
   const runtime = Object.assign(
     new FakeRuntime(
@@ -86,7 +88,7 @@ function createReadTool(
     inspect: () => runtime,
     acquire: () => ({ runtime, track: (resource) => resource, dispose: () => {} }),
   };
-  return new ReadTool(resolver, workspace, skillCatalog);
+  return new ReadTool(resolver, workspace, skillCatalog, resultTruncation);
 }
 
 function createSpiedFs(content: string) {
@@ -216,6 +218,19 @@ describe('ReadTool', () => {
       note: readNote(
         '2 lines read from file starting from line 1. Total lines in file: 2. End of file reached.',
       ),
+    });
+  });
+
+  it('marks saved tool output as spill-exempt', async () => {
+    const { fs } = createSpiedFs('alpha\n');
+    const tool = createReadTool(fs, createTestEnv(), PERMISSIVE_WORKSPACE, undefined, {
+      ...stubToolResultTruncationService(),
+      isSpillFilePath: () => true,
+    });
+
+    await expect(execute(tool, { path: '/tmp/a.txt' })).resolves.toMatchObject({
+      output: '1\talpha',
+      spillExempt: true,
     });
   });
 
@@ -639,7 +654,9 @@ describe('ReadTool', () => {
 
     const result = await execute(tool, { path: '/tmp/long.txt' });
 
-    expect(result.note).toContain('Lines [1, 3] were truncated.');
+    expect(result.note).toContain(
+      'Lines [1, 3] were truncated to 2000 characters; use Bash (e.g. cut or sed) to read the elided content of those lines.',
+    );
     expect(result.output).toContain('...');
   });
 
@@ -862,7 +879,9 @@ describe('ReadTool', () => {
 
     expect(result.isError).toBeFalsy();
     expect(result.note).toContain('Total lines in file: 5.');
-    expect(result.note).toContain('Lines [4] were truncated.');
+    expect(result.note).toContain(
+      'Lines [4] were truncated to 2000 characters; use Bash (e.g. cut or sed) to read the elided content of those lines.',
+    );
   });
 
   it('rechecks runtime availability when execution starts after the tool was shown', async () => {
@@ -895,6 +914,7 @@ describe('ReadTool', () => {
       runtime,
       stubWorkspaceContext('/workspace'),
       { catalog: { getSkillRoots: () => [] } } as unknown as ISessionSkillCatalog,
+      stubToolResultTruncationService(),
     );
     const execution = tool.resolveExecution({ path: '/workspace/a.txt' });
     expect('execute' in execution).toBe(true);

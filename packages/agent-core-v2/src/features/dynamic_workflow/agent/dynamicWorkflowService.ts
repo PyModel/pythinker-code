@@ -1,5 +1,6 @@
 import { Service } from '#/_base/di/service';
-import { IInstantiationService } from '#/_base/di/instantiation';
+import { activateReminderWhenReady } from '#/features/reminder/internal/reminderActivation';
+import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { TurnEnded } from '#/agent/loop/turnOps';
 import { IAgentToolApprovalService } from '#/agent/toolApproval/toolApproval';
@@ -19,7 +20,7 @@ export class AgentDynamicWorkflowService extends Service implements IAgentDynami
 
   constructor(
     @IEventDispatcher private readonly dispatcher: IEventDispatcher,
-    @IInstantiationService instantiation: IInstantiationService,
+    @IAgentLifecycleService agentLifecycle: IAgentLifecycleService,
     @IEventBus eventBus: IEventBus,
     @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
     @IAgentToolApprovalService private readonly toolApproval: IAgentToolApprovalService,
@@ -30,9 +31,13 @@ export class AgentDynamicWorkflowService extends Service implements IAgentDynami
     super();
     this.agentState.contributeState(dynamicWorkflowKey);
     this._register(
-      instantiation.createInstance(DynamicWorkflowInjection, {
-        getTrigger: () => this.agentState.get(dynamicWorkflowKey),
-      }),
+      activateReminderWhenReady(agentLifecycle, this.agentCtx, (reminder) =>
+        new DynamicWorkflowInjection(
+          { getTrigger: () => this.agentState.get(dynamicWorkflowKey) },
+          reminder,
+          this.context,
+        ),
+      ),
     );
     this._register(
       eventBus.subscribe(TurnEnded, () => {

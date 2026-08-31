@@ -17,7 +17,7 @@ import {
   CustomRegistryApiError,
   fetchCustomRegistry,
   type CustomRegistrySource,
-  type ManagedPythinkerConfigShape,
+  type PythinkerConfigShape,
 } from '@pymodel/pythinker-code-oauth';
 import {
   applyCatalogProvider,
@@ -131,7 +131,7 @@ export async function handleProviderAdd(
   const addedProviderIds: string[] = [];
   let modelCount = 0;
   for (const entry of entryList) {
-    applyCustomRegistryProvider(asManaged(config), entry, source);
+    applyCustomRegistryProvider(asProviderConfig(config), entry, source);
     addedProviderIds.push(entry.id);
     modelCount += Object.keys(entry.models).length;
   }
@@ -588,8 +588,8 @@ function resolveApiKey(flag: string | undefined, env: NodeJS.ProcessEnv): string
   return undefined;
 }
 
-function asManaged(config: PythinkerConfig): ManagedPythinkerConfigShape {
-  return config as unknown as ManagedPythinkerConfigShape;
+function asProviderConfig(config: PythinkerConfig): PythinkerConfigShape {
+  return config as unknown as PythinkerConfigShape;
 }
 
 function providerSourceLabel(provider: PythinkerConfig['providers'][string]): string {

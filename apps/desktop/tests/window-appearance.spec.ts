@@ -11,6 +11,7 @@ describe('desktop window appearance configuration', () => {
 
     expect('frame' in opts).toBe(false)
     expect(opts['titleBarStyle']).toBe('hiddenInset')
+    expect(opts['titleBarOverlay']).toBe(true)
     expect(opts['trafficLightPosition']).toEqual({ x: 16, y: 16 })
     // Native corners and shadow require an opaque window.
     expect('transparent' in opts).toBe(false)

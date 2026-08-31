@@ -396,6 +396,8 @@ interface Group {
   foldedSigs: ContentSig[];
 }
 
+const EMPTY_PLAN_REVIEW_BY_TOOL_CALL_ID: Record<string, { plan: string; path?: string }> = {};
+
 // ---------------------------------------------------------------------------
 // messagesToTurns
 // ---------------------------------------------------------------------------
@@ -591,7 +593,8 @@ export function messagesToTurns(
   sessionActive = true,
   /** Preserved `plan_review` displays keyed by toolCallId — used to link the
    *  ExitPlanMode tool card back to the plan file after the approval resolves. */
-  planReviewByToolCallId: Record<string, { plan: string; path?: string }> = {},
+  planReviewByToolCallId: Record<string, { plan: string; path?: string }> =
+    EMPTY_PLAN_REVIEW_BY_TOOL_CALL_ID,
 ): ChatTurn[] {
   const turns: ChatTurn[] = [];
   let no = 1;
@@ -656,7 +659,7 @@ export function messagesToTurns(
           // merging consecutive segments (same rule as text blocks above). The
           // merged block keeps the FIRST segment's startedAt; the LAST
           // segment's durationMs decides whether the block is still streaming
-          // (a settled segment freezes the whole block — reference parity).
+          // (a settled segment freezes the whole block).
           const last = g.blocks.at(-1);
           if (last && last.kind === 'thinking') {
             last.thinking += '\n' + c.thinking;
@@ -994,4 +997,126 @@ export function messagesToTurns(
 
   flushGroup(true);
   return turns;
+}
+
+function isProjectionBoundary(msg: AppMessage): boolean {
+  if (isCompactionSummaryMessage(msg)) return true;
+  if (msg.role !== 'user') return false;
+  const kind = (msg.metadata?.['origin'] as { kind?: string } | undefined)?.kind;
+  return kind !== 'task' && kind !== 'background_task' && kind !== 'task_notification';
+}
+
+function lastProjectionBoundary(messages: AppMessage[]): number {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (isProjectionBoundary(messages[index]!)) return index;
+  }
+  return 0;
+}
+
+interface TurnProjectionCache {
+  messages: AppMessage[];
+  messageCount: number;
+  lastMessage: AppMessage | undefined;
+  approvals: AppApprovalRequest[];
+  getFileUrl: ((fileId: string) => string) | undefined;
+  sessionActive: boolean;
+  planReviewByToolCallId: Record<string, { plan: string; path?: string }>;
+  boundaryIndex: number;
+  prefixTurns: ChatTurn[];
+  tailTurns: ChatTurn[];
+  turns: ChatTurn[];
+}
+
+export function createMessagesToTurnsProjector(): typeof messagesToTurns {
+  let cache: TurnProjectionCache | undefined;
+
+  return (
+    messages,
+    approvals,
+    getFileUrl,
+    sessionActive = true,
+    planReviewByToolCallId = EMPTY_PLAN_REVIEW_BY_TOOL_CALL_ID,
+  ): ChatTurn[] => {
+    const lastMessage = messages.at(-1);
+    const dependenciesUnchanged =
+      cache !== undefined &&
+      (cache.approvals === approvals ||
+        (cache.approvals.length === 0 && approvals.length === 0)) &&
+      cache.getFileUrl === getFileUrl &&
+      cache.sessionActive === sessionActive &&
+      cache.planReviewByToolCallId === planReviewByToolCallId;
+
+    if (
+      cache !== undefined &&
+      dependenciesUnchanged &&
+      cache.messages === messages &&
+      cache.messageCount === messages.length
+    ) {
+      if (cache.lastMessage === lastMessage) return cache.turns;
+      if (
+        lastMessage?.role === 'assistant' &&
+        !isCompactionSummaryMessage(lastMessage) &&
+        cache.lastMessage?.role === 'assistant' &&
+        cache.lastMessage.id === lastMessage.id
+      ) {
+        const projectedTail = messagesToTurns(
+          messages.slice(cache.boundaryIndex),
+          approvals,
+          getFileUrl,
+          sessionActive,
+          planReviewByToolCallId,
+        );
+        const numberOffset = cache.prefixTurns.filter((turn) => turn.role !== 'compaction').length;
+        const numberedTail = projectedTail.map((turn) => ({ ...turn, no: turn.no + numberOffset }));
+        const cachedTailTurns = cache.tailTurns;
+        const shapeUnchanged =
+          numberedTail.length === cachedTailTurns.length &&
+          numberedTail.every(
+            (turn, index) =>
+              turn.id === cachedTailTurns[index]?.id && turn.role === cachedTailTurns[index]?.role,
+          );
+        if (shapeUnchanged) {
+          for (let index = 0; index < numberedTail.length - 1; index += 1) {
+            numberedTail[index] = cachedTailTurns[index]!;
+          }
+          const turns = [...cache.prefixTurns, ...numberedTail];
+          cache = { ...cache, lastMessage, tailTurns: numberedTail, turns };
+          return turns;
+        }
+      }
+    }
+
+    const turns = messagesToTurns(
+      messages,
+      approvals,
+      getFileUrl,
+      sessionActive,
+      planReviewByToolCallId,
+    );
+    const boundaryIndex = lastProjectionBoundary(messages);
+    const prefixTurnCount =
+      boundaryIndex === 0
+        ? 0
+        : messagesToTurns(
+            messages.slice(0, boundaryIndex),
+            approvals,
+            getFileUrl,
+            false,
+            planReviewByToolCallId,
+          ).length;
+    cache = {
+      messages,
+      messageCount: messages.length,
+      lastMessage,
+      approvals,
+      getFileUrl,
+      sessionActive,
+      planReviewByToolCallId,
+      boundaryIndex,
+      prefixTurns: turns.slice(0, prefixTurnCount),
+      tailTurns: turns.slice(prefixTurnCount),
+      turns,
+    };
+    return turns;
+  };
 }

@@ -36,6 +36,7 @@ import type {
   GoalSnapshot,
   GoalStatus,
   GoalToolResult,
+  SubagentBindingProvenance,
 } from '@pymodel/agent-core-v2';
 import type {
   AssistantDeltaPayload,
@@ -625,7 +626,7 @@ export const sessionStatusChangedEventSchema = z.object({
 
 export const configChangedEventSchema = z.object({
   type: z.literal('event.config.changed'),
-  changedFields: z.array(z.string()),
+  changedFields: z.array(z.string().min(1)),
   config: configResponseSchema,
 });
 
@@ -635,6 +636,25 @@ export const configWarningEventSchema = z.object({
     z.object({
       domain: z.string().optional(),
       message: z.string(),
+    }),
+  ),
+});
+
+export const modelCatalogChangedEventSchema = z.object({
+  type: z.literal('event.model_catalog.changed'),
+  changed: z.array(
+    z.object({
+      provider_id: z.string().min(1),
+      provider_name: z.string().min(1),
+      added: z.number().int().min(0),
+      removed: z.number().int().min(0),
+    }),
+  ),
+  unchanged: z.array(z.string().min(1)),
+  failed: z.array(
+    z.object({
+      provider: z.string().min(1),
+      reason: z.string().min(1),
     }),
   ),
 });
@@ -711,7 +731,18 @@ export const turnStartedEventSchema = z.object({
   prompt: z.string().optional(),
   promptId: z.string().optional(),
   promptAttachments: z
-    .array(z.object({ kind: z.enum(['image', 'video', 'audio']), fileId: z.string() }))
+    .array(
+      z.union([
+        z.object({ kind: z.enum(['image', 'video', 'audio']), fileId: z.string() }),
+        z.object({
+          kind: z.literal('file'),
+          name: z.string(),
+          mediaType: z.string(),
+          size: z.number(),
+          path: z.string(),
+        }),
+      ]),
+    )
     .optional(),
 });
 
@@ -863,6 +894,24 @@ export const toolResultEventSchema = z.object({
   synthetic: z.boolean().optional(),
 }) satisfies z.ZodType<ToolResultEventPayload>;
 
+const subagentRoutingProvenanceSchema = z.object({
+  operation: z.enum(['spawn', 'fork', 'resume']),
+  profileSource: z.enum(['requested', 'default', 'fork-inherit', 'resume-existing']),
+  modelSource: z.enum([
+    'caller',
+    'policy-default',
+    'policy-pool',
+    'policy-force',
+    'fork-inherit',
+    'resume-existing',
+  ]),
+  policyMode: z.enum(['inherit', 'default', 'pool', 'force']),
+  policySource: z.enum(['config', 'default']),
+  featureSource: z.enum(['master-env', 'env', 'config', 'default']),
+  resolvedFromRoutingEnvironmentRevision: z.string(),
+  routeDecisionFingerprint: z.string(),
+}) satisfies z.ZodType<SubagentBindingProvenance>;
+
 export const subagentSpawnedEventSchema = z.object({
   type: z.literal('subagent.spawned'),
   subagentId: z.string(),
@@ -876,6 +925,8 @@ export const subagentSpawnedEventSchema = z.object({
   runInBackground: z.boolean(),
   model: z.string().optional(),
   thinkingEffort: z.string().optional(),
+  routing: subagentRoutingProvenanceSchema.optional(),
+  currentRoutingEnvironmentRevision: z.string().optional(),
   taskId: z.string().optional(),
 }) satisfies z.ZodType<SubagentSpawnedPayload>;
 
@@ -1030,6 +1081,9 @@ export const agentEventSchema = z.discriminatedUnion('type', [
   workspaceDeletedEventSchema,
   sessionWorkChangedEventSchema,
   sessionStatusChangedEventSchema,
+  configChangedEventSchema,
+  configWarningEventSchema,
+  modelCatalogChangedEventSchema,
   diUnitChangedEventSchema,
   pluginChangedEventSchema,
   capabilityChangedEventSchema,

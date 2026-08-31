@@ -42,7 +42,7 @@ describe('ConfigState model capabilities', () => {
             },
           },
           models: {
-            'pythinker-code/kimi-for-coding': {
+            'example/test-model': {
               provider: 'pythinker',
               model: 'kimi-for-coding',
               maxContextSize: 1_000_000,
@@ -54,9 +54,9 @@ describe('ConfigState model capabilities', () => {
     });
     const config = ctx.agent.config;
 
-    config.update({ modelAlias: 'pythinker-code/kimi-for-coding' });
+    config.update({ modelAlias: 'example/test-model' });
 
-    expect(config.model).toBe('pythinker-code/kimi-for-coding');
+    expect(config.model).toBe('example/test-model');
     expect(config.providerConfig.model).toBe('kimi-for-coding');
     expect(config.modelCapabilities).toMatchObject({
       image_in: true,

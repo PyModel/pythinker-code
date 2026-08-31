@@ -1,11 +1,13 @@
 <!-- apps/pythinker-web/src/components/settings/ModelPicker.vue -->
 <!-- Modal overlay for switching the active session's model. -->
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch, type Component } from 'vue';
 import { useI18n } from 'vue-i18n';
 import type { AppModel } from '../../api/types';
 import { useDialogFocus } from '../../composables/useDialogFocus';
+import { useIsMobile } from '../../composables/useIsMobile';
 import { formatTokens } from '../../lib/formatTokens';
+import BottomSheet from '../dialogs/BottomSheet.vue';
 import Dialog from '../ui/Dialog.vue';
 import Button from '../ui/Button.vue';
 import IconButton from '../ui/IconButton.vue';
@@ -15,6 +17,14 @@ import Badge from '../ui/Badge.vue';
 import Spinner from '../ui/Spinner.vue';
 
 const { t } = useI18n();
+const isMobile = useIsMobile();
+const surface = computed<Component>(() => isMobile.value ? BottomSheet : Dialog);
+type SurfaceProps =
+  | { modelValue: true; title: string; closeOnEsc: false }
+  | { open: true; title: string; closeOnEsc: false; size: 'xl'; height: 'fixed' };
+const surfaceProps = computed<SurfaceProps>(() => isMobile.value
+  ? { modelValue: true, title: t('model.title'), closeOnEsc: false }
+  : { open: true, title: t('model.title'), closeOnEsc: false, size: 'xl', height: 'fixed' });
 
 const props = defineProps<{
   models: AppModel[];
@@ -164,8 +174,8 @@ function capabilityLabel(capability: string): string {
 </script>
 
 <template>
-  <Dialog :open="true" :close-on-esc="false" :title="t('model.title')" size="xl" height="fixed" @close="emit('close')">
-    <div ref="dialogRef" class="mp">
+  <component :is="surface" v-bind="surfaceProps" @close="emit('close')">
+    <div ref="dialogRef" class="mp" :class="{ 'mp--sheet': isMobile }">
       <!-- Search -->
       <div class="search-wrap">
         <Input
@@ -246,11 +256,12 @@ function capabilityLabel(capability: string): string {
       <!-- Footer hint -->
       <div class="footer-hint">{{ t('model.footerHint') }}</div>
     </div>
-  </Dialog>
+  </component>
 </template>
 
 <style scoped>
-.mp { display: flex; flex-direction: column; gap: var(--space-2); }
+.mp { display: flex; flex-direction: column; gap: var(--space-2); min-height: 0; }
+.mp--sheet { height: auto; padding: 0 var(--space-4); }
 
 /* Search */
 .search-wrap { padding-bottom: var(--space-1); }
@@ -372,6 +383,11 @@ function capabilityLabel(capability: string): string {
 }
 
 @media (max-width: 640px) {
+  .mp--sheet .model-list {
+    max-height: 58vh;
+    overflow-y: auto;
+  }
+
   .model-provider,
   .caps {
     display: none;

@@ -6,10 +6,8 @@
 // protocol events). This projector translates them into the same AppEvent union
 // that the existing reducer (eventReducer.ts) consumes.
 //
-// Ported from the daemon-side reference implementation:
-//   apps/pythinker-daemon/src/session/event-projector.ts
-//   apps/pythinker-daemon/src/session/message-log.ts
-//   apps/pythinker-daemon/src/session/usage-tracker.ts
+// It owns three concerns the server keeps separate: event projection, the
+// message log, and usage tracking.
 //
 // Usage:
 //   const projector = createAgentProjector();
@@ -27,7 +25,8 @@ import type {
 } from '../types';
 import { i18n } from '../../i18n';
 import { toolLabel, toolSummary } from '../../lib/toolMeta';
-import { toAppMessageContent } from './mappers';
+import {
+  toAppSubagentRoutingFromEvent, toAppMessageContent } from './mappers';
 import type { WireMessageContent } from './wire';
 
 // Subagent turns share the parent session id: their turn / step / delta / tool
@@ -239,6 +238,7 @@ function patchSubagent(
   sessionId: string,
   subagentId: unknown,
   patch: Partial<AppTask>,
+  clear: ReadonlyArray<keyof AppTask> = [],
 ): AppTask | null {
   if (typeof subagentId !== 'string' || subagentId.length === 0) return null;
   const prev = state.subagentMeta.get(subagentId) ?? {
@@ -265,14 +265,23 @@ function patchSubagent(
           suspendedReason: prev.suspendedReason,
         }
       : patch;
+  // A patch that omits a field (or carries `undefined`) keeps the value that an
+  // earlier event stored, so `task.started` cannot erase `subagent.spawned` metadata.
+  // Fields listed in `clear` are dropped explicitly (unless the terminal guard kept them).
+  const definedPatch = Object.fromEntries(
+    Object.entries(effectivePatch).filter(([, value]) => value !== undefined),
+  ) as Partial<AppTask>;
   const next: AppTask = {
     ...prev,
-    ...effectivePatch,
+    ...definedPatch,
     id: subagentId,
     agentId: subagentId,
     sessionId,
     kind: 'subagent',
   };
+  for (const key of clear) {
+    if (!(key in definedPatch)) delete next[key];
+  }
   state.subagentMeta.set(subagentId, next);
   return next;
 }
@@ -1179,6 +1188,11 @@ export function createAgentProjector(): AgentProjector {
           model: typeof p?.model === 'string' ? p.model : undefined,
           thinkingEffort:
             typeof p?.thinkingEffort === 'string' ? p.thinkingEffort : undefined,
+          routing: toAppSubagentRoutingFromEvent(p?.routing),
+          currentRoutingEnvRevision:
+            typeof p?.currentRoutingEnvironmentRevision === 'string'
+              ? p.currentRoutingEnvironmentRevision
+              : undefined,
           parentToolCallId: typeof p?.parentToolCallId === 'string' ? p.parentToolCallId : undefined,
           dynamicWorkflowIndex: typeof p?.dynamicWorkflowIndex === 'number' ? p.dynamicWorkflowIndex : undefined,
           runInBackground: p?.runInBackground === true,
@@ -1203,11 +1217,17 @@ export function createAgentProjector(): AgentProjector {
       }
 
       case 'subagent.suspended': {
-        const task = patchSubagent(s, sessionId, p?.subagentId, {
-          subagentPhase: 'suspended',
-          status: 'running',
-          suspendedReason: typeof p?.reason === 'string' ? p.reason : undefined,
-        });
+        const task = patchSubagent(
+          s,
+          sessionId,
+          p?.subagentId,
+          {
+            subagentPhase: 'suspended',
+            status: 'running',
+            suspendedReason: typeof p?.reason === 'string' ? p.reason : undefined,
+          },
+          ['suspendedReason'],
+        );
         if (task) out.push({ type: 'taskCreated', sessionId, task });
         break;
       }
@@ -1359,6 +1379,11 @@ export function createAgentProjector(): AgentProjector {
               model: typeof info.model === 'string' ? info.model : undefined,
               thinkingEffort:
                 typeof info.thinkingEffort === 'string' ? info.thinkingEffort : undefined,
+              routing: toAppSubagentRoutingFromEvent(info.routing),
+              currentRoutingEnvRevision:
+                typeof info.currentRoutingEnvironmentRevision === 'string'
+                  ? info.currentRoutingEnvironmentRevision
+                  : undefined,
               runInBackground: true,
             });
             if (task) out.push({ type: 'taskCreated', sessionId, task });

@@ -1,7 +1,7 @@
 /**
  * Scenario: App-level view routing after init, across login state transitions.
  * Responsibilities: the sign-in screen must stay reachable from every state — in
- * particular the no-models state (a managed OAuth token exists but config.toml
+ * particular the no-models state (an OAuth token exists but config.toml
  * has no models, e.g. a first login whose model provisioning failed after the
  * device flow already persisted the token), where Reload alone can never change
  * the on-disk state and the user would otherwise be stranded.

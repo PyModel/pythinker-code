@@ -63,9 +63,9 @@ const superpowers = {
 
 const officialEntries = [
   {
-    id: 'pythinker-datasource',
+    id: 'example-data',
     tier: 'official' as const,
-    displayName: 'Pythinker Datasource',
+    displayName: 'Example Data',
     description: 'Query supported data sources',
     version: '3.1.1',
     source: 'https://x/d.zip',
@@ -127,7 +127,7 @@ describe('plugins selector dialogs', () => {
       ...superpowers,
       source: 'zip-url' as const,
       originalSource:
-        'https://plugins.example.com/pythinker-code/plugins/official/pythinker-datasource.zip',
+        'https://plugins.example.com/pythinker-code/plugins/official/example-data.zip',
     };
 
     expect(pluginTrustLabel(installed)).toBe('third-party');
@@ -240,14 +240,14 @@ describe('plugins selector dialogs', () => {
   });
 
   it('renders the inline plugin hint on the installed row', () => {
-    const datasource = { ...superpowers, id: 'pythinker-datasource', displayName: 'Pythinker Datasource', skillCount: 1 };
+    const datasource = { ...superpowers, id: 'example-data', displayName: 'Example Data', skillCount: 1 };
     const { panel } = makePanel({
       installed: [datasource],
-      selectedId: 'pythinker-datasource',
-      pluginHint: { id: 'pythinker-datasource', text: 'pending /new' },
+      selectedId: 'example-data',
+      pluginHint: { id: 'example-data', text: 'pending /new' },
     });
     const out = strip(renderRaw(panel));
-    expect(out).toContain('? Pythinker Datasource  enabled  pending /new');
+    expect(out).toContain('? Example Data  enabled  pending /new');
   });
 
   it('lazily loads the Official catalog, then lists installed entries first', () => {
@@ -258,10 +258,10 @@ describe('plugins selector dialogs', () => {
 
     panel.setMarketplace(marketplaceEntries, '/tmp/marketplace.json');
     const out = strip(renderRaw(panel));
-    expect(out).toContain('Pythinker Datasource  install');
+    expect(out).toContain('Example Data  install');
     expect(out).toContain('Query supported data sources');
     expect(out).not.toContain('Query supported data sources · v3.1.1');
-    expect(out).not.toContain('id pythinker-datasource');
+    expect(out).not.toContain('id example-data');
     expect(out).not.toContain('Official plugin');
     expect(out).not.toContain('· data');
     expect(out).toContain('0 installed · 1 available');
@@ -362,7 +362,7 @@ describe('plugins selector dialogs', () => {
     panel.handleInput('\r');
     expect(onSelect).toHaveBeenCalledWith({
       kind: 'install',
-      entry: expect.objectContaining({ id: 'pythinker-datasource' }),
+      entry: expect.objectContaining({ id: 'example-data' }),
     });
   });
 
@@ -711,8 +711,8 @@ describe('plugins selector dialogs', () => {
     const selections: PluginMcpSelection[] = [];
     const picker = new PluginMcpSelectorComponent({
       info: {
-        id: 'pythinker-datasource',
-        displayName: 'Pythinker Datasource',
+        id: 'example-data',
+        displayName: 'Example Data',
         version: '1.0.0',
         enabled: true,
         state: 'ok',
@@ -724,17 +724,17 @@ describe('plugins selector dialogs', () => {
         hasErrors: false,
         source: 'local-path',
         installedAt: '2026-05-29T00:00:00.000Z',
-        root: '/plugins/pythinker-datasource',
+        root: '/plugins/example-data',
         manifest: undefined,
         mcpServers: [
           {
             name: 'data',
-            runtimeName: 'plugin-pythinker-datasource-data',
+            runtimeName: 'plugin-example-data-data',
             enabled: true,
             transport: 'stdio',
             command: 'node',
-            args: ['./bin/pythinker-datasource.mjs'],
-            cwd: '/plugins/pythinker-datasource',
+            args: ['./bin/example-data.mjs'],
+            cwd: '/plugins/example-data',
           },
         ],
         diagnostics: [],
@@ -754,22 +754,22 @@ describe('plugins selector dialogs', () => {
     picker.handleInput(' ');
 
     expect(selections).toEqual([
-      { kind: 'toggle', pluginId: 'pythinker-datasource', server: 'data', enabled: false },
+      { kind: 'toggle', pluginId: 'example-data', server: 'data', enabled: false },
     ]);
   });
 
   it('defaults plugin removal confirmation to cancel', () => {
     const results: PluginRemoveConfirmResult[] = [];
     const picker = new PluginRemoveConfirmComponent({
-      id: 'pythinker-datasource',
-      displayName: 'Pythinker Datasource',
+      id: 'example-data',
+      displayName: 'Example Data',
       onDone: (result) => {
         results.push(result);
       },
     });
 
     const out = picker.render(120).map(strip);
-    expect(out).toContain(' Remove Pythinker Datasource (pythinker-datasource)?');
+    expect(out).toContain(' Remove Example Data (example-data)?');
     expect(out).toContain('  ? Cancel');
     expect(out).toContain('    Keep this plugin installed.');
     expect(out).toContain('    Remove only the install record; plugin files are left in place.');
@@ -781,8 +781,8 @@ describe('plugins selector dialogs', () => {
   it('confirms plugin removal only after choosing remove', () => {
     const results: PluginRemoveConfirmResult[] = [];
     const picker = new PluginRemoveConfirmComponent({
-      id: 'pythinker-datasource',
-      displayName: 'Pythinker Datasource',
+      id: 'example-data',
+      displayName: 'Example Data',
       onDone: (result) => {
         results.push(result);
       },

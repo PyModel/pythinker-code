@@ -34,12 +34,34 @@ export async function probeLoginShellPath(deps: LoginShellPathDeps): Promise<str
   return path;
 }
 
-export function mergeLoginShellPath(currentPath: string | undefined, loginShellPath: string): string {
+function uniqueAbsolutePathEntries(path: string): string[] {
+  const seen = new Set<string>();
+  const entries: string[] = [];
+  for (const entry of path.split(':')) {
+    if (!entry.startsWith('/') || seen.has(entry)) continue;
+    seen.add(entry);
+    entries.push(entry);
+  }
+  return entries;
+}
+
+export function mergeLoginShellPath(
+  currentPath: string | undefined,
+  loginShellPath: string,
+  priority: 'current' | 'login-shell' = 'current',
+): string {
   const current = currentPath ?? '';
+  const loginEntries = uniqueAbsolutePathEntries(loginShellPath);
+  if (priority === 'login-shell') {
+    if (loginEntries.length === 0) return current;
+    const preferred = new Set(loginEntries);
+    const fallbacks = currentPath?.split(':').filter((entry) => !preferred.has(entry)) ?? [];
+    return [...loginEntries, ...fallbacks].join(':');
+  }
   const seen = new Set(current.split(':').filter((entry) => entry.length > 0));
   const additions: string[] = [];
-  for (const entry of loginShellPath.split(':')) {
-    if (!entry.startsWith('/') || seen.has(entry)) continue;
+  for (const entry of loginEntries) {
+    if (seen.has(entry)) continue;
     seen.add(entry);
     additions.push(entry);
   }
@@ -52,7 +74,8 @@ export async function applyLoginShellPath(deps: LoginShellPathDeps): Promise<voi
   const loginShellPath = await probeLoginShellPath(deps);
   if (loginShellPath === undefined) return;
   const currentPath = deps.env['PATH'];
-  const merged = mergeLoginShellPath(currentPath, loginShellPath);
+  const priority = deps.env['PYTHINKER_DESKTOP'] === '1' ? 'login-shell' : 'current';
+  const merged = mergeLoginShellPath(currentPath, loginShellPath, priority);
   if (merged === (currentPath ?? '')) return;
   deps.env['PATH'] = merged;
 }

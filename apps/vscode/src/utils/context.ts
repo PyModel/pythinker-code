@@ -9,10 +9,9 @@ export async function updateLoginContext(harness: PythinkerHarness): Promise<boo
 
 async function hasOAuthProviderToken(harness: PythinkerHarness): Promise<boolean> {
   const config = await harness.getConfig();
-  for (const [name, provider] of Object.entries(config.providers ?? {})) {
+  for (const provider of Object.values(config.providers ?? {})) {
     if (provider.oauth === undefined) continue;
-    const status = await harness.auth.status(name);
-    if (status.providers.some((p) => p.hasToken)) return true;
+    if ((await harness.auth.getCachedAccessToken(provider.oauth)) !== undefined) return true;
   }
   return false;
 }

@@ -2,7 +2,7 @@
 
 import { spawn, spawnSync } from 'node:child_process';
 import { once } from 'node:events';
-import { access, mkdtemp, readFile, readdir, rm, stat } from 'node:fs/promises';
+import { access, mkdtemp, open, readdir, rm } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { extname, isAbsolute, join, relative, resolve } from 'node:path';
@@ -91,7 +91,7 @@ function contentType(path) {
 function serveFixtureApi(pathname, response) {
   let data;
   if (pathname === '/api/v1/auth') {
-    data = { ready: true, providers_count: 1, default_model: 'fixture-model', managed_provider: null };
+    data = { ready: true, providers_count: 1, default_model: 'fixture-model' };
   } else if (pathname === '/api/v1/healthz') {
     data = { ok: true };
   } else if (pathname === '/api/v1/meta') {
@@ -123,6 +123,29 @@ function serveFixtureApi(pathname, response) {
     data = { home: '/workspace', recent_roots: [] };
   } else if (pathname === '/api/v1/sessions') {
     data = { items: [fixtureSession], has_more: false };
+  } else if (pathname === '/api/v2/sessions') {
+    data = {
+      groups: [{
+        workspace: { id: fixtureWorkspaceId, cwd: '/workspace' },
+        sessions: [{
+          id: fixtureSessionId,
+          workspace: { id: fixtureWorkspaceId, cwd: '/workspace' },
+          meta: {
+            title: fixtureSession.title,
+            last_prompt: 'Artifact security fixture',
+            created_at: Date.parse(fixtureTimestamp),
+            updated_at: Date.parse(fixtureTimestamp),
+            archived: false,
+            archived_at: null,
+          },
+          activity: { status: 'idle', model: 'fixture-model' },
+        }],
+        total: 1,
+      }],
+      total: 1,
+      has_more: false,
+      next_page_token: null,
+    };
   } else if (pathname === `/api/v1/sessions/${fixtureSessionId}/snapshot`) {
     data = {
       as_of_seq: 1,
@@ -197,12 +220,17 @@ async function serve(request, response) {
       return;
     }
     const file = resolve(webRoot, relativePath);
-    if (!(await stat(file)).isFile()) throw new Error('not a file');
-    response.writeHead(200, {
-      'Cache-Control': 'no-store',
-      'Content-Type': contentType(file),
-    });
-    response.end(await readFile(file));
+    const handle = await open(file, 'r');
+    try {
+      if (!(await handle.stat()).isFile()) throw new Error('not a file');
+      response.writeHead(200, {
+        'Cache-Control': 'no-store',
+        'Content-Type': contentType(file),
+      });
+      response.end(await handle.readFile());
+    } finally {
+      await handle.close();
+    }
   } catch {
     response.writeHead(404).end('Not found');
   }

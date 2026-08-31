@@ -228,7 +228,7 @@ const v2SessionSchema = z.object({
     archived: z.boolean(),
     archived_at: z.number().int().nullable(),
   }),
-  activity: z.object({ status: v2ActivityStatusSchema }),
+  activity: z.object({ status: v2ActivityStatusSchema, model: z.string().nullable() }),
   git: v2GitDomainSchema.optional(),
 });
 
@@ -295,12 +295,6 @@ type V2SessionIdProjection = z.infer<typeof v2SessionIdProjectionSchema>;
 
 class PageTokenMismatchError extends Error {}
 
-/**
- * Map the core activity facts onto the v2 status enum. A pending interaction
- * outranks an active turn (the turn is parked waiting on it). `failed` is
- * observable live, and for cold sessions from the persisted outcome
- * (completed/cancelled stay `idle`, matching the live fold).
- */
 export function mapActivityStatus(
   facts: SessionFacts,
   persistedLastTurnReason?: 'completed' | 'cancelled' | 'failed',
@@ -591,6 +585,7 @@ export function registerV2SessionsRoutes(app: V2SessionsRouteHost, core: Scope):
         }
         return summaries.map((summary) => {
           const cwd = cwdOf(summary);
+          const facts = factsOf(summary.id);
           return {
             id: summary.id,
             workspace: { id: summary.workspaceId, cwd },
@@ -602,7 +597,10 @@ export function registerV2SessionsRoutes(app: V2SessionsRouteHost, core: Scope):
               archived: summary.archived,
               archived_at: summary.archivedAt ?? null,
             },
-            activity: { status: mapActivityStatus(factsOf(summary.id), summary.lastTurnReason) },
+            activity: {
+              status: mapActivityStatus(facts, summary.lastTurnReason),
+              model: facts.model ?? null,
+            },
             git:
               gitByCwd === undefined
                 ? undefined

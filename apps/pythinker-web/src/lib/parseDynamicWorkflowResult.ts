@@ -4,12 +4,21 @@
 // arrives as a plain string inside the toolResult output; the dynamic_workflow card turns
 // it into a structured aggregate view. Defensive: never throws.
 
+import type { AppSubagentRouting } from '../api/types';
+
 export interface DynamicWorkflowResultSubagent {
   outcome: string;
   item?: string;
   agentId?: string;
   mode?: string;
   state?: string;
+  /** Durable binding attributes written by the engine (absent on older results). */
+  profile?: string;
+  model?: string;
+  thinking?: string;
+  routing?: AppSubagentRouting;
+  startedAt?: string;
+  completedAt?: string;
   body: string;
 }
 
@@ -27,10 +36,9 @@ export interface DynamicWorkflowResult {
 const SUMMARY_RE = /<summary>([\s\S]*?)<\/summary>/;
 const RESUME_HINT_RE = /<resume_hint>([\s\S]*?)<\/resume_hint>/;
 // Marks either a subagent opening tag (captures attributes) or a `</subagent>`
-// closing tag. Body parsing tracks a depth so literal `<subagent ..>` /
-// `</subagent>` text inside a row's body (e.g. a subagent emitting an
-// AgentDynamicWorkflow snippet) does not register as a top-level row — producer writes
-// body unescaped.
+// closing tag. Body parsing tracks a depth for legacy unescaped payloads so
+// literal `<subagent ..>` / `</subagent>` text inside a row's body does not
+// register as a top-level row. Current producers XML-encode ambiguous bodies.
 const TOKEN_RE = /<subagent\b([^>]*)>|<\/subagent>/g;
 const SUBAGENT_CLOSE = '</subagent>';
 const COUNT_RE = /(completed|failed|aborted):\s*(\d+)/g;
@@ -67,16 +75,56 @@ function parseCounts(summary: string): Pick<DynamicWorkflowResult, 'completed' |
 
 type RowFrame = { attrs: string; bodyStart: number };
 
+function parseRouting(parsed: Record<string, string>): AppSubagentRouting | undefined {
+  const operation = parsed['mode'] === 'resume' ? 'resume' : undefined;
+  const profileSource = parsed['profile_source'];
+  const modelSource = parsed['model_source'];
+  const policyMode = parsed['policy_mode'];
+  const policySource = parsed['policy_source'];
+  const featureSource = parsed['feature_source'];
+  const routingEnvRevision = parsed['routing_env_revision'];
+  const routeDecision = parsed['route_decision'];
+  if (
+    profileSource === undefined ||
+    modelSource === undefined ||
+    policyMode === undefined ||
+    policySource === undefined ||
+    featureSource === undefined ||
+    routingEnvRevision === undefined ||
+    routeDecision === undefined
+  ) {
+    return undefined;
+  }
+  return {
+    operation: operation ?? (modelSource === 'fork-inherit' ? 'fork' : 'spawn'),
+    profileSource: profileSource as AppSubagentRouting['profileSource'],
+    modelSource: modelSource as AppSubagentRouting['modelSource'],
+    policyMode: policyMode as AppSubagentRouting['policyMode'],
+    policySource: policySource as AppSubagentRouting['policySource'],
+    featureSource: featureSource as AppSubagentRouting['featureSource'],
+    routingEnvRevision,
+    routeDecision,
+  };
+}
+
 function parseSubagent(attrs: string, body: string): DynamicWorkflowResultSubagent {
   const parsed = parseAttrs(attrs);
-  return {
+  const sub: DynamicWorkflowResultSubagent = {
     outcome: parsed['outcome'] ?? 'completed',
     item: parsed['item'],
     agentId: parsed['agent_id'],
     mode: parsed['mode'],
     state: parsed['state'],
-    body: body.trim(),
+    body: (parsed['body_encoding'] === 'xml' ? unescapeAttr(body) : body).trim(),
   };
+  if (parsed['profile'] !== undefined) sub.profile = parsed['profile'];
+  if (parsed['model'] !== undefined) sub.model = parsed['model'];
+  if (parsed['thinking'] !== undefined) sub.thinking = parsed['thinking'];
+  const routing = parseRouting(parsed);
+  if (routing !== undefined) sub.routing = routing;
+  if (parsed['started_at'] !== undefined) sub.startedAt = parsed['started_at'];
+  if (parsed['completed_at'] !== undefined) sub.completedAt = parsed['completed_at'];
+  return sub;
 }
 
 function parseSubagents(text: string): DynamicWorkflowResultSubagent[] {

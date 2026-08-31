@@ -9,9 +9,10 @@ import {
   OPENAI_CODEX_PROVIDER_ID,
   OpenAICodexApiError,
   OpenPlatformApiError,
+  OAuthAccessDeniedError,
   runOpenAICodexOAuthFlow,
-  type ManagedPythinkerCodeModelInfo,
-  type ManagedPythinkerConfigShape,
+  type ProviderModelInfo,
+  type PythinkerConfigShape,
   type OpenAICodexModelInfo,
   type OpenPlatformDefinition,
 } from '@pymodel/pythinker-code-oauth';
@@ -63,7 +64,7 @@ async function handleOpenPlatformLogin(
   };
   ui.cancelInFlight = cancelLogin;
   try {
-    let models: ManagedPythinkerCodeModelInfo[];
+    let models: ProviderModelInfo[];
     try {
       models = filterModelsByPrefix(
         await fetchOpenPlatformModels(platform, apiKey, fetch, controller.signal),
@@ -91,7 +92,7 @@ async function handleOpenPlatformLogin(
     const current = await ui.harness.getConfig({ reload: true });
     controller.signal.throwIfAborted();
     const next = cloneConfig(current);
-    applyOpenPlatformConfig(next as ManagedPythinkerConfigShape, {
+    applyOpenPlatformConfig(next as PythinkerConfigShape, {
       platform,
       models,
       selectedModel,
@@ -196,6 +197,10 @@ async function handleOpenAICodexOAuthLogin(ui: LoginUi): Promise<boolean> {
       });
     } catch (error) {
       if (controller.signal.aborted) return false;
+      if (error instanceof OAuthAccessDeniedError) {
+        ui.showError(`OpenAI Codex login cancelled: ${formatErrorMessage(error)}`);
+        return false;
+      }
       ui.showError(`OpenAI Codex login failed: ${formatErrorMessage(error)}`);
       return false;
     }

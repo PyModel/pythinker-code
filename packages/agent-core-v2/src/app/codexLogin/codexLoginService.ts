@@ -118,6 +118,10 @@ export class CodexLoginFlow {
       void callback
         .waitForCode({ timeoutMs: LOGIN_TTL_MS })
         .then((result) => {
+          if (result !== null && 'denied' in result) {
+            this.deny(attempt);
+            return;
+          }
           if (result === null) {
             if (
               attempt.state === 'pending' &&
@@ -220,6 +224,13 @@ export class CodexLoginFlow {
       this.cleanup(this.attempt);
     }
     this.attempt = undefined;
+  }
+
+  private deny(attempt: Attempt): void {
+    if (attempt.state !== 'pending' || attempt.committing === true) return;
+    attempt.state = 'cancelled';
+    attempt.message = 'OpenAI Codex authorization was denied.';
+    this.cleanup(attempt);
   }
 
   private expire(attempt: Attempt): void {

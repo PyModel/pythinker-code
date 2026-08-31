@@ -49,7 +49,7 @@ describe('formatDuration', () => {
 });
 
 describe('formatLiveDuration', () => {
-  it('formats whole-second compact durations like the reference live timer', () => {
+  it('formats whole-second compact durations for the live timer', () => {
     expect(formatLiveDuration(0)).toBe('');
     expect(formatLiveDuration(500)).toBe('');
     expect(formatLiveDuration(45_000)).toBe('45s');
@@ -104,6 +104,28 @@ describe('toolStackPosition', () => {
     expect(toolStackPosition(0, 3)).toBe('first');
     expect(toolStackPosition(1, 3)).toBe('middle');
     expect(toolStackPosition(2, 3)).toBe('last');
+  });
+});
+
+describe('message folding settings', () => {
+  it('keeps consecutive tools as separate rows when the run summary is off', () => {
+    const turn = assistantTurn([toolBlock('a'), toolBlock('b')]);
+    expect(assistantRenderBlocks(turn, true)[0]?.kind).toBe('activity-run');
+
+    const rendered = assistantRenderBlocks(turn, false);
+    expect(rendered).toHaveLength(2);
+    expect(rendered.map((block) => block.kind)).toEqual(['tool', 'tool']);
+  });
+
+  it('folds nothing when auto-fold is off', () => {
+    const blocks = assistantRenderBlocks(
+      assistantTurn([toolBlock('a'), toolBlock('b'), { kind: 'text', text: 'done' }]),
+    );
+    expect(foldRenderBlocks(blocks, true).folded.length).toBeGreaterThan(0);
+
+    const off = foldRenderBlocks(blocks, false);
+    expect(off.folded).toEqual([]);
+    expect(off.visible).toEqual(blocks);
   });
 });
 
@@ -297,15 +319,18 @@ describe('foldRenderBlocks', () => {
 });
 
 describe('turnFinalText', () => {
-  it('joins only the text blocks, dropping thinking and tools', () => {
+  it('returns the last text block, matching the fold anchor', () => {
     const turn = assistantTurn([
       { kind: 'thinking', thinking: 'plan' },
-      { kind: 'text', text: 'first' },
+      { kind: 'text', text: 'I will run the tool.' },
       toolBlock('a'),
       { kind: 'text', text: 'second' },
+      { kind: 'thinking', thinking: 'more' },
+      { kind: 'text', text: 'third' },
     ]);
-    expect(turnFinalText(turn)).toBe('first\n\nsecond');
+    expect(turnFinalText(turn)).toBe('third');
   });
+
 });
 
 describe('turnToMarkdown', () => {

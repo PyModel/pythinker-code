@@ -1,36 +1,22 @@
 # Plugins
 
-Plugins package reusable Pythinker Code CLI capabilities into installable units — they can add [Agent Skills](./skills.md), agent profiles, output styles, MCP servers, and Language Server Protocol (LSP) servers that provide code intelligence. They are ideal for sharing workflows with a team, connecting to external services, or installing extensions from Pythinker and compatible Claude Code marketplaces.
+Plugins package reusable Pythinker Code CLI capabilities into installable units. They can add [Agent Skills](./skills.md), [agent profiles](./agents.md), slash commands, system-prompt instructions, hooks, and MCP servers. Use them to share workflows with a team or connect the agent to external services.
 
-Pythinker Code CLI applies a conservative loading strategy for plugins: installing a plugin does not execute any Python, Node.js, shell, hook, or command scripts it contains.
+Installing a plugin only validates and copies its files. Enabled hooks, commands, and MCP servers run only after the plugin is activated and the matching action occurs.
 
 ## Installation and management
 
-Run `/plugins` in the terminal interface to open the plugin manager, where you can perform all routine operations. Common keys:
+Run `/plugins` in the terminal interface. Use `Tab` or `Shift-Tab` to switch between **Installed**, **Official**, **Curated**, and **Custom**.
 
 | Key | Action |
 | --- | --- |
-| `Enter` | Open the selected installed item, or install or update the selected marketplace plugin |
-| `Space` | Enable or disable an installed plugin |
+| `Enter` | View an installed plugin, install its update, or install the selected marketplace plugin |
+| `Space` | Enable or disable the selected installed plugin |
+| `D` | Remove the selected installed plugin |
 | `M` | Manage MCP servers for the selected installed plugin |
-| Type text | Search the current marketplace by plugin metadata and source |
-| `PgUp` or `PgDn` | Move through marketplace pages |
-| `←` or `Esc` | Go back to the previous level |
-
-Each marketplace page shows up to four plugins and keeps the selected plugin's details visible. When a search is active, `Backspace` edits it and the first `Esc` clears it; press `Esc` again to leave the marketplace. An installed plugin with a newer version or revision shows `update <local> → <latest>`, an up-to-date one shows `installed` with its version when available, and an uninstalled one shows `install`. Entries that cannot be installed remain visible with an explanation.
-
-Opening **Marketplace** without a source lets you choose **Pythinker**, **Anthropic**, or **Custom marketplace**. Pythinker loads the official and curated Pythinker catalog. Anthropic loads the official Claude Code plugin catalog. A custom source can be a local marketplace directory or JSON file, a direct JSON URL, a GitHub `owner/repository` shorthand, or a GitHub repository or tree URL.
-
-You can also open a source directly:
-
-```sh
-/plugins marketplace pythinker
-/plugins marketplace anthropic
-/plugins marketplace ./example-marketplace
-/plugins marketplace example-org/example-plugins
-```
-
-Pythinker marketplace JSON and Claude Code `.claude-plugin/marketplace.json` files are detected automatically. For a local directory or GitHub repository, Pythinker Code CLI reads `.claude-plugin/marketplace.json` from the marketplace root, so relative Claude plugin paths can resolve within that repository. A catalog-level `metadata.pluginRoot` is prepended to each relative plugin source. A direct remote JSON URL has no repository context; relative plugin entries in that catalog remain visible but unavailable. Claude `npm`, SSH, generic Git, and non-GitHub repository sources are also shown as unavailable instead of being silently omitted.
+| `R` | Reload installed plugins and manifests |
+| `I` | View details for the selected installed plugin |
+| `Esc` | Close the plugin manager |
 
 You can use slash commands for the remaining operations:
 
@@ -39,7 +25,7 @@ You can use slash commands for the remaining operations:
 | `/plugins` | Open the interactive plugin manager |
 | `/plugins list` | List installed plugins |
 | `/plugins install <path-or-url>` | Install from a local directory, zip URL, or GitHub repository URL |
-| `/plugins marketplace [source]` | Choose a marketplace or browse the supplied alias, path, JSON URL, or GitHub repository |
+| `/plugins marketplace [source]` | Browse the default marketplace or a supplied local JSON path or URL |
 | `/plugins info <id>` | View plugin details and diagnostics |
 | `/plugins enable <id>` | Enable a plugin |
 | `/plugins disable <id>` | Disable a plugin |
@@ -48,7 +34,7 @@ You can use slash commands for the remaining operations:
 | `/plugins mcp enable <id> <server>` | Enable an MCP server declared by a plugin |
 | `/plugins mcp disable <id> <server>` | Disable an MCP server declared by a plugin |
 
-The plugin manager shows the installation source and a trust badge for each install: `pythinker-official` (from an official Pythinker address), `curated` (from a curated Pythinker address), or `third-party` (everything else). Marketplace ownership does not grant Pythinker trust, so plugins from Anthropic's official catalog still show `third-party` under Pythinker trust.
+The CLI asks for confirmation before it installs any source that is not an official Pythinker plugin.
 
 ### Installing from GitHub
 
@@ -63,7 +49,7 @@ Network requests only go through `github.com` redirects and `codeload.github.com
 
 ### Notes
 
-- Plugin changes only take effect for new sessions. After installing, enabling/disabling, or removing a plugin, run `/reload` to reload plugins or `/new` to start a new session; the current session will not update.
+- Plugin changes apply after `/reload` or in a new session.
 - Local installations are copied to `$PYTHINKER_CODE_HOME/plugins/managed/<id>/`, and the CLI always runs from this managed copy. Editing the original source directory after installation has no effect; you must reinstall.
 - Removing a plugin only deletes the installation record; the managed copy and original source files remain on disk.
 - Plugins are currently installed per-user and apply to all projects; project-level installation scope is not yet supported.
@@ -75,10 +61,9 @@ A direct directory, zip, or GitHub install needs a plugin manifest at one of the
 ```text
 <plugin_root>/pythinker.plugin.json
 <plugin_root>/.pythinker-plugin/plugin.json
-<plugin_root>/.claude-plugin/plugin.json
 ```
 
-When more than one exists, Pythinker Code CLI uses them in the order shown above and reports the lower-priority manifest as shadowed. A marketplace install may omit a manifest when its catalog entry supplies the plugin identity and component declarations. A Claude `.claude-plugin/plugin.json` manifest can use a top-level `displayName`; native Pythinker manifests use `interface.displayName`.
+When both exist, Pythinker Code CLI uses `pythinker.plugin.json` and reports the other manifest as shadowed.
 
 Example:
 
@@ -102,23 +87,30 @@ Supported fields:
 
 | Field | Description |
 | --- | --- |
-| `name` | Required for direct installs; serves as the plugin id. A marketplace definition supplies this value instead. The id must match `[a-z0-9][a-z0-9_-]{0,63}` |
-| `version`, `description`, `keywords`, `tags`, `category`, `author`, `homepage`, `repository`, `license` | Display and discovery metadata |
+| `name` | Required plugin id. Must match `[a-z0-9][a-z0-9_-]{0,63}` |
+| `version`, `description`, `keywords`, `author`, `homepage`, `license` | Display metadata |
 | `interface` | Fields shown in `/plugins`: `displayName`, `shortDescription`, `longDescription`, `developerName`, `websiteURL` |
-| `defaultEnabled` | Initial enabled state on first install. Updating or reinstalling preserves the current enabled state |
 | `skills` | One or more `./` directory paths containing Agent Skills |
-| `agents` | One or more `./` Markdown files or directories containing agent profiles |
-| `outputStyles` | One or more `./` Markdown files or directories containing output styles |
+| `agents` | One or more `./` directory paths containing agent profiles |
 | `sessionStart.skill` | Loads the specified plugin Skill into the main agent when a new or resumed session starts |
 | `skillInstructions` | Additional instructions appended whenever a Skill from this plugin is loaded |
-| `mcpServers` | Inline declarations, `./` JSON paths, or arrays of both. MCP servers are enabled by default and can be managed from `/plugins` |
-| `lspServers` | Inline declarations, `./` JSON paths, or arrays of both for LSP servers |
+| `systemPrompt` | Inline instructions added to the agent system prompt while the plugin is enabled |
+| `systemPromptPath` | A `./` path to a UTF-8 file containing system-prompt instructions |
+| `commands` | One or more `./` directory or Markdown-file paths that register slash commands |
+| `hooks` | Hook rules that run on matching lifecycle events while the plugin is enabled |
+| `mcpServers` | Inline MCP server declarations. Servers are enabled by default and can be managed from `/plugins` |
 
-The conventional `skills/`, `agents/`, and `output-styles/` directories are discovered automatically. If neither `skills` nor `skills/` is present, a root `SKILL.md` is treated as one Skill root. Every discovered component must remain within the plugin root after symbolic link resolution. Explicit component paths must also start with `./` and point to the expected file or directory type.
+When `skills` is omitted, a root `SKILL.md` becomes the plugin's single Skill. When `agents` is omitted, an `agents/` directory is discovered automatically. Every declared path must start with `./` and remain inside the plugin root after symbolic-link resolution.
 
-Claude marketplace definitions can provide supported components even when the plugin has no manifest. By default, Pythinker Code CLI combines supported manifest and marketplace declarations. For an entry with `strict: false`, it uses only the marketplace's component declarations. The definition is retained with the installed plugin, so manifestless components remain available after restart. Updates preserve the plugin's enabled state and its per-server MCP choices.
+Fields such as `tools`, `apps`, `inject`, `configFile`, and `bootstrap` are not supported. They appear as compatibility diagnostics and are not run.
 
-Pythinker Code CLI loads the supported parts of Claude plugins: `skills`, `agents`, `outputStyles`, `mcpServers`, and `lspServers`. Runtime extensions such as `tools`, `commands`, `hooks`, `apps`, `workflows`, `monitors`, `themes`, and `channels` appear as compatibility diagnostics and are not run.
+### System-prompt instructions
+
+Use `systemPrompt` for short inline instructions or `systemPromptPath` for a file inside the plugin root. If both are present, Pythinker Code CLI combines the inline text first and the file second.
+
+Each field has a 32 KB UTF-8 limit. One prompt build accepts up to 64 KB from all enabled plugins. Contributions above either limit are skipped with a diagnostic or warning.
+
+Default agent templates include these instructions automatically. A custom `SYSTEM.md` or agent file can place them with `${plugin_sections}`. Do not add `${plugin_sections}` when `${base_prompt}` already includes the default plugin block. See [Custom agents and SYSTEM.md](./agents.md#overriding-the-main-agent-s-system-prompt-with-system-md).
 
 ## Skills and session start
 
@@ -136,11 +128,42 @@ my-plugin/
 
 `sessionStart.skill` loads a plugin Skill into the main agent at session start, making it suitable for initialization instructions, workflow rules, or mapping terminology from other tools to Pythinker Code CLI. It only injects text; it does not execute code.
 
-Regardless of how a Skill is loaded (`sessionStart.skill`, `/skill:<name>`, or automatic model invocation), `skillInstructions` appears alongside that plugin's Skill. Paths declared through `agents` add reusable [agent profiles](./agents.md), while `outputStyles` adds prompt-based output styles when the plugin is enabled.
+Regardless of how a Skill is loaded (`sessionStart.skill`, `/skill:<name>`, or automatic model invocation), `skillInstructions` appears alongside that plugin's Skill.
+
+## Plugin agents
+
+Declare one or more `./` directories in `agents`, or add an `agents/` directory at the plugin root. Its Markdown files use the [custom agent format](./agents.md#custom-agents).
+
+Plugin agents have the lowest file-source priority. User, extra, project, and `--agent-file` profiles win on name conflicts. Replacing a built-in profile still requires `override: true` in its frontmatter.
+
+## Plugin slash commands
+
+The `commands` field accepts a `./` directory, a Markdown file, or an array of either. Directories are scanned recursively for Markdown files.
+
+```json
+{
+  "name": "pythinker-finance",
+  "commands": "./commands/"
+}
+```
+
+A command file contains optional frontmatter followed by the prompt body:
+
+```markdown
+---
+description: Summarize a company's latest financials
+---
+
+Summarize the latest financials for $ARGUMENTS.
+```
+
+Commands use the plugin id as their namespace. The example registers `/pythinker-finance:<command-name>`. The `name` frontmatter field overrides the name derived from the file path. The `description` field falls back to the first non-empty body line.
+
+Text after the command replaces every `$ARGUMENTS` token. If the body has no token, the CLI appends the text as `ARGUMENTS: <text>`.
 
 ## MCP servers in plugins
 
-When a plugin needs real tool capabilities, it can declare `mcpServers` in its manifest or marketplace definition, reusing the [MCP](./mcp.md) schema.
+When a plugin needs tool capabilities, it can declare `mcpServers` in its manifest, using the [MCP](./mcp.md) schema.
 
 Stdio server (local command):
 
@@ -167,21 +190,36 @@ HTTP server (remote service):
 }
 ```
 
-When `mcpServers` is omitted, a root `.mcp.json` file is loaded automatically. The same rule applies to `lspServers` and `.lsp.json`. Each file may contain the server map directly or wrap it in an `mcpServers` or `lspServers` object.
+For stdio servers, `command` can be a command on `PATH` or a path starting with `./` inside the plugin root. `cwd` must also stay inside the plugin root. Local server processes receive `PYTHINKER_CODE_HOME` and `PYTHINKER_PLUGIN_ROOT` in their environment.
 
-For stdio servers, `command` can be a command on `PATH` or a path starting with `./` within the plugin root directory. `cwd` likewise must start with `./` and remain within the plugin root directory; otherwise the server is ignored. In MCP and LSP declarations, `${CLAUDE_PLUGIN_ROOT}` expands to the installed plugin root. Local server processes also receive `CLAUDE_PLUGIN_ROOT` and `PYTHINKER_PLUGIN_ROOT` in their environment; declarations containing any other unresolved placeholder are ignored.
-
-Plugin MCP servers only start in new sessions. To enable or disable a server:
+Plugin MCP servers start after `/reload` or in a new session. To enable or disable a server:
 
 ```sh
 /plugins mcp disable pythinker-finance finance
-/new
+/reload
 
 /plugins mcp enable pythinker-finance finance
-/new
+/reload
 ```
 
-LSP servers are active in new sessions while their plugin is enabled.
+## Hooks in plugins
+
+The `hooks` field accepts the same `event`, `matcher`, `command`, and `timeout` fields as a [`[[hooks]]` rule in `config.toml`](./hooks.md#configuration):
+
+```json
+{
+  "hooks": [
+    {
+      "event": "PreToolUse",
+      "matcher": "Bash",
+      "command": "node ./hooks/check-bash.mjs",
+      "timeout": 5
+    }
+  ]
+}
+```
+
+Plugin hooks run only while the plugin is enabled. Each hook uses the plugin root as its working directory and receives `PYTHINKER_CODE_HOME` and `PYTHINKER_PLUGIN_ROOT`.
 
 ## Security model
 
@@ -190,11 +228,13 @@ Plugins have a limited loading scope:
 - Installing a plugin does not run its scripts, hooks, commands, or tool runtimes
 - Zip extraction rejects absolute paths, parent-directory traversal, and symbolic-link escapes
 - Component, executable, working-directory, and repository-subdirectory paths must remain inside the plugin root
-- MCP and LSP declarations must pass their configuration schemas before activation
-- MCP and LSP servers from enabled plugins only start in new sessions; MCP servers can be disabled individually from `/plugins`
+- Hook and MCP declarations must pass their configuration schemas before activation
+- MCP servers from enabled plugins start after `/reload` or in a new session and can be disabled individually from `/plugins`
 - Broken manifests, unsupported components, unsafe paths, and rejected placeholders appear in `/plugins info <id>` diagnostics and do not affect other sessions
 
 ## Next steps
 
 - [Agent Skills](./skills.md) — File format and frontmatter field reference for Skills
+- [Custom agents and SYSTEM.md](./agents.md) — Agent profile format and prompt variables
+- [Hooks](./hooks.md) — Hook events and result handling
 - [MCP](./mcp.md) — Full schema and permission configuration for plugin MCP servers

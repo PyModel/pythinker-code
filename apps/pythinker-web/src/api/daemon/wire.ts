@@ -316,6 +316,23 @@ export interface WireQuestionResponse {
 
 export type WireTaskStatus = 'running' | 'completed' | 'failed' | 'cancelled';
 
+export interface WireSubagentRouting {
+  operation: 'spawn' | 'fork' | 'resume';
+  profile_source: 'requested' | 'default' | 'fork-inherit' | 'resume-existing';
+  model_source:
+    | 'caller'
+    | 'policy-default'
+    | 'policy-pool'
+    | 'policy-force'
+    | 'fork-inherit'
+    | 'resume-existing';
+  policy_mode: 'inherit' | 'default' | 'pool' | 'force';
+  policy_source: 'config' | 'default';
+  feature_source: 'master-env' | 'env' | 'config' | 'default';
+  routing_env_revision: string;
+  route_decision: string;
+}
+
 export interface WireTask {
   id: string;
   session_id: string;
@@ -331,6 +348,8 @@ export interface WireTask {
   agent_id?: string;
   model?: string;
   thinking_effort?: string;
+  routing?: WireSubagentRouting;
+  current_routing_env_revision?: string;
   subagent_phase?: 'queued' | 'working' | 'suspended' | 'completed' | 'failed';
   subagent_type?: string;
   parent_tool_call_id?: string;
@@ -461,6 +480,34 @@ export interface WireHook {
   async?: boolean;
 }
 
+export interface WireExperimentalFlagState {
+  id: string;
+  enabled: boolean;
+  source: 'master-env' | 'env' | 'config' | 'default';
+  config_value?: boolean;
+  default_enabled: boolean;
+  externally_controlled: boolean;
+  overridden: boolean;
+}
+
+export interface WireSubagentModelPolicy {
+  mode: 'inherit' | 'default' | 'pool' | 'force';
+  default_model?: string;
+  models?: Record<string, string>;
+  default_effort?: string;
+}
+
+export interface WireSubagentModelPolicyResponse {
+  policy: WireSubagentModelPolicy;
+  resource_version: string;
+  effective: {
+    configured_policy: WireSubagentModelPolicy;
+    effective_policy: WireSubagentModelPolicy;
+    policy_source: 'config' | 'default';
+    feature: { enabled: boolean; source: 'master-env' | 'env' | 'config' | 'default' };
+  };
+}
+
 export interface WireConfig {
   providers: Record<string, WireConfigProvider>;
   default_provider?: string;
@@ -468,9 +515,12 @@ export interface WireConfig {
   /** Daemon `secondaryModel` config section (nested keys stay camelCase —
    *  the gateway snake_cases only top-level config domains). */
   secondary_model?: {
+    defaultModel?: string;
+    models?: Record<string, string>;
+    force?: boolean;
     model?: string;
     defaultEffort?: string;
-  };
+  } | null;
   models?: Record<string, unknown>;
   thinking?: unknown;
   plan_mode?: boolean;
@@ -488,67 +538,16 @@ export interface WireConfig {
   background?: unknown;
   experimental?: Record<string, boolean>;
   telemetry?: boolean;
-  raw?: Record<string, unknown>;
 }
 
 // ---------------------------------------------------------------------------
-// Auth wire DTOs — REAL endpoints (GET /api/v1/auth, POST/GET/DELETE /api/v1/oauth/login, POST /api/v1/oauth/logout)
+// Auth wire DTOs — GET /api/v1/auth
 // ---------------------------------------------------------------------------
-
-export interface WireManagedProvider {
-  status: string;
-  [key: string]: unknown;
-}
 
 export interface WireAuthResult {
   ready: boolean;
   providers_count: number;
   default_model: string | null;
-  managed_provider: WireManagedProvider | null;
-}
-
-// `POST /oauth/login` returns one of two shapes, discriminated by `status`:
-//   - `pending`: a real device-code flow was started; all device fields are
-//     populated so the client can render the device-code step and poll.
-//   - `authenticated`: the toolkit already had a usable token and short-
-//     circuited via its `ensureFresh` fast path, so no device code was
-//     issued; the client can skip the device-code step and treat the login
-//     as already complete.
-interface WireOAuthLoginStartPending {
-  flow_id: string;
-  provider: string;
-  status: 'pending';
-  verification_uri: string;
-  verification_uri_complete: string;
-  user_code: string;
-  expires_in: number;
-  interval: number;
-  expires_at: string;
-}
-
-interface WireOAuthLoginStartAuthenticated {
-  flow_id: string;
-  provider: string;
-  status: 'authenticated';
-}
-
-export type WireOAuthLoginStartResult =
-  | WireOAuthLoginStartPending
-  | WireOAuthLoginStartAuthenticated;
-
-export interface WireOAuthLoginPollResult {
-  flow_id: string;
-  status: 'pending' | 'authenticated' | 'expired' | 'cancelled';
-  resolved_at?: string;
-}
-
-export interface WireOAuthCancelResult {
-  cancelled: boolean;
-  status: string;
-}
-
-export interface WireLogoutResult {
-  logged_out: boolean;
 }
 
 // ---------------------------------------------------------------------------

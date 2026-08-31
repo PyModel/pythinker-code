@@ -1,6 +1,6 @@
 <!-- apps/pythinker-web/src/components/chat/TurnFold.vue -->
-<!-- Settled + live fold for the "work" part of an assistant turn (reference
-     TurnFold): while the turn is live/parked a 1s interval keeps the header
+<!-- Settled + live fold for the "work" part of an assistant turn: while the
+     turn is live/parked a 1s interval keeps the header
      "Worked 1m3s" ticking; while streaming, only the single
      `streamingTailIndex` item gets stream markers, the header hides and the
      body opens (two-phase open, so streaming→settled animates closed instead
@@ -58,6 +58,7 @@ const emit = defineEmits<{
   openFile: [target: FilePreviewRequest];
   openToolDiff: [id: string];
   openAgent: [toolCallId: string];
+  detach: [toolCallId: string];
 }>();
 
 const { t } = useI18n();
@@ -177,7 +178,7 @@ const workedLabel = computed(() => {
 });
 
 function blockStreaming(block: AssistantRenderBlock): boolean {
-  // A settled thinking block is never the streaming tail (reference x).
+  // A settled thinking block is never the streaming tail.
   if (isSettledThinking(block)) return false;
   return props.streamingTailIndex !== null
     && 'sourceIndex' in block
@@ -234,6 +235,7 @@ function runStreaming(block: Extract<AssistantRenderBlock, { kind: 'activity-run
             @open-file="emit('openFile', $event)"
             @open-tool-diff="emit('openToolDiff', $event)"
             @open-agent="emit('openAgent', $event)"
+            @detach="emit('detach', $event)"
           />
           <ToolCall
             v-else-if="block.kind === 'tool'"
@@ -244,6 +246,7 @@ function runStreaming(block: Extract<AssistantRenderBlock, { kind: 'activity-run
             @open-file="emit('openFile', $event)"
             @open-tool-diff="emit('openToolDiff', $event)"
             @open-agent="emit('openAgent', $event)"
+            @detach="emit('detach', $event)"
           />
           <NotificationCard
             v-else-if="block.kind === 'notification'"

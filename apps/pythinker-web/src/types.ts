@@ -98,8 +98,7 @@ export interface ToolCall {
   output?: string[]; // shown line by line when expanded
   media?: ToolMedia;
   defaultExpanded?: boolean;
-  /** Absolute path of the plan file (ExitPlanMode only) — rendered as a
-   *  clickable link that opens the plan in the file preview. */
+  /** Absolute path of the saved plan file (ExitPlanMode only). */
   planPath?: string;
 }
 
@@ -263,7 +262,7 @@ export type TurnBlock =
  * One item inside an `activity-run` block: a thinking segment or a tool card.
  * The render layer folds consecutive thinking + tool blocks into runs (see
  * chatTurnRendering); the daemon wire carries no run boundaries, so the fold
- * groups by turn as a best-effort approximation of the reference UI.
+ * groups by turn as a best-effort approximation.
  */
 export type ActivityRunItem =
   | { kind: 'thinking'; thinking: string; startedAt?: string; durationMs?: number }
@@ -395,6 +394,7 @@ export interface ActivationBadges {
 
 /** A queued prompt as shown inline at the tail of the transcript. */
 export interface QueuedPromptView {
+  id: string;
   text: string;
   /** Number of attachments waiting with this prompt. */
   attachmentCount: number;
@@ -427,6 +427,8 @@ export interface UIQuestion {
     multiSelect?: boolean;
     allowOther?: boolean;
     otherLabel?: string;
+    /** Explains what the free-text "Other" answer is for. */
+    otherDescription?: string;
   }[];
 }
 

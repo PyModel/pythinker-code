@@ -64,7 +64,7 @@ describe('ConfigState model capabilities', () => {
         },
       },
       models: {
-        'pythinker-code/kimi-for-coding': {
+        'example/test-model': {
           provider: 'pythinker',
           model: 'kimi-for-coding',
           maxContextSize: 1_000_000,
@@ -74,10 +74,10 @@ describe('ConfigState model capabilities', () => {
       },
     };
 
-    profile.update({ modelAlias: 'pythinker-code/kimi-for-coding' });
+    profile.update({ modelAlias: 'example/test-model' });
 
-    expect(profile.getModel()).toBe('pythinker-code/kimi-for-coding');
-    expect(ctx.modelResolver.get('pythinker-code/kimi-for-coding').name).toBe('kimi-for-coding');
+    expect(profile.getModel()).toBe('example/test-model');
+    expect(ctx.modelResolver.get('example/test-model').name).toBe('kimi-for-coding');
     expect(profile.getModelCapabilities()).toMatchObject({
       image_in: true,
       video_in: true,
@@ -98,7 +98,7 @@ describe('ConfigState model capabilities', () => {
         },
       },
       models: {
-        'pythinker-code/kimi-for-coding': {
+        'example/test-model': {
           provider: 'pythinker',
           model: 'kimi-for-coding',
           maxContextSize: 1_000_000,
@@ -106,7 +106,7 @@ describe('ConfigState model capabilities', () => {
         },
       },
     };
-    profile.update({ modelAlias: 'pythinker-code/kimi-for-coding' });
+    profile.update({ modelAlias: 'example/test-model' });
     const before = ctx.allEvents.filter((entry) => entry.event === 'agent.status.updated').length;
 
     profile.republishStatus();
@@ -114,7 +114,7 @@ describe('ConfigState model capabilities', () => {
     const statuses = ctx.allEvents.filter((entry) => entry.event === 'agent.status.updated');
     expect(statuses).toHaveLength(before + 1);
     expect(statuses.at(-1)?.args).toMatchObject({
-      model: 'pythinker-code/kimi-for-coding',
+      model: 'example/test-model',
       maxContextTokens: 1_000_000,
     });
   });
@@ -139,7 +139,7 @@ describe('ConfigState model capabilities', () => {
         },
       },
       models: {
-        'pythinker-code/kimi-for-coding': {
+        'example/test-model': {
           provider: 'pythinker',
           model: 'kimi-for-coding',
           maxContextSize: 1_000_000,
@@ -148,7 +148,7 @@ describe('ConfigState model capabilities', () => {
         },
       },
     };
-    profile.update({ modelAlias: 'pythinker-code/kimi-for-coding' });
+    profile.update({ modelAlias: 'example/test-model' });
     profile.setThinking('off');
     records.length = 0;
 

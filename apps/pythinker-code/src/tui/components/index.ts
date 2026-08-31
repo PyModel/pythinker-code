@@ -1,4 +1,3 @@
-export * from './chrome/device-code-box';
 export * from './chrome/footer';
 export * from './chrome/moon-loader';
 export * from './chrome/pythinker-logo';

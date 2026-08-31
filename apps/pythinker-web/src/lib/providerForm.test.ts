@@ -1,28 +1,67 @@
 import { describe, expect, it } from 'vitest';
 import {
+  collectProviderFormErrors,
   emptyProviderForm,
+  hasProviderFormErrors,
   modelsForProvider,
   toProviderCreateInput,
   toProviderUpdateInput,
-  validateProviderForm,
 } from './providerForm';
 
 describe('provider form', () => {
+  const required = { apiKey: true, baseUrl: true };
+
+  it('reports every failing field at once, addressed by field', () => {
+    const form = emptyProviderForm();
+    const errors = collectProviderFormErrors(form, required);
+    expect(errors.id).toBe('idRequired');
+    expect(errors.apiKey).toBe('apiKeyRequired');
+    expect(errors.baseUrl).toBe('baseUrlRequired');
+    expect(errors.models[0]).toEqual({
+      model: 'modelRequired',
+      maxContextSize: 'contextSizeRequired',
+    });
+    expect(hasProviderFormErrors(errors)).toBe(true);
+  });
+
   it('validates identity, credentials, and model context sizes', () => {
     const form = emptyProviderForm();
-    expect(validateProviderForm(form, { apiKey: true, baseUrl: true })).toBe('idRequired');
+    expect(collectProviderFormErrors(form, required).id).toBe('idRequired');
+    form.id = 'not/valid';
+    expect(collectProviderFormErrors(form, required).id).toBe('idInvalid');
     form.id = 'local';
-    expect(validateProviderForm(form, { apiKey: true, baseUrl: true })).toBe('apiKeyRequired');
+    expect(collectProviderFormErrors(form, required).id).toBeUndefined();
     form.apiKey = 'secret';
-    expect(validateProviderForm(form, { apiKey: true, baseUrl: true })).toBe('baseUrlRequired');
     form.baseUrl = 'https://api.example.test/v1';
-    expect(validateProviderForm(form, { apiKey: true, baseUrl: true })).toBe('modelRequired');
     form.models[0]!.model = 'model-a';
-    expect(validateProviderForm(form, { apiKey: true, baseUrl: true })).toBe('contextSizeRequired');
+    expect(collectProviderFormErrors(form, required).models[0]).toEqual({
+      maxContextSize: 'contextSizeRequired',
+    });
     form.models[0]!.maxContextSize = '0';
-    expect(validateProviderForm(form, { apiKey: true, baseUrl: true })).toBe('contextSizeInvalid');
+    expect(collectProviderFormErrors(form, required).models[0]).toEqual({
+      maxContextSize: 'contextSizeInvalid',
+    });
+    form.models[0]!.maxContextSize = '99999999999999999999';
+    expect(collectProviderFormErrors(form, required).models[0]).toEqual({
+      maxContextSize: 'contextSizeInvalid',
+    });
     form.models[0]!.maxContextSize = '128000';
-    expect(validateProviderForm(form, { apiKey: true, baseUrl: true })).toBeNull();
+    expect(hasProviderFormErrors(collectProviderFormErrors(form, required))).toBe(false);
+  });
+
+  it('blames only the incomplete row, so its siblings still save', () => {
+    const form = emptyProviderForm();
+    form.id = 'local';
+    form.apiKey = 'secret';
+    form.baseUrl = 'https://api.example.test/v1';
+    form.models = [
+      { model: 'good-a', maxContextSize: '128000', displayName: '' },
+      { model: 'incomplete', maxContextSize: '', displayName: '' },
+      { model: 'good-b', maxContextSize: '256000', displayName: '' },
+    ];
+    const errors = collectProviderFormErrors(form, required);
+    expect(Object.keys(errors.models)).toEqual(['1']);
+    expect(errors.models[1]).toEqual({ maxContextSize: 'contextSizeRequired' });
   });
 
   it('normalizes manual create and edit payloads', () => {

@@ -1,14 +1,11 @@
-import { PYTHINKER_CODE_PROVIDER_NAME } from '@pymodel/pythinker-code-oauth';
-import type { AuthSummary } from './authStatus';
-import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
-import { IOAuthService } from '#/app/auth/auth';
+import { LifecycleScope } from '#/app/scopes';
 import { IModelService } from '#/kosong/model/model';
+import { resolveModelForReady } from '#/kosong/model/modelAuth';
 import { IProviderService } from '#/kosong/provider/provider';
 
+import type { AuthSummary } from './authStatus';
 import { IAuthStatusService } from './authStatus';
-
-const MANAGED_PROVIDER_NAME = PYTHINKER_CODE_PROVIDER_NAME;
 
 export class AuthStatusService implements IAuthStatusService {
   declare readonly _serviceBrand: undefined;
@@ -16,39 +13,25 @@ export class AuthStatusService implements IAuthStatusService {
   constructor(
     @IProviderService private readonly providerService: IProviderService,
     @IModelService private readonly modelService: IModelService,
-    @IOAuthService private readonly oauth: IOAuthService,
   ) {}
 
   async get(): Promise<AuthSummary> {
-    await this.modelService.ready;
-
+    await Promise.all([this.modelService.ready, this.providerService.ready]);
     const providers = this.providerService.list();
     const providers_count = Object.keys(providers).length;
     const default_model = nonEmpty(this.modelService.getDefaultModel());
-
-    let managed_provider: AuthSummary['managed_provider'] = null;
-    if (providers[MANAGED_PROVIDER_NAME] !== undefined) {
-      const loggedIn = await this.managedLoggedIn();
-      managed_provider = {
-        name: MANAGED_PROVIDER_NAME,
-        status: loggedIn ? 'authenticated' : 'unauthenticated',
-      };
-    }
-
-    const ready =
-      providers_count >= 1 &&
-      default_model !== null &&
-      (managed_provider === null || managed_provider.status !== 'revoked');
-
-    return { ready, providers_count, default_model, managed_provider };
-  }
-
-  private async managedLoggedIn(): Promise<boolean> {
-    try {
-      return (await this.oauth.status(MANAGED_PROVIDER_NAME)).loggedIn;
-    } catch {
-      return false;
-    }
+    const models_ready = resolveModelForReady(
+      default_model ?? undefined,
+      this.modelService.list(),
+      providers,
+      this.providerService.getDefaultProvider(),
+    ).resolved;
+    return {
+      ready: models_ready,
+      models_ready,
+      providers_count,
+      default_model,
+    };
   }
 }
 

@@ -13,6 +13,7 @@ import {
   sortWorkspacesByRecent,
   type WorkspaceSortMode,
 } from '../lib/workspaceOrder';
+import { isOnboardingCompleted, resolveAppState, type AppState } from '../lib/appState';
 import { mergeWorkspaces } from '../lib/mergeWorkspaces';
 import { workspaceRootKey } from '../lib/rootKey';
 import { mergeSnapshotMessages } from '../lib/snapshotMessages';
@@ -54,6 +55,8 @@ import {
 } from './client/useWorkspaceState';
 
 import type {
+  AppSubagentModelPolicyState,
+  AppExperimentalFlagState,
   AppEvent,
   AppApprovalRequest,
   AppConfig,
@@ -77,10 +80,16 @@ import type {
   PythinkerEventMeta,
   ThinkingLevel,
 } from '../api/types';
-import { createInitialState, reduceAppEvent, type CompactionStatus, type PythinkerClientState } from '../api/daemon/eventReducer';
+import {
+  createInitialState,
+  patchAssistantDeltaInPlace,
+  reduceAppEvent,
+  type CompactionStatus,
+  type PythinkerClientState,
+} from '../api/daemon/eventReducer';
 import { isPlaceholderSessionUsage, toAppEvent } from '../api/daemon/mappers';
 
-import { messagesToTurns } from './messagesToTurns';
+import { createMessagesToTurnsProjector } from './messagesToTurns';
 import { latestTodos } from './latestTodos';
 import { buildDynamicWorkflowGroups, countDynamicWorkflowMembers, dynamicWorkflowMembersByToolCall } from './dynamicWorkflowGroups';
 import type { DynamicWorkflowGroup, DynamicWorkflowMember } from './dynamicWorkflowGroups';
@@ -113,7 +122,6 @@ const sound = useSoundNotification();
 // Internal reactive state (plain object wrapped in reactive())
 // ---------------------------------------------------------------------------
 
-const PERMISSION_STORAGE_KEY = STORAGE_KEYS.permission;
 const ACTIVE_WORKSPACE_KEY = STORAGE_KEYS.activeWorkspace;
 const PLAN_MODE_STORAGE_KEY = STORAGE_KEYS.planMode;
 const PLAN_ARMED_STORAGE_KEY = STORAGE_KEYS.planArmed;
@@ -140,27 +148,7 @@ safeRemove(STORAGE_KEYS.theme);
 // The per-model thinking pick store was dropped in favor of the daemon's
 // per-session thinking state — clear the old key so stale picks can't linger.
 safeRemove(STORAGE_KEYS.thinking);
-
-/** The explicit permission pick persisted for this browser, or null when the
- *  user never picked one locally — an unset pick means the chat page follows
- *  the daemon's default_permission_mode instead of a hardcoded fallback. */
-function loadPermissionFromStorage(): PermissionMode | null {
-  try {
-    const v = safeGetString(PERMISSION_STORAGE_KEY);
-    if (v === 'auto' || v === 'yolo' || v === 'manual') return v;
-  } catch {
-    // localStorage not available (e.g. jsdom without config)
-  }
-  return null;
-}
-
-function savePermissionToStorage(mode: PermissionMode): void {
-  try {
-    safeSetString(PERMISSION_STORAGE_KEY, mode);
-  } catch {
-    // ignore
-  }
-}
+safeRemove(STORAGE_KEYS.permission);
 
 // Plan / dynamic_workflow / goal modes are per-session. Each is persisted as a compact
 // JSON map of only the `true` entries (cleared sessions are dropped), keyed by
@@ -314,9 +302,15 @@ export interface ExtendedState extends PythinkerClientState {
    * backend badge in the Sidebar.
    */
   backend: 'v1' | 'v2';
+  /** Effective experimental flag states from `/meta`; the server decides them. */
+  experimentalFlagStates: AppExperimentalFlagState[];
+  /** Saved + effective subagent model routing policy (dedicated endpoint); null until loaded. */
+  subagentModelPolicy: AppSubagentModelPolicyState | null;
+  subagentModelPolicySaving: boolean;
   workspaceName: string;
   connection: ConnectionState;
   permission: PermissionMode;
+  permissionBySession: Record<string, PermissionMode>;
   /** The thinking level shown and submitted for the ACTIVE session. Resolved by
    *  useModelProviderState: the session's own daemon-reported level
    *  (`thinkingBySession`) when the model still declares it, else the model's
@@ -359,7 +353,6 @@ export interface ExtendedState extends PythinkerClientState {
   // Auth state (real daemon)
   authReady: boolean;
   defaultModel: string | null;
-  managedProviderStatus: string | null;
   // Workspace state
   workspaces: AppWorkspace[];
   activeWorkspaceId: string | null;
@@ -406,9 +399,13 @@ const rawState: ExtendedState = reactive({
   serverVersion: '',
   dangerousBypassAuth: false,
   backend: 'v1',
+  experimentalFlagStates: [],
+  subagentModelPolicy: null,
+  subagentModelPolicySaving: false,
   workspaceName: 'pythinker-web',
   connection: 'disconnected' as ConnectionState,
-  permission: loadPermissionFromStorage() ?? 'manual',
+  permission: 'manual',
+  permissionBySession: {},
   // Resolved per session/model once the catalog/session is known (loadModels
   // and the active-session watcher in useModelProviderState) — the per-session
   // map below starts empty and is fed by /status folds.
@@ -427,7 +424,6 @@ const rawState: ExtendedState = reactive({
   unreadBySession: loadUnread(),
   authReady: false,
   defaultModel: null,
-  managedProviderStatus: null,
   workspaces: [],
   activeWorkspaceId: loadActiveWorkspaceFromStorage(),
   fsHome: null,
@@ -463,16 +459,9 @@ const draftModes = reactive<{ planMode: boolean; dynamicWorkflowMode: boolean; g
   goalMode: false,
 });
 
-/** True once this browser has an explicit permission pick in localStorage.
- *  Without one, the chat page follows the daemon's default_permission_mode
- *  (seeded on config load) instead of showing a hardcoded 'manual'. */
-const hasExplicitPermissionPick = loadPermissionFromStorage() !== null;
-
-/** Adopt the daemon's default permission mode for browsers that never picked
- *  one locally. Called after GET /config resolves; a later explicit pick (via
- *  setPermission) wins from then on because it writes localStorage. */
+/** Apply the daemon default to the not-yet-created draft session. */
 function seedPermissionFromDaemonDefault(): void {
-  if (hasExplicitPermissionPick) return;
+  if (rawState.activeSessionId) return;
   const mode = rawState.config?.defaultPermissionMode;
   if (mode === 'auto' || mode === 'yolo' || mode === 'manual') {
     rawState.permission = mode;
@@ -486,7 +475,25 @@ function seedPermissionFromDaemonDefault(): void {
 // injected into the workspace/model modules (via deps) so no module assigns
 // rawState.sessions directly.
 // ---------------------------------------------------------------------------
+function sameArrayEntries<T>(left: readonly T[], right: readonly T[]): boolean {
+  return (
+    left === right ||
+    (left.length === right.length && left.every((value, index) => value === right[index]))
+  );
+}
+
+function sameRecordEntries<T>(left: Record<string, T>, right: Record<string, T>): boolean {
+  if (left === right) return true;
+  const leftKeys = Object.keys(left);
+  const rightKeys = Object.keys(right);
+  return (
+    leftKeys.length === rightKeys.length &&
+    leftKeys.every((key) => left[key] === right[key])
+  );
+}
+
 function setSessions(next: AppSession[]): void {
+  if (sameArrayEntries(rawState.sessions, next)) return;
   rawState.sessions = next;
 }
 /** Replace one session in place (matched by id); no-op if it isn't loaded. */
@@ -589,6 +596,7 @@ function setActiveSessionId(id: string | undefined): void {
 // ---------------------------------------------------------------------------
 /** Replace the whole messages map (e.g. from the reducer snapshot). */
 function setMessagesBySession(next: Record<string, AppMessage[]>): void {
+  if (sameRecordEntries(rawState.messagesBySession, next)) return;
   rawState.messagesBySession = next;
 }
 /** Set one session's message list. */
@@ -708,11 +716,11 @@ async function refreshSessionStatus(sessionId: string): Promise<void> {
   }));
   rawState.dynamicWorkflowModeBySession = { ...rawState.dynamicWorkflowModeBySession, [sessionId]: st.dynamicWorkflowMode };
   rawState.planModeBySession = { ...rawState.planModeBySession, [sessionId]: st.planMode };
-  // Fold the session's effective permission mode too — the pill must reflect
-  // what the daemon will actually enforce for the active session (the daemon
-  // applies config defaults at agent creation), not a stale local value.
+  // Fold the effective permission into this session only. A delayed response
+  // from a background session must not change the active session's control.
   if (st.permission === 'auto' || st.permission === 'yolo' || st.permission === 'manual') {
-    rawState.permission = st.permission;
+    rawState.permissionBySession = { ...rawState.permissionBySession, [sessionId]: st.permission };
+    if (rawState.activeSessionId === sessionId) rawState.permission = st.permission;
   }
   // Fold the session's own thinking level too — per-session state wins over the
   // per-model storage pick (see thinkingBySession on ExtendedState).
@@ -819,6 +827,37 @@ function setConversationToc(v: boolean): void {
 }
 
 // ---------------------------------------------------------------------------
+// Message folding: `turnFolding` folds a finished turn's work away and leaves
+// the summary; `activityRunFolding` summarises consecutive tool calls into one
+// row while the answer is still running. Both on by default, persisted per
+// browser.
+// ---------------------------------------------------------------------------
+function loadFoldingFromStorage(key: string): boolean {
+  try {
+    return safeGetString(key) !== 'false';
+  } catch {
+    return true;
+  }
+}
+function saveFoldingToStorage(key: string, v: boolean): void {
+  try {
+    safeSetString(key, v ? 'true' : 'false');
+  } catch {
+    // ignore
+  }
+}
+const turnFolding = ref<boolean>(loadFoldingFromStorage(STORAGE_KEYS.turnFolding));
+function setTurnFolding(v: boolean): void {
+  turnFolding.value = v;
+  saveFoldingToStorage(STORAGE_KEYS.turnFolding, v);
+}
+const activityRunFolding = ref<boolean>(loadFoldingFromStorage(STORAGE_KEYS.activityRunFolding));
+function setActivityRunFolding(v: boolean): void {
+  activityRunFolding.value = v;
+  saveFoldingToStorage(STORAGE_KEYS.activityRunFolding, v);
+}
+
+// ---------------------------------------------------------------------------
 // Onboarding: a "has the user been onboarded" flag that gates the first-run
 // onboarding screen. Persisted; can be reset to re-open
 // the screen from the settings popover.
@@ -861,6 +900,18 @@ function nextOptimisticMsgId(): string {
 
 // Helper: mutate rawState by applying a reducer on a snapshot then re-assigning fields
 function applyEvent(event: ReturnType<typeof toAppEvent>, sessionId: string, seq: number): void {
+  if (event.type === 'assistantDelta') {
+    const messages = rawState.messagesBySession[event.sessionId] ?? [];
+    if (messages.at(-1)?.id === event.messageId) {
+      patchAssistantDeltaInPlace(messages, event);
+      const previousSeq = rawState.lastSeqBySession[sessionId] ?? 0;
+      if (seq > 0 && seq > previousSeq) {
+        rawState.lastSeqBySession = { ...rawState.lastSeqBySession, [sessionId]: seq };
+      }
+      return;
+    }
+  }
+
   const snapshot: PythinkerClientState = {
     sessions: rawState.sessions,
     activeSessionId: rawState.activeSessionId,
@@ -882,17 +933,36 @@ function applyEvent(event: ReturnType<typeof toAppEvent>, sessionId: string, seq
   setSessions(next.sessions);
   setActiveSessionId(next.activeSessionId);
   setMessagesBySession(next.messagesBySession);
-  rawState.approvalsBySession = next.approvalsBySession;
-  rawState.planReviewByToolCallId = next.planReviewByToolCallId;
-  rawState.questionsBySession = next.questionsBySession;
-  rawState.tasksBySession = next.tasksBySession;
-  rawState.goalBySession = next.goalBySession;
-  rawState.goalVersionBySession = next.goalVersionBySession;
-  rawState.lastSeqBySession = next.lastSeqBySession;
-  rawState.turnActiveBySession = next.turnActiveBySession;
-  rawState.compactionBySession = next.compactionBySession;
-  rawState.config = next.config ?? null;
-  rawState.warnings = next.warnings;
+  if (!sameRecordEntries(rawState.approvalsBySession, next.approvalsBySession)) {
+    rawState.approvalsBySession = next.approvalsBySession;
+  }
+  if (!sameRecordEntries(rawState.planReviewByToolCallId, next.planReviewByToolCallId)) {
+    rawState.planReviewByToolCallId = next.planReviewByToolCallId;
+  }
+  if (!sameRecordEntries(rawState.questionsBySession, next.questionsBySession)) {
+    rawState.questionsBySession = next.questionsBySession;
+  }
+  if (!sameRecordEntries(rawState.tasksBySession, next.tasksBySession)) {
+    rawState.tasksBySession = next.tasksBySession;
+  }
+  if (!sameRecordEntries(rawState.goalBySession, next.goalBySession)) {
+    rawState.goalBySession = next.goalBySession;
+  }
+  if (!sameRecordEntries(rawState.goalVersionBySession, next.goalVersionBySession)) {
+    rawState.goalVersionBySession = next.goalVersionBySession;
+  }
+  if (!sameRecordEntries(rawState.lastSeqBySession, next.lastSeqBySession)) {
+    rawState.lastSeqBySession = next.lastSeqBySession;
+  }
+  if (!sameRecordEntries(rawState.turnActiveBySession, next.turnActiveBySession)) {
+    rawState.turnActiveBySession = next.turnActiveBySession;
+  }
+  if (!sameRecordEntries(rawState.compactionBySession, next.compactionBySession)) {
+    rawState.compactionBySession = next.compactionBySession;
+  }
+  const nextConfig = next.config ?? null;
+  if (rawState.config !== nextConfig) rawState.config = nextConfig;
+  if (!sameArrayEntries(rawState.warnings, next.warnings)) rawState.warnings = next.warnings;
 
   if (event.type === 'configChanged') {
     rawState.defaultModel = event.config.defaultModel ?? null;
@@ -1852,6 +1922,7 @@ function toUiQuestion(q: AppQuestionRequest): UIQuestion {
       multiSelect: qi.multiSelect,
       allowOther: qi.allowOther,
       otherLabel: qi.otherLabel,
+      otherDescription: qi.otherDescription,
     })),
   };
 }
@@ -2135,16 +2206,55 @@ const activeAppTasks = computed<AppTask[]>(() => {
 
 const taskPoller = useTaskPoller(rawState, activeAppTasks);
 
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => taskPoller.dispose());
+}
+
+const projectMessagesToTurns = createMessagesToTurnsProjector();
+const transcriptFileUrl = (fileId: string): string => getPythinkerWebApi().getFileUrl(fileId);
+const emptyApprovals: AppApprovalRequest[] = [];
+const emptyMessages: AppMessage[] = [];
+const emptyHiddenIds: string[] = [];
+
+// Memoized side-chat filter: keeps the filtered array's identity stable across
+// tail-only delta patches so the turns projector can take its incremental path.
+let visibleMessagesCache:
+  | { source: AppMessage[]; length: number; hiddenIds: string[]; last: AppMessage | undefined; result: AppMessage[] }
+  | undefined;
+function visibleMessages(sessionMessages: AppMessage[], hiddenIds: string[]): AppMessage[] {
+  if (hiddenIds.length === 0) return sessionMessages;
+  const last = sessionMessages.at(-1);
+  const cache = visibleMessagesCache;
+  if (
+    cache !== undefined &&
+    cache.source === sessionMessages &&
+    cache.length === sessionMessages.length &&
+    cache.hiddenIds === hiddenIds
+  ) {
+    if (cache.last === last) return cache.result;
+    const tail = cache.result.at(-1);
+    if (last !== undefined && tail !== undefined && cache.last?.id === last.id && tail.id === last.id) {
+      cache.result[cache.result.length - 1] = last;
+      cache.last = last;
+      return cache.result;
+    }
+  }
+  const result = sessionMessages.filter((message) => !hiddenIds.includes(message.id));
+  visibleMessagesCache = { source: sessionMessages, length: sessionMessages.length, hiddenIds, last, result };
+  return result;
+}
+
 const turns = computed<ChatTurn[]>(() => {
   const sid = rawState.activeSessionId;
   if (!sid) return [];
-  const hiddenIds = new Set(rawState.sideChatUserMessageIdsBySession[sid] ?? []);
-  const messages = (rawState.messagesBySession[sid] ?? []).filter((m) => !hiddenIds.has(m.id));
-  const approvals = rawState.approvalsBySession[sid] ?? [];
-  return messagesToTurns(
+  const hiddenMessageIds = rawState.sideChatUserMessageIdsBySession[sid] ?? emptyHiddenIds;
+  const sessionMessages = rawState.messagesBySession[sid] ?? emptyMessages;
+  const messages = visibleMessages(sessionMessages, hiddenMessageIds);
+  const approvals = rawState.approvalsBySession[sid] ?? emptyApprovals;
+  return projectMessagesToTurns(
     messages,
     approvals,
-    (fileId) => getPythinkerWebApi().getFileUrl(fileId),
+    transcriptFileUrl,
     turnActive.value,
     rawState.planReviewByToolCallId,
   );
@@ -2268,6 +2378,14 @@ const loadMoreMessagesError = computed<boolean>(() => {
 });
 const serverVersion = computed<string>(() => rawState.serverVersion);
 const backend = computed<'v1' | 'v2'>(() => rawState.backend);
+const experimentalFlagStates = computed<AppExperimentalFlagState[]>(
+  () => rawState.experimentalFlagStates,
+);
+const subagentModelPolicy = computed<AppSubagentModelPolicyState | null>(() => rawState.subagentModelPolicy);
+const subagentModelPolicySaving = computed<boolean>(() => rawState.subagentModelPolicySaving);
+function experimentalFlagState(id: string): AppExperimentalFlagState | undefined {
+  return rawState.experimentalFlagStates.find((state) => state.id === id);
+}
 const dangerousBypassAuth = computed<boolean>(() => rawState.dangerousBypassAuth);
 
 /**
@@ -2324,6 +2442,7 @@ const queued = computed<QueuedPromptView[]>(() => {
   if (!sid) return [];
   const api = getPythinkerWebApi();
   return (rawState.queuedBySession[sid] ?? []).map((q) => ({
+    id: q.id ?? q.text,
     text: q.text,
     attachmentCount: q.attachments?.length ?? 0,
     attachments: q.attachments?.map((a) => ({
@@ -2360,7 +2479,7 @@ const pendingApprovals = computed<
     block: buildApprovalBlock(a),
     agentName: (a as { agentName?: string }).agentName,
     // toolCallId lets ChatPane mark the run parked while its tool awaits the
-    // user's decision (reference Pn correlating by toolCallId).
+    // user's decision.
     toolCallId: a.toolCallId,
   }));
 });
@@ -2474,7 +2593,9 @@ const status = computed<ConversationStatus>(() => {
     modelId: matched?.id ?? rawModel,
     ctxUsed: activeSession?.usage.contextTokens ?? 0,
     ctxMax: activeSession?.usage.contextLimit ?? 0,
-    permission: rawState.permission,
+    permission: activeSession
+      ? rawState.permissionBySession[activeSession.id] ?? rawState.permission
+      : rawState.permission,
     branch,
     cwd: activeSession?.cwd ?? '',
     isGitRepo: gitInfo.value !== null,
@@ -2491,8 +2612,35 @@ const sessionCost = computed<number>(() => {
 });
 
 const authReady = computed<boolean>(() => rawState.authReady);
+
+/** Readiness as it stood on the first load, latched once and never updated.
+ *
+ *  Only the boot value can stand in for "setup happened before". Tracking it
+ *  live would make the first-run wizard unmount the moment its own connect step
+ *  made the daemon ready, dropping the user into the app without ever choosing
+ *  a model. */
+const authReadyAtBoot = ref<boolean | null>(null);
+watch(
+  initialized,
+  (ready) => {
+    if (ready && authReadyAtBoot.value === null) authReadyAtBoot.value = authReady.value;
+  },
+  { immediate: true },
+);
+
+const onboardingCompleted = computed<boolean>(() =>
+  isOnboardingCompleted(onboarded.value, authReadyAtBoot.value ?? false),
+);
+
+const appState = computed<AppState>(() =>
+  resolveAppState({
+    initialized: initialized.value,
+    onboardingCompleted: onboardingCompleted.value,
+    authReady: authReady.value,
+  }),
+);
+
 const defaultModel = computed<string | null>(() => rawState.defaultModel);
-const managedProviderStatus = computed<string | null>(() => rawState.managedProviderStatus);
 const config = computed<AppConfig | null>(() => rawState.config);
 
 /** path → status map for quick badge lookup in the file tree */
@@ -2862,7 +3010,6 @@ const workspaceState = useWorkspaceState(rawState, {
   workspacesView,
   status,
   workspaceIdForSession,
-  savePermissionToStorage,
   seedPermissionFromDaemonDefault,
   savePlanModeToStorage,
   saveDynamicWorkflowModeToStorage,
@@ -2879,6 +3026,23 @@ const workspaceState = useWorkspaceState(rawState, {
   fileDiffLines,
   fileDiffLoading,
 });
+
+/** Re-read every piece of daemon state a configuration change can invalidate.
+ *
+ *  The single reconciliation boundary for configuration mutations: provider
+ *  saved or deleted, credential changed, catalog imported, OAuth completed,
+ *  default model changed. Config is loaded first because auth readiness and the
+ *  model catalog are both derived from it; the rest are independent and run
+ *  together. Defensive throughout — each call swallows its own failures, so a
+ *  half-reachable daemon degrades instead of throwing into a save handler. */
+async function refreshRuntimeState(): Promise<void> {
+  await workspaceState.loadConfig();
+  await Promise.all([
+    workspaceState.checkAuth(),
+    modelProvider.loadModels(),
+    modelProvider.loadProviders(),
+  ]);
+}
 
 function setSessionEmoji(id: string, emoji: string | null): Promise<void> {
   const session = rawState.sessions.find((value) => value.id === id);
@@ -3075,6 +3239,13 @@ export function usePythinkerWebClient() {
     loadMoreMessagesError,
     serverVersion,
     backend,
+    experimentalFlagStates,
+    experimentalFlagState,
+    subagentModelPolicy,
+    subagentModelPolicySaving,
+    saveSubagentModelPolicy: workspaceState.saveSubagentModelPolicy,
+    clearSubagentModelPolicy: workspaceState.clearSubagentModelPolicy,
+    reloadSubagentModelPolicy: workspaceState.loadSubagentModelPolicy,
     dangerousBypassAuth,
     clearDangerousBypassAuth,
     initialized,
@@ -3108,6 +3279,12 @@ export function usePythinkerWebClient() {
     conversationToc,
     setConversationToc,
 
+    // Message folding
+    turnFolding,
+    setTurnFolding,
+    activityRunFolding,
+    setActivityRunFolding,
+
     // Color scheme
     colorScheme: appearance.colorScheme,
     setColorScheme: appearance.setColorScheme,
@@ -3125,6 +3302,8 @@ export function usePythinkerWebClient() {
     setSoundOnComplete: sound.setSoundOnComplete,
     onboarded,
     setOnboarded,
+    onboardingCompleted,
+    appState,
 
     // Actions
     load: workspaceState.load,
@@ -3148,6 +3327,7 @@ export function usePythinkerWebClient() {
 
     sendPrompt: workspaceState.sendPrompt,
     steerPrompt: workspaceState.steerPrompt,
+    steerQueued: workspaceState.steerQueued,
     // Side chat (BTW side-channel agent)
     sideChatVisible: sideChat.sideChatVisible,
     sideChatSessionId: sideChat.sideChatSessionId,
@@ -3165,6 +3345,7 @@ export function usePythinkerWebClient() {
     pendingQuestionActions: workspaceState.pendingQuestionActions,
     pendingApprovalActions: workspaceState.pendingApprovalActions,
     cancelTask: workspaceState.cancelTask,
+    detachTask: workspaceState.detachTask,
 
     // New Phase 1 actions
     setPermission: workspaceState.setPermission,
@@ -3212,6 +3393,7 @@ export function usePythinkerWebClient() {
     openWorkspaceFile: workspaceState.openWorkspaceFile,
     openInApp: workspaceState.openInApp,
     revealWorkspaceFile: workspaceState.revealWorkspaceFile,
+    revealSavedPlan: workspaceState.revealSavedPlan,
     resolveImageUrl: workspaceState.resolveImageUrl,
     getFileUrl: (fileId: string) => getPythinkerWebApi().getFileUrl(fileId),
 
@@ -3239,18 +3421,15 @@ export function usePythinkerWebClient() {
     // Auth state
     authReady,
     defaultModel,
-    managedProviderStatus,
 
     // Config state + actions
     config,
     updateConfig: workspaceState.updateConfig,
+    refreshServerMeta: workspaceState.refreshServerMeta,
 
     // Auth actions
     checkAuth: workspaceState.checkAuth,
-    startOAuthLogin: modelProvider.startOAuthLogin,
-    pollOAuthLogin: modelProvider.pollOAuthLogin,
-    cancelOAuthLogin: modelProvider.cancelOAuthLogin,
-    logout: workspaceState.logout,
+    refreshRuntimeState,
   };
 }
 
