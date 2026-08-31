@@ -122,6 +122,30 @@ const reviewExchange = computed(() => {
   };
 });
 
+interface DiscussionComparison {
+  agreement: string;
+  divergence: string;
+  finalAnalysis: string;
+}
+
+function parseDiscussionComparison(answer: string): DiscussionComparison | undefined {
+  const sections = new Map(answer.split(/^## /m).map((section) => {
+    const [heading = '', ...body] = section.split(/\r?\n/);
+    return [heading.trim().toLowerCase(), body.join('\n').trim()] as const;
+  }));
+  const agreement = sections.get('agreement');
+  const divergence = sections.get('divergence');
+  const finalAnalysis = sections.get('final analysis');
+  if (!agreement || !divergence || !finalAnalysis) return undefined;
+  return { agreement, divergence, finalAnalysis };
+}
+
+const reviewComparison = computed(() => {
+  if (reviewExchange.value?.artifact.state !== 'completed') return undefined;
+  const answer = reviewExchange.value.answer;
+  return answer === undefined ? undefined : parseDiscussionComparison(answer);
+});
+
 const fusionExchange = computed(() => {
   if (props.run.fusion === undefined && props.run.stage !== 'fusion') return undefined;
   return {
@@ -366,7 +390,22 @@ function statusVariant(state: AppExpertTalkRun['state']): 'success' | 'danger' |
           </li>
         </ul>
         <div v-if="reviewExchange.answer" class="expert-talk__artifact-text">
+          <div v-if="reviewComparison" class="expert-talk__comparison">
+            <section class="expert-talk__comparison-section expert-talk__comparison--agreement">
+              <h3>{{ t('expertTalk.agreement') }}</h3>
+              <Markdown :text="reviewComparison.agreement" />
+            </section>
+            <section class="expert-talk__comparison-section expert-talk__comparison--divergence">
+              <h3>{{ t('expertTalk.divergence') }}</h3>
+              <Markdown :text="reviewComparison.divergence" />
+            </section>
+            <section class="expert-talk__comparison-section expert-talk__comparison--analysis">
+              <h3>{{ t('expertTalk.finalAnalysis') }}</h3>
+              <Markdown :text="reviewComparison.finalAnalysis" />
+            </section>
+          </div>
           <Markdown
+            v-else
             :text="reviewExchange.answer"
             :streaming="reviewExchange.artifact.state === 'running'"
           />
@@ -636,6 +675,50 @@ function statusVariant(state: AppExpertTalkRun['state']): 'success' | 'danger' |
   min-width: 0;
 }
 
+.expert-talk__comparison {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.expert-talk__comparison-section {
+  min-width: 0;
+  padding: var(--space-3);
+  border: var(--p-hairline) solid;
+  border-left-width: 3px;
+  border-radius: var(--radius-md);
+}
+
+.expert-talk__comparison-section h3 {
+  margin: 0 0 var(--space-2);
+  color: var(--color-text-strong);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.expert-talk__comparison--agreement {
+  border-color: var(--color-success-bd);
+  border-left-color: var(--color-success);
+  background: var(--color-success-soft);
+}
+
+.expert-talk__comparison--divergence {
+  border-color: var(--color-warning-bd);
+  border-left-color: var(--color-warning);
+  background: var(--color-warning-soft);
+}
+
+.expert-talk__comparison--analysis {
+  grid-column: 1 / -1;
+  border-color: var(--color-accent-bd);
+  border-left-color: var(--color-accent);
+  background: var(--color-accent-soft);
+}
+
 .expert-talk__thinking {
   display: grid;
   gap: var(--space-1);
@@ -757,6 +840,14 @@ function statusVariant(state: AppExpertTalkRun['state']): 'success' | 'danger' |
   .expert-talk__agent-column + .expert-talk__agent-column {
     border-top: var(--p-hairline) solid var(--color-line);
     border-left: 0;
+  }
+
+  .expert-talk__comparison {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .expert-talk__comparison--analysis {
+    grid-column: auto;
   }
 
   .expert-talk__decision-actions {

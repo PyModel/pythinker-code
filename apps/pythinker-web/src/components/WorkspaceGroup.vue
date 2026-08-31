@@ -162,17 +162,20 @@ function onHeaderDragStart(event: DragEvent): void {
             <Icon name="dots-horizontal" />
           </IconButton>
 
-          <IconButton
-            class="gh-explorer"
-            :class="{ open: explorerActive }"
-            size="sm"
-            :label="t('sidebar.explorer')"
-            aria-controls="workspace-explorer"
-            :aria-expanded="explorerActive"
-            @click.stop="emit('toggleExplorer', group.workspace.id)"
-          >
-            <Icon name="folder-solid" />
-          </IconButton>
+          <Tooltip :text="t('sidebar.showFiles')">
+            <IconButton
+              class="gh-explorer"
+              :class="{ open: explorerActive }"
+              size="sm"
+              :label="t('sidebar.showFiles')"
+              :data-workspace-files-id="group.workspace.id"
+              aria-controls="workspace-explorer"
+              :aria-expanded="explorerActive"
+              @click.stop="emit('toggleExplorer', group.workspace.id)"
+            >
+              <Icon name="list" />
+            </IconButton>
+          </Tooltip>
 
           <IconButton
             class="gh-add"
@@ -341,6 +344,7 @@ function onHeaderDragStart(event: DragEvent): void {
   z-index: 0;
   border-radius: var(--radius-sm);
   background: transparent;
+  pointer-events: none;
 }
 .gh:hover .gh-actions::after {
   background: var(--sb-hover, var(--color-surface-sunken));

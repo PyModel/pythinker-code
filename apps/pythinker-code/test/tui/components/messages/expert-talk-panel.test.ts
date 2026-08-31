@@ -55,7 +55,7 @@ describe('Expert Talk status panel', () => {
 
     expect(output).toContain('Architect GPT Test ↔ Builder GLM Test');
     expect(output).toContain('✓ Independent opinions');
-    expect(output).toContain('◐ Architect reviews Builder');
+    expect(output).toContain('◐ Discussion comparison');
     expect(output).toContain('○ Fusion');
     expect(output).toContain('at most 56 provider attempts');
     expect(output).toContain('read-only tools');
@@ -78,7 +78,19 @@ describe('Expert Talk status panel', () => {
           toolCallCount: 1,
         },
         peerOpening: { status: 'completed', text: 'Model two opening' },
-        leadReview: { status: 'completed', text: 'Model one review' },
+        leadReview: {
+          status: 'completed',
+          text: [
+            '## Agreement',
+            '- Both use the shared resolver.',
+            '',
+            '## Divergence',
+            '- Architect requires strict mode; Builder prefers fallback.',
+            '',
+            '## Final analysis',
+            'Use strict mode.',
+          ].join('\n'),
+        },
         fusion: { status: 'completed', text: 'Fused final answer' },
       },
     } as unknown as ExpertTalkRunV1;
@@ -96,7 +108,10 @@ describe('Expert Talk status panel', () => {
     );
     expect(wide.join('\n')).toContain('Fused final answer');
     expect(wide.join('\n')).toContain('⧉ FUSION');
-    expect(wide.join('\n')).toContain('ARCHITECT REVIEW OF BUILDER');
+    expect(wide.join('\n')).toContain('DISCUSSION — AGREEMENT & DIVERGENCE');
+    expect(wide.join('\n')).toContain('Agreement');
+    expect(wide.join('\n')).toContain('Divergence');
+    expect(wide.join('\n')).toContain('Final analysis');
     expect(wide.join('\n')).not.toContain('Model two review');
 
     const narrow = buildExpertTalkExchangeLines(run, models, 60).map(strip);
@@ -107,6 +122,13 @@ describe('Expert Talk status panel', () => {
     expect(model2).toBeGreaterThan(model1);
     expect(fusion).toBeGreaterThan(model2);
     expect(narrow.join('\n')).toContain('fresh Architect inference');
+
+    const veryNarrow = buildExpertTalkExchangeLines(run, models, 30).map(strip);
+    const comparisonIndex = veryNarrow.findIndex((line) => line.includes('comparison'));
+    expect(comparisonIndex).toBeGreaterThan(0);
+    expect(veryNarrow.slice(comparisonIndex - 1, comparisonIndex + 1).join(' ').replaceAll(/\s+/g, ' '))
+      .toContain('GPT Test · Architect comparison');
+    expect(veryNarrow[comparisonIndex]).not.toContain('…');
   });
 
   it('renders live model answer, thinking, and tool activity', () => {
@@ -166,8 +188,8 @@ describe('Expert Talk status panel', () => {
     const phases = buildExpertTalkStatusLines(status, models).map(strip).join('\n');
     const exchange = buildExpertTalkExchangeLines(run, models).map(strip).join('\n');
 
-    expect(phases).toContain('– Architect reviews Builder');
+    expect(phases).toContain('– Discussion comparison');
     expect(phases).toContain('✓ Fusion');
-    expect(exchange).not.toContain('ARCHITECT REVIEW OF BUILDER');
+    expect(exchange).not.toContain('DISCUSSION — AGREEMENT & DIVERGENCE');
   });
 });

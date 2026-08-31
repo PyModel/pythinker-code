@@ -27,9 +27,11 @@ const mascotStyle = computed<Record<string, string>>(() => {
   };
 });
 
-const mascotSrc = computed(() => (
-  props.state === 'failed' ? '/brand/mascot-failed.png' : `/brand/mascot-${pose.value}.png`
-));
+const mascotSrc = computed(() => {
+  if (props.state === 'failed') return '/brand/mascot-failed.png';
+  if (props.state === 'waiting') return '/brand/mascot-idle.png';
+  return `/brand/mascot-${pose.value}.png`;
+});
 
 function reducedMotion(): boolean {
   return typeof window !== 'undefined'
@@ -46,7 +48,7 @@ function clearPoseTimer(): void {
 
 function schedulePoseSwitch(): void {
   clearPoseTimer();
-  if (props.state === 'failed' || reducedMotion()) return;
+  if (props.state !== 'running' || reducedMotion()) return;
 
   const delay = pose.value === 'laptop' ? LAPTOP_PLAY_MS : REVIEW_PLAY_MS;
   poseTimer = setTimeout(() => {
@@ -60,14 +62,11 @@ onMounted(schedulePoseSwitch);
 onUnmounted(clearPoseTimer);
 
 watch(
-  () => props.state === 'failed',
-  (failed) => {
-    if (failed) {
-      clearPoseTimer();
-      return;
-    }
+  () => props.state,
+  (state) => {
+    clearPoseTimer();
     pose.value = 'laptop';
-    schedulePoseSwitch();
+    if (state === 'running') schedulePoseSwitch();
   },
 );
 </script>

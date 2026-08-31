@@ -193,7 +193,16 @@ describe('ExpertTalkControl', () => {
           role: 'fusion_lead' as const,
           stage: 'review' as const,
           state: 'completed' as const,
-          text: 'Model one review',
+          text: [
+            '## Agreement',
+            '- Both use the shared resolver.',
+            '',
+            '## Divergence',
+            '- Architect requires strict mode; Builder prefers fallback.',
+            '',
+            '## Final analysis',
+            'Use the shared resolver in strict mode.',
+          ].join('\n'),
           partial: false,
         },
       },
@@ -272,8 +281,10 @@ describe('ExpertTalkControl', () => {
     expect(columns[1]!.text()).toContain('Builder');
     expect(columns[1]!.text()).toContain('GLM Test');
     expect(columns[1]!.text()).toContain('Model two opening');
-    expect(wrapper.get('.expert-talk__review').text()).toContain('Architect reviews Builder');
-    expect(wrapper.get('.expert-talk__review').text()).toContain('Model one review');
+    expect(wrapper.get('.expert-talk__review').text()).toContain('Discussion');
+    expect(wrapper.get('.expert-talk__comparison--agreement').text()).toContain('Both use the shared resolver.');
+    expect(wrapper.get('.expert-talk__comparison--divergence').text()).toContain('Architect requires strict mode');
+    expect(wrapper.get('.expert-talk__comparison--analysis').text()).toContain('Use the shared resolver in strict mode.');
     expect(wrapper.get('.expert-talk__fusion').text()).toContain('Fused answer users receive');
     expect(wrapper.get('.expert-talk__fusion').text()).not.toContain('Fused final answer');
     expect(wrapper.get('.expert-talk__fusion .expert-talk__agent-symbol').text()).toBe('⧉');
@@ -286,8 +297,8 @@ describe('ExpertTalkControl', () => {
     expect(copyTextToClipboard).toHaveBeenLastCalledWith('Model one opening');
     await button('Take Builder').trigger('click');
     expect(copyTextToClipboard).toHaveBeenLastCalledWith('Model two opening');
-    await button('Take Architect Review').trigger('click');
-    expect(copyTextToClipboard).toHaveBeenLastCalledWith('Model one review');
+    await button('Take comparison').trigger('click');
+    expect(copyTextToClipboard).toHaveBeenLastCalledWith(currentRun.value.review.lead.text);
     await button('Take Fusion').trigger('click');
     expect(copyTextToClipboard).toHaveBeenLastCalledWith('Fused answer users receive');
     await button('Build from Fusion').trigger('click');
@@ -360,7 +371,7 @@ describe('ExpertTalkControl', () => {
     });
 
     const buttons = wrapper.findAll('button');
-    await buttons.find((button) => button.text().includes('Review Builder'))!.trigger('click');
+    await buttons.find((button) => button.text().includes('Compare opinions'))!.trigger('click');
     await buttons.find((button) => button.text().includes('Finish with Architect'))!.trigger('click');
     await buttons.find((button) => button.text().includes('Fuse now'))!.trigger('click');
 

@@ -122,6 +122,8 @@ const emit = defineEmits<{
 const statusView = ref<'open' | 'done' | 'workspaces'>('open');
 const explorerOpen = ref(false);
 const explorerWorkspaceId = ref<string | null>(null);
+const explorerRef = ref<InstanceType<typeof WorkspaceExplorer> | null>(null);
+const showSearch = ref(false);
 const listView = ref<'flat' | 'grouped'>('grouped');
 watch(() => props.tabsEnabled, (enabled) => {
   if (!enabled) statusView.value = 'open';
@@ -159,11 +161,8 @@ const explorerGroup = computed(
 const explorerWorkspace = computed(() => explorerGroup.value?.workspace ?? null);
 const explorerSessionId = computed(() => {
   const group = explorerGroup.value;
-  if (!group) return null;
-  if (props.activeId && group.sessions.some((session) => session.id === props.activeId)) {
-    return props.activeId;
-  }
-  return group.sessions[0]?.id ?? null;
+  if (!group || !props.activeId) return null;
+  return group.sessions.some((session) => session.id === props.activeId) ? props.activeId : null;
 });
 
 function showStatus(status: 'open' | 'done' | 'workspaces'): void {
@@ -181,22 +180,43 @@ function openSessionAdmin(): void {
   emit('openSessionAdmin');
 }
 
+function focusExplorerTrigger(workspaceId: string): void {
+  const trigger = Array.from(
+    document.querySelectorAll<HTMLButtonElement>('[data-workspace-files-id]'),
+  ).find((element) => element.dataset.workspaceFilesId === workspaceId);
+  trigger?.focus();
+}
+
+function closeExplorer(): void {
+  const workspaceId = explorerWorkspaceId.value;
+  explorerOpen.value = false;
+  if (workspaceId) void nextTick(() => focusExplorerTrigger(workspaceId));
+}
+
 function toggleExplorer(workspaceId: string): void {
   if (explorerOpen.value && explorerWorkspaceId.value === workspaceId) {
-    explorerOpen.value = false;
+    closeExplorer();
     return;
   }
+  const group = props.groups.find((candidate) => candidate.workspace.id === workspaceId);
+  if (!group) return;
+  const sessionId = group.sessions.some((session) => session.id === props.activeId)
+    ? props.activeId
+    : group.sessions[0]?.id;
+  if (sessionId && sessionId !== props.activeId) emit('select', sessionId);
   explorerWorkspaceId.value = workspaceId;
+  showSearch.value = false;
   explorerOpen.value = true;
+  void nextTick(() => explorerRef.value?.focus());
 }
 
 // ---------------------------------------------------------------------------
 // Session search dialog (Spotlight-style; filters title + last prompt)
 // ---------------------------------------------------------------------------
-const showSearch = ref(false);
 const sessionSearchKeys = isAppleShortcutPlatform() ? ['⌘', 'K'] : ['Ctrl', 'K'];
 
 function openSearch(): void {
+  if (explorerOpen.value) return;
   // Sessions are loaded per-workspace (first page only); lazily drain the rest
   // so the dialog's client-side filter covers everything.
   emit('loadAllSessions');
@@ -904,7 +924,7 @@ watch([() => props.collapsed, update.hasUpdate], ([collapsed, hasUpdate]) => {
       </div>
 
       <!-- New chat + new workspace buttons -->
-      <div class="btn-wrap">
+      <div v-if="!explorerOpen" class="btn-wrap">
         <button class="btn-new-chat" type="button" @click.stop="emit('create')">
           <Icon name="chat-new" />
           <span>{{ t('sidebar.newChat') }}</span>
@@ -918,7 +938,7 @@ watch([() => props.collapsed, update.hasUpdate], ([collapsed, hasUpdate]) => {
           <Icon name="folder" />
         </IconButton>
       </div>
-      <div v-if="expertOpinionAvailable" class="btn-wrap expert-opinion-wrap">
+      <div v-if="!explorerOpen && expertOpinionAvailable" class="btn-wrap expert-opinion-wrap">
         <button
           class="btn-new-chat btn-expert-opinion"
           type="button"
@@ -932,7 +952,7 @@ watch([() => props.collapsed, update.hasUpdate], ([collapsed, hasUpdate]) => {
 
       <!-- Session search — opens the Spotlight-style search dialog. Last fixed
            row above the list, so it carries the scroll-linked seam. -->
-      <div class="search-wrap" :class="{ 'search-wrap--scrolled': sessionsScrolled }">
+      <div v-if="!explorerOpen" class="search-wrap" :class="{ 'search-wrap--scrolled': sessionsScrolled }">
         <button class="search" type="button" @click="openSearch">
           <Icon class="search-icon" name="search" />
           <span class="search-input">{{ t('sidebar.search') }}</span>
@@ -941,11 +961,12 @@ watch([() => props.collapsed, update.hasUpdate], ([collapsed, hasUpdate]) => {
       </div>
 
       <WorkspaceExplorer
+        ref="explorerRef"
         v-show="explorerOpen"
         :active="explorerOpen"
         :workspace="explorerWorkspace"
         :session-id="explorerSessionId"
-        @close="explorerOpen = false"
+        @close="closeExplorer"
         @open-file="emit('openFile', $event)"
       />
 
@@ -1232,7 +1253,7 @@ watch([() => props.collapsed, update.hasUpdate], ([collapsed, hasUpdate]) => {
 
       <!-- Footer: settings entry pinned under the session list. The row is the
            growing side that truncates; a fixed side would sit beside it. -->
-      <div class="side-footer">
+      <div class="side-footer" v-if="!explorerOpen">
         <div class="side-footer-account">
           <button class="btn-settings" type="button" @click.stop="emit('openSettings')">
             <Icon name="settings" />
@@ -1324,7 +1345,7 @@ watch([() => props.collapsed, update.hasUpdate], ([collapsed, hasUpdate]) => {
     </Menu>
     <!-- Session search dialog (Cmd/Ctrl+K) -->
     <SearchSessionsDialog
-      v-if="showSearch"
+      v-if="showSearch && !explorerOpen"
       :sessions="sessions"
       :workspaces="workspaces"
       :active-id="activeId"

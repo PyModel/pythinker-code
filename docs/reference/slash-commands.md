@@ -64,7 +64,7 @@ Some commands are only available in the idle state. Executing these commands whi
 
 `/tower` is experimental and hidden by default. Set `PYTHINKER_CODE_EXPERIMENTAL_TOWER=1` before starting Pythinker Code CLI to enable it. It requires the `agent-core-v2` engine and is unavailable when `PYTHINKER_CODE_LEGACY_FLAG=1`. A workspace can have one active tower at a time.
 
-`/discussion` is experimental and hidden by default. Set `PYTHINKER_CODE_EXPERIMENTAL_EXPERT_TALK=1` before starting Pythinker Code CLI to enable it. It requires the v2 engine. The configured pair persists in the session, while `/discussion arm` applies only to the next accepted message. Discussion model stages have read-only tools. After the opinions complete, `/discussion review` asks the Architect to review the Builder, `/discussion finish` uses the latest Architect answer, and `/discussion fuse` asks a fresh Architect model to create Fusion.
+`/discussion` is experimental and hidden by default. Set `PYTHINKER_CODE_EXPERIMENTAL_EXPERT_TALK=1` before starting Pythinker Code CLI to enable it. It requires the v2 engine. The configured pair persists in the session, while `/discussion arm` applies only to the next accepted message. Discussion model stages have read-only tools. After the opinions complete, `/discussion review` asks the Architect to show Agreement, Divergence, and Final analysis, `/discussion finish` uses the latest Architect answer, and `/discussion fuse` asks a fresh Architect model to create Fusion.
 
 ## Autonomous Goal
 

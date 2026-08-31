@@ -18,7 +18,7 @@ import { formatErrorMessage } from '../utils/event-payload';
 import type { SlashCommandHost } from './dispatch';
 
 const DISCLOSURE =
-  '2–4 model stages, at most 56 provider attempts. Architect review and Fusion run only when selected. Only read-only tools are available.';
+  '2–4 model stages, at most 56 provider attempts. Discussion comparison and Fusion run only when selected. Only read-only tools are available.';
 
 interface ExpertTalkWatcher {
   readonly runId: string;
@@ -131,11 +131,11 @@ function showExpertTalkMenu(
   if (status.activeRun !== undefined) {
     options.push({ value: 'status', label: 'View progress' });
     if (status.activeRun.status === 'OPINIONS_READY') {
-      options.push({ value: 'review', label: 'Architect review Builder' });
+      options.push({ value: 'review', label: 'Compare opinions' });
       options.push({ value: 'finish', label: 'Finish with Architect' });
       options.push({ value: 'fuse', label: 'Fuse now' });
     } else if (status.activeRun.status === 'REVIEW_READY') {
-      options.push({ value: 'finish', label: 'Finish with Architect review' });
+      options.push({ value: 'finish', label: 'Finish with comparison' });
       options.push({ value: 'fuse', label: 'Fuse now' });
     }
     options.push({ value: 'cancel', label: 'Stop run', tone: 'danger' });

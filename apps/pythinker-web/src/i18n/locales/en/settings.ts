@@ -223,7 +223,7 @@ export default {
     unavailable: 'Discussion requires the v2 engine and an active session.',
     modelsRequired: 'Configure at least two models with tool use and a positive context limit.',
     lead: 'Architect',
-    leadHint: 'Runs independently, reviews the Builder, then provides a fresh Fusion call.',
+    leadHint: 'Runs independently, compares both opinions, then provides a fresh Fusion call.',
     peer: 'Builder',
     peerHint: 'Runs independently. The Builder does not review the Architect.',
     missingModel: 'Missing model: {id}',

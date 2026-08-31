@@ -1,15 +1,15 @@
 <script setup lang="ts">
 import MascotSprite from '../MascotSprite.vue';
 
-defineProps<{ label: string }>();
+defineProps<{ label: string; state: 'running' | 'waiting' }>();
 </script>
 
 <template>
   <div class="working-indicator" role="status">
     <span class="wi-mascot" aria-hidden="true">
-      <MascotSprite state="running" :size="40" />
+      <MascotSprite :state="state" :size="40" />
     </span>
-    <span class="wi-label ui-shimmer">{{ label }}</span>
+    <span class="wi-label" :class="{ 'ui-shimmer': state === 'running' }">{{ label }}</span>
   </div>
 </template>
 

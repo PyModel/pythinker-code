@@ -286,7 +286,12 @@ const assistantTurnModels = computed(() => {
   return models;
 });
 
+const workingState = computed<'running' | 'waiting'>(() => (
+  props.expertTalkRuns.some((run) => run.state === 'waiting') ? 'waiting' : 'running'
+));
+
 const workingLabel = computed(() => {
+  if (workingState.value === 'waiting') return t('conversation.waiting');
   const last = props.turns.at(-1);
   if (last?.role !== 'assistant') return t('conversation.requesting');
   const hasContent = assistantTurnModels.value.get(last.id)?.all.some((block) =>
@@ -977,7 +982,7 @@ function continueFailedTurn(): void {
          unfinished prompt (covers a page refresh mid-stream, where the
          optimistic submit flag was lost but the main turn is still in flight). -->
     <div v-if="showWorking" class="sending-placeholder">
-      <WorkingIndicator :label="workingLabel" />
+      <WorkingIndicator :label="workingLabel" :state="workingState" />
     </div>
 
     <!-- Inline queue — pending user messages shown after the running turn.

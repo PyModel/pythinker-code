@@ -108,7 +108,7 @@ export function buildExpertTalkStatusLines(
         ),
       ),
       phaseLine(
-        'Architect reviews Builder',
+        'Discussion comparison',
         phaseState(
           [artifactState(run, 'review', run.artifacts.leadReview)],
           run.status === 'REVIEWING',
@@ -130,7 +130,7 @@ export function buildExpertTalkStatusLines(
   lines.push(
     '',
     muted('2–4 model stages · at most 56 provider attempts'),
-    muted('Architect review and Fusion are optional · read-only tools'),
+    muted('Discussion comparison and Fusion are optional · read-only tools'),
   );
   return lines;
 }
@@ -286,6 +286,17 @@ function renderAgentGrid(left: string[], right: string[], width: number): string
   );
 }
 
+function renderSectionHeader(symbol: string, title: string, detail: string, width: number): string[] {
+  const heading = `${symbol} ${currentTheme.boldFg('text', title)}`;
+  const combined = `${heading} ${currentTheme.fg('textDim', `| ${detail}`)}`;
+  if (visibleWidth(combined) <= width) return [combined];
+  return [
+    ...wrapTextWithAnsi(heading, width),
+    ...wrapTextWithAnsi(currentTheme.fg('textDim', detail), Math.max(1, width - 2))
+      .map((line) => `  ${line}`),
+  ];
+}
+
 export function buildExpertTalkExchangeLines(
   run: ExpertTalkRunV1,
   models: Record<string, ModelAlias>,
@@ -327,11 +338,16 @@ export function buildExpertTalkExchangeLines(
   if (showReview) {
     lines.push(
       '',
-      `${currentTheme.fg('primary', '◆')} ${currentTheme.boldFg('text', 'ARCHITECT REVIEW OF BUILDER')} ${currentTheme.fg('textDim', `| ${lead}`)}`,
+      ...renderSectionHeader(
+        currentTheme.fg('primary', '◆'),
+        'DISCUSSION — AGREEMENT & DIVERGENCE',
+        `${lead} · Architect comparison`,
+        safeWidth,
+      ),
       ...renderArtifact(
         run,
         'review',
-        'Architect reviews Builder',
+        'Discussion comparison',
         review,
         run.progress?.leadReview,
         safeWidth,
@@ -344,7 +360,12 @@ export function buildExpertTalkExchangeLines(
   if (showFusion) {
     lines.push(
       '',
-      `${currentTheme.fg('success', '⧉')} ${currentTheme.boldFg('text', 'FUSION')} ${currentTheme.fg('textDim', `| ${lead} · fresh Architect inference`)}`,
+      ...renderSectionHeader(
+        currentTheme.fg('success', '⧉'),
+        'FUSION',
+        `${lead} · fresh Architect inference`,
+        safeWidth,
+      ),
       ...renderArtifact(run, 'fusion', 'Critical fusion', fusion, run.progress?.fusion, safeWidth),
     );
   }

@@ -114,4 +114,25 @@ describe('Discussion session transcript', () => {
     await wrapper.get('[data-testid="expert-opinion-build"]').trigger('click');
     expect(wrapper.emitted('buildExpertTalk')).toEqual([['Consolidated answer']]);
   });
+
+  it('shows a static waiting mascot while Discussion pauses for an action', async () => {
+    const wrapper = mountPane();
+    const waitingRun: AppExpertTalkRun = {
+      ...run,
+      state: 'waiting',
+      stage: 'review',
+      fusion: undefined,
+      result: undefined,
+    };
+
+    await wrapper.setProps({
+      turns: [turns()[0]!],
+      expertTalkRuns: [waitingRun],
+      working: true,
+    });
+
+    expect(wrapper.get('.wi-label').text()).toBe('Waiting…');
+    expect(wrapper.get('.wi-label').classes()).not.toContain('ui-shimmer');
+    expect(wrapper.get('.wi-mascot img').attributes('src')).toContain('mascot-idle');
+  });
 });
