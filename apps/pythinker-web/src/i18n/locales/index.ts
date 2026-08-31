@@ -19,9 +19,11 @@ import en_mention from './en/mention';
 import en_mobile from './en/mobile';
 import en_model from './en/model';
 import en_onboarding from './en/onboarding';
+import en_panel from './en/panel';
 import en_providers from './en/providers';
 import en_question from './en/question';
 import en_recovery from './en/recovery';
+import en_selection from './en/selection';
 import en_sessions from './en/sessions';
 import en_settings from './en/settings';
 import en_sideChat from './en/sideChat';
@@ -60,9 +62,11 @@ export const messages = {
     mobile: en_mobile,
     model: en_model,
     onboarding: en_onboarding,
+    panel: en_panel,
     providers: en_providers,
     question: en_question,
     recovery: en_recovery,
+    selection: en_selection,
     sessions: en_sessions,
     settings: en_settings,
     sideChat: en_sideChat,

@@ -4,6 +4,7 @@ import {
   getLiveSessionById,
   type AgentTaskInfo,
   type Scope,
+  type SubagentBindingProvenance,
 } from '@pymodel/agent-core-v2';
 import { ErrorCode } from '../protocol/error-codes';
 import {
@@ -13,8 +14,9 @@ import {
   getTaskResponseSchema,
   listTasksQuerySchema,
   listTasksResponseSchema,
+  type ListTasksQuery,
 } from '../protocol/rest-task';
-import type { Task, TaskKind, TaskStatus } from '../protocol/task';
+import type { SubagentRoutingWire, Task, TaskKind, TaskStatus } from '../protocol/task';
 import { z } from 'zod';
 
 import { errEnvelope, okEnvelope } from '../envelope';
@@ -78,12 +80,25 @@ export function registerTasksRoutes(app: TasksRouteHost, core: Scope): void {
         return;
       }
 
-      const all = (resolved.tasks?.list(false) ?? []).map((info) =>
-        toWireTask(session_id, info),
+      const query = req.query as ListTasksQuery;
+      const infos = (resolved.tasks?.list(false) ?? []).filter(
+        (info) => query.status === undefined || mapStatus(info.status) === query.status,
       );
-      const query = req.query as { status?: TaskStatus };
-      const items =
-        query.status !== undefined ? all.filter((t) => t.status === query.status) : all;
+      const items = await Promise.all(
+        infos.map(async (info) => {
+          const output =
+            query.with_output === true &&
+            resolved.tasks !== undefined &&
+            (query.output_status !== 'running' || mapStatus(info.status) === 'running')
+              ? await readTaskOutput(
+                  resolved.tasks,
+                  info.taskId,
+                  query.output_bytes ?? DEFAULT_TASK_OUTPUT_PREVIEW_BYTES,
+                )
+              : undefined;
+          return toWireTask(session_id, info, output);
+        }),
+      );
       reply.send(okEnvelope({ items }, req.id));
     },
   );
@@ -119,17 +134,14 @@ export function registerTasksRoutes(app: TasksRouteHost, core: Scope): void {
       }
 
       const query = req.query as { with_output?: boolean; output_bytes?: number };
-      let output: { preview: string; bytes: number } | undefined;
-      if (query.with_output === true && resolved.tasks !== undefined) {
-        const tailBytes = query.output_bytes ?? DEFAULT_TASK_OUTPUT_PREVIEW_BYTES;
-        try {
-          const preview = await resolved.tasks.readOutput(task_id, tailBytes);
-          if (preview.length > 0) {
-            output = { preview, bytes: Buffer.byteLength(preview, 'utf-8') };
-          }
-        } catch {
-        }
-      }
+      const output =
+        query.with_output === true && resolved.tasks !== undefined
+          ? await readTaskOutput(
+              resolved.tasks,
+              task_id,
+              query.output_bytes ?? DEFAULT_TASK_OUTPUT_PREVIEW_BYTES,
+            )
+          : undefined;
 
       reply.send(okEnvelope(toWireTask(session_id, found, output), req.id));
     },
@@ -269,6 +281,20 @@ function isTerminalStatus(status: TaskStatus): boolean {
   return TERMINAL_WIRE_STATUSES.has(status);
 }
 
+async function readTaskOutput(
+  tasks: IAgentTaskService,
+  taskId: string,
+  tailBytes: number,
+): Promise<{ preview: string; bytes: number } | undefined> {
+  try {
+    const output = await tasks.getOutputSnapshot(taskId, tailBytes);
+    if (output.preview.length === 0) return undefined;
+    return { preview: output.preview, bytes: output.previewBytes };
+  } catch {
+    return undefined;
+  }
+}
+
 function toWireTask(
   sessionId: string,
   info: AgentTaskInfo,
@@ -298,6 +324,12 @@ function toWireTask(
   if (info.kind === 'agent' && info.thinkingEffort !== undefined) {
     base.thinking_effort = info.thinkingEffort;
   }
+  if (info.kind === 'agent' && info.routing !== undefined) {
+    base.routing = toRoutingWire(info.routing);
+  }
+  if (info.kind === 'agent' && info.currentRoutingEnvironmentRevision !== undefined) {
+    base.current_routing_env_revision = info.currentRoutingEnvironmentRevision;
+  }
   if (info.kind === 'agent' && info.agentId !== undefined) {
     base.agent_id = info.agentId;
   }
@@ -315,6 +347,19 @@ function toWireTask(
     base.output_bytes = output.bytes;
   }
   return base;
+}
+
+export function toRoutingWire(routing: SubagentBindingProvenance): SubagentRoutingWire {
+  return {
+    operation: routing.operation,
+    profile_source: routing.profileSource,
+    model_source: routing.modelSource,
+    policy_mode: routing.policyMode,
+    policy_source: routing.policySource,
+    feature_source: routing.featureSource,
+    routing_env_revision: routing.resolvedFromRoutingEnvironmentRevision,
+    route_decision: routing.routeDecisionFingerprint,
+  };
 }
 
 function sessionNotFound(sid: string, requestId: string): unknown {

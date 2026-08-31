@@ -89,9 +89,12 @@ import {
   type SubagentConfig,
   wrapSubagentModelError,
 } from '#/session/subagent/configSection';
+import { prospectiveModelView, validateSubagentModelPolicy } from '#/session/subagent/policy';
 import { SECONDARY_MODEL_FLAG_ID } from '#/session/subagent/flag';
 import {
   DEFAULT_DYNAMIC_WORKFLOW_TIMEOUT_MS,
+  DYNAMIC_WORKFLOW_MAX_CONCURRENCY_ENV,
+  resolveDynamicWorkflowMaxConcurrency,
   resolveDynamicWorkflowTimeoutMs,
   DYNAMIC_WORKFLOW_SECTION,
   DYNAMIC_WORKFLOW_TIMEOUT_ENV,
@@ -219,7 +222,7 @@ describe('Agent config', () => {
     });
 
     expect(ctx.newEvents()).toMatchInlineSnapshot(`
-      [wire] config.update            { "agentId": "main", "profileName": "test-profile", "systemPrompt": "Profile system prompt.", "environmentDisclosure": { "cwd": "<cwd>", "date": { "disclosed": false } }, "agentsMdPaths": [], "disallowedTools": [], "time": "<time>" }
+      [wire] config.update            { "agentId": "main", "profileName": "test-profile", "systemPrompt": "Profile system prompt.", "environmentDisclosure": { "cwd": "<cwd>" }, "agentsMdPaths": [], "disallowedTools": [], "time": "<time>" }
       [emit] agent.status.updated     { "time": "<time>", "agentId": "main", "model": "mock-model", "maxContextTokens": 1000000 }
       [wire] tools.set_active_tools   { "agentId": "main", "names": [ "Read" ], "time": "<time>" }
     `);
@@ -1695,6 +1698,37 @@ describe('dynamic workflow config section', () => {
     env[DYNAMIC_WORKFLOW_TIMEOUT_ENV] = '3000';
     expect(resolveDynamicWorkflowTimeoutMs(config)).toBe(3000);
 
+    env[DYNAMIC_WORKFLOW_TIMEOUT_ENV] = '0';
+    expect(resolveDynamicWorkflowTimeoutMs(config)).toBe(0);
+
+    env[DYNAMIC_WORKFLOW_TIMEOUT_ENV] = '';
+    expect(resolveDynamicWorkflowTimeoutMs(config)).toBe(DEFAULT_DYNAMIC_WORKFLOW_TIMEOUT_MS);
+
+    disposables.dispose();
+  });
+
+  it('resolves max_concurrency through the config and environment layers', async () => {
+    const env: Record<string, string> = {};
+    const { config, disposables } = await createConfig(
+      env,
+      '[dynamic_workflow]\nmax_concurrency = 3\n',
+    );
+
+    expect(resolveDynamicWorkflowMaxConcurrency(config, env[DYNAMIC_WORKFLOW_MAX_CONCURRENCY_ENV])).toBe(3);
+
+    env[DYNAMIC_WORKFLOW_MAX_CONCURRENCY_ENV] = '2';
+    expect(resolveDynamicWorkflowMaxConcurrency(config, env[DYNAMIC_WORKFLOW_MAX_CONCURRENCY_ENV])).toBe(2);
+
+    env[DYNAMIC_WORKFLOW_MAX_CONCURRENCY_ENV] = 'invalid';
+    expect(() =>
+      resolveDynamicWorkflowMaxConcurrency(
+        config,
+        env[DYNAMIC_WORKFLOW_MAX_CONCURRENCY_ENV],
+      ),
+    ).toThrow(
+      'PYTHINKER_CODE_AGENT_DYNAMIC_WORKFLOW_MAX_CONCURRENCY must be a positive integer, got "invalid".',
+    );
+
     disposables.dispose();
   });
 
@@ -2655,6 +2689,128 @@ describe('ConfigService replaceSections', () => {
     await config.replace(DEFAULT_MODEL_SECTION, 'acme/m1');
     await config.replace(DEFAULT_MODEL_SECTION, null);
     expect(config.inspect(DEFAULT_MODEL_SECTION).userValue).toBeUndefined();
+
+    disposables.dispose();
+  });
+
+  it('replace drops omitted keys from a section with a custom TOML serializer', async () => {
+    const seed = ['[loop_control]', 'max_steps_per_turn = 5', 'max_attempts_per_step = 3', ''].join('\n');
+    const { config, disposables, storage } = await createSectionsConfig(seed);
+    await config.replace(LOOP_CONTROL_SECTION, { maxStepsPerTurn: 7 });
+    const onDisk = new TextDecoder().decode(await storage.read('', 'config.toml'));
+    expect(onDisk).toContain('max_steps_per_turn = 7');
+    expect(onDisk).not.toContain('max_attempts_per_step');
+    await config.reload();
+    expect(config.get(LOOP_CONTROL_SECTION)).toEqual({ maxStepsPerTurn: 7 });
+    disposables.dispose();
+  });
+
+  it('replace and replaceSections drop keys the new value does not carry from disk', async () => {
+    const seed = [
+      '[secondary_model]',
+      'default_model = "acme/m1"',
+      'default_effort = "low"',
+      'force = true',
+      '',
+      '[secondary_model.models]',
+      '"acme/m1" = "fast"',
+      '',
+    ].join('\n');
+    const { config, disposables, storage } = await createSectionsConfig(seed);
+
+    await config.replaceSections({ [SECONDARY_MODEL_SECTION]: { defaultModel: 'acme/m1' } });
+    let onDisk = new TextDecoder().decode(await storage.read('', 'config.toml'));
+    expect(onDisk).not.toContain('force');
+    expect(onDisk).not.toContain('default_effort');
+    expect(onDisk).not.toContain('[secondary_model.models]');
+    await config.reload();
+    expect(config.get(SECONDARY_MODEL_SECTION)).toEqual({ defaultModel: 'acme/m1' });
+
+    await config.replace(SECONDARY_MODEL_SECTION, { defaultModel: 'acme/m1', force: true });
+    await config.replace(SECONDARY_MODEL_SECTION, { defaultModel: 'acme/m1' });
+    onDisk = new TextDecoder().decode(await storage.read('', 'config.toml'));
+    expect(onDisk).not.toContain('force');
+    await config.reload();
+    expect(config.get(SECONDARY_MODEL_SECTION)).toEqual({ defaultModel: 'acme/m1' });
+
+    disposables.dispose();
+  });
+
+  it('previewReplaceSections returns the prospective effective config with zero side effects', async () => {
+    const { config, disposables, store, storage } = await createSectionsConfig();
+    const setSpy = vi.spyOn(store, 'set');
+    const events: string[] = [];
+    disposables.add(config.onDidChangeConfiguration((e) => events.push(e.domain)));
+    const diskBefore = new TextDecoder().decode(await storage.read('', 'config.toml'));
+
+    const preview = config.previewReplaceSections({
+      [MODELS_SECTION]: { 'acme/m2': { provider: 'acme', model: 'm2', maxContextSize: 2000 } },
+      [DEFAULT_MODEL_SECTION]: null,
+    });
+
+    expect(Object.keys(preview[MODELS_SECTION] as Record<string, unknown>)).toEqual(['acme/m2']);
+    expect(preview[DEFAULT_MODEL_SECTION]).toBeUndefined();
+    expect(preview[PROVIDERS_SECTION]).toEqual({ acme: { type: 'openai', apiKey: 'sk-acme' } });
+    expect(preview[THINKING_SECTION]).toEqual({ enabled: true });
+    expect(setSpy).not.toHaveBeenCalled();
+    expect(events).toEqual([]);
+    expect(config.get(DEFAULT_MODEL_SECTION)).toBe('acme/m1');
+    expect(Object.keys(config.get<Record<string, unknown>>(MODELS_SECTION))).toEqual(['acme/m1']);
+    expect(new TextDecoder().decode(await storage.read('', 'config.toml'))).toBe(diskBefore);
+
+    await config.replaceSections({
+      [MODELS_SECTION]: { 'acme/m2': { provider: 'acme', model: 'm2', maxContextSize: 2000 } },
+      [DEFAULT_MODEL_SECTION]: null,
+    });
+    expect(config.get(MODELS_SECTION)).toEqual(preview[MODELS_SECTION]);
+    expect(config.get(DEFAULT_MODEL_SECTION)).toBeUndefined();
+
+    expect(() => config.previewReplaceSections({ [MODELS_SECTION]: { broken: 'x' } })).toThrow();
+    expect(setSpy).toHaveBeenCalledTimes(1);
+
+    disposables.dispose();
+  });
+
+  it('a prospective model view from previewReplaceSections validates removals and swaps before any write', async () => {
+    const seed = [
+      '[providers.acme]',
+      'type = "openai"',
+      'api_key = "sk-acme"',
+      '',
+      '[models."acme/luna"]',
+      'provider = "acme"',
+      'model = "luna"',
+      'max_context_size = 1000',
+      '',
+    ].join('\n');
+    const { config, disposables, store } = await createSectionsConfig(seed);
+    const setSpy = vi.spyOn(store, 'set');
+    const luna = { mode: 'default', defaultModel: 'acme/luna' } as const;
+    const sol = { mode: 'default', defaultModel: 'acme/sol' } as const;
+    const solRecord = { provider: 'acme', model: 'sol', maxContextSize: 1000 };
+
+    const current = config.previewReplaceSections({});
+    expect(() =>
+      validateSubagentModelPolicy(luna, prospectiveModelView(current[PROVIDERS_SECTION], current[MODELS_SECTION])),
+    ).not.toThrow();
+
+    const removed = config.previewReplaceSections({ [MODELS_SECTION]: {} });
+    expect(() =>
+      validateSubagentModelPolicy(luna, prospectiveModelView(removed[PROVIDERS_SECTION], removed[MODELS_SECTION])),
+    ).toThrow(/acme\/luna/);
+
+    const swapped = config.previewReplaceSections({ [MODELS_SECTION]: { 'acme/sol': solRecord } });
+    const swappedView = prospectiveModelView(swapped[PROVIDERS_SECTION], swapped[MODELS_SECTION]);
+    expect(() => validateSubagentModelPolicy(sol, swappedView)).not.toThrow();
+    expect(() => validateSubagentModelPolicy(luna, swappedView)).toThrow();
+    expect(setSpy).not.toHaveBeenCalled();
+
+    await config.replaceSections({
+      [MODELS_SECTION]: { 'acme/sol': solRecord },
+      [SECONDARY_MODEL_SECTION]: { defaultModel: 'acme/sol' },
+    });
+    expect(setSpy).toHaveBeenCalledTimes(1);
+    expect(config.get(SECONDARY_MODEL_SECTION)).toEqual({ defaultModel: 'acme/sol' });
 
     disposables.dispose();
   });

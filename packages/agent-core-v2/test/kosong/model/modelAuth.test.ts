@@ -9,6 +9,7 @@ import {
   deriveProviderId,
   effectiveModelConfig,
   resolveModelAuthMaterial,
+  resolveModelForReady,
 } from '#/kosong/model/modelAuth';
 
 function authMaterial(args: {
@@ -132,5 +133,88 @@ describe('deriveProviderId', () => {
   it('keys flat providers by the baseUrl origin', () => {
     expect(deriveProviderId('https://api.example.test/v1')).toBe('api.example.test');
     expect(deriveProviderId('not-a-url')).toBe('not-a-url');
+  });
+});
+
+describe('resolveModelForReady', () => {
+  const providers: Readonly<Record<string, ProviderConfig>> = {
+    api: { type: 'openai', apiKey: 'sk-example' },
+  };
+
+  it('rejects an absent, blank, or dangling default model', () => {
+    expect(resolveModelForReady(undefined, {}, providers)).toEqual({
+      resolved: false,
+      reason: 'no-default',
+    });
+    expect(resolveModelForReady(' ', {}, providers)).toEqual({
+      resolved: false,
+      reason: 'no-default',
+    });
+    expect(resolveModelForReady('gone', {}, providers)).toEqual({
+      resolved: false,
+      reason: 'dangling-alias',
+    });
+  });
+
+  it('resolves an explicit or default provider', () => {
+    const explicit = { m: { provider: 'api', model: 'gpt', maxContextSize: 4096 } };
+    const inherited = { m: { model: 'gpt', maxContextSize: 4096 } };
+    expect(resolveModelForReady('m', explicit, providers)).toEqual({ resolved: true });
+    expect(resolveModelForReady('m', inherited, providers, 'api')).toEqual({ resolved: true });
+  });
+
+  it('reports a missing explicit or default provider', () => {
+    expect(
+      resolveModelForReady(
+        'm',
+        { m: { provider: 'gone', model: 'gpt', maxContextSize: 4096 } },
+        providers,
+      ),
+    ).toEqual({ resolved: false, reason: 'provider-missing' });
+    expect(
+      resolveModelForReady(
+        'm',
+        { m: { model: 'gpt', maxContextSize: 4096 } },
+        providers,
+        'gone',
+      ),
+    ).toEqual({ resolved: false, reason: 'provider-missing' });
+  });
+
+  it('resolves a providerless flat model', () => {
+    expect(
+      resolveModelForReady(
+        'flat',
+        {
+          flat: {
+            baseUrl: 'https://api.example.test/v1',
+            model: 'gpt',
+            protocol: 'openai',
+            maxContextSize: 4096,
+          },
+        },
+        {},
+      ),
+    ).toEqual({ resolved: true });
+  });
+
+  it('requires a wire name, positive context size, and protocol', () => {
+    expect(resolveModelForReady('m', { m: { provider: 'api', maxContextSize: 4096 } }, providers))
+      .toEqual({ resolved: false, reason: 'unresolvable' });
+    expect(resolveModelForReady('m', { m: { provider: 'api', model: 'gpt' } }, providers))
+      .toEqual({ resolved: false, reason: 'unresolvable' });
+    expect(
+      resolveModelForReady(
+        'm',
+        {
+          m: {
+            baseUrl: 'https://api.example.test/v1',
+            model: 'gpt',
+            maxContextSize: 4096,
+          },
+        },
+        {},
+      ),
+    ).toEqual({ resolved: false, reason: 'unresolvable' });
   });
 });

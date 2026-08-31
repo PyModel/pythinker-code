@@ -12,7 +12,6 @@
     .ptx-update-icon .arrow {
       transform-box: fill-box;
       transform-origin: center;
-      animation: ptx-update-vibrate 3s ease-in-out infinite;
     }
 
     @keyframes ptx-update-vibrate {
@@ -25,6 +24,9 @@
       94% { transform: translate(.4px, -.1px) rotate(.8deg); }
       97% { transform: translate(0, 0) rotate(0deg); }
     }
+
+    /* motion runs only while the host is working (.ptx-live) or hovered */
+    :is(.ptx-live .ptx-update-icon, .ptx-update-icon:hover, :is(button, a, [role="button"], .ptx-hover):hover .ptx-update-icon) .arrow { animation: ptx-update-vibrate 3s ease-in-out infinite; }
 
     @media (prefers-reduced-motion: reduce) {
       .ptx-update-icon .arrow {

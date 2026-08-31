@@ -22,6 +22,8 @@ import type { IConfigService } from '#/app/config/config';
 import type { IAgentIdentity } from '#/app/agentIdentity/agentIdentity';
 import type { IModelService, ModelRecord } from '#/kosong/model/model';
 import type { IProviderService, ProviderConfig } from '#/kosong/provider/provider';
+import { ProviderService } from '#/kosong/provider/providerService';
+import '#/kosong/provider/providers/pythinker/pythinker.contrib';
 
 import { stubAgentIdentity } from '../agentIdentity/stubs';
 import { stubBootstrap } from '../bootstrap/stubs';
@@ -109,6 +111,7 @@ describe('AuthSummaryService', () => {
     const providerService = {
       list: () => providers,
       get: (name: string) => providers[name],
+      getDefaultProvider: () => undefined,
     } as unknown as IProviderService;
     const modelService = {
       list: () => models,
@@ -153,20 +156,58 @@ describe('AuthSummaryService', () => {
     });
     expect(getCachedAccessToken).toHaveBeenCalledWith('oauth', oauthRef);
   });
+
+  it('resolves a providerless OAuth model when the default provider is blank', async () => {
+    const providerService = new ProviderService();
+    providerService.loadAll({}, '   ');
+    const modelService = {
+      list: () => ({
+        flat: {
+          protocol: 'openai',
+          model: 'model',
+          baseUrl: 'https://flat.example.test/v1',
+          oauth: oauthRef,
+          maxContextSize: 4096,
+        },
+      }),
+      getDefaultModel: () => 'flat',
+    } as unknown as IModelService;
+    const getCachedAccessToken = vi
+      .fn<IOAuthTokenService['getCachedAccessToken']>()
+      .mockResolvedValue('access-token');
+    const oauth = {
+      _serviceBrand: undefined,
+      status: vi.fn(),
+      getCachedAccessToken,
+      resolveTokenProvider: () => undefined,
+    } as unknown as IOAuthTokenService;
+    const config = { reload: async () => {} } as unknown as IConfigService;
+    const log = { warn: vi.fn() } as unknown as ILogger;
+    const service = new AuthSummaryService(providerService, modelService, config, oauth, log);
+
+    await expect(service.ensureReady('flat')).resolves.toBeUndefined();
+    expect(getCachedAccessToken).toHaveBeenCalledWith('flat.example.test', oauthRef);
+  });
 });
 
 describe('AuthStatusService', () => {
-  it('reports readiness from provider count and default model only', async () => {
+  it('reports whether the default model can resolve', async () => {
     const providerService = {
+      ready: Promise.resolve(),
       list: () => ({ api: { type: 'openai', apiKey: 'sk-example' } }),
+      getDefaultProvider: () => undefined,
     } as unknown as IProviderService;
     const modelService = {
       ready: Promise.resolve(),
+      list: () => ({
+        'api/model': { provider: 'api', model: 'model', maxContextSize: 4096 },
+      }),
       getDefaultModel: () => 'api/model',
     } as unknown as IModelService;
 
     await expect(new AuthStatusService(providerService, modelService).get()).resolves.toEqual({
       ready: true,
+      models_ready: true,
       providers_count: 1,
       default_model: 'api/model',
     });

@@ -8,7 +8,8 @@ import { Error2, ErrorCodes } from '#/errors';
 import { toInputJsonSchema } from '#/tool/input-schema';
 import { IConfigService } from '#/app/config/config';
 import { IFlagService } from '#/app/flag/flag';
-import { ISessionDynamicWorkflowService, type SessionDynamicWorkflowTask } from '#/features/dynamic_workflow/session/sessionDynamicWorkflow';
+import {
+  type SessionDynamicWorkflowRunResult, ISessionDynamicWorkflowService, type SessionDynamicWorkflowTask } from '#/features/dynamic_workflow/session/sessionDynamicWorkflow';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentDynamicWorkflowService } from '#/features/dynamic_workflow/agent/dynamic_workflow';
@@ -47,6 +48,11 @@ interface AgentDynamicWorkflowSpawnSpec {
   readonly index: number;
   readonly item: string;
   readonly prompt: string;
+  readonly task?: {
+    readonly subagent_type?: string;
+    readonly model?: string;
+    readonly thinking?: string;
+  };
 }
 
 interface AgentDynamicWorkflowResumeSpec {
@@ -66,6 +72,7 @@ interface DynamicWorkflowRunResult {
   readonly state?: 'started' | 'not_started';
   readonly result?: string;
   readonly error?: string;
+  readonly binding?: SessionDynamicWorkflowRunResult['binding'];
 }
 
 export class AgentDynamicWorkflowTool implements IAgentDynamicWorkflowTool {
@@ -109,7 +116,8 @@ export class AgentDynamicWorkflowTool implements IAgentDynamicWorkflowTool {
   }
 
   resolveExecution(args: AgentDynamicWorkflowToolInput): ToolExecution {
-    const agentCount = (args.items?.length ?? 0) + Object.keys(args.resume_agent_ids ?? {}).length;
+    const agentCount =
+      (args.items?.length ?? 0) + (args.tasks?.length ?? 0) + Object.keys(args.resume_agent_ids ?? {}).length;
     return {
       accesses: ToolAccesses.all(),
       description: `Launching agent dynamic_workflow: ${args.description}`,
@@ -171,12 +179,45 @@ export class AgentDynamicWorkflowTool implements IAgentDynamicWorkflowTool {
         fork,
       });
     }
-    const profileName = plan?.profileName ?? DEFAULT_SUBAGENT_TYPE;
     const timeoutMs = resolveDynamicWorkflowTimeoutMs(this.config);
     const specs = await createAgentDynamicWorkflowSpecs(args, (agentId) =>
       this.dynamicWorkflowService.getDynamicWorkflowItem({ callerAgentId: this.callerAgentId, agentId }),
     );
+    const plansByIndex = new Map<number, SubagentSpawnPlan>();
+    for (const spec of specs) {
+      if (spec.kind !== 'spawn') continue;
+      if (spec.task === undefined) {
+        plansByIndex.set(spec.index, plan!);
+        continue;
+      }
+      const profileName = spec.task.subagent_type ?? args.defaults?.subagent_type ?? args.subagent_type;
+      if (fork) {
+        const incompatible = forkIncompatibility(
+          {
+            subagent_type: profileName,
+            model: spec.task.model ?? args.model,
+            thinking: spec.task.thinking,
+          },
+          this.profile.data(),
+        );
+        if (incompatible !== undefined) {
+          throw new Error2(ErrorCodes.VALIDATION_FAILED, incompatible);
+        }
+      }
+      plansByIndex.set(
+        spec.index,
+        await this.subagents.planSpawn({
+          callerAgentId: this.callerAgentId,
+          profileName,
+          model: spec.task.model ?? args.model,
+          thinking: spec.task.thinking,
+          fork,
+        }),
+      );
+    }
     const tasks: SessionDynamicWorkflowTask<AgentDynamicWorkflowSpec>[] = specs.map((spec) => {
+      const specPlan = spec.kind === 'spawn' ? plansByIndex.get(spec.index) : undefined;
+      const profileName = specPlan?.profileName ?? DEFAULT_SUBAGENT_TYPE;
       const descriptionName = spec.kind === 'resume' ? 'resume' : profileName;
       const common = {
         data: spec,
@@ -200,7 +241,7 @@ export class AgentDynamicWorkflowTool implements IAgentDynamicWorkflowTool {
       return {
         ...common,
         kind: 'spawn' as const,
-        plan: plan!,
+        plan: specPlan!,
       };
     });
     const results = await this.dynamicWorkflowService.run({
@@ -221,7 +262,8 @@ async function createAgentDynamicWorkflowSpecs(
     agentId: agentId.trim(),
     prompt: prompt.trim(),
   }));
-  const items = (args.items ?? []).map((item) => item.trim());
+  const taskEntries = (args.tasks ?? []).map((task) => ({ ...task, item: task.item.trim() }));
+  const items = taskEntries.length > 0 ? taskEntries.map((task) => task.item) : (args.items ?? []).map((item) => item.trim());
   const itemCount = items.length;
   const resumeCount = resumeEntries.length;
   const totalCount = resumeCount + itemCount;
@@ -277,11 +319,13 @@ async function createAgentDynamicWorkflowSpecs(
         );
       }
       seenPrompts.set(prompt, index + 1);
+      const task = taskEntries[index];
       specs.push({
         kind: 'spawn',
         index: specs.length + 1,
         item,
         prompt,
+        task: task === undefined ? undefined : { subagent_type: task.subagent_type, model: task.model, thinking: task.thinking },
       });
     });
   }
@@ -319,14 +363,39 @@ function renderDynamicWorkflowResults(results: readonly DynamicWorkflowRunResult
     const mode = result.spec.kind === 'resume' ? ' mode="resume"' : '';
     const item = result.spec.item === undefined ? '' : ` item="${escapeXmlAttribute(result.spec.item)}"`;
     const state = result.state === undefined ? '' : ` state="${result.state}"`;
+    const binding = renderBindingAttributes(result.binding);
     const body = result.status === 'completed' ? (result.result ?? '') : (result.error ?? 'unknown error');
+    const encodedBody = /[&<>]/.test(body) ? escapeXmlText(body) : body;
+    const bodyEncoding = encodedBody === body ? '' : ' body_encoding="xml"';
     lines.push(
-      `<subagent${mode}${agentId}${item}${state} outcome="${result.status}">${body}</subagent>`,
+      `<subagent${mode}${agentId}${item}${state}${binding}${bodyEncoding} outcome="${result.status}">${encodedBody}</subagent>`,
     );
   }
 
   lines.push('</agent_dynamic_workflow_result>');
   return lines.join('\n');
+}
+
+function renderBindingAttributes(binding: DynamicWorkflowRunResult['binding']): string {
+  if (binding === undefined) return '';
+  const attrs: Array<[string, string | undefined]> = [
+    ['profile', binding.profileName],
+    ['model', binding.model],
+    ['thinking', binding.thinking],
+    ['profile_source', binding.routing?.profileSource],
+    ['model_source', binding.routing?.modelSource],
+    ['policy_mode', binding.routing?.policyMode],
+    ['policy_source', binding.routing?.policySource],
+    ['feature_source', binding.routing?.featureSource],
+    ['routing_env_revision', binding.routing?.resolvedFromRoutingEnvironmentRevision],
+    ['route_decision', binding.routing?.routeDecisionFingerprint],
+    ['started_at', new Date(binding.startedAt).toISOString()],
+    ['completed_at', new Date(binding.completedAt).toISOString()],
+  ];
+  return attrs
+    .filter((entry): entry is [string, string] => entry[1] !== undefined && entry[1].length > 0)
+    .map(([name, value]) => ` ${name}="${escapeXmlAttribute(value)}"`)
+    .join('');
 }
 
 function normalizeOptionalString(value: string | undefined): string | undefined {
@@ -347,6 +416,13 @@ function escapeXmlAttribute(value: string): string {
   return value
     .replaceAll('&', '&amp;')
     .replaceAll('"', '&quot;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;');
+}
+
+function escapeXmlText(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
     .replaceAll('<', '&lt;')
     .replaceAll('>', '&gt;');
 }

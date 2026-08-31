@@ -5,8 +5,8 @@
 // Wiring: the composable is real; daemon requests are stubbed.
 // Run: pnpm --filter @pymodel/pythinker-web exec vitest run test/task-poller.test.ts
 
-import { computed } from 'vue';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { computed, nextTick, reactive } from 'vue';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AppTask } from '../src/api/types';
 import { createInitialState } from '../src/api/daemon/eventReducer';
 import { useTaskPoller } from '../src/composables/client/useTaskPoller';
@@ -16,17 +16,18 @@ const apiMock = vi.hoisted(() => ({
   listTasks: vi.fn(),
   getTask: vi.fn(),
 }));
+const pollers: Array<ReturnType<typeof useTaskPoller>> = [];
 
 vi.mock('../src/api', () => ({
   getPythinkerWebApi: () => apiMock,
 }));
 
 function createState(tasks: AppTask[]): ExtendedState {
-  return {
+  return reactive({
     ...createInitialState(),
     activeSessionId: 'sess_1',
     tasksBySession: { sess_1: tasks },
-  } as unknown as ExtendedState;
+  }) as unknown as ExtendedState;
 }
 
 function subagent(id: string, overrides: Partial<AppTask> = {}): AppTask {
@@ -67,21 +68,27 @@ describe('useTaskPoller terminal-output backfill', () => {
     vi.clearAllMocks();
   });
 
+  afterEach(() => {
+    for (const poller of pollers) poller.dispose();
+    pollers.length = 0;
+    vi.useRealTimers();
+  });
+
   it('attaches output fetched under the REST id to the folded agent-id row', async () => {
     const state = createState([liveRow()]);
-    apiMock.listTasks.mockResolvedValue([restRow()]);
-    apiMock.getTask.mockResolvedValue(
+    apiMock.listTasks.mockResolvedValue([
       restRow({ outputPreview: 'final result', outputBytes: 2048 }),
-    );
+    ]);
 
     const poller = useTaskPoller(state, computed(() => []));
+    pollers.push(poller);
     await poller.loadTasksForSession('sess_1');
 
-    expect(apiMock.getTask).toHaveBeenCalledWith(
+    expect(apiMock.listTasks).toHaveBeenCalledWith(
       'sess_1',
-      'task-9',
       expect.objectContaining({ withOutput: true }),
     );
+    expect(apiMock.getTask).not.toHaveBeenCalled();
     const rows = state.tasksBySession['sess_1'] ?? [];
     expect(rows.map((t) => t.id)).toEqual(['agent-1']);
     expect(rows[0]?.status).toBe('completed');
@@ -89,33 +96,193 @@ describe('useTaskPoller terminal-output backfill', () => {
     expect(rows[0]?.outputBytes).toBe(2048);
   });
 
-  it('fetches terminal output only once for a task', async () => {
+  it('loads every terminal output through one bounded list request', async () => {
     const state = createState([liveRow()]);
-    apiMock.listTasks.mockResolvedValue([restRow()]);
-    apiMock.getTask.mockResolvedValue(
+    apiMock.listTasks.mockResolvedValue([
       restRow({ outputPreview: 'final result', outputBytes: 2048 }),
-    );
+      restRow({ id: 'task-10', outputPreview: 'second result', outputBytes: 1024 }),
+    ]);
 
     const poller = useTaskPoller(state, computed(() => []));
-    await poller.loadTasksForSession('sess_1');
+    pollers.push(poller);
     await poller.loadTasksForSession('sess_1');
 
-    expect(apiMock.getTask).toHaveBeenCalledTimes(1);
+    expect(apiMock.listTasks).toHaveBeenCalledTimes(1);
+    expect(apiMock.getTask).not.toHaveBeenCalled();
   });
 
-  it('retries the backfill on a later load after a transient getTask failure', async () => {
+  it('retries the load after a transient list failure', async () => {
     const state = createState([liveRow()]);
-    apiMock.listTasks.mockResolvedValue([restRow()]);
-    apiMock.getTask
+    apiMock.listTasks
       .mockRejectedValueOnce(new Error('network blip'))
-      .mockResolvedValue(restRow({ outputPreview: 'final result', outputBytes: 2048 }));
+      .mockResolvedValue([restRow({ outputPreview: 'final result', outputBytes: 2048 })]);
 
     const poller = useTaskPoller(state, computed(() => []));
+    pollers.push(poller);
     await poller.loadTasksForSession('sess_1');
     expect(state.tasksBySession['sess_1']?.[0]?.outputPreview).toBeUndefined();
 
     await poller.loadTasksForSession('sess_1');
-    expect(apiMock.getTask).toHaveBeenCalledTimes(2);
+    expect(apiMock.listTasks).toHaveBeenCalledTimes(2);
     expect(state.tasksBySession['sess_1']?.[0]?.outputPreview).toBe('final result');
+  });
+
+  it('uses one request for a polling cycle regardless of running-task count', async () => {
+    vi.useFakeTimers();
+    const running = Array.from({ length: 22 }, (_, index) =>
+      subagent(`task-${index}`, { outputPreview: `tail ${index}` }),
+    );
+    const state = createState(running);
+    apiMock.listTasks.mockResolvedValue(running.map((task) => ({ ...task })));
+
+    pollers.push(useTaskPoller(state, computed(() => state.tasksBySession['sess_1'] ?? [])));
+    await nextTick();
+    await Promise.resolve();
+
+    expect(apiMock.listTasks).toHaveBeenCalledTimes(1);
+    expect(apiMock.getTask).not.toHaveBeenCalled();
+  });
+
+  it('does not overlap a slow poll with later timer ticks', async () => {
+    vi.useFakeTimers();
+    const running = [subagent('task-1')];
+    const state = createState(running);
+    let resolvePoll!: (tasks: AppTask[]) => void;
+    apiMock.listTasks.mockReturnValue(
+      new Promise<AppTask[]>((resolve) => {
+        resolvePoll = resolve;
+      }),
+    );
+
+    pollers.push(useTaskPoller(state, computed(() => state.tasksBySession['sess_1'] ?? [])));
+    await nextTick();
+    await vi.advanceTimersByTimeAsync(5_000);
+
+    expect(apiMock.listTasks).toHaveBeenCalledTimes(1);
+    resolvePoll(running);
+    await Promise.resolve();
+  });
+
+  it('aborts the active poll when the session changes', async () => {
+    vi.useFakeTimers();
+    const state = createState([subagent('task-1')]);
+    let requestSignal: AbortSignal | undefined;
+    apiMock.listTasks.mockImplementation(
+      (_sessionId: string, input?: { signal?: AbortSignal }) => {
+        requestSignal = input?.signal;
+        return new Promise<AppTask[]>(() => {});
+      },
+    );
+
+    pollers.push(useTaskPoller(state, computed(() => state.tasksBySession['sess_1'] ?? [])));
+    await nextTick();
+    state.activeSessionId = 'sess_2';
+    await nextTick();
+
+    expect(requestSignal).toBeDefined();
+    expect(requestSignal?.aborted).toBe(true);
+  });
+
+  it('does not let a stale session load cancel the active session load', async () => {
+    const state = createState([]);
+    state.tasksBySession['sess_2'] = [];
+    let resolveActive!: (tasks: AppTask[]) => void;
+    let activeSignal: AbortSignal | undefined;
+    apiMock.listTasks.mockImplementation(
+      (sessionId: string, input?: { signal?: AbortSignal }) => {
+        if (sessionId === 'sess_2') {
+          activeSignal = input?.signal;
+          return new Promise<AppTask[]>((resolve) => {
+            resolveActive = resolve;
+          });
+        }
+        return Promise.resolve([]);
+      },
+    );
+
+    const poller = useTaskPoller(state, computed(() => []));
+    pollers.push(poller);
+    state.activeSessionId = 'sess_2';
+    await nextTick();
+    const activeLoad = poller.loadTasksForSession('sess_2');
+    await poller.loadTasksForSession('sess_1');
+
+    expect(apiMock.listTasks).toHaveBeenCalledTimes(1);
+    expect(activeSignal?.aborted).toBe(false);
+
+    resolveActive([subagent('task-2', { sessionId: 'sess_2', status: 'completed' })]);
+    await activeLoad;
+    expect(state.tasksBySession['sess_2']?.map((task) => task.id)).toEqual(['task-2']);
+  });
+
+  it('keeps the task-array reference when a poll returns equal data', async () => {
+    vi.useFakeTimers();
+    const running = [subagent('task-1', { outputPreview: 'same output' })];
+    const state = createState(running);
+    const initial = state.tasksBySession['sess_1'];
+    apiMock.listTasks.mockResolvedValue(running.map((task) => ({ ...task })));
+
+    pollers.push(useTaskPoller(state, computed(() => state.tasksBySession['sess_1'] ?? [])));
+    await nextTick();
+    await vi.waitFor(() => {
+      expect(apiMock.listTasks).toHaveBeenCalledTimes(1);
+    });
+
+    expect(state.tasksBySession['sess_1']).toBe(initial);
+  });
+
+  it('serializes a full load with polling and preserves newer task state', async () => {
+    vi.useFakeTimers();
+    const first = subagent('task-1');
+    const second = subagent('task-2');
+    const state = createState([first, second]);
+    let firstSignal: AbortSignal | undefined;
+    let resolvePoll!: (tasks: AppTask[]) => void;
+    let resolveLoad!: (tasks: AppTask[]) => void;
+    apiMock.listTasks
+      .mockImplementationOnce((_sessionId: string, input?: { signal?: AbortSignal }) => {
+        firstSignal = input?.signal;
+        return new Promise<AppTask[]>((resolve) => {
+          resolvePoll = resolve;
+        });
+      })
+      .mockImplementationOnce(
+        () =>
+          new Promise<AppTask[]>((resolve) => {
+            resolveLoad = resolve;
+          }),
+      )
+      .mockResolvedValue([
+        { ...first, status: 'completed', completedAt: '2026-01-01T00:01:00.000Z' },
+        second,
+      ]);
+
+    const poller = useTaskPoller(state, computed(() => state.tasksBySession['sess_1'] ?? []));
+    pollers.push(poller);
+    await nextTick();
+    await vi.waitFor(() => {
+      expect(apiMock.listTasks).toHaveBeenCalledTimes(1);
+    });
+
+    const load = poller.loadTasksForSession('sess_1');
+    await Promise.resolve();
+    expect(firstSignal?.aborted).toBe(true);
+    expect(apiMock.listTasks).toHaveBeenCalledTimes(1);
+
+    resolvePoll([first, second]);
+    await vi.waitFor(() => {
+      expect(apiMock.listTasks).toHaveBeenCalledTimes(2);
+    });
+    resolveLoad([
+      { ...first, status: 'completed', completedAt: '2026-01-01T00:01:00.000Z' },
+      second,
+    ]);
+    await load;
+    expect(state.tasksBySession['sess_1']?.find((task) => task.id === first.id)?.status).toBe(
+      'completed',
+    );
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(apiMock.listTasks).toHaveBeenCalledTimes(3);
   });
 });

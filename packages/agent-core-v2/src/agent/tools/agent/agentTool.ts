@@ -1,3 +1,5 @@
+import type { SubagentBindingProvenance } from '#/session/subagent/routing';
+import { ISubagentRoutingService } from '#/session/subagent/subagentRoutingService';
 import { type CollectionView } from '#/_base/di/collection';
 import type { IAgentScopeHandle } from '#/_base/di/scope';
 import {
@@ -111,6 +113,7 @@ export class SubagentTool implements ISubagentTool {
     @IConfigService private readonly config: IConfigService,
     @IFlagService private readonly flags: IFlagService,
     @AgentToolContribution private readonly contributions: CollectionView<AgentToolContribution>,
+    @ISubagentRoutingService private readonly routing: ISubagentRoutingService,
   ) {
     this.callerAgentId = scopeContext.agentId;
     this.canRunInBackground = () =>
@@ -276,6 +279,8 @@ export class SubagentTool implements ISubagentTool {
     let agentId: string;
     let profileName: string;
     let displayModel: string | undefined;
+    let routing: SubagentBindingProvenance | undefined;
+    let currentRoutingEnvironmentRevision: string | undefined;
     let promptText = args.prompt;
     if (isResume) {
       const target = this.agentLifecycle.handleOf(resumeAgentId);
@@ -289,6 +294,9 @@ export class SubagentTool implements ISubagentTool {
       const resumed = target.accessor.get(IAgentProfileService).data();
       profileName = resumed.profileName ?? RESUMED_LABEL;
       displayModel = resumed.modelAlias;
+      const resumedRouting = this.routing.resumed(this.callerAgentId, target);
+      routing = resumedRouting.routing;
+      currentRoutingEnvironmentRevision = resumedRouting.currentRoutingEnvironmentRevision;
     } else {
       const plan = await this.subagents.planSpawn({
         callerAgentId: this.callerAgentId,
@@ -301,10 +309,13 @@ export class SubagentTool implements ISubagentTool {
         plan,
         labels: subagentLabels(this.callerAgentId),
         prompt: args.prompt,
+        signal: controller.signal,
       });
       agentId = spawned.agentId;
       profileName = spawned.profileName;
       displayModel = spawned.model;
+      routing = plan.routing;
+      currentRoutingEnvironmentRevision = plan.routing?.resolvedFromRoutingEnvironmentRevision;
       promptText = spawned.promptText;
     }
 
@@ -332,6 +343,8 @@ export class SubagentTool implements ISubagentTool {
       thinkingEffort: this.agentLifecycle.handleOf(agentId)
         ?.accessor.get(IAgentProfileService)
         .getEffectiveThinkingLevel(),
+      routing,
+      currentRoutingEnvironmentRevision,
       completion: mirrored.then((r) => ({ result: r.summary, usage: r.usage })),
     };
   }
@@ -459,6 +472,8 @@ export class SubagentTool implements ISubagentTool {
           fork: args.fork === true,
           model: handle.model,
           taskId,
+          routing: handle.routing,
+          currentRoutingEnvironmentRevision: handle.currentRoutingEnvironmentRevision,
         });
         void requester.accessor
           .get(IEventDispatcher)

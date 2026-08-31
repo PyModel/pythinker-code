@@ -12,6 +12,8 @@ withDefaults(
     /** Inline-SVG glyph string (toolGlyph), or empty for none. */
     icon?: string;
     name: string;
+    /** Accessible name for the status glyph; defaults to the raw status. */
+    statusLabel?: string;
     arg?: string;
     time?: string;
     open?: boolean;
@@ -56,7 +58,7 @@ function onHeadClick(): void {
     }"
   >
     <div class="bh" ref="bhEl" @click="onHeadClick">
-      <span v-if="icon" class="gl" v-html="icon" aria-hidden="true" />
+      <span v-if="icon" class="gl" :class="{ 'ptx-live': status === 'running' }" v-html="icon" aria-hidden="true" />
       <span class="bh-text">
         <slot name="title">
           <span class="a">{{ name }}</span>
@@ -64,9 +66,10 @@ function onHeadClick(): void {
             <span v-if="arg" class="p">{{ arg }}</span>
           </Tooltip>
         </slot>
+        <slot name="meta" />
       </span>
       <span class="rt">
-        <span class="status" :class="status" role="status" :aria-label="status">
+        <span class="status" :class="status" role="status" :aria-label="statusLabel ?? status">
           <Icon v-if="status === 'ok'" name="check" size="sm" />
           <Icon v-else-if="status === 'error'" name="close" size="sm" />
           <StatusDot v-else-if="status === 'suspended'" status="suspended" />
@@ -142,11 +145,18 @@ function onHeadClick(): void {
   background: color-mix(in srgb, var(--color-danger) 7%, var(--bg));
 }
 
-.gl {
+.gl,
+:slotted(.tl-ficon) {
   display: inline-flex;
   align-items: center;
-  color: var(--color-text-faint);
+  justify-content: center;
+  width: var(--p-ic-sm);
+  height: var(--p-ic-sm);
+  line-height: 0;
   flex: none;
+}
+.gl {
+  color: var(--color-text-faint);
 }
 .bh-text {
   display: flex;
@@ -154,6 +164,8 @@ function onHeadClick(): void {
   gap: inherit;
   flex: 1;
   min-width: 0;
+  /* Backstop: whatever cannot fit is clipped here, never painted under `.rt`. */
+  overflow: hidden;
 }
 .a {
   color: var(--emph);
@@ -170,6 +182,8 @@ function onHeadClick(): void {
   flex: 1;
   min-width: 0;
 }
+/* The right cluster may shrink. Status dot, time and buttons stay `flex: none`;
+   flexible text and chips truncate before they can slide over the row title. */
 .rt {
   margin-left: auto;
   color: var(--color-text-muted);
@@ -177,16 +191,23 @@ function onHeadClick(): void {
   display: flex;
   align-items: center;
   gap: 6px;
-  flex: none;
+  flex: 0 1 auto;
+  min-width: 0;
 }
 .tm {
   color: var(--color-text-faint);
+  flex: none;
+  white-space: nowrap;
 }
 :slotted(.chip) {
   color: var(--color-text-muted);
   font-family: var(--font-ui);
   font-size: var(--text-xs);
-  flex: none;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Status indicator at the right edge of the row: done = green ✓, error = red ✗,

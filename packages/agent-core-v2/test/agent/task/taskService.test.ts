@@ -174,6 +174,7 @@ describe('AgentTaskService', () => {
       append: async () => {},
       list: async () => [],
       delete: async () => {},
+      size: async () => undefined,
       flush: async () => {},
       close: async () => {},
     });
@@ -230,6 +231,21 @@ describe('AgentTaskService', () => {
       },
     };
   }
+
+  it('keeps a live UTF-8 output preview within its byte limit', async () => {
+    const svc = ix.get(IAgentTaskService);
+    const taskId = svc.registerTask(outputtingTask('éé'));
+
+    await svc.wait(taskId, 1_000);
+
+    expect(await svc.getOutputSnapshot(taskId, 3)).toEqual({
+      outputSizeBytes: 4,
+      previewBytes: 2,
+      truncated: true,
+      fullOutputAvailable: false,
+      preview: 'é',
+    });
+  });
 
   it('task.terminated dispatch carries the retained output tail as outputTail', async () => {
     const { records } = capturingWire();
@@ -498,20 +514,21 @@ describe('AgentTaskService', () => {
     };
   }
 
-  it('stopAllOnExit suppresses and persists terminal state for detached tasks', async () => {
+  it('stopAllOnExit persists shutdown provenance independently of its reason', async () => {
     const writes = stubTaskWrites();
     const svc = ix.get(IAgentTaskService);
     const first = svc.registerTask(fakeProcessTask());
     const second = svc.registerTask(fakeProcessTask());
 
-    const stopped = await svc.stopAllOnExit('Session closed');
+    const stopped = await svc.stopAllOnExit('maintenance shutdown');
 
     expect(stopped.map((info) => info.taskId).toSorted()).toEqual([first, second].toSorted());
     for (const taskId of [first, second]) {
       const info = svc.getTask(taskId);
       expect(info?.status).toBe('killed');
-      expect(info?.stopReason).toBe('Session closed');
+      expect(info?.stopReason).toBe('maintenance shutdown');
       expect(info?.terminalNotificationSuppressed).toBe(true);
+      expect(info?.stoppedOnExit).toBe(true);
       const persisted = writes.filter((write) => write.taskId === taskId);
       expect(
         persisted.some(
@@ -521,7 +538,9 @@ describe('AgentTaskService', () => {
       ).toBe(true);
       expect(persisted.at(-1)).toMatchObject({
         status: 'killed',
+        stopReason: 'maintenance shutdown',
         terminalNotificationSuppressed: true,
+        stoppedOnExit: true,
       });
     }
   });
@@ -1124,6 +1143,7 @@ describe('AgentTaskService', () => {
       },
       list: async () => [],
       delete: async () => {},
+      size: async () => undefined,
       flush: async () => {},
       close: async () => {},
     });

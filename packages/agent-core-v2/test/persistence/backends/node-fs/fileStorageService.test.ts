@@ -1,13 +1,131 @@
-import { mkdtemp, mkdir, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 
 import { join } from 'pathe';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
 
+const fsReadHook = vi.hoisted(() => ({
+  transform: undefined as
+    | ((path: string, bytes: Uint8Array) => Uint8Array | undefined)
+    | undefined,
+}));
+
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>();
+  return {
+    ...actual,
+    readFile: async (...args: Parameters<typeof actual.readFile>) => {
+      const bytes = await actual.readFile(...args);
+      if (typeof bytes === 'string') return bytes;
+      const path = args[0];
+      return typeof path === 'string' ? (fsReadHook.transform?.(path, bytes) ?? bytes) : bytes;
+    },
+  };
+});
+
 const isWin = process.platform === 'win32';
 const encoder = new TextEncoder();
+
+describe('FileStorageService — consistent reads', () => {
+  let dir: string;
+
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'fss-read-'));
+  });
+
+  afterEach(async () => {
+    fsReadHook.transform = undefined;
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it('retries when the bytes read are shorter than the file size', async () => {
+    const path = join(dir, 'scope', 'k.json');
+    const expected = encoder.encode('{"model":"ready"}');
+    const svc = new FileStorageService(dir);
+    await svc.write('scope', 'k.json', expected);
+    let reads = 0;
+    fsReadHook.transform = (readPath, bytes) => {
+      if (readPath !== path) return undefined;
+      reads += 1;
+      return reads === 1 ? bytes.subarray(0, 4) : bytes;
+    };
+
+    expect(new TextDecoder().decode(await svc.read('scope', 'k.json'))).toBe('{"model":"ready"}');
+    expect(reads).toBe(2);
+  });
+
+  it('waits for a non-atomic replacement to settle before notifying readers', async () => {
+    const path = join(dir, 'scope', 'config.toml');
+    const svc = new FileStorageService(dir);
+    await svc.write('scope', 'config.toml', encoder.encode('model = "old"\n'));
+    const snapshots: string[] = [];
+    let resolveFirst!: () => void;
+    const first = new Promise<void>((resolve) => {
+      resolveFirst = resolve;
+    });
+    const subscription = svc.watch('scope', 'config.toml')(async () => {
+      snapshots.push(new TextDecoder().decode(await svc.read('scope', 'config.toml')));
+      resolveFirst();
+    });
+
+    try {
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, 100);
+      });
+      await writeFile(path, '');
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, 250);
+      });
+      await writeFile(path, 'model = "ready"\n');
+      await first;
+      subscription.dispose();
+
+      expect(snapshots).toEqual(['model = "ready"\n']);
+    } finally {
+      subscription.dispose();
+    }
+  });
+
+  it('waits for a delayed atomic replacement before notifying readers', async () => {
+    const path = join(dir, 'scope', 'config.toml');
+    const replacement = join(dir, 'scope', 'config.toml.next');
+    const svc = new FileStorageService(dir);
+    await svc.write('scope', 'config.toml', encoder.encode('model = "old"\n'));
+    const snapshots: string[] = [];
+    let resolveFirst!: () => void;
+    const first = new Promise<void>((resolve) => {
+      resolveFirst = resolve;
+    });
+    const subscription = svc.watch('scope', 'config.toml')(async () => {
+      try {
+        snapshots.push(new TextDecoder().decode(await svc.read('scope', 'config.toml')));
+      } catch {
+        snapshots.push('<missing>');
+      }
+      resolveFirst();
+    });
+
+    try {
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, 100);
+      });
+      await writeFile(replacement, 'model = "ready"\n');
+      await rm(path);
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, 300);
+      });
+      await rename(replacement, path);
+      await first;
+      subscription.dispose();
+
+      expect(snapshots).toEqual(['model = "ready"\n']);
+    } finally {
+      subscription.dispose();
+    }
+  });
+});
 
 describe('FileStorageService — file permissions', () => {
   let dir: string;

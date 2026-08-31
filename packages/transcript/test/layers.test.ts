@@ -804,6 +804,108 @@ describe('groupMessagesIntoSnapshot (cold path)', () => {
     expect(firstTurn.attachmentIds).toEqual(['att_1', 'att_2', 'att_3']);
   });
 
+  it('folds origin file attachments on the opening user message into entities', () => {
+    const snapshot = groupMessagesIntoSnapshot([
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'text',
+            text: 'Attached file "report.pdf" (application/pdf, 128 bytes): /data/report.pdf — open it with the Read tool',
+          },
+        ],
+        toolCalls: [],
+        origin: {
+          kind: 'user',
+          attachments: [
+            { name: 'report.pdf', mediaType: 'application/pdf', size: 128, path: '/data/report.pdf' },
+          ],
+        } as { kind: string },
+      },
+      { role: 'assistant', content: [{ type: 'text', text: 'done' }], toolCalls: [] },
+    ]);
+
+    expect(snapshot.attachments).toEqual([
+      {
+        attachmentId: 'att_1',
+        mediaType: 'application/pdf',
+        name: 'report.pdf',
+        size: 128,
+      },
+    ]);
+    const turn = snapshot.items[0];
+    if (turn?.kind !== 'turn') throw new Error('expected turn');
+    expect(turn.attachmentIds).toEqual(['att_1']);
+  });
+
+  it('folds origin file attachments on a skill activation into entities', () => {
+    const snapshot = groupMessagesIntoSnapshot([
+      {
+        role: 'user',
+        content: [{ type: 'text', text: 'User activated the skill "update-config".' }],
+        toolCalls: [],
+        origin: {
+          kind: 'skill_activation',
+          activationId: 'act_1',
+          skillName: 'update-config',
+          trigger: 'user-slash',
+          attachments: [
+            { name: 'note.txt', mediaType: 'text/plain', size: 21, path: '/data/note.txt' },
+          ],
+        } as { kind: string },
+      },
+      { role: 'assistant', content: [{ type: 'text', text: 'done' }], toolCalls: [] },
+    ]);
+
+    expect(snapshot.attachments).toEqual([
+      {
+        attachmentId: 'att_1',
+        mediaType: 'text/plain',
+        name: 'note.txt',
+        size: 21,
+      },
+    ]);
+    const turn = snapshot.items[1];
+    if (turn?.kind !== 'turn') throw new Error('expected turn');
+    expect(turn.attachmentIds).toEqual(['att_1']);
+  });
+
+  it.each(['user', 'skill_activation'] as const)(
+    'filters malformed origin file attachments on %s messages',
+    (kind) => {
+      const snapshot = groupMessagesIntoSnapshot([
+        {
+          role: 'user',
+          content: [{ type: 'text', text: 'attached files' }],
+          toolCalls: [],
+          origin: {
+            kind,
+            ...(kind === 'skill_activation' ? { trigger: 'user-slash' } : {}),
+            attachments: [
+              null,
+              { name: 'wrong-size.txt', mediaType: 'text/plain', size: '12' },
+              { name: 'note.txt', mediaType: 'text/plain', size: 12, path: '/data/note.txt' },
+              { name: 'wrong-path.txt', mediaType: 'text/plain', size: 12, path: 42 },
+            ],
+          } as { kind: string; trigger?: string; attachments: unknown },
+        },
+        { role: 'assistant', content: [{ type: 'text', text: 'done' }], toolCalls: [] },
+      ]);
+
+      expect(snapshot.attachments).toEqual([
+        {
+          attachmentId: 'att_1',
+          mediaType: 'text/plain',
+          name: 'note.txt',
+          size: 12,
+        },
+      ]);
+      const turn = snapshot.items.find((item) => item.kind === 'turn');
+      if (turn?.kind !== 'turn') throw new Error('expected turn');
+      expect(turn.attachmentIds).toEqual(['att_1']);
+    },
+  );
+
   it('maps persisted pythinker-file media refs to attachments', () => {
     const snapshot = groupMessagesIntoSnapshot([
       {

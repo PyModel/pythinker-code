@@ -7,6 +7,7 @@
 // the view-model computeds stay in the facade; cross-dependencies are injected
 // here as params.
 
+import { SubagentModelPolicyConflictError } from '../../api/types';
 import { reactive, type ComputedRef, type Ref } from 'vue';
 import { getPythinkerWebApi } from '../../api';
 import { i18n } from '../../i18n';
@@ -15,10 +16,14 @@ import { isDaemonApiError } from '../../api/errors';
 import { SERVER_AUTH_UNAUTHORIZED_CODE } from '../../api/daemon/http';
 import { isPlaceholderSessionUsage } from '../../api/daemon/mappers';
 import type {
+  AppSubagentModelPolicy,
+  AppSubagentModelPolicyState,
   AppConfig,
   AppInFlightTurn,
   AppMessage,
   AppSession,
+  AppSessionGroup,
+  AppSessionGroupPage,
   AppWorkspace,
   ApprovalDecision,
   ApprovalResponse,
@@ -90,6 +95,7 @@ const pendingQuestionActions = reactive<Record<string, 'answer' | 'dismiss'>>({}
 const pendingApprovalActions = reactive<Record<string, true>>({});
 /** Task ids with an in-flight cancel, keyed by taskId. */
 const pendingTaskCancellations = reactive<Record<string, true>>({});
+const pendingTaskDetachments = reactive<Record<string, true>>({});
 /**
  * Workspace ids whose empty-session first prompt is currently being created +
  * submitted. The empty-composer path (`startSessionAndSendPrompt`) awaits
@@ -247,10 +253,8 @@ export interface UseWorkspaceStateDeps {
   workspacesView: ComputedRef<WorkspaceView[]>;
   status: ComputedRef<ConversationStatus>;
   workspaceIdForSession: (s: { workspaceId?: string; cwd: string }) => string;
-  savePermissionToStorage: (mode: PermissionMode) => void;
   /** Called after GET /config resolves; adopts the daemon's default permission
-   *  mode when this browser has no explicit local pick (storage knowledge stays
-   *  in the facade next to the storage helpers). */
+   *  mode for the not-yet-created draft session. */
   seedPermissionFromDaemonDefault: () => void;
   /** Persist the current per-session mode maps (read off rawState). */
   savePlanModeToStorage: () => void;
@@ -301,7 +305,6 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
     workspacesView,
     status,
     workspaceIdForSession,
-    savePermissionToStorage,
     seedPermissionFromDaemonDefault,
     savePlanModeToStorage,
     saveDynamicWorkflowModeToStorage,
@@ -319,6 +322,16 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
     fileDiffLoading,
   } = deps;
   let exportInFlight = false;
+  let sessionGroupLoadSerial = 0;
+
+  function defaultPermissionMode(): PermissionMode {
+    const mode = rawState.config?.defaultPermissionMode;
+    return mode === 'auto' || mode === 'yolo' || mode === 'manual' ? mode : 'manual';
+  }
+
+  function permissionForSession(sessionId: string): PermissionMode {
+    return rawState.permissionBySession[sessionId] ?? defaultPermissionMode();
+  }
 
   async function loadOlderMessages(sessionId: string): Promise<void> {
     if (rawState.messagesLoadingMoreBySession[sessionId]) return;
@@ -475,30 +488,65 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
     }
   }
 
+  /** Fetch the saved + effective subagent model routing policy. Defensive —
+   *  an older server without the endpoint leaves the state null. */
+  async function loadSubagentModelPolicy(): Promise<void> {
+    try {
+      rawState.subagentModelPolicy = await getPythinkerWebApi().getSubagentModelPolicy();
+    } catch {
+      rawState.subagentModelPolicy = null;
+    }
+  }
+
+  /** Write the policy with If-Match on the version we last read. A 412 means
+   *  another client wrote first: adopt the server's current state and surface
+   *  the conflict instead of overwriting it. Returns true when saved. */
+  async function writeSubagentModelPolicy(
+    write: (expectedVersion: string | undefined) => Promise<AppSubagentModelPolicyState>,
+  ): Promise<boolean> {
+    rawState.subagentModelPolicySaving = true;
+    try {
+      rawState.subagentModelPolicy = await write(rawState.subagentModelPolicy?.resourceVersion);
+      return true;
+    } catch (error) {
+      if (error instanceof SubagentModelPolicyConflictError) {
+        rawState.subagentModelPolicy = error.current;
+        pushOperationFailure('saveSubagentModelPolicy', error, { message: error.message });
+        return false;
+      }
+      pushOperationFailure('saveSubagentModelPolicy', error);
+      return false;
+    } finally {
+      rawState.subagentModelPolicySaving = false;
+    }
+  }
+
+  function saveSubagentModelPolicy(policy: AppSubagentModelPolicy): Promise<boolean> {
+    return writeSubagentModelPolicy((version) => getPythinkerWebApi().setSubagentModelPolicy(policy, version));
+  }
+
+  function clearSubagentModelPolicy(): Promise<boolean> {
+    return writeSubagentModelPolicy((version) => getPythinkerWebApi().clearSubagentModelPolicy(version));
+  }
+
   /** Fetch global config from GET /api/v1/config. Defensive — never throws. */
   async function loadConfig(): Promise<void> {
+    await loadSubagentModelPolicy();
     try {
       const api = getPythinkerWebApi();
       rawState.config = await api.getConfig();
-      // A browser that never picked a permission mode locally follows the
-      // daemon default — otherwise the pill would show a hardcoded 'manual'
-      // while Settings shows Auto.
+      // A fresh draft follows the daemon default. Existing sessions retain
+      // their own effective mode from /status.
       seedPermissionFromDaemonDefault();
     } catch {
       // Daemon may not have this endpoint yet; leave null
     }
   }
 
-  /** Apply a just-saved daemon default permission mode to the live chat state.
-   *  Mirrors setPermission: the pill updates now, the choice persists locally,
-   *  and the active session's profile carries it so its next prompt runs at
-   *  the new mode (the daemon only applies config defaults at agent creation —
-   *  existing sessions need this write-through). */
+  /** Apply a just-saved daemon default to new-session drafts only. */
   function adoptDefaultPermissionMode(mode: string): void {
     if (mode !== 'manual' && mode !== 'auto' && mode !== 'yolo') return;
-    rawState.permission = mode;
-    savePermissionToStorage(mode);
-    void persistSessionProfile({ permissionMode: mode });
+    if (!rawState.activeSessionId) rawState.permission = mode;
   }
 
   /** Make the visible chat follow a just-saved daemon default model. Composer
@@ -814,6 +862,168 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
     return loaded;
   }
 
+  type InitialSessionGroupLoad = {
+    firstPage: Promise<{ page?: AppSessionGroupPage; error?: unknown }>;
+    input: { groupPageSize: number; hasPrompt: boolean };
+    serial: number;
+  };
+
+  function beginInitialSessionGroupLoad(): InitialSessionGroupLoad | undefined {
+    const serial = ++sessionGroupLoadSerial;
+    if (rawState.backend !== 'v2') return undefined;
+    const input = { groupPageSize: SESSIONS_INITIAL_PAGE_SIZE, hasPrompt: true };
+    return {
+      firstPage: Promise.resolve()
+        .then(() => getPythinkerWebApi().listSessionGroupsV2(input))
+        .then(
+          (page) => ({ page }),
+          (error: unknown) => ({ error }),
+        ),
+      input,
+      serial,
+    };
+  }
+
+  function mapInitialSessionGroups(groups: AppSessionGroup[], complete: boolean) {
+    const byId = new Map(groups.map((group) => [group.workspace.id, group] as const));
+    const byRoot = new Map<string, AppSessionGroup>();
+    for (const group of groups) {
+      if (group.workspace.cwd !== null) {
+        byRoot.set(workspaceRootKey(group.workspace.cwd), group);
+      }
+    }
+    const loaded: AppSession[] = [];
+    const loadedIds = new Set<string>();
+    const hasMore: Record<string, boolean> = {};
+    const cursors: Record<string, string | undefined> = {};
+    const counts: Record<string, number> = {};
+    const liveIds: string[] = [];
+    for (const workspace of rawState.workspaces) {
+      const group =
+        byId.get(workspace.id) ?? byRoot.get(workspaceRootKey(workspace.root));
+      if (group === undefined) {
+        hasMore[workspace.id] = !complete;
+        cursors[workspace.id] = undefined;
+        counts[workspace.id] = SESSIONS_INITIAL_PAGE_SIZE;
+        continue;
+      }
+      const workspaceSessions: AppSession[] = [];
+      for (const session of group.sessions) {
+        if (!session.lastPrompt || loadedIds.has(session.id)) continue;
+        const next = { ...session, cwd: session.cwd || workspace.root, workspaceId: workspace.id };
+        loaded.push(next);
+        workspaceSessions.push(next);
+        loadedIds.add(next.id);
+        if (next.busy || next.pendingInteraction === 'approval' || next.pendingInteraction === 'question') {
+          liveIds.push(next.id);
+        }
+      }
+      hasMore[workspace.id] = group.sessions.length < group.total;
+      cursors[workspace.id] = workspaceSessions.at(-1)?.id;
+      counts[workspace.id] = Math.max(
+        workspaceSessions.length,
+        SESSIONS_INITIAL_PAGE_SIZE,
+      );
+    }
+    loaded.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+    return { loaded, hasMore, cursors, counts, liveIds };
+  }
+
+  function applySessionGroupPagination(
+    next: ReturnType<typeof mapInitialSessionGroups>,
+    expectedCursors?: Record<string, string | undefined>,
+  ): void {
+    if (expectedCursors === undefined) {
+      rawState.sessionsHasMoreByWorkspace = next.hasMore;
+      rawState.sessionsCursorByWorkspace = next.cursors;
+      rawState.sessionsInitialCountByWorkspace = next.counts;
+      return;
+    }
+    const hasMore = { ...rawState.sessionsHasMoreByWorkspace };
+    const cursors = { ...rawState.sessionsCursorByWorkspace };
+    const counts = { ...rawState.sessionsInitialCountByWorkspace };
+    for (const workspace of rawState.workspaces) {
+      if (rawState.sessionsCursorByWorkspace[workspace.id] !== expectedCursors[workspace.id]) {
+        continue;
+      }
+      hasMore[workspace.id] = next.hasMore[workspace.id] ?? false;
+      cursors[workspace.id] = next.cursors[workspace.id];
+      counts[workspace.id] = next.counts[workspace.id] ?? SESSIONS_INITIAL_PAGE_SIZE;
+    }
+    rawState.sessionsHasMoreByWorkspace = hasMore;
+    rawState.sessionsCursorByWorkspace = cursors;
+    rawState.sessionsInitialCountByWorkspace = counts;
+  }
+
+  async function finishSessionGroupLoadInBackground(
+    firstPage: AppSessionGroupPage,
+    load: InitialSessionGroupLoad,
+    initial: ReturnType<typeof mapInitialSessionGroups>,
+  ): Promise<void> {
+    const groups = [...firstPage.groups];
+    let pageToken = firstPage.nextPageToken;
+    while (pageToken !== null) {
+      if (load.serial !== sessionGroupLoadSerial) return;
+      let page: AppSessionGroupPage;
+      try {
+        page = await getPythinkerWebApi().listSessionGroupsV2({
+          ...load.input,
+          pageToken,
+        });
+      } catch (error) {
+        pushOperationFailure('load', error);
+        return;
+      }
+      groups.push(...page.groups);
+      pageToken = page.nextPageToken;
+    }
+    if (load.serial !== sessionGroupLoadSerial) return;
+    const mapped = mapInitialSessionGroups(groups, true);
+    const mappedIds = new Set(mapped.loaded.map((session) => session.id));
+    const sessions = [
+      ...mapped.loaded,
+      ...rawState.sessions.filter((session) => !mappedIds.has(session.id)),
+    ].sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+    setSessionsPreservingLiveUsage(sessions);
+    if (rawState.sessionsFullyLoaded) {
+      const hasMore: Record<string, boolean> = {};
+      for (const workspace of rawState.workspaces) hasMore[workspace.id] = false;
+      rawState.sessionsHasMoreByWorkspace = hasMore;
+    } else {
+      applySessionGroupPagination(mapped, initial.cursors);
+    }
+    await Promise.allSettled(mapped.liveIds.map((sessionId) => refreshSessionStatus(sessionId)));
+  }
+
+  async function finishInitialSessionGroupLoad(load: InitialSessionGroupLoad): Promise<{
+    sessions: AppSession[];
+    liveIds: string[];
+    finishInBackground?: () => void;
+  } | undefined> {
+    if (rawState.workspaces.length === 0) {
+      const sessions = await loadInitialSessionsByWorkspace();
+      return sessions === undefined ? undefined : { sessions, liveIds: [] };
+    }
+    const { page, error } = await load.firstPage;
+    if (page === undefined) {
+      pushOperationFailure('load', error);
+      return undefined;
+    }
+    const complete = page.nextPageToken === null;
+    const mapped = mapInitialSessionGroups(page.groups, complete);
+    applySessionGroupPagination(mapped);
+    rawState.sessionsFullyLoaded = false;
+    return {
+      sessions: mapped.loaded,
+      liveIds: mapped.liveIds,
+      finishInBackground: complete
+        ? undefined
+        : () => {
+            void finishSessionGroupLoadInBackground(page, load, mapped);
+          },
+    };
+  }
+
   /** Fetch the next page of sessions for a workspace (the "load more" button). */
   async function loadMoreSessions(workspaceId: string): Promise<void> {
     if (rawState.sessionsLoadingMoreByWorkspace[workspaceId]) return;
@@ -896,6 +1106,7 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
     rawState.availableOpenInApps = m.openInApps;
     rawState.dangerousBypassAuth = m.dangerousBypassAuth;
     rawState.backend = m.backend;
+    rawState.experimentalFlagStates = m.experimentalFlagStates;
     rawState.serverCapabilities = m.capabilities;
   }
 
@@ -930,14 +1141,27 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
       if (!firstLoad) await checkAuth();
       await loadConfig();
 
-      // Load workspaces first (registered + derived, each with a session_count),
-      // then fetch only the first page of sessions per workspace. This replaces
-      // the old full global walk: the sidebar now truncates by loading, not by
-      // hiding already-fetched rows.
+      // Start the grouped v2 page before workspaces so both requests overlap.
+      // The first grouped page is enough to leave the splash; any remaining
+      // workspace groups finish in the background.
+      const sessionGroupLoad = beginInitialSessionGroupLoad();
       await loadWorkspaces();
-      const loadedSessions = await loadInitialSessionsByWorkspace();
+      const groupedSessions =
+        sessionGroupLoad === undefined
+          ? undefined
+          : await finishInitialSessionGroupLoad(sessionGroupLoad);
+      const loadedSessions =
+        sessionGroupLoad === undefined
+          ? await loadInitialSessionsByWorkspace()
+          : groupedSessions?.sessions;
       const sessions = loadedSessions ?? rawState.sessions;
       if (loadedSessions !== undefined) setSessionsPreservingLiveUsage(loadedSessions);
+      groupedSessions?.finishInBackground?.();
+      if (groupedSessions !== undefined) {
+        await Promise.allSettled(
+          groupedSessions.liveIds.map((sessionId) => refreshSessionStatus(sessionId)),
+        );
+      }
 
       // First load: pick the workspace of the most-recent session, unless the
       // user already has a persisted active workspace that still exists.
@@ -1118,6 +1342,7 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
   /** Clear the active session without creating a new one. */
   function clearActiveSession(): void {
     setActiveSessionId(undefined);
+    rawState.permission = defaultPermissionMode();
     writeSessionUrl(undefined, 'push');
   }
 
@@ -1147,6 +1372,7 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
     // session's effort. Seeded into the new session's own entry below, the
     // first prompt/skill submits the pick and the daemon profile follows.
     const draftThinking = rawState.thinking;
+    const draftPermission = rawState.permission;
     const api = getPythinkerWebApi();
     let workspaceIdForCreate: string | undefined;
     let cwdForCreate = ws.root;
@@ -1172,6 +1398,7 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
         ? { ...session, model: draftPick }
         : session;
     upsertSessionFront(created);
+    rawState.permissionBySession = { ...rawState.permissionBySession, [session.id]: draftPermission };
     selectWorkspace(session.workspaceId ?? workspaceIdForCreate ?? workspaceId);
     // NOTE: do NOT mark this session known-empty. Unlike "open a new empty
     // session" (createSession), here we immediately act on it: keeping
@@ -1284,7 +1511,7 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
           model,
           planMode,
           dynamicWorkflowMode,
-          permissionMode: rawState.permission,
+          permissionMode: permissionForSession(sid),
         },
         sid,
       );
@@ -1466,6 +1693,7 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
       writeSessionUrl(sessionId, opts?.urlMode ?? 'push');
       rawState.sessionLoading = !messagesLoaded && !knownEmpty;
       setActiveSessionId(sessionId);
+      rawState.permission = permissionForSession(sessionId);
       resetFastMoon();
       // Opening a session clears its unread dot.
       if (rawState.unreadBySession[sessionId]) {
@@ -1601,7 +1829,7 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
         // a background session would otherwise submit the level of the session
         // the user switched to since enqueueing.
         thinking: (await modelProvider.resolveThinkingForPrompt(sid, model)) ?? rawState.thinking,
-        permissionMode: rawState.permission,
+        permissionMode: permissionForSession(sid),
         planMode,
         dynamicWorkflowMode,
       });
@@ -1809,7 +2037,7 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
         content,
         model,
         thinking: (await modelProvider.resolveThinkingForPrompt(sid, model)) ?? rawState.thinking,
-        permissionMode: rawState.permission,
+        permissionMode: permissionForSession(sid),
         planMode: rawState.planModeBySession[sid] ?? false,
         dynamicWorkflowMode: rawState.dynamicWorkflowModeBySession[sid] ?? false,
       });
@@ -2148,6 +2376,69 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
     }
   }
 
+  /**
+   * Release a running foreground task (a Bash command or a foreground subagent)
+   * so it keeps running in the background. Takes the SPAWNING TOOL CALL id, the
+   * same id the tool rows carry; the REST task id is resolved from the store.
+   */
+  async function detachTask(toolCallId: string): Promise<void> {
+    const sid = rawState.activeSessionId;
+    if (!sid) return;
+    // Guard against a second click while the first detach is in flight.
+    if (pendingTaskDetachments[toolCallId]) return;
+    pendingTaskDetachments[toolCallId] = true;
+    try {
+      const api = getPythinkerWebApi();
+      const owns = (t: { id: string; parentToolCallId?: string }): boolean =>
+        t.id === toolCallId || t.parentToolCallId === toolCallId;
+      let task = (rawState.tasksBySession[sid] ?? []).find(owns);
+      // The row can offer the button before the task list has reached the
+      // store (the buttons treat "no task yet" as "show"). Ask the server
+      // rather than dropping the click on the floor.
+      let restTaskId: string | undefined;
+      if (task === undefined) {
+        let listed;
+        try {
+          listed = await api.listTasks(sid);
+        } catch (error) {
+          pushOperationFailure('detachTask', error, { sessionId: sid });
+          return;
+        }
+        const found = listed.find(owns);
+        if (found === undefined) return;
+        task = found;
+        restTaskId = found.id;
+      }
+      const target = task;
+      // A background subagent row is keyed by agent id, but REST `/tasks` only
+      // knows its background-task id.
+      restTaskId ??= target.backgroundTaskId ?? target.id;
+      const result = await api.detachTask(sid, restTaskId);
+      const list = rawState.tasksBySession[sid] ?? [];
+      rawState.tasksBySession = {
+        ...rawState.tasksBySession,
+        [sid]: list.map((t) => {
+          if (t.id !== target.id) return t;
+          // Still running: it simply moved to the background. Otherwise the
+          // task finished first and the server reports its terminal status.
+          if (result.status === 'running') return { ...t, runInBackground: true };
+          return {
+            ...t,
+            status: result.status,
+            completedAt: t.completedAt ?? new Date().toISOString(),
+            completedAtEstimated: t.completedAt === undefined ? true : t.completedAtEstimated,
+          };
+        }),
+      };
+    } catch (error) {
+      if (!isTaskAlreadyFinishedError(error)) {
+        pushOperationFailure('detachTask', error, { sessionId: sid });
+      }
+    } finally {
+      delete pendingTaskDetachments[toolCallId];
+    }
+  }
+
   async function cancelTask(taskId: string): Promise<void> {
     const sid = rawState.activeSessionId;
     if (!sid) return;
@@ -2340,8 +2631,10 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
    *  are left for the user to answer explicitly. */
   function setPermission(mode: PermissionMode): void {
     rawState.permission = mode;
-    savePermissionToStorage(mode);
-    void persistSessionProfile({ permissionMode: mode });
+    const sid = rawState.activeSessionId;
+    if (!sid) return;
+    rawState.permissionBySession = { ...rawState.permissionBySession, [sid]: mode };
+    void persistSessionProfile({ permissionMode: mode }, sid);
   }
 
   /** Dismiss a warning by index */
@@ -2858,6 +3151,9 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
     checkAuth,
     loadConfig,
     updateConfig,
+    loadSubagentModelPolicy,
+    saveSubagentModelPolicy,
+    clearSubagentModelPolicy,
     listAllSessionsGlobal,
     load,
     refreshServerMeta,
@@ -2901,6 +3197,7 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
     pendingQuestionActions,
     pendingApprovalActions,
     cancelTask,
+    detachTask,
     setPlanMode,
     togglePlanMode,
     setDynamicWorkflowMode,

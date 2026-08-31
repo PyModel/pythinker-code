@@ -7,7 +7,15 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { usePythinkerWebClient } from '../../composables/usePythinkerWebClient';
 import { getPythinkerWebApi } from '../../api';
-import type { AppConfig, AppModel, AppSession } from '../../api/types';
+import type {
+  AppSubagentModelPolicy,
+  AppSubagentModelPolicyState,
+  AppConfig,
+  AppExperimentalFlagState,
+  AppModel,
+  AppServerMeta,
+  AppSession,
+} from '../../api/types';
 import { useDialogFocus } from '../../composables/useDialogFocus';
 import { useConfirmDialog } from '../../composables/useConfirmDialog';
 import {
@@ -52,6 +60,10 @@ const props = defineProps<{
   sound: boolean;
   /** Conversation outline (proportional bubbles, viewport indicator, hover tooltip). */
   conversationToc?: boolean;
+  /** Fold a finished turn's work away, leaving the summary. */
+  turnFolding?: boolean;
+  /** Summarise consecutive tool calls into one row while the answer runs. */
+  activityRunFolding?: boolean;
   /** Global daemon config from GET /api/v1/config. Secrets are redacted server-side. */
   config?: AppConfig | null;
   /** Models from the daemon catalog, used to label default-model choices. */
@@ -62,7 +74,12 @@ const props = defineProps<{
   serverVersion?: string;
   /** Backend engine generation from GET /api/v1/meta ('v1' legacy, 'v2' agent-gateway). */
   backend?: 'v1' | 'v2';
-  initialTab?: 'general' | 'providers';
+  /** Effective experimental flag states from GET /api/v1/meta. */
+  experimentalFlagStates?: AppExperimentalFlagState[];
+  /** Saved + effective subagent model routing policy (dedicated endpoint). */
+  subagentModelPolicy?: AppSubagentModelPolicyState | null;
+  subagentModelPolicySaving?: boolean;
+  initialTab?: 'general' | 'providers' | 'agent';
 }>();
 
 const emit = defineEmits<{
@@ -74,8 +91,12 @@ const emit = defineEmits<{
   setNotifyApproval: [on: boolean];
   setSound: [on: boolean];
   setConversationToc: [on: boolean];
+  setTurnFolding: [on: boolean];
+  setActivityRunFolding: [on: boolean];
   openOnboarding: [];
   updateConfig: [patch: Partial<AppConfig>];
+  saveSubagentModelPolicy: [policy: AppSubagentModelPolicy];
+  clearSubagentModelPolicy: [];
   close: [];
 }>();
 
@@ -108,7 +129,7 @@ const desktopUpdateBusy = ref(false);
 const desktopUpdateActionError = ref<string>();
 let removeDesktopUpdateListener: (() => void) | undefined;
 const resolvedAppVersion = computed(() => desktopUpdateState.value?.installedVersion ?? appVersion);
-const serverMeta = ref<{ serverVersion: string; serverId: string; backend: 'v1' | 'v2' } | null>(null);
+const serverMeta = ref<Pick<AppServerMeta, 'serverVersion' | 'serverId' | 'backend'> & Partial<AppServerMeta> | null>(null);
 const resolvedServerVersion = computed(() => serverMeta.value?.serverVersion || props.serverVersion || '-');
 const resolvedBackend = computed(() => serverMeta.value?.backend ?? props.backend ?? 'v1');
 const backendLabel = computed(() =>
@@ -302,13 +323,29 @@ function restartToDesktopUpdate(): void {
   if (desktopBridge !== undefined) void runDesktopUpdate(() => desktopBridge.restartToUpdate());
 }
 
+// Config saves and the parent refresh can overlap; only the newest request may
+// write, so a slow older `/meta` response never leaves stale flag chips behind.
+let serverMetaRequest = 0;
+
 async function loadServerMeta(): Promise<void> {
+  const request = ++serverMetaRequest;
+  let next: typeof serverMeta.value;
   try {
-    serverMeta.value = await getPythinkerWebApi().getMeta();
+    next = await getPythinkerWebApi().getMeta();
   } catch {
-    serverMeta.value = null;
+    next = null;
   }
+  if (request === serverMetaRequest) serverMeta.value = next;
 }
+
+// A saved config can change what the server decides (flag sources, effective
+// values); re-read the metadata so the Lab chips never show a pre-save state.
+watch(
+  () => props.config,
+  () => {
+    void loadServerMeta();
+  },
+);
 
 function exportLog(): void {
   downloadTraceLog();
@@ -487,14 +524,9 @@ async function copyServerAddress(): Promise<void> {
   scheduleCopyFlashReset();
 }
 
-// Secondary (subagent) model — the Agent tab section. The legacy `model`
-// field remains readable while every write uses the canonical v2 contract.
-const secondaryModelFlagEnabled = computed(() => experimentalFlag('secondary-model'));
-const secondaryModel = computed(
-  () => props.config?.secondaryModel?.defaultModel ?? props.config?.secondaryModel?.model ?? '',
-);
-const secondaryModelEffort = computed(() => props.config?.secondaryModel?.defaultEffort ?? '');
-const secondaryModelForced = computed(() => props.config?.secondaryModel?.force === true);
+// Subagent model routing — the Agent tab section. Reads and writes go
+// through the dedicated policy endpoint (If-Match on the last read version);
+// the card below shows what is saved next to what currently applies.
 const modelInfoById = computed<Record<string, AppModel>>(() =>
   Object.fromEntries((props.models ?? []).map((model) => [model.id, model])),
 );
@@ -503,39 +535,108 @@ function experimentalFlag(flag: string): boolean {
   return props.config?.experimental?.[flag] === true;
 }
 
+// Effective state comes from the server: the switch edits the saved setting,
+// the chips explain when that setting is not what currently applies.
+function experimentalFlagState(flag: string): AppExperimentalFlagState | undefined {
+  const fromMeta = serverMeta.value?.experimentalFlagStates?.find((state) => state.id === flag);
+  return fromMeta ?? props.experimentalFlagStates?.find((state) => state.id === flag);
+}
+
 function toggleExperimental(flag: string, value: boolean): void {
   const next = { ...props.config?.experimental, [flag]: value };
   emit('updateConfig', { experimental: next } as Partial<AppConfig>);
 }
 
-function secondaryModelConfig(model: string, effort: string, force: boolean): NonNullable<AppConfig['secondaryModel']> {
-  const next: NonNullable<AppConfig['secondaryModel']> = { defaultModel: model };
-  if (effort) next.defaultEffort = effort;
-  if (force) next.force = true;
-  return next;
+const ROUTING_MODES = ['inherit', 'default', 'pool', 'force'] as const;
+type RoutingMode = (typeof ROUTING_MODES)[number];
+
+const draftMode = ref<RoutingMode>('inherit');
+const draftModel = ref('');
+const draftEffort = ref('');
+const draftPool = ref<Set<string>>(new Set());
+
+function adoptPolicy(policy: AppSubagentModelPolicy | undefined): void {
+  draftMode.value = policy?.mode ?? 'inherit';
+  draftModel.value = policy !== undefined && policy.mode !== 'inherit' ? policy.defaultModel : '';
+  draftEffort.value = policy !== undefined && policy.mode !== 'inherit' ? (policy.defaultEffort ?? '') : '';
+  draftPool.value = new Set(policy?.mode === 'pool' ? Object.keys(policy.models) : []);
+}
+watch(() => props.subagentModelPolicy?.policy, adoptPolicy, { immediate: true, deep: true });
+
+function draftPolicy(): AppSubagentModelPolicy | undefined {
+  const effort = draftEffort.value || undefined;
+  switch (draftMode.value) {
+    case 'inherit':
+      return { mode: 'inherit' };
+    case 'default':
+    case 'force':
+      return draftModel.value ? { mode: draftMode.value, defaultModel: draftModel.value, defaultEffort: effort } : undefined;
+    case 'pool': {
+      if (draftPool.value.size === 0 || !draftPool.value.has(draftModel.value)) return undefined;
+      const models = Object.fromEntries([...draftPool.value].map((id) => [id, '']));
+      return { mode: 'pool', defaultModel: draftModel.value, models, defaultEffort: effort };
+    }
+  }
 }
 
-function setSecondaryModel(selection: { model: string; effort?: string }): void {
-  const effort = selection.effort ?? '';
-  if (
-    props.config?.secondaryModel?.defaultModel === selection.model &&
-    effort === secondaryModelEffort.value
-  ) {
+function commitDraft(): void {
+  const policy = draftPolicy();
+  if (policy === undefined) return;
+  if (policy.mode === 'inherit') {
+    if (props.subagentModelPolicy?.policy.mode !== 'inherit') emit('clearSubagentModelPolicy');
     return;
   }
-  const next = secondaryModelConfig(selection.model, effort, secondaryModelForced.value);
-  emit('updateConfig', { secondaryModel: next } as Partial<AppConfig>);
+  emit('saveSubagentModelPolicy', policy);
 }
 
-function setSecondaryModelForced(force: boolean): void {
-  if (!secondaryModel.value || force === secondaryModelForced.value) return;
-  const next = secondaryModelConfig(secondaryModel.value, secondaryModelEffort.value, force);
-  emit('updateConfig', { secondaryModel: next } as Partial<AppConfig>);
+function selectMode(mode: RoutingMode): void {
+  if (draftMode.value === mode) return;
+  draftMode.value = mode;
+  if (mode === 'pool' && draftPool.value.size === 0 && draftModel.value) {
+    draftPool.value = new Set([draftModel.value]);
+  }
+  commitDraft();
 }
 
-function inheritSecondaryModel(): void {
-  if (props.config?.secondaryModel === undefined) return;
-  emit('updateConfig', { secondaryModel: null } as Partial<AppConfig>);
+function pickModel(selection: { model: string; effort?: string }): void {
+  draftModel.value = selection.model;
+  draftEffort.value = selection.effort ?? '';
+  commitDraft();
+}
+
+function togglePoolModel(id: string): void {
+  const next = new Set(draftPool.value);
+  if (next.has(id)) next.delete(id);
+  else next.add(id);
+  draftPool.value = next;
+  if (!next.has(draftModel.value)) draftModel.value = [...next][0] ?? '';
+  commitDraft();
+}
+
+function setPoolDefault(id: string): void {
+  if (!draftPool.value.has(id) || draftModel.value === id) return;
+  draftModel.value = id;
+  commitDraft();
+}
+
+function modelLabelFor(id: string): string {
+  return modelOptions.value.find((option) => option.id === id)?.label ?? id;
+}
+
+function policySummary(policy: AppSubagentModelPolicy): string {
+  switch (policy.mode) {
+    case 'inherit':
+      return t('settings.subagentRouting.summaryInherit');
+    case 'pool':
+      return `${t('settings.subagentRouting.mode.pool')} · ${t('settings.subagentRouting.summaryPool', {
+        count: Object.keys(policy.models).length,
+        model: modelLabelFor(policy.defaultModel),
+      })}`;
+    default: {
+      const effort = policy.defaultEffort ? ` · ${policy.defaultEffort}` : '';
+      return `${t(`settings.subagentRouting.mode.${policy.mode}`)} · ${modelLabelFor(policy.defaultModel)}${effort}`;
+    }
+  }
 }
 
 function setFontScale(scale: string): void {
@@ -702,6 +803,32 @@ function archiveTime(iso: string): string {
           </section>
 
           <section class="sec">
+            <h3 class="sec-title">{{ t('settings.messageFolding') }}</h3>
+            <div class="row">
+              <span class="rlabel">
+                {{ t('settings.turnFolding') }}
+                <span class="hint">{{ t('settings.turnFoldingHint') }}</span>
+              </span>
+              <Switch
+                :model-value="turnFolding ?? true"
+                :label="t('settings.turnFolding')"
+                @update:model-value="emit('setTurnFolding', $event)"
+              />
+            </div>
+            <div class="row">
+              <span class="rlabel">
+                {{ t('settings.activityRunFolding') }}
+                <span class="hint">{{ t('settings.activityRunFoldingHint') }}</span>
+              </span>
+              <Switch
+                :model-value="activityRunFolding ?? true"
+                :label="t('settings.activityRunFolding')"
+                @update:model-value="emit('setActivityRunFolding', $event)"
+              />
+            </div>
+          </section>
+
+          <section class="sec">
             <h3 class="sec-title">{{ t('settings.notifications') }}</h3>
             <div class="row">
               <span class="rlabel">
@@ -808,36 +935,76 @@ function archiveTime(iso: string): string {
                 <span v-else class="rvalue mono">{{ config.defaultModel ?? t('settings.noDefaultModel') }}</span>
               </div>
 
-              <section v-if="secondaryModelFlagEnabled" class="sec">
-                <h3 class="sec-title">{{ t('settings.secondaryModelSection') }}</h3>
-                <div class="row">
+              <section v-if="subagentModelPolicy" class="sec" data-testid="subagent-routing">
+                <h3 class="sec-title">{{ t('settings.subagentRouting.title') }}</h3>
+                <div class="routing-modes" role="radiogroup" :aria-label="t('settings.subagentRouting.title')">
+                  <label v-for="mode in ROUTING_MODES" :key="mode" class="routing-mode" :class="{ on: draftMode === mode }">
+                    <input
+                      type="radio"
+                      name="subagent-routing-mode"
+                      :value="mode"
+                      :checked="draftMode === mode"
+                      :disabled="subagentModelPolicySaving"
+                      @change="selectMode(mode)"
+                    />
+                    <span class="routing-mode-title">{{ t(`settings.subagentRouting.mode.${mode}`) }}</span>
+                    <span class="hint">{{ t(`settings.subagentRouting.modeHint.${mode}`) }}</span>
+                  </label>
+                </div>
+                <div v-if="draftMode === 'default' || draftMode === 'force'" class="row">
                   <span class="rlabel">
-                    {{ t('settings.secondaryModel') }}
-                    <span class="hint">{{ t('settings.secondaryModelHint') }}</span>
+                    {{ t('settings.subagentRouting.model') }}
+                    <span class="hint">{{ t('settings.subagentRouting.modelHint') }}</span>
                   </span>
                   <SecondaryModelPicker
                     v-if="modelGroups.length > 0"
-                    :model-value="secondaryModel"
-                    :effort="secondaryModelEffort"
+                    :model-value="draftModel"
+                    :effort="draftEffort"
                     :groups="modelGroups"
                     :model-info-by-id="modelInfoById"
-                    :disabled="configSaving"
-                    @inherit="inheritSecondaryModel"
-                    @select="setSecondaryModel"
+                    :disabled="subagentModelPolicySaving"
+                    @inherit="selectMode('inherit')"
+                    @select="pickModel"
                   />
                   <span v-else class="rvalue">{{ t('settings.noSecondaryModel') }}</span>
                 </div>
-                <div v-if="secondaryModel" class="row">
+                <div v-else-if="draftMode === 'pool'" class="row routing-pool">
                   <span class="rlabel">
-                    {{ t('settings.forceSecondaryModel') }}
-                    <span class="hint">{{ t('settings.forceSecondaryModelHint') }}</span>
+                    {{ t('settings.subagentRouting.pool') }}
+                    <span class="hint">{{ t('settings.subagentRouting.poolHint') }}</span>
                   </span>
-                  <Switch
-                    :model-value="secondaryModelForced"
-                    :disabled="configSaving"
-                    :label="t('settings.forceSecondaryModel')"
-                    @update:model-value="setSecondaryModelForced"
-                  />
+                  <div class="pool-list" data-testid="routing-pool">
+                    <label v-for="option in modelOptions" :key="option.id" class="pool-item">
+                      <input
+                        type="checkbox"
+                        :value="option.id"
+                        :checked="draftPool.has(option.id)"
+                        :disabled="subagentModelPolicySaving"
+                        @change="togglePoolModel(option.id)"
+                      />
+                      <span class="pool-name">{{ option.label }}</span>
+                      <button
+                        type="button"
+                        class="pool-default"
+                        :class="{ on: draftModel === option.id }"
+                        :disabled="!draftPool.has(option.id) || subagentModelPolicySaving"
+                        @click="setPoolDefault(option.id)"
+                      >{{ draftModel === option.id ? t('settings.subagentRouting.poolDefault') : t('settings.subagentRouting.makeDefault') }}</button>
+                    </label>
+                  </div>
+                </div>
+                <div class="row routing-effective" data-testid="effective-routing">
+                  <span class="rlabel">
+                    {{ t('settings.subagentRouting.saved') }}
+                    <span class="rvalue mono" data-testid="saved-policy">{{ policySummary(subagentModelPolicy.configuredPolicy) }}</span>
+                  </span>
+                  <span class="rlabel">
+                    {{ t('settings.subagentRouting.effective') }}
+                    <span class="rvalue mono" data-testid="effective-policy">{{ policySummary(subagentModelPolicy.effectivePolicy) }}</span>
+                  </span>
+                  <span v-if="!subagentModelPolicy.feature.enabled" class="hint" data-testid="feature-disabled">
+                    {{ t('settings.subagentRouting.featureDisabled') }}
+                  </span>
                 </div>
               </section>
 
@@ -991,7 +1158,7 @@ function archiveTime(iso: string): string {
               <div class="desktop-update-row desktop-update-summary">
                 <div class="desktop-update-summary-copy">
                   <span class="desktop-update-icon" aria-hidden="true">
-                    <Icon name="download" size="md" />
+                    <Icon name="update-button" />
                   </span>
                   <span class="rlabel">
                     <span class="desktop-update-title" aria-live="polite">{{ desktopUpdateStatus }}</span>
@@ -1157,6 +1324,8 @@ function archiveTime(iso: string): string {
                 <span class="rlabel">
                   {{ t('settings.lab.sidebarTabs') }}
                   <span class="hint">{{ t('settings.lab.sidebarTabsHint') }}</span>
+                  <span v-if="experimentalFlagState('sidebarTabs')?.externallyControlled" class="flag-chip">{{ t('settings.lab.environmentControlled') }}</span>
+                  <span v-if="experimentalFlagState('sidebarTabs')?.overridden" class="flag-chip flag-chip--warn">{{ t('settings.lab.savedSettingOverridden') }}</span>
                 </span>
                 <Switch
                   :model-value="experimentalFlag('sidebarTabs')"
@@ -1169,6 +1338,8 @@ function archiveTime(iso: string): string {
                 <span class="rlabel">
                   {{ t('settings.lab.secondaryModel') }}
                   <span class="hint">{{ t('settings.lab.secondaryModelHint') }}</span>
+                  <span v-if="experimentalFlagState('secondary-model')?.externallyControlled" class="flag-chip">{{ t('settings.lab.environmentControlled') }}</span>
+                  <span v-if="experimentalFlagState('secondary-model')?.overridden" class="flag-chip flag-chip--warn">{{ t('settings.lab.savedSettingOverridden') }}</span>
                 </span>
                 <Switch
                   :model-value="experimentalFlag('secondary-model')"
@@ -1348,6 +1519,18 @@ function archiveTime(iso: string): string {
 }
 .value-wrap .rvalue { max-width: 100%; }
 .hint { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--color-text-faint); }
+.flag-chip {
+  display: inline-block;
+  width: fit-content;
+  margin-top: var(--space-1);
+  padding: 1px var(--space-2);
+  border-radius: var(--radius-full);
+  border: 1px solid var(--color-line);
+  font-family: var(--font-ui);
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+}
+.flag-chip--warn { color: var(--color-warning); border-color: var(--color-warning-bd); background: var(--color-warning-soft); }
 
 .desktop-update-card {
   --desktop-update-icon-size: 42px;
@@ -1378,12 +1561,13 @@ function archiveTime(iso: string): string {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  flex: none;
   width: var(--desktop-update-icon-size);
   height: var(--desktop-update-icon-size);
-  flex: none;
-  border-radius: var(--radius-lg);
-  background: var(--color-success-soft);
-  color: var(--color-success);
+}
+.desktop-update-icon :deep(svg) {
+  width: var(--desktop-update-icon-size);
+  height: var(--desktop-update-icon-size);
 }
 .desktop-update-title {
   font-size: var(--text-lg);
@@ -1500,4 +1684,82 @@ function archiveTime(iso: string): string {
    680px). Scoped to this dialog only. */
 :deep(.ui-dialog) { width: min(980px, 96vw); }
 :deep(.ui-dialog--fixed-height) { height: min(780px, calc(100vh - var(--space-8) * 2)); }
+
+/* Subagent model routing */
+.routing-modes {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px;
+  padding: 6px 0 10px;
+}
+.routing-mode {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+.routing-mode.on {
+  border-color: var(--color-accent-bd);
+  background: var(--color-accent-soft);
+}
+.routing-mode input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+.routing-mode:has(input:focus-visible) {
+  outline: none;
+  box-shadow: var(--p-focus-ring);
+}
+.routing-mode-title {
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  color: var(--color-text);
+}
+.pool-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.pool-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+}
+.pool-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pool-default {
+  padding: 1px 8px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--color-line);
+  background: transparent;
+  color: var(--color-text-muted);
+  font: var(--text-xs) var(--font-ui);
+  cursor: pointer;
+}
+.pool-default.on {
+  border-color: var(--color-accent-bd);
+  color: var(--color-text);
+}
+.pool-default:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.routing-effective {
+  flex-wrap: wrap;
+  gap: 4px 16px;
+}
 </style>

@@ -37,7 +37,7 @@ export class AuthSummaryService
     const default_model = nonEmpty(config.defaultModel);
 
     const ready = providers_count >= 1 && default_model !== null;
-    return { ready, providers_count, default_model };
+    return { ready, models_ready: ready, providers_count, default_model };
   }
 
   async ensureReady(modelOverride?: string): Promise<void> {

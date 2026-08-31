@@ -29,7 +29,7 @@ const emit = defineEmits<{
 
 const { t } = useI18n();
 
-const { width, dragging, onPointerDown } = useResizable({
+const { width, dragging, setWidth, onPointerDown } = useResizable({
   storageKey: props.storageKey,
   defaultWidth: props.defaultWidth,
   min: props.min,
@@ -38,6 +38,24 @@ const { width, dragging, onPointerDown } = useResizable({
   max: () => props.max,
   reverse: props.reverse,
 });
+
+/** Keyboard step in px, read from the token so the scale stays in one place. */
+function stepPx(large: boolean): number {
+  const name = large ? '--resize-handle-step-lg' : '--resize-handle-step';
+  const raw = getComputedStyle(document.documentElement).getPropertyValue(name);
+  return Number.parseFloat(raw) || (large ? 48 : 16);
+}
+
+// A pointer-only handle is unreachable without a mouse: Arrow keys resize, and
+// Shift takes the larger step. `reverse` flips the direction so the arrow
+// always moves the visible edge the way it points.
+function onKeydown(event: KeyboardEvent): void {
+  if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+  event.preventDefault();
+  const direction = event.key === 'ArrowRight' ? 1 : -1;
+  const signed = props.reverse ? -direction : direction;
+  setWidth(width.value + signed * stepPx(event.shiftKey));
+}
 
 // Surface the restored width immediately, then keep the parent in sync on drag.
 emit('update:width', width.value);
@@ -52,7 +70,12 @@ watch(dragging, (d) => emit('update:dragging', d));
     role="separator"
     aria-orientation="vertical"
     :aria-label="ariaLabel ?? t('layout.resizeHandleAria')"
+    :aria-valuenow="Math.round(width)"
+    :aria-valuemin="min"
+    :aria-valuemax="max"
+    tabindex="0"
     @pointerdown="onPointerDown"
+    @keydown="onKeydown"
   >
     <span class="rh-bar" aria-hidden="true"></span>
   </div>
@@ -82,5 +105,9 @@ watch(dragging, (d) => emit('update:dragging', d));
 .rh:hover .rh-bar,
 .rh.dragging .rh-bar {
   background: var(--color-accent);
+}
+.rh:focus-visible {
+  outline: none;
+  box-shadow: var(--p-focus-ring);
 }
 </style>

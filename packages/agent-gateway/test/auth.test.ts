@@ -62,6 +62,7 @@ describe('server-v2 GET /api/v1/auth', () => {
     await boot();
     expect(await getAuth()).toEqual({
       ready: false,
+      models_ready: false,
       providers_count: 0,
       default_model: null,
     });
@@ -85,6 +86,7 @@ describe('server-v2 GET /api/v1/auth', () => {
     );
     expect(await getAuth()).toEqual({
       ready: true,
+      models_ready: true,
       providers_count: 1,
       default_model: 'x',
     });
@@ -159,7 +161,45 @@ describe('server-v2 GET /api/v1/auth', () => {
     );
     const summary = await getAuth();
     expect(summary.ready).toBe(false);
+    expect(summary.models_ready).toBe(false);
     expect(summary.providers_count).toBe(1);
     expect(summary.default_model).toBeNull();
+  });
+
+  it('returns models_ready=false when the default model dangles', async () => {
+    await boot(
+      [
+        'default_model = "gone"',
+        '',
+        '[providers.x]',
+        'type = "openai"',
+        'api_key = "sk-test"',
+        '',
+      ].join('\n'),
+    );
+    const summary = await getAuth();
+    expect(summary.ready).toBe(false);
+    expect(summary.models_ready).toBe(false);
+    expect(summary.default_model).toBe('gone');
+  });
+
+  it('returns models_ready=true for a providerless flat default model', async () => {
+    await boot(
+      [
+        'default_model = "flat"',
+        '',
+        '[models.flat]',
+        'base_url = "https://example.test/v1"',
+        'model = "gpt"',
+        'protocol = "openai"',
+        'max_context_size = 4096',
+        'api_key = "sk-test"',
+        '',
+      ].join('\n'),
+    );
+    const summary = await getAuth();
+    expect(summary.ready).toBe(true);
+    expect(summary.models_ready).toBe(true);
+    expect(summary.providers_count).toBe(0);
   });
 });

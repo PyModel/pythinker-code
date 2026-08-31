@@ -58,6 +58,7 @@ const emit = defineEmits<{
   openFile: [target: FilePreviewRequest];
   openToolDiff: [id: string];
   openAgent: [toolCallId: string];
+  detach: [toolCallId: string];
 }>();
 
 const { t } = useI18n();
@@ -234,6 +235,7 @@ function runStreaming(block: Extract<AssistantRenderBlock, { kind: 'activity-run
             @open-file="emit('openFile', $event)"
             @open-tool-diff="emit('openToolDiff', $event)"
             @open-agent="emit('openAgent', $event)"
+            @detach="emit('detach', $event)"
           />
           <ToolCall
             v-else-if="block.kind === 'tool'"
@@ -244,6 +246,7 @@ function runStreaming(block: Extract<AssistantRenderBlock, { kind: 'activity-run
             @open-file="emit('openFile', $event)"
             @open-tool-diff="emit('openToolDiff', $event)"
             @open-agent="emit('openAgent', $event)"
+            @detach="emit('detach', $event)"
           />
           <NotificationCard
             v-else-if="block.kind === 'notification'"

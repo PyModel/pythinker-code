@@ -427,6 +427,8 @@ export interface UIQuestion {
     multiSelect?: boolean;
     allowOther?: boolean;
     otherLabel?: string;
+    /** Explains what the free-text "Other" answer is for. */
+    otherDescription?: string;
   }[];
 }
 

@@ -63,7 +63,7 @@ function CodeBlock({ content, maxLines = 10 }: { content: string; maxLines?: num
     <div className="relative group/codeblock">
       <pre className="text-[11px] bg-muted text-foreground rounded px-3 py-2 overflow-x-auto whitespace-pre-wrap break-all">
         {displayContent}
-        {shouldCollapse && !expanded && <span className="text-muted-foreground">{"\n"}...</span>}
+        {shouldCollapse && !expanded && <span className="text-muted-foreground">{"\n"}…</span>}
       </pre>
       {shouldCollapse && (
         <button

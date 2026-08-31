@@ -27,7 +27,7 @@
 // references become '(circular)', and class instances collapse to a '(ClassName)'
 // marker — the wire shape of an entry is the JSON projection of the type here.
 //
-// Index (App: 0 keys · Workspace: 6 keys · Session: 9 keys · Agent: 84 keys)
+// Index (App: 0 keys · Workspace: 6 keys · Session: 9 keys · Agent: 85 keys)
 //   App
 //   Workspace
 //     workspaceDirs.ephemeralDirs          src/workspace/workspaceDirs/workspaceDirsService.ts
@@ -103,6 +103,7 @@
 //     staleGuard                                      src/features/staleGuard/staleGuardOps.ts
 //     stepRetry.failedAttempts                        src/agent/stepRetry/stepRetryService.ts
 //     stepRetry.lastFailedDriverId                    src/agent/stepRetry/stepRetryService.ts
+//     subagent.bindingProvenance                      src/session/subagent/bindingProvenance.ts
 //     task                                            src/agent/task/taskOps.ts
 //     task.activeTaskReminderPending                  src/agent/task/taskService.ts
 //     task.deliveredNotificationKeys                  src/agent/task/taskService.ts
@@ -726,6 +727,12 @@ export interface AgentStateSnapshot {
           readonly skillPath?: string;
           readonly skillSource?: 'project' | 'user' | 'extra' | 'builtin';
         }[];
+        readonly attachments?: readonly /* PromptFileAttachment — packages/agent-core-v2/src/agent/contextMemory/types.ts */ {
+          readonly name: string;
+          readonly mediaType: string;
+          readonly size: number;
+          readonly path: string;
+        }[];
       } | /* SkillActivationOrigin — packages/agent-core-v2/src/agent/contextMemory/types.ts */ {
         readonly kind: 'skill_activation';
         readonly activationId: string;
@@ -735,6 +742,12 @@ export interface AgentStateSnapshot {
         readonly skillType?: string;
         readonly skillPath?: string;
         readonly skillSource?: 'project' | 'user' | 'extra' | 'builtin';
+        readonly attachments?: readonly /* PromptFileAttachment — packages/agent-core-v2/src/agent/contextMemory/types.ts */ {
+          readonly name: string;
+          readonly mediaType: string;
+          readonly size: number;
+          readonly path: string;
+        }[];
       } | /* PluginCommandOrigin — packages/agent-core-v2/src/agent/contextMemory/types.ts */ {
         readonly kind: 'plugin_command';
         readonly activationId: string;
@@ -859,6 +872,12 @@ export interface AgentStateSnapshot {
         readonly skillPath?: string;
         readonly skillSource?: 'project' | 'user' | 'extra' | 'builtin';
       }[];
+      readonly attachments?: readonly /* PromptFileAttachment — packages/agent-core-v2/src/agent/contextMemory/types.ts */ {
+        readonly name: string;
+        readonly mediaType: string;
+        readonly size: number;
+        readonly path: string;
+      }[];
     } | /* SkillActivationOrigin — packages/agent-core-v2/src/agent/contextMemory/types.ts */ {
       readonly kind: 'skill_activation';
       readonly activationId: string;
@@ -868,6 +887,12 @@ export interface AgentStateSnapshot {
       readonly skillType?: string;
       readonly skillPath?: string;
       readonly skillSource?: 'project' | 'user' | 'extra' | 'builtin';
+      readonly attachments?: readonly /* PromptFileAttachment — packages/agent-core-v2/src/agent/contextMemory/types.ts */ {
+        readonly name: string;
+        readonly mediaType: string;
+        readonly size: number;
+        readonly path: string;
+      }[];
     } | /* PluginCommandOrigin — packages/agent-core-v2/src/agent/contextMemory/types.ts */ {
       readonly kind: 'plugin_command';
       readonly activationId: string;
@@ -924,6 +949,12 @@ export interface AgentStateSnapshot {
           readonly skillPath?: string;
           readonly skillSource?: 'project' | 'user' | 'extra' | 'builtin';
         }[];
+        readonly attachments?: readonly /* PromptFileAttachment — packages/agent-core-v2/src/agent/contextMemory/types.ts */ {
+          readonly name: string;
+          readonly mediaType: string;
+          readonly size: number;
+          readonly path: string;
+        }[];
       } | /* SkillActivationOrigin — packages/agent-core-v2/src/agent/contextMemory/types.ts */ {
         readonly kind: 'skill_activation';
         readonly activationId: string;
@@ -933,6 +964,12 @@ export interface AgentStateSnapshot {
         readonly skillType?: string;
         readonly skillPath?: string;
         readonly skillSource?: 'project' | 'user' | 'extra' | 'builtin';
+        readonly attachments?: readonly /* PromptFileAttachment — packages/agent-core-v2/src/agent/contextMemory/types.ts */ {
+          readonly name: string;
+          readonly mediaType: string;
+          readonly size: number;
+          readonly path: string;
+        }[];
       } | /* PluginCommandOrigin — packages/agent-core-v2/src/agent/contextMemory/types.ts */ {
         readonly kind: 'plugin_command';
         readonly activationId: string;
@@ -1067,6 +1104,12 @@ export interface AgentStateSnapshot {
         readonly skillPath?: string;
         readonly skillSource?: 'project' | 'user' | 'extra' | 'builtin';
       }[];
+      readonly attachments?: readonly /* PromptFileAttachment — packages/agent-core-v2/src/agent/contextMemory/types.ts */ {
+        readonly name: string;
+        readonly mediaType: string;
+        readonly size: number;
+        readonly path: string;
+      }[];
     } | /* SkillActivationOrigin — packages/agent-core-v2/src/agent/contextMemory/types.ts */ {
       readonly kind: 'skill_activation';
       readonly activationId: string;
@@ -1076,6 +1119,12 @@ export interface AgentStateSnapshot {
       readonly skillType?: string;
       readonly skillPath?: string;
       readonly skillSource?: 'project' | 'user' | 'extra' | 'builtin';
+      readonly attachments?: readonly /* PromptFileAttachment — packages/agent-core-v2/src/agent/contextMemory/types.ts */ {
+        readonly name: string;
+        readonly mediaType: string;
+        readonly size: number;
+        readonly path: string;
+      }[];
     } | /* PluginCommandOrigin — packages/agent-core-v2/src/agent/contextMemory/types.ts */ {
       readonly kind: 'plugin_command';
       readonly activationId: string;
@@ -1273,15 +1322,6 @@ export interface AgentStateSnapshot {
     readonly systemPrompt: string;
     readonly environmentDisclosure?: /* EnvironmentDisclosureSnapshot — packages/agent-core-v2/src/app/agentProfileCatalog/agentProfileCatalog.ts */ {
       readonly cwd: string;
-      readonly date: {
-        readonly disclosed: true;
-        readonly value: {
-          readonly localDate: string;
-          readonly timeZone: string;
-        };
-      } | {
-        readonly disclosed: false;
-      };
     };
     readonly renderGeneration: number;
     readonly agentsMdPaths?: readonly string[];
@@ -1331,6 +1371,8 @@ export interface AgentStateSnapshot {
     readonly endedAt: number | null;
     readonly stopReason?: string;
     readonly terminalNotificationSuppressed?: boolean;
+    readonly stoppedOnExit?: boolean;
+    readonly resumeReminded?: boolean;
     readonly timeoutMs?: number;
   } | /* SubagentTaskInfo — packages/agent-core-v2/src/agent/tools/agent/subagent-task.ts */ {
     readonly kind: 'agent';
@@ -1339,6 +1381,17 @@ export interface AgentStateSnapshot {
     readonly parentToolCallId?: string;
     readonly model?: string;
     readonly thinkingEffort?: string;
+    readonly routing?: /* SubagentBindingProvenance — packages/agent-core-v2/src/session/subagent/routing.ts */ {
+      readonly operation: /* SubagentRoutingOperation — packages/agent-core-v2/src/session/subagent/policy.ts */ 'spawn' | 'fork' | 'resume';
+      readonly profileSource: /* SubagentProfileSource — packages/agent-core-v2/src/session/subagent/routing.ts */ 'default' | 'requested' | 'fork-inherit' | 'resume-existing';
+      readonly modelSource: /* SubagentModelSource — packages/agent-core-v2/src/session/subagent/routing.ts */ 'fork-inherit' | 'resume-existing' | 'caller' | 'policy-default' | 'policy-pool' | 'policy-force';
+      readonly policyMode: 'default' | 'inherit' | 'pool' | 'force';
+      readonly policySource: /* SubagentPolicySource — packages/agent-core-v2/src/session/subagent/policy.ts */ 'default' | 'config';
+      readonly featureSource: /* ExperimentalFlagSource — packages/agent-core-v2/src/app/flag/flag.ts */ 'default' | 'config' | 'master-env' | 'env';
+      readonly resolvedFromRoutingEnvironmentRevision: string;
+      readonly routeDecisionFingerprint: string;
+    };
+    readonly currentRoutingEnvironmentRevision?: string;
     readonly taskId: string;
     readonly description: string;
     readonly status: /* AgentTaskStatus — packages/agent-core-v2/src/agent/task/types.ts */ 'completed' | 'failed' | 'running' | 'timed_out' | 'killed' | 'lost';
@@ -1347,6 +1400,8 @@ export interface AgentStateSnapshot {
     readonly endedAt: number | null;
     readonly stopReason?: string;
     readonly terminalNotificationSuppressed?: boolean;
+    readonly stoppedOnExit?: boolean;
+    readonly resumeReminded?: boolean;
     readonly timeoutMs?: number;
   } | /* ProcessTaskInfo — packages/agent-core-v2/src/agent/tools/os/bash/process-task.ts */ {
     readonly kind: 'process';
@@ -1362,6 +1417,8 @@ export interface AgentStateSnapshot {
     readonly endedAt: number | null;
     readonly stopReason?: string;
     readonly terminalNotificationSuppressed?: boolean;
+    readonly stoppedOnExit?: boolean;
+    readonly resumeReminded?: boolean;
     readonly timeoutMs?: number;
   }>;
   // src/agent/task/taskService.ts
@@ -1379,6 +1436,8 @@ export interface AgentStateSnapshot {
     readonly endedAt: number | null;
     readonly stopReason?: string;
     readonly terminalNotificationSuppressed?: boolean;
+    readonly stoppedOnExit?: boolean;
+    readonly resumeReminded?: boolean;
     readonly timeoutMs?: number;
   } | /* SubagentTaskInfo — packages/agent-core-v2/src/agent/tools/agent/subagent-task.ts */ {
     readonly kind: 'agent';
@@ -1387,6 +1446,17 @@ export interface AgentStateSnapshot {
     readonly parentToolCallId?: string;
     readonly model?: string;
     readonly thinkingEffort?: string;
+    readonly routing?: /* SubagentBindingProvenance — packages/agent-core-v2/src/session/subagent/routing.ts */ {
+      readonly operation: /* SubagentRoutingOperation — packages/agent-core-v2/src/session/subagent/policy.ts */ 'spawn' | 'fork' | 'resume';
+      readonly profileSource: /* SubagentProfileSource — packages/agent-core-v2/src/session/subagent/routing.ts */ 'default' | 'requested' | 'fork-inherit' | 'resume-existing';
+      readonly modelSource: /* SubagentModelSource — packages/agent-core-v2/src/session/subagent/routing.ts */ 'fork-inherit' | 'resume-existing' | 'caller' | 'policy-default' | 'policy-pool' | 'policy-force';
+      readonly policyMode: 'default' | 'inherit' | 'pool' | 'force';
+      readonly policySource: /* SubagentPolicySource — packages/agent-core-v2/src/session/subagent/policy.ts */ 'default' | 'config';
+      readonly featureSource: /* ExperimentalFlagSource — packages/agent-core-v2/src/app/flag/flag.ts */ 'default' | 'config' | 'master-env' | 'env';
+      readonly resolvedFromRoutingEnvironmentRevision: string;
+      readonly routeDecisionFingerprint: string;
+    };
+    readonly currentRoutingEnvironmentRevision?: string;
     readonly taskId: string;
     readonly description: string;
     readonly status: /* AgentTaskStatus — packages/agent-core-v2/src/agent/task/types.ts */ 'completed' | 'failed' | 'running' | 'timed_out' | 'killed' | 'lost';
@@ -1395,6 +1465,8 @@ export interface AgentStateSnapshot {
     readonly endedAt: number | null;
     readonly stopReason?: string;
     readonly terminalNotificationSuppressed?: boolean;
+    readonly stoppedOnExit?: boolean;
+    readonly resumeReminded?: boolean;
     readonly timeoutMs?: number;
   } | /* ProcessTaskInfo — packages/agent-core-v2/src/agent/tools/os/bash/process-task.ts */ {
     readonly kind: 'process';
@@ -1410,6 +1482,8 @@ export interface AgentStateSnapshot {
     readonly endedAt: number | null;
     readonly stopReason?: string;
     readonly terminalNotificationSuppressed?: boolean;
+    readonly stoppedOnExit?: boolean;
+    readonly resumeReminded?: boolean;
     readonly timeoutMs?: number;
   }>;
   // replayable · durable · undoable — folds: ContextAppendMessage, TaskWaitDelivered
@@ -1472,6 +1546,18 @@ export interface AgentStateSnapshot {
   'tower': boolean;
   // replayable · durable — folds: TowerModeEnter, TowerModeExit
   'tower.owner': string | undefined;
+  // src/session/subagent/bindingProvenance.ts
+  // replayable · durable — folds: SubagentBindingProvenanceRecorded
+  'subagent.bindingProvenance': /* SubagentBindingProvenance — packages/agent-core-v2/src/session/subagent/routing.ts */ {
+    readonly operation: /* SubagentRoutingOperation — packages/agent-core-v2/src/session/subagent/policy.ts */ 'spawn' | 'fork' | 'resume';
+    readonly profileSource: /* SubagentProfileSource — packages/agent-core-v2/src/session/subagent/routing.ts */ 'default' | 'requested' | 'fork-inherit' | 'resume-existing';
+    readonly modelSource: /* SubagentModelSource — packages/agent-core-v2/src/session/subagent/routing.ts */ 'fork-inherit' | 'resume-existing' | 'caller' | 'policy-default' | 'policy-pool' | 'policy-force';
+    readonly policyMode: 'default' | 'inherit' | 'pool' | 'force';
+    readonly policySource: /* SubagentPolicySource — packages/agent-core-v2/src/session/subagent/policy.ts */ 'default' | 'config';
+    readonly featureSource: /* ExperimentalFlagSource — packages/agent-core-v2/src/app/flag/flag.ts */ 'default' | 'config' | 'master-env' | 'env';
+    readonly resolvedFromRoutingEnvironmentRevision: string;
+    readonly routeDecisionFingerprint: string;
+  } | undefined;
 }
 
 export type AgentStateKey = keyof AgentStateSnapshot;

@@ -7,7 +7,6 @@ export default {
   copyPath: 'Copy path',
   openInEditor: 'Open',
   reveal: 'Reveal',
-  download: 'Download',
   close: 'Close',
   search: 'Search',
   prevMatch: 'Previous match',

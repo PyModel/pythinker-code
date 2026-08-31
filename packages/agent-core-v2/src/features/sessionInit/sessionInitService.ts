@@ -2,15 +2,14 @@ import { isAbortError, isUserCancellation, userCancellationReason } from '#/_bas
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
-import { IAgentProfileService } from '#/agent/profile/profile';
 import { loadAgentsMdDetailed } from '#/agent/profile/context';
 import { IAgentAgentsMdReminderService } from '#/agent/agentsMdReminder/agentsMdReminder';
-import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import { agentContextOf } from '#/agent/scopeContext/scopeContext';
 import { AgentReminder } from '#/features/reminder/reminderAgentRuntime';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 import { ErrorCodes, Error2 } from '#/errors';
 import { IAgentLifecycleService, MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
+import { subagentLabels } from '#/session/agentLifecycle/subagentMetadata';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { emitAgentRunSpawned, mirrorAgentRun } from '#/session/subagent/mirrorAgentRun';
 import { ISessionSubagentService } from '#/session/subagent/subagent';
@@ -48,41 +47,49 @@ export class SessionInitService implements ISessionInitService {
 
     const controller = new AbortController();
     this.initRun = controller;
+    let spawnedAgentId: string | undefined;
     try {
-      const own = main.accessor.get(IAgentProfileService).data();
-      if (own.modelAlias === undefined) {
-        throw new Error2(ErrorCodes.SESSION_INIT_FAILED, 'Main agent has no model bound');
-      }
-      const permissionMode = main.accessor.get(IAgentPermissionModeService).mode;
-
-      const childContext = await this.agentLifecycle.create({
-        binding: {
-          profile: INIT_PROFILE_NAME,
-          model: own.modelAlias,
-          thinking: own.thinkingLevel,
-        },
+      const plan = await this.subagents.planSpawn({
+        callerAgentId: MAIN_AGENT_ID,
+        profileName: INIT_PROFILE_NAME,
       });
-      const child = this.agentLifecycle.handleOf(childContext.agentId)!;
-      child.accessor.get(IAgentPermissionModeService).setMode(permissionMode);
+      const spawned = await this.subagents.spawn({
+        callerAgentId: MAIN_AGENT_ID,
+        plan,
+        labels: subagentLabels(MAIN_AGENT_ID),
+        prompt: DEFAULT_INIT_PROMPT,
+        signal: controller.signal,
+      });
+      spawnedAgentId = spawned.agentId;
+      const child = this.agentLifecycle.handleOf(spawned.agentId);
+      if (child === undefined) {
+        throw new Error(`Agent instance "${spawned.agentId}" does not exist`);
+      }
 
       emitAgentRunSpawned(main, child.id, {
         profileName: INIT_PROFILE_NAME,
         parentToolCallId: INIT_PARENT_TOOL_CALL_ID,
         description: INIT_DESCRIPTION,
         runInBackground: false,
-        model: own.modelAlias,
+        fork: plan.fork,
+        model: plan.model,
+        routing: plan.routing,
+        currentRoutingEnvironmentRevision:
+          plan.routing?.resolvedFromRoutingEnvironmentRevision,
       });
 
       const run = await this.subagents.run(
         agentContextOf(child),
-        { kind: 'prompt', prompt: DEFAULT_INIT_PROMPT },
+        { kind: 'prompt', prompt: spawned.promptText },
         { signal: controller.signal },
       );
       await mirrorAgentRun(main, run, {
         profileName: INIT_PROFILE_NAME,
-        prompt: DEFAULT_INIT_PROMPT,
+        prompt: spawned.promptText,
         signal: controller.signal,
-        cancel: (reason) => controller.abort(reason),
+        cancel: (reason) => {
+          controller.abort(reason);
+        },
       });
 
       const { content: agentsMd, paths: agentsMdPaths } = await loadAgentsMdDetailed(
@@ -107,7 +114,10 @@ export class SessionInitService implements ISessionInitService {
       throw new Error2(
         ErrorCodes.SESSION_INIT_FAILED,
         error instanceof Error ? error.message : 'Init failed',
-        { cause: error },
+        {
+          cause: error,
+          details: spawnedAgentId === undefined ? undefined : { agentId: spawnedAgentId },
+        },
       );
     } finally {
       if (this.initRun === controller) {

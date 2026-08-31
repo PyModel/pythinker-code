@@ -266,6 +266,63 @@ function settleOpenThinking(content: AppMessageContent[], nowMs: number, beforeI
   }
 }
 
+export function patchAssistantDeltaMessage(
+  message: AppMessage,
+  event: Extract<AppEvent, { type: 'assistantDelta' }>,
+): AppMessage {
+  const content = [...message.content];
+  const index = event.contentIndex;
+  const created = content.length <= index;
+  while (content.length <= index) {
+    content.push({ type: 'text', text: '' });
+  }
+  const existing = content[index]!;
+  let patched: AppMessageContent;
+  if (event.delta.text !== undefined) {
+    if (existing.type === 'text' && !created) {
+      patched = { type: 'text', text: existing.text + event.delta.text };
+    } else {
+      settleOpenThinking(content, Date.now(), index);
+      patched = { type: 'text', text: event.delta.text };
+    }
+  } else if (event.delta.thinking !== undefined) {
+    if (existing.type === 'thinking') {
+      patched = {
+        type: 'thinking',
+        thinking: existing.thinking + event.delta.thinking,
+        signature: existing.signature,
+        startedAt: existing.startedAt,
+        durationMs: existing.durationMs,
+      };
+    } else {
+      settleOpenThinking(content, Date.now(), index);
+      patched = {
+        type: 'thinking',
+        thinking: event.delta.thinking,
+        startedAt: new Date().toISOString(),
+      };
+    }
+  } else {
+    patched = existing;
+  }
+  content[index] = patched;
+  return { ...message, content };
+}
+
+export function patchAssistantDeltaInPlace(
+  messages: AppMessage[],
+  event: Extract<AppEvent, { type: 'assistantDelta' }>,
+): boolean {
+  const tailIndex = messages.length - 1;
+  const index =
+    messages[tailIndex]?.id === event.messageId
+      ? tailIndex
+      : messages.findIndex((message) => message.id === event.messageId);
+  if (index === -1) return false;
+  messages[index] = patchAssistantDeltaMessage(messages[index]!, event);
+  return true;
+}
+
 /** Agent error code → semantic title key under `warnings.agentError`. Codes
  *  come from the protocol error domain (agent-core-v2 `ProtocolErrors`);
  *  anything unmapped falls back to the generic `title`. */
@@ -591,50 +648,13 @@ export function reduceAppEvent(
     case 'assistantDelta': {
       const sid = event.sessionId;
       const msgs = next.messagesBySession[sid] ?? [];
-      next.messagesBySession[sid] = msgs.map((m) => {
-        if (m.id !== event.messageId) return m;
-        const content = [...m.content];
-        const idx = event.contentIndex;
-        // Track whether the slot pre-existed: the placeholder loop below pads
-        // text slots, so a padded slot must be treated as a NEW part (settle
-        // the thinking parts before it), not a continuation — the `c` flag
-        // in assistantDelta marks it.
-        const created = content.length <= idx;
-        // Ensure the slot exists
-        while (content.length <= idx) {
-          content.push({ type: 'text', text: '' });
-        }
-        const existing = content[idx]!;
-        let patched: AppMessageContent;
-        if (event.delta.text !== undefined) {
-          if (existing.type === 'text' && !created) {
-            patched = { type: 'text', text: existing.text + event.delta.text };
-          } else {
-            // A fresh text part ends any thinking part before it.
-            settleOpenThinking(content, Date.now(), idx);
-            patched = { type: 'text', text: event.delta.text };
-          }
-        } else if (event.delta.thinking !== undefined) {
-          if (existing.type === 'thinking') {
-            patched = {
-              type: 'thinking',
-              thinking: existing.thinking + event.delta.thinking,
-              signature: existing.signature,
-              startedAt: existing.startedAt,
-              durationMs: existing.durationMs,
-            };
-          } else {
-            // The thinking stream opens here — stamp its start so the live
-            // timer has an anchor — and settle every thinking part before it.
-            settleOpenThinking(content, Date.now(), idx);
-            patched = { type: 'thinking', thinking: event.delta.thinking, startedAt: new Date().toISOString() };
-          }
-        } else {
-          patched = existing;
-        }
-        content[idx] = patched;
-        return { ...m, content };
-      });
+      const index = msgs.findIndex((message) => message.id === event.messageId);
+      if (index !== -1) {
+        next.messagesBySession[sid] = msgs.with(
+          index,
+          patchAssistantDeltaMessage(msgs[index]!, event),
+        );
+      }
       break;
     }
 

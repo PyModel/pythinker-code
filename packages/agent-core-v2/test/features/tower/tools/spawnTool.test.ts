@@ -38,6 +38,10 @@ import {
   ISessionSubagentService,
   type AgentRunHandle,
 } from '#/session/subagent/subagent';
+import type {
+  SpawnSubagentOptions,
+  SubagentSpawnPlanInput,
+} from '#/session/subagent/spawn';
 import type { ExecutableToolResult } from '#/tool/toolContract';
 
 import { executeTool } from '../../../tools/fixtures/execute-tool';
@@ -72,6 +76,8 @@ describe('TowerSpawnTool', () => {
   let gate: { readonly ok: true } | { readonly ok: false; readonly reason: string };
   let release: Mock<() => void>;
   let createAgent: Mock<IAgentLifecycleService['create']>;
+  let planSpawn: ReturnType<typeof vi.fn>;
+  let spawnAgent: ReturnType<typeof vi.fn>;
   let runAgent: Mock<ISessionSubagentService['run']>;
   let registerTask: Mock<IAgentTaskService['registerTask']>;
   let completion: Deferred<{ readonly summary: string }>;
@@ -107,6 +113,31 @@ describe('TowerSpawnTool', () => {
     modelMeta = {};
     createdSetMode = vi.fn();
     createAgent = vi.fn(async () => stubAgentContext('agent-7', 1));
+    planSpawn = vi.fn(async (input: SubagentSpawnPlanInput) => {
+      const primary = input.preferredModel === 'primary';
+      const model =
+        primary || !secondaryFlagOn || secondaryModel === undefined
+          ? 'pythinker-code'
+          : secondaryModel.model;
+      const thinking =
+        thinkingEnabled === false
+          ? undefined
+          : primary || secondaryModel === undefined
+            ? 'off'
+            : secondaryModel.defaultEffort ?? modelMeta[model]?.defaultEffort;
+      return {
+        profileName: input.profileName ?? 'coder',
+        model,
+        thinking,
+        fork: false,
+      };
+    });
+    spawnAgent = vi.fn(async (options: SpawnSubagentOptions) => ({
+      agentId: 'agent-7',
+      profileName: options.plan.profileName,
+      model: options.plan.model,
+      promptText: options.prompt,
+    }));
     runAgent = vi.fn(
       async (agent: AgentContext) =>
         ({
@@ -169,7 +200,11 @@ describe('TowerSpawnTool', () => {
       },
       create: createAgent,
     } as unknown as IAgentLifecycleService);
-    ix.stub(ISessionSubagentService, { run: runAgent } as unknown as ISessionSubagentService);
+    ix.stub(ISessionSubagentService, {
+      planSpawn,
+      spawn: spawnAgent,
+      run: runAgent,
+    } as unknown as ISessionSubagentService);
     ix.stub(IAgentTaskService, { registerTask } as unknown as IAgentTaskService);
     ix.stub(IAgentProfileService, {
       data: () => ({ profileName: 'agent', modelAlias: 'pythinker-code', thinkingLevel: 'off' }),
@@ -192,6 +227,7 @@ describe('TowerSpawnTool', () => {
   });
 
   afterEach(async () => {
+    vi.restoreAllMocks();
     disposables.dispose();
     await rm(repo, { recursive: true, force: true });
   });
@@ -251,7 +287,7 @@ describe('TowerSpawnTool', () => {
   });
 
   it('leaves the mission untouched when the launch fails', async () => {
-    createAgent.mockRejectedValue(new Error('provider unavailable'));
+    spawnAgent.mockRejectedValue(new Error('provider unavailable'));
 
     const result = await execute(WORKER_ARGS);
 
@@ -261,6 +297,84 @@ describe('TowerSpawnTool', () => {
     expect(mission?.status).toBe('planned');
     expect(mission?.owner).toBeUndefined();
     expect(state.roster.agents).toHaveLength(0);
+  });
+
+  it('reports the child id when the first run cannot start', async () => {
+    runAgent.mockRejectedValueOnce(new Error('start failed'));
+
+    const result = await execute(WORKER_ARGS);
+
+    expect(result).toEqual({
+      output:
+        'tower spawn failed after creating agent "agent-7": start failed\n' +
+        'recover with Agent(resume="agent-7", prompt="continue")',
+      isError: true,
+    });
+    expect(release).toHaveBeenCalledOnce();
+    const state = await store.load();
+    expect(state.roster.agents).toHaveLength(0);
+  });
+
+  it('reports the child id when detached task registration fails', async () => {
+    registerTask.mockImplementationOnce(() => {
+      throw new Error('task store unavailable');
+    });
+
+    const result = await execute(WORKER_ARGS);
+
+    expect(result).toEqual({
+      output:
+        'tower task registration failed after creating agent "agent-7": task store unavailable\n' +
+        'recover with Agent(resume="agent-7", prompt="continue") after the aborted run stops',
+      isError: true,
+    });
+    expect((runAgent.mock.calls[0]?.[2] as { signal: AbortSignal }).signal.aborted).toBe(true);
+    expect(release).toHaveBeenCalledOnce();
+    expect((await store.load()).roster.agents).toHaveLength(0);
+  });
+
+  it('reports the child id when roster registration fails', async () => {
+    vi.spyOn(TowerStore.prototype, 'registerAgent').mockRejectedValueOnce(
+      new Error('roster unavailable'),
+    );
+
+    const result = await execute(WORKER_ARGS);
+
+    expect(result).toEqual({
+      output:
+        'tower roster registration failed after creating agent "agent-7": roster unavailable\n' +
+        'recover with Agent(resume="agent-7", prompt="continue") after the aborted run stops',
+      isError: true,
+    });
+    expect((runAgent.mock.calls[0]?.[2] as { signal: AbortSignal }).signal.aborted).toBe(true);
+    expect((await store.load()).roster.agents).toHaveLength(0);
+    completion.reject(new Error('aborted'));
+    await vi.waitFor(() => {
+      expect(release).toHaveBeenCalledOnce();
+    });
+  });
+
+  it('keeps a registered child running when non-critical bookkeeping fails', async () => {
+    vi.spyOn(TowerStore.prototype, 'updateMission').mockRejectedValueOnce(
+      new Error('mission file unavailable'),
+    );
+    vi.spyOn(TowerStore.prototype, 'appendLog')
+      .mockResolvedValueOnce()
+      .mockRejectedValueOnce(new Error('activity log unavailable'));
+
+    const result = await execute(WORKER_ARGS);
+
+    expect(result.isError).toBeUndefined();
+    expect(result.output).toContain(
+      'mission status warning (agent is running): mission file unavailable',
+    );
+    expect(result.output).toContain(
+      'activity log warning (agent is running): activity log unavailable',
+    );
+    expect((runAgent.mock.calls[0]?.[2] as { signal: AbortSignal }).signal.aborted).toBe(false);
+    expect((await store.load()).roster.agents).toContainEqual(
+      expect.objectContaining({ name: 'agent-build', agentId: 'agent-7' }),
+    );
   });
 
   it('spawns a detached tower-worker, registers the roster entry, and releases the slot on settle', async () => {
@@ -273,10 +387,21 @@ describe('TowerSpawnTool', () => {
     expect(result.output).toContain('status: running');
     expect(result.output).toContain(`worktree: ${worktreeAbs}`);
 
-    expect(createAgent).toHaveBeenCalledWith({
-      binding: { profile: 'tower-worker', model: 'pythinker-code', thinking: 'off' },
-      labels: { parentAgentId: 'main' },
+    expect(planSpawn).toHaveBeenCalledWith({
+      callerAgentId: 'main',
+      profileName: 'tower-worker',
+      allowUnlistedProfile: true,
+      preferredModel: undefined,
     });
+    expect(spawnAgent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        callerAgentId: 'main',
+        plan: expect.objectContaining({ profileName: 'tower-worker', model: 'pythinker-code' }),
+        labels: { parentAgentId: 'main' },
+      }),
+    );
+
+    expect(createAgent).not.toHaveBeenCalled();
     expect(runAgent).toHaveBeenCalledWith(
       expect.objectContaining({ agentId: 'agent-7' }),
       { kind: 'prompt', prompt: expect.stringContaining(worktreeAbs) },
@@ -324,10 +449,15 @@ describe('TowerSpawnTool', () => {
 
     expect(result.isError).toBeUndefined();
     expect(result.output).toContain('model: cheap/fast');
-    expect(createAgent).toHaveBeenCalledWith({
-      binding: { profile: 'tower-worker', model: 'cheap/fast', thinking: undefined },
-      labels: { parentAgentId: 'main' },
-    });
+    expect(spawnAgent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        plan: expect.objectContaining({
+          profileName: 'tower-worker',
+          model: 'cheap/fast',
+          thinking: undefined,
+        }),
+      }),
+    );
     const activityLog = await readFile(join(repo, '.tower/comms/log/activity.log'), 'utf8');
     expect(activityLog).toMatch(/spawn .*model=cheap\/fast/);
   });
@@ -339,10 +469,15 @@ describe('TowerSpawnTool', () => {
     const result = await execute(WORKER_ARGS);
 
     expect(result.isError).toBeUndefined();
-    expect(createAgent).toHaveBeenCalledWith({
-      binding: { profile: 'tower-worker', model: 'cheap/fast', thinking: 'low' },
-      labels: { parentAgentId: 'main' },
-    });
+    expect(spawnAgent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        plan: expect.objectContaining({
+          profileName: 'tower-worker',
+          model: 'cheap/fast',
+          thinking: 'low',
+        }),
+      }),
+    );
   });
 
   it('falls back to the bound model default effort for a tower worker', async () => {
@@ -357,10 +492,15 @@ describe('TowerSpawnTool', () => {
     const result = await execute(WORKER_ARGS);
 
     expect(result.isError).toBeUndefined();
-    expect(createAgent).toHaveBeenCalledWith({
-      binding: { profile: 'tower-worker', model: 'cheap/fast', thinking: 'max' },
-      labels: { parentAgentId: 'main' },
-    });
+    expect(spawnAgent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        plan: expect.objectContaining({
+          profileName: 'tower-worker',
+          model: 'cheap/fast',
+          thinking: 'max',
+        }),
+      }),
+    );
   });
 
   it('keeps tower worker thinking unset when global thinking is disabled', async () => {
@@ -376,10 +516,15 @@ describe('TowerSpawnTool', () => {
     const result = await execute(WORKER_ARGS);
 
     expect(result.isError).toBeUndefined();
-    expect(createAgent).toHaveBeenCalledWith({
-      binding: { profile: 'tower-worker', model: 'cheap/fast', thinking: undefined },
-      labels: { parentAgentId: 'main' },
-    });
+    expect(spawnAgent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        plan: expect.objectContaining({
+          profileName: 'tower-worker',
+          model: 'cheap/fast',
+          thinking: undefined,
+        }),
+      }),
+    );
   });
 
   it('inherits the tower model when the secondary-model experiment is off', async () => {
@@ -403,9 +548,11 @@ describe('TowerSpawnTool', () => {
 
     expect(result.isError).toBeUndefined();
     expect(result.output).toContain('model: pythinker-code');
-    expect(createAgent).toHaveBeenCalledWith({
-      binding: { profile: 'tower-worker', model: 'pythinker-code', thinking: 'off' },
-      labels: { parentAgentId: 'main' },
+    expect(planSpawn).toHaveBeenCalledWith({
+      callerAgentId: 'main',
+      profileName: 'tower-worker',
+      allowUnlistedProfile: true,
+      preferredModel: 'primary',
     });
   });
 

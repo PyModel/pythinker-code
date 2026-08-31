@@ -190,7 +190,7 @@ export function QuestionDialog() {
                     cardRef.current?.focus();
                   }
                 }}
-                placeholder="Enter your response..."
+                placeholder="Enter your response…"
                 className="flex-1 px-2 py-1 rounded-md text-xs border border-border bg-background outline-none focus:border-ring"
               />
               <button
@@ -214,7 +214,7 @@ export function QuestionDialog() {
               )}
             >
               <span className={cn("mr-2", selectedIndex === customIndex ? "text-primary-foreground/70" : "text-muted-foreground")}>{customIndex}</span>
-              <span className="font-medium">Custom response...</span>
+              <span className="font-medium">Custom response…</span>
             </button>
           )}
           {isMultiSelect && (

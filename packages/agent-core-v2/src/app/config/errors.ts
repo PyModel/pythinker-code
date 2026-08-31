@@ -5,6 +5,7 @@ export const ConfigErrors = {
   codes: {
     CONFIG_INVALID: CONFIG_INVALID_ERROR_CODE,
     CONFIG_PERSIST_BLOCKED: 'config.persist_blocked',
+    CONFIG_VERSION_CONFLICT: 'config.version_conflict',
   },
 } as const satisfies ErrorDomain;
 

@@ -484,6 +484,12 @@ export * from '#/session/subagent/spawn';
 import '#/session/subagent/flag';
 export * from '#/session/subagent/subagentModelsValidation';
 import '#/session/subagent/subagentModelsValidationService';
+export * from '#/session/subagent/policy';
+export * from '#/session/subagent/subagentModelPolicy';
+import '#/session/subagent/subagentModelPolicyService';
+export * from '#/session/subagent/routing';
+export * from '#/session/subagent/bindingProvenance';
+export * from '#/session/subagent/subagentRoutingService';
 export * from '#/agent/tools/agent/subagent-task';
 export { AGENT_RUN_PROMPT_ORIGIN } from '#/session/subagent/runAgentTurn';
 export * from '#/session/subagent/mirrorAgentRun';
@@ -593,6 +599,7 @@ export {
   compressImageForModel,
   gateImageFormatParts,
   IMAGE_BYTE_BUDGET,
+  MAX_IMAGE_DECODE_BYTES,
   MAX_IMAGE_EDGE_PX,
   READ_IMAGE_BYTE_BUDGET,
   resolveMaxImageEdgePx,

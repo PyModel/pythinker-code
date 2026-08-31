@@ -239,6 +239,42 @@ describe('AgentTranscriptProjector', () => {
     });
   });
 
+  it('projects turn.started file promptAttachments without exposing paths', () => {
+    const projector = new AgentTranscriptProjector('main', TEST_SESSION_ID);
+    const tx = new AgentTranscript('main');
+    const ops = projector.map(
+      ev({
+        type: 'turn.started',
+        turnId: 0,
+        origin: { kind: 'user' },
+        prompt: 'summarize this',
+        promptAttachments: [
+          {
+            kind: 'file',
+            name: 'report.pdf',
+            mediaType: 'application/pdf',
+            size: 1234,
+            path: '/data/report.pdf',
+          },
+        ],
+      }),
+    );
+    tx.apply(ops);
+
+    expect(ops.filter((op) => op.op === 'attachment.upsert')).toEqual([
+      {
+        op: 'attachment.upsert',
+        attachment: {
+          attachmentId: 't0.att1',
+          mediaType: 'application/pdf',
+          name: 'report.pdf',
+          size: 1234,
+        },
+      },
+    ]);
+    expect(turnOps('t0', tx.getItems()).attachmentIds).toEqual(['t0.att1']);
+  });
+
   it('places late-attach deltas into the engine-reported active step', () => {
     const tx = new AgentTranscript('main');
     const projector = new AgentTranscriptProjector('main', TEST_SESSION_ID, {

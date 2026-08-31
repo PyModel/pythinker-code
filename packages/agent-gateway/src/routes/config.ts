@@ -1,7 +1,8 @@
 import {
-  ConfigChanged,
+  IConfigRegistry,
   IConfigService,
-  IEventService,
+  ISubagentModelPolicyService,
+  prospectiveModelView,
   type Scope,
 } from '@pymodel/agent-core-v2';
 
@@ -10,7 +11,9 @@ import { requestLog } from '../lib/requestLog';
 import { defineRoute } from '../middleware/defineRoute';
 import { ErrorCode } from '../protocol/error-codes';
 import { configResponseSchema, patchConfigRequestSchema } from '../protocol/rest-config';
-import type { ConfigResponse } from '../protocol/rest-config';
+import type { ConfigResponse, LegacySecondaryModelRequest } from '../protocol/rest-config';
+
+const SECONDARY_MODEL_DOMAIN = 'secondaryModel';
 
 type ProviderResponse = ConfigResponse['providers'][string];
 
@@ -65,24 +68,31 @@ export function registerConfigRoutes(app: ConfigRouteHost, core: Scope): void {
     async (req, reply) => {
       try {
         const config = core.accessor.get(IConfigService);
+        const registry = core.accessor.get(IConfigRegistry);
         await config.ready;
-        const camelPatch = convertKeysSnakeToCamel(req.body) as Record<string, unknown>;
+        const { secondary_model: secondaryModel, ...ordinary } = req.body;
+        const converted = convertKeysSnakeToCamel(ordinary);
+        const camelPatch: Record<string, unknown> = isPlainObject(converted) ? converted : {};
         if (camelPatch['yolo'] === true) {
           camelPatch['defaultPermissionMode'] = 'yolo';
         }
         delete camelPatch['yolo'];
+        const staged: Record<string, unknown> = {};
         for (const domain of Object.keys(camelPatch)) {
-          if (domain === 'secondaryModel' && camelPatch[domain] === null) {
-            await config.replace(domain, undefined);
-          } else {
-            await config.set(domain, camelPatch[domain]);
-          }
+          const base = config.inspect(domain).userValue;
+          staged[domain] = registry.merge(domain, base, camelPatch[domain]);
         }
+        if (secondaryModel !== undefined) {
+          const preview = config.previewReplaceSections(staged);
+          const prepared = core.accessor.get(ISubagentModelPolicyService).prepareLegacyMutation(
+            secondaryModel === null ? null : toSecondaryModelReplacement(secondaryModel),
+            prospectiveModelView(preview['providers'], preview['models']),
+          );
+          staged[SECONDARY_MODEL_DOMAIN] = prepared.section ?? null;
+        }
+        await config.replaceSections(staged);
         const response = toConfigResponse(config.getAll());
         const changedFields = Object.keys(req.body as Record<string, unknown>);
-        core.accessor.get(IEventService).publish(
-          new ConfigChanged({ payload: { changedFields, config: response } }),
-        );
         requestLog(req)?.info({ changedFields }, 'config updated');
         reply.send(okEnvelope(response, req.id));
       } catch (error) {
@@ -95,10 +105,29 @@ export function registerConfigRoutes(app: ConfigRouteHost, core: Scope): void {
   app.post(setRoute.path, setRoute.options, setRoute.handler as Parameters<ConfigRouteHost['post']>[2]);
 }
 
-function toConfigResponse(resolved: Record<string, unknown>): ConfigResponse {
+function toSecondaryModelReplacement(legacy: LegacySecondaryModelRequest): Record<string, unknown> {
+  const replacement: Record<string, unknown> = {};
+  const defaultModel = legacy.default_model ?? legacy.defaultModel;
+  const defaultEffort = legacy.default_effort ?? legacy.defaultEffort;
+  if (defaultModel !== undefined) replacement['defaultModel'] = defaultModel;
+  if (legacy.model !== undefined) replacement['model'] = legacy.model;
+  if (defaultEffort !== undefined) replacement['defaultEffort'] = defaultEffort;
+  if (legacy.models !== undefined) replacement['models'] = legacy.models;
+  if (legacy.force === true) replacement['force'] = true;
+  return replacement;
+}
+
+export function toConfigResponse(resolved: Record<string, unknown>): ConfigResponse {
   const wire: Record<string, unknown> = {};
   for (const [domain, value] of Object.entries(resolved)) {
-    wire[camelToSnake(domain)] = domain === 'providers' ? toProviderResponses(value) : value;
+    wire[camelToSnake(domain)] =
+      domain === 'providers'
+        ? toProviderResponses(value)
+        : domain === 'models'
+          ? toModelResponses(value)
+          : domain === 'services'
+            ? toServiceResponses(value)
+            : value;
   }
   const defaultPermissionMode = resolved['defaultPermissionMode'];
   if (typeof defaultPermissionMode === 'string') {
@@ -107,7 +136,7 @@ function toConfigResponse(resolved: Record<string, unknown>): ConfigResponse {
   if (wire['providers'] === undefined) {
     wire['providers'] = {};
   }
-  return wire as ConfigResponse;
+  return configResponseSchema.parse(wire);
 }
 
 interface ProviderLike {
@@ -137,6 +166,47 @@ function hasProviderCredential(provider: ProviderLike): boolean {
   if (nonEmpty(provider.apiKey) !== undefined) return true;
   if (provider.oauth !== undefined) return true;
   return false;
+}
+
+interface CredentialLike {
+  readonly apiKey?: unknown;
+  readonly oauth?: unknown;
+}
+
+function toModelResponses(value: unknown): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  if (!isPlainObject(value)) return result;
+  for (const [id, raw] of Object.entries(value)) {
+    if (!isPlainObject(raw)) {
+      result[id] = raw;
+      continue;
+    }
+    const { apiKey: _apiKey, oauth: _oauth, ...rest } = raw;
+    result[id] = { ...rest, has_api_key: hasCredential(raw) };
+  }
+  return result;
+}
+
+function toServiceResponses(value: unknown): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  if (!isPlainObject(value)) return result;
+  for (const [id, raw] of Object.entries(value)) {
+    if (!isPlainObject(raw)) {
+      result[id] = raw;
+      continue;
+    }
+    const { apiKey: _apiKey, oauth: _oauth, customHeaders, ...rest } = raw;
+    result[id] = {
+      ...rest,
+      has_api_key: hasCredential(raw),
+      custom_header_keys: isPlainObject(customHeaders) ? Object.keys(customHeaders) : undefined,
+    };
+  }
+  return result;
+}
+
+function hasCredential(value: CredentialLike): boolean {
+  return nonEmpty(value.apiKey) !== undefined || value.oauth !== undefined;
 }
 
 function nonEmpty(value: unknown): string | undefined {

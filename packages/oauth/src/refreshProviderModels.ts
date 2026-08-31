@@ -269,29 +269,6 @@ function restoreProviderAliases(
   };
 }
 
-export function preserveSecondaryModelAliases(
-  current: PythinkerConfigShape,
-  next: PythinkerConfigShape,
-): void {
-  const section = current.secondaryModel;
-  if (section === undefined) return;
-  const aliases = new Set(Object.keys(section.models ?? {}));
-  if (section.defaultModel !== undefined) aliases.add(section.defaultModel);
-  if (section.model !== undefined) aliases.add(section.model);
-
-  const models = { ...next.models };
-  let changed = false;
-  for (const alias of aliases) {
-    if (models[alias] !== undefined) continue;
-    const previous = current.models?.[alias];
-    if (previous === undefined || typeof previous.provider !== 'string') continue;
-    if (next.providers[previous.provider] === undefined) continue;
-    models[alias] = structuredClone(previous);
-    changed = true;
-  }
-  if (changed) next.models = models;
-}
-
 function restoreDefaultSelection(
   config: PythinkerConfigShape,
   defaultModel: string | undefined,
@@ -430,7 +407,6 @@ export async function refreshProviderModels(
         `${providerId}/`,
       );
       restoreProviderAliases(next, preserveUserProviderAliases(config, providerId, refreshedAliasKeys));
-      preserveSecondaryModelAliases(config, next);
       restoreDefaultSelection(next, config.defaultModel, config.thinking?.enabled);
       clampDanglingDefault(next);
       clearDefaultThinkingWhenDefaultRemoved(next, config.defaultModel);
@@ -448,7 +424,6 @@ export async function refreshProviderModels(
           models: next.models,
           defaultModel: next.defaultModel,
           thinking: next.thinking,
-          secondaryModel: next.secondaryModel,
         });
         changed.push({
           providerId,
@@ -554,8 +529,6 @@ export async function refreshProviderModels(
         if (existed) {
           restoreProviderAliases(next, preserveUserProviderAliases(config, providerId, refreshedAliasKeys));
         }
-        preserveSecondaryModelAliases(config, next);
-
         if (
           existed &&
           providerModelsEqual(config, next, providerId, refreshedAliasKeys) &&
@@ -593,7 +566,6 @@ export async function refreshProviderModels(
           models: next.models,
           defaultModel: next.defaultModel,
           thinking: next.thinking,
-          secondaryModel: next.secondaryModel,
         });
         for (const change of changedProviders) {
           changed.push({
@@ -680,7 +652,6 @@ export async function refreshProviderModels(
           next,
           preserveUserProviderAliases(config, providerId, refreshedAliasKeys),
         );
-        preserveSecondaryModelAliases(config, next);
         if (providerModelsEqual(config, next, providerId, refreshedAliasKeys)) {
           unchanged.push(providerId);
           continue;
@@ -704,7 +675,6 @@ export async function refreshProviderModels(
           models: next.models,
           defaultModel: next.defaultModel,
           thinking: next.thinking,
-          secondaryModel: next.secondaryModel,
         });
         for (const change of changedProviders) {
           changed.push(change);

@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { AppMessage, AppMessageContent } from '../src/api/types';
 import { latestTodos } from '../src/composables/latestTodos';
-import { messagesToTurns } from '../src/composables/messagesToTurns';
+import {
+  createMessagesToTurnsProjector,
+  messagesToTurns,
+} from '../src/composables/messagesToTurns';
 import { isPlayableMediaUrl } from '../src/composables/useFilePreview';
 import {
   parseTaskNotifications,
@@ -1010,6 +1013,84 @@ describe('messagesToTurns cron', () => {
     // No prompt ids anywhere (REST-shaped): the cron still becomes its own
     // turn, and the cron-triggered reply does not merge into the first answer.
     expect(turns.map((t) => t.role)).toEqual(['user', 'assistant', 'cron', 'assistant']);
+  });
+});
+
+describe('createMessagesToTurnsProjector', () => {
+  it('rebuilds only the live assistant turn for an in-place tail update', () => {
+    let historicalContentReads = 0;
+    const historical = message('a1', 'assistant', [{ type: 'text', text: 'first answer' }]);
+    const historicalContent = historical.content;
+    Object.defineProperty(historical, 'content', {
+      configurable: true,
+      get: () => {
+        historicalContentReads += 1;
+        return historicalContent;
+      },
+    });
+    const messages = [
+      message('u1', 'user', [{ type: 'text', text: 'first question' }]),
+      historical,
+      message('u2', 'user', [{ type: 'text', text: 'second question' }]),
+      message('a2', 'assistant', [{ type: 'text', text: 'live' }]),
+    ];
+    const project = createMessagesToTurnsProjector();
+    const first = project(messages, []);
+    historicalContentReads = 0;
+
+    messages[3] = message('a2', 'assistant', [{ type: 'text', text: 'live update' }]);
+    const second = project(messages, []);
+
+    expect(second.map((turn) => turn.text)).toEqual([
+      'first question',
+      'first answer',
+      'second question',
+      'live update',
+    ]);
+    expect(second.slice(0, -1)).toEqual(first.slice(0, -1));
+    for (let index = 0; index < first.length - 1; index += 1) {
+      expect(second[index]).toBe(first[index]);
+    }
+    expect(second.at(-1)).not.toBe(first.at(-1));
+    expect(historicalContentReads).toBe(0);
+  });
+
+  it('falls back safely for prepend and non-tail replacement', () => {
+    const project = createMessagesToTurnsProjector();
+    const initialMessages = [
+      message('u1', 'user', [{ type: 'text', text: 'one' }]),
+      message('a1', 'assistant', [{ type: 'text', text: 'answer one' }]),
+      message('u2', 'user', [{ type: 'text', text: 'two' }]),
+      message('a2', 'assistant', [{ type: 'text', text: 'answer two' }]),
+    ];
+    project(initialMessages, []);
+
+    const prepended = [
+      message('u0', 'user', [{ type: 'text', text: 'zero' }]),
+      message('a0', 'assistant', [{ type: 'text', text: 'answer zero' }]),
+      ...initialMessages,
+    ];
+    expect(project(prepended, []).map((turn) => turn.text)).toEqual([
+      'zero',
+      'answer zero',
+      'one',
+      'answer one',
+      'two',
+      'answer two',
+    ]);
+
+    const replaced = prepended.with(
+      1,
+      message('a0', 'assistant', [{ type: 'text', text: 'corrected zero' }]),
+    );
+    expect(project(replaced, []).map((turn) => turn.text)).toEqual([
+      'zero',
+      'corrected zero',
+      'one',
+      'answer one',
+      'two',
+      'answer two',
+    ]);
   });
 });
 

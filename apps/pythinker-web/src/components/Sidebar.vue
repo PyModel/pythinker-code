@@ -3,7 +3,7 @@
      The old workspace rail and workspace tabs have been removed;
      workspace switching, folding and renaming all live in the group header. -->
 <script setup lang="ts">
-import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, defineAsyncComponent, defineComponent, h, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { copyTextToClipboard } from '../lib/clipboard';
 import {
@@ -17,11 +17,14 @@ import SearchSessionsDialog from './dialogs/SearchSessionsDialog.vue';
 import WorkspaceGroup from './WorkspaceGroup.vue';
 import { isDesktop, isMacosDesktop } from '../lib/desktopFlag';
 import { useDesktopUpdate } from '../composables/useDesktopUpdate';
+import AsyncLoadFailed from './ui/AsyncLoadFailed.vue';
+import ErrorBoundary from './ui/ErrorBoundary.vue';
 import IconButton from './ui/IconButton.vue';
 import Icon from './ui/Icon.vue';
 import Kbd from './ui/Kbd.vue';
 import Menu from './ui/Menu.vue';
 import MenuItem from './ui/MenuItem.vue';
+import Pill from './ui/Pill.vue';
 import PinnedSessionList from './PinnedSessionList.vue';
 import ReleaseNotes from './ReleaseNotes.vue';
 import SessionRow from './SessionRow.vue';
@@ -619,10 +622,20 @@ const showNewWorkspaceButton = false;
 // Logo long-press easter-egg: holding the Pythinker mark for 1 second opens the
 // design system as a full-screen overlay.
 // Pointer capture keeps the hold alive even if the pointer drifts off the mark.
-const DesignSystemView = defineAsyncComponent(
-  () => import('../views/DesignSystemView.vue'),
-);
 const showDesignSystem = ref(false);
+function closeDesignSystem(): void {
+  showDesignSystem.value = false;
+}
+const DesignSystemLoadFailed = defineComponent({
+  inheritAttrs: false,
+  setup: () => () => h(AsyncLoadFailed, { onClose: closeDesignSystem }),
+});
+const DesignSystemView = defineAsyncComponent({
+  loader: () => import('../views/DesignSystemView.vue'),
+  // A failed chunk load is not a render error, so the boundary never sees it —
+  // it gets its own copy here.
+  errorComponent: DesignSystemLoadFailed,
+});
 const EGG_HOLD_MS = 1000;
 let logoPressTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -726,9 +739,39 @@ function focusUpdateNotes(event: KeyboardEvent): void {
   target.focus();
 }
 
-function openUpdateDialog(): void {
+const updateStage = computed(() => update.status.value);
+const updatePercentLabel = computed(() => {
+  const value = update.percent.value;
+  return value === undefined ? '' : `${Math.round(value)}%`;
+});
+const updateTriggerText = computed(() => {
+  switch (updateStage.value) {
+    case 'downloading': return updatePercentLabel.value || t('update.sidebarFetching');
+    case 'downloaded': return t('update.sidebarRestart');
+    case 'error': return t('update.sidebarRetry');
+    default: return t('update.sidebarAction');
+  }
+});
+const updateTriggerLabel = computed(() => {
+  const version = update.availableVersion.value;
+  switch (updateStage.value) {
+    case 'downloading': return t('update.dialogDownloading', { version: version ?? '' });
+    case 'downloaded': return t('update.restartAction');
+    case 'error': return t('update.retryDownload');
+    default: return version ? t('update.sidebarHint', { version }) : t('update.sidebarAction');
+  }
+});
+
+function onUpdateTriggerClick(): void {
   updateNotesOpen.value = false;
-  update.openDialog();
+  const version = update.availableVersion.value;
+  if (version !== undefined) void update.markNotified(version);
+  switch (updateStage.value) {
+    case 'downloading': return;
+    case 'downloaded': void update.restart(); return;
+    case 'error': void update.retry(); return;
+    default: void update.download();
+  }
 }
 
 function onLogoPointerDown(event: PointerEvent): void {
@@ -791,14 +834,14 @@ watch([() => props.collapsed, update.hasUpdate], ([collapsed, hasUpdate]) => {
           />
         </div>
         <div class="ch-actions">
-          <IconButton
+          <Pill
             v-if="update.hasUpdate.value"
             class="sidebar-update-trigger"
-            size="md"
+            :class="`is-${updateStage}`"
             data-testid="sidebar-update"
-            :label="update.availableVersion.value
-              ? t('update.sidebarHint', { version: update.availableVersion.value })
-              : t('update.sidebarAction')"
+            :aria-label="updateTriggerLabel"
+            :aria-busy="updateStage === 'downloading' ? 'true' : undefined"
+            :disabled="update.busy.value"
             :aria-controls="updateNotesOpen ? 'sidebar-update-notes' : undefined"
             :aria-expanded="updateNotesOpen"
             aria-haspopup="dialog"
@@ -807,10 +850,15 @@ watch([() => props.collapsed, update.hasUpdate], ([collapsed, hasUpdate]) => {
             @focus="showUpdateNotes"
             @blur="scheduleUpdateNotesClose"
             @keydown.tab="focusUpdateNotes"
-            @click.stop="openUpdateDialog"
+            @click.stop="onUpdateTriggerClick"
           >
-            <Icon name="update-button" />
-          </IconButton>
+            <span class="sidebar-update-trigger__icon" aria-hidden="true">
+              <Icon name="update-button" />
+            </span>
+            <span class="sidebar-update-trigger__text" data-testid="sidebar-update-text">
+              {{ updateTriggerText }}
+            </span>
+          </Pill>
           <IconButton
             class="ch-collapse"
             size="sm"
@@ -1127,12 +1175,15 @@ watch([() => props.collapsed, update.hasUpdate], ([collapsed, hasUpdate]) => {
         </template>
       </div>
 
-      <!-- Footer: settings entry pinned under the session list -->
+      <!-- Footer: settings entry pinned under the session list. The row is the
+           growing side that truncates; a fixed side would sit beside it. -->
       <div class="side-footer">
-        <button class="btn-settings" type="button" @click.stop="emit('openSettings')">
-          <Icon name="settings" />
-          <span>{{ t('settings.title') }}</span>
-        </button>
+        <div class="side-footer-account">
+          <button class="btn-settings" type="button" @click.stop="emit('openSettings')">
+            <Icon name="settings" />
+            <span class="btn-settings-label">{{ t('settings.title') }}</span>
+          </button>
+        </div>
       </div>
 
       <!-- Folder-drop overlay (desktop): covers the column while a folder drag
@@ -1230,7 +1281,14 @@ watch([() => props.collapsed, update.hasUpdate], ([collapsed, hasUpdate]) => {
          which breaks v-show on the host (Vue can't apply display:none to a
          Fragment). Teleport still renders to body regardless of placement. -->
     <Teleport to="body">
-      <DesignSystemView v-if="showDesignSystem" @close="showDesignSystem = false" />
+      <ErrorBoundary
+        v-if="showDesignSystem"
+        fullscreen
+        closable
+        @close="showDesignSystem = false"
+      >
+        <DesignSystemView @close="showDesignSystem = false" />
+      </ErrorBoundary>
       <section
         v-if="updateNotesOpen"
         id="sidebar-update-notes"
@@ -1414,20 +1472,75 @@ watch([() => props.collapsed, update.hasUpdate], ([collapsed, hasUpdate]) => {
 }
 
 .sidebar-update-trigger {
-  width: 32px;
-  height: 32px;
-  border: none;
+  --sidebar-update-size: 32px;
+  position: relative;
+  display: inline-grid;
+  grid-template-areas: 'slot';
+  place-items: center;
+  width: var(--sidebar-update-size);
+  height: var(--sidebar-update-size);
+  padding: 0;
   border-radius: var(--radius-full);
-  background: transparent;
+  color: var(--color-text);
+  font-size: var(--text-xs);
+  overflow: hidden;
+  transition: width var(--duration-base) var(--ease-out),
+    background var(--duration-base) var(--ease-out),
+    color var(--duration-base) var(--ease-out);
 }
-.sidebar-update-trigger :deep(svg) {
-  width: 32px;
-  height: 32px;
+.sidebar-update-trigger__icon,
+.sidebar-update-trigger__text {
+  grid-area: slot;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity var(--duration-base) var(--ease-out);
 }
-.ch-actions .sidebar-update-trigger:hover:not(:disabled) {
-  background: transparent;
+.sidebar-update-trigger__icon :deep(svg) {
+  width: var(--sidebar-update-size);
+  height: var(--sidebar-update-size);
 }
-.sidebar-update-trigger:focus-visible {
+.sidebar-update-trigger__text {
+  padding: 0 var(--space-3);
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+}
+.ch-actions .sidebar-update-trigger:hover:not(:disabled),
+.ch-actions .sidebar-update-trigger:focus-visible,
+.ch-actions .sidebar-update-trigger.is-downloading,
+.ch-actions .sidebar-update-trigger.is-downloaded,
+.ch-actions .sidebar-update-trigger.is-error {
+  width: auto;
+  min-width: 56px;
+  background: var(--color-accent);
+  color: var(--color-text-on-accent);
+}
+.ch-actions .sidebar-update-trigger:hover:not(:disabled) .sidebar-update-trigger__icon,
+.ch-actions .sidebar-update-trigger:focus-visible .sidebar-update-trigger__icon,
+.ch-actions .sidebar-update-trigger.is-downloading .sidebar-update-trigger__icon,
+.ch-actions .sidebar-update-trigger.is-downloaded .sidebar-update-trigger__icon,
+.ch-actions .sidebar-update-trigger.is-error .sidebar-update-trigger__icon {
+  opacity: 0;
+}
+.ch-actions .sidebar-update-trigger:hover:not(:disabled) .sidebar-update-trigger__text,
+.ch-actions .sidebar-update-trigger:focus-visible .sidebar-update-trigger__text,
+.ch-actions .sidebar-update-trigger.is-downloading .sidebar-update-trigger__text,
+.ch-actions .sidebar-update-trigger.is-downloaded .sidebar-update-trigger__text,
+.ch-actions .sidebar-update-trigger.is-error .sidebar-update-trigger__text {
+  opacity: 1;
+}
+.sidebar-update-trigger.is-downloading {
+  cursor: progress;
+}
+.ch-actions .sidebar-update-trigger.is-error {
+  background: var(--color-danger);
+}
+.ch-actions .sidebar-update-trigger:disabled {
+  cursor: progress;
+}
+.ch-actions .sidebar-update-trigger:focus-visible {
+  outline: none;
   box-shadow: var(--p-focus-ring-strong);
 }
 
@@ -1635,8 +1748,22 @@ watch([() => props.collapsed, update.hasUpdate], ([collapsed, hasUpdate]) => {
    sunken — not a Button). */
 .side-footer {
   flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
   padding: var(--space-2) var(--sb-inset);
   border-top: 1px solid var(--line);
+}
+/* A long label truncates instead of pushing the row. */
+.side-footer-account {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.btn-settings-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .btn-settings {
   display: flex;

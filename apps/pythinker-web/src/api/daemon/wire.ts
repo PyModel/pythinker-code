@@ -316,6 +316,23 @@ export interface WireQuestionResponse {
 
 export type WireTaskStatus = 'running' | 'completed' | 'failed' | 'cancelled';
 
+export interface WireSubagentRouting {
+  operation: 'spawn' | 'fork' | 'resume';
+  profile_source: 'requested' | 'default' | 'fork-inherit' | 'resume-existing';
+  model_source:
+    | 'caller'
+    | 'policy-default'
+    | 'policy-pool'
+    | 'policy-force'
+    | 'fork-inherit'
+    | 'resume-existing';
+  policy_mode: 'inherit' | 'default' | 'pool' | 'force';
+  policy_source: 'config' | 'default';
+  feature_source: 'master-env' | 'env' | 'config' | 'default';
+  routing_env_revision: string;
+  route_decision: string;
+}
+
 export interface WireTask {
   id: string;
   session_id: string;
@@ -331,6 +348,8 @@ export interface WireTask {
   agent_id?: string;
   model?: string;
   thinking_effort?: string;
+  routing?: WireSubagentRouting;
+  current_routing_env_revision?: string;
   subagent_phase?: 'queued' | 'working' | 'suspended' | 'completed' | 'failed';
   subagent_type?: string;
   parent_tool_call_id?: string;
@@ -461,6 +480,34 @@ export interface WireHook {
   async?: boolean;
 }
 
+export interface WireExperimentalFlagState {
+  id: string;
+  enabled: boolean;
+  source: 'master-env' | 'env' | 'config' | 'default';
+  config_value?: boolean;
+  default_enabled: boolean;
+  externally_controlled: boolean;
+  overridden: boolean;
+}
+
+export interface WireSubagentModelPolicy {
+  mode: 'inherit' | 'default' | 'pool' | 'force';
+  default_model?: string;
+  models?: Record<string, string>;
+  default_effort?: string;
+}
+
+export interface WireSubagentModelPolicyResponse {
+  policy: WireSubagentModelPolicy;
+  resource_version: string;
+  effective: {
+    configured_policy: WireSubagentModelPolicy;
+    effective_policy: WireSubagentModelPolicy;
+    policy_source: 'config' | 'default';
+    feature: { enabled: boolean; source: 'master-env' | 'env' | 'config' | 'default' };
+  };
+}
+
 export interface WireConfig {
   providers: Record<string, WireConfigProvider>;
   default_provider?: string;
@@ -491,7 +538,6 @@ export interface WireConfig {
   background?: unknown;
   experimental?: Record<string, boolean>;
   telemetry?: boolean;
-  raw?: Record<string, unknown>;
 }
 
 // ---------------------------------------------------------------------------

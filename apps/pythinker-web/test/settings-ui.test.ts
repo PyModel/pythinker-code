@@ -1,3 +1,4 @@
+import type { AppSubagentModelPolicy, AppSubagentModelPolicyState } from '../src/api/types';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -147,6 +148,37 @@ describe('settings UI', () => {
       confirmLabel: 'Discard',
       cancelLabel: 'Keep editing',
     }));
+    wrapper.unmount();
+  });
+
+  it('keeps the newest /meta response when an older request resolves last', async () => {
+    let resolveFirst: (meta: unknown) => void = () => {};
+    api.getMeta.mockImplementationOnce(
+      () => new Promise((resolve) => { resolveFirst = resolve; }),
+    );
+    const wrapper = mount(SettingsDialog, {
+      props: {
+        colorScheme: 'system',
+        accent: 'blue',
+        uiFontSize: 14,
+        authReady: true,
+        notify: false,
+        notifyQuestion: false,
+        notifyApproval: false,
+        sound: false,
+        config: { providers: {} },
+      },
+      global: { plugins: [i18n] },
+    });
+    await flushPromises();
+
+    api.getMeta.mockResolvedValueOnce({ serverVersion: '2.0.0', serverId: 'newer', backend: 'v2' });
+    await wrapper.setProps({ config: { providers: {}, experimental: {} } });
+    await flushPromises();
+    resolveFirst({ serverVersion: '1.0.0', serverId: 'older', backend: 'v2' });
+    await flushPromises();
+
+    expect(wrapper.vm.$.setupState.serverMeta.serverId).toBe('newer');
     wrapper.unmount();
   });
 
@@ -392,8 +424,75 @@ describe('settings UI', () => {
     wrapper.unmount();
   });
 
-  it('shows the subagent model section only while the secondary-model flag is on', async () => {
-    const wrapper = mount(SettingsDialog, {
+  it('shows Lab chips from the effective flag state, each independently', async () => {
+    const flagState = (
+      overrides: Partial<{ source: 'env' | 'config' | 'default'; externallyControlled: boolean; overridden: boolean }>,
+    ) => ({
+      id: 'secondary-model',
+      enabled: true,
+      source: 'config' as const,
+      configValue: true,
+      defaultEnabled: false,
+      externallyControlled: false,
+      overridden: false,
+      ...overrides,
+    });
+    const mountWith = (states: ReturnType<typeof flagState>[]) =>
+      mount(SettingsDialog, {
+        props: {
+          colorScheme: 'system',
+          accent: 'blue',
+          uiFontSize: 14,
+          authReady: true,
+          notify: false,
+          notifyQuestion: false,
+          notifyApproval: false,
+          sound: false,
+          config: { providers: {}, experimental: { 'secondary-model': false } },
+          experimentalFlagStates: states,
+        },
+        global: { plugins: [i18n] },
+      });
+    const chipsFor = (root: HTMLElement) =>
+      Array.from(root.querySelectorAll<HTMLElement>('.flag-chip')).map((chip) => chip.textContent?.trim());
+    const rowFor = () =>
+      document.body
+        .querySelector<HTMLElement>('[role="switch"][aria-label="Secondary model for subagents"]')!
+        .closest<HTMLElement>('.row')!;
+
+    let wrapper = mountWith([flagState({ source: 'env', externallyControlled: true, overridden: true })]);
+    await flushPromises();
+    expect(chipsFor(rowFor())).toEqual(['Environment controlled', 'Saved setting overridden']);
+    wrapper.unmount();
+
+    wrapper = mountWith([flagState({ source: 'env', externallyControlled: true, overridden: false })]);
+    await flushPromises();
+    expect(chipsFor(rowFor())).toEqual(['Environment controlled']);
+    wrapper.unmount();
+
+    wrapper = mountWith([flagState({ source: 'config' })]);
+    await flushPromises();
+    expect(chipsFor(rowFor())).toEqual([]);
+    wrapper.unmount();
+  });
+
+  function policyState(
+    policy: AppSubagentModelPolicy,
+    overrides: Partial<AppSubagentModelPolicyState> = {},
+  ): AppSubagentModelPolicyState {
+    return {
+      policy,
+      resourceVersion: 'subagent-policy-v1:aaa',
+      configuredPolicy: policy,
+      effectivePolicy: policy,
+      policySource: policy.mode === 'inherit' ? 'default' : 'config',
+      feature: { enabled: true, source: 'config' },
+      ...overrides,
+    };
+  }
+
+  function mountRouting(state: AppSubagentModelPolicyState | null) {
+    return mount(SettingsDialog, {
       props: {
         colorScheme: 'system',
         accent: 'blue',
@@ -403,123 +502,113 @@ describe('settings UI', () => {
         notifyQuestion: false,
         notifyApproval: false,
         sound: false,
-        config: { providers: {} },
+        config: { providers: {}, defaultModel: 'test/main', experimental: { 'secondary-model': true } },
+        models: [
+          { id: 'test/main', provider: 'test', model: 'main', maxContextSize: 100_000 },
+          { id: 'test/fast', provider: 'test', model: 'fast', maxContextSize: 100_000 },
+        ],
+        subagentModelPolicy: state,
       },
       global: { plugins: [i18n] },
     });
+  }
+
+  async function openAgentTab(): Promise<void> {
     await flushPromises();
     const agentTab = Array.from(document.body.querySelectorAll<HTMLButtonElement>('[role="tab"]'))
       .find((tab) => tab.textContent?.trim() === 'Agent');
     agentTab!.click();
     await flushPromises();
-    expect(document.body.textContent).not.toContain('Default subagent model');
+  }
 
-    await wrapper.setProps({
-      config: { providers: {}, experimental: { 'secondary-model': true } },
-    });
-    await flushPromises();
-    expect(document.body.textContent).toContain('Default subagent model');
-    wrapper.unmount();
-  });
+  function radio(mode: string): HTMLInputElement {
+    return document.body.querySelector<HTMLInputElement>(`input[name="subagent-routing-mode"][value="${mode}"]`)!;
+  }
 
-  it('places subagent model after the default model and clears a defaultModel-only override', async () => {
-    const wrapper = mount(SettingsDialog, {
-      props: {
-        colorScheme: 'system',
-        accent: 'blue',
-        uiFontSize: 14,
-        authReady: true,
-        notify: false,
-        notifyQuestion: false,
-        notifyApproval: false,
-        sound: false,
-        config: {
-          providers: {},
-          defaultModel: 'test/main',
-          secondaryModel: { defaultModel: 'test/fast' },
-          experimental: { 'secondary-model': true },
-        },
-        models: [
-          { id: 'test/main', provider: 'test', model: 'main', maxContextSize: 100_000 },
-          { id: 'test/fast', provider: 'test', model: 'fast', maxContextSize: 100_000 },
-        ],
-      },
-      global: { plugins: [i18n] },
-    });
+  it('shows the routing section only once the policy state is loaded, after the default model', async () => {
+    const without = mountRouting(null);
+    await openAgentTab();
+    expect(document.body.querySelector('[data-testid="subagent-routing"]')).toBeNull();
+    without.unmount();
+
+    const wrapper = mountRouting(policyState({ mode: 'inherit' }));
     try {
-      await flushPromises();
-      const agentTab = Array.from(document.body.querySelectorAll<HTMLButtonElement>('[role="tab"]'))
-        .find((tab) => tab.textContent?.trim() === 'Agent');
-      agentTab!.click();
-      await flushPromises();
-
+      await openAgentTab();
       const agentPanel = Array.from(document.body.querySelectorAll<HTMLElement>('.panel'))
         .find((panel) => panel.textContent?.includes('Agent defaults'))!;
       const text = agentPanel.textContent ?? '';
-      expect(text.indexOf('Default model')).toBeLessThan(text.indexOf('Subagents'));
-      expect(text.indexOf('Subagents')).toBeLessThan(text.indexOf('Default permission'));
-
-      document.body.querySelector<HTMLButtonElement>('.sm-picker__trigger')!.click();
-      await flushPromises();
-      const inherit = Array.from(document.body.querySelectorAll<HTMLButtonElement>('.sm-picker__option'))
-        .find((option) => option.textContent?.includes('Inherit agent model'));
-      expect(inherit).toBeDefined();
-      inherit!.click();
-      await flushPromises();
-
-      expect(wrapper.emitted('updateConfig')?.at(-1)?.[0]).toEqual({ secondaryModel: null });
+      expect(text.indexOf('Default model')).toBeLessThan(text.indexOf('Subagent Model Routing'));
+      expect(text.indexOf('Subagent Model Routing')).toBeLessThan(text.indexOf('Default permission'));
+      expect(radio('inherit').checked).toBe(true);
     } finally {
       wrapper.unmount();
     }
   });
 
-  it('hard-pins a legacy subagent model with the canonical v2 config', async () => {
-    const wrapper = mount(SettingsDialog, {
-      props: {
-        colorScheme: 'system',
-        accent: 'blue',
-        uiFontSize: 14,
-        authReady: true,
-        notify: false,
-        notifyQuestion: false,
-        notifyApproval: false,
-        sound: false,
-        config: {
-          providers: {},
-          secondaryModel: { model: 'test/fast', defaultEffort: 'max' },
-          experimental: { 'secondary-model': true },
-        },
-        models: [
-          { id: 'test/main', provider: 'test', model: 'main', maxContextSize: 100_000 },
-          { id: 'test/fast', provider: 'test', model: 'fast', maxContextSize: 100_000 },
-        ],
-      },
-      global: { plugins: [i18n] },
-    });
+  it('emits one payload per mode: inherit clears, default and force carry the picked model, pool carries the models', async () => {
+    const wrapper = mountRouting(policyState({ mode: 'default', defaultModel: 'test/fast', defaultEffort: 'max' }));
     try {
-      await flushPromises();
-      const agentTab = Array.from(document.body.querySelectorAll<HTMLButtonElement>('[role="tab"]'))
-        .find((tab) => tab.textContent?.trim() === 'Agent');
-      agentTab!.click();
-      await flushPromises();
+      await openAgentTab();
+      expect(radio('default').checked).toBe(true);
 
-      const pin = document.body.querySelector<HTMLButtonElement>(
-        '[role="switch"][aria-label="Always use this model"]',
-      );
-      expect(pin?.getAttribute('aria-checked')).toBe('false');
-
-      pin!.click();
+      radio('force').click();
       await flushPromises();
-
-      expect(wrapper.emitted('updateConfig')?.at(-1)?.[0]).toEqual({
-        secondaryModel: {
-          defaultModel: 'test/fast',
-          defaultEffort: 'max',
-          force: true,
-        },
+      expect(wrapper.emitted('saveSubagentModelPolicy')?.at(-1)?.[0]).toEqual({
+        mode: 'force',
+        defaultModel: 'test/fast',
+        defaultEffort: 'max',
       });
+
+      radio('pool').click();
+      await flushPromises();
+      expect(wrapper.emitted('saveSubagentModelPolicy')?.at(-1)?.[0]).toEqual({
+        mode: 'pool',
+        defaultModel: 'test/fast',
+        models: { 'test/fast': '' },
+        defaultEffort: 'max',
+      });
+      const mainCheckbox = document.body.querySelector<HTMLInputElement>('[data-testid="routing-pool"] input[value="test/main"]')!;
+      mainCheckbox.click();
+      await flushPromises();
+      expect(wrapper.emitted('saveSubagentModelPolicy')?.at(-1)?.[0]).toEqual({
+        mode: 'pool',
+        defaultModel: 'test/fast',
+        models: { 'test/fast': '', 'test/main': '' },
+        defaultEffort: 'max',
+      });
+
+      radio('inherit').click();
+      await flushPromises();
+      expect(wrapper.emitted('clearSubagentModelPolicy')).toHaveLength(1);
+      expect(wrapper.emitted('updateConfig')).toBeUndefined();
     } finally {
       wrapper.unmount();
+    }
+  });
+
+  it('shows the saved policy next to the effective routing and names a disabled feature', async () => {
+    const wrapper = mountRouting(
+      policyState(
+        { mode: 'force', defaultModel: 'test/fast' },
+        { effectivePolicy: { mode: 'inherit' }, policySource: 'default', feature: { enabled: false, source: 'default' } },
+      ),
+    );
+    try {
+      await openAgentTab();
+      expect(document.body.querySelector('[data-testid="saved-policy"]')?.textContent?.trim()).toBe('Force · fast');
+      expect(document.body.querySelector('[data-testid="effective-policy"]')?.textContent?.trim()).toBe('Inherit agent model');
+      expect(document.body.querySelector('[data-testid="feature-disabled"]')).not.toBeNull();
+    } finally {
+      wrapper.unmount();
+    }
+
+    const enabled = mountRouting(policyState({ mode: 'pool', defaultModel: 'test/fast', models: { 'test/fast': '', 'test/main': '' } }));
+    try {
+      await openAgentTab();
+      expect(document.body.querySelector('[data-testid="effective-policy"]')?.textContent?.trim()).toBe('Pool · 2 models · default fast');
+      expect(document.body.querySelector('[data-testid="feature-disabled"]')).toBeNull();
+    } finally {
+      enabled.unmount();
     }
   });
 
@@ -562,4 +651,45 @@ describe('settings UI', () => {
     expect(css).toContain('html[data-color-scheme=dark][data-accent=mono]');
     expect(css).toContain('html[data-color-scheme=system][data-accent=mono]');
   });
+
+  it('exposes the message folding switches and reports both toggles', async () => {
+    const wrapper = mount(SettingsDialog, {
+      props: {
+        colorScheme: 'system',
+        accent: 'blue',
+        uiFontSize: 14,
+        authReady: true,
+        notify: false,
+        notifyQuestion: false,
+        notifyApproval: false,
+        sound: false,
+        turnFolding: true,
+        activityRunFolding: false,
+      },
+      global: { plugins: [i18n] },
+    });
+    await flushPromises();
+
+    const sections = Array.from(document.body.querySelectorAll<HTMLElement>('.sec'));
+    const folding = sections.find(
+      (node) => node.querySelector('.sec-title')?.textContent?.trim() === 'Message folding',
+    );
+    expect(folding).toBeDefined();
+
+    const rows = Array.from(folding!.querySelectorAll<HTMLElement>('.row'));
+    expect(rows).toHaveLength(2);
+    expect(rows[0]!.querySelector('.rlabel')?.textContent).toContain('Auto-fold messages');
+    expect(rows[1]!.querySelector('.rlabel')?.textContent).toContain('Tool call summary');
+
+    const toggles = Array.from(folding!.querySelectorAll<HTMLElement>('.ui-switch'));
+    expect(toggles).toHaveLength(2);
+    toggles[0]!.click();
+    toggles[1]!.click();
+    await flushPromises();
+
+    expect(wrapper.emitted('setTurnFolding')?.at(-1)).toEqual([false]);
+    expect(wrapper.emitted('setActivityRunFolding')?.at(-1)).toEqual([true]);
+    wrapper.unmount();
+  });
+
 });

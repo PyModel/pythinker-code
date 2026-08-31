@@ -68,8 +68,12 @@ function configOf(runtime: AgentRuntimeContext<CronModelState>): IConfigService 
   return runtime.get(IConfigService);
 }
 
+function readCronConfig(config: IConfigService): CronConfig {
+  return config.get<CronConfig>(CRON_SECTION) ?? DEFAULT_CRON_CONFIG;
+}
+
 function cronConfigOf(runtime: AgentRuntimeContext<CronModelState>): CronConfig {
-  return configOf(runtime).get<CronConfig>(CRON_SECTION) ?? DEFAULT_CRON_CONFIG;
+  return readCronConfig(configOf(runtime));
 }
 
 function clocksOf(runtime: AgentRuntimeContext<CronModelState>): ClockSources {
@@ -157,6 +161,7 @@ function deliverFire(
   runtime: AgentRuntimeContext<CronModelState>,
   task: CronTask,
   context: { readonly coalescedCount: number; readonly firedAt: number },
+  isDisposed: () => boolean,
 ): Promise<boolean> {
   const origin: CronJobOrigin = {
     kind: 'cron_job',
@@ -177,11 +182,14 @@ function deliverFire(
   try {
     launched = runtime.get(IAgentPromptService).inject(message);
   } catch (error) {
-    debugLog(runtime, `steer threw for task ${task.id}: ${error instanceof Error ? error.message : String(error)}`);
+    if (!isDisposed()) {
+      debugLog(runtime, `steer threw for task ${task.id}: ${error instanceof Error ? error.message : String(error)}`);
+    }
     return Promise.resolve(false);
   }
   return launched.then(
     () => {
+      if (isDisposed()) return false;
       void runtime.dispatch(new CronFired({ origin, prompt: task.prompt }));
       telemetryOf(runtime).track2(CRON_FIRED, {
         recurring: task.recurring !== false,
@@ -192,7 +200,9 @@ function deliverFire(
       return true;
     },
     (error: unknown) => {
-      debugLog(runtime, `steer launch rejected for task ${task.id}: ${error instanceof Error ? error.message : String(error)}`);
+      if (!isDisposed()) {
+        debugLog(runtime, `steer launch rejected for task ${task.id}: ${error instanceof Error ? error.message : String(error)}`);
+      }
       return false;
     },
   );
@@ -203,6 +213,7 @@ async function processDue(
   state: CronEffectState,
   task: CronTask,
   now: number,
+  isDisposed: () => boolean,
 ): Promise<void> {
   if (state.inFlight.has(task.id)) return;
   let parsed: ParsedCronExpression;
@@ -238,13 +249,15 @@ async function processDue(
   const firedAt = state.clocks.wallNow();
   let delivered = false;
   try {
-    delivered = await deliverFire(runtime, task, { coalescedCount, firedAt });
+    delivered = await deliverFire(runtime, task, { coalescedCount, firedAt }, isDisposed);
   } catch (error) {
-    debugLog(runtime, `deliverDue threw for task ${task.id}: ${error instanceof Error ? error.message : String(error)}`);
+    if (!isDisposed()) {
+      debugLog(runtime, `deliverDue threw for task ${task.id}: ${error instanceof Error ? error.message : String(error)}`);
+    }
   } finally {
-    state.inFlight.delete(task.id);
+    if (!isDisposed()) state.inFlight.delete(task.id);
   }
-  if (!delivered) return;
+  if (isDisposed() || !delivered) return;
   if (task.recurring === false || isStaleAt(runtime, task, firedAt)) {
     const removed = removeTasks(runtime, [task.id]);
     state.lastSeenAt.delete(task.id);
@@ -265,12 +278,17 @@ async function processDue(
 async function tickCron(
   runtime: AgentRuntimeContext<CronModelState>,
   state: CronEffectState,
+  config: IConfigService,
+  isDisposed: () => boolean,
 ): Promise<void> {
-  await configOf(runtime).ready;
-  if (cronConfigOf(runtime).disabled || runtime.getState().size === 0) return;
+  await config.ready;
+  if (isDisposed()) return;
+  if (readCronConfig(config).disabled || runtime.getState().size === 0) return;
   if (runtime.get(IAgentLoopService).status().state === 'running') return;
   const now = state.clocks.wallNow();
-  await Promise.all([...runtime.getState().values()].map((task) => processDue(runtime, state, task, now)));
+  await Promise.all(
+    [...runtime.getState().values()].map((task) => processDue(runtime, state, task, now, isDisposed)),
+  );
 }
 
 const cronEffects = fromCallback(({
@@ -286,6 +304,7 @@ const cronEffects = fromCallback(({
   sendBack: (event: CronActorEvent) => void;
 }) => {
   if (input.runtime.agent.agentId !== MAIN_AGENT_ID) return;
+  const config = configOf(input.runtime);
   const timer = new IntervalTimer({ unref: true });
   const state: CronEffectState = {
     clocks: SYSTEM_CLOCKS,
@@ -297,18 +316,22 @@ const cronEffects = fromCallback(({
   let disposed = false;
   let signalHandler: NodeJS.SignalsListener | undefined;
   receive((event) => {
-    void tickCron(input.runtime, state).then(event.resolve, event.reject);
+    if (disposed) {
+      event.resolve?.();
+      return;
+    }
+    void tickCron(input.runtime, state, config, () => disposed).then(event.resolve, event.reject);
   });
-  input.restore.waitUntil(configOf(input.runtime).ready.then(() => {
+  input.restore.waitUntil(config.ready.then(() => {
     if (disposed) return;
-    const config = cronConfigOf(input.runtime);
-    state.clocks = resolveClockSources(config.clock, config.debug) ?? SYSTEM_CLOCKS;
-    const poll = config.manualTick ? null : config.pollIntervalMs;
+    const current = readCronConfig(config);
+    state.clocks = resolveClockSources(current.clock, current.debug) ?? SYSTEM_CLOCKS;
+    const poll = current.manualTick ? null : current.pollIntervalMs;
     const interval = poll === undefined ? DEFAULT_POLL_INTERVAL_MS : poll;
     if (interval !== null && interval !== 0) {
       timer.cancelAndSet(() => { sendBack({ type: 'cron.tick' }); }, interval);
     }
-    if (process.platform !== 'win32' && config.manualTick) {
+    if (process.platform !== 'win32' && current.manualTick) {
       signalHandler = () => { sendBack({ type: 'cron.tick' }); };
       process.on('SIGUSR1', signalHandler);
     }

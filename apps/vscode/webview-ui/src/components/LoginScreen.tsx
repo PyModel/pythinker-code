@@ -42,7 +42,7 @@ export function LoginScreen({ onLoginSuccess, onSkip }: LoginScreenProps) {
           <div className="space-y-2">
             <div className="inline-flex items-center gap-2 text-brand">
               <IconLoader2 className="size-5 animate-spin" />
-              <span className="text-sm font-medium">Waiting for authentication...</span>
+              <span className="text-sm font-medium">Waiting for authentication…</span>
             </div>
             <p className="text-xs leading-5 text-muted-foreground text-left">A browser window should open automatically. Complete the sign-in process there.</p>
           </div>

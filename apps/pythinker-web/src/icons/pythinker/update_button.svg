@@ -11,13 +11,11 @@
     .ptx-update-button .arrow {
       transform-box: fill-box;
       transform-origin: center;
-      animation: ptx-update-button-arrow-hit 4s cubic-bezier(.2,.8,.2,1) infinite;
     }
 
     .ptx-update-button .impact-line {
       transform-box: fill-box;
       transform-origin: center;
-      animation: ptx-update-button-line-shake 4s linear infinite;
     }
 
     @keyframes ptx-update-button-arrow-hit {
@@ -66,6 +64,10 @@
       /* Remain still */
       27.5%, 100% { transform: translateX(0); }
     }
+
+    /* motion runs only while the host is working (.ptx-live) or hovered */
+    :is(.ptx-live .ptx-update-button, .ptx-update-button:hover, :is(button, a, [role="button"], .ptx-hover):hover .ptx-update-button) .arrow { animation: ptx-update-button-arrow-hit 4s cubic-bezier(.2,.8,.2,1) infinite; }
+    :is(.ptx-live .ptx-update-button, .ptx-update-button:hover, :is(button, a, [role="button"], .ptx-hover):hover .ptx-update-button) .impact-line { animation: ptx-update-button-line-shake 4s linear infinite; }
 
     @media (prefers-reduced-motion: reduce) {
       .ptx-update-button .arrow, .ptx-update-button .impact-line { animation: none; }

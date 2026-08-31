@@ -1,6 +1,7 @@
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { LifecycleScope } from '#/app/scopes';
 import { IModelService } from '#/kosong/model/model';
+import { resolveModelForReady } from '#/kosong/model/modelAuth';
 import { IProviderService } from '#/kosong/provider/provider';
 
 import type { AuthSummary } from './authStatus';
@@ -15,11 +16,19 @@ export class AuthStatusService implements IAuthStatusService {
   ) {}
 
   async get(): Promise<AuthSummary> {
-    await this.modelService.ready;
-    const providers_count = Object.keys(this.providerService.list()).length;
+    await Promise.all([this.modelService.ready, this.providerService.ready]);
+    const providers = this.providerService.list();
+    const providers_count = Object.keys(providers).length;
     const default_model = nonEmpty(this.modelService.getDefaultModel());
+    const models_ready = resolveModelForReady(
+      default_model ?? undefined,
+      this.modelService.list(),
+      providers,
+      this.providerService.getDefaultProvider(),
+    ).resolved;
     return {
-      ready: providers_count >= 1 && default_model !== null,
+      ready: models_ready,
+      models_ready,
       providers_count,
       default_model,
     };

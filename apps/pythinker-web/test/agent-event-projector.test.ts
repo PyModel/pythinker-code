@@ -64,6 +64,56 @@ describe('subagent streaming text', () => {
     });
   });
 
+  it('keeps the routing provenance and current revision from subagent.spawned on the task', () => {
+    const projector = createAgentProjector();
+    const events = projector.project(
+      'subagent.spawned',
+      {
+        subagentId: 'sub-r',
+        subagentName: 'coder',
+        description: 'Fix it',
+        model: 'acme/luna',
+        thinkingEffort: 'low',
+        routing: {
+          operation: 'resume',
+          profileSource: 'resume-existing',
+          modelSource: 'resume-existing',
+          policyMode: 'inherit',
+          policySource: 'default',
+          featureSource: 'config',
+          resolvedFromRoutingEnvironmentRevision: 'route-env:v1:old',
+          routeDecisionFingerprint: 'route-decision:v1:x',
+        },
+        currentRoutingEnvironmentRevision: 'route-env:v1:new',
+      },
+      's1',
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: 'taskCreated',
+        task: expect.objectContaining({
+          id: 'sub-r',
+          model: 'acme/luna',
+          routing: {
+            operation: 'resume',
+            profileSource: 'resume-existing',
+            modelSource: 'resume-existing',
+            policyMode: 'inherit',
+            policySource: 'default',
+            featureSource: 'config',
+            routingEnvRevision: 'route-env:v1:old',
+            routeDecision: 'route-decision:v1:x',
+          },
+          currentRoutingEnvRevision: 'route-env:v1:new',
+        }),
+      }),
+    );
+    const plain = projector.project('subagent.spawned', { subagentId: 'sub-p', description: 'Plain' }, 's1');
+    const task = (plain.find((e) => e.type === 'taskCreated') as { task?: { routing?: unknown } } | undefined)?.task;
+    expect(task).toBeDefined();
+    expect(task?.routing).toBeUndefined();
+  });
+
   it('drops an empty subagent assistant.delta', () => {
     const projector = createAgentProjector();
     const events = projector.project('assistant.delta', { agentId: 'sub-1', delta: '' }, 's1');
@@ -589,6 +639,69 @@ describe('background subagent task registration', () => {
           description: 'Explore repo',
           runInBackground: true,
           backgroundTaskId: 'task-9',
+        }),
+      },
+    ]);
+  });
+
+  it('clears suspendedReason when a later subagent.suspended carries no reason', () => {
+    const projector = createAgentProjector();
+    projector.project('subagent.spawned', { subagentId: 'agent-1', description: 'Explore repo' }, 's1');
+    const first = projector.project('subagent.suspended', { subagentId: 'agent-1', reason: 'waiting for input' }, 's1');
+    expect(first).toHaveLength(1);
+    expect((first[0] as { task: Record<string, unknown> }).task['suspendedReason']).toBe('waiting for input');
+
+    const events = projector.project('subagent.suspended', { subagentId: 'agent-1' }, 's1');
+
+    expect(events).toHaveLength(1);
+    const task = (events[0] as { task: Record<string, unknown> }).task;
+    expect(task['subagentPhase']).toBe('suspended');
+    expect('suspendedReason' in task).toBe(false);
+  });
+
+  it('keeps the spawned routing provenance when task.started omits it', () => {
+    const projector = createAgentProjector();
+    const routing = {
+      operation: 'spawn',
+      profileSource: 'requested',
+      modelSource: 'caller',
+      policyMode: 'inherit',
+      policySource: 'default',
+      featureSource: 'default',
+      resolvedFromRoutingEnvironmentRevision: 'route-env:v1:aaa',
+      routeDecisionFingerprint: 'route-decision:v1:bbb',
+    };
+    projector.project(
+      'subagent.spawned',
+      {
+        subagentId: 'agent-1',
+        description: 'Explore repo',
+        runInBackground: true,
+        model: 'provider/fast',
+        thinkingEffort: 'low',
+        routing,
+        currentRoutingEnvironmentRevision: 'route-env:v1:aaa',
+      },
+      's1',
+    );
+
+    const events = projector.project(
+      'task.started',
+      { info: { taskId: 'task-9', kind: 'agent', detached: true, agentId: 'agent-1' } },
+      's1',
+    );
+
+    expect(events).toEqual([
+      {
+        type: 'taskCreated',
+        sessionId: 's1',
+        task: expect.objectContaining({
+          id: 'agent-1',
+          backgroundTaskId: 'task-9',
+          model: 'provider/fast',
+          thinkingEffort: 'low',
+          routing: expect.objectContaining({ operation: 'spawn', routeDecision: 'route-decision:v1:bbb' }),
+          currentRoutingEnvRevision: 'route-env:v1:aaa',
         }),
       },
     ]);

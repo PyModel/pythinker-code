@@ -20,6 +20,7 @@ import { getVisibleWorkspaces } from '../../lib/workspacePicker';
 import { safeRemove, STORAGE_KEYS } from '../../lib/storage';
 import type { TurnFileChange } from '../../lib/turnFiles';
 import WorkspaceRecentSessions from '../WorkspaceRecentSessions.vue';
+import type { DetailTarget } from '../../composables/useFilePreview';
 
 const { t } = useI18n();
 
@@ -102,6 +103,10 @@ const props = defineProps<{
   pr?: { number: number; state: string; url: string } | null;
   /** Conversation outline: proportional bubbles, viewport indicator, hover tooltip. */
   conversationToc?: boolean;
+  /** Fold a finished turn's work away, leaving the summary. */
+  turnFolding?: boolean;
+  /** Summarise consecutive tool calls into one activity-run row. */
+  activityRunFolding?: boolean;
   /** Completion reason for the active session's last turn. */
   lastTurnReason?: 'completed' | 'cancelled' | 'failed';
   /** Step-limit variant of the failed-turn banner (turn.step.interrupted
@@ -114,6 +119,10 @@ const props = defineProps<{
   pinned?: boolean;
   recentSessions?: Session[];
   revealSavedPlan?: (agentId: string, toolCallId: string) => Promise<boolean>;
+  panelVisible?: boolean;
+  panelExpanded?: boolean;
+  activePanelType?: DetailTarget;
+  togglePanel?: () => void;
 }>();
 
 const emit = defineEmits<{
@@ -143,6 +152,8 @@ const emit = defineEmits<{
   openMedia: [media: ToolMedia];
   openCompaction: [target: { turnId: string }];
   openAgent: [toolCallId: string];
+  /** Move a running foreground tool call to the background. */
+  detachTask: [toolCallId: string];
   openToolDiff: [id: string];
   openTurnDiff: [target: { turnId: string; changes: TurnFileChange[] }];
   /** Chat header / files pane: focus the diff detail layer and refresh git status. */
@@ -279,6 +290,16 @@ function resolveAgentTaskId(toolCallId: string): string | undefined {
   return undefined;
 }
 provide('resolveAgentTaskId', resolveAgentTaskId);
+
+// Whether a running foreground tool call can still be moved to the background.
+// `undefined` (no task matched — a task list that has not arrived yet) means
+// "show the button"; only an explicit false hides it.
+function resolveDetachableTask(toolCallId: string): boolean | undefined {
+  const matches = props.tasks.filter((tk) => tk.id === toolCallId || tk.parentToolCallId === toolCallId);
+  if (matches.length === 0) return undefined;
+  return matches.some((tk) => tk.state === 'run' && tk.runInBackground !== true);
+}
+provide('resolveDetachableTask', resolveDetachableTask);
 const modelDisplay = inject<(modelId: string | undefined) => string | undefined>('modelDisplay');
 const subagentEffort = inject<(effort: string | undefined) => string | undefined>('subagentEffort');
 function resolveAgentModel(
@@ -511,6 +532,7 @@ const chatLayoutStyle = computed(() => ({
 type ComposerHandle = {
   loadForEdit: (value: string) => boolean | void;
   loadAttachmentsForEdit: (atts: { fileId?: string; kind: 'image' | 'video' | 'file'; url: string; name?: string }[]) => void;
+  insertQuote: (payload: { quote: string; comment?: string; source?: string }) => void;
   focus: () => void;
 };
 type RefArg = Element | (ComponentPublicInstance & Partial<ComposerHandle>) | null;
@@ -546,6 +568,10 @@ function bindChatDock(el: RefArg): void {
       loadAttachmentsForEdit:
         'loadAttachmentsForEdit' in el && typeof el.loadAttachmentsForEdit === 'function'
           ? el.loadAttachmentsForEdit.bind(el)
+          : () => {},
+      insertQuote:
+        'insertQuote' in el && typeof el.insertQuote === 'function'
+          ? el.insertQuote.bind(el)
           : () => {},
       focus: el.focus.bind(el),
     };
@@ -1344,7 +1370,11 @@ function focusComposer(): void {
   (dockedComposerRef.value ?? emptyComposerRef.value)?.focus();
 }
 
-defineExpose({ loadComposerForEdit, focusComposer });
+function insertComposerQuote(payload: { quote: string; comment?: string; source?: string }): void {
+  (dockedComposerRef.value ?? emptyComposerRef.value)?.insertQuote(payload);
+}
+
+defineExpose({ loadComposerForEdit, focusComposer, insertComposerQuote });
 </script>
 
 <template>
@@ -1373,6 +1403,7 @@ defineExpose({ loadComposerForEdit, focusComposer });
       :copied="copyConversationCopied"
       :session-done="sessionDone"
       :pinned="pinned"
+      :panel-visible="panelVisible"
       @open-changes="emit('openChanges')"
       @copy-all="chatPaneRef?.copyConversation()"
       @copy-final-summary="chatPaneRef?.copyFinalSummary()"
@@ -1383,7 +1414,15 @@ defineExpose({ loadComposerForEdit, focusComposer });
       @archive-session="(id) => emit('archiveSession', id)"
       @restore-session="(id) => emit('restoreSession', id)"
       @export-session="(id) => emit('exportSession', id)"
+      @toggle-panel="togglePanel?.()"
     />
+
+    <IconButton
+      v-if="!mobile && !panelVisible && turns.length === 0 && !sessionLoading"
+      class="empty-panel-btn"
+      :label="t('panel.openPanel')"
+      @click="togglePanel?.()"
+    ><Icon name="panel-expand-right" /></IconButton>
 
     <!-- Conversation outline: centered line stack beside the app sidebar
          (one marker per user query); hover to reveal labels into the chat. -->
@@ -1539,6 +1578,8 @@ defineExpose({ loadComposerForEdit, focusComposer });
               :loading-more-error="loadingMoreError"
               :is-following="following"
               :tool-diff-panel="true"
+              :turn-folding="turnFolding ?? true"
+              :activity-run-folding="activityRunFolding ?? true"
               :last-turn-reason="lastTurnReason"
               :turn-error-kind="turnErrorKind"
               :turn-error-message="turnErrorMessage"
@@ -1549,6 +1590,7 @@ defineExpose({ loadComposerForEdit, focusComposer });
               @copy-conversation-copied="handleCopyConversationCopied"
               @open-compaction="emit('openCompaction', $event)"
               @open-agent="emit('openAgent', $event)"
+              @detach-task="emit('detachTask', $event)"
               @open-tool-diff="emit('openToolDiff', $event)"
               @open-turn-diff="emit('openTurnDiff', $event)"
               @edit-message="handleEditMessage"
@@ -1562,7 +1604,8 @@ defineExpose({ loadComposerForEdit, focusComposer });
           </template>
         </div>
       </div>
-      <ChatDock
+      <Teleport defer to=".pfc-host" :disabled="!panelExpanded || activePanelType === 'btw'">
+        <ChatDock
         v-if="!(turns.length === 0 && !sessionLoading)"
         :ref="bindChatDock"
         :style="chatDockStyle"
@@ -1624,7 +1667,8 @@ defineExpose({ loadComposerForEdit, focusComposer });
           @compact="emit('compact')"
           @pick-model="emit('pickModel')"
           @select-model="emit('selectModel', $event)"
-      />
+        />
+      </Teleport>
     </div>
 
     <!-- "New messages" pill — only visible when scrolled up and new content arrives. -->
@@ -1665,6 +1709,7 @@ defineExpose({ loadComposerForEdit, focusComposer });
   position: relative;
   container-type: inline-size;
 }
+.empty-panel-btn { position: absolute; top: 10px; right: 16px; z-index: var(--z-sticky); }
 
 .panes {
   flex: 1;

@@ -1,11 +1,10 @@
 // apps/pythinker-web/src/composables/useDesktopUpdate.ts
-// Single subscription to the desktop update bridge, shared by the sidebar
-// button and the update dialog. Module-level state on purpose: two components
-// reading the same feed must never open two `onUpdateState` listeners, and the
-// button has to know whether to render before the dialog is ever mounted.
+// Single subscription to the desktop update bridge, owned by the app shell.
+// Module-level state lets every update surface read the same feed without
+// opening duplicate `onUpdateState` listeners.
 //
 // The main process owns durable notification, skip, and install receipts; this
-// owns only current display and the open/closed state of the dialog.
+// owns only current display state.
 import { computed, readonly, ref } from 'vue';
 
 /** Read lazily, never cached: the preload bridge is not guaranteed to exist at
@@ -15,7 +14,6 @@ function bridge(): PythinkerDesktopBridge | undefined {
 }
 
 const state = ref<DesktopUpdateState>();
-const dialogOpen = ref(false);
 const busy = ref(false);
 const downloadRequestedVersion = ref<string>();
 const completedVersion = ref<string>();
@@ -67,23 +65,6 @@ const percent = computed(() => {
   return value === undefined || !Number.isFinite(value) ? undefined : Math.min(100, Math.max(0, value));
 });
 
-/**
- * One decimal in the updater's displayed decimal units.
- */
-export function formatUpdateBytes(value: number): string {
-  const units = ['B', 'KB', 'MB', 'GB'];
-  let amount = Math.max(0, value);
-  let unit = 0;
-  while (amount >= 1_000 && unit < units.length - 1) {
-    amount /= 1_000;
-    unit += 1;
-  }
-  return `${new Intl.NumberFormat('en', {
-    minimumFractionDigits: unit === 0 ? 0 : 1,
-    maximumFractionDigits: unit === 0 ? 0 : 1,
-  }).format(amount)}${units[unit]}`;
-}
-
 async function run(action: () => Promise<DesktopUpdateState>, label: string): Promise<void> {
   if (bridge() === undefined || busy.value) return;
   busy.value = true;
@@ -119,15 +100,6 @@ export function useDesktopUpdate() {
     await run(() => bridge()!.downloadUpdate(), 'download');
   }
 
-  /** Aborts the transfer; the main process returns the state to `available`. */
-  async function cancelDownload(): Promise<void> {
-    await run(() => bridge()!.cancelUpdateDownload(), 'cancel');
-  }
-
-  async function setAutomaticChecks(enabled: boolean): Promise<void> {
-    await run(() => bridge()!.setAutoUpdate(enabled), 'automatic checks');
-  }
-
   async function restart(): Promise<void> {
     const api = bridge();
     if (api === undefined || busy.value) return;
@@ -141,13 +113,6 @@ export function useDesktopUpdate() {
     }
   }
 
-  async function skip(): Promise<void> {
-    const version = state.value?.availableVersion;
-    if (version === undefined) return;
-    await run(() => bridge()!.skipUpdate(version), 'skip');
-    dialogOpen.value = false;
-  }
-
   /** A failed download retries the download; a failed check re-checks. */
   async function retry(): Promise<void> {
     if (downloadRequestedVersion.value === state.value?.availableVersion) {
@@ -157,14 +122,8 @@ export function useDesktopUpdate() {
     await run(() => bridge()!.checkForUpdates(), 'retry');
   }
 
-  function openDialog(): void {
-    dialogOpen.value = true;
-    const version = state.value?.availableVersion;
-    if (version !== undefined) void bridge()?.markUpdateNotified(version).catch(() => {});
-  }
-
-  function closeDialog(): void {
-    dialogOpen.value = false;
+  async function markNotified(version: string): Promise<void> {
+    await bridge()?.markUpdateNotified(version).catch(() => {});
   }
 
   return {
@@ -176,24 +135,18 @@ export function useDesktopUpdate() {
     percent,
     busy: readonly(busy),
     completedVersion: readonly(completedVersion),
-    dialogOpen,
     subscribe,
     unsubscribe,
     download,
-    cancelDownload,
-    setAutomaticChecks,
     restart,
-    skip,
     retry,
-    openDialog,
-    closeDialog,
+    markNotified,
   };
 }
 
 /** Test seam: resets the module-level feed between test cases. */
 export function resetDesktopUpdateStateForTests(): void {
   state.value = undefined;
-  dialogOpen.value = false;
   busy.value = false;
   downloadRequestedVersion.value = undefined;
   completedVersion.value = undefined;

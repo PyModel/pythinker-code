@@ -126,8 +126,8 @@ function openFile(): void {
 .tl-ficon {
   display: inline-flex;
   align-items: center;
+  align-self: center;
   flex: none;
-  line-height: 0;
 }
 .tl-ficon :deep(svg) {
   display: block;

@@ -100,6 +100,8 @@ export class FlagService extends Disposable implements IFlagService {
       enabled,
       source,
       configValue,
+      externallyControlled: source === 'env' || source === 'master-env',
+      overridden: configValue !== undefined && enabled !== configValue,
     };
   }
 }

@@ -792,6 +792,35 @@ describe('keepLiveSubagents', () => {
     };
   }
 
+  it('keeps live routing provenance and falls back to the REST copy', () => {
+    const routing = {
+      operation: 'spawn' as const,
+      profileSource: 'default' as const,
+      modelSource: 'caller' as const,
+      policyMode: 'inherit' as const,
+      policySource: 'default' as const,
+      featureSource: 'default' as const,
+      routingEnvRevision: 'route-env:v1:aaa',
+      routeDecision: 'route-decision:v1:bbb',
+    };
+    const rest = [subagent('bg-1', { agentId: 'a1', routing, currentRoutingEnvRevision: 'route-env:v1:rest' })];
+    const live = [subagent('a1', { agentId: 'a1', backgroundTaskId: 'bg-1' })];
+    const merged = keepLiveSubagents(rest, live);
+    expect(merged).toHaveLength(1);
+    expect(merged[0]).toMatchObject({ id: 'a1', routing, currentRoutingEnvRevision: 'route-env:v1:rest' });
+
+    const liveRouting = { ...routing, modelSource: 'policy-force' as const };
+    const withLiveRouting = keepLiveSubagents(rest, [
+      subagent('a1', {
+        agentId: 'a1',
+        backgroundTaskId: 'bg-1',
+        routing: liveRouting,
+        currentRoutingEnvRevision: 'route-env:v1:live',
+      }),
+    ]);
+    expect(withLiveRouting[0]).toMatchObject({ routing: liveRouting, currentRoutingEnvRevision: 'route-env:v1:live' });
+  });
+
   it('returns the REST list untouched when no live-only subagent exists', () => {
     const rest = [subagent('a1')];
     expect(keepLiveSubagents(rest, [subagent('a1')])).toBe(rest);

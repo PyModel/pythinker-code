@@ -129,6 +129,10 @@ const props = withDefaults(
     toolDiffPanel?: boolean;
     readOnly?: boolean;
     inspector?: boolean;
+    /** Fold a finished turn's work away, leaving the summary. */
+    turnFolding?: boolean;
+    /** Summarise consecutive tool calls into one activity-run row. */
+    activityRunFolding?: boolean;
     /** Session completion reason for the failed-turn banner. */
     lastTurnReason?: 'completed' | 'cancelled' | 'failed';
     /** Step-limit variant of the failed-turn banner header (turn.step.interrupted
@@ -164,6 +168,8 @@ const props = withDefaults(
     toolDiffPanel: false,
     readOnly: false,
     inspector: false,
+    turnFolding: true,
+    activityRunFolding: true,
     queued: () => [],
   },
 );
@@ -237,13 +243,39 @@ interface AssistantTurnModel {
   changes: TurnFileChange[];
 }
 
+const assistantTurnModelCache = new WeakMap<
+  ChatTurn,
+  {
+    activityRunFolding: boolean;
+    turnFolding: boolean;
+    model: AssistantTurnModel;
+  }
+>();
+
+function assistantTurnModel(turn: ChatTurn): AssistantTurnModel {
+  const cached = assistantTurnModelCache.get(turn);
+  if (
+    cached?.activityRunFolding === props.activityRunFolding &&
+    cached.turnFolding === props.turnFolding
+  ) {
+    return cached.model;
+  }
+  const all = assistantRenderBlocks(turn, props.activityRunFolding);
+  const { folded, visible } = foldRenderBlocks(all, props.turnFolding);
+  const model = { all, folded, visible, changes: turnFileChanges(turn) };
+  assistantTurnModelCache.set(turn, {
+    activityRunFolding: props.activityRunFolding,
+    turnFolding: props.turnFolding,
+    model,
+  });
+  return model;
+}
+
 const assistantTurnModels = computed(() => {
   const models = new Map<string, AssistantTurnModel>();
   for (const turn of props.turns) {
     if (turn.role !== 'assistant') continue;
-    const all = assistantRenderBlocks(turn);
-    const { folded, visible } = foldRenderBlocks(all);
-    models.set(turn.id, { all, folded, visible, changes: turnFileChanges(turn) });
+    models.set(turn.id, assistantTurnModel(turn));
   }
   return models;
 });
@@ -266,6 +298,7 @@ const emit = defineEmits<{
   /** Show a subagent's live detail in the right-side panel (keyed by the
    *  spawning `Agent` tool-call id). */
   openAgent: [toolCallId: string];
+  detachTask: [toolCallId: string];
   /** Show an Edit/Write tool call's diff in the right-side panel. */
   openToolDiff: [id: string];
   /** Show the aggregate file changes for one assistant turn. */
@@ -521,11 +554,15 @@ function assistantRunEndingAt(index: number): ChatTurn[] {
   return run;
 }
 
+// The run's answer is the last turn that ends in text; earlier turns in the
+// same run are steps toward it, not part of it.
 function assistantRunFinalText(index: number): string {
-  return assistantRunEndingAt(index)
-    .map((t) => turnFinalText(t))
-    .filter(Boolean)
-    .join('\n\n');
+  const run = assistantRunEndingAt(index);
+  for (let i = run.length - 1; i >= 0; i -= 1) {
+    const text = turnFinalText(run[i]!);
+    if (text.trim()) return text;
+  }
+  return '';
 }
 
 function finalSummaryText(): string {
@@ -846,6 +883,7 @@ function continueFailedTurn(): void {
           @open-file="emit('openFile', $event)"
           @open-tool-diff="emit('openToolDiff', $event)"
           @open-agent="emit('openAgent', $event)"
+          @detach="emit('detachTask', $event)"
         />
         <template v-for="(blk, bi) in assistantTurnModels.get(turn.id)?.visible ?? []" :key="renderBlockKey(blk, bi)">
           <ThinkingBlock v-if="blk.kind === 'thinking'" :text="blk.thinking" mobile :streaming="isStreamingRenderBlock(turn, blk)" :started-at-ms="blockStartedMs(blk.startedAt)" :duration-ms="blk.durationMs" />
@@ -860,8 +898,9 @@ function continueFailedTurn(): void {
             @open-file="emit('openFile', $event)"
             @open-tool-diff="emit('openToolDiff', $event)"
             @open-agent="emit('openAgent', $event)"
+            @detach="emit('detachTask', $event)"
           />
-          <ToolCall v-else-if="blk.kind === 'tool'" :tool="blk.tool" mobile :tool-diff-panel="toolDiffPanel" @open-media="emit('openMedia', $event)" @open-file="emit('openFile', $event)" @open-tool-diff="emit('openToolDiff', $event)" @open-agent="emit('openAgent', $event)" />
+          <ToolCall v-else-if="blk.kind === 'tool'" :tool="blk.tool" mobile :tool-diff-panel="toolDiffPanel" @open-media="emit('openMedia', $event)" @open-file="emit('openFile', $event)" @open-tool-diff="emit('openToolDiff', $event)" @open-agent="emit('openAgent', $event)" @detach="emit('detachTask', $event)" />
           <NotificationCard v-else-if="blk.kind === 'notification'" :items="blk.items" />
         </template>
         <TurnFilesSummary

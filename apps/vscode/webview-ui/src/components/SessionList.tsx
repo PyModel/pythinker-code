@@ -132,6 +132,7 @@ export function SessionList({ onClose }: SessionListProps) {
   const groupedSessions = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     const filtered = q ? sessions.filter((s) => cleanSystemTags(s.brief).toLowerCase().includes(q)) : sessions;
+    // oxlint-disable-next-line eslint-plugin-unicorn/no-array-sort -- The copied array is safe to sort in place.
     const sorted = [...filtered].sort((a, b) => (sortOrder === "recent" ? b.updatedAt - a.updatedAt : a.updatedAt - b.updatedAt));
 
     const now = new Date();
@@ -221,7 +222,7 @@ export function SessionList({ onClose }: SessionListProps) {
         <div className="flex items-center gap-1 p-2 border-b border-border shrink-0">
           <div className="relative flex-1">
             <IconSearch className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
-            <Input placeholder="Search conversations..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="pl-8 h-8 text-xs" />
+            <Input placeholder="Search conversations…" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="pl-8 h-8 text-xs" />
           </div>
           <Button
             variant="ghost"
@@ -235,7 +236,7 @@ export function SessionList({ onClose }: SessionListProps) {
         </div>
         <div className="overflow-y-auto flex-1 min-h-0">
           {loading ? (
-            <div className="px-3 py-8 text-center text-xs text-muted-foreground">Loading...</div>
+            <div className="px-3 py-8 text-center text-xs text-muted-foreground">Loading…</div>
           ) : isEmpty ? (
             <div className="px-3 py-8 text-center text-xs text-muted-foreground">{searchQuery ? "No conversations found" : "No conversations yet"}</div>
           ) : (

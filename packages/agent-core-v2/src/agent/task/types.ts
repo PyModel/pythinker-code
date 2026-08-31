@@ -29,6 +29,8 @@ export interface AgentTaskInfoBase {
   readonly endedAt: number | null;
   readonly stopReason?: string;
   readonly terminalNotificationSuppressed?: boolean;
+  readonly stoppedOnExit?: boolean;
+  readonly resumeReminded?: boolean;
   readonly timeoutMs?: number;
 }
 
