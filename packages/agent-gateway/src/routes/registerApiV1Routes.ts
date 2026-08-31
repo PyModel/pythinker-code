@@ -17,6 +17,7 @@ import { registerCodexLoginRoutes } from './codex';
 import { registerConfigRoutes } from './config';
 import { registerSubagentModelPolicyRoutes } from './subagentModelPolicy';
 import { registerConnectionsRoutes } from './connections';
+import { registerExpertTalkRoutes } from './expertTalk';
 import { registerFilesRoutes } from './files';
 import { registerFsRoutes } from './fs';
 import { registerGuiStoreRoutes } from './guiStore';
@@ -174,6 +175,11 @@ export async function registerApiV1Routes(
       registerPromptsRoutes(
         apiV1 as unknown as Parameters<typeof registerPromptsRoutes>[0],
         core,
+      );
+      registerExpertTalkRoutes(
+        apiV1 as unknown as Parameters<typeof registerExpertTalkRoutes>[0],
+        core,
+        opts.connectionRegistry,
       );
       registerWorkspacesRoutes(
         apiV1 as unknown as Parameters<typeof registerWorkspacesRoutes>[0],

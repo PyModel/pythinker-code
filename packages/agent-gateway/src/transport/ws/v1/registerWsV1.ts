@@ -25,12 +25,12 @@ export interface RegisterWsV1Options {
 }
 
 export function registerWsV1(core: Scope, opts: RegisterWsV1Options): WebSocketServer {
-  void core;
   const wss = new WebSocketServer({ noServer: true, handleProtocols: selectWsBearerProtocol });
   const { registry, broadcaster } = opts;
 
   wss.on('connection', (socket, req) => {
     const conn = new WsConnectionV1({
+      core,
       socket,
       broadcaster,
       fsWatchBridge: opts.fsWatchBridge,

@@ -25,6 +25,7 @@ import { IWorkspaceInstanceManager } from '@pymodel/agent-core-v2/workspace/work
 import { ISessionManager } from '@pymodel/agent-core-v2/app/sessionManager/sessionManager';
 import { ISessionMetadata } from '@pymodel/agent-core-v2/session/sessionMetadata/sessionMetadata';
 import { ISessionApprovalService } from '@pymodel/agent-core-v2/session/approval/approval';
+import { ISessionExpertTalkService } from '@pymodel/agent-core-v2/session/expertTalk/expertTalk';
 import { ISessionQuestionService } from '@pymodel/agent-core-v2/session/question/question';
 import { ISessionSkillCatalog } from '@pymodel/agent-core-v2/features/skill/session/skillCatalog';
 import { ISessionTitleService } from '@pymodel/agent-core-v2/session/sessionTitle/sessionTitle';
@@ -65,6 +66,7 @@ export const serviceTokens: Readonly<Record<string, ServiceIdentifier<unknown>>>
   sessionManager: ISessionManager,
   sessionMetadata: ISessionMetadata,
   sessionApprovalService: ISessionApprovalService,
+  sessionExpertTalkService: ISessionExpertTalkService,
   sessionQuestionService: ISessionQuestionService,
   sessionSkillCatalog: ISessionSkillCatalog,
   sessionTitleService: ISessionTitleService,

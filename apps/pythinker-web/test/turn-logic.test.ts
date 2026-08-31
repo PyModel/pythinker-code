@@ -110,6 +110,20 @@ describe('messagesToTurns', () => {
     expect(turns.map((turn) => turn.text)).toEqual(['one', 'two']);
   });
 
+  it('preserves prompt ids on user and assistant turns', () => {
+    const turns = messagesToTurns(
+      [
+        message('u1', 'user', [{ type: 'text', text: 'compare' }], { promptId: 'prompt-1' }),
+        message('a1', 'assistant', [{ type: 'text', text: 'fused' }], { promptId: 'prompt-1' }),
+      ],
+      [],
+      undefined,
+      false,
+    );
+
+    expect(turns.map((turn) => turn.promptId)).toEqual(['prompt-1', 'prompt-1']);
+  });
+
   it('renders compaction summaries as divider turns', () => {
     const turns = messagesToTurns(
       [

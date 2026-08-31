@@ -184,7 +184,7 @@ function onDeleteWorkspace(ws: WorkspaceView): void {
   >
     <!-- + New chat (mirrors the sidebar's top button) -->
     <button type="button" class="newrow" @click="onCreate">
-      <Icon name="message" size="sm" />
+      <Icon name="chat-new" size="sm" />
       {{ t('sidebar.newChat') }}
     </button>
     <button type="button" class="newrow secondary" @click="onAddWorkspace">

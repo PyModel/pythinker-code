@@ -83,13 +83,13 @@
  Select a model  (type to search)
  Tab toggle provider · ↑↓ navigate · Enter select · Esc cancel   ← hint 首项即 Tab 切换
                                             ← 空行
- All   Pythinker Code   openai                   ← tab 条：激活项填充背景（primary 底 + text 字 + bold），其余 textMuted
+ All   Pythinker Code   openai                   ← tab bar: active uses selectionBg + inverseText + bold; others use textMuted
                                             ← 空行
   ❯ ...
 ```
 
 - tab 条位置：**在 hint 行下方**，且**上下各一空行**（与 hint、与列表都隔开）。
-- 激活 tab：`chalk.bgHex(colors.primary).hex(colors.text).bold(\` ${label} \`)`；非激活：`chalk.hex(colors.textMuted)`。两者可见宽度一致，切换不抖动。
+- Active tab: `chalk.bgHex(colors.selectionBg).hex(colors.inverseText).bold(\` ${label} \`)`; inactive tab: `chalk.hex(colors.textMuted)`. Both have the same visible width.
 - 第一个 tab 恒为 `All`（聚合所有 provider）；**默认停在 `All`**。仅当显式传 `initialTabId`（如 `/provider` 新增完跳转）才停在指定 provider tab。
 - `Tab` / `Shift+Tab` 循环切换；hint 行首项即 `Tab toggle provider`。
 - 当前模型在所在 tab 内仍以 `❯` + ` ← current` 标记，切 tab 不丢失定位。

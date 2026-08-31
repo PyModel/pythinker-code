@@ -282,6 +282,7 @@ export interface TurnAttachment {
 
 export interface ChatTurn {
   id: string;
+  promptId?: string;
   role: TurnRole;
   no: number; // terminal line number
   text: string;

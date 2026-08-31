@@ -35,6 +35,7 @@ import Tooltip from '../ui/Tooltip.vue';
 import Input from '../ui/Input.vue';
 import AttachmentChip from './AttachmentChip.vue';
 import CapabilityMenu from '../CapabilityMenu.vue';
+import ExpertTalkControl from './ExpertTalkControl.vue';
 import BottomSheet from '../dialogs/BottomSheet.vue';
 import Toast from '../ui/Toast.vue';
 import { useOpenMenu } from '../ui/openMenus';
@@ -279,6 +280,10 @@ const {
     }
     if (cmd === '/goal') {
       toggleGoalMode();
+      return;
+    }
+    if (cmd === '/expert-talk') {
+      openExpertOpinion();
       return;
     }
     emit('command', cmd);
@@ -765,6 +770,11 @@ function handleKeydown(e: KeyboardEvent): void {
     }
   }
 
+  if (e.key === 'Escape' && expertTalkControlRef.value?.cancelActive()) {
+    e.preventDefault();
+    return;
+  }
+
   // Ctrl+S / Cmd+S — steer into the running turn (TUI parity)
   if (e.key === 's' && (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey) {
     if (props.running) {
@@ -1072,6 +1082,7 @@ watch(workMode, async (mode) => {
 
 // The "+" add menu (Files / Connectors / Goal / Plan).
 const capMenuRef = ref<InstanceType<typeof CapabilityMenu> | null>(null);
+const expertTalkControlRef = ref<InstanceType<typeof ExpertTalkControl> | null>(null);
 const modesOpen = ref(false);
 const modesMenuRef = ref<HTMLElement | null>(null);
 const mobileModesMenuRef = ref<HTMLElement | null>(null);
@@ -1102,6 +1113,9 @@ const addMenuRows = computed<AddMenuRow[]>(() => {
   }
   rows.push(
     { id: 'capabilities', icon: 'sliders', nameKey: 'capabilityMenu.trigger', action: openCapabilities },
+    ...(expertTalkControlRef.value?.available
+      ? [{ id: 'expertOpinion', icon: 'sparkles' as const, nameKey: 'expertTalk.title', descKey: 'composer.addExpertOpinionDesc', action: openExpertOpinion }]
+      : []),
     { id: 'goal', icon: 'target', nameKey: 'status.goalLabel', descKey: 'composer.addGoalDesc', action: openGoalMode },
     { id: 'plan', icon: 'file-edit', nameKey: 'status.planLabel', descKey: 'composer.addPlanDesc', action: openPlanMode },
     { id: 'workflow', icon: 'sparkles', nameKey: 'status.dynamicWorkflowLabel', descKey: 'composer.addWorkflowDesc', action: openWorkflowMode },
@@ -1221,6 +1235,11 @@ function openMentionSheet(): void {
 function openCapabilities(): void {
   closeModes();
   capMenuRef.value?.toggleOpen();
+}
+
+function openExpertOpinion(): void {
+  closeModes();
+  void expertTalkControlRef.value?.activate();
 }
 
 function openGoalMode(): void {
@@ -1735,6 +1754,8 @@ function selectModel(modelId: string): void {
           </div>
         </Transition>
 
+        <ExpertTalkControl :models="models" trigger="widget" />
+
         <div class="input-row">
           <span v-if="workMode" ref="workModePillRef" class="wm-pill">
             <Icon :name="workMode === 'goal' ? 'target' : 'file-edit'" size="sm" />
@@ -1814,6 +1835,12 @@ function selectModel(modelId: string): void {
           </IconButton>
 
           <CapabilityMenu ref="capMenuRef" :session-id="sessionId" triggerless />
+
+          <ExpertTalkControl
+            ref="expertTalkControlRef"
+            :models="models"
+            @build="loadForEdit"
+          />
 
           <span
             v-if="status"

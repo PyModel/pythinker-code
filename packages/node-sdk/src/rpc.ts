@@ -92,6 +92,7 @@ export interface SessionPromptRpcInput {
    * the v2 RPC client only.
    */
   readonly promptId?: string;
+  readonly expertTalkArmId?: string;
 }
 
 export interface SessionPromptWithSkillsRpcInput extends SessionPromptRpcInput {
@@ -522,6 +523,12 @@ export abstract class SDKRpcClientBase {
   }
 
   async prompt(input: SessionPromptRpcInput): Promise<void> {
+    if (input.expertTalkArmId !== undefined) {
+      throw new PythinkerError(
+        ErrorCodes.NOT_IMPLEMENTED,
+        'Expert Talk requires the agent-core-v2 engine.',
+      );
+    }
     const agentId = this.interactiveAgentId;
     const rpc = await this.getRpc();
     return rpc.prompt({

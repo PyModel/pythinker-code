@@ -164,8 +164,14 @@ function wrapPlain(text: string, maxWidth: number): string[] {
 }
 
 function valueStyleForLabel(label: string, level: WelcomeInfoLevel): ColorToken {
-  if (level === 'warn') return 'warning';
-  if (level === 'error') return 'error';
+  switch (level) {
+    case 'warn':
+      return 'warning';
+    case 'error':
+      return 'error';
+    case 'info':
+      break;
+  }
   switch (label.trim()) {
     case 'Directory':
       return 'accent';
@@ -173,7 +179,7 @@ function valueStyleForLabel(label: string, level: WelcomeInfoLevel): ColorToken 
     case 'Branch':
       return 'textDim';
     case 'Model':
-      return 'warning';
+      return 'primary';
     case 'Auto-save':
       return 'textMuted';
     default:
@@ -393,10 +399,10 @@ export function renderWelcomeBanner(options: RenderWelcomeBannerOptions): string
     const modelItem = options.infoItems.find((item) => item.name === 'Model');
     if (modelItem !== undefined) {
       const value = asciiMode ? applyAsciiFallback(modelItem.value) : modelItem.value;
-      const modelLine =
-        modelItem.level === 'warn'
-          ? `Model: ${currentTheme.fg('warning', value)}`
-          : `Model: ${value}`;
+      const modelLine = `Model: ${currentTheme.fg(
+        valueStyleForLabel('Model', modelItem.level ?? 'info'),
+        value,
+      )}`;
       lines.push(truncateToWidth(modelLine, safeWidth, ellipsis));
     }
     return lines;

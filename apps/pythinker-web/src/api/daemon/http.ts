@@ -210,11 +210,11 @@ export class DaemonHttpClient {
     return this.request<T>('POST', path, body, undefined, opts?.allowCodes);
   }
 
-  /** PUT/DELETE/GET with extra request headers and the response headers back.
+  /** GET/POST/PUT/DELETE with extra request headers and the response headers back.
    *  Non-zero envelope codes listed in `allowCodes` are returned instead of
    *  thrown, so callers can react to e.g. a version conflict (412). */
   async exchange<T>(
-    method: 'GET' | 'PUT' | 'DELETE',
+    method: 'GET' | 'POST' | 'PUT' | 'DELETE',
     path: string,
     opts: { body?: unknown; headers?: Record<string, string>; allowCodes?: number[] } = {},
   ): Promise<{ data: T; code: number; headers: Headers }> {

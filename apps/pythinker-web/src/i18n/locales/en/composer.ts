@@ -28,6 +28,7 @@ export default {
   addSlashDesc: 'Built-in commands or skills',
   addMention: 'Mention',
   addMentionDesc: 'Mention files in the project',
+  addExpertOpinionDesc: 'Use two models for the next message',
   addGoalDesc: 'Set a goal to keep pursuing',
   addPlanDesc: 'Turn plan mode on',
   addWorkflowDesc: 'Turn workflow mode on',

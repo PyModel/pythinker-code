@@ -3,7 +3,7 @@
 import { computed, inject, nextTick, onMounted, onUnmounted, provide, ref, watch, type ComponentPublicInstance } from 'vue';
 import { useI18n } from 'vue-i18n';
 import type { ActivationBadges, ApprovalBlock, ChatTurn, ConversationStatus, FilePreviewRequest, PermissionMode, QueuedPromptView, Session, SessionPlanEntry, TaskItem, TodoView, ToolMedia, TurnAttachment, UIQuestion, WorkspaceView } from '../../types';
-import type { AppGoal, AppModel, AppSkill, QuestionResponse, ThinkingLevel } from '../../api/types';
+import type { AppExpertTalkRun, AppGoal, AppModel, AppSkill, QuestionResponse, ThinkingLevel } from '../../api/types';
 import type { FileItem } from './MentionMenu.vue';
 import type { PromptAttachment } from '../../composables/usePythinkerWebClient';
 import ChatPane from './ChatPane.vue';
@@ -26,6 +26,7 @@ const { t } = useI18n();
 
 const props = defineProps<{
   turns: ChatTurn[];
+  expertTalkRuns?: AppExpertTalkRun[];
   sessionId?: string;
   approvals?: { approvalId: string; block: ApprovalBlock; agentName?: string; toolCallId?: string }[];
   gitInfo?: { branch: string; ahead: number; behind: number } | null;
@@ -150,6 +151,7 @@ const emit = defineEmits<{
   selectModel: [modelId: string];
   openFile: [target: FilePreviewRequest];
   openMedia: [media: ToolMedia];
+  buildExpertTalk: [answer: string];
   openCompaction: [target: { turnId: string }];
   openAgent: [toolCallId: string];
   /** Move a running foreground tool call to the background. */
@@ -1566,6 +1568,8 @@ defineExpose({ loadComposerForEdit, focusComposer, insertComposerQuote });
               ref="chatPaneRef"
               :key="fileReloadKey ?? 'no-session'"
               :turns="turns"
+              :expert-talk-runs="expertTalkRuns"
+              :expert-talk-models="models"
               :approvals="approvals"
               :questions="questions"
               :turn-active="turnActive"
@@ -1587,6 +1591,7 @@ defineExpose({ loadComposerForEdit, focusComposer, insertComposerQuote });
               :queued="queued"
               @open-file="emit('openFile', $event)"
               @open-media="emit('openMedia', $event)"
+              @build-expert-talk="emit('buildExpertTalk', $event)"
               @copy-conversation-copied="handleCopyConversationCopied"
               @open-compaction="emit('openCompaction', $event)"
               @open-agent="emit('openAgent', $event)"

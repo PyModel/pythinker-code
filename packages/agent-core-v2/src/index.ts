@@ -457,6 +457,11 @@ export * from '#/session/agentLifecycle/mainAgent';
 export * from '#/session/advisor/advisor';
 export * from '#/session/advisor/advisorService';
 export * from '#/session/advisor/configSection';
+export * from '#/session/expertTalk/expertTalk';
+export * from '#/session/expertTalk/expertTalkPure';
+export * from '#/session/expertTalk/expertTalkService';
+import '#/session/expertTalk/flag';
+import '#/session/expertTalk/profile';
 export * from '#/session/mcp/sessionMcpHandle';
 import '#/app/mcpConfig/configSection';
 export {

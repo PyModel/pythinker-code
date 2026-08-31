@@ -87,7 +87,7 @@ describe('ErrorBoundary', () => {
 describe('sidebar footer', () => {
   it('splits into a truncating account side and a fixed side', () => {
     expect(sidebarSource).toMatch(
-      /<div class="side-footer">\s*<div class="side-footer-account">/u,
+      /<div class="side-footer"[^>]*>\s*<div class="side-footer-account">/u,
     );
     expect(sidebarSource).toMatch(
       /\.side-footer \{[^}]*display: flex;[^}]*\}/u,

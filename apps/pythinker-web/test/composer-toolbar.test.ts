@@ -17,6 +17,20 @@ const slotStub = defineComponent({
   template: '<span :data-tooltip="text"><slot /></span>',
 });
 
+const openExpertOpinion = vi.fn();
+const cancelActiveExpertTalk = vi.fn(() => false);
+const expertTalkControlStub = defineComponent({
+  setup(_props, { expose }) {
+    expose({
+      available: true,
+      openDialog: openExpertOpinion,
+      activate: openExpertOpinion,
+      cancelActive: cancelActiveExpertTalk,
+    });
+  },
+  template: '<span />',
+});
+
 describe('selection action bar', () => {
   it('adds selected panel text to the composer payload', async () => {
     vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
@@ -103,6 +117,9 @@ describe('selection action bar', () => {
 
 describe('Composer toolbar overflow valves', () => {
   beforeEach(() => {
+    openExpertOpinion.mockClear();
+    cancelActiveExpertTalk.mockReset();
+    cancelActiveExpertTalk.mockReturnValue(false);
     toolbarObserver = undefined;
     window.localStorage.clear();
     vi.stubGlobal(
@@ -115,6 +132,66 @@ describe('Composer toolbar overflow valves', () => {
         disconnect(): void {}
       },
     );
+  });
+
+  it('opens Expert Talk from the add menu', async () => {
+    const wrapper = mount(Composer, {
+      attachTo: document.body,
+      global: {
+        plugins: [webI18n],
+        stubs: {
+          AttachmentChip: true,
+          CapabilityMenu: true,
+          ContextRing: true,
+          ExpertTalkControl: expertTalkControlStub,
+          Icon: true,
+          IconButton: slotStub,
+          MentionMenu: true,
+          SegmentedControl: true,
+          SlashMenu: true,
+          Spinner: true,
+          Tooltip: slotStub,
+        },
+      },
+    });
+    await nextTick();
+
+    await wrapper.get('.composer-attach').trigger('click');
+    const row = wrapper.findAll('.am-row').find((candidate) =>
+      candidate.text().includes('Expert Talk')
+    );
+    expect(row?.text()).toContain('Use two models for the next message');
+    await row!.trigger('click');
+
+    expect(openExpertOpinion).toHaveBeenCalledOnce();
+    wrapper.unmount();
+  });
+
+  it('uses Escape to cancel an active Expert Talk run', async () => {
+    cancelActiveExpertTalk.mockReturnValueOnce(true);
+    const wrapper = mount(Composer, {
+      global: {
+        plugins: [webI18n],
+        stubs: {
+          AttachmentChip: true,
+          CapabilityMenu: true,
+          ContextRing: true,
+          ExpertTalkControl: expertTalkControlStub,
+          Icon: true,
+          IconButton: slotStub,
+          MentionMenu: true,
+          SegmentedControl: true,
+          SlashMenu: true,
+          Spinner: true,
+          Tooltip: slotStub,
+        },
+      },
+    });
+
+    await wrapper.get('textarea').trigger('keydown', { key: 'Escape' });
+
+    expect(cancelActiveExpertTalk).toHaveBeenCalledOnce();
+    wrapper.unmount();
   });
 
   it('uses actual model overflow before hiding permission text or the model name', async () => {

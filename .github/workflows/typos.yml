@@ -19,4 +19,4 @@ jobs:
           persist-credentials: false
 
       - name: Check spelling of the entire repository
-        uses: crate-ci/typos@80c8a4945eec0f6d464eaf9e65ed98ef085283d1 # pinned from v1.38.1
+        uses: crate-ci/typos@8a48f81b6c64dcfea44b3633223084c4be58ac5f # pinned from v1.49.0
