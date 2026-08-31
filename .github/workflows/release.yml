@@ -160,10 +160,13 @@ jobs:
 
       - name: Mint release-bot token
         id: release-bot
-        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # pinned from v2
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # pinned from v3.2.0
         with:
           app-id: ${{ vars.RELEASE_BOT_APP_ID }}
           private-key: ${{ secrets.RELEASE_BOT_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+          permission-issues: write
 
       - name: Create Release Pull Request or Publish to npm
         id: changesets
@@ -507,7 +510,7 @@ jobs:
       # Cloning and pushing the tap needs contents and nothing else.
       - name: Mint tap token
         id: tap-token
-        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # pinned from v2
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # pinned from v3.2.0
         with:
           app-id: ${{ vars.RELEASE_BOT_APP_ID }}
           private-key: ${{ secrets.RELEASE_BOT_PRIVATE_KEY }}

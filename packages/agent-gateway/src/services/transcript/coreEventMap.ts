@@ -62,27 +62,29 @@ import type {
   SubagentSpawned,
   SubagentStarted,
 } from '@pymodel/agent-core-v2/session/subagent/mirrorAgentRun';
-import type {
-  AgentRef,
-  AgentUsageMeta,
-  StepHeader,
-  StepUsage,
-  TextFrame,
-  ToolCallFrame,
-  ToolFrameProgress,
-  TranscriptAttachment,
-  TranscriptFrame,
-  TranscriptInteraction,
-  TranscriptItem,
-  TranscriptMarker,
-  TranscriptOperation,
-  TranscriptPrompt,
-  TranscriptTask,
-  TranscriptTodo,
-  TranscriptUsage,
-  TurnHeader,
-  TurnOrigin,
-  TurnState,
+import {
+  projectTranscriptUserOrigin,
+  type AgentRef,
+  type AgentUsageMeta,
+  type StepHeader,
+  type StepUsage,
+  type TextFrame,
+  type ToolCallFrame,
+  type ToolFrameProgress,
+  type TranscriptAttachment,
+  type TranscriptFrame,
+  type TranscriptInteraction,
+  type TranscriptItem,
+  type TranscriptMarker,
+  type TranscriptOperation,
+  type TranscriptPrompt,
+  type TranscriptTask,
+  type TranscriptTodo,
+  type TranscriptUsage,
+  type TranscriptUserOrigin,
+  type TurnHeader,
+  type TurnOrigin,
+  type TurnState,
 } from '@pymodel/transcript';
 
 import { toLegacyPhase } from '../legacyStatus/legacyStatus';
@@ -195,7 +197,11 @@ export class AgentTranscriptProjector {
   private currentTurn: TurnHeader | undefined;
   private currentStep: StepHeader | undefined;
   private pendingTaskNotifications: { text: string; taskId: string | undefined }[] = [];
-  private pendingSteers: { input: readonly ContentPart[]; promptIds: readonly string[] | undefined }[] = [];
+  private pendingSteers: {
+    input: readonly ContentPart[];
+    promptIds: readonly string[] | undefined;
+    origin: TranscriptUserOrigin;
+  }[] = [];
   private unpairedSteerPromptIds: string[][] = [];
   private readonly stepOrdinals = new Map<string, number>();
   private frameOrdinal = 0;
@@ -407,9 +413,30 @@ export class AgentTranscriptProjector {
       this.currentStep = step;
       ops.push({ op: 'step.upsert', turnId: step.turnId, step });
     }
+    if (this.currentStep === undefined && this.pendingSteers.length > 0) {
+      const ordinal = (this.stepOrdinals.get(turnId) ?? this.lookups?.stepOrdinal?.(turnId) ?? 0) + 1;
+      const step: StepHeader = {
+        kind: 'step',
+        stepId: `${turnId}.${ordinal}`,
+        turnId,
+        ordinal,
+        state: 'interrupted',
+        endedAt: nowIso(),
+      };
+      this.stepOrdinals.set(turnId, ordinal);
+      this.currentStep = step;
+      ops.push({ op: 'step.upsert', turnId, step });
+    }
     if (this.currentStep !== undefined) {
       for (const pending of this.pendingSteers) {
-        this.steerUserFrame(ops, turnId, this.currentStep.stepId, pending.input, pending.promptIds);
+        this.steerUserFrame(
+          ops,
+          turnId,
+          this.currentStep.stepId,
+          pending.input,
+          pending.promptIds,
+          pending.origin,
+        );
       }
     }
     this.pendingSteers = [];
@@ -496,7 +523,7 @@ export class AgentTranscriptProjector {
     }
     this.pendingTaskNotifications = [];
     for (const pending of this.pendingSteers) {
-      this.steerUserFrame(ops, turnId, stepId, pending.input, pending.promptIds);
+      this.steerUserFrame(ops, turnId, stepId, pending.input, pending.promptIds, pending.origin);
     }
     this.pendingSteers = [];
     return ops;
@@ -1401,7 +1428,9 @@ export class AgentTranscriptProjector {
 
   private onTurnSteered(event: TurnSteerEvent): TranscriptOperation[] {
     const origin = event.origin;
-    if (origin?.kind !== 'user') return [];
+    if (origin.kind !== 'user') return [];
+    const frameOrigin = projectTranscriptUserOrigin(origin);
+    if (frameOrigin === undefined) return [];
     const turn = this.currentTurn;
     if (turn !== undefined && turn.state !== 'running') return [];
     const skip = origin.skillActivations?.length ?? 0;
@@ -1409,10 +1438,21 @@ export class AgentTranscriptProjector {
     const step = this.currentStep;
     if (step !== undefined && step.state === 'running') {
       const ops: TranscriptOperation[] = [];
-      this.steerUserFrame(ops, step.turnId, step.stepId, input, this.unpairedSteerPromptIds.shift());
+      this.steerUserFrame(
+        ops,
+        step.turnId,
+        step.stepId,
+        input,
+        this.unpairedSteerPromptIds.shift(),
+        frameOrigin,
+      );
       return ops;
     }
-    this.pendingSteers.push({ input, promptIds: this.unpairedSteerPromptIds.shift() });
+    this.pendingSteers.push({
+      input,
+      promptIds: this.unpairedSteerPromptIds.shift(),
+      origin: frameOrigin,
+    });
     return [];
   }
 
@@ -1422,6 +1462,7 @@ export class AgentTranscriptProjector {
     stepId: string,
     input: readonly ContentPart[],
     promptIds: readonly string[] | undefined,
+    origin: TranscriptUserOrigin,
   ): void {
     const texts: string[] = [];
     const attachmentIds: string[] = [];
@@ -1451,6 +1492,7 @@ export class AgentTranscriptProjector {
         text: texts.join(''),
         attachmentIds: attachmentIds.length > 0 ? attachmentIds : undefined,
         promptIds,
+        origin,
       },
     });
   }

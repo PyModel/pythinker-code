@@ -125,6 +125,7 @@ const explorerOpen = ref(false);
 const explorerWorkspaceId = ref<string | null>(null);
 const explorerRef = ref<InstanceType<typeof WorkspaceExplorer> | null>(null);
 const showSearch = ref(false);
+const sessionsScrolled = ref(false);
 const listView = ref<'flat' | 'grouped'>('grouped');
 watch(() => props.tabsEnabled, (enabled) => {
   if (!enabled) statusView.value = 'open';
@@ -207,6 +208,7 @@ function toggleExplorer(workspaceId: string): void {
   if (sessionId && sessionId !== props.activeId) emit('select', sessionId);
   explorerWorkspaceId.value = workspaceId;
   showSearch.value = false;
+  sessionsScrolled.value = false;
   explorerOpen.value = true;
   void nextTick(() => explorerRef.value?.focus());
 }
@@ -245,10 +247,12 @@ function isAppleShortcutPlatform(): boolean {
 // Scroll-linked header seam: the .search-wrap bottom border/shadow only appears
 // once the session list has actually scrolled, so an unscrolled list shows no
 // abrupt boundary.
-const sessionsScrolled = ref(false);
 function onSessionsScroll(e: Event): void {
   sessionsScrolled.value = (e.target as HTMLElement).scrollTop > 0;
 }
+watch(explorerOpen, (open) => {
+  if (open) sessionsScrolled.value = false;
+});
 
 // ---------------------------------------------------------------------------
 // Collapse groups

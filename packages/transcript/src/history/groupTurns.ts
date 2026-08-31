@@ -1,9 +1,10 @@
 import type { AgentTranscriptSnapshot } from '../ops/operation';
 import type { TranscriptAttachment } from '../model/attachment';
-import type { TranscriptFrame } from '../model/frame';
+import type { TranscriptFrame, TranscriptUserOrigin } from '../model/frame';
 import type { TranscriptItem, TranscriptMarker } from '../model/item';
 import type { TurnOrigin } from '../model/turn';
 import { daemonFileRefFromPairingPart } from '../contract/mediaRef';
+import { projectTranscriptUserOrigin } from '../contract/origin';
 
 export type HistoryMediaSource =
   | { readonly kind: 'url'; readonly url: string }
@@ -78,6 +79,7 @@ export function groupMessagesIntoSnapshot(
     taskId: string | undefined;
     attachmentIds?: string[];
     promptIds?: readonly string[];
+    origin?: TranscriptUserOrigin;
     steered?: boolean;
   }[] = [];
   let nextOrdinal = 0;
@@ -163,10 +165,16 @@ export function groupMessagesIntoSnapshot(
     if (leftovers.length === 0) return;
     pendingNotificationFrames = pendingNotificationFrames.filter((pending) => !pending.steered);
     for (const pending of leftovers) {
-      const lastStep = turn?.steps.at(-1);
-      if (turn === undefined || lastStep === undefined) {
-        startTurn({ kind: 'user' }, pending.text, pending.attachmentIds);
-        continue;
+      const targetTurn = turn ?? startTurn({ kind: 'user' });
+      let lastStep = targetTurn.steps.at(-1);
+      if (lastStep === undefined) {
+        const ordinal = targetTurn.steps.length + 1;
+        lastStep = {
+          stepId: `${targetTurn.turnId}.${ordinal}`,
+          ordinal,
+          frames: [],
+        };
+        targetTurn.steps.push(lastStep);
       }
       lastStep.frames.push({
         kind: 'text',
@@ -175,8 +183,9 @@ export function groupMessagesIntoSnapshot(
         text: pending.text,
         attachmentIds: pending.attachmentIds,
         promptIds: pending.promptIds,
+        origin: pending.origin,
       });
-      syncTurnItem(items, turn);
+      syncTurnItem(items, targetTurn);
     }
   };
 
@@ -232,6 +241,7 @@ export function groupMessagesIntoSnapshot(
           taskId: undefined,
           attachmentIds: opening.attachmentIds,
           steered: true,
+          origin: projectTranscriptUserOrigin(message.origin),
         });
         continue;
       }
@@ -303,6 +313,7 @@ export function groupMessagesIntoSnapshot(
           taskId: pending.taskId,
           attachmentIds: pending.attachmentIds,
           promptIds: pending.promptIds,
+          origin: pending.origin,
         });
       }
       pendingNotificationFrames = [];

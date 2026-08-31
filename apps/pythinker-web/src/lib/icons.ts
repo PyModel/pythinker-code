@@ -28,7 +28,6 @@ import type { Component } from 'vue';
 import { fileIconSvg } from './fileIcons';
 
 // Components (Pythinker collection) ----------------------------------------------
-import PythinkerAddConversation from '~icons/pythinker/add-conversation';
 import PythinkerFolder from '~icons/pythinker/folder';
 import PythinkerFolderOpen from '~icons/pythinker/folder-open';
 import PythinkerMore from '~icons/pythinker/more';
@@ -65,6 +64,7 @@ import RiBracesLine from '~icons/ri/braces-line';
 import RiCalendarCloseLine from '~icons/ri/calendar-close-line';
 import RiCalendarScheduleLine from '~icons/ri/calendar-schedule-line';
 import RiCalendarTodoLine from '~icons/ri/calendar-todo-line';
+import RiChatNewLine from '~icons/ri/chat-new-line';
 import RiCheckLine from '~icons/ri/check-line';
 import RiCloseLine from '~icons/ri/close-line';
 import RiCodeLine from '~icons/ri/code-line';
@@ -120,7 +120,6 @@ import RiToolsLine from '~icons/ri/tools-line';
 import RiUserLine from '~icons/ri/user-line';
 
 // Raw SVG strings (Pythinker collection) -----------------------------------------
-import RawPythinkerAddConversation from '~icons/pythinker/add-conversation?raw';
 import RawPythinkerCuteBot from '~icons/pythinker/cute-bot?raw';
 import RawPythinkerExpertOpinion from '~icons/pythinker/expert_opinion?raw';
 import RawPythinkerFolder from '~icons/pythinker/folder?raw';
@@ -163,6 +162,7 @@ import RawBracesLine from '~icons/ri/braces-line?raw';
 import RawCalendarCloseLine from '~icons/ri/calendar-close-line?raw';
 import RawCalendarScheduleLine from '~icons/ri/calendar-schedule-line?raw';
 import RawCalendarTodoLine from '~icons/ri/calendar-todo-line?raw';
+import RawChatNewLine from '~icons/ri/chat-new-line?raw';
 import RawCheckLine from '~icons/ri/check-line?raw';
 import RawCloseLine from '~icons/ri/close-line?raw';
 import RawCodeLine from '~icons/ri/code-line?raw';
@@ -345,7 +345,7 @@ function animatedEntry(svg: string): IconEntry {
 
 export const ICONS: Record<IconName, IconEntry> = {
   plus: entry(RiAddLine, RawAddLine),
-  'chat-new': entry(PythinkerAddConversation, RawPythinkerAddConversation),
+  'chat-new': entry(RiChatNewLine, RawChatNewLine),
   'expert-opinion': animatedEntry(RawPythinkerExpertOpinion),
   'calendar-close': entry(RiCalendarCloseLine, RawCalendarCloseLine),
   'calendar-schedule': entry(RiCalendarScheduleLine, RawCalendarScheduleLine),

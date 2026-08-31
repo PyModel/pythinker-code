@@ -9,6 +9,7 @@ import {
 } from '#/tui/components/chrome/welcome-banner';
 import { WelcomeComponent } from '#/tui/components/chrome/welcome';
 import { setRainbowHatch, type RainbowHatchController } from '#/tui/easter-eggs/hatch';
+import { currentTheme } from '#/tui/theme';
 import type { AppState } from '#/tui/types';
 
 const TRUECOLOR_PATTERN = /\u001B\[38;2;(\d+);(\d+);(\d+)m/g;
@@ -164,22 +165,57 @@ describe('WelcomeComponent', () => {
   });
 
   it('shows model status on narrow terminals', () => {
-    const info = renderWelcomeBanner({
+    const infoRaw = renderWelcomeBanner({
       width: 20,
       version: appState.version,
       infoItems: [{ name: 'Model', value: 'k2', level: 'info' }],
       copy: buildWelcomeCopy(false),
-    }).map(stripAnsi);
+    });
+    const info = infoRaw.map(stripAnsi);
     expect(info.some((line) => line.includes('Model: k2'))).toBe(true);
+    expect(infoRaw.join('\n')).toContain(currentTheme.fg('primary', 'k2'));
 
-    const warning = renderWelcomeBanner({
-      width: 20,
+    const warningRaw = renderWelcomeBanner({
+      width: 80,
       version: appState.version,
       infoItems: [
         { name: 'Model', value: 'not set, run /login or /provider', level: 'warn' },
       ],
       copy: buildWelcomeCopy(false),
-    }).map(stripAnsi);
-    expect(warning.some((line) => line.includes('Model: not set'))).toBe(true);
+    });
+    const warning = warningRaw.map(stripAnsi);
+    expect(warning.some((line) => line.includes('Model') && line.includes('not set'))).toBe(true);
+    expect(warningRaw.join('\n')).toContain(
+      currentTheme.fg('warning', 'not set, run /login or /provider'),
+    );
+  });
+
+  it('keeps all default tips in the stacked layout', () => {
+    const defaultTips = stripAnsi(
+      renderWelcomeBanner({
+        width: 80,
+        version: appState.version,
+        infoItems: buildWelcomeInfoItems(appState, null),
+        copy: buildWelcomeCopy(false),
+      }).join('\n'),
+    );
+    expect(defaultTips).toContain('/compact compacts the context window');
+    expect(defaultTips).toContain('/tasks lists background tasks');
+    expect(defaultTips).toContain('/help shows all slash commands');
+
+    const explicitTips = Array.from({ length: 5 }, (_, index) => ({
+      name: 'Tip',
+      value: `explicit tip ${String(index + 1)}`,
+    }));
+    const explicit = stripAnsi(
+      renderWelcomeBanner({
+        width: 80,
+        version: appState.version,
+        infoItems: buildWelcomeInfoItems(appState, null),
+        copy: buildWelcomeCopy(false),
+        tips: explicitTips,
+      }).join('\n'),
+    );
+    expect(explicit).toContain('explicit tip 5');
   });
 });

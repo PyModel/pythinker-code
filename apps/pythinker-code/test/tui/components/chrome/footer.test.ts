@@ -86,6 +86,26 @@ describe('FooterComponent', () => {
     expect(codes.has(RAINBOW_GREEN)).toBe(true);
   });
 
+  it('keeps the thinking suffix dim while the model name hatches', () => {
+    const effortModel: ModelAlias = {
+      provider: 'oauth-example',
+      model: 'kimi-k2',
+      maxContextSize: 262144,
+      supportEfforts: ['high'],
+      defaultEffort: 'high',
+    };
+    setHatchView(true, 0);
+    const footer = new FooterComponent({
+      ...appState,
+      thinkingEffort: 'high',
+      availableModels: { 'kimi-k2': effortModel },
+    });
+
+    expect(footer.render(120).join('\n')).toContain(
+      chalk.hex(darkColors.textDim)(' thinking: high'),
+    );
+  });
+
   it('renders the model name in its normal color when not hatching', () => {
     const footer = new FooterComponent(appState);
 
@@ -93,6 +113,41 @@ describe('FooterComponent', () => {
 
     expect(codes.has(RAINBOW_CYAN)).toBe(false);
     expect(codes.has(RAINBOW_GREEN)).toBe(false);
+  });
+
+  it('uses semantic mode and model colors', () => {
+    const effortModel: ModelAlias = {
+      provider: 'oauth-example',
+      model: 'kimi-k2',
+      maxContextSize: 262144,
+      supportEfforts: ['high'],
+      defaultEffort: 'high',
+    };
+    const footer = new FooterComponent({
+      ...appState,
+      permissionMode: 'yolo',
+      planMode: true,
+      thinkingEffort: 'high',
+      availableModels: { 'kimi-k2': effortModel },
+    });
+    const out = footer.render(120).join('\n');
+
+    expect(out).toContain(chalk.hex(darkColors.modePermission).bold('yolo'));
+    expect(out).toContain(chalk.hex(darkColors.modePlan).bold('plan'));
+    expect(out).toContain(chalk.hex(darkColors.primary)('kimi-k2'));
+    expect(out).toContain(chalk.hex(darkColors.textDim)(' thinking: high'));
+  });
+
+  it('drops low-priority default slots before core status on narrow terminals', () => {
+    const footer = new FooterComponent({ ...appState, planMode: true });
+    footer.setBackgroundCounts({ bashTasks: 1, agentTasks: 0 });
+
+    const line = footer.render(35)[0] ?? '';
+
+    expect(line).toContain('plan');
+    expect(line).toContain('kimi-k2');
+    expect(line).toContain('/tmp/project');
+    expect(line).not.toContain('task running');
   });
 
   it('shows tower mode in the footer', () => {

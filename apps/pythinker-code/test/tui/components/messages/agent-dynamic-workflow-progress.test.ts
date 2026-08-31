@@ -21,6 +21,11 @@ function strip(text: string): string {
   return text.replaceAll(/\u001B\[[0-9;]*m/g, '');
 }
 
+function truecolorPrefix(hex: string): string {
+  const value = Number.parseInt(hex.slice(1), 16);
+  return `\u001B[38;2;${String(value >> 16)};${String((value >> 8) & 0xff)};${String(value & 0xff)}m`;
+}
+
 function createComponent(
   options: Partial<AgentDynamicWorkflowProgressOptions> = {},
 ): AgentDynamicWorkflowProgressComponent {
@@ -230,10 +235,17 @@ describe('AgentDynamicWorkflowProgressComponent', () => {
       expect(strip(rendered)).toContain('Agent DynamicWorkflow');
       expect(strip(rendered)).toContain('001 [');
       expect(strip(rendered)).toContain('Working…');
-      expect(rendered).toMatch(/\u001B\[38;2;\d+;\d+;\d+m━/);
+      expect(rendered).toContain(`${truecolorPrefix(darkColors.primary)}━`);
+      expect(rendered).toContain(`${truecolorPrefix(darkColors.primaryShimmer)}━`);
       expect(memberColor('001')).toBeDefined();
       expect(memberColor('002')).toBeDefined();
       expect(memberColor('001')).not.toBe(memberColor('002'));
+
+      component.markCompleted('agent-1');
+      component.markCompleted('agent-2');
+      const completed = component.render(100).join('\n');
+      expect(strip(completed)).toContain('Completed.');
+      expect(completed).toContain(`${truecolorPrefix(darkColors.success)}━`);
     } finally {
       chalk.level = previousLevel;
     }

@@ -1,8 +1,10 @@
 import type { TUI } from '@pymodel/pi-tui';
+import chalk from 'chalk';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { AgentGroupComponent } from '#/tui/components/messages/agent-group';
 import { ToolCallComponent } from '#/tui/components/messages/tool-call';
+import { currentTheme } from '#/tui/theme';
 
 const ESC = String.fromCodePoint(0x1b);
 const BEL = String.fromCodePoint(0x07);
@@ -89,6 +91,33 @@ describe('AgentGroupComponent', () => {
     group.dispose();
     running.dispose();
     waiting.dispose();
+  });
+
+  it('uses a neutral group heading and primary agent names', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    const previousLevel = chalk.level;
+    chalk.level = 3;
+    const ui = stubTui();
+    const group = new AgentGroupComponent(ui);
+    const running = createAgent('call_agent_tone_1', 'inspect project', 'explore', ui);
+    const waiting = createAgent('call_agent_tone_2', 'write tests', 'coder', ui);
+    startAgent(running, 'call_agent_tone_1', 'explore');
+    group.attach('call_agent_tone_1', running);
+    group.attach('call_agent_tone_2', waiting);
+
+    try {
+      const output = group.render(120).join('\n');
+      expect(output).toContain(
+        currentTheme.boldFg('textStrong', 'Running 2 agents (1 running, 1 waiting)'),
+      );
+      expect(output).toContain(currentTheme.fg('primary', 'explore'));
+    } finally {
+      group.dispose();
+      running.dispose();
+      waiting.dispose();
+      chalk.level = previousLevel;
+    }
   });
 
   it('shows the bound model in the row stats once reported', () => {
