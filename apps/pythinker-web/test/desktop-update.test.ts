@@ -11,11 +11,15 @@ import {
 import enSettings from '../src/i18n/locales/en/settings';
 import enSidebar from '../src/i18n/locales/en/sidebar';
 import enUpdate from '../src/i18n/locales/en/update';
+import enWorkspace from '../src/i18n/locales/en/workspace';
+import type { WorkspaceGroup } from '../src/types';
 
 const i18n = createI18n({
   legacy: false,
   locale: 'en',
-  messages: { en: { settings: enSettings, sidebar: enSidebar, update: enUpdate } },
+  messages: {
+    en: { settings: enSettings, sidebar: enSidebar, update: enUpdate, workspace: enWorkspace },
+  },
 });
 
 function updateState(patch: Partial<DesktopUpdateState> = {}): DesktopUpdateState {
@@ -102,6 +106,23 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+async function mountSidebar(groups: WorkspaceGroup[] = []) {
+  mounted = mount(Sidebar, {
+    attachTo: document.body,
+    props: {
+      activeWorkspace: null,
+      activeWorkspaceId: null,
+      sessions: [],
+      groups,
+      activeId: '',
+      workspaceSortMode: 'manual' as const,
+    },
+    global: { plugins: [i18n] },
+  });
+  await flushPromises();
+  return mounted;
+}
+
 describe('useDesktopUpdate.hasUpdate', () => {
   it('stays false with no bridge, and true once an unskipped version arrives', async () => {
     expect(useDesktopUpdate().hasUpdate.value).toBe(false);
@@ -136,25 +157,6 @@ describe('useDesktopUpdate.hasUpdate', () => {
 });
 
 describe('sidebar update button', () => {
-  async function mountSidebar() {
-    mounted = mount(Sidebar, {
-      attachTo: document.body,
-      props: {
-        activeWorkspace: null,
-        activeWorkspaceId: null,
-        sessions: [],
-        groups: [],
-        activeId: '',
-        workspaceSortMode: 'manual' as const,
-      },
-      global: {
-        plugins: [i18n],
-      },
-    });
-    await flushPromises();
-    return mounted;
-  }
-
   it('stays hidden until an update is waiting', async () => {
     installBridge(updateState({ status: 'idle' }));
     const wrapper = await mountSidebar();
@@ -274,5 +276,34 @@ describe('sidebar update button', () => {
     wrapper.get<HTMLButtonElement>('.ch-collapse').element.focus();
     await vi.advanceTimersByTimeAsync(120);
     expect(body().querySelector('[data-testid="sidebar-update-notes"]')).toBeNull();
+  });
+});
+
+describe('sidebar Explorer', () => {
+  it('clears the session-list scroll seam while Explorer is open', async () => {
+    const wrapper = await mountSidebar([
+      {
+        workspace: {
+          id: 'workspace-1',
+          name: 'example-project',
+          root: '/work/example-project',
+          shortPath: '~/example-project',
+          sessionCount: 0,
+        },
+        sessions: [],
+        hasMore: false,
+        loadingMore: false,
+        initialCount: 20,
+      },
+    ]);
+
+    const sessions = wrapper.get('.sessions');
+    const search = wrapper.get('.search-wrap');
+    Object.defineProperty(sessions.element, 'scrollTop', { configurable: true, value: 12 });
+    await sessions.trigger('scroll');
+    expect(search.classes()).toContain('search-wrap--scrolled');
+
+    await wrapper.get('.gh-explorer').trigger('click');
+    expect(search.classes()).not.toContain('search-wrap--scrolled');
   });
 });

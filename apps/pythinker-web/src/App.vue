@@ -1187,6 +1187,7 @@ function openPr(url: string): void {
         @load-all-sessions="void client.loadAllSessions()"
         @open-settings="openSettings()"
         @open-session-admin="openSessionAdmin"
+        @open-file="openFilePreview($event)"
         @collapse="toggleSidebarCollapse"
       />
       <ResizeHandle

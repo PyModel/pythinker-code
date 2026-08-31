@@ -1,8 +1,8 @@
 /**
  * V2 config.toml validation for `pythinker doctor`.
  *
- * Loaded lazily (dynamic import) by the doctor command on the default
- * agent-core-v2 path, so the v2 module graph stays off the legacy doctor path.
+ * Loaded lazily (dynamic import) by the doctor command in every engine mode,
+ * so the v2 module graph loads only when config.toml validation runs.
  * Validation uses the engine's own section registry instead of the legacy
  * whole-document strict schema:
  * importing the package root runs every built-in section's side-effect
