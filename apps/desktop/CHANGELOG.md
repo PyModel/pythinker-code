@@ -1,5 +1,25 @@
 # @pymodel/pythinker-desktop
 
+## 0.6.0
+
+### Minor Changes
+
+- [#265](https://github.com/PyModel/pythinker-code/pull/265) [`8ac20f0`](https://github.com/PyModel/pythinker-code/commit/8ac20f0b34039824770b83b15b825939e717c661) Thanks [@elkaix](https://github.com/elkaix)! - Add experimental Expert Talk for automatic two-model analysis, reciprocal review, and fused answers.
+
+- [#263](https://github.com/PyModel/pythinker-code/pull/263) [`7563f66`](https://github.com/PyModel/pythinker-code/commit/7563f668ac6910a7253d93351e823940091ac07c) Thanks [@elkaix](https://github.com/elkaix)! - Add a sidebar Explorer for browsing and opening workspace files.
+
+### Patch Changes
+
+- [#263](https://github.com/PyModel/pythinker-code/pull/263) [`7563f66`](https://github.com/PyModel/pythinker-code/commit/7563f668ac6910a7253d93351e823940091ac07c) Thanks [@elkaix](https://github.com/elkaix)! - Make `pythinker doctor` validate `config.toml` with the current schema in every engine mode.
+
+- [#261](https://github.com/PyModel/pythinker-code/pull/261) [`e6cb84e`](https://github.com/PyModel/pythinker-code/commit/e6cb84e8855a9722850e59e0469684b8237415fc) Thanks [@elkaix](https://github.com/elkaix)! - Use a stable dot in the tab title while the agent is running.
+
+- [#261](https://github.com/PyModel/pythinker-code/pull/261) [`e6cb84e`](https://github.com/PyModel/pythinker-code/commit/e6cb84e8855a9722850e59e0469684b8237415fc) Thanks [@elkaix](https://github.com/elkaix)! - Keep task output previews responsive for large logs and valid at UTF-8 byte boundaries.
+
+- [#265](https://github.com/PyModel/pythinker-code/pull/265) [`8ac20f0`](https://github.com/PyModel/pythinker-code/commit/8ac20f0b34039824770b83b15b825939e717c661) Thanks [@elkaix](https://github.com/elkaix)! - Update the terminal interface colors, transcript hierarchy, welcome panel, and workflow progress states.
+
+- [#265](https://github.com/PyModel/pythinker-code/pull/265) [`8ac20f0`](https://github.com/PyModel/pythinker-code/commit/8ac20f0b34039824770b83b15b825939e717c661) Thanks [@elkaix](https://github.com/elkaix)! - Use a refreshed New Chat icon across desktop and mobile navigation.
+
 ## 0.5.0
 
 ### Minor Changes
