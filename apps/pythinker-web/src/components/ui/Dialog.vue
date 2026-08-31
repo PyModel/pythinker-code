@@ -14,23 +14,28 @@ const props = withDefaults(defineProps<{
   description?: string;
   closeOnOverlay?: boolean;
   closeOnEsc?: boolean;
-  /** md 440 (default) · lg 640 · xl 760 (var(--p-content-max)). */
-  size?: 'md' | 'lg' | 'xl';
+  showClose?: boolean;
+  /** md 440 (default) · md-wide 512 · lg 640 · xl 760 (var(--p-content-max)). */
+  size?: 'md' | 'md-wide' | 'lg' | 'xl';
   /** auto (default) = height tracks content up to max-height; fixed = constant
    *  height so the frame never resizes between tabs/content (body scrolls). */
   height?: 'auto' | 'fixed';
   /** When false, the body has no padding so the consumer controls layout
    *  (e.g. a full-bleed side-nav). */
   padded?: boolean;
+  /** Paint above a parent modal, including its dropdown surfaces. */
+  stacked?: boolean;
   /** Element (or selector / resolver) to receive focus when the dialog opens.
    *  Falls back to the first focusable element, then the dialog panel. */
   initialFocus?: HTMLElement | string | (() => HTMLElement | null | undefined);
 }>(), {
   closeOnOverlay: true,
   closeOnEsc: true,
+  showClose: true,
   size: 'md',
   height: 'auto',
   padded: true,
+  stacked: false,
 });
 
 const emit = defineEmits<{
@@ -133,13 +138,19 @@ onBeforeUnmount(() => {
 
 <template>
   <Teleport to="body">
-    <div v-if="open" class="ui-dialog__overlay" @mousedown="onOverlayClick">
+    <div
+      v-if="open"
+      class="ui-dialog__overlay"
+      :class="{ 'ui-dialog__overlay--stacked': stacked }"
+      @mousedown="onOverlayClick"
+    >
       <div
         ref="panel"
         class="ui-dialog"
         :class="[`ui-dialog--${size}`, { 'ui-dialog--flush': !padded, 'ui-dialog--fixed-height': height === 'fixed' }]"
         role="dialog"
         aria-modal="true"
+        :aria-label="title"
         tabindex="-1"
       >
         <div v-if="title || $slots.head" class="ui-dialog__head">
@@ -149,7 +160,7 @@ onBeforeUnmount(() => {
               <div v-if="description" class="ui-dialog__desc">{{ description }}</div>
             </div>
           </slot>
-          <IconButton class="ui-dialog__close" size="sm" label="Close" @click="close">
+          <IconButton v-if="showClose" class="ui-dialog__close" size="sm" label="Close" @click="close">
             <Icon name="close" size="md" />
           </IconButton>
         </div>
@@ -172,6 +183,7 @@ onBeforeUnmount(() => {
   background: rgba(13, 17, 23, 0.45);
   animation: pythinker-dialog-overlay-in var(--duration-base) var(--ease-out);
 }
+.ui-dialog__overlay--stacked { z-index: var(--z-modal-dropdown); }
 @keyframes pythinker-dialog-overlay-in {
   from { opacity: 0; }
   to { opacity: 1; }
@@ -189,6 +201,7 @@ onBeforeUnmount(() => {
   animation: pythinker-card-in var(--duration-slow) var(--ease-out);
 }
 .ui-dialog--md { width: min(440px, 100%); }
+.ui-dialog--md-wide { width: min(512px, 100%); }
 .ui-dialog--lg { width: min(640px, 100%); }
 .ui-dialog--xl { width: min(var(--p-content-max), 100%); }
 .ui-dialog--fixed-height { height: min(680px, calc(100vh - var(--space-8) * 2)); }

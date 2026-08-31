@@ -486,6 +486,34 @@ describe('PythinkerTUI message flow', () => {
     expect(driver.getCurrentSessionId()).toBe('ses-lazy');
   });
 
+  it('binds an armed Expert Talk activation to exactly the next prompt', async () => {
+    const session = makeSession({
+      getExpertTalkStatus: vi.fn(async () => ({
+        version: 'expert_talk/v1',
+        enabled: true,
+        featureSource: 'env',
+        config: {
+          version: 'expert_talk/v1',
+          resourceVersion: 'v1',
+          pair: { fusionLeadModelId: 'lead', peerModelId: 'peer' },
+        },
+        pairValidation: { state: 'valid' },
+      })),
+    });
+    const { driver } = await makeDriver(session);
+    driver.state.appState.expertTalkArmId = 'arm-1';
+
+    driver.handleUserInput('compare these approaches');
+
+    await vi.waitFor(() => {
+      expect(session.prompt).toHaveBeenCalledWith('compare these approaches', {
+        promptId: undefined,
+        expertTalkArmId: 'arm-1',
+      });
+      expect(driver.state.appState.expertTalkArmId).toBeUndefined();
+    });
+  });
+
   it('lazily creates the session for session-requiring slash commands (v2 engine)', async () => {
     const session = makeSession({ id: 'ses-lazy' });
     const startupInput: PythinkerTUIStartupInput = {
@@ -3832,7 +3860,7 @@ command = "vim"
     driver.handleUserInput('seq 30');
     await vi.waitFor(() => {
       const transcript = stripSgr(driver.state.transcriptContainer.render(120).join('\n'));
-      expect(transcript).toContain('... (20 more lines, ctrl+o to expand)');
+      expect(transcript).toContain('… (20 more lines, ctrl+o to expand)');
     });
 
     let transcript = stripSgr(driver.state.transcriptContainer.render(120).join('\n'));
@@ -3846,7 +3874,7 @@ command = "vim"
 
     driver.state.editor.onToggleToolExpand?.();
     transcript = stripSgr(driver.state.transcriptContainer.render(120).join('\n'));
-    expect(transcript).toContain('... (20 more lines, ctrl+o to expand)');
+    expect(transcript).toContain('… (20 more lines, ctrl+o to expand)');
     expect(transcript).not.toContain('row-11');
   });
 
@@ -4289,7 +4317,7 @@ command = "vim"
       expect(session.startBtw).toHaveBeenCalledWith();
     });
     expect(session.prompt).not.toHaveBeenCalled();
-    expect(stripSgr(renderBtwPanel(driver))).toContain('Ready for a side question...');
+    expect(stripSgr(renderBtwPanel(driver))).toContain('Ready for a side question…');
 
     driver.handleUserInput('What are you working on right now?');
 
@@ -4330,7 +4358,7 @@ command = "vim"
     await vi.waitFor(() => {
       expect(session.startBtw).toHaveBeenCalledWith();
     });
-    expect(stripSgr(renderBtwPanel(driver))).toContain('Ready for a side question...');
+    expect(stripSgr(renderBtwPanel(driver))).toContain('Ready for a side question…');
 
     driver.handleUserInput('check /skill:review');
 
@@ -4624,7 +4652,7 @@ command = "vim"
     const lines = getMountedBtwPanel(driver).render(80).map(stripSgr);
     expect(lines).toHaveLength(3);
     expect(lines.join('\n')).toContain('Q: side question');
-    expect(lines.join('\n')).toContain('Waiting for answer...');
+    expect(lines.join('\n')).toContain('Waiting for answer…');
   });
 
   it('keeps /btw panel height stable when final output is shorter than thinking', async () => {
@@ -5039,6 +5067,115 @@ command = "vim"
 
     expect(session.startBtw).not.toHaveBeenCalled();
     expect(stripSgr(renderTranscript(driver))).toContain('LLM not set');
+  });
+
+  it('recomputes context usage when a status update carries context tokens without it', async () => {
+    const { driver } = await makeDriver();
+    driver.state.appState.contextTokens = 0;
+    driver.state.appState.maxContextTokens = 1_000_000;
+    driver.state.appState.contextUsage = 0.74;
+
+    driver.sessionEventHandler.handleEvent(
+      {
+        type: 'agent.status.updated',
+        agentId: 'main',
+        sessionId: 'ses-1',
+        contextTokens: 180_000,
+      } as Event,
+      vi.fn(),
+    );
+
+    expect(driver.state.appState.contextTokens).toBe(180_000);
+    expect(driver.state.appState.contextUsage).toBeCloseTo(0.18);
+  });
+
+  it('recomputes context usage when a status update carries max context tokens without it', async () => {
+    const { driver } = await makeDriver();
+    driver.state.appState.contextTokens = 180_000;
+    driver.state.appState.maxContextTokens = 256_000;
+    driver.state.appState.contextUsage = 180_000 / 256_000;
+
+    driver.sessionEventHandler.handleEvent(
+      {
+        type: 'agent.status.updated',
+        agentId: 'main',
+        sessionId: 'ses-1',
+        maxContextTokens: 1_000_000,
+      } as Event,
+      vi.fn(),
+    );
+
+    expect(driver.state.appState.maxContextTokens).toBe(1_000_000);
+    expect(driver.state.appState.contextUsage).toBeCloseTo(0.18);
+  });
+
+  it('keeps an explicit context usage from status updates', async () => {
+    const { driver } = await makeDriver();
+    driver.state.appState.contextTokens = 100;
+    driver.state.appState.maxContextTokens = 1_000_000;
+    driver.state.appState.contextUsage = 0;
+
+    driver.sessionEventHandler.handleEvent(
+      {
+        type: 'agent.status.updated',
+        agentId: 'main',
+        sessionId: 'ses-1',
+        contextTokens: 180_000,
+        maxContextTokens: 1_000_000,
+        contextUsage: 0.42,
+      } as Event,
+      vi.fn(),
+    );
+
+    expect(driver.state.appState.contextUsage).toBe(0.42);
+  });
+
+  it('zeroes context usage when no context window is known', async () => {
+    const { driver } = await makeDriver();
+    driver.state.appState.contextTokens = 180_000;
+    driver.state.appState.maxContextTokens = 0;
+    driver.state.appState.contextUsage = 0.74;
+
+    driver.sessionEventHandler.handleEvent(
+      {
+        type: 'agent.status.updated',
+        agentId: 'main',
+        sessionId: 'ses-1',
+        contextTokens: 190_000,
+      } as Event,
+      vi.fn(),
+    );
+
+    expect(driver.state.appState.contextUsage).toBe(0);
+  });
+
+  it('zeroes context usage for invalid fallback token values', async () => {
+    const { driver } = await makeDriver();
+    const invalidValues = [
+      [Number.NaN, 1_000_000],
+      [Number.POSITIVE_INFINITY, 1_000_000],
+      [-1, 1_000_000],
+      [180_000, Number.POSITIVE_INFINITY],
+      [180_000, -1],
+    ] as const;
+
+    for (const [contextTokens, maxContextTokens] of invalidValues) {
+      driver.state.appState.contextTokens = 180_000;
+      driver.state.appState.maxContextTokens = 1_000_000;
+      driver.state.appState.contextUsage = 0.74;
+      driver.sessionEventHandler.handleEvent(
+        {
+          type: 'agent.status.updated',
+          agentId: 'main',
+          sessionId: 'ses-1',
+          contextTokens,
+          maxContextTokens,
+        } as Event,
+        vi.fn(),
+      );
+
+      expect(driver.state.appState.contextUsage).toBe(0);
+    }
   });
 
   it('applies the effective thinking effort from status updates', async () => {
@@ -5514,7 +5651,7 @@ command = "vim"
 
     transcript = stripSgr(renderTranscript(driver));
     expect(transcript).toContain('001 [');
-    expect(transcript).toContain('Queued...');
+    expect(transcript).toContain('Queued…');
     expect(transcript).not.toContain('Provider rate limit');
     expect(transcript).not.toContain('Failed');
 
@@ -5553,7 +5690,7 @@ command = "vim"
     expect(transcript).toContain('001 [');
     expect(transcript).toContain('Reviewing src/a.ts');
     expect(transcript).not.toContain('Completed');
-    expect(transcript).toContain('002 Queued...');
+    expect(transcript).toContain('002 Queued…');
     expect(transcript).not.toContain('002 [');
 
     driver.sessionEventHandler.handleEvent(
@@ -5875,7 +6012,7 @@ command = "vim"
     const renderDynamicWorkflow = (): string =>
       stripSgr(dynamicWorkflowProgress.render(transcriptWidth).join('\n'));
 
-    expect(renderDynamicWorkflow()).toContain('001 Queued...');
+    expect(renderDynamicWorkflow()).toContain('001 Queued…');
 
     driver.sessionEventHandler.handleEvent(
       {
@@ -5901,7 +6038,7 @@ command = "vim"
       .reduce((sum, child) => sum + child.render(transcriptWidth).length, 0);
     expect(rowsAfterDynamicWorkflowInTranscript).toBeGreaterThan(0);
 
-    expect(renderDynamicWorkflow()).toContain('001 Queued...');
+    expect(renderDynamicWorkflow()).toContain('001 Queued…');
     const transcript = stripSgr(
       driver.state.transcriptContainer.render(terminalColumns).join('\n'),
     );
@@ -5974,7 +6111,7 @@ command = "vim"
 
     let transcript = stripSgr(renderTranscript(driver));
     expect(transcript).toContain('Agent DynamicWorkflow');
-    expect(transcript).toContain('Orchestrating...');
+    expect(transcript).toContain('Orchestrating…');
     expect(transcript).not.toContain('01');
 
     driver.sessionEventHandler.handleEvent(
@@ -6011,7 +6148,7 @@ command = "vim"
     );
 
     transcript = stripSgr(renderTranscript(driver));
-    expect(transcript).toContain('001 Queued...');
+    expect(transcript).toContain('001 Queued…');
     expect(transcript).not.toContain('001 [');
     expect(transcript).toContain('002 src/b');
 
@@ -6033,8 +6170,8 @@ command = "vim"
     );
 
     transcript = stripSgr(renderTranscript(driver));
-    expect(transcript).toContain('001 Queued...');
-    expect(transcript).toContain('002 Queued...');
+    expect(transcript).toContain('001 Queued…');
+    expect(transcript).toContain('002 Queued…');
     expect(transcript).not.toContain('001 [');
     expect(transcript).not.toContain('002 [');
   });
@@ -7864,6 +8001,114 @@ describe('/effort support_efforts override', () => {
     });
     expect(session.setThinking).not.toHaveBeenCalled();
   });
+
+  it('persists max when the model default effort is max', async () => {
+    let switched = false;
+    const session = makeSession({
+      getStatus: vi.fn(async () => ({
+        model: 'k2',
+        thinkingEffort: switched ? 'max' : 'high',
+        permission: 'manual',
+        planMode: false,
+        contextTokens: 0,
+        maxContextTokens: 100,
+        contextUsage: 0,
+      })),
+      setThinking: vi.fn(async () => {
+        switched = true;
+      }),
+    });
+    const setConfig = vi.fn(async () => ({ providers: {} }));
+    const { driver } = await makeDriver(session, {
+      getConfig: vi.fn(async () => ({
+        providers: {
+          compatible: { type: 'pythinker', apiKey: 'test-key' },
+        },
+        models: {
+          k2: {
+            provider: 'compatible',
+            model: 'kimi-k2',
+            maxContextSize: 100,
+            displayName: 'Kimi K2',
+            capabilities: ['thinking'],
+            supportEfforts: ['low', 'high', 'max'],
+            defaultEffort: 'max',
+          },
+        },
+        defaultModel: 'k2',
+        // A previously stored effort keeps the runtime below the delivered
+        // max default, so picking max is an explicit change.
+        thinking: { enabled: true, effort: 'high' },
+      })),
+      setConfig,
+    });
+
+    driver.handleUserInput('/effort max');
+
+    await vi.waitFor(() => {
+      expect(session.setThinking).toHaveBeenCalledWith('max');
+    });
+    await vi.waitFor(() => {
+      expect(setConfig).toHaveBeenCalledWith({
+        defaultModel: 'k2',
+        thinking: { enabled: true, effort: 'max' },
+      });
+    });
+    expect(driver.state.appState.thinkingEffort).toBe('max');
+  });
+
+  it('keeps an xhigh pick session-only for a Claude model via the profile inference', async () => {
+    // claude-opus-4-7 declares no efforts; the Anthropic profile inference
+    // supplies [low, medium, high, xhigh, max] and resolves the default to
+    // 'high', so an xhigh pick ranks above the persistence ceiling.
+    let switched = false;
+    const session = makeSession({
+      getStatus: vi.fn(async () => ({
+        model: 'opus',
+        thinkingEffort: switched ? 'xhigh' : 'high',
+        permission: 'manual',
+        planMode: false,
+        contextTokens: 0,
+        maxContextTokens: 100,
+        contextUsage: 0,
+      })),
+      setThinking: vi.fn(async () => {
+        switched = true;
+      }),
+    });
+    const setConfig = vi.fn(async () => ({ providers: {} }));
+    const { driver } = await makeDriver(session, {
+      getConfig: vi.fn(async () => ({
+        providers: {
+          compatible: { type: 'anthropic', apiKey: 'test-key' },
+        },
+        models: {
+          opus: {
+            provider: 'compatible',
+            model: 'claude-opus-4-7',
+            maxContextSize: 100,
+          },
+        },
+        defaultModel: 'opus',
+        thinking: { enabled: true, effort: 'high' },
+      })),
+      setConfig,
+    });
+
+    driver.handleUserInput('/effort xhigh');
+
+    await vi.waitFor(() => {
+      expect(session.setThinking).toHaveBeenCalledWith('xhigh');
+    });
+    await vi.waitFor(() => {
+      expect(setConfig).toHaveBeenCalledWith({
+        defaultModel: 'opus',
+        thinking: { enabled: true },
+      });
+    });
+    expect(driver.state.appState.thinkingEffort).toBe('xhigh');
+  });
+
 });
 
 describe('transcript step and assistant folding', () => {

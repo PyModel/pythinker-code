@@ -9,6 +9,7 @@ import { getFileList, parseUpdateInfo } from 'electron-updater/out/providers/Pro
 
 export interface VerifyUpdateManifestOptions {
   readonly artifactsDir: string
+  readonly channel?: 'stable' | 'beta' | 'nightly'
   readonly expectedVersion: string
   readonly platform: 'mac' | 'win'
 }
@@ -28,7 +29,8 @@ async function sha512(path: string): Promise<string> {
 
 /** Validate version, file references, sizes, checksums, aliases, and release date. */
 export async function verifyUpdateManifest(options: VerifyUpdateManifestOptions): Promise<void> {
-  const manifestName = options.platform === 'mac' ? 'latest-mac.yml' : 'latest.yml'
+  const prefix = options.channel === undefined || options.channel === 'stable' ? 'latest' : options.channel
+  const manifestName = options.platform === 'mac' ? `${prefix}-mac.yml` : `${prefix}.yml`
   const manifestPath = join(options.artifactsDir, manifestName)
   const raw = await readFile(manifestPath, 'utf8')
   const info = parseUpdateInfo(raw, manifestName, pathToFileURL(manifestPath))
@@ -89,12 +91,17 @@ export async function verifyUpdateManifest(options: VerifyUpdateManifestOptions)
 }
 
 async function main(): Promise<void> {
-  const [platform, artifactsDir, expectedVersion] = process.argv.slice(2)
-  if ((platform !== 'mac' && platform !== 'win') || artifactsDir === undefined || expectedVersion === undefined) {
-    throw new Error('Usage: verify-update-manifest.ts <mac|win> <artifacts-directory> <version>')
+  const [platform, artifactsDir, expectedVersion, channel = 'stable'] = process.argv.slice(2)
+  if (
+    (platform !== 'mac' && platform !== 'win')
+    || artifactsDir === undefined
+    || expectedVersion === undefined
+    || (channel !== 'stable' && channel !== 'beta' && channel !== 'nightly')
+  ) {
+    throw new Error('Usage: verify-update-manifest.ts <mac|win> <artifacts-directory> <version> [stable|beta|nightly]')
   }
-  await verifyUpdateManifest({ artifactsDir: resolve(artifactsDir), expectedVersion, platform })
-  console.log(`${platform} update manifest verified for ${expectedVersion}`)
+  await verifyUpdateManifest({ artifactsDir: resolve(artifactsDir), channel, expectedVersion, platform })
+  console.log(`${platform} ${channel} update manifest verified for ${expectedVersion}`)
 }
 
 const invokedPath = process.argv[1]

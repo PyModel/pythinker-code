@@ -19,6 +19,8 @@ Two installation options are available: the official install script (recommended
 Prefer a graphical application over the terminal? See the [Desktop App guide](./desktop.md) for the
 macOS and Windows desktop application.
 
+To use the local browser UI, see [Use Pythinker Code in a browser](./web.md).
+
 ::: tip Before you install
 Pythinker Code CLI is a fully interactive TUI application. For the best visual experience, run it in a terminal with true-color and ligature support, such as [Kitty](https://sw.kovidgoyal.net/kitty/) or [Ghostty](https://ghostty.org/).
 :::
@@ -169,5 +171,6 @@ Pythinker Code CLI stores its local data under `~/.pythinker-code/` by default �
 ## Next steps
 
 - [Interaction and input](./interaction.md) — input box operations, approval flow, Plan mode, and YOLO mode explained
+- [Use in a browser](./web.md) — browser sessions and local-server safety
 - [Sessions and context](./sessions.md) — resuming sessions, compressing context, exporting sessions
 - [Common use cases](./use-cases.md) — prompt examples for typical tasks

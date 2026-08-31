@@ -45,5 +45,8 @@ describe('NotificationCard', () => {
     expect(wrapper.text()).toContain('<script>unsafe()</script>');
     expect(wrapper.find('script').exists()).toBe(false);
     expect(wrapper.find('img').exists()).toBe(false);
+    const copyPath = wrapper.get('[data-testid="notification-copy-path"]');
+    expect(copyPath.classes()).toContain('ui-button--secondary');
+    expect(copyPath.find('svg').exists()).toBe(true);
   });
 });

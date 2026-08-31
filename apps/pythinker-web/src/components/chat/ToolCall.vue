@@ -19,6 +19,7 @@ const emit = defineEmits<{
   openFile: [target: FilePreviewRequest];
   openToolDiff: [id: string];
   openAgent: [toolCallId: string];
+  detach: [toolCallId: string];
 }>();
 
 const Renderer = computed(() => resolveToolRenderer(props.tool));
@@ -36,5 +37,6 @@ const Renderer = computed(() => resolveToolRenderer(props.tool));
     @open-file="emit('openFile', $event)"
     @open-tool-diff="emit('openToolDiff', $event)"
     @open-agent="emit('openAgent', $event)"
+    @detach="emit('detach', $event)"
   />
 </template>

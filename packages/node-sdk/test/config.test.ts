@@ -369,6 +369,8 @@ GOOGLE_CLOUD_LOCATION = "us-east1"
         defaultEnabled: false,
         enabled: false,
         source: 'default',
+        externallyControlled: false,
+        overridden: false,
       },
       {
         id: 'secondary-model',
@@ -380,6 +382,8 @@ GOOGLE_CLOUD_LOCATION = "us-east1"
         defaultEnabled: false,
         enabled: false,
         source: 'default',
+        externallyControlled: false,
+        overridden: false,
       },
     ]);
   });

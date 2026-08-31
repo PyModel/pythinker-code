@@ -123,7 +123,7 @@ export class ThinkingComponent implements Component {
         rendered = [];
       } else {
         const contentLines = this.renderContent(width);
-        const hint = `... (${String(contentLines.length)} more lines, ctrl+o to expand)`;
+        const hint = `… (${String(contentLines.length)} more lines, ctrl+o to expand)`;
         const prefix = this.showMarker ? currentTheme.fg('textDim', STATUS_BULLET) : MESSAGE_INDENT;
         const styledHint = currentTheme.fg(
           'textDim',

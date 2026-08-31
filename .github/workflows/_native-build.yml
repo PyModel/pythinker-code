@@ -32,6 +32,9 @@ on:
 
 permissions:
   contents: read
+  id-token: write
+  attestations: write
+  artifact-metadata: write
 
 jobs:
   native-bundle:
@@ -57,20 +60,20 @@ jobs:
     env:
       # secrets.* isn't allowed in `if:` conditions, so resolve the effective
       # signing gate here (job-level env does allow secrets) and branch on the
-      # env var in steps below. Absent/empty secrets -> build unsigned + warn,
-      # not a hard failure; a malformed present secret still fails loudly
-      # inside macos-keychain-setup (bad base64 / no identity found).
-      APPLE_SIGNING_AVAILABLE: ${{ inputs.sign-macos && secrets.APPLE_CERTIFICATE_P12 != '' && secrets.APPLE_CERTIFICATE_PASSWORD != '' }}
+      # env var in steps below. A requested release signature is fail-closed.
+      APPLE_SIGNING_AVAILABLE: ${{ inputs.sign-macos && secrets.APPLE_CERTIFICATE_P12 != '' && secrets.APPLE_CERTIFICATE_PASSWORD != '' && secrets.APPLE_NOTARIZATION_KEY_P8 != '' && secrets.APPLE_NOTARIZATION_KEY_ID != '' && secrets.APPLE_NOTARIZATION_ISSUER_ID != '' }}
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # pinned from v6.0.2
+        with:
+          persist-credentials: false
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v6
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # pinned from v6
 
       - name: Setup Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # pinned from v7.0.0
         with:
           node-version-file: .nvmrc
           cache: 'pnpm'
@@ -78,9 +81,11 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Warn if macOS signing requested but secrets are absent
+      - name: Require macOS signing secrets
         if: runner.os == 'macOS' && inputs.sign-macos && env.APPLE_SIGNING_AVAILABLE != 'true'
-        run: echo "::warning::APPLE_CERTIFICATE_P12/APPLE_CERTIFICATE_PASSWORD not configured — building an unsigned, unnotarized darwin bundle."
+        run: |
+          echo "::error::A signed release requires every APPLE_CERTIFICATE_* and APPLE_NOTARIZATION_* secret."
+          exit 1
 
       - name: Setup macOS keychain (release only)
         if: runner.os == 'macOS' && env.APPLE_SIGNING_AVAILABLE == 'true'
@@ -131,12 +136,18 @@ jobs:
       - name: Package native artifact
         run: pnpm --filter @pymodel/pythinker-code run package:native
 
+      - name: Attest native zip provenance
+        if: inputs.sign-macos
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # pinned from v4.2.2
+        with:
+          subject-path: apps/pythinker-code/dist-native/artifacts/pythinker-code-${{ matrix.target }}.zip
+
       - name: Upload native artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # pinned from v7
         with:
           name: ${{ inputs.upload-artifact-prefix }}-${{ matrix.target }}
           retention-days: ${{ inputs.retention-days }}
           path: |
             apps/pythinker-code/dist-native/artifacts/pythinker-code-${{ matrix.target }}.zip
             apps/pythinker-code/dist-native/artifacts/pythinker-code-${{ matrix.target }}.zip.sha256
-          if-no-files-found: ignore
+          if-no-files-found: error

@@ -1,96 +1,46 @@
-# Repository-level Agent Guide
+@AGENTS.md
 
-Reply in the same language as the user.
+<!-- gitnexus:start -->
+# GitNexus — Code Intelligence
 
-This is a TypeScript monorepo built for agent-assisted development. Keep the root `AGENTS.md` limited to hot-path rules: the project map, hard constraints, and workflow requirements — things every task needs to know.
+This project is indexed by GitNexus as **pythinker-code** (91454 symbols, 263612 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
-## Working Principles
+> Index stale? Run `node .gitnexus/run.cjs analyze` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash → `npm i -g gitnexus`; #1939).
 
-- Think from first principles. Start from real requirements, code facts, and verification results; if the goal is unclear, discuss it with the user first.
-- Treat code, not documentation, as the source of truth. Unless the user explicitly says otherwise, do not read ordinary Markdown just to understand the implementation.
-- Before making code changes, read the relevant code and the most recent constraints, and follow the nearest `AGENTS.md` in the directory tree.
-- Keep changes focused. Do not slip in unrelated refactors along the way.
-- When committing, do not add any co-author attribution, and do not reveal the identity of the agent in commit messages, PR descriptions, or any explanatory text.
+## Always Do
 
-## Project Map
+- **MUST run impact analysis before editing any symbol.** Before modifying a function, class, or method, run `impact({target: "symbolName", direction: "upstream"})` and report the blast radius (direct callers, affected processes, risk level) to the user.
+- **MUST run `detect_changes()` before committing** to verify your changes only affect expected symbols and execution flows. For regression review, compare against the default branch: `detect_changes({scope: "compare", base_ref: "main"})`.
+- **MUST warn the user** if impact analysis returns HIGH or CRITICAL risk before proceeding with edits.
+- When exploring unfamiliar code, use `query({search_query: "concept"})` to find execution flows instead of grepping. It returns process-grouped results ranked by relevance.
+- When you need full context on a specific symbol — callers, callees, which execution flows it participates in — use `context({name: "symbolName"})`.
+- For security review, `explain({target: "fileOrSymbol"})` lists taint findings (source→sink flows; needs `analyze --pdg`).
 
-- `apps/pythinker-code`: the CLI / TUI application. It consumes core capabilities through `@pymodel/pythinker-code-sdk` and must not depend directly on `@pymodel/agent-core`. When writing or modifying its terminal UI, use the `write-tui` skill (`.agents/skills/write-tui/SKILL.md`).
-- the browser web UI: `apps/pythinker-web` (Vue 3 + Vite), the in-repo web client — REST + WS `/api/v1`, no `agent-core` dependency, see `apps/pythinker-web/AGENTS.md`. Its build output ships as the committed, prebuilt bundle `apps/pythinker-code/dist-web` (built with `pnpm --filter @pymodel/pythinker-web run build` and copied via `scripts/copy-web-assets.mjs`) — sync and commit the bundle in the same change whenever the web UI should ship differently. `apps/pythinker-code/scripts/check-web-assets.mjs` guards packaging against a missing bundle. To hack on the web UI against this repo's server, run `pnpm dev:server` here and point `pnpm dev:web` at it via `PYTHINKER_SERVER_URL`.
-- `apps/vis`, `apps/vis/server`, `apps/vis/web`: visual debugging tools for sessions and replays.
-- `apps/pythinker-inspect`: web inspector for the agent-gateway `/api/v1/debug` RPC surface — workspace/session browser, per-session transcript chat, per-scope Service panels, and the DI unit inspection view. See `apps/pythinker-inspect/AGENTS.md`.
-- `packages/agent-core`: the unified agent engine, including Agent, Session, profile, skills, tools, plan, permission, background, records, the in-process DI service layer (`src/services/`), and other core capabilities. See `packages/agent-core/AGENTS.md`.
-- `packages/agent-core-v2`: the DI × Scope agent engine behind agent-gateway. `LifecycleScope` has three tiers — `App` / `Session` / `Agent` (`app/scopes.ts`). Workspace resources use App-owned `WorkspaceInstance` / `Program` lifetimes, not a DI scope; callers resolve them through `IWorkspaceInstanceManager`. The engine also has the L3 unit layer (`Service`/`Fiber` units, collection contribution points, and the Feature seam in `src/features/`). See `packages/agent-core-v2/AGENTS.md` and use the `agent-core-dev` skill (`.agents/skills/agent-core-dev/SKILL.md`) when developing here.
-- `packages/node-sdk`: the public TypeScript SDK and harness.
-- `packages/kosong`: the LLM / provider abstraction layer.
-- `packages/pyaos`: the execution environment and file/process abstractions.
-- `packages/oauth`: Pythinker OAuth and managed auth utilities.
-- `packages/telemetry`: shared client-side telemetry infrastructure.
-- `packages/transcript`: the isomorphic transcript rendering data layer — L1 agent-granular store, L2 idempotent operations, L3 `off/turn/block/delta` subscription granularity, L4 framework-free view registry, plus turn-cursor pagination. Pure TypeScript (browser-safe, no engine imports); the sole owner of the transcript contract types (`src/contract/`) and the op-batch sequencing contract. See `packages/transcript/AGENTS.md`.
-- `packages/agent-gateway`: the Pythinker Code server, backed by `@pymodel/agent-core-v2`; exposes sessions over REST + WebSocket (`/api/v1` + `/api/v1/ws`), plus the `/api/v1/debug/*` reflection RPC surface (`--debug-endpoints`, loopback bind + bearer auth). See `packages/agent-gateway/AGENTS.md`.
-- `packages/klient`: the client SDK — a contract-driven facade over agent-core-v2 (`global.*` / `session(id).*` / `agent(id).*`, zod-validated); transport via subpath entry (`@pymodel/klient/ipc|memory`, both return the same `Klient`); also hosts the e2e suites. See `packages/klient/AGENTS.md`.
-- `packages/tree-sitter-bash`: a pure-TypeScript bash parser (no runtime deps, no wasm); `parse(source, { timeoutMs, maxNodes })` runs under a deterministic budget and returns a discriminated `ParseResult` — callers must treat aborted/hasError trees as "cannot analyze" and degrade. Parser only, no safety judgments; see the package README's "Known differences" section.
-- `packages/minidb`: the embedded JSON document store (`MiniDb`) behind agent-gateway's search index — snapshot + WAL persistence with an exclusive write lock, a larger-than-RAM full-text layer, and persistent index generations. See `packages/minidb/AGENTS.md`.
-- `packages/protocol`: shared REST + WS protocol schemas (envelope, error codes, pagination, ws-control types).
-- `packages/pi-tui`: vendored TUI library (upstream fork with local divergences; tests run with `node --test`, not vitest). See `packages/pi-tui/AGENTS.md`.
-- `packages/acp-adapter` / `packages/acp-server`: Agent Client Protocol bridges — v1 engine (`@agentclientprotocol/sdk` pinned `^0.23.0`) and v2 engine via a `klient` memory-transport facade.
-- `packages/server` and `packages/server-e2e` are empty leftover directories, excluded from the workspace — not packages.
+## Never Do
 
-## Environment Requirements
+- NEVER edit a function, class, or method without first running `impact` on it.
+- NEVER ignore HIGH or CRITICAL risk warnings from impact analysis.
+- NEVER rename symbols with find-and-replace — use `rename` which understands the call graph.
+- NEVER commit changes without running `detect_changes()` to check affected scope.
 
-- **Node.js**: `>=24.15.0` (from the root `package.json` `engines`; `.nvmrc` is `24.15.0`, used by nvm / fnm / mise to pick the minimum recommended version).
-- **pnpm**: `10.34.3` (from the root `package.json` `packageManager`).
-- `pnpm install` will fail when the Node version is not satisfied, because `.npmrc` sets `engine-strict=true`.
+## Resources
 
-## Monorepo Workspace Maintenance
+| Resource | Use for |
+|----------|---------|
+| `gitnexus://repo/pythinker-code/context` | Codebase overview, check index freshness |
+| `gitnexus://repo/pythinker-code/clusters` | All functional areas |
+| `gitnexus://repo/pythinker-code/processes` | All execution flows |
+| `gitnexus://repo/pythinker-code/process/{name}` | Step-by-step execution trace |
 
-- `pnpm-workspace.yaml` is the source of truth for workspace membership, but `flake.nix` also contains **hardcoded** `workspacePaths` and `workspaceNames` lists.
-- **Whenever you add or remove a workspace package, you MUST update both `pnpm-workspace.yaml` and `flake.nix` — for every package, including leaf / test / e2e packages that nothing depends on.**
-  - `pnpm-workspace.yaml` uses globs (`packages/*`, `apps/*`), so most packages land there automatically; `flake.nix` is fully manual and is where omissions happen.
-  - Missing a path in `flake.nix`'s `workspacePaths` will silently drop files from the Nix build's `src` fileset.
-  - Missing a name in `flake.nix`'s `workspaceNames` will break `pnpmConfigHook` because dependencies for that workspace will not be fetched.
-- The automated "Check flake.nix workspace sync" (`scripts/check-nix-workspace.mjs`) only validates the transitive dependency **closure of `@pymodel/pythinker-code`**. A leaf package outside that closure (e.g. an e2e package nobody imports) slips through even when it is missing from `flake.nix`. A green check is therefore NOT proof that `flake.nix` is fully in sync — keep it updated by hand on every add/remove, do not rely on the check to catch omissions.
+## CLI
 
-## General Coding Rules
+| Task | Read this skill file |
+|------|---------------------|
+| Understand architecture / "How does X work?" | `.claude/skills/gitnexus/gitnexus-exploring/SKILL.md` |
+| Blast radius / "What breaks if I change X?" | `.claude/skills/gitnexus/gitnexus-impact-analysis/SKILL.md` |
+| Trace bugs / "Why is X failing?" | `.claude/skills/gitnexus/gitnexus-debugging/SKILL.md` |
+| Rename / extract / split / refactor | `.claude/skills/gitnexus/gitnexus-refactoring/SKILL.md` |
+| Tools, resources, schema reference | `.claude/skills/gitnexus/gitnexus-guide/SKILL.md` |
+| Index, status, clean, wiki CLI commands | `.claude/skills/gitnexus/gitnexus-cli/SKILL.md` |
 
-- `packages/agent-core-v2`, `packages/agent-gateway`, and `packages/transcript` are comment-free zones: no line/block comments; the exceptions are JSDoc attached to exported symbols and load-bearing lint-suppression directives (`oxlint-disable` / `eslint-disable`), while other tooling directives (`@ts-expect-error`, …) stay banned. Enforced by `scripts/check-no-comments.mjs`, which runs as part of `pnpm lint`.
-- For optional object properties, pass `undefined` directly instead of using conditional spread.
-  - YES: `{ user }`
-  - NO: `{ ...(user ? { user } : undefined) }`
-- Optional object properties do not need to additionally allow `undefined` in the type.
-  - YES: `interface Options { user?: User }`
-  - NO: `interface Options { user?: User | undefined }`
-- Internal methods with only a single parameter should not be turned into options objects just for stylistic uniformity.
-- Except for a package's `index.ts`, other `index.ts` files should prefer `export * from './module';`.
-- Do not add too many new test files. Prefer adding tests to the existing test file of the corresponding component or module.
-- When a test fails because of a user modification, default to fixing the test first; do not change the implementation to satisfy an old test unless the implementation truly has a bug.
-- Do not sacrifice code quality for external compatibility unless the user explicitly asks for it. Breaking changes go through changesets and a `major` bump, gated by the rule below.
-
-## Experimental Features
-
-- Gate a not-yet-public feature behind an experimental flag. Flags are env-driven and default off: `PYTHINKER_CODE_EXPERIMENTAL_<NAME>` toggles one, `PYTHINKER_CODE_EXPERIMENTAL_FLAG` enables all. Release by flipping the entry's `default` to `true`.
-  - `packages/agent-core` (v1): add the flag to the central registry at `packages/agent-core/src/flags/registry.ts`, then check it with `flags.enabled('my-feature')`.
-  - `packages/agent-core-v2` and agent-gateway modules: there is no central catalog — declare the flag in the owning domain via `registerFlagDefinition` at import time (see `packages/agent-core-v2/docs/flag.md`), then check it with `IFlagService.enabled(id)`. Current search-index-separation flags: `persistence_minidb_readmodel` (session read model, default on) and `search_worker` (global search worker host, default on).
-
-## Where to Update Instructions
-
-- Hard rules that affect almost every task: update the root `AGENTS.md`.
-- Rules that only affect a specific directory: update the nearest sub-directory `AGENTS.md`.
-- Project-map entries stay at 1–2 sentences; deep package docs live in the package's own `AGENTS.md`.
-- Keep instruction updates focused and supported by code facts.
-
-## Workflow Requirements
-
-- Prefer `rg` / `rg --files` when reading code.
-- When designing changes, follow existing boundaries and local patterns first.
-- In public text and test data, replace real internal identifiers with neutral placeholders such as `example.com`, `example.test`, and `YOUR_API_KEY`. Before opening a PR, ask a read-only agent to audit the diff for context-specific internal identifiers.
-- When creating a PR, the PR title must follow Conventional Commit style, e.g. `chore: remove legacy format commands`.
-- When an AI agent opens or updates a PR, fill in `.github/pull_request_template.md` — link the related issue or explain the problem, then describe what changed. Do not leave placeholder text or submit a generic summary of the diff.
-- Do not submit vague AI-generated PR text. The human author must understand the change well enough to explain the code, edge cases, and why the approach fits this repository.
-- After finishing a task and before submitting a PR, you must run the `gen-changesets` skill (see `.agents/skills/gen-changesets/SKILL.md`) and generate a changeset under `.changeset/` according to its rules.
-- Changesets must strictly follow the rules in `.agents/skills/gen-changesets/SKILL.md`: write one short user-facing sentence that states only what changed, and skip any change users cannot perceive.
-- When generating a changeset, **never** decide on a `major` bump on your own — stop, explain, and get explicit user confirmation first; default to `minor`, fall back to `patch`. See `.agents/skills/gen-changesets/SKILL.md`.
-- Prefer importing via `import ... from '#/...'`, which serves the same purpose as `import ... from '@/...'`.
-- Do not commit throwaway scratch or exploratory files. Never stage:
-  - Agent working notes or handoff/summary documents (e.g. `HANDOVER-*.md`, `HANDOFF-*.md`, `handoff.md`).
-  - Throwaway UI/UX prototypes or design mockups (e.g. `*-designs.html`, `*-mockup.html`, `*-demo(s).html`) at the repo root or under a `design/` folder. The only tracked `.html` files should be Vite `index.html` entrypoints.
-  Before committing or opening a PR, run `git status` and `git diff --staged --stat` and remove anything matching these patterns. Put scratch work under `.tmp/` (gitignored) instead of the repo root or the source tree.
+<!-- gitnexus:end -->

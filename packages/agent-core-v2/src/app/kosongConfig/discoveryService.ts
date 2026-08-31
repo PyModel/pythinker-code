@@ -25,11 +25,8 @@ import {
   PROVIDERS_SECTION,
   THINKING_SECTION,
 } from './configSection';
-import {
-  SECONDARY_MODEL_SECTION,
-  cascadeSubagentModelPool,
-  type SecondaryModelConfig,
-} from '#/session/subagent/configSection';
+import { prospectiveModelView, SECONDARY_MODEL_SECTION } from '#/session/subagent/policy';
+import { ISubagentModelPolicyService } from '#/session/subagent/subagentModelPolicy';
 import {
   IProviderDiscoveryService,
   ModelCatalogChanged,
@@ -56,6 +53,7 @@ export class ProviderDiscoveryService implements IProviderDiscoveryService {
     @IConfigService private readonly config: IConfigService,
     @IEventService private readonly events: IEventService,
     @IAgentIdentity private readonly identity: IAgentIdentity,
+    @ISubagentModelPolicyService private readonly subagentPolicy: ISubagentModelPolicyService,
   ) {}
 
   refreshProviderModels(
@@ -158,11 +156,15 @@ export class ProviderDiscoveryService implements IProviderDiscoveryService {
     const defaultModel = this.config.inspect<string>(DEFAULT_MODEL_SECTION).userValue;
     const thinking =
       this.config.inspect<PythinkerConfigShape['thinking']>(THINKING_SECTION).userValue;
+    const secondaryModel = this.config.inspect<PythinkerConfigShape['secondaryModel']>(
+      SECONDARY_MODEL_SECTION,
+    ).userValue;
     return {
       providers: withoutKeys(providers, exclusion.providers) as PythinkerConfigShape['providers'],
       models: withoutKeys(models, exclusion.models) as PythinkerConfigShape['models'],
       defaultModel,
       thinking: thinking === undefined ? undefined : { ...thinking },
+      secondaryModel: secondaryModel === undefined ? undefined : { ...secondaryModel },
     };
   }
 
@@ -213,15 +215,12 @@ export class ProviderDiscoveryService implements IProviderDiscoveryService {
     if ('thinking' in patch) {
       sections[THINKING_SECTION] = restoreDefault ? exclusion.thinking : patch.thinking;
     }
-    const nextModels = sections[MODELS_SECTION] as Record<string, ModelRecord> | undefined;
-    if (nextModels !== undefined) {
-      const cascadedPool = cascadeSubagentModelPool(
-        this.config.inspect<SecondaryModelConfig>(SECONDARY_MODEL_SECTION).userValue,
-        nextModels,
-      );
-      if (cascadedPool !== undefined) {
-        sections[SECONDARY_MODEL_SECTION] = cascadedPool ?? undefined;
-      }
+    if ('secondaryModel' in patch) {
+      const preview = this.config.previewReplaceSections(sections);
+      sections[SECONDARY_MODEL_SECTION] = this.subagentPolicy.prepareLegacyMutation(
+        patch.secondaryModel,
+        prospectiveModelView(preview[PROVIDERS_SECTION], preview[MODELS_SECTION]),
+      ).section;
     }
     await this.config.replaceSections(sections);
     return {
@@ -245,6 +244,11 @@ export class ProviderDiscoveryService implements IProviderDiscoveryService {
             ? exclusion.thinking
             : patch.thinking
           : this.config.inspect<PythinkerConfigShape['thinking']>(THINKING_SECTION).userValue,
+      secondaryModel:
+        'secondaryModel' in patch
+          ? patch.secondaryModel
+          : this.config.inspect<PythinkerConfigShape['secondaryModel']>(SECONDARY_MODEL_SECTION)
+              .userValue,
     };
   }
 }

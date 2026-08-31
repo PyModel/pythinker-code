@@ -27,12 +27,38 @@ export interface DaemonHttpClientIdentity {
   readonly clientUiMode: string;
 }
 
-/** AbortSignal.timeout with a fallback for older environments (jsdom). */
-function timeoutSignal(timeoutMs = REQUEST_TIMEOUT_MS): AbortSignal | undefined {
+/** AbortSignal.timeout with caller cancellation and an older-environment fallback. */
+function requestSignal(
+  callerSignal?: AbortSignal,
+  timeoutMs = REQUEST_TIMEOUT_MS,
+): AbortSignal | undefined {
+  let timeout: AbortSignal | undefined;
   try {
-    return AbortSignal.timeout(timeoutMs);
+    timeout = AbortSignal.timeout(timeoutMs);
   } catch {
-    return undefined;
+    timeout = undefined;
+  }
+  if (callerSignal === undefined) return timeout;
+  if (timeout === undefined) return callerSignal;
+  try {
+    return AbortSignal.any([callerSignal, timeout]);
+  } catch {
+    const signals = [callerSignal, timeout];
+    const controller = new AbortController();
+    const cleanup = (): void => {
+      for (const signal of signals) signal.removeEventListener('abort', forwardAbort);
+    };
+    const forwardAbort = (event: Event): void => {
+      cleanup();
+      controller.abort((event.target as AbortSignal).reason);
+    };
+    for (const signal of signals) signal.addEventListener('abort', forwardAbort, { once: true });
+    const aborted = signals.find((signal) => signal.aborted);
+    if (aborted !== undefined) {
+      cleanup();
+      controller.abort(aborted.reason);
+    }
+    return controller.signal;
   }
 }
 
@@ -93,10 +119,15 @@ export class DaemonHttpClient {
   constructor(
     private readonly origin: string,
     private readonly identity?: DaemonHttpClientIdentity,
+    private readonly apiVersion: 'v1' | 'v2' = 'v1',
   ) {}
 
-  async get<T>(path: string, query?: Record<string, string | number | boolean | undefined>): Promise<T> {
-    return this.request<T>('GET', path, undefined, query);
+  async get<T>(
+    path: string,
+    query?: Record<string, string | number | boolean | undefined>,
+    options?: { signal?: AbortSignal },
+  ): Promise<T> {
+    return this.request<T>('GET', path, undefined, query, [], undefined, false, options?.signal);
   }
 
   /** Authenticated raw-binary GET (no envelope). Used for file downloads that
@@ -104,7 +135,7 @@ export class DaemonHttpClient {
    *  fetches natively and cannot authorize on its own. Returns the body as a
    *  Blob on 2xx; otherwise parses the daemon envelope and throws. */
   async getBlob(path: string): Promise<Blob> {
-    const url = buildRestUrl(this.origin, path);
+    const url = buildRestUrl(this.origin, path, this.apiVersion);
     const requestId = createRequestId();
     const headers: Record<string, string> = { 'X-Request-Id': requestId };
     this.addClientHeaders(headers);
@@ -112,7 +143,7 @@ export class DaemonHttpClient {
     traceRestRequest({ method: 'GET', path, url, requestId });
     let response: Response;
     try {
-      response = await fetch(url, { method: 'GET', headers, signal: timeoutSignal() });
+      response = await fetch(url, { method: 'GET', headers, signal: requestSignal() });
     } catch (err) {
       traceRestFailure({
         method: 'GET',
@@ -179,6 +210,17 @@ export class DaemonHttpClient {
     return this.request<T>('POST', path, body, undefined, opts?.allowCodes);
   }
 
+  /** GET/POST/PUT/DELETE with extra request headers and the response headers back.
+   *  Non-zero envelope codes listed in `allowCodes` are returned instead of
+   *  thrown, so callers can react to e.g. a version conflict (412). */
+  async exchange<T>(
+    method: 'GET' | 'POST' | 'PUT' | 'DELETE',
+    path: string,
+    opts: { body?: unknown; headers?: Record<string, string>; allowCodes?: number[] } = {},
+  ): Promise<{ data: T; code: number; headers: Headers }> {
+    return this.request<T>(method, path, opts.body, undefined, opts.allowCodes ?? [], opts.headers, true);
+  }
+
   /** POST JSON and receive a raw ZIP. The request trace accepts a separate
    * metadata-only body so large/sensitive export logs never enter the trace. */
   async postZip(
@@ -187,7 +229,7 @@ export class DaemonHttpClient {
     traceBody: Record<string, number>,
   ): Promise<{ blob: Blob; contentDisposition?: string }> {
     const method = 'POST';
-    const url = buildRestUrl(this.origin, path);
+    const url = buildRestUrl(this.origin, path, this.apiVersion);
     const requestId = createRequestId();
     const headers: Record<string, string> = {
       'X-Request-Id': requestId,
@@ -203,7 +245,7 @@ export class DaemonHttpClient {
         method,
         headers,
         body: JSON.stringify(body),
-        signal: timeoutSignal(EXPORT_TIMEOUT_MS),
+        signal: requestSignal(undefined, EXPORT_TIMEOUT_MS),
       });
     } catch (error) {
       traceRestFailure({
@@ -336,7 +378,7 @@ export class DaemonHttpClient {
 
   /** Send multipart/form-data (FormData). Does NOT set Content-Type — browser sets it with boundary. */
   async postForm<T>(path: string, formData: FormData): Promise<T> {
-    const url = buildRestUrl(this.origin, path);
+    const url = buildRestUrl(this.origin, path, this.apiVersion);
     const requestId = createRequestId();
     const headers: Record<string, string> = {
       'X-Request-Id': requestId,
@@ -346,7 +388,7 @@ export class DaemonHttpClient {
     traceRestRequest({ method: 'POST', path, url, requestId, body: describeFormData(formData) });
     let response: Response;
     try {
-      response = await fetch(url, { method: 'POST', headers, body: formData, signal: timeoutSignal() });
+      response = await fetch(url, { method: 'POST', headers, body: formData, signal: requestSignal() });
     } catch (error) {
       traceRestFailure({ method: 'POST', path, requestId, phase: 'fetch', durationMs: Date.now() - startedAt, error: error });
       throw new DaemonNetworkError({
@@ -427,10 +469,33 @@ export class DaemonHttpClient {
     path: string,
     body?: unknown,
     query?: Record<string, string | number | boolean | undefined>,
+    allowCodes?: number[],
+    extraHeaders?: Record<string, string>,
+    withHeaders?: false,
+    signal?: AbortSignal,
+  ): Promise<T>;
+  private async request<T>(
+    method: string,
+    path: string,
+    body: unknown,
+    query: Record<string, string | number | boolean | undefined> | undefined,
+    allowCodes: number[],
+    extraHeaders: Record<string, string> | undefined,
+    withHeaders: true,
+    signal?: AbortSignal,
+  ): Promise<{ data: T; code: number; headers: Headers }>;
+  private async request<T>(
+    method: string,
+    path: string,
+    body?: unknown,
+    query?: Record<string, string | number | boolean | undefined>,
     allowCodes: number[] = [],
-  ): Promise<T> {
+    extraHeaders?: Record<string, string>,
+    withHeaders?: boolean,
+    signal?: AbortSignal,
+  ): Promise<T | { data: T; code: number; headers: Headers }> {
     // Build URL, appending query string (omit undefined values)
-    let url = buildRestUrl(this.origin, path);
+    let url = buildRestUrl(this.origin, path, this.apiVersion);
     if (query) {
       const params = new URLSearchParams();
       for (const [key, value] of Object.entries(query)) {
@@ -451,6 +516,7 @@ export class DaemonHttpClient {
     if (body !== undefined) {
       headers['Content-Type'] = 'application/json; charset=utf-8';
     }
+    if (extraHeaders !== undefined) Object.assign(headers, extraHeaders);
 
     const startedAt = Date.now();
     traceRestRequest({ method, path, url, requestId, body });
@@ -462,7 +528,7 @@ export class DaemonHttpClient {
         method,
         headers,
         body: body !== undefined ? JSON.stringify(body) : undefined,
-        signal: timeoutSignal(),
+        signal: requestSignal(signal),
       });
     } catch (error) {
       traceRestFailure({ method, path, requestId, phase: 'fetch', durationMs: Date.now() - startedAt, error: error });
@@ -533,6 +599,7 @@ export class DaemonHttpClient {
 
     // For both code=0 and allowed non-zero codes, return the data field.
     // Callers that pass allowCodes handle the null/non-null data themselves.
+    if (withHeaders === true) return { data: envelope.data as T, code: envelope.code, headers: response.headers };
     return envelope.data as T;
   }
 

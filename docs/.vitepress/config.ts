@@ -50,6 +50,8 @@ const config = withMermaid(defineConfig({
           items: [
             { text: 'Getting Started', link: '/guides/getting-started' },
             { text: 'Desktop App', link: '/guides/desktop' },
+            { text: 'Use in a Browser', link: '/guides/web' },
+            { text: 'Remote Control', link: '/guides/remote-control' },
             { text: 'Common Use Cases', link: '/guides/use-cases' },
             { text: 'Interaction and Input', link: '/guides/interaction' },
             { text: 'Sessions and Context', link: '/guides/sessions' },

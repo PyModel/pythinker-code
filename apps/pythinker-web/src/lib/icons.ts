@@ -28,9 +28,11 @@ import type { Component } from 'vue';
 import { fileIconSvg } from './fileIcons';
 
 // Components (Pythinker collection) ----------------------------------------------
-import PythinkerAddConversation from '~icons/pythinker/add-conversation';
 import PythinkerFolder from '~icons/pythinker/folder';
+import PythinkerFolderOpen from '~icons/pythinker/folder-open';
 import PythinkerMore from '~icons/pythinker/more';
+import PythinkerSearch from '~icons/pythinker/search';
+import PythinkerSetting from '~icons/pythinker/setting';
 import PythinkerThinking from '~icons/pythinker/thinking';
 
 // Components (Tabler) ---------------------------------------------------------
@@ -38,7 +40,13 @@ import TablerCircleCheck from '~icons/tabler/circle-check';
 import TablerCircleDashed from '~icons/tabler/circle-dashed';
 import TablerSidebarLeftCollapse from '~icons/tabler/layout-sidebar-left-collapse';
 import TablerSidebarLeftExpand from '~icons/tabler/layout-sidebar-left-expand';
+import TablerSidebarRightCollapse from '~icons/tabler/layout-sidebar-right-collapse';
+import TablerSidebarRightExpand from '~icons/tabler/layout-sidebar-right-expand';
 import TablerPaperclip from '~icons/tabler/paperclip';
+import TablerListNumbers from '~icons/tabler/list-numbers';
+import TablerPictureInPicture from '~icons/tabler/picture-in-picture';
+import TablerTextWrap from '~icons/tabler/text-wrap';
+import TablerTextWrapDisabled from '~icons/tabler/text-wrap-disabled';
 
 // Components (Remix) ---------------------------------------------------------
 import RiAddLine from '~icons/ri/add-line';
@@ -56,6 +64,7 @@ import RiBracesLine from '~icons/ri/braces-line';
 import RiCalendarCloseLine from '~icons/ri/calendar-close-line';
 import RiCalendarScheduleLine from '~icons/ri/calendar-schedule-line';
 import RiCalendarTodoLine from '~icons/ri/calendar-todo-line';
+import RiChatNewLine from '~icons/ri/chat-new-line';
 import RiCheckLine from '~icons/ri/check-line';
 import RiCloseLine from '~icons/ri/close-line';
 import RiCodeLine from '~icons/ri/code-line';
@@ -111,8 +120,8 @@ import RiToolsLine from '~icons/ri/tools-line';
 import RiUserLine from '~icons/ri/user-line';
 
 // Raw SVG strings (Pythinker collection) -----------------------------------------
-import RawPythinkerAddConversation from '~icons/pythinker/add-conversation?raw';
 import RawPythinkerCuteBot from '~icons/pythinker/cute-bot?raw';
+import RawPythinkerExpertOpinion from '~icons/pythinker/expert_opinion?raw';
 import RawPythinkerFolder from '~icons/pythinker/folder?raw';
 import RawPythinkerFolderOpen from '~icons/pythinker/folder-open?raw';
 import RawPythinkerLoadingSpinner from '~icons/pythinker/loading-spinner?raw';
@@ -121,13 +130,21 @@ import RawPythinkerSearch from '~icons/pythinker/search?raw';
 import RawPythinkerSetting from '~icons/pythinker/setting?raw';
 import RawPythinkerTerminal from '~icons/pythinker/terminal?raw';
 import RawPythinkerThinking from '~icons/pythinker/thinking?raw';
+import RawPythinkerUpdateButton from '~icons/pythinker/update_button?raw';
+import RawPythinkerUpdateIcon from '~icons/pythinker/update_icon?raw';
 
 // Raw SVG strings (Tabler) ----------------------------------------------------
 import RawTablerCircleCheck from '~icons/tabler/circle-check?raw';
 import RawTablerCircleDashed from '~icons/tabler/circle-dashed?raw';
 import RawTablerSidebarLeftCollapse from '~icons/tabler/layout-sidebar-left-collapse?raw';
 import RawTablerSidebarLeftExpand from '~icons/tabler/layout-sidebar-left-expand?raw';
+import RawTablerSidebarRightCollapse from '~icons/tabler/layout-sidebar-right-collapse?raw';
+import RawTablerSidebarRightExpand from '~icons/tabler/layout-sidebar-right-expand?raw';
 import RawTablerPaperclip from '~icons/tabler/paperclip?raw';
+import RawTablerListNumbers from '~icons/tabler/list-numbers?raw';
+import RawTablerPictureInPicture from '~icons/tabler/picture-in-picture?raw';
+import RawTablerTextWrap from '~icons/tabler/text-wrap?raw';
+import RawTablerTextWrapDisabled from '~icons/tabler/text-wrap-disabled?raw';
 
 // Raw SVG strings (Remix) ----------------------------------------------------
 import RawAddLine from '~icons/ri/add-line?raw';
@@ -145,6 +162,7 @@ import RawBracesLine from '~icons/ri/braces-line?raw';
 import RawCalendarCloseLine from '~icons/ri/calendar-close-line?raw';
 import RawCalendarScheduleLine from '~icons/ri/calendar-schedule-line?raw';
 import RawCalendarTodoLine from '~icons/ri/calendar-todo-line?raw';
+import RawChatNewLine from '~icons/ri/chat-new-line?raw';
 import RawCheckLine from '~icons/ri/check-line?raw';
 import RawCloseLine from '~icons/ri/close-line?raw';
 import RawCodeLine from '~icons/ri/code-line?raw';
@@ -203,6 +221,7 @@ import RawUserLine from '~icons/ri/user-line?raw';
 export type IconName =
   | 'plus'
   | 'chat-new'
+  | 'expert-opinion'
   | 'calendar-close'
   | 'calendar-schedule'
   | 'calendar-todo'
@@ -228,14 +247,22 @@ export type IconName =
   | 'chevron-down'
   | 'chevron-right'
   | 'chevron-up'
+  | 'update-button'
+  | 'update-available'
   | 'arrow-up'
   | 'arrow-down'
   | 'arrow-right'
   | 'minus'
   | 'panel-collapse'
   | 'panel-expand'
+  | 'panel-collapse-right'
+  | 'panel-expand-right'
   | 'expand'
   | 'collapse'
+  | 'list-numbers'
+  | 'text-wrap'
+  | 'text-wrap-disabled'
+  | 'pip'
   | 'list'
   | 'sort'
   | 'grip'
@@ -263,6 +290,7 @@ export type IconName =
   | 'message'
   | 'mail'
   | 'user'
+  | 'robot'
   | 'info'
   | 'help-circle'
   | 'alert-triangle'
@@ -317,14 +345,15 @@ function animatedEntry(svg: string): IconEntry {
 
 export const ICONS: Record<IconName, IconEntry> = {
   plus: entry(RiAddLine, RawAddLine),
-  'chat-new': entry(PythinkerAddConversation, RawPythinkerAddConversation),
+  'chat-new': entry(RiChatNewLine, RawChatNewLine),
+  'expert-opinion': animatedEntry(RawPythinkerExpertOpinion),
   'calendar-close': entry(RiCalendarCloseLine, RawCalendarCloseLine),
   'calendar-schedule': entry(RiCalendarScheduleLine, RawCalendarScheduleLine),
   'calendar-todo': entry(RiCalendarTodoLine, RawCalendarTodoLine),
   close: entry(RiCloseLine, RawCloseLine),
   check: entry(RiCheckLine, RawCheckLine),
   archive: entry(RiArchiveLine, RawArchiveLine),
-  search: animatedEntry(RawPythinkerSearch),
+  search: entry(PythinkerSearch, RawPythinkerSearch),
   copy: entry(RiFileCopyLine, RawFileCopyLine),
   link: entry(RiLinksLine, RawLinksLine),
   'external-link': entry(RiExternalLinkLine, RawExternalLinkLine),
@@ -332,7 +361,7 @@ export const ICONS: Record<IconName, IconEntry> = {
   undo: entry(RiArrowGoBackLine, RawArrowGoBackLine),
   send: entry(RiArrowUpLine, RawArrowUpLine),
   image: entry(RiImageLine, RawImageLine),
-  settings: animatedEntry(RawPythinkerSetting),
+  settings: entry(PythinkerSetting, RawPythinkerSetting),
   sliders: entry(RiEqualizerLine, RawEqualizerLine),
   'cute-bot': animatedEntry(RawPythinkerCuteBot),
   microscope: entry(RiMicroscopeLine, RawMicroscopeLine),
@@ -343,18 +372,26 @@ export const ICONS: Record<IconName, IconEntry> = {
   'chevron-down': entry(RiArrowDownSLine, RawArrowDownSLine),
   'chevron-right': entry(RiArrowRightSLine, RawArrowRightSLine),
   'chevron-up': entry(RiArrowUpSLine, RawArrowUpSLine),
+  'update-button': animatedEntry(RawPythinkerUpdateButton),
+  'update-available': animatedEntry(RawPythinkerUpdateIcon),
   'arrow-up': entry(RiArrowUpLine, RawArrowUpLine),
   'arrow-down': entry(RiArrowDownLine, RawArrowDownLine),
   'arrow-right': entry(RiArrowRightLine, RawArrowRightLine),
   minus: entry(RiSubtractLine, RawSubtractLine),
   'panel-collapse': entry(TablerSidebarLeftCollapse, RawTablerSidebarLeftCollapse),
   'panel-expand': entry(TablerSidebarLeftExpand, RawTablerSidebarLeftExpand),
+  'panel-collapse-right': entry(TablerSidebarRightCollapse, RawTablerSidebarRightCollapse),
+  'panel-expand-right': entry(TablerSidebarRightExpand, RawTablerSidebarRightExpand),
   expand: entry(RiExpandDiagonalLine, RawExpandDiagonalLine),
   collapse: entry(RiCollapseDiagonalLine, RawCollapseDiagonalLine),
+  'list-numbers': entry(TablerListNumbers, RawTablerListNumbers),
+  'text-wrap': entry(TablerTextWrap, RawTablerTextWrap),
+  'text-wrap-disabled': entry(TablerTextWrapDisabled, RawTablerTextWrapDisabled),
+  pip: entry(TablerPictureInPicture, RawTablerPictureInPicture),
   list: entry(RiListUnordered, RawListUnordered),
   sort: entry(RiSortDesc, RawSortDesc),
   grip: entry(RiDraggable, RawDraggable),
-  folder: animatedEntry(RawPythinkerFolderOpen),
+  folder: entry(PythinkerFolderOpen, RawPythinkerFolderOpen),
   'folder-closed': entry(PythinkerFolder, RawPythinkerFolder),
   'folder-plus': entry(RiFolderAddLine, RawFolderAddLine),
   'folder-solid': entry(RiFolderFill, RawFolderFill),
@@ -378,6 +415,7 @@ export const ICONS: Record<IconName, IconEntry> = {
   message: entry(RiMessageLine, RawMessageLine),
   mail: entry(RiMailLine, RawMailLine),
   user: entry(RiUserLine, RawUserLine),
+  robot: animatedEntry(RawPythinkerCuteBot),
   info: entry(RiInformationLine, RawInformationLine),
   'help-circle': entry(RiQuestionLine, RawQuestionLine),
   'alert-triangle': entry(RiAlertLine, RawAlertLine),
@@ -495,6 +533,7 @@ export const ICON_GROUPS: ReadonlyArray<readonly [string, readonly IconName[]]> 
       'plus',
       'attachment',
       'chat-new',
+      'expert-opinion',
       'close',
       'check',
       'search',
@@ -521,14 +560,22 @@ export const ICON_GROUPS: ReadonlyArray<readonly [string, readonly IconName[]]> 
       'chevron-down',
       'chevron-right',
       'chevron-up',
+      'update-button',
+      'update-available',
       'arrow-up',
       'arrow-down',
       'arrow-right',
       'minus',
       'panel-collapse',
       'panel-expand',
+      'panel-collapse-right',
+      'panel-expand-right',
       'expand',
       'collapse',
+      'list-numbers',
+      'text-wrap',
+      'text-wrap-disabled',
+      'pip',
       'list',
       'sort',
       'grip',
@@ -564,7 +611,7 @@ export const ICON_GROUPS: ReadonlyArray<readonly [string, readonly IconName[]]> 
       'calendar-close',
     ],
   ],
-  ['Communication', ['message', 'mail', 'user']],
+  ['Communication', ['message', 'mail', 'user', 'robot']],
   [
     'Status & media',
     [

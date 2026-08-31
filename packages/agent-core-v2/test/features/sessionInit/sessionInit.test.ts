@@ -12,7 +12,6 @@ import { IHostFileSystem, type HostFileStat } from '#/os/interface/hostFileSyste
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentAgentsMdReminderService } from '#/agent/agentsMdReminder/agentsMdReminder';
-import { IAgentSystemReminderService } from '#/agent/systemReminder/systemReminder';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 import { ErrorCodes, Error2 } from '#/errors';
 import type { AgentContext } from '#/agent/agentContext/agentContext';
@@ -38,6 +37,8 @@ describe('SessionInitService', () => {
   let flush: ReturnType<typeof vi.fn>;
   let republishStatus: ReturnType<typeof vi.fn>;
   let create: ReturnType<typeof vi.fn>;
+  let planSpawn: ReturnType<typeof vi.fn>;
+  let spawn: ReturnType<typeof vi.fn>;
   let run: ReturnType<typeof vi.fn>;
   let runCompletion: Promise<{ summary: string; usage?: undefined }>;
 
@@ -54,6 +55,18 @@ describe('SessionInitService', () => {
     runCompletion = Promise.resolve({ summary: 'Explored and wrote AGENTS.md', usage: undefined });
 
     const handles: Record<string, { id: string; accessor: { get: (id: unknown) => unknown } }> = {};
+    planSpawn = vi.fn(async () => ({
+      profileName: 'coder',
+      model: 'mock-model',
+      thinking: 'off',
+      fork: false,
+    }));
+    spawn = vi.fn(async ({ plan, prompt }: { plan: { profileName: string; model: string }; prompt: string }) => ({
+      agentId: 'agent-0',
+      profileName: plan.profileName,
+      model: plan.model,
+      promptText: prompt,
+    }));
     const lifecycle = {
       _serviceBrand: undefined,
       hooks: {
@@ -61,7 +74,10 @@ describe('SessionInitService', () => {
       },
       notifyAgentTaskStopped: vi.fn(),
       handleOf: vi.fn((agentId: string) => handles[agentId]),
+      resolve: vi.fn(() => ({ notify: appendReminder })),
       create: vi.fn(async () => stubAgentContext('agent-0', 1)),
+      planSpawn,
+      spawn,
       run: vi.fn(async (agent: AgentContext) => ({
         agentId: agent.agentId,
         turn: {},
@@ -84,9 +100,11 @@ describe('SessionInitService', () => {
         get: (id: unknown) => {
           if (id === IAgentLifecycleService) return lifecycle;
           if (id === ISessionSubagentService) return lifecycle;
+          if (id === IAgentScopeContext) {
+            return { agentContext: stubAgentContext('main', 1) };
+          }
           if (id === IAgentProfileService) return profile;
           if (id === IAgentPermissionModeService) return permissionMode;
-          if (id === IAgentSystemReminderService) return { appendSystemReminder: appendReminder };
           if (id === IAgentAgentsMdReminderService) return { seedInjected };
           if (id === IEventDispatcher) {
             return {
@@ -156,10 +174,15 @@ describe('SessionInitService', () => {
     const svc = ix.get(ISessionInitService);
     await svc.generateAgentsMd();
 
-    expect(create).toHaveBeenCalledTimes(1);
-    expect(create.mock.calls[0]![0]).toMatchObject({
-      binding: { profile: 'coder', model: 'mock-model', thinking: 'off' },
+    expect(planSpawn).toHaveBeenCalledWith({ callerAgentId: 'main', profileName: 'coder' });
+    expect(spawn).toHaveBeenCalledWith({
+      callerAgentId: 'main',
+      plan: { profileName: 'coder', model: 'mock-model', thinking: 'off', fork: false },
+      labels: { parentAgentId: 'main' },
+      prompt: expect.stringContaining('Task requirements:'),
+      signal: expect.any(AbortSignal),
     });
+    expect(create).not.toHaveBeenCalled();
 
     expect(run).toHaveBeenCalledTimes(1);
     const runArgs = run.mock.calls[0]!;
@@ -168,11 +191,11 @@ describe('SessionInitService', () => {
     expect((runArgs[1] as { prompt: string }).prompt).toContain('Task requirements:');
 
     expect(appendReminder).toHaveBeenCalledTimes(1);
-    const [content, origin] = appendReminder.mock.calls[0] as [
+    const [content, notification] = appendReminder.mock.calls[0] as [
       string,
-      { kind: string; variant: string },
+      { variant: string },
     ];
-    expect(origin).toEqual({ kind: 'injection', variant: 'init' });
+    expect(notification).toEqual({ variant: 'init' });
     expect(content).toContain('The user just ran `/init` slash command.');
     expect(content).toContain('Latest AGENTS.md file content:');
     expect(content).toContain(AGENTS_MD);
@@ -213,6 +236,7 @@ describe('SessionInitService', () => {
     expect(error).toBeInstanceOf(Error2);
     expect((error as Error2).code).toBe(ErrorCodes.SESSION_INIT_FAILED);
     expect((error as Error2).message).toContain('coder exploded');
+    expect((error as Error2).details).toEqual({ agentId: 'agent-0' });
   });
 
   it('throws AGENT_NOT_FOUND when the main agent is missing', async () => {

@@ -86,6 +86,18 @@ describe('built-in slash command registry', () => {
     expect(towerArgumentCompletions('')).toHaveLength(4);
   });
 
+  it('registers Expert Talk as an engine-v2 experiment without legacy aliases', () => {
+    const command = findBuiltInSlashCommand('expert-talk');
+    expect(command).toBeDefined();
+    expect(command?.aliases).toEqual([]);
+    expect((command as PythinkerSlashCommand).experimentalFlag).toBe('expert_talk');
+    expect((command as PythinkerSlashCommand).requiresEngineV2).toBe(true);
+    expect(resolveSlashCommandAvailability(command!, 'cancel')).toBe('always');
+    expect((command as PythinkerSlashCommand).completeArgs?.('')).toHaveLength(9);
+    expect((command as PythinkerSlashCommand).completeArgs?.('rev')).toBeNull();
+    expect((command as PythinkerSlashCommand).completeArgs?.('fin')).toBeNull();
+  });
+
   it('offers add-dir list and directory argument completions', () => {
     const values = (prefix: string): string[] | null => {
       const items = addDirArgumentCompletions(prefix);
@@ -217,5 +229,12 @@ describe('built-in slash command registry', () => {
     expect(resolveSlashCommandAvailability(command!, 'status')).toBe('always');
     expect(resolveSlashCommandAvailability(command!, 'teardown')).toBe('always');
     expect(resolveSlashCommandAvailability(command!, 'Ship feature X')).toBe('always');
+  });
+
+  it('gates remote-control behind the remote-control experiment, always available', () => {
+    const command = findBuiltInSlashCommand('remote-control');
+    expect(command).toBeDefined();
+    expect((command as PythinkerSlashCommand).experimentalFlag).toBe('remote-control');
+    expect(resolveSlashCommandAvailability(command!, '')).toBe('always');
   });
 });

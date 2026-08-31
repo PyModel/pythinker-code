@@ -223,6 +223,7 @@ export interface WirePromptSubmission {
   dynamic_workflow_mode?: boolean;
   goal_objective?: string;
   goal_control?: 'pause' | 'resume' | 'cancel';
+  expert_talk_arm_id?: string;
 }
 
 export interface WirePromptSubmitResult {
@@ -230,6 +231,103 @@ export interface WirePromptSubmitResult {
   user_message_id: string;
   /** 'running' = started immediately; 'queued' = parked behind the active prompt. */
   status?: 'running' | 'queued';
+  expert_talk_run_id?: string;
+}
+
+export interface WireExpertTalkArtifact {
+  role: 'fusion_lead' | 'peer';
+  stage: 'opening' | 'review' | 'fusion';
+  state: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled' | 'unavailable';
+  text?: string;
+  thinking?: string;
+  tools?: { id: string; name?: string }[];
+  partial: boolean;
+  started_at?: string;
+  ended_at?: string;
+  usage?: {
+    input_other: number;
+    output: number;
+    input_cache_read: number;
+    input_cache_creation: number;
+  };
+  request_count?: number;
+  provider_attempt_count?: number;
+  tool_call_count?: number;
+  tool_result_tokens?: number;
+  error?: string;
+  error_reason?: string;
+}
+
+export interface WireExpertTalkRun {
+  schema_version: 1;
+  run_id: string;
+  session_id: string;
+  turn_id: number;
+  prompt_id: string;
+  retry_of?: string;
+  state: 'running' | 'completed' | 'cancelled' | 'failed' | 'interrupted';
+  stage: 'opening' | 'review' | 'fusion' | 'terminal';
+  created_at: string;
+  started_at?: string;
+  ended_at?: string;
+  updated_at: string;
+  bindings: {
+    fusion_lead: { requested_model_id: string; effective_model_id: string };
+    peer: { requested_model_id: string; effective_model_id: string };
+  };
+  opening: { lead: WireExpertTalkArtifact; peer: WireExpertTalkArtifact };
+  review: { lead: WireExpertTalkArtifact; peer: WireExpertTalkArtifact };
+  fusion?: WireExpertTalkArtifact;
+  result?: {
+    version: string;
+    answer: string;
+    notes?: {
+      consensus: string[];
+      divergence: string[];
+      uncertainty: string[];
+    };
+  };
+  usage: {
+    complete: boolean;
+    request_count?: number;
+    provider_attempt_count?: number;
+  };
+  error?: {
+    reason: string;
+    message: string;
+    stage: 'opening' | 'review' | 'fusion' | 'terminal';
+    role?: 'fusion_lead' | 'peer';
+    retryable: boolean;
+    action: string;
+  };
+  progress_revision?: number;
+  revision: number;
+}
+
+export interface WireExpertTalkRunPage {
+  runs: WireExpertTalkRun[];
+  next_cursor?: string;
+}
+
+export interface WireExpertTalkStatus {
+  schema_version: 1;
+  feature: 'enabled' | 'disabled';
+  resource_version: string;
+  config: {
+    fusion_lead_model_id: string;
+    peer_model_id: string;
+  } | null;
+  activation: {
+    state: 'idle' | 'armed';
+    arm_id?: string;
+    armed_at?: string;
+  };
+  active_run_id?: string;
+  latest_run_id?: string;
+  pair_validation: {
+    state: 'valid' | 'stale' | 'ineligible' | 'collapsed' | 'unknown';
+    reason?: string;
+  };
 }
 
 export interface WirePromptSteerResult {
@@ -316,6 +414,23 @@ export interface WireQuestionResponse {
 
 export type WireTaskStatus = 'running' | 'completed' | 'failed' | 'cancelled';
 
+export interface WireSubagentRouting {
+  operation: 'spawn' | 'fork' | 'resume';
+  profile_source: 'requested' | 'default' | 'fork-inherit' | 'resume-existing';
+  model_source:
+    | 'caller'
+    | 'policy-default'
+    | 'policy-pool'
+    | 'policy-force'
+    | 'fork-inherit'
+    | 'resume-existing';
+  policy_mode: 'inherit' | 'default' | 'pool' | 'force';
+  policy_source: 'config' | 'default';
+  feature_source: 'master-env' | 'env' | 'config' | 'default';
+  routing_env_revision: string;
+  route_decision: string;
+}
+
 export interface WireTask {
   id: string;
   session_id: string;
@@ -331,6 +446,8 @@ export interface WireTask {
   agent_id?: string;
   model?: string;
   thinking_effort?: string;
+  routing?: WireSubagentRouting;
+  current_routing_env_revision?: string;
   subagent_phase?: 'queued' | 'working' | 'suspended' | 'completed' | 'failed';
   subagent_type?: string;
   parent_tool_call_id?: string;
@@ -461,6 +578,34 @@ export interface WireHook {
   async?: boolean;
 }
 
+export interface WireExperimentalFlagState {
+  id: string;
+  enabled: boolean;
+  source: 'master-env' | 'env' | 'config' | 'default';
+  config_value?: boolean;
+  default_enabled: boolean;
+  externally_controlled: boolean;
+  overridden: boolean;
+}
+
+export interface WireSubagentModelPolicy {
+  mode: 'inherit' | 'default' | 'pool' | 'force';
+  default_model?: string;
+  models?: Record<string, string>;
+  default_effort?: string;
+}
+
+export interface WireSubagentModelPolicyResponse {
+  policy: WireSubagentModelPolicy;
+  resource_version: string;
+  effective: {
+    configured_policy: WireSubagentModelPolicy;
+    effective_policy: WireSubagentModelPolicy;
+    policy_source: 'config' | 'default';
+    feature: { enabled: boolean; source: 'master-env' | 'env' | 'config' | 'default' };
+  };
+}
+
 export interface WireConfig {
   providers: Record<string, WireConfigProvider>;
   default_provider?: string;
@@ -468,9 +613,12 @@ export interface WireConfig {
   /** Daemon `secondaryModel` config section (nested keys stay camelCase —
    *  the gateway snake_cases only top-level config domains). */
   secondary_model?: {
+    defaultModel?: string;
+    models?: Record<string, string>;
+    force?: boolean;
     model?: string;
     defaultEffort?: string;
-  };
+  } | null;
   models?: Record<string, unknown>;
   thinking?: unknown;
   plan_mode?: boolean;
@@ -488,7 +636,6 @@ export interface WireConfig {
   background?: unknown;
   experimental?: Record<string, boolean>;
   telemetry?: boolean;
-  raw?: Record<string, unknown>;
 }
 
 // ---------------------------------------------------------------------------

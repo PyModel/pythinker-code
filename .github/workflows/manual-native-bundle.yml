@@ -5,6 +5,9 @@ on:
 
 permissions:
   contents: read
+  id-token: write
+  attestations: write
+  artifact-metadata: write
 
 jobs:
   build:
@@ -13,9 +16,14 @@ jobs:
       upload-artifact-prefix: pythinker-code-native
       retention-days: 3
       sign-macos: true
+    # One certificate, one notary key, one set of secret names. These are the
+    # names desktop-release.yml already ships signed and notarized from; the
+    # APPLE_CERTIFICATE_*/APPLE_NOTARIZATION_* names this workflow used to read
+    # were never set on this repository, which is why every darwin CLI bundle
+    # so far shipped ad-hoc signed behind a green job.
     secrets:
-      APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
-      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-      APPLE_NOTARIZATION_KEY_P8: ${{ secrets.APPLE_NOTARIZATION_KEY_P8 }}
-      APPLE_NOTARIZATION_KEY_ID: ${{ secrets.APPLE_NOTARIZATION_KEY_ID }}
-      APPLE_NOTARIZATION_ISSUER_ID: ${{ secrets.APPLE_NOTARIZATION_ISSUER_ID }}
+      APPLE_CERTIFICATE_P12: ${{ secrets.MAC_CSC_LINK }}
+      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+      APPLE_NOTARIZATION_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+      APPLE_NOTARIZATION_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+      APPLE_NOTARIZATION_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER }}

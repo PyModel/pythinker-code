@@ -33,7 +33,19 @@ import {
   usagePercentFromRatio,
 } from '#/utils/usage/usage-format';
 
-const DEFAULT_STATUS_LINE_ITEMS = ['mode', 'goal', 'model', 'tasks', 'cwd', 'git'] as const;
+const DEFAULT_STATUS_LINE_LAYOUT = [
+  { slot: 'mode', collapsePriority: null },
+  { slot: 'goal', collapsePriority: null },
+  { slot: 'model', collapsePriority: 2 },
+  { slot: 'tasks', collapsePriority: 1 },
+  { slot: 'cwd', collapsePriority: 3 },
+  { slot: 'git', collapsePriority: 0 },
+] as const;
+const DEFAULT_STATUS_LINE_ITEMS = DEFAULT_STATUS_LINE_LAYOUT.map(({ slot }) => slot);
+const DEFAULT_STATUS_LINE_COLLAPSE_ORDER = DEFAULT_STATUS_LINE_LAYOUT
+  .filter(({ collapsePriority }) => collapsePriority !== null)
+  .toSorted((left, right) => left.collapsePriority! - right.collapsePriority!)
+  .map(({ slot }) => slot);
 
 const MAX_CWD_SEGMENTS = 3;
 const GOAL_TIMER_INTERVAL_MS = 1_000;
@@ -313,13 +325,23 @@ export class FooterComponent implements Component {
       const slots = this.buildSlots(colors);
       const configured = this.state.statusLine?.items ?? null;
       const order: readonly string[] = configured ?? DEFAULT_STATUS_LINE_ITEMS;
-      const left: string[] = [];
+      let left: Array<{ slot: string; piece: string }> = [];
       for (const slot of order) {
         const pieces = slots[slot as keyof typeof slots];
-        if (pieces !== undefined) left.push(...pieces);
+        if (pieces !== undefined) {
+          left.push(...pieces.map((piece) => ({ slot, piece })));
+        }
       }
 
-      const leftLine = left.join('  ');
+      let leftLine = left.map(({ piece }) => piece).join('  ');
+      if (configured === null) {
+        for (const slot of DEFAULT_STATUS_LINE_COLLAPSE_ORDER) {
+          if (visibleWidth(leftLine) <= width) break;
+          left = left.filter((entry) => entry.slot !== slot);
+          leftLine = left.map(({ piece }) => piece).join('  ');
+        }
+      }
+
       const leftWidth = visibleWidth(leftLine);
 
       // Rotating hint tips stay on the right unless they were given an
@@ -405,11 +427,18 @@ export class FooterComponent implements Component {
     }
 
     const modes: string[] = [];
-    if (state.permissionMode === 'auto') modes.push(chalk.hex(colors.warning).bold('auto'));
-    if (state.permissionMode === 'yolo') modes.push(chalk.hex(colors.warning).bold('yolo'));
-    if (state.planMode) modes.push(chalk.hex(colors.primary).bold('plan'));
+    if (state.permissionMode === 'auto') {
+      modes.push(chalk.hex(colors.modeAutoAccept).bold('auto'));
+    }
+    if (state.permissionMode === 'yolo') {
+      modes.push(chalk.hex(colors.modePermission).bold('yolo'));
+    }
+    if (state.planMode) modes.push(chalk.hex(colors.modePlan).bold('plan'));
     if (state.dynamicWorkflowMode) modes.push(chalk.hex(colors.accent).bold('dynamic_workflow'));
     if (state.towerMode) modes.push(chalk.hex(colors.accent).bold('tower'));
+    if (state.expertTalkArmId !== undefined || state.expertTalkRunId !== undefined) {
+      modes.push(chalk.hex(colors.accent).bold('expert-talk'));
+    }
     if (modes.length > 0) slots['mode'] = [modes.join(' ')];
 
     const goalBadge = formatGoalBadge(state.goal, colors, this.goalWallClockMs(state.goal));
@@ -430,12 +459,10 @@ export class FooterComponent implements Component {
             ? ` thinking: ${effort}`
             : ' thinking'
           : '';
-      const modelLabel = `${model}${thinkingLabel}`;
-      let renderedModelLabel = chalk.hex(colors.text)(modelLabel);
-      if (isRainbowHatching()) {
-        renderedModelLabel = renderHatchFooterModel(modelLabel);
-      }
-      slots['model'] = [renderedModelLabel];
+      const renderedModel = isRainbowHatching()
+        ? renderHatchFooterModel(model)
+        : chalk.hex(colors.primary)(model);
+      slots['model'] = [renderedModel + chalk.hex(colors.textDim)(thinkingLabel)];
     }
 
     // Background-task badges. `bash-*` tasks (shell processes) and `agent-*`

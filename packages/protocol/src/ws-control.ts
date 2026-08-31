@@ -116,6 +116,9 @@ export type AgentFilter = z.infer<typeof agentFilterSchema>;
  */
 export const clientHelloPayloadSchema = z.object({
   client_id: z.string(),
+  client_capabilities: z.object({
+    expert_talk_v1: z.boolean().optional(),
+  }).optional(),
   /** @deprecated Legacy inline subscriptions — use `subscribe` instead. */
   subscriptions: z.array(z.string()).optional(),
   /** @deprecated Legacy inline replay cursors — use `subscribe` instead. */

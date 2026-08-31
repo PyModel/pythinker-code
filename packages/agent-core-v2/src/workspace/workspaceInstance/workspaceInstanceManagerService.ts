@@ -26,6 +26,7 @@ import { IModelService } from '#/kosong/model/model';
 import { IProviderService } from '#/kosong/provider/provider';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
+import { IFileSystemStorageService } from '#/persistence/interface/storage';
 import { Error2, ErrorCodes } from '#/errors';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { LocalRuntimeProviderFactory } from '#/runtime/localRuntime';
@@ -76,6 +77,7 @@ export class WorkspaceInstanceManager implements IWorkspaceInstanceManager {
     @ITelemetryService private readonly telemetry: ITelemetryService,
     @IAppendLogStore private readonly appendLogStore: IAppendLogStore,
     @IAtomicDocumentStore private readonly docs: IAtomicDocumentStore,
+    @IFileSystemStorageService private readonly storage: IFileSystemStorageService,
     private readonly unitHostFactory: RuntimeUnitHostFactory = new SharedRuntimeUnitHostFactory(),
   ) {
     this.providers.set('local', new LocalRuntimeProviderFactory());
@@ -153,7 +155,7 @@ export class WorkspaceInstanceManager implements IWorkspaceInstanceManager {
     this.instances.delete(workspaceId);
     const attachments = this.attachments.get(workspaceId);
     this.attachments.delete(workspaceId);
-    if (attachments !== undefined) for (const attachment of [...attachments.values()].reverse()) await attachment.dispose();
+    if (attachments !== undefined) for (const attachment of [...attachments.values()].toReversed()) await attachment.dispose();
     await instance.dispose();
     this.changeEmitter.fire({ workspaceId });
   }
@@ -169,18 +171,18 @@ export class WorkspaceInstanceManager implements IWorkspaceInstanceManager {
       }
     } catch (error) {
       this.providers.delete(factory.id);
-      for (const instance of attached.reverse()) await this.detach(instance.id, factory.id);
+      for (const instance of attached.toReversed()) await this.detach(instance.id, factory.id);
       throw error;
     }
     return { dispose: async () => {
       if (this.providers.get(factory.id) !== factory) return;
       this.providers.delete(factory.id);
-      for (const workspaceId of [...this.attachments.keys()].reverse()) await this.detach(workspaceId, factory.id);
+      for (const workspaceId of [...this.attachments.keys()].toReversed()) await this.detach(workspaceId, factory.id);
     } };
   }
 
   async dispose(): Promise<void> {
-    for (const workspaceId of [...this.instances.keys()].reverse()) await this.close(workspaceId);
+    for (const workspaceId of [...this.instances.keys()].toReversed()) await this.close(workspaceId);
     this.changeEmitter.dispose();
   }
 
@@ -225,6 +227,8 @@ export class WorkspaceInstanceManager implements IWorkspaceInstanceManager {
           this.indexMirror,
           this.appendLogStore,
           this.docs,
+          this.storage,
+          this.log,
           input.fs,
           this.event,
           this.telemetry,
@@ -256,7 +260,7 @@ export class WorkspaceInstanceManager implements IWorkspaceInstanceManager {
       const attachments = this.attachments.get(instance.id);
       this.attachments.delete(instance.id);
       if (attachments !== undefined) {
-        for (const attachment of [...attachments.values()].reverse()) await attachment.dispose();
+        for (const attachment of [...attachments.values()].toReversed()) await attachment.dispose();
       }
       await instance.dispose();
       throw error;

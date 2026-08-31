@@ -2,6 +2,8 @@ import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiatio
 import type { IAgentScopeHandle } from '#/_base/di/scope';
 import type { AgentContext } from '#/agent/agentContext/agentContext';
 import { AgentSpaceImpl } from '#/agent/agentContext/agentSpace';
+import type { IModelCatalog, Model } from '#/kosong/model/catalog';
+import type { ModelRequester } from '#/kosong/model/modelRequester';
 
 export interface IAgentScopeContext {
   readonly _serviceBrand: undefined;
@@ -9,6 +11,7 @@ export interface IAgentScopeContext {
   readonly agentId: string;
   readonly forkedFrom?: string;
   readonly agentContext: AgentContext;
+  readonly modelRequester?: ModelRequester;
   scope(subKey?: string): string;
 }
 
@@ -20,6 +23,7 @@ export function makeAgentScopeContext(input: {
   readonly agentScope: string;
   readonly forkedFrom?: string;
   readonly generation?: number;
+  readonly modelRequester?: ModelRequester;
 }): IAgentScopeContext {
   const { agentScope } = input;
   const space = new AgentSpaceImpl(input.agentId);
@@ -34,12 +38,33 @@ export function makeAgentScopeContext(input: {
     agentId: input.agentId,
     forkedFrom: input.forkedFrom,
     agentContext,
+    modelRequester: input.modelRequester,
     scope: (subKey?: string): string => {
       if (subKey === undefined || subKey === '') return agentScope;
       if (agentScope === '') return subKey;
       return `${agentScope}/${subKey}`;
     },
   };
+}
+
+export function scopedModel(
+  scope: IAgentScopeContext,
+  catalog: Pick<IModelCatalog, 'get'>,
+  modelAlias: string,
+): Model {
+  return scope.modelRequester?.model.id === modelAlias
+    ? scope.modelRequester.model
+    : catalog.get(modelAlias);
+}
+
+export function scopedModelRequester(
+  scope: IAgentScopeContext,
+  catalog: Pick<IModelCatalog, 'getRequester'>,
+  modelAlias: string,
+): ModelRequester {
+  return scope.modelRequester?.model.id === modelAlias
+    ? scope.modelRequester
+    : catalog.getRequester(modelAlias);
 }
 
 export function agentContextOfScope(scope: IAgentScopeContext): AgentContext {

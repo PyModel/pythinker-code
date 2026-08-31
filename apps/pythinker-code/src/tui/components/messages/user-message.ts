@@ -50,7 +50,8 @@ export class UserMessageComponent implements Component {
     }
 
     const marker = this.bullet ?? USER_MESSAGE_BULLET;
-    const bullet = marker.length > 0 ? currentTheme.boldFg('roleUser', marker) : '';
+    const isRoleMessage = marker.length > 0;
+    const bullet = isRoleMessage ? currentTheme.boldFg('roleUser', marker) : '';
     const bulletWidth = visibleWidth(bullet);
     const contentWidth = Math.max(1, safeWidth - bulletWidth);
 
@@ -63,11 +64,19 @@ export class UserMessageComponent implements Component {
 
     // Text is re-dyed from the current theme; invalidate() (theme change) clears
     // the render cache so the new colours are picked up on the next render.
-    const coloredText = currentTheme.boldFg('roleUser', this.text);
+    const coloredText = isRoleMessage ? currentTheme.fg('textStrong', this.text) : this.text;
     const textLines = new Text(coloredText, 0, 0).render(contentWidth);
     for (let i = 0; i < textLines.length; i++) {
       const prefix = i === 0 ? bullet : ' '.repeat(bulletWidth);
-      lines.push(prefix + textLines[i]);
+      const line = prefix + textLines[i];
+      lines.push(
+        isRoleMessage
+          ? currentTheme.bg(
+              'surfaceHighlight',
+              line + ' '.repeat(Math.max(0, safeWidth - visibleWidth(line))),
+            )
+          : line,
+      );
     }
 
     // Images — indented to align with text after the bullet

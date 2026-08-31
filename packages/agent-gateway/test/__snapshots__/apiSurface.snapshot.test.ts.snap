@@ -22,11 +22,19 @@ exports[`API surface snapshot > matches the documented v2 route table and meta e
   "routes": [
     [
       "DELETE",
+      "/api/v1/config/subagent-model-policy",
+    ],
+    [
+      "DELETE",
       "/api/v1/files/{file_id}",
     ],
     [
       "DELETE",
       "/api/v1/providers/{provider_id}",
+    ],
+    [
+      "DELETE",
+      "/api/v1/sessions/{session_id}/expert-talk",
     ],
     [
       "DELETE",
@@ -63,6 +71,10 @@ exports[`API surface snapshot > matches the documented v2 route table and meta e
     [
       "GET",
       "/api/v1/config",
+    ],
+    [
+      "GET",
+      "/api/v1/config/subagent-model-policy",
     ],
     [
       "GET",
@@ -171,6 +183,18 @@ exports[`API surface snapshot > matches the documented v2 route table and meta e
     [
       "GET",
       "/api/v1/sessions/{session_id}/children",
+    ],
+    [
+      "GET",
+      "/api/v1/sessions/{session_id}/expert-talk",
+    ],
+    [
+      "GET",
+      "/api/v1/sessions/{session_id}/expert-talk/runs",
+    ],
+    [
+      "GET",
+      "/api/v1/sessions/{session_id}/expert-talk/runs/{run_id}",
     ],
     [
       "GET",
@@ -406,6 +430,22 @@ exports[`API surface snapshot > matches the documented v2 route table and meta e
     ],
     [
       "POST",
+      "/api/v1/sessions/{session_id}/expert-talk:arm",
+    ],
+    [
+      "POST",
+      "/api/v1/sessions/{session_id}/expert-talk:disarm",
+    ],
+    [
+      "POST",
+      "/api/v1/sessions/{session_id}/expert-talk/runs/{run_id}/cancel",
+    ],
+    [
+      "POST",
+      "/api/v1/sessions/{session_id}/expert-talk/runs/{run_id}/retry",
+    ],
+    [
+      "POST",
       "/api/v1/sessions/{session_id}/export",
     ],
     [
@@ -451,6 +491,10 @@ exports[`API surface snapshot > matches the documented v2 route table and meta e
     [
       "POST",
       "/api/v1/sessions/{session_id}/title/generate",
+    ],
+    [
+      "POST",
+      "/api/v1/sessions/{session_id}/transcript/plan:reveal",
     ],
     [
       "POST",
@@ -514,7 +558,15 @@ exports[`API surface snapshot > matches the documented v2 route table and meta e
     ],
     [
       "PUT",
+      "/api/v1/config/subagent-model-policy",
+    ],
+    [
+      "PUT",
       "/api/v1/providers/{provider_id}",
+    ],
+    [
+      "PUT",
+      "/api/v1/sessions/{session_id}/expert-talk",
     ],
     [
       "PUT",

@@ -3,9 +3,18 @@
 // Wiring: the composable is real; daemon requests and unrelated facade collaborators are stubbed.
 // Run: pnpm --filter @pymodel/pythinker-web exec vitest run test/workspace-state.test.ts
 
+import { SubagentModelPolicyConflictError } from '../src/api/types';
 import { computed, ref, type Ref } from 'vue';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { AppApprovalRequest, AppQuestionRequest, AppSession, AppTask } from '../src/api/types';
+import type {
+  AppApprovalRequest,
+  AppQuestionRequest,
+  AppSession,
+  AppSessionGroupPage,
+  AppSubagentModelPolicy,
+  AppSubagentModelPolicyState,
+  AppTask,
+} from '../src/api/types';
 import { DaemonApiError } from '../src/api/errors';
 import { createInitialState } from '../src/api/daemon/eventReducer';
 import { mergeWorkspaces } from '../src/lib/mergeWorkspaces';
@@ -28,13 +37,19 @@ const apiMock = vi.hoisted(() => ({
   respondApproval: vi.fn(),
   dismissQuestion: vi.fn(),
   cancelTask: vi.fn(),
+  detachTask: vi.fn(),
+  listTasks: vi.fn(),
   getAuth: vi.fn(),
   getConfig: vi.fn(),
   setConfig: vi.fn(),
+  getSubagentModelPolicy: vi.fn(),
+  setSubagentModelPolicy: vi.fn(),
+  clearSubagentModelPolicy: vi.fn(),
   getFsHome: vi.fn(),
   getHealth: vi.fn(),
   getMeta: vi.fn(),
   listSessions: vi.fn(),
+  listSessionGroupsV2: vi.fn(),
   listWorkspaces: vi.fn(),
 }));
 
@@ -77,9 +92,13 @@ function createState(): ExtendedState {
     serverVersion: '',
     dangerousBypassAuth: false,
     backend: 'v1',
+    experimentalFlagStates: [],
+    subagentModelPolicy: null,
+    subagentModelPolicySaving: false,
     workspaceName: 'pythinker-web',
     connection: 'connected',
     permission: 'manual',
+    permissionBySession: { sess_1: 'manual' },
     thinking: 'high',
     thinkingBySession: {},
     planModeBySession: {},
@@ -142,7 +161,6 @@ function createDeps(): UseWorkspaceStateDeps {
     workspacesView: computed(() => []),
     status: computed(() => ({})),
     workspaceIdForSession: vi.fn(),
-    savePermissionToStorage: vi.fn(),
     seedPermissionFromDaemonDefault: vi.fn(),
     savePlanModeToStorage: vi.fn(),
     saveDynamicWorkflowModeToStorage: vi.fn(),
@@ -154,6 +172,8 @@ function createDeps(): UseWorkspaceStateDeps {
     goalErrorMessage: vi.fn(),
     basename: (path: string) => path.split('/').at(-1) ?? path,
     resetFastMoon: vi.fn(),
+    getExpertTalkArmId: () => undefined,
+    onExpertTalkPromptAccepted: vi.fn(),
     initialized: ref(true),
     selectedDiffPath: ref(null),
     fileDiffLines: ref([]),
@@ -355,7 +375,7 @@ describe('useWorkspaceState — updateConfig agent defaults', () => {
     expect(deps.persistSessionProfile).not.toHaveBeenCalled();
   });
 
-  it('applies a saved default permission mode like an explicit pick', async () => {
+  it('keeps the active session permission when the global default changes', async () => {
     apiMock.setConfig.mockResolvedValue({ defaultPermissionMode: 'auto' });
     const state = createState();
     state.permission = 'manual';
@@ -364,9 +384,21 @@ describe('useWorkspaceState — updateConfig agent defaults', () => {
 
     await workspace.updateConfig({ defaultPermissionMode: 'auto' });
 
+    expect(state.permission).toBe('manual');
+    expect(deps.persistSessionProfile).not.toHaveBeenCalled();
+  });
+
+  it('applies a saved default permission mode to a new-session draft', async () => {
+    apiMock.setConfig.mockResolvedValue({ defaultPermissionMode: 'auto' });
+    const state = createState();
+    state.activeSessionId = undefined;
+    const deps = createConfigDeps(state);
+    const workspace = useWorkspaceState(state, deps);
+
+    await workspace.updateConfig({ defaultPermissionMode: 'auto' });
+
     expect(state.permission).toBe('auto');
-    expect(deps.savePermissionToStorage).toHaveBeenCalledWith('auto');
-    expect(deps.persistSessionProfile).toHaveBeenCalledWith({ permissionMode: 'auto' });
+    expect(deps.persistSessionProfile).not.toHaveBeenCalled();
   });
 
   it('leaves permission untouched when the daemon rejects the save', async () => {
@@ -381,7 +413,7 @@ describe('useWorkspaceState — updateConfig agent defaults', () => {
     await expect(workspace.updateConfig({ defaultPermissionMode: 'auto' })).resolves.toBe(false);
 
     expect(state.permission).toBe('manual');
-    expect(deps.savePermissionToStorage).not.toHaveBeenCalled();
+    expect(deps.persistSessionProfile).not.toHaveBeenCalled();
   });
 });
 
@@ -759,6 +791,89 @@ describe('useWorkspaceState — respondApproval', () => {
     expect(apiMock.respondApproval).toHaveBeenCalledOnce();
     expect(state.approvalsBySession['sess_1']).toEqual([]);
     expect(deps.pushOperationFailure).not.toHaveBeenCalled();
+  });
+});
+
+describe('useWorkspaceState — detachTask', () => {
+  beforeEach(() => {
+    apiMock.detachTask.mockReset();
+    apiMock.listTasks.mockReset();
+  });
+
+  it('marks a still-running task as backgrounded and targets the REST task id', async () => {
+    apiMock.detachTask.mockResolvedValue({ detached: true, status: 'running' });
+    const state = createState();
+    state.tasksBySession = {
+      sess_1: [{ ...task('t_1', 'running'), parentToolCallId: 'call_1', backgroundTaskId: 'bg_1' }],
+    };
+    const deps = createDeps();
+    const ws = useWorkspaceState(state, deps);
+
+    await ws.detachTask('call_1');
+
+    expect(apiMock.detachTask).toHaveBeenCalledWith('sess_1', 'bg_1');
+    expect(state.tasksBySession['sess_1']?.[0]?.runInBackground).toBe(true);
+    expect(state.tasksBySession['sess_1']?.[0]?.status).toBe('running');
+    expect(deps.pushOperationFailure).not.toHaveBeenCalled();
+  });
+
+  it('applies the terminal status when the task finished before it could detach', async () => {
+    apiMock.detachTask.mockResolvedValue({ detached: false, status: 'completed' });
+    const state = createState();
+    state.tasksBySession = { sess_1: [{ ...task('t_1', 'running'), parentToolCallId: 'call_1' }] };
+    const deps = createDeps();
+    const ws = useWorkspaceState(state, deps);
+
+    await ws.detachTask('call_1');
+
+    expect(apiMock.detachTask).toHaveBeenCalledWith('sess_1', 't_1');
+    expect(state.tasksBySession['sess_1']?.[0]?.status).toBe('completed');
+    expect(state.tasksBySession['sess_1']?.[0]?.runInBackground).toBeUndefined();
+    expect(state.tasksBySession['sess_1']?.[0]?.completedAtEstimated).toBe(true);
+  });
+
+  it('asks the server when the task has not reached the store yet', async () => {
+    apiMock.listTasks.mockResolvedValue([{ ...task('t_9', 'running'), parentToolCallId: 'call_1' }]);
+    apiMock.detachTask.mockResolvedValue({ detached: true, status: 'running' });
+    const state = createState();
+    state.tasksBySession = { sess_1: [] };
+    const ws = useWorkspaceState(state, createDeps());
+
+    await ws.detachTask('call_1');
+
+    expect(apiMock.listTasks).toHaveBeenCalledWith('sess_1');
+    expect(apiMock.detachTask).toHaveBeenCalledWith('sess_1', 't_9');
+  });
+
+  it('does nothing when the server knows no task for the tool call either', async () => {
+    apiMock.listTasks.mockResolvedValue([task('t_1', 'running')]);
+    const state = createState();
+    state.tasksBySession = { sess_1: [task('t_1', 'running')] };
+    const ws = useWorkspaceState(state, createDeps());
+
+    await ws.detachTask('call_1');
+
+    expect(apiMock.detachTask).not.toHaveBeenCalled();
+  });
+
+  it('drops a duplicate detach while the first is still in flight', async () => {
+    let resolveDetach!: (value: { detached: boolean; status: 'running' }) => void;
+    apiMock.detachTask.mockReturnValue(
+      new Promise<{ detached: boolean; status: 'running' }>((r) => {
+        resolveDetach = r;
+      }),
+    );
+    const state = createState();
+    state.tasksBySession = { sess_1: [{ ...task('t_1', 'running'), parentToolCallId: 'call_1' }] };
+    const ws = useWorkspaceState(state, createDeps());
+
+    const first = ws.detachTask('call_1');
+    await ws.detachTask('call_1');
+
+    expect(apiMock.detachTask).toHaveBeenCalledOnce();
+
+    resolveDetach({ detached: true, status: 'running' });
+    await first;
   });
 });
 
@@ -1360,6 +1475,7 @@ describe('useWorkspaceState — session list loading', () => {
     apiMock.listWorkspaces.mockReset().mockResolvedValue([]);
     apiMock.getFsHome.mockReset().mockResolvedValue({ home: '', recentRoots: [] });
     apiMock.listSessions.mockReset();
+    apiMock.listSessionGroupsV2.mockReset();
   });
 
   function createSessionLoadRig(sessions: AppSession[]) {
@@ -1393,6 +1509,78 @@ describe('useWorkspaceState — session list loading', () => {
 
     expect(deps.pushOperationFailure).toHaveBeenCalledOnce();
     expect(deps.pushOperationFailure).toHaveBeenCalledWith('load', error);
+  });
+
+  it('finishes v2 startup after the first grouped page and loads later groups in the background', async () => {
+    const first = {
+      ...createSession(),
+      id: 'sess_a',
+      workspaceId: 'wd_a',
+      cwd: '/workspace-a',
+      lastPrompt: 'First prompt',
+      busy: false,
+    };
+    const later = {
+      ...createSession(),
+      id: 'sess_b',
+      workspaceId: 'wd_b',
+      cwd: '/workspace-b',
+      lastPrompt: 'Later prompt',
+      updatedAt: '2026-01-02T00:00:00.000Z',
+      busy: false,
+    };
+    let resolveNextPage!: (page: AppSessionGroupPage) => void;
+    const nextPage = new Promise<AppSessionGroupPage>((resolve) => {
+      resolveNextPage = resolve;
+    });
+    apiMock.getMeta.mockResolvedValue({
+      serverVersion: '0.0.0',
+      openInApps: [],
+      dangerousBypassAuth: false,
+      backend: 'v2',
+    });
+    apiMock.listWorkspaces.mockResolvedValue([
+      workspace('wd_a', '/workspace-a', 'A'),
+      workspace('wd_b', '/workspace-b', 'B'),
+    ]);
+    apiMock.listSessionGroupsV2
+      .mockResolvedValueOnce({
+        groups: [
+          {
+            workspace: { id: 'wd_a', cwd: '/workspace-a' },
+            sessions: [first],
+            total: 1,
+          },
+        ],
+        hasMore: true,
+        nextPageToken: 'next',
+        total: 2,
+      })
+      .mockReturnValueOnce(nextPage);
+    const { state, workspaceState } = createSessionLoadRig([first]);
+
+    await workspaceState.load();
+
+    expect(state.sessions.map((session) => session.id)).toEqual(['sess_a']);
+    expect(apiMock.listSessionGroupsV2).toHaveBeenCalledTimes(2);
+
+    resolveNextPage({
+      groups: [
+        {
+          workspace: { id: 'wd_b', cwd: '/workspace-b' },
+          sessions: [later],
+          total: 1,
+        },
+      ],
+      hasMore: false,
+      nextPageToken: null,
+      total: 2,
+    });
+
+    await vi.waitFor(() => {
+      expect(state.sessions.map((session) => session.id)).toEqual(['sess_b', 'sess_a']);
+    });
+    expect(state.sessionsHasMoreByWorkspace).toEqual({ wd_a: false, wd_b: false });
   });
 
   it('keeps failed workspace sessions while replacing a successful shared-root workspace', async () => {
@@ -1640,6 +1828,34 @@ describe('useWorkspaceState — refreshServerMeta', () => {
     expect(state.availableOpenInApps).toEqual(['finder']);
     expect(state.dangerousBypassAuth).toBe(true);
     expect(state.backend).toBe('v2');
+  });
+
+  it('stores the effective experimental flag states from /meta', async () => {
+    apiMock.getMeta.mockResolvedValue({
+      serverVersion: '9.9.9',
+      openInApps: [],
+      dangerousBypassAuth: false,
+      backend: 'v2',
+      experimentalFlagStates: [
+        {
+          id: 'secondary-model',
+          enabled: true,
+          source: 'env',
+          configValue: false,
+          defaultEnabled: false,
+          externallyControlled: true,
+          overridden: true,
+        },
+      ],
+    });
+    const state = createState();
+    const ws = useWorkspaceState(state, createDeps());
+
+    await ws.refreshServerMeta();
+
+    expect(state.experimentalFlagStates).toEqual([
+      expect.objectContaining({ id: 'secondary-model', source: 'env', overridden: true }),
+    ]);
   });
 
   it('keeps the previous meta when /meta fails', async () => {
@@ -1968,6 +2184,52 @@ describe('useWorkspaceState — snapshot prompt recovery', () => {
     );
   });
 
+  it('keeps a permission pick on its session when the active view changes', async () => {
+    const state = createState();
+    const deps = promptDeps();
+    const ws = useWorkspaceState(state, deps);
+
+    ws.setPermission('auto');
+    expect(state.permissionBySession.sess_1).toBe('auto');
+    expect(deps.persistSessionProfile).toHaveBeenCalledWith({ permissionMode: 'auto' }, 'sess_1');
+
+    state.activeSessionId = 'sess_2';
+    state.permission = 'yolo';
+    await ws.submitPromptInternal('sess_1', 'background prompt');
+
+    expect(apiMock.submitPrompt).toHaveBeenCalledWith(
+      'sess_1',
+      expect.objectContaining({ permissionMode: 'auto' }),
+    );
+  });
+
+  it('submits the owned Expert Talk arm and records its accepted run', async () => {
+    apiMock.submitPrompt.mockResolvedValue({
+      promptId: 'prompt_expert',
+      expertTalkRunId: 'et_run_1',
+    });
+    const accepted = vi.fn();
+    const deps = promptDeps({
+      getExpertTalkArmId: () => 'arm_1',
+      onExpertTalkPromptAccepted: accepted,
+    });
+    const ws = useWorkspaceState(createState(), deps);
+
+    await ws.submitPromptInternal('sess_1', 'Compare both approaches');
+
+    expect(apiMock.submitPrompt).toHaveBeenCalledWith(
+      'sess_1',
+      expect.objectContaining({ expertTalkArmId: 'arm_1' }),
+    );
+    const submission = apiMock.submitPrompt.mock.calls.at(0)?.at(1);
+    expect(submission.model).toBeUndefined();
+    expect(submission.thinking).toBeUndefined();
+    expect(submission.permissionMode).toBeUndefined();
+    expect(submission.planMode).toBeUndefined();
+    expect(submission.dynamicWorkflowMode).toBeUndefined();
+    expect(accepted).toHaveBeenCalledWith('sess_1', 'et_run_1');
+  });
+
   it('clears local prompt state when busy disproves a stale snapshot turn', () => {
     const state = createState();
     state.inFlightBySession = { sess_1: true };
@@ -2251,5 +2513,56 @@ describe('useWorkspaceState — upsertWorkspacePreserveOrder hidden roots', () =
     ws.upsertWorkspacePreserveOrder(workspace('wd_y', '/home/foo', 'foo'));
 
     expect(state.hiddenWorkspaceRoots).toEqual(['/home/Foo']);
+  });
+});
+
+describe('useWorkspaceState — subagent model policy', () => {
+  const state = (policy: AppSubagentModelPolicy, version: string): AppSubagentModelPolicyState => ({
+    policy,
+    resourceVersion: version,
+    configuredPolicy: policy,
+    effectivePolicy: policy,
+    policySource: policy.mode === 'inherit' ? 'default' : 'config',
+    feature: { enabled: true, source: 'config' },
+  });
+
+  beforeEach(() => {
+    apiMock.getSubagentModelPolicy.mockReset();
+    apiMock.setSubagentModelPolicy.mockReset();
+    apiMock.clearSubagentModelPolicy.mockReset();
+  });
+
+  it('loads the policy with the config and writes with the last read version', async () => {
+    apiMock.getSubagentModelPolicy.mockResolvedValue(state({ mode: 'inherit' }, 'v1'));
+    const saved = state({ mode: 'force', defaultModel: 'acme/sol' }, 'v2');
+    apiMock.setSubagentModelPolicy.mockResolvedValue(saved);
+    const s = createState();
+    const ws = useWorkspaceState(s, createDeps());
+
+    await ws.loadSubagentModelPolicy();
+    expect(s.subagentModelPolicy?.resourceVersion).toBe('v1');
+
+    expect(await ws.saveSubagentModelPolicy({ mode: 'force', defaultModel: 'acme/sol' })).toBe(true);
+    expect(apiMock.setSubagentModelPolicy).toHaveBeenCalledWith({ mode: 'force', defaultModel: 'acme/sol' }, 'v1');
+    expect(s.subagentModelPolicy).toEqual(saved);
+    expect(s.subagentModelPolicySaving).toBe(false);
+  });
+
+  it('adopts the server state and surfaces the conflict on a stale version (412)', async () => {
+    const current = state({ mode: 'default', defaultModel: 'acme/luna' }, 'v9');
+    apiMock.clearSubagentModelPolicy.mockRejectedValue(new SubagentModelPolicyConflictError(current));
+    const s = createState();
+    s.subagentModelPolicy = state({ mode: 'force', defaultModel: 'acme/sol' }, 'v1');
+    const deps = createDeps();
+    const ws = useWorkspaceState(s, deps);
+
+    expect(await ws.clearSubagentModelPolicy()).toBe(false);
+    expect(apiMock.clearSubagentModelPolicy).toHaveBeenCalledWith('v1');
+    expect(s.subagentModelPolicy).toEqual(current);
+    expect(deps.pushOperationFailure).toHaveBeenCalledWith(
+      'saveSubagentModelPolicy',
+      expect.any(SubagentModelPolicyConflictError),
+      expect.objectContaining({ message: expect.stringContaining('changed on the server') }),
+    );
   });
 });

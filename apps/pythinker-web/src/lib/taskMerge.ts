@@ -66,6 +66,8 @@ export function keepLiveSubagents(restBased: AppTask[], existing: AppTask[]): Ap
       agentId: live.agentId ?? rest.agentId,
       model: live.model ?? rest.model,
       thinkingEffort: live.thinkingEffort ?? rest.thinkingEffort,
+      routing: live.routing ?? rest.routing,
+      currentRoutingEnvRevision: live.currentRoutingEnvRevision ?? rest.currentRoutingEnvRevision,
       completedAt: hasAuthoritativeRestCompletion
         ? rest.completedAt
         : live.completedAt ?? rest.completedAt,

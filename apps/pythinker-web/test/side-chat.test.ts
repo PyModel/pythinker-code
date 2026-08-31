@@ -43,6 +43,7 @@ function createState(): ExtendedState {
     ],
     activeSessionId: 'sess_1',
     permission: 'auto',
+    permissionBySession: { sess_1: 'auto' },
     thinking: 'high',
     planModeBySession: { sess_1: true },
     dynamicWorkflowModeBySession: {},

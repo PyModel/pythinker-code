@@ -7,6 +7,7 @@ import type { Session } from '../types';
 import SessionRow from './SessionRow.vue';
 import Icon from './ui/Icon.vue';
 import IconButton from './ui/IconButton.vue';
+import Tooltip from './ui/Tooltip.vue';
 
 const props = defineProps<{
   sessions: Session[];
@@ -206,15 +207,17 @@ function drop(targetId: string, event: DragEvent): void {
   <section v-if="sessions.length" ref="rootRef" class="pinned">
     <header class="pinned-label">
       <span class="pinned-title">{{ t('sidebar.pinned') }}</span>
-      <IconButton
-        class="pinned-toggle"
-        :class="{ 'pinned-toggle--on': collapsed }"
-        size="sm"
-        :label="collapsed ? t('sidebar.expandPinned') : t('sidebar.collapsePinned')"
-        @click.stop="emit('toggleCollapsed')"
-      >
-        <Icon :name="collapsed ? 'chevron-right' : 'chevron-down'" />
-      </IconButton>
+      <Tooltip :text="collapsed ? t('sidebar.expandPinned') : t('sidebar.collapsePinned')">
+        <IconButton
+          class="pinned-toggle"
+          :class="{ 'pinned-toggle--on': collapsed }"
+          size="sm"
+          :label="collapsed ? t('sidebar.expandPinned') : t('sidebar.collapsePinned')"
+          @click.stop="emit('toggleCollapsed')"
+        >
+          <Icon :name="collapsed ? 'chevron-right' : 'chevron-down'" />
+        </IconButton>
+      </Tooltip>
     </header>
     <template v-if="!collapsed">
       <div class="pinned-rows-wrap" :class="{ scrolled, 'more-below': moreBelow }">

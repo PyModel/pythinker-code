@@ -73,6 +73,7 @@ const props = defineProps<{
   approvalBusy?: boolean;
   mobile?: boolean;
   openFile?: (target: FilePreviewRequest) => void;
+  revealSavedPlan?: (agentId: string, toolCallId: string) => Promise<boolean>;
 }>();
 
 const emit = defineEmits<{
@@ -273,9 +274,14 @@ function focus(): void {
   composerRef.value?.focus();
 }
 
+function insertQuote(payload: { quote: string; comment?: string; source?: string }): void {
+  composerRef.value?.insertQuote(payload);
+}
+
 defineExpose({
   loadForEdit,
   loadAttachmentsForEdit,
+  insertQuote,
   focus,
   anyPopupOpen: composerPopupOpen,
   isEmpty: computed(() => composerRef.value?.isEmpty ?? true),
@@ -373,8 +379,8 @@ defineExpose({
               <IconButton
                 v-if="latestPlan?.path"
                 size="sm"
-                :label="t('tasks.openPanel')"
-                @click="openFile?.({ path: latestPlan.path!, content: latestPlan.plan })"
+                :label="t('tools.plan.revealInFileManager')"
+                @click="void revealSavedPlan?.(latestPlan.agentId, latestPlan.toolCallId)"
               >
                 <Icon name="external-link" size="sm" />
               </IconButton>
@@ -413,7 +419,13 @@ defineExpose({
             :goal="goal"
             :open-file="openFile"
           />
-          <PlanPanel v-else :plan="latestPlan" :plan-mode-on="planMode" :open-file="openFile" />
+          <PlanPanel
+            v-else
+            :plan="latestPlan"
+            :plan-mode-on="planMode"
+            :open-file="openFile"
+            :reveal-saved-plan="revealSavedPlan"
+          />
         </div>
       </div>
     </Transition>

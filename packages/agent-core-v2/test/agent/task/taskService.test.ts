@@ -7,11 +7,12 @@ import { DisposableStore, toDisposable } from '#/_base/di/lifecycle';
 import { ILogService } from '#/_base/log/log';
 import { TestInstantiationService } from '#/_base/di/test';
 import { IAgentConversationUndoParticipantRegistry } from '#/agent/contextMemory/conversationUndoParticipants';
-import {
-  IAgentContextInjectorService,
-  type ContextInjectionContext,
-  type ContextInjectionProvider,
-} from '#/agent/contextInjector/contextInjector';
+import type {
+  ContextInjectionContext,
+  ContextInjectionProvider,
+} from '#/features/reminder/types';
+import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
+import { createReminderStub, lifecycleWithReminder } from '../../features/reminder/stubs';
 import {
   IAgentTaskService,
   type AgentTask,
@@ -112,14 +113,17 @@ describe('AgentTaskService', () => {
       list: () => [],
     });
     ix.stub(IWireService, stubWireService());
-    ix.stub(IAgentContextInjectorService, {
-      register: (name, provider) => {
-        injectionProviders.set(name, provider as ContextInjectionProvider);
-        return toDisposable(() => {
-          injectionProviders.delete(name);
-        });
-      },
-    });
+    ix.stub(
+      IAgentLifecycleService,
+      lifecycleWithReminder(createReminderStub({
+        register: (name, provider) => {
+          injectionProviders.set(name, provider as ContextInjectionProvider);
+          return toDisposable(() => {
+            injectionProviders.delete(name);
+          });
+        },
+      })),
+    );
     ix.stub(ITaskService, {
       run: () => {
         throw new Error('ITaskService.run is not used by this test');
@@ -170,6 +174,7 @@ describe('AgentTaskService', () => {
       append: async () => {},
       list: async () => [],
       delete: async () => {},
+      size: async () => undefined,
       flush: async () => {},
       close: async () => {},
     });
@@ -226,6 +231,21 @@ describe('AgentTaskService', () => {
       },
     };
   }
+
+  it('keeps a live UTF-8 output preview within its byte limit', async () => {
+    const svc = ix.get(IAgentTaskService);
+    const taskId = svc.registerTask(outputtingTask('éé'));
+
+    await svc.wait(taskId, 1_000);
+
+    expect(await svc.getOutputSnapshot(taskId, 3)).toEqual({
+      outputSizeBytes: 4,
+      previewBytes: 2,
+      truncated: true,
+      fullOutputAvailable: false,
+      preview: 'é',
+    });
+  });
 
   it('task.terminated dispatch carries the retained output tail as outputTail', async () => {
     const { records } = capturingWire();
@@ -494,20 +514,21 @@ describe('AgentTaskService', () => {
     };
   }
 
-  it('stopAllOnExit suppresses and persists terminal state for detached tasks', async () => {
+  it('stopAllOnExit persists shutdown provenance independently of its reason', async () => {
     const writes = stubTaskWrites();
     const svc = ix.get(IAgentTaskService);
     const first = svc.registerTask(fakeProcessTask());
     const second = svc.registerTask(fakeProcessTask());
 
-    const stopped = await svc.stopAllOnExit('Session closed');
+    const stopped = await svc.stopAllOnExit('maintenance shutdown');
 
     expect(stopped.map((info) => info.taskId).toSorted()).toEqual([first, second].toSorted());
     for (const taskId of [first, second]) {
       const info = svc.getTask(taskId);
       expect(info?.status).toBe('killed');
-      expect(info?.stopReason).toBe('Session closed');
+      expect(info?.stopReason).toBe('maintenance shutdown');
       expect(info?.terminalNotificationSuppressed).toBe(true);
+      expect(info?.stoppedOnExit).toBe(true);
       const persisted = writes.filter((write) => write.taskId === taskId);
       expect(
         persisted.some(
@@ -517,7 +538,9 @@ describe('AgentTaskService', () => {
       ).toBe(true);
       expect(persisted.at(-1)).toMatchObject({
         status: 'killed',
+        stopReason: 'maintenance shutdown',
         terminalNotificationSuppressed: true,
+        stoppedOnExit: true,
       });
     }
   });
@@ -697,9 +720,10 @@ describe('AgentTaskService', () => {
       list: () => [],
     });
     ix.stub(IWireService, stubWireService());
-    ix.stub(IAgentContextInjectorService, {
-      register: () => toDisposable(() => {}),
-    });
+    ix.stub(
+      IAgentLifecycleService,
+      lifecycleWithReminder(createReminderStub()),
+    );
     ix.stub(ITaskService, {
       run: () => {
         throw new Error('ITaskService.run is not used by this test');
@@ -753,9 +777,10 @@ describe('AgentTaskService', () => {
       register: () => toDisposable(() => {}),
       list: () => [],
     });
-    ix.stub(IAgentContextInjectorService, {
-      register: () => toDisposable(() => {}),
-    });
+    ix.stub(
+      IAgentLifecycleService,
+      lifecycleWithReminder(createReminderStub()),
+    );
     ix.stub(ITaskService, {
       run: () => {
         throw new Error('ITaskService.run is not used by this test');
@@ -1118,6 +1143,7 @@ describe('AgentTaskService', () => {
       },
       list: async () => [],
       delete: async () => {},
+      size: async () => undefined,
       flush: async () => {},
       close: async () => {},
     });

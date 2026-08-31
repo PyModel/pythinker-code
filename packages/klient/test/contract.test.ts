@@ -12,6 +12,7 @@ import { pluginManifestSchema } from '../src/contract/global/plugins.js';
 import { mcpServerAuthFlowHandleSchema } from '../src/contract/global/mcpManagement.js';
 import { createSessionOptionsSchema } from '../src/contract/session/lifecycle.js';
 import { promptPayloadSchema } from '../src/contract/agent/schemas.js';
+import { expertTalkResultSchema } from '../src/contract/session/expertTalk.js';
 
 type McpTimeoutField = 'startupTimeoutMs' | 'toolTimeoutMs';
 
@@ -86,6 +87,19 @@ describe('prompt contract validation', () => {
 
   it('accepts a non-empty caller-chosen promptId', () => {
     expect(promptPayloadSchema.safeParse({ input: [], promptId: 'submission-1' }).success).toBe(true);
+  });
+});
+
+describe('Expert Talk result contract', () => {
+  it('preserves the answer from an unknown result version', () => {
+    expect(expertTalkResultSchema.parse({
+      version: 'expert_talk_result/v2',
+      answer: 'Fallback answer',
+      future_notes: { evidence: true },
+    })).toEqual({
+      version: 'expert_talk_result/v2',
+      answer: 'Fallback answer',
+    });
   });
 });
 

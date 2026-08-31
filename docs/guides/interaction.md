@@ -66,6 +66,20 @@ After producing a plan the agent pauses for your review — you can approve it, 
 YOLO mode skips confirmation for file writes and command execution. Only use it in working directories you trust.
 :::
 
+### Expert Talk
+
+Expert Talk asks two different models for independent, read-only openings. Each model reviews the other opening. The Fusion Lead then creates one fresh final answer. The normal transcript shows the user message and final answer; the complete exchange remains available in a collapsed panel.
+
+Expert Talk is experimental and requires the v2 engine. Set the flag before you start Pythinker Code CLI:
+
+```sh
+PYTHINKER_CODE_EXPERIMENTAL_EXPERT_TALK=1 pythinker
+```
+
+Run `/expert-talk configure` to select the Fusion Lead and Peer Expert. Run `/expert-talk` or `/expert-talk arm` to apply the pair to the next accepted message only. The selected pair remains available in the session until you run `/expert-talk reset`.
+
+The full protocol runs automatically. Run `/expert-talk cancel` or press `Esc` to stop an active run. Run `/expert-talk retry` to repeat the complete run with a new ID. All model stages can only use read-only tools. See the [slash commands reference](../reference/slash-commands.md#modes--run-control) for the full command list.
+
 ### Shell mode
 
 Shell mode lets you run terminal commands without leaving the conversation. The command output is written into the conversation context, so the agent can see the results in later turns.

@@ -12,7 +12,6 @@ import { selectWsBearerProtocol } from '../bearerProtocol';
 export const WS_PATH = '/api/v1/ws';
 
 export interface RegisterWsV1Options {
-  /** Present-only credential validator forwarded to {@link WsConnectionV1}. */
   readonly validateCredential?: CredentialValidator;
   readonly registry: IConnectionRegistry;
   readonly broadcaster: SessionEventBroadcaster;
@@ -22,17 +21,16 @@ export interface RegisterWsV1Options {
   readonly flushIntervalMs?: number;
   readonly maxBatchSize?: number;
   readonly highWaterMarkBytes?: number;
-  /** Heartbeat ping cadence override — tests inject small values. */
   readonly heartbeatIntervalMs?: number;
 }
 
 export function registerWsV1(core: Scope, opts: RegisterWsV1Options): WebSocketServer {
-  void core;
   const wss = new WebSocketServer({ noServer: true, handleProtocols: selectWsBearerProtocol });
   const { registry, broadcaster } = opts;
 
   wss.on('connection', (socket, req) => {
     const conn = new WsConnectionV1({
+      core,
       socket,
       broadcaster,
       fsWatchBridge: opts.fsWatchBridge,

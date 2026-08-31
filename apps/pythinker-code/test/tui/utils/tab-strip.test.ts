@@ -4,7 +4,7 @@ import chalk from 'chalk';
 import { darkColors } from '#/tui/theme/colors';
 import { renderTabStrip } from '#/tui/utils/tab-strip';
 
-const ANSI_SGR = /\u001b\[[0-9;]*m/g;
+const ANSI_SGR = /\u001B\[[0-9;]*m/g;
 
 function strip(text: string): string {
   return text.replaceAll(ANSI_SGR, '');
@@ -46,5 +46,21 @@ describe('renderTabStrip', () => {
     // joined line was wider and the trailing tab got truncated.
     const out = render(labels, FULL_WIDTH);
     expect(out.endsWith(' Custom ')).toBe(true);
+  });
+
+  it('uses the accessible active-tab color pair', () => {
+    const previousChalkLevel = chalk.level;
+    chalk.level = 3;
+    try {
+      const out = renderTabStrip({ labels, activeIndex: 0, width: FULL_WIDTH, colors: darkColors });
+      const active = chalk
+        .bgHex(darkColors.selectionBg)
+        .hex(darkColors.inverseText)
+        .bold(' Installed ');
+
+      expect(out).toContain(active);
+    } finally {
+      chalk.level = previousChalkLevel;
+    }
   });
 });

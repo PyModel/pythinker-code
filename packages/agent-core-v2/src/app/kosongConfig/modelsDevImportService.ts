@@ -20,11 +20,6 @@ import { MODELS_SECTION, PROVIDERS_SECTION } from './configSection';
 import { ModelsDevImportErrors } from './errors';
 import { IKosongConfigService } from './kosongConfig';
 import {
-  SECONDARY_MODEL_SECTION,
-  cascadeSubagentModelPool,
-  type SecondaryModelConfig,
-} from '#/session/subagent/configSection';
-import {
   IModelsDevImportService,
   PROVIDER_ID_PATTERN,
   type ImportCustomRegistryOptions,
@@ -106,19 +101,6 @@ export class ModelsDevImportService implements IModelsDevImportService {
     return this.config;
   }
 
-  private async cascadePool(
-    config: IConfigService,
-    nextModels: Record<string, unknown>,
-  ): Promise<void> {
-    const cascaded = cascadeSubagentModelPool(
-      config.inspect<SecondaryModelConfig>(SECONDARY_MODEL_SECTION).userValue,
-      nextModels,
-    );
-    if (cascaded !== undefined) {
-      await config.replace(SECONDARY_MODEL_SECTION, cascaded);
-    }
-  }
-
   private async doImportModelsDevProvider(
     options: ImportModelsDevProviderOptions,
   ): Promise<ImportModelsDevProviderResult> {
@@ -169,9 +151,10 @@ export class ModelsDevImportService implements IModelsDevImportService {
     provider.baseUrl = resolution.baseUrl;
     provider.apiKey = options.apiKey ?? existing?.apiKey;
     provider.source = { kind: 'modelsDev', url: MODELS_DEV_URL };
-    await config.replace(PROVIDERS_SECTION, { ...providers, [targetId]: provider });
-
     const records = config.inspect<ModelsSection>(MODELS_SECTION).userValue ?? {};
+    const nextProviders = { ...providers, [targetId]: provider };
+    await config.replace(PROVIDERS_SECTION, nextProviders);
+
     const withoutTarget = Object.fromEntries(
       Object.entries(records).filter(([, record]) => record.provider !== targetId),
     );
@@ -181,7 +164,6 @@ export class ModelsDevImportService implements IModelsDevImportService {
       nextModels[`${targetId}/${model.id}`] = modelsDevModelToRecord(targetId, model);
     }
     await config.replace(MODELS_SECTION, nextModels);
-    await this.cascadePool(config, nextModels);
 
     await this.models.settled;
     const imported = await this.modelCatalog.getProvider(targetId);
@@ -194,6 +176,7 @@ export class ModelsDevImportService implements IModelsDevImportService {
     const { url } = options;
     const config = await this.readyConfig();
     const providers = config.inspect<ProvidersSection>(PROVIDERS_SECTION).userValue ?? {};
+    const models = config.inspect<ModelsSection>(MODELS_SECTION).userValue ?? {};
     const source: CustomRegistrySource = {
       kind: 'apiJson',
       url,
@@ -222,9 +205,7 @@ export class ModelsDevImportService implements IModelsDevImportService {
 
     const removed = {
       providers: { ...providers },
-      models: {
-        ...config.inspect<ModelsSection>(MODELS_SECTION).userValue,
-      },
+      models: { ...models },
     } as PythinkerConfigShape;
     const surviving = new Set(Object.values(entries).map((entry) => entry.id));
     for (const [providerId, provider] of Object.entries(removed.providers)) {
@@ -257,7 +238,6 @@ export class ModelsDevImportService implements IModelsDevImportService {
     }
     await config.replace(PROVIDERS_SECTION, applied.providers as ProvidersSection);
     await config.replace(MODELS_SECTION, (applied.models ?? {}) as ModelsSection);
-    await this.cascadePool(config, applied.models ?? {});
 
     await this.models.settled;
     const imported = [];

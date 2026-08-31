@@ -77,6 +77,7 @@ const V2_ONLY_RECORD_TYPES: ReadonlySet<string> = new Set([
 ]);
 
 const V2_RECORD_TYPES: ReadonlySet<string> = new Set([
+  'subagent.binding_provenance.recorded',
   'tower_mode.enter',
   'tower_mode.exit',
   'task.started',
@@ -203,6 +204,7 @@ describe('v1 wire vocabulary', () => {
 describe('conversation-time checkpoint registration', () => {
   const CHECKPOINT_EXEMPT_STATES: ReadonlySet<string> = new Set([
     'goalForkNotice',
+    'turn',
   ]);
   const CONTEXT_OWNER_STATE = 'contextMemory';
   const CONTEXT_EVENTS: readonly Event2Class[] = [

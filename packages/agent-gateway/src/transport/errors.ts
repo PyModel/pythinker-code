@@ -3,7 +3,6 @@ import { ErrorCodes, Error2 } from '@pymodel/agent-core-v2';
 import { errEnvelope } from '../protocol/envelope';
 import { ErrorCode } from '../protocol/error-codes';
 
-/** Thrown by {@link withTimeout} when a call exceeds its deadline. */
 export class TimeoutError extends Error {
   constructor(readonly ms: number) {
     super(`call timed out after ${ms}ms`);
@@ -11,7 +10,6 @@ export class TimeoutError extends Error {
   }
 }
 
-/** Race a promise against a deadline. */
 export function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   if (ms <= 0) return promise;
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -50,13 +48,21 @@ const PYTHINKER_TO_PROTOCOL: Record<string, ErrorCode> = {
   [ErrorCodes.OS_FS_PERMISSION_DENIED]: ErrorCode.FS_PERMISSION_DENIED,
   [ErrorCodes.STORAGE_IO_FAILED]: ErrorCode.PERSISTENCE_FAILURE,
   [ErrorCodes.STORAGE_LOCKED]: ErrorCode.PERSISTENCE_FAILURE,
+  [ErrorCodes.EXPERT_TALK_RUN_NOT_FOUND]: ErrorCode.EXPERT_TALK_RUN_NOT_FOUND,
+  [ErrorCodes.EXPERT_TALK_FEATURE_DISABLED]: ErrorCode.EXPERT_TALK_FEATURE_DISABLED,
+  [ErrorCodes.EXPERT_TALK_PAIR_NOT_CONFIGURED]: ErrorCode.EXPERT_TALK_PAIR_NOT_CONFIGURED,
+  [ErrorCodes.EXPERT_TALK_PAIR_INVALID]: ErrorCode.EXPERT_TALK_PAIR_INVALID,
+  [ErrorCodes.EXPERT_TALK_PAIR_COLLAPSED]: ErrorCode.EXPERT_TALK_PAIR_COLLAPSED,
+  [ErrorCodes.EXPERT_TALK_ALREADY_ARMED]: ErrorCode.EXPERT_TALK_ALREADY_ARMED,
+  [ErrorCodes.EXPERT_TALK_NOT_ARMED]: ErrorCode.EXPERT_TALK_NOT_ARMED,
+  [ErrorCodes.EXPERT_TALK_BUSY]: ErrorCode.EXPERT_TALK_BUSY,
+  [ErrorCodes.EXPERT_TALK_RUN_NOT_RETRYABLE]: ErrorCode.EXPERT_TALK_RUN_NOT_RETRYABLE,
+  [ErrorCodes.EXPERT_TALK_CLIENT_UNSUPPORTED]: ErrorCode.EXPERT_TALK_CLIENT_UNSUPPORTED,
+  [ErrorCodes.EXPERT_TALK_CONTEXT_INSUFFICIENT]: ErrorCode.EXPERT_TALK_CONTEXT_INSUFFICIENT,
+  [ErrorCodes.EXPERT_TALK_BUDGET_EXCEEDED]: ErrorCode.EXPERT_TALK_BUDGET_EXCEEDED,
+  [ErrorCodes.EXPERT_TALK_CONFIG_VERSION_CONFLICT]: ErrorCode.CONFIG_VERSION_CONFLICT,
 };
 
-/**
- * Map an internal error to the project envelope. `Error2` keeps its coded
- * mapping; everything else becomes `50001`. Stack traces are intentionally not
- * surfaced.
- */
 export function mapError(err: unknown, requestId: string): ReturnType<typeof errEnvelope> {
   if (err instanceof Error2) {
     const code = PYTHINKER_TO_PROTOCOL[err.code] ?? ErrorCode.INTERNAL_ERROR;
@@ -73,7 +79,6 @@ export function mapError(err: unknown, requestId: string): ReturnType<typeof err
   );
 }
 
-/** Build a `40001` envelope with structured details. */
 export function validationEnvelope(
   details: { path: string; message: string }[],
   requestId: string,
@@ -100,11 +105,6 @@ export function validationEnvelope(
   };
 }
 
-/**
- * Ensure a value survives a JSON round-trip (catches circular refs, `BigInt`,
- * functions). Returns the value unchanged; throws `Error2` on failure so the
- * caller maps it to `50001` with a clear message.
- */
 export function assertSerializable(value: unknown): unknown {
   if (value === undefined) return null;
   try {

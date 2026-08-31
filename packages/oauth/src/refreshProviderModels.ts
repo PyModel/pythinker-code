@@ -529,7 +529,6 @@ export async function refreshProviderModels(
         if (existed) {
           restoreProviderAliases(next, preserveUserProviderAliases(config, providerId, refreshedAliasKeys));
         }
-
         if (
           existed &&
           providerModelsEqual(config, next, providerId, refreshedAliasKeys) &&

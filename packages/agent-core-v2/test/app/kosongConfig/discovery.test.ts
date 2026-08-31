@@ -6,6 +6,15 @@ import { ILogService, type LogPayload } from '#/_base/log/log';
 import { IAgentIdentity } from '#/app/agentIdentity/agentIdentity';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
+import {
+  LegacySecondaryModelConfigSchema,
+  normalizeLegacySecondaryModel,
+  toPersistedSecondaryModel,
+} from '#/session/subagent/policy';
+import {
+  ISubagentModelPolicyService,
+  type PreparedSubagentPolicyMutation,
+} from '#/session/subagent/subagentModelPolicy';
 import { ConfigRegistry } from '#/app/config/configService';
 import { IEventService } from '#/app/event/event';
 import { IProviderDiscoveryService } from '#/app/kosongConfig/discovery';
@@ -60,6 +69,29 @@ function stubLogService(): ILogService {
   } satisfies ILogService;
 }
 
+function stubSubagentModelPolicy(): ISubagentModelPolicyService {
+  const prepare = (input: unknown): PreparedSubagentPolicyMutation => {
+    const policy = normalizeLegacySecondaryModel(
+      input === null || input === undefined ? undefined : LegacySecondaryModelConfigSchema.parse(input),
+    );
+    return { policy, section: toPersistedSecondaryModel(policy) };
+  };
+  return {
+    _serviceBrand: undefined,
+    get: () => ({ policy: { mode: 'inherit' }, resourceVersion: 'stub' }),
+    getEffective: () => ({
+      configuredPolicy: { mode: 'inherit' },
+      effectivePolicy: { mode: 'inherit' },
+      policySource: 'default',
+      feature: { enabled: false, source: 'default' },
+    }),
+    set: () => Promise.reject(new Error('not stubbed')),
+    clear: () => Promise.reject(new Error('not stubbed')),
+    prepareLegacyMutation: prepare,
+    resolveRevision: () => 'stub',
+  };
+}
+
 async function createHost(
   sections: Record<string, unknown> = {},
 ): Promise<{
@@ -75,6 +107,7 @@ async function createHost(
   const host = createScopedTestHost([
     [IConfigService, config],
     [IEventService, events],
+    [ISubagentModelPolicyService, stubSubagentModelPolicy()],
     [ILogService, stubLogService()],
     [
       IBootstrapService,
@@ -306,7 +339,7 @@ describe('refreshProviderModels write behavior', () => {
     }
   });
 
-  it('never exposes a halfway-removed catalog: the registries stay untouched until the single atomic write', async () => {
+  it('persists refresh atomically without rewriting secondary model aliases', async () => {
     const fetchMock = vi.fn(
       async () =>
         new Response(
@@ -338,8 +371,17 @@ describe('refreshProviderModels write behavior', () => {
       },
       models: {
         'acme/m1': { provider: 'acme', model: 'm1', maxContextSize: 1000 },
+        'acme/old-default': {
+          provider: 'acme',
+          model: 'old-default',
+          maxContextSize: 1000,
+        },
       },
-      defaultModel: 'acme/m1',
+      defaultModel: 'acme/old-default',
+      secondaryModel: {
+        defaultModel: 'acme/m1',
+        models: { 'acme/m1': 'fast' },
+      },
     });
     try {
       let seenDuringWrite: { providers: readonly string[]; models: readonly string[] } | undefined;
@@ -355,11 +397,18 @@ describe('refreshProviderModels write behavior', () => {
       const result = await discovery.refreshProviderModels();
 
       expect(result.failed).toEqual([]);
-      expect(seenDuringWrite).toEqual({ providers: ['acme'], models: ['acme/m1'] });
+      expect(seenDuringWrite).toEqual({
+        providers: ['acme'],
+        models: ['acme/m1', 'acme/old-default'],
+      });
       expect(vi.mocked(config.replaceSections).mock.calls.length).toBe(1);
       expect(providers.list()['acme']).toBeDefined();
       expect(models.list()['acme/m2']).toBeDefined();
       expect(models.list()['acme/m1']).toBeUndefined();
+      expect(config.get('secondaryModel')).toEqual({
+        defaultModel: 'acme/m1',
+        models: { 'acme/m1': 'fast' },
+      });
       expect(config.get('defaultModel')).toBeUndefined();
     } finally {
       host.dispose();

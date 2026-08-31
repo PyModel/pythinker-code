@@ -28,7 +28,6 @@ import { IConfigService } from '#/app/config/config';
 import type { LoopControl } from '#/agent/loop/configSection';
 import { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
 import { RuntimeWorkspaceView } from '#/runtime/runtimeWorkspaceView';
-import { IHostClock } from '#/os/interface/hostClock';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import type { ToolSource } from '#/tool/toolContract';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
@@ -39,7 +38,7 @@ import { ISessionToolPolicy } from '#/session/sessionToolPolicy/sessionToolPolic
 import { ISessionToolPolicyGate } from '#/session/sessionToolPolicyGate/sessionToolPolicyGate';
 import { IPluginService } from '#/app/plugin/plugin';
 import type { ResolvedAgentProfile, SystemPromptContext } from '#/agent/profile/profile';
-import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { IAgentScopeContext, scopedModel } from '#/agent/scopeContext/scopeContext';
 import { IAgentStateService } from '#/agent/state/agentState';
 import { IAgentAgentsMdReminderService } from '#/agent/agentsMdReminder/agentsMdReminder';
 
@@ -150,7 +149,6 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
     @IModelCatalog private readonly modelCatalog: IModelCatalog,
     @IProtocolAdapterRegistry private readonly protocolAdapters: IProtocolAdapterRegistry,
     @IAgentRuntimeService private readonly runtime: IAgentRuntimeService,
-    @IHostClock private readonly clock: IHostClock,
     @ISessionContext private readonly sessionContext: ISessionContext,
     @IBootstrapService private readonly bootstrap: IBootstrapService,
     @ISessionWorkspaceContext private readonly workspace: ISessionWorkspaceContext,
@@ -291,7 +289,7 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
         `model is required to bind profile "${input.profile}" (no default model configured)`,
       );
     }
-    const model = this.modelCatalog.get(alias);
+    const model = scopedModel(this.scopeContext, this.modelCatalog, alias);
 
     if (input.strictThinking === true && input.thinking !== undefined) {
       this.assertThinkingEffortSupported(input.thinking, model, alias);
@@ -337,7 +335,7 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
   }
 
   async setModel(alias: string): Promise<ProfileSetModelResult> {
-    const model = this.modelCatalog.get(alias);
+    const model = scopedModel(this.scopeContext, this.modelCatalog, alias);
     if (this.profileName === undefined) {
       await this.bind({ profile: DEFAULT_AGENT_PROFILE_NAME, model: alias });
       this.telemetry.track2('model_switch', { model: alias });
@@ -442,7 +440,7 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
 
   resolveModelContext(): ProfileModelContext {
     const modelAlias = this.model;
-    const model = this.modelCatalog.get(modelAlias);
+    const model = scopedModel(this.scopeContext, this.modelCatalog, modelAlias);
     const loopControl = this.config.get<LoopControl>('loopControl');
     return {
       modelAlias,
@@ -704,7 +702,7 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
   private resolveModelForThinking(alias: string | undefined): Model | undefined {
     if (alias === undefined) return undefined;
     try {
-      return this.modelCatalog.get(alias);
+      return scopedModel(this.scopeContext, this.modelCatalog, alias);
     } catch {
       return undefined;
     }
@@ -816,16 +814,12 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
     }
     const skills = await this.resolveSkillListing();
     const pluginSections = await this.resolvePluginSections();
-    const now = this.clock.now();
-    const timeZone = this.clock.timeZone();
     return {
       ...base,
       cwd: view.workDir,
       osKind: env.osKind,
       shellName: env.shellName,
       shellPath: env.shellPath,
-      now: now.toISOString(),
-      timeZone,
       skills,
       pluginSections,
       skillActive: this.isToolActiveForProfile(profile, 'Skill'),

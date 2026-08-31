@@ -66,6 +66,14 @@ function createAgentTaskService(options: {
   };
 }
 
+async function cleanupSessionDir(
+  sessionDir: string,
+  ...contexts: readonly (TestAgentContext | undefined)[]
+): Promise<void> {
+  for (const ctx of contexts) await ctx?.dispose();
+  await rm(sessionDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
+}
+
 function registerProcess(
   manager: IAgentTaskService,
   proc: IHostProcess,
@@ -490,6 +498,30 @@ describe('AgentTaskService', () => {
     });
   });
 
+  it('keeps a detached process task running when the register-time signal aborts', async () => {
+    const { manager } = createAgentTaskService();
+    const { proc, killSpy } = pendingProcess();
+    const controller = new AbortController();
+    const taskId = manager.registerTask(
+      new ProcessTask(proc, 'sleep 10', 'foreground process'),
+      {
+        detached: false,
+        signal: controller.signal,
+      },
+    );
+
+    const waiting = manager.waitForForegroundRelease(taskId);
+    expect(manager.detach(taskId)).toMatchObject({ detached: true });
+    controller.abort();
+
+    await expect(waiting).resolves.toBe('detached');
+    expect(killSpy).not.toHaveBeenCalled();
+    expect(manager.getTask(taskId)).toMatchObject({
+      status: 'running',
+      detached: true,
+    });
+  });
+
   it('forwards foreground signal abort reasons to agent task controllers', async () => {
     const { manager } = createAgentTaskService();
     const foregroundController = new AbortController();
@@ -519,6 +551,30 @@ describe('AgentTaskService', () => {
       stopReason: 'Aborted by the user',
     });
     expect(isUserCancellation(subagentController.signal.reason)).toBe(true);
+  });
+
+  it('does not forward register-time signal aborts to a detached agent task', async () => {
+    const { manager } = createAgentTaskService();
+    const foregroundController = new AbortController();
+    const subagentController = new AbortController();
+    const taskId = manager.registerTask(
+      agentTask(new Promise(() => {}), 'foreground agent', {
+        abortController: subagentController,
+      }),
+      {
+        detached: false,
+        signal: foregroundController.signal,
+      },
+    );
+
+    expect(manager.detach(taskId)).toMatchObject({ detached: true });
+    foregroundController.abort(userCancellationReason());
+
+    expect(subagentController.signal.aborted).toBe(false);
+    expect(manager.getTask(taskId)).toMatchObject({
+      status: 'running',
+      detached: true,
+    });
   });
 
   it('does not count foreground tasks against the detached task limit', () => {
@@ -681,8 +737,8 @@ describe('AgentTaskService', () => {
 
   it('stops appending persisted foreground output once the output limit trips', async () => {
     const sessionDir = await mkdtemp(join(tmpdir(), 'pythinker-bg-limit-fg-'));
+    const { ctx, manager } = createAgentTaskService({ sessionDir });
     try {
-      const { manager } = createAgentTaskService({ sessionDir });
       const chunks = Array.from({ length: 20 }, () => 'x'.repeat(MiB));
       const { proc } = sigtermIgnoringProcess(chunks);
 
@@ -701,14 +757,14 @@ describe('AgentTaskService', () => {
       expect(info).toMatchObject({ status: 'killed' });
       expect(output.outputSizeBytes).toBeLessThanOrEqual(LIMIT_BYTES);
     } finally {
-      await rm(sessionDir, { recursive: true, force: true });
+      await cleanupSessionDir(sessionDir, ctx);
     }
   });
 
   it('stops appending persisted output once the output limit trips for a detached process task', async () => {
     const sessionDir = await mkdtemp(join(tmpdir(), 'pythinker-bg-limit-bg-'));
+    const { ctx, manager } = createAgentTaskService({ sessionDir });
     try {
-      const { manager } = createAgentTaskService({ sessionDir });
       const chunks = Array.from({ length: 20 }, () => 'x'.repeat(MiB));
       const { proc } = sigtermIgnoringProcess(chunks);
 
@@ -727,14 +783,14 @@ describe('AgentTaskService', () => {
       expect(info?.stopReason ?? '').toMatch(/output limit/i);
       expect(output.outputSizeBytes).toBeLessThanOrEqual(LIMIT_BYTES);
     } finally {
-      await rm(sessionDir, { recursive: true, force: true });
+      await cleanupSessionDir(sessionDir, ctx);
     }
   });
 
   it('does not cap a detached subagent result larger than the process output limit', async () => {
     const sessionDir = await mkdtemp(join(tmpdir(), 'pythinker-bg-limit-agent-'));
+    const { ctx, manager } = createAgentTaskService({ sessionDir });
     try {
-      const { manager } = createAgentTaskService({ sessionDir });
       const result = 'y'.repeat(20 * MiB);
       const taskId = manager.registerTask(
         agentTask(Promise.resolve({ result }), 'big subagent result'),
@@ -747,7 +803,7 @@ describe('AgentTaskService', () => {
       expect(info).toMatchObject({ status: 'completed' });
       expect(output.outputSizeBytes).toBe(Buffer.byteLength(result));
     } finally {
-      await rm(sessionDir, { recursive: true, force: true });
+      await cleanupSessionDir(sessionDir, ctx);
     }
   });
 
@@ -1079,8 +1135,10 @@ describe('AgentTaskService', () => {
 
   it('persists graceful process shutdown as killed when stop was requested', async () => {
     const sessionDir = await mkdtemp(join(tmpdir(), 'pythinker-bg-stop-race-'));
+    const writerFixture = createAgentTaskService({ sessionDir });
+    const writer = writerFixture.manager;
+    let readerFixture: TaskServiceFixture | undefined;
     try {
-      const writer = createAgentTaskService({ sessionDir }).manager;
       const { proc, resolve } = manuallyResolvedProcess();
       const taskId = registerProcess(writer, proc, 'sleep 60', 'persisted race');
 
@@ -1088,7 +1146,8 @@ describe('AgentTaskService', () => {
       resolve(0);
       await stopPromise;
 
-      const reader = createAgentTaskService({ sessionDir }).manager;
+      readerFixture = createAgentTaskService({ sessionDir });
+      const reader = readerFixture.manager;
       await reader.loadFromDisk();
 
       expect(reader.getTask(taskId)).toMatchObject({
@@ -1098,7 +1157,7 @@ describe('AgentTaskService', () => {
         stopReason: 'user requested',
       });
     } finally {
-      await rm(sessionDir, { recursive: true, force: true });
+      await cleanupSessionDir(sessionDir, writerFixture.ctx, readerFixture?.ctx);
     }
   });
 
@@ -1285,15 +1344,15 @@ describe('AgentTaskService', () => {
 
   it('getTask on an unknown id does not create persisted state', async () => {
     const sessionDir = await mkdtemp(join(tmpdir(), 'pythinker-bg-mgr-missing-'));
+    const { ctx, manager, persistence } = createAgentTaskService({ sessionDir });
     try {
-      const { ctx, manager, persistence } = createAgentTaskService({ sessionDir });
 
       expect(manager.getTask('bash-bogusss0')).toBeUndefined();
 
       expect(await persistence!.listTasks()).toEqual([]);
       await ctx.get(ISessionMetadata).ready;
     } finally {
-      await rm(sessionDir, { recursive: true, force: true });
+      await cleanupSessionDir(sessionDir, ctx);
     }
   });
 

@@ -1,6 +1,7 @@
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 import type { Event } from '#/_base/event';
 import type { TokenUsage } from '#/kosong/contract/usage';
+import type { ContentPart } from '#/kosong/contract/message';
 import type { AgentProfileSummaryPolicy } from '#/app/agentProfileCatalog/agentProfileCatalog';
 import type { AgentContext } from '#/agent/agentContext/agentContext';
 import type { Turn } from '#/agent/loop/loop';
@@ -14,7 +15,7 @@ import type {
 } from './spawn';
 
 export type AgentRunRequest =
-  | { readonly kind: 'prompt'; readonly prompt: string }
+  | { readonly kind: 'prompt'; readonly prompt: string; readonly content?: readonly ContentPart[] }
   | { readonly kind: 'retry'; readonly trigger?: string };
 
 export interface RunAgentOptions {
@@ -27,6 +28,16 @@ export interface AgentRunHandle {
   readonly agentId: string;
   readonly turn: Turn;
   readonly completion: Promise<{ readonly summary: string; readonly usage?: TokenUsage }>;
+}
+
+export class SubagentRunStartError extends Error {
+  constructor(
+    readonly agentId: string,
+    cause: unknown,
+  ) {
+    super(cause instanceof Error ? cause.message : String(cause), { cause });
+    this.name = 'SubagentRunStartError';
+  }
 }
 
 export interface AgentTaskStartHookContext {

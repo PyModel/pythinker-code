@@ -84,7 +84,7 @@ The web bundle: `apps/pythinker-code/dist-web` is the committed, prebuilt bundle
 ## Coding Rules
 
 - English-only codebase. Use ASCII/Latin fixtures (e.g. `café`) for unicode tests.
-- `packages/agent-core-v2`, `packages/agent-gateway`, and `packages/transcript` are comment-free zones: no line/block comments; exceptions are JSDoc attached to exported symbols and load-bearing lint-suppression directives (`oxlint-disable` / `eslint-disable`), while other tooling directives (`@ts-expect-error`, …) stay banned. Enforced by `scripts/check-no-comments.mjs`, which runs as part of `pnpm lint`.
+- `packages/agent-core-v2`, `packages/agent-gateway`, and `packages/transcript` are comment-free zones: no line/block comments; no JSDoc either, not even on exported symbols; the only exception is a load-bearing lint-suppression directive (`oxlint-disable` / `eslint-disable`), while other tooling directives (`@ts-expect-error`, …) stay banned. Enforced by `scripts/check-no-comments.mjs`, which runs as part of `pnpm lint`.
 - `packages/acp-adapter`: pin `@agentclientprotocol/sdk` `^0.23.0` (0.24+ broke session-model API).
 - `tsgo` (`@typescript/native-preview`) available via `npx tsgo -p <tsconfig> --noEmit`; committed scripts use `tsc` — run both for type fixes.
 - Pass `undefined` directly for optional props — no conditional spread.
@@ -118,6 +118,7 @@ Gate behind flags. Env: `PYTHINKER_CODE_EXPERIMENTAL_<NAME>` toggles one; `PYTHI
 - PR titles: Conventional Commit style (e.g. `chore: remove legacy format commands`).
 - Fill in `.github/pull_request_template.md` — link the issue, describe changes. No placeholder text or vague AI-generated PR summaries; the human author must understand the change well enough to explain the code, edge cases, and why the approach fits.
 - Run `gen-changesets` skill before submitting PRs. Changesets must strictly follow its rules: one short user-facing sentence stating only what changed; skip any change users cannot perceive. Never decide `major` on your own — stop, explain, and get explicit user confirmation first; default to `minor`, fall back to `patch`.
+- Changeset text is shipped text: the desktop release body is generated from `apps/desktop/CHANGELOG.md`, and the in-app updater shows it to users verbatim. A release body must state what changed for users — never a build stamp, a commit hash, or placeholder text. `desktop-release.yml` fails a stable release whose version has no changelog entry.
 - Prefer `import ... from '#/...'` (equivalent to `@/...`).
 - Do not commit throwaway scratch or exploratory files. Never stage agent working notes or handoff documents (e.g. `HANDOVER-*.md`, `HANDOFF-*.md`, `handoff.md`), or throwaway UI/UX prototypes or design mockups (e.g. `*-designs.html`, `*-mockup.html`, `*-demo(s).html`). The only tracked `.html` files should be Vite `index.html` entrypoints. Put scratch work under `.tmp/` (gitignored).
 
@@ -126,3 +127,48 @@ Gate behind flags. Env: `PYTHINKER_CODE_EXPERIMENTAL_<NAME>` toggles one; `PYTHI
 - Hard rules that affect almost every task: update the root `AGENTS.md`.
 - Rules that only affect a specific directory: update the nearest sub-directory `AGENTS.md`.
 - Project-map entries stay at 1–2 sentences; deep package docs live in the package's own `AGENTS.md`.
+
+<!-- gitnexus:start -->
+# GitNexus — Code Intelligence
+
+This project is indexed by GitNexus as **pythinker-code** (91454 symbols, 263612 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+
+> Index stale? Run `node .gitnexus/run.cjs analyze` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash → `npm i -g gitnexus`; #1939).
+
+## Always Do
+
+- **MUST run impact analysis before editing any symbol.** Before modifying a function, class, or method, run `impact({target: "symbolName", direction: "upstream"})` and report the blast radius (direct callers, affected processes, risk level) to the user.
+- **MUST run `detect_changes()` before committing** to verify your changes only affect expected symbols and execution flows. For regression review, compare against the default branch: `detect_changes({scope: "compare", base_ref: "main"})`.
+- **MUST warn the user** if impact analysis returns HIGH or CRITICAL risk before proceeding with edits.
+- When exploring unfamiliar code, use `query({search_query: "concept"})` to find execution flows instead of grepping. It returns process-grouped results ranked by relevance.
+- When you need full context on a specific symbol — callers, callees, which execution flows it participates in — use `context({name: "symbolName"})`.
+- For security review, `explain({target: "fileOrSymbol"})` lists taint findings (source→sink flows; needs `analyze --pdg`).
+
+## Never Do
+
+- NEVER edit a function, class, or method without first running `impact` on it.
+- NEVER ignore HIGH or CRITICAL risk warnings from impact analysis.
+- NEVER rename symbols with find-and-replace — use `rename` which understands the call graph.
+- NEVER commit changes without running `detect_changes()` to check affected scope.
+
+## Resources
+
+| Resource | Use for |
+|----------|---------|
+| `gitnexus://repo/pythinker-code/context` | Codebase overview, check index freshness |
+| `gitnexus://repo/pythinker-code/clusters` | All functional areas |
+| `gitnexus://repo/pythinker-code/processes` | All execution flows |
+| `gitnexus://repo/pythinker-code/process/{name}` | Step-by-step execution trace |
+
+## CLI
+
+| Task | Read this skill file |
+|------|---------------------|
+| Understand architecture / "How does X work?" | `.claude/skills/gitnexus/gitnexus-exploring/SKILL.md` |
+| Blast radius / "What breaks if I change X?" | `.claude/skills/gitnexus/gitnexus-impact-analysis/SKILL.md` |
+| Trace bugs / "Why is X failing?" | `.claude/skills/gitnexus/gitnexus-debugging/SKILL.md` |
+| Rename / extract / split / refactor | `.claude/skills/gitnexus/gitnexus-refactoring/SKILL.md` |
+| Tools, resources, schema reference | `.claude/skills/gitnexus/gitnexus-guide/SKILL.md` |
+| Index, status, clean, wiki CLI commands | `.claude/skills/gitnexus/gitnexus-cli/SKILL.md` |
+
+<!-- gitnexus:end -->

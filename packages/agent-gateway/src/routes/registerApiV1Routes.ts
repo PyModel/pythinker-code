@@ -15,7 +15,9 @@ import { registerAuthRoute } from './auth';
 import { registerCapabilitiesRoutes } from './capabilities';
 import { registerCodexLoginRoutes } from './codex';
 import { registerConfigRoutes } from './config';
+import { registerSubagentModelPolicyRoutes } from './subagentModelPolicy';
 import { registerConnectionsRoutes } from './connections';
+import { registerExpertTalkRoutes } from './expertTalk';
 import { registerFilesRoutes } from './files';
 import { registerFsRoutes } from './fs';
 import { registerGuiStoreRoutes } from './guiStore';
@@ -59,10 +61,6 @@ interface ApiV1RouteHost {
 
 export interface RegisterApiV1RoutesOptions {
   readonly serverVersion: string;
-  /**
-   * Host product identity from `startServer` — the session export route stamps
-   * its manifest from `hostIdentity.version`.
-   */
   readonly hostIdentity: PythinkerHostIdentity;
   readonly debugEndpoints?: boolean;
   readonly enableShutdown?: boolean;
@@ -72,21 +70,9 @@ export interface RegisterApiV1RoutesOptions {
   readonly connectionRegistry: IConnectionRegistry;
   readonly broadcaster: SessionEventBroadcaster;
   readonly transcriptService: TranscriptService;
-  /** Catalog URL for the `/plugins/marketplace` route (resolved by start.ts). */
   readonly pluginMarketplaceUrl?: string;
-  /** True when the catalog URL is the built-in default (no option/env set). */
   readonly pluginMarketplaceIsDefault: boolean;
-  /**
-   * Surface `dangerous_bypass_auth` in the `/meta` payload. Set by `start.ts`
-   * from the `disableAuth` server option (the `--dangerous-bypass-auth` CLI
-   * flag).
-   */
   readonly dangerousBypassAuth?: boolean;
-  /**
-   * Custom browser tab title for this instance, surfaced as `web_title` in the
-   * `/meta` payload. Set by `start.ts` from the `webTitle` server option (the
-   * CLI's `--web-title` flag).
-   */
   readonly webTitle?: string;
 }
 
@@ -113,6 +99,21 @@ export async function registerApiV1Routes(
           await core.accessor.get(IConfigService).ready;
           return core.accessor.get(IFlagService).snapshot();
         },
+        getExperimentalFlagStates: async () => {
+          await core.accessor.get(IConfigService).ready;
+          return core.accessor
+            .get(IFlagService)
+            .explainAll()
+            .map((state) => ({
+              id: state.id,
+              enabled: state.enabled,
+              source: state.source,
+              config_value: state.configValue,
+              default_enabled: state.defaultEnabled,
+              externally_controlled: state.externallyControlled,
+              overridden: state.overridden,
+            }));
+        },
         getFeatures: () =>
           core.accessor
             .get(IFeatureManager)
@@ -130,6 +131,10 @@ export async function registerApiV1Routes(
         core,
       );
       registerConfigRoutes(apiV1 as unknown as Parameters<typeof registerConfigRoutes>[0], core);
+      registerSubagentModelPolicyRoutes(
+        apiV1 as unknown as Parameters<typeof registerSubagentModelPolicyRoutes>[0],
+        core,
+      );
       registerModelCatalogRoutes(
         apiV1 as unknown as Parameters<typeof registerModelCatalogRoutes>[0],
         core,
@@ -170,6 +175,11 @@ export async function registerApiV1Routes(
       registerPromptsRoutes(
         apiV1 as unknown as Parameters<typeof registerPromptsRoutes>[0],
         core,
+      );
+      registerExpertTalkRoutes(
+        apiV1 as unknown as Parameters<typeof registerExpertTalkRoutes>[0],
+        core,
+        opts.connectionRegistry,
       );
       registerWorkspacesRoutes(
         apiV1 as unknown as Parameters<typeof registerWorkspacesRoutes>[0],

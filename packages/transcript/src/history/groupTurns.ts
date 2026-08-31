@@ -1,9 +1,10 @@
 import type { AgentTranscriptSnapshot } from '../ops/operation';
 import type { TranscriptAttachment } from '../model/attachment';
-import type { TranscriptFrame } from '../model/frame';
+import type { TranscriptFrame, TranscriptUserOrigin } from '../model/frame';
 import type { TranscriptItem, TranscriptMarker } from '../model/item';
 import type { TurnOrigin } from '../model/turn';
 import { daemonFileRefFromPairingPart } from '../contract/mediaRef';
+import { projectTranscriptUserOrigin } from '../contract/origin';
 
 export type HistoryMediaSource =
   | { readonly kind: 'url'; readonly url: string }
@@ -35,7 +36,7 @@ export interface HistoryMessage {
   readonly toolCalls?: readonly HistoryToolCall[];
   readonly toolCallId?: string;
   readonly isError?: boolean;
-  readonly origin?: { readonly kind: string };
+  readonly origin?: { readonly kind: string; readonly attachments?: unknown };
 }
 
 interface TurnDraft {
@@ -67,12 +68,20 @@ export function groupMessagesIntoSnapshot(
   messages: readonly HistoryMessage[],
   options?: {
     readonly taskOriginTurnTaskIds?: ReadonlySet<string>;
+    readonly steeredMessageIndexes?: ReadonlySet<number>;
   },
 ): AgentTranscriptSnapshot {
   const items: TranscriptItem[] = [];
   const attachments: TranscriptAttachment[] = [];
   let turn: TurnDraft | undefined;
-  let pendingNotificationFrames: { text: string; taskId: string | undefined }[] = [];
+  let pendingNotificationFrames: {
+    text: string;
+    taskId: string | undefined;
+    attachmentIds?: string[];
+    promptIds?: readonly string[];
+    origin?: TranscriptUserOrigin;
+    steered?: boolean;
+  }[] = [];
   let nextOrdinal = 0;
   let markerCount = 0;
 
@@ -128,6 +137,16 @@ export function groupMessagesIntoSnapshot(
         ids.push(entity.attachmentId);
       }
     }
+    for (const attachment of originFileAttachments(message)) {
+      const entity: TranscriptAttachment = {
+        attachmentId: `att_${attachments.length + 1}`,
+        mediaType: attachment.mediaType,
+        name: attachment.name,
+        size: attachment.size,
+      };
+      attachments.push(entity);
+      ids.push(entity.attachmentId);
+    }
     return { text: texts.join(''), attachmentIds: ids.length > 0 ? ids : undefined };
   };
 
@@ -141,7 +160,37 @@ export function groupMessagesIntoSnapshot(
     return turn;
   };
 
+  const flushSteeredLeftovers = (): void => {
+    const leftovers = pendingNotificationFrames.filter((pending) => pending.steered);
+    if (leftovers.length === 0) return;
+    pendingNotificationFrames = pendingNotificationFrames.filter((pending) => !pending.steered);
+    for (const pending of leftovers) {
+      const targetTurn = turn ?? startTurn({ kind: 'user' });
+      let lastStep = targetTurn.steps.at(-1);
+      if (lastStep === undefined) {
+        const ordinal = targetTurn.steps.length + 1;
+        lastStep = {
+          stepId: `${targetTurn.turnId}.${ordinal}`,
+          ordinal,
+          frames: [],
+        };
+        targetTurn.steps.push(lastStep);
+      }
+      lastStep.frames.push({
+        kind: 'text',
+        frameId: `${lastStep.stepId}.f${lastStep.frames.length + 1}`,
+        role: 'user',
+        text: pending.text,
+        attachmentIds: pending.attachmentIds,
+        promptIds: pending.promptIds,
+        origin: pending.origin,
+      });
+      syncTurnItem(items, targetTurn);
+    }
+  };
+
   const startTurn = (origin: TurnOrigin, prompt?: string, attachmentIds?: string[]): TurnDraft => {
+    flushSteeredLeftovers();
     const ordinal = nextOrdinal;
     nextOrdinal += 1;
     pendingNotificationFrames = [];
@@ -157,7 +206,7 @@ export function groupMessagesIntoSnapshot(
   };
 
   let prevNonTaskRole: string | undefined;
-  for (const message of messages) {
+  for (const [messageIndex, message] of messages.entries()) {
     if (message.role === 'system') continue;
     const originKind = message.origin?.kind;
     const isTaskOrigin =
@@ -168,8 +217,32 @@ export function groupMessagesIntoSnapshot(
     if (message.role === 'user') {
       if (originKind !== undefined && HIDDEN_USER_ORIGINS.has(originKind)) {
         if (opensOwnTurn(message)) {
-          startTurn(mapOrigin(message));
+          const opening =
+            (message.origin as { name?: unknown }).name === 'subagent'
+              ? foldTurnOpeningInput(message)
+              : undefined;
+          startTurn(mapOrigin(message), opening?.text || undefined, opening?.attachmentIds);
         }
+        continue;
+      }
+      if (options?.steeredMessageIndexes?.has(messageIndex)) {
+        const bundled = bundledSkillActivations(message);
+        const parts = message.content ?? [];
+        bundled.forEach((activation, index) => {
+          const block = parts[index];
+          pushMarker('skill', {
+            text: block !== undefined && block.type === 'text' && 'text' in block ? block.text : '',
+            origin: { kind: 'skill_activation', trigger: 'user-slash', ...activation },
+          });
+        });
+        const opening = foldTurnOpeningInput({ ...message, content: parts.slice(bundled.length) });
+        pendingNotificationFrames.push({
+          text: opening.text,
+          taskId: undefined,
+          attachmentIds: opening.attachmentIds,
+          steered: true,
+          origin: projectTranscriptUserOrigin(message.origin),
+        });
         continue;
       }
       const markerKey = originKind !== undefined ? MARKER_USER_ORIGINS[originKind] : undefined;
@@ -238,6 +311,9 @@ export function groupMessagesIntoSnapshot(
           role: 'user',
           text: pending.text,
           taskId: pending.taskId,
+          attachmentIds: pending.attachmentIds,
+          promptIds: pending.promptIds,
+          origin: pending.origin,
         });
       }
       pendingNotificationFrames = [];
@@ -277,6 +353,8 @@ export function groupMessagesIntoSnapshot(
       }
     }
   }
+
+  flushSteeredLeftovers();
 
   return { items, tasks: [], interactions: [], attachments, todos: [], prompts: [], meta: {} };
 }
@@ -374,6 +452,28 @@ function bundledSkillActivations(message: HistoryMessage): readonly BundledSkill
       activation !== null &&
       typeof (activation as { activationId?: unknown }).activationId === 'string' &&
       typeof (activation as { skillName?: unknown }).skillName === 'string',
+  );
+}
+
+interface OriginFileAttachment {
+  readonly name: string;
+  readonly mediaType: string;
+  readonly size: number;
+  readonly path: string;
+}
+
+function originFileAttachments(message: HistoryMessage): readonly OriginFileAttachment[] {
+  if (message.origin?.kind !== 'user' && message.origin?.kind !== 'skill_activation') return [];
+  const attachments = message.origin.attachments;
+  if (!Array.isArray(attachments)) return [];
+  return attachments.filter(
+    (attachment): attachment is OriginFileAttachment =>
+      typeof attachment === 'object' &&
+      attachment !== null &&
+      typeof (attachment as { name?: unknown }).name === 'string' &&
+      typeof (attachment as { mediaType?: unknown }).mediaType === 'string' &&
+      typeof (attachment as { size?: unknown }).size === 'number' &&
+      typeof (attachment as { path?: unknown }).path === 'string',
   );
 }
 

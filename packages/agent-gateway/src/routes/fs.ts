@@ -61,16 +61,6 @@ import {
   fsRevealRequestSchema,
 } from '../protocol/rest-fs';
 
-/**
- * Body cap for the fs action route. `WorkspaceFsService.write` accepts 10 MiB
- * of decoded content. Two encodings expand it: base64 costs ~4/3, and a UTF-8
- * string of control characters costs 6 bytes per character once JSON-escaped,
- * so a legal 10 MiB write can serialize to ~60 MiB. A limit below that would
- * reject such a request as a transport error before the route could run and
- * answer `FS_TOO_LARGE` for content that genuinely is too large. Scoped
- * to this route so the raise does not widen the request surface of every other
- * endpoint.
- */
 export const FS_ACTION_BODY_LIMIT_BYTES = 64 * 1024 * 1024;
 
 interface FsRouteHost {

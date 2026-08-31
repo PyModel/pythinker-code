@@ -264,7 +264,7 @@ export class SessionPickerComponent extends Container implements Focusable {
     if (this.loading) {
       lines.push(currentTheme.boldFg('primary', truncateToWidth(title, width, ELLIPSIS)));
       lines.push(
-        currentTheme.fg('textMuted', truncateToWidth('Loading sessions...', width, ELLIPSIS)),
+        currentTheme.fg('textMuted', truncateToWidth('Loading sessions…', width, ELLIPSIS)),
       );
       lines.push(currentTheme.fg('primary', '─'.repeat(width)));
       return lines;

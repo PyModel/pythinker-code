@@ -381,7 +381,7 @@ function truncateArgValue(key: string, value: string): string {
     // still tell which file is being touched.
     return '…' + value.slice(value.length - (MAX_ARG_LENGTH - 1));
   }
-  return value.slice(0, MAX_ARG_LENGTH - 3) + '...';
+  return value.slice(0, MAX_ARG_LENGTH - 1) + '…';
 }
 
 function makeWorkspaceRelativePath(filePath: string, workspaceDir: string | undefined): string {
@@ -710,7 +710,7 @@ export class ToolCallComponent extends Container {
           : 'toolPendingBg'
         : this.result.is_error === true
           ? 'toolErrorBg'
-          : 'toolSuccessBg';
+          : undefined;
     const rendered =
       background === undefined
         ? out
@@ -813,7 +813,7 @@ export class ToolCallComponent extends Container {
     if (this.result !== undefined || text.length === 0) return;
     this.liveOutput += text;
     if (this.liveOutput.length > MAX_LIVE_OUTPUT_CHARS) {
-      this.liveOutput = `[...truncated]\n${this.liveOutput.slice(
+      this.liveOutput = `[…truncated]\n${this.liveOutput.slice(
         this.liveOutput.length - MAX_LIVE_OUTPUT_CHARS,
       )}`;
     }
@@ -1422,7 +1422,7 @@ export class ToolCallComponent extends Container {
     const existingOutput = options?.replace === true ? '' : (activity?.output ?? '');
     let output = existingOutput + text;
     if (output.length > MAX_LIVE_OUTPUT_CHARS) {
-      output = `[...truncated]\n${output.slice(output.length - MAX_LIVE_OUTPUT_CHARS)}`;
+      output = `[…truncated]\n${output.slice(output.length - MAX_LIVE_OUTPUT_CHARS)}`;
     }
     this.upsertSubToolActivity(id, name, args, activity?.phase ?? 'ongoing', output);
     this.rebuildContent();
@@ -1523,7 +1523,7 @@ export class ToolCallComponent extends Container {
         return `${bullet}${currentTheme.fg('error', 'Truncated')} ${currentTheme.boldFg('primary', 'Bash')}`;
       }
       const label = isFinished ? 'Ran a command' : 'Running a command';
-      const tone = isError ? 'error' : 'primary';
+      const tone = isError ? 'error' : 'textStrong';
       const chipStr = isFinished && result !== undefined ? this.buildHeaderChip(result) : '';
       return `${bullet}${currentTheme.boldFg(tone, label)}${chipStr}`;
     }
@@ -1673,7 +1673,7 @@ export class ToolCallComponent extends Container {
       const suffix = this.hiddenSubCallCount > 1 ? 's' : '';
       this.addChild(
         new Text(
-          currentTheme.italic(currentTheme.dim(`    ${String(this.hiddenSubCallCount)} more tool call${suffix} ...`)),
+          currentTheme.italic(currentTheme.dim(`    ${String(this.hiddenSubCallCount)} more tool call${suffix} …`)),
           0,
           0,
         ),
@@ -2043,7 +2043,7 @@ export class ToolCallComponent extends Container {
         this.addChild(
           new Text(
             currentTheme.dim(
-              `... (${String(remaining)} more lines, ${String(allLines.length)} total, ctrl+o to expand)`,
+              `… (${String(remaining)} more lines, ${String(allLines.length)} total, ctrl+o to expand)`,
             ),
             2,
             0,
@@ -2130,7 +2130,7 @@ export class ToolCallComponent extends Container {
       const elapsedSeconds =
         startedAtMs === undefined ? 0 : Math.max(0, Math.floor((Date.now() - startedAtMs) / 1000));
       const target = filePath.length > 0 ? ` for ${filePath}` : '';
-      const progress = `Preparing changes${target}... ${formatByteSize(bytes)} · ${formatElapsed(
+      const progress = `Preparing changes${target}… ${formatByteSize(bytes)} · ${formatElapsed(
         elapsedSeconds,
       )} elapsed`;
       this.addChild(new Text(currentTheme.dim(progress), 2, 0));

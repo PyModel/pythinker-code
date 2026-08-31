@@ -17,7 +17,7 @@ import { IAgentLoopService } from '#/agent/loop/loop';
 import { IAgentStateService } from '#/agent/state/agentState';
 import { IEventBus } from '#/app/event/eventBus';
 import { TurnEnded } from '#/agent/loop/turnOps';
-import { wrapSystemReminder } from '#/agent/systemReminder/systemReminder';
+import { wrapSystemReminder } from '#/features/reminder/systemReminder';
 import { IAgentToolExecutorService, type ToolCallDupType } from '#/agent/toolExecutor/toolExecutor';
 import type { ContentPart } from '#/kosong/contract/message';
 import { IAgentToolDedupeService, type ToolDedupeResult } from './toolDedupe';
@@ -105,9 +105,13 @@ function appendReminder(result: ToolDedupeResult, reminderText: string): ToolDed
     }
     newOutput = arr;
   }
+  const spill =
+    result.spill !== undefined
+      ? { ...result.spill, suffix: (result.spill.suffix ?? '') + reminderText }
+      : undefined;
   return result.isError === true
-    ? { ...result, output: newOutput, isError: true }
-    : { ...result, output: newOutput };
+    ? { ...result, output: newOutput, isError: true, spill }
+    : { ...result, output: newOutput, spill };
 }
 
 function forceStopResult(result: ToolDedupeResult, reminderText: string): ToolDedupeResult {

@@ -1,6 +1,4 @@
 import { randomBytes } from 'node:crypto';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 
 import { isAbortError } from '#/_base/utils/abort';
 import type { IFileSystemStorageService } from '#/persistence/interface/storage';
@@ -33,12 +31,6 @@ export interface CloudTransportOptions {
   readonly storage: IFileSystemStorageService;
   readonly deviceId: string;
   readonly endpoint?: string;
-  /** Bootstrapped home for the default endpoint's region resolution (the
-      install marker lives there, not necessarily under PYTHINKER_CODE_HOME). */
-  readonly homeDir?: string;
-  /** Pre-resolved marker opt-out from the host's bootstrap env (defaults to
-      reading PYTHINKER_CODE_REGION_MARKER from the process env). */
-  readonly readMarker?: boolean;
   readonly getAccessToken?: () => string | null | Promise<string | null>;
   readonly fetchImpl?: typeof fetch;
   readonly retryBackoffsMs?: readonly number[];
@@ -48,32 +40,18 @@ export interface CloudTransportOptions {
 }
 
 export const TELEMETRY_ENDPOINT = 'https://telemetry-logs.pythinker.com/v1/event';
-/** Do not change this Pythinker wire prefix. SigNoz dashboards query `pfc_*` events. */
 export const SERVER_EVENT_PREFIX = 'pfc_';
-/** Do not change this Pythinker identity prefix. SigNoz device queries depend on it. */
 export const USER_ID_PREFIX = 'pfc_device_id_';
 export const DISK_EVENT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 export const RETRY_BACKOFFS_MS = [1_000, 4_000, 16_000] as const;
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 10_000;
-const GLOBAL_TELEMETRY_ENDPOINT = 'https://telemetry-logs.pythinker.ai/v1/event';
 const TELEMETRY_SCOPE = 'telemetry';
 const FAILED_PREFIX = 'failed_';
 const JSONL_SUFFIX = '.jsonl';
 
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
-
-function defaultTelemetryEndpoint(homeDir?: string, readMarker = true): string {
-  if (!readMarker || homeDir === undefined) return TELEMETRY_ENDPOINT;
-  try {
-    return readFileSync(join(homeDir, 'region'), 'utf8').trim() === 'global'
-      ? GLOBAL_TELEMETRY_ENDPOINT
-      : TELEMETRY_ENDPOINT;
-  } catch {
-    return TELEMETRY_ENDPOINT;
-  }
-}
 
 export class CloudTransport {
   private readonly storage: IFileSystemStorageService;
@@ -89,7 +67,7 @@ export class CloudTransport {
   constructor(options: CloudTransportOptions) {
     this.storage = options.storage;
     this.deviceId = options.deviceId;
-    this.endpoint = options.endpoint ?? defaultTelemetryEndpoint(options.homeDir, options.readMarker);
+    this.endpoint = options.endpoint ?? TELEMETRY_ENDPOINT;
     this.getAccessToken = options.getAccessToken ?? null;
     this.fetchImpl = options.fetchImpl ?? globalThis.fetch.bind(globalThis);
     this.retryBackoffsMs = options.retryBackoffsMs ?? RETRY_BACKOFFS_MS;

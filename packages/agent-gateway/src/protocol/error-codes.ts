@@ -30,8 +30,9 @@ export const ErrorCode = {
   CATALOG_ENTRY_NOT_FOUND: 40417,
   CAPABILITY_NOT_FOUND: 40418,
   PLUGIN_NOT_FOUND: 40419,
-  RUNTIME_NOT_FOUND: 40420,
+  EXPERT_TALK_RUN_NOT_FOUND: 40420,
   CODEX_LOGIN_NOT_FOUND: 40421,
+  RUNTIME_NOT_FOUND: 40422,
 
   SESSION_BUSY: 40901,
   APPROVAL_ALREADY_RESOLVED: 40902,
@@ -63,6 +64,15 @@ export const ErrorCode = {
   PROMPT_ID_CONFLICT: 40927,
   FS_CONFLICT: 40928,
   MCP_OAUTH_FAILED: 40929,
+  EXPERT_TALK_FEATURE_DISABLED: 40930,
+  EXPERT_TALK_PAIR_NOT_CONFIGURED: 40931,
+  EXPERT_TALK_PAIR_INVALID: 40932,
+  EXPERT_TALK_PAIR_COLLAPSED: 40933,
+  EXPERT_TALK_ALREADY_ARMED: 40934,
+  EXPERT_TALK_NOT_ARMED: 40935,
+  EXPERT_TALK_BUSY: 40936,
+  EXPERT_TALK_RUN_NOT_RETRYABLE: 40937,
+  EXPERT_TALK_CLIENT_UNSUPPORTED: 40938,
 
   APPROVAL_EXPIRED: 41001,
   QUESTION_EXPIRED: 41002,
@@ -73,8 +83,12 @@ export const ErrorCode = {
   FS_TOO_MANY_RESULTS: 41303,
   FS_PATH_ESCAPES_SESSION: 41304,
   FS_GREP_TIMEOUT: 41305,
+  EXPERT_TALK_CONTEXT_INSUFFICIENT: 41310,
+
+  CONFIG_VERSION_CONFLICT: 41201,
 
   FS_WATCH_LIMIT_EXCEEDED: 42902,
+  EXPERT_TALK_BUDGET_EXCEEDED: 42910,
 
   INTERNAL_ERROR: 50001,
   PERSISTENCE_FAILURE: 50003,
@@ -85,16 +99,5 @@ export const ErrorCode = {
 
 } as const;
 
-/**
- * Reserved (intentionally unallocated; do NOT reuse for new variants):
- *   - 40101 auth.invalid_token        (daemon's own token; future)
- *   - 40102 auth.missing_token        (daemon's own token; future)
- *   - 40103 auth.forbidden_origin     (daemon's own token; future)
- *   - 42901 rate.limited
- *   - 50002 protocol.version_mismatch
- *
- * `ErrorCodeReason` is not copied here because the server has no consumer.
- * The protocol package retains number-to-reason mapping for v1 and server E2E.
- */
 
 export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode];

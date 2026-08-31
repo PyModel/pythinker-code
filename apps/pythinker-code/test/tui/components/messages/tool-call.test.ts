@@ -3,7 +3,9 @@ import chalk from 'chalk';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { ToolCallComponent } from '#/tui/components/messages/tool-call';
+import { ReadGroupComponent } from '#/tui/components/messages/read-group';
 import { STATUS_BULLET } from '#/tui/constant/symbols';
+import { currentTheme } from '#/tui/theme';
 import { darkColors } from '#/tui/theme/colors';
 
 import { captureProcessWrite } from '../../../helpers/process';
@@ -49,7 +51,7 @@ describe('ToolCallComponent', () => {
     expect(out).not.toContain(`${String.fromCodePoint(0x23fa, 0xfe0e)} Used Read`);
   });
 
-  it('tints pending, successful, and failed tool cards', () => {
+  it('tints pending and failed tool cards but leaves successful cards clear', () => {
     const previousLevel = chalk.level;
     chalk.level = 3;
     const component = new ToolCallComponent(
@@ -65,11 +67,14 @@ describe('ToolCallComponent', () => {
       );
 
       component.setResult({ tool_call_id: 'call_tint', output: 'content', is_error: false });
+      const completed = component.render(40).slice(1);
       expect(
-        component
-          .render(40)
-          .slice(1)
-          .every((line) => line.includes('\u001B[48;2;20;23;27m')),
+        completed.every(
+          (line) =>
+            !line.includes('\u001B[48;2;29;33;41m') &&
+            !line.includes('\u001B[48;2;20;23;27m') &&
+            !line.includes('\u001B[48;2;41;29;29m'),
+        ),
       ).toBe(true);
 
       component.setResult({ tool_call_id: 'call_tint', output: 'failed', is_error: true });
@@ -80,6 +85,41 @@ describe('ToolCallComponent', () => {
           .every((line) => line.includes('\u001B[48;2;41;29;29m')),
       ).toBe(true);
     } finally {
+      chalk.level = previousLevel;
+    }
+  });
+
+  it('uses neutral labels for shell and grouped read summaries', () => {
+    const previousLevel = chalk.level;
+    chalk.level = 3;
+    const shell = new ToolCallComponent(
+      { id: 'call_shell_tone', name: 'Bash', args: { command: 'pwd' } },
+      { tool_call_id: 'call_shell_tone', output: '/tmp', is_error: false },
+    );
+    const readA = new ToolCallComponent(
+      { id: 'call_read_a', name: 'Read', args: { path: 'a.ts' } },
+      { tool_call_id: 'call_read_a', output: 'a', is_error: false },
+    );
+    const readB = new ToolCallComponent(
+      { id: 'call_read_b', name: 'Read', args: { path: 'b.ts' } },
+      { tool_call_id: 'call_read_b', output: 'b', is_error: false },
+    );
+    const reads = new ReadGroupComponent(undefined);
+    reads.attach('call_read_a', readA);
+    reads.attach('call_read_b', readB);
+
+    try {
+      expect(shell.render(80).join('\n')).toContain(
+        currentTheme.boldFg('textStrong', 'Ran a command'),
+      );
+      expect(reads.render(80).join('\n')).toContain(
+        currentTheme.boldFg('textStrong', 'Read 2 files'),
+      );
+    } finally {
+      reads.dispose();
+      shell.dispose();
+      readA.dispose();
+      readB.dispose();
       chalk.level = previousLevel;
     }
   });
@@ -225,7 +265,7 @@ describe('ToolCallComponent', () => {
     expect(collapsed).toContain('line2');
     expect(collapsed).toContain('line3');
     expect(collapsed).not.toContain('line4');
-    expect(collapsed).toContain('... (2 more lines, ctrl+o to expand)');
+    expect(collapsed).toContain('… (2 more lines, ctrl+o to expand)');
 
     component.setExpanded(true);
 
@@ -252,6 +292,24 @@ describe('ToolCallComponent', () => {
     expect(out).toContain('Running a command');
     expect(out).toContain('line1');
     expect(out).toContain('line2');
+  });
+
+  it('uses a Unicode ellipsis when truncating live Bash output', () => {
+    const component = new ToolCallComponent(
+      {
+        id: 'call_shell_live_truncated',
+        name: 'Bash',
+        args: { command: 'printf output' },
+      },
+      undefined,
+    );
+
+    component.setExpanded(true);
+    component.appendLiveOutput('x'.repeat(50_001));
+
+    const out = strip(component.render(1000).join('\n'));
+    expect(out).toContain('[…truncated]');
+    expect(out).not.toContain('[...truncated]');
   });
 
   it('clears live Bash output when the final result arrives', () => {
@@ -1751,7 +1809,7 @@ describe('ToolCallComponent', () => {
     const out = strip(component.render(100).join('\n'));
     expect(out).toContain('Using Edit');
     expect(out).toContain('foo.ts');
-    expect(out).toContain('Preparing changes for foo.ts...');
+    expect(out).toContain('Preparing changes for foo.ts…');
     expect(out).toContain('4s elapsed');
     expect(out).toMatch(/\d+(?:\.\d+)? (?:B|KB|MB)/);
     expect(out).not.toContain('old20');

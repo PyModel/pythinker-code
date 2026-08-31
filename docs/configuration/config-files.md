@@ -240,6 +240,8 @@ Constraints between the fields:
 - `default_effort`: applies to every model selected from this section. Leave it unset to use each model entry's default.
 - `primary` is a reserved alias (see below) and cannot be a pool key.
 
+Pool aliases reference the current `[models]` table. If a provider is deleted or logged out, or a refresh removes an alias, session startup reports the broken alias. Fix or remove that entry. Pythinker Code never rewrites `[secondary_model]` automatically.
+
 In the interactive TUI, the [`/secondary-model`](../reference/slash-commands.md) command (alias `/subagent-model`) opens a model selector: the choice is written to `default_model` (when a models table exists and the picked alias is not in it, an entry with an empty description is added), and newly spawned subagents pick up the new default immediately — no session restart needed.
 
 A configured pool — an explicit `models` table or a lone `default_model` — enables model selection: the `Agent` / `AgentDynamicWorkflow` tools gain a `model` parameter, and the tool description lists the pool (the default marked `[default]`) so the main agent can choose per spawn. Pool keys can only reference configured [`[models]`](#models) entries:
@@ -396,8 +398,9 @@ In print mode (`pythinker -p "<prompt>"`), Pythinker Code stays alive after the 
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
 | `timeout_ms` | `integer` | `7200000` (2 hours) | Maximum wall-clock time (milliseconds) a single `AgentDynamicWorkflow` subagent is allowed to run. On timeout that subagent is aborted and marked as failed in the aggregated report (`Subagent timed out.`); the other subagents are unaffected. `0` means no timeout — the subagent runs until it finishes or the model stops it. In print mode (`pythinker -p`) the default is `0` unless explicitly set. Note: any value above `2147483647` (about 24.8 days) is clamped to roughly 24.8 days by the runtime |
+| `max_concurrency` | `integer` | unset (no cap) | Maximum number of `AgentDynamicWorkflow` subagents that can run at the same time across all execution phases. Must be a positive integer |
 
-`timeout_ms` can be overridden by the `PYTHINKER_CODE_AGENT_DYNAMIC_WORKFLOW_TIMEOUT_MS` environment variable, which takes higher priority than `config.toml`.
+`timeout_ms` and `max_concurrency` can be overridden by the `PYTHINKER_CODE_AGENT_DYNAMIC_WORKFLOW_TIMEOUT_MS` and `PYTHINKER_CODE_AGENT_DYNAMIC_WORKFLOW_MAX_CONCURRENCY` environment variables respectively, which take higher priority than `config.toml`.
 
 ## `mcp`
 

@@ -6,7 +6,6 @@ import {
 } from '@pymodel/pythinker-code-oauth';
 import {
   applyCatalogProvider,
-  cascadeSubagentModelPool,
   catalogProviderModels,
   CatalogFetchError,
   DEFAULT_CATALOG_URL,
@@ -224,10 +223,6 @@ async function handleCatalogProviderAdd(host: SlashCommandHost): Promise<void> {
   // entered. The model selector that follows is just a convenience to pick the
   // default model; ESC leaves the provider in place without a default selection.
   const existingConfig = await host.harness.getConfig();
-  const poolSnapshot =
-    existingConfig.providers[providerId] !== undefined
-      ? existingConfig.secondaryModel
-      : undefined;
   if (existingConfig.providers[providerId] !== undefined) {
     await host.harness.removeProvider(providerId);
   }
@@ -247,16 +242,6 @@ async function handleCatalogProviderAdd(host: SlashCommandHost): Promise<void> {
     providers: config.providers,
     models: config.models,
   });
-
-  // removeProvider cascaded the subagent pool against a model table where
-  // every `${providerId}/...` alias was absent; restore the entries that
-  // survived the re-add (aliases the catalog genuinely dropped stay dropped).
-  if (poolSnapshot !== undefined) {
-    const restored = cascadeSubagentModelPool(poolSnapshot, config.models ?? {});
-    if (restored !== null) {
-      await host.harness.setConfig({ secondaryModel: restored ?? poolSnapshot });
-    }
-  }
 
   await host.authFlow.refreshConfigAfterLogin();
   host.track('connect', { provider: providerId, method: 'catalog' });
@@ -295,7 +280,7 @@ async function handleCatalogProviderAdd(host: SlashCommandHost): Promise<void> {
   host.mountEditorReplacement(selector);
 }
 
-async function setDefaultModel(
+export async function setDefaultModel(
   host: SlashCommandHost,
   alias: string,
   effort: ThinkingEffort,
@@ -303,16 +288,23 @@ async function setDefaultModel(
   // Resolve efforts the same way the /model path does (effectiveModelForHost
   // applies overrides and the protocol-profile inference): catalog entries for
   // e.g. Anthropic models declare no support_efforts on the alias, and without
-  // the inference a top-tier pick would slip through as a persisted effort.
+  // the inference an above-default pick would slip through as a persisted effort.
   const model = host.state.appState.availableModels[alias];
+  const thinking = thinkingEffortToConfig(
+    effort,
+    model === undefined ? undefined : effectiveModelForHost(host, model),
+  );
   await host.harness.setConfig({
     defaultModel: alias,
-    thinking: thinkingEffortToConfig(
-      effort,
-      model === undefined ? undefined : effectiveModelForHost(host, model).supportEfforts,
-    ),
+    thinking,
   });
   await host.authFlow.refreshConfigAfterLogin();
+  // refreshConfigAfterLogin reactivates from the persisted config, so a pick
+  // the gate keeps session-only never reaches the runtime — apply it after
+  // the refresh, or the persisted value would clobber it.
+  if (thinking.effort === undefined && effort !== 'off' && effort !== 'on') {
+    await host.authFlow.activateModelAfterLogin(alias, effort);
+  }
   host.track('model_switch', { model: alias });
   host.showStatus(`Default model set to ${alias} with thinking ${effort}.`);
 }

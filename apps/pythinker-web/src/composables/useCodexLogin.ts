@@ -151,6 +151,10 @@ export function useCodexLogin(reconcile?: CodexLoginReconcile): UseCodexLogin {
     void poll();
   }
 
+  function onVisibilityChange(): void {
+    if (document.visibilityState === 'visible') void poll();
+  }
+
   async function start(): Promise<void> {
     if (disposed || busy.value || isAwaitingBrowser()) return;
     phase.value = 'starting';
@@ -239,11 +243,13 @@ export function useCodexLogin(reconcile?: CodexLoginReconcile): UseCodexLogin {
 
   onMounted(() => {
     window.addEventListener('focus', onWindowFocus);
+    document.addEventListener('visibilitychange', onVisibilityChange);
   });
 
   onUnmounted(() => {
     disposed = true;
     window.removeEventListener('focus', onWindowFocus);
+    document.removeEventListener('visibilitychange', onVisibilityChange);
     stopPolling();
     closePopup();
     const id = loginId.value;

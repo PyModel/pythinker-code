@@ -3,7 +3,7 @@
      The old workspace rail and workspace tabs have been removed;
      workspace switching, folding and renaming all live in the group header. -->
 <script setup lang="ts">
-import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, defineAsyncComponent, defineComponent, h, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { copyTextToClipboard } from '../lib/clipboard';
 import {
@@ -11,19 +11,29 @@ import {
   saveCollapsedWorkspaces,
 } from '../lib/storage';
 import { moveInOrder, type DropPosition, type WorkspaceSortMode } from '../lib/workspaceOrder';
-import type { Session, WorkspaceGroup as WorkspaceGroupType, WorkspaceView } from '../types';
+import type {
+  FilePreviewRequest,
+  Session,
+  WorkspaceGroup as WorkspaceGroupType,
+  WorkspaceView,
+} from '../types';
 import type { AppWorkspace } from '../api/types';
-import PythinkerLogo from './PythinkerLogo.vue';
 import SearchSessionsDialog from './dialogs/SearchSessionsDialog.vue';
 import WorkspaceGroup from './WorkspaceGroup.vue';
+import WorkspaceExplorer from './WorkspaceExplorer.vue';
 import { isDesktop, isMacosDesktop } from '../lib/desktopFlag';
 import { useDesktopUpdate } from '../composables/useDesktopUpdate';
+import AsyncLoadFailed from './ui/AsyncLoadFailed.vue';
+import ErrorBoundary from './ui/ErrorBoundary.vue';
 import IconButton from './ui/IconButton.vue';
 import Icon from './ui/Icon.vue';
 import Kbd from './ui/Kbd.vue';
 import Menu from './ui/Menu.vue';
 import MenuItem from './ui/MenuItem.vue';
+import Pill from './ui/Pill.vue';
+import Tooltip from './ui/Tooltip.vue';
 import PinnedSessionList from './PinnedSessionList.vue';
+import ReleaseNotes from './ReleaseNotes.vue';
 import SessionRow from './SessionRow.vue';
 
 const { t } = useI18n();
@@ -57,6 +67,7 @@ const props = withDefaults(
     dragging?: boolean;
     /** Enables the experimental Open / Done / Workspaces tab strip. */
     tabsEnabled?: boolean;
+    expertOpinionAvailable?: boolean;
   }>(),
   {
     activeWorkspace: null,
@@ -72,12 +83,14 @@ const props = withDefaults(
     collapsed: false,
     dragging: false,
     tabsEnabled: false,
+    expertOpinionAvailable: false,
   },
 );
 
 const emit = defineEmits<{
   select: [sessionId: string];
   create: [];
+  createExpertOpinion: [];
   createInWorkspace: [workspaceId: string];
   selectWorkspace: [workspaceId: string];
   addWorkspace: [];
@@ -103,10 +116,16 @@ const emit = defineEmits<{
   loadAllSessions: [];
   openSettings: [];
   openSessionAdmin: [];
+  openFile: [target: FilePreviewRequest];
   collapse: [];
 }>();
 
 const statusView = ref<'open' | 'done' | 'workspaces'>('open');
+const explorerOpen = ref(false);
+const explorerWorkspaceId = ref<string | null>(null);
+const explorerRef = ref<InstanceType<typeof WorkspaceExplorer> | null>(null);
+const showSearch = ref(false);
+const sessionsScrolled = ref(false);
 const listView = ref<'flat' | 'grouped'>('grouped');
 watch(() => props.tabsEnabled, (enabled) => {
   if (!enabled) statusView.value = 'open';
@@ -138,6 +157,15 @@ const doneGroups = computed(() =>
     }))
     .filter((group) => group.sessions.length > 0),
 );
+const explorerGroup = computed(
+  () => props.groups.find((group) => group.workspace.id === explorerWorkspaceId.value) ?? null,
+);
+const explorerWorkspace = computed(() => explorerGroup.value?.workspace ?? null);
+const explorerSessionId = computed(() => {
+  const group = explorerGroup.value;
+  if (!group || !props.activeId) return null;
+  return group.sessions.some((session) => session.id === props.activeId) ? props.activeId : null;
+});
 
 function showStatus(status: 'open' | 'done' | 'workspaces'): void {
   statusView.value = status;
@@ -154,13 +182,44 @@ function openSessionAdmin(): void {
   emit('openSessionAdmin');
 }
 
+function focusExplorerTrigger(workspaceId: string): void {
+  const trigger = Array.from(
+    document.querySelectorAll<HTMLButtonElement>('[data-workspace-files-id]'),
+  ).find((element) => element.dataset.workspaceFilesId === workspaceId);
+  trigger?.focus();
+}
+
+function closeExplorer(): void {
+  const workspaceId = explorerWorkspaceId.value;
+  explorerOpen.value = false;
+  if (workspaceId) void nextTick(() => focusExplorerTrigger(workspaceId));
+}
+
+function toggleExplorer(workspaceId: string): void {
+  if (explorerOpen.value && explorerWorkspaceId.value === workspaceId) {
+    closeExplorer();
+    return;
+  }
+  const group = props.groups.find((candidate) => candidate.workspace.id === workspaceId);
+  if (!group) return;
+  const sessionId = group.sessions.some((session) => session.id === props.activeId)
+    ? props.activeId
+    : group.sessions[0]?.id;
+  if (sessionId && sessionId !== props.activeId) emit('select', sessionId);
+  explorerWorkspaceId.value = workspaceId;
+  showSearch.value = false;
+  sessionsScrolled.value = false;
+  explorerOpen.value = true;
+  void nextTick(() => explorerRef.value?.focus());
+}
+
 // ---------------------------------------------------------------------------
 // Session search dialog (Spotlight-style; filters title + last prompt)
 // ---------------------------------------------------------------------------
-const showSearch = ref(false);
 const sessionSearchKeys = isAppleShortcutPlatform() ? ['⌘', 'K'] : ['Ctrl', 'K'];
 
 function openSearch(): void {
+  if (explorerOpen.value) return;
   // Sessions are loaded per-workspace (first page only); lazily drain the rest
   // so the dialog's client-side filter covers everything.
   emit('loadAllSessions');
@@ -188,10 +247,12 @@ function isAppleShortcutPlatform(): boolean {
 // Scroll-linked header seam: the .search-wrap bottom border/shadow only appears
 // once the session list has actually scrolled, so an unscrolled list shows no
 // abrupt boundary.
-const sessionsScrolled = ref(false);
 function onSessionsScroll(e: Event): void {
   sessionsScrolled.value = (e.target as HTMLElement).scrollTop > 0;
 }
+watch(explorerOpen, (open) => {
+  if (open) sessionsScrolled.value = false;
+});
 
 // ---------------------------------------------------------------------------
 // Collapse groups
@@ -311,9 +372,9 @@ function onGroupDrop(targetId: string): void {
 }
 
 function handleGhClick(wsId: string, e: MouseEvent): void {
-  // Ignore clicks that land on the group's action buttons (kebab / add); those
+  // Ignore clicks that land on the group's action buttons; those
   // have their own handlers and must not also toggle collapse.
-  if ((e.target as Element).closest('.gh-more, .gh-add')) return;
+  if ((e.target as Element).closest('.gh-more, .gh-explorer, .gh-add')) return;
   toggleCollapse(wsId);
 }
 
@@ -619,12 +680,157 @@ const showNewWorkspaceButton = false;
 // Logo long-press easter-egg: holding the Pythinker mark for 1 second opens the
 // design system as a full-screen overlay.
 // Pointer capture keeps the hold alive even if the pointer drifts off the mark.
-const DesignSystemView = defineAsyncComponent(
-  () => import('../views/DesignSystemView.vue'),
-);
 const showDesignSystem = ref(false);
+function closeDesignSystem(): void {
+  showDesignSystem.value = false;
+}
+const DesignSystemLoadFailed = defineComponent({
+  inheritAttrs: false,
+  setup: () => () => h(AsyncLoadFailed, { onClose: closeDesignSystem }),
+});
+const DesignSystemView = defineAsyncComponent({
+  loader: () => import('../views/DesignSystemView.vue'),
+  // A failed chunk load is not a render error, so the boundary never sees it —
+  // it gets its own copy here.
+  errorComponent: DesignSystemLoadFailed,
+});
 const EGG_HOLD_MS = 1000;
 let logoPressTimer: ReturnType<typeof setTimeout> | undefined;
+
+const updateTriggerElement = ref<HTMLElement | null>(null);
+const updateNotesElement = ref<HTMLElement | null>(null);
+const updateNotesBodyElement = ref<HTMLElement | null>(null);
+// A fade over the last rows says "there is more below". It has to be true to be
+// useful, so it tracks the scroller instead of being painted unconditionally:
+// short notes get no fade, and the fade clears once the reader reaches the end.
+const updateNotesScrollable = ref(false);
+const updateNotesOpen = ref(false);
+const updateNotesStyle = ref<Record<string, string>>({});
+let updateNotesCloseTimer: ReturnType<typeof setTimeout> | undefined;
+
+const updateReleaseDate = computed(() => {
+  const raw = update.state.value?.releaseDate;
+  if (!raw) return '';
+  const date = new Date(raw);
+  if (Number.isNaN(date.getTime())) return raw;
+  return new Intl.DateTimeFormat(undefined, {
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+  }).format(date);
+});
+
+function syncUpdateNotesScroll(): void {
+  const body = updateNotesBodyElement.value;
+  if (!body) {
+    updateNotesScrollable.value = false;
+    return;
+  }
+  updateNotesScrollable.value = body.scrollHeight - body.scrollTop - body.clientHeight > 1;
+}
+
+function positionUpdateNotes(): void {
+  const trigger = updateTriggerElement.value;
+  const panel = updateNotesElement.value;
+  if (!trigger || !panel) return;
+  const triggerRect = trigger.getBoundingClientRect();
+  const margin = 16;
+  const gap = 8;
+  const width = panel.offsetWidth;
+  const height = panel.offsetHeight;
+  const left = Math.min(
+    Math.max(triggerRect.left, margin),
+    Math.max(margin, window.innerWidth - margin - width),
+  );
+  const below = triggerRect.bottom + gap;
+  const top = below + height <= window.innerHeight - margin
+    ? below
+    : Math.max(margin, triggerRect.top - height - gap);
+  syncUpdateNotesScroll();
+  updateNotesStyle.value = {
+    left: `${Math.round(left)}px`,
+    top: `${Math.round(top)}px`,
+  };
+}
+
+function keepUpdateNotesOpen(): void {
+  clearTimeout(updateNotesCloseTimer);
+}
+
+function showUpdateNotes(event: Event): void {
+  if (event.currentTarget instanceof HTMLElement) updateTriggerElement.value = event.currentTarget;
+  keepUpdateNotesOpen();
+  updateNotesOpen.value = true;
+  void nextTick(positionUpdateNotes);
+}
+
+function scheduleUpdateNotesClose(): void {
+  clearTimeout(updateNotesCloseTimer);
+  updateNotesCloseTimer = setTimeout(() => {
+    updateNotesOpen.value = false;
+  }, 120);
+}
+
+function scheduleUpdateNotesPointerClose(): void {
+  const active = document.activeElement;
+  if (
+    active instanceof Node &&
+    (updateTriggerElement.value?.contains(active) || updateNotesElement.value?.contains(active))
+  ) return;
+  scheduleUpdateNotesClose();
+}
+
+function onUpdateNotesFocusout(event: FocusEvent): void {
+  const next = event.relatedTarget;
+  if (next instanceof Node && updateNotesElement.value?.contains(next)) return;
+  scheduleUpdateNotesClose();
+}
+
+function focusUpdateNotes(event: KeyboardEvent): void {
+  if (event.shiftKey) return;
+  const target = updateNotesElement.value?.querySelector<HTMLElement>(
+    'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])',
+  );
+  if (!target) return;
+  event.preventDefault();
+  keepUpdateNotesOpen();
+  target.focus();
+}
+
+const updateStage = computed(() => update.status.value);
+const updatePercentLabel = computed(() => {
+  const value = update.percent.value;
+  return value === undefined ? '' : `${Math.round(value)}%`;
+});
+const updateTriggerText = computed(() => {
+  switch (updateStage.value) {
+    case 'downloading': return updatePercentLabel.value || t('update.sidebarFetching');
+    case 'downloaded': return t('update.sidebarRestart');
+    case 'error': return t('update.sidebarRetry');
+    default: return t('update.sidebarAction');
+  }
+});
+const updateTriggerLabel = computed(() => {
+  const version = update.availableVersion.value;
+  switch (updateStage.value) {
+    case 'downloading': return t('update.dialogDownloading', { version: version ?? '' });
+    case 'downloaded': return t('update.restartAction');
+    case 'error': return t('update.retryDownload');
+    default: return version ? t('update.sidebarHint', { version }) : t('update.sidebarAction');
+  }
+});
+
+function onUpdateTriggerClick(): void {
+  updateNotesOpen.value = false;
+  const version = update.availableVersion.value;
+  if (version !== undefined) void update.markNotified(version);
+  switch (updateStage.value) {
+    case 'downloading': return;
+    case 'downloaded': void update.restart(); return;
+    case 'error': void update.retry(); return;
+    default: void update.download();
+  }
+}
 
 function onLogoPointerDown(event: PointerEvent): void {
   clearTimeout(logoPressTimer);
@@ -642,6 +848,14 @@ function onLogoPointerUp(event: PointerEvent): void {
 
 onBeforeUnmount(() => {
   clearTimeout(logoPressTimer);
+  clearTimeout(updateNotesCloseTimer);
+  window.removeEventListener('resize', positionUpdateNotes);
+});
+
+onMounted(() => window.addEventListener('resize', positionUpdateNotes));
+
+watch([() => props.collapsed, update.hasUpdate], ([collapsed, hasUpdate]) => {
+  if (collapsed || !hasUpdate) updateNotesOpen.value = false;
 });
 </script>
 
@@ -667,62 +881,86 @@ onBeforeUnmount(() => {
            drag region so it stays clickable. -->
       <div class="ch">
         <div class="ch-brand">
-          <PythinkerLogo
+          <img
             class="ch-logo"
-            size="sm"
-            :animated="false"
+            src="/brand/pythinker_banner_dark.svg"
+            alt="Pythinker Code"
+            draggable="false"
             @pointerdown="onLogoPointerDown"
             @pointerup="onLogoPointerUp"
             @pointercancel="onLogoPointerUp"
           />
-          <span class="ch-name">Pythinker Code</span>
         </div>
-        <IconButton
-          class="ch-collapse"
-          size="sm"
-          :label="t('sidebar.collapseSidebar')"
-          @click.stop="emit('collapse')"
-        >
-          <Icon name="panel-collapse" />
-        </IconButton>
-      </div>
-
-      <!-- Update entry point. Desktop only, and only once a version the user
-           has not skipped is actually waiting; the overlay owns the rest. -->
-      <div v-if="update.hasUpdate.value" class="update-wrap">
-        <button
-          class="btn-update"
-          type="button"
-          data-testid="sidebar-update"
-          :title="update.availableVersion.value
-            ? t('update.sidebarHint', { version: update.availableVersion.value })
-            : undefined"
-          @click.stop="update.openDialog()"
-        >
-          <Icon name="arrow-up" />
-          <span>{{ t('update.sidebarAction') }}</span>
-        </button>
+        <div class="ch-actions">
+          <Pill
+            v-if="update.hasUpdate.value"
+            class="sidebar-update-trigger"
+            :class="`is-${updateStage}`"
+            data-testid="sidebar-update"
+            :aria-label="updateTriggerLabel"
+            :aria-busy="updateStage === 'downloading' ? 'true' : undefined"
+            :disabled="update.busy.value"
+            :aria-controls="updateNotesOpen ? 'sidebar-update-notes' : undefined"
+            :aria-expanded="updateNotesOpen"
+            aria-haspopup="dialog"
+            @mouseenter="showUpdateNotes"
+            @mouseleave="scheduleUpdateNotesPointerClose"
+            @focus="showUpdateNotes"
+            @blur="scheduleUpdateNotesClose"
+            @keydown.tab="focusUpdateNotes"
+            @click.stop="onUpdateTriggerClick"
+          >
+            <span class="sidebar-update-trigger__icon" aria-hidden="true">
+              <Icon name="update-button" />
+            </span>
+            <span class="sidebar-update-trigger__text" data-testid="sidebar-update-text">
+              {{ updateTriggerText }}
+            </span>
+          </Pill>
+          <Tooltip :text="t('sidebar.collapseSidebar')">
+            <IconButton
+              class="ch-collapse"
+              size="sm"
+              :label="t('sidebar.collapseSidebar')"
+              @click.stop="emit('collapse')"
+            >
+              <Icon name="panel-collapse" />
+            </IconButton>
+          </Tooltip>
+        </div>
       </div>
 
       <!-- New chat + new workspace buttons -->
-      <div class="btn-wrap">
+      <div v-if="!explorerOpen" class="btn-wrap">
         <button class="btn-new-chat" type="button" @click.stop="emit('create')">
           <Icon name="chat-new" />
           <span>{{ t('sidebar.newChat') }}</span>
         </button>
-        <IconButton
-          v-if="showNewWorkspaceButton"
-          size="sm"
-          :label="t('sidebar.newWorkspace')"
-          @click.stop="emit('addWorkspace')"
+        <Tooltip v-if="showNewWorkspaceButton" :text="t('sidebar.newWorkspace')">
+          <IconButton
+            size="sm"
+            :label="t('sidebar.newWorkspace')"
+            @click.stop="emit('addWorkspace')"
+          >
+            <Icon name="folder" />
+          </IconButton>
+        </Tooltip>
+      </div>
+      <div v-if="!explorerOpen && expertOpinionAvailable" class="btn-wrap expert-opinion-wrap">
+        <button
+          class="btn-new-chat btn-expert-opinion"
+          type="button"
+          data-testid="new-expert-opinion"
+          @click.stop="emit('createExpertOpinion')"
         >
-          <Icon name="folder" />
-        </IconButton>
+          <Icon name="expert-opinion" />
+          <span>{{ t('sidebar.newExpertOpinion') }}</span>
+        </button>
       </div>
 
       <!-- Session search — opens the Spotlight-style search dialog. Last fixed
            row above the list, so it carries the scroll-linked seam. -->
-      <div class="search-wrap" :class="{ 'search-wrap--scrolled': sessionsScrolled }">
+      <div v-if="!explorerOpen" class="search-wrap" :class="{ 'search-wrap--scrolled': sessionsScrolled }">
         <button class="search" type="button" @click="openSearch">
           <Icon class="search-icon" name="search" />
           <span class="search-input">{{ t('sidebar.search') }}</span>
@@ -730,7 +968,17 @@ onBeforeUnmount(() => {
         </button>
       </div>
 
-      <div v-if="tabsEnabled" class="status-tabs" role="tablist">
+      <WorkspaceExplorer
+        ref="explorerRef"
+        v-show="explorerOpen"
+        :active="explorerOpen"
+        :workspace="explorerWorkspace"
+        :session-id="explorerSessionId"
+        @close="closeExplorer"
+        @open-file="emit('openFile', $event)"
+      />
+
+      <div v-if="!explorerOpen && tabsEnabled" class="status-tabs" role="tablist">
         <button
           type="button"
           role="tab"
@@ -758,20 +1006,22 @@ onBeforeUnmount(() => {
         >
           {{ t('sidebar.tabWorkspaces') }}
         </button>
-        <IconButton
-          class="status-view-switcher side-section-kebab"
-          size="sm"
-          :label="t('sidebar.viewSwitcher')"
-          aria-haspopup="menu"
-          :aria-expanded="sectionMenuOpen"
-          @click.stop="toggleSectionMenu($event)"
-        >
-          <Icon name="sliders" />
-        </IconButton>
+        <Tooltip :text="t('sidebar.viewSwitcher')">
+          <IconButton
+            class="status-view-switcher side-section-kebab"
+            size="sm"
+            :label="t('sidebar.viewSwitcher')"
+            aria-haspopup="menu"
+            :aria-expanded="sectionMenuOpen"
+            @click.stop="toggleSectionMenu($event)"
+          >
+            <Icon name="sliders" />
+          </IconButton>
+        </Tooltip>
       </div>
 
       <PinnedSessionList
-        v-if="statusView === 'open'"
+        v-if="!explorerOpen && statusView === 'open'"
         :sessions="pinnedSessions"
         :active-id="activeId"
         :collapsed="pinnedCollapsed"
@@ -790,7 +1040,7 @@ onBeforeUnmount(() => {
       />
 
       <!-- Session list — grouped by workspace -->
-      <div class="sessions" @scroll="onSessionsScroll">
+      <div v-if="!explorerOpen" class="sessions" @scroll="onSessionsScroll">
 
         <!-- Done tab — done sessions grouped by workspace with count headers.
              The group header collapses like an open-tab workspace group and
@@ -808,15 +1058,17 @@ onBeforeUnmount(() => {
               />
               <span class="done-gh-name">{{ dg.workspace.name }}</span>
               <span class="done-gh-count">{{ dg.sessions.length }}</span>
-              <IconButton
-                class="done-gh-more gh-more"
-                :class="{ open: wsMenuOpenId === dg.workspace.id }"
-                size="sm"
-                :label="t('sidebar.options')"
-                @click.stop="toggleWsMenu(dg.workspace, $event)"
-              >
-                <Icon name="dots-horizontal" />
-              </IconButton>
+              <Tooltip :text="t('sidebar.options')">
+                <IconButton
+                  class="done-gh-more gh-more"
+                  :class="{ open: wsMenuOpenId === dg.workspace.id }"
+                  size="sm"
+                  :label="t('sidebar.options')"
+                  @click.stop="toggleWsMenu(dg.workspace, $event)"
+                >
+                  <Icon name="dots-horizontal" />
+                </IconButton>
+              </Tooltip>
             </div>
             <div v-if="!isCollapsed(dg.workspace.id)" class="done-gh-sessions">
               <SessionRow
@@ -850,14 +1102,16 @@ onBeforeUnmount(() => {
           <div class="side-section-label">
             <span class="side-section-title">{{ t('sidebar.tabWorkspaces') }}</span>
             <div class="side-section-actions">
-              <IconButton
-                class="side-section-toggle"
-                size="sm"
-                :label="t('sidebar.newWorkspace')"
-                @click.stop="emit('addWorkspace')"
-              >
-                <Icon name="folder-plus" />
-              </IconButton>
+              <Tooltip :text="t('sidebar.newWorkspace')">
+                <IconButton
+                  class="side-section-toggle"
+                  size="sm"
+                  :label="t('sidebar.newWorkspace')"
+                  @click.stop="emit('addWorkspace')"
+                >
+                  <Icon name="folder-plus" />
+                </IconButton>
+              </Tooltip>
             </div>
           </div>
           <div
@@ -884,16 +1138,17 @@ onBeforeUnmount(() => {
               <span v-else class="ws-dir-name" @dblclick.stop="startRenameWorkspace(g.workspace.id, g.workspace.name)">
                 {{ g.workspace.name }}
               </span>
-              <IconButton
-                v-if="renamingId !== g.workspace.id"
-                class="gh-more ws-dir-act"
-                :class="{ open: wsMenuOpenId === g.workspace.id }"
-                size="sm"
-                :label="t('sidebar.options')"
-                @click.stop="toggleWsMenu(g.workspace, $event)"
-              >
-                <Icon name="dots-horizontal" />
-              </IconButton>
+              <Tooltip v-if="renamingId !== g.workspace.id" :text="t('sidebar.options')">
+                <IconButton
+                  class="gh-more ws-dir-act"
+                  :class="{ open: wsMenuOpenId === g.workspace.id }"
+                  size="sm"
+                  :label="t('sidebar.options')"
+                  @click.stop="toggleWsMenu(g.workspace, $event)"
+                >
+                  <Icon name="dots-horizontal" />
+                </IconButton>
+              </Tooltip>
             </div>
             <div class="ws-dir-sub">{{ g.workspace.root }}</div>
           </div>
@@ -938,25 +1193,29 @@ onBeforeUnmount(() => {
           <div class="side-section-label">
             <span class="side-section-title">{{ t('sidebar.workspaces') }}</span>
             <div class="side-section-actions">
-              <IconButton
-                class="side-section-toggle"
-                size="sm"
-                :label="allCollapsed ? t('sidebar.expandAll') : t('sidebar.collapseAll')"
-                @click.stop="allCollapsed ? expandAllWorkspaces() : collapseAllWorkspaces()"
-              >
-                <Icon v-if="allCollapsed" name="expand" />
-                <Icon v-else name="collapse" />
-              </IconButton>
-              <IconButton
-                class="side-section-toggle side-section-kebab"
-                size="sm"
-                :label="t('sidebar.options')"
-                aria-haspopup="menu"
-                :aria-expanded="sectionMenuOpen"
-                @click.stop="toggleSectionMenu($event)"
-              >
-                <Icon name="dots-horizontal" />
-              </IconButton>
+              <Tooltip :text="allCollapsed ? t('sidebar.expandAll') : t('sidebar.collapseAll')">
+                <IconButton
+                  class="side-section-toggle"
+                  size="sm"
+                  :label="allCollapsed ? t('sidebar.expandAll') : t('sidebar.collapseAll')"
+                  @click.stop="allCollapsed ? expandAllWorkspaces() : collapseAllWorkspaces()"
+                >
+                  <Icon v-if="allCollapsed" name="expand" />
+                  <Icon v-else name="collapse" />
+                </IconButton>
+              </Tooltip>
+              <Tooltip :text="t('sidebar.options')">
+                <IconButton
+                  class="side-section-toggle side-section-kebab"
+                  size="sm"
+                  :label="t('sidebar.options')"
+                  aria-haspopup="menu"
+                  :aria-expanded="sectionMenuOpen"
+                  @click.stop="toggleSectionMenu($event)"
+                >
+                  <Icon name="dots-horizontal" />
+                </IconButton>
+              </Tooltip>
             </div>
           </div>
           <div
@@ -981,12 +1240,14 @@ onBeforeUnmount(() => {
               :unread-by-session="unreadBySession"
               :pinned-ids="pinnedIds"
               :ws-menu-open-id="wsMenuOpenId"
+              :explorer-active="explorerOpen && explorerWorkspaceId === g.workspace.id"
               :dragging="draggingWsId === g.workspace.id"
               :is-collapsed="isCollapsed"
               :is-expanded="isExpanded"
               @group-click="handleGhClick"
               @group-contextmenu="openGhMenu"
               @toggle-ws-menu="toggleWsMenu"
+              @toggle-explorer="toggleExplorer"
               @create-in-workspace="(id) => emit('createInWorkspace', id)"
               @select-session="onSelectSession"
               @rename-session="(id, title) => emit('rename', id, title)"
@@ -1009,12 +1270,15 @@ onBeforeUnmount(() => {
         </template>
       </div>
 
-      <!-- Footer: settings entry pinned under the session list -->
-      <div class="side-footer">
-        <button class="btn-settings" type="button" @click.stop="emit('openSettings')">
-          <Icon name="settings" />
-          <span>{{ t('settings.title') }}</span>
-        </button>
+      <!-- Footer: settings entry pinned under the session list. The row is the
+           growing side that truncates; a fixed side would sit beside it. -->
+      <div class="side-footer" v-if="!explorerOpen">
+        <div class="side-footer-account">
+          <button class="btn-settings" type="button" @click.stop="emit('openSettings')">
+            <Icon name="settings" />
+            <span class="btn-settings-label">{{ t('settings.title') }}</span>
+          </button>
+        </div>
       </div>
 
       <!-- Folder-drop overlay (desktop): covers the column while a folder drag
@@ -1100,7 +1364,7 @@ onBeforeUnmount(() => {
     </Menu>
     <!-- Session search dialog (Cmd/Ctrl+K) -->
     <SearchSessionsDialog
-      v-if="showSearch"
+      v-if="showSearch && !explorerOpen"
       :sessions="sessions"
       :workspaces="workspaces"
       :active-id="activeId"
@@ -1112,7 +1376,51 @@ onBeforeUnmount(() => {
          which breaks v-show on the host (Vue can't apply display:none to a
          Fragment). Teleport still renders to body regardless of placement. -->
     <Teleport to="body">
-      <DesignSystemView v-if="showDesignSystem" @close="showDesignSystem = false" />
+      <ErrorBoundary
+        v-if="showDesignSystem"
+        fullscreen
+        closable
+        @close="showDesignSystem = false"
+      >
+        <DesignSystemView @close="showDesignSystem = false" />
+      </ErrorBoundary>
+      <section
+        v-if="updateNotesOpen"
+        id="sidebar-update-notes"
+        ref="updateNotesElement"
+        class="sidebar-update-notes"
+        :class="{ 'is-scrollable': updateNotesScrollable }"
+        data-testid="sidebar-update-notes"
+        :style="updateNotesStyle"
+        role="dialog"
+        aria-labelledby="sidebar-update-notes-title"
+        @mouseenter="keepUpdateNotesOpen"
+        @mouseleave="scheduleUpdateNotesPointerClose"
+        @focusin="keepUpdateNotesOpen"
+        @focusout="onUpdateNotesFocusout"
+      >
+        <div class="sidebar-update-notes__header">
+          <strong id="sidebar-update-notes-title" data-testid="sidebar-update-notes-title">
+            {{ t('update.releaseNotesTitle', { version: update.availableVersion.value ?? '' }) }}
+          </strong>
+          <span v-if="updateReleaseDate">{{ updateReleaseDate }}</span>
+        </div>
+        <div class="sidebar-update-notes__divider" />
+        <!-- The notes scroll when they outgrow the panel, so the region has to
+             be reachable by keyboard on its own: without a tab stop there is no
+             way to scroll it without a pointer. -->
+        <div
+          ref="updateNotesBodyElement"
+          class="sidebar-update-notes__body"
+          data-testid="sidebar-update-notes-body"
+          tabindex="0"
+          role="group"
+          :aria-label="t('update.releaseNotesRegion')"
+          @scroll="syncUpdateNotesScroll"
+        >
+          <ReleaseNotes :text="update.state.value?.releaseNotes ?? ''" />
+        </div>
+      </section>
     </Teleport>
   </aside>
 </template>
@@ -1197,12 +1505,9 @@ onBeforeUnmount(() => {
   position: relative;
 }
 
-/* Header: brand strip (no border — flows into the workspace list). On non-mac
-   platforms the brand sits on the left and the collapse button on the right
-   (justify-content: space-between); on macOS desktop the brand is hidden and
-   the header is a window-drag strip (see below). min-height keeps the 26px
-   control row (50px total with padding) so the list below starts at a stable
-   y. */
+/* Header: brand strip (no border — flows into the workspace list). The brand
+   sits on the left and the collapse button on the right on every platform;
+   macOS also uses the header as a window-drag strip. */
 .ch {
   display: flex;
   align-items: center;
@@ -1226,15 +1531,14 @@ onBeforeUnmount(() => {
 .side.macos-desktop .ch-collapse {
   -webkit-app-region: no-drag;
 }
-/* Compact brand lockup on macOS. */
-.side.macos-desktop .ch-logo {
-  height: 24px;
-  width: 24px;
+.side.macos-desktop .ch-actions {
+  -webkit-app-region: no-drag;
 }
 .ch-logo {
-  height: 28px;
-  width: 28px;
+  width: min(220px, 100%);
+  height: auto;
   object-fit: contain;
+  object-position: left center;
   flex: none;
   display: block;
   cursor: pointer;
@@ -1248,62 +1552,158 @@ onBeforeUnmount(() => {
 .ch-brand {
   display: flex;
   align-items: center;
-  gap: 8px;
   min-width: 0;
   /* Take the row's slack so the action buttons group together on the right. */
   flex: 1;
   user-select: none;
   touch-action: none;
 }
-.ch-name {
-  font-size: var(--ui-font-size);
-  font-weight: 500;
-  line-height: 1.25;
-  color: var(--color-text);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-/* Responsive brand row: below 250px the product name drops out so the logo
-   and action buttons keep their room. */
-@container sidebar-col (max-width: 250px) {
-  .ch-name { display: none; }
-}
 
-/* Action buttons — first row of the actions group (New chat + search): rows
-   inside the group stack flush (0 gap, same rhythm as the session list rows);
-   the group's bottom gap lives on .search-wrap. */
-.update-wrap {
-  display: flex;
-  padding: 0 var(--sb-inset) var(--space-1);
-}
-/* Same row geometry as .btn-new-chat; accent colour is the only difference,
-   so the row reads as an offer rather than another navigation item. */
-.btn-update {
+.ch-actions {
   display: flex;
   align-items: center;
-  gap: 12px;
-  flex: 1;
-  min-width: 0;
-  padding: 8px calc(var(--sb-pad-x) - var(--sb-inset));
-  border: none;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--color-accent);
-  font-family: var(--font-ui);
-  font-size: var(--ui-font-size-sm);
-  font-weight: var(--weight-medium);
-  line-height: var(--leading-tight);
-  cursor: pointer;
-  text-align: left;
+  gap: var(--space-2);
+  flex: none;
 }
-.btn-update:hover { background: var(--sb-hover); }
-.btn-update:focus-visible { outline: none; box-shadow: var(--p-focus-ring); }
-.btn-update svg { flex: none; }
-.btn-update span {
+
+.sidebar-update-trigger {
+  --sidebar-update-size: 32px;
+  position: relative;
+  display: inline-grid;
+  grid-template-areas: 'slot';
+  place-items: center;
+  width: var(--sidebar-update-size);
+  height: var(--sidebar-update-size);
+  padding: 0;
+  border-radius: var(--radius-full);
+  color: var(--color-text);
+  font-size: var(--text-xs);
   overflow: hidden;
-  text-overflow: ellipsis;
+  transition: width var(--duration-base) var(--ease-out),
+    background var(--duration-base) var(--ease-out),
+    color var(--duration-base) var(--ease-out);
+}
+.sidebar-update-trigger__icon,
+.sidebar-update-trigger__text {
+  grid-area: slot;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity var(--duration-base) var(--ease-out);
+}
+.sidebar-update-trigger__icon :deep(svg) {
+  width: var(--sidebar-update-size);
+  height: var(--sidebar-update-size);
+}
+.sidebar-update-trigger__text {
+  padding: 0 var(--space-3);
   white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+}
+.ch-actions .sidebar-update-trigger:hover:not(:disabled),
+.ch-actions .sidebar-update-trigger:focus-visible,
+.ch-actions .sidebar-update-trigger.is-downloading,
+.ch-actions .sidebar-update-trigger.is-downloaded,
+.ch-actions .sidebar-update-trigger.is-error {
+  width: auto;
+  min-width: 56px;
+  background: var(--color-accent);
+  color: var(--color-text-on-accent);
+}
+.ch-actions .sidebar-update-trigger:hover:not(:disabled) .sidebar-update-trigger__icon,
+.ch-actions .sidebar-update-trigger:focus-visible .sidebar-update-trigger__icon,
+.ch-actions .sidebar-update-trigger.is-downloading .sidebar-update-trigger__icon,
+.ch-actions .sidebar-update-trigger.is-downloaded .sidebar-update-trigger__icon,
+.ch-actions .sidebar-update-trigger.is-error .sidebar-update-trigger__icon {
+  opacity: 0;
+}
+.ch-actions .sidebar-update-trigger:hover:not(:disabled) .sidebar-update-trigger__text,
+.ch-actions .sidebar-update-trigger:focus-visible .sidebar-update-trigger__text,
+.ch-actions .sidebar-update-trigger.is-downloading .sidebar-update-trigger__text,
+.ch-actions .sidebar-update-trigger.is-downloaded .sidebar-update-trigger__text,
+.ch-actions .sidebar-update-trigger.is-error .sidebar-update-trigger__text {
+  opacity: 1;
+}
+.sidebar-update-trigger.is-downloading {
+  cursor: progress;
+}
+.ch-actions .sidebar-update-trigger.is-error {
+  background: var(--color-danger);
+}
+.ch-actions .sidebar-update-trigger:disabled {
+  cursor: progress;
+}
+.ch-actions .sidebar-update-trigger:focus-visible {
+  outline: none;
+  box-shadow: var(--p-focus-ring-strong);
+}
+
+.sidebar-update-notes {
+  position: fixed;
+  z-index: var(--z-tooltip);
+  box-sizing: border-box;
+  width: min(440px, calc(100vw - 32px));
+  max-height: min(640px, calc(100vh - 32px));
+  overflow: hidden;
+  border: 1px solid var(--color-line-strong);
+  border-radius: var(--radius-xl);
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+  box-shadow: var(--shadow-menu);
+  font-family: var(--font-ui);
+}
+.sidebar-update-notes__header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-6) var(--space-6) var(--space-5);
+}
+.sidebar-update-notes__header strong {
+  color: var(--color-text-strong);
+  font-size: var(--text-lg);
+}
+.sidebar-update-notes__header span {
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+.sidebar-update-notes__divider {
+  height: 1px;
+  margin-inline: var(--space-6);
+  background: var(--color-line);
+}
+/* Long notes scroll inside the body. A cut-off line reads as the end of the
+   list unless something says otherwise, so the shell paints a fade over the
+   last rows. It is pointer-events: none so it never eats a click or a scroll,
+   and it sits on the shell rather than the scroller so it does not travel
+   with the content. */
+.sidebar-update-notes.is-scrollable::after {
+  content: '';
+  position: absolute;
+  inset-inline: 1px;
+  inset-block-end: 1px;
+  height: var(--space-6);
+  border-end-start-radius: var(--radius-xl);
+  border-end-end-radius: var(--radius-xl);
+  background: linear-gradient(to bottom, transparent, var(--color-surface-raised));
+  pointer-events: none;
+}
+.sidebar-update-notes__body {
+  /* min-width: 0 keeps a long unbreakable token (a commit URL) from setting
+     the min-content width — the shell is overflow: hidden, so it would clip
+     rather than scroll. overflow-x: clip catches anything that still escapes,
+     so the popover can never scroll sideways. */
+  min-width: 0;
+  max-height: min(500px, calc(100vh - 150px));
+  overflow-x: clip;
+  overflow-y: auto;
+  padding: var(--space-5) var(--space-6) var(--space-6);
+  overscroll-behavior: contain;
+}
+.sidebar-update-notes__body:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+  border-radius: var(--radius-md);
 }
 
 .btn-wrap {
@@ -1336,6 +1736,9 @@ onBeforeUnmount(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.btn-expert-opinion {
+  width: 100%;
 }
 
 .status-tabs {
@@ -1443,8 +1846,22 @@ onBeforeUnmount(() => {
    sunken — not a Button). */
 .side-footer {
   flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
   padding: var(--space-2) var(--sb-inset);
   border-top: 1px solid var(--line);
+}
+/* A long label truncates instead of pushing the row. */
+.side-footer-account {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.btn-settings-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .btn-settings {
   display: flex;

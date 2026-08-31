@@ -11,6 +11,7 @@ export const metaCapabilitiesSchema = z.object({
   mcp: z.literal(true),
   tasks: z.literal(true),
   terminal: z.literal(true),
+  expert_talk_v1: z.literal(true),
 });
 
 export type MetaCapabilities = z.infer<typeof metaCapabilitiesSchema>;
@@ -31,6 +32,20 @@ export const metaFeatureSchema = z.object({
 
 export type MetaFeature = z.infer<typeof metaFeatureSchema>;
 
+export const experimentalFlagSourceSchema = z.enum(['master-env', 'env', 'config', 'default']);
+
+export const experimentalFlagStateSchema = z.object({
+  id: z.string().min(1),
+  enabled: z.boolean(),
+  source: experimentalFlagSourceSchema,
+  config_value: z.boolean().optional(),
+  default_enabled: z.boolean(),
+  externally_controlled: z.boolean(),
+  overridden: z.boolean(),
+});
+
+export type ExperimentalFlagStateResponse = z.infer<typeof experimentalFlagStateSchema>;
+
 export const metaResponseSchema = z.object({
   server_version: z.string().min(1),
   capabilities: metaCapabilitiesSchema,
@@ -39,6 +54,7 @@ export const metaResponseSchema = z.object({
   open_in_apps: z.array(fsOpenInAppIdSchema),
   dangerous_bypass_auth: z.boolean(),
   experimental_flags: z.record(z.string(), z.boolean()).optional(),
+  experimental_flag_states: z.array(experimentalFlagStateSchema).optional(),
   backend: z.enum(['v1', 'v2']).optional(),
   web_title: z.string().optional(),
   features: z.array(metaFeatureSchema).optional(),

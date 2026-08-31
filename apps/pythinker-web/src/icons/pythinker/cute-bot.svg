@@ -3,39 +3,26 @@
     .ptx-cute-bot .bot {
       transform-box: view-box;
       transform-origin: 12px 12px;
-      animation: ptx-bot-float 2.8s ease-in-out infinite;
     }
 
     .ptx-cute-bot .antenna {
       transform-box: fill-box;
       transform-origin: 50% 100%;
-      animation: ptx-bot-antenna-wiggle 2.8s ease-in-out infinite;
     }
 
     .ptx-cute-bot .antenna-dot {
       transform-box: fill-box;
       transform-origin: center;
-      animation: ptx-bot-antenna-pulse 2.8s ease-in-out infinite;
     }
 
     .ptx-cute-bot .eye {
       transform-box: fill-box;
       transform-origin: center;
-      animation: ptx-bot-blink 3.4s ease-in-out infinite;
-    }
-
-    .ptx-cute-bot .ear-left {
-      animation: ptx-bot-ear-left 2.8s ease-in-out infinite;
-    }
-
-    .ptx-cute-bot .ear-right {
-      animation: ptx-bot-ear-right 2.8s ease-in-out infinite;
     }
 
     .ptx-cute-bot .smile {
       transform-box: fill-box;
       transform-origin: center;
-      animation: ptx-bot-smile 2.8s ease-in-out infinite;
     }
 
     @keyframes ptx-bot-float {
@@ -73,6 +60,15 @@
       0%, 100% { transform: scaleX(1); }
       50% { transform: scaleX(1.06); }
     }
+
+    /* motion runs only while the host is working (.ptx-live) or hovered */
+    :is(.ptx-live .ptx-cute-bot, .ptx-cute-bot:hover, :is(button, a, [role="button"], .ptx-hover):hover .ptx-cute-bot) .bot { animation: ptx-bot-float 2.8s ease-in-out infinite; }
+    :is(.ptx-live .ptx-cute-bot, .ptx-cute-bot:hover, :is(button, a, [role="button"], .ptx-hover):hover .ptx-cute-bot) .antenna { animation: ptx-bot-antenna-wiggle 2.8s ease-in-out infinite; }
+    :is(.ptx-live .ptx-cute-bot, .ptx-cute-bot:hover, :is(button, a, [role="button"], .ptx-hover):hover .ptx-cute-bot) .antenna-dot { animation: ptx-bot-antenna-pulse 2.8s ease-in-out infinite; }
+    :is(.ptx-live .ptx-cute-bot, .ptx-cute-bot:hover, :is(button, a, [role="button"], .ptx-hover):hover .ptx-cute-bot) .eye { animation: ptx-bot-blink 3.4s ease-in-out infinite; }
+    :is(.ptx-live .ptx-cute-bot, .ptx-cute-bot:hover, :is(button, a, [role="button"], .ptx-hover):hover .ptx-cute-bot) .ear-left { animation: ptx-bot-ear-left 2.8s ease-in-out infinite; }
+    :is(.ptx-live .ptx-cute-bot, .ptx-cute-bot:hover, :is(button, a, [role="button"], .ptx-hover):hover .ptx-cute-bot) .ear-right { animation: ptx-bot-ear-right 2.8s ease-in-out infinite; }
+    :is(.ptx-live .ptx-cute-bot, .ptx-cute-bot:hover, :is(button, a, [role="button"], .ptx-hover):hover .ptx-cute-bot) .smile { animation: ptx-bot-smile 2.8s ease-in-out infinite; }
 
     @media (prefers-reduced-motion: reduce) {
       .ptx-cute-bot .bot,

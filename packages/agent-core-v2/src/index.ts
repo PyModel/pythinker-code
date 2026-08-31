@@ -179,6 +179,7 @@ export * from '#/kosong/provider/providerService';
 export * from '#/kosong/provider/providerDefinition';
 export * from '#/kosong/provider/protocolAdapterRegistry';
 import '#/features/skill/catalog/configSection';
+import '#/app/remoteControl/flag';
 import '#/app/agentIdentity/configSection';
 export * from '#/app/agentIdentity/configSection';
 export * from '#/app/agentIdentity/agentIdentity';
@@ -338,6 +339,7 @@ export * from '#/features/plan/configSection';
 export * from '#/features/plan/plan';
 export * from '#/features/plan/planOps';
 export * from '#/features/plan/planService';
+import '#/features/dateChange/dateChangeFeature';
 import '#/features/plan/planFeature';
 export * from '#/features/externalHooks/configSection';
 export * from '#/features/externalHooks/app/externalHooksRunner';
@@ -455,6 +457,11 @@ export * from '#/session/agentLifecycle/mainAgent';
 export * from '#/session/advisor/advisor';
 export * from '#/session/advisor/advisorService';
 export * from '#/session/advisor/configSection';
+export * from '#/session/expertTalk/expertTalk';
+export * from '#/session/expertTalk/expertTalkPure';
+export * from '#/session/expertTalk/expertTalkService';
+import '#/session/expertTalk/flag';
+import '#/session/expertTalk/profile';
 export * from '#/session/mcp/sessionMcpHandle';
 import '#/app/mcpConfig/configSection';
 export {
@@ -482,6 +489,12 @@ export * from '#/session/subagent/spawn';
 import '#/session/subagent/flag';
 export * from '#/session/subagent/subagentModelsValidation';
 import '#/session/subagent/subagentModelsValidationService';
+export * from '#/session/subagent/policy';
+export * from '#/session/subagent/subagentModelPolicy';
+import '#/session/subagent/subagentModelPolicyService';
+export * from '#/session/subagent/routing';
+export * from '#/session/subagent/bindingProvenance';
+export * from '#/session/subagent/subagentRoutingService';
 export * from '#/agent/tools/agent/subagent-task';
 export { AGENT_RUN_PROMPT_ORIGIN } from '#/session/subagent/runAgentTurn';
 export * from '#/session/subagent/mirrorAgentRun';
@@ -591,6 +604,7 @@ export {
   compressImageForModel,
   gateImageFormatParts,
   IMAGE_BYTE_BUDGET,
+  MAX_IMAGE_DECODE_BYTES,
   MAX_IMAGE_EDGE_PX,
   READ_IMAGE_BYTE_BUDGET,
   resolveMaxImageEdgePx,
@@ -637,11 +651,12 @@ export * from '#/agent/contextMemory/loopEventFold';
 export * from '#/agent/contextMemory/messageId';
 export * from '#/agent/contextMemory/contextTranscript';
 export * from '#/agent/contextMemory/types';
-export * from '#/agent/systemReminder/systemReminder';
-export * from '#/agent/systemReminder/systemReminderService';
+export { AgentReminder, ReminderRuntime } from '#/features/reminder/reminderAgentRuntime';
+export * from '#/features/reminder/systemReminder';
+export * from '#/features/reminder/types';
+import '#/features/reminder/reminderFeature';
 export * from '#/features/dateChange/dateChange';
-export * from '#/features/dateChange/dateChangeService';
-import '#/features/dateChange/dateChangeFeature';
+export * from '#/features/dateChange/dateChangeAgentRuntime';
 export * from '#/agent/contextProjector/contextProjector';
 export * from '#/agent/contextProjector/contextProjectorService';
 export * from '#/agent/contextProjector/mediaProjection';
@@ -651,8 +666,6 @@ export * from '#/session/tokenCounting/sessionTokenCounting';
 export * from '#/session/tokenCounting/tokenCountingAgentModel';
 export * from '#/session/tokenCounting/sessionTokenCountingService';
 import '#/features/tokenCounting/tokenCountingFeature';
-export * from '#/agent/contextInjector/contextInjector';
-export * from '#/agent/contextInjector/contextInjectorService';
 export * from '#/agent/plugin/agentPlugin';
 export * from '#/agent/plugin/agentPluginOps';
 export * from '#/agent/plugin/agentPluginService';

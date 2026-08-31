@@ -30,6 +30,7 @@ import {
   IModelCatalog,
   IModelService,
   ISessionActivityView,
+  ISessionExpertTalkService,
   ISessionMetadata,
   ISessionLifecycleService,
   ISessionManager,
@@ -39,6 +40,9 @@ import {
   IWorkspaceSessions,
   MAIN_AGENT_ID,
   makeAgentScopeContext,
+  type ExpertTalkChangedEvent,
+  type ExpertTalkStatusV1,
+  type ISessionExpertTalkService as SessionExpertTalkService,
 } from '@pymodel/agent-core-v2';
 import { Emitter } from '@pymodel/agent-core-v2/_base/event';
 import { TurnStarted } from '@pymodel/agent-core-v2/agent/loop/turnEvents';
@@ -465,6 +469,7 @@ function makeCore(
   sessions: Map<string, FakeLifecycle>,
   eventBus = new FakeEventBus(),
   metaAgents: Record<string, { type?: string; parentAgentId?: string }> = {},
+  expertTalk = new Map<string, SessionExpertTalkService>(),
 ): Scope {
   const sessionFor = (sid: string) => {
     const lifecycle = sessions.get(sid);
@@ -474,6 +479,7 @@ function makeCore(
         if (t === IAgentLifecycleService) return lifecycle;
         if (t === ISessionActivityView) return lifecycle.workView;
         if (t === ISessionMetadata) return { read: async () => ({ agents: metaAgents }) };
+        if (t === ISessionExpertTalkService) return expertTalk.get(sid);
         return undefined;
       },
     };
@@ -520,7 +526,7 @@ function agentEvent(type: string, extra: Record<string, unknown> = {}): AgentEve
   return { type, ...extra } as unknown as AgentEvent;
 }
 
-function collectingTarget(): {
+function collectingTarget(supportsExpertTalkEvents = false): {
   target: BroadcastTarget;
   envelopes: EventEnvelope[];
   deliveries: BroadcastDelivery[];
@@ -529,6 +535,7 @@ function collectingTarget(): {
   const deliveries: BroadcastDelivery[] = [];
   return {
     target: {
+      supportsExpertTalkEvents,
       send: (envelope, delivery = 'subscription') => {
         envelopes.push(envelope);
         deliveries.push(delivery);
@@ -543,15 +550,17 @@ describe('SessionEventBroadcaster', () => {
   let dir: string;
   let sessions: Map<string, FakeLifecycle>;
   let eventBus: FakeEventBus;
+  let expertTalk: Map<string, SessionExpertTalkService>;
   let bc: SessionEventBroadcaster;
 
   beforeEach(async () => {
     dir = await mkdtemp(join(tmpdir(), 'pythinker-broadcaster-test-'));
     sessions = new Map();
     eventBus = new FakeEventBus();
+    expertTalk = new Map();
     bc = new SessionEventBroadcaster({
       eventsDir: dir,
-      core: makeCore(sessions, eventBus),
+      core: makeCore(sessions, eventBus, {}, expertTalk),
       maxBufferSize: 3,
     });
   });
@@ -969,7 +978,7 @@ describe('SessionEventBroadcaster', () => {
     );
   });
 
-  it.each(['prompt.steered', 'prompt.queued'])(
+  it.each(['prompt.steered', 'prompt.queued', 'prompt.submitted'])(
     'projects %s content without leaking daemon refs (live + tail replay)',
     async (type) => {
       const lc = new FakeLifecycle();
@@ -981,7 +990,9 @@ describe('SessionEventBroadcaster', () => {
       const ids =
         type === 'prompt.steered'
           ? { activePromptId: 'p1', promptIds: ['p2'], steeredAt: '2026-01-01T00:00:02.000Z' }
-          : { promptId: 'p2', queueLength: 1 };
+          : type === 'prompt.submitted'
+            ? { promptId: 'p2', userMessageId: 'p2', status: 'queued', createdAt: '2026-01-01T00:00:01.000Z' }
+            : { promptId: 'p2', queueLength: 1 };
       main.bus.emit(
         agentEvent(type, {
           ...ids,
@@ -1038,6 +1049,51 @@ describe('SessionEventBroadcaster', () => {
     expect(envelopes.filter((e) => e.volatile !== true).map((e) => e.seq)).toEqual([1, 2, 3]);
     expect(envelopes[0]).toMatchObject({ type: 'agent.created' });
     expect((envelopes[0]!.payload as { agentId: string }).agentId).toBe('main');
+  });
+
+  it('does not publish ephemeral Expert Talk participants as ordinary agents', async () => {
+    const lc = new FakeLifecycle();
+    sessions.set('s1', lc);
+    const { target, envelopes } = collectingTarget();
+    await bc.subscribe('s1', target);
+
+    const participant = lc.addAgent('expert-talk-12345678-lead-abcdef12');
+    participant.bus.emit(agentEvent('turn.started', { turnId: 7 }));
+    await bc.getCursor('s1');
+
+    expect(envelopes.filter(
+      (event) => (event.payload as { agentId?: string }).agentId === participant.id,
+    )).toEqual([]);
+  });
+
+  it('sends Expert Talk snapshots only to opted-in clients', async () => {
+    const lc = new FakeLifecycle();
+    lc.addAgent('main');
+    sessions.set('s1', lc);
+    const changes = new Emitter<ExpertTalkChangedEvent>();
+    const status: ExpertTalkStatusV1 = {
+      version: 'expert_talk/v1',
+      enabled: true,
+      featureSource: 'config',
+      config: { version: 'expert_talk/v1', resourceVersion: 'v1' },
+      pairValidation: { state: 'unknown' },
+    };
+    expertTalk.set('s1', {
+      _serviceBrand: undefined,
+      ready: Promise.resolve(),
+      onDidChange: changes.event,
+      status: () => status,
+    } as SessionExpertTalkService);
+    const legacy = collectingTarget();
+    const supported = collectingTarget(true);
+
+    await bc.subscribe('s1', legacy.target);
+    await bc.subscribe('s1', supported.target);
+    changes.fire({ status: { ...status, config: { ...status.config, resourceVersion: 'v2' } } });
+    await bc.getCursor('s1');
+
+    expect(legacy.envelopes.filter((event) => event.type === 'expert_talk.changed')).toEqual([]);
+    expect(supported.envelopes.filter((event) => event.type === 'expert_talk.changed')).toHaveLength(2);
   });
 
   it('broadcasts agent.disposed only for agents this state attached', async () => {
@@ -1478,6 +1534,70 @@ describe('SessionEventBroadcaster', () => {
         payload: { warnings },
       });
       expect(globalView.deliveries).toEqual(['immediate']);
+    });
+
+    it('delivers validated config and model-catalog changes to global targets', async () => {
+      const globalView = collectingTarget();
+      bc.addGlobalTarget(globalView.target);
+
+      eventBus.emit({
+        type: 'event.config.changed',
+        payload: {
+          changedFields: ['defaultModel'],
+          config: { providers: {}, default_model: 'example-model' },
+        },
+      });
+      eventBus.emit({
+        type: 'event.model_catalog.changed',
+        payload: {
+          changed: [
+            {
+              provider_id: 'example',
+              provider_name: 'Example',
+              added: 2,
+              removed: 1,
+            },
+          ],
+          unchanged: ['stable'],
+          failed: [{ provider: 'broken', reason: 'offline' }],
+        },
+      });
+
+      await vi.waitFor(() => expect(globalView.envelopes).toHaveLength(2));
+      expect(globalView.envelopes[0]).toMatchObject({
+        type: 'event.config.changed',
+        session_id: '__global__',
+        payload: {
+          changedFields: ['defaultModel'],
+          config: { providers: {}, default_model: 'example-model' },
+        },
+      });
+      expect(globalView.envelopes[1]).toMatchObject({
+        type: 'event.model_catalog.changed',
+        session_id: '__global__',
+        payload: {
+          changed: [{ provider_id: 'example', added: 2, removed: 1 }],
+          unchanged: ['stable'],
+          failed: [{ provider: 'broken', reason: 'offline' }],
+        },
+      });
+    });
+
+    it('drops malformed config and model-catalog changes', async () => {
+      const globalView = collectingTarget();
+      bc.addGlobalTarget(globalView.target);
+
+      eventBus.emit({
+        type: 'event.config.changed',
+        payload: { changedFields: [''], config: { providers: {} } },
+      });
+      eventBus.emit({
+        type: 'event.model_catalog.changed',
+        payload: { changed: [{ provider_id: '', added: -1 }], unchanged: [], failed: [] },
+      });
+      await new Promise((resolve) => setTimeout(resolve, 20));
+
+      expect(globalView.envelopes).toHaveLength(0);
     });
 
     it('fans out event.plugin.changed and event.capability.changed to global targets', async () => {

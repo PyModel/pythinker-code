@@ -157,7 +157,7 @@ pythinker acp
 
 Run the local Pythinker server in the foreground of the current terminal — a single process that exposes the REST + WebSocket API and serves the web UI from the same origin — and open the web UI in the default browser once it is ready. The command stays attached to the terminal and shuts down cleanly on `SIGINT` / `SIGTERM` (e.g. `Ctrl-C`).
 
-When the server is running, `GET /openapi.json` returns the REST OpenAPI document and `GET /asyncapi.json` returns the local WebSocket AsyncAPI document. For an end-to-end walkthrough of driving sessions over the API, see [Local server and API](../guides/server.md); for the protocol details, see the [Server API](./server-api.md) reference.
+When the server is running, `GET /openapi.json` returns the REST OpenAPI document and `GET /asyncapi.json` returns the local WebSocket AsyncAPI document. For browser setup and usage, see [Use in a Browser](../guides/web.md). For an end-to-end walkthrough of driving sessions over the API, see [Local server and API](../guides/server.md); for the protocol details, see the [Server API](./server-api.md) reference.
 
 ```sh
 pythinker web                 # run the server in the foreground and open the browser

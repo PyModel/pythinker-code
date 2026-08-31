@@ -68,9 +68,10 @@ import {
   handleTitleCommand,
 } from './session';
 import { handleDynamicWorkflowCommand } from './dynamic_workflow';
+import { handleExpertTalkCommand } from './expert-talk';
 import { handleTowerCommand } from './tower';
 import { handleUndoCommand } from './undo';
-import { handleWebCommand } from './web';
+import { handleRemoteControlCommand, handleWebCommand } from './web';
 
 // ---------------------------------------------------------------------------
 // Re-exports — keep existing consumers working
@@ -96,6 +97,7 @@ export {
   showSettingsSelector,
 } from './config';
 export { handleDynamicWorkflowCommand } from './dynamic_workflow';
+export { handleExpertTalkCommand } from './expert-talk';
 export { handleTowerCommand } from './tower';
 export { showMcpServers, showStatusReport, showUsage } from './info';
 export { handlePluginsCommand } from './plugins';
@@ -109,7 +111,7 @@ export {
   handleTitleCommand,
 } from './session';
 export { handleUndoCommand } from './undo';
-export { handleWebCommand } from './web';
+export { handleRemoteControlCommand, handleWebCommand } from './web';
 
 // ---------------------------------------------------------------------------
 // Host interface
@@ -424,6 +426,7 @@ const SESSION_REQUIRING_COMMANDS: ReadonlySet<BuiltinSlashCommandName> = new Set
   'init',
   'plan',
   'dynamic_workflow',
+  'expert-talk',
   'undo',
   'web',
 ]);
@@ -572,6 +575,9 @@ async function handleBuiltInSlashCommand(
     case 'tower':
       await handleTowerCommand(host, args);
       return;
+    case 'expert-talk':
+      await handleExpertTalkCommand(host, args);
+      return;
     case 'compact':
       await handleCompactCommand(host, args);
       return;
@@ -604,6 +610,9 @@ async function handleBuiltInSlashCommand(
       return;
     case 'web':
       await handleWebCommand(host);
+      return;
+    case 'remote-control':
+      await handleRemoteControlCommand(host);
       return;
     default:
       host.showError(`Unknown slash command: /${String(name)}`);

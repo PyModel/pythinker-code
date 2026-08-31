@@ -98,6 +98,19 @@ export interface AppSession {
   parentSessionId?: string;
 }
 
+export interface AppSessionGroup {
+  workspace: { id: string; cwd: string | null };
+  sessions: AppSession[];
+  total: number;
+}
+
+export interface AppSessionGroupPage {
+  groups: AppSessionGroup[];
+  hasMore: boolean;
+  nextPageToken: string | null;
+  total: number;
+}
+
 /**
  * Live runtime state from GET /sessions/{id}/status — the source of truth for
  * the current model + context usage (Session.agent_config.model can be "").
@@ -230,6 +243,7 @@ export interface PromptSubmission {
   dynamicWorkflowMode?: boolean;
   goalObjective?: string;
   goalControl?: 'pause' | 'resume' | 'cancel';
+  expertTalkArmId?: string;
 }
 
 export interface PromptSubmitResult {
@@ -238,6 +252,110 @@ export interface PromptSubmitResult {
   /** 'running' when the prompt started a turn immediately; 'queued' when
       another prompt is active and the daemon parked it (steerable). */
   status?: 'running' | 'queued';
+  expertTalkRunId?: string;
+}
+
+export type AppExpertTalkRole = 'fusion_lead' | 'peer';
+export type AppExpertTalkStage = 'opening' | 'review' | 'fusion' | 'terminal';
+
+export interface AppExpertTalkArtifact {
+  role: AppExpertTalkRole;
+  stage: 'opening' | 'review' | 'fusion';
+  state: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled' | 'unavailable';
+  text?: string;
+  thinking?: string;
+  tools?: { id: string; name?: string }[];
+  partial: boolean;
+  startedAt?: string;
+  endedAt?: string;
+  usage?: {
+    inputOther: number;
+    output: number;
+    inputCacheRead: number;
+    inputCacheCreation: number;
+  };
+  requestCount?: number;
+  providerAttemptCount?: number;
+  toolCallCount?: number;
+  toolResultTokens?: number;
+  error?: string;
+  errorReason?: string;
+}
+
+export interface AppExpertTalkRun {
+  runId: string;
+  sessionId: string;
+  turnId: number;
+  promptId: string;
+  retryOf?: string;
+  state: 'running' | 'completed' | 'cancelled' | 'failed' | 'interrupted';
+  stage: AppExpertTalkStage;
+  createdAt: string;
+  startedAt?: string;
+  endedAt?: string;
+  updatedAt: string;
+  bindings: {
+    fusionLead: { requestedModelId: string; effectiveModelId: string };
+    peer: { requestedModelId: string; effectiveModelId: string };
+  };
+  opening: { lead: AppExpertTalkArtifact; peer: AppExpertTalkArtifact };
+  review: { lead: AppExpertTalkArtifact; peer: AppExpertTalkArtifact };
+  fusion?: AppExpertTalkArtifact;
+  result?: {
+    answer: string;
+    notes: {
+      consensus: string[];
+      divergence: string[];
+      uncertainty: string[];
+    };
+  };
+  resultVersion?: string;
+  resultUnsupported?: boolean;
+  usage: {
+    complete: boolean;
+    requestCount?: number;
+    providerAttemptCount?: number;
+  };
+  error?: {
+    reason: string;
+    message: string;
+    stage: AppExpertTalkStage;
+    role?: AppExpertTalkRole;
+    retryable: boolean;
+    action: string;
+  };
+  progressRevision?: number;
+  revision: number;
+}
+
+export interface AppExpertTalkStatus {
+  feature: 'enabled' | 'disabled';
+  resourceVersion: string;
+  config: {
+    fusionLeadModelId: string;
+    peerModelId: string;
+  } | null;
+  activation: {
+    state: 'idle' | 'armed';
+    armId?: string;
+    armedAt?: string;
+  };
+  activeRunId?: string;
+  latestRunId?: string;
+  pairValidation: {
+    state: 'valid' | 'stale' | 'ineligible' | 'collapsed' | 'unknown';
+    reason?: string;
+  };
+}
+
+export interface AppExpertTalkRunPage {
+  runs: AppExpertTalkRun[];
+  nextCursor?: string;
+}
+
+export interface AppExpertTalkListRunsOptions {
+  cursor?: string;
+  limit?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -317,6 +435,30 @@ export interface QuestionResponse {
 export type AppTaskStatus = 'running' | 'completed' | 'failed' | 'cancelled';
 export type AppSubagentPhase = 'queued' | 'working' | 'suspended' | 'completed' | 'failed' | 'cancelled';
 
+export type AppSubagentRoutingOperation = 'spawn' | 'fork' | 'resume';
+export type AppSubagentProfileSource = 'requested' | 'default' | 'fork-inherit' | 'resume-existing';
+export type AppSubagentModelSource =
+  | 'caller'
+  | 'policy-default'
+  | 'policy-pool'
+  | 'policy-force'
+  | 'fork-inherit'
+  | 'resume-existing';
+export type AppSubagentPolicyMode = 'inherit' | 'default' | 'pool' | 'force';
+export type AppSubagentPolicySource = 'config' | 'default';
+export type AppSubagentFeatureSource = 'master-env' | 'env' | 'config' | 'default';
+
+export interface AppSubagentRouting {
+  operation: AppSubagentRoutingOperation;
+  profileSource: AppSubagentProfileSource;
+  modelSource: AppSubagentModelSource;
+  policyMode: AppSubagentPolicyMode;
+  policySource: AppSubagentPolicySource;
+  featureSource: AppSubagentFeatureSource;
+  routingEnvRevision: string;
+  routeDecision: string;
+}
+
 export interface AppTask {
   id: string;
   sessionId: string;
@@ -333,6 +475,10 @@ export interface AppTask {
   agentId?: string;
   model?: string;
   thinkingEffort?: string;
+  /** Why the subagent is bound the way it is (stable enum ids from the server). */
+  routing?: AppSubagentRouting;
+  /** The caller's routing environment revision when this task was observed. */
+  currentRoutingEnvRevision?: string;
   outputLines?: string[]; // accumulated by eventReducer from task.progress chunks
   /** The subagent's concatenated live output (assistant.delta), accumulated by
    *  the event reducer from `taskProgress` chunks of kind `text`. Grows in the
@@ -354,6 +500,14 @@ export interface AppTask {
    *  this links the two so the REST copy can be folded into this row and so
    *  cancel can target the id REST actually knows. */
   backgroundTaskId?: string;
+}
+
+export interface AppTaskListOptions {
+  status?: AppTaskStatus;
+  withOutput?: boolean;
+  outputBytes?: number;
+  outputStatus?: 'running' | 'all';
+  signal?: AbortSignal;
 }
 
 // ---------------------------------------------------------------------------
@@ -443,6 +597,7 @@ export type AppEvent =
       lastTurnReason?: 'completed' | 'cancelled' | 'failed';
     }
   | { type: 'sessionMetaUpdated'; sessionId: string; title?: string; lastPrompt?: string }
+  | { type: 'expertTalkChanged'; sessionId: string; status: AppExpertTalkStatus }
   | { type: 'sessionUsageUpdated'; sessionId: string; usage: AppSessionUsage; model?: string; dynamicWorkflowMode?: boolean; planMode?: boolean; thinking?: string }
   | { type: 'historyCompacted'; sessionId: string; beforeSeq: number; reason: string; summaryMessageId?: string }
   | { type: 'compactionStarted'; sessionId: string; trigger: 'manual' | 'auto'; instruction?: string }
@@ -799,17 +954,44 @@ export interface AppConfigProvider {
   hasApiKey: boolean;
 }
 
+export type AppSubagentModelPolicy =
+  | { mode: 'inherit' }
+  | { mode: 'default'; defaultModel: string; defaultEffort?: string }
+  | { mode: 'pool'; defaultModel: string; models: Record<string, string>; defaultEffort?: string }
+  | { mode: 'force'; defaultModel: string; defaultEffort?: string };
+
+/** GET/PUT/DELETE `/config/subagent-model-policy`: the saved policy, its
+ *  strong resource version (the HTTP ETag), and what currently applies. */
+export interface AppSubagentModelPolicyState {
+  policy: AppSubagentModelPolicy;
+  resourceVersion: string;
+  configuredPolicy: AppSubagentModelPolicy;
+  effectivePolicy: AppSubagentModelPolicy;
+  policySource: 'config' | 'default';
+  feature: { enabled: boolean; source: 'master-env' | 'env' | 'config' | 'default' };
+}
+
+/** Thrown by the policy writes when the server's version moved (HTTP 412). */
+export class SubagentModelPolicyConflictError extends Error {
+  constructor(readonly current: AppSubagentModelPolicyState) {
+    super('The subagent model policy changed on the server; reloaded the saved policy.');
+    this.name = 'SubagentModelPolicyConflictError';
+  }
+}
+
 export interface AppConfig {
   providers: Record<string, AppConfigProvider>;
   defaultProvider?: string;
   defaultModel?: string;
-  /** Secondary (subagent) model recipe. `model` names a catalog entry or
-   *  config `models` alias; `defaultEffort` mirrors the daemon's
-   *  `secondaryModel` config section (wire key `secondary_model`). */
+  /** Secondary (subagent) model selection. `null` clears the override so
+   *  subagents inherit their caller's model and thinking effort. */
   secondaryModel?: {
+    defaultModel?: string;
+    models?: Record<string, string>;
+    force?: boolean;
     model?: string;
     defaultEffort?: string;
-  };
+  } | null;
   models?: Record<string, unknown>;
   thinking?: { enabled?: boolean; effort?: string };
   planMode?: boolean;
@@ -828,7 +1010,6 @@ export interface AppConfig {
   background?: unknown;
   experimental?: Record<string, boolean>;
   telemetry?: boolean;
-  raw?: Record<string, unknown>;
 }
 
 /** A session-scoped skill the user can invoke from the slash menu. */
@@ -924,15 +1105,56 @@ export interface AppSessionWarning {
   severity: 'info' | 'warning' | 'error';
 }
 
+export type AppExperimentalFlagSource = 'master-env' | 'env' | 'config' | 'default';
+
+/** Effective state of one experimental flag as decided by the server. */
+export interface AppExperimentalFlagState {
+  id: string;
+  /** What currently applies at runtime. */
+  enabled: boolean;
+  source: AppExperimentalFlagSource;
+  /** The saved `[experimental]` value, when one exists. */
+  configValue?: boolean;
+  defaultEnabled: boolean;
+  /** True when an environment variable decides the flag; the saved setting has no runtime effect. */
+  externallyControlled: boolean;
+  /** True when a saved setting exists and the effective value differs from it. */
+  overridden: boolean;
+}
+
+export interface AppServerMeta {
+  serverVersion: string;
+  serverId: string;
+  startedAt: string;
+  capabilities: Record<string, boolean>;
+  openInApps: string[];
+  dangerousBypassAuth: boolean;
+  backend: 'v1' | 'v2';
+  experimentalFlagStates: AppExperimentalFlagState[];
+}
+
 export interface PythinkerWebApi {
   getHealth(): Promise<{ status: 'ok'; uptimeSec: number }>;
-  getMeta(): Promise<{ serverVersion: string; serverId: string; startedAt: string; capabilities: Record<string, boolean>; openInApps: string[]; dangerousBypassAuth: boolean; backend: 'v1' | 'v2' }>;
+  getMeta(): Promise<AppServerMeta>;
   listSessions(input?: PageRequest & { busy?: boolean; workspaceId?: string; includeArchive?: boolean; archivedOnly?: boolean; excludeEmpty?: boolean }): Promise<Page<AppSession>>;
+  listSessionGroupsV2(input?: { groupPageSize?: number; hasPrompt?: boolean; pageSize?: number; pageToken?: string }): Promise<AppSessionGroupPage>;
   createSession(input: { title?: string; cwd?: string; model?: string; workspaceId?: string }): Promise<AppSession>;
   /** Fetch one session by id (deep links beyond the first listSessions page). */
   getSession(sessionId: string): Promise<AppSession>;
   updateSession(sessionId: string, input: { title?: string; cwd?: string; model?: string; permissionMode?: string; planMode?: boolean; dynamicWorkflowMode?: boolean; goalObjective?: string; goalControl?: 'pause' | 'resume' | 'cancel'; thinking?: string; tools?: string[]; mcpServers?: string[] }): Promise<AppSession>;
   getSessionStatus(sessionId: string): Promise<AppSessionRuntimeStatus>;
+  getExpertTalkStatus(sessionId: string): Promise<AppExpertTalkStatus>;
+  configureExpertTalk(sessionId: string, input: { fusionLeadModelId: string; peerModelId: string }, expectedVersion?: string): Promise<AppExpertTalkStatus>;
+  clearExpertTalk(sessionId: string, expectedVersion?: string): Promise<AppExpertTalkStatus>;
+  armExpertTalk(sessionId: string, expectedVersion?: string): Promise<AppExpertTalkStatus>;
+  disarmExpertTalk(sessionId: string, armId?: string): Promise<AppExpertTalkStatus>;
+  listExpertTalkRuns(
+    sessionId: string,
+    options?: AppExpertTalkListRunsOptions,
+  ): Promise<AppExpertTalkRunPage>;
+  getExpertTalkRun(sessionId: string, runId: string): Promise<AppExpertTalkRun>;
+  cancelExpertTalkRun(sessionId: string, runId: string): Promise<AppExpertTalkRun>;
+  retryExpertTalkRun(sessionId: string, runId: string): Promise<AppExpertTalkRun>;
   /** Current goal snapshot, or null when the session has no active goal. */
   getSessionGoal(sessionId: string): Promise<AppGoal | null>;
   getSessionWarnings(sessionId: string): Promise<AppSessionWarning[]>;
@@ -980,9 +1202,11 @@ export interface PythinkerWebApi {
   listPlugins(): Promise<AppPlugin[]>;
   setPluginEnabled(pluginId: string, enabled: boolean): Promise<{ id: string; enabled: boolean }>;
   listSubagents(workDir: string): Promise<AppSubagent[]>;
-  listTasks(sessionId: string, status?: AppTaskStatus): Promise<AppTask[]>;
-  getTask(sessionId: string, taskId: string, input?: { withOutput?: boolean; outputBytes?: number }): Promise<AppTask>;
+  listTasks(sessionId: string, input?: AppTaskListOptions): Promise<AppTask[]>;
+  getTask(sessionId: string, taskId: string, input?: { withOutput?: boolean; outputBytes?: number; signal?: AbortSignal }): Promise<AppTask>;
   cancelTask(sessionId: string, taskId: string): Promise<{ cancelled: true }>;
+  /** Release a running foreground task so it keeps running in the background. */
+  detachTask(sessionId: string, taskId: string): Promise<{ detached: boolean; status: AppTaskStatus }>;
   listTerminals(sessionId: string): Promise<AppTerminal[]>;
   createTerminal(sessionId: string, input?: { cwd?: string; shell?: string; cols?: number; rows?: number }): Promise<AppTerminal>;
   getTerminal(sessionId: string, terminalId: string): Promise<AppTerminal>;
@@ -998,6 +1222,7 @@ export interface PythinkerWebApi {
   getFileDownloadUrl(sessionId: string, path: string): string;
   openFile(sessionId: string, input: { path: string; line?: number }): Promise<{ opened: true }>;
   revealFile(sessionId: string, input: { path: string }): Promise<{ revealed: true }>;
+  revealSavedPlan(sessionId: string, input: { agentId: string; toolCallId: string }): Promise<{ revealed: true }>;
   /** Open the session working directory (or a session-relative path) in an external application. */
   openInApp(sessionId: string, appId: string, path: string, line?: number): Promise<void>;
   connectEvents(handlers: PythinkerEventHandlers): PythinkerEventConnection;
@@ -1035,6 +1260,10 @@ export interface PythinkerWebApi {
   // Config — REAL endpoints
   getConfig(): Promise<AppConfig>;
   setConfig(patch: Partial<AppConfig>): Promise<AppConfig>;
+  getSubagentModelPolicy(): Promise<AppSubagentModelPolicyState>;
+  /** `expectedVersion` is sent as If-Match; a stale version rejects with SubagentModelPolicyConflictError. */
+  setSubagentModelPolicy(policy: AppSubagentModelPolicy, expectedVersion?: string): Promise<AppSubagentModelPolicyState>;
+  clearSubagentModelPolicy(expectedVersion?: string): Promise<AppSubagentModelPolicyState>;
 
   // Auth — REAL endpoints
   getAuth(): Promise<{

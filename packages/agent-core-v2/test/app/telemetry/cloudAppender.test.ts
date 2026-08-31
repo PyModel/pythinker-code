@@ -111,33 +111,12 @@ describe('CloudAppender', () => {
     expect(typeof event?.['timestamp']).toBe('number');
   });
 
-  it('reads the install marker from the bootstrapped home for the default endpoint', async () => {
+  it('reports to the single telemetry host whatever the install marker says', async () => {
     writeFileSync(join(homeDir, 'region'), 'global\n');
     const requests: CapturedRequest[] = [];
     const appender = new CloudAppender(
       baseOptions({
         homeDir,
-        fetchImpl: makeFetch((req) => {
-          requests.push(req);
-          return okResponse();
-        }),
-      }),
-    );
-
-    appender.track('tool.call', { name: 'bash' });
-    await appender.flush();
-
-    expect(requests).toHaveLength(1);
-    expect(requests[0]?.url).toBe('https://telemetry-logs.pythinker.ai/v1/event');
-  });
-
-  it('honors the marker opt-out from the bootstrap env bag (no process.env needed)', async () => {
-    writeFileSync(join(homeDir, 'region'), 'global\n');
-    const requests: CapturedRequest[] = [];
-    const appender = new CloudAppender(
-      baseOptions({
-        homeDir,
-        bootstrapEnv: { PYTHINKER_CODE_REGION_MARKER: 'off' },
         fetchImpl: makeFetch((req) => {
           requests.push(req);
           return okResponse();
@@ -150,33 +129,6 @@ describe('CloudAppender', () => {
 
     expect(requests).toHaveLength(1);
     expect(requests[0]?.url).toBe('https://telemetry-logs.pythinker.com/v1/event');
-  });
-
-  it('honors PYTHINKER_CODE_REGION_MARKER=off so embedded servers ignore the install marker', async () => {
-    writeFileSync(join(homeDir, 'region'), 'global\n');
-    const savedMarkerFlag = process.env['PYTHINKER_CODE_REGION_MARKER'];
-    process.env['PYTHINKER_CODE_REGION_MARKER'] = 'off';
-    try {
-      const requests: CapturedRequest[] = [];
-      const appender = new CloudAppender(
-        baseOptions({
-          homeDir,
-          fetchImpl: makeFetch((req) => {
-            requests.push(req);
-            return okResponse();
-          }),
-        }),
-      );
-
-      appender.track('tool.call', { name: 'bash' });
-      await appender.flush();
-
-      expect(requests).toHaveLength(1);
-      expect(requests[0]?.url).toBe('https://telemetry-logs.pythinker.com/v1/event');
-    } finally {
-      if (savedMarkerFlag === undefined) delete process.env['PYTHINKER_CODE_REGION_MARKER'];
-      else process.env['PYTHINKER_CODE_REGION_MARKER'] = savedMarkerFlag;
-    }
   });
 
   it('applies setContext sessionId and model updates to subsequent events', async () => {

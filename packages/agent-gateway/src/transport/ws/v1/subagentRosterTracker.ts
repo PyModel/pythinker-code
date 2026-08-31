@@ -1,5 +1,6 @@
 import type { Event } from './events';
 import type { SnapshotSubagent } from '../../../protocol/rest-snapshot';
+import { toRoutingWire } from '../../../routes/tasks';
 
 const MAIN_AGENT_ID = 'main';
 
@@ -28,6 +29,8 @@ export class SubagentRosterTracker {
           run_in_background: event.runInBackground,
           model: event.model,
           thinking_effort: event.thinkingEffort,
+          routing: event.routing === undefined ? undefined : toRoutingWire(event.routing),
+          current_routing_env_revision: event.currentRoutingEnvironmentRevision,
           created_at: new Date().toISOString(),
         });
         return;
@@ -96,7 +99,6 @@ export class SubagentRosterTracker {
     }
   }
 
-  /** Fresh copies — callers must not mutate the tracked entries. */
   get(sessionId: string): SnapshotSubagent[] {
     const roster = this.bySession.get(sessionId);
     if (!roster) return [];

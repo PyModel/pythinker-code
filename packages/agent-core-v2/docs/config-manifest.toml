@@ -128,10 +128,12 @@ default_plan_mode = false
 #   hooks: stripEnv
 #   env:
 #     timeout_ms <- PYTHINKER_CODE_AGENT_DYNAMIC_WORKFLOW_TIMEOUT_MS (custom parse)
+#     max_concurrency <- PYTHINKER_CODE_AGENT_DYNAMIC_WORKFLOW_MAX_CONCURRENCY (custom parse)
 # ##########################################################################
 
 [dynamic_workflow]
 timeout_ms = 7200000
+# max_concurrency: integer
 
 # ##########################################################################
 # experimental

@@ -2,6 +2,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch, type ComponentPublicInstance } from 'vue';
 import { useI18n } from 'vue-i18n';
+import type { AppExpertTalkRun, AppModel } from '../../api/types';
 import type { ChatTurn, ApprovalBlock, FilePreviewRequest, ToolMedia, QueuedPromptView, TurnAttachment, UIQuestion } from '../../types';
 import ToolCall from './ToolCall.vue';
 import ActivityRun from './ActivityRun.vue';
@@ -21,6 +22,7 @@ import Button from '../ui/Button.vue';
 import TurnFold from './TurnFold.vue';
 import TurnFilesSummary from './TurnFilesSummary.vue';
 import WorkingIndicator from './WorkingIndicator.vue';
+import ExpertTalkExchange from './ExpertTalkExchange.vue';
 import { useConfirmDialog } from '../../composables/useConfirmDialog';
 import { copyTextToClipboard } from '../../lib/clipboard';
 import { openFileAttachment } from '../../lib/openFileAttachment';
@@ -73,6 +75,8 @@ onUnmounted(() => {
 const props = withDefaults(
   defineProps<{
     turns: ChatTurn[];
+    expertTalkRuns?: AppExpertTalkRun[];
+    expertTalkModels?: AppModel[];
     approvals?: { approvalId: string; block: ApprovalBlock; agentName?: string; toolCallId?: string }[];
     /** Pending questions (conversation dock). `toolCallId` correlates an
         awaiting-question tool to its transcript card for the parked turn. */
@@ -129,6 +133,10 @@ const props = withDefaults(
     toolDiffPanel?: boolean;
     readOnly?: boolean;
     inspector?: boolean;
+    /** Fold a finished turn's work away, leaving the summary. */
+    turnFolding?: boolean;
+    /** Summarise consecutive tool calls into one activity-run row. */
+    activityRunFolding?: boolean;
     /** Session completion reason for the failed-turn banner. */
     lastTurnReason?: 'completed' | 'cancelled' | 'failed';
     /** Step-limit variant of the failed-turn banner header (turn.step.interrupted
@@ -152,6 +160,8 @@ const props = withDefaults(
   }>(),
   {
     approvals: () => [],
+    expertTalkRuns: () => [],
+    expertTalkModels: () => [],
     questions: () => [],
     turnActive: false,
     working: false,
@@ -164,6 +174,8 @@ const props = withDefaults(
     toolDiffPanel: false,
     readOnly: false,
     inspector: false,
+    turnFolding: true,
+    activityRunFolding: true,
     queued: () => [],
   },
 );
@@ -237,16 +249,44 @@ interface AssistantTurnModel {
   changes: TurnFileChange[];
 }
 
+const assistantTurnModelCache = new WeakMap<
+  ChatTurn,
+  {
+    activityRunFolding: boolean;
+    turnFolding: boolean;
+    model: AssistantTurnModel;
+  }
+>();
+
+function assistantTurnModel(turn: ChatTurn): AssistantTurnModel {
+  const cached = assistantTurnModelCache.get(turn);
+  if (
+    cached?.activityRunFolding === props.activityRunFolding &&
+    cached.turnFolding === props.turnFolding
+  ) {
+    return cached.model;
+  }
+  const all = assistantRenderBlocks(turn, props.activityRunFolding);
+  const { folded, visible } = foldRenderBlocks(all, props.turnFolding);
+  const model = { all, folded, visible, changes: turnFileChanges(turn) };
+  assistantTurnModelCache.set(turn, {
+    activityRunFolding: props.activityRunFolding,
+    turnFolding: props.turnFolding,
+    model,
+  });
+  return model;
+}
+
 const assistantTurnModels = computed(() => {
   const models = new Map<string, AssistantTurnModel>();
   for (const turn of props.turns) {
     if (turn.role !== 'assistant') continue;
-    const all = assistantRenderBlocks(turn);
-    const { folded, visible } = foldRenderBlocks(all);
-    models.set(turn.id, { all, folded, visible, changes: turnFileChanges(turn) });
+    models.set(turn.id, assistantTurnModel(turn));
   }
   return models;
 });
+
+const workingState = 'running' as const;
 
 const workingLabel = computed(() => {
   const last = props.turns.at(-1);
@@ -266,6 +306,7 @@ const emit = defineEmits<{
   /** Show a subagent's live detail in the right-side panel (keyed by the
    *  spawning `Agent` tool-call id). */
   openAgent: [toolCallId: string];
+  detachTask: [toolCallId: string];
   /** Show an Edit/Write tool call's diff in the right-side panel. */
   openToolDiff: [id: string];
   /** Show the aggregate file changes for one assistant turn. */
@@ -285,7 +326,21 @@ const emit = defineEmits<{
    * on the resume path.
    */
   continueTurn: [text: string];
+  buildExpertTalk: [answer: string];
 }>();
+
+const expertTalkRunsByPrompt = computed(() => {
+  const runs = new Map<string, AppExpertTalkRun>();
+  for (const run of props.expertTalkRuns) {
+    runs.set(run.promptId, run);
+    runs.set(`t${run.turnId}`, run);
+  }
+  return runs;
+});
+
+function expertTalkRunForTurn(turn: ChatTurn): AppExpertTalkRun | undefined {
+  return turn.promptId === undefined ? undefined : expertTalkRunsByPrompt.value.get(turn.promptId);
+}
 
 const expandedUserTurns = ref<Record<string, boolean>>({});
 const overflowingUserTurns = ref<Record<string, boolean>>({});
@@ -521,11 +576,15 @@ function assistantRunEndingAt(index: number): ChatTurn[] {
   return run;
 }
 
+// The run's answer is the last turn that ends in text; earlier turns in the
+// same run are steps toward it, not part of it.
 function assistantRunFinalText(index: number): string {
-  return assistantRunEndingAt(index)
-    .map((t) => turnFinalText(t))
-    .filter(Boolean)
-    .join('\n\n');
+  const run = assistantRunEndingAt(index);
+  for (let i = run.length - 1; i >= 0; i -= 1) {
+    const text = turnFinalText(run[i]!);
+    if (text.trim()) return text;
+  }
+  return '';
 }
 
 function finalSummaryText(): string {
@@ -803,6 +862,13 @@ function continueFailedTurn(): void {
             <MessageTime v-if="turn.createdAt" :time="turn.createdAt" />
           </div>
         </div>
+        <div v-if="expertTalkRunForTurn(turn)" class="expert-opinion-turn">
+          <ExpertTalkExchange
+            :run="expertTalkRunForTurn(turn)!"
+            :models="expertTalkModels"
+            @build="emit('buildExpertTalk', $event)"
+          />
+        </div>
       </template>
 
       <!-- Compaction divider — prior turns stay untouched; summary opens in
@@ -826,6 +892,8 @@ function continueFailedTurn(): void {
            a lightweight in-transcript notice rather than a user bubble. -->
       <CronNotice v-else-if="turn.role === 'cron'" :text="turn.text" :cron="turn.cron" :turn-id="turn.id" :created-at="turn.createdAt" />
 
+      <template v-else-if="turn.role === 'assistant' && expertTalkRunForTurn(turn)" />
+
       <!-- Assistant turn → left-aligned, no name/role label. -->
       <div v-else class="a-msg turn-anchor" :data-turn-id="turn.id">
         <!-- ONE TurnFold instance per assistant turn: the live props flip on
@@ -846,6 +914,7 @@ function continueFailedTurn(): void {
           @open-file="emit('openFile', $event)"
           @open-tool-diff="emit('openToolDiff', $event)"
           @open-agent="emit('openAgent', $event)"
+          @detach="emit('detachTask', $event)"
         />
         <template v-for="(blk, bi) in assistantTurnModels.get(turn.id)?.visible ?? []" :key="renderBlockKey(blk, bi)">
           <ThinkingBlock v-if="blk.kind === 'thinking'" :text="blk.thinking" mobile :streaming="isStreamingRenderBlock(turn, blk)" :started-at-ms="blockStartedMs(blk.startedAt)" :duration-ms="blk.durationMs" />
@@ -860,8 +929,9 @@ function continueFailedTurn(): void {
             @open-file="emit('openFile', $event)"
             @open-tool-diff="emit('openToolDiff', $event)"
             @open-agent="emit('openAgent', $event)"
+            @detach="emit('detachTask', $event)"
           />
-          <ToolCall v-else-if="blk.kind === 'tool'" :tool="blk.tool" mobile :tool-diff-panel="toolDiffPanel" @open-media="emit('openMedia', $event)" @open-file="emit('openFile', $event)" @open-tool-diff="emit('openToolDiff', $event)" @open-agent="emit('openAgent', $event)" />
+          <ToolCall v-else-if="blk.kind === 'tool'" :tool="blk.tool" mobile :tool-diff-panel="toolDiffPanel" @open-media="emit('openMedia', $event)" @open-file="emit('openFile', $event)" @open-tool-diff="emit('openToolDiff', $event)" @open-agent="emit('openAgent', $event)" @detach="emit('detachTask', $event)" />
           <NotificationCard v-else-if="blk.kind === 'notification'" :items="blk.items" />
         </template>
         <TurnFilesSummary
@@ -909,7 +979,7 @@ function continueFailedTurn(): void {
          unfinished prompt (covers a page refresh mid-stream, where the
          optimistic submit flag was lost but the main turn is still in flight). -->
     <div v-if="showWorking" class="sending-placeholder">
-      <WorkingIndicator :label="workingLabel" />
+      <WorkingIndicator :label="workingLabel" :state="workingState" />
     </div>
 
     <!-- Inline queue — pending user messages shown after the running turn.
@@ -1073,6 +1143,11 @@ function continueFailedTurn(): void {
   margin-top: var(--chat-turn-gap);
 }
 .chat > .a-msg {
+  margin-top: 10px;
+}
+.chat > .expert-opinion-turn {
+  width: 100%;
+  min-width: 0;
   margin-top: 10px;
 }
 .chat > .u-turn:first-child,

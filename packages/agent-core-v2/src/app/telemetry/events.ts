@@ -389,6 +389,20 @@ export interface SubagentCreatedEvent {
   model?: string;
 }
 
+export interface SubagentSpawnPlanResolvedEvent {
+  operation: 'spawn' | 'fork';
+  profile_source: 'requested' | 'default' | 'fork-inherit' | 'resume-existing';
+  model_source: 'caller' | 'policy-default' | 'policy-pool' | 'policy-force' | 'fork-inherit' | 'resume-existing';
+  policy_mode: 'inherit' | 'default' | 'pool' | 'force';
+  policy_source: 'config' | 'default';
+  feature_source: 'master-env' | 'env' | 'config' | 'default';
+  routing_env_revision: string;
+  route_decision: string;
+  explicit_profile: boolean;
+  explicit_model: boolean;
+  explicit_thinking: boolean;
+}
+
 export interface McpConnectedEvent {
   server_count: number;
   total_count: number;
@@ -477,6 +491,13 @@ export interface SessionStartedEvent {
 
 export interface SessionLoadFailedEvent {
   reason: string;
+}
+
+export interface WireRepairEvent {
+  kind: 'corrupted' | 'truncated';
+  outcome: 'repaired' | 'failed';
+  dropped_count: number;
+  backup_created: boolean;
 }
 
 export interface FirstLaunchEvent {}
@@ -954,6 +975,23 @@ export const telemetryEventDefinitions = {
       model: 'Model alias the subagent binds to (secondary-model choice or inherited caller model); omitted when no binding was resolved',
     },
   }),
+  subagent_spawn_plan_resolved: defineTelemetryEvent<SubagentSpawnPlanResolvedEvent>({
+    owner: 'pythinker-code',
+    comment: 'The routing resolver produced a spawn plan for a new subagent (no prompt content).',
+    properties: {
+      operation: 'spawn or fork',
+      profile_source: 'Where the profile came from: requested, default, or fork-inherit',
+      model_source: 'Where the model came from: caller, policy-default, policy-pool, policy-force, or fork-inherit',
+      policy_mode: 'Effective subagent model policy mode',
+      policy_source: 'Whether the policy came from config or the default',
+      feature_source: 'Where the secondary-model feature state came from',
+      routing_env_revision: 'Hash of the ambient routing inputs the plan was resolved from',
+      route_decision: 'Hash of the routing environment plus the request intent',
+      explicit_profile: 'Whether the request named a subagent type',
+      explicit_model: 'Whether the request named a model',
+      explicit_thinking: 'Whether the request named a thinking effort',
+    },
+  }),
   mcp_connected: defineTelemetryEvent<McpConnectedEvent>({
     owner: 'pythinker-code',
     comment: 'MCP servers connect at session start.',
@@ -1057,6 +1095,16 @@ export const telemetryEventDefinitions = {
     owner: 'pythinker-code',
     comment: 'A session resume fails.',
     properties: { reason: 'Error code, error name, or unknown' },
+  }),
+  wire_repair: defineTelemetryEvent<WireRepairEvent>({
+    owner: 'pythinker-code',
+    comment: 'A corrupted wire journal is truncated to its valid prefix and healed on disk.',
+    properties: {
+      kind: 'Corruption kind: unparseable middle line or torn final line',
+      outcome: 'Whether the on-disk repair succeeded',
+      dropped_count: 'Journal lines dropped from the corrupted tail',
+      backup_created: 'Whether a first-time .bak backup of the corrupted file was created',
+    },
   }),
   first_launch: defineTelemetryEvent<FirstLaunchEvent>({
     owner: 'pythinker-code',

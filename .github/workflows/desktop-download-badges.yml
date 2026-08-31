@@ -1,4 +1,4 @@
-# Refreshes the per-platform desktop download counters behind the README badges.
+# Refreshes the desktop and combined download counters behind the README badges.
 #
 # shields.io cannot do this on its own: its asset wildcards silently report 0
 # (a tag whose .dmg had 39,877 downloads returns 0 for `*.dmg`), exact asset
@@ -11,6 +11,10 @@
 name: Desktop Download Badges
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/desktop-download-badges.yml
   schedule:
     # Once a day is plenty; the counters move slowly and the API is rate-limited.
     - cron: '17 4 * * *'
@@ -33,7 +37,7 @@ jobs:
           ref: badges
           persist-credentials: true
 
-      - name: Sum the .dmg and .exe download counts
+      - name: Refresh download counts
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Desktop installers shipped from this repo up to v0.1.0 and move to
@@ -52,7 +56,18 @@ jobs:
 
           # An empty suffix matches every asset, which is what the combined
           # counter wants; `endswith("")` is true for any string.
-          write_badge() {
+          write_endpoint() {
+            local label="$1" message="$2" out="$3"
+            jq -n --arg label "$label" --arg message "$message" '{
+              schemaVersion: 1,
+              label: $label,
+              message: $message,
+              color: "4D6BFE"
+            }' > "$out"
+            echo "${label}: ${message}"
+          }
+
+          write_desktop_badge() {
             local suffix="$1" label="$2" out="$3"
             local total
             total="$(jq --arg s "$suffix" '
@@ -61,20 +76,29 @@ jobs:
                 | .download_count
               ] | add // 0
             ' releases.json)"
-            jq -n --arg label "$label" --arg message "$total" '{
-              schemaVersion: 1,
-              label: $label,
-              message: $message,
-              color: "4D6BFE"
-            }' > "$out"
-            echo "${label}: ${total}"
+            write_endpoint "$label" "$total" "$out"
           }
 
-          write_badge '.dmg' 'macOS .dmg' desktop-dmg.json
-          write_badge '.exe' 'Windows .exe' desktop-exe.json
+          write_desktop_badge '.dmg' 'macOS .dmg' desktop-dmg.json
+          write_desktop_badge '.exe' 'Windows .exe' desktop-exe.json
           # The shields `github/downloads/.../total` route reads one repository,
           # so the combined counter has to be summed here like the other two.
-          write_badge '' 'desktop' desktop-total.json
+          write_desktop_badge '' 'desktop' desktop-total.json
+
+          # Match the site: desktop and npm can represent the same users, so
+          # publish the larger counter instead of adding them together.
+          npm_downloads="$(
+            curl --fail --silent --show-error --location \
+              --retry 3 --retry-all-errors --connect-timeout 10 --max-time 30 \
+              'https://api.npmjs.org/downloads/point/last-year/%40pymodel%2Fpythinker-code' \
+              | jq -er '.downloads | numbers | select(. >= 0 and floor == .)'
+          )"
+          desktop_downloads="$(jq -er '.message | tonumber' desktop-total.json)"
+          downloads="$(
+            jq -n --argjson desktop "$desktop_downloads" --argjson npm "$npm_downloads" \
+              '[$desktop, $npm] | max'
+          )"
+          write_endpoint 'downloads' "$downloads" downloads-total.json
 
           rm -f releases.json
 
@@ -85,10 +109,10 @@ jobs:
           git config user.email 'github-actions[bot]@users.noreply.github.com'
           # Stage before comparing: a document added in this run is untracked,
           # and `git diff` on an untracked path reports no change at all.
-          git add desktop-dmg.json desktop-exe.json desktop-total.json
+          git add desktop-dmg.json desktop-exe.json desktop-total.json downloads-total.json
           if git diff --cached --quiet; then
             echo 'Counts unchanged; nothing to publish.'
             exit 0
           fi
-          git commit -m 'chore: refresh desktop download counts'
+          git commit -m 'chore: refresh download counts'
           git push origin badges

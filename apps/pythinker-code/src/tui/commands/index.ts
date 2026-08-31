@@ -23,6 +23,7 @@ export {
   showSettingsSelector,
 } from './config';
 export { handleDynamicWorkflowCommand } from './dynamic_workflow';
+export { handleExpertTalkCommand, handleExpertTalkPromptAccepted } from './expert-talk';
 export { handleTowerCommand } from './tower';
 export { showMcpServers, showStatusReport, showUsage } from './info';
 export { handlePluginsCommand } from './plugins';
@@ -31,7 +32,7 @@ export { handleGoalCommand, parseGoalCommand, goalObjectiveLengthWarning } from 
 export { goalArgumentCompletions, towerArgumentCompletions } from './registry';
 export { handleForkCommand, handleInitCommand, handleTitleCommand } from './session';
 export { handleUndoCommand } from './undo';
-export { handleWebCommand } from './web';
+export { handleRemoteControlCommand, handleWebCommand } from './web';
 export {
   promptApiKey,
   promptCatalogProviderSelection,

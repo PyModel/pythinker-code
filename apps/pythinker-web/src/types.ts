@@ -98,8 +98,7 @@ export interface ToolCall {
   output?: string[]; // shown line by line when expanded
   media?: ToolMedia;
   defaultExpanded?: boolean;
-  /** Absolute path of the plan file (ExitPlanMode only) — rendered as a
-   *  clickable link that opens the plan in the file preview. */
+  /** Absolute path of the saved plan file (ExitPlanMode only). */
   planPath?: string;
 }
 
@@ -283,6 +282,7 @@ export interface TurnAttachment {
 
 export interface ChatTurn {
   id: string;
+  promptId?: string;
   role: TurnRole;
   no: number; // terminal line number
   text: string;
@@ -428,6 +428,8 @@ export interface UIQuestion {
     multiSelect?: boolean;
     allowOther?: boolean;
     otherLabel?: string;
+    /** Explains what the free-text "Other" answer is for. */
+    otherDescription?: string;
   }[];
 }
 

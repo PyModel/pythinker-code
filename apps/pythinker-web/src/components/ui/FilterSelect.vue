@@ -2,6 +2,7 @@
 export interface FilterSelectOption {
   value: string;
   label: string;
+  group?: string;
   /** Status-dot variant rendered before the label when set (e.g.
       `open`/`done` in the session-admin filter — same tokens as StatusDot). */
   dot?: string;
@@ -23,6 +24,7 @@ const props = defineProps<{
   label: string;
   options: FilterSelectOption[];
   ariaLabel?: string;
+  disabled?: boolean;
 }>();
 
 const emit = defineEmits<{ 'update:modelValue': [value: string] }>();
@@ -66,6 +68,7 @@ defineExpose({ open: () => void toggle() });
 function onKeydown(event: KeyboardEvent): void {
   if (event.key === 'Escape') {
     event.preventDefault();
+    event.stopPropagation();
     close();
     root.value?.querySelector<HTMLButtonElement>('.filter-select__trigger')?.focus();
     return;
@@ -92,6 +95,7 @@ onBeforeUnmount(close);
       aria-haspopup="menu"
       :aria-expanded="open"
       :aria-label="ariaLabel ?? label"
+      :disabled="disabled"
       @click="toggle"
     >
       <span v-if="label" class="filter-select__label">{{ label }}</span>
@@ -99,16 +103,23 @@ onBeforeUnmount(close);
       <Icon name="chevron-down" size="sm" />
     </button>
     <Menu v-if="open" class="filter-select__menu">
-      <MenuItem
-        v-for="option in options"
-        :key="option.value"
-        :active="option.value === modelValue"
-        @click="select(option.value)"
-      >
-        <span class="filter-select__check"><Icon v-if="option.value === modelValue" name="check" size="sm" /></span>
-        <span v-if="option.dot" class="sa-dot" :class="[`sa-dot--${option.dot}`]" aria-hidden="true" />
-        {{ option.label }}
-      </MenuItem>
+      <template v-for="(option, index) in options" :key="option.value">
+        <div
+          v-if="option.group && (index === 0 || option.group !== options[index - 1]?.group)"
+          class="filter-select__group"
+          role="presentation"
+        >
+          {{ option.group }}
+        </div>
+        <MenuItem
+          :active="option.value === modelValue"
+          @click="select(option.value)"
+        >
+          <span class="filter-select__check"><Icon v-if="option.value === modelValue" name="check" size="sm" /></span>
+          <span v-if="option.dot" class="sa-dot" :class="[`sa-dot--${option.dot}`]" aria-hidden="true" />
+          <span class="filter-select__option-label">{{ option.label }}</span>
+        </MenuItem>
+      </template>
     </Menu>
   </div>
 </template>
@@ -131,10 +142,13 @@ onBeforeUnmount(close);
 }
 .filter-select__trigger:hover { background: var(--color-hover); }
 .filter-select__trigger:focus-visible { outline: none; box-shadow: var(--p-focus-ring); }
+.filter-select__trigger:disabled { opacity: 0.5; cursor: not-allowed; }
 .filter-select__label { color: var(--color-text-muted); }
 .filter-select__value { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.filter-select__menu { position: absolute; top: calc(100% + var(--space-1)); right: 0; z-index: var(--z-dropdown); }
+.filter-select__menu { position: absolute; top: calc(100% + var(--space-1)); right: 0; z-index: var(--z-dropdown); max-height: min(320px, calc(100vh - 32px)); overflow-y: auto; }
+.filter-select__group { padding: var(--space-2) var(--space-3) var(--space-1); color: var(--color-text-muted); font-size: var(--text-xs); font-weight: var(--weight-medium); }
 .filter-select__check { width: 16px; flex: none; }
+.filter-select__option-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* Per-option status dot: small filled circle marking the
    option's state; variant classes pick the colour (open/done). */
 .sa-dot { flex: none; width: 8px; height: 8px; border-radius: var(--radius-full); }

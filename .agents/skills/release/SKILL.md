@@ -10,46 +10,45 @@ mechanics and failure modes.
 
 ## Release model
 
-- **Changesets, not tags.** Contributors land PRs with `.changeset/*.md` entries (authored via the
-  tracked `gen-changesets` skill, `.agents/skills/gen-changesets/SKILL.md`). Versions and CHANGELOGs
-  are machine-generated from those entries. Nobody edits a version number by hand.
-- **Two-phase CI flow** on every push to `main` (`.github/workflows/release.yml`):
-  1. *Pending changesets exist* → changesets action runs `pnpm run version:release`
-     (= `changeset version`) and opens/updates the **`ci: release packages`** PR.
-  2. *That PR merges* → next run finds no pending changesets but bumped versions → publishes via
-     `node scripts/release/changeset-publish-idempotent.mjs`, creates the GitHub Release at tag
-     `@pythoughts/pythinker-code@<version>`, and fans out to downstream jobs.
-- **Publishing is CI-only** via npm Trusted Publishing (OIDC, `id-token: write`). The workflow
-  deliberately sets **no `NPM_TOKEN`** — changesets prefers a token over OIDC when one is set, so
-  adding it would silently downgrade publishing to a long-lived secret. Never "fix" a publish
-  failure by adding NPM_TOKEN, and never run `changeset publish` locally.
-- The root `publish` script in `package.json` chains the full local gate
-  (`typecheck → lint → sherif → test → build → lint:pkg → changeset publish`) — it exists for gate
-  parity, not for actually publishing from a laptop.
+- **Changesets, not manual version edits.** Contributor PRs add `.changeset/*.md`. The changesets
+  action creates or updates the `ci: release packages` PR. Merging that PR publishes the public npm
+  package and creates `@pymodel/pythinker-code@<version>`.
+- **npm publishing is CI-only.** Trusted Publishing uses OIDC. Do not add `NPM_TOKEN`; a token takes
+  precedence over OIDC. Do not run `changeset publish` locally.
+- **Private lanes use the push boundary.** `publishedPackages` only lists packages published to npm.
+  Desktop and VS Code are private workspaces, so `detect-lane-bumps.mjs` compares their versions at
+  `github.event.before` and `github.sha`.
+- **Desktop Stable and Beta are tag-driven.** The required `cut-desktop-tag` job creates
+  `desktop-v<version>`, which starts `desktop-release.yml`; prerelease versions publish to the
+  explicit Beta feed.
+- **Desktop Nightly is default-branch driven.** `nightly.yml` calls `desktop-release.yml` after each
+  scheduled main build and publishes a signed Nightly prerelease only when the main commit changed.
+- **VS Code is isolated.** `vscode-release.yml` supports `workflow_call` and version-checked manual
+  dispatch. Existing registry versions are skipped by the publisher scripts, so recovery is safe.
 
 ## What publishes
 
-`.changeset/config.json` `ignore` list excludes almost every internal package
-(`agent-core`, `pyaos`, `kosong`, `server`, dashboards, web, …). Effective publishable set =
-non-private, non-ignored workspace packages — in practice **`@pythoughts/pythinker-code`** and the
-SDK-adjacent packages not on the ignore list. When adding a workspace package, decide its ignore/
-publish status explicitly, and remember `flake.nix` workspace lists must be updated by hand
-(root `AGENTS.md`).
+`@pymodel/pythinker-code` is the public npm package. Desktop and VS Code package files are private;
+their versions are release signals but changesets does not publish them to npm. When adding a
+workspace, set its `private` and changesets policy explicitly and update `flake.nix`.
 
 ## release.yml job map
 
 | Job | Trigger | Notes |
 |---|---|---|
-| `Release` | every main push | install → build catalog → `pnpm build` → changesets action |
-| `Redeploy code.pythinker.com` | `packages_published == 'true'` | runs `scripts/release/verify-release-consistency.mjs`, then POSTs `DOKPLOY_CDN_DEPLOY_WEBHOOK` (skips with a warning if the secret is unset) |
-| `Update Homebrew tap` | published | `scripts/release/update-brew-formula.mjs` with `TAP_GITHUB_TOKEN` (skips if unset) |
-| `Deploy docs` | published | reusable `docs-deploy.yml` |
-| `Native release artifact` | `pythinker_native_release == 'true'` | reusable `_native-build.yml`, macOS signing/notarization secrets |
-| `Publish native release assets` | native release | `produce-manifest.mjs` then `gh release upload <tag> … --clobber` |
+| `Release` | every main push after CI + Nix | Detect lane versions, build, run changesets |
+| `Cut desktop release tag` | desktop version changed | Required and idempotent; App token makes the tag trigger the desktop workflow |
+| `Desktop Nightly` | scheduled main build | Reusable workflow; signed assets and the explicit Nightly update feed |
+| `Publish VS Code extension` | extension version changed | Reusable workflow; six VSIX targets, both registries, provenance |
+| `Native release artifact` | CLI was published | Six signed/tested zips, checksums, provenance |
+| `Publish native release assets` | native builds passed | All-or-nothing immutable upload with `manifest.json` |
+| `Redeploy CDN` + verify | native assets published | Webhook may retry; verification is the hard gate |
+| `Update Homebrew tap` | CLI was published | App token scoped to `homebrew-tap` contents |
+| `Release lane summary` | always | One table with provenance state; fails when an expected enabled lane failed or skipped |
 
-`pythinker_native_release` and the release tag come from
-`apps/pythinker-code/scripts/native/resolve-release.mjs`, driven by the changesets action's
-`publishedPackages` output; the tag format is `@pythoughts/pythinker-code@<version>`.
+Set `RELEASE_LANE_DESKTOP`, `RELEASE_LANE_VSCODE`, `RELEASE_LANE_CDN`, or
+`RELEASE_LANE_BREW` to exactly `disabled` for a conscious temporary opt-out. Missing credentials are
+otherwise errors.
 
 ## Failure modes and known lessons
 
@@ -61,28 +60,42 @@ publish status explicitly, and remember `flake.nix` workspace lists must be upda
   genuinely half-published release — read the log; do not blind-rerun.
 - **Version PR looks wrong.** Never patch the `changeset-release/main` branch by hand. Fix or add
   changesets on `main`; the next workflow run regenerates the PR.
-- **Native builder fails after npm publish succeeded.** npm state is final; native jobs are
-  re-runnable against the same workflow run (`gh run rerun <id> --failed`). `--clobber` on asset
-  upload makes re-runs safe.
+- **Beta or Nightly checks Stable.** GitHub does not infer update channels. Confirm the release is a
+  prerelease and contains `beta*.yml` or `nightly*.yml`; do not rename Stable manifests.
+- **Native builder fails after npm publish succeeded.** npm state is final. Re-run failed jobs from
+  the same run before any assets upload. A complete asset set is an idempotent no-op. A partial set
+  must not be filled from a rebuild; keep it or publish a new patch version.
 - **CDN not updated after publish.** `verify-release-consistency.mjs` gates the webhook: local
   `apps/pythinker-code/package.json` version must equal the npm `latest` dist-tag (plus sane
   `beta`/`dev` tags). A mismatch means the checkout in the job predates the release commit or npm
-  propagation lag — check `npm view @pythoughts/pythinker-code dist-tags` before touching anything.
+  propagation lag — check `npm view @pymodel/pythinker-code dist-tags` before touching anything.
   Dokploy deploy specifics: see memory `cdn-dokploy-deploy-pipeline`.
 - **`pnpm install` fails in CI or locally.** `engine-strict=true` + Node `>=24.15.0` — check
   `.nvmrc` before debugging anything else.
 - **Pre-push hook** (`scripts/pre-push.sh` via simple-git-hooks) gates local pushes; a hook failure
   is a real gate failure — fix the cause, never `--no-verify`.
 
+## Recovery
+
+| Symptom | Command | Safety |
+|---|---|---|
+| Desktop tag job failed | `git tag desktop-v<VERSION> <RELEASE_SHA> && git push origin desktop-v<VERSION>` | Confirm the tag does not exist first; pushing it starts a public release workflow |
+| VS Code lane partially failed | `gh workflow run vscode-release.yml --ref <RELEASE_SHA> -f expected-version=<VERSION>` | Version is checked; both publishers skip versions already present |
+| Native matrix failed before upload | `gh run rerun <RUN_ID> --failed` | Reuses the same run and commit; do not mix a rebuilt partial asset set |
+| CDN is stale | Re-run the failed `Redeploy CDN` or verification job | Do not republish npm; nightly reconciliation remains red until aligned |
+| Unknown lane drift | `pnpm release:status` | Read-only; queries npm, GitHub Releases, CDN, Marketplace, and Open VSX |
+
 ## Verification commands
 
 ```bash
 gh run list --workflow=release.yml --branch=main -L 3        # workflow health
+gh run list --workflow=nightly.yml --branch=main -L 3        # Nightly desktop health
 gh pr list --search 'ci: release packages in:title' --state open
-npm view @pythoughts/pythinker-code version                   # published version
-npm view @pythoughts/pythinker-code dist-tags --json
-node scripts/release/verify-release-consistency.mjs           # local == npm latest
-gh release view "@pythoughts/pythinker-code@<version>"        # assets + manifest.json
+pnpm release:status                                           # all live lanes
+npm view @pymodel/pythinker-code dist-tags --json
+node scripts/release/verify-release-consistency.mjs
+gh release view "@pymodel/pythinker-code@<version>"
+gh attestation verify <artifact> -R PyModel/pythinker-code
 ```
 
 ## Hard rules (mirror tracked contracts)

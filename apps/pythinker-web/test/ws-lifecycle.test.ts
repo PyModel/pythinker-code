@@ -144,6 +144,19 @@ describe('DaemonEventSocket reconnect + staleness', () => {
     expect(socket.health().open).toBe(false);
   });
 
+  it('advertises Expert Talk V1 in client_hello', () => {
+    const socket = new DaemonEventSocket(WS_URL, CLIENT_ID, makeHandlers());
+    socket.connect();
+    const first = FakeWebSocket.instances[0]!;
+
+    first.emitMessage(SERVER_HELLO);
+
+    expect(JSON.parse(first.sent[0]!)).toMatchObject({
+      type: 'client_hello',
+      payload: { client_capabilities: { expert_talk_v1: true } },
+    });
+  });
+
   it('subscribes to and receives one subagent transcript stream', () => {
     const handlers = {
       ...makeHandlers(),

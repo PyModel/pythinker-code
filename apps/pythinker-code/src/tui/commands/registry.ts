@@ -31,6 +31,18 @@ const ADD_DIR_ARG_COMPLETIONS: readonly ArgCompletionSpec[] = [
   { value: 'list', description: 'Show configured additional workspace directories' },
 ];
 
+const EXPERT_TALK_ARG_COMPLETIONS: readonly ArgCompletionSpec[] = [
+  { value: 'help', description: 'Open the Expert Talk action menu' },
+  { value: 'status', description: 'Show Expert Talk state and progress' },
+  { value: 'configure', description: 'Select Fusion Lead and Peer Expert models' },
+  { value: 'arm', description: 'Use Expert Talk for the next message' },
+  { value: 'off', description: 'Return the next message to normal chat' },
+  { value: 'cancel', description: 'Stop the active Expert Talk run' },
+  { value: 'retry', description: 'Retry the whole Expert Talk run' },
+  { value: 'exchange', description: 'Show the complete exchange' },
+  { value: 'reset', description: 'Remove the configured model pair' },
+];
+
 /** Argument autocompletion for the `/goal` command (subcommands). */
 export function goalArgumentCompletions(argumentPrefix: string): AutocompleteItem[] | null {
   const nextMatch = argumentPrefix.match(/^next\s+(\S*)$/i);
@@ -61,6 +73,10 @@ export function addDirArgumentCompletions(argumentPrefix: string): AutocompleteI
     return completeAddDirPath(argumentPrefix);
   }
   return completeLeadingArg(ADD_DIR_ARG_COMPLETIONS, argumentPrefix);
+}
+
+export function expertTalkArgumentCompletions(argumentPrefix: string): AutocompleteItem[] | null {
+  return completeLeadingArg(EXPERT_TALK_ARG_COMPLETIONS, argumentPrefix);
 }
 
 function isPathLikeAddDirArgument(argumentPrefix: string): boolean {
@@ -195,6 +211,17 @@ export const BUILTIN_SLASH_COMMANDS = [
     // commands never wait for the previous one to finish.
     availability: 'always',
     experimentalFlag: 'tower',
+    requiresEngineV2: true,
+  },
+  {
+    name: 'expert-talk',
+    aliases: [],
+    description: 'Configure, arm, inspect, or stop an Expert Talk run',
+    priority: 100,
+    argumentHint: '[help|status|configure|arm|off|cancel|retry|exchange|reset]',
+    completeArgs: expertTalkArgumentCompletions,
+    availability: 'always',
+    experimentalFlag: 'expert_talk',
     requiresEngineV2: true,
   },
   {
@@ -417,6 +444,14 @@ export const BUILTIN_SLASH_COMMANDS = [
     description: 'Open the current session in the Web UI by starting a new server',
     priority: 40,
     availability: 'always',
+  },
+  {
+    name: 'remote-control',
+    aliases: ['rc'],
+    description: 'Open the current session through Pythinker Remote Control (experimental)',
+    priority: 40,
+    availability: 'always',
+    experimentalFlag: 'remote-control',
   },
   {
     name: 'exit',

@@ -14,7 +14,6 @@ import {
   commitLevel,
   effectiveThinkingLevel,
   effortLabel,
-  isThinkingOn,
   modelThinkingAvailability,
   segmentsFor,
 } from '../../lib/modelThinking';
@@ -36,7 +35,9 @@ import Tooltip from '../ui/Tooltip.vue';
 import Input from '../ui/Input.vue';
 import AttachmentChip from './AttachmentChip.vue';
 import CapabilityMenu from '../CapabilityMenu.vue';
+import ExpertTalkControl from './ExpertTalkControl.vue';
 import BottomSheet from '../dialogs/BottomSheet.vue';
+import Toast from '../ui/Toast.vue';
 import { useOpenMenu } from '../ui/openMenus';
 
 // ---------------------------------------------------------------------------
@@ -128,6 +129,42 @@ const { text, textareaRef, autosize, loadForEdit, clearDraft } = useComposerDraf
   sessionId: () => props.sessionId,
 });
 
+type ComposerQuote = {
+  id: number;
+  text: string;
+  comment?: string;
+  source?: string;
+};
+
+const quotes = ref<ComposerQuote[]>([]);
+let nextQuoteId = 1;
+
+function insertQuote(payload: { quote: string; comment?: string; source?: string }): void {
+  const quote = payload.quote.trim();
+  if (!quote) return;
+  quotes.value.push({
+    id: nextQuoteId++,
+    text: quote,
+    comment: payload.comment?.trim() || undefined,
+    source: payload.source?.trim() || undefined,
+  });
+  void nextTick(focus);
+}
+
+function removeQuote(id: number): void {
+  quotes.value = quotes.value.filter((quote) => quote.id !== id);
+}
+
+function quotePayloadText(trimmed: string): string {
+  const blocks = quotes.value.map((quote) => {
+    const quoted = quote.text.split('\n').map((line) => `> ${line}`).join('\n');
+    return [quote.source ? `From ${quote.source}:` : undefined, quoted, quote.comment]
+      .filter((part): part is string => Boolean(part))
+      .join('\n');
+  });
+  return [...blocks, trimmed].filter(Boolean).join('\n\n');
+}
+
 function togglePlanMode(): void {
   if (props.planArmed || props.planMode) return;
   if (props.goalMode) emit('toggleGoal');
@@ -210,6 +247,7 @@ watch(() => props.sessionId, () => {
   expanded.value = false;
   slashOpen.value = false;
   mentionOpen.value = false;
+  quotes.value = [];
 });
 
 // ---------------------------------------------------------------------------
@@ -242,6 +280,10 @@ const {
     }
     if (cmd === '/goal') {
       toggleGoalMode();
+      return;
+    }
+    if (cmd === '/expert-talk') {
+      openExpertOpinion();
       return;
     }
     emit('command', cmd);
@@ -452,9 +494,32 @@ function focus(): void {
 function loadAttachmentsForEdit(atts: { fileId?: string; kind: 'image' | 'video' | 'file'; url: string; name?: string }[]): void {
   loadAttachments(atts);
 }
-const anyPopupOpen = computed(() => slashOpen.value || mentionOpen.value || dropdownOpen.value || permDropdownOpen.value || modesOpen.value);
-const isEmpty = computed(() => text.value.trim().length === 0 && attachments.value.length === 0);
-defineExpose({ loadForEdit, loadAttachmentsForEdit, focus, anyPopupOpen, isEmpty });
+const anyPopupOpen = computed(() =>
+  slashOpen.value
+  || mentionOpen.value
+  || dropdownOpen.value
+  || thinkingDropdownOpen.value
+  || permDropdownOpen.value
+  || modesOpen.value,
+);
+const isEmpty = computed(() => text.value.trim().length === 0 && attachments.value.length === 0 && quotes.value.length === 0);
+defineExpose({ loadForEdit, loadAttachmentsForEdit, insertQuote, focus, anyPopupOpen, isEmpty });
+
+const commandWarning = ref<string | null>(null);
+let commandWarningTimer: ReturnType<typeof setTimeout> | null = null;
+
+function showCommandWarning(command: string): void {
+  commandWarning.value = t('composer.noArgCommand', { cmd: command });
+  if (commandWarningTimer !== null) clearTimeout(commandWarningTimer);
+  commandWarningTimer = setTimeout(() => {
+    commandWarning.value = null;
+    commandWarningTimer = null;
+  }, 3000);
+}
+
+onUnmounted(() => {
+  if (commandWarningTimer !== null) clearTimeout(commandWarningTimer);
+});
 
 // Build the wire-bound attachment payload: images/videos only need the fileId,
 // while file parts also carry name/mediaType/size for the daemon's file shape.
@@ -475,6 +540,7 @@ function onAttachmentActivate(att: Attachment): void {
 
 function handleSubmit(): void {
   const trimmed = text.value.trim();
+  const submittedText = quotePayloadText(trimmed);
 
   // An upload is still in flight — submitting now would silently send the
   // message WITHOUT the image. Keep the text + chips (the chip shows its
@@ -484,14 +550,10 @@ function handleSubmit(): void {
   // Allow submission with images even when text is empty
   const readyAttachments = attachments.value.filter((a) => !a.uploading && !a.error && a.fileId);
 
-  if (!trimmed && readyAttachments.length === 0) return;
+  if (!submittedText && readyAttachments.length === 0) return;
 
-  // Record for ↑/↓ recall before the slash branch so commands (with or without
-  // args) are recallable too, not just plain messages. `push` ignores empty /
-  // whitespace, so an image-only send adds nothing.
-  history.push(trimmed);
-
-  if (trimmed === '/plan') {
+  if (quotes.value.length === 0 && trimmed === '/plan') {
+    history.push(trimmed);
     text.value = '';
     clearDraft();
     slashOpen.value = false;
@@ -499,7 +561,8 @@ function handleSubmit(): void {
     togglePlanMode();
     return;
   }
-  if (trimmed === '/goal') {
+  if (quotes.value.length === 0 && trimmed === '/goal') {
+    history.push(trimmed);
     text.value = '';
     clearDraft();
     slashOpen.value = false;
@@ -512,14 +575,19 @@ function handleSubmit(): void {
   // `/dynamic_workflow <task>`, `/btw <question>`, slash skills with args, and bare
   // commands such as `/model`. A hand-typed bare skill name (`/deploy`) also
   // resolves to its prefixed menu entry (`/skill:deploy`), mirroring the TUI.
-  if (trimmed) {
+  if (quotes.value.length === 0 && trimmed) {
     const parsed = parseSlash(trimmed);
     const known = parsed
-      ? buildSlashItems(props.skills).some(
+      ? buildSlashItems(props.skills).find(
           (item) => item.name === parsed.cmd || item.name === `/${SKILL_COMMAND_PREFIX}${parsed.cmd.slice(1)}`,
         )
-      : false;
+      : undefined;
     if (parsed && known) {
+      if (parsed.arg.trim() && known.acceptsInput !== true) {
+        showCommandWarning(parsed.cmd);
+        return;
+      }
+      history.push(trimmed);
       text.value = '';
       clearDraft();
       slashOpen.value = false;
@@ -529,8 +597,10 @@ function handleSubmit(): void {
     }
   }
 
+  if (trimmed) history.push(trimmed);
+
   const payload = {
-    text: trimmed,
+    text: submittedText,
     attachments: readyAttachments.map((a) => toPromptAttachment(a)),
   };
 
@@ -539,6 +609,7 @@ function handleSubmit(): void {
   clearAfterSubmit();
 
   text.value = '';
+  quotes.value = [];
   clearDraft();
   slashOpen.value = false;
   mentionOpen.value = false;
@@ -556,16 +627,18 @@ function handleSteer(): void {
   if (attachments.value.some((a) => a.uploading)) return;
 
   const trimmed = text.value.trim();
+  const submittedText = quotePayloadText(trimmed);
   const readyAttachments = attachments.value.filter((a) => !a.uploading && !a.error && a.fileId);
-  if (!trimmed && readyAttachments.length === 0 && props.queued.length === 0) return;
+  if (!submittedText && readyAttachments.length === 0 && props.queued.length === 0) return;
 
   const payload = {
-    text: trimmed,
+    text: submittedText,
     attachments: readyAttachments.map((a) => toPromptAttachment(a)),
   };
   clearAfterSubmit();
-  history.push(trimmed);
+  if (trimmed) history.push(trimmed);
   text.value = '';
+  quotes.value = [];
   clearDraft();
   slashOpen.value = false;
   mentionOpen.value = false;
@@ -631,6 +704,11 @@ function handleKeydown(e: KeyboardEvent): void {
       closeDropdown();
       return;
     }
+    if (thinkingDropdownOpen.value) {
+      e.preventDefault();
+      closeThinkingDropdown();
+      return;
+    }
     if (permDropdownOpen.value) {
       e.preventDefault();
       closePermDropdown();
@@ -690,6 +768,11 @@ function handleKeydown(e: KeyboardEvent): void {
       mentionOpen.value = false;
       return;
     }
+  }
+
+  if (e.key === 'Escape' && expertTalkControlRef.value?.cancelActive()) {
+    e.preventDefault();
+    return;
   }
 
   // Ctrl+S / Cmd+S — steer into the running turn (TUI parity)
@@ -757,7 +840,7 @@ const sendLabel = computed(() => t('composer.send'));
 const hasUpload = computed(() => !!props.uploadImage);
 const canSend = computed(
   () => !attachments.value.some((attachment) => attachment.uploading)
-    && (text.value.trim() !== '' || attachments.value.some((attachment) => !attachment.error && attachment.fileId)),
+    && (text.value.trim() !== '' || quotes.value.length > 0 || attachments.value.some((attachment) => !attachment.error && attachment.fileId)),
 );
 const popupControls = computed(() => {
   if (slashOpen.value) return 'composer-slash-menu';
@@ -775,17 +858,22 @@ const activePopupOption = computed(() => {
 // ---------------------------------------------------------------------------
 
 const dropdownOpen = ref(false);
+const thinkingDropdownOpen = ref(false);
 const permDropdownOpen = ref(false);
 const toolbarRef = ref<HTMLElement | null>(null);
 const permissionPillRef = ref<HTMLElement | null>(null);
 const modelPillRef = ref<HTMLButtonElement | null>(null);
+const thinkingPillRef = ref<HTMLButtonElement | null>(null);
 const modelNameRef = ref<HTMLElement | null>(null);
 const modelDropdownRef = ref<HTMLElement | null>(null);
+const thinkingDropdownRef = ref<HTMLElement | null>(null);
 const permDropdownRef = ref<HTMLElement | null>(null);
 useOpenMenu(modelDropdownRef);
+useOpenMenu(thinkingDropdownRef);
 useOpenMenu(permDropdownRef);
 const permissionLeft = ref('');
 const modelRight = ref('');
+const thinkingRight = ref('');
 const modelMenuMaxHeight = ref('');
 const modelMenuFlipDown = ref(false);
 
@@ -793,12 +881,32 @@ function toggleDropdown(): void {
   dropdownOpen.value = !dropdownOpen.value;
   if (dropdownOpen.value) {
     measureModelAnchor();
+    thinkingDropdownOpen.value = false;
     permDropdownOpen.value = false;
     closeModes();
     slashOpen.value = false;
     mentionOpen.value = false;
     document.addEventListener('click', onPopupDocClick, true);
   }
+}
+
+function toggleThinkingDropdown(): void {
+  if (thinkingReadonly.value) return;
+  thinkingDropdownOpen.value = !thinkingDropdownOpen.value;
+  if (thinkingDropdownOpen.value) {
+    measureThinkingAnchor();
+    dropdownOpen.value = false;
+    permDropdownOpen.value = false;
+    closeModes();
+    slashOpen.value = false;
+    mentionOpen.value = false;
+    document.addEventListener('click', onPopupDocClick, true);
+  }
+}
+
+function closeThinkingDropdown(): void {
+  thinkingDropdownOpen.value = false;
+  removePopupListenerIfIdle();
 }
 
 function closeDropdown(): void {
@@ -811,6 +919,7 @@ function togglePermDropdown(): void {
   if (permDropdownOpen.value) {
     measurePermissionAnchor();
     dropdownOpen.value = false;
+    thinkingDropdownOpen.value = false;
     closeModes();
     slashOpen.value = false;
     mentionOpen.value = false;
@@ -824,7 +933,7 @@ function closePermDropdown(): void {
 }
 
 function removePopupListenerIfIdle(): void {
-  if (!dropdownOpen.value && !permDropdownOpen.value && !modesOpen.value) {
+  if (!dropdownOpen.value && !thinkingDropdownOpen.value && !permDropdownOpen.value && !modesOpen.value) {
     document.removeEventListener('click', onPopupDocClick, true);
   }
 }
@@ -837,6 +946,7 @@ function onPopupDocClick(event: MouseEvent): void {
     || mobileModesMenuRef.value?.contains(target)
   ) return;
   closeDropdown();
+  closeThinkingDropdown();
   closePermDropdown();
   closeModes();
 }
@@ -853,6 +963,14 @@ function measureModelAnchor(): void {
   const pill = modelPillRef.value;
   const toolbar = toolbarRef.value;
   modelRight.value = pill && toolbar
+    ? `${Math.round(toolbar.getBoundingClientRect().right - pill.getBoundingClientRect().right)}px`
+    : '';
+}
+
+function measureThinkingAnchor(): void {
+  const pill = thinkingPillRef.value;
+  const toolbar = toolbarRef.value;
+  thinkingRight.value = pill && toolbar
     ? `${Math.round(toolbar.getBoundingClientRect().right - pill.getBoundingClientRect().right)}px`
     : '';
 }
@@ -891,23 +1009,23 @@ const activeThinkingSegment = computed(() => {
   const segs = thinkingSegments.value;
   return segs.includes(thinkingLevel.value) ? thinkingLevel.value : '';
 });
-const thinkingOn = computed(() => isThinkingOn(thinkingLevel.value));
 // Single-segment (always-on boolean) or unsupported models can't be changed.
 const thinkingReadonly = computed(
   () => thinkingAvailability.value === 'unsupported' || thinkingSegments.value.length <= 1,
 );
-// Footer-style suffix: effort models show the concrete level; boolean models
-// keep the plain "thinking" tag; off shows nothing.
-const thinkingSuffix = computed(() => {
-  if (!thinkingOn.value) return '';
+const thinkingPillLabel = computed(() => {
   const hasEfforts = (currentModel.value?.supportEfforts?.length ?? 0) > 0;
   const level = thinkingLevel.value;
-  if (hasEfforts && level !== 'on') return t('composer.thinkingSuffixEffort', { level });
-  return t('composer.thinkingSuffix');
+  if (hasEfforts && level !== 'on' && level !== 'off') return effortLabel(level);
+  return thinkingSegmentLabel(level);
 });
+const thinkingAriaLabel = computed(() =>
+  t('composer.thinkingControl', { level: thinkingPillLabel.value }),
+);
 function setThinkingSegment(draft: string): void {
   if (thinkingReadonly.value) return;
   emit('setThinking', commitLevel(currentModel.value, draft));
+  closeThinkingDropdown();
 }
 function thinkingSegmentLabel(segment: string): string {
   if (segment === 'on') return t('status.thinkingOn');
@@ -964,6 +1082,7 @@ watch(workMode, async (mode) => {
 
 // The "+" add menu (Files / Connectors / Goal / Plan).
 const capMenuRef = ref<InstanceType<typeof CapabilityMenu> | null>(null);
+const expertTalkControlRef = ref<InstanceType<typeof ExpertTalkControl> | null>(null);
 const modesOpen = ref(false);
 const modesMenuRef = ref<HTMLElement | null>(null);
 const mobileModesMenuRef = ref<HTMLElement | null>(null);
@@ -994,6 +1113,9 @@ const addMenuRows = computed<AddMenuRow[]>(() => {
   }
   rows.push(
     { id: 'capabilities', icon: 'sliders', nameKey: 'capabilityMenu.trigger', action: openCapabilities },
+    ...(expertTalkControlRef.value?.available
+      ? [{ id: 'expertOpinion', icon: 'sparkles' as const, nameKey: 'expertTalk.title', descKey: 'composer.addExpertOpinionDesc', action: openExpertOpinion }]
+      : []),
     { id: 'goal', icon: 'target', nameKey: 'status.goalLabel', descKey: 'composer.addGoalDesc', action: openGoalMode },
     { id: 'plan', icon: 'file-edit', nameKey: 'status.planLabel', descKey: 'composer.addPlanDesc', action: openPlanMode },
     { id: 'workflow', icon: 'sparkles', nameKey: 'status.dynamicWorkflowLabel', descKey: 'composer.addWorkflowDesc', action: openWorkflowMode },
@@ -1047,6 +1169,7 @@ function toggleModes(): void {
   }
   // Keep the toolbar menus mutually exclusive so they never overlap.
   closeDropdown();
+  closeThinkingDropdown();
   closePermDropdown();
   slashOpen.value = false;
   mentionOpen.value = false;
@@ -1114,6 +1237,11 @@ function openCapabilities(): void {
   capMenuRef.value?.toggleOpen();
 }
 
+function openExpertOpinion(): void {
+  closeModes();
+  void expertTalkControlRef.value?.activate();
+}
+
 function openGoalMode(): void {
   closeModes();
   if (!props.goalMode) toggleGoalMode();
@@ -1152,6 +1280,11 @@ const modelMenuStyle = computed<Record<string, string>>(() => {
   const style: Record<string, string> = {};
   if (modelRight.value) style.right = modelRight.value;
   if (modelMenuMaxHeight.value) style.maxHeight = modelMenuMaxHeight.value;
+  return style;
+});
+const thinkingMenuStyle = computed<Record<string, string>>(() => {
+  const style: Record<string, string> = {};
+  if (thinkingRight.value) style.right = thinkingRight.value;
   return style;
 });
 let menuMeasureFrame: number | null = null;
@@ -1223,10 +1356,25 @@ function choosePermission(mode: PermissionMode): void {
 const permInfo = computed(() => PERM_MODES.find((p) => p.mode === props.status?.permission));
 const permLabel = computed(() => (permInfo.value ? t(permInfo.value.labelKey) : ''));
 const permIcon = computed(() => permInfo.value?.icon ?? 'fingerprint');
+// Toolbar overflow valve — four degradation stages, each engaged in order and
+// released only once the row grows back past the width it engaged at (plus a
+// margin, so a stage cannot flap on a one-pixel resize).
+//   1 labelsCollapsed — drop the pill labels
+//   2 modelIconOnly   — the model pill becomes its glyph
+//   3 compactGone     — hide the /compact chip
+//   4 modelGone       — hide the model pill entirely
+// Stages 1 and 2 are driven by the model name overflowing. Stages 3 and 4 need
+// more than that: they only engage when something in the right-hand row is
+// actually clipped past the row's own left edge (rowCollides).
 const labelsCollapsed = ref(false);
 const modelIconOnly = ref(false);
+const compactGone = ref(false);
+const modelGone = ref(false);
 let labelsCollapsedAt = 0;
 let modelIconOnlyAt = 0;
+let compactGoneAt = 0;
+let modelGoneAt = 0;
+const toolbarRightRef = ref<HTMLElement | null>(null);
 let toolbarResizeObserver: ResizeObserver | null = null;
 
 function toolbarMetric(style: CSSStyleDeclaration, property: string, fallback: number): number {
@@ -1241,6 +1389,16 @@ function modelNameOverflows(element: HTMLElement): boolean {
     || (element.clientWidth === 0 && (element.textContent?.length ?? 0) > 0);
 }
 
+/** True when a child of the row is clipped past the row's own left edge. */
+function rowCollides(row: HTMLElement): boolean {
+  const left = row.getBoundingClientRect().left;
+  for (const child of row.querySelectorAll('.compact-chip, .ctx-group, .model-pill, .stop, .send')) {
+    const rect = child.getBoundingClientRect();
+    if (rect.width > 0 && rect.left < left - 1) return true;
+  }
+  return false;
+}
+
 function measureToolbarOverflow(): void {
   const toolbar = toolbarRef.value;
   if (!toolbar) return;
@@ -1248,9 +1406,43 @@ function measureToolbarOverflow(): void {
   const floor = toolbarMetric(style, '--composer-valve-floor', 56);
   const margin = toolbarMetric(style, '--composer-valve-expand-margin', 48);
   const width = toolbar.getBoundingClientRect().width;
+  const row = toolbarRightRef.value;
+  if (modelGone.value) {
+    if (width > modelGoneAt + margin) {
+      modelGone.value = false;
+      void nextTick(measureToolbarOverflow);
+    }
+    return;
+  }
+  if (compactGone.value) {
+    if (width > compactGoneAt + margin) {
+      compactGone.value = false;
+      void nextTick(measureToolbarOverflow);
+      return;
+    }
+    if (row && rowCollides(row)) {
+      modelGoneAt = width;
+      modelGone.value = true;
+      void nextTick(measureToolbarOverflow);
+    }
+    return;
+  }
   if (modelIconOnly.value) {
     if (width > modelIconOnlyAt + margin) {
       modelIconOnly.value = false;
+      void nextTick(measureToolbarOverflow);
+      return;
+    }
+    if (row && rowCollides(row)) {
+      // Give up the /compact chip first when there is one; otherwise the model
+      // pill is the only thing left to drop.
+      if (showCompact.value) {
+        compactGoneAt = width;
+        compactGone.value = true;
+      } else {
+        modelGoneAt = width;
+        modelGone.value = true;
+      }
       void nextTick(measureToolbarOverflow);
     }
     return;
@@ -1285,7 +1477,7 @@ watch(
     permLabel,
     workflowOn,
     showCompact,
-    thinkingSuffix,
+    thinkingPillLabel,
     () => props.status?.model,
     () => props.working,
     locale,
@@ -1293,6 +1485,8 @@ watch(
   () => {
     labelsCollapsed.value = false;
     modelIconOnly.value = false;
+    compactGone.value = false;
+    modelGone.value = false;
     void nextTick(measureToolbarOverflow);
   },
 );
@@ -1303,7 +1497,7 @@ onUnmounted(() => {
 });
 
 // ---------------------------------------------------------------------------
-// Model dropdown — current provider models + thinking + more
+// Model dropdown — current provider models + more
 // ---------------------------------------------------------------------------
 
 const currentProvider = computed(() => {
@@ -1424,6 +1618,22 @@ function selectModel(modelId: string): void {
     </div>
 
     <div class="composer-card" :class="{ 'labels-collapsed': labelsCollapsed }">
+      <div v-if="quotes.length > 0" class="quote-strip" :aria-label="t('selection.quoteLabel')">
+        <div v-for="quote in quotes" :key="quote.id" class="quote-chip">
+          <span class="quote-copy">
+            <span v-if="quote.source" class="quote-source">{{ quote.source }}</span>
+            <span class="quote-text">{{ quote.text }}</span>
+            <span v-if="quote.comment" class="quote-comment">{{ quote.comment }}</span>
+          </span>
+          <IconButton
+            size="sm"
+            :label="t('composer.removeNamed', { name: quote.text })"
+            @click="removeQuote(quote.id)"
+          >
+            <Icon name="close" size="sm" />
+          </IconButton>
+        </div>
+      </div>
       <div v-if="attachments.length > 0" class="att-strip">
         <div
           ref="attachmentScrollRef"
@@ -1544,6 +1754,8 @@ function selectModel(modelId: string): void {
           </div>
         </Transition>
 
+        <ExpertTalkControl :models="models" trigger="widget" />
+
         <div class="input-row">
           <span v-if="workMode" ref="workModePillRef" class="wm-pill">
             <Icon :name="workMode === 'goal' ? 'target' : 'file-edit'" size="sm" />
@@ -1624,6 +1836,12 @@ function selectModel(modelId: string): void {
 
           <CapabilityMenu ref="capMenuRef" :session-id="sessionId" triggerless />
 
+          <ExpertTalkControl
+            ref="expertTalkControlRef"
+            :models="models"
+            @build="loadForEdit"
+          />
+
           <span
             v-if="status"
             ref="permissionPillRef"
@@ -1686,8 +1904,13 @@ function selectModel(modelId: string): void {
           </span>
         </div>
 
-        <div class="toolbar-right">
-          <button v-if="showCompact" class="compact-chip" @click.stop="emit('compact')">/compact</button>
+        <div ref="toolbarRightRef" class="toolbar-right">
+          <button
+            v-if="showCompact"
+            class="compact-chip"
+            :class="{ gone: compactGone }"
+            @click.stop="emit('compact')"
+          >/compact</button>
 
           <Tooltip :text="ctxTooltip">
             <span
@@ -1701,24 +1924,41 @@ function selectModel(modelId: string): void {
             </span>
           </Tooltip>
 
-          <Tooltip :text="modelIconOnly ? `${status?.model ?? ''}${thinkingSuffix}` : null">
+          <Tooltip :text="modelIconOnly ? status?.model : null">
             <button
               v-if="status"
               ref="modelPillRef"
               type="button"
               class="model-pill"
-              :class="{ open: dropdownOpen, 'icon-only': modelIconOnly }"
+              :class="{ open: dropdownOpen, 'icon-only': modelIconOnly, 'model-gone': modelGone }"
               aria-haspopup="menu"
               :aria-expanded="dropdownOpen"
-              :aria-label="modelIconOnly ? `${status.model}${thinkingSuffix}` : undefined"
+              :aria-label="modelIconOnly ? status.model : undefined"
               @click.stop="toggleDropdown"
             >
-              <Icon v-if="modelIconOnly" name="cute-bot" size="md" />
+              <Icon v-if="modelIconOnly" name="cute-bot" size="md" :live="running" />
               <template v-else>
                 <span ref="modelNameRef" class="mp-name">{{ status.model }}</span>
-                <span v-if="thinkingSuffix" class="think-suffix">{{ thinkingSuffix }}</span>
                 <Icon class="cv" name="chevron-down" size="sm" />
               </template>
+            </button>
+          </Tooltip>
+          <Tooltip v-if="status && thinkingAvailability !== 'unsupported'" :text="thinkingAriaLabel">
+            <button
+              ref="thinkingPillRef"
+              type="button"
+              class="thinking-pill"
+              :class="{ open: thinkingDropdownOpen }"
+              :disabled="thinkingReadonly"
+              aria-haspopup="dialog"
+              :aria-expanded="thinkingDropdownOpen"
+              :aria-label="thinkingAriaLabel"
+              @click.stop="toggleThinkingDropdown"
+              @keydown.escape.prevent="closeThinkingDropdown"
+            >
+              <Icon name="thinking" size="sm" />
+              <span class="thinking-pill-label">{{ thinkingPillLabel }}</span>
+              <Icon v-if="!thinkingReadonly" class="cv" name="chevron-down" size="sm" />
             </button>
           </Tooltip>
           <Tooltip v-if="working" :text="t('composer.interruptTitle')">
@@ -1746,7 +1986,7 @@ function selectModel(modelId: string): void {
           <div
             v-if="dropdownOpen && status"
             ref="modelDropdownRef"
-            class="model-dropdown"
+            class="composer-dropdown model-dropdown"
             :class="{ 'flip-down': modelMenuFlipDown }"
             :style="modelMenuStyle"
             role="menu"
@@ -1784,25 +2024,6 @@ function selectModel(modelId: string): void {
               </button>
             </div>
             <div v-if="providerModels.length > 0" class="md-divider" />
-            <div class="md-thinking">
-              <span class="md-name">{{ t('status.thinkingLabel') }}</span>
-              <span v-if="thinkingAvailability === 'unsupported'" class="md-note">
-                {{ t('status.modeNotSupported') }}
-              </span>
-              <SegmentedControl
-                v-else-if="thinkingSegments.length > 1"
-                :model-value="activeThinkingSegment"
-                :options="thinkingOptions"
-                size="xs"
-                @update:model-value="setThinkingSegment"
-              />
-              <span v-else class="md-note">
-                {{ thinkingSegmentLabel(thinkingSegments[0] ?? thinkingLevel) }}
-              </span>
-            </div>
-            <div class="md-divider" />
-            <div class="md-cache-note">{{ t('status.cacheNote') }}</div>
-            <div class="md-divider" />
             <button
               class="md-row md-row-more"
               role="menuitem"
@@ -1814,6 +2035,31 @@ function selectModel(modelId: string): void {
             </button>
           </div>
         </Transition>
+
+        <Transition name="composer-menu-pop">
+          <div
+            v-if="thinkingDropdownOpen && status"
+            ref="thinkingDropdownRef"
+            class="composer-dropdown thinking-dropdown"
+            :style="thinkingMenuStyle"
+            role="dialog"
+            :aria-label="t('composer.thinkingMenuTitle')"
+            @click.stop
+            @keydown.escape.prevent="closeThinkingDropdown"
+          >
+            <div class="thinking-dropdown-title">
+              <Icon name="thinking" size="sm" />
+              <span>{{ t('composer.thinkingMenuTitle') }}</span>
+            </div>
+            <SegmentedControl
+              :model-value="activeThinkingSegment"
+              :options="thinkingOptions"
+              size="sm"
+              @update:model-value="setThinkingSegment"
+            />
+            <div class="thinking-cache-note">{{ t('status.cacheNote') }}</div>
+          </div>
+        </Transition>
       </div>
     </div>
     <div class="drop-overlay" :class="{ show: isDragOver }" aria-hidden="true">
@@ -1823,6 +2069,17 @@ function selectModel(modelId: string): void {
       </div>
     </div>
     <Teleport to="body">
+      <Transition name="composer-warning">
+        <div v-if="commandWarning" class="composer-warning-toast" role="status" aria-live="polite">
+          <Toast
+            variant="warning"
+            :title="commandWarning"
+            :dismiss-label="t('common.dismiss')"
+            @dismiss="commandWarning = null"
+          />
+        </div>
+      </Transition>
+
       <BottomSheet
         :model-value="isMobile && slashOpen"
         :title="t('composer.slashSheetTitle')"
@@ -1914,6 +2171,18 @@ function selectModel(modelId: string): void {
     transition: background .12s
 }
 
+.composer-warning-toast {
+  position: fixed;
+  right: var(--space-4);
+  bottom: var(--space-4);
+  z-index: var(--z-toast);
+  max-width: calc(100vw - 2 * var(--space-4));
+}
+.composer-warning-enter-active,
+.composer-warning-leave-active { transition: opacity 0.15s ease, transform 0.15s ease; }
+.composer-warning-enter-from,
+.composer-warning-leave-to { opacity: 0; transform: translateY(6px); }
+
 
 .composer.drag-over {
     background: var(--color-accent-soft)
@@ -1962,6 +2231,8 @@ function selectModel(modelId: string): void {
     --composer-control-inset: var(--space-2);
     --composer-valve-floor: 4em;
     --composer-valve-expand-margin: 3.4em;
+    --thinking-dropdown-width: 320px;
+    --thinking-dropdown-viewport-gutter: var(--space-6);
     position: relative;
     border: .5px solid var(--color-composer-line);
     border-radius: var(--radius-composer);
@@ -1989,6 +2260,46 @@ function selectModel(modelId: string): void {
 
 .composer-card:focus-within:after {
     opacity: 1
+}
+
+.quote-strip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    padding: calc(var(--space-4) + var(--space-05)) var(--space-4) 0
+}
+
+.quote-chip {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    max-width: 100%;
+    min-width: 0;
+    padding: var(--space-1) var(--space-1) var(--space-1) var(--space-2);
+    border: .5px solid var(--color-line);
+    border-left: 2px solid var(--color-accent);
+    border-radius: var(--radius-md);
+    background: var(--color-surface-raised)
+}
+
+.quote-copy {
+    display: grid;
+    min-width: 0;
+    max-width: min(420px, 70vw)
+}
+
+.quote-source,
+.quote-comment {
+    color: var(--color-text-muted);
+    font-size: var(--text-xs)
+}
+
+.quote-text {
+    overflow: hidden;
+    color: var(--color-text);
+    font-size: var(--text-sm);
+    text-overflow: ellipsis;
+    white-space: nowrap
 }
 
 
@@ -2156,6 +2467,10 @@ function selectModel(modelId: string): void {
 }
 
 
+.compact-chip.gone,
+.model-pill.model-gone {
+  display: none;
+}
 .compact-chip {
     height: var(--composer-control-size);
     padding: 0 var(--space-2);
@@ -2465,7 +2780,8 @@ function selectModel(modelId: string): void {
 
 .perm-pill,
 .workflow-chip,
-.model-pill {
+.model-pill,
+.thinking-pill {
     position: relative;
     display: inline-flex;
     align-items: center;
@@ -2494,7 +2810,8 @@ function selectModel(modelId: string): void {
 
 .perm-pill:after,
 .workflow-chip:after,
-.model-pill:after {
+.model-pill:after,
+.thinking-pill:after {
     content: "";
     position: absolute;
     inset: 0;
@@ -2508,13 +2825,15 @@ function selectModel(modelId: string): void {
 
 .perm-pill:hover:after,
 .workflow-chip:hover:after,
-.model-pill:hover:after {
+.model-pill:hover:after,
+.thinking-pill:hover:after {
     opacity: 1
 }
 
 
 .perm-pill.open,
-.model-pill.open {
+.model-pill.open,
+.thinking-pill.open {
     background: var(--color-accent-soft)
 }
 
@@ -2569,6 +2888,17 @@ function selectModel(modelId: string): void {
         display: none
 }
 
+.labels-collapsed .thinking-pill {
+        width: var(--composer-control-size);
+        padding: 0;
+        justify-content: center
+}
+
+.labels-collapsed .thinking-pill-label,
+.labels-collapsed .thinking-pill .cv {
+        display: none
+}
+
 
 .ctx-group {
     display: flex;
@@ -2619,14 +2949,39 @@ function selectModel(modelId: string): void {
 }
 
 
-.model-pill .think-suffix {
+.thinking-pill {
+    flex: none;
+    padding: 0 var(--space-2);
     color: var(--color-accent);
-    font-weight: var(--weight-medium);
-    flex-shrink: 0
+    font-size: var(--ui-font-size-sm);
+    transition: background var(--duration-base) var(--ease-out), color var(--duration-base) var(--ease-out), transform var(--duration-fast) var(--ease-out)
 }
 
 
-.model-pill .cv {
+.thinking-pill:active:not(:disabled) {
+    transform: scale(.97)
+}
+
+
+.thinking-pill:focus-visible {
+    outline: none;
+    box-shadow: var(--p-focus-ring)
+}
+
+
+.thinking-pill:disabled {
+    color: var(--muted);
+    cursor: default
+}
+
+
+.thinking-pill:disabled:hover:after {
+    opacity: 0
+}
+
+
+.model-pill .cv,
+.thinking-pill .cv {
     color: var(--faint);
     flex: none;
     transition: transform var(--duration-base) var(--ease-out), color var(--duration-base) var(--ease-out)
@@ -2634,12 +2989,15 @@ function selectModel(modelId: string): void {
 
 
 .model-pill:hover .cv,
-.model-pill.open .cv {
+.model-pill.open .cv,
+.thinking-pill:hover .cv,
+.thinking-pill.open .cv {
     color: var(--dim)
 }
 
 
-.model-pill.open .cv {
+.model-pill.open .cv,
+.thinking-pill.open .cv {
     transform: rotate(180deg)
 }
 
@@ -2654,7 +3012,7 @@ function selectModel(modelId: string): void {
 
 
 
-.model-dropdown {
+.composer-dropdown {
     position: absolute;
     bottom: calc(100% + var(--space-1));
     right: calc(var(--composer-control-inset) + var(--composer-send-size) + var(--space-1));
@@ -2674,6 +3032,38 @@ function selectModel(modelId: string): void {
     transform-origin: bottom right;
     overflow-y: auto;
     overscroll-behavior: contain
+}
+
+
+.thinking-dropdown {
+    width: var(--thinking-dropdown-width);
+    min-width: 0;
+    max-width: calc(100vw - var(--thinking-dropdown-viewport-gutter));
+    padding: var(--space-3);
+    gap: var(--space-3);
+    overflow: hidden
+}
+
+
+.thinking-dropdown-title {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    color: var(--color-text);
+    font-size: var(--ui-font-size);
+    font-weight: var(--weight-semibold)
+}
+
+
+.thinking-dropdown .ui-seg {
+    width: 100%
+}
+
+
+.thinking-cache-note {
+    color: var(--muted);
+    font-size: var(--ui-font-size-xs);
+    line-height: 1.4
 }
 
 
@@ -2833,39 +3223,6 @@ function selectModel(modelId: string): void {
     height: 1px;
     background: var(--line);
     margin: 3px 0
-}
-
-
-.md-thinking {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 6px 9px;
-    border-radius: var(--radius-sm)
-}
-
-
-.md-thinking .md-name {
-    font-family: var(--font-ui);
-    font-size: var(--ui-font-size);
-    color: var(--color-text);
-    flex: none
-}
-
-
-.md-thinking .md-note,
-.md-thinking .ui-seg {
-    margin-left: auto
-}
-
-
-.md-cache-note {
-    width: 0;
-    min-width: 100%;
-    padding: 2px 7px 4px;
-    color: var(--muted);
-    font-size: var(--ui-font-size-xs);
-    line-height: 1.4
 }
 
 
@@ -3091,11 +3448,16 @@ function selectModel(modelId: string): void {
         max-width: calc(100vw - 24px)
     }
 
+    .thinking-dropdown {
+        max-width: calc(100vw - var(--thinking-dropdown-viewport-gutter))
+    }
+
     .ph {
         font-size: 16px
     }
 
     .model-pill,
+    .thinking-pill,
     .attach-btn {
         font-size: var(--ui-font-size)
     }
@@ -3121,15 +3483,6 @@ function selectModel(modelId: string): void {
     .md-row,
     .md-section {
         font-size: var(--ui-font-size)
-    }
-
-    .md-thinking {
-        flex-wrap: wrap;
-        row-gap: 6px
-    }
-
-    .md-thinking .ui-seg {
-        margin-left: 0
     }
 
     .pd-name {

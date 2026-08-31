@@ -3,7 +3,7 @@
 import { computed, inject, nextTick, onMounted, onUnmounted, provide, ref, watch, type ComponentPublicInstance } from 'vue';
 import { useI18n } from 'vue-i18n';
 import type { ActivationBadges, ApprovalBlock, ChatTurn, ConversationStatus, FilePreviewRequest, PermissionMode, QueuedPromptView, Session, SessionPlanEntry, TaskItem, TodoView, ToolMedia, TurnAttachment, UIQuestion, WorkspaceView } from '../../types';
-import type { AppGoal, AppModel, AppSkill, QuestionResponse, ThinkingLevel } from '../../api/types';
+import type { AppExpertTalkRun, AppGoal, AppModel, AppSkill, QuestionResponse, ThinkingLevel } from '../../api/types';
 import type { FileItem } from './MentionMenu.vue';
 import type { PromptAttachment } from '../../composables/usePythinkerWebClient';
 import ChatPane from './ChatPane.vue';
@@ -20,11 +20,13 @@ import { getVisibleWorkspaces } from '../../lib/workspacePicker';
 import { safeRemove, STORAGE_KEYS } from '../../lib/storage';
 import type { TurnFileChange } from '../../lib/turnFiles';
 import WorkspaceRecentSessions from '../WorkspaceRecentSessions.vue';
+import type { DetailTarget } from '../../composables/useFilePreview';
 
 const { t } = useI18n();
 
 const props = defineProps<{
   turns: ChatTurn[];
+  expertTalkRuns?: AppExpertTalkRun[];
   sessionId?: string;
   approvals?: { approvalId: string; block: ApprovalBlock; agentName?: string; toolCallId?: string }[];
   gitInfo?: { branch: string; ahead: number; behind: number } | null;
@@ -102,6 +104,10 @@ const props = defineProps<{
   pr?: { number: number; state: string; url: string } | null;
   /** Conversation outline: proportional bubbles, viewport indicator, hover tooltip. */
   conversationToc?: boolean;
+  /** Fold a finished turn's work away, leaving the summary. */
+  turnFolding?: boolean;
+  /** Summarise consecutive tool calls into one activity-run row. */
+  activityRunFolding?: boolean;
   /** Completion reason for the active session's last turn. */
   lastTurnReason?: 'completed' | 'cancelled' | 'failed';
   /** Step-limit variant of the failed-turn banner (turn.step.interrupted
@@ -113,6 +119,11 @@ const props = defineProps<{
   /** True while the active session is pinned. */
   pinned?: boolean;
   recentSessions?: Session[];
+  revealSavedPlan?: (agentId: string, toolCallId: string) => Promise<boolean>;
+  panelVisible?: boolean;
+  panelExpanded?: boolean;
+  activePanelType?: DetailTarget;
+  togglePanel?: () => void;
 }>();
 
 const emit = defineEmits<{
@@ -140,8 +151,11 @@ const emit = defineEmits<{
   selectModel: [modelId: string];
   openFile: [target: FilePreviewRequest];
   openMedia: [media: ToolMedia];
+  buildExpertTalk: [answer: string];
   openCompaction: [target: { turnId: string }];
   openAgent: [toolCallId: string];
+  /** Move a running foreground tool call to the background. */
+  detachTask: [toolCallId: string];
   openToolDiff: [id: string];
   openTurnDiff: [target: { turnId: string; changes: TurnFileChange[] }];
   /** Chat header / files pane: focus the diff detail layer and refresh git status. */
@@ -278,6 +292,16 @@ function resolveAgentTaskId(toolCallId: string): string | undefined {
   return undefined;
 }
 provide('resolveAgentTaskId', resolveAgentTaskId);
+
+// Whether a running foreground tool call can still be moved to the background.
+// `undefined` (no task matched — a task list that has not arrived yet) means
+// "show the button"; only an explicit false hides it.
+function resolveDetachableTask(toolCallId: string): boolean | undefined {
+  const matches = props.tasks.filter((tk) => tk.id === toolCallId || tk.parentToolCallId === toolCallId);
+  if (matches.length === 0) return undefined;
+  return matches.some((tk) => tk.state === 'run' && tk.runInBackground !== true);
+}
+provide('resolveDetachableTask', resolveDetachableTask);
 const modelDisplay = inject<(modelId: string | undefined) => string | undefined>('modelDisplay');
 const subagentEffort = inject<(effort: string | undefined) => string | undefined>('subagentEffort');
 function resolveAgentModel(
@@ -297,6 +321,11 @@ provide('resolveAgentModel', resolveAgentModel);
 // Let the ExitPlanMode tool card reach the plan markdown captured from the
 // plan_review approval display (client.sessionPlans — survives reloads).
 provide('resolvePlan', (toolCallId: string) => props.sessionPlans?.[toolCallId]);
+provide(
+  'revealSavedPlan',
+  (agentId: string, toolCallId: string) =>
+    props.revealSavedPlan?.(agentId, toolCallId) ?? Promise.resolve(false),
+);
 provide('pinScroll', pinScrollFor);
 const todoDoneCount = computed(() => (props.todos ?? []).filter((td) => td.status === 'done').length);
 const hasDockWork = computed(() =>
@@ -342,17 +371,32 @@ function tocTitle(turn: ChatTurn): string {
   return 'pythinker';
 }
 
+function tocResponsePreview(userIndex: number): string {
+  for (let index = userIndex + 1; index < props.turns.length; index += 1) {
+    const turn = props.turns[index]!;
+    if (turn.role === 'user') break;
+    if (turn.role !== 'assistant') continue;
+    const text = (turn.text.trim() || turn.thinking?.trim() || '').replaceAll(/\s+/g, ' ');
+    if (text.length > 0) return text;
+  }
+  return '';
+}
+
 // The TOC is keyed by user query: one entry per user turn, not per turn/block.
-const conversationTocItems = computed<ConversationTocItem[]>(() =>
-  props.turns
-    .filter((turn) => turn.role === 'user')
-    .map((turn, index) => ({
+const conversationTocItems = computed<ConversationTocItem[]>(() => {
+  let queryNo = 0;
+  return props.turns.flatMap((turn, index) => {
+    if (turn.role !== 'user') return [];
+    queryNo += 1;
+    return [{
       id: turn.id,
       role: turn.role,
-      no: index + 1,
+      no: queryNo,
       title: tocTitle(turn),
-    })),
-);
+      preview: tocResponsePreview(index),
+    }];
+  });
+});
 
 const activeTurnId = ref<string | null>(null);
 
@@ -368,7 +412,7 @@ function updateActiveTocQuery(): void {
   // When pinned to the bottom (auto-follow / short content), the latest query is
   // the active one even if its message sits below the pane's vertical middle —
   // otherwise the highlight would lag one query behind at the bottom.
-  if (distanceFromBottom() <= BOTTOM_THRESHOLD) {
+  if (following.value && distanceFromBottom() <= BOTTOM_THRESHOLD) {
     activeTurnId.value = items[items.length - 1]!.id;
     return;
   }
@@ -388,7 +432,7 @@ function updateActiveTocQuery(): void {
 }
 
 // --- TOC occlusion by wide tables -------------------------------------------
-// Wide markdown tables (up to --p-table-max) can extend past the TOC rail,
+// Wide markdown tables (up to --p-table-max) can extend past the TOC anchor,
 // which stays anchored to the reading-column edge. While a table actually
 // covers the rail we hide the TOC temporarily so the table stays fully
 // interactive (clicks, text selection, horizontal scroll). The user's TOC
@@ -410,15 +454,14 @@ function updateTocTableOcclusion(): void {
     !props.mobile && props.conversationToc && pane
       ? pane.closest('.con')?.querySelector<HTMLElement>('.conversation-toc')
       : null;
-  // The hit x is the centre of the fixed rail bar: `.toc-bar` keeps a stable x
-  // even when hover expands the labels rightward, so hovering the TOC itself
-  // never flips the state (the nav centre would).
-  const bar = toc?.querySelector<HTMLElement>('.toc-bar');
+  // Every marker shares the fixed anchor x even when hover expands labels, so
+  // hovering the outline itself never changes the hit-test coordinate.
+  const marker = toc?.querySelector<HTMLElement>('.toc-marker');
   let covered = false;
-  if (pane && toc && bar) {
-    const barRect = bar.getBoundingClientRect();
+  if (pane && toc && marker) {
+    const markerRect = marker.getBoundingClientRect();
     const tocRect = toc.getBoundingClientRect();
-    const railX = barRect.left + barRect.width / 2;
+    const anchorX = markerRect.left + markerRect.width / 2;
     // Plain geometric overlap: the rail paints above the content, so any table
     // wrapper that covers the bar's x AND overlaps the rail vertically would
     // have its pointer events intercepted by the rail — hide the TOC until the
@@ -430,8 +473,8 @@ function updateTocTableOcclusion(): void {
     ).some((wrapper) => {
       const rect = wrapper.getBoundingClientRect();
       return (
-        rect.left <= railX &&
-        railX <= rect.right &&
+        rect.left <= anchorX &&
+        anchorX <= rect.right &&
         rect.top < tocRect.bottom &&
         rect.bottom > tocRect.top
       );
@@ -491,6 +534,7 @@ const chatLayoutStyle = computed(() => ({
 type ComposerHandle = {
   loadForEdit: (value: string) => boolean | void;
   loadAttachmentsForEdit: (atts: { fileId?: string; kind: 'image' | 'video' | 'file'; url: string; name?: string }[]) => void;
+  insertQuote: (payload: { quote: string; comment?: string; source?: string }) => void;
   focus: () => void;
 };
 type RefArg = Element | (ComponentPublicInstance & Partial<ComposerHandle>) | null;
@@ -526,6 +570,10 @@ function bindChatDock(el: RefArg): void {
       loadAttachmentsForEdit:
         'loadAttachmentsForEdit' in el && typeof el.loadAttachmentsForEdit === 'function'
           ? el.loadAttachmentsForEdit.bind(el)
+          : () => {},
+      insertQuote:
+        'insertQuote' in el && typeof el.insertQuote === 'function'
+          ? el.insertQuote.bind(el)
           : () => {},
       focus: el.focus.bind(el),
     };
@@ -748,6 +796,7 @@ function scrollToTurn(turnId: string): void {
   if (!target) return;
   cancelActiveScrollWrites();
   following.value = false;
+  activeTurnId.value = turnId;
   showPill.value = distanceFromBottom() > BOTTOM_THRESHOLD;
   target.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
@@ -1323,11 +1372,15 @@ function focusComposer(): void {
   (dockedComposerRef.value ?? emptyComposerRef.value)?.focus();
 }
 
-defineExpose({ loadComposerForEdit, focusComposer });
+function insertComposerQuote(payload: { quote: string; comment?: string; source?: string }): void {
+  (dockedComposerRef.value ?? emptyComposerRef.value)?.insertQuote(payload);
+}
+
+defineExpose({ loadComposerForEdit, focusComposer, insertComposerQuote });
 </script>
 
 <template>
-  <section class="con" :class="{ mobile }">
+  <section class="con" :class="{ mobile, 'toc-enabled': conversationToc }" :style="chatLayoutStyle">
     <TranscriptSearch
       v-if="searchOpen && panesRef"
       :pane="panesRef"
@@ -1352,6 +1405,7 @@ defineExpose({ loadComposerForEdit, focusComposer });
       :copied="copyConversationCopied"
       :session-done="sessionDone"
       :pinned="pinned"
+      :panel-visible="panelVisible"
       @open-changes="emit('openChanges')"
       @copy-all="chatPaneRef?.copyConversation()"
       @copy-final-summary="chatPaneRef?.copyFinalSummary()"
@@ -1362,10 +1416,18 @@ defineExpose({ loadComposerForEdit, focusComposer });
       @archive-session="(id) => emit('archiveSession', id)"
       @restore-session="(id) => emit('restoreSession', id)"
       @export-session="(id) => emit('exportSession', id)"
+      @toggle-panel="togglePanel?.()"
     />
 
-    <!-- Conversation outline: right edge rail of vertical bars (one per user
-         query); hover to expand a labeled panel. -->
+    <IconButton
+      v-if="!mobile && !panelVisible && turns.length === 0 && !sessionLoading"
+      class="empty-panel-btn"
+      :label="t('panel.openPanel')"
+      @click="togglePanel?.()"
+    ><Icon name="panel-expand-right" /></IconButton>
+
+    <!-- Conversation outline: centered line stack beside the app sidebar
+         (one marker per user query); hover to reveal labels into the chat. -->
     <ConversationToc
       v-if="conversationToc"
       :items="conversationTocItems"
@@ -1376,7 +1438,7 @@ defineExpose({ loadComposerForEdit, focusComposer });
       @select="scrollToTurn"
     />
 
-    <div class="chat-layout" :style="chatLayoutStyle">
+    <div class="chat-layout">
       <div
         :ref="bindChatPane"
         class="panes chat-scroll"
@@ -1506,6 +1568,8 @@ defineExpose({ loadComposerForEdit, focusComposer });
               ref="chatPaneRef"
               :key="fileReloadKey ?? 'no-session'"
               :turns="turns"
+              :expert-talk-runs="expertTalkRuns"
+              :expert-talk-models="models"
               :approvals="approvals"
               :questions="questions"
               :turn-active="turnActive"
@@ -1518,6 +1582,8 @@ defineExpose({ loadComposerForEdit, focusComposer });
               :loading-more-error="loadingMoreError"
               :is-following="following"
               :tool-diff-panel="true"
+              :turn-folding="turnFolding ?? true"
+              :activity-run-folding="activityRunFolding ?? true"
               :last-turn-reason="lastTurnReason"
               :turn-error-kind="turnErrorKind"
               :turn-error-message="turnErrorMessage"
@@ -1525,9 +1591,11 @@ defineExpose({ loadComposerForEdit, focusComposer });
               :queued="queued"
               @open-file="emit('openFile', $event)"
               @open-media="emit('openMedia', $event)"
+              @build-expert-talk="emit('buildExpertTalk', $event)"
               @copy-conversation-copied="handleCopyConversationCopied"
               @open-compaction="emit('openCompaction', $event)"
               @open-agent="emit('openAgent', $event)"
+              @detach-task="emit('detachTask', $event)"
               @open-tool-diff="emit('openToolDiff', $event)"
               @open-turn-diff="emit('openTurnDiff', $event)"
               @edit-message="handleEditMessage"
@@ -1541,7 +1609,8 @@ defineExpose({ loadComposerForEdit, focusComposer });
           </template>
         </div>
       </div>
-      <ChatDock
+      <Teleport defer to=".pfc-host" :disabled="!panelExpanded || activePanelType === 'btw'">
+        <ChatDock
         v-if="!(turns.length === 0 && !sessionLoading)"
         :ref="bindChatDock"
         :style="chatDockStyle"
@@ -1566,6 +1635,7 @@ defineExpose({ loadComposerForEdit, focusComposer });
         :session-plans="sessionPlans"
         :overlay-open="overlayOpen"
         :open-file="(target) => emit('openFile', target)"
+        :reveal-saved-plan="revealSavedPlan"
         :dock-panel="dockPanel"
         :bash-tasks="bashTasks"
         :subagent-tasks="subagentTasks"
@@ -1602,7 +1672,8 @@ defineExpose({ loadComposerForEdit, focusComposer });
           @compact="emit('compact')"
           @pick-model="emit('pickModel')"
           @select-model="emit('selectModel', $event)"
-      />
+        />
+      </Teleport>
     </div>
 
     <!-- "New messages" pill — only visible when scrolled up and new content arrives. -->
@@ -1643,6 +1714,7 @@ defineExpose({ loadComposerForEdit, focusComposer });
   position: relative;
   container-type: inline-size;
 }
+.empty-panel-btn { position: absolute; top: 10px; right: 16px; z-index: var(--z-sticky); }
 
 .panes {
   flex: 1;
@@ -1687,6 +1759,11 @@ defineExpose({ loadComposerForEdit, focusComposer });
 }
 .content-wrap.align-center { margin-left: auto; margin-right: auto; }
 .content-wrap.align-left { margin-left: 0; margin-right: auto; }
+@container (max-width: 952px) {
+  .con.toc-enabled:not(.mobile) .content-wrap.align-center {
+    padding-left: calc(var(--space-8) + var(--space-8) + var(--space-8));
+  }
+}
 /* Mobile: bubbles span the full pane width; no reading-column constraint. */
 .content-wrap.align-mobile { max-width: none; }
 @media (max-width: 640px) {

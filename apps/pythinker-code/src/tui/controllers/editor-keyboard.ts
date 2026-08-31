@@ -254,6 +254,11 @@ export class EditorKeyboardController {
         this.clearPendingUndoEsc();
         return;
       }
+      if (host.state.appState.expertTalkRunId !== undefined) {
+        this.cancelExpertTalkRun(host.state.appState.expertTalkRunId);
+        this.clearPendingUndoEsc();
+        return;
+      }
       if (host.state.appState.streamingPhase !== 'idle') {
         this.cancelCurrentStream();
         this.clearPendingUndoEsc();
@@ -527,6 +532,14 @@ export class EditorKeyboardController {
     void this.host.session?.cancel();
   }
 
+  private cancelExpertTalkRun(runId: string): void {
+    const session = this.host.session;
+    if (session === undefined) return;
+    void session.cancelExpertTalkRun(runId).catch((error: unknown) => {
+      this.host.showError(`Failed to cancel Expert Talk: ${formatErrorMessage(error)}`);
+    });
+  }
+
   /** Guards Shift-Tab cycling while a setThinking round-trip is still pending. */
   private thinkingCycleInFlight = false;
 
@@ -595,7 +608,7 @@ export class EditorKeyboardController {
     const harness = this.host.harness;
     if (harness === undefined || alias !== this.host.state.appState.model) return;
     try {
-      await harness.setConfig({ thinking: thinkingEffortToConfig(effort, model.supportEfforts) });
+      await harness.setConfig({ thinking: thinkingEffortToConfig(effort, model) });
     } catch (error) {
       this.host.showError(
         `Thinking effort set to ${effort}, but failed to save default: ${formatErrorMessage(error)}`,

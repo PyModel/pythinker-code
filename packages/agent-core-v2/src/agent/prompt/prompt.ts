@@ -14,6 +14,8 @@ export interface PromptSubmitContext {
 export interface PromptInput {
   readonly id?: string;
   readonly message: ContextMessage;
+  readonly maxOutputSize?: number;
+  readonly infiniteRetry?: boolean;
 }
 
 export type PromptState =
@@ -51,17 +53,7 @@ export interface PromptQueueSnapshot {
 
 export interface PromptPayload {
   readonly input: readonly ContentPart[];
-  /**
-   * Client-managed session tool denylist (full-replace semantics), applied
-   * before the prompt is enqueued. Omit to keep the current value; `[]`
-   * clears the client portion.
-   */
   readonly disabledTools?: readonly string[];
-  /**
-   * Client-chosen prompt record id, echoed on the consuming turn's
-   * `turn.started` (`promptId`). A duplicate id rejects the submission before
-   * any session state is touched.
-   */
   readonly promptId?: string;
 }
 

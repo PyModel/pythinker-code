@@ -10,6 +10,7 @@ export {
   OPENAI_CODEX_CLI_CLIENT_VERSION,
   OPENAI_CODEX_OAUTH_PLATFORM_ID,
   OPENAI_CODEX_PROVIDER_ID,
+  OAuthAccessDeniedError,
   OPENAI_CODEX_REDIRECT_URI,
   OpenAICodexApiError,
   parseOpenAICodexAuthorizationInput,
@@ -18,6 +19,7 @@ export {
 } from './openai-codex-oauth';
 export type {
   ApplyOpenAICodexOAuthResult,
+  OpenAICodexCallbackResult,
   FetchOpenAICodexModelsOptions,
   OpenAICodexCallbackServer,
   OpenAICodexConfigShape,
@@ -91,6 +93,7 @@ export type {
   ProviderConfig,
   ProviderModelInfo,
   PythinkerConfigShape,
+  SecondaryModelShape,
   ServiceConfig,
   ServicesConfig,
   SupportsThinkingType,

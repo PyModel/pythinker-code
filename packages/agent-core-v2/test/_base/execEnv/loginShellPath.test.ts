@@ -118,6 +118,28 @@ describe('mergeLoginShellPath', () => {
   it('skips relative login-shell entries', () => {
     expect(mergeLoginShellPath('/a', '.:bin:../x:/b')).toBe('/a:/b');
   });
+
+  it('uses login-shell priority for Desktop while retaining current-only entries', () => {
+    expect(
+      mergeLoginShellPath(
+        '/usr/bin:/bin:/Applications/Pythinker.app/Contents/Resources/bin',
+        '/opt/homebrew/bin:/usr/bin:/bin',
+        'login-shell',
+      ),
+    ).toBe(
+      '/opt/homebrew/bin:/usr/bin:/bin:/Applications/Pythinker.app/Contents/Resources/bin',
+    );
+  });
+
+  it('deduplicates preferred entries and ignores relative login-shell entries', () => {
+    expect(
+      mergeLoginShellPath(
+        '/usr/bin:/custom:/custom',
+        '/preferred::bin:/usr/bin:/preferred',
+        'login-shell',
+      ),
+    ).toBe('/preferred:/usr/bin:/custom:/custom');
+  });
 });
 
 describe('applyLoginShellPath', () => {
@@ -140,6 +162,20 @@ describe('applyLoginShellPath', () => {
     const { deps } = stubDeps({ env, execFileResult: 'PATH=:::\n' });
     await applyLoginShellPath(deps);
     expect('PATH' in env).toBe(false);
+  });
+
+  it('uses login-shell command priority for Desktop hosts', async () => {
+    const env: Record<string, string | undefined> = {
+      SHELL: '/bin/zsh',
+      PATH: '/usr/bin:/bin:/desktop-only',
+      PYTHINKER_DESKTOP: '1',
+    };
+    const { deps } = stubDeps({
+      env,
+      execFileResult: 'PATH=/opt/homebrew/bin:/usr/bin:/bin\n',
+    });
+    await applyLoginShellPath(deps);
+    expect(env['PATH']).toBe('/opt/homebrew/bin:/usr/bin:/bin:/desktop-only');
   });
 });
 

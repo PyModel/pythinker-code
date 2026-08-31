@@ -60,6 +60,7 @@ export type {
   SessionApprovalsFacade,
   SessionFacade,
   SessionInteractionsFacade,
+  SessionExpertTalkFacade,
   SessionQuestionsFacade,
   SessionRestoreOptions,
   SessionSkillsFacade,
@@ -68,6 +69,7 @@ export type {
 export type {
   AgentCommandInfo,
   AgentContextData,
+  AgentPromptLaunchResult,
   AgentFacade,
   AgentTaskInfo,
   McpServerEntry,
@@ -89,6 +91,17 @@ export type {
   SessionMetaUpdatedPayload,
 } from './contract/global/events.js';
 export type { SessionEventPayloads } from './contract/session/events.js';
+export type {
+  ExpertTalkArmV1,
+  ExpertTalkBindingV1,
+  ExpertTalkChangedEvent,
+  ExpertTalkConfigV1,
+  ExpertTalkPairV1,
+  ExpertTalkResultV1,
+  ExpertTalkRunV1,
+  ExpertTalkStartResult,
+  ExpertTalkStatusV1,
+} from '@pymodel/agent-core-v2/session/expertTalk/expertTalk';
 export type { AgentEventPayloads } from './contract/agent/events.js';
 
 // Wire types re-exported for consumer convenience (type-only; the engine is

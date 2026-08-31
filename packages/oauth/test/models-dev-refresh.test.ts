@@ -119,6 +119,9 @@ function makeHost(initial: PythinkerConfigShape): {
       if (patch.models !== undefined) current.models = structuredClone(patch.models);
       if ('defaultModel' in patch) current.defaultModel = patch.defaultModel;
       if ('thinking' in patch) current.thinking = structuredClone(patch.thinking);
+      if ('secondaryModel' in patch) {
+        current.secondaryModel = structuredClone(patch.secondaryModel);
+      }
       return structuredClone(current);
     },
     userAgent: 'pythinker-code-cli/test',
@@ -189,6 +192,29 @@ describe('refreshProviderModels modelsDev directory providers', () => {
     expect(patch.thinking).toEqual({ enabled: true });
   });
 
+  it('does not preserve a dropped generated alias or rewrite secondary_model', async () => {
+    const document = makeDocument();
+    const entry = document[PROVIDER_ID] as Record<string, unknown>;
+    delete (entry['models'] as Record<string, unknown>)['deepseek-v4-flash'];
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(document)));
+
+    const base = makeBaseConfig();
+    base.defaultModel = undefined;
+    base.thinking = undefined;
+    base.secondaryModel = {
+      defaultModel: `${PROVIDER_ID}/deepseek-v4-flash`,
+      models: { [`${PROVIDER_ID}/deepseek-v4-flash`]: 'fast' },
+    };
+    const { host, calls } = makeHost(base);
+
+    const result = await refreshProviderModels(host);
+
+    expect(result.failed).toEqual([]);
+    const patch = lastPatch(calls);
+    expect(patch.models?.[`${PROVIDER_ID}/deepseek-v4-flash`]).toBeUndefined();
+    expect('secondaryModel' in patch).toBe(false);
+  });
+
   it('removes a provider that vanished from the directory and clamps the dangling default', async () => {
     vi.stubGlobal(
       'fetch',
@@ -196,6 +222,7 @@ describe('refreshProviderModels modelsDev directory providers', () => {
     );
     const base = makeBaseConfig();
     base.defaultModel = `${PROVIDER_ID}/deepseek-v4-flash`;
+    base.secondaryModel = { defaultModel: `${PROVIDER_ID}/deepseek-v4-flash` };
 
     const { host, calls } = makeHost(base);
     const result = await refreshProviderModels(host);
@@ -209,6 +236,7 @@ describe('refreshProviderModels modelsDev directory providers', () => {
     expect(patch.providers?.[PROVIDER_ID]).toBeUndefined();
     expect(patch.defaultModel).toBeUndefined();
     expect(patch.thinking).toBeUndefined();
+    expect('secondaryModel' in patch).toBe(false);
   });
 
   it('reports a failure without writing when an entry lists no usable models', async () => {

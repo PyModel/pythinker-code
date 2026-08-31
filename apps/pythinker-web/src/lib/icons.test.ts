@@ -5,7 +5,15 @@ import Icon from '../components/ui/Icon.vue';
 import { ICONS, SIZE_PX, getIcon, iconSvg } from './icons';
 
 /** Registry names served as self-animated artwork (raw SVG with its own <style>). */
-const ANIMATED_NAMES = ['terminal', 'cute-bot', 'search', 'folder', 'settings', 'loading-spinner'] as const;
+const ANIMATED_NAMES = [
+  'terminal',
+  'cute-bot',
+  'loading-spinner',
+  'update-button',
+  'update-available',
+] as const;
+
+const STATIC_IDLE_NAMES = ['chat-new', 'search', 'folder', 'settings'] as const;
 
 describe('ICONS registry', () => {
   it('is non-empty', () => {
@@ -67,6 +75,23 @@ describe('animated registry icons', () => {
   // The style blocks are inlined into the document (v-html), so every selector
   // must live under the artwork's ptx-* root class and every keyframe must be
   // ptx-prefixed — a bare `.cursor` or `@keyframes blink` would restyle the app.
+  // Motion is opt-in: a resting icon stays still and only plays while hovered
+  // or under a .ptx-live host (the agent is working). The spinner is a progress
+  // indicator and stays always-on.
+  it.each(ANIMATED_NAMES.filter((n) => n !== 'loading-spinner'))(
+    '%s only animates on hover or under .ptx-live',
+    (name) => {
+      const style = /<style>([\s\S]*?)<\/style>/.exec(getIcon(name).svg)?.[1] ?? '';
+      const rules = [...style.matchAll(/([^{}]+?)\s*\{([^{}]*)\}/g)];
+      for (const [, sel = '', body = ''] of rules) {
+        if (!/\banimation(-delay)?:/.test(body) || /animation:\s*none/.test(body)) continue;
+        expect(sel, `${name}: ${sel.trim()}`).toContain('.ptx-live');
+        expect(sel).toContain(':hover');
+      }
+      expect(style).toContain('.ptx-live');
+    },
+  );
+
   it.each(ANIMATED_NAMES)('%s namespaces its css under a ptx-* root class', (name) => {
     const svg = getIcon(name).svg;
     expect(svg.slice(0, 120)).toMatch(/class="ptx ptx-[a-z-]+"/);
@@ -108,6 +133,22 @@ describe('animated registry icons', () => {
     expect(html).toContain('aria-hidden="true"');
     const sheet = document.head.querySelector('style[data-ptx-icon-style="terminal"]');
     expect(sheet?.textContent).toContain('@keyframes ptx-term-blink-cursor');
+  });
+});
+
+describe('idle sidebar icons', () => {
+  it.each(STATIC_IDLE_NAMES)('%s is static artwork without an animation stylesheet', (name) => {
+    const target = getIcon(name);
+    expect(target.animated).toBeUndefined();
+    expect(target.component).toBeDefined();
+    expect(target.svg).not.toContain('<style');
+    expect(target.svg).not.toContain('@keyframes');
+    expect(target.svg).not.toContain('animation:');
+  });
+
+  it('adds the hover-animation hook to the new chat icon', () => {
+    const wrapper = mount(Icon, { props: { name: 'chat-new' } });
+    expect(wrapper.get('svg').classes()).toContain('ui-icon--chat-new');
   });
 });
 

@@ -372,6 +372,34 @@ describe('contract schemas', () => {
     }
   });
 
+  it('accepts provenance only on user text frames', () => {
+    const base = {
+      op: 'frame.upsert',
+      turnId: 't1',
+      stepId: 't1.1',
+    } as const;
+    expect(transcriptOperationSchema.safeParse({
+      ...base,
+      frame: {
+        kind: 'text',
+        frameId: 't1.1.f1',
+        role: 'user',
+        text: 'steered in',
+        origin: { kind: 'user', skillActivations: [{ skillName: 'review', skillArgs: 'strict' }] },
+      },
+    }).success).toBe(true);
+    expect(transcriptOperationSchema.safeParse({
+      ...base,
+      frame: {
+        kind: 'text',
+        frameId: 't1.1.f2',
+        role: 'assistant',
+        text: 'reply',
+        origin: { kind: 'user' },
+      },
+    }).success).toBe(false);
+  });
+
   it('rejects mutually exclusive cursors and bad grades', () => {
     expect(() => transcriptGradeSpecSchema.parse({ '*': 'stream' })).toThrow();
     const ok = transcriptResponseSchema.safeParse({
@@ -496,6 +524,86 @@ describe('groupMessagesIntoSnapshot (cold path)', () => {
       'user',
       'assistant',
     ]);
+  });
+
+  it('folds a marked steered user message into the current turn as a user frame', () => {
+    const snapshot = groupMessagesIntoSnapshot(
+      [
+        { role: 'user', content: [{ type: 'text', text: 'active' }], toolCalls: [], origin: { kind: 'user' } },
+        { role: 'assistant', content: [{ type: 'text', text: 'working' }], toolCalls: [] },
+        { role: 'user', content: [{ type: 'text', text: 'steered in' }], toolCalls: [], origin: { kind: 'user' } },
+        { role: 'assistant', content: [{ type: 'text', text: 'noted' }], toolCalls: [] },
+      ],
+      { steeredMessageIndexes: new Set([2]) },
+    );
+
+    expect(snapshot.items.map((item) => item.kind)).toEqual(['turn']);
+    const turn = snapshot.items[0];
+    if (turn?.kind !== 'turn') throw new Error('expected turn');
+    expect(turn.steps).toHaveLength(2);
+    expect(turn.steps[1]?.frames[0]).toMatchObject({
+      kind: 'text',
+      role: 'user',
+      text: 'steered in',
+    });
+  });
+
+  it('keeps a trailing steered message visible by appending it to the last step', () => {
+    const snapshot = groupMessagesIntoSnapshot(
+      [
+        { role: 'user', content: [{ type: 'text', text: 'active' }], toolCalls: [], origin: { kind: 'user' } },
+        { role: 'assistant', content: [{ type: 'text', text: 'working' }], toolCalls: [] },
+        { role: 'user', content: [{ type: 'text', text: 'steered in' }], toolCalls: [], origin: { kind: 'user' } },
+      ],
+      { steeredMessageIndexes: new Set([2]) },
+    );
+
+    expect(snapshot.items.map((item) => item.kind)).toEqual(['turn']);
+    const turn = snapshot.items[0];
+    if (turn?.kind !== 'turn') throw new Error('expected turn');
+    expect(turn.steps.at(-1)?.frames.at(-1)).toMatchObject({
+      kind: 'text',
+      role: 'user',
+      text: 'steered in',
+    });
+  });
+
+  it('flushes a pending steer into the closing turn when a new turn opens before any reply', () => {
+    const snapshot = groupMessagesIntoSnapshot(
+      [
+        { role: 'user', content: [{ type: 'text', text: 'active' }], toolCalls: [], origin: { kind: 'user' } },
+        { role: 'assistant', content: [{ type: 'text', text: 'working' }], toolCalls: [] },
+        { role: 'user', content: [{ type: 'text', text: 'steered in' }], toolCalls: [], origin: { kind: 'user' } },
+        { role: 'user', content: [{ type: 'text', text: 'next question' }], toolCalls: [], origin: { kind: 'user' } },
+        { role: 'assistant', content: [{ type: 'text', text: 'answer' }], toolCalls: [] },
+      ],
+      { steeredMessageIndexes: new Set([2]) },
+    );
+
+    const turns = snapshot.items.filter((item) => item.kind === 'turn');
+    expect(turns).toHaveLength(2);
+    const first = turns[0];
+    if (first?.kind !== 'turn') throw new Error('expected turn');
+    expect(first.steps.at(-1)?.frames.at(-1)).toMatchObject({
+      kind: 'text',
+      role: 'user',
+      text: 'steered in',
+    });
+    const second = turns[1];
+    if (second?.kind !== 'turn') throw new Error('expected turn');
+    expect(second.prompt).toBe('next question');
+  });
+
+  it('still opens its own turn for a mid-conversation user message not marked as a steer', () => {
+    const snapshot = groupMessagesIntoSnapshot(
+      [
+        { role: 'user', content: [{ type: 'text', text: 'active' }], toolCalls: [], origin: { kind: 'user' } },
+        { role: 'assistant', content: [{ type: 'text', text: 'working' }], toolCalls: [] },
+        { role: 'user', content: [{ type: 'text', text: 'plain follow-up' }], toolCalls: [], origin: { kind: 'user' } },
+      ],
+    );
+
+    expect(snapshot.items.map((item) => item.kind)).toEqual(['turn', 'turn']);
   });
 
   it('stops folded notification text before child output blocks', () => {
@@ -724,6 +832,108 @@ describe('groupMessagesIntoSnapshot (cold path)', () => {
     expect(firstTurn.attachmentIds).toEqual(['att_1', 'att_2', 'att_3']);
   });
 
+  it('folds origin file attachments on the opening user message into entities', () => {
+    const snapshot = groupMessagesIntoSnapshot([
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'text',
+            text: 'Attached file "report.pdf" (application/pdf, 128 bytes): /data/report.pdf — open it with the Read tool',
+          },
+        ],
+        toolCalls: [],
+        origin: {
+          kind: 'user',
+          attachments: [
+            { name: 'report.pdf', mediaType: 'application/pdf', size: 128, path: '/data/report.pdf' },
+          ],
+        } as { kind: string },
+      },
+      { role: 'assistant', content: [{ type: 'text', text: 'done' }], toolCalls: [] },
+    ]);
+
+    expect(snapshot.attachments).toEqual([
+      {
+        attachmentId: 'att_1',
+        mediaType: 'application/pdf',
+        name: 'report.pdf',
+        size: 128,
+      },
+    ]);
+    const turn = snapshot.items[0];
+    if (turn?.kind !== 'turn') throw new Error('expected turn');
+    expect(turn.attachmentIds).toEqual(['att_1']);
+  });
+
+  it('folds origin file attachments on a skill activation into entities', () => {
+    const snapshot = groupMessagesIntoSnapshot([
+      {
+        role: 'user',
+        content: [{ type: 'text', text: 'User activated the skill "update-config".' }],
+        toolCalls: [],
+        origin: {
+          kind: 'skill_activation',
+          activationId: 'act_1',
+          skillName: 'update-config',
+          trigger: 'user-slash',
+          attachments: [
+            { name: 'note.txt', mediaType: 'text/plain', size: 21, path: '/data/note.txt' },
+          ],
+        } as { kind: string },
+      },
+      { role: 'assistant', content: [{ type: 'text', text: 'done' }], toolCalls: [] },
+    ]);
+
+    expect(snapshot.attachments).toEqual([
+      {
+        attachmentId: 'att_1',
+        mediaType: 'text/plain',
+        name: 'note.txt',
+        size: 21,
+      },
+    ]);
+    const turn = snapshot.items[1];
+    if (turn?.kind !== 'turn') throw new Error('expected turn');
+    expect(turn.attachmentIds).toEqual(['att_1']);
+  });
+
+  it.each(['user', 'skill_activation'] as const)(
+    'filters malformed origin file attachments on %s messages',
+    (kind) => {
+      const snapshot = groupMessagesIntoSnapshot([
+        {
+          role: 'user',
+          content: [{ type: 'text', text: 'attached files' }],
+          toolCalls: [],
+          origin: {
+            kind,
+            ...(kind === 'skill_activation' ? { trigger: 'user-slash' } : {}),
+            attachments: [
+              null,
+              { name: 'wrong-size.txt', mediaType: 'text/plain', size: '12' },
+              { name: 'note.txt', mediaType: 'text/plain', size: 12, path: '/data/note.txt' },
+              { name: 'wrong-path.txt', mediaType: 'text/plain', size: 12, path: 42 },
+            ],
+          } as { kind: string; trigger?: string; attachments: unknown },
+        },
+        { role: 'assistant', content: [{ type: 'text', text: 'done' }], toolCalls: [] },
+      ]);
+
+      expect(snapshot.attachments).toEqual([
+        {
+          attachmentId: 'att_1',
+          mediaType: 'text/plain',
+          name: 'note.txt',
+          size: 12,
+        },
+      ]);
+      const turn = snapshot.items.find((item) => item.kind === 'turn');
+      if (turn?.kind !== 'turn') throw new Error('expected turn');
+      expect(turn.attachmentIds).toEqual(['att_1']);
+    },
+  );
+
   it('maps persisted pythinker-file media refs to attachments', () => {
     const snapshot = groupMessagesIntoSnapshot([
       {
@@ -909,7 +1119,7 @@ describe('groupMessagesIntoSnapshot (cold path)', () => {
     if (subTurn?.kind !== 'turn') throw new Error('expected turn');
     expect(subTurn.ordinal).toBe(1);
     expect(subTurn.origin.kind).toBe('other');
-    expect(subTurn.prompt).toBeUndefined();
+    expect(subTurn.prompt).toBe('scan the repo');
     expect(subTurn.steps).toHaveLength(1);
   });
 
