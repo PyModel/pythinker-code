@@ -35,7 +35,9 @@ Discussion is experimental and requires the v2 engine. Start the web UI with the
 PYTHINKER_CODE_EXPERIMENTAL_EXPERT_TALK=1 pythinker web
 ```
 
-Select **Discussion**, choose different Fusion Lead and Peer Expert models and their thinking efforts, then select **Use for next message**. For that message, both models create read-only openings and review each other. The Fusion Lead then creates one fresh final answer automatically. The normal transcript shows that answer; expand the Discussion panel to inspect the openings, reviews, comparison notes, attribution, and usage.
+Select **Discussion**, choose different Fusion Lead and Peer Expert models and their thinking efforts, then select **Use for next message**. For that message, both models create read-only openings and review each other. The Fusion Lead then creates one fresh final answer automatically. The normal transcript shows that answer, and the Discussion panel stays expanded when the exchange completes so you can inspect the openings, reviews, comparison notes, attribution, and usage.
+
+Open **Settings → Discussion** and turn off **Show reasoning stream** to hide model reasoning without hiding tools, answers, or metrics. The preference applies immediately and remains selected in that browser.
 
 The selected pair remains available in the session, but each activation applies to one accepted message. Press `Esc` to cancel an active run. **Take** and **Build from Fusion** remain explicit actions.
 

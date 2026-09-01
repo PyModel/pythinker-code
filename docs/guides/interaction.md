@@ -68,7 +68,7 @@ YOLO mode skips confirmation for file writes and command execution. Only use it 
 
 ### Discussion
 
-Discussion asks two different models for independent, read-only openings. Each model reviews the other opening. The Fusion Lead then creates one fresh final answer. The normal transcript shows the user message and final answer; the complete exchange remains available in a collapsed panel.
+Discussion asks two different models for independent, read-only openings. Each model reviews the other opening. The Fusion Lead then creates one fresh final answer. The normal transcript shows the user message and final answer; the complete exchange remains expanded after it finishes and can still be closed manually.
 
 Discussion is experimental and requires the v2 engine. Set the flag before you start Pythinker Code CLI:
 
@@ -79,6 +79,8 @@ PYTHINKER_CODE_EXPERIMENTAL_EXPERT_TALK=1 pythinker
 Run `/discussion configure` to select the Fusion Lead, Peer Expert, and their thinking efforts. Run `/discussion` or `/discussion arm` to apply the pair to the next accepted message only. The selected pair remains available in the session until you run `/discussion reset`. `/expert-talk` and `/expert-opinion` remain compatibility aliases.
 
 The full protocol runs automatically. Run `/discussion cancel` or press `Esc` to stop an active run. Run `/discussion retry` to repeat the complete run with a new ID. All model stages can only use read-only tools. See the [slash commands reference](../reference/slash-commands.md#modes--run-control) for the full command list.
+
+In the web UI, use **Settings → Discussion → Show reasoning stream** to show or hide opening, review, and Fusion reasoning. This display setting does not hide tools, answers, or metrics.
 
 ### Shell mode
 

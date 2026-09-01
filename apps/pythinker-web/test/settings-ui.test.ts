@@ -21,6 +21,8 @@ import ProviderForm from '../src/components/settings/ProviderForm.vue';
 import ProvidersPanel from '../src/components/settings/ProvidersPanel.vue';
 import SettingsDialog from '../src/components/settings/SettingsDialog.vue';
 import { expertTalkContextKey } from '../src/composables/expertTalkContext';
+import { useDiscussionPreferences } from '../src/composables/useDiscussionPreferences';
+import { STORAGE_KEYS } from '../src/lib/storage';
 
 const { api, confirm, copyTextToClipboard } = vi.hoisted(() => ({
   api: {
@@ -58,6 +60,8 @@ const secondaryModelPickerStub = defineComponent({
 describe('settings UI', () => {
   afterEach(() => {
     delete (window as unknown as { pythinkerDesktop?: unknown }).pythinkerDesktop;
+    useDiscussionPreferences().setShowReasoning(true);
+    localStorage.removeItem(STORAGE_KEYS.discussionReasoning);
   });
 
   it('re-reads auth readiness after a provider is saved, without a reload', async () => {
@@ -488,6 +492,14 @@ describe('settings UI', () => {
     expect(panel.textContent).toContain('two-expert Fusion workflow');
     expect(panel.textContent).toContain('Fusion Lead');
     expect(panel.textContent).toContain('Peer Expert');
+    const reasoningToggle = panel.querySelector<HTMLButtonElement>(
+      '[role="switch"][aria-label="Show reasoning stream"]',
+    )!;
+    expect(reasoningToggle.getAttribute('aria-checked')).toBe('true');
+    reasoningToggle.click();
+    await flushPromises();
+    expect(useDiscussionPreferences().showReasoning.value).toBe(false);
+    expect(localStorage.getItem(STORAGE_KEYS.discussionReasoning)).toBe('false');
     const pickers = wrapper.findAllComponents(secondaryModelPickerStub);
     expect(pickers).toHaveLength(2);
     expect(pickers[0]!.props()).toMatchObject({

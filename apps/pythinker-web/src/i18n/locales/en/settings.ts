@@ -220,6 +220,8 @@ export default {
     title: 'Discussion',
     enabled: 'Enable Discussion',
     enabledHint: 'Show the two-expert Fusion workflow in the composer.',
+    showReasoning: 'Show reasoning stream',
+    showReasoningHint: 'Show live and completed model reasoning in Discussion exchanges.',
     unavailable: 'Discussion requires the v2 engine and an active session.',
     modelsRequired: 'Configure at least two models with tool use and a positive context limit.',
     lead: 'Fusion Lead',

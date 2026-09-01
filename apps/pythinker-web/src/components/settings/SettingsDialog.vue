@@ -18,6 +18,7 @@ import type {
 } from '../../api/types';
 import { useDialogFocus } from '../../composables/useDialogFocus';
 import { useConfirmDialog } from '../../composables/useConfirmDialog';
+import { useDiscussionPreferences } from '../../composables/useDiscussionPreferences';
 import { expertTalkContextKey } from '../../composables/expertTalkContext';
 import {
   uiFontScaleForSize,
@@ -44,6 +45,7 @@ import SecondaryModelPicker from './SecondaryModelPicker.vue';
 
 const { t } = useI18n();
 const expertTalk = inject(expertTalkContextKey);
+const { showReasoning, setShowReasoning } = useDiscussionPreferences();
 
 const props = defineProps<{
   colorScheme: ColorScheme;
@@ -1194,6 +1196,19 @@ function archiveTime(iso: string): string {
                 :disabled="configSaving || !config"
                 :label="t('settings.expertOpinion.enabled')"
                 @update:model-value="setExpertOpinionEnabled"
+              />
+            </div>
+
+            <div class="row">
+              <span class="rlabel">
+                {{ t('settings.expertOpinion.showReasoning') }}
+                <span class="hint">{{ t('settings.expertOpinion.showReasoningHint') }}</span>
+              </span>
+              <Switch
+                data-testid="expert-opinion-show-reasoning"
+                :model-value="showReasoning"
+                :label="t('settings.expertOpinion.showReasoning')"
+                @update:model-value="setShowReasoning"
               />
             </div>
 

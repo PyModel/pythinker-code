@@ -8,6 +8,7 @@ import SecondaryModelPicker from '../src/components/settings/SecondaryModelPicke
 import type { AppExpertTalkRun, AppExpertTalkStatus } from '../src/api/types';
 import { useExpertTalkState } from '../src/composables/client/useExpertTalkState';
 import { expertTalkContextKey } from '../src/composables/expertTalkContext';
+import { useDiscussionPreferences } from '../src/composables/useDiscussionPreferences';
 import webI18n from '../src/i18n';
 import { STORAGE_KEYS } from '../src/lib/storage';
 
@@ -45,6 +46,7 @@ describe('ExpertTalkControl', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     localStorage.removeItem(STORAGE_KEYS.discussionPair);
+    useDiscussionPreferences().setShowReasoning(true);
     api.listExpertTalkRuns.mockResolvedValue({ runs: [] });
   });
 
@@ -510,7 +512,7 @@ describe('ExpertTalkControl', () => {
       'Production traffic data is not available.',
     );
     const exchange = wrapper.get('details');
-    expect((exchange.element as HTMLDetailsElement).open).toBe(false);
+    expect((exchange.element as HTMLDetailsElement).open).toBe(true);
     expect(exchange.get('summary').text()).toContain('View exchange and fusion notes');
 
     const button = (label: string) => wrapper.findAll('button')
@@ -531,7 +533,7 @@ describe('ExpertTalkControl', () => {
     wrapper.unmount();
   });
 
-  it('shows live answer, thinking, and tool activity for each model', () => {
+  it('keeps live reasoning reactive without hiding tools or answers', async () => {
     const run: AppExpertTalkRun = {
       runId: 'run-live',
       sessionId: 'session-1',
@@ -593,5 +595,27 @@ describe('ExpertTalkControl', () => {
     expect(thinking[0]?.get('.markdown-stub').attributes('data-streaming')).toBe('true');
     expect(thinking[1]?.text()).toContain('Waiting for reasoning...');
     expect(wrapper.get('.expert-talk__tools').text()).toContain('Read');
+
+    useDiscussionPreferences().setShowReasoning(false);
+    await nextTick();
+    expect(wrapper.findAll('.expert-talk__thinking')).toHaveLength(0);
+    expect(wrapper.get('.expert-talk__artifact-text .markdown-stub').text())
+      .toBe('# Fusion Lead draft');
+    expect(wrapper.get('.expert-talk__tools').text()).toContain('Read');
+
+    useDiscussionPreferences().setShowReasoning(true);
+    await nextTick();
+    expect(wrapper.findAll('.expert-talk__thinking')).toHaveLength(2);
+
+    await wrapper.setProps({
+      run: {
+        ...run,
+        state: 'completed',
+        stage: 'terminal',
+        revision: 3,
+      },
+    });
+    expect((wrapper.get('details').element as HTMLDetailsElement).open).toBe(true);
+    wrapper.unmount();
   });
 });

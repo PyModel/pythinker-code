@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, onUnmounted, ref } from 'vue';
+import { computed, onUnmounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 
 import type { AppExpertTalkArtifact, AppExpertTalkRun, AppModel } from '../../api/types';
+import { useDiscussionPreferences } from '../../composables/useDiscussionPreferences';
 import { copyTextToClipboard } from '../../lib/clipboard';
 import { formatTokens } from '../../lib/formatTokens';
 import Badge from '../ui/Badge.vue';
@@ -21,8 +22,19 @@ const emit = defineEmits<{
   build: [answer: string];
 }>();
 const { t } = useI18n();
+const { showReasoning } = useDiscussionPreferences();
 
 const isRunning = computed(() => props.run.state === 'running');
+const exchangeOpen = ref(true);
+
+watch(isRunning, (running) => {
+  if (running) exchangeOpen.value = true;
+});
+
+function updateExchangeOpen(event: Event): void {
+  exchangeOpen.value = (event.currentTarget as HTMLDetailsElement).open;
+}
+
 const exchangeSummary = computed(() => isRunning.value
   ? t('expertTalk.flowTitle')
   : t('expertTalk.viewExchange'));
@@ -231,7 +243,7 @@ function statusVariant(state: AppExpertTalkRun['state']): 'success' | 'danger' |
     <p class="expert-talk__sr-only" role="status" aria-live="polite" aria-atomic="true">
       {{ liveAnnouncement }}
     </p>
-    <details :open="isRunning">
+    <details :open="exchangeOpen" @toggle="updateExchangeOpen">
       <summary class="expert-opinion-exchange__top">
         <span class="expert-opinion-exchange__title">
           <span aria-hidden="true">◆</span>
@@ -290,7 +302,9 @@ function statusVariant(state: AppExpertTalkRun['state']): 'success' | 'danger' |
           </dl>
           <div class="expert-talk__artifact-body">
             <div
-              v-if="stageEntry.artifact.thinking || stageEntry.artifact.state === 'running'"
+              v-if="showReasoning && (
+                stageEntry.artifact.thinking || stageEntry.artifact.state === 'running'
+              )"
               class="expert-talk__thinking"
             >
               <strong>▹ {{ t('expertTalk.thinking') }}</strong>
@@ -352,7 +366,9 @@ function statusVariant(state: AppExpertTalkRun['state']): 'success' | 'danger' |
       </dl>
       <div class="expert-talk__artifact-body">
         <div
-          v-if="fusionExchange.artifact?.thinking || fusionExchange.state === 'running'"
+          v-if="showReasoning && (
+            fusionExchange.artifact?.thinking || fusionExchange.state === 'running'
+          )"
           class="expert-talk__thinking"
         >
           <strong>▹ {{ t('expertTalk.thinking') }}</strong>
