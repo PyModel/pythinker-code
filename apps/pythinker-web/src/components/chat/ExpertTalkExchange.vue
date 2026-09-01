@@ -550,6 +550,8 @@ summary.expert-opinion-exchange__top::-webkit-details-marker {
 }
 
 .expert-talk__agent-grid {
+  --expert-talk-reasoning-height: clamp(11rem, 24vh, 18rem);
+
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   min-width: 0;
@@ -666,13 +668,21 @@ summary.expert-opinion-exchange__top::-webkit-details-marker {
 
 .expert-talk__thinking {
   display: grid;
+  box-sizing: border-box;
   gap: var(--space-1);
+  block-size: var(--expert-talk-reasoning-height);
+  min-width: 0;
   padding: var(--space-2) var(--space-3);
   margin-bottom: var(--space-3);
   border-left: 2px solid var(--color-accent);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  background: var(--color-surface-sunken);
   color: var(--color-text-faint);
   font-family: var(--font-mono);
   font-size: var(--text-xs);
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
   white-space: pre-wrap;
 }
 
@@ -823,6 +833,10 @@ summary.expert-opinion-exchange__top::-webkit-details-marker {
   .expert-opinion-exchange__phases,
   .expert-talk__agent-grid {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .expert-talk__agent-grid {
+    --expert-talk-reasoning-height: clamp(9rem, 22vh, 14rem);
   }
 
   .expert-talk__agent-column + .expert-talk__agent-column {

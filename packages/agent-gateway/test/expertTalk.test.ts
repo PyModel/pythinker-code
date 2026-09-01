@@ -916,7 +916,7 @@ describe('server-v2 Expert Talk', () => {
     expect(llm?.requests.filter((request) => request.model === 'lead')).toHaveLength(2);
   });
 
-  it('removes tools from the final opening request and stops before a fifth request', async () => {
+  it('reserves two tool-free opening requests and stops before a fifth request', async () => {
     const { runPath } = await startRun('Use eight read-only tool calls before answering.');
     const failed = await waitForTerminal(runPath);
 
@@ -929,14 +929,16 @@ describe('server-v2 Expert Talk', () => {
           error_reason: 'STAGE_REQUEST_BUDGET_EXCEEDED',
           request_count: 4,
           provider_attempt_count: 4,
-          tool_call_count: 3,
+          tool_call_count: 2,
         },
       },
     });
     const peerRequests = llm?.requests.filter((request) => request.model === 'peer') ?? [];
     expect(peerRequests).toHaveLength(4);
-    const finalRequest = JSON.parse(peerRequests.at(-1)!.body) as { tools?: readonly unknown[] };
-    expect(finalRequest.tools ?? []).toEqual([]);
+    const synthesisRequests = peerRequests.slice(-2).map((request) => (
+      JSON.parse(request.body) as { tools?: readonly unknown[] }
+    ));
+    expect(synthesisRequests.every((request) => (request.tools ?? []).length === 0)).toBe(true);
   });
 
   it('accepts a short answer when provider usage includes reasoning above the output cap', async () => {

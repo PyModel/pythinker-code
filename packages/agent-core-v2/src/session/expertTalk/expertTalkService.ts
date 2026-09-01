@@ -1038,6 +1038,7 @@ export class SessionExpertTalkService extends Disposable implements ISessionExpe
     let suspendedToolNames: readonly string[] | undefined;
     const retriesByDriver = new Map<string, number>();
     const maxProviderAttempts = limits.maxRequests * EXPERT_TALK_PROVIDER_ATTEMPTS_PER_REQUEST;
+    const synthesisRequestStart = Math.max(1, limits.maxRequests - 1);
     const requestBudget = loop.hooks.onWillBeginStep.register(
       budgetId,
       async (_context, next) => {
@@ -1052,7 +1053,7 @@ export class SessionExpertTalkService extends Disposable implements ISessionExpe
             );
           }
           requestCount += 1;
-          if (requestCount === limits.maxRequests) {
+          if (requestCount === synthesisRequestStart) {
             suspendedToolNames = profile.getActiveToolNames();
             if (suspendedToolNames === undefined) {
               throw new Error2(
@@ -1080,7 +1081,7 @@ export class SessionExpertTalkService extends Disposable implements ISessionExpe
           const retryCount = retriesByDriver.get(driver.id) ?? 0;
           const standardRetryAvailable = retryCount === 0;
           const finalEmptyRetryAvailable = error instanceof APIEmptyResponseError
-            && requestCount === limits.maxRequests
+            && requestCount >= synthesisRequestStart
             && providerAttemptCount < maxProviderAttempts;
           if (!standardRetryAvailable && !finalEmptyRetryAvailable) return false;
           retriesByDriver.set(driver.id, retryCount + 1);

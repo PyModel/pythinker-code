@@ -20,7 +20,7 @@ echo "$HOME/.pythinker-code"
 
 Use the first line when it is non-empty; otherwise use the second line. In the rest of this skill, `<PYTHINKER_CODE_HOME>` means that resolved root — **never assume `~/.pythinker-code`**.
 
-- **`config.toml`** — agent / runtime settings: `default_model`, `[secondary_model]` (experimental `secondary-model` flag: `default_model` / `[secondary_model.models]` subagent model pool / `force` to pin subagents to `default_model`; a lone legacy v1 `model` key is honored as a fallback default), `[subagent]` (`timeout_ms`), `providers`, `models`, `thinking`, `permission`, `hooks`, `loop_control`, etc.
+- **`config.toml`** — agent / runtime settings: `default_model`, `[secondary_model]` (`default_model` / `[secondary_model.models]` subagent model pool / `force` to pin subagents to `default_model`; routing is enabled by default and `PYTHINKER_CODE_EXPERIMENTAL_SECONDARY_MODEL=false` disables it; a lone legacy v1 `model` key is honored as a fallback default), `[subagent]` (`timeout_ms`), `providers`, `models`, `thinking`, `permission`, `hooks`, `loop_control`, etc.
 - **`tui.toml`** — terminal-UI / client preferences: `theme`, `[editor].command`, `[notifications]`, `[upgrade].auto_install` (auto-update). These can usually also be changed with the interactive commands `/config`, `/theme`, `/editor`, which is easier — prefer pointing the user at those.
 
 The "read → copy → Edit → validate → back up → overwrite" flow below applies to both files; only **which reload command applies** differs (see Capability 4).

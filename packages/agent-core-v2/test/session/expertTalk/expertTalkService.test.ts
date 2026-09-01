@@ -255,12 +255,85 @@ describe('SessionExpertTalkService', () => {
     ).toBe('COMPLETED');
     expect(toolCounts.filter((count) => count === 0)).toHaveLength(5);
     expect(run.artifacts).toMatchObject({
-      leadOpening: { status: 'completed', requestCount: 4 },
-      peerOpening: { status: 'completed', requestCount: 4 },
+      leadOpening: { status: 'completed', requestCount: 3 },
+      peerOpening: { status: 'completed', requestCount: 3 },
       leadReview: { status: 'completed', requestCount: 1 },
       peerReview: { status: 'completed', requestCount: 1 },
-      fusion: { status: 'completed', requestCount: 2 },
+      fusion: { status: 'completed', requestCount: 1 },
     });
+  });
+
+  it('keeps a second synthesis request after a late tool call', async () => {
+    let callId = 0;
+    let peerSynthesisRequests = 0;
+    ctx = createDiscussionAgent(async (chat, _systemPrompt, tools, history) => {
+      callId += 1;
+      const input = history
+        .flatMap((message) => message.content)
+        .map((part) => part.type === 'text' ? part.text : '')
+        .join('\n');
+      const peerOpening = chat.modelName === 'peer-model'
+        && input.includes('EXPERT TALK OPENING CONTRACT');
+      if (peerOpening && (tools.length > 0 || peerSynthesisRequests++ === 0)) {
+        return {
+          id: `research-${String(callId)}`,
+          message: {
+            role: 'assistant' as const,
+            content: [],
+            toolCalls: [{
+              type: 'function' as const,
+              id: `read-${String(callId)}`,
+              name: 'Read',
+              arguments: JSON.stringify({ path: 'package.json', n_lines: 1 }),
+            }],
+          },
+          usage: emptyUsage(),
+          finishReason: 'tool_calls' as const,
+          rawFinishReason: 'tool_calls',
+        };
+      }
+      const text = input.includes('EXPERT TALK FUSION CONTRACT')
+        ? JSON.stringify({
+            version: 'expert_talk_result/v1',
+            answer: 'Use the verified result.',
+            notes: {
+              consensus: ['Both experts agree.'],
+              divergence: [],
+              uncertainty: [],
+              attribution: [],
+            },
+          })
+        : input.includes('REVIEW OF')
+          ? '## Agreement\nVerified.\n\n## Rejection and missing points\nNone.\n\n## Revised position\nUse the verified result.'
+          : '## Position\nUse the verified result.\n\n## Case\nEvidence supports it.\n\n## Decision criteria\nPrefer verified behavior.\n\n## Risks and uncertainty\nNone material.\n\n## Recommended answer\nUse the verified result.';
+      return {
+        id: `answer-${String(callId)}`,
+        message: {
+          role: 'assistant' as const,
+          content: [{ type: 'text' as const, text }],
+          toolCalls: [],
+        },
+        usage: emptyUsage(),
+        finishReason: 'completed' as const,
+        rawFinishReason: 'stop',
+      };
+    });
+    const { service, started } = await startDiscussion(
+      ctx,
+      'Recover after a late synthesis tool call.',
+    );
+
+    await vi.waitFor(() => {
+      expect(TERMINAL_STATUSES.has(service.getRun(started.runId).status)).toBe(true);
+    }, { timeout: 5_000 });
+
+    expect(service.getRun(started.runId)).toMatchObject({
+      status: 'COMPLETED',
+      artifacts: {
+        peerOpening: { status: 'completed', requestCount: 4, toolCallCount: 2 },
+      },
+    });
+    expect(peerSynthesisRequests).toBeGreaterThanOrEqual(2);
   });
 
   it('uses the remaining stage attempt budget when a final response is empty', async () => {
