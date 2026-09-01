@@ -1,5 +1,35 @@
 # @pymodel/pythinker-desktop
 
+## 0.6.1
+
+### Patch Changes
+
+- [#273](https://github.com/PyModel/pythinker-code/pull/273) [`65f31a8`](https://github.com/PyModel/pythinker-code/commit/65f31a8cc59b90d6182a82e07c82098bf7b308fe) Thanks [@elkaix](https://github.com/elkaix)! - Add OpenAI Responses support to the Pythinker provider.
+
+- [#273](https://github.com/PyModel/pythinker-code/pull/273) [`65f31a8`](https://github.com/PyModel/pythinker-code/commit/65f31a8cc59b90d6182a82e07c82098bf7b308fe) Thanks [@elkaix](https://github.com/elkaix)! - Enable configured secondary-model routing by default.
+
+- [#273](https://github.com/PyModel/pythinker-code/pull/273) [`65f31a8`](https://github.com/PyModel/pythinker-code/commit/65f31a8cc59b90d6182a82e07c82098bf7b308fe) Thanks [@elkaix](https://github.com/elkaix)! - Place action and stopped notices above the composer.
+
+- [#273](https://github.com/PyModel/pythinker-code/pull/273) [`65f31a8`](https://github.com/PyModel/pythinker-code/commit/65f31a8cc59b90d6182a82e07c82098bf7b308fe) Thanks [@elkaix](https://github.com/elkaix)! - Add per-role thinking effort controls and preserve saved model pairs in Discussion.
+
+- [#273](https://github.com/PyModel/pythinker-code/pull/273) [`65f31a8`](https://github.com/PyModel/pythinker-code/commit/65f31a8cc59b90d6182a82e07c82098bf7b308fe) Thanks [@elkaix](https://github.com/elkaix)! - Preserve usable Discussion responses across transient provider and workflow failures.
+
+- [#273](https://github.com/PyModel/pythinker-code/pull/273) [`65f31a8`](https://github.com/PyModel/pythinker-code/commit/65f31a8cc59b90d6182a82e07c82098bf7b308fe) Thanks [@elkaix](https://github.com/elkaix)! - Align Dynamic Workflow status dots with their subagent row titles.
+
+- [#273](https://github.com/PyModel/pythinker-code/pull/273) [`65f31a8`](https://github.com/PyModel/pythinker-code/commit/65f31a8cc59b90d6182a82e07c82098bf7b308fe) Thanks [@elkaix](https://github.com/elkaix)! - Keep active and undone turns aligned after session reloads.
+
+- [#273](https://github.com/PyModel/pythinker-code/pull/273) [`65f31a8`](https://github.com/PyModel/pythinker-code/commit/65f31a8cc59b90d6182a82e07c82098bf7b308fe) Thanks [@elkaix](https://github.com/elkaix)! - Ask before dangerous shell commands in interactive modes and block them in Auto mode.
+
+- [#273](https://github.com/PyModel/pythinker-code/pull/273) [`65f31a8`](https://github.com/PyModel/pythinker-code/commit/65f31a8cc59b90d6182a82e07c82098bf7b308fe) Thanks [@elkaix](https://github.com/elkaix)! - Preserve comments and formatting when Pythinker updates config.toml.
+
+- [#273](https://github.com/PyModel/pythinker-code/pull/273) [`65f31a8`](https://github.com/PyModel/pythinker-code/commit/65f31a8cc59b90d6182a82e07c82098bf7b308fe) Thanks [@elkaix](https://github.com/elkaix)! - Preserve staged, unstaged, and untracked workspace changes when Tower agents start and merge work.
+
+- [#273](https://github.com/PyModel/pythinker-code/pull/273) [`65f31a8`](https://github.com/PyModel/pythinker-code/commit/65f31a8cc59b90d6182a82e07c82098bf7b308fe) Thanks [@elkaix](https://github.com/elkaix)! - Show agreement, differences, and uncertainty in completed Discussion results.
+
+- [#273](https://github.com/PyModel/pythinker-code/pull/273) [`65f31a8`](https://github.com/PyModel/pythinker-code/commit/65f31a8cc59b90d6182a82e07c82098bf7b308fe) Thanks [@elkaix](https://github.com/elkaix)! - Rename Expert Talk to Discussion and keep `/expert-talk` and `/expert-opinion` as command aliases.
+
+- [#273](https://github.com/PyModel/pythinker-code/pull/273) [`65f31a8`](https://github.com/PyModel/pythinker-code/commit/65f31a8cc59b90d6182a82e07c82098bf7b308fe) Thanks [@elkaix](https://github.com/elkaix)! - Stream live model reasoning in Discussion exchanges.
+
 ## 0.6.0
 
 ### Minor Changes
