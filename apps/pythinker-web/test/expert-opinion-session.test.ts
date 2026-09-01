@@ -2,7 +2,15 @@ import { mount } from '@vue/test-utils';
 import { defineComponent } from 'vue';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import type { AppExpertTalkRun, AppModel } from '../src/api/types';
+import type {
+  AppExpertTalkPair,
+  AppExpertTalkRun,
+  AppExpertTalkStatus,
+  AppModel,
+  AppSession,
+  AppSessionSnapshot,
+  PythinkerWebApi,
+} from '../src/api/types';
 import ChatPane from '../src/components/chat/ChatPane.vue';
 import webI18n from '../src/i18n';
 import type { ChatTurn } from '../src/types';
@@ -89,7 +97,11 @@ function mountPane(promptId = 'prompt-1') {
 }
 
 describe('Expert Talk session transcript', () => {
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.doUnmock('../src/api');
+    vi.resetModules();
+  });
 
   it('renders the complete exchange inline and replaces the duplicate assistant answer', () => {
     const wrapper = mountPane();
@@ -114,6 +126,121 @@ describe('Expert Talk session transcript', () => {
 
     await wrapper.get('[data-testid="expert-opinion-build"]').trigger('click');
     expect(wrapper.emitted('buildExpertTalk')).toEqual([['Consolidated answer']]);
+  });
+
+  it('creates and arms only one Discussion session for concurrent starts', async () => {
+    const pair: AppExpertTalkPair = {
+      fusionLeadModelId: 'provider/lead',
+      peerModelId: 'provider/peer',
+    };
+    const session: AppSession = {
+      id: 'session-new',
+      title: 'Discussion',
+      createdAt: '2026-08-30T12:00:00.000Z',
+      updatedAt: '2026-08-30T12:00:00.000Z',
+      busy: false,
+      archived: false,
+      cwd: '/workspace',
+      model: 'provider/lead',
+      usage: {
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheReadTokens: 0,
+        cacheCreationTokens: 0,
+        totalCostUsd: 0,
+        contextTokens: 0,
+        contextLimit: 128_000,
+        turnCount: 0,
+      },
+      messageCount: 0,
+      lastSeq: 0,
+    };
+    const snapshot: AppSessionSnapshot = {
+      asOfSeq: 0,
+      epoch: 'epoch-1',
+      session,
+      messages: [],
+      hasMoreMessages: false,
+      inFlightTurn: null,
+      subagents: [],
+      pendingApprovals: [],
+      pendingQuestions: [],
+    };
+    const idleStatus: AppExpertTalkStatus = {
+      feature: 'enabled',
+      resourceVersion: '1',
+      config: null,
+      activation: { state: 'idle' },
+      pairValidation: { state: 'unknown' },
+    };
+    let releaseCreate!: (value: AppSession) => void;
+    const createGate = new Promise<AppSession>((resolve) => {
+      releaseCreate = resolve;
+    });
+    const createSession = vi.fn(() => createGate);
+    const configureExpertTalk = vi.fn(async () => ({
+      ...idleStatus,
+      resourceVersion: '2',
+      config: pair,
+    }));
+    const armExpertTalk = vi.fn(async () => ({
+      ...idleStatus,
+      resourceVersion: '3',
+      config: pair,
+      activation: { state: 'armed' as const, armId: 'arm-1' },
+    }));
+    const api: Partial<PythinkerWebApi> = {
+      addWorkspace: vi.fn(async () => ({
+        id: 'workspace-1',
+        root: '/workspace',
+        name: 'workspace',
+        sessionCount: 0,
+      })),
+      createSession,
+      getSessionSnapshot: vi.fn(async () => snapshot),
+      getSessionStatus: vi.fn(async () => ({
+        model: 'provider/lead',
+        thinkingEffort: 'high',
+        permission: 'manual',
+        planMode: false,
+        dynamicWorkflowMode: false,
+        contextTokens: 0,
+        maxContextTokens: 128_000,
+        contextUsage: 0,
+      })),
+      getSessionGoal: vi.fn(async () => null),
+      getSessionWarnings: vi.fn(async () => []),
+      getGitStatus: vi.fn(async () => ({
+        branch: '',
+        ahead: 0,
+        behind: 0,
+        entries: {},
+        additions: 0,
+        deletions: 0,
+        pullRequest: null,
+      })),
+      listTasks: vi.fn(async () => []),
+      listSkills: vi.fn(async () => []),
+      getExpertTalkStatus: vi.fn(async () => idleStatus),
+      configureExpertTalk,
+      armExpertTalk,
+    };
+    vi.stubGlobal('WebSocket', undefined);
+    vi.doMock('../src/api', () => ({ getPythinkerWebApi: () => api }));
+    const { usePythinkerWebClient } = await import('../src/composables/usePythinkerWebClient');
+    const client = usePythinkerWebClient();
+    await client.addWorkspaceByPath('/workspace');
+
+    const first = client.startExpertOpinionSession('workspace-1', pair);
+    const second = client.startExpertOpinionSession('workspace-1', pair);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(createSession).toHaveBeenCalledOnce();
+    releaseCreate(session);
+    await expect(Promise.all([first, second])).resolves.toEqual([true, true]);
+    expect(configureExpertTalk).toHaveBeenCalledOnce();
+    expect(armExpertTalk).toHaveBeenCalledOnce();
   });
 
 });

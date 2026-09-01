@@ -119,6 +119,7 @@ import type {
 const appearance = useAppearance();
 const notification = useNotification();
 const sound = useSoundNotification();
+const expertOpinionSessionStarts = new Map<string, Promise<boolean>>();
 
 // ---------------------------------------------------------------------------
 // Internal reactive state (plain object wrapped in reactive())
@@ -3046,19 +3047,30 @@ async function abortCurrentPrompt(): Promise<void> {
   await workspaceState.abortCurrentPrompt();
 }
 
-async function startExpertOpinionSession(
+function startExpertOpinionSession(
   workspaceId: string,
   pair: AppExpertTalkPair,
 ): Promise<boolean> {
-  try {
-    const sessionId = await workspaceState.createDraftSession(workspaceId);
-    if (sessionId === null) return false;
-    await expertTalk.useForNextMessage(pair);
-    return expertTalk.status.value?.activation.state === 'armed';
-  } catch (cause) {
-    pushOperationFailure('expertOpinionSession', cause);
-    return false;
-  }
+  const activeStart = expertOpinionSessionStarts.get(workspaceId);
+  if (activeStart !== undefined) return activeStart;
+  const start = (async () => {
+    try {
+      const sessionId = await workspaceState.createDraftSession(workspaceId);
+      if (sessionId === null) return false;
+      await expertTalk.useForNextMessage(pair);
+      return expertTalk.status.value?.activation.state === 'armed';
+    } catch (cause) {
+      pushOperationFailure('expertOpinionSession', cause);
+      return false;
+    }
+  })();
+  expertOpinionSessionStarts.set(workspaceId, start);
+  void start.finally(() => {
+    if (expertOpinionSessionStarts.get(workspaceId) === start) {
+      expertOpinionSessionStarts.delete(workspaceId);
+    }
+  });
+  return start;
 }
 
 /** Re-read every piece of daemon state a configuration change can invalidate.

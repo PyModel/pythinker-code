@@ -161,6 +161,24 @@ describe('Expert Talk command', () => {
     expect(host.showError).not.toHaveBeenCalled();
   });
 
+  it('does not save fallback selections when either model picker is cancelled', async () => {
+    const lead = makeHost(status(false));
+
+    await handleExpertTalkCommand(lead.host, 'configure');
+    lead.mounted()!.handleInput!(ESC);
+
+    expect(lead.session.configureExpertTalk).not.toHaveBeenCalled();
+    expect(lead.session.armExpertTalk).not.toHaveBeenCalled();
+
+    const peer = makeHost(status(false));
+    await handleExpertTalkCommand(peer.host, 'configure');
+    peer.mounted()!.handleInput!('\r');
+    peer.mounted()!.handleInput!(ESC);
+
+    expect(peer.session.configureExpertTalk).not.toHaveBeenCalled();
+    expect(peer.session.armExpertTalk).not.toHaveBeenCalled();
+  });
+
   it('rejects the legacy engine before creating a session', async () => {
     const { host } = makeHost(status(), false);
     host.session = undefined;
