@@ -19,8 +19,8 @@ import {
 export const EXPERT_TALK_OPENING_OUTPUT_TOKENS = 4_096;
 export const EXPERT_TALK_REVIEW_OUTPUT_TOKENS = 3_072;
 export const EXPERT_TALK_FUSION_OUTPUT_TOKENS = 4_096;
-export const EXPERT_TALK_OPENING_MAX_REQUESTS = 3;
-export const EXPERT_TALK_REVIEW_MAX_REQUESTS = 2;
+export const EXPERT_TALK_OPENING_MAX_REQUESTS = 4;
+export const EXPERT_TALK_REVIEW_MAX_REQUESTS = 1;
 export const EXPERT_TALK_FUSION_MAX_REQUESTS = 2;
 export const EXPERT_TALK_PROVIDER_ATTEMPTS_PER_REQUEST = 2;
 export const EXPERT_TALK_OPENING_TOOL_RESULT_TOKENS = 8_192;
@@ -69,8 +69,8 @@ export function bindingFor(
   requestedModelId: string,
   model: Model,
   routing?: {
-    readonly environmentRevision: string;
-    readonly decisionFingerprint: string;
+    readonly environmentRevision?: string;
+    readonly decisionFingerprint?: string;
     readonly thinkingEffort?: string;
   },
 ): ExpertTalkBindingV1 {
@@ -110,7 +110,9 @@ export function bindingFor(
     maxOutputSize: model.maxOutputSize,
     routingEnvironmentRevision: routing?.environmentRevision ?? modelRevision,
     routeDecisionFingerprint:
-      routing?.decisionFingerprint ?? sha256(`${requestedModelId}\u0000${modelRevision}`),
+      routing?.decisionFingerprint ?? sha256(
+        `${requestedModelId}\u0000${modelRevision}\u0000${routing?.thinkingEffort ?? ''}`,
+      ),
   };
 }
 

@@ -63,6 +63,7 @@ const available = computed(() => expertTalk?.available.value === true);
 const active = computed(() => run.value?.state === 'running');
 const armed = computed(() => status.value?.activation.state === 'armed');
 const configuredPair = computed(() => status.value?.config);
+const preferredPair = computed(() => expertTalk?.preferredPair.value ?? configuredPair.value);
 const armedLead = computed(() => configuredPair.value === null || configuredPair.value === undefined
   ? ''
   : modelLabel(configuredPair.value.fusionLeadModelId));
@@ -90,7 +91,7 @@ function modelLabel(modelId: string): string {
 }
 
 function initializePair(): void {
-  const configured = status.value?.config;
+  const configured = preferredPair.value;
   leadModelId.value = configured?.fusionLeadModelId ?? '';
   peerModelId.value = configured?.peerModelId ?? '';
   leadThinkingEffort.value = configured?.fusionLeadThinkingEffort ?? '';
@@ -106,7 +107,7 @@ function openDialog(): void {
 }
 
 async function activate(): Promise<void> {
-  const pair = configuredPair.value;
+  const pair = preferredPair.value;
   if (!expertTalk || pair === null || pair === undefined || active.value || armed.value) {
     openDialog();
     return;
@@ -163,7 +164,10 @@ async function buildFromFusion(answer: string): Promise<void> {
       :aria-label="t('expertTalk.armedLabel', { lead: armedLead, peer: armedPeer })"
       @click="openDialog"
     >
-      <span class="expert-talk__one-shot-title">{{ t('expertTalk.oneShot') }}</span>
+      <span class="expert-talk__one-shot-title">
+        <Icon name="sparkles" size="sm" />
+        {{ t('expertTalk.oneShot') }}
+      </span>
       <span class="expert-talk__one-shot-pair">
         <span class="expert-talk__one-shot-lead">◆ {{ armedLead }}</span>
         <span aria-hidden="true">⊕</span>
@@ -181,7 +185,7 @@ async function buildFromFusion(answer: string): Promise<void> {
       <Icon name="sparkles" size="md" />
       <span>{{ triggerLabel }}</span>
     </button>
-    <Pill v-else-if="trigger === 'pill' && (armed || active)" :active="armed || active" :aria-pressed="armed" @click="openDialog">
+    <Pill v-else-if="trigger === 'pill' && active" active @click="openDialog">
       <Icon name="sparkles" size="sm" />
       <span>{{ triggerLabel }}</span>
     </Pill>
@@ -342,6 +346,9 @@ async function buildFromFusion(answer: string): Promise<void> {
 }
 
 .expert-talk__one-shot-title {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
   color: #a78bfa;
   font-weight: var(--weight-semibold);
 }

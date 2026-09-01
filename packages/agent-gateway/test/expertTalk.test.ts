@@ -128,6 +128,19 @@ async function startMockLlm(): Promise<MockLlm> {
       }
 
       if (
+        body.includes('Provider stream stalls.')
+        && body.includes('EXPERT TALK OPENING CONTRACT')
+      ) {
+        res.writeHead(200, { 'content-type': 'text/event-stream' });
+        res.flushHeaders();
+        await new Promise<void>((resolve) => {
+          req.once('aborted', resolve);
+          res.once('close', resolve);
+        });
+        return;
+      }
+
+      if (
         model === 'lead'
         && body.includes('One opening fails.')
         && body.includes('EXPERT TALK OPENING CONTRACT')
@@ -140,6 +153,7 @@ async function startMockLlm(): Promise<MockLlm> {
       const isOpening = body.includes('EXPERT TALK OPENING CONTRACT');
       const isReview = body.includes('REVIEW OF') && body.includes('CONTRACT');
       const isFusion = body.includes('EXPERT TALK FUSION CONTRACT');
+      const isFusionRepair = body.includes('EXPERT TALK FUSION REPAIR CONTRACT');
       if (
         isReview
         && (body.includes('Both reviews fail.')
@@ -149,9 +163,25 @@ async function startMockLlm(): Promise<MockLlm> {
         res.end(sseToolCall('call_write_review', 'Write', JSON.stringify({ path: 'forbidden.txt' })));
         return;
       }
-      if (isFusion && body.includes('Fusion returns malformed output.')) {
+      if (
+        isFusion
+        && body.includes('Fusion returns malformed output.')
+        && (!isFusionRepair || body.includes('Fusion repair also fails.'))
+      ) {
         res.writeHead(200, { 'content-type': 'text/event-stream' });
         res.end(sseText('not a typed fusion result'));
+        return;
+      }
+      if (
+        model === 'lead'
+        && isOpening
+        && body.includes('Exhaust opening retries.')
+      ) {
+        res.writeHead(429, {
+          'content-type': 'application/json',
+          'retry-after': '0',
+        });
+        res.end(JSON.stringify({ error: { message: 'retry opening', type: 'rate_limit_error' } }));
         return;
       }
       if (
@@ -190,7 +220,7 @@ async function startMockLlm(): Promise<MockLlm> {
             finish_reason: null,
           }],
         })}\n\n`);
-        await new Promise((resolve) => setTimeout(resolve, 500));
+        await new Promise((resolve) => setTimeout(resolve, 50));
         res.end(sseText(`${model} final.`));
         return;
       }
@@ -217,6 +247,9 @@ async function startMockLlm(): Promise<MockLlm> {
       }
       if (isFusion) {
         text = FUSION_RESULT;
+      }
+      if (body.includes('Visible answer exceeds the cap.')) {
+        text = 'Visible output '.repeat(10_000);
       }
 
       const completionTokens = body.includes('Provider reports overflow.') ? 4_943 : 4;
@@ -267,6 +300,9 @@ function modelsToml(port: number): string {
   '[secondary_model.models]',
   '"acme/lead" = "Fusion Lead"',
   '"acme/peer" = "Peer Expert"',
+  '',
+  '[llm]',
+  'request_idle_timeout_ms = 100',
   '',
   ].join('\n');
 }
@@ -528,7 +564,7 @@ describe('server-v2 Expert Talk', () => {
     expect(invalid.body.code).toBe(ErrorCode.EXPERT_TALK_PAIR_INVALID);
   });
 
-  it('marks a saved pair ineligible when the routing policy can no longer route it', async () => {
+  it('keeps a configured pair valid when the subagent routing policy changes', async () => {
     const sessionId = await createSession();
     const path = `/api/v1/sessions/${sessionId}/expert-talk`;
     const initial = await call<unknown>('GET', path, 'client-a');
@@ -553,10 +589,31 @@ describe('server-v2 Expert Talk', () => {
     );
     expect(policyCleared.status).toBe(200);
 
-    const current = expertTalkStatusSchema.parse(
-      (await call<unknown>('GET', path, 'client-a')).body.data,
+    const currentResponse = await call<unknown>('GET', path, 'client-a');
+    const current = expertTalkStatusSchema.parse(currentResponse.body.data);
+    expect(current.pair_validation).toEqual({ state: 'valid' });
+
+    const armed = await call<unknown>(
+      'POST',
+      `${path}:arm`,
+      'client-a',
+      undefined,
+      currentResponse.etag ?? undefined,
     );
-    expect(current.pair_validation).toMatchObject({ state: 'ineligible' });
+    expect(armed.body.code, JSON.stringify(armed.body)).toBe(0);
+    const armId = expertTalkStatusSchema.parse(armed.body.data).activation.arm_id;
+    const submitted = await call<{ expert_talk_run_id?: string }>(
+      'POST',
+      `/api/v1/sessions/${sessionId}/prompts`,
+      'client-a',
+      {
+        content: [{ type: 'text', text: 'Use the configured Discussion models.' }],
+        expert_talk_arm_id: armId,
+      },
+    );
+    expect(submitted.body.code, JSON.stringify(submitted.body)).toBe(0);
+    const runId = String(submitted.body.data.expert_talk_run_id);
+    expect((await waitForTerminal(`${path}/runs/${runId}`)).state).toBe('completed');
   });
 
   it('runs both openings, reciprocal reviews, and fusion automatically', async () => {
@@ -732,7 +789,6 @@ describe('server-v2 Expert Talk', () => {
       stage: 'opening',
       opening: {
         lead: { state: 'failed', error_reason: 'TOOL_NOT_ALLOWED' },
-        peer: { state: 'failed' },
       },
       error: { reason: 'OPENING_FAILED', role: 'fusion_lead' },
     });
@@ -772,20 +828,35 @@ describe('server-v2 Expert Talk', () => {
     expect(llm?.requests).toHaveLength(4);
   });
 
-  it('publishes no assistant answer when fusion output is malformed', async () => {
-    const { sessionId, runPath } = await startRun('Fusion returns malformed output.');
-    const failed = await waitForTerminal(runPath);
+  it('repairs one malformed fusion result within the existing request budget', async () => {
+    const { runPath } = await startRun('Fusion returns malformed output.');
+    const completed = await waitForTerminal(runPath);
+
+    expect(completed).toMatchObject({
+      state: 'completed',
+      fusion: { state: 'completed', request_count: 2 },
+      result: { version: 'expert_talk_result/v1' },
+      usage: { request_count: 6 },
+    });
+    expect(llm?.requests.at(-1)?.body).toContain('EXPERT TALK FUSION REPAIR CONTRACT');
+  });
+
+  it('publishes no assistant answer when fusion repair is also malformed', async () => {
+    const persistentPrompt = 'Fusion returns malformed output. Fusion repair also fails.';
+    const persistent = await startRun(persistentPrompt);
+    const failed = await waitForTerminal(persistent.runPath);
 
     expect(failed).toMatchObject({
       state: 'failed',
       stage: 'fusion',
       error: { reason: 'FUSION_RESULT_INVALID' },
+      fusion: { state: 'failed', request_count: 2 },
     });
     expect(failed.result).toBeUndefined();
     const transcript = transcriptResponseSchema.parse(
       (await call<unknown>(
         'GET',
-        `/api/v1/sessions/${sessionId}/transcript?agent_id=main`,
+        `/api/v1/sessions/${persistent.sessionId}/transcript?agent_id=main`,
         'client-a',
       )).body.data,
     );
@@ -796,6 +867,21 @@ describe('server-v2 Expert Talk', () => {
       .map((frame) => frame.text)
       .join('');
     expect(transcriptText).not.toContain('not a typed fusion result');
+  });
+
+  it('classifies a provider-idle watchdog failure as a stage timeout', async () => {
+    const { runPath } = await startRun('Provider stream stalls.');
+    const failed = await waitForTerminal(runPath);
+
+    expect(failed).toMatchObject({
+      state: 'failed',
+      stage: 'opening',
+      opening: {
+        lead: { state: 'failed', error_reason: 'STAGE_TIMEOUT' },
+        peer: { state: 'failed', error_reason: 'STAGE_TIMEOUT' },
+      },
+      error: { reason: 'OPENING_FAILED' },
+    });
   });
 
   it('retries one transient provider failure without adding a model request', async () => {
@@ -812,7 +898,25 @@ describe('server-v2 Expert Talk', () => {
     expect(llm?.requests).toHaveLength(6);
   });
 
-  it('stops an opening before a fourth model request', async () => {
+  it('stops persistent provider retries at the stage attempt ceiling', async () => {
+    const { runPath } = await startRun('Exhaust opening retries.');
+    const failed = await waitForTerminal(runPath);
+
+    expect(failed).toMatchObject({
+      state: 'failed',
+      stage: 'opening',
+      opening: {
+        lead: {
+          state: 'failed',
+          request_count: 1,
+          provider_attempt_count: 2,
+        },
+      },
+    });
+    expect(llm?.requests.filter((request) => request.model === 'lead')).toHaveLength(2);
+  });
+
+  it('removes tools from the final opening request and stops before a fifth request', async () => {
     const { runPath } = await startRun('Use eight read-only tool calls before answering.');
     const failed = await waitForTerminal(runPath);
 
@@ -823,17 +927,33 @@ describe('server-v2 Expert Talk', () => {
         peer: {
           state: 'failed',
           error_reason: 'STAGE_REQUEST_BUDGET_EXCEEDED',
-          request_count: 3,
-          provider_attempt_count: 3,
+          request_count: 4,
+          provider_attempt_count: 4,
           tool_call_count: 3,
         },
       },
     });
-    expect(llm?.requests.filter((request) => request.model === 'peer')).toHaveLength(3);
+    const peerRequests = llm?.requests.filter((request) => request.model === 'peer') ?? [];
+    expect(peerRequests).toHaveLength(4);
+    const finalRequest = JSON.parse(peerRequests.at(-1)!.body) as { tools?: readonly unknown[] };
+    expect(finalRequest.tools ?? []).toEqual([]);
   });
 
-  it('fails when provider usage exceeds the opening output cap', async () => {
+  it('accepts a short answer when provider usage includes reasoning above the output cap', async () => {
     const { runPath } = await startRun('Provider reports overflow.');
+    const completed = await waitForTerminal(runPath);
+
+    expect(completed).toMatchObject({
+      state: 'completed',
+      opening: {
+        lead: { state: 'completed' },
+        peer: { state: 'completed' },
+      },
+    });
+  });
+
+  it('fails when the visible answer exceeds the output cap', async () => {
+    const { runPath } = await startRun('Visible answer exceeds the cap.');
     const failed = await waitForTerminal(runPath);
 
     expect(failed).toMatchObject({

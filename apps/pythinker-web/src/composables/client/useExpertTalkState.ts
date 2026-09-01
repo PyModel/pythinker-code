@@ -2,6 +2,21 @@ import { computed, ref, watch, type ComputedRef } from 'vue';
 
 import { getPythinkerWebApi } from '../../api';
 import type { AppExpertTalkPair, AppExpertTalkRun, AppExpertTalkStatus } from '../../api/types';
+import { safeGetJson, safeSetJson, STORAGE_KEYS } from '../../lib/storage';
+
+function loadPreferredPair(): AppExpertTalkPair | undefined {
+  const value = safeGetJson<unknown>(STORAGE_KEYS.discussionPair);
+  if (!value || typeof value !== 'object') return undefined;
+  const pair = value as Record<string, unknown>;
+  if (
+    typeof pair['fusionLeadModelId'] !== 'string' || pair['fusionLeadModelId'].length === 0 ||
+    typeof pair['peerModelId'] !== 'string' || pair['peerModelId'].length === 0 ||
+    pair['fusionLeadModelId'] === pair['peerModelId'] ||
+    (pair['fusionLeadThinkingEffort'] !== undefined && typeof pair['fusionLeadThinkingEffort'] !== 'string') ||
+    (pair['peerThinkingEffort'] !== undefined && typeof pair['peerThinkingEffort'] !== 'string')
+  ) return undefined;
+  return value as AppExpertTalkPair;
+}
 
 export function useExpertTalkState(
   activeSessionId: ComputedRef<string>,
@@ -10,6 +25,7 @@ export function useExpertTalkState(
 ) {
   const statusBySession = ref<Record<string, AppExpertTalkStatus>>({});
   const runsById = ref<Record<string, AppExpertTalkRun>>({});
+  const preferredPair = ref<AppExpertTalkPair | undefined>(loadPreferredPair());
   const busy = ref(false);
   const error = ref<string>();
   const requestEpochBySession = new Map<string, number>();
@@ -31,8 +47,16 @@ export function useExpertTalkState(
 
   function setStatus(sessionId: string, next: AppExpertTalkStatus): void {
     statusBySession.value = { ...statusBySession.value, [sessionId]: next };
+    if (preferredPair.value === undefined && next.config !== null) {
+      setPreferredPair(next.config);
+    }
     const runId = next.activeRunId ?? next.latestRunId;
     if (runId !== undefined) void refreshRun(sessionId, runId);
+  }
+
+  function setPreferredPair(pair: AppExpertTalkPair): void {
+    preferredPair.value = { ...pair };
+    safeSetJson(STORAGE_KEYS.discussionPair, preferredPair.value);
   }
 
   function advanceRequestEpoch(sessionId: string): number {
@@ -128,14 +152,22 @@ export function useExpertTalkState(
   }
 
   async function configurePair(pair: AppExpertTalkPair): Promise<void> {
+    if (pair.fusionLeadModelId === pair.peerModelId) throw new Error('Select two different models');
+    if (activeSessionId.value.length === 0) {
+      error.value = undefined;
+      setPreferredPair(pair);
+      return;
+    }
     await operate('expertTalkConfigure', async (sessionId) => {
-      await configure(sessionId, pair);
+      const configured = await configure(sessionId, pair);
+      setPreferredPair(configured.config ?? pair);
     });
   }
 
   async function useForNextMessage(pair: AppExpertTalkPair): Promise<void> {
     await operate('expertTalkArm', async (sessionId) => {
       const configured = await configure(sessionId, pair);
+      setPreferredPair(configured.config ?? pair);
       setMutationStatus(sessionId, await getPythinkerWebApi().armExpertTalk(
         sessionId,
         configured.resourceVersion,
@@ -181,8 +213,8 @@ export function useExpertTalkState(
   function applyStatus(sessionId: string, next: AppExpertTalkStatus, sequence?: number): void {
     if (sequence !== undefined) {
       const lastSequence = lastEventSeqBySession.get(sessionId) ?? 0;
-      if (sequence <= lastSequence) return;
-      lastEventSeqBySession.set(sessionId, sequence);
+      if (sequence < lastSequence) return;
+      if (sequence > lastSequence) lastEventSeqBySession.set(sessionId, sequence);
     }
     const protectedVersion = protectedVersionBySession.get(sessionId);
     if (protectedVersion !== undefined && next.resourceVersion !== protectedVersion) return;
@@ -218,6 +250,7 @@ export function useExpertTalkState(
 
   return {
     available,
+    preferredPair,
     status,
     run,
     runs,

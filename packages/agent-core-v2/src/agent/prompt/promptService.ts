@@ -1,4 +1,6 @@
 /* oxlint-disable typescript-eslint/no-unsafe-declaration-merging, eslint-plugin-import/namespace -- Event2 class+payload-interface declaration merging is the sanctioned event-declaration idiom. */
+import { z } from 'zod';
+
 import { IInstantiationService } from '#/_base/di/instantiation';
 import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
@@ -13,7 +15,10 @@ import { IAgentLoopService, type Turn, type TurnResult } from '#/agent/loop/loop
 import { TurnSteer } from '#/agent/loop/turnOps';
 import { IAgentStateService } from '#/agent/state/agentState';
 import { AgentReminder, type ReminderRuntime } from '#/features/reminder/reminderAgentRuntime';
-import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
+import {
+  IAgentLifecycleService,
+  MAIN_AGENT_ID,
+} from '#/session/agentLifecycle/agentLifecycle';
 import type { ExecutableToolResult } from '#/tool/toolContract';
 import type { ToolDidExecuteContext } from '#/agent/toolExecutor/toolHooks';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
@@ -27,7 +32,6 @@ import { OrderedHookSlot } from '#/hooks';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
 import { applyPromptMetadataUpdate } from '#/session/sessionMetadata/promptMetadata';
@@ -61,9 +65,18 @@ export interface PromptCompletedPayload {
   readonly reason: 'completed' | 'failed' | 'blocked';
 }
 
-export class PromptCompleted extends AgentEvent2<PromptCompletedPayload> {
+const promptCompletedSchema = z.object({
+  agentId: z.string(),
+  promptId: z.string().min(1),
+  finishedAt: z.string(),
+  reason: z.union([z.literal('completed'), z.literal('failed'), z.literal('blocked')]),
+});
+
+export class PromptCompleted extends AgentEvent2<z.infer<typeof promptCompletedSchema>> {
   static override readonly type = 'prompt.completed';
+  static override readonly durable = true;
   static override readonly observable = true;
+  static override readonly schema = promptCompletedSchema;
 }
 export interface PromptCompleted extends PromptCompletedPayload {}
 
@@ -73,9 +86,17 @@ export interface PromptAbortedPayload {
   readonly abortedAt: string;
 }
 
-export class PromptAborted extends AgentEvent2<PromptAbortedPayload> {
+const promptAbortedSchema = z.object({
+  agentId: z.string(),
+  promptId: z.string().min(1),
+  abortedAt: z.string(),
+});
+
+export class PromptAborted extends AgentEvent2<z.infer<typeof promptAbortedSchema>> {
   static override readonly type = 'prompt.aborted';
+  static override readonly durable = true;
   static override readonly observable = true;
+  static override readonly schema = promptAbortedSchema;
 }
 export interface PromptAborted extends PromptAbortedPayload {}
 
@@ -87,11 +108,37 @@ export interface PromptSteeredPayload {
   readonly steeredAt: string;
 }
 
-export class PromptSteered extends AgentEvent2<PromptSteeredPayload> {
+const promptSteeredSchema = z.object({
+  agentId: z.string(),
+  activePromptId: z.string(),
+  promptIds: z.array(z.string()),
+  content: z.custom<ContentPart[]>(),
+  steeredAt: z.string(),
+});
+
+export class PromptSteered extends AgentEvent2<z.infer<typeof promptSteeredSchema>> {
   static override readonly type = 'prompt.steered';
+  static override readonly durable = true;
   static override readonly observable = true;
+  static override readonly schema = promptSteeredSchema;
 }
 export interface PromptSteered extends PromptSteeredPayload {}
+
+export const promptResolutionKey = defineState('promptResolution', (): Map<string, true> => new Map())
+  .replayable({ schema: z.map(z.string(), z.literal(true)) })
+  .on(PromptCompleted, (state, event) => {
+    if (state.has(event.promptId)) return state;
+    state.set(event.promptId, true);
+  })
+  .on(PromptAborted, (state, event) => {
+    if (state.has(event.promptId)) return state;
+    state.set(event.promptId, true);
+  })
+  .on(PromptSteered, (state, event) => {
+    for (const promptId of event.promptIds) {
+      if (!state.has(promptId)) state.set(promptId, true);
+    }
+  });
 
 export interface PromptQueuedPayload {
   readonly agentId: string;
@@ -204,6 +251,7 @@ export class AgentPromptService implements IAgentPromptService {
   ) {
     this.states.contributeState(promptLaunchingKey);
     this.states.contributeState(promptAdmissionKey);
+    this.states.contributeState(promptResolutionKey);
     toolExecutor.hooks.onDidExecuteTool.register('prompt-service-delivery', async (ctx, next) => {
       await this.deliverToolResult(ctx);
       await next();

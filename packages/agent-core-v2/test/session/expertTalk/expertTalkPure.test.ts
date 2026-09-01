@@ -151,7 +151,7 @@ describe('Expert Talk protocol admission', () => {
       review: EXPERT_TALK_REVIEW_MAX_REQUESTS,
       fusion: EXPERT_TALK_FUSION_MAX_REQUESTS,
       attemptsPerRequest: EXPERT_TALK_PROVIDER_ATTEMPTS_PER_REQUEST,
-    }).toEqual({ opening: 3, review: 2, fusion: 2, attemptsPerRequest: 2 });
+    }).toEqual({ opening: 4, review: 1, fusion: 2, attemptsPerRequest: 2 });
   });
 });
 

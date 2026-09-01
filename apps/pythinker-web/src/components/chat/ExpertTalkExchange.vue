@@ -289,9 +289,17 @@ function statusVariant(state: AppExpertTalkRun['state']): 'success' | 'danger' |
             </div>
           </dl>
           <div class="expert-talk__artifact-body">
-            <div v-if="stageEntry.artifact.thinking" class="expert-talk__thinking">
+            <div
+              v-if="stageEntry.artifact.thinking || stageEntry.artifact.state === 'running'"
+              class="expert-talk__thinking"
+            >
               <strong>▹ {{ t('expertTalk.thinking') }}</strong>
-              <span>{{ stageEntry.artifact.thinking }}</span>
+              <Markdown
+                v-if="stageEntry.artifact.thinking"
+                :text="stageEntry.artifact.thinking"
+                :streaming="stageEntry.artifact.state === 'running'"
+              />
+              <span v-else>{{ t('expertTalk.thinkingPending') }}</span>
             </div>
             <ul v-if="stageEntry.artifact.tools?.length" class="expert-talk__tools">
               <li v-for="tool in stageEntry.artifact.tools" :key="tool.id">
@@ -305,7 +313,7 @@ function statusVariant(state: AppExpertTalkRun['state']): 'success' | 'danger' |
                 :streaming="stageEntry.artifact.state === 'running'"
               />
             </div>
-            <p v-else>
+            <p v-else-if="stageEntry.artifact.state !== 'running'">
               {{ stageEntry.artifact.error ?? t(`expertTalk.artifactState.${stageEntry.artifact.state}`) }}
             </p>
           </div>
@@ -343,9 +351,17 @@ function statusVariant(state: AppExpertTalkRun['state']): 'success' | 'danger' |
         </div>
       </dl>
       <div class="expert-talk__artifact-body">
-        <div v-if="fusionExchange.artifact?.thinking" class="expert-talk__thinking">
+        <div
+          v-if="fusionExchange.artifact?.thinking || fusionExchange.state === 'running'"
+          class="expert-talk__thinking"
+        >
           <strong>▹ {{ t('expertTalk.thinking') }}</strong>
-          <span>{{ fusionExchange.artifact.thinking }}</span>
+          <Markdown
+            v-if="fusionExchange.artifact?.thinking"
+            :text="fusionExchange.artifact.thinking"
+            :streaming="fusionExchange.state === 'running'"
+          />
+          <span v-else>{{ t('expertTalk.thinkingPending') }}</span>
         </div>
         <ul v-if="fusionExchange.artifact?.tools?.length" class="expert-talk__tools">
           <li v-for="tool in fusionExchange.artifact.tools" :key="tool.id">
@@ -359,7 +375,7 @@ function statusVariant(state: AppExpertTalkRun['state']): 'success' | 'danger' |
             :streaming="fusionExchange.state === 'running'"
           />
         </div>
-        <p v-else>
+        <p v-else-if="fusionExchange.state !== 'running'">
           {{ fusionExchange.artifact?.error ?? t(`expertTalk.artifactState.${fusionExchange.state}`) }}
         </p>
       </div>

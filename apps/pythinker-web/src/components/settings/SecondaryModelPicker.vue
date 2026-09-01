@@ -558,9 +558,7 @@ onUnmounted(() => {
   max-width: calc(100vw - 64px);
   border: 1px solid var(--color-line-strong);
   border-radius: var(--radius-md);
-  background: var(--color-menu-bg-frost);
-  -webkit-backdrop-filter: var(--p-menu-backdrop);
-  backdrop-filter: var(--p-menu-backdrop);
+  background: var(--color-surface-raised);
   box-shadow: var(--shadow-lg);
 }
 
@@ -579,9 +577,7 @@ onUnmounted(() => {
   padding: var(--space-1);
   border: 1px solid var(--color-line-strong);
   border-radius: var(--radius-md);
-  background: var(--color-menu-bg-frost);
-  -webkit-backdrop-filter: var(--p-menu-backdrop);
-  backdrop-filter: var(--p-menu-backdrop);
+  background: var(--color-surface-raised);
   box-shadow: var(--shadow-lg);
 }
 .sm-picker__flyout--right {

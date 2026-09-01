@@ -1121,7 +1121,8 @@ async function handleCreateExpertOpinionSession(): Promise<void> {
       capability.trim().toLowerCase().replaceAll('-', '_') === 'tool_use'
     ),
   );
-  const configured = client.expertTalk.status.value?.config;
+  const configured = client.expertTalk.preferredPair.value
+    ?? client.expertTalk.status.value?.config;
   const eligibleModelIds = new Set(eligibleModels.map((model) => model.id));
   const configuredPair = configured !== undefined
     && configured !== null
@@ -1622,7 +1623,7 @@ function openPr(url: string): void {
 
     <!-- Floating warnings / agent errors (e.g. a 403 from the model provider) -->
     <WarningToasts :warnings="client.warnings.value" @dismiss="client.dismissWarning" />
-    <div class="action-toast-stack">
+    <Teleport defer to=".con">
       <ActionToast
         v-if="sessionActionToast"
         :key="`${sessionActionToast.kind}:${sessionActionToast.ids.join(',')}`"
@@ -1655,7 +1656,7 @@ function openPr(url: string): void {
       >
         {{ titleNoticeToast }}
       </ActionToast>
-    </div>
+    </Teleport>
 
     <!-- KAP/daemon debug panel (opt-in, ?debug=1) -->
     <DebugPanel v-if="debugEnabled" />
@@ -1927,38 +1928,4 @@ function openPr(url: string): void {
 }
 .global-preview.mobile .pt-shell { width: 100%; }
 
-.action-toast-stack {
-  position: fixed;
-  right: var(--space-4);
-  bottom: var(--space-4);
-  z-index: var(--z-toast);
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: var(--space-2);
-  pointer-events: none;
-}
-.session-action-undo {
-  margin-top: var(--space-2);
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--color-accent);
-  font: inherit;
-  font-size: var(--text-sm);
-  cursor: pointer;
-}
-.session-action-undo:focus-visible {
-  outline: none;
-  box-shadow: var(--p-focus-ring);
-}
-
-@media (max-width: 640px) {
-  .action-toast-stack {
-    right: var(--space-3);
-    bottom: max(var(--space-3), var(--safe-bottom));
-    left: var(--space-3);
-    align-items: stretch;
-  }
-}
 </style>

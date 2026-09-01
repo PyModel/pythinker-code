@@ -13,6 +13,7 @@ import ChatDock from './ChatDock.vue';
 import ConversationToc, { type ConversationTocItem } from './ConversationToc.vue';
 import TranscriptSearch from './TranscriptSearch.vue';
 import Icon from '../ui/Icon.vue';
+import ActionToast from '../ui/ActionToast.vue';
 import Spinner from '../ui/Spinner.vue';
 import Tooltip from '../ui/Tooltip.vue';
 import PythinkerLogo from '../PythinkerLogo.vue';
@@ -1269,15 +1270,12 @@ function onVisibilityChange(): void {
 // Manual-abort toast: shown when the user presses Escape to stop the prompt
 // ---------------------------------------------------------------------------
 const abortToastVisible = ref(false);
-let abortToastTimer: ReturnType<typeof setTimeout> | null = null;
+const abortToastKey = ref(0);
 const ABORT_TOAST_DURATION = 3000;
 
 function showAbortToast(): void {
+  abortToastKey.value += 1;
   abortToastVisible.value = true;
-  if (abortToastTimer !== null) clearTimeout(abortToastTimer);
-  abortToastTimer = setTimeout(() => {
-    abortToastVisible.value = false;
-  }, ABORT_TOAST_DURATION);
 }
 
 function handleInterrupt(): void {
@@ -1356,7 +1354,6 @@ onUnmounted(() => {
   if (stableFollowRaf) cancelRaf(stableFollowRaf);
   if (pinRaf) cancelRaf(pinRaf);
   if (tocHitTestRaf) cancelRaf(tocHitTestRaf);
-  if (abortToastTimer !== null) clearTimeout(abortToastTimer);
   if (copyConversationCopiedTimer !== null) {
     clearTimeout(copyConversationCopiedTimer);
     copyConversationCopiedTimer = null;
@@ -1690,17 +1687,14 @@ defineExpose({ loadComposerForEdit, focusComposer, insertComposerQuote });
       </button>
     </Transition>
 
-    <!-- Manual-abort toast: shown when the user presses Escape to stop a prompt -->
-    <Transition name="abort-toast">
-      <div
-        v-if="abortToastVisible"
-        class="abort-toast"
-        role="status"
-        aria-live="polite"
-      >
-        <span class="abort-toast-text">{{ t('conversation.manuallyAborted') }}</span>
-      </div>
-    </Transition>
+    <ActionToast
+      v-if="abortToastVisible"
+      :key="abortToastKey"
+      :duration="ABORT_TOAST_DURATION"
+      @dismiss="abortToastVisible = false"
+    >
+      {{ t('conversation.manuallyAborted') }}
+    </ActionToast>
   </section>
 </template>
 
@@ -2014,34 +2008,6 @@ defineExpose({ loadComposerForEdit, focusComposer, insertComposerQuote });
 .pill-leave-to {
   opacity: 0;
   transform: translateX(-50%) translateY(8px);
-}
-
-.abort-toast {
-  position: absolute;
-  left: 50%;
-  top: 60px;
-  transform: translateX(-50%);
-  padding: 8px 14px;
-  border-radius: var(--radius-sm);
-  background: var(--color-text);
-  color: var(--bg);
-  font-size: var(--ui-font-size-sm);
-  z-index: var(--z-sticky);
-  box-shadow: var(--shadow-sm);
-}
-.abort-toast-text {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.abort-toast-enter-active,
-.abort-toast-leave-active {
-  transition: opacity 0.15s ease, transform 0.15s ease;
-}
-.abort-toast-enter-from,
-.abort-toast-leave-to {
-  opacity: 0;
-  transform: translateX(-50%) translateY(-6px);
 }
 
 .con { background: var(--bg); }

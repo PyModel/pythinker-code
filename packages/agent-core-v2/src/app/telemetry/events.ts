@@ -506,6 +506,57 @@ export interface ExitEvent {
   duration_ms: number;
 }
 
+export interface ShellCommandFinishedEvent {
+  duration_ms: number;
+  is_error: boolean;
+  backgrounded: boolean;
+}
+
+export interface AgentCreateFailedEvent {
+  agent_id: string;
+  stage: string;
+  error_type: string;
+}
+
+export interface SessionEndedEvent {
+  reason: 'exit' | 'archive';
+}
+
+export interface WebFetchFallbackEvent {
+  error_type: string;
+  used_api_key: boolean;
+}
+
+export interface MediaResolveFallbackEvent {
+  kind: 'image' | 'video';
+  reason: 'unsupported' | 'read_failed' | 'upload_failed' | 'invalid';
+  model?: string;
+}
+
+export interface LlmRequestProjectionFallbackEvent {
+  projection: 'media-degraded' | 'media-stripped' | 'strict';
+  error_type: string;
+  model?: string;
+  turn_id?: number;
+}
+
+export interface SessionIndexDegradedEvent {
+  reason: string;
+  degraded_count: number;
+  error_type?: string;
+}
+
+export interface SessionIndexProjectedEvent {
+  duration_ms: number;
+  session_count: number;
+  generation: number;
+}
+
+export interface SessionIndexMirrorGiveUpEvent {
+  pending_count: number;
+  consecutive_failures: number;
+}
+
 export const telemetryEventDefinitions = {
   turn_started: defineAgentTelemetryEvent<TurnStartedEvent>({
     owner: 'pythinker-code',
@@ -1115,6 +1166,82 @@ export const telemetryEventDefinitions = {
     owner: 'pythinker-code',
     comment: 'A CLI run exits.',
     properties: { duration_ms: 'Run wall-clock time in milliseconds' },
+  }),
+  shell_command_finished: defineAgentTelemetryEvent<ShellCommandFinishedEvent>({
+    owner: 'pythinker-code',
+    comment: 'A shell command execution finishes outside the tool executor.',
+    properties: {
+      duration_ms: 'Execution wall-clock time in milliseconds',
+      is_error: 'Whether the execution ended with an error',
+      backgrounded: 'Whether the command was sent to the background',
+    },
+  }),
+  agent_create_failed: defineTelemetryEvent<AgentCreateFailedEvent>({
+    owner: 'pythinker-code',
+    comment: 'Agent scope creation fails partway through.',
+    properties: {
+      agent_id: 'Id of the agent whose creation failed',
+      stage: 'Creation stage the failure occurred in',
+      error_type: 'Classified error category',
+    },
+  }),
+  session_ended: defineTelemetryEvent<SessionEndedEvent>({
+    owner: 'pythinker-code',
+    comment: 'A session is closed or archived.',
+    properties: { reason: 'How the session ended' },
+  }),
+  web_fetch_fallback: defineTelemetryEvent<WebFetchFallbackEvent>({
+    owner: 'pythinker-code',
+    comment: 'The managed fetch provider fails and the call falls back to the local fetcher.',
+    properties: {
+      error_type: 'Classified error category of the managed fetch failure',
+      used_api_key: 'Whether a managed access token was obtained before the failure',
+    },
+  }),
+  media_resolve_fallback: defineAgentTelemetryEvent<MediaResolveFallbackEvent>({
+    owner: 'pythinker-code',
+    comment: 'A media part is degraded or replaced while resolving model input.',
+    properties: {
+      kind: 'Media kind being resolved',
+      reason: 'Why the media could not be resolved as-is',
+      model: 'Model the media was resolved for',
+    },
+  }),
+  llm_request_projection_fallback: defineAgentTelemetryEvent<LlmRequestProjectionFallbackEvent>({
+    owner: 'pythinker-code',
+    comment: 'A rejected LLM request retries with a degraded context projection.',
+    properties: {
+      projection: 'Projection policy the request is degraded to',
+      error_type: 'Classified error category of the rejection',
+      model: 'Model that rejected the request',
+      turn_id: 'Per-agent turn index',
+    },
+  }),
+  session_index_degraded: defineTelemetryEvent<SessionIndexDegradedEvent>({
+    owner: 'pythinker-code',
+    comment: 'The session index degrades to the authoritative directory scan.',
+    properties: {
+      reason: 'Why the read model degraded',
+      degraded_count: 'How many times the read model has degraded',
+      error_type: 'Classified error category when an error caused degradation',
+    },
+  }),
+  session_index_projected: defineTelemetryEvent<SessionIndexProjectedEvent>({
+    owner: 'pythinker-code',
+    comment: 'The session index finishes projecting the sessions directory.',
+    properties: {
+      duration_ms: 'Projection wall-clock time in milliseconds',
+      session_count: 'Number of sessions projected',
+      generation: 'Read model generation after projection',
+    },
+  }),
+  session_index_mirror_give_up: defineTelemetryEvent<SessionIndexMirrorGiveUpEvent>({
+    owner: 'pythinker-code',
+    comment: 'The session index mirror stops retrying after consecutive write failures.',
+    properties: {
+      pending_count: 'Number of queued mirror writes left pending',
+      consecutive_failures: 'Number of consecutive failures',
+    },
   }),
 } as const;
 

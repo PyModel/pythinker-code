@@ -577,21 +577,22 @@ const expertOpinionPeerModelId = ref('');
 const expertOpinionLeadThinkingEffort = ref('');
 const expertOpinionPeerThinkingEffort = ref('');
 const expertOpinionPairDirty = ref(false);
+const expertOpinionPreferredPair = computed(() => expertTalk?.preferredPair.value);
 const expertOpinionPairValid = computed(() =>
   expertOpinionLeadModelId.value !== expertOpinionPeerModelId.value &&
   expertOpinionModelIds.value.has(expertOpinionLeadModelId.value) &&
   expertOpinionModelIds.value.has(expertOpinionPeerModelId.value),
 );
 const expertOpinionPairSaved = computed(() =>
-  expertOpinionStatus.value?.config?.fusionLeadModelId === expertOpinionLeadModelId.value &&
-  expertOpinionStatus.value.config.peerModelId === expertOpinionPeerModelId.value &&
-  (expertOpinionStatus.value.config.fusionLeadThinkingEffort ?? '') === expertOpinionLeadThinkingEffort.value &&
-  (expertOpinionStatus.value.config.peerThinkingEffort ?? '') === expertOpinionPeerThinkingEffort.value,
+  expertOpinionPreferredPair.value?.fusionLeadModelId === expertOpinionLeadModelId.value &&
+  expertOpinionPreferredPair.value?.peerModelId === expertOpinionPeerModelId.value &&
+  (expertOpinionPreferredPair.value?.fusionLeadThinkingEffort ?? '') === expertOpinionLeadThinkingEffort.value &&
+  (expertOpinionPreferredPair.value?.peerThinkingEffort ?? '') === expertOpinionPeerThinkingEffort.value,
 );
 
 function syncExpertOpinionPair(): void {
   if (expertOpinionPairDirty.value) return;
-  const configured = expertOpinionStatus.value?.config;
+  const configured = expertOpinionPreferredPair.value ?? expertOpinionStatus.value?.config;
   expertOpinionLeadModelId.value = configured?.fusionLeadModelId ?? '';
   expertOpinionPeerModelId.value = configured?.peerModelId ?? '';
   expertOpinionLeadThinkingEffort.value = configured?.fusionLeadThinkingEffort ?? '';
@@ -599,7 +600,7 @@ function syncExpertOpinionPair(): void {
 }
 
 watch(
-  () => expertOpinionStatus.value?.config,
+  [() => expertOpinionStatus.value?.config, () => expertOpinionPreferredPair.value],
   syncExpertOpinionPair,
   { immediate: true, deep: true },
 );
@@ -1251,10 +1252,16 @@ function archiveTime(iso: string): string {
                 {{ t('settings.expertOpinion.missingModel', { id: expertOpinionPeerModelId }) }}
               </Banner>
 
-              <Banner v-if="expertOpinionLeadModelId === expertOpinionPeerModelId" variant="warning">
+              <Banner
+                v-if="expertOpinionLeadModelId && expertOpinionPeerModelId && expertOpinionLeadModelId === expertOpinionPeerModelId"
+                variant="warning"
+              >
                 {{ t('settings.expertOpinion.distinctRequired') }}
               </Banner>
-              <Banner v-else-if="expertOpinionStatus?.pairValidation.reason" variant="warning">
+              <Banner
+                v-else-if="expertOpinionStatus?.config && !expertOpinionPairDirty && expertOpinionStatus.pairValidation.reason"
+                variant="warning"
+              >
                 {{ expertOpinionStatus.pairValidation.reason }}
               </Banner>
               <Banner>{{ t('expertTalk.disclosure') }}</Banner>

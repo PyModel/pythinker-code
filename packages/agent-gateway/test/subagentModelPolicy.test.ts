@@ -104,7 +104,7 @@ describe('server-v2 /api/v1/config/subagent-model-policy', () => {
     const data = subagentModelPolicyResponseSchema.parse(res.body.data);
     expect(data.policy).toEqual({ mode: 'inherit' });
     expect(data.effective.effective_policy).toEqual({ mode: 'inherit' });
-    expect(data.effective.feature).toEqual({ enabled: false, source: 'default' });
+    expect(data.effective.feature).toEqual({ enabled: true, source: 'default' });
     expect(res.etag).toMatch(/^"subagent-policy-v1:[0-9a-f]+"$/);
     expect(res.etag?.startsWith('W/')).toBe(false);
     expect(res.etag).toBe(`"${data.resource_version}"`);
@@ -227,7 +227,7 @@ describe('server-v2 /api/v1/config/subagent-model-policy', () => {
   });
 
   it('reports the effective policy as inherit while the feature is disabled and the configured one otherwise', async () => {
-    await boot();
+    await boot(`${MODELS_TOML}\n[experimental]\n"secondary-model" = false\n`);
     await call('PUT', { mode: 'force', default_model: 'acme/sol' });
     const disabled = subagentModelPolicyResponseSchema.parse((await call('GET')).body.data);
     expect(disabled.effective.configured_policy.mode).toBe('force');

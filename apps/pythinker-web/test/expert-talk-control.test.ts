@@ -9,10 +9,12 @@ import type { AppExpertTalkRun, AppExpertTalkStatus } from '../src/api/types';
 import { useExpertTalkState } from '../src/composables/client/useExpertTalkState';
 import { expertTalkContextKey } from '../src/composables/expertTalkContext';
 import webI18n from '../src/i18n';
+import { STORAGE_KEYS } from '../src/lib/storage';
 
 const { api, copyTextToClipboard } = vi.hoisted(() => ({
   api: {
     getExpertTalkStatus: vi.fn(),
+    getExpertTalkRun: vi.fn(),
     listExpertTalkRuns: vi.fn(),
     configureExpertTalk: vi.fn(),
     armExpertTalk: vi.fn(),
@@ -42,6 +44,7 @@ function status() {
 describe('ExpertTalkControl', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    localStorage.removeItem(STORAGE_KEYS.discussionPair);
     api.listExpertTalkRuns.mockResolvedValue({ runs: [] });
   });
 
@@ -53,6 +56,8 @@ describe('ExpertTalkControl', () => {
       config: {
         fusionLeadModelId: 'provider/lead',
         peerModelId: 'provider/peer',
+        fusionLeadThinkingEffort: 'max',
+        peerThinkingEffort: 'low',
       },
     });
     api.armExpertTalk.mockResolvedValue({
@@ -86,10 +91,33 @@ describe('ExpertTalkControl', () => {
       '1',
     );
     expect(api.armExpertTalk).not.toHaveBeenCalled();
+    expect(state.preferredPair.value).toEqual(pair);
 
     await state.useForNextMessage(pair);
 
     expect(api.armExpertTalk).toHaveBeenCalledWith('session-1', '2');
+    scope.stop();
+  });
+
+  it('saves the Discussion preference without an active session', async () => {
+    const scope = effectScope();
+    const state = scope.run(() => useExpertTalkState(
+      computed(() => ''),
+      computed(() => true),
+      vi.fn(),
+    ))!;
+    const pair = {
+      fusionLeadModelId: 'provider/lead',
+      peerModelId: 'provider/peer',
+      fusionLeadThinkingEffort: 'max',
+      peerThinkingEffort: 'high',
+    };
+
+    await state.configurePair(pair);
+
+    expect(state.preferredPair.value).toEqual(pair);
+    expect(api.configureExpertTalk).not.toHaveBeenCalled();
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEYS.discussionPair)!)).toEqual(pair);
     scope.stop();
   });
 
@@ -138,6 +166,35 @@ describe('ExpertTalkControl', () => {
     scope.stop();
   });
 
+  it('refreshes live reasoning snapshots that share a volatile event sequence', async () => {
+    api.getExpertTalkStatus.mockResolvedValue(status());
+    api.getExpertTalkRun.mockResolvedValue({
+      runId: 'run-1',
+      sessionId: 'session-1',
+      revision: 1,
+      progressRevision: 2,
+    });
+    const scope = effectScope();
+    const state = scope.run(() => useExpertTalkState(
+      computed(() => 'session-1'),
+      computed(() => true),
+      vi.fn(),
+    ))!;
+    await flushPromises();
+    const running = {
+      ...status(),
+      activeRunId: 'run-1',
+      latestRunId: 'run-1',
+    };
+
+    state.applyStatus('session-1', running, 12);
+    state.applyStatus('session-1', running, 12);
+    await flushPromises();
+
+    expect(api.getExpertTalkRun).toHaveBeenCalledTimes(2);
+    scope.stop();
+  });
+
   it('hides the composer pill until Discussion is armed or running', () => {
     const currentStatus = ref<AppExpertTalkStatus>({
       ...status(),
@@ -145,6 +202,7 @@ describe('ExpertTalkControl', () => {
     });
     const context = {
       available: computed(() => true),
+      preferredPair: ref(currentStatus.value.config ?? undefined),
       status: computed(() => currentStatus.value),
       run: computed(() => undefined),
       runs: computed(() => []),
@@ -179,6 +237,7 @@ describe('ExpertTalkControl', () => {
     const useForNextMessage = vi.fn().mockResolvedValue(undefined);
     const context = {
       available: computed(() => true),
+      preferredPair: ref(),
       status: computed(() => currentStatus.value),
       run: computed(() => undefined),
       runs: computed(() => []),
@@ -250,6 +309,7 @@ describe('ExpertTalkControl', () => {
     const cancel = vi.fn().mockResolvedValue(undefined);
     const context = {
       available: computed(() => true),
+      preferredPair: ref(currentStatus.value.config ?? undefined),
       status: computed(() => currentStatus.value),
       run: computed(() => currentRun.value),
       runs: computed(() => []),
@@ -281,9 +341,13 @@ describe('ExpertTalkControl', () => {
       },
     });
 
-    expect(wrapper.get('.expert-talk__one-shot').text()).toContain('▶ ONE-SHOT →');
+    expect(wrapper.get('.expert-talk__one-shot').text()).toContain('Discussion');
     expect(wrapper.get('.expert-talk__one-shot').text()).toContain('◆ Lead');
     expect(wrapper.get('.expert-talk__one-shot').text()).toContain('▲ Peer');
+    expect(wrapper.get('.expert-talk__one-shot').text()).toContain('next prompt only');
+    await wrapper.setProps({ trigger: 'pill' });
+    expect(wrapper.find('.ui-pill').exists()).toBe(false);
+    await wrapper.setProps({ trigger: 'widget' });
     const control = wrapper.vm as unknown as {
       activate(): Promise<void>;
       cancelActive(): boolean;
@@ -381,6 +445,7 @@ describe('ExpertTalkControl', () => {
     });
     const context = {
       available: computed(() => true),
+      preferredPair: ref(currentStatus.value.config ?? undefined),
       status: computed(() => currentStatus.value),
       run: computed(() => currentRun.value),
       runs: computed(() => [currentRun.value]),
@@ -511,14 +576,22 @@ describe('ExpertTalkControl', () => {
         plugins: [webI18n],
         stubs: {
           Icon: true,
-          Markdown: { props: ['text'], template: '<div class="markdown-stub">{{ text }}</div>' },
+          Markdown: {
+            props: ['text', 'streaming'],
+            template: '<div class="markdown-stub" :data-streaming="streaming">{{ text }}</div>',
+          },
         },
       },
     });
 
-    expect(wrapper.get('.markdown-stub').text()).toBe('# Fusion Lead draft');
-    expect(wrapper.get('.expert-talk__thinking').text()).toContain('▹');
-    expect(wrapper.get('.expert-talk__thinking').text()).toContain('Checking the evidence.');
+    expect(wrapper.get('.expert-talk__artifact-text .markdown-stub').text())
+      .toBe('# Fusion Lead draft');
+    const thinking = wrapper.findAll('.expert-talk__thinking');
+    expect(thinking).toHaveLength(2);
+    expect(thinking[0]?.text()).toContain('▹');
+    expect(thinking[0]?.get('.markdown-stub').text()).toBe('Checking the evidence.');
+    expect(thinking[0]?.get('.markdown-stub').attributes('data-streaming')).toBe('true');
+    expect(thinking[1]?.text()).toContain('Waiting for reasoning...');
     expect(wrapper.get('.expert-talk__tools').text()).toContain('Read');
   });
 });

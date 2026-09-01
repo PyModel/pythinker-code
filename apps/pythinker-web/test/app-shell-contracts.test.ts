@@ -60,6 +60,11 @@ describe('app shell contracts', () => {
     expect(app).toContain('.panel-launcher :deep(.expert-talk__launcher) { grid-column: 1 / -1; }');
   });
 
+  it('places armed Discussion above a taller prompt without a toolbar duplicate', () => {
+    expect(composer).toMatch(/<div class="discussion-row">[\s\S]*?trigger="widget"[\s\S]*?<\/div>\s*<div class="cin-wrap">/);
+    expect(composer).toMatch(/\.ph\s*\{[^}]*min-height: 56px;/s);
+  });
+
   it('offers Expert Opinion as a dedicated new-session mode', () => {
     expect(sidebar).toContain('createExpertOpinion: [];');
     expect(sidebar).toContain("emit('createExpertOpinion')");
@@ -71,6 +76,7 @@ describe('app shell contracts', () => {
     expect(expertOpinionIcon).toContain('class="ptx ptx-expert-opinion"');
     expect(expertOpinionIcon).toContain('class="sparkle"');
     expect(app).toContain('@create-expert-opinion="handleCreateExpertOpinionSession"');
+    expect(app).toContain('const configured = client.expertTalk.preferredPair.value');
     expect(app).toContain('if (configuredPair === undefined) {');
     expect(app).toContain('workspaceId,\n    configuredPair,');
     expect(app).not.toContain('configuredPair?.fusionLeadModelId ?? eligibleModels[0]?.id');

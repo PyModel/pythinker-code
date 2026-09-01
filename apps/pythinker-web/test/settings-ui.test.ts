@@ -406,15 +406,18 @@ describe('settings UI', () => {
       pairValidation: { state: 'valid' as const },
     });
     const configurePair = vi.fn(async (pair: AppExpertTalkPair) => {
+      preferredPair.value = pair;
       currentStatus.value = {
         ...currentStatus.value,
         resourceVersion: 'expert-opinion-v2',
         config: pair,
       };
     });
+    const preferredPair = ref<AppExpertTalkPair | undefined>(currentStatus.value.config ?? undefined);
     const useForNextMessage = vi.fn().mockResolvedValue(undefined);
     const context = {
       available: computed(() => true),
+      preferredPair,
       status: computed(() => currentStatus.value),
       run: computed(() => undefined),
       runs: computed(() => []),
@@ -527,11 +530,37 @@ describe('settings UI', () => {
       ...currentStatus.value,
       resourceVersion: 'expert-opinion-empty',
       config: null,
-      pairValidation: { state: 'unknown' },
+      pairValidation: { state: 'invalid', reason: 'Select two different models.' },
     };
+    await flushPromises();
+    expect(pickers[0]!.props()).toMatchObject({
+      modelValue: 'provider-a/lead',
+      effort: 'high',
+    });
+    expect(pickers[1]!.props()).toMatchObject({
+      modelValue: 'provider-c/other',
+      effort: 'max',
+    });
+
+    preferredPair.value = undefined;
     await flushPromises();
     expect(pickers.map((picker) => picker.props('modelValue'))).toEqual(['', '']);
     expect(panel.querySelector<HTMLButtonElement>('[data-testid="expert-opinion-save"]')?.disabled).toBe(true);
+    expect(panel.textContent).not.toContain('Select two different models.');
+
+    pickers[0]!.vm.$emit('select', { model: 'provider-a/lead', effort: 'max' });
+    pickers[1]!.vm.$emit('select', { model: 'provider-b/peer', effort: 'high' });
+    await flushPromises();
+    expect(panel.textContent).not.toContain('Select two different models.');
+    expect(panel.querySelector<HTMLButtonElement>('[data-testid="expert-opinion-save"]')?.disabled).toBe(false);
+    panel.querySelector<HTMLButtonElement>('[data-testid="expert-opinion-save"]')!.click();
+    await flushPromises();
+    expect(configurePair).toHaveBeenLastCalledWith({
+      fusionLeadModelId: 'provider-a/lead',
+      peerModelId: 'provider-b/peer',
+      fusionLeadThinkingEffort: 'max',
+      peerThinkingEffort: 'high',
+    });
 
     const enabled = panel.querySelector<HTMLButtonElement>('[data-testid="expert-opinion-enabled"]')!;
     enabled.click();
@@ -825,6 +854,20 @@ describe('settings UI', () => {
     expect(css).toContain('html[data-accent=mono]');
     expect(css).toContain('html[data-color-scheme=dark][data-accent=mono]');
     expect(css).toContain('html[data-color-scheme=system][data-accent=mono]');
+  });
+
+  it('keeps secondary model menus opaque', () => {
+    const webRoot = process.cwd().endsWith('apps/pythinker-web')
+      ? process.cwd()
+      : join(process.cwd(), 'apps/pythinker-web');
+    const picker = readFileSync(
+      join(webRoot, 'src/components/settings/SecondaryModelPicker.vue'),
+      'utf8',
+    );
+
+    expect(picker.match(/background: var\(--color-surface-raised\);/gu)).toHaveLength(2);
+    expect(picker).not.toContain('--color-menu-bg-frost');
+    expect(picker).not.toContain('backdrop-filter');
   });
 
   it('exposes the message folding switches and reports both toggles', async () => {

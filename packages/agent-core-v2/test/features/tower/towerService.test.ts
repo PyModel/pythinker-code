@@ -31,6 +31,10 @@ import { EventBusService } from '#/app/event/eventBusService';
 import { IFeatureManager } from '#/app/feature/featureManager';
 import { IFlagService } from '#/app/flag/flag';
 import { ISessionManager } from '#/app/sessionManager/sessionManager';
+import {
+  ISessionActivityView,
+  type SessionPendingInteraction,
+} from '#/session/sessionActivity/sessionActivity';
 import type { ToolCall } from '#/kosong/contract/message';
 import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
 import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
@@ -108,6 +112,10 @@ describe('AgentTowerService', () => {
   let formatDenyMessage: Mock<(message: string) => string>;
   let prepareControllerActivation: Mock<() => void>;
   let towerFlagOn: boolean;
+  let liveSessions: Map<
+    string,
+    { busy: boolean; pendingInteraction: SessionPendingInteraction; exit: Mock<() => void> }
+  >;
 
   beforeEach(() => {
     disposables = new DisposableStore();
@@ -126,6 +134,7 @@ describe('AgentTowerService', () => {
     } as unknown as ISessionExpertTalkService);
     towerFlagOn = true;
     ix.stub(IFlagService, stubFlag((id) => towerFlagOn && id === TOWER_FLAG_ID));
+    liveSessions = new Map();
     let activeTools: string[] | undefined;
     ix.stub(IAgentProfileService, {
       data: () => ({ profileName: undefined }),
@@ -134,7 +143,40 @@ describe('AgentTowerService', () => {
         activeTools = [...(activeTools ?? []), name];
       },
     } as unknown as IAgentProfileService);
-    ix.stub(ISessionManager, { get: () => undefined } as unknown as ISessionManager);
+    ix.stub(ISessionManager, {
+      get: (id: string) => {
+        const stub = liveSessions.get(id);
+        if (stub === undefined) return undefined;
+        return {
+          accessor: {
+            get: (token: unknown) => {
+              if (token === (ISessionActivityView as unknown)) {
+                return {
+                  state: () => ({
+                    busy: stub.busy,
+                    mainTurnActive: stub.busy,
+                    pendingInteraction: stub.pendingInteraction,
+                  }),
+                };
+              }
+              if (token === (IAgentLifecycleService as unknown)) {
+                return {
+                  handleOf: () => ({
+                    accessor: {
+                      get: (agentToken: unknown) =>
+                        agentToken === (IAgentTowerService as unknown)
+                          ? { exit: stub.exit }
+                          : undefined,
+                    },
+                  }),
+                };
+              }
+              return undefined;
+            },
+          },
+        };
+      },
+    } as unknown as ISessionManager);
     ix.stub(IFeatureManager, {
       onDidChangeUnits: () => ({ dispose: () => {} }),
     } as unknown as IFeatureManager);
@@ -168,6 +210,31 @@ describe('AgentTowerService', () => {
       }),
     );
     return executorEvents.fireBeforeExecute(ctx);
+  }
+
+  function stubLiveSession(
+    id: string,
+    init: { busy?: boolean; pendingInteraction?: SessionPendingInteraction } = {},
+  ): Mock<() => void> {
+    const exit = vi.fn();
+    liveSessions.set(id, {
+      busy: init.busy ?? false,
+      pendingInteraction: init.pendingInteraction ?? 'none',
+      exit,
+    });
+    return exit;
+  }
+
+  async function initOwnedTower(owner: string): Promise<string> {
+    const repo = await mkdtemp(join(tmpdir(), 'tower-enter-owner-'));
+    await execFileAsync('git', ['init', '-b', 'main'], { cwd: repo });
+    await execFileAsync('git', ['config', 'user.email', 'tower-test@example.com'], { cwd: repo });
+    await execFileAsync('git', ['config', 'user.name', 'Tower Test'], { cwd: repo });
+    await writeFile(join(repo, 'README.md'), '# fixture\n');
+    await execFileAsync('git', ['add', 'README.md'], { cwd: repo });
+    await execFileAsync('git', ['commit', '-m', 'initial'], { cwd: repo });
+    await new TowerStore(repo).init(owner);
+    return repo;
   }
 
   it('enter / exit toggle isActive and emit agent.status.updated via wire', async () => {
@@ -363,6 +430,52 @@ describe('AgentTowerService', () => {
     expect(permissionGateRan).toBe(true);
     expect(formatDenyMessage).not.toHaveBeenCalled();
     expect(tower.isActive).toBe(false);
+  });
+
+  it('does not take the tower from a busy owner session', async () => {
+    const repo = await initOwnedTower('session-original');
+    try {
+      stubLiveSession('session-original', { busy: true });
+      ix.stub(ISessionContext, { cwd: repo, sessionId: 'session-fork' } as ISessionContext);
+      const tower = ix.get(IAgentTowerService);
+
+      await tower.enter();
+
+      expect(tower.isActive).toBe(false);
+    } finally {
+      await rm(repo, { recursive: true, force: true });
+    }
+  });
+
+  it('does not take the tower from an owner waiting on an interaction', async () => {
+    const repo = await initOwnedTower('session-original');
+    try {
+      stubLiveSession('session-original', { pendingInteraction: 'approval' });
+      ix.stub(ISessionContext, { cwd: repo, sessionId: 'session-fork' } as ISessionContext);
+      const tower = ix.get(IAgentTowerService);
+
+      await tower.enter();
+
+      expect(tower.isActive).toBe(false);
+    } finally {
+      await rm(repo, { recursive: true, force: true });
+    }
+  });
+
+  it('takes the tower from a live but idle owner session', async () => {
+    const repo = await initOwnedTower('session-original');
+    try {
+      const ownerExit = stubLiveSession('session-original');
+      ix.stub(ISessionContext, { cwd: repo, sessionId: 'session-fork' } as ISessionContext);
+      const tower = ix.get(IAgentTowerService);
+
+      await tower.enter();
+
+      expect(tower.isActive).toBe(true);
+      expect(ownerExit).toHaveBeenCalledOnce();
+    } finally {
+      await rm(repo, { recursive: true, force: true });
+    }
   });
 
   describe('tower-worker write guard', () => {
