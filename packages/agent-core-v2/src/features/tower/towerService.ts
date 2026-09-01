@@ -18,6 +18,7 @@ import { IFeatureManager } from '#/app/feature/featureManager';
 import { IFlagService } from '#/app/flag/flag';
 import { LifecycleScope } from '#/app/scopes';
 import { ISessionManager } from '#/app/sessionManager/sessionManager';
+import { ISessionActivityView } from '#/session/sessionActivity/sessionActivity';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 import { isWithinDirectory } from '#/tool/path-access';
@@ -171,12 +172,17 @@ export class AgentTowerService extends Disposable implements IAgentTowerService 
     if (this.isActive) return;
     this.expertTalk.prepareControllerActivation();
     const owner = await this.resolveTowerOwner();
-    if (
-      owner !== undefined &&
-      owner !== this.sessionCtx.sessionId &&
-      this.sessions.get(owner) !== undefined
-    ) {
-      return;
+    if (owner !== undefined && owner !== this.sessionCtx.sessionId) {
+      const ownerHandle = this.sessions.get(owner);
+      if (ownerHandle !== undefined) {
+        const activity = ownerHandle.accessor.get(ISessionActivityView).state();
+        if (activity.busy || activity.pendingInteraction !== 'none') return;
+        ownerHandle.accessor
+          .get(IAgentLifecycleService)
+          .handleOf('main')
+          ?.accessor.get(IAgentTowerService)
+          .exit();
+      }
     }
     for (const name of TOWER_MODE_TOOLS) this.profile.addActiveTool(name);
     this.lastPublished = true;

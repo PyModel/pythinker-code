@@ -28,6 +28,7 @@ export const expertTalkBindingSchema = z.object({
   role: roleSchema,
   requested_model_id: z.string().min(1),
   effective_model_id: z.string().min(1),
+  thinking_effort: z.string().min(1).optional(),
   protocol: z.enum(['anthropic', 'openai', 'openai_responses', 'google-genai']),
   provider: z.string().min(1),
   wire_model: z.string().min(1),
@@ -151,6 +152,8 @@ export const expertTalkStatusSchema = z.object({
   config: z.object({
     fusion_lead_model_id: z.string().min(1),
     peer_model_id: z.string().min(1),
+    fusion_lead_thinking_effort: z.string().min(1).optional(),
+    peer_thinking_effort: z.string().min(1).optional(),
   }).nullable(),
   activation: z.object({
     state: z.enum(['idle', 'armed']),
@@ -168,6 +171,8 @@ export const expertTalkStatusSchema = z.object({
 export const expertTalkConfigureSchema = z.object({
   fusion_lead_model_id: z.string().min(1),
   peer_model_id: z.string().min(1),
+  fusion_lead_thinking_effort: z.string().min(1).optional(),
+  peer_thinking_effort: z.string().min(1).optional(),
 });
 
 export const expertTalkDisarmSchema = z.object({

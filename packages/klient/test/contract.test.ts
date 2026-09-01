@@ -12,7 +12,11 @@ import { pluginManifestSchema } from '../src/contract/global/plugins.js';
 import { mcpServerAuthFlowHandleSchema } from '../src/contract/global/mcpManagement.js';
 import { createSessionOptionsSchema } from '../src/contract/session/lifecycle.js';
 import { promptPayloadSchema } from '../src/contract/agent/schemas.js';
-import { expertTalkResultSchema } from '../src/contract/session/expertTalk.js';
+import {
+  expertTalkBindingSchema,
+  expertTalkPairSchema,
+  expertTalkResultSchema,
+} from '../src/contract/session/expertTalk.js';
 
 type McpTimeoutField = 'startupTimeoutMs' | 'toolTimeoutMs';
 
@@ -100,6 +104,41 @@ describe('Expert Talk result contract', () => {
       version: 'expert_talk_result/v2',
       answer: 'Fallback answer',
     });
+  });
+});
+
+describe('Expert Talk model effort contract', () => {
+  it('preserves optional per-role configured and effective efforts', () => {
+    expect(expertTalkPairSchema.parse({
+      fusionLeadModelId: 'provider/lead',
+      peerModelId: 'provider/peer',
+      fusionLeadThinkingEffort: 'max',
+      peerThinkingEffort: 'low',
+    })).toMatchObject({
+      fusionLeadThinkingEffort: 'max',
+      peerThinkingEffort: 'low',
+    });
+    expect(expertTalkBindingSchema.parse({
+      role: 'fusion_lead',
+      requestedModelId: 'provider/lead',
+      effectiveModelId: 'provider/lead',
+      thinkingEffort: 'max',
+      protocol: 'openai',
+      provider: 'provider',
+      wireModel: 'lead',
+      targetFingerprint: 'target',
+      capabilities: {
+        image_in: false,
+        video_in: false,
+        audio_in: false,
+        thinking: true,
+        tool_use: true,
+        max_context_tokens: 128_000,
+      },
+      maxContextSize: 128_000,
+      routingEnvironmentRevision: 'routing-v1',
+      routeDecisionFingerprint: 'decision-v1',
+    })).toMatchObject({ thinkingEffort: 'max' });
   });
 });
 

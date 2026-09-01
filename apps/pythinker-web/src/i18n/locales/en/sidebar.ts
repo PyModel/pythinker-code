@@ -14,7 +14,7 @@ export default {
   expandAll: 'Expand all workspaces',
   newSession: 'New Session',
   newChat: 'New Chat',
-  newExpertOpinion: 'New Expert Talk',
+  newExpertOpinion: 'New Discussion',
   newWorkspace: 'New Workspace',
   explorer: 'Explorer',
   showFiles: 'Show files',

@@ -216,7 +216,7 @@ Subagents inherit the model the main agent is running by default. The `[secondar
 
 ### Subagent model pool
 
-This feature is experimental and disabled by default. Enable it with `PYTHINKER_CODE_EXPERIMENTAL_SECONDARY_MODEL=1`, or the master `PYTHINKER_CODE_EXPERIMENTAL_FLAG=1`; it takes effect in every launch mode, including the interactive TUI. While the experiment is off, the pool keys stay inert: subagents inherit the caller's model and session startup skips the pool validation.
+Secondary-model routing is enabled by default in every launch mode, including the interactive TUI. Set `PYTHINKER_CODE_EXPERIMENTAL_SECONDARY_MODEL=false` to disable it. While routing is disabled, the pool keys stay inert: subagents inherit the caller's model and session startup skips the pool validation.
 
 The minimal configuration is one line — a lone `default_model` is a pool with a single entry:
 
@@ -501,6 +501,13 @@ api_key = "sk-xxx"
 ## `permission`
 
 `permission` sets permission rules that are automatically loaded when a session starts, controlling whether the Agent needs user confirmation before calling a tool. Rules are written as a `[[permission.rules]]` array of tables, matched in order — the first matching rule takes effect.
+
+The dangerous-command guard is enabled by default. It requests confirmation for dangerous or unanalyzable `Bash` commands in interactive permission modes and blocks them in Auto mode. Existing approval rules cannot bypass this guard. Set `dangerous_command_guard = false`, or set `PYTHINKER_CODE_DANGEROUS_COMMAND_GUARD=false`, only when another control provides the same protection.
+
+```toml
+[permission]
+dangerous_command_guard = true
+```
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |

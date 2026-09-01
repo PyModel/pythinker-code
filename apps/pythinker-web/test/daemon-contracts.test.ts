@@ -156,6 +156,8 @@ describe('dynamic workflow daemon contracts', () => {
   it('registers /workflow and omits /swarm', () => {
     expect(SLASH_COMMANDS.some((command) => command.name === '/workflow')).toBe(true);
     expect(SLASH_COMMANDS.some((command) => command.name === '/swarm')).toBe(false);
+    expect(SLASH_COMMANDS.some((command) => command.name === '/discussion')).toBe(true);
+    expect(SLASH_COMMANDS.some((command) => command.name === '/expert-talk')).toBe(false);
   });
 
   it('writes dynamic_workflow_mode and reads only that runtime status field', async () => {

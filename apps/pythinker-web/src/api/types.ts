@@ -258,6 +258,13 @@ export interface PromptSubmitResult {
 export type AppExpertTalkRole = 'fusion_lead' | 'peer';
 export type AppExpertTalkStage = 'opening' | 'review' | 'fusion' | 'terminal';
 
+export interface AppExpertTalkPair {
+  fusionLeadModelId: string;
+  peerModelId: string;
+  fusionLeadThinkingEffort?: string;
+  peerThinkingEffort?: string;
+}
+
 export interface AppExpertTalkArtifact {
   role: AppExpertTalkRole;
   stage: 'opening' | 'review' | 'fusion';
@@ -295,8 +302,8 @@ export interface AppExpertTalkRun {
   endedAt?: string;
   updatedAt: string;
   bindings: {
-    fusionLead: { requestedModelId: string; effectiveModelId: string };
-    peer: { requestedModelId: string; effectiveModelId: string };
+    fusionLead: { requestedModelId: string; effectiveModelId: string; thinkingEffort?: string };
+    peer: { requestedModelId: string; effectiveModelId: string; thinkingEffort?: string };
   };
   opening: { lead: AppExpertTalkArtifact; peer: AppExpertTalkArtifact };
   review: { lead: AppExpertTalkArtifact; peer: AppExpertTalkArtifact };
@@ -331,10 +338,7 @@ export interface AppExpertTalkRun {
 export interface AppExpertTalkStatus {
   feature: 'enabled' | 'disabled';
   resourceVersion: string;
-  config: {
-    fusionLeadModelId: string;
-    peerModelId: string;
-  } | null;
+  config: AppExpertTalkPair | null;
   activation: {
     state: 'idle' | 'armed';
     armId?: string;
@@ -1144,7 +1148,7 @@ export interface PythinkerWebApi {
   updateSession(sessionId: string, input: { title?: string; cwd?: string; model?: string; permissionMode?: string; planMode?: boolean; dynamicWorkflowMode?: boolean; goalObjective?: string; goalControl?: 'pause' | 'resume' | 'cancel'; thinking?: string; tools?: string[]; mcpServers?: string[] }): Promise<AppSession>;
   getSessionStatus(sessionId: string): Promise<AppSessionRuntimeStatus>;
   getExpertTalkStatus(sessionId: string): Promise<AppExpertTalkStatus>;
-  configureExpertTalk(sessionId: string, input: { fusionLeadModelId: string; peerModelId: string }, expectedVersion?: string): Promise<AppExpertTalkStatus>;
+  configureExpertTalk(sessionId: string, input: AppExpertTalkPair, expectedVersion?: string): Promise<AppExpertTalkStatus>;
   clearExpertTalk(sessionId: string, expectedVersion?: string): Promise<AppExpertTalkStatus>;
   armExpertTalk(sessionId: string, expectedVersion?: string): Promise<AppExpertTalkStatus>;
   disarmExpertTalk(sessionId: string, armId?: string): Promise<AppExpertTalkStatus>;

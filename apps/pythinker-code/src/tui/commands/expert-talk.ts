@@ -7,6 +7,10 @@ import {
 } from '@pymodel/pythinker-code-sdk';
 
 import { ChoicePickerComponent, type ChoiceOption } from '../components/dialogs/choice-picker';
+import {
+  defaultThinkingEffortFor,
+  type ModelSelection,
+} from '../components/dialogs/model-selector';
 import { TabbedModelSelectorComponent } from '../components/dialogs/tabbed-model-selector';
 import {
   ExpertTalkExchangeComponent,
@@ -32,7 +36,7 @@ export async function handleExpertTalkCommand(
   args: string,
 ): Promise<void> {
   if (!host.engineV2) {
-    host.showError('Expert Talk requires the v2 engine.');
+    host.showError('Discussion requires the v2 engine.');
     return;
   }
   const session = host.session ?? (await host.ensureSession());
@@ -50,7 +54,7 @@ export async function handleExpertTalkCommand(
   }
   if (!status.enabled) {
     host.showNotice(
-      'Expert Talk is disabled',
+      'Discussion is disabled',
       'Set PYTHINKER_CODE_EXPERIMENTAL_EXPERT_TALK=1 and restart Pythinker Code.',
     );
     return;
@@ -88,11 +92,11 @@ export async function handleExpertTalkCommand(
   if (action === 'clear' || action === 'reset') {
     await session.clearExpertTalk(status.config.resourceVersion);
     host.setAppState({ expertTalkArmId: undefined, expertTalkRunId: undefined });
-    host.showStatus('Expert Talk model pair cleared.');
+    host.showStatus('Discussion model pair cleared.');
     return;
   }
   host.showError(
-    'Usage: /expert-talk [help|status|configure|arm|off|cancel|retry|exchange|reset]',
+    'Usage: /discussion [help|status|configure|arm|off|cancel|retry|exchange|reset]',
   );
 }
 
@@ -144,7 +148,7 @@ function showExpertTalkMenu(
 
   host.mountEditorReplacement(
     new ChoicePickerComponent({
-      title: 'Expert Talk',
+      title: 'Discussion',
       hint: '↑↓ navigate · Enter select · Esc cancel',
       notice: DISCLOSURE,
       noticeTone: 'warning',
@@ -173,7 +177,7 @@ async function runMenuAction(
     else if (action === 'retry') await retryExpertTalk(host, session, status, true);
     else if (action === 'exchange') showExpertTalkExchange(host, status);
   } catch (error) {
-    host.showError(`Expert Talk: ${formatErrorMessage(error)}`);
+    host.showError(`Discussion: ${formatErrorMessage(error)}`);
   }
 }
 
@@ -209,18 +213,22 @@ function showPairPicker(
   const selectedLead = currentLead !== undefined && models[currentLead] !== undefined
     ? currentLead
     : aliases[0]!;
+  const leadEffort = currentLead === selectedLead
+    ? status.config.pair?.fusionLeadThinkingEffort
+      ?? defaultThinkingEffortFor(models[selectedLead]!)
+    : defaultThinkingEffortFor(models[selectedLead]!);
   host.mountEditorReplacement(
     new TabbedModelSelectorComponent({
       models,
       currentValue: selectedLead,
       selectedValue: selectedLead,
-      currentThinkingEffort: 'off',
+      currentThinkingEffort: leadEffort,
       title: ' Select Fusion Lead',
       warning: DISCLOSURE,
-      thinkingControl: false,
-      onSelect: ({ alias }) => {
+      thinkingControl: true,
+      onSelect: (selection) => {
         host.restoreEditor();
-        showPeerPicker(host, session, status, models, alias);
+        showPeerPicker(host, session, status, models, selection);
       },
       onCancel: () => host.restoreEditor(),
     }),
@@ -232,26 +240,30 @@ function showPeerPicker(
   session: Session,
   status: ExpertTalkStatusV1,
   models: Record<string, ModelAlias>,
-  lead: string,
+  lead: ModelSelection,
 ): void {
-  const peers = Object.fromEntries(Object.entries(models).filter(([alias]) => alias !== lead));
+  const peers = Object.fromEntries(Object.entries(models).filter(([alias]) => alias !== lead.alias));
   const aliases = Object.keys(peers);
   const configured = status.config.pair?.peerModelId;
   const selected = configured !== undefined && peers[configured] !== undefined
     ? configured
     : aliases[0]!;
+  const peerEffort = configured === selected
+    ? status.config.pair?.peerThinkingEffort
+      ?? defaultThinkingEffortFor(peers[selected]!)
+    : defaultThinkingEffortFor(peers[selected]!);
   host.mountEditorReplacement(
     new TabbedModelSelectorComponent({
       models: peers,
       currentValue: selected,
       selectedValue: selected,
-      currentThinkingEffort: 'off',
+      currentThinkingEffort: peerEffort,
       title: ' Select Peer Expert',
-      warning: `Fusion Lead: ${lead}`,
-      thinkingControl: false,
-      onSelect: ({ alias }) => {
+      warning: `Fusion Lead: ${lead.alias}`,
+      thinkingControl: true,
+      onSelect: (peer) => {
         host.restoreEditor();
-        void configureAndArm(host, session, status, lead, alias);
+        void configureAndArm(host, session, status, lead, peer);
       },
       onCancel: () => host.restoreEditor(),
     }),
@@ -262,19 +274,24 @@ async function configureAndArm(
   host: SlashCommandHost,
   session: Session,
   status: ExpertTalkStatusV1,
-  lead: string,
-  peer: string,
+  lead: ModelSelection,
+  peer: ModelSelection,
 ): Promise<void> {
   try {
     const config = await session.configureExpertTalk(
-      { fusionLeadModelId: lead, peerModelId: peer },
+      {
+        fusionLeadModelId: lead.alias,
+        peerModelId: peer.alias,
+        fusionLeadThinkingEffort: lead.thinking,
+        peerThinkingEffort: peer.thinking,
+      },
       status.config.resourceVersion,
     );
     const arm = await session.armExpertTalk(config.resourceVersion);
     host.setAppState({ expertTalkArmId: arm.armId, expertTalkRunId: undefined });
-    host.showNotice('Expert Talk armed', `${lead} ↔ ${peer} · send the next message`);
+    host.showNotice('Discussion armed', `${lead.alias} ↔ ${peer.alias} · send the next message`);
   } catch (error) {
-    host.showError(`Expert Talk: ${formatErrorMessage(error)}`);
+    host.showError(`Discussion: ${formatErrorMessage(error)}`);
   }
 }
 
@@ -289,7 +306,7 @@ async function armExpertTalk(
   }
   const arm = await session.armExpertTalk(status.config.resourceVersion);
   host.setAppState({ expertTalkArmId: arm.armId, expertTalkRunId: undefined });
-  host.showNotice('Expert Talk armed', 'Send the next message to start the exchange.');
+  host.showNotice('Discussion armed', 'Send the next message to start the exchange.');
 }
 
 async function disarmExpertTalk(
@@ -299,12 +316,12 @@ async function disarmExpertTalk(
 ): Promise<void> {
   const armId = status.arm?.armId ?? host.state.appState.expertTalkArmId;
   if (armId === undefined) {
-    host.showStatus('Expert Talk is not armed.');
+    host.showStatus('Discussion is not armed.');
     return;
   }
   await session.disarmExpertTalk(armId);
   host.setAppState({ expertTalkArmId: undefined });
-  host.showStatus('Expert Talk disarmed.');
+  host.showStatus('Discussion disarmed.');
 }
 
 async function cancelExpertTalk(
@@ -314,7 +331,7 @@ async function cancelExpertTalk(
 ): Promise<void> {
   const run = status.activeRun;
   if (run === undefined) {
-    host.showStatus('No Expert Talk run is active.');
+    host.showStatus('No Discussion run is active.');
     return;
   }
   const cancelled = await session.cancelExpertTalkRun(run.runId);
@@ -330,13 +347,13 @@ async function retryExpertTalk(
 ): Promise<void> {
   const run = status.latestRun;
   if (run === undefined || run.error?.retryable !== true) {
-    host.showStatus('No retryable Expert Talk run is available.');
+    host.showStatus('No retryable Discussion run is available.');
     return;
   }
   if (!disclosed) {
     host.mountEditorReplacement(
       new ChoicePickerComponent({
-        title: 'Retry Expert Talk',
+        title: 'Retry Discussion',
         hint: 'Enter retry · Esc cancel',
         notice: DISCLOSURE,
         noticeTone: 'warning',
@@ -371,7 +388,7 @@ function showExpertTalkStatus(host: SlashCommandHost, status: ExpertTalkStatusV1
 function showExpertTalkExchange(host: SlashCommandHost, status: ExpertTalkStatusV1): void {
   const run = status.activeRun ?? status.latestRun;
   if (run === undefined) {
-    host.showStatus('No Expert Talk exchange is available.');
+    host.showStatus('No Discussion exchange is available.');
     return;
   }
   host.state.transcriptContainer.addChild(
@@ -416,7 +433,7 @@ function schedulePoll(
         if (watchers.get(host) !== watcher) return;
         watchers.delete(host);
         host.setAppState({ expertTalkRunId: undefined });
-        host.showError(`Expert Talk status: ${formatErrorMessage(error)}`);
+        host.showError(`Discussion status: ${formatErrorMessage(error)}`);
       });
   }, 500);
   watcher.timer.unref?.();

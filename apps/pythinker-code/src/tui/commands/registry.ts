@@ -32,13 +32,13 @@ const ADD_DIR_ARG_COMPLETIONS: readonly ArgCompletionSpec[] = [
 ];
 
 const EXPERT_TALK_ARG_COMPLETIONS: readonly ArgCompletionSpec[] = [
-  { value: 'help', description: 'Open the Expert Talk action menu' },
-  { value: 'status', description: 'Show Expert Talk state and progress' },
+  { value: 'help', description: 'Open the Discussion action menu' },
+  { value: 'status', description: 'Show Discussion state and progress' },
   { value: 'configure', description: 'Select Fusion Lead and Peer Expert models' },
-  { value: 'arm', description: 'Use Expert Talk for the next message' },
+  { value: 'arm', description: 'Use Discussion for the next message' },
   { value: 'off', description: 'Return the next message to normal chat' },
-  { value: 'cancel', description: 'Stop the active Expert Talk run' },
-  { value: 'retry', description: 'Retry the whole Expert Talk run' },
+  { value: 'cancel', description: 'Stop the active Discussion run' },
+  { value: 'retry', description: 'Retry the whole Discussion run' },
   { value: 'exchange', description: 'Show the complete exchange' },
   { value: 'reset', description: 'Remove the configured model pair' },
 ];
@@ -214,9 +214,9 @@ export const BUILTIN_SLASH_COMMANDS = [
     requiresEngineV2: true,
   },
   {
-    name: 'expert-talk',
-    aliases: [],
-    description: 'Configure, arm, inspect, or stop an Expert Talk run',
+    name: 'discussion',
+    aliases: ['expert-talk', 'expert-opinion'],
+    description: 'Configure, arm, inspect, or stop a Discussion run',
     priority: 100,
     argumentHint: '[help|status|configure|arm|off|cancel|retry|exchange|reset]',
     completeArgs: expertTalkArgumentCompletions,

@@ -16,7 +16,7 @@ Some commands are only available in the idle state. Executing these commands whi
 | `/logout` | — | Clear credentials for the currently selected account | No |
 | `/provider` | — | Open the interactive provider manager to view, add, and remove configured providers. See [Platforms & Models — `/provider` and provider management](../configuration/providers.md#provider-—-interactive-provider-management) | Yes |
 | `/model` | — | Switch the LLM model used in the current session | Yes |
-| `/secondary-model` | `/subagent-model` | Pick the default model for subagents (writes `[secondary_model] default_model`; see the [subagent model pool](../configuration/config-files.md#subagent-model-pool)). Visible when the subagent model pool experiment is enabled | Yes |
+| `/secondary-model` | `/subagent-model` | Pick the default model for subagents (writes `[secondary_model] default_model`; see the [subagent model pool](../configuration/config-files.md#subagent-model-pool)). Visible when secondary-model routing is enabled | Yes |
 | `/settings` | `/config` | Open the settings panel inside the TUI | Yes |
 | `/experiments` | `/experimental` | Open the experimental feature panel | Yes |
 | `/permission` | — | Select a permission mode | Yes |
@@ -53,7 +53,7 @@ Some commands are only available in the idle state. Executing these commands whi
 | `/plan clear` | — | Clear the current plan | No |
 | `/dynamic_workflow on\|off` | — | Turn dynamic_workflow mode on or off without sending a prompt. | Yes |
 | `/dynamic_workflow <task>` | — | Turn dynamic_workflow mode on, then send `<task>` as a normal prompt. If the turn completes normally, dynamic_workflow mode turns off automatically. In `manual` permission mode, Pythinker Code asks whether to switch to `auto` or `yolo` before starting. | No |
-| `/expert-talk [help\|status\|configure\|arm\|off\|cancel\|retry\|exchange\|reset]` | — | Configure, arm, inspect, cancel, or retry an automatic two-model Expert Talk run | Yes |
+| `/discussion [help\|status\|configure\|arm\|off\|cancel\|retry\|exchange\|reset]` | `/expert-talk`, `/expert-opinion` | Configure, arm, inspect, cancel, or retry an automatic two-model Discussion run | Yes |
 | `/tower [status\|on\|off\|teardown]` | — | Report tower status, turn workspace-wide tower coordination on or off, or ask the active tower to stop all agents | Yes |
 | `/tower <objective>` | — | Turn tower mode on and send `<objective>` as the shared objective for coordinated subagents | No |
 | `/goal [...]` | — | Start or manage an autonomous goal | See below |
@@ -64,7 +64,7 @@ Some commands are only available in the idle state. Executing these commands whi
 
 `/tower` is experimental and hidden by default. Set `PYTHINKER_CODE_EXPERIMENTAL_TOWER=1` before starting Pythinker Code CLI to enable it. It requires the `agent-core-v2` engine and is unavailable when `PYTHINKER_CODE_LEGACY_FLAG=1`. A workspace can have one active tower at a time.
 
-`/expert-talk` is experimental and hidden by default. Set `PYTHINKER_CODE_EXPERIMENTAL_EXPERT_TALK=1` before starting Pythinker Code CLI to enable it. It requires the v2 engine. The configured Fusion Lead and Peer Expert persist in the session. `/expert-talk` or `/expert-talk arm` applies the pair to the next accepted message only; `/expert-talk off` disarms it. Both openings, both reciprocal reviews, and a fresh Fusion Lead answer then run automatically with read-only tools. `/expert-talk retry` starts the complete protocol again with a new run.
+`/discussion` is experimental and hidden by default. Set `PYTHINKER_CODE_EXPERIMENTAL_EXPERT_TALK=1` before starting Pythinker Code CLI to enable it. It requires the v2 engine. The configured Fusion Lead, Peer Expert, and role efforts persist in the session. `/discussion` or `/discussion arm` applies the pair to the next accepted message only; `/discussion off` disarms it. Both openings, both reciprocal reviews, and a fresh Fusion Lead answer then run automatically with read-only tools. `/discussion retry` starts the complete protocol again with a new run.
 
 ## Autonomous Goal
 

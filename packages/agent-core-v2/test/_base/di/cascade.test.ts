@@ -110,6 +110,25 @@ afterEach(() => {
 });
 
 describe('cascade engine — mechanism matrix', () => {
+  it('batches eager activation until the final resume', () => {
+    const ix = makeContainer();
+    ix.cascade.suspendActivation();
+    ix.cascade.suspendActivation();
+
+    ix.provide(IRoot, new SyncDescriptor(Root));
+    expect(ix.cascade.stateOf(IRoot)).toBe('Pending');
+    expect(events).toEqual([]);
+
+    ix.cascade.resumeActivation();
+    expect(ix.cascade.stateOf(IRoot)).toBe('Pending');
+    expect(events).toEqual([]);
+
+    ix.cascade.resumeActivation();
+    expect(ix.cascade.stateOf(IRoot)).toBe('Active');
+    expect(events).toEqual(['+root']);
+    ix.dispose();
+  });
+
   it('1. provide X auto-activates dependents from Pending', () => {
     const ix = makeContainer();
     events = [];

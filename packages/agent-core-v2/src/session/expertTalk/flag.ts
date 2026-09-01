@@ -4,7 +4,7 @@ export const EXPERT_TALK_FLAG_ID = 'expert_talk';
 
 export const expertTalkFlag: FlagDefinitionInput = {
   id: EXPERT_TALK_FLAG_ID,
-  title: 'Expert Talk',
+  title: 'Discussion',
   description: 'Combine two models through independent analysis, peer review, and fusion.',
   env: 'PYTHINKER_CODE_EXPERIMENTAL_EXPERT_TALK',
   default: false,

@@ -2,6 +2,11 @@ import { createHash } from 'node:crypto';
 
 import { Error2, ErrorCodes } from '#/errors';
 import type { Model } from '#/kosong/model/catalog';
+import {
+  modelSupportsThinking,
+  modelSupportsThinkingEffort,
+  normalizeRequestedThinkingEffort,
+} from '#/kosong/model/thinking';
 
 import {
   EXPERT_TALK_RESULT_VERSION,
@@ -14,8 +19,8 @@ import {
 export const EXPERT_TALK_OPENING_OUTPUT_TOKENS = 4_096;
 export const EXPERT_TALK_REVIEW_OUTPUT_TOKENS = 3_072;
 export const EXPERT_TALK_FUSION_OUTPUT_TOKENS = 4_096;
-export const EXPERT_TALK_OPENING_MAX_REQUESTS = 3;
-export const EXPERT_TALK_REVIEW_MAX_REQUESTS = 2;
+export const EXPERT_TALK_OPENING_MAX_REQUESTS = 4;
+export const EXPERT_TALK_REVIEW_MAX_REQUESTS = 1;
 export const EXPERT_TALK_FUSION_MAX_REQUESTS = 2;
 export const EXPERT_TALK_PROVIDER_ATTEMPTS_PER_REQUEST = 2;
 export const EXPERT_TALK_OPENING_TOOL_RESULT_TOKENS = 8_192;
@@ -32,13 +37,41 @@ export function canonicalModelId(model: Model): string {
   return model.id;
 }
 
+export function canonicalThinkingEffort(
+  requested: string | undefined,
+  model: Model,
+): string | undefined {
+  const effort = normalizeRequestedThinkingEffort(requested);
+  if (effort === undefined) return undefined;
+  const declared = model.supportEfforts
+    ?.map((candidate) => candidate.trim().toLowerCase())
+    .filter((candidate) => candidate.length > 0) ?? [];
+  const supported = effort === 'off'
+    ? model.alwaysThinking !== true
+    : declared.length > 0
+      ? declared.includes(effort)
+      : effort === 'on' && modelSupportsThinking(model);
+  if (supported && modelSupportsThinkingEffort(effort, model, true)) return effort;
+  const options = declared.length > 0
+    ? [model.alwaysThinking === true ? undefined : 'off', ...declared].filter(Boolean).join(', ')
+    : modelSupportsThinking(model)
+      ? model.alwaysThinking === true ? 'on' : 'off, on'
+      : 'off';
+  throw new Error2(
+    ErrorCodes.EXPERT_TALK_PAIR_INVALID,
+    `Thinking effort "${requested}" is not supported by model "${model.id}". Supported efforts: ${options}.`,
+    { details: { modelId: model.id, effort, supportedEfforts: options } },
+  );
+}
+
 export function bindingFor(
   role: ExpertTalkRole,
   requestedModelId: string,
   model: Model,
   routing?: {
-    readonly environmentRevision: string;
-    readonly decisionFingerprint: string;
+    readonly environmentRevision?: string;
+    readonly decisionFingerprint?: string;
+    readonly thinkingEffort?: string;
   },
 ): ExpertTalkBindingV1 {
   const modelRevision = sha256(
@@ -66,6 +99,7 @@ export function bindingFor(
     role,
     requestedModelId,
     effectiveModelId: model.id,
+    thinkingEffort: routing?.thinkingEffort,
     protocol: model.protocol,
     provider: model.providerName,
     wireModel: model.name,
@@ -76,7 +110,9 @@ export function bindingFor(
     maxOutputSize: model.maxOutputSize,
     routingEnvironmentRevision: routing?.environmentRevision ?? modelRevision,
     routeDecisionFingerprint:
-      routing?.decisionFingerprint ?? sha256(`${requestedModelId}\u0000${modelRevision}`),
+      routing?.decisionFingerprint ?? sha256(
+        `${requestedModelId}\u0000${modelRevision}\u0000${routing?.thinkingEffort ?? ''}`,
+      ),
   };
 }
 
@@ -88,7 +124,7 @@ export function assertEligibleBinding(
   if (!capability.tool_use || capability.max_context_tokens <= 0) {
     throw new Error2(
       ErrorCodes.EXPERT_TALK_PAIR_INVALID,
-      `Model "${binding.requestedModelId}" does not support the complete Expert Talk protocol`,
+      `Model "${binding.requestedModelId}" does not support the complete Discussion protocol`,
       { details: { modelId: binding.requestedModelId } },
     );
   }
@@ -96,7 +132,7 @@ export function assertEligibleBinding(
   if (maxOutput < EXPERT_TALK_OPENING_OUTPUT_TOKENS) {
     throw new Error2(
       ErrorCodes.EXPERT_TALK_PAIR_INVALID,
-      `Model "${binding.requestedModelId}" cannot produce the required Expert Talk output`,
+      `Model "${binding.requestedModelId}" cannot produce the required Discussion output`,
       {
         details: {
           modelId: binding.requestedModelId,
@@ -133,7 +169,7 @@ export function assertDistinctBindings(
   ) {
     throw new Error2(
       ErrorCodes.EXPERT_TALK_PAIR_COLLAPSED,
-      'The configured Expert Talk pair resolves to one effective model target',
+      'The configured Discussion pair resolves to one effective model target',
       {
         details: {
           leadModelId: lead.effectiveModelId,

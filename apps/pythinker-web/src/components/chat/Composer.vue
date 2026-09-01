@@ -222,7 +222,7 @@ function collapseAndRefit(): void {
 //
 // The resting height equals the textarea's computed `min-height` (set in
 // style.css). We read it from the element instead of hard-coding.
-const RESTING_HEIGHT_FALLBACK_PX = 36;
+const RESTING_HEIGHT_FALLBACK_PX = 56;
 function restingHeightPx(el: HTMLTextAreaElement): number {
   if (typeof getComputedStyle === 'undefined') return RESTING_HEIGHT_FALLBACK_PX;
   const min = Number.parseFloat(getComputedStyle(el).minHeight);
@@ -262,6 +262,22 @@ const history = useInputHistory({ text, textareaRef, autosize, sessionId: () => 
 // keeps the keydown orchestration (arrow keys / Enter / Escape) because it also
 // juggles the mention menu and history recall.
 // ---------------------------------------------------------------------------
+function dispatchSlashCommand(cmd: string): void {
+  if (cmd === '/plan') {
+    togglePlanMode();
+    return;
+  }
+  if (cmd === '/goal') {
+    toggleGoalMode();
+    return;
+  }
+  if (cmd === '/discussion' || cmd === '/expert-talk' || cmd === '/expert-opinion') {
+    openExpertOpinion();
+    return;
+  }
+  emit('command', cmd);
+}
+
 const {
   open: slashOpen,
   items: slashItems,
@@ -273,21 +289,7 @@ const {
   textareaRef,
   autosize,
   skills: () => props.skills,
-  emitCommand: (cmd) => {
-    if (cmd === '/plan') {
-      togglePlanMode();
-      return;
-    }
-    if (cmd === '/goal') {
-      toggleGoalMode();
-      return;
-    }
-    if (cmd === '/expert-talk') {
-      openExpertOpinion();
-      return;
-    }
-    emit('command', cmd);
-  },
+  emitCommand: dispatchSlashCommand,
   historyPush: (entry) => history.push(entry),
   clearDraft,
 });
@@ -577,9 +579,14 @@ function handleSubmit(): void {
   // resolves to its prefixed menu entry (`/skill:deploy`), mirroring the TUI.
   if (quotes.value.length === 0 && trimmed) {
     const parsed = parseSlash(trimmed);
+    const command = parsed === null
+      ? ''
+      : parsed.cmd === '/expert-talk' || parsed.cmd === '/expert-opinion'
+        ? '/discussion'
+        : parsed.cmd;
     const known = parsed
       ? buildSlashItems(props.skills).find(
-          (item) => item.name === parsed.cmd || item.name === `/${SKILL_COMMAND_PREFIX}${parsed.cmd.slice(1)}`,
+          (item) => item.name === command || item.name === `/${SKILL_COMMAND_PREFIX}${command.slice(1)}`,
         )
       : undefined;
     if (parsed && known) {
@@ -592,7 +599,7 @@ function handleSubmit(): void {
       clearDraft();
       slashOpen.value = false;
       collapseAndRefit();
-      emit('command', parsed.arg ? `${parsed.cmd} ${parsed.arg}` : parsed.cmd);
+      dispatchSlashCommand(parsed.arg ? `${command} ${parsed.arg}` : command);
       return;
     }
   }
@@ -1696,6 +1703,10 @@ function selectModel(modelId: string): void {
         </Tooltip>
       </div>
 
+      <div class="discussion-row">
+        <ExpertTalkControl :models="models" trigger="widget" />
+      </div>
+
       <div class="cin-wrap">
         <SlashMenu
           v-if="slashOpen && !isMobile"
@@ -1753,8 +1764,6 @@ function selectModel(modelId: string): void {
             />
           </div>
         </Transition>
-
-        <ExpertTalkControl :models="models" trigger="widget" />
 
         <div class="input-row">
           <span v-if="workMode" ref="workModePillRef" class="wm-pill">
@@ -2388,6 +2397,14 @@ function selectModel(modelId: string): void {
     padding: 14px 16px 8px
 }
 
+.discussion-row {
+    padding: var(--space-3) var(--space-4) 0
+}
+
+.discussion-row:not(:has(.expert-talk__one-shot)) {
+    display: none
+}
+
 
 .input-row {
     position: relative;
@@ -2436,7 +2453,7 @@ function selectModel(modelId: string): void {
     font-size: var(--content-font-size);
     text-autospace: normal;
     background: transparent;
-    min-height: 36px;
+    min-height: 56px;
     max-height: 25vh;
     overflow-y: auto;
     scrollbar-width: none;

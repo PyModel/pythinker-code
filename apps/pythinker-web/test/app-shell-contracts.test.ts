@@ -8,6 +8,10 @@ const icons = readFileSync(join(import.meta.dirname, '../src/lib/icons.ts'), 'ut
 const composer = readFileSync(join(import.meta.dirname, '../src/components/chat/Composer.vue'), 'utf8');
 const chatDock = readFileSync(join(import.meta.dirname, '../src/components/chat/ChatDock.vue'), 'utf8');
 const conversationPane = readFileSync(join(import.meta.dirname, '../src/components/chat/ConversationPane.vue'), 'utf8');
+const expertTalkExchange = readFileSync(
+  join(import.meta.dirname, '../src/components/chat/ExpertTalkExchange.vue'),
+  'utf8',
+);
 const mobileSheet = readFileSync(join(import.meta.dirname, '../src/components/mobile/MobileSettingsSheet.vue'), 'utf8');
 const sidebar = readFileSync(join(import.meta.dirname, '../src/components/Sidebar.vue'), 'utf8');
 const workspaceGroup = readFileSync(join(import.meta.dirname, '../src/components/WorkspaceGroup.vue'), 'utf8');
@@ -60,6 +64,17 @@ describe('app shell contracts', () => {
     expect(app).toContain('.panel-launcher :deep(.expert-talk__launcher) { grid-column: 1 / -1; }');
   });
 
+  it('places armed Discussion above a taller prompt without a toolbar duplicate', () => {
+    expect(composer).toMatch(/<div class="discussion-row">[\s\S]*?trigger="widget"[\s\S]*?<\/div>\s*<div class="cin-wrap">/);
+    expect(composer).toMatch(/\.ph\s*\{[^}]*min-height: 56px;/s);
+  });
+
+  it('contains both Discussion reasoning streams in equal-height panes', () => {
+    expect(expertTalkExchange).toContain('--expert-talk-reasoning-height: clamp(11rem, 24vh, 18rem);');
+    expect(expertTalkExchange).toMatch(/\.expert-talk__thinking\s*\{[^}]*block-size: var\(--expert-talk-reasoning-height\);/s);
+    expect(expertTalkExchange).toMatch(/\.expert-talk__thinking\s*\{[^}]*overflow: auto;[^}]*scrollbar-gutter: stable;/s);
+  });
+
   it('offers Expert Opinion as a dedicated new-session mode', () => {
     expect(sidebar).toContain('createExpertOpinion: [];');
     expect(sidebar).toContain("emit('createExpertOpinion')");
@@ -71,6 +86,10 @@ describe('app shell contracts', () => {
     expect(expertOpinionIcon).toContain('class="ptx ptx-expert-opinion"');
     expect(expertOpinionIcon).toContain('class="sparkle"');
     expect(app).toContain('@create-expert-opinion="handleCreateExpertOpinionSession"');
+    expect(app).toContain('const configured = client.expertTalk.preferredPair.value');
+    expect(app).toContain('if (configuredPair === undefined) {');
+    expect(app).toContain('workspaceId,\n    configuredPair,');
+    expect(app).not.toContain('configuredPair?.fusionLeadModelId ?? eligibleModels[0]?.id');
   });
 
   it('opens Explorer from workspace hover actions', () => {

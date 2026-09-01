@@ -7,9 +7,9 @@ import { expertTalkContextKey } from '../../composables/expertTalkContext';
 import Button from '../ui/Button.vue';
 import Dialog from '../ui/Dialog.vue';
 import Field from '../ui/Field.vue';
-import FilterSelect from '../ui/FilterSelect.vue';
 import Icon from '../ui/Icon.vue';
 import Pill from '../ui/Pill.vue';
+import SecondaryModelPicker from '../settings/SecondaryModelPicker.vue';
 
 const ExpertTalkExchange = defineAsyncComponent(() => import('./ExpertTalkExchange.vue'));
 
@@ -27,6 +27,8 @@ const { t } = useI18n();
 const open = ref(false);
 const leadModelId = ref('');
 const peerModelId = ref('');
+const leadThinkingEffort = ref('');
+const peerThinkingEffort = ref('');
 
 const models = computed(() => props.models.filter((model) =>
   model.maxContextSize > 0 &&
@@ -48,19 +50,20 @@ const modelGroups = computed(() => {
       models: providerModels.toSorted((a, b) => modelLabel(a.id).localeCompare(modelLabel(b.id))),
     }));
 });
-const modelOptions = computed(() => modelGroups.value.flatMap((group) =>
-  group.models.map((model) => ({
-    value: model.id,
-    label: modelLabel(model.id),
-    group: group.provider,
-  })),
-));
+const modelPickerGroups = computed(() => modelGroups.value.map((group) => ({
+  provider: group.provider,
+  options: group.models.map((model) => ({ id: model.id, label: modelLabel(model.id) })),
+})));
+const modelInfoById = computed<Record<string, AppModel>>(() =>
+  Object.fromEntries(props.models.map((model) => [model.id, model])),
+);
 const status = computed(() => expertTalk?.status.value);
 const run = computed(() => expertTalk?.run.value);
 const available = computed(() => expertTalk?.available.value === true);
 const active = computed(() => run.value?.state === 'running');
 const armed = computed(() => status.value?.activation.state === 'armed');
 const configuredPair = computed(() => status.value?.config);
+const preferredPair = computed(() => expertTalk?.preferredPair.value ?? configuredPair.value);
 const armedLead = computed(() => configuredPair.value === null || configuredPair.value === undefined
   ? ''
   : modelLabel(configuredPair.value.fusionLeadModelId));
@@ -88,12 +91,11 @@ function modelLabel(modelId: string): string {
 }
 
 function initializePair(): void {
-  const configured = status.value?.config;
-  const first = models.value[0]?.id ?? '';
-  leadModelId.value = configured?.fusionLeadModelId ?? first;
-  peerModelId.value = configured?.peerModelId
-    ?? models.value.find((model) => model.id !== leadModelId.value)?.id
-    ?? '';
+  const configured = preferredPair.value;
+  leadModelId.value = configured?.fusionLeadModelId ?? '';
+  peerModelId.value = configured?.peerModelId ?? '';
+  leadThinkingEffort.value = configured?.fusionLeadThinkingEffort ?? '';
+  peerThinkingEffort.value = configured?.peerThinkingEffort ?? '';
 }
 
 watch(open, (next) => {
@@ -105,12 +107,12 @@ function openDialog(): void {
 }
 
 async function activate(): Promise<void> {
-  const pair = configuredPair.value;
+  const pair = preferredPair.value;
   if (!expertTalk || pair === null || pair === undefined || active.value || armed.value) {
     openDialog();
     return;
   }
-  await expertTalk.useForNextMessage(pair.fusionLeadModelId, pair.peerModelId);
+  await expertTalk.useForNextMessage(pair);
 }
 
 function cancelActive(): boolean {
@@ -123,8 +125,23 @@ defineExpose({ available, openDialog, activate, cancelActive });
 
 async function useNext(): Promise<void> {
   if (!expertTalk || !pairValid.value) return;
-  await expertTalk.useForNextMessage(leadModelId.value, peerModelId.value);
+  await expertTalk.useForNextMessage({
+    fusionLeadModelId: leadModelId.value,
+    peerModelId: peerModelId.value,
+    fusionLeadThinkingEffort: leadThinkingEffort.value || undefined,
+    peerThinkingEffort: peerThinkingEffort.value || undefined,
+  });
   if (expertTalk.error.value === undefined) open.value = false;
+}
+
+function setLead(selection: { model: string; effort?: string }): void {
+  leadModelId.value = selection.model;
+  leadThinkingEffort.value = selection.effort ?? '';
+}
+
+function setPeer(selection: { model: string; effort?: string }): void {
+  peerModelId.value = selection.model;
+  peerThinkingEffort.value = selection.effort ?? '';
 }
 
 async function buildFromFusion(answer: string): Promise<void> {
@@ -147,7 +164,10 @@ async function buildFromFusion(answer: string): Promise<void> {
       :aria-label="t('expertTalk.armedLabel', { lead: armedLead, peer: armedPeer })"
       @click="openDialog"
     >
-      <span class="expert-talk__one-shot-title">{{ t('expertTalk.oneShot') }}</span>
+      <span class="expert-talk__one-shot-title">
+        <Icon name="sparkles" size="sm" />
+        {{ t('expertTalk.oneShot') }}
+      </span>
       <span class="expert-talk__one-shot-pair">
         <span class="expert-talk__one-shot-lead">◆ {{ armedLead }}</span>
         <span aria-hidden="true">⊕</span>
@@ -165,7 +185,7 @@ async function buildFromFusion(answer: string): Promise<void> {
       <Icon name="sparkles" size="md" />
       <span>{{ triggerLabel }}</span>
     </button>
-    <Pill v-else-if="trigger === 'pill'" :active="armed || active" :aria-pressed="armed" @click="openDialog">
+    <Pill v-else-if="trigger === 'pill' && active" active @click="openDialog">
       <Icon name="sparkles" size="sm" />
       <span>{{ triggerLabel }}</span>
     </Pill>
@@ -188,26 +208,34 @@ async function buildFromFusion(answer: string): Promise<void> {
           </div>
           <div class="expert-talk__fields">
             <Field :label="t('expertTalk.lead')" :hint="t('expertTalk.leadHint')">
-              <FilterSelect
-                v-model="leadModelId"
+              <SecondaryModelPicker
                 class="expert-talk__model-select"
-                :label="''"
-                :aria-label="`${t('expertTalk.lead')}: ${modelLabel(leadModelId)}`"
-                :options="modelOptions"
+                :model-value="leadModelId"
+                :effort="leadThinkingEffort"
+                :groups="modelPickerGroups"
+                :model-info-by-id="modelInfoById"
+                :allow-empty="false"
+                :empty-label="t('expertTalk.selectModel')"
+                :aria-label="t('expertTalk.lead')"
                 :disabled="active || armed || expertTalk?.busy.value"
+                @select="setLead"
               />
             </Field>
             <span class="expert-talk__exchange" aria-hidden="true">
               <Icon name="chevron-right" size="md" />
             </span>
             <Field :label="t('expertTalk.peer')" :hint="t('expertTalk.peerHint')">
-              <FilterSelect
-                v-model="peerModelId"
+              <SecondaryModelPicker
                 class="expert-talk__model-select"
-                :label="''"
-                :aria-label="`${t('expertTalk.peer')}: ${modelLabel(peerModelId)}`"
-                :options="modelOptions"
+                :model-value="peerModelId"
+                :effort="peerThinkingEffort"
+                :groups="modelPickerGroups"
+                :model-info-by-id="modelInfoById"
+                :allow-empty="false"
+                :empty-label="t('expertTalk.selectModel')"
+                :aria-label="t('expertTalk.peer')"
                 :disabled="active || armed || expertTalk?.busy.value"
+                @select="setPeer"
               />
             </Field>
           </div>
@@ -318,6 +346,9 @@ async function buildFromFusion(answer: string): Promise<void> {
 }
 
 .expert-talk__one-shot-title {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
   color: #a78bfa;
   font-weight: var(--weight-semibold);
 }
@@ -399,22 +430,10 @@ async function buildFromFusion(answer: string): Promise<void> {
   width: 100%;
 }
 
-.expert-talk__model-select :deep(.filter-select__trigger) {
+.expert-talk__model-select :deep(.sm-picker__trigger) {
   width: 100%;
   height: 38px;
   justify-content: space-between;
-}
-
-.expert-talk__model-select :deep(.filter-select__menu) {
-  right: auto;
-  left: 0;
-  width: 100%;
-  min-width: 100%;
-  max-height: min(280px, calc(100vh - 64px));
-}
-
-.expert-talk__model-select :deep(.ui-menu-item) {
-  min-width: 0;
 }
 
 .expert-talk__pair :deep(.ui-field__hint) {

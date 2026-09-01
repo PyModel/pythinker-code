@@ -259,6 +259,7 @@ describe('useModelProviderState thinking on model selection', () => {
   const persistSessionProfileMock = vi.fn();
 
   beforeEach(() => {
+    window.localStorage.clear();
     apiMock.updateSession.mockReset();
     apiMock.updateSession.mockResolvedValue({});
     apiMock.listModels.mockReset();
@@ -562,13 +563,13 @@ describe('useModelProviderState thinking on model selection', () => {
     expect(apiMock.setConfig).toHaveBeenCalledWith({ thinking: { enabled: true } });
   });
 
-  it('persists the thinking pick as the global default on a model switch', async () => {
+  it('does not persist a derived thinking default on a model switch', async () => {
     const state = createState({ defaultModel: booleanAppModel.id });
     const provider = createModelProvider(state);
 
     await provider.setModel(effortAppModel.id);
 
-    expect(apiMock.setConfig).toHaveBeenCalledWith({ thinking: { enabled: true, effort: 'high' } });
+    expect(apiMock.setConfig).not.toHaveBeenCalled();
   });
 
   it('does not write the global thinking config when re-selecting the current model', async () => {

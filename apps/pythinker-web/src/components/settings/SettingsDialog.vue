@@ -18,6 +18,7 @@ import type {
 } from '../../api/types';
 import { useDialogFocus } from '../../composables/useDialogFocus';
 import { useConfirmDialog } from '../../composables/useConfirmDialog';
+import { useDiscussionPreferences } from '../../composables/useDiscussionPreferences';
 import { expertTalkContextKey } from '../../composables/expertTalkContext';
 import {
   uiFontScaleForSize,
@@ -44,6 +45,7 @@ import SecondaryModelPicker from './SecondaryModelPicker.vue';
 
 const { t } = useI18n();
 const expertTalk = inject(expertTalkContextKey);
+const { showReasoning, setShowReasoning } = useDiscussionPreferences();
 
 const props = defineProps<{
   colorScheme: ColorScheme;
@@ -574,30 +576,48 @@ const expertOpinionEnabled = computed(() =>
 );
 const expertOpinionLeadModelId = ref('');
 const expertOpinionPeerModelId = ref('');
+const expertOpinionLeadThinkingEffort = ref('');
+const expertOpinionPeerThinkingEffort = ref('');
+const expertOpinionPairDirty = ref(false);
+const expertOpinionPreferredPair = computed(() => expertTalk?.preferredPair.value);
 const expertOpinionPairValid = computed(() =>
   expertOpinionLeadModelId.value !== expertOpinionPeerModelId.value &&
   expertOpinionModelIds.value.has(expertOpinionLeadModelId.value) &&
   expertOpinionModelIds.value.has(expertOpinionPeerModelId.value),
 );
 const expertOpinionPairSaved = computed(() =>
-  expertOpinionStatus.value?.config?.fusionLeadModelId === expertOpinionLeadModelId.value &&
-  expertOpinionStatus.value.config.peerModelId === expertOpinionPeerModelId.value,
+  expertOpinionPreferredPair.value?.fusionLeadModelId === expertOpinionLeadModelId.value &&
+  expertOpinionPreferredPair.value?.peerModelId === expertOpinionPeerModelId.value &&
+  (expertOpinionPreferredPair.value?.fusionLeadThinkingEffort ?? '') === expertOpinionLeadThinkingEffort.value &&
+  (expertOpinionPreferredPair.value?.peerThinkingEffort ?? '') === expertOpinionPeerThinkingEffort.value,
 );
 
 function syncExpertOpinionPair(): void {
-  const configured = expertOpinionStatus.value?.config;
-  const first = expertOpinionModels.value[0]?.id ?? '';
-  expertOpinionLeadModelId.value = configured?.fusionLeadModelId ?? first;
-  expertOpinionPeerModelId.value = configured?.peerModelId
-    ?? expertOpinionModels.value.find((model) => model.id !== expertOpinionLeadModelId.value)?.id
-    ?? '';
+  if (expertOpinionPairDirty.value) return;
+  const configured = expertOpinionPreferredPair.value ?? expertOpinionStatus.value?.config;
+  expertOpinionLeadModelId.value = configured?.fusionLeadModelId ?? '';
+  expertOpinionPeerModelId.value = configured?.peerModelId ?? '';
+  expertOpinionLeadThinkingEffort.value = configured?.fusionLeadThinkingEffort ?? '';
+  expertOpinionPeerThinkingEffort.value = configured?.peerThinkingEffort ?? '';
 }
 
 watch(
-  [expertOpinionModels, () => expertOpinionStatus.value?.config],
+  [() => expertOpinionStatus.value?.config, () => expertOpinionPreferredPair.value],
   syncExpertOpinionPair,
   { immediate: true, deep: true },
 );
+
+function setExpertOpinionLead(selection: { model: string; effort?: string }): void {
+  expertOpinionLeadModelId.value = selection.model;
+  expertOpinionLeadThinkingEffort.value = selection.effort ?? '';
+  expertOpinionPairDirty.value = true;
+}
+
+function setExpertOpinionPeer(selection: { model: string; effort?: string }): void {
+  expertOpinionPeerModelId.value = selection.model;
+  expertOpinionPeerThinkingEffort.value = selection.effort ?? '';
+  expertOpinionPairDirty.value = true;
+}
 
 async function setExpertOpinionEnabled(value: boolean): Promise<void> {
   if (!value && expertOpinionStatus.value?.activation.state === 'armed') {
@@ -607,11 +627,16 @@ async function setExpertOpinionEnabled(value: boolean): Promise<void> {
 }
 
 async function saveExpertOpinionPair(): Promise<void> {
-  if (!expertOpinionPairValid.value) return;
-  await expertTalk?.configurePair(
-    expertOpinionLeadModelId.value,
-    expertOpinionPeerModelId.value,
-  );
+  if (!expertTalk || !expertOpinionPairValid.value) return;
+  await expertTalk.configurePair({
+    fusionLeadModelId: expertOpinionLeadModelId.value,
+    peerModelId: expertOpinionPeerModelId.value,
+    fusionLeadThinkingEffort: expertOpinionLeadThinkingEffort.value || undefined,
+    peerThinkingEffort: expertOpinionPeerThinkingEffort.value || undefined,
+  });
+  if (expertTalk.error.value !== undefined) return;
+  expertOpinionPairDirty.value = false;
+  syncExpertOpinionPair();
 }
 
 function expertOpinionModelAvailable(modelId: string): boolean {
@@ -1174,6 +1199,19 @@ function archiveTime(iso: string): string {
               />
             </div>
 
+            <div class="row">
+              <span class="rlabel">
+                {{ t('settings.expertOpinion.showReasoning') }}
+                <span class="hint">{{ t('settings.expertOpinion.showReasoningHint') }}</span>
+              </span>
+              <Switch
+                data-testid="expert-opinion-show-reasoning"
+                :model-value="showReasoning"
+                :label="t('settings.expertOpinion.showReasoning')"
+                @update:model-value="setShowReasoning"
+              />
+            </div>
+
             <Banner v-if="resolvedBackend !== 'v2' || !expertTalk" variant="warning">
               {{ t('settings.expertOpinion.unavailable') }}
             </Banner>
@@ -1184,54 +1222,61 @@ function archiveTime(iso: string): string {
 
               <div class="expert-opinion-flow">
                 <Field :label="t('settings.expertOpinion.lead')" :hint="t('settings.expertOpinion.leadHint')">
-                  <Select
-                    v-model="expertOpinionLeadModelId"
+                  <SecondaryModelPicker
                     data-testid="expert-opinion-lead"
+                    :model-value="expertOpinionLeadModelId"
+                    :effort="expertOpinionLeadThinkingEffort"
+                    :groups="expertOpinionModelGroups"
+                    :model-info-by-id="modelInfoById"
+                    :allow-empty="false"
+                    :empty-label="t('settings.expertOpinion.selectModel')"
+                    :aria-label="t('settings.expertOpinion.lead')"
                     :disabled="!expertOpinionEnabled || expertTalk.busy.value"
-                  >
-                    <option
-                      v-if="expertOpinionLeadModelId && !expertOpinionModelAvailable(expertOpinionLeadModelId)"
-                      :value="expertOpinionLeadModelId"
-                      disabled
-                    >
-                      {{ t('settings.expertOpinion.missingModel', { id: expertOpinionLeadModelId }) }}
-                    </option>
-                    <optgroup v-for="group in expertOpinionModelGroups" :key="group.provider" :label="group.provider">
-                      <option v-for="model in group.options" :key="model.id" :value="model.id">
-                        {{ model.label }}
-                      </option>
-                    </optgroup>
-                  </Select>
+                    @select="setExpertOpinionLead"
+                  />
                 </Field>
 
                 <Icon class="expert-opinion-arrow" name="chevron-right" size="md" />
 
                 <Field :label="t('settings.expertOpinion.peer')" :hint="t('settings.expertOpinion.peerHint')">
-                  <Select
-                    v-model="expertOpinionPeerModelId"
+                  <SecondaryModelPicker
                     data-testid="expert-opinion-peer"
+                    :model-value="expertOpinionPeerModelId"
+                    :effort="expertOpinionPeerThinkingEffort"
+                    :groups="expertOpinionModelGroups"
+                    :model-info-by-id="modelInfoById"
+                    :allow-empty="false"
+                    :empty-label="t('settings.expertOpinion.selectModel')"
+                    :aria-label="t('settings.expertOpinion.peer')"
                     :disabled="!expertOpinionEnabled || expertTalk.busy.value"
-                  >
-                    <option
-                      v-if="expertOpinionPeerModelId && !expertOpinionModelAvailable(expertOpinionPeerModelId)"
-                      :value="expertOpinionPeerModelId"
-                      disabled
-                    >
-                      {{ t('settings.expertOpinion.missingModel', { id: expertOpinionPeerModelId }) }}
-                    </option>
-                    <optgroup v-for="group in expertOpinionModelGroups" :key="group.provider" :label="group.provider">
-                      <option v-for="model in group.options" :key="model.id" :value="model.id">
-                        {{ model.label }}
-                      </option>
-                    </optgroup>
-                  </Select>
+                    @select="setExpertOpinionPeer"
+                  />
                 </Field>
               </div>
 
-              <Banner v-if="expertOpinionLeadModelId === expertOpinionPeerModelId" variant="warning">
+              <Banner
+                v-if="expertOpinionLeadModelId && !expertOpinionModelAvailable(expertOpinionLeadModelId)"
+                variant="warning"
+              >
+                {{ t('settings.expertOpinion.missingModel', { id: expertOpinionLeadModelId }) }}
+              </Banner>
+              <Banner
+                v-if="expertOpinionPeerModelId && !expertOpinionModelAvailable(expertOpinionPeerModelId)"
+                variant="warning"
+              >
+                {{ t('settings.expertOpinion.missingModel', { id: expertOpinionPeerModelId }) }}
+              </Banner>
+
+              <Banner
+                v-if="expertOpinionLeadModelId && expertOpinionPeerModelId && expertOpinionLeadModelId === expertOpinionPeerModelId"
+                variant="warning"
+              >
                 {{ t('settings.expertOpinion.distinctRequired') }}
               </Banner>
-              <Banner v-else-if="expertOpinionStatus?.pairValidation.reason" variant="warning">
+              <Banner
+                v-else-if="expertOpinionStatus?.config && !expertOpinionPairDirty && expertOpinionStatus.pairValidation.reason"
+                variant="warning"
+              >
                 {{ expertOpinionStatus.pairValidation.reason }}
               </Banner>
               <Banner>{{ t('expertTalk.disclosure') }}</Banner>

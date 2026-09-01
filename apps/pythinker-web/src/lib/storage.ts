@@ -14,6 +14,8 @@ export const STORAGE_KEYS = {
   planArmed: 'pythinker-web.plan-armed',
   dynamicWorkflowMode: 'pythinker-web.dynamic-workflow-mode',
   goalMode: 'pythinker-web.goal-mode',
+  discussionPair: 'pythinker-web.discussion-pair',
+  discussionReasoning: 'pythinker-web.discussion-reasoning',
   uiFontSize: 'pythinker-web.ui-font-size',
   starredModels: 'pythinker-web.starred-models',
   unread: 'pythinker-web.unread',

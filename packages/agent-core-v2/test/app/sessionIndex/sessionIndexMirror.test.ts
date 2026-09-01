@@ -14,6 +14,8 @@ import { createScopedTestHost, stubPair } from '#/_base/di/test';
 import { ILogService } from '#/_base/log/log';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IFlagService } from '#/app/flag/flag';
+import { ITelemetryService, noopTelemetryService } from '#/app/telemetry/telemetry';
+import { TelemetryService } from '#/app/telemetry/telemetryService';
 import { ISessionIndexMirror } from '#/app/sessionIndex/sessionIndex';
 import {
   SESSION_INDEX_MANIFEST,
@@ -68,6 +70,13 @@ describe('SessionIndexMirror', () => {
       ScopeActivation.OnDemand,
       'storage',
     );
+    registerScopedService(
+      LifecycleScope.App,
+      ITelemetryService,
+      TelemetryService,
+      ScopeActivation.OnDemand,
+      'telemetry',
+    );
     homeDir = await fsp.mkdtemp(join(os.tmpdir(), 'session-mirror-'));
   });
 
@@ -88,6 +97,7 @@ describe('SessionIndexMirror', () => {
       stubPair(IBootstrapService, stubBootstrap(homeDir)),
       stubPair(ILogService, stubLog()),
       stubPair(IFlagService, stubFlag(flagEnabled)),
+      stubPair(ITelemetryService, noopTelemetryService),
     ]);
     disposeHost = () => {
       host.dispose();

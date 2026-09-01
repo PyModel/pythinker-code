@@ -116,6 +116,21 @@ export function fusionPrompt(input: {
   ].join('\n');
 }
 
+export function fusionRepairPrompt(invalidOutput: string): string {
+  return [
+    'EXPERT TALK FUSION REPAIR CONTRACT',
+    '',
+    'Your previous response did not match the required typed result.',
+    'Return exactly one JSON object without a Markdown fence. Do not add analysis or prose outside the object.',
+    'Use this shape:',
+    '{"version":"expert_talk_result/v1","answer":"direct answer","notes":{"consensus":[],"divergence":[],"uncertainty":[],"attribution":[{"role":"fusion_lead|peer","stage":"opening|review","claim":"material claim"}]}}',
+    'The answer must be non-empty Markdown. Every notes array is required, even when empty.',
+    '',
+    'INVALID PREVIOUS OUTPUT',
+    ...untrustedPacket('invalid-fusion-output', invalidOutput),
+  ].join('\n');
+}
+
 function untrustedPacket(name: string, value: string): readonly string[] {
   const encoded = JSON.stringify(value);
   const digest = createHash('sha256').update(encoded).digest('hex');

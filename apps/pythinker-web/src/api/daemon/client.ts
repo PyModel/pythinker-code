@@ -12,6 +12,7 @@ import type {
   AppExpertTalkRun,
   AppExpertTalkRunPage,
   AppExpertTalkListRunsOptions,
+  AppExpertTalkPair,
   AppExpertTalkStatus,
   AppServerMeta,
   AppConfig,
@@ -697,7 +698,7 @@ export class DaemonPythinkerWebApi implements PythinkerWebApi {
 
   async configureExpertTalk(
     sessionId: string,
-    input: { fusionLeadModelId: string; peerModelId: string },
+    input: AppExpertTalkPair,
     expectedVersion?: string,
   ): Promise<AppExpertTalkStatus> {
     const result = await this.http.exchange<WireExpertTalkStatus>(
@@ -707,6 +708,8 @@ export class DaemonPythinkerWebApi implements PythinkerWebApi {
         body: {
           fusion_lead_model_id: input.fusionLeadModelId,
           peer_model_id: input.peerModelId,
+          fusion_lead_thinking_effort: input.fusionLeadThinkingEffort,
+          peer_thinking_effort: input.peerThinkingEffort,
         },
         headers: expectedVersion === undefined
           ? undefined

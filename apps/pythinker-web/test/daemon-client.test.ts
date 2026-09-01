@@ -73,6 +73,8 @@ const WIRE_EXPERT_TALK_STATUS = {
   config: {
     fusion_lead_model_id: 'provider/lead',
     peer_model_id: 'provider/peer',
+    fusion_lead_thinking_effort: 'max',
+    peer_thinking_effort: 'low',
   },
   activation: { state: 'armed' as const, arm_id: 'arm_1' },
   active_run_id: 'run_1',
@@ -90,8 +92,8 @@ const WIRE_EXPERT_TALK_RUN = {
   created_at: '2026-01-01T00:00:00.000Z',
   updated_at: '2026-01-01T00:00:01.000Z',
   bindings: {
-    fusion_lead: { requested_model_id: 'provider/lead', effective_model_id: 'provider/lead' },
-    peer: { requested_model_id: 'provider/peer', effective_model_id: 'provider/peer' },
+    fusion_lead: { requested_model_id: 'provider/lead', effective_model_id: 'provider/lead', thinking_effort: 'max' },
+    peer: { requested_model_id: 'provider/peer', effective_model_id: 'provider/peer', thinking_effort: 'low' },
   },
   opening: {
     lead: {
@@ -348,13 +350,22 @@ describe('DaemonPythinkerWebApi Expert Talk', () => {
     const status = await api.getExpertTalkStatus('sess_1');
     await api.configureExpertTalk(
       'sess_1',
-      { fusionLeadModelId: 'provider/lead', peerModelId: 'provider/peer' },
+      {
+        fusionLeadModelId: 'provider/lead',
+        peerModelId: 'provider/peer',
+        fusionLeadThinkingEffort: 'max',
+        peerThinkingEffort: 'low',
+      },
       status.resourceVersion,
     );
     await api.armExpertTalk('sess_1', status.resourceVersion);
 
     expect(status.activation.armId).toBe('arm_1');
-    expect(status.config?.fusionLeadModelId).toBe('provider/lead');
+    expect(status.config).toMatchObject({
+      fusionLeadModelId: 'provider/lead',
+      fusionLeadThinkingEffort: 'max',
+      peerThinkingEffort: 'low',
+    });
     const [url, init] = vi.mocked(fetch).mock.calls[1]!;
     expect(url).toBe('http://daemon.test/api/v1/sessions/sess_1/expert-talk');
     expect(init?.method).toBe('PUT');
@@ -364,6 +375,8 @@ describe('DaemonPythinkerWebApi Expert Talk', () => {
     expect(JSON.parse(body)).toEqual({
       fusion_lead_model_id: 'provider/lead',
       peer_model_id: 'provider/peer',
+      fusion_lead_thinking_effort: 'max',
+      peer_thinking_effort: 'low',
     });
     const [armUrl, armInit] = vi.mocked(fetch).mock.calls[2]!;
     expect(armUrl).toBe('http://daemon.test/api/v1/sessions/sess_1/expert-talk:arm');
@@ -389,6 +402,10 @@ describe('DaemonPythinkerWebApi Expert Talk', () => {
     });
 
     expect(run.stage).toBe('review');
+    expect(run.bindings).toMatchObject({
+      fusionLead: { thinkingEffort: 'max' },
+      peer: { thinkingEffort: 'low' },
+    });
     expect(run.opening.peer.text).toBe('Peer opening');
     expect(run.review.peer.state).toBe('pending');
     expect(run.opening.lead).toMatchObject({

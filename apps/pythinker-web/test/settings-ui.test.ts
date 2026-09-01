@@ -1,9 +1,14 @@
-import type { AppSubagentModelPolicy, AppSubagentModelPolicyState } from '../src/api/types';
+import type {
+  AppExpertTalkPair,
+  AppExpertTalkStatus,
+  AppSubagentModelPolicy,
+  AppSubagentModelPolicyState,
+} from '../src/api/types';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { flushPromises, mount } from '@vue/test-utils';
-import { computed, ref } from 'vue';
+import { computed, defineComponent, ref } from 'vue';
 
 import {
   uiFontScaleForSize,
@@ -16,6 +21,8 @@ import ProviderForm from '../src/components/settings/ProviderForm.vue';
 import ProvidersPanel from '../src/components/settings/ProvidersPanel.vue';
 import SettingsDialog from '../src/components/settings/SettingsDialog.vue';
 import { expertTalkContextKey } from '../src/composables/expertTalkContext';
+import { useDiscussionPreferences } from '../src/composables/useDiscussionPreferences';
+import { STORAGE_KEYS } from '../src/lib/storage';
 
 const { api, confirm, copyTextToClipboard } = vi.hoisted(() => ({
   api: {
@@ -39,9 +46,22 @@ vi.mock('../src/composables/useConfirmDialog', () => ({
 }));
 vi.mock('../src/lib/clipboard', () => ({ copyTextToClipboard }));
 
+const secondaryModelPickerStub = defineComponent({
+  name: 'SecondaryModelPicker',
+  inheritAttrs: false,
+  props: {
+    modelValue: { type: String, required: true },
+    effort: { type: String, required: true },
+  },
+  emits: ['select'],
+  template: '<button v-bind="$attrs" type="button">{{ modelValue }} · {{ effort }}</button>',
+});
+
 describe('settings UI', () => {
   afterEach(() => {
     delete (window as unknown as { pythinkerDesktop?: unknown }).pythinkerDesktop;
+    useDiscussionPreferences().setShowReasoning(true);
+    localStorage.removeItem(STORAGE_KEYS.discussionReasoning);
   });
 
   it('re-reads auth readiness after a provider is saved, without a reload', async () => {
@@ -376,21 +396,32 @@ describe('settings UI', () => {
     expect(Object.keys(messages)).toEqual(['en']);
   });
 
-  it('configures Expert Talk from eligible models across every provider', async () => {
-    const currentStatus = ref({
+  it('keeps a Discussion pair draft through status refreshes and saves role efforts', async () => {
+    const currentStatus = ref<AppExpertTalkStatus>({
       feature: 'enabled' as const,
       resourceVersion: 'expert-opinion-v1',
       config: {
         fusionLeadModelId: 'provider-a/lead',
         peerModelId: 'provider-b/peer',
+        fusionLeadThinkingEffort: 'high',
+        peerThinkingEffort: 'low',
       },
       activation: { state: 'idle' as const },
       pairValidation: { state: 'valid' as const },
     });
-    const configurePair = vi.fn().mockResolvedValue(undefined);
+    const configurePair = vi.fn(async (pair: AppExpertTalkPair) => {
+      preferredPair.value = pair;
+      currentStatus.value = {
+        ...currentStatus.value,
+        resourceVersion: 'expert-opinion-v2',
+        config: pair,
+      };
+    });
+    const preferredPair = ref<AppExpertTalkPair | undefined>(currentStatus.value.config ?? undefined);
     const useForNextMessage = vi.fn().mockResolvedValue(undefined);
     const context = {
       available: computed(() => true),
+      preferredPair,
       status: computed(() => currentStatus.value),
       run: computed(() => undefined),
       runs: computed(() => []),
@@ -437,20 +468,21 @@ describe('settings UI', () => {
         config: { providers: {}, experimental: { expert_talk: true } },
         experimentalFlagStates: [flagState],
         models: [
-          { id: 'provider-a/lead', provider: 'Provider A', model: 'Lead', maxContextSize: 128_000, capabilities: ['tool_use'] },
-          { id: 'provider-b/peer', provider: 'Provider B', model: 'Peer', maxContextSize: 128_000, capabilities: ['tool-use'] },
-          { id: 'provider-c/other', provider: 'Provider C', model: 'Other', maxContextSize: 128_000, capabilities: ['tool_use'] },
+          { id: 'provider-a/lead', provider: 'Provider A', model: 'Lead', maxContextSize: 128_000, capabilities: ['tool_use', 'thinking'], supportEfforts: ['low', 'high', 'max'], defaultEffort: 'high' },
+          { id: 'provider-b/peer', provider: 'Provider B', model: 'Peer', maxContextSize: 128_000, capabilities: ['tool-use', 'thinking'], supportEfforts: ['low', 'high', 'max'], defaultEffort: 'high' },
+          { id: 'provider-c/other', provider: 'Provider C', model: 'Other', maxContextSize: 128_000, capabilities: ['tool_use', 'thinking'], supportEfforts: ['low', 'high', 'max'], defaultEffort: 'high' },
           { id: 'provider-d/text', provider: 'Provider D', model: 'Text only', maxContextSize: 128_000, capabilities: [] },
         ],
       },
       global: {
         plugins: [i18n],
         provide: { [expertTalkContextKey as symbol]: context },
+        stubs: { SecondaryModelPicker: secondaryModelPickerStub },
       },
     });
     await flushPromises();
     const tab = Array.from(document.body.querySelectorAll<HTMLButtonElement>('[role="tab"]'))
-      .find((item) => item.textContent?.trim() === 'Expert Talk');
+      .find((item) => item.textContent?.trim() === 'Discussion');
     tab!.click();
     await flushPromises();
 
@@ -460,22 +492,87 @@ describe('settings UI', () => {
     expect(panel.textContent).toContain('two-expert Fusion workflow');
     expect(panel.textContent).toContain('Fusion Lead');
     expect(panel.textContent).toContain('Peer Expert');
-    const selects = Array.from(panel.querySelectorAll<HTMLSelectElement>('select'));
-    expect(selects).toHaveLength(2);
-    expect(selects.map((select) =>
-      Array.from(select.querySelectorAll('optgroup')).map((group) => group.label)
-    )).toEqual([
-      ['Provider A', 'Provider B', 'Provider C'],
-      ['Provider A', 'Provider B', 'Provider C'],
-    ]);
-
-    selects[1]!.value = 'provider-c/other';
-    selects[1]!.dispatchEvent(new Event('change', { bubbles: true }));
+    const reasoningToggle = panel.querySelector<HTMLButtonElement>(
+      '[role="switch"][aria-label="Show reasoning stream"]',
+    )!;
+    expect(reasoningToggle.getAttribute('aria-checked')).toBe('true');
+    reasoningToggle.click();
     await flushPromises();
+    expect(useDiscussionPreferences().showReasoning.value).toBe(false);
+    expect(localStorage.getItem(STORAGE_KEYS.discussionReasoning)).toBe('false');
+    const pickers = wrapper.findAllComponents(secondaryModelPickerStub);
+    expect(pickers).toHaveLength(2);
+    expect(pickers[0]!.props()).toMatchObject({
+      modelValue: 'provider-a/lead',
+      effort: 'high',
+    });
+    expect(pickers[1]!.props()).toMatchObject({
+      modelValue: 'provider-b/peer',
+      effort: 'low',
+    });
+
+    pickers[1]!.vm.$emit('select', { model: 'provider-c/other', effort: 'max' });
+    await flushPromises();
+    currentStatus.value = {
+      ...currentStatus.value,
+      resourceVersion: 'expert-opinion-progress',
+      config: {
+        fusionLeadModelId: 'provider-a/lead',
+        peerModelId: 'provider-b/peer',
+        fusionLeadThinkingEffort: 'high',
+        peerThinkingEffort: 'low',
+      },
+    };
+    await flushPromises();
+    expect(pickers[1]!.props()).toMatchObject({
+      modelValue: 'provider-c/other',
+      effort: 'max',
+    });
     panel.querySelector<HTMLButtonElement>('[data-testid="expert-opinion-save"]')!.click();
     await flushPromises();
-    expect(configurePair).toHaveBeenCalledWith('provider-a/lead', 'provider-c/other');
+    expect(configurePair).toHaveBeenCalledWith({
+      fusionLeadModelId: 'provider-a/lead',
+      peerModelId: 'provider-c/other',
+      fusionLeadThinkingEffort: 'high',
+      peerThinkingEffort: 'max',
+    });
     expect(useForNextMessage).not.toHaveBeenCalled();
+
+    currentStatus.value = {
+      ...currentStatus.value,
+      resourceVersion: 'expert-opinion-empty',
+      config: null,
+      pairValidation: { state: 'invalid', reason: 'Select two different models.' },
+    };
+    await flushPromises();
+    expect(pickers[0]!.props()).toMatchObject({
+      modelValue: 'provider-a/lead',
+      effort: 'high',
+    });
+    expect(pickers[1]!.props()).toMatchObject({
+      modelValue: 'provider-c/other',
+      effort: 'max',
+    });
+
+    preferredPair.value = undefined;
+    await flushPromises();
+    expect(pickers.map((picker) => picker.props('modelValue'))).toEqual(['', '']);
+    expect(panel.querySelector<HTMLButtonElement>('[data-testid="expert-opinion-save"]')?.disabled).toBe(true);
+    expect(panel.textContent).not.toContain('Select two different models.');
+
+    pickers[0]!.vm.$emit('select', { model: 'provider-a/lead', effort: 'max' });
+    pickers[1]!.vm.$emit('select', { model: 'provider-b/peer', effort: 'high' });
+    await flushPromises();
+    expect(panel.textContent).not.toContain('Select two different models.');
+    expect(panel.querySelector<HTMLButtonElement>('[data-testid="expert-opinion-save"]')?.disabled).toBe(false);
+    panel.querySelector<HTMLButtonElement>('[data-testid="expert-opinion-save"]')!.click();
+    await flushPromises();
+    expect(configurePair).toHaveBeenLastCalledWith({
+      fusionLeadModelId: 'provider-a/lead',
+      peerModelId: 'provider-b/peer',
+      fusionLeadThinkingEffort: 'max',
+      peerThinkingEffort: 'high',
+    });
 
     const enabled = panel.querySelector<HTMLButtonElement>('[data-testid="expert-opinion-enabled"]')!;
     enabled.click();
@@ -769,6 +866,20 @@ describe('settings UI', () => {
     expect(css).toContain('html[data-accent=mono]');
     expect(css).toContain('html[data-color-scheme=dark][data-accent=mono]');
     expect(css).toContain('html[data-color-scheme=system][data-accent=mono]');
+  });
+
+  it('keeps secondary model menus opaque', () => {
+    const webRoot = process.cwd().endsWith('apps/pythinker-web')
+      ? process.cwd()
+      : join(process.cwd(), 'apps/pythinker-web');
+    const picker = readFileSync(
+      join(webRoot, 'src/components/settings/SecondaryModelPicker.vue'),
+      'utf8',
+    );
+
+    expect(picker.match(/background: var\(--color-surface-raised\);/gu)).toHaveLength(2);
+    expect(picker).not.toContain('--color-menu-bg-frost');
+    expect(picker).not.toContain('backdrop-filter');
   });
 
   it('exposes the message folding switches and reports both toggles', async () => {

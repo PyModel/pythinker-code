@@ -97,7 +97,7 @@ async function makeTempDir(prefix: string): Promise<string> {
  * defaultPlanMode/extraSkillDirs/mergeAllAvailableSkills — see the v2
  * `configSection.ts` registrations) and the env-binding pass, which
  * materializes `{}` for every section that declares env bindings
- * (thinking/services/loopControl/background/mcp) even with no env set.
+ * (thinking/services/loopControl/background/mcp/permission) even with no env set.
  */
 const V2_INJECTED_SECTION_DEFAULTS: Record<string, unknown> = {
   models: {},
@@ -107,6 +107,7 @@ const V2_INJECTED_SECTION_DEFAULTS: Record<string, unknown> = {
   loopControl: {},
   background: {},
   mcp: {},
+  permission: {},
   defaultPlanMode: false,
   mergeAllAvailableSkills: true,
   extraSkillDirs: [],
@@ -188,14 +189,16 @@ function stripOriginDisclosure(history: readonly unknown[]): readonly unknown[] 
 const KNOWN_DIFFS = {
   // v2's flag registry is per-domain and already carries flags v1 does not
   // have (minidb backend, subagent); v1-only flags would be the symmetric
-  // case. Parity is enforced on the intersection of ids until the registries
-  // are unified.
+  // case. The shared secondary-model flag is excluded while v2 enables it by
+  // default and v1 keeps it experimental until v1 is retired.
   getExperimentalFeatures: (
     features: readonly { id: string }[],
     other: readonly { id: string }[],
   ): readonly { id: string }[] => {
     const otherIds = new Set(other.map((feature) => feature.id));
-    return features.filter((feature) => otherIds.has(feature.id));
+    return features.filter(
+      (feature) => otherIds.has(feature.id) && feature.id !== 'secondary-model',
+    );
   },
   // `raw`: the v1 write path carries a passthrough clone of the original
   // TOML document inside the returned config; the v2 engine keeps the same
@@ -539,7 +542,7 @@ async function closeAll(...harnesses: readonly PythinkerHarness[]): Promise<void
  * and skew the comparison; the original values are restored on cleanup.
  */
 const CONFIG_ENV_PATTERN =
-  /^(PYTHINKER_MODEL_|PYTHINKER_LOOP_|PYTHINKER_MCP_|PYTHINKER_WEB_|PYTHINKER_IMAGE_|PYTHINKER_CODE_BACKGROUND_|PYTHINKER_CODE_MODEL_CATALOG_)/;
+  /^(PYTHINKER_MODEL_|PYTHINKER_LOOP_|PYTHINKER_MCP_|PYTHINKER_WEB_|PYTHINKER_IMAGE_|PYTHINKER_CODE_BACKGROUND_|PYTHINKER_CODE_MODEL_CATALOG_|PYTHINKER_CODE_DANGEROUS_COMMAND_GUARD$)/;
 
 function scrubConfigEnv(): () => void {
   const saved: Record<string, string> = {};

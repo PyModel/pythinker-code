@@ -23,19 +23,21 @@ Use `/web` in the terminal UI to open the current session in the browser.
 - Stream assistant output and tool activity
 - Review approvals and file changes
 - Browse workspace files and open them from **Explorer** in the sidebar
-- Combine two models with automatic **Expert Talk** openings, reciprocal reviews, and Fusion
+- Combine two models with automatic **Discussion** openings, reciprocal reviews, and Fusion
 - Use supported slash commands, including `/goal` and `/compact`
 - View the same session data as the terminal UI
 
-## Combine models with Expert Talk
+## Combine models with Discussion
 
-Expert Talk is experimental and requires the v2 engine. Start the web UI with the feature enabled:
+Discussion is experimental and requires the v2 engine. Start the web UI with the feature enabled:
 
 ```sh
 PYTHINKER_CODE_EXPERIMENTAL_EXPERT_TALK=1 pythinker web
 ```
 
-Select **Expert Talk**, choose different Fusion Lead and Peer Expert models, then select **Use for next message**. For that message, both models create read-only openings and review each other. The Fusion Lead then creates one fresh final answer automatically. The normal transcript shows that answer; expand the Expert Talk panel to inspect the openings, reviews, attribution, and usage.
+Select **Discussion**, choose different Fusion Lead and Peer Expert models and their thinking efforts, then select **Use for next message**. For that message, both models create read-only openings and review each other. The Fusion Lead then creates one fresh final answer automatically. The normal transcript shows that answer, and the Discussion panel stays expanded when the exchange completes so you can inspect the openings, reviews, comparison notes, attribution, and usage.
+
+Open **Settings → Discussion** and turn off **Show reasoning stream** to hide model reasoning without hiding tools, answers, or metrics. The preference applies immediately and remains selected in that browser.
 
 The selected pair remains available in the session, but each activation applies to one accepted message. Press `Esc` to cancel an active run. **Take** and **Build from Fusion** remain explicit actions.
 

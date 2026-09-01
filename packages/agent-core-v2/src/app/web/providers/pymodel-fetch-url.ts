@@ -1,4 +1,5 @@
-import { Error2, ErrorCodes } from '#/errors';
+import { ITelemetryService, noopTelemetryService } from '#/app/telemetry/telemetry';
+import { Error2, ErrorCodes, isError2 } from '#/errors';
 
 import { HttpFetchError, type UrlFetcher, type UrlFetchResult } from '../tools/fetch-url-types';
 
@@ -14,6 +15,7 @@ export interface PyModelFetchURLProviderOptions {
   customHeaders?: Record<string, string>;
   localFallback: UrlFetcher;
   fetchImpl?: typeof fetch;
+  telemetry?: ITelemetryService;
 }
 
 export class PyModelFetchURLProvider implements UrlFetcher {
@@ -24,6 +26,7 @@ export class PyModelFetchURLProvider implements UrlFetcher {
   private readonly customHeaders: Record<string, string>;
   private readonly localFallback: UrlFetcher;
   private readonly fetchImpl: typeof fetch;
+  private readonly telemetry: ITelemetryService;
 
   constructor(options: PyModelFetchURLProviderOptions) {
     this.tokenProvider = options.tokenProvider;
@@ -33,17 +36,28 @@ export class PyModelFetchURLProvider implements UrlFetcher {
     this.customHeaders = options.customHeaders ?? {};
     this.localFallback = options.localFallback;
     this.fetchImpl = options.fetchImpl ?? globalThis.fetch.bind(globalThis);
+    this.telemetry = options.telemetry ?? noopTelemetryService;
   }
 
   async fetch(
     url: string,
     options?: { toolCallId?: string; signal?: AbortSignal },
   ): Promise<UrlFetchResult> {
+    const attempt: { credentialResolved: boolean } = { credentialResolved: false };
     try {
-      const content = await this.fetchViaPyModel(url, options?.toolCallId, options?.signal);
+      const content = await this.fetchViaPyModel(
+        url,
+        options?.toolCallId,
+        options?.signal,
+        attempt,
+      );
       return { content, kind: 'extracted' };
     } catch (error) {
       if (options?.signal?.aborted === true) throw error;
+      this.telemetry.track2('web_fetch_fallback', {
+        error_type: classifyFetchError(error),
+        used_api_key: attempt.credentialResolved,
+      });
       return this.localFallback.fetch(url, options ?? {});
     }
   }
@@ -52,9 +66,10 @@ export class PyModelFetchURLProvider implements UrlFetcher {
     url: string,
     toolCallId: string | undefined,
     signal: AbortSignal | undefined,
+    attempt: { credentialResolved: boolean },
   ): Promise<string> {
     const bodyJson = JSON.stringify({ url });
-    const response = await this.post(bodyJson, toolCallId, signal);
+    const response = await this.post(bodyJson, toolCallId, signal, attempt);
 
     if (response.status !== 200) {
       let detail = '';
@@ -74,8 +89,10 @@ export class PyModelFetchURLProvider implements UrlFetcher {
     bodyJson: string,
     toolCallId: string | undefined,
     signal: AbortSignal | undefined,
+    attempt: { credentialResolved: boolean },
   ): Promise<Response> {
     const accessToken = await this.resolveApiKey();
+    attempt.credentialResolved = true;
     return this.fetchImpl(this.baseUrl, {
       method: 'POST',
       headers: {
@@ -110,4 +127,11 @@ export class PyModelFetchURLProvider implements UrlFetcher {
       'PyModel fetch service is not configured: missing API key or token provider.',
     );
   }
+}
+
+function classifyFetchError(error: unknown): string {
+  if (error instanceof HttpFetchError) return `http_${String(error.status)}`;
+  if (isError2(error)) return error.code;
+  if (error instanceof Error) return error.name;
+  return 'Unknown';
 }

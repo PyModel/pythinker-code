@@ -433,6 +433,38 @@ describe('groupMessagesIntoSnapshot (cold path)', () => {
       { role: 'user', content: parts, toolCalls: [], origin: { kind: 'user' } },
     ]);
 
+  it('keeps the triggering prompt id on user and user-slash turns', () => {
+    const snapshot = groupMessagesIntoSnapshot([
+      {
+        id: 'prompt-user',
+        role: 'user',
+        content: [{ type: 'text', text: 'hello' }],
+        toolCalls: [],
+        origin: { kind: 'user' },
+      },
+      {
+        id: 'prompt-skill',
+        role: 'user',
+        content: [{ type: 'text', text: 'run the skill' }],
+        toolCalls: [],
+        origin: { kind: 'skill_activation', trigger: 'user-slash' } as { kind: string },
+      },
+      {
+        id: 'task-message',
+        role: 'user',
+        content: [{ type: 'text', text: 'background result' }],
+        toolCalls: [],
+        origin: { kind: 'task', taskId: 'task-1' } as { kind: string },
+      },
+    ]);
+
+    expect(
+      snapshot.items
+        .filter((item) => item.kind === 'turn')
+        .map((turn) => turn.kind === 'turn' && turn.triggerPromptId),
+    ).toEqual(['prompt-user', 'prompt-skill', undefined]);
+  });
+
   it('groups flat messages into turns with folded tool results', () => {
     const snapshot = groupMessagesIntoSnapshot([
       { role: 'system', content: [{ type: 'text', text: 'sys' }] },
@@ -1794,5 +1826,85 @@ describe('foldWireRecordFacts (cold facts)', () => {
     if (second?.kind !== 'turn') throw new Error('expected turn');
     expect(second.state).toBe('failed');
     expect(second.error).toBe('boom');
+  });
+
+  it('matches terminal facts by prompt id before legacy ordinal fallback', () => {
+    const base = groupMessagesIntoSnapshot([
+      {
+        role: 'user',
+        content: [{ type: 'text', text: 'legacy' }],
+        toolCalls: [],
+        origin: { kind: 'user' },
+      },
+      {
+        id: 'prompt-new',
+        role: 'user',
+        content: [{ type: 'text', text: 'identified' }],
+        toolCalls: [],
+        origin: { kind: 'user' },
+      },
+    ]);
+    const folded = foldWireRecordFacts(
+      [
+        { type: 'turn.prompt', promptId: 'prompt-new', origin: { kind: 'user' }, time: 1 },
+        { type: 'turn.ended', turnId: 0, reason: 'failed', error: { message: 'new failed' }, time: 2 },
+        { type: 'turn.prompt', origin: { kind: 'user' }, time: 3 },
+        { type: 'turn.ended', turnId: 1, reason: 'cancelled', time: 4 },
+      ],
+      base,
+    );
+    const turns = folded.items.filter((item) => item.kind === 'turn');
+
+    expect(turns[0]).toMatchObject({ prompt: 'legacy', state: 'cancelled' });
+    expect(turns[1]).toMatchObject({
+      prompt: 'identified',
+      triggerPromptId: 'prompt-new',
+      state: 'failed',
+      error: 'new failed',
+    });
+  });
+
+  it('does not shift terminal facts after an undone prompt', () => {
+    const base = groupMessagesIntoSnapshot([
+      {
+        id: 'prompt-one',
+        role: 'user',
+        content: [{ type: 'text', text: 'one' }],
+        toolCalls: [],
+        origin: { kind: 'user' },
+      },
+      {
+        id: 'prompt-three',
+        role: 'user',
+        content: [{ type: 'text', text: 'three' }],
+        toolCalls: [],
+        origin: { kind: 'user' },
+      },
+    ]);
+    const folded = foldWireRecordFacts(
+      [
+        { type: 'turn.prompt', promptId: 'prompt-one', origin: { kind: 'user' }, time: 1 },
+        { type: 'context.append_message', message: { id: 'prompt-one', role: 'user', origin: { kind: 'user' } }, time: 2 },
+        { type: 'turn.ended', turnId: 0, reason: 'completed', time: 3 },
+        { type: 'turn.prompt', promptId: 'prompt-two', origin: { kind: 'user' }, time: 4 },
+        { type: 'context.append_message', message: { id: 'prompt-two', role: 'user', origin: { kind: 'user' } }, time: 5 },
+        { type: 'turn.ended', turnId: 1, reason: 'completed', time: 6 },
+        { type: 'context.undo', count: 1, time: 7 },
+        { type: 'turn.prompt', promptId: 'prompt-three', origin: { kind: 'user' }, time: 8 },
+        { type: 'context.append_message', message: { id: 'prompt-three', role: 'user', origin: { kind: 'user' } }, time: 9 },
+        { type: 'turn.ended', turnId: 2, reason: 'failed', error: { message: 'three failed' }, time: 10 },
+      ],
+      base,
+    );
+    const turns = folded.items.filter((item) => item.kind === 'turn');
+
+    expect(turns).toHaveLength(2);
+    expect(turns[0]).toMatchObject({ prompt: 'one', state: 'completed' });
+    expect(turns[1]).toMatchObject({
+      prompt: 'three',
+      triggerPromptId: 'prompt-three',
+      state: 'failed',
+      error: 'three failed',
+    });
   });
 });

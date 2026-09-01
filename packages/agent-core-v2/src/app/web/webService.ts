@@ -4,6 +4,7 @@ import { IOAuthTokenService } from '#/app/auth/auth';
 import { SERVICES_SECTION, type ServicesConfig } from '#/app/auth/configSection';
 import { IAgentIdentity } from '#/app/agentIdentity/agentIdentity';
 import { IConfigService } from '#/app/config/config';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
 
 import { LocalFetchURLProvider } from './providers/local-fetch-url';
 import { PyModelFetchURLProvider } from './providers/pymodel-fetch-url';
@@ -20,6 +21,7 @@ export class WebFetchService implements IWebFetchService {
     @IOAuthTokenService private readonly oauth: IOAuthTokenService,
     @IConfigService private readonly config: IConfigService,
     @IAgentIdentity private readonly identity: IAgentIdentity,
+    @ITelemetryService private readonly telemetry: ITelemetryService,
   ) {
     this.localFetcher = new LocalFetchURLProvider();
   }
@@ -44,6 +46,7 @@ export class WebFetchService implements IWebFetchService {
       defaultHeaders: { ...this.identity.current().requestHeaders },
       customHeaders: fetchConfig.customHeaders,
       localFallback: this.localFetcher,
+      telemetry: this.telemetry,
     });
   }
 }

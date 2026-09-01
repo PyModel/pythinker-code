@@ -227,6 +227,11 @@ const pythinkerEndpoint: ProtocolEndpoint = {
   defaultBaseUrl: PYTHINKER_DEFAULT_BASE_URL,
 };
 
+export const pythinkerResponsesTrait: ProtocolTrait = {
+  endpoint: () => pythinkerEndpoint,
+  convertError: (error) => classifyPythinkerQuotaError(error),
+};
+
 registerProviderDefinition({
   id: 'pythinker',
   baseProtocol: 'openai',
@@ -240,6 +245,15 @@ registerProviderDefinition({
   id: 'pythinker',
   baseProtocol: 'anthropic',
   traits: [pythinkerAnthropicTrait],
+  endpoint: pythinkerEndpoint,
+  hostHeaders: 'full',
+  modelSource: 'oauth-catalog',
+});
+
+registerProviderDefinition({
+  id: 'pythinker',
+  baseProtocol: 'openai_responses',
+  traits: [pythinkerResponsesTrait],
   endpoint: pythinkerEndpoint,
   hostHeaders: 'full',
   modelSource: 'oauth-catalog',
