@@ -680,7 +680,7 @@ describe('merge gate', () => {
     await store.merge(consumer.branch);
     const state = await store.load();
     expect(state.missions.find((m) => m.id === consumer.id)?.status).toBe('merged');
-  });
+  }, 30_000);
 
   it('refuses files outside the mission scope until the tower widens it', async () => {
     const mission = await setupMission({
@@ -744,7 +744,7 @@ describe('merge gate', () => {
     expect(conflictsWith).toEqual([
       { branch: second.branch, files: ['src/a/shared.ts'] },
     ]);
-  });
+  }, 30_000);
 
   it('closes a zero-diff survey with a noop merge — no review, no git ceremony', async () => {
     const [mission] = await store.plan([

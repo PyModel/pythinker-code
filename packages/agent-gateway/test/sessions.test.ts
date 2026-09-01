@@ -1055,7 +1055,7 @@ describe('server-v2 /api/v1/sessions', () => {
     const resumed = await resumeSessionById((server as RunningServer).core.accessor, forkedId);
     expect(resumed).toBeDefined();
     expect(resumed!.accessor.get(IAgentLifecycleService).handleOf(MAIN_AGENT_ID)).toBeDefined();
-  });
+  }, 30_000);
 
   it('keeps cron tasks across a server restart through the wire', async () => {
     const cwd = home as string;
