@@ -444,6 +444,13 @@ function createAgentLifecycleStub(options: AgentLifecycleStubOptions = {}): Agen
       if (adoptedManaged !== undefined && adoptedManaged.context.agentId === agent.agentId) {
         return adoptedManaged.runtimeSet.resolve(definition);
       }
+      if (definition === AgentReminder) {
+        return {
+          register: () => noopDisposable(),
+          notify: () => {},
+          reconcileWhenIdle: () => Promise.resolve(),
+        } as never;
+      }
       throw new Error('unexpected resolve');
     }) as IAgentLifecycleService['resolve']),
     inspect: vi.fn((agent) => {
@@ -1580,8 +1587,7 @@ describe('Agent tool execution contract', () => {
     const [runAgent, runRequest] = lifecycle.run.mock.calls[0]!;
     expect(runAgent).toMatchObject({ agentId: 'agent-child' });
     const runPrompt = runRequest.kind === 'prompt' ? runRequest.prompt : '';
-    expect(runPrompt).toContain(FORK_CONTEXT_NOTICE);
-    expect(runPrompt).toContain('Continue the analysis');
+    expect(runPrompt).toBe('Continue the analysis');
   });
 
   it('forks without requiring the caller profile in the catalog', async () => {
