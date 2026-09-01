@@ -44,7 +44,7 @@ import type { ScopedCaller } from './global.js';
 
 export type { ScopedCaller } from './global.js';
 
-/** What `sessionLifecycleService.create/fork/createChild` leaves on the wire. */
+/** What `sessionLifecycleService.create` and `sessionManager.restore` leave on the wire. */
 interface HandleWire {
   readonly id: string;
 }
@@ -153,10 +153,9 @@ export function createSessionFacade(
     method: 'fork' | 'createChild',
     input: { title?: string; metadata?: Record<string, unknown> } = {},
   ): Promise<SessionMeta> => {
-    const handle = (await call({}, 'sessionManager', method, [
+    return call({}, 'sessionManager', method, [
       { sourceSessionId: sessionId, title: input.title, metadata: input.metadata },
-    ])) as HandleWire;
-    return call({ sessionId: handle.id }, 'sessionMetadata', 'read', []) as Promise<SessionMeta>;
+    ]) as Promise<SessionMeta>;
   };
 
   return {

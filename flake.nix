@@ -60,7 +60,6 @@
       # pnpmConfigHook (dependencies for that workspace won't be fetched).
       # -------------------------------------------------------------------
       workspacePaths = [
-        ./packages/acp-adapter
         ./packages/agent-core
         ./packages/pyaos
         ./packages/acp-server
@@ -87,7 +86,6 @@
       ];
 
       workspaceNames = [
-        "@pymodel/acp-adapter"
         "@pymodel/agent-core"
         "@pymodel/pyaos"
         "@pymodel/acp-server"
@@ -162,7 +160,7 @@
               inherit pnpm;
               fetcherVersion = 3;
               # Monaco's package patch is part of src, not the fetched dependency closure.
-              hash = "sha256-K9EGrzed/ApTTSUscowNaCX/Rkz5Bbmq1HYSV3/U9Z8=";
+              hash = "sha256-mM09bSXWp8yszRoS17EFvIFo5w/GnWjCdX/wIch4dFg=";
             };
 
             nativeBuildInputs = [

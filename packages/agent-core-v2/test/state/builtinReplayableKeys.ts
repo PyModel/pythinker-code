@@ -22,7 +22,7 @@ import { taskNotificationDeliveryKey } from '#/agent/task/taskService';
 import { userToolKey } from '#/agent/userTool/userToolOps';
 import { planKey } from '#/features/plan/planOps';
 import { dynamicWorkflowKey } from '#/features/dynamic_workflow/dynamicWorkflowOps';
-import { towerKey, towerOwnerKey } from '#/features/tower/towerOps';
+import { towerBaseKey, towerKey, towerOwnerKey } from '#/features/tower/towerOps';
 import { subagentBindingProvenanceKey } from '#/session/subagent/bindingProvenance';
 
 export const BUILTIN_REPLAYABLE_STATE_KEYS: readonly ReplayableStateKey<any>[] = [
@@ -50,4 +50,5 @@ export const BUILTIN_REPLAYABLE_STATE_KEYS: readonly ReplayableStateKey<any>[] =
   dynamicWorkflowKey,
   towerKey,
   towerOwnerKey,
+  towerBaseKey,
 ];

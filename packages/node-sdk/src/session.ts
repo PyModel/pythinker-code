@@ -464,7 +464,7 @@ export class Session {
     }
   }
 
-  async setTowerMode(enabled: boolean): Promise<void> {
+  async setTowerMode(enabled: boolean, base?: string): Promise<void> {
     this.ensureOpen();
     if (typeof enabled !== 'boolean') {
       throw new PythinkerError(
@@ -472,7 +472,13 @@ export class Session {
         'Session tower mode must be a boolean',
       );
     }
-    await this.rpc.setTowerMode({ sessionId: this.id, enabled });
+    if (base !== undefined && typeof base !== 'string') {
+      throw new PythinkerError(
+        ErrorCodes.REQUEST_INVALID,
+        'Session tower mode base must be a string',
+      );
+    }
+    await this.rpc.setTowerMode({ sessionId: this.id, enabled, base });
   }
 
   async getPlan(): Promise<SessionPlan> {

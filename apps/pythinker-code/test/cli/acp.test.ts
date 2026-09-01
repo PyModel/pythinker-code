@@ -1,23 +1,24 @@
 /**
  * `pythinker acp`
  *
- * Verifies that the ACP sub-command is registered on the program and
- * that the action wires the harness into `@pymodel/acp-adapter`'s
- * `runAcpServer` (the real server is stubbed so the test doesn't
- * actually take over stdio).
+ * Verifies that the ACP v2 sub-command is registered on the program and that
+ * the action wires `@pymodel/acp-server`'s `runAcpServer` (the real server
+ * is stubbed so the test doesn't actually take over stdio). The module is
+ * loaded via a lazy dynamic import in the action, so the mock intercepts that
+ * import.
  */
 
 import { Command } from 'commander';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('@pymodel/acp-adapter', () => ({
-  ACP_BUILTIN_SLASH_COMMANDS: [],
+vi.mock('@pymodel/acp-server', () => ({
   runAcpServer: vi.fn(async () => undefined),
 }));
 
-import { runAcpServer } from '@pymodel/acp-adapter';
+import { runAcpServer } from '@pymodel/acp-server';
 
 import { registerAcpCommand } from '#/cli/sub/acp';
+import { getDataDir } from '#/utils/paths';
 
 class ExitCalled extends Error {
   constructor(public code: number | string | null | undefined) {
@@ -30,7 +31,6 @@ describe('pythinker acp', () => {
   let stderrSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
-    vi.stubEnv('PYTHINKER_CODE_LEGACY_FLAG', '1');
     vi.mocked(runAcpServer).mockClear();
     exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code?: number | string | null) => {
       throw new ExitCalled(code);
@@ -48,27 +48,63 @@ describe('pythinker acp', () => {
     const program = new Command('pythinker');
     registerAcpCommand(program);
 
-    const acp = program.commands.find((c) => c.name() === 'acp');
-    expect(acp).toBeDefined();
-    expect(acp?.description()).toMatch(/Agent Client Protocol/);
+    const acpV2 = program.commands.find((c) => c.name() === 'acp');
+    expect(acpV2).toBeDefined();
+    expect(acpV2?.description()).toMatch(/Agent Client Protocol/);
   });
 
-  it('invokes runAcpServer with a constructed harness and exits 0 on success', async () => {
+  it('uses the v2 server for the default `acp` command', async () => {
     const program = new Command('pythinker').exitOverride();
     registerAcpCommand(program);
 
     await expect(program.parseAsync(['node', 'pythinker', 'acp'])).rejects.toThrow(ExitCalled);
 
     expect(runAcpServer).toHaveBeenCalledTimes(1);
-    const harnessArg = vi.mocked(runAcpServer).mock.calls[0]?.[0];
-    expect(harnessArg).toBeDefined();
-    const optsArg = vi.mocked(runAcpServer).mock.calls[0]?.[1];
+    expect(vi.mocked(runAcpServer).mock.calls[0]?.[0]).toEqual(
+      expect.objectContaining({ homeDir: getDataDir() }),
+    );
+    expect(exitSpy).toHaveBeenCalledWith(0);
+  });
+
+  it('invokes runAcpServer with the v2 host options and exits 0 on success', async () => {
+    const program = new Command('pythinker').exitOverride();
+    registerAcpCommand(program);
+
+    await expect(program.parseAsync(['node', 'pythinker', 'acp'])).rejects.toThrow(ExitCalled);
+
+    expect(runAcpServer).toHaveBeenCalledTimes(1);
+    const optsArg = vi.mocked(runAcpServer).mock.calls[0]?.[0];
     expect(optsArg).toEqual(
       expect.objectContaining({
+        homeDir: getDataDir(),
         agentInfo: { name: 'Pythinker Code CLI', version: expect.any(String) },
       }),
     );
     expect(exitSpy).toHaveBeenCalledWith(0);
+  });
+
+  it('uses PYTHINKER_CODE_HOME as homeDir when set', async () => {
+    const previous = process.env['PYTHINKER_CODE_HOME'];
+    process.env['PYTHINKER_CODE_HOME'] = '/tmp/pythinker-debug';
+    try {
+      const program = new Command('pythinker').exitOverride();
+      registerAcpCommand(program);
+
+      await expect(program.parseAsync(['node', 'pythinker', 'acp'])).rejects.toThrow(ExitCalled);
+
+      const optsArg = vi.mocked(runAcpServer).mock.calls[0]?.[0];
+      expect(optsArg).toEqual(
+        expect.objectContaining({
+          homeDir: '/tmp/pythinker-debug',
+        }),
+      );
+    } finally {
+      if (previous === undefined) {
+        delete process.env['PYTHINKER_CODE_HOME'];
+      } else {
+        process.env['PYTHINKER_CODE_HOME'] = previous;
+      }
+    }
   });
 
 });

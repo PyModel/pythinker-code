@@ -1,7 +1,6 @@
 import type { Session } from '@pymodel/pythinker-code-sdk';
 
 import {
-  LLM_NOT_SET_MESSAGE,
   NO_ACTIVE_SESSION_MESSAGE,
   TOWER_STATUS_PROMPT,
   TOWER_TEARDOWN_PROMPT,
@@ -30,18 +29,16 @@ export async function handleTowerCommand(host: SlashCommandHost, args: string): 
     return;
   }
 
-  await startTowerObjective(host, input);
+  await startTowerWithBase(host, input);
 }
 
-async function startTowerObjective(host: SlashCommandHost, objective: string): Promise<void> {
+async function startTowerWithBase(host: SlashCommandHost, base: string): Promise<void> {
+  // `/tower <base>` is manual activation too: it turns tower mode on and pins
+  // the branch missions merge back into (the engine validates that it is a
+  // local branch). Only the agent can never enter the mode by itself.
   const wasActive = host.state.appState.towerMode;
-  if (host.state.appState.model.trim().length === 0) {
-    host.showError(LLM_NOT_SET_MESSAGE);
-    return;
-  }
-  if (!(await setTowerMode(host, true))) return;
-  if (!wasActive) host.showNotice('Tower mode: ON');
-  host.sendNormalUserInput(objective);
+  if (!(await setTowerMode(host, true, base))) return;
+  host.showNotice(wasActive ? `Tower base: ${base}` : `Tower mode: ON (base: ${base})`);
 }
 
 async function applyTowerMode(host: SlashCommandHost, enabled: boolean): Promise<void> {
@@ -54,11 +51,15 @@ async function applyTowerMode(host: SlashCommandHost, enabled: boolean): Promise
   host.showNotice(enabled ? 'Tower mode: ON' : 'Tower mode: OFF');
 }
 
-async function setTowerMode(host: SlashCommandHost, enabled: boolean): Promise<boolean> {
+async function setTowerMode(
+  host: SlashCommandHost,
+  enabled: boolean,
+  base?: string,
+): Promise<boolean> {
   const session = await requireSessionEnsured(host);
   if (session === undefined) return false;
   try {
-    await session.setTowerMode(enabled);
+    await session.setTowerMode(enabled, base);
     const status = await session.getStatus();
     const effective = status.towerMode ?? false;
     if (effective !== enabled) {

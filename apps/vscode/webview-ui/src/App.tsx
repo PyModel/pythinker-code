@@ -1,10 +1,12 @@
 // node/vscode_extension/webview-ui/src/App.tsx
 import { useEffect, useState, useCallback } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Header } from "./components/Header";
 import { ChatArea } from "./components/ChatArea";
 import { InputArea } from "./components/inputarea/InputArea";
 import { WorkDirModal } from "./components/WorkDirModal";
 import { ConfigHub } from "./components/confighub/ConfigHub";
+import { MCP_SERVERS_KEY } from "./components/confighub/MCPServersSection";
 import { ConfigErrorScreen } from "./components/ConfigErrorScreen";
 import { LoginScreen } from "./components/LoginScreen";
 import { Toaster, toast } from "./components/ui/sonner";
@@ -17,7 +19,8 @@ import "./styles/index.css";
 
 function MainContent({ onAuthAction }: { onAuthAction: () => void }) {
   const { processEvent, startNewConversation, sessionId } = useChatStore();
-  const { setMCPServers, setExtensionConfig, extensionConfig, setWireSlashCommands, setModels, configHub } = useSettingsStore();
+  const { setExtensionConfig, extensionConfig, setWireSlashCommands, setModels, configHub } = useSettingsStore();
+  const queryClient = useQueryClient();
 
   useEffect(() => {
     return bridge.on(Events.StreamEvent, (event: UIStreamEvent) => {
@@ -41,7 +44,7 @@ function MainContent({ onAuthAction }: { onAuthAction: () => void }) {
     // request is allowed to publish.
     let providersRevision = 0;
     const unsubs = [
-      bridge.on(Events.MCPServersChanged, setMCPServers),
+      bridge.on(Events.MCPServersChanged, () => void queryClient.invalidateQueries({ queryKey: MCP_SERVERS_KEY })),
       // Provider add/remove only updates the Providers tab's local view; the
       // model list everywhere else comes from the store, so refetch it.
       bridge.on(Events.ProvidersChanged, () => {
@@ -63,7 +66,7 @@ function MainContent({ onAuthAction }: { onAuthAction: () => void }) {
       }),
     ];
     return () => unsubs.forEach((u) => u());
-  }, [setMCPServers, setExtensionConfig, setWireSlashCommands, startNewConversation, setModels]);
+  }, [queryClient, setExtensionConfig, setWireSlashCommands, startNewConversation, setModels]);
 
   useEffect(() => {
     if (!extensionConfig.enableNewConversationShortcut) return;

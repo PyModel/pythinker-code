@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { useRequest } from "ahooks";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { IconSearch, IconDots, IconTrash, IconCheck, IconSortDescending, IconSortAscending } from "@tabler/icons-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -16,6 +16,9 @@ import { toast } from "./ui/sonner";
 interface SessionListProps {
   onClose: () => void;
 }
+
+const SESSIONS_KEY = ["sessions"] as const;
+const NO_SESSIONS: SessionInfo[] = [];
 
 interface GroupBoundaries {
   startOfToday: number;
@@ -113,7 +116,11 @@ export function SessionList({ onClose }: SessionListProps) {
   const [isDeleting, setIsDeleting] = useState(false);
   const [pendingSession, setPendingSession] = useState<SessionInfo | null>(null);
 
-  const { data: sessions = [], loading, mutate } = useRequest(() => bridge.getAllSessions());
+  const queryClient = useQueryClient();
+  const { data: sessions = NO_SESSIONS, isPending: loading } = useQuery({
+    queryKey: SESSIONS_KEY,
+    queryFn: () => bridge.getAllSessions(),
+  });
 
   const getWorkDirLabel = (sessionWorkDir: string): string | null => {
     const activeWorkDir = currentWorkDir || workspaceRoot;
@@ -206,7 +213,7 @@ export function SessionList({ onClose }: SessionListProps) {
         await startNewConversation();
       }
 
-      mutate((prev) => prev?.filter((s) => s.id !== deleteTarget.id) || []);
+      queryClient.setQueryData<SessionInfo[]>(SESSIONS_KEY, (prev) => prev?.filter((s) => s.id !== deleteTarget.id) ?? []);
     } catch (error) {
       console.error("[SessionList] Failed to delete session:", error);
       toast.error(`Unable to delete the conversation: ${error instanceof Error ? error.message : String(error)}`);

@@ -10,6 +10,12 @@ export interface AgentTelemetryEventContext {
   agent_id: string;
 }
 
+export interface WirePlanRevisionMigratedEvent {
+  record_type: 'plan.revision';
+  legacy_field: 'path';
+  migration_outcome: 'migrated' | 'skipped';
+}
+
 export const agentTelemetryContextProperties: {
   readonly [K in keyof AgentTelemetryEventContext]-?: string;
 } = {
@@ -559,6 +565,15 @@ export interface SessionIndexMirrorGiveUpEvent {
 }
 
 export const telemetryEventDefinitions = {
+  wire_plan_revision_migrated: defineAgentTelemetryEvent<WirePlanRevisionMigratedEvent>({
+    owner: 'pythinker-code',
+    comment: 'A legacy plan revision wire record is normalized during restore.',
+    properties: {
+      record_type: 'Wire record type',
+      legacy_field: 'Legacy field name',
+      migration_outcome: 'Migration outcome',
+    },
+  }),
   turn_started: defineAgentTelemetryEvent<TurnStartedEvent>({
     owner: 'pythinker-code',
     comment: 'A turn starts running.',
