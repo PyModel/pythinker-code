@@ -3,13 +3,14 @@ import { computed, onUnmounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 
 import type { AppExpertTalkArtifact, AppExpertTalkRun, AppModel } from '../../api/types';
-import { useDiscussionPreferences } from '../../composables/useDiscussionPreferences';
 import { copyTextToClipboard } from '../../lib/clipboard';
+import { extractStreamingAnswer } from '../../lib/expertTalkStream';
 import { formatTokens } from '../../lib/formatTokens';
 import Badge from '../ui/Badge.vue';
 import Button from '../ui/Button.vue';
 import Icon from '../ui/Icon.vue';
 import StatusDot from '../ui/StatusDot.vue';
+import ExpertTalkArtifactBody from './ExpertTalkArtifactBody.vue';
 import Markdown from './Markdown.vue';
 
 const props = withDefaults(defineProps<{
@@ -22,7 +23,6 @@ const emit = defineEmits<{
   build: [answer: string];
 }>();
 const { t } = useI18n();
-const { showReasoning } = useDiscussionPreferences();
 
 const isRunning = computed(() => props.run.state === 'running');
 const exchangeOpen = ref(true);
@@ -147,13 +147,18 @@ const exchangeColumns = computed<ExchangeColumn[]>(() => [
   },
 ]);
 
+function fusionStreamText(text: string | undefined): string | undefined {
+  const decoded = extractStreamingAnswer(text);
+  return (decoded ?? text)?.trim() || undefined;
+}
+
 const fusionExchange = computed(() => {
   if (props.run.fusion === undefined && props.run.stage !== 'fusion') return undefined;
   return {
     model: modelLabel(props.run.bindings.fusionLead.effectiveModelId),
     artifact: props.run.fusion,
     state: props.run.fusion?.state ?? 'running' as const,
-    answer: props.run.result?.answer.trim() || props.run.fusion?.text?.trim(),
+    answer: props.run.result?.answer.trim() || fusionStreamText(props.run.fusion?.text),
   };
 });
 
@@ -300,37 +305,7 @@ function statusVariant(state: AppExpertTalkRun['state']): 'success' | 'danger' |
               <dd>{{ metric.value }}</dd>
             </div>
           </dl>
-          <div class="expert-talk__artifact-body">
-            <div
-              v-if="showReasoning && (
-                stageEntry.artifact.thinking || stageEntry.artifact.state === 'running'
-              )"
-              class="expert-talk__thinking"
-            >
-              <strong>▹ {{ t('expertTalk.thinking') }}</strong>
-              <Markdown
-                v-if="stageEntry.artifact.thinking"
-                :text="stageEntry.artifact.thinking"
-                :streaming="stageEntry.artifact.state === 'running'"
-              />
-              <span v-else>{{ t('expertTalk.thinkingPending') }}</span>
-            </div>
-            <ul v-if="stageEntry.artifact.tools?.length" class="expert-talk__tools">
-              <li v-for="tool in stageEntry.artifact.tools" :key="tool.id">
-                <span aria-hidden="true">▸</span>
-                {{ tool.name ?? t('expertTalk.tool') }}
-              </li>
-            </ul>
-            <div v-if="stageEntry.artifact.text" class="expert-talk__artifact-text">
-              <Markdown
-                :text="stageEntry.artifact.text"
-                :streaming="stageEntry.artifact.state === 'running'"
-              />
-            </div>
-            <p v-else-if="stageEntry.artifact.state !== 'running'">
-              {{ stageEntry.artifact.error ?? t(`expertTalk.artifactState.${stageEntry.artifact.state}`) }}
-            </p>
-          </div>
+          <ExpertTalkArtifactBody :artifact="stageEntry.artifact" :state="stageEntry.artifact.state" />
         </section>
         <footer v-if="column.answer" class="expert-talk__agent-actions">
           <Button size="sm" variant="secondary" @click="takeAnswer(column.key, column.answer)">
@@ -364,37 +339,11 @@ function statusVariant(state: AppExpertTalkRun['state']): 'success' | 'danger' |
           <dd>{{ metric.value }}</dd>
         </div>
       </dl>
-      <div class="expert-talk__artifact-body">
-        <div
-          v-if="showReasoning && (
-            fusionExchange.artifact?.thinking || fusionExchange.state === 'running'
-          )"
-          class="expert-talk__thinking"
-        >
-          <strong>▹ {{ t('expertTalk.thinking') }}</strong>
-          <Markdown
-            v-if="fusionExchange.artifact?.thinking"
-            :text="fusionExchange.artifact.thinking"
-            :streaming="fusionExchange.state === 'running'"
-          />
-          <span v-else>{{ t('expertTalk.thinkingPending') }}</span>
-        </div>
-        <ul v-if="fusionExchange.artifact?.tools?.length" class="expert-talk__tools">
-          <li v-for="tool in fusionExchange.artifact.tools" :key="tool.id">
-            <span aria-hidden="true">▸</span>
-            {{ tool.name ?? t('expertTalk.tool') }}
-          </li>
-        </ul>
-        <div v-if="fusionExchange.answer" class="expert-talk__artifact-text">
-          <Markdown
-            :text="fusionExchange.answer"
-            :streaming="fusionExchange.state === 'running'"
-          />
-        </div>
-        <p v-else-if="fusionExchange.state !== 'running'">
-          {{ fusionExchange.artifact?.error ?? t(`expertTalk.artifactState.${fusionExchange.state}`) }}
-        </p>
-      </div>
+      <ExpertTalkArtifactBody
+        :artifact="fusionExchange.artifact"
+        :state="fusionExchange.state"
+        :text="fusionExchange.answer"
+      />
       <section
         v-if="run.result && (
           run.result.notes.consensus.length > 0 ||
@@ -566,8 +515,6 @@ summary.expert-opinion-exchange__top::-webkit-details-marker {
 }
 
 .expert-talk__agent-grid {
-  --expert-talk-reasoning-height: clamp(11rem, 24vh, 18rem);
-
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   min-width: 0;
@@ -662,71 +609,6 @@ summary.expert-opinion-exchange__top::-webkit-details-marker {
 .expert-talk__metrics dd {
   margin: 0;
   color: var(--color-text);
-}
-
-.expert-talk__artifact-body {
-  min-width: 0;
-  margin-top: var(--space-3);
-  color: var(--color-text-muted);
-  font-size: var(--text-sm);
-  line-height: var(--leading-relaxed);
-  overflow-wrap: anywhere;
-}
-
-.expert-talk__artifact-body p {
-  margin: 0;
-  white-space: pre-wrap;
-}
-
-.expert-talk__artifact-text {
-  min-width: 0;
-}
-
-.expert-talk__thinking {
-  display: grid;
-  box-sizing: border-box;
-  gap: var(--space-1);
-  block-size: var(--expert-talk-reasoning-height);
-  min-width: 0;
-  padding: var(--space-2) var(--space-3);
-  margin-bottom: var(--space-3);
-  border-left: 2px solid var(--color-accent);
-  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
-  background: var(--color-surface-sunken);
-  color: var(--color-text-faint);
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  overflow: auto;
-  scrollbar-gutter: stable;
-  white-space: pre-wrap;
-}
-
-.expert-talk__thinking strong {
-  color: var(--color-accent);
-  font-weight: var(--weight-semibold);
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-.expert-talk__tools {
-  display: grid;
-  gap: var(--space-1);
-  padding: 0;
-  margin: 0 0 var(--space-3);
-  color: var(--color-text-faint);
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  list-style: none;
-}
-
-.expert-talk__tools li {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-
-.expert-talk__tools li span {
-  color: var(--color-warning);
 }
 
 .expert-talk__agent-actions,
@@ -848,10 +730,6 @@ summary.expert-opinion-exchange__top::-webkit-details-marker {
   .expert-opinion-exchange__phases,
   .expert-talk__agent-grid {
     grid-template-columns: minmax(0, 1fr);
-  }
-
-  .expert-talk__agent-grid {
-    --expert-talk-reasoning-height: clamp(9rem, 22vh, 14rem);
   }
 
   .expert-talk__agent-column + .expert-talk__agent-column {

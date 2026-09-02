@@ -591,8 +591,8 @@ describe('ExpertTalkControl', () => {
     const thinking = wrapper.findAll('.expert-talk__thinking');
     expect(thinking).toHaveLength(2);
     expect(thinking[0]?.text()).toContain('▹');
-    expect(thinking[0]?.get('.markdown-stub').text()).toBe('Checking the evidence.');
-    expect(thinking[0]?.get('.markdown-stub').attributes('data-streaming')).toBe('true');
+    expect(thinking[0]?.get('.expert-talk__thinking-preview').text()).toBe('Checking the evidence.');
+    expect(thinking[0]?.find('.expert-talk__thinking-toggle').exists()).toBe(false);
     expect(thinking[1]?.text()).toContain('Waiting for reasoning...');
     expect(wrapper.get('.expert-talk__tools').text()).toContain('Read');
 

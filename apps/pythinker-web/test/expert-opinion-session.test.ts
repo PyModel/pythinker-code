@@ -6,6 +6,7 @@ import { defineComponent } from 'vue';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type {
+  AppExpertTalkArtifact,
   AppExpertTalkPair,
   AppExpertTalkRun,
   AppExpertTalkStatus,
@@ -15,6 +16,7 @@ import type {
   PythinkerWebApi,
 } from '../src/api/types';
 import ChatPane from '../src/components/chat/ChatPane.vue';
+import ExpertTalkArtifactBody from '../src/components/chat/ExpertTalkArtifactBody.vue';
 import webI18n from '../src/i18n';
 import type { ChatTurn } from '../src/types';
 
@@ -248,12 +250,63 @@ describe('Expert Talk session transcript', () => {
 
 });
 
+describe('Expert Talk artifact body', () => {
+  const thinking = 'First point here. Second point follows! Third point is hidden. Fourth too.';
+  const artifact: AppExpertTalkArtifact = {
+    role: 'peer',
+    stage: 'opening',
+    state: 'completed',
+    text: 'Answer body',
+    thinking,
+    tools: [
+      { id: 't1', name: 'Read' },
+      { id: 't2', name: 'Read' },
+      { id: 't3', name: 'Glob' },
+    ],
+    partial: false,
+  };
+
+  function mountBody(overrides: Partial<AppExpertTalkArtifact> = {}) {
+    return mount(ExpertTalkArtifactBody, {
+      props: { artifact: { ...artifact, ...overrides }, state: overrides.state ?? artifact.state },
+      global: { plugins: [webI18n], stubs: { Icon: true } },
+    });
+  }
+
+  it('collapses reasoning to the first two sentences and expands on request', async () => {
+    const wrapper = mountBody();
+    const preview = wrapper.get('.expert-talk__thinking-preview');
+    expect(preview.text()).toBe('First point here. Second point follows!');
+    expect(wrapper.find('.expert-talk__thinking-full').exists()).toBe(false);
+
+    await wrapper.get('.expert-talk__thinking-toggle').trigger('click');
+
+    expect(wrapper.find('.expert-talk__thinking-preview').exists()).toBe(false);
+    expect(wrapper.get('.expert-talk__thinking-full').text()).toContain('Third point is hidden');
+  });
+
+  it('strips markdown emphasis from the reasoning preview', () => {
+    const wrapper = mountBody({ thinking: '**Planning targeted verification**\n\n## Next\nRead files.' });
+    expect(wrapper.get('.expert-talk__thinking-preview').text()).toBe('Planning targeted verification Next Read files.');
+  });
+
+  it('summarises tool calls on one line instead of listing each call', () => {
+    const wrapper = mountBody();
+    expect(wrapper.findAll('.expert-talk__tools li')).toHaveLength(0);
+    const summary = wrapper.get('.expert-talk__tools').text().replaceAll(/\s+/g, ' ');
+    expect(summary).toContain('3 tool calls');
+    expect(summary).toContain('Read ×2');
+    expect(summary).toContain('Glob');
+  });
+});
+
 describe('Expert Talk exchange scrolling', () => {
   it('lets a wheel over a reasoning box chain to the transcript scroller', () => {
-    const source = readFileSync(join(import.meta.dirname, '../src/components/chat/ExpertTalkExchange.vue'), 'utf8');
-    const thinkingRule = source.slice(source.indexOf('.expert-talk__thinking {'));
+    const source = readFileSync(join(import.meta.dirname, '../src/components/chat/ExpertTalkArtifactBody.vue'), 'utf8');
+    const thinkingRule = source.slice(source.indexOf('.expert-talk__thinking-full {'));
     const block = thinkingRule.slice(0, thinkingRule.indexOf('}'));
     expect(block).toContain('overflow: auto');
     expect(block).not.toContain('overscroll-behavior');
+    expect(source).not.toContain('block-size: var(--expert-talk-reasoning-height)');
   });
 });
