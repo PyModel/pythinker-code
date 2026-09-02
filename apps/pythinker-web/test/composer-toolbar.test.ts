@@ -208,6 +208,44 @@ describe('Composer toolbar overflow valves', () => {
     wrapper.unmount();
   });
 
+  it('closes an open model dropdown when Discussion becomes engaged', async () => {
+    const status = ref<{ activation: { state: string; armId?: string } }>({ activation: { state: 'idle' } });
+    const wrapper = mount(Composer, {
+      attachTo: document.body,
+      props: {
+        status: { model: 'Session Model', modelId: 'provider/session', ctxUsed: 0, ctxMax: 1000, permission: 'manual', branch: '', cwd: '/tmp', isGitRepo: false },
+        models: [{ id: 'provider/session', provider: 'provider', model: 'Session Model', maxContextSize: 1000 }],
+      },
+      global: {
+        plugins: [webI18n],
+        provide: { [expertTalkContextKey as symbol]: { status, run: ref(undefined) } },
+        stubs: {
+          AttachmentChip: true,
+          CapabilityMenu: true,
+          ContextRing: true,
+          ExpertTalkControl: expertTalkControlStub,
+          Icon: true,
+          IconButton: slotStub,
+          MentionMenu: true,
+          SegmentedControl: true,
+          SlashMenu: true,
+          Spinner: true,
+          Tooltip: slotStub,
+        },
+      },
+    });
+    await nextTick();
+
+    await wrapper.get('.model-pill').trigger('click');
+    expect(wrapper.find('.model-dropdown').exists()).toBe(true);
+
+    status.value = { activation: { state: 'armed', armId: 'arm-1' } };
+    await nextTick();
+
+    expect(wrapper.find('.model-dropdown').exists()).toBe(false);
+    wrapper.unmount();
+  });
+
   it('names the model pill after the session model when Discussion is idle', async () => {
     const wrapper = mount(Composer, {
       props: {

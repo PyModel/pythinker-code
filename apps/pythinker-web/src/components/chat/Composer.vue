@@ -1101,6 +1101,9 @@ const discussionEngaged = computed(() =>
 const modelPillLabel = computed(() =>
   discussionEngaged.value ? t('expertTalk.title') : props.status?.model ?? '',
 );
+watch(discussionEngaged, (engaged) => {
+  if (engaged) closeDropdown();
+});
 function onModelPillClick(): void {
   if (discussionEngaged.value) {
     expertTalkControlRef.value?.openDialog();
