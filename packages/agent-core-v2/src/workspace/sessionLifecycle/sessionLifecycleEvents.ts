@@ -25,3 +25,14 @@ export class SessionCreated extends Event2<{ readonly payload: SessionCreatedPay
 export interface SessionCreated {
   readonly payload: SessionCreatedPayload;
 }
+
+export interface SessionDeletedPayload {
+  readonly sessionId: string;
+}
+
+export class SessionDeleted extends Event2<{ readonly payload: SessionDeletedPayload }> {
+  static override readonly type = 'event.session.deleted';
+}
+export interface SessionDeleted {
+  readonly payload: SessionDeletedPayload;
+}

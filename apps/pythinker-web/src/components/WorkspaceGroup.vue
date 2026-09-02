@@ -45,6 +45,7 @@ const emit = defineEmits<{
   renameSession: [id: string, title: string];
   generateSessionTitle: [id: string, onTitle: (title: string | null) => void];
   archiveSession: [id: string];
+  deleteSession: [id: string];
   forkSession: [id: string];
   exportSession: [id: string];
   pinSession: [id: string];
@@ -211,6 +212,7 @@ function onHeaderDragStart(event: DragEvent): void {
         @rename="(id, title) => emit('renameSession', id, title)"
         @generate-title="(id, onTitle) => emit('generateSessionTitle', id, onTitle)"
         @archive="emit('archiveSession', $event)"
+        @delete="emit('deleteSession', $event)"
         @fork="emit('forkSession', $event)"
         @export="emit('exportSession', $event)"
         @pin="emit('pinSession', $event)"

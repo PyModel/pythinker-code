@@ -3059,8 +3059,8 @@ function startExpertOpinionSession(
       if (sessionId === null) return false;
       await expertTalk.useForNextMessage(pair);
       return expertTalk.status.value?.activation.state === 'armed';
-    } catch (cause) {
-      pushOperationFailure('expertOpinionSession', cause);
+    } catch (error) {
+      pushOperationFailure('expertOpinionSession', error);
       return false;
     }
   })();
@@ -3418,6 +3418,7 @@ export function usePythinkerWebClient() {
     togglePinnedCollapsed,
     setSessionEmoji,
     archiveSession: workspaceState.archiveSession,
+    deleteSession: workspaceState.deleteSession,
     exportSession: workspaceState.exportSession,
     restoreSession: workspaceState.restoreSession,
     loadArchivedSessions: workspaceState.loadArchivedSessions,

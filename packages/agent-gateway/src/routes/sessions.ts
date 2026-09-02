@@ -16,6 +16,7 @@ import {
   ISessionTitleService,
   IEventService,
   SessionCreated,
+  SessionDeleted,
   IWorkspaceAliases,
   ISessionManager,
   IWorkspaceService,
@@ -37,6 +38,7 @@ import { pageResponseSchema } from '../protocol/pagination';
 import { toProtocolMessage } from '../services/messages/messageProjection';
 import {
   archiveSessionResponseSchema,
+  deleteSessionSuccessResponseSchema,
   compactSessionRequestSchema,
   compactSessionResponseSchema,
   createSessionChildRequestSchema,
@@ -84,6 +86,14 @@ interface SessionRouteHost {
     options: { preHandler: unknown[]; schema?: Record<string, unknown> } | undefined,
     handler: (
       req: { id: string; query: unknown; params: unknown },
+      reply: { send(payload: unknown): unknown },
+    ) => Promise<void> | void,
+  ): unknown;
+  delete?(
+    path: string,
+    options: { preHandler: unknown[]; schema?: Record<string, unknown> } | undefined,
+    handler: (
+      req: { id: string; params: unknown },
       reply: { send(payload: unknown): unknown },
     ) => Promise<void> | void,
   ): unknown;
@@ -594,6 +604,7 @@ export function registerSessionsRoutes(app: SessionRouteHost, core: Scope): void
           sessionAbortResponseSchema,
           startBtwSessionResponseSchema,
           archiveSessionResponseSchema,
+          deleteSessionSuccessResponseSchema,
         ]),
       },
       errors: {
@@ -840,9 +851,49 @@ export function registerSessionsRoutes(app: SessionRouteHost, core: Scope): void
     sessionWarningsRoute.options,
     sessionWarningsRoute.handler as Parameters<SessionRouteHost['get']>[2],
   );
+
+  const deleteSessionRoute = defineRoute(
+    {
+      method: 'DELETE',
+      path: '/sessions/{session_id}',
+      params: sessionIdParamSchema,
+      success: { data: deleteSessionSuccessResponseSchema },
+      errors: {
+        [ErrorCode.VALIDATION_FAILED]: { detailsSchema },
+        [ErrorCode.SESSION_NOT_FOUND]: {},
+      },
+      description: 'Delete a session permanently',
+      tags: ['sessions'],
+    },
+    async (req, reply) => {
+      const { session_id } = req.params;
+      const summary = await core.accessor.get(ISessionManager).status(session_id);
+      if (summary === undefined) {
+        reply.send(
+          errEnvelope(ErrorCode.SESSION_NOT_FOUND, `session ${session_id} does not exist`, req.id),
+        );
+        return;
+      }
+      try {
+        await core.accessor.get(ISessionManager).delete(session_id);
+        core.accessor.get(IEventService).publish(
+          new SessionDeleted({ payload: { sessionId: session_id } }),
+        );
+        requestLog(req)?.info({ session_id }, 'session deleted');
+        reply.send(okEnvelope({ deleted: true as const }, req.id));
+      } catch (error) {
+        sendMappedError(reply, req, error);
+      }
+    },
+  );
+  app.delete?.(
+    deleteSessionRoute.path,
+    deleteSessionRoute.options,
+    deleteSessionRoute.handler as Parameters<NonNullable<SessionRouteHost['delete']>>[2],
+  );
 }
 
-type SessionAction = 'fork' | 'compact' | 'undo' | 'abort' | 'btw' | 'restore' | 'archive';
+type SessionAction = 'fork' | 'compact' | 'undo' | 'abort' | 'btw' | 'restore' | 'archive' | 'delete';
 
 interface SessionActionExtra {
   readonly core: Scope;
@@ -863,6 +914,7 @@ const sessionActions: ActionTable<SessionAction, SessionActionExtra> = {
   btw: { handle: btwSessionAction },
   restore: { handle: restoreSessionAction },
   archive: { handle: archiveSessionAction },
+  delete: { handle: deleteSessionAction },
 };
 
 async function forkSessionAction(
@@ -976,6 +1028,20 @@ async function archiveSessionAction(ctx: SessionActionCtx): Promise<void> {
   await setSessionArchived(core.accessor, id, true);
   requestLog(req)?.info({ session_id: id, action: 'archive' }, 'session action completed');
   reply.send(okEnvelope({ archived: true }, req.id));
+}
+
+async function deleteSessionAction(ctx: SessionActionCtx): Promise<void> {
+  const { core, req, reply, id } = ctx;
+  const summary = await core.accessor.get(ISessionManager).status(id);
+  if (summary === undefined) {
+    throw new Error2(ErrorCodes.SESSION_NOT_FOUND, `session ${id} does not exist`);
+  }
+  await core.accessor.get(ISessionManager).delete(id);
+  core.accessor.get(IEventService).publish(
+    new SessionDeleted({ payload: { sessionId: id } }),
+  );
+  requestLog(req)?.info({ session_id: id, action: 'delete' }, 'session action completed');
+  reply.send(okEnvelope({ deleted: true }, req.id));
 }
 
 export interface SessionWireFields {

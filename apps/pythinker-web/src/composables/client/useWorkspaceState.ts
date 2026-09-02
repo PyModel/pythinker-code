@@ -987,7 +987,7 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
     const sessions = [
       ...mapped.loaded,
       ...rawState.sessions.filter((session) => !mappedIds.has(session.id)),
-    ].sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+    ].toSorted((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
     setSessionsPreservingLiveUsage(sessions);
     if (rawState.sessionsFullyLoaded) {
       const hasMore: Record<string, boolean> = {};
@@ -2793,6 +2793,31 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
     }
   }
 
+  async function deleteSession(id: string): Promise<void> {
+    try {
+      const api = getPythinkerWebApi();
+      await api.deleteSession(id);
+      forgetSession(id);
+      sideChat.clearSideChatForSession(id);
+      const { [id]: _removedIds, ...restIds } = rawState.sideChatUserMessageIdsBySession;
+      void _removedIds;
+      rawState.sideChatUserMessageIdsBySession = restIds;
+
+      if (rawState.activeSessionId === id) {
+        const next = rawState.sessions[0];
+        if (next) {
+          await selectSession(next.id, { urlMode: 'replace' });
+        } else {
+          setActiveSessionId(undefined);
+          writeSessionUrl(undefined, 'replace');
+        }
+      }
+    } catch (error) {
+      pushOperationFailure('deleteSession', error, { sessionId: id });
+      throw error;
+    }
+  }
+
   /** Export the given session (default: the active one). The id is captured
    * synchronously so a later session switch cannot redirect the in-flight
    * request, and a lock prevents duplicate ZIP generation. */
@@ -3224,6 +3249,7 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
     renameWorkspace,
     deleteWorkspace,
     archiveSession,
+    deleteSession,
     exportSession,
     restoreSession,
     loadArchivedSessions,

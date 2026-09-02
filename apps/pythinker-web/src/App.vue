@@ -89,6 +89,7 @@ const sessionActionToast = ref<{
 const exportActionToast = ref<{ state: 'running' | 'done'; sessionId: string } | null>(null);
 const titleNoticeToast = ref<string | null>(null);
 let titleNoticeToastTimer: ReturnType<typeof setTimeout> | null = null;
+const sessionDeletedToast = ref<string | null>(null);
 
 const activeWorkspaceRecentSessions = computed(() => {
   const workspaceId = client.activeWorkspaceId.value;
@@ -875,6 +876,22 @@ async function handleExportSession(id?: string): Promise<void> {
   exportActionToast.value = exported ? { state: 'done', sessionId } : null;
 }
 
+async function confirmDeleteSession(id: string): Promise<void> {
+  const session = client.sessions.value.find((s) => s.id === id)
+    ?? archivedSessions.value.find((s) => s.id === id);
+  const title = session?.title ?? id;
+  await confirm({
+    title: t('sidebar.deleteSession'),
+    message: t('sidebar.deleteSessionConfirm', { title }),
+    variant: 'danger',
+    action: async () => {
+      await client.deleteSession(id);
+      archivedSessions.value = archivedSessions.value.filter((s) => s.id !== id);
+      sessionDeletedToast.value = t('sidebar.deleteSessionToast');
+    },
+  });
+}
+
 async function confirmDeleteWorkspace(id: string): Promise<void> {
   const name = client.workspacesView.value.find((w) => w.id === id)?.name ?? id;
   await confirm({
@@ -1232,6 +1249,7 @@ function openPr(url: string): void {
         @rename="renameSidebarSession"
         @generate-title="handleGenerateSessionTitle"
         @archive="markSessionDone($event)"
+        @delete-session="confirmDeleteSession($event)"
         @restore="reopenSession($event)"
         @pin="client.togglePinnedSession($event)"
         @reorder-pins="client.reorderPinnedSessions($event)"
@@ -1671,6 +1689,14 @@ function openPr(url: string): void {
       >
         {{ titleNoticeToast }}
       </ActionToast>
+      <ActionToast
+        v-if="sessionDeletedToast"
+        :key="sessionDeletedToast"
+        :duration="4000"
+        @dismiss="sessionDeletedToast = null"
+      >
+        {{ sessionDeletedToast }}
+      </ActionToast>
     </Teleport>
 
     <!-- KAP/daemon debug panel (opt-in, ?debug=1) -->
@@ -1692,6 +1718,7 @@ function openPr(url: string): void {
       @add-workspace="showAddWorkspace = true"
       @rename="(id, title) => client.renameSession(id, title)"
       @archive="markSessionDone($event)"
+      @delete-session="confirmDeleteSession($event)"
       @delete-workspace="confirmDeleteWorkspace($event)"
       @load-more="(id) => void client.loadMoreSessions(id)"
     />

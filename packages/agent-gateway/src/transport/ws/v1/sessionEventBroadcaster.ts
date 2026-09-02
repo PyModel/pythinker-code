@@ -670,6 +670,18 @@ export class SessionEventBroadcaster {
       );
       return;
     }
+    if (event.type === 'event.session.deleted') {
+      const payload = sessionDeletedPayload(corePayload);
+      if (payload === undefined) return;
+      void this.dispatchGlobal({
+        type: 'event.session.deleted',
+        agentId: 'main',
+        sessionId: payload.sessionId,
+      } as Event).catch((error: unknown) =>
+        this.logDispatchError(GLOBAL_SESSION_ID, 'event.session.deleted', error),
+      );
+      return;
+    }
     if (event.type === 'event.workspace.created' || event.type === 'event.workspace.updated') {
       const workspace = workspaceLifecyclePayload(corePayload);
       if (workspace === undefined) return;
@@ -1426,6 +1438,17 @@ function sessionArchivedPayload(
     return undefined;
   }
   return { sessionId: candidate.sessionId, workspaceId: candidate.workspaceId };
+}
+
+function sessionDeletedPayload(
+  payload: unknown,
+): { sessionId: string } | undefined {
+  if (typeof payload !== 'object' || payload === null) return undefined;
+  const candidate = payload as { sessionId?: unknown };
+  if (typeof candidate.sessionId !== 'string' || candidate.sessionId.length === 0) {
+    return undefined;
+  }
+  return { sessionId: candidate.sessionId };
 }
 
 function workspaceLifecyclePayload(payload: unknown): Workspace | undefined {

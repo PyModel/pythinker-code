@@ -1163,6 +1163,7 @@ export interface PythinkerWebApi {
   getSessionGoal(sessionId: string): Promise<AppGoal | null>;
   getSessionWarnings(sessionId: string): Promise<AppSessionWarning[]>;
   archiveSession(sessionId: string): Promise<{ archived: true }>;
+  deleteSession(sessionId: string): Promise<{ deleted: true }>;
   restoreSession(sessionId: string): Promise<AppSession>;
   listMessages(sessionId: string, input?: PageRequest & { role?: AppMessageRole }): Promise<Page<AppMessage>>;
   getSessionTranscript(

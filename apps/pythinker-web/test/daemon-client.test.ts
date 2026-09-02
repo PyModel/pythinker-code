@@ -600,4 +600,59 @@ describe('DaemonPythinkerWebApi.connectEvents', () => {
       lastTurnReason: undefined,
     });
   });
+
+  it('projects sessionDeleted from the global session deleted event', () => {
+    FakeWebSocket.instances = [];
+    vi.stubGlobal('WebSocket', FakeWebSocket as unknown as typeof WebSocket);
+    const received: AppEvent[] = [];
+    connection = createApi().connectEvents({
+      onEvent(event) {
+        received.push(event);
+      },
+      onResync() {},
+      onError() {},
+      onConnectionChange() {},
+    });
+    const [socket] = FakeWebSocket.instances;
+    if (socket === undefined) throw new Error('WebSocket was not created');
+
+    socket.emit({ type: 'server_hello', payload: { protocol_version: 2 } });
+    socket.emit({
+      type: 'event.session.deleted',
+      seq: 1,
+      session_id: '__global__',
+      timestamp: '2026-01-01T00:00:00.000Z',
+      payload: {
+        sessionId: 'session-1',
+      },
+    });
+
+    expect(received).toContainEqual({
+      type: 'sessionDeleted',
+      sessionId: 'session-1',
+    });
+  });
+});
+
+describe('DaemonPythinkerWebApi.deleteSession', () => {
+  beforeEach(() => {
+    vi.stubGlobal('location', { search: '?debug=1' });
+    vi.stubGlobal('fetch', vi.fn());
+    clearTrace();
+  });
+
+  afterEach(() => {
+    clearTrace();
+    vi.unstubAllGlobals();
+  });
+
+  it('issues DELETE /sessions/:session_id to delete a session', async () => {
+    vi.mocked(fetch).mockResolvedValue(envelope({ deleted: true }));
+
+    const res = await createApi().deleteSession('sess_1');
+
+    expect(res).toEqual({ deleted: true });
+    expect(vi.mocked(fetch).mock.calls[0]?.[0]).toBe('http://daemon.test/api/v1/sessions/sess_1');
+    expect(vi.mocked(fetch).mock.calls[0]?.[1]).toMatchObject({ method: 'DELETE' });
+  });
 });

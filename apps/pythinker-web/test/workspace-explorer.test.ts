@@ -52,17 +52,17 @@ describe('WorkspaceExplorer', () => {
     await flushPromises();
 
     expect(wrapper.text()).not.toContain('Open Editors');
-    expect(wrapper.text()).toContain('Back to tasks');
+    expect(wrapper.text()).toContain('Back');
     expect(wrapper.get('.ui-input[placeholder="Search files…"]').exists()).toBe(true);
     expect(wrapper.text()).toContain('example-project');
     expect(wrapper.get('button[aria-label="Refresh files"] .ui-icon').exists()).toBe(true);
-    const closeButton = wrapper.get('button[aria-label="Back to tasks"]');
+    const closeButton = wrapper.get('button[aria-label="Back"]');
 
     await closeButton.trigger('click');
     expect(wrapper.emitted('close')).toEqual([[]]);
   });
 
-  it('moves focus to Back to tasks when the files sidebar opens', async () => {
+  it('moves focus to Back when the files sidebar opens', async () => {
     listDirectory.mockResolvedValue({ items: [], truncated: false });
     const host = document.createElement('div');
     document.body.append(host);
@@ -74,7 +74,7 @@ describe('WorkspaceExplorer', () => {
     await flushPromises();
 
     (wrapper.vm as unknown as { focus: () => void }).focus();
-    expect(document.activeElement).toBe(wrapper.get('button[aria-label="Back to tasks"]').element);
+    expect(document.activeElement).toBe(wrapper.get('button[aria-label="Back"]').element);
 
     wrapper.unmount();
     host.remove();
@@ -213,7 +213,7 @@ describe('Sidebar files mode', () => {
     expect(wrapper.emitted('select')).toEqual([['session-2']]);
     expect((wrapper.get('input[placeholder="Search files…"]').element as HTMLInputElement).disabled)
       .toBe(true);
-    expect(document.activeElement).toBe(wrapper.get('button[aria-label="Back to tasks"]').element);
+    expect(document.activeElement).toBe(wrapper.get('button[aria-label="Back"]').element);
 
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true }));
     await flushPromises();
@@ -228,7 +228,7 @@ describe('Sidebar files mode', () => {
       includeGitStatus: true,
     });
 
-    await wrapper.get('button[aria-label="Back to tasks"]').trigger('click');
+    await wrapper.get('button[aria-label="Back"]').trigger('click');
     await flushPromises();
     expect(document.activeElement)
       .toBe(wrapper.get('[data-workspace-files-id="workspace-2"]').element);
