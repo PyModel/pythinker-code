@@ -12,9 +12,7 @@ export function revealCommandFor(path: string, platform: NodeJS.Platform = proce
     case 'darwin':
       return { command: 'open', args: [path] };
     case 'win32':
-      // `start` is a cmd built-in; the empty title `""` prevents the path
-      // from being mistaken for a window title.
-      return { command: 'cmd', args: ['/c', 'start', '""', path] };
+      return { command: 'C:\\Windows\\explorer.exe', args: [`/select,${path}`] };
     default:
       return { command: 'xdg-open', args: [path] };
   }

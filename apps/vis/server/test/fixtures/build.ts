@@ -1,4 +1,4 @@
-import { cp, mkdir, writeFile, rm } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -9,7 +9,7 @@ export async function buildSessionFixture(name: string): Promise<{
   cleanup: () => Promise<void>;
 }> {
   const src = new URL(`./sessions/${name}`, import.meta.url).pathname;
-  const home = await mkdtemp();
+  const home = await mkdtemp(join(tmpdir(), 'vis-fixture-'));
   const sessionsDir = join(home, 'sessions', 'wd_test_000000000000');
   const sessionDir = join(sessionsDir, 'session_fixture');
   await mkdir(sessionsDir, { recursive: true });
@@ -30,10 +30,4 @@ export async function buildSessionFixture(name: string): Promise<{
     sessionDir,
     cleanup: () => rm(home, { recursive: true, force: true }),
   };
-}
-
-async function mkdtemp(): Promise<string> {
-  const base = join(tmpdir(), `vis-fixture-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
-  await mkdir(base, { recursive: true });
-  return base;
 }

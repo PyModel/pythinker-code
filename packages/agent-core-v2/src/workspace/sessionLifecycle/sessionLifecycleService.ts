@@ -810,7 +810,6 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
     relBase: string,
     excludeWire: boolean,
   ): Promise<void> {
-    const fileWrites: Promise<void>[] = [];
     for (const entry of entries) {
       const rel = relBase === '' ? entry.name : `${relBase}/${entry.name}`;
       if (rel === 'state.json' || rel === 'logs' || rel === 'upcoming-goals.json') {
@@ -831,16 +830,11 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
         await this.hostFs.mkdir(targetPath, { recursive: true });
         await this.copySessionDirEntries(sourcePath, targetPath, children, rel, excludeWire);
       } else if (entry.isFile) {
-        fileWrites.push(
-          (async () => {
-            const data = await this.hostFs.readBytes(sourcePath);
-            await this.hostFs.mkdir(targetDir, { recursive: true });
-            await this.hostFs.writeBytes(targetPath, data);
-          })(),
-        );
+        const data = await this.hostFs.readBytes(sourcePath);
+        await this.hostFs.mkdir(targetDir, { recursive: true });
+        await this.hostFs.writeBytes(targetPath, data);
       }
     }
-    await Promise.all(fileWrites);
   }
 
   private async readMetaFromDisk(sessionId: string): Promise<SessionMeta | undefined> {

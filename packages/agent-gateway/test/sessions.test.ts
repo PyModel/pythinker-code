@@ -17,6 +17,7 @@ import {
   IAgentLifecycleService,
   IEventBus,
   IEventService,
+  IHostFileSystem,
   ISessionManager,
   IWorkspaceService,
   MAIN_AGENT_ID,
@@ -924,11 +925,22 @@ describe('server-v2 /api/v1/sessions', () => {
   it('cold-forks a session with hundreds of agents without materializing it', async () => {
     const cwd = home as string;
     const parent = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd } });
-    const parentId = parent.body.data.id;
+    expect(parent.body.code).toBe(0);
+    const accessor = (server as RunningServer).core.accessor;
+    const parentSession = accessor.get(ISessionManager).list().at(0);
+    const workspace = (await accessor.get(IWorkspaceService).list()).at(0);
+    expect(parentSession).toBeDefined();
+    expect(workspace).toBeDefined();
+    const parentId = parentSession!.id;
     const parentWire = parent.body.data;
-    await closeSessionById((server as RunningServer).core.accessor, parentId);
+    expect(parentWire.id).toBe(parentId);
+    await closeSessionById(accessor, parentId);
 
-    const sessionDir = join(home as string, 'sessions', parentWire.workspace_id, parentId);
+    const sessionDir = sessionDirOf(
+      accessor.get(IBootstrapService).homeDir,
+      `sessions/${workspace!.id}`,
+      parentId,
+    );
     const statePath = join(sessionDir, 'state.json');
     const state = JSON.parse(await readFile(statePath, 'utf8'));
 
@@ -968,6 +980,11 @@ describe('server-v2 /api/v1/sessions', () => {
       join(sessionDir, 'agents', 'main', 'wire.jsonl'),
       `${metadataLine}\n${recordLine(2)}\n${planRevisionLine}\n`,
     );
+    const bulkDir = join(sessionDir, 'bulk');
+    await mkdir(bulkDir);
+    await Promise.all(
+      Array.from({ length: 8 }, (_, index) => writeFile(join(bulkDir, `${index}.txt`), `${index}`)),
+    );
     for (let i = 0; i < subagentCount; i++) {
       const agentId = `agent-${i}`;
       agents[agentId] = {
@@ -988,16 +1005,37 @@ describe('server-v2 /api/v1/sessions', () => {
     state.custom = { origin: 'large-test' };
     await writeFile(statePath, JSON.stringify(state));
 
+    const hostFs = accessor.get(IHostFileSystem);
+    const readBytes = hostFs.readBytes.bind(hostFs);
+    let activeBulkReads = 0;
+    let maxBulkReads = 0;
+    vi.spyOn(hostFs, 'readBytes').mockImplementation(async (path, n, offset) => {
+      if (!path.startsWith(bulkDir)) return readBytes(path, n, offset);
+      activeBulkReads++;
+      maxBulkReads = Math.max(maxBulkReads, activeBulkReads);
+      await Promise.resolve();
+      try {
+        return await readBytes(path, n, offset);
+      } finally {
+        activeBulkReads--;
+      }
+    });
+
     const startedAt = Date.now();
     const forked = await postJson<SessionWire>(`/api/v1/sessions/${parentId}:fork`, {});
     const elapsedMs = Date.now() - startedAt;
     expect(forked.body.code).toBe(0);
+    expect(maxBulkReads).toBe(1);
     const forkedId = forked.body.data.id;
     process.stdout.write(`fork of ${subagentCount + 1}-agent session completed in ${elapsedMs}ms\n`);
 
     expect(getLiveSessionById((server as RunningServer).core.accessor, forkedId)).toBeUndefined();
 
-    const forkedDir = join(home as string, 'sessions', parentWire.workspace_id, forkedId);
+    const forkedDir = sessionDirOf(
+      accessor.get(IBootstrapService).homeDir,
+      `sessions/${workspace!.id}`,
+      forkedId,
+    );
     const forkedState = JSON.parse(await readFile(join(forkedDir, 'state.json'), 'utf8'));
     expect(forkedState.title).toBe(`Fork: ${parentWire.title || parentId}`);
     expect(forkedState.forkedFrom).toBe(parentId);

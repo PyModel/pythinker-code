@@ -9,10 +9,10 @@ describe('reveal', () => {
     });
   });
 
-  it('uses cmd /c start on Windows', () => {
-    expect(revealCommandFor('C:\\x', 'win32')).toEqual({
-      command: 'cmd',
-      args: ['/c', 'start', '""', 'C:\\x'],
+  it('uses explorer.exe without a command shell on Windows', () => {
+    expect(revealCommandFor('C:\\x & y', 'win32')).toEqual({
+      command: 'C:\\Windows\\explorer.exe',
+      args: ['/select,C:\\x & y'],
     });
   });
 
