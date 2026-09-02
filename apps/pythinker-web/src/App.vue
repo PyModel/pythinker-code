@@ -663,12 +663,21 @@ function closeActivePanelTab(): void {
 // Reference to ConversationPane so we can imperatively switch tabs
 const conversationPaneRef = ref<InstanceType<typeof ConversationPane> | null>(null);
 
-function handleExpertTalkTake(answer: string): void {
+async function prepareExpertTalkHandoff(): Promise<boolean> {
+  if (client.expertTalk.status.value?.activation.state !== 'armed') return true;
+  await client.expertTalk.disarm();
+  return client.expertTalk.status.value?.activation.state !== 'armed'
+    && client.expertTalk.error.value === undefined;
+}
+
+async function handleExpertTalkTake(answer: string): Promise<void> {
+  if (!(await prepareExpertTalkHandoff())) return;
   conversationPaneRef.value?.loadComposerForEdit(answer);
 }
 
-function handleExpertTalkBuild(answer: string): void {
-  void handleContinueTurn(t('expertTalk.buildPrompt', { answer }));
+async function handleExpertTalkBuild(answer: string): Promise<void> {
+  if (!(await prepareExpertTalkHandoff())) return;
+  await handleContinueTurn(t('expertTalk.buildPrompt', { answer }));
 }
 const sideChatPanelRef = ref<InstanceType<typeof SideChatPanel> | null>(null);
 

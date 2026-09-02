@@ -66,7 +66,11 @@ describe('app shell contracts', () => {
     expect(app).toContain('trigger="launcher"');
     expect(app).toContain('@take="handleExpertTalkTake"');
     expect(app).toContain('@build="handleExpertTalkBuild"');
-    expect(app).toContain("void handleContinueTurn(t('expertTalk.buildPrompt', { answer }));");
+    expect(app).toContain('await client.expertTalk.disarm();');
+    expect(app).toContain("client.expertTalk.status.value?.activation.state !== 'armed'");
+    expect(app).toContain('client.expertTalk.error.value === undefined');
+    expect(app.match(/if \(!\(await prepareExpertTalkHandoff\(\)\)\) return;/g)).toHaveLength(2);
+    expect(app).toContain("await handleContinueTurn(t('expertTalk.buildPrompt', { answer }));");
     expect(app).toContain('loadComposerForEdit(answer)');
     expect(app).toContain('.panel-launcher :deep(.expert-talk__launcher) { grid-column: 1 / -1; }');
   });

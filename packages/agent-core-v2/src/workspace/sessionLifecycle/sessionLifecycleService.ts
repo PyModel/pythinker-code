@@ -587,6 +587,7 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
       }
 
       const title = opts.title ?? `Fork: ${sourceMeta?.title || sourceId}`;
+      const forkWorkDir = sourceMeta?.cwd ?? indexSummary?.cwd ?? this.workspaceContext.cwd;
       const now = Date.now();
       const agents: Record<string, AgentMeta> = {};
       for (const agentId of retainedAgentIds) {
@@ -605,7 +606,7 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
       const meta: SessionMeta = {
         id: targetId,
         version: SESSION_META_VERSION,
-        cwd: this.workspaceContext.cwd,
+        cwd: forkWorkDir,
         createdAt: now,
         updatedAt: now,
         archived: false,
@@ -626,7 +627,7 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
         buildSessionSummary({
           id: targetId,
           workspaceId: this.workspaceId,
-          cwd: this.workspaceContext.cwd,
+          cwd: forkWorkDir,
           title,
           lastPrompt: meta.lastPrompt,
           createdAt: now,
@@ -636,7 +637,7 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
           lastTurnReason: meta.lastTurnReason,
         }),
       );
-      await this.appendSessionIndexEntry(targetId, this.workspaceContext.cwd);
+      await this.appendSessionIndexEntry(targetId, forkWorkDir);
       this._onDidForkSession.fire({ sourceSessionId: sourceId, sessionId: targetId });
       return meta;
     } catch (error) {

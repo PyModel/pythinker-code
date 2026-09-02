@@ -18,6 +18,7 @@ import {
   IEventBus,
   IEventService,
   IHostFileSystem,
+  ISessionContext,
   ISessionManager,
   IWorkspaceService,
   MAIN_AGENT_ID,
@@ -943,6 +944,9 @@ describe('server-v2 /api/v1/sessions', () => {
     );
     const statePath = join(sessionDir, 'state.json');
     const state = JSON.parse(await readFile(statePath, 'utf8'));
+    const sourceWorkDir = join(home as string, 'source-workdir');
+    await mkdir(sourceWorkDir);
+    state.cwd = sourceWorkDir;
 
     const subagentCount = 300;
     const metadataLine = JSON.stringify({ type: 'metadata', protocol_version: '1.5', created_at: 1 });
@@ -1026,6 +1030,7 @@ describe('server-v2 /api/v1/sessions', () => {
     const elapsedMs = Date.now() - startedAt;
     expect(forked.body.code).toBe(0);
     expect(maxBulkReads).toBe(1);
+    expect(forked.body.data.metadata.cwd).toBe(sourceWorkDir);
     const forkedId = forked.body.data.id;
     process.stdout.write(`fork of ${subagentCount + 1}-agent session completed in ${elapsedMs}ms\n`);
 
@@ -1038,6 +1043,7 @@ describe('server-v2 /api/v1/sessions', () => {
     );
     const forkedState = JSON.parse(await readFile(join(forkedDir, 'state.json'), 'utf8'));
     expect(forkedState.title).toBe(`Fork: ${parentWire.title || parentId}`);
+    expect(forkedState.cwd).toBe(sourceWorkDir);
     expect(forkedState.forkedFrom).toBe(parentId);
     expect(forkedState.custom).toEqual({ origin: 'large-test' });
     expect(Object.keys(forkedState.agents)).toHaveLength(subagentCount + 1);
@@ -1080,6 +1086,7 @@ describe('server-v2 /api/v1/sessions', () => {
 
     const listed = await getJson<SessionWire>(`/api/v1/sessions/${forkedId}`);
     expect(listed.body.code).toBe(0);
+    expect(listed.body.data.metadata.cwd).toBe(sourceWorkDir);
 
     const transcript = await getJson<{
       items: { kind: string; marker?: string; payload?: { path?: string } }[];
@@ -1092,6 +1099,7 @@ describe('server-v2 /api/v1/sessions', () => {
 
     const resumed = await resumeSessionById((server as RunningServer).core.accessor, forkedId);
     expect(resumed).toBeDefined();
+    expect(resumed!.accessor.get(ISessionContext).cwd).toBe(sourceWorkDir);
     expect(resumed!.accessor.get(IAgentLifecycleService).handleOf(MAIN_AGENT_ID)).toBeDefined();
   }, 30_000);
 

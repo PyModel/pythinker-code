@@ -16,6 +16,16 @@ describe('reveal', () => {
     });
   });
 
+  it('uses the drive-qualified Windows system root', () => {
+    expect(revealCommandFor('D:\\repo\\file.ts', 'win32', {
+      SystemRoot: 'relative',
+      WINDIR: 'D:\\Windows',
+    })).toEqual({
+      command: 'D:\\Windows\\explorer.exe',
+      args: ['/select,D:\\repo\\file.ts'],
+    });
+  });
+
   it('uses xdg-open on Linux and other unixes', () => {
     expect(revealCommandFor('/tmp/x', 'linux')).toEqual({
       command: 'xdg-open',
