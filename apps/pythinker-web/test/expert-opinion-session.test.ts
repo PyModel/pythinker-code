@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { join } from 'node:path';
 
 import { mount } from '@vue/test-utils';
 import { defineComponent } from 'vue';
@@ -250,7 +250,7 @@ describe('Expert Talk session transcript', () => {
 
 describe('Expert Talk exchange scrolling', () => {
   it('lets a wheel over a reasoning box chain to the transcript scroller', () => {
-    const source = readFileSync(resolve(process.cwd(), 'src/components/chat/ExpertTalkExchange.vue'), 'utf8');
+    const source = readFileSync(join(import.meta.dirname, '../src/components/chat/ExpertTalkExchange.vue'), 'utf8');
     const thinkingRule = source.slice(source.indexOf('.expert-talk__thinking {'));
     const block = thinkingRule.slice(0, thinkingRule.indexOf('}'));
     expect(block).toContain('overflow: auto');
