@@ -881,6 +881,8 @@ function setOnboarded(done: boolean): void {
 
 // Singleton WS connection
 let eventConn: PythinkerEventConnection | null = null;
+const lastDeletedSessionId = ref<string | null>(null);
+
 const auxiliaryTranscripts = createAuxiliaryTranscripts({
   api: getPythinkerWebApi(),
   connectEventsIfNeeded,
@@ -932,6 +934,9 @@ function applyEvent(event: ReturnType<typeof toAppEvent>, sessionId: string, seq
   // Assign back to the reactive proxy
   setSessions(next.sessions);
   setActiveSessionId(next.activeSessionId);
+  if (event.type === 'sessionDeleted') {
+    lastDeletedSessionId.value = event.sessionId;
+  }
   setMessagesBySession(next.messagesBySession);
   if (!sameRecordEntries(rawState.approvalsBySession, next.approvalsBySession)) {
     rawState.approvalsBySession = next.approvalsBySession;
@@ -3417,6 +3422,7 @@ export function usePythinkerWebClient() {
     reorderPinnedSessions,
     togglePinnedCollapsed,
     setSessionEmoji,
+    lastDeletedSessionId,
     archiveSession: workspaceState.archiveSession,
     deleteSession: workspaceState.deleteSession,
     exportSession: workspaceState.exportSession,

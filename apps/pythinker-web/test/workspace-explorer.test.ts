@@ -52,11 +52,12 @@ describe('WorkspaceExplorer', () => {
     await flushPromises();
 
     expect(wrapper.text()).not.toContain('Open Editors');
-    expect(wrapper.text()).toContain('Back');
-    expect(wrapper.get('.ui-input[placeholder="Search files…"]').exists()).toBe(true);
     expect(wrapper.text()).toContain('example-project');
+    expect(wrapper.get('.ui-input[placeholder="Search files…"]').exists()).toBe(true);
     expect(wrapper.get('button[aria-label="Refresh files"] .ui-icon').exists()).toBe(true);
     const closeButton = wrapper.get('button[aria-label="Back"]');
+    expect(closeButton.text()).toBe('Back');
+    expect(closeButton.find('.ui-icon').exists()).toBe(true);
 
     await closeButton.trigger('click');
     expect(wrapper.emitted('close')).toEqual([[]]);

@@ -384,7 +384,7 @@ watch(
   width: calc(100% - 2 * var(--sb-inset));
   margin: var(--space-3) var(--sb-inset) var(--space-2);
   padding: var(--space-2) var(--space-3);
-  min-height: 36px;
+  min-height: var(--control-size-md);
   border: 0;
   border-radius: var(--radius-sm);
   background: transparent;
@@ -395,7 +395,7 @@ watch(
   line-height: var(--leading-tight);
   text-align: left;
   cursor: pointer;
-  transition: background var(--transition-fast), color var(--transition-fast);
+  transition: background var(--duration-fast) var(--ease-out), color var(--duration-fast) var(--ease-out);
 }
 
 .explorer-back:hover {
@@ -409,6 +409,7 @@ watch(
 
 .explorer-back:focus-visible {
   outline: none;
+  box-shadow: var(--p-focus-ring);
 }
 
 .explorer-back-icon {

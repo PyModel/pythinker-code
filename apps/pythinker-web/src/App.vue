@@ -305,6 +305,11 @@ watch(
     if (state !== 'recovery') recoveryDismissed.value = false;
   },
 );
+watch(client.lastDeletedSessionId, (id) => {
+  if (id !== null) {
+    archivedSessions.value = archivedSessions.value.filter((s) => s.id !== id);
+  }
+});
 function completeFirstRun(): void {
   // The flag is written by the wizard's final step, never earlier: a crash
   // mid-setup must resume the wizard rather than land in a half-configured app.

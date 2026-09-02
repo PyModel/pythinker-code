@@ -877,7 +877,7 @@ export function registerSessionsRoutes(app: SessionRouteHost, core: Scope): void
       try {
         await core.accessor.get(ISessionManager).delete(session_id);
         core.accessor.get(IEventService).publish(
-          new SessionDeleted({ payload: { sessionId: session_id } }),
+          new SessionDeleted({ payload: { session_id: session_id } }),
         );
         requestLog(req)?.info({ session_id }, 'session deleted');
         reply.send(okEnvelope({ deleted: true as const }, req.id));
@@ -1038,7 +1038,7 @@ async function deleteSessionAction(ctx: SessionActionCtx): Promise<void> {
   }
   await core.accessor.get(ISessionManager).delete(id);
   core.accessor.get(IEventService).publish(
-    new SessionDeleted({ payload: { sessionId: id } }),
+    new SessionDeleted({ payload: { session_id: id } }),
   );
   requestLog(req)?.info({ session_id: id, action: 'delete' }, 'session action completed');
   reply.send(okEnvelope({ deleted: true }, req.id));
