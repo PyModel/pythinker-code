@@ -1,8 +1,9 @@
 import { mount } from '@vue/test-utils';
-import { defineComponent, nextTick } from 'vue';
+import { defineComponent, nextTick, ref } from 'vue';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import webI18n from '../src/i18n';
 import Composer from '../src/components/chat/Composer.vue';
+import { expertTalkContextKey } from '../src/composables/expertTalkContext';
 import SelectionActionBar from '../src/components/chat/SelectionActionBar.vue';
 
 vi.mock('@chenglou/pretext', () => ({
@@ -164,6 +165,79 @@ describe('Composer toolbar overflow valves', () => {
     await row!.trigger('click');
 
     expect(openExpertOpinion).toHaveBeenCalledOnce();
+    wrapper.unmount();
+  });
+
+  it.each([
+    ['armed', { activation: { state: 'armed', armId: 'arm-1' } }, undefined],
+    ['running', { activation: { state: 'idle' } }, { state: 'running' }],
+  ])('names the model pill Discussion while the pair is %s', async (_label, status, run) => {
+    const wrapper = mount(Composer, {
+      attachTo: document.body,
+      props: {
+        status: { model: 'Session Model', modelId: 'provider/session', ctxUsed: 0, ctxMax: 1000, permission: 'manual', branch: '', cwd: '/tmp', isGitRepo: false },
+      },
+      global: {
+        plugins: [webI18n],
+        provide: { [expertTalkContextKey as symbol]: { status: ref(status), run: ref(run) } },
+        stubs: {
+          AttachmentChip: true,
+          CapabilityMenu: true,
+          ContextRing: true,
+          ExpertTalkControl: expertTalkControlStub,
+          Icon: true,
+          IconButton: slotStub,
+          MentionMenu: true,
+          SegmentedControl: true,
+          SlashMenu: true,
+          Spinner: true,
+          Tooltip: slotStub,
+        },
+      },
+    });
+    await nextTick();
+
+    const pill = wrapper.get('.model-pill');
+    expect(pill.classes()).toContain('is-discussion');
+    expect(pill.text()).toContain('Discussion');
+    expect(pill.text()).not.toContain('Session Model');
+    await pill.trigger('click');
+
+    expect(openExpertOpinion).toHaveBeenCalledOnce();
+    expect(wrapper.find('.model-dropdown').exists()).toBe(false);
+    wrapper.unmount();
+  });
+
+  it('names the model pill after the session model when Discussion is idle', async () => {
+    const wrapper = mount(Composer, {
+      props: {
+        status: { model: 'Session Model', modelId: 'provider/session', ctxUsed: 0, ctxMax: 1000, permission: 'manual', branch: '', cwd: '/tmp', isGitRepo: false },
+      },
+      global: {
+        plugins: [webI18n],
+        provide: {
+          [expertTalkContextKey as symbol]: { status: ref({ activation: { state: 'idle' } }), run: ref(undefined) },
+        },
+        stubs: {
+          AttachmentChip: true,
+          CapabilityMenu: true,
+          ContextRing: true,
+          ExpertTalkControl: expertTalkControlStub,
+          Icon: true,
+          IconButton: slotStub,
+          MentionMenu: true,
+          SegmentedControl: true,
+          SlashMenu: true,
+          Spinner: true,
+          Tooltip: slotStub,
+        },
+      },
+    });
+    await nextTick();
+
+    const pill = wrapper.get('.model-pill');
+    expect(pill.classes()).not.toContain('is-discussion');
+    expect(pill.text()).toContain('Session Model');
     wrapper.unmount();
   });
 

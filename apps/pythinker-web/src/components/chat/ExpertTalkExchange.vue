@@ -697,7 +697,6 @@ summary.expert-opinion-exchange__top::-webkit-details-marker {
   font-family: var(--font-mono);
   font-size: var(--text-xs);
   overflow: auto;
-  overscroll-behavior: contain;
   scrollbar-gutter: stable;
   white-space: pre-wrap;
 }
