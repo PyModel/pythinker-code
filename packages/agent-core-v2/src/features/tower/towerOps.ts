@@ -54,7 +54,7 @@ export const towerOwnerKey = defineState('tower.owner', () => undefined as strin
 
 export const towerBaseKey = defineState('tower.base', (): string | null => null)
   .replayable({
-    schema: z.custom<string | null>(),
+    schema: z.string().nullable(),
   })
   .on(TowerModeEnter, (_s, e) => e.base ?? null)
   .on(TowerModeExit, () => null);

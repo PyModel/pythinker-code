@@ -335,6 +335,8 @@ function extractLegacyPlanRevisionKey(path: string, agentId: string): string | u
   ) {
     return undefined;
   }
+  const planId = segments[6];
+  if (planId === '.' || planId === '..') return undefined;
   const key = segments.slice(5).join('/');
   return /^plan\/[^/]+\/v[0-9]+\.md$/.test(key) ? key : undefined;
 }

@@ -17,6 +17,7 @@ export const KNOWN_MARKERS = [
   'cron.fired',
   'notice',
   'hook',
+  'interruption',
 ] as const;
 
 export interface TranscriptMarker {

@@ -232,10 +232,12 @@ describe('WireService appendRecord', () => {
 describe('WireService readJournal', () => {
   it('normalizes legacy plan revision paths and rewrites them as keys', async () => {
     const telemetryRecords: { event: string; properties: unknown }[] = [];
-    const telemetry = {
+    const telemetry: ITelemetryService = {
       ...noopTelemetryService,
-      track2: (event: string, properties: unknown) => telemetryRecords.push({ event, properties }),
-    } as unknown as ITelemetryService;
+      track2: (event: string, properties: unknown) => {
+        telemetryRecords.push({ event, properties });
+      },
+    };
     const seeded: WireRecord[] = [
       { type: 'metadata', protocol_version: WIRE_PROTOCOL_VERSION, created_at: 1 },
       { type: 'wire.test.before', value: 1, time: 2 },
@@ -295,10 +297,12 @@ describe('WireService readJournal', () => {
 
   it('skips unsafe legacy plan revision paths and reports the migration outcome', async () => {
     const telemetryRecords: { event: string; properties: unknown }[] = [];
-    const telemetry = {
+    const telemetry: ITelemetryService = {
       ...noopTelemetryService,
-      track2: (event: string, properties: unknown) => telemetryRecords.push({ event, properties }),
-    } as unknown as ITelemetryService;
+      track2: (event: string, properties: unknown) => {
+        telemetryRecords.push({ event, properties });
+      },
+    };
     const stub = wireOverLog(
       recordingWireLog([
         { type: 'metadata', protocol_version: WIRE_PROTOCOL_VERSION, created_at: 1 },
@@ -428,12 +432,36 @@ describe('WireService readJournal', () => {
     expect(rewrites).toBe(0);
   });
 
+  it('skips a legacy plan revision path whose plan id is a dot segment', async () => {
+    const stub = wireOverLog(
+      recordingWireLog([
+        { type: 'metadata', protocol_version: WIRE_PROTOCOL_VERSION, created_at: 1 },
+        {
+          type: 'plan.revision',
+          id: 'plan-1',
+          version: 1,
+          path: 'sessions/source/session-1/agents/test-agent/plan/../v1.md',
+          sha256: 'sha',
+          bytes: 3,
+        },
+      ]),
+      'dot-legacy-plan',
+      { telemetry: noopTelemetryService },
+    );
+
+    expect(await collect(stub.readJournal())).toEqual([
+      { type: 'metadata', protocol_version: WIRE_PROTOCOL_VERSION, created_at: 1 },
+    ]);
+  });
+
   it('leaves legacy plan revision paths untouched in a newer-version journal', async () => {
     const telemetryRecords: { event: string; properties: unknown }[] = [];
-    const telemetry = {
+    const telemetry: ITelemetryService = {
       ...noopTelemetryService,
-      track2: (event: string, properties: unknown) => telemetryRecords.push({ event, properties }),
-    } as unknown as ITelemetryService;
+      track2: (event: string, properties: unknown) => {
+        telemetryRecords.push({ event, properties });
+      },
+    };
     const seeded: WireRecord[] = [
       { type: 'metadata', protocol_version: '9.9', created_at: 1 },
       {

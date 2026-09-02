@@ -171,14 +171,14 @@ describe('registerSessionCommand', () => {
     expect(captured.exitCode).toBeUndefined();
   });
 
-  it('rejects a non-numeric --limit', async () => {
+  it.each(['abc', '2x', '1.5', '0', '-1'])('rejects a malformed --limit %s', async (limit) => {
     const { deps } = stubDeps([]);
     const program = new Command('pythinker');
     program.exitOverride();
     registerSessionCommand(program, deps);
 
     await expect(
-      program.parseAsync(['node', 'pythinker', 'session', 'list', '--limit', 'abc']),
+      program.parseAsync(['node', 'pythinker', 'session', 'list', '--limit', limit]),
     ).rejects.toThrow(/positive integer/);
   });
 });

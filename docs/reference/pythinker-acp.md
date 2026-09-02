@@ -83,7 +83,7 @@ All methods not listed above return `methodNotFound`.
 
 ## MCP forwarding
 
-When an ACP client provides `mcpServers` in `session/new` or `session/load`, the ACP server performs the following conversions:
+When an ACP client provides `mcpServers` in `session/new`, `session/load`, or `session/resume`, the ACP server performs the following conversions:
 
 - `http` → Pythinker's `transport: 'http'` configuration
 - `stdio` → Pythinker's `transport: 'stdio'` configuration

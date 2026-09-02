@@ -135,7 +135,7 @@ function formatRow(summary: SessionSummary, showWorkDir: boolean): string {
 }
 
 function sanitizeField(value: string): string {
-  return value.replaceAll(/[\x00-\x1F\x7F]+/g, ' ').trim();
+  return value.replaceAll(/[\u0000-\u001F\u007F]+/g, ' ').trim();
 }
 
 function formatTimestamp(epochMs: number): string {
@@ -145,8 +145,8 @@ function formatTimestamp(epochMs: number): string {
 }
 
 function parseLimitOption(value: string): number {
-  const parsed = Number.parseInt(value, 10);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
+  const parsed = /^\d+$/.test(value) ? Number(value) : Number.NaN;
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) {
     throw new Error(`--limit must be a positive integer, got "${value}"`);
   }
   return parsed;

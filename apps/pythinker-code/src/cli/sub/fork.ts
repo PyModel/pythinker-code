@@ -26,7 +26,7 @@ interface WritableLike {
 
 export interface ForkedSessionResult {
   readonly id: string;
-  readonly title?: string | undefined;
+  readonly title?: string;
 }
 
 export interface ForkDeps {
@@ -41,7 +41,7 @@ export interface ForkDeps {
 
 export interface ForkOptions {
   readonly yes: boolean;
-  readonly cwd?: string | undefined;
+  readonly cwd?: string;
 }
 
 export async function handleFork(
@@ -49,26 +49,26 @@ export async function handleFork(
   sessionId: string | undefined,
   opts: ForkOptions,
 ): Promise<void> {
-  let resolvedId = normalizeOptionalSessionId(sessionId);
-  if (resolvedId === undefined) {
-    const sessions = await deps.listSessions(opts.cwd ?? deps.cwd());
-    const latest = sessions[0];
-    if (latest === undefined) {
-      deps.stderr.write('No previous session found to fork.\n');
-      return deps.exit(1);
-    }
-    if (!opts.yes) {
-      const confirmed = await deps.confirmPreviousSession(latest);
-      if (!confirmed) {
-        deps.stdout.write('Fork cancelled.\n');
-        return;
-      }
-    }
-    resolvedId = latest.id;
-  }
-
-  const startedAt = Date.now();
   try {
+    let resolvedId = normalizeOptionalSessionId(sessionId);
+    if (resolvedId === undefined) {
+      const sessions = await deps.listSessions(opts.cwd ?? deps.cwd());
+      const latest = sessions[0];
+      if (latest === undefined) {
+        deps.stderr.write('No previous session found to fork.\n');
+        return deps.exit(1);
+      }
+      if (!opts.yes) {
+        const confirmed = await deps.confirmPreviousSession(latest);
+        if (!confirmed) {
+          deps.stdout.write('Fork cancelled.\n');
+          return;
+        }
+      }
+      resolvedId = latest.id;
+    }
+
+    const startedAt = Date.now();
     const forked = await deps.forkSession(resolvedId);
     const elapsedMs = Date.now() - startedAt;
     const title = forked.title === undefined ? '' : ` ("${forked.title}")`;

@@ -57,20 +57,22 @@ describe('pythinker acp', () => {
     const program = new Command('pythinker').exitOverride();
     registerAcpCommand(program);
 
-    await expect(program.parseAsync(['node', 'pythinker', 'acp'])).rejects.toThrow(ExitCalled);
+    exitSpy.mockImplementation((() => undefined) as never);
+    await program.parseAsync(['node', 'pythinker', 'acp']);
 
     expect(runAcpServer).toHaveBeenCalledTimes(1);
     expect(vi.mocked(runAcpServer).mock.calls[0]?.[0]).toEqual(
       expect.objectContaining({ homeDir: getDataDir() }),
     );
-    expect(exitSpy).toHaveBeenCalledWith(0);
+    expect(exitSpy.mock.calls).toEqual([[0]]);
   });
 
   it('invokes runAcpServer with the v2 host options and exits 0 on success', async () => {
     const program = new Command('pythinker').exitOverride();
     registerAcpCommand(program);
 
-    await expect(program.parseAsync(['node', 'pythinker', 'acp'])).rejects.toThrow(ExitCalled);
+    exitSpy.mockImplementation((() => undefined) as never);
+    await program.parseAsync(['node', 'pythinker', 'acp']);
 
     expect(runAcpServer).toHaveBeenCalledTimes(1);
     const optsArg = vi.mocked(runAcpServer).mock.calls[0]?.[0];
@@ -80,7 +82,7 @@ describe('pythinker acp', () => {
         agentInfo: { name: 'Pythinker Code CLI', version: expect.any(String) },
       }),
     );
-    expect(exitSpy).toHaveBeenCalledWith(0);
+    expect(exitSpy.mock.calls).toEqual([[0]]);
   });
 
   it('uses PYTHINKER_CODE_HOME as homeDir when set', async () => {
@@ -90,7 +92,8 @@ describe('pythinker acp', () => {
       const program = new Command('pythinker').exitOverride();
       registerAcpCommand(program);
 
-      await expect(program.parseAsync(['node', 'pythinker', 'acp'])).rejects.toThrow(ExitCalled);
+      exitSpy.mockImplementation((() => undefined) as never);
+    await program.parseAsync(['node', 'pythinker', 'acp']);
 
       const optsArg = vi.mocked(runAcpServer).mock.calls[0]?.[0];
       expect(optsArg).toEqual(

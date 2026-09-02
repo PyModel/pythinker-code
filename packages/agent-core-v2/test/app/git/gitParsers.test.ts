@@ -26,6 +26,12 @@ describe('parsePorcelain', () => {
     });
   });
 
+  it('consumes the origin path of an unstaged rename', () => {
+    const out = ['## dev', ' R new.ts', 'old.ts', ' M src/a.ts', ''].join('\0');
+    const result = parsePorcelain(out, undefined);
+    expect(result.entries).toEqual({ 'new.ts': 'renamed', 'src/a.ts': 'modified' });
+  });
+
   it('applies the path filter when provided', () => {
     const out = '## main\0 M src/a.ts\0 M src/b.ts\0';
     const result = parsePorcelain(out, new Set(['src/a.ts']));

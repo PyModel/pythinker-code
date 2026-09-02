@@ -183,7 +183,7 @@ function renderDeathWarnings(state: TowerState): string[] {
   const lines: string[] = [];
   for (const mission of state.missions) {
     if (mission.owner === undefined) continue;
-    if (mission.status === 'merged' || mission.status === 'abandoned') continue;
+    if (mission.status === 'completed' || mission.status === 'merged' || mission.status === 'abandoned') continue;
     const entry = deadByName.get(mission.owner);
     if (entry === undefined) continue;
     lines.push(

@@ -103,7 +103,7 @@ interface Marker {
 }
 ```
 
-`KNOWN_MARKERS` (`packages/transcript/src/model/item.ts`): `'compaction' | 'undo' | 'clear' | 'goal' | 'plan.enter' | 'plan.exit' | 'plan.revision' | 'dynamic_workflow.enter' | 'dynamic_workflow.exit' | 'skill' | 'cron.fired' | 'notice' | 'hook'` (the `marker` field itself is typed as a free-form string; `KNOWN_MARKERS` is only the list of currently known keys).
+`KNOWN_MARKERS` (`packages/transcript/src/model/item.ts`): `'compaction' | 'undo' | 'clear' | 'goal' | 'plan.enter' | 'plan.exit' | 'plan.revision' | 'dynamic_workflow.enter' | 'dynamic_workflow.exit' | 'skill' | 'cron.fired' | 'notice' | 'hook' | 'interruption'` (the `marker` field itself is typed as a free-form string; `KNOWN_MARKERS` is only the list of currently known keys).
 
 ```ts
 interface TaskRef { kind: 'taskref'; refId: string; taskId: TaskId; at?: string }
@@ -340,7 +340,7 @@ Plan content is projected from, in priority order: the linked approval interacti
 
 ### 5.5 `POST /sessions/{id}/transcript/plan::reveal`
 
-body: `{ agent_id, tool_call_id }`. Reveals the saved ExitPlanMode Markdown file in the host file manager. The gateway resolves and verifies the saved plan's on-disk location itself (under `agents/<agentId>/plans/` inside the session directory, symlinks rejected) rather than accepting a path from the client; returns `{ revealed: true }` on success, or `FILE_NOT_FOUND` / `TOOL_CALL_NOT_FOUND` on failure.
+body: `{ agent_id, tool_call_id }`. Reveals the saved ExitPlanMode Markdown file in the host file manager. The gateway resolves and verifies the saved plan's on-disk location itself (under `agents/<agentId>/plan/` inside the session directory, symlinks rejected) rather than accepting a path from the client; returns `{ revealed: true }` on success, or `FILE_NOT_FOUND` / `TOOL_CALL_NOT_FOUND` on failure.
 
 ## 6. Session-level work status
 

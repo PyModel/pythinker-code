@@ -58,7 +58,6 @@ import { ISessionExpertTalkService } from '#/session/expertTalk/expertTalk';
 import {
   drainSessionMetadataWrites,
   encodeSessionMeta,
-  toEpochMs,
 } from '#/session/sessionMetadata/sessionMetadataService';
 import { ISessionToolPolicy } from '#/session/sessionToolPolicy/sessionToolPolicy';
 import { IEventDispatcher } from '#/state/eventDispatcher';
@@ -608,7 +607,7 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
         version: SESSION_META_VERSION,
         cwd: this.workspaceContext.cwd,
         createdAt: now,
-        updatedAt: toEpochMs(sourceMeta?.updatedAt) || now,
+        updatedAt: now,
         archived: false,
         title,
         titleKind: opts.title !== undefined ? 'custom' : 'replaceable',
