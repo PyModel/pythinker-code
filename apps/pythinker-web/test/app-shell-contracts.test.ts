@@ -60,11 +60,14 @@ describe('app shell contracts', () => {
   it('offers Expert Opinion from the composer and right-side launchers', () => {
     expect(composer).toContain("id: 'expertOpinion'");
     expect(composer).toContain('action: openExpertOpinion');
-    expect(composer).toContain('@build="loadForEdit"');
+    expect(composer).toContain('@take="loadForEdit"');
+    expect(composer).toContain('@build="buildFromExpertTalk"');
     expect(app).toContain("import ExpertTalkControl from './components/chat/ExpertTalkControl.vue';");
     expect(app).toContain('trigger="launcher"');
+    expect(app).toContain('@take="handleExpertTalkTake"');
     expect(app).toContain('@build="handleExpertTalkBuild"');
-    expect(app).toContain('loadComposerForEdit(prompt)');
+    expect(app).toContain("void handleContinueTurn(t('expertTalk.buildPrompt', { answer }));");
+    expect(app).toContain('loadComposerForEdit(answer)');
     expect(app).toContain('.panel-launcher :deep(.expert-talk__launcher) { grid-column: 1 / -1; }');
   });
 

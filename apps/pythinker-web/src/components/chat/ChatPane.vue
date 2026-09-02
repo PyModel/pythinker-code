@@ -326,6 +326,7 @@ const emit = defineEmits<{
    * on the resume path.
    */
   continueTurn: [text: string];
+  takeExpertTalk: [answer: string];
   buildExpertTalk: [answer: string];
 }>();
 
@@ -866,6 +867,7 @@ function continueFailedTurn(): void {
           <ExpertTalkExchange
             :run="expertTalkRunForTurn(turn)!"
             :models="expertTalkModels"
+            @take="emit('takeExpertTalk', $event)"
             @build="emit('buildExpertTalk', $event)"
           />
         </div>

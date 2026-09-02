@@ -129,6 +129,8 @@ describe('Expert Talk session transcript', () => {
   it('passes Build from Fusion into the conversation composer handoff', async () => {
     const wrapper = mountPane();
 
+    await wrapper.get('[data-testid="expert-opinion-take"]').trigger('click');
+    expect(wrapper.emitted('takeExpertTalk')).toEqual([['Consolidated answer']]);
     await wrapper.get('[data-testid="expert-opinion-build"]').trigger('click');
     expect(wrapper.emitted('buildExpertTalk')).toEqual([['Consolidated answer']]);
   });

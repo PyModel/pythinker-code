@@ -1,9 +1,8 @@
 <script setup lang="ts">
-import { computed, onUnmounted, ref, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 
 import type { AppExpertTalkArtifact, AppExpertTalkRun, AppModel } from '../../api/types';
-import { copyTextToClipboard } from '../../lib/clipboard';
 import { extractStreamingAnswer } from '../../lib/expertTalkStream';
 import { formatTokens } from '../../lib/formatTokens';
 import Badge from '../ui/Badge.vue';
@@ -20,6 +19,7 @@ const props = withDefaults(defineProps<{
   models: () => [],
 });
 const emit = defineEmits<{
+  take: [answer: string];
   build: [answer: string];
 }>();
 const { t } = useI18n();
@@ -162,24 +162,6 @@ const fusionExchange = computed(() => {
   };
 });
 
-type CopyTarget = 'lead' | 'peer' | 'fusion';
-const copiedTarget = ref<CopyTarget>();
-let copiedTimer: ReturnType<typeof setTimeout> | undefined;
-
-async function takeAnswer(target: CopyTarget, answer: string): Promise<void> {
-  if (!await copyTextToClipboard(answer)) return;
-  copiedTarget.value = target;
-  if (copiedTimer !== undefined) clearTimeout(copiedTimer);
-  copiedTimer = setTimeout(() => {
-    copiedTarget.value = undefined;
-    copiedTimer = undefined;
-  }, 1500);
-}
-
-onUnmounted(() => {
-  if (copiedTimer !== undefined) clearTimeout(copiedTimer);
-});
-
 interface ArtifactMetric {
   label: string;
   value: string;
@@ -308,11 +290,14 @@ function statusVariant(state: AppExpertTalkRun['state']): 'success' | 'danger' |
           <ExpertTalkArtifactBody :artifact="stageEntry.artifact" :state="stageEntry.artifact.state" />
         </section>
         <footer v-if="column.answer" class="expert-talk__agent-actions">
-          <Button size="sm" variant="secondary" @click="takeAnswer(column.key, column.answer)">
-            <Icon :name="copiedTarget === column.key ? 'check' : 'copy'" size="sm" />
-            {{ copiedTarget === column.key
-              ? t('expertTalk.copied')
-              : t(column.key === 'lead' ? 'expertTalk.takeModel1' : 'expertTalk.takeModel2') }}
+          <Button
+            size="sm"
+            variant="secondary"
+            :title="t('expertTalk.takeHint')"
+            @click="emit('take', column.answer)"
+          >
+            <Icon name="pencil" size="sm" />
+            {{ t(column.key === 'lead' ? 'expertTalk.takeModel1' : 'expertTalk.takeModel2') }}
           </Button>
         </footer>
       </article>
@@ -392,11 +377,22 @@ function statusVariant(state: AppExpertTalkRun['state']): 'success' | 'danger' |
         </div>
       </section>
       <footer v-if="fusionExchange.answer" class="expert-talk__fusion-actions">
-        <Button size="sm" variant="secondary" @click="takeAnswer('fusion', fusionExchange.answer)">
-          <Icon :name="copiedTarget === 'fusion' ? 'check' : 'copy'" size="sm" />
-          {{ copiedTarget === 'fusion' ? t('expertTalk.copied') : t('expertTalk.takeFusion') }}
+        <Button
+          size="sm"
+          variant="secondary"
+          data-testid="expert-opinion-take"
+          :title="t('expertTalk.takeHint')"
+          @click="emit('take', fusionExchange.answer)"
+        >
+          <Icon name="pencil" size="sm" />
+          {{ t('expertTalk.takeFusion') }}
         </Button>
-        <Button size="sm" data-testid="expert-opinion-build" @click="emit('build', fusionExchange.answer)">
+        <Button
+          size="sm"
+          data-testid="expert-opinion-build"
+          :title="t('expertTalk.buildHint')"
+          @click="emit('build', fusionExchange.answer)"
+        >
           <Icon name="play" size="sm" />
           {{ t('expertTalk.buildFusion') }}
         </Button>

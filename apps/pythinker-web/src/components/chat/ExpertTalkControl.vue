@@ -20,7 +20,8 @@ const props = withDefaults(defineProps<{
   trigger: 'pill',
 });
 const emit = defineEmits<{
-  build: [prompt: string];
+  take: [answer: string];
+  build: [answer: string];
 }>();
 const expertTalk = inject(expertTalkContextKey);
 const { t } = useI18n();
@@ -144,13 +145,14 @@ function setPeer(selection: { model: string; effort?: string }): void {
   peerThinkingEffort.value = selection.effort ?? '';
 }
 
-async function buildFromFusion(answer: string): Promise<void> {
+async function handOff(kind: 'take' | 'build', answer: string): Promise<void> {
   if (!expertTalk) return;
   if (armed.value) {
     await expertTalk.disarm();
     if (armed.value || expertTalk.error.value !== undefined) return;
   }
-  emit('build', answer);
+  if (kind === 'take') emit('take', answer);
+  else emit('build', answer);
   open.value = false;
 }
 </script>
@@ -263,7 +265,8 @@ async function buildFromFusion(answer: string): Promise<void> {
           v-if="run"
           :run="run"
           :models="models"
-          @build="buildFromFusion"
+          @take="handOff('take', $event)"
+          @build="handOff('build', $event)"
         />
 
         <p v-if="expertTalk?.error.value" class="expert-talk__error" role="alert">

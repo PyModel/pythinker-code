@@ -152,6 +152,7 @@ const emit = defineEmits<{
   selectModel: [modelId: string];
   openFile: [target: FilePreviewRequest];
   openMedia: [media: ToolMedia];
+  takeExpertTalk: [answer: string];
   buildExpertTalk: [answer: string];
   openCompaction: [target: { turnId: string }];
   openAgent: [toolCallId: string];
@@ -1588,6 +1589,7 @@ defineExpose({ loadComposerForEdit, focusComposer, insertComposerQuote });
               :queued="queued"
               @open-file="emit('openFile', $event)"
               @open-media="emit('openMedia', $event)"
+              @take-expert-talk="emit('takeExpertTalk', $event)"
               @build-expert-talk="emit('buildExpertTalk', $event)"
               @copy-conversation-copied="handleCopyConversationCopied"
               @open-compaction="emit('openCompaction', $event)"

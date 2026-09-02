@@ -521,15 +521,18 @@ describe('ExpertTalkControl', () => {
     expect(wrapper.find('[data-testid="expert-opinion-review"]').exists()).toBe(false);
     expect(wrapper.find('[data-testid="expert-opinion-finish"]').exists()).toBe(false);
     expect(wrapper.find('[data-testid="expert-opinion-fuse"]').exists()).toBe(false);
-    await button('Take Fusion Lead').trigger('click');
-    expect(copyTextToClipboard).toHaveBeenLastCalledWith('Fusion Lead review of Peer Expert');
-    await button('Take Peer Expert').trigger('click');
-    expect(copyTextToClipboard).toHaveBeenLastCalledWith('Peer Expert review of Fusion Lead');
     await button('Take Fusion').trigger('click');
-    expect(copyTextToClipboard).toHaveBeenLastCalledWith('Fused answer users receive');
+    expect(wrapper.emitted('take')).toEqual([['Fused answer users receive']]);
+    expect(copyTextToClipboard).not.toHaveBeenCalled();
+    expect(wrapper.find('.expert-talk__fusion').exists()).toBe(false);
+
+    await wrapper.get('.expert-talk__launcher').trigger('click');
+    await nextTick();
+    await flushPromises();
     await button('Build from Fusion').trigger('click');
-    expect(disarm).toHaveBeenCalledOnce();
+    expect(disarm).toHaveBeenCalled();
     expect(wrapper.emitted('build')).toEqual([['Fused answer users receive']]);
+    expect(wrapper.find('.expert-talk__fusion').exists()).toBe(false);
     wrapper.unmount();
   });
 

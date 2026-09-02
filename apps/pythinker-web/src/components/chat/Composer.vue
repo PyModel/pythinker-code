@@ -1104,6 +1104,10 @@ const modelPillLabel = computed(() =>
 watch(discussionEngaged, (engaged) => {
   if (engaged) closeDropdown();
 });
+function buildFromExpertTalk(answer: string): void {
+  loadForEdit(t('expertTalk.buildPrompt', { answer }));
+  handleSubmit();
+}
 function onModelPillClick(): void {
   if (discussionEngaged.value) {
     expertTalkControlRef.value?.openDialog();
@@ -1869,7 +1873,8 @@ function selectModel(modelId: string): void {
           <ExpertTalkControl
             ref="expertTalkControlRef"
             :models="models"
-            @build="loadForEdit"
+            @take="loadForEdit"
+            @build="buildFromExpertTalk"
           />
 
           <span
