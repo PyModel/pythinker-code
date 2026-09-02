@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { i18n } from '../src/i18n';
 import Sidebar from '../src/components/Sidebar.vue';
 import WorkspaceExplorer from '../src/components/WorkspaceExplorer.vue';
+import Icon from '../src/components/ui/Icon.vue';
 import type { FsEntry } from '../src/api/types';
 import type { Session, WorkspaceGroup } from '../src/types';
 
@@ -54,10 +55,11 @@ describe('WorkspaceExplorer', () => {
     expect(wrapper.text()).not.toContain('Open Editors');
     expect(wrapper.text()).toContain('example-project');
     expect(wrapper.get('.ui-input[placeholder="Search files…"]').exists()).toBe(true);
-    expect(wrapper.get('button[aria-label="Refresh files"] .ui-icon').exists()).toBe(true);
+    const refreshButton = wrapper.get('button[aria-label="Refresh files"]');
+    expect(refreshButton.findComponent(Icon).props('name')).toBe('refresh');
     const closeButton = wrapper.get('button[aria-label="Back"]');
     expect(closeButton.text()).toBe('Back');
-    expect(closeButton.find('.ui-icon').exists()).toBe(true);
+    expect(closeButton.findComponent(Icon).props('name')).toBe('back-arrow');
 
     await closeButton.trigger('click');
     expect(wrapper.emitted('close')).toEqual([[]]);
