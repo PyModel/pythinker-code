@@ -1,5 +1,4 @@
-import { Fragment, useRef, useMemo, useState, useEffect, useCallback } from "react";
-import { useMemoizedFn } from "ahooks";
+import { Fragment, useRef, useMemo, useState, useEffect } from "react";
 import { IconSend, IconPlayerStop, IconChevronDown, IconPlus } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -143,12 +142,12 @@ export function InputArea({ onAuthAction }: InputAreaProps) {
     setText,
   });
 
-  const clearInput = useMemoizedFn(() => {
+  function clearInput() {
     setText("");
     setCursorPos(0);
-  });
+  }
 
-  const removeActiveToken = useMemoizedFn(() => {
+  function removeActiveToken() {
     if (!activeToken) return;
     const newText = text.slice(0, activeToken.start) + text.slice(cursorPos);
     const newCursorPos = activeToken.start;
@@ -157,9 +156,9 @@ export function InputArea({ onAuthAction }: InputAreaProps) {
     setTimeout(() => {
       textareaRef.current?.setSelectionRange(newCursorPos, newCursorPos);
     }, 0);
-  });
+  }
 
-  const handleSend = useMemoizedFn(() => {
+  function handleSend() {
     if (isProcessing || (!text.trim() && draftMedia.length === 0)) {
       return;
     }
@@ -167,27 +166,27 @@ export function InputArea({ onAuthAction }: InputAreaProps) {
     addToHistory(text);
     sendMessage(text);
     clearInput();
-  });
+  }
 
-  const applyText = useMemoizedFn((newText: string, newCursorPos: number) => {
+  function applyText(newText: string, newCursorPos: number) {
     setText(newText);
     setCursorPos(newCursorPos);
     setTimeout(() => {
       textareaRef.current?.setSelectionRange(newCursorPos, newCursorPos);
       textareaRef.current?.focus();
     }, 0);
-  });
+  }
 
-  const handleSlashCommand = useMemoizedFn((name: string) => {
+  function handleSlashCommand(name: string) {
     // Picking a command completes the token being typed. Sending it here would
     // discard the rest of the message the command was being written into.
     const before = activeToken ? text.slice(0, activeToken.start) : text;
     const after = activeToken ? text.slice(cursorPos) : "";
     const insertion = `/${name} `;
     applyText(`${before}${insertion}${after}`, before.length + insertion.length);
-  });
+  }
 
-  const applyMention = useMemoizedFn((filePath: string) => {
+  function applyMention(filePath: string) {
     const { newText, newCursorPos } = computeMentionInsert({
       text,
       cursorPos,
@@ -197,7 +196,7 @@ export function InputArea({ onAuthAction }: InputAreaProps) {
     });
 
     applyText(newText, newCursorPos);
-  });
+  }
 
   const {
     showSlashMenu,
@@ -230,11 +229,11 @@ export function InputArea({ onAuthAction }: InputAreaProps) {
     removeActiveToken,
   );
 
-  const closeMenus = useCallback(() => {
+  const closeMenus = () => {
     if (showSlashMenu || showFileMenu) {
       removeActiveToken();
     }
-  }, [showSlashMenu, showFileMenu, removeActiveToken]);
+  };
 
   useClickOutside([textareaRef, menuRef], showSlashMenu || showFileMenu, closeMenus);
 
@@ -260,7 +259,7 @@ export function InputArea({ onAuthAction }: InputAreaProps) {
     return unsub;
   }, []);
 
-  const handleKeyDown = useMemoizedFn((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+  function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (e.nativeEvent.isComposing) {
       return;
     }
@@ -288,7 +287,7 @@ export function InputArea({ onAuthAction }: InputAreaProps) {
         handleSend();
       }
     }
-  });
+  }
 
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setText(e.target.value);
@@ -300,7 +299,7 @@ export function InputArea({ onAuthAction }: InputAreaProps) {
     setCursorPos(textareaRef.current?.selectionStart ?? 0);
   };
 
-  const handleAddButtonClick = useMemoizedFn(() => {
+  function handleAddButtonClick() {
     const newText = text + "@";
     setText(newText);
     setCursorPos(newText.length);
@@ -308,7 +307,7 @@ export function InputArea({ onAuthAction }: InputAreaProps) {
       textareaRef.current?.focus();
       textareaRef.current?.setSelectionRange(newText.length, newText.length);
     }, 0);
-  });
+  }
 
   const hasModels = availableModels.length > 0;
   const canSend = (text.trim() || draftMedia.length > 0) && !isProcessing;
@@ -351,7 +350,7 @@ export function InputArea({ onAuthAction }: InputAreaProps) {
                 setFolderPath("");
                 setFileSelectedIndex(0);
               }}
-              onSelectItem={(item) => applyMention(item.path)}
+              onSelectItem={(item) => { applyMention(item.path); }}
               onNavigateUp={() => {
                 setFolderPath(folderPath.split("/").slice(0, -1).join("/"));
                 setFileSelectedIndex(0);

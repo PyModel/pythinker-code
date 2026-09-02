@@ -21,6 +21,7 @@
     "webview-ui",
     "test/settings-store.test.ts",
     "test/app-init.test.ts",
-    "test/event-handlers.test.ts"
+    "test/event-handlers.test.ts",
+    "test/webview"
   ]
 }

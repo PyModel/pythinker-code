@@ -57,11 +57,11 @@ export async function applySessionAgentConfig(
   if (agentConfig.tower_mode !== undefined) {
     const tower = agent.accessor.get(IAgentTowerService);
     if (agentConfig.tower_mode) {
-      await tower.enter();
+      await tower.enter(agentConfig.tower_base);
       if (!tower.isActive) {
         throw new Error2(
           ErrorCodes.SESSION_TOWER_MODE_INVALID,
-          'tower mode could not be enabled — the feature is unavailable or another live session owns this workspace tower',
+          'tower mode could not be enabled — another live session owns the workspace tower',
         );
       }
     } else {

@@ -64,7 +64,6 @@ Adding an OpenAI-compatible provider requires **zero code changes** — just add
 | `packages/telemetry` | Client-side telemetry | |
 | `packages/tree-sitter-bash` | Pure-TypeScript bash parser | No runtime deps, no wasm; `parse(source, { timeoutMs, maxNodes })` under a deterministic budget returns a discriminated `ParseResult` — treat aborted/hasError trees as "cannot analyze" and degrade. Parser only, no safety judgments. |
 | `packages/minidb` | Embedded JSON document store | `MiniDb` behind agent-gateway's search index — snapshot + WAL persistence with an exclusive write lock, larger-than-RAM full-text layer, persistent index generations. See its `AGENTS.md`. |
-| `packages/acp-adapter` | Agent Client Protocol adapter over engine v1 | Pin `@agentclientprotocol/sdk` `^0.23.0`. |
 | `packages/acp-server` | Agent Client Protocol host over engine v2 | Drives the engine through a `klient` memory-transport facade. |
 | `packages/pi-tui` | Vendored TUI library | Upstream fork with local divergences; tests run with `node --test`, not vitest. See its `AGENTS.md`. |
 | `packages/protocol` | Shared REST + WS protocol schemas | Envelope, error codes, pagination, WS-control types. |
@@ -85,7 +84,6 @@ The web bundle: `apps/pythinker-code/dist-web` is the committed, prebuilt bundle
 
 - English-only codebase. Use ASCII/Latin fixtures (e.g. `café`) for unicode tests.
 - `packages/agent-core-v2`, `packages/agent-gateway`, and `packages/transcript` are comment-free zones: no line/block comments; no JSDoc either, not even on exported symbols; the only exception is a load-bearing lint-suppression directive (`oxlint-disable` / `eslint-disable`), while other tooling directives (`@ts-expect-error`, …) stay banned. Enforced by `scripts/check-no-comments.mjs`, which runs as part of `pnpm lint`.
-- `packages/acp-adapter`: pin `@agentclientprotocol/sdk` `^0.23.0` (0.24+ broke session-model API).
 - `tsgo` (`@typescript/native-preview`) available via `npx tsgo -p <tsconfig> --noEmit`; committed scripts use `tsc` — run both for type fixes.
 - Pass `undefined` directly for optional props — no conditional spread.
 - `user?: User`, not `user?: User | undefined`.
@@ -98,7 +96,7 @@ The web bundle: `apps/pythinker-code/dist-web` is the committed, prebuilt bundle
 
 ## Experimental Features
 
-Gate behind flags. Env: `PYTHINKER_CODE_EXPERIMENTAL_<NAME>` toggles one; `PYTHINKER_CODE_EXPERIMENTAL_FLAG` enables all. Release: flip the entry's `default` to `true`.
+Gate behind flags. Env: `PYTHINKER_CODE_EXPERIMENTAL_<NAME>` toggles one; `PYTHINKER_CODE_EXPERIMENTAL_FLAG` enables all. Precedence is per-flag env > `[experimental]` config > master env > the flag's `default`. Release: flip the entry's `default` to `true`.
 
 - `packages/agent-core` (v1): add the flag to the central registry at `packages/agent-core/src/flags/registry.ts`, then check it with `flags.enabled('my-feature')`.
 - `packages/agent-core-v2` and agent-gateway modules: no central catalog — declare the flag in the owning domain via `registerFlagDefinition` at import time (see `packages/agent-core-v2/docs/flag.md`), then check it with `IFlagService.enabled(id)`.

@@ -521,15 +521,18 @@ describe('ExpertTalkControl', () => {
     expect(wrapper.find('[data-testid="expert-opinion-review"]').exists()).toBe(false);
     expect(wrapper.find('[data-testid="expert-opinion-finish"]').exists()).toBe(false);
     expect(wrapper.find('[data-testid="expert-opinion-fuse"]').exists()).toBe(false);
-    await button('Take Fusion Lead').trigger('click');
-    expect(copyTextToClipboard).toHaveBeenLastCalledWith('Fusion Lead review of Peer Expert');
-    await button('Take Peer Expert').trigger('click');
-    expect(copyTextToClipboard).toHaveBeenLastCalledWith('Peer Expert review of Fusion Lead');
     await button('Take Fusion').trigger('click');
-    expect(copyTextToClipboard).toHaveBeenLastCalledWith('Fused answer users receive');
+    expect(wrapper.emitted('take')).toEqual([['Fused answer users receive']]);
+    expect(copyTextToClipboard).not.toHaveBeenCalled();
+    expect(wrapper.find('.expert-talk__fusion').exists()).toBe(false);
+
+    await wrapper.get('.expert-talk__launcher').trigger('click');
+    await nextTick();
+    await flushPromises();
     await button('Build from Fusion').trigger('click');
-    expect(disarm).toHaveBeenCalledOnce();
+    expect(disarm).toHaveBeenCalled();
     expect(wrapper.emitted('build')).toEqual([['Fused answer users receive']]);
+    expect(wrapper.find('.expert-talk__fusion').exists()).toBe(false);
     wrapper.unmount();
   });
 
@@ -591,8 +594,8 @@ describe('ExpertTalkControl', () => {
     const thinking = wrapper.findAll('.expert-talk__thinking');
     expect(thinking).toHaveLength(2);
     expect(thinking[0]?.text()).toContain('▹');
-    expect(thinking[0]?.get('.markdown-stub').text()).toBe('Checking the evidence.');
-    expect(thinking[0]?.get('.markdown-stub').attributes('data-streaming')).toBe('true');
+    expect(thinking[0]?.get('.expert-talk__thinking-preview').text()).toBe('Checking the evidence.');
+    expect(thinking[0]?.find('.expert-talk__thinking-toggle').exists()).toBe(false);
     expect(thinking[1]?.text()).toContain('Waiting for reasoning...');
     expect(wrapper.get('.expert-talk__tools').text()).toContain('Read');
 

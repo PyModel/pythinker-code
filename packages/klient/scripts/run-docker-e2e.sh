@@ -51,7 +51,6 @@ workspace_node_modules=(
   "apps_vis_server:/workspace/pythinker-code/apps/vis/server/node_modules"
   "apps_vis_web:/workspace/pythinker-code/apps/vis/web/node_modules"
   "docs:/workspace/pythinker-code/docs/node_modules"
-  "pkg_acp-adapter:/workspace/pythinker-code/packages/acp-adapter/node_modules"
   "pkg_agent-core:/workspace/pythinker-code/packages/agent-core/node_modules"
   "pkg_agent-gateway:/workspace/pythinker-code/packages/agent-gateway/node_modules"
   "pkg_server-e2e:/workspace/pythinker-code/packages/klient/node_modules"

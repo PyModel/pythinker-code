@@ -185,6 +185,7 @@ import {
   IBootstrapService,
   IConfigService,
   IEventService,
+  IFlagService,
   IHostEnvironment,
   IHostFileSystem,
   IMcpManagementService,
@@ -546,6 +547,19 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
     void this.configReady.then(() => {
       telemetry.setEnabled(this.engineAccessor.get(IConfigService).get('telemetry') !== false);
     });
+  }
+
+  /**
+   * Exposed experimental flag ids in the `session_started` wire shape (sorted,
+   * comma-joined), read live from the in-process engine's flag service. The
+   * harness-side `session_started` row merges this so both producers of the
+   * event carry the same flag dimension. Exposure is the flag system's own
+   * notion (`IFlagService.exposedIds`): a flag that is enabled but not yet
+   * active in this process (e.g. its feature assembles at App construction)
+   * does not count.
+   */
+  enabledExperimentalFlags(): string {
+    return this.engineAccessor.get(IFlagService).exposedIds().toSorted().join(',');
   }
 
   /**
@@ -1206,6 +1220,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
       const page = await this.listSessionsPage({
         workDir: input.workDir,
         sessionId: input.sessionId,
+        includeArchived: input.includeArchived,
         before,
       });
       all.push(...page.items);
@@ -1235,6 +1250,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
       const page = await this.klient.global.sessions.list({
         workspaceIds,
         sessionId: input.sessionId,
+        includeArchived: input.includeArchived,
         limit: remaining,
         before,
       });
@@ -1407,13 +1423,15 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
       async () => {
         const program = await programForSession(this.engineAccessor, input.id);
         if (program === undefined) throw SDKRpcClientV2.sessionNotFound(input.id);
-        const handle = await this.engineAccessor.get(ISessionManager).fork({
+        const meta = await this.engineAccessor.get(ISessionManager).fork({
           sourceSessionId: input.id,
           newSessionId: input.forkId,
           title: input.title,
           metadata: input.metadata,
           turnIndex: input.turnIndex,
         });
+        const handle = await resumeSessionById(this.engineAccessor, meta.id);
+        if (handle === undefined) throw SDKRpcClientV2.sessionNotFound(meta.id);
         this.wireSession(handle);
         return this.resumedSessionSummary(handle);
       },
@@ -2162,11 +2180,11 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
     const agent = await this.agentScope(input.sessionId);
     const tower = agent.accessor.get(IAgentTowerService);
     if (input.enabled) {
-      await tower.enter();
+      await tower.enter(input.base);
       if (!tower.isActive) {
         throw new V2Error2(
           V2ErrorCodes.SESSION_TOWER_MODE_INVALID,
-          'tower mode could not be enabled — the feature is unavailable or another live session owns this workspace tower',
+          'tower mode could not be enabled — another live session owns the workspace tower',
         );
       }
     } else {
@@ -2777,6 +2795,9 @@ export function createPythinkerHarnessV2(options: PythinkerHarnessOptions): Pyth
     // ingestion falls back to env / built-in defaults like daemon-client hosts.
     imageLimits: undefined,
     sessionStartedProperties: options.sessionStartedProperties,
+    sessionStartedDynamicProperties: () => ({
+      experimental_flags: rpc.enabledExperimentalFlags(),
+    }),
   });
 }
 

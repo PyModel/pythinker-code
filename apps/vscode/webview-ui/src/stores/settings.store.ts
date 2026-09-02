@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { bridge } from "@/services";
 import { toast } from "@/components/ui/sonner";
 import type { ExtensionConfig } from "shared/types";
-import type { MCPServerConfig, ModelConfig, ModelsConfig, ThinkingMode, SlashCommandInfo } from "shared/legacy-sdk";
+import type { ModelConfig, ModelsConfig, ThinkingMode, SlashCommandInfo } from "shared/legacy-sdk";
 
 let settingsSaveRevision = 0;
 function saveConfigWithRollback(
@@ -148,7 +148,6 @@ interface SettingsState {
   currentModel: string;
   thinkingEffort: string;
   extensionConfig: ExtensionConfig;
-  mcpServers: MCPServerConfig[];
   configHub: { open: boolean; section: ConfigHubSection };
   workDirModalOpen: boolean;
   currentWorkDir: string | null;
@@ -168,7 +167,6 @@ interface SettingsState {
   toggleThinking: () => void;
   selectThinkingEffort: (effort: string) => void;
   setExtensionConfig: (config: ExtensionConfig) => void;
-  setMCPServers: (servers: MCPServerConfig[]) => void;
   openConfigHub: (section?: ConfigHubSection) => void;
   closeConfigHub: () => void;
   setWorkDirModalOpen: (open: boolean) => void;
@@ -185,7 +183,6 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   currentModel: "",
   thinkingEffort: "off",
   extensionConfig: DEFAULT_EXTENSION_CONFIG,
-  mcpServers: [],
   configHub: { open: false, section: "overview" },
   workDirModalOpen: false,
   currentWorkDir: null,
@@ -297,8 +294,6 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   },
 
   setExtensionConfig: (extensionConfig) => set({ extensionConfig }),
-
-  setMCPServers: (mcpServers) => set({ mcpServers }),
 
   openConfigHub: (section = "overview") => set({ configHub: { open: true, section } }),
   closeConfigHub: () => set((state) => ({ configHub: { ...state.configHub, open: false } })),

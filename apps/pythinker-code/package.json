@@ -83,7 +83,6 @@
     "node-pty": "^1.1.0"
   },
   "devDependencies": {
-    "@pymodel/acp-adapter": "workspace:^",
     "@pymodel/acp-server": "workspace:^",
     "@pymodel/agent-core-v2": "workspace:^",
     "@pymodel/agent-gateway": "workspace:^",

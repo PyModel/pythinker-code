@@ -270,7 +270,7 @@ describe('server-v2 /api/v1/config', () => {
     socket.close();
   });
 
-  it('session create with a broken subagent model pool fails with VALIDATION_FAILED', async () => {
+  it('session create with a broken subagent model pool still succeeds', async () => {
     await boot(
       '[experimental]\n"secondary-model" = true\n\n[secondary_model.models]\n"provider/fast" = "fast and cheap"\n',
     );
@@ -279,9 +279,9 @@ describe('server-v2 /api/v1/config', () => {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ metadata: { cwd: home as string } }),
     });
-    const body = (await res.json()) as Envelope<null>;
-    expect(body.code).toBe(ErrorCode.VALIDATION_FAILED);
-    expect(body.msg).toContain('[secondary_model].default_model is required');
+    const body = (await res.json()) as Envelope<{ id?: string }>;
+    expect(body.code).toBe(0);
+    expect(body.data?.id).toBeTruthy();
   });
 
   it('session create with a broken subagent model pool succeeds while the experiment is off', async () => {
@@ -467,7 +467,7 @@ describe('server-v2 /api/v1/config secondary_model replacement and request atomi
       providers: { beta: { type: 'openai', base_url: 'https://beta.example.test' } },
     });
     const after = await getConfig();
-    expect(Object.keys(after.providers).sort()).toEqual(['alpha', 'beta']);
+    expect(Object.keys(after.providers).toSorted()).toEqual(['alpha', 'beta']);
     expect(after.providers['alpha']?.base_url).toBe('https://alpha.example.test');
   });
 

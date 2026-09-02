@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { useSettingsStore } from "@/stores";
 import type { ConfigHubSection } from "@/stores/settings.store";
@@ -8,30 +9,27 @@ import { SECTIONS } from "./sections";
 import { OverviewSection } from "./OverviewSection";
 import { ModelsSection } from "./ModelsSection";
 import { ProvidersSection } from "./ProvidersSection";
-import { MCPServersSection } from "./MCPServersSection";
+import { MCPServersSection, MCP_SERVERS_KEY } from "./MCPServersSection";
 import { ConfigFileSection } from "./ConfigFileSection";
 import { SettingsSection } from "./SettingsSection";
 
 export function useSectionCounts(): Partial<Record<ConfigHubSection, number>> {
-  const { models, mcpServers } = useSettingsStore();
+  const { models } = useSettingsStore();
+  // Keep the rail/overview MCP count fresh; the MCP section surfaces fetch
+  // errors itself, so a failed count refresh stays silent here.
+  const { data: mcpServers } = useQuery({ queryKey: MCP_SERVERS_KEY, queryFn: () => bridge.getMCPServers() });
   return {
     models: models.length,
     providers: new Set(models.map((m) => m.provider)).size,
-    mcp: mcpServers.length,
+    mcp: mcpServers?.length ?? 0,
   };
 }
 
 export function ConfigHub() {
-  const { configHub, openConfigHub, closeConfigHub, setMCPServers } = useSettingsStore();
+  const { configHub, openConfigHub, closeConfigHub } = useSettingsStore();
   const counts = useSectionCounts();
   const section = configHub.section;
   const active = SECTIONS.find((s) => s.id === section) ?? SECTIONS[0];
-
-  // Keep the rail/overview MCP count fresh; the MCP section surfaces fetch
-  // errors itself, so a failed count refresh stays silent here.
-  useEffect(() => {
-    void bridge.getMCPServers().then(setMCPServers).catch(() => undefined);
-  }, [setMCPServers]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {

@@ -1,7 +1,7 @@
 <!-- apps/pythinker-web/src/components/chat/Composer.vue -->
 <script setup lang="ts">
 import { measureNaturalWidth, prepareWithSegments } from '@chenglou/pretext';
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, inject, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import SlashMenu from './SlashMenu.vue';
 import MentionMenu from './MentionMenu.vue';
@@ -36,6 +36,7 @@ import Input from '../ui/Input.vue';
 import AttachmentChip from './AttachmentChip.vue';
 import CapabilityMenu from '../CapabilityMenu.vue';
 import ExpertTalkControl from './ExpertTalkControl.vue';
+import { expertTalkContextKey } from '../../composables/expertTalkContext';
 import BottomSheet from '../dialogs/BottomSheet.vue';
 import Toast from '../ui/Toast.vue';
 import { useOpenMenu } from '../ui/openMenus';
@@ -1090,6 +1091,30 @@ watch(workMode, async (mode) => {
 // The "+" add menu (Files / Connectors / Goal / Plan).
 const capMenuRef = ref<InstanceType<typeof CapabilityMenu> | null>(null);
 const expertTalkControlRef = ref<InstanceType<typeof ExpertTalkControl> | null>(null);
+const expertTalk = inject(expertTalkContextKey, undefined);
+// While Discussion is armed or running, the next reply comes from the model
+// pair, so the model pill names the mode instead of the session model.
+const discussionEngaged = computed(() =>
+  expertTalk?.status.value?.activation.state === 'armed' ||
+  expertTalk?.run.value?.state === 'running',
+);
+const modelPillLabel = computed(() =>
+  discussionEngaged.value ? t('expertTalk.title') : props.status?.model ?? '',
+);
+watch(discussionEngaged, (engaged) => {
+  if (engaged) closeDropdown();
+});
+function buildFromExpertTalk(answer: string): void {
+  loadForEdit(t('expertTalk.buildPrompt', { answer }));
+  handleSubmit();
+}
+function onModelPillClick(): void {
+  if (discussionEngaged.value) {
+    expertTalkControlRef.value?.openDialog();
+    return;
+  }
+  toggleDropdown();
+}
 const modesOpen = ref(false);
 const modesMenuRef = ref<HTMLElement | null>(null);
 const mobileModesMenuRef = ref<HTMLElement | null>(null);
@@ -1848,7 +1873,8 @@ function selectModel(modelId: string): void {
           <ExpertTalkControl
             ref="expertTalkControlRef"
             :models="models"
-            @build="loadForEdit"
+            @take="loadForEdit"
+            @build="buildFromExpertTalk"
           />
 
           <span
@@ -1933,21 +1959,27 @@ function selectModel(modelId: string): void {
             </span>
           </Tooltip>
 
-          <Tooltip :text="modelIconOnly ? status?.model : null">
+          <Tooltip :text="modelIconOnly ? modelPillLabel : null">
             <button
               v-if="status"
               ref="modelPillRef"
               type="button"
               class="model-pill"
-              :class="{ open: dropdownOpen, 'icon-only': modelIconOnly, 'model-gone': modelGone }"
-              aria-haspopup="menu"
-              :aria-expanded="dropdownOpen"
-              :aria-label="modelIconOnly ? status.model : undefined"
-              @click.stop="toggleDropdown"
+              :class="{
+                open: dropdownOpen,
+                'icon-only': modelIconOnly,
+                'model-gone': modelGone && !discussionEngaged,
+                'is-discussion': discussionEngaged,
+              }"
+              :aria-haspopup="discussionEngaged ? 'dialog' : 'menu'"
+              :aria-expanded="discussionEngaged ? undefined : dropdownOpen"
+              :aria-label="modelIconOnly ? modelPillLabel : undefined"
+              @click.stop="onModelPillClick"
             >
-              <Icon v-if="modelIconOnly" name="cute-bot" size="md" :live="running" />
+              <Icon v-if="modelIconOnly" :name="discussionEngaged ? 'sparkles' : 'cute-bot'" size="md" :live="running" />
               <template v-else>
-                <span ref="modelNameRef" class="mp-name">{{ status.model }}</span>
+                <Icon v-if="discussionEngaged" name="sparkles" size="sm" />
+                <span ref="modelNameRef" class="mp-name">{{ modelPillLabel }}</span>
                 <Icon class="cv" name="chevron-down" size="sm" />
               </template>
             </button>
@@ -2946,6 +2978,12 @@ function selectModel(modelId: string): void {
 
 .model-pill:active {
     transform: scale(.97)
+}
+
+
+.model-pill.is-discussion {
+    color: var(--color-accent);
+    background: var(--color-accent-soft)
 }
 
 

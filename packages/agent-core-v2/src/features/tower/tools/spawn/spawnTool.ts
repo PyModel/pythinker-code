@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { agentContextOf, IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import { IAgentTaskService } from '#/agent/task/task';
+import { isAgentTaskTerminal } from '#/agent/task/taskService';
 import {
   GitError,
   MISSIONS_DIR,
@@ -34,7 +35,7 @@ import type { SubagentSpawnPlan } from '#/session/subagent/spawn';
 
 import { SubagentTask, type SubagentHandle } from '#/agent/tools/agent/subagent-task';
 
-import { TOWER_MAIN_AGENT_ONLY } from '../support';
+import { TOWER_MAIN_AGENT_ONLY, TOWER_MODE_USER_ENABLED_ONLY } from '../support';
 import { ITowerSpawnTool, TowerSpawnToolInputSchema, type TowerSpawnToolInput } from './spawn';
 import DESCRIPTION from './spawn.md?raw';
 
@@ -83,7 +84,7 @@ export class TowerSpawnTool implements ITowerSpawnTool {
     try {
       if (!this.tower.isActive) {
         return {
-          output: 'tower mode is not active — run TowerInit first',
+          output: TOWER_MODE_USER_ENABLED_ONLY,
           isError: true,
         };
       }
@@ -209,6 +210,14 @@ export class TowerSpawnTool implements ITowerSpawnTool {
             branch: mission?.branch,
             spawnedAt: new Date().toISOString(),
           });
+          const settled = this.tasks.getTask(taskId);
+          if (
+            settled !== undefined &&
+            isAgentTaskTerminal(settled.status) &&
+            settled.status !== 'completed'
+          ) {
+            await store.markAgentDied(handle.agentId, settled.status, settled.stopReason);
+          }
         } catch (error) {
           controller.abort();
           void handle.completion.catch(() => {});

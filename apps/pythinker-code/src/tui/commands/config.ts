@@ -810,7 +810,14 @@ export async function applyExperimentalFeatureChanges(
     if (changes.some((change) => change.id === 'tower')) {
       host.showNotice('Tower mode takes effect after restarting Pythinker Code.');
     }
-    host.track('experimental_features_apply', { changed: changes.length });
+    host.track('experimental_features_apply', {
+      changed: changes.length,
+      flags: features
+        .filter((feature) => feature.enabled)
+        .map((feature) => feature.id)
+        .toSorted()
+        .join(','),
+    });
   } catch (error) {
     host.showError(`Failed to update experimental features: ${formatErrorMessage(error)}`);
   }

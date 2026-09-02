@@ -5,7 +5,9 @@ import type { CLIOptions } from './options';
 import { registerAcpCommand } from './sub/acp';
 import { registerDoctorCommand } from './sub/doctor';
 import { registerExportCommand } from './sub/export';
+import { registerForkCommand } from './sub/fork';
 import { registerProviderCommand } from './sub/provider';
+import { registerSessionCommand } from './sub/session';
 import { registerVisCommand } from './sub/vis';
 import { registerWebCommand } from './sub/web';
 
@@ -112,7 +114,9 @@ export function createProgram(
     .option('--plan', 'Start in plan mode.', false);
 
   registerExportCommand(program);
+  registerForkCommand(program);
   registerProviderCommand(program);
+  registerSessionCommand(program);
   registerAcpCommand(program);
   registerWebCommand(program);
   registerDoctorCommand(program);

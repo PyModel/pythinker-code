@@ -109,6 +109,26 @@ describe('GitService', () => {
       expect(result.entries).toEqual({ 'a.txt': 'modified' });
     });
 
+    it('reports a non-ASCII path without quoting', async () => {
+      const name = 'output/2026-08-31-notes-café-naïve résumé.md';
+      mkdirSync(join(repo, 'output'), { recursive: true });
+      writeFileSync(join(repo, name), 'line1\n');
+      commitAll('init');
+      writeFileSync(join(repo, name), 'line1\nline2\n');
+
+      const result = await service.status(repo);
+      expect(result.entries).toEqual({ [name]: 'modified' });
+    });
+
+    it('reports the new path of a non-ASCII rename', async () => {
+      writeFileSync(join(repo, 'old-café.md'), 'line1\n');
+      commitAll('init');
+      git(repo, 'mv', 'old-café.md', 'renamed-café.md');
+
+      const result = await service.status(repo);
+      expect(result.entries).toEqual({ 'renamed-café.md': 'renamed' });
+    });
+
     it('throws FS_GIT_UNAVAILABLE when not a repo', async () => {
       const notRepo = mkdtempSync(join(tmpdir(), 'not-repo-'));
       try {

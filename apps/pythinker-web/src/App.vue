@@ -663,8 +663,21 @@ function closeActivePanelTab(): void {
 // Reference to ConversationPane so we can imperatively switch tabs
 const conversationPaneRef = ref<InstanceType<typeof ConversationPane> | null>(null);
 
-function handleExpertTalkBuild(prompt: string): void {
-  conversationPaneRef.value?.loadComposerForEdit(prompt);
+async function prepareExpertTalkHandoff(): Promise<boolean> {
+  if (client.expertTalk.status.value?.activation.state !== 'armed') return true;
+  await client.expertTalk.disarm();
+  return client.expertTalk.status.value?.activation.state !== 'armed'
+    && client.expertTalk.error.value === undefined;
+}
+
+async function handleExpertTalkTake(answer: string): Promise<void> {
+  if (!(await prepareExpertTalkHandoff())) return;
+  conversationPaneRef.value?.loadComposerForEdit(answer);
+}
+
+async function handleExpertTalkBuild(answer: string): Promise<void> {
+  if (!(await prepareExpertTalkHandoff())) return;
+  await handleContinueTurn(t('expertTalk.buildPrompt', { answer }));
 }
 const sideChatPanelRef = ref<InstanceType<typeof SideChatPanel> | null>(null);
 
@@ -1342,6 +1355,7 @@ function openPr(url: string): void {
       :pinned="client.pinnedSessionIds.value.includes(client.activeSessionId.value ?? '')"
       :recent-sessions="activeWorkspaceRecentSessions"
       @open-changes="openDiffDetail()"
+      @take-expert-talk="handleExpertTalkTake"
       @build-expert-talk="handleExpertTalkBuild"
       @select-workspace="handleCreateSessionInWorkspace($event)"
       @add-workspace="showAddWorkspace = true"
@@ -1469,6 +1483,7 @@ function openPr(url: string): void {
             <ExpertTalkControl
               trigger="launcher"
               :models="client.models.value"
+              @take="handleExpertTalkTake"
               @build="handleExpertTalkBuild"
             />
           </div>

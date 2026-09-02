@@ -4,7 +4,7 @@ import { parseNumstat, parsePorcelain, parsePullRequest } from '#/app/git/gitPar
 
 describe('parsePorcelain', () => {
   it('parses branch header and ahead/behind', () => {
-    const out = '## main...origin/main [ahead 2, behind 3]\n';
+    const out = '## main...origin/main [ahead 2, behind 3]\0';
     const result = parsePorcelain(out, undefined);
     expect(result.branch).toBe('main');
     expect(result.ahead).toBe(2);
@@ -13,14 +13,9 @@ describe('parsePorcelain', () => {
   });
 
   it('classifies modified, untracked, renamed, and deleted entries', () => {
-    const out = [
-      '## dev',
-      ' M src/a.ts',
-      '?? src/b.ts',
-      'R  old.ts -> new.ts',
-      'D  src/c.ts',
-      '',
-    ].join('\n');
+    const out = ['## dev', ' M src/a.ts', '?? src/b.ts', 'R  new.ts', 'old.ts', 'D  src/c.ts', ''].join(
+      '\0',
+    );
     const result = parsePorcelain(out, undefined);
     expect(result.branch).toBe('dev');
     expect(result.entries).toEqual({
@@ -31,10 +26,29 @@ describe('parsePorcelain', () => {
     });
   });
 
+  it('consumes the origin path of an unstaged rename', () => {
+    const out = ['## dev', ' R new.ts', 'old.ts', ' M src/a.ts', ''].join('\0');
+    const result = parsePorcelain(out, undefined);
+    expect(result.entries).toEqual({ 'new.ts': 'renamed', 'src/a.ts': 'modified' });
+  });
+
   it('applies the path filter when provided', () => {
-    const out = '## main\n M src/a.ts\n M src/b.ts\n';
+    const out = '## main\0 M src/a.ts\0 M src/b.ts\0';
     const result = parsePorcelain(out, new Set(['src/a.ts']));
     expect(result.entries).toEqual({ 'src/a.ts': 'modified' });
+  });
+
+  it('keeps non-ASCII paths intact', () => {
+    const path = 'my-ai-workspace/output/2026-08-31-notes-café-naïve résumé.md';
+    const out = ` M ${path}\0`;
+    const result = parsePorcelain(out, undefined);
+    expect(result.entries).toEqual({ [path]: 'modified' });
+  });
+
+  it('uses the new path of a rename and skips the old one', () => {
+    const out = 'R  dir/renamed-café.md\0dir/old-café.md\0';
+    const result = parsePorcelain(out, undefined);
+    expect(result.entries).toEqual({ 'dir/renamed-café.md': 'renamed' });
   });
 });
 

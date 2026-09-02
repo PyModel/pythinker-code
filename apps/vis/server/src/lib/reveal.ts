@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { win32 } from 'node:path';
 
 export interface RevealCommand {
   readonly command: string;
@@ -7,14 +8,21 @@ export interface RevealCommand {
 
 /** Resolve the platform-specific "reveal in file manager" command for
  *  the given absolute path. Kept pure (no IO) so it can be unit-tested. */
-export function revealCommandFor(path: string, platform: NodeJS.Platform = process.platform): RevealCommand {
+export function revealCommandFor(
+  path: string,
+  platform: NodeJS.Platform = process.platform,
+  env: NodeJS.ProcessEnv = process.env,
+): RevealCommand {
   switch (platform) {
     case 'darwin':
       return { command: 'open', args: [path] };
-    case 'win32':
-      // `start` is a cmd built-in; the empty title `""` prevents the path
-      // from being mistaken for a window title.
-      return { command: 'cmd', args: ['/c', 'start', '""', path] };
+    case 'win32': {
+      const windowsRoot = [env['SystemRoot'], env['WINDIR']]
+        .map((value) => value?.trim())
+        .find((value): value is string => value !== undefined && /^[A-Za-z]:[\\/]/.test(value))
+        ?? 'C:\\Windows';
+      return { command: win32.join(windowsRoot, 'explorer.exe'), args: [`/select,${path}`] };
+    }
     default:
       return { command: 'xdg-open', args: [path] };
   }

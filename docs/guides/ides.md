@@ -6,7 +6,7 @@ Pythinker Code CLI supports integration into IDEs via the [Agent Client Protocol
 
 Before configuring your IDE, make sure Pythinker Code CLI is installed and you have completed the login setup.
 
-The ACP adapter is exposed as the `pythinker acp` subcommand. The IDE launches it as a child process and communicates over stdin/stdout using JSON-RPC. Each time the IDE creates a session, the CLI reuses its existing authentication state — no need to log in again.
+The ACP server is exposed as the `pythinker acp` subcommand. The IDE launches it as a child process and communicates over stdin/stdout using JSON-RPC. Each time the IDE creates a session, the CLI reuses its existing authentication state — no need to log in again.
 
 ::: tip Path note
 Child processes launched from an IDE GUI on macOS typically do **not** inherit the terminal shell's `PATH`. If `pythinker` is not in a system directory like `/usr/local/bin`, use the absolute path in your IDE configuration. Run `which pythinker` in a terminal to find the active path.
@@ -88,7 +88,7 @@ Paseo's generic ACP adapter does not drive the login flow, so complete the termi
 
 - **Session disconnects immediately / IDE shows "agent exited"**: usually a wrong `command` path or a missing login. Run `pythinker acp` in a terminal first to verify — if it blocks waiting for stdin, the CLI itself is fine and the problem is in the IDE configuration; if it exits immediately with an error, follow the error message (most commonly you need to run `/login`).
 - **IDE shows "auth required"**: the CLI has no usable authentication token. Exit the IDE, run `pythinker` in a terminal to complete login, then restart the IDE.
-- **MCP tools not visible**: check the [`pythinker acp` reference](../reference/pythinker-acp.md) capability table to confirm that the MCP transport type configured in your IDE is supported. The Pythinker Code CLI ACP adapter currently supports `http`, `stdio`, and `sse` transports; `acp` transport MCP servers are silently dropped and a warning is written to the log.
+- **MCP tools not visible**: check the [`pythinker acp` reference](../reference/pythinker-acp.md) capability table to confirm that the MCP transport type configured in your IDE is supported. The Pythinker Code CLI ACP server currently supports `http`, `stdio`, and `sse` transports; `acp` transport MCP servers are silently dropped and a warning is written to the log.
 
 ## Next steps
 

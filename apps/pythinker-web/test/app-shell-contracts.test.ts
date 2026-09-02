@@ -8,6 +8,10 @@ const icons = readFileSync(join(import.meta.dirname, '../src/lib/icons.ts'), 'ut
 const composer = readFileSync(join(import.meta.dirname, '../src/components/chat/Composer.vue'), 'utf8');
 const chatDock = readFileSync(join(import.meta.dirname, '../src/components/chat/ChatDock.vue'), 'utf8');
 const conversationPane = readFileSync(join(import.meta.dirname, '../src/components/chat/ConversationPane.vue'), 'utf8');
+const expertTalkArtifactBody = readFileSync(
+  join(import.meta.dirname, '../src/components/chat/ExpertTalkArtifactBody.vue'),
+  'utf8',
+);
 const expertTalkExchange = readFileSync(
   join(import.meta.dirname, '../src/components/chat/ExpertTalkExchange.vue'),
   'utf8',
@@ -56,11 +60,18 @@ describe('app shell contracts', () => {
   it('offers Expert Opinion from the composer and right-side launchers', () => {
     expect(composer).toContain("id: 'expertOpinion'");
     expect(composer).toContain('action: openExpertOpinion');
-    expect(composer).toContain('@build="loadForEdit"');
+    expect(composer).toContain('@take="loadForEdit"');
+    expect(composer).toContain('@build="buildFromExpertTalk"');
     expect(app).toContain("import ExpertTalkControl from './components/chat/ExpertTalkControl.vue';");
     expect(app).toContain('trigger="launcher"');
+    expect(app).toContain('@take="handleExpertTalkTake"');
     expect(app).toContain('@build="handleExpertTalkBuild"');
-    expect(app).toContain('loadComposerForEdit(prompt)');
+    expect(app).toContain('await client.expertTalk.disarm();');
+    expect(app).toContain("client.expertTalk.status.value?.activation.state !== 'armed'");
+    expect(app).toContain('client.expertTalk.error.value === undefined');
+    expect(app.match(/if \(!\(await prepareExpertTalkHandoff\(\)\)\) return;/g)).toHaveLength(2);
+    expect(app).toContain("await handleContinueTurn(t('expertTalk.buildPrompt', { answer }));");
+    expect(app).toContain('loadComposerForEdit(answer)');
     expect(app).toContain('.panel-launcher :deep(.expert-talk__launcher) { grid-column: 1 / -1; }');
   });
 
@@ -69,10 +80,11 @@ describe('app shell contracts', () => {
     expect(composer).toMatch(/\.ph\s*\{[^}]*min-height: 56px;/s);
   });
 
-  it('contains both Discussion reasoning streams in equal-height panes', () => {
-    expect(expertTalkExchange).toContain('--expert-talk-reasoning-height: clamp(11rem, 24vh, 18rem);');
-    expect(expertTalkExchange).toMatch(/\.expert-talk__thinking\s*\{[^}]*block-size: var\(--expert-talk-reasoning-height\);/s);
-    expect(expertTalkExchange).toMatch(/\.expert-talk__thinking\s*\{[^}]*overflow: auto;[^}]*scrollbar-gutter: stable;/s);
+  it('keeps Discussion reasoning compact until the reader expands it', () => {
+    expect(expertTalkArtifactBody).toContain('-webkit-line-clamp: 2;');
+    expect(expertTalkArtifactBody).toMatch(/\.expert-talk__thinking-full\s*\{[^}]*max-block-size: clamp\([^)]*\);[^}]*overflow: auto;/s);
+    expect(expertTalkArtifactBody).not.toContain('block-size: var(--expert-talk-reasoning-height)');
+    expect(expertTalkExchange).not.toContain('--expert-talk-reasoning-height');
   });
 
   it('offers Expert Opinion as a dedicated new-session mode', () => {
