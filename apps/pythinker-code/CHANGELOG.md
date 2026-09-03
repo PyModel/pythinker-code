@@ -1,5 +1,35 @@
 # @pymodel/pythinker-code
 
+## 1.9.0
+
+### Minor Changes
+
+- [#275](https://github.com/PyModel/pythinker-code/pull/275) [`27393b3`](https://github.com/PyModel/pythinker-code/commit/27393b3a3fdcc0d8ac58f4e8912ee97822365799) Thanks [@elkaix](https://github.com/elkaix)! - The pythinker acp subcommand no longer honors PYTHINKER_CODE_LEGACY_FLAG; it always runs on the default agent engine.
+
+- [#275](https://github.com/PyModel/pythinker-code/pull/275) [`27393b3`](https://github.com/PyModel/pythinker-code/commit/27393b3a3fdcc0d8ac58f4e8912ee97822365799) Thanks [@elkaix](https://github.com/elkaix)! - Add the pythinker session list subcommand to list saved sessions. Run pythinker session list --all --json for machine-readable output.
+
+- [#275](https://github.com/PyModel/pythinker-code/pull/275) [`27393b3`](https://github.com/PyModel/pythinker-code/commit/27393b3a3fdcc0d8ac58f4e8912ee97822365799) Thanks [@elkaix](https://github.com/elkaix)! - Enter tower mode with /tower <base-branch> to pick the base branch yourself, and see when a tower worker dies in the status view.
+
+### Patch Changes
+
+- [#275](https://github.com/PyModel/pythinker-code/pull/275) [`27393b3`](https://github.com/PyModel/pythinker-code/commit/27393b3a3fdcc0d8ac58f4e8912ee97822365799) Thanks [@elkaix](https://github.com/elkaix)! - Re-remind the model about subdirectory AGENTS.md files after context compaction.
+
+- [#275](https://github.com/PyModel/pythinker-code/pull/275) [`27393b3`](https://github.com/PyModel/pythinker-code/commit/27393b3a3fdcc0d8ac58f4e8912ee97822365799) Thanks [@elkaix](https://github.com/elkaix)! - Compact the Discussion exchange: reasoning shows its first two sentences with a Show reasoning toggle, tool calls collapse to one summary line, and the Fusion answer streams as text instead of its raw JSON envelope. Take now loads an answer into the composer to edit, while Build from Fusion sends it as the implementation brief at once.
+
+- [#275](https://github.com/PyModel/pythinker-code/pull/275) [`27393b3`](https://github.com/PyModel/pythinker-code/commit/27393b3a3fdcc0d8ac58f4e8912ee97822365799) Thanks [@elkaix](https://github.com/elkaix)! - Fix the transcript not scrolling up after a Discussion finishes, and show "Discussion" on the composer model pill while a Discussion is armed or running.
+
+- [#275](https://github.com/PyModel/pythinker-code/pull/275) [`27393b3`](https://github.com/PyModel/pythinker-code/commit/27393b3a3fdcc0d8ac58f4e8912ee97822365799) Thanks [@elkaix](https://github.com/elkaix)! - Forking a session no longer loads the whole session first, so large sessions fork in well under a second.
+
+- [#275](https://github.com/PyModel/pythinker-code/pull/275) [`27393b3`](https://github.com/PyModel/pythinker-code/commit/27393b3a3fdcc0d8ac58f4e8912ee97822365799) Thanks [@elkaix](https://github.com/elkaix)! - An explicit [experimental] entry in config.toml now takes precedence over PYTHINKER_CODE_EXPERIMENTAL_FLAG.
+
+- [#275](https://github.com/PyModel/pythinker-code/pull/275) [`27393b3`](https://github.com/PyModel/pythinker-code/commit/27393b3a3fdcc0d8ac58f4e8912ee97822365799) Thanks [@elkaix](https://github.com/elkaix)! - Fix git status parsing for file paths that contain non-ASCII characters.
+
+- [#275](https://github.com/PyModel/pythinker-code/pull/275) [`27393b3`](https://github.com/PyModel/pythinker-code/commit/27393b3a3fdcc0d8ac58f4e8912ee97822365799) Thanks [@elkaix](https://github.com/elkaix)! - Fix sessions failing to start when the subagent model pool in config.toml is incomplete.
+
+- [#275](https://github.com/PyModel/pythinker-code/pull/275) [`27393b3`](https://github.com/PyModel/pythinker-code/commit/27393b3a3fdcc0d8ac58f4e8912ee97822365799) Thanks [@elkaix](https://github.com/elkaix)! - Shorten the default system prompt.
+
+- [#275](https://github.com/PyModel/pythinker-code/pull/275) [`27393b3`](https://github.com/PyModel/pythinker-code/commit/27393b3a3fdcc0d8ac58f4e8912ee97822365799) Thanks [@elkaix](https://github.com/elkaix)! - Interrupted steps keep their reason after a session is reloaded.
+
 ## 1.8.1
 
 ### Patch Changes
