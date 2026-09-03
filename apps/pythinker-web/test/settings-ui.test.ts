@@ -99,6 +99,10 @@ describe('settings UI', () => {
         models: ['gpt-test', 'gpt-fast'],
       },
     ]);
+    api.listModels.mockResolvedValueOnce([
+      { id: 'openai-local/gpt-test', provider: 'openai-local', model: 'gpt-test', maxContextSize: 128_000 },
+      { id: 'openai-local/gpt-fast', provider: 'openai-local', model: 'gpt-fast', maxContextSize: 64_000 },
+    ]);
     confirm.mockImplementationOnce(async (options: { action: () => Promise<void> }) => {
       await options.action();
       return true;
@@ -109,7 +113,12 @@ describe('settings UI', () => {
     expect(wrapper.text()).toContain('OpenAI');
     expect(wrapper.text()).toContain('2 models');
     await wrapper.get('[data-testid="provider-openai-local-toggle"]').trigger('click');
-    expect(wrapper.text()).toContain('gpt-test');
+    await flushPromises();
+    expect(wrapper.find('.provider-form__models').exists()).toBe(false);
+    await wrapper.get('[data-testid="provider-form-models-toggle"]').trigger('click');
+    const modelInputs = wrapper.findAll('.provider-form__model input').map((el) => (el.element as HTMLInputElement).value);
+    expect(modelInputs).toContain('gpt-test');
+    expect(modelInputs).toContain('128000');
     await wrapper.get('[data-testid="provider-openai-local-delete"]').trigger('click');
     await flushPromises();
 

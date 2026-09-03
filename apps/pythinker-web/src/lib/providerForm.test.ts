@@ -107,4 +107,15 @@ describe('provider form', () => {
       'other/model-b': { provider: 'other', model: 'model-b', maxContextSize: 1000 },
     })).toEqual([{ model: 'model-a', maxContextSize: '128000', displayName: 'Model A' }]);
   });
+
+  it('falls back to the catalog aliases when the config has no rows for the provider', () => {
+    const provider = {
+      id: 'local', type: 'openai', hasApiKey: true, status: 'connected' as const, models: ['local/model-a', 'bare-b'],
+    };
+    expect(modelsForProvider(provider, {})).toEqual([
+      { model: 'model-a', maxContextSize: '', displayName: '' },
+      { model: 'bare-b', maxContextSize: '', displayName: '' },
+    ]);
+    expect(modelsForProvider(provider, undefined)).toHaveLength(2);
+  });
 });
