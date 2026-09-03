@@ -43,6 +43,7 @@ const emit = defineEmits<{
   addWorkspace: [];
   rename: [id: string, title: string];
   archive: [id: string];
+  deleteSession: [id: string];
   /** NOTE: App.vue wires this to confirmDeleteWorkspace (modal confirm + async delete). */
   deleteWorkspace: [workspaceId: string];
   loadMore: [workspaceId: string];
@@ -154,6 +155,10 @@ function onArchive(id: string): void {
   menuFor.value = null;
   // The modal confirm + async archive live in App.vue (confirmArchiveSession).
   emit('archive', id);
+}
+function onDelete(id: string): void {
+  menuFor.value = null;
+  emit('deleteSession', id);
 }
 
 // ---------------------------------------------------------------------------
@@ -274,6 +279,7 @@ function onDeleteWorkspace(ws: WorkspaceView): void {
             <Menu v-if="menuFor === s.id" class="kmenu" @click.stop>
               <MenuItem size="lg" @click="onRename(s)">{{ t('sidebar.rename') }}</MenuItem>
               <MenuItem size="lg" danger @click="onArchive(s.id)">{{ t('sidebar.archive') }}</MenuItem>
+              <MenuItem size="lg" danger @click="onDelete(s.id)">{{ t('sidebar.delete') }}</MenuItem>
             </Menu>
           </div>
           <button

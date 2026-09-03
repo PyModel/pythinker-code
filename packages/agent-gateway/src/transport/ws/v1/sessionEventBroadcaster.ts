@@ -670,6 +670,28 @@ export class SessionEventBroadcaster {
       );
       return;
     }
+    if (event.type === 'event.session.deleted') {
+      const payload = sessionDeletedPayload(corePayload);
+      if (payload === undefined) return;
+      const { sessionId } = payload;
+      void this.dispatchGlobal({
+        type: 'event.session.deleted',
+        agentId: 'main',
+        sessionId,
+      } as Event)
+        .then(async () => {
+          const state = this.sessions.get(sessionId);
+          if (state !== undefined) {
+            this.sessions.delete(sessionId);
+            await disposeSessionState(state);
+            this.opts.transcriptService?.dropSession(sessionId);
+          }
+        })
+        .catch((error: unknown) =>
+          this.logDispatchError(GLOBAL_SESSION_ID, 'event.session.deleted', error),
+        );
+      return;
+    }
     if (event.type === 'event.workspace.created' || event.type === 'event.workspace.updated') {
       const workspace = workspaceLifecyclePayload(corePayload);
       if (workspace === undefined) return;
@@ -797,6 +819,7 @@ export class SessionEventBroadcaster {
     state.queue = state.queue
       .then(() => this.dispatch(state, event, isVolatileEventType(event.type)))
       .catch((error: unknown) => this.logDispatchDropped(state.sessionId, event.type, error));
+    await state.queue;
   }
 
   private async dispatchSessionEvent(sessionId: string, event: Event): Promise<void> {
@@ -1426,6 +1449,17 @@ function sessionArchivedPayload(
     return undefined;
   }
   return { sessionId: candidate.sessionId, workspaceId: candidate.workspaceId };
+}
+
+function sessionDeletedPayload(
+  payload: unknown,
+): { sessionId: string } | undefined {
+  if (typeof payload !== 'object' || payload === null) return undefined;
+  const candidate = payload as { session_id?: unknown };
+  if (typeof candidate.session_id !== 'string' || candidate.session_id.length === 0) {
+    return undefined;
+  }
+  return { sessionId: candidate.session_id };
 }
 
 function workspaceLifecyclePayload(payload: unknown): Workspace | undefined {

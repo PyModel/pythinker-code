@@ -22,6 +22,7 @@ const emit = defineEmits<{
   rename: [id: string, title: string];
   generateTitle: [id: string, onTitle: (title: string | null) => void];
   archive: [id: string];
+  delete: [id: string];
   fork: [id: string];
   export: [id: string];
   pin: [id: string];
@@ -249,6 +250,7 @@ function drop(targetId: string, event: DragEvent): void {
               @rename="(id, title) => emit('rename', id, title)"
               @generate-title="(id, onTitle) => emit('generateTitle', id, onTitle)"
               @archive="emit('archive', $event)"
+              @delete="emit('delete', $event)"
               @fork="emit('fork', $event)"
               @export="emit('export', $event)"
               @pin="emit('pin', $event)"

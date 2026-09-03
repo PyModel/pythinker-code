@@ -100,6 +100,7 @@ const emit = defineEmits<{
   /** Generate a session title; the callback receives the title (or null). */
   generateTitle: [id: string, onTitle: (title: string | null) => void];
   archive: [id: string];
+  deleteSession: [id: string];
   restore: [id: string];
   pin: [id: string];
   reorderPins: [ids: string[]];
@@ -1031,6 +1032,7 @@ watch([() => props.collapsed, update.hasUpdate], ([collapsed, hasUpdate]) => {
         @rename="(id, title) => emit('rename', id, title)"
         @generate-title="(id, onTitle) => emit('generateTitle', id, onTitle)"
         @archive="emit('archive', $event)"
+        @delete="emit('deleteSession', $event)"
         @fork="emit('fork', $event)"
         @export="emit('export', $event)"
         @pin="emit('pin', $event)"
@@ -1082,6 +1084,7 @@ watch([() => props.collapsed, update.hasUpdate], ([collapsed, hasUpdate]) => {
                 @rename="(id, title) => emit('rename', id, title)"
                 @generate-title="(id, onTitle) => emit('generateTitle', id, onTitle)"
                 @restore="emit('restore', $event)"
+                @delete="emit('deleteSession', $event)"
                 @fork="emit('fork', $event)"
                 @export="emit('export', $event)"
                 @pin="emit('pin', $event)"
@@ -1171,6 +1174,7 @@ watch([() => props.collapsed, update.hasUpdate], ([collapsed, hasUpdate]) => {
             @rename="(id, title) => emit('rename', id, title)"
             @generate-title="(id, onTitle) => emit('generateTitle', id, onTitle)"
             @archive="emit('archive', $event)"
+            @delete="emit('deleteSession', $event)"
             @fork="emit('fork', $event)"
             @export="emit('export', $event)"
             @pin="emit('pin', $event)"
@@ -1253,6 +1257,7 @@ watch([() => props.collapsed, update.hasUpdate], ([collapsed, hasUpdate]) => {
               @rename-session="(id, title) => emit('rename', id, title)"
               @generate-session-title="(id, onTitle) => emit('generateTitle', id, onTitle)"
               @archive-session="(id) => emit('archive', id)"
+              @delete-session="(id) => emit('deleteSession', id)"
               @fork-session="(id) => emit('fork', id)"
               @export-session="(id) => emit('export', id)"
               @pin-session="(id) => emit('pin', id)"

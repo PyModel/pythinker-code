@@ -881,6 +881,8 @@ function setOnboarded(done: boolean): void {
 
 // Singleton WS connection
 let eventConn: PythinkerEventConnection | null = null;
+const lastDeletedSessionId = ref<string | null>(null);
+
 const auxiliaryTranscripts = createAuxiliaryTranscripts({
   api: getPythinkerWebApi(),
   connectEventsIfNeeded,
@@ -928,10 +930,16 @@ function applyEvent(event: ReturnType<typeof toAppEvent>, sessionId: string, seq
     config: rawState.config,
     warnings: rawState.warnings,
   };
+  const wasActive =
+    event.type === 'sessionDeleted' && rawState.activeSessionId === event.sessionId;
   const next = reduceAppEvent(snapshot, event, { sessionId, seq });
   // Assign back to the reactive proxy
   setSessions(next.sessions);
   setActiveSessionId(next.activeSessionId);
+  if (event.type === 'sessionDeleted') {
+    lastDeletedSessionId.value = event.sessionId;
+    void workspaceState.cleanupDeletedSession(event.sessionId, wasActive);
+  }
   setMessagesBySession(next.messagesBySession);
   if (!sameRecordEntries(rawState.approvalsBySession, next.approvalsBySession)) {
     rawState.approvalsBySession = next.approvalsBySession;
@@ -3059,8 +3067,8 @@ function startExpertOpinionSession(
       if (sessionId === null) return false;
       await expertTalk.useForNextMessage(pair);
       return expertTalk.status.value?.activation.state === 'armed';
-    } catch (cause) {
-      pushOperationFailure('expertOpinionSession', cause);
+    } catch (error) {
+      pushOperationFailure('expertOpinionSession', error);
       return false;
     }
   })();
@@ -3417,7 +3425,10 @@ export function usePythinkerWebClient() {
     reorderPinnedSessions,
     togglePinnedCollapsed,
     setSessionEmoji,
+    lastDeletedSessionId,
     archiveSession: workspaceState.archiveSession,
+    deleteSession: workspaceState.deleteSession,
+    cleanupDeletedSession: workspaceState.cleanupDeletedSession,
     exportSession: workspaceState.exportSession,
     restoreSession: workspaceState.restoreSession,
     loadArchivedSessions: workspaceState.loadArchivedSessions,

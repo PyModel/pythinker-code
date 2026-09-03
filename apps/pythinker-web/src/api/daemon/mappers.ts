@@ -781,12 +781,15 @@ export function toAppEvent(wire: WireEvent): AppEvent {
       };
 
     case 'event.session.deleted':
-      return { type: 'sessionDeleted', sessionId: w.session_id };
+      return {
+        type: 'sessionDeleted',
+        sessionId: w.payload?.sessionId ?? w.payload?.session_id ?? w.session_id,
+      };
 
     case 'event.session.archived':
       return {
         type: 'sessionArchived',
-        sessionId: w.session_id,
+        sessionId: w.payload?.sessionId ?? w.payload?.session_id ?? w.session_id,
         workspaceId: w.payload.workspace_id,
       };
 

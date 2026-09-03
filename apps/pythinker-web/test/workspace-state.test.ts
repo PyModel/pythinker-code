@@ -137,7 +137,7 @@ function createState(): ExtendedState {
 function createDeps(): UseWorkspaceStateDeps {
   return {
     taskPoller: {},
-    sideChat: {},
+    sideChat: { clearSideChatForSession: vi.fn() },
     modelProvider: { resolveThinkingForPrompt: async () => undefined },
     pushOperationFailure: vi.fn(),
     activity: computed(() => 'running'),
@@ -1490,6 +1490,12 @@ describe('useWorkspaceState — session list loading', () => {
       setSessions: vi.fn((next: AppSession[]) => {
         state.sessions = next;
       }),
+      setActiveSessionId: vi.fn((next: string | undefined) => {
+        state.activeSessionId = next ?? null;
+      }),
+      forgetSession: vi.fn((id: string) => {
+        state.sessions = state.sessions.filter((session) => session.id !== id);
+      }),
       workspaceIdForSession: vi.fn(
         (session: { workspaceId?: string; cwd: string }) =>
           state.workspaces.find((item) => item.root === session.cwd)?.id ??
@@ -1802,6 +1808,74 @@ describe('useWorkspaceState — session list loading', () => {
 
     expect(state.sessions.map((session) => session.id)).toEqual(['sess_1', 'sess_older']);
     expect(deps.pushOperationFailure).toHaveBeenCalledOnce();
+  });
+
+  it('filters a tombstoned session from a load-more page recorded before the deletion', async () => {
+    const loaded = { ...createSession(), workspaceId: 'wd_1' };
+    const stale = {
+      ...createSession(),
+      id: 'sess_deleted',
+      workspaceId: 'wd_1',
+      updatedAt: '2025-12-31T00:00:00.000Z',
+    };
+    const { state, workspaceState } = createSessionLoadRig([loaded]);
+    state.workspaces = [workspace('wd_1', '/workspace', 'Workspace')];
+    state.sessionsHasMoreByWorkspace = { wd_1: true };
+    state.sessionsCursorByWorkspace = { wd_1: 'sess_1' };
+    state.sessionsLoadingMoreByWorkspace = { wd_1: false };
+    apiMock.listSessions.mockResolvedValue({ items: [stale], hasMore: false });
+
+    workspaceState.rememberDeletedSession('sess_deleted');
+    await workspaceState.loadMoreSessions('wd_1');
+
+    expect(apiMock.listSessions).toHaveBeenCalledWith({
+      workspaceId: 'wd_1',
+      pageSize: 30,
+      beforeId: 'sess_1',
+      excludeEmpty: true,
+    });
+    expect(state.sessions.map((session) => session.id)).toEqual(['sess_1']);
+  });
+
+  it('filters a tombstoned session from initial load when deleted while loading', async () => {
+    const surviving = {
+      ...createSession(),
+      id: 'sess_surviving',
+      workspaceId: 'wd_1',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    };
+    const deleted = {
+      ...createSession(),
+      id: 'sess_deleted',
+      workspaceId: 'wd_1',
+      updatedAt: '2026-01-02T00:00:00.000Z',
+    };
+    const { state, workspaceState } = createSessionLoadRig([]);
+    state.workspaces = [workspace('wd_1', '/workspace', 'Workspace')];
+    apiMock.listWorkspaces.mockResolvedValue([workspace('wd_1', '/workspace', 'Workspace')]);
+    apiMock.listSessions.mockImplementation(async () => {
+      workspaceState.rememberDeletedSession('sess_deleted');
+      return { items: [deleted, surviving], hasMore: false };
+    });
+
+    await workspaceState.load();
+
+    expect(state.sessions.map((session) => session.id)).toEqual(['sess_surviving']);
+    expect(state.activeSessionId).toBe('sess_surviving');
+  });
+
+  it('cleans up local state and selects fallback session on remote session deletion', async () => {
+    const active = { ...createSession(), id: 'sess_active' };
+    const next = { ...createSession(), id: 'sess_next' };
+    const { state, deps, workspaceState } = createSessionLoadRig([active, next]);
+    state.activeSessionId = 'sess_active';
+    state.sideChatUserMessageIdsBySession = { sess_active: ['msg_1'], sess_next: ['msg_2'] };
+
+    await workspaceState.cleanupDeletedSession('sess_active');
+
+    expect(deps.forgetSession).toHaveBeenCalledWith('sess_active');
+    expect(state.sideChatUserMessageIdsBySession).toEqual({ sess_next: ['msg_2'] });
+    expect(state.activeSessionId).toBe('sess_next');
   });
 });
 

@@ -448,6 +448,7 @@ html[data-color-scheme=dark][data-accent=mono] {
     --space-5: 20px;
     --space-6: 24px;
     --space-8: 32px;
+    --control-size-md: 36px;
     --radius-xs: 4px;
     --radius-sm: 6px;
     --radius-md: 8px;

@@ -1513,6 +1513,31 @@ describe('SessionEventBroadcaster', () => {
       expect(both.envelopes).toHaveLength(1);
     });
 
+    it('delivers event.session.deleted to a subscribed session before tearing it down', async () => {
+      const lc = new FakeLifecycle();
+      lc.addAgent('main');
+      sessions.set('s1', lc);
+
+      const { target, envelopes } = collectingTarget();
+      await bc.subscribe('s1', target);
+
+      eventBus.emit({
+        type: 'event.config.changed',
+        payload: { changedFields: ['defaultModel'], config: {} },
+      });
+      eventBus.emit({ type: 'event.session.deleted', payload: { session_id: 's1' } });
+
+      await vi.waitFor(() => {
+        expect(envelopes.some((e) => e.type === 'event.session.deleted')).toBe(true);
+      });
+      const deleted = envelopes.find((e) => e.type === 'event.session.deleted');
+      expect(deleted).toMatchObject({
+        type: 'event.session.deleted',
+        session_id: '__global__',
+        payload: { type: 'event.session.deleted', agentId: 'main', sessionId: 's1' },
+      });
+    });
+
     it('delivers event.config.warning to a global-only target that never subscribed', async () => {
       const globalView = collectingTarget();
       bc.addGlobalTarget(globalView.target);

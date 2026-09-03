@@ -46,6 +46,7 @@ const emit = defineEmits<{
   setEmoji: [id: string, emoji: string | null];
   fork: [id: string];
   export: [id: string];
+  delete: [id: string];
 }>();
 
 const titleParts = computed(() => splitTitleEmoji(props.session.title));
@@ -240,6 +241,11 @@ function restoreRow(): void {
   emit('restore', props.session.id);
 }
 
+function startDelete(): void {
+  closeMenu();
+  emit('delete', props.session.id);
+}
+
 function togglePin(): void {
   closeMenu();
   emit('pin', props.session.id);
@@ -403,6 +409,10 @@ defineExpose({ closeMenu });
         <MenuItem v-else @click="startArchive">
           <Icon name="archive" size="sm" />
           {{ t('sidebar.markDone') }}
+        </MenuItem>
+        <MenuItem danger @click="startDelete">
+          <Icon name="trash" size="sm" />
+          {{ t('sidebar.delete') }}
         </MenuItem>
         <MenuItem separator />
         <div class="menu-time">{{ t('sidebar.lastActive', { time: fullTime }) }}</div>

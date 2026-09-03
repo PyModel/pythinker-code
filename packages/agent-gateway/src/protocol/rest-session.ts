@@ -165,6 +165,11 @@ export type RestoreSessionResponse = z.infer<typeof restoreSessionResponseSchema
 export const deleteSessionResponseSchema = archiveSessionResponseSchema;
 export type DeleteSessionResponse = ArchiveSessionResponse;
 
+export const deleteSessionSuccessResponseSchema = z.object({
+  deleted: z.literal(true),
+});
+export type DeleteSessionSuccessResponse = z.infer<typeof deleteSessionSuccessResponseSchema>;
+
 export const sessionAbortResponseSchema = z.object({
   aborted: z.boolean(),
 });
