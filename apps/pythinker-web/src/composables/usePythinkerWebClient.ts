@@ -930,13 +930,15 @@ function applyEvent(event: ReturnType<typeof toAppEvent>, sessionId: string, seq
     config: rawState.config,
     warnings: rawState.warnings,
   };
+  const wasActive =
+    event.type === 'sessionDeleted' && rawState.activeSessionId === event.sessionId;
   const next = reduceAppEvent(snapshot, event, { sessionId, seq });
   // Assign back to the reactive proxy
   setSessions(next.sessions);
   setActiveSessionId(next.activeSessionId);
   if (event.type === 'sessionDeleted') {
     lastDeletedSessionId.value = event.sessionId;
-    workspaceState.rememberDeletedSession(event.sessionId);
+    void workspaceState.cleanupDeletedSession(event.sessionId, wasActive);
   }
   setMessagesBySession(next.messagesBySession);
   if (!sameRecordEntries(rawState.approvalsBySession, next.approvalsBySession)) {
@@ -3426,6 +3428,7 @@ export function usePythinkerWebClient() {
     lastDeletedSessionId,
     archiveSession: workspaceState.archiveSession,
     deleteSession: workspaceState.deleteSession,
+    cleanupDeletedSession: workspaceState.cleanupDeletedSession,
     exportSession: workspaceState.exportSession,
     restoreSession: workspaceState.restoreSession,
     loadArchivedSessions: workspaceState.loadArchivedSessions,

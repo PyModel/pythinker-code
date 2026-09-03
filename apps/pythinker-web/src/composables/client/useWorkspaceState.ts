@@ -1159,10 +1159,16 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
         sessionGroupLoad === undefined
           ? undefined
           : await finishInitialSessionGroupLoad(sessionGroupLoad);
-      const loadedSessions =
+      const rawLoadedSessions =
         sessionGroupLoad === undefined
           ? await loadInitialSessionsByWorkspace()
           : groupedSessions?.sessions;
+      const loadedSessions =
+        rawLoadedSessions === undefined
+          ? undefined
+          : deletedSessionIds.size > 0
+            ? rawLoadedSessions.filter((session) => !deletedSessionIds.has(session.id))
+            : rawLoadedSessions;
       const sessions = loadedSessions ?? rawState.sessions;
       if (loadedSessions !== undefined) setSessionsPreservingLiveUsage(loadedSessions);
       groupedSessions?.finishInBackground?.();
@@ -2777,7 +2783,7 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
       const api = getPythinkerWebApi();
       await api.archiveSession(id);
       forgetSession(id);
-      sideChat.clearSideChatForSession(id);
+      sideChat.clearSideChatForSession?.(id);
       const { [id]: _removedIds, ...restIds } = rawState.sideChatUserMessageIdsBySession;
       void _removedIds;
       rawState.sideChatUserMessageIdsBySession = restIds;
@@ -2804,26 +2810,33 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
     deletedSessionIds.add(id);
   }
 
+  async function cleanupDeletedSession(
+    id: string,
+    wasActive = rawState.activeSessionId === id,
+  ): Promise<void> {
+    rememberDeletedSession(id);
+    forgetSession(id);
+    sideChat.clearSideChatForSession?.(id);
+    const { [id]: _removedIds, ...restIds } = rawState.sideChatUserMessageIdsBySession;
+    void _removedIds;
+    rawState.sideChatUserMessageIdsBySession = restIds;
+
+    if (wasActive || rawState.activeSessionId === id) {
+      const next = rawState.sessions[0];
+      if (next) {
+        await selectSession(next.id, { urlMode: 'replace' });
+      } else {
+        setActiveSessionId(undefined);
+        writeSessionUrl(undefined, 'replace');
+      }
+    }
+  }
+
   async function deleteSession(id: string): Promise<void> {
     try {
       const api = getPythinkerWebApi();
       await api.deleteSession(id);
-      rememberDeletedSession(id);
-      forgetSession(id);
-      sideChat.clearSideChatForSession(id);
-      const { [id]: _removedIds, ...restIds } = rawState.sideChatUserMessageIdsBySession;
-      void _removedIds;
-      rawState.sideChatUserMessageIdsBySession = restIds;
-
-      if (rawState.activeSessionId === id) {
-        const next = rawState.sessions[0];
-        if (next) {
-          await selectSession(next.id, { urlMode: 'replace' });
-        } else {
-          setActiveSessionId(undefined);
-          writeSessionUrl(undefined, 'replace');
-        }
-      }
+      await cleanupDeletedSession(id);
     } catch (error) {
       pushOperationFailure('deleteSession', error, { sessionId: id });
       throw error;
@@ -3262,6 +3275,7 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
     deleteWorkspace,
     archiveSession,
     deleteSession,
+    cleanupDeletedSession,
     rememberDeletedSession,
     exportSession,
     restoreSession,
