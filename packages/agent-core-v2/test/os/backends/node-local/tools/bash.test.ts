@@ -859,6 +859,20 @@ describe('BashTool', () => {
     expect(exec.mock.calls[0]?.[1]).toEqual(['-c', "cd '/workspace/project' && pwd"]);
   });
 
+  it('accepts args.cwd outside the workspace roots', async () => {
+    const { runner, exec } = createTestRunner(processWithOutput({ stdout: 'out\n' }));
+    const tool = bashTool(runner);
+
+    const result = await executeTool(
+      tool,
+      context({ command: 'pwd', cwd: '/outside/workspace', timeout: 60 }),
+    );
+
+    expect(exec.mock.calls[0]?.[0]).toBe('/bin/bash');
+    expect(exec.mock.calls[0]?.[1]).toEqual(['-c', "cd '/outside/workspace' && pwd"]);
+    expect(result).toMatchObject({ output: 'out\n', isError: false });
+  });
+
   it('uses the pyaos cwd as the default working directory', async () => {
     const { runner, exec } = createTestRunner(processWithOutput({ stdout: '' }));
     const tool = bashTool(runner, posixEnv, createTestCtx('/var/app'));
