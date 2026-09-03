@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { getPythinkerWebApi } from '../../api';
 import type { AppConfig, AppProvider, CatalogProviderWireType } from '../../api/types';
@@ -45,6 +45,8 @@ const errors = ref<ProviderFormErrors>({ models: {} });
 const error = ref('');
 const saving = ref(false);
 const showApiKey = ref(false);
+const modelsOpen = ref(props.mode === 'add');
+const dirty = ref(false);
 const apiKeyLoaded = ref(false);
 const apiKeyTouched = ref(false);
 const typeOptions = computed(() => providerTypes.map((value) => ({
@@ -66,6 +68,7 @@ function reset(): void {
   }
   errors.value = { models: {} };
   error.value = '';
+  dirty.value = false;
   emit('dirtyChange', false);
 }
 
@@ -111,10 +114,19 @@ async function loadStoredKey(): Promise<void> {
 }
 
 function markDirty(): void {
+  dirty.value = true;
   emit('dirtyChange', true);
 }
 
+// The panel loads the config after the provider list, so this form can mount
+// before its model rows exist. Re-seed from the fresh config unless the user
+// has already started editing.
+watch(() => props.config, () => {
+  if (props.mode === 'edit' && !dirty.value) reset();
+});
+
 function addModel(): void {
+  modelsOpen.value = true;
   form.models.push(emptyProviderModel());
   markDirty();
 }
@@ -136,6 +148,7 @@ async function save(): Promise<void> {
   });
   errors.value = validation;
   if (hasProviderFormErrors(validation)) {
+    if (Object.keys(validation.models).length > 0 || validation.modelsEmpty !== undefined) modelsOpen.value = true;
     error.value =
       validation.modelsEmpty === undefined ? '' : t(`providers.error.${validation.modelsEmpty}`);
     return;
@@ -223,12 +236,22 @@ onMounted(() => {
     </div>
 
     <div class="provider-form__models-head">
-      <strong>{{ t('providers.fieldModels') }}</strong>
+      <button
+        type="button"
+        class="provider-form__models-toggle"
+        :aria-expanded="modelsOpen"
+        data-testid="provider-form-models-toggle"
+        @click="modelsOpen = !modelsOpen"
+      >
+        <Icon :name="modelsOpen ? 'chevron-down' : 'chevron-right'" size="sm" />
+        <strong>{{ t('providers.fieldModels') }}</strong>
+        <span class="provider-form__models-count">{{ t('providers.modelCount', { count: form.models.length }) }}</span>
+      </button>
       <Button type="button" size="sm" variant="secondary" @click="addModel">
         <Icon name="plus" size="sm" />{{ t('providers.addModel') }}
       </Button>
     </div>
-    <div class="provider-form__models">
+    <div v-if="modelsOpen" class="provider-form__models">
       <div class="provider-form__model provider-form__model--head">
         <span>{{ t('providers.colModelId') }}</span>
         <span>{{ t('providers.colContext') }}</span>
@@ -279,8 +302,13 @@ onMounted(() => {
 .provider-form__key :deep(.ui-input) { padding-right: calc(var(--p-ic-sm) + var(--space-3)); }
 .provider-form__eye { position: absolute; top: 50%; right: var(--space-1); transform: translateY(-50%); }
 .provider-form__models-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
-.provider-form__models { overflow-x: auto; border: 1px solid var(--color-line); border-radius: var(--radius-md); }
-.provider-form__model { display: grid; grid-template-columns: minmax(180px, 1.2fr) minmax(120px, 0.7fr) minmax(160px, 1fr) 32px; gap: var(--space-2); align-items: center; padding: var(--space-2); border-top: 1px solid var(--color-line); }
+.provider-form__models-toggle { display: inline-flex; align-items: center; gap: var(--space-1-5); padding: var(--space-1) var(--space-1-5); margin-left: calc(-1 * var(--space-1-5)); border: none; border-radius: var(--radius-md); background: transparent; color: var(--color-text); font-family: var(--font-ui); font-size: var(--text-base); cursor: pointer; }
+.provider-form__models-toggle:hover { background: var(--color-hover); }
+.provider-form__models-toggle:focus-visible { outline: none; box-shadow: var(--p-focus-ring); }
+.provider-form__models-count { color: var(--color-text-faint); font-size: var(--text-xs); font-variant-numeric: tabular-nums; }
+.provider-form__models { border: 1px solid var(--color-line); border-radius: var(--radius-md); }
+.provider-form__model { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 0.8fr) minmax(0, 1fr) 26px; gap: var(--space-2); align-items: center; padding: var(--space-2); border-top: 1px solid var(--color-line); }
+.provider-form__model--head span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .provider-form__model--head { border-top: 0; background: var(--color-surface-sunken); color: var(--color-text-muted); font-size: var(--text-xs); font-weight: var(--weight-medium); }
 .provider-form__error { color: var(--color-danger); font-size: var(--text-sm); }
 .provider-form__row-error { color: var(--color-danger); font-size: var(--text-xs); padding: 0 var(--space-2) var(--space-2); }

@@ -70,7 +70,15 @@ export function modelsForProvider(
       displayName: typeof model['displayName'] === 'string' ? model['displayName'] : '',
     });
   }
-  return result;
+  if (result.length > 0) return result;
+  // The config section can lag behind the catalog (or be unreadable); the
+  // catalog still knows the provider's model aliases, keyed `<provider>/<model>`.
+  const prefix = `${provider.id}/`;
+  return (provider.models ?? []).map((alias) => ({
+    model: alias.startsWith(prefix) ? alias.slice(prefix.length) : alias,
+    maxContextSize: '',
+    displayName: '',
+  }));
 }
 
 /** Validation failures for one model row, keyed by the field that failed. */
