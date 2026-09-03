@@ -11,6 +11,7 @@ const ANIMATED_NAMES = [
   'loading-spinner',
   'update-button',
   'update-available',
+  'back-arrow',
 ] as const;
 
 const STATIC_IDLE_NAMES = ['chat-new', 'search', 'folder', 'settings'] as const;

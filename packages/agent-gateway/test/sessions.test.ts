@@ -1751,6 +1751,14 @@ describe('server-v2 /api/v1/sessions (minidb read model)', () => {
     return { status: res.status, body: (await res.json()) as Envelope<T> };
   }
 
+  async function deleteJson<T>(path: string): Promise<{ status: number; body: Envelope<T> }> {
+    const res = await fetch(`${base}${path}`, {
+      method: 'DELETE',
+      headers: authHeaders(server as RunningServer),
+    } as never);
+    return { status: res.status, body: (await res.json()) as Envelope<T> };
+  }
+
   it('prepares the read model at boot and serves immediate reads', async () => {
     const status = await getJson<{ state: string; generation?: number }>(
       '/api/v1/debug/sessionIndex/status',
@@ -1829,5 +1837,28 @@ describe('server-v2 /api/v1/sessions (minidb read model)', () => {
     expect(listed.body.data.items.some((s) => s.id === id)).toBe(true);
     const fetched = await getJson<{ id: string }>(`/api/v1/sessions/${id}`);
     expect(fetched.body.data.id).toBe(id);
+  });
+
+  it('permanently deletes a session via DELETE and session action', async () => {
+    const cwd = home as string;
+    const session1 = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd } });
+    const id1 = session1.body.data.id;
+
+    const del1 = await deleteJson<{ deleted: boolean }>(`/api/v1/sessions/${id1}`);
+    expect(del1.body.code).toBe(0);
+    expect(del1.body.data.deleted).toBe(true);
+
+    const check1 = await getJson<null>(`/api/v1/sessions/${id1}`);
+    expect(check1.body.code).toBe(40401);
+
+    const session2 = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd } });
+    const id2 = session2.body.data.id;
+
+    const del2 = await postJson<{ deleted: boolean }>(`/api/v1/sessions/${id2}:delete`, {});
+    expect(del2.body.code).toBe(0);
+    expect(del2.body.data.deleted).toBe(true);
+
+    const check2 = await getJson<null>(`/api/v1/sessions/${id2}`);
+    expect(check2.body.code).toBe(40401);
   });
 });

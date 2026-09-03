@@ -227,11 +227,11 @@ watch(
       ref="backButton"
       class="explorer-back"
       type="button"
-      :aria-label="t('sidebar.backToTasks')"
+      :aria-label="t('sidebar.back')"
       @click="emit('close')"
     >
-      <Icon class="explorer-back-icon" name="chevron-right" />
-      <span>{{ t('sidebar.backToTasks') }}</span>
+      <Icon class="explorer-back-icon" name="back-arrow" />
+      <span>{{ t('sidebar.back') }}</span>
     </button>
 
     <div class="explorer-search">
@@ -258,7 +258,7 @@ watch(
         </Tooltip>
         <Tooltip :text="t('sidebar.refreshFiles')">
           <IconButton size="sm" :label="t('sidebar.refreshFiles')" @click="refreshTree">
-            <Icon name="undo" />
+            <Icon name="refresh" />
           </IconButton>
         </Tooltip>
       </div>
@@ -383,22 +383,28 @@ watch(
   flex: none;
   width: calc(100% - 2 * var(--sb-inset));
   margin: var(--space-3) var(--sb-inset) var(--space-2);
-  padding: var(--space-2) calc(var(--sb-pad-x) - var(--sb-inset));
+  padding: var(--space-2) var(--space-3);
+  min-height: var(--control-size-md);
   border: 0;
   border-radius: var(--radius-sm);
   background: transparent;
-  color: var(--color-text-muted);
+  color: var(--color-text-strong);
   font-family: var(--font-ui);
   font-size: var(--text-sm);
-  font-weight: var(--weight-semibold);
+  font-weight: var(--weight-regular);
   line-height: var(--leading-tight);
   text-align: left;
   cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-out), color var(--duration-fast) var(--ease-out);
 }
 
 .explorer-back:hover {
   background: var(--sb-hover);
-  color: var(--color-text);
+  color: var(--color-text-strong);
+}
+
+.explorer-back:focus {
+  outline: none;
 }
 
 .explorer-back:focus-visible {
@@ -407,7 +413,11 @@ watch(
 }
 
 .explorer-back-icon {
-  transform: rotate(180deg);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  color: var(--color-text-strong);
 }
 
 .explorer-search {

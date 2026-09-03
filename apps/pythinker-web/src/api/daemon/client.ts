@@ -818,6 +818,13 @@ export class DaemonPythinkerWebApi implements PythinkerWebApi {
     return data;
   }
 
+  async deleteSession(sessionId: string): Promise<{ deleted: true }> {
+    const data = await this.http.delete<{ deleted: true }>(
+      `/sessions/${encodeURIComponent(sessionId)}`,
+    );
+    return data;
+  }
+
   // POST /sessions/{id}:restore — clear the archived flag. The daemon returns
   // the full restored session, so callers can merge it straight back into lists.
   async restoreSession(sessionId: string): Promise<AppSession> {

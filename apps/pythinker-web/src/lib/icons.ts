@@ -105,6 +105,7 @@ import RiPlayFill from '~icons/ri/play-fill';
 import RiPushpinFill from '~icons/ri/pushpin-fill';
 import RiPushpinLine from '~icons/ri/pushpin-line';
 import RiQuestionLine from '~icons/ri/question-line';
+import RiRefreshLine from '~icons/ri/refresh-line';
 import RiShieldFlashLine from '~icons/ri/shield-flash-line';
 import RiShieldLine from '~icons/ri/shield-line';
 import RiShutDownLine from '~icons/ri/shut-down-line';
@@ -120,6 +121,7 @@ import RiToolsLine from '~icons/ri/tools-line';
 import RiUserLine from '~icons/ri/user-line';
 
 // Raw SVG strings (Pythinker collection) -----------------------------------------
+import RawPythinkerBackArrow from '~icons/pythinker/back-arrow?raw';
 import RawPythinkerCuteBot from '~icons/pythinker/cute-bot?raw';
 import RawPythinkerExpertOpinion from '~icons/pythinker/expert_opinion?raw';
 import RawPythinkerFolder from '~icons/pythinker/folder?raw';
@@ -203,6 +205,7 @@ import RawPlayFill from '~icons/ri/play-fill?raw';
 import RawPushpinFill from '~icons/ri/pushpin-fill?raw';
 import RawPushpinLine from '~icons/ri/pushpin-line?raw';
 import RawQuestionLine from '~icons/ri/question-line?raw';
+import RawRefreshLine from '~icons/ri/refresh-line?raw';
 import RawShieldFlashLine from '~icons/ri/shield-flash-line?raw';
 import RawShieldLine from '~icons/ri/shield-line?raw';
 import RawShutDownLine from '~icons/ri/shut-down-line?raw';
@@ -234,6 +237,7 @@ export type IconName =
   | 'external-link'
   | 'download'
   | 'undo'
+  | 'refresh'
   | 'send'
   | 'image'
   | 'settings'
@@ -249,6 +253,7 @@ export type IconName =
   | 'chevron-up'
   | 'update-button'
   | 'update-available'
+  | 'back-arrow'
   | 'arrow-up'
   | 'arrow-down'
   | 'arrow-right'
@@ -359,6 +364,7 @@ export const ICONS: Record<IconName, IconEntry> = {
   'external-link': entry(RiExternalLinkLine, RawExternalLinkLine),
   download: entry(RiDownloadLine, RawDownloadLine),
   undo: entry(RiArrowGoBackLine, RawArrowGoBackLine),
+  refresh: entry(RiRefreshLine, RawRefreshLine),
   send: entry(RiArrowUpLine, RawArrowUpLine),
   image: entry(RiImageLine, RawImageLine),
   settings: entry(PythinkerSetting, RawPythinkerSetting),
@@ -374,6 +380,7 @@ export const ICONS: Record<IconName, IconEntry> = {
   'chevron-up': entry(RiArrowUpSLine, RawArrowUpSLine),
   'update-button': animatedEntry(RawPythinkerUpdateButton),
   'update-available': animatedEntry(RawPythinkerUpdateIcon),
+  'back-arrow': animatedEntry(RawPythinkerBackArrow),
   'arrow-up': entry(RiArrowUpLine, RawArrowUpLine),
   'arrow-down': entry(RiArrowDownLine, RawArrowDownLine),
   'arrow-right': entry(RiArrowRightLine, RawArrowRightLine),
@@ -542,6 +549,7 @@ export const ICON_GROUPS: ReadonlyArray<readonly [string, readonly IconName[]]> 
       'external-link',
       'download',
       'undo',
+      'refresh',
       'send',
       'image',
       'settings',
@@ -562,6 +570,7 @@ export const ICON_GROUPS: ReadonlyArray<readonly [string, readonly IconName[]]> 
       'chevron-up',
       'update-button',
       'update-available',
+      'back-arrow',
       'arrow-up',
       'arrow-down',
       'arrow-right',

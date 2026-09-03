@@ -281,6 +281,7 @@ export interface UseWorkspaceStateDeps {
 export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceStateDeps) {
   const { t } = i18n.global;
   const { confirm } = useConfirmDialog();
+  const deletedSessionIds = new Set<string>();
   const {
     taskPoller,
     sideChat,
@@ -985,9 +986,9 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
     const mapped = mapInitialSessionGroups(groups, true);
     const mappedIds = new Set(mapped.loaded.map((session) => session.id));
     const sessions = [
-      ...mapped.loaded,
-      ...rawState.sessions.filter((session) => !mappedIds.has(session.id)),
-    ].sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+      ...mapped.loaded.filter((session) => !deletedSessionIds.has(session.id)),
+      ...rawState.sessions.filter((session) => !mappedIds.has(session.id) && !deletedSessionIds.has(session.id)),
+    ].toSorted((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
     setSessionsPreservingLiveUsage(sessions);
     if (rawState.sessionsFullyLoaded) {
       const hasMore: Record<string, boolean> = {};
@@ -1048,7 +1049,7 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
       // Append de-duped against the latest list so a concurrently added/removed
       // session is respected.
       const existing = new Set(rawState.sessions.map((s) => s.id));
-      const fresh = page.items.filter((s) => !existing.has(s.id));
+      const fresh = page.items.filter((s) => !existing.has(s.id) && !deletedSessionIds.has(s.id));
       if (fresh.length > 0) setSessions([...rawState.sessions, ...fresh]);
       // Advance the cursor to the end of the page we just fetched.
       rawState.sessionsCursorByWorkspace = {
@@ -1083,13 +1084,17 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
       return null;
     });
     if (result === null) return;
-    const sessions =
+    const allSessions =
       result.error === undefined
         ? result.sessions
         : mergePartialSessionsWithCached(result.sessions);
+    const sessions = deletedSessionIds.size > 0
+      ? allSessions.filter((s) => !deletedSessionIds.has(s.id))
+      : allSessions;
     setSessionsPreservingLiveUsage(sessions);
     rawState.sessionsFullyLoaded = result.error === undefined;
     if (result.error !== undefined) return;
+    deletedSessionIds.clear();
     const cleared: Record<string, boolean> = {};
     for (const w of rawState.workspaces) cleared[w.id] = false;
     rawState.sessionsHasMoreByWorkspace = cleared;
@@ -1154,10 +1159,16 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
         sessionGroupLoad === undefined
           ? undefined
           : await finishInitialSessionGroupLoad(sessionGroupLoad);
-      const loadedSessions =
+      const rawLoadedSessions =
         sessionGroupLoad === undefined
           ? await loadInitialSessionsByWorkspace()
           : groupedSessions?.sessions;
+      const loadedSessions =
+        rawLoadedSessions === undefined
+          ? undefined
+          : deletedSessionIds.size > 0
+            ? rawLoadedSessions.filter((session) => !deletedSessionIds.has(session.id))
+            : rawLoadedSessions;
       const sessions = loadedSessions ?? rawState.sessions;
       if (loadedSessions !== undefined) setSessionsPreservingLiveUsage(loadedSessions);
       groupedSessions?.finishInBackground?.();
@@ -2772,7 +2783,7 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
       const api = getPythinkerWebApi();
       await api.archiveSession(id);
       forgetSession(id);
-      sideChat.clearSideChatForSession(id);
+      sideChat.clearSideChatForSession?.(id);
       const { [id]: _removedIds, ...restIds } = rawState.sideChatUserMessageIdsBySession;
       void _removedIds;
       rawState.sideChatUserMessageIdsBySession = restIds;
@@ -2790,6 +2801,45 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
       }
     } catch (error) {
       pushOperationFailure('archiveSession', error, { sessionId: id });
+    }
+  }
+
+  /** Record a deletion observed elsewhere (another client) so in-flight
+   *  session-list merges cannot resurrect the deleted session. */
+  function rememberDeletedSession(id: string): void {
+    deletedSessionIds.add(id);
+  }
+
+  async function cleanupDeletedSession(
+    id: string,
+    wasActive = rawState.activeSessionId === id,
+  ): Promise<void> {
+    rememberDeletedSession(id);
+    forgetSession(id);
+    sideChat.clearSideChatForSession?.(id);
+    const { [id]: _removedIds, ...restIds } = rawState.sideChatUserMessageIdsBySession;
+    void _removedIds;
+    rawState.sideChatUserMessageIdsBySession = restIds;
+
+    if (wasActive || rawState.activeSessionId === id) {
+      const next = rawState.sessions[0];
+      if (next) {
+        await selectSession(next.id, { urlMode: 'replace' });
+      } else {
+        setActiveSessionId(undefined);
+        writeSessionUrl(undefined, 'replace');
+      }
+    }
+  }
+
+  async function deleteSession(id: string): Promise<void> {
+    try {
+      const api = getPythinkerWebApi();
+      await api.deleteSession(id);
+      await cleanupDeletedSession(id);
+    } catch (error) {
+      pushOperationFailure('deleteSession', error, { sessionId: id });
+      throw error;
     }
   }
 
@@ -3224,6 +3274,9 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
     renameWorkspace,
     deleteWorkspace,
     archiveSession,
+    deleteSession,
+    cleanupDeletedSession,
+    rememberDeletedSession,
     exportSession,
     restoreSession,
     loadArchivedSessions,
