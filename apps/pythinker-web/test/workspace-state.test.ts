@@ -1803,6 +1803,27 @@ describe('useWorkspaceState — session list loading', () => {
     expect(state.sessions.map((session) => session.id)).toEqual(['sess_1', 'sess_older']);
     expect(deps.pushOperationFailure).toHaveBeenCalledOnce();
   });
+
+  it('filters a tombstoned session from a load-more page recorded before the deletion', async () => {
+    const loaded = { ...createSession(), workspaceId: 'wd_1' };
+    const stale = {
+      ...createSession(),
+      id: 'sess_deleted',
+      workspaceId: 'wd_1',
+      updatedAt: '2025-12-31T00:00:00.000Z',
+    };
+    const { state, workspaceState } = createSessionLoadRig([loaded]);
+    state.workspaces = [workspace('wd_1', '/workspace', 'Workspace')];
+    state.sessionsHasMoreByWorkspace = { wd_1: true };
+    state.sessionsCursorByWorkspace = { wd_1: 'sess_1' };
+    state.sessionsLoadingMoreByWorkspace = { wd_1: false };
+    apiMock.listSessions.mockResolvedValue({ items: [stale], hasMore: false });
+
+    workspaceState.rememberDeletedSession('sess_deleted');
+    await workspaceState.loadMoreSessions('wd_1');
+
+    expect(state.sessions.map((session) => session.id)).toEqual(['sess_1']);
+  });
 });
 
 // /meta re-read on every WS (re)connect — keeps version / backend truthful

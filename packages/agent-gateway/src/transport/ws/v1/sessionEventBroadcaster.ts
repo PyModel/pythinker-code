@@ -819,6 +819,7 @@ export class SessionEventBroadcaster {
     state.queue = state.queue
       .then(() => this.dispatch(state, event, isVolatileEventType(event.type)))
       .catch((error: unknown) => this.logDispatchDropped(state.sessionId, event.type, error));
+    await state.queue;
   }
 
   private async dispatchSessionEvent(sessionId: string, event: Event): Promise<void> {

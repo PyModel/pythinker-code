@@ -2798,11 +2798,17 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
     }
   }
 
+  /** Record a deletion observed elsewhere (another client) so in-flight
+   *  session-list merges cannot resurrect the deleted session. */
+  function rememberDeletedSession(id: string): void {
+    deletedSessionIds.add(id);
+  }
+
   async function deleteSession(id: string): Promise<void> {
     try {
       const api = getPythinkerWebApi();
       await api.deleteSession(id);
-      deletedSessionIds.add(id);
+      rememberDeletedSession(id);
       forgetSession(id);
       sideChat.clearSideChatForSession(id);
       const { [id]: _removedIds, ...restIds } = rawState.sideChatUserMessageIdsBySession;
@@ -3256,6 +3262,7 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
     deleteWorkspace,
     archiveSession,
     deleteSession,
+    rememberDeletedSession,
     exportSession,
     restoreSession,
     loadArchivedSessions,

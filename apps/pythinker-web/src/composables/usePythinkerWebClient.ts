@@ -936,6 +936,7 @@ function applyEvent(event: ReturnType<typeof toAppEvent>, sessionId: string, seq
   setActiveSessionId(next.activeSessionId);
   if (event.type === 'sessionDeleted') {
     lastDeletedSessionId.value = event.sessionId;
+    workspaceState.rememberDeletedSession(event.sessionId);
   }
   setMessagesBySession(next.messagesBySession);
   if (!sameRecordEntries(rawState.approvalsBySession, next.approvalsBySession)) {
