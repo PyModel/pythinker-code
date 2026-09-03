@@ -1,5 +1,11 @@
 # @pymodel/pythinker-code
 
+## 1.10.0
+
+### Minor Changes
+
+- [#278](https://github.com/PyModel/pythinker-code/pull/278) [`77c1128`](https://github.com/PyModel/pythinker-code/commit/77c1128564b1a4c117eff8331402d37a4245553e) Thanks [@elkaix](https://github.com/elkaix)! - Add an option to permanently delete a session from the sidebar menu.
+
 ## 1.9.0
 
 ### Minor Changes
