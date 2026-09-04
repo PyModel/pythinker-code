@@ -1152,6 +1152,9 @@ export class SessionExpertTalkService extends Disposable implements ISessionExpe
         }
         const text = completion.summary.trim();
         if (text.length === 0) throw new Error('Discussion stage returned an empty answer');
+        if (/<[｜|]?\s*(?:DSML[｜|]?)?(?:tool_calls|invoke)\b/i.test(text)) {
+          throw new Error('Discussion stage output contains unparsed tool call markup');
+        }
         return text;
       };
       let text = await request(prompt, content);
@@ -1895,10 +1898,10 @@ function hasReviewSections(text: string): boolean {
 }
 
 function hasMarkdownSections(text: string, sections: readonly string[]): boolean {
-  const headings = text
+  const headings = new Set(text
     .split('\n')
-    .map((line) => line.trim().replace(/^#{1,6}\s+/, '').toLowerCase());
-  return sections.every((section) => headings.includes(section));
+    .map((line) => line.trim().replace(/^#{1,6}\s+/, '').toLowerCase()));
+  return sections.every((section) => headings.has(section));
 }
 
 function usageDelta(

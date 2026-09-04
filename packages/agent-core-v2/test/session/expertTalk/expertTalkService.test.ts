@@ -451,6 +451,56 @@ describe('SessionExpertTalkService', () => {
     });
   });
 
+  it('fails the stage when unparsed DSML markup leaks into text', async () => {
+    ctx = createDiscussionAgent(async (chat) => {
+      if (chat.modelName === 'peer-model') {
+        return {
+          id: 'peer-leaked-dsml',
+          message: {
+            role: 'assistant' as const,
+            content: [{
+              type: 'text' as const,
+              text: '<｜DSML｜tool_calls>\n<｜DSML｜invoke name="Read">\n<｜DSML｜parameter name="filePath" string="true">foo.ts</｜DSML｜parameter>\n</｜DSML｜invoke>\n</｜DSML｜tool_calls>',
+            }],
+            toolCalls: [],
+          },
+          usage: emptyUsage(),
+          finishReason: 'completed' as const,
+          rawFinishReason: 'stop',
+        };
+      }
+      return {
+        id: 'lead-answer',
+        message: {
+          role: 'assistant' as const,
+          content: [{
+            type: 'text' as const,
+            text: '## Position\nUse the verified result.\n\n## Case\nEvidence supports it.\n\n## Decision criteria\nPrefer verified behavior.\n\n## Risks and uncertainty\nNone material.\n\n## Recommended answer\nUse the verified result.',
+          }],
+          toolCalls: [],
+        },
+        usage: emptyUsage(),
+        finishReason: 'completed' as const,
+        rawFinishReason: 'stop',
+      };
+    });
+    const { service, started } = await startDiscussion(ctx, 'Reject leaked DSML markup.');
+
+    await vi.waitFor(() => {
+      expect(TERMINAL_STATUSES.has(service.getRun(started.runId).status)).toBe(true);
+    }, { timeout: 5_000 });
+
+    expect(service.getRun(started.runId)).toMatchObject({
+      status: 'FAILED_OPENING',
+      artifacts: {
+        leadOpening: { status: 'completed' },
+        peerOpening: {
+          status: 'failed',
+        },
+      },
+    });
+  });
+
   it('keeps a contract-complete opening when the final response reaches its request budget', async () => {
     let callId = 0;
     ctx = createDiscussionAgent(async (_chat, _systemPrompt, tools, history) => {
