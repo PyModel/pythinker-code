@@ -1,5 +1,13 @@
 # @pymodel/pythinker-code
 
+## 1.11.2
+
+### Patch Changes
+
+- [#286](https://github.com/PyModel/pythinker-code/pull/286) [`08b2be6`](https://github.com/PyModel/pythinker-code/commit/08b2be61427245bfb8c078fd73a1da68c14f13d2) Thanks [@elkaix](https://github.com/elkaix)! - Fix deleting a provider in the web and desktop settings: the provider and its models now disappear from the model picker, a failed delete shows an error, and a background catalog refresh no longer brings a deleted provider back.
+
+- [#285](https://github.com/PyModel/pythinker-code/pull/285) [`3b6d4d0`](https://github.com/PyModel/pythinker-code/commit/3b6d4d0dc424b550381c2926ee6c5b30bb1b1797) Thanks [@elkaix](https://github.com/elkaix)! - Restore `pythinker update` and `pythinker upgrade`: version checks read code.pythinker.com again and native installs download the release archive from GitHub.
+
 ## 1.11.1
 
 ### Patch Changes
