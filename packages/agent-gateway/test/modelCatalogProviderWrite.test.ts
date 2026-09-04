@@ -432,6 +432,19 @@ describe('server-v2 /api/v1 provider write endpoints', () => {
     expect(models.body.data.items.map((m) => m.model)).toEqual(['k2']);
   });
 
+  it('deletes model rows that point at the provider through provider_id', async () => {
+    await boot(
+      `${KEEP_DEFAULT_TOML}\n[models.legacy]\nprovider_id = "openai"\nmodel = "gpt-4o-mini"\nmax_context_size = 128000\n`,
+    );
+    const { status } = await deleteJson<unknown>('/api/v1/providers/openai');
+    expect(status).toBe(204);
+
+    const onDisk = await readConfigToml();
+    expect(Object.keys(onDisk['models'] as Record<string, unknown>)).toEqual(['k2']);
+    const models = await getJson<{ items: Array<{ model: string }> }>('/api/v1/models');
+    expect(models.body.data.items.map((m) => m.model)).toEqual(['k2']);
+  });
+
   it('never touches default_provider/default_model when deleting their owner (204, pointers dangling)', async () => {
     await boot(DEFAULTED_TOML);
     const { status, text } = await deleteJson<unknown>('/api/v1/providers/openai');

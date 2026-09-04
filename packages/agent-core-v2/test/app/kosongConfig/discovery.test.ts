@@ -293,6 +293,65 @@ describe('refreshProviderModels write behavior', () => {
     }
   });
 
+  it('does not resurrect a provider deleted while the refresh was in flight', async () => {
+    const registry = (id: string) =>
+      new Response(
+        JSON.stringify({
+          [id]: {
+            id,
+            name: id.toUpperCase(),
+            api: `https://${id}.example.test/v1`,
+            type: 'openai',
+            models: { m1: { id: 'm1', name: 'M1' } },
+          },
+        }),
+        { headers: { 'Content-Type': 'application/json' } },
+      );
+    const source = (id: string) => ({
+      kind: 'apiJson' as const,
+      url: `https://registry.example.test/${id}.json`,
+      apiKey: 'registry-key',
+    });
+    const { host, config, discovery, providers, models } = await createHost({
+      providers: {
+        acme: { type: 'openai', source: source('acme') },
+        glm: { type: 'openai', source: source('glm') },
+      },
+      models: {
+        'glm/old': { provider: 'glm', model: 'old', maxContextSize: 1000 },
+      },
+    });
+    try {
+      let deleted = false;
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockImplementation(async (input: string | URL) => {
+          if (!deleted) {
+            deleted = true;
+            await config.replaceSections({
+              providers: {
+                acme: { type: 'openai', source: source('acme') },
+                fresh: { type: 'openai', apiKey: 'sk-fresh', modelSource: 'static' },
+              },
+              models: { 'fresh/f1': { provider: 'fresh', model: 'f1', maxContextSize: 10 } },
+            });
+          }
+          const id = String(input).includes('glm') ? 'glm' : 'acme';
+          return registry(id);
+        }),
+      );
+
+      await discovery.refreshProviderModels();
+
+      expect(Object.keys(providers.list()).toSorted()).toEqual(['acme', 'fresh']);
+      const modelIds = Object.keys(models.list()).toSorted();
+      expect(modelIds).toEqual(['acme/m1', 'fresh/f1']);
+      expect(config.get('providers')).not.toHaveProperty('glm');
+    } finally {
+      host.dispose();
+    }
+  });
+
   it('sends the host User-Agent on custom-registry fetches', async () => {
     const fetchMock = vi.fn(
       async () =>

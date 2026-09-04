@@ -1248,7 +1248,7 @@ export interface PythinkerWebApi {
   addProvider(input: ProviderCreateInput): Promise<AppProvider>;
   updateProvider(id: string, input: ProviderUpdateInput): Promise<{ provider: AppProvider }>;
   importCustomRegistry(input: { url: string; apiKey?: string }): Promise<CustomRegistryImportResult>;
-  deleteProvider(id: string): Promise<{ deleted: true }>;
+  deleteProvider(id: string): Promise<void>;
   refreshProvider(id: string): Promise<ProviderRefreshResult>;
   refreshAllProviders(): Promise<ProviderRefreshResult>;
   startCodexLogin(): Promise<CodexLoginStart>;

@@ -12,7 +12,7 @@ import { Error2 } from '#/_base/errors/errors';
 import { IAgentIdentity } from '#/app/agentIdentity/agentIdentity';
 import { IConfigService } from '#/app/config/config';
 import { IModelCatalog } from '#/kosong/model/catalog';
-import { IModelService, type ModelsSection } from '#/kosong/model/model';
+import { IModelService, modelRecordProviderId, type ModelsSection } from '#/kosong/model/model';
 import { type ProviderConfig, type ProvidersSection } from '#/kosong/provider/provider';
 import { modelsDevProviderModels, resolveModelsDevImport } from './modelsDev';
 
@@ -156,7 +156,7 @@ export class ModelsDevImportService implements IModelsDevImportService {
     await config.replace(PROVIDERS_SECTION, nextProviders);
 
     const withoutTarget = Object.fromEntries(
-      Object.entries(records).filter(([, record]) => record.provider !== targetId),
+      Object.entries(records).filter(([, record]) => modelRecordProviderId(record) !== targetId),
     );
     await config.replace(MODELS_SECTION, withoutTarget);
     const nextModels = { ...withoutTarget };

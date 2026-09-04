@@ -397,10 +397,12 @@ describe('provider daemon contracts', () => {
   });
 
   it('deletes a provider through the provider resource route', async () => {
-    const fetchMock = vi.fn().mockResolvedValueOnce(okEnvelope({ deleted: true }));
+    // The daemon answers 204 with an empty body; the client must not try to
+    // parse JSON out of it.
+    const fetchMock = vi.fn().mockResolvedValueOnce(new Response(null, { status: 204 }));
     vi.stubGlobal('fetch', fetchMock);
 
-    await expect(api().deleteProvider('openai/custom')).resolves.toEqual({ deleted: true });
+    await expect(api().deleteProvider('openai/custom')).resolves.toBeUndefined();
 
     expect(fetchMock.mock.calls[0]![0]).toBe(
       'http://example.test:58627/api/v1/providers/openai%2Fcustom',

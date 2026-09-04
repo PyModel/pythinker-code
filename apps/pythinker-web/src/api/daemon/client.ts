@@ -1786,9 +1786,9 @@ export class DaemonPythinkerWebApi implements PythinkerWebApi {
     };
   }
 
-  async deleteProvider(id: string): Promise<{ deleted: true }> {
-    // PRESUMED endpoint: DELETE /v1/providers/{id} → { deleted: true }
-    return this.http.delete<{ deleted: true }>(`/providers/${encodeURIComponent(id)}`);
+  async deleteProvider(id: string): Promise<void> {
+    // DELETE /v1/providers/{id} answers 204 with no body.
+    await this.http.delete<undefined>(`/providers/${encodeURIComponent(id)}`);
   }
 
   async refreshProvider(id: string): Promise<ProviderRefreshResult> {
