@@ -1,5 +1,11 @@
 # @pymodel/pythinker-code
 
+## 1.11.1
+
+### Patch Changes
+
+- [#282](https://github.com/PyModel/pythinker-code/pull/282) [`6b15308`](https://github.com/PyModel/pythinker-code/commit/6b1530866e965455b7a565fedca39e793b1e5792) Thanks [@elkaix](https://github.com/elkaix)! - Show the sidebar update icon fully instead of a clipped half circle, and slightly shrink the sidebar logo.
+
 ## 1.11.0
 
 ### Minor Changes
