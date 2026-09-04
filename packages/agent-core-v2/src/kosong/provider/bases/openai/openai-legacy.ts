@@ -47,6 +47,7 @@ import {
   toolToOpenAI,
 } from './openai-common';
 import { ReasoningKeyDialect } from './reasoning-key';
+import { DsmlStreamParser, extractDsmlToolCalls } from './dsml-tool-parser';
 import {
   mergeRequestHeaders,
   requireProviderApiKey,
@@ -338,6 +339,7 @@ export class OpenAILegacyStreamedMessage implements StreamedMessage {
   private _usage: TokenUsage | null = null;
   private _finishReason: FinishReason | null = null;
   private _rawFinishReason: string | null = null;
+  private _hasExtractedToolCalls = false;
   private readonly _iter: AsyncGenerator<StreamedMessagePart>;
 
   constructor(
@@ -374,6 +376,12 @@ export class OpenAILegacyStreamedMessage implements StreamedMessage {
   }
 
   get finishReason(): FinishReason | null {
+    if (
+      this._hasExtractedToolCalls &&
+      (this._finishReason === 'completed' || this._finishReason === null)
+    ) {
+      return 'tool_calls';
+    }
     return this._finishReason;
   }
 
@@ -419,8 +427,19 @@ export class OpenAILegacyStreamedMessage implements StreamedMessage {
       yield { type: 'think', think: reasoning } satisfies StreamedMessagePart;
     }
 
-    if (message.content) {
-      yield { type: 'text', text: message.content } satisfies StreamedMessagePart;
+    let text = message.content ?? null;
+    let extractedToolCalls: ToolCall[] = [];
+    if (text) {
+      const parsed = extractDsmlToolCalls(text);
+      if (parsed.toolCalls.length > 0) {
+        text = parsed.cleanText;
+        extractedToolCalls = parsed.toolCalls;
+        this._hasExtractedToolCalls = true;
+      }
+    }
+
+    if (text && text.length > 0) {
+      yield { type: 'text', text } satisfies StreamedMessagePart;
     }
 
     if (message.tool_calls) {
@@ -434,6 +453,10 @@ export class OpenAILegacyStreamedMessage implements StreamedMessage {
         } satisfies ToolCall;
       }
     }
+
+    for (const toolCall of extractedToolCalls) {
+      yield toolCall satisfies ToolCall;
+    }
   }
 
   private async *_convertStreamResponse(
@@ -441,6 +464,7 @@ export class OpenAILegacyStreamedMessage implements StreamedMessage {
     reasoningKeyDialect: ReasoningKeyDialect,
   ): AsyncGenerator<StreamedMessagePart> {
     const bufferedToolCalls = new Map<number | string, BufferedChatCompletionToolCall>();
+    const dsmlParser = new DsmlStreamParser();
 
     try {
       for await (const chunk of response) {
@@ -469,7 +493,9 @@ export class OpenAILegacyStreamedMessage implements StreamedMessage {
         }
 
         if (delta.content) {
-          yield { type: 'text', text: delta.content } satisfies StreamedMessagePart;
+          for (const part of dsmlParser.feed(delta.content)) {
+            yield part;
+          }
         }
 
         for (const toolCall of delta.tool_calls ?? []) {
@@ -477,6 +503,13 @@ export class OpenAILegacyStreamedMessage implements StreamedMessage {
             yield part;
           }
         }
+      }
+
+      for (const part of dsmlParser.flush()) {
+        yield part;
+      }
+      if (dsmlParser.hasExtractedToolCalls) {
+        this._hasExtractedToolCalls = true;
       }
     } catch (error: unknown) {
       throw convertOpenAIError(error, this._convertErrorHook);

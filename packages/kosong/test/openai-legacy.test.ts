@@ -2234,4 +2234,135 @@ describe('OpenAILegacyChatProvider — non-indexed streaming tool_calls', () => 
 
     expect(parts).toEqual([]);
   });
+
+  it('parses streamed DSML tool calls from delta.content and sets finishReason to tool_calls', async () => {
+    const provider = new OpenAILegacyChatProvider({
+      model: 'deepseek-chat',
+      apiKey: 'test-key',
+      stream: true,
+    });
+
+    const chunks = [
+      {
+        id: 'chatcmpl-dsml-1',
+        choices: [
+          {
+            index: 0,
+            delta: { content: 'Inspecting repository files.\n\n<｜DSML｜tool_calls>\n<｜DSML｜invoke name="Read">' },
+          },
+        ],
+      },
+      {
+        id: 'chatcmpl-dsml-1',
+        choices: [
+          {
+            index: 0,
+            delta: {
+              content:
+                '<｜DSML｜parameter name="filePath" string="true">src/main.ts</｜DSML｜parameter>\n</｜DSML｜invoke>\n</｜DSML｜tool_calls>',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+      },
+    ];
+
+    (
+      provider as unknown as { _client: { chat: { completions: { create: unknown } } } }
+    )._client.chat.completions.create = vi.fn().mockResolvedValue(mockStream(chunks));
+
+    const stream = await provider.generate('', [], []);
+    const parts: Array<Record<string, unknown>> = [];
+    for await (const p of stream) parts.push(p as unknown as Record<string, unknown>);
+
+    expect(stream.finishReason).toBe('tool_calls');
+    expect(parts).toHaveLength(2);
+    expect(parts[0]).toEqual({
+      type: 'text',
+      text: 'Inspecting repository files.\n\n',
+    });
+    expect(parts[1]).toMatchObject({
+      type: 'function',
+      name: 'Read',
+      arguments: '{"filePath":"src/main.ts"}',
+    });
+  });
+
+  it('parses non-streamed DSML tool calls from message.content and sets finishReason to tool_calls', async () => {
+    const provider = new OpenAILegacyChatProvider({
+      model: 'deepseek-chat',
+      apiKey: 'test-key',
+      stream: false,
+    });
+
+    const response = {
+      id: 'chatcmpl-dsml-nonstream',
+      choices: [
+        {
+          index: 0,
+          message: {
+            role: 'assistant',
+            content:
+              '<｜DSML｜tool_calls>\n<｜DSML｜invoke name="Glob">\n<｜DSML｜parameter name="pattern" string="true">*.ts</｜DSML｜parameter>\n</｜DSML｜invoke>\n</｜DSML｜tool_calls>',
+          },
+          finish_reason: 'stop',
+        },
+      ],
+    };
+
+    (
+      provider as unknown as { _client: { chat: { completions: { create: unknown } } } }
+    )._client.chat.completions.create = vi.fn().mockResolvedValue(response);
+
+    const stream = await provider.generate('', [], []);
+    const parts: Array<Record<string, unknown>> = [];
+    for await (const p of stream) parts.push(p as unknown as Record<string, unknown>);
+
+    expect(stream.finishReason).toBe('tool_calls');
+    expect(parts).toHaveLength(1);
+    expect(parts[0]).toMatchObject({
+      type: 'function',
+      name: 'Glob',
+      arguments: '{"pattern":"*.ts"}',
+    });
+  });
+
+  it('preserves surrounding whitespace and markdown hard breaks in non-stream response', async () => {
+    const provider = new OpenAILegacyChatProvider({
+      model: 'deepseek-chat',
+      apiKey: 'test-key',
+      stream: false,
+    });
+
+    const textWithWhitespace = '  Line 1  \nLine 2  ';
+    const response = {
+      choices: [
+        {
+          index: 0,
+          message: {
+            role: 'assistant',
+            content: textWithWhitespace,
+          },
+          finish_reason: 'stop',
+        },
+      ],
+      usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
+    };
+
+    (
+      provider as unknown as {
+        _client: { chat: { completions: { create: unknown } } };
+      }
+    )._client.chat.completions.create = vi.fn().mockResolvedValue(response);
+
+    const stream = await provider.generate('', [], []);
+    const parts: Array<Record<string, unknown>> = [];
+    for await (const p of stream) parts.push(p as unknown as Record<string, unknown>);
+
+    expect(parts).toHaveLength(1);
+    expect(parts[0]).toEqual({
+      type: 'text',
+      text: textWithWhitespace,
+    });
+  });
 });
