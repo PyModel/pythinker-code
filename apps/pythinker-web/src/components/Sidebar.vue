@@ -1540,7 +1540,7 @@ watch([() => props.collapsed, update.hasUpdate], ([collapsed, hasUpdate]) => {
   -webkit-app-region: no-drag;
 }
 .ch-logo {
-  width: min(220px, 100%);
+  width: min(200px, 100%);
   height: auto;
   object-fit: contain;
   object-position: left center;
@@ -1576,6 +1576,9 @@ watch([() => props.collapsed, update.hasUpdate], ([collapsed, hasUpdate]) => {
   position: relative;
   display: inline-grid;
   grid-template-areas: 'slot';
+  /* Pin the single track to the pill width: the hidden nowrap label would
+     otherwise widen the track and push the icon off-centre under overflow. */
+  grid-template-columns: minmax(0, 1fr);
   place-items: center;
   width: var(--sidebar-update-size);
   height: var(--sidebar-update-size);
@@ -1591,6 +1594,7 @@ watch([() => props.collapsed, update.hasUpdate], ([collapsed, hasUpdate]) => {
 .sidebar-update-trigger__icon,
 .sidebar-update-trigger__text {
   grid-area: slot;
+  min-width: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
