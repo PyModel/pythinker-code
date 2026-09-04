@@ -354,5 +354,38 @@ describe('agent-core-v2: DsmlStreamParser and extractDsmlToolCalls', () => {
       expect(result.cleanText).toBe(input);
       expect(result.toolCalls).toHaveLength(0);
     });
+
+    it('handles stream split after whitespace in tag prefix', () => {
+      const parser = new DsmlStreamParser();
+      const chunks = [
+        '< ',
+        '| DSML ',
+        '| invoke name="Read">\n< | DSML | parameter name="filePath">src/app.ts</ | DSML | parameter>\n</ | DSML | invoke>',
+      ];
+
+      const parts = [];
+      for (const chunk of chunks) {
+        parts.push(...parser.feed(chunk));
+      }
+      parts.push(...parser.flush());
+
+      expect(parser.hasExtractedToolCalls).toBe(true);
+      const toolParts = parts.filter((p) => p.type === 'function');
+      expect(toolParts).toHaveLength(1);
+      expect(toolParts[0]?.name).toBe('Read');
+    });
+
+    it('preserves unclosed Hermes block at flush as text', () => {
+      const parser = new DsmlStreamParser();
+      const parts = [
+        ...parser.feed('<tool_call>{"name": "Read"}'),
+        ...parser.flush(),
+      ];
+
+      expect(parser.hasExtractedToolCalls).toBe(false);
+      expect(parts).toEqual([
+        { type: 'text', text: '<tool_call>{"name": "Read"}' },
+      ]);
+    });
   });
 });

@@ -1,17 +1,5 @@
 import type { StreamedMessagePart, ToolCall } from '#/kosong/contract/message';
 
-const CANDIDATE_TARGETS = [
-  'dsml｜tool_calls',
-  'dsml|tool_calls',
-  'dsmltool_calls',
-  'dsml｜invoke',
-  'dsml|invoke',
-  'dsmlinvoke',
-  'tool_calls',
-  'tool_call',
-  'invoke',
-];
-
 const CONTAINER_OPEN_RE = /^<\s*[｜|]?\s*(?:DSML\s*[｜|]?)?\s*tool_calls\s*>/i;
 const CONTAINER_CLOSE_RE = /^<\/\s*[｜|]?\s*(?:DSML\s*[｜|]?)?\s*tool_calls\s*>/i;
 const INVOKE_OPEN_RE = /^<\s*[｜|]?\s*(?:DSML\s*[｜|]?)?\s*invoke(?:\s+[^>]*)?>/i;
@@ -110,9 +98,8 @@ function parseInvokeTag(invokeBlock: string): ToolCall | null {
   if (!toolName) return null;
 
   const closeMatch = INVOKE_CLOSE_RE.exec(invokeBlock);
-  const innerContent = closeMatch
-    ? invokeBlock.slice(openMatch[0].length, closeMatch.index)
-    : invokeBlock.slice(openMatch[0].length);
+  if (!closeMatch) return null;
+  const innerContent = invokeBlock.slice(openMatch[0].length, closeMatch.index);
 
   const args = parseInvokeBody(innerContent);
   return {
@@ -124,6 +111,7 @@ function parseInvokeTag(invokeBlock: string): ToolCall | null {
 }
 
 function parseHermesToolCall(toolCallBlock: string): ToolCall | null {
+  if (!HERMES_CLOSE_RE.test(toolCallBlock)) return null;
   const inner = toolCallBlock
     .replace(/^<tool_call>/i, '')
     .replace(/<\/tool_call>$/i, '')
@@ -150,11 +138,19 @@ function isPotentialTagPrefix(s: string): boolean {
   if (!s.startsWith('<')) return false;
   const lower = s.toLowerCase();
   let rest = lower.startsWith('</') ? lower.slice(2) : lower.slice(1);
+  rest = rest.trimStart();
   if (rest.startsWith('｜') || rest.startsWith('|')) {
-    rest = rest.slice(1);
+    rest = rest.slice(1).trimStart();
+  }
+  if (rest.startsWith('dsml')) {
+    rest = rest.slice(4).trimStart();
+    if (rest.startsWith('｜') || rest.startsWith('|')) {
+      rest = rest.slice(1).trimStart();
+    }
   }
   if (rest.length === 0) return true;
-  return CANDIDATE_TARGETS.some((target) => target.startsWith(rest) || rest.startsWith(target));
+  const targets = ['tool_calls', 'tool_call', 'invoke', 'parameter'];
+  return targets.some((t) => t.startsWith(rest) || rest.startsWith(t));
 }
 
 export class DsmlStreamParser {
@@ -276,7 +272,7 @@ export class DsmlStreamParser {
     const parts: StreamedMessagePart[] = [];
     if (this._buffer.length > 0) {
       const invokeOpen = INVOKE_OPEN_RE.exec(this._buffer);
-      if (invokeOpen) {
+      if (invokeOpen && INVOKE_CLOSE_RE.test(this._buffer)) {
         const toolCall = parseInvokeTag(this._buffer);
         if (toolCall) {
           this._hasExtractedToolCalls = true;
@@ -286,7 +282,7 @@ export class DsmlStreamParser {
         }
       }
       const hermesOpen = HERMES_OPEN_RE.exec(this._buffer);
-      if (hermesOpen) {
+      if (hermesOpen && HERMES_CLOSE_RE.test(this._buffer)) {
         const toolCall = parseHermesToolCall(this._buffer);
         if (toolCall) {
           this._hasExtractedToolCalls = true;
