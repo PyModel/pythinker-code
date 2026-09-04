@@ -3,9 +3,11 @@
  * without touching the running executable. The actual swap happens on the
  * next startup (see `native-swap.ts`).
  *
- * The CDN serves the bare platform binary (e.g. `pythinker-code-win32-x64.exe`),
- * whose sha256 comes from the per-release manifest over HTTPS — a staged
- * binary is byte-exact what the release pipeline produced.
+ * The GitHub release serves a per-platform zip archive holding the single
+ * platform binary; the archive's sha256 comes from the per-release manifest
+ * over HTTPS. The archive is verified before it is opened and the binary is
+ * extracted next to it, so a staged binary is byte-exact what the release
+ * pipeline produced.
  */
 
 import { createHash } from 'node:crypto';
@@ -20,12 +22,12 @@ import { PYTHINKER_CODE_NATIVE_STAGED_STATE_FILE_NAME } from '#/constant/app';
 import { getNativeStagedStateFile, getNativeStagingDir } from '#/utils/paths';
 import { writeJsonFile } from '#/utils/persistence';
 
-import { UPDATE_DISABLED_MESSAGE } from './cdn';
 import {
   fetchNativeReleaseManifest,
   nativeBinaryUrl,
   selectPlatformEntry,
 } from './native-manifest';
+import { extractZipEntry, readSingleZipEntry } from './zip-archive';
 
 const StagedNativeUpdateSchema = z
   .object({
@@ -186,8 +188,9 @@ export async function hashFileSha256(filePath: string): Promise<string | null> {
 
 /**
  * Whether a `.staging/` entry is an updater-owned artifact: a staged
- * executable (`pythinker-<version>[.<pid>.<epoch-ms>.<n>][.exe]`) or a download
- * intermediate (the same plus `.part`). Ownership derives from the
+ * executable (`pythinker-<version>[.<pid>.<epoch-ms>.<n>][.exe]`), an
+ * extraction intermediate (the same plus `.part`), or a download
+ * intermediate (the same plus `.zip.part`). Ownership derives from the
  * semver/file-name contract (prerelease and build metadata included), so
  * foreign files in the directory are never matched.
  */
@@ -195,6 +198,7 @@ function isUpdaterOwnedStagingFile(entry: string): boolean {
   if (!entry.startsWith('pythinker-')) return false;
   let name = entry.slice('pythinker-'.length);
   if (name.endsWith('.part')) name = name.slice(0, -'.part'.length);
+  if (name.endsWith('.zip')) name = name.slice(0, -'.zip'.length);
   if (name.endsWith('.exe')) name = name.slice(0, -'.exe'.length);
   // Published artifacts may carry a unique per-worker infix after the
   // version (.<pid>.<epoch-ms>.<n>, or the older .<pid>.<n>) — try with and
@@ -377,10 +381,6 @@ async function downloadAndHash(
 export async function stageNativeUpdate(
   options: StageNativeUpdateOptions,
 ): Promise<StageNativeUpdateResult> {
-  if (UPDATE_DISABLED_MESSAGE.length > 0) {
-    throw new Error(UPDATE_DISABLED_MESSAGE);
-  }
-
   const platform = options.platform ?? process.platform;
   const arch = options.arch ?? process.arch;
   // Validate BEFORE anything derives a filesystem path from the version: the
@@ -444,31 +444,42 @@ export async function stageNativeUpdate(
     manual: options.manual === true ? true : undefined,
   };
 
-  // The .part intermediate is just the publish name plus the suffix — the
-  // name already carries this worker's unique infix, so concurrent workers
-  // never interleave writes into a shared path.
+  // The intermediates are just the publish name plus a suffix — the name
+  // already carries this worker's unique infix, so concurrent workers never
+  // interleave writes into a shared path. The archive lands in `.zip.part`,
+  // the extracted binary in `.part`.
+  const archivePath = join(stagingDir, `${exeFileName}.zip.part`);
   const partPath = join(stagingDir, `${exeFileName}.part`);
   try {
     const manifest = await fetchNativeReleaseManifest(options.version, fetchImpl);
     const entry = selectPlatformEntry(manifest, platform, arch);
-    const size = await downloadAndHash(
+    await downloadAndHash(
       nativeBinaryUrl(options.version, entry.filename),
-      partPath,
+      archivePath,
       entry.checksum,
       fetchImpl,
       options.onProgress,
       options.idleTimeoutMs,
     );
-    // sha256 matched the manifest. Make the private .part file executable
-    // BEFORE publishing it: a concurrent swap may move the staged exe into
-    // the install path the instant it appears at its published name, so a
-    // post-publish chmod could land on a path that is already gone — leaving
-    // a non-executable installation behind.
+    // The archive's sha256 matched the manifest, so its single entry is the
+    // binary the release pipeline packaged. The extracted bytes get their
+    // own digest: that is what the startup swap re-verifies on disk.
+    const extracted = await extractZipEntry(
+      archivePath,
+      await readSingleZipEntry(archivePath),
+      partPath,
+    );
+    await rm(archivePath, { force: true });
+    // Make the private .part file executable BEFORE publishing it: a
+    // concurrent swap may move the staged exe into the install path the
+    // instant it appears at its published name, so a post-publish chmod
+    // could land on a path that is already gone — leaving a non-executable
+    // installation behind.
     await chmod(partPath, 0o755);
     await rename(partPath, stagedExePath(options.exePath, staged));
 
-    staged.sha256 = entry.checksum;
-    staged.exeSize = size;
+    staged.sha256 = extracted.sha256;
+    staged.exeSize = extracted.size;
     // Atomic write: staged.json only ever appears complete and consistent.
     await writeJsonFile(
       getNativeStagedStateFile(options.exePath),
@@ -477,11 +488,12 @@ export async function stageNativeUpdate(
     );
     return { status: 'staged', staged };
   } catch (error) {
-    // Remove only what THIS attempt privately owns: its unique .part file.
-    // If the failure landed after the publishing rename, this attempt's exe
-    // is already at its unique name with no metadata pointing at it — left
-    // in place (a just-published exe may belong to a concurrent metadata
-    // write) and reaped by the age-gated orphan cleanup.
+    // Remove only what THIS attempt privately owns: its unique intermediate
+    // files. If the failure landed after the publishing rename, this
+    // attempt's exe is already at its unique name with no metadata pointing
+    // at it — left in place (a just-published exe may belong to a concurrent
+    // metadata write) and reaped by the age-gated orphan cleanup.
+    await rm(archivePath, { force: true }).catch(() => {});
     await rm(partPath, { force: true }).catch(() => {});
     // Best effort: drop the staging dir itself when empty (a concurrent
     // worker's files keep it around — rmdir only removes empty dirs).
