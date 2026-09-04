@@ -1,5 +1,21 @@
 # @pymodel/pythinker-desktop
 
+## 0.9.0
+
+### Minor Changes
+
+- [#280](https://github.com/PyModel/pythinker-code/pull/280) [`ecdde9d`](https://github.com/PyModel/pythinker-code/commit/ecdde9d954ed2edc4c30220fd8b623682eb0f69b) Thanks [@elkaix](https://github.com/elkaix)! - Redesign the Providers settings: each provider shows its own config first with models in a collapsible section, and a delete icon sits next to every provider.
+
+### Patch Changes
+
+- [#280](https://github.com/PyModel/pythinker-code/pull/280) [`ecdde9d`](https://github.com/PyModel/pythinker-code/commit/ecdde9d954ed2edc4c30220fd8b623682eb0f69b) Thanks [@elkaix](https://github.com/elkaix)! - Allow the Bash tool to run with a working directory outside the workspace roots.
+
+- [#280](https://github.com/PyModel/pythinker-code/pull/280) [`ecdde9d`](https://github.com/PyModel/pythinker-code/commit/ecdde9d954ed2edc4c30220fd8b623682eb0f69b) Thanks [@elkaix](https://github.com/elkaix)! - Handle heredocs when scanning Bash commands so quoted heredoc content no longer forces extra approval prompts.
+
+- [#280](https://github.com/PyModel/pythinker-code/pull/280) [`ecdde9d`](https://github.com/PyModel/pythinker-code/commit/ecdde9d954ed2edc4c30220fd8b623682eb0f69b) Thanks [@elkaix](https://github.com/elkaix)! - Keep the gateway server running after an unexpected error instead of exiting the process.
+
+- [#280](https://github.com/PyModel/pythinker-code/pull/280) [`ecdde9d`](https://github.com/PyModel/pythinker-code/commit/ecdde9d954ed2edc4c30220fd8b623682eb0f69b) Thanks [@elkaix](https://github.com/elkaix)! - Fetch the current event position with session details so clients resume without replaying past events.
+
 ## 0.8.0
 
 ### Minor Changes
