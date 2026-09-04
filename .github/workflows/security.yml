@@ -25,6 +25,11 @@ jobs:
         with:
           node-version-file: .nvmrc
       - run: pnpm audit --json
+        env:
+          npm_config_fetch_timeout: 120000
+          npm_config_fetch_retries: 3
+          npm_config_fetch_retry_mintimeout: 20000
+          npm_config_fetch_retry_maxtimeout: 120000
 
   dependency-review:
     name: Dependency review

@@ -177,7 +177,7 @@ describe('app shell contracts', () => {
     expect(sidebar).not.toContain("import PythinkerLogo from './PythinkerLogo.vue';");
     expect(sidebar).not.toContain('<span class="ch-name">');
     expect(sidebar).not.toMatch(/\.ch-logo\s*\{[^}]*top:/s);
-    expect(sidebar).toMatch(/\.ch-logo\s*\{[^}]*width: min\(220px, 100%\);/s);
+    expect(sidebar).toMatch(/\.ch-logo\s*\{[^}]*width: min\(200px, 100%\);/s);
     expect(sidebarBannerDark).toContain('width="1020" height="180" viewBox="238 395 1020 180"');
   });
 
@@ -203,6 +203,8 @@ describe('app shell contracts', () => {
     expect(sidebar).toMatch(/<Pill[\s\S]*?class="sidebar-update-trigger"/);
     expect(sidebar).toContain('<Icon name="update-button" />');
     expect(sidebar).toMatch(/\.sidebar-update-trigger\s*\{[^}]*width: var\(--sidebar-update-size\);[^}]*height: var\(--sidebar-update-size\);[^}]*border-radius: var\(--radius-full\);/s);
+    expect(sidebar).toMatch(/\.sidebar-update-trigger\s*\{[^}]*grid-template-columns: minmax\(0, 1fr\);/s);
+    expect(sidebar).toMatch(/\.sidebar-update-trigger__icon,\s*\.sidebar-update-trigger__text\s*\{[^}]*min-width: 0;/s);
     // Hover swaps the icon for the "Update" word; download progress paints
     // into the same pill instead of opening the overlay dialog.
     expect(sidebar).toContain('data-testid="sidebar-update-text"');
