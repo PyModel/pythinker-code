@@ -2326,4 +2326,43 @@ describe('OpenAILegacyChatProvider — non-indexed streaming tool_calls', () => 
       arguments: '{"pattern":"*.ts"}',
     });
   });
+
+  it('preserves surrounding whitespace and markdown hard breaks in non-stream response', async () => {
+    const provider = new OpenAILegacyChatProvider({
+      model: 'deepseek-chat',
+      apiKey: 'test-key',
+      stream: false,
+    });
+
+    const textWithWhitespace = '  Line 1  \nLine 2  ';
+    const response = {
+      choices: [
+        {
+          index: 0,
+          message: {
+            role: 'assistant',
+            content: textWithWhitespace,
+          },
+          finish_reason: 'stop',
+        },
+      ],
+      usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
+    };
+
+    (
+      provider as unknown as {
+        _client: { chat: { completions: { create: unknown } } };
+      }
+    )._client.chat.completions.create = vi.fn().mockResolvedValue(response);
+
+    const stream = await provider.generate('', [], []);
+    const parts: Array<Record<string, unknown>> = [];
+    for await (const p of stream) parts.push(p as unknown as Record<string, unknown>);
+
+    expect(parts).toHaveLength(1);
+    expect(parts[0]).toEqual({
+      type: 'text',
+      text: textWithWhitespace,
+    });
+  });
 });

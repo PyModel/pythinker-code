@@ -1152,7 +1152,7 @@ export class SessionExpertTalkService extends Disposable implements ISessionExpe
         }
         const text = completion.summary.trim();
         if (text.length === 0) throw new Error('Discussion stage returned an empty answer');
-        if (/<[｜|]?\s*(?:DSML[｜|]?)?(?:tool_calls|invoke)\b/i.test(text)) {
+        if (hasUnparsedToolCallMarkup(text)) {
           throw new Error('Discussion stage output contains unparsed tool call markup');
         }
         return text;
@@ -1220,6 +1220,7 @@ export class SessionExpertTalkService extends Disposable implements ISessionExpe
       if (
         errorReason === 'STAGE_REQUEST_BUDGET_EXCEEDED'
         && partialText.length > 0
+        && !hasUnparsedToolCallMarkup(partialText)
         && limits.acceptBudgetExhaustedOutput?.(partialText) === true
         && visibleOutputTokens <= limits.maxOutputTokens
       ) {
@@ -2068,6 +2069,10 @@ function failureMessage(reason: ExpertTalkFailureReason): string {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function hasUnparsedToolCallMarkup(text: string): boolean {
+  return /<\s*[｜|]?\s*(?:DSML\s*[｜|]?)?\s*(?:tool_calls?|invoke)\b/i.test(text);
 }
 
 registerScopedService(

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
 import {
   DsmlStreamParser,
@@ -293,6 +293,66 @@ describe('agent-core-v2: DsmlStreamParser and extractDsmlToolCalls', () => {
         name: 'Glob',
         arguments: '{"pattern":"*.json"}',
       });
+    });
+
+    it('preserves surrounding whitespace and markdown hard breaks in non-stream response', async () => {
+      const provider = new OpenAILegacyChatProvider({
+        model: 'deepseek-chat',
+        apiKey: 'test-key',
+        stream: false,
+      });
+
+      const textWithWhitespace = '  Line 1  \nLine 2  ';
+      const responseData = {
+        id: 'chatcmpl-v2-whitespace',
+        choices: [
+          {
+            index: 0,
+            message: {
+              role: 'assistant',
+              content: textWithWhitespace,
+            },
+            finish_reason: 'stop',
+          },
+        ],
+      };
+
+      (provider as unknown as { _client: unknown })._client = {
+        chat: {
+          completions: {
+            create: () => ({
+              withResponse: async () => ({
+                data: responseData,
+                response: { headers: new Headers() },
+              }),
+            }),
+          },
+        },
+      };
+
+      const stream = await provider.generate('', [], []);
+      const parts: Array<Record<string, unknown>> = [];
+      for await (const p of stream) parts.push(p as unknown as Record<string, unknown>);
+
+      expect(parts).toHaveLength(1);
+      expect(parts[0]).toEqual({
+        type: 'text',
+        text: textWithWhitespace,
+      });
+    });
+
+    it('preserves malformed invoke block as text without discarding content', () => {
+      const input = '<｜DSML｜invoke>malformed content without name</｜DSML｜invoke>';
+      const result = extractDsmlToolCalls(input);
+      expect(result.cleanText).toBe(input);
+      expect(result.toolCalls).toHaveLength(0);
+    });
+
+    it('preserves malformed Hermes block as text without discarding content', () => {
+      const input = '<tool_call>not valid json</tool_call>';
+      const result = extractDsmlToolCalls(input);
+      expect(result.cleanText).toBe(input);
+      expect(result.toolCalls).toHaveLength(0);
     });
   });
 });

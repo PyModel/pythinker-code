@@ -12,20 +12,20 @@ const CANDIDATE_TARGETS = [
   'invoke',
 ];
 
-const CONTAINER_OPEN_RE = /^<[｜|]?\s*(?:DSML[｜|]?)?\s*tool_calls\s*>/i;
-const CONTAINER_CLOSE_RE = /^<\/[｜|]?\s*(?:DSML[｜|]?)?\s*tool_calls\s*>/i;
-const INVOKE_OPEN_RE = /^<[｜|]?\s*(?:DSML[｜|]?)?\s*invoke(?:\s+[^>]*)?>/i;
-const INVOKE_CLOSE_RE = /<\/[｜|]?\s*(?:DSML[｜|]?)?\s*invoke\s*>/i;
+const CONTAINER_OPEN_RE = /^<\s*[｜|]?\s*(?:DSML\s*[｜|]?)?\s*tool_calls\s*>/i;
+const CONTAINER_CLOSE_RE = /^<\/\s*[｜|]?\s*(?:DSML\s*[｜|]?)?\s*tool_calls\s*>/i;
+const INVOKE_OPEN_RE = /^<\s*[｜|]?\s*(?:DSML\s*[｜|]?)?\s*invoke(?:\s+[^>]*)?>/i;
+const INVOKE_CLOSE_RE = /<\/\s*[｜|]?\s*(?:DSML\s*[｜|]?)?\s*invoke\s*>/i;
 const HERMES_OPEN_RE = /^<tool_call>/i;
 const HERMES_CLOSE_RE = /<\/tool_call>/i;
 
 function unescapeXml(value: string): string {
   return value
-    .replaceAll(/&quot;/g, '"')
-    .replaceAll(/&apos;/g, "'")
-    .replaceAll(/&lt;/g, '<')
-    .replaceAll(/&gt;/g, '>')
-    .replaceAll(/&amp;/g, '&');
+    .replaceAll('&quot;', '"')
+    .replaceAll('&apos;', "'")
+    .replaceAll('&lt;', '<')
+    .replaceAll('&gt;', '>')
+    .replaceAll('&amp;', '&');
 }
 
 function parseParameterValue(rawVal: string, isStringAttr: boolean | undefined): unknown {
@@ -60,7 +60,7 @@ function parseParameterValue(rawVal: string, isStringAttr: boolean | undefined):
 
 function parseInvokeBody(invokeContent: string): Record<string, unknown> {
   const paramRegex =
-    /<[｜|]?\s*(?:DSML[｜|]?)?\s*parameter\s+([^>]*?)>([\s\S]*?)<\/[｜|]?\s*(?:DSML[｜|]?)?\s*parameter\s*>/gi;
+    /<\s*[｜|]?\s*(?:DSML\s*[｜|]?)?\s*parameter\s+([^>]*?)>([\s\S]*?)<\/\s*[｜|]?\s*(?:DSML\s*[｜|]?)?\s*parameter\s*>/gi;
   const args: Record<string, unknown> = {};
   let paramFound = false;
   let match: RegExpExecArray | null = null;
@@ -101,7 +101,7 @@ function parseInvokeBody(invokeContent: string): Record<string, unknown> {
 }
 
 function parseInvokeTag(invokeBlock: string): ToolCall | null {
-  const openMatch = /^<[｜|]?\s*(?:DSML[｜|]?)?\s*invoke\s+([^>]*?)>/i.exec(invokeBlock);
+  const openMatch = /^<\s*[｜|]?\s*(?:DSML\s*[｜|]?)?\s*invoke\s+([^>]*?)>/i.exec(invokeBlock);
   if (!openMatch) return null;
 
   const attrStr = openMatch[1] ?? '';
@@ -117,7 +117,7 @@ function parseInvokeTag(invokeBlock: string): ToolCall | null {
   const args = parseInvokeBody(innerContent);
   return {
     type: 'function',
-    id: `call_${crypto.randomUUID().replaceAll(/-/g, '').slice(0, 24)}`,
+    id: `call_${crypto.randomUUID().replaceAll('-', '').slice(0, 24)}`,
     name: toolName,
     arguments: JSON.stringify(args),
   };
@@ -137,7 +137,7 @@ function parseHermesToolCall(toolCallBlock: string): ToolCall | null {
           : JSON.stringify(parsed.arguments ?? {});
       return {
         type: 'function',
-        id: `call_${crypto.randomUUID().replaceAll(/-/g, '').slice(0, 24)}`,
+        id: `call_${crypto.randomUUID().replaceAll('-', '').slice(0, 24)}`,
         name: parsed.name,
         arguments: args,
       };
@@ -216,12 +216,15 @@ export class DsmlStreamParser {
         if (toolCall) {
           this._hasExtractedToolCalls = true;
           parts.push(toolCall);
-        }
-        this._buffer = this._buffer.slice(invokeEnd);
-        if (/^\s*</.test(this._buffer)) {
-          this._buffer = this._buffer.trimStart();
+          this._buffer = this._buffer.slice(invokeEnd);
+          if (/^\s*</.test(this._buffer)) {
+            this._buffer = this._buffer.trimStart();
+          } else {
+            this._buffer = this._buffer.replace(/^\r?\n/, '');
+          }
         } else {
-          this._buffer = this._buffer.replace(/^\r?\n/, '');
+          parts.push({ type: 'text', text: invokeBlock });
+          this._buffer = this._buffer.slice(invokeEnd);
         }
         continue;
       }
@@ -238,12 +241,15 @@ export class DsmlStreamParser {
         if (toolCall) {
           this._hasExtractedToolCalls = true;
           parts.push(toolCall);
-        }
-        this._buffer = this._buffer.slice(toolCallEnd);
-        if (/^\s*</.test(this._buffer)) {
-          this._buffer = this._buffer.trimStart();
+          this._buffer = this._buffer.slice(toolCallEnd);
+          if (/^\s*</.test(this._buffer)) {
+            this._buffer = this._buffer.trimStart();
+          } else {
+            this._buffer = this._buffer.replace(/^\r?\n/, '');
+          }
         } else {
-          this._buffer = this._buffer.replace(/^\r?\n/, '');
+          parts.push({ type: 'text', text: block });
+          this._buffer = this._buffer.slice(toolCallEnd);
         }
         continue;
       }
@@ -279,6 +285,16 @@ export class DsmlStreamParser {
           return parts;
         }
       }
+      const hermesOpen = HERMES_OPEN_RE.exec(this._buffer);
+      if (hermesOpen) {
+        const toolCall = parseHermesToolCall(this._buffer);
+        if (toolCall) {
+          this._hasExtractedToolCalls = true;
+          parts.push(toolCall);
+          this._buffer = '';
+          return parts;
+        }
+      }
       parts.push({ type: 'text', text: this._buffer });
       this._buffer = '';
     }
@@ -303,6 +319,6 @@ export function extractDsmlToolCalls(text: string): {
     }
   }
 
-  const cleanText = textParts.join('').trim();
+  const cleanText = toolCalls.length > 0 ? textParts.join('').trim() : text;
   return { cleanText, toolCalls };
 }

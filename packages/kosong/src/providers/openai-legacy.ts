@@ -411,9 +411,9 @@ export class OpenAILegacyStreamedMessage implements StreamedMessage {
     let extractedToolCalls: ToolCall[] = [];
     if (text) {
       const parsed = extractDsmlToolCalls(text);
-      text = parsed.cleanText;
-      extractedToolCalls = parsed.toolCalls;
-      if (extractedToolCalls.length > 0) {
+      if (parsed.toolCalls.length > 0) {
+        text = parsed.cleanText;
+        extractedToolCalls = parsed.toolCalls;
         this._hasExtractedToolCalls = true;
       }
     }

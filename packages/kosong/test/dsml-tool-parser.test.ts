@@ -117,6 +117,27 @@ describe('DsmlStreamParser and extractDsmlToolCalls', () => {
       expect(result.cleanText).toBe(input);
       expect(result.toolCalls).toHaveLength(0);
     });
+
+    it('preserves surrounding whitespace and markdown hard breaks in non-tool text', () => {
+      const input = '  Line 1  \nLine 2  ';
+      const result = extractDsmlToolCalls(input);
+      expect(result.cleanText).toBe(input);
+      expect(result.toolCalls).toHaveLength(0);
+    });
+
+    it('preserves malformed invoke block as text without discarding content', () => {
+      const input = '<｜DSML｜invoke>malformed content without name</｜DSML｜invoke>';
+      const result = extractDsmlToolCalls(input);
+      expect(result.cleanText).toBe(input);
+      expect(result.toolCalls).toHaveLength(0);
+    });
+
+    it('preserves malformed Hermes block as text without discarding content', () => {
+      const input = '<tool_call>not valid json</tool_call>';
+      const result = extractDsmlToolCalls(input);
+      expect(result.cleanText).toBe(input);
+      expect(result.toolCalls).toHaveLength(0);
+    });
   });
 
   describe('DsmlStreamParser', () => {
