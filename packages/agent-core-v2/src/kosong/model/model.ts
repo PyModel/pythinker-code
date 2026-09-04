@@ -50,6 +50,10 @@ export interface ModelRecord {
 
 export type ModelsSection = Record<string, ModelRecord>;
 
+export function modelRecordProviderId(record: ModelRecord): string | undefined {
+  return record.providerId ?? record.provider;
+}
+
 export interface ModelsChangedEvent {
   readonly added: readonly string[];
   readonly removed: readonly string[];

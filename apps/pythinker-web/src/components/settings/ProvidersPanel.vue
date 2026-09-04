@@ -116,7 +116,10 @@ async function deleteProvider(provider: AppProvider): Promise<void> {
     cancelLabel: t('common.cancel'),
     variant: 'danger',
     action: async () => {
-      await getPythinkerWebApi().deleteProvider(provider.id);
+      // Route through the client facade: it reports a failed delete to the
+      // app's error channel and reloads the model picker's providers+models,
+      // so the picker never keeps offering a provider that is already gone.
+      await client.deleteProvider(provider.id);
       selectedId.value = null;
       dirty.value = false;
       await reconcileAndLoad();

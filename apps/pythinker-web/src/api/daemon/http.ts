@@ -144,18 +144,18 @@ export class DaemonHttpClient {
     let response: Response;
     try {
       response = await fetch(url, { method: 'GET', headers, signal: requestSignal() });
-    } catch (err) {
+    } catch (error) {
       traceRestFailure({
         method: 'GET',
         path,
         requestId,
         phase: 'fetch',
         durationMs: Date.now() - startedAt,
-        error: err,
+        error: error,
       });
       throw new DaemonNetworkError({
         message: `Network error calling GET ${path}`,
-        cause: err,
+        cause: error,
         method: 'GET',
         path,
         url,
@@ -546,11 +546,16 @@ export class DaemonHttpClient {
       });
     }
 
-    // Parse envelope
+    // Parse envelope. A 204 carries no body by definition (the provider
+    // delete route answers that way); treat it as a successful empty result
+    // instead of failing on `JSON.parse('')`.
     let envelope: WireEnvelope<T>;
     const responseForDiagnostics = response.clone();
     try {
-      envelope = (await response.json()) as WireEnvelope<T>;
+      envelope =
+        response.status === 204
+          ? { code: 0, msg: 'ok', data: null, request_id: requestId }
+          : ((await response.json()) as WireEnvelope<T>);
     } catch (error) {
       traceRestFailure({ method, path, requestId, phase: 'parse', durationMs: Date.now() - startedAt, status: response.status, error: error });
       throw new DaemonNetworkError({

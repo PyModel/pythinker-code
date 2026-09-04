@@ -8,6 +8,7 @@ import {
   isError2,
   ModelsDevImportErrors,
   type ModelRecord,
+  modelRecordProviderId,
   type ModelsSection,
   type ProviderConfig,
   type ProvidersSection,
@@ -355,7 +356,7 @@ export function registerModelCatalogRoutes(app: ModelCatalogRouteHost, core: Sco
         const models = config.inspect<ModelsSection>(MODELS_SECTION).userValue ?? {};
         const newAliasKeys = new Set(req.body.models.map((entry) => `${newId}/${entry.model}`));
         const colliding = Object.entries(models)
-          .filter(([, record]) => record.provider !== provider_id)
+          .filter(([, record]) => modelRecordProviderId(record) !== provider_id)
           .map(([aliasId]) => aliasId)
           .filter((aliasId) => newAliasKeys.has(aliasId));
         if (colliding.length > 0) {
@@ -377,7 +378,9 @@ export function registerModelCatalogRoutes(app: ModelCatalogRouteHost, core: Sco
             .map(([aliasId]) => aliasId),
         );
         const nextModelsMap = new Map(
-          Object.entries(models).filter(([, record]) => record.provider !== provider_id),
+          Object.entries(models).filter(
+            ([, record]) => modelRecordProviderId(record) !== provider_id,
+          ),
         );
         const previousByModel = new Map(
           Object.values(models)
@@ -599,7 +602,9 @@ export function registerModelCatalogRoutes(app: ModelCatalogRouteHost, core: Sco
         );
         await config.replace(PROVIDERS_SECTION, restProviders);
         const restModels = Object.fromEntries(
-          Object.entries(models).filter(([, record]) => record.provider !== provider_id),
+          Object.entries(models).filter(
+            ([, record]) => modelRecordProviderId(record) !== provider_id,
+          ),
         );
         if (Object.keys(restModels).length !== Object.keys(models).length) {
           await config.replace(MODELS_SECTION, restModels);

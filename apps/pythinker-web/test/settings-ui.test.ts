@@ -119,10 +119,16 @@ describe('settings UI', () => {
     const modelInputs = wrapper.findAll('.provider-form__model input').map((el) => (el.element as HTMLInputElement).value);
     expect(modelInputs).toContain('gpt-test');
     expect(modelInputs).toContain('128000');
+    api.listModels.mockClear();
+    api.listProviders.mockClear();
     await wrapper.get('[data-testid="provider-openai-local-delete"]').trigger('click');
     await flushPromises();
 
     expect(api.deleteProvider).toHaveBeenCalledWith('openai-local');
+    // The delete goes through the client facade, which reloads the model
+    // picker's providers and models so the removed provider disappears there.
+    expect(api.listModels).toHaveBeenCalled();
+    expect(api.listProviders).toHaveBeenCalled();
     wrapper.unmount();
   });
 

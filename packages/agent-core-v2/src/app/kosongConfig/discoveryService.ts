@@ -11,7 +11,7 @@ import { IAgentIdentity } from '#/app/agentIdentity/agentIdentity';
 import { IConfigService } from '#/app/config/config';
 import { IEventService } from '#/app/event/event';
 import { ModelCatalogErrors } from '#/kosong/model/errors';
-import { type ModelRecord } from '#/kosong/model/model';
+import { modelRecordProviderId, type ModelRecord } from '#/kosong/model/model';
 import {
   IProviderService,
   type ModelSource,
@@ -121,7 +121,8 @@ export class ProviderDiscoveryService implements IProviderDiscoveryService {
       this.config.inspect<Record<string, ModelRecord>>(MODELS_SECTION).userValue ?? {};
     const excludedModels: Record<string, ModelRecord> = {};
     for (const [modelId, record] of Object.entries(models)) {
-      if (record.provider !== undefined && record.provider in excludedProviders) {
+      const owner = modelRecordProviderId(record);
+      if (owner !== undefined && owner in excludedProviders) {
         excludedModels[modelId] = record;
       }
     }
@@ -176,7 +177,7 @@ export class ProviderDiscoveryService implements IProviderDiscoveryService {
     );
     const models = (current.models ?? {}) as Record<string, ModelRecord>;
     const restModels = Object.fromEntries(
-      Object.entries(models).filter(([, record]) => record.provider !== providerId),
+      Object.entries(models).filter(([, record]) => modelRecordProviderId(record) !== providerId),
     );
     return Promise.resolve({
       ...current,
@@ -194,16 +195,39 @@ export class ProviderDiscoveryService implements IProviderDiscoveryService {
     const userModels =
       this.config.inspect<Record<string, ModelRecord>>(MODELS_SECTION).userValue ?? {};
     const sections: Record<string, unknown> = {};
+    const liveProviders = new Set(Object.keys(userProviders));
     if (patch.providers !== undefined) {
+      const refreshed = Object.fromEntries(
+        Object.entries(patch.providers as Record<string, ProviderConfig>).filter(([id]) =>
+          liveProviders.has(id),
+        ),
+      );
       sections[PROVIDERS_SECTION] = {
+        ...userProviders,
         ...exclusion.providers,
-        ...patch.providers,
+        ...refreshed,
       };
     }
     if (patch.models !== undefined) {
+      const patchModels = patch.models as Record<string, ModelRecord>;
+      const refreshedOwners = new Set(Object.keys(patch.providers ?? {}));
+      const refreshedModels = Object.fromEntries(
+        Object.entries(patchModels).filter(([, record]) => {
+          const owner = modelRecordProviderId(record);
+          return owner === undefined || liveProviders.has(owner);
+        }),
+      );
+      const keptModels = Object.fromEntries(
+        Object.entries(userModels).filter(([alias, record]) => {
+          const owner = modelRecordProviderId(record);
+          if (owner === undefined) return !(alias in patchModels);
+          return liveProviders.has(owner) && !refreshedOwners.has(owner);
+        }),
+      );
       sections[MODELS_SECTION] = {
+        ...keptModels,
         ...exclusion.models,
-        ...(patch.models as Record<string, ModelRecord>),
+        ...refreshedModels,
       };
     }
     const restoreDefault = exclusion.defaultModel !== undefined;
@@ -224,14 +248,8 @@ export class ProviderDiscoveryService implements IProviderDiscoveryService {
     }
     await this.config.replaceSections(sections);
     return {
-      providers:
-        patch.providers !== undefined
-          ? ({ ...exclusion.providers, ...patch.providers } as PythinkerConfigShape['providers'])
-          : (userProviders as PythinkerConfigShape['providers']),
-      models:
-        patch.models !== undefined
-          ? ({ ...exclusion.models, ...patch.models } as PythinkerConfigShape['models'])
-          : (userModels as PythinkerConfigShape['models']),
+      providers: (sections[PROVIDERS_SECTION] ?? userProviders) as PythinkerConfigShape['providers'],
+      models: (sections[MODELS_SECTION] ?? userModels) as PythinkerConfigShape['models'],
       defaultModel:
         'defaultModel' in patch
           ? restoreDefault

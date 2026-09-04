@@ -475,6 +475,12 @@ function seedPermissionFromDaemonDefault(): void {
 // injected into the workspace/model modules (via deps) so no module assigns
 // rawState.sessions directly.
 // ---------------------------------------------------------------------------
+const MODEL_CATALOG_CONFIG_FIELDS = new Set(['providers', 'models', 'default_model', 'defaultModel']);
+
+function touchesModelCatalog(changedFields: readonly string[]): boolean {
+  return changedFields.length === 0 || changedFields.some((field) => MODEL_CATALOG_CONFIG_FIELDS.has(field));
+}
+
 function sameArrayEntries<T>(left: readonly T[], right: readonly T[]): boolean {
   return (
     left === right ||
@@ -974,6 +980,13 @@ function applyEvent(event: ReturnType<typeof toAppEvent>, sessionId: string, seq
 
   if (event.type === 'configChanged') {
     rawState.defaultModel = event.config.defaultModel ?? null;
+    // An external edit of config.toml (providers or models removed by hand)
+    // reloads on the daemon; mirror it here or the model picker keeps
+    // offering models whose provider no longer exists.
+    if (touchesModelCatalog(event.changedFields)) {
+      void modelProvider.loadModels();
+      void modelProvider.loadProviders();
+    }
   }
 
   if (event.type === 'modelCatalogChanged') {
