@@ -1,16 +1,18 @@
 /**
- * Per-release native artifact manifest (`/binaries/<version>/manifest.json`).
+ * Per-release native artifact manifest (`manifest.json` on the GitHub
+ * release of that version).
  *
  * Published alongside the release and consumed by the install scripts; the
  * staged updater reuses the same file so checksums and file names have a
- * single source of truth. Entries point at the bare platform binary
- * (`pythinker-code-<target>[.exe]`), not an archive.
+ * single source of truth. Entries point at the per-platform zip archive
+ * (`pythinker-code-<target>.zip`) holding the single platform binary; the
+ * checksum is the archive's sha256.
  */
 
 import { valid } from 'semver';
 import { z } from 'zod';
 
-import { UPDATE_DISABLED_MESSAGE } from './cdn';
+import { pythinkerCodeReleaseAssetUrl } from '#/constant/app';
 
 const MANIFEST_FETCH_TIMEOUT_MS = 10_000;
 
@@ -32,12 +34,12 @@ export const NativeReleaseManifestSchema = z.object({
 export type NativeReleaseManifest = z.infer<typeof NativeReleaseManifestSchema>;
 export type NativePlatformEntry = z.infer<typeof PlatformEntrySchema>;
 
-export function nativeManifestUrl(_version: string): string {
-  throw new Error(UPDATE_DISABLED_MESSAGE);
+export function nativeManifestUrl(version: string): string {
+  return pythinkerCodeReleaseAssetUrl(version, 'manifest.json');
 }
 
-export function nativeBinaryUrl(_version: string, _filename: string): string {
-  throw new Error(UPDATE_DISABLED_MESSAGE);
+export function nativeBinaryUrl(version: string, filename: string): string {
+  return pythinkerCodeReleaseAssetUrl(version, filename);
 }
 
 /**

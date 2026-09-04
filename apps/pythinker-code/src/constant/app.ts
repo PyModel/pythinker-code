@@ -41,6 +41,22 @@ export const HEADLESS_STDIO_DRAIN_TIMEOUT_MS = 10000;
 // Published npm package name; this can differ from the executable command.
 export const NPM_PACKAGE_NAME = '@pymodel/pythinker-code';
 
+// Update sources. Version checks read the CDN (`/latest` plain text and the
+// `/latest.json` rollout manifest); native binaries come from the GitHub
+// release for that version: `manifest.json` (per-platform zip name + sha256)
+// next to the `pythinker-code-<target>.zip` archives.
+export const PYTHINKER_CODE_CDN_BASE = 'https://code.pythinker.com/pythinker-code';
+export const PYTHINKER_CODE_CDN_LATEST_URL = `${PYTHINKER_CODE_CDN_BASE}/latest`;
+export const PYTHINKER_CODE_CDN_LATEST_JSON_URL = `${PYTHINKER_CODE_CDN_BASE}/latest.json`;
+export const PYTHINKER_CODE_GITHUB_RELEASES_BASE =
+  'https://github.com/PyModel/pythinker-code/releases/download';
+export function pythinkerCodeReleaseTag(version: string): string {
+  return `${NPM_PACKAGE_NAME}@${version}`;
+}
+export function pythinkerCodeReleaseAssetUrl(version: string, filename: string): string {
+  return `${PYTHINKER_CODE_GITHUB_RELEASES_BASE}/${encodeURIComponent(pythinkerCodeReleaseTag(version))}/${filename}`;
+}
+
 // App-owned data paths. SDK/core runtime config is intentionally not routed here.
 export const PYTHINKER_CODE_HOME_ENV = 'PYTHINKER_CODE_HOME';
 export const PYTHINKER_CODE_DATA_DIR_NAME = '.pythinker-code';
