@@ -6,7 +6,7 @@ import { type IConnectionRegistry } from '../connectionRegistry';
 import type { SessionEventBroadcaster } from './sessionEventBroadcaster';
 import type { FsWatchBridge } from './fsWatchBridge';
 import type { JournalLogger } from './sessionEventJournal';
-import { WsConnectionV1 } from './wsConnectionV1';
+import { WS_MAX_PAYLOAD_BYTES, WsConnectionV1 } from './wsConnectionV1';
 import { selectWsBearerProtocol } from '../bearerProtocol';
 
 export const WS_PATH = '/api/v1/ws';
@@ -25,7 +25,11 @@ export interface RegisterWsV1Options {
 }
 
 export function registerWsV1(core: Scope, opts: RegisterWsV1Options): WebSocketServer {
-  const wss = new WebSocketServer({ noServer: true, handleProtocols: selectWsBearerProtocol });
+  const wss = new WebSocketServer({
+    noServer: true,
+    handleProtocols: selectWsBearerProtocol,
+    maxPayload: WS_MAX_PAYLOAD_BYTES,
+  });
   const { registry, broadcaster } = opts;
 
   wss.on('connection', (socket, req) => {

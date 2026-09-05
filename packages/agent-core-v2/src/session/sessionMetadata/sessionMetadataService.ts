@@ -95,9 +95,10 @@ export class SessionMetadata extends Service implements ISessionMetadata {
     if (this.disposed) return false;
     const updatedAt =
       patch.updatedAt ?? (opts?.touchUpdatedAt === false ? this.data.updatedAt : Date.now());
-    this.data = { ...this.data, ...patch, updatedAt };
-    await this.store.set(this.scope, META_KEY, encodeSessionMeta(this.data));
+    const next = { ...this.data, ...patch, updatedAt };
+    await this.store.set(this.scope, META_KEY, encodeSessionMeta(next));
     if (this.disposed) return false;
+    this.data = next;
     this.mirrorToReadModel();
     this._onDidChangeMetadata.fire({
       changed: Object.keys(patch) as (keyof SessionMeta)[],
@@ -133,6 +134,15 @@ export class SessionMetadata extends Service implements ISessionMetadata {
       const existing = this.data.agents?.[agentId];
       if (existing !== undefined && agentMetaEquals(existing, meta)) return;
       const agents = { ...this.data.agents, [agentId]: meta };
+      await this.applyUpdate({ agents }, { touchUpdatedAt: false });
+    });
+  }
+
+  async unregisterAgent(agentId: string): Promise<void> {
+    return this.enqueueUpdate(async () => {
+      await this.ready;
+      if (this.data.agents?.[agentId] === undefined) return;
+      const { [agentId]: _removed, ...agents } = this.data.agents;
       await this.applyUpdate({ agents }, { touchUpdatedAt: false });
     });
   }

@@ -27,7 +27,11 @@ export interface RunAgentOptions {
 export interface AgentRunHandle {
   readonly agentId: string;
   readonly turn: Turn;
-  readonly completion: Promise<{ readonly summary: string; readonly usage?: TokenUsage }>;
+  readonly completion: Promise<{
+    readonly summary: string;
+    readonly usage?: TokenUsage;
+    readonly cumulativeUsage?: TokenUsage;
+  }>;
 }
 
 export class SubagentRunStartError extends Error {

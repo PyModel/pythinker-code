@@ -8,6 +8,7 @@ import { IEventDispatcher } from '#/state/eventDispatcher';
 export class ManagedAgent {
   active = false;
   closing = false;
+  closePromise: Promise<void> | undefined;
   readonly runtimeSet: AgentRuntimeSet;
 
   constructor(

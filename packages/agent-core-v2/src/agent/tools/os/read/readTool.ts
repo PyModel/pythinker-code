@@ -12,6 +12,7 @@ import {
 import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
 import {
   resolvePathAccessPath,
+  sensitiveTargetError,
   type WorkspaceConfig,
 } from '#/tool/path-access';
 import { MEDIA_SNIFF_BYTES, detectFileType } from '#/agent/media/file-type';
@@ -245,6 +246,8 @@ export class ReadTool implements IReadTool {
           if (lease.runtime.identity.generation !== inspected.identity.generation) {
             return { isError: true, output: 'Runtime changed before execution. Retry the tool call.' };
           }
+          const denied = await sensitiveTargetError(lease.runtime.fs!, args.path, path);
+          if (denied !== undefined) return { isError: true, output: denied };
           const result = await this.execution(lease.runtime.fs!, args, path);
           return this.resultTruncation.isSpillFilePath(path)
             ? { ...result, spillExempt: true as const }
@@ -302,7 +305,7 @@ export class ReadTool implements IReadTool {
           output: notReadableFileOutput(args.path),
         };
       } else {
-        lines = fs.readLines(safePath, { errors: 'strict' });
+        lines = fs.readLines(safePath, { errors: 'strict', maxLineBytes: MAX_LINE_LENGTH * 4 });
       }
 
       const lineOffset = args.line_offset ?? 1;

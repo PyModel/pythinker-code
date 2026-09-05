@@ -1,5 +1,5 @@
 import { APIProviderRateLimitError, isProviderRateLimitError } from '#/kosong/contract/errors';
-import { type TokenUsage } from '#/kosong/contract/usage';
+import { type TokenUsage, usageDelta } from '#/kosong/contract/usage';
 
 import { linkAbortSignal, userCancellationReason } from '#/_base/utils/abort';
 import type { IAgentScopeHandle } from '#/_base/di/scope';
@@ -36,6 +36,7 @@ export async function runAgentTurn(
   options: RunAgentTurnOptions,
 ): Promise<AgentRunHandle> {
   options.signal.throwIfAborted();
+  const usageBefore = target.accessor.get(ISessionUsageService)?.status(agentContextOf(target)).total;
   const promptService = target.accessor.get(IAgentPromptService);
   const turn =
     request.kind === 'prompt'
@@ -58,7 +59,7 @@ export async function runAgentTurn(
     void turn.ready.then(() => options.onReady?.()).catch(() => {});
   }
 
-  const completion = awaitRun(target, turn, options);
+  const completion = awaitRun(target, turn, options, usageBefore);
   return { agentId: target.id, turn, completion };
 }
 
@@ -66,7 +67,8 @@ async function awaitRun(
   target: IAgentScopeHandle,
   turn: Turn,
   options: RunAgentTurnOptions,
-): Promise<{ summary: string; usage?: TokenUsage }> {
+  usageBefore: TokenUsage | undefined,
+): Promise<{ summary: string; usage?: TokenUsage; cumulativeUsage?: TokenUsage }> {
   const controller = new AbortController();
   const unlink = linkAbortSignal(options.signal, controller);
   const loop = target.accessor.get(IAgentLoopService);
@@ -86,8 +88,10 @@ async function awaitRun(
       },
       cancelTurn,
     );
-    const usage = target.accessor.get(ISessionUsageService)?.status(agentContextOf(target)).total;
-    return { summary, usage };
+    const cumulativeUsage = target.accessor
+      .get(ISessionUsageService)
+      ?.status(agentContextOf(target)).total;
+    return { summary, usage: usageDelta(cumulativeUsage, usageBefore), cumulativeUsage };
   } finally {
     unlink();
     if (controller.signal.aborted) {

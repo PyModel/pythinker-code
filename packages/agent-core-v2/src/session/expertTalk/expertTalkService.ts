@@ -52,7 +52,7 @@ import {
 } from '#/kosong/contract/errors';
 import { extractText } from '#/kosong/contract/message';
 import { estimateTokensForContentParts } from '#/kosong/contract/tokens';
-import type { TokenUsage } from '#/kosong/contract/usage';
+import { usageDelta } from '#/kosong/contract/usage';
 import { IModelCatalog, type Model } from '#/kosong/model/catalog';
 import type { ModelRequester } from '#/kosong/model/modelRequester';
 import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
@@ -1903,22 +1903,6 @@ function hasMarkdownSections(text: string, sections: readonly string[]): boolean
     .split('\n')
     .map((line) => line.trim().replace(/^#{1,6}\s+/, '').toLowerCase()));
   return sections.every((section) => headings.has(section));
-}
-
-function usageDelta(
-  after: TokenUsage | undefined,
-  before: TokenUsage | undefined,
-): TokenUsage | undefined {
-  if (after === undefined) return undefined;
-  return {
-    inputOther: Math.max(0, after.inputOther - (before?.inputOther ?? 0)),
-    output: Math.max(0, after.output - (before?.output ?? 0)),
-    inputCacheRead: Math.max(0, after.inputCacheRead - (before?.inputCacheRead ?? 0)),
-    inputCacheCreation: Math.max(
-      0,
-      after.inputCacheCreation - (before?.inputCacheCreation ?? 0),
-    ),
-  };
 }
 
 function estimateToolResultTokens(output: string | readonly ContentPart[]): number {

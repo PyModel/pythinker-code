@@ -5,6 +5,22 @@ export interface TokenUsage {
   inputCacheCreation: number;
 }
 
+export function usageDelta(
+  after: TokenUsage | undefined,
+  before: TokenUsage | undefined,
+): TokenUsage | undefined {
+  if (after === undefined) return undefined;
+  return {
+    inputOther: Math.max(0, after.inputOther - (before?.inputOther ?? 0)),
+    output: Math.max(0, after.output - (before?.output ?? 0)),
+    inputCacheRead: Math.max(0, after.inputCacheRead - (before?.inputCacheRead ?? 0)),
+    inputCacheCreation: Math.max(
+      0,
+      after.inputCacheCreation - (before?.inputCacheCreation ?? 0),
+    ),
+  };
+}
+
 export function inputTotal(usage: TokenUsage): number {
   return usage.inputOther + usage.inputCacheRead + usage.inputCacheCreation;
 }

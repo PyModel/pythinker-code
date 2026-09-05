@@ -8,7 +8,6 @@ import {
   realpath as nodeRealpath,
   rm,
   stat as nodeStat,
-  writeFile,
 } from 'node:fs/promises';
 import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
@@ -16,7 +15,9 @@ import { decodeTextWithErrors, type TextDecodeErrors } from '#/_base/execEnv/dec
 
 import { type HostDirEntry, type HostFileStat, IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { toHostFsError } from '#/os/interface/hostFsErrors';
+import { atomicWrite } from '#/_base/utils/fs';
 
+const NEWLINE = Buffer.from([0x0a]);
 const READ_CHUNK_SIZE = 64 * 1024;
 
 function isUtf8Encoding(encoding: BufferEncoding): boolean {
@@ -57,8 +58,23 @@ export class HostFileSystem implements IHostFileSystem {
   }
 
   async writeText(path: string, data: string): Promise<void> {
+    await this._replaceAtomically(path, data);
+  }
+
+  private async _replaceAtomically(path: string, data: string | Uint8Array): Promise<void> {
     try {
-      await writeFile(path, data, 'utf8');
+      let target = path;
+      let mode: number | undefined;
+      try {
+        const existing = await nodeStat(path);
+        if (existing.isFile()) {
+          target = await nodeRealpath(path);
+          mode = existing.mode & 0o7777;
+        }
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      }
+      await atomicWrite(target, data, undefined, mode);
     } catch (error) {
       throw toHostFsError(error, { path, op: 'write' });
     }
@@ -93,16 +109,12 @@ export class HostFileSystem implements IHostFileSystem {
   }
 
   async writeBytes(path: string, data: Uint8Array): Promise<void> {
-    try {
-      await writeFile(path, data);
-    } catch (error) {
-      throw toHostFsError(error, { path, op: 'write' });
-    }
+    await this._replaceAtomically(path, data);
   }
 
   async *readLines(
     path: string,
-    options?: { encoding?: BufferEncoding; errors?: TextDecodeErrors },
+    options?: { encoding?: BufferEncoding; errors?: TextDecodeErrors; maxLineBytes?: number },
   ): AsyncGenerator<string> {
     try {
       const encoding = options?.encoding ?? 'utf-8';
@@ -114,7 +126,7 @@ export class HostFileSystem implements IHostFileSystem {
         return;
       }
 
-      yield* this._readUtf8Lines(path, errors);
+      yield* this._readUtf8Lines(path, errors, options?.maxLineBytes ?? Number.POSITIVE_INFINITY);
     } catch (error) {
       throw toHostFsError(error, { path, op: 'read' });
     }
@@ -123,13 +135,37 @@ export class HostFileSystem implements IHostFileSystem {
   private async *_readUtf8Lines(
     path: string,
     errors: TextDecodeErrors,
+    maxLineBytes: number,
   ): AsyncGenerator<string> {
     const fh = await open(path, 'r');
     try {
       const buf = Buffer.alloc(READ_CHUNK_SIZE);
       let pending: Buffer[] = [];
+      let pendingBytes = 0;
+      let pendingTruncated = false;
       let pendingOffset = 0;
       let fileOffset = 0;
+      const retain = (piece: Buffer): void => {
+        const room = maxLineBytes - pendingBytes;
+        if (room <= 0) {
+          pendingTruncated = true;
+          return;
+        }
+        if (piece.length > room) pendingTruncated = true;
+        const kept = Buffer.from(piece.subarray(0, Math.min(piece.length, room)));
+        pending.push(kept);
+        pendingBytes += kept.length;
+      };
+      const takeLine = (piece: Buffer): Buffer => {
+        if (pending.length === 0 && piece.length <= maxLineBytes) return piece;
+        retain(piece);
+        const parts = pendingTruncated && piece.at(-1) === 0x0a ? [...pending, NEWLINE] : pending;
+        const line = Buffer.concat(parts);
+        pending = [];
+        pendingBytes = 0;
+        pendingTruncated = false;
+        return line;
+      };
 
       while (true) {
         const { bytesRead } = await fh.read(buf, 0, buf.length, null);
@@ -140,18 +176,15 @@ export class HostFileSystem implements IHostFileSystem {
         for (let i = 0; i < chunk.length; i += 1) {
           const byte = chunk[i];
           if (byte !== 0x0a) continue;
-          const piece = chunk.subarray(lineStart, i + 1);
           const lineOffset = pending.length === 0 ? fileOffset + lineStart : pendingOffset;
-          const line = pending.length === 0 ? piece : Buffer.concat([...pending, piece]);
+          const line = takeLine(chunk.subarray(lineStart, i + 1));
           yield decodeTextWithErrors(line, 'utf-8', errors, lineOffset !== 0);
-          pending = [];
           lineStart = i + 1;
         }
 
         if (lineStart < chunk.length) {
-          const tail = Buffer.from(chunk.subarray(lineStart));
           if (pending.length === 0) pendingOffset = fileOffset + lineStart;
-          pending.push(tail);
+          retain(chunk.subarray(lineStart));
         }
         fileOffset += bytesRead;
       }

@@ -184,6 +184,7 @@ function stubSessionMetadata(title?: string): ISessionMetadata {
     setTitle: async () => {},
     setArchived: async () => {},
     registerAgent: async () => {},
+    unregisterAgent: async () => {},
   } as unknown as ISessionMetadata;
 }
 

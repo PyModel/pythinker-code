@@ -239,6 +239,79 @@ interface ControlledTask {
   readonly reject: (error: unknown) => void;
 }
 
+describe('ToolScheduler leases and budgets', () => {
+  it('keeps a conflicting task queued until the abandoned effect settles', async () => {
+    const started: string[] = [];
+    const drained: string[] = [];
+    const scheduler = makeScheduler(drained);
+    let settleEffects: () => void = () => {};
+    const effectsSettled = new Promise<void>((resolve) => {
+      settleEffects = resolve;
+    });
+    const abandoned = makeControlledTask('abandoned', writePath('/repo/a.ts'), started, effectsSettled);
+    const follower = makeControlledTask('follower', writePath('/repo/a.ts'), started);
+
+    scheduler.add(abandoned.task);
+    scheduler.add(follower.task);
+    abandoned.resolve();
+    await waitOneMacrotask();
+
+    expect(drained).toEqual([]);
+    expect(started).toEqual(['abandoned']);
+    settleEffects();
+    await waitOneMacrotask();
+    expect(started).toEqual(['abandoned', 'follower']);
+    follower.resolve();
+    await scheduler.collectResults();
+    expect(drained).toEqual(['abandoned', 'follower']);
+  });
+
+  it('blocks on outstanding effects from a previous scheduler', async () => {
+    const started: string[] = [];
+    let settleEffects: () => void = () => {};
+    const settled = new Promise<void>((resolve) => {
+      settleEffects = resolve;
+    });
+    const scheduler = new ToolScheduler<string>([{ accesses: writePath('/repo/a.ts'), settled }]);
+    const conflicting = makeControlledTask('conflicting', readPath('/repo/a.ts'), started);
+    const unrelated = makeControlledTask('unrelated', readPath('/repo/b.ts'), started);
+    const results = [scheduler.add(conflicting.task), scheduler.add(unrelated.task)];
+    await waitOneMacrotask();
+
+    expect(started).toEqual(['unrelated']);
+    settleEffects();
+    await waitOneMacrotask();
+    expect(started).toEqual(['unrelated', 'conflicting']);
+    conflicting.resolve();
+    unrelated.resolve();
+    await Promise.all(results);
+  });
+
+  it('caps unrelated concurrency at the configured budget', async () => {
+    const started: string[] = [];
+    const scheduler = new ToolScheduler<string>([], 2);
+    const tasks = ['a', 'b', 'c', 'd'].map((name) =>
+      makeControlledTask(name, readPath(`/repo/${name}.ts`), started),
+    );
+    const results = tasks.map((task) => scheduler.add(task.task));
+    await waitOneMacrotask();
+
+    expect(started).toEqual(['a', 'b']);
+    expect(scheduler.running).toBe(2);
+    tasks[0]!.resolve();
+    await waitOneMacrotask();
+    expect(started).toEqual(['a', 'b', 'c']);
+    tasks[1]!.resolve();
+    tasks[2]!.resolve();
+    await waitOneMacrotask();
+    expect(started).toEqual(['a', 'b', 'c', 'd']);
+    tasks[3]!.resolve();
+    await Promise.all(results);
+    await waitOneMacrotask();
+    expect(scheduler.running).toBe(0);
+  });
+});
+
 function makeScheduler(drained: string[]): {
   readonly add: (task: ToolCallTask<string>) => void;
   readonly collectResults: () => Promise<void>;
@@ -265,6 +338,7 @@ function makeControlledTask(
   name: string,
   accesses: ToolAccesses,
   startedNames: string[],
+  effectsSettled?: Promise<unknown>,
 ): ControlledTask {
   let resolveResult: (value: string) => void = () => {};
   let rejectResult: (error: unknown) => void = () => {};
@@ -278,7 +352,7 @@ function makeControlledTask(
       accesses,
       start: async () => {
         startedNames.push(name);
-        return { result };
+        return { result, effectsSettled };
       },
     },
     resolve: () => {

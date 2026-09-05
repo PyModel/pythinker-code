@@ -230,6 +230,91 @@ describe('AgentPromptService', () => {
     expect(events[0]).not.toHaveProperty('promptIds');
   });
 
+  it('abort during launch cancels the prompt before it reaches the loop', async () => {
+    const { prompt, loop, eventBus } = harness();
+    const aborted: PromptAborted[] = [];
+    eventBus.subscribe(PromptAborted, (event) => aborted.push(event));
+    const enqueueSpy = vi.spyOn(loop, 'enqueue');
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    let promptId: string | undefined;
+    prompt.hooks.onBeforeSubmitPrompt.register('gate', async (_ctx, next) => { promptId = prompt.list().active?.id; await gate; await next(); });
+    const handlePromise = prompt.enqueue({ id: 'launching', message: message('slow start') });
+    await vi.waitFor(() => { expect(prompt.list().pending).toEqual([]); });
+    expect(promptId).toBeUndefined();
+    expect(prompt.abort('launching')).toBe(true);
+    release();
+    const handle = await handlePromise;
+    await expect(handle.completion).resolves.toMatchObject({ state: 'cancelled' });
+    await expect(handle.launched).resolves.toBeUndefined();
+    expect(enqueueSpy).not.toHaveBeenCalled();
+    expect(prompt.list()).toEqual({ active: undefined, pending: [] });
+    expect(aborted.map((event) => event.promptId)).toEqual(['launching']);
+  });
+
+  it('drain waits for a launching prompt and cancels it', async () => {
+    const { prompt, loop } = harness();
+    const enqueueSpy = vi.spyOn(loop, 'enqueue');
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    prompt.hooks.onBeforeSubmitPrompt.register('gate', async (_ctx, next) => { await gate; await next(); });
+    const handlePromise = prompt.enqueue({ id: 'launching', message: message('slow start') });
+    await vi.waitFor(() => { expect(prompt.list().pending).toEqual([]); });
+    let drained = false;
+    const drain = prompt.drain().then(() => { drained = true; });
+    await Promise.resolve();
+    expect(drained).toBe(false);
+    release();
+    await drain;
+    const handle = await handlePromise;
+    await expect(handle.completion).resolves.toMatchObject({ state: 'cancelled' });
+    expect(enqueueSpy).not.toHaveBeenCalled();
+  });
+
+  it('clear cancels a launching prompt', async () => {
+    const { prompt, loop } = harness();
+    const enqueueSpy = vi.spyOn(loop, 'enqueue');
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    prompt.hooks.onBeforeSubmitPrompt.register('gate', async (_ctx, next) => { await gate; await next(); });
+    const handlePromise = prompt.enqueue({ id: 'launching', message: message('slow start') });
+    await vi.waitFor(() => { expect(prompt.list().pending).toEqual([]); });
+    prompt.clear();
+    release();
+    await expect((await handlePromise).completion).resolves.toMatchObject({ state: 'cancelled' });
+    expect(enqueueSpy).not.toHaveBeenCalled();
+  });
+
+  it('cancels the turn when abort lands after the loop assigned it', async () => {
+    const { prompt, loop } = harness();
+    const cancelSpy = vi.spyOn(loop, 'cancel');
+    const originalEnqueue = loop.enqueue.bind(loop);
+    let releaseAssignment!: () => void;
+    const assignmentGate = new Promise<void>((resolve) => { releaseAssignment = resolve; });
+    const enqueueSpy = vi.spyOn(loop, 'enqueue').mockImplementationOnce((request, options) => {
+      const receipt = originalEnqueue(request, options);
+      return { ...receipt, assigned: assignmentGate.then(() => receipt.assigned) };
+    });
+    const handlePromise = prompt.enqueue({ id: 'launching', message: message('slow start') });
+    await vi.waitFor(() => { expect(enqueueSpy).toHaveBeenCalledOnce(); });
+    expect(prompt.abort('launching')).toBe(true);
+    releaseAssignment();
+    const handle = await handlePromise;
+    await expect(handle.launched).resolves.toBeDefined();
+    expect(cancelSpy).toHaveBeenCalledOnce();
+  });
+
+  it('parks a queued prompt while compaction runs instead of recursing', async () => {
+    const { prompt, fullCompaction } = harness();
+    (fullCompaction as unknown as { compacting: unknown }).compacting = { promise: new Promise(() => {}), abortController: new AbortController() };
+    const handle = await prompt.enqueue({ id: 'parked', message: message('later') });
+    expect(handle.state).toBe('pending');
+    await (prompt as unknown as { startNext(): Promise<void> }).startNext();
+    await (prompt as unknown as { startNext(): Promise<void> }).startNext();
+    expect(prompt.list().pending.map((item) => item.id)).toEqual(['parked']);
+    expect(prompt.list().active).toBeUndefined();
+  });
+
   it('aborts pending prompts and settles completion', async () => {
     const { prompt, eventBus } = harness();
     const aborted: PromptAborted[] = [];

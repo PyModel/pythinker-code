@@ -30,7 +30,7 @@ export interface IHostFileSystem {
   writeBytes(path: string, data: Uint8Array): Promise<void>;
   readLines(
     path: string,
-    options?: { encoding?: BufferEncoding; errors?: TextDecodeErrors },
+    options?: { encoding?: BufferEncoding; errors?: TextDecodeErrors; maxLineBytes?: number },
   ): AsyncGenerator<string>;
   createExclusive(path: string, data: Uint8Array): Promise<boolean>;
   stat(path: string): Promise<HostFileStat>;

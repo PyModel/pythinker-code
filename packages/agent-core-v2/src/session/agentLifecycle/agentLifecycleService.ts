@@ -1,7 +1,7 @@
 import { join } from 'pathe';
 
 import { IInstantiationService } from '#/_base/di/instantiation';
-import { Disposable, toDisposable } from '#/_base/di/lifecycle';
+import { Disposable, toDisposable, type IDisposable } from '#/_base/di/lifecycle';
 import { type CollectionView } from '#/_base/di/collection';
 import { Emitter } from '#/_base/event';
 import { onUnexpectedError } from '#/_base/errors/unexpectedError';
@@ -159,7 +159,7 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
     if (this.records.get(id) === record) {
       const fallback = [...this.contributions.values()]
         .filter((candidate) => candidate.active && getAgentRuntimeDefinitionId(candidate.definition) === id)
-        .sort((left, right) => (right.providerGeneration ?? right.generation) - (left.providerGeneration ?? left.generation))[0];
+        .toSorted((left, right) => (right.providerGeneration ?? right.generation) - (left.providerGeneration ?? left.generation))[0];
       if (fallback !== undefined) this.records.set(id, fallback);
       else this.records.delete(id);
     }
@@ -294,6 +294,7 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
           await managed.handle.dispose();
         } catch { }
       }
+      if (didCreate) await this.sessionMetadata.unregisterAgent(agentId).catch(() => undefined);
       if (!finalizerArmed) eventBus?.deactivateAgent(agent);
       if (didCreate) this.onDidCloseEmitter.fire(agent);
       throw error;
@@ -443,29 +444,58 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
 
   async remove(agent: AgentContext): Promise<void> {
     const managed = this.roster.get(agent.agentId);
-    if (managed === undefined || managed.context !== agent || managed.closing) return;
+    if (managed === undefined || managed.context !== agent) return;
+    if (managed.closePromise !== undefined) return managed.closePromise;
+    if (managed.closing) return;
     managed.closing = true;
+    managed.closePromise = this.close(agent, managed);
+    return managed.closePromise;
+  }
+
+  private async close(agent: AgentContext, managed: ManagedAgent): Promise<void> {
+    const failures: unknown[] = [];
+    const phase = async (work: () => Promise<unknown> | void): Promise<void> => {
+      try {
+        await work();
+      } catch (error) {
+        failures.push(error);
+      }
+    };
     this.onWillCloseEmitter.fire(agent);
     const handle = managed.handle;
-    await handle.accessor.get(IAgentTaskService).stopAllOnExit('Session closed');
     const loop = handle.accessor.get(IAgentLoopService);
-    const compaction = handle.accessor.get(IAgentFullCompactionService).compacting;
-    const compactionSettled = compaction?.promise.catch(() => undefined) ?? Promise.resolve();
     const reason = abortError('Agent removed');
-    const prompt = handle.accessor.get(IAgentPromptService);
-    for (const turnId of loop.status().pendingTurnIds) {
-      loop.cancel(turnId, reason);
+    let quiescence: IDisposable | undefined;
+    try {
+      await phase(() => handle.accessor.get(IAgentTaskService).stopAllOnExit('Session closed'));
+      const compaction = handle.accessor.get(IAgentFullCompactionService).compacting;
+      const compactionSettled = compaction?.promise.catch(() => undefined) ?? Promise.resolve();
+      const prompt = handle.accessor.get(IAgentPromptService);
+      await phase(async () => {
+        await prompt.drain(reason);
+        for (const turnId of loop.status().pendingTurnIds) {
+          loop.cancel(turnId, reason);
+        }
+        loop.cancel(undefined, reason);
+        if (compaction !== null && !compaction.abortController.signal.aborted) {
+          compaction.abortController.abort(reason);
+        }
+        await Promise.all([loop.settled(), compactionSettled]);
+      });
+      await phase(() => {
+        quiescence = loop.tryAcquireQuiescence();
+      });
+      await phase(() => handle.accessor.get(IEventDispatcher).flush());
+      await phase(() => managed.runtimeSet.close());
+      managed.killSpace();
+      await phase(() => handle.dispose());
+    } finally {
+      quiescence?.dispose();
+      if (this.roster.get(agent.agentId) === managed) this.roster.delete(agent.agentId);
+      this.onDidCloseEmitter.fire(agent);
     }
-    loop.cancel(undefined, reason);
-    if (compaction !== null && !compaction.abortController.signal.aborted) {
-      compaction.abortController.abort(reason);
-    }
-    await Promise.all([loop.settled(), compactionSettled, prompt.drain(reason)]);
-    await managed.runtimeSet.close();
-    managed.killSpace();
-    await handle.dispose();
-    if (this.roster.get(agent.agentId) === managed) this.roster.delete(agent.agentId);
-    this.onDidCloseEmitter.fire(agent);
+    if (failures.length === 1) throw failures[0];
+    if (failures.length > 1) throw new AggregateError(failures, `Agent ${agent.agentId} removal failed`);
   }
 
   private managedFor(agent: AgentContext): ManagedAgent | undefined {

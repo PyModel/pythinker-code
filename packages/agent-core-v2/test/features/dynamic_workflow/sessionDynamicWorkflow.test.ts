@@ -959,6 +959,9 @@ describe('SessionDynamicWorkflowService metadata compatibility', () => {
       registerAgent: async (agentId, meta) => {
         agents[agentId] = meta;
       },
+      unregisterAgent: async (agentId) => {
+        delete agents[agentId];
+      },
     });
     ix.stub(ISubagentRoutingService, {
       _serviceBrand: undefined,

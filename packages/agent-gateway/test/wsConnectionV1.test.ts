@@ -7,6 +7,10 @@ import type { IConnectionRegistry } from '../src/transport/ws/connectionRegistry
 import type { SessionEventBroadcaster } from '../src/transport/ws/v1/sessionEventBroadcaster';
 import {
   type WsConnectionV1Options,
+  WS_CLOSE_OVERLOADED,
+  WS_CLOSE_POLICY,
+  WS_MAX_PENDING_CONTROLS,
+  WS_MAX_SUBSCRIPTIONS,
   WsConnectionV1,
   coalesceFrames,
 } from '../src/transport/ws/v1/wsConnectionV1';
@@ -65,6 +69,13 @@ function makeBroadcaster(): SessionEventBroadcaster {
       epoch: '',
     }),
   } as unknown as SessionEventBroadcaster;
+}
+
+function withBroadcaster(overrides: Record<string, unknown>): SessionEventBroadcaster {
+  return Object.assign(
+    makeBroadcaster() as unknown as Record<string, unknown>,
+    overrides,
+  ) as unknown as SessionEventBroadcaster;
 }
 
 function makeRegistry(): IConnectionRegistry {
@@ -762,6 +773,137 @@ describe('WsConnectionV1 outbound buffer', () => {
     expect(frames).toHaveLength(1);
     expect((frames[0] as { payload: { delta: string } }).payload.delta).toBe('Hello world');
     conn.close();
+  });
+
+  it('force-flushes a moderately slow consumer after the backpressure delay', async () => {
+    const socket = new FakeSocket();
+    const conn = makeConn(socket, { flushIntervalMs: 16, highWaterMarkBytes: 100 });
+    socket.sent = [];
+
+    socket.bufferedAmount = 200;
+    conn.send(delta('s1', 'main', 1, 'Hello', 0));
+    await vi.advanceTimersByTimeAsync(120);
+
+    expect(socket.frames()).toHaveLength(1);
+    expect(socket.closeCalls).toEqual([]);
+    conn.close();
+  });
+
+  it('disconnects a consumer whose socket buffer stays past the hard byte bound', async () => {
+    const socket = new FakeSocket();
+    const conn = makeConn(socket, { flushIntervalMs: 16, highWaterMarkBytes: 100 });
+    socket.sent = [];
+
+    socket.bufferedAmount = 100 * 8 + 1;
+    conn.send(delta('s1', 'main', 1, 'Hello', 0));
+    await vi.advanceTimersByTimeAsync(120);
+
+    expect(socket.sent).toEqual([]);
+    expect(socket.closeCalls).toEqual([{ code: WS_CLOSE_OVERLOADED, reason: 'slow consumer' }]);
+    expect(conn.subscriptionSessionIds).toEqual([]);
+  });
+
+  it('disconnects when the outbound queue exceeds the advertised buffer size', () => {
+    const socket = new FakeSocket();
+    const conn = makeConn(socket, {
+      flushIntervalMs: 16,
+      highWaterMarkBytes: 100,
+      maxBufferSize: 3,
+      maxBatchSize: 100,
+    });
+    socket.sent = [];
+    socket.bufferedAmount = 200;
+
+    for (let i = 0; i < 4; i += 1) conn.send(delta('s1', 'main', 1, `chunk${String(i)}`, i));
+
+    expect(socket.sent).toEqual([]);
+    expect(socket.closeCalls).toEqual([
+      { code: WS_CLOSE_OVERLOADED, reason: 'outbound buffer overflow' },
+    ]);
+  });
+
+  it('disconnects a client that floods control frames faster than they drain', () => {
+    const socket = new FakeSocket();
+    const conn = makeConn(socket, {
+      broadcaster: withBroadcaster({ subscribe: () => new Promise(() => {}) }),
+    });
+    socket.sent = [];
+
+    for (let i = 0; i <= WS_MAX_PENDING_CONTROLS; i += 1) {
+      socket.emit(
+        'message',
+        JSON.stringify({ type: 'subscribe', id: `f${String(i)}`, payload: { session_ids: ['s1'] } }),
+      );
+    }
+
+    expect(conn.pendingControlCount).toBe(WS_MAX_PENDING_CONTROLS);
+    expect(socket.closeCalls).toEqual([
+      { code: WS_CLOSE_OVERLOADED, reason: 'control queue overflow' },
+    ]);
+  });
+
+  it('releases a subscription that completes after the connection closed', async () => {
+    const socket = new FakeSocket();
+    let releaseSubscribe: (ok: boolean) => void = () => {};
+    const unsubscribe = vi.fn();
+    const conn = makeConn(socket, {
+      broadcaster: withBroadcaster({
+        subscribe: () =>
+          new Promise<boolean>((resolve) => {
+            releaseSubscribe = resolve;
+          }),
+        unsubscribe,
+      }),
+    });
+    socket.emit(
+      'message',
+      JSON.stringify({ type: 'subscribe', id: 'f1', payload: { session_ids: ['s1'] } }),
+    );
+    await vi.advanceTimersByTimeAsync(0);
+
+    socket.emit('close');
+    releaseSubscribe(true);
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(unsubscribe).toHaveBeenCalledWith('s1', conn);
+    expect(conn.subscriptionSessionIds).toEqual([]);
+    expect(conn.pendingControlCount).toBe(0);
+  });
+
+  it('skips queued controls once the connection is closed', async () => {
+    const socket = new FakeSocket();
+    const subscribe = vi.fn(async () => true);
+    makeConn(socket, { broadcaster: withBroadcaster({ subscribe }) });
+    socket.emit(
+      'message',
+      JSON.stringify({ type: 'subscribe', id: 'f1', payload: { session_ids: ['s1'] } }),
+    );
+    socket.emit('close');
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(subscribe).not.toHaveBeenCalled();
+  });
+
+  it('caps the number of session subscriptions per connection', async () => {
+    const socket = new FakeSocket();
+    const conn = makeConn(socket);
+    const ids = Array.from({ length: WS_MAX_SUBSCRIPTIONS + 1 }, (_, i) => `s${String(i)}`);
+    socket.emit(
+      'message',
+      JSON.stringify({ type: 'subscribe', id: 'f1', payload: { session_ids: ids } }),
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    expect(conn.subscriptionSessionIds).toHaveLength(WS_MAX_SUBSCRIPTIONS);
+
+    socket.emit(
+      'message',
+      JSON.stringify({ type: 'subscribe', id: 'f2', payload: { session_ids: ['extra'] } }),
+    );
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(socket.closeCalls).toEqual([
+      { code: WS_CLOSE_POLICY, reason: 'subscription limit exceeded' },
+    ]);
   });
 
   it('force-flushes buffered subscription frames on close', () => {

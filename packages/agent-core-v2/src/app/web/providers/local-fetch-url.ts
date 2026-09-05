@@ -74,6 +74,32 @@ export class LocalFetchURLProvider implements UrlFetcher {
     }
   }
 
+  private async readBoundedBody(response: Response): Promise<string> {
+    if (response.body === null) return '';
+    const reader = response.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let received = 0;
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        received += value.byteLength;
+        if (received > this.maxBytes) {
+          await reader.cancel().catch(() => {});
+          throw new Error2(
+            ErrorCodes.WEB_FETCH_FAILED,
+            `Response body too large: more than ${String(this.maxBytes)} bytes were delivered (maxBytes ${String(this.maxBytes)}).`,
+            { details: { bytes: received, maxBytes: this.maxBytes } },
+          );
+        }
+        chunks.push(value);
+      }
+    } finally {
+      reader.releaseLock();
+    }
+    return new TextDecoder('utf-8').decode(Buffer.concat(chunks));
+  }
+
   private async readResponse(response: Response): Promise<UrlFetchResult> {
     if (response.status >= 400) {
       await response.body?.cancel().catch(() => {
@@ -98,16 +124,7 @@ export class LocalFetchURLProvider implements UrlFetcher {
       }
     }
 
-    const body = await response.text();
-
-    const actualBytes = Buffer.byteLength(body, 'utf8');
-    if (actualBytes > this.maxBytes) {
-      throw new Error2(
-        ErrorCodes.WEB_FETCH_FAILED,
-        `Response body too large: ${String(actualBytes)} bytes exceeds maxBytes (${String(this.maxBytes)}).`,
-        { details: { bytes: actualBytes, maxBytes: this.maxBytes } },
-      );
-    }
+    const body = await this.readBoundedBody(response);
 
     const contentType = (response.headers.get('content-type') ?? '').toLowerCase();
     if (contentType.startsWith('text/plain') || contentType.startsWith('text/markdown')) {
