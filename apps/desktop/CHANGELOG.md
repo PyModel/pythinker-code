@@ -1,5 +1,25 @@
 # @pymodel/pythinker-desktop
 
+## 0.9.3
+
+### Patch Changes
+
+- [#290](https://github.com/PyModel/pythinker-code/pull/290) [`7acd42a`](https://github.com/PyModel/pythinker-code/commit/7acd42a5839c5f70e65a9ad4127673dddd7ec8e8) Thanks [@elkaix](https://github.com/elkaix)! - Write files atomically so an interrupted write leaves the previous content intact.
+
+- [#290](https://github.com/PyModel/pythinker-code/pull/290) [`7acd42a`](https://github.com/PyModel/pythinker-code/commit/7acd42a5839c5f70e65a9ad4127673dddd7ec8e8) Thanks [@elkaix](https://github.com/elkaix)! - Allow cancelling a prompt while it is still starting.
+
+- [#290](https://github.com/PyModel/pythinker-code/pull/290) [`7acd42a`](https://github.com/PyModel/pythinker-code/commit/7acd42a5839c5f70e65a9ad4127673dddd7ec8e8) Thanks [@elkaix](https://github.com/elkaix)! - Fix DSML and Hermes tool calls in streamed responses being dropped, split, or mistaken for quoted documentation depending on how the response was chunked.
+
+- [#288](https://github.com/PyModel/pythinker-code/pull/288) [`b12dfa1`](https://github.com/PyModel/pythinker-code/commit/b12dfa14c5c22669f467ae563e39d53c61686c72) Thanks [@elkaix](https://github.com/elkaix)! - Fix unparsed DSML tool call markup leaked into model text responses.
+
+- [#290](https://github.com/PyModel/pythinker-code/pull/290) [`7acd42a`](https://github.com/PyModel/pythinker-code/commit/7acd42a5839c5f70e65a9ad4127673dddd7ec8e8) Thanks [@elkaix](https://github.com/elkaix)! - Block file reads and writes that reach a sensitive file through a symlink alias.
+
+- [#290](https://github.com/PyModel/pythinker-code/pull/290) [`7acd42a`](https://github.com/PyModel/pythinker-code/commit/7acd42a5839c5f70e65a9ad4127673dddd7ec8e8) Thanks [@elkaix](https://github.com/elkaix)! - Report each subagent run's own token usage instead of the agent's lifetime total.
+
+- [#290](https://github.com/PyModel/pythinker-code/pull/290) [`7acd42a`](https://github.com/PyModel/pythinker-code/commit/7acd42a5839c5f70e65a9ad4127673dddd7ec8e8) Thanks [@elkaix](https://github.com/elkaix)! - Keep a cancelled tool that ignores the stop signal from overlapping with the next tool on the same file.
+
+- [#290](https://github.com/PyModel/pythinker-code/pull/290) [`7acd42a`](https://github.com/PyModel/pythinker-code/commit/7acd42a5839c5f70e65a9ad4127673dddd7ec8e8) Thanks [@elkaix](https://github.com/elkaix)! - Stop downloading a web page as soon as it exceeds the size limit instead of buffering it first.
+
 ## 0.9.2
 
 ### Patch Changes
