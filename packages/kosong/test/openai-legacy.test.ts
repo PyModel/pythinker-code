@@ -1539,7 +1539,9 @@ describe('OpenAILegacyChatProvider', () => {
         };
       }
 
-      (provider as any)._client.chat.completions.create = vi
+      (
+        provider as unknown as { _client: { chat: { completions: { create: unknown } } } }
+      )._client.chat.completions.create = vi
         .fn()
         .mockResolvedValue(mockedStream());
 

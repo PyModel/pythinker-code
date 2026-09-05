@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 
@@ -320,8 +321,9 @@ describe('DsmlStreamParser conformance', () => {
 
   describe('implementation parity with @pymodel/kosong', () => {
     it('keeps both parser copies byte-identical except for the message import', () => {
-      const here = resolve(__dirname, '../../../src/kosong/provider/bases/openai/dsml-tool-parser.ts');
-      const legacy = resolve(__dirname, '../../../../kosong/src/providers/dsml-tool-parser.ts');
+      const dir = import.meta.dirname;
+      const here = resolve(dir, '../../../src/kosong/provider/bases/openai/dsml-tool-parser.ts');
+      const legacy = resolve(dir, '../../../../kosong/src/providers/dsml-tool-parser.ts');
       const v2 = readFileSync(here, 'utf8').replace(
         "from '#/kosong/contract/message';",
         "from '#/message';",

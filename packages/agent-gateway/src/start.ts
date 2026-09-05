@@ -318,11 +318,22 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
       await phase('config-publisher', () => configChangedPublisher.close());
       await phase('http', () => app.close());
       await phase('subscriptions', () => {
-        configWarningSubscription.dispose();
-        pluginChangeSubscription.dispose();
-        capabilityInstallSubscription.dispose();
-        authFailureLimiter?.dispose();
-        modelCatalogRefreshScheduler.dispose();
+        for (const sub of [
+          configWarningSubscription,
+          pluginChangeSubscription,
+          capabilityInstallSubscription,
+          authFailureLimiter,
+          modelCatalogRefreshScheduler,
+        ]) {
+          try {
+            sub?.dispose();
+          } catch (error) {
+            logger.warn(
+              { err: error instanceof Error ? error.message : String(error) },
+              'subscription disposal failed; continuing',
+            );
+          }
+        }
       });
       await phase('telemetry', () => shutdownServerTelemetry(telemetry), false);
       await phase('session-metadata', () => drainSessionMetadataWrites());

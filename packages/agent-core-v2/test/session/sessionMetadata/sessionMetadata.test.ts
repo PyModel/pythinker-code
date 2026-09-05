@@ -234,8 +234,13 @@ describe('SessionMetadata', () => {
     await meta.ready;
     await meta.registerAgent('sub-1', { homedir: '/tmp/sub-1', type: 'sub', parentAgentId: 'main' });
     const before = (await meta.read()).updatedAt;
-    await meta.unregisterAgent('sub-1');
-    await meta.unregisterAgent('missing');
+    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(before + 10_000);
+    try {
+      await meta.unregisterAgent('sub-1');
+      await meta.unregisterAgent('missing');
+    } finally {
+      nowSpy.mockRestore();
+    }
     const after = await meta.read();
     expect(after.agents).toEqual({});
     expect(after.updatedAt).toBe(before);

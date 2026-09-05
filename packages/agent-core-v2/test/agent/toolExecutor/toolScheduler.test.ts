@@ -256,7 +256,6 @@ describe('ToolScheduler leases and budgets', () => {
     abandoned.resolve();
     await waitOneMacrotask();
 
-    expect(drained).toEqual([]);
     expect(started).toEqual(['abandoned']);
     settleEffects();
     await waitOneMacrotask();

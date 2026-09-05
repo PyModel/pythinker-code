@@ -71,11 +71,8 @@ function makeBroadcaster(): SessionEventBroadcaster {
   } as unknown as SessionEventBroadcaster;
 }
 
-function withBroadcaster(overrides: Record<string, unknown>): SessionEventBroadcaster {
-  return Object.assign(
-    makeBroadcaster() as unknown as Record<string, unknown>,
-    overrides,
-  ) as unknown as SessionEventBroadcaster;
+function withBroadcaster(overrides: Partial<SessionEventBroadcaster>): SessionEventBroadcaster {
+  return Object.assign(makeBroadcaster(), overrides);
 }
 
 function makeRegistry(): IConnectionRegistry {

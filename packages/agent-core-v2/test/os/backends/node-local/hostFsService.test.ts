@@ -87,6 +87,24 @@ describe('HostFileSystem readLines budget', () => {
 
     expect(lines).toEqual([`${long}\n`]);
   });
+
+  it('preserves complete UTF-8 code points when line budget cuts into multibyte characters', async () => {
+    const path = join(dir, 'multibyte.txt');
+    await writeFile(path, `${'€'.repeat(100)}\n`, 'utf-8');
+
+    const lines: string[] = [];
+    for await (const line of fs.readLines(path, { maxLineBytes: 16, errors: 'strict' })) lines.push(line);
+
+    expect(lines).toEqual([`${'€'.repeat(5)}\n`]);
+  });
+
+  it('rejects maxLineBytes when encoding is not UTF-8', async () => {
+    const path = join(dir, 'other.txt');
+    await writeFile(path, 'content', 'utf-8');
+
+    const iter = fs.readLines(path, { encoding: 'latin1', maxLineBytes: 4 });
+    await expect(iter.next()).rejects.toThrow('maxLineBytes is only supported for UTF-8 encoding');
+  });
 });
 
 describe('HostFileSystem stat / lstat', () => {

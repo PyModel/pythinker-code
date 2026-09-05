@@ -14,7 +14,7 @@ import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { decodeTextWithErrors, type TextDecodeErrors } from '#/_base/execEnv/decodeText';
 
 import { type HostDirEntry, type HostFileStat, IHostFileSystem } from '#/os/interface/hostFileSystem';
-import { toHostFsError } from '#/os/interface/hostFsErrors';
+import { toHostFsError, HostFsError, OsFsErrors } from '#/os/interface/hostFsErrors';
 import { atomicWrite } from '#/_base/utils/fs';
 
 const NEWLINE = Buffer.from([0x0a]);
@@ -36,6 +36,33 @@ function* splitLinesKeepingTerminator(text: string): Generator<string> {
   if (start < text.length) {
     yield text.slice(start);
   }
+}
+
+function trimToValidUtf8Boundary(buf: Buffer): Buffer {
+  let i = buf.length - 1;
+  let continuations = 0;
+  while (i >= 0 && continuations < 3) {
+    const byte = buf[i];
+    if (byte === undefined || (byte & 0xc0) !== 0x80) break;
+    continuations += 1;
+    i -= 1;
+  }
+  if (i < 0) return buf;
+  const lead = buf[i];
+  if (lead === undefined) return buf;
+  if ((lead & 0x80) === 0) {
+    return continuations === 0 ? buf : buf.subarray(0, i + 1);
+  }
+  let needed = 0;
+  if ((lead & 0xe0) === 0xc0) needed = 1;
+  else if ((lead & 0xf0) === 0xe0) needed = 2;
+  else if ((lead & 0xf8) === 0xf0) needed = 3;
+  else return buf.subarray(0, i);
+
+  if (continuations < needed) {
+    return buf.subarray(0, i);
+  }
+  return buf;
 }
 
 export class HostFileSystem implements IHostFileSystem {
@@ -121,6 +148,9 @@ export class HostFileSystem implements IHostFileSystem {
       const errors = options?.errors ?? 'strict';
 
       if (!isUtf8Encoding(encoding)) {
+        if (options?.maxLineBytes !== undefined) {
+          throw new HostFsError(OsFsErrors.codes.OS_FS_UNKNOWN, 'maxLineBytes is only supported for UTF-8 encoding');
+        }
         const content = decodeTextWithErrors(await readFile(path), encoding, errors);
         yield* splitLinesKeepingTerminator(content);
         return;
@@ -159,8 +189,9 @@ export class HostFileSystem implements IHostFileSystem {
       const takeLine = (piece: Buffer): Buffer => {
         if (pending.length === 0 && piece.length <= maxLineBytes) return piece;
         retain(piece);
-        const parts = pendingTruncated && piece.at(-1) === 0x0a ? [...pending, NEWLINE] : pending;
-        const line = Buffer.concat(parts);
+        const kept = Buffer.concat(pending);
+        const safe = pendingTruncated ? trimToValidUtf8Boundary(kept) : kept;
+        const line = pendingTruncated && piece.at(-1) === 0x0a ? Buffer.concat([safe, NEWLINE]) : safe;
         pending = [];
         pendingBytes = 0;
         pendingTruncated = false;
@@ -190,7 +221,8 @@ export class HostFileSystem implements IHostFileSystem {
       }
 
       if (pending.length > 0) {
-        const line = Buffer.concat(pending);
+        const kept = Buffer.concat(pending);
+        const line = pendingTruncated ? trimToValidUtf8Boundary(kept) : kept;
         yield decodeTextWithErrors(line, 'utf-8', errors, pendingOffset !== 0);
       }
     } finally {

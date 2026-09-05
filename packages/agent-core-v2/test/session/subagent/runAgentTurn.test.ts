@@ -21,18 +21,18 @@ function fakeHandle(totals: TokenUsage[]): IAgentScopeHandle {
     id: 1,
     signal: new AbortController().signal,
     ready: Promise.resolve(),
-    result: Promise.resolve({ type: 'completed', steps: 1, truncated: false } as never),
+    result: Promise.resolve({ type: 'completed', steps: 1, truncated: false }),
     cancel: () => true,
   };
   return {
     id: 'sub',
     kind: LifecycleScope.Agent,
     accessor: {
-      get: (serviceId: unknown) => {
+      get: <T>(serviceId: unknown): T => {
         if (serviceId === ISessionUsageService) {
           return {
             status: () => ({ total: totals[Math.min(cursor, totals.length - 1)] }),
-          };
+          } as T;
         }
         if (serviceId === IAgentPromptService) {
           return {
@@ -40,17 +40,18 @@ function fakeHandle(totals: TokenUsage[]): IAgentScopeHandle {
               cursor += 1;
               return { launched: Promise.resolve(turn) };
             },
-          };
+          } as T;
         }
-        if (serviceId === IAgentLoopService) return { cancel: () => true };
+        if (serviceId === IAgentLoopService) return { cancel: () => true } as T;
         if (serviceId === IAgentContextMemoryService) {
-          return { get: () => [{ role: 'assistant', content: [{ type: 'text', text: 'done' }] }] };
+          return { get: () => [{ role: 'assistant', content: [{ type: 'text', text: 'done' }] }] } as T;
         }
-        if (serviceId === IAgentScopeContext) return { agentContext };
+        if (serviceId === IAgentScopeContext) return { agentContext } as T;
         throw new Error(`unexpected service ${String(serviceId)}`);
       },
     },
-  } as unknown as IAgentScopeHandle;
+    dispose: () => {},
+  };
 }
 
 describe('runAgentTurn usage attribution', () => {
