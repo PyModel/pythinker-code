@@ -1,15 +1,15 @@
 import type { StreamedMessagePart, ToolCall } from '#/kosong/contract/message';
 
 const MARK = String.raw`\s*[｜|]?\s*(?:DSML\s*[｜|]?)?\s*`;
-const CONTAINER_OPEN_RE = new RegExp(String.raw`<${MARK}tool_calls\s*>`, 'iy');
-const CONTAINER_CLOSE_RE = new RegExp(String.raw`</${MARK}tool_calls\s*>`, 'iy');
-const INVOKE_OPEN_RE = new RegExp(String.raw`<${MARK}invoke(?:\s+[^>]*)?>`, 'iy');
+const CONTAINER_OPEN_RE = new RegExp(String.raw`<${MARK}tool_calls\s*>`, 'yi');
+const CONTAINER_CLOSE_RE = new RegExp(String.raw`</${MARK}tool_calls\s*>`, 'yi');
+const INVOKE_OPEN_RE = new RegExp(String.raw`<${MARK}invoke(?:\s+[^>]*)?>`, 'yi');
 const INVOKE_CLOSE_RE = new RegExp(String.raw`</${MARK}invoke\s*>`, 'gi');
-const PARAM_OPEN_RE = new RegExp(String.raw`<${MARK}parameter\s+([^>]*?)>`, 'iy');
+const PARAM_OPEN_RE = new RegExp(String.raw`<${MARK}parameter\s+([^>]*?)>`, 'yi');
 const PARAM_CLOSE_RE = new RegExp(String.raw`</${MARK}parameter\s*>`, 'gi');
-const HERMES_OPEN_RE = /<tool_call>/iy;
+const HERMES_OPEN_RE = /<tool_call>/yi;
 const HERMES_CLOSE_RE = /<\/tool_call>/gi;
-const MARKED_RE = /<\/?\s*(?:[｜|]|DSML)/iy;
+const MARKED_RE = /<\/?\s*(?:[｜|]|DSML)/yi;
 const NAME_ATTR_RE = /\bname\s*=\s*(?:"([^"]+)"|'([^']+)'|([^\s>]+))/i;
 const STRING_ATTR_RE = /\bstring\s*=\s*(?:"(true|false)"|'(true|false)'|(true|false))/i;
 
