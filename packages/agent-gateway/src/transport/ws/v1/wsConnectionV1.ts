@@ -39,6 +39,11 @@ import {
 import { FsWatchBridge } from './fsWatchBridge';
 
 const DEFAULT_MAX_BUFFER_SIZE = 1000;
+export const WS_MAX_PAYLOAD_BYTES = 4 << 20;
+export const WS_MAX_PENDING_CONTROLS = 64;
+export const WS_MAX_SUBSCRIPTIONS = 256;
+export const WS_CLOSE_OVERLOADED = 1013;
+export const WS_CLOSE_POLICY = 1008;
 
 const DEFAULT_HEARTBEAT_INTERVAL_MS = 10_000;
 const HEARTBEAT_MISS_LIMIT = 2;
@@ -50,6 +55,7 @@ const DEFAULT_MAX_BATCH_SIZE = 64;
 const DEFAULT_HIGH_WATER_MARK_BYTES = 1 << 20;
 const DEFAULT_BACKPRESSURE_RETRY_MS = 5;
 const DEFAULT_BACKPRESSURE_MAX_DELAY_MS = 100;
+const DEFAULT_MAX_BUFFERED_BYTES_FACTOR = 8;
 
 interface InboundFrame {
   type: string;
@@ -98,6 +104,7 @@ export class WsConnectionV1 implements BroadcastTarget {
   private expertTalkEvents = false;
   readonly subscriptions = new Map<string, SessionSubscription>();
   private controlQueue: Promise<void> = Promise.resolve();
+  private pendingControls = 0;
 
   private outbound: unknown[] = [];
   private flushTimer?: ReturnType<typeof setTimeout>;
@@ -158,7 +165,7 @@ export class WsConnectionV1 implements BroadcastTarget {
   }
 
   get subscriptionSessionIds(): readonly string[] {
-    return Array.from(this.subscriptions.keys()).sort();
+    return Array.from(this.subscriptions.keys()).toSorted();
   }
 
   send(envelope: EventEnvelope, delivery: BroadcastDelivery = 'subscription'): void {
@@ -206,9 +213,23 @@ export class WsConnectionV1 implements BroadcastTarget {
     }
   }
 
+  get pendingControlCount(): number {
+    return this.pendingControls;
+  }
+
   private enqueueControl(task: () => Promise<void>): void {
-    this.controlQueue = this.controlQueue.then(task).catch(() => {
-    });
+    if (this.pendingControls >= WS_MAX_PENDING_CONTROLS) {
+      this.closeOverloaded('control queue overflow');
+      return;
+    }
+    this.pendingControls += 1;
+    this.controlQueue = this.controlQueue
+      .then(() => (this.closed ? undefined : task()))
+      .catch(() => {
+      })
+      .finally(() => {
+        this.pendingControls -= 1;
+      });
   }
 
   private onHeartbeat(): void {
@@ -420,10 +441,19 @@ export class WsConnectionV1 implements BroadcastTarget {
     },
   ): Promise<void> {
     const { accepted, resyncRequired, serverCursors, notFound } = collectors;
+    if (this.closed) return;
+    if (!this.subscriptions.has(sid) && this.subscriptions.size >= WS_MAX_SUBSCRIPTIONS) {
+      this.close(WS_CLOSE_POLICY, 'subscription limit exceeded');
+      return;
+    }
     const ok = await this.broadcaster.subscribe(sid, this, filter, transcriptGrades, {
       deferTranscriptReset: cursor !== undefined,
       transcriptSince,
     });
+    if (this.closed) {
+      if (ok) this.broadcaster.unsubscribe(sid, this);
+      return;
+    }
     if (!ok) {
       if (notFound !== undefined) notFound.push(sid);
       else resyncRequired.push(sid);
@@ -490,6 +520,10 @@ export class WsConnectionV1 implements BroadcastTarget {
 
   private sendSubscribedFrame(msg: unknown): void {
     if (this.closed) return;
+    if (this.outbound.length >= this.maxBufferSize) {
+      this.closeOverloaded('outbound buffer overflow');
+      return;
+    }
     this.outbound.push(msg);
     if (this.outbound.length >= this.maxBatchSize) {
       this.flush();
@@ -545,6 +579,10 @@ export class WsConnectionV1 implements BroadcastTarget {
     const now = Date.now();
     if (this.backpressureSince === undefined) this.backpressureSince = now;
     if (now - this.backpressureSince >= DEFAULT_BACKPRESSURE_MAX_DELAY_MS) {
+      if (this.socket.bufferedAmount > this.highWaterMarkBytes * DEFAULT_MAX_BUFFERED_BYTES_FACTOR) {
+        this.closeOverloaded('slow consumer');
+        return;
+      }
       this.flush(true);
       return;
     }
@@ -554,6 +592,12 @@ export class WsConnectionV1 implements BroadcastTarget {
       this.flush();
     }, DEFAULT_BACKPRESSURE_RETRY_MS);
     this.backpressureRetryTimer.unref?.();
+  }
+
+  private closeOverloaded(reason: string): void {
+    if (this.closed) return;
+    this.outbound = [];
+    this.close(WS_CLOSE_OVERLOADED, reason);
   }
 
   close(code = 1000, reason?: string): void {
@@ -585,7 +629,7 @@ export class WsConnectionV1 implements BroadcastTarget {
 
 function asStringArray(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
-  return value.filter((v): v is string => typeof v === 'string');
+  return value.filter((v): v is string => typeof v === 'string').slice(0, WS_MAX_SUBSCRIPTIONS);
 }
 
 function parseAgentFilter(value: unknown): Record<string, AgentFilter> | undefined {

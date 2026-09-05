@@ -292,35 +292,65 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
     app.addHook('onSend', createSecurityHeadersHook({ tls: false }));
   }
 
-  const close = async (): Promise<void> => {
-    configChangedPublisher.close();
-    await app.close();
-    configWarningSubscription.dispose();
-    pluginChangeSubscription.dispose();
-    capabilityInstallSubscription.dispose();
-    authFailureLimiter?.dispose();
-    modelCatalogRefreshScheduler.dispose();
+  let closePromise: Promise<void> | undefined;
+  const close = (): Promise<void> => {
+    closePromise ??= runClose();
+    return closePromise;
+  };
+  const runClose = async (): Promise<void> => {
+    const failures: unknown[] = [];
+    const phase = async (
+      name: string,
+      work: () => unknown,
+      required = true,
+    ): Promise<void> => {
+      try {
+        await work();
+      } catch (error) {
+        if (required) failures.push(error);
+        logger.warn(
+          { err: error instanceof Error ? error.message : String(error), phase: name },
+          'server cleanup phase failed; continuing',
+        );
+      }
+    };
     try {
-      await shutdownServerTelemetry(telemetry);
-    } catch (error) {
-      logger.warn(
-        { err: error instanceof Error ? error.message : String(error) },
-        'telemetry shutdown failed; continuing server cleanup',
-      );
-    }
-    try {
-      await drainSessionMetadataWrites();
-      await core.accessor.get(ISessionIndexMirror).drain();
-      await core.accessor.get(IMcpOAuthService).shutdown();
-      fsWatchBridge.dispose();
-      const appendLogStore = core.accessor.get(IAppendLogStore);
-      core.dispose();
-      await appendLogStore.drainRetirements();
-      await drainSessionIndexMirror();
-      await drainGlobalSearchDisposals();
-      await drainQueryStoreDisposals();
-      await drainSessionMetadataWrites();
-      await drainLogCloses();
+      await phase('config-publisher', () => configChangedPublisher.close());
+      await phase('http', () => app.close());
+      await phase('subscriptions', () => {
+        for (const sub of [
+          configWarningSubscription,
+          pluginChangeSubscription,
+          capabilityInstallSubscription,
+          authFailureLimiter,
+          modelCatalogRefreshScheduler,
+        ]) {
+          try {
+            sub?.dispose();
+          } catch (error) {
+            logger.warn(
+              { err: error instanceof Error ? error.message : String(error) },
+              'subscription disposal failed; continuing',
+            );
+          }
+        }
+      });
+      await phase('telemetry', () => shutdownServerTelemetry(telemetry), false);
+      await phase('session-metadata', () => drainSessionMetadataWrites());
+      await phase('session-index', () => core.accessor.get(ISessionIndexMirror).drain());
+      await phase('mcp-oauth', () => core.accessor.get(IMcpOAuthService).shutdown());
+      await phase('fs-watch', () => fsWatchBridge.dispose());
+      let appendLogStore: IAppendLogStore | undefined;
+      await phase('append-log', () => {
+        appendLogStore = core.accessor.get(IAppendLogStore);
+      });
+      await phase('core', () => core.dispose());
+      await phase('append-log-retirements', () => appendLogStore?.drainRetirements());
+      await phase('session-index-drain', () => drainSessionIndexMirror());
+      await phase('global-search', () => drainGlobalSearchDisposals());
+      await phase('query-store', () => drainQueryStoreDisposals());
+      await phase('session-metadata-final', () => drainSessionMetadataWrites());
+      await phase('log-closes', () => drainLogCloses());
     } finally {
       try {
         await registration.release();
@@ -329,6 +359,8 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
         process.off('uncaughtException', onUncaughtException);
       }
     }
+    if (failures.length === 1) throw failures[0];
+    if (failures.length > 1) throw new AggregateError(failures, 'server cleanup failed');
   };
 
   const connectionRegistry = new ConnectionRegistry();

@@ -243,6 +243,33 @@ function relativeOutsideMessage(path: string, operation: PathAccessOperation): s
   );
 }
 
+export interface ResolvedTargetFs {
+  realpath(path: string): Promise<string>;
+}
+
+export async function resolveRealTarget(fs: ResolvedTargetFs, path: string): Promise<string> {
+  try {
+    return await fs.realpath(path);
+  } catch {
+    const parent = pathe.dirname(path);
+    if (parent === path) return path;
+    return pathe.join(await resolveRealTarget(fs, parent), pathe.basename(path));
+  }
+}
+
+export async function sensitiveTargetError(
+  fs: ResolvedTargetFs,
+  requestedPath: string,
+  safePath: string,
+): Promise<string | undefined> {
+  const target = await resolveRealTarget(fs, safePath);
+  if (target === safePath || !isSensitiveFile(target)) return undefined;
+  return (
+    `"${requestedPath}" resolves to "${target}", which matches a sensitive-file pattern ` +
+    `(env / credential / SSH key). Access is blocked to protect secrets.`
+  );
+}
+
 export function resolvePathAccess(
   path: string,
   cwd: string,

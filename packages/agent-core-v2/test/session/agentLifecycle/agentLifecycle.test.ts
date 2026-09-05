@@ -196,6 +196,7 @@ describe('AgentLifecycleService', () => {
   let disposables: DisposableStore;
   let ix: TestInstantiationService;
   let registerAgent: ReturnType<typeof vi.fn<ISessionMetadata['registerAgent']>>;
+  let unregisterAgent: ReturnType<typeof vi.fn<ISessionMetadata['unregisterAgent']>>;
   let atomicDocs: Map<string, unknown>;
   let permissionModeSetMode: ReturnType<typeof vi.fn>;
   let stopAllOnExit: ReturnType<typeof vi.fn>;
@@ -220,6 +221,7 @@ describe('AgentLifecycleService', () => {
     ix.stub(IFileSystemStorageService, new InMemoryStorageService());
     stubBlobPassThrough(ix);
     registerAgent = vi.fn<ISessionMetadata['registerAgent']>().mockResolvedValue(undefined);
+    unregisterAgent = vi.fn<ISessionMetadata['unregisterAgent']>().mockResolvedValue(undefined);
     atomicDocs = new Map();
     ix.stub(ISessionContext, {
       _serviceBrand: undefined,
@@ -255,6 +257,7 @@ describe('AgentLifecycleService', () => {
       setTitle: () => Promise.resolve(),
       setArchived: () => Promise.resolve(),
       registerAgent,
+      unregisterAgent,
     });
     ix.stub(IBootstrapService, {
       _serviceBrand: undefined,
@@ -352,6 +355,7 @@ describe('AgentLifecycleService', () => {
       }),
       cancel: loopCancel,
       settled: loopSettled,
+      tryAcquireQuiescence: () => ({ dispose: () => {} }),
     } as unknown as IAgentLoopService);
     promptDrain = vi.fn<IAgentPromptService['drain']>(async () => {});
     ix.stub(IAgentPromptService, {
@@ -685,6 +689,50 @@ describe('AgentLifecycleService', () => {
     }
   });
 
+  it('remove runs every cleanup phase, rethrows the failure, and stays retry-safe', async () => {
+    stopAllOnExit.mockRejectedValueOnce(new Error('stop failed'));
+    const svc = ix.get(IAgentLifecycleService);
+    const main = await svc.create({ agentId: 'main' });
+    const closed: string[] = [];
+    disposables.add(svc.onDidClose((agent) => closed.push(agent.agentId)));
+
+    await expect(svc.remove(main)).rejects.toThrow('stop failed');
+
+    expect(promptDrain).toHaveBeenCalledOnce();
+    expect(closed).toEqual(['main']);
+    expect(svc.get('main')).toBeUndefined();
+    await expect(svc.remove(main)).resolves.toBeUndefined();
+    const recreated = await svc.create({ agentId: 'main' });
+    expect(recreated).not.toBe(main);
+  });
+
+  it('concurrent remove calls join a single close', async () => {
+    const svc = ix.get(IAgentLifecycleService);
+    const main = await svc.create({ agentId: 'main' });
+    const closed: string[] = [];
+    disposables.add(svc.onDidClose((agent) => closed.push(agent.agentId)));
+
+    await Promise.all([svc.remove(main), svc.remove(main), svc.remove(main)]);
+
+    expect(stopAllOnExit).toHaveBeenCalledTimes(1);
+    expect(promptDrain).toHaveBeenCalledOnce();
+    expect(closed).toEqual(['main']);
+  });
+
+  it('create failure after registration compensates the persisted agent metadata', async () => {
+    const config = ix.get(IConfigService);
+    vi.spyOn(config, 'get').mockImplementationOnce(() => {
+      throw new Error('bootstrap boom');
+    });
+    const svc = ix.get(IAgentLifecycleService);
+
+    await expect(svc.create({ agentId: 'main' })).rejects.toThrow('bootstrap boom');
+
+    expect(registerAgent).toHaveBeenCalledOnce();
+    expect(unregisterAgent).toHaveBeenCalledWith('main');
+    expect(svc.get('main')).toBeUndefined();
+  });
+
   it('remove stops the agent background tasks before disposal', async () => {
     const svc = ix.get(IAgentLifecycleService);
     const main = await svc.create({ agentId: 'main' });
@@ -802,6 +850,7 @@ describe('AgentLifecycleService', () => {
       setTitle: () => Promise.resolve(),
       setArchived: () => Promise.resolve(),
       registerAgent,
+      unregisterAgent: () => Promise.resolve(),
     });
     const svc = ix.get(IAgentLifecycleService);
 

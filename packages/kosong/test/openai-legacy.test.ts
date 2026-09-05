@@ -1507,6 +1507,57 @@ describe('OpenAILegacyChatProvider', () => {
       expect(messages[0]).not.toHaveProperty('reasoning_content');
     });
 
+    it('lets native streamed tool calls win over a DSML echo in content', async () => {
+      const provider = new OpenAILegacyChatProvider({
+        model: 'deepseek-chat',
+        apiKey: 'test-key',
+        stream: true,
+      });
+      const echo =
+        '<｜DSML｜tool_calls>\n<｜DSML｜invoke name="Read">\n<｜DSML｜parameter name="filePath" string="true">a.ts</｜DSML｜parameter>\n</｜DSML｜invoke>\n</｜DSML｜tool_calls>';
+
+      async function* mockedStream(): AsyncIterable<Record<string, unknown>> {
+        yield { id: 'c1', choices: [{ index: 0, delta: { content: echo } }] };
+        yield {
+          id: 'c1',
+          choices: [
+            {
+              index: 0,
+              delta: {
+                tool_calls: [
+                  {
+                    index: 0,
+                    id: 'call_native',
+                    type: 'function',
+                    function: { name: 'Read', arguments: '{"filePath":"a.ts"}' },
+                  },
+                ],
+              },
+              finish_reason: 'tool_calls',
+            },
+          ],
+        };
+      }
+
+      (
+        provider as unknown as { _client: { chat: { completions: { create: unknown } } } }
+      )._client.chat.completions.create = vi
+        .fn()
+        .mockResolvedValue(mockedStream());
+
+      const stream = await provider.generate(
+        '',
+        [],
+        [{ role: 'user', content: [{ type: 'text', text: 'q' }], toolCalls: [] }],
+      );
+      const parts: StreamedMessagePart[] = [];
+      for await (const part of stream) parts.push(part);
+
+      const calls = parts.filter((part) => part.type === 'function');
+      expect(calls).toHaveLength(1);
+      expect(calls[0]).toMatchObject({ id: 'call_native', name: 'Read' });
+    });
+
     it('yields ThinkPart from streaming response even without explicit reasoningKey', async () => {
       const provider = new OpenAILegacyChatProvider({
         model: 'deepseek-reasoner',

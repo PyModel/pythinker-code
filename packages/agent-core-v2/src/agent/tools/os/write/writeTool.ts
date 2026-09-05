@@ -14,6 +14,7 @@ import {
 import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
 import {
   resolvePathAccessPath,
+  sensitiveTargetError,
   type WorkspaceConfig,
 } from '#/tool/path-access';
 import { toInputJsonSchema } from '#/tool/input-schema';
@@ -70,6 +71,8 @@ export class WriteTool implements IWriteTool {
           if (lease.runtime.identity.generation !== inspected.identity.generation) {
             return { isError: true, output: 'Runtime changed before execution. Retry the tool call.' };
           }
+          const denied = await sensitiveTargetError(lease.runtime.fs!, args.path, path);
+          if (denied !== undefined) return { isError: true, output: denied };
           return await this.execution(lease.runtime.fs!, args, path);
         } finally {
           lease.dispose();

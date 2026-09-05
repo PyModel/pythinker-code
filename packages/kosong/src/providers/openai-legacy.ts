@@ -409,7 +409,8 @@ export class OpenAILegacyStreamedMessage implements StreamedMessage {
 
     let text = message.content ?? null;
     let extractedToolCalls: ToolCall[] = [];
-    if (text) {
+    const hasNativeToolCalls = (message.tool_calls ?? []).some(isFunctionToolCall);
+    if (text && !hasNativeToolCalls) {
       const parsed = extractDsmlToolCalls(text);
       if (parsed.toolCalls.length > 0) {
         text = parsed.cleanText;
@@ -445,6 +446,8 @@ export class OpenAILegacyStreamedMessage implements StreamedMessage {
   ): AsyncGenerator<StreamedMessagePart> {
     const bufferedToolCalls = new Map<number | string, BufferedChatCompletionToolCall>();
     const dsmlParser = new DsmlStreamParser();
+    const recoveredToolCalls: ToolCall[] = [];
+    let nativeToolCallsSeen = false;
 
     try {
       for await (const chunk of response) {
@@ -481,13 +484,18 @@ export class OpenAILegacyStreamedMessage implements StreamedMessage {
         // text content
         if (delta.content) {
           for (const part of dsmlParser.feed(delta.content)) {
-            yield part;
+            if (part.type === 'function') {
+              recoveredToolCalls.push(part);
+            } else {
+              yield part;
+            }
           }
         }
 
         // tool calls — preserve `index` on every yielded part so the generate
         // loop can route interleaved argument deltas from parallel tool calls.
         for (const toolCall of delta.tool_calls ?? []) {
+          nativeToolCallsSeen = true;
           for (const part of convertChatCompletionStreamToolCall(toolCall, bufferedToolCalls)) {
             yield part;
           }
@@ -495,10 +503,17 @@ export class OpenAILegacyStreamedMessage implements StreamedMessage {
       }
 
       for (const part of dsmlParser.flush()) {
-        yield part;
+        if (part.type === 'function') {
+          recoveredToolCalls.push(part);
+        } else {
+          yield part;
+        }
       }
-      if (dsmlParser.hasExtractedToolCalls) {
+      if (!nativeToolCallsSeen && recoveredToolCalls.length > 0) {
         this._hasExtractedToolCalls = true;
+        for (const toolCall of recoveredToolCalls) {
+          yield toolCall;
+        }
       }
     } catch (error: unknown) {
       throw convertOpenAIError(error);

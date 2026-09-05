@@ -313,6 +313,46 @@ describe('LocalFetchURLProvider connection pinning', () => {
     expect((fetchImpl.mock.calls[0]![1] as RequestInit).dispatcher).toBeInstanceOf(Agent);
   });
 
+  it('stops reading an oversized chunked body before buffering it', async () => {
+    let pulls = 0;
+    let cancelled = false;
+    const chunk = new Uint8Array(1024 * 1024);
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pulls += 1;
+        controller.enqueue(chunk);
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(body, { status: 200, headers: { 'content-type': 'text/plain' } }),
+    );
+    const provider = new LocalFetchURLProvider({ fetchImpl, maxBytes: 4 * 1024 * 1024 });
+
+    await expect(provider.fetch('https://example.com/stream')).rejects.toThrow(
+      'Response body too large',
+    );
+
+    expect(cancelled).toBe(true);
+    expect(pulls).toBeLessThanOrEqual(8);
+  });
+
+  it('rejects a body larger than an understated content-length', async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response('x'.repeat(2048), {
+        status: 200,
+        headers: { 'content-type': 'text/plain', 'content-length': '10' },
+      }),
+    );
+    const provider = new LocalFetchURLProvider({ fetchImpl, maxBytes: 1024 });
+
+    await expect(provider.fetch('https://example.com/lying')).rejects.toThrow(
+      'Response body too large',
+    );
+  });
+
   it('rejects oversized responses by content-length and still closes the pinned Agent', async () => {
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(
       new Response('short', {

@@ -2,11 +2,25 @@ import { ToolAccesses } from '#/tool/toolContract';
 
 export interface ToolCallTask<Result> {
   readonly accesses: ToolAccesses;
-  readonly start: () => Promise<{ readonly result: Promise<Result> }>;
+  readonly start: () => Promise<{
+    readonly result: Promise<Result>;
+    readonly effectsSettled?: Promise<unknown>;
+  }>;
 }
+
+export interface OutstandingEffect {
+  readonly accesses: ToolAccesses;
+  readonly settled: Promise<unknown>;
+}
+
+export const DEFAULT_TOOL_CONCURRENCY = 16;
 
 interface ScheduledToolCallTask<Result> extends ToolCallTask<Result> {
   readonly result: ControlledPromise<Result>;
+}
+
+interface ActiveEntry {
+  readonly accesses: ToolAccesses;
 }
 
 type ControlledPromise<Result> = Promise<Result> & {
@@ -15,15 +29,37 @@ type ControlledPromise<Result> = Promise<Result> & {
 };
 
 export class ToolScheduler<Result> {
-  private readonly activeTasks: Array<ScheduledToolCallTask<Result>> = [];
+  private readonly activeTasks: ActiveEntry[] = [];
   private queuedTasks: Array<ScheduledToolCallTask<Result>> = [];
+
+  constructor(
+    outstanding: Iterable<OutstandingEffect> = [],
+    private readonly maxConcurrency: number = DEFAULT_TOOL_CONCURRENCY,
+  ) {
+    for (const effect of outstanding) {
+      const entry: ActiveEntry = { accesses: effect.accesses };
+      this.activeTasks.push(entry);
+      void effect.settled.then(
+        () => this.finish(entry),
+        () => this.finish(entry),
+      );
+    }
+  }
+
+  get running(): number {
+    return this.activeTasks.length;
+  }
+
+  private get atCapacity(): boolean {
+    return this.activeTasks.length >= this.maxConcurrency;
+  }
 
   add(task: ToolCallTask<Result>): Promise<Result> {
     const result = createControlledPromise<Result>();
     void result.catch(() => undefined);
 
     const scheduledTask: ScheduledToolCallTask<Result> = { ...task, result };
-    if (this.isBlocked(task, this.queuedTasks)) {
+    if (this.atCapacity || this.isBlocked(task, this.queuedTasks)) {
       this.queuedTasks.push(scheduledTask);
     } else {
       this.start(scheduledTask);
@@ -43,7 +79,7 @@ export class ToolScheduler<Result> {
 
   private conflictsWithAny(
     task: ToolCallTask<Result>,
-    candidates: readonly ToolCallTask<Result>[],
+    candidates: readonly ActiveEntry[],
   ): boolean {
     return candidates.some((candidate) =>
       ToolAccesses.conflict(task.accesses, candidate.accesses),
@@ -52,7 +88,7 @@ export class ToolScheduler<Result> {
 
   private start(task: ScheduledToolCallTask<Result>): void {
     this.activeTasks.push(task);
-    let started: Promise<{ readonly result: Promise<Result> }>;
+    let started: ReturnType<ToolCallTask<Result>['start']>;
     try {
       started = task.start();
     } catch (error) {
@@ -62,14 +98,21 @@ export class ToolScheduler<Result> {
     }
 
     void started
-      .then(({ result }) => result)
-      .then(task.result.resolve, task.result.reject)
+      .then(
+        ({ result, effectsSettled }) => {
+          result.then(task.result.resolve, task.result.reject);
+          return Promise.allSettled([result, effectsSettled ?? result]);
+        },
+        (error) => {
+          task.result.reject(error);
+        },
+      )
       .finally(() => {
         this.finish(task);
       });
   }
 
-  private finish(task: ScheduledToolCallTask<Result>): void {
+  private finish(task: ActiveEntry): void {
     const index = this.activeTasks.indexOf(task);
     if (index >= 0) this.activeTasks.splice(index, 1);
     this.startQueuedTasks();
@@ -78,7 +121,7 @@ export class ToolScheduler<Result> {
   private startQueuedTasks(): void {
     const stillQueued: Array<ScheduledToolCallTask<Result>> = [];
     for (const task of this.queuedTasks) {
-      if (this.isBlocked(task, stillQueued)) {
+      if (this.atCapacity || this.isBlocked(task, stillQueued)) {
         stillQueued.push(task);
       } else {
         this.start(task);

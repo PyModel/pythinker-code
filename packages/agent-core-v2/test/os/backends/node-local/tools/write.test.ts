@@ -41,6 +41,7 @@ interface WriteFsOptions {
   appendText?: (path: string, data: string) => Promise<void>;
   stat?: (path: string) => Promise<HostFileStat>;
   mkdir?: (path: string) => Promise<void>;
+  readonly realpath?: (path: string) => Promise<string>;
 }
 
 function createWriteFs(options: WriteFsOptions = {}) {
@@ -56,8 +57,9 @@ function createWriteFs(options: WriteFsOptions = {}) {
     options.stat ?? (async () => ({ isFile: false, isDirectory: true, size: 0 })),
   );
   const mkdir = vi.fn(options.mkdir ?? (async () => {}));
-  const fs = { cwd: '/', readText, writeText, appendText, stat, mkdir } as unknown as IHostFileSystem;
-  return { fs, readText, writeText, appendText, stat, mkdir };
+  const realpath = vi.fn(options.realpath ?? (async (path: string) => path));
+  const fs = { cwd: '/', readText, writeText, appendText, stat, mkdir, realpath } as unknown as IHostFileSystem;
+  return { fs, readText, writeText, appendText, stat, mkdir, realpath };
 }
 
 function makeTool(options: WriteFsOptions = {}, workspace = PERMISSIVE_WORKSPACE) {
@@ -332,6 +334,19 @@ describe('WriteTool', () => {
 
     expect(result).toMatchObject({ isError: true });
     expect(result.output).toContain('absolute path');
+    expect(writeText).not.toHaveBeenCalled();
+  });
+
+  it('denies a benign alias whose real target is a sensitive file', async () => {
+    const { tool, writeText } = makeTool({
+      realpath: async (path) => (path === '/workspace/notes.txt' ? '/home/user/.env' : path),
+      stat: async () => ({ isFile: true, isDirectory: false, size: 1 }),
+    });
+
+    const result = await execute(tool, { path: '/workspace/notes.txt', content: 'x' });
+
+    expect(result.isError).toBe(true);
+    expect(result.output).toContain('resolves to "/home/user/.env"');
     expect(writeText).not.toHaveBeenCalled();
   });
 

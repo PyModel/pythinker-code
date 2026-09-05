@@ -295,6 +295,115 @@ describe('agent-core-v2: DsmlStreamParser and extractDsmlToolCalls', () => {
       });
     });
 
+    function mockClientFor(stream: unknown): unknown {
+      return {
+        chat: {
+          completions: {
+            create: () => ({
+              withResponse: async () => ({ data: stream, response: { headers: new Headers() } }),
+            }),
+          },
+        },
+      };
+    }
+
+    async function* chunksOf(chunks: unknown[]) {
+      for (const chunk of chunks) yield chunk;
+    }
+
+    const DSML_ECHO =
+      '<｜DSML｜tool_calls>\n<｜DSML｜invoke name="Read">\n<｜DSML｜parameter name="filePath" string="true">src/server.ts</｜DSML｜parameter>\n</｜DSML｜invoke>\n</｜DSML｜tool_calls>';
+
+    it('lets native streamed tool calls win over a DSML echo in content', async () => {
+      const provider = new OpenAILegacyChatProvider({ model: 'deepseek-chat', apiKey: 'k', stream: true });
+      const chunks = [
+        { id: 'c1', choices: [{ index: 0, delta: { content: DSML_ECHO }, finish_reason: null }] },
+        {
+          id: 'c1',
+          choices: [
+            {
+              index: 0,
+              delta: {
+                tool_calls: [
+                  { index: 0, id: 'call_native', type: 'function', function: { name: 'Read', arguments: '{"filePath":"src/server.ts"}' } },
+                ],
+              },
+              finish_reason: 'tool_calls',
+            },
+          ],
+        },
+      ];
+      (provider as unknown as { _client: unknown })._client = mockClientFor(chunksOf(chunks));
+      const stream = await provider.generate('', [], []);
+      const parts: Array<Record<string, unknown>> = [];
+      for await (const p of stream) parts.push(p as unknown as Record<string, unknown>);
+      const calls = parts.filter((p) => p['type'] === 'function');
+      expect(calls).toHaveLength(1);
+      expect(calls[0]).toMatchObject({ id: 'call_native', name: 'Read' });
+      expect(stream.finishReason).toBe('tool_calls');
+    });
+
+    it('keeps intentional repeated native streamed calls distinct', async () => {
+      const provider = new OpenAILegacyChatProvider({ model: 'deepseek-chat', apiKey: 'k', stream: true });
+      const native = (id: string, index: number) => ({
+        index,
+        id,
+        type: 'function',
+        function: { name: 'Read', arguments: '{"filePath":"a.ts"}' },
+      });
+      const chunks = [
+        { id: 'c1', choices: [{ index: 0, delta: { tool_calls: [native('call_a', 0)] }, finish_reason: null }] },
+        { id: 'c1', choices: [{ index: 0, delta: { tool_calls: [native('call_b', 1)] }, finish_reason: 'tool_calls' }] },
+      ];
+      (provider as unknown as { _client: unknown })._client = mockClientFor(chunksOf(chunks));
+      const stream = await provider.generate('', [], []);
+      const parts: Array<Record<string, unknown>> = [];
+      for await (const p of stream) parts.push(p as unknown as Record<string, unknown>);
+      expect(parts.filter((p) => p['type'] === 'function').map((p) => p['id'])).toEqual(['call_a', 'call_b']);
+    });
+
+    it('defers recovered streamed calls until the response ends so a late native call can win', async () => {
+      const provider = new OpenAILegacyChatProvider({ model: 'deepseek-chat', apiKey: 'k', stream: true });
+      const chunks = [
+        { id: 'c1', choices: [{ index: 0, delta: { content: 'Reading.\n' + DSML_ECHO }, finish_reason: null }] },
+        { id: 'c1', choices: [{ index: 0, delta: { content: '\nDone.' }, finish_reason: 'stop' }] },
+      ];
+      (provider as unknown as { _client: unknown })._client = mockClientFor(chunksOf(chunks));
+      const stream = await provider.generate('', [], []);
+      const parts: Array<Record<string, unknown>> = [];
+      for await (const p of stream) parts.push(p as unknown as Record<string, unknown>);
+      expect(parts.map((p) => p['type'])).toEqual(['text', 'text', 'function']);
+      expect(stream.finishReason).toBe('tool_calls');
+    });
+
+    it('ignores a DSML echo in non-stream content when native tool calls are present', async () => {
+      const provider = new OpenAILegacyChatProvider({ model: 'deepseek-chat', apiKey: 'k', stream: false });
+      const responseData = {
+        id: 'n1',
+        choices: [
+          {
+            index: 0,
+            message: {
+              role: 'assistant',
+              content: DSML_ECHO,
+              tool_calls: [
+                { id: 'call_native', type: 'function', function: { name: 'Read', arguments: '{"filePath":"src/server.ts"}' } },
+              ],
+            },
+            finish_reason: 'tool_calls',
+          },
+        ],
+      };
+      (provider as unknown as { _client: unknown })._client = mockClientFor(responseData);
+      const stream = await provider.generate('', [], []);
+      const parts: Array<Record<string, unknown>> = [];
+      for await (const p of stream) parts.push(p as unknown as Record<string, unknown>);
+      const calls = parts.filter((p) => p['type'] === 'function');
+      expect(calls).toHaveLength(1);
+      expect(calls[0]).toMatchObject({ id: 'call_native' });
+      expect(parts.filter((p) => p['type'] === 'text').map((p) => p['text'])).toEqual([DSML_ECHO]);
+    });
+
     it('preserves surrounding whitespace and markdown hard breaks in non-stream response', async () => {
       const provider = new OpenAILegacyChatProvider({
         model: 'deepseek-chat',

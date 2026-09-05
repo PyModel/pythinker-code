@@ -4,12 +4,12 @@ import { Readable } from 'node:stream';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices } from '#/_base/di/test';
-import { Event } from '#/_base/event';
+import { Emitter } from '#/_base/event';
 import { IAgentBlobService } from '#/agent/blob/agentBlobService';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import type { ContextMessage } from '#/agent/contextMemory/types';
 import type { ContentPart } from '#/kosong/contract/message';
-import { IAgentFullCompactionService } from '#/agent/fullCompaction/fullCompaction';
+import { IAgentFullCompactionService, type FullCompactionTask } from '#/agent/fullCompaction/fullCompaction';
 import { IAgentLoopService } from '#/agent/loop/loop';
 import { TurnSteer } from '#/agent/loop/turnOps';
 import { IAgentPromptService } from '#/agent/prompt/prompt';
@@ -74,13 +74,19 @@ function harness(loopOptions: StubLoopOptions = { pendingTurnResult: true }) {
     },
   });
   const loop = stubLoopWithHooks(loopOptions);
-  const fullCompaction = {
+  let activeTask: FullCompactionTask | null = null;
+  const finishCompactionEmitter = new Emitter<FullCompactionTask>();
+  disposables.add(finishCompactionEmitter);
+  const fullCompaction: IAgentFullCompactionService = {
     _serviceBrand: undefined,
-    compacting: null,
+    get compacting() {
+      return activeTask;
+    },
     begin: () => false,
+    cancel: () => {},
     hooks: createHooks(['onWillCompact']),
-    onDidFinishCompaction: Event.None,
-  } as unknown as IAgentFullCompactionService;
+    onDidFinishCompaction: finishCompactionEmitter.event,
+  };
   const intake = {
     get: vi.fn(async () => ({
       meta: {
@@ -124,7 +130,21 @@ function harness(loopOptions: StubLoopOptions = { pendingTurnResult: true }) {
   (ix.get(IEventBus) as ISessionEventBus).activateAgent(
     ix.get(IAgentScopeContext).agentContext,
   );
-  return { prompt: ix.get(IAgentPromptService), loop, context, fullCompaction, eventBus: ix.get(IEventBus), intake };
+  return {
+    prompt: ix.get(IAgentPromptService),
+    loop,
+    context,
+    fullCompaction,
+    eventBus: ix.get(IEventBus),
+    intake,
+    setCompacting: (task: FullCompactionTask | null) => {
+      activeTask = task;
+    },
+    finishCompaction: (task: FullCompactionTask) => {
+      activeTask = null;
+      finishCompactionEmitter.fire(task);
+    },
+  };
 }
 
 describe('AgentPromptService', () => {
@@ -228,6 +248,100 @@ describe('AgentPromptService', () => {
     ]);
     expect(events[0]).not.toHaveProperty('messageId');
     expect(events[0]).not.toHaveProperty('promptIds');
+  });
+
+  it('abort during launch cancels the prompt before it reaches the loop', async () => {
+    const { prompt, loop, eventBus } = harness();
+    const aborted: PromptAborted[] = [];
+    eventBus.subscribe(PromptAborted, (event) => aborted.push(event));
+    const enqueueSpy = vi.spyOn(loop, 'enqueue');
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    let promptId: string | undefined;
+    prompt.hooks.onBeforeSubmitPrompt.register('gate', async (_ctx, next) => { promptId = prompt.list().active?.id; await gate; await next(); });
+    const handlePromise = prompt.enqueue({ id: 'launching', message: message('slow start') });
+    await vi.waitFor(() => { expect(prompt.list().pending).toEqual([]); });
+    expect(promptId).toBeUndefined();
+    expect(prompt.abort('launching')).toBe(true);
+    release();
+    const handle = await handlePromise;
+    await expect(handle.completion).resolves.toMatchObject({ state: 'cancelled' });
+    await expect(handle.launched).resolves.toBeUndefined();
+    expect(enqueueSpy).not.toHaveBeenCalled();
+    expect(prompt.list()).toEqual({ active: undefined, pending: [] });
+    expect(aborted.map((event) => event.promptId)).toEqual(['launching']);
+  });
+
+  it('drain waits for a launching prompt and cancels it', async () => {
+    const { prompt, loop } = harness();
+    const enqueueSpy = vi.spyOn(loop, 'enqueue');
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    prompt.hooks.onBeforeSubmitPrompt.register('gate', async (_ctx, next) => { await gate; await next(); });
+    const handlePromise = prompt.enqueue({ id: 'launching', message: message('slow start') });
+    await vi.waitFor(() => { expect(prompt.list().pending).toEqual([]); });
+    let drained = false;
+    const drain = prompt.drain().then(() => { drained = true; });
+    await Promise.resolve();
+    expect(drained).toBe(false);
+    release();
+    await drain;
+    const handle = await handlePromise;
+    await expect(handle.completion).resolves.toMatchObject({ state: 'cancelled' });
+    expect(enqueueSpy).not.toHaveBeenCalled();
+  });
+
+  it('clear cancels a launching prompt', async () => {
+    const { prompt, loop } = harness();
+    const enqueueSpy = vi.spyOn(loop, 'enqueue');
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    prompt.hooks.onBeforeSubmitPrompt.register('gate', async (_ctx, next) => { await gate; await next(); });
+    const handlePromise = prompt.enqueue({ id: 'launching', message: message('slow start') });
+    await vi.waitFor(() => { expect(prompt.list().pending).toEqual([]); });
+    prompt.clear();
+    release();
+    await expect((await handlePromise).completion).resolves.toMatchObject({ state: 'cancelled' });
+    expect(enqueueSpy).not.toHaveBeenCalled();
+  });
+
+  it('cancels the turn when abort lands after the loop assigned it', async () => {
+    const { prompt, loop } = harness();
+    const cancelSpy = vi.spyOn(loop, 'cancel');
+    const originalEnqueue = loop.enqueue.bind(loop);
+    let releaseAssignment!: () => void;
+    const assignmentGate = new Promise<void>((resolve) => { releaseAssignment = resolve; });
+    const enqueueSpy = vi.spyOn(loop, 'enqueue').mockImplementationOnce((request, options) => {
+      const receipt = originalEnqueue(request, options);
+      return { ...receipt, assigned: assignmentGate.then(() => receipt.assigned) };
+    });
+    const handlePromise = prompt.enqueue({ id: 'launching', message: message('slow start') });
+    await vi.waitFor(() => { expect(enqueueSpy).toHaveBeenCalledOnce(); });
+    expect(prompt.abort('launching')).toBe(true);
+    releaseAssignment();
+    const handle = await handlePromise;
+    await expect(handle.launched).resolves.toBeDefined();
+    expect(cancelSpy).toHaveBeenCalledOnce();
+  });
+
+  it('parks a queued prompt while compaction runs instead of recursing', async () => {
+    const { prompt, setCompacting, finishCompaction } = harness();
+    const task: FullCompactionTask = {
+      promise: new Promise(() => {}),
+      abortController: new AbortController(),
+      trigger: 'manual',
+      tokenCount: 100,
+    };
+    setCompacting(task);
+    const handle = await prompt.enqueue({ id: 'parked', message: message('later') });
+    expect(handle.state).toBe('pending');
+    expect(prompt.list().pending.map((item) => item.id)).toEqual(['parked']);
+    expect(prompt.list().active).toBeUndefined();
+
+    finishCompaction(task);
+    await expect(handle.launched).resolves.toBeDefined();
+    expect(prompt.list().pending).toEqual([]);
+    expect(prompt.list().active?.id).toBe('parked');
   });
 
   it('aborts pending prompts and settles completion', async () => {

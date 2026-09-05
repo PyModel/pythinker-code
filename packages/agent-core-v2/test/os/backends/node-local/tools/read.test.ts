@@ -234,6 +234,20 @@ describe('ReadTool', () => {
     });
   });
 
+  it('denies a benign alias that resolves to a sensitive file', async () => {
+    const { fs, readBytes } = createSpiedFs('SECRET=1\n');
+    (fs as { realpath?: (path: string) => Promise<string> }).realpath = vi.fn(async (path: string) =>
+      path === '/tmp/notes.txt' ? '/home/user/.env' : path,
+    );
+    const tool = createReadTool(fs, createTestEnv(), PERMISSIVE_WORKSPACE);
+
+    const result = await execute(tool, { path: '/tmp/notes.txt' });
+
+    expect(result.isError).toBe(true);
+    expect(result.output).toContain('resolves to "/home/user/.env"');
+    expect(readBytes).not.toHaveBeenCalled();
+  });
+
   it('stats the resolved target so symlinked files stay readable', async () => {
     const { fs, stat } = createSpiedFs('alpha\n');
     const tool = createReadTool(fs, createTestEnv(), PERMISSIVE_WORKSPACE);
@@ -359,7 +373,7 @@ describe('ReadTool', () => {
       ),
     );
     expect(readBytes).toHaveBeenCalledWith('/tmp/external.txt', MEDIA_SNIFF_BYTES);
-    expect(readLines).toHaveBeenCalledWith('/tmp/external.txt', { errors: 'strict' });
+    expect(readLines).toHaveBeenCalledWith('/tmp/external.txt', { errors: 'strict', maxLineBytes: MAX_LINE_LENGTH * 4 });
   });
 
   it('returns a friendly error for missing files before sniffing bytes', async () => {
@@ -405,7 +419,7 @@ describe('ReadTool', () => {
       ),
     );
     expect(readBytes).toHaveBeenCalledWith('/home/test/notes/today.txt', MEDIA_SNIFF_BYTES);
-    expect(readLines).toHaveBeenCalledWith('/home/test/notes/today.txt', { errors: 'strict' });
+    expect(readLines).toHaveBeenCalledWith('/home/test/notes/today.txt', { errors: 'strict', maxLineBytes: MAX_LINE_LENGTH * 4 });
   });
 
   it('blocks sensitive files independently from workspace access', async () => {

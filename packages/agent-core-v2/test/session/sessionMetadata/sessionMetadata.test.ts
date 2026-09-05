@@ -214,6 +214,39 @@ describe('SessionMetadata', () => {
     expect(atUpdate).toMatchObject({ title: 'durable-first' });
   });
 
+  it('a rejected persist leaves memory at the last committed state', async () => {
+    const store = ix.get(IAtomicDocumentStore);
+    const meta = ix.get(ISessionMetadata);
+    await meta.ready;
+    await meta.update({ title: 'committed' });
+    vi.spyOn(store, 'set').mockRejectedValueOnce(new Error('disk full'));
+
+    await expect(meta.update({ title: 'lost' })).rejects.toThrow('disk full');
+    expect((await meta.read()).title).toBe('committed');
+
+    await meta.setArchived(true);
+    const fresh = createFreshMetadata(ix);
+    expect(await fresh.read()).toMatchObject({ title: 'committed', archived: true });
+  });
+
+  it('unregisterAgent removes the agent entry without bumping updatedAt', async () => {
+    const meta = ix.get(ISessionMetadata);
+    await meta.ready;
+    await meta.registerAgent('sub-1', { homedir: '/tmp/sub-1', type: 'sub', parentAgentId: 'main' });
+    const before = (await meta.read()).updatedAt;
+    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(before + 10_000);
+    try {
+      await meta.unregisterAgent('sub-1');
+      await meta.unregisterAgent('missing');
+    } finally {
+      nowSpy.mockRestore();
+    }
+    const after = await meta.read();
+    expect(after.agents).toEqual({});
+    expect(after.updatedAt).toBe(before);
+    expect((await createFreshMetadata(ix).read()).agents).toEqual({});
+  });
+
   it('a mirror failure degrades the read model but never fails the metadata mutation', async () => {
     mirror.record = () => {
       throw new Error('mirror down');

@@ -11,6 +11,7 @@ import {
   IBootstrapService,
   IFileSystemStorageService,
   IHostRequestHeaders,
+  IMcpOAuthService,
   InMemoryStorageService,
   ITelemetryService,
   noopTelemetryService,
@@ -272,6 +273,49 @@ describe('server-v2 boot', () => {
 
     expect(process.listenerCount('unhandledRejection')).toBe(rejectionBefore.length);
     expect(process.listenerCount('uncaughtException')).toBe(exceptionBefore.length);
+  });
+
+  it('joins concurrent close calls into one shutdown', async () => {
+    home = await mkdtemp(join(tmpdir(), 'pythinker-server-v2-close-once-'));
+    server = await startServer({
+      hostIdentity: TEST_HOST_IDENTITY,
+      host: '127.0.0.1',
+      port: 0,
+      homeDir: home,
+      logLevel: 'silent',
+    });
+    const dispose = vi.spyOn(server.core, 'dispose');
+
+    await Promise.all([server.close(), server.close()]);
+    await server.close();
+    server = undefined;
+
+    expect(dispose).toHaveBeenCalledTimes(1);
+    expect(await listLiveServerInstances(home)).toEqual([]);
+  });
+
+  it('runs every cleanup phase and rethrows when a required drain fails', async () => {
+    home = await mkdtemp(join(tmpdir(), 'pythinker-server-v2-close-fail-'));
+    const rejectionBefore = process.listenerCount('unhandledRejection');
+    const exceptionBefore = process.listenerCount('uncaughtException');
+    server = await startServer({
+      hostIdentity: TEST_HOST_IDENTITY,
+      host: '127.0.0.1',
+      port: 0,
+      homeDir: home,
+      logLevel: 'silent',
+    });
+    const core = server.core;
+    const oauth = core.accessor.get(IMcpOAuthService);
+    vi.spyOn(oauth, 'shutdown').mockRejectedValueOnce(new Error('oauth shutdown failed'));
+
+    await expect(server.close()).rejects.toThrow('oauth shutdown failed');
+    server = undefined;
+
+    expect(() => core.accessor.get(IBootstrapService)).toThrow();
+    expect(await listLiveServerInstances(home)).toEqual([]);
+    expect(process.listenerCount('unhandledRejection')).toBe(rejectionBefore);
+    expect(process.listenerCount('uncaughtException')).toBe(exceptionBefore);
   });
 
   it('does not leave process handlers installed when startup fails', async () => {

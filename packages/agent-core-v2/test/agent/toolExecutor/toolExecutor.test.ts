@@ -647,6 +647,94 @@ describe('AgentToolExecutorService', () => {
     ]);
   });
 
+  it('classifies telemetry by execution state, not by output text', async () => {
+    const tool = new TestTool('noisy', {
+      result: { output: 'upstream said: request aborted by peer', isError: true },
+    });
+    registry.register(tool);
+
+    await execute([toolCall('call_noisy', 'noisy', {})]);
+
+    expect(telemetryEvents).toContainEqual({
+      event: 'tool_call',
+      properties: expect.objectContaining({
+        tool_call_id: 'call_noisy',
+        outcome: 'error',
+        error_type: 'error',
+      }),
+    });
+  });
+
+  it('reports cancelled telemetry for a tool aborted by the signal', async () => {
+    const controller = new AbortController();
+    const tool = new ControlledTool('slow', ToolAccesses.writeFile('/repo/a.ts'));
+    registry.register(tool);
+
+    const execution = execute([toolCall('call_slow', 'slow', {})], controller.signal);
+    await tool.started;
+    controller.abort();
+    await execution;
+
+    expect(telemetryEvents).toContainEqual({
+      event: 'tool_call',
+      properties: expect.objectContaining({
+        tool_call_id: 'call_slow',
+        outcome: 'cancelled',
+        error_type: 'cancelled',
+      }),
+    });
+  });
+
+  it('holds the resource lease past the abort grace until the ignored execution settles', async () => {
+    vi.useFakeTimers();
+    try {
+      const controller = new AbortController();
+      let finishStubborn: () => void = () => {};
+      const stubbornDone = new Promise<void>((resolve) => {
+        finishStubborn = resolve;
+      });
+      const stubborn = new TestTool('stubborn', {
+        accesses: ToolAccesses.writeFile('/repo/a.ts'),
+        execute: async () => {
+          await stubbornDone;
+          return { output: 'late write' };
+        },
+      });
+      const follower = new TestTool('follower', {
+        accesses: ToolAccesses.writeFile('/repo/a.ts'),
+        result: { output: 'follower ran' },
+      });
+      registry.register(stubborn);
+      registry.register(follower);
+
+      const firstBatch = execute([toolCall('call_stubborn', 'stubborn', {})], controller.signal);
+      await vi.waitFor(() => expect(stubborn.calls).toHaveLength(1));
+      controller.abort();
+      await vi.advanceTimersByTimeAsync(2_000);
+      const results = await firstBatch;
+      expect(results).toEqual([
+        expect.objectContaining({ output: 'Tool "stubborn" was aborted', isError: true }),
+      ]);
+
+      let secondSettled = false;
+      const secondBatch = execute([toolCall('call_follower', 'follower', {})]).then((value) => {
+        secondSettled = true;
+        return value;
+      });
+      await vi.advanceTimersByTimeAsync(10);
+      expect(follower.calls).toHaveLength(0);
+      expect(secondSettled).toBe(false);
+
+      finishStubborn();
+      await vi.advanceTimersByTimeAsync(10);
+      const secondResults = await secondBatch;
+      expect(follower.calls).toHaveLength(1);
+      expect(secondResults).toEqual([expect.objectContaining({ output: 'follower ran' })]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('does not start a queued conflicting tool after abort', async () => {
     const controller = new AbortController();
     const first = new ControlledTool('first', ToolAccesses.writeFile('/repo/a.ts'));
