@@ -43,13 +43,14 @@ function isWildcard(host: string): boolean {
 
 /**
  * Rewrite a bound origin for browser auto-open. A wildcard bind host
- * (`0.0.0.0` / `::` / empty) is not navigable, so open localhost on the same
- * port instead — the same address the ready banner's `Local:` line shows.
+ * (`0.0.0.0` / `::` / empty, bracketed or bare) is not navigable, so open
+ * localhost on the same port instead — the same address the ready banner's
+ * `Local:` line shows.
  */
 export function browserOpenOrigin(origin: string): string {
   const separator = origin.lastIndexOf(':');
   const host = origin.slice(origin.indexOf('://') + 3, separator);
-  if (!isWildcard(host)) return origin;
+  if (!isWildcard(host.replace(/^\[/, '').replace(/\]$/, ''))) return origin;
   return `http://localhost${origin.slice(separator)}`;
 }
 

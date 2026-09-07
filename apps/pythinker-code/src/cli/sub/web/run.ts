@@ -40,7 +40,7 @@ import {
   isLoopbackHost,
   splitTokenFragment,
 } from './access-urls';
-import { type NetworkAddress } from './networks';
+import { formatHostForUrl, type NetworkAddress } from './networks';
 import {
   formatRemoteControlOutput,
   formatRemoteControlStatus,
@@ -419,7 +419,7 @@ async function runServerInProcess(
   });
   logger.info('serving the REST/WS API and the bundled web UI');
   running = {
-    address: `http://${v2.host}:${v2.port}`,
+    address: `http://${formatHostForUrl(v2.host, v2.host.includes(':') ? 'IPv6' : 'IPv4')}:${v2.port}`,
     logger,
     close: () => v2.close(),
   };

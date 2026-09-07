@@ -403,7 +403,7 @@ describe('`pythinker web` opens the browser', () => {
 
   it('opens localhost for a wildcard IPv6 bind', async () => {
     const { handleWebCommand } = await import('#/cli/sub/web/run');
-    const { runner } = makeRunner('http://:::58627');
+    const { runner } = makeRunner('http://[::]:58627');
     const { stdout, stderr } = makeIo();
     const openUrl = vi.fn();
 
@@ -419,6 +419,26 @@ describe('`pythinker web` opens the browser', () => {
     );
 
     expect(openUrl).toHaveBeenCalledWith('http://localhost:58627');
+  });
+
+  it('opens the bracketed loopback origin for an IPv6 bind', async () => {
+    const { handleWebCommand } = await import('#/cli/sub/web/run');
+    const { runner } = makeRunner('http://[::1]:58627');
+    const { stdout, stderr } = makeIo();
+    const openUrl = vi.fn();
+
+    await handleWebCommand(
+      { host: '::1', open: true },
+      {
+        startServerForeground: runner,
+        resolveToken: () => 'tok-xyz',
+        openUrl,
+        stdout,
+        stderr,
+      },
+    );
+
+    expect(openUrl).toHaveBeenCalledWith('http://[::1]:58627/#token=tok-xyz');
   });
 
   it('does not open the browser when open is false', async () => {
@@ -1079,6 +1099,7 @@ describe('browserOpenOrigin', () => {
     const { browserOpenOrigin } = await import('#/cli/sub/web/access-urls');
     expect(browserOpenOrigin('http://0.0.0.0:58627')).toBe('http://localhost:58627');
     expect(browserOpenOrigin('http://:::58627')).toBe('http://localhost:58627');
+    expect(browserOpenOrigin('http://[::]:58627')).toBe('http://localhost:58627');
   });
 
   it('keeps navigable origins unchanged', async () => {
