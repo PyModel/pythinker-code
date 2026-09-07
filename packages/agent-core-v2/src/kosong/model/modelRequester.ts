@@ -25,6 +25,7 @@ export interface ModelRequestTiming {
   readonly serverFirstTokenMs?: number;
   readonly serverDecodeMs?: number;
   readonly clientConsumeMs?: number;
+  readonly clientBlockedMs?: number;
 }
 
 export type ModelRequestEvent =
