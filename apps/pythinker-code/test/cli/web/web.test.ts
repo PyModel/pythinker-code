@@ -497,9 +497,13 @@ describe('`pythinker web` opens the browser', () => {
       expect.objectContaining({
         relayOrigin: 'https://relay.example.test',
         relayKey: 'relay-key-1',
-        localServerToken: 'tok-1',
+        localServerToken: expect.any(Function),
       }),
     );
+    const options = (startRemoteControl.mock.calls as unknown as[
+      [{ localServerToken: () => string }],
+    ])[0]?.[0];
+    expect(options?.localServerToken()).toBe('tok-1');
   });
 
   it('refuses to start Remote Control without a relay key', async () => {

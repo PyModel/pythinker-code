@@ -246,9 +246,11 @@ describe('handleRemoteControlCommand', () => {
         expect.objectContaining({
           homeDir: dataDir,
           localOrigin: 'http://127.0.0.1:58627',
-          localServerToken: 'local-server-token',
+          localServerToken: expect.any(Function),
         }),
       );
+      const options = mocks.startRemoteControl.mock.calls[0]?.[0];
+      expect(options.localServerToken()).toBe('local-server-token');
       expect(mocks.openUrl).toHaveBeenCalledWith(sessionUrl);
       const written = writeSpy.mock.calls.map((call) => String(call[0])).join('');
       expect(written).toContain('Pythinker Remote Control ready');

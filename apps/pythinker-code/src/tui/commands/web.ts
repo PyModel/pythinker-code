@@ -93,7 +93,7 @@ export async function handleRemoteControlCommand(host: SlashCommandHost): Promis
           remoteControl = await startRemoteControl({
             homeDir: dataDir,
             localOrigin: origin,
-            localServerToken: token,
+            localServerToken: () => tryResolveServerToken(dataDir) ?? '',
             relayKey,
             relayOrigin,
             onStatus,
