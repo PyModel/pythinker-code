@@ -108,6 +108,25 @@ describe('Agent loop', () => {
   `);
   });
 
+  it('merges text across a vacuous reasoning part instead of splitting the text', async () => {
+    profile.update({ activeToolNames: [] });
+
+    ctx.mockNextResponse(
+      { type: 'text', text: '<text-1>' },
+      { type: 'think', think: '' },
+      { type: 'text', text: '<text-2>' },
+    );
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Hello' }] });
+    await ctx.untilTurnEnd();
+
+    const contentParts = (await ctx.persistedWireRecords())
+      .filter((entry) => entry.type === 'context.append_loop_event')
+      .map((entry) => entry['event'] as { type: string; part?: { type: string; text?: string } })
+      .filter((event) => event.type === 'content.part')
+      .map((event) => event.part);
+    expect(contentParts).toEqual([{ type: 'text', text: '<text-1><text-2>' }]);
+  });
+
   it('persists a turn.ended wire record with the end reason and duration', async () => {
     profile.update({ activeToolNames: [] });
 
