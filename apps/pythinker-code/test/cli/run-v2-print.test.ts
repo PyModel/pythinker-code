@@ -4,9 +4,11 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   applyPrintBackgroundPolicy,
   createPrintTurnEndings,
+  formatTrustGatedMcpWarning,
   PrintSteeredTurnFailedError,
   type PrintTurnEnding,
   type PrintTurnEndings,
+  type TrustGatedMcpServer,
 } from '#/cli/v2/run-v2-print';
 
 function ending(
@@ -500,5 +502,25 @@ describe('createPrintTurnEndings', () => {
     expect(early).toBe('waiting');
     endings.push(ending(7));
     await expect(pending).resolves.toMatchObject({ turnId: 7 });
+  });
+});
+
+describe('formatTrustGatedMcpWarning', () => {
+  it('singularizes the noun for one skipped server', () => {
+    const text = formatTrustGatedMcpWarning([
+      { name: 'fs', target: 'stdio: node server.js' },
+    ]);
+    expect(text).toContain('skipped 1 project-level MCP server: fs (stdio: node server.js).');
+    expect(text).toContain('"Trust this folder"');
+  });
+
+  it('pluralizes and joins multiple skipped servers', () => {
+    const servers: readonly TrustGatedMcpServer[] = [
+      { name: 'api', target: 'http: https://example.test/mcp' },
+      { name: 'fs', target: 'stdio: node server.js' },
+    ];
+    const text = formatTrustGatedMcpWarning(servers);
+    expect(text).toContain('skipped 2 project-level MCP servers:');
+    expect(text).toContain('api (http: https://example.test/mcp), fs (stdio: node server.js)');
   });
 });

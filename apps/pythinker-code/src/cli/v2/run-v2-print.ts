@@ -30,7 +30,9 @@ import {
   IBootstrapService,
   IConfigService,
   IEventBus,
+  IHostFileSystem,
   ISessionIndex,
+  IWorkspaceInstanceManager,
   ISessionManager,
   ITelemetryService,
   PRINT_MAX_TURNS_DEFAULT,
@@ -54,8 +56,13 @@ import {
   type ISessionScopeHandle,
   type LoopRunResult,
   type PrintBackgroundMode,
+  type McpServerConfig,
   type Scope,
 } from '@pymodel/agent-core-v2';
+import {
+  loadMcpServersDetailed,
+  resolveMcpJsonPaths,
+} from '@pymodel/agent-core-v2/app/mcpConfig/configLoader';
 import { createPythinkerDefaultHeaders, createPythinkerDeviceId } from '@pymodel/pythinker-code-oauth';
 import type { GoalUpdated } from '@pymodel/agent-core-v2/features/goal/goalOps';
 import type { TurnEnded } from '@pymodel/agent-core-v2/agent/loop/turnOps';
@@ -217,6 +224,13 @@ export async function runV2Print(
       );
     }
 
+    try {
+      const gated = await listTrustGatedMcpServers(app, workDir, homeDir);
+      if (gated.length > 0) stderr.write(formatTrustGatedMcpWarning(gated));
+    } catch {
+      // Best-effort: a broken mcp.json or trust store must not fail the run.
+    }
+
     const resolved = await resolveNativeSession(app, opts, workDir, defaultModel, stderr);
     restorePermission = resolved.restorePermission;
 
@@ -264,6 +278,49 @@ interface ResolvedNativeSession {
   readonly restorePermission: () => Promise<void>;
   readonly telemetryModel: string | undefined;
   readonly goalModel: string | undefined;
+}
+
+export interface TrustGatedMcpServer {
+  readonly name: string;
+  readonly target: string;
+}
+
+export async function listTrustGatedMcpServers(
+  app: Scope,
+  workDir: string,
+  homeDir: string,
+): Promise<readonly TrustGatedMcpServer[]> {
+  const workspace = await app.accessor
+    .get(IWorkspaceInstanceManager)
+    .getOrCreate({ root: workDir });
+  if (await workspace.program.trust.get()) return [];
+  const fs = app.accessor.get(IHostFileSystem);
+  const [paths, loaded] = await Promise.all([
+    resolveMcpJsonPaths({ fs, cwd: workDir, homeDir }),
+    loadMcpServersDetailed({ fs, cwd: workDir, homeDir, includeProject: true }),
+  ]);
+  const projectPaths = new Set([paths.projectRoot, paths.project]);
+  return Object.entries(loaded.servers)
+    .filter(([name]) => projectPaths.has(loaded.origins[name] ?? ''))
+    .map(([name, config]) => ({ name, target: describeMcpTarget(config) }))
+    .toSorted((a, b) => a.name.localeCompare(b.name));
+}
+
+export function formatTrustGatedMcpWarning(servers: readonly TrustGatedMcpServer[]): string {
+  const noun = servers.length === 1 ? 'server' : 'servers';
+  const list = servers.map((server) => `${server.name} (${server.target})`).join(', ');
+  return (
+    `Warning: this folder is not trusted; skipped ${servers.length} project-level MCP ${noun}: ${list}.\n` +
+    '  Run `pythinker` here and choose "Trust this folder" to enable them.\n\n'
+  );
+}
+
+function describeMcpTarget(config: McpServerConfig): string {
+  if (config.transport === 'stdio') {
+    const args = config.args === undefined ? '' : ` ${config.args.join(' ')}`;
+    return `stdio: ${config.command}${args}`;
+  }
+  return `${config.transport}: ${config.url}`;
 }
 
 async function resolveNativeSession(
