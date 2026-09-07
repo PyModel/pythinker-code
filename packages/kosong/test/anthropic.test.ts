@@ -7,7 +7,12 @@
 import { ChatProviderError } from '#/errors';
 import type { ContentPart, Message, StreamedMessagePart, ToolCall } from '#/message';
 import { AnthropicChatProvider, resolveDefaultMaxTokens } from '#/providers/anthropic';
-import { matchKnownAnthropicModelProfile, matchUnknownClaudeProfile, LATEST_OPUS_PROFILE } from '#/providers/anthropic-profile';
+import {
+  LATEST_OPUS_PROFILE,
+  matchKnownAnthropicModelProfile,
+  matchUnknownClaudeProfile,
+  parseAnthropicModelVersion,
+} from '#/providers/anthropic-profile';
 import type { GenerateOptions } from '#/provider';
 import type { Tool } from '#/tool';
 import { describe, it, expect, vi } from 'vitest';
@@ -98,6 +103,13 @@ describe('Anthropic model profile matching', () => {
       expect(matchUnknownClaudeProfile(model)).toBeUndefined();
     },
   );
+
+  it('tolerates an undefined model name from a malformed config entry', () => {
+    expect(matchKnownAnthropicModelProfile(undefined as unknown as string)).toBeUndefined();
+    expect(matchUnknownClaudeProfile(undefined as unknown as string)).toBeUndefined();
+    expect(parseAnthropicModelVersion(undefined as unknown as string)).toBeNull();
+  });
+
 });
 
 type AnthropicGenerationState = {
