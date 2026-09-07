@@ -1,5 +1,15 @@
 # @pymodel/pythinker-code
 
+## 1.12.2
+
+### Patch Changes
+
+- [#296](https://github.com/PyModel/pythinker-code/pull/296) [`84a49b2`](https://github.com/PyModel/pythinker-code/commit/84a49b20dc1d49493758c4a11042d5dde57e96e2) Thanks [@elkaix](https://github.com/elkaix)! - Resuming a subagent by its agent id works again after the session is reopened in a new process.
+
+- [#296](https://github.com/PyModel/pythinker-code/pull/296) [`84a49b2`](https://github.com/PyModel/pythinker-code/commit/84a49b20dc1d49493758c4a11042d5dde57e96e2) Thanks [@elkaix](https://github.com/elkaix)! - Include the bound model in telemetry event context.
+
+- [#296](https://github.com/PyModel/pythinker-code/pull/296) [`84a49b2`](https://github.com/PyModel/pythinker-code/commit/84a49b20dc1d49493758c4a11042d5dde57e96e2) Thanks [@elkaix](https://github.com/elkaix)! - Open the browser on localhost instead of the wildcard bind address when auto-opening the web UI.
+
 ## 1.12.1
 
 ### Patch Changes
