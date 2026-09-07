@@ -184,9 +184,13 @@ class SignalWatchHandle implements IHostFsWatchHandle {
       this.fireInvalidation();
       return;
     }
-    onUnexpectedError(error);
+    if (error.code === 'ENOENT') {
+      this.readiness.resolve();
+    } else {
+      onUnexpectedError(error);
+      this.fireInvalidation();
+    }
     this.recovering = true;
-    this.fireInvalidation();
     const delay = Math.min(NATIVE_RETRY_BASE_MS * 2 ** this.retryAttempts, NATIVE_RETRY_MAX_MS);
     this.retryAttempts += 1;
     this.retry?.dispose();
