@@ -1781,7 +1781,9 @@ describe('limitAgentReplayByTurns', () => {
       records.push(replayMessage('assistant', `report ${turn}`));
     }
     const limited = limitAgentReplayByTurns(records, 5);
+    expect(limited).toHaveLength(10);
     expect(JSON.stringify(limited)).toContain('cron fire 15');
+    expect(JSON.stringify(limited)).toContain('cron fire 19');
     expect(JSON.stringify(limited)).not.toContain('cron fire 14');
   });
 
@@ -1792,7 +1794,9 @@ describe('limitAgentReplayByTurns', () => {
       records.push(replayMessage('assistant', `report ${turn}`));
     }
     const limited = limitAgentReplayByTurns(records, 5);
+    expect(limited).toHaveLength(10);
     expect(JSON.stringify(limited)).toContain('missed 15');
+    expect(JSON.stringify(limited)).toContain('missed 19');
     expect(JSON.stringify(limited)).not.toContain('missed 14');
   });
 });
