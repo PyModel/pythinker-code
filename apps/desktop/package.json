@@ -1,7 +1,7 @@
 {
   "name": "@pymodel/pythinker-desktop",
   "description": "Pythinker desktop application with tray-owned Host lifecycle",
-  "version": "0.10.2",
+  "version": "0.11.0",
   "private": true,
   "type": "module",
   "main": "dist/main.js",
@@ -26,7 +26,7 @@
     "semver": "^7.7.4",
     "tsdown": "0.22.3",
     "typescript": "6.0.3",
-    "vitest": "4.1.9"
+    "vitest": "4.1.11"
   },
   "build": {
     "appId": "com.pythinker.desktop",

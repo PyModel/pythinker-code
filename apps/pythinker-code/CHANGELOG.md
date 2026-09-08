@@ -1,5 +1,27 @@
 # @pymodel/pythinker-code
 
+## 1.13.0
+
+### Minor Changes
+
+- [#299](https://github.com/PyModel/pythinker-code/pull/299) [`62ae31b`](https://github.com/PyModel/pythinker-code/commit/62ae31bfd46506eda917ba649c7ae1bf273e7bbf) Thanks [@elkaix](https://github.com/elkaix)! - Config changes now refresh the model picker and setup screen live, a dead default model is repaired in your config.toml to the best available model with a notice, and provider configuration errors fail fast instead of retrying for minutes.
+
+- [#300](https://github.com/PyModel/pythinker-code/pull/300) [`ae36917`](https://github.com/PyModel/pythinker-code/commit/ae36917cfa1cb1c52228dd4086e95dd3b6f1387d) Thanks [@elkaix](https://github.com/elkaix)! - The model you pick in the model picker is now remembered and restored when your default model becomes unavailable, and equally capable models now prefer the newer version.
+
+- [#298](https://github.com/PyModel/pythinker-code/pull/298) [`0f522b8`](https://github.com/PyModel/pythinker-code/commit/0f522b86991a70d2472f03842048c001c8ec294d) Thanks [@elkaix](https://github.com/elkaix)! - Refresh the skill catalog automatically when user-level skills are created, changed, or deleted while Pythinker Code is running.
+
+### Patch Changes
+
+- [#298](https://github.com/PyModel/pythinker-code/pull/298) [`0f522b8`](https://github.com/PyModel/pythinker-code/commit/0f522b86991a70d2472f03842048c001c8ec294d) Thanks [@elkaix](https://github.com/elkaix)! - Fix a crash when a model config entry lacks its model name.
+
+- [#298](https://github.com/PyModel/pythinker-code/pull/298) [`0f522b8`](https://github.com/PyModel/pythinker-code/commit/0f522b86991a70d2472f03842048c001c8ec294d) Thanks [@elkaix](https://github.com/elkaix)! - Add environment variable overrides for the background Bash task timeout and the print-mode background policy.
+
+- [#298](https://github.com/PyModel/pythinker-code/pull/298) [`0f522b8`](https://github.com/PyModel/pythinker-code/commit/0f522b86991a70d2472f03842048c001c8ec294d) Thanks [@elkaix](https://github.com/elkaix)! - Fix slow resume replay for sessions with many cron turns.
+
+- [#298](https://github.com/PyModel/pythinker-code/pull/298) [`0f522b8`](https://github.com/PyModel/pythinker-code/commit/0f522b86991a70d2472f03842048c001c8ec294d) Thanks [@elkaix](https://github.com/elkaix)! - Fix recent sessions missing from the session list when the sessions folder contains stray files.
+
+- [#298](https://github.com/PyModel/pythinker-code/pull/298) [`0f522b8`](https://github.com/PyModel/pythinker-code/commit/0f522b86991a70d2472f03842048c001c8ec294d) Thanks [@elkaix](https://github.com/elkaix)! - Warn in print mode when an untrusted folder skips project-level MCP servers. Workspace trust info now reports project servers that override same-named user entries as trust-gated.
+
 ## 1.12.2
 
 ### Patch Changes

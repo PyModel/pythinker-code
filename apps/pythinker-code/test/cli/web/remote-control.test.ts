@@ -77,7 +77,7 @@ describe('Remote Control output', () => {
     expect(output).toContain('Use Pythinker Code on this machine');
     expect(output).toContain('1.');
     expect(output).toContain('2.');
-    expect(output).not.toContain('3.');
+    expect(output).not.toMatch(/^\s*3\.\s/m);
     expect(output).toContain(`\u001B]8;;${url}`);
     const plain = output
       .replaceAll(/\u001B\]8;;.*?\u0007/g, '')
