@@ -61,7 +61,7 @@
     "tsdown": "0.22.3",
     "tsx": "^4.23.5",
     "typescript": "6.0.3",
-    "vitest": "4.1.9"
+    "vitest": "4.1.11"
   },
   "simple-git-hooks": {
     "pre-commit": "pnpm exec lint-staged",
