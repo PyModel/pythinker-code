@@ -1606,7 +1606,7 @@ describe('SessionEventBroadcaster', () => {
         type: 'event.config.changed',
         session_id: '__global__',
         payload: {
-          changedFields: ['defaultModel'],
+          changed_fields: ['defaultModel'],
           config: { providers: {}, default_model: 'example-model' },
         },
       });

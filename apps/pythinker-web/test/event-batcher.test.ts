@@ -471,7 +471,7 @@ describe('coalesceAppRenderEvents (lossless stream grouping)', () => {
   });
 
   it('splits one oversized incoming delta without breaking a surrogate pair', () => {
-    const value = '\ud83d\ude00'.repeat(50_000) + 'tail';
+    const value = '\uD83D\uDE00'.repeat(50_000) + 'tail';
 
     const parts = splitOversizedAppRenderEvent(pendingDelta(value, 7));
 
@@ -781,6 +781,23 @@ describe('usePythinkerWebClient (resync integration)', () => {
       );
 
       expect(assistantText()).toBe('snapshot live');
+
+      // Producer-side toast hygiene: identical WS errors dedupe into one notice
+      // with a repeat count, and the notice list caps at 5 (oldest dropped).
+      const sameFrameMessage = 'Failed to process WS frame (type: event.config.changed): boom';
+      handlers!.onError(0, sameFrameMessage, false);
+      handlers!.onError(0, sameFrameMessage, false);
+      const notices = client.warnings.value.filter(
+        (warning) => typeof warning === 'object' && warning.message === sameFrameMessage,
+      );
+      expect(notices).toHaveLength(1);
+      expect(notices[0]).toMatchObject({ count: 2 });
+
+      for (let i = 0; i < 7; i += 1) {
+        handlers!.onError(0, `distinct-${i}`, false);
+      }
+      expect(client.warnings.value).toHaveLength(5);
+      expect(client.warnings.value[0]).toMatchObject({ message: 'distinct-2' });
     } finally {
       connection.close();
       vi.unstubAllGlobals();

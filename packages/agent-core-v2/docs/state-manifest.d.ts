@@ -27,7 +27,7 @@
 // references become '(circular)', and class instances collapse to a '(ClassName)'
 // marker — the wire shape of an entry is the JSON projection of the type here.
 //
-// Index (App: 0 keys · Workspace: 6 keys · Session: 10 keys · Agent: 87 keys)
+// Index (App: 0 keys · Workspace: 6 keys · Session: 10 keys · Agent: 86 keys)
 //   App
 //   Workspace
 //     workspaceDirs.ephemeralDirs          src/workspace/workspaceDirs/workspaceDirsService.ts
@@ -132,7 +132,6 @@
 //     turnBudget.continuations                        src/agent/turnBudget/turnBudgetService.ts
 //     turnBudget.lastDeltaTokens                      src/agent/turnBudget/turnBudgetService.ts
 //     turnBudget.tokensUsed                           src/agent/turnBudget/turnBudgetService.ts
-//     turnRecovery.modelFallbackUsed                  src/agent/turnRecovery/modelFallbackService.ts
 //     turnRecovery.outputTokenAttempts                src/agent/turnRecovery/outputTokenRecoveryService.ts
 //     userTool                                        src/agent/userTool/userToolOps.ts
 
@@ -1773,8 +1772,6 @@ export interface AgentStateSnapshot {
   'turnBudget.continuations': number;
   'turnBudget.lastDeltaTokens': number;
   'turnBudget.tokensUsed': number;
-  // src/agent/turnRecovery/modelFallbackService.ts
-  'turnRecovery.modelFallbackUsed': boolean;
   // src/agent/turnRecovery/outputTokenRecoveryService.ts
   'turnRecovery.outputTokenAttempts': number;
   // src/agent/userTool/userToolOps.ts

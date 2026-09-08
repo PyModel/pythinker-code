@@ -11,6 +11,7 @@ import {
   APITimeoutError,
   ChatProviderError,
   classifyApiError,
+  classifyBaseApiError,
   createAbortError,
   isAbortError,
   isRetryableGenerateError,
@@ -129,6 +130,28 @@ describe('isRetryableGenerateError', () => {
       isRetryableGenerateError(new APIEmptyResponseError('empty', { finishReason: 'completed' })),
     ).toBe(true);
     expect(isRetryableGenerateError(new APIEmptyResponseError('empty'))).toBe(true);
+  });
+
+  it('fails fast on an unclassified base ChatProviderError', () => {
+    expect(isRetryableGenerateError(new ChatProviderError('unclassified upstream failure'))).toBe(
+      false,
+    );
+  });
+
+  it('promotes rate-limit text into a typed retryable APIProviderRateLimitError', () => {
+    expect(classifyBaseApiError('429 too many requests, slow down')).toBeInstanceOf(
+      APIProviderRateLimitError,
+    );
+    expect(
+      isRetryableGenerateError(classifyBaseApiError('429 too many requests, slow down')),
+    ).toBe(true);
+  });
+
+  it('classifies non-transient text as a base ChatProviderError that is not retried', () => {
+    const error = classifyBaseApiError('model rejected the request payload');
+    expect(error).toBeInstanceOf(ChatProviderError);
+    expect(error).not.toBeInstanceOf(APIProviderRateLimitError);
+    expect(isRetryableGenerateError(error)).toBe(false);
   });
 });
 

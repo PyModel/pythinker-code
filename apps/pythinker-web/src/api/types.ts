@@ -39,6 +39,8 @@ export interface AppNotice {
   title: string;
   message?: string;
   details?: AppNoticeDetail[];
+  /** Repeat count for producer-deduplicated notices (2 = seen twice). */
+  count?: number;
 }
 
 export type AppWarning = string | AppNotice;
@@ -589,7 +591,6 @@ export type AppEvent =
   | { type: 'workspaceCreated'; workspace: AppWorkspace }
   | { type: 'workspaceUpdated'; workspace: AppWorkspace }
   | { type: 'workspaceDeleted'; workspaceId: string; root: string }
-  | { type: 'sessionUpdated'; session: AppSession; changedFields: string[] }
   | { type: 'sessionDeleted'; sessionId: string }
   | { type: 'sessionArchived'; sessionId: string; workspaceId: string }
   | {

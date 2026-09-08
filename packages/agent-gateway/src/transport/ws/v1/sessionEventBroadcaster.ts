@@ -36,10 +36,10 @@ import type {
 } from './events';
 import { isVolatileEventType } from './events';
 import type { SessionCursor } from '../../../protocol/ws-control';
-import {
-  configChangedEventSchema,
-  modelCatalogChangedEventSchema,
-} from '../../../protocol/events-zod';
+import { z } from 'zod';
+
+import { configResponseSchema } from '../../../protocol/rest-config';
+import { modelCatalogChangedEventSchema } from '../../../protocol/events-zod';
 import type { InFlightTurn, SnapshotSubagent } from '../../../protocol/rest-snapshot';
 import {
   detachGrades,
@@ -785,7 +785,7 @@ export class SessionEventBroadcaster {
       if (payload === undefined) return;
       void this.dispatchGlobal({
         type: 'event.config.changed',
-        changedFields: payload.changedFields,
+        changed_fields: payload.changedFields,
         config: payload.config,
         agentId: 'main',
         sessionId: GLOBAL_SESSION_ID,
@@ -1548,13 +1548,16 @@ function configWarningPayload(payload: unknown): { warnings: ConfigWarningItem[]
   return { warnings: items };
 }
 
-const configChangedPayloadSchema = configChangedEventSchema.omit({ type: true });
+const coreConfigChangedPayloadSchema = z.object({
+  changedFields: z.array(z.string().min(1)),
+  config: configResponseSchema,
+});
 const modelCatalogChangedPayloadSchema = modelCatalogChangedEventSchema.omit({ type: true });
 
 function configChangedPayload(
   payload: unknown,
 ): { changedFields: string[]; config: unknown } | undefined {
-  const parsed = configChangedPayloadSchema.safeParse(payload);
+  const parsed = coreConfigChangedPayloadSchema.safeParse(payload);
   if (!parsed.success) return undefined;
   return { changedFields: parsed.data.changedFields, config: parsed.data.config };
 }

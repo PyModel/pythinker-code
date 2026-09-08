@@ -9,11 +9,22 @@ import {
 } from '#/app/kosongConfig/configSection';
 import { type ModelRecord } from '#/kosong/model/model';
 import { ModelService } from '#/kosong/model/modelService';
+import { IEventService } from '#/app/event/event';
 import { type ProviderConfig } from '#/kosong/provider/provider';
 import { ProviderService } from '#/kosong/provider/providerService';
+import '#/kosong/provider/providers/pythinker/pythinker.contrib';
 
 import { StubConfigService } from '../../kosong/stubs';
 import { KosongConfigService } from '#/app/kosongConfig/kosongConfigService';
+
+function stubEventService(): IEventService {
+  return {
+    _serviceBrand: undefined,
+    onDidPublish: undefined,
+    publish: () => {},
+    subscribe: () => ({ dispose: () => {} }),
+  } as unknown as IEventService;
+}
 
 function stubLogService(): ILogService & { warnings: Array<{ message: string; payload?: LogPayload }> } {
   const warnings: Array<{ message: string; payload?: LogPayload }> = [];
@@ -46,7 +57,7 @@ interface BridgeFixture {
 async function createBridge(sections: Record<string, unknown> = {}): Promise<BridgeFixture> {
   const config = new StubConfigService(sections);
   const providers = new ProviderService();
-  const models = new ModelService();
+  const models = new ModelService(providers, stubEventService());
   const log = stubLogService();
   const bridge = new KosongConfigService(config, providers, models, log);
   await bridge.ready;
@@ -341,9 +352,15 @@ describe('KosongConfigService env-pinned default pointer', () => {
   }
 
   it('re-asserts the pinned effective default model into the registry after a registry-originated write', async () => {
-    const config = new PinnedConfigService(DEFAULT_MODEL_SECTION, 'env-model', seededSections);
+    const config = new PinnedConfigService(DEFAULT_MODEL_SECTION, 'env-model', {
+      ...seededSections,
+      models: {
+        k1: K1_MODEL,
+        'env-model': { provider: 'pythinker', model: 'env-model', maxContextSize: 1000 },
+      },
+    });
     const providers = new ProviderService();
-    const models = new ModelService();
+    const models = new ModelService(providers, stubEventService());
     const bridge = new KosongConfigService(config, providers, models, stubLogService());
     await bridge.ready;
     try {

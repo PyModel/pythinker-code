@@ -748,8 +748,6 @@ export * from '#/agent/stepRetry/stepRetryService';
 export * from '#/agent/turnRecovery/flag';
 export * from '#/agent/turnRecovery/outputTokenRecovery';
 export * from '#/agent/turnRecovery/outputTokenRecoveryService';
-export * from '#/agent/turnRecovery/modelFallback';
-export * from '#/agent/turnRecovery/modelFallbackService';
 export * from '#/agent/turnBudget/flag';
 export * from '#/agent/turnBudget/turnBudget';
 export * from '#/agent/turnBudget/turnBudgetService';

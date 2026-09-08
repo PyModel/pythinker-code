@@ -631,7 +631,7 @@ export const sessionStatusChangedEventSchema = z.object({
 
 export const configChangedEventSchema = z.object({
   type: z.literal('event.config.changed'),
-  changedFields: z.array(z.string().min(1)),
+  changed_fields: z.array(z.string().min(1)),
   config: configResponseSchema,
 });
 

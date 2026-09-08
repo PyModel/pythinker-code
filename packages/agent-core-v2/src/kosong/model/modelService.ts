@@ -6,6 +6,7 @@ import { AsyncEmitter, type Event, type IWaitUntil } from '#/_base/event';
 import { deepEqual, diffRecords, isEmptyDiff } from '../recordDiff';
 
 import { resolveDefaultModel } from './defaultModelPolicy';
+import { resolveModelForReady } from './modelAuth';
 import {
   type DefaultModelChangedEvent,
   IModelService,
@@ -13,6 +14,9 @@ import {
   type ModelsChangedEvent,
   type ModelsSection,
 } from './model';
+import { IProviderService } from '../provider/provider';
+import { IEventService } from '../../app/event/event';
+import { ConfigWarning } from '../../app/config/configEvents';
 
 const NO_ABORT = new AbortController().signal;
 
@@ -27,6 +31,13 @@ export class ModelService extends Disposable implements IModelService {
   readonly ready: Promise<void> = new Promise<void>((resolve) => {
     this.resolveReady = resolve;
   });
+
+  constructor(
+    @IProviderService private readonly providers: IProviderService,
+    @IEventService private readonly events: IEventService,
+  ) {
+    super();
+  }
 
   private readonly _onDidChangeModels = this._register(
     new AsyncEmitter<ModelsChangedEvent & IWaitUntil>(),
@@ -92,7 +103,32 @@ export class ModelService extends Disposable implements IModelService {
   }
 
   private settleDefaultModel(): Promise<void> {
-    const settle = this.applyDefaultModel(resolveDefaultModel(this.models, this.defaultModel));
+    const current = this.defaultModel;
+    const resolve = (id: string) =>
+      resolveModelForReady(id, this.models, this.providers.list(), this.providers.getDefaultProvider());
+    const next = resolveDefaultModel(this.models, current, (id) => resolve(id).resolved);
+    const currentResolution = current === undefined ? undefined : resolve(current);
+    if (
+      currentResolution !== undefined &&
+      currentResolution.resolved === false &&
+      next !== current
+    ) {
+      this.events.publish(
+        new ConfigWarning({
+          payload: {
+            warnings: [
+              {
+                domain: 'default_model',
+                message: `Default model "${current}" is no longer available (${currentResolution.reason}); switched to "${
+                  next ?? 'none'
+                }".`,
+              },
+            ],
+          },
+        }),
+      );
+    }
+    const settle = this.applyDefaultModel(next);
     this.settling = settle;
     return settle;
   }

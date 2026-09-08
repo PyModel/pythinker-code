@@ -794,14 +794,21 @@ function persistSessionProfile(patch: {
   const sid = sessionId ?? rawState.activeSessionId;
   if (!sid) return Promise.resolve(false);
   // Promise.resolve wrap: tolerate a sync/undefined return (e.g. test mocks).
+  // The /status re-read runs in a finally: whether the daemon accepted or
+  // rejected the patch, the UI must converge to engine truth (e.g. the daemon
+  // clamped or refused a model/effort change).
   return Promise.resolve(getPythinkerWebApi().updateSession(sid, patch))
-    .then(() => refreshSessionStatus(sid))
-    .then(() => true)
-    .catch((error) => {
-      // Local state already reflects the change; tell the user (and the log)
-      // that the daemon did not persist it.
-      pushOperationFailure('persistSessionProfile', error, { sessionId: sid });
-      return false;
+    .then(
+      () => true,
+      (error) => {
+        // Local state already reflects the change; tell the user (and the log)
+        // that the daemon did not persist it.
+        pushOperationFailure('persistSessionProfile', error, { sessionId: sid });
+        return false;
+      },
+    )
+    .finally(() => {
+      void refreshSessionStatus(sid);
     });
 }
 
@@ -980,6 +987,10 @@ function applyEvent(event: ReturnType<typeof toAppEvent>, sessionId: string, seq
 
   if (event.type === 'configChanged') {
     rawState.defaultModel = event.config.defaultModel ?? null;
+    // The engine re-resolves auth readiness from config (providers/models may
+    // have been added, removed, or repaired) — re-read /auth so the setup
+    // surface and the composer gate converge to engine truth without a reload.
+    void workspaceState.checkAuth();
     // An external edit of config.toml (providers or models removed by hand)
     // reloads on the daemon; mirror it here or the model picker keeps
     // offering models whose provider no longer exists.
@@ -1424,8 +1435,32 @@ function operationFailureNotice(
   };
 }
 
+const MAX_WARNINGS = 5;
+
 function pushWarning(warning: AppWarning): void {
-  rawState.warnings = [...rawState.warnings, warning];
+  const list = rawState.warnings;
+  if (typeof warning === 'object' && warning !== null) {
+    const idx = list.findIndex(
+      (existing) =>
+        typeof existing === 'object' &&
+        existing !== null &&
+        existing.severity === warning.severity &&
+        existing.title === warning.title &&
+        existing.message === warning.message,
+    );
+    if (idx !== -1) {
+      const existing = list[idx];
+      if (existing !== undefined && typeof existing === 'object') {
+        const next = [...list];
+        next[idx] = { ...existing, count: (existing.count ?? 1) + 1 };
+        rawState.warnings = next;
+        return;
+      }
+    }
+  }
+  const appended = [...list, warning];
+  rawState.warnings =
+    appended.length > MAX_WARNINGS ? appended.slice(appended.length - MAX_WARNINGS) : appended;
 }
 
 // Drop every "Realtime connection error" notice pushed by the WS onError

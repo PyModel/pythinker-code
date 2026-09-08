@@ -68,7 +68,9 @@ import { AgentTodo, todoAgentRuntimeProvider } from '#/features/todo/todoAgentRu
 import '#/agent/toolDedupe/toolDedupeService';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
-import { ISessionEventBus } from '#/app/event/eventBus';
+import { ISessionEventBus, IEventBus } from '#/app/event/eventBus';
+import { IModelService } from '#/kosong/model/model';
+import { IProviderService } from '#/kosong/provider/provider';
 import { EventBusService } from '#/app/event/eventBusService';
 import '#/app/event/eventBusService';
 import { AgentActivityUpdated } from '#/agent/activityView/activityView';
@@ -294,6 +296,46 @@ describe('AgentLifecycleService', () => {
     };
     ix.stub(IAtomicDocumentStore, atomicDocsStore);
     ix.stub(ILogService, noopLog);
+    ix.stub(IEventBus, {
+      _serviceBrand: undefined,
+      publish: () => {},
+      subscribe: () => ({ dispose: () => {} }),
+    } as unknown as IEventBus);
+    ix.stub(
+      IProviderService,
+      {
+        _serviceBrand: undefined,
+        ready: Promise.resolve(),
+        onDidChangeProviders: Event.None,
+        onDidChangeDefaultProvider: Event.None,
+        get: () => undefined,
+        list: () => ({}),
+        getDefaultProvider: () => undefined,
+        set: async () => {},
+        delete: async () => {},
+        loadAll: () => {},
+        replaceAll: async () => {},
+        setDefaultProvider: async () => {},
+      } as unknown as IProviderService,
+    );
+    ix.stub(
+      IModelService,
+      {
+        _serviceBrand: undefined,
+        ready: Promise.resolve(),
+        settled: Promise.resolve(),
+        onDidChangeModels: Event.None,
+        onDidChangeDefaultModel: Event.None,
+        get: () => undefined,
+        list: () => ({}),
+        getDefaultModel: () => undefined,
+        loadAll: () => {},
+        replaceAll: async () => {},
+        set: async () => {},
+        delete: async () => {},
+        setDefaultModel: async () => {},
+      } as unknown as IModelService,
+    );
     ix.stub(IAgentPluginService, {
       _serviceBrand: undefined,
       refreshSessionStart: async () => {},

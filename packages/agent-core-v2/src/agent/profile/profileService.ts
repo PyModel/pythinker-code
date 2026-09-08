@@ -16,8 +16,13 @@ import {
   resolveThinkingEffortForModel,
   resolveThinkingKeep,
   requiresStrictThinkingValidation,
+  defaultThinkingEffortForModel,
   type ThinkingConfig,
 } from '#/kosong/model/thinking';
+import { rankDefaultModelCandidates } from '#/kosong/model/defaultModelPolicy';
+import { resolveModelForReady } from '#/kosong/model/modelAuth';
+import { IModelService } from '#/kosong/model/model';
+import { IProviderService } from '#/kosong/provider/provider';
 import { THINKING_SECTION } from '#/app/kosongConfig/configSection';
 import { DEFAULT_AGENT_PROFILE_NAME } from '#/app/agentProfileCatalog/agentProfileCatalog';
 import { IBuiltinAgentProfileLoader } from '#/app/agentProfileCatalog/builtinAgentProfileLoader';
@@ -26,6 +31,7 @@ import { IAgentIdentity } from '#/app/agentIdentity/agentIdentity';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
 import type { LoopControl } from '#/agent/loop/configSection';
+import { TurnStarted } from '#/agent/loop/turnEvents';
 import { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
 import { RuntimeWorkspaceView } from '#/runtime/runtimeWorkspaceView';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
@@ -68,6 +74,7 @@ import { getAgentToolContributions } from '#/agent/toolRegistry/toolContribution
 import {
   profileActiveToolsKey,
   ConfigUpdate,
+  ModelFallbackSwitched,
   ProfileBind,
   profileKey,
   ToolsResetActiveTools,
@@ -79,6 +86,8 @@ import {
 } from './profileOps';
 
 import { AgentStatusUpdated } from '#/agent/usage/usageEvents';
+import { ILogService } from '#/_base/log/log';
+import { IEventBus } from '#/app/event/eventBus';
 
 export interface WarningEvent {
   readonly type: 'warning';
@@ -138,6 +147,8 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
 
   private activeProfile: ResolvedAgentProfile | undefined;
 
+  private currentTurnId: number | undefined;
+
   private frozenSkillListing: string | undefined;
   private frozenPluginSections: string | undefined;
 
@@ -164,6 +175,10 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
     @IPluginService private readonly plugins: IPluginService,
     @IAgentIdentity private readonly identity: IAgentIdentity,
     @IAgentAgentsMdReminderService private readonly agentsMdReminder: IAgentAgentsMdReminderService,
+    @IModelService private readonly models: IModelService,
+    @IProviderService private readonly providers: IProviderService,
+    @ILogService private readonly log: ILogService,
+    @IEventBus private readonly eventBus: IEventBus,
   ) {
     super();
     this.states.contributeState(profileKey);
@@ -174,6 +189,11 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
     this.states.contributeState(profileEmittedToolPatternWarningsKey);
     this.states.contributeState(profileEmittedPluginBudgetWarningsKey);
     this.configure({});
+    this._register(
+      this.eventBus.subscribe(TurnStarted, (event) => {
+        this.currentTurnId = event.turnId;
+      }),
+    );
     this._register(
       this.dispatcher.hooks.onDidRestore.register('profile', async (_ctx, next) => {
         this.syncTelemetryModelContext(this.modelAlias);
@@ -346,13 +366,90 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
       await this.bind({ profile: DEFAULT_AGENT_PROFILE_NAME, model: alias });
       this.telemetry.track2('model_switch', { model: alias });
     } else if (this.modelAlias !== alias) {
+      const previousEffort = this.thinkingLevel;
       this.update({ modelAlias: alias });
+      this.clampThinkingEffortForModel(previousEffort, model, alias);
       this.telemetry.track2('model_switch', { model: alias });
     }
     return {
       model: alias,
       providerName: model.providerName,
     };
+  }
+
+  private clampThinkingEffortForModel(
+    previousEffort: ThinkingEffort,
+    model: Model,
+    alias: string,
+  ): void {
+    if (previousEffort === 'off') return;
+    if (
+      modelSupportsThinkingEffort(previousEffort, model, this.strictThinkingValidation(model))
+    ) {
+      return;
+    }
+    const clamped = defaultThinkingEffortForModel(model);
+    this.update({ thinkingLevel: clamped });
+    this.telemetry.track2('thinking_toggle', {
+      enabled: clamped !== 'off',
+      effort: clamped,
+      from: previousEffort,
+    });
+    void this.dispatcher.dispatch(
+      new WarningIssued({
+        agentId: this.scopeContext.agentId,
+        code: 'thinking-effort-clamped',
+        message: `Thinking effort "${previousEffort}" is not supported by model "${alias}"; clamped to "${clamped}".`,
+      }),
+    );
+  }
+
+  private ensureResolvableModel(turnId?: number): void {
+    const alias = this.modelAlias;
+    if (alias === undefined) return;
+    const resolution = resolveModelForReady(
+      alias,
+      this.models.list(),
+      this.providers.list(),
+      this.providers.getDefaultProvider(),
+    );
+    if (resolution.resolved) return;
+    const reason = resolution.reason;
+    const resolvedTo = rankDefaultModelCandidates(this.models.list()).find(
+      (candidate) =>
+        resolveModelForReady(
+          candidate,
+          this.models.list(),
+          this.providers.list(),
+          this.providers.getDefaultProvider(),
+        ).resolved,
+    );
+    this.log.warn('Bound model is not resolvable; applying default-model policy', {
+      requestedModel: alias,
+      reason,
+      resolvedTo,
+    });
+    if (resolvedTo === undefined || resolvedTo === alias) return;
+    this.update({ modelAlias: resolvedTo });
+    this.telemetry.track2('model_fallback_triggered', {
+      turn_id: turnId ?? this.currentTurnId ?? 0,
+      from_model: alias,
+      to_model: resolvedTo,
+    });
+    void this.dispatcher.dispatch(
+      new ModelFallbackSwitched({
+        turnId: turnId ?? this.currentTurnId,
+        fromModel: alias,
+        toModel: resolvedTo,
+      }),
+    );
+    void this.dispatcher.dispatch(
+      new WarningIssued({
+        agentId: this.scopeContext.agentId,
+        code: 'model-fallback',
+        message: `Model "${alias}" is no longer available (${reason}); switched to "${resolvedTo}".`,
+      }),
+    );
   }
 
   setThinking(level: string): void {
@@ -444,7 +541,8 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
     return this.resolveThinkingState(this.tryResolveRawModel()).effective;
   }
 
-  resolveModelContext(): ProfileModelContext {
+  resolveModelContext(turnId?: number): ProfileModelContext {
+    this.ensureResolvableModel(turnId);
     const modelAlias = this.model;
     const model = scopedModel(this.scopeContext, this.modelCatalog, modelAlias);
     const loopControl = this.config.get<LoopControl>('loopControl');

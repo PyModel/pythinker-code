@@ -3,7 +3,7 @@ import { nothing, original } from 'immer';
 import { z } from 'zod';
 
 import type { EnvironmentDisclosureSnapshot } from '#/app/agentProfileCatalog/agentProfileCatalog';
-import { AgentEvent2 } from '#/app/event/event2';
+import { AgentEvent2, Event2 } from '#/app/event/event2';
 import type { ThinkingEffort } from '#/kosong/contract/provider';
 import { defineState } from '#/state/state';
 
@@ -126,6 +126,19 @@ export class WarningIssued extends AgentEvent2<WarningIssuedPayload> {
   static override readonly observable = true;
 }
 export interface WarningIssued extends WarningIssuedPayload {}
+
+export interface ModelFallbackSwitchedPayload {
+  readonly turnId?: number;
+  readonly step?: number;
+  readonly fromModel: string;
+  readonly toModel: string;
+}
+
+export class ModelFallbackSwitched extends Event2<ModelFallbackSwitchedPayload> {
+  static override readonly type = 'turn.model_fallback.switched';
+  static override readonly observable = true;
+}
+export interface ModelFallbackSwitched extends ModelFallbackSwitchedPayload {}
 
 export const profileKey = defineState(
   'profile',

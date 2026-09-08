@@ -236,7 +236,7 @@ describe('server-v2 /api/v1/config', () => {
     const live = server as RunningServer;
     const frames: Array<{
       type: string;
-      payload: { changedFields: string[]; config: Record<string, unknown> };
+      payload: { changed_fields: string[]; config: Record<string, unknown> };
     }> = [];
     const socket = new WebSocket(`ws://127.0.0.1:${live.port}/api/v1/ws`, [
       `pythinker-code.bearer.${bearerToken(live)}`,
@@ -256,7 +256,7 @@ describe('server-v2 /api/v1/config', () => {
       expect(frames).toHaveLength(1);
     });
     expect(frames[0]?.payload).toMatchObject({
-      changedFields: ['defaultModel'],
+      changed_fields: ['defaultModel'],
       config: { default_model: 'example-model', providers: {} },
     });
 
@@ -264,7 +264,7 @@ describe('server-v2 /api/v1/config', () => {
     await vi.waitFor(() => {
       expect(frames).toHaveLength(2);
     });
-    expect(frames[1]?.payload.changedFields).toEqual(['identity']);
+    expect(frames[1]?.payload.changed_fields).toEqual(['identity']);
     expect(frames[1]?.payload.config).not.toHaveProperty('identity');
     expect(JSON.stringify(frames[1]?.payload.config)).not.toContain('credential-canary');
     socket.close();
