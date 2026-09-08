@@ -62,6 +62,7 @@ export interface ToolCallIdPolicy {
 export interface StreamDecodeStats {
   readonly serverDecodeMs: number;
   readonly clientConsumeMs: number;
+  readonly clientBlockedMs?: number;
 }
 
 export interface VideoUploadInput {

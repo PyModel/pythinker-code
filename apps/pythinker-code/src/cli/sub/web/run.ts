@@ -259,7 +259,7 @@ export async function handleWebCommand(
         remoteControl = await (deps.startRemoteControl ?? startRemoteControl)({
           homeDir: dataDir,
           localOrigin: origin,
-          localServerToken: token,
+          localServerToken: () => deps.resolveToken?.() ?? '',
           relayKey,
           relayOrigin,
           stderr: deps.stderr,

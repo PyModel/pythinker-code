@@ -1764,4 +1764,39 @@ describe('limitAgentReplayByTurns', () => {
     // trailing reminder stays attached to the last kept turn.
     expect(limited).toEqual(records.slice(11));
   });
+
+  it('treats cron deliveries as turn boundaries so scheduled storms stay bounded', () => {
+    const records: AgentReplayRecord[] = [];
+    for (let turn = 0; turn < 20; turn += 1) {
+      records.push(
+        replayMessage('user', `cron fire ${turn}`, {
+          kind: 'cron_job',
+          jobId: 'job-1',
+          cron: '*/15 * * * *',
+          recurring: true,
+          coalescedCount: 1,
+          stale: false,
+        }),
+      );
+      records.push(replayMessage('assistant', `report ${turn}`));
+    }
+    const limited = limitAgentReplayByTurns(records, 5);
+    expect(limited).toHaveLength(10);
+    expect(JSON.stringify(limited)).toContain('cron fire 15');
+    expect(JSON.stringify(limited)).toContain('cron fire 19');
+    expect(JSON.stringify(limited)).not.toContain('cron fire 14');
+  });
+
+  it('treats cron missed deliveries as turn boundaries', () => {
+    const records: AgentReplayRecord[] = [];
+    for (let turn = 0; turn < 20; turn += 1) {
+      records.push(replayMessage('user', `missed ${turn}`, { kind: 'cron_missed', count: 3 }));
+      records.push(replayMessage('assistant', `report ${turn}`));
+    }
+    const limited = limitAgentReplayByTurns(records, 5);
+    expect(limited).toHaveLength(10);
+    expect(JSON.stringify(limited)).toContain('missed 15');
+    expect(JSON.stringify(limited)).toContain('missed 19');
+    expect(JSON.stringify(limited)).not.toContain('missed 14');
+  });
 });
