@@ -232,7 +232,7 @@ export function registerModelCatalogRoutes(app: ModelCatalogRouteHost, core: Sco
         [ErrorCode.PROVIDER_ALREADY_EXISTS]: {},
       },
       description:
-        'Create a provider manually (type + credentials + model list). An explicit default_model seeds the global default when none is configured; otherwise the model registry adopts one that can serve a turn. An existing default is never modified.',
+        'Create a provider manually (type + credentials + model list). An explicit default_model seeds the global default when none is configured; otherwise the model registry adopts the highest-ranked ready model that can serve a turn, and a default_model that no longer resolves is re-pointed to the best ready model.',
       tags: ['providers'],
       operationId: 'createProvider',
     },
@@ -307,7 +307,7 @@ export function registerModelCatalogRoutes(app: ModelCatalogRouteHost, core: Sco
         [ErrorCode.PROVIDER_ALREADY_EXISTS]: {},
       },
       description:
-        'Replace a provider in one save (type + base_url + model list), optionally renaming it via `new_id` (the providers key, model aliases, default_provider and a default_model pointing at an old alias all migrate). `api_key` is tri-state: omitted keeps the stored key, "" clears it, any other value replaces it. The provider\'s model aliases are rebuilt from `models` — aliases no longer listed disappear from config.toml, other providers\' aliases are untouched. Beyond the rename migration, the global default pointers are never modified. Answers 200 with `{provider}`.',
+        'Replace a provider in one save (type + base_url + model list), optionally renaming it via `new_id` (the providers key, model aliases, default_provider and a default_model pointing at an old alias all migrate). `api_key` is tri-state: omitted keeps the stored key, "" clears it, any other value replaces it. The provider\'s model aliases are rebuilt from `models` — aliases no longer listed disappear from config.toml, other providers\' aliases are untouched. The global default_provider pointer is never modified; a default_model whose alias the rebuild dropped is re-pointed to the highest-ranked ready model. Answers 200 with `{provider}`.',
       tags: ['providers'],
       operationId: 'replaceProvider',
     },
@@ -454,7 +454,7 @@ export function registerModelCatalogRoutes(app: ModelCatalogRouteHost, core: Sco
         [ErrorCode.CATALOG_UNAVAILABLE]: {},
       },
       description:
-        'Provider collection actions. Use `:refresh` for all providers. Use `:import_catalog` to import a models.dev directory entry as a configured provider (201): the wire protocol and endpoint come from the catalog resolution (`base_url` overrides it; required when the entry resolves to needs-base-url), all catalogued models are written as aliases, and importing an id that already exists is a refresh — the provider entry and its aliases are rewritten from the catalog. `id` overrides the catalog id as the local provider id. Use `:import_registry` to import a models.dev-shaped private registry (api.json `url` + optional Bearer `api_key`, 201): every listed provider is written with a `source` blob so scheduled refreshes rediscover it, and re-importing the same URL removes providers that disappeared upstream (the URL is the stable registry identity). For both imports the global default_provider/default_model pointers are never modified — except that a default_model is seeded from the first imported model when none is configured at all (fresh setup).',
+        'Provider collection actions. Use `:refresh` for all providers. Use `:import_catalog` to import a models.dev directory entry as a configured provider (201): the wire protocol and endpoint come from the catalog resolution (`base_url` overrides it; required when the entry resolves to needs-base-url), all catalogued models are written as aliases, and importing an id that already exists is a refresh — the provider entry and its aliases are rewritten from the catalog. `id` overrides the catalog id as the local provider id. Use `:import_registry` to import a models.dev-shaped private registry (api.json `url` + optional Bearer `api_key`, 201): every listed provider is written with a `source` blob so scheduled refreshes rediscover it, and re-importing the same URL removes providers that disappeared upstream (the URL is the stable registry identity). For both imports the default_provider pointer is never modified, and a default_model is seeded from the first imported model when none is configured at all (fresh setup); a default_model that no longer resolves is re-pointed to the highest-ranked ready model.',
       tags: ['providers'],
       operationId: 'providerCollectionAction',
     },
@@ -574,7 +574,7 @@ export function registerModelCatalogRoutes(app: ModelCatalogRouteHost, core: Sco
         204: { description: 'Provider deleted.' },
       },
       description:
-        'Delete a provider and all of its model aliases (204, no body). The global default_provider/default_model pointers are left untouched — they are the user\'s settings, not this endpoint\'s to garbage-collect.',
+        'Delete a provider and all of its model aliases (204, no body). The default_provider pointer is left untouched — it is the user\'s setting, not this endpoint\'s to garbage-collect; a default_model owned by the deleted provider is re-pointed to the highest-ranked ready model.',
       tags: ['providers'],
       operationId: 'deleteProvider',
     },

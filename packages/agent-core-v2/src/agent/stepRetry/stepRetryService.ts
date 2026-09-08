@@ -26,7 +26,6 @@ import { TurnStarted } from '#/agent/loop/turnEvents';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentStateService } from '#/agent/state/agentState';
 import { IEventDispatcher } from '#/state/eventDispatcher';
-import { IAgentModelFallbackService } from '#/agent/turnRecovery/modelFallback';
 
 import { IAgentStepRetryService } from './stepRetry';
 
@@ -78,10 +77,6 @@ export const stepRetryFailedAttemptsKey = defineState<number>(
 export class AgentStepRetryService extends Disposable implements IAgentStepRetryService {
   declare readonly _serviceBrand: undefined;
 
-  private static stepAborted(context: LoopErrorContext): boolean {
-    return context.signal.aborted || context.currentStep?.signal.aborted === true;
-  }
-
   constructor(
     @IAgentLoopService private readonly loopService: IAgentLoopService,
     @IConfigService private readonly config: IConfigService,
@@ -89,7 +84,6 @@ export class AgentStepRetryService extends Disposable implements IAgentStepRetry
     @IEventDispatcher private readonly dispatcher: IEventDispatcher,
     @IAgentScopeContext private readonly scopeContext: IAgentScopeContext,
     @IAgentStateService private readonly states: IAgentStateService,
-    @IAgentModelFallbackService private readonly modelFallback: IAgentModelFallbackService,
   ) {
     super();
     this.states.contributeState(stepRetryLastFailedDriverIdKey);
@@ -148,12 +142,7 @@ export class AgentStepRetryService extends Disposable implements IAgentStepRetry
     );
     if (this.failedAttempts >= maxAttempts) {
       this.resetAttempts();
-      if (AgentStepRetryService.stepAborted(context)) return false;
-      const switched = await this.modelFallback.tryFallbackSwitch(context);
-      if (!switched) return false;
-      if (AgentStepRetryService.stepAborted(context)) return false;
-      context.retry(driver, { at: 'head' });
-      return true;
+      return false;
     }
 
     const error = unwrapErrorCause(context.error);

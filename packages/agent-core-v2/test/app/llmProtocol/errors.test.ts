@@ -187,8 +187,8 @@ describe('isRetryableGenerateError', () => {
     expect(isRetryableGenerateError('boom')).toBe(false);
   });
 
-  it('retries an unclassified provider error as a transient fallback', () => {
-    expect(isRetryableGenerateError(new ChatProviderError('upstream failure'))).toBe(true);
+  it('fails fast on an unclassified provider error', () => {
+    expect(isRetryableGenerateError(new ChatProviderError('upstream failure'))).toBe(false);
   });
 
   it.each([
@@ -291,8 +291,8 @@ describe('isImageFormatError', () => {
     expect(isImageFormatError(new APIStatusError(400, 'invalid media type'))).toBe(false);
   });
 
-  it('is excluded from the transient-retry fallback so dedicated recovery fires first', () => {
-    expect(isRetryableGenerateError(new ChatProviderError('transient blip'))).toBe(true);
+  it('is not retried, matching every unclassified provider failure', () => {
+    expect(isRetryableGenerateError(new ChatProviderError('transient blip'))).toBe(false);
     expect(
       isRetryableGenerateError(
         new ChatProviderError('Unsupported media type for base64 image: image/avif'),

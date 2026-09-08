@@ -176,17 +176,17 @@ describe('convertAnthropicError', () => {
     expect(isRetryableGenerateError(result)).toBe(true);
   });
 
-  it('still wraps an unrelated raw Error as a base ChatProviderError, now retryable via fallback', () => {
+  it('still wraps an unrelated raw Error as a base ChatProviderError that fails fast', () => {
     // An unrelated raw Error is NOT an Anthropic SDK error and carries no
     // usable HTTP status, so convertAnthropicError wraps it as a base
-    // ChatProviderError (constructor check guards that typing). The fallback
-    // safety net in isRetryableGenerateError then treats such unclassified
-    // provider failures as transient — retry beats failing the run on the
-    // first blip.
+    // ChatProviderError (constructor check guards that typing). Unclassified
+    // provider failures are no longer retried by default — only text promoted
+    // to a typed transient error (rate-limit patterns in classifyBaseApiError)
+    // retries.
     const result = convertAnthropicError(new Error('something completely unrelated'));
 
     expect(result.constructor).toBe(ChatProviderError);
-    expect(isRetryableGenerateError(result)).toBe(true);
+    expect(isRetryableGenerateError(result)).toBe(false);
   });
 });
 describe('non-stream error propagation', () => {

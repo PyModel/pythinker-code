@@ -29,9 +29,10 @@ export function rankDefaultModelCandidates(models: ModelsSection): string[] {
 export function resolveDefaultModel(
   models: ModelsSection,
   current: string | undefined,
+  isReady: (id: string) => boolean = () => true,
 ): string | undefined {
-  if (current !== undefined) return current;
-  return rankDefaultModelCandidates(models)[0];
+  if (current !== undefined && isReady(current)) return current;
+  return rankDefaultModelCandidates(models).find((candidate) => isReady(candidate));
 }
 
 function effectiveCapabilities(record: ModelRecord): readonly string[] | undefined {

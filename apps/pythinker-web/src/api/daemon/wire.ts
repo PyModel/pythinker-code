@@ -842,7 +842,6 @@ interface WireEventBase<T extends string, P> {
 
 // Session lifecycle
 type WireEventSessionCreated = WireEventBase<'event.session.created', { session: WireSession }>;
-type WireEventSessionUpdated = WireEventBase<'event.session.updated', { session: WireSession; changed_fields: string[] }>;
 type WireEventSessionDeleted = WireEventBase<'event.session.deleted', { session_id: string }>;
 type WireEventSessionArchived = WireEventBase<'event.session.archived', { workspace_id: string }>;
 type WireEventSessionWorkChanged = WireEventBase<'event.session.work_changed', {
@@ -979,6 +978,10 @@ type WireEventConfigChanged = WireEventBase<'event.config.changed', {
   config: WireConfig;
 }>;
 
+type WireEventConfigWarning = WireEventBase<'event.config.warning', {
+  warnings: Array<{ domain?: string; message: string }>;
+}>;
+
 type WireEventModelCatalogChanged = WireEventBase<'event.model_catalog.changed', {
   changed: Array<{
     provider_id: string;
@@ -1001,7 +1004,6 @@ type WireEventUnknown = { type: string; seq: number; session_id: string; timesta
 export type WireEvent =
   // Session lifecycle
   | WireEventSessionCreated
-  | WireEventSessionUpdated
   | WireEventSessionDeleted
   | WireEventSessionWorkChanged
   | WireEventSessionStatusChanged
@@ -1040,6 +1042,7 @@ export type WireEvent =
   | WireEventTaskCompleted
   // Config
   | WireEventConfigChanged
+  | WireEventConfigWarning
   | WireEventModelCatalogChanged
   // Unknown / future events
   | WireEventUnknown;

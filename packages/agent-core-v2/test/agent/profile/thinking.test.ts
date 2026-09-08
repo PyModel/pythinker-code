@@ -1,4 +1,18 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
+
+import { emptyUsage } from '#/kosong/contract/usage';
+import { IEventBus } from '#/app/event/eventBus';
+import { DEFAULT_AGENT_PROFILE_NAME } from '#/app/agentProfileCatalog/agentProfileCatalog';
+import { IAgentProfileService } from '#/agent/profile/profile';
+import { WarningIssued } from '#/agent/profile/profileOps';
+
+import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
+import {
+  createTestAgent,
+  llmGenerateServices,
+  telemetryServices,
+  type TestAgentContext,
+} from '../../harness';
 
 import {
   defaultThinkingEffortForModel,
@@ -194,5 +208,82 @@ describe('resolveThinkingEffortForModel', () => {
   it('reports unsupported concrete efforts only for Pythinker effort models', () => {
     expect(modelSupportsThinkingEffort('ultra', pythinkerEffortModel, true)).toBe(false);
     expect(modelSupportsThinkingEffort('ultra', openaiEffortModel, false)).toBe(true);
+  });
+});
+
+describe('setModel thinking clamp (engine policy)', () => {
+  let ctx: TestAgentContext;
+
+  afterEach(async () => {
+    try {
+      await ctx.expectResumeMatches();
+    } finally {
+      await ctx.dispose();
+    }
+  });
+
+  function okGenerate() {
+    return async () => ({
+      id: 'clamp-1',
+      message: {
+        role: 'assistant' as const,
+        content: [{ type: 'text' as const, text: 'ok' }],
+        toolCalls: [],
+      },
+      usage: emptyUsage(),
+      finishReason: 'completed' as const,
+      rawFinishReason: 'stop',
+    });
+  }
+
+  it('clamps the persisted effort and notifies when switching to a model that lacks it', async () => {
+    const notices: WarningIssued[] = [];
+    const records: TelemetryRecord[] = [];
+    ctx = createTestAgent(
+      llmGenerateServices(okGenerate()),
+      telemetryServices(recordingTelemetry(records)),
+      {
+        initialConfig: {
+          models: {
+            'max-model': {
+              provider: 'test-provider',
+              model: 'max-model',
+              maxContextSize: 100_000,
+              capabilities: ['thinking', 'tool_use'],
+              supportEfforts: ['low', 'max'],
+              defaultEffort: 'max',
+            },
+            'mid-model': {
+              provider: 'test-provider',
+              model: 'mid-model',
+              maxContextSize: 100_000,
+              capabilities: ['thinking', 'tool_use'],
+              supportEfforts: ['low', 'high'],
+              defaultEffort: 'low',
+            },
+          },
+        },
+      },
+    );
+    ctx.get(IEventBus).subscribe(WarningIssued, (event) => notices.push(event));
+    const profile = ctx.get(IAgentProfileService);
+    await profile.bind({ profile: DEFAULT_AGENT_PROFILE_NAME, model: 'max-model' });
+    profile.setThinking('max');
+    expect(profile.data().thinkingLevel).toBe('max');
+
+    await profile.setModel('mid-model');
+
+    expect(profile.data().thinkingLevel).toBe('low');
+    const clampNotices = notices.filter((notice) => notice.code === 'thinking-effort-clamped');
+    expect(clampNotices).toHaveLength(1);
+    expect(clampNotices[0]?.message).toContain('"max"');
+    expect(clampNotices[0]?.message).toContain('"low"');
+    expect(
+      records.some(
+        (record) =>
+          record.event === 'thinking_toggle' &&
+          (record.properties as { effort?: string } | undefined)?.effort === 'low',
+      ),
+    ).toBe(true);
   });
 });

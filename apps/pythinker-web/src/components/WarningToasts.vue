@@ -216,6 +216,7 @@ onUnmounted(() => {
       :variant="toastVariant(toast.warning)"
       :title="toastTitle(toast.warning)"
       :message="toastMessage(toast.warning)"
+      :count="isNotice(toast.warning) ? toast.warning.count : undefined"
       :dismiss-label="t('warnings.dismiss')"
       @dismiss="dismissById(toast.id)"
       @pointerenter="pauseTimer(toast.id)"

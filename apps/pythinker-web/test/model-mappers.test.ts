@@ -1,13 +1,16 @@
 import { describe, expect, it } from 'vitest';
 
+import { configChangedEventSchema, configWarningEventSchema } from '@pymodel/protocol';
+
 import {
+  toAppEvent,
   toAppExperimentalFlagStates,
   toAppModel,
   toAppSubagentRouting,
   toAppSubagentRoutingFromEvent,
   toAppTask,
 } from '../src/api/daemon/mappers';
-import type { WireTask } from '../src/api/daemon/wire';
+import type { WireEvent, WireTask } from '../src/api/daemon/wire';
 
 describe('subagent routing mappers', () => {
   const wire = {
@@ -156,6 +159,111 @@ describe('model mappers', () => {
       capabilities: ['thinking'],
       supportEfforts: ['low', 'high', 'max'],
       adaptiveThinking: true,
+    });
+  });
+});
+
+describe('wire event contract (mapper reads vs protocol zod)', () => {
+  const frameBase = {
+    session_id: '__global__',
+    seq: 1,
+    timestamp: '2026-01-01T00:00:00.000Z',
+  };
+
+  it('maps a gateway-shaped event.config.changed frame validated by the real schema', () => {
+    const payload = {
+      type: 'event.config.changed' as const,
+      changed_fields: ['models', 'providers'],
+      config: { providers: {}, default_model: 'm1' },
+    };
+    const parsed = configChangedEventSchema.safeParse(payload);
+    expect(parsed.success).toBe(true);
+
+    const app = toAppEvent({ type: 'event.config.changed', ...frameBase, payload } as unknown as WireEvent);
+    expect(app).toMatchObject({
+      type: 'configChanged',
+      changedFields: ['models', 'providers'],
+    });
+    expect((app as { changedFields?: unknown }).changedFields).toHaveLength(2);
+  });
+
+  it('rejects the legacy camelCase payload so field drift fails here, not in the UI', () => {
+    const parsed = configChangedEventSchema.safeParse({
+      type: 'event.config.changed',
+      changedFields: ['models'],
+      config: { providers: {} },
+    });
+    expect(parsed.success).toBe(false);
+  });
+
+  it('yields empty changedFields when event.config.changed omits changed_fields', () => {
+    const app = toAppEvent({
+      type: 'event.config.changed',
+      session_id: '__global__',
+      seq: 1,
+      timestamp: '2026-01-01T00:00:00.000Z',
+      payload: { type: 'event.config.changed', config: { providers: {} } },
+    } as unknown as WireEvent);
+    expect(app).toMatchObject({ type: 'configChanged', changedFields: [] });
+  });
+
+  it('renders a gateway-shaped event.config.warning as a readable warning notice', () => {
+    const message =
+      'Default model "gone" is no longer available (dangling-alias); switched to "my-openai/gpt-4o-mini".';
+    const payload = {
+      type: 'event.config.warning' as const,
+      warnings: [{ domain: 'default_model', message }],
+    };
+    expect(configWarningEventSchema.safeParse(payload).success).toBe(true);
+
+    const app = toAppEvent({
+      type: 'event.config.warning',
+      session_id: '__global__',
+      seq: 1,
+      timestamp: '2026-01-01T00:00:00.000Z',
+      payload,
+    } as unknown as WireEvent);
+    expect(app).toMatchObject({ type: 'unknown', raw: { _agentWarning: true, message } });
+  });
+
+  it('treats the phantom event.session.updated as unknown instead of reading a dead field', () => {
+    const app = toAppEvent({
+      type: 'event.session.updated',
+      ...frameBase,
+      payload: { session: {}, changed_fields: ['title'] },
+    } as unknown as WireEvent);
+    expect(app).toMatchObject({ type: 'unknown' });
+  });
+
+  it('does not throw when event.message.updated carries a non-array content', () => {
+    const app = toAppEvent({
+      type: 'event.message.updated',
+      session_id: 's1',
+      seq: 1,
+      timestamp: '2026-01-01T00:00:00.000Z',
+      payload: { message_id: 'm1', content: 'oops', status: 'completed' },
+    } as unknown as WireEvent);
+    expect(app).toMatchObject({ type: 'messageUpdated', content: [] });
+  });
+
+  it('maps event.session.work_changed payload fields the schema actually declares', () => {
+    const app = toAppEvent({
+      type: 'event.session.work_changed',
+      ...frameBase,
+      payload: {
+        busy: true,
+        main_turn_active: true,
+        pending_interaction: 'approval',
+        last_turn_reason: 'completed',
+      },
+    } as unknown as WireEvent);
+    expect(app).toEqual({
+      type: 'sessionWorkChanged',
+      sessionId: '__global__',
+      busy: true,
+      mainTurnActive: true,
+      pendingInteraction: 'approval',
+      lastTurnReason: 'completed',
     });
   });
 });

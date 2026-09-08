@@ -46,6 +46,8 @@ export default {
   copyDetails: 'Copy diagnostics',
   copied: 'Copied',
   wsTitle: 'Realtime connection error',
+  modelNotResolvedTitle: 'Model unavailable',
+  provisioningRequiredTitle: 'Setup needed',
   goal: {
     alreadyExists: 'This session already has an active goal. Cancel it before starting a new one.',
     notFound: 'No goal to act on — it may have already finished or been cancelled.',

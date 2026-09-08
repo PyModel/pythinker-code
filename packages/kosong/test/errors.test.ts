@@ -13,6 +13,7 @@ import {
   isRecoverableRequestStructureError,
   isRetryableGenerateError,
   isToolExchangeAdjacencyError,
+  classifyBaseApiError,
   normalizeAPIStatusError,
 } from '#/errors';
 import { describe, expect, it } from 'vitest';
@@ -182,15 +183,32 @@ describe('isRetryableGenerateError', () => {
     expect(isRetryableGenerateError('boom')).toBe(false);
   });
 
-  it('retries an unclassified base ChatProviderError as a transient fallback', () => {
+  it('fails fast on an unclassified base ChatProviderError', () => {
     // An upstream gateway that forwards the original failure only as text (no
-    // usable HTTP status) surfaces as a base ChatProviderError. It must be
-    // retried rather than failing the run on the first blip — while typed
-    // 4xx / context-overflow / request-too-large (all APIStatusError) stay
-    // non-retryable on their dedicated recovery paths.
+    // usable HTTP status) surfaces as a base ChatProviderError. Text-only
+    // failures carry no evidence they are transient: only messages matching a
+    // known transient pattern (promoted to a typed error by
+    // classifyBaseApiError) are retried, so a deterministic provider
+    // rejection can never burn the whole retry budget.
     expect(isRetryableGenerateError(new ChatProviderError('unclassified upstream failure'))).toBe(
-      true,
+      false,
     );
+  });
+
+  it('promotes rate-limit text into a typed retryable APIProviderRateLimitError', () => {
+    expect(classifyBaseApiError('429 too many requests, slow down')).toBeInstanceOf(
+      APIProviderRateLimitError,
+    );
+    expect(
+      isRetryableGenerateError(classifyBaseApiError('429 too many requests, slow down')),
+    ).toBe(true);
+  });
+
+  it('classifies non-transient text as a base ChatProviderError that is not retried', () => {
+    const error = classifyBaseApiError('model rejected the request payload');
+    expect(error).toBeInstanceOf(ChatProviderError);
+    expect(error).not.toBeInstanceOf(APIProviderRateLimitError);
+    expect(isRetryableGenerateError(error)).toBe(false);
   });
 });
 
@@ -676,11 +694,11 @@ describe('isImageFormatError', () => {
     expect(isImageFormatError(new APIStatusError(400, 'invalid media type'))).toBe(false);
   });
 
-  it('is excluded from the transient-retry fallback so dedicated recovery fires first', () => {
-    // A base ChatProviderError is normally retried as an unclassified
-    // transient; image-format errors must not be, or the run would burn the
-    // retry budget on an identical request before reaching the media strip.
-    expect(isRetryableGenerateError(new ChatProviderError('transient blip'))).toBe(true);
+  it('is excluded alongside every unclassified error now that the fallback is gone', () => {
+    // Unclassified base ChatProviderError instances are no longer retried at
+    // all: image-format errors and plain text failures both fail fast, and
+    // image-format errors keep reaching the media-strip recovery path first.
+    expect(isRetryableGenerateError(new ChatProviderError('transient blip'))).toBe(false);
     expect(
       isRetryableGenerateError(
         new ChatProviderError('Unsupported media type for base64 image: image/avif'),

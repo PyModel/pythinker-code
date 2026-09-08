@@ -16,7 +16,11 @@ import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalo
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
 import { IModelCatalog, type Model } from '#/kosong/model/catalog';
+import { IModelService } from '#/kosong/model/model';
+import { IProviderService } from '#/kosong/provider/provider';
 import { IProtocolAdapterRegistry, type Protocol } from '#/kosong/protocol/protocol';
+import { ILogService } from '#/_base/log/log';
+import { IEventBus } from '#/app/event/eventBus';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { IAgentTelemetryContextService } from '#/app/telemetry/agentTelemetryContext';
 import { AgentTelemetryContextService } from '#/app/telemetry/agentTelemetryContextService';
@@ -184,6 +188,24 @@ let log: IAppendLogStore;
 let dispatcher: IEventDispatcher;
 let agentState: IAgentStateService;
 let svc: IAgentProfileService;
+
+const noopLogService: ILogService = {
+  _serviceBrand: undefined,
+  level: 'off',
+  error: () => {},
+  warn: () => {},
+  info: () => {},
+  debug: () => {},
+  child: () => noopLogService,
+  setLevel: () => {},
+  flush: () => Promise.resolve(),
+};
+
+const noopEventBusStub: IEventBus = {
+  _serviceBrand: undefined,
+  publish: () => {},
+  subscribe: () => ({ dispose: () => {} }),
+};
 let configValues: Record<string, unknown>;
 let modelCatalog: IModelCatalog;
 
@@ -198,6 +220,43 @@ function buildHost(key: string): {
   host.stub(IFileSystemStorageService, new InMemoryStorageService());
   host.set(IAppendLogStore, new SyncDescriptor(AppendLogStore));
   host.stub(ITelemetryService, createTelemetryStub());
+  host.stub(
+    IProviderService,
+    {
+      _serviceBrand: undefined,
+      ready: Promise.resolve(),
+      onDidChangeProviders: Event.None,
+      onDidChangeDefaultProvider: Event.None,
+      get: () => undefined,
+      list: () => ({}),
+      getDefaultProvider: () => undefined,
+      set: async () => {},
+      delete: async () => {},
+      loadAll: () => {},
+      replaceAll: async () => {},
+      setDefaultProvider: async () => {},
+    } as unknown as IProviderService,
+  );
+  host.stub(
+    IModelService,
+    {
+      _serviceBrand: undefined,
+      ready: Promise.resolve(),
+      settled: Promise.resolve(),
+      onDidChangeModels: Event.None,
+      onDidChangeDefaultModel: Event.None,
+      get: () => undefined,
+      list: () => ({}),
+      getDefaultModel: () => undefined,
+      loadAll: () => {},
+      replaceAll: async () => {},
+      set: async () => {},
+      delete: async () => {},
+      setDefaultModel: async () => {},
+    } as unknown as IModelService,
+  );
+  host.stub(ILogService, noopLogService);
+  host.stub(IEventBus, noopEventBusStub);
   host.stub(IAgentScopeContext, makeAgentScopeContext({ agentId: 'main', agentScope: '' }));
   host.stub(
     IAgentTelemetryContextService,

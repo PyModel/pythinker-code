@@ -643,7 +643,7 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
     }
   });
 
-  it('persists removeProvider as one atomic cascade (providers, models, defaults)', async () => {
+  it('persists removeProvider as one atomic cascade and re-points the dangling default to the best ready model', async () => {
     const { harness } = await makeHarness();
     try {
       await harness.setConfig({
@@ -665,12 +665,15 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
       expect(next.models?.['a/m1']).toBeDefined();
       expect(next.defaultModel).toBeUndefined();
       expect(next.defaultProvider).toBeUndefined();
-      // A fresh read from disk sees the same state — the cascade landed as a
-      // single atomic write, never a halfway-removed intermediate.
+      // A fresh read from disk sees the same providers/models cascade — a
+      // single atomic write, never a halfway-removed intermediate. The
+      // dangling default_model is then re-pointed by the engine to the
+      // highest-ranked ready model ('a/m1' survives provider b's removal);
+      // the default_provider pointer stays cleared.
       const reread = await harness.getConfig({ reload: true });
       expect(reread.providers['b']).toBeUndefined();
       expect(reread.models?.['b/m1']).toBeUndefined();
-      expect(reread.defaultModel).toBeUndefined();
+      expect(reread.defaultModel).toBe('a/m1');
       expect(reread.defaultProvider).toBeUndefined();
     } finally {
       await harness.close();

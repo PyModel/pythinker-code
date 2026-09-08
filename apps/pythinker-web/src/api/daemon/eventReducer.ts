@@ -421,14 +421,6 @@ export function reduceAppEvent(
     }
 
     // -------------------------------------------------------------------------
-    case 'sessionUpdated': {
-      next.sessions = next.sessions.map((s) =>
-        s.id === event.session.id ? event.session : s,
-      );
-      break;
-    }
-
-    // -------------------------------------------------------------------------
     case 'sessionDeleted': {
       const id = event.sessionId;
       next.sessions = next.sessions.filter((s) => s.id !== id);

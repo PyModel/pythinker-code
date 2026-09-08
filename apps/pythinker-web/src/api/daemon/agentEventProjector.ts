@@ -1633,7 +1633,6 @@ const KNOWN_AGENT_CORE_TYPES = new Set([
 const PROTOCOL_EVENT_NAMES = new Set([
   // Session lifecycle (projected)
   'session.created',
-  'session.updated',
   'session.deleted',
   'session.status_changed',
   'session.usage_updated',

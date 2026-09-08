@@ -30,7 +30,7 @@ export class ConfigService extends Disposable implements IConfigService {
       type: 'event.config.changed',
       agentId: 'main',
       sessionId: '__global__',
-      changedFields: Object.keys(patch),
+      changed_fields: Object.keys(patch),
       config: response,
     });
 
