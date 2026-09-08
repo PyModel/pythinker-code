@@ -17,6 +17,7 @@ import { IPluginService } from '#/app/plugin/plugin';
 import { PluginService } from '#/app/plugin/pluginService';
 import type { PluginReloadEvent } from '#/app/plugin/types';
 import { IProviderService } from '#/kosong/provider/provider';
+import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import {
   IHostFsWatchService,
   type HostFsChange,
@@ -52,6 +53,7 @@ import { ISkillDiscovery } from '#/features/skill/catalog/skillDiscovery';
 import { FileSkillDiscovery } from '#/features/skill/catalog/fileSkillDiscovery';
 import type { SkillRoot } from '#/features/skill/catalog/types';
 import { ILogService } from '#/_base/log/log';
+import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
 import { HostFsWatchService } from '#/os/backends/node-local/hostFsWatchService';
 
 import { stubBootstrap } from '../../../app/bootstrap/stubs';
@@ -259,6 +261,7 @@ describe('WorkspaceSkillCatalogService', () => {
     _clearScopedRegistryForTests();
     registerScopedService(LifecycleScope.App, IBuiltinSkillSource, BuiltinSkillSource);
     registerScopedService(LifecycleScope.App, IUserFileSkillSource, UserFileSkillSource);
+    registerScopedService(LifecycleScope.App, IHostFileSystem, HostFileSystem);
     registerScopedService(LifecycleScope.App, IPluginService, PluginService);
     registerScopedService(
       'program',
@@ -1209,6 +1212,30 @@ describe('WorkspaceSkillCatalogService', () => {
     } finally {
       host.dispose();
       await rm(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  it('does not arm a user root watch when the base directory is missing', async () => {
+    const { service, calls } = recordingWatchService();
+    const host = createScopedTestHost([
+      stubPair(IFlagService, stubFlag(true)),
+      stubPair(
+        IBootstrapService,
+        stubBootstrap('/nonexistent-pythinker-home', {}, {}, '/nonexistent-pythinker-os-home'),
+      ),
+      stubPair(IConfigService, configStub()),
+      stubPair(IPluginService, pluginStub()),
+      stubPair(ILogService, stubLog()),
+      stubPair(IHostFsWatchService, service),
+      stubPair(ISkillDiscovery, new FileSkillDiscovery(stubLog())),
+    ]);
+
+    try {
+      const source = host.app.accessor.get(IUserFileSkillSource);
+      await source.load();
+      expect(calls.map((call) => call.path)).toEqual([]);
+    } finally {
+      host.dispose();
     }
   });
 

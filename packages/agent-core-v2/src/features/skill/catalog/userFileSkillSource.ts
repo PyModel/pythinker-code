@@ -1,5 +1,3 @@
-import { existsSync } from 'node:fs';
-
 import { join } from 'pathe';
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 import { Disposable, DisposableStore } from '#/_base/di/lifecycle';
@@ -10,6 +8,7 @@ import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
+import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { IHostFsWatchService } from '#/os/interface/hostFsWatch';
 
 import {
@@ -45,6 +44,7 @@ export class UserFileSkillSource extends Disposable implements IUserFileSkillSou
     @IBootstrapService private readonly bootstrap: IBootstrapService,
     @IConfigService private readonly config: IConfigService,
     @IHostFsWatchService private readonly fsWatch: IHostFsWatchService,
+    @IHostFileSystem private readonly hostFs: IHostFileSystem,
   ) {
     super();
     this._register(
@@ -82,20 +82,27 @@ export class UserFileSkillSource extends Disposable implements IUserFileSkillSou
     }
     const ready: Promise<void>[] = [];
     for (const [base, candidates] of candidatesByBase) {
-      if (!existsSync(base)) continue;
-      const handle = this.fsWatch.watch(base, {
-        ignored: subtreeWatchFilter(base, candidates),
-        signal: true,
-      });
-      this.watchResources.add(handle);
-      this.watchResources.add(
-        handle.onDidChange(() => {
-          this.watchDebounce.cancelAndSet(() => {
-            this.onDidChangeEmitter.fire();
-          }, WATCH_DEBOUNCE_MS);
-        }),
+      ready.push(
+        this.hostFs.stat(base).then(
+          (stat) => {
+            if (!stat.isDirectory) return;
+            const handle = this.fsWatch.watch(base, {
+              ignored: subtreeWatchFilter(base, candidates),
+              signal: true,
+            });
+            this.watchResources.add(handle);
+            this.watchResources.add(
+              handle.onDidChange(() => {
+                this.watchDebounce.cancelAndSet(() => {
+                  this.onDidChangeEmitter.fire();
+                }, WATCH_DEBOUNCE_MS);
+              }),
+            );
+            return handle.ready;
+          },
+          () => undefined,
+        ),
       );
-      ready.push(handle.ready);
     }
     this.watchReady = Promise.allSettled(ready).then(() => undefined);
   }
