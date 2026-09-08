@@ -629,6 +629,57 @@ describe('Remote Control tunnel', () => {
     expect(logs).toContain('DEPLOYING');
     expect(handle.url).toContain('?rc=1&from=pythinker_code_cli');
   }, 15_000);
+  it('re-reads the local server token on every forwarded request', async () => {
+    const homeDir = createRemoteControlHome();
+    const relayToken = RELAY_TOKEN;
+    const relay = await startAuthRelay();
+    let handle: RemoteControlHandle | undefined;
+    cleanups.push(async () => handle?.close());
+
+    const authorizationHeaders: string[] = [];
+    const localServer = createServer((_request, response) => {
+      authorizationHeaders.push(String(_request.headers.authorization));
+      response.writeHead(200, { 'Content-Type': 'text/plain' });
+      response.end('ok');
+    });
+    const localPort = await listen(localServer);
+    cleanups.push(() => closeServer(localServer));
+
+    let currentToken = 'local-server-token';
+    handle = await startRemoteControl({
+      homeDir,
+      localOrigin: `http://127.0.0.1:${localPort}`,
+      localServerToken: () => currentToken,
+      relayKey: relayToken,
+      relayOrigin: `http://127.0.0.1:${relay.port}/coding-relay`,
+      stderr: { write: () => true },
+    });
+
+    const rawRequest = Buffer.from('GET / HTTP/1.1\r\nHost: relay.test\r\n\r\n');
+    const forward = async (): Promise<void> => {
+      const responsePromise = nextJsonMessage(relay.httpSockets.at(-1)!);
+      relay.httpSockets.at(-1)!.send(
+        JSON.stringify({
+          request_id: `request-${String(authorizationHeaders.length)}`,
+          type: 'request',
+          is_last: true,
+          body_base64: rawRequest.toString('base64'),
+        }),
+      );
+      await responsePromise;
+    };
+
+    await forward();
+    expect(authorizationHeaders).toEqual(['Bearer local-server-token']);
+
+    currentToken = 'rotated-server-token';
+    await forward();
+    expect(authorizationHeaders).toEqual([
+      'Bearer local-server-token',
+      'Bearer rotated-server-token',
+    ]);
+  });
+
 });
 
 describe('Remote Control single-instance lock', () => {

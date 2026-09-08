@@ -60,6 +60,7 @@ export interface StepNode {
   /** Decode split: server time awaiting parts vs. client time processing them. */
   llmServerDecodeMs?: number;
   llmClientConsumeMs?: number;
+  llmClientBlockedMs?: number;
   content: ContentSummary;
   toolCalls: ToolCallNode[];
 }
@@ -375,6 +376,7 @@ export function analyzeWire(entries: readonly WireEntry[]): Analysis {
             step.llmServerFirstTokenMs = ev.llmServerFirstTokenMs;
             step.llmServerDecodeMs = ev.llmServerDecodeMs;
             step.llmClientConsumeMs = ev.llmClientConsumeMs;
+            step.llmClientBlockedMs = ev.llmClientBlockedMs;
             if (step.beginTime !== undefined && t !== undefined) step.durationMs = t - step.beginTime;
             // Steps don't carry a generic 'error' finish reason (errors are
             // thrown, not recorded). 'filtered' means the provider blocked the

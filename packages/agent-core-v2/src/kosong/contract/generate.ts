@@ -1,3 +1,5 @@
+import { performance, type EventLoopUtilization } from 'node:perf_hooks';
+
 import { APIEmptyResponseError, createAbortError } from './errors';
 import {
   isContentPart,
@@ -38,6 +40,7 @@ export async function generate(
 ): Promise<GenerateResult> {
   const message: Message = { role: 'assistant', content: [], toolCalls: [] };
   let pendingPart: StreamedMessagePart | null = null;
+  let deferredThink: StreamedMessagePart | null = null;
 
   const toolCallIndexMap = new Map<number | string, number>();
 
@@ -61,11 +64,13 @@ export async function generate(
   let clientConsumeMs = 0;
   let firstPartAt: number | undefined;
   let lastResumeAt = 0;
+  let decodeEluStart: EventLoopUtilization | undefined;
 
   for await (const part of stream) {
     const arrivedAt = Date.now();
     if (firstPartAt === undefined) {
       firstPartAt = arrivedAt;
+      decodeEluStart = performance.eventLoopUtilization();
     } else {
       serverDecodeMs += arrivedAt - lastResumeAt;
     }
@@ -96,10 +101,22 @@ export async function generate(
         }
       }
 
+      if (part.type === 'text') deferredThink = null;
       if (pendingPart === null) {
         pendingPart = part;
+      } else if (
+        pendingPart.type === 'text' &&
+        part.type === 'think' &&
+        part.encrypted === undefined &&
+        part.think.trim().length === 0
+      ) {
+        deferredThink = part;
       } else if (!mergeInPlace(pendingPart, part)) {
         flushPart(message, pendingPart, toolCallIndexMap);
+        if (deferredThink !== null) {
+          flushPart(message, deferredThink, toolCallIndexMap);
+          deferredThink = null;
+        }
         pendingPart = part;
       }
     } finally {
@@ -112,12 +129,21 @@ export async function generate(
   if (firstPartAt !== undefined) {
     serverDecodeMs += Date.now() - lastResumeAt;
   }
+  const elu =
+    firstPartAt === undefined || decodeEluStart === undefined
+      ? undefined
+      : performance.eventLoopUtilization(decodeEluStart);
+  const clientBlockedMs =
+    elu === undefined ? undefined : Math.max(0, Math.round(elu.active) - clientConsumeMs);
   options?.onStreamEnd?.(
-    firstPartAt === undefined ? undefined : { serverDecodeMs, clientConsumeMs },
+    firstPartAt === undefined ? undefined : { serverDecodeMs, clientConsumeMs, clientBlockedMs },
   );
 
   if (pendingPart !== null) {
     flushPart(message, pendingPart, toolCallIndexMap);
+  }
+  if (deferredThink !== null) {
+    flushPart(message, deferredThink, toolCallIndexMap);
   }
   if (message.content.length === 0 && message.toolCalls.length === 0) {
     throw new APIEmptyResponseError(
