@@ -78,7 +78,7 @@ export interface IModelService {
   getLastUsedModel(): string | undefined;
   set(id: string, model: ModelRecord): Promise<void>;
   delete(id: string): Promise<void>;
-  loadAll(models: ModelsSection, defaultModel: string | undefined, lastUsedModel?: string): void;
+  loadAll(models: ModelsSection, defaultModel: string | undefined, lastUsedModel: string | undefined): void;
   replaceAll(models: ModelsSection): Promise<void>;
   setDefaultModel(id: string | undefined): Promise<void>;
   setLastUsedModel(id: string | undefined): Promise<void>;

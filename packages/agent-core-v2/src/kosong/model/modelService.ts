@@ -76,7 +76,7 @@ export class ModelService extends Disposable implements IModelService {
     return this.lastUsedModel;
   }
 
-  loadAll(models: ModelsSection, defaultModel: string | undefined, lastUsedModel?: string): void {
+  loadAll(models: ModelsSection, defaultModel: string | undefined, lastUsedModel: string | undefined): void {
     void this.applyRecords(models);
     void this.applyDefaultModel(defaultModel);
     void this.applyLastUsedModel(lastUsedModel);

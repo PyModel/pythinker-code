@@ -86,7 +86,7 @@ describe('ModelService', () => {
 
   function createService(models: Readonly<Record<string, ModelRecord>> = {}): ModelService {
     const service = new ModelService(stubProviders(), stubEvents());
-    service.loadAll({ ...models }, undefined);
+    service.loadAll({ ...models }, undefined, undefined);
     return service;
   }
 
@@ -99,7 +99,7 @@ describe('ModelService', () => {
     await Promise.resolve();
     expect(ready).toBe(false);
 
-    service.loadAll({ k1: { provider: 'pymodel', model: 'kimi-k2', maxContextSize: 262144 } }, 'k1');
+    service.loadAll({ k1: { provider: 'pymodel', model: 'kimi-k2', maxContextSize: 262144 } }, 'k1', undefined);
     await service.ready;
     expect(ready).toBe(true);
     expect(service.getDefaultModel()).toBe('k1');
@@ -172,6 +172,7 @@ describe('ModelService', () => {
         chat: { provider: 'pymodel', model: 'chat', capabilities: ['tool_use'], maxContextSize: 262144 },
       },
       undefined,
+      undefined,
     );
     expect(service.getDefaultModel()).toBe('chat');
   });
@@ -194,6 +195,7 @@ describe('ModelService', () => {
         },
       },
       'small',
+      undefined,
     );
     expect(service.getDefaultModel()).toBe('small');
   });
@@ -211,6 +213,7 @@ describe('ModelService', () => {
         },
       },
       'huge',
+      undefined,
     );
     expect(service.getDefaultModel()).toBe('big');
   });
@@ -242,6 +245,7 @@ describe('ModelService', () => {
         },
       },
       'small',
+      undefined,
     );
     expect(service.getDefaultModel()).toBe('small');
 
@@ -268,13 +272,14 @@ describe('ModelService', () => {
         },
       },
       'lone',
+      undefined,
     );
     expect(service.getDefaultModel()).toBeUndefined();
   });
 
   it('leaves the default unset when no model is eligible', () => {
     const service = new ModelService(stubProviders(), stubEvents());
-    service.loadAll({ embed: { model: 'embed', capabilities: ['image_in'] } }, undefined);
+    service.loadAll({ embed: { model: 'embed', capabilities: ['image_in'] } }, undefined, undefined);
     expect(service.getDefaultModel()).toBeUndefined();
   });
 
@@ -324,7 +329,7 @@ describe('ModelService', () => {
     expect(events).toEqual(['k1', 'k2', undefined]);
   });
 
-  it('replaces a dead default with the ready last-used model and says so in the warning', async () => {
+  it('falls back to the ranking when the default and last-used model are both deleted and warns about both ids', async () => {
     const published: ConfigWarning[] = [];
     const events = {
       _serviceBrand: undefined,

@@ -88,6 +88,7 @@ function createHost(
   models.loadAll(
     (sections['models'] ?? {}) as ModelsSection,
     sections['defaultModel'] as string | undefined,
+    undefined,
   );
   return {
     host,
