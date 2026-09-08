@@ -189,7 +189,7 @@ async function stateFileMtime(
       error.code === StorageErrors.codes.STORAGE_IO_FAILED &&
       error.details?.['errno'] === 'ENOTDIR'
     ) {
-      log?.warn('session index skips a non-directory entry', { path: error.details['path'] });
+      log?.warn('session index skips a non-directory entry');
       return undefined;
     }
     throw error;
