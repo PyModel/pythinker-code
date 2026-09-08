@@ -1,5 +1,11 @@
 # @pymodel/pythinker-code-sdk
 
+## 0.19.2
+
+### Patch Changes
+
+- [#298](https://github.com/PyModel/pythinker-code/pull/298) [`0f522b8`](https://github.com/PyModel/pythinker-code/commit/0f522b86991a70d2472f03842048c001c8ec294d) Thanks [@elkaix](https://github.com/elkaix)! - Warn in print mode when an untrusted folder skips project-level MCP servers. Workspace trust info now reports project servers that override same-named user entries as trust-gated.
+
 ## 0.19.1
 
 ### Patch Changes
