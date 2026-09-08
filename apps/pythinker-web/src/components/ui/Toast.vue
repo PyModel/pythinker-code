@@ -11,9 +11,11 @@ withDefaults(defineProps<{
   title: string;
   message?: string;
   dismissLabel?: string;
+  count?: number;
 }>(), {
   variant: 'info',
   dismissLabel: 'Dismiss',
+  count: 1,
 });
 
 defineEmits<{ dismiss: [] }>();
@@ -30,7 +32,7 @@ defineEmits<{ dismiss: [] }>();
       </slot>
     </span>
     <div class="ui-toast__body">
-      <div class="ui-toast__title">{{ title }}</div>
+      <div class="ui-toast__title">{{ title }}<span v-if="count > 1" class="ui-toast__count">×{{ count }}</span></div>
       <div v-if="message" class="ui-toast__msg">{{ message }}</div>
       <slot />
     </div>
@@ -77,6 +79,16 @@ defineEmits<{ dismiss: [] }>();
   font-weight: 500;
   color: var(--color-text);
   overflow-wrap: anywhere;
+}
+.ui-toast__count {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: var(--radius-full);
+  background: var(--color-surface-sunken);
+  color: var(--color-text-muted);
+  font-size: var(--ui-font-size-xs, 11px);
+  font-weight: 500;
+  vertical-align: 1px;
 }
 .ui-toast__msg {
   margin-top: 2px;

@@ -773,13 +773,6 @@ export function toAppEvent(wire: WireEvent): AppEvent {
     case 'event.session.created':
       return { type: 'sessionCreated', session: toAppSession(w.payload.session) };
 
-    case 'event.session.updated':
-      return {
-        type: 'sessionUpdated',
-        session: toAppSession(w.payload.session),
-        changedFields: w.payload.changed_fields,
-      };
-
     case 'event.session.deleted':
       return {
         type: 'sessionDeleted',
@@ -868,7 +861,9 @@ export function toAppEvent(wire: WireEvent): AppEvent {
         type: 'messageUpdated',
         sessionId: w.session_id,
         messageId: w.payload.message_id,
-        content: w.payload.content.map(toAppMessageContent),
+        content: Array.isArray(w.payload.content)
+          ? w.payload.content.map(toAppMessageContent)
+          : [],
         status: w.payload.status,
       };
 
@@ -992,8 +987,22 @@ export function toAppEvent(wire: WireEvent): AppEvent {
     case 'event.config.changed':
       return {
         type: 'configChanged',
-        changedFields: w.payload.changed_fields,
+        changedFields: Array.isArray(w.payload.changed_fields)
+          ? w.payload.changed_fields
+          : [],
         config: toAppConfig(w.payload.config),
+      };
+
+    case 'event.config.warning':
+      return {
+        type: 'unknown',
+        raw: {
+          _agentWarning: true,
+          message: (Array.isArray(w.payload.warnings) ? w.payload.warnings : [])
+            .map((warning: { message?: string }) => warning.message)
+            .filter((message: string | undefined): message is string => message !== undefined)
+            .join(' '),
+        },
       };
 
     case 'event.model_catalog.changed':

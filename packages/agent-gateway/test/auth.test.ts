@@ -166,7 +166,7 @@ describe('server-v2 GET /api/v1/auth', () => {
     expect(summary.default_model).toBeNull();
   });
 
-  it('returns models_ready=false when the default model dangles', async () => {
+  it('re-resolves a dangling default model instead of keeping the dead pointer', async () => {
     await boot(
       [
         'default_model = "gone"',
@@ -180,7 +180,7 @@ describe('server-v2 GET /api/v1/auth', () => {
     const summary = await getAuth();
     expect(summary.ready).toBe(false);
     expect(summary.models_ready).toBe(false);
-    expect(summary.default_model).toBe('gone');
+    expect(summary.default_model).toBeNull();
   });
 
   it('returns models_ready=true for a providerless flat default model', async () => {

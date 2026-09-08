@@ -137,6 +137,33 @@ describe('failed-turn recovery (ChatPane)', () => {
     expect(wrapper.emitted('continueTurn')).toEqual([['Continue']]);
     vi.unstubAllGlobals();
   });
+
+  it('carries the structured failure reason in the banner sub-line behind a Continue action', async () => {
+    const reason = 'Model "glm-5.3-flash" is not resolvable: provider "missing" is not configured';
+    const wrapper = mount(ChatPane, {
+      props: {
+        turns,
+        turnActive: false,
+        working: false,
+        lastTurnReason: 'failed',
+        turnErrorKind: 'error',
+        turnErrorMessage: reason,
+      },
+      global: { plugins: [i18n as I18n] },
+    });
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        observe(): void {}
+        unobserve(): void {}
+        disconnect(): void {}
+      },
+    );
+    expect(wrapper.find('.tf-sub').text()).toBe(reason);
+    await wrapper.find('.turn-failed button').trigger('click');
+    expect(wrapper.emitted('continueTurn')).toEqual([['Continue']]);
+    vi.unstubAllGlobals();
+  });
 });
 
 describe('queued prompts and skill turns (ChatPane)', () => {

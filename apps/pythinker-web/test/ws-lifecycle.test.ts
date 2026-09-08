@@ -206,3 +206,80 @@ describe('DaemonEventSocket reconnect + staleness', () => {
     );
   });
 });
+
+describe('DaemonEventSocket frame boundary', () => {
+  let originalWebSocket: typeof globalThis.WebSocket;
+
+  beforeEach(() => {
+    FakeWebSocket.instances = [];
+    originalWebSocket = globalThis.WebSocket;
+    globalThis.WebSocket = FakeWebSocket as unknown as typeof WebSocket;
+  });
+
+  afterEach(() => {
+    globalThis.WebSocket = originalWebSocket;
+  });
+
+  function connectWith(
+    handlers: DaemonEventSocketHandlers,
+  ): FakeWebSocket {
+    const socket = new DaemonEventSocket(WS_URL, CLIENT_ID, handlers);
+    socket.connect();
+    return FakeWebSocket.instances[0]!;
+  }
+
+  it('reports a throwing frame handler as a process error that names the frame type', () => {
+    const onError = vi.fn();
+    const ws = connectWith({
+      ...makeHandlers(),
+      onWireEvent: () => {
+        throw new Error('handler exploded');
+      },
+      onError,
+    });
+
+    ws.onmessage?.({ data: JSON.stringify({
+      type: 'event.config.changed',
+      session_id: 's1',
+      seq: 1,
+      timestamp: '2026-01-01T00:00:00.000Z',
+      payload: { changed_fields: ['models'] },
+    }) });
+
+    expect(onError).toHaveBeenCalledOnce();
+    const [, message] = onError.mock.calls[0]!;
+    expect(message).toContain('Failed to process WS frame (type: event.config.changed)');
+    expect(message).toContain('handler exploded');
+    expect(message).not.toContain('Failed to parse WS frame');
+  });
+
+  it('reports garbage JSON as a parse failure, not a process failure', () => {
+    const onError = vi.fn();
+    const ws = connectWith({ ...makeHandlers(), onError });
+
+    ws.onmessage?.({ data: 'not-json-at-all' });
+
+    expect(onError).toHaveBeenCalledOnce();
+    const [, message] = onError.mock.calls[0]!;
+    expect(message).toContain('Failed to parse WS frame');
+    expect(message).not.toContain('Failed to process WS frame');
+  });
+
+  it('drops frames without a string type or object payload without reporting', () => {
+    const onError = vi.fn();
+    const onWireEvent = vi.fn();
+    const handlers = makeHandlers();
+    handlers.onError = onError;
+    handlers.onWireEvent = onWireEvent;
+    const socket = new DaemonEventSocket(WS_URL, CLIENT_ID, handlers);
+    socket.connect();
+    const ws = FakeWebSocket.instances[0]!;
+
+    ws.onmessage?.({ data: JSON.stringify({ seq: 1, payload: {} }) });
+    ws.onmessage?.({ data: JSON.stringify({ type: 'event.config.changed', payload: 'not-an-object' }) });
+    ws.onmessage?.({ data: 'null' });
+
+    expect(onWireEvent).not.toHaveBeenCalled();
+    expect(onError).not.toHaveBeenCalled();
+  });
+});

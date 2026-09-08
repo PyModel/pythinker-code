@@ -713,7 +713,7 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
     let snapshot = this.turnConfigs.get(turnId);
     if (snapshot === undefined) {
       snapshot = {
-        resolved: this.profile.resolveModelContext(),
+        resolved: this.profile.resolveModelContext(turnId),
         params: this.profile.resolveRequestParams(),
         systemPrompt: this.profile.getSystemPrompt(),
       };

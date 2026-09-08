@@ -11,6 +11,7 @@ import { retryBackoffDelays } from '#/_base/utils/retry';
 import { IAgentLoopService } from '#/agent/loop/loop';
 import { ContinuationStepRequest } from '#/agent/loop/stepRequest';
 import { TurnStarted } from '#/agent/loop/turnEvents';
+import { ModelFallbackSwitched } from '#/agent/profile/profileOps';
 import { TurnStepRetrying } from '#/agent/stepRetry/stepRetryService';
 
 import { createTestAgent, llmGenerateServices, type TestAgentContext } from '../../harness';
@@ -160,6 +161,10 @@ describe('stepRetry plugin', () => {
         throw new APIStatusError(429, 'slow down');
       }),
     );
+    const switched: ModelFallbackSwitched[] = [];
+    ctx
+      .get(IEventBus)
+      .subscribe(ModelFallbackSwitched, (event) => switched.push(event));
 
     const result = await runTurn(1);
 
@@ -171,6 +176,7 @@ describe('stepRetry plugin', () => {
         args: expect.objectContaining({ reason: 'error', step: 10 }),
       }),
     ]);
+    expect(switched).toHaveLength(0);
   });
 
   it('honors the provider retry-after delay before retrying', async () => {

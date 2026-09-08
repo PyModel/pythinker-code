@@ -35,6 +35,11 @@ import '#/kosong/model/errors';
 import { IHostRequestHeaders } from '#/kosong/model/hostRequestHeaders';
 import { IModelService, type ModelRecord, type ModelsSection } from '#/kosong/model/model';
 import '#/kosong/model/modelService';
+import '#/app/event/eventService';
+import {
+  rankDefaultModelCandidates,
+  resolveDefaultModel,
+} from '#/kosong/model/defaultModelPolicy';
 import { IModelOAuthTokens } from '#/kosong/model/modelOAuth';
 
 import { HostRequestHeadersAdapter } from '#/app/kosongConfig/hostRequestHeadersAdapter';
@@ -1372,6 +1377,7 @@ describe('ModelCatalog setDefaultModel', () => {
         good: {
           model: 'good-model',
           baseUrl: 'https://x.test/v1',
+          protocol: 'openai',
           apiKey: 'sk',
           capabilities: ['tool_use'],
           maxContextSize: 262144,
@@ -1391,5 +1397,69 @@ describe('ModelCatalog setDefaultModel', () => {
     } finally {
       host.dispose();
     }
+  });
+});
+
+describe('default-model resolution policy (pure)', () => {
+  const providerless = { protocol: 'openai' } as const;
+  const models: ModelsSection = {
+    'chat/small': { model: 'small', maxContextSize: 8_000 },
+    'chat/big': { model: 'big', capabilities: ['tool_use'], maxContextSize: 1_000_000 },
+    'chat/tiny': { model: 'tiny', capabilities: ['tool_use'], maxContextSize: 2_000 },
+    embed: { model: 'embed', capabilities: ['image_in'], maxContextSize: 8_192 },
+  };
+
+  it('keeps the current default only when it resolves ready', () => {
+    const ready = new Set(['chat/big']);
+    expect(
+      resolveDefaultModel(models, 'chat/big', (id) => ready.has(id)),
+    ).toBe('chat/big');
+    expect(
+      resolveDefaultModel(models, 'gone', (id) => ready.has(id)),
+    ).toBe('chat/big');
+  });
+
+  it('drops a dead-id default and re-ranks deterministically over the ready candidates', () => {
+    expect(
+      resolveDefaultModel(models, 'dead-id', (id) => id === 'chat/big' || id === 'chat/tiny'),
+    ).toBe('chat/big');
+    expect(resolveDefaultModel(models, 'dead-id', () => false)).toBeUndefined();
+    expect(resolveDefaultModel(models, undefined)).toBe('chat/big');
+  });
+
+  it('excludes an unready candidate that would win the ranking', () => {
+    const mixed: ModelsSection = {
+      'huge/unready': { model: 'huge', maxContextSize: 10_000_000 },
+      'ready/small': { model: 'small', maxContextSize: 8_000 },
+    };
+    expect(
+      resolveDefaultModel(mixed, undefined, (id) => id === 'ready/small'),
+    ).toBe('ready/small');
+  });
+
+  it('reaches the empty state when candidates exist but none are ready', () => {
+    expect(resolveDefaultModel(models, undefined, () => false)).toBeUndefined();
+    expect(resolveDefaultModel(models, 'chat/big', () => false)).toBeUndefined();
+  });
+
+  it('ranks tool_use first, then context size desc, then id asc', () => {
+    expect(rankDefaultModelCandidates(models)).toEqual([
+      'chat/big',
+      'chat/tiny',
+      'chat/small',
+    ]);
+    const ties: ModelsSection = {
+      'z/one': { model: 'one', maxContextSize: 5_000 },
+      'a/two': { model: 'two', maxContextSize: 5_000 },
+    };
+    expect(rankDefaultModelCandidates(ties)).toEqual(['a/two', 'z/one']);
+    expect(rankDefaultModelCandidates(models)).toEqual(rankDefaultModelCandidates(models));
+  });
+
+  it('returns undefined for an empty or ineligible catalog', () => {
+    expect(resolveDefaultModel({}, undefined)).toBeUndefined();
+    expect(
+      resolveDefaultModel({ embed: { model: 'embed', capabilities: ['image_in'] } }, 'embed', () => false),
+    ).toBeUndefined();
   });
 });

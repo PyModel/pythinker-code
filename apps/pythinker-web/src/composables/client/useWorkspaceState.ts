@@ -61,6 +61,10 @@ const MESSAGES_PAGE_SIZE = 50;
 export const SESSIONS_INITIAL_PAGE_SIZE = 5;
 const PROMPT_NOT_FOUND_CODE = 40402;
 const WORKSPACE_NOT_FOUND_CODE = 40410;
+// Structured prompt refusals (auth.provisioning_required / auth.model_not_resolved):
+// the configured model/provider cannot serve a turn — no retry will fix it.
+const AUTH_PROVISIONING_REQUIRED_CODE = 40110;
+const AUTH_MODEL_NOT_RESOLVED_CODE = 40113;
 // Shared "already resolved" conflict (40902). The daemon reuses it for both
 // approvals and questions when a second client races the resolve, so a
 // duplicate submit is reported as a conflict even though the desired end
@@ -1901,7 +1905,26 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
       updateSessionMessages(sid, (msgs) =>
         msgs.some((m) => m.id === tempId) ? msgs.filter((m) => m.id !== tempId) : msgs,
       );
-      pushOperationFailure('sendPrompt', error, { sessionId: sid });
+      if (
+        isDaemonApiError(error) &&
+        (error.code === AUTH_PROVISIONING_REQUIRED_CODE || error.code === AUTH_MODEL_NOT_RESOLVED_CODE)
+      ) {
+        // Structured engine refusal: the configured model/provider cannot serve
+        // a turn. Surface a specific notice carrying the daemon's reason and
+        // re-read /auth so the setup/recovery surface takes over.
+        pushOperationFailure('sendPrompt', error, {
+          title: t(
+            error.code === AUTH_MODEL_NOT_RESOLVED_CODE
+              ? 'warnings.modelNotResolvedTitle'
+              : 'warnings.provisioningRequiredTitle',
+          ),
+          message: error.message,
+          sessionId: sid,
+        });
+        void checkAuth();
+      } else {
+        pushOperationFailure('sendPrompt', error, { sessionId: sid });
+      }
       return isDaemonApiError(error) ? 'rejected' : 'uncertain';
     } finally {
       // The daemon answered the submit (accepted or rejected) — the pending

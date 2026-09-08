@@ -145,13 +145,37 @@ export class DaemonEventSocket {
     ws.onmessage = (ev: MessageEvent) => {
       // Any received frame proves the link is alive; reset the stale detector.
       this.lastActivityAt = Date.now();
+      let frame: WireServerFrame;
       try {
-        const frame = JSON.parse(String(ev.data)) as WireServerFrame;
+        frame = JSON.parse(String(ev.data)) as WireServerFrame;
         traceWsIn(frame);
-        this.handleFrame(frame);
       } catch (error) {
         traceWsLifecycle('parse-error', { error: String(error) });
         this.handlers.onError(0, `Failed to parse WS frame: ${String(error)}`, false);
+        return;
+      }
+      // Mirror the server gate (wsConnectionV1 onMessage): only frames with a
+      // string type and an object payload are routed. Anything else is dropped
+      // (the full frame is already in the debug trace ring).
+      const candidate = frame as { type?: unknown; payload?: unknown } | null;
+      if (
+        candidate === null ||
+        typeof candidate !== 'object' ||
+        typeof candidate.type !== 'string' ||
+        typeof candidate.payload !== 'object' ||
+        candidate.payload === null
+      ) {
+        return;
+      }
+      try {
+        this.handleFrame(frame);
+      } catch (error) {
+        traceWsLifecycle('process-error', { type: candidate.type, error: String(error) });
+        this.handlers.onError(
+          0,
+          `Failed to process WS frame (type: ${candidate.type}): ${String(error)}`,
+          false,
+        );
       }
     };
 

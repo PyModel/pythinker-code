@@ -232,19 +232,16 @@ export function isRetryableGenerateError(error: unknown): boolean {
     // (provider overloaded — the "engine is currently overloaded" case).
     return [408, 409, 429, 500, 502, 503, 504, 529].includes(error.statusCode);
   }
-  // Fallback safety net: an unclassified provider failure — typically an
-  // upstream gateway that forwards the original error only as text, with no
-  // usable HTTP status (e.g. llmproxy embedding `status_code=429` in the
-  // message) — lands here as a base `ChatProviderError`. Retrying beats
-  // failing the run on the first transient blip. Typed `APIStatusError`
-  // instances are deliberately excluded above: deterministic 4xx
-  // (400/401/403/404/422) and the recovery-owned context-overflow /
-  // request-too-large subclasses keep their dedicated handling instead of
-  // burning retries first. Image-format rejections are likewise excluded:
-  // they are deterministic per history and recovered by the media-stripped
-  // resend (see isImageFormatError), so retrying the identical request first
-  // would only burn the retry budget.
-  return error instanceof ChatProviderError && !isImageFormatError(error);
+  // Fallback safety net: an unclassified provider failure is no longer
+  // retried by default. Text-only upstream failures carry no evidence they
+  // are transient, so a deterministic provider rejection would otherwise
+  // burn the whole retry budget (~2-3 minutes of backoff). Transient
+  // text-only failures are promoted to typed retryable errors earlier in the
+  // classification chain (see classifyBaseApiError); typed `APIStatusError`
+  // instances keep their dedicated handling above, and image-format
+  // rejections keep their media-stripped resend recovery (see
+  // isImageFormatError).
+  return false;
 }
 
 // Client-side image rejections thrown before the request is sent (kosong's
@@ -344,6 +341,13 @@ export function classifyBaseApiError(message: string): ChatProviderError {
   }
   if (NETWORK_RE.test(message)) {
     return new APIConnectionError(message);
+  }
+  // Text-only proxies embed the rate-limit signal in the message with no HTTP
+  // status. Promote the known patterns to the typed, retryable error so the
+  // retry gate sees a transient failure instead of an unclassified one.
+  const lowerMessage = message.toLowerCase();
+  if (PROVIDER_RATE_LIMIT_MESSAGE_PATTERNS.some((pattern) => pattern.test(lowerMessage))) {
+    return new APIProviderRateLimitError(message);
   }
   return new ChatProviderError(`Error: ${message}`);
 }
