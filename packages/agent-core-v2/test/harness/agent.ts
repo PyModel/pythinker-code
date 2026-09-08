@@ -206,6 +206,7 @@ import { IModelService, type ModelsSection } from '#/kosong/model/model';
 import {
   DEFAULT_MODEL_SECTION,
   DEFAULT_PROVIDER_SECTION,
+  LAST_USED_MODEL_SECTION,
   MODELS_SECTION,
   PROVIDERS_SECTION,
 } from '#/app/kosongConfig/configSection';
@@ -1040,6 +1041,7 @@ class ConfigBackedModelCatalog extends ModelCatalog {
     this.modelRegistry.loadAll(
       this.config.get<ModelsSection>(MODELS_SECTION) ?? {},
       this.config.get<string>(DEFAULT_MODEL_SECTION),
+      this.config.get<string>(LAST_USED_MODEL_SECTION),
     );
   }
 
@@ -1221,6 +1223,7 @@ export class AgentTestContext {
       .loadAll(
         initialConfig.get<ModelsSection>(MODELS_SECTION) ?? {},
         initialConfig.get<string>(DEFAULT_MODEL_SECTION),
+        initialConfig.get<string>(LAST_USED_MODEL_SECTION),
       );
 
     const bootstrap = this.root.accessor.get(IBootstrapService);

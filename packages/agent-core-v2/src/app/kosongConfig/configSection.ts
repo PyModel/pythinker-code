@@ -144,6 +144,8 @@ export const MODELS_SECTION = 'models';
 
 export const DEFAULT_MODEL_SECTION = 'defaultModel';
 
+export const LAST_USED_MODEL_SECTION = 'lastUsedModel';
+
 const ModelBaseSchema = z.object({
   providerId: z.string().optional(),
 
@@ -259,6 +261,8 @@ registerConfigSection(MODELS_SECTION, ModelsSectionSchema, {
   fromToml: modelsFromToml,
   toToml: modelsToToml,
 });
+
+registerConfigSection(LAST_USED_MODEL_SECTION, z.string().optional());
 
 export const THINKING_SECTION = 'thinking';
 
