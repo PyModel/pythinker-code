@@ -128,7 +128,7 @@ export type RemoteControlStatus =
 export interface RemoteControlOptions {
   readonly homeDir: string;
   readonly localOrigin: string;
-  readonly localServerToken: string;
+  readonly localServerToken: string | (() => string);
   readonly relayKey: string;
   readonly relayOrigin?: string;
   readonly stderr?: Pick<NodeJS.WriteStream, 'write'>;
@@ -340,7 +340,10 @@ function scriptStringLiteral(value: string): string {
 export async function startRemoteControl(
   options: RemoteControlOptions,
 ): Promise<RemoteControlHandle> {
-  if (options.localServerToken.length === 0) {
+  const tokenOption = options.localServerToken;
+  const resolveServerToken: () => string =
+    typeof tokenOption === 'function' ? tokenOption : () => tokenOption;
+  if (resolveServerToken().length === 0) {
     throw new Error('Remote Control requires local server authentication.');
   }
   if (options.relayKey.length === 0) {
@@ -359,6 +362,7 @@ export async function startRemoteControl(
   });
   const client = new RemoteControlClient({
     ...options,
+    localServerToken: resolveServerToken,
     relayOrigin,
     deviceId,
     relayToken: options.relayKey,
@@ -374,15 +378,18 @@ export async function startRemoteControl(
     deviceName,
     url,
     close: async () => {
-      await client.close();
-      await lock.release();
+      try {
+        await client.close();
+      } finally {
+        await lock.release();
+      }
     },
   };
 }
 
 class RemoteControlClient {
   private readonly localOrigin: string;
-  private readonly localServerToken: string;
+  private readonly localServerToken: () => string;
   private readonly relayOrigin: string;
   private readonly deviceId: string;
   private readonly relayToken: string;
@@ -410,6 +417,7 @@ class RemoteControlClient {
       readonly relayOrigin: string;
       readonly deviceId: string;
       readonly relayToken: string;
+      readonly localServerToken: () => string;
     },
   ) {
     this.localOrigin = options.localOrigin.replace(/\/+$/, '');
@@ -654,7 +662,7 @@ class RemoteControlClient {
       const response = await requestLocalHttp(
         this.localOrigin,
         parsed,
-        this.localServerToken,
+        this.localServerToken(),
         this.publicPrefix(),
       );
       this.sendHttpResponse(requestId, response);
@@ -693,7 +701,7 @@ class RemoteControlClient {
     try {
       local = await connectWebSocket(
         localWebSocketUrl(this.localOrigin, path),
-        this.localServerToken,
+        this.localServerToken(),
         relayHeaders(payload['headers']),
         earlyLocalFrames,
       );

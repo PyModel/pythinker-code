@@ -27,6 +27,20 @@ describe('formatStepDebugTiming', () => {
     expect(result).toBe('[Debug] TTFT: 800ms | TPS: 40.0 tok/s (200 tokens in 5.0s)');
   });
 
+  it('appends the blocked share to the decode split when present', () => {
+    const result = formatStepDebugTiming({
+      llmFirstTokenLatencyMs: 800,
+      llmStreamDurationMs: 6000,
+      llmServerDecodeMs: 6000,
+      llmClientConsumeMs: 25,
+      llmClientBlockedMs: 4875,
+      usage: { output: 216 },
+    });
+    expect(result).toBe(
+      '[Debug] TTFT: 800ms | TPS: 36.0 tok/s (216 tokens in 6.0s; server 6.0s (busy 4.9s) + client 25ms)',
+    );
+  });
+
   it('formats input tokens and cache read/write counts', () => {
     const result = formatStepDebugTiming({
       llmFirstTokenLatencyMs: 800,

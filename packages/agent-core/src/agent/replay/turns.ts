@@ -5,14 +5,17 @@ import type { AgentReplayRecord } from '../../rpc/resumed';
  *
  * A record starts a new user turn when it is a user-role message that came
  * from an actual user action — a typed prompt, a user-invoked skill/plugin
- * slash command, or a `!` shell command's input line. System-originated user
- * messages (compaction summaries, cron fires, hook results, retries, goal
- * reminders, background-task results, injections) continue the current turn
- * instead — with one exception: `goal_continuation` prompts. The goal driver
- * fires one synthetic continuation prompt per goal turn (see
- * agent/turn/index.ts), and the goal system itself counts those as turns, so
- * replay trimming treats them as turn boundaries; otherwise a 100-round goal
- * would count as a single user turn and resume would replay the entire run.
+ * slash command, a `!` shell command's input line, or a cron delivery
+ * (`cron_job` / `cron_missed`). Scheduled fires are real rounds of work with
+ * their own prompts and reports; counting them keeps resume replay bounded for
+ * sessions dominated by many scheduled turns. Other system-originated user
+ * messages (compaction summaries, hook results, retries, goal reminders,
+ * background-task results, injections) continue the current turn instead —
+ * with one exception: `goal_continuation` prompts. The goal driver fires one
+ * synthetic continuation prompt per goal turn (see agent/turn/index.ts), and
+ * the goal system itself counts those as turns, so replay trimming treats them
+ * as turn boundaries; otherwise a 100-round goal would count as a single user
+ * turn and resume would replay the entire run.
  *
  * Source of truth for turn-boundary detection; the TUI mirrors this through
  * the SDK re-export instead of keeping its own predicate.
@@ -32,10 +35,11 @@ export function isAgentReplayUserTurnRecord(record: AgentReplayRecord): boolean 
     case 'shell_command':
       // A `!` command's input is a user-turn anchor; its output is not.
       return message.origin.phase === 'input';
-    case 'background_task':
-    case 'compaction_summary':
     case 'cron_job':
     case 'cron_missed':
+      return true;
+    case 'background_task':
+    case 'compaction_summary':
     case 'hook_result':
     case 'injection':
     case 'retry':

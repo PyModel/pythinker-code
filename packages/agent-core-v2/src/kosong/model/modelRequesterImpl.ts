@@ -217,6 +217,9 @@ export function buildStreamTiming(
   if (decodeStats !== undefined) {
     timing.serverDecodeMs = Math.max(0, decodeStats.serverDecodeMs);
     timing.clientConsumeMs = Math.max(0, decodeStats.clientConsumeMs);
+    if (decodeStats.clientBlockedMs !== undefined) {
+      timing.clientBlockedMs = Math.max(0, decodeStats.clientBlockedMs);
+    }
   }
   return timing;
 }

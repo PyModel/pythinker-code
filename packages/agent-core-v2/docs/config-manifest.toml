@@ -59,6 +59,10 @@ enabled = false
 #   env:
 #     keep_alive_on_exit <- PYTHINKER_CODE_BACKGROUND_KEEP_ALIVE_ON_EXIT (custom parse)
 #     max_running_tasks <- PYTHINKER_CODE_BACKGROUND_MAX_RUNNING_TASKS (custom parse)
+#     bash_task_timeout_s <- PYTHINKER_CODE_BACKGROUND_BASH_TASK_TIMEOUT_S (custom parse)
+#     print_wait_ceiling_s <- PYTHINKER_CODE_BACKGROUND_PRINT_WAIT_CEILING_S (custom parse)
+#     print_background_mode <- PYTHINKER_CODE_BACKGROUND_PRINT_BACKGROUND_MODE (custom parse)
+#     print_max_turns <- PYTHINKER_CODE_BACKGROUND_PRINT_MAX_TURNS (custom parse)
 # ##########################################################################
 
 [background]
@@ -431,6 +435,10 @@ timeout_ms = 7200000
 #   env:
 #     keep_alive_on_exit <- PYTHINKER_CODE_BACKGROUND_KEEP_ALIVE_ON_EXIT (custom parse)
 #     max_running_tasks <- PYTHINKER_CODE_BACKGROUND_MAX_RUNNING_TASKS (custom parse)
+#     bash_task_timeout_s <- PYTHINKER_CODE_BACKGROUND_BASH_TASK_TIMEOUT_S (custom parse)
+#     print_wait_ceiling_s <- PYTHINKER_CODE_BACKGROUND_PRINT_WAIT_CEILING_S (custom parse)
+#     print_background_mode <- PYTHINKER_CODE_BACKGROUND_PRINT_BACKGROUND_MODE (custom parse)
+#     print_max_turns <- PYTHINKER_CODE_BACKGROUND_PRINT_MAX_TURNS (custom parse)
 # ##########################################################################
 
 [task]
