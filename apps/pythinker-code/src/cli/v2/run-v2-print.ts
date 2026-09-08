@@ -308,11 +308,20 @@ export async function listTrustGatedMcpServers(
 
 export function formatTrustGatedMcpWarning(servers: readonly TrustGatedMcpServer[]): string {
   const noun = servers.length === 1 ? 'server' : 'servers';
-  const list = servers.map((server) => `${server.name} (${server.target})`).join(', ');
+  const list = servers
+    .map((server) => `${escapeControlChars(server.name)} (${escapeControlChars(server.target)})`)
+    .join(', ');
   return (
     `Warning: this folder is not trusted; skipped ${servers.length} project-level MCP ${noun}: ${list}.\n` +
     '  Run `pythinker` here and choose "Trust this folder" to enable them.\n\n'
   );
+}
+
+function escapeControlChars(value: string): string {
+  return value.replaceAll(/[\u0000-\u001f\u007f-\u009f]/g, (char) => {
+    const code = char.codePointAt(0) ?? 0;
+    return `\\x${code.toString(16).padStart(2, '0')}`;
+  });
 }
 
 function describeMcpTarget(config: McpServerConfig): string {

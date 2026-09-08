@@ -523,4 +523,14 @@ describe('formatTrustGatedMcpWarning', () => {
     expect(text).toContain('skipped 2 project-level MCP servers:');
     expect(text).toContain('api (http: https://example.test/mcp), fs (stdio: node server.js)');
   });
+
+  it('encodes control characters in untrusted server names and targets', () => {
+    const text = formatTrustGatedMcpWarning([
+      { name: 'evil\u001b]0;pwned\u0007', target: 'stdio: node\u001b[6n server.js' },
+    ]);
+    expect(text).toContain('evil\\x1b]0;pwned\\x07');
+    expect(text).toContain('stdio: node\\x1b[6n server.js');
+    expect(text).not.toContain('\u001b');
+    expect(text).not.toContain('\u0007');
+  });
 });
