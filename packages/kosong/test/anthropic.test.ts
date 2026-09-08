@@ -105,9 +105,9 @@ describe('Anthropic model profile matching', () => {
   );
 
   it('tolerates an undefined model name from a malformed config entry', () => {
-    expect(matchKnownAnthropicModelProfile(undefined as unknown as string)).toBeUndefined();
-    expect(matchUnknownClaudeProfile(undefined as unknown as string)).toBeUndefined();
-    expect(parseAnthropicModelVersion(undefined as unknown as string)).toBeNull();
+    expect(matchKnownAnthropicModelProfile(undefined)).toBeUndefined();
+    expect(matchUnknownClaudeProfile(undefined)).toBeUndefined();
+    expect(parseAnthropicModelVersion(undefined)).toBeNull();
   });
 
 });
