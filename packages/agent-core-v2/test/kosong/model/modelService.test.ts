@@ -297,4 +297,109 @@ describe('ModelService', () => {
     await service.delete('b');
     expect(service.getDefaultModel()).toBe('a');
   });
+
+  it('hydrates the last-used model from loadAll and persists setter changes', async () => {
+    const service = new ModelService(stubProviders(), stubEvents());
+    const events: Array<string | undefined> = [];
+    service.onDidChangeLastUsedModel((e) => events.push(e.id));
+
+    service.loadAll(
+      { k1: { provider: 'pymodel', model: 'kimi-k2', maxContextSize: 262144 } },
+      'k1',
+      'k1',
+    );
+    await service.ready;
+    expect(service.getLastUsedModel()).toBe('k1');
+    expect(events).toEqual(['k1']);
+
+    await service.setLastUsedModel('k2');
+    expect(service.getLastUsedModel()).toBe('k2');
+    expect(events).toEqual(['k1', 'k2']);
+
+    await service.setLastUsedModel('k2');
+    expect(events).toEqual(['k1', 'k2']);
+
+    await service.setLastUsedModel(undefined);
+    expect(service.getLastUsedModel()).toBeUndefined();
+    expect(events).toEqual(['k1', 'k2', undefined]);
+  });
+
+  it('replaces a dead default with the ready last-used model and says so in the warning', async () => {
+    const published: ConfigWarning[] = [];
+    const events = {
+      _serviceBrand: undefined,
+      onDidPublish: undefined,
+      publish: (event: ConfigWarning) => {
+        published.push(event);
+      },
+      subscribe: () => ({ dispose: () => {} }),
+    } as unknown as IEventService;
+    const service = new ModelService(
+      stubProviders({ zai: { type: 'openai', apiKey: 'k' } }),
+      events,
+    );
+    service.loadAll(
+      {
+        'zai/glm-5.2': {
+          provider: 'zai',
+          model: 'glm-5.2',
+          capabilities: ['tool_use'],
+          maxContextSize: 1_000_000,
+        },
+        'zai/glm-5.3-flash': {
+          provider: 'zai',
+          model: 'glm-5.3-flash',
+          capabilities: ['tool_use'],
+          maxContextSize: 1_000_000,
+        },
+      },
+      'zai/glm-5.3-flash',
+      'zai/glm-5.3-flash',
+    );
+    expect(service.getDefaultModel()).toBe('zai/glm-5.3-flash');
+
+    await service.delete('zai/glm-5.3-flash');
+
+    expect(service.getLastUsedModel()).toBe('zai/glm-5.3-flash');
+    expect(service.getDefaultModel()).toBe('zai/glm-5.2');
+    const warnings = published.flatMap((event) => event.payload.warnings);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]?.domain).toBe('default_model');
+    expect(warnings[0]?.message).toContain('"zai/glm-5.3-flash"');
+    expect(warnings[0]?.message).toContain('"zai/glm-5.2"');
+  });
+
+  it('falls through to the ranking when the last-used model is not ready either', () => {
+    const service = new ModelService(stubProviders(), stubEvents());
+    service.loadAll(
+      {
+        gone: { provider: 'zai', model: 'gone', capabilities: ['tool_use'], maxContextSize: 1_000_000 },
+        live: { provider: 'pymodel', model: 'live', capabilities: ['tool_use'], maxContextSize: 1_000 },
+      },
+      'gone',
+      'gone',
+    );
+    expect(service.getLastUsedModel()).toBe('gone');
+    expect(service.getDefaultModel()).toBe('live');
+  });
+
+  it('keeps the last-used model through a catalog wipe and restores it as the default when the provider returns', async () => {
+    const flash: ModelRecord = {
+      provider: 'zai',
+      model: 'glm-5.3-flash',
+      capabilities: ['tool_use'],
+      maxContextSize: 1_000_000,
+    };
+    const service = new ModelService(stubProviders({ zai: { type: 'openai', apiKey: 'k' } }), stubEvents());
+    service.loadAll({ 'zai/glm-5.3-flash': flash }, 'zai/glm-5.3-flash', 'zai/glm-5.3-flash');
+    await service.ready;
+    expect(service.getDefaultModel()).toBe('zai/glm-5.3-flash');
+
+    await service.replaceAll({});
+    expect(service.getDefaultModel()).toBeUndefined();
+    expect(service.getLastUsedModel()).toBe('zai/glm-5.3-flash');
+
+    await service.replaceAll({ 'zai/glm-5.3-flash': flash });
+    expect(service.getDefaultModel()).toBe('zai/glm-5.3-flash');
+  });
 });

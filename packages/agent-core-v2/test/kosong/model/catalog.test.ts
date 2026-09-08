@@ -1442,7 +1442,7 @@ describe('default-model resolution policy (pure)', () => {
     expect(resolveDefaultModel(models, 'chat/big', () => false)).toBeUndefined();
   });
 
-  it('ranks tool_use first, then context size desc, then id asc', () => {
+  it('ranks tool_use first, then context size desc, then provider asc with the newest model part first', () => {
     expect(rankDefaultModelCandidates(models)).toEqual([
       'chat/big',
       'chat/tiny',
@@ -1456,10 +1456,70 @@ describe('default-model resolution policy (pure)', () => {
     expect(rankDefaultModelCandidates(models)).toEqual(rankDefaultModelCandidates(models));
   });
 
+  it('never ranks the oldest version first when same-provider candidates tie on context', () => {
+    const zai: ModelsSection = {
+      'zai/glm-5.2': { model: 'glm-5.2', capabilities: ['tool_use'], maxContextSize: 1_000_000 },
+      'zai/glm-5.3': { model: 'glm-5.3', capabilities: ['tool_use'], maxContextSize: 1_000_000 },
+      'zai/glm-5.3-flash': {
+        model: 'glm-5.3-flash',
+        capabilities: ['tool_use'],
+        maxContextSize: 1_000_000,
+      },
+    };
+    expect(rankDefaultModelCandidates(zai)).toEqual([
+      'zai/glm-5.3-flash',
+      'zai/glm-5.3',
+      'zai/glm-5.2',
+    ]);
+  });
+
+  it('groups by provider ascending even when the other provider holds the higher version', () => {
+    const ties: ModelsSection = {
+      'b/m-1': { model: 'm-1', maxContextSize: 5_000 },
+      'a/m-9': { model: 'm-9', maxContextSize: 5_000 },
+    };
+    expect(rankDefaultModelCandidates(ties)).toEqual(['a/m-9', 'b/m-1']);
+  });
+
+  it('splits compound ids on the first slash only', () => {
+    const compound: ModelsSection = {
+      'p/m-2/preview': { model: 'preview', maxContextSize: 1_000 },
+      'p/m-10': { model: 'm-10', maxContextSize: 1_000 },
+      'flat/m-1': { model: 'm-1', maxContextSize: 1_000 },
+    };
+    expect(rankDefaultModelCandidates(compound)).toEqual([
+      'flat/m-1',
+      'p/m-10',
+      'p/m-2/preview',
+    ]);
+  });
+
   it('returns undefined for an empty or ineligible catalog', () => {
     expect(resolveDefaultModel({}, undefined)).toBeUndefined();
     expect(
       resolveDefaultModel({ embed: { model: 'embed', capabilities: ['image_in'] } }, 'embed', () => false),
     ).toBeUndefined();
+  });
+
+  it('keeps the current default even when a different last-used model is set', () => {
+    expect(
+      resolveDefaultModel(models, 'chat/big', (id) => id === 'chat/big', 'chat/tiny'),
+    ).toBe('chat/big');
+  });
+
+  it('recovers through the last-used model when the current default is not ready', () => {
+    const ready = (id: string) => id === 'chat/big' || id === 'chat/tiny';
+    expect(resolveDefaultModel(models, 'gone', ready, 'chat/tiny')).toBe('chat/tiny');
+    expect(resolveDefaultModel(models, undefined, ready, 'chat/tiny')).toBe('chat/tiny');
+  });
+
+  it('falls through to the ranking when the last-used model is not ready', () => {
+    expect(
+      resolveDefaultModel(models, 'gone', (id) => id === 'chat/big', 'chat/dead'),
+    ).toBe('chat/big');
+  });
+
+  it('reaches the empty state even with a last-used model when nothing is ready', () => {
+    expect(resolveDefaultModel(models, 'gone', () => false, 'chat/big')).toBeUndefined();
   });
 });

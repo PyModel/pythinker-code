@@ -4,6 +4,7 @@ import { ILogService, type LogPayload } from '#/_base/log/log';
 import {
   DEFAULT_MODEL_SECTION,
   DEFAULT_PROVIDER_SECTION,
+  LAST_USED_MODEL_SECTION,
   MODELS_SECTION,
   PROVIDERS_SECTION,
 } from '#/app/kosongConfig/configSection';
@@ -100,6 +101,18 @@ describe('KosongConfigService startup hydration', () => {
     expect(models.list()).toEqual({});
     expect(models.getDefaultModel()).toBeUndefined();
   });
+
+  it('hydrates the last-used model pointer from config', async () => {
+    const { models } = await createBridge({ ...seededSections, lastUsedModel: 'k1' });
+
+    expect(models.getLastUsedModel()).toBe('k1');
+  });
+
+  it('leaves the last-used pointer unset when config does not carry one', async () => {
+    const { models } = await createBridge(seededSections);
+
+    expect(models.getLastUsedModel()).toBeUndefined();
+  });
 });
 
 describe('KosongConfigService kosong → config persistence', () => {
@@ -154,6 +167,23 @@ describe('KosongConfigService kosong → config persistence', () => {
       await flush();
 
       expect(config.get<string>(DEFAULT_PROVIDER_SECTION)).toBe('openai');
+    } finally {
+      bridge.dispose();
+    }
+  });
+
+  it('persists the last-used model pointer', async () => {
+    const { config, models, bridge } = await createBridge(seededSections);
+    try {
+      await models.setLastUsedModel('k1');
+      await flush();
+
+      expect(config.get<string>(LAST_USED_MODEL_SECTION)).toBe('k1');
+
+      await models.setLastUsedModel(undefined);
+      await flush();
+
+      expect(config.get<string>(LAST_USED_MODEL_SECTION)).toBeUndefined();
     } finally {
       bridge.dispose();
     }
@@ -261,6 +291,10 @@ describe('KosongConfigService config → kosong sync', () => {
       await config.replace(DEFAULT_PROVIDER_SECTION, 'openai');
       await flush();
       expect(providers.getDefaultProvider()).toBe('openai');
+
+      await config.replace(LAST_USED_MODEL_SECTION, 'k2');
+      await flush();
+      expect(models.getLastUsedModel()).toBe('k2');
     } finally {
       bridge.dispose();
     }
@@ -305,6 +339,35 @@ describe('KosongConfigService loop termination', () => {
       expect(providers.get('openai')).toEqual({ type: 'openai' });
       expect(models.get('k2')).toEqual({ provider: 'openai', model: 'gpt-5' });
       expect(replaceSpy).not.toHaveBeenCalled();
+    } finally {
+      bridge.dispose();
+    }
+  });
+});
+
+describe('KosongConfigService last-used model survival', () => {
+  it('keeps last_used_model in config when the models section is wiped and the default pointer clears', async () => {
+    const { config, models, bridge } = await createBridge({
+      ...seededSections,
+      lastUsedModel: 'k1',
+    });
+    try {
+      expect(models.getDefaultModel()).toBe('k1');
+
+      await config.replace(MODELS_SECTION, {});
+      await flush();
+
+      expect(models.list()).toEqual({});
+      expect(models.getDefaultModel()).toBeUndefined();
+      expect(config.get<string>(DEFAULT_MODEL_SECTION)).toBeUndefined();
+      expect(config.get<string>(LAST_USED_MODEL_SECTION)).toBe('k1');
+      expect(models.getLastUsedModel()).toBe('k1');
+
+      await config.replace(MODELS_SECTION, { k1: K1_MODEL });
+      await flush();
+
+      expect(models.getDefaultModel()).toBe('k1');
+      expect(config.get<string>(DEFAULT_MODEL_SECTION)).toBe('k1');
     } finally {
       bridge.dispose();
     }

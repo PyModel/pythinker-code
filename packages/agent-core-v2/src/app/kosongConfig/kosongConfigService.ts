@@ -14,6 +14,7 @@ import { IKosongConfigService } from './kosongConfig';
 import {
   DEFAULT_MODEL_SECTION,
   DEFAULT_PROVIDER_SECTION,
+  LAST_USED_MODEL_SECTION,
   MODELS_SECTION,
   PROVIDERS_SECTION,
 } from './configSection';
@@ -51,6 +52,7 @@ export class KosongConfigService extends Disposable implements IKosongConfigServ
     this.models.loadAll(
       this.config.get<ModelsSection>(MODELS_SECTION) ?? {},
       this.config.get<string>(DEFAULT_MODEL_SECTION),
+      this.config.get<string>(LAST_USED_MODEL_SECTION),
     );
     this._register(this.config.onDidSectionChange((e) => this.onConfigSectionChanged(e)));
     this._register(
@@ -83,6 +85,12 @@ export class KosongConfigService extends Disposable implements IKosongConfigServ
         e.waitUntil(this.enqueuePersistDefaultPointer(DEFAULT_MODEL_SECTION, e.id));
       }),
     );
+    this._register(
+      this.models.onDidChangeLastUsedModel((e) => {
+        if (this.config.get<string>(LAST_USED_MODEL_SECTION) === e.id) return;
+        e.waitUntil(this.enqueuePersistDefaultPointer(LAST_USED_MODEL_SECTION, e.id));
+      }),
+    );
   }
 
   private onConfigSectionChanged(e: ConfigSectionChangedEvent): void {
@@ -97,6 +105,7 @@ export class KosongConfigService extends Disposable implements IKosongConfigServ
         this.models.loadAll(
           (e.value as ModelsSection | undefined) ?? {},
           this.models.getDefaultModel(),
+          this.models.getLastUsedModel(),
         );
         break;
       case DEFAULT_PROVIDER_SECTION:
@@ -107,6 +116,11 @@ export class KosongConfigService extends Disposable implements IKosongConfigServ
       case DEFAULT_MODEL_SECTION:
         void this.models
           .setDefaultModel(e.value as string | undefined)
+          .catch((error) => this.logPersistFailure(error));
+        break;
+      case LAST_USED_MODEL_SECTION:
+        void this.models
+          .setLastUsedModel(e.value as string | undefined)
           .catch((error) => this.logPersistFailure(error));
         break;
     }
@@ -141,6 +155,10 @@ export class KosongConfigService extends Disposable implements IKosongConfigServ
       } else if (domain === DEFAULT_MODEL_SECTION) {
         void this.models
           .setDefaultModel(effective)
+          .catch((error) => this.logPersistFailure(error));
+      } else if (domain === LAST_USED_MODEL_SECTION) {
+        void this.models
+          .setLastUsedModel(effective)
           .catch((error) => this.logPersistFailure(error));
       }
     });

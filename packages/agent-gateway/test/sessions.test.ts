@@ -457,6 +457,50 @@ describe('server-v2 /api/v1/sessions', () => {
     expect(got.body.data.agent_config).toEqual({ model: 'stub' });
   });
 
+  it('persists agent_config.model as last_used_model in config.toml', async () => {
+    await server?.close();
+    server = undefined;
+    const cwd = home as string;
+    await writeFile(
+      join(cwd, 'config.toml'),
+      [
+        'default_model = "stub"',
+        '',
+        '[providers.stub]',
+        'type = "openai"',
+        'base_url = "http://127.0.0.1:9999"',
+        'api_key = "stub"',
+        '',
+        '[models.stub]',
+        'provider = "stub"',
+        'model = "stub"',
+        'max_context_size = 1000',
+        '',
+      ].join('\n'),
+      'utf-8',
+    );
+    server = await startServer({
+      hostIdentity: TEST_HOST_IDENTITY,
+      host: '127.0.0.1',
+      port: 0,
+      homeDir: home,
+      logLevel: 'silent',
+      debugEndpoints: true,
+    });
+    base = `http://127.0.0.1:${server.port}`;
+
+    const created = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd } });
+    const id = created.body.data.id;
+
+    const updated = await postJson<SessionWire>(`/api/v1/sessions/${id}/profile`, {
+      agent_config: { model: 'stub' },
+    });
+    expect(updated.body.code).toBe(0);
+
+    const toml = await readFile(join(cwd, 'config.toml'), 'utf-8');
+    expect(toml).toContain('last_used_model = "stub"');
+  });
+
   it('supports exclude_empty when listing sessions', async () => {
     const cwd = home as string;
     const created = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd } });

@@ -71,14 +71,17 @@ export interface IModelService {
   readonly settled: Promise<void>;
   readonly onDidChangeModels: Event<ModelsChangedEvent & IWaitUntil>;
   readonly onDidChangeDefaultModel: Event<DefaultModelChangedEvent & IWaitUntil>;
+  readonly onDidChangeLastUsedModel: Event<DefaultModelChangedEvent & IWaitUntil>;
   get(id: string): ModelRecord | undefined;
   list(): Readonly<Record<string, ModelRecord>>;
   getDefaultModel(): string | undefined;
+  getLastUsedModel(): string | undefined;
   set(id: string, model: ModelRecord): Promise<void>;
   delete(id: string): Promise<void>;
-  loadAll(models: ModelsSection, defaultModel: string | undefined): void;
+  loadAll(models: ModelsSection, defaultModel: string | undefined, lastUsedModel?: string): void;
   replaceAll(models: ModelsSection): Promise<void>;
   setDefaultModel(id: string | undefined): Promise<void>;
+  setLastUsedModel(id: string | undefined): Promise<void>;
 }
 
 export const IModelService: ServiceIdentifier<IModelService> =

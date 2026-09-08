@@ -25,6 +25,7 @@ export class ModelService extends Disposable implements IModelService {
 
   private models: Readonly<Record<string, ModelRecord>> = {};
   private defaultModel: string | undefined;
+  private lastUsedModel: string | undefined;
   private settling: Promise<void> = Promise.resolve();
   private hydrated = false;
   private resolveReady!: () => void;
@@ -49,6 +50,11 @@ export class ModelService extends Disposable implements IModelService {
   );
   readonly onDidChangeDefaultModel: Event<DefaultModelChangedEvent & IWaitUntil> =
     this._onDidChangeDefaultModel.event;
+  private readonly _onDidChangeLastUsedModel = this._register(
+    new AsyncEmitter<DefaultModelChangedEvent & IWaitUntil>(),
+  );
+  readonly onDidChangeLastUsedModel: Event<DefaultModelChangedEvent & IWaitUntil> =
+    this._onDidChangeLastUsedModel.event;
 
   get settled(): Promise<void> {
     return this.settling;
@@ -66,9 +72,14 @@ export class ModelService extends Disposable implements IModelService {
     return this.defaultModel;
   }
 
-  loadAll(models: ModelsSection, defaultModel: string | undefined): void {
+  getLastUsedModel(): string | undefined {
+    return this.lastUsedModel;
+  }
+
+  loadAll(models: ModelsSection, defaultModel: string | undefined, lastUsedModel?: string): void {
     void this.applyRecords(models);
     void this.applyDefaultModel(defaultModel);
+    void this.applyLastUsedModel(lastUsedModel);
     this.settling = this.settleDefaultModel();
     if (!this.hydrated) {
       this.hydrated = true;
@@ -102,11 +113,22 @@ export class ModelService extends Disposable implements IModelService {
     await this.applyDefaultModel(id);
   }
 
+  async setLastUsedModel(id: string | undefined): Promise<void> {
+    await this.ready;
+    await this.applyLastUsedModel(id);
+  }
+
   private settleDefaultModel(): Promise<void> {
     const current = this.defaultModel;
+    const lastUsed = this.lastUsedModel;
     const resolve = (id: string) =>
       resolveModelForReady(id, this.models, this.providers.list(), this.providers.getDefaultProvider());
-    const next = resolveDefaultModel(this.models, current, (id) => resolve(id).resolved);
+    const next = resolveDefaultModel(
+      this.models,
+      current,
+      (id) => resolve(id).resolved,
+      lastUsed,
+    );
     const currentResolution = current === undefined ? undefined : resolve(current);
     if (
       currentResolution !== undefined &&
@@ -144,6 +166,12 @@ export class ModelService extends Disposable implements IModelService {
     if (this.defaultModel === id) return;
     this.defaultModel = id;
     await this._onDidChangeDefaultModel.fireAsync({ id }, NO_ABORT);
+  }
+
+  private async applyLastUsedModel(id: string | undefined): Promise<void> {
+    if (this.lastUsedModel === id) return;
+    this.lastUsedModel = id;
+    await this._onDidChangeLastUsedModel.fireAsync({ id }, NO_ABORT);
   }
 }
 

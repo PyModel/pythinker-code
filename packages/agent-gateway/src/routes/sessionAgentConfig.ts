@@ -7,6 +7,7 @@ import {
   IAgentProfileService,
   IAgentDynamicWorkflowService,
   IAgentTowerService,
+  IModelService,
   agentContextOf,
   resumeSessionById,
   type PermissionMode,
@@ -30,6 +31,7 @@ export async function applySessionAgentConfig(
   const profile = agent.accessor.get(IAgentProfileService);
   if (agentConfig.model !== undefined && agentConfig.model !== '') {
     await profile.setModel(agentConfig.model);
+    await core.accessor.get(IModelService).setLastUsedModel(agentConfig.model);
   }
   if (agentConfig.thinking !== undefined) {
     profile.setThinking(agentConfig.thinking);
