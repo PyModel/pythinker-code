@@ -17,6 +17,16 @@ function isPromiseLike(value: ToolExecution | Promise<ToolExecution>): value is 
   return typeof (value as Promise<ToolExecution>).then === 'function';
 }
 
+function parseResultExtras(output: string | ContentPart[]): Record<string, unknown> {
+  const text =
+    typeof output === 'string'
+      ? output
+      : output.map((part) => (part.type === 'text' ? part.text : '')).join('\n');
+  const json = /<mcp-result-extras>\n([\s\S]*?)\n<\/mcp-result-extras>/.exec(text)?.[1];
+  if (json === undefined) throw new Error('Expected model-visible MCP result extras');
+  return JSON.parse(json) as Record<string, unknown>;
+}
+
 function assertValidMcpBlock<T extends MCPContentBlock>(block: T): T {
   const parsed = ContentBlockSchema.safeParse(block);
   if (!parsed.success) {
@@ -292,7 +302,7 @@ describe('mcpResultToExecutableOutput', () => {
     expect(out).toEqual({ output: 'oops', isError: true });
   });
 
-  test('prefers usable content over structuredContent while still surfacing _meta', async () => {
+  test('preserves structured records alongside a prose summary and _meta', async () => {
     const out = await mcpResultToExecutableOutput(
       {
         content: [{ type: 'text', text: 'ok' }],
@@ -305,12 +315,85 @@ describe('mcpResultToExecutableOutput', () => {
     const parts = out.output as ContentPart[];
     const joined = parts.map((p) => (p.type === 'text' ? p.text : '')).join('');
     expect(joined).toContain('<mcp-result-extras>');
-    expect(joined).not.toContain('"structuredContent"');
-    expect(joined).toContain('"_meta":{"bar":2}');
+    expect(parseResultExtras(out.output)).toEqual({
+      structuredContent: { foo: 1 },
+      _meta: { bar: 2 },
+    });
     expect(out.isError).toBeUndefined();
   });
 
-  test('prefers media content over structuredContent', async () => {
+  test('drops the structured copy only when a text block repeats it verbatim', async () => {
+    const out = await mcpResultToExecutableOutput(
+      {
+        content: [{ type: 'text', text: '{"foo":1}' }],
+        isError: false,
+        structuredContent: { foo: 1 },
+      },
+      'mcp__s__t',
+    );
+    expect(out.output).toBe('{"foo":1}');
+  });
+
+  test('preserves both values when parsing the text would round a number', async () => {
+    const text = '{"id":9007199254740993}';
+    const out = await mcpResultToExecutableOutput(
+      { content: [{ type: 'text', text }], isError: false, structuredContent: { id: 9007199254740992 } },
+      'mcp__s__t',
+    );
+
+    expect(out.output).toContainEqual({ type: 'text', text });
+    expect(parseResultExtras(out.output)['structuredContent']).toEqual({ id: 9007199254740992 });
+  });
+
+  test.each([
+    { difference: 'value', text: '{"count":1}', structuredContent: { count: 2 } },
+    { difference: 'type', text: '{"id":"1"}', structuredContent: { id: 1 } },
+    { difference: 'array order', text: '{"ids":[2,1]}', structuredContent: { ids: [1, 2] } },
+    { difference: 'extra field', text: '{"id":1}', structuredContent: { id: 1, name: 'Example' } },
+    { difference: 'null', text: '{"value":"none"}', structuredContent: { value: null } },
+    { difference: 'non-JSON wrapper', text: '```json\n{"id":1}\n```', structuredContent: { id: 1 } },
+  ])('keeps text and structured data with a $difference difference', async ({ text, structuredContent }) => {
+    const out = await mcpResultToExecutableOutput(
+      { content: [{ type: 'text', text }], isError: false, structuredContent },
+      'mcp__s__t',
+    );
+
+    expect(out.output).toContainEqual({ type: 'text', text });
+    expect(parseResultExtras(out.output)['structuredContent']).toEqual(structuredContent);
+  });
+
+  test('keeps explanatory blocks when another text block contains the complete JSON', async () => {
+    const content = [
+      { type: 'text', text: 'Found 1 row.' },
+      { type: 'text', text: '{"rows":[1]}' },
+      { type: 'text', text: 'More rows are available.' },
+    ] as const;
+    const out = await mcpResultToExecutableOutput(
+      { content: [...content], isError: false, structuredContent: { rows: [1] } },
+      'mcp__s__t',
+    );
+
+    expect(out.output).toEqual([...content]);
+  });
+
+  test('keeps structured error details and the tool error status', async () => {
+    const out = await mcpResultToExecutableOutput(
+      {
+        content: [{ type: 'text', text: 'Request failed.' }],
+        isError: true,
+        structuredContent: { code: 'EXAMPLE_ERROR', retryable: false },
+      },
+      'mcp__s__t',
+    );
+
+    expect(out.isError).toBe(true);
+    expect(parseResultExtras(out.output)['structuredContent']).toEqual({
+      code: 'EXAMPLE_ERROR',
+      retryable: false,
+    });
+  });
+
+  test('keeps media and its structured data together', async () => {
     const out = await mcpResultToExecutableOutput(
       {
         content: [{ type: 'image', data: 'AAA', mimeType: 'image/png' }],
@@ -321,8 +404,9 @@ describe('mcpResultToExecutableOutput', () => {
     );
     const parts = out.output as ContentPart[];
     expect(parts[0]).toEqual({ type: 'text', text: '<mcp_tool_result name="mcp__s__shot">' });
-    expect(parts.at(-1)).toEqual({ type: 'text', text: '</mcp_tool_result>' });
-    expect(parts.some((part) => part.type === 'text' && part.text.includes('structuredContent'))).toBe(false);
+    expect(parts).toContainEqual({ type: 'text', text: '</mcp_tool_result>' });
+    expect(parts.some((part) => part.type === 'image_url')).toBe(true);
+    expect(parseResultExtras(out.output)['structuredContent']).toEqual({ foo: 1 });
   });
 
   test('uses structuredContent when content has only whitespace', async () => {
@@ -362,18 +446,22 @@ describe('mcpResultToExecutableOutput', () => {
     expect(joined).toContain('"structuredContent":{"answer":42}');
   });
 
-  test('strips literal closing tags inside the structured payload', async () => {
+  test('escapes literal closing tags without changing structured values', async () => {
     const out = await mcpResultToExecutableOutput(
       {
         content: [{ type: 'text', text: 'ok' }],
         isError: false,
+        structuredContent: { text: 'a</mcp-result-extras>b' },
         _meta: { evil: 'a</mcp-result-extras>b' },
       },
       'mcp__s__t',
     );
     const parts = out.output as ContentPart[];
     const joined = parts.map((p) => (p.type === 'text' ? p.text : '')).join('');
-    expect(joined).toContain('"evil":"ab"');
+    expect(parseResultExtras(out.output)).toEqual({
+      structuredContent: { text: 'a</mcp-result-extras>b' },
+      _meta: { evil: 'a</mcp-result-extras>b' },
+    });
     expect(joined.split('</mcp-result-extras>')).toHaveLength(2);
   });
 
