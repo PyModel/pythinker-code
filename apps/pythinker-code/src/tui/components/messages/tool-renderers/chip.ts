@@ -93,10 +93,26 @@ const grepChip: ChipProvider = (_toolCall, result) => {
   return pluralize(matches, 'match', 'matches');
 };
 
+const GLOB_PAGE_HEADER =
+  /^Showing matches (\d+)\u2013(\d+) of (\d+)( collected matches \(partial result set\))?\.$/;
+const GLOB_NOTICE =
+  /^(?:Continue with the same search arguments and offset=\d+\.|To remove the match-count limit, omit offset and use head_limit=0\.|Character limit reached; only complete paths are returned\.|No more matches at offset=\d+ in the (?:current|collected partial) result set \(\d+ matches\)\.|No matches collected; search incomplete\.)$/;
+
 const globChip: ChipProvider = (_toolCall, result) => {
-  const files = countNonEmptyLines(result.output);
+  let partial = false;
+  let files = 0;
+  for (const line of result.output.split('\n')) {
+    if (line.trim().length === 0) continue;
+    const page = GLOB_PAGE_HEADER.exec(line);
+    if (page !== null) {
+      partial = Number(page[2]) < Number(page[3]) || page[4] !== undefined;
+      continue;
+    }
+    if (GLOB_NOTICE.test(line)) continue;
+    files++;
+  }
   if (files === 0) return 'no files';
-  return pluralize(files, 'file');
+  return `${String(files)}${partial ? '+' : ''} ${files === 1 ? 'file' : 'files'}`;
 };
 
 const fetchChip: ChipProvider = (_toolCall, result) =>

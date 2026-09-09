@@ -65,6 +65,41 @@ describe('chip registry', () => {
     expect(chipFor('Glob', { pattern: '**/*.ts' }, result('a.ts\nb.ts'))).toBe('2 files');
   });
 
+  it('counts only paths on a Glob page with a continuation notice', () => {
+    const output = [
+      'Showing matches 1\u2013100 of 347.',
+      'Continue with the same search arguments and offset=100.',
+      'To remove the match-count limit, omit offset and use head_limit=0.',
+      ...Array.from({ length: 100 }, (_, i) => `file-${String(i)}.ts`),
+    ].join('\n');
+    expect(chipFor('Glob', {}, result(output))).toBe('100+ files');
+  });
+
+  it.each([
+    'No more matches at offset=347 in the current result set (347 matches).',
+    'No matches collected; search incomplete.',
+  ])('does not count an empty Glob page as a file: %s', (output) => {
+    expect(chipFor('Glob', {}, result(output))).toBe('no files');
+  });
+
+  it('distinguishes the last Glob page from a partial result set', () => {
+    expect(chipFor('Glob', {}, result('Showing matches 3\u20134 of 4.\nc.ts\nd.ts'))).toBe('2 files');
+    expect(
+      chipFor(
+        'Glob',
+        {},
+        result('Showing matches 3\u20134 of 4 collected matches (partial result set).\nc.ts\nd.ts'),
+      ),
+    ).toBe('2+ files');
+  });
+
+  it('keeps notice-like file names and leaves Grep interpretation unchanged', () => {
+    expect(
+      chipFor('Glob', {}, result('Showing matches.ts\nContinue with.txt\nNo more matches.ts')),
+    ).toBe('3 files');
+    expect(chipFor('Grep', {}, result('Showing matches 1\u20132 of 3.'))).toBe('1 match');
+  });
+
   it('FetchURL chip shows size and is non-empty', () => {
     const out = chipFor('FetchURL', { url: 'https://example.com' }, result('hello world'));
     expect(out).toMatch(/\d+\s*B/);
