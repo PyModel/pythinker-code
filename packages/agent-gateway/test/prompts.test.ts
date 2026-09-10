@@ -618,6 +618,7 @@ describe('server-v2 /api/v1 prompts', () => {
     expect(content[1]).toEqual({
       type: 'video',
       source: { kind: 'session_media', file_id: uploaded.data.id },
+      name: 'clip.mp4',
     });
 
     await expectSessionMedia(server!, id, `${uploaded.data.id}.mp4`, videoBytes);
@@ -732,7 +733,7 @@ describe('server-v2 /api/v1 prompts', () => {
 
     const content = submitted.body.data.content as Array<Record<string, unknown>>;
     expect(content).toEqual([
-      { type: 'image', source: { kind: 'session_media', file_id: uploaded.id } },
+      { type: 'image', source: { kind: 'session_media', file_id: uploaded.id }, name: 'small.png' },
     ]);
 
     const mediaPath = await expectSessionMedia(server!, id, `${uploaded.id}.png`, smallPng);
@@ -764,7 +765,7 @@ describe('server-v2 /api/v1 prompts', () => {
     expect(replayed.body.code).toBe(0);
     expect(replayed.body.data.content).toEqual([
       { type: 'text', text: 'replay the stored image' },
-      { type: 'image', source: { kind: 'session_media', file_id: uploaded.id } },
+      { type: 'image', source: { kind: 'session_media', file_id: uploaded.id }, name: 'small.png' },
     ]);
 
     const session = getLiveSessionById(server!.core.accessor, id);
@@ -786,6 +787,7 @@ describe('server-v2 /api/v1 prompts', () => {
         imageUrl: {
           url: `pythinker-file://${uploaded.id}`,
           id: uploaded.id,
+          name: 'small.png',
         },
       });
     });
@@ -817,7 +819,7 @@ describe('server-v2 /api/v1 prompts', () => {
         expect(message).toBeDefined();
         expect(message!.content).toContainEqual({
           type: 'image_url',
-          imageUrl: { url: `pythinker-file://${uploaded.id}` },
+          imageUrl: { url: `pythinker-file://${uploaded.id}`, name: 'small.png' },
         });
       });
 
@@ -915,7 +917,7 @@ describe('server-v2 /api/v1 prompts', () => {
     expect(uploaded.code).toBe(0);
 
     const submitted = await call<PromptItemWire>('POST', `/api/v1/sessions/${id}/prompts`, {
-      content: [{ type: 'image', source: { kind: 'file', file_id: uploaded.data.id } }],
+      content: [{ type: 'image', source: { kind: 'file', file_id: uploaded.data.id }, name: 'renamed.avif' }],
     });
     expect(submitted.body.code).toBe(0);
 
@@ -924,7 +926,8 @@ describe('server-v2 /api/v1 prompts', () => {
     const notice = content[0];
     if (notice?.type !== 'text') throw new Error('expected a text notice');
     expect(notice.text).toContain('image/avif');
-    expect(notice.text).toContain('photo.avif');
+    expect(notice.text).toContain('renamed.avif');
+    expect(notice.text).not.toContain('photo.avif');
   });
 
   it('replaces a remote image URL with an unsupported extension with a text notice', async () => {
@@ -1029,6 +1032,7 @@ describe('server-v2 /api/v1 prompts', () => {
       content: [
         {
           type: 'image',
+          name: 'scan.avif',
           source: {
             kind: 'base64',
             media_type: 'image/avif',
@@ -1044,11 +1048,11 @@ describe('server-v2 /api/v1 prompts', () => {
     const notice = content[0];
     expect(notice?.type).toBe('text');
     expect(notice?.text).not.toContain('[Image omitted');
-    expect(notice?.text).toContain('"image.avif"');
+    expect(notice?.text).toContain('"scan.avif"');
     expect(notice?.text).toContain('image/avif');
     const attachedPath = attachedPathFrom(notice?.text ?? '');
     expect(attachedPath).toContain('/attachments/');
-    expect(attachedPath.endsWith('-image.avif')).toBe(true);
+    expect(attachedPath.endsWith('-scan.avif')).toBe(true);
     expect(await readFile(attachedPath)).toEqual(data);
   });
 

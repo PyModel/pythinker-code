@@ -873,8 +873,8 @@ describe('Agent loop', () => {
           {
             role: 'user',
             content: [
-              { type: 'image_url', imageUrl: { url: 'pythinker-file://file_1', id: 'file_1' } },
-              { type: 'video_url', videoUrl: { url: 'pythinker-file://file_2', id: 'file_2' } },
+              { type: 'image_url', imageUrl: { url: 'pythinker-file://file_1', id: 'file_1', name: 'photo.png' } },
+              { type: 'video_url', videoUrl: { url: 'pythinker-file://file_2', id: 'file_2', name: 'clip.mp4' } },
               { type: 'image_url', imageUrl: { url: 'pythinker-file://file_3' } },
               { type: 'image_url', imageUrl: { url: 'pythinker-file://file_4', id: 'other' } },
               { type: 'image_url', imageUrl: { url: 'https://example.com/no-id.png' } },
@@ -893,8 +893,8 @@ describe('Agent loop', () => {
 
     expect(payloads).toEqual([
       [
-        { kind: 'image', fileId: 'file_1' },
-        { kind: 'video', fileId: 'file_2' },
+        { kind: 'image', fileId: 'file_1', name: 'photo.png' },
+        { kind: 'video', fileId: 'file_2', name: 'clip.mp4' },
         { kind: 'image', fileId: 'file_3' },
       ],
     ]);
