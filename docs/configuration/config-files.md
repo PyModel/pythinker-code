@@ -244,7 +244,7 @@ Pool aliases reference the current `[models]` table. If a provider is deleted or
 
 In the interactive TUI, the [`/secondary-model`](../reference/slash-commands.md) command (alias `/subagent-model`) opens a model selector: the choice is written to `default_model` (when a models table exists and the picked alias is not in it, an entry with an empty description is added), and newly spawned subagents pick up the new default immediately — no session restart needed.
 
-A configured pool — an explicit `models` table or a lone `default_model` — enables model selection: the `Agent` / `AgentDynamicWorkflow` tools gain a `model` parameter, and the tool description lists the pool (the default marked `[default]`) so the main agent can choose per spawn. Pool keys can only reference configured [`[models]`](#models) entries:
+A configured pool — an explicit `models` table or a lone `default_model` — enables model selection: the `Agent` / `AgentDynamicWorkflow` tools gain a `model` parameter, and the tool description lists the pool (the default marked `[default]`) so the main agent can choose per spawn. The reserved alias `primary` is listed as `primary (= <alias>)`, naming the model the main agent is running on; pool entries do not inherit the main agent's thinking level. Pool keys can only reference configured [`[models]`](#models) entries:
 
 ```toml
 [secondary_model]
@@ -387,7 +387,7 @@ In print mode (`pythinker -p "<prompt>"`), Pythinker Code stays alive after the 
 
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
-| `timeout_ms` | `integer` | `7200000` (2 hours) | Maximum wall-clock time (milliseconds) a single `Agent` subagent is allowed to run before it is settled as `timed_out`. `0` means no timeout — the subagent runs until it finishes or the model stops it. This is the background-task manager's per-task timeout for each subagent task, so it applies to both foreground and background subagents. In print mode (`pythinker -p`) the default is `0` unless explicitly set. Note: any value above `2147483647` (about 24.8 days) is clamped to roughly 24.8 days by the runtime |
+| `timeout_ms` | `integer` | `7200000` (2 hours) | Maximum wall-clock time (milliseconds) a single `Agent` subagent is allowed to run before it is settled as `timed_out`. `0` means no timeout — the subagent runs until it finishes or the model stops it. This is the background-task manager's per-task timeout for each subagent task, so it applies to foreground subagents, background subagents, and tower workers and reviewers. In print mode (`pythinker -p`) the default is `0` unless explicitly set. Note: any value above `2147483647` (about 24.8 days) is clamped to roughly 24.8 days by the runtime |
 
 `timeout_ms` can be overridden by the `PYTHINKER_SUBAGENT_TIMEOUT_MS` environment variable, which takes higher priority than `config.toml`.
 
