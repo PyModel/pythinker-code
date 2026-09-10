@@ -44,8 +44,6 @@ import { formatHostForUrl, type NetworkAddress } from './networks';
 import {
   formatRemoteControlOutput,
   formatRemoteControlStatus,
-  isRemoteControlEnabled,
-  REMOTE_CONTROL_FLAG_ENV,
   resolveRelayKey,
   resolveRelayOrigin,
   startRemoteControl,
@@ -181,23 +179,21 @@ export function buildWebCommand(
     withServerOptions.addOption(
       new Option(
         '--rc, --remote-control',
-        'Expose the web UI through Pythinker Remote Control (experimental).',
-      )
-        .default(false)
-        .hideHelp(!isRemoteControlEnabled()),
+        'Expose the web UI through Pythinker Remote Control.',
+      ).default(false),
     );
   }
   withServerOptions.addOption(
     new Option(
       '--relay-key <key>',
       'Secret the Remote Control relay requires. Defaults to $PYTHINKER_CODE_REMOTE_CONTROL_RELAY_KEY.',
-    ).hideHelp(!isRemoteControlEnabled()),
+    ),
   );
   withServerOptions.addOption(
     new Option(
       '--relay-origin <url>',
       'Remote Control relay to tunnel through. Defaults to $PYTHINKER_CODE_REMOTE_CONTROL_RELAY.',
-    ).hideHelp(!isRemoteControlEnabled()),
+    ),
   );
   return withServerOptions
     .option('--no-open', 'Do not open the web UI in the default browser.', true)
@@ -218,11 +214,6 @@ export async function handleWebCommand(
   deps: WebCommandDeps = DEFAULT_WEB_COMMAND_DEPS,
 ): Promise<void> {
   const parsed = parseServerOptions(opts);
-  if (opts.remoteControl === true && !isRemoteControlEnabled()) {
-    throw new Error(
-      `--remote-control is experimental: set ${REMOTE_CONTROL_FLAG_ENV}=1 (or PYTHINKER_CODE_EXPERIMENTAL_FLAG=1) to enable it.`,
-    );
-  }
   if (opts.remoteControl === true && parsed.dangerousBypassAuth) {
     throw new Error('--remote-control cannot be combined with --dangerous-bypass-auth.');
   }

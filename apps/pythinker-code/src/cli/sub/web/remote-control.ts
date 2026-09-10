@@ -13,8 +13,6 @@ import { acquireRemoteControlLock } from './remote-control-lock';
 
 export const REMOTE_CONTROL_RELAY_ORIGIN = 'https://code-rc.pythinker.com';
 
-export const REMOTE_CONTROL_FLAG_ENV = 'PYTHINKER_CODE_EXPERIMENTAL_REMOTE_CONTROL';
-
 export const REMOTE_CONTROL_RELAY_ENV = 'PYTHINKER_CODE_REMOTE_CONTROL_RELAY';
 
 export const REMOTE_CONTROL_RELAY_KEY_ENV = 'PYTHINKER_CODE_REMOTE_CONTROL_RELAY_KEY';
@@ -53,16 +51,6 @@ export function resolveRelayKey(
     );
   }
   return candidate;
-}
-
-const TRUTHY_ENV_VALUES = new Set(['1', 'true', 'yes', 'on']);
-
-export function isRemoteControlEnabled(
-  env: Readonly<Record<string, string | undefined>> = process.env,
-): boolean {
-  const truthy = (key: string): boolean =>
-    TRUTHY_ENV_VALUES.has((env[key] ?? '').trim().toLowerCase());
-  return truthy('PYTHINKER_CODE_EXPERIMENTAL_FLAG') || truthy(REMOTE_CONTROL_FLAG_ENV);
 }
 
 const MAX_HTTP_HEADER_BYTES = 64 * 1024;

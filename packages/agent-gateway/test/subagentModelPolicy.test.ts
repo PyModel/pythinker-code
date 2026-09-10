@@ -226,22 +226,14 @@ describe('server-v2 /api/v1/config/subagent-model-policy', () => {
     });
   });
 
-  it('reports the effective policy as inherit while the feature is disabled and the configured one otherwise', async () => {
-    await boot(`${MODELS_TOML}\n[experimental]\n"secondary-model" = false\n`);
+  it('reports the configured policy as effective with no opt-in', async () => {
+    await boot(MODELS_TOML);
     await call('PUT', { mode: 'force', default_model: 'acme/sol' });
-    const disabled = subagentModelPolicyResponseSchema.parse((await call('GET')).body.data);
-    expect(disabled.effective.configured_policy.mode).toBe('force');
-    expect(disabled.effective.effective_policy).toEqual({ mode: 'inherit' });
-    expect(disabled.effective.policy_source).toBe('default');
-
-    await authedFetch(server as RunningServer, base, '/api/v1/config', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ experimental: { 'secondary-model': true } }),
-    });
-    const enabled = subagentModelPolicyResponseSchema.parse((await call('GET')).body.data);
-    expect(enabled.effective.effective_policy.mode).toBe('force');
-    expect(enabled.effective.feature).toEqual({ enabled: true, source: 'config' });
+    const effective = subagentModelPolicyResponseSchema.parse((await call('GET')).body.data);
+    expect(effective.effective.configured_policy.mode).toBe('force');
+    expect(effective.effective.effective_policy.mode).toBe('force');
+    expect(effective.effective.policy_source).toBe('config');
+    expect(effective.effective.feature).toEqual({ enabled: true, source: 'default' });
   });
 
   it('rejects a malformed body with VALIDATION_FAILED', async () => {

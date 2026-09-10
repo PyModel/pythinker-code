@@ -15,6 +15,7 @@ import type {
 } from '#/agent/runtime/agentRuntime';
 import { IFeatureManager } from '#/app/feature/featureManager';
 import { getConfigSectionContributions } from '#/app/config/configSectionContributions';
+import { applySectionEnv } from '#/app/config/configService';
 import { Emitter, Event, type IWaitUntil } from '#/_base/event';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import type { AgentLifecycleService } from '#/session/agentLifecycle/agentLifecycleService';
@@ -2535,13 +2536,17 @@ function configService(readConfig: () => PythinkerConfig): IConfigService {
     readonly value: unknown;
     readonly previousValue: unknown;
   }>();
-  const sectionDefault = (domain: string): unknown =>
-    getConfigSectionContributions().find((section) => section.domain === domain)?.options
-      .defaultValue;
-  const valueFor = (domain: string): unknown =>
-    memory.has(domain)
+  const contribution = (domain: string) =>
+    getConfigSectionContributions().find((section) => section.domain === domain);
+  const valueFor = (domain: string): unknown => {
+    const base = memory.has(domain)
       ? memory.get(domain)
-      : ((effectiveConfig() as Record<string, unknown>)[domain] ?? sectionDefault(domain));
+      : ((effectiveConfig() as Record<string, unknown>)[domain] ??
+        contribution(domain)?.options.defaultValue);
+    const env = contribution(domain)?.options.env;
+    if (env === undefined) return base;
+    return applySectionEnv(base, env, (name) => process.env[name]);
+  };
   const replace = (domain: string, value: unknown): Promise<void> => {
     const previousValue = valueFor(domain);
     memory.set(domain, value);

@@ -23,7 +23,6 @@ import {
 } from '#/session/subagent/bindingProvenance';
 import type { Event2, Event2Class } from '#/app/event/event2';
 import type { FoldContext } from '#/state/state';
-import { SECONDARY_MODEL_FLAG_ID } from '#/session/subagent/flag';
 import { type CanonicalSubagentModelPolicy, SECONDARY_MODEL_SECTION } from '#/session/subagent/policy';
 import {
   resolveSubagentModelRoute,
@@ -144,7 +143,6 @@ describe('SessionSubagentRoutingService', () => {
   let callerData: ProfileData;
   let childData: ProfileData;
   let childProvenance: SubagentBindingProvenance | undefined;
-  let featureEnabled: boolean;
   let telemetry: ITelemetryService & { track2: ReturnType<typeof vi.fn> };
 
   const profiles = [
@@ -184,7 +182,6 @@ describe('SessionSubagentRoutingService', () => {
   beforeEach(() => {
     disposables = new DisposableStore();
     ix = disposables.add(new TestInstantiationService());
-    featureEnabled = true;
     childProvenance = undefined;
     telemetry = { _serviceBrand: undefined, track2: vi.fn(), track: vi.fn() } as unknown as ITelemetryService & { track2: ReturnType<typeof vi.fn> };
     callerData = {
@@ -201,14 +198,7 @@ describe('SessionSubagentRoutingService', () => {
   function service(sections: Record<string, unknown>): ISubagentRoutingService {
     config = new StubConfigService(sections);
     ix.stub(IConfigService, config);
-    const flags = stubFlag((id) => featureEnabled && id === SECONDARY_MODEL_FLAG_ID);
-    ix.stub(IFlagService, {
-      ...flags,
-      explain: (id: string) =>
-        id === SECONDARY_MODEL_FLAG_ID
-          ? ({ id, enabled: featureEnabled, source: 'config' } as ExperimentalFeatureState)
-          : undefined,
-    });
+    ix.stub(IFlagService, stubFlag(false));
     ix.stub(IModelCatalog, {
       _serviceBrand: undefined,
       get: (id: string) => {
@@ -352,7 +342,7 @@ describe('SessionSubagentRoutingService', () => {
       model_source: 'policy-force',
       policy_mode: 'force',
       policy_source: 'config',
-      feature_source: 'config',
+      feature_source: 'default',
       routing_env_revision: plan.routing.resolvedFromRoutingEnvironmentRevision,
       route_decision: plan.routing.routeDecisionFingerprint,
       explicit_profile: true,

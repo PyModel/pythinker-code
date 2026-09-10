@@ -80,7 +80,7 @@ export class AgentDynamicWorkflowTool implements IAgentDynamicWorkflowTool {
   readonly name = 'AgentDynamicWorkflow' as const;
 
   get parameters(): Record<string, unknown> {
-    const parameters = exposesSubagentModelChoice(this.config, this.flags)
+    const parameters = exposesSubagentModelChoice(this.config)
       ? AGENT_DYNAMIC_WORKFLOW_PARAMETERS
       : AGENT_DYNAMIC_WORKFLOW_PARAMETERS_NO_MODEL;
     return this.flags.enabled(SUBAGENT_FORK_FLAG_ID)
@@ -107,7 +107,7 @@ export class AgentDynamicWorkflowTool implements IAgentDynamicWorkflowTool {
     if (this.flags.enabled(SUBAGENT_FORK_FLAG_ID)) {
       description += `\n\n${AGENT_DYNAMIC_WORKFLOW_FORK_DESCRIPTION}`;
     }
-    const modelLines = buildSubagentModelSummary(this.config, this.flags);
+    const modelLines = buildSubagentModelSummary(this.config);
     return modelLines === undefined ? description : `${description}\n\n${modelLines}`;
   }
 

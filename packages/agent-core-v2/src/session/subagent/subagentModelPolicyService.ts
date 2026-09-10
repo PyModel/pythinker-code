@@ -2,12 +2,10 @@ import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Error2, ErrorCodes } from '#/errors';
 import { IConfigService } from '#/app/config/config';
-import { IFlagService } from '#/app/flag/flag';
 import { THINKING_SECTION } from '#/app/kosongConfig/configSection';
 import { IModelCatalog } from '#/kosong/model/catalog';
 import { declaredDefaultEffortForModel, type ThinkingConfig } from '#/kosong/model/thinking';
 
-import { SECONDARY_MODEL_FLAG_ID } from './flag';
 import {
   INHERIT_SUBAGENT_MODEL_POLICY,
   type LegacySecondaryModelConfig,
@@ -38,7 +36,6 @@ export class SubagentModelPolicyService implements ISubagentModelPolicyService {
 
   constructor(
     @IConfigService private readonly config: IConfigService,
-    @IFlagService private readonly flags: IFlagService,
     @IModelCatalog private readonly modelCatalog: IModelCatalog,
   ) {}
 
@@ -122,11 +119,7 @@ export class SubagentModelPolicyService implements ISubagentModelPolicyService {
   }
 
   private feature(): SubagentFeatureState {
-    const state = this.flags.explain(SECONDARY_MODEL_FLAG_ID);
-    return {
-      enabled: state?.enabled ?? this.flags.enabled(SECONDARY_MODEL_FLAG_ID),
-      source: state?.source ?? 'default',
-    };
+    return { enabled: true, source: 'default' };
   }
 
   private liveContext(): SubagentPolicyValidationContext {
