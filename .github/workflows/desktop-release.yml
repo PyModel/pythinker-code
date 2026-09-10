@@ -245,11 +245,13 @@ jobs:
       # electron-builder notarizes and staples the .app but never the disk
       # image around it; a quarantined, unnotarized DMG is what Gatekeeper
       # reports as "damaged". Stapling changes the DMG bytes, so the same
-      # script also rewrites its latest-mac.yml entry and drops the stale
+      # script also rewrites the channel's update manifest and drops the stale
       # blockmap, keeping the update manifest verification below honest.
       - name: Notarize and staple macOS DMG
         working-directory: apps/desktop
-        run: node --import tsx scripts/finalize-mac-artifacts.ts dist
+        env:
+          UPDATE_MANIFEST: ${{ needs.prepare.outputs.mac_manifest }}
+        run: node --import tsx scripts/finalize-mac-artifacts.ts dist "$UPDATE_MANIFEST"
 
       - name: Verify macOS update artifacts
         shell: bash
