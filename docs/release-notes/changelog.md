@@ -70,7 +70,6 @@ This page documents the changes in each Pythinker Code CLI release.
 
 ### Polish
 
-- Rename the managed OAuth provider so it is named after the platform that serves it rather than reading as a first-party service: the provider id is now `managed:kimi-code`, its models are aliased `kimi-code/*`, and its credentials are stored under `oauth/kimi-code`.
 - Add an SDK routine that imports a catalog provider and its models into the persisted config, and use it for the CLI provider import so both entry points preserve existing defaults the same way.
 
 ## 0.8.1 (2026-08-05)

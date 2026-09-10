@@ -692,9 +692,9 @@ describe("Webview config saves (thinking effort persistence parity with the TUI)
 
   function mockConfig(thinking?: { enabled?: boolean; effort?: string }) {
     host.harness.getConfig.mockResolvedValue({
-      defaultModel: "kimi/reasoning",
+      defaultModel: "acme/reasoning",
       thinking: thinking ?? { enabled: true, effort: "high" },
-      models: { "kimi/reasoning": effortModel },
+      models: { "acme/reasoning": effortModel },
     } as never);
   }
 
@@ -702,13 +702,13 @@ describe("Webview config saves (thinking effort persistence parity with the TUI)
     mockConfig({ enabled: false, effort: "low" });
 
     const result = await bridge.handle(
-      { id: "rpc-1", method: Methods.SaveConfig, params: { model: "kimi/reasoning", thinking: true, effort: "high" } },
+      { id: "rpc-1", method: Methods.SaveConfig, params: { model: "acme/reasoning", thinking: true, effort: "high" } },
       "view-1",
     );
 
     expect(result).toEqual({ id: "rpc-1", result: { ok: true } });
     expect(host.harness.setConfig).toHaveBeenCalledWith({
-      defaultModel: "kimi/reasoning",
+      defaultModel: "acme/reasoning",
       thinking: { enabled: true, effort: "high" },
     });
   });
@@ -717,12 +717,12 @@ describe("Webview config saves (thinking effort persistence parity with the TUI)
     mockConfig({ enabled: false });
 
     await bridge.handle(
-      { id: "rpc-1", method: Methods.SaveConfig, params: { model: "kimi/reasoning", thinking: true, effort: "max" } },
+      { id: "rpc-1", method: Methods.SaveConfig, params: { model: "acme/reasoning", thinking: true, effort: "max" } },
       "view-1",
     );
 
     expect(host.harness.setConfig).toHaveBeenCalledWith({
-      defaultModel: "kimi/reasoning",
+      defaultModel: "acme/reasoning",
       thinking: { enabled: true },
     });
   });
@@ -781,12 +781,12 @@ describe("Webview config saves (thinking effort persistence parity with the TUI)
     mockConfig({ enabled: false, effort: "high" });
 
     await bridge.handle(
-      { id: "rpc-1", method: Methods.SaveConfig, params: { model: "kimi/reasoning", thinking: true, effort: "high", effortChanged: false } },
+      { id: "rpc-1", method: Methods.SaveConfig, params: { model: "acme/reasoning", thinking: true, effort: "high", effortChanged: false } },
       "view-1",
     );
 
     expect(host.harness.setConfig).toHaveBeenCalledWith({
-      defaultModel: "kimi/reasoning",
+      defaultModel: "acme/reasoning",
       thinking: { enabled: true },
     });
   });
@@ -795,7 +795,7 @@ describe("Webview config saves (thinking effort persistence parity with the TUI)
     mockConfig({ enabled: true, effort: "high" });
 
     await bridge.handle(
-      { id: "rpc-1", method: Methods.SaveConfig, params: { model: "kimi/reasoning", thinking: true, effort: "high" } },
+      { id: "rpc-1", method: Methods.SaveConfig, params: { model: "acme/reasoning", thinking: true, effort: "high" } },
       "view-1",
     );
 
