@@ -528,15 +528,15 @@ describe('CLI options parsing', () => {
 
   describe('sub-commands', () => {
     it('routes upgrade without calling the main action', () => {
-      let upgradeCalls = 0;
+      const upgradeYes: boolean[] = [];
       const program = createProgram(
         '0.0.0',
         () => {
           throw new Error('main action should not run');
         },
         () => {},
-        () => {
-          upgradeCalls += 1;
+        (yes) => {
+          upgradeYes.push(yes);
         },
       );
       program.exitOverride();
@@ -547,19 +547,19 @@ describe('CLI options parsing', () => {
 
       program.parse(['node', 'pythinker', 'upgrade']);
 
-      expect(upgradeCalls).toBe(1);
+      expect(upgradeYes).toEqual([false]);
     });
 
     it('routes update alias to the upgrade handler', () => {
-      let upgradeCalls = 0;
+      const upgradeYes: boolean[] = [];
       const program = createProgram(
         '0.0.0',
         () => {
           throw new Error('main action should not run');
         },
         () => {},
-        () => {
-          upgradeCalls += 1;
+        (yes) => {
+          upgradeYes.push(yes);
         },
       );
       program.exitOverride();
@@ -568,9 +568,9 @@ describe('CLI options parsing', () => {
         writeErr: () => {},
       });
 
-      program.parse(['node', 'pythinker', 'update']);
+      program.parse(['node', 'pythinker', 'update', '-y']);
 
-      expect(upgradeCalls).toBe(1);
+      expect(upgradeYes).toEqual([true]);
     });
 
     it('registers the visible sub-commands', () => {
