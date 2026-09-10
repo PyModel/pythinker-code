@@ -64,6 +64,14 @@ import {
   resolveMcpJsonPaths,
 } from '@pymodel/agent-core-v2/app/mcpConfig/configLoader';
 import { createPythinkerDefaultHeaders, createPythinkerDeviceId } from '@pymodel/pythinker-code-oauth';
+import {
+  initializeTelemetry,
+  setCrashPhase,
+  setTelemetryContext,
+  setTelemetryModel,
+  shouldEnableTelemetry,
+  shutdownTelemetry,
+} from '@pymodel/pythinker-telemetry';
 import type { GoalUpdated } from '@pymodel/agent-core-v2/features/goal/goalOps';
 import type { TurnEnded } from '@pymodel/agent-core-v2/agent/loop/turnOps';
 import type {
@@ -85,6 +93,7 @@ import {
   CLI_USER_AGENT_PRODUCT,
   PROMPT_CLEANUP_TIMEOUT_MS,
 } from '#/constant/app';
+import { currentPythinkerProfile } from '#/utils/region';
 
 import {
   formatGoalSummaryText,
@@ -174,12 +183,13 @@ export async function runV2Print(
   // user left unset are filled, in the memory layer.
   await applyPrintModeConfigDefaults(configService);
   const defaultModel = configService.get<string>('defaultModel') ?? undefined;
-  let telemetryEnabled: boolean;
+  let configTelemetryEnabled: boolean;
   try {
-    telemetryEnabled = configService.get('telemetry') !== false;
+    configTelemetryEnabled = configService.get('telemetry') !== false;
   } catch {
-    telemetryEnabled = true;
+    configTelemetryEnabled = true;
   }
+  const telemetryEnabled = shouldEnableTelemetry({ enabled: configTelemetryEnabled });
   for (const diagnostic of configService.diagnostics()) {
     if (diagnostic.severity === 'warning') {
       stderr.write(`Warning: ${diagnostic.message}\n`);
@@ -193,12 +203,14 @@ export async function runV2Print(
   const cleanup = async (): Promise<void> => {
     const pending = (cleanupPromise ??= (async () => {
       removeTerminationCleanup?.();
+      setCrashPhase('shutdown');
       try {
         await restorePermission();
       } finally {
         if (telemetryService !== undefined) {
           await raceWithTimeout(telemetryService.shutdown(), CLI_SHUTDOWN_TIMEOUT_MS);
         }
+        await shutdownTelemetry({ timeoutMs: CLI_SHUTDOWN_TIMEOUT_MS }).catch(() => {});
         app.dispose();
       }
     })());
@@ -211,7 +223,10 @@ export async function runV2Print(
     // `session_load_failed` fire inside create()/resume(), so an appender wired
     // up only after resolveNativeSession() would drop them to the null appender.
     // The model below is the best known up front; a resumed session's real
-    // model is reconciled via setContext once resolved.
+    // model is reconciled once resolved (v2 via setContext, v1 via
+    // setTelemetryModel). The v1 pipeline is initialized here too: the
+    // process-wide crash handlers installed in main() report through its
+    // default client, so its sink must be attached before the run can crash.
     telemetryService = app.accessor.get(ITelemetryService);
     if (telemetryEnabled) {
       telemetryService.setAppender(
@@ -222,6 +237,17 @@ export async function runV2Print(
           model: opts.model ?? defaultModel,
         }),
       );
+      // No `first_launch` on the v1 client: the v2 side already tracks it via
+      // `telemetryService.track2` below, so tracking here would double-send.
+      initializeTelemetry({
+        homeDir,
+        deviceId,
+        appName: CLI_USER_AGENT_PRODUCT,
+        version,
+        uiMode: PROMPT_UI_MODE,
+        model: opts.model ?? defaultModel,
+        endpoint: () => currentPythinkerProfile().telemetryEndpoint,
+      });
     }
 
     try {
@@ -235,6 +261,9 @@ export async function runV2Print(
     restorePermission = resolved.restorePermission;
 
     telemetryService.setContext({ sessionId: resolved.session.id, model: resolved.telemetryModel });
+    setTelemetryContext({ sessionId: resolved.session.id });
+    setTelemetryModel(resolved.telemetryModel);
+    setCrashPhase('runtime');
     if (firstLaunch) {
       telemetryService.track2('first_launch');
     }
@@ -318,7 +347,7 @@ export function formatTrustGatedMcpWarning(servers: readonly TrustGatedMcpServer
 }
 
 function escapeControlChars(value: string): string {
-  return value.replaceAll(/[\u0000-\u001f\u007f-\u009f]/g, (char) => {
+  return value.replaceAll(/[\u0000-\u001F\u007F-\u009F]/g, (char) => {
     const code = char.codePointAt(0) ?? 0;
     return `\\x${code.toString(16).padStart(2, '0')}`;
   });
