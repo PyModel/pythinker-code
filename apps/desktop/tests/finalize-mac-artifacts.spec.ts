@@ -132,6 +132,32 @@ sha512: old
     expect(runCommand).toHaveBeenNthCalledWith(2, 'xcrun', ['stapler', 'staple', join(distDir, filename)])
   })
 
+  it('finalizes the channel manifest a prerelease build actually produces', () => {
+    const distDir = mkdtempSync(join(tmpdir(), 'pythinker-mac-artifacts-'))
+    directories.push(distDir)
+    const filename = 'Pythinker-0.11.1-nightly.304-arm64.dmg'
+    const dmg = Buffer.from('nightly dmg fixture')
+    writeFileSync(join(distDir, filename), dmg)
+    writeFileSync(join(distDir, 'nightly-mac.yml'), `files:
+  - url: ${filename}
+    sha512: old
+    size: 1
+path: ${filename}
+sha512: old
+`)
+
+    finalizeMacArtifacts({
+      distDir,
+      env: { APPLE_KEYCHAIN_PROFILE: 'pythinker-notary' },
+      log: () => {},
+      manifestName: 'nightly-mac.yml',
+      runCommand: () => ({ status: 0, stderr: '', stdout: '{"status":"Accepted"}' }),
+    })
+
+    const checksum = createHash('sha512').update(dmg).digest('base64')
+    expect(readFileSync(join(distDir, 'nightly-mac.yml'), 'utf8')).toContain(`sha512: ${checksum}`)
+  })
+
   it('prints and rejects a non-accepted notarytool result before stapling', () => {
     const distDir = mkdtempSync(join(tmpdir(), 'pythinker-mac-artifacts-'))
     directories.push(distDir)

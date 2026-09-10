@@ -26,8 +26,13 @@ export interface FinalizeMacArtifactsOptions {
   readonly distDir: string
   readonly env: NodeJS.ProcessEnv
   readonly log?: (message: string) => void
+  // electron-builder names the manifest after the release channel, so only the
+  // stable channel produces latest-mac.yml.
+  readonly manifestName?: string
   readonly runCommand?: CommandRunner
 }
+
+const DEFAULT_MAC_MANIFEST = 'latest-mac.yml'
 
 function requiredValue(env: NodeJS.ProcessEnv, name: string): string {
   return env[name]!.trim()
@@ -72,6 +77,7 @@ export function rewriteLatestMacYaml(
   filename: string,
   sha512: string,
   size: number,
+  manifestName: string = DEFAULT_MAC_MANIFEST,
 ): string {
   const lines = yaml.split('\n')
   let fileEntryIndent: number | undefined
@@ -126,7 +132,7 @@ export function rewriteLatestMacYaml(
   }
 
   if (checksumUpdates === 0 || sizeUpdates === 0) {
-    throw new Error(`latest-mac.yml does not contain complete metadata for ${filename}`)
+    throw new Error(`${manifestName} does not contain complete metadata for ${filename}`)
   }
   return lines.join('\n')
 }
@@ -147,7 +153,8 @@ export function finalizeMacArtifacts(options: FinalizeMacArtifactsOptions): void
     .sort()
   if (dmgs.length === 0) throw new Error(`No DMG artifacts found in ${options.distDir}`)
 
-  const metadataPath = join(options.distDir, 'latest-mac.yml')
+  const manifestName = options.manifestName ?? DEFAULT_MAC_MANIFEST
+  const metadataPath = join(options.distDir, manifestName)
   let metadata = readFileSync(metadataPath, 'utf8')
   const credentialArgs = buildNotarytoolArguments(options.env)
 
@@ -181,7 +188,7 @@ export function finalizeMacArtifacts(options: FinalizeMacArtifactsOptions): void
 
     const size = statSync(dmgPath).size
     const sha512 = createHash('sha512').update(readFileSync(dmgPath)).digest('base64')
-    metadata = rewriteLatestMacYaml(metadata, filename, sha512, size)
+    metadata = rewriteLatestMacYaml(metadata, filename, sha512, size, manifestName)
 
     const blockmapPath = `${dmgPath}.blockmap`
     if (existsSync(blockmapPath)) {
@@ -196,9 +203,10 @@ export function finalizeMacArtifacts(options: FinalizeMacArtifactsOptions): void
 const invokedPath = process.argv[1]
 if (invokedPath !== undefined && resolve(invokedPath) === fileURLToPath(import.meta.url)) {
   const distDir = process.argv[2]
+  const manifestName = process.argv[3]
   try {
-    if (distDir === undefined) throw new Error('Usage: finalize-mac-artifacts.ts <dist-directory>')
-    finalizeMacArtifacts({ distDir: resolve(distDir), env: process.env })
+    if (distDir === undefined) throw new Error('Usage: finalize-mac-artifacts.ts <dist-directory> [manifest-name]')
+    finalizeMacArtifacts({ distDir: resolve(distDir), env: process.env, manifestName })
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error))
     process.exitCode = 1
