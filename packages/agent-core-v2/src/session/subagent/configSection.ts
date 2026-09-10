@@ -63,7 +63,7 @@ export const SUBAGENT_TIMEOUT_ENV = 'PYTHINKER_SUBAGENT_TIMEOUT_MS';
 
 function parseTimeoutMsEnv(raw: string): number | undefined {
   const parsed = Number(raw);
-  return Number.isInteger(parsed) && parsed >= 1 ? parsed : undefined;
+  return raw.trim() !== '' && Number.isInteger(parsed) && parsed >= 0 ? parsed : undefined;
 }
 
 export const subagentEnvBindings: EnvBindings<SubagentConfig> = envBindings(

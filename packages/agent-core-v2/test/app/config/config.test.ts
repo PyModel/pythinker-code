@@ -2065,6 +2065,19 @@ describe('subagent config section', () => {
     disposables.dispose();
   });
 
+  it('accepts 0 from the env var as "no timeout" and ignores a blank value', async () => {
+    const env: Record<string, string> = {};
+    const { config, disposables } = await createConfig(env, '[subagent]\ntimeout_ms = 5000\n');
+
+    env[SUBAGENT_TIMEOUT_ENV] = '0';
+    expect(resolveSubagentTimeoutMs(config)).toBe(0);
+
+    env[SUBAGENT_TIMEOUT_ENV] = '   ';
+    expect(resolveSubagentTimeoutMs(config)).toBe(5000);
+
+    disposables.dispose();
+  });
+
   it('reads timeout_ms from config.toml and lets the env var win', async () => {
     const env: Record<string, string> = {};
     const { config, disposables } = await createConfig(env, '[subagent]\ntimeout_ms = 5000\n');
