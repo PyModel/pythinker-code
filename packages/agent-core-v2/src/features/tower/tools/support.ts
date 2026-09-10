@@ -15,6 +15,10 @@ export function newTowerStore(sessionContext: ISessionContext): TowerStore {
 export const TOWER_MAIN_AGENT_ONLY =
   'Tower orchestration tools are only supported by the main agent.';
 
+export const TOWER_BUILD_MISSION_NEEDS_TASKS =
+  'Every build mission needs at least one non-empty task — the reviewer maps each task to the diff. ' +
+  'Add tasks, or use kind="survey" for a read-only investigation that needs no checklist.';
+
 export const TOWER_MODE_USER_ENABLED_ONLY =
   'tower mode is not active — only the user can enable it (with /tower on), never the agent. ' +
   'Ask the user to turn tower mode on, then drive the tower protocol.';

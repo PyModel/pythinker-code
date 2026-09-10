@@ -23,7 +23,7 @@ import {
 } from '#/session/subagent/spawn';
 import { SUBAGENT_FORK_FLAG_ID } from '#/session/subagent/flag';
 import {
-  buildSubagentModelDescriptions,
+  buildSubagentModelSummary,
   exposesSubagentModelChoice,
   stripSubagentForkParameter,
   stripSubagentModelParameter,
@@ -107,11 +107,7 @@ export class AgentDynamicWorkflowTool implements IAgentDynamicWorkflowTool {
     if (this.flags.enabled(SUBAGENT_FORK_FLAG_ID)) {
       description += `\n\n${AGENT_DYNAMIC_WORKFLOW_FORK_DESCRIPTION}`;
     }
-    const modelLines = buildSubagentModelDescriptions(
-      this.config,
-      this.flags,
-      this.profile.data().modelAlias,
-    );
+    const modelLines = buildSubagentModelSummary(this.config, this.flags);
     return modelLines === undefined ? description : `${description}\n\n${modelLines}`;
   }
 

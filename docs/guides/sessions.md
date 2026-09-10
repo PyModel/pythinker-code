@@ -59,7 +59,7 @@ pythinker --session
 You can manage sessions without leaving the terminal. The following slash commands are available only when the agent is idle:
 
 - **`/new`** (alias `/clear`): switch to a new session, discarding the current context.
-- **`/sessions`** (alias `/resume`): browse and resume a previous session.
+- **`/sessions`** (alias `/resume`): browse and resume a previous session. Press `Ctrl-X` on a row to delete that session; the picker asks for confirmation and stays open until the deletion finishes. Deleting the session you are in closes it and starts a fresh one.
 - **`/fork`**: fork the current session (see below).
 - **`/title <text>`** (alias `/rename`): set a session title for easier identification; without arguments, displays the current title.
 

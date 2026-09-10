@@ -43,7 +43,10 @@ import { TowerStatusTool } from '#/features/tower/tools/status/statusTool';
 import { executeTool } from '../../../tools/fixtures/execute-tool';
 import { stubAgentContext } from '../../../agent/agentContext/stubs';
 import type { AgentContext } from '#/agent/agentContext/agentContext';
-import { TOWER_MODE_USER_ENABLED_ONLY } from '#/features/tower/tools/support';
+import {
+  TOWER_BUILD_MISSION_NEEDS_TASKS,
+  TOWER_MODE_USER_ENABLED_ONLY,
+} from '#/features/tower/tools/support';
 
 const execFileAsync = promisify(execFile);
 const signal = new AbortController().signal;
@@ -255,7 +258,7 @@ describe('TowerInitTool', () => {
   it('is idempotent — a second run reports already-initialized and keeps state', async () => {
     await initViaTool();
     await run(ix.get(ITowerPlanTool), {
-      missions: [{ title: 'kept mission', scope: ['src/kept/**'] }],
+      missions: [{ title: 'kept mission', scope: ['src/kept/**'], tasks: ['keep it'] }],
     });
 
     const second = await run(ix.get(ITowerInitTool), {});
@@ -315,7 +318,7 @@ describe('TowerPlanTool', () => {
     const result = await run(ix.get(ITowerPlanTool), {
       missions: [
         { title: 'Build engine', scope: ['src/engine/**'], tasks: ['scaffold'] },
-        { title: 'Build UI', scope: ['src/ui/**'], deps: ['M1'] },
+        { title: 'Build UI', scope: ['src/ui/**'], tasks: ['wire the shell'], deps: ['M1'] },
       ],
     });
 
@@ -323,6 +326,49 @@ describe('TowerPlanTool', () => {
     expect(result.output).toContain('planned 2 mission(s):');
     expect(result.output).toContain('| M1 | Build engine | build | feat/build-engine | wt-1 | src/engine/** |');
     expect(result.output).toContain('| M2 | Build UI | build | feat/build-ui | wt-2 | src/ui/** |');
+  });
+
+  it.each([
+    ['omitted tasks', { title: 'Build engine', scope: ['src/engine/**'] }],
+    ['empty tasks', { title: 'Build engine', scope: ['src/engine/**'], tasks: [] }],
+    ['blank task text', { title: 'Build engine', scope: ['src/engine/**'], tasks: ['  '] }],
+  ])('rejects a build mission with %s', async (_label, mission) => {
+    await initViaTool();
+
+    const result = await run(ix.get(ITowerPlanTool), { missions: [mission] });
+
+    expect(result.isError).toBe(true);
+    expect(result.output).toBe(TOWER_BUILD_MISSION_NEEDS_TASKS);
+  });
+
+  it('plans a survey mission without tasks', async () => {
+    await initViaTool();
+
+    const result = await run(ix.get(ITowerPlanTool), {
+      missions: [{ title: 'Scan engine', scope: ['src/engine/**'], kind: 'survey' }],
+    });
+
+    expect(result.isError).toBeFalsy();
+    expect(result.output).toContain('planned 1 mission(s):');
+  });
+
+  it('passes mission context through to the stored mission', async () => {
+    await initViaTool();
+
+    const result = await run(ix.get(ITowerPlanTool), {
+      missions: [
+        {
+          title: 'Build engine',
+          scope: ['src/engine/**'],
+          tasks: ['scaffold'],
+          context: 'Ship it as a single binary.',
+        },
+      ],
+    });
+
+    expect(result.isError).toBeFalsy();
+    const state = await new TowerStore(repo).load();
+    expect(state.missions[0]?.context).toBe('Ship it as a single binary.');
   });
 });
 
@@ -421,7 +467,7 @@ describe('TowerStatusTool', () => {
   it('marks dead roster agents and warns about the missions they own', async () => {
     await initViaTool();
     await run(ix.get(ITowerPlanTool), {
-      missions: [{ title: 'engine', scope: ['src/engine/**'] }],
+      missions: [{ title: 'engine', scope: ['src/engine/**'], tasks: ['scaffold'] }],
     });
     const store = new TowerStore(repo);
     await store.registerAgent({

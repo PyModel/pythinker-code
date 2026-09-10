@@ -93,10 +93,35 @@ const grepChip: ChipProvider = (_toolCall, result) => {
   return pluralize(matches, 'match', 'matches');
 };
 
+const GLOB_PAGE_HEADER =
+  /^Showing matches (\d+)\u2013(\d+) of (\d+)( collected matches \(partial result set\))?\.$/;
+const GLOB_EMPTY_NOTICE =
+  /^(?:No more matches at offset=\d+ in the (?:current|collected partial) result set \(\d+ matches\)\.|No matches collected; search incomplete\.|No non-sensitive matches found \(\d+ sensitive file\(s\) filtered\)\.|No matches found)$/;
+const GLOB_FOOTER = /^(?:Filtered \d+ sensitive file\(s\)\.|Found \d+ matches)$/;
+
 const globChip: ChipProvider = (_toolCall, result) => {
-  const files = countNonEmptyLines(result.output);
+  const lines = result.output.split('\n');
+  let files = 0;
+  let partial = false;
+  let counted = false;
+  for (const line of lines) {
+    if (GLOB_EMPTY_NOTICE.test(line)) return 'no files';
+    const page = GLOB_PAGE_HEADER.exec(line);
+    if (page === null) continue;
+    files = Number(page[2]) - Number(page[1]) + 1;
+    partial = Number(page[2]) < Number(page[3]) || page[4] !== undefined;
+    counted = true;
+    break;
+  }
+  if (!counted) {
+    for (const line of lines) {
+      if (line.trim().length === 0) continue;
+      if (GLOB_FOOTER.test(line)) continue;
+      files++;
+    }
+  }
   if (files === 0) return 'no files';
-  return pluralize(files, 'file');
+  return `${String(files)}${partial ? '+' : ''} ${files === 1 ? 'file' : 'files'}`;
 };
 
 const fetchChip: ChipProvider = (_toolCall, result) =>

@@ -8,6 +8,7 @@ import type { ToolExecution } from '#/tool/toolContract';
 import {
   newTowerStore,
   runTowerTool,
+  TOWER_BUILD_MISSION_NEEDS_TASKS,
   TOWER_MAIN_AGENT_ONLY,
   TOWER_MODE_USER_ENABLED_ONLY,
 } from '../support';
@@ -41,6 +42,17 @@ export class TowerPlanTool implements ITowerPlanTool {
           if (!this.tower.isActive) {
             return {
               output: TOWER_MODE_USER_ENABLED_ONLY,
+              isError: true,
+            };
+          }
+          const invalid = args.missions.some((mission) => {
+            const tasks = mission.tasks ?? [];
+            if (tasks.some((task) => task.trim().length === 0)) return true;
+            return (mission.kind ?? 'build') === 'build' && tasks.length === 0;
+          });
+          if (invalid) {
+            return {
+              output: TOWER_BUILD_MISSION_NEEDS_TASKS,
               isError: true,
             };
           }

@@ -145,7 +145,8 @@ function isSameSection(
     existing.fromToml === options.fromToml &&
     existing.toToml === options.toToml &&
     deepEqual(existing.defaultValue, options.defaultValue) &&
-    deepEqual(existing.deprecations, options.deprecations)
+    deepEqual(existing.deprecations, options.deprecations) &&
+    existing.collectDiagnostics === options.collectDiagnostics
   );
 }
 
@@ -243,6 +244,7 @@ export class ConfigRegistry extends Disposable implements IConfigRegistry {
       fromToml: options.fromToml,
       toToml: options.toToml,
       deprecations: options.deprecations,
+      collectDiagnostics: options.collectDiagnostics,
     });
     this._onDidRegisterSection.fire({ domain });
   }
@@ -306,6 +308,8 @@ export class ConfigService extends Disposable implements IConfigService {
   private memory: ResolvedConfig = {};
   private delivered: ResolvedConfig = {};
   private readonly diagnosticsList: ConfigDiagnostic[] = [];
+  private readonly rawDiagnostics = new Map<string, ConfigDiagnostic[]>();
+  private validationDiagnostics: ConfigDiagnostic[] = [];
   private lastDiagnosticsSnapshot = '[]';
   private readonly configKey: string;
   private tainted = false;
@@ -363,7 +367,44 @@ export class ConfigService extends Disposable implements IConfigService {
   }
 
   diagnostics(): readonly ConfigDiagnostic[] {
-    return [...this.diagnosticsList];
+    const all = [...this.diagnosticsList];
+    const refreshed = [
+      ...this.validationDiagnostics,
+      ...[...this.rawDiagnostics.keys()]
+        .toSorted()
+        .flatMap((domain) => this.rawDiagnostics.get(domain) ?? []),
+    ];
+    for (const diagnostic of refreshed) {
+      const duplicate = all.some(
+        (existing) =>
+          existing.domain === diagnostic.domain &&
+          existing.severity === diagnostic.severity &&
+          existing.message === diagnostic.message,
+      );
+      if (!duplicate) all.push(diagnostic);
+    }
+    return all;
+  }
+
+  private collectRawDiagnostics(domains?: readonly string[]): void {
+    const sections =
+      domains === undefined
+        ? this.registry.listSections()
+        : domains
+            .map((domain) => this.registry.getSection(domain))
+            .filter((section) => section !== undefined);
+    for (const section of sections) {
+      const rawSection = this.rawSnake[camelToSnake(section.domain)];
+      const collected: ConfigDiagnostic[] = [
+        ...collectKeyDeprecations({ [camelToSnake(section.domain)]: rawSection }, [section]),
+        ...(section.collectDiagnostics?.(rawSection) ?? []),
+      ];
+      if (collected.length === 0) {
+        this.rawDiagnostics.delete(section.domain);
+      } else {
+        this.rawDiagnostics.set(section.domain, collected);
+      }
+    }
   }
 
   private pushDiagnostic(diagnostic: ConfigDiagnostic): void {
@@ -377,7 +418,7 @@ export class ConfigService extends Disposable implements IConfigService {
   }
 
   private emitDiagnosticsIfChanged(): void {
-    const snapshot = JSON.stringify(this.diagnosticsList);
+    const snapshot = JSON.stringify(this.diagnostics());
     if (snapshot === this.lastDiagnosticsSnapshot) return;
     this.lastDiagnosticsSnapshot = snapshot;
     this._onDidChangeDiagnostics.fire(this.diagnostics());
@@ -540,6 +581,8 @@ export class ConfigService extends Disposable implements IConfigService {
 
   private async load(source: ConfigChangeSource): Promise<void> {
     this.diagnosticsList.length = 0;
+    this.rawDiagnostics.clear();
+    this.validationDiagnostics = [];
     let fileData: ResolvedConfig = {};
     let failed = false;
     try {
@@ -561,17 +604,16 @@ export class ConfigService extends Disposable implements IConfigService {
     }
     this.tainted = failed;
     const nextRawSnake = cloneRecord(fileData);
-    for (const diagnostic of collectKeyDeprecations(nextRawSnake, this.registry.listSections())) {
-      this.pushDiagnostic(diagnostic);
-    }
-    if (source !== 'load' && JSON.stringify(nextRawSnake) === JSON.stringify(this.rawSnake)) {
+    const previousRawSnake = this.rawSnake;
+    this.rawSnake = nextRawSnake;
+    this.collectRawDiagnostics();
+    if (source !== 'load' && JSON.stringify(nextRawSnake) === JSON.stringify(previousRawSnake)) {
       const scratch = { ...this.validated };
       this.applySectionEnvBindings(scratch, true);
       this.applyEnvOverlay(scratch);
       this.emitDiagnosticsIfChanged();
       return;
     }
-    this.rawSnake = nextRawSnake;
     this.raw = transformTomlData(fileData, this.registry);
     this.rebuildEffective(source);
   }
@@ -593,6 +635,7 @@ export class ConfigService extends Disposable implements IConfigService {
     for (const domain of new Set([...Object.keys(previous), ...Object.keys(next)])) {
       if (!deepEqual(previous[domain], next[domain])) candidates.add(domain);
     }
+    this.collectRawDiagnostics(domains);
     this.commit(source, [...candidates]);
     this.emitDiagnosticsIfChanged();
   }
@@ -617,18 +660,20 @@ export class ConfigService extends Disposable implements IConfigService {
 
   private buildValidated(raw: ResolvedConfig, report = true): ResolvedConfig {
     const validated: ResolvedConfig = {};
+    const collected: ConfigDiagnostic[] = [];
     for (const [domain, value] of Object.entries(raw)) {
       try {
         validated[domain] = this.registry.validate(domain, value);
       } catch (error) {
         if (!report) continue;
-        this.pushDiagnostic({
+        collected.push({
           domain,
           severity: 'warning',
           message: `Ignored invalid config section '${domain}': ${describeUnknownError(error)}`,
         });
       }
     }
+    if (report) this.validationDiagnostics = collected;
     for (const section of this.registry.listSections()) {
       if (validated[section.domain] === undefined && section.defaultValue !== undefined) {
         validated[section.domain] = section.defaultValue;
@@ -699,6 +744,9 @@ export class ConfigService extends Disposable implements IConfigService {
     const section = this.registry.getSection(domain);
     if (section === undefined) return;
 
+    this.collectRawDiagnostics([domain]);
+    this.emitDiagnosticsIfChanged();
+
     if (section.fromToml !== undefined) {
       const rawSnakeValue = this.rawSnake[camelToSnake(domain)];
       if (rawSnakeValue !== undefined) {
@@ -763,7 +811,9 @@ export class ConfigService extends Disposable implements IConfigService {
     }
 
     this.applyEnvOverlay(this.effective);
+    this.rawDiagnostics.delete(domain);
     this.commit('reload', [domain]);
+    this.emitDiagnosticsIfChanged();
   }
 
   private assertPersistable(): void {

@@ -76,6 +76,7 @@ export interface TurnEndedEvent {
   reason: 'completed' | 'cancelled' | 'failed';
   duration_ms: number;
   mode: 'agent' | 'plan';
+  error_type?: string;
   provider_type?: string;
   protocol?: string;
   thinking_effort?: string;
@@ -608,6 +609,7 @@ export const telemetryEventDefinitions = {
       reason: 'How the turn ended',
       duration_ms: 'Turn wall-clock time in milliseconds',
       mode: 'Agent mode the turn ran in',
+      error_type: 'Engine error code when the turn failed; absent otherwise',
       provider_type: 'Provider protocol type',
       protocol: 'Request protocol',
       thinking_effort: 'Effective thinking effort the turn ran with',

@@ -61,7 +61,7 @@ function resumedAgent(
     type: options.type ?? "main",
     config: {
       cwd: "/workspace",
-      modelAlias: options.modelAlias ?? "kimi-test",
+      modelAlias: options.modelAlias ?? "acme-test",
       modelCapabilities: {
         image_in: true,
         video_in: true,
@@ -93,7 +93,7 @@ describe("replay adapter (renders the public SDK resume state for the Webview)",
 
     expect(replayToWebviewEvents(agent, "session-1")[0]).toMatchObject({
       type: "StatusUpdate",
-      payload: { model: "kimi-test" },
+      payload: { model: "acme-test" },
     });
   });
 

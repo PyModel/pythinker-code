@@ -1,5 +1,5 @@
 for (const key of Object.keys(process.env)) {
-  if (key.startsWith('PYTHINKER_CODE_EXPERIMENTAL_')) {
+  if (key.startsWith('PYTHINKER_CODE_')) {
     delete process.env[key];
   }
 }

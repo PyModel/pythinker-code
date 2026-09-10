@@ -17,5 +17,6 @@ export default defineConfig({
       PYTHINKER_LOG_LEVEL: 'off',
     },
     include: ['test/**/*.test.ts'],
+    testTimeout: 15_000,
   },
 });
