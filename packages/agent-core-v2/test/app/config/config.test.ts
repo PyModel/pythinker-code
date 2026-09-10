@@ -94,7 +94,6 @@ import {
   wrapSubagentModelError,
 } from '#/session/subagent/configSection';
 import { prospectiveModelView, validateSubagentModelPolicy } from '#/session/subagent/policy';
-import { SECONDARY_MODEL_FLAG_ID } from '#/session/subagent/flag';
 import {
   DEFAULT_DYNAMIC_WORKFLOW_TIMEOUT_MS,
   DYNAMIC_WORKFLOW_MAX_CONCURRENCY_ENV,
@@ -127,11 +126,6 @@ import { IAtomicTomlDocumentStore } from '#/persistence/interface/atomicDocument
 import { TomlAtomicDocumentStore } from '#/persistence/backends/node-fs/atomicDocumentStore';
 import { stubBootstrap } from '../bootstrap/stubs';
 import { stubLog } from '../../_base/log/stubs';
-import { stubFlag } from '../flag/stubs';
-
-function secondaryModelFlags(enabled = true) {
-  return stubFlag((id) => enabled && id === SECONDARY_MODEL_FLAG_ID);
-}
 
 const TEST_OS_ENV = {
   osKind: 'Linux',
@@ -2138,11 +2132,11 @@ describe('subagent config section', () => {
     const own = { modelAlias: 'provider/main', thinkingLevel: 'medium' };
 
     const noPool = await createConfig({});
-    expect(resolveSubagentBinding(noPool.config, secondaryModelFlags(), own)).toEqual({
+    expect(resolveSubagentBinding(noPool.config, own)).toEqual({
       model: 'provider/main',
       thinking: 'medium',
     });
-    expect(resolveSubagentBinding(noPool.config, secondaryModelFlags(), own, 'primary')).toEqual({
+    expect(resolveSubagentBinding(noPool.config, own, 'primary')).toEqual({
       model: 'provider/main',
       thinking: 'medium',
     });
@@ -2152,37 +2146,19 @@ describe('subagent config section', () => {
       {},
       '[secondary_model]\ndefault_model = "provider/fast"\n\n[secondary_model.models]\n"provider/fast" = "fast and cheap"\n"provider/smart" = "hard tasks"\n',
     );
-    expect(resolveSubagentBinding(pool.config, secondaryModelFlags(), own)).toEqual({
+    expect(resolveSubagentBinding(pool.config, own)).toEqual({
       model: 'provider/fast',
       thinking: undefined,
     });
-    expect(resolveSubagentBinding(pool.config, secondaryModelFlags(), own, 'provider/smart')).toEqual({
+    expect(resolveSubagentBinding(pool.config, own, 'provider/smart')).toEqual({
       model: 'provider/smart',
       thinking: undefined,
     });
-    expect(resolveSubagentBinding(pool.config, secondaryModelFlags(), own, 'primary')).toEqual({
+    expect(resolveSubagentBinding(pool.config, own, 'primary')).toEqual({
       model: 'provider/main',
       thinking: 'medium',
     });
     pool.disposables.dispose();
-  });
-
-  it('keeps the pool inert while the secondary-model experiment is off', async () => {
-    const own = { modelAlias: 'provider/main', thinkingLevel: 'medium' };
-    const { config, disposables } = await createConfig(
-      {},
-      '[secondary_model]\ndefault_model = "provider/fast"\nforce = true\n\n[secondary_model.models]\n"provider/fast" = "fast and cheap"\n',
-    );
-
-    expect(resolveSubagentBinding(config, secondaryModelFlags(false), own)).toEqual({
-      model: 'provider/main',
-      thinking: 'medium',
-    });
-    expect(() =>
-      resolveSubagentBinding(config, secondaryModelFlags(false), own, 'provider/fast'),
-    ).toThrow(/no \[secondary_model\.models\] pool is configured/);
-
-    disposables.dispose();
   });
 
   it('treats a pool-less default_model as an implicit single-entry pool', async () => {
@@ -2192,15 +2168,15 @@ describe('subagent config section', () => {
       '[secondary_model]\ndefault_model = "provider/fast"\n',
     );
 
-    expect(resolveSubagentBinding(config, secondaryModelFlags(), own)).toEqual({
+    expect(resolveSubagentBinding(config, own)).toEqual({
       model: 'provider/fast',
       thinking: undefined,
     });
-    expect(resolveSubagentBinding(config, secondaryModelFlags(), own, 'primary')).toEqual({
+    expect(resolveSubagentBinding(config, own, 'primary')).toEqual({
       model: 'provider/main',
       thinking: 'medium',
     });
-    expect(() => resolveSubagentBinding(config, secondaryModelFlags(), own, 'provider/smart')).toThrow(
+    expect(() => resolveSubagentBinding(config, own, 'provider/smart')).toThrow(
       /Invalid model "provider\/smart"\. Available models: provider\/fast, primary\./,
     );
 
@@ -2222,11 +2198,11 @@ describe('subagent config section', () => {
       defaultModel: 'provider/fast',
       models: { 'provider/fast': '' },
     });
-    expect(resolveSubagentBinding(config, secondaryModelFlags(), own)).toEqual({
+    expect(resolveSubagentBinding(config, own)).toEqual({
       model: 'provider/fast',
       thinking: 'low',
     });
-    expect(() => resolveSubagentBinding(config, secondaryModelFlags(), own, 'provider/smart')).toThrow(
+    expect(() => resolveSubagentBinding(config, own, 'provider/smart')).toThrow(
       /Invalid model "provider\/smart"\. Available models: provider\/fast, primary\./,
     );
 
@@ -2240,7 +2216,7 @@ describe('subagent config section', () => {
       '[secondary_model]\nmodel = "provider/slow"\ndefault_model = "provider/fast"\n',
     );
 
-    expect(resolveSubagentBinding(config, secondaryModelFlags(), own)).toEqual({
+    expect(resolveSubagentBinding(config, own)).toEqual({
       model: 'provider/fast',
       thinking: undefined,
     });
@@ -2255,7 +2231,7 @@ describe('subagent config section', () => {
       '[secondary_model]\nmodel = "provider/fast"\n\n[secondary_model.models]\n"provider/fast" = "fast and cheap"\n',
     );
 
-    expect(() => resolveSubagentBinding(config, secondaryModelFlags(), own)).toThrow(
+    expect(() => resolveSubagentBinding(config, own)).toThrow(
       '[secondary_model].default_model is required when [secondary_model.models] is configured',
     );
 
@@ -2269,11 +2245,11 @@ describe('subagent config section', () => {
       '[secondary_model]\nmodel = "provider/fast"\nforce = true\n',
     );
 
-    expect(resolveSubagentBinding(config, secondaryModelFlags(), own)).toEqual({
+    expect(resolveSubagentBinding(config, own)).toEqual({
       model: 'provider/fast',
       thinking: undefined,
     });
-    expect(() => resolveSubagentBinding(config, secondaryModelFlags(), own, 'primary')).toThrow(
+    expect(() => resolveSubagentBinding(config, own, 'primary')).toThrow(
       /Invalid model "primary": \[secondary_model\]\.force is set/,
     );
 
@@ -2311,11 +2287,11 @@ describe('subagent config section', () => {
       '[secondary_model]\ndefault_model = "provider/fast"\ndefault_effort = "max"\n',
     );
 
-    expect(resolveSubagentBinding(config, secondaryModelFlags(), own)).toEqual({
+    expect(resolveSubagentBinding(config, own)).toEqual({
       model: 'provider/fast',
       thinking: 'max',
     });
-    expect(resolveSubagentBinding(config, secondaryModelFlags(), own, 'primary')).toEqual({
+    expect(resolveSubagentBinding(config, own, 'primary')).toEqual({
       model: 'provider/main',
       thinking: 'medium',
     });
@@ -2334,11 +2310,11 @@ describe('subagent config section', () => {
       defaultModel: 'provider/fast',
       force: true,
     });
-    expect(resolveSubagentBinding(config, secondaryModelFlags(), own)).toEqual({
+    expect(resolveSubagentBinding(config, own)).toEqual({
       model: 'provider/fast',
       thinking: undefined,
     });
-    expect(() => resolveSubagentBinding(config, secondaryModelFlags(), own, 'primary')).toThrow(
+    expect(() => resolveSubagentBinding(config, own, 'primary')).toThrow(
       /Invalid model "primary": \[secondary_model\]\.force is set/,
     );
 
@@ -2352,7 +2328,7 @@ describe('subagent config section', () => {
       '[secondary_model]\ndefault_model = "provider/fast"\nforce = true\n\n[secondary_model.models]\n"provider/fast" = "fast and cheap"\n',
     );
 
-    expect(() => resolveSubagentBinding(config, secondaryModelFlags(), own)).toThrow(
+    expect(() => resolveSubagentBinding(config, own)).toThrow(
       /\[secondary_model\]\.force cannot be combined with \[secondary_model\.models\]/,
     );
 
@@ -2368,7 +2344,7 @@ describe('subagent config section', () => {
 
     let caught: unknown;
     try {
-      resolveSubagentBinding(config, secondaryModelFlags(), own, 'provider/typo');
+      resolveSubagentBinding(config, own, 'provider/typo');
     } catch (error) {
       caught = error;
     }
@@ -2385,7 +2361,7 @@ describe('subagent config section', () => {
     const own = { modelAlias: 'provider/main', thinkingLevel: 'medium' };
     const { config, disposables } = await createConfig({});
 
-    expect(() => resolveSubagentBinding(config, secondaryModelFlags(), own, 'provider/fast')).toThrow(
+    expect(() => resolveSubagentBinding(config, own, 'provider/fast')).toThrow(
       /Invalid model "provider\/fast": no \[secondary_model\.models\] pool is configured/,
     );
 

@@ -159,14 +159,14 @@ describe('renderPromptTemplateResult', () => {
     );
   });
 
-  it('renders ${now} in custom prompt templates', () => {
+  it('keeps ${now} verbatim as an unknown placeholder', () => {
     const result = renderPromptTemplateResult(
       'date=${now} agents=${agents_md}',
-      { cwd: '/work', now: '2026-07-29T00:30:00.000Z', agentsMd: 'AGENTS' },
+      { cwd: '/work', agentsMd: 'AGENTS' },
       { skillActive: true },
     );
 
-    expect(result.text).toBe('date=2026-07-29T00:30:00.000Z agents=AGENTS');
+    expect(result.text).toBe('date=${now} agents=AGENTS');
     expect(result.environment).toEqual({ cwd: '/work' });
   });
 

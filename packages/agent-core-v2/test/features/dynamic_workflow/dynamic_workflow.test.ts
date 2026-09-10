@@ -276,7 +276,7 @@ function realSubagents(
     lifecycle,
     config,
     modelCatalog,
-    new SubagentModelPolicyService(config, flags, modelCatalog),
+    new SubagentModelPolicyService(config, modelCatalog),
     { _serviceBrand: undefined, track2: vi.fn(), track: vi.fn() } as unknown as ITelemetryService,
   );
   return new SessionSubagentService(lifecycle, catalog, sessionContext, stubLog(), routing);

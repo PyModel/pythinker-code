@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-process.env['PYTHINKER_CODE_EXPERIMENTAL_SEARCH_WORKER'] = '1';
+process.env['PYTHINKER_CODE_SEARCH_WORKER'] = '1';
 
 import { ISessionIndex, type SessionSummary } from '@pymodel/agent-core-v2';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';

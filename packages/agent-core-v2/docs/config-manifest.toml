@@ -8,11 +8,12 @@
 # commented "# field: type" lines describe the remaining schema fields.
 # Values resolve as: default -> config.toml -> env overlay -> memory.
 
-# Index (29 sections · 2 overlay(s))
+# Index (30 sections · 2 overlay(s))
 #   advisor                  src/session/advisor/configSection.ts
 #   background               src/agent/task/configSection.ts
 #   builtinProductSkills     src/features/skill/catalog/configSection.ts
 #   cron                     src/features/cron/configSection.ts
+#   database                 src/persistence/configSection.ts
 #   defaultPermissionMode    src/agent/permissionMode/configSection.ts
 #   defaultPlanMode          src/features/plan/configSection.ts
 #   dynamicWorkflow          src/features/dynamic_workflow/configSection.ts
@@ -109,6 +110,20 @@ no_jitter = false
 no_stale = false
 disabled = false
 manual_tick = false
+
+# ##########################################################################
+# database
+#   owner: src/persistence/configSection.ts
+#   scope: core
+#   hooks: stripEnv
+#   env:
+#     base <- PYTHINKER_CODE_PERSISTENCE_MINIDB_READMODEL (custom parse)
+#     search <- PYTHINKER_CODE_SEARCH_WORKER (custom parse)
+# ##########################################################################
+
+[database]
+# base: boolean
+# search: boolean
 
 # ##########################################################################
 # defaultPermissionMode (config.toml: default_permission_mode)

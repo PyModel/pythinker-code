@@ -468,7 +468,6 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
     const reason = abortError('Agent removed');
     let quiescence: IDisposable | undefined;
     try {
-      await phase(() => handle.accessor.get(IAgentTaskService).stopAllOnExit('Session closed'));
       const compaction = handle.accessor.get(IAgentFullCompactionService).compacting;
       const compactionSettled = compaction?.promise.catch(() => undefined) ?? Promise.resolve();
       const prompt = handle.accessor.get(IAgentPromptService);
@@ -486,6 +485,7 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
       await phase(() => {
         quiescence = loop.tryAcquireQuiescence();
       });
+      await phase(() => handle.accessor.get(IAgentTaskService).stopAllOnExit('Session closed'));
       await phase(() => handle.accessor.get(IEventDispatcher).flush());
       await phase(() => managed.runtimeSet.close());
       managed.killSpace();

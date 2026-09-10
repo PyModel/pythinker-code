@@ -2,7 +2,6 @@ import { z } from 'zod';
 
 import { Error2, ErrorCodes, isError2 } from '#/errors';
 import { isPlainObject } from '#/app/config/toml';
-import type { IFlagService } from '#/app/flag/flag';
 import {
   type EnvBindings,
   envBindings,
@@ -16,11 +15,8 @@ import {
   declaredDefaultEffortForModel,
   type ThinkingConfig,
 } from '#/kosong/model/thinking';
-
-import { SECONDARY_MODEL_FLAG_ID } from './flag';
 import {
   type CanonicalSubagentModelPolicy,
-  INHERIT_SUBAGENT_MODEL_POLICY,
   type LegacySecondaryModelConfig,
   LegacySecondaryModelConfigSchema,
   normalizeLegacySecondaryModel,
@@ -118,8 +114,7 @@ export function isSubagentModelForced(config: IConfigService): boolean {
   return configuredPolicyOrInherit(config).mode === 'force';
 }
 
-export function exposesSubagentModelChoice(config: IConfigService, flags: IFlagService): boolean {
-  if (!flags.enabled(SECONDARY_MODEL_FLAG_ID)) return false;
+export function exposesSubagentModelChoice(config: IConfigService): boolean {
   if (isSubagentModelForced(config)) return false;
   return resolveSubagentModelPool(config) !== undefined;
 }
@@ -159,10 +154,8 @@ export function assertValidSubagentModelPool(
 
 export function assertValidSubagentModelConfig(
   config: IConfigService,
-  flags: IFlagService,
   modelCatalog: IModelCatalog,
 ): void {
-  if (!flags.enabled(SECONDARY_MODEL_FLAG_ID)) return;
   validateSubagentModelPolicy(configuredPolicy(config), catalogValidationContext(modelCatalog));
 }
 
@@ -192,13 +185,10 @@ export function cascadeSubagentModelPool(
 
 export function resolveSubagentBinding(
   config: IConfigService,
-  flags: IFlagService,
   own: { modelAlias: string; thinkingLevel: string },
   requested?: string,
 ): { model: string; thinking?: string } {
-  const enabled = flags.enabled(SECONDARY_MODEL_FLAG_ID);
-  const policy = enabled ? configuredPolicy(config) : INHERIT_SUBAGENT_MODEL_POLICY;
-  const route = resolveSubagentModelRoute({ policy, own, requested });
+  const route = resolveSubagentModelRoute({ policy: configuredPolicy(config), own, requested });
   return { model: route.model, thinking: route.thinking };
 }
 
@@ -214,10 +204,9 @@ export function resolveSubagentThinking(
 
 export function buildSubagentModelDescriptions(
   config: IConfigService,
-  flags: IFlagService,
   callerModelAlias: string | undefined,
 ): string | undefined {
-  if (!exposesSubagentModelChoice(config, flags)) return undefined;
+  if (!exposesSubagentModelChoice(config)) return undefined;
   const pool = resolveSubagentModelPool(config)!;
   const lines = ['Available models (pass via model):'];
   const defaultModel = pool.defaultModel;
@@ -234,11 +223,8 @@ export function buildSubagentModelDescriptions(
   return lines.join('\n');
 }
 
-export function buildSubagentModelSummary(
-  config: IConfigService,
-  flags: IFlagService,
-): string | undefined {
-  if (!exposesSubagentModelChoice(config, flags)) return undefined;
+export function buildSubagentModelSummary(config: IConfigService): string | undefined {
+  if (!exposesSubagentModelChoice(config)) return undefined;
   const pool = resolveSubagentModelPool(config)!;
   const labels = orderedPoolAliases(pool).map((alias) =>
     alias === pool.defaultModel ? `${alias} [default]` : alias,

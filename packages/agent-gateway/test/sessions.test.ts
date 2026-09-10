@@ -1744,7 +1744,7 @@ describe('server-v2 /api/v1/sessions (minidb read model)', () => {
   let home: string | undefined;
   let base: string;
 
-  const READ_MODEL_ENV = 'PYTHINKER_CODE_EXPERIMENTAL_PERSISTENCE_MINIDB_READMODEL';
+  const READ_MODEL_ENV = 'PYTHINKER_CODE_PERSISTENCE_MINIDB_READMODEL';
 
   const READ_MODEL_CONFIG = [
     'default_model = "stub"',

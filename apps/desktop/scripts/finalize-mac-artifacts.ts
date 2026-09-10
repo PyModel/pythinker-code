@@ -153,7 +153,13 @@ export function finalizeMacArtifacts(options: FinalizeMacArtifactsOptions): void
     .sort()
   if (dmgs.length === 0) throw new Error(`No DMG artifacts found in ${options.distDir}`)
 
-  const manifestName = options.manifestName ?? DEFAULT_MAC_MANIFEST
+  // The workflow always passes the channel manifest positionally, so an unresolved
+  // channel output arrives as an empty string rather than a missing argument; `??`
+  // would keep it and read the distribution directory itself.
+  const manifestName =
+    options.manifestName === undefined || options.manifestName === ''
+      ? DEFAULT_MAC_MANIFEST
+      : options.manifestName
   const metadataPath = join(options.distDir, manifestName)
   let metadata = readFileSync(metadataPath, 'utf8')
   const credentialArgs = buildNotarytoolArguments(options.env)

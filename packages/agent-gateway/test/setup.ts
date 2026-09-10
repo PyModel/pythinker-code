@@ -4,9 +4,9 @@ for (const key of Object.keys(process.env)) {
   }
 }
 
-process.env['PYTHINKER_CODE_EXPERIMENTAL_SEARCH_WORKER'] = 'false';
+process.env['PYTHINKER_CODE_SEARCH_WORKER'] = 'false';
 
-process.env['PYTHINKER_CODE_EXPERIMENTAL_PERSISTENCE_MINIDB_READMODEL'] = 'false';
+process.env['PYTHINKER_CODE_PERSISTENCE_MINIDB_READMODEL'] = 'false';
 
 const realFetch = globalThis.fetch.bind(globalThis);
 const TELEMETRY_HOSTS = new Set(['telemetry-logs.pythinker.com']);

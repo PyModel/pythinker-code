@@ -74,6 +74,7 @@
         ./packages/node-sdk
         ./packages/oauth
         ./packages/protocol
+        ./packages/remote-control
         ./packages/telemetry
         ./apps/pythinker-code
         ./apps/pythinker-web
@@ -100,6 +101,7 @@
         "@pymodel/pythinker-code-sdk"
         "@pymodel/pythinker-code-oauth"
         "@pymodel/protocol"
+        "@pymodel/remote-control"
         "@pymodel/pythinker-telemetry"
         "@pymodel/pythinker-code"
         "@pymodel/pythinker-web"

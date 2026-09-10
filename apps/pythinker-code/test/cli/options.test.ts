@@ -5,7 +5,7 @@
  * Run: pnpm -C apps/pythinker-code exec vitest run test/cli/options.test.ts
  */
 
-import { describe, expect, it, onTestFinished, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { createProgram } from '#/cli/commands';
 import type { CLIOptions } from '#/cli/options';
@@ -574,11 +574,6 @@ describe('CLI options parsing', () => {
     });
 
     it('registers the visible sub-commands', () => {
-      vi.stubEnv('PYTHINKER_CODE_EXPERIMENTAL_FLAG', '0');
-      vi.stubEnv('PYTHINKER_CODE_EXPERIMENTAL_REMOTE_CONTROL', '0');
-      onTestFinished(() => {
-        vi.unstubAllEnvs();
-      });
       const program = createProgram(
         '0.0.0',
         () => {},
@@ -597,6 +592,7 @@ describe('CLI options parsing', () => {
         'session',
         'acp',
         'web',
+        'rc',
         'server',
         'doctor',
         'vis',

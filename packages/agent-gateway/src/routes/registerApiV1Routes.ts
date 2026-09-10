@@ -29,6 +29,7 @@ import { registerModelCatalogRoutes } from './modelCatalog';
 import { registerPluginsRoutes } from './plugins';
 import { registerPromptsRoutes } from './prompts';
 import { registerQuestionsRoutes } from './questions';
+import { registerRemoteControlRoutes, type RemoteControlRouteOptions } from './remoteControl';
 import { registerRuntimeRoutes } from './runtime';
 import { registerSearchRoutes } from './search';
 import { registerSessionMediaRoutes } from './sessionMedia';
@@ -72,6 +73,7 @@ export interface RegisterApiV1RoutesOptions {
   readonly transcriptService: TranscriptService;
   readonly pluginMarketplaceUrl?: string;
   readonly pluginMarketplaceIsDefault: boolean;
+  readonly remoteControl: RemoteControlRouteOptions;
   readonly dangerousBypassAuth?: boolean;
   readonly webTitle?: string;
 }
@@ -176,6 +178,10 @@ export async function registerApiV1Routes(
       registerPromptsRoutes(
         apiV1 as unknown as Parameters<typeof registerPromptsRoutes>[0],
         core,
+      );
+      registerRemoteControlRoutes(
+        apiV1 as unknown as Parameters<typeof registerRemoteControlRoutes>[0],
+        opts.remoteControl,
       );
       registerExpertTalkRoutes(
         apiV1 as unknown as Parameters<typeof registerExpertTalkRoutes>[0],

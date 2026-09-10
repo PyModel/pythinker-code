@@ -91,6 +91,7 @@
     "@pymodel/pythinker-code-oauth": "workspace:^",
     "@pymodel/pythinker-code-sdk": "workspace:^",
     "@pymodel/pythinker-telemetry": "workspace:^",
+    "@pymodel/remote-control": "workspace:^",
     "@pymodel/vis-server": "workspace:^",
     "@pymodel/vis-web": "workspace:*",
     "@types/qrcode": "^1.5.6",
