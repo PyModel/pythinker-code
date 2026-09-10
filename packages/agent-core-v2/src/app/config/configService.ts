@@ -309,6 +309,7 @@ export class ConfigService extends Disposable implements IConfigService {
   private delivered: ResolvedConfig = {};
   private readonly diagnosticsList: ConfigDiagnostic[] = [];
   private readonly rawDiagnostics = new Map<string, ConfigDiagnostic[]>();
+  private validationDiagnostics: ConfigDiagnostic[] = [];
   private lastDiagnosticsSnapshot = '[]';
   private readonly configKey: string;
   private tainted = false;
@@ -367,16 +368,20 @@ export class ConfigService extends Disposable implements IConfigService {
 
   diagnostics(): readonly ConfigDiagnostic[] {
     const all = [...this.diagnosticsList];
-    for (const domain of [...this.rawDiagnostics.keys()].toSorted()) {
-      for (const diagnostic of this.rawDiagnostics.get(domain) ?? []) {
-        const duplicate = all.some(
-          (existing) =>
-            existing.domain === diagnostic.domain &&
-            existing.severity === diagnostic.severity &&
-            existing.message === diagnostic.message,
-        );
-        if (!duplicate) all.push(diagnostic);
-      }
+    const refreshed = [
+      ...this.validationDiagnostics,
+      ...[...this.rawDiagnostics.keys()]
+        .toSorted()
+        .flatMap((domain) => this.rawDiagnostics.get(domain) ?? []),
+    ];
+    for (const diagnostic of refreshed) {
+      const duplicate = all.some(
+        (existing) =>
+          existing.domain === diagnostic.domain &&
+          existing.severity === diagnostic.severity &&
+          existing.message === diagnostic.message,
+      );
+      if (!duplicate) all.push(diagnostic);
     }
     return all;
   }
@@ -577,6 +582,7 @@ export class ConfigService extends Disposable implements IConfigService {
   private async load(source: ConfigChangeSource): Promise<void> {
     this.diagnosticsList.length = 0;
     this.rawDiagnostics.clear();
+    this.validationDiagnostics = [];
     let fileData: ResolvedConfig = {};
     let failed = false;
     try {
@@ -654,18 +660,20 @@ export class ConfigService extends Disposable implements IConfigService {
 
   private buildValidated(raw: ResolvedConfig, report = true): ResolvedConfig {
     const validated: ResolvedConfig = {};
+    const collected: ConfigDiagnostic[] = [];
     for (const [domain, value] of Object.entries(raw)) {
       try {
         validated[domain] = this.registry.validate(domain, value);
       } catch (error) {
         if (!report) continue;
-        this.pushDiagnostic({
+        collected.push({
           domain,
           severity: 'warning',
           message: `Ignored invalid config section '${domain}': ${describeUnknownError(error)}`,
         });
       }
     }
+    if (report) this.validationDiagnostics = collected;
     for (const section of this.registry.listSections()) {
       if (validated[section.domain] === undefined && section.defaultValue !== undefined) {
         validated[section.domain] = section.defaultValue;

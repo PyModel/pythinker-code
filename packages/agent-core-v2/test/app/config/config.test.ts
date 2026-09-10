@@ -1668,6 +1668,28 @@ describe('task config section', () => {
     disposables.dispose();
   });
 
+  it('clears the invalid-section warning once a write replaces the section', async () => {
+    const { config, disposables } = await createTaskConfig(
+      {},
+      '[task]\nprint_background_mode = "wait"\n',
+    );
+    expect(
+      config
+        .diagnostics()
+        .some((d) => d.message.includes("Ignored invalid config section 'task'")),
+    ).toBe(true);
+
+    await config.replace('task', { printBackgroundMode: 'steer' });
+
+    expect(
+      config
+        .diagnostics()
+        .some((d) => d.message.includes("Ignored invalid config section 'task'")),
+    ).toBe(false);
+
+    disposables.dispose();
+  });
+
   it('resolvePrintBackgroundMode prefers the explicit mode over keepAliveOnExit', async () => {
     const { config, disposables } = await createTaskConfig(
       {},

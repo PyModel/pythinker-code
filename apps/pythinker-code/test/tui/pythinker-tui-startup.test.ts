@@ -1399,7 +1399,6 @@ describe('PythinkerTUI startup', () => {
       .mockReturnValue(true);
 
     await (driver as unknown as { showSessionPicker(): Promise<void> }).showSessionPicker();
-    const createdBeforeDelete = harness.createSession.mock.calls.length;
     closeFails = true;
     const picker = driver.state.editorContainer.children[0] as { handleInput(data: string): void };
     picker.handleInput('\u0018');
