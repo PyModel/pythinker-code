@@ -115,6 +115,8 @@ describe('SessionBtwService', () => {
     const svc = ix.get(ISessionBtwService);
     await svc.start();
 
+    expect([...BTW_READONLY_TOOLS]).toEqual(['Read', 'Grep', 'Glob']);
+
     for (const name of BTW_READONLY_TOOLS) {
       const toolCall: ToolCall = { type: 'function', id: `call_${name}`, name, arguments: '{}' };
       const decision = await executorEvents.fireBeforeExecute({

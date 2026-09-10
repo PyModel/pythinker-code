@@ -1368,7 +1368,7 @@ describe('malformed models config entries', () => {
     ix.set(IConfigService, new SyncDescriptor(ConfigService));
     const config = ix.get(IConfigService);
     await config.ready;
-    return { config, disposables, storage };
+    return { config, disposables, storage, registry: ix.get(IConfigRegistry) };
   }
 
   it('warns at load time when a dotted alias parses as a nested table', async () => {
@@ -1422,6 +1422,47 @@ describe('malformed models config entries', () => {
       severity: 'warning',
       message:
         "[models] entry 'partial' is missing the 'model' field and cannot be used as a model.",
+    });
+
+    disposables.dispose();
+  });
+
+  it('clears the warning after a persisted write fixes the entry', async () => {
+    const { config, disposables } = await createConfig(
+      '[models.acme-m1.5-code]\nmodel = "acme-m1.5-code"\n',
+    );
+    expect(config.diagnostics()).toHaveLength(1);
+
+    await config.replace('models', { 'acme-m1.5-code': { model: 'acme-m1.5-code' } });
+
+    expect(config.diagnostics()).toEqual([]);
+
+    disposables.dispose();
+  });
+
+  it('collects diagnostics for a section registered after load', async () => {
+    const { config, disposables, registry } = await createConfig(
+      '[late_demo]\nbroken = true\n',
+    );
+    expect(config.diagnostics()).toEqual([]);
+
+    registry.registerSection(
+      'lateDemo',
+      { parse: (value: unknown) => value as Record<string, unknown> },
+      {
+        collectDiagnostics: (rawSection) =>
+          typeof rawSection === 'object' &&
+          rawSection !== null &&
+          (rawSection as Record<string, unknown>)['broken'] === true
+            ? [{ domain: 'lateDemo', severity: 'warning', message: '[late_demo] is broken.' }]
+            : [],
+      },
+    );
+
+    expect(config.diagnostics()).toContainEqual({
+      domain: 'lateDemo',
+      severity: 'warning',
+      message: '[late_demo] is broken.',
     });
 
     disposables.dispose();

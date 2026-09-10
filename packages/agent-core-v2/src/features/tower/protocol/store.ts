@@ -1070,6 +1070,10 @@ export class TowerStore {
     await writeFile(this.abs(MISSIONS_INDEX), content, 'utf8');
   }
 
+  async readMissionText(mission: TowerMission): Promise<string> {
+    return readFile(this.abs(join(MISSIONS_DIR, missionFileName(mission.id, mission.slug))), 'utf8');
+  }
+
   private async renderMissionFile(mission: TowerMission): Promise<void> {
     const rel = join(MISSIONS_DIR, missionFileName(mission.id, mission.slug));
     const content = [

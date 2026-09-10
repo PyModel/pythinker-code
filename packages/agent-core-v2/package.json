@@ -79,7 +79,7 @@
     "picomatch": "^4.0.4",
     "retry": "0.13.1",
     "semver": "^7.7.4",
-    "smol-toml": "^1.6.1",
+    "smol-toml": "^1.7.1",
     "socks": "^2.8.9",
     "ulid": "^3.0.1",
     "undici": "^7.29.0",

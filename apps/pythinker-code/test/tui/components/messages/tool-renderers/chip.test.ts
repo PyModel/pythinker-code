@@ -78,7 +78,37 @@ describe('chip registry', () => {
   it.each([
     'No more matches at offset=347 in the current result set (347 matches).',
     'No matches collected; search incomplete.',
+    'No non-sensitive matches found (3 sensitive file(s) filtered).',
+    'No matches found',
   ])('does not count an empty Glob page as a file: %s', (output) => {
+    expect(chipFor('Glob', {}, result(output))).toBe('no files');
+  });
+
+  it('ignores Glob footers on a complete page', () => {
+    expect(
+      chipFor('Glob', {}, result('a.ts\nb.ts\nFiltered 2 sensitive file(s).')),
+    ).toBe('2 files');
+    expect(chipFor('Glob', {}, result('a.ts\nb.ts\nFound 2 matches'))).toBe('2 files');
+  });
+
+  it('ignores Glob warnings that precede a page header', () => {
+    const output = [
+      'Glob timed out after 15s; partial results returned.',
+      'Glob completed with warnings; some directories could not be read: rg: /deep/a: Permission denied',
+      'rg: /deep/b: Permission denied',
+      'Showing matches 1\u20132 of 2 collected matches (partial result set).',
+      'a.ts',
+      'b.ts',
+    ].join('\n');
+    expect(chipFor('Glob', {}, result(output))).toBe('2+ files');
+  });
+
+  it('reports no files when a multi-line warning precedes an empty page', () => {
+    const output = [
+      'Glob completed with warnings; some directories could not be read: rg: /deep/a: Permission denied',
+      'rg: /deep/b: Permission denied',
+      'No more matches at offset=9 in the collected partial result set (4 matches).',
+    ].join('\n');
     expect(chipFor('Glob', {}, result(output))).toBe('no files');
   });
 

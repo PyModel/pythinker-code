@@ -20,7 +20,7 @@ export const TowerPlanToolInputSchema = z
               .array(z.string())
               .optional()
               .describe(
-                'Checklist the worker will tick off via TowerMission task_done — write each task as a verifiable item a reviewer can map to the diff',
+                'Checklist the worker will tick off via TowerMission task_done — write each task as a verifiable item a reviewer can map to the diff. Required for a build mission; omit it only for kind="survey".',
               ),
             context: z
               .string()
