@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { gunzipSync } from 'node:zlib';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { WebSocketServer, type RawData, type WebSocket } from 'ws';
@@ -348,8 +349,38 @@ describe('Remote Control tunnel', () => {
     let localHttpRequest: IncomingMessage | undefined;
     let localWsRequest: IncomingMessage | undefined;
     const localWsServer = new WebSocketServer({ noServer: true });
+    const assetJs = `const boot = "/assets/boot.js";\n${'const chunk = "/assets/chunk.js";\n'.repeat(120)}`;
+    const assetPng = Buffer.alloc(4096, 7);
+    const assetSvg = `<svg xmlns="http://www.w3.org/2000/svg">${'<rect width="100" height="100"/>'.repeat(100)}</svg>`;
+    const assetText = 'chunk of text\n'.repeat(160);
     const localServer = createServer((request, response) => {
       localHttpRequest = request;
+      if (request.url === '/assets/index.js') {
+        response.writeHead(200, { 'Content-Type': 'text/javascript', ETag: '"v1"' });
+        response.end(assetJs);
+        return;
+      }
+      if (request.url === '/assets/logo.png') {
+        response.writeHead(200, { 'Content-Type': 'image/png' });
+        response.end(assetPng);
+        return;
+      }
+      if (request.url === '/assets/logo.svg') {
+        response.writeHead(200, {
+          'Content-Type': 'image/svg+xml',
+          'Cache-Control': 'public, max-age=31536000, immutable',
+        });
+        response.end(assetSvg);
+        return;
+      }
+      if (request.url === '/assets/partial.txt' && request.headers.range !== undefined) {
+        response.writeHead(206, {
+          'Content-Type': 'text/plain',
+          'Content-Range': 'bytes 0-2047/4096',
+        });
+        response.end(assetText);
+        return;
+      }
       response.writeHead(200, {
         'Content-Type': 'text/html',
         'Cache-Control': 'public, max-age=31536000, immutable',
@@ -425,8 +456,9 @@ describe('Remote Control tunnel', () => {
     expect(handle.url).toContain('/coding-relay/devices/');
     expect(handle.url).toContain('?rc=1&from=pythinker_code_cli');
 
+    let forwardCounter = 1;
     const rawRequest = Buffer.from(
-      'GET / HTTP/1.1\r\nHost: relay.test\r\nAuthorization: Bearer relay-token\r\nCookie: sid=1\r\nOrigin: https://relay.test\r\nConnection: X-Hop\r\nX-Hop: remove\r\nX-Keep: yes\r\n\r\n',
+      'GET / HTTP/1.1\r\nHost: relay.test\r\nAuthorization: Bearer relay-token\r\nCookie: sid=1\r\nOrigin: https://relay.test\r\nAccept-Encoding: gzip\r\nConnection: X-Hop\r\nX-Hop: remove\r\nX-Keep: yes\r\n\r\n',
     );
     const splitAt = Math.floor(rawRequest.length / 2);
     httpConnections[0]!.send(
@@ -458,8 +490,81 @@ describe('Remote Control tunnel', () => {
     expect(localHttpRequest?.headers['x-keep']).toBe('yes');
     expect(response).not.toContain('X-Remove');
     expect(response).not.toContain('immutable');
+    expect(response).not.toContain('Content-Encoding');
+    expect(response).not.toContain('Vary');
+    expect(localHttpRequest?.headers['accept-encoding']).toBeUndefined();
     expect(response).toContain('Cache-Control: no-cache');
     expect(response).toContain(`/coding-relay/devices/${handle.deviceId}/boot.js`);
+
+    const prefix = `/coding-relay/devices/${handle.deviceId}`;
+    const forward = async (request: string): Promise<Buffer> => {
+      const pending = nextJsonMessage(httpConnections[0]!);
+      httpConnections[0]!.send(
+        JSON.stringify({
+          request_id: `request-${++forwardCounter}`,
+          type: 'request',
+          is_last: true,
+          body_base64: Buffer.from(request).toString('base64'),
+        }),
+      );
+      return Buffer.from((await pending)['body_base64'] as string, 'base64');
+    };
+    const split = (raw: Buffer): [string, Buffer] => {
+      const at = raw.indexOf('\r\n\r\n');
+      return [raw.subarray(0, at).toString('latin1'), raw.subarray(at + 4)];
+    };
+
+    const [gzipHead, gzipBody] = split(
+      await forward(
+        'GET /assets/index.js HTTP/1.1\r\nHost: relay.test\r\nAccept-Encoding: br, gzip\r\n\r\n',
+      ),
+    );
+    expect(gzipHead).toContain('HTTP/1.1 200 OK');
+    expect(gzipHead).toContain('Content-Encoding: gzip');
+    expect(gzipHead).toContain('Vary: Accept-Encoding');
+    expect(gzipHead).not.toContain('ETag');
+    expect(gzipHead).toContain(`Content-Length: ${gzipBody.length}`);
+    expect(gunzipSync(gzipBody).toString()).toBe(
+      assetJs.replaceAll('"/assets/', `"${prefix}/assets/`),
+    );
+
+    const [binaryHead, binaryBody] = split(
+      await forward(
+        'GET /assets/logo.png HTTP/1.1\r\nHost: relay.test\r\nAccept-Encoding: gzip\r\n\r\n',
+      ),
+    );
+    expect(binaryHead).not.toContain('Content-Encoding');
+    expect(binaryBody.equals(assetPng)).toBe(true);
+
+    const [excludedHead, excludedBody] = split(
+      await forward(
+        'GET /assets/index.js HTTP/1.1\r\nHost: relay.test\r\nAccept-Encoding: gzip;q=0, *;q=1\r\n\r\n',
+      ),
+    );
+    expect(excludedHead).not.toContain('Content-Encoding');
+    expect(excludedHead).toContain('Vary: Accept-Encoding');
+    expect(excludedHead).toContain('ETag: "v1"');
+    expect(excludedBody.toString()).toBe(assetJs.replaceAll('"/assets/', `"${prefix}/assets/`));
+
+    const [svgHead, svgBody] = split(
+      await forward(
+        'GET /assets/logo.svg HTTP/1.1\r\nHost: relay.test\r\nAccept-Encoding: gzip\r\n\r\n',
+      ),
+    );
+    expect(svgHead).toContain('Content-Encoding: gzip');
+    expect(svgHead).toContain('Vary: Accept-Encoding');
+    expect(svgHead).toContain('immutable');
+    expect(gunzipSync(svgBody).toString()).toBe(assetSvg);
+
+    const [rangeHead, rangeBody] = split(
+      await forward(
+        'GET /assets/partial.txt HTTP/1.1\r\nHost: relay.test\r\nAccept-Encoding: gzip\r\nRange: bytes=0-2047\r\n\r\n',
+      ),
+    );
+    expect(rangeHead).toContain('206');
+    expect(rangeHead).toContain('Content-Range: bytes 0-2047/4096');
+    expect(rangeHead).not.toContain('Content-Encoding');
+    expect(rangeBody.toString()).toBe(assetText);
 
     managementConnections[0]!.send(
       JSON.stringify({
@@ -717,6 +822,29 @@ describe('Remote Control single-instance lock', () => {
     cleanups.push(async () => second?.close());
     second = await startRemoteControl(options);
     expect(second.url).toContain('/devices/');
+  });
+
+  it('releases the lock before the handle reports closed', async () => {
+    const homeDir = createRemoteControlHome();
+    const relay = await startAuthRelay();
+    const handle = await startRemoteControl({
+      homeDir,
+      localOrigin: 'http://127.0.0.1:58627',
+      localServerToken: 'local-server-token',
+      clientVersion: CLIENT_VERSION,
+      relayKey: RELAY_TOKEN,
+      relayOrigin: `http://127.0.0.1:${relay.port}`,
+      stderr: { write: () => true },
+    });
+    await waitFor(() => relay.managementSockets.length === 1);
+    relay.managementSockets[0]!.send(
+      JSON.stringify({ type: 'disconnect', payload: { reason: 'user_requested' } }),
+    );
+
+    await handle.closed;
+    await expect(readFile(remoteControlLockPath(homeDir), 'utf8')).rejects.toMatchObject({
+      code: 'ENOENT',
+    });
   });
 
   it('does not remove a successor lock when closing', async () => {
