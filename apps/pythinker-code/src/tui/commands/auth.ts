@@ -60,7 +60,9 @@ export async function handleLoginCommand(host: SlashCommandHost): Promise<void> 
         ? undefined
         : { model: selection.model, effort: selection.thinking };
     },
-    refreshConfigAfterLogin: () => host.authFlow.refreshConfigAfterLogin(),
+    refreshConfigAfterLogin: async () => {
+      await host.authFlow.refreshConfigAfterLogin();
+    },
     track: (event, properties): void => {
       host.track(event, properties);
     },

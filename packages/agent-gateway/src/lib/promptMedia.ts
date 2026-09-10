@@ -109,30 +109,42 @@ function isFsError(error: unknown): boolean {
   return error instanceof Error && typeof (error as NodeJS.ErrnoException).code === 'string';
 }
 
-export async function assertPromptSessionMediaRefs(
+export async function resolvePromptSessionMediaRefs(
   content: WireContent,
   store: ISessionMediaStore,
-): Promise<void> {
+): Promise<WireContent> {
+  const resolved: WireContent = [];
+  let changed = false;
   for (const part of content) {
     if (
       (part.type !== 'image' && part.type !== 'video') ||
       part.source.kind !== 'session_media'
-    ) continue;
+    ) {
+      resolved.push(part);
+      continue;
+    }
     const file = await store.open(part.source.file_id);
     if (file === undefined) throw fileNotFoundError(part.source.file_id);
+    if (part.name === undefined) {
+      resolved.push({ ...part, name: file.name });
+      changed = true;
+    } else {
+      resolved.push(part);
+    }
   }
+  return changed ? resolved : content;
 }
 
 export function contentToCoreParts(content: WireContent): ContentPart[] {
   const parts: ContentPart[] = [];
   for (const part of content) {
     if (part.type === 'text') parts.push({ type: 'text', text: part.text });
-    else if (part.type === 'image' && part.source.kind === 'url') parts.push({ type: 'image_url', imageUrl: { url: part.source.url, id: part.source.id } });
-    else if (part.type === 'image' && part.source.kind === 'base64') parts.push({ type: 'image_url', imageUrl: { url: `data:${part.source.media_type};base64,${part.source.data}` } });
-    else if (part.type === 'image' && part.source.kind === 'session_media') parts.push({ type: 'image_url', imageUrl: { url: buildDaemonFileUrl(part.source.file_id), id: part.source.file_id } });
-    else if (part.type === 'video' && part.source.kind === 'url') parts.push({ type: 'video_url', videoUrl: { url: part.source.url, id: part.source.id } });
-    else if (part.type === 'video' && part.source.kind === 'base64') parts.push({ type: 'video_url', videoUrl: { url: `data:${part.source.media_type};base64,${part.source.data}` } });
-    else if (part.type === 'video' && part.source.kind === 'session_media') parts.push({ type: 'video_url', videoUrl: { url: buildDaemonFileUrl(part.source.file_id), id: part.source.file_id } });
+    else if (part.type === 'image' && part.source.kind === 'url') parts.push({ type: 'image_url', imageUrl: { url: part.source.url, id: part.source.id, name: part.name } });
+    else if (part.type === 'image' && part.source.kind === 'base64') parts.push({ type: 'image_url', imageUrl: { url: `data:${part.source.media_type};base64,${part.source.data}`, name: part.name } });
+    else if (part.type === 'image' && part.source.kind === 'session_media') parts.push({ type: 'image_url', imageUrl: { url: buildDaemonFileUrl(part.source.file_id), id: part.source.file_id, name: part.name } });
+    else if (part.type === 'video' && part.source.kind === 'url') parts.push({ type: 'video_url', videoUrl: { url: part.source.url, id: part.source.id, name: part.name } });
+    else if (part.type === 'video' && part.source.kind === 'base64') parts.push({ type: 'video_url', videoUrl: { url: `data:${part.source.media_type};base64,${part.source.data}`, name: part.name } });
+    else if (part.type === 'video' && part.source.kind === 'session_media') parts.push({ type: 'video_url', videoUrl: { url: buildDaemonFileUrl(part.source.file_id), id: part.source.file_id, name: part.name } });
   }
   return parts;
 }
@@ -196,8 +208,8 @@ export async function resolvePromptMediaFiles(
         );
         if (!isModelAcceptedImageMime(effectiveMime)) {
           const bytes = Buffer.from(part.source.data, 'base64');
-          const name = `image.${imageExtensionForMime(effectiveMime)}`;
-          const targetName = `${createHash('sha256').update(bytes).digest('hex').slice(0, 32)}-${name}`;
+          const name = part.name ?? `image.${imageExtensionForMime(effectiveMime)}`;
+          const targetName = `${createHash('sha256').update(bytes).digest('hex').slice(0, 32)}-${sanitizeAttachmentName(name)}`;
           const persisted = await store
             .save(Readable.from(bytes), name, { mimeType: effectiveMime })
             .then(async (saved) => {
@@ -253,6 +265,7 @@ export async function resolvePromptMediaFiles(
           content.push({
             type: 'image',
             source: { kind: 'base64', media_type: compressed.mimeType, data: compressed.base64 },
+            name: part.name,
           });
           changed = true;
         } else {
@@ -332,7 +345,7 @@ export async function resolvePromptMediaFiles(
           if (data.length > MAX_IMAGE_DECODE_BYTES) {
             throw imageDecodeLimitError(sourcePath, data.length);
           }
-          const name = basename(resolvedPath);
+          const name = part.name ?? basename(resolvedPath);
           const declared = pathMediaMime(resolvedPath, data, 'image');
           if (!declared.startsWith('image/')) {
             throw new Error2('validation.failed', `${sourcePath} is ${declared}, not an image`);
@@ -389,6 +402,7 @@ export async function resolvePromptMediaFiles(
           content.push({
             type: 'image',
             source: { kind: 'url', url: buildDaemonFileUrl(saved.id) },
+            name: part.name ?? name,
           });
           changed = true;
           continue;
@@ -419,6 +433,7 @@ export async function resolvePromptMediaFiles(
           content.push({
             type: 'video',
             source: { kind: 'url', url: buildDaemonFileUrl(saved.id) },
+            name: part.name ?? basename(resolvedPath),
           });
           changed = true;
           continue;
@@ -439,19 +454,21 @@ export async function resolvePromptMediaFiles(
         let mediaType = file.meta.media_type;
         mediaType = resolveEffectiveImageMime(mediaType, data);
         if (!isModelAcceptedImageMime(mediaType)) {
+          const name = part.name ?? file.meta.name;
           const persisted = await materializeAttachmentToDir(
             file,
             await resolveAttachmentsDir(),
+            `${file.meta.id}-${sanitizeAttachmentName(name)}`,
           ).catch(() => null);
           content.push({
             type: 'text',
             text: persisted === null
-              ? buildUnsupportedImageNotice(mediaType, file.meta.name)
-              : buildAttachedFileNotice(file.meta.name, mediaType, file.meta.size, persisted),
+              ? buildUnsupportedImageNotice(mediaType, name)
+              : buildAttachedFileNotice(name, mediaType, file.meta.size, persisted),
           });
           if (persisted !== null) {
             attachments.push({
-              name: file.meta.name,
+              name,
               mediaType,
               size: file.meta.size,
               path: persisted,
@@ -499,6 +516,7 @@ export async function resolvePromptMediaFiles(
         content.push({
           type: 'image',
           source: { kind: 'url', url: buildDaemonFileUrl(finalFile.meta.id) },
+          name: part.name ?? file.meta.name,
         });
         changed = true;
         continue;
@@ -507,6 +525,7 @@ export async function resolvePromptMediaFiles(
       content.push({
         type: 'video',
         source: { kind: 'url', url: buildDaemonFileUrl(file.meta.id) },
+        name: part.name ?? file.meta.name,
       });
       changed = true;
     }
