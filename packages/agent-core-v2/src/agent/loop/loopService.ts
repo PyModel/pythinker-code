@@ -524,8 +524,9 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
         result?.type === 'completed'
           ? this.lastRequestTraceId
           : this.activeRequestTrace?.traceId;
+      const error =
+        result?.type === 'failed' ? toPythinkerErrorPayload(result.error) : undefined;
       if (result !== undefined) {
-        const error = result.type === 'failed' ? toPythinkerErrorPayload(result.error) : undefined;
         const interruptReason =
           result.type === 'completed' ? undefined : interruptReasonFor(result);
         const durationMs = Date.now() - startedAt;
@@ -563,6 +564,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
         reason: result?.type ?? 'failed',
         duration_ms: Date.now() - startedAt,
         mode,
+        error_type: error?.code,
         provider_type,
         protocol,
         thinking_effort: thinkingEffort,

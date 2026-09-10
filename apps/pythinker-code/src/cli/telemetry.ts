@@ -1,6 +1,7 @@
 import { createPythinkerDeviceId } from '@pymodel/pythinker-code-oauth';
 import {
   loadRuntimeConfigSafe,
+  log,
   resolveConfigPath,
   resolvePythinkerHome,
   type PythinkerConfig,
@@ -56,6 +57,7 @@ export function initializeCliTelemetry(options: InitializeCliTelemetryOptions): 
     model: options.model ?? options.config.defaultModel,
     sessionId: options.sessionId,
     endpoint: () => currentPythinkerProfile().telemetryEndpoint,
+    onUnexpectedError: (error) => log.warn('telemetry property dropped', { error: String(error) }),
   });
   if (options.bootstrap.firstLaunch) {
     options.harness.track('first_launch');
@@ -98,6 +100,7 @@ export function initializeServerTelemetry(
     uiMode: WEB_UI_MODE,
     model: config.defaultModel,
     endpoint: () => currentPythinkerProfile().telemetryEndpoint,
+    onUnexpectedError: (error) => log.warn('telemetry property dropped', { error: String(error) }),
   });
 
   return {

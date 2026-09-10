@@ -1354,6 +1354,139 @@ describe('config deprecations', () => {
   });
 });
 
+describe('malformed models config entries', () => {
+  async function createConfig(toml: string) {
+    const disposables = new DisposableStore();
+    const ix = disposables.add(new TestInstantiationService());
+    const storage = new InMemoryStorageService();
+    await storage.write('', 'config.toml', new TextEncoder().encode(toml));
+    ix.stub(ILogService, stubLog());
+    ix.stub(IBootstrapService, stubBootstrap('/tmp/pythinker-cfg', {}));
+    ix.stub(IFileSystemStorageService, storage);
+    ix.set(IAtomicTomlDocumentStore, new SyncDescriptor(TomlAtomicDocumentStore));
+    ix.set(IConfigRegistry, new SyncDescriptor(ConfigRegistry));
+    ix.set(IConfigService, new SyncDescriptor(ConfigService));
+    const config = ix.get(IConfigService);
+    await config.ready;
+    return { config, disposables, storage, registry: ix.get(IConfigRegistry) };
+  }
+
+  it('warns at load time when a dotted alias parses as a nested table', async () => {
+    const { config, disposables } = await createConfig(
+      '[models.acme-m1.5-code]\nmodel = "acme-m1.5-code"\nmax_context_size = 262144\n',
+    );
+
+    expect(config.diagnostics()).toContainEqual({
+      domain: 'models',
+      severity: 'warning',
+      message:
+        "[models] entry 'acme-m1' is missing the 'model' field and cannot be used as a model; " +
+        'if the alias contains dots, quote the table name (e.g. [models."acme-m1.5-code"]).',
+    });
+
+    disposables.dispose();
+  });
+
+  it('stays silent for quoted dotted aliases and entries with a wire-facing name', async () => {
+    const { config, disposables } = await createConfig(
+      '[models."acme-m1.5-code"]\nmodel = "acme-m1.5-code"\n\n[models.renamed]\nname = "wire-name"\n',
+    );
+
+    expect(config.diagnostics()).toEqual([]);
+
+    disposables.dispose();
+  });
+
+  it('warns without the dotted-alias hint when the entry has no nested table', async () => {
+    const { config, disposables } = await createConfig(
+      '[models.partial]\nmax_context_size = 262144\n',
+    );
+
+    expect(config.diagnostics()).toContainEqual({
+      domain: 'models',
+      severity: 'warning',
+      message:
+        "[models] entry 'partial' is missing the 'model' field and cannot be used as a model.",
+    });
+
+    disposables.dispose();
+  });
+
+  it('does not mistake schema object fields for a dotted alias', async () => {
+    const { config, disposables } = await createConfig(
+      '[models.partial]\noverrides = { max_output_size = 8192 }\n',
+    );
+
+    expect(config.diagnostics()).toContainEqual({
+      domain: 'models',
+      severity: 'warning',
+      message:
+        "[models] entry 'partial' is missing the 'model' field and cannot be used as a model.",
+    });
+
+    disposables.dispose();
+  });
+
+  it('clears the warning after a persisted write fixes the entry', async () => {
+    const { config, disposables } = await createConfig(
+      '[models.acme-m1.5-code]\nmodel = "acme-m1.5-code"\n',
+    );
+    expect(config.diagnostics()).toHaveLength(1);
+
+    await config.replace('models', { 'acme-m1.5-code': { model: 'acme-m1.5-code' } });
+
+    expect(config.diagnostics()).toEqual([]);
+
+    disposables.dispose();
+  });
+
+  it('collects diagnostics for a section registered after load', async () => {
+    const { config, disposables, registry } = await createConfig(
+      '[late_demo]\nbroken = true\n',
+    );
+    expect(config.diagnostics()).toEqual([]);
+
+    registry.registerSection(
+      'lateDemo',
+      { parse: (value: unknown) => value as Record<string, unknown> },
+      {
+        collectDiagnostics: (rawSection) =>
+          typeof rawSection === 'object' &&
+          rawSection !== null &&
+          (rawSection as Record<string, unknown>)['broken'] === true
+            ? [{ domain: 'lateDemo', severity: 'warning', message: '[late_demo] is broken.' }]
+            : [],
+      },
+    );
+
+    expect(config.diagnostics()).toContainEqual({
+      domain: 'lateDemo',
+      severity: 'warning',
+      message: '[late_demo] is broken.',
+    });
+
+    disposables.dispose();
+  });
+
+  it('clears the warning on reload once the entry is fixed', async () => {
+    const { config, disposables, storage } = await createConfig(
+      '[models.acme-m1.5-code]\nmodel = "acme-m1.5-code"\n',
+    );
+    expect(config.diagnostics()).toHaveLength(1);
+
+    await storage.write(
+      '',
+      'config.toml',
+      new TextEncoder().encode('[models."acme-m1.5-code"]\nmodel = "acme-m1.5-code"\n'),
+    );
+    await config.reload();
+
+    expect(config.diagnostics()).toEqual([]);
+
+    disposables.dispose();
+  });
+});
+
 describe('task config section', () => {
   it('re-applies the keepAliveOnExit env binding on every get()', async () => {
     const env: Record<string, string> = {};
@@ -1532,6 +1665,28 @@ describe('task config section', () => {
         .diagnostics()
         .some((d) => d.message.includes("Ignored invalid config section 'task'")),
     ).toBe(true);
+    disposables.dispose();
+  });
+
+  it('clears the invalid-section warning once a write replaces the section', async () => {
+    const { config, disposables } = await createTaskConfig(
+      {},
+      '[task]\nprint_background_mode = "wait"\n',
+    );
+    expect(
+      config
+        .diagnostics()
+        .some((d) => d.message.includes("Ignored invalid config section 'task'")),
+    ).toBe(true);
+
+    await config.replace('task', { printBackgroundMode: 'steer' });
+
+    expect(
+      config
+        .diagnostics()
+        .some((d) => d.message.includes("Ignored invalid config section 'task'")),
+    ).toBe(false);
+
     disposables.dispose();
   });
 
@@ -1906,6 +2061,19 @@ describe('subagent config section', () => {
 
     env[SUBAGENT_TIMEOUT_ENV] = '3000';
     expect(resolveSubagentTimeoutMs(config)).toBe(3000);
+
+    disposables.dispose();
+  });
+
+  it('accepts 0 from the env var as "no timeout" and ignores a blank value', async () => {
+    const env: Record<string, string> = {};
+    const { config, disposables } = await createConfig(env, '[subagent]\ntimeout_ms = 5000\n');
+
+    env[SUBAGENT_TIMEOUT_ENV] = '0';
+    expect(resolveSubagentTimeoutMs(config)).toBe(0);
+
+    env[SUBAGENT_TIMEOUT_ENV] = '   ';
+    expect(resolveSubagentTimeoutMs(config)).toBe(5000);
 
     disposables.dispose();
   });

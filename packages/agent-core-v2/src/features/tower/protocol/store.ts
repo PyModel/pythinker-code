@@ -72,6 +72,7 @@ export interface TowerPlanInput {
   readonly title: string;
   readonly scope: readonly string[];
   readonly tasks?: readonly string[];
+  readonly context?: string;
   readonly deps?: readonly string[];
   readonly kind?: TowerMissionKind;
 }
@@ -423,6 +424,10 @@ export class TowerStore {
         worktree: `wt-${n}`,
         deps: item.deps ?? [],
         status: 'planned',
+        context:
+          item.context !== undefined && item.context.trim().length > 0
+            ? item.context.trim()
+            : undefined,
         tasks: (item.tasks ?? []).map((text) => ({ text, done: false })),
         notes: [],
         blockers: [],
@@ -1065,6 +1070,10 @@ export class TowerStore {
     await writeFile(this.abs(MISSIONS_INDEX), content, 'utf8');
   }
 
+  async readMissionText(mission: TowerMission): Promise<string> {
+    return readFile(this.abs(join(MISSIONS_DIR, missionFileName(mission.id, mission.slug))), 'utf8');
+  }
+
   private async renderMissionFile(mission: TowerMission): Promise<void> {
     const rel = join(MISSIONS_DIR, missionFileName(mission.id, mission.slug));
     const content = [
@@ -1076,6 +1085,9 @@ export class TowerStore {
       '| ------ | -------- | ------ | ----- | ----- |',
       `| ${mission.branch} | ${mission.worktree} | ${STATUS_EMOJI[mission.status]} | ${mission.scope.join(', ')} | ${mission.owner ?? '—'} |`,
       '',
+      ...(mission.context !== undefined
+        ? ['## Context — the user\'s own words, verbatim', '', mission.context, '']
+        : []),
       '## Tasks',
       ...(mission.tasks.length > 0
         ? mission.tasks.map((t) => `- [${t.done ? 'x' : ' '}] ${t.text}`)

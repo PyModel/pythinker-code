@@ -1418,10 +1418,9 @@ describe('AgentDynamicWorkflowTool', () => {
     const host = mockDynamicWorkflowHost();
     const configured = new AgentDynamicWorkflowTool(host.dynamicWorkflowService, makeAgentScopeContext({ agentId: host.callerAgentId, agentScope: '' }), mockDynamicWorkflowMode(), stubConfig({ defaultModel: 'provider/fast', models: { 'provider/fast': 'fast and cheap', 'main-model': 'the main model' } }), stubFlag(true), realSubagents(stubDynamicWorkflowCatalog(), stubConfig({ defaultModel: 'provider/fast', models: { 'provider/fast': 'fast and cheap', 'main-model': 'the main model' } }), stubFlag(true), stubCallerProfile({ modelAlias: 'main-model' })), stubCallerProfile({ modelAlias: 'main-model' }));
 
-    expect(configured.description).toContain('Available models');
-    expect(configured.description).toContain('- provider/fast [default]: fast and cheap');
-    expect(configured.description).toContain('- main-model [main model]: the main model');
-    expect(configured.description).toContain('- primary (main-model)');
+    expect(configured.description).toContain(
+      'Available models (pass via model): provider/fast [default], main-model, primary (your current model and thinking level).',
+    );
 
     const unconfigured = new AgentDynamicWorkflowTool(host.dynamicWorkflowService, makeAgentScopeContext({ agentId: host.callerAgentId, agentScope: '' }), mockDynamicWorkflowMode(), stubConfig(), stubFlag(true), realSubagents(stubDynamicWorkflowCatalog(), stubConfig(), stubFlag(true), stubCallerProfile({ modelAlias: 'main-model' })), stubCallerProfile({ modelAlias: 'main-model' }));
 

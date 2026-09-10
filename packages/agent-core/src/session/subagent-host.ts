@@ -93,20 +93,22 @@ const SUMMARY_CONTINUATION_ATTEMPTS = 1;
 const HOOK_TEXT_PREVIEW_LENGTH = 500;
 const SUBAGENT_MAX_TOKENS_ERROR =
   'Subagent turn failed before completing its final summary: reason=max_tokens';
+const BTW_READONLY_TOOLS = new Set(['Read', 'Grep', 'Glob']);
 const TOOL_CALL_DISABLED_MESSAGE =
-  'Tool calls are disabled for side questions. Answer with text only.';
+  'Only the read-only tools Read, Grep, and Glob are available for side questions. Other tool calls are disabled.';
 const SUBAGENT_PROMPT_ORIGIN: PromptOrigin = { kind: 'system_trigger', name: 'subagent' };
 const SIDE_QUESTION_SYSTEM_REMINDER = `
-This is a side-channel conversation with the user. You should answer user questions directly based on what you already know.
+This is a side-channel conversation with the user. You should answer user questions directly.
 
 IMPORTANT:
 - You are a separate, lightweight instance.
 - The main agent continues independently; do not reference being interrupted.
-- Do not call any tools. All tool calls are disabled and will be rejected.
-  Even though tool definitions are visible in this request, they exist only
-  for technical reasons (prompt cache). You must not use them.
-- Respond only with text based on what you already know from the conversation
-  and this side-channel conversation.
+- You may use the read-only tools Read, Grep, and Glob to inspect files when
+  the answer depends on current file contents. All other tools are disabled
+  and will be rejected, even though their definitions are visible in this
+  request (they exist only for technical reasons — prompt cache).
+- Prefer answering from what you already know from the conversation and this
+  side-channel conversation; reach for the read-only tools only when needed.
 - Follow-up turns may happen in this side-channel conversation.
 - If you do not know the answer, say so directly.
 `;
@@ -284,7 +286,7 @@ export class SessionSubagentHost {
       kind: 'system_trigger',
       name: 'btw',
     });
-    child.permission.policies.unshift(new DenyAllPermissionPolicy(TOOL_CALL_DISABLED_MESSAGE));
+    child.permission.policies.unshift(new DenyAllPermissionPolicy(TOOL_CALL_DISABLED_MESSAGE, BTW_READONLY_TOOLS));
     return id;
   }
 

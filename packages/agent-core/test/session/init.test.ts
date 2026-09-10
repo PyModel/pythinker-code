@@ -480,7 +480,7 @@ describe('AgentAPI.startBtw', () => {
       const historyText = JSON.stringify(scripted.calls[0]?.history);
       expect(historyText).toContain('Main task: implement /btw.');
       expect(historyText).toContain('This is a side-channel conversation with the user.');
-      expect(historyText).toContain('All tool calls are disabled and will be rejected.');
+      expect(historyText).toContain('All other tools are disabled');
       expect(historyText).toContain('What are you working on right now?');
       expect(historyText).not.toContain('call-open');
       expect(JSON.stringify(mainAgent.context.history)).not.toContain(
@@ -570,7 +570,7 @@ describe('AgentAPI.startBtw', () => {
         'Read',
       ]);
       expect(JSON.stringify(scripted.calls[1]?.history)).toContain(
-        'Tool calls are disabled for side questions. Answer with text only.',
+        'Only the read-only tools Read, Grep, and Glob are available for side questions.',
       );
       expect(events).toContainEqual(
         expect.objectContaining({
@@ -578,7 +578,8 @@ describe('AgentAPI.startBtw', () => {
           agentId: 'agent-0',
           toolCallId: 'call_lookup_note',
           isError: true,
-          output: 'Tool calls are disabled for side questions. Answer with text only.',
+          output:
+            'Only the read-only tools Read, Grep, and Glob are available for side questions. Other tool calls are disabled.',
         }),
       );
       expect(JSON.stringify(mainAgent.context.history)).not.toContain(

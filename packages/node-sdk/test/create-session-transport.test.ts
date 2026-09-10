@@ -134,7 +134,7 @@ describe('PythinkerHarness.createSession transport link', () => {
         event: 'session_started',
         sessionId: session.id,
         properties: {
-          client_id: null,
+          client_id: '',
           client_name: 'pythinker-code-cli',
           client_version: '0.0.0-test',
           ui_mode: 'shell',
@@ -156,7 +156,7 @@ describe('PythinkerHarness.createSession transport link', () => {
         event: 'session_started',
         sessionId: session.id,
         properties: {
-          client_id: null,
+          client_id: '',
           client_name: 'pythinker-code-cli',
           client_version: '0.0.0-test',
           ui_mode: 'shell',
@@ -194,7 +194,7 @@ describe('PythinkerHarness.createSession transport link', () => {
         event: 'session_started',
         sessionId: session.id,
         properties: {
-          client_id: null,
+          client_id: '',
           client_name: 'pythinker-code-cli',
           client_version: '0.0.0-test',
           ui_mode: 'print',
@@ -227,7 +227,7 @@ describe('PythinkerHarness.createSession transport link', () => {
         event: 'session_started',
         sessionId: session.id,
         properties: {
-          client_id: null,
+          client_id: '',
           client_name: 'pythinker-code-cli',
           client_version: '0.0.0-test',
           ui_mode: 'shell',
@@ -263,7 +263,7 @@ describe('PythinkerHarness.createSession transport link', () => {
         event: 'session_started',
         sessionId: session.id,
         properties: {
-          client_id: null,
+          client_id: '',
           client_name: 'pythinker-code-cli',
           client_version: '0.0.0-test',
           ui_mode: 'shell',
@@ -283,7 +283,7 @@ describe('PythinkerHarness.createSession transport link', () => {
         event: 'session_started',
         sessionId: session.id,
         properties: {
-          client_id: null,
+          client_id: '',
           client_name: 'pythinker-code-cli',
           client_version: '0.0.0-test',
           ui_mode: 'shell',
@@ -324,7 +324,7 @@ describe('PythinkerHarness.createSession transport link', () => {
         event: 'session_started',
         sessionId: session.id,
         properties: {
-          client_id: null,
+          client_id: '',
           client_name: 'pythinker-code-cli',
           client_version: '0.0.0-test',
           ui_mode: 'shell',
@@ -402,7 +402,7 @@ describe('PythinkerHarness.createSession transport link', () => {
         event: 'session_started',
         sessionId: forked.id,
         properties: {
-          client_id: null,
+          client_id: '',
           client_name: 'pythinker-code-cli',
           client_version: '0.0.0-test',
           ui_mode: 'shell',
@@ -438,9 +438,9 @@ describe('PythinkerHarness.createSession transport link', () => {
         event: 'session_started',
         sessionId: session.id,
         properties: {
-          client_id: null,
-          client_name: null,
-          client_version: null,
+          client_id: '',
+          client_name: '',
+          client_version: '',
           ui_mode: 'shell',
           resumed: false,
         },

@@ -71,7 +71,7 @@ function createFakeSession(
   let closes = 0;
   let promptImpl: (input: string | PromptInput) => Promise<void> = async () => {};
   let status: SessionStatus = {
-    model: initial.model ?? "kimi-test",
+    model: initial.model ?? "acme-test",
     thinkingEffort: initial.thinkingEffort ?? "off",
     permission: initial.permission ?? "manual",
     planMode: initial.planMode ?? false,
@@ -242,7 +242,7 @@ function openOptions(overrides: Partial<OpenSessionOptions> = {}): OpenSessionOp
   return {
     webviewId: "view-1",
     workDir: "/workspace",
-    model: "kimi-test",
+    model: "acme-test",
     effort: "off",
     yoloMode: false,
     ...overrides,
@@ -500,7 +500,7 @@ describe("Pythinker runtime (owns shared SDK sessions for Webviews)", () => {
       log: () => undefined,
     });
     sdk.addSession("saved-1", "/workspace", {
-      model: "kimi-test",
+      model: "acme-test",
       thinkingEffort: "max",
       planMode: true,
     });
@@ -514,7 +514,7 @@ describe("Pythinker runtime (owns shared SDK sessions for Webviews)", () => {
         // The permission mode rides along: the chat badge is the only place the
         // user can see which mode a toggle command just landed on.
         payload: {
-          model: "kimi-test",
+          model: "acme-test",
           thinking_effort: "max",
           plan_mode: true,
           permission: "manual",
@@ -551,7 +551,7 @@ describe("Pythinker runtime (owns shared SDK sessions for Webviews)", () => {
       data: {
         type: "StatusUpdate",
         payload: {
-          model: "kimi-test",
+          model: "acme-test",
           thinking_effort: "off",
           plan_mode: false,
           permission: "yolo",
