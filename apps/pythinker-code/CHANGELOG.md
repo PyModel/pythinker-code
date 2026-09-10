@@ -1,5 +1,35 @@
 # @pymodel/pythinker-code
 
+## 1.14.0
+
+### Minor Changes
+
+- [#303](https://github.com/PyModel/pythinker-code/pull/303) [`7ec4ad7`](https://github.com/PyModel/pythinker-code/commit/7ec4ad730495f284137e8b861e6e568fd2addf0c) Thanks [@elkaix](https://github.com/elkaix)! - Side questions started with /btw can call the read-only tools Read, Grep and Glob.
+
+- [#303](https://github.com/PyModel/pythinker-code/pull/303) [`7ec4ad7`](https://github.com/PyModel/pythinker-code/commit/7ec4ad730495f284137e8b861e6e568fd2addf0c) Thanks [@elkaix](https://github.com/elkaix)! - Delete a session from the session picker with Ctrl+X.
+
+- [#303](https://github.com/PyModel/pythinker-code/pull/303) [`7ec4ad7`](https://github.com/PyModel/pythinker-code/commit/7ec4ad730495f284137e8b861e6e568fd2addf0c) Thanks [@elkaix](https://github.com/elkaix)! - Glob accepts `offset` and `head_limit` to page through matching paths, and `head_limit: 0` returns every match.
+
+- [#303](https://github.com/PyModel/pythinker-code/pull/303) [`7ec4ad7`](https://github.com/PyModel/pythinker-code/commit/7ec4ad730495f284137e8b861e6e568fd2addf0c) Thanks [@elkaix](https://github.com/elkaix)! - Tower missions take a `context` field that carries your own words verbatim to the worker and the reviewer, and tower spawns honour the configured subagent timeout.
+
+### Patch Changes
+
+- [#303](https://github.com/PyModel/pythinker-code/pull/303) [`7ec4ad7`](https://github.com/PyModel/pythinker-code/commit/7ec4ad730495f284137e8b861e6e568fd2addf0c) Thanks [@elkaix](https://github.com/elkaix)! - Keep an MCP tool's structured result alongside its text and media output.
+
+- [#303](https://github.com/PyModel/pythinker-code/pull/303) [`7ec4ad7`](https://github.com/PyModel/pythinker-code/commit/7ec4ad730495f284137e8b861e6e568fd2addf0c) Thanks [@elkaix](https://github.com/elkaix)! - Refresh configuration warnings after a settings change instead of keeping them until the next restart.
+
+- [#303](https://github.com/PyModel/pythinker-code/pull/303) [`7ec4ad7`](https://github.com/PyModel/pythinker-code/commit/7ec4ad730495f284137e8b861e6e568fd2addf0c) Thanks [@elkaix](https://github.com/elkaix)! - The subagent model list now names the model `primary` is bound to and states that pool entries do not inherit your thinking level.
+
+- [#303](https://github.com/PyModel/pythinker-code/pull/303) [`7ec4ad7`](https://github.com/PyModel/pythinker-code/commit/7ec4ad730495f284137e8b861e6e568fd2addf0c) Thanks [@elkaix](https://github.com/elkaix)! - Accept `0` from the subagent timeout environment variable to disable the timeout, matching the config file.
+
+- [#303](https://github.com/PyModel/pythinker-code/pull/303) [`7ec4ad7`](https://github.com/PyModel/pythinker-code/commit/7ec4ad730495f284137e8b861e6e568fd2addf0c) Thanks [@elkaix](https://github.com/elkaix)! - Show each background agent's model in the /tasks list.
+
+- [#303](https://github.com/PyModel/pythinker-code/pull/303) [`7ec4ad7`](https://github.com/PyModel/pythinker-code/commit/7ec4ad730495f284137e8b861e6e568fd2addf0c) Thanks [@elkaix](https://github.com/elkaix)! - Update the TOML parser to a version that is not affected by a denial-of-service advisory.
+
+- [#303](https://github.com/PyModel/pythinker-code/pull/303) [`7ec4ad7`](https://github.com/PyModel/pythinker-code/commit/7ec4ad730495f284137e8b861e6e568fd2addf0c) Thanks [@elkaix](https://github.com/elkaix)! - Require at least one task on a tower build mission; read-only survey missions still need none.
+
+- [#303](https://github.com/PyModel/pythinker-code/pull/303) [`7ec4ad7`](https://github.com/PyModel/pythinker-code/commit/7ec4ad730495f284137e8b861e6e568fd2addf0c) Thanks [@elkaix](https://github.com/elkaix)! - Warn when a `[models]` entry has no `model` field, including when an unquoted dotted alias parsed as a nested table.
+
 ## 1.13.0
 
 ### Minor Changes
