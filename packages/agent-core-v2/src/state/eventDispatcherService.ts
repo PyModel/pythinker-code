@@ -53,6 +53,11 @@ import {
 const MAX_DRAIN = 100;
 const HISTORY_TAIL = 500;
 
+const RETIRED_WIRE_RECORD_TYPES: ReadonlySet<string> = new Set([
+  'staleGuard.recorded',
+  'staleGuard.cleared',
+]);
+
 export class CycleError extends StateError {
   constructor(readonly depth: number, readonly eventTypes: readonly string[]) {
     super(
@@ -723,7 +728,9 @@ export class EventDispatcherService extends Service implements IEventDispatcher 
         if (record.type === 'metadata') continue;
         const cls = this.folded.events.get(record.type);
         if (cls === undefined) {
-          this.reportSkippedRecord(record.type, recordIndex, false);
+          if (!RETIRED_WIRE_RECORD_TYPES.has(record.type)) {
+            this.reportSkippedRecord(record.type, recordIndex, false);
+          }
           recordIndex++;
           continue;
         }

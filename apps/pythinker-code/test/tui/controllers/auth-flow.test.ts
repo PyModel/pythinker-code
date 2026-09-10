@@ -37,7 +37,7 @@ function makeHost(
       createSession: vi.fn(async () => ({ id: 'ses-new', summary: { title: null } })),
       getConfig: vi.fn(async () => ({
         defaultModel: options.defaultModel,
-        models: { k2: { provider: 'managed:pythinker-code', model: 'kimi-k2', maxContextSize: 200_000 } },
+        models: { k2: { provider: 'acme', model: 'acme-m1', maxContextSize: 200_000 } },
         providers: {},
       })),
     },
