@@ -3160,14 +3160,27 @@ describe('v1↔v2 goal parity', () => {
         pair.v2.resumeSession({ id: input.sessionId }),
       ]);
       // An active goal cannot still be running after a restart: both engines
-      // demote it to paused with the same reason on replay.
+      // demote it to paused. The reason differs by design and is pinned here.
+      // v2 pauses the goal when the agent closes, so its elapsed wall-clock is
+      // saved before the session goes away and offline time is not charged; v1
+      // has no agent close hook at all, so it only notices on replay. Every
+      // other field still compares in full.
       const [v1Got, v2Got] = await Promise.all([pair.v1.getGoal(input), pair.v2.getGoal(input)]);
-      const projectGet = KNOWN_DIFFS.getGoal;
+      const projectGet = (result: GoalToolResult): unknown => {
+        const projected = KNOWN_DIFFS.getGoal(result) as Record<string, unknown>;
+        delete projected['terminalReason'];
+        return projected;
+      };
       expect(projectGet(v2Got)).toEqual(projectGet(v1Got));
       expect(v1Got.goal).toMatchObject({
         status: 'paused',
         objective: 'Persisted parity goal.',
         terminalReason: 'Paused after agent resume',
+      });
+      expect(v2Got.goal).toMatchObject({
+        status: 'paused',
+        objective: 'Persisted parity goal.',
+        terminalReason: 'Paused after agent closed',
       });
       // The demoted goal resumes identically.
       const [v1Resumed, v2Resumed] = await Promise.all([

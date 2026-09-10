@@ -888,6 +888,7 @@ export interface SessionStateSnapshot {
         imageUrl: {
           url: string;
           id?: string;
+          name?: string;
         };
       } | /* AudioURLPart — packages/agent-core-v2/src/kosong/contract/message.ts */ {
         type: 'audio_url';
@@ -900,6 +901,7 @@ export interface SessionStateSnapshot {
         videoUrl: {
           url: string;
           id?: string;
+          name?: string;
         };
       })[];
       readonly attachments?: readonly /* PromptFileAttachment — packages/agent-core-v2/src/agent/contextMemory/types.ts */ {
