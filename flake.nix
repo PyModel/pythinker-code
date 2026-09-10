@@ -160,7 +160,7 @@
               inherit pnpm;
               fetcherVersion = 3;
               # Monaco's package patch is part of src, not the fetched dependency closure.
-              hash = "sha256-4HSI70YkScaIbOLsvDU0Qv+VE7YLgtT1tPS2QEcNycY=";
+              hash = "sha256-PBtUV/DlnvImbRKoUB51a6Di+mMkTFMtSl95Pe0zHgE=";
             };
 
             nativeBuildInputs = [
