@@ -251,6 +251,7 @@ export async function handleWebCommand(
           homeDir: dataDir,
           localOrigin: origin,
           localServerToken: () => deps.resolveToken?.() ?? '',
+          clientVersion: `pythinker-code/${getVersion()}`,
           relayKey,
           relayOrigin,
           stderr: deps.stderr,

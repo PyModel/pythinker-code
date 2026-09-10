@@ -472,6 +472,7 @@ describe('`pythinker web` opens the browser', () => {
       deviceId: 'device-1',
       deviceName: 'example-device',
       url: 'https://relay.example.test/devices/device-1/?rc=1&from=pythinker_code_cli',
+      closed: new Promise<void>(() => {}),
       close: async () => {},
     }));
 

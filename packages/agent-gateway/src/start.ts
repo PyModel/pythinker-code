@@ -83,10 +83,9 @@ import {
   AUTH_RATE_LIMIT_ERROR_NAME,
   createAuthFailureLimiter,
 } from './middleware/rateLimit';
-import {
-  createAuthTokenService,
-  type IAuthTokenService,
-} from './services/auth/authTokenService';
+import { createRemoteControlManager } from '@pymodel/remote-control';
+
+import { createAuthTokenService, type IAuthTokenService } from './services/auth/authTokenService';
 import { createCredentialValidator } from './services/auth/credentials';
 import { resolvePasswordHash } from './services/auth/password';
 import { createTokenStore } from './services/auth/tokenStore';
@@ -195,6 +194,20 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
   }
   const validateCredential = createCredentialValidator(authTokenService, opts.rpcToken);
   const logging = resolveLoggingConfig({ homeDir, env: process.env });
+  let boundPort = port;
+  const localOriginHost = host.includes(':') ? `[${host}]` : host;
+  const remoteControlManager = createRemoteControlManager({
+    homeDir,
+    localOrigin: () => `http://${localOriginHost}:${boundPort}`,
+    localServerToken: () => authTokenService.getToken(),
+    clientVersion: `pythinker-code/${serverVersion}`,
+    stderr: {
+      write: (text) => {
+        logger.warn(String(text).trimEnd());
+        return true;
+      },
+    },
+  });
   const { app: core } = bootstrap(
     {
       homeDir,
@@ -316,6 +329,7 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
     };
     try {
       await phase('config-publisher', () => configChangedPublisher.close());
+      await phase('remote-control', () => remoteControlManager.close());
       await phase('http', () => app.close());
       await phase('subscriptions', () => {
         for (const sub of [
@@ -438,6 +452,7 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
           { name: 'terminals', description: 'PTY terminal sessions' },
           { name: 'fs', description: 'Filesystem operations' },
           { name: 'files', description: 'File upload & download' },
+          { name: 'remote-control', description: 'Remote Control tunnel' },
         ],
       },
       transformObject: (documentObject) => {
@@ -473,6 +488,15 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
       opts.pluginMarketplaceUrl === undefined &&
       (process.env['PYTHINKER_CODE_PLUGIN_MARKETPLACE_URL'] === undefined ||
         process.env['PYTHINKER_CODE_PLUGIN_MARKETPLACE_FROM_DEV_SERVER'] === '1'),
+    remoteControl: {
+      service: remoteControlManager,
+      staticEnableError:
+        exposureClass !== 'loopback'
+          ? 'Remote Control requires a loopback host.'
+          : opts.disableAuth === true
+            ? 'Remote Control cannot be combined with --dangerous-bypass-auth.'
+            : undefined,
+    },
     onShutdown: () => {
       void close().catch((error: unknown) => logger.error({ error }, 'server close failed'));
     },
@@ -607,7 +631,7 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
   }
 
   const address = app.server.address();
-  const boundPort = typeof address === 'object' && address !== null ? address.port : port;
+  boundPort = typeof address === 'object' && address !== null ? address.port : port;
   await registration.update({ port: boundPort });
 
   void modelCatalogRefreshScheduler.start().catch((error) => {

@@ -67,6 +67,7 @@ Adding an OpenAI-compatible provider requires **zero code changes** — just add
 | `packages/acp-server` | Agent Client Protocol host over engine v2 | Drives the engine through a `klient` memory-transport facade. |
 | `packages/pi-tui` | Vendored TUI library | Upstream fork with local divergences; tests run with `node --test`, not vitest. See its `AGENTS.md`. |
 | `packages/protocol` | Shared REST + WS protocol schemas | Envelope, error codes, pagination, WS-control types. |
+| `packages/remote-control` | Remote Control tunnel client | Registers this machine with a relay and forwards HTTP/WebSocket traffic to the local server, behind a machine-wide single-instance lock. Consumed by agent-gateway (the `/api/v1/remote-control` toggle) and the CLI (`pythinker web --remote-control`). |
 
 The web bundle: `apps/pythinker-code/dist-web` is the committed, prebuilt bundle of `apps/pythinker-web` (built with `pnpm --filter @pymodel/pythinker-web run build` and copied via `scripts/copy-web-assets.mjs`). `apps/pythinker-code/scripts/check-web-assets.mjs` fails when the bundle is missing **or stale** (it compares a fingerprint of every `apps/pythinker-web` build input against the one recorded at copy time); it runs in pre-push, in the CLI `build`, and on `prepack`. Whenever you touch the web UI, run `pnpm run build:web` and commit the restaged bundle in the same change. `packages/server` and `packages/server-e2e` are empty leftover directories excluded from the workspace — not packages.
 

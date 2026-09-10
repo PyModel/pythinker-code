@@ -1,19 +1,18 @@
 import chalk from 'chalk';
 
 import { splitTokenFragment } from '#/cli/sub/web/access-urls';
+import { getVersion } from '#/cli/version';
 import {
   buildRemoteControlUrl,
+  formatRemoteControlAlreadyRunning,
   formatRemoteControlOutput,
   formatRemoteControlStatus,
+  inspectRemoteControlLock,
   resolveRelayKey,
   resolveRelayOrigin,
   startRemoteControl,
   type RemoteControlStatus,
 } from '#/cli/sub/web/remote-control';
-import {
-  formatRemoteControlAlreadyRunning,
-  inspectRemoteControlLock,
-} from '#/cli/sub/web/remote-control-lock';
 import { formatReadyBanner, startServerForeground } from '#/cli/sub/web/run';
 import { parseServerOptions, tryResolveServerToken } from '#/cli/sub/web/shared';
 import { openUrl } from '#/utils/open-url';
@@ -94,6 +93,7 @@ export async function handleRemoteControlCommand(host: SlashCommandHost): Promis
             homeDir: dataDir,
             localOrigin: origin,
             localServerToken: () => tryResolveServerToken(dataDir) ?? '',
+            clientVersion: `pythinker-code/${getVersion()}`,
             relayKey,
             relayOrigin,
             onStatus,

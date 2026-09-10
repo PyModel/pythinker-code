@@ -88,6 +88,7 @@
     "@pymodel/agent-gateway": "workspace:^",
     "@pymodel/minidb": "workspace:^",
     "@pymodel/pi-tui": "workspace:^",
+    "@pymodel/remote-control": "workspace:^",
     "@pymodel/pythinker-code-oauth": "workspace:^",
     "@pymodel/pythinker-code-sdk": "workspace:^",
     "@pymodel/pythinker-telemetry": "workspace:^",

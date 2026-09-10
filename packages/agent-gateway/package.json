@@ -31,6 +31,7 @@
     "@pymodel/agent-core-v2": "workspace:^",
     "@pymodel/minidb": "workspace:*",
     "@pymodel/pythinker-code-oauth": "workspace:^",
+    "@pymodel/remote-control": "workspace:^",
     "@pymodel/transcript": "workspace:^",
     "bcryptjs": "^2.4.3",
     "fastify": "^5.12.1",
