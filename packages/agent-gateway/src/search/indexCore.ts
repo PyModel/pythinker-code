@@ -749,6 +749,7 @@ export class SearchIndexCore {
     let byteCursor = offset;
     let position = offset;
     let wireError: unknown;
+    let pendingOverflow = false;
     try {
       let pending: Buffer = EMPTY_BUFFER;
       let finishing = false;
@@ -802,7 +803,10 @@ export class SearchIndexCore {
           pending.length > 0
             ? Buffer.concat([pending, slice.subarray(start)])
             : Buffer.from(slice.subarray(start));
-        if (pending.length > MAX_WIRE_PENDING_BYTES) break;
+        if (pending.length > MAX_WIRE_PENDING_BYTES) {
+          pendingOverflow = true;
+          break;
+        }
         if (finishing && completedRecord) break;
         if (ops.length >= WIRE_BATCH_OPS) {
           ops.push({ op: 'set', key: metaKey, value: fileMeta(byteCursor, turnState, stepState) });
@@ -818,7 +822,7 @@ export class SearchIndexCore {
       await handle.close();
     }
 
-    const truncated = position < size && syncBudgetExhausted(budget);
+    const truncated = pendingOverflow || (position < size && syncBudgetExhausted(budget));
     if (byteCursor !== offset || legacyKey !== null) {
       ops.push({ op: 'set', key: metaKey, value: fileMeta(byteCursor, turnState, stepState) });
       if (legacyKey !== null) ops.push({ op: 'del', key: legacyKey });
