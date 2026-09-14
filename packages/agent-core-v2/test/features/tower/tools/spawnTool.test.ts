@@ -35,7 +35,6 @@ import {
   SECONDARY_MODEL_SECTION,
   SUBAGENT_SECTION,
 } from '#/session/subagent/configSection';
-import { SECONDARY_MODEL_FLAG_ID } from '#/session/subagent/flag';
 import {
   ISessionSubagentService,
   type AgentRunHandle,
@@ -237,9 +236,6 @@ describe('TowerSpawnTool', () => {
               ? { enabled: thinkingEnabled }
               : undefined) as IConfigService['get'],
     });
-    ix.stub(IFlagService, {
-      enabled: (id: string) => id === SECONDARY_MODEL_FLAG_ID && secondaryFlagOn,
-    } as unknown as IFlagService);
     ix.stub(IModelCatalog, {
       get: (alias: string) => ({ id: alias, ...modelMeta[alias] }) as Model,
     } as unknown as IModelCatalog);

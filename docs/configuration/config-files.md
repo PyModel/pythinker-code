@@ -216,7 +216,7 @@ Subagents inherit the model the main agent is running by default. The `[secondar
 
 ### Subagent model pool
 
-Secondary-model routing is enabled by default in every launch mode, including the interactive TUI. Set `PYTHINKER_CODE_EXPERIMENTAL_SECONDARY_MODEL=false` to disable it. While routing is disabled, the pool keys stay inert: subagents inherit the caller's model and session startup skips the pool validation.
+The pool is always available and needs no opt-in; with no `[secondary_model]` keys configured, subagents simply inherit the caller's model.
 
 The minimal configuration is one line — a lone `default_model` is a pool with a single entry:
 
@@ -464,6 +464,17 @@ Like the `tools` / `disallowedTools` fields of an agent file, this section shape
 | `read_byte_budget` | `integer` | `262144` (256 KB) | Per-image byte budget for images the model reads for itself (`ReadMediaFile` default reads). It bounds the accumulated request-body size when the model keeps screenshotting and reading images; fine detail stays reachable through the `region` parameter, which reads a crop back at full fidelity (`region` and `full_resolution` are not subject to this budget) |
 
 `max_edge_px` can be overridden by the `PYTHINKER_IMAGE_MAX_EDGE_PX` environment variable and `read_byte_budget` by `PYTHINKER_IMAGE_READ_BYTE_BUDGET`; both take higher priority than `config.toml`.
+
+## `database`
+
+`database` controls the embedded storage engines behind session indexing and global search. Both keys default to `true` and act as kill switches that fall back to the legacy behavior when set to `false`.
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `base` | `boolean` | `true` | Use the minidb-backed read model for session indexing; `false` falls back to reading session metadata directly |
+| `search` | `boolean` | `true` | Run the global search index in a dedicated worker thread; `false` runs it in the server process |
+
+`base` can be overridden by the `PYTHINKER_CODE_PERSISTENCE_MINIDB_READMODEL` environment variable and `search` by `PYTHINKER_CODE_SEARCH_WORKER`; both take higher priority than `config.toml`.
 
 <!--
 ## `experimental`

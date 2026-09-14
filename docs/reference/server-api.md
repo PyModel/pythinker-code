@@ -65,7 +65,7 @@ Error codes are grouped by band:
 | `400xx` | Bad request | `40001` validation failed (`details` lists each field) |
 | `401xx` | Auth and readiness | `40101` unauthorized, `40110` no provider configured, `40113` model not resolved |
 | `404xx` | Not found | `40401` session, `40408` MCP server, `40409` file path |
-| `409xx` | State conflict | `40901` session busy, `40902` approval already resolved, `40922` page conditions mismatch `page_token`, `40928` `fs:write` `base_etag` is stale |
+| `409xx` | State conflict | `40901` session busy, `40902` approval already resolved, `40922` page conditions mismatch `page_token`, `40928` `fs:write` `base_etag` is stale, `40939` Remote Control already running |
 | `410xx` | Expired | `41001` approval timed out, `41002` question timed out, `41003` temporary file expired |
 | `413xx` | Size or boundary exceeded | `41302` file read over 10 MB, `41304` path escapes the session directory |
 | `429xx` | Rate limited | `42901` auth-failure ban, `42902` too many fs watches |
@@ -264,6 +264,8 @@ overwriting the other change. Re-read the file, rebase the edit, and retry.
 | --- | --- |
 | `POST /api/v1/search` | Cross-session full-text search; `mode` is `terms` (default) or `literal` (exact substring); `page_token` pagination |
 | `GET /api/v1/connections` | List live WebSocket connections |
+| `GET /api/v1/remote-control` | Remote Control tunnel status: `enabled`, `state` (`off`/`starting`/`on`/`stopping`), `url`, `device_id`, `device_name`, `error` |
+| `POST /api/v1/remote-control` | Start or stop the tunnel with `{"enabled": bool}`; refused with `40001` on a non-loopback bind or with `--dangerous-bypass-auth`, and with `40939` (`REMOTE_CONTROL_ALREADY_RUNNING`) when another process holds the lock |
 | `GET /api/v2/sessions` | Next-generation session list, see below |
 | `POST /api/v2/sessions:archive` | Batch-archive sessions, see below |
 | `POST /api/v2/sessions:restore` | Batch-restore archived sessions, see below |

@@ -1,9 +1,5 @@
 # Remote Control
 
-::: warning Experimental
-Remote Control is experimental. Enable it with `PYTHINKER_CODE_EXPERIMENTAL_REMOTE_CONTROL=1`, or turn on every experiment with `PYTHINKER_CODE_EXPERIMENTAL_FLAG=1`.
-:::
-
 Remote Control makes the local web UI reachable from your phone or another computer. The session still runs on this machine; only the screen moves.
 
 ## Start it

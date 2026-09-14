@@ -65,9 +65,7 @@ describe('resolveSlashCommandInput', () => {
   });
 
 
-  it('gates /remote-control behind the remote-control experimental flag', () => {
-    expect(resolve('/rc')).toEqual({ kind: 'message', input: '/rc' });
-    setExperimentalFeatures([{ id: 'remote-control', enabled: true }]);
+  it('resolves /remote-control without any experimental flag', () => {
     expect(resolve('/rc')).toMatchObject({ kind: 'builtin', name: 'remote-control' });
     expect(resolve('/remote-control')).toMatchObject({ kind: 'builtin', name: 'remote-control' });
   });

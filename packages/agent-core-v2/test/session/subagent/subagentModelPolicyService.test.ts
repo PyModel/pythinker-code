@@ -8,7 +8,6 @@ import { type ExperimentalFeatureState, IFlagService } from '#/app/flag/flag';
 import { THINKING_SECTION } from '#/app/kosongConfig/configSection';
 import { ErrorCodes, Error2, isError2 } from '#/errors';
 import { IModelCatalog, type Model } from '#/kosong/model/catalog';
-import { SECONDARY_MODEL_FLAG_ID } from '#/session/subagent/flag';
 import { SECONDARY_MODEL_SECTION } from '#/session/subagent/policy';
 import {
   ISubagentModelPolicyService,
@@ -35,31 +34,9 @@ describe('SubagentModelPolicyService', () => {
   });
   afterEach(() => disposables.dispose());
 
-  function setup(
-    sections: Record<string, unknown>,
-    feature: { enabled: boolean; source?: ExperimentalFeatureState['source'] } = { enabled: true },
-  ): ISubagentModelPolicyService {
+  function setup(sections: Record<string, unknown>): ISubagentModelPolicyService {
     config = new StubConfigService(sections);
     ix.stub(IConfigService, config);
-    const flags = stubFlag((id) => feature.enabled && id === SECONDARY_MODEL_FLAG_ID);
-    ix.stub(IFlagService, {
-      ...flags,
-      explain: (id: string) =>
-        id === SECONDARY_MODEL_FLAG_ID
-          ? ({
-              id,
-              enabled: feature.enabled,
-              source: feature.source ?? 'config',
-              externallyControlled: feature.source === 'env',
-              overridden: false,
-              defaultEnabled: false,
-              title: '',
-              description: '',
-              surface: 'core',
-              env: '',
-            } as ExperimentalFeatureState)
-          : undefined,
-    });
     ix.stub(IModelCatalog, {
       _serviceBrand: undefined,
       get: (id: string) => {
@@ -154,18 +131,6 @@ describe('SubagentModelPolicyService', () => {
     expect(config.get(SECONDARY_MODEL_SECTION)).toEqual({ defaultModel: 'acme/sol', force: true, defaultEffort: undefined });
   });
 
-  it('getEffective reports inherit while the feature is disabled and keeps the configured policy', () => {
-    const service = setup(
-      { [SECONDARY_MODEL_SECTION]: { defaultModel: 'acme/sol', force: true } },
-      { enabled: false, source: 'default' },
-    );
-    const effective = service.getEffective();
-    expect(effective.configuredPolicy).toEqual({ mode: 'force', defaultModel: 'acme/sol' });
-    expect(effective.effectivePolicy).toEqual({ mode: 'inherit' });
-    expect(effective.policySource).toBe('default');
-    expect(effective.feature).toEqual({ enabled: false, source: 'default' });
-  });
-
   it('prepareLegacyMutation validates against the supplied prospective context, not the live catalog', () => {
     const service = setup({});
     const prospective = {
@@ -202,15 +167,5 @@ describe('SubagentModelPolicyService', () => {
     expect(service.resolveRevision({ modelAlias: 'acme/luna', thinkingLevel: 'high' })).not.toBe(a);
     await config.replace(THINKING_SECTION, { enabled: false });
     expect(service.resolveRevision(caller)).not.toBe(a);
-  });
-
-  it('resolveRevision ignores a configured policy while the feature is disabled', async () => {
-    const service = setup({}, { enabled: false, source: 'default' });
-    const caller = { modelAlias: 'acme/sol', thinkingLevel: 'high' };
-    const before = service.resolveRevision(caller);
-    const versionBefore = service.get().resourceVersion;
-    await config.replace(SECONDARY_MODEL_SECTION, { defaultModel: 'acme/luna', force: true });
-    expect(service.resolveRevision(caller)).toBe(before);
-    expect(service.get().resourceVersion).not.toBe(versionBefore);
   });
 });

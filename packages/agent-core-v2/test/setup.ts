@@ -4,4 +4,4 @@ for (const key of Object.keys(process.env)) {
   }
 }
 
-process.env['PYTHINKER_CODE_EXPERIMENTAL_PERSISTENCE_MINIDB_READMODEL'] = 'false';
+process.env['PYTHINKER_CODE_PERSISTENCE_MINIDB_READMODEL'] = 'false';
