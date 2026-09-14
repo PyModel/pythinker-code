@@ -53,6 +53,7 @@ export function resolveRelayKey(
 
 const MAX_HTTP_HEADER_BYTES = 64 * 1024;
 const MAX_HTTP_REQUEST_BYTES = 10 * 1024 * 1024;
+const MAX_HTTP_RESPONSE_BYTES = 64 * 1024 * 1024;
 const HTTP_REQUEST_TIMEOUT_MS = 30_000;
 const REGISTER_TIMEOUT_MS = 10_000;
 const MAX_RECONNECT_DELAY_MS = 30_000;
@@ -922,7 +923,17 @@ function requestLocalHttp(
       },
       (response) => {
         const chunks: Buffer[] = [];
-        response.on('data', (chunk: Buffer | string) => chunks.push(Buffer.from(chunk)));
+        let receivedBytes = 0;
+        response.on('data', (chunk: Buffer | string) => {
+          receivedBytes += chunk.length;
+          if (receivedBytes > MAX_HTTP_RESPONSE_BYTES) {
+            response.destroy(
+              new Error(`Remote Control response exceeds ${MAX_HTTP_RESPONSE_BYTES} bytes`),
+            );
+            return;
+          }
+          chunks.push(Buffer.from(chunk));
+        });
         response.once('error', reject);
         response.once('end', () => {
           void (async (): Promise<Buffer> => {
@@ -1018,7 +1029,7 @@ function bridgeSockets(
   left: WebSocket,
   right: WebSocket,
   onClose: () => void,
-  earlyLeftFrames?: [RawData, boolean][],
+  earlyLeftFrames: [RawData, boolean][],
 ): void {
   let closed = false;
   const closeBoth = (code = 1000, reason = Buffer.alloc(0)): void => {
@@ -1029,11 +1040,9 @@ function bridgeSockets(
     if (left.readyState === WebSocket.OPEN) left.close(safeCode, reason);
     if (right.readyState === WebSocket.OPEN) right.close(safeCode, reason);
   };
-  if (earlyLeftFrames !== undefined) {
-    left.removeAllListeners('message');
-    for (const [data, isBinary] of earlyLeftFrames) {
-      if (right.readyState === WebSocket.OPEN) right.send(data, { binary: isBinary });
-    }
+  left.removeAllListeners('message');
+  for (const [data, isBinary] of earlyLeftFrames) {
+    if (right.readyState === WebSocket.OPEN) right.send(data, { binary: isBinary });
   }
   left.on('message', (data, isBinary) => {
     if (right.readyState === WebSocket.OPEN) right.send(data, { binary: isBinary });

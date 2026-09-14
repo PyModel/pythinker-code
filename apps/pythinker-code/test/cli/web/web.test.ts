@@ -546,6 +546,7 @@ describe('`pythinker web` opens the browser', () => {
     const remoteControlOption = makeProgram()
       .commands.find((command) => command.name() === 'web')!
       .options.find((option) => option.long === '--remote-control');
+    expect(remoteControlOption).toBeDefined();
     expect(remoteControlOption?.hidden).toBeFalsy();
   });
 });

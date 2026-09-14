@@ -137,6 +137,9 @@ export class MiniDbQueryStore extends Disposable implements IQueryStore {
       const result = await op(db);
       if (kind === 'write') this.transientWriteFailures = 0;
       else this.transientReadFailures = 0;
+      if (expectedStoreEpoch !== undefined && expectedStoreEpoch !== this.storeEpochCounter) {
+        throw new QueryStoreRebuiltError();
+      }
       return result;
     } catch (error) {
       if (classifyStorageError(error) !== 'rebuild') {

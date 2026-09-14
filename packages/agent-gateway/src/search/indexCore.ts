@@ -60,6 +60,7 @@ function legacyFileMetaKey(filePath: string): string {
 
 const WIRE_READ_CHUNK_BYTES = 1 << 20;
 const WIRE_BATCH_OPS = 1_000;
+const MAX_WIRE_PENDING_BYTES = 4 * 1024 * 1024;
 const SYNC_ROUND_BYTE_BUDGET = 64 << 20;
 const SYNC_ROUND_TIME_BUDGET_MS = 30_000;
 const SYNC_FAILURE_ESCALATION_LIMIT = 5;
@@ -535,6 +536,7 @@ export class SearchIndexCore {
       if (result.failed) {
         const count = (this.sessionSyncFailures.get(summary.id) ?? 0) + 1;
         this.sessionSyncFailures.set(summary.id, count);
+        failures += 1;
         if (count >= SESSION_SYNC_FAILURE_SKIP_LIMIT) {
           this.sessionSyncFailures.delete(summary.id);
           this.sessionSyncSkips.set(summary.id, { at: Date.now(), updatedAt: summary.updatedAt });
@@ -543,7 +545,6 @@ export class SearchIndexCore {
             { sessionId: summary.id, error: result.error },
           );
         } else {
-          failures += 1;
           this.log.warn('global search: failed to index session', {
             sessionId: summary.id,
             error: result.error,
@@ -669,7 +670,7 @@ export class SearchIndexCore {
     try {
       handle = await open(file.path, 'r');
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
         return { truncated: false, failed: false };
       }
       return { truncated: false, failed: true, error: errorMessage(error) };
@@ -801,6 +802,7 @@ export class SearchIndexCore {
           pending.length > 0
             ? Buffer.concat([pending, slice.subarray(start)])
             : Buffer.from(slice.subarray(start));
+        if (pending.length > MAX_WIRE_PENDING_BYTES) break;
         if (finishing && completedRecord) break;
         if (ops.length >= WIRE_BATCH_OPS) {
           ops.push({ op: 'set', key: metaKey, value: fileMeta(byteCursor, turnState, stepState) });
