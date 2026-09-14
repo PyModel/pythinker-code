@@ -58,7 +58,7 @@ export function formatRemoteControlOutput(options: RemoteControlOutputOptions): 
   );
   return [
     '',
-    `  ${title('Pythinker Remote Control ready')}  ${muted(`${getVersion()} (experimental)`)}`,
+    `  ${title('Pythinker Remote Control ready')}  ${muted(getVersion())}`,
     `  ${muted('Use Pythinker Code on this machine from your phone or another computer.')}`,
     '',
     `  ${label('1.')} Scan the QR code, or open ${link(options.url)}`,
@@ -72,7 +72,7 @@ export function formatRemoteControlOutput(options: RemoteControlOutputOptions): 
     `  ${label('QR code PNG: ')}${options.pngPath} ${muted('(open this if the QR above does not scan)')}`,
     `  ${label('Local UI: ')}${accent(localBase)}${dim(localFrag)} ${muted('(LAN: --host)')}`,
     '',
-    `  ${muted('Experimental —')} ${docs} ${muted('·')} ${feedback}`,
+    `  ${muted('Docs:')} ${docs} ${muted('·')} ${feedback}`,
     `  ${label('Logs: ')}${muted('off (--log-level info)')} ${muted('·')} ${label('Stop: ')}${muted('Ctrl+C')}`,
     '',
   ].join('\n');

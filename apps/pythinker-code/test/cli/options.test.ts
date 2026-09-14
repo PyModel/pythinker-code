@@ -5,7 +5,7 @@
  * Run: pnpm -C apps/pythinker-code exec vitest run test/cli/options.test.ts
  */
 
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
 import { createProgram } from '#/cli/commands';
 import type { CLIOptions } from '#/cli/options';

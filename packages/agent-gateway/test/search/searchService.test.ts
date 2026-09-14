@@ -423,6 +423,17 @@ describe('GlobalSearchService', () => {
     expect(page.items.length).toBe(2);
     expect(page.items.some((h) => h.snippet.includes('appended'))).toBe(true);
   });
+  it('keeps the index incomplete while a wire record exceeds the pending cap', async () => {
+    const s1 = summary('s1', 'overflow', T1);
+    const file = await writeWire(home!, 's1', 'main', [userLine('\u82F9\u679C head', T1)]);
+    await appendFile(file, `{"kind":"step","pad":"${'x'.repeat(5 * 1024 * 1024)}"`, 'utf8');
+    const service = track(makeService(home!, staticIndex([s1])));
+
+    await service.reindex();
+    const page = await service.search({ query: '\u82F9\u679C' });
+    expect(page.items.length).toBe(1);
+    expect(page.indexState.state).not.toBe('ready');
+  });
 
   it('reports indexState building before the first full sync and ready after', async () => {
     const s1 = summary('s1', 'state', T1);

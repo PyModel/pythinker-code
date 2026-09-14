@@ -53,6 +53,7 @@ export function resolveRelayKey(
 
 const MAX_HTTP_HEADER_BYTES = 64 * 1024;
 const MAX_HTTP_REQUEST_BYTES = 10 * 1024 * 1024;
+const MAX_HTTP_RESPONSE_BYTES = 64 * 1024 * 1024;
 const HTTP_REQUEST_TIMEOUT_MS = 30_000;
 const REGISTER_TIMEOUT_MS = 10_000;
 const MAX_RECONNECT_DELAY_MS = 30_000;
@@ -153,7 +154,7 @@ export function buildRemoteControlUrl(
   relayOrigin = REMOTE_CONTROL_RELAY_ORIGIN,
 ): string {
   const url = new URL(relayOrigin);
-  const relayPath = url.pathname.replace(/\/+$/, '');
+  const relayPath = stripTrailingSlashes(url.pathname);
   const devicePath = `${relayPath}/devices/${encodeURIComponent(deviceId)}`;
   url.pathname =
     sessionId === undefined
@@ -231,23 +232,34 @@ export function filterForwardRequestHeaders(
   return result;
 }
 
+function stripTrailingSlashes(value: string): string {
+  let end = value.length;
+  while (end > 0 && value.codePointAt(end - 1) === 47) end -= 1;
+  return end === value.length ? value : value.slice(0, end);
+}
+
+function findHeadTagEnd(text: string): number {
+  const start = /<head(?=[\s>])/i.exec(text);
+  if (start === null) return -1;
+  const close = text.indexOf('>', start.index + 5);
+  return close === -1 ? -1 : close + 1;
+}
+
 export function rewriteRemoteControlResponse(
   contentType: string,
   body: Buffer,
   publicPrefix: string,
 ): Buffer {
-  const normalizedPrefix = publicPrefix.replace(/\/+$/, '');
+  const normalizedPrefix = stripTrailingSlashes(publicPrefix);
   if (contentType.toLowerCase().includes('text/html')) {
     const prefixLiteral = scriptStringLiteral(normalizedPrefix);
     const injected = `<script>(function(){var p=${prefixLiteral};try{sessionStorage.setItem('pythinker-desktop-server-origin',location.origin+p)}catch(e){}var w=function(f){return function(s,t,u){if(typeof u==='string'&&u.charAt(0)==='/'&&u.indexOf(p)!==0)u=p+u;return f.apply(this,[s,t,u])}};history.pushState=w(history.pushState);history.replaceState=w(history.replaceState)})();</script>`;
     let text = body.toString('utf8');
-    const headMatch = /<head(?:\s[^>]*)?>/i.exec(text);
+    const headEnd = findHeadTagEnd(text);
     text =
-      headMatch === null
+      headEnd === -1
         ? injected + text
-        : text.slice(0, headMatch.index + headMatch[0].length) +
-          injected +
-          text.slice(headMatch.index + headMatch[0].length);
+        : text.slice(0, headEnd) + injected + text.slice(headEnd);
     text = text.replaceAll(/\bsrc="\//g, `src="${normalizedPrefix}/`);
     text = text.replaceAll(/\bhref="\//g, `href="${normalizedPrefix}/`);
     return Buffer.from(text);
@@ -318,7 +330,7 @@ export async function startRemoteControl(
   const deviceName = hostname();
   const url = buildRemoteControlUrl(deviceId, undefined, relayOrigin);
   const lock = await acquireRemoteControlLock(options.homeDir, {
-    localOrigin: options.localOrigin.replace(/\/+$/, ''),
+    localOrigin: stripTrailingSlashes(options.localOrigin),
     deviceId,
     url,
   });
@@ -387,7 +399,7 @@ class RemoteControlClient {
       readonly localServerToken: () => string;
     },
   ) {
-    this.localOrigin = options.localOrigin.replace(/\/+$/, '');
+    this.localOrigin = stripTrailingSlashes(options.localOrigin);
     this.localServerToken = options.localServerToken;
     this.clientVersion = options.clientVersion;
     this.relayOrigin = options.relayOrigin;
@@ -758,7 +770,7 @@ class RemoteControlClient {
   }
 
   private publicPrefix(): string {
-    const relayPath = new URL(this.relayOrigin).pathname.replace(/\/+$/, '');
+    const relayPath = stripTrailingSlashes(new URL(this.relayOrigin).pathname);
     return `${relayPath}/devices/${encodeURIComponent(this.deviceId)}`;
   }
 
@@ -911,7 +923,17 @@ function requestLocalHttp(
       },
       (response) => {
         const chunks: Buffer[] = [];
-        response.on('data', (chunk: Buffer | string) => chunks.push(Buffer.from(chunk)));
+        let receivedBytes = 0;
+        response.on('data', (chunk: Buffer | string) => {
+          receivedBytes += chunk.length;
+          if (receivedBytes > MAX_HTTP_RESPONSE_BYTES) {
+            response.destroy(
+              new Error(`Remote Control response exceeds ${MAX_HTTP_RESPONSE_BYTES} bytes`),
+            );
+            return;
+          }
+          chunks.push(Buffer.from(chunk));
+        });
         response.once('error', reject);
         response.once('end', () => {
           void (async (): Promise<Buffer> => {
@@ -1007,7 +1029,7 @@ function bridgeSockets(
   left: WebSocket,
   right: WebSocket,
   onClose: () => void,
-  earlyLeftFrames?: [RawData, boolean][],
+  earlyLeftFrames: [RawData, boolean][],
 ): void {
   let closed = false;
   const closeBoth = (code = 1000, reason = Buffer.alloc(0)): void => {
@@ -1018,11 +1040,9 @@ function bridgeSockets(
     if (left.readyState === WebSocket.OPEN) left.close(safeCode, reason);
     if (right.readyState === WebSocket.OPEN) right.close(safeCode, reason);
   };
-  if (earlyLeftFrames !== undefined) {
-    left.removeAllListeners('message');
-    for (const [data, isBinary] of earlyLeftFrames) {
-      if (right.readyState === WebSocket.OPEN) right.send(data, { binary: isBinary });
-    }
+  left.removeAllListeners('message');
+  for (const [data, isBinary] of earlyLeftFrames) {
+    if (right.readyState === WebSocket.OPEN) right.send(data, { binary: isBinary });
   }
   left.on('message', (data, isBinary) => {
     if (right.readyState === WebSocket.OPEN) right.send(data, { binary: isBinary });
@@ -1050,7 +1070,7 @@ function isValidCloseCode(code: number): boolean {
 function relayWebSocketUrl(origin: string, path: string): string {
   const url = new URL(origin);
   url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
-  const relayPath = url.pathname.replace(/\/+$/, '');
+  const relayPath = stripTrailingSlashes(url.pathname);
   const [pathname, query] = path.split('?', 2);
   url.pathname = `${relayPath}${pathname}`;
   url.search = query === undefined ? '' : query;
