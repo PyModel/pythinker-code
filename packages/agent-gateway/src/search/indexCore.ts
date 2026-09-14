@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { open, readFile, readdir, stat } from 'node:fs/promises';
+import { open, readFile, readdir, stat, type FileHandle } from 'node:fs/promises';
 import { join, relative } from 'node:path';
 
 import {
@@ -665,11 +665,21 @@ export class SearchIndexCore {
     file: WireFileRef,
     budget: SyncRoundBudget,
   ): Promise<SessionSyncResult> {
+    let handle: FileHandle;
+    try {
+      handle = await open(file.path, 'r');
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        return { truncated: false, failed: false };
+      }
+      return { truncated: false, failed: true, error: errorMessage(error) };
+    }
     let st: { size: number; mtimeMs: number; ino: number };
     try {
-      st = await stat(file.path);
-    } catch {
-      return { truncated: false, failed: false };
+      st = await handle.stat();
+    } catch (error) {
+      await handle.close();
+      return { truncated: false, failed: true, error: errorMessage(error) };
     }
     const size = st.size;
     const metaKey = fileMetaKey(summary.id, file.path);
@@ -730,15 +740,10 @@ export class SearchIndexCore {
         if (legacyKey !== null) ops.push({ op: 'del', key: legacyKey });
         await db.batch(ops);
       }
+      await handle.close();
       return { truncated: false, failed: false };
     }
 
-    let handle: Awaited<ReturnType<typeof open>>;
-    try {
-      handle = await open(file.path, 'r');
-    } catch (error) {
-      return { truncated: false, failed: true, error: errorMessage(error) };
-    }
     const ops: BatchInputOp<SearchDoc>[] = [];
     let byteCursor = offset;
     let position = offset;
