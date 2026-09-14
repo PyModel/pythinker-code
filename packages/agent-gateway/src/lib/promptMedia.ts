@@ -224,7 +224,7 @@ export async function resolvePromptMediaFiles(
           content.push({
             type: 'text',
             text: persisted === null
-              ? buildUnsupportedImageNotice(effectiveMime)
+              ? buildUnsupportedImageNotice(effectiveMime, name)
               : buildAttachedFileNotice(name, effectiveMime, bytes.length, persisted),
           });
           if (persisted !== null) {

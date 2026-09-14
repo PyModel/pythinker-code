@@ -1056,6 +1056,43 @@ describe('server-v2 /api/v1 prompts', () => {
     expect(await readFile(attachedPath)).toEqual(data);
   });
 
+  it('keeps the supplied name in the notice when unsupported-image persistence fails', async () => {
+    const cacheDir = await mkdtemp(join(tmpdir(), 'pythinker-prompt-media-'));
+    try {
+      const store = {
+        save: vi.fn(async () => {
+          throw new Error('disk full');
+        }),
+        delete: vi.fn(async () => undefined),
+        get: vi.fn(),
+      };
+      const prepared = await resolvePromptMediaFiles(
+        [
+          {
+            type: 'image',
+            name: 'scan.avif',
+            source: {
+              kind: 'base64',
+              media_type: 'image/avif',
+              data: avifBytes().toString('base64'),
+            },
+          },
+        ],
+        store as unknown as IFileService,
+        cacheDir,
+      );
+      expect(prepared.content).toHaveLength(1);
+      const notice = prepared.content[0];
+      if (notice?.type !== 'text') throw new Error('expected a text notice');
+      expect(notice.text).toContain('[Image omitted');
+      expect(notice.text).toContain('"scan.avif"');
+      expect(notice.text).toContain('image/avif');
+      expect(store.save).toHaveBeenCalledOnce();
+    } finally {
+      await rm(cacheDir, { recursive: true, force: true });
+    }
+  });
+
   it('sanitizes an attachment file name before materializing it', async () => {
     const id = await createSession(home as string);
     await createMainAgent(id);
