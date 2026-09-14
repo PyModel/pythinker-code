@@ -1,5 +1,7 @@
 import type { PermissionMode } from '#/agent/permissionPolicy/types';
 import { Service } from '#/_base/di/service';
+import { parseBooleanEnv } from '#/_base/utils/env';
+import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Emitter, type Event } from '#/_base/event';
@@ -20,6 +22,8 @@ import {
   PermissionSetMode,
 } from './permissionModeOps';
 
+export const PERMISSION_MODE_REMINDER_ENV = 'PYTHINKER_CODE_PERMISSION_MODE_REMINDER';
+
 export class AgentPermissionModeService extends Service implements IAgentPermissionModeService {
   declare readonly _serviceBrand: undefined;
 
@@ -32,15 +36,19 @@ export class AgentPermissionModeService extends Service implements IAgentPermiss
     @IAgentLifecycleService private readonly agentLifecycle: IAgentLifecycleService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
     @IAgentStateService private readonly agentState: IAgentStateService,
+    @IBootstrapService bootstrap: IBootstrapService,
   ) {
     super();
     this.agentState.contributeState(permissionModeKey);
     this.agentState.contributeState(permissionModeConfiguredKey);
-    this._register(
-      activateReminderWhenReady(this.agentLifecycle, this.scopeContext, (reminder) =>
-        new PermissionModeInjection(this, reminder, this.agentState),
-      ),
-    );
+    const reminderEnv = bootstrap.getEnv(PERMISSION_MODE_REMINDER_ENV);
+    if (reminderEnv?.trim() !== '' && parseBooleanEnv(reminderEnv) !== false) {
+      this._register(
+        activateReminderWhenReady(this.agentLifecycle, this.scopeContext, (reminder) =>
+          new PermissionModeInjection(this, reminder, this.agentState),
+        ),
+      );
+    }
   }
 
   get mode(): PermissionMode {
