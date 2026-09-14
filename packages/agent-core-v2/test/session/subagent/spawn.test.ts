@@ -29,7 +29,6 @@ import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { SECONDARY_MODEL_SECTION } from '#/session/subagent/configSection';
-import { SECONDARY_MODEL_FLAG_ID } from '#/session/subagent/flag';
 import { ISessionSubagentService } from '#/session/subagent/subagent';
 import { SessionSubagentService } from '#/session/subagent/subagentService';
 import {
@@ -262,15 +261,9 @@ describe('SessionSubagentService planSpawn and spawn', () => {
     disposables.dispose();
   });
 
-  function service(
-    configValues: Record<string, unknown> = {},
-    secondaryModelEnabled = false,
-  ): ISessionSubagentService {
+  function service(configValues: Record<string, unknown> = {}): ISessionSubagentService {
     ix.stub(IConfigService, new StubConfigService(configValues));
-    ix.stub(
-      IFlagService,
-      stubFlag((id) => secondaryModelEnabled && id === SECONDARY_MODEL_FLAG_ID),
-    );
+    ix.stub(IFlagService, stubFlag(false));
     ix.stub(ITelemetryService, telemetry);
     ix.set(ISubagentModelPolicyService, new SyncDescriptor(SubagentModelPolicyService));
     ix.set(ISubagentRoutingService, new SyncDescriptor(SessionSubagentRoutingService));
@@ -381,7 +374,6 @@ describe('SessionSubagentService planSpawn and spawn', () => {
           models: { 'provider/bad': 'broken' },
         },
       },
-      true,
     );
 
     const error = await planSpawnError(svc, { callerAgentId: CALLER_ID, profileName: 'coder' });
@@ -407,7 +399,6 @@ describe('SessionSubagentService planSpawn and spawn', () => {
         },
         thinking: { enabled: false },
       },
-      true,
     );
 
     expect(await svc.planSpawn({ callerAgentId: CALLER_ID, profileName: 'coder' })).toMatchObject({
@@ -445,7 +436,6 @@ describe('SessionSubagentService planSpawn and spawn', () => {
           models: { 'provider/fast': 'fast model' },
         },
       },
-      true,
     );
 
     expect((await svc.planSpawn({ callerAgentId: CALLER_ID, profileName: 'coder' })).thinking).toBe(
@@ -468,7 +458,6 @@ describe('SessionSubagentService planSpawn and spawn', () => {
         },
         thinking: { enabled: false },
       },
-      true,
     );
 
     expect(
@@ -490,7 +479,6 @@ describe('SessionSubagentService planSpawn and spawn', () => {
           models: { 'provider/fast': 'fast model' },
         },
       },
-      true,
     );
 
     expect(
@@ -508,7 +496,6 @@ describe('SessionSubagentService planSpawn and spawn', () => {
           defaultEffort: 'max',
         },
       },
-      true,
     );
 
     expect(await svc.planSpawn({ callerAgentId: CALLER_ID, profileName: 'coder' })).toMatchObject({
@@ -528,7 +515,6 @@ describe('SessionSubagentService planSpawn and spawn', () => {
           defaultModel: 'provider/fast',
         },
       },
-      true,
     );
 
     await expect(

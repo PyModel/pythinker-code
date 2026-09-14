@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { gunzipSync } from 'node:zlib';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { WebSocketServer, type RawData, type WebSocket } from 'ws';
@@ -11,38 +12,21 @@ import { WebSocketServer, type RawData, type WebSocket } from 'ws';
 import {
   buildRemoteControlUrl,
   filterForwardRequestHeaders,
-  formatRemoteControlOutput,
-  formatRemoteControlStatus,
-  isRemoteControlEnabled,
   parseRawHttpRequest,
   rewriteRemoteControlResponse,
   startRemoteControl,
   type RemoteControlHandle,
-} from '#/cli/sub/web/remote-control';
-import { remoteControlLockPath } from '#/cli/sub/web/remote-control-lock';
+} from '#/remote-control';
+import { remoteControlLockPath } from '#/lock';
 
 const RELAY_TOKEN = 'relay-token';
+const CLIENT_VERSION = 'pythinker-code/0.0.0-test';
 
 const cleanups: Array<() => Promise<void> | void> = [];
 
 afterEach(async () => {
   vi.unstubAllEnvs();
   while (cleanups.length > 0) await cleanups.pop()!();
-});
-
-describe('Remote Control experimental flag', () => {
-  it('is off unless the per-feature env or the master switch is truthy', () => {
-    expect(isRemoteControlEnabled({})).toBe(false);
-    expect(isRemoteControlEnabled({ PYTHINKER_CODE_EXPERIMENTAL_REMOTE_CONTROL: '0' })).toBe(false);
-    expect(isRemoteControlEnabled({ PYTHINKER_CODE_EXPERIMENTAL_REMOTE_CONTROL: '1' })).toBe(true);
-    expect(isRemoteControlEnabled({ PYTHINKER_CODE_EXPERIMENTAL_FLAG: 'true' })).toBe(true);
-    expect(
-      isRemoteControlEnabled({
-        PYTHINKER_CODE_EXPERIMENTAL_FLAG: '0',
-        PYTHINKER_CODE_EXPERIMENTAL_REMOTE_CONTROL: 'yes',
-      }),
-    ).toBe(true);
-  });
 });
 
 describe('Remote Control URLs', () => {
@@ -61,56 +45,6 @@ describe('Remote Control URLs', () => {
   });
 });
 
-describe('Remote Control output', () => {
-  const outputOptions = {
-    url: 'https://example.test/devices/example-device/?rc=1&from=pythinker_code_cli',
-    localOrigin: 'http://127.0.0.1:1234',
-    deviceName: 'example-device',
-    qrCode: 'QR\n',
-    pngPath: '/tmp/example-qr.png',
-  };
-
-  it('shows the full URL as the clickable link text and the setup contract', () => {
-    vi.stubEnv('FORCE_HYPERLINK', '1');
-    const output = formatRemoteControlOutput(outputOptions);
-    const url = outputOptions.url;
-    expect(output).toContain('Use Pythinker Code on this machine');
-    expect(output).toContain('1.');
-    expect(output).toContain('2.');
-    expect(output).toContain(`\u001B]8;;${url}`);
-    const plain = output
-      .replaceAll(/\u001B\]8;;.*?\u0007/g, '')
-      .replaceAll(/\u001B\[[0-9;]*m/g, '');
-    expect(plain).toContain(`open ${url}`);
-    expect(plain).not.toContain('exampl…');
-    expect(plain).not.toMatch(/^\s*3\.\s/m);
-    expect(output).toContain('Connected to example.test');
-    expect(output).toContain('This device:');
-    expect(output).not.toContain('Manage devices');
-    expect(output).toContain('PNG:');
-    expect(output).toContain('\n    QR');
-    expect(output).toContain('grants control of this machine');
-    expect(output).toContain('docs');
-    expect(output).toContain('feedback');
-    expect(output).toContain('Logs: off');
-    expect(output).not.toContain('stream-1');
-  });
-
-  it('prints the full URL as plain text when the terminal cannot render hyperlinks', () => {
-    vi.stubEnv('FORCE_HYPERLINK', '0');
-    const output = formatRemoteControlOutput(outputOptions);
-    expect(output).toContain(`open ${outputOptions.url}`);
-    expect(output).not.toContain('exampl…vice');
-    expect(output).not.toContain('Manage devices');
-  });
-
-  it('formats relay and device lifecycle states', () => {
-    expect(formatRemoteControlStatus('relay_connected').toLowerCase()).toContain('connected');
-    expect(formatRemoteControlStatus('relay_disconnected')).toContain('disconnected');
-    expect(formatRemoteControlStatus('device_connected').toLowerCase()).toContain('connected');
-    expect(formatRemoteControlStatus('device_disconnected')).toContain('disconnected');
-  });
-});
 
 describe('Remote Control HTTP forwarding', () => {
   it('parses raw requests and replaces relay credentials with local bearer auth', () => {
@@ -197,7 +131,7 @@ describe('Remote Control HTTP forwarding', () => {
 describe('resolveRelayOrigin', () => {
   it('prefers the explicit value, then the env var, then the built-in default', async () => {
     const { resolveRelayOrigin, REMOTE_CONTROL_RELAY_ORIGIN } = await import(
-      '#/cli/sub/web/remote-control'
+      '#/remote-control'
     );
     expect(resolveRelayOrigin('https://relay.example.test', {})).toBe('https://relay.example.test');
     expect(
@@ -217,7 +151,7 @@ describe('resolveRelayOrigin', () => {
   });
 
   it('rejects a relay that is not http(s)', async () => {
-    const { resolveRelayOrigin } = await import('#/cli/sub/web/remote-control');
+    const { resolveRelayOrigin } = await import('#/remote-control');
     expect(() => resolveRelayOrigin('ws://relay.example.test', {})).toThrow(
       'Remote Control relay must be an http(s) URL',
     );
@@ -227,7 +161,7 @@ describe('resolveRelayOrigin', () => {
 
 describe('resolveRelayKey', () => {
   it('prefers the explicit key, then the environment', async () => {
-    const { resolveRelayKey } = await import('#/cli/sub/web/remote-control');
+    const { resolveRelayKey } = await import('#/remote-control');
     expect(resolveRelayKey('explicit-key', {})).toBe('explicit-key');
     expect(
       resolveRelayKey(undefined, { PYTHINKER_CODE_REMOTE_CONTROL_RELAY_KEY: 'env-key' }),
@@ -239,7 +173,7 @@ describe('resolveRelayKey', () => {
   });
 
   it('refuses to fall back to another credential when no key is given', async () => {
-    const { resolveRelayKey } = await import('#/cli/sub/web/remote-control');
+    const { resolveRelayKey } = await import('#/remote-control');
     expect(() => resolveRelayKey(undefined, {})).toThrow(
       'PYTHINKER_CODE_REMOTE_CONTROL_RELAY_KEY',
     );
@@ -260,6 +194,7 @@ describe('relay credential separation', () => {
       homeDir,
       localOrigin: 'http://127.0.0.1:1',
       localServerToken: 'local-server-token',
+      clientVersion: CLIENT_VERSION,
       relayKey: RELAY_TOKEN,
       relayOrigin: `http://127.0.0.1:${relay.port}/coding-relay`,
       stderr: { write: () => true },
@@ -305,6 +240,7 @@ describe('Remote Control tunnel', () => {
         homeDir,
         localOrigin: 'http://127.0.0.1:1',
         localServerToken: 'local-server-token',
+        clientVersion: CLIENT_VERSION,
         relayKey: RELAY_TOKEN,
         relayOrigin: `http://127.0.0.1:${relayPort}/coding-relay`,
         stderr: { write: () => true },
@@ -323,6 +259,7 @@ describe('Remote Control tunnel', () => {
       homeDir,
       localOrigin: 'http://127.0.0.1:1',
       localServerToken: 'local-server-token',
+      clientVersion: CLIENT_VERSION,
       relayKey: relayToken,
       relayOrigin: `http://127.0.0.1:${relay.port}/coding-relay`,
       stderr: { write: () => true },
@@ -346,6 +283,7 @@ describe('Remote Control tunnel', () => {
       homeDir,
       localOrigin: 'http://127.0.0.1:1',
       localServerToken: 'local-server-token',
+      clientVersion: CLIENT_VERSION,
       relayKey: relayToken,
       relayOrigin: `http://127.0.0.1:${relay.port}/coding-relay`,
       stderr: { write: () => true },
@@ -374,6 +312,7 @@ describe('Remote Control tunnel', () => {
       homeDir,
       localOrigin: 'http://127.0.0.1:1',
       localServerToken: 'local-server-token',
+      clientVersion: CLIENT_VERSION,
       relayKey: relayToken,
       relayOrigin: `http://127.0.0.1:${relay.port}/coding-relay`,
       stderr: { write: () => true },
@@ -394,6 +333,7 @@ describe('Remote Control tunnel', () => {
       homeDir,
       localOrigin: 'http://127.0.0.1:1',
       localServerToken: 'local-server-token',
+      clientVersion: CLIENT_VERSION,
       relayKey: relayToken,
       relayOrigin: `http://127.0.0.1:${relay.port}/coding-relay`,
       stderr: { write: () => true },
@@ -409,8 +349,38 @@ describe('Remote Control tunnel', () => {
     let localHttpRequest: IncomingMessage | undefined;
     let localWsRequest: IncomingMessage | undefined;
     const localWsServer = new WebSocketServer({ noServer: true });
+    const assetJs = `const boot = "/assets/boot.js";\n${'const chunk = "/assets/chunk.js";\n'.repeat(120)}`;
+    const assetPng = Buffer.alloc(4096, 7);
+    const assetSvg = `<svg xmlns="http://www.w3.org/2000/svg">${'<rect width="100" height="100"/>'.repeat(100)}</svg>`;
+    const assetText = 'chunk of text\n'.repeat(160);
     const localServer = createServer((request, response) => {
       localHttpRequest = request;
+      if (request.url === '/assets/index.js') {
+        response.writeHead(200, { 'Content-Type': 'text/javascript', ETag: '"v1"' });
+        response.end(assetJs);
+        return;
+      }
+      if (request.url === '/assets/logo.png') {
+        response.writeHead(200, { 'Content-Type': 'image/png' });
+        response.end(assetPng);
+        return;
+      }
+      if (request.url === '/assets/logo.svg') {
+        response.writeHead(200, {
+          'Content-Type': 'image/svg+xml',
+          'Cache-Control': 'public, max-age=31536000, immutable',
+        });
+        response.end(assetSvg);
+        return;
+      }
+      if (request.url === '/assets/partial.txt' && request.headers.range !== undefined) {
+        response.writeHead(206, {
+          'Content-Type': 'text/plain',
+          'Content-Range': 'bytes 0-2047/4096',
+        });
+        response.end(assetText);
+        return;
+      }
       response.writeHead(200, {
         'Content-Type': 'text/html',
         'Cache-Control': 'public, max-age=31536000, immutable',
@@ -476,6 +446,7 @@ describe('Remote Control tunnel', () => {
       homeDir,
       localOrigin: `http://127.0.0.1:${localPort}`,
       localServerToken: 'local-server-token',
+      clientVersion: CLIENT_VERSION,
       relayKey: RELAY_TOKEN,
       relayOrigin: `http://127.0.0.1:${relayPort}/coding-relay`,
       stderr: { write: () => true },
@@ -485,8 +456,9 @@ describe('Remote Control tunnel', () => {
     expect(handle.url).toContain('/coding-relay/devices/');
     expect(handle.url).toContain('?rc=1&from=pythinker_code_cli');
 
+    let forwardCounter = 1;
     const rawRequest = Buffer.from(
-      'GET / HTTP/1.1\r\nHost: relay.test\r\nAuthorization: Bearer relay-token\r\nCookie: sid=1\r\nOrigin: https://relay.test\r\nConnection: X-Hop\r\nX-Hop: remove\r\nX-Keep: yes\r\n\r\n',
+      'GET / HTTP/1.1\r\nHost: relay.test\r\nAuthorization: Bearer relay-token\r\nCookie: sid=1\r\nOrigin: https://relay.test\r\nAccept-Encoding: gzip\r\nConnection: X-Hop\r\nX-Hop: remove\r\nX-Keep: yes\r\n\r\n',
     );
     const splitAt = Math.floor(rawRequest.length / 2);
     httpConnections[0]!.send(
@@ -518,8 +490,81 @@ describe('Remote Control tunnel', () => {
     expect(localHttpRequest?.headers['x-keep']).toBe('yes');
     expect(response).not.toContain('X-Remove');
     expect(response).not.toContain('immutable');
+    expect(response).not.toContain('Content-Encoding');
+    expect(response).not.toContain('Vary');
+    expect(localHttpRequest?.headers['accept-encoding']).toBeUndefined();
     expect(response).toContain('Cache-Control: no-cache');
     expect(response).toContain(`/coding-relay/devices/${handle.deviceId}/boot.js`);
+
+    const prefix = `/coding-relay/devices/${handle.deviceId}`;
+    const forward = async (request: string): Promise<Buffer> => {
+      const pending = nextJsonMessage(httpConnections[0]!);
+      httpConnections[0]!.send(
+        JSON.stringify({
+          request_id: `request-${++forwardCounter}`,
+          type: 'request',
+          is_last: true,
+          body_base64: Buffer.from(request).toString('base64'),
+        }),
+      );
+      return Buffer.from((await pending)['body_base64'] as string, 'base64');
+    };
+    const split = (raw: Buffer): [string, Buffer] => {
+      const at = raw.indexOf('\r\n\r\n');
+      return [raw.subarray(0, at).toString('latin1'), raw.subarray(at + 4)];
+    };
+
+    const [gzipHead, gzipBody] = split(
+      await forward(
+        'GET /assets/index.js HTTP/1.1\r\nHost: relay.test\r\nAccept-Encoding: br, gzip\r\n\r\n',
+      ),
+    );
+    expect(gzipHead).toContain('HTTP/1.1 200 OK');
+    expect(gzipHead).toContain('Content-Encoding: gzip');
+    expect(gzipHead).toContain('Vary: Accept-Encoding');
+    expect(gzipHead).not.toContain('ETag');
+    expect(gzipHead).toContain(`Content-Length: ${gzipBody.length}`);
+    expect(gunzipSync(gzipBody).toString()).toBe(
+      assetJs.replaceAll('"/assets/', `"${prefix}/assets/`),
+    );
+
+    const [binaryHead, binaryBody] = split(
+      await forward(
+        'GET /assets/logo.png HTTP/1.1\r\nHost: relay.test\r\nAccept-Encoding: gzip\r\n\r\n',
+      ),
+    );
+    expect(binaryHead).not.toContain('Content-Encoding');
+    expect(binaryBody.equals(assetPng)).toBe(true);
+
+    const [excludedHead, excludedBody] = split(
+      await forward(
+        'GET /assets/index.js HTTP/1.1\r\nHost: relay.test\r\nAccept-Encoding: gzip;q=0, *;q=1\r\n\r\n',
+      ),
+    );
+    expect(excludedHead).not.toContain('Content-Encoding');
+    expect(excludedHead).toContain('Vary: Accept-Encoding');
+    expect(excludedHead).toContain('ETag: "v1"');
+    expect(excludedBody.toString()).toBe(assetJs.replaceAll('"/assets/', `"${prefix}/assets/`));
+
+    const [svgHead, svgBody] = split(
+      await forward(
+        'GET /assets/logo.svg HTTP/1.1\r\nHost: relay.test\r\nAccept-Encoding: gzip\r\n\r\n',
+      ),
+    );
+    expect(svgHead).toContain('Content-Encoding: gzip');
+    expect(svgHead).toContain('Vary: Accept-Encoding');
+    expect(svgHead).toContain('immutable');
+    expect(gunzipSync(svgBody).toString()).toBe(assetSvg);
+
+    const [rangeHead, rangeBody] = split(
+      await forward(
+        'GET /assets/partial.txt HTTP/1.1\r\nHost: relay.test\r\nAccept-Encoding: gzip\r\nRange: bytes=0-2047\r\n\r\n',
+      ),
+    );
+    expect(rangeHead).toContain('206');
+    expect(rangeHead).toContain('Content-Range: bytes 0-2047/4096');
+    expect(rangeHead).not.toContain('Content-Encoding');
+    expect(rangeBody.toString()).toBe(assetText);
 
     managementConnections[0]!.send(
       JSON.stringify({
@@ -583,6 +628,7 @@ describe('Remote Control tunnel', () => {
       homeDir,
       localOrigin: 'http://127.0.0.1:1',
       localServerToken: 'local-server-token',
+      clientVersion: CLIENT_VERSION,
       relayKey: relayToken,
       relayOrigin: `http://127.0.0.1:${relay.port}/coding-relay`,
       stderr: { write: (text) => ((logs += String(text)), true) },
@@ -612,6 +658,7 @@ describe('Remote Control tunnel', () => {
       homeDir,
       localOrigin: 'http://127.0.0.1:1',
       localServerToken: 'local-server-token',
+      clientVersion: CLIENT_VERSION,
       relayKey: relayToken,
       relayOrigin: `http://127.0.0.1:${relay.port}/coding-relay`,
       stderr: { write: (text) => ((logs += String(text)), true) },
@@ -650,6 +697,7 @@ describe('Remote Control tunnel', () => {
       homeDir,
       localOrigin: `http://127.0.0.1:${localPort}`,
       localServerToken: () => currentToken,
+      clientVersion: CLIENT_VERSION,
       relayKey: relayToken,
       relayOrigin: `http://127.0.0.1:${relay.port}/coding-relay`,
       stderr: { write: () => true },
@@ -699,6 +747,7 @@ describe('Remote Control single-instance lock', () => {
       homeDir,
       localOrigin: 'http://127.0.0.1:58627',
       localServerToken: 'local-server-token',
+      clientVersion: CLIENT_VERSION,
       relayKey: relayToken,
       relayOrigin: `http://127.0.0.1:${relay.port}`,
       stderr: { write: () => true },
@@ -709,6 +758,7 @@ describe('Remote Control single-instance lock', () => {
         homeDir,
         localOrigin: 'http://127.0.0.1:58628',
         localServerToken: 'local-server-token',
+        clientVersion: CLIENT_VERSION,
         relayKey: relayToken,
         relayOrigin: `http://127.0.0.1:${relay.port}`,
         stderr: { write: () => true },
@@ -740,6 +790,7 @@ describe('Remote Control single-instance lock', () => {
       homeDir,
       localOrigin: 'http://127.0.0.1:58627',
       localServerToken: 'local-server-token',
+      clientVersion: CLIENT_VERSION,
       relayKey: relayToken,
       relayOrigin: `http://127.0.0.1:${relay.port}`,
       stderr: { write: () => true },
@@ -759,6 +810,7 @@ describe('Remote Control single-instance lock', () => {
       homeDir,
       localOrigin: 'http://127.0.0.1:58627',
       localServerToken: 'local-server-token',
+      clientVersion: CLIENT_VERSION,
       relayKey: relayToken,
       relayOrigin: `http://127.0.0.1:${relay.port}`,
       stderr: { write: () => true },
@@ -772,6 +824,29 @@ describe('Remote Control single-instance lock', () => {
     expect(second.url).toContain('/devices/');
   });
 
+  it('releases the lock before the handle reports closed', async () => {
+    const homeDir = createRemoteControlHome();
+    const relay = await startAuthRelay();
+    const handle = await startRemoteControl({
+      homeDir,
+      localOrigin: 'http://127.0.0.1:58627',
+      localServerToken: 'local-server-token',
+      clientVersion: CLIENT_VERSION,
+      relayKey: RELAY_TOKEN,
+      relayOrigin: `http://127.0.0.1:${relay.port}`,
+      stderr: { write: () => true },
+    });
+    await waitFor(() => relay.managementSockets.length === 1);
+    relay.managementSockets[0]!.send(
+      JSON.stringify({ type: 'disconnect', payload: { reason: 'user_requested' } }),
+    );
+
+    await handle.closed;
+    await expect(readFile(remoteControlLockPath(homeDir), 'utf8')).rejects.toMatchObject({
+      code: 'ENOENT',
+    });
+  });
+
   it('does not remove a successor lock when closing', async () => {
     const homeDir = createRemoteControlHome();
     const relayToken = RELAY_TOKEN;
@@ -780,6 +855,7 @@ describe('Remote Control single-instance lock', () => {
       homeDir,
       localOrigin: 'http://127.0.0.1:58627',
       localServerToken: 'local-server-token',
+      clientVersion: CLIENT_VERSION,
       relayKey: relayToken,
       relayOrigin: `http://127.0.0.1:${relay.port}`,
       stderr: { write: () => true },

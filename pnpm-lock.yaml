@@ -176,6 +176,9 @@ importers:
       '@pymodel/pythinker-telemetry':
         specifier: workspace:^
         version: link:../../packages/telemetry
+      '@pymodel/remote-control':
+        specifier: workspace:^
+        version: link:../../packages/remote-control
       '@pymodel/vis-server':
         specifier: workspace:^
         version: link:../vis/server
@@ -914,6 +917,9 @@ importers:
       '@pymodel/pythinker-code-oauth':
         specifier: workspace:^
         version: link:../oauth
+      '@pymodel/remote-control':
+        specifier: workspace:^
+        version: link:../remote-control
       '@pymodel/transcript':
         specifier: workspace:^
         version: link:../transcript
@@ -1101,6 +1107,22 @@ importers:
       '@types/ssh2':
         specifier: ^1.15.5
         version: 1.15.5
+
+  packages/remote-control:
+    dependencies:
+      '@pymodel/agent-core-v2':
+        specifier: workspace:^
+        version: link:../agent-core-v2
+      '@pymodel/pythinker-code-oauth':
+        specifier: workspace:^
+        version: link:../oauth
+      ws:
+        specifier: ^8.21.3
+        version: 8.21.3
+    devDependencies:
+      '@types/ws':
+        specifier: ^8.18.0
+        version: 8.18.1
 
   packages/telemetry: {}
 

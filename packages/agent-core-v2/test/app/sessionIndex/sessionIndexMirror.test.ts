@@ -13,7 +13,7 @@ import {
 import { createScopedTestHost, stubPair } from '#/_base/di/test';
 import { ILogService } from '#/_base/log/log';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
-import { IFlagService } from '#/app/flag/flag';
+import { IConfigService } from '#/app/config/config';
 import { ITelemetryService, noopTelemetryService } from '#/app/telemetry/telemetry';
 import { TelemetryService } from '#/app/telemetry/telemetryService';
 import { ISessionIndexMirror } from '#/app/sessionIndex/sessionIndex';
@@ -28,10 +28,11 @@ import {
   SessionIndexMirror,
 } from '#/app/sessionIndex/sessionIndexMirrorService';
 import { drainQueryStoreDisposals, MiniDbQueryStore } from '#/persistence/backends/minidb/miniDbQueryStore';
+import { DATABASE_SECTION } from '#/persistence/configSection';
 import { IQueryStore } from '#/persistence/interface/queryStore';
 
 import { stubBootstrap } from '../bootstrap/stubs';
-import { stubFlag } from '../flag/stubs';
+import { stubConfigService } from '../config/stubs';
 import { recordingTelemetry, type TelemetryRecord } from '../telemetry/stubs';
 import { stubLog } from '../../_base/log/stubs';
 
@@ -94,13 +95,13 @@ describe('SessionIndexMirror', () => {
   }
 
   function build(
-    flagEnabled = true,
+    baseEnabled = true,
     telemetry: ITelemetryService = noopTelemetryService,
   ): ISessionIndexMirror {
     const host = createScopedTestHost([
       stubPair(IBootstrapService, stubBootstrap(homeDir)),
       stubPair(ILogService, stubLog()),
-      stubPair(IFlagService, stubFlag(flagEnabled)),
+      stubPair(IConfigService, stubConfigService({ [DATABASE_SECTION]: { base: baseEnabled } })),
       stubPair(ITelemetryService, telemetry),
     ]);
     disposeHost = () => {
@@ -158,7 +159,7 @@ describe('SessionIndexMirror', () => {
     expect(counters.get(WORKSPACE)).toEqual({ active: 0, archived: 1 });
   });
 
-  it('is a no-op when the read-model flag is off', async () => {
+  it('is a no-op when the read model is disabled', async () => {
     build(false);
     mirror.record(summary('a'));
     expect(mirror.pending()).toEqual([]);
@@ -169,7 +170,7 @@ describe('SessionIndexMirror', () => {
     const host = createScopedTestHost([
       stubPair(IBootstrapService, stubBootstrap(homeDir)),
       stubPair(ILogService, stubLog()),
-      stubPair(IFlagService, stubFlag(true)),
+      stubPair(IConfigService, stubConfigService({ [DATABASE_SECTION]: { base: true } })),
     ]);
     disposeHost = () => {
       host.dispose();
