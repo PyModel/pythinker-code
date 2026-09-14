@@ -265,6 +265,7 @@ describe('AgentLifecycleService', () => {
       _serviceBrand: undefined,
       homeDir: '/tmp/pythinker-agentLifecycle-home',
       cwd: '/tmp/pythinker-agentLifecycle-home',
+      getEnv: () => undefined,
     } as unknown as IBootstrapService);
     ix.stub(ISessionWorkspaceContext, {
       _serviceBrand: undefined,
