@@ -243,7 +243,7 @@ function makeHarness(session = makeSession(), overrides: Record<string, unknown>
     createSession: vi.fn(async () => session),
     resumeSession: vi.fn(async () => session),
     forkSession: vi.fn(async () => session),
-    reloadSession: vi.fn(async () => session),
+    reloadSession: vi.fn(async () => ({ ...session, id: 'ses-1-reloaded' })),
     listSessions: vi.fn(async () => []),
     exportSession: vi.fn(async () => ({
       zipPath: '/tmp/fake-session.zip',
@@ -2072,6 +2072,11 @@ command = "vim"
       expect(driver.state.appState.theme).toBe('light');
     });
     expect(session.reloadSession).not.toHaveBeenCalled();
+    await vi.waitFor(() => {
+      expect((driver as unknown as { session?: { id: string } }).session?.id).toBe(
+        'ses-1-reloaded',
+      );
+    });
     expect(harness.track).toHaveBeenCalledWith('input_command', { command: 'reload' });
     const transcript = stripSgr(renderTranscript(driver));
     expect(transcript).toContain('hello before reload');

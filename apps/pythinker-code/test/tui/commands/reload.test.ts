@@ -84,7 +84,7 @@ auto_install = false
     });
     expect(session.reloadSession).not.toHaveBeenCalled();
     expect(host.reloadCurrentSessionView).toHaveBeenCalledWith(
-      session,
+      { ...session, id: 'ses-1-reloaded' },
       'Session reloaded.',
     );
     expect(host.harness.getConfig).toHaveBeenCalledWith({ reload: true });
@@ -207,7 +207,7 @@ function makeHost({
     state,
     session,
     harness: {
-      reloadSession: vi.fn(async () => session),
+      reloadSession: vi.fn(async () => ({ ...session, id: 'ses-1-reloaded' })),
       getConfig: vi.fn(async () => ({
         models: {
           fresh: { provider: 'test', model: 'fresh-model', maxContextSize: 1000 },

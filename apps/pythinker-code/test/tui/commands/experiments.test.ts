@@ -44,7 +44,7 @@ function makeHost() {
       getExperimentalFeatures: vi.fn(async () => [
         feature({ enabled: false, source: 'config', configValue: false }),
       ]),
-      reloadSession: vi.fn(async () => session),
+      reloadSession: vi.fn(async () => ({ ...session, id: 'ses-experiments-reloaded' })),
     },
     session,
     refreshSlashCommandAutocomplete: vi.fn(),
@@ -95,7 +95,7 @@ describe('experimental feature command handlers', () => {
     expect(host.harness.reloadSession).toHaveBeenCalledWith({ id: host.session.id });
     expect(host.session.reloadSession).not.toHaveBeenCalled();
     expect(host.reloadCurrentSessionView).toHaveBeenCalledWith(
-      host.session,
+      expect.objectContaining({ id: 'ses-experiments-reloaded' }),
       'Experimental features updated. Session reloaded.',
     );
     expect(host.mountEditorReplacement).not.toHaveBeenCalled();

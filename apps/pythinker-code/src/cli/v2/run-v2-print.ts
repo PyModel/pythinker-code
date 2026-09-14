@@ -207,11 +207,14 @@ export async function runV2Print(
       try {
         await restorePermission();
       } finally {
-        if (telemetryService !== undefined) {
-          await raceWithTimeout(telemetryService.shutdown(), CLI_SHUTDOWN_TIMEOUT_MS);
+        try {
+          if (telemetryService !== undefined) {
+            await raceWithTimeout(telemetryService.shutdown(), CLI_SHUTDOWN_TIMEOUT_MS);
+          }
+        } finally {
+          await shutdownTelemetry({ timeoutMs: CLI_SHUTDOWN_TIMEOUT_MS }).catch(() => {});
+          app.dispose();
         }
-        await shutdownTelemetry({ timeoutMs: CLI_SHUTDOWN_TIMEOUT_MS }).catch(() => {});
-        app.dispose();
       }
     })());
     await raceWithTimeout(pending, PROMPT_CLEANUP_TIMEOUT_MS);
