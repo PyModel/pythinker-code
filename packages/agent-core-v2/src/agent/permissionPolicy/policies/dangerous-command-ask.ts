@@ -4,6 +4,9 @@ import {
   type BashSyntaxNode,
 } from '#/app/bashParser/bashParser';
 import { IConfigService } from '#/app/config/config';
+import { IHostEnvironment, type PathClass } from '#/os/interface/hostEnvironment';
+import { IHostFileSystem } from '#/os/interface/hostFileSystem';
+import { isWithinDirectory, resolveRealTarget } from '#/tool/path-access';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import { isDangerousCommandGuardEnabled } from '#/agent/permissionRules/configSection';
 import type { ResolvedToolExecutionHookContext } from '#/agent/toolExecutor/toolHooks';
@@ -104,9 +107,41 @@ const DD_SAFE_DEVICE_TARGETS: ReadonlySet<string> = new Set([
   '/dev/stderr',
 ]);
 
+const RM_SAFE_TEMP_ROOTS: readonly string[] = ['/tmp', '/temp'];
+
+function isSafeTempRmOperand(operand: string): boolean {
+  for (const segment of operand.split('/')) {
+    if (segment === '..') return false;
+  }
+  return RM_SAFE_TEMP_ROOTS.some((root) => operand === root || operand.startsWith(`${root}/`));
+}
+
+async function operandResolvesInsideTemp(
+  fs: Pick<IHostFileSystem, 'realpath'>,
+  pathClass: PathClass,
+  operand: string,
+): Promise<boolean> {
+  let resolved: string;
+  try {
+    resolved = await resolveRealTarget(fs, operand);
+  } catch {
+    return false;
+  }
+  for (const root of RM_SAFE_TEMP_ROOTS) {
+    try {
+      const realRoot = await fs.realpath(root);
+      if (isWithinDirectory(resolved, realRoot, pathClass)) return true;
+    } catch {
+      continue;
+    }
+  }
+  return false;
+}
+
 type DangerousVerdict =
   | { readonly kind: 'dangerous'; readonly command: string }
-  | { readonly kind: 'unanalyzable' };
+  | { readonly kind: 'unanalyzable' }
+  | { readonly kind: 'temp-rm'; readonly operands: readonly string[] };
 
 export class DangerousCommandAskPermissionPolicyService implements PermissionPolicy {
   readonly name = 'dangerous-command-ask';
@@ -115,9 +150,11 @@ export class DangerousCommandAskPermissionPolicyService implements PermissionPol
     @IBashParserService private readonly bashParser: IBashParserService,
     @IAgentPermissionModeService private readonly modeService: IAgentPermissionModeService,
     @IConfigService private readonly config: IConfigService,
+    @IHostFileSystem private readonly hostFs: IHostFileSystem,
+    @IHostEnvironment private readonly env: IHostEnvironment,
   ) {}
 
-  evaluate(context: ResolvedToolExecutionHookContext): PermissionPolicyResult | undefined {
+  async evaluate(context: ResolvedToolExecutionHookContext): Promise<PermissionPolicyResult | undefined> {
     if (!isDangerousCommandGuardEnabled(this.config)) return undefined;
     if (this.modeService.mode === 'auto') return undefined;
     if (context.toolCall.name !== 'Bash') return undefined;
@@ -129,6 +166,22 @@ export class DangerousCommandAskPermissionPolicyService implements PermissionPol
             this.bashParser.parse(source, PARSE_OPTIONS),
           );
     if (verdict === undefined) return undefined;
+    if (verdict.kind === 'temp-rm') {
+      let contained = false;
+      try {
+        contained = (
+          await Promise.all(
+            verdict.operands.map((operand) =>
+              operandResolvesInsideTemp(this.hostFs, this.env.pathClass, operand),
+            ),
+          )
+        ).every(Boolean);
+      } catch {
+        contained = false;
+      }
+      if (contained) return undefined;
+      return { kind: 'ask', reason: { dangerous_command: 'rm -rf' } };
+    }
     if (verdict.kind === 'dangerous') {
       return { kind: 'ask', reason: { dangerous_command: verdict.command } };
     }
@@ -151,10 +204,17 @@ function analyzeSource(
   if (!parsed.ok || parsed.hasError) return { kind: 'unanalyzable' };
   const commands: BashSyntaxNode[] = [];
   collectCommands(parsed.root, commands);
+  const tempOperands: string[] = [];
   for (const command of commands) {
     const verdict = analyzeCommand(command, depth, parse);
-    if (verdict !== undefined) return verdict;
+    if (verdict === undefined) continue;
+    if (verdict.kind === 'temp-rm') {
+      tempOperands.push(...verdict.operands);
+      continue;
+    }
+    return verdict;
   }
+  if (tempOperands.length > 0) return { kind: 'temp-rm', operands: tempOperands };
   return undefined;
 }
 
@@ -273,8 +333,17 @@ function analyzeInvocation(
   if (name === 'rm') {
     let recursive = false;
     let force = false;
+    const operands: string[] = [];
+    let optionsEnded = false;
     for (const arg of args) {
-      if (arg === '--') break;
+      if (!optionsEnded && arg === '--') {
+        optionsEnded = true;
+        continue;
+      }
+      if (optionsEnded) {
+        operands.push(arg);
+        continue;
+      }
       if (arg === '--recursive') {
         recursive = true;
       } else if (arg === '--force') {
@@ -282,9 +351,16 @@ function analyzeInvocation(
       } else if (/^-[a-zA-Z]+$/.test(arg)) {
         if (/[rR]/.test(arg)) recursive = true;
         if (arg.includes('f')) force = true;
+      } else {
+        operands.push(arg);
       }
     }
-    if (recursive && force) return { kind: 'dangerous', command: 'rm -rf' };
+    if (recursive && force) {
+      if (!dropped && operands.length > 0 && operands.every(isSafeTempRmOperand)) {
+        return { kind: 'temp-rm', operands };
+      }
+      return { kind: 'dangerous', command: 'rm -rf' };
+    }
     return dropped ? { kind: 'unanalyzable' } : undefined;
   }
   return undefined;

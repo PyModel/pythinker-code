@@ -15,6 +15,7 @@ import {
 } from '#/tool/rule-match';
 import type { ResolvedToolExecutionHookContext } from '#/agent/toolExecutor/toolHooks';
 import { IHostEnvironment, type IHostEnvironment as HostEnvironmentService } from '#/os/interface/hostEnvironment';
+import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import { IAgentPermissionPolicyService, type PermissionPolicyEvaluation } from '#/agent/permissionPolicy/permissionPolicy';
 import type { PermissionMode } from '#/agent/permissionPolicy/types';
@@ -54,6 +55,7 @@ describe('AgentPermissionPolicyService chain', () => {
   let workspace: ReturnType<typeof workspaceStub>;
   let hostArgs: HostArgs;
   let dangerousCommandGuardEnabled: boolean;
+  let resolveRealpath: (path: string) => Promise<string>;
 
   beforeEach(() => {
     disposables = new DisposableStore();
@@ -63,6 +65,12 @@ describe('AgentPermissionPolicyService chain', () => {
     workspace = workspaceStub('/workspace');
     hostArgs = { requestHeaders: {}, nonInteractive: false };
     dangerousCommandGuardEnabled = true;
+    resolveRealpath = async (path) => {
+      for (const root of ['/tmp', '/temp'] as const) {
+        if (path === root || path.startsWith(`${root}/`)) return path;
+      }
+      throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+    };
     ix = createServices(disposables, {
       additionalServices: (reg) => {
         reg.defineInstance(IAgentPermissionModeService, stubPermissionModeService(() => mode));
@@ -88,6 +96,9 @@ describe('AgentPermissionPolicyService chain', () => {
         }));
         reg.defineInstance(ISessionWorkspaceContext, workspace.stub);
         reg.defineInstance(IHostEnvironment, pyaosStub());
+        reg.definePartialInstance(IHostFileSystem, {
+          realpath: (path: string) => resolveRealpath(path),
+        });
         reg.defineInstance(IAgentRuntimeService, {
           _serviceBrand: undefined,
           onDidChange: () => ({ dispose: () => {} }),
@@ -274,7 +285,10 @@ describe('AgentPermissionPolicyService chain', () => {
     ['systemctl poweroff', 'systemctl poweroff'],
     ['systemctl --user reboot', 'systemctl reboot'],
     ['bash -c "shutdown now"', 'shutdown'],
-    ['rm -rf /tmp/build', 'rm -rf'],
+    ['rm -rf /tmp/build /root', 'rm -rf'],
+    ['rm -rf /tmp/build && rm -rf /root', 'rm -rf'],
+    ['rm -rf /tmp/../etc', 'rm -rf'],
+    ['rm -rf /tmpfoo', 'rm -rf'],
     ['rm -fr dir', 'rm -rf'],
     ['rm -r -f dir', 'rm -rf'],
     ['rm -R --force dir', 'rm -rf'],
@@ -308,6 +322,58 @@ describe('AgentPermissionPolicyService chain', () => {
     })).resolves.toMatchObject({
       policyName: 'dangerous-command-ask',
       result: { kind: 'ask', reason: { dangerous_command: matched } },
+    });
+  });
+
+  it.each([
+    'rm -rf /tmp/build',
+    'rm -rf /temp/cache',
+    'rm -rf -- /tmp/build',
+    'rm -rf /tmp/build && rm -rf /temp/cache',
+  ])(
+    'approves `%s` in yolo mode',
+    async (command) => {
+      mode = 'yolo';
+
+      await expect(evaluate({
+        toolName: 'Bash',
+        args: { command, timeout: 60 },
+      })).resolves.toMatchObject({
+        policyName: 'yolo-mode-approve',
+        result: { kind: 'approve' },
+      });
+    },
+  );
+
+  it('asks for rm -rf of a temp path that realpath-escapes in yolo mode', async () => {
+    mode = 'yolo';
+    resolveRealpath = async (path) => {
+      if (path === '/tmp/build') return '/etc';
+      if (path === '/tmp' || path.startsWith('/tmp/')) return path;
+      throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+    };
+
+    await expect(evaluate({
+      toolName: 'Bash',
+      args: { command: 'rm -rf /tmp/build', timeout: 60 },
+    })).resolves.toMatchObject({
+      policyName: 'dangerous-command-ask',
+      result: { kind: 'ask', reason: { dangerous_command: 'rm -rf' } },
+    });
+  });
+
+  it('asks for rm -rf of a temp path when filesystem realpath fails in yolo mode', async () => {
+    mode = 'yolo';
+    resolveRealpath = async () => {
+      throw new Error('unavailable');
+    };
+
+    await expect(evaluate({
+      toolName: 'Bash',
+      args: { command: 'rm -rf /tmp/build', timeout: 60 },
+    })).resolves.toMatchObject({
+      policyName: 'dangerous-command-ask',
+      result: { kind: 'ask', reason: { dangerous_command: 'rm -rf' } },
     });
   });
 
@@ -482,6 +548,7 @@ describe('AgentPermissionPolicyService git cwd write approval', () => {
         reg.definePartialInstance(IAgentPermissionRulesService, permissionRulesStub());
         reg.defineInstance(ISessionWorkspaceContext, workspace.stub);
         reg.defineInstance(IHostEnvironment, pyaosStub());
+        reg.defineInstance(IHostFileSystem, hostFs);
         reg.defineInstance(IAgentRuntimeService, {
           _serviceBrand: undefined,
           onDidChange: () => ({ dispose: () => {} }),
