@@ -1059,12 +1059,16 @@ describe('server-v2 /api/v1 prompts', () => {
   it('keeps the supplied name in the notice when unsupported-image persistence fails', async () => {
     const cacheDir = await mkdtemp(join(tmpdir(), 'pythinker-prompt-media-'));
     try {
-      const store = {
-        save: vi.fn(async () => {
-          throw new Error('disk full');
+      const save = vi.fn(async () => {
+        throw new Error('disk full');
+      });
+      const store: IFileService = {
+        _serviceBrand: undefined,
+        save,
+        get: vi.fn(async () => {
+          throw new Error('unexpected get');
         }),
         delete: vi.fn(async () => undefined),
-        get: vi.fn(),
       };
       const prepared = await resolvePromptMediaFiles(
         [
@@ -1078,7 +1082,7 @@ describe('server-v2 /api/v1 prompts', () => {
             },
           },
         ],
-        store as unknown as IFileService,
+        store,
         cacheDir,
       );
       expect(prepared.content).toHaveLength(1);
@@ -1087,7 +1091,7 @@ describe('server-v2 /api/v1 prompts', () => {
       expect(notice.text).toContain('[Image omitted');
       expect(notice.text).toContain('"scan.avif"');
       expect(notice.text).toContain('image/avif');
-      expect(store.save).toHaveBeenCalledOnce();
+      expect(save).toHaveBeenCalledOnce();
     } finally {
       await rm(cacheDir, { recursive: true, force: true });
     }
