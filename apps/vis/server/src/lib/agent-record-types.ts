@@ -237,8 +237,17 @@ export interface ImportManifest {
   workspaceDir?: string;
   sessionLogPath?: string;
   globalLogPath?: string;
+  desktopLogPath?: string;
+  webLogPath?: string;
+  desktopVersion?: string;
   installSource?: string;
-  shellEnv?: unknown;
+  shellEnv?: {
+    term?: string;
+    termProgram?: string;
+    termProgramVersion?: string;
+    multiplexer?: string;
+    shell?: string;
+  };
 }
 
 /** vis-side bookkeeping for one imported bundle, written to
@@ -297,6 +306,7 @@ export interface AgentInfo {
   agentId: string;
   type: 'main' | 'sub' | 'independent';
   parentAgentId: string | null;
+  profileName: string | null;
   homedir: string;
   wireExists: boolean;
   wireRecordCount: number;

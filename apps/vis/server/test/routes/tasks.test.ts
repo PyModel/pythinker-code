@@ -68,6 +68,24 @@ describe('tasks route', () => {
     expect(body.nextOffset).toBe(8);
   });
 
+  it('GET output falls back to the legacy session-root task log', async () => {
+    const { home, sessionDir, cleanup: c } = await buildSessionFixture('sample-main');
+    cleanup = c;
+    const dir = join(sessionDir, 'tasks', 'bash-87654321');
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, 'output.log'), 'legacy output');
+
+    const res = await tasksRoute(home).request(
+      '/session_fixture/tasks/bash-87654321/output?offset=0&limit=100',
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      size: 13,
+      content: 'legacy output',
+      eof: true,
+    });
+  });
+
   it('GET output returns empty window for a task with no log', async () => {
     const { home, cleanup: c } = await buildSessionFixture('sample-main');
     cleanup = c;
