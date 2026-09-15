@@ -204,10 +204,17 @@ function analyzeSource(
   if (!parsed.ok || parsed.hasError) return { kind: 'unanalyzable' };
   const commands: BashSyntaxNode[] = [];
   collectCommands(parsed.root, commands);
+  const tempOperands: string[] = [];
   for (const command of commands) {
     const verdict = analyzeCommand(command, depth, parse);
-    if (verdict !== undefined) return verdict;
+    if (verdict === undefined) continue;
+    if (verdict.kind === 'temp-rm') {
+      tempOperands.push(...verdict.operands);
+      continue;
+    }
+    return verdict;
   }
+  if (tempOperands.length > 0) return { kind: 'temp-rm', operands: tempOperands };
   return undefined;
 }
 
