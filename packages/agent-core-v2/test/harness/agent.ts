@@ -1536,6 +1536,7 @@ export class AgentTestContext {
   }
 
   private async closeWire(): Promise<void> {
+    if (this.session.accessor.get(IAgentLifecycleService).get(this.agent.id) === undefined) return;
     await this.wire.flush();
   }
 

@@ -256,10 +256,10 @@ pythinker export 01HZ...XYZ -o ./bug-report.zip --no-include-global-log
 Immediately check for the latest version. In a terminal, the command displays an update prompt and exits after you make a selection. `pythinker update` is an alias for this command.
 
 ```sh
-pythinker upgrade
+pythinker upgrade [-y]
 ```
 
-For global npm, pnpm, yarn, and bun installations, `pythinker upgrade` shows update options; selecting `Install update now` runs the corresponding foreground install command. For native installations (including Windows), it downloads and verifies the new binary in the foreground and swaps it in on the next start; when there is no terminal, such as in a script or a pipe, there is no prompt and the download starts immediately. When the current installation method cannot be upgraded automatically, the manual update command is printed instead.
+For global npm, pnpm, yarn, and bun installations, `pythinker upgrade` shows update options; selecting `Install update now` runs the corresponding foreground install command. For native installations (including Windows), it downloads and verifies the new binary in the foreground and swaps it in on the next start; when there is no terminal, such as in a script or a pipe, there is no prompt and the download starts immediately. When the current installation method cannot be upgraded automatically, the manual update command is printed instead. Pass `-y, --yes` to skip the confirmation prompt and install the update directly.
 
 ### `pythinker vis`
 

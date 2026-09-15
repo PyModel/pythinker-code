@@ -213,7 +213,7 @@ describe('AgentTranscriptProjector', () => {
         turnId: 0,
         origin: { kind: 'user' },
         prompt: 'what is this?',
-        promptAttachments: [{ kind: 'image', fileId: 'file_1' }],
+        promptAttachments: [{ kind: 'image', fileId: 'file_1', name: 'photo.png' }],
       }),
     );
     feed(ev({ type: 'turn.ended', turnId: 0, reason: 'completed' }));
@@ -224,6 +224,7 @@ describe('AgentTranscriptProjector', () => {
         attachment: {
           attachmentId: 't0.att1',
           mediaType: 'image/*',
+          name: 'photo.png',
           source: { kind: 'session_media', fileId: 'file_1' },
         },
       },
@@ -235,6 +236,7 @@ describe('AgentTranscriptProjector', () => {
     expect(tx.getAttachment('t0.att1')).toEqual({
       attachmentId: 't0.att1',
       mediaType: 'image/*',
+      name: 'photo.png',
       source: { kind: 'session_media', fileId: 'file_1' },
     });
   });
@@ -2067,14 +2069,20 @@ describe('AgentTranscriptProjector', () => {
         type: 'prompt.steered',
         activePromptId: 'p1',
         promptIds: ['p2'],
-        content: [{ type: 'text', text: 'steered in' }],
+        content: [
+          { type: 'text', text: 'steered in' },
+          { type: 'video_url', videoUrl: { url: 'pythinker-file://f_vid2', name: 'queued.mp4' } },
+        ],
         steeredAt: '2026-01-01T00:00:02.000Z',
       }),
     );
     feed(
       ev({
         type: 'turn.steer',
-        input: [{ type: 'text', text: 'steered in' }],
+        input: [
+          { type: 'text', text: 'steered in' },
+          { type: 'video_url', videoUrl: { url: 'pythinker-file://f_vid2', name: 'queued.mp4' } },
+        ],
         origin: { kind: 'user' },
       }),
     );
@@ -2083,12 +2091,20 @@ describe('AgentTranscriptProjector', () => {
     feed(ev({ type: 'turn.step.started', turnId: 3, step: 2 }));
     const turn = turnOps('t3', tx.getItems());
     expect(turn.steps).toHaveLength(2);
-    expect(turn.steps[1]?.frames[0]).toMatchObject({
+    const frame = turn.steps[1]?.frames[0];
+    expect(frame).toMatchObject({
       kind: 'text',
       role: 'user',
       text: 'steered in',
       promptIds: ['p2'],
       origin: { kind: 'user' },
+    });
+    expect(frame?.kind === 'text' ? frame.attachmentIds : undefined).toHaveLength(1);
+    const attachmentId = frame?.kind === 'text' ? frame.attachmentIds?.[0] : undefined;
+    expect(attachmentId === undefined ? undefined : tx.getAttachment(attachmentId)).toMatchObject({
+      mediaType: 'video/*',
+      name: 'queued.mp4',
+      source: { kind: 'session_media', fileId: 'f_vid2' },
     });
   });
 
@@ -2113,7 +2129,10 @@ describe('AgentTranscriptProjector', () => {
           { type: 'text', text: 'look at this' },
           {
             type: 'image_url',
-            imageUrl: { url: 'pythinker-file://f_img9?path=%2Fabs%2Fsession%2Fmedia%2Ff_img9.png' },
+            imageUrl: {
+              url: 'pythinker-file://f_img9?path=%2Fabs%2Fsession%2Fmedia%2Ff_img9.png',
+              name: 'architecture.png',
+            },
           },
         ],
         steeredAt: '2026-01-01T00:00:02.000Z',
@@ -2128,7 +2147,10 @@ describe('AgentTranscriptProjector', () => {
           { type: 'text', text: 'look at this' },
           {
             type: 'image_url',
-            imageUrl: { url: 'pythinker-file://f_img9?path=%2Fabs%2Fsession%2Fmedia%2Ff_img9.png' },
+            imageUrl: {
+              url: 'pythinker-file://f_img9?path=%2Fabs%2Fsession%2Fmedia%2Ff_img9.png',
+              name: 'architecture.png',
+            },
           },
         ],
         origin: {
@@ -2156,7 +2178,11 @@ describe('AgentTranscriptProjector', () => {
 
     const attachmentOp = ops.find((op) => op.op === 'attachment.upsert');
     expect(attachmentOp).toMatchObject({
-      attachment: { mediaType: 'image/*', source: { kind: 'session_media', fileId: 'f_img9' } },
+      attachment: {
+        mediaType: 'image/*',
+        name: 'architecture.png',
+        source: { kind: 'session_media', fileId: 'f_img9' },
+      },
     });
     const frame = turnOps('t4', tx.getItems()).steps[0]?.frames[0];
     expect(frame).toMatchObject({

@@ -1,6 +1,7 @@
 import { toDisposable } from '#/_base/di/lifecycle';
 import type { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { isCompactionSummaryMessage } from '#/agent/contextMemory/compactionHandoff';
+import { Event } from '#/_base/event';
 import { ContextSpliced } from '#/agent/contextMemory/contextEvents';
 import type { IAgentLoopService } from '#/agent/loop/loop';
 import type { IEventBus } from '#/app/event/eventBus';
@@ -32,6 +33,7 @@ export function lifecycleWithReminder(reminder: ReminderRuntime): IAgentLifecycl
     resolve: () => reminder,
     handleOf: () => ({}),
     onDidCreateScope: () => toDisposable(() => {}),
+    onWillClose: Event.None,
   } as unknown as IAgentLifecycleService;
 }
 

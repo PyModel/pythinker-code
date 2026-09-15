@@ -44,6 +44,7 @@ function makeHost() {
       getExperimentalFeatures: vi.fn(async () => [
         feature({ enabled: false, source: 'config', configValue: false }),
       ]),
+      reloadSession: vi.fn(async () => ({ ...session, id: 'ses-experiments-reloaded' })),
     },
     session,
     refreshSlashCommandAutocomplete: vi.fn(),
@@ -58,6 +59,7 @@ function makeHost() {
     harness: {
       setConfig: ReturnType<typeof vi.fn>;
       getExperimentalFeatures: ReturnType<typeof vi.fn>;
+      reloadSession: ReturnType<typeof vi.fn>;
     };
     refreshSlashCommandAutocomplete: ReturnType<typeof vi.fn>;
     reloadCurrentSessionView: ReturnType<typeof vi.fn>;
@@ -90,9 +92,10 @@ describe('experimental feature command handlers', () => {
     expect(isExperimentalFlagEnabled('micro_compaction')).toBe(false);
     expect(host.refreshSlashCommandAutocomplete).toHaveBeenCalled();
     expect(host.restoreEditor).toHaveBeenCalled();
-    expect(host.session.reloadSession).toHaveBeenCalledOnce();
+    expect(host.harness.reloadSession).toHaveBeenCalledWith({ id: host.session.id });
+    expect(host.session.reloadSession).not.toHaveBeenCalled();
     expect(host.reloadCurrentSessionView).toHaveBeenCalledWith(
-      host.session,
+      expect.objectContaining({ id: 'ses-experiments-reloaded' }),
       'Experimental features updated. Session reloaded.',
     );
     expect(host.mountEditorReplacement).not.toHaveBeenCalled();

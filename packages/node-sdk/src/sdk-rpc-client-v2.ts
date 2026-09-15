@@ -547,10 +547,34 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
   private installEngineTelemetry(client: TelemetryClient | undefined): void {
     if (client === undefined) return;
     const telemetry = this.app.accessor.get(ITelemetryService);
-    telemetry.setAppender(client);
+    telemetry.setAppender({
+      track: (event, properties) => {
+        if (this.engineSessionStartedSuppressed && event === 'session_started') return;
+        client.track(event, properties);
+      },
+      withContext: client.withContext?.bind(client),
+      setContext: client.setContext?.bind(client),
+    });
     void this.configReady.then(() => {
       telemetry.setEnabled(this.engineAccessor.get(IConfigService).get('telemetry') !== false);
     });
+  }
+
+  private engineSessionStartedSuppressed = false;
+
+  /**
+   * Drop the engine's own `session_started` from telemetry forwarding. Called
+   * by `createPythinkerHarnessV2` at assembly time: the harness emits that event
+   * for every session it opens (create / resume / reload / fork) with the
+   * richer client-attribution schema, so the engine's
+   * `{resumed, experimental_flags}` copy would double-count every open.
+   * Direct `SDKRpcClientV2` consumers never call this and keep the engine row
+   * — it is their only `session_started` producer. Hosts without a harness
+   * (run-v2-print, agent-gateway) wire their own appenders and are unaffected
+   * either way.
+   */
+  suppressEngineSessionStarted(): void {
+    this.engineSessionStartedSuppressed = true;
   }
 
   /**
@@ -2792,6 +2816,11 @@ function expertTalkModalities(
 
 export function createPythinkerHarnessV2(options: PythinkerHarnessOptions): PythinkerHarness {
   const rpc = new SDKRpcClientV2(options);
+  // The harness below emits session_started for every session it opens with
+  // the richer client-attribution schema; drop the engine's thinner copy from
+  // forwarding so each open is counted once. Direct SDKRpcClientV2 consumers
+  // keep the engine row.
+  rpc.suppressEngineSessionStarted();
   return new PythinkerHarness(rpc, {
     identity: rpc.identity,
     uiMode: options.uiMode,

@@ -764,7 +764,7 @@ describe('Agent resume', () => {
     expect(ctx.context.get()).toHaveLength(0);
   });
 
-  it('restores an envelope-less active interval into a budget-reached paused goal', async () => {
+  it('restores an envelope-less active goal without charging offline time', async () => {
     const now = vi.spyOn(Date, 'now').mockReturnValue(6_000);
     const persistence = new RecordingAgentPersistence(
       [
@@ -799,11 +799,11 @@ describe('Agent resume', () => {
       const goal = ctx.resolve(AgentGoal).getGoal().goal;
       expect(goal).toMatchObject({
         status: 'paused',
-        wallClockMs: 7_000,
+        wallClockMs: 2_000,
         budget: {
-          wallClockBudgetReached: true,
-          remainingWallClockMs: 0,
-          overBudget: true,
+          wallClockBudgetReached: false,
+          remainingWallClockMs: 4_000,
+          overBudget: false,
         },
       });
       expect(persistence.appended).toEqual([
@@ -811,7 +811,7 @@ describe('Agent resume', () => {
           type: 'goal.update',
           status: 'paused',
           reason: 'Paused after agent resume',
-          wallClockMs: 7_000,
+          wallClockMs: 2_000,
         }),
       ]);
       expect(persistence.rewritten).toContainEqual(
@@ -827,7 +827,7 @@ describe('Agent resume', () => {
     }
   });
 
-  it('restores only post-checkpoint active time from a 1.3 wall-clock checkpoint', async () => {
+  it('restores persisted elapsed time from a 1.3 checkpoint without charging offline time', async () => {
     const now = vi.spyOn(Date, 'now').mockReturnValue(6_000);
     const persistence = new RecordingAgentPersistence([
       {
@@ -855,13 +855,13 @@ describe('Agent resume', () => {
 
       expect(ctx.resolve(AgentGoal).getGoal().goal).toMatchObject({
         status: 'paused',
-        wallClockMs: 5_000,
+        wallClockMs: 3_000,
       });
       expect(persistence.appended).toEqual([
         expect.objectContaining({
           type: 'goal.update',
           status: 'paused',
-          wallClockMs: 5_000,
+          wallClockMs: 3_000,
         }),
       ]);
       expect(persistence.rewritten).toContainEqual(
