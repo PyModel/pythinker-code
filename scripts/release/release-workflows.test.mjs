@@ -30,6 +30,7 @@ void test('release workflow uses full push-boundary lane signals and isolated jo
   assert.match(workflow, /pythinker_release_tag: \$\{\{ steps\.pythinker-release\.outputs\.tag \|\|/u);
   assert.match(workflow, /APPLE_CERTIFICATE_P12: \$\{\{ secrets\.MAC_CSC_LINK \}\}/u);
   assert.match(workflow, /APPLE_NOTARIZATION_KEY_P8: \$\{\{ secrets\.APPLE_API_KEY_P8 \}\}/u);
+  assert.match(workflow, /^  update-brew-tap:\n    timeout-minutes: 20$/mu);
 });
 
 void test('VS Code release supports isolated recovery and attests verified VSIX files', () => {
@@ -56,6 +57,7 @@ void test('native releases fail without requested signing and attest each zip', 
 
 void test('nightly reconciliation maintains one release drift issue', () => {
   const workflow = read('.github/workflows/nightly.yml');
+  const publishJob = workflow.slice(workflow.indexOf('\n  publish:'), workflow.indexOf('\n  desktop-nightly:'));
   assert.match(workflow, /uses: \.\/\.github\/workflows\/desktop-release\.yml/u);
   assert.match(workflow, /^  desktop-nightly:/mu);
   assert.match(workflow, /needs: \[publish, desktop-nightly\]/u);
@@ -63,6 +65,8 @@ void test('nightly reconciliation maintains one release drift issue', () => {
   assert.match(workflow, /scripts\/release\/release-status\.mjs/u);
   assert.match(workflow, /Release lane drift detected/u);
   assert.match(workflow, /issues: write/u);
+  assert.match(workflow, /pull-requests: read/u);
+  assert.equal(publishJob.includes('GITHUB_TOKEN: ${{ github.token }}'), true);
   assert.doesNotMatch(workflow, /uses: actions\/(checkout|setup-node)@v\d+/u);
   assert.equal(workflow.match(/persist-credentials: false/gu)?.length, 2);
 });

@@ -13,32 +13,38 @@ function response(status, body = BODY) {
 function pollClock() {
   let now = 0;
   const sleeps = [];
+  const sleep = async (ms) => {
+    sleeps.push(ms);
+    now += ms;
+  };
   return {
     now: () => now,
     sleeps,
-    sleep: async (ms) => {
-      sleeps.push(ms);
-      now += ms;
-    },
-    log() {},
+    sleep,
+  };
+}
+
+function pollOptions(clock, fetchImpl) {
+  return {
+    url: TARBALL_URL,
+    fetchImpl,
+    sleep: (ms) => clock.sleep(ms),
+    now: () => clock.now(),
+    log: () => {},
+    budgetMs: 45_000,
+    intervalMs: 15_000,
   };
 }
 
 void test('returns the tarball when the first fetch is HTTP 200', async () => {
   const clock = pollClock();
   let fetches = 0;
-  const result = await downloadNpmTarball({
-    url: TARBALL_URL,
-    fetchImpl: async () => {
+  const result = await downloadNpmTarball(
+    pollOptions(clock, async () => {
       fetches += 1;
       return response(200);
-    },
-    sleep: clock.sleep,
-    now: clock.now,
-    log: clock.log,
-    budgetMs: 45_000,
-    intervalMs: 15_000,
-  });
+    }),
+  );
 
   assert.equal(fetches, 1);
   assert.equal(result.attempts, 1);
@@ -49,15 +55,9 @@ void test('returns the tarball when the first fetch is HTTP 200', async () => {
 void test('retries after HTTP 404 and returns the tarball once npm serves it', async () => {
   const clock = pollClock();
   const statuses = [404, 404, 200];
-  const result = await downloadNpmTarball({
-    url: TARBALL_URL,
-    fetchImpl: async () => response(statuses.shift() ?? 500),
-    sleep: clock.sleep,
-    now: clock.now,
-    log: clock.log,
-    budgetMs: 45_000,
-    intervalMs: 15_000,
-  });
+  const result = await downloadNpmTarball(
+    pollOptions(clock, async () => response(statuses.shift() ?? 500)),
+  );
 
   assert.equal(result.attempts, 3);
   assert.deepEqual(result.tarball, BODY);
@@ -67,15 +67,9 @@ void test('retries after HTTP 404 and returns the tarball once npm serves it', a
 void test('retries an empty 200 body until a non-empty tarball arrives', async () => {
   const clock = pollClock();
   const bodies = [Buffer.alloc(0), BODY];
-  const result = await downloadNpmTarball({
-    url: TARBALL_URL,
-    fetchImpl: async () => response(200, bodies.shift() ?? BODY),
-    sleep: clock.sleep,
-    now: clock.now,
-    log: clock.log,
-    budgetMs: 45_000,
-    intervalMs: 15_000,
-  });
+  const result = await downloadNpmTarball(
+    pollOptions(clock, async () => response(200, bodies.shift() ?? BODY)),
+  );
 
   assert.equal(result.attempts, 2);
   assert.deepEqual(result.tarball, BODY);
@@ -87,18 +81,12 @@ void test('throws after the budget when every fetch is HTTP 404', async () => {
   let fetches = 0;
   await assert.rejects(
     () =>
-      downloadNpmTarball({
-        url: TARBALL_URL,
-        fetchImpl: async () => {
+      downloadNpmTarball(
+        pollOptions(clock, async () => {
           fetches += 1;
           return response(404);
-        },
-        sleep: clock.sleep,
-        now: clock.now,
-        log: clock.log,
-        budgetMs: 45_000,
-        intervalMs: 15_000,
-      }),
+        }),
+      ),
     { message: 'Failed to download npm tarball: HTTP 404 after 3 attempt(s)' },
   );
   assert.equal(fetches, 3);
