@@ -513,7 +513,7 @@ api_key = "sk-xxx"
 
 `permission` sets permission rules that are automatically loaded when a session starts, controlling whether the Agent needs user confirmation before calling a tool. Rules are written as a `[[permission.rules]]` array of tables, matched in order — the first matching rule takes effect.
 
-The dangerous-command guard is enabled by default. In Always Ask and Ask When Needed modes, it requests confirmation for dangerous or unanalyzable `Bash` commands. Allow rules cannot bypass this guard. Recursive force `rm` (`rm -rf`) of literal paths under `/tmp` or `/temp` does not require confirmation; mixed, non-literal, or out-of-prefix targets still do. Never Ask mode and non-interactive execution skip the guard; explicit deny rules still apply. Set `dangerous_command_guard = false`, or `PYTHINKER_CODE_DANGEROUS_COMMAND_GUARD=false`, to disable it in other modes.
+The dangerous-command guard is enabled by default. In Always Ask and Ask When Needed modes, it requests confirmation for dangerous or unanalyzable `Bash` commands. Allow rules cannot bypass this guard. Recursive force `rm` (`rm -rf`) of literal paths under `/tmp` or `/temp` that still resolve inside those directories does not require confirmation; mixed, non-literal, escaped, or out-of-prefix targets still do. If that resolution is unavailable, confirmation is required. Never Ask mode and non-interactive execution skip the guard; explicit deny rules still apply. Set `dangerous_command_guard = false`, or `PYTHINKER_CODE_DANGEROUS_COMMAND_GUARD=false`, to disable it in other modes.
 
 ```toml
 [permission]
