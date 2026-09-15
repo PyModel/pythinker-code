@@ -22,6 +22,7 @@ import {
   AgentCron,
   AgentGoal,
   IAgentLifecycleService,
+  IAgentLoopService,
   IAgentPermissionModeService,
   IAgentProfileService,
   IAgentPromptService,
@@ -30,6 +31,7 @@ import {
   IBootstrapService,
   IConfigService,
   IEventBus,
+  IEventDispatcher,
   IHostFileSystem,
   ISessionIndex,
   IWorkspaceInstanceManager,
@@ -125,6 +127,8 @@ import {
 const PROMPT_UI_MODE = 'print';
 /** Re-check `goalActive` at least this often while waiting for goal turns. */
 const GOAL_WAIT_POLL_MS = 250;
+/** Re-check each agent's prompt queue while waiting for it to drain at exit. */
+const PROMPT_QUIESCE_POLL_MS = 10;
 /**
  * Slack on top of a scheduled cron fire time while waiting for the steered
  * turn: covers the 1s tick poll interval plus fire → inject → turn-launch
@@ -197,6 +201,9 @@ export async function runV2Print(
   }
 
   let restorePermission = async (): Promise<void> => {};
+  let quiesceAgents = async (): Promise<void> => {};
+  let releaseQuiescence: (() => void) | undefined;
+  let flushWires = async (): Promise<void> => {};
   let removeTerminationCleanup: (() => void) | undefined;
   let cleanupPromise: Promise<void> | undefined;
   let telemetryService: ITelemetryService | undefined;
@@ -206,14 +213,19 @@ export async function runV2Print(
       setCrashPhase('shutdown');
       try {
         await restorePermission();
+        await raceWithTimeout(quiesceAgents(), CLI_SHUTDOWN_TIMEOUT_MS).catch(() => {});
       } finally {
         try {
-          if (telemetryService !== undefined) {
-            await raceWithTimeout(telemetryService.shutdown(), CLI_SHUTDOWN_TIMEOUT_MS);
-          }
-        } finally {
-          await shutdownTelemetry({ timeoutMs: CLI_SHUTDOWN_TIMEOUT_MS }).catch(() => {});
+          await Promise.all([
+            raceWithTimeout(flushWires(), CLI_SHUTDOWN_TIMEOUT_MS).catch(() => {}),
+            telemetryService !== undefined
+              ? raceWithTimeout(telemetryService.shutdown(), CLI_SHUTDOWN_TIMEOUT_MS)
+              : Promise.resolve(),
+            shutdownTelemetry({ timeoutMs: CLI_SHUTDOWN_TIMEOUT_MS }).catch(() => {}),
+          ]);
           app.dispose();
+        } finally {
+          releaseQuiescence?.();
         }
       }
     })());
@@ -262,6 +274,10 @@ export async function runV2Print(
 
     const resolved = await resolveNativeSession(app, opts, workDir, defaultModel, stderr);
     restorePermission = resolved.restorePermission;
+    quiesceAgents = async () => {
+      releaseQuiescence = await quiesceSessionAgents(resolved.session, resolved.agent);
+    };
+    flushWires = () => flushSessionWires(resolved.session, resolved.agent);
 
     telemetryService.setContext({ sessionId: resolved.session.id, model: resolved.telemetryModel });
     setTelemetryContext({ sessionId: resolved.session.id });
@@ -933,6 +949,100 @@ function countPendingBackgroundTasks(session: ISessionScopeHandle): number {
     count += handle.accessor.get(IAgentTaskService).list(true).length;
   }
   return count;
+}
+
+function collectSessionAgentHandles(
+  session: ISessionScopeHandle,
+  mainAgent: IAgentScopeHandle,
+): IAgentScopeHandle[] {
+  const agentManager = session.accessor.get(IAgentLifecycleService);
+  const handles = new Set<IAgentScopeHandle>([mainAgent]);
+  for (const agent of agentManager.list()) {
+    const handle = agentManager.handleOf(agent.agentId);
+    if (handle !== undefined) handles.add(handle);
+  }
+  return [...handles];
+}
+
+async function quiesceSessionAgents(
+  session: ISessionScopeHandle,
+  mainAgent: IAgentScopeHandle,
+): Promise<(() => void) | undefined> {
+  const handles = collectSessionAgentHandles(session, mainAgent);
+  const promptServices = handles.flatMap((handle) => {
+    try {
+      return [handle.accessor.get(IAgentPromptService)];
+    } catch {
+      return [];
+    }
+  });
+  const loops = handles.flatMap((handle) => {
+    try {
+      return [handle.accessor.get(IAgentLoopService)];
+    } catch {
+      return [];
+    }
+  });
+  await Promise.allSettled(
+    handles.flatMap((handle) => {
+      try {
+        return [handle.accessor.get(IAgentTaskService).stopAllOnExit('Session closed')];
+      } catch {
+        return [];
+      }
+    }),
+  );
+  for (;;) {
+    await Promise.allSettled(promptServices.map((service) => service.drain()));
+    for (const loop of loops) {
+      for (const turnId of loop.status().pendingTurnIds) loop.cancel(turnId);
+      loop.cancel();
+    }
+    await Promise.allSettled(loops.map((loop) => loop.settled()));
+    const guards: { dispose(): void }[] = [];
+    let frozen = true;
+    for (const loop of loops) {
+      let guard: { dispose(): void } | undefined;
+      try {
+        guard = loop.tryAcquireQuiescence();
+      } catch {
+        continue;
+      }
+      if (guard === undefined) {
+        frozen = false;
+        break;
+      }
+      guards.push(guard);
+    }
+    const busy = promptServices.some((service) => {
+      try {
+        const snapshot = service.list();
+        return snapshot.launching || snapshot.active !== undefined || snapshot.pending.length > 0;
+      } catch {
+        return false;
+      }
+    });
+    if (frozen && !busy) {
+      return () => {
+        for (const guard of guards) guard.dispose();
+      };
+    }
+    for (const guard of guards) guard.dispose();
+    await new Promise((resolve) => {
+      setTimeout(resolve, PROMPT_QUIESCE_POLL_MS);
+    });
+  }
+}
+
+async function flushSessionWires(
+  session: ISessionScopeHandle,
+  mainAgent: IAgentScopeHandle,
+): Promise<void> {
+  await Promise.allSettled(
+    collectSessionAgentHandles(session, mainAgent).map((handle) =>
+      handle.accessor.get(IEventDispatcher).flush(),
+    ),
+  );
 }
 
 async function drainBackgroundTasks(
