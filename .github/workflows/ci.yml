@@ -48,15 +48,33 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm run test --shard=${{ matrix.shard }}/5
 
+  # minidb's cluster/stress suite is process-heavy and flakes under the
+  # shared shard matrix; run it in its own job outside the default projects.
+  test-minidb:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @pymodel/minidb test
+
   test-complete:
     name: test
     if: always()
-    needs: test
+    needs: [test, test-minidb]
     runs-on: ubuntu-latest
 
     steps:
       - name: Verify all test shards passed
-        if: needs.test.result != 'success'
+        if: needs.test.result != 'success' || needs.test-minidb.result != 'success'
         run: exit 1
 
   # pi-tui's suite runs on node:test (not vitest), so the root `pnpm run test`

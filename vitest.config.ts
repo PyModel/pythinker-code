@@ -4,7 +4,14 @@ import { vscodeProjects } from './apps/vscode/vitest.projects';
 
 export default defineConfig({
   test: {
-    projects: ['packages/*', 'apps/pythinker-code', 'apps/desktop', 'apps/pythinker-web', ...vscodeProjects],
+    projects: [
+      'packages/*',
+      '!packages/minidb',
+      'apps/pythinker-code',
+      'apps/desktop',
+      'apps/pythinker-web',
+      ...vscodeProjects,
+    ],
     coverage: {
       provider: 'v8',
       include: ['packages/*/src/**/*.ts', 'apps/*/src/**/*.ts'],
