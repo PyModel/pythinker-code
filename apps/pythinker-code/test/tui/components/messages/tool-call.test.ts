@@ -2,7 +2,7 @@ import { visibleWidth, type TUI } from '@pymodel/pi-tui';
 import chalk from 'chalk';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { ToolCallComponent } from '#/tui/components/messages/tool-call';
+import { extractKeyArgument, extractKeyArgumentDetail, ToolCallComponent } from '#/tui/components/messages/tool-call';
 import { ReadGroupComponent } from '#/tui/components/messages/read-group';
 import { STATUS_BULLET } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
@@ -25,6 +25,18 @@ function stubTui(rows: number): TUI {
     requestRender: () => {},
   } as unknown as TUI;
 }
+
+describe('extractKeyArgumentDetail', () => {
+  it('keeps a long single-line Bash command untruncated for the width-aware header', () => {
+    const command = `echo ${'x'.repeat(80)}`;
+    const truncated = extractKeyArgument('Bash', { command });
+    const detail = extractKeyArgumentDetail('Bash', { command });
+    expect(truncated).not.toBe(command);
+    expect(truncated?.endsWith('…')).toBe(true);
+    expect(detail?.text).toBe(command);
+    expect(detail?.keep).toBe('head');
+  });
+});
 
 describe('ToolCallComponent', () => {
   afterEach(() => {

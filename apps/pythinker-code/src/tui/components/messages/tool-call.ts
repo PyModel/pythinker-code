@@ -414,18 +414,20 @@ function formatKeyArgument(
   key: string,
   value: string,
   workspaceDir: string | undefined,
+  truncate: boolean,
 ): string {
   const displayValue =
     toolName === 'Read' && PATH_KEYS.has(key)
       ? makeWorkspaceRelativePath(value, workspaceDir)
       : value;
-  return truncateArgValue(key, displayValue);
+  return truncate ? truncateArgValue(key, displayValue) : displayValue;
 }
 
 export function extractKeyArgument(
   toolName: string,
   args: Record<string, unknown>,
   workspaceDir?: string,
+  truncate = true,
 ): string | null {
   const keyMap: Record<string, string[]> = {
     Bash: ['command'],
@@ -454,7 +456,7 @@ export function extractKeyArgument(
     if (args['include_ignored'] === true) {
       summary += ' · include ignored';
     }
-    return truncateArgValue('pattern', summary);
+    return truncate ? truncateArgValue('pattern', summary) : summary;
   }
 
   const candidates = keyMap[toolName] ?? Object.keys(args);
@@ -464,7 +466,7 @@ export function extractKeyArgument(
       const firstLine = val.split('\n')[0] ?? val;
       const displayValue =
         toolName === 'Bash' && val.includes('\n') ? `${firstLine}…` : firstLine;
-      return formatKeyArgument(toolName, key, displayValue, workspaceDir);
+      return formatKeyArgument(toolName, key, displayValue, workspaceDir, truncate);
     }
   }
   return null;
@@ -475,7 +477,7 @@ export function extractKeyArgumentDetail(
   args: Record<string, unknown>,
   workspaceDir?: string,
 ): { text: string; keep: 'head' | 'tail' } | null {
-  const text = extractKeyArgument(toolName, args, workspaceDir);
+  const text = extractKeyArgument(toolName, args, workspaceDir, false);
   if (text === null) return null;
   const keep = toolName === 'Read' || toolName === 'Write' || toolName === 'Edit' ? 'tail' : 'head';
   return { text, keep };

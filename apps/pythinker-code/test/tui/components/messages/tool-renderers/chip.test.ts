@@ -136,7 +136,7 @@ describe('chip registry', () => {
     expect(
       chipFor('Glob', {}, result('Showing matches.ts\nContinue with.txt\nNo more matches.ts')),
     ).toBe('3 files');
-    expect(chipFor('Grep', {}, result('Showing matches 1\u20132 of 3.'))).toBe('1 file');
+    expect(chipFor('Grep', {}, result('Showing matches 1\u20132 of 3.'))).toBe('no matches');
   });
 
   it('FetchURL chip shows size and is non-empty', () => {
