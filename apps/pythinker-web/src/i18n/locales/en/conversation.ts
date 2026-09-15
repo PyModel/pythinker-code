@@ -9,6 +9,7 @@ export default {
   starting: 'Starting conversation…',
   emptyWorkspaceHint: 'Send in {name}',
   switchWorkspace: 'Switch workspace',
+  workingDirectory: 'Working directory',
   addWorkspace: 'New workspace',
   moreWorkspaces: 'More workspaces ({count})',
   compacting: 'Compacting context…',

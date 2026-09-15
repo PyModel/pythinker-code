@@ -14,6 +14,7 @@ import { normalizeToolName, toolSummary } from '../../lib/toolMeta';
 import type { IconName } from '../../lib/icons';
 import { blockStartedMs, formatLiveDuration, isSettledThinking, runItemKey, type RunItem } from '../chatTurnRendering';
 import Icon from '../ui/Icon.vue';
+import AgentThinking from '../ui/AgentThinking.vue';
 import ThinkingBulb from '../ui/ThinkingBulb.vue';
 import ThinkingBlock from './ThinkingBlock.vue';
 import ToolCall from './ToolCall.vue';
@@ -337,9 +338,16 @@ function isItemStreaming(item: RunItem): boolean {
         role="status"
         :aria-label="status"
       >
+        <AgentThinking
+          v-if="glyphName === 'thinking' && status === 'running'"
+          variant="wave"
+          size="sm"
+          :show-label="false"
+          aria-hidden="true"
+        />
         <ThinkingBulb
-          v-if="glyphName === 'thinking'"
-          :animated="status === 'running'"
+          v-else-if="glyphName === 'thinking'"
+          :animated="false"
           size="sm"
           aria-hidden="true"
         />

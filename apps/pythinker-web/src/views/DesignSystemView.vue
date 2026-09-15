@@ -3,6 +3,7 @@ import { onMounted, onUnmounted } from 'vue';
 import { ICON_GROUPS } from '../lib/icons';
 import Icon from '../components/ui/Icon.vue';
 import ThinkingIndicator from '../components/ui/ThinkingIndicator.vue';
+import AgentThinking from '../components/ui/AgentThinking.vue';
 
 const emit = defineEmits<{ close: [] }>();
 
@@ -790,6 +791,27 @@ onUnmounted(() => {
               </div>
             </div>
             <div class="callout info"><span class="ico">i</span><div>The <code>⣷</code> Braille cycle is <b>limited</b> to the "waiting for the Agent's first response" scenario. It is rendered by <code>ThinkingIndicator.vue</code>, sized via tokens, and stops animating under <code>prefers-reduced-motion</code>. All other loading states use the plain Spinner.</div></div>
+
+            <h4 class="mini">AgentThinking · 4×4 Matrix Loader (Reasoning / Scanning / Execution)</h4>
+            <div class="stage-wrap">
+              <div class="stage-bar"><span class="st">AgentThinking · matrix variants</span></div>
+              <div class="stage p col">
+                <span class="stage-label">Motion Variants</span>
+                <div class="demo-row" style="gap:24px;flex-wrap:wrap">
+                  <AgentThinking variant="wave" label="Reasoning (wave)" />
+                  <AgentThinking variant="scan" label="Searching (scan)" />
+                  <AgentThinking variant="orbit" label="Tool Execution (orbit)" />
+                  <AgentThinking variant="pulse" label="Deep Pulse (pulse)" />
+                  <AgentThinking variant="twinkle" label="Computational (twinkle)" />
+                </div>
+                <span class="stage-label">Rounded (gap corners) &amp; Sizes</span>
+                <div class="demo-row" style="gap:24px;align-items:center">
+                  <AgentThinking variant="wave" rounded size="sm" label="sm rounded" />
+                  <AgentThinking variant="wave" rounded size="md" label="md rounded" />
+                  <AgentThinking variant="wave" rounded size="lg" label="lg rounded" />
+                </div>
+              </div>
+            </div>
 
             <!-- ===== Link ===== -->
             <h3 class="sub">Link</h3>

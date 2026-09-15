@@ -16,6 +16,7 @@ import Icon from '../ui/Icon.vue';
 import ActionToast from '../ui/ActionToast.vue';
 import Spinner from '../ui/Spinner.vue';
 import Tooltip from '../ui/Tooltip.vue';
+import WorkspaceGuideArrow from '../ui/WorkspaceGuideArrow.vue';
 import PythinkerLogo from '../PythinkerLogo.vue';
 import { getVisibleWorkspaces } from '../../lib/workspacePicker';
 import { safeRemove, STORAGE_KEYS } from '../../lib/storage';
@@ -1472,6 +1473,11 @@ defineExpose({ loadComposerForEdit, focusComposer, insertComposerQuote });
                     <Icon class="ws-pick-chev" :class="{ open: wsPickOpen }" name="chevron-down" size="sm" />
                   </button>
                 </Tooltip>
+                <WorkspaceGuideArrow
+                  v-if="!wsPickOpen"
+                  class="ws-pick-arrow"
+                  :label="t('conversation.workingDirectory')"
+                />
                 <div v-if="wsPickOpen" class="ws-pick-backdrop" @click="wsPickOpen = false" />
                 <div v-if="wsPickOpen" class="ws-pick-menu">
                   <button
@@ -1862,6 +1868,15 @@ defineExpose({ loadComposerForEdit, focusComposer, insertComposerQuote });
   cursor: pointer;
 }
 .ws-pick-btn:hover { border-color: var(--color-accent-bd); color: var(--color-text); }
+.ws-pick-arrow {
+  position: absolute;
+  left: calc(100% + 12px);
+  top: 50%;
+  transform: translateY(-50%);
+}
+.ws-pick:hover .ws-pick-arrow {
+  color: var(--color-accent);
+}
 .ws-pick-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ws-pick-chev { flex: none; color: var(--muted); transition: transform 0.15s; }
 .ws-pick-chev.open { transform: rotate(180deg); }

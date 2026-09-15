@@ -8,6 +8,7 @@
 import { computed, inject, onUnmounted, ref, watch, type Ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { formatLiveDuration } from '../chatTurnRendering';
+import AgentThinking from '../ui/AgentThinking.vue';
 import Icon from '../ui/Icon.vue';
 import ThinkingBulb from '../ui/ThinkingBulb.vue';
 
@@ -115,7 +116,15 @@ function toggle(): void {
       "
       @click="toggle"
     >
-      <ThinkingBulb class="think-bulb" :animated="streaming" size="sm" aria-hidden="true" />
+      <AgentThinking
+        v-if="streaming"
+        class="think-bulb"
+        variant="wave"
+        size="sm"
+        :show-label="false"
+        aria-hidden="true"
+      />
+      <ThinkingBulb v-else class="think-bulb" :animated="false" size="sm" aria-hidden="true" />
       <span class="think-title" :class="{ 'ui-shimmer': streaming }">
         {{ streaming ? t('thinking.streaming') : t('thinking.panelTitle') }}
       </span>
