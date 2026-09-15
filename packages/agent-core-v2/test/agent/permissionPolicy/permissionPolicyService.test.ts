@@ -275,6 +275,8 @@ describe('AgentPermissionPolicyService chain', () => {
     ['systemctl --user reboot', 'systemctl reboot'],
     ['bash -c "shutdown now"', 'shutdown'],
     ['rm -rf /tmp/build /root', 'rm -rf'],
+    ['rm -rf /tmp/../etc', 'rm -rf'],
+    ['rm -rf /tmpfoo', 'rm -rf'],
     ['rm -fr dir', 'rm -rf'],
     ['rm -r -f dir', 'rm -rf'],
     ['rm -R --force dir', 'rm -rf'],
@@ -311,7 +313,7 @@ describe('AgentPermissionPolicyService chain', () => {
     });
   });
 
-  it.each(['rm -rf /tmp/build', 'rm -rf /temp/cache'])(
+  it.each(['rm -rf /tmp/build', 'rm -rf /temp/cache', 'rm -rf -- /tmp/build'])(
     'approves `%s` in yolo mode',
     async (command) => {
       mode = 'yolo';
