@@ -5,7 +5,7 @@ import { join } from 'node:path';
 process.env['PYTHINKER_CODE_SEARCH_WORKER'] = '1';
 
 import { ISessionIndex, type SessionSummary } from '@pymodel/agent-core-v2';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { type RunningServer, startServer } from '../../src/start';
 import { TEST_HOST_IDENTITY } from '../helpers/hostIdentity';
@@ -63,7 +63,7 @@ describe('server-v2 /api/v1/search', () => {
   let home: string | undefined;
   let base: string;
 
-  beforeEach(async () => {
+  beforeAll(async () => {
     home = await mkdtemp(join(tmpdir(), 'pythinker-server-v2-search-'));
     const sessionDir = join(home, 'sessions', WS, 's1', 'agents', 'main');
     await mkdir(sessionDir, { recursive: true });
@@ -117,7 +117,7 @@ describe('server-v2 /api/v1/search', () => {
     base = `http://127.0.0.1:${server.port}`;
   });
 
-  afterEach(async () => {
+  afterAll(async () => {
     if (server !== undefined) {
       await server.close();
       server = undefined;
