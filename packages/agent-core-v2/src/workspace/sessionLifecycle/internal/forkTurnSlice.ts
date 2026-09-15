@@ -1,4 +1,5 @@
 import { Error2, ErrorCodes } from '#/errors';
+import { FILE_HISTORY_RECORD_PREFIX } from '#/features/fileHistory/fileHistoryOps';
 import type { ContentPart } from '#/kosong/contract/message';
 import {
   promptMetadataTextFromContentParts,
@@ -45,7 +46,9 @@ export function sliceMainRecordsAtTurn(
   const retained = records
     .slice(0, end)
     .filter(
-      (record, index) => !isUserVisibleTurnInputRecord(record) || retainedTurnInputs.has(index),
+      (record, index) =>
+        !record.type.startsWith(FILE_HISTORY_RECORD_PREFIX) &&
+        (!isUserVisibleTurnInputRecord(record) || retainedTurnInputs.has(index)),
     );
   const cutoffTimes = retained
     .map(recordTime)
@@ -84,7 +87,11 @@ export function sliceMainRecordsBeforePrompt(
   const activeStart = turnStarts[0]!;
   const retained = records
     .slice(0, activeStart)
-    .filter((record) => !isUserVisibleTurnInputRecord(record));
+    .filter(
+      (record) =>
+        !record.type.startsWith(FILE_HISTORY_RECORD_PREFIX) &&
+        !isUserVisibleTurnInputRecord(record),
+    );
   const cutoffTimes = retained
     .map(recordTime)
     .filter((time): time is number => time !== undefined);

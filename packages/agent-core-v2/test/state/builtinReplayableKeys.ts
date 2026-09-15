@@ -19,6 +19,7 @@ import { runtimeBindingKey } from '#/agent/runtimeBinding/runtimeBindingOps';
 import { taskKey } from '#/agent/task/taskOps';
 import { taskNotificationDeliveryKey } from '#/agent/task/taskService';
 import { userToolKey } from '#/agent/userTool/userToolOps';
+import { fileHistoryKey } from '#/features/fileHistory/fileHistoryOps';
 import { planKey } from '#/features/plan/planOps';
 import { dynamicWorkflowKey } from '#/features/dynamic_workflow/dynamicWorkflowOps';
 import { towerBaseKey, towerKey, towerOwnerKey } from '#/features/tower/towerOps';
@@ -45,6 +46,7 @@ export const BUILTIN_REPLAYABLE_STATE_KEYS: readonly ReplayableStateKey<any>[] =
   taskKey,
   taskNotificationDeliveryKey,
   userToolKey,
+  fileHistoryKey,
   planKey,
   dynamicWorkflowKey,
   towerKey,

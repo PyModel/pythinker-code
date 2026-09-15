@@ -14,6 +14,7 @@ import {
   workspacePersistenceScope,
 } from '#/workspace/sessionLifecycle/internal/addressing';
 import { ErrorCodes, Error2 } from '#/errors';
+import { FILE_HISTORY_BLOB_PREFIX } from '#/features/fileHistory/fileHistory';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
 
@@ -203,7 +204,8 @@ export async function exportSessionDirectory(input: {
     const sessionScan = await scanSessionWire(sessionDir, input.signal);
     const stableSessionLog = sessionLogSource;
     const selectedSessionFiles: SessionZipEntry[] = sessionFiles.filter(
-      (file) => file !== sessionLogPath,
+      (file) =>
+        file !== sessionLogPath && !file.split(/[\\/]/).includes(FILE_HISTORY_BLOB_PREFIX),
     );
     if (stableSessionLog !== undefined) {
       selectedSessionFiles.push({ path: sessionLogPath, source: stableSessionLog });
