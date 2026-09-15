@@ -31,6 +31,7 @@ export class TruncatedOutputComponent implements Component {
   private readonly indent: number;
   private readonly expandHint: boolean;
   private readonly tail: boolean;
+  private truncatedAtLastRender = false;
 
   constructor(
     output: string,
@@ -76,13 +77,19 @@ export class TruncatedOutputComponent implements Component {
     return ' '.repeat(indentWidth) + currentTheme.dim(truncateToWidth(hint, hintWidth, '…'));
   }
 
+  wasTruncated(): boolean {
+    return this.truncatedAtLastRender;
+  }
+
   render(width: number): string[] {
     const contentLines = this.textComponent.render(width);
 
     if (this.expanded || contentLines.length <= this.maxLines) {
+      this.truncatedAtLastRender = false;
       return contentLines;
     }
 
+    this.truncatedAtLastRender = true;
     const remaining = contentLines.length - this.maxLines;
     if (this.tail) {
       const shown = contentLines.slice(contentLines.length - this.maxLines);

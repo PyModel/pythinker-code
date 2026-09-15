@@ -2,7 +2,7 @@ import { visibleWidth, type TUI } from '@pymodel/pi-tui';
 import chalk from 'chalk';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { ToolCallComponent } from '#/tui/components/messages/tool-call';
+import { extractKeyArgument, extractKeyArgumentDetail, ToolCallComponent } from '#/tui/components/messages/tool-call';
 import { ReadGroupComponent } from '#/tui/components/messages/read-group';
 import { STATUS_BULLET } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
@@ -25,6 +25,18 @@ function stubTui(rows: number): TUI {
     requestRender: () => {},
   } as unknown as TUI;
 }
+
+describe('extractKeyArgumentDetail', () => {
+  it('keeps a long single-line Bash command untruncated for the width-aware header', () => {
+    const command = `echo ${'x'.repeat(80)}`;
+    const truncated = extractKeyArgument('Bash', { command });
+    const detail = extractKeyArgumentDetail('Bash', { command });
+    expect(truncated).not.toBe(command);
+    expect(truncated?.endsWith('…')).toBe(true);
+    expect(detail?.text).toBe(command);
+    expect(detail?.keep).toBe('head');
+  });
+});
 
 describe('ToolCallComponent', () => {
   afterEach(() => {
@@ -261,11 +273,9 @@ describe('ToolCallComponent', () => {
     );
 
     const collapsed = strip(component.render(100).join('\n'));
-    expect(collapsed).toContain('line1');
-    expect(collapsed).toContain('line2');
-    expect(collapsed).toContain('line3');
-    expect(collapsed).not.toContain('line4');
-    expect(collapsed).toContain('… (2 more lines, ctrl+o to expand)');
+    expect(collapsed).toContain('line5');
+    expect(collapsed).not.toContain('line1');
+    expect(collapsed).toContain('4 more lines');
 
     component.setExpanded(true);
 
@@ -290,8 +300,8 @@ describe('ToolCallComponent', () => {
 
     const out = strip(component.render(100).join('\n'));
     expect(out).toContain('Running a command');
-    expect(out).toContain('line1');
     expect(out).toContain('line2');
+    expect(out).not.toContain('line1');
   });
 
   it('uses a Unicode ellipsis when truncating live Bash output', () => {
@@ -349,7 +359,6 @@ describe('ToolCallComponent', () => {
       const collapsed = strip(component.render(100).join('\n'));
       expect(collapsed).toContain('Running a command');
       expect(collapsed).toContain('echo step1');
-      expect(collapsed).toContain('echo step10');
       expect(collapsed).not.toContain('echo step11');
 
       component.setExpanded(true);
@@ -359,25 +368,19 @@ describe('ToolCallComponent', () => {
       expect(expanded).toContain('echo step15');
     });
 
-    it('keeps the command preview after the result lands to avoid a height collapse', () => {
+    it('keeps the first command line in the header after the result lands', () => {
       const component = new ToolCallComponent(
         { id: 'call_bash_done', name: 'Bash', args: { command: longCommand } },
         undefined,
       );
 
-      // Sanity: while running, the in-flight preview shows the command.
       expect(strip(component.render(100).join('\n'))).toContain('$ echo step1');
 
       component.setResult({ tool_call_id: 'call_bash_done', output: 'done', is_error: false });
 
-      // Collapsed result view still shows the command preview (capped at
-      // COMMAND_PREVIEW_LINES) so a multi-line command with short output does
-      // not collapse the card. The command is owned by buildCallPreview, so it
-      // must appear exactly once — the result renderer no longer renders it.
       const out = strip(component.render(100).join('\n'));
       expect(out).toContain('Ran a command');
       expect(out).toContain('$ echo step1');
-      expect(out).toContain('echo step10');
       expect(out).not.toContain('echo step11');
       expect(out).toContain('done');
       expect(out.split('$ echo step1').length - 1).toBe(1);
@@ -388,19 +391,16 @@ describe('ToolCallComponent', () => {
       expect(expanded).toContain('echo step15');
     });
 
-    it('keeps the command preview when the command produces no output', () => {
+    it('keeps the first command line in the header when the command produces no output', () => {
       const component = new ToolCallComponent(
         { id: 'call_bash_empty', name: 'Bash', args: { command: 'mkdir -p a/b/c\necho done' } },
         { tool_call_id: 'call_bash_empty', output: '', is_error: false },
       );
 
-      // buildContent early-returns on empty output, but the command preview
-      // (owned by buildCallPreview) must still render so the card does not
-      // collapse to just the header.
       const out = strip(component.render(100).join('\n'));
       expect(out).toContain('Ran a command');
       expect(out).toContain('$ mkdir -p a/b/c');
-      expect(out).toContain('echo done');
+      expect(out).not.toContain('echo done');
     });
   });
 

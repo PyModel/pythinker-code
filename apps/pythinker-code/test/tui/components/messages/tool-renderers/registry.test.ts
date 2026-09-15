@@ -68,11 +68,11 @@ describe('tool-result registry', () => {
     expect(out).toContain('… (2 more lines, ctrl+o to expand)');
   });
 
-  it('uses truncated renderer for Bash to preserve raw output UX', () => {
+  it('shows the last Bash output line when collapsed past the outcome cap', () => {
     const renderer = pickResultRenderer('Bash');
     const out = strip(joinRender(renderer(call('Bash'), result('one\ntwo\nthree\nfour'), ctx)));
-    expect(out).toContain('one');
-    expect(out).toContain('… (1 more lines, ctrl+o to expand)');
+    expect(out).toContain('four');
+    expect(out).not.toContain('one');
   });
 
   it('Read renders no body when collapsed (header chip carries the count)', () => {
@@ -115,7 +115,7 @@ describe('tool-result registry', () => {
     const out = strip(
       joinRender(
         renderer(
-          call('Grep', { pattern: 'foo' }),
+          call('Grep', { pattern: 'foo', output_mode: 'content' }),
           result('src/a.ts:42:    foo()\nsrc/b.ts:7:foo'),
           ctx,
         ),

@@ -123,3 +123,12 @@ export function turnsToTrim(
   }
   return toRemove;
 }
+
+export function expandCutoffIndex(
+  childCount: number,
+  boundaries: readonly number[],
+  expandTurns: number,
+): number {
+  if (expandTurns <= 0) return childCount;
+  return boundaries.length > expandTurns ? boundaries[boundaries.length - expandTurns]! : 0;
+}

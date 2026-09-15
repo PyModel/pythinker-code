@@ -138,7 +138,7 @@ import {
   type TUIStartupOptions,
   type TUIStartupState,
 } from './types';
-import { hasDispose, isExpandable } from './utils/component-capabilities';
+import { hasDispose, hasHiddenContent, isExpandable, isExpandedComponent } from './utils/component-capabilities';
 import { isDeadTerminalError } from './utils/dead-terminal';
 import { formatErrorMessage } from './utils/event-payload';
 import { pickForegroundTasks } from './utils/foreground-task';
@@ -180,6 +180,7 @@ import {
   TRANSCRIPT_KEEP_RECENT_STEPS,
   TRANSCRIPT_MAX_TURNS,
   TRANSCRIPT_WINDOW_ENABLED,
+  expandCutoffIndex,
   groupTurns,
   turnsToTrim,
 } from './utils/transcript-window';
@@ -410,6 +411,7 @@ export class PythinkerTUI {
     this.engineV2 = startupInput.engineV2 ?? false;
     this.startupNotice = startupInput.startupNotice;
     this.state = createTUIState(tuiOptions);
+    this.state.footer.setExpandHintProvider(() => this.toolOutputExpandHint());
     this.uninstallRainbowHatch = installRainbowHatch(() => {
       this.state.ui.requestRender();
     });
@@ -3253,24 +3255,34 @@ export class PythinkerTUI {
     );
   }
 
-  toggleToolOutputExpansion(): void {
-    this.state.toolOutputExpanded = !this.state.toolOutputExpanded;
+  private toolOutputExpandHint(): 'expand' | 'collapse' | null {
     const children = this.state.transcriptContainer.children;
-
-    // A component is expandable only if it sits at or after the start of the
-    // (totalTurns - expandTurns)-th turn — i.e. it belongs to one of the most
-    // recent `expandTurns` turns. Position-based so it also covers streaming
-    // components that have no entry in the metadata map.
+    if (this.state.toolOutputExpanded) {
+      for (const child of children) {
+        if (isExpandedComponent(child) && hasHiddenContent(child)) return 'collapse';
+      }
+      return null;
+    }
     const boundaries: number[] = [];
     for (let i = 0; i < children.length; i++) {
       if (isTurnBoundaryComponent(children[i]!)) boundaries.push(i);
     }
-    const expandCutoff =
-      TRANSCRIPT_EXPAND_TURNS <= 0
-        ? children.length
-        : boundaries.length > TRANSCRIPT_EXPAND_TURNS
-          ? boundaries[boundaries.length - TRANSCRIPT_EXPAND_TURNS]!
-          : 0;
+    const expandCutoff = expandCutoffIndex(children.length, boundaries, TRANSCRIPT_EXPAND_TURNS);
+    for (let i = expandCutoff; i < children.length; i++) {
+      if (hasHiddenContent(children[i])) return 'expand';
+    }
+    return null;
+  }
+
+  toggleToolOutputExpansion(): void {
+    this.state.toolOutputExpanded = !this.state.toolOutputExpanded;
+    const children = this.state.transcriptContainer.children;
+
+    const boundaries: number[] = [];
+    for (let i = 0; i < children.length; i++) {
+      if (isTurnBoundaryComponent(children[i]!)) boundaries.push(i);
+    }
+    const expandCutoff = expandCutoffIndex(children.length, boundaries, TRANSCRIPT_EXPAND_TURNS);
 
     for (let i = 0; i < children.length; i++) {
       const child = children[i]!;

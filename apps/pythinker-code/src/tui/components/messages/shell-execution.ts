@@ -5,7 +5,8 @@ import { currentTheme } from '#/tui/theme';
 import type { ToolCallBlockData, ToolResultBlockData } from '#/tui/types';
 
 import type { ResultRenderer } from './tool-renderers/types';
-import { PREVIEW_LINES } from './tool-renderers/types';
+import { isSpilledToolOutput, PREVIEW_LINES } from './tool-renderers/types';
+import { outcomeRows } from './tool-renderers/outcome';
 import { TruncatedOutputComponent } from './tool-renderers/truncated';
 
 export interface ShellExecutionOptions {
@@ -60,6 +61,12 @@ export class ShellExecutionComponent extends Container {
     }
   }
 
+  wasTruncated(): boolean {
+    return this.children.some(
+      (child) => child instanceof TruncatedOutputComponent && child.wasTruncated(),
+    );
+  }
+
   private addResultPreview(
     result: ToolResultBlockData,
     expanded: boolean,
@@ -85,13 +92,16 @@ export const shellExecutionResultRenderer: ResultRenderer = (
   _toolCall: ToolCallBlockData,
   result: ToolResultBlockData,
   ctx,
-): Component[] => [
-  // Result only. The command preview is owned by ToolCallComponent's
-  // buildCallPreview across the whole lifecycle (streaming, running, and
-  // done); rendering it here too would duplicate the command once the result
-  // lands.
-  new ShellExecutionComponent({
-    result,
-    expanded: ctx.expanded,
-  }),
-];
+): Component[] => {
+  if (!ctx.expanded && result.is_error !== true) {
+    const leadsWithMetadata =
+      result.output.startsWith('task_id:') || isSpilledToolOutput(result.output);
+    return outcomeRows(result.output, leadsWithMetadata ? 'first' : 'last');
+  }
+  return [
+    new ShellExecutionComponent({
+      result,
+      expanded: ctx.expanded,
+    }),
+  ];
+};

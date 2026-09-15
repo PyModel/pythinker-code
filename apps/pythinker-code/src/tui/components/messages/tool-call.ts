@@ -13,6 +13,7 @@ import {
   BRAILLE_SPINNER_FRAMES,
   BRAILLE_SPINNER_INTERVAL_MS,
   COMMAND_PREVIEW_LINES,
+  OUTCOME_MAX_LINES,
   RESULT_PREVIEW_LINES,
   THINKING_PREVIEW_LINES,
 } from '#/tui/constant/rendering';
@@ -33,10 +34,18 @@ import { formatTokenCount } from '#/utils/usage/usage-format';
 import { agentDynamicWorkflowResultSummaryFromOutput } from './agent-dynamic-workflow-progress';
 import { PlanBoxComponent } from './plan-box';
 import { ShellExecutionComponent } from './shell-execution';
-import { countNonEmptyLines, pickChip } from './tool-renderers/chip';
-import { buildGoalToolHeader } from './tool-renderers/goal';
+import { TruncatedHeaderLine, type HeaderContent } from './truncated-header-line';
+import { computeWriteStats, countNonEmptyLines, pickChip } from './tool-renderers/chip';
+import { searchNoticeOnly } from './tool-renderers/grep-output';
+import { buildGoalToolHeader, parseGoalToolOutput } from './tool-renderers/goal';
+import { parseReadMediaOutput } from './tool-renderers/media';
+import { nonEmptyLines, outcomeLine } from './tool-renderers/outcome';
 import { isGenericToolResult, pickResultRenderer } from './tool-renderers/registry';
-import { buildWaitForHeader } from './tool-renderers/wait-for';
+import { TruncatedOutputComponent } from './tool-renderers/truncated';
+import { isSpilledToolOutput } from './tool-renderers/types';
+import { buildWaitForHeader, parseWaitForOutput } from './tool-renderers/wait-for';
+
+const dimHeaderStyle = (text: string): string => currentTheme.dim(text);
 
 const MAX_ARG_LENGTH = 60;
 const MAX_SUB_TOOL_CALLS_SHOWN = 4;
@@ -405,18 +414,20 @@ function formatKeyArgument(
   key: string,
   value: string,
   workspaceDir: string | undefined,
+  truncate: boolean,
 ): string {
   const displayValue =
     toolName === 'Read' && PATH_KEYS.has(key)
       ? makeWorkspaceRelativePath(value, workspaceDir)
       : value;
-  return truncateArgValue(key, displayValue);
+  return truncate ? truncateArgValue(key, displayValue) : displayValue;
 }
 
 export function extractKeyArgument(
   toolName: string,
   args: Record<string, unknown>,
   workspaceDir?: string,
+  truncate = true,
 ): string | null {
   const keyMap: Record<string, string[]> = {
     Bash: ['command'],
@@ -445,7 +456,7 @@ export function extractKeyArgument(
     if (args['include_ignored'] === true) {
       summary += ' · include ignored';
     }
-    return truncateArgValue('pattern', summary);
+    return truncate ? truncateArgValue('pattern', summary) : summary;
   }
 
   const candidates = keyMap[toolName] ?? Object.keys(args);
@@ -455,10 +466,21 @@ export function extractKeyArgument(
       const firstLine = val.split('\n')[0] ?? val;
       const displayValue =
         toolName === 'Bash' && val.includes('\n') ? `${firstLine}…` : firstLine;
-      return formatKeyArgument(toolName, key, displayValue, workspaceDir);
+      return formatKeyArgument(toolName, key, displayValue, workspaceDir, truncate);
     }
   }
   return null;
+}
+
+export function extractKeyArgumentDetail(
+  toolName: string,
+  args: Record<string, unknown>,
+  workspaceDir?: string,
+): { text: string; keep: 'head' | 'tail' } | null {
+  const text = extractKeyArgument(toolName, args, workspaceDir, false);
+  if (text === null) return null;
+  const keep = toolName === 'Read' || toolName === 'Write' || toolName === 'Edit' ? 'tail' : 'head';
+  return { text, keep };
 }
 
 function formatSubagentLabel(agentName: string | undefined): string {
@@ -540,6 +562,8 @@ export class ToolCallComponent extends Container {
   private expanded = false;
   private toolCall: ToolCallBlockData;
   private readonly markdownTheme = createMarkdownTheme();
+  private hiddenContent: boolean | undefined = undefined;
+  private truncatedAtLastRender = false;
   private result: ToolResultBlockData | undefined;
   private ui: TUI | undefined;
   private planPath: string | undefined;
@@ -551,7 +575,7 @@ export class ToolCallComponent extends Container {
    * the plan body even without a `## Approved Plan:` marker.
    */
   private currentPlan: string | undefined;
-  private headerText: Text;
+  private headerText: TruncatedHeaderLine;
   private callPreviewEndIndex = 0;
 
   // ── Subagent state ───────────────────────────────────────────────
@@ -655,7 +679,7 @@ export class ToolCallComponent extends Container {
     this.applySubagentReplay(toolCall.subagent);
 
     this.addChild(new Spacer(1));
-    this.headerText = new Text(this.buildHeader(), 0, 0);
+    this.headerText = new TruncatedHeaderLine(this.buildHeader());
     this.addChild(this.headerText);
     this.buildCallPreview();
     this.callPreviewEndIndex = this.children.length;
@@ -693,6 +717,18 @@ export class ToolCallComponent extends Container {
         allReused = false;
       }
       i++;
+    }
+
+    if (!this.expanded) {
+      this.truncatedAtLastRender = this.children.some(
+        (child, index) =>
+          (child instanceof TruncatedHeaderLine &&
+            (index !== 1 ||
+              (this.toolCall.name === 'Bash' && this.toolCall.truncated !== true)) &&
+            child.wasTruncated()) ||
+          ((child instanceof TruncatedOutputComponent || child instanceof ShellExecutionComponent) &&
+            child.wasTruncated()),
+      );
     }
 
     if (allReused) {
@@ -744,6 +780,105 @@ export class ToolCallComponent extends Container {
     // children and would leave the call preview stuck at its initial
     // collapsed size.
     this.rebuildBody();
+  }
+
+  hasHiddenContent(): boolean {
+    this.hiddenContent ??= this.computeHiddenContent();
+    return this.hiddenContent || this.truncatedAtLastRender;
+  }
+
+  isExpanded(): boolean {
+    return this.expanded;
+  }
+
+  private computeHiddenContent(): boolean {
+    const { name, args } = this.toolCall;
+    if (this.isSingleSubagentView()) return false;
+    if (this.toolCall.truncated === true && this.result === undefined) return false;
+    if (this.result === undefined && this.toolCall.streamingArguments !== undefined) {
+      return (
+        name === 'Bash' &&
+        (extractPartialStringField(this.toolCall.streamingArguments, 'command') ?? '').length > 0
+      );
+    }
+    if (this.callPreviewHidesContent()) return true;
+    const { result } = this;
+    if (result === undefined) return nonEmptyLines(this.liveOutput).length > 1;
+    if (result.output.length === 0) return false;
+    if (result.output.trimStart().startsWith('<system-reminder>')) return false;
+    if (result.is_error === true) return nonEmptyLines(result.output).length > RESULT_PREVIEW_LINES;
+    switch (name) {
+      case 'ReadMediaFile':
+        return (
+          parseReadMediaOutput(result.output) !== null ||
+          nonEmptyLines(result.output).length > OUTCOME_MAX_LINES
+        );
+      case 'Grep':
+      case 'Glob':
+        return (
+          !searchNoticeOnly(this.toolCall, result.output) ||
+          nonEmptyLines(result.output).length > OUTCOME_MAX_LINES
+        );
+      case 'WaitFor':
+        return (
+          parseWaitForOutput(result.output) !== undefined ||
+          nonEmptyLines(result.output).length > OUTCOME_MAX_LINES
+        );
+      case 'Read':
+      case 'FetchURL':
+      case 'WebSearch':
+      case 'Think':
+        return true;
+      case 'ExitPlanMode':
+        return (
+          !isExitPlanModeOutcomeOutput(result.output) &&
+          nonEmptyLines(result.output).length > OUTCOME_MAX_LINES
+        );
+      case 'AskUserQuestion':
+        return (
+          args['background'] === true && nonEmptyLines(result.output).length > OUTCOME_MAX_LINES
+        );
+      case 'CreateGoal':
+      case 'GetGoal':
+        return (
+          parseGoalToolOutput(result.output) === undefined &&
+          nonEmptyLines(result.output).length > OUTCOME_MAX_LINES
+        );
+      case 'Edit':
+      case 'Write':
+      case 'SetGoalBudget':
+      case 'UpdateGoal':
+      case 'AgentSwarm':
+      case 'TodoList':
+      case 'EnterPlanMode':
+        return false;
+      default:
+        return nonEmptyLines(result.output).length > OUTCOME_MAX_LINES;
+    }
+  }
+
+  private callPreviewHidesContent(): boolean {
+    const { name, args } = this.toolCall;
+    switch (name) {
+      case 'Bash':
+        return str(args['command']).includes('\n');
+      case 'Edit': {
+        const oldStr = str(args['old_string']);
+        const newStr = str(args['new_string']);
+        if (oldStr.length === 0 && newStr.length === 0) return false;
+        const filePath = str(args['file_path'] ?? args['path']);
+        const full = renderDiffLinesClustered(oldStr, newStr, filePath, { contextLines: 3 });
+        const capped = renderDiffLinesClustered(oldStr, newStr, filePath, {
+          contextLines: 3,
+          maxLines: COMMAND_PREVIEW_LINES,
+        });
+        return capped.length !== full.length || capped.at(-1) !== full.at(-1);
+      }
+      case 'Write':
+        return computeWriteStats(args).lines > COMMAND_PREVIEW_LINES;
+      default:
+        return false;
+    }
   }
 
   setResult(result: ToolResultBlockData): void {
@@ -1461,7 +1596,7 @@ export class ToolCallComponent extends Container {
     this.ui?.requestRender();
   }
 
-  private buildHeader(): string {
+  private buildHeader(): HeaderContent {
     const { toolCall, result } = this;
     const isFinished = result !== undefined;
     const isError = result?.is_error ?? false;
@@ -1515,17 +1650,20 @@ export class ToolCallComponent extends Container {
     }
 
     if (toolCall.name === 'Bash') {
-      // The command itself is rendered in the body (with a `$` prompt), so the
-      // header only names the action — repeating the command in parentheses
-      // would duplicate the body. Wording mirrors the other label-only headers
-      // (e.g. AskUserQuestion): the whole label takes the tone colour.
       if (isTruncated) {
         return `${bullet}${currentTheme.fg('error', 'Truncated')} ${currentTheme.boldFg('primary', 'Bash')}`;
       }
       const label = isFinished ? 'Ran a command' : 'Running a command';
       const tone = isError ? 'error' : 'textStrong';
+      const command = extractKeyArgumentDetail(toolCall.name, toolCall.args, this.workspaceDir);
       const chipStr = isFinished && result !== undefined ? this.buildHeaderChip(result) : '';
-      return `${bullet}${currentTheme.boldFg(tone, label)}${chipStr}`;
+      const head = `${bullet}${currentTheme.boldFg(tone, label)}`;
+      if (command === null) return `${head}${chipStr}`;
+      return {
+        head: `${head}${currentTheme.dim(' · $ ')}`,
+        flex: { text: command.text, style: dimHeaderStyle, keep: 'head' },
+        tail: chipStr,
+      };
     }
 
     const goalHeader = buildGoalToolHeader({
@@ -1549,7 +1687,7 @@ export class ToolCallComponent extends Container {
     }
 
     const verb = isFinished ? 'Used' : isTruncated ? 'Truncated' : 'Using';
-    const keyArg = extractKeyArgument(toolCall.name, toolCall.args, this.workspaceDir);
+    const keyArg = extractKeyArgumentDetail(toolCall.name, toolCall.args, this.workspaceDir);
     const decoded = decodeMcpToolName(toolCall.name);
     const verbStyled = isTruncated
       ? currentTheme.fg('error', verb)
@@ -1558,13 +1696,19 @@ export class ToolCallComponent extends Container {
       decoded !== null
         ? `${currentTheme.boldFg('primary', decoded.toolName)}${currentTheme.dim(` · MCP/${decoded.serverName}`)}`
         : currentTheme.boldFg('primary', toolCall.name);
-    const argStr = keyArg ? currentTheme.dim(` (${keyArg})`) : '';
     let chipStr = '';
     if (isFinished && result) chipStr = this.buildHeaderChip(result);
-    return `${bullet}${verbStyled} ${toolLabel}${argStr}${chipStr}`;
+    const head = `${bullet}${verbStyled} ${toolLabel}`;
+    if (keyArg === null) return `${head}${chipStr}`;
+    return {
+      head: `${head}${currentTheme.dim(' (')}`,
+      flex: { text: keyArg.text, style: dimHeaderStyle, keep: keyArg.keep },
+      tail: `${currentTheme.dim(')')}${chipStr}`,
+    };
   }
 
   private buildHeaderChip(result: ToolResultBlockData): string {
+    if (isSpilledToolOutput(result.output)) return '';
     const provider = pickChip(this.toolCall.name);
     if (provider === undefined) return '';
     const text = provider(this.toolCall, result);
@@ -1574,6 +1718,7 @@ export class ToolCallComponent extends Container {
   }
 
   private rebuildContent(): void {
+    this.hiddenContent = undefined;
     while (this.children.length > this.callPreviewEndIndex) {
       this.children.pop();
     }
@@ -1585,6 +1730,7 @@ export class ToolCallComponent extends Container {
   }
 
   private rebuildBody(): void {
+    this.hiddenContent = undefined;
     while (this.children.length > 2) {
       this.children.pop();
     }
@@ -1630,6 +1776,14 @@ export class ToolCallComponent extends Container {
   private buildLiveOutputBlock(): void {
     if (this.result !== undefined) return;
     if (this.liveOutput.length === 0) return;
+    if (!this.expanded) {
+      const lines = nonEmptyLines(this.liveOutput);
+      const latest = lines.at(-1);
+      if (latest !== undefined) {
+        this.addChild(outcomeLine(latest, lines.length > 1 ? 'above' : undefined));
+      }
+      return;
+    }
     this.addChild(
       new ShellExecutionComponent({
         result: {
@@ -1637,10 +1791,7 @@ export class ToolCallComponent extends Container {
           output: this.liveOutput,
           is_error: false,
         },
-        expanded: this.expanded,
-        resultPreviewLines: RESULT_PREVIEW_LINES,
-        tailOutput: true,
-        expandHint: false,
+        expanded: true,
       }),
     );
   }
@@ -2063,21 +2214,14 @@ export class ToolCallComponent extends Container {
         this.addChild(new Text(line, 2, 0));
       }
     } else if (name === 'Bash') {
-      // Surface the command in the body across the whole lifecycle — while
-      // streaming, running, and after the result lands. Keeping the collapsed
-      // command preview here (instead of yielding to the result renderer once
-      // the result lands) avoids a height collapse when a multi-line command
-      // finishes with short output: the command block stays put and only the
-      // live-output tail swaps for the result. Owned solely by buildCallPreview
-      // so the command never renders twice; shellExecutionResultRenderer
-      // renders the result only.
+      if (!this.expanded) return;
       const command = str(this.toolCall.args['command']);
       if (command.length === 0) return;
       this.addChild(
         new ShellExecutionComponent({
           command,
           showCommand: true,
-          commandPreviewLines: this.expanded ? undefined : COMMAND_PREVIEW_LINES,
+          commandPreviewLines: undefined,
         }),
       );
     }
