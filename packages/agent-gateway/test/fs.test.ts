@@ -1,4 +1,4 @@
-import { chmod, mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, sep } from 'node:path';
 
@@ -6,11 +6,12 @@ import { IModelCatalog, IWorkspaceInstanceManager } from '@pymodel/agent-core-v2
 import { HostFileSystem } from '@pymodel/agent-core-v2/os/backends/node-local/hostFsService';
 import { FakeRuntime } from '@pymodel/agent-core-v2/runtime/fakeRuntime';
 import { ErrorCode } from '../src/protocol/error-codes';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { type RunningServer, startServer } from '../src/start';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 import { authHeaders } from './helpers/auth';
+import { fakeModelCatalog } from './helpers/fakeModelCatalog';
 
 interface Envelope<T> {
   code: number;
@@ -36,45 +37,31 @@ describe('server-v2 /api/v1 fs routes', () => {
   let work: string | undefined;
   let base: string;
 
-  beforeEach(async () => {
+  beforeAll(async () => {
     home = await mkdtemp(join(tmpdir(), 'pythinker-server-v2-fs-home-'));
-    work = await mkdtemp(join(tmpdir(), 'pythinker-server-v2-fs-work-'));
-    const modelCatalog: IModelCatalog = {
-      _serviceBrand: undefined,
-      get: () => {
-        throw new Error('modelCatalog.get not exercised in this test');
-      },
-      getRequester: () => {
-        throw new Error('modelCatalog.getRequester not exercised in this test');
-      },
-      inspect: () => {
-        throw new Error('modelCatalog.inspect not exercised in this test');
-      },
-      ping: () => {
-        throw new Error('modelCatalog.ping not exercised in this test');
-      },
-      findByName: () => [],
-      listModels: async () => [],
-      listProviders: async () => [],
-      getProvider: async () => {
-        throw new Error('modelCatalog.getProvider not exercised in this test');
-      },
-      setDefaultModel: async () => {
-        throw new Error('modelCatalog.setDefaultModel not exercised in this test');
-      },
-    };
     server = await startServer({
       hostIdentity: TEST_HOST_IDENTITY,
       host: '127.0.0.1',
       port: 0,
       homeDir: home,
       logLevel: 'silent',
-      seeds: [[IModelCatalog, modelCatalog]],
+      seeds: [[IModelCatalog, fakeModelCatalog()]],
     });
     base = `http://127.0.0.1:${server.port}`;
   });
 
+  beforeEach(async () => {
+    work = await mkdtemp(join(tmpdir(), 'pythinker-server-v2-fs-work-'));
+  });
+
   afterEach(async () => {
+    if (work !== undefined) {
+      await rm(work, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+      work = undefined;
+    }
+  });
+
+  afterAll(async () => {
     if (server !== undefined) {
       await server.close();
       server = undefined;
@@ -82,10 +69,6 @@ describe('server-v2 /api/v1 fs routes', () => {
     if (home !== undefined) {
       await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
       home = undefined;
-    }
-    if (work !== undefined) {
-      await rm(work, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
-      work = undefined;
     }
   });
 
@@ -701,15 +684,21 @@ describe('server-v2 /api/v1 fs routes', () => {
     expect(body.code).toBe(0);
     expect(body.data.items.map((i) => i.path)).toContain('kappa.ts');
 
-    expect(await listWorkspaces()).toEqual([]);
-    expect(server!.core.accessor.get(IWorkspaceInstanceManager).list()).toEqual([]);
+    const workAliases = new Set([work!, await realpath(work!)]);
+    expect((await listWorkspaces()).some((w) => workAliases.has(w.root))).toBe(false);
+    expect(
+      server!.core.accessor
+        .get(IWorkspaceInstanceManager)
+        .list()
+        .some((w) => workAliases.has(w.root)),
+    ).toBe(false);
 
     const again = await postRootSuggest<{ items: SuggestItemWire[] }>({
       roots: [work],
       query: 'kappa',
     });
     expect(again.code).toBe(0);
-    expect(await listWorkspaces()).toEqual([]);
+    expect((await listWorkspaces()).some((w) => workAliases.has(w.root))).toBe(false);
   });
 
   it('fs:suggest matches the workspace route for the same single root', async () => {

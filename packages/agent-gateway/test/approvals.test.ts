@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { ISessionApprovalService, ensureMainAgent, getLiveSessionById } from '@pymodel/agent-core-v2';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it, afterAll } from 'vitest';
 
 import { type RunningServer, startServer } from '../src/start';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
@@ -43,7 +43,7 @@ describe('server-v2 /api/v1/sessions/{sid}/approvals', () => {
   let home: string | undefined;
   let base: string;
 
-  beforeEach(async () => {
+  beforeAll(async () => {
     home = await mkdtemp(join(tmpdir(), 'pythinker-server-v2-approvals-'));
     server = await startServer({
       hostIdentity: TEST_HOST_IDENTITY,
@@ -55,7 +55,7 @@ describe('server-v2 /api/v1/sessions/{sid}/approvals', () => {
     base = `http://127.0.0.1:${server.port}`;
   });
 
-  afterEach(async () => {
+  afterAll(async () => {
     if (server !== undefined) {
       await server.close();
       server = undefined;
@@ -174,7 +174,7 @@ describe('server-v2 /api/v1/sessions/{sid}/approvals', () => {
     expect(first).not.toBe(second);
 
     const { body } = await getJson<ListWire>(`/api/v1/sessions/${sid}/approvals?status=pending`);
-    expect(body.data.items.map((i) => i.approval_id).sort()).toEqual([first, second].sort());
+    expect(body.data.items.map((i) => i.approval_id).toSorted()).toEqual([first, second].toSorted());
     expect(body.data.items.every((i) => i.tool_call_id === 'Bash_0')).toBe(true);
 
     for (const aid of [first, second]) {
