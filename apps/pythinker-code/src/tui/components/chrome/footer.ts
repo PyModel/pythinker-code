@@ -59,6 +59,8 @@ const GOAL_TIMER_INTERVAL_MS = 1_000;
 const TIP_ROTATE_INTERVAL_MS = 10_000;
 const TIP_SEPARATOR = ' | ';
 
+export type ToolOutputExpandHint = 'expand' | 'collapse';
+
 /**
  * Expand tips into a rotation sequence using smooth weighted round-robin
  * (the nginx SWRR algorithm). Higher-`priority` tips appear more often while
@@ -222,6 +224,7 @@ export class FooterComponent implements Component {
    */
   private backgroundBashTaskCount = 0;
   private backgroundAgentCount = 0;
+  private expandHintProvider: (() => ToolOutputExpandHint | null) | null = null;
 
   constructor(state: AppState, onRefresh: () => void = () => {}) {
     this.state = state;
@@ -300,6 +303,10 @@ export class FooterComponent implements Component {
    * count produces its own bracketed badge on line 1; zeros hide them
    * independently.
    */
+  setExpandHintProvider(provider: () => ToolOutputExpandHint | null): void {
+    this.expandHintProvider = provider;
+  }
+
   setBackgroundCounts(counts: { bashTasks: number; agentTasks: number }): void {
     this.backgroundBashTaskCount = Math.max(0, counts.bashTasks);
     this.backgroundAgentCount = Math.max(0, counts.agentTasks);
@@ -345,26 +352,20 @@ export class FooterComponent implements Component {
 
       const leftWidth = visibleWidth(leftLine);
 
-      // Rotating hint tips stay on the right unless they were given an
-      // inline slot in items (rendered above at their configured position)
-      // or the user dropped 'tips' from items.
-      let tipText = '';
       const tipsInline = order.includes('tips');
       const showTips = !tipsInline && (configured === null || configured.includes('tips'));
+      const tipCandidates: string[] = [];
       if (showTips) {
         const { primary, pair } = tipsForIndex(currentTipIndex());
-        const gap = 2;
-        const remaining = Math.max(0, width - leftWidth - gap);
-        if (pair && visibleWidth(pair) <= remaining) {
-          tipText = pair;
-        } else if (primary && visibleWidth(primary) <= remaining) {
-          tipText = primary;
-        }
+        if (pair) tipCandidates.push(pair);
+        if (primary) tipCandidates.push(primary);
       }
+      const remaining = Math.max(0, width - leftWidth - 2);
+      const rightText = this.buildRightText(tipCandidates, remaining, colors);
 
-      if (tipText) {
-        const pad = width - leftWidth - visibleWidth(tipText);
-        line1 = leftLine + ' '.repeat(Math.max(0, pad)) + chalk.hex(colors.textMuted)(tipText);
+      if (rightText.length > 0) {
+        const pad = width - leftWidth - visibleWidth(rightText);
+        line1 = leftLine + ' '.repeat(Math.max(0, pad)) + rightText;
       } else if (leftWidth <= width) {
         line1 = leftLine;
       } else {
@@ -395,14 +396,42 @@ export class FooterComponent implements Component {
         chalk.hex(colors.text)(contextText) +
         chalk.hex(colors.textDim)(speedSuffix);
     } else {
-      const leftPad = Math.max(0, width - rightWidth);
+      const shortcut = customLine !== null ? this.expandShortcut() : null;
+      const left =
+        shortcut !== null && visibleWidth(shortcut) + 1 + rightWidth <= width
+          ? chalk.hex(colors.textDim)(shortcut)
+          : '';
+      const leftPad = Math.max(0, width - visibleWidth(left) - rightWidth);
       line2 =
+        left +
         ' '.repeat(leftPad) +
         chalk.hex(colors.text)(contextText) +
         chalk.hex(colors.textDim)(speedSuffix);
     }
 
     return [truncateToWidth(line1, width), truncateToWidth(line2, width)];
+  }
+
+  private expandShortcut(): string | null {
+    const hint = this.expandHintProvider?.() ?? null;
+    return hint === null ? null : `ctrl+o ${hint}`;
+  }
+
+  private buildRightText(tips: readonly string[], remaining: number, colors: ColorPalette): string {
+    const shortcut = this.expandShortcut();
+    if (shortcut === null) {
+      const tip = tips.find((candidate) => visibleWidth(candidate) <= remaining);
+      return tip === undefined ? '' : chalk.hex(colors.textMuted)(tip);
+    }
+    for (const tip of tips) {
+      if (visibleWidth(`${shortcut}${TIP_SEPARATOR}${tip}`) <= remaining) {
+        return (
+          chalk.hex(colors.textDim)(shortcut) +
+          chalk.hex(colors.textMuted)(`${TIP_SEPARATOR}${tip}`)
+        );
+      }
+    }
+    return visibleWidth(shortcut) <= remaining ? chalk.hex(colors.textDim)(shortcut) : '';
   }
 
   /**

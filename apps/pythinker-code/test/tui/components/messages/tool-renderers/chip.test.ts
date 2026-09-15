@@ -25,8 +25,12 @@ function chipFor(name: string, args: Record<string, unknown>, out: ToolResultBlo
 }
 
 describe('chip registry', () => {
-  it('Bash has no chip (exit code is not surfaced)', () => {
-    expect(pickChip('Bash')).toBeUndefined();
+  it('Bash chip is silent when output fits the outcome rows', () => {
+    expect(chipFor('Bash', { command: 'echo hi' }, result('hi'))).toBe('');
+  });
+
+  it('Bash chip counts hidden lines past the outcome cap', () => {
+    expect(chipFor('Bash', { command: 'seq' }, result('a\nb\nc\nd'))).toBe('3 more lines');
   });
 
   it('Edit chip shows +N -M from args diff', () => {
@@ -53,8 +57,8 @@ describe('chip registry', () => {
     expect(chipFor('Read', { path: 'a.ts' }, result('1\tfoo'))).toBe('1 line');
   });
 
-  it('Grep chip shows match count', () => {
-    expect(chipFor('Grep', { pattern: 'foo' }, result('a.ts\nb.ts\nc.ts'))).toBe('3 matches');
+  it('Grep chip counts files in the default files-with-matches mode', () => {
+    expect(chipFor('Grep', { pattern: 'foo' }, result('a.ts\nb.ts\nc.ts'))).toBe('3 files');
   });
 
   it('Grep chip says "no matches" on empty result', () => {
@@ -78,10 +82,15 @@ describe('chip registry', () => {
   it.each([
     'No more matches at offset=347 in the current result set (347 matches).',
     'No matches collected; search incomplete.',
-    'No non-sensitive matches found (3 sensitive file(s) filtered).',
     'No matches found',
   ])('does not count an empty Glob page as a file: %s', (output) => {
     expect(chipFor('Glob', {}, result(output))).toBe('no files');
+  });
+
+  it('leaves the chip off a Glob result that is only a sensitive-file notice', () => {
+    expect(
+      chipFor('Glob', {}, result('No non-sensitive matches found (3 sensitive file(s) filtered).')),
+    ).toBe('');
   });
 
   it('ignores Glob footers on a complete page', () => {
@@ -103,13 +112,13 @@ describe('chip registry', () => {
     expect(chipFor('Glob', {}, result(output))).toBe('2+ files');
   });
 
-  it('reports no files when a multi-line warning precedes an empty page', () => {
+  it('leaves the chip off when a Glob warning precedes an empty page', () => {
     const output = [
       'Glob completed with warnings; some directories could not be read: rg: /deep/a: Permission denied',
       'rg: /deep/b: Permission denied',
       'No more matches at offset=9 in the collected partial result set (4 matches).',
     ].join('\n');
-    expect(chipFor('Glob', {}, result(output))).toBe('no files');
+    expect(chipFor('Glob', {}, result(output))).toBe('');
   });
 
   it('distinguishes the last Glob page from a partial result set', () => {
@@ -127,7 +136,7 @@ describe('chip registry', () => {
     expect(
       chipFor('Glob', {}, result('Showing matches.ts\nContinue with.txt\nNo more matches.ts')),
     ).toBe('3 files');
-    expect(chipFor('Grep', {}, result('Showing matches 1\u20132 of 3.'))).toBe('1 match');
+    expect(chipFor('Grep', {}, result('Showing matches 1\u20132 of 3.'))).toBe('1 file');
   });
 
   it('FetchURL chip shows size and is non-empty', () => {

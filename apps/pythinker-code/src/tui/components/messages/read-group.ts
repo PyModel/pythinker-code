@@ -27,6 +27,7 @@ import { STATUS_BULLET } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
 
 import type { ToolCallComponent, ToolCallReadSnapshot } from './tool-call';
+import { TruncatedHeaderLine, type HeaderContent } from './truncated-header-line';
 
 const THROTTLE_MS = 200;
 
@@ -37,7 +38,7 @@ interface ReadEntry {
 
 export class ReadGroupComponent extends Container {
   private readonly entries: ReadEntry[] = [];
-  private readonly headerText: Text;
+  private readonly headerText: TruncatedHeaderLine;
   private readonly bodyContainer: Container;
   private throttleTimer: ReturnType<typeof setTimeout> | null = null;
   private lastFlushPhases = new Map<string, ToolCallReadSnapshot['phase']>();
@@ -46,7 +47,7 @@ export class ReadGroupComponent extends Container {
   constructor(private readonly ui: TUI | undefined) {
     super();
     this.addChild(new Spacer(1));
-    this.headerText = new Text('', 0, 0);
+    this.headerText = new TruncatedHeaderLine('');
     this.addChild(this.headerText);
     this.bodyContainer = new Container();
     this.addChild(this.bodyContainer);
@@ -130,7 +131,12 @@ export class ReadGroupComponent extends Container {
     this.ui?.requestRender();
   }
 
-  private buildHeader(total: number, pending: number, failed: number, totalLines: number): string {
+  private buildHeader(
+    total: number,
+    pending: number,
+    failed: number,
+    totalLines: number,
+  ): HeaderContent {
     const dim = (text: string): string => currentTheme.dim(text);
 
     if (pending > 0) {
@@ -139,7 +145,6 @@ export class ReadGroupComponent extends Container {
       return `${bullet}${label}`;
     }
 
-    // All reads have finished, either successfully or with failures.
     if (failed === total) {
       const bullet = currentTheme.fg('error', '✗ ');
       const label = currentTheme.boldFg('error', `Read ${String(total)} files`);
@@ -149,8 +154,12 @@ export class ReadGroupComponent extends Container {
     const bullet = currentTheme.fg('success', STATUS_BULLET);
     const label = currentTheme.boldFg('textStrong', `Read ${String(total)} files`);
     const linesPart = dim(` · ${String(totalLines)} ${totalLines === 1 ? 'line' : 'lines'}`);
-    const failPart = failed > 0 ? currentTheme.fg('error', ` · ${String(failed)} failed`) : '';
-    return `${bullet}${label}${linesPart}${failPart}`;
+    if (failed === 0) return `${bullet}${label}${linesPart}`;
+    return {
+      head: `${bullet}${label}`,
+      flex: { text: ` · ${String(totalLines)} ${totalLines === 1 ? 'line' : 'lines'}`, style: dim, keep: 'head' },
+      tail: currentTheme.fg('error', ` · ${String(failed)} failed`),
+    };
   }
 
   private buildBodyLine(snap: ToolCallReadSnapshot, isLast: boolean): string {

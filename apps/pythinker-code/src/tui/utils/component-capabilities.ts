@@ -2,6 +2,11 @@ export interface Expandable {
   setExpanded(expanded: boolean): void;
 }
 
+export interface HidesContent extends Expandable {
+  hasHiddenContent(): boolean;
+  isExpanded(): boolean;
+}
+
 export interface Disposable {
   dispose(): void;
 }
@@ -12,6 +17,24 @@ export function isExpandable(obj: unknown): obj is Expandable {
     obj !== null &&
     'setExpanded' in obj &&
     typeof (obj as Expandable).setExpanded === 'function'
+  );
+}
+
+export function hasHiddenContent(obj: unknown): boolean {
+  return (
+    isExpandable(obj) &&
+    'hasHiddenContent' in obj &&
+    typeof (obj as HidesContent).hasHiddenContent === 'function' &&
+    (obj as HidesContent).hasHiddenContent()
+  );
+}
+
+export function isExpandedComponent(obj: unknown): boolean {
+  return (
+    isExpandable(obj) &&
+    'isExpanded' in obj &&
+    typeof (obj as HidesContent).isExpanded === 'function' &&
+    (obj as HidesContent).isExpanded()
   );
 }
 
