@@ -6,6 +6,7 @@ import type { ISessionSkillCatalog } from '#/features/skill/session/skillCatalog
 import { stubWorkspaceContext } from '../../../../session/workspaceContext/stub-workspace-context';
 import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import {
+  EVENT_LOG_MAX_LINE_LENGTH,
   MAX_BYTES,
   MAX_LINE_LENGTH,
   MAX_LINES,
@@ -13,6 +14,7 @@ import {
   ReadInputSchema,
   TRANSCODE_MAX_BYTES,
 } from '#/agent/tools/os/read/read';
+import type { IAgentToolResultTruncationService } from '#/agent/toolResultTruncation/toolResultTruncation';
 import { ReadTool } from '#/agent/tools/os/read/readTool';
 import { stubToolResultTruncationService } from '../../../../agent/toolResultTruncation/stubs';
 import type { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
@@ -232,6 +234,95 @@ describe('ReadTool', () => {
       output: '1\talpha',
       spillExempt: true,
     });
+  });
+
+  it('returns agent event log lines untruncated and marks the read spill-exempt', async () => {
+    const long = 'x'.repeat(MAX_LINE_LENGTH + 10);
+    const truncation: IAgentToolResultTruncationService = {
+      ...stubToolResultTruncationService(),
+      isWireJournalPath: (path) => path.endsWith('/wire.jsonl'),
+    };
+    const tool = createReadTool(
+      createSpiedFs([long, 'short'].join('\n')).fs,
+      createTestEnv(),
+      PERMISSIVE_WORKSPACE,
+      { catalog: { getSkillRoots: () => [] } } as unknown as ISessionSkillCatalog,
+      truncation,
+    );
+
+    const result = await execute(tool, {
+      path: '/home/user/.pythinker/sessions/ws/session/agents/main/wire.jsonl',
+    });
+    const output = toolContentString(result);
+
+    expect(output).toContain(long);
+    expect(output).not.toContain('...');
+    expect(result.note).not.toContain('were truncated');
+    expect(result.note).toContain('Agent event log');
+    expect(result.spillExempt).toBe(true);
+  });
+
+  it('caps a single event log record and reports the cap in the note', async () => {
+    const huge = 'y'.repeat(EVENT_LOG_MAX_LINE_LENGTH + 100);
+    const truncation: IAgentToolResultTruncationService = {
+      ...stubToolResultTruncationService(),
+      isWireJournalPath: (path) => path.endsWith('/wire.jsonl'),
+    };
+    const tool = createReadTool(
+      createSpiedFs(`${huge}\nshort`).fs,
+      createTestEnv(),
+      PERMISSIVE_WORKSPACE,
+      { catalog: { getSkillRoots: () => [] } } as unknown as ISessionSkillCatalog,
+      truncation,
+    );
+
+    const result = await execute(tool, {
+      path: '/home/user/.pythinker/sessions/ws/session/agents/main/wire.jsonl',
+      line_offset: 1,
+      n_lines: 1,
+    });
+    const output = toolContentString(result);
+
+    expect(output.length).toBeLessThanOrEqual(EVENT_LOG_MAX_LINE_LENGTH + 20);
+    expect(output).toContain('...');
+    expect(result.note).toContain(`truncated to ${String(EVENT_LOG_MAX_LINE_LENGTH)} characters`);
+    expect(result.spillExempt).toBe(true);
+  });
+
+  it('returns the last oversized event log record when reading from the tail', async () => {
+    const huge = 'z'.repeat(MAX_BYTES + 5_000);
+    const truncation: IAgentToolResultTruncationService = {
+      ...stubToolResultTruncationService(),
+      isWireJournalPath: (path) => path.endsWith('/wire.jsonl'),
+    };
+    const tool = createReadTool(
+      createSpiedFs(`first\n${huge}`).fs,
+      createTestEnv(),
+      PERMISSIVE_WORKSPACE,
+      { catalog: { getSkillRoots: () => [] } } as unknown as ISessionSkillCatalog,
+      truncation,
+    );
+
+    const result = await execute(tool, {
+      path: '/home/user/.pythinker/sessions/ws/session/agents/main/wire.jsonl',
+      line_offset: -1,
+    });
+    const output = toolContentString(result);
+
+    expect(output).toContain('z'.repeat(1_000));
+    expect(result.note).not.toContain('No lines read');
+  });
+
+  it('keeps truncating long lines when the truncation service does not recognize the path', async () => {
+    const long = 'x'.repeat(MAX_LINE_LENGTH + 10);
+    const tool = toolWithContent([long, 'short'].join('\n'));
+
+    const result = await execute(tool, {
+      path: '/home/user/.pythinker/sessions/ws/session/agents/main/wire.jsonl',
+    });
+
+    expect(result.note).toContain('Lines [1] were truncated to 2000 characters');
+    expect(result.spillExempt).toBeUndefined();
   });
 
   it('denies a benign alias that resolves to a sensitive file', async () => {

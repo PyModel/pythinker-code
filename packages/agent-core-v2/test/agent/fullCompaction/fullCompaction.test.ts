@@ -24,7 +24,12 @@ import { MASTER_ENV } from '#/app/flag/flagService';
 import { estimateTokensForMessages } from '#/kosong/contract/tokens';
 import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
 import type { TestAgentContext, TestAgentOptions, TestAgentServiceOverride } from '../../harness';
-import { agentService, appServices, createCommandRunner, execEnvServices, hostEnvironmentServices, sessionServices, testAgent as createTestAgent } from '../../harness';
+import { agentService, appService, appServices, createCommandRunner, execEnvServices, hostEnvironmentServices, sessionServices, testAgent as createTestAgent } from '../../harness';
+import { IFileSystemStorageService } from '#/persistence/interface/storage';
+import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
+import { ISessionTokenCountingService } from '#/session/tokenCounting/sessionTokenCounting';
+import { renderCompactionInstruction } from '#/agent/fullCompaction/compactionInstruction';
+import { IWireService } from '#/wire/wire';
 import { IAgentToolSelectAnnouncementsService } from '#/agent/toolSelect/toolSelectAnnouncements';
 import {
   IAgentFullCompactionService,
@@ -304,7 +309,7 @@ describe('FullCompaction', () => {
         compacted_count: 6,
         retry_count: 0,
         thinking_effort: 'off',
-        input_tokens: 1181,
+        input_tokens: 1247,
         output_tokens: 8,
         input_cache_read: 0,
         input_cache_creation: 0,
@@ -2179,6 +2184,35 @@ describe('FullCompaction', () => {
     await ctx.expectResumeMatches();
   });
 
+  it('fails the compaction instead of compacting an empty history when overflow shrink drops everything', async () => {
+    let calls = 0;
+    const generate: GenerateFn = async () => {
+      calls += 1;
+      if (calls === 1) {
+        throw new APIContextOverflowError(400, 'Context length exceeded', 'req-shrink-empty');
+      }
+      return textResult('Groundless summary.');
+    };
+    const ctx = testAgent({ generate });
+    ctx.configure({
+      provider: CATALOGUED_PROVIDER,
+      modelCapabilities: CATALOGUED_MODEL_CAPABILITIES,
+    });
+    ctx.appendExchange(1, 'small user one', 'small assistant one', 20);
+    ctx.context.append({
+      role: 'user',
+      content: [{ type: 'text', text: 'X'.repeat(400_000) }],
+      toolCalls: [],
+    });
+    const failed = ctx.once('error');
+
+    await ctx.rpc.beginCompaction({});
+    await failed;
+
+    expect(calls).toBe(1);
+    expect(ctx.context.get()).toHaveLength(3);
+  });
+
   it('compacts and retries when the provider reports context overflow', async () => {
     let callCount = 0;
     const inputs: string[][] = [];
@@ -3031,6 +3065,180 @@ describe('FullCompaction', () => {
       text: expect.stringContaining('The conversation so far has been compacted'),
     });
     await ctx.expectResumeMatches();
+  });
+});
+
+describe('FullCompaction context recovery pointer', () => {
+  const JOURNAL_HOME = '/home/user/.pythinker';
+
+  interface ApplyCompactionArgs {
+    readonly summary?: string;
+    readonly contextSummary?: string;
+    readonly wireLines?: { readonly start: number; readonly end: number };
+  }
+
+  function locatedStorage(base: string): IFileSystemStorageService {
+    const memory = new InMemoryStorageService();
+    return new Proxy(memory, {
+      get(target, property, receiver) {
+        if (property === 'pathFor') {
+          return (scope: string, key: string) => `${base}/${scope}/${key}`;
+        }
+        const value = Reflect.get(target, property, receiver) as unknown;
+        return typeof value === 'function'
+          ? (value as (...args: unknown[]) => unknown).bind(target)
+          : value;
+      },
+    }) as unknown as IFileSystemStorageService;
+  }
+
+  function recoveryAgent(
+    ...inputs: readonly (TestAgentServiceOverride | TestAgentOptions)[]
+  ): TestAgentContext {
+    const ctx = testAgent(...inputs);
+    ctx.configure({
+      provider: CATALOGUED_PROVIDER,
+      modelCapabilities: CATALOGUED_MODEL_CAPABILITIES,
+      tools: SNAPSHOT_VISIBLE_TOOLS,
+    });
+    return ctx;
+  }
+
+  async function compactOnce(ctx: TestAgentContext, summary: string): Promise<void> {
+    const completed = ctx.once('compaction.completed');
+    ctx.mockNextResponse({ type: 'text', text: summary });
+    await ctx.rpc.beginCompaction({});
+    await completed;
+  }
+
+  function noteText(ctx: TestAgentContext): string {
+    const part = ctx.context.get().at(-1)?.content[0];
+    return part?.type === 'text' ? part.text : '';
+  }
+
+  function applyCompactionRecords(ctx: TestAgentContext): ApplyCompactionArgs[] {
+    return ctx.newEvents().flatMap((event) => {
+      if (event === null || typeof event !== 'object') return [];
+      const candidate = event as { type?: unknown; event?: unknown; args?: unknown };
+      if (candidate.type !== '[wire]' || candidate.event !== 'context.apply_compaction') return [];
+      return [candidate.args as ApplyCompactionArgs];
+    });
+  }
+
+  it('appends the journal location and window line ranges to the model-facing note', async () => {
+    const ctx = recoveryAgent(appService(IFileSystemStorageService, locatedStorage(JOURNAL_HOME)));
+    ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
+    ctx.appendExchange(2, 'recent user two', 'recent assistant two', 40);
+
+    await compactOnce(ctx, 'Compacted summary.');
+
+    const [record] = applyCompactionRecords(ctx);
+    expect(record?.wireLines).toEqual({ start: 1, end: expect.any(Number) });
+    const end = record!.wireLines!.end;
+    expect(end).toBeGreaterThan(1);
+    const note = noteText(ctx);
+    expect(note).toContain('Compacted summary.');
+    expect(note).toContain('## Context Recovery');
+    expect(note).toContain(`${JOURNAL_HOME}/`);
+    expect(note).toContain('/wire.jsonl');
+    expect(note).toContain(`window 1: lines 1–${String(end)}   ← the conversation this note summarizes`);
+    expect(note).toContain(`window 2 (the one you are in now) starts at line ${String(end + 1)}`);
+    expect(note).toContain('context.append_loop_event');
+    expect(record?.summary).not.toContain('Context Recovery');
+    expect(record?.contextSummary).toContain('Context Recovery');
+    await ctx.expectResumeMatches();
+  });
+
+  it('lists every earlier window after repeated compactions', async () => {
+    const ctx = recoveryAgent(appService(IFileSystemStorageService, locatedStorage(JOURNAL_HOME)));
+    ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
+    await compactOnce(ctx, 'First summary.');
+    ctx.appendExchange(2, 'recent user two', 'recent assistant two', 40);
+    await compactOnce(ctx, 'Second summary.');
+
+    const [first, second] = applyCompactionRecords(ctx);
+    const firstLines = first!.wireLines!;
+    const secondLines = second!.wireLines!;
+    expect(secondLines.start).toBe(firstLines.end + 1);
+    expect(secondLines.end).toBeGreaterThan(secondLines.start);
+    const note = noteText(ctx);
+    expect(note).toContain(`window 1: lines 1–${String(firstLines.end)}\n`);
+    expect(note).not.toContain(`window 1: lines 1–${String(firstLines.end)}   ←`);
+    expect(note).toContain(
+      `window 2: lines ${String(secondLines.start)}–${String(secondLines.end)}   ← the conversation this note summarizes`,
+    );
+    expect(note).toContain(`window 3 (the one you are in now) starts at line ${String(secondLines.end + 1)}`);
+    await ctx.expectResumeMatches();
+  });
+
+  it('records window line ranges but omits the pointer when the journal has no on-disk path', async () => {
+    const ctx = recoveryAgent();
+    ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
+    ctx.appendExchange(2, 'recent user two', 'recent assistant two', 40);
+
+    await compactOnce(ctx, 'Compacted summary.');
+
+    const [record] = applyCompactionRecords(ctx);
+    expect(record?.wireLines).toEqual({ start: 1, end: expect.any(Number) });
+    expect(noteText(ctx)).not.toContain('Context Recovery');
+    expect(record?.contextSummary).not.toContain('Context Recovery');
+  });
+
+  it('starts the window after the latest context.clear record', async () => {
+    const ctx = recoveryAgent(appService(IFileSystemStorageService, locatedStorage(JOURNAL_HOME)));
+    ctx.appendExchange(1, 'discarded user one', 'discarded assistant one', 20);
+    ctx.context.clear();
+    ctx.appendExchange(2, 'post-clear user two', 'post-clear assistant two', 40);
+
+    await compactOnce(ctx, 'Post-clear summary.');
+
+    const wire = ctx.get(IWireService);
+    await wire.flush();
+    let line = 0;
+    let clearLine = 0;
+    for await (const record of wire.readJournal()) {
+      line += 1;
+      if (record.type === 'context.clear') clearLine = line;
+    }
+    expect(clearLine).toBeGreaterThan(1);
+    const [record] = applyCompactionRecords(ctx);
+    expect(record?.wireLines?.start).toBe(clearLine + 1);
+    expect(record!.wireLines!.end).toBeGreaterThan(clearLine);
+    const note = noteText(ctx);
+    expect(note).toContain(`window 1: lines ${String(clearLine + 1)}–`);
+    expect(note).not.toContain('window 1: lines 1–');
+  });
+
+  it('counts the appended recovery footer into the compacted token floor', async () => {
+    const withFooter = recoveryAgent(
+      appService(IFileSystemStorageService, locatedStorage(JOURNAL_HOME)),
+    );
+    const bare = recoveryAgent();
+    for (const ctx of [withFooter, bare]) {
+      ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
+      ctx.appendExchange(2, 'recent user two', 'recent assistant two', 40);
+      await compactOnce(ctx, 'Compacted summary.');
+    }
+
+    const [footerRecord] = applyCompactionRecords(withFooter);
+    const contextSummary = footerRecord!.contextSummary!;
+    const footer = contextSummary.slice(contextSummary.indexOf('## Context Recovery'));
+    expect(footer.length).toBeGreaterThan(0);
+    const withFooterTokens = withFooter.tokenCounting.get().size;
+    const bareTokens = bare.tokenCounting.get().size;
+    expect(withFooterTokens - bareTokens).toBe(
+      withFooter.get(ISessionTokenCountingService).estimateText(footer),
+    );
+  });
+
+  it('tells the summarizer a recovery pointer follows the note', () => {
+    const withPointer = renderCompactionInstruction({});
+    const withCustom = renderCompactionInstruction({ customInstruction: ' keep the API facts ' });
+
+    expect(withPointer).toContain('a recovery pointer is appended below your note automatically');
+    expect(withPointer).toContain('format for the final answer.\n\nThis conversation');
+    expect(withPointer).not.toContain('${');
+    expect(withCustom).toContain('Optional user instruction:\nkeep the API facts');
   });
 });
 

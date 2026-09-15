@@ -1,7 +1,7 @@
 import type { ReplayableStateKey } from '#/state/state';
 
 import { contextMemoryKey } from '#/agent/contextMemory/contextOps';
-import { fullCompactionKey } from '#/agent/fullCompaction/compactionOps';
+import { fullCompactionKey, fullCompactionWireRangesKey } from '#/agent/fullCompaction/compactionOps';
 import { interruptionReminderKey } from '#/agent/interruptionReminder/interruptionReminderOps';
 import { llmRequestTraceKey } from '#/agent/llmRequester/llmRequestOps';
 import { turnKey } from '#/agent/loop/turnOps';
@@ -28,6 +28,7 @@ export const BUILTIN_REPLAYABLE_STATE_KEYS: readonly ReplayableStateKey<any>[] =
   subagentBindingProvenanceKey,
   contextMemoryKey,
   fullCompactionKey,
+  fullCompactionWireRangesKey,
   interruptionReminderKey,
   llmRequestTraceKey,
   turnKey,
