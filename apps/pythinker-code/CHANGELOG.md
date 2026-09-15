@@ -1,5 +1,51 @@
 # @pymodel/pythinker-code
 
+## 2.0.0
+
+### Major Changes
+
+- [#306](https://github.com/PyModel/pythinker-code/pull/306) [`39b50b5`](https://github.com/PyModel/pythinker-code/commit/39b50b5407ce060518b958f44b0ba62509cb028d) Thanks [@elkaix](https://github.com/elkaix)! - Remote Control is always available — `pythinker rc`, `pythinker web --remote-control` and `/remote-control` no longer need an experimental flag. Session indexing and global search move to the new `[database]` section: set `PYTHINKER_CODE_PERSISTENCE_MINIDB_READMODEL` (was `PYTHINKER_CODE_EXPERIMENTAL_PERSISTENCE_MINIDB_READMODEL`) and `PYTHINKER_CODE_SEARCH_WORKER` (was `PYTHINKER_CODE_EXPERIMENTAL_SEARCH_WORKER`), or `[database] base` and `[database] search` in `config.toml`.
+
+- [#306](https://github.com/PyModel/pythinker-code/pull/306) [`39b50b5`](https://github.com/PyModel/pythinker-code/commit/39b50b5407ce060518b958f44b0ba62509cb028d) Thanks [@elkaix](https://github.com/elkaix)! - The subagent model pool is always available. Remove `PYTHINKER_CODE_EXPERIMENTAL_SECONDARY_MODEL` from your environment — it no longer does anything, and `[secondary_model]` takes effect with no opt-in.
+
+- [#306](https://github.com/PyModel/pythinker-code/pull/306) [`39b50b5`](https://github.com/PyModel/pythinker-code/commit/39b50b5407ce060518b958f44b0ba62509cb028d) Thanks [@elkaix](https://github.com/elkaix)! - Remove the `${now}` variable from custom system prompt templates. Delete `${now}` from your `SYSTEM.md` and agent files — the agent still receives the current date.
+
+### Minor Changes
+
+- [#309](https://github.com/PyModel/pythinker-code/pull/309) [`3c21d16`](https://github.com/PyModel/pythinker-code/commit/3c21d16ce2b20cd825a52022f6935f62f74ed7de) Thanks [@elkaix](https://github.com/elkaix)! - Add the `PYTHINKER_CODE_PERMISSION_MODE_REMINDER` environment variable: set it to a false value or an empty value to stop injecting the auto permission-mode reminders into the model context.
+
+- [#306](https://github.com/PyModel/pythinker-code/pull/306) [`39b50b5`](https://github.com/PyModel/pythinker-code/commit/39b50b5407ce060518b958f44b0ba62509cb028d) Thanks [@elkaix](https://github.com/elkaix)! - The server can now start and stop Remote Control while it runs, through `GET` and `POST /api/v1/remote-control`.
+
+### Patch Changes
+
+- [#308](https://github.com/PyModel/pythinker-code/pull/308) [`ec99d66`](https://github.com/PyModel/pythinker-code/commit/ec99d664c95b4e803f6845184420063068a3f47a) Thanks [@elkaix](https://github.com/elkaix)! - Deliver background question answers to the agent directly instead of via a saved output file.
+
+- [#308](https://github.com/PyModel/pythinker-code/pull/308) [`ec99d66`](https://github.com/PyModel/pythinker-code/commit/ec99d664c95b4e803f6845184420063068a3f47a) Thanks [@elkaix](https://github.com/elkaix)! - Fix background questions being cancelled as soon as the agent finishes its turn.
+
+- [#313](https://github.com/PyModel/pythinker-code/pull/313) [`09d69fe`](https://github.com/PyModel/pythinker-code/commit/09d69fec95709d7bcda8872aab7adc5714510f16) Thanks [@elkholy90](https://github.com/elkholy90)! - Collapsed tool cards now show a short outcome row and a width-aware header.
+
+- [#307](https://github.com/PyModel/pythinker-code/pull/307) [`49548fb`](https://github.com/PyModel/pythinker-code/commit/49548fb1f1949f787887c198df0fae5d19abfc46) Thanks [@elkaix](https://github.com/elkaix)! - Exclude time spent with the session closed from goal time budgets.
+
+- [#307](https://github.com/PyModel/pythinker-code/pull/307) [`49548fb`](https://github.com/PyModel/pythinker-code/commit/49548fb1f1949f787887c198df0fae5d19abfc46) Thanks [@elkaix](https://github.com/elkaix)! - Preserve image and video filenames in session history.
+
+- [#307](https://github.com/PyModel/pythinker-code/pull/307) [`49548fb`](https://github.com/PyModel/pythinker-code/commit/49548fb1f1949f787887c198df0fae5d19abfc46) Thanks [@elkaix](https://github.com/elkaix)! - Fix print mode (`pythinker -p`) ignoring the `PYTHINKER_DISABLE_TELEMETRY` environment variable.
+
+- [#306](https://github.com/PyModel/pythinker-code/pull/306) [`39b50b5`](https://github.com/PyModel/pythinker-code/commit/39b50b5407ce060518b958f44b0ba62509cb028d) Thanks [@elkaix](https://github.com/elkaix)! - The Remote Control banner's Local UI link now carries the server token, so it opens without a second sign-in.
+
+- [#306](https://github.com/PyModel/pythinker-code/pull/306) [`39b50b5`](https://github.com/PyModel/pythinker-code/commit/39b50b5407ce060518b958f44b0ba62509cb028d) Thanks [@elkaix](https://github.com/elkaix)! - Remote Control now gzips text, JSON, JavaScript, XML and SVG responses over the tunnel.
+
+- [#307](https://github.com/PyModel/pythinker-code/pull/307) [`49548fb`](https://github.com/PyModel/pythinker-code/commit/49548fb1f1949f787887c198df0fae5d19abfc46) Thanks [@elkaix](https://github.com/elkaix)! - Remove the 24-hour limit on goal time budgets.
+
+- [#315](https://github.com/PyModel/pythinker-code/pull/315) [`a7666f8`](https://github.com/PyModel/pythinker-code/commit/a7666f83781cfe681eef692d33cf9605c8bfb8c3) Thanks [@elkholy90](https://github.com/elkholy90)! - Skip the confirmation prompt for rm -rf commands that target only /tmp or /temp paths.
+
+- [#306](https://github.com/PyModel/pythinker-code/pull/306) [`39b50b5`](https://github.com/PyModel/pythinker-code/commit/39b50b5407ce060518b958f44b0ba62509cb028d) Thanks [@elkaix](https://github.com/elkaix)! - Global search now rebuilds its index instead of staying broken when the stored data is corrupt or a write keeps failing.
+
+- [#306](https://github.com/PyModel/pythinker-code/pull/306) [`39b50b5`](https://github.com/PyModel/pythinker-code/commit/39b50b5407ce060518b958f44b0ba62509cb028d) Thanks [@elkaix](https://github.com/elkaix)! - A background task that finishes after its agent is closed no longer emits stray task events.
+
+- [#307](https://github.com/PyModel/pythinker-code/pull/307) [`49548fb`](https://github.com/PyModel/pythinker-code/commit/49548fb1f1949f787887c198df0fae5d19abfc46) Thanks [@elkaix](https://github.com/elkaix)! - Add `-y, --yes` to `pythinker upgrade` (alias `pythinker update`) to skip the confirmation prompt and install the update directly.
+
+- [#317](https://github.com/PyModel/pythinker-code/pull/317) [`8b30377`](https://github.com/PyModel/pythinker-code/commit/8b3037780fbd5aa7665eb2e478974f9c5fb53b29) Thanks [@elkaix](https://github.com/elkaix)! - Add a working directory guide arrow to empty conversations and update the agent thinking indicator to a matrix spinner.
+
 ## 1.14.0
 
 ### Minor Changes
