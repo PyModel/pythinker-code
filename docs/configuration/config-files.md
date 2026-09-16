@@ -454,6 +454,23 @@ disabled = ["EnterPlanMode", "ExitPlanMode", "mcp__github__*"]
 Like the `tools` / `disallowedTools` fields of an agent file, this section shapes the tools shown to the model and is enforced again before execution. [Permission rules](#permission) remain a separate control for operations that require approval.
 :::
 
+## `read`
+
+`read` controls the character limits for the [`Read` tool](../reference/tools.md). The limit includes file content, line numbers, and the status block; it does not impose a separate line-count or UTF-8 byte limit.
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `default_max_chars` | `integer` | `100000` | Character budget when the tool call omits `max_chars` |
+| `max_chars` | `integer` | `500000` | Maximum character budget a tool call may request |
+
+```toml
+[read]
+default_max_chars = 100000
+max_chars = 500000
+```
+
+Both values must be positive integers. A call's `max_chars` overrides the default, but is capped at the configured maximum; the result reports the effective budget. If the configured default exceeds the maximum, the maximum also limits default reads. Raise `default_max_chars` when you want larger documents to be returned in one call without the agent requesting a larger budget.
+
 ## `image`
 
 `image` controls how images are compressed before being sent to the model, across every ingestion point (pasted images, `ReadMediaFile` reads, images in MCP tool results, and so on).
@@ -561,6 +578,7 @@ Alongside `config.toml`, the CLI keeps terminal-UI and client preferences in a c
 | `render_latex` | `boolean` | `true` | Render LaTeX math expressions (`$…$`, `$$…$$`) in Markdown messages as Unicode text; `false` keeps the raw source |
 | `disable_paste_burst` | `boolean` | `false` | Disable the non-bracketed paste-burst fallback that keeps rapid multi-line pastes from submitting line by line |
 | `cache_expiry_hint` | `boolean` | `true` | Show a dialog when resuming a long-idle session or submitting after a long idle stretch, warning that the context cache has likely expired and offering to compact or start a new session (v2 engine only) |
+| `disable_feedback_survey` | `boolean` | `false` | Disable the occasional session rating prompt above the input box |
 | `[editor].command` | `string` | `""` | External editor command for composing long input; empty falls back to `$VISUAL` / `$EDITOR` |
 | `[notifications].enabled` | `boolean` | `true` | Whether desktop notifications are sent |
 | `[notifications].notification_condition` | `string` | `unfocused` | When to notify: `unfocused` (only when the terminal is not focused) or `always` |
@@ -574,6 +592,7 @@ theme = "auto" # "auto" | "dark" | "light" | custom theme name
 render_latex = true # false keeps LaTeX math in messages as raw source
 disable_paste_burst = false # true disables non-bracketed paste-burst fallback
 cache_expiry_hint = true # false disables the "cache expired" dialog on resume / idle submit
+disable_feedback_survey = false # true hides the occasional session rating prompt
 
 [editor]
 command = "" # empty uses $VISUAL / $EDITOR

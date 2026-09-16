@@ -1,4 +1,4 @@
-import { join, resolve } from 'pathe';
+import { join, relative, resolve } from 'pathe';
 import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import type { ISessionScopeHandle } from '#/_base/di/scope';
@@ -14,6 +14,7 @@ import {
   workspacePersistenceScope,
 } from '#/workspace/sessionLifecycle/internal/addressing';
 import { ErrorCodes, Error2 } from '#/errors';
+import { FILE_HISTORY_BLOB_PREFIX } from '#/features/fileHistory/fileHistory';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
 
@@ -202,9 +203,11 @@ export async function exportSessionDirectory(input: {
 
     const sessionScan = await scanSessionWire(sessionDir, input.signal);
     const stableSessionLog = sessionLogSource;
-    const selectedSessionFiles: SessionZipEntry[] = sessionFiles.filter(
-      (file) => file !== sessionLogPath,
-    );
+    const selectedSessionFiles: SessionZipEntry[] = sessionFiles.filter((file) => {
+      if (file === sessionLogPath) return false;
+      const parts = relative(sessionDir, file).split(/[\\/]/);
+      return parts[0] !== FILE_HISTORY_BLOB_PREFIX && parts[0] !== 'notify';
+    });
     if (stableSessionLog !== undefined) {
       selectedSessionFiles.push({ path: sessionLogPath, source: stableSessionLog });
       selectedSessionFiles.sort((left, right) =>

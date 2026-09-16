@@ -49,6 +49,7 @@ export interface PromptHandle extends PromptSnapshot {
 export interface PromptQueueSnapshot {
   readonly active: PromptSnapshot | undefined;
   readonly pending: readonly PromptSnapshot[];
+  readonly launching: boolean;
 }
 
 export interface PromptPayload {

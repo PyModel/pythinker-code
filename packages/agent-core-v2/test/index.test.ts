@@ -88,6 +88,8 @@ const V2_RECORD_TYPES: ReadonlySet<string> = new Set([
   'interaction.request',
   'interaction.resolved',
   'plan.revision',
+  'file_history.tracked',
+  'file_history.checkpoint',
   'interruptionReminder.recorded',
   'plugin.session_start',
   'runtime.set_binding',
@@ -285,6 +287,7 @@ describe('conversation-time checkpoint registration', () => {
   const CHECKPOINT_EXEMPT_STATES: ReadonlySet<string> = new Set([
     'goalForkNotice',
     'turn',
+    'fullCompaction.wireRanges',
   ]);
   const CONTEXT_OWNER_STATE = 'contextMemory';
   const CONTEXT_EVENTS: readonly Event2Class[] = [
@@ -387,6 +390,23 @@ describe('AgentRecords persistence metadata', () => {
 
     expect(persistence.rewrites).toEqual([]);
     expect(persistence.records.filter((record) => record.type === 'metadata')).toHaveLength(1);
+  });
+
+  it('keeps restore history stable after a consumer stops reading the journal early', async () => {
+    persistence.records.push(
+      { type: 'metadata', protocol_version: WIRE_PROTOCOL_VERSION, created_at: 1 },
+      ...['first', 'second'].map((text) => ({
+        type: 'context.append_message',
+        message: {
+          role: 'user', content: [{ type: 'text', text }], toolCalls: [], origin: { kind: 'user' },
+        },
+      })),
+    );
+    for await (const record of ctx.get(IAppendLogStore).read<WireRecord>('', AGENT_WIRE_RECORD_KEY)) {
+      if (record.type === 'context.append_message') break;
+    }
+    await ctx.restorePersisted();
+    expect(ctx.context.get()).toHaveLength(2);
   });
 
   it('rewrites migrated records to the current wire version after replay', async () => {

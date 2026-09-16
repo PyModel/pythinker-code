@@ -1,4 +1,5 @@
 import { Error2, ErrorCodes } from '#/errors';
+import { FILE_HISTORY_RECORD_PREFIX } from '#/features/fileHistory/fileHistoryOps';
 import type { ContentPart } from '#/kosong/contract/message';
 import {
   promptMetadataTextFromContentParts,
@@ -42,18 +43,19 @@ export function sliceMainRecordsAtTurn(
 
   const end = turnStarts[turnIndex + 1] ?? records.length;
   const retainedTurnInputs = turnInputIndicesThrough(records, turnIndex);
-  const retained = records
+  const window = records
     .slice(0, end)
     .filter(
-      (record, index) => !isUserVisibleTurnInputRecord(record) || retainedTurnInputs.has(index),
+      (record, index) =>
+        !isUserVisibleTurnInputRecord(record) || retainedTurnInputs.has(index),
     );
-  const cutoffTimes = retained
-    .map(recordTime)
-    .filter((time): time is number => time !== undefined);
+  const retained = window.filter(
+    (record) => !record.type.startsWith(FILE_HISTORY_RECORD_PREFIX),
+  );
   const lastPrompt = promptMetadataFromTurnRecord(records[start]!);
   return {
     records: retained,
-    cutoffTime: cutoffTimes.length === 0 ? undefined : Math.max(...cutoffTimes),
+    cutoffTime: cutoffFrom(window),
     lastPrompt,
   };
 }
@@ -82,15 +84,15 @@ export function sliceMainRecordsBeforePrompt(
     return sliceMainRecordsAtTurn(records, sourceSessionId, activeTurnIndex - 1);
   }
   const activeStart = turnStarts[0]!;
-  const retained = records
+  const window = records
     .slice(0, activeStart)
     .filter((record) => !isUserVisibleTurnInputRecord(record));
-  const cutoffTimes = retained
-    .map(recordTime)
-    .filter((time): time is number => time !== undefined);
+  const retained = window.filter(
+    (record) => !record.type.startsWith(FILE_HISTORY_RECORD_PREFIX),
+  );
   return {
     records: retained,
-    cutoffTime: cutoffTimes.length === 0 ? undefined : Math.max(...cutoffTimes),
+    cutoffTime: cutoffFrom(window),
   };
 }
 
@@ -108,6 +110,13 @@ export function sliceSubagentRecordsAtTime(
     }
   }
   return records.slice(0, end);
+}
+
+function cutoffFrom(records: readonly WireRecord[]): number | undefined {
+  const times = records
+    .map(recordTime)
+    .filter((time): time is number => time !== undefined);
+  return times.length === 0 ? undefined : Math.max(...times);
 }
 
 function isUserVisibleTurnRecord(record: WireRecord): boolean {

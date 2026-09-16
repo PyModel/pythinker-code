@@ -22,6 +22,7 @@ import {
   AgentCron,
   AgentGoal,
   IAgentLifecycleService,
+  IAgentLoopService,
   IAgentPermissionModeService,
   IAgentProfileService,
   IAgentPromptService,
@@ -30,6 +31,7 @@ import {
   IBootstrapService,
   IConfigService,
   IEventBus,
+  IEventDispatcher,
   IHostFileSystem,
   ISessionIndex,
   IWorkspaceInstanceManager,
@@ -125,6 +127,8 @@ import {
 const PROMPT_UI_MODE = 'print';
 /** Re-check `goalActive` at least this often while waiting for goal turns. */
 const GOAL_WAIT_POLL_MS = 250;
+/** Re-check each agent's prompt queue while waiting for it to drain at exit. */
+const PROMPT_QUIESCE_POLL_MS = 10;
 /**
  * Slack on top of a scheduled cron fire time while waiting for the steered
  * turn: covers the 1s tick poll interval plus fire → inject → turn-launch
@@ -197,6 +201,9 @@ export async function runV2Print(
   }
 
   let restorePermission = async (): Promise<void> => {};
+  let quiesceAgents = async (_signal?: AbortSignal): Promise<void> => {};
+  let releaseQuiescence: (() => void) | undefined;
+  let flushWires = async (): Promise<void> => {};
   let removeTerminationCleanup: (() => void) | undefined;
   let cleanupPromise: Promise<void> | undefined;
   let telemetryService: ITelemetryService | undefined;
@@ -204,16 +211,27 @@ export async function runV2Print(
     const pending = (cleanupPromise ??= (async () => {
       removeTerminationCleanup?.();
       setCrashPhase('shutdown');
+      const quiesceAbort = new AbortController();
       try {
         await restorePermission();
+        await raceWithTimeout(quiesceAgents(quiesceAbort.signal), CLI_SHUTDOWN_TIMEOUT_MS).catch(
+          () => {},
+        );
       } finally {
+        quiesceAbort.abort();
         try {
-          if (telemetryService !== undefined) {
-            await raceWithTimeout(telemetryService.shutdown(), CLI_SHUTDOWN_TIMEOUT_MS);
-          }
-        } finally {
-          await shutdownTelemetry({ timeoutMs: CLI_SHUTDOWN_TIMEOUT_MS }).catch(() => {});
+          await Promise.all([
+            raceWithTimeout(flushWires(), CLI_SHUTDOWN_TIMEOUT_MS).catch(() => {}),
+            telemetryService !== undefined
+              ? raceWithTimeout(telemetryService.shutdown(), CLI_SHUTDOWN_TIMEOUT_MS).catch(
+                  () => {},
+                )
+              : Promise.resolve(),
+            shutdownTelemetry({ timeoutMs: CLI_SHUTDOWN_TIMEOUT_MS }).catch(() => {}),
+          ]);
           app.dispose();
+        } finally {
+          releaseQuiescence?.();
         }
       }
     })());
@@ -262,6 +280,10 @@ export async function runV2Print(
 
     const resolved = await resolveNativeSession(app, opts, workDir, defaultModel, stderr);
     restorePermission = resolved.restorePermission;
+    quiesceAgents = async (signal) => {
+      releaseQuiescence = await quiesceSessionAgents(resolved.session, resolved.agent, signal);
+    };
+    flushWires = () => flushSessionWires(resolved.session, resolved.agent);
 
     telemetryService.setContext({ sessionId: resolved.session.id, model: resolved.telemetryModel });
     setTelemetryContext({ sessionId: resolved.session.id });
@@ -933,6 +955,149 @@ function countPendingBackgroundTasks(session: ISessionScopeHandle): number {
     count += handle.accessor.get(IAgentTaskService).list(true).length;
   }
   return count;
+}
+
+function collectSessionAgentHandles(
+  session: ISessionScopeHandle,
+  mainAgent: IAgentScopeHandle,
+): IAgentScopeHandle[] {
+  const agentManager = session.accessor.get(IAgentLifecycleService);
+  const handles = new Set<IAgentScopeHandle>([mainAgent]);
+  for (const agent of agentManager.list()) {
+    const handle = agentManager.handleOf(agent.agentId);
+    if (handle !== undefined) handles.add(handle);
+  }
+  return [...handles];
+}
+
+export function abortPromise(signal: AbortSignal | undefined): Promise<void> {
+  if (signal === undefined) return new Promise(() => {});
+  if (signal.aborted) return Promise.resolve();
+  return new Promise((resolve) => {
+    signal.addEventListener('abort', () => resolve(), { once: true });
+  });
+}
+
+export async function settleOrAbort(
+  signal: AbortSignal | undefined,
+  work: Promise<unknown>,
+): Promise<void> {
+  if (signal?.aborted) return;
+  await Promise.race([work.then(() => undefined, () => undefined), abortPromise(signal)]);
+}
+
+export async function delayOrAbort(signal: AbortSignal | undefined, ms: number): Promise<void> {
+  if (signal?.aborted) return;
+  await new Promise<void>((resolve) => {
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    const onAbort = (): void => {
+      clearTimeout(timer);
+      resolve();
+    };
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
+async function quiesceSessionAgents(
+  session: ISessionScopeHandle,
+  mainAgent: IAgentScopeHandle,
+  signal?: AbortSignal,
+): Promise<(() => void) | undefined> {
+  const handles = collectSessionAgentHandles(session, mainAgent);
+  const promptServices = handles.flatMap((handle) => {
+    try {
+      return [handle.accessor.get(IAgentPromptService)];
+    } catch {
+      return [];
+    }
+  });
+  const loops = handles.flatMap((handle) => {
+    try {
+      return [handle.accessor.get(IAgentLoopService)];
+    } catch {
+      return [];
+    }
+  });
+  await settleOrAbort(
+    signal,
+    Promise.allSettled(
+      handles.flatMap((handle) => {
+        try {
+          return [handle.accessor.get(IAgentTaskService).stopAllOnExit('Session closed')];
+        } catch {
+          return [];
+        }
+      }),
+    ),
+  );
+  for (;;) {
+    if (signal?.aborted) return undefined;
+    await settleOrAbort(
+      signal,
+      Promise.allSettled(promptServices.map((service) => service.drain())),
+    );
+    if (signal?.aborted) return undefined;
+    for (const loop of loops) {
+      for (const turnId of loop.status().pendingTurnIds) loop.cancel(turnId);
+      loop.cancel();
+    }
+    await settleOrAbort(
+      signal,
+      Promise.allSettled(loops.map((loop) => loop.settled())),
+    );
+    const guards: { dispose(): void }[] = [];
+    let frozen = true;
+    for (const loop of loops) {
+      let guard: { dispose(): void } | undefined;
+      try {
+        guard = loop.tryAcquireQuiescence();
+      } catch {
+        continue;
+      }
+      if (guard === undefined) {
+        frozen = false;
+        break;
+      }
+      guards.push(guard);
+    }
+    const busy = promptServices.some((service) => {
+      try {
+        const snapshot = service.list();
+        return snapshot.launching || snapshot.active !== undefined || snapshot.pending.length > 0;
+      } catch {
+        return false;
+      }
+    });
+    if (signal?.aborted) {
+      for (const guard of guards) guard.dispose();
+      return undefined;
+    }
+    if (frozen && !busy) {
+      return () => {
+        for (const guard of guards) guard.dispose();
+      };
+    }
+    for (const guard of guards) guard.dispose();
+    await delayOrAbort(signal, PROMPT_QUIESCE_POLL_MS);
+  }
+}
+
+async function flushSessionWires(
+  session: ISessionScopeHandle,
+  mainAgent: IAgentScopeHandle,
+): Promise<void> {
+  await Promise.allSettled(
+    collectSessionAgentHandles(session, mainAgent).flatMap((handle) => {
+      try {
+        return [handle.accessor.get(IEventDispatcher).flush()];
+      } catch {
+        return [];
+      }
+    }),
+  );
 }
 
 async function drainBackgroundTasks(

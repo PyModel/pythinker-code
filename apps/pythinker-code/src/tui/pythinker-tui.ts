@@ -17,6 +17,7 @@ import type {
   TurnStartedEvent,
   WorkspaceTrustInfo,
 } from '@pymodel/pythinker-code-sdk';
+import { isTelemetryDisabledByEnv } from '@pymodel/pythinker-telemetry';
 import {
   deleteAllKittyImages,
   type Component,
@@ -112,6 +113,7 @@ import { SessionEventHandler } from './controllers/session-event-handler';
 import { SessionReplayRenderer } from './controllers/session-replay';
 import { StagingLeaseTracker, type StagingLease } from './controllers/staging-leases';
 import { StreamingUIController } from './controllers/streaming-ui';
+import { SurveyController } from './controllers/survey-controller';
 import { TasksBrowserController } from './controllers/tasks-browser';
 import { installRainbowHatch } from './easter-eggs/hatch';
 import { adaptPanelResponse } from './reverse-rpc/approval/adapter';
@@ -126,6 +128,7 @@ import type { ColorToken, ResolvedTheme, ThemeName } from './theme';
 import { createTUIState, type TUIState } from './tui-state';
 import {
   INITIAL_LIVE_PANE,
+  sumTokenUsage,
   type AppState,
   type InlineSkillActivation,
   type PythinkerTUIOptions,
@@ -205,6 +208,7 @@ export interface PythinkerTUIStartupInput {
   readonly startupNotice?: string;
   /** agent-core-v2 engine; enables the startup workspace-trust prompt. */
   readonly engineV2?: boolean;
+  readonly telemetryDisabled?: boolean;
 }
 
 type EffectiveActivityPaneMode = ActivityPaneMode | 'idle' | 'session';
@@ -218,6 +222,21 @@ function loadingTipKind(mode: EffectiveActivityPaneMode): LoadingTipKind | undef
 
 function waitingSpinnerLabel(retry: StepRetryState | null): string {
   return retry === null ? '' : formatStepRetryLabel(retry);
+}
+
+function isUserSubmittedTurnOrigin(origin: TurnStartedEvent['origin'] | undefined): boolean {
+  if (origin === undefined) return false;
+  switch (origin.kind) {
+    case 'user':
+      return true;
+    case 'skill_activation':
+    case 'plugin_command':
+      return origin.trigger === 'user-slash';
+    case 'shell_command':
+      return origin.phase === 'input';
+    default:
+      return false;
+  }
 }
 
 function sameStringArrays(a: readonly string[], b: readonly string[]): boolean {
@@ -248,6 +267,7 @@ function createInitialAppState(input: PythinkerTUIStartupInput): AppState {
     contextUsage: 0,
     contextTokens: 0,
     maxContextTokens: 0,
+    cumulativeTokens: 0,
     isCompacting: false,
     isReplaying: false,
     streamingPhase: 'idle',
@@ -259,6 +279,7 @@ function createInitialAppState(input: PythinkerTUIStartupInput): AppState {
     disablePasteBurst: input.tuiConfig.disablePasteBurst,
     renderLatex: input.tuiConfig.renderLatex,
     cacheExpiryHint: input.tuiConfig.cacheExpiryHint,
+    disableFeedbackSurvey: input.tuiConfig.disableFeedbackSurvey,
     notifications: input.tuiConfig.notifications,
     upgrade: input.tuiConfig.upgrade,
     statusLine: input.tuiConfig.statusLine,
@@ -319,6 +340,7 @@ export class PythinkerTUI {
   private signalCleanupHandlers: Array<() => void> = [];
   private isShuttingDown = false;
   private backgroundRefreshPromise: Promise<void> | undefined;
+  private readonly telemetryDisabled: boolean;
   /** Whether the harness runs on the agent-core-v2 engine (lazy session creation). */
   readonly engineV2: boolean;
   private startupNotice: string | undefined;
@@ -340,6 +362,7 @@ export class PythinkerTUI {
   readonly sessionEventHandler: SessionEventHandler;
   readonly sessionReplay: SessionReplayRenderer;
   readonly tasksBrowserController: TasksBrowserController;
+  readonly surveyController: SurveyController;
   readonly editorKeyboard: EditorKeyboardController;
 
   /** Timer that auto-clears the one-shot "moved to background" footer hint. */
@@ -408,6 +431,7 @@ export class PythinkerTUI {
       },
     };
     this.options = tuiOptions;
+    this.telemetryDisabled = startupInput.telemetryDisabled ?? false;
     this.engineV2 = startupInput.engineV2 ?? false;
     this.startupNotice = startupInput.startupNotice;
     this.state = createTUIState(tuiOptions);
@@ -438,6 +462,9 @@ export class PythinkerTUI {
     this.sessionEventHandler = new SessionEventHandler(this);
     this.sessionReplay = new SessionReplayRenderer(this);
     this.tasksBrowserController = new TasksBrowserController(this);
+    this.surveyController = new SurveyController(this, {
+      telemetryDisabled: () => isTelemetryDisabledByEnv() || this.telemetryDisabled,
+    });
     this.editorKeyboard = new EditorKeyboardController(this, this.imageStore);
     this.editorKeyboard.install();
     this.buildLayout();
@@ -493,6 +520,7 @@ export class PythinkerTUI {
   }
 
   refreshSlashCommandAutocomplete(): void {
+    this.sessionEventHandler.notifications.setEnabled(isExperimentalFlagEnabled('notify_user'));
     this.setupAutocomplete();
   }
 
@@ -744,6 +772,7 @@ export class PythinkerTUI {
 
   private async init(): Promise<boolean> {
     setExperimentalFeatures(await this.harness.getExperimentalFeatures());
+    this.sessionEventHandler.notifications.setEnabled(isExperimentalFlagEnabled('notify_user'));
     await this.authFlow.refreshAvailableModels();
     this.backgroundRefreshPromise = this.refreshProviderModelsInBackground();
 
@@ -882,6 +911,7 @@ export class PythinkerTUI {
     this.streamingUI.resetToolUi();
     this.disposeTranscriptChildren();
     this.editorKeyboard.dispose();
+    this.surveyController.dispose();
     this.state.footer.dispose();
     for (const dispose of this.reverseRpcDisposers) {
       dispose();
@@ -1000,8 +1030,10 @@ export class PythinkerTUI {
     ui.addChild(this.state.transcriptContainer);
     ui.addChild(this.state.activityContainer);
     ui.addChild(this.state.todoPanelContainer);
+    ui.addChild(this.state.notifyPanelContainer);
     ui.addChild(this.state.queueContainer);
     ui.addChild(this.state.btwPanelContainer);
+    ui.addChild(this.state.surveyContainer);
     ui.addChild(this.state.editorContainer);
     // Footer is mounted later (mountFooter), not here.
   }
@@ -1039,6 +1071,7 @@ export class PythinkerTUI {
     main.addChild(this.state.transcriptContainer);
     main.addChild(this.state.activityContainer);
     main.addChild(this.state.todoPanelContainer);
+    main.addChild(this.state.notifyPanelContainer);
     main.addChild(this.state.queueContainer);
     main.addChild(this.state.btwPanelContainer);
     main.addChild(this.state.editorContainer);
@@ -1057,6 +1090,7 @@ export class PythinkerTUI {
 
   handleInputModeChange(mode: 'prompt' | 'bash'): void {
     this.setAppState({ inputMode: mode });
+    this.surveyController.notifyInputModeChanged(mode);
     this.updateEditorBorderHighlight();
   }
 
@@ -1579,10 +1613,12 @@ export class PythinkerTUI {
 
   handleTurnStarted(event: TurnStartedEvent): void {
     this.staging.handleTurnStarted(event);
+    this.surveyController.notifyTurnStarted(isUserSubmittedTurnOrigin(event.origin));
   }
 
   handleTurnEnded(event: TurnEndedEvent): void {
     this.staging.handleTurnEnded(event);
+    this.surveyController.notifyTurnEnded();
   }
 
   releaseStagingMedia(mediaAttachmentIds: readonly number[]): void {
@@ -2241,6 +2277,8 @@ export class PythinkerTUI {
       contextTokens: status.contextTokens,
       maxContextTokens: status.maxContextTokens,
       contextUsage: status.contextUsage,
+      cumulativeTokens:
+        status.usage?.total === undefined ? 0 : sumTokenUsage(status.usage.total),
       sessionTitle: session.summary?.title ?? null,
       goal: goalResult.goal,
     });
@@ -2435,6 +2473,7 @@ export class PythinkerTUI {
 
   resetSessionRuntime(): void {
     this.aborted = false;
+    this.surveyController.reset();
     this.streamingUI.discardPending();
     this.clearQueuedMessages();
     this.state.dynamicWorkflowModeEntry = undefined;
@@ -2788,6 +2827,7 @@ export class PythinkerTUI {
     this.clearTerminalInlineImages();
     this.state.todoPanel.clear();
     this.state.todoPanelContainer.clear();
+    this.sessionEventHandler.notifications.clear();
     const stagingFileIds = this.imageStore.clear();
     this.staging.deleteStaged(stagingFileIds);
     this.renderWelcome();
@@ -3295,6 +3335,14 @@ export class PythinkerTUI {
     this.state.ui.requestRender();
   }
 
+  toggleNotifyPanelFocus(): boolean {
+    return this.sessionEventHandler.notifications.toggleFocus();
+  }
+
+  handleNotifyPanelKey(key: 'left' | 'right' | 'up' | 'down' | 'escape'): boolean {
+    return this.sessionEventHandler.notifications.handlePanelKey(key);
+  }
+
   toggleTodoPanelExpansion(): void {
     this.state.todoPanel.toggleExpanded();
     this.state.ui.requestRender();
@@ -3566,6 +3614,7 @@ export class PythinkerTUI {
   // =========================================================================
 
   mountEditorReplacement(panel: Component & Focusable): void {
+    this.surveyController.closeSilently();
     this.state.editorReplacementMounted = true;
     this.state.editorContainer.clear();
     this.state.editorContainer.addChild(panel);

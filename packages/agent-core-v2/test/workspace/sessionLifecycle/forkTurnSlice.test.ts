@@ -45,6 +45,36 @@ describe('sliceMainRecordsAtTurn', () => {
     expect(types).toContain('metadata');
     expect(types).toContain('context.append_message');
   });
+
+  it('drops file history records from a truncated fork slice', () => {
+    const records: WireRecord[] = [
+      { type: 'metadata', protocol_version: '1.5', created_at: 1 },
+      {
+        type: 'file_history.tracked',
+        agentId: 'main',
+        turnId: 0,
+        path: 'a.txt',
+        time: 2,
+      },
+      userTurnRecord('hello', 3),
+      {
+        type: 'file_history.checkpoint',
+        agentId: 'main',
+        turnId: 0,
+        phase: 'end',
+        entries: {},
+        time: 4,
+      },
+      userTurnRecord('second turn', 5),
+    ];
+
+    const slice = sliceMainRecordsAtTurn(records, 'ses_source', 0);
+    expect(slice.records.map((record) => record.type)).toEqual([
+      'metadata',
+      'context.append_message',
+    ]);
+    expect(slice.cutoffTime).toBe(4);
+  });
 });
 
 describe('sliceMainRecordsBeforePrompt', () => {
@@ -81,6 +111,26 @@ describe('sliceMainRecordsBeforePrompt', () => {
     expect(slice.records).toEqual([{ type: 'metadata', protocol_version: '1.5', created_at: 1 }]);
     expect(slice.cutoffTime).toBe(1);
     expect(slice.lastPrompt).toBeUndefined();
+  });
+
+  it('drops file history records when truncating at the first Expert Talk prompt', () => {
+    const records: WireRecord[] = [
+      { type: 'metadata', protocol_version: '1.5', created_at: 1 },
+      {
+        type: 'file_history.checkpoint',
+        agentId: 'main',
+        turnId: 0,
+        phase: 'start',
+        entries: {},
+        time: 2,
+      },
+      { type: 'turn.prompt', input: [{ type: 'text', text: 'active' }], origin: { kind: 'user' }, time: 3 },
+      userTurnRecord('active', 4, 'prompt-1'),
+    ];
+
+    const slice = sliceMainRecordsBeforePrompt(records, 'ses_source', 'prompt-1');
+    expect(slice.records).toEqual([{ type: 'metadata', protocol_version: '1.5', created_at: 1 }]);
+    expect(slice.cutoffTime).toBe(2);
   });
 
   it('rejects an unknown active prompt', () => {

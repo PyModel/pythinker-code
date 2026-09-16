@@ -68,6 +68,8 @@ import { AgentTodo, todoAgentRuntimeProvider } from '#/features/todo/todoAgentRu
 import '#/agent/toolDedupe/toolDedupeService';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
+import { IFlagService } from '#/app/flag/flag';
+import { ISessionNotify } from '#/features/notify/sessionNotify';
 import { ISessionEventBus, IEventBus } from '#/app/event/eventBus';
 import { IModelService } from '#/kosong/model/model';
 import { IProviderService } from '#/kosong/provider/provider';
@@ -267,6 +269,11 @@ describe('AgentLifecycleService', () => {
       cwd: '/tmp/pythinker-agentLifecycle-home',
       getEnv: () => undefined,
     } as unknown as IBootstrapService);
+    ix.stub(IFlagService, {
+      _serviceBrand: undefined,
+      enabled: () => false,
+    } as unknown as IFlagService);
+    ix.stub(ISessionNotify, { _serviceBrand: undefined, ready: Promise.resolve(), enabled: false });
     ix.stub(ISessionWorkspaceContext, {
       _serviceBrand: undefined,
       workDir: '/tmp/pythinker-agentLifecycle-work',
@@ -404,6 +411,7 @@ describe('AgentLifecycleService', () => {
     ix.stub(IAgentPromptService, {
       _serviceBrand: undefined,
       drain: promptDrain,
+      list: () => ({ launching: false, active: undefined, pending: [] }),
     } as unknown as IAgentPromptService);
     ix.stub(ITelemetryService, {
       _serviceBrand: undefined,
@@ -557,6 +565,15 @@ describe('AgentLifecycleService', () => {
     await svc.remove(main);
     expect(svc.get('main')).toBeUndefined();
     expect(svc.handleOf('main')).toBeUndefined();
+  });
+
+  it('remove flushes the agent wire journal before disposal', async () => {
+    const svc = ix.get(IAgentLifecycleService);
+    await svc.create({ agentId: 'main' });
+    const dispatcher = svc.handleOf('main')!.accessor.get(IEventDispatcher);
+    const flush = vi.spyOn(dispatcher, 'flush');
+    await svc.remove(svc.get('main')!);
+    expect(flush).toHaveBeenCalled();
   });
 
   it('remove keeps the lifecycle context active through async scope teardown', async () => {

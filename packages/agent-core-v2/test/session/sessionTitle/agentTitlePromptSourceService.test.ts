@@ -41,7 +41,7 @@ describe('AgentTitlePromptSource', () => {
 
   beforeEach(() => {
     liveMessages = [];
-    queue = { active: undefined, pending: [] };
+    queue = { active: undefined, pending: [], launching: false };
     disposables = new DisposableStore();
     ix = createServices(disposables, {
       additionalServices: (reg) => {
@@ -60,6 +60,7 @@ describe('AgentTitlePromptSource', () => {
     liveMessages = [userMessage('one', 'First entry')];
     queue = {
       active: undefined,
+      launching: false,
       pending: [
         {
           id: 'two',
@@ -130,6 +131,7 @@ describe('AgentTitlePromptSource', () => {
         message: userMessage('one', 'Same entry'),
       },
       pending: [],
+      launching: false,
     };
 
     await expect(ix.get(IAgentTitlePromptSource).firstUserPrompts(3)).resolves.toEqual(['Same entry']);
@@ -179,6 +181,7 @@ describe('AgentTitlePromptSource', () => {
         message: userMessage('two', 'in-progress question'),
       },
       pending: [],
+      launching: false,
     };
 
     await expect(ix.get(IAgentTitlePromptSource).digestExcerpt()).resolves.toEqual({

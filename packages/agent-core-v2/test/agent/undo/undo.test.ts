@@ -190,8 +190,9 @@ describe('AgentConversationUndoService', () => {
 
     await undo.undo(1);
     const history = ctx.context.get();
-    expect(history.map((m) => m.role)).toEqual(['user', 'user']);
+    expect(history.map((m) => m.role)).toEqual(['user', 'user', 'user']);
     expect(history[1]?.origin?.kind).toBe('compaction_summary');
+    expect(history[2]?.origin).toEqual({ kind: 'injection', variant: 'compaction_continuation' });
   });
 
   it('refuses loudly when a legacy compaction leaves anchors without checkpoints', async () => {
@@ -538,6 +539,7 @@ describe('AgentConversationUndoService', () => {
     ctx.appendTurnExchange('u2', 'a2');
     const list = vi.spyOn(ctx.get(IAgentPromptService), 'list').mockReturnValue({
       active: undefined,
+      launching: false,
       pending: [
         {
           id: 'queued',

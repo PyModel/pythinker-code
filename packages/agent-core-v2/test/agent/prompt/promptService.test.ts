@@ -268,7 +268,7 @@ describe('AgentPromptService', () => {
     await expect(handle.completion).resolves.toMatchObject({ state: 'cancelled' });
     await expect(handle.launched).resolves.toBeUndefined();
     expect(enqueueSpy).not.toHaveBeenCalled();
-    expect(prompt.list()).toEqual({ active: undefined, pending: [] });
+    expect(prompt.list()).toEqual({ active: undefined, pending: [], launching: false });
     expect(aborted.map((event) => event.promptId)).toEqual(['launching']);
   });
 
@@ -359,7 +359,27 @@ describe('AgentPromptService', () => {
   it('keeps injections outside the prompt queue', async () => {
     const { prompt } = harness();
     await prompt.inject({ ...message('system'), origin: { kind: 'injection', variant: 'test' } });
-    expect(prompt.list()).toEqual({ active: undefined, pending: [] });
+    expect(prompt.list()).toEqual({ active: undefined, pending: [], launching: false });
+  });
+
+  it('marks the launch window as busy in the queue snapshot', async () => {
+    const { prompt } = harness();
+    let releaseHook!: () => void;
+    prompt.hooks.onBeforeSubmitPrompt.register('gate', async (_ctx, next) => {
+      await new Promise<void>((resolve) => {
+        releaseHook = resolve;
+      });
+      await next();
+    });
+    const enqueued = prompt.enqueue({ message: message('launching') });
+    await vi.waitFor(() => {
+      expect(prompt.list().launching).toBe(true);
+    });
+    expect(prompt.list().active).toBeUndefined();
+    expect(prompt.list().pending).toEqual([]);
+    releaseHook();
+    await enqueued;
+    expect(prompt.list().launching).toBe(false);
   });
 
   it('settles blocked prompts', async () => {
@@ -410,7 +430,7 @@ describe('AgentPromptService', () => {
     expect(handle.state).toBe('failed');
     await expect(handle.launched).resolves.toBeUndefined();
     await expect(handle.completion).resolves.toMatchObject({ state: 'failed', result: undefined });
-    expect(prompt.list()).toEqual({ active: undefined, pending: [] });
+    expect(prompt.list()).toEqual({ active: undefined, pending: [], launching: false });
   });
 
   it('replaces an unsupported prompt image with a text notice at the history funnel', async () => {

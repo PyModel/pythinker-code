@@ -51,6 +51,12 @@ function createHarness(options: {
     },
     session,
     btwPanelController: { cancelRunning: btwCancelRunning, closeOrCancel: btwCloseOrCancel },
+    surveyController: {
+      handleSubmit: vi.fn(() => false),
+      handlePreInput: vi.fn(() => false),
+      handleEditorChange: vi.fn(),
+      closeSilently: vi.fn(),
+    },
     openUndoSelector,
     cancelRunningShellCommand,
     updateEditorBorderHighlight: vi.fn(),
@@ -472,6 +478,12 @@ describe('EditorKeyboardController Shift-Tab effort cycle', () => {
       showError,
       showNotice,
       btwPanelController: { cancelRunning: vi.fn(), closeOrCancel: vi.fn() },
+      surveyController: {
+        handleSubmit: vi.fn(() => false),
+        handlePreInput: vi.fn(() => false),
+        handleEditorChange: vi.fn(),
+        closeSilently: vi.fn(),
+      },
     } as unknown as EditorKeyboardHost;
 
     new EditorKeyboardController(host, undefined as unknown as ImageAttachmentStore).install();
@@ -644,6 +656,12 @@ describe('EditorKeyboardController Ctrl-S steering', () => {
       btwPanelController: {
         cancelRunning: vi.fn(() => false),
         closeOrCancel: vi.fn(() => false),
+      },
+      surveyController: {
+        handleSubmit: vi.fn(() => false),
+        handlePreInput: vi.fn(() => false),
+        handleEditorChange: vi.fn(),
+        closeSilently: vi.fn(),
       },
     } as unknown as EditorKeyboardHost;
     const controller = new EditorKeyboardController(

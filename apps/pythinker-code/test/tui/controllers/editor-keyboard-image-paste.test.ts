@@ -79,6 +79,12 @@ function createPasteHarness(
         ? undefined
         : { summary: { sessionDir: options.sessionDir } },
     btwPanelController: { closeOrCancel: vi.fn(() => false) },
+    surveyController: {
+      handleSubmit: vi.fn(() => false),
+      handlePreInput: vi.fn(() => false),
+      handleEditorChange: vi.fn(),
+      closeSilently: vi.fn(),
+    },
     engineV2: options.engineV2,
     track,
     showError: vi.fn(),

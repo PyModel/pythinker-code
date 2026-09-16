@@ -44,6 +44,8 @@ import {
 import { ILogService } from '#/_base/log/log';
 import { IConfigService } from '#/app/config/config';
 import { IFlagService } from '#/app/flag/flag';
+import { ISessionNotify } from '#/features/notify/sessionNotify';
+import { NOTIFY_USER_TOOL_NAME } from '#/features/notify/tools/notify-user/notify-user';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { hasPinnedPermissionMode } from '#/features/tower/tower';
 import {
@@ -121,6 +123,7 @@ export class SubagentTool implements ISubagentTool {
     @ILogService private readonly log: ILogService,
     @IConfigService private readonly config: IConfigService,
     @IFlagService private readonly flags: IFlagService,
+    @ISessionNotify private readonly notify: ISessionNotify,
     @AgentToolContribution private readonly contributions: CollectionView<AgentToolContribution>,
     @ISubagentRoutingService private readonly routing: ISubagentRoutingService,
   ) {
@@ -149,8 +152,12 @@ export class SubagentTool implements ISubagentTool {
       allowlist === undefined
         ? catalogProfiles
         : catalogProfiles.filter((profile) => allowlist.includes(profile.name));
+    const notifyAvailable = this.notify.enabled;
     const typeLines = buildProfileDescriptions(
-      profiles,
+      profiles.map((profile) => ({
+        ...profile,
+        tools: profile.tools?.filter((name) => name !== NOTIFY_USER_TOOL_NAME || notifyAvailable),
+      })),
       this.knownToolReferences(),
       (profile, name, source) =>
         this.toolPolicy.isToolActiveForProfile(profile, name, source),

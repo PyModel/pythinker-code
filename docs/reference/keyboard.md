@@ -15,6 +15,7 @@ The following keys are always available in the input box:
 | `Ctrl-C` | Interrupt the current streaming output, or clear the input box |
 | `Ctrl-D` | Exit Pythinker Code CLI when the input box is empty |
 | `Ctrl-T` | Expand or collapse the todo list when it is truncated |
+| `Ctrl-N` | Focus the experimental Updates panel; then `←`/`→` switch channels and `↑`/`↓` page messages |
 
 Pressing `Ctrl-C` **during streaming** cancels immediately — no second confirmation needed.
 

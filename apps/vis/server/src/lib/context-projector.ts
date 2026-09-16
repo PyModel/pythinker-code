@@ -1,6 +1,8 @@
 import {
   COMPACT_USER_MESSAGE_MAX_TOKENS,
+  COMPACTION_CONTINUATION_VARIANT,
   COMPACTION_ELISION_VARIANT,
+  buildCompactionContinuationText,
   buildCompactionElisionText,
   collectCompactableUserMessages,
   isRealUserInput,
@@ -346,7 +348,7 @@ export function projectContext(
               const original = realUserEntries[suffixStart + i]!;
               return original.message === message ? original : { ...original, message };
             });
-            messages = [...keptEntries, modelSummaryBubble];
+            messages = [...keptEntries, modelSummaryBubble, continuationBubble(entry, rec)];
           } else {
             // Head/tail record: mirror `selectCompactionUserMessages` and the
             // elision marker `ContextMemory.applyCompaction` inserts between the
@@ -389,7 +391,13 @@ export function projectContext(
               } as ContextMessage,
               toolStepUuids: [],
             };
-            messages = [...headEntries, markerBubble, ...tailEntries, modelSummaryBubble];
+            messages = [
+              ...headEntries,
+              markerBubble,
+              ...tailEntries,
+              modelSummaryBubble,
+              continuationBubble(entry, rec),
+            ];
           }
         } else {
           // Full history: keep ALL preceding messages, just append the summary
@@ -690,6 +698,24 @@ function estimateContentTokens(content: readonly ContentPart[]): number {
     else if (p.type === 'think') total += estimateTokens(p.think);
   }
   return total;
+}
+
+function continuationBubble(
+  entry: { readonly lineNo: number },
+  rec: { readonly time?: number },
+): ProjectedMessage {
+  return {
+    lineNo: entry.lineNo + 0.25,
+    time: rec.time,
+    source: 'append_message',
+    message: {
+      role: 'user',
+      content: [{ type: 'text', text: buildCompactionContinuationText() }],
+      toolCalls: [],
+      origin: { kind: 'injection', variant: COMPACTION_CONTINUATION_VARIANT },
+    } as ContextMessage,
+    toolStepUuids: [],
+  };
 }
 
 /** True for messages that correspond to a real `_history` entry —

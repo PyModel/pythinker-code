@@ -36,6 +36,7 @@ function makeSubagentHandler() {
     streamingUI: makeStreamingUIStub(),
     appendTranscriptEntry: vi.fn(),
     btwPanelController: { routeEvent: vi.fn(() => false) },
+    surveyController: { notifyToolCallStarted: vi.fn(), notifyCompactionFinished: vi.fn() },
     updateActivityPane: vi.fn(),
   };
   const handler = new SubAgentEventHandler(host as never, {
@@ -147,6 +148,7 @@ function makeSessionEventHost() {
     sendQueuedMessage: vi.fn(),
     shiftQueuedMessage: vi.fn(),
     btwPanelController: { routeEvent: vi.fn(() => false) },
+    surveyController: { notifyToolCallStarted: vi.fn(), notifyCompactionFinished: vi.fn() },
     tasksBrowserController: { repaint: vi.fn(), refreshOutputViewer: vi.fn() },
   };
   return host as never;

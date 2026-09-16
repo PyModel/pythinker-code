@@ -68,6 +68,9 @@ import {
 
 let nextAgentId = 0;
 
+const REMOVE_PROMPT_QUIESCE_TIMEOUT_MS = 3_000;
+const REMOVE_PROMPT_QUIESCE_POLL_MS = 10;
+
 export class AgentLifecycleService extends Disposable implements IAgentLifecycleService {
   declare readonly _serviceBrand: undefined;
   private readonly roster = new Map<string, ManagedAgent>();
@@ -472,18 +475,58 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
       const compactionSettled = compaction?.promise.catch(() => undefined) ?? Promise.resolve();
       const prompt = handle.accessor.get(IAgentPromptService);
       await phase(async () => {
-        await prompt.drain(reason);
-        for (const turnId of loop.status().pendingTurnIds) {
-          loop.cancel(turnId, reason);
-        }
-        loop.cancel(undefined, reason);
         if (compaction !== null && !compaction.abortController.signal.aborted) {
           compaction.abortController.abort(reason);
         }
-        await Promise.all([loop.settled(), compactionSettled]);
-      });
-      await phase(() => {
-        quiescence = loop.tryAcquireQuiescence();
+        const deadline = Date.now() + REMOVE_PROMPT_QUIESCE_TIMEOUT_MS;
+        for (;;) {
+          const remaining = deadline - Date.now();
+          if (remaining <= 0) break;
+          let drainTimedOut = false;
+          let drainTimer: ReturnType<typeof setTimeout> | undefined;
+          await Promise.race([
+            (async () => {
+              await prompt.drain(reason);
+              for (const turnId of loop.status().pendingTurnIds) {
+                loop.cancel(turnId, reason);
+              }
+              loop.cancel(undefined, reason);
+              await Promise.all([loop.settled(), compactionSettled]);
+            })().finally(() => {
+              if (drainTimer !== undefined) clearTimeout(drainTimer);
+            }),
+            new Promise<void>((resolve) => {
+              drainTimer = setTimeout(() => {
+                drainTimedOut = true;
+                resolve();
+              }, remaining);
+            }),
+          ]);
+          if (drainTimedOut) break;
+          let idle = true;
+          try {
+            const snapshot = prompt.list();
+            idle =
+              !snapshot.launching && snapshot.active === undefined && snapshot.pending.length === 0;
+          } catch {
+            idle = true;
+          }
+          if (idle) {
+            try {
+              const guard = loop.tryAcquireQuiescence();
+              if (guard !== undefined) {
+                quiescence = guard;
+                break;
+              }
+            } catch {
+              break;
+            }
+          }
+          if (Date.now() >= deadline) break;
+          await new Promise((resolve) => {
+            setTimeout(resolve, REMOVE_PROMPT_QUIESCE_POLL_MS);
+          });
+        }
       });
       await phase(() => handle.accessor.get(IAgentTaskService).stopAllOnExit('Session closed'));
       await phase(() => handle.accessor.get(IEventDispatcher).flush());

@@ -17,7 +17,7 @@ import {
   withTelemetryContext,
 } from '@pymodel/pythinker-telemetry';
 
-import { CLI_SHUTDOWN_TIMEOUT_MS, CLI_UI_MODE } from '#/constant/app';
+import { CLI_SHUTDOWN_TIMEOUT_MS, CLI_UI_MODE, TUI_HOST_UI_CAPABILITIES } from '#/constant/app';
 import type { TuiConfig } from '#/tui/config';
 import { loadTuiConfig, TuiConfigParseError } from '#/tui/config';
 import { CHROME_GUTTER } from '#/tui/constant/rendering';
@@ -66,6 +66,7 @@ export async function runShell(
     homeDir: telemetryBootstrap.homeDir,
     identity: createPythinkerCodeHostIdentity(version),
     skillDirs: opts.skillsDirs,
+    uiCapabilities: TUI_HOST_UI_CAPABILITIES,
     telemetry: telemetryClient,
     sessionStartedProperties: { yolo: opts.yolo, auto: opts.auto, plan: opts.plan, afk: false },
   };
@@ -104,6 +105,7 @@ export async function runShell(
     workDir,
     startupNotice: configWarning,
     engineV2,
+    telemetryDisabled: config.telemetry === false,
   });
 
   initializeCliTelemetry({
