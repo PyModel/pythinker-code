@@ -1,5 +1,11 @@
 # @pymodel/pythinker-code
 
+## 2.0.1
+
+### Patch Changes
+
+- [#318](https://github.com/PyModel/pythinker-code/pull/318) [`e09e9c1`](https://github.com/PyModel/pythinker-code/commit/e09e9c15c4e52ea9cae046d32787738097db42a4) Thanks [@elkaix](https://github.com/elkaix)! - Wait for the npm tarball to become downloadable before updating the Homebrew formula.
+
 ## 2.0.0
 
 ### Major Changes
