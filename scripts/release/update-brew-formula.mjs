@@ -27,7 +27,7 @@ export async function downloadNpmTarball(options) {
   const { url, fetchImpl, sleep, now, budgetMs, intervalMs, log = console.log } = options;
   const deadline = now() + budgetMs;
   let attempts = 0;
-  let lastError = new Error('Failed to download npm tarball');
+  let lastError;
 
   for (;;) {
     attempts += 1;
@@ -44,10 +44,11 @@ export async function downloadNpmTarball(options) {
       lastError = new Error(`Failed to download npm tarball: ${errorMessage(error)}`, { cause: error });
     }
 
+    const message = lastError?.message ?? 'Failed to download npm tarball';
     if (now() + intervalMs >= deadline) {
-      throw new Error(`${lastError.message} after ${attempts} attempt(s)`);
+      throw new Error(`${message} after ${attempts} attempt(s)`);
     }
-    log(`${lastError.message} (attempt ${attempts}); retrying in ${intervalMs / 1000}s`);
+    log(`${message} (attempt ${attempts}); retrying in ${intervalMs / 1000}s`);
     await sleep(intervalMs);
   }
 }
