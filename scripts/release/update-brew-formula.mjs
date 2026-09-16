@@ -45,11 +45,13 @@ export async function downloadNpmTarball(options) {
     }
 
     const message = lastError?.message ?? 'Failed to download npm tarball';
-    if (now() + intervalMs >= deadline) {
+    const remainingMs = deadline - now();
+    if (remainingMs <= 0) {
       throw new Error(`${message} after ${attempts} attempt(s)`);
     }
-    log(`${message} (attempt ${attempts}); retrying in ${intervalMs / 1000}s`);
-    await sleep(intervalMs);
+    const waitMs = remainingMs < intervalMs ? remainingMs : intervalMs;
+    log(`${message} (attempt ${attempts}); retrying in ${waitMs / 1000}s`);
+    await sleep(waitMs);
   }
 }
 

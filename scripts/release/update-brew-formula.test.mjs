@@ -87,8 +87,20 @@ void test('throws after the budget when every fetch is HTTP 404', async () => {
           return response(404);
         }),
       ),
-    { message: 'Failed to download npm tarball: HTTP 404 after 3 attempt(s)' },
+    { message: 'Failed to download npm tarball: HTTP 404 after 4 attempt(s)' },
   );
-  assert.equal(fetches, 3);
-  assert.deepEqual(clock.sleeps, [15_000, 15_000]);
+  assert.equal(fetches, 4);
+  assert.deepEqual(clock.sleeps, [15_000, 15_000, 15_000]);
+});
+
+void test('sleeps the leftover budget then fetches again before giving up', async () => {
+  const clock = pollClock();
+  const statuses = [404, 404, 404, 200];
+  const result = await downloadNpmTarball({
+    ...pollOptions(clock, async () => response(statuses.shift() ?? 500)),
+    budgetMs: 40_000,
+  });
+  assert.equal(result.attempts, 4);
+  assert.deepEqual(result.tarball, BODY);
+  assert.deepEqual(clock.sleeps, [15_000, 15_000, 10_000]);
 });
