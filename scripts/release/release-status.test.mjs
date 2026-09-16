@@ -50,10 +50,17 @@ function json(body, status = 200) {
 function fixtureFetch({
   cliAssets = expectedCliAssets,
   nightlyAssets = desktopAssets(desktopNightlyVersion, 'nightly'),
+  brewVersion = '1.3.0',
 } = {}) {
   return async (input) => {
     const url = new URL(String(input));
     if (url.hostname === 'registry.npmjs.org') return json({ latest: '1.3.0' });
+    if (url.hostname === 'raw.githubusercontent.com') {
+      return new Response(
+        `url "https://registry.npmjs.org/@pymodel/pythinker-code/-/pythinker-code-${brewVersion}.tgz"\n`,
+        { status: 200, headers: { 'content-type': 'text/plain' } },
+      );
+    }
     if (url.hostname === 'code.pythinker.com') {
       return json({
         version: '1.3.0',
@@ -126,6 +133,7 @@ void test('reports all live release lanes aligned', async (t) => {
   assert.equal(result.ok, true);
   assert.equal(result.rows.every((row) => row.ok), true);
   assert.match(renderReleaseStatus(result), /\| npm CLI \| 1\.3\.0 \| 1\.3\.0 \| PASS \|/u);
+  assert.match(renderReleaseStatus(result), /\| Homebrew \| 1\.3\.0 \| 1\.3\.0 \| PASS \|/u);
   assert.match(renderReleaseStatus(result), /\| Desktop Nightly \| 0\.2\.2-nightly\.4102 \| 0\.2\.2-nightly\.4102 \| PASS \|/u);
 });
 
@@ -141,6 +149,20 @@ void test('fails when a published CLI release is missing one required asset', as
   const cli = result.rows.find((row) => row.lane === 'npm CLI');
   assert.equal(cli?.ok, false);
   assert.match(cli?.details ?? '', /missing manifest\.json/u);
+});
+
+void test('fails when the Homebrew formula lags the published CLI version', async (t) => {
+  const rootDir = await fixtureRoot(t);
+  const result = await collectReleaseStatus({
+    rootDir,
+    desktopCommitCount,
+    fetchImpl: fixtureFetch({ brewVersion: '1.2.0' }),
+  });
+
+  assert.equal(result.ok, false);
+  const brew = result.rows.find((row) => row.lane === 'Homebrew');
+  assert.equal(brew?.ok, false);
+  assert.equal(brew?.observed, '1.2.0');
 });
 
 void test('fails when the current desktop Nightly release is incomplete', async (t) => {

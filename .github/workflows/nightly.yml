@@ -12,6 +12,7 @@ concurrency:
 permissions:
   contents: read
   id-token: write
+  pull-requests: read
 
 jobs:
   publish:
@@ -52,6 +53,8 @@ jobs:
         run: pnpm build
 
       - name: Publish dev snapshot
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           pnpm changeset version --snapshot dev
           VERSION=$(node -p "require('./apps/pythinker-code/package.json').version")

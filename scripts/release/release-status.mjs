@@ -69,6 +69,24 @@ async function fetchJson(fetchImpl, url, label, init = {}) {
   }
 }
 
+async function fetchText(fetchImpl, url, label, init = {}) {
+  const response = await fetchImpl(url, {
+    ...init,
+    headers: {
+      'user-agent': 'pythinker-release-status',
+      ...init.headers,
+    },
+    signal: AbortSignal.timeout(20_000),
+  });
+  if (!response.ok) throw new Error(`${label} returned HTTP ${response.status}.`);
+  return await response.text();
+}
+
+function brewFormulaVersion(formula) {
+  const match = typeof formula === 'string' ? /pythinker-code-(\d+\.\d+\.\d+)\.tgz/u.exec(formula) : null;
+  return match === null ? undefined : validVersion(match[1]);
+}
+
 function validVersion(value) {
   return typeof value === 'string' && semver.exec(value)?.[0] === value ? value : undefined;
 }
@@ -162,6 +180,7 @@ export async function collectReleaseStatus({
     npmResult,
     cdnResult,
     cliReleaseResult,
+    brewResult,
     desktopStableResult,
     desktopReleasesResult,
     marketplaceResult,
@@ -183,6 +202,11 @@ export async function collectReleaseStatus({
         `https://api.github.com/repos/PyModel/pythinker-code/releases/tags/${encodeURIComponent(cliTag)}`,
         'CLI GitHub release',
         { headers: github },
+      ),
+      fetchText(
+        fetchImpl,
+        'https://raw.githubusercontent.com/PyModel/homebrew-tap/main/Formula/pythinker-code.rb',
+        'Homebrew formula',
       ),
       fetchJson(
         fetchImpl,
@@ -260,6 +284,11 @@ export async function collectReleaseStatus({
     coverage: targetCoverage(Object.keys(value.downloads ?? {})),
   }));
 
+  const brew = settledValue(brewResult, (value) => {
+    const version = brewFormulaVersion(value);
+    if (version === undefined) throw new Error('Homebrew formula has no pythinker-code tarball version.');
+    return { version };
+  });
   const cliMissing = cliRelease.missing ?? expectedCliAssets;
   const cliOk = npm.version === cliVersion
     && cliRelease.tag === cliTag
@@ -282,6 +311,13 @@ export async function collectReleaseStatus({
       ok: cdn.version === cliVersion && cdn.coverage?.missing.length === 0 && cdn.error === undefined,
       details: cdn.error
         ?? `platforms ${cdn.coverage?.present ?? 0}/${nativeTargets.length}${missingDetail(cdn.coverage?.missing ?? nativeTargets)}`,
+    },
+    {
+      lane: 'Homebrew',
+      expected: cliVersion,
+      observed: brew.version ?? 'unavailable',
+      ok: brew.version === cliVersion && brew.error === undefined,
+      details: brew.error ?? `Formula/pythinker-code.rb ${brew.version}`,
     },
     {
       lane: 'Desktop Stable',
