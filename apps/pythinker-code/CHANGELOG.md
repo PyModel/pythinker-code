@@ -1,5 +1,27 @@
 # @pymodel/pythinker-code
 
+## 2.1.0
+
+### Minor Changes
+
+- [#320](https://github.com/PyModel/pythinker-code/pull/320) [`9b6e561`](https://github.com/PyModel/pythinker-code/commit/9b6e561383b4836bb5a2b90a05fe923d7c8523ec) Thanks [@elkaix](https://github.com/elkaix)! - Add turn-level file history for Edit and Write. Clients can list a turn's file changes and read captured content through the session file-history API.
+
+- [#320](https://github.com/PyModel/pythinker-code/pull/320) [`9b6e561`](https://github.com/PyModel/pythinker-code/commit/9b6e561383b4836bb5a2b90a05fe923d7c8523ec) Thanks [@elkaix](https://github.com/elkaix)! - Add an experimental NotifyUser tool that posts mid-turn updates in a TUI Updates panel. Enable it with PYTHINKER_CODE_EXPERIMENTAL_NOTIFY_USER=1, `[experimental] notify_user = true`, or `/experiments`.
+
+- [#320](https://github.com/PyModel/pythinker-code/pull/320) [`9b6e561`](https://github.com/PyModel/pythinker-code/commit/9b6e561383b4836bb5a2b90a05fe923d7c8523ec) Thanks [@elkaix](https://github.com/elkaix)! - Read large files in pages with a character budget instead of a 1000-line or 100 KB cap. Set `[read] default_max_chars` and `[read] max_chars` in config.toml, or pass `max_chars` and `column_offset` on Read.
+
+- [#320](https://github.com/PyModel/pythinker-code/pull/320) [`9b6e561`](https://github.com/PyModel/pythinker-code/commit/9b6e561383b4836bb5a2b90a05fe923d7c8523ec) Thanks [@elkaix](https://github.com/elkaix)! - Add an occasional session rating prompt above the editor. Turn it off with `disable_feedback_survey = true` in `tui.toml` or Settings → Feedback survey.
+
+### Patch Changes
+
+- [#320](https://github.com/PyModel/pythinker-code/pull/320) [`9b6e561`](https://github.com/PyModel/pythinker-code/commit/9b6e561383b4836bb5a2b90a05fe923d7c8523ec) Thanks [@elkaix](https://github.com/elkaix)! - Point compacted conversation notes at the on-disk event log so later turns can recover exact outputs.
+
+- [#320](https://github.com/PyModel/pythinker-code/pull/320) [`9b6e561`](https://github.com/PyModel/pythinker-code/commit/9b6e561383b4836bb5a2b90a05fe923d7c8523ec) Thanks [@elkaix](https://github.com/elkaix)! - After context compaction, keep a short continue-work instruction as the latest user message.
+
+- [#320](https://github.com/PyModel/pythinker-code/pull/320) [`9b6e561`](https://github.com/PyModel/pythinker-code/commit/9b6e561383b4836bb5a2b90a05fe923d7c8523ec) Thanks [@elkaix](https://github.com/elkaix)! - Keep print-mode shutdown from skipping journal flush, and keep truncated forks from dropping later work in the retained turn.
+
+- [#320](https://github.com/PyModel/pythinker-code/pull/320) [`9b6e561`](https://github.com/PyModel/pythinker-code/commit/9b6e561383b4836bb5a2b90a05fe923d7c8523ec) Thanks [@elkaix](https://github.com/elkaix)! - Keep print-mode session journals complete when the process exits or receives a termination signal.
+
 ## 2.0.1
 
 ### Patch Changes
