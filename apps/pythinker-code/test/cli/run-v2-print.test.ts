@@ -4,8 +4,10 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   applyPrintBackgroundPolicy,
   createPrintTurnEndings,
+  delayOrAbort,
   formatTrustGatedMcpWarning,
   PrintSteeredTurnFailedError,
+  settleOrAbort,
   type PrintTurnEnding,
   type PrintTurnEndings,
   type TrustGatedMcpServer,
@@ -526,11 +528,40 @@ describe('formatTrustGatedMcpWarning', () => {
 
   it('encodes control characters in untrusted server names and targets', () => {
     const text = formatTrustGatedMcpWarning([
-      { name: 'evil\u001b]0;pwned\u0007', target: 'stdio: node\u001b[6n server.js' },
+      { name: 'evil\u001B]0;pwned\u0007', target: 'stdio: node\u001B[6n server.js' },
     ]);
     expect(text).toContain('evil\\x1b]0;pwned\\x07');
     expect(text).toContain('stdio: node\\x1b[6n server.js');
-    expect(text).not.toContain('\u001b');
+    expect(text).not.toContain('\u001B');
     expect(text).not.toContain('\u0007');
+  });
+});
+
+describe('print-mode quiesce abort', () => {
+  it('clears the poll timer when the shutdown signal aborts', async () => {
+    const controller = new AbortController();
+    const started = Date.now();
+    const pending = delayOrAbort(controller.signal, 5_000);
+    controller.abort();
+    await pending;
+    expect(Date.now() - started).toBeLessThan(1_000);
+  });
+
+  it('stops waiting on a hung drain when the shutdown signal aborts', async () => {
+    const controller = new AbortController();
+    const hung = new Promise<void>(() => {});
+    const started = Date.now();
+    const pending = settleOrAbort(controller.signal, hung);
+    controller.abort();
+    await pending;
+    expect(Date.now() - started).toBeLessThan(1_000);
+  });
+
+  it('still waits out a short delay when the signal stays live', async () => {
+    const controller = new AbortController();
+    const started = Date.now();
+    await delayOrAbort(controller.signal, 30);
+    expect(Date.now() - started).toBeGreaterThanOrEqual(20);
+    expect(controller.signal.aborted).toBe(false);
   });
 });

@@ -970,6 +970,37 @@ function collectSessionAgentHandles(
   return [...handles];
 }
 
+export function abortPromise(signal: AbortSignal | undefined): Promise<void> {
+  if (signal === undefined) return new Promise(() => {});
+  if (signal.aborted) return Promise.resolve();
+  return new Promise((resolve) => {
+    signal.addEventListener('abort', () => resolve(), { once: true });
+  });
+}
+
+export async function settleOrAbort(
+  signal: AbortSignal | undefined,
+  work: Promise<unknown>,
+): Promise<void> {
+  if (signal?.aborted) return;
+  await Promise.race([work.then(() => undefined, () => undefined), abortPromise(signal)]);
+}
+
+export async function delayOrAbort(signal: AbortSignal | undefined, ms: number): Promise<void> {
+  if (signal?.aborted) return;
+  await new Promise<void>((resolve) => {
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    const onAbort = (): void => {
+      clearTimeout(timer);
+      resolve();
+    };
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
 async function quiesceSessionAgents(
   session: ISessionScopeHandle,
   mainAgent: IAgentScopeHandle,
@@ -990,23 +1021,33 @@ async function quiesceSessionAgents(
       return [];
     }
   });
-  await Promise.allSettled(
-    handles.flatMap((handle) => {
-      try {
-        return [handle.accessor.get(IAgentTaskService).stopAllOnExit('Session closed')];
-      } catch {
-        return [];
-      }
-    }),
+  await settleOrAbort(
+    signal,
+    Promise.allSettled(
+      handles.flatMap((handle) => {
+        try {
+          return [handle.accessor.get(IAgentTaskService).stopAllOnExit('Session closed')];
+        } catch {
+          return [];
+        }
+      }),
+    ),
   );
   for (;;) {
     if (signal?.aborted) return undefined;
-    await Promise.allSettled(promptServices.map((service) => service.drain()));
+    await settleOrAbort(
+      signal,
+      Promise.allSettled(promptServices.map((service) => service.drain())),
+    );
+    if (signal?.aborted) return undefined;
     for (const loop of loops) {
       for (const turnId of loop.status().pendingTurnIds) loop.cancel(turnId);
       loop.cancel();
     }
-    await Promise.allSettled(loops.map((loop) => loop.settled()));
+    await settleOrAbort(
+      signal,
+      Promise.allSettled(loops.map((loop) => loop.settled())),
+    );
     const guards: { dispose(): void }[] = [];
     let frozen = true;
     for (const loop of loops) {
@@ -1040,9 +1081,7 @@ async function quiesceSessionAgents(
       };
     }
     for (const guard of guards) guard.dispose();
-    await new Promise((resolve) => {
-      setTimeout(resolve, PROMPT_QUIESCE_POLL_MS);
-    });
+    await delayOrAbort(signal, PROMPT_QUIESCE_POLL_MS);
   }
 }
 
