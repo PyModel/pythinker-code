@@ -486,7 +486,7 @@ jobs:
         run: node scripts/release/verify-release-consistency.mjs
 
   update-brew-tap:
-    timeout-minutes: 15
+    timeout-minutes: 20
     # Checkout only; the tap push uses a minted app token, not this one.
     permissions:
       contents: read
