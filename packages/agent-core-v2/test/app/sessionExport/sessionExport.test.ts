@@ -143,6 +143,22 @@ describe('sessionExport', () => {
     });
   });
 
+  it('omits derived notify state from the archive', async () => {
+    const tmp = await mkdtemp(join(tmpdir(), 'session-export-notify-'));
+    const sessionDir = join(tmp, 'sessions', 'ws_demo', 'ses_notify');
+    await mkdir(join(sessionDir, 'notify'), { recursive: true });
+    await writeFile(join(sessionDir, 'state.json'), '{}\n', 'utf-8');
+    await writeFile(join(sessionDir, 'notify', 'state.json'), '{"enabled":true}\n', 'utf-8');
+
+    const result = await exportSessionDirectory({
+      request: { sessionId: 'ses_notify', outputPath: join(tmp, 'export.zip'), version: '1.0.0-test' },
+      summary: { id: 'ses_notify', sessionDir },
+    });
+
+    expect(result.entries).toEqual(['manifest.json', 'state.json']);
+    expect(result.entries.some((entry) => entry.includes('notify'))).toBe(false);
+  });
+
   it('uses a timestamped default output path when outputPath is omitted', async () => {
     const tmp = await mkdtemp(join(tmpdir(), 'session-export-test-'));
     const sessionDir = join(tmp, 'sessions', 'ws_demo', 'ses_default_output');

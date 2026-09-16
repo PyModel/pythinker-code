@@ -335,8 +335,8 @@ describe('PythinkerTUI startup', () => {
     await expect(driver.init()).resolves.toBe(false);
     (driver as unknown as { mountFooter(): void }).mountFooter();
 
-    // Dock = 5 chrome containers + footer wrap, below the transcript viewport.
-    expect(driver.state.dockContainer?.children).toHaveLength(6);
+    // Dock = activity, todo, notify, queue, btw, survey, editor, footer wrap.
+    expect(driver.state.dockContainer?.children).toHaveLength(8);
   });
 
   it('shows a session-less notice on v2 startup', async () => {

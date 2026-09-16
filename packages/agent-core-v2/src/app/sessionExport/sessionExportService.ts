@@ -203,10 +203,11 @@ export async function exportSessionDirectory(input: {
 
     const sessionScan = await scanSessionWire(sessionDir, input.signal);
     const stableSessionLog = sessionLogSource;
-    const selectedSessionFiles: SessionZipEntry[] = sessionFiles.filter(
-      (file) =>
-        file !== sessionLogPath && !file.split(/[\\/]/).includes(FILE_HISTORY_BLOB_PREFIX),
-    );
+    const selectedSessionFiles: SessionZipEntry[] = sessionFiles.filter((file) => {
+      if (file === sessionLogPath) return false;
+      const parts = file.split(/[\\/]/);
+      return !parts.includes(FILE_HISTORY_BLOB_PREFIX) && !parts.includes('notify');
+    });
     if (stableSessionLog !== undefined) {
       selectedSessionFiles.push({ path: sessionLogPath, source: stableSessionLog });
       selectedSessionFiles.sort((left, right) =>
