@@ -74,16 +74,18 @@ import { nextTranscriptId } from '../utils/transcript-id';
 import type { BtwPanelController } from './btw-panel';
 import { isPluginMcpToolName, PluginUpdateNotifier } from './plugin-update-notifier';
 import type { StreamingUIController } from './streaming-ui';
+import type { SurveyController } from './survey-controller';
 import type { TasksBrowserController } from './tasks-browser';
 import { SubAgentEventHandler } from './subagent-event-handler';
 import { NotifyController } from './notify';
-import type {
-  AppState,
-  LivePaneState,
-  QueuedMessage,
-  ToolCallBlockData,
-  ToolResultBlockData,
-  TranscriptEntry,
+import {
+  sumTokenUsage,
+  type AppState,
+  type LivePaneState,
+  type QueuedMessage,
+  type ToolCallBlockData,
+  type ToolResultBlockData,
+  type TranscriptEntry,
 } from '../types';
 import type { TUIState } from '../tui-state';
 import { createGoal as startGoalCommand } from '../commands/goal';
@@ -118,6 +120,7 @@ export interface SessionEventHost {
   handleTurnEnded?(event: TurnEndedEvent): void;
   readonly btwPanelController: BtwPanelController;
   readonly tasksBrowserController: TasksBrowserController;
+  readonly surveyController: SurveyController;
 }
 
 export class SessionEventHandler {
@@ -624,6 +627,7 @@ export class SessionEventHandler {
 
   private handleToolCall(event: ToolCallStartedEvent): void {
     const { streamingUI } = this.host;
+    this.host.surveyController.notifyToolCallStarted();
     streamingUI.flushNow();
     const { turnId, step } = streamingUI.getTurnContext();
     const toolCall: ToolCallBlockData = {
@@ -747,6 +751,9 @@ export class SessionEventHandler {
     }
     if (event.model !== undefined) patch.model = event.model;
     if (event.thinkingEffort !== undefined) patch.thinkingEffort = event.thinkingEffort;
+    if (event.usage?.total !== undefined) {
+      patch.cumulativeTokens = sumTokenUsage(event.usage.total);
+    }
     if (Object.keys(patch).length > 0) this.host.setAppState(patch);
     if (event.dynamicWorkflowMode === false) {
       this.host.state.dynamicWorkflowModeEntry = undefined;
@@ -1135,6 +1142,7 @@ export class SessionEventHandler {
   }
 
   private finishCompaction(sendQueued: (item: QueuedMessage) => void): void {
+    this.host.surveyController.notifyCompactionFinished();
     const hasActiveTurn = this.host.streamingUI.hasActiveTurn();
     if (!hasActiveTurn) {
       const next = this.host.shiftQueuedMessage();

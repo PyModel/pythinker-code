@@ -125,6 +125,7 @@ export class CustomEditor extends Editor {
    * double-Esc so only two consecutive Escape presses trigger the shortcut.
    */
   public onNonEscapeInput?: () => void;
+  public onPreInput?: (data: string) => boolean;
   public onCtrlD?: () => void;
   public onCtrlC?: () => void;
   public onToggleToolExpand?: () => void;
@@ -258,7 +259,7 @@ export class CustomEditor extends Editor {
     return false;
   }
 
-  private hasAutocompleteActivity(): boolean {
+  public hasAutocompleteActivity(): boolean {
     const autocomplete = this as unknown as AutocompleteInternals;
     return (
       this.isShowingAutocomplete() ||
@@ -382,6 +383,10 @@ export class CustomEditor extends Editor {
     // so the shortcut only fires for two consecutive Escape presses.
     if (!matchesKey(normalized, Key.escape)) {
       this.onNonEscapeInput?.();
+    }
+
+    if (this.onPreInput?.(normalized) === true) {
+      return;
     }
 
     // When a paste marker was just expanded, discard the trailing bracketed

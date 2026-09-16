@@ -105,6 +105,7 @@ export async function runShell(
     workDir,
     startupNotice: configWarning,
     engineV2,
+    telemetryDisabled: config.telemetry === false,
   });
 
   initializeCliTelemetry({

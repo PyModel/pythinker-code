@@ -45,9 +45,10 @@ export interface TUIState {
   notifyPanel: NotifyPanelComponent;
   queueContainer: Container;
   btwPanelContainer: Container;
+  surveyContainer: Container;
   editorContainer: Container;
   /**
-   * Fullscreen mode only: the bottom dock (activity/todo/notify/queue/btw/editor +
+   * Fullscreen mode only: the bottom dock (activity/todo/notify/queue/btw/survey/editor +
    * footer) stacked under the transcript ScrollView. Undefined in regular
    * mode, where all chrome is a direct child of the root container.
    */
@@ -133,6 +134,7 @@ export function createTUIState(options: PythinkerTUIOptions): TUIState {
   const notifyPanel = new NotifyPanelComponent();
   const queueContainer = new GutterContainer(CHROME_GUTTER, CHROME_GUTTER);
   const btwPanelContainer = new GutterContainer(CHROME_GUTTER, CHROME_GUTTER);
+  const surveyContainer = new GutterContainer(CHROME_GUTTER, CHROME_GUTTER);
   const editorContainer = new GutterContainer(CHROME_GUTTER, CHROME_GUTTER);
   const editor = new CustomEditor(ui, {
     disablePasteBurst: initialAppState.disablePasteBurst ?? DEFAULT_TUI_CONFIG.disablePasteBurst,
@@ -162,6 +164,7 @@ export function createTUIState(options: PythinkerTUIOptions): TUIState {
     dockContainer.addChild(notifyPanelContainer, { shrink: 1, minSize: 0 });
     dockContainer.addChild(queueContainer, { shrink: 1, minSize: 0 });
     dockContainer.addChild(btwPanelContainer, { shrink: 1, minSize: 0 });
+    dockContainer.addChild(surveyContainer, { shrink: 0, minSize: 0 });
     dockContainer.addChild(editorContainer, { shrink: 1, minSize: 3 });
     const root = new VStack();
     root.addChild(scrollView, { basis: 0, grow: 1, shrink: 1, minSize: 1 });
@@ -180,6 +183,7 @@ export function createTUIState(options: PythinkerTUIOptions): TUIState {
     notifyPanel,
     queueContainer,
     btwPanelContainer,
+    surveyContainer,
     editorContainer,
     dockContainer,
     editor,

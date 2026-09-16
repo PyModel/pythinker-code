@@ -34,6 +34,7 @@ function makeHarness() {
     patchLivePane: vi.fn(),
     setAppState: vi.fn(),
     btwPanelController: { routeEvent: vi.fn(() => false) },
+    surveyController: { notifyToolCallStarted: vi.fn(), notifyCompactionFinished: vi.fn() },
     updateActivityPane: vi.fn(),
     showStatus: vi.fn(),
   };

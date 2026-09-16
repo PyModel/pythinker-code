@@ -95,6 +95,7 @@ function makeHost(options: { createGoalRejects?: boolean } = {}) {
     sendQueuedMessage: vi.fn(),
     shiftQueuedMessage: vi.fn(),
     btwPanelController: { routeEvent: vi.fn(() => false) },
+    surveyController: { notifyToolCallStarted: vi.fn(), notifyCompactionFinished: vi.fn() },
     tasksBrowserController: {},
   };
   host.setAppState.mockImplementation((patch: Record<string, unknown>) => {

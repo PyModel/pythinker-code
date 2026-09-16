@@ -7,6 +7,7 @@ import type {
   ThinkingEffort,
 } from '@pymodel/pythinker-code-sdk';
 import { compressImageForModel } from '@pymodel/pythinker-code-sdk';
+import { Key, matchesKey } from '@pymodel/pi-tui';
 
 import {
   ClipboardMediaError,
@@ -43,6 +44,7 @@ import type {
 } from '../types';
 import type { TUIState } from '../tui-state';
 import type { BtwPanelController } from './btw-panel';
+import type { SurveyController } from './survey-controller';
 
 export interface EditorKeyboardHost {
   state: TUIState;
@@ -64,6 +66,7 @@ export interface EditorKeyboardHost {
 
   handleUserInput(text: string): void;
   readonly btwPanelController: BtwPanelController;
+  readonly surveyController: SurveyController;
   readonly skillCommandMap: Map<string, string>;
   steerMessage(session: Session, input: readonly SteerInputItem[]): void;
   steerSkillActivation(session: Session, skillName: string, skillArgs: string): void;
@@ -112,11 +115,20 @@ export class EditorKeyboardController {
     const editor = host.state.editor;
 
     editor.onSubmit = (text: string) => {
+      if (host.surveyController.handleSubmit(text)) return;
       host.handleUserInput(text);
+    };
+
+    editor.onPreInput = (data: string) => {
+      if (matchesKey(data, Key.escape)) this.clearPendingExit();
+      const consumed = host.surveyController.handlePreInput(data);
+      if (consumed) this.clearPendingUndoEsc();
+      return consumed;
     };
 
     editor.onChange = (text: string) => {
       if (this.pendingExit) this.clearPendingExit();
+      host.surveyController.handleEditorChange(text);
       host.updateEditorBorderHighlight(text);
       // Expanding paste markers costs a full-text pass, and only `/goal`
       // input can trip the objective length limit — so skip the expansion
@@ -284,6 +296,7 @@ export class EditorKeyboardController {
     };
 
     editor.onOpenExternalEditor = () => {
+      host.surveyController.closeSilently();
       host.track('shortcut_editor');
       void this.openExternalEditor();
     };
