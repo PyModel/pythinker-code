@@ -84,6 +84,8 @@ export interface EditorKeyboardHost {
   updateQueueDisplay(): void;
   toggleToolOutputExpansion(): void;
   toggleTodoPanelExpansion(): void;
+  toggleNotifyPanelFocus(): boolean;
+  handleNotifyPanelKey(key: 'left' | 'right' | 'up' | 'down' | 'escape'): boolean;
   detachCurrentForegroundTask(): void;
   cancelRunningShellCommand(): void;
   hideSessionPicker(): void;
@@ -300,6 +302,15 @@ export class EditorKeyboardController {
       host.toggleTodoPanelExpansion();
       return true;
     };
+
+    editor.onPageNotify = (): boolean => {
+      if (!host.toggleNotifyPanelFocus()) return false;
+      this.clearPendingExit();
+      host.track('shortcut_notify_page');
+      return true;
+    };
+
+    editor.onNotifyPanelKey = (key) => host.handleNotifyPanelKey(key);
 
     editor.onCtrlS = () => {
       if (

@@ -1,4 +1,4 @@
-import { ErrorCodes } from '@pymodel/pythinker-code-sdk';
+import { ErrorCodes, type HostUiCapability } from '@pymodel/pythinker-code-sdk';
 
 export const PRODUCT_NAME = 'Pythinker Code';
 export const CLI_COMMAND_NAME = 'pythinker';
@@ -7,6 +7,7 @@ export const PROCESS_NAME = 'pythinker-code';
 // Used in telemetry app names and HTTP User-Agent headers.
 export const CLI_USER_AGENT_PRODUCT = 'pythinker-code-cli';
 export const CLI_UI_MODE = 'shell';
+export const TUI_HOST_UI_CAPABILITIES: readonly HostUiCapability[] = ['update_panel'];
 // Telemetry ui_mode for the `pythinker web` host. Same product
 // as the CLI (CLI_USER_AGENT_PRODUCT); the surface is distinguished by ui_mode.
 export const WEB_UI_MODE = 'web';

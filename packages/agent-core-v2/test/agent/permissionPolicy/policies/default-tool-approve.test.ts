@@ -61,6 +61,7 @@ describe('DefaultToolApprovePermissionPolicyService', () => {
       },
     ],
     ['AskUserQuestion', { questions: [] }],
+    ['NotifyUser', { message: 'Working on the parser.' }],
     ['Skill', { name: 'test-skill' }],
     ['EnterPlanMode', {}],
     ['ExitPlanMode', {}],

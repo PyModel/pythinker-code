@@ -493,6 +493,7 @@ export class PythinkerTUI {
   }
 
   refreshSlashCommandAutocomplete(): void {
+    this.sessionEventHandler.notifications.setEnabled(isExperimentalFlagEnabled('notify_user'));
     this.setupAutocomplete();
   }
 
@@ -744,6 +745,7 @@ export class PythinkerTUI {
 
   private async init(): Promise<boolean> {
     setExperimentalFeatures(await this.harness.getExperimentalFeatures());
+    this.sessionEventHandler.notifications.setEnabled(isExperimentalFlagEnabled('notify_user'));
     await this.authFlow.refreshAvailableModels();
     this.backgroundRefreshPromise = this.refreshProviderModelsInBackground();
 
@@ -1000,6 +1002,7 @@ export class PythinkerTUI {
     ui.addChild(this.state.transcriptContainer);
     ui.addChild(this.state.activityContainer);
     ui.addChild(this.state.todoPanelContainer);
+    ui.addChild(this.state.notifyPanelContainer);
     ui.addChild(this.state.queueContainer);
     ui.addChild(this.state.btwPanelContainer);
     ui.addChild(this.state.editorContainer);
@@ -1039,6 +1042,7 @@ export class PythinkerTUI {
     main.addChild(this.state.transcriptContainer);
     main.addChild(this.state.activityContainer);
     main.addChild(this.state.todoPanelContainer);
+    main.addChild(this.state.notifyPanelContainer);
     main.addChild(this.state.queueContainer);
     main.addChild(this.state.btwPanelContainer);
     main.addChild(this.state.editorContainer);
@@ -2788,6 +2792,7 @@ export class PythinkerTUI {
     this.clearTerminalInlineImages();
     this.state.todoPanel.clear();
     this.state.todoPanelContainer.clear();
+    this.sessionEventHandler.notifications.clear();
     const stagingFileIds = this.imageStore.clear();
     this.staging.deleteStaged(stagingFileIds);
     this.renderWelcome();
@@ -3293,6 +3298,14 @@ export class PythinkerTUI {
     // (When the expanded region reaches above the viewport, the engine's own
     // fallback may still do a full render; that path is not forced from here.)
     this.state.ui.requestRender();
+  }
+
+  toggleNotifyPanelFocus(): boolean {
+    return this.sessionEventHandler.notifications.toggleFocus();
+  }
+
+  handleNotifyPanelKey(key: 'left' | 'right' | 'up' | 'down' | 'escape'): boolean {
+    return this.sessionEventHandler.notifications.handlePanelKey(key);
   }
 
   toggleTodoPanelExpansion(): void {

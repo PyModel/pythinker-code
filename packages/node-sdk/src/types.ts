@@ -9,6 +9,7 @@ import type {
 import type { Pyaos } from '@pymodel/pyaos';
 import type { PythinkerHostIdentity } from '@pymodel/pythinker-code-oauth';
 import type { ContentPart } from '@pymodel/kosong';
+import type { HostUiCapability } from '@pymodel/agent-core-v2';
 
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonValue[] | { readonly [key: string]: JsonValue };
@@ -108,6 +109,7 @@ export type {
 } from '@pymodel/agent-core';
 
 export type { PythinkerHostIdentity };
+export type { HostUiCapability };
 export type { TelemetryClient, TelemetryContextPatch, TelemetryProperties };
 export type { ContentPart, Role, ThinkingEffort, ToolCall } from '@pymodel/kosong';
 // Contributed commands are an agent-core-v2 seam; the type is re-exported
@@ -169,6 +171,7 @@ export interface PythinkerHarnessOptions {
   readonly autoLoadConfig?: boolean | undefined;
   readonly uiMode?: string;
   readonly skillDirs?: readonly string[];
+  readonly uiCapabilities?: readonly HostUiCapability[];
   readonly telemetry?: TelemetryClient | undefined;
   readonly sessionStartedProperties?: TelemetryProperties;
 }

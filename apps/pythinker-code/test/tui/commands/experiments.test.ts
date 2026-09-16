@@ -109,6 +109,34 @@ describe('experimental feature command handlers', () => {
     );
   });
 
+  it.each([true, false])(
+    'toggles notification display without reloading the session: %s',
+    async (enabled) => {
+      const host = makeHost();
+      host.harness.getExperimentalFeatures.mockResolvedValue([
+        feature({ id: 'notify_user', enabled }),
+      ]);
+      await applyExperimentalFeatureChanges(host, [{ id: 'notify_user', enabled }]);
+      expect(host.harness.setConfig).toHaveBeenCalledWith({
+        experimental: { notify_user: enabled },
+      });
+      expect(isExperimentalFlagEnabled('notify_user')).toBe(enabled);
+      expect(host.refreshSlashCommandAutocomplete).toHaveBeenCalledOnce();
+      expect(host.harness.reloadSession).not.toHaveBeenCalled();
+      expect(host.reloadCurrentSessionView).not.toHaveBeenCalled();
+      expect(host.showError).not.toHaveBeenCalled();
+    },
+  );
+
+  it('still reloads when another experimental feature changes alongside notifications', async () => {
+    const host = makeHost();
+    await applyExperimentalFeatureChanges(host, [
+      { id: 'notify_user', enabled: false },
+      { id: 'micro_compaction', enabled: false },
+    ]);
+    expect(host.harness.reloadSession).toHaveBeenCalledOnce();
+  });
+
   it('reports the post-apply enabled flag set in telemetry', async () => {
     const host = makeHost();
     host.harness.getExperimentalFeatures.mockResolvedValue([

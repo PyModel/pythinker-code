@@ -186,6 +186,7 @@ import {
   ISessionTokenCountingService,
   IAgentToolPolicyService,
   IAgentToolRegistryService,
+  type HostUiCapability,
   IBootstrapService,
   IConfigService,
   IEventService,
@@ -365,6 +366,7 @@ export interface SDKRpcClientV2Options {
   readonly skillDirs?: readonly string[];
   readonly telemetry?: TelemetryClient;
   readonly uiMode?: string;
+  readonly uiCapabilities?: readonly HostUiCapability[];
 }
 
 /**
@@ -461,6 +463,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
           // `--skills-dir` (v1 parity): explicit skill dirs replace default
           // user / project discovery for every session this client hosts.
           skillDirs: options.skillDirs,
+          uiCapabilities: options.uiCapabilities,
         },
       },
       [...logSeed(resolveLoggingConfig({ homeDir: this.homeDir, env: process.env }))],

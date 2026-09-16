@@ -68,6 +68,8 @@ import { AgentTodo, todoAgentRuntimeProvider } from '#/features/todo/todoAgentRu
 import '#/agent/toolDedupe/toolDedupeService';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
+import { IFlagService } from '#/app/flag/flag';
+import { ISessionNotify } from '#/features/notify/sessionNotify';
 import { ISessionEventBus, IEventBus } from '#/app/event/eventBus';
 import { IModelService } from '#/kosong/model/model';
 import { IProviderService } from '#/kosong/provider/provider';
@@ -267,6 +269,11 @@ describe('AgentLifecycleService', () => {
       cwd: '/tmp/pythinker-agentLifecycle-home',
       getEnv: () => undefined,
     } as unknown as IBootstrapService);
+    ix.stub(IFlagService, {
+      _serviceBrand: undefined,
+      enabled: () => false,
+    } as unknown as IFlagService);
+    ix.stub(ISessionNotify, { _serviceBrand: undefined, ready: Promise.resolve(), enabled: false });
     ix.stub(ISessionWorkspaceContext, {
       _serviceBrand: undefined,
       workDir: '/tmp/pythinker-agentLifecycle-work',

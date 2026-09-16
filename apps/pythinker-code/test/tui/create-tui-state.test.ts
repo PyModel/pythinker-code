@@ -153,6 +153,7 @@ describe('createTUIState', () => {
     expect(dock?.children).toEqual([
       state.activityContainer,
       state.todoPanelContainer,
+      state.notifyPanelContainer,
       state.queueContainer,
       state.btwPanelContainer,
       state.editorContainer,
