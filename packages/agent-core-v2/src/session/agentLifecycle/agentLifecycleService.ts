@@ -480,12 +480,29 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
         }
         const deadline = Date.now() + REMOVE_PROMPT_QUIESCE_TIMEOUT_MS;
         for (;;) {
-          await prompt.drain(reason);
-          for (const turnId of loop.status().pendingTurnIds) {
-            loop.cancel(turnId, reason);
-          }
-          loop.cancel(undefined, reason);
-          await Promise.all([loop.settled(), compactionSettled]);
+          const remaining = deadline - Date.now();
+          if (remaining <= 0) break;
+          let drainTimedOut = false;
+          let drainTimer: ReturnType<typeof setTimeout> | undefined;
+          await Promise.race([
+            (async () => {
+              await prompt.drain(reason);
+              for (const turnId of loop.status().pendingTurnIds) {
+                loop.cancel(turnId, reason);
+              }
+              loop.cancel(undefined, reason);
+              await Promise.all([loop.settled(), compactionSettled]);
+            })().finally(() => {
+              if (drainTimer !== undefined) clearTimeout(drainTimer);
+            }),
+            new Promise<void>((resolve) => {
+              drainTimer = setTimeout(() => {
+                drainTimedOut = true;
+                resolve();
+              }, remaining);
+            }),
+          ]);
+          if (drainTimedOut) break;
           let idle = true;
           try {
             const snapshot = prompt.list();

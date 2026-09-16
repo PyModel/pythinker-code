@@ -159,6 +159,20 @@ describe('sessionExport', () => {
     expect(result.entries.some((entry) => entry.includes('notify'))).toBe(false);
   });
 
+  it('does not treat an ancestor directory named notify as session notify state', async () => {
+    const tmp = await mkdtemp(join(tmpdir(), 'notify-ancestor-'));
+    const sessionDir = join(tmp, 'notify', 'sessions', 'ws_demo', 'ses_nested');
+    await mkdir(sessionDir, { recursive: true });
+    await writeFile(join(sessionDir, 'state.json'), '{}\n', 'utf-8');
+
+    const result = await exportSessionDirectory({
+      request: { sessionId: 'ses_nested', outputPath: join(tmp, 'export.zip'), version: '1.0.0-test' },
+      summary: { id: 'ses_nested', sessionDir },
+    });
+
+    expect(result.entries).toEqual(['manifest.json', 'state.json']);
+  });
+
   it('uses a timestamped default output path when outputPath is omitted', async () => {
     const tmp = await mkdtemp(join(tmpdir(), 'session-export-test-'));
     const sessionDir = join(tmp, 'sessions', 'ws_demo', 'ses_default_output');

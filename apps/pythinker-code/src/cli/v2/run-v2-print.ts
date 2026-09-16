@@ -201,7 +201,7 @@ export async function runV2Print(
   }
 
   let restorePermission = async (): Promise<void> => {};
-  let quiesceAgents = async (): Promise<void> => {};
+  let quiesceAgents = async (_signal?: AbortSignal): Promise<void> => {};
   let releaseQuiescence: (() => void) | undefined;
   let flushWires = async (): Promise<void> => {};
   let removeTerminationCleanup: (() => void) | undefined;
@@ -211,15 +211,21 @@ export async function runV2Print(
     const pending = (cleanupPromise ??= (async () => {
       removeTerminationCleanup?.();
       setCrashPhase('shutdown');
+      const quiesceAbort = new AbortController();
       try {
         await restorePermission();
-        await raceWithTimeout(quiesceAgents(), CLI_SHUTDOWN_TIMEOUT_MS).catch(() => {});
+        await raceWithTimeout(quiesceAgents(quiesceAbort.signal), CLI_SHUTDOWN_TIMEOUT_MS).catch(
+          () => {},
+        );
       } finally {
+        quiesceAbort.abort();
         try {
           await Promise.all([
             raceWithTimeout(flushWires(), CLI_SHUTDOWN_TIMEOUT_MS).catch(() => {}),
             telemetryService !== undefined
-              ? raceWithTimeout(telemetryService.shutdown(), CLI_SHUTDOWN_TIMEOUT_MS)
+              ? raceWithTimeout(telemetryService.shutdown(), CLI_SHUTDOWN_TIMEOUT_MS).catch(
+                  () => {},
+                )
               : Promise.resolve(),
             shutdownTelemetry({ timeoutMs: CLI_SHUTDOWN_TIMEOUT_MS }).catch(() => {}),
           ]);
@@ -274,8 +280,8 @@ export async function runV2Print(
 
     const resolved = await resolveNativeSession(app, opts, workDir, defaultModel, stderr);
     restorePermission = resolved.restorePermission;
-    quiesceAgents = async () => {
-      releaseQuiescence = await quiesceSessionAgents(resolved.session, resolved.agent);
+    quiesceAgents = async (signal) => {
+      releaseQuiescence = await quiesceSessionAgents(resolved.session, resolved.agent, signal);
     };
     flushWires = () => flushSessionWires(resolved.session, resolved.agent);
 
@@ -967,6 +973,7 @@ function collectSessionAgentHandles(
 async function quiesceSessionAgents(
   session: ISessionScopeHandle,
   mainAgent: IAgentScopeHandle,
+  signal?: AbortSignal,
 ): Promise<(() => void) | undefined> {
   const handles = collectSessionAgentHandles(session, mainAgent);
   const promptServices = handles.flatMap((handle) => {
@@ -993,6 +1000,7 @@ async function quiesceSessionAgents(
     }),
   );
   for (;;) {
+    if (signal?.aborted) return undefined;
     await Promise.allSettled(promptServices.map((service) => service.drain()));
     for (const loop of loops) {
       for (const turnId of loop.status().pendingTurnIds) loop.cancel(turnId);
@@ -1022,6 +1030,10 @@ async function quiesceSessionAgents(
         return false;
       }
     });
+    if (signal?.aborted) {
+      for (const guard of guards) guard.dispose();
+      return undefined;
+    }
     if (frozen && !busy) {
       return () => {
         for (const guard of guards) guard.dispose();
@@ -1039,9 +1051,13 @@ async function flushSessionWires(
   mainAgent: IAgentScopeHandle,
 ): Promise<void> {
   await Promise.allSettled(
-    collectSessionAgentHandles(session, mainAgent).map((handle) =>
-      handle.accessor.get(IEventDispatcher).flush(),
-    ),
+    collectSessionAgentHandles(session, mainAgent).flatMap((handle) => {
+      try {
+        return [handle.accessor.get(IEventDispatcher).flush()];
+      } catch {
+        return [];
+      }
+    }),
   );
 }
 

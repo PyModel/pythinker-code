@@ -73,6 +73,7 @@ describe('sliceMainRecordsAtTurn', () => {
       'metadata',
       'context.append_message',
     ]);
+    expect(slice.cutoffTime).toBe(4);
   });
 });
 
@@ -129,6 +130,7 @@ describe('sliceMainRecordsBeforePrompt', () => {
 
     const slice = sliceMainRecordsBeforePrompt(records, 'ses_source', 'prompt-1');
     expect(slice.records).toEqual([{ type: 'metadata', protocol_version: '1.5', created_at: 1 }]);
+    expect(slice.cutoffTime).toBe(2);
   });
 
   it('rejects an unknown active prompt', () => {

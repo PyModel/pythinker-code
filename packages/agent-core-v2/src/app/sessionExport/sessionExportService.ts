@@ -1,4 +1,4 @@
-import { join, resolve } from 'pathe';
+import { join, relative, resolve } from 'pathe';
 import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import type { ISessionScopeHandle } from '#/_base/di/scope';
@@ -205,8 +205,8 @@ export async function exportSessionDirectory(input: {
     const stableSessionLog = sessionLogSource;
     const selectedSessionFiles: SessionZipEntry[] = sessionFiles.filter((file) => {
       if (file === sessionLogPath) return false;
-      const parts = file.split(/[\\/]/);
-      return !parts.includes(FILE_HISTORY_BLOB_PREFIX) && !parts.includes('notify');
+      const parts = relative(sessionDir, file).split(/[\\/]/);
+      return parts[0] !== FILE_HISTORY_BLOB_PREFIX && parts[0] !== 'notify';
     });
     if (stableSessionLog !== undefined) {
       selectedSessionFiles.push({ path: sessionLogPath, source: stableSessionLog });
