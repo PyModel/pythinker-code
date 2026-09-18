@@ -467,6 +467,7 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
     };
     this.onWillCloseEmitter.fire(agent);
     const handle = managed.handle;
+    await handle.accessor.get(IAgentTaskService).suppressAllTerminalNotifications();
     const loop = handle.accessor.get(IAgentLoopService);
     const reason = abortError('Agent removed');
     let quiescence: IDisposable | undefined;
