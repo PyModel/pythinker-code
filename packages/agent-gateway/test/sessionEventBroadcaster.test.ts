@@ -471,9 +471,12 @@ function makeCore(
   metaAgents: Record<string, { type?: string; parentAgentId?: string }> = {},
   expertTalk = new Map<string, SessionExpertTalkService>(),
 ): Scope {
+  const handles = new WeakMap<FakeLifecycle, IScopeHandle>();
   const sessionFor = (sid: string) => {
     const lifecycle = sessions.get(sid);
     if (lifecycle === undefined) return undefined;
+    const existing = handles.get(lifecycle);
+    if (existing !== undefined) return existing;
     const sessionAccessor = {
       get: (t: unknown) => {
         if (t === IAgentLifecycleService) return lifecycle;
@@ -483,7 +486,14 @@ function makeCore(
         return undefined;
       },
     };
-    return { id: sid, kind: LifecycleScope.Session, accessor: sessionAccessor, dispose: () => {} };
+    const handle = {
+      id: sid,
+      kind: LifecycleScope.Session,
+      accessor: sessionAccessor,
+      dispose: () => {},
+    } as unknown as IScopeHandle;
+    handles.set(lifecycle, handle);
+    return handle;
   };
   const sessionLifecycle = {
     onDidCloseSession: () => ({ dispose: () => {} }),
@@ -1538,7 +1548,10 @@ describe('SessionEventBroadcaster', () => {
         type: 'event.config.changed',
         payload: { changedFields: ['defaultModel'], config: {} },
       });
-      eventBus.emit({ type: 'event.session.deleted', payload: { session_id: 's1' } });
+      eventBus.emit({
+        type: 'event.session.deleted',
+        payload: { sessionId: 's1', workspaceId: 'wd_1' },
+      });
 
       await vi.waitFor(() => {
         expect(envelopes.some((e) => e.type === 'event.session.deleted')).toBe(true);
@@ -1547,7 +1560,12 @@ describe('SessionEventBroadcaster', () => {
       expect(deleted).toMatchObject({
         type: 'event.session.deleted',
         session_id: '__global__',
-        payload: { type: 'event.session.deleted', agentId: 'main', sessionId: 's1' },
+        payload: {
+          type: 'event.session.deleted',
+          agentId: 'main',
+          sessionId: 's1',
+          workspace_id: 'wd_1',
+        },
       });
     });
 

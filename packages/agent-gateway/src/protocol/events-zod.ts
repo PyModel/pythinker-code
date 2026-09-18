@@ -588,6 +588,7 @@ export const sessionArchivedEventSchema = z.object({
 
 export const sessionDeletedEventSchema = z.object({
   type: z.literal('event.session.deleted'),
+  workspace_id: z.string().min(1),
 });
 
 export const workspaceCreatedEventSchema = z.object({

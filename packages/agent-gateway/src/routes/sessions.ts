@@ -16,7 +16,6 @@ import {
   ISessionTitleService,
   IEventService,
   SessionCreated,
-  SessionDeleted,
   IWorkspaceAliases,
   ISessionManager,
   IWorkspaceService,
@@ -888,9 +887,6 @@ export function registerSessionsRoutes(
       }
       try {
         await core.accessor.get(ISessionManager).delete(session_id);
-        core.accessor.get(IEventService).publish(
-          new SessionDeleted({ payload: { session_id: session_id } }),
-        );
         requestLog(req)?.info({ session_id }, 'session deleted');
         reply.send(okEnvelope({ deleted: true as const }, req.id));
       } catch (error) {
@@ -1044,14 +1040,7 @@ async function archiveSessionAction(ctx: SessionActionCtx): Promise<void> {
 
 async function deleteSessionAction(ctx: SessionActionCtx): Promise<void> {
   const { core, req, reply, id } = ctx;
-  const summary = await core.accessor.get(ISessionManager).status(id);
-  if (summary === undefined) {
-    throw new Error2(ErrorCodes.SESSION_NOT_FOUND, `session ${id} does not exist`);
-  }
   await core.accessor.get(ISessionManager).delete(id);
-  core.accessor.get(IEventService).publish(
-    new SessionDeleted({ payload: { session_id: id } }),
-  );
   requestLog(req)?.info({ session_id: id, action: 'delete' }, 'session action completed');
   reply.send(okEnvelope({ deleted: true }, req.id));
 }

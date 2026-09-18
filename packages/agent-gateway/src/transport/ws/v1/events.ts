@@ -51,6 +51,7 @@ export interface SessionArchivedEvent {
 
 export interface SessionDeletedEvent {
   readonly type: 'event.session.deleted';
+  readonly workspace_id: string;
 }
 
 export interface WorkspaceCreatedEvent {

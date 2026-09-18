@@ -1,3 +1,5 @@
+import { rm } from 'node:fs/promises';
+
 import type {
   AgentActivityState,
   ApprovalResponse,
@@ -18,6 +20,7 @@ import {
   ISessionExpertTalkService,
   ISessionActivityView,
   ISessionIndex,
+  ISessionManager,
   MAIN_AGENT_ID,
   getLiveSessionById,
   listSessionPendingInteractions,
@@ -69,6 +72,7 @@ import {
   type EventEnvelope,
   type JournalLogger,
   SessionEventJournal,
+  sessionJournalPath,
 } from './sessionEventJournal';
 
 export type ResyncReason = 'buffer_overflow' | 'session_recreated' | 'epoch_changed';
@@ -145,6 +149,7 @@ export class SessionEventBroadcaster {
   private readonly pendingStates = new Map<string, Promise<SessionState | undefined>>();
   private readonly maxBufferSize: number;
   private readonly coreEventSubscription: IDisposable;
+  private readonly deletionSubscription: IDisposable | undefined;
   private closed = false;
 
   constructor(
@@ -157,6 +162,11 @@ export class SessionEventBroadcaster {
     },
   ) {
     this.maxBufferSize = opts.maxBufferSize ?? DEFAULT_MAX_BUFFER_SIZE;
+    this.deletionSubscription = opts.core.accessor.get(ISessionManager).onWillDeleteSession?.(
+      (event) => {
+        event.waitUntil(this.purgeSession(event.sessionId));
+      },
+    );
     this.coreEventSubscription = opts.core.accessor
       .get(IEventService)
       .subscribe((event) => this.onCoreEvent(event));
@@ -534,6 +544,7 @@ export class SessionEventBroadcaster {
     if (this.closed) return;
     this.closed = true;
     this.coreEventSubscription.dispose();
+    this.deletionSubscription?.dispose();
     await Promise.all(
       [...this.pendingStates.values()].map((pending) => pending.catch(() => undefined)),
     );
@@ -542,6 +553,18 @@ export class SessionEventBroadcaster {
       this.opts.transcriptService?.dropSession(sessionId);
     }
     this.sessions.clear();
+  }
+
+  private async purgeSession(sessionId: string): Promise<void> {
+    await this.pendingStates.get(sessionId);
+    const state = this.sessions.get(sessionId);
+    if (state !== undefined) {
+      this.sessions.delete(sessionId);
+      state.targets.clear();
+      await disposeSessionState(state);
+    }
+    this.opts.transcriptService?.dropSession(sessionId);
+    await rm(sessionJournalPath(this.opts.eventsDir, sessionId), { force: true });
   }
 
   private ensureState(sessionId: string): Promise<SessionState | undefined> {
@@ -571,7 +594,7 @@ export class SessionEventBroadcaster {
       sessionId,
       this.opts.logger,
     );
-    if (this.closed) {
+    if (this.closed || getLiveSessionById(this.opts.core.accessor, sessionId) !== session) {
       await journal.close();
       return undefined;
     }
@@ -681,23 +704,14 @@ export class SessionEventBroadcaster {
     if (event.type === 'event.session.deleted') {
       const payload = sessionDeletedPayload(corePayload);
       if (payload === undefined) return;
-      const { sessionId } = payload;
       void this.dispatchGlobal({
         type: 'event.session.deleted',
+        workspace_id: payload.workspaceId,
         agentId: 'main',
-        sessionId,
-      } as Event)
-        .then(async () => {
-          const state = this.sessions.get(sessionId);
-          if (state !== undefined) {
-            this.sessions.delete(sessionId);
-            await disposeSessionState(state);
-            this.opts.transcriptService?.dropSession(sessionId);
-          }
-        })
-        .catch((error: unknown) =>
-          this.logDispatchError(GLOBAL_SESSION_ID, 'event.session.deleted', error),
-        );
+        sessionId: payload.sessionId,
+      } as Event).catch((error: unknown) =>
+        this.logDispatchError(GLOBAL_SESSION_ID, 'event.session.deleted', error),
+      );
       return;
     }
     if (event.type === 'event.workspace.created' || event.type === 'event.workspace.updated') {
@@ -1462,13 +1476,16 @@ function sessionArchivedPayload(
 
 function sessionDeletedPayload(
   payload: unknown,
-): { sessionId: string } | undefined {
+): { sessionId: string; workspaceId: string } | undefined {
   if (typeof payload !== 'object' || payload === null) return undefined;
-  const candidate = payload as { session_id?: unknown };
-  if (typeof candidate.session_id !== 'string' || candidate.session_id.length === 0) {
+  const candidate = payload as { sessionId?: unknown; workspaceId?: unknown };
+  if (typeof candidate.sessionId !== 'string' || candidate.sessionId.length === 0) {
     return undefined;
   }
-  return { sessionId: candidate.session_id };
+  if (typeof candidate.workspaceId !== 'string' || candidate.workspaceId.length === 0) {
+    return undefined;
+  }
+  return { sessionId: candidate.sessionId, workspaceId: candidate.workspaceId };
 }
 
 function workspaceLifecyclePayload(payload: unknown): Workspace | undefined {

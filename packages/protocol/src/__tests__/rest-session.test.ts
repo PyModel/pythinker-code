@@ -599,12 +599,12 @@ describe('restoreSessionResponseSchema', () => {
   });
 });
 
-describe('deleteSessionResponseSchema (deprecated alias)', () => {
-  it('accepts the canonical { archived: true } shape', () => {
-    expect(deleteSessionResponseSchema.parse({ archived: true })).toEqual({ archived: true });
+describe('deleteSessionResponseSchema', () => {
+  it('accepts the canonical { deleted: true } shape', () => {
+    expect(deleteSessionResponseSchema.parse({ deleted: true })).toEqual({ deleted: true });
   });
 
-  it('rejects { archived: false }', () => {
-    expect(deleteSessionResponseSchema.safeParse({ archived: false }).success).toBe(false);
+  it('rejects { deleted: false }', () => {
+    expect(deleteSessionResponseSchema.safeParse({ deleted: false }).success).toBe(false);
   });
 });

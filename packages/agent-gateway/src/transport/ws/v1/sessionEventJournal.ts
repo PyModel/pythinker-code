@@ -43,6 +43,10 @@ export interface JournalLogger {
 
 const noopLogger: JournalLogger = { warn: () => {} };
 
+export function sessionJournalPath(eventsDir: string, sessionId: string): string {
+  return resolveStoragePath(eventsDir, `${sessionId}.jsonl`);
+}
+
 export class SessionEventJournal {
   private _seq: number;
   private pendingLines: string[] = [];
@@ -70,7 +74,7 @@ export class SessionEventJournal {
     sessionId: string,
     logger: JournalLogger = noopLogger,
   ): Promise<SessionEventJournal> {
-    const filePath = resolveStoragePath(eventsDir, `${sessionId}.jsonl`);
+    const filePath = sessionJournalPath(eventsDir, sessionId);
     let epoch: string | undefined;
     let lastSeq = 0;
     let sawAnyLine = false;
