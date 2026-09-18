@@ -153,6 +153,7 @@ import {
   loadMcpServersDetailed,
   resolveMcpJsonPaths,
 } from '@pymodel/agent-core-v2/app/mcpConfig/configLoader';
+import { fsSuggestRequestSchema } from '@pymodel/agent-core-v2/workspace/workspaceFs/fs';
 import { IAppendLogStore } from '@pymodel/agent-core-v2/persistence/interface/appendLogStore';
 import type { McpServerConfig as WorkspaceMcpServerConfig } from '@pymodel/agent-core-v2/mcpCore/config-schema';
 import {
@@ -328,6 +329,8 @@ import type {
   SessionTodoItem,
   SessionUsage,
   SkillSummary,
+  SuggestFilesInput,
+  SuggestFilesResult,
   TelemetryClient,
   UploadFileOptions,
   WorkspaceTrustInfo,
@@ -653,6 +656,46 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
     const catalog = handler.program.skills;
     await catalog.ready;
     return catalog.catalog.listSkills().map(summarizeSkill);
+  }
+
+  /**
+   * Through the workspace handler's `IWorkspaceFsService` — the same engine
+   * suggest the agent-gateway `fs:suggest` routes serve (fuzzy scoring,
+   * directories included, gitignore respected), so in-process hosts match
+   * the web client's @ mention results.
+   */
+  override async suggestFiles(
+    workDir: string,
+    input: SuggestFilesInput,
+  ): Promise<SuggestFilesResult | undefined> {
+    const parsed = fsSuggestRequestSchema.safeParse({
+      query: input.query,
+      limit: input.limit ?? 50,
+      follow_gitignore: true,
+      show_hidden: false,
+    });
+    if (!parsed.success) {
+      const issue = parsed.error.issues[0];
+      const where =
+        issue !== undefined && issue.path.length > 0 ? `${String(issue.path[0])}: ` : '';
+      throw new PythinkerError(
+        ErrorCodes.REQUEST_INVALID,
+        `suggestFiles ${where}${issue?.message ?? 'invalid input'}`,
+      );
+    }
+    const handler = await this.engineAccessor
+      .get(IWorkspaceInstanceManager)
+      .getOrCreate({ root: normalizeRequiredWorkDir('suggestFiles', workDir) });
+    const result = await handler.program.fs.suggest(parsed.data);
+    return {
+      items: result.items.map((item) => ({
+        path: item.path,
+        name: item.name,
+        kind: item.kind,
+        matchPositions: item.match_positions,
+      })),
+      truncated: result.truncated,
+    };
   }
 
   /**

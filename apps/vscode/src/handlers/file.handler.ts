@@ -9,10 +9,11 @@ import {
   resolveWorkspacePath,
   type WorkspacePath,
 } from "../utils/workspace-path";
-import type { Handler } from "./types";
+import type { Handler, HandlerContext } from "./types";
 
 interface GetProjectFilesParams {
   query?: string;
+  /** Folder-browse mode still lists a directory when the webview requests it. */
   directory?: string;
 }
 interface PickMediaParams { maxCount?: number; includeVideo?: boolean }
@@ -34,12 +35,36 @@ const IMAGE_MIME_TYPES: Record<string, string> = {
   ".ico": "image/x-icon",
 };
 
+const FILE_SUGGEST_LIMIT = 20;
+
 const getProjectFiles: Handler<GetProjectFilesParams | undefined, ProjectFile[]> = async (params, ctx) => {
-  if (!ctx.workDirUri) return [];
-  return params?.directory !== undefined
-    ? ctx.fileManager.listDirectory(ctx.workDirUri, params.directory)
-    : ctx.fileManager.searchFiles(ctx.workDirUri, params?.query);
+  if (!ctx.workDirUri || !ctx.workDir) return [];
+  if (params?.directory !== undefined) {
+    return ctx.fileManager.listDirectory(ctx.workDirUri, params.directory);
+  }
+  const suggested = await suggestFiles(ctx, params?.query ?? "");
+  if (suggested !== undefined) return suggested;
+  return ctx.fileManager.searchFiles(ctx.workDirUri, params?.query);
 };
+
+async function suggestFiles(ctx: HandlerContext, query: string): Promise<ProjectFile[] | undefined> {
+  try {
+    const result = await ctx.harness.suggestFiles(ctx.requireWorkDir(), {
+      query,
+      limit: FILE_SUGGEST_LIMIT,
+    });
+    if (result === undefined) return undefined;
+    return result.items.map((item) => ({
+      path: item.path,
+      name: item.name,
+      isDirectory: item.kind === "directory",
+      matchPositions: [...item.matchPositions],
+    }));
+  } catch (error) {
+    ctx.logError("File suggest failed", error);
+    return [];
+  }
+}
 
 const pickMedia: Handler<PickMediaParams, string[]> = async (params) => {
   const maxCount = params.maxCount ?? 9;
