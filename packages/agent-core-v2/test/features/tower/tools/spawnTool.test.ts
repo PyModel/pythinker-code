@@ -166,7 +166,7 @@ describe('TowerSpawnTool', () => {
       get requestedBase() {
         return undefined;
       },
-      enter: () => {},
+      enter: () => Promise.resolve({ entered: true as const }),
       exit: () => {},
     } as unknown as IAgentTowerService);
     ix.stub(ITowerRateLimitService, {

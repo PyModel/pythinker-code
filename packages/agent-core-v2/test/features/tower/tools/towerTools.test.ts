@@ -133,6 +133,7 @@ beforeEach(async () => {
         },
         enter: async () => {
           towerActive = true;
+          return { entered: true as const };
         },
         exit: () => {
           towerActive = false;

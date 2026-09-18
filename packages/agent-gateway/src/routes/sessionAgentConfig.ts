@@ -10,6 +10,7 @@ import {
   IModelService,
   agentContextOf,
   resumeSessionById,
+  towerEnterFailureMessage,
   type PermissionMode,
   type Scope,
 } from '@pymodel/agent-core-v2';
@@ -59,12 +60,9 @@ export async function applySessionAgentConfig(
   if (agentConfig.tower_mode !== undefined) {
     const tower = agent.accessor.get(IAgentTowerService);
     if (agentConfig.tower_mode) {
-      await tower.enter(agentConfig.tower_base);
-      if (!tower.isActive) {
-        throw new Error2(
-          ErrorCodes.SESSION_TOWER_MODE_INVALID,
-          'tower mode could not be enabled — another live session owns the workspace tower',
-        );
+      const result = await tower.enter(agentConfig.tower_base);
+      if (!result.entered) {
+        throw new Error2(ErrorCodes.SESSION_TOWER_MODE_INVALID, towerEnterFailureMessage(result));
       }
     } else {
       tower.exit();

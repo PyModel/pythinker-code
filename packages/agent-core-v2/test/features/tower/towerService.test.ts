@@ -37,6 +37,7 @@ import {
   ISessionActivityView,
   type SessionPendingInteraction,
 } from '#/session/sessionActivity/sessionActivity';
+import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
 import type { ToolCall } from '#/kosong/contract/message';
 import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
 import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
@@ -130,7 +131,13 @@ describe('AgentTowerService', () => {
   let addedTools: string[];
   let liveSessions: Map<
     string,
-    { busy: boolean; pendingInteraction: SessionPendingInteraction; exit: Mock<() => void> }
+    {
+      busy: boolean;
+      pendingInteraction: SessionPendingInteraction;
+      exit: Mock<() => void>;
+      metadataReadFails?: boolean;
+      title?: string;
+    }
   >;
 
   beforeEach(() => {
@@ -187,6 +194,14 @@ describe('AgentTowerService', () => {
                           : undefined,
                     },
                   }),
+                };
+              }
+              if (token === (ISessionMetadata as unknown)) {
+                return {
+                  read: async () => {
+                    if (stub.metadataReadFails === true) throw new Error('metadata read failed');
+                    return { title: stub.title };
+                  },
                 };
               }
               return undefined;

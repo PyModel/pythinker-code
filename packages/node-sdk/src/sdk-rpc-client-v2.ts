@@ -238,6 +238,7 @@ import {
   resolveLoggingConfig,
   resolvePrintBackgroundMode,
   summarizeSkill,
+  towerEnterFailureMessage,
   type IAgentScopeHandle,
   type IDisposable,
   type ISessionScopeHandle,
@@ -2260,12 +2261,9 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
     const agent = await this.agentScope(input.sessionId);
     const tower = agent.accessor.get(IAgentTowerService);
     if (input.enabled) {
-      await tower.enter(input.base);
-      if (!tower.isActive) {
-        throw new V2Error2(
-          V2ErrorCodes.SESSION_TOWER_MODE_INVALID,
-          'tower mode could not be enabled — another live session owns the workspace tower',
-        );
+      const result = await tower.enter(input.base);
+      if (!result.entered) {
+        throw new V2Error2(V2ErrorCodes.SESSION_TOWER_MODE_INVALID, towerEnterFailureMessage(result));
       }
     } else {
       tower.exit();
