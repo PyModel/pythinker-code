@@ -18,8 +18,16 @@ import {
   type WorkspaceConfig,
 } from '#/tool/path-access';
 import { MEDIA_SNIFF_BYTES, detectFileType } from '#/agent/media/file-type';
+import { ISessionMediaStore } from '#/agent/media/sessionMediaStore';
+import { isDaemonFileUrl } from '#/agent/media/mediaRef';
+import {
+  attachmentFileSource,
+  runtimeFileSource,
+  withAttachmentLocation,
+  type FileReadSource,
+} from '#/agent/tools/fileReadSource';
 import { toInputJsonSchema } from '#/tool/input-schema';
-import { literalRulePattern, matchesPathRuleSubject } from '#/tool/rule-match';
+import { literalRulePattern, matchesGlobRuleSubject, matchesPathRuleSubject } from '#/tool/rule-match';
 import { makeCarriageReturnsVisible, splitLinesKeepingTerminator, type LineEndingStyle } from '#/_base/text/line-endings';
 import { detectTextEncoding, type UtfTextEncoding } from '#/_base/text/encoding';
 import { renderPrompt } from '#/_base/utils/render-prompt';
@@ -176,6 +184,7 @@ export class ReadTool implements IReadTool {
     @ISessionSkillCatalog private readonly skillCatalog: ISessionSkillCatalog,
     @IAgentToolResultTruncationService private readonly resultTruncation: IAgentToolResultTruncationService,
     @IConfigService private readonly config: IConfigService,
+    @ISessionMediaStore private readonly attachmentStore: ISessionMediaStore,
   ) {}
 
   private limits(): { defaultMaxChars: number; maxChars: number } {
@@ -191,10 +200,11 @@ export class ReadTool implements IReadTool {
     return { workspaceDir: view.workDir, additionalDirs: view.additionalDirs };
   }
 
-  resolveExecution(args: ReadInput): ToolExecution {
+  resolveExecution(args: ReadInput): ToolExecution | Promise<ToolExecution> {
     if (args.column_offset !== undefined && (args.line_offset ?? 1) < 0) {
       return { isError: true, output: 'column_offset is only supported for forward reads. Use a positive line_offset or the forward Next Read arguments.' };
     }
+    if (isDaemonFileUrl(args.path)) return this.attachmentExecution(args);
     const inspected = inspectAgentRuntime(this.runtime);
     const view = new RuntimeWorkspaceView(inspected, {
       workDir: this.workspaceCtx.workDir,
@@ -227,7 +237,11 @@ export class ReadTool implements IReadTool {
           const denied = await sensitiveTargetError(lease.runtime.fs!, args.path, path);
           if (denied !== undefined) return { isError: true, output: denied };
           const eventLog = this.resultTruncation.isWireJournalPath(path);
-          const result = await this.execution(lease.runtime.fs!, args, path, eventLog);
+          const result = await this.execution(
+            runtimeFileSource(lease.runtime.fs!, path),
+            args,
+            eventLog,
+          );
           return { ...result, spillExempt: true };
         } finally {
           lease.dispose();
@@ -236,16 +250,30 @@ export class ReadTool implements IReadTool {
     };
   }
 
+  private async attachmentExecution(args: ReadInput): Promise<ToolExecution> {
+    const source = await attachmentFileSource(args.path, this.attachmentStore);
+    return {
+      accesses: ToolAccesses.readFile(source.localPath ?? args.path),
+      description: `Reading ${args.path}`,
+      display: { kind: 'file_io', operation: 'read', path: source.localPath ?? args.path },
+      approvalRule: literalRulePattern(this.name, args.path),
+      matchesRule: (ruleArgs) => matchesGlobRuleSubject(ruleArgs, args.path),
+      execute: async () => ({
+        ...withAttachmentLocation(await this.execution(source, args, false), source),
+        spillExempt: true,
+      }),
+    };
+  }
+
   private async execution(
-    fs: IHostFileSystem,
+    source: FileReadSource,
     args: ReadInput,
-    safePath: string,
     eventLog: boolean,
   ): Promise<ExecutableToolResult> {
     try {
       let stat: Awaited<ReturnType<IHostFileSystem['stat']>>;
       try {
-        stat = await fs.stat(safePath);
+        stat = await source.stat();
       } catch (error) {
         if (isFileNotFoundError(error)) {
           return { isError: true, output: `"${args.path}" does not exist.` };
@@ -256,8 +284,8 @@ export class ReadTool implements IReadTool {
         return { isError: true, output: `"${args.path}" is not a file.` };
       }
 
-      const header = await fs.readBytes(safePath, MEDIA_SNIFF_BYTES);
-      const fileType = detectFileType(safePath, header);
+      const header = await source.readBytes(MEDIA_SNIFF_BYTES);
+      const fileType = detectFileType(source.name, header);
       if (fileType.kind === 'image' || fileType.kind === 'video') {
         return {
           isError: true,
@@ -279,7 +307,7 @@ export class ReadTool implements IReadTool {
               'Convert it to UTF-8 first (e.g. with `iconv`).',
           };
         }
-        const bytes = await fs.readBytes(safePath);
+        const bytes = await source.readBytes();
         let decoded: string;
         try {
           decoded = new TextDecoder(detection.encoding, { fatal: true }).decode(bytes);
@@ -297,7 +325,7 @@ export class ReadTool implements IReadTool {
           output: notReadableFileOutput(args.path),
         };
       } else {
-        readLines = () => fs.readLines(safePath, { errors: 'strict' });
+        readLines = () => source.readLines();
       }
 
       const limits = this.limits();
@@ -314,7 +342,7 @@ export class ReadTool implements IReadTool {
       const rereadsFile = detectedEncoding === undefined && (args.n_lines ?? Infinity) < -lineOffset;
       const result = await this.readTail(readLines, request);
       if (!result.isError && rereadsFile) {
-        const currentStat = await fs.stat(safePath);
+        const currentStat = await source.stat();
         if (!currentStat.isFile || currentStat.size !== stat.size ||
           currentStat.mtimeMs !== stat.mtimeMs || currentStat.ino !== stat.ino) {
           return { isError: true, output: 'File changed while reading its tail. Retry Read with the updated file.' };
@@ -582,5 +610,4 @@ export class ReadTool implements IReadTool {
 registerAgentToolService(IReadTool, ReadTool, {
   name: 'Read',
   domain: 'os/backends',
-  requiredRuntimeCapabilities: ['fs'],
 });

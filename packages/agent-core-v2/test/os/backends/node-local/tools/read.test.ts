@@ -88,7 +88,22 @@ function createReadTool(
     inspect: () => runtime,
     acquire: () => ({ runtime, track: (resource) => resource, dispose: () => {} }),
   };
-  return new ReadTool(resolver, workspace, skillCatalog, truncation, stubConfigService());
+  const mediaStore = {
+    _serviceBrand: undefined,
+    pathFor: () => undefined,
+    resolveDisplayPath: async () => undefined,
+    read: async () => undefined,
+    open: async () => undefined,
+    materialize: async () => undefined,
+  } as unknown as import('#/agent/media/sessionMediaStore').ISessionMediaStore;
+  return new ReadTool(
+    resolver,
+    workspace,
+    skillCatalog,
+    truncation,
+    stubConfigService(),
+    mediaStore,
+  );
 }
 
 function createSpiedFs(content: string) {
@@ -375,9 +390,9 @@ describe('ReadTool', () => {
     ).toBe(false);
   });
 
-  it('matches permission args with glob path semantics', () => {
+  it('matches permission args with glob path semantics', async () => {
     const tool = toolWithContent('');
-    const execution = tool.resolveExecution({ path: '/etc/passwd' });
+    const execution = await tool.resolveExecution({ path: '/etc/passwd' });
     if (execution.isError === true) throw new TypeError('expected runnable execution');
 
     expect(execution.matchesRule?.('/etc/**')).toBe(true);
@@ -1375,14 +1390,23 @@ describe('ReadTool', () => {
       inspect: () => registry.inspect(binding),
       acquire: (required = []) => registry.acquire(binding, required),
     };
+    const mediaStore = {
+      _serviceBrand: undefined,
+      pathFor: () => undefined,
+      resolveDisplayPath: async () => undefined,
+      read: async () => undefined,
+      open: async () => undefined,
+      materialize: async () => undefined,
+    } as unknown as import('#/agent/media/sessionMediaStore').ISessionMediaStore;
     const tool = new ReadTool(
       runtime,
       stubWorkspaceContext('/workspace'),
       { catalog: { getSkillRoots: () => [] } } as unknown as ISessionSkillCatalog,
       stubToolResultTruncationService(),
       stubConfigService(),
+      mediaStore,
     );
-    const execution = tool.resolveExecution({ path: '/workspace/a.txt' });
+    const execution = await tool.resolveExecution({ path: '/workspace/a.txt' });
     expect('execute' in execution).toBe(true);
 
     runtimeValue.setStatus('disconnected');

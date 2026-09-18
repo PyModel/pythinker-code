@@ -11,6 +11,7 @@ import { abortable } from '#/_base/utils/abort';
 import { IAgentStateService } from '#/agent/state/agentState';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { sessionMediaOriginalsDir } from '#/agent/media/image-originals';
+import { ISessionMediaStore } from '#/agent/media/sessionMediaStore';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
@@ -53,6 +54,7 @@ export class AgentMcpService extends Service implements IAgentMcpService {
   constructor(
     @ISessionMcpHandle private readonly mcpHandle: ISessionMcpHandle,
     @ISessionContext private readonly sessionContext: ISessionContext,
+    @ISessionMediaStore private readonly attachmentStore: ISessionMediaStore,
     @IAgentToolRegistryService private readonly registry: IAgentToolRegistryService,
     @IAgentToolExecutorService toolExecutor: IAgentToolExecutorService,
     @IAgentLoopService loop: IAgentLoopService,
@@ -285,6 +287,7 @@ export class AgentMcpService extends Service implements IAgentMcpService {
         this.registry.register(
           createMcpTool(qualified, tool, client, {
             originalsDir: sessionMediaOriginalsDir(this.sessionContext.sessionDir),
+            attachmentStore: this.attachmentStore,
             telemetry: this.telemetry,
             reconnect: (signal) => this.reconnectForToolCall(serverName, client, signal),
             isRemoved: () =>

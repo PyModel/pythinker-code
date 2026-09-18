@@ -607,13 +607,11 @@ describe('mcpResultToExecutableOutput', () => {
       'mcp__s__big',
     );
     const parts = out.output as ContentPart[];
-    expect(parts).toHaveLength(3);
     expect(parts[0]).toEqual({ type: 'text', text: '<mcp_tool_result name="mcp__s__big">' });
-    expect(parts[1]?.type).toBe('text');
-    expect((parts[1] as { text: string }).text).toContain('image_url dropped');
-    expect((parts[1] as { text: string }).text).toContain('10 MB per-part limit');
-    expect(parts[2]).toEqual({ type: 'text', text: '</mcp_tool_result>' });
-    const joined = parts.map((p) => (p.type === 'text' ? p.text : '')).join('');
+    expect(parts.some((p) => p.type === 'text' && p.text === '</mcp_tool_result>')).toBe(true);
+    const joined = parts.map((p) => (p.type === 'text' ? p.text : '')).join('\n');
+    expect(joined).toContain('image_url dropped');
+    expect(joined).toContain('10 MB per-part limit');
     expect(joined).not.toContain('Output truncated');
     expect(out.truncated).toBe(true);
   });
@@ -667,12 +665,15 @@ describe('mcpResultToExecutableOutput', () => {
     );
 
     const parts = out.output as ContentPart[];
-    const caption = out.note;
+    const caption = [
+      ...(typeof out.spill?.suffix === 'string' ? [out.spill.suffix] : []),
+      ...parts.filter((p) => p.type === 'text').map((p) => p.text),
+    ].join('\n');
     expect(caption).toContain('Image compressed');
     expect(caption).toContain('3600x1800');
     expect(parts.some((p) => p.type === 'image_url')).toBe(true);
 
-    const pathMatch = /saved at "([^"]+)"/.exec(caption!);
+    const pathMatch = /saved at "([^"]+)"/.exec(caption);
     expect(pathMatch).not.toBeNull();
     const persisted = await readFile(pathMatch![1]!);
     expect(persisted.equals(bigBytes)).toBe(true);
@@ -689,7 +690,13 @@ describe('mcpResultToExecutableOutput', () => {
       'mcp__s__shot',
     );
 
-    expect(out.note).toBeUndefined();
+    const caption = [
+      ...(typeof out.spill?.suffix === 'string' ? [out.spill.suffix] : []),
+      ...(Array.isArray(out.output)
+        ? out.output.filter((p) => p.type === 'text').map((p) => p.text)
+        : []),
+    ].join('\n');
+    expect(caption).not.toContain('Image compressed');
   });
 
   test('reports MCP image compression telemetry with the MCP tool-result source', async () => {
@@ -735,9 +742,13 @@ describe('mcpResultToExecutableOutput', () => {
       { originalsDir: dir },
     );
 
-    const caption = out.note;
+    const parts = out.output as ContentPart[];
+    const caption = [
+      ...(typeof out.spill?.suffix === 'string' ? [out.spill.suffix] : []),
+      ...parts.filter((p) => p.type === 'text').map((p) => p.text),
+    ].join('\n');
     expect(caption).toContain('Image compressed');
-    const pathMatch = /saved at "([^"]+)"/.exec(caption!);
+    const pathMatch = /saved at "([^"]+)"/.exec(caption);
     expect(pathMatch).not.toBeNull();
     expect(pathMatch![1]!.startsWith(dir)).toBe(true);
     const persisted = await readFile(pathMatch![1]!);
@@ -766,8 +777,12 @@ describe('mcpResultToExecutableOutput', () => {
     const toolText = parts[0];
     if (toolText?.type !== 'text') throw new Error('expected the tool text part first');
     expect(toolText.text).toBe('x'.repeat(100_001));
-    expect(out.note).toMatch(/<\/system>$/);
-    expect(out.note).toContain('saved at');
+    const caption = [
+      ...(typeof out.spill?.suffix === 'string' ? [out.spill.suffix] : []),
+      ...parts.filter((p) => p.type === 'text').map((p) => p.text),
+    ].join('\n');
+    expect(caption).toMatch(/<\/system>/);
+    expect(caption).toContain('saved at');
     await rm(dir, { recursive: true, force: true });
   });
 
@@ -787,10 +802,14 @@ describe('mcpResultToExecutableOutput', () => {
     );
 
     expect(out.truncated).toBeUndefined();
-    expect(out.note).toMatch(/^<system>Image compressed/);
-    expect(out.note).toMatch(/<\/system>$/);
-    expect(out.note).toContain('saved at');
     const parts = out.output as ContentPart[];
+    const caption = [
+      ...(typeof out.spill?.suffix === 'string' ? [out.spill.suffix] : []),
+      ...parts.filter((p) => p.type === 'text').map((p) => p.text),
+    ].join('\n');
+    expect(caption).toMatch(/Image compressed/);
+    expect(caption).toMatch(/<\/system>/);
+    expect(caption).toContain('saved at');
     const joined = parts.map((p) => (p.type === 'text' ? p.text : '')).join('');
     expect(joined).not.toContain('Output truncated');
     await rm(dir, { recursive: true, force: true });
