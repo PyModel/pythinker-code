@@ -124,7 +124,7 @@ This page documents the changes in each Pythinker Code CLI release.
 
 ### Features
 
-- Support two OAuth login methods — kimi.ai and kimi.com.
+- Support two OAuth login methods — the regional OAuth endpoints.
 - Add the WaitFor tool: the agent can now wait for a background task to finish within the current turn instead of ending the turn and being re-invoked.
 - Add 13 data sources to the official Pythinker Datasource plugin — Chinese government data (NDA/NBS) and standards (GB/HB/DB/TT), eight international organization datasets (WHO, FAO, UNSD, ECB, Eurostat, UNICEF, OECD, FRED), Xinhua Finance, and Caixin. Update the plugin from the Official tab in /plugins.
 - web: Add a Pin action to the chat header more-menu.

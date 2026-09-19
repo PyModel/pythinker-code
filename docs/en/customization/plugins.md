@@ -220,7 +220,7 @@ The first time you use Pythinker Computer Use after installation, it shows an au
 
 #### Notes for the Windows version
 
-The Windows version (WinCU) installs differently from the macOS one: run `/plugins install https://cdn.kimi.com/pythinker-computer-use-windows/latest/pythinker-cu-win-plugin.zip` in Pythinker Code, then restart after installation. A few things to know before using it:
+The Windows version (WinCU) installs differently from the macOS one: run `/plugins install https://cdn.pythinker.com/pythinker-computer-use-windows/latest/pythinker-cu-win-plugin.zip` in Pythinker Code, then restart after installation. A few things to know before using it:
 
 - **It may briefly take over your mouse and keyboard**: Unlike the macOS version, the Windows version cannot reliably inject input in the background; it may briefly activate the target window and use your real mouse and keyboard while performing actions
 - **System requirements**: Windows 10 version 1903 (Build 18362) or later, or Windows 11, x64; a real interactive desktop session is required, and Windows Server needs Desktop Experience

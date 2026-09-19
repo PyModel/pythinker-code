@@ -13,13 +13,10 @@ import { join } from 'node:path';
 import type { EnrichedTelemetryEvent, TelemetryPrimitive } from './types';
 import { isTelemetryPrimitive } from './types';
 
-// Mainland-China telemetry endpoint, mirroring
-// `PYTHINKER_REGION_PROFILES['mainland-cn'].telemetryEndpoint` in
-// `@pymodel/pythinker-code-oauth` (the region source of truth). This package
-// deliberately has no dependency on it — region-aware callers pass `endpoint`
-// explicitly (e.g. through `initializeTelemetry`).
-export const TELEMETRY_ENDPOINT = 'https://telemetry-logs.kimi.com/v1/event';
+export const TELEMETRY_ENDPOINT = 'https://telemetry-logs.pythinker.com/v1/event';
+/** Do not change this Pythinker wire prefix. SigNoz dashboards query `pfc_*` events. */
 export const SERVER_EVENT_PREFIX = 'pfc_';
+/** Do not change this Pythinker identity prefix. SigNoz device queries depend on it. */
 export const USER_ID_PREFIX = 'pfc_device_id_';
 export const DISK_EVENT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 export const RETRY_BACKOFFS_MS = [1_000, 4_000, 16_000] as const;

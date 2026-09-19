@@ -16,23 +16,28 @@ The CLI is written in TypeScript, distributed via npm, and runs on Node.js.
 
 Two installation options are available: the official install script (recommended, no pre-installed Node.js required) and a global npm install.
 
+Prefer a graphical application over the terminal? See the [Desktop App guide](./desktop.md) for the
+macOS and Windows desktop application.
+
+To use the local browser UI, see [Use Pythinker Code in a browser](./web.md).
+
 ::: tip Before you install
 Pythinker Code CLI is a fully interactive TUI application. For the best visual experience, run it in a terminal with true-color and ligature support, such as [Kitty](https://sw.kovidgoyal.net/kitty/) or [Ghostty](https://ghostty.org/).
 :::
 
 ### Install script (recommended)
 
-::: code-group
+- **macOS / Linux**:
 
-```sh [macOS / Linux]
-curl -fsSL https://code.kimi.com/pythinker-code/install.sh | bash
+```sh
+curl -fsSL https://code.pythinker.com/pythinker-code/install.sh | bash
 ```
 
-```powershell [Windows (PowerShell)]
-irm https://code.kimi.com/pythinker-code/install.ps1 | iex
-```
+- **Windows (PowerShell)**:
 
-:::
+```powershell
+irm https://code.pythinker.com/pythinker-code/install.ps1 | iex
+```
 
 > On Windows, install [Git for Windows](https://gitforwindows.org/) before first launch. Pythinker Code CLI uses the bundled Git Bash as its shell environment; if Git Bash is installed in a custom location, set `PYTHINKER_SHELL_PATH` to the absolute path of `bash.exe`.
 
@@ -44,19 +49,38 @@ Requires Node.js 22.19.0 or later:
 
 ```sh
 node --version
-```
-
-::: code-group
-
-```sh [npm]
 npm install -g @pymodel/pythinker-code
 ```
 
-```sh [pnpm]
+Or with pnpm:
+
+```sh
 pnpm add -g @pymodel/pythinker-code
 ```
 
-:::
+## Upgrade and uninstall
+
+After installation, verify that the executable is ready:
+
+```sh
+pythinker --version
+```
+
+**Upgrade**: automatic updates are enabled by default for global npm, pnpm, yarn, bun, and native installations. Native installations on macOS, Linux, and Windows download and verify the update in the background, then apply it on the next start. Homebrew installations require `brew upgrade pythinker-code`.
+
+Run `pythinker update` (or `pythinker upgrade`) to check immediately. In a terminal, the command asks you to confirm. For a native installation in a script or a pipe, there is no prompt and the update downloads immediately. Native updates apply on the next start. To disable background installation, set `[upgrade].auto_install = false` in `~/.pythinker-code/tui.toml`. This setting stops unattended installation, but a startup prompt can still show when an update is available, as it does for a package manager installation. Set `PYTHINKER_CODE_NO_AUTO_UPDATE=1` to also disable automatic checks, startup prompts, and automatic update application.
+
+You can also upgrade directly via the package manager:
+
+```sh
+npm install -g @pymodel/pythinker-code@latest
+```
+
+**Uninstall**: if you installed via the script, delete the `pythinker` executable. If you installed via npm:
+
+```sh
+npm uninstall -g @pymodel/pythinker-code
+```
 
 ## First launch
 
@@ -88,7 +112,7 @@ On first launch you need to configure an API source. In the interactive UI, ente
 `/login` opens a platform selector supporting two options:
 
 - **Pythinker Code (OAuth)** — device-code flow; open the link on any device, sign in, and enter the code to authorize
-- **Kimi Platform API key** — enter an API key from `platform.kimi.com` or `platform.kimi.ai`
+- **Pythinker Platform API key** — enter an API key from `pythinker.com/platform`
 
 To sign out, enter `/logout` to clear the current credentials.
 
@@ -138,7 +162,7 @@ For a first-time user, the following is all you need to know:
 | --- | --- |
 | `Esc` | Interrupt streaming output / close a popup |
 | `Ctrl-C` | Interrupt output; press twice while idle to exit |
-| `Shift-Tab` | Toggle Plan mode |
+| `Shift-Tab` | Cycle thinking effort for the current model |
 | `Ctrl-S` | Inject a message mid-stream without waiting for the current response to finish |
 | `Ctrl-O` | Collapse / expand tool output and compaction summaries |
 
@@ -148,28 +172,9 @@ For the full list, type `/help` or visit [Slash commands reference](../reference
 
 Pythinker Code CLI stores its local data under `~/.pythinker-code/` by default — config files, session records, logs, and the update cache. To move it elsewhere, point to a new path via the `PYTHINKER_CODE_HOME` environment variable. For the full directory layout, see [Data locations](../configuration/data-locations.md) and [Environment variables](../configuration/env-vars.md).
 
-## Upgrade and uninstall
-
-After installation, verify that the executable is ready:
-
-```sh
-pythinker --version
-```
-
-**Upgrade**: run `pythinker upgrade` — the CLI checks for the latest version and presents update options. Choose `Install update now` to upgrade based on your current install source. You can also upgrade directly via the package manager:
-
-```sh
-npm install -g @pymodel/pythinker-code@latest
-```
-
-**Uninstall**: if you installed via the script, delete the `pythinker` executable. If you installed via npm:
-
-```sh
-npm uninstall -g @pymodel/pythinker-code
-```
-
 ## Next steps
 
 - [Interaction and input](./interaction.md) — input box operations, approval flow, Plan mode, and Ask When Needed mode explained
+- [Use in a browser](./web.md) — browser sessions and local-server safety
 - [Sessions and context](./sessions.md) — resuming sessions, compressing context, exporting sessions
 - [Common use cases](./use-cases.md) — prompt examples for typical tasks

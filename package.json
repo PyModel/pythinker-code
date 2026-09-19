@@ -5,63 +5,76 @@
   "license": "MIT",
   "type": "module",
   "scripts": {
-    "postinstall": "node scripts/fix-node-pty-perms.mjs",
+    "postinstall": "node scripts/fix-node-pty-perms.mjs && node scripts/security/prune-monaco-distributions.mjs",
     "build": "pnpm -r run build",
     "build:packages": "pnpm -r --filter './packages/*' run build",
     "dev:cli": "pnpm -C apps/pythinker-code run dev",
-    "dev:cli:marketplace": "PYTHINKER_CODE_DEV_MARKETPLACE_URL=https://code.kimi.com/pythinker-code/plugins/marketplace.json pnpm -C apps/pythinker-code run dev",
+    "dev:desktop": "pnpm -C apps/desktop run dev",
+    "dev:web": "pnpm -C apps/pythinker-web run dev",
+    "build:web": "pnpm --filter @pymodel/pythinker-web run build && node apps/pythinker-code/scripts/copy-web-assets.mjs",
+    "check:web": "node apps/pythinker-code/scripts/check-web-assets.mjs",
+    "check:security-artifacts": "node scripts/security/check-artifacts.mjs",
+    "package:desktop": "pnpm -C apps/desktop run package",
+    "dist:mac:desktop": "pnpm -C apps/desktop run dist:mac",
+    "dist:win:desktop": "pnpm -C apps/desktop run dist:win",
     "dev:server": "pnpm -C apps/pythinker-code run dev:server",
-    "dev:agent-gateway": "pnpm -C apps/pythinker-code run dev:agent-gateway",
-    "dev:v2": "pnpm -C apps/pythinker-code run dev:agent-gateway:multi",
     "build:plugin-marketplace": "pnpm -C apps/pythinker-code run build:plugin-marketplace",
-    "vis": "pnpm -C apps/vis run dev",
     "dev:docs": "pnpm -C docs install --ignore-workspace && pnpm -C docs run dev",
-    "typecheck": "pnpm run build:packages && pnpm -r --filter './packages/*' run typecheck && pnpm --filter @pymodel/pythinker-code run typecheck && pnpm --filter pythinker-code run typecheck && pnpm --filter @pymodel/vis-server run typecheck && pnpm --filter @pymodel/vis-web run typecheck",
-    "lint": "node scripts/check-no-comments.mjs && oxlint --type-aware",
+    "typecheck": "pnpm run build:packages && pnpm -r --filter './packages/*' run typecheck && pnpm --filter @pymodel/pythinker-code run typecheck && pnpm --filter @pymodel/pythinker-web run typecheck && pnpm --filter @pymodel/pythinker-desktop run typecheck && pnpm --filter @pymodel/vis-server run typecheck && pnpm --filter @pymodel/vis-web run typecheck",
+    "lint": "node scripts/check-product-boundaries.mjs && node scripts/check-no-comments.mjs && oxlint --type-aware",
     "lint:fix": "pnpm run lint --fix",
     "lint:pkg": "pnpm --filter @pymodel/pythinker-code exec publint && npm_config_cache=${TMPDIR:-/tmp}/pythinker-code-npm-cache pnpm --filter @pymodel/pythinker-code exec attw --pack . --profile node16",
-    "sherif": "sherif -i @agentclientprotocol/sdk",
+    "sherif": "sherif --ignore-package ./apps/vscode -i @agentclientprotocol/sdk",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "clean": "pnpm -r run clean",
     "changeset": "changeset",
+    "release:status": "node scripts/release/release-status.mjs",
+    "test:release": "node --test scripts/release/*.test.mjs",
     "version": "changeset version",
-    "version:release": "changeset version",
+    "version:release": "node scripts/release/link-desktop-changesets.mjs && changeset version",
     "publish": "pnpm run typecheck && pnpm run lint && pnpm run sherif && pnpm run test && pnpm run build && pnpm run lint:pkg && changeset publish",
-    "prepare": "node .husky/install.mjs"
+    "prepare": "simple-git-hooks",
+    "dev:agent-gateway": "pnpm -C apps/pythinker-code run dev:agent-gateway",
+    "dev:v2": "pnpm -C apps/pythinker-code run dev:agent-gateway:multi",
+    "dev:cli:legacy": "PYTHINKER_CODE_LEGACY_FLAG=1 pnpm -C apps/pythinker-code run dev",
+    "vis": "pnpm -C apps/vis run dev"
   },
   "devDependencies": {
-    "@arethetypeswrong/cli": "0.18.2",
+    "@arethetypeswrong/cli": "0.18.3",
     "@changesets/changelog-github": "0.7.0",
-    "@changesets/cli": "2.30.0",
-    "@microsoft/api-extractor": "7.58.7",
-    "@types/node": "^22.15.3",
-    "@vitest/coverage-v8": "4.1.4",
-    "husky": "^9.1.7",
+    "@changesets/cli": "2.31.0",
+    "@iconify-json/ri": "^1.2.10",
+    "@iconify-json/tabler": "^1.2.35",
+    "@microsoft/api-extractor": "7.58.9",
+    "@types/node": "^26.1.2",
+    "@typescript/native-preview": "7.0.0-dev.20260707.2",
+    "@vitest/coverage-v8": "4.1.11",
     "lint-staged": "16.4.0",
     "oxlint": "1.59.0",
     "oxlint-tsgolint": "0.20.0",
     "pkg-pr-new": "0.0.75",
-    "publint": "0.3.18",
+    "publint": "0.3.21",
     "sherif": "1.11.1",
-    "tsdown": "0.22.0",
-    "tsx": "^4.21.0",
-    "typescript": "6.0.2",
-    "vitest": "4.1.4"
+    "simple-git-hooks": "2.13.1",
+    "tsdown": "0.22.3",
+    "tsx": "^4.23.5",
+    "typescript": "6.0.3",
+    "vitest": "4.1.11"
   },
+  "simple-git-hooks": {
+    "pre-commit": "pnpm exec lint-staged",
+    "pre-push": "bash scripts/pre-push.sh"
+  },
+  "engines": {
+    "node": ">=24.15.0 <25"
+  },
+  "packageManager": "pnpm@10.34.3",
   "lint-staged": {
     "*.{js,jsx,ts,tsx,mjs,cjs,mts,cts}": [
       "oxlint --fix --quiet",
       "oxlint --type-aware --quiet"
     ]
-  },
-  "engines": {
-    "node": ">=24.15.0"
-  },
-  "packageManager": "pnpm@10.33.0",
-  "dependencies": {
-    "radashi": "^12.9.1",
-    "tar": "^7.5.22"
   }
 }
