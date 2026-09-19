@@ -84,8 +84,7 @@ describe('Pythinker identity factories', () => {
     });
 
     expect(headers['User-Agent']).toBe('pythinker-code-cli/1.2.3');
-    expect(headers['X-Msh-Version']).toBe('1.2.3');
-    expect(headers['X-Msh-Platform']).toBeDefined();
+    expect(Object.keys(headers)).toEqual(['User-Agent']);
   });
 });
 
