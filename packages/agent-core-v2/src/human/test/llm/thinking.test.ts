@@ -380,8 +380,8 @@ describe('openai requester thinking', () => {
         messages: [
           createUserMessage('hi'),
           createAssistantMessage([
-            { type: 'think', think: '第一段续', detailsIndex: 0 },
-            { type: 'think', think: '第二段', detailsIndex: 1 },
+            { type: 'think', think: 'zh', detailsIndex: 0 },
+            { type: 'think', think: 'zh', detailsIndex: 1 },
             { type: 'think', think: '', encrypted: 'cipher', detailsIndex: 2 },
             { type: 'text', text: 'ok' },
           ]),
@@ -391,19 +391,19 @@ describe('openai requester thinking', () => {
     );
     const markedAssistant = bodyMessages(marked.body())[1]!;
     expect(markedAssistant['reasoning_details']).toEqual([
-      { type: 'summary', summary: '第一段续' },
-      { type: 'summary', summary: '第二段' },
+      { type: 'summary', summary: 'zh' },
+      { type: 'summary', summary: 'zh' },
       { type: 'encrypted', encrypted: 'cipher' },
     ]);
-    expect(markedAssistant['reasoning_content']).toBe('第一段续第二段');
+    expect(markedAssistant['reasoning_content']).toBe('zh');
 
     const inbound = stubOpenAIClient(
       chatCompletionChunks([
-        { reasoning_content: '原文一' },
-        { reasoning_content: '原文二' },
+        { reasoning_content: 'zh' },
+        { reasoning_content: 'zh' },
         {
           reasoning_details: [
-            { index: 0, type: 'summary', summary: '摘' },
+            { index: 0, type: 'summary', summary: 'zh' },
             { index: 1, type: 'encrypted', encrypted: 'cipher' },
           ],
         },
@@ -429,8 +429,8 @@ describe('openai requester thinking', () => {
     );
     const finished = accumulator.finish();
     expect(finished.content).toEqual([
-      { type: 'think', think: '原文一原文二' },
-      { type: 'think', think: '摘', detailsIndex: 0, hidden: true },
+      { type: 'think', think: 'zh' },
+      { type: 'think', think: 'zh', detailsIndex: 0, hidden: true },
       { type: 'think', think: '', encrypted: 'cipher', detailsIndex: 1 },
       { type: 'text', text: 'ok' },
     ]);
@@ -447,10 +447,10 @@ describe('openai requester thinking', () => {
     );
     const continued = bodyMessages(outbound.body())[1]!;
     expect(continued['reasoning_details']).toEqual([
-      { type: 'summary', summary: '摘' },
+      { type: 'summary', summary: 'zh' },
       { type: 'encrypted', encrypted: 'cipher' },
     ]);
-    expect(continued['reasoning_content']).toBe('原文一原文二');
+    expect(continued['reasoning_content']).toBe('zh');
     expect(continued['content']).toBe('ok');
   });
 
@@ -605,13 +605,13 @@ describe('openai requester thinking', () => {
       collect(
         chatCompletionChunks([
           {
-            reasoning_content: '第一段',
-            reasoning_details: [{ index: 0, type: 'summary', summary: '第一段' }],
+            reasoning_content: 'zh',
+            reasoning_details: [{ index: 0, type: 'summary', summary: 'zh' }],
           },
           {
             reasoning_details: [
-              { index: 0, summary: '续' },
-              { index: 1, type: 'summary', summary: '第二段' },
+              { index: 0, summary: 'zh' },
+              { index: 1, type: 'summary', summary: 'zh' },
             ],
           },
           { reasoning_details: [{ index: 2, type: 'encrypted', encrypted: 'cipher' }] },
@@ -619,9 +619,9 @@ describe('openai requester thinking', () => {
         ]),
       ),
     ).resolves.toEqual([
-      { type: 'think', think: '第一段' },
-      { type: 'think', think: '第一段续', detailsIndex: 0, hidden: true },
-      { type: 'think', think: '第二段', detailsIndex: 1, hidden: true },
+      { type: 'think', think: 'zh' },
+      { type: 'think', think: 'zh', detailsIndex: 0, hidden: true },
+      { type: 'think', think: 'zh', detailsIndex: 1, hidden: true },
       { type: 'think', think: '', encrypted: 'cipher', detailsIndex: 2 },
       { type: 'text', text: 'ok' },
     ]);
@@ -645,9 +645,9 @@ describe('openai requester thinking', () => {
       collect(
         chatCompletionChunks([
           {
-            reasoning_content: '原文',
+            reasoning_content: 'zh',
             reasoning_details: [
-              { index: 0, type: 'summary', summary: '摘' },
+              { index: 0, type: 'summary', summary: 'zh' },
               { index: 1, type: 'encrypted', encrypted: 'cipher' },
             ],
           },
@@ -655,20 +655,20 @@ describe('openai requester thinking', () => {
         ]),
       ),
     ).resolves.toEqual([
-      { type: 'think', think: '原文' },
-      { type: 'think', think: '摘', detailsIndex: 0, hidden: true },
+      { type: 'think', think: 'zh' },
+      { type: 'think', think: 'zh', detailsIndex: 0, hidden: true },
       { type: 'think', think: '', encrypted: 'cipher', detailsIndex: 1 },
       { type: 'text', text: 'ok' },
     ]);
     await expect(
       collect(
         chatCompletionChunks([
-          { reasoning_content: '原文一' },
-          { reasoning_content: '原文二' },
-          { reasoning_details: [{ index: 0, type: 'summary', summary: '摘一' }] },
+          { reasoning_content: 'zh' },
+          { reasoning_content: 'zh' },
+          { reasoning_details: [{ index: 0, type: 'summary', summary: 'zh' }] },
           {
             reasoning_details: [
-              { index: 0, type: 'summary', summary: '摘二' },
+              { index: 0, type: 'summary', summary: 'zh' },
               { index: 1, type: 'encrypted', encrypted: 'cipher' },
             ],
           },
@@ -676,8 +676,8 @@ describe('openai requester thinking', () => {
         ]),
       ),
     ).resolves.toEqual([
-      { type: 'think', think: '原文一原文二' },
-      { type: 'think', think: '摘一摘二', detailsIndex: 0, hidden: true },
+      { type: 'think', think: 'zh' },
+      { type: 'think', think: 'zh', detailsIndex: 0, hidden: true },
       { type: 'think', think: '', encrypted: 'cipher', detailsIndex: 1 },
       { type: 'text', text: 'ok' },
     ]);
@@ -686,7 +686,7 @@ describe('openai requester thinking', () => {
         chatCompletionChunks([
           {
             reasoning_details: [
-              { index: 0, type: 'summary', summary: '摘' },
+              { index: 0, type: 'summary', summary: 'zh' },
               { index: 1, type: 'encrypted', encrypted: 'cipher' },
             ],
           },
@@ -694,7 +694,7 @@ describe('openai requester thinking', () => {
         ]),
       ),
     ).resolves.toEqual([
-      { type: 'think', think: '摘', detailsIndex: 0 },
+      { type: 'think', think: 'zh', detailsIndex: 0 },
       { type: 'think', think: '', encrypted: 'cipher', detailsIndex: 1 },
       { type: 'text', text: 'ok' },
     ]);
