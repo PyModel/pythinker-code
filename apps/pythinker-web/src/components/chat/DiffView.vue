@@ -8,6 +8,7 @@ import { useI18n } from 'vue-i18n';
 import type { DiffViewLine } from '../../types';
 import HighlightedCode from './HighlightedCode.vue';
 import Button from '../ui/Button.vue';
+import IconButton from '../ui/IconButton.vue';
 import PanelHeader from '../ui/PanelHeader.vue';
 import SegmentedControl from '../ui/SegmentedControl.vue';
 import Icon from '../ui/Icon.vue';
@@ -45,6 +46,12 @@ const props = withDefaults(
   }>(),
   { mode: 'full', hideBack: false, closable: true, fullTexts: null, emptyFile: false },
 );
+
+const wordWrap = ref(true);
+
+function toggleWordWrap(): void {
+  wordWrap.value = !wordWrap.value;
+}
 
 const emit = defineEmits<{
   /** Fired when the user taps a changed file → parent loads its diff. */
@@ -233,6 +240,16 @@ function treePadding(depth: number): string {
         <Tooltip :text="selectedDiffPath ?? ''">
           <span class="dv-path">{{ truncateLeft(selectedDiffPath ?? '', 50) }}</span>
         </Tooltip>
+        <Tooltip :text="wordWrap ? t('conversation.unwrapCode') : t('conversation.wrapCode')">
+          <IconButton
+            size="sm"
+            :label="wordWrap ? t('conversation.unwrapCode') : t('conversation.wrapCode')"
+            :aria-pressed="wordWrap"
+            @click="toggleWordWrap"
+          >
+            <Icon :name="wordWrap ? 'text-wrap-disabled' : 'text-wrap'" size="sm" />
+          </IconButton>
+        </Tooltip>
       </PanelHeader>
 
       <div class="diff-head">
@@ -260,7 +277,7 @@ function treePadding(depth: number): string {
             :line-numbers="true"
             :framed="false"
             :full-texts="fullTexts"
-            responsive-wrap
+            :responsive-wrap="wordWrap"
           />
         </div>
 

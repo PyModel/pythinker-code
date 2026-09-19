@@ -198,3 +198,25 @@ describe('useMentionMenu — select', () => {
     expect(mention.open.value).toBe(false);
   });
 });
+
+describe('useMentionMenu — complete (Tab)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('fills the @ query with the candidate name and keeps the menu open', async () => {
+    const searchFiles = vi.fn().mockResolvedValue([{ path: 'src/a.ts', name: 'a.ts' }]);
+    const { text, textarea, mention } = setup('hello @a', { searchFiles });
+    textarea.value = 'hello @a';
+    mention.complete({ kind: 'file', file: { path: 'src/a.ts', name: 'a.ts', matchPositions: [] } });
+    expect(text.value).toBe('hello @a.ts');
+    expect(mention.open.value).toBe(true);
+    await nextTick();
+    await vi.advanceTimersByTimeAsync(200);
+    expect(searchFiles).toHaveBeenCalledWith('a.ts');
+  });
+});
