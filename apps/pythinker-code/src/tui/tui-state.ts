@@ -11,8 +11,9 @@ import {
 import { clipboard } from '#/utils/clipboard/clipboard-native';
 import { openUrl } from '#/utils/open-url';
 
-import { FooterComponent } from './components/chrome/footer';import { GutterContainer } from './components/chrome/gutter-container';
-import type { MoonLoader, SpinnerStyle } from './components/chrome/moon-loader';
+import { FooterComponent } from './components/chrome/footer';
+import { GutterContainer } from './components/chrome/gutter-container';
+import type { ActivitySpinner } from './components/chrome/activity-spinner';
 import { NotifyPanelComponent } from './components/chrome/notify-panel';
 import { TodoPanelComponent } from './components/chrome/todo-panel';
 import type { SessionRow } from './components/dialogs/session-picker';
@@ -60,7 +61,7 @@ export interface TUIState {
   livePane: LivePaneState;
   transcriptEntries: TranscriptEntry[];
   terminalState: TerminalState;
-  activitySpinner: { instance: MoonLoader; style: SpinnerStyle } | null;
+  activitySpinner: ActivitySpinner | null;
   toolOutputExpanded: boolean;
   sessions: SessionRow[];
   loadingSessions: boolean;

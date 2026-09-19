@@ -22,7 +22,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApprovalPanelComponent } from '#/tui/components/dialogs/approval-panel';
 import { EffortSelectorComponent } from '#/tui/components/dialogs/effort-selector';
 import { pythinkerCodePluginMarketplaceUrl } from '#/constant/app';
-import { MOON_SPINNER_FRAMES } from '#/tui/constant/rendering';
+import { BRAILLE_SPINNER_FRAMES } from '#/tui/constant/rendering';
 import {
   AgentDynamicWorkflowProgressComponent,
   agentDynamicWorkflowGridHeightForTerminalRows,
@@ -8336,9 +8336,10 @@ command = "vim"
     expect(stripSgr(renderTranscript(driver))).toContain('visible reasoning');
   });
 
-  it('keeps the waiting moon spinner while reasoning streams only empty (encrypted) thinking deltas', async () => {
+  it('keeps the waiting spinner while reasoning streams only empty (encrypted) thinking deltas', async () => {
     const { driver } = await makeDriver();
 
+    // Turn begins -> waiting mode shows the activity spinner.
     driver.sessionEventHandler.handleEvent(
       {
         type: 'turn.started',
@@ -8367,7 +8368,7 @@ command = "vim"
     expect(driver.state.livePane.mode).toBe('waiting');
     expect(driver.streamingUI.hasActiveThinkingComponent()).toBe(false);
     const activity = stripSgr(renderActivity(driver));
-    expect(MOON_SPINNER_FRAMES.some((frame) => activity.includes(frame))).toBe(true);
+    expect(BRAILLE_SPINNER_FRAMES.some((frame) => activity.includes(frame))).toBe(true);
 
     driver.sessionEventHandler.handleEvent(
       {

@@ -1,6 +1,6 @@
 import { Container, Spacer, Text } from '@pymodel/pi-tui';
 
-import type { MoonLoader } from '#/tui/components/chrome/moon-loader';
+import type { ActivitySpinner } from '#/tui/components/chrome/activity-spinner';
 import { ACTIVITY_DETAIL_INDENT } from '#/tui/constant/rendering';
 import { currentTheme } from '#/tui/theme';
 
@@ -8,7 +8,7 @@ export type ActivityPaneMode = 'hidden' | 'waiting' | 'thinking' | 'composing' |
 
 export interface ActivityPaneOptions {
   readonly mode: ActivityPaneMode;
-  readonly spinner?: MoonLoader;
+  readonly spinner?: ActivitySpinner;
   readonly tip?: string;
   /** Extra dim line rendered under the spinner (e.g. step retry error detail). */
   readonly detail?: string;
@@ -19,7 +19,7 @@ export function formatActivitySpinnerTip(tip: string | undefined): string {
 }
 
 export class ActivityPaneComponent extends Container {
-  private spinnerRef?: MoonLoader;
+  private spinnerRef?: ActivitySpinner;
 
   constructor(options: ActivityPaneOptions) {
     super();

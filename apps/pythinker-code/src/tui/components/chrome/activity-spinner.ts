@@ -4,20 +4,16 @@ import type { TUI } from '@pymodel/pi-tui';
 import {
   BRAILLE_SPINNER_FRAMES,
   BRAILLE_SPINNER_INTERVAL_MS,
-  MOON_SPINNER_FRAMES,
-  MOON_SPINNER_INTERVAL_MS,
   formatThinkingSpinnerLabel,
 } from '#/tui/constant/rendering';
 import { currentTheme } from '#/tui/theme';
 import { shimmerText } from '#/tui/utils/shimmer';
 
-export type SpinnerStyle = 'moon' | 'braille';
-
-export interface MoonLoaderOptions {
+export interface ActivitySpinnerOptions {
   readonly verbLabels?: boolean;
 }
 
-export class MoonLoader extends Text {
+export class ActivitySpinner extends Text {
   private currentFrame = 0;
   private intervalId: ReturnType<typeof setInterval> | null = null;
   private readonly ui: TUI;
@@ -38,15 +34,14 @@ export class MoonLoader extends Text {
 
   constructor(
     ui: TUI,
-    style: SpinnerStyle = 'moon',
     colorFn?: (s: string) => string,
     label = '',
-    options?: MoonLoaderOptions,
+    options?: ActivitySpinnerOptions,
   ) {
     super('', 1, 0);
     this.ui = ui;
-    this.frames = style === 'moon' ? [...MOON_SPINNER_FRAMES] : [...BRAILLE_SPINNER_FRAMES];
-    this.interval = style === 'moon' ? MOON_SPINNER_INTERVAL_MS : BRAILLE_SPINNER_INTERVAL_MS;
+    this.frames = [...BRAILLE_SPINNER_FRAMES];
+    this.interval = BRAILLE_SPINNER_INTERVAL_MS;
     this.colorFn = colorFn;
     this.useVerbLabels = options?.verbLabels ?? false;
     this.label = this.useVerbLabels ? formatThinkingSpinnerLabel() : label;

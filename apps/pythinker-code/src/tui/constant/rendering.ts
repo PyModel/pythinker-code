@@ -78,9 +78,6 @@ export const MAX_FINAL_OUTPUT_LABEL_CODE_UNITS = 2_000;
 export const BRAILLE_SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 export const BRAILLE_SPINNER_INTERVAL_MS = 80;
 
-export const MOON_SPINNER_FRAMES = ['🌑', '🌒', '🌓', '🌔', '🌕', '🌖', '🌗', '🌘'];
-export const MOON_SPINNER_INTERVAL_MS = 120;
-
 export function formatThinkingSpinnerLabel(_nowMs: number = Date.now()): string {
   return 'pythinking…';
 }

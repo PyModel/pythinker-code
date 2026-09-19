@@ -65,7 +65,7 @@ import { CacheHintController } from './controllers/cache-hint-controller';
 import { BannerComponent } from './components/chrome/banner';
 import { DeviceCodeBoxComponent } from './components/chrome/device-code-box';
 import { GutterContainer } from './components/chrome/gutter-container';
-import { MoonLoader, type SpinnerStyle } from './components/chrome/moon-loader';
+import { ActivitySpinner } from './components/chrome/activity-spinner';
 import { WelcomeComponent } from './components/chrome/welcome';
 import { pickRandomWorkingTip } from './components/chrome/working-tips';
 import {
@@ -235,10 +235,10 @@ export interface PythinkerTUIStartupInput {
 }
 
 type EffectiveActivityPaneMode = ActivityPaneMode | 'idle' | 'session';
-type LoadingTipKind = 'moon' | 'composing';
+type LoadingTipKind = 'activity' | 'composing';
 
 function loadingTipKind(mode: EffectiveActivityPaneMode): LoadingTipKind | undefined {
-  if (mode === 'waiting' || mode === 'tool') return 'moon';
+  if (mode === 'waiting' || mode === 'tool') return 'activity';
   if (mode === 'composing') return 'composing';
   return undefined;
 }
@@ -1285,7 +1285,7 @@ export class PythinkerTUI {
     markTranscriptComponent(outputComponent, outputEntry);
     this.state.transcriptContainer.addChild(outputComponent);
     // Treat command execution as a streaming phase so input queues, the activity
-    // pane shows the moon spinner, and ctrl+b is enabled while it runs.
+    // pane shows the activity spinner, and ctrl+b is enabled while it runs.
     this.setAppState({ streamingPhase: 'shell' });
     this.state.ui.requestRender();
 
@@ -3279,7 +3279,7 @@ export class PythinkerTUI {
 
   showProgressSpinner(label: string): LoginProgressSpinnerHandle {
     const tint = (s: string): string => currentTheme.fg('primary', s);
-    const spinner = new MoonLoader(this.state.ui, 'braille', tint, label);
+    const spinner = new ActivitySpinner(this.state.ui, tint, label);
     this.state.transcriptContainer.addChild(new Spacer(1));
     this.state.transcriptContainer.addChild(spinner);
     this.state.ui.requestRender();
@@ -3319,7 +3319,7 @@ export class PythinkerTUI {
     const effectiveMode = this.resolveActivityPaneMode();
     const tipKind = loadingTipKind(effectiveMode);
     // Pick a fresh loading tip when the loading kind changes. The same kind
-    // covers waiting/tool (both moon spinners) and any intermediate thinking
+    // covers waiting/tool (both activity spinners) and any intermediate thinking
     // phase, so a continuous burst of tool calls does not flip tips. Clear the
     // cache only when there is no loading UI at all.
     if (effectiveMode === 'idle' || effectiveMode === 'session' || effectiveMode === 'hidden') {
@@ -3349,7 +3349,7 @@ export class PythinkerTUI {
       (effectiveMode === 'waiting' || effectiveMode === 'thinking' || effectiveMode === 'tool')
     ) {
       if (placeSpinnerInAgentDynamicWorkflow) {
-        this.syncAgentDynamicWorkflowActivitySpinner(this.state.activitySpinner?.instance);
+        this.syncAgentDynamicWorkflowActivitySpinner(this.state.activitySpinner ?? undefined);
       }
       return;
     }
@@ -3365,7 +3365,7 @@ export class PythinkerTUI {
         return;
       case 'waiting': {
         const stepRetry = this.state.appState.stepRetry;
-        const spinner = this.ensureActivitySpinner('moon', waitingSpinnerLabel(stepRetry));
+        const spinner = this.ensureActivitySpinner(waitingSpinnerLabel(stepRetry));
         this.syncAgentDynamicWorkflowActivitySpinner(placeSpinnerInAgentDynamicWorkflow ? spinner : undefined);
         if (placeSpinnerInAgentDynamicWorkflow) break;
         this.state.activityContainer.addChild(
@@ -3384,7 +3384,7 @@ export class PythinkerTUI {
         break;
       }
       case 'composing': {
-        const spinner = this.ensureActivitySpinner('braille', 'working…', (s) =>
+        const spinner = this.ensureActivitySpinner('working…', (s) =>
           currentTheme.fg('primary', s),
         );
         this.syncAgentDynamicWorkflowActivitySpinner(undefined);
@@ -3398,7 +3398,7 @@ export class PythinkerTUI {
         break;
       }
       case 'tool': {
-        const spinner = this.ensureActivitySpinner('moon');
+        const spinner = this.ensureActivitySpinner();
         this.syncAgentDynamicWorkflowActivitySpinner(placeSpinnerInAgentDynamicWorkflow ? spinner : undefined);
         if (placeSpinnerInAgentDynamicWorkflow) break;
         this.state.activityContainer.addChild(
@@ -3432,7 +3432,7 @@ export class PythinkerTUI {
 
     const streamingPhase = this.state.appState.streamingPhase;
 
-    // A running `!` shell command shows the moon spinner (same as `waiting`)
+    // A running `!` shell command shows the activity spinner (same as `waiting`)
     // until it finishes, signalling that input is busy / queued.
     if (streamingPhase === 'shell') return 'waiting';
 
@@ -3718,7 +3718,7 @@ export class PythinkerTUI {
     );
   }
 
-  private syncAgentDynamicWorkflowActivitySpinner(spinner: MoonLoader | undefined): void {
+  private syncAgentDynamicWorkflowActivitySpinner(spinner: ActivitySpinner | undefined): void {
     this.sessionEventHandler.syncAgentDynamicWorkflowActivitySpinner(spinner);
   }
 
@@ -3730,30 +3730,25 @@ export class PythinkerTUI {
   }
 
   private ensureActivitySpinner(
-    style: SpinnerStyle,
     label = '',
     colorFn?: (s: string) => string,
-  ): MoonLoader {
-    if (this.state.activitySpinner?.style !== style) {
-      this.stopActivitySpinner();
-    }
-
+  ): ActivitySpinner {
     if (this.state.activitySpinner === null) {
-      const instance = new MoonLoader(this.state.ui, style, colorFn, label);
-      this.state.activitySpinner = { instance, style };
+      const instance = new ActivitySpinner(this.state.ui, colorFn, label);
+      this.state.activitySpinner = instance;
       return instance;
     }
 
-    this.state.activitySpinner.instance.setLabel(label);
+    this.state.activitySpinner.setLabel(label);
     if (colorFn !== undefined) {
-      this.state.activitySpinner.instance.setColorFn(colorFn);
+      this.state.activitySpinner.setColorFn(colorFn);
     }
-    return this.state.activitySpinner.instance;
+    return this.state.activitySpinner;
   }
 
   private stopActivitySpinner(): void {
     if (this.state.activitySpinner !== null) {
-      this.state.activitySpinner.instance.stop();
+      this.state.activitySpinner.stop();
       this.state.activitySpinner = null;
     }
   }

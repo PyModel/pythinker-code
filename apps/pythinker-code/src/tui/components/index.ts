@@ -1,5 +1,5 @@
 export * from './chrome/footer';
-export * from './chrome/moon-loader';
+export * from './chrome/activity-spinner';
 export * from './chrome/pythinker-logo';
 export * from './chrome/todo-panel';
 export * from './chrome/welcome';

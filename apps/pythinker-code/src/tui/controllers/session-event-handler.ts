@@ -33,7 +33,7 @@ import type {
   WarningEvent,
 } from '@pymodel/pythinker-code-sdk';
 
-import { MoonLoader } from '../components/chrome/moon-loader';
+import { ActivitySpinner } from '../components/chrome/activity-spinner';
 import { buildGoalMarker } from '../components/messages/goal-markers';
 import { StatusMessageComponent } from '../components/messages/status-message';
 import {
@@ -164,7 +164,7 @@ export class SessionEventHandler {
   renderedSkillActivationIds: Set<string> = new Set();
   renderedPluginCommandActivationIds: Set<string> = new Set();
   renderedMcpServerStatusKeys: Map<string, string> = new Map();
-  mcpServerStatusSpinners: Map<string, MoonLoader> = new Map();
+  mcpServerStatusSpinners: Map<string, ActivitySpinner> = new Map();
   mcpServers: Map<string, McpServerStatusSnapshot> = new Map();
   private goalCompletionAwaitingClear = false;
   private goalCompletionTurnEnded = false;
@@ -207,7 +207,7 @@ export class SessionEventHandler {
     return this.subAgentEventHandler.hasActiveAgentDynamicWorkflowToolCall();
   }
 
-  syncAgentDynamicWorkflowActivitySpinner(spinner: MoonLoader | undefined): void {
+  syncAgentDynamicWorkflowActivitySpinner(spinner: ActivitySpinner | undefined): void {
     this.subAgentEventHandler.syncAgentDynamicWorkflowActivitySpinner(spinner);
   }
 
@@ -557,10 +557,10 @@ export class SessionEventHandler {
     // protocol) streams thinking deltas whose visible text is empty — only an
     // opaque signature rides along. Models also occasionally stream whitespace-
     // only thinking (e.g. a single space). Such deltas carry nothing to render,
-    // so switching into the `thinking` pane mode here would stop the "waiting"
-    // moon spinner while no ThinkingComponent is ever created (it needs visible
+    // so switching into the `thinking` pane mode here would stop the waiting
+    // spinner while no ThinkingComponent is ever created (it needs visible
     // text), leaving a blank, spinner-less gap until the first real text/tool
-    // token arrives. Keep the moon up until actual thinking text shows up.
+    // token arrives. Keep the spinner up until actual thinking text shows up.
     if (event.delta.trim().length === 0 && !streamingUI.hasThinkingDraft()) return;
     streamingUI.appendThinkingDelta(event.delta);
     this.host.patchLivePane({ mode: 'idle' });
@@ -1057,7 +1057,7 @@ export class SessionEventHandler {
       return;
     }
     const tint = (s: string): string => currentTheme.fg('textMuted', s);
-    const spinner = new MoonLoader(state.ui, 'braille', tint, label);
+    const spinner = new ActivitySpinner(state.ui, tint, label);
     state.transcriptContainer.addChild(spinner);
     this.mcpServerStatusSpinners.set(name, spinner);
     state.ui.requestRender();
