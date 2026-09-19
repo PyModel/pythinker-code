@@ -46,6 +46,8 @@ import { IWorkspaceAgentProfileLoader } from '#/workspace/workspaceAgentProfileL
 import { IExtraAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/extraAgentProfileLoader';
 import { IExplicitAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/explicitAgentProfileLoader';
 
+import { setWatchEnabled } from '#human/utils/watch';
+
 import { stubBootstrap } from '../../app/bootstrap/stubs';
 
 const watchMockState = vi.hoisted(() => ({ mode: 'inert' as 'inert' | 'real' }));
@@ -334,6 +336,8 @@ async function withStack(
 describe('agent profile loaders + session catalog', () => {
   beforeEach(() => {
     watchMockState.mode = 'inert';
+    setWatchEnabled(false);
+    delete process.env['PYTHINKER_CODE_WATCH'];
     _clearAgentProfileContributionsForTests();
     const builtinDefault: AgentProfile = normalizeAgentProfile({
       name: DEFAULT_AGENT_PROFILE_NAME,
@@ -757,33 +761,41 @@ describe('agent profile loaders + session catalog', () => {
 
   it('rescans the workspace source when a project agent file changes on disk', async () => {
     watchMockState.mode = 'real';
-    await withFixture(async (fixture) => {
-      await mkdir(join(fixture.workDir, '.pythinker-code', 'agents'), { recursive: true });
-      await withStack(fixture, undefined, async (stack) => {
-        await stack.ready();
-        expect(stack.catalog.get('watched-agent')).toBeUndefined();
+    setWatchEnabled(true);
+    process.env['PYTHINKER_CODE_WATCH'] = '1';
+    try {
+      await withFixture(async (fixture) => {
+        await mkdir(join(fixture.workDir, '.pythinker-code', 'agents'), { recursive: true });
+        await withStack(fixture, undefined, async (stack) => {
+          await stack.ready();
+          expect(stack.catalog.get('watched-agent')).toBeUndefined();
 
-        const refreshed = new Promise<string>((resolvePromise) => {
-          const d = stack.catalog.onDidChange((sourceId) => {
-            if (sourceId !== 'workspace') return;
-            d.dispose();
-            resolvePromise(sourceId);
+          const refreshed = new Promise<string>((resolvePromise) => {
+            const d = stack.catalog.onDidChange((sourceId) => {
+              if (sourceId !== 'workspace') return;
+              if (stack.catalog.get('watched-agent') === undefined) return;
+              d.dispose();
+              resolvePromise(sourceId);
+            });
           });
-        });
-        const timedOut = new Promise<never>((_resolve, reject) => {
-          setTimeout(() => reject(new Error('watch-driven refresh timed out')), 10000);
-        });
-        await new Promise((resolve) => setTimeout(resolve, 300));
-        await writeAgent(
-          join(fixture.workDir, '.pythinker-code', 'agents'),
-          'watched-agent.md',
-          agentMd('watched-agent', 'from watch'),
-        );
+          const timedOut = new Promise<never>((_resolve, reject) => {
+            setTimeout(() => reject(new Error('watch-driven refresh timed out')), 10000);
+          });
+          await new Promise((resolve) => setTimeout(resolve, 300));
+          await writeAgent(
+            join(fixture.workDir, '.pythinker-code', 'agents'),
+            'watched-agent.md',
+            agentMd('watched-agent', 'from watch'),
+          );
 
-        await expect(Promise.race([refreshed, timedOut])).resolves.toBe('workspace');
-        expect(stack.catalog.get('watched-agent')?.description).toBe('from watch');
+          await expect(Promise.race([refreshed, timedOut])).resolves.toBe('workspace');
+          expect(stack.catalog.get('watched-agent')?.description).toBe('from watch');
+        });
       });
-    });
+    } finally {
+      delete process.env['PYTHINKER_CODE_WATCH'];
+      setWatchEnabled(false);
+    }
   }, 15000);
 
   it('lands every loader’s provided record in the registry entries', async () => {

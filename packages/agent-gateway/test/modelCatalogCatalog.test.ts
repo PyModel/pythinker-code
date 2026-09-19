@@ -129,6 +129,7 @@ describe('server-v2 /api/v1 catalog browse + import endpoints', () => {
     home = await mkdtemp(join(tmpdir(), 'pythinker-server-v2-catalog-'));
     process.env['PYTHINKER_CODE_MODEL_CATALOG_REFRESH_ON_START'] = '0';
     process.env['PYTHINKER_CODE_MODEL_CATALOG_REFRESH_INTERVAL_MS'] = '0';
+    process.env['PYTHINKER_CODE_WATCH'] = '1';
     server = await startServer({
       hostIdentity: TEST_HOST_IDENTITY,
       host: '127.0.0.1',
@@ -159,6 +160,7 @@ describe('server-v2 /api/v1 catalog browse + import endpoints', () => {
     }
     delete process.env['PYTHINKER_CODE_MODEL_CATALOG_REFRESH_ON_START'];
     delete process.env['PYTHINKER_CODE_MODEL_CATALOG_REFRESH_INTERVAL_MS'];
+    delete process.env['PYTHINKER_CODE_WATCH'];
   });
 
   async function boot(toml?: string): Promise<void> {
