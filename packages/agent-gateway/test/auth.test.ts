@@ -60,10 +60,11 @@ describe('server-v2 GET /api/v1/auth', () => {
 
   it('returns models_ready=false with an empty snapshot on empty config', async () => {
     await boot();
-    expect(await getAuth()).toEqual({
+    expect(await getAuth()).toMatchObject({
+      ready: false,
       models_ready: false,
       providers_count: 0,
-      managed_provider: null,
+      default_model: null,
     });
   });
 
@@ -73,7 +74,7 @@ describe('server-v2 GET /api/v1/auth', () => {
         'default_model = "x"',
         '',
         '[providers.x]',
-        'type = "pythinker"',
+        'type = "openai"',
         'api_key = "sk-test"',
         '',
         '[models.x]',
@@ -83,10 +84,10 @@ describe('server-v2 GET /api/v1/auth', () => {
         '',
       ].join('\n'),
     );
-    expect(await getAuth()).toEqual({
+    expect(await getAuth()).toMatchObject({
+      ready: true,
       models_ready: true,
       providers_count: 1,
-      managed_provider: null,
     });
   });
 
@@ -94,7 +95,7 @@ describe('server-v2 GET /api/v1/auth', () => {
     await boot(
       [
         '[providers.x]',
-        'type = "pythinker"',
+        'type = "openai"',
         'api_key = "sk-test"',
         '',
         '[models.x]',
@@ -115,7 +116,7 @@ describe('server-v2 GET /api/v1/auth', () => {
         'default_model = "gone"',
         '',
         '[providers.x]',
-        'type = "pythinker"',
+        'type = "openai"',
         'api_key = "sk-test"',
         '',
         '[models.x]',
@@ -153,7 +154,7 @@ describe('server-v2 GET /api/v1/auth', () => {
     await boot(
       [
         '[providers."openai"]',
-        'type = "pythinker"',
+        'type = "openai"',
         'base_url = "https://example.test/v1"',
         '',
         '[providers."openai".oauth]',

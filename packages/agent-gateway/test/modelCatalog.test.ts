@@ -372,7 +372,7 @@ describe('server-v2 /api/v1 model/provider catalog', () => {
     const seeds = [[IProviderDiscoveryService, discoveryStub(refreshProviderModels)]] as unknown as ScopeSeed;
     await boot(CATALOG_TOML, seeds);
 
-    const { status, body } = await postJson('/api/v1/providers/managed%3Apythinker-code:refresh', {});
+    const { status, body } = await postJson('/api/v1/providers/openai:refresh', {});
     expect(status).toBe(200);
     expect(body.code).toBe(0);
     expect(refreshProviderModels).toHaveBeenCalledWith({ providerId: 'openai' });
