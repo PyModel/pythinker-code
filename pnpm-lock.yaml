@@ -519,6 +519,9 @@ importers:
       react-syntax-highlighter:
         specifier: ^16.1.0
         version: 16.1.1(react@19.2.5)
+      react-virtuoso:
+        specifier: ^4.12.0
+        version: 4.18.13(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
       rehype-katex:
         specifier: ^7.0.1
         version: 7.0.1
@@ -8541,6 +8544,12 @@ packages:
     engines: {node: '>= 16.20.2'}
     peerDependencies:
       react: '>= 0.14.0'
+
+  react-virtuoso@4.18.13:
+    resolution: {integrity: sha512-M4kP7zbV7JmLrnJYs0X2FBA8gnNlHisSYuKMyeJVYtWz31CAJeP57dgPJzfneUdKDKmL9SiqvcBQ32si8CfQSQ==}
+    peerDependencies:
+      react: '>=16 || >=17 || >= 18 || >= 19'
+      react-dom: '>=16 || >=17 || >= 18 || >=19'
 
   react@19.2.5:
     resolution: {integrity: sha512-llUJLzz1zTUBrskt2pwZgLq59AemifIftw4aB7JxOqf1HY2FDaGDxgwpAPVzHU1kdWabH7FauP4i1oEeer2WCA==}
@@ -18654,6 +18663,11 @@ snapshots:
       prismjs: 1.30.0
       react: 19.2.5
       refractor: 5.0.0
+
+  react-virtuoso@4.18.13(react-dom@19.2.5(react@19.2.5))(react@19.2.5):
+    dependencies:
+      react: 19.2.5
+      react-dom: 19.2.5(react@19.2.5)
 
   react@19.2.5: {}
 

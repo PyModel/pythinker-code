@@ -78,7 +78,9 @@
         ./packages/transcript
         ./packages/tree-sitter-bash
         ./apps/pythinker-code
+        ./apps/pythinker-web
         ./apps/vscode
+        ./apps/desktop
         ./apps/pythinker-inspect
         ./apps/vis
         ./apps/vis/server
@@ -103,6 +105,7 @@
         "@pymodel/transcript"
         "@pymodel/tree-sitter-bash"
         "@pymodel/pythinker-code"
+        "@pymodel/pythinker-web"
         "pythinker-code"
         "@pymodel/pythinker-inspect"
         "@pymodel/vis"
@@ -159,7 +162,7 @@
               inherit (finalAttrs) pname version src pnpmWorkspaces;
               inherit pnpm;
               fetcherVersion = 3;
-              hash = "sha256-uxRTnY3J5cm4mfCiwKoohyJVlHBQClx0AHVUJhugVEE=";
+              hash = "sha256-lXsl/o8x/9wYgrOz1TyT2oRGfI3KFBGPUQimtN0jPnA=";
             };
 
             nativeBuildInputs = [
