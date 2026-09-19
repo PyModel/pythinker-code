@@ -89,7 +89,7 @@ export async function handleUpgrade(
 
   const source = await deps.detectInstallSource().catch(() => 'unsupported' as const);
   const installCommand = installCommandFor(source, target.version, deps.platform);
-  if (!canAutoInstall(source, deps.platform) || (!deps.yes && !deps.isInteractive)) {
+  if (!canAutoInstall(source, deps.platform)) {
     trackUpgradeEvent(deps.track, 'upgrade_command_manual_command', {
       current_version: currentVersion,
       target_version: target.version,
@@ -104,7 +104,7 @@ export async function handleUpgrade(
     return 0;
   }
 
-  if (!deps.yes) {
+  if (!deps.yes && deps.isInteractive) {
     trackUpgradeEvent(deps.track, 'upgrade_command_prompted', {
       current_version: currentVersion,
       target_version: target.version,
