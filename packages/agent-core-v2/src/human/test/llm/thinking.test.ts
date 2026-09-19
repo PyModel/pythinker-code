@@ -429,7 +429,7 @@ describe('openai requester thinking', () => {
     );
     const finished = accumulator.finish();
     expect(finished.content).toEqual([
-      { type: 'think', think: 'zh1' },
+      { type: 'think', think: 'zh6zh4' },
       { type: 'think', think: 'zh11', detailsIndex: 0, hidden: true },
       { type: 'think', think: '', encrypted: 'cipher', detailsIndex: 1 },
       { type: 'text', text: 'ok' },
@@ -676,8 +676,8 @@ describe('openai requester thinking', () => {
         ]),
       ),
     ).resolves.toEqual([
-      { type: 'think', think: 'zh1' },
-      { type: 'think', think: 'zh3', detailsIndex: 0, hidden: true },
+      { type: 'think', think: 'zh6zh4' },
+      { type: 'think', think: 'zh10zh8', detailsIndex: 0, hidden: true },
       { type: 'think', think: '', encrypted: 'cipher', detailsIndex: 1 },
       { type: 'text', text: 'ok' },
     ]);
