@@ -19,13 +19,13 @@ export const PYTHINKER_REGION_PROFILES: Record<PythinkerRegion, PythinkerRegionP
   'mainland-cn': {
     cdnBase: 'https://code.pythinker.com/pythinker-code',
     siteBase: 'https://www.pythinker.com',
-    apiBase: 'https://api.kimi.com/coding/v1',
+    apiBase: 'https://api.example.com/coding/v1',
     telemetryEndpoint: 'https://telemetry-logs.pythinker.com/v1/event',
   },
   global: {
     cdnBase: 'https://code.pythinker.com/pythinker-code',
     siteBase: 'https://www.pythinker.com',
-    apiBase: 'https://api.kimi.ai/coding/v1',
+    apiBase: 'https://api.example.ai/coding/v1',
     telemetryEndpoint: 'https://telemetry-logs.pythinker.com/v1/event',
   },
 };

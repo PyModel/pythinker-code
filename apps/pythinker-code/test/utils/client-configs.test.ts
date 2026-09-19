@@ -377,7 +377,7 @@ describe('region awareness', () => {
 
     expect(data).toEqual(CONFIG);
     expect(fetchImpl).toHaveBeenCalledWith(
-      expect.stringContaining('https://api.kimi.ai/coding/v1/client_configs'),
+      expect.stringContaining('https://api.example.ai/coding/v1/client_configs'),
       expect.anything(),
     );
     expect(peekClientConfig('estimated_cache_duration', configSchema)).toEqual(CONFIG);
