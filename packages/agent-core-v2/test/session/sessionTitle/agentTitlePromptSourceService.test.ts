@@ -4,7 +4,7 @@ import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import type { ContextMessage } from '#/agent/contextMemory/types';
-import { IAgentPromptService } from '#/agent/prompt/prompt';
+import { IAgentLoopService, type PromptHandle } from '#/agent/loop/loop';
 import type { ContentPart } from '#human/llm/message';
 import { IAgentTitlePromptSource } from '#/session/sessionTitle/agentTitlePromptSource';
 import { AgentTitlePromptSourceService } from '#/session/sessionTitle/agentTitlePromptSourceService';
@@ -33,20 +33,52 @@ function toolMessage(id: string, text: string): ContextMessage {
   return { id, role: 'tool', content: [{ type: 'text', text }], toolCalls: [] };
 }
 
+interface MockQueueState {
+  active?: PromptHandle;
+  pending: {
+    id: string;
+    message: ContextMessage;
+    tracked: true;
+    createdAt: string;
+    userMessageId: string;
+  }[];
+}
+
 describe('AgentTitlePromptSource', () => {
   let disposables: DisposableStore;
   let ix: TestInstantiationService;
   let liveMessages: readonly ContextMessage[];
-  let queue: ReturnType<IAgentPromptService['list']>;
+  let queue: MockQueueState;
 
   beforeEach(() => {
     liveMessages = [];
-    queue = { active: undefined, pending: [], launching: false };
+    queue = { active: undefined, pending: [] };
     disposables = new DisposableStore();
     ix = createServices(disposables, {
       additionalServices: (reg) => {
         reg.definePartialInstance(IAgentContextMemoryService, { get: () => liveMessages });
-        reg.definePartialInstance(IAgentPromptService, { list: () => queue });
+        reg.definePartialInstance(IAgentLoopService, {
+          snapshot: () => ({
+            state: 'idle' as const,
+            activeTurnId: undefined,
+            activePromptId: queue.active?.id,
+            queue: queue.pending.map((item) => ({
+              message: { role: 'user' as const, content: [...item.message.content] },
+              meta: {
+                promptId: item.id,
+                tracked: item.tracked,
+                createdAt: item.createdAt,
+                userMessageId: item.userMessageId,
+              },
+            })),
+            notificationCount: 0,
+            paused: false,
+            hasPendingRequests: queue.pending.length > 0,
+            turn: undefined,
+            activeTraceId: undefined,
+          }),
+          promptHandle: (id: string) => (queue.active?.id === id ? queue.active : undefined),
+        });
         reg.define(IAgentTitlePromptSource, AgentTitlePromptSourceService);
       },
     });
@@ -60,20 +92,19 @@ describe('AgentTitlePromptSource', () => {
     liveMessages = [userMessage('one', 'zh')];
     queue = {
       active: undefined,
-      launching: false,
       pending: [
         {
           id: 'two',
           userMessageId: 'two',
           createdAt: '2026-01-01T00:00:00.000Z',
-          state: 'pending',
+          tracked: true,
           message: userMessage('two', 'zh'),
         },
         {
           id: 'three',
           userMessageId: 'three',
           createdAt: '2026-01-01T00:00:01.000Z',
-          state: 'pending',
+          tracked: true,
           message: userMessage('three', 'zh'),
         },
       ],
@@ -123,13 +154,14 @@ describe('AgentTitlePromptSource', () => {
   it('counts a queued prompt already appended to the context only once', async () => {
     liveMessages = [userMessage('one', 'zh')];
     queue = {
-      launching: false,
       active: {
         id: 'one',
         userMessageId: 'one',
         createdAt: '2026-01-01T00:00:00.000Z',
         state: 'running',
         message: userMessage('one', 'zh'),
+        launched: Promise.resolve(undefined),
+        completion: new Promise(() => {}),
       },
       pending: [],
     };
@@ -141,7 +173,7 @@ describe('AgentTitlePromptSource', () => {
     liveMessages = [
       userMessage('u1', 'zh'),
       assistantMessage('a1-think', [{ type: 'think', think: 'zh' }]),
-      assistantMessage('a1-text', [{ type: 'text', text: 'zhzh' }]),
+      assistantMessage('a1-text', [{ type: 'text', text: 'zh' }]),
       toolMessage('t1', 'tool output'),
       assistantMessage('a2', [
         { type: 'text', text: 'zh' },
@@ -173,13 +205,14 @@ describe('AgentTitlePromptSource', () => {
       userMessage('two', 'zh'),
     ];
     queue = {
-      launching: false,
       active: {
         id: 'two',
         userMessageId: 'two',
         createdAt: '2026-01-01T00:00:01.000Z',
         state: 'running',
         message: userMessage('two', 'zh'),
+        launched: Promise.resolve(undefined),
+        completion: new Promise(() => {}),
       },
       pending: [],
     };

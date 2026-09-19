@@ -21,7 +21,8 @@ import {
   type AfterStepContext,
   type BeforeStepContext,
   type LoopNotifyHandle,
-  type LoopPromptSubmit,
+  type LoopSnapshot,
+  type PromptSubmitContext,
   type Turn,
 } from '#/agent/loop/loop';
 import { TurnStarted } from '#/agent/loop/turnEvents';
@@ -205,35 +206,40 @@ class FakeLoopService implements IAgentLoopService {
   readonly hooks: IAgentLoopService['hooks'] = {
     onWillBeginStep: new OrderedHookSlot<BeforeStepContext>(),
     onDidFinishStep: new OrderedHookSlot<AfterStepContext>(),
+    onBeforeSubmitPrompt: new OrderedHookSlot<PromptSubmitContext>(),
   };
 
-  cancelFromUser(): void {}
-
-  submit(_prompt: LoopPromptSubmit): { readonly turn: Turn } {
+  submit(): never {
     throw new Error('unused in this suite');
   }
 
-  steer(): undefined {
-    return undefined;
+  steer(): never {
+    throw new Error('unused in this suite');
+  }
+
+  cancel(): never {
+    throw new Error('unused in this suite');
+  }
+
+  snapshot(): LoopSnapshot {
+    return {
+      state: 'idle',
+      activeTurnId: undefined,
+      activePromptId: undefined,
+      queue: [],
+      notificationCount: 0,
+      paused: false,
+      hasPendingRequests: false,
+      turn: undefined,
+      activeTraceId: undefined,
+    };
+  }
+
+  promptHandle(): never {
+    throw new Error('unused in this suite');
   }
 
   notify(): LoopNotifyHandle {
-    throw new Error('unused in this suite');
-  }
-
-  status() {
-    return { state: 'idle' as const, pendingPromptIds: [], hasPendingRequests: false };
-  }
-
-  activitySnapshot() {
-    return {};
-  }
-
-  cancel(_turnId?: number, _reason?: unknown): boolean {
-    throw new Error('unused in this suite');
-  }
-
-  cancelQueued(_queueId: string, _reason?: unknown): boolean {
     throw new Error('unused in this suite');
   }
 
@@ -250,10 +256,6 @@ class FakeLoopService implements IAgentLoopService {
   }
 
   async resetMachineEngine(): Promise<void> {}
-
-  hasPendingRequests(): boolean {
-    return false;
-  }
 
   async settled(): Promise<void> {}
 

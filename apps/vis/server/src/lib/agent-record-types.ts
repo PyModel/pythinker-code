@@ -49,7 +49,6 @@ import type {
   PlanRevision,
   PluginSessionStartEvent,
   PromptAborted,
-  PromptAccepted,
   PromptCompleted,
   PromptSteered,
   TaskStarted,
@@ -182,7 +181,7 @@ export type AgentRecord =
   | WireRecordOf<'plugin.session_start', PluginSessionStartEvent>
   | WireRecordOf<'profile.bind', ProfileBind>
   | WireRecordOf<'prompt.aborted', PromptAborted>
-  | WireRecordOf<'prompt.accepted', PromptAccepted>
+  | PromptAcceptedRecord
   | WireRecordOf<'prompt.completed', PromptCompleted>
   | WireRecordOf<'prompt.steered', PromptSteered>
   | WireRecordOf<'runtime.set_binding', RuntimeSetBinding>

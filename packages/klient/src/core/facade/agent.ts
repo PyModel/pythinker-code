@@ -12,7 +12,7 @@ import type { IAgentCommandService } from '@pymodel/agent-core-v2/agent/command/
 import type { IAgentContextMemoryService } from '@pymodel/agent-core-v2/agent/contextMemory/contextMemory';
 import type { IAgentMcpService } from '@pymodel/agent-core-v2/agent/mcp/mcp';
 import type { IAgentRuntimeBindingService } from '@pymodel/agent-core-v2/agent/runtimeBinding/runtimeBinding';
-import type { IAgentPromptService } from '@pymodel/agent-core-v2/agent/prompt/prompt';
+
 import type { ISessionTokenCountingService } from '@pymodel/agent-core-v2/session/tokenCounting/sessionTokenCounting';
 import type { IAgentPlanService } from '@pymodel/agent-core-v2/features/plan/plan';
 import type { IAgentProfileService } from '@pymodel/agent-core-v2/agent/profile/profile';
@@ -28,7 +28,7 @@ import type { ScopedCaller } from './session.js';
 
 // Wire-type aliases derived through the engine service interfaces (keeps
 // klient free of protocol-package imports).
-export type PromptLaunchResult = Awaited<ReturnType<IAgentPromptService['submit']>>;
+export type PromptLaunchResult = import('@pymodel/agent-core-v2/agent/loop/loop').PromptLaunchResult | undefined;
 export type PromptWithSkillsInput = Parameters<IAgentSkillService['promptWithSkills']>[0];
 export type PromptWithSkillsResult = Awaited<ReturnType<IAgentSkillService['promptWithSkills']>>;
 export type ShellCommandResult = Awaited<ReturnType<IAgentShellCommandService['run']>>;

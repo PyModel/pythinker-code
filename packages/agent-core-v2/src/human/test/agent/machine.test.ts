@@ -17,7 +17,8 @@ import type { LlmRetryOptions } from '#/llm/requester/retry';
 import { emptyUsage, type TokenUsage } from '#/llm/usage';
 import { connectPlugins } from '#/plugin';
 import { createTimingPlugin } from '#/timing/plugin';
-import { createAgentMachine, type AgentEmitted, type AgentMachineSelf, type ScopeFactoryOutput } from '#/agent/machine';
+import { createAgentMachine, type AgentEmitted, type AgentMachineSelf, type PromptGateVerdict, type ScopeFactoryOutput } from '#/agent/machine';
+import type { UserPromptOrigin } from '#/agent/origin';
 import { estimateMessageTokens, estimateTextTokens } from '#/agent/context-usage';
 import { messageAppended, turnEnded } from '#/agent/events';
 import { agentSlices, type AgentEventStore } from '#/agent/slices';
@@ -143,7 +144,7 @@ async function runAgent(
   const store = await testStore();
   const actor = createTestAgent(store, requester, tools, { retry });
   actor.start();
-  actor.send({ type: 'input.submit', message: createUserMessage('hi') });
+  actor.send({ type: 'input.submit', entry: { message: createUserMessage('hi') } });
   await waitFor(actor, (s) => s.matches('idle') && store.getState().history.length > 1, {
     timeout: 5000,
   });
@@ -193,6 +194,21 @@ describe('agent machine tool failure', () => {
       estimateMessageTokens(createUserMessage('hi')) + estimateTextTokens(JSON.stringify(tools)),
       137,
     ]);
+
+    const plainRequester = createStubRequester([
+      createAssistantMessage([], [toolCall('call-1', 'fail_tool')]),
+      createAssistantMessage([{ type: 'text', text: 'done' }]),
+    ]);
+    const plainTools = stubTools(() => Promise.reject('plain failure'), 'fail_tool');
+
+    const plainMessages = await runAgent(plainRequester, plainTools);
+
+    expect(rolesAndTexts(plainMessages)).toEqual([
+      'user:hi',
+      'assistant:',
+      'tool:plain failure',
+      'assistant:done',
+    ]);
   });
 
   it('continues with the remaining tool calls after a failure', async () => {
@@ -217,23 +233,6 @@ describe('agent machine tool failure', () => {
       'assistant:',
       'tool:boom',
       'tool:ok',
-      'assistant:done',
-    ]);
-  });
-
-  it('stringifies non-Error thrown values', async () => {
-    const requester = createStubRequester([
-      createAssistantMessage([], [toolCall('call-1', 'fail_tool')]),
-      createAssistantMessage([{ type: 'text', text: 'done' }]),
-    ]);
-    const tools = stubTools(() => Promise.reject('plain failure'), 'fail_tool');
-
-    const messages = await runAgent(requester, tools);
-
-    expect(rolesAndTexts(messages)).toEqual([
-      'user:hi',
-      'assistant:',
-      'tool:plain failure',
       'assistant:done',
     ]);
   });
@@ -396,7 +395,7 @@ describe('agent machine async tools', () => {
     const store = await testStore();
     const actor = createTestAgent(store, requester, tools);
     actor.start();
-    actor.send({ type: 'input.submit', message: createUserMessage('hi') });
+    actor.send({ type: 'input.submit', entry: { message: createUserMessage('hi') } });
 
     await vi.waitFor(() => {
       expect(actor.getSnapshot().value).toEqual({ idle: 'waiting' });
@@ -442,7 +441,7 @@ describe('agent machine async tools', () => {
     const store = await testStore();
     const actor = createTestAgent(store, requester, tools);
     actor.start();
-    actor.send({ type: 'input.submit', message: createUserMessage('hi') });
+    actor.send({ type: 'input.submit', entry: { message: createUserMessage('hi') } });
 
     await vi.waitFor(() => {
       expect(resolvers.has('sync_tool')).toBe(true);
@@ -493,7 +492,7 @@ describe('agent machine async tools', () => {
     const store = await testStore();
     const actor = createTestAgent(store, requester, tools);
     actor.start();
-    actor.send({ type: 'input.submit', message: createUserMessage('hi') });
+    actor.send({ type: 'input.submit', entry: { message: createUserMessage('hi') } });
 
     await vi.waitFor(() => {
       expect(actor.getSnapshot().context.turnTools['call-2']).toBeDefined();
@@ -541,7 +540,7 @@ describe('agent machine async tools', () => {
     const store = await testStore();
     const actor = createTestAgent(store, requester, tools);
     actor.start();
-    actor.send({ type: 'input.submit', message: createUserMessage('hi') });
+    actor.send({ type: 'input.submit', entry: { message: createUserMessage('hi') } });
 
     await vi.waitFor(
       () => {
@@ -656,7 +655,7 @@ describe('agent machine lifecycle', () => {
       attachedCount += 1;
     });
     actor.start();
-    actor.send({ type: 'input.submit', message: createUserMessage('hi') });
+    actor.send({ type: 'input.submit', entry: { message: createUserMessage('hi') } });
 
     expect(actor.getSnapshot().matches('linking')).toBe(true);
     expect(actor.getSnapshot().context.queue).toHaveLength(1);
@@ -691,7 +690,7 @@ describe('agent machine lifecycle', () => {
     expect(seenRequestTools[0]).toEqual(['factory_tool']);
     expect(seenRequestModels).toEqual([factoryModel, factoryModel]);
 
-    actor.send({ type: 'input.submit', message: createUserMessage('again') });
+    actor.send({ type: 'input.submit', entry: { message: createUserMessage('again') } });
     await waitFor(actor, (s) => s.matches('idle') && store.getState().history.length === 6, {
       timeout: 5000,
     });
@@ -738,15 +737,38 @@ describe('agent machine lifecycle', () => {
     const store = await testStore();
     const actor = createTestAgent(store, requester, tools);
     actor.start();
-    actor.send({ type: 'input.submit', message: createUserMessage('hi') });
+    actor.send({ type: 'input.submit', entry: { message: createUserMessage('hi') } });
 
     await vi.waitFor(() => {
       expect(resolveTool).toBeDefined();
     });
-    actor.send({ type: 'input.submit', message: createUserMessage('mid-turn') });
+    actor.send({
+      type: 'input.submit',
+      entry: {
+        message: createUserMessage('mid-turn'),
+        meta: {
+          promptId: 'mid',
+          origin: { kind: 'user' },
+          tracked: true,
+          createdAt: '2026-09-14T00:00:00.000Z',
+          userMessageId: 'umid-1',
+        },
+      },
+    });
     await vi.waitFor(() => {
       expect(actor.getSnapshot().context.queue).toHaveLength(1);
       expect(actor.getSnapshot().context.notifications).toHaveLength(0);
+    });
+    expect(actor.getSnapshot().context.queue[0]).toEqual({
+      message: createUserMessage('mid-turn'),
+      meta: {
+        source: 'input',
+        promptId: 'mid',
+        origin: { kind: 'user' },
+        tracked: true,
+        createdAt: '2026-09-14T00:00:00.000Z',
+        userMessageId: 'umid-1',
+      },
     });
 
     resolveTool?.({ content: [{ type: 'text', text: 'slow' }] });
@@ -786,7 +808,7 @@ describe('agent machine lifecycle', () => {
     actor.on('turn.failed', (event) => failures.push(event.error));
     actor.start();
 
-    actor.send({ type: 'input.submit', message: createUserMessage('hi') });
+    actor.send({ type: 'input.submit', entry: { message: createUserMessage('hi') } });
     await waitFor(
       actor,
       (s) => s.matches('idle') && failures.length === 1,
@@ -798,7 +820,7 @@ describe('agent machine lifecycle', () => {
     expect(failures[0]).toMatchObject({ kind: 'unknown', message: 'llm down' });
     expect(actor.getSnapshot().status).toBe('active');
 
-    actor.send({ type: 'input.submit', message: createUserMessage('retry') });
+    actor.send({ type: 'input.submit', entry: { message: createUserMessage('retry') } });
     await waitFor(
       actor,
       (s) => s.matches('idle') && store.getState().history.length === 3,
@@ -831,7 +853,7 @@ describe('agent machine lifecycle', () => {
       const store = await testStore();
       const actor = createTestAgent(store, requester);
       actor.start();
-      actor.send({ type: 'input.submit', message: createUserMessage('hello') });
+      actor.send({ type: 'input.submit', entry: { message: createUserMessage('hello') } });
       await waitFor(actor, (s) => s.matches('idle') && store.getState().history.length === 2, {
         timeout: 5000,
       });
@@ -881,14 +903,14 @@ describe('agent machine input.notify', () => {
     const store = await testStore();
     const actor = createTestAgent(store, requester, tools);
     actor.start();
-    actor.send({ type: 'input.submit', message: createUserMessage('hi') });
+    actor.send({ type: 'input.submit', entry: { message: createUserMessage('hi') } });
 
     await vi.waitFor(() => {
       expect(resolveTool).toBeDefined();
     });
     actor.send({
       type: 'input.notify',
-      message: createUserMessage('<system-reminder>stale</system-reminder>'),
+      entry: { message: createUserMessage('<system-reminder>stale</system-reminder>') },
     });
     await vi.waitFor(() => {
       expect(actor.getSnapshot().context.notifications).toHaveLength(1);
@@ -933,14 +955,14 @@ describe('agent machine input.notify', () => {
     const completedTurns: number[] = [];
     actor.on('turn.done', (event) => completedTurns.push(event.messages.length));
     actor.start();
-    actor.send({ type: 'input.submit', message: createUserMessage('hi') });
+    actor.send({ type: 'input.submit', entry: { message: createUserMessage('hi') } });
 
     await vi.waitFor(() => {
       expect(resolveFirst).toBeDefined();
     });
     actor.send({
       type: 'input.notify',
-      message: createUserMessage('<system-reminder>stale</system-reminder>'),
+      entry: { message: createUserMessage('<system-reminder>stale</system-reminder>') },
     });
     await vi.waitFor(() => {
       expect(actor.getSnapshot().context.notifications).toHaveLength(1);
@@ -975,7 +997,7 @@ describe('agent machine input.notify', () => {
       llmDone.push(event.entry);
     });
     actor.start();
-    actor.send({ type: 'input.notify', message: createUserMessage('queued') });
+    actor.send({ type: 'input.notify', entry: { message: createUserMessage('queued') } });
 
     await waitFor(
       actor,
@@ -1015,7 +1037,7 @@ describe('agent machine input.remind', () => {
     const consumedKeys: (string | undefined)[][] = [];
     actor.on('turn.reminders_consumed', (event) => {
       if (event.type === 'turn.reminders_consumed') {
-        consumedKeys.push(event.reminders.map((entry) => entry.meta.key));
+        consumedKeys.push(event.reminders.map((entry) => entry.meta?.key));
       }
     });
     actor.start();
@@ -1023,12 +1045,12 @@ describe('agent machine input.remind', () => {
     actor.send({
       type: 'input.remind',
       key: 'todo',
-      message: createUserMessage('<system-reminder>\nold\n</system-reminder>'),
+      entry: { message: createUserMessage('<system-reminder>\nold\n</system-reminder>') },
     });
     actor.send({
       type: 'input.remind',
       key: 'todo',
-      message: createUserMessage('<system-reminder>\nstale\n</system-reminder>'),
+      entry: { message: createUserMessage('<system-reminder>\nstale\n</system-reminder>') },
     });
     await vi.waitFor(() => {
       expect(actor.getSnapshot().context.reminders).toHaveLength(1);
@@ -1039,7 +1061,7 @@ describe('agent machine input.remind', () => {
     expect(actor.getSnapshot().context.reminders[0]?.meta).toEqual({ source: 'reminder', key: 'todo' });
     expect(extractText(actor.getSnapshot().context.reminders[0]?.message ?? createUserMessage(''))).toContain('stale');
 
-    actor.send({ type: 'input.submit', message: createUserMessage('hi') });
+    actor.send({ type: 'input.submit', entry: { message: createUserMessage('hi') } });
     await vi.waitFor(() => {
       expect(resolveTool).toBeDefined();
     });
@@ -1102,7 +1124,7 @@ describe('agent machine llm retry', () => {
     actor.on('turn.failed', (event) => failures.push(event.error));
     actor.start();
 
-    actor.send({ type: 'input.submit', message: createUserMessage('hi') });
+    actor.send({ type: 'input.submit', entry: { message: createUserMessage('hi') } });
     await waitFor(
       actor,
       (s) => s.matches('idle') && store.getState().history.length === 2,
@@ -1134,7 +1156,7 @@ describe('agent machine llm retry', () => {
 });
 
 describe('agent machine input.steer', () => {
-  it('promotes a queued prompt into the current turn at the next thinking step', async () => {
+  it('promotes queued prompts into the current turn and merges multi-id steers in FIFO order', async () => {
     const requester = createStubRequester([
       createAssistantMessage([], [toolCall('call-1', 'slow_tool')]),
       createAssistantMessage([{ type: 'text', text: 'done' }]),
@@ -1149,13 +1171,19 @@ describe('agent machine input.steer', () => {
     );
     const store = await testStore();
     const actor = createTestAgent(store, requester, tools);
+    const steered: string[][] = [];
+    actor.on('prompt.steered', (event) => steered.push(event.queueItemIds));
+    const p2Origin: UserPromptOrigin = {
+      kind: 'user',
+      skillActivations: [{ activationId: 'a1', skillName: 'demo' }],
+    };
     actor.start();
-    actor.send({ type: 'input.submit', message: createUserMessage('hi') });
+    actor.send({ type: 'input.submit', entry: { message: createUserMessage('hi') } });
 
     await vi.waitFor(() => {
       expect(resolveTool).toBeDefined();
     });
-    actor.send({ type: 'input.submit', id: 'p1', message: createUserMessage('steer me') });
+    actor.send({ type: 'input.submit', entry: { message: createUserMessage('steer me'), meta: { promptId: 'p1' } } });
     await vi.waitFor(() => {
       expect(actor.getSnapshot().context.queue).toHaveLength(1);
     });
@@ -1165,17 +1193,49 @@ describe('agent machine input.steer', () => {
       expect(actor.getSnapshot().context.queue).toHaveLength(1);
       expect(actor.getSnapshot().context.notifications).toHaveLength(0);
     });
+    expect(steered).toEqual([]);
 
     actor.send({ type: 'input.steer', id: 'p1' });
     await vi.waitFor(() => {
       expect(actor.getSnapshot().context.queue).toHaveLength(0);
       expect(actor.getSnapshot().context.notifications).toHaveLength(1);
     });
+    expect(steered).toEqual([['p1']]);
+
+    actor.send({
+      type: 'input.submit',
+      entry: {
+        message: {
+          role: 'user',
+          content: [
+            { type: 'text', text: 'SKILLBLOCK' },
+            { type: 'text', text: 'p2 body' },
+          ],
+        },
+        meta: { promptId: 'p2', origin: p2Origin },
+      },
+    });
+    actor.send({ type: 'input.submit', entry: { message: createUserMessage('third'), meta: { promptId: 'p3' } } });
+    await vi.waitFor(() => {
+      expect(actor.getSnapshot().context.queue).toHaveLength(2);
+    });
+
+    actor.send({ type: 'input.steer', id: ['p2', 'p3'] });
+    await vi.waitFor(() => {
+      expect(actor.getSnapshot().context.queue).toHaveLength(0);
+      expect(actor.getSnapshot().context.notifications).toHaveLength(2);
+    });
+    expect(steered).toEqual([['p1'], ['p2', 'p3']]);
+    expect(actor.getSnapshot().context.notifications[1]?.message.content).toEqual([
+      { type: 'text', text: 'SKILLBLOCK' },
+      { type: 'text', text: 'p2 body' },
+      { type: 'text', text: 'third' },
+    ]);
 
     resolveTool?.({ content: [{ type: 'text', text: 'slow' }] });
     await waitFor(
       actor,
-      (s) => s.matches('idle') && store.getState().history.length === 5,
+      (s) => s.matches('idle') && store.getState().history.length === 6,
       { timeout: 5000 },
     );
 
@@ -1184,8 +1244,73 @@ describe('agent machine input.steer', () => {
       'assistant:',
       'tool:slow',
       'user:steer me',
+      'user:SKILLBLOCK\np2 body\nthird',
       'assistant:done',
     ]);
+  });
+});
+
+describe('agent machine prompt gate', () => {
+  it('commits a gate-rewritten message and drops the head on a boolean block or a gate failure', async () => {
+    const requester = createStubRequester([
+      createAssistantMessage([{ type: 'text', text: 'rewritten reply' }]),
+    ]);
+    const store = await testStore();
+    const gateCalls: string[] = [];
+    let gateImpl: () => PromptGateVerdict = () => ({
+      block: false,
+      message: createUserMessage('rewritten'),
+    });
+    const actor = createActor(createAgentMachine({}), {
+      input: {
+        request: { model },
+        scopeFactory: testScopeFactory({
+          store,
+          requester,
+          promptGate: (_id, message) => {
+            gateCalls.push(extractText(message));
+            return Promise.resolve(gateImpl());
+          },
+        }),
+      },
+    });
+    const blocked: (string | undefined)[] = [];
+    const failed: unknown[] = [];
+    actor.on('prompt.blocked', (event) => blocked.push(event.queueItemId));
+    actor.on('prompt.gate_failed', (event) => failed.push(event.error));
+    actor.start();
+
+    actor.send({ type: 'input.submit', entry: { message: createUserMessage('original'), meta: { promptId: 'g1' } } });
+    await waitFor(actor, (s) => s.matches('idle') && store.getState().history.length === 2, {
+      timeout: 5000,
+    });
+    expect(rolesAndTexts(store.getState().history)).toEqual([
+      'user:rewritten',
+      'assistant:rewritten reply',
+    ]);
+    expect(gateCalls).toEqual(['original']);
+
+    gateImpl = () => true;
+    actor.send({ type: 'input.submit', entry: { message: createUserMessage('blocked'), meta: { promptId: 'g2' } } });
+    await vi.waitFor(() => {
+      expect(blocked).toEqual(['g2']);
+    });
+    expect(actor.getSnapshot().context.queue).toHaveLength(0);
+    expect(store.getState().history).toHaveLength(2);
+
+    gateImpl = () => {
+      throw new Error('gate down');
+    };
+    actor.send({ type: 'input.submit', entry: { message: createUserMessage('explode'), meta: { promptId: 'g3' } } });
+    await vi.waitFor(() => {
+      expect(failed).toHaveLength(1);
+    });
+    expect(String(failed[0])).toContain('gate down');
+    expect(actor.getSnapshot().context.queue).toHaveLength(0);
+    expect(store.getState().history).toHaveLength(2);
+    expect(actor.getSnapshot().matches('idle')).toBe(true);
+    expect(gateCalls).toEqual(['original', 'blocked', 'explode']);
+    actor.stop();
   });
 });
 
@@ -1220,7 +1345,7 @@ describe('agent machine input.abort', () => {
     actor.on('turn.aborted', (event) => aborted.push(event.messages));
     actor.on('turn.aborting', (event) => aborting.push(event));
     actor.start();
-    actor.send({ type: 'input.submit', message: createUserMessage('hi') });
+    actor.send({ type: 'input.submit', entry: { message: createUserMessage('hi') } });
 
     await vi.waitFor(() => {
       expect(signals).toHaveLength(1);
@@ -1240,7 +1365,7 @@ describe('agent machine input.abort', () => {
     expect(rolesAndTexts(aborted[0] ?? [])).toEqual(['user:hi', 'assistant:hello']);
     const salvaged = aborted[0]?.[1];
     expect(salvaged?.message.role === 'assistant' && salvaged.message.toolCalls).toEqual([]);
-    expect(salvaged?.meta.source).toBe('salvaged');
+    expect(salvaged?.meta?.source).toBe('salvaged');
   });
 
   it('aborts running turn tools and completes the transcript with aborted tool messages', async () => {
@@ -1258,7 +1383,7 @@ describe('agent machine input.abort', () => {
     const store = await testStore();
     const actor = createTestAgent(store, requester, tools);
     actor.start();
-    actor.send({ type: 'input.submit', message: createUserMessage('hi') });
+    actor.send({ type: 'input.submit', entry: { message: createUserMessage('hi') } });
 
     await vi.waitFor(() => {
       expect(signals).toHaveLength(1);
@@ -1309,7 +1434,7 @@ describe('agent machine input.abort', () => {
     const aborted: HistoryMessage[][] = [];
     actor.on('turn.aborted', (event) => aborted.push(event.messages));
     actor.start();
-    actor.send({ type: 'input.submit', message: createUserMessage('hi') });
+    actor.send({ type: 'input.submit', entry: { message: createUserMessage('hi') } });
 
     await vi.waitFor(() => {
       expect(actor.getSnapshot().context.turnTools['call-1']).toBeDefined();
@@ -1342,7 +1467,7 @@ describe('agent machine input.abort', () => {
     const store = await testStore();
     const actor = createTestAgent(store, requester, tools);
     actor.start();
-    actor.send({ type: 'input.submit', message: createUserMessage('hi') });
+    actor.send({ type: 'input.submit', entry: { message: createUserMessage('hi') } });
 
     await vi.waitFor(() => {
       expect(signals).toHaveLength(1);
@@ -1373,7 +1498,7 @@ describe('agent machine input.abort', () => {
     const store = await testStore();
     const actor = createTestAgent(store, requester, tools, { abortTimeoutMs: 50 });
     actor.start();
-    actor.send({ type: 'input.submit', message: createUserMessage('hi') });
+    actor.send({ type: 'input.submit', entry: { message: createUserMessage('hi') } });
 
     await vi.waitFor(() => {
       expect(actor.getSnapshot().context.turnTools['call-1']).toBeDefined();
@@ -1417,13 +1542,13 @@ describe('agent machine input.abort', () => {
     const store = await testStore();
     const actor = createTestAgent(store, requester, tools);
     actor.start();
-    actor.send({ type: 'input.submit', message: createUserMessage('hi') });
+    actor.send({ type: 'input.submit', entry: { message: createUserMessage('hi') } });
 
     await vi.waitFor(() => {
       expect(call).toBe(1);
     });
-    actor.send({ type: 'input.submit', id: 'p1', message: createUserMessage('queued') });
-    actor.send({ type: 'input.submit', id: 'p2', message: createUserMessage('steered') });
+    actor.send({ type: 'input.submit', entry: { message: createUserMessage('queued'), meta: { promptId: 'p1' } } });
+    actor.send({ type: 'input.submit', entry: { message: createUserMessage('steered'), meta: { promptId: 'p2' } } });
     actor.send({ type: 'input.steer', id: 'p2' });
     actor.send({ type: 'input.abort' });
     await waitFor(
@@ -1473,7 +1598,7 @@ describe('agent machine input.abort', () => {
     const store = await testStore();
     const actor = createTestAgent(store, requester, tools);
     actor.start();
-    actor.send({ type: 'input.submit', message: createUserMessage('hi') });
+    actor.send({ type: 'input.submit', entry: { message: createUserMessage('hi') } });
 
     await vi.waitFor(() => {
       expect(call).toBe(2);
@@ -1499,7 +1624,7 @@ describe('agent machine input.pause/input.continue', () => {
     const actor = createTestAgent(store, requester);
     actor.start();
     actor.send({ type: 'input.pause' });
-    actor.send({ type: 'input.submit', message: createUserMessage('hi') });
+    actor.send({ type: 'input.submit', entry: { message: createUserMessage('hi') } });
 
     await vi.waitFor(() => {
       expect(actor.getSnapshot().context.queue).toHaveLength(1);
@@ -1540,7 +1665,7 @@ describe('agent machine input.pause/input.continue', () => {
     const store = await testStore();
     const actor = createTestAgent(store, requester, tools);
     actor.start();
-    actor.send({ type: 'input.submit', message: createUserMessage('hi') });
+    actor.send({ type: 'input.submit', entry: { message: createUserMessage('hi') } });
 
     await vi.waitFor(() => {
       expect(actor.getSnapshot().context.turnTools['call-1']).toBeDefined();
@@ -1592,7 +1717,7 @@ describe('agent machine input.pause/input.continue', () => {
     const store = await testStore();
     const actor = createTestAgent(store, requester);
     actor.start();
-    actor.send({ type: 'input.submit', message: createUserMessage('hi') });
+    actor.send({ type: 'input.submit', entry: { message: createUserMessage('hi') } });
     await waitFor(
       actor,
       (s) => s.matches('idle') && store.getState().history.length === 2,
@@ -1632,7 +1757,7 @@ describe('agent machine max steps', () => {
     const failures: Extract<AgentEmitted, { type: 'turn.failed' }>[] = [];
     actor.on('turn.failed', (event) => failures.push(event));
     actor.start();
-    actor.send({ type: 'input.submit', message: createUserMessage('hi') });
+    actor.send({ type: 'input.submit', entry: { message: createUserMessage('hi') } });
 
     await vi.waitFor(() => {
       expect(call).toBe(1);
@@ -1644,7 +1769,7 @@ describe('agent machine max steps', () => {
       expect(call).toBe(2);
       expect(resolvers).toHaveLength(2);
     });
-    actor.send({ type: 'input.notify', message: createUserMessage('keep going') });
+    actor.send({ type: 'input.notify', entry: { message: createUserMessage('keep going') } });
     resolvers[1]?.();
 
     await vi.waitFor(() => {
@@ -1712,7 +1837,7 @@ describe('agent machine context reset', () => {
       }
     });
 
-    actor.send({ type: 'input.submit', message: createUserMessage('hi') });
+    actor.send({ type: 'input.submit', entry: { message: createUserMessage('hi') } });
     await waitFor(actor, (s) => s.matches('idle') && store.getState().history.length === 2, {
       timeout: 5000,
     });
@@ -1727,7 +1852,7 @@ describe('agent machine context reset', () => {
     expect(store.getState().history).toHaveLength(1);
     expect(store.getState().turnIndex.nextTurnId).toBe(1);
 
-    actor.send({ type: 'input.submit', message: createUserMessage('again') });
+    actor.send({ type: 'input.submit', entry: { message: createUserMessage('again') } });
     await waitFor(
       actor,
       (s) => s.matches('idle') && store.getState().history.length === 3,
@@ -1737,6 +1862,40 @@ describe('agent machine context reset', () => {
     expect(turnStarts).toEqual([
       { turnId: 0, branchId: 'main' },
       { turnId: 1, branchId: 'main~2' },
+    ]);
+
+    actor.send({ type: 'input.pause' });
+    actor.send({ type: 'input.submit', entry: { message: createUserMessage('queued'), meta: { promptId: 'q1' } } });
+    await vi.waitFor(() => {
+      expect(actor.getSnapshot().context.queue).toHaveLength(1);
+    });
+
+    await seedBranch(tree, 'main~3', ['third-seed']);
+    await store.reset(journalFromBranch(tree.openBranch('main~3'), tree));
+
+    await vi.waitFor(() => {
+      expect(resets).toEqual(['main~2', 'main~3']);
+    });
+    expect(store.getState().history).toHaveLength(1);
+    expect(actor.getSnapshot().context.queue).toEqual([
+      { message: createUserMessage('queued'), meta: { source: 'input', promptId: 'q1' } },
+    ]);
+
+    actor.send({ type: 'input.continue' });
+    await waitFor(
+      actor,
+      (s) => s.matches('idle') && store.getState().history.length === 3,
+      { timeout: 5000 },
+    );
+    expect(rolesAndTexts(store.getState().history)).toEqual([
+      'user:third-seed',
+      'user:queued',
+      'assistant:reply',
+    ]);
+    expect(turnStarts).toEqual([
+      { turnId: 0, branchId: 'main' },
+      { turnId: 1, branchId: 'main~2' },
+      { turnId: 1, branchId: 'main~3' },
     ]);
   });
 
@@ -1767,7 +1926,7 @@ describe('agent machine context reset', () => {
     });
     const actor = createTestAgent(store, requester);
     actor.start();
-    actor.send({ type: 'input.submit', message: createUserMessage('hi') });
+    actor.send({ type: 'input.submit', entry: { message: createUserMessage('hi') } });
     await vi.waitFor(() => expect(calls).toBe(1));
 
     await seedBranch(tree, 'other', ['seeded']);
@@ -1783,7 +1942,7 @@ describe('agent machine context reset', () => {
     await new Promise((resolve) => setTimeout(resolve, 300));
     expect(rolesAndTexts(store.getState().history)).toEqual(['user:seeded']);
 
-    actor.send({ type: 'input.notify', message: createUserMessage('note') });
+    actor.send({ type: 'input.notify', entry: { message: createUserMessage('note') } });
     await vi.waitFor(() => expect(calls).toBe(2));
 
     await seedBranch(tree, 'third', ['third-seed']);
