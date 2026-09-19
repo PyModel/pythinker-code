@@ -432,7 +432,7 @@ export class CacheHintController {
       idle_seconds: decision.idleSeconds,
       total_tokens: decision.totalTokens,
     });
-    const action = await new Promise<CacheHintAction | 'dismiss'>((resolve) => {
+    const action = await new Promise<CacheHintAction>((resolve) => {
       host.state.activeDialog = 'cache-hint';
       host.mountEditorReplacement(
         new CacheHintDialogComponent({
@@ -454,7 +454,7 @@ export class CacheHintController {
   }
 
   private async runAction(
-    action: CacheHintAction | 'dismiss',
+    action: CacheHintAction,
     stashed: StashedSubmit | undefined,
   ): Promise<void> {
     const { host } = this;

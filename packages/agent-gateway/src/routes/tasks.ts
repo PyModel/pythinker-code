@@ -350,8 +350,12 @@ export function toRoutingWire(routing: Record<string, unknown>): SubagentRouting
     policy_mode: routing['policyMode'] as SubagentRoutingWire['policy_mode'],
     policy_source: routing['policySource'] as SubagentRoutingWire['policy_source'],
     feature_source: routing['featureSource'] as SubagentRoutingWire['feature_source'],
-    routing_env_revision: String(routing['resolvedFromRoutingEnvironmentRevision'] ?? ''),
-    route_decision: String(routing['routeDecisionFingerprint'] ?? ''),
+    routing_env_revision: typeof routing['resolvedFromRoutingEnvironmentRevision'] === 'string' || typeof routing['resolvedFromRoutingEnvironmentRevision'] === 'number' || typeof routing['resolvedFromRoutingEnvironmentRevision'] === 'boolean'
+      ? String(routing['resolvedFromRoutingEnvironmentRevision'])
+      : '',
+    route_decision: typeof routing['routeDecisionFingerprint'] === 'string' || typeof routing['routeDecisionFingerprint'] === 'number' || typeof routing['routeDecisionFingerprint'] === 'boolean'
+      ? String(routing['routeDecisionFingerprint'])
+      : '',
   };
 }
 

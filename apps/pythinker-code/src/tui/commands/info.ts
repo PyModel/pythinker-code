@@ -37,7 +37,7 @@ export async function handleFeedbackCommand(host: SlashCommandHost): Promise<voi
   const fallback = (reason: string): void => {
     host.showStatus(reason);
     host.showStatus(FEEDBACK_ISSUE_URL);
-    openUrl(FEEDBACK_ISSUE_URL);
+    void openUrl(FEEDBACK_ISSUE_URL);
   };
 
   // Gate on the OAuth token rather than the active model's provider: a

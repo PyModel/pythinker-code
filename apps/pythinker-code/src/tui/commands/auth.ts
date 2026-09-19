@@ -1,8 +1,4 @@
 // @ts-nocheck
-function platformValue(sel: any): string {
-  return typeof sel === 'string' ? sel : String(sel?.value ?? sel);
-}
-
 import {
   applyOpenPlatformConfig,
   fetchOpenPlatformModels,

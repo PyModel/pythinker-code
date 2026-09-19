@@ -126,4 +126,7 @@ export function catalogProviderIdFromPlatformValue(value: string): string | unde
   return undefined;
 }
 
-export type PlatformSelection = any;
+export type PlatformSelection = {
+  readonly platformId: string;
+  readonly catalog: Record<string, unknown>;
+};

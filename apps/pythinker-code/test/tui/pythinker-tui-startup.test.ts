@@ -2286,7 +2286,6 @@ describe('PythinkerTUI startup', () => {
           k2: { provider: 'openai', model: 'moonshot-v1', maxContextSize: 100 },
         },
         providers: {
-          'openai': { type: 'pythinker' },
           openai: { type: 'openai', baseUrl: 'https://api.openai.com/v1' },
         },
       })),

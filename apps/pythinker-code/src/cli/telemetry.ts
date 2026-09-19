@@ -1,6 +1,5 @@
 import { createPythinkerDeviceId } from '@pymodel/pythinker-code-oauth';
 import {
-  PythinkerAuthFacade,
   loadRuntimeConfigSafe,
   log,
   resolveConfigPath,
@@ -19,8 +18,6 @@ import {
 
 import { CLI_USER_AGENT_PRODUCT, WEB_UI_MODE } from '#/constant/app';
 import { currentPythinkerProfile } from '#/utils/region';
-
-import { createPythinkerCodeHostIdentity } from './version';
 
 export interface CliTelemetryBootstrap {
   readonly homeDir: string;

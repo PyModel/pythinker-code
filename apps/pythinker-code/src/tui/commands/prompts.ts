@@ -1,4 +1,9 @@
 // @ts-nocheck
+type LocalPlatformSelection = {
+  readonly platformId: string;
+  readonly catalog: Record<string, unknown>;
+};
+
 import {
   buildPlatformOptions,
   catalogModelToAlias,
@@ -9,7 +14,6 @@ import {
   type Catalog,
   type CatalogModel,
   type ModelAlias,
-  type PlatformSelection,
   type ThinkingEffort,
 } from '@pymodel/pythinker-code-sdk';
 import {
@@ -62,7 +66,7 @@ function oauthPlatformConfigProviderId(platformValue: string): string | undefine
 
 export async function promptPlatformSelection(
   host: SlashCommandHost,
-): Promise<PlatformSelection | undefined> {
+): Promise<LocalPlatformSelection | undefined> {
   const method = await promptAuthenticationMethodSelection(host);
   if (method === undefined) return undefined;
 

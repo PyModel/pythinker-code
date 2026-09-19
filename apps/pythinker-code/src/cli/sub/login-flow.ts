@@ -60,7 +60,7 @@ export async function runLoginFlow(options: { region?: PythinkerRegion } = {}): 
             .join('\n'),
         );
         try {
-          openUrl(url);
+          void openUrl(url);
         } catch {
           // Best effort only: the manual fallback has already been printed.
         }

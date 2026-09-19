@@ -5,7 +5,6 @@ import chalk from 'chalk';
 import { Markdown } from '../markdown/markdown';
 import { THINKING_PREVIEW_LINES } from '../../constant/rendering';
 import { currentTheme } from '../../theme';
-import type { PythinkerMarkdownTheme } from '../../theme/pi-tui-theme';
 import type { InlineSkillActivation } from '../../types';
 import { createMarkdownOptions } from '../../utils/markdown-options';
 

@@ -1,10 +1,8 @@
 /* expert-talk-panel loose */
 // @ts-nocheck
 import type {
-  ExpertTalkRunV1,
   ExpertTalkStageArtifactV1,
   ExpertTalkStageProgressV1,
-  ExpertTalkStatusV1,
   ModelAlias,
 } from '@pymodel/pythinker-code-sdk';
 import { Markdown, truncateToWidth, visibleWidth, wrapTextWithAnsi, type Component } from '@pymodel/pi-tui';

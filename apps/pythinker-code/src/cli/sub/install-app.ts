@@ -10,6 +10,6 @@ export function registerInstallAppCommand(program: Command): void {
     .action(() => {
       const url = pythinkerCodeOfficialInstallUrl();
       process.stdout.write(`${url}\n`);
-      openUrl(url);
+      void openUrl(url);
     });
 }

@@ -1,7 +1,5 @@
 import type { Event } from './events';
 import type { SnapshotSubagent } from '../../../protocol/rest-snapshot';
-import { toRoutingWire } from '../../../routes/tasks';
-
 const MAIN_AGENT_ID = 'main';
 
 export class SubagentRosterTracker {

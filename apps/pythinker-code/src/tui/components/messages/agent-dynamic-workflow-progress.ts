@@ -804,7 +804,7 @@ export class AgentDynamicWorkflowProgressComponent implements Component {
     });
     const id = chalk.hex(memberIdColor(member.id, this.colors))(member.id);
     const bar = brailleBar(
-      (_estimate?.displayTicks ?? 0),
+      (progressEstimate?.displayTicks ?? 0),
       snapshot.phase,
       layout.barCells,
       this.colors,
@@ -832,7 +832,7 @@ export class AgentDynamicWorkflowProgressComponent implements Component {
     });
     const id = chalk.hex(memberIdColor(member.id, this.colors))(member.id);
     const bar = brailleBar(
-      (_estimate?.displayTicks ?? 0),
+      (estimate?.displayTicks ?? 0),
       estimatePhase,
       barCells,
       this.colors,

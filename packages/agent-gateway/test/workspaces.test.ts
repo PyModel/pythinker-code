@@ -333,7 +333,7 @@ describe('server-v2 /api/v1/workspaces', () => {
     expect(body.code).toBe(40001);
   });
 
-  it('adds an additional directory and persists it by default', async () => {
+  it('adds an additional directory and persists it by default (variant 2)', async () => {
     const root = home as string;
     const extra = join(root, 'extra');
     await mkdir(extra);
@@ -354,7 +354,7 @@ describe('server-v2 /api/v1/workspaces', () => {
     expect(toml).toContain(extra);
   });
 
-  it('adds a relative directory without persisting when persist is false', async () => {
+  it('adds a relative directory without persisting when persist is false (variant 2)', async () => {
     const root = home as string;
     const extra = join(root, 'extra-rel');
     await mkdir(extra);
@@ -371,14 +371,14 @@ describe('server-v2 /api/v1/workspaces', () => {
     await expect(readFile(body.data.config_path, 'utf8')).rejects.toThrow();
   });
 
-  it('returns 40410 when adding a directory to an unknown workspace', async () => {
+  it('returns 40410 when adding a directory to an unknown workspace (variant 2)', async () => {
     const { body } = await postJson<null>('/api/v1/workspaces/wd_missing_000000000000/add-dir', {
       path: '/tmp',
     });
     expect(body.code).toBe(40410);
   });
 
-  it('returns 40409 when the added path does not exist', async () => {
+  it('returns 40409 when the added path does not exist (variant 2)', async () => {
     const root = home as string;
     const created = await postJson<WorkspaceWire>('/api/v1/workspaces', { root });
     const id = created.body.data.id;
@@ -389,7 +389,7 @@ describe('server-v2 /api/v1/workspaces', () => {
     expect(body.code).toBe(40409);
   });
 
-  it('returns 40409 when the added path is a file', async () => {
+  it('returns 40409 when the added path is a file (variant 2)', async () => {
     const root = home as string;
     const file = join(root, 'a-file.txt');
     await writeFile(file, 'x', 'utf8');
@@ -400,7 +400,7 @@ describe('server-v2 /api/v1/workspaces', () => {
     expect(body.code).toBe(40409);
   });
 
-  it('returns 40001 when path is missing', async () => {
+  it('returns 40001 when path is missing (variant 2)', async () => {
     const root = home as string;
     const created = await postJson<WorkspaceWire>('/api/v1/workspaces', { root });
     const id = created.body.data.id;

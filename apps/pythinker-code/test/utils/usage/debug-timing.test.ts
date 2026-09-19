@@ -139,7 +139,7 @@ describe('formatStepDebugTiming', () => {
     );
   });
 
-  it('appends the blocked share to the decode split when present', () => {
+  it('appends the blocked share to the decode split when present (variant 2)', () => {
     const result = formatStepDebugTiming({
       llmFirstTokenLatencyMs: 800,
       llmStreamDurationMs: 6000,

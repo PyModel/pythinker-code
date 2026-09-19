@@ -61,7 +61,6 @@ function makeHost() {
     btwPanelController: { routeEvent: vi.fn(() => false) },
     surveyController: { notifyToolCallStarted: vi.fn(), notifyCompactionFinished: vi.fn() },
     tasksBrowserController: {},
-    surveyController: { notifyToolCallStarted: vi.fn() },
   };
   return { host: host as never, streamingUI };
 }

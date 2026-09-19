@@ -1,4 +1,4 @@
-export type RefreshProviderScope = "all" | "oauth" | string;
+export type RefreshProviderScope = string;
 import {
   refreshProviderModels,
   type ProviderChange,

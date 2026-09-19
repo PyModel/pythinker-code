@@ -483,7 +483,7 @@ export function defineKlientConformance(
       }
     });
 
-    it('global mcp round-trips user-level server CRUD', async () => {
+    it('global mcp round-trips user-level server CRUD (variant 2)', async () => {
       const mcp = target.klient.global.mcp;
       const cwd = await mkdtemp(join(tmpdir(), 'klient-conf-mcp-crud-'));
       try {
@@ -526,7 +526,7 @@ export function defineKlientConformance(
       }
     });
 
-    it('global mcp probes an inline server config without persisting it', async () => {
+    it('global mcp probes an inline server config without persisting it (variant 2)', async () => {
       const mcp = target.klient.global.mcp;
       // Inline probe against a scratch cwd: the binary runs but never
       // speaks MCP, so the connection test reports a clean failure.
@@ -550,7 +550,7 @@ export function defineKlientConformance(
       expect(await mcp.list()).toEqual([]);
     });
 
-    it('global mcp resolves locators and classifies auth offline', async () => {
+    it('global mcp resolves locators and classifies auth offline (variant 2)', async () => {
       const mcp = target.klient.global.mcp;
       await mcp.add({
         server: { name: 'conf-mcp', transport: 'stdio', command: 'conf-command' },
@@ -582,7 +582,7 @@ export function defineKlientConformance(
       }
     });
 
-    it('global mcp completeAuth rejects an unknown flowId with 40001', async () => {
+    it('global mcp completeAuth rejects an unknown flowId with 40001 (variant 2)', async () => {
       const mcp = target.klient.global.mcp;
       await expect(mcp.completeAuth({ flowId: 'conf-unknown-flow' })).rejects.toMatchObject({
         name: 'RPCError',
@@ -590,7 +590,7 @@ export function defineKlientConformance(
       });
     });
 
-    it('global mcp OAuth failures map to the 40929 wire code on every transport', async () => {
+    it('global mcp OAuth failures map to the 40929 wire code on every transport (variant 2)', async () => {
       const mcp = target.klient.global.mcp;
       await mcp.add({
         server: {
@@ -609,12 +609,12 @@ export function defineKlientConformance(
       }
     });
 
-    it('global mcp cancelAuth ignores an unknown flowId', async () => {
+    it('global mcp cancelAuth ignores an unknown flowId (variant 2)', async () => {
       const mcp = target.klient.global.mcp;
       await expect(mcp.cancelAuth({ flowId: 'conf-unknown-flow' })).resolves.toBeUndefined();
     });
 
-    it('global mcp resetAuth clears a remote oauth server through the transport', async () => {
+    it('global mcp resetAuth clears a remote oauth server through the transport (variant 2)', async () => {
       const mcp = target.klient.global.mcp;
       await mcp.add({
         server: {
@@ -634,7 +634,7 @@ export function defineKlientConformance(
       }
     });
 
-    it('global mcp resetAuth rejects a stdio locator with 40001', async () => {
+    it('global mcp resetAuth rejects a stdio locator with 40001 (variant 2)', async () => {
       const mcp = target.klient.global.mcp;
       await mcp.add({
         server: { name: 'conf-stdio', transport: 'stdio', command: 'conf-command' },
