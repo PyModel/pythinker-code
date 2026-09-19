@@ -521,7 +521,6 @@ export class WsConnectionV1 implements BroadcastTarget {
     const now = Date.now();
     if (this.backpressureSince === undefined) this.backpressureSince = now;
     if (now - this.backpressureSince >= DEFAULT_BACKPRESSURE_MAX_DELAY_MS) {
-      // Hard bound: socket buffer stuck far past the high-water mark.
       if (this.socket.bufferedAmount > this.highWaterMarkBytes * 8) {
         this.outbound = [];
         this.close(WS_CLOSE_OVERLOADED, 'slow consumer');

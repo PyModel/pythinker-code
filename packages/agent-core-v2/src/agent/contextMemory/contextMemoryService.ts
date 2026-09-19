@@ -53,8 +53,6 @@ export class AgentContextMemoryService extends Disposable implements IAgentConte
     if (messages.length === 0) return;
     const start = this.get().length;
     for (const message of messages) {
-      // dispatch applies the fold synchronously when the dispatcher is idle;
-      // fire-and-forget would race callers that read get() immediately after.
       void this.dispatcher.dispatch(
         new ContextAppendMessage({ agentId: this.scopeContext.agentId, message }),
       );
