@@ -183,11 +183,11 @@ function renderDeathWarnings(state: TowerState): string[] {
   const lines: string[] = [];
   for (const mission of state.missions) {
     if (mission.owner === undefined) continue;
-    if (mission.status === 'completed' || mission.status === 'merged' || mission.status === 'abandoned') continue;
+    if (mission.status === 'merged' || mission.status === 'abandoned') continue;
     const entry = deadByName.get(mission.owner);
     if (entry === undefined) continue;
     lines.push(
-      `- ⚠️ ${mission.id} owner ${entry.name} died (${entry.deathStatus ?? 'unknown'}) — recover with Agent(resume="${entry.agentId}", prompt="...") or reassign the mission`,
+      `- ⚠️ ${mission.id} owner ${entry.name} died (${entry.deathStatus ?? 'unknown'}) — recover with Agent(resume="${entry.agentId}", run_in_background=true, prompt="...") (never foreground: its output flows back through the tower protocol files) or reassign the mission`,
     );
   }
   if (lines.length === 0) return lines;

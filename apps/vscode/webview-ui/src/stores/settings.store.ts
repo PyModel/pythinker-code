@@ -2,9 +2,11 @@ import { create } from "zustand";
 import { bridge } from "@/services";
 import { toast } from "@/components/ui/sonner";
 import type { ExtensionConfig } from "shared/types";
-import type { ModelConfig, ModelsConfig, ThinkingMode, SlashCommandInfo } from "shared/legacy-sdk";
+import type { ModelConfig, ThinkingMode, SlashCommandInfo } from "shared/legacy-sdk";
 
 let settingsSaveRevision = 0;
+const MANAGED_PYTHINKER_CODE_PROVIDER = "openai";
+
 function saveConfigWithRollback(
   config: Parameters<typeof bridge.saveConfig>[0],
   rollback: Partial<SettingsState>,
@@ -45,6 +47,8 @@ export function getModelThinkingMode(model: ModelConfig): ThinkingMode {
 }
 
 export function providerDisplayName(provider: string): string {
+  if (provider === MANAGED_PYTHINKER_CODE_PROVIDER) return "Pythinker Code";
+  if (provider.startsWith("managed:")) return provider.slice("managed:".length);
   return provider;
 }
 
@@ -71,6 +75,16 @@ export function groupModelsByProvider(models: ModelConfig[]): ModelProviderGroup
       models: providerModels.toSorted((left, right) => left.name.localeCompare(right.name)),
     }))
     .toSorted((left, right) => left.label.localeCompare(right.label));
+}
+
+export function requiresManagedProviderLogin(
+  models: ModelConfig[],
+  defaultModel: string | null,
+  loggedIn: boolean,
+): boolean {
+  if (loggedIn) return false;
+  const activeModel = getModelById(models, defaultModel ?? "") ?? models[0];
+  return activeModel?.provider === MANAGED_PYTHINKER_CODE_PROVIDER;
 }
 
 function defaultEffortForModel(model: ModelConfig, defaultThinking: boolean, configuredEffort?: string): string {
@@ -142,13 +156,11 @@ export function getMediaFallbackModel(
     ?? compatibleModels[0];
 }
 
-export type ConfigHubSection = "overview" | "models" | "providers" | "mcp" | "config" | "settings";
-
 interface SettingsState {
   currentModel: string;
   thinkingEffort: string;
   extensionConfig: ExtensionConfig;
-  configHub: { open: boolean; section: ConfigHubSection };
+  mcpModalOpen: boolean;
   workDirModalOpen: boolean;
   currentWorkDir: string | null;
   workspaceRoot: string | null;
@@ -167,13 +179,11 @@ interface SettingsState {
   toggleThinking: () => void;
   selectThinkingEffort: (effort: string) => void;
   setExtensionConfig: (config: ExtensionConfig) => void;
-  openConfigHub: (section?: ConfigHubSection) => void;
-  closeConfigHub: () => void;
+  setMCPModalOpen: (open: boolean) => void;
   setWorkDirModalOpen: (open: boolean) => void;
   setCurrentWorkDir: (workDir: string | null) => void;
   setWorkspaceRoot: (root: string | null) => void;
   initModels: (models: ModelConfig[], defaultModel: string | null, defaultThinking: boolean, defaultThinkingEffort?: string) => void;
-  setModels: (config: ModelsConfig) => void;
   setWireSlashCommands: (commands: SlashCommandInfo[]) => void;
   setIsLoggedIn: (loggedIn: boolean) => void;
   getCurrentThinkingMode: () => ThinkingMode;
@@ -183,7 +193,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   currentModel: "",
   thinkingEffort: "off",
   extensionConfig: DEFAULT_EXTENSION_CONFIG,
-  configHub: { open: false, section: "overview" },
+  mcpModalOpen: false,
   workDirModalOpen: false,
   currentWorkDir: null,
   workspaceRoot: null,
@@ -295,8 +305,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 
   setExtensionConfig: (extensionConfig) => set({ extensionConfig }),
 
-  openConfigHub: (section = "overview") => set({ configHub: { open: true, section } }),
-  closeConfigHub: () => set((state) => ({ configHub: { ...state.configHub, open: false } })),
+  setMCPModalOpen: (mcpModalOpen) => set({ mcpModalOpen }),
 
   setWorkDirModalOpen: (workDirModalOpen) => set({ workDirModalOpen }),
 
@@ -326,32 +335,6 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     set({
       wireSlashCommands: commands,
       slashCommands: commands,
-    });
-  },
-
-  // Provider add/remove lands in config.toml on the host; refreshing must not
-  // yank a live session off its model, so keep the current alias unless it no
-  // longer exists.
-  setModels: ({ models, defaultModel, defaultThinking, defaultThinkingEffort }) => {
-    // The refreshed list supersedes any save still in flight: its rollback was
-    // captured against the old list and could restore a model that no longer
-    // exists.
-    settingsSaveRevision += 1;
-    set((state) => {
-      const kept = getModelById(models, state.currentModel) !== undefined;
-      const currentModel = kept ? state.currentModel : defaultModel ?? models[0]?.id ?? "";
-      const model = getModelById(models, currentModel);
-      return {
-        models,
-        defaultModel,
-        modelsLoaded: true,
-        currentModel,
-        thinkingEffort: kept
-          ? state.thinkingEffort
-          : model !== undefined
-            ? defaultEffortForModel(model, defaultThinking, defaultThinkingEffort)
-            : "off",
-      };
     });
   },
 

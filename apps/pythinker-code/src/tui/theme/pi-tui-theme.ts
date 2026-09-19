@@ -28,6 +28,7 @@ export function createMarkdownTheme(options?: { transient?: boolean }): Markdown
   const stripHash = (text: string): string => text.replace(HEADING_HASH_PREFIX, '$1');
 
   return {
+    ...( { transient } as object ),
     heading: (text) => chalk.bold.hex(currentTheme.color('textStrong'))(stripHash(text)),
     link: (text) => chalk.hex(currentTheme.color('primary'))(text),
     linkUrl: (text) => chalk.hex(currentTheme.color('textMuted'))(text),
@@ -73,3 +74,5 @@ export function createEditorTheme(): EditorTheme {
     },
   };
 }
+
+export type PythinkerMarkdownTheme = Record<string, unknown> & { transient?: boolean };

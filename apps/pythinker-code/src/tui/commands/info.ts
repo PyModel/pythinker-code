@@ -1,11 +1,131 @@
+const isManagedUsageProvider = (_p?: string) => false;
+import { release as osRelease, type as osType } from 'node:os';
+
 import type { McpServerInfo, SessionStatus, SessionUsage } from '@pymodel/pythinker-code-sdk';
 
 import { buildMcpStatusReportLines } from '../components/messages/mcp-status-panel';
 import { buildStatusReportLines } from '../components/messages/status-panel';
-import { buildUsageReportLines, UsagePanelComponent } from '../components/messages/usage-panel';
-import { formatErrorMessage } from '../utils/event-payload';
+import { buildUsageReportLines, UsagePanelComponent, type ManagedUsageReport } from '../components/messages/usage-panel';
 import { isExperimentalFlagEnabled } from './experimental-flags';
+import { quotaUsageRows } from '#/utils/usage/usage-format';
+import {
+  FEEDBACK_ISSUE_URL,
+  FEEDBACK_STATUS_CANCELLED,
+  FEEDBACK_STATUS_FALLBACK,
+  FEEDBACK_STATUS_NETWORK_ERROR,
+  FEEDBACK_STATUS_NOT_SIGNED_IN,
+  FEEDBACK_STATUS_SUBMITTING,
+  FEEDBACK_STATUS_SUCCESS,
+  FEEDBACK_STATUS_UPLOAD_FAILED,
+  FEEDBACK_TELEMETRY_EVENT,
+  feedbackIdLine,
+  feedbackSessionLine,
+  pythinkerCodeSignupUrl,
+  withFeedbackVersionPrefix,
+} from '../constant/feedback';
+import { submitFeedbackWithAttachments } from '../../feedback/feedback-attachments';
+import { formatErrorMessage } from '../utils/event-payload';
+import { openUrl } from '#/utils/open-url';
+import { promptFeedbackAttachment, promptFeedbackInput } from './prompts';
 import type { SlashCommandHost } from './dispatch';
+
+// ---------------------------------------------------------------------------
+// Feedback
+// ---------------------------------------------------------------------------
+
+export async function handleFeedbackCommand(host: SlashCommandHost): Promise<void> {
+  const fallback = (reason: string): void => {
+    host.showStatus(reason);
+    host.showStatus(FEEDBACK_ISSUE_URL);
+    void openUrl(FEEDBACK_ISSUE_URL);
+  };
+
+  // Gate on the OAuth token rather than the active model's provider: a
+  // signed-in user running an API-key model can still submit feedback
+  // through the authenticated channel.
+  let signedIn = false;
+  try {
+    const status = await host.harness.auth.status('openai');
+    signedIn = status.providers.some(
+      (provider) => provider.providerName === 'openai' && provider.hasToken,
+    );
+  } catch {
+    // The sign-in state is unreadable — keep the feedback entry usable by
+    // falling back to GitHub Issues instead of failing the command.
+    fallback(FEEDBACK_STATUS_FALLBACK);
+    return;
+  }
+  if (!signedIn) {
+    host.showStatus(FEEDBACK_STATUS_NOT_SIGNED_IN);
+    host.showStatus(pythinkerCodeSignupUrl());
+    host.showStatus(FEEDBACK_ISSUE_URL);
+    return;
+  }
+
+  // Stage 1: collect the free-form feedback text.
+  const input = await promptFeedbackInput(host);
+  if (input === undefined) {
+    host.showStatus(FEEDBACK_STATUS_CANCELLED);
+    return;
+  }
+
+  // Stage 2: ask whether to attach diagnostics (logs / codebase).
+  const level = await promptFeedbackAttachment(host);
+  if (level === undefined) {
+    host.showStatus(FEEDBACK_STATUS_CANCELLED);
+    return;
+  }
+
+  const version = withFeedbackVersionPrefix(host.state.appState.version);
+  const spinner = host.showLoginProgressSpinner(FEEDBACK_STATUS_SUBMITTING);
+  // Guarantee the spinner's underlying setInterval is always cleared, even when
+  // submitFeedback throws — otherwise the interval (and its per-frame
+  // requestRender) leaks for the rest of the session.
+  let stopped = false;
+  const stopSpinner = (opts: { ok: boolean; label: string }): void => {
+    if (stopped) return;
+    stopped = true;
+    spinner.stop(opts);
+  };
+  try {
+    const res = await host.harness.auth.submitFeedback({
+      content: typeof input === "string" ? input : (input as { value: string }).value,
+      sessionId: host.state.appState.sessionId,
+      version,
+      os: `${osType()} ${osRelease()}`,
+      model: host.state.appState.model.length > 0 ? host.state.appState.model : null,
+    });
+
+    if (res.kind !== 'ok') {
+      stopSpinner({ ok: false, label: res.message });
+      fallback(FEEDBACK_STATUS_FALLBACK);
+      return;
+    }
+
+    // Stage 3: prepare and upload each requested attachment independently.
+    // Attachment failures are non-fatal partial failures — the text feedback
+    // already exists server-side — so a throw here degrades to the
+    // partial-failure status, never to the GitHub fallback in the outer catch.
+    let attachmentFailed = false;
+    try {
+      attachmentFailed = await submitFeedbackWithAttachments(host, Number(res.feedbackId), level);
+    } catch {
+      attachmentFailed = true;
+    }
+
+    stopSpinner({ ok: true, label: FEEDBACK_STATUS_SUCCESS });
+    host.showStatus(feedbackSessionLine(host.state.appState.sessionId));
+    host.showStatus(feedbackIdLine(Number(res.feedbackId)));
+    host.track(FEEDBACK_TELEMETRY_EVENT);
+    if (attachmentFailed) {
+      host.showStatus(FEEDBACK_STATUS_UPLOAD_FAILED);
+    }
+  } catch (error) {
+    stopSpinner({ ok: false, label: FEEDBACK_STATUS_NETWORK_ERROR });
+    fallback(FEEDBACK_STATUS_FALLBACK);
+    throw error;
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Info commands
@@ -21,14 +141,22 @@ interface RuntimeStatusResult {
   readonly error?: string;
 }
 
+interface ManagedUsageResult {
+  readonly usage?: ManagedUsageReport;
+  readonly error?: string;
+}
+
 export async function showUsage(host: SlashCommandHost): Promise<void> {
   const sessionUsage = await loadSessionUsageReport(host);
+  const managedUsage = await loadManagedUsageReport(host);
   const reportArgs = {
     sessionUsage: sessionUsage.usage,
     sessionUsageError: sessionUsage.error,
     contextUsage: host.state.appState.contextUsage,
     contextTokens: host.state.appState.contextTokens,
     maxContextTokens: host.state.appState.maxContextTokens,
+    managedUsage: managedUsage?.usage,
+    managedUsageError: managedUsage?.error,
   };
   const panel = new UsagePanelComponent(() => buildUsageReportLines(reportArgs), 'primary');
   host.state.transcriptContainer.addChild(panel);
@@ -36,7 +164,10 @@ export async function showUsage(host: SlashCommandHost): Promise<void> {
 }
 
 export async function showStatusReport(host: SlashCommandHost): Promise<void> {
-  const runtimeStatus = await loadRuntimeStatusReport(host);
+  const [runtimeStatus, managedUsage] = await Promise.all([
+    loadRuntimeStatusReport(host),
+    loadManagedUsageReport(host),
+  ]);
   const appState = host.state.appState;
   const reportArgs = {
     version: appState.version,
@@ -48,13 +179,15 @@ export async function showStatusReport(host: SlashCommandHost): Promise<void> {
     permissionMode: appState.permissionMode,
     planMode: appState.planMode,
     towerMode: appState.towerMode,
-    towerAvailable: host.engineV2 && isExperimentalFlagEnabled('tower'),
+    towerAvailable: isExperimentalFlagEnabled('tower'),
     contextUsage: appState.contextUsage,
     contextTokens: appState.contextTokens,
     maxContextTokens: appState.maxContextTokens,
     availableModels: appState.availableModels,
     status: runtimeStatus.status,
     statusError: runtimeStatus.error,
+    managedUsage: managedUsage?.usage,
+    managedUsageError: managedUsage?.error,
   };
   const panel = new UsagePanelComponent(() => buildStatusReportLines(reportArgs), 'primary', ' Status ');
   host.state.transcriptContainer.addChild(panel);
@@ -66,12 +199,10 @@ export async function showMcpServers(host: SlashCommandHost): Promise<void> {
   try {
     if (host.session !== undefined) {
       servers = await host.session.listMcpServers();
-    } else if (host.engineV2) {
+    } else {
       // v2 session-less: the MCP connection set is workspace-scoped, so it is
       // inspectable before the first session exists.
       servers = await host.harness.listWorkspaceMcpServers(host.state.appState.workDir);
-    } else {
-      servers = await host.requireSession().listMcpServers();
     }
   } catch (error) {
     host.showError(`Failed to load MCP servers: ${formatErrorMessage(error)}`);
@@ -102,4 +233,21 @@ async function loadRuntimeStatusReport(host: SlashCommandHost): Promise<RuntimeS
   } catch (error) {
     return { error: error instanceof Error ? error.message : String(error) };
   }
+}
+
+async function loadManagedUsageReport(host: SlashCommandHost): Promise<ManagedUsageResult | undefined> {
+  const alias = host.state.appState.model;
+  const providerKey = host.state.appState.availableModels[alias]?.provider;
+  if (!isManagedUsageProvider(providerKey)) return undefined;
+
+  let res;
+  try {
+    res = await host.harness.auth.getManagedUsage(providerKey);
+  } catch (error) {
+    return { error: formatErrorMessage(error) };
+  }
+  if (res.kind === 'error') {
+    return { error: res.message };
+  }
+  return { usage: { rows: quotaUsageRows((res as { quota: any }).quota), extraUsage: (res as { quota: any }).quota?.extraUsage } };
 }

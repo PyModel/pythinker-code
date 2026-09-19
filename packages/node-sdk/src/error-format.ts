@@ -1,4 +1,4 @@
-import { isPythinkerError, type PythinkerErrorPayload } from '@pymodel/agent-core';
+import { isPythinkerError, type PythinkerErrorPayload } from '#/errors';
 
 export function formatErrorMessage(error: unknown): string {
   if (isPythinkerError(error)) {

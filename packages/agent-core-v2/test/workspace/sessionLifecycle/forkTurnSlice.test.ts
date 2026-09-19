@@ -1,17 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
-import {
-  sliceMainRecordsAtTurn,
-  sliceMainRecordsBeforePrompt,
-} from '#/workspace/sessionLifecycle/internal/forkTurnSlice';
+import { sliceMainRecordsAtTurn } from '#/workspace/sessionLifecycle/internal/forkTurnSlice';
 import type { WireRecord } from '#/wire/record';
 
-function userTurnRecord(text: string, time: number, id?: string): WireRecord {
+function userTurnRecord(text: string, time: number): WireRecord {
   return {
     type: 'context.append_message',
     message: {
       role: 'user',
-      id,
       content: [{ type: 'text', text }],
       origin: { kind: 'user' },
     },
@@ -20,6 +16,13 @@ function userTurnRecord(text: string, time: number, id?: string): WireRecord {
 }
 
 describe('sliceMainRecordsAtTurn', () => {
+  it('derives a fork last prompt from readable client metadata while retaining the original message', () => {
+    const record: WireRecord = { type: 'context.append_message', message: { role: 'user', content: [{ type: 'text', text: '<browser_ref>serialized</browser_ref>' }], origin: { kind: 'user', clientMetadata: [{ display_text: 'Save button · Rename it' }] } }, time: 2 };
+    const slice = sliceMainRecordsAtTurn([{ type: 'metadata', protocol_version: '1.5', created_at: 1 }, record, userTurnRecord('next', 3)], 'example-source', 0);
+    expect(slice.lastPrompt).toBe('Save button · Rename it');
+    expect(slice.records).toContainEqual(record);
+  });
+
   it('keeps cron records that fall inside a truncated fork slice', () => {
     const records: WireRecord[] = [
       { type: 'metadata', protocol_version: '1.5', created_at: 1 },
@@ -44,100 +47,5 @@ describe('sliceMainRecordsAtTurn', () => {
     ).toHaveLength(1);
     expect(types).toContain('metadata');
     expect(types).toContain('context.append_message');
-  });
-
-  it('drops file history records from a truncated fork slice', () => {
-    const records: WireRecord[] = [
-      { type: 'metadata', protocol_version: '1.5', created_at: 1 },
-      {
-        type: 'file_history.tracked',
-        agentId: 'main',
-        turnId: 0,
-        path: 'a.txt',
-        time: 2,
-      },
-      userTurnRecord('hello', 3),
-      {
-        type: 'file_history.checkpoint',
-        agentId: 'main',
-        turnId: 0,
-        phase: 'end',
-        entries: {},
-        time: 4,
-      },
-      userTurnRecord('second turn', 5),
-    ];
-
-    const slice = sliceMainRecordsAtTurn(records, 'ses_source', 0);
-    expect(slice.records.map((record) => record.type)).toEqual([
-      'metadata',
-      'context.append_message',
-    ]);
-    expect(slice.cutoffTime).toBe(4);
-  });
-});
-
-describe('sliceMainRecordsBeforePrompt', () => {
-  it('keeps the completed turn before an active Expert Talk prompt', () => {
-    const records: WireRecord[] = [
-      { type: 'metadata', protocol_version: '1.5', created_at: 1 },
-      { type: 'turn.prompt', input: [{ type: 'text', text: 'first' }], origin: { kind: 'user' }, time: 2 },
-      userTurnRecord('first', 3, 'prompt-1'),
-      { type: 'assistant.delta', delta: 'answer one', time: 4 },
-      { type: 'turn.prompt', input: [{ type: 'text', text: 'active' }], origin: { kind: 'user' }, time: 5 },
-      userTurnRecord('active', 6, 'prompt-2'),
-      { type: 'assistant.delta', delta: 'partial exchange', time: 7 },
-    ];
-
-    const slice = sliceMainRecordsBeforePrompt(records, 'ses_source', 'prompt-2');
-
-    expect(slice.records).toContainEqual(userTurnRecord('first', 3, 'prompt-1'));
-    expect(slice.records).not.toContainEqual(userTurnRecord('active', 6, 'prompt-2'));
-    expect(slice.records.some((record) => record['delta'] === 'partial exchange')).toBe(false);
-    expect(slice.lastPrompt).toBe('first');
-    expect(slice.cutoffTime).toBe(4);
-  });
-
-  it('keeps only pre-turn records when the active Expert Talk prompt is first', () => {
-    const records: WireRecord[] = [
-      { type: 'metadata', protocol_version: '1.5', created_at: 1 },
-      { type: 'turn.prompt', input: [{ type: 'text', text: 'active' }], origin: { kind: 'user' }, time: 2 },
-      userTurnRecord('active', 3, 'prompt-1'),
-      { type: 'assistant.delta', delta: 'partial exchange', time: 4 },
-    ];
-
-    const slice = sliceMainRecordsBeforePrompt(records, 'ses_source', 'prompt-1');
-
-    expect(slice.records).toEqual([{ type: 'metadata', protocol_version: '1.5', created_at: 1 }]);
-    expect(slice.cutoffTime).toBe(1);
-    expect(slice.lastPrompt).toBeUndefined();
-  });
-
-  it('drops file history records when truncating at the first Expert Talk prompt', () => {
-    const records: WireRecord[] = [
-      { type: 'metadata', protocol_version: '1.5', created_at: 1 },
-      {
-        type: 'file_history.checkpoint',
-        agentId: 'main',
-        turnId: 0,
-        phase: 'start',
-        entries: {},
-        time: 2,
-      },
-      { type: 'turn.prompt', input: [{ type: 'text', text: 'active' }], origin: { kind: 'user' }, time: 3 },
-      userTurnRecord('active', 4, 'prompt-1'),
-    ];
-
-    const slice = sliceMainRecordsBeforePrompt(records, 'ses_source', 'prompt-1');
-    expect(slice.records).toEqual([{ type: 'metadata', protocol_version: '1.5', created_at: 1 }]);
-    expect(slice.cutoffTime).toBe(2);
-  });
-
-  it('rejects an unknown active prompt', () => {
-    expect(() => sliceMainRecordsBeforePrompt(
-      [userTurnRecord('first', 1, 'prompt-1')],
-      'ses_source',
-      'missing',
-    )).toThrow('Prompt "missing" was not found');
   });
 });

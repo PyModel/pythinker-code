@@ -143,11 +143,7 @@ export async function runAcpServerWithStream(
   // `IAcpConnection.get()`.
   acpConnection.bind(client);
   const workspaceManager = core.accessor.get(IWorkspaceInstanceManager);
-  const acpRuntimeProvider = new AcpRuntimeProviderFactory(
-    acpConnection,
-    core.accessor.get(IHostEnvironment),
-    core.accessor.get(IHostProcessService),
-  );
+  const acpRuntimeProvider = new AcpRuntimeProviderFactory(acpConnection, core.accessor.get(IHostEnvironment), core.accessor.get(IHostProcessService));
   const acpProviderRegistration = await workspaceManager.addProvider(acpRuntimeProvider);
   const sessionWorkspaces = new Map<string, string>();
   server = new AcpServer(client, klient, acpConnection, {

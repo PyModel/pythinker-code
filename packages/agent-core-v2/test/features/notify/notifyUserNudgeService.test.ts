@@ -28,7 +28,7 @@ function messageText(message: ContextMessage): string {
   return message.content.map((part) => (part.type === 'text' ? part.text : '')).join('');
 }
 
-describe('NotifyUser nudge runtime', () => {
+describe('AgentNotifyUserNudgeService', () => {
   let ctx: TestAgentContext;
   let context: IAgentContextMemoryService;
   let loop: IAgentLoopService;

@@ -18,12 +18,11 @@ import {
   type ProviderDeps,
 } from '#/cli/sub/provider';
 
-// Spy on the SDK harness factories so the default-deps engine routing can be
+// Spy on the SDK harness factory so the default-deps construction can be
 // asserted without booting a real engine. The real implementations stay in
 // place for everything else the handlers use.
 const harnessRouting = vi.hoisted(() => ({
   pythinkerHarnessConstructor: vi.fn(),
-  pythinkerHarnessV2Constructor: vi.fn(),
   harness: undefined as unknown,
 }));
 
@@ -33,10 +32,6 @@ vi.mock('@pymodel/pythinker-code-sdk', async (importOriginal) => {
     ...actual,
     createPythinkerHarness: (...args: unknown[]) => {
       harnessRouting.pythinkerHarnessConstructor(...args);
-      return harnessRouting.harness;
-    },
-    createPythinkerHarnessV2: (...args: unknown[]) => {
-      harnessRouting.pythinkerHarnessV2Constructor(...args);
       return harnessRouting.harness;
     },
   };
@@ -63,8 +58,7 @@ function makeHarness(initial: PythinkerConfig): {
   removeCalls: string[];
 } {
   // `persisted` simulates the on-disk config; the real RPC's `removeProvider`
-  // reads from / writes to disk on every call (see
-  // `packages/agent-core/src/rpc/core-impl.ts removePythinkerProvider`). Tests must
+  // reads from / writes to disk on every call. Tests must
   // model this: anything the handler builds up in its in-memory `config`
   // object disappears unless it is flushed via `setConfig` BEFORE the next
   // `removeProvider`.
@@ -77,7 +71,7 @@ function makeHarness(initial: PythinkerConfig): {
     setConfig: async (patch) => {
       setConfigCalls.push(structuredClone(patch));
       // Mirror the real `setPythinkerConfig`: deep-merge with undefined keys
-      // skipped (see `agent-core/src/config/merge.ts deepMerge`). This is
+      // skipped. This is
       // load-bearing for tests that assert `setConfig({defaultModel:
       // undefined})` does NOT wipe a key from disk — only `removeProvider`
       // can.
@@ -1123,7 +1117,6 @@ describe('pythinker provider catalog add', () => {
 describe('pythinker provider engine routing', () => {
   beforeEach(() => {
     harnessRouting.pythinkerHarnessConstructor.mockClear();
-    harnessRouting.pythinkerHarnessV2Constructor.mockClear();
     harnessRouting.harness = makeHarness({ providers: {} } as PythinkerConfig).harness;
   });
 
@@ -1142,25 +1135,12 @@ describe('pythinker provider engine routing', () => {
     });
   }
 
-  it('builds the v2 harness by default', async () => {
-    vi.stubEnv('PYTHINKER_CODE_LEGACY_FLAG', '');
-    const program = new Command('pythinker');
-    registerWithDefaultHarness(program);
-
-    await program.parseAsync(['node', 'pythinker', 'provider', 'list'], { from: 'node' });
-
-    expect(harnessRouting.pythinkerHarnessV2Constructor).toHaveBeenCalledTimes(1);
-    expect(harnessRouting.pythinkerHarnessConstructor).not.toHaveBeenCalled();
-  });
-
-  it('builds the legacy harness when the legacy flag is truthy', async () => {
-    vi.stubEnv('PYTHINKER_CODE_LEGACY_FLAG', '1');
+  it('builds the harness through the SDK factory', async () => {
     const program = new Command('pythinker');
     registerWithDefaultHarness(program);
 
     await program.parseAsync(['node', 'pythinker', 'provider', 'list'], { from: 'node' });
 
     expect(harnessRouting.pythinkerHarnessConstructor).toHaveBeenCalledTimes(1);
-    expect(harnessRouting.pythinkerHarnessV2Constructor).not.toHaveBeenCalled();
   });
 });

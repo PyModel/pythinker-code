@@ -2,16 +2,16 @@
 
 Telemetry infrastructure for agent-core-v2: how business services emit events, how context propagates, and how events reach a destination through appenders.
 
-Telemetry is a **layer-1 root** domain (alongside `log`): the facade lives at `App` scope (a per-Agent ambient context service is bound at `Agent` scope), stateless, with no business-domain dependencies. It is a thin facade — enrichment, batching, and transport belong to the appenders, not to this layer.
+Telemetry is a **layer-1 root** domain (alongside `log`): the facade lives at `App` scope, stateless, with no business-domain dependencies. It is a thin facade — enrichment, batching, and transport belong to the appenders, not to this layer.
 
 ## Where things live
 
-- `src/app/telemetry/telemetry.ts`: contract — `ITelemetryService` (facade), `ITelemetryAppender` (destination), `TelemetryProperties`, `nullTelemetryAppender`, and `TelemetryServiceOptions`.
-- `src/app/telemetry/events.ts`: event registry — `telemetryEventDefinitions` pairs every business event's property type with review metadata (owner / purpose / per-property comment); the single source of truth for `track2`. Agent-scope events register with `defineAgentTelemetryEvent<P>` and compose the ambient `AgentTelemetryEventContext` (`agent_id`) into their wire schema; all other events register with `defineTelemetryEvent<P>`.
-- `src/app/telemetry/telemetryService.ts`: `TelemetryService` impl + `registerScopedService(LifecycleScope.App, …)`.
-- `src/app/telemetry/agentTelemetryContext.ts` + `agentTelemetryContextService.ts`: `IAgentTelemetryContextService` — Agent-scoped mutable request context (`mode` / `provider_type` / `protocol` / `turn_id` / `trace_id`) snapshot into turn telemetry at launch. Agent identity (`agent_id`) is not part of it — identity is bound by the Agent-scoped `ITelemetryService` view.
+- `src/app/telemetry/telemetry.ts`: contract — `ITelemetryService` (facade), `ITelemetryAppender` (destination), `TelemetryAppenderRecord`, `nullTelemetryAppender`, `noopTelemetryService`.
+- `src/app/telemetry/context.ts`: the ambient context model — `SessionTelemetryContext` / `AgentTelemetryContext` / `TurnTelemetryContext` tiers and the closed `TelemetryContextPatch` (unknown keys are compile errors), plus `TelemetryPrimitive` / `TelemetryProperties`.
+- `src/app/telemetry/events.ts`: event registry — `telemetryEventDefinitions` pairs every business event's property type with review metadata (owner / purpose / per-property comment); the compile-time contract for `track2`. Agent-scope events register with `defineAgentTelemetryEvent<P>` and document the ambient `AgentTelemetryEventContext` (`agent_id`); all other events register with `defineTelemetryEvent<P>`.
+- `src/app/telemetry/telemetryService.ts`: `TelemetryService` impl + scope binding (`bindTelemetryScope`, `BoundTelemetryService`, `TelemetrySnapshotView`) + `registerScopedService(LifecycleScope.App, …)`.
 - `src/app/telemetry/consoleAppender.ts`: `ConsoleAppender` — echoes events to a log function (dev / debug).
-- `src/app/telemetry/cloudAppender.ts`: `CloudAppender` — sanitizes + PII-cleans properties, batches + enriches + posts to the telemetry endpoint.
+- `src/app/telemetry/cloudAppender.ts`: `CloudAppender` — sanitizes + PII-cleans properties, batches + enriches + posts to the telemetry endpoint; maps the envelope `session_id` / `model` from the ambient context.
 - `src/app/telemetry/cloudTransport.ts`: `CloudTransport` — HTTP transport behind `CloudAppender`.
 - `src/app/telemetry/privacy.ts`: outbound PII redaction (`cleanTelemetryProperties`) — URLs, emails, tokens, and absolute file paths become `<REDACTED: ...>` labels; `node_modules/` tails are kept.
 
@@ -48,9 +48,7 @@ An appender is the destination an event is fanned out to. It is **not a DI Servi
 
 ```ts
 export interface ITelemetryAppender {
-  track(event: string, properties?: TelemetryProperties): void;
-  withContext?(patch: TelemetryContextPatch): ITelemetryAppender;
-  setContext?(patch: TelemetryContextPatch): void;
+  track(record: TelemetryAppenderRecord): void;
   flush?(): Promise<void> | void;
   shutdown?(): Promise<void> | void;
 }
@@ -76,21 +74,22 @@ telemetry.addAppender(new CloudAppender({                          // production
 }));
 ```
 
-`addAppender` returns an `IDisposable` that removes the appender when disposed. `setAppender(appender)` resets to a single appender (mainly for tests). `removeAppender(appender)` drops one.
+`addAppender` returns an `IDisposable` that removes the appender when disposed. `removeAppender(appender)` drops one.
 
-> There is no production bootstrap wired yet — `TelemetryService` defaults to `[nullTelemetryAppender]`, so `track(...)` is a no-op until `addAppender` is called at startup.
+> There is no production bootstrap wired yet — `TelemetryService` defaults to `[nullTelemetryAppender]`, so `track2(...)` is a no-op until `addAppender` is called at startup.
 
 ## Lifecycle
 
-- `setEnabled(false)` drops `track` (service-level switch); `setEnabled(true)` resumes. `flush` / `shutdown` are unaffected by the switch.
+- `setEnabled(false)` drops emissions (service-level switch); `setEnabled(true)` resumes. `flush` / `shutdown` are unaffected by the switch.
 - `flush()` / `shutdown()` fan out to all appenders concurrently; a single rejecting appender is swallowed. Await `shutdown()` before process exit so buffered events (e.g. in `CloudAppender`) are sent.
 
 ## Red lines (this topic)
 
 - Business services depend only on `ITelemetryService` — never import an appender class.
-- Telemetry is layer-1 root: do not inject any business-domain service into it, and keep the facade at `App` scope (only the ambient context service binds at `Agent`).
+- Telemetry is layer-1 root: do not inject any business-domain service into it, and keep the facade at `App` scope (scope bindings are created by the lifecycle services, not by business code).
 - Appenders are plain `ITelemetryAppender` objects, not DI Services — register them with `addAppender`, never via `registerScopedService`.
-- `track` is fire-and-forget and must not throw; appender `track` must be synchronous — buffer and send asynchronously via `flush` / `shutdown`.
+- `track2` is fire-and-forget and must not throw; appender `track` must be synchronous — buffer and send asynchronously via `flush` / `shutdown`.
 - Await `telemetry.shutdown()` before process exit when a buffering appender is registered.
 - Keep event names stable; register every business event in `events.ts` and emit via `track2` — properties must be JSON-serializable primitives (non-primitives are dropped with a warning by `CloudAppender`).
-- Agent identity is ambient: agent-scope events go through `defineAgentTelemetryEvent` and get `agent_id` from the scoped telemetry view — do not pass `agent_id` at business call sites (per-event identities such as `subagent_created` and the cron events are the exception).
+- Agent identity is ambient: agent-scope events go through `defineAgentTelemetryEvent` and get `agent_id` from the scoped telemetry binding — do not pass `agent_id` at business call sites (per-event identities such as `subagent_created` and the cron events are the exception).
+- Time-varying ambient fields (`turn_id`, `trace_id`) must be written and cleared by their owner around the unit of work they identify — everything in the scope sees them, so a stale write pollutes every later event.

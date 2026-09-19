@@ -20,3 +20,5 @@ export const DOUBLE_ESC_WINDOW_MS = 600;
 
 /** Session picker page size: one backend keyset page and one picker window. */
 export const SESSION_LIST_PAGE_SIZE = 50;
+
+export const DEFAULT_OAUTH_PROVIDER_NAME = 'openai';

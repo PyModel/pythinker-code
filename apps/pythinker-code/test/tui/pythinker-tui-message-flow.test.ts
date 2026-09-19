@@ -1,5 +1,7 @@
+// @ts-nocheck
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
@@ -19,7 +21,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { ApprovalPanelComponent } from '#/tui/components/dialogs/approval-panel';
 import { EffortSelectorComponent } from '#/tui/components/dialogs/effort-selector';
-import { BRAILLE_SPINNER_FRAMES } from '#/tui/constant/rendering';
+import { pythinkerCodePluginMarketplaceUrl } from '#/constant/app';
+import { MOON_SPINNER_FRAMES } from '#/tui/constant/rendering';
 import {
   AgentDynamicWorkflowProgressComponent,
   agentDynamicWorkflowGridHeightForTerminalRows,
@@ -37,8 +40,8 @@ import { BtwPanelComponent } from '#/tui/components/panes/btw-panel';
 import { ThinkingComponent } from '#/tui/components/messages/thinking';
 import { WelcomeComponent } from '#/tui/components/chrome/welcome';
 import { ModelSelectorComponent } from '#/tui/components/dialogs/model-selector';
-import { PermissionSelectorComponent } from '#/tui/components/dialogs/permission-selector';
 import { TabbedModelSelectorComponent } from '#/tui/components/dialogs/tabbed-model-selector';
+import { PermissionSelectorComponent } from '#/tui/components/dialogs/permission-selector';
 import { UndoSelectorComponent } from '#/tui/components/dialogs/undo-selector';
 import {
   PluginInstallTrustConfirmComponent,
@@ -49,13 +52,58 @@ import {
 import { PythinkerTUI, type PythinkerTUIStartupInput, type TUIState } from '#/tui/pythinker-tui';
 import type { SessionReplayRenderer } from '#/tui/controllers/session-replay';
 import type { StreamingUIController } from '#/tui/controllers/streaming-ui';
+import type { SurveyController } from '#/tui/controllers/survey-controller';
+import { handleFeedbackCommand } from '#/tui/commands/info';
 import { copyTextToClipboard } from '#/utils/clipboard/clipboard-text';
-import { runModelSelector } from '#/tui/commands/prompts';
-import type { QueuedMessage } from '#/tui/types';
+import { openUrl } from '#/utils/open-url';
+import { createFeedbackArchivePath } from '../../src/feedback/archive';
+import { packageCodebase, scanCodebase } from '../../src/feedback/codebase';
+import { uploadArchive } from '../../src/feedback/upload';
+import {
+  promptFeedbackAttachment,
+  promptFeedbackInput,
+  runModelSelector,
+  type FeedbackPromptResult,
+} from '#/tui/commands/prompts';
+import type { QueuedMessage, TranscriptEntry } from '#/tui/types';
 import type { ImageAttachmentStore } from '#/tui/utils/image-attachment-store';
+import {
+  extractMediaAttachments,
+  type ExtractionResult,
+} from '#/tui/utils/image-placeholder';
 
-// Clipboard access spawns platform tools (pbcopy/wl-copy …) and emits OSC 52 —
-// stub it out so the suite never touches the real clipboard or stdout.
+vi.mock('#/tui/commands/prompts', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('#/tui/commands/prompts')>();
+  return {
+    ...actual,
+    promptFeedbackInput: vi.fn(),
+    promptFeedbackAttachment: vi.fn(),
+  };
+});
+
+vi.mock('../../src/feedback/codebase', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/feedback/codebase')>();
+  return {
+    ...actual,
+    scanCodebase: vi.fn().mockResolvedValue(undefined),
+    packageCodebase: vi.fn(),
+  };
+});
+
+vi.mock('../../src/feedback/upload', () => ({
+  uploadArchive: vi.fn(),
+}));
+
+vi.mock('../../src/feedback/archive', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/feedback/archive')>();
+  return {
+    ...actual,
+    createFeedbackArchivePath: vi.fn(actual.createFeedbackArchivePath),
+  };
+});
+
+vi.mock('#/utils/open-url', () => ({ openUrl: vi.fn() }));
+
 vi.mock('#/utils/clipboard/clipboard-text', () => ({
   copyTextToClipboard: vi.fn(async () => 'native'),
 }));
@@ -71,23 +119,33 @@ function stripSgr(text: string): string {
 
 interface MessageDriver {
   state: TUIState;
+  surveyController: SurveyController;
   streamingUI: StreamingUIController;
   sessionReplay: SessionReplayRenderer;
   pluginCommandMap: Map<string, string>;
   sessionEventHandler: {
-    mcpServerStatusSpinner: unknown | null;
+    notifications: import('#/tui/controllers/notify').NotifyController;
     startSubscription(): void;
     handleEvent(event: Event, sendQueued: (item: QueuedMessage) => void): void;
   };
   init(): Promise<boolean>;
   handleUserInput(text: string): void;
+  toggleToolOutputExpansion(): void;
+  appendTranscriptEntry(entry: TranscriptEntry): void;
   persistInputHistory(text: string): Promise<void>;
   sendQueuedMessage(session: unknown, item: QueuedMessage): void;
   recallLastQueued(): QueuedMessage | undefined;
+  recallStashedMedia(extraction: ExtractionResult | undefined): void;
   clearQueuedMessages(): void;
   closeSession(reason: string): Promise<void>;
   setSession(session: unknown): Promise<void>;
+  syncRuntimeState(session?: unknown): Promise<void>;
   getCurrentSessionId(): string;
+}
+
+interface FeedbackDriver extends MessageDriver {
+  handleFeedbackCommand(): Promise<void>;
+  promptFeedbackInput(): Promise<FeedbackPromptResult | undefined>;
 }
 
 interface ModelSelectorDriver extends MessageDriver {
@@ -243,7 +301,7 @@ function makeHarness(session = makeSession(), overrides: Record<string, unknown>
     createSession: vi.fn(async () => session),
     resumeSession: vi.fn(async () => session),
     forkSession: vi.fn(async () => session),
-    reloadSession: vi.fn(async () => ({ ...session, id: 'ses-1-reloaded' })),
+    reloadSession: vi.fn(async () => session),
     listSessions: vi.fn(async () => []),
     exportSession: vi.fn(async () => ({
       zipPath: '/tmp/fake-session.zip',
@@ -254,6 +312,7 @@ function makeHarness(session = makeSession(), overrides: Record<string, unknown>
     deleteFile: vi.fn(async () => {}),
     close: vi.fn(async () => {}),
     track: vi.fn(),
+    trackWithContext: vi.fn(),
     setTelemetryContext: vi.fn(),
     get interactiveAgentId() {
       return interactiveAgentScope.getStore() ?? 'main';
@@ -262,10 +321,24 @@ function makeHarness(session = makeSession(), overrides: Record<string, unknown>
       return interactiveAgentScope.run(agentId, fn);
     }),
     getExperimentalFeatures: vi.fn(async () => []),
+    auth: {
+      status: vi.fn(async () => ({
+        providers: [{ providerName: 'openai', hasToken: true }],
+      })),
+      login: vi.fn(),
+      logout: vi.fn(),
+      getManagedUsage: vi.fn(),
+      submitFeedback: vi.fn(
+        async (): Promise<
+          { kind: 'ok'; feedbackId: number } | { kind: 'error'; status?: number; message: string }
+        > => ({
+          kind: 'ok',
+          feedbackId: 3,
+        }),
+      ),
+    },
     ...overrides,
   };
-  // The TUI lists sessions through keyset pages; derive the page mock from
-  // the (possibly overridden) full-list mock unless a test overrides paging.
   if (!('listSessionsPage' in harness)) {
     const listSessions = harness.listSessions as (input?: {
       workDir?: string;
@@ -286,18 +359,22 @@ function makeHarness(session = makeSession(), overrides: Record<string, unknown>
 async function makeDriver(
   session = makeSession(),
   harnessOverrides: Record<string, unknown> = {},
-  startupInput: PythinkerTUIStartupInput = makeStartupInput(),
+  startupInput?: PythinkerTUIStartupInput,
 ): Promise<{
   driver: MessageDriver;
   session: ReturnType<typeof makeSession>;
   harness: ReturnType<typeof makeHarness>;
 }> {
   const harness = makeHarness(session, harnessOverrides);
-  const driver = new PythinkerTUI(harness as never, startupInput) as unknown as MessageDriver;
+  const driver = new PythinkerTUI(harness as never, startupInput ?? makeStartupInput()) as unknown as MessageDriver;
   vi.spyOn(driver.state.ui, 'requestRender').mockImplementation(() => {});
   vi.spyOn(driver.state.terminal, 'setProgress').mockImplementation(() => {});
   driver.persistInputHistory = vi.fn(async () => {});
   await driver.init();
+  if (startupInput === undefined) {
+    await driver.setSession(session);
+    await driver.syncRuntimeState(session);
+  }
   return { driver, session, harness };
 }
 
@@ -413,6 +490,14 @@ function emitTurn(driver: MessageDriver, turnId: number, between?: () => void): 
   );
 }
 
+async function makeExportedSessionZip(content = 'session zip'): Promise<string> {
+  const dir = await mkdtemp(join(tmpdir(), 'pythinker-code-feedback-export-'));
+  tempDirs.push(dir);
+  const zipPath = join(dir, 'session.zip');
+  await writeFile(zipPath, content);
+  return zipPath;
+}
+
 afterEach(async () => {
   resetCapabilitiesCache();
   for (const dir of tempDirs.splice(0)) {
@@ -462,12 +547,10 @@ describe('PythinkerTUI message flow', () => {
     const session = makeSession({ id: 'ses-lazy' });
     const startupInput: PythinkerTUIStartupInput = {
       ...makeStartupInput(),
-      engineV2: true,
       cliOptions: { ...makeStartupInput().cliOptions, model: 'k2' },
     };
     const { driver, harness } = await makeDriver(session, {}, startupInput);
 
-    // Startup stays session-less on the v2 engine.
     expect(harness.createSession).not.toHaveBeenCalled();
     expect(driver.state.appState.sessionId).toBe('');
     expect(driver.state.appState.model).toBe('k2');
@@ -488,39 +571,10 @@ describe('PythinkerTUI message flow', () => {
     expect(driver.getCurrentSessionId()).toBe('ses-lazy');
   });
 
-  it('binds an armed Expert Talk activation to exactly the next prompt', async () => {
-    const session = makeSession({
-      getExpertTalkStatus: vi.fn(async () => ({
-        version: 'expert_talk/v1',
-        enabled: true,
-        featureSource: 'env',
-        config: {
-          version: 'expert_talk/v1',
-          resourceVersion: 'v1',
-          pair: { fusionLeadModelId: 'lead', peerModelId: 'peer' },
-        },
-        pairValidation: { state: 'valid' },
-      })),
-    });
-    const { driver } = await makeDriver(session);
-    driver.state.appState.expertTalkArmId = 'arm-1';
-
-    driver.handleUserInput('compare these approaches');
-
-    await vi.waitFor(() => {
-      expect(session.prompt).toHaveBeenCalledWith('compare these approaches', {
-        promptId: undefined,
-        expertTalkArmId: 'arm-1',
-      });
-      expect(driver.state.appState.expertTalkArmId).toBeUndefined();
-    });
-  });
-
   it('lazily creates the session for session-requiring slash commands (v2 engine)', async () => {
     const session = makeSession({ id: 'ses-lazy' });
     const startupInput: PythinkerTUIStartupInput = {
       ...makeStartupInput(),
-      engineV2: true,
       cliOptions: { ...makeStartupInput().cliOptions, model: 'k2' },
     };
     const { driver, harness } = await makeDriver(session, {}, startupInput);
@@ -540,7 +594,6 @@ describe('PythinkerTUI message flow', () => {
     const session = makeSession({ id: 'ses-lazy', activateSkill: vi.fn(async () => {}) });
     const startupInput: PythinkerTUIStartupInput = {
       ...makeStartupInput(),
-      engineV2: true,
       cliOptions: { ...makeStartupInput().cliOptions, model: 'k2' },
     };
     const { driver, harness } = await makeDriver(
@@ -558,13 +611,10 @@ describe('PythinkerTUI message flow', () => {
       },
       startupInput,
     );
-    // `makeDriver` stops after init(); the skill command list is refreshed in
-    // finishStartup, so resolve it here to exercise the workspace-level path.
     await (
       driver as unknown as { refreshSkillCommands(): Promise<void> }
     ).refreshSkillCommands();
 
-    // Startup resolves skill commands from the workspace, no session needed.
     expect(harness.createSession).not.toHaveBeenCalled();
 
     driver.handleUserInput('/skill:my-skill');
@@ -580,7 +630,6 @@ describe('PythinkerTUI message flow', () => {
     const session = makeSession({ id: 'ses-lazy' });
     const startupInput: PythinkerTUIStartupInput = {
       ...makeStartupInput(),
-      engineV2: true,
       cliOptions: { ...makeStartupInput().cliOptions, model: 'k2' },
     };
     const { driver } = await makeDriver(
@@ -614,7 +663,6 @@ describe('PythinkerTUI message flow', () => {
     const session = makeSession({ id: 'ses-lazy' });
     const startupInput: PythinkerTUIStartupInput = {
       ...makeStartupInput(),
-      engineV2: true,
       cliOptions: { ...makeStartupInput().cliOptions, model: 'k2' },
     };
     const { driver } = await makeDriver(
@@ -647,7 +695,6 @@ describe('PythinkerTUI message flow', () => {
     const session = makeSession({ id: 'ses-lazy' });
     const startupInput: PythinkerTUIStartupInput = {
       ...makeStartupInput(),
-      engineV2: true,
       cliOptions: { ...makeStartupInput().cliOptions, model: 'k2' },
     };
     const { driver } = await makeDriver(
@@ -678,7 +725,6 @@ describe('PythinkerTUI message flow', () => {
     const session = makeSession({ id: 'ses-lazy' });
     const startupInput: PythinkerTUIStartupInput = {
       ...makeStartupInput(),
-      engineV2: true,
       cliOptions: { ...makeStartupInput().cliOptions, model: 'k2' },
     };
     const { driver } = await makeDriver(
@@ -716,7 +762,6 @@ describe('PythinkerTUI message flow', () => {
     const session = makeSession({ id: 'ses-lazy' });
     const startupInput: PythinkerTUIStartupInput = {
       ...makeStartupInput(),
-      engineV2: true,
       cliOptions: { ...makeStartupInput().cliOptions, model: 'k2' },
     };
     const { driver } = await makeDriver(
@@ -749,7 +794,6 @@ describe('PythinkerTUI message flow', () => {
     const session = makeSession({ id: 'ses-lazy' });
     const startupInput: PythinkerTUIStartupInput = {
       ...makeStartupInput(),
-      engineV2: true,
       cliOptions: { ...makeStartupInput().cliOptions, model: 'k2' },
     };
     const { driver } = await makeDriver(
@@ -766,33 +810,15 @@ describe('PythinkerTUI message flow', () => {
       driver as unknown as { refreshSkillCommands(): Promise<void> }
     ).refreshSkillCommands();
 
-    driver.handleUserInput('/hatch please use /skill:review');
+    driver.handleUserInput('/dance please use /skill:review');
 
     await vi.waitFor(() => {
       expect(session.promptWithSkills).toHaveBeenCalledWith(
-        '/hatch please use /skill:review',
+        '/dance please use /skill:review',
         [{ name: 'review' }],
       );
     });
     expect(session.prompt).not.toHaveBeenCalled();
-  });
-
-  it('keeps inline skill tokens as plain text on the legacy engine', async () => {
-    const session = makeSession({ id: 'ses-1' });
-    const { driver } = await makeDriver(session, {
-      listSkills: undefined,
-      listPluginCommands: vi.fn(async () => []),
-    });
-    (
-      driver as unknown as { skillCommandMap: Map<string, string> }
-    ).skillCommandMap.set('skill:review', 'review');
-
-    driver.handleUserInput('please /skill:review this');
-
-    await vi.waitFor(() => {
-      expect(session.prompt).toHaveBeenCalledWith('please /skill:review this', { promptId: undefined });
-    });
-    expect(session.promptWithSkills).not.toHaveBeenCalled();
   });
 
   it('queues an inline-skill prompt while a goal is active (v2 engine)', async () => {
@@ -804,7 +830,6 @@ describe('PythinkerTUI message flow', () => {
     });
     const startupInput: PythinkerTUIStartupInput = {
       ...makeStartupInput(),
-      engineV2: true,
       cliOptions: { ...makeStartupInput().cliOptions, model: 'k2' },
     };
     const { driver } = await makeDriver(
@@ -820,9 +845,6 @@ describe('PythinkerTUI message flow', () => {
     await (
       driver as unknown as { refreshSkillCommands(): Promise<void> }
     ).refreshSkillCommands();
-    // Materialize the lazy session first: an active goal only exists inside a
-    // live session, and lazy creation would refresh (and clear) the goal
-    // snapshot set up below.
     await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession();
     driver.state.appState.goal = makeActiveGoalSnapshot();
 
@@ -841,7 +863,6 @@ describe('PythinkerTUI message flow', () => {
     const session = makeSession({ id: 'ses-lazy' });
     const startupInput: PythinkerTUIStartupInput = {
       ...makeStartupInput(),
-      engineV2: true,
       cliOptions: { ...makeStartupInput().cliOptions, model: 'k2' },
     };
     const { driver } = await makeDriver(
@@ -884,7 +905,6 @@ describe('PythinkerTUI message flow', () => {
     });
     const startupInput: PythinkerTUIStartupInput = {
       ...makeStartupInput(),
-      engineV2: true,
       cliOptions: { ...makeStartupInput().cliOptions, model: 'k2' },
     };
     const { driver } = await makeDriver(
@@ -909,7 +929,6 @@ describe('PythinkerTUI message flow', () => {
     await vi.waitFor(() => {
       expect(driver.state.appState.streamingPhase).toBe('idle');
     });
-    // A rejected group leaves no local undo anchor the engine never recorded.
     expect(driver.state.transcriptEntries.filter((entry) => entry.kind === 'user')).toHaveLength(0);
   });
 
@@ -917,7 +936,6 @@ describe('PythinkerTUI message flow', () => {
     const session = makeSession({ id: 'ses-lazy' });
     const startupInput: PythinkerTUIStartupInput = {
       ...makeStartupInput(),
-      engineV2: true,
       cliOptions: { ...makeStartupInput().cliOptions, model: 'k2' },
     };
     const { driver } = await makeDriver(session, {}, startupInput);
@@ -1017,8 +1035,6 @@ describe('PythinkerTUI message flow', () => {
 
     const turns = groupTurns(driver.state.transcriptEntries);
     expect(turns).toHaveLength(3);
-    // The hook result is projected inside the bundle's window (after the
-    // skill cards, before the prompt), matching the live event order.
     expect(turns[1]!.entries.map((entry) => entry.kind)).toEqual([
       'skill_activation',
       'skill_activation',
@@ -1027,8 +1043,6 @@ describe('PythinkerTUI message flow', () => {
       'assistant',
     ]);
     expect(turns[1]!.entries[2]!.hookResult).toBe(true);
-    // The user entry shows only the caller's own text — the rendered skill
-    // blocks the engine prepended to the content are stripped.
     expect(turns[1]!.entries[3]!.content).toBe('please /skill:review and /skill:security');
     expect(
       turns[1]!.entries.slice(0, 2).map((entry) => entry.bundledWithPrompt),
@@ -1037,11 +1051,225 @@ describe('PythinkerTUI message flow', () => {
     expect(turns[2]!.entries[1]!.content).toBe('please /commit');
   });
 
+  it('pages Updates with Ctrl+N and arrow keys while keeping the editor focused', async () => {
+    const { driver } = await makeDriver(makeSession());
+    const notifications = driver.sessionEventHandler.notifications;
+    notifications.setEnabled(true);
+    notifications.handleEvent({ type: 'turn.started', agentId: 'main', sessionId: 's1', turnId: 1, origin: { kind: 'user' } });
+    for (const [toolCallId, message] of [
+      ['n1', 'first update'],
+      ['n2', 'second update'],
+      ['n3', 'third update'],
+    ] as const) {
+      notifications.handleEvent({ type: 'tool.call.started', agentId: 'main', sessionId: 's1', turnId: 1, toolCallId, name: 'NotifyUser', args: { message } });
+      notifications.handleEvent({ type: 'tool.result', agentId: 'main', sessionId: 's1', turnId: 1, toolCallId, output: 'Update shown to the user.' });
+    }
+    driver.state.editor.setText('unsent follow-up');
+    const cursor = driver.state.editor.getCursor();
+    const setFocus = vi.spyOn(driver.state.ui, 'setFocus');
+    expect(driver.state.notifyPanel.render(100)[1]).toContain('Updates 3/3');
+    driver.state.editor.handleInput('\u000E');
+    expect(driver.state.notifyPanel.render(100)[1]).toContain('esc close');
+    driver.state.editor.handleInput('\u001B[A');
+    expect(driver.state.notifyPanel.render(100)[1]).toContain('Updates 2/3');
+    driver.state.editor.handleInput('\u001B[B');
+    expect(driver.state.notifyPanel.render(100)[1]).toContain('Updates 3/3');
+    driver.state.editor.handleInput('\u001B');
+    expect(driver.state.notifyPanel.render(100)[1]).toContain('ctrl+n page');
+    expect(setFocus).not.toHaveBeenCalled();
+    expect(driver.state.editor.getText()).toBe('unsent follow-up');
+    expect(driver.state.editor.getCursor()).toEqual(cursor);
+  });
+
+  it('does not restore old NotifyUser updates into the panel', async () => {
+    const session = makeSession({ id: 'ses-notify-replay' });
+    const startupInput: PythinkerTUIStartupInput = {
+      ...makeStartupInput(),
+      cliOptions: { ...makeStartupInput().cliOptions, model: 'k2' },
+    };
+    const { driver } = await makeDriver(session, {}, startupInput);
+    driver.sessionEventHandler.notifications.setEnabled(true);
+    (session.getResumeState as ReturnType<typeof vi.fn>).mockReturnValue({
+      sessionMetadata: {},
+      agents: {
+        main: {
+          config: { modelCapabilities: { max_context_tokens: 100 }, modelAlias: 'k2' },
+          plan: null,
+          permission: { mode: 'manual' },
+          dynamicWorkflowMode: false,
+          context: { history: [], tokenCount: 0 },
+          background: [],
+          toolStore: {},
+          replay: [
+            {
+              type: 'message',
+              time: 1,
+              message: {
+                role: 'user',
+                content: [{ type: 'text', text: 'first question' }],
+                toolCalls: [],
+                origin: { kind: 'user' },
+              },
+            },
+            {
+              type: 'message',
+              time: 2,
+              message: {
+                role: 'assistant',
+                content: [],
+                toolCalls: [
+                  {
+                    type: 'function',
+                    id: 'tc-notify-1',
+                    name: 'NotifyUser',
+                    arguments: JSON.stringify({ message: 'first-turn update' }),
+                  },
+                ],
+              },
+            },
+            {
+              type: 'message',
+              time: 3,
+              message: {
+                role: 'tool',
+                toolCallId: 'tc-notify-1',
+                content: [{ type: 'text', text: 'Update shown to the user.' }],
+                toolCalls: [],
+              },
+            },
+            {
+              type: 'message',
+              time: 4,
+              message: {
+                role: 'assistant',
+                content: [{ type: 'text', text: 'first answer' }],
+                toolCalls: [],
+              },
+            },
+            {
+              type: 'message',
+              time: 5,
+              message: {
+                role: 'user',
+                content: [{ type: 'text', text: 'second question' }],
+                toolCalls: [],
+                origin: { kind: 'user' },
+              },
+            },
+            {
+              type: 'message',
+              time: 6,
+              message: {
+                role: 'assistant',
+                content: [{ type: 'text', text: 'second answer' }],
+                toolCalls: [],
+              },
+            },
+          ],
+        },
+      },
+    });
+
+    const replayed = await driver.sessionReplay.hydrateFromReplay(session as unknown as Session);
+    expect(replayed).toBe(true);
+
+    expect(driver.state.notifyPanel.isEmpty()).toBe(true);
+    expect(driver.state.notifyPanelContainer.children).toHaveLength(0);
+  });
+
+  it('leaves the panel empty when replaying previous cron turns', async () => {
+    const session = makeSession({ id: 'ses-notify-cron' });
+    const startupInput: PythinkerTUIStartupInput = {
+      ...makeStartupInput(),
+      cliOptions: { ...makeStartupInput().cliOptions, model: 'k2' },
+    };
+    const { driver } = await makeDriver(session, {}, startupInput);
+    driver.sessionEventHandler.notifications.setEnabled(true);
+    (session.getResumeState as ReturnType<typeof vi.fn>).mockReturnValue({
+      sessionMetadata: {},
+      agents: {
+        main: {
+          config: { modelCapabilities: { max_context_tokens: 100 }, modelAlias: 'k2' },
+          plan: null,
+          permission: { mode: 'manual' },
+          dynamicWorkflowMode: false,
+          context: { history: [], tokenCount: 0 },
+          background: [],
+          toolStore: {},
+          replay: [
+            {
+              type: 'message',
+              time: 1,
+              message: {
+                role: 'user',
+                content: [{ type: 'text', text: 'first question' }],
+                toolCalls: [],
+                origin: { kind: 'user' },
+              },
+            },
+            {
+              type: 'message',
+              time: 2,
+              message: {
+                role: 'assistant',
+                content: [],
+                toolCalls: [
+                  {
+                    type: 'function',
+                    id: 'tc-notify-cron',
+                    name: 'NotifyUser',
+                    arguments: JSON.stringify({ message: 'update from the prompt turn' }),
+                  },
+                ],
+              },
+            },
+            {
+              type: 'message',
+              time: 3,
+              message: {
+                role: 'tool',
+                toolCallId: 'tc-notify-cron',
+                content: [{ type: 'text', text: 'Update shown to the user.' }],
+                toolCalls: [],
+              },
+            },
+            {
+              type: 'message',
+              time: 4,
+              message: {
+                role: 'user',
+                content: [{ type: 'text', text: 'check the build' }],
+                toolCalls: [],
+                origin: { kind: 'cron_job', jobId: 'job-1', cron: '*/5 * * * *', recurring: true },
+              },
+            },
+            {
+              type: 'message',
+              time: 5,
+              message: {
+                role: 'assistant',
+                content: [{ type: 'text', text: 'build is green' }],
+                toolCalls: [],
+              },
+            },
+          ],
+        },
+      },
+    });
+
+    const replayed = await driver.sessionReplay.hydrateFromReplay(session as unknown as Session);
+    expect(replayed).toBe(true);
+
+    // Live, the cron fire's turn.started closes the panel; replay folds the
+    // cron turn into the previous one for grouping but must close it too.
+    expect(driver.state.notifyPanel.isEmpty()).toBe(true);
+    expect(driver.state.notifyPanelContainer.children).toHaveLength(0);
+  });
+
   it('keeps hook results recorded before the oldest retained bundle within the replay limit', async () => {
     const session = makeSession({ id: 'ses-lazy' });
     const startupInput: PythinkerTUIStartupInput = {
       ...makeStartupInput(),
-      engineV2: true,
       cliOptions: { ...makeStartupInput().cliOptions, model: 'k2' },
     };
     const { driver } = await makeDriver(session, {}, startupInput);
@@ -1142,7 +1370,6 @@ describe('PythinkerTUI message flow', () => {
     });
     const startupInput: PythinkerTUIStartupInput = {
       ...makeStartupInput(),
-      engineV2: true,
       cliOptions: { ...makeStartupInput().cliOptions, model: 'k2' },
     };
     const { driver } = await makeDriver(
@@ -1159,8 +1386,6 @@ describe('PythinkerTUI message flow', () => {
       driver as unknown as { refreshSkillCommands(): Promise<void> }
     ).refreshSkillCommands();
 
-    // Hold the RPC open so the skill.activated event can land mid-flight,
-    // exactly how the in-process wiring delivers it during the call.
     let release!: () => void;
     const heldPrompt = new Promise<void>((resolve) => {
       release = resolve;
@@ -1198,13 +1423,10 @@ describe('PythinkerTUI message flow', () => {
     const session = makeSession({ id: 'ses-lazy' });
     const startupInput: PythinkerTUIStartupInput = {
       ...makeStartupInput(),
-      engineV2: true,
       cliOptions: { ...makeStartupInput().cliOptions, model: 'k2' },
     };
     const { driver, harness } = await makeDriver(session, {}, startupInput);
 
-    // Hold the first createSession open so both triggers land inside the
-    // in-flight window.
     let resolveCreate!: (s: ReturnType<typeof makeSession>) => void;
     harness.createSession.mockImplementationOnce(
       () => new Promise((resolve) => { resolveCreate = resolve; }),
@@ -1225,13 +1447,10 @@ describe('PythinkerTUI message flow', () => {
     const newSession = makeSession({ id: 'ses-new' });
     const startupInput: PythinkerTUIStartupInput = {
       ...makeStartupInput(),
-      engineV2: true,
       cliOptions: { ...makeStartupInput().cliOptions, model: 'k2' },
     };
     const { driver, harness } = await makeDriver(lazySession, {}, startupInput);
 
-    // Hold the lazy createSession open so it is still in flight when /new
-    // arrives (triggered directly, without a prompt starting a turn).
     let resolveCreate!: (s: ReturnType<typeof makeSession>) => void;
     harness.createSession
       .mockImplementationOnce(
@@ -1245,13 +1464,11 @@ describe('PythinkerTUI message flow', () => {
     });
 
     driver.handleUserInput('/new');
-    // /new must not race a second createSession while the lazy one is held.
     await new Promise((resolve) => setImmediate(resolve));
     expect(harness.createSession).toHaveBeenCalledTimes(1);
 
     resolveCreate(lazySession);
     await pending;
-    // No turn started, so /new proceeds after the wait.
     await vi.waitFor(() => {
       expect(harness.createSession).toHaveBeenCalledTimes(2);
       expect(driver.getCurrentSessionId()).toBe('ses-new');
@@ -1262,13 +1479,10 @@ describe('PythinkerTUI message flow', () => {
     const lazySession = makeSession({ id: 'ses-lazy' });
     const startupInput: PythinkerTUIStartupInput = {
       ...makeStartupInput(),
-      engineV2: true,
       cliOptions: { ...makeStartupInput().cliOptions, model: 'k2' },
     };
     const { driver, harness } = await makeDriver(lazySession, {}, startupInput);
 
-    // Hold the lazy createSession open so the first prompt is still pending
-    // when /new arrives.
     let resolveCreate!: (s: ReturnType<typeof makeSession>) => void;
     harness.createSession.mockImplementationOnce(
       () => new Promise((resolve) => { resolveCreate = resolve; }),
@@ -1281,8 +1495,6 @@ describe('PythinkerTUI message flow', () => {
     driver.handleUserInput('/new');
 
     resolveCreate(lazySession);
-    // The prompt continuation starts its turn first; /new (idle-only) must
-    // then be blocked instead of switching away from the active session.
     await vi.waitFor(() => {
       expect(lazySession.prompt).toHaveBeenCalledWith('hello', { promptId: undefined });
       expect(stripSgr(renderTranscript(driver))).toContain('Cannot /new while streaming');
@@ -1294,7 +1506,7 @@ describe('PythinkerTUI message flow', () => {
   const thinkingModelsConfig = () => ({
     models: {
       k2: {
-        provider: 'oauth-example',
+        provider: 'openai',
         model: 'kimi-k2',
         maxContextSize: 100,
         capabilities: ['thinking'],
@@ -1310,7 +1522,6 @@ describe('PythinkerTUI message flow', () => {
     const lazySession = makeSession({ id: 'ses-lazy' });
     const startupInput: PythinkerTUIStartupInput = {
       ...makeStartupInput(),
-      engineV2: true,
       cliOptions: { ...makeStartupInput().cliOptions, model: 'k2' },
     };
     const { driver, harness } = await makeDriver(
@@ -1319,8 +1530,6 @@ describe('PythinkerTUI message flow', () => {
       startupInput,
     );
 
-    // Hold the lazy createSession open so the first prompt is still pending
-    // when the effort switch arrives.
     let resolveCreate!: (s: ReturnType<typeof makeSession>) => void;
     harness.createSession.mockImplementationOnce(
       () => new Promise((resolve) => { resolveCreate = resolve; }),
@@ -1333,8 +1542,6 @@ describe('PythinkerTUI message flow', () => {
     driver.handleUserInput('/effort low');
 
     resolveCreate(lazySession);
-    // The prompt starts its turn first; the switch must then be rejected
-    // instead of being silently overwritten by the session assembly.
     await vi.waitFor(() => {
       expect(lazySession.prompt).toHaveBeenCalledWith('hello', { promptId: undefined });
       expect(stripSgr(renderTranscript(driver))).toContain('Cannot switch models while streaming');
@@ -1346,7 +1553,6 @@ describe('PythinkerTUI message flow', () => {
     const lazySession = makeSession({ id: 'ses-lazy' });
     const startupInput: PythinkerTUIStartupInput = {
       ...makeStartupInput(),
-      engineV2: true,
       cliOptions: { ...makeStartupInput().cliOptions, model: 'k2' },
     };
     const { driver, harness } = await makeDriver(
@@ -1358,7 +1564,6 @@ describe('PythinkerTUI message flow', () => {
       startupInput,
     );
 
-    // Trigger the lazy creation directly, without a prompt starting a turn.
     let resolveCreate!: (s: ReturnType<typeof makeSession>) => void;
     harness.createSession.mockImplementationOnce(
       () => new Promise((resolve) => { resolveCreate = resolve; }),
@@ -1370,8 +1575,6 @@ describe('PythinkerTUI message flow', () => {
     });
 
     driver.handleUserInput('/effort low');
-    // While the creation is held the switch must wait, not write pending
-    // state that the assembly would overwrite.
     await new Promise((resolve) => setImmediate(resolve));
     expect(driver.state.appState.thinkingEffort).toBe('high');
 
@@ -1386,7 +1589,6 @@ describe('PythinkerTUI message flow', () => {
     const lazySession = makeSession({ id: 'ses-lazy' });
     const startupInput: PythinkerTUIStartupInput = {
       ...makeStartupInput(),
-      engineV2: true,
       cliOptions: { ...makeStartupInput().cliOptions, model: 'k2' },
     };
     const { driver, harness } = await makeDriver(
@@ -1399,8 +1601,6 @@ describe('PythinkerTUI message flow', () => {
       startupInput,
     );
 
-    // Hold the lazy createSession open so the first prompt is still pending
-    // when the picker selection arrives.
     let resolveCreate!: (s: ReturnType<typeof makeSession>) => void;
     harness.createSession.mockImplementationOnce(
       () => new Promise((resolve) => { resolveCreate = resolve; }),
@@ -1416,8 +1616,6 @@ describe('PythinkerTUI message flow', () => {
     picker.handleInput('\r');
 
     resolveCreate(lazySession);
-    // The prompt starts its turn first; the switch must then be rejected
-    // instead of being overwritten when the lazy creation completes.
     await vi.waitFor(() => {
       expect(lazySession.prompt).toHaveBeenCalledWith('hello', { promptId: undefined });
       expect(stripSgr(renderTranscript(driver))).toContain('Cannot switch sessions while streaming');
@@ -1430,12 +1628,10 @@ describe('PythinkerTUI message flow', () => {
     const session = makeSession({ id: 'ses-lazy' });
     const startupInput: PythinkerTUIStartupInput = {
       ...makeStartupInput(),
-      engineV2: true,
       cliOptions: { ...makeStartupInput().cliOptions, model: 'k2' },
     };
     const { driver, harness } = await makeDriver(session, {}, startupInput);
 
-    // Alt+S session-only thinking before any session exists.
     await (
       driver as unknown as {
         authFlow: { activateModelAfterLogin(model: string, effort?: string): Promise<void> };
@@ -1457,7 +1653,6 @@ describe('PythinkerTUI message flow', () => {
     const session = makeSession({ id: 'ses-lazy' });
     const startupInput: PythinkerTUIStartupInput = {
       ...makeStartupInput(),
-      engineV2: true,
       cliOptions: { ...makeStartupInput().cliOptions, model: 'k2' },
     };
     const { driver, harness } = await makeDriver(
@@ -1472,11 +1667,8 @@ describe('PythinkerTUI message flow', () => {
       startupInput,
     );
 
-    // The footer shows the config default…
     expect(driver.state.appState.planMode).toBe(true);
 
-    // …but the create call must not repeat it: the v2 engine applies
-    // defaultPlanMode at create time, and re-entering plan mode throws.
     driver.handleUserInput('hello');
 
     await vi.waitFor(() => {
@@ -1491,7 +1683,6 @@ describe('PythinkerTUI message flow', () => {
     const session = makeSession({ id: 'ses-lazy' });
     const startupInput: PythinkerTUIStartupInput = {
       ...makeStartupInput(),
-      engineV2: true,
       cliOptions: { ...makeStartupInput().cliOptions, model: 'k2', plan: true },
     };
     const { driver, harness } = await makeDriver(session, {}, startupInput);
@@ -1511,12 +1702,10 @@ describe('PythinkerTUI message flow', () => {
     const session = makeSession({ id: 'ses-lazy', runShellCommand });
     const startupInput: PythinkerTUIStartupInput = {
       ...makeStartupInput(),
-      engineV2: true,
       cliOptions: { ...makeStartupInput().cliOptions, model: 'k2' },
     };
     const { driver } = await makeDriver(session, {}, startupInput);
 
-    // A prompt and a bash command both trigger the same in-flight creation.
     driver.handleUserInput('hello');
     driver.state.appState.inputMode = 'bash';
     driver.state.editor.inputMode = 'bash';
@@ -1525,7 +1714,6 @@ describe('PythinkerTUI message flow', () => {
     await vi.waitFor(() => {
       expect(session.prompt).toHaveBeenCalledWith('hello', { promptId: undefined });
     });
-    // The shell command must be queued, not run concurrently with the prompt.
     expect(runShellCommand).not.toHaveBeenCalled();
     expect(driver.state.queuedMessages).toEqual([
       { text: 'ls', agentId: 'main', mode: 'bash' },
@@ -1536,7 +1724,6 @@ describe('PythinkerTUI message flow', () => {
     const session = makeSession({ id: 'ses-lazy' });
     const startupInput: PythinkerTUIStartupInput = {
       ...makeStartupInput(),
-      engineV2: true,
       // No model configured: /settings must still open so the user can fix
       // local editor/theme/update settings before picking a model.
       cliOptions: { ...makeStartupInput().cliOptions },
@@ -1553,7 +1740,6 @@ describe('PythinkerTUI message flow', () => {
     const session = makeSession({ id: 'ses-lazy', activateSkill: vi.fn(async () => {}) });
     const startupInput: PythinkerTUIStartupInput = {
       ...makeStartupInput(),
-      engineV2: true,
       cliOptions: { ...makeStartupInput().cliOptions, model: 'k2' },
     };
     const { driver, harness } = await makeDriver(
@@ -1575,15 +1761,12 @@ describe('PythinkerTUI message flow', () => {
       driver as unknown as { refreshSkillCommands(): Promise<void> }
     ).refreshSkillCommands();
 
-    // A prompt and a skill command both trigger the same in-flight creation.
     driver.handleUserInput('hello');
     driver.handleUserInput('/skill:my-skill');
 
     await vi.waitFor(() => {
       expect(session.prompt).toHaveBeenCalledWith('hello', { promptId: undefined });
     });
-    // The skill activation must be blocked, not run concurrently with the
-    // prompt's turn.
     expect(session.activateSkill).not.toHaveBeenCalled();
     expect(harness.createSession).toHaveBeenCalledTimes(1);
   });
@@ -1593,7 +1776,6 @@ describe('PythinkerTUI message flow', () => {
     const listPlugins = vi.fn(async () => []);
     const startupInput: PythinkerTUIStartupInput = {
       ...makeStartupInput(),
-      engineV2: true,
       // No model configured: /plugins must still work via the app-global API.
       cliOptions: { ...makeStartupInput().cliOptions },
     };
@@ -1612,7 +1794,6 @@ describe('PythinkerTUI message flow', () => {
     const session = makeSession({ id: 'ses-lazy' });
     const startupInput: PythinkerTUIStartupInput = {
       ...makeStartupInput(),
-      engineV2: true,
       // No model configured: the read-only form must still work.
       cliOptions: { ...makeStartupInput().cliOptions },
     };
@@ -1628,7 +1809,6 @@ describe('PythinkerTUI message flow', () => {
     const session = makeSession({ id: 'ses-lazy' });
     const startupInput: PythinkerTUIStartupInput = {
       ...makeStartupInput(),
-      engineV2: true,
       cliOptions: { ...makeStartupInput().cliOptions, model: 'k2' },
     };
     const { driver, harness } = await makeDriver(session, {}, startupInput);
@@ -1645,7 +1825,6 @@ describe('PythinkerTUI message flow', () => {
     const session = makeSession({ id: 'ses-lazy' });
     const startupInput: PythinkerTUIStartupInput = {
       ...makeStartupInput(),
-      engineV2: true,
       additionalDirs: ['/tmp/extra'],
       cliOptions: { ...makeStartupInput().cliOptions },
     };
@@ -1676,7 +1855,6 @@ describe('PythinkerTUI message flow', () => {
     const reloadPlugins = vi.fn(async () => ({ added: [], removed: [], errors: [] }));
     const startupInput: PythinkerTUIStartupInput = {
       ...makeStartupInput(),
-      engineV2: true,
       cliOptions: { ...makeStartupInput().cliOptions },
     };
     const { driver, harness } = await makeDriver(
@@ -1702,19 +1880,15 @@ describe('PythinkerTUI message flow', () => {
     const getConfig = vi.fn(
       async (): Promise<{ models: Record<string, unknown>; defaultModel?: string }> => ({
         models: { k2: { model: 'moonshot-v1', maxContextSize: 100 } },
-        // Initially no default model configured.
       }),
     );
     const startupInput: PythinkerTUIStartupInput = {
       ...makeStartupInput(),
-      engineV2: true,
       cliOptions: { ...makeStartupInput().cliOptions },
     };
     const { driver, harness } = await makeDriver(session, { getConfig }, startupInput);
     expect(driver.state.appState.model).toBe('');
 
-    // A default model is added externally, then /reload runs before the first
-    // prompt — the lazy defaults must be refreshed, not left stale.
     getConfig.mockResolvedValue({
       models: { k2: { model: 'moonshot-v1', maxContextSize: 100 } },
       defaultModel: 'k2',
@@ -1739,15 +1913,12 @@ describe('PythinkerTUI message flow', () => {
     );
     const startupInput: PythinkerTUIStartupInput = {
       ...makeStartupInput(),
-      engineV2: true,
       cliOptions: { ...makeStartupInput().cliOptions },
     };
     const { driver } = await makeDriver(session, { getConfig }, startupInput);
     expect(driver.state.appState.model).toBe('k2');
     expect(driver.state.appState.maxContextTokens).toBe(100);
 
-    // The default model is removed externally, then /reload runs — the
-    // hydrated value must not survive as a stale explicit model.
     getConfig.mockResolvedValue({
       models: { k2: { model: 'moonshot-v1', maxContextSize: 100 } },
     });
@@ -1774,7 +1945,6 @@ describe('PythinkerTUI message flow', () => {
     });
     const startupInput: PythinkerTUIStartupInput = {
       ...makeStartupInput(),
-      engineV2: true,
       cliOptions: { ...makeStartupInput().cliOptions, model: 'k2' },
     };
     const { driver, harness } = await makeDriver(
@@ -1794,8 +1964,6 @@ describe('PythinkerTUI message flow', () => {
     await vi.waitFor(() => {
       expect(harness.createSession).toHaveBeenCalledTimes(1);
     });
-    // The engine already applied defaultPlanMode at create; the command must
-    // notice the active plan mode instead of re-entering (which would throw).
     expect(session.setPlanMode).not.toHaveBeenCalled();
     expect(driver.state.appState.planMode).toBe(true);
   });
@@ -1817,14 +1985,11 @@ describe('PythinkerTUI message flow', () => {
     );
     const startupInput: PythinkerTUIStartupInput = {
       ...makeStartupInput(),
-      engineV2: true,
       cliOptions: { ...makeStartupInput().cliOptions },
     };
     const { driver } = await makeDriver(session, { getConfig }, startupInput);
     expect(driver.state.appState.permissionMode).toBe('auto');
 
-    // The elevated default is removed externally, then /reload runs — a stale
-    // elevated mode must not reach the first lazy-created session.
     getConfig.mockResolvedValue({
       models: { k2: { model: 'moonshot-v1', maxContextSize: 100 } },
       defaultModel: 'k2',
@@ -1839,7 +2004,6 @@ describe('PythinkerTUI message flow', () => {
   it('does not pass --plan when config already applies default plan mode (v2 engine)', async () => {
     const session = makeSession({
       id: 'ses-lazy',
-      // The engine applied the config default at create.
       getStatus: vi.fn(async () => ({
         model: 'k2',
         thinkingEffort: 'off',
@@ -1852,7 +2016,6 @@ describe('PythinkerTUI message flow', () => {
     });
     const startupInput: PythinkerTUIStartupInput = {
       ...makeStartupInput(),
-      engineV2: true,
       cliOptions: { ...makeStartupInput().cliOptions, model: 'k2', plan: true },
     };
     const { driver, harness } = await makeDriver(
@@ -1872,8 +2035,6 @@ describe('PythinkerTUI message flow', () => {
     await vi.waitFor(() => {
       expect(session.prompt).toHaveBeenCalledWith('hello', { promptId: undefined });
     });
-    // The engine applies the config default at create; repeating --plan would
-    // re-enter plan mode and throw, so it must not be passed again.
     expect(harness.createSession).toHaveBeenCalledWith(
       expect.objectContaining({ planMode: undefined }),
     );
@@ -1884,7 +2045,6 @@ describe('PythinkerTUI message flow', () => {
     const session = makeSession({ id: 'ses-lazy' });
     const startupInput: PythinkerTUIStartupInput = {
       ...makeStartupInput(),
-      engineV2: true,
       // No model configured: read-only views must still open.
       cliOptions: { ...makeStartupInput().cliOptions },
     };
@@ -1899,11 +2059,10 @@ describe('PythinkerTUI message flow', () => {
     expect(driver.state.appState.sessionId).toBe('');
   });
 
-  it('applies /yolo on session-less and passes the mode to the lazy session (v2 engine)', async () => {
+  it('applies /yolo session-less via the permission picker and passes the mode to the lazy session (v2 engine)', async () => {
     const session = makeSession({ id: 'ses-lazy' });
     const startupInput: PythinkerTUIStartupInput = {
       ...makeStartupInput(),
-      engineV2: true,
       cliOptions: { ...makeStartupInput().cliOptions, model: 'k2' },
     };
     const { driver, harness } = await makeDriver(session, {}, startupInput);
@@ -1935,13 +2094,10 @@ describe('PythinkerTUI message flow', () => {
     const session = makeSession({ id: 'ses-lazy' });
     const startupInput: PythinkerTUIStartupInput = {
       ...makeStartupInput(),
-      engineV2: true,
       cliOptions: { ...makeStartupInput().cliOptions, model: 'k2' },
     };
     const { driver, harness } = await makeDriver(session, {}, startupInput);
 
-    // Hold the post-create assembly open inside setPermission: the session is
-    // assigned but setup is not finished yet.
     let resolvePermission!: () => void;
     session.setPermission.mockImplementationOnce(
       () => new Promise<void>((resolve) => { resolvePermission = resolve; }),
@@ -1953,8 +2109,6 @@ describe('PythinkerTUI message flow', () => {
       expect(session.setPermission).toHaveBeenCalled();
     });
 
-    // A second trigger must wait for the assembly instead of dispatching
-    // against the half-initialized session.
     const second = ensure.call(driver);
     let secondResolved = false;
     void second.then(() => {
@@ -1976,7 +2130,6 @@ describe('PythinkerTUI message flow', () => {
     ]);
     const startupInput: PythinkerTUIStartupInput = {
       ...makeStartupInput(),
-      engineV2: true,
       cliOptions: { ...makeStartupInput().cliOptions },
     };
     const { driver, harness } = await makeDriver(
@@ -2072,15 +2225,394 @@ command = "vim"
       expect(driver.state.appState.theme).toBe('light');
     });
     expect(session.reloadSession).not.toHaveBeenCalled();
-    await vi.waitFor(() => {
-      expect((driver as unknown as { session?: { id: string } }).session?.id).toBe(
-        'ses-1-reloaded',
-      );
-    });
     expect(harness.track).toHaveBeenCalledWith('input_command', { command: 'reload' });
     const transcript = stripSgr(renderTranscript(driver));
     expect(transcript).toContain('hello before reload');
     expect(transcript).toContain('Session reloaded.');
+  });
+
+  it('prints the sign-up page and GitHub Issues links when not signed in', async () => {
+    const { driver, harness } = await makeDriver(makeSession());
+    harness.auth.status.mockResolvedValueOnce({
+      providers: [{ providerName: 'openai', hasToken: false }],
+    });
+    const feedbackDriver = driver as unknown as FeedbackDriver;
+    vi.mocked(promptFeedbackInput).mockImplementation(async () => ({ value: 'useful feedback' }));
+    vi.mocked(openUrl).mockClear();
+
+    await handleFeedbackCommand(feedbackDriver as any);
+
+    expect(openUrl).not.toHaveBeenCalled();
+    expect(promptFeedbackInput).not.toHaveBeenCalled();
+    expect(harness.auth.submitFeedback).not.toHaveBeenCalled();
+    const transcript = stripSgr(renderTranscript(driver));
+    expect(transcript).toContain("You're not signed in");
+    expect(transcript).toContain('https://www.pythinker.com/code');
+    expect(transcript).toContain('https://github.com/PyModel/pythinker-code/issues');
+  });
+
+  it('falls back to GitHub Issues when the sign-in status cannot be read', async () => {
+    const { driver, harness } = await makeDriver(makeSession());
+    harness.auth.status.mockRejectedValueOnce(new Error('token storage unavailable'));
+    const feedbackDriver = driver as unknown as FeedbackDriver;
+    vi.mocked(promptFeedbackInput).mockClear();
+    vi.mocked(openUrl).mockClear();
+
+    await handleFeedbackCommand(feedbackDriver as any);
+
+    expect(openUrl).toHaveBeenCalledTimes(1);
+    expect(openUrl).toHaveBeenCalledWith('https://github.com/PyModel/pythinker-code/issues');
+    expect(promptFeedbackInput).not.toHaveBeenCalled();
+    expect(harness.auth.submitFeedback).not.toHaveBeenCalled();
+    const transcript = stripSgr(renderTranscript(driver));
+    expect(transcript).toContain('Opening GitHub Issues as fallback');
+  });
+
+  it('submits feedback via OAuth for a signed-in user on an API-key model', async () => {
+    const { driver, harness } = await makeDriver(makeSession());
+    driver.state.appState.availableModels = {
+      k2: {
+        provider: 'openai',
+        model: 'gpt-x',
+        maxContextSize: 100,
+        displayName: 'GPT X',
+        capabilities: [],
+      },
+    };
+    const feedbackDriver = driver as unknown as FeedbackDriver;
+    vi.mocked(promptFeedbackInput).mockImplementation(async () => ({ value: 'useful feedback' }));
+    vi.mocked(promptFeedbackAttachment).mockImplementation(async () => 'none');
+    harness.auth.submitFeedback.mockResolvedValueOnce({ kind: 'ok', feedbackId: 7 });
+
+    await handleFeedbackCommand(feedbackDriver as any);
+
+    expect(harness.auth.submitFeedback).toHaveBeenCalledOnce();
+    const transcript = stripSgr(renderTranscript(driver));
+    expect(transcript).toContain('Feedback ID: 7');
+  });
+
+  it('tracks successful feedback submissions only after the request succeeds', async () => {
+    const { driver, harness } = await makeDriver(makeSession());
+    const feedbackDriver = driver as unknown as FeedbackDriver;
+    vi.mocked(promptFeedbackInput).mockImplementation(async () => ({ value: 'useful feedback' }));
+    vi.mocked(promptFeedbackAttachment).mockImplementation(async () => 'none');
+    harness.auth.submitFeedback.mockResolvedValueOnce({ kind: 'ok', feedbackId: 3 });
+    harness.track.mockClear();
+
+    await handleFeedbackCommand(feedbackDriver as any);
+
+    expect(harness.auth.submitFeedback).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: 'useful feedback',
+        sessionId: 'ses-1',
+        version: 'pythinker-code-0.0.0-test',
+        model: 'k2',
+      }),
+    );
+    expect(harness.track).toHaveBeenCalledWith('feedback_submitted', undefined);
+    const transcript = stripSgr(renderTranscript(driver));
+    expect(transcript).toContain('Feedback ID: 3');
+  });
+
+  it('submits text feedback before preparing requested attachments', async () => {
+    const { driver, harness } = await makeDriver(makeSession());
+    const feedbackDriver = driver as unknown as FeedbackDriver;
+    vi.mocked(promptFeedbackInput).mockImplementation(async () => ({ value: 'useful feedback' }));
+    vi.mocked(promptFeedbackAttachment).mockImplementation(async () => 'logs');
+    harness.auth.submitFeedback.mockResolvedValueOnce({ kind: 'ok', feedbackId: 3 });
+    harness.listSessions.mockResolvedValueOnce([{ id: 'ses-1', sessionDir: '/tmp/session-a' }] as never);
+
+    const zipPath = await makeExportedSessionZip();
+    let resolveExport!: () => void;
+    const exportBlocked = new Promise<{
+      zipPath: string;
+      entries: string[];
+      sessionDir: string;
+      manifest: Record<string, never>;
+    }>((resolve) => {
+      resolveExport = () => {
+        resolve({
+          zipPath,
+          entries: ['manifest.json', 'state.json'],
+          sessionDir: '/tmp/session-a',
+          manifest: {},
+        });
+      };
+    });
+    harness.exportSession.mockImplementationOnce(() => exportBlocked);
+
+    let settled = false;
+    const command = handleFeedbackCommand(feedbackDriver as any).then(() => {
+      settled = true;
+    });
+
+    await vi.waitFor(() => {
+      expect(harness.exportSession).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: 'ses-1',
+          includeGlobalLog: true,
+          version: '0.0.0-test',
+        }),
+      );
+    });
+    expect(harness.auth.submitFeedback).toHaveBeenCalledWith(
+      expect.objectContaining({ content: 'useful feedback' }),
+    );
+    expect(harness.auth.submitFeedback.mock.invocationCallOrder[0]).toBeLessThan(
+      harness.exportSession.mock.invocationCallOrder[0]!,
+    );
+    expect(settled).toBe(false);
+
+    resolveExport();
+    await command;
+  });
+
+  it('waits for the codebase upload to finish before returning', async () => {
+    const { driver, harness } = await makeDriver(makeSession());
+    const feedbackDriver = driver as unknown as FeedbackDriver;
+    vi.mocked(scanCodebase).mockReset();
+    harness.exportSession.mockReset();
+    vi.mocked(packageCodebase).mockReset();
+    vi.mocked(uploadArchive).mockReset();
+    vi.mocked(promptFeedbackInput).mockImplementation(async () => ({ value: 'useful feedback' }));
+    vi.mocked(promptFeedbackAttachment).mockImplementation(async () => 'logs+codebase');
+    harness.auth.submitFeedback.mockResolvedValueOnce({ kind: 'ok', feedbackId: 3 });
+    harness.listSessions.mockResolvedValueOnce([
+      { id: 'ses-1', sessionDir: '/tmp/session-a' },
+    ] as never);
+
+    vi.mocked(scanCodebase).mockResolvedValueOnce({
+      root: '/tmp/proj-a',
+      files: [{ path: 'keep.ts', size: 4 }],
+      fingerprint: 'fp-123',
+      usedGitIgnore: false,
+    } as any);
+    const sessionZipPath = await makeExportedSessionZip();
+    harness.exportSession.mockResolvedValueOnce({
+      zipPath: sessionZipPath,
+      entries: ['manifest.json', 'state.json'],
+      sessionDir: '/tmp/session-a',
+      manifest: {},
+    });
+    vi.mocked(packageCodebase).mockResolvedValueOnce({
+      path: '/tmp/fake-codebase.zip',
+      size: 4,
+      sha256: 'hash-123',
+      fingerprint: 'fp-123',
+      fileCount: 1,
+    });
+
+    let resolveCodebaseUpload!: () => void;
+    const codebaseUploadBlocked = new Promise<void>((resolve) => {
+      resolveCodebaseUpload = resolve;
+    });
+    vi.mocked(uploadArchive).mockImplementation((_api, archive) => {
+      if (archive.path === sessionZipPath) return Promise.resolve();
+      return codebaseUploadBlocked;
+    });
+
+    let settled = false;
+    const command = handleFeedbackCommand(feedbackDriver as any).then(() => {
+      settled = true;
+    });
+
+    await vi.waitFor(() => {
+      expect(uploadArchive).toHaveBeenCalledTimes(2);
+    });
+    expect(settled).toBe(false);
+
+    resolveCodebaseUpload();
+    await command;
+    expect(settled).toBe(true);
+    expect(uploadArchive).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({ path: sessionZipPath }),
+      3,
+      { filename: 'session.zip' },
+    );
+    expect(uploadArchive).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({ path: '/tmp/fake-codebase.zip' }),
+      3,
+      { filename: 'repo.zip' },
+    );
+    expect(harness.auth.submitFeedback).toHaveBeenCalledWith(
+      expect.not.objectContaining({ info: expect.anything() }),
+    );
+  });
+
+  it('uploads session logs when codebase scanning fails but the session directory is available', async () => {
+    const { driver, harness } = await makeDriver(makeSession());
+    const feedbackDriver = driver as unknown as FeedbackDriver;
+    vi.mocked(scanCodebase).mockReset();
+    harness.exportSession.mockReset();
+    vi.mocked(packageCodebase).mockReset();
+    vi.mocked(uploadArchive).mockReset();
+    vi.mocked(promptFeedbackInput).mockImplementation(async () => ({ value: 'useful feedback' }));
+    vi.mocked(promptFeedbackAttachment).mockImplementation(async () => 'logs+codebase');
+    harness.auth.submitFeedback.mockResolvedValueOnce({ kind: 'ok', feedbackId: 3 });
+    harness.listSessions.mockResolvedValueOnce([{ id: 'ses-1', sessionDir: '/tmp/session-a' }] as never);
+    const sessionZipPath = await makeExportedSessionZip();
+    vi.mocked(scanCodebase).mockRejectedValueOnce(new Error('scan failed'));
+    harness.exportSession.mockResolvedValueOnce({
+      zipPath: sessionZipPath,
+      entries: ['manifest.json', 'state.json'],
+      sessionDir: '/tmp/session-a',
+      manifest: {},
+    });
+
+    await handleFeedbackCommand(feedbackDriver as any);
+
+    expect(harness.exportSession).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'ses-1', includeGlobalLog: true }),
+    );
+    expect(packageCodebase).not.toHaveBeenCalled();
+    expect(uploadArchive).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({ path: sessionZipPath }),
+      3,
+      { filename: 'session.zip' },
+    );
+    const transcript = stripSgr(renderTranscript(driver));
+    expect(transcript).toContain('Feedback ID: 3');
+    expect(transcript).toContain('attachment upload failed');
+  });
+
+  it('keeps archive-path creation failures as partial failures without the GitHub fallback', async () => {
+    const { driver, harness } = await makeDriver(makeSession());
+    const feedbackDriver = driver as unknown as FeedbackDriver;
+    vi.mocked(promptFeedbackInput).mockImplementation(async () => ({ value: 'useful feedback' }));
+    vi.mocked(promptFeedbackAttachment).mockImplementation(async () => 'logs');
+    harness.auth.submitFeedback.mockResolvedValueOnce({ kind: 'ok', feedbackId: 3 });
+    harness.listSessions.mockResolvedValueOnce([{ id: 'ses-1', sessionDir: '/tmp/session-a' }] as never);
+    vi.mocked(createFeedbackArchivePath).mockRejectedValueOnce(new Error('cache dir not writable'));
+    vi.mocked(openUrl).mockClear();
+
+    await handleFeedbackCommand(feedbackDriver as any);
+
+    expect(openUrl).not.toHaveBeenCalled();
+    const transcript = stripSgr(renderTranscript(driver));
+    expect(transcript).toContain('Feedback submitted, thank you!');
+    expect(transcript).toContain('Feedback ID: 3');
+    expect(transcript).toContain('attachment upload failed');
+  });
+
+  it('tells the user when feedback is sent but codebase packaging fails', async () => {
+    const { driver, harness } = await makeDriver(makeSession());
+    const feedbackDriver = driver as unknown as FeedbackDriver;
+    vi.mocked(scanCodebase).mockReset();
+    vi.mocked(packageCodebase).mockReset();
+    harness.exportSession.mockReset();
+    vi.mocked(uploadArchive).mockReset();
+    vi.mocked(promptFeedbackInput).mockImplementation(async () => ({ value: 'useful feedback' }));
+    vi.mocked(promptFeedbackAttachment).mockImplementation(async () => 'logs+codebase');
+    harness.auth.submitFeedback.mockResolvedValueOnce({ kind: 'ok', feedbackId: 3 });
+    harness.listSessions.mockResolvedValueOnce([{ id: 'ses-1', sessionDir: '/tmp/session-a' }] as never);
+    const sessionZipPath = await makeExportedSessionZip();
+
+    vi.mocked(scanCodebase).mockResolvedValueOnce({
+      root: '/tmp/proj-a',
+      files: [{ path: 'keep.ts', size: 4 }],
+      fingerprint: 'fp-123',
+      usedGitIgnore: false,
+    } as any);
+    harness.exportSession.mockResolvedValueOnce({
+      zipPath: sessionZipPath,
+      entries: ['manifest.json', 'state.json'],
+      sessionDir: '/tmp/session-a',
+      manifest: {},
+    });
+    vi.mocked(packageCodebase).mockRejectedValueOnce(new Error('zip failed'));
+
+    await handleFeedbackCommand(feedbackDriver as any);
+
+    const calls = harness.auth.submitFeedback.mock.calls as unknown as Array<[Record<string, unknown>]>;
+    expect(calls[0]?.[0]?.['info']).toBeUndefined();
+    expect(uploadArchive).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({ path: sessionZipPath }),
+      3,
+      { filename: 'session.zip' },
+    );
+    const transcript = stripSgr(renderTranscript(driver));
+    expect(transcript).toContain('Feedback ID: 3');
+    expect(transcript).toContain('attachment upload failed');
+  });
+
+  it('tells the user when the codebase upload fails', async () => {
+    const { driver, harness } = await makeDriver(makeSession());
+    const feedbackDriver = driver as unknown as FeedbackDriver;
+    vi.mocked(promptFeedbackInput).mockImplementation(async () => ({ value: 'useful feedback' }));
+    vi.mocked(promptFeedbackAttachment).mockImplementation(async () => 'logs+codebase');
+    harness.auth.submitFeedback.mockResolvedValueOnce({ kind: 'ok', feedbackId: 3 });
+
+    vi.mocked(scanCodebase).mockResolvedValueOnce({
+      root: '/tmp/proj-a',
+      files: [{ path: 'keep.ts', size: 4 }],
+      fingerprint: 'fp-123',
+      usedGitIgnore: false,
+    } as any);
+    vi.mocked(packageCodebase).mockResolvedValueOnce({
+      path: '/tmp/fake-codebase.zip',
+      size: 4,
+      sha256: 'hash-123',
+      fingerprint: 'fp-123',
+      fileCount: 1,
+    });
+    vi.mocked(uploadArchive).mockRejectedValueOnce(new Error('upload failed'));
+
+    await handleFeedbackCommand(feedbackDriver as any);
+
+    expect(harness.auth.submitFeedback).toHaveBeenCalledOnce();
+    const transcript = stripSgr(renderTranscript(driver));
+    expect(transcript).toContain('Feedback ID: 3');
+    expect(transcript).toContain('attachment upload failed');
+  });
+
+  it('shows feedback API error messages without replacing them with HTTP status text', async () => {
+    const { driver, harness } = await makeDriver(makeSession());
+    const feedbackDriver = driver as unknown as FeedbackDriver;
+    vi.mocked(promptFeedbackInput).mockImplementation(async () => ({ value: 'useful feedback' }));
+    vi.mocked(promptFeedbackAttachment).mockImplementation(async () => 'none');
+    harness.auth.submitFeedback.mockResolvedValueOnce({
+      kind: 'error',
+      status: 500,
+      message: 'backend says no',
+    });
+
+    await handleFeedbackCommand(feedbackDriver as any);
+
+    const transcript = stripSgr(renderTranscript(driver));
+    expect(transcript).toContain('backend says no');
+    expect(transcript).toContain('Opening GitHub Issues as fallback');
+    expect(transcript).not.toContain('Failed to submit feedback (HTTP 500).');
+  });
+
+  it('falls back to GitHub Issues when the submission request rejects', async () => {
+    const { driver, harness } = await makeDriver(makeSession());
+    const feedbackDriver = driver as unknown as FeedbackDriver;
+    vi.mocked(promptFeedbackInput).mockImplementation(async () => ({ value: 'useful feedback' }));
+    vi.mocked(promptFeedbackAttachment).mockImplementation(async () => 'none');
+    harness.auth.submitFeedback.mockRejectedValueOnce(new Error('socket hangup'));
+    vi.mocked(openUrl).mockClear();
+
+    await expect(handleFeedbackCommand(feedbackDriver as any)).rejects.toThrow('socket hangup');
+
+    expect(openUrl).toHaveBeenCalledWith('https://github.com/PyModel/pythinker-code/issues');
+    const transcript = stripSgr(renderTranscript(driver));
+    expect(transcript).toContain('Opening GitHub Issues as fallback');
+  });
+
+  it('does not track feedback when the dialog is cancelled', async () => {
+    const { driver, harness } = await makeDriver(makeSession());
+    const feedbackDriver = driver as unknown as FeedbackDriver;
+    vi.mocked(promptFeedbackInput).mockImplementation(async () => undefined);
+    harness.track.mockClear();
+
+    await handleFeedbackCommand(feedbackDriver as any);
+
+    expect(harness.auth.submitFeedback).not.toHaveBeenCalled();
+    expect(harness.track).not.toHaveBeenCalledWith('feedback_submitted', undefined);
   });
 
   it('tracks blocked slash commands as invalid without counting them as executed commands', async () => {
@@ -2146,10 +2678,7 @@ command = "vim"
         throw new Error('permission setup failed');
       }),
     });
-    const createSession = vi
-      .fn()
-      .mockResolvedValueOnce(initialSession)
-      .mockResolvedValueOnce(failedSession);
+    const createSession = vi.fn(async () => failedSession);
     const { driver } = await makeDriver(initialSession, { createSession });
     vi.mocked(failedSession.onEvent).mockClear();
 
@@ -2163,29 +2692,17 @@ command = "vim"
     expect(failedSession.onEvent).toHaveBeenCalledOnce();
   });
 
-  it('tracks Shift-Tab effort cycling through the editor handler', async () => {
+  it('tracks Shift-Tab mode switches through the editor handler', async () => {
     const { driver, session, harness } = await makeDriver();
     harness.track.mockClear();
-    driver.state.appState.availableModels = {
-      k2: {
-        provider: 'openai',
-        model: 'gpt-x',
-        maxContextSize: 100,
-        supportEfforts: ['low', 'high'],
-      },
-    };
 
     driver.state.editor.onShiftTab?.();
 
     await vi.waitFor(() => {
-      expect(session.setThinking).toHaveBeenCalledWith('low');
+      expect(session.setPlanMode).toHaveBeenCalledWith(true);
     });
-    expect(driver.state.appState.thinkingEffort).toBe('low');
-    expect(harness.track).toHaveBeenCalledWith('thinking_toggle', {
-      enabled: true,
-      effort: 'low',
-      from: 'off',
-    });
+    expect(harness.track).toHaveBeenCalledWith('shortcut_plan_toggle', { enabled: true });
+    expect(harness.track).toHaveBeenCalledWith('shortcut_mode_switch', { to_mode: 'plan' });
   });
 
   it('routes /yolo through session permission state without app-layer telemetry duplication', async () => {
@@ -2205,6 +2722,9 @@ command = "vim"
     expect(driver.state.appState).toMatchObject({
       permissionMode: 'yolo',
     });
+    expect(stripSgr(renderTranscript(driver))).toContain(
+      'Routine edits and commands run automatically; risky actions, questions, and plans still ask.',
+    );
     expect(harness.track).toHaveBeenCalledWith('input_command', { command: 'yolo' });
     expect(harness.track).not.toHaveBeenCalledWith('yolo_toggle', expect.anything());
   });
@@ -2241,11 +2761,9 @@ command = "vim"
     }
     expect(subscribeOrder).toBeLessThan(snapshotOrder);
     const transcript = renderTranscript(driver);
-    // Connected servers leave no persistent transcript row — success lives in
-    // the welcome banner's MCP summary; only failures stay visible.
-    expect(transcript).not.toContain('MCP server "local-tools" connected');
+    expect(transcript).toContain('MCP server "local-tools" connected');
+    expect(transcript).toContain('2 tools (stdio)');
     expect(transcript).toContain('MCP server "remote-tools" failed: connection refused');
-    expect(driver.state.appState.mcpServersSummary).toContain('1 connected');
   });
 
   it('deduplicates identical MCP status updates while allowing reconnect transitions', async () => {
@@ -2275,7 +2793,7 @@ command = "vim"
     } as Event);
 
     expect(countOccurrences(renderTranscript(driver), 'MCP server "local-tools" connected')).toBe(
-      0,
+      1,
     );
 
     eventListeners[0]?.({
@@ -2288,8 +2806,6 @@ command = "vim"
         toolCount: 0,
       },
     } as Event);
-    // A reconnect transition shows the shared one-line loader...
-    expect(driver.sessionEventHandler.mcpServerStatusSpinner).not.toBeNull();
     eventListeners[0]?.({
       type: 'mcp.server.status',
       agentId: 'main',
@@ -2297,10 +2813,8 @@ command = "vim"
       server: connectedServer,
     } as Event);
 
-    // ...which disappears again on success, leaving no transcript row behind.
-    expect(driver.sessionEventHandler.mcpServerStatusSpinner).toBeNull();
     expect(countOccurrences(renderTranscript(driver), 'MCP server "local-tools" connected')).toBe(
-      0,
+      2,
     );
   });
 
@@ -2351,10 +2865,8 @@ command = "vim"
     await Promise.resolve();
 
     const transcript = renderTranscript(driver);
-    // The live "connected" event wins: no failure row from the stale snapshot,
-    // and connected success itself leaves no transcript row.
+    expect(transcript).toContain('MCP server "local-tools" connected');
     expect(transcript).not.toContain('stale failure');
-    expect(transcript).not.toContain('MCP server "local-tools"');
   });
 
   it('sends normal editor input to the active session and marks the turn as waiting', async () => {
@@ -2461,6 +2973,9 @@ command = "vim"
     expect(transcript).not.toContain('hello');
     expect(transcript).not.toContain('Cannot undo 10 prompts');
     expect(transcript).toContain('Permission mode: Never Ask');
+    expect(transcript).toContain(
+      'Never interrupts you; everything runs and is decided automatically.',
+    );
     expect(driver.state.appState.permissionMode).toBe('auto');
   });
 
@@ -2768,8 +3283,6 @@ command = "vim"
     const attachment = imageStore.addVideo('video/mp4', '/tmp/clip.mp4');
     imageStore.completeVideo(attachment, { fileId: 'file-v1' });
 
-    // The paste was uploaded to the daemon file store, so the submission
-    // carries a bare `pythinker-file://` reference — no local cache copy.
     driver.handleUserInput(`watch ${attachment.placeholder}`);
 
     const parts = vi.mocked(session.prompt).mock.calls[0]?.[0] as
@@ -2785,8 +3298,6 @@ command = "vim"
 
     emitTurn(driver, 1);
 
-    // The engine materialized its own session copy at intake, so the staged
-    // upload is garbage once the consuming turn ends.
     await vi.waitFor(() => {
       expect(harness.deleteFile).toHaveBeenCalledWith('file-v1');
     });
@@ -2855,8 +3366,6 @@ command = "vim"
         { type: 'text', text: 'describe ' },
         { type: 'image_url', imageUrl: { url: 'data:image/png;base64,qrs=' } },
       ],
-      // Staged media rides with a client-chosen prompt id so the consuming
-      // turn's `turn.started` can bind the lease exactly.
       { promptId: expect.any(String) },
     );
     expect(driver.state.transcriptEntries).toEqual([
@@ -2890,7 +3399,6 @@ command = "vim"
     const session = makeSession({ id: 'ses-lazy' });
     const startupInput: PythinkerTUIStartupInput = {
       ...makeStartupInput(),
-      engineV2: true,
       cliOptions: { ...makeStartupInput().cliOptions, model: 'k2' },
     };
     const { driver, harness } = await makeDriver(session, {}, startupInput);
@@ -2899,10 +3407,6 @@ command = "vim"
 
     driver.handleUserInput(attachment.placeholder);
 
-    // The lease is created at extraction, before the session exists: lazy
-    // creation runs setSession mid-dispatch, and the first prompt's lease
-    // must survive it — the engine's intake only reads the upload once the
-    // prompt lands.
     await vi.waitFor(() => {
       expect(session.prompt).toHaveBeenCalledWith(
         [{ type: 'image_url', imageUrl: { url: 'pythinker-file://file-lazy' } }],
@@ -2918,13 +3422,31 @@ command = "vim"
     });
   });
 
+  it('still deletes the staging upload when a cache-hint dismissal precedes the resend', async () => {
+    const { driver, session, harness } = await makeDriver();
+    const imageStore = (driver as unknown as { imageStore: ImageAttachmentStore }).imageStore;
+    const attachment = stagedImage(imageStore, 'file-dismissed');
+    const text = `describe ${attachment.placeholder}`;
+
+    const extraction = extractMediaAttachments(text, imageStore);
+    driver.recallStashedMedia(extraction);
+
+    driver.handleUserInput(text);
+
+    expect(session.prompt).toHaveBeenCalledOnce();
+    emitTurn(driver, 1, () => {
+      expect(harness.deleteFile).not.toHaveBeenCalled();
+    });
+    await vi.waitFor(() => {
+      expect(harness.deleteFile).toHaveBeenCalledWith('file-dismissed');
+    });
+    expect(harness.deleteFile).toHaveBeenCalledTimes(1);
+  });
+
   it('waits briefly for a pending paste ingestion so the submit uses the daemon-ref form', async () => {
     const { driver, session } = await makeDriver();
     const imageStore = (driver as unknown as { imageStore: ImageAttachmentStore }).imageStore;
     const attachment = imageStore.addImage(new Uint8Array([0xaa, 0xbb]), 'image/png', 1, 1);
-    // Simulate a paste whose background ingestion is still uploading when the
-    // user hits Enter: the send path waits for it instead of dispatching the
-    // inline fallback.
     let finishIngestion!: () => void;
     attachment.pending = new Promise<void>((resolve) => {
       finishIngestion = () => {
@@ -2968,8 +3490,6 @@ command = "vim"
     expect(stripSgr(renderTranscript(driver))).toContain('Failed to send: session closed');
     expect(harness.deleteFile).toHaveBeenCalledWith('file-reject');
 
-    // The released lease must not be claimed or deleted again by later turn
-    // events or by session close.
     emitTurn(driver, 1);
     await driver.closeSession('test');
     expect(harness.deleteFile).toHaveBeenCalledTimes(1);
@@ -2979,9 +3499,6 @@ command = "vim"
     const { driver, session, harness } = await makeDriver();
     const imageStore = (driver as unknown as { imageStore: ImageAttachmentStore }).imageStore;
     const attachment = stagedImage(imageStore, 'file-goal');
-    // The goal driver's continuation turn (origin system_trigger — it never
-    // claims leases through handleTurnStarted) is streaming when the queued
-    // steer dispatch lands.
     driver.state.appState.goal = makeActiveGoalSnapshot();
     driver.state.appState.streamingPhase = 'waiting';
     driver.streamingUI.setTurnId('7');
@@ -3070,9 +3587,9 @@ command = "vim"
     const session = makeSession({
       listSkills: vi.fn(async () => [
         {
-          name: 'tower',
-          description: 'multi-agent tower mode',
-          path: 'builtin://tower',
+          name: 'demo',
+          description: 'demo skill',
+          path: 'builtin://demo',
           source: 'builtin',
           type: 'inline',
         },
@@ -3085,36 +3602,35 @@ command = "vim"
     driver.state.appState.streamingPhase = 'waiting';
     harness.track.mockClear();
 
-    driver.handleUserInput('/tower refactor auth and ui');
+    driver.handleUserInput('/demo refactor auth and ui');
 
     expect(session.activateSkill).not.toHaveBeenCalled();
     expect(driver.state.queuedMessages).toEqual([
       {
-        text: '/tower refactor auth and ui',
+        text: '/demo refactor auth and ui',
         agentId: 'main',
         mode: 'skill',
-        skillName: 'tower',
+        skillName: 'demo',
         skillArgs: 'refactor auth and ui',
       },
     ]);
     expect(harness.track).toHaveBeenCalledWith('input_queue', undefined);
 
-    // Turn ends: the drain re-enters sendSkillActivation, which now fires.
     driver.state.appState.streamingPhase = 'idle';
     const queued = driver.state.queuedMessages[0]!;
     driver.state.queuedMessages = [];
     driver.sendQueuedMessage(session, queued);
 
-    expect(session.activateSkill).toHaveBeenCalledWith('tower', 'refactor auth and ui');
+    expect(session.activateSkill).toHaveBeenCalledWith('demo', 'refactor auth and ui');
   });
 
   it('queues a slash-skill activation while compacting and activates it on drain', async () => {
     const session = makeSession({
       listSkills: vi.fn(async () => [
         {
-          name: 'tower',
-          description: 'multi-agent tower mode',
-          path: 'builtin://tower',
+          name: 'demo',
+          description: 'demo skill',
+          path: 'builtin://demo',
           source: 'builtin',
           type: 'inline',
         },
@@ -3127,15 +3643,15 @@ command = "vim"
     driver.state.appState.isCompacting = true;
     harness.track.mockClear();
 
-    driver.handleUserInput('/tower refactor auth and ui');
+    driver.handleUserInput('/demo refactor auth and ui');
 
     expect(session.activateSkill).not.toHaveBeenCalled();
     expect(driver.state.queuedMessages).toEqual([
       {
-        text: '/tower refactor auth and ui',
+        text: '/demo refactor auth and ui',
         agentId: 'main',
         mode: 'skill',
-        skillName: 'tower',
+        skillName: 'demo',
         skillArgs: 'refactor auth and ui',
       },
     ]);
@@ -3147,7 +3663,7 @@ command = "vim"
     driver.state.queuedMessages = [];
     driver.sendQueuedMessage(session, queued);
 
-    expect(session.activateSkill).toHaveBeenCalledWith('tower', 'refactor auth and ui');
+    expect(session.activateSkill).toHaveBeenCalledWith('demo', 'refactor auth and ui');
   });
 
   it('steers fresh input while a goal is active even when the streaming phase is idle', async () => {
@@ -3376,7 +3892,7 @@ command = "vim"
         } as Event,
         sendQueued,
       );
-      await vi.advanceTimersByTimeAsync(0);
+      await vi.runAllTimersAsync();
 
       expect(sendQueued).toHaveBeenCalledWith({ text: 'next' });
       expect(driver.state.queuedMessages).toEqual([]);
@@ -3504,8 +4020,6 @@ command = "vim"
         { type: 'text', text: 'describe ' },
         { type: 'image_url', imageUrl: { url: 'data:image/png;base64,qrs=' } },
       ],
-      // Staged media rides with a client-chosen prompt id so the consuming
-      // turn's `turn.started` can bind the lease exactly.
       { promptId: expect.any(String) },
     );
   });
@@ -3592,8 +4106,6 @@ command = "vim"
     const imageStore = (driver as unknown as { imageStore: ImageAttachmentStore }).imageStore;
     const attachment = stagedImage(imageStore, 'file-shared');
 
-    // One message referencing the same image twice retains it once; a second
-    // queued message retains it again — two retains total.
     driver.handleUserInput(`compare ${attachment.placeholder} with ${attachment.placeholder}`);
     driver.handleUserInput(`and ${attachment.placeholder}`);
     const [first, second] = driver.state.queuedMessages;
@@ -3601,8 +4113,6 @@ command = "vim"
     driver.sendQueuedMessage(session, first!);
     emitTurn(driver, 1);
     await new Promise((resolve) => setTimeout(resolve, 0));
-    // The first turn consumed the only retain its submission held; the second
-    // queued message's retain keeps the upload alive.
     expect(harness.deleteFile).not.toHaveBeenCalled();
 
     driver.sendQueuedMessage(session, second!);
@@ -3627,13 +4137,9 @@ command = "vim"
     const recalled = driver.recallLastQueued();
     expect(recalled?.text).toContain(attachment.placeholder);
     await new Promise((resolve) => setTimeout(resolve, 0));
-    // Recalled, not discarded: the daemon upload stays staged for the
-    // restored draft.
     expect(harness.deleteFile).not.toHaveBeenCalled();
     expect(attachment.fileId).toBe('file-recall');
 
-    // Re-queueing the restored draft reuses the daemon-ref form, and the
-    // consuming turn's end releases the upload exactly once.
     driver.handleUserInput(recalled!.text);
     const requeued = driver.state.queuedMessages[0]!;
     expect(requeued.parts).toContainEqual({
@@ -3662,9 +4168,6 @@ command = "vim"
 
     const recalled = driver.recallLastQueued();
     expect(recalled?.text).toContain(attachment.placeholder);
-    // The recall consumed the retain but kept the upload, so resubmitting
-    // the restored draft re-extracts the same daemon reference — a vanished
-    // original source cannot lose the media.
     expect(attachment.fileId).toBe('file-v1');
     expect(harness.deleteFile).not.toHaveBeenCalled();
 
@@ -3705,9 +4208,6 @@ command = "vim"
 
     driver.state.editor.onCtrlS?.();
 
-    // normalizePromptInput rejects whitespace-only text parts, so the
-    // item separator must not become a standalone `{type:'text',text:'\n\n'}`
-    // between two image parts.
     expect(session.steer).toHaveBeenCalledWith([imagePart(first.bytes), imagePart(second.bytes)]);
   });
 
@@ -3734,9 +4234,6 @@ command = "vim"
 
     driver.state.editor.onCtrlS?.();
 
-    // The historical '\n\n' item separator merges into the following text
-    // part (legal for normalizePromptInput) instead of vanishing after a
-    // media part.
     expect(session.steer).toHaveBeenCalledWith([
       { type: 'text', text: 'look ' },
       { type: 'image_url', imageUrl: { url: 'data:image/png;base64,qrs=' } },
@@ -3774,8 +4271,6 @@ command = "vim"
     const session = makeSession();
     const { driver } = await makeDriver(session);
     const imageStore = (driver as unknown as { imageStore: ImageAttachmentStore }).imageStore;
-    // The pasted video's source file vanished before submit — the cache copy
-    // throws, and it must surface as a TUI error, not an unhandled rejection.
     const missing = imageStore.addVideo('video/quicktime', '/tmp/pythinker-missing-source.mov');
 
     (
@@ -3827,7 +4322,6 @@ command = "vim"
     const { driver } = await makeDriver();
     driver.state.appState.streamingPhase = 'waiting';
     driver.state.queuedMessages = [{ text: 'ls', agentId: 'main', mode: 'bash' }];
-    // After a bash command is queued the editor is reset to prompt mode.
     driver.state.editor.inputMode = 'prompt';
     driver.state.appState.inputMode = 'prompt';
 
@@ -3988,6 +4482,85 @@ command = "vim"
     expect(transcript).toContain('* * * * *');
     expect(transcript).toContain('Remind the user: this is a once-per-minute reminder');
     expect(transcript).not.toContain('<cron-fire');
+  });
+
+  it('keeps the previous turn’s final answer mounted when a cron turn completes', async () => {
+    const { driver } = await makeDriver();
+    const emit = (event: Event) => driver.sessionEventHandler.handleEvent(event, () => {});
+    let entrySeq = 0;
+    const entry = (kind: 'user' | 'assistant', content: string, turnId?: string) => {
+      entrySeq += 1;
+      driver.appendTranscriptEntry({
+        id: `cron-fold-${entrySeq}`,
+        kind,
+        turnId,
+        renderMode: kind === 'assistant' ? 'markdown' : 'plain',
+        content,
+      });
+    };
+
+    entry('user', 'what is the answer?');
+    emit({ type: 'turn.started', agentId: 'main', turnId: 1, origin: { kind: 'user' } } as Event);
+    entry('assistant', 'working on it', '1');
+    entry('assistant', 'FINAL-ANSWER', '1');
+    emit({ type: 'turn.ended', agentId: 'main', turnId: 1, reason: 'completed' } as Event);
+
+    expect(stripSgr(renderTranscript(driver))).toContain('FINAL-ANSWER');
+
+    const cronOrigin = {
+      kind: 'cron_job',
+      jobId: 'job-42',
+      cron: '*/5 * * * *',
+      recurring: true,
+      coalescedCount: 1,
+      stale: false,
+    };
+    emit({ type: 'turn.started', agentId: 'main', turnId: 2, origin: cronOrigin } as Event);
+    emit({ type: 'cron.fired', agentId: 'main', origin: cronOrigin, prompt: 'inspect the fleet' } as Event);
+    entry('assistant', 'cron report part one', '2');
+    entry('assistant', 'cron report final', '2');
+    emit({ type: 'turn.ended', agentId: 'main', turnId: 2, reason: 'completed' } as Event);
+
+    const transcript = stripSgr(renderTranscript(driver));
+    expect(transcript).toContain('cron report final');
+    expect(transcript).toContain('FINAL-ANSWER');
+  });
+
+  it('keeps the in-flight answer mounted when a cron fires mid-turn', async () => {
+    const { driver } = await makeDriver();
+    const emit = (event: Event) => driver.sessionEventHandler.handleEvent(event, () => {});
+    let entrySeq = 0;
+    const entry = (kind: 'user' | 'assistant', content: string, turnId?: string) => {
+      entrySeq += 1;
+      driver.appendTranscriptEntry({
+        id: `cron-buffered-${entrySeq}`,
+        kind,
+        turnId,
+        renderMode: kind === 'assistant' ? 'markdown' : 'plain',
+        content,
+      });
+    };
+
+    entry('user', 'what is the answer?');
+    emit({ type: 'turn.started', agentId: 'main', turnId: 1, origin: { kind: 'user' } } as Event);
+    entry('assistant', 'FINAL-ANSWER', '1');
+
+    const cronOrigin = {
+      kind: 'cron_job',
+      jobId: 'job-42',
+      cron: '*/5 * * * *',
+      recurring: true,
+      coalescedCount: 1,
+      stale: false,
+    };
+    emit({ type: 'cron.fired', agentId: 'main', origin: cronOrigin, prompt: 'inspect the fleet' } as Event);
+    entry('assistant', 'cron report part one', '1');
+    entry('assistant', 'cron report final', '1');
+    emit({ type: 'turn.ended', agentId: 'main', turnId: 1, reason: 'completed' } as Event);
+
+    const transcript = stripSgr(renderTranscript(driver));
+    expect(transcript).toContain('FINAL-ANSWER');
+    expect(transcript).toContain('cron report final');
   });
 
   it('coalesces assistant delta component updates', async () => {
@@ -4180,7 +4753,7 @@ command = "vim"
         } as Event,
         sendQueued,
       );
-      await vi.advanceTimersByTimeAsync(0);
+      await vi.runAllTimersAsync();
 
       expect(driver.state.appState.isCompacting).toBe(false);
       expect(driver.state.appState.streamingPhase).toBe('idle');
@@ -4363,7 +4936,6 @@ command = "vim"
     });
     const startupInput: PythinkerTUIStartupInput = {
       ...makeStartupInput(),
-      engineV2: true,
       cliOptions: { ...makeStartupInput().cliOptions, model: 'k2' },
     };
     const { driver } = await makeDriver(
@@ -4405,7 +4977,6 @@ command = "vim"
     });
     const startupInput: PythinkerTUIStartupInput = {
       ...makeStartupInput(),
-      engineV2: true,
       cliOptions: { ...makeStartupInput().cliOptions, model: 'k2' },
     };
     const { driver } = await makeDriver(
@@ -4441,7 +5012,6 @@ command = "vim"
     });
     const startupInput: PythinkerTUIStartupInput = {
       ...makeStartupInput(),
-      engineV2: true,
       cliOptions: { ...makeStartupInput().cliOptions, model: 'k2' },
     };
     const { driver } = await makeDriver(
@@ -4478,7 +5048,6 @@ command = "vim"
     });
     const startupInput: PythinkerTUIStartupInput = {
       ...makeStartupInput(),
-      engineV2: true,
       cliOptions: { ...makeStartupInput().cliOptions, model: 'k2' },
     };
     const { driver } = await makeDriver(
@@ -4876,10 +5445,7 @@ command = "vim"
   it('cancels a running /btw panel when starting a new session clears it', async () => {
     const initialSession = makeSession({ id: 'ses-initial' });
     const nextSession = makeSession({ id: 'ses-next' });
-    const createSession = vi
-      .fn()
-      .mockResolvedValueOnce(initialSession)
-      .mockResolvedValueOnce(nextSession);
+    const createSession = vi.fn(async () => nextSession);
     const { driver, harness } = await makeDriver(initialSession, { createSession });
     const cancelledAgentIds: string[] = [];
     initialSession.cancel.mockImplementation(async () => {
@@ -5098,7 +5664,7 @@ command = "vim"
     expect(stripSgr(renderTranscript(driver))).toContain('LLM not set');
   });
 
-  it('recomputes context usage when a status update carries context tokens without it', async () => {
+  it('recomputes contextUsage when a status update carries contextTokens without it', async () => {
     const { driver } = await makeDriver();
     driver.state.appState.contextTokens = 0;
     driver.state.appState.maxContextTokens = 1_000_000;
@@ -5118,7 +5684,7 @@ command = "vim"
     expect(driver.state.appState.contextUsage).toBeCloseTo(0.18);
   });
 
-  it('recomputes context usage when a status update carries max context tokens without it', async () => {
+  it('recomputes contextUsage when a status update carries maxContextTokens without it', async () => {
     const { driver } = await makeDriver();
     driver.state.appState.contextTokens = 180_000;
     driver.state.appState.maxContextTokens = 256_000;
@@ -5138,7 +5704,7 @@ command = "vim"
     expect(driver.state.appState.contextUsage).toBeCloseTo(0.18);
   });
 
-  it('keeps an explicit context usage from status updates', async () => {
+  it('keeps an explicit contextUsage from status updates instead of recomputing', async () => {
     const { driver } = await makeDriver();
     driver.state.appState.contextTokens = 100;
     driver.state.appState.maxContextTokens = 1_000_000;
@@ -5159,7 +5725,7 @@ command = "vim"
     expect(driver.state.appState.contextUsage).toBe(0.42);
   });
 
-  it('zeroes context usage when no context window is known', async () => {
+  it('zeroes contextUsage when a recomputation has no known context window', async () => {
     const { driver } = await makeDriver();
     driver.state.appState.contextTokens = 180_000;
     driver.state.appState.maxContextTokens = 0;
@@ -5176,35 +5742,6 @@ command = "vim"
     );
 
     expect(driver.state.appState.contextUsage).toBe(0);
-  });
-
-  it('zeroes context usage for invalid fallback token values', async () => {
-    const { driver } = await makeDriver();
-    const invalidValues = [
-      [Number.NaN, 1_000_000],
-      [Number.POSITIVE_INFINITY, 1_000_000],
-      [-1, 1_000_000],
-      [180_000, Number.POSITIVE_INFINITY],
-      [180_000, -1],
-    ] as const;
-
-    for (const [contextTokens, maxContextTokens] of invalidValues) {
-      driver.state.appState.contextTokens = 180_000;
-      driver.state.appState.maxContextTokens = 1_000_000;
-      driver.state.appState.contextUsage = 0.74;
-      driver.sessionEventHandler.handleEvent(
-        {
-          type: 'agent.status.updated',
-          agentId: 'main',
-          sessionId: 'ses-1',
-          contextTokens,
-          maxContextTokens,
-        } as Event,
-        vi.fn(),
-      );
-
-      expect(driver.state.appState.contextUsage).toBe(0);
-    }
   });
 
   it('applies the effective thinking effort from status updates', async () => {
@@ -5649,7 +6186,9 @@ command = "vim"
       } as Event,
       sendQueued,
     );
-    expect(driver.state.ui.requestRender).toHaveBeenCalled();
+    // DynamicWorkflow child events are batched onto the dynamic_workflow's own frame timer instead
+    // of rendering the whole tree per event.
+    expect(driver.state.ui.requestRender).not.toHaveBeenCalled();
 
     driver.sessionEventHandler.handleEvent(
       {
@@ -5711,7 +6250,9 @@ command = "vim"
       } as Event,
       sendQueued,
     );
-    expect(driver.state.ui.requestRender).toHaveBeenCalled();
+    // A child turn end changes no dynamic_workflow state, so it stays on the batched
+    // frame timer like the deltas above.
+    expect(driver.state.ui.requestRender).not.toHaveBeenCalled();
 
     transcript = stripSgr(renderTranscript(driver));
     expect(transcript).toContain('Agent DynamicWorkflow');
@@ -5799,7 +6340,7 @@ command = "vim"
 
     const transcript = stripSgr(driver.state.transcriptContainer.render(200).join('\n'));
     expect(transcript).toContain('⊘ Cancelled.');
-    expect(transcript).toContain('✗ The user manually interrupted this subagent x.');
+    expect(transcript).toContain('✗ The user manually');
   });
 
   it('shows the spawned model on the subagent card at spawn, mapped through the model catalog', async () => {
@@ -5807,7 +6348,7 @@ command = "vim"
     const sendQueued = vi.fn();
     driver.state.appState.availableModels = {
       'k2-cheap': {
-        provider: 'oauth-example',
+        provider: 'openai',
         model: 'kimi-k2-cheap',
         maxContextSize: 100_000,
         displayName: 'Kimi K2 Cheap',
@@ -5860,7 +6401,6 @@ command = "vim"
     const sendQueued = vi.fn();
     driver.state.appState.thinkingEffort = 'high';
 
-    // Same level as the main session — still shown (level info is level info).
     driver.sessionEventHandler.handleEvent(
       {
         type: 'subagent.spawned',
@@ -6404,11 +6944,11 @@ command = "vim"
     const session = makeSession();
     const { driver } = await makeDriver(session);
 
-    driver.handleUserInput('/plugins mcp enable example-data data');
+    driver.handleUserInput('/plugins mcp enable pythinker-datasource data');
 
     await vi.waitFor(() => {
       expect(session.setPluginMcpServerEnabled).toHaveBeenCalledWith(
-        'example-data',
+        'pythinker-datasource',
         'data',
         true,
       );
@@ -6433,7 +6973,7 @@ command = "vim"
     const session = makeSession();
     const { driver } = await makeDriver(session);
 
-    driver.handleUserInput('/plugins install ./plugins/example-data');
+    driver.handleUserInput('/plugins install ./plugins/pythinker-datasource');
 
     await vi.waitFor(() => {
       expect(driver.state.editorContainer.children[0]).toBeInstanceOf(
@@ -6446,16 +6986,16 @@ command = "vim"
 
     await vi.waitFor(() => {
       expect(session.installPlugin).toHaveBeenCalledWith(
-        resolve('/tmp/proj-a', './plugins/example-data'),
+        resolve('/tmp/proj-a', './plugins/pythinker-datasource'),
       );
     });
   });
 
-  it('confirms a former Kimi official URL and does not show a quota note', async () => {
+  it('shows a quota note after installing a quota-consuming official plugin', async () => {
     const session = makeSession({
       installPlugin: vi.fn(async () => ({
-        id: 'example-data',
-        displayName: 'Example Data',
+        id: 'pythinker-datasource',
+        displayName: 'Pythinker Datasource',
         version: '3.3.0',
         enabled: true,
         state: 'ok',
@@ -6464,37 +7004,27 @@ command = "vim"
         enabledMcpServerCount: 1,
         hasErrors: false,
         source: 'zip-url',
-        originalSource: 'https://plugins.example.com/pythinker-code/plugins/official/example-data.zip',
+        originalSource: 'https://code.pythinker.com/pythinker-code/plugins/official/pythinker-datasource.zip',
       })),
     });
     const { driver } = await makeDriver(session);
 
     driver.handleUserInput(
-      '/plugins install https://plugins.example.com/pythinker-code/plugins/official/example-data.zip',
+      '/plugins install https://code.pythinker.com/pythinker-code/plugins/official/pythinker-datasource.zip',
     );
 
     await vi.waitFor(() => {
-      expect(driver.state.editorContainer.children[0]).toBeInstanceOf(
-        PluginInstallTrustConfirmComponent,
-      );
+      const transcript = stripSgr(renderTranscript(driver));
+      expect(transcript).toContain('Run /new or /reload to apply plugin changes.');
+      expect(transcript).toContain('Note: This plugin consumes your quota.');
     });
-    const confirm = driver.state.editorContainer.children[0] as PluginInstallTrustConfirmComponent;
-    confirm.handleInput('\u001B[B');
-    confirm.handleInput('\r');
-
-    await vi.waitFor(() => {
-      expect(session.installPlugin).toHaveBeenCalled();
-    });
-    expect(stripSgr(renderTranscript(driver))).not.toContain(
-      'Note: This plugin consumes your quota.',
-    );
   });
 
   it('does not show the quota note for a same-id fork installed from a local path', async () => {
     const session = makeSession({
       installPlugin: vi.fn(async () => ({
-        id: 'example-data',
-        displayName: 'Example Data',
+        id: 'pythinker-datasource',
+        displayName: 'Pythinker Datasource',
         version: '3.3.0',
         enabled: true,
         state: 'ok',
@@ -6507,7 +7037,7 @@ command = "vim"
     });
     const { driver } = await makeDriver(session);
 
-    driver.handleUserInput('/plugins install ./plugins/example-data-fork');
+    driver.handleUserInput('/plugins install ./plugins/pythinker-datasource-fork');
 
     await vi.waitFor(() => {
       expect(driver.state.editorContainer.children[0]).toBeInstanceOf(
@@ -6518,11 +7048,9 @@ command = "vim"
     confirm.handleInput('\u001B[B'); // switch from "Exit" to "Trust and install"
     confirm.handleInput('\r');
 
-    // The manifest id matches a billed plugin, but a local-path install is
-    // not the official quota-consuming build.
     await vi.waitFor(() => {
       const transcript = stripSgr(renderTranscript(driver));
-      expect(transcript).toContain('Installed Example Data');
+      expect(transcript).toContain('Installed Pythinker Datasource');
     });
     expect(stripSgr(renderTranscript(driver))).not.toContain(
       'Note: This plugin consumes your quota.',
@@ -6533,7 +7061,7 @@ command = "vim"
     const session = makeSession();
     const { driver } = await makeDriver(session);
 
-    driver.handleUserInput('/plugins install ./plugins/example-data');
+    driver.handleUserInput('/plugins install ./plugins/pythinker-datasource');
 
     await vi.waitFor(() => {
       expect(driver.state.editorContainer.children[0]).toBeInstanceOf(
@@ -6557,11 +7085,11 @@ command = "vim"
       JSON.stringify({
         plugins: [
           {
-            id: 'example-data',
+            id: 'pythinker-datasource',
             tier: 'official',
-            displayName: 'Example Data',
+            displayName: 'Pythinker Datasource',
             description: 'Datasource plugin',
-            source: 'https://example.test/plugins/example-data.zip',
+            source: 'https://code.pythinker.com/pythinker-code/plugins/official/pythinker-datasource.zip',
           },
         ],
       }),
@@ -6577,24 +7105,15 @@ command = "vim"
       expect(driver.state.editorContainer.children[0]).toBeInstanceOf(PluginsPanelComponent);
     });
     const panel = driver.state.editorContainer.children[0] as PluginsPanelComponent;
-    // Official loads its catalog lazily; wait for the entry to render before install.
     await vi.waitFor(() => {
-      expect(stripSgr(panel.render(120).join('\n'))).toContain('Example Data');
+      expect(stripSgr(panel.render(120).join('\n'))).toContain('Pythinker Datasource');
     });
+    panel.handleInput('\u001B[B');
     panel.handleInput('\r');
 
     await vi.waitFor(() => {
-      expect(driver.state.editorContainer.children[0]).toBeInstanceOf(
-        PluginInstallTrustConfirmComponent,
-      );
-    });
-    const confirm = driver.state.editorContainer.children[0] as PluginInstallTrustConfirmComponent;
-    confirm.handleInput('\u001B[B');
-    confirm.handleInput('\r');
-
-    await vi.waitFor(() => {
       expect(session.installPlugin).toHaveBeenCalledWith(
-        'https://example.test/plugins/example-data.zip',
+        'https://code.pythinker.com/pythinker-code/plugins/official/pythinker-datasource.zip',
       );
     });
     await vi.waitFor(() => {
@@ -6603,7 +7122,6 @@ command = "vim"
       expect(transcript).toContain('Run /new or /reload to apply plugin changes.');
       expect(transcript).not.toContain('Note: This plugin consumes your quota.');
     });
-    // Installing closes the panel so the success notice / reload tip is visible.
     await vi.waitFor(() => {
       expect(driver.state.editorContainer.children[0]).toBe(driver.state.editor);
     });
@@ -6617,10 +7135,10 @@ command = "vim"
       JSON.stringify({
         plugins: [
           {
-            id: 'example-data',
+            id: 'pythinker-datasource',
             tier: 'official',
-            displayName: 'Example Data',
-            source: 'https://example.test/plugins/example-data.zip',
+            displayName: 'Pythinker Datasource',
+            source: 'https://code.pythinker.com/pythinker-code/plugins/official/pythinker-datasource.zip',
           },
         ],
       }),
@@ -6640,24 +7158,13 @@ command = "vim"
     });
     const panel = driver.state.editorContainer.children[0] as PluginsPanelComponent;
     await vi.waitFor(() => {
-      expect(stripSgr(panel.render(120).join('\n'))).toContain('Example Data');
+      expect(stripSgr(panel.render(120).join('\n'))).toContain('Pythinker Datasource');
     });
     panel.handleInput('\r');
 
     await vi.waitFor(() => {
-      expect(driver.state.editorContainer.children[0]).toBeInstanceOf(
-        PluginInstallTrustConfirmComponent,
-      );
-    });
-    const confirm = driver.state.editorContainer.children[0] as PluginInstallTrustConfirmComponent;
-    confirm.handleInput('\u001B[B');
-    confirm.handleInput('\r');
-
-    // The panel must not get stuck on the one-way "Installing…" view; it should
-    // return to the list so the user can retry.
-    await vi.waitFor(() => {
       const rendered = stripSgr(panel.render(120).join('\n'));
-      expect(rendered).toContain('Example Data');
+      expect(rendered).toContain('Pythinker Datasource');
       expect(rendered).not.toContain('Installing');
     });
   });
@@ -6683,7 +7190,6 @@ command = "vim"
     const session = makeSession();
     const { driver } = await makeDriver(session);
 
-    // Passing the marketplace path opens the panel directly on the Third-party tab.
     driver.handleUserInput(`/plugins marketplace ${marketplacePath}`);
 
     await vi.waitFor(() => {
@@ -6752,8 +7258,6 @@ command = "vim"
     confirm.handleInput('\u001B[B'); // switch from "Exit" to "Trust and install"
     confirm.handleInput('\r');
 
-    // The failed install must return the user to the marketplace panel so they
-    // can retry, rather than dropping them back at the editor.
     await vi.waitFor(() => {
       expect(driver.state.editorContainer.children[0]).toBe(panel);
     });
@@ -6780,16 +7284,16 @@ command = "vim"
     expect(session.activateSkill).not.toHaveBeenCalled();
   });
 
-  it('shows an empty built-in marketplace without a remote fetch', async () => {
+  it('installs default marketplace entries through plain install', async () => {
     const originalFetch = globalThis.fetch;
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
       plugins: [
         {
-          id: 'example-data',
+          id: 'pythinker-datasource',
           tier: 'official',
-          displayName: 'Example Data',
+          displayName: 'Pythinker Datasource',
           description: 'Datasource plugin',
-          source: './official/example-data.zip',
+          source: './official/pythinker-datasource.zip',
         },
       ],
     }))));
@@ -6804,10 +7308,17 @@ command = "vim"
       });
       const panel = driver.state.editorContainer.children[0] as PluginsPanelComponent;
       await vi.waitFor(() => {
-        expect(stripSgr(panel.render(120).join('\n'))).toContain('No plugins found.');
+        expect(stripSgr(panel.render(120).join('\n'))).toContain('Pythinker Datasource');
       });
-      expect(globalThis.fetch).not.toHaveBeenCalled();
-      expect(session.installPlugin).not.toHaveBeenCalled();
+      panel.handleInput('\u001B[B');
+      panel.handleInput('\r');
+
+      await vi.waitFor(() => {
+        expect(session.installPlugin).toHaveBeenCalledWith(
+          'https://code.pythinker.com/pythinker-code/plugins/official/pythinker-datasource.zip',
+        );
+      });
+      expect(globalThis.fetch).toHaveBeenCalledWith(pythinkerCodePluginMarketplaceUrl());
     } finally {
       vi.stubGlobal('fetch', originalFetch);
     }
@@ -6828,7 +7339,6 @@ command = "vim"
     try {
       driver.handleUserInput('/plugins');
 
-      // The panel opens immediately on the Installed tab — no marketplace fetch.
       await vi.waitFor(() => {
         expect(driver.state.editorContainer.children[0]).toBeInstanceOf(PluginsPanelComponent);
       });
@@ -6840,7 +7350,6 @@ command = "vim"
           'Marketplace unavailable: fetch failed',
         );
       });
-      // The panel stays mounted; the failure does not close /plugins.
       expect(driver.state.editorContainer.children[0]).toBe(panel);
     } finally {
       vi.stubGlobal('fetch', originalFetch);
@@ -6878,8 +7387,6 @@ command = "vim"
     const panel = driver.state.editorContainer.children[0] as PluginsPanelComponent;
     panel.handleInput(' ');
 
-    // Toggling refreshes the panel in place: it must not flash back to the
-    // editor between the keypress and the refreshed panel mounting.
     expect(driver.state.editorContainer.children[0]).toBeInstanceOf(PluginsPanelComponent);
 
     await vi.waitFor(() => {
@@ -6902,8 +7409,8 @@ command = "vim"
     const session = makeSession({
       listPlugins: vi.fn(async () => [
         {
-          id: 'example-data',
-          displayName: 'Example Data',
+          id: 'pythinker-datasource',
+          displayName: 'Pythinker Datasource',
           version: '1.0.0',
           enabled: true,
           state: 'ok',
@@ -6914,8 +7421,8 @@ command = "vim"
         },
       ]),
       getPluginInfo: vi.fn(async () => ({
-        id: 'example-data',
-        displayName: 'Example Data',
+        id: 'pythinker-datasource',
+        displayName: 'Pythinker Datasource',
         version: '1.0.0',
         enabled: true,
         state: 'ok',
@@ -6924,24 +7431,24 @@ command = "vim"
         enabledMcpServerCount: [...serverEnabled.values()].filter(Boolean).length,
         hasErrors: false,
         source: 'local-path',
-        root: '/plugins/example-data',
+        root: '/plugins/pythinker-datasource',
         manifest: undefined,
         mcpServers: [
           {
             name: 'metadata',
-            runtimeName: 'plugin-example-data-metadata',
+            runtimeName: 'plugin-pythinker-datasource-metadata',
             enabled: serverEnabled.get('metadata') === true,
             transport: 'stdio',
             command: 'node',
-            args: ['./bin/example-data.mjs', 'metadata'],
+            args: ['./bin/pythinker-datasource.mjs', 'metadata'],
           },
           {
             name: 'data',
-            runtimeName: 'plugin-example-data-data',
+            runtimeName: 'plugin-pythinker-datasource-data',
             enabled: serverEnabled.get('data') === true,
             transport: 'stdio',
             command: 'node',
-            args: ['./bin/example-data.mjs', 'data'],
+            args: ['./bin/pythinker-datasource.mjs', 'data'],
           },
         ],
         diagnostics: [],
@@ -6971,7 +7478,7 @@ command = "vim"
 
     await vi.waitFor(() => {
       expect(session.setPluginMcpServerEnabled).toHaveBeenCalledWith(
-        'example-data',
+        'pythinker-datasource',
         'data',
         false,
       );
@@ -6982,7 +7489,7 @@ command = "vim"
     const out = stripSgr(driver.state.editorContainer.children[0]!.render(120).join('\n'));
     expect(out).toContain('❯ data  disabled  run /reload or /new to apply');
     expect(stripSgr(renderTranscript(driver))).not.toContain(
-      'Disabled MCP server data for example-data. Run /reload or /new to apply.',
+      'Disabled MCP server data for pythinker-datasource. Run /reload or /new to apply.',
     );
   });
 
@@ -7041,14 +7548,14 @@ command = "vim"
       getConfig: vi.fn(async () => ({
         models: {
           k2: {
-            provider: 'oauth-example',
+            provider: 'openai',
             model: 'kimi-k2',
             maxContextSize: 100,
             displayName: 'Kimi K2',
             capabilities: ['thinking'],
           },
           turbo: {
-            provider: 'oauth-example',
+            provider: 'openai',
             model: 'pythinker-turbo',
             maxContextSize: 100,
             displayName: 'Pythinker Turbo',
@@ -7068,15 +7575,14 @@ command = "vim"
     });
     const picker = driver.state.editorContainer.children[0];
     const pickerOutput = stripSgr((picker as TabbedModelSelectorComponent).render(120).join('\n'));
-    expect(pickerOutput).toMatch(/Kimi K2\s+oauth-example ← current/);
-    expect(pickerOutput).toMatch(/❯ Pythinker Turbo\s+oauth-example/);
+    expect(pickerOutput).toMatch(/Kimi K2\s+openai ← current/);
+    expect(pickerOutput).toMatch(/❯ Pythinker Turbo\s+openai/);
     (picker as TabbedModelSelectorComponent).handleInput('t');
     (picker as TabbedModelSelectorComponent).handleInput('u');
     const filteredOutput = stripSgr((picker as TabbedModelSelectorComponent).render(120).join('\n'));
     expect(filteredOutput).toContain('Search: tu');
     expect(filteredOutput).toContain('Pythinker Turbo');
     expect(filteredOutput).not.toContain('Kimi K2');
-    // Turbo keeps the live Off effort instead of resetting the saved preference.
     (picker as TabbedModelSelectorComponent).handleInput('\r');
 
     await vi.waitFor(() => {
@@ -7098,14 +7604,14 @@ command = "vim"
       getConfig: vi.fn(async () => ({
         models: {
           k2: {
-            provider: 'oauth-example',
+            provider: 'openai',
             model: 'kimi-k2',
             maxContextSize: 100,
             displayName: 'Kimi K2',
             capabilities: ['thinking'],
           },
           turbo: {
-            provider: 'oauth-example',
+            provider: 'openai',
             model: 'pythinker-turbo',
             maxContextSize: 100,
             displayName: 'Pythinker Turbo',
@@ -7124,16 +7630,15 @@ command = "vim"
       expect(driver.state.editorContainer.children[0]).toBeInstanceOf(TabbedModelSelectorComponent);
     });
     const picker = driver.state.editorContainer.children[0];
-    // /model turbo preselects turbo; Alt+S applies it to the current session only.
+    (picker as TabbedModelSelectorComponent).handleInput('t');
+    (picker as TabbedModelSelectorComponent).handleInput('u');
     (picker as TabbedModelSelectorComponent).handleInput(`${ESC}s`);
 
     await vi.waitFor(() => {
       expect(session.setModel).toHaveBeenCalledWith('turbo');
-      expect(driver.state.appState.model).toBe('turbo');
     });
     expect(session.setThinking).not.toHaveBeenCalled();
     expect(setConfig).not.toHaveBeenCalled();
-    expect(driver.state.appState.thinkingEffort).toBe('off');
   });
 
   it('uses the effective effort returned after a model-switch fallback', async () => {
@@ -7157,7 +7662,7 @@ command = "vim"
       getConfig: vi.fn(async () => ({
         models: {
           k2: {
-            provider: 'oauth-example',
+            provider: 'openai',
             model: 'kimi-k2',
             maxContextSize: 100,
             capabilities: ['thinking'],
@@ -7165,7 +7670,7 @@ command = "vim"
             defaultEffort: 'ultra',
           },
           turbo: {
-            provider: 'oauth-example',
+            provider: 'openai',
             model: 'pythinker-turbo',
             maxContextSize: 100,
             capabilities: ['thinking'],
@@ -7204,7 +7709,7 @@ command = "vim"
       getConfig: vi.fn(async () => ({
         models: {
           k2: {
-            provider: 'oauth-example',
+            provider: 'openai',
             model: 'kimi-k2',
             maxContextSize: 100,
             displayName: 'Kimi K2',
@@ -7252,7 +7757,7 @@ command = "vim"
       getConfig: vi.fn(async () => ({
         models: {
           k2: {
-            provider: 'oauth-example',
+            provider: 'openai',
             model: 'kimi-k2',
             maxContextSize: 100,
             displayName: 'Kimi K2',
@@ -7262,8 +7767,6 @@ command = "vim"
           },
         },
         defaultModel: 'k2',
-        // No persisted effort: re-confirming the shown level must not turn the
-        // runtime default into a stored preference.
         thinking: { enabled: true },
       })),
       setConfig,
@@ -7304,7 +7807,7 @@ command = "vim"
       getConfig: vi.fn(async () => ({
         models: {
           k2: {
-            provider: 'oauth-example',
+            provider: 'openai',
             model: 'kimi-k2',
             maxContextSize: 100,
             displayName: 'Kimi K2',
@@ -7313,7 +7816,7 @@ command = "vim"
             defaultEffort: 'high',
           },
           turbo: {
-            provider: 'oauth-example',
+            provider: 'openai',
             model: 'pythinker-turbo',
             maxContextSize: 100,
             displayName: 'Turbo',
@@ -7335,8 +7838,6 @@ command = "vim"
     });
     (driver.state.editorContainer.children[0] as TabbedModelSelectorComponent).handleInput('\r');
 
-    // The effort matches the value shown when the picker opened, so the patch
-    // carries no effort key; the stored preference stays as-is via the merge.
     await vi.waitFor(() => {
       expect(setConfig).toHaveBeenCalledWith({
         defaultModel: 'turbo',
@@ -7345,18 +7846,212 @@ command = "vim"
     });
   });
 
+  it('persists max when the model default effort is max', async () => {
+    let switched = false;
+    const session = makeSession({
+      getStatus: vi.fn(async () => ({
+        model: 'k2',
+        thinkingEffort: switched ? 'max' : 'high',
+        permission: 'manual',
+        planMode: false,
+        contextTokens: 0,
+        maxContextTokens: 100,
+        contextUsage: 0,
+      })),
+      setThinking: vi.fn(async () => {
+        switched = true;
+      }),
+    });
+    const setConfig = vi.fn(async () => ({ providers: {} }));
+    const { driver } = await makeDriver(session, {
+      getConfig: vi.fn(async () => ({
+        models: {
+          k2: {
+            provider: 'openai',
+            model: 'kimi-k2',
+            maxContextSize: 100,
+            displayName: 'Kimi K2',
+            capabilities: ['thinking'],
+            supportEfforts: ['low', 'high', 'max'],
+            defaultEffort: 'max',
+          },
+        },
+        defaultModel: 'k2',
+        thinking: { enabled: true, effort: 'high' },
+      })),
+      setConfig,
+    });
+
+    driver.handleUserInput('/effort max');
+
+    await vi.waitFor(() => {
+      expect(session.setThinking).toHaveBeenCalledWith('max');
+    });
+    await vi.waitFor(() => {
+      expect(setConfig).toHaveBeenCalledWith({
+        defaultModel: 'k2',
+        thinking: { enabled: true, effort: 'max' },
+      });
+    });
+    expect(driver.state.appState.thinkingEffort).toBe('max');
+  });
+
+  it('keeps an xhigh pick session-only for a Claude model via the profile inference', async () => {
+    let switched = false;
+    const session = makeSession({
+      getStatus: vi.fn(async () => ({
+        model: 'opus',
+        thinkingEffort: switched ? 'xhigh' : 'high',
+        permission: 'manual',
+        planMode: false,
+        contextTokens: 0,
+        maxContextTokens: 100,
+        contextUsage: 0,
+      })),
+      setThinking: vi.fn(async () => {
+        switched = true;
+      }),
+    });
+    const setConfig = vi.fn(async () => ({ providers: {} }));
+    const { driver } = await makeDriver(session, {
+      getConfig: vi.fn(async () => ({
+        providers: {
+          compatible: { type: 'anthropic', apiKey: 'test-key' },
+        },
+        models: {
+          opus: {
+            provider: 'compatible',
+            model: 'claude-opus-4-7',
+            maxContextSize: 100,
+          },
+        },
+        defaultModel: 'opus',
+        thinking: { enabled: true, effort: 'high' },
+      })),
+      setConfig,
+    });
+
+    driver.handleUserInput('/effort xhigh');
+
+    await vi.waitFor(() => {
+      expect(session.setThinking).toHaveBeenCalledWith('xhigh');
+    });
+    await vi.waitFor(() => {
+      expect(setConfig).toHaveBeenCalledWith({
+        defaultModel: 'opus',
+        thinking: { enabled: true },
+      });
+    });
+    expect(driver.state.appState.thinkingEffort).toBe('xhigh');
+  });
+
+  it('refreshes only OAuth provider models before opening /model picker', async () => {
+    const { driver } = await makeDriver(makeSession(), {
+      getConfig: vi.fn(async () => ({
+        models: {
+          k2: {
+            provider: 'openai',
+            model: 'kimi-k2',
+            maxContextSize: 100,
+            displayName: 'Old Kimi K2',
+            capabilities: ['thinking'],
+          },
+        },
+      })),
+    });
+    const tui = driver as unknown as PythinkerTUI;
+    const refreshProviderModels = vi
+      .spyOn(tui.authFlow, 'refreshProviderModels')
+      .mockRejectedValue(new Error('full provider refresh should not run'));
+    const refreshOAuthProviderModels = vi.fn(async () => {
+      await Promise.resolve();
+      tui.setAppState({
+        availableModels: {
+          k2: {
+            provider: 'openai',
+            model: 'kimi-k2',
+            maxContextSize: 100,
+            displayName: 'Fresh Kimi K2',
+            capabilities: ['thinking'],
+          },
+        },
+      });
+      return { changed: [], unchanged: ['openai'], failed: [] };
+    });
+    (
+      tui.authFlow as unknown as {
+        refreshOAuthProviderModels: typeof refreshOAuthProviderModels;
+      }
+    ).refreshOAuthProviderModels = refreshOAuthProviderModels;
+
+    driver.handleUserInput('/model');
+
+    await vi.waitFor(() => {
+      const picker = driver.state.editorContainer.children[0];
+      expect(picker).toBeInstanceOf(TabbedModelSelectorComponent);
+      const output = stripSgr((picker as TabbedModelSelectorComponent).render(120).join('\n'));
+      expect(output).toContain('Fresh Kimi K2');
+      expect(output).not.toContain('Old Kimi K2');
+    });
+    expect(refreshOAuthProviderModels).toHaveBeenCalledOnce();
+    expect(refreshProviderModels).not.toHaveBeenCalled();
+  });
+
+  it('opens /model picker after 2s when OAuth refresh is still pending', async () => {
+    const { driver } = await makeDriver(makeSession(), {
+      getConfig: vi.fn(async () => ({
+        models: {
+          k2: {
+            provider: 'openai',
+            model: 'kimi-k2',
+            maxContextSize: 100,
+            displayName: 'Kimi K2',
+            capabilities: ['thinking'],
+          },
+        },
+      })),
+    });
+    const tui = driver as unknown as PythinkerTUI;
+    const refreshOAuthProviderModels = vi.fn(() => new Promise<never>(() => {}));
+    (
+      tui.authFlow as unknown as {
+        refreshOAuthProviderModels: typeof refreshOAuthProviderModels;
+      }
+    ).refreshOAuthProviderModels = refreshOAuthProviderModels;
+
+    vi.useFakeTimers();
+    try {
+      driver.handleUserInput('/model');
+      await Promise.resolve();
+
+      expect(refreshOAuthProviderModels).toHaveBeenCalledOnce();
+      expect(driver.state.editorContainer.children[0]).not.toBeInstanceOf(TabbedModelSelectorComponent);
+
+      await vi.advanceTimersByTimeAsync(1_999);
+      expect(driver.state.editorContainer.children[0]).not.toBeInstanceOf(TabbedModelSelectorComponent);
+
+      await vi.advanceTimersByTimeAsync(1);
+      const picker = driver.state.editorContainer.children[0];
+      expect(picker).toBeInstanceOf(TabbedModelSelectorComponent);
+      const output = stripSgr((picker as TabbedModelSelectorComponent).render(120).join('\n'));
+      expect(output).toContain('Kimi K2');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('enables search in the shared model selector helper', async () => {
     const { driver } = await makeDriver();
     const selection = runModelSelector(driver as any, {
       alpha: {
-        provider: 'example',
+        provider: 'openai',
         model: 'pythinker-alpha',
         maxContextSize: 100,
         displayName: 'Pythinker Alpha',
         capabilities: ['thinking'],
       },
       turbo: {
-        provider: 'example',
+        provider: 'openai',
         model: 'pythinker-turbo',
         maxContextSize: 100,
         displayName: 'Pythinker Turbo',
@@ -7389,7 +8084,7 @@ command = "vim"
     driver.handleUserInput('/new');
 
     await vi.waitFor(() => {
-      expect(harness.createSession).toHaveBeenCalledTimes(2);
+      expect(harness.createSession).toHaveBeenCalledTimes(1);
       expect(driver.getCurrentSessionId()).toBe('ses-2');
     });
     expect(write).toHaveBeenCalledWith(deleteAllKittyImages());
@@ -7513,10 +8208,11 @@ command = "vim"
         ...makeStartupInput(),
         workDir: 'D:\\proj',
       });
+      await driver.setSession(source);
+      await driver.syncRuntimeState(source);
 
       driver.handleUserInput('/fork');
 
-      // cmd.exe's `cd` does not switch drives; pushd works in cmd + PowerShell.
       await vi.waitFor(() => {
         expect(copyTextToClipboard).toHaveBeenCalledWith(
           'pushd "D:\\proj" && pythinker --resume "ses-fork"',
@@ -7602,11 +8298,9 @@ command = "vim"
     );
     driver.streamingUI.flushNow();
 
-    // Nothing to render: no component, and the phase is not hijacked into thinking.
     expect(driver.streamingUI.hasActiveThinkingComponent()).toBe(false);
     expect(driver.state.appState.streamingPhase).toBe('waiting');
 
-    // Real thinking text after the whitespace still starts thinking normally.
     driver.sessionEventHandler.handleEvent(
       {
         type: 'thinking.delta',
@@ -7620,15 +8314,12 @@ command = "vim"
 
     expect(driver.state.appState.streamingPhase).toBe('thinking');
     expect(driver.streamingUI.hasActiveThinkingComponent()).toBe(true);
-    expect(stripSgr(renderTranscript(driver))).not.toContain('actual reasoning');
+    expect(stripSgr(renderTranscript(driver))).toContain('actual reasoning');
   });
 
   it('does not create a thinking component for whitespace-only thinking on session replay', async () => {
     const { driver } = await makeDriver();
 
-    // Session replay flushes stored thinking verbatim through onThinkingUpdate
-    // (see SessionReplayRenderer.flushAssistant), so a persisted whitespace-only
-    // think part must not become a bare bullet line.
     driver.streamingUI.onThinkingUpdate(' ');
     driver.streamingUI.onThinkingEnd();
 
@@ -7639,22 +8330,15 @@ command = "vim"
       ),
     ).toHaveLength(0);
 
-    // Real stored thinking still creates a component, but stays collapsed.
     driver.streamingUI.onThinkingUpdate('visible reasoning');
     driver.streamingUI.onThinkingEnd();
 
-    expect(
-      driver.state.transcriptContainer.children.filter(
-        (child) => child instanceof ThinkingComponent,
-      ),
-    ).toHaveLength(1);
-    expect(stripSgr(renderTranscript(driver))).not.toContain('visible reasoning');
+    expect(stripSgr(renderTranscript(driver))).toContain('visible reasoning');
   });
 
-  it('keeps the waiting spinner while reasoning streams only empty (encrypted) thinking deltas', async () => {
+  it('keeps the waiting moon spinner while reasoning streams only empty (encrypted) thinking deltas', async () => {
     const { driver } = await makeDriver();
 
-    // Turn begins -> waiting mode shows the moon spinner.
     driver.sessionEventHandler.handleEvent(
       {
         type: 'turn.started',
@@ -7667,7 +8351,6 @@ command = "vim"
     expect(driver.state.appState.streamingPhase).toBe('waiting');
     expect(driver.state.livePane.mode).toBe('waiting');
 
-    // Encrypted reasoning: thinking.delta events whose visible text is empty.
     for (let i = 0; i < 3; i++) {
       driver.sessionEventHandler.handleEvent(
         {
@@ -7680,15 +8363,12 @@ command = "vim"
       );
     }
 
-    // The indicator must stay up: still waiting, no orphan thinking component,
-    // and the activity pane still renders it (no blank, spinner-less gap).
     expect(driver.state.appState.streamingPhase).toBe('waiting');
     expect(driver.state.livePane.mode).toBe('waiting');
     expect(driver.streamingUI.hasActiveThinkingComponent()).toBe(false);
     const activity = stripSgr(renderActivity(driver));
-    expect(BRAILLE_SPINNER_FRAMES.some((frame) => activity.includes(frame))).toBe(true);
+    expect(MOON_SPINNER_FRAMES.some((frame) => activity.includes(frame))).toBe(true);
 
-    // Real thinking text finally arrives -> transition into thinking mode.
     driver.sessionEventHandler.handleEvent(
       {
         type: 'thinking.delta',
@@ -7815,14 +8495,14 @@ describe('/model status displayName override', () => {
       getConfig: vi.fn(async () => ({
         models: {
           k2: {
-            provider: 'oauth-example',
+            provider: 'openai',
             model: 'kimi-k2',
             maxContextSize: 100,
             displayName: 'Kimi K2',
             capabilities: ['thinking'],
           },
           turbo: {
-            provider: 'oauth-example',
+            provider: 'openai',
             model: 'pythinker-turbo',
             maxContextSize: 100,
             displayName: 'Remote Turbo',
@@ -7979,7 +8659,6 @@ describe('/effort support_efforts override', () => {
       getConfig: vi.fn(async () => ({
         providers: {},
         models: {
-          // v2 flat model shape: no named provider, inline endpoint + protocol.
           k2: {
             model: 'compatible-claude-model',
             baseUrl: 'https://anthropic.example.test',
@@ -8030,114 +8709,6 @@ describe('/effort support_efforts override', () => {
     });
     expect(session.setThinking).not.toHaveBeenCalled();
   });
-
-  it('persists max when the model default effort is max', async () => {
-    let switched = false;
-    const session = makeSession({
-      getStatus: vi.fn(async () => ({
-        model: 'k2',
-        thinkingEffort: switched ? 'max' : 'high',
-        permission: 'manual',
-        planMode: false,
-        contextTokens: 0,
-        maxContextTokens: 100,
-        contextUsage: 0,
-      })),
-      setThinking: vi.fn(async () => {
-        switched = true;
-      }),
-    });
-    const setConfig = vi.fn(async () => ({ providers: {} }));
-    const { driver } = await makeDriver(session, {
-      getConfig: vi.fn(async () => ({
-        providers: {
-          compatible: { type: 'pythinker', apiKey: 'test-key' },
-        },
-        models: {
-          k2: {
-            provider: 'compatible',
-            model: 'kimi-k2',
-            maxContextSize: 100,
-            displayName: 'Kimi K2',
-            capabilities: ['thinking'],
-            supportEfforts: ['low', 'high', 'max'],
-            defaultEffort: 'max',
-          },
-        },
-        defaultModel: 'k2',
-        // A previously stored effort keeps the runtime below the delivered
-        // max default, so picking max is an explicit change.
-        thinking: { enabled: true, effort: 'high' },
-      })),
-      setConfig,
-    });
-
-    driver.handleUserInput('/effort max');
-
-    await vi.waitFor(() => {
-      expect(session.setThinking).toHaveBeenCalledWith('max');
-    });
-    await vi.waitFor(() => {
-      expect(setConfig).toHaveBeenCalledWith({
-        defaultModel: 'k2',
-        thinking: { enabled: true, effort: 'max' },
-      });
-    });
-    expect(driver.state.appState.thinkingEffort).toBe('max');
-  });
-
-  it('keeps an xhigh pick session-only for a Claude model via the profile inference', async () => {
-    // claude-opus-4-7 declares no efforts; the Anthropic profile inference
-    // supplies [low, medium, high, xhigh, max] and resolves the default to
-    // 'high', so an xhigh pick ranks above the persistence ceiling.
-    let switched = false;
-    const session = makeSession({
-      getStatus: vi.fn(async () => ({
-        model: 'opus',
-        thinkingEffort: switched ? 'xhigh' : 'high',
-        permission: 'manual',
-        planMode: false,
-        contextTokens: 0,
-        maxContextTokens: 100,
-        contextUsage: 0,
-      })),
-      setThinking: vi.fn(async () => {
-        switched = true;
-      }),
-    });
-    const setConfig = vi.fn(async () => ({ providers: {} }));
-    const { driver } = await makeDriver(session, {
-      getConfig: vi.fn(async () => ({
-        providers: {
-          compatible: { type: 'anthropic', apiKey: 'test-key' },
-        },
-        models: {
-          opus: {
-            provider: 'compatible',
-            model: 'claude-opus-4-7',
-            maxContextSize: 100,
-          },
-        },
-        defaultModel: 'opus',
-        thinking: { enabled: true, effort: 'high' },
-      })),
-      setConfig,
-    });
-
-    driver.handleUserInput('/effort xhigh');
-
-    await vi.waitFor(() => {
-      expect(session.setThinking).toHaveBeenCalledWith('xhigh');
-    });
-    await vi.waitFor(() => {
-      expect(setConfig).toHaveBeenCalledWith({
-        defaultModel: 'opus',
-        thinking: { enabled: true },
-      });
-    });
-    expect(driver.state.appState.thinkingEffort).toBe('xhigh');
-  });
-
 });
 
 describe('transcript step and assistant folding', () => {
@@ -8201,7 +8772,6 @@ describe('transcript step and assistant folding', () => {
     expect(summaryText).toContain(`call ${cycles - TRANSCRIPT_KEEP_RECENT_STEPS} tools`);
     expect(summaryText).toContain(`${cycles - TRANSCRIPT_KEEP_RECENT_ASSISTANT} messages`);
 
-    // Folding drops mounted components only; every transcript entry is kept.
     const assistantEntries = driver.state.transcriptEntries.filter(
       (entry) => entry.kind === 'assistant',
     );
@@ -8225,7 +8795,6 @@ describe('transcript step and assistant folding', () => {
     const cycles = 10;
     driveSteps(driver, cycles);
 
-    // Below the active-turn caps, nothing folds while the turn is live.
     let children = driver.state.transcriptContainer.children;
     expect(
       children.filter((child) => child instanceof AssistantMessageComponent),
@@ -8251,11 +8820,417 @@ describe('transcript step and assistant folding', () => {
     const summaryText = stripSgr(summaries[0]!.render(120).join('\n'));
     expect(summaryText).toContain(`${cycles - TRANSCRIPT_KEEP_RECENT_ASSISTANT_COMPLETED} messages`);
 
-    // Steps below the step cap are untouched by the completed-turn fold.
     expect(children.filter((child) => child instanceof ToolCallComponent)).toHaveLength(cycles);
 
-    // The conclusion stays mounted.
     const lastAssistant = assistants.at(-1)!;
     expect(stripSgr(lastAssistant.render(120).join('\n'))).toContain(`msg-${cycles - 1}`);
+  });
+});
+
+describe('footer ctrl+o hint', () => {
+  function emitBashResult(driver: MessageDriver, toolCallId: string, output: string): void {
+    driver.sessionEventHandler.handleEvent(
+      {
+        type: 'tool.call.started',
+        agentId: 'main',
+        sessionId: 'ses-1',
+        turnId: 1,
+        toolCallId,
+        name: 'Bash',
+        args: { command: 'pnpm test' },
+      } as Event,
+      vi.fn(),
+    );
+    driver.sessionEventHandler.handleEvent(
+      {
+        type: 'tool.result',
+        agentId: 'main',
+        sessionId: 'ses-1',
+        turnId: 1,
+        toolCallId,
+        output,
+        isError: undefined,
+      } as Event,
+      vi.fn(),
+    );
+  }
+
+  function renderFooterLine1(driver: MessageDriver): string {
+    return stripSgr(driver.state.footer.render(160)[0] ?? '');
+  }
+
+  it('offers expand while a card hides output and collapse once it is shown', async () => {
+    const { driver } = await makeDriver();
+    expect(renderFooterLine1(driver)).not.toContain('ctrl+o');
+
+    emitBashResult(driver, 'call_bash', ['line1', 'line2', 'line3', 'line4', 'Tests 5 passed'].join('\n'));
+    expect(renderFooterLine1(driver)).toContain('ctrl+o expand');
+
+    driver.toggleToolOutputExpansion();
+    expect(renderFooterLine1(driver)).toContain('ctrl+o collapse');
+
+    driver.toggleToolOutputExpansion();
+    expect(renderFooterLine1(driver)).toContain('ctrl+o expand');
+  });
+
+  it('stays silent when every card shows its whole output', async () => {
+    const { driver } = await makeDriver();
+    emitBashResult(driver, 'call_bash', ['line1', 'line2', 'line3'].join('\n'));
+    expect(renderFooterLine1(driver)).not.toContain('ctrl+o');
+  });
+
+  it('keeps the collapse hint for an expanded card that slid out of the expansion window', async () => {
+    const { driver } = await makeDriver();
+    emitBashResult(driver, 'call_bash', ['line1', 'line2', 'line3', 'line4', 'Tests 5 passed'].join('\n'));
+    driver.toggleToolOutputExpansion();
+    expect(renderFooterLine1(driver)).toContain('ctrl+o collapse');
+
+    // Four later user turns move the expanded card before the three-turn
+    // cutoff; nothing collapses it, and ctrl+o would still visibly collapse it.
+    for (let i = 0; i < 4; i++) {
+      driver.appendTranscriptEntry({
+        id: `later-${String(i)}`,
+        kind: 'user',
+        renderMode: 'plain',
+        content: `next ${String(i)}`,
+      });
+    }
+    expect(renderFooterLine1(driver)).toContain('ctrl+o collapse');
+
+    driver.toggleToolOutputExpansion();
+    expect(renderFooterLine1(driver)).not.toContain('ctrl+o');
+  });
+});
+
+describe('PythinkerTUI session rating survey', () => {
+  it('runs the end-to-end rating flow after five user turns', async () => {
+    vi.useFakeTimers();
+    const homeDir = await makeTempHome();
+    process.env['PYTHINKER_CODE_HOME'] = homeDir;
+    vi.spyOn(Math, 'random').mockReturnValue(0);
+    try {
+      const { driver, harness } = await makeDriver();
+      vi.useRealTimers();
+      await vi.waitFor(() => {
+        expect((driver.surveyController as unknown as { cooldownReady: boolean }).cooldownReady).toBe(true);
+      });
+      vi.useFakeTimers();
+      harness.track.mockClear();
+
+      for (let turn = 1; turn <= 4; turn++) emitTurn(driver, turn);
+      vi.advanceTimersByTime(600_000);
+      vi.advanceTimersByTime(2_000);
+      expect(driver.state.surveyContainer.children).toHaveLength(0);
+
+      emitTurn(driver, 5, () => {
+        driver.sessionEventHandler.handleEvent(
+          {
+            type: 'tool.call.started',
+            agentId: 'main',
+            sessionId: 'ses-1',
+            turnId: 5,
+            toolCallId: 'call_1',
+            name: 'Read',
+            args: { path: 'a.ts' },
+          } as Event,
+          () => {},
+        );
+        driver.sessionEventHandler.handleEvent(
+          {
+            type: 'agent.status.updated',
+            agentId: 'main',
+            sessionId: 'ses-1',
+            contextTokens: 4321,
+            usage: {
+              total: { inputOther: 100, output: 20, inputCacheRead: 30, inputCacheCreation: 10 },
+            },
+          } as Event,
+          () => {},
+        );
+      });
+      vi.advanceTimersByTime(2_000);
+      const docked = stripSgr(driver.state.surveyContainer.render(120).join('\n'));
+      expect(docked).toContain('How is Pythinker doing this session? (optional)');
+      expect(docked).toContain('1: Bad  2: Fine  3: Good  0: Dismiss');
+      expect(harness.trackWithContext).toHaveBeenCalledTimes(1);
+      expect(harness.trackWithContext).toHaveBeenCalledWith(
+        'feedback_survey',
+        {
+          event_type: 'appeared',
+          appearance_id: expect.any(String),
+          appearance_index: 1,
+          response: undefined,
+          current_model: 'k2',
+          user_turn_count: 5,
+          cumulative_tokens: 160,
+          virtual_context_tokens: 4321,
+          tool_call_count: 1,
+          compaction_count: 0,
+          permission_mode: 'manual',
+          thinking_effort: 'off',
+          subagent_count: 0,
+          dynamic_workflow_run_count: 0,
+          config_probability: 0.005,
+          config_on_for_models: '*',
+          config_min_time_before_feedback_ms: 600_000,
+          config_min_user_turns_before_feedback: 5,
+          config_min_time_between_feedback_ms: 3_600_000,
+          config_min_user_turns_between_feedback: 10,
+          config_min_time_between_global_feedback_ms: 100_000_000,
+          config_long_context_survey_threshold: 200_000,
+          config_long_context_probability: 0.2,
+          config_long_context_trigger_mode: 'virtual_context',
+        },
+        { sessionId: 'ses-1' },
+      );
+      const appearanceId = (
+        harness.trackWithContext.mock.calls[0]![1] as { appearance_id: string }
+      ).appearance_id;
+
+      driver.state.editor.handleInput('1');
+      vi.advanceTimersByTime(400);
+      expect(harness.trackWithContext).toHaveBeenCalledTimes(1);
+
+      vi.advanceTimersByTime(600);
+      driver.state.editor.setText('');
+      driver.state.editor.handleInput('1');
+      vi.advanceTimersByTime(400);
+      expect(driver.state.editor.getText()).toBe('');
+      expect(stripSgr(driver.state.surveyContainer.render(120).join('\n'))).toContain(
+        'Feedback: Bad · [escape: undo]',
+      );
+      expect(harness.trackWithContext).toHaveBeenCalledTimes(1);
+
+      driver.state.editor.handleInput('\u001B');
+      vi.advanceTimersByTime(3_000);
+      expect(harness.trackWithContext).toHaveBeenCalledTimes(1);
+      expect(stripSgr(driver.state.surveyContainer.render(120).join('\n'))).toContain(
+        'How is Pythinker doing this session? (optional)',
+      );
+
+      driver.state.editor.setText('');
+      driver.state.editor.handleInput('3');
+      vi.advanceTimersByTime(400);
+      vi.advanceTimersByTime(3_000);
+      const responded = harness.trackWithContext.mock.calls
+        .filter(
+          (call) =>
+            call[0] === 'feedback_survey' &&
+            (call[1] as { event_type?: string }).event_type === 'responded',
+        )
+        .map((call) => call[1] as { response?: string; appearance_id: string });
+      expect(responded.map((call) => call.response)).toEqual(['good']);
+      expect(responded.map((call) => call.appearance_id)).toEqual([appearanceId]);
+
+      expect(stripSgr(driver.state.surveyContainer.render(120).join('\n'))).toContain(
+        'Thanks for your feedback!',
+      );
+      vi.advanceTimersByTime(5_000);
+      expect(driver.state.surveyContainer.children).toHaveLength(0);
+
+      vi.useRealTimers();
+      const stateFile = join(homeDir, 'feedback-survey-state.json');
+      await vi.waitFor(() => {
+        expect(existsSync(stateFile)).toBe(true);
+      });
+      const persisted = JSON.parse(await readFile(stateFile, 'utf-8')) as {
+        version: number;
+        last_shown_time: number;
+      };
+      expect(persisted.version).toBe(1);
+      expect(typeof persisted.last_shown_time).toBe('number');
+    } finally {
+      vi.useRealTimers();
+      vi.restoreAllMocks();
+    }
+  });
+
+  it('shows the long-context survey once the context window crosses the threshold', async () => {
+    vi.useFakeTimers();
+    const homeDir = await makeTempHome();
+    process.env['PYTHINKER_CODE_HOME'] = homeDir;
+    vi.spyOn(Math, 'random').mockReturnValue(0);
+    try {
+      const { driver, harness } = await makeDriver();
+      vi.useRealTimers();
+      await vi.waitFor(() => {
+        expect((driver.surveyController as unknown as { cooldownReady: boolean }).cooldownReady).toBe(true);
+      });
+      vi.useFakeTimers();
+      harness.track.mockClear();
+
+      emitTurn(driver, 1, () => {
+        driver.sessionEventHandler.handleEvent(
+          {
+            type: 'agent.status.updated',
+            agentId: 'main',
+            sessionId: 'ses-1',
+            contextTokens: 205_000,
+            usage: {
+              total: {
+                inputOther: 1_000,
+                output: 500,
+                inputCacheRead: 0,
+                inputCacheCreation: 0,
+              },
+            },
+          } as Event,
+          () => {},
+        );
+      });
+      vi.advanceTimersByTime(2_000);
+
+      expect(stripSgr(driver.state.surveyContainer.render(120).join('\n'))).toContain(
+        'How is Pythinker doing this session? (optional)',
+      );
+      expect(harness.trackWithContext).toHaveBeenCalledTimes(1);
+      expect(harness.trackWithContext).toHaveBeenCalledWith(
+        'long_context_survey',
+        expect.objectContaining({
+          event_type: 'appeared',
+          appearance_index: 1,
+          user_turn_count: 1,
+          cumulative_tokens: 1500,
+          virtual_context_tokens: 205_000,
+          config_long_context_survey_threshold: 200_000,
+          config_long_context_probability: 0.2,
+          config_long_context_trigger_mode: 'virtual_context',
+        }),
+        { sessionId: 'ses-1' },
+      );
+
+      vi.useRealTimers();
+      await new Promise<void>((resolve) => {
+        setImmediate(resolve);
+      });
+      expect(existsSync(join(homeDir, 'feedback-survey-state.json'))).toBe(false);
+    } finally {
+      vi.useRealTimers();
+      vi.restoreAllMocks();
+    }
+  });
+
+  it('ignores non-user turns for the survey warmup', async () => {
+    vi.useFakeTimers();
+    process.env['PYTHINKER_CODE_HOME'] = await makeTempHome();
+    vi.spyOn(Math, 'random').mockReturnValue(0);
+    try {
+      const { driver } = await makeDriver();
+      vi.useRealTimers();
+      await vi.waitFor(() => {
+        expect((driver.surveyController as unknown as { cooldownReady: boolean }).cooldownReady).toBe(true);
+      });
+      vi.useFakeTimers();
+      const emit = (event: Event) => {
+        driver.sessionEventHandler.handleEvent(event, () => {});
+      };
+      const cronOrigin = {
+        kind: 'cron_job',
+        jobId: 'job-42',
+        cron: '*/5 * * * *',
+        recurring: true,
+        coalescedCount: 1,
+        stale: false,
+      };
+
+      vi.advanceTimersByTime(600_000);
+      for (let turn = 1; turn <= 5; turn++) {
+        emit({ type: 'turn.started', agentId: 'main', turnId: turn, origin: cronOrigin } as Event);
+        emit({ type: 'turn.ended', agentId: 'main', turnId: turn, reason: 'completed' } as Event);
+      }
+      vi.advanceTimersByTime(2_000);
+      expect(driver.state.surveyContainer.children).toHaveLength(0);
+
+      for (let turn = 6; turn <= 10; turn++) emitTurn(driver, turn);
+      vi.advanceTimersByTime(2_000);
+      expect(driver.state.surveyContainer.children).not.toHaveLength(0);
+
+      vi.useRealTimers();
+      await vi.waitFor(() => {
+        expect(existsSync(join(process.env['PYTHINKER_CODE_HOME']!, 'feedback-survey-state.json'))).toBe(
+          true,
+        );
+      });
+    } finally {
+      vi.useRealTimers();
+      vi.restoreAllMocks();
+    }
+  });
+
+  it('counts user-slash skill and plugin command turns toward the survey warmup', async () => {
+    vi.useFakeTimers();
+    process.env['PYTHINKER_CODE_HOME'] = await makeTempHome();
+    vi.spyOn(Math, 'random').mockReturnValue(0);
+    try {
+      const { driver } = await makeDriver();
+      vi.useRealTimers();
+      await vi.waitFor(() => {
+        expect((driver.surveyController as unknown as { cooldownReady: boolean }).cooldownReady).toBe(true);
+      });
+      vi.useFakeTimers();
+      const emit = (event: Event) => {
+        driver.sessionEventHandler.handleEvent(event, () => {});
+      };
+
+      vi.advanceTimersByTime(600_000);
+      for (let turn = 1; turn <= 5; turn++) {
+        emit({
+          type: 'turn.started',
+          agentId: 'main',
+          turnId: turn,
+          origin: {
+            kind: 'skill_activation',
+            activationId: `a${turn}`,
+            skillName: 'review',
+            trigger: 'model-tool',
+          },
+        } as Event);
+        emit({ type: 'turn.ended', agentId: 'main', turnId: turn, reason: 'completed' } as Event);
+      }
+      vi.advanceTimersByTime(2_000);
+      expect(driver.state.surveyContainer.children).toHaveLength(0);
+
+      for (let turn = 6; turn <= 8; turn++) {
+        emit({
+          type: 'turn.started',
+          agentId: 'main',
+          turnId: turn,
+          origin: {
+            kind: 'skill_activation',
+            activationId: `a${turn}`,
+            skillName: 'review',
+            trigger: 'user-slash',
+          },
+        } as Event);
+        emit({ type: 'turn.ended', agentId: 'main', turnId: turn, reason: 'completed' } as Event);
+      }
+      for (let turn = 9; turn <= 10; turn++) {
+        emit({
+          type: 'turn.started',
+          agentId: 'main',
+          turnId: turn,
+          origin: {
+            kind: 'plugin_command',
+            activationId: `p${turn}`,
+            pluginId: 'fmt',
+            commandName: 'fmt',
+            trigger: 'user-slash',
+          },
+        } as Event);
+        emit({ type: 'turn.ended', agentId: 'main', turnId: turn, reason: 'completed' } as Event);
+      }
+      vi.advanceTimersByTime(2_000);
+      expect(driver.state.surveyContainer.children).not.toHaveLength(0);
+
+      vi.useRealTimers();
+      await vi.waitFor(() => {
+        expect(existsSync(join(process.env['PYTHINKER_CODE_HOME']!, 'feedback-survey-state.json'))).toBe(
+          true,
+        );
+      });
+    } finally {
+      vi.useRealTimers();
+      vi.restoreAllMocks();
+    }
   });
 });

@@ -29,6 +29,7 @@ export const SLASH_COMMANDS: SlashCommand[] = [
   { name: '/discussion', desc: 'commands.expertTalk.desc' },
   { name: '/workflow',   desc: 'commands.dynamicWorkflow.desc', acceptsInput: true },
   { name: '/goal',       desc: 'commands.goal.desc', acceptsInput: true },
+  { name: '/tower',      desc: 'commands.tower.desc', acceptsInput: true },
   { name: '/btw',        desc: 'commands.btw.desc', acceptsInput: true },
   { name: '/compact',    desc: 'commands.compact.desc', acceptsInput: true },
   { name: '/undo',       desc: 'commands.undo.desc' },

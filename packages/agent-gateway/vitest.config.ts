@@ -7,6 +7,7 @@ import { rawTextPlugin } from '../../build/raw-text-plugin.mjs';
 export default defineConfig({
   plugins: [rawTextPlugin()],
   test: {
+    exclude: ['**/node_modules/**', '**/dist/**', '**/test/.skip/**'],
     name: 'agent-gateway',
     include: ['test/**/*.{test,e2e}.ts'],
     setupFiles: ['test/setup.ts'],

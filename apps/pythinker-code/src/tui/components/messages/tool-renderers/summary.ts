@@ -101,7 +101,7 @@ export const thinkSummary: ResultRenderer = withGlance(null);
 // carries the path, the chip the size, and the call preview the change. Any
 // other successful output (`No changes to make…`) is worth a row, shown the
 // same way in both states so ctrl+o has nothing to add.
-const FILE_CHANGE_ACK = /^(?:Replaced \d+ occurrences? in |Wrote|Appended)/;
+const FILE_CHANGE_ACK = /^(?:Replaced \d+ occurrences? in |(?:Wrote|Appended) \d+ bytes to )/;
 export const fileChangeSummary: ResultRenderer = (toolCall, result, ctx) => {
   if (result.is_error) return renderTruncated(toolCall, result, ctx);
   if (FILE_CHANGE_ACK.test(result.output)) return [];

@@ -23,27 +23,51 @@ After pasting, the input box shows a placeholder that you can edit like normal t
 
 ## Slash commands
 
-Anything starting with `/` is treated as a slash command. Typing `/` opens a completion menu that filters in real time as you keep typing; press `Esc` to close the menu. If nothing matches, the input is sent to the agent as a regular message.
+Type `/` to open the completion menu — it filters as you type, `Esc` closes it, and unmatched input goes to the agent as a regular message. Common commands:
 
-Active [Agent Skills](../customization/skills.md) are automatically registered as slash commands: ordinary external Skills are invoked with `/skill:<name>`, external sub-skills appear as dotted commands such as `/parent.child`, and built-in Skills appear directly as `/<name>` in the slash command panel. If an external skill name does not conflict with a system slash command, you can also drop the `skill:` prefix and type `/<name>` directly.
+| Command | Action |
+| --- | --- |
+| `/new` | Start a new session |
+| `/sessions` | Browse and resume past sessions |
+| `/compact` | Compact the current session's context |
+| `/undo` | Undo recent prompts |
+| `/model` | Switch the model used in the current session |
+| `/plan` | Toggle Plan mode (plan first, then execute) |
+| `/yolo` | Open the permission mode list with Ask When Needed preselected (routine edits and commands run automatically) |
+| `/goal` | Start or manage goal mode |
+| `/help` | Show all commands |
 
-Inside a longer prompt, typing `/` after whitespace — including at the start of a later line — opens a skill-only completion menu. You can reference several Skills in one prompt this way: Pythinker Code activates them together and runs them with the prompt as a single turn (one `/undo` reverts the whole submission), and the prompt text is sent unchanged. A Skill mention in a prompt never carries arguments — activation is by name only; arguments remain a standalone `/skill:<name> args` concept. Built-in and plugin commands still only work at the very start of the input.
-
-Some commands are only available when the agent is idle — you need to press `Esc` to interrupt streaming output or context compression before using them. Mode-selection and query commands like `/yolo`, `/plan`, `/help`, and `/btw` are always available. For the full list, see [Slash commands reference](../reference/slash-commands.md).
+Active [Agent Skills](../customization/skills.md) are also registered as slash commands (e.g. `/skill:<name>`). For the full list, see [Slash commands reference](../reference/slash-commands.md).
 
 ## File references
 
-Type `@` to trigger file-path completion. Selecting a path inserts its relative form into your message; the agent loads the file content directly when it reads the message. File references work in both git and non-git directories, and folder suggestions end with `/` so you can keep completing paths inside them. If the fast search helper is still downloading, Pythinker Code falls back to a basic filesystem scan. Hidden paths are available, but `.git` is excluded from suggestions.
+Type `@` to trigger file-path completion; the selected path is inserted in relative form, and the agent loads the file content directly when it reads your message.
 
-> `@` references and slash commands are two separate mechanisms: `@` gives the agent file context, while `/` invokes built-in features or Skills. After whitespace, `/` offers Skill completions only; use a leading `/` for built-in and plugin commands.
+- **Where it works**: both git and non-git directories; hidden paths are included, `.git` is excluded
+- **Folder suggestions**: end with `/`, so you can keep completing paths inside them
+- **Fallback**: while the fast search helper is still downloading, Pythinker Code falls back to a basic filesystem scan
+
+> `@` references and slash commands are two separate mechanisms: `@` gives the agent file context, while `/` invokes built-in features or Skills.
 
 ## Approval flow
 
-When the agent calls a tool that has side effects — modifying files, running commands — the TUI displays an approval panel for your confirmation. Approvals are not triggered for regular tool calls in Ask When Needed mode, nor for writes to plan files in Plan mode.
+When the agent calls a tool that has side effects — modifying files, running commands — the TUI displays an approval panel for your confirmation.
 
-Use the arrow keys to select an option and press `Enter` to confirm, or press `1` / `2` / `3` to select by number directly. `Esc`, `Ctrl-C`, and `Ctrl-D` are all equivalent to rejecting.
+- **Approve**: select with the arrow keys and press `Enter`, or press `1` / `2` / `3` to choose directly
+- **Reject**: `Esc`, `Ctrl-C`, or `Ctrl-D`
+- **Approve for this session**: auto-approves the same kind of call for the rest of the session
+- **Permanent rules**: add allow / deny entries in [Configuration files](../configuration/config-files.md#permission)
 
-The panel typically includes an **Approve for this session** option; selecting it auto-approves the same kind of call for the rest of the session. For permanent rules, add allow / deny entries in [Configuration files](../configuration/config-files.md#permission).
+Approvals are not triggered for regular tool calls in Ask When Needed mode, nor for writes to plan files in Plan mode.
+
+### The three permission modes
+
+**Always Ask mode** (formerly Manual) is the default: read-only operations run automatically, while every other action — editing files, running commands — asks for your confirmation one by one. Use it when you want full control over every change.
+
+**Ask When Needed mode** (formerly YOLO), enabled with `/yolo`, auto-approves regular tool calls, making it suitable for batch tasks you know are safe. It still asks before sensitive actions — accessing sensitive files such as `.env` or SSH keys, running dangerous commands such as `shutdown` or `rm -rf`, or exiting Plan mode — and the agent can still ask you questions.
+
+**Never Ask mode** (formerly Auto), enabled with `/auto`, is the fully unattended mode: every tool approval is handled automatically, including sensitive files and plan exits, and the agent never asks you questions — it decides everything on its own. The built-in dangerous-command guard asks for your confirmation before commands such as `shutdown`, `reboot`, or `rm -rf` in Always Ask and Ask When Needed mode; in Never Ask mode these commands run without interruption.
+
 
 ## Mode switching
 
@@ -55,34 +79,6 @@ In Plan mode the agent first outputs an action plan and waits for your approval 
 - Clear the current plan: `/plan clear` (only while idle)
 
 After producing a plan the agent pauses for your review — you can approve it, reject it, or ask for revisions. Exiting Plan mode requires your confirmation even if Ask When Needed mode is also active. Never Ask mode is the exception: plan exits are approved automatically and marked as "Auto-approved" in the transcript.
-
-### The three permission modes
-
-**Always Ask mode** (`manual`) is the default. Read-only operations run automatically; other actions ask for your approval. Select it from the permission mode list in `/settings`.
-
-**Ask When Needed mode** (`yolo`) runs routine edits and commands automatically. It still asks before sensitive file access, dangerous or unanalyzable commands, and Plan mode exits; the agent can also ask questions. Run `/yolo` to open the permission list with this mode selected, then press `Enter` to confirm.
-
-**Never Ask mode** (`auto`) runs tool actions and makes decisions without asking, including sensitive file access, dangerous commands, and Plan mode exits. Explicit deny rules still apply. Run `/auto` to open the permission list with this mode selected, then press `Enter` to confirm. Use it only for work you want to run unattended.
-
-::: warning
-Ask When Needed mode skips confirmation for file writes and command execution. Only use it in working directories you trust.
-:::
-
-### Discussion
-
-Discussion asks two different models for independent, read-only openings. Each model reviews the other opening. The Fusion Lead then creates one fresh final answer. The normal transcript shows the user message and final answer; the complete exchange remains expanded after it finishes and can still be closed manually.
-
-Discussion is experimental and requires the v2 engine. Set the flag before you start Pythinker Code CLI:
-
-```sh
-PYTHINKER_CODE_EXPERIMENTAL_EXPERT_TALK=1 pythinker
-```
-
-Run `/discussion configure` to select the Fusion Lead, Peer Expert, and their thinking efforts. Run `/discussion` or `/discussion arm` to apply the pair to the next accepted message only. The selected pair remains available in the session until you run `/discussion reset`. `/expert-talk` and `/expert-opinion` remain compatibility aliases.
-
-The full protocol runs automatically. Run `/discussion cancel` or press `Esc` to stop an active run. Run `/discussion retry` to repeat the complete run with a new ID. All model stages can only use read-only tools. See the [slash commands reference](../reference/slash-commands.md#modes--run-control) for the full command list.
-
-In the web UI, use **Settings → Discussion → Show reasoning stream** to show or hide opening, review, and Fusion reasoning. This display setting does not hide tools, answers, or metrics.
 
 ### Shell mode
 
@@ -96,6 +92,36 @@ Shell mode lets you run terminal commands without leaving the conversation. The 
 
 In shell mode the input box shows a `!` prompt on the left and the border turns violet. For example, you can run `!gh auth login` to sign in to the GitHub CLI without opening a new terminal, so Pythinker can use `gh` afterward.
 
+### Goal mode
+
+A goal keeps the agent working toward a defined outcome across turns — a normal prompt says what to do next, a goal says what must become true. Use `/goal` for tasks with a clear finish line and verifiable evidence, like fixing a batch of failing tests or tracking down why a build fails. For one-off edits or single-answer questions, a normal prompt is usually better.
+
+Write the objective after `/goal`, naming the finish line and the stop condition (up to 4000 characters; longer input is rejected and stays in the input box for editing):
+
+```sh
+/goal Fix every checkout-regression bug, add or update tests for each fix, then run the checkout test suite
+```
+
+Avoid broad objectives like `/goal find every bug in this codebase` — with no success criteria, the agent may block immediately or work far longer than expected. Clearly impossible goals (like `/goal prove that 1 + 1 = 3`) are marked as blocked right away.
+
+Common management commands:
+
+| Command | Action |
+| --- | --- |
+| `/goal` or `/goal status` | Show the current goal and its progress |
+| `/goal pause` / `/goal resume` | Pause / resume the goal |
+| `/goal cancel` | Cancel the goal (asks for confirmation; a cancelled goal cannot be resumed) |
+| `/goal replace <objective>` | Replace the current goal |
+| `/goal next <objective>` | Queue a follow-up goal that starts when the current one completes |
+
+A goal stops in three ways: **complete** — achieved, cleared, and summarized; **paused** — you paused it, interrupted a turn, or an error occurred; **blocked** — the agent can't continue as stated and writes a short message explaining why. The time budget only ticks while the goal is active and the session is open — closing the session or pausing the goal stops the clock, and `/goal resume` continues with the remaining budget after you reopen the session.
+
+In the web UI, the goal bar below the conversation lets you pause, resume, or cancel the goal directly; click it to expand details, including budget progress when a token budget is configured.
+
+Use `/goal next <objective>` to line up follow-up work without interrupting the current goal — queued goals stay invisible to the agent until the current one completes, then the first starts automatically. `/goal next manage` opens an interactive manager to reorder, edit, or delete queued goals (arrow keys to browse, `Space` to select, `E` to edit, `D` to delete, `Esc` to cancel). Queued goals never start while the current goal is paused, cancelled, or blocked.
+
+> Tip: in `manual` permission mode a goal may stop at tool approvals; non-interactive mode only supports creating goals (`pythinker -p "/goal ..."`) — exit code `0` on complete, `3` on blocked, `6` on paused.
+
 ## During streaming output
 
 The input box remains usable while the agent is thinking or calling tools, and supports the following extra actions:
@@ -103,6 +129,8 @@ The input box remains usable while the agent is thinking or calling tools, and s
 - **`Ctrl-S`**: inject the content in the input box into the running turn immediately, without waiting for it to finish
 - **`Esc` / `Ctrl-C`**: interrupt the current turn
 - **`Ctrl-O`**: globally toggle the collapsed/expanded state of tool output and compaction summaries
+
+When the agent is waiting for background tasks through `WaitFor`, pressing `Ctrl-S` ends that wait early. Background tasks keep running and existing tool results are preserved. If other foreground tools remain in the same batch, the agent processes your message after they return.
 
 ## External editor
 

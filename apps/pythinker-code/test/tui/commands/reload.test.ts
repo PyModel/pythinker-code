@@ -16,6 +16,8 @@ import {
 } from '#/tui/commands/experimental-flags';
 import {
   createMarkdownOptions,
+  getMarkdownMermaidMode,
+  setMarkdownMermaidMode,
   setMarkdownRenderLatex,
 } from '#/tui/utils/markdown-options';
 
@@ -84,7 +86,7 @@ auto_install = false
     });
     expect(session.reloadSession).not.toHaveBeenCalled();
     expect(host.reloadCurrentSessionView).toHaveBeenCalledWith(
-      { ...session, id: 'ses-1-reloaded' },
+      session,
       'Session reloaded.',
     );
     expect(host.harness.getConfig).toHaveBeenCalledWith({ reload: true });
@@ -143,6 +145,27 @@ auto_install = false
     }
   });
 
+  it('applies the mermaid mode before theme application rebuilds Markdown', async () => {
+    await writeTuiConfig('[markdown]\nmermaid = "off"\n');
+    const host = makeHost();
+
+    let mermaidWhenThemeApplied: string | undefined;
+    const mutable = host as unknown as { applyTheme: unknown };
+    mutable.applyTheme = vi.fn(() => {
+      mermaidWhenThemeApplied = getMarkdownMermaidMode();
+    });
+
+    try {
+      await handleReloadTuiCommand(host);
+      expect(mermaidWhenThemeApplied).toBe('off');
+      expect(host.setAppState).toHaveBeenCalledWith(
+        expect.objectContaining({ markdown: { mermaid: 'off' } }),
+      );
+    } finally {
+      setMarkdownMermaidMode('final');
+    }
+  });
+
   it('refreshes workspace commands and lazy defaults on a session-less v2 reload', async () => {
     await writeTuiConfig('theme = "dark"\n');
     const host = makeHost();
@@ -150,7 +173,6 @@ auto_install = false
     const refreshPluginCommands = vi.fn(async () => {});
     const hydrateLazyConfigDefaults = vi.fn(async () => {});
     Object.assign(host, {
-      engineV2: true,
       refreshSkillCommands,
       refreshPluginCommands,
       hydrateLazyConfigDefaults,
@@ -207,7 +229,7 @@ function makeHost({
     state,
     session,
     harness: {
-      reloadSession: vi.fn(async () => ({ ...session, id: 'ses-1-reloaded' })),
+      reloadSession: vi.fn(async () => session),
       getConfig: vi.fn(async () => ({
         models: {
           fresh: { provider: 'test', model: 'fresh-model', maxContextSize: 1000 },

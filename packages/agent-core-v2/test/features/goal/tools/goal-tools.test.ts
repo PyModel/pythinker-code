@@ -1,13 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import type { ToolCall } from '#/kosong/contract/message';
+import type { ToolCall } from '#human/llm/message';
 import {
   compileToolArgsValidator,
   validateToolArgs,
 } from '#/tool/args-validator';
 import { USER_PROMPT_ORIGIN } from '#/agent/contextMemory/types';
-import { AgentGoal, type GoalRuntime } from '#/features/goal/goalAgentRuntime';
-import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
+import { IAgentGoalService } from '#/features/goal/goalService';
 import { CreateGoalTool } from '#/features/goal/tools/create-goal/createGoalTool';
 import { GetGoalTool } from '#/features/goal/tools/get-goal/getGoalTool';
 import { SetGoalBudgetTool } from '#/features/goal/tools/set-goal-budget/setGoalBudgetTool';
@@ -32,33 +31,33 @@ import {
 } from '../../../harness';
 import { stubLoopWithHooks } from '../../../agent/loop/stubs';
 import { stubAgentDynamicWorkflow } from '../stubs';
+import { stubAgentContext } from '../../../agent/agentContext/stubs';
 
 const signal = new AbortController().signal;
 
 describe('goal tools', () => {
   let ctx: TestAgentContext;
-  let goals: GoalRuntime;
+  let goals: IAgentGoalService;
   let loopService: IAgentLoopService;
   let eventBus: IEventBus;
   let toolExecutor: IAgentToolExecutorService;
   let setGoalBudgetTool: SetGoalBudgetTool;
   let updateGoalTool: UpdateGoalTool;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     loopService = stubLoopWithHooks({ hasActiveTurn: true });
     ctx = createTestAgent(
       agentService(IAgentLoopService, loopService),
       agentService(IAgentDynamicWorkflowService, stubAgentDynamicWorkflow()),
       permissionModeServices('auto'),
     );
-    goals = ctx.resolve(AgentGoal);
-    void ctx.restoreRuntimes();
+    goals = ctx.get(IAgentGoalService);
+    await ctx.restorePersisted();
     eventBus = ctx.get(IEventBus);
     toolExecutor = ctx.get(IAgentToolExecutorService);
-    const manager = { resolve: () => goals } as unknown as IAgentLifecycleService;
-    const scopeContext = ctx.get(IAgentScopeContext);
-    setGoalBudgetTool = new SetGoalBudgetTool(manager, scopeContext);
-    updateGoalTool = new UpdateGoalTool(manager, scopeContext);
+    const scope = ctx.get(IAgentScopeContext);
+    setGoalBudgetTool = new SetGoalBudgetTool(goals, scope);
+    updateGoalTool = new UpdateGoalTool(goals, scope);
   });
 
   afterEach(async () => {
@@ -423,3 +422,4 @@ describe('goal tools', () => {
     return { type: 'function', id, name, arguments: JSON.stringify(args) };
   }
 });
+

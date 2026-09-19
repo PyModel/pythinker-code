@@ -15,6 +15,7 @@ import { resolveGithubCommitSha, resolveGithubSource } from './github-resolver';
 import { parseManifest, type ParsedManifestResult } from './manifest';
 import { resolveInstallSource } from './source';
 import { readInstalled, writeInstalled, type InstalledRecord } from './store';
+import type { PluginAgentRoot } from './types';
 import {
   normalizePluginId,
   type EnabledPluginSessionStart,
@@ -25,7 +26,6 @@ import {
   type PluginInfo,
   type PluginMcpServerEntry,
   type PluginMcpServerInfo,
-  type PluginAgentRoot,
   type PluginRecord,
   type PluginSource,
   type PluginSummary,

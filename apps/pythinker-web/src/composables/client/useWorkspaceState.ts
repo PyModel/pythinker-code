@@ -212,6 +212,8 @@ export interface PersistSessionProfilePatch {
   permissionMode?: string;
   planMode?: boolean;
   dynamicWorkflowMode?: boolean;
+  towerMode?: boolean;
+  towerBase?: string;
   goalObjective?: string;
   goalControl?: 'pause' | 'resume' | 'cancel';
   thinking?: string;
@@ -265,7 +267,7 @@ export interface UseWorkspaceStateDeps {
   saveDynamicWorkflowModeToStorage: () => void;
   saveGoalModeToStorage: () => void;
   /** Staged mode toggles for the not-yet-created draft session. */
-  draftModes: { planMode: boolean; dynamicWorkflowMode: boolean; goalMode: boolean };
+  draftModes: { planMode: boolean; dynamicWorkflowMode: boolean; goalMode: boolean; towerMode: boolean };
   saveUnread: (changes: Record<string, boolean>) => void;
   saveActiveWorkspaceToStorage: (id: string) => void;
   saveHiddenWorkspacesToStorage: (roots: string[]) => void;
@@ -277,6 +279,8 @@ export interface UseWorkspaceStateDeps {
   /** Diagnostic for the connecting splash, set by checkAuth on transient
    *  failures and cleared once a check gets through. */
   connectIssue: Ref<string | null>;
+  bootStage: Ref<'auth' | 'server' | 'config' | 'sessions' | 'session'>;
+  bootRetries: Ref<number>;
   selectedDiffPath: Ref<string | null>;
   fileDiffLines: Ref<DiffViewLine[]>;
   fileDiffLoading: Ref<boolean>;
@@ -326,6 +330,8 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
     onExpertTalkPromptAccepted,
     initialized,
     connectIssue,
+    bootStage,
+    bootRetries,
     selectedDiffPath,
     fileDiffLines,
     fileDiffLoading,
@@ -481,12 +487,14 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
    *  'retry'. Used only by the first load. */
   async function waitForFirstAuth(): Promise<AuthCheckResult> {
     let firstRetry = true;
+    bootRetries.value = 0;
     for (;;) {
       const result = await checkAuth();
       if (result !== 'retry') return result;
       // Keep the first quick failure silent — a single blip right after page
       // load shouldn't flash an error. Surface it from the 2nd failed attempt
       // (~2s in) onward, so a genuinely stuck connection stays diagnosable.
+      bootRetries.value += 1;
       if (firstRetry) {
         connectIssue.value = null;
         firstRetry = false;
@@ -1137,13 +1145,17 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
     const firstLoad = !initialized.value;
     let authResolved = true;
     try {
+      bootStage.value = 'auth';
+      bootRetries.value = 0;
       if (firstLoad && (await waitForFirstAuth()) === 'server-auth-required') {
         authResolved = false;
         traceStatus = 'auth-required';
         return;
       }
+      bootRetries.value = 0;
       const api = getPythinkerWebApi();
       // Parallel: health + meta + models
+      bootStage.value = 'server';
       await Promise.all([
         api.getHealth().catch(() => null),
         refreshServerMeta(),
@@ -1152,11 +1164,13 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
 
       // Check auth readiness and global config (separate calls — defensive)
       if (!firstLoad) await checkAuth();
+      bootStage.value = 'config';
       await loadConfig();
 
       // Start the grouped v2 page before workspaces so both requests overlap.
       // The first grouped page is enough to leave the splash; any remaining
       // workspace groups finish in the background.
+      bootStage.value = 'sessions';
       const sessionGroupLoad = beginInitialSessionGroupLoad();
       await loadWorkspaces();
       const groupedSessions =
@@ -1195,6 +1209,7 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
       // URL deep link (/sessions/<id>) takes priority over auto-select. The
       // session may live outside the loaded pages (e.g. archived) — fetch it then.
       // selectSession syncs the active workspace off the (now present) entry.
+      bootStage.value = 'session';
       bindSessionRoute();
       const urlSessionId =
         typeof window !== 'undefined' ? readSessionIdFromLocation(window.location) : undefined;
@@ -2539,6 +2554,27 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
     setPlanMode(!current);
   }
 
+  /** Persist and apply tower mode for the active session. Optional base branch
+   *  is forwarded when enabling. Draft sessions stage the flag until create. */
+  function setTowerMode(on: boolean, base?: string): void {
+    const sid = rawState.activeSessionId;
+    if (sid) {
+      rawState.towerModeBySession = { ...rawState.towerModeBySession, [sid]: on };
+      void persistSessionProfile({
+        towerMode: on,
+        ...(on && base !== undefined && base.trim() !== '' ? { towerBase: base.trim() } : {}),
+      });
+    } else {
+      draftModes.towerMode = on;
+    }
+  }
+
+  function toggleTowerMode(): void {
+    const sid = rawState.activeSessionId;
+    const current = sid ? (rawState.towerModeBySession[sid] ?? false) : draftModes.towerMode;
+    setTowerMode(!current);
+  }
+
   /** Persist and apply dynamic_workflow mode for the active session (pushed to its profile
    *  + sent per-prompt). With no active session the toggle is staged on the draft. */
   function setDynamicWorkflowMode(on: boolean): void {
@@ -3284,6 +3320,8 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
     detachTask,
     setPlanMode,
     togglePlanMode,
+    setTowerMode,
+    toggleTowerMode,
     setDynamicWorkflowMode,
     toggleDynamicWorkflowMode,
     setGoalMode,

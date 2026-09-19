@@ -1,23 +1,12 @@
-import { isProviderRateLimitError } from '#/kosong/contract/errors';
-import { type TokenUsage } from '#/kosong/contract/usage';
+import { isProviderRateLimitError } from '#/llm-adapter/contract/errors';
+import { type TokenUsage } from '#human/llm/usage';
 import * as retry from 'retry';
 
 import { isUserCancellation } from '#/_base/utils/abort';
 import { setClampedTimeout } from '#/_base/utils/timer';
-import { BugIndicatingError } from '#/errors';
+import { BugIndicatingError, Error2, ErrorCodes } from '#/errors';
 import type { SubagentSpawnPlan } from '#/session/subagent/spawn';
-import { SubagentRunStartError } from '#/session/subagent/subagent';
-import type {
-  SessionDynamicWorkflowRunResult,
-  SessionDynamicWorkflowTask,
-  SubagentRunBinding,
-} from './sessionDynamicWorkflow';
-
-function settledBinding(
-  binding: SubagentRunBinding | undefined,
-): (SubagentRunBinding & { readonly completedAt: number }) | undefined {
-  return binding === undefined ? undefined : { ...binding, completedAt: Date.now() };
-}
+import type { SessionDynamicWorkflowRunResult, SessionDynamicWorkflowTask } from './sessionDynamicWorkflow';
 
 export interface AgentRunAttemptOptions {
   readonly parentToolCallId: string;
@@ -27,7 +16,6 @@ export interface AgentRunAttemptOptions {
   readonly dynamicWorkflowIndex?: number;
   readonly runInBackground: boolean;
   readonly signal: AbortSignal;
-  readonly onAgentKnown?: (agentId: string) => void;
   readonly onReady?: () => void;
   readonly suppressRateLimitFailureEvent?: boolean;
 }
@@ -41,10 +29,10 @@ export interface AgentSpawnAttemptOptions extends AgentRunAttemptOptions {
 export type AgentRunAttemptHandle = {
   readonly agentId: string;
   readonly profileName: string;
-  readonly binding?: SubagentRunBinding;
   readonly completion: Promise<{
     readonly result: string;
     readonly usage?: TokenUsage;
+    readonly stopReason?: string;
   }>;
 };
 
@@ -55,6 +43,8 @@ const RATE_LIMIT_RETRY_FACTOR = 2;
 const RATE_LIMIT_CAPACITY_SHRINK_INTERVAL_MS = 2000;
 const RATE_LIMIT_CAPACITY_RECOVERY_INTERVAL_MS = 3 * 60 * 1000;
 const RATE_LIMIT_SUSPENDED_REASON = 'Provider rate limit; subagent requeued for retry.';
+
+const AGENT_DYNAMIC_WORKFLOW_MAX_CONCURRENCY_ENV = 'PYTHINKER_CODE_AGENT_DYNAMIC_WORKFLOW_MAX_CONCURRENCY';
 
 export type QueuedAgentRunTask<T = unknown> = SessionDynamicWorkflowTask<T>;
 
@@ -68,11 +58,19 @@ export type AgentRunSuspendedEvent = {
   readonly reason: string;
 };
 
+export type AgentRunAbandonedEvent = {
+  readonly task: QueuedAgentRunTask;
+  readonly agentId: string;
+  readonly outcome: 'cancelled' | 'failed';
+  readonly error?: string;
+};
+
 export type AgentRunBatchLauncher = {
   spawn(options: AgentSpawnAttemptOptions): Promise<AgentRunAttemptHandle>;
   resume(agentId: string, options: AgentRunAttemptOptions): Promise<AgentRunAttemptHandle>;
   retry(agentId: string, options: AgentRunAttemptOptions): Promise<AgentRunAttemptHandle>;
   suspended?(event: AgentRunSuspendedEvent): void;
+  abandoned?(event: AgentRunAbandonedEvent): void;
 };
 
 type RateLimitedOutcome = {
@@ -233,7 +231,6 @@ export class AgentRunBatch<T> {
 
     const now = Date.now();
     this.recoverRateLimitCapacity(now);
-    if (this.isAtConcurrencyLimit()) return;
     if (this.active.size >= this.rateLimitCapacity) {
       this.scheduleRateLimitWakeup(this.nextRateLimitCapacityRecoveryAt(), now);
       return;
@@ -288,9 +285,6 @@ export class AgentRunBatch<T> {
       dynamicWorkflowIndex: task.dynamicWorkflowIndex,
       runInBackground: task.runInBackground,
       signal: attempt.controller.signal,
-      onAgentKnown: (agentId) => {
-        attempt.state.agentId = agentId;
-      },
       onReady: () => {
         this.markAttemptReady(attempt);
       },
@@ -314,9 +308,6 @@ export class AgentRunBatch<T> {
         handle = await this.launcher.spawn(spawnOptions);
       }
     } catch (error) {
-      if (error instanceof SubagentRunStartError) {
-        attempt.state.agentId = error.agentId;
-      }
       return this.failedAttemptOutcome(attempt, error);
     }
 
@@ -329,7 +320,7 @@ export class AgentRunBatch<T> {
         status: 'completed',
         result: completion.result,
         usage: completion.usage,
-        binding: settledBinding(handle.binding),
+        stopReason: completion.stopReason,
       };
     } catch (error) {
       if (isProviderRateLimitError(error)) {
@@ -340,7 +331,7 @@ export class AgentRunBatch<T> {
         };
       }
 
-      return { ...this.failedAttemptOutcome(attempt, error), binding: settledBinding(handle.binding) };
+      return this.failedAttemptOutcome(attempt, error);
     }
   }
 
@@ -381,6 +372,12 @@ export class AgentRunBatch<T> {
     if ('status' in outcome) {
       this.results[attempt.state.index] = outcome;
     } else if (this.isOnlyUnfinishedTask(attempt.state)) {
+      this.launcher.abandoned?.({
+        task: attempt.state.task,
+        agentId: outcome.agentId,
+        outcome: 'failed',
+        error: outcome.error,
+      });
       this.results[attempt.state.index] = {
         task: attempt.state.task,
         agentId: outcome.agentId,
@@ -509,7 +506,6 @@ export class AgentRunBatch<T> {
 
   private scheduleNextRateLimitWakeup(now: number): void {
     if (this.pending.length === 0) return;
-    if (this.isAtConcurrencyLimit()) return;
 
     const nextWakeupAt =
       this.active.size >= this.rateLimitCapacity
@@ -542,22 +538,17 @@ export class AgentRunBatch<T> {
 
   private finishWithUserCancellation(): void {
     if (this.finished) return;
-    const activeStates = new Set(Array.from(this.active, (attempt) => attempt.state));
+    this.abandonSuspended();
 
     this.finish(
       this.states.map((state) => {
         const result = this.results[state.index];
         if (result !== undefined) return result;
-        const agentId =
-          state.agentId ??
-          (state.task.kind === 'resume' && activeStates.has(state)
-            ? state.task.resumeAgentId
-            : undefined);
 
-        if (state.started || agentId !== undefined) {
+        if (state.started || state.agentId !== undefined) {
           return {
             task: state.task,
-            agentId,
+            agentId: state.agentId,
             status: 'aborted',
             state: 'started',
             error:
@@ -585,9 +576,23 @@ export class AgentRunBatch<T> {
 
   private fail(error: unknown): void {
     if (this.finished) return;
+    this.abandonSuspended();
     this.finished = true;
     this.cleanup();
     this.reject?.(error);
+  }
+
+  private abandonSuspended(): void {
+    for (const state of this.pending) {
+      if (state.agentId === undefined) continue;
+      this.launcher.abandoned?.({ task: state.task, agentId: state.agentId, outcome: 'cancelled' });
+    }
+    for (const attempt of this.active) {
+      if (attempt.ready) continue;
+      const agentId = attempt.state.agentId;
+      if (agentId === undefined) continue;
+      this.launcher.abandoned?.({ task: attempt.state.task, agentId, outcome: 'cancelled' });
+    }
   }
 
   private cleanup(): void {
@@ -622,7 +627,7 @@ export class AgentRunBatch<T> {
         ? undefined
         : setClampedTimeout(() => {
             attempt.timedOut = true;
-            attempt.controller.abort(new Error('Aborted'));
+            attempt.controller.abort(new Error('Subagent timed out.'));
           }, task.timeout);
 
     if (this.controller.signal.aborted) {
@@ -653,3 +658,20 @@ export class AgentRunBatch<T> {
     return error instanceof Error ? error.message : String(error);
   }
 }
+
+export function resolveDynamicWorkflowMaxConcurrency(
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): number | undefined {
+  const raw = env[AGENT_DYNAMIC_WORKFLOW_MAX_CONCURRENCY_ENV];
+  if (raw === undefined || raw.trim() === '') return undefined;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new Error2(
+      ErrorCodes.VALIDATION_FAILED,
+      `${AGENT_DYNAMIC_WORKFLOW_MAX_CONCURRENCY_ENV} must be a positive integer, got ${JSON.stringify(raw)}.`,
+      { details: { value: raw } },
+    );
+  }
+  return value;
+}
+

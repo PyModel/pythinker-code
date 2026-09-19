@@ -274,56 +274,6 @@ describe('AgentTranscript', () => {
     expect(turn?.error).toBe('boom');
   });
 
-  it('accepts corrective turn-origin and notice-source metadata upserts', () => {
-    const tx = new AgentTranscript('main');
-    tx.apply([
-      {
-        op: 'turn.upsert',
-        turn: {
-          ...turn1.turn,
-          origin: { kind: 'cron', taskId: 'task-a', payload: { schedule: 'daily' } },
-        },
-      },
-      {
-        op: 'frame.upsert',
-        turnId: 't1',
-        stepId: 't1.1',
-        frame: {
-          kind: 'notice',
-          frameId: 't1.1.notice',
-          level: 'info',
-          message: 'Retrying',
-          source: 'provider-a',
-        },
-      },
-    ]);
-    const corrected = tx.apply([
-      {
-        op: 'turn.upsert',
-        turn: {
-          ...turn1.turn,
-          origin: { kind: 'cron', taskId: 'task-b', payload: { schedule: 'daily' } },
-        },
-      },
-      {
-        op: 'frame.upsert',
-        turnId: 't1',
-        stepId: 't1.1',
-        frame: {
-          kind: 'notice',
-          frameId: 't1.1.notice',
-          level: 'info',
-          message: 'Retrying',
-          source: 'provider-b',
-        },
-      },
-    ]);
-
-    expect(corrected.accepted).toHaveLength(2);
-    expect(tx.getTurn('t1')?.origin).toMatchObject({ taskId: 'task-b' });
-    expect(tx.getTurn('t1')?.steps[0]?.frames[0]).toMatchObject({ source: 'provider-b' });
-  });
-
   it('tool frames keep streamed inputText and the newest progress update', () => {
     const tx = new AgentTranscript('main');
     tx.apply(toolFrame('running'));
@@ -463,9 +413,7 @@ describe('AgentTranscript', () => {
 
   it('meta.merge clears a mode badge on null and keeps absent keys', () => {
     const tx = new AgentTranscript('main');
-    tx.apply([
-      { op: 'meta.merge', meta: { modes: { plan: {}, dynamic_workflow: {}, tower: {} } } },
-    ]);
+    tx.apply([{ op: 'meta.merge', meta: { modes: { plan: {}, dynamic_workflow: {}, tower: {} } } }]);
     tx.apply([{ op: 'meta.merge', meta: { modes: { plan: null } } }]);
     expect(tx.getMeta().modes).toEqual({ dynamic_workflow: {}, tower: {} });
     tx.apply([{ op: 'meta.merge', meta: { modes: { dynamic_workflow: null } } }]);

@@ -16,7 +16,7 @@ import { IModelService, modelRecordProviderId, type ModelsSection } from '#/koso
 import { type ProviderConfig, type ProvidersSection } from '#/kosong/provider/provider';
 import { modelsDevProviderModels, resolveModelsDevImport } from './modelsDev';
 
-import { MODELS_SECTION, PROVIDERS_SECTION } from './configSection';
+import { DEFAULT_MODEL_SECTION, MODELS_SECTION, PROVIDERS_SECTION } from './configSection';
 import { ModelsDevImportErrors } from './errors';
 import { IKosongConfigService } from './kosongConfig';
 import {
@@ -84,6 +84,12 @@ export class ModelsDevImportService implements IModelsDevImportService {
     options: ImportCustomRegistryOptions,
   ): Promise<ImportCustomRegistryResult> {
     return this.enqueueWrite(() => this.doImportCustomRegistry(options));
+  }
+
+  private async seedDefaultModelWhenUnset(config: IConfigService, alias: string): Promise<void> {
+    const current = config.inspect<string>(DEFAULT_MODEL_SECTION).userValue;
+    if (current !== undefined && current.trim() !== '') return;
+    await config.replace(DEFAULT_MODEL_SECTION, alias);
   }
 
   private enqueueWrite<T>(task: () => Promise<T>): Promise<T> {
@@ -165,6 +171,11 @@ export class ModelsDevImportService implements IModelsDevImportService {
     }
     await config.replace(MODELS_SECTION, nextModels);
 
+    const firstModel = models[0];
+    if (firstModel !== undefined) {
+      await this.seedDefaultModelWhenUnset(config, `${targetId}/${firstModel.id}`);
+    }
+
     await this.models.settled;
     const imported = await this.modelCatalog.getProvider(targetId);
     return { provider: imported, modelsImported: models.length };
@@ -238,6 +249,14 @@ export class ModelsDevImportService implements IModelsDevImportService {
     }
     await config.replace(PROVIDERS_SECTION, applied.providers as ProvidersSection);
     await config.replace(MODELS_SECTION, (applied.models ?? {}) as ModelsSection);
+
+    const firstEntry = Object.values(entries)[0];
+    if (firstEntry !== undefined) {
+      const firstModelId = Object.keys(firstEntry.models)[0];
+      if (firstModelId !== undefined) {
+        await this.seedDefaultModelWhenUnset(config, `${firstEntry.id}/${firstModelId}`);
+      }
+    }
 
     await this.models.settled;
     const imported = [];

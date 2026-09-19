@@ -1,9 +1,7 @@
 import { createReadStream } from 'node:fs';
 import { appendFile, mkdir } from 'node:fs/promises';
-import { dirname } from 'node:path';
+import { dirname, join } from 'node:path';
 import { ulid } from 'ulid';
-
-import { resolveStoragePath } from '../../../lib/storagePath';
 
 const JOURNAL_VERSION = 1;
 
@@ -47,8 +45,8 @@ export class SessionEventJournal {
   private _seq: number;
   private pendingLines: string[] = [];
   private flushPromise: Promise<void> | undefined;
-  private closed = false;
   private headerPending: boolean;
+  private closed = false;
 
   private constructor(
     private readonly filePath: string,
@@ -65,12 +63,7 @@ export class SessionEventJournal {
     return this._seq;
   }
 
-  static async open(
-    eventsDir: string,
-    sessionId: string,
-    logger: JournalLogger = noopLogger,
-  ): Promise<SessionEventJournal> {
-    const filePath = resolveStoragePath(eventsDir, `${sessionId}.jsonl`);
+  static async open(filePath: string, logger: JournalLogger = noopLogger): Promise<SessionEventJournal> {
     let epoch: string | undefined;
     let lastSeq = 0;
     let sawAnyLine = false;
@@ -184,6 +177,10 @@ export class SessionEventJournal {
       );
     }
   }
+}
+
+export function sessionJournalPath(eventsDir: string, sessionId: string): string {
+  return join(eventsDir, `${sessionId}.jsonl`);
 }
 
 function parseJournalLine(raw: string): JournalHeaderLine | JournalEventLine | undefined {

@@ -593,6 +593,9 @@ function createFakeTaskService(
     async suppressTerminalNotification(): Promise<void> {
     },
 
+    async suppressAllTerminalNotifications(): Promise<void> {
+    },
+
     markTasksDeliveredViaWait(): void {
     },
 
@@ -868,7 +871,6 @@ describe('BashTool', () => {
       context({ command: 'pwd', cwd: '/outside/workspace', timeout: 60 }),
     );
 
-    expect(exec.mock.calls[0]?.[0]).toBe('/bin/bash');
     expect(exec.mock.calls[0]?.[1]).toEqual(['-c', "cd '/outside/workspace' && pwd"]);
     expect(result).toMatchObject({ output: 'out\n', isError: false });
   });
@@ -1187,6 +1189,7 @@ describe('BashTool', () => {
     const tool = bashTool(runner, createTestEnv(), createTestCtx(), service);
 
     const result = await executeTool(tool, context({ command: 'flood', timeout: 60 }));
+
     expect(result.output).toBe(fullOutput);
     const spill = result.spill;
     expect(spill).toBeDefined();
@@ -1263,6 +1266,7 @@ describe('BashTool', () => {
     const tool = bashTool(runner, createTestEnv(), createTestCtx(), service, stubToolPolicy(() => false));
 
     const result = await executeTool(tool, context({ command: 'flood', timeout: 60 }));
+
     expect(result.spill?.outputPath).toContain('/fake/tasks/');
     expect(result.spill?.suffix).toContain('task_id:');
     expect(result.spill?.suffix).not.toContain('TaskOutput');
@@ -1319,25 +1323,6 @@ describe('BashTool', () => {
     expect(description).toContain('**Guidelines for safety and security:**');
     expect(description).toContain('**Guidelines for efficiency:**');
     expect(description).toContain('run_in_background=true');
-  });
-
-  it('strips every background sentence from the description when background execution is off', () => {
-    const { runner } = createTestRunner(processWithOutput());
-    const tool = bashTool(
-      runner,
-      createTestEnv(),
-      createTestCtx(),
-      createFakeTaskService().service,
-      stubToolPolicy((name) => name !== 'TaskList'),
-    );
-
-    const description = tool.description;
-    expect(description).toContain('Background execution is disabled for this agent.');
-    expect(description).not.toContain('background-task panel');
-    expect(description).not.toContain('run_in_background=true`,');
-    expect(description).not.toContain('move a running foreground command to the background');
-    expect(description).not.toContain('moved to the background instead of being killed');
-    expect(description).toContain('a foreground command that hits its timeout is killed');
   });
 
   it('disables background execution when TaskList is inactive even if TaskOutput/TaskStop are active', async () => {

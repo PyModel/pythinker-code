@@ -6,6 +6,7 @@ import { Disposable } from '#/_base/di/lifecycle';
 import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { ILogService } from '#/_base/log/log';
+import { IFlagService } from '#/app/flag/flag';
 
 import { ErrorCodes, Error2 } from '#/errors';
 import { McpConnectionManager } from '#/mcpCore/connection-manager';
@@ -19,7 +20,6 @@ import {
 } from '#/mcpCore/oauth/service';
 import { canonicalMcpOAuthResource } from '#/mcpCore/oauth/store';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
-import { IHostClock } from '#/os/interface/hostClock';
 import { IHostProcessService } from '#/os/interface/hostProcess';
 import { LocalRuntime } from '#/runtime/localRuntime';
 import { RuntimeRegistry } from '#/runtime/runtimeRegistry';
@@ -53,6 +53,7 @@ import {
   type McpServerTestResult,
   type McpServerTestTarget,
 } from './mcpManagement';
+import { MCP_MANAGEMENT_FLAG_ID } from './flag';
 
 const DEFAULT_AUTH_TIMEOUT_MS = 15 * 60_000;
 const AUTH_FLOW_IDLE_TIMEOUT_MS = 15 * 60_000;
@@ -63,7 +64,7 @@ export class McpManagementService extends Disposable implements IMcpManagementSe
 
   private readonly authFlows = new Map<
     string,
-    { flow: BeginAuthorizationResult; idleTimer: NodeJS.Timeout; expiresAt: number }
+    { flow: BeginAuthorizationResult; idleTimer: NodeJS.Timeout }
   >();
 
   constructor(
@@ -75,18 +76,29 @@ export class McpManagementService extends Disposable implements IMcpManagementSe
     @IRuntimeResolver private readonly runtimeResolver: IRuntimeResolver,
     @IWorkspaceInstanceManager private readonly workspaceInstances: IWorkspaceInstanceManager,
     @IHostEnvironment private readonly hostEnvironment: IHostEnvironment,
-    @IHostClock private readonly clock: IHostClock,
     @IHostProcessService private readonly hostProcess: IHostProcessService,
     @ILogService private readonly log: ILogService,
+    @IFlagService private readonly flags: IFlagService,
   ) {
     super();
   }
 
+  private assertManagementEnabled(): void {
+    if (!this.flags.enabled(MCP_MANAGEMENT_FLAG_ID)) {
+      throw new Error2(
+        ErrorCodes.REQUEST_INVALID,
+        'MCP management is disabled; enable the mcp-management experimental flag',
+      );
+    }
+  }
+
   async listServers(query: McpRegistryQuery = {}): Promise<readonly McpManagedServer[]> {
+    this.assertManagementEnabled();
     return (await this.registry.list(query)).map(toManagedServer);
   }
 
   async getServer(name: string, query: McpRegistryQuery = {}): Promise<McpManagedServer> {
+    this.assertManagementEnabled();
     return toManagedServer(await this.registry.get(name, query));
   }
 
@@ -208,7 +220,6 @@ export class McpManagementService extends Disposable implements IMcpManagementSe
             undefined,
             this.hostProcess,
             undefined,
-            undefined,
           ),
         );
         runtimeResolver = {
@@ -293,11 +304,7 @@ export class McpManagementService extends Disposable implements IMcpManagementSe
         void expired?.flow.cancel();
       }, AUTH_FLOW_IDLE_TIMEOUT_MS);
       idleTimer.unref();
-      this.authFlows.set(flowId, {
-        flow,
-        idleTimer,
-        expiresAt: this.clock.now().getTime() + AUTH_FLOW_IDLE_TIMEOUT_MS,
-      });
+      this.authFlows.set(flowId, { flow, idleTimer });
       return {
         status: 'authorization-required',
         flowId,
@@ -326,11 +333,7 @@ export class McpManagementService extends Disposable implements IMcpManagementSe
         `MCP OAuth timeoutMs must be an integer between 1 and ${MAX_AUTH_TIMEOUT_MS}`,
       );
     }
-    let active = this.authFlows.get(handle.flowId);
-    if (active !== undefined && active.expiresAt <= this.clock.now().getTime()) {
-      await this.cancelServerAuth(handle);
-      active = undefined;
-    }
+    const active = this.authFlows.get(handle.flowId);
     if (active === undefined) {
       throw new Error2(ErrorCodes.REQUEST_INVALID, `Unknown MCP OAuth flow: ${handle.flowId}`);
     }

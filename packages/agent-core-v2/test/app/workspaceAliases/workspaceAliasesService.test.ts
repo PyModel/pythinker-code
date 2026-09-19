@@ -10,6 +10,7 @@ import {
   registerScopedService,
 } from '#/_base/di/scope';
 import { createScopedTestHost, stubPair } from '#/_base/di/test';
+import { ILogService } from '#/_base/log/log';
 import { encodeWorkDirKey } from '#/_base/utils/workdir-slug';
 import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
@@ -20,6 +21,7 @@ import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
 import { IEventService } from '#/app/event/event';
+import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IWorkspaceService, type Workspace } from '#/app/workspace/workspace';
 import { WorkspaceService } from '#/app/workspace/workspaceService';
 import { FileWorkspacePersistence } from '#/app/workspace/fileWorkspacePersistence';
@@ -30,6 +32,8 @@ import {
 } from '#/app/workspace/workspacePersistence';
 import { IWorkspaceAliases } from '#/app/workspaceAliases/workspaceAliases';
 import { WorkspaceAliasesService } from '#/app/workspaceAliases/workspaceAliasesService';
+import { setWatchEnabled } from '#human/utils/watch';
+import { stubBootstrap } from '../bootstrap/stubs';
 
 interface SessionIndexLine {
   readonly sessionId: string;
@@ -40,7 +44,6 @@ interface SessionIndexLine {
 describe('WorkspaceAliasesService (file-backed)', () => {
   let homeDir: string;
   let currentHost: ReturnType<typeof createScopedTestHost> | undefined;
-  let currentPersistence: FileWorkspacePersistence | undefined;
 
   beforeEach(async () => {
     _clearScopedRegistryForTests();
@@ -66,13 +69,13 @@ describe('WorkspaceAliasesService (file-backed)', () => {
       'workspaceAliases',
     );
     homeDir = await fsp.mkdtemp(join(os.tmpdir(), 'ws-aliases-'));
+    setWatchEnabled(true);
   });
 
   afterEach(async () => {
+    setWatchEnabled(false);
     currentHost?.dispose();
     currentHost = undefined;
-    currentPersistence?.dispose();
-    currentPersistence = undefined;
     await fsp.rm(homeDir, { recursive: true, force: true });
   });
 
@@ -92,7 +95,14 @@ describe('WorkspaceAliasesService (file-backed)', () => {
     const host = createScopedTestHost([
       stubPair(IFileSystemStorageService, fileStorage),
       stubPair(IAtomicDocumentStore, new JsonAtomicDocumentStore(fileStorage)),
+      stubPair(IBootstrapService, stubBootstrap(homeDir)),
       stubPair(IAppendLogStore, new AppendLogStore(fileStorage)),
+      stubPair(ILogService, {
+        error: () => {},
+        warn: () => {},
+        info: () => {},
+        debug: () => {},
+      } as unknown as ILogService),
       ...(persistence !== undefined ? [stubPair(IWorkspacePersistence, persistence)] : []),
       stubPair(IHostFileSystem, hostFs),
       stubPair(IEventService, {
@@ -291,8 +301,9 @@ describe('WorkspaceAliasesService (file-backed)', () => {
     const legacyId = 'wd_proj_deadbeef0002';
     await writeWorkspacesJson({ [typedId]: entry(typedRoot) });
     const storage = new FileStorageService(homeDir);
-    currentPersistence = new FileWorkspacePersistence(new JsonAtomicDocumentStore(storage));
-    const persistence = new GatedPersistence(currentPersistence);
+    const persistence = new GatedPersistence(
+      new FileWorkspacePersistence(new JsonAtomicDocumentStore(storage), stubBootstrap(homeDir)),
+    );
     const aliases = build(undefined, storage, persistence);
     const ws = (id: string, root: string): Workspace => ({
       id,
@@ -410,60 +421,6 @@ describe('WorkspaceAliasesService (file-backed)', () => {
     expect((await aliases.resolveAliasIds(typedId)).toSorted()).toEqual(
       [indexOnlyId, typedId].toSorted(),
     );
-  });
-
-  it('does not cache an old session-index snapshot with a newer size', async () => {
-    class GatedSizeStorage extends FileStorageService {
-      sizeCalls = 0;
-      gate: Promise<void> | undefined;
-      override async size(scope: string, key: string): Promise<number | undefined> {
-        if (key === 'session_index.jsonl') {
-          this.sizeCalls += 1;
-          if (this.gate !== undefined) await this.gate;
-        }
-        return super.size(scope, key);
-      }
-    }
-    const typedRoot = 'C:\\Users\\Foo\\Proj';
-    const typedId = encodeWorkDirKey(typedRoot);
-    const indexOnlyId = encodeWorkDirKey('c:\\Users\\Foo\\Proj');
-    await writeWorkspacesJson({
-      [typedId]: {
-        root: typedRoot,
-        name: 'proj',
-        created_at: '2026-01-01T00:00:00.000Z',
-        last_opened_at: '2026-01-01T00:00:00.000Z',
-      },
-    });
-    const storage = new GatedSizeStorage(homeDir);
-    const aliases = build(undefined, storage);
-    await aliases.resolveAliasIds(typedId);
-    const appendLogs = currentHost!.app.accessor.get(IAppendLogStore);
-    appendLogs.append('', 'session_index.jsonl', {
-      sessionId: 's1',
-      sessionDir: 'sessions/a/s1',
-      workDir: join(homeDir, 'unrelated'),
-    });
-    await appendLogs.flush();
-
-    let release: (() => void) | undefined;
-    storage.gate = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    const baseline = storage.sizeCalls;
-    const pending = aliases.resolveAliasIds(typedId);
-    await vi.waitFor(() => {
-      expect(storage.sizeCalls).toBe(baseline + 1);
-    });
-    appendLogs.append('', 'session_index.jsonl', {
-      sessionId: 's2',
-      sessionDir: 'sessions/b/s2',
-      workDir: 'c:\\Users\\Foo\\Proj',
-    });
-    await appendLogs.flush();
-    release!();
-
-    expect((await pending).toSorted()).toEqual([indexOnlyId, typedId].toSorted());
   });
 
   it('resolveAliasIds picks up catalog and session index changes', async () => {

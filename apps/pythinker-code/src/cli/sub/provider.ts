@@ -24,7 +24,6 @@ import {
   catalogProviderModels,
   CatalogFetchError,
   createPythinkerHarness,
-  createPythinkerHarnessV2,
   DEFAULT_CATALOG_URL,
   resolveCatalogImport,
   type Catalog,
@@ -36,8 +35,6 @@ import type { Command } from 'commander';
 
 import { createPythinkerCodeHostIdentity, createPythinkerCodeUserAgent } from '#/cli/version';
 import { fetchCatalogOrBuiltIn } from '#/utils/catalog-fetch';
-
-import { isPythinkerV2Enabled } from '../experimental-v2';
 
 interface WritableLike {
   write(chunk: string): boolean;
@@ -409,7 +406,7 @@ export async function handleCatalogAdd(
 
   // Always restore `[thinking]` from what was there before — including
   // `undefined`. Persisting `enabled: false` when the user never set it would
-  // make `resolveThinkingEffort` (agent-core/src/agent/config/thinking.ts) treat
+  // make `resolveThinkingEffort` (agent-core-v2/src/kosong/model/thinking.ts) treat
   // it as an explicit "off" request and silently disable thinking, even for
   // thinking-capable models.
   config.thinking = previousThinking;
@@ -563,10 +560,7 @@ function resolveDeps(overrides: Partial<ProviderDeps> = {}): ResolvedProviderDep
     getHarness:
       overrides.getHarness ??
       (() => {
-        // Same engine gate as the TUI's `/provider` flow: the SDK's v2-backed
-        // harness by default, the legacy agent-core harness when
-        // PYTHINKER_CODE_LEGACY_FLAG is set.
-        harness ??= (isPythinkerV2Enabled() ? createPythinkerHarnessV2 : createPythinkerHarness)({ identity });
+        harness ??= createPythinkerHarness({ identity });
         return harness;
       }),
     stdout: overrides.stdout ?? process.stdout,

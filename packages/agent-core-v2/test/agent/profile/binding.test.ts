@@ -15,9 +15,9 @@ import {
 } from '#/app/agentProfileCatalog/agentProfileCatalog';
 import { BuiltinAgentProfileLoaderService } from '#/app/agentProfileCatalog/builtinAgentProfileLoaderService';
 import { registerAgentProfile } from '#/app/agentProfileCatalog/contribution';
-import type { ToolCall } from '#/kosong/contract/message';
+import type { ToolCall } from '#human/llm/message';
 import { IAgentProfileService, type ResolvedAgentProfile } from '#/agent/profile/profile';
-import type { HostFsChange } from '#/os/interface/hostFsWatch';
+import type { WatchChange } from '#human/utils/watch';
 import { IAgentAgentsMdReminderService } from '#/agent/agentsMdReminder/agentsMdReminder';
 import { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
@@ -74,7 +74,6 @@ function createAtomicDocumentStore(): AtomicDocumentStore {
       [...documents.keys()]
         .filter((key) => key.startsWith(`${scope}/${prefix}`))
         .map((key) => key.slice(scope.length + 1)),
-    watch: () => Event.None as Event<void>,
     acquire: () => ({ dispose: () => {} }),
   };
 }
@@ -142,19 +141,13 @@ describe('AgentProfileService.bind', () => {
   });
 
   it('binds an environment disclosure snapshot with only the session cwd', async () => {
-    const currentTime = '2099-12-31T23:59:59.000Z';
-    const toISOString = vi.spyOn(Date.prototype, 'toISOString').mockReturnValue(currentTime);
     ctx = createTestAgent(hostEnvironmentServices(homeDir));
     const svc = ctx.get(IAgentProfileService);
 
-    try {
-      await svc.bind({ profile: DEFAULT_AGENT_PROFILE_NAME, model: MOCK_MODEL });
+    await svc.bind({ profile: DEFAULT_AGENT_PROFILE_NAME, model: MOCK_MODEL });
 
-      expect(svc.getSystemPrompt()).not.toContain(currentTime);
-      expect(svc.data().environmentDisclosure).toEqual({ cwd: ctx.get(ISessionContext).cwd });
-    } finally {
-      toISOString.mockRestore();
-    }
+    expect(svc.getSystemPrompt()).not.toContain('2026-07-29');
+    expect(svc.data().environmentDisclosure).toEqual({ cwd: ctx.get(ISessionContext).cwd });
   });
 
   it('persists the complete binding in one journal record', async () => {
@@ -269,7 +262,7 @@ describe('AgentProfileService.bind', () => {
 
   it('freezes the system prompt when the session instructions change', async () => {
     const persistence = new InMemoryWireRecordPersistence();
-    const emitter = new Emitter<readonly HostFsChange[]>();
+    const emitter = new Emitter<readonly WatchChange[]>();
     let agentsMd = 'v1 instructions';
     ctx = createTestAgent(
       { persistence },
@@ -344,7 +337,7 @@ describe('AgentProfileService.bind', () => {
             pythinker: { type: 'pythinker', apiKey: 'test-key', baseUrl: 'https://api.example.test/v1' },
           },
           models: {
-            'example/test-model': {
+            'openai/gpt-4o': {
               provider: 'pythinker',
               model: 'kimi-for-coding',
               maxContextSize: 1_000_000,
@@ -361,14 +354,14 @@ describe('AgentProfileService.bind', () => {
     await expect(
       svc.bind({
         profile: DEFAULT_AGENT_PROFILE_NAME,
-        model: 'example/test-model',
+        model: 'openai/gpt-4o',
         thinking: 'ultra',
         strictThinking: true,
       }),
     ).rejects.toThrow(/not supported by model/);
 
     expect(svc.data().profileName).toBeUndefined();
-    await svc.bind({ profile: DEFAULT_AGENT_PROFILE_NAME, model: 'example/test-model' });
+    await svc.bind({ profile: DEFAULT_AGENT_PROFILE_NAME, model: 'openai/gpt-4o' });
     expect(svc.data().profileName).toBe(DEFAULT_AGENT_PROFILE_NAME);
   });
 
@@ -380,7 +373,7 @@ describe('AgentProfileService.bind', () => {
             pythinker: { type: 'pythinker', apiKey: 'test-key', baseUrl: 'https://api.example.test/v1' },
           },
           models: {
-            'example/test-model': {
+            'openai/gpt-4o': {
               provider: 'pythinker',
               model: 'kimi-for-coding',
               maxContextSize: 1_000_000,
@@ -396,7 +389,7 @@ describe('AgentProfileService.bind', () => {
 
     await svc.bind({
       profile: DEFAULT_AGENT_PROFILE_NAME,
-      model: 'example/test-model',
+      model: 'openai/gpt-4o',
       thinking: 'ultra',
     });
 

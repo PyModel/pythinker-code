@@ -25,7 +25,7 @@ export function parsePorcelain(
     const xy = record.slice(0, 2);
     const wirePath = record.slice(3);
 
-    if (xy.includes('R') || xy.includes('C')) {
+    if (xy.startsWith('R') || xy.startsWith('C')) {
       i++;
     }
     if (filter !== undefined && !filter.has(wirePath)) continue;

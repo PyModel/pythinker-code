@@ -58,10 +58,13 @@ describe('createTUIState', () => {
     expect(state.activityContainer).toBeDefined();
     expect(state.todoPanelContainer).toBeDefined();
     expect(state.queueContainer).toBeDefined();
+    expect(state.surveyContainer).toBeDefined();
     expect(state.editorContainer).toBeDefined();
     expect(state.editor).toBeDefined();
     expect(state.footer).toBeDefined();
     expect(state.todoPanel).toBeDefined();
+    expect(state.notifyPanelContainer).toBeDefined();
+    expect(state.notifyPanel).toBeDefined();
     expect(state.theme.palette).toBeDefined();
 
     // App state is cloned from initialAppState, not reused by reference.
@@ -89,9 +92,9 @@ describe('createTUIState', () => {
     expect(state.activitySpinner).toBeNull();
   });
 
-  it('uses the docked fullscreen renderer by default', () => {
+  it('uses the docked fullscreen renderer when fullscreen is enabled', () => {
     const previous = process.env['PYTHINKER_CODE_TUI_FULL_SCREEN'];
-    delete process.env['PYTHINKER_CODE_TUI_FULL_SCREEN'];
+    process.env['PYTHINKER_CODE_TUI_FULL_SCREEN'] = '1';
     try {
       const state = createTUIState({
         initialAppState: fakeInitialAppState(),

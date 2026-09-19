@@ -2,8 +2,10 @@
   description = "Pythinker Code CLI";
 
   inputs = {
-    # nixos-unstable supplies the pinned Node.js 24 release line.
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    # Pinned to the 25.11 release channel because nixpkgs-unstable currently
+    # ships nodejs_24 = 24.14.1, which trips the >= 24.15.0 floor that the
+    # native SEA build enforces (see apps/pythinker-code/scripts/native/build.mjs).
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
   };
 
   outputs =
@@ -36,12 +38,12 @@
         let
           node = pkgs.nodejs_24;
         in
-        if lib.versionAtLeast node.version minNodeVersion && lib.versionOlder node.version "25" then
+        if lib.versionAtLeast node.version minNodeVersion then
           node
         else
           throw ''
-            Pythinker Code requires Node.js >= ${minNodeVersion} and < 25,
-            but nixpkgs offers ${node.version} for nodejs_24.
+            Pythinker Code requires Node.js >= ${minNodeVersion},
+            but nixpkgs only offers ${node.version}.
             Pin a newer nixpkgs revision or update minNodeVersion in flake.nix.
           '';
 
@@ -60,56 +62,58 @@
       # pnpmConfigHook (dependencies for that workspace won't be fetched).
       # -------------------------------------------------------------------
       workspacePaths = [
-        ./packages/agent-core
-        ./packages/pyaos
         ./packages/acp-server
         ./packages/agent-core-v2
         ./packages/agent-gateway
+        ./packages/pyaos
         ./packages/klient
-        ./packages/minidb
-        ./packages/pi-tui
-        ./packages/transcript
-        ./packages/tree-sitter-bash
         ./packages/kosong
+        ./packages/migration-legacy
+        ./packages/minidb
         ./packages/node-sdk
         ./packages/oauth
         ./packages/protocol
+        ./packages/pi-tui
         ./packages/remote-control
         ./packages/telemetry
+        ./packages/transcript
+        ./packages/tree-sitter-bash
         ./apps/pythinker-code
         ./apps/pythinker-web
+        ./apps/vscode
+        ./apps/desktop
         ./apps/pythinker-inspect
         ./apps/vis
         ./apps/vis/server
         ./apps/vis/web
-        ./apps/desktop
         ./docs
       ];
 
       workspaceNames = [
-        "@pymodel/agent-core"
-        "@pymodel/pyaos"
         "@pymodel/acp-server"
         "@pymodel/agent-core-v2"
         "@pymodel/agent-gateway"
-        "@pymodel/klient"
-        "@pymodel/minidb"
-        "@pymodel/pi-tui"
-        "@pymodel/transcript"
-        "@pymodel/tree-sitter-bash"
+        "@pymodel/pyaos"
         "@pymodel/kosong"
+        "@pymodel/migration-legacy"
+        "@pymodel/minidb"
         "@pymodel/pythinker-code-sdk"
         "@pymodel/pythinker-code-oauth"
         "@pymodel/protocol"
+        "@pymodel/klient"
+        "@pymodel/pi-tui"
         "@pymodel/remote-control"
         "@pymodel/pythinker-telemetry"
+        "@pymodel/transcript"
+        "@pymodel/tree-sitter-bash"
         "@pymodel/pythinker-code"
         "@pymodel/pythinker-web"
+        "@pymodel/pythinker-desktop"
+        "pythinker"
         "@pymodel/pythinker-inspect"
         "@pymodel/vis"
         "@pymodel/vis-server"
         "@pymodel/vis-web"
-        "@pymodel/pythinker-desktop"
         "pythinker-code-docs"
       ];
     in
@@ -141,8 +145,8 @@
               fileset = lib.fileset.unions (
                 [
                   ./build
-                  ./patches
                   ./.npmrc
+                  ./patches
                   ./.nvmrc
                   ./package.json
                   ./pnpm-lock.yaml
@@ -161,8 +165,7 @@
               inherit (finalAttrs) pname version src pnpmWorkspaces;
               inherit pnpm;
               fetcherVersion = 3;
-              # Monaco's package patch is part of src, not the fetched dependency closure.
-              hash = "sha256-PBtUV/DlnvImbRKoUB51a6Di+mMkTFMtSl95Pe0zHgE=";
+              hash = "sha256-rCIilrxF8ys9ijp89rJwRULX3vurOSzGwPDum0N6Ut8=";
             };
 
             nativeBuildInputs = [
@@ -201,10 +204,10 @@
               ''}
               # The SEA blob step (scripts/native/02-sea-blob.mjs) embeds the
               # Pythinker web assets from apps/pythinker-code/dist-web and fails if that
-              # directory is missing. Build the web app and stage its assets
-              # before producing the native executable.
-              pnpm --filter=@pymodel/pythinker-web run build
-              node apps/pythinker-code/scripts/copy-web-assets.mjs
+              # directory is missing. The bundle is committed (synced from the
+              # code-app repo) — verify it is in place before producing the
+              # native executable.
+              node apps/pythinker-code/scripts/check-web-assets.mjs
               pnpm --filter=@pymodel/pythinker-code run build:native:sea
               runHook postBuild
             '';

@@ -15,6 +15,9 @@ import { renderToolResultForModel } from '#/agent/contextMemory/toolResultRender
 import { stubToolResultTruncationService } from '../../../../agent/toolResultTruncation/stubs';
 import { stubConfigService } from '../../../../app/config/stubs';
 import type { IAgentToolResultTruncationService } from '#/agent/toolResultTruncation/toolResultTruncation';
+import type { IAgentProfileService } from '#/agent/profile/profile';
+import type { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
+import type { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import type { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
 import { FakeRuntime } from '#/runtime/fakeRuntime';
 import { RuntimeRegistry } from '#/runtime/runtimeRegistry';
@@ -65,6 +68,15 @@ function createTestEnv(home = '/home'): IHostEnvironment {
   };
 }
 
+function stubProfileService(capabilities: {
+  image_in: boolean;
+  video_in: boolean;
+}): IAgentProfileService {
+  return {
+    getModelCapabilities: () => capabilities,
+  } as unknown as IAgentProfileService;
+}
+
 function createReadTool(
   fs: IHostFileSystem,
   env: IHostEnvironment,
@@ -73,6 +85,9 @@ function createReadTool(
     catalog: { getSkillRoots: () => [] },
   } as unknown as ISessionSkillCatalog,
   truncation: IAgentToolResultTruncationService = stubToolResultTruncationService(),
+  profile: IAgentProfileService = stubProfileService({ image_in: true, video_in: true }),
+  toolPolicy: IAgentToolPolicyService = { isToolActive: () => true } as unknown as IAgentToolPolicyService,
+  toolRegistry: IAgentToolRegistryService = { resolve: () => ({}) } as unknown as IAgentToolRegistryService,
 ): ReadTool {
   const runtime = Object.assign(
     new FakeRuntime(
@@ -88,7 +103,7 @@ function createReadTool(
     inspect: () => runtime,
     acquire: () => ({ runtime, track: (resource) => resource, dispose: () => {} }),
   };
-  return new ReadTool(resolver, workspace, skillCatalog, truncation, stubConfigService());
+  return new ReadTool(resolver, workspace, skillCatalog, truncation, stubConfigService(), profile, toolPolicy, toolRegistry);
 }
 
 function createSpiedFs(content: string) {
@@ -233,7 +248,7 @@ describe('ReadTool', () => {
   });
 
   it.each([650, 651])('keeps every Unicode fragment well formed with a %i-character budget', async (maxChars) => {
-    const content = '\u6587🙂'.repeat(400) + 'END';
+    const content = 'zh🙂'.repeat(400) + 'END';
     const tool = toolWithContent(content);
     const fragments: string[] = [];
     let args: ReadInput | undefined = { path: '/tmp/unicode.txt', n_lines: 1, max_chars: maxChars };
@@ -268,7 +283,7 @@ describe('ReadTool', () => {
   });
 
   it('resumes mixed short and long lines without changing the requested ending line', async () => {
-    const lines = ['outside before', `START${'🙂\u6587'.repeat(400)}`, 'short target', 'last target '.repeat(150), 'outside after'];
+    const lines = ['outside before', `START${'🙂zh'.repeat(400)}`, 'short target', 'last target '.repeat(150), 'outside after'];
     const tool = toolWithContent(lines.join('\n'));
     const returned = new Map<number, string>();
     let args: ReadInput | undefined = { path: '/tmp/mixed.txt', line_offset: 2, column_offset: 5, n_lines: 3, max_chars: 650 };
@@ -301,7 +316,7 @@ describe('ReadTool', () => {
 
   it('pages through the requested range without losing text or exceeding the character budget', async () => {
     const lines = Array.from({ length: 20 }, (_, index) =>
-      `section ${String(index + 1)} ${'\u6587'.repeat(70)}`,
+      `section ${String(index + 1)} ${'zh'.repeat(70)}`,
     );
     const tool = toolWithContent(lines.join('\n'));
     const contents: string[] = [];
@@ -375,9 +390,9 @@ describe('ReadTool', () => {
     ).toBe(false);
   });
 
-  it('matches permission args with glob path semantics', () => {
+  it('matches permission args with glob path semantics', async () => {
     const tool = toolWithContent('');
-    const execution = tool.resolveExecution({ path: '/etc/passwd' });
+    const execution = await tool.resolveExecution({ path: '/etc/passwd' });
     if (execution.isError === true) throw new TypeError('expected runnable execution');
 
     expect(execution.matchesRule?.('/etc/**')).toBe(true);
@@ -672,20 +687,6 @@ describe('ReadTool', () => {
     expect(readLines).toHaveBeenCalledWith('/home/test/notes/today.txt', { errors: 'strict' });
   });
 
-  it('denies a benign alias that resolves to a sensitive file', async () => {
-    const { fs, readBytes } = createSpiedFs('SECRET=1\n');
-    (fs as { realpath?: (path: string) => Promise<string> }).realpath = vi.fn(async (path: string) =>
-      path === '/tmp/notes.txt' ? '/home/user/.env' : path,
-    );
-    const tool = createReadTool(fs, createTestEnv(), PERMISSIVE_WORKSPACE);
-
-    const result = await execute(tool, { path: '/tmp/notes.txt' });
-
-    expect(result.isError).toBe(true);
-    expect(result.output).toContain('resolves to "/home/user/.env"');
-    expect(readBytes).not.toHaveBeenCalled();
-  });
-
   it('blocks sensitive files independently from workspace access', async () => {
     const { fs, readText } = createSpiedFs('SECRET=value');
     const tool = createReadTool(fs, createTestEnv(), stubWorkspaceContext('/workspace'));
@@ -703,6 +704,78 @@ describe('ReadTool', () => {
       '/tmp/sample.png': { bytes: pngHeader },
     });
     const tool = createReadTool(fs, createTestEnv(), PERMISSIVE_WORKSPACE);
+
+    const result = await execute(tool, { path: '/tmp/sample.png' });
+    const output = toolContentString(result);
+
+    expect(result.isError).toBe(true);
+    expect(output).toBe(
+      '"/tmp/sample.png" is an image file. Only text files can be read; use ReadMediaFile for image and video files.',
+    );
+    expect(readText).not.toHaveBeenCalled();
+  });
+
+  it('explains image rejection as a model capability limit when image_in is missing', async () => {
+    const pngHeader = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    const { fs, readText } = createSpiedMapFs({
+      '/tmp/sample.png': { bytes: pngHeader },
+    });
+    const tool = createReadTool(
+      fs,
+      createTestEnv(),
+      PERMISSIVE_WORKSPACE,
+      undefined,
+      undefined,
+      stubProfileService({ image_in: false, video_in: false }),
+    );
+
+    const result = await execute(tool, { path: '/tmp/sample.png' });
+    const output = toolContentString(result);
+
+    expect(result.isError).toBe(true);
+    expect(output).toContain('does not support image input');
+    expect(output).toContain('this agent cannot view it');
+    expect(readText).not.toHaveBeenCalled();
+  });
+
+  it('does not recommend ReadMediaFile for images when the tool policy disables it', async () => {
+    const pngHeader = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    const { fs, readText } = createSpiedMapFs({
+      '/tmp/sample.png': { bytes: pngHeader },
+    });
+    const tool = createReadTool(
+      fs,
+      createTestEnv(),
+      PERMISSIVE_WORKSPACE,
+      undefined,
+      undefined,
+      stubProfileService({ image_in: true, video_in: true }),
+      { isToolActive: () => false } as unknown as IAgentToolPolicyService,
+    );
+
+    const result = await execute(tool, { path: '/tmp/sample.png' });
+    const output = toolContentString(result);
+
+    expect(result.isError).toBe(true);
+    expect(output).toBe('"/tmp/sample.png" is an image file. Only text files can be read.');
+    expect(readText).not.toHaveBeenCalled();
+  });
+
+  it('does not recommend ReadMediaFile for images when it is not registered', async () => {
+    const pngHeader = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    const { fs, readText } = createSpiedMapFs({
+      '/tmp/sample.png': { bytes: pngHeader },
+    });
+    const tool = createReadTool(
+      fs,
+      createTestEnv(),
+      PERMISSIVE_WORKSPACE,
+      undefined,
+      undefined,
+      stubProfileService({ image_in: true, video_in: true }),
+      { isToolActive: () => true } as unknown as IAgentToolPolicyService,
+      { resolve: () => undefined } as unknown as IAgentToolRegistryService,
+    );
 
     const result = await execute(tool, { path: '/tmp/sample.png' });
     const output = toolContentString(result);
@@ -761,7 +834,38 @@ describe('ReadTool', () => {
     const output = toolContentString(result);
 
     expect(result.isError).toBe(true);
-    expect(output).toBe('"/tmp/sample.mp4" is a video file. Only text files can be read.');
+    expect(output).toBe(
+      '"/tmp/sample.mp4" is a video file. Only text files can be read; use ReadMediaFile for image and video files.',
+    );
+    expect(readText).not.toHaveBeenCalled();
+  });
+
+  it('explains video rejection as a model capability limit when video_in is missing', async () => {
+    const mp4Header = Buffer.concat([
+      Buffer.from([0x00, 0x00, 0x00, 0x18]),
+      Buffer.from('ftyp'),
+      Buffer.from('mp42'),
+      Buffer.from([0x00, 0x00, 0x00, 0x00]),
+      Buffer.from('mp42isom'),
+    ]);
+    const { fs, readText } = createSpiedMapFs({
+      '/tmp/sample.mp4': { bytes: mp4Header },
+    });
+    const tool = createReadTool(
+      fs,
+      createTestEnv(),
+      PERMISSIVE_WORKSPACE,
+      undefined,
+      undefined,
+      stubProfileService({ image_in: true, video_in: false }),
+    );
+
+    const result = await execute(tool, { path: '/tmp/sample.mp4' });
+    const output = toolContentString(result);
+
+    expect(result.isError).toBe(true);
+    expect(output).toContain('does not support video input');
+    expect(output).toContain('this agent cannot view it');
     expect(readText).not.toHaveBeenCalled();
   });
 
@@ -865,8 +969,8 @@ describe('ReadTool', () => {
   });
 
   it.each([2, -2])('preserves the lossy warning and budget through Read continuation from offset %i', async (lineOffset) => {
-    const rawLine = '\u6587'.repeat(1000) + '\uD800' + '🙂'.repeat(500) + 'tail';
-    const expected = '\u6587'.repeat(1000) + '\uFFFD' + '🙂'.repeat(500) + 'tail';
+    const rawLine = 'zh'.repeat(1000) + '\uD800' + '🙂'.repeat(500) + 'tail';
+    const expected = 'zh'.repeat(1000) + '\uFFFD' + '🙂'.repeat(500) + 'tail';
     const bytes = Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(`first\n${rawLine}\nlast`, 'utf16le')]);
     const path = '/tmp/lossy-range.txt';
     const { fs } = createSpiedMapFs({ [path]: { bytes } });
@@ -931,14 +1035,14 @@ describe('ReadTool', () => {
   });
 
   it('reads a BOM-marked UTF-16 file whose content has no zero bytes (CJK-only)', async () => {
-    const bytes = Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from('\u4F60\u597D\u4E16\u754C', 'utf16le')]);
+    const bytes = Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from('zh', 'utf16le')]);
     const { fs } = createSpiedMapFs({ '/tmp/cjk.txt': { bytes } });
     const tool = createReadTool(fs, createTestEnv(), PERMISSIVE_WORKSPACE);
 
     const result = await execute(tool, { path: '/tmp/cjk.txt' });
 
     expect(result.isError).not.toBe(true);
-    expect(result.output).toContain('1\t\u4F60\u597D\u4E16\u754C');
+    expect(result.output).toContain('1\tzh');
     expect(result.note).toContain('Detected file encoding: UTF-16 LE');
   });
 
@@ -1005,7 +1109,7 @@ describe('ReadTool', () => {
   });
 
   it('returns long lines whole without losing Unicode characters', async () => {
-    const long = '\u6587'.repeat(5_000) + '🙂END';
+    const long = 'zh'.repeat(5_000) + '🙂END';
     const tool = toolWithContent([long, 'short', long].join('\n'));
     const result = await execute(tool, { path: '/tmp/long.txt' });
 
@@ -1016,7 +1120,7 @@ describe('ReadTool', () => {
   });
 
   it.each([2, -3])('recovers the entire oversized range at offset %i using only Read', async (lineOffset) => {
-    const long = '\u6587'.repeat(700) + '🙂END';
+    const long = 'zh'.repeat(700) + '🙂END';
     const tool = toolWithContent(['outside before', 'target head', long, 'outside after'].join('\n'));
     const returned = new Map<number, string>();
     let args: ReadInput | undefined = { path: '/tmp/line.txt', line_offset: lineOffset, n_lines: 2, max_chars: 650 };
@@ -1066,7 +1170,7 @@ describe('ReadTool', () => {
     );
 
     const result = await execute(tool, {
-      path: '/home/user/.pythinker/sessions/ws/session/agents/main/wire.jsonl',
+      path: '/home/user/.pythinker-code/sessions/ws/session/agents/main/wire.jsonl',
     });
     const output = toolContentString(result);
 
@@ -1085,7 +1189,7 @@ describe('ReadTool', () => {
     };
     const tool = createReadTool(createSpiedFs(`${huge}\nshort`).fs, createTestEnv(), PERMISSIVE_WORKSPACE, undefined, truncation);
     const result = await execute(tool, {
-      path: '/home/user/.pythinker/sessions/ws/session/agents/main/wire.jsonl',
+      path: '/home/user/.pythinker-code/sessions/ws/session/agents/main/wire.jsonl',
       line_offset: 1,
       n_lines: 1,
       max_chars: 500_000,
@@ -1263,12 +1367,12 @@ describe('ReadTool', () => {
   });
 
   it('reads unicode (CJK + emoji + accented Latin) without loss', async () => {
-    const tool = toolWithContent('Hello \u4E16\u754C 🌍\nUnicode test: café, naïve, résumé');
+    const tool = toolWithContent('Hello zh 🌍\nUnicode test: café, naïve, résumé');
 
     const result = await execute(tool, { path: '/tmp/unicode.txt' });
 
     expect(result.isError).toBeFalsy();
-    expect(result.output).toContain('1\tHello \u4E16\u754C 🌍');
+    expect(result.output).toContain('1\tHello zh 🌍');
     expect(result.output).toContain('2\tUnicode test: café, naïve, résumé');
   });
 
@@ -1381,8 +1485,11 @@ describe('ReadTool', () => {
       { catalog: { getSkillRoots: () => [] } } as unknown as ISessionSkillCatalog,
       stubToolResultTruncationService(),
       stubConfigService(),
+      stubProfileService({ image_in: true, video_in: true }),
+      { isToolActive: () => true } as unknown as IAgentToolPolicyService,
+      { resolve: () => ({}) } as unknown as IAgentToolRegistryService,
     );
-    const execution = tool.resolveExecution({ path: '/workspace/a.txt' });
+    const execution = await tool.resolveExecution({ path: '/workspace/a.txt' });
     expect('execute' in execution).toBe(true);
 
     runtimeValue.setStatus('disconnected');

@@ -391,12 +391,9 @@ onUnmounted(() => {
 
 function onGlobalKeydown(e: KeyboardEvent): void {
   if (e.key !== 'Escape' || e.isComposing) return;
-  // A modal dialog open on top of the side panel owns Escape — leave the event
-  // alone so the dialog can close itself instead of the panel behind it.
+  // Escape must not close the right detail panel — close it with the panel
+  // header control. Overlays / dialogs still own Escape themselves.
   if (anyOverlayOpen.value) return;
-  if (!hidePanel()) return;
-  e.stopPropagation();
-  e.preventDefault();
 }
 
 // ---------------------------------------------------------------------------
@@ -447,10 +444,13 @@ const {
   previewFile,
   previewLoading,
   previewError,
+  previewStale,
+  previewRefreshing,
   previewDownloadUrl,
   previewExternalActions,
   openFilePreview: showFilePreview,
   closeFilePreview: clearFilePreview,
+  refreshFilePreview,
   openPreviewInEditor,
   revealPreviewFile,
 } = useFilePreview({ client, detailTarget });
@@ -959,6 +959,20 @@ function handleCommand(cmd: string): void {
     else client.toggleGoalMode();
     return;
   }
+  // `/tower` toggles tower mode; `/tower on|off` sets it; `/tower <base>` enables
+  // with a base branch. Hidden when the tower experiment is off.
+  if (cmd === '/tower' || cmd.startsWith('/tower ')) {
+    if (!client.towerAvailable.value) return;
+    const arg = cmd.slice('/tower'.length).trim();
+    if (arg === 'off') client.setTowerMode(false);
+    else if (arg === 'on' || arg === '') {
+      if (arg === 'on' || !client.towerMode.value) client.setTowerMode(true);
+      else client.setTowerMode(false);
+    } else {
+      client.setTowerMode(true, arg);
+    }
+    return;
+  }
   // `/btw <question>` opens (creating if needed) the side chat and asks it; bare
   // `/btw` toggles the side-chat tab for the active session.
   if (cmd === '/btw' || cmd.startsWith('/btw ')) {
@@ -1335,6 +1349,8 @@ function openPr(url: string): void {
       :reveal-saved-plan="client.revealSavedPlan"
       :overlay-open="overlayOpen"
       :goal-mode="client.goalMode.value"
+      :tower-mode="client.towerMode.value"
+      :tower-available="client.towerAvailable.value"
       :dynamic-workflow-mode="client.dynamicWorkflowMode.value"
       :models="client.models.value"
       :starred-ids="client.starredModelIds.value"
@@ -1400,6 +1416,7 @@ function openPr(url: string): void {
       @toggle-plan="client.togglePlanMode()"
       @toggle-workflow="client.toggleDynamicWorkflowMode()"
       @toggle-goal="client.toggleGoalMode()"
+      @toggle-tower="client.toggleTowerMode()"
       @create-goal="client.createGoal($event)"
       @control-goal="client.controlGoal($event)"
       @refresh-git-status="client.activeSessionId.value && client.loadGitStatus(client.activeSessionId.value)"
@@ -1580,11 +1597,14 @@ function openPr(url: string): void {
             :download-url="previewDownloadUrl"
             closable
             :external-actions="previewExternalActions"
+            :stale="previewStale"
+            :refreshing="previewRefreshing"
             :editable="client.fsWriteSupported.value && client.activeSessionId.value !== null"
             :open-file="openFilePreview"
             @close="closeActivePanelTab"
             @open-external="openPreviewInEditor"
             @reveal="revealPreviewFile"
+            @refresh="refreshFilePreview"
             @open-editor="handleOpenInEditor($event)"
           />
         </div>
@@ -1642,7 +1662,12 @@ function openPr(url: string): void {
 
     <!-- Global connecting splash on first load (until the daemon round-trips) -->
     <Transition name="gload-fade">
-      <GlobalLoading v-if="!client.initialized.value" :issue="client.connectIssue.value" />
+      <GlobalLoading
+        v-if="!client.initialized.value"
+        :stage="client.bootStage.value"
+        :retries="client.bootRetries.value"
+        :issue="client.connectIssue.value"
+      />
     </Transition>
 
     <!-- First-run onboarding overlay. Held back

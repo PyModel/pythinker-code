@@ -10,14 +10,12 @@ import { Text, truncateToWidth, type Component, type TUI } from '@pymodel/pi-tui
 import {
   BRAILLE_SPINNER_FRAMES,
   BRAILLE_SPINNER_INTERVAL_MS,
-  formatThinkingSpinnerLabel,
   MESSAGE_INDENT,
   THINKING_PREVIEW_LINES,
 } from '#/tui/constant/rendering';
 import { STATUS_BULLET } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
 import { isRenderCacheEnabled } from '#/tui/utils/render-cache';
-import { shimmerText } from '#/tui/utils/shimmer';
 
 export type ThinkingRenderMode = 'live' | 'finalized';
 
@@ -98,58 +96,51 @@ export class ThinkingComponent implements Component {
       return this.renderCache.lines;
     }
 
+    const contentWidth = Math.max(1, width - MESSAGE_INDENT.length);
+    const contentLines = this.text.length > 0 ? this.textComponent.render(contentWidth) : [''];
+
     let rendered: string[];
     if (this.mode === 'live') {
+      const visibleLines =
+        contentLines.length > THINKING_PREVIEW_LINES
+          ? contentLines.slice(contentLines.length - THINKING_PREVIEW_LINES)
+          : contentLines;
       const spinner = currentTheme.fg(
-        'primary',
+        'textDim',
         `${BRAILLE_SPINNER_FRAMES[this.spinnerFrame] ?? BRAILLE_SPINNER_FRAMES[0]} `,
       );
-      const label = shimmerText(formatThinkingSpinnerLabel(), {
-        baseToken: 'primary',
-        shimmerToken: 'primaryShimmer',
-        bandHalfWidth: 4,
-      });
-      rendered = ['', spinner + label];
-      if (this.expanded) {
-        const contentLines = this.renderContent(width);
-        const visibleLines =
-          contentLines.length > THINKING_PREVIEW_LINES
-            ? contentLines.slice(contentLines.length - THINKING_PREVIEW_LINES)
-            : contentLines;
-        rendered.push(...visibleLines.map((line) => MESSAGE_INDENT + line));
-      }
-    } else if (!this.expanded) {
-      if (this.text.length === 0) {
-        rendered = [];
-      } else {
-        const contentLines = this.renderContent(width);
-        const hint = `… (${String(contentLines.length)} more lines, ctrl+o to expand)`;
-        const prefix = this.showMarker ? currentTheme.fg('textDim', STATUS_BULLET) : MESSAGE_INDENT;
-        const styledHint = currentTheme.fg(
-          'textDim',
-          truncateToWidth(hint, Math.max(1, width - MESSAGE_INDENT.length), '…'),
-        );
-        rendered = ['', prefix + styledHint];
-      }
+      rendered = [
+        '',
+        spinner + currentTheme.fg('textDim', 'thinking…'),
+        ...visibleLines.map((line) => MESSAGE_INDENT + line),
+      ];
     } else {
-      const contentLines = this.renderContent(width);
       const lines: string[] = [''];
       for (let i = 0; i < contentLines.length; i++) {
         const p = i === 0 && this.showMarker ? currentTheme.fg('textDim', STATUS_BULLET) : MESSAGE_INDENT;
         lines.push(p + contentLines[i]);
       }
-      rendered = lines;
+
+      if (this.expanded || contentLines.length <= THINKING_PREVIEW_LINES) {
+        rendered = lines;
+      } else {
+        // Leading blank + first PREVIEW_LINES content lines + hint line.
+        const truncated = lines.slice(0, 1 + THINKING_PREVIEW_LINES);
+        const remaining = contentLines.length - THINKING_PREVIEW_LINES;
+        const hint = `… (${String(remaining)} more lines, ctrl+o to expand)`;
+        const indentWidth = Math.min(MESSAGE_INDENT.length, Math.max(0, width));
+        const hintWidth = Math.max(0, width - indentWidth);
+        truncated.push(
+          ' '.repeat(indentWidth) + currentTheme.dim(truncateToWidth(hint, hintWidth, '…')),
+        );
+        rendered = truncated;
+      }
     }
 
     if (isRenderCacheEnabled()) {
       this.renderCache = { width, lines: rendered };
     }
     return rendered;
-  }
-
-  private renderContent(width: number): string[] {
-    if (this.text.length === 0) return [''];
-    return this.textComponent.render(Math.max(1, width - MESSAGE_INDENT.length));
   }
 
   private startSpinner(): void {

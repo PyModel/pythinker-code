@@ -29,7 +29,6 @@ import {
   createPythinkerDefaultHeaders,
   type PythinkerHostIdentity,
 } from '@pymodel/pythinker-code-oauth';
-import rateLimit from '@fastify/rate-limit';
 import { createAsyncApiDocument } from './protocol/asyncapi';
 import Fastify, { type FastifyInstance } from 'fastify';
 
@@ -58,8 +57,8 @@ import {
 import { extractWsBearerToken } from './transport/ws/bearerProtocol';
 import { SessionEventBroadcaster } from './transport/ws/v1/sessionEventBroadcaster';
 import type { ConfigWarningItem } from './transport/ws/v1/events';
-import { FsWatchBridge } from './transport/ws/v1/fsWatchBridge';
 import { registerWsV1, WS_PATH as WS_PATH_V1 } from './transport/ws/v1/registerWsV1';
+import { registerWsDebug, WS_DEBUG_PATH } from './transport/ws/debug/registerWsDebug';
 import { getServerVersion } from './version';
 import { classify } from './security/bindClassify';
 import {
@@ -79,10 +78,7 @@ import {
 import { TranscriptService } from './services/transcript/transcriptService';
 import { ModelCatalogRefreshScheduler } from './services/modelCatalog/modelCatalogRefreshScheduler';
 import { startConfigChangedPublisher } from './services/config/configChangedPublisher';
-import {
-  AUTH_RATE_LIMIT_ERROR_NAME,
-  createAuthFailureLimiter,
-} from './middleware/rateLimit';
+import { createAuthFailureLimiter } from './middleware/rateLimit';
 import { createRemoteControlManager } from '@pymodel/remote-control';
 
 import { createAuthTokenService, type IAuthTokenService } from './services/auth/authTokenService';
@@ -305,66 +301,38 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
     app.addHook('onSend', createSecurityHeadersHook({ tls: false }));
   }
 
-  let closePromise: Promise<void> | undefined;
-  const close = (): Promise<void> => {
-    closePromise ??= runClose();
-    return closePromise;
-  };
-  const runClose = async (): Promise<void> => {
-    const failures: unknown[] = [];
-    const phase = async (
-      name: string,
-      work: () => unknown,
-      required = true,
-    ): Promise<void> => {
-      try {
-        await work();
-      } catch (error) {
-        if (required) failures.push(error);
-        logger.warn(
-          { err: error instanceof Error ? error.message : String(error), phase: name },
-          'server cleanup phase failed; continuing',
-        );
-      }
-    };
+  const close = async (): Promise<void> => {
+    if (wssDebug !== undefined) {
+      for (const client of wssDebug.clients) client.terminate();
+    }
+    configChangedPublisher.close();
+    await remoteControlManager.close();
+    await app.close();
+    configWarningSubscription.dispose();
+    pluginChangeSubscription.dispose();
+    capabilityInstallSubscription.dispose();
+    authFailureLimiter?.dispose();
+    modelCatalogRefreshScheduler.dispose();
     try {
-      await phase('config-publisher', () => configChangedPublisher.close());
-      await phase('remote-control', () => remoteControlManager.close());
-      await phase('http', () => app.close());
-      await phase('subscriptions', () => {
-        for (const sub of [
-          configWarningSubscription,
-          pluginChangeSubscription,
-          capabilityInstallSubscription,
-          authFailureLimiter,
-          modelCatalogRefreshScheduler,
-        ]) {
-          try {
-            sub?.dispose();
-          } catch (error) {
-            logger.warn(
-              { err: error instanceof Error ? error.message : String(error) },
-              'subscription disposal failed; continuing',
-            );
-          }
-        }
-      });
-      await phase('telemetry', () => shutdownServerTelemetry(telemetry), false);
-      await phase('session-metadata', () => drainSessionMetadataWrites());
-      await phase('session-index', () => core.accessor.get(ISessionIndexMirror).drain());
-      await phase('mcp-oauth', () => core.accessor.get(IMcpOAuthService).shutdown());
-      await phase('fs-watch', () => fsWatchBridge.dispose());
-      let appendLogStore: IAppendLogStore | undefined;
-      await phase('append-log', () => {
-        appendLogStore = core.accessor.get(IAppendLogStore);
-      });
-      await phase('core', () => core.dispose());
-      await phase('append-log-retirements', () => appendLogStore?.drainRetirements());
-      await phase('session-index-drain', () => drainSessionIndexMirror());
-      await phase('global-search', () => drainGlobalSearchDisposals());
-      await phase('query-store', () => drainQueryStoreDisposals());
-      await phase('session-metadata-final', () => drainSessionMetadataWrites());
-      await phase('log-closes', () => drainLogCloses());
+      await shutdownServerTelemetry(telemetry);
+    } catch (error) {
+      logger.warn(
+        { err: error instanceof Error ? error.message : String(error) },
+        'telemetry shutdown failed; continuing server cleanup',
+      );
+    }
+    try {
+      await drainSessionMetadataWrites();
+      await core.accessor.get(ISessionIndexMirror).drain();
+      await core.accessor.get(IMcpOAuthService).shutdown();
+      const appendLogStore = core.accessor.get(IAppendLogStore);
+      core.dispose();
+      await appendLogStore.drainRetirements();
+      await drainSessionIndexMirror();
+      await drainGlobalSearchDisposals();
+      await drainQueryStoreDisposals();
+      await drainSessionMetadataWrites();
+      await drainLogCloses();
     } finally {
       try {
         await registration.release();
@@ -373,8 +341,6 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
         process.off('uncaughtException', onUncaughtException);
       }
     }
-    if (failures.length === 1) throw failures[0];
-    if (failures.length > 1) throw new AggregateError(failures, 'server cleanup failed');
   };
 
   const connectionRegistry = new ConnectionRegistry();
@@ -386,8 +352,6 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
     logger,
     transcriptService,
   });
-  const fsWatchBridge = new FsWatchBridge({ core, logger });
-
   const configService = core.accessor.get(IConfigService);
   const publishConfigWarnings = (diagnostics: readonly ConfigDiagnostic[]): void => {
     const warnings: ConfigWarningItem[] = diagnostics
@@ -465,14 +429,6 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
   }
 
   await registerOpenApi();
-  await app.register(rateLimit, {
-    global: false,
-    errorResponseBuilder: (_request, context) =>
-      Object.assign(new Error('Too many authentication requests'), {
-        code: AUTH_RATE_LIMIT_ERROR_NAME,
-        statusCode: context.statusCode,
-      }),
-  });
 
   await registerApiV1Routes(app, core, {
     serverVersion,
@@ -481,13 +437,12 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
     enableShutdown,
     enableTerminals,
     guiStore,
-    pluginMarketplaceUrl:
-      opts.pluginMarketplaceUrl ??
-      process.env['PYTHINKER_CODE_PLUGIN_MARKETPLACE_URL'],
-    pluginMarketplaceIsDefault:
-      opts.pluginMarketplaceUrl === undefined &&
-      (process.env['PYTHINKER_CODE_PLUGIN_MARKETPLACE_URL'] === undefined ||
-        process.env['PYTHINKER_CODE_PLUGIN_MARKETPLACE_FROM_DEV_SERVER'] === '1'),
+    pluginMarketplaceUrl: (() => {
+      const configured = opts.pluginMarketplaceUrl ?? process.env['PYTHINKER_CODE_PLUGIN_MARKETPLACE_URL'];
+      if (configured !== undefined && configured.trim() !== '') return () => configured;
+      return () => '';
+    })(),
+    pluginMarketplaceIsDefault: false,
     remoteControl: {
       service: remoteControlManager,
       staticEnableError:
@@ -513,9 +468,9 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
     validateCredential,
     registry: connectionRegistry,
     broadcaster,
-    fsWatchBridge,
     logger,
   });
+  const wssDebug = debugEndpoints ? registerWsDebug() : undefined;
 
   const handleUpgrade = async (
     req: IncomingMessage,
@@ -524,7 +479,9 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
   ): Promise<void> => {
     const url = req.url ?? '';
     const isV1 = url === WS_PATH_V1 || url.startsWith(`${WS_PATH_V1}?`);
-    if (!isV1) {
+    const isDebug = url === WS_DEBUG_PATH || url.startsWith(`${WS_DEBUG_PATH}?`);
+    const wss = isV1 ? wssV1 : isDebug ? wssDebug : undefined;
+    if (wss === undefined) {
       socket.destroy();
       return;
     }
@@ -586,7 +543,7 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
     }
 
     (socket as Socket).setNoDelay(true);
-    wssV1.handleUpgrade(req, socket, head, (ws) => wssV1.emit('connection', ws, req));
+    wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
   };
   app.server.on('upgrade', (req, socket, head) => {
     void handleUpgrade(req, socket, head).catch((error: unknown) =>
@@ -597,6 +554,7 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
   app.addHook('onClose', async () => {
     connectionRegistry.closeAll('server shutting down');
     wssV1.close();
+    wssDebug?.close();
     await broadcaster.close();
   });
 

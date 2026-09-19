@@ -34,7 +34,6 @@ describe('API surface snapshot', () => {
       homeDir: home,
       logLevel: 'silent',
       debugEndpoints: true,
-      env: { PYTHINKER_CODE_EXPERIMENTAL_MCP_MANAGEMENT: '1' },
     });
   });
 

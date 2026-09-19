@@ -155,8 +155,6 @@ function createDefaultExportDeps(overrides: Partial<ExportDeps> = {}): ExportDep
   };
   const getHarness = (): PythinkerHarness => {
     const currentTelemetryBootstrap = getTelemetryBootstrap();
-    // Same engine gate as `pythinker -p` / the TUI: the SDK's v2-backed harness by
-    // default, the legacy agent-core harness when PYTHINKER_CODE_LEGACY_FLAG is set.
     harness ??= (isPythinkerV2Enabled() ? createPythinkerHarnessV2 : createPythinkerHarness)({
       homeDir: currentTelemetryBootstrap.homeDir,
       identity,

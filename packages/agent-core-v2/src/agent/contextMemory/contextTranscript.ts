@@ -1,4 +1,4 @@
-import { type ContentPart, type ToolCall } from '#/kosong/contract/message';
+import { type ContentPart, type ToolCall } from '#human/llm/message';
 import type { WireRecord } from '#/wire/record';
 
 import {
@@ -13,7 +13,6 @@ import type { ContextMessage } from './types';
 export interface ContextTranscript {
   readonly entries: readonly ContextMessage[];
   readonly times: readonly (number | undefined)[];
-  readonly recordIndexes: readonly (number | undefined)[];
   readonly foldedLength: number;
 }
 
@@ -36,7 +35,6 @@ interface MutableMessage {
 interface MutableEntry {
   message: MutableMessage;
   time?: number;
-  recordIndex?: number;
 }
 
 export function reduceContextTranscript(records: Iterable<WireRecord>): ContextTranscript {
@@ -50,8 +48,6 @@ export function createContextTranscriptReducer(): ContextTranscriptReducer {
   let foldedLength = 0;
   let clearFloor = 0;
   let openEntry: MutableEntry | undefined;
-  let activeRecordIndex: number | undefined;
-  let nextRecordIndex = 0;
 
   const push = (...entries: MutableEntry[]): void => {
     transcript.push(...entries);
@@ -60,11 +56,7 @@ export function createContextTranscriptReducer(): ContextTranscriptReducer {
 
   const fold = createLoopEventFold({
     openAssistant: (time) => {
-      openEntry = {
-        message: { role: 'assistant', content: [], toolCalls: [] },
-        time,
-        recordIndex: activeRecordIndex,
-      };
+      openEntry = { message: { role: 'assistant', content: [], toolCalls: [] }, time };
       push(openEntry);
     },
     appendOpenContent: (part) => {
@@ -85,10 +77,10 @@ export function createContextTranscriptReducer(): ContextTranscriptReducer {
       openEntry = undefined;
     },
     pushToolMessage: (message, time) => {
-      push({ message: message as MutableMessage, time, recordIndex: activeRecordIndex });
+      push({ message: message as MutableMessage, time });
     },
     pushMessage: (message, time) => {
-      push(toMutableEntry(message, time, activeRecordIndex));
+      push(toMutableEntry(message, time));
     },
   });
 
@@ -123,8 +115,6 @@ export function createContextTranscriptReducer(): ContextTranscriptReducer {
   };
 
   const add = (record: WireRecord): void => {
-    activeRecordIndex = nextRecordIndex;
-    nextRecordIndex += 1;
     switch (record.type) {
       case 'context.append_message': {
         fold.appendMessage(record['message'] as ContextMessage, record.time);
@@ -148,7 +138,6 @@ export function createContextTranscriptReducer(): ContextTranscriptReducer {
             origin: { kind: 'compaction_summary' },
           },
           time: record.time,
-          recordIndex: activeRecordIndex,
         });
         foldedLength = recoverFoldedLength(record, transcript, clearFloor, foldedLength);
         break;
@@ -171,17 +160,12 @@ export function createContextTranscriptReducer(): ContextTranscriptReducer {
     result: () => ({
       entries: transcript.map((e) => e.message),
       times: transcript.map((e) => e.time),
-      recordIndexes: transcript.map((e) => e.recordIndex),
       foldedLength,
     }),
   };
 }
 
-function toMutableEntry(
-  message: ContextMessage,
-  time: number | undefined,
-  recordIndex: number | undefined,
-): MutableEntry {
+function toMutableEntry(message: ContextMessage, time: number | undefined): MutableEntry {
   return {
     message: {
       ...(message.id !== undefined ? { id: message.id } : {}),
@@ -193,7 +177,6 @@ function toMutableEntry(
       ...(message.origin !== undefined ? { origin: message.origin } : {}),
     },
     time,
-    recordIndex,
   };
 }
 

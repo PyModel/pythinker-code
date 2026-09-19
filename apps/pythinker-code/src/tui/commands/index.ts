@@ -22,22 +22,21 @@ export {
   showSettingsSelector,
 } from './config';
 export { handleDynamicWorkflowCommand } from './dynamic_workflow';
-export { handleExpertTalkCommand, handleExpertTalkPromptAccepted } from './expert-talk';
 export { handleTowerCommand } from './tower';
-export { showMcpServers, showStatusReport, showUsage } from './info';
+export { handleFeedbackCommand, showMcpServers, showStatusReport, showUsage } from './info';
 export { handlePluginsCommand } from './plugins';
 export { handleReloadCommand, handleReloadTuiCommand } from './reload';
 export { handleGoalCommand, parseGoalCommand, goalObjectiveLengthWarning } from './goal';
-export { goalArgumentCompletions, towerArgumentCompletions } from './registry';
+export { goalArgumentCompletions } from './registry';
 export { handleForkCommand, handleInitCommand, handleTitleCommand } from './session';
 export { handleUndoCommand } from './undo';
 export { handleRemoteControlCommand, handleWebCommand } from './web';
 export {
   promptApiKey,
   promptCatalogProviderSelection,
+  promptFeedbackInput,
   promptLogoutProviderSelection,
   promptModelSelectionForCatalog,
-  promptModelSelectionForCodex,
   promptModelSelectionForOpenPlatform,
   promptPlatformSelection,
   runModelSelector,

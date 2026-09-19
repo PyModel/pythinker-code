@@ -14,8 +14,10 @@
  */
 
 import type { Component } from '@pymodel/pi-tui';
-import { Markdown, truncateToWidth, visibleWidth } from '@pymodel/pi-tui';
+import { truncateToWidth, visibleWidth } from '@pymodel/pi-tui';
 import chalk from 'chalk';
+
+import { Markdown } from '#/tui/components/markdown/markdown';
 
 import { MAIN_AGENT_ID } from '#/tui/constant/pythinker-tui';
 import { currentTheme } from '#/tui/theme';

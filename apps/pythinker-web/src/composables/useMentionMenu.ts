@@ -173,5 +173,30 @@ export function useMentionMenu(deps: MentionMenuDeps) {
     });
   }
 
-  return { open, items, active, loading, stale, update, select, close, getMentionToken };
+  /** Tab completion: fill the @ query with the highlighted name and keep the
+   *  menu open so the user can keep filtering. Enter still commits via select(). */
+  function complete(item: MentionItem): void {
+    const mt = getMentionToken();
+    if (!mt) return;
+    if (item.kind === 'skill') {
+      select(item);
+      return;
+    }
+    const name = item.file.name || item.file.path.split(/[\\/]/).findLast(Boolean) || item.file.path;
+    const val = text.value;
+    const next = `${val.slice(0, mt.start)}@${name}${val.slice(mt.end)}`;
+    text.value = next;
+    open.value = true;
+    void nextTick(() => {
+      const el = textareaRef.value;
+      if (!el) return;
+      const newPos = mt.start + 1 + name.length;
+      el.setSelectionRange(newPos, newPos);
+      el.focus();
+      autosize();
+      update();
+    });
+  }
+
+  return { open, items, active, loading, stale, update, select, complete, close, getMentionToken };
 }

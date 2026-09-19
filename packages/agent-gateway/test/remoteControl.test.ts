@@ -3,7 +3,16 @@ import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { remoteControlLockPath } from '@pymodel/remote-control';
+import {
+  remoteControlLockPath,
+  RemoteControlAlreadyRunningError,
+  type RemoteControlManager,
+} from '@pymodel/remote-control';
+import { ITelemetryService } from '@pymodel/agent-core-v2';
+import {
+  registerRemoteControlRoutes,
+  type RemoteControlRouteOptions,
+} from '../src/routes/remoteControl';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { WebSocketServer, type RawData, type WebSocket } from 'ws';
 
@@ -30,6 +39,23 @@ interface RemoteControlStatusWire {
 }
 
 const RELAY_KEY = 'relay-key';
+
+async function seedLoginToken(homeDir: string): Promise<void> {
+  const credDir = join(homeDir, 'credentials');
+  await mkdir(credDir, { recursive: true });
+  await writeFile(
+    join(credDir, 'pythinker-code.json'),
+    JSON.stringify({
+      access_token: 'access-token',
+      refresh_token: 'refresh-token',
+      expires_at: Math.floor(Date.now() / 1000) + 3600,
+      scope: 'openid',
+      token_type: 'Bearer',
+      expires_in: 3600,
+    }),
+  );
+}
+
 
 describe('agent-gateway /api/v1/remote-control', () => {
   let home: string | undefined;
@@ -69,8 +95,9 @@ describe('agent-gateway /api/v1/remote-control', () => {
 
   it('starts and stops the tunnel at runtime, dedupes concurrent enables, and tracks relay-initiated shutdown', async () => {
     const relay = await startRegisterAckRelay();
-    vi.stubEnv('PYTHINKER_CODE_REMOTE_CONTROL_RELAY', `http://127.0.0.1:${relay.port}`);
+    vi.stubEnv('PYTHINKER_CODE_REMOTE_CONTROL_RELAY_URL', `http://127.0.0.1:${relay.port}`);
     vi.stubEnv('PYTHINKER_CODE_REMOTE_CONTROL_RELAY_KEY', RELAY_KEY);
+    await seedLoginToken(home as string);
 
     const initial = await authedFetch(server as RunningServer, base, '/api/v1/remote-control');
     const initialBody = (await initial.json()) as Envelope<RemoteControlStatusWire>;
@@ -78,7 +105,7 @@ describe('agent-gateway /api/v1/remote-control', () => {
     expect(initialBody.data.state).toBe('off');
 
     const [first, second] = await Promise.all([postRemoteControl(true), postRemoteControl(true)]);
-    expect(first.code).toBe(0);
+        expect(first.code).toBe(0);
     expect(second.code).toBe(0);
     expect(first.data.state).toBe('on');
     expect(second.data.state).toBe('on');
@@ -154,6 +181,67 @@ describe('agent-gateway /api/v1/remote-control', () => {
     const posted = await postRemoteControl(true);
     expect(posted.code).toBe(ErrorCode.REMOTE_CONTROL_ALREADY_RUNNING);
     expect(posted.msg).toContain('already running');
+  });
+});
+
+describe('remote-control route telemetry', () => {
+  const HOLDER = {
+    pid: 1,
+    nonce: 'n',
+    localOrigin: 'http://127.0.0.1:1',
+    deviceId: 'd',
+    url: 'https://example.com/devices/d/',
+    startedAt: 0,
+  };
+
+  function fakeService(behavior: 'ok' | 'already' | 'error'): RemoteControlManager {
+    return {
+      enable: async () => {
+        if (behavior === 'already') throw new RemoteControlAlreadyRunningError(HOLDER);
+        if (behavior === 'error') throw new Error('boom');
+        return { enabled: true, state: 'on' };
+      },
+      disable: async () => ({ enabled: false, state: 'off' }),
+    } as unknown as RemoteControlManager;
+  }
+
+  function postHandler(opts: RemoteControlRouteOptions): (enabled: boolean) => Promise<void> {
+    let handler: ((req: unknown, reply: unknown) => unknown) | undefined;
+    const app = {
+      get: () => {},
+      post: (_path: string, _options: unknown, h: unknown) => {
+        handler = h as typeof handler;
+      },
+    };
+    registerRemoteControlRoutes(app as never, opts);
+    return async (enabled) => {
+      await handler!({ id: 'req-1', body: { enabled } }, { send: () => {} });
+    };
+  }
+
+  it('tracks remote_control_toggle outcomes', async () => {
+    const tracked: [string, unknown][] = [];
+    const telemetry = {
+      track2: (event: string, properties: unknown) => tracked.push([event, properties]),
+    } as unknown as ITelemetryService;
+
+    await postHandler({ service: fakeService('ok'), telemetry })(true);
+    await postHandler({ service: fakeService('ok'), telemetry })(false);
+    await postHandler({ service: fakeService('already'), telemetry })(true);
+    await postHandler({
+      service: fakeService('ok'),
+      staticEnableError: 'disabled by config',
+      telemetry,
+    })(true);
+    await postHandler({ service: fakeService('error'), telemetry })(true);
+
+    expect(tracked).toEqual([
+      ['remote_control_toggle', { enabled: true, outcome: 'ok' }],
+      ['remote_control_toggle', { enabled: false, outcome: 'ok' }],
+      ['remote_control_toggle', { enabled: true, outcome: 'already_running' }],
+      ['remote_control_toggle', { enabled: true, outcome: 'rejected' }],
+      ['remote_control_toggle', { enabled: true, outcome: 'error' }],
+    ]);
   });
 });
 

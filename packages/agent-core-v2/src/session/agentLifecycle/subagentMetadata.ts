@@ -11,6 +11,14 @@ export function subagentLabels(
   return labels;
 }
 
+export function withSubagentProfile(
+  labels: Readonly<Record<string, string>> | undefined,
+  profileName: string | undefined,
+): Readonly<Record<string, string>> | undefined {
+  if (profileName === undefined || profileName.length === 0) return labels;
+  return { ...labels, profileName };
+}
+
 export function labelsFromAgentMeta(
   meta: AgentMeta,
 ): Readonly<Record<string, string>> | undefined {
@@ -24,14 +32,6 @@ export function labelsFromAgentMeta(
     labels['dynamicWorkflowItem'] = dynamicWorkflowItem;
   }
   return Object.keys(labels).length > 0 ? labels : undefined;
-}
-
-export function withSubagentProfile(
-  labels: Readonly<Record<string, string>> | undefined,
-  profileName: string | undefined,
-): Readonly<Record<string, string>> | undefined {
-  if (profileName === undefined || profileName.length === 0) return labels;
-  return { ...labels, profileName };
 }
 
 export function isSubagentMeta(meta: AgentMeta | undefined): boolean {

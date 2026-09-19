@@ -1,4 +1,4 @@
-import { AgentReminder } from '#/features/reminder/reminderAgentRuntime';
+import { IAgentReminderService } from '#/features/reminder/reminderService';
 import { IAgentToolApprovalService } from '#/agent/toolApproval/toolApproval';
 import { denyToolExecution } from '#/agent/toolExecutor/beforeToolExecuteEvent';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
@@ -27,8 +27,8 @@ export class SessionBtwService implements ISessionBtwService {
     }
     const childContext = await this.agentLifecycle.fork(main.accessor.get(IAgentScopeContext).agentContext);
     const child = this.agentLifecycle.handleOf(childContext.agentId)!;
-    this.agentLifecycle
-      .resolve(childContext, AgentReminder)
+    child.accessor
+      .get(IAgentReminderService)
       .notify(SIDE_QUESTION_SYSTEM_REMINDER, { variant: 'btw' });
     const reason =
       child.accessor.get(IAgentToolApprovalService)?.formatDenyMessage(
@@ -38,9 +38,7 @@ export class SessionBtwService implements ISessionBtwService {
       .get(IAgentToolExecutorService)
       ?.onBeforeExecuteTool((event) => {
         if (!BTW_READONLY_TOOLS.has(event.toolCall.name)) {
-          if (!BTW_READONLY_TOOLS.has(event.toolCall.name)) {
           event.veto(denyToolExecution(reason));
-        }
         }
       });
     return childContext.agentId;

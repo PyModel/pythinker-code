@@ -47,6 +47,7 @@ export default defineConfig({
   // full barrel, which imports `*.md?raw` prompt templates.
   plugins: [rawTextPlugin(), hashImportsPlugin()],
   test: {
+    exclude: ['**/node_modules/**', '**/dist/**', '**/test/.skip/**'],
     name: 'acp-server',
     include: ['test/**/*.{test,e2e}.ts'],
   },

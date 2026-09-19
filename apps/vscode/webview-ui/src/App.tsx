@@ -4,9 +4,8 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Header } from "./components/Header";
 import { ChatArea } from "./components/ChatArea";
 import { InputArea } from "./components/inputarea/InputArea";
+import { MCPServersModal } from "./components/confighub/MCPServersSection";
 import { WorkDirModal } from "./components/WorkDirModal";
-import { ConfigHub } from "./components/confighub/ConfigHub";
-import { MCP_SERVERS_KEY } from "./components/confighub/MCPServersSection";
 import { ConfigErrorScreen } from "./components/ConfigErrorScreen";
 import { LoginScreen } from "./components/LoginScreen";
 import { Toaster, toast } from "./components/ui/sonner";
@@ -19,13 +18,14 @@ import "./styles/index.css";
 
 function MainContent({ onAuthAction }: { onAuthAction: () => void }) {
   const { processEvent, startNewConversation, sessionId } = useChatStore();
-  const { setExtensionConfig, extensionConfig, setWireSlashCommands, setModels, configHub } = useSettingsStore();
+  const { setExtensionConfig, extensionConfig } = useSettingsStore();
   const queryClient = useQueryClient();
 
   useEffect(() => {
     return bridge.on(Events.StreamEvent, (event: UIStreamEvent) => {
-      // Filter only when a session already exists to ensure session_start is handled properly
+      // Filter only when a session already exists so session_start still applies
       if (sessionId && "_sessionId" in event && event._sessionId && event._sessionId !== sessionId) {
+        console.log("Ignored stream event from another session:", event._sessionId);
         return;
       }
       processEvent(event);
@@ -39,24 +39,8 @@ function MainContent({ onAuthAction }: { onAuthAction: () => void }) {
   }, [processEvent, sessionId]);
 
   useEffect(() => {
-    // Two provider edits in quick succession race: whichever getModels() call
-    // resolves last wins, which is not necessarily the newest. Only the latest
-    // request is allowed to publish.
-    let providersRevision = 0;
     const unsubs = [
-      bridge.on(Events.MCPServersChanged, () => void queryClient.invalidateQueries({ queryKey: MCP_SERVERS_KEY })),
-      // Provider add/remove only updates the Providers tab's local view; the
-      // model list everywhere else comes from the store, so refetch it.
-      bridge.on(Events.ProvidersChanged, () => {
-        const revision = ++providersRevision;
-        void bridge
-          .getModels()
-          .then((models) => {
-            if (revision === providersRevision) setModels(models);
-          })
-          .catch(() => undefined);
-      }),
-      bridge.on(Events.SlashCommandsChanged, setWireSlashCommands),
+      bridge.on(Events.MCPServersChanged, () => void queryClient.invalidateQueries({ queryKey: ["mcpServers"] })),
       bridge.on(Events.ExtensionConfigChanged, ({ config }: { config: ExtensionConfig }) => setExtensionConfig(config)),
       bridge.on(Events.FocusInput, () => document.querySelector<HTMLTextAreaElement>("textarea")?.focus()),
       bridge.on(Events.NewConversation, () => {
@@ -66,7 +50,7 @@ function MainContent({ onAuthAction }: { onAuthAction: () => void }) {
       }),
     ];
     return () => unsubs.forEach((u) => u());
-  }, [queryClient, setExtensionConfig, setWireSlashCommands, startNewConversation, setModels]);
+  }, [queryClient, setExtensionConfig, startNewConversation]);
 
   useEffect(() => {
     if (!extensionConfig.enableNewConversationShortcut) return;
@@ -84,18 +68,13 @@ function MainContent({ onAuthAction }: { onAuthAction: () => void }) {
 
   return (
     <>
-      {configHub.open ? (
-        <ConfigHub />
-      ) : (
-        <>
-          <div className="flex-1 min-h-0 relative group/chat">
-            <ChatArea />
-          </div>
-          <div className="shrink-0 max-h-[80vh] flex flex-col min-h-0">
-            <InputArea onAuthAction={onAuthAction} />
-          </div>
-        </>
-      )}
+      <div className="flex-1 min-h-0 relative group/chat">
+        <ChatArea />
+      </div>
+      <div className="shrink-0 max-h-[80vh] flex flex-col min-h-0">
+        <InputArea onAuthAction={onAuthAction} />
+      </div>
+      <MCPServersModal />
       <WorkDirModal />
     </>
   );
@@ -130,7 +109,7 @@ export default function App() {
 
   const resolution = resolveAppView({ status, modelsCount, skippedLogin, showLogin });
 
-  // Login view: not logged in and not skipped, or user explicitly initiates login
+  // Login screen: logged out and not skipped, or user chose login
   if (resolution.view === "login") {
     return (
       <div className="flex flex-col h-screen text-foreground overflow-hidden">
@@ -141,7 +120,7 @@ export default function App() {
     );
   }
 
-  // Error and configuration view; no-models must retain an entry point to return to login
+  // Error/settings screens; no-models must keep a path back to login
   if (resolution.view === "status") {
     return (
       <div className="flex flex-col h-screen text-foreground overflow-hidden">

@@ -21,6 +21,8 @@ function makeStreamingUIStub() {
     flushNow: vi.fn(),
     setTodoList: vi.fn(),
     resetToolUi: vi.fn(),
+    clearNotifyPanel: vi.fn(),
+    markNotifyPanelEnded: vi.fn(),
     finalizeTurn: vi.fn(),
   };
 }
@@ -36,7 +38,7 @@ function makeSubagentHandler() {
     streamingUI: makeStreamingUIStub(),
     appendTranscriptEntry: vi.fn(),
     btwPanelController: { routeEvent: vi.fn(() => false) },
-    surveyController: { notifyToolCallStarted: vi.fn(), notifyCompactionFinished: vi.fn() },
+    surveyController: { notifyToolCallStarted: vi.fn(), notifyToolCallEnded: vi.fn(), notifyCompactionFinished: vi.fn() },
     updateActivityPane: vi.fn(),
   };
   const handler = new SubAgentEventHandler(host as never, {
@@ -140,6 +142,10 @@ function makeSessionEventHost() {
     showStatus: vi.fn(),
     showNotice: vi.fn(),
     track: vi.fn(),
+    recordSessionActivity: vi.fn(),
+    noteStepUsage: vi.fn(),
+    noteCompactionFinished: vi.fn(),
+    updateActivityPane: vi.fn(),
     mountEditorReplacement: vi.fn(),
     restoreEditor: vi.fn(),
     restoreInputText: vi.fn(),
@@ -148,7 +154,7 @@ function makeSessionEventHost() {
     sendQueuedMessage: vi.fn(),
     shiftQueuedMessage: vi.fn(),
     btwPanelController: { routeEvent: vi.fn(() => false) },
-    surveyController: { notifyToolCallStarted: vi.fn(), notifyCompactionFinished: vi.fn() },
+    surveyController: { notifyToolCallStarted: vi.fn(), notifyToolCallEnded: vi.fn(), notifyCompactionFinished: vi.fn() },
     tasksBrowserController: { repaint: vi.fn(), refreshOutputViewer: vi.fn() },
   };
   return host as never;

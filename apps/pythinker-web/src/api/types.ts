@@ -1051,8 +1051,28 @@ export interface AppPlugin {
   state: string;
   skillCount: number;
   mcpServerCount: number;
+  enabledMcpServerCount?: number;
+  hookCount?: number;
+  commandCount?: number;
   hasErrors: boolean;
   source: string;
+  originalSource?: string;
+  homepage?: string;
+}
+
+/** One marketplace catalog entry merged with live install state. */
+export interface AppPluginMarketplaceEntry {
+  id: string;
+  tier: 'official' | 'curated' | 'third-party';
+  displayName: string;
+  description?: string;
+  homepage?: string;
+  keywords?: string[];
+  version?: string;
+  source: string;
+  installed?: { version?: string; enabled: boolean };
+  updateAvailable?: boolean;
+  capabilityId?: string;
 }
 
 /** One subagent profile the agent can dispatch work to. */
@@ -1146,7 +1166,7 @@ export interface PythinkerWebApi {
   createSession(input: { title?: string; cwd?: string; model?: string; workspaceId?: string }): Promise<AppSession>;
   /** Fetch one session by id (deep links beyond the first listSessions page). */
   getSession(sessionId: string): Promise<AppSession>;
-  updateSession(sessionId: string, input: { title?: string; cwd?: string; model?: string; permissionMode?: string; planMode?: boolean; dynamicWorkflowMode?: boolean; goalObjective?: string; goalControl?: 'pause' | 'resume' | 'cancel'; thinking?: string; tools?: string[]; mcpServers?: string[] }): Promise<AppSession>;
+  updateSession(sessionId: string, input: { title?: string; cwd?: string; model?: string; permissionMode?: string; planMode?: boolean; dynamicWorkflowMode?: boolean; towerMode?: boolean; towerBase?: string; goalObjective?: string; goalControl?: 'pause' | 'resume' | 'cancel'; thinking?: string; tools?: string[]; mcpServers?: string[] }): Promise<AppSession>;
   getSessionStatus(sessionId: string): Promise<AppSessionRuntimeStatus>;
   getExpertTalkStatus(sessionId: string): Promise<AppExpertTalkStatus>;
   configureExpertTalk(sessionId: string, input: AppExpertTalkPair, expectedVersion?: string): Promise<AppExpertTalkStatus>;
@@ -1184,7 +1204,7 @@ export interface PythinkerWebApi {
   compactSession(sessionId: string, instruction?: string): Promise<void>;
   undoSession(sessionId: string, count?: number): Promise<void>;
   forkSession(sessionId: string, input?: { title?: string }): Promise<AppSession>;
-  /** Generate a session title via the daemon's managed title tool (v2 engine) — POST /sessions/{id}/title/generate. Throws SESSION_TITLE_UNAVAILABLE when generation isn't possible. */
+  /** Generate a session title — POST /sessions/{id}/title/generate. Throws SESSION_TITLE_UNAVAILABLE when generation isn't possible. */
   generateSessionTitle(sessionId: string, input?: { force?: boolean; source?: 'user_prompts' | 'first_turn' | 'digest' }): Promise<{ title: string }>;
   /** Create a child session under a parent — POST /sessions/{id}/children. */
   createChildSession(sessionId: string, input?: { title?: string }): Promise<AppSession>;
@@ -1206,7 +1226,10 @@ export interface PythinkerWebApi {
   removeConnector(connectorId: string): Promise<{ deleted: true }>;
   restartConnector(connectorId: string): Promise<{ restarting: true }>;
   listPlugins(): Promise<AppPlugin[]>;
-  setPluginEnabled(pluginId: string, enabled: boolean): Promise<{ id: string; enabled: boolean }>;
+  listPluginMarketplace(): Promise<AppPluginMarketplaceEntry[]>;
+  installPlugin(source: string): Promise<AppPlugin>;
+  setPluginEnabled(pluginId: string, enabled: boolean): Promise<{ ok: true }>;
+  removePlugin(pluginId: string): Promise<{ ok: true }>;
   listSubagents(workDir: string): Promise<AppSubagent[]>;
   listTasks(sessionId: string, input?: AppTaskListOptions): Promise<AppTask[]>;
   getTask(sessionId: string, taskId: string, input?: { withOutput?: boolean; outputBytes?: number; signal?: AbortSignal }): Promise<AppTask>;

@@ -1,11 +1,6 @@
 import { assign, createActor, fromPromise, setup, waitFor } from '@pymodel/agent-core-v2/human/xstate2';
 
-import {
-  resolveRelayKey,
-  resolveRelayOrigin,
-  startRemoteControl,
-  type RemoteControlHandle,
-} from './remote-control';
+import { resolveRelayKey, startRemoteControl, type RemoteControlHandle } from './remote-control';
 
 export type RemoteControlState = 'off' | 'starting' | 'on' | 'stopping';
 
@@ -30,8 +25,8 @@ export interface RemoteControlManagerOptions {
   readonly localOrigin: () => string;
   readonly localServerToken: () => string;
   readonly clientVersion: string;
-  readonly relayOrigin?: string;
   readonly relayKey?: string;
+  readonly relayOrigin?: string;
   readonly stderr?: Pick<NodeJS.WriteStream, 'write'>;
 }
 
@@ -58,8 +53,8 @@ function createRemoteControlMachine(
           localOrigin: options.localOrigin(),
           localServerToken: options.localServerToken,
           clientVersion: options.clientVersion,
-          relayOrigin: resolveRelayOrigin(options.relayOrigin),
-          relayKey: resolveRelayKey(options.relayKey),
+          relayKey: options.relayKey ?? resolveRelayKey(),
+          relayOrigin: options.relayOrigin,
           stderr: options.stderr,
         });
         onTunnelStarted(handle);
@@ -122,7 +117,7 @@ export function createRemoteControlManager(
         () => {
           actor.send({ type: 'tunnel.exited' });
         },
-        (error: unknown) => {
+        (error) => {
           options.stderr?.write(`remote-control lock release failed: ${errorMessage(error)}\n`);
           actor.send({ type: 'tunnel.exited' });
         },
@@ -146,7 +141,8 @@ export function createRemoteControlManager(
     };
   };
 
-  const settle = () => waitFor(actor, (snap) => snap.value === 'on' || snap.value === 'off');
+  const settle = () =>
+    waitFor(actor, (snap) => snap.value === 'on' || snap.value === 'off');
 
   const enable = async (): Promise<RemoteControlStatusInfo> => {
     const snap = actor.getSnapshot();

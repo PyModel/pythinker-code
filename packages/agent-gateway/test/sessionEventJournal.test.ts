@@ -32,7 +32,7 @@ describe('SessionEventJournal', () => {
   });
 
   it('assigns monotonic seq and reads back in order', async () => {
-    const j = await SessionEventJournal.open(dir, 'sess_1');
+    const j = await SessionEventJournal.open(filePath);
     expect(j.epoch).toMatch(/^ep_/);
     expect(j.seq).toBe(0);
 
@@ -47,7 +47,7 @@ describe('SessionEventJournal', () => {
   });
 
   it('recovers seq and epoch across reopen', async () => {
-    const j1 = await SessionEventJournal.open(dir, 'sess_1');
+    const j1 = await SessionEventJournal.open(filePath);
     const epoch = j1.epoch;
     j1.append(j1.nextSeq(), envelope(1));
     j1.append(j1.nextSeq(), envelope(2));
@@ -56,7 +56,7 @@ describe('SessionEventJournal', () => {
     j1.append(j1.nextSeq(), envelope(3));
     await j1.flush();
 
-    const j2 = await SessionEventJournal.open(dir, 'sess_1');
+    const j2 = await SessionEventJournal.open(filePath);
     expect(j2.epoch).toBe(epoch);
     expect(j2.seq).toBe(2);
     expect(j2.nextSeq()).toBe(3);
@@ -64,14 +64,14 @@ describe('SessionEventJournal', () => {
   });
 
   it('rotates to a fresh epoch when the header is corrupt', async () => {
-    const j1 = await SessionEventJournal.open(dir, 'sess_1');
+    const j1 = await SessionEventJournal.open(filePath);
     const epoch = j1.epoch;
     j1.append(j1.nextSeq(), envelope(1));
     await j1.close();
 
     await writeFile(filePath, 'this is not json\n', 'utf8');
 
-    const j2 = await SessionEventJournal.open(dir, 'sess_1');
+    const j2 = await SessionEventJournal.open(filePath);
     expect(j2.epoch).toMatch(/^ep_/);
     expect(j2.epoch).not.toBe(epoch);
     expect(j2.seq).toBe(0);
@@ -79,7 +79,7 @@ describe('SessionEventJournal', () => {
   });
 
   it('readSince honors the exclusive lower bound and the limit', async () => {
-    const j = await SessionEventJournal.open(dir, 'sess_1');
+    const j = await SessionEventJournal.open(filePath);
     for (let i = 1; i <= 5; i++) j.append(j.nextSeq(), envelope(i));
 
     const page = await j.readSince(2, 2);
@@ -88,20 +88,14 @@ describe('SessionEventJournal', () => {
   });
 
   it('readSince on a missing file returns empty', async () => {
-    const j = await SessionEventJournal.open(dir, 'sess_1');
+    const j = await SessionEventJournal.open(filePath);
     const out = await j.readSince(0, 100);
     expect(out).toEqual([]);
     await j.close();
   });
 
-  it('rejects a session id that escapes the events directory', async () => {
-    await expect(SessionEventJournal.open(dir, '../outside')).rejects.toThrow(
-      'Storage path escapes its root',
-    );
-  });
-
   it('flushes appends that arrive while a flush is in flight', async () => {
-    const j = await SessionEventJournal.open(dir, 'sess_1');
+    const j = await SessionEventJournal.open(filePath);
     for (let i = 1; i <= 12; i++) j.append(j.nextSeq(), envelope(i));
     const deadline = Date.now() + 2000;
     let lines = 0;

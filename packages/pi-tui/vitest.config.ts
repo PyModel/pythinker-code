@@ -7,6 +7,7 @@ import { defineConfig } from "vitest/config";
 // file to vitest's API and add it to `include` to opt it in.
 export default defineConfig({
 	test: {
+    exclude: ['**/node_modules/**', '**/dist/**', '**/test/.skip/**'],
 		include: [],
 		passWithNoTests: true,
 	},

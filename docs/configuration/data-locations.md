@@ -1,6 +1,6 @@
 # Data locations
 
-Pythinker Code CLI stores all runtime data — the config file, session history, login credentials, and diagnostic logs — under `~/.pythinker-code/`. This page helps you understand where each type of data lives, what it is for, and how to clean up or relocate it when needed.
+Pythinker Code CLI stores the config file, session history, login credentials, diagnostic logs, and other runtime data under `~/.pythinker-code/`. This page helps you understand where each type of data lives, what it is for, and how to clean up or relocate it when needed.
 
 ## Data root directory
 
@@ -16,7 +16,7 @@ If you need to move the data directory elsewhere (for example, to isolate config
 export PYTHINKER_CODE_HOME="$HOME/.config/pythinker-code"
 ```
 
-Once set, **all** Pythinker Code data — config, sessions, logs, OAuth credentials, Pythinker-specific user Skills, global `AGENTS.md`, and more — lands under the new path. For the full reference on `PYTHINKER_CODE_HOME`, see [Environment variables](./env-vars.md).
+Once set, **all** Pythinker Code data lands under the new path: config, sessions, logs, OAuth credentials, Pythinker-specific user Skills, global `AGENTS.md`, and more. For the full reference on `PYTHINKER_CODE_HOME`, see [Environment variables](./env-vars.md).
 
 ::: tip Note
 
@@ -81,7 +81,7 @@ Inside each session directory:
 - **`agents/main/plans/`**: plan files written in Plan mode, named by plan id (`<id>.md`).
 - **`agents/agent-0/` etc.**: sub-Agent instance directories, each containing their own `wire.jsonl`.
 - **`logs/pythinker-code.log`**: diagnostic log for this session; only present when a diagnostic event occurs.
-- **`tasks/`**: background task persistence — `tasks/<task_id>.json` stores status/pid/exit code; `tasks/<task_id>/output.log` stores output.
+- **`tasks/`**: background task persistence. `tasks/<task_id>.json` stores status/pid/exit code; `tasks/<task_id>/output.log` stores output.
 - **`cron/`**: scheduled task persistence; reloaded into the scheduler when the session is resumed with `pythinker --session`. See [Scheduled tasks](../reference/tools.md#scheduled-tasks).
 
 Saved plan files can be outside the workspace. In the web interface, select **Reveal in file manager** next to a saved plan to select it in the operating system file manager.

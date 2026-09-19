@@ -210,7 +210,7 @@ export async function fetchV2SessionsPage(
 ): Promise<V2SessionPage> {
   const data = await requestData(opts, buildParams(opts));
   if (!Array.isArray(data['items'])) {
-    throw new TypeError('v2 sessions: unexpected response shape');
+    throw new Error('v2 sessions: unexpected response shape');
   }
   const items = (data['items'] as unknown[])
     .map(parseSession)
@@ -232,7 +232,7 @@ export async function fetchV2SessionGroups(
   if (opts.groupPageSize !== undefined) params.set('group.page_size', String(opts.groupPageSize));
   const data = await requestData(opts, params);
   if (!Array.isArray(data['groups'])) {
-    throw new TypeError('v2 sessions: unexpected response shape');
+    throw new Error('v2 sessions: unexpected response shape');
   }
   const groups: V2SessionGroup[] = [];
   for (const value of data['groups'] as unknown[]) {

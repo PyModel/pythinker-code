@@ -1,5 +1,4 @@
 import { randomBytes } from 'node:crypto';
-import { setTimeout as sleep } from 'node:timers/promises';
 import { mkdir, open, readFile, unlink } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
@@ -48,15 +47,13 @@ export interface RemoteControlLock {
 }
 
 const MAX_ACQUIRE_ATTEMPTS = 3;
-const ACQUIRE_RETRY_DELAY_MS = 25;
 
 export async function acquireRemoteControlLock(
   homeDir: string,
   details: { localOrigin: string; deviceId: string; url: string },
 ): Promise<RemoteControlLock> {
   const lockPath = remoteControlLockPath(homeDir);
-  // The lock sits beside `server.token`; keep the same owner-only permissions.
-  await mkdir(dirname(lockPath), { recursive: true, mode: 0o700 });
+  await mkdir(dirname(lockPath), { recursive: true });
   const info: RemoteControlLockInfo = {
     pid: process.pid,
     nonce: randomBytes(8).toString('hex'),
@@ -67,7 +64,7 @@ export async function acquireRemoteControlLock(
   };
   for (let attempt = 0; ; attempt += 1) {
     try {
-      const handle = await open(lockPath, 'wx', 0o600);
+      const handle = await open(lockPath, 'wx');
       try {
         await handle.writeFile(encodeLock(info));
       } finally {
@@ -75,29 +72,12 @@ export async function acquireRemoteControlLock(
       }
       return { release: () => releaseRemoteControlLock(lockPath, info.nonce) };
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST' || attempt >= MAX_ACQUIRE_ATTEMPTS) {
         throw error;
       }
-      // Read the holder even on the last attempt: a second process can recreate
-      // the lock between our unlink and our open, and a raw EEXIST tells the
-      // user nothing about who holds it or how to stop them.
       const holder = await readRemoteControlLock(lockPath);
       if (holder !== undefined && pidAlive(holder.pid)) {
         throw new RemoteControlAlreadyRunningError(holder);
-      }
-      // `open(…, 'wx')` publishes an empty file before its JSON is written, so
-      // an unreadable lock may simply be a rival mid-write. Deleting it there
-      // would let both processes believe they hold the lock. Give the writer a
-      // moment and re-read; only sweep it once it is still unreadable at the
-      // end, which is the genuinely corrupt case.
-      if (holder === undefined && attempt < MAX_ACQUIRE_ATTEMPTS) {
-        await sleep(ACQUIRE_RETRY_DELAY_MS);
-        continue;
-      }
-      if (attempt >= MAX_ACQUIRE_ATTEMPTS) {
-        throw new Error(
-          `Unable to acquire the Remote Control lock at ${lockPath}. Another process keeps recreating it.`, { cause: error },
-        );
       }
       await removeFile(lockPath);
     }
@@ -150,10 +130,6 @@ function decodeLock(raw: string): RemoteControlLockInfo | undefined {
     const parsed = JSON.parse(raw) as Partial<RemoteControlLockDisk>;
     if (
       typeof parsed.pid === 'number' &&
-      // `process.kill(0, 0)` signals our own process group and reports "alive",
-      // so a corrupt `"pid": 0` would pin the lock forever.
-      Number.isInteger(parsed.pid) &&
-      parsed.pid > 0 &&
       typeof parsed.nonce === 'string' &&
       typeof parsed.local_origin === 'string' &&
       typeof parsed.device_id === 'string' &&

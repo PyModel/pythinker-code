@@ -1,46 +1,48 @@
 /* oxlint-disable typescript-eslint/no-unsafe-declaration-merging, eslint-plugin-import/namespace -- Event2 class+payload-interface declaration merging is the sanctioned event-declaration idiom. */
-import type { TokenUsage } from '#/kosong/contract/usage';
+import type { TokenUsage } from '#human/llm/usage';
 import { Error2, ErrorCodes } from '#/errors';
-import { linkAbortSignal, userCancellationReason } from '#/_base/utils/abort';
+import { linkAbortSignal } from '#/_base/utils/abort';
 import type { IAgentScopeHandle } from '#/_base/di/scope';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentLoopService } from '#/agent/loop/loop';
-import { IBootstrapService } from '#/app/bootstrap/bootstrap';
+import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import { Event2 } from '#/app/event/event2';
-import { IConfigService } from '#/app/config/config';
 import { agentContextOf } from '#/agent/scopeContext/scopeContext';
+import { hasPinnedPermissionMode } from '#/features/tower/tower';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
+import { createAgentAwaitingClose } from '#/session/agentLifecycle/createAwaitingClose';
 import {
   isSubagentMeta,
+  labelsFromAgentMeta,
   subagentLabels,
   subagentParentAgentId,
   subagentDynamicWorkflowItem,
 } from '#/session/agentLifecycle/subagentMetadata';
-import { emitAgentRunSpawned, mirrorAgentRun } from '#/session/subagent/mirrorAgentRun';
-import { ISessionSubagentService, SubagentRunStartError } from '#/session/subagent/subagent';
-import type { SubagentBindingProvenance } from '#/session/subagent/routing';
-import { ISubagentRoutingService } from '#/session/subagent/subagentRoutingService';
+import {
+  classifyRunTermination,
+  emitAgentRunSpawned,
+  mirrorAgentRun,
+  SubagentCancelled,
+  SubagentFailed,
+} from '#/session/subagent/mirrorAgentRun';
+import { type AgentRunHandle, ISessionSubagentService } from '#/session/subagent/subagent';
 import { ISessionMetadata, type AgentMeta } from '#/session/sessionMetadata/sessionMetadata';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 
 import {
-  type SubagentRunBinding,
   ISessionDynamicWorkflowService,
   type SessionDynamicWorkflowRunArgs,
   type SessionDynamicWorkflowRunResult,
   type SessionDynamicWorkflowTask,
 } from './sessionDynamicWorkflow';
 import {
+  resolveDynamicWorkflowMaxConcurrency,
   AgentRunBatch,
   type AgentRunAttemptOptions,
   type AgentSpawnAttemptOptions,
   type AgentRunBatchLauncher,
   type AgentRunAttemptHandle,
 } from './agentRunBatch';
-import {
-  DYNAMIC_WORKFLOW_MAX_CONCURRENCY_ENV,
-  resolveDynamicWorkflowMaxConcurrency,
-} from '../configSection';
 
 export interface SubagentSuspendedPayload {
   readonly subagentId: string;
@@ -53,7 +55,13 @@ export class SubagentSuspended extends Event2<SubagentSuspendedPayload> {
 }
 export interface SubagentSuspended extends SubagentSuspendedPayload {}
 
+export interface SubagentSuspendedEvent extends SubagentSuspendedPayload {
+  readonly type: 'subagent.suspended';
+}
+
 const RESUMED_PROFILE_FALLBACK = 'subagent';
+
+type TerminalizeSubagent = (agentId: string, event: Event2) => void;
 
 export class SessionDynamicWorkflowService implements ISessionDynamicWorkflowService {
   declare readonly _serviceBrand: undefined;
@@ -61,12 +69,9 @@ export class SessionDynamicWorkflowService implements ISessionDynamicWorkflowSer
   private readonly inFlight = new Map<string, AbortController>();
 
   constructor(
-    @IAgentLifecycleService private readonly lifecycle: IAgentLifecycleService,
+    @IAgentLifecycleService private readonly agentLifecycle: IAgentLifecycleService,
     @ISessionSubagentService private readonly subagents: ISessionSubagentService,
     @ISessionMetadata private readonly metadata: ISessionMetadata,
-    @ISubagentRoutingService private readonly routing: ISubagentRoutingService,
-    @IConfigService private readonly config: IConfigService,
-    @IBootstrapService private readonly bootstrap: IBootstrapService,
   ) {}
 
   async getDynamicWorkflowItem(args: {
@@ -81,15 +86,6 @@ export class SessionDynamicWorkflowService implements ISessionDynamicWorkflowSer
 
   run<T>(args: SessionDynamicWorkflowRunArgs<T>): Promise<readonly SessionDynamicWorkflowRunResult<T>[]> {
     const { callerAgentId, tasks } = args;
-    if (this.inFlight.has(callerAgentId)) {
-      return Promise.reject(
-        new Error2(
-          ErrorCodes.AGENT_ALREADY_RUNNING,
-          `Agent "${callerAgentId}" already has a dynamic workflow running`,
-          { details: { agentId: callerAgentId } },
-        ),
-      );
-    }
     const controller = new AbortController();
     this.inFlight.set(callerAgentId, controller);
     const unlinks: Array<() => void> = [];
@@ -97,43 +93,61 @@ export class SessionDynamicWorkflowService implements ISessionDynamicWorkflowSer
       if (task.signal !== undefined) unlinks.push(linkAbortSignal(task.signal, controller));
       return { ...task, signal: controller.signal };
     });
+    const terminalized = new Set<string>();
+    const terminalize: TerminalizeSubagent = (agentId, event) => {
+      if (terminalized.has(agentId)) return;
+      terminalized.add(agentId);
+      this.dispatchSubagentEvent(callerAgentId, event);
+    };
     const launcher: AgentRunBatchLauncher = {
-      spawn: (options) => this.spawnAttempt(callerAgentId, options),
-      resume: (agentId, options) => this.resumeAttempt(callerAgentId, agentId, options, false),
-      retry: (agentId, options) => this.resumeAttempt(callerAgentId, agentId, options, true),
+      spawn: (options) => this.spawnAttempt(callerAgentId, options, terminalize),
+      resume: (agentId, options) => this.resumeAttempt(callerAgentId, agentId, options, false, terminalize),
+      retry: (agentId, options) => this.resumeAttempt(callerAgentId, agentId, options, true, terminalize),
       suspended: (event) => {
-        const caller = this.lifecycle.handleOf(callerAgentId);
-        void caller?.accessor.get(IEventDispatcher)?.dispatch(
+        this.dispatchSubagentEvent(
+          callerAgentId,
           new SubagentSuspended({
             subagentId: event.agentId,
             reason: event.reason,
           }),
         );
       },
+      abandoned: (event) => {
+        terminalize(
+          event.agentId,
+          event.outcome === 'failed'
+            ? new SubagentFailed({
+                subagentId: event.agentId,
+                error: event.error ?? 'Provider rate limit',
+              })
+            : new SubagentCancelled({ subagentId: event.agentId }),
+        );
+      },
     };
-    const cleanup = () => {
-      for (const unlink of unlinks) unlink();
-      if (this.inFlight.get(callerAgentId) === controller) this.inFlight.delete(callerAgentId);
-    };
-    try {
-      const maxConcurrency = resolveDynamicWorkflowMaxConcurrency(
-        this.config,
-        this.bootstrap.getEnv(DYNAMIC_WORKFLOW_MAX_CONCURRENCY_ENV),
-      );
-      return new AgentRunBatch(launcher, linkedTasks, { maxConcurrency }).run().finally(cleanup);
-    } catch (error) {
-      cleanup();
-      return Promise.reject(error);
-    }
+    const maxConcurrency = resolveDynamicWorkflowMaxConcurrency();
+    const promise = new AgentRunBatch(launcher, linkedTasks, { maxConcurrency }).run();
+    void promise
+      .finally(() => {
+        for (const unlink of unlinks) unlink();
+        if (this.inFlight.get(callerAgentId) === controller) this.inFlight.delete(callerAgentId);
+      })
+      .catch(() => {});
+    return promise;
   }
 
   cancel({ callerAgentId }: { readonly callerAgentId: string }): void {
-    this.inFlight.get(callerAgentId)?.abort(userCancellationReason());
+    this.inFlight.get(callerAgentId)?.abort();
+  }
+
+  private dispatchSubagentEvent(callerAgentId: string, event: Event2): void {
+    const caller = this.agentLifecycle.handleOf(callerAgentId);
+    void caller?.accessor.get(IEventDispatcher)?.dispatch(event);
   }
 
   private async spawnAttempt(
     callerAgentId: string,
     options: AgentSpawnAttemptOptions,
+    terminalize: TerminalizeSubagent,
   ): Promise<AgentRunAttemptHandle> {
     options.signal.throwIfAborted();
     const caller = this.requireHandle(callerAgentId, 'Caller agent');
@@ -143,43 +157,30 @@ export class SessionDynamicWorkflowService implements ISessionDynamicWorkflowSer
       plan,
       labels: subagentLabels(callerAgentId, { dynamicWorkflowItem: options.dynamicWorkflowItem }),
       prompt: options.prompt,
-      signal: options.signal,
-      onAgentCreated: options.onAgentKnown,
     });
-    try {
-      const currentRoutingEnvironmentRevision =
-        this.routing.currentRevision(callerAgentId) ??
-        plan.routing?.resolvedFromRoutingEnvironmentRevision;
-      emitAgentRunSpawned(caller, spawned.agentId, {
-        profileName: plan.profileName,
-        parentToolCallId: options.parentToolCallId,
-        parentToolCallUuid: options.parentToolCallUuid,
-        description: options.description,
-        dynamicWorkflowIndex: options.dynamicWorkflowIndex,
-        runInBackground: options.runInBackground,
-        fork: plan.fork,
-        model: plan.model,
-        routing: plan.routing,
-        currentRoutingEnvironmentRevision,
-      });
-      const child = this.requireHandle(spawned.agentId, 'Agent instance');
-      return await this.observe(
-        caller,
-        child,
-        plan.profileName,
-        {
-          kind: 'prompt',
-          prompt: spawned.promptText,
-        },
-        options,
-        {
-          routing: plan.routing,
-          currentRoutingEnvironmentRevision,
-        },
-      );
-    } catch (error) {
-      throw new SubagentRunStartError(spawned.agentId, error);
-    }
+    emitAgentRunSpawned(caller, spawned.agentId, {
+      profileName: plan.profileName,
+      parentToolCallId: options.parentToolCallId,
+      parentToolCallUuid: options.parentToolCallUuid,
+      description: options.description,
+      dynamicWorkflowIndex: options.dynamicWorkflowIndex,
+      runInBackground: options.runInBackground,
+      fork: plan.fork,
+      model: plan.model,
+      modelSource: plan.modelSource,
+    });
+    const child = this.requireHandle(spawned.agentId, 'Agent instance');
+    return this.observe(
+      caller,
+      child,
+      plan.profileName,
+      {
+        kind: 'prompt',
+        prompt: spawned.promptText,
+      },
+      options,
+      terminalize,
+    );
   }
 
   private async resumeAttempt(
@@ -187,38 +188,33 @@ export class SessionDynamicWorkflowService implements ISessionDynamicWorkflowSer
     agentId: string,
     options: AgentRunAttemptOptions,
     retryTurn: boolean,
+    terminalize: TerminalizeSubagent,
   ): Promise<AgentRunAttemptHandle> {
     options.signal.throwIfAborted();
-    await this.requireOwnedSubagent(callerAgentId, agentId);
+    const meta = await this.requireOwnedSubagent(callerAgentId, agentId);
     const caller = this.requireHandle(callerAgentId, 'Caller agent');
-    const child = this.requireHandle(agentId, 'Agent instance');
+    const child =
+      this.agentLifecycle.handleOf(agentId) ??
+      (await this.rebuildSubagent(agentId, meta, caller, options.signal));
     this.requireIdleSubagent(agentId, child);
-    options.onAgentKnown?.(agentId);
     const profileName =
       child.accessor.get(IAgentProfileService).data().profileName ?? RESUMED_PROFILE_FALLBACK;
-    try {
-      const resumedRouting = this.routing.resumed(callerAgentId, child);
-      if (!retryTurn) {
-        const resumedModel = child.accessor.get(IAgentProfileService).data().modelAlias;
-        emitAgentRunSpawned(caller, agentId, {
-          profileName,
-          parentToolCallId: options.parentToolCallId,
-          parentToolCallUuid: options.parentToolCallUuid,
-          description: options.description,
-          dynamicWorkflowIndex: options.dynamicWorkflowIndex,
-          runInBackground: options.runInBackground,
-          model: resumedModel,
-          routing: resumedRouting.routing,
-          currentRoutingEnvironmentRevision: resumedRouting.currentRoutingEnvironmentRevision,
-        });
-      }
-      const request = retryTurn
-        ? ({ kind: 'retry' } as const)
-        : ({ kind: 'prompt', prompt: options.prompt } as const);
-      return await this.observe(caller, child, profileName, request, options, resumedRouting);
-    } catch (error) {
-      throw new SubagentRunStartError(agentId, error);
+    if (!retryTurn) {
+      const resumedModel = child.accessor.get(IAgentProfileService).data().modelAlias;
+      emitAgentRunSpawned(caller, agentId, {
+        profileName,
+        parentToolCallId: options.parentToolCallId,
+        parentToolCallUuid: options.parentToolCallUuid,
+        description: options.description,
+        dynamicWorkflowIndex: options.dynamicWorkflowIndex,
+        runInBackground: options.runInBackground,
+        model: resumedModel,
+      });
     }
+    const request = retryTurn
+      ? ({ kind: 'retry' } as const)
+      : ({ kind: 'prompt', prompt: options.prompt } as const);
+    return this.observe(caller, child, profileName, request, options, terminalize);
   }
 
   private async observe(
@@ -227,41 +223,39 @@ export class SessionDynamicWorkflowService implements ISessionDynamicWorkflowSer
     profileName: string,
     request: { kind: 'prompt'; prompt: string } | { kind: 'retry' },
     options: AgentRunAttemptOptions,
-    routing: {
-      readonly routing?: SubagentBindingProvenance;
-      readonly currentRoutingEnvironmentRevision?: string;
-    },
+    terminalize: TerminalizeSubagent,
   ): Promise<AgentRunAttemptHandle> {
     const agentId = child.id;
-    const childProfile = child.accessor.get(IAgentProfileService);
-    const binding: SubagentRunBinding = {
-      profileName,
-      model: childProfile.data().modelAlias,
-      thinking: childProfile.getEffectiveThinkingLevel(),
-      routing: routing.routing,
-      currentRoutingEnvironmentRevision: routing.currentRoutingEnvironmentRevision,
-      startedAt: Date.now(),
-    };
-    const run = await this.subagents.run(agentContextOf(child), request, {
-      signal: options.signal,
-      onReady: options.onReady,
-    });
+    let run: AgentRunHandle;
+    try {
+      run = await this.subagents.run(agentContextOf(child), request, {
+        signal: options.signal,
+        onReady: options.onReady,
+      });
+    } catch (error) {
+      terminalize(agentId, runStartTerminalEvent(agentId, error, options.signal));
+      throw error;
+    }
     const mirrored = mirrorAgentRun(caller, run, {
       profileName,
       prompt: request.kind === 'prompt' ? request.prompt : undefined,
       suppressRateLimitFailureEvent: options.suppressRateLimitFailureEvent,
       signal: options.signal,
+      terminalize,
     });
     return {
       agentId,
       profileName,
-      binding,
-      completion: mirrored.then((r) => ({ result: r.summary, usage: r.usage })),
+      completion: mirrored.then((r) => ({
+        result: r.summary,
+        usage: r.usage,
+        stopReason: r.stopReason,
+      })),
     };
   }
 
   private requireHandle(agentId: string, label: string): IAgentScopeHandle {
-    const handle = this.lifecycle.handleOf(agentId);
+    const handle = this.agentLifecycle.handleOf(agentId);
     if (handle === undefined) {
       throw new Error2(ErrorCodes.AGENT_NOT_FOUND, `${label} "${agentId}" does not exist`, {
         details: { agentId },
@@ -271,7 +265,7 @@ export class SessionDynamicWorkflowService implements ISessionDynamicWorkflowSer
   }
 
   private requireIdleSubagent(agentId: string, child: IAgentScopeHandle): void {
-    if (child.accessor.get(IAgentLoopService).status().state === 'running') {
+    if (child.accessor.get(IAgentLoopService).snapshot().state === 'running') {
       throw new Error2(
         ErrorCodes.AGENT_ALREADY_RUNNING,
         `Agent instance "${agentId}" is already running and cannot run concurrently`,
@@ -280,9 +274,34 @@ export class SessionDynamicWorkflowService implements ISessionDynamicWorkflowSer
     }
   }
 
-  private async requireOwnedSubagent(callerAgentId: string, agentId: string): Promise<void> {
+  private async rebuildSubagent(
+    agentId: string,
+    meta: AgentMeta,
+    caller: IAgentScopeHandle,
+    signal: AbortSignal,
+  ): Promise<IAgentScopeHandle> {
+    await createAgentAwaitingClose(
+      this.agentLifecycle,
+      { agentId, labels: labelsFromAgentMeta(meta), forkedFrom: meta.forkedFrom },
+      signal,
+    );
+    const rebuilt = this.agentLifecycle.handleOf(agentId);
+    if (rebuilt === undefined) {
+      throw new Error2(ErrorCodes.AGENT_NOT_FOUND, `Agent instance "${agentId}" does not exist`, {
+        details: { agentId },
+      });
+    }
+    if (!hasPinnedPermissionMode(rebuilt.accessor.get(IAgentProfileService).data().profileName)) {
+      rebuilt.accessor
+        .get(IAgentPermissionModeService)
+        .setMode(caller.accessor.get(IAgentPermissionModeService).mode);
+    }
+    return rebuilt;
+  }
+
+  private async requireOwnedSubagent(callerAgentId: string, agentId: string): Promise<AgentMeta> {
     const meta = await this.agentMeta(agentId);
-    if (!isSubagentMeta(meta)) {
+    if (meta === undefined || !isSubagentMeta(meta)) {
       throw new Error2(ErrorCodes.AGENT_NOT_A_SUBAGENT, `Agent instance "${agentId}" is not a subagent`, {
         details: { agentId },
       });
@@ -294,6 +313,7 @@ export class SessionDynamicWorkflowService implements ISessionDynamicWorkflowSer
         { details: { agentId, callerAgentId } },
       );
     }
+    return meta;
   }
 
   private async agentMeta(agentId: string): Promise<AgentMeta | undefined> {
@@ -303,3 +323,13 @@ export class SessionDynamicWorkflowService implements ISessionDynamicWorkflowSer
 }
 
 export type _AgentRunUsage = TokenUsage;
+
+function runStartTerminalEvent(agentId: string, error: unknown, signal: AbortSignal): Event2 {
+  if (classifyRunTermination(error, signal) === 'cancelled') {
+    return new SubagentCancelled({ subagentId: agentId });
+  }
+  return new SubagentFailed({
+    subagentId: agentId,
+    error: error instanceof Error ? error.message : String(error),
+  });
+}

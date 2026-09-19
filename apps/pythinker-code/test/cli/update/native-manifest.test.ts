@@ -6,7 +6,7 @@ import {
   nativeManifestUrl,
   selectPlatformEntry,
 } from '#/cli/update/native-manifest';
-import { pythinkerCodeReleaseAssetUrl } from '#/constant/app';
+import { pythinkerCodeCdnBinariesBase } from '#/constant/app';
 
 const VERSION = '0.7.0';
 
@@ -57,6 +57,58 @@ describe('fetchNativeReleaseManifest', () => {
     });
     const manifest = await fetchNativeReleaseManifest(VERSION, mockFetch({ ok: true, status: 200, body }));
     expect(manifest.version).toBe(VERSION);
+  });
+
+  it('parses a platform entry carrying a compressed artifact pointer', async () => {
+    const body = JSON.stringify({
+      version: VERSION,
+      platforms: {
+        'linux-x64': {
+          filename: 'pythinker-code-linux-x64',
+          checksum: 'a'.repeat(64),
+          compressed: { filename: 'pythinker-code-linux-x64.zst', checksum: 'b'.repeat(64) },
+        },
+      },
+    });
+    const manifest = await fetchNativeReleaseManifest(VERSION, mockFetch({ ok: true, status: 200, body }));
+    expect(manifest.platforms['linux-x64']?.compressed).toEqual({
+      filename: 'pythinker-code-linux-x64.zst',
+      checksum: 'b'.repeat(64),
+    });
+  });
+
+  it('parses a platform entry carrying a zstd artifact pointer', async () => {
+    const body = JSON.stringify({
+      version: VERSION,
+      platforms: {
+        'linux-x64': {
+          filename: 'pythinker-code-linux-x64',
+          checksum: 'a'.repeat(64),
+          zstd: { file: 'pythinker-code-linux-x64.zst', sha256: 'b'.repeat(64) },
+        },
+      },
+    });
+    const manifest = await fetchNativeReleaseManifest(VERSION, mockFetch({ ok: true, status: 200, body }));
+    expect(manifest.platforms['linux-x64']).toEqual({
+      filename: 'pythinker-code-linux-x64',
+      checksum: 'a'.repeat(64),
+      zstd: { file: 'pythinker-code-linux-x64.zst', sha256: 'b'.repeat(64) },
+    });
+  });
+
+  it.each([
+    { file: '', sha256: 'b'.repeat(64) },
+    { file: 'pythinker-code-linux-x64.zst', sha256: 'invalid' },
+  ])('rejects an invalid zstd artifact pointer: %j', async (zstd) => {
+    const body = JSON.stringify({
+      version: VERSION,
+      platforms: {
+        'linux-x64': { filename: 'pythinker-code-linux-x64', checksum: 'a'.repeat(64), zstd },
+      },
+    });
+    await expect(
+      fetchNativeReleaseManifest(VERSION, mockFetch({ ok: true, status: 200, body })),
+    ).rejects.toThrow();
   });
 
   it('rejects a non-semver version argument before hitting the network', async () => {
@@ -143,12 +195,10 @@ describe('selectPlatformEntry', () => {
 });
 
 describe('url helpers', () => {
-  it('builds the manifest and binary URLs from the GitHub release of that version', () => {
-    const base = 'https://github.com/PyModel/pythinker-code/releases/download/%40pymodel%2Fpythinker-code%400.7.0';
-    expect(nativeManifestUrl(VERSION)).toBe(`${base}/manifest.json`);
+  it('builds the manifest and binary URLs from the binaries base', () => {
+    expect(nativeManifestUrl(VERSION)).toBe(`${pythinkerCodeCdnBinariesBase()}/${VERSION}/manifest.json`);
     expect(nativeBinaryUrl(VERSION, 'pythinker-code-win32-x64.zip')).toBe(
-      `${base}/pythinker-code-win32-x64.zip`,
+      `${pythinkerCodeCdnBinariesBase()}/${VERSION}/pythinker-code-win32-x64.zip`,
     );
-    expect(nativeManifestUrl(VERSION)).toBe(pythinkerCodeReleaseAssetUrl(VERSION, 'manifest.json'));
   });
 });

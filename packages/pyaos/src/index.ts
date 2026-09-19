@@ -13,11 +13,7 @@ export type {
   ShellPathBridgeDeps,
   ShellPathBridgeEnv,
 } from './shell-path-bridge';
-export {
-  createShellPathBridge,
-  getShellPathBridge,
-  translateShellDrivePath,
-} from './shell-path-bridge';
+export { createShellPathBridge, getShellPathBridge, translateShellDrivePath } from './shell-path-bridge';
 export {
   PyaosError,
   PyaosValueError,

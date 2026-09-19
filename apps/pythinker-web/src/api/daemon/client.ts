@@ -29,6 +29,7 @@ import type {
   AppMcpServerDefinition,
   AppMcpServerInput,
   AppPlugin,
+  AppPluginMarketplaceEntry,
   AppSubagent,
   AppTool,
   CodexLoginStart,
@@ -316,14 +317,83 @@ interface WireMcpServerDefinition {
 
 interface WirePlugin {
   id: string;
-  display_name: string;
+  displayName?: string;
+  display_name?: string;
   version?: string;
   enabled: boolean;
   state: string;
-  skill_count: number;
-  mcp_server_count: number;
-  has_errors: boolean;
+  skillCount?: number;
+  skill_count?: number;
+  mcpServerCount?: number;
+  mcp_server_count?: number;
+  enabledMcpServerCount?: number;
+  enabled_mcp_server_count?: number;
+  hookCount?: number;
+  hook_count?: number;
+  commandCount?: number;
+  command_count?: number;
+  hasErrors?: boolean;
+  has_errors?: boolean;
   source: string;
+  originalSource?: string;
+  original_source?: string;
+  homepage?: string;
+}
+
+interface WireMarketplaceEntry {
+  id: string;
+  tier?: string;
+  displayName?: string;
+  display_name?: string;
+  description?: string;
+  homepage?: string;
+  keywords?: string[];
+  version?: string;
+  source: string;
+  installed?: { version?: string; enabled: boolean };
+  updateAvailable?: boolean;
+  update_available?: boolean;
+  capabilityId?: string;
+  capability_id?: string;
+}
+
+function toAppPlugin(plugin: WirePlugin): AppPlugin {
+  return {
+    id: plugin.id,
+    displayName: plugin.displayName ?? plugin.display_name ?? plugin.id,
+    version: plugin.version,
+    enabled: plugin.enabled,
+    state: plugin.state,
+    skillCount: plugin.skillCount ?? plugin.skill_count ?? 0,
+    mcpServerCount: plugin.mcpServerCount ?? plugin.mcp_server_count ?? 0,
+    enabledMcpServerCount: plugin.enabledMcpServerCount ?? plugin.enabled_mcp_server_count,
+    hookCount: plugin.hookCount ?? plugin.hook_count,
+    commandCount: plugin.commandCount ?? plugin.command_count,
+    hasErrors: plugin.hasErrors ?? plugin.has_errors ?? false,
+    source: plugin.source,
+    originalSource: plugin.originalSource ?? plugin.original_source,
+    homepage: plugin.homepage,
+  };
+}
+
+function toMarketplaceEntry(entry: WireMarketplaceEntry): AppPluginMarketplaceEntry {
+  const tier =
+    entry.tier === 'official' || entry.tier === 'curated' || entry.tier === 'third-party'
+      ? entry.tier
+      : 'third-party';
+  return {
+    id: entry.id,
+    tier,
+    displayName: entry.displayName ?? entry.display_name ?? entry.id,
+    description: entry.description,
+    homepage: entry.homepage,
+    keywords: entry.keywords,
+    version: entry.version,
+    source: entry.source,
+    installed: entry.installed,
+    updateAvailable: entry.updateAvailable ?? entry.update_available,
+    capabilityId: entry.capabilityId ?? entry.capability_id,
+  };
 }
 
 interface WireAgentProfile {
@@ -640,6 +710,8 @@ export class DaemonPythinkerWebApi implements PythinkerWebApi {
       permissionMode?: string;
       planMode?: boolean;
       dynamicWorkflowMode?: boolean;
+      towerMode?: boolean;
+      towerBase?: string;
       goalObjective?: string;
       goalControl?: 'pause' | 'resume' | 'cancel';
       thinking?: string;
@@ -655,6 +727,8 @@ export class DaemonPythinkerWebApi implements PythinkerWebApi {
     if (input.permissionMode !== undefined) agentConfig['permission_mode'] = input.permissionMode;
     if (input.planMode !== undefined) agentConfig['plan_mode'] = input.planMode;
     if (input.dynamicWorkflowMode !== undefined) agentConfig['dynamic_workflow_mode'] = input.dynamicWorkflowMode;
+    if (input.towerMode !== undefined) agentConfig['tower_mode'] = input.towerMode;
+    if (input.towerBase !== undefined) agentConfig['tower_base'] = input.towerBase;
     if (input.goalObjective !== undefined) agentConfig['goal_objective'] = input.goalObjective;
     if (input.goalControl !== undefined) agentConfig['goal_control'] = input.goalControl;
     if (input.thinking !== undefined) agentConfig['thinking'] = input.thinking;
@@ -1335,26 +1409,31 @@ export class DaemonPythinkerWebApi implements PythinkerWebApi {
 
   async listPlugins(): Promise<AppPlugin[]> {
     const data = await this.http.get<{ plugins: WirePlugin[] }>('/plugins');
-    return (data.plugins ?? []).map((plugin) => ({
-      id: plugin.id,
-      displayName: plugin.display_name,
-      version: plugin.version,
-      enabled: plugin.enabled,
-      state: plugin.state,
-      skillCount: plugin.skill_count,
-      mcpServerCount: plugin.mcp_server_count,
-      hasErrors: plugin.has_errors,
-      source: plugin.source,
-    }));
+    return (data.plugins ?? []).map(toAppPlugin);
   }
 
-  async setPluginEnabled(
-    pluginId: string,
-    enabled: boolean,
-  ): Promise<{ id: string; enabled: boolean }> {
-    return this.http.post<{ id: string; enabled: boolean }>(
-      `/plugins/${encodeURIComponent(pluginId)}:set-enabled`,
-      { enabled },
+  async listPluginMarketplace(): Promise<AppPluginMarketplaceEntry[]> {
+    const data = await this.http.get<{ entries: WireMarketplaceEntry[] }>('/plugins/marketplace');
+    return (data.entries ?? []).map(toMarketplaceEntry);
+  }
+
+  async installPlugin(source: string): Promise<AppPlugin> {
+    const plugin = await this.http.post<WirePlugin>('/plugins', { source });
+    return toAppPlugin(plugin);
+  }
+
+  async setPluginEnabled(pluginId: string, enabled: boolean): Promise<{ ok: true }> {
+    const action = enabled ? 'enable' : 'disable';
+    return this.http.post<{ ok: true }>(
+      `/plugins/${encodeURIComponent(pluginId)}:${action}`,
+      {},
+    );
+  }
+
+  async removePlugin(pluginId: string): Promise<{ ok: true }> {
+    return this.http.post<{ ok: true }>(
+      `/plugins/${encodeURIComponent(pluginId)}:remove`,
+      {},
     );
   }
 

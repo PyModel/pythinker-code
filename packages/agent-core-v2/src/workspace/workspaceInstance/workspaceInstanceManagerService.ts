@@ -17,12 +17,13 @@ import { IPluginService } from '#/app/plugin/plugin';
 import { ISessionIndex, ISessionIndexMirror } from '#/app/sessionIndex/sessionIndex';
 import { ISessionManager } from '#/app/sessionManager/sessionManager';
 import { IBuiltinSkillSource } from '#/features/skill/catalog/builtinSkillSource';
+import { IUserFileSkillSource } from '#/features/skill/catalog/userFileSkillSource';
 import { IAppStateService } from '#/app/state/appState';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { LifecycleScope } from '#/app/scopes';
 import { IWorkspaceService, type Workspace } from '#/app/workspace/workspace';
-import { IModelService } from '#/kosong/model/model';
-import { IProviderService } from '#/kosong/provider/provider';
+import { IModelService } from '#/llm-adapter/model/model';
+import { IProviderService } from '#/llm-adapter/provider/provider';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
@@ -71,6 +72,7 @@ export class WorkspaceInstanceManager implements IWorkspaceInstanceManager {
     @IAgentProfileRegistry private readonly agentProfiles: IAgentProfileRegistry,
     @IBuiltinAgentProfileLoader private readonly builtinAgentProfiles: IBuiltinAgentProfileLoader,
     @IBuiltinSkillSource private readonly builtinSkills: IBuiltinSkillSource,
+    @IUserFileSkillSource private readonly userSkills: IUserFileSkillSource,
     @ITelemetryService private readonly telemetry: ITelemetryService,
     @IFlagService private readonly flags: IFlagService,
     @IAppendLogStore private readonly appendLogStore: IAppendLogStore,
@@ -214,6 +216,7 @@ export class WorkspaceInstanceManager implements IWorkspaceInstanceManager {
         agentProfiles: this.agentProfiles,
         builtinAgentProfiles: this.builtinAgentProfiles,
         builtinSkills: this.builtinSkills,
+        userSkills: this.userSkills,
         telemetry: this.telemetry,
         docs: this.docs,
         createSessionController: (input) => new SessionLifecycleService(

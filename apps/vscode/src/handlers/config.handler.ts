@@ -1,39 +1,31 @@
-import { readFile } from "node:fs/promises";
 import * as vscode from "vscode";
 import {
-  buildSkillSlashCommands,
   effectiveModelAlias,
+  type PythinkerConfig as SdkPythinkerConfig,
   type ModelAlias,
   type ProviderType,
-  type PythinkerConfig as SdkPythinkerConfig,
-  type SkillSlashCommand,
   type ThinkingEffort,
 } from "@pymodel/pythinker-code-sdk";
 
 import { Methods } from "../../shared/bridge";
 import type {
+  PythinkerConfig as WebviewPythinkerConfig,
   ModelConfig,
-  ModelsConfig,
   SlashCommandInfo,
 } from "../../shared/legacy-sdk";
-import type { ConfigInfo, ExtensionConfig, SessionConfig } from "../../shared/types";
+import type { ExtensionConfig, SessionConfig } from "../../shared/types";
 import { VSCodeSettings } from "../config/vscode-settings";
-import { normalizeEffort } from "../runtime/pythinker-runtime";
 import type { Handler } from "./types";
 
 const SLASH_COMMANDS: SlashCommandInfo[] = [
   { name: "init", aliases: [], description: "Analyze the codebase and generate AGENTS.md" },
   { name: "compact", aliases: [], description: "Compact the conversation context" },
   { name: "clear", aliases: ["reset"], description: "Clear the context" },
-  {
-    name: "yolo",
-    aliases: [],
-    description: "Toggle YOLO mode (auto-approve tool actions; may still ask questions). Usage: /yolo [on|off]",
-  },
+  { name: "yolo", aliases: [], description: "Toggle YOLO mode (auto-approve tool actions; may still ask questions)" },
   {
     name: "auto",
     aliases: ["afk"],
-    description: "Toggle Auto mode (fully autonomous; the agent will not ask questions). Usage: /auto [on|off]",
+    description: "Toggle Auto mode (fully autonomous; the agent will not ask questions)",
   },
   { name: "plan", aliases: [], description: "Toggle plan mode. Usage: /plan [on|off|view|clear]" },
   {
@@ -46,7 +38,7 @@ const SLASH_COMMANDS: SlashCommandInfo[] = [
 ];
 
 const saveConfig: Handler<SessionConfig, { ok: boolean }> = async (params, ctx) => {
-  const effort = normalizeEffort(params.effort ?? (params.thinking === true ? "on" : "off")) as ThinkingEffort;
+  const effort = sessionConfigEffort(params);
   const effortChanged = params.effortChanged !== false;
   const config = await ctx.harness.getConfig({ reload: true });
   const model = config.models?.[params.model];
@@ -68,7 +60,10 @@ const saveConfig: Handler<SessionConfig, { ok: boolean }> = async (params, ctx) 
     || config.thinking?.enabled !== patch.enabled
     || (effortChanged && config.thinking?.effort !== patch.effort)
   ) {
-    await ctx.harness.setConfig({ defaultModel: params.model, thinking: patch });
+    await ctx.harness.setConfig({
+      defaultModel: params.model,
+      thinking: patch,
+    });
   }
 
   const runtime = ctx.getSession();
@@ -80,32 +75,8 @@ const saveConfig: Handler<SessionConfig, { ok: boolean }> = async (params, ctx) 
   return { ok: true };
 };
 
-/**
- * The raw config file, verbatim — deliberately NOT the parsed+redacted webview
- * config. It is the user's own local file rendered in their own editor, so any
- * API keys in it are shown as-is; nothing is redacted silently.
- */
-const getConfigInfo: Handler<void, ConfigInfo> = async (_, ctx) => {
-  const path = ctx.harness.configPath;
-  try {
-    return { path, exists: true, content: await readFile(path, "utf8") };
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-      return { path, exists: false, content: null };
-    }
-    throw error;
-  }
-};
-
 const getExtensionConfig: Handler<void, ExtensionConfig> = async () => {
   return VSCodeSettings.getExtensionConfig();
-};
-
-const saveExtensionConfig: Handler<Partial<ExtensionConfig>, { ok: boolean }> = async (params) => {
-  // extension.ts's onSettingsChange listener broadcasts ExtensionConfigChanged
-  // to every webview once this update lands, so no explicit broadcast here.
-  await VSCodeSettings.updateExtensionConfig(params);
-  return { ok: true };
 };
 
 const openSettings: Handler<void, { ok: boolean }> = async () => {
@@ -113,39 +84,29 @@ const openSettings: Handler<void, { ok: boolean }> = async () => {
   return { ok: true };
 };
 
-const getModels: Handler<void, ModelsConfig> = async (_, ctx) => {
-  return toWebviewConfig(await ctx.harness.getConfig({ reload: true }));
+const getModels: Handler<void, WebviewPythinkerConfig> = async (_, ctx) => {
+  const config = await ctx.harness.getConfig({ reload: true });
+  return toWebviewConfig(config);
 };
 
-/**
- * Skills are resolved from the workspace, not from a session, so a panel that
- * has not sent a message yet still lists them. A live session is preferred when
- * there is one: only it can report the prompts of its MCP connections.
- */
 export const getSlashCommands: Handler<void, SlashCommandInfo[]> = async (_, ctx) => {
-  const session = ctx.getSession()?.session;
+  if (!ctx.workDir) return SLASH_COMMANDS;
   try {
-    const skills =
-      session !== undefined
-        ? await session.listSkills()
-        : ctx.workDir !== null
-          ? await ctx.harness.listWorkspaceSkills(ctx.workDir)
-          : [];
-    const { commands } = buildSkillSlashCommands(skills);
-    return [...SLASH_COMMANDS, ...commands.map(toSlashCommandInfo)];
+    const skills = await ctx.harness.listWorkspaceSkills(ctx.workDir);
+    const skillCommands = skills
+      .filter((skill) => isUserActivatableSkill(skill.type) && skill.scopes === undefined)
+      .toSorted((left, right) => left.name.localeCompare(right.name))
+      .map((skill) => ({
+        name: `skill:${skill.name}`,
+        aliases: [],
+        description: skill.description ?? "",
+      }));
+    return [...SLASH_COMMANDS, ...skillCommands];
   } catch (error) {
-    ctx.logError("Unable to list skills", error);
+    ctx.logError("Unable to list workspace skills", error);
     return SLASH_COMMANDS;
   }
 };
-
-function toSlashCommandInfo(command: SkillSlashCommand): SlashCommandInfo {
-  return {
-    name: command.name,
-    aliases: [...command.aliases],
-    description: command.description,
-  };
-}
 
 const showLogs: Handler<void, { ok: boolean }> = async (_, ctx) => {
   ctx.showLogs();
@@ -161,9 +122,7 @@ const reloadWebview: Handler<void, { ok: boolean }> = async (_, ctx) => {
 
 export const configHandlers = {
   [Methods.SaveConfig]: saveConfig,
-  [Methods.GetConfigInfo]: getConfigInfo,
   [Methods.GetExtensionConfig]: getExtensionConfig,
-  [Methods.SaveExtensionConfig]: saveExtensionConfig,
   [Methods.OpenSettings]: openSettings,
   [Methods.GetModels]: getModels,
   [Methods.GetSlashCommands]: getSlashCommands,
@@ -171,7 +130,7 @@ export const configHandlers = {
   [Methods.ReloadWebview]: reloadWebview,
 } as Record<string, Handler<any, any>>;
 
-export function toWebviewConfig(config: SdkPythinkerConfig): ModelsConfig {
+export function toWebviewConfig(config: SdkPythinkerConfig): WebviewPythinkerConfig {
   const models: ModelConfig[] = Object.entries(config.models ?? {})
     // Resolve with the provider type the way saveConfig does: without it the
     // Anthropic fallback profile never matches, and the webview's effort
@@ -195,12 +154,16 @@ function toWebviewModel(id: string, model: ModelAlias, providerType?: ProviderTy
     name: effective.displayName ?? effective.model ?? id,
     provider: effective.provider,
     capabilities: [...(effective.capabilities ?? [])],
-    contextWindow: typeof effective.maxContextSize === "number" ? effective.maxContextSize : undefined,
     adaptive_thinking: effective.adaptiveThinking,
     support_efforts:
       effective.supportEfforts === undefined ? undefined : [...effective.supportEfforts],
     default_effort: effective.defaultEffort,
   };
+}
+
+function sessionConfigEffort(config: SessionConfig): ThinkingEffort {
+  if (config.effort !== undefined) return config.effort as ThinkingEffort;
+  return config.thinking === true ? "on" : "off";
 }
 
 /**
@@ -235,4 +198,8 @@ function thinkingConfig(
     if (efforts.indexOf(effort) > ceiling) return { enabled: true };
   }
   return { enabled: true, effort };
+}
+
+function isUserActivatableSkill(type: string | undefined): boolean {
+  return type === undefined || type === "prompt" || type === "inline" || type === "flow";
 }

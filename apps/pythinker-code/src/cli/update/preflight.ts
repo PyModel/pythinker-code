@@ -3,7 +3,10 @@ import { spawn } from 'node:child_process';
 import { log, type Logger } from '@pymodel/pythinker-code-sdk';
 import type { TelemetryProperties } from '@pymodel/pythinker-telemetry';
 
-import { CLI_COMMAND_NAME, PRODUCT_NAME } from '#/constant/app';
+import {
+  nativeInstallCommandUnix,
+  nativeInstallCommandWin,
+} from '#/constant/app';
 import { loadTuiConfig } from '#/tui/config';
 import { resolveCommandPath } from '#/utils/process/resolve-command';
 
@@ -64,7 +67,7 @@ function bunCommand(platform: NodeJS.Platform): string {
 export function installCommandFor(
   source: InstallSource,
   version: string,
-  _platform: NodeJS.Platform,
+  platform: NodeJS.Platform,
 ): string {
   switch (source) {
     case 'npm-global':
@@ -78,7 +81,7 @@ export function installCommandFor(
     case 'homebrew':
       return 'brew upgrade pythinker-code';
     case 'native':
-      return `${CLI_COMMAND_NAME} upgrade`;
+      return platform === 'win32' ? nativeInstallCommandWin() : nativeInstallCommandUnix();
     case 'unsupported':
       return `npm install -g ${NPM_PACKAGE_NAME}@${version}`;
   }
@@ -90,12 +93,14 @@ export function canAutoInstall(source: InstallSource, _platform: NodeJS.Platform
     case 'pnpm-global':
     case 'yarn-global':
     case 'bun-global':
-    case 'native':
       return true;
     case 'homebrew':
       // Homebrew upgrade may mutate other dependents and the formula can lag
       // behind the CDN release — prompt the user to run `brew upgrade` manually.
       return false;
+    case 'native':
+      // Staged-swap self update works on every platform (win32 included).
+      return true;
     case 'unsupported':
       return false;
   }
@@ -178,7 +183,10 @@ function resolveInstallSpawn(
   return { resolvedCmd, args, shell: platform === 'win32' };
 }
 
-const THIRD_PARTY_SOURCE_NOTE = '\nNote: Third-party sources may lag behind the official release.\n';
+// Built per call: the official-installer URL follows the current region.
+function thirdPartySourceNote(): string {
+  return '\nNote: Third-party sources may lag behind the official release.\n';
+}
 
 export function renderManualUpdateMessage(
   currentVersion: string,
@@ -209,13 +217,16 @@ export function renderManualUpdateMessage(
     `(${currentVersion} -> ${target.version}).\n` +
     `Detected install source: ${sourceDesc}\n` +
     `To update manually, run: ${installCommand}\n` +
-    (source === 'homebrew' ? THIRD_PARTY_SOURCE_NOTE : '')
+    (source === 'homebrew' ? thirdPartySourceNote() : '')
   );
 }
 
-export function renderInstallSuccessMessage(target: UpdateTarget, source: InstallSource): string {
+export function renderInstallSuccessMessage(
+  target: UpdateTarget,
+  source?: string,
+): string {
   if (source === 'native') {
-    return `${PRODUCT_NAME} ${target.version} is staged; it applies the next time you start the CLI.\n`;
+    return `Pythinker Code ${target.version} is staged; it applies the next time you start the CLI.\n`;
   }
   return `Updated ${NPM_PACKAGE_NAME} to ${target.version}. Restart the CLI to use the new version.\n`;
 }

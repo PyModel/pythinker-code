@@ -15,7 +15,7 @@ afterEach(async () => {
 });
 
 describe('buildPluginMarketplaceCdn', () => {
-  it('packages WebBridge without publishing other unlisted official directories', async () => {
+  it('packages Pythinker Browser Extension without publishing other unlisted official directories', async () => {
     const root = await mkdtemp(join(tmpdir(), 'pythinker-plugin-cdn-build-'));
     tempRoots.push(root);
     const pluginsRoot = join(root, 'plugins');

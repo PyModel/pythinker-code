@@ -8,6 +8,7 @@ export default {
   openInEditor: 'Open',
   reveal: 'Reveal',
   close: 'Close',
+  refresh: 'Refresh',
   search: 'Search',
   prevMatch: 'Previous match',
   nextMatch: 'Next match',

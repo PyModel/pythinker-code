@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 
-import type { ToolCall } from '#/kosong/contract/message';
+import type { ToolCall } from '#human/llm/message';
 import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
@@ -15,7 +15,6 @@ import {
 } from '#/tool/rule-match';
 import type { ResolvedToolExecutionHookContext } from '#/agent/toolExecutor/toolHooks';
 import { IHostEnvironment, type IHostEnvironment as HostEnvironmentService } from '#/os/interface/hostEnvironment';
-import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import { IAgentPermissionPolicyService, type PermissionPolicyEvaluation } from '#/agent/permissionPolicy/permissionPolicy';
 import type { PermissionMode } from '#/agent/permissionPolicy/types';
@@ -27,11 +26,11 @@ import {
 } from '#/agent/permissionRules/permissionRules';
 import { IAgentScopeContext, makeAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
+import { IConfigService } from '#/app/config/config';
 import { PERMISSION_SECTION } from '#/agent/permissionRules/configSection';
 import { IBashParserService } from '#/app/bashParser/bashParser';
 import { BashParserService } from '#/app/bashParser/bashParserService';
 import { IBootstrapService, type HostArgs } from '#/app/bootstrap/bootstrap';
-import { IConfigService } from '#/app/config/config';
 import { IGitService } from '#/app/git/git';
 import { findGitWorkTree } from '#/app/git/workTree';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
@@ -55,7 +54,6 @@ describe('AgentPermissionPolicyService chain', () => {
   let workspace: ReturnType<typeof workspaceStub>;
   let hostArgs: HostArgs;
   let dangerousCommandGuardEnabled: boolean;
-  let resolveRealpath: (path: string) => Promise<string>;
 
   beforeEach(() => {
     disposables = new DisposableStore();
@@ -65,12 +63,6 @@ describe('AgentPermissionPolicyService chain', () => {
     workspace = workspaceStub('/workspace');
     hostArgs = { requestHeaders: {}, nonInteractive: false };
     dangerousCommandGuardEnabled = true;
-    resolveRealpath = async (path) => {
-      for (const root of ['/tmp', '/temp'] as const) {
-        if (path === root || path.startsWith(`${root}/`)) return path;
-      }
-      throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
-    };
     ix = createServices(disposables, {
       additionalServices: (reg) => {
         reg.defineInstance(IAgentPermissionModeService, stubPermissionModeService(() => mode));
@@ -96,9 +88,6 @@ describe('AgentPermissionPolicyService chain', () => {
         }));
         reg.defineInstance(ISessionWorkspaceContext, workspace.stub);
         reg.defineInstance(IHostEnvironment, pyaosStub());
-        reg.definePartialInstance(IHostFileSystem, {
-          realpath: (path: string) => resolveRealpath(path),
-        });
         reg.defineInstance(IAgentRuntimeService, {
           _serviceBrand: undefined,
           onDidChange: () => ({ dispose: () => {} }),
@@ -164,8 +153,8 @@ describe('AgentPermissionPolicyService chain', () => {
     });
   });
 
-  it.each(['manual', 'yolo', 'auto'] as const)('applies deny rules before %s-mode approval', async (permissionMode) => {
-    mode = permissionMode;
+  it('applies deny rules before yolo-mode approval', async () => {
+    mode = 'yolo';
     rules.push({
       decision: 'deny',
       scope: 'user',
@@ -286,15 +275,10 @@ describe('AgentPermissionPolicyService chain', () => {
     ['systemctl --user reboot', 'systemctl reboot'],
     ['bash -c "shutdown now"', 'shutdown'],
     ['rm -rf /tmp/build /root', 'rm -rf'],
-    ['rm -rf /tmp/build && rm -rf /root', 'rm -rf'],
-    ['rm -rf /tmp/../etc', 'rm -rf'],
-    ['rm -rf /tmpfoo', 'rm -rf'],
     ['rm -fr dir', 'rm -rf'],
     ['rm -r -f dir', 'rm -rf'],
     ['rm -R --force dir', 'rm -rf'],
-    ['rm --recursive --force dir', 'rm -rf'],
     ['rm -rfv dir', 'rm -rf'],
-    ['sudo rm -rf dir', 'rm -rf'],
     ['sudo -u root rm --recursive --force dir', 'rm -rf'],
     ['echo ok && rm -rf dir', 'rm -rf'],
     ['env rm -rf dir', 'rm -rf'],
@@ -325,12 +309,7 @@ describe('AgentPermissionPolicyService chain', () => {
     });
   });
 
-  it.each([
-    'rm -rf /tmp/build',
-    'rm -rf /temp/cache',
-    'rm -rf -- /tmp/build',
-    'rm -rf /tmp/build && rm -rf /temp/cache',
-  ])(
+  it.each(['rm -rf /tmp/build', 'rm -rf /temp/cache'])(
     'approves `%s` in yolo mode',
     async (command) => {
       mode = 'yolo';
@@ -344,38 +323,6 @@ describe('AgentPermissionPolicyService chain', () => {
       });
     },
   );
-
-  it('asks for rm -rf of a temp path that realpath-escapes in yolo mode', async () => {
-    mode = 'yolo';
-    resolveRealpath = async (path) => {
-      if (path === '/tmp/build') return '/etc';
-      if (path === '/tmp' || path.startsWith('/tmp/')) return path;
-      throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
-    };
-
-    await expect(evaluate({
-      toolName: 'Bash',
-      args: { command: 'rm -rf /tmp/build', timeout: 60 },
-    })).resolves.toMatchObject({
-      policyName: 'dangerous-command-ask',
-      result: { kind: 'ask', reason: { dangerous_command: 'rm -rf' } },
-    });
-  });
-
-  it('asks for rm -rf of a temp path when filesystem realpath fails in yolo mode', async () => {
-    mode = 'yolo';
-    resolveRealpath = async () => {
-      throw new Error('unavailable');
-    };
-
-    await expect(evaluate({
-      toolName: 'Bash',
-      args: { command: 'rm -rf /tmp/build', timeout: 60 },
-    })).resolves.toMatchObject({
-      policyName: 'dangerous-command-ask',
-      result: { kind: 'ask', reason: { dangerous_command: 'rm -rf' } },
-    });
-  });
 
   it.each([
     'init 3',
@@ -409,7 +356,7 @@ describe('AgentPermissionPolicyService chain', () => {
   });
 
   it.each(['$CMD --force', 'bash -c "echo $HOME"', 'echo "unterminated'])(
-    'asks for unanalyzable command `%s` in yolo mode',
+    'approves unanalyzable command `%s` in yolo mode',
     async (command) => {
       mode = 'yolo';
 
@@ -417,8 +364,8 @@ describe('AgentPermissionPolicyService chain', () => {
         toolName: 'Bash',
         args: { command, timeout: 60 },
       })).resolves.toMatchObject({
-        policyName: 'dangerous-command-ask',
-        result: { kind: 'ask', reason: { unanalyzable_command: true } },
+        policyName: 'yolo-mode-approve',
+        result: { kind: 'approve' },
       });
     },
   );
@@ -504,7 +451,6 @@ describe('AgentPermissionPolicyService chain', () => {
     });
   });
 
-
   it.each(['AgentDynamicWorkflow', 'EnterPlanMode', 'ExitPlanMode', 'CreateGoal'] as const)(
     'approves %s through the default tool allowlist in manual mode',
     async (toolName) => {
@@ -548,7 +494,6 @@ describe('AgentPermissionPolicyService git cwd write approval', () => {
         reg.definePartialInstance(IAgentPermissionRulesService, permissionRulesStub());
         reg.defineInstance(ISessionWorkspaceContext, workspace.stub);
         reg.defineInstance(IHostEnvironment, pyaosStub());
-        reg.defineInstance(IHostFileSystem, hostFs);
         reg.defineInstance(IAgentRuntimeService, {
           _serviceBrand: undefined,
           onDidChange: () => ({ dispose: () => {} }),

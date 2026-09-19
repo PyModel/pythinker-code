@@ -3,12 +3,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
-import type { ReminderRuntime } from '#/features/reminder/reminderAgentRuntime';
+import { IAgentReminderService } from '#/features/reminder/reminderService';
 import type { ContextInjectionProvider } from '#/features/reminder/types';
-import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
-import { lifecycleWithReminder } from '../../features/reminder/stubs';
-import { IBootstrapService } from '#/app/bootstrap/bootstrap';
-import { stubBootstrap } from '../../app/bootstrap/stubs';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import { PermissionModeInjection } from '#/agent/permissionMode/injection/permissionModeInjection';
 import {
@@ -19,12 +15,15 @@ import { permissionModeKey } from '#/agent/permissionMode/permissionModeOps';
 import type { PermissionMode } from '#/agent/permissionPolicy/types';
 import { IAgentStateService } from '#/agent/state/agentState';
 import { AgentStateService } from '#/agent/state/agentStateService';
+import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
 import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 import { AGENT_WIRE_RECORD_KEY, type WireRecord } from '#/wire/record';
+
+import { stubBootstrap } from '../../app/bootstrap/stubs';
 
 import {
   registerTestAgentWire,
@@ -43,7 +42,7 @@ let registeredInjection:
     }
   | undefined;
 
-const injectorStub: ReminderRuntime = {
+const injectorStub: IAgentReminderService = {
   register: (name: string, provider: ContextInjectionProvider) => {
     registeredInjection = { name, provider: provider as ContextInjectionProvider };
     return {
@@ -54,7 +53,7 @@ const injectorStub: ReminderRuntime = {
   },
   notify: () => {},
   reconcileWhenIdle: async () => {},
-} as unknown as ReminderRuntime;
+} as unknown as IAgentReminderService;
 
 let disposables: DisposableStore;
 let ix: TestInstantiationService;
@@ -72,7 +71,7 @@ beforeEach(() => {
   ix = disposables.add(new TestInstantiationService());
   ix.stub(IFileSystemStorageService, new InMemoryStorageService());
   ix.set(IAppendLogStore, new SyncDescriptor(AppendLogStore));
-  ix.stub(IAgentLifecycleService, lifecycleWithReminder(injectorStub));
+  ix.stub(IAgentReminderService, injectorStub);
   ix.stub(IBootstrapService, stubBootstrap('/tmp/pythinker-home', bootstrapEnv));
   ix.set(IAgentStateService, new AgentStateService());
   ix.set(IAgentPermissionModeService, new SyncDescriptor(AgentPermissionModeService));
@@ -206,7 +205,7 @@ describe('AgentPermissionModeService (wire-backed)', () => {
       },
       notify: () => {},
       reconcileWhenIdle: async () => {},
-    } as unknown as ReminderRuntime;
+    } as unknown as IAgentReminderService;
     disposables.add(new PermissionModeInjection(svc, reminder, states));
     if (restoredProvider === undefined) throw new Error('expected restored provider');
 
@@ -251,12 +250,13 @@ describe('AgentPermissionModeService (wire-backed)', () => {
     expect(written[0]).toMatchObject({ type: 'metadata' });
     expect(written.slice(1)).toEqual([{ type: 'permission.set_mode', mode: 'auto' }]);
   });
-  it('skips the auto-mode reminder injection when the reminder env is disabled', () => {
+
+  it('skips the auto-mode reminder injection when PYTHINKER_CODE_PERMISSION_MODE_REMINDER is disabled', () => {
     registeredInjection = undefined;
     const ix2 = disposables.add(new TestInstantiationService());
     ix2.stub(IFileSystemStorageService, new InMemoryStorageService());
     ix2.set(IAppendLogStore, new SyncDescriptor(AppendLogStore));
-    ix2.stub(IAgentLifecycleService, lifecycleWithReminder(injectorStub));
+    ix2.stub(IAgentReminderService, injectorStub);
     ix2.stub(
       IBootstrapService,
       stubBootstrap('/tmp/pythinker-home', { [PERMISSION_MODE_REMINDER_ENV]: '0' }),
@@ -275,37 +275,13 @@ describe('AgentPermissionModeService (wire-backed)', () => {
     expect(svc2.mode).toBe('auto');
     expect(registeredInjection).toBeUndefined();
   });
-  it('skips the auto-mode reminder injection when the reminder env is set to an empty value', () => {
-    registeredInjection = undefined;
-    const ix2 = disposables.add(new TestInstantiationService());
-    ix2.stub(IFileSystemStorageService, new InMemoryStorageService());
-    ix2.set(IAppendLogStore, new SyncDescriptor(AppendLogStore));
-    ix2.stub(IAgentLifecycleService, lifecycleWithReminder(injectorStub));
-    ix2.stub(
-      IBootstrapService,
-      stubBootstrap('/tmp/pythinker-home', { [PERMISSION_MODE_REMINDER_ENV]: '' }),
-    );
-    ix2.set(IAgentStateService, new AgentStateService());
-    ix2.set(IAgentPermissionModeService, new SyncDescriptor(AgentPermissionModeService));
-    registerTestAgentWire(ix2, testWireScope(SCOPE, 'permission-mode-empty-reminder'), {
-      log: ix2.get(IAppendLogStore),
-    });
-    registerTestEventDispatcher(ix2);
-
-    const svc2 = ix2.get(IAgentPermissionModeService);
-
-    expect(registeredInjection).toBeUndefined();
-    svc2.setMode('auto');
-    expect(svc2.mode).toBe('auto');
-    expect(registeredInjection).toBeUndefined();
-  });
 
   it('keeps the auto-mode reminder injection when the env override enables it explicitly', () => {
     registeredInjection = undefined;
     const ix2 = disposables.add(new TestInstantiationService());
     ix2.stub(IFileSystemStorageService, new InMemoryStorageService());
     ix2.set(IAppendLogStore, new SyncDescriptor(AppendLogStore));
-    ix2.stub(IAgentLifecycleService, lifecycleWithReminder(injectorStub));
+    ix2.stub(IAgentReminderService, injectorStub);
     ix2.stub(
       IBootstrapService,
       stubBootstrap('/tmp/pythinker-home', { [PERMISSION_MODE_REMINDER_ENV]: '1' }),

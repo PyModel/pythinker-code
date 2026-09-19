@@ -46,8 +46,8 @@ describe("StdinBuffer", () => {
 		});
 
 		it("should handle unicode characters", () => {
-			processInput("hello \u4E16\u754C");
-			assert.deepStrictEqual(emittedSequences, ["h", "e", "l", "l", "o", " ", "\u4E16", "\u754C"]);
+			processInput("hello \u4e16\u754c");
+			assert.deepStrictEqual(emittedSequences, ["h", "e", "l", "l", "o", " ", "\u4e16", "\u754c"]);
 		});
 	});
 
@@ -496,9 +496,9 @@ describe("StdinBuffer", () => {
 		});
 
 		it("should handle paste with unicode", () => {
-			processInput("\x1b[200~Hello \u4E16\u754C 🎉\x1b[201~");
+			processInput("\x1b[200~Hello \u4e16\u754c 🎉\x1b[201~");
 
-			assert.deepStrictEqual(emittedPaste, ["Hello \u4E16\u754C 🎉"]);
+			assert.deepStrictEqual(emittedPaste, ["Hello \u4e16\u754c 🎉"]);
 			assert.deepStrictEqual(emittedSequences, []);
 		});
 	});

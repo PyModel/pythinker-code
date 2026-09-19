@@ -10,16 +10,18 @@ import type {
   ToolCallLocation,
   ToolKind,
 } from '@agentclientprotocol/sdk';
+import type { ToolResultEvent } from '@pymodel/agent-core-v2/events';
 import type {
   AssistantDeltaEvent,
   ThinkingDeltaEvent,
+  TurnEndReason,
+} from '@pymodel/agent-core-v2/agent/loop/turnEvents';
+import type {
   ToolCallDeltaEvent,
   ToolCallStartedEvent,
-  ToolInputDisplay,
   ToolProgressEvent,
-  ToolResultEvent,
-  TurnEndReason,
-} from '@pymodel/protocol';
+} from '@pymodel/agent-core-v2/agent/toolExecutor/toolExecutorEvents';
+import type { ToolInputDisplay } from '@pymodel/agent-core-v2/tool/toolInputDisplay';
 
 import { displayBlockToAcpContent, toolResultToAcpContent } from './convert';
 import type { AcpStopReason } from './types';

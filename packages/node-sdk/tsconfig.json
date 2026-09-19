@@ -1,8 +1,19 @@
 {
   "extends": "../../tsconfig.json",
   "compilerOptions": {
-    "lib": ["ESNext"],
+    "lib": [
+      "ESNext"
+    ],
     "experimentalDecorators": true
   },
-  "include": ["src", "test", "examples", "../agent-core/src/prompt-modules.d.ts"]
+  "include": [
+    "src",
+    "test",
+    "../agent-core-v2/src/env.d.ts"
+  ],
+  "exclude": [
+    "examples",
+    "dist",
+    "node_modules"
+  ]
 }

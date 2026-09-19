@@ -1,10 +1,18 @@
 # @pymodel/pythinker-code-sdk
 
+## 0.20.0
+
+### Minor Changes
+
+- [#3453](https://github.com/PyModel/pythinker-code/pull/3453) [`411572e`](https://github.com/PyModel/pythinker-code/commit/411572e166edee8581ba9c5a7f1bbf6c8b405606) Thanks [@Grapedge](https://github.com/Grapedge)! - Add `suggestFiles(workDir, { query, limit })` to `PythinkerHarness`: session-less fuzzy file suggestions from the agent-core-v2 workspace fs service, `undefined` on the v1 engine.
+
 ## 0.19.2
 
 ### Patch Changes
 
-- [#298](https://github.com/PyModel/pythinker-code/pull/298) [`0f522b8`](https://github.com/PyModel/pythinker-code/commit/0f522b86991a70d2472f03842048c001c8ec294d) Thanks [@elkaix](https://github.com/elkaix)! - Warn in print mode when an untrusted folder skips project-level MCP servers. Workspace trust info now reports project servers that override same-named user entries as trust-gated.
+- [#3098](https://github.com/PyModel/pythinker-code/pull/3098) [`75550c5`](https://github.com/PyModel/pythinker-code/commit/75550c5686cb867c0cb34bc515997d5e6305fc94) Thanks [@LCZcn96](https://github.com/LCZcn96)! - Restore live context-window usage updates after switching to the v2 engine.
+
+- [#3002](https://github.com/PyModel/pythinker-code/pull/3002) [`d723cc4`](https://github.com/PyModel/pythinker-code/commit/d723cc47ee43e5ca3c3c4ec2473f205d44acede2) Thanks [@7Sageer](https://github.com/7Sageer)! - Add an optional `cwd` parameter to the global MCP management methods; `verify: false` on the global MCP authorization-status listing now returns a fully offline classification instead of behaving like an omitted `verify`.
 
 ## 0.19.1
 
@@ -74,7 +82,7 @@
 
 ### Patch Changes
 
-- [#2601](https://github.com/PyModel/pythinker-code/pull/2601) [`75fe068`](https://github.com/PyModel/pythinker-code/commit/75fe068a01261ff6b34f176530b338ec6a24918e) Thanks [@wbxl2000](https://github.com/wbxl2000)! - Fix built-in capability availability and installed status in `/plugins`, preserve legacy WebBridge skills as backups during updates, and prevent Computer Use updates from duplicating or disconnecting MCP servers.
+- [#2601](https://github.com/PyModel/pythinker-code/pull/2601) [`75fe068`](https://github.com/PyModel/pythinker-code/commit/75fe068a01261ff6b34f176530b338ec6a24918e) Thanks [@wbxl2000](https://github.com/wbxl2000)! - Fix built-in capability availability and installed status in `/plugins`, preserve legacy Pythinker Browser Extension skills as backups during updates, and prevent Computer Use updates from duplicating or disconnecting MCP servers.
 
 ## 0.15.1
 

@@ -38,6 +38,7 @@ describe('approvalRequestSchema (SCHEMAS §6.1)', () => {
   const base = {
     approval_id: '01J0000000APPROVAL',
     session_id: 'sess_x',
+    agent_id: 'main',
     tool_call_id: 'tc_1',
     tool_name: 'shell.run',
     action: 'Run `rm -rf foo/`',
@@ -142,6 +143,7 @@ describe('listPendingApprovalsResponseSchema (REST pending recovery)', () => {
   const pendingApproval = {
     approval_id: '01J0000000APPROVAL',
     session_id: 'sess_x',
+    agent_id: 'main',
     tool_call_id: 'tc_1',
     tool_name: 'shell.run',
     action: 'Run `ls`',

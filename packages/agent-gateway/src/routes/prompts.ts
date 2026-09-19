@@ -3,14 +3,12 @@ import { join } from 'node:path';
 import {
   IBootstrapService,
   IAgentLifecycleService,
+  IAgentLoopService,
   IAgentPermissionModeService,
   IAgentProfileService,
   IAgentRuntimeBindingService,
   IAgentToolPolicyService,
-  IAgentPromptService,
-  agentContextOf,
-  AgentSkill,
-  IAuthSummaryService,
+  IAgentSkillService,
   IEventBus,
   IEventService,
   IFileService,
@@ -20,13 +18,13 @@ import {
   isUserActivatableSkillType,
   promptMetadataTextFromContentParts,
   ProfileError,
+  type ContextMessage,
   type PromptHandle,
-  type PromptQueueSnapshot,
-  type PromptReservation,
+  type PromptOrigin,
+  type PromptState,
   type PromptWithSkillsResult,
-  reservePrompt,
+  newMessageId,
   ISessionContext,
-  ISessionExpertTalkService,
   resumeSessionById,
   ITelemetryService,
   applyPromptMetadataUpdate,
@@ -36,7 +34,6 @@ import {
   sessionMediaOriginalsDir,
   type ISessionScopeHandle,
   type Scope,
-  type ContentPart,
 } from '@pymodel/agent-core-v2';
 import { ErrorCode } from '../protocol/error-codes';
 import { projectPromptContentParts } from '../services/messages/messageProjection';
@@ -48,7 +45,6 @@ import {
   promptSubmissionSchema,
   promptSubmitResultSchema,
   type PromptSkillActivation,
-  type PromptSubmission,
 } from '../protocol/rest-prompt';
 import { z } from 'zod';
 
@@ -91,8 +87,6 @@ const sessionIdParamSchema = z.object({
 });
 
 const validationDetailsSchema = z.array(z.object({ path: z.string(), message: z.string() }));
-const authProviderDetailsSchema = z.object({ provider_id: z.string() });
-const authModelDetailsSchema = z.object({ model_id: z.string(), provider_id: z.string() }).partial();
 
 async function resolveSession(core: Scope, sessionId: string): Promise<ISessionScopeHandle> {
   const session = await resumeSessionById(core.accessor, sessionId);
@@ -115,10 +109,9 @@ async function resolvePromptFromSession(session: ISessionScopeHandle, agentId?: 
     throw new Error2('agent.not_found', `agent ${agentId} does not exist`);
   }
   return {
-    prompt: agent.accessor.get(IAgentPromptService),
-    skill: agent.accessor.get(IAgentLifecycleService).resolve(agentContextOf(agent), AgentSkill),
+    prompt: agent.accessor.get(IAgentLoopService),
+    skill: agent.accessor.get(IAgentSkillService),
     events: agent.accessor.get(IEventBus),
-    auth: agent.accessor.get(IAuthSummaryService),
     profile: agent.accessor.get(IAgentProfileService),
     toolPolicy: agent.accessor.get(IAgentToolPolicyService),
     permissionMode: agent.accessor.get(IAgentPermissionModeService),
@@ -183,7 +176,7 @@ export function registerPromptsRoutes(app: PromptRouteHost, core: Scope): void {
     async (req, reply) => {
       try {
         const { session_id } = req.params;
-        const result = projectPromptList((await resolvePrompt(core, session_id)).prompt.list());
+        const result = projectPromptList((await resolvePrompt(core, session_id)).prompt);
         reply.send(okEnvelope(result, req.id));
       } catch (error) {
         sendMappedError(reply, req, error);
@@ -203,23 +196,9 @@ export function registerPromptsRoutes(app: PromptRouteHost, core: Scope): void {
         [ErrorCode.VALIDATION_FAILED]: { detailsSchema: validationDetailsSchema },
         [ErrorCode.SKILL_NOT_FOUND]: {},
         [ErrorCode.SKILL_NOT_ACTIVATABLE]: {},
-        [ErrorCode.AUTH_PROVISIONING_REQUIRED]: {},
-        [ErrorCode.AUTH_TOKEN_MISSING]: { detailsSchema: authProviderDetailsSchema },
-        [ErrorCode.AUTH_TOKEN_UNAUTHORIZED]: { detailsSchema: authProviderDetailsSchema },
-        [ErrorCode.AUTH_MODEL_NOT_RESOLVED]: { detailsSchema: authModelDetailsSchema },
         [ErrorCode.SESSION_NOT_FOUND]: {},
         [ErrorCode.FILE_NOT_FOUND]: {},
         [ErrorCode.PROMPT_ID_CONFLICT]: {},
-        [ErrorCode.PROMPT_ALREADY_COMPLETED]: { dataSchema: z.object({ aborted: z.literal(false) }) },
-        [ErrorCode.EXPERT_TALK_FEATURE_DISABLED]: {},
-        [ErrorCode.EXPERT_TALK_PAIR_NOT_CONFIGURED]: {},
-        [ErrorCode.EXPERT_TALK_PAIR_INVALID]: {},
-        [ErrorCode.EXPERT_TALK_PAIR_COLLAPSED]: {},
-        [ErrorCode.EXPERT_TALK_NOT_ARMED]: {},
-        [ErrorCode.EXPERT_TALK_BUSY]: {},
-        [ErrorCode.EXPERT_TALK_CLIENT_UNSUPPORTED]: {},
-        [ErrorCode.EXPERT_TALK_CONTEXT_INSUFFICIENT]: {},
-        [ErrorCode.EXPERT_TALK_BUDGET_EXCEEDED]: {},
       },
       description: 'Submit a prompt to a session',
       tags: ['prompts'],
@@ -228,34 +207,10 @@ export function registerPromptsRoutes(app: PromptRouteHost, core: Scope): void {
     async (req, reply) => {
       const { session_id } = req.params;
       let preparedMedia: PromptMediaPreparation | undefined;
-      let reservation: PromptReservation | undefined;
+      let reservation: PromptIdReservation | undefined;
       let enqueued = false;
       try {
         const session = await resolveSession(core, session_id);
-        const expertTalk = session.accessor.get(ISessionExpertTalkService);
-        await expertTalk.ready;
-        const expertTalkArmId = req.body.expert_talk_arm_id;
-        const expertTalkStatus = expertTalk.status();
-        if (
-          req.body.prompt_id !== undefined &&
-          expertTalk.hasPromptId(req.body.prompt_id)
-        ) {
-          throw new Error2(
-            ErrorCodes.PROMPT_ID_CONFLICT,
-            `Prompt id "${req.body.prompt_id}" already exists`,
-          );
-        }
-        if (expertTalkArmId === undefined && expertTalkStatus.arm !== undefined) {
-          if (selectsAnotherTurnController(req.body)) {
-            expertTalk.disarm(promptClientId(req.headers), expertTalkStatus.arm.armId);
-          } else {
-            throw new Error2(
-              ErrorCodes.EXPERT_TALK_CLIENT_UNSUPPORTED,
-              'This session has an armed Expert Talk turn; refresh this client before submitting',
-            );
-          }
-        }
-        if (expertTalkArmId !== undefined) assertExpertTalkSubmission(req.body);
         let resolved: Awaited<ReturnType<typeof resolvePromptFromSession>> | undefined;
         if (contentHasPathRefs(req.body.content)) {
           resolved = await resolvePromptFromSession(session, req.body.agent_id);
@@ -285,24 +240,16 @@ export function registerPromptsRoutes(app: PromptRouteHost, core: Scope): void {
           session.accessor.get(ISessionMediaStore),
         );
         resolved ??= await resolvePromptFromSession(session, req.body.agent_id);
-        reservation = reservePrompt(resolved.prompt, req.body.prompt_id);
-        if (expertTalkArmId === undefined) {
-          const sessionModel = resolved.profile.getModel();
-          const switchingProfile =
-            req.body.profile !== undefined &&
-            req.body.profile !== resolved.profile.data().profileName;
-          await resolved.auth.ensureReady(
-            req.body.model ?? (switchingProfile ? undefined : sessionModel || undefined),
-          );
-        }
+        reservation = reservePromptId(session_id, req.body.prompt_id);
 
-        const telemetry = core.accessor.get(ITelemetryService).withContext({ sessionId: session_id });
+        const telemetry = core.accessor.get(ITelemetryService).withContext({ session_id });
         preparedMedia = await resolvePromptMediaFiles(
           resolvedSessionMedia,
           core.accessor.get(IFileService),
           core.accessor.get(IBootstrapService).cacheDir,
           {
             telemetry,
+            providerType: resolved.profile.getModelProviderType(req.body.model),
             resolveOriginalsDir: async () => {
               const session = await resumeSessionById(core.accessor, session_id);
               if (session === undefined) return undefined;
@@ -318,37 +265,6 @@ export function registerPromptsRoutes(app: PromptRouteHost, core: Scope): void {
         const resolvedContent = preparedMedia.content;
         const promptAttachments =
           preparedMedia.attachments.length > 0 ? preparedMedia.attachments : undefined;
-
-        const parts = contentToCoreParts(resolvedContent);
-        if (expertTalkArmId !== undefined) {
-          const started = await expertTalk.start({
-            armId: expertTalkArmId,
-            clientId: promptClientId(req.headers),
-            prompt: expertTalkPromptText(parts),
-            promptId: reservation.id,
-            modalities: expertTalkModalities(parts),
-            content: parts,
-            attachments: promptAttachments,
-          });
-          enqueued = true;
-          void applyPromptMetadataUpdate({
-            metadata: session.accessor.get(ISessionMetadata),
-            eventService: core.accessor.get(IEventService),
-            sessionId: session_id,
-          }, promptMetadataTextFromContentParts(parts)).catch((error: unknown) => {
-            requestLog(req)?.warn({ err: error, session_id }, 'Expert Talk metadata update failed');
-          });
-          releaseExpertTalkMedia(expertTalk, started.runId, preparedMedia);
-          reply.send(okEnvelope({
-            prompt_id: started.promptId,
-            user_message_id: started.promptId,
-            status: 'running',
-            content: projectPromptContentParts(parts),
-            created_at: started.createdAt,
-            expert_talk_run_id: started.runId,
-          }, req.id));
-          return;
-        }
 
         let thinkingConsumed = false;
         if (req.body.profile !== undefined) {
@@ -374,19 +290,22 @@ export function registerPromptsRoutes(app: PromptRouteHost, core: Scope): void {
             throw error;
           }
         }
+        const parts = contentToCoreParts(resolvedContent);
+        const clientMetadata = req.body.metadata === undefined ? undefined : [structuredClone(req.body.metadata)];
         if (req.body.skills !== undefined) {
           if (req.body.agent_id !== undefined && req.body.agent_id !== MAIN_AGENT_ID) {
             await applyPromptMetadataUpdate({
               metadata: session.accessor.get(ISessionMetadata),
               eventService: core.accessor.get(IEventService),
               sessionId: session_id,
-            }, promptMetadataTextFromContentParts(parts));
+            }, promptMetadataTextFromContentParts(parts, clientMetadata));
           }
           const settlement = watchPromptSettlements(resolved.events);
           let result: PromptWithSkillsResult;
           try {
             result = await resolved.skill.promptWithSkills({
               input: parts,
+              clientMetadata,
               skills: req.body.skills,
               attachments: promptAttachments,
             });
@@ -404,6 +323,7 @@ export function registerPromptsRoutes(app: PromptRouteHost, core: Scope): void {
                 status: result.state,
                 content: projectPromptContentParts(parts),
                 created_at: result.created_at,
+                metadata: clientMetadata?.[0],
               },
               req.id,
             ),
@@ -414,17 +334,22 @@ export function registerPromptsRoutes(app: PromptRouteHost, core: Scope): void {
           metadata: session.accessor.get(ISessionMetadata),
           eventService: core.accessor.get(IEventService),
           sessionId: session_id,
-        }, promptMetadataTextFromContentParts(parts));
-        if (reservation === undefined) {
-          throw new Error2(ErrorCodes.INTERNAL, 'Prompt reservation was not created');
-        }
-        const handle = await reservation.submit({
-          role: 'user',
-          content: parts,
-          toolCalls: [],
-          origin: { kind: 'user', attachments: promptAttachments },
+        }, promptMetadataTextFromContentParts(parts, clientMetadata));
+        const status = resolved.prompt.snapshot();
+        const { id } = resolved.prompt.submit({
+          message: { role: 'user', content: parts },
+          meta: {
+            promptId: reservation.id,
+            origin: { kind: 'user', attachments: promptAttachments, clientMetadata } as PromptOrigin,
+            tracked: true,
+          },
         });
+        reservation.submit();
         enqueued = true;
+        const handle = resolved.prompt.promptHandle(id)!;
+        if (status.state === 'idle' && !status.paused && status.queue.length === 0) {
+          await Promise.race([handle.launched, handle.completion]);
+        }
         const staging = preparedMedia;
         void Promise.race([handle.launched, handle.completion]).then(
           () => staging?.discard(),
@@ -479,7 +404,6 @@ export function registerPromptsRoutes(app: PromptRouteHost, core: Scope): void {
         [ErrorCode.VALIDATION_FAILED]: {},
         [ErrorCode.SESSION_NOT_FOUND]: {},
         [ErrorCode.PROMPT_NOT_FOUND]: {},
-        [ErrorCode.PROMPT_ALREADY_COMPLETED]: { dataSchema: z.object({ aborted: z.literal(false) }) },
       },
       description: 'Abort a running prompt or steer a queued prompt',
       tags: ['prompts'],
@@ -528,7 +452,7 @@ const promptActions: ActionTable<'abort' | 'steer', PromptActionExtra> = {
 
 async function abortPromptAction(ctx: PromptActionCtx): Promise<void> {
   const { resolved, session_id, req, reply, id } = ctx;
-  resolved.prompt.abort(id);
+  resolved.prompt.cancel({ promptId: id });
   requestLog(req)?.info({ session_id, prompt_id: id }, 'prompt aborted');
   reply.send(okEnvelope({ aborted: true }, req.id));
 }
@@ -539,10 +463,25 @@ async function steerPromptAction(ctx: PromptActionCtx): Promise<void> {
   reply.send(okEnvelope({ steered: true, prompt_ids: [id] }, req.id));
 }
 
-function projectPromptList(snapshot: PromptQueueSnapshot) {
+function projectPromptList(loop: IAgentLoopService) {
+  const snapshot = loop.snapshot();
+  const active =
+    snapshot.activePromptId === undefined
+      ? undefined
+      : loop.promptHandle(snapshot.activePromptId);
   return {
-    active: snapshot.active === undefined ? null : projectPromptSnapshot(snapshot.active),
-    queued: snapshot.pending.map(projectPromptSnapshot),
+    active: active === undefined ? null : projectPromptSnapshot(active),
+    queued: snapshot.queue
+      .filter((item) => item.meta?.tracked === true)
+      .map((item) =>
+        projectPromptSnapshot({
+          id: item.meta?.promptId ?? '',
+          userMessageId: item.meta?.userMessageId ?? '',
+          createdAt: item.meta?.createdAt ?? '',
+          state: 'pending',
+          message: { ...item.message, toolCalls: [], origin: item.meta?.origin as PromptOrigin | undefined },
+        }),
+      ),
   };
 }
 
@@ -550,7 +489,13 @@ function projectPromptHandle(handle: PromptHandle) {
   return projectPromptSnapshot(handle);
 }
 
-export function projectPromptSnapshot(prompt: PromptQueueSnapshot['pending'][number]) {
+export function projectPromptSnapshot(prompt: {
+  readonly id: string;
+  readonly userMessageId: string;
+  readonly createdAt: string;
+  readonly state: PromptState;
+  readonly message: ContextMessage;
+}) {
   const status = prompt.state === 'running' || prompt.state === 'steered'
     ? 'running'
     : prompt.state === 'blocked' ? 'blocked' : 'queued';
@@ -563,6 +508,41 @@ export function projectPromptSnapshot(prompt: PromptQueueSnapshot['pending'][num
     status,
     content: projectPromptContentParts(content),
     created_at: prompt.createdAt,
+    metadata: origin?.kind === 'user' || origin?.kind === 'skill_activation' ? origin.clientMetadata?.[0] : undefined,
+  };
+}
+
+export interface PromptIdReservation {
+  readonly id: string;
+  submit(): void;
+  dispose(): void;
+}
+
+const reservedPromptIds = new Map<string, Set<string>>();
+
+export function reservePromptId(sessionId: string, promptId?: string): PromptIdReservation {
+  if (promptId !== undefined && promptId.length === 0) {
+    throw new Error2(ErrorCodes.REQUEST_INVALID, 'prompt_id must not be empty');
+  }
+  let reserved = reservedPromptIds.get(sessionId);
+  if (reserved === undefined) {
+    reserved = new Set<string>();
+    reservedPromptIds.set(sessionId, reserved);
+  }
+  if (promptId !== undefined && reserved.has(promptId)) {
+    throw new Error2(ErrorCodes.PROMPT_ID_CONFLICT, `prompt_id '${promptId}' is already in use`);
+  }
+  const id = promptId ?? newMessageId();
+  reserved.add(id);
+  let submitted = false;
+  return {
+    id,
+    submit: () => {
+      submitted = true;
+    },
+    dispose: () => {
+      if (!submitted) reserved.delete(id);
+    },
   };
 }
 
@@ -641,15 +621,6 @@ function sendMappedError(
       case 'session.busy':
         reply.send(errEnvelope(ErrorCode.SESSION_BUSY, err.message, requestId, err.stack));
         return;
-      case 'prompt.already_completed':
-        reply.send({
-          code: ErrorCode.PROMPT_ALREADY_COMPLETED,
-          msg: err.message,
-          data: { aborted: false },
-          request_id: requestId,
-          stack: err.stack,
-        });
-        return;
       case 'request.invalid':
       case 'validation.failed':
         reply.send(errEnvelope(ErrorCode.VALIDATION_FAILED, err.message, requestId, err.stack));
@@ -659,99 +630,6 @@ function sendMappedError(
         return;
       case 'skill.type_unsupported':
         reply.send(errEnvelope(ErrorCode.SKILL_NOT_ACTIVATABLE, err.message, requestId, err.stack));
-        return;
-      case 'expert_talk.feature_disabled':
-        reply.send(errEnvelope(ErrorCode.EXPERT_TALK_FEATURE_DISABLED, err.message, requestId));
-        return;
-      case 'expert_talk.pair_not_configured':
-        reply.send(errEnvelope(ErrorCode.EXPERT_TALK_PAIR_NOT_CONFIGURED, err.message, requestId));
-        return;
-      case 'expert_talk.pair_invalid':
-        reply.send(errEnvelope(ErrorCode.EXPERT_TALK_PAIR_INVALID, err.message, requestId));
-        return;
-      case 'expert_talk.pair_collapsed':
-        reply.send(errEnvelope(ErrorCode.EXPERT_TALK_PAIR_COLLAPSED, err.message, requestId));
-        return;
-      case 'expert_talk.not_armed':
-        reply.send(errEnvelope(ErrorCode.EXPERT_TALK_NOT_ARMED, err.message, requestId));
-        return;
-      case 'expert_talk.busy':
-        reply.send(errEnvelope(ErrorCode.EXPERT_TALK_BUSY, err.message, requestId));
-        return;
-      case 'expert_talk.client_unsupported':
-        reply.send(errEnvelope(ErrorCode.EXPERT_TALK_CLIENT_UNSUPPORTED, err.message, requestId));
-        return;
-      case 'expert_talk.context_insufficient':
-        reply.send(errEnvelope(ErrorCode.EXPERT_TALK_CONTEXT_INSUFFICIENT, err.message, requestId));
-        return;
-      case 'expert_talk.budget_exceeded':
-        reply.send(errEnvelope(ErrorCode.EXPERT_TALK_BUDGET_EXCEEDED, err.message, requestId));
-        return;
-      case 'auth.provisioning_required':
-        reply.send({
-          code: ErrorCode.AUTH_PROVISIONING_REQUIRED,
-          msg: err.message,
-          data: null,
-          request_id: requestId,
-          stack: err.stack,
-          details: null,
-        });
-        return;
-      case 'auth.token_missing': {
-        const details = authProviderDetails(err);
-        if (details === undefined) {
-          log?.error({ err }, 'prompt request failed');
-          reply.send(
-            errEnvelope(
-              ErrorCode.INTERNAL_ERROR,
-              `auth error ${err.code} missing provider_id`,
-              requestId,
-            ),
-          );
-          return;
-        }
-        reply.send({
-          code: ErrorCode.AUTH_TOKEN_MISSING,
-          msg: err.message,
-          data: null,
-          request_id: requestId,
-          stack: err.stack,
-          details,
-        });
-        return;
-      }
-      case 'auth.token_unauthorized': {
-        const details = authProviderDetails(err);
-        if (details === undefined) {
-          log?.error({ err }, 'prompt request failed');
-          reply.send(
-            errEnvelope(
-              ErrorCode.INTERNAL_ERROR,
-              `auth error ${err.code} missing provider_id`,
-              requestId,
-            ),
-          );
-          return;
-        }
-        reply.send({
-          code: ErrorCode.AUTH_TOKEN_UNAUTHORIZED,
-          msg: err.message,
-          data: null,
-          request_id: requestId,
-          stack: err.stack,
-          details,
-        });
-        return;
-      }
-      case 'auth.model_not_resolved':
-        reply.send({
-          code: ErrorCode.AUTH_MODEL_NOT_RESOLVED,
-          msg: err.message,
-          data: null,
-          request_id: requestId,
-          stack: err.stack,
-          details: authModelDetails(err),
-        });
         return;
     }
   }
@@ -764,105 +642,4 @@ function sendMappedError(
       err instanceof Error ? err.stack : undefined,
     ),
   );
-}
-
-function assertExpertTalkSubmission(input: PromptSubmission): void {
-  if (input.agent_id !== undefined && input.agent_id !== MAIN_AGENT_ID) {
-    throw new Error2(ErrorCodes.REQUEST_INVALID, 'Expert Talk controls the main conversation only');
-  }
-  const conflicts = [
-    input.profile === undefined ? undefined : 'profile',
-    input.model === undefined ? undefined : 'model',
-    input.thinking === undefined ? undefined : 'thinking',
-    input.permission_mode === undefined ? undefined : 'permission_mode',
-    input.plan_mode === true ? 'plan_mode' : undefined,
-    input.dynamic_workflow_mode === true ? 'dynamic_workflow_mode' : undefined,
-    input.goal_objective === undefined ? undefined : 'goal_objective',
-    input.goal_control === undefined ? undefined : 'goal_control',
-    input.disabled_tools === undefined ? undefined : 'disabled_tools',
-    input.skills === undefined ? undefined : 'skills',
-  ].filter((value): value is string => value !== undefined);
-  if (conflicts.length > 0) {
-    throw new Error2(
-      ErrorCodes.REQUEST_INVALID,
-      `Expert Talk cannot be combined with ${conflicts.join(', ')}`,
-    );
-  }
-  if (input.content.some((part) => part.type === 'tool_use' || part.type === 'tool_result' || part.type === 'thinking')) {
-    throw new Error2(
-      ErrorCodes.REQUEST_INVALID,
-      'Expert Talk accepts only user text and media input',
-    );
-  }
-}
-
-function selectsAnotherTurnController(input: PromptSubmission): boolean {
-  return input.dynamic_workflow_mode === true || input.profile === 'tower-worker';
-}
-
-function promptClientId(headers: Record<string, unknown>): string {
-  const value = headers['x-pythinker-client-id'];
-  if (typeof value === 'string' && value.trim().length > 0) return value.trim();
-  throw new Error2(
-    ErrorCodes.EXPERT_TALK_CLIENT_UNSUPPORTED,
-    'Expert Talk requires a stable client identity',
-  );
-}
-
-function expertTalkPromptText(parts: readonly ContentPart[]): string {
-  const text = parts
-    .filter((part): part is Extract<ContentPart, { type: 'text' }> => part.type === 'text')
-    .map((part) => part.text)
-    .join('\n')
-    .trim();
-  return text.length > 0 ? text : 'Analyze the attached media.';
-}
-
-function expertTalkModalities(parts: readonly ContentPart[]): ('image' | 'audio' | 'video')[] {
-  const values = parts.flatMap((part) => {
-    if (part.type === 'image_url') return ['image' as const];
-    if (part.type === 'audio_url') return ['audio' as const];
-    if (part.type === 'video_url') return ['video' as const];
-    return [];
-  });
-  return [...new Set(values)];
-}
-
-function releaseExpertTalkMedia(
-  service: ISessionExpertTalkService,
-  runId: string,
-  preparation: PromptMediaPreparation,
-): void {
-  const terminal = new Set([
-    'COMPLETED',
-    'CANCELLED',
-    'FAILED_OPENING',
-    'FAILED_REVIEW',
-    'FAILED_FUSION',
-    'INTERRUPTED',
-  ]);
-  let subscription: ReturnType<ISessionExpertTalkService['onDidChange']> | undefined;
-  const settle = (): void => {
-    const run = service.getRun(runId);
-    if (!terminal.has(run.status)) return;
-    subscription?.dispose();
-    void preparation.discard();
-  };
-  subscription = service.onDidChange(settle);
-  settle();
-}
-
-function authProviderDetails(err: Error2): { provider_id: string } | undefined {
-  const providerId = err.details?.['provider_id'];
-  if (typeof providerId !== 'string') return undefined;
-  return { provider_id: providerId };
-}
-
-function authModelDetails(err: Error2): { model_id?: string; provider_id?: string } | null {
-  const details: { model_id?: string; provider_id?: string } = {};
-  const modelId = err.details?.['model_id'];
-  const providerId = err.details?.['provider_id'];
-  if (typeof modelId === 'string') details.model_id = modelId;
-  if (typeof providerId === 'string') details.provider_id = providerId;
-  return Object.keys(details).length === 0 ? null : details;
 }

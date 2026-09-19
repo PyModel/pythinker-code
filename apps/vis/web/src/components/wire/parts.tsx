@@ -41,6 +41,7 @@ export function truncate(s: unknown, n: number): string {
 
 /** Pull the first text segment from a ContentPart[] for one-line preview. */
 export function firstText(parts: readonly ContentPart[]): string {
+  if (!Array.isArray(parts)) return '';
   for (const p of parts) {
     if (p.type === 'text' && typeof p.text === 'string') return p.text;
   }

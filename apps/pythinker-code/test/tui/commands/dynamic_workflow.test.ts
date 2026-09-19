@@ -113,7 +113,7 @@ describe('handleDynamicWorkflowCommand', () => {
     expect(host.sendNormalUserInput).not.toHaveBeenCalled();
   });
 
-  it('asks before turning dynamic_workflow mode on in Always Ask mode', async () => {
+  it('asks before turning dynamic_workflow mode on in Manual mode', async () => {
     const { host, session } = makeHost({ model: '', permissionMode: 'manual' });
 
     await handleDynamicWorkflowCommand(host, 'on');
@@ -204,7 +204,7 @@ describe('handleDynamicWorkflowCommand', () => {
     expect(host.sendNormalUserInput).not.toHaveBeenCalled();
   });
 
-  it('asks before starting a dynamic_workflow task in Always Ask mode', async () => {
+  it('asks before starting a dynamic_workflow task in Manual mode', async () => {
     const { host, session } = makeHost({ permissionMode: 'manual' });
 
     await handleDynamicWorkflowCommand(host, 'Ship feature X');
@@ -256,7 +256,7 @@ describe('handleDynamicWorkflowCommand', () => {
     expect(session.setDynamicWorkflowMode).toHaveBeenCalledWith(true, 'task');
     expect(session.setDynamicWorkflowMode).toHaveBeenCalledTimes(1);
     expect(host.showNotice).not.toHaveBeenCalled();
-    expect(host.showStatus).not.toHaveBeenCalled();
+    expect(host.showStatus).not.toHaveBeenCalledWith(PERMISSION_MODE_DESCRIPTIONS.auto, 'warning');
     expect(host.state.dynamicWorkflowModeEntry).toBe('task');
     expectDynamicWorkflowMarker(host, 'DynamicWorkflow activated');
   });
@@ -314,7 +314,7 @@ describe('handleDynamicWorkflowCommand', () => {
     expect(host.sendNormalUserInput).not.toHaveBeenCalled();
   });
 
-  it('does not send from Always Ask mode when enabling dynamic_workflow mode fails after confirmation', async () => {
+  it('does not send from Manual mode when enabling dynamic_workflow mode fails after confirmation', async () => {
     const { host, session } = makeHost({ permissionMode: 'manual' });
     session.setDynamicWorkflowMode.mockRejectedValueOnce(new Error('denied'));
 

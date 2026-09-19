@@ -2,7 +2,7 @@ import assert from "node:assert";
 import { afterEach, describe, it } from "node:test";
 import type { Terminal as XtermTerminalType } from "@xterm/headless";
 import { Chalk } from "chalk";
-import { Markdown } from "../src/components/markdown.ts";
+import { Markdown, type MarkdownTheme } from "../src/components/markdown.ts";
 import { resetCapabilitiesCache, setCapabilities } from "../src/terminal-image.ts";
 import type { Component, TUI } from "../src/tui.ts";
 import { TuiMainScreen } from "../src/tui-main-screen.ts";
@@ -12,24 +12,14 @@ import { VirtualTerminal } from "./virtual-terminal.ts";
 // Force full color in CI so ANSI assertions are deterministic
 const chalk = new Chalk({ level: 3 });
 
-function getCellItalic(terminal: VirtualTerminal, row: number, col: number): number {
+function getCell(terminal: VirtualTerminal, row: number, col: number) {
 	const xterm = (terminal as unknown as { xterm: XtermTerminalType }).xterm;
 	const buffer = xterm.buffer.active;
 	const line = buffer.getLine(buffer.viewportY + row);
 	assert.ok(line, `Missing buffer line at row ${row}`);
 	const cell = line.getCell(col);
 	assert.ok(cell, `Missing cell at row ${row} col ${col}`);
-	return cell.isItalic();
-}
-
-function getCellUnderline(terminal: VirtualTerminal, row: number, col: number): number {
-	const xterm = (terminal as unknown as { xterm: XtermTerminalType }).xterm;
-	const buffer = xterm.buffer.active;
-	const line = buffer.getLine(buffer.viewportY + row);
-	assert.ok(line, `Missing buffer line at row ${row}`);
-	const cell = line.getCell(col);
-	assert.ok(cell, `Missing cell at row ${row} col ${col}`);
-	return cell.isUnderline();
+	return cell;
 }
 
 function stripAnsi(line: string): string {
@@ -477,6 +467,105 @@ describe("Markdown component", () => {
 			assert.ok(allText.includes("Description"), "Should contain 'Description'");
 			assert.ok(allText.includes("npm install"), "Should contain 'npm install'");
 			assert.ok(allText.includes("Install"), "Should contain 'Install'");
+		});
+
+		it("should not leak wrapped link styles into table borders or plain cells", async () => {
+			const source = `| Link | Plain |
+| --- | --- |
+| [**one two three four five six**](https://example.com) | normal text |`;
+
+			try {
+				for (const hyperlinks of [true, false]) {
+					setCapabilities({ images: null, trueColor: false, hyperlinks });
+					const terminal = new VirtualTerminal(24, 16);
+					const tui: TUI = new TuiMainScreen(terminal);
+					tui.addChild(new Markdown(source, 0, 0, defaultMarkdownTheme));
+					tui.start();
+
+					try {
+						await terminal.waitForRender();
+						const viewport = terminal.getViewport();
+						const row = viewport.findIndex((line) => line.includes("one") && line.includes("norm"));
+						assert.notStrictEqual(row, -1, `Missing wrapped table row: ${JSON.stringify(viewport)}`);
+						const line = viewport[row];
+						const linkCol = line.indexOf("one");
+						const separatorCol = line.indexOf("│", linkCol);
+						const plainCol = line.indexOf("norm");
+						assert.ok(linkCol >= 0 && separatorCol > linkCol && plainCol > separatorCol);
+						assert.strictEqual(getCell(terminal, row, linkCol).isFgDefault(), false);
+						assert.strictEqual(getCell(terminal, row, separatorCol).isFgDefault(), true);
+						assert.strictEqual(getCell(terminal, row, plainCol).isFgDefault(), true);
+						assert.notStrictEqual(getCell(terminal, row, linkCol).isBold(), 0);
+						assert.strictEqual(getCell(terminal, row, separatorCol).isBold(), 0);
+						assert.strictEqual(getCell(terminal, row, plainCol).isBold(), 0);
+
+						if (!hyperlinks) {
+							const urlRow = viewport.findIndex((viewportLine) => viewportLine.includes("https"));
+							assert.notStrictEqual(urlRow, -1, `Missing fallback URL row: ${JSON.stringify(viewport)}`);
+							const urlLine = viewport[urlRow];
+							const urlCol = urlLine.indexOf("https");
+							const urlSeparatorCol = urlLine.indexOf("│", urlCol);
+							const urlBorderCol = urlLine.lastIndexOf("│");
+							assert.ok(urlCol >= 0 && urlSeparatorCol > urlCol && urlBorderCol > urlSeparatorCol);
+							assert.notStrictEqual(getCell(terminal, urlRow, urlCol).isDim(), 0);
+							assert.strictEqual(getCell(terminal, urlRow, urlSeparatorCol).isDim(), 0);
+							assert.strictEqual(getCell(terminal, urlRow, urlBorderCol).isDim(), 0);
+						}
+					} finally {
+						tui.stop();
+					}
+				}
+			} finally {
+				resetCapabilitiesCache();
+			}
+		});
+
+		it("should restore the enclosing style after a wrapped table link", async () => {
+			const quoteColor = 0x123456;
+			const theme: MarkdownTheme = {
+				...defaultMarkdownTheme,
+				// Use a basic wrapper that does not automatically reopen itself after nested resets.
+				quote: (text) => `\x1b[38;2;18;52;86m${text}\x1b[39m`,
+				link: (text) => `\x1b[38;2;129;162;190m${text}\x1b[39m`,
+			};
+			const source = `> | Link | Plain |
+> | --- | --- |
+> | [one two three four five six](https://example.com) | normal text |`;
+
+			setCapabilities({ images: null, trueColor: true, hyperlinks: true });
+			const terminal = new VirtualTerminal(28, 10);
+			const tui: TUI = new TuiMainScreen(terminal);
+			tui.addChild(new Markdown(source, 0, 0, theme));
+			tui.start();
+
+			try {
+				await terminal.waitForRender();
+				const viewport = terminal.getViewport();
+				const row = viewport.findIndex((line) => line.includes("one") && line.includes("normal"));
+				assert.notStrictEqual(row, -1, `Missing wrapped blockquote table row: ${JSON.stringify(viewport)}`);
+				const line = viewport[row];
+				const linkCol = line.indexOf("one");
+				const separatorCol = line.indexOf("│", linkCol);
+				const plainCol = line.indexOf("normal");
+				assert.ok(linkCol >= 0 && separatorCol > linkCol && plainCol > separatorCol);
+
+				assert.notStrictEqual(getCell(terminal, row, linkCol).getFgColor(), quoteColor);
+				assert.strictEqual(getCell(terminal, row, separatorCol).getFgColor(), quoteColor);
+				assert.strictEqual(getCell(terminal, row, plainCol).getFgColor(), quoteColor);
+
+				const finalRow = viewport.findIndex((line) => line.includes("five six"));
+				assert.notStrictEqual(finalRow, -1, `Missing final wrapped link row: ${JSON.stringify(viewport)}`);
+				const finalLine = viewport[finalRow];
+				const finalLinkCol = finalLine.indexOf("five six");
+				const finalSeparatorCol = finalLine.indexOf("│", finalLinkCol);
+				const finalBorderCol = finalLine.lastIndexOf("│");
+				assert.ok(finalLinkCol >= 0 && finalSeparatorCol > finalLinkCol && finalBorderCol > finalSeparatorCol);
+				assert.strictEqual(getCell(terminal, finalRow, finalSeparatorCol).getFgColor(), quoteColor);
+				assert.strictEqual(getCell(terminal, finalRow, finalBorderCol).getFgColor(), quoteColor);
+			} finally {
+				tui.stop();
+				resetCapabilitiesCache();
+			}
 		});
 
 		it("should wrap long cell content to multiple lines", () => {
@@ -1008,7 +1097,7 @@ A=
 
 			assert.ok(component.markdownLineCount > 0);
 			const inputRow = component.markdownLineCount;
-			assert.strictEqual(getCellItalic(terminal, inputRow, 0), 0);
+			assert.strictEqual(getCell(terminal, inputRow, 0).isItalic(), 0);
 			tui.stop();
 		});
 	});
@@ -1452,7 +1541,11 @@ bar`,
 			assert.ok(contentWidth > 0, "Should have visible heading content");
 
 			for (let col = contentWidth; col < 80; col++) {
-				assert.strictEqual(getCellUnderline(terminal, 0, col), 0, `Expected no underline in padding at col ${col}`);
+				assert.strictEqual(
+					getCell(terminal, 0, col).isUnderline(),
+					0,
+					`Expected no underline in padding at col ${col}`,
+				);
 			}
 
 			tui.stop();
@@ -1607,7 +1700,7 @@ bar`,
 		it("should not absorb CJK punctuation after bare URLs into the link", () => {
 			setCapabilities({ images: null, trueColor: false, hyperlinks: true });
 			const markdown = new Markdown(
-				"PR \u5DF2\u5F00：https://example.com/app/pull/232（\u672C\u5730 main \u5DF2\u9000\u56DE origin/main \u4FDD\u6301\u5E72\u51C0）。",
+				"PR \u5df2\u5f00：https://example.com/app/pull/232（\u672c\u5730 main \u5df2\u9000\u56de origin/main \u4fdd\u6301\u5e72\u51c0）。",
 				0,
 				0,
 				defaultMarkdownTheme,
@@ -1629,14 +1722,14 @@ bar`,
 				line.replace(/\x1b\]8;;[^\x1b]*\x1b\\/g, "").replace(/\x1b\[[0-9;]*m/g, ""),
 			);
 			assert.ok(
-				rawPlain.join("").includes("https://example.com/app/pull/232（\u672C\u5730 main \u5DF2\u9000\u56DE"),
+				rawPlain.join("").includes("https://example.com/app/pull/232（\u672c\u5730 main \u5df2\u9000\u56de"),
 				"URL and following CJK text should both render",
 			);
 		});
 
 		it("should strip a trailing full-width parenthesis after a bare URL", () => {
 			setCapabilities({ images: null, trueColor: false, hyperlinks: true });
-			const markdown = new Markdown("\u770B\u8FD9\u4E2A（https://example.com/page）\u5C31\u77E5\u9053", 0, 0, defaultMarkdownTheme);
+			const markdown = new Markdown("\u770b\u8fd9\u4e2a（https://example.com/page）\u5c31\u77e5\u9053", 0, 0, defaultMarkdownTheme);
 
 			const lines = markdown.render(80);
 			const joined = lines.join("");
@@ -1649,13 +1742,13 @@ bar`,
 
 		it("should keep CJK characters inside the URL path", () => {
 			setCapabilities({ images: null, trueColor: false, hyperlinks: true });
-			const markdown = new Markdown("\u89C1 https://example.com/wiki/\u6D4B\u8BD5\u9875\u9762 \u7684\u8BF4\u660E", 0, 0, defaultMarkdownTheme);
+			const markdown = new Markdown("\u89c1 https://example.com/wiki/\u6d4b\u8bd5\u9875\u9762 \u7684\u8bf4\u660e", 0, 0, defaultMarkdownTheme);
 
 			const lines = markdown.render(80);
 			const joined = lines.join("");
 
 			assert.ok(
-				joined.includes("\x1b]8;;https://example.com/wiki/\u6D4B\u8BD5\u9875\u9762\x1b\\"),
+				joined.includes("\x1b]8;;https://example.com/wiki/\u6d4b\u8bd5\u9875\u9762\x1b\\"),
 				"CJK path characters remain part of the hyperlink target",
 			);
 		});
@@ -1663,7 +1756,7 @@ bar`,
 		it("should keep balanced full-width parentheses inside the URL path", () => {
 			setCapabilities({ images: null, trueColor: false, hyperlinks: true });
 			const markdown = new Markdown(
-				"\u89C1 https://example.com/wiki/\u4E2D\u534E\u4EBA\u6C11\u5171\u548C\u56FD（1949\u5E74） \u7684\u8BF4\u660E",
+				"\u89c1 https://example.com/wiki/\u4e2d\u534e\u4eba\u6c11\u5171\u548c\u56fd（1949\u5e74） \u7684\u8bf4\u660e",
 				0,
 				0,
 				defaultMarkdownTheme,
@@ -1673,7 +1766,7 @@ bar`,
 			const joined = lines.join("");
 
 			assert.ok(
-				joined.includes("\x1b]8;;https://example.com/wiki/\u4E2D\u534E\u4EBA\u6C11\u5171\u548C\u56FD（1949\u5E74）\x1b\\"),
+				joined.includes("\x1b]8;;https://example.com/wiki/\u4e2d\u534e\u4eba\u6c11\u5171\u548c\u56fd（1949\u5e74）\x1b\\"),
 				"Balanced full-width parens remain part of the hyperlink target",
 			);
 		});
@@ -1681,7 +1774,7 @@ bar`,
 		it("should keep CJK punctuation inside balanced full-width parentheses", () => {
 			setCapabilities({ images: null, trueColor: false, hyperlinks: true });
 			const markdown = new Markdown(
-				"\u89C1 https://example.com/wiki/\u4E2D\u534E\u4EBA\u6C11\u5171\u548C\u56FD（\u5317\u4EAC，1949\u5E74） \u7684\u8BF4\u660E",
+				"\u89c1 https://example.com/wiki/\u4e2d\u534e\u4eba\u6c11\u5171\u548c\u56fd（\u5317\u4eac，1949\u5e74） \u7684\u8bf4\u660e",
 				0,
 				0,
 				defaultMarkdownTheme,
@@ -1691,7 +1784,7 @@ bar`,
 			const joined = lines.join("");
 
 			assert.ok(
-				joined.includes("\x1b]8;;https://example.com/wiki/\u4E2D\u534E\u4EBA\u6C11\u5171\u548C\u56FD（\u5317\u4EAC，1949\u5E74）\x1b\\"),
+				joined.includes("\x1b]8;;https://example.com/wiki/\u4e2d\u534e\u4eba\u6c11\u5171\u548c\u56fd（\u5317\u4eac，1949\u5e74）\x1b\\"),
 				"Punctuation inside balanced full-width parens remains part of the hyperlink target",
 			);
 		});

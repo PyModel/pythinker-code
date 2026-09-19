@@ -329,6 +329,8 @@ export interface ExtendedState extends PythinkerClientState {
   planArmedBySession: Record<string, boolean>;
   /** DynamicWorkflow-mode toggle per session. */
   dynamicWorkflowModeBySession: Record<string, boolean>;
+  /** Tower-mode toggle per session (experimental). */
+  towerModeBySession: Record<string, boolean>;
   /** Goal-mode (one-shot "next send creates a goal") toggle per session. */
   goalModeBySession: Record<string, boolean>;
   loading: boolean;
@@ -414,6 +416,7 @@ const rawState: ExtendedState = reactive({
   planModeBySession: loadModeMapFromStorage(PLAN_MODE_STORAGE_KEY),
   planArmedBySession: loadModeMapFromStorage(PLAN_ARMED_STORAGE_KEY),
   dynamicWorkflowModeBySession: loadModeMapFromStorage(DYNAMIC_WORKFLOW_MODE_STORAGE_KEY),
+  towerModeBySession: {},
   goalModeBySession: loadModeMapFromStorage(GOAL_MODE_STORAGE_KEY),
   loading: false,
   sessionLoading: false,
@@ -453,10 +456,11 @@ const rawState: ExtendedState = reactive({
 // first prompt is sent (see startSessionAndSendPrompt), then cleared. Not
 // persisted — the draft is ephemeral.
 // ---------------------------------------------------------------------------
-const draftModes = reactive<{ planMode: boolean; dynamicWorkflowMode: boolean; goalMode: boolean }>({
+const draftModes = reactive<{ planMode: boolean; dynamicWorkflowMode: boolean; goalMode: boolean; towerMode: boolean }>({
   planMode: false,
   dynamicWorkflowMode: false,
   goalMode: false,
+  towerMode: false,
 });
 
 /** Apply the daemon default to the not-yet-created draft session. */
@@ -672,6 +676,7 @@ function forgetSession(sessionId: string): void {
   delete rawState.planModeBySession[sessionId];
   delete rawState.planArmedBySession[sessionId];
   delete rawState.dynamicWorkflowModeBySession[sessionId];
+  delete rawState.towerModeBySession[sessionId];
   delete rawState.goalModeBySession[sessionId];
   delete rawState.thinkingBySession[sessionId];
   savePlanModeToStorage();
@@ -697,6 +702,10 @@ const initialized = ref(false);
 // gate keeps retrying (e.g. the daemon's error message). Null when no attempt
 // has failed yet or the last attempt got through.
 const connectIssue = ref<string | null>(null);
+/** First-load splash stage label (auth → server → config → sessions → session). */
+const bootStage = ref<'auth' | 'server' | 'config' | 'sessions' | 'session'>('auth');
+/** Auth-gate retry count shown on the splash after the first failure. */
+const bootRetries = ref(0);
 
 /**
  * Fetch GET /sessions/{id}/status and fold the live model + context usage back
@@ -787,6 +796,8 @@ function persistSessionProfile(patch: {
   permissionMode?: string;
   planMode?: boolean;
   dynamicWorkflowMode?: boolean;
+  towerMode?: boolean;
+  towerBase?: string;
   goalObjective?: string;
   goalControl?: 'pause' | 'resume' | 'cancel';
   thinking?: string;
@@ -2478,6 +2489,13 @@ const goalMode = computed<boolean>(() => {
   const sid = rawState.activeSessionId;
   return sid ? (rawState.goalModeBySession[sid] ?? false) : draftModes.goalMode;
 });
+const towerMode = computed<boolean>(() => {
+  const sid = rawState.activeSessionId;
+  return sid ? (rawState.towerModeBySession[sid] ?? false) : draftModes.towerMode;
+});
+const towerAvailable = computed<boolean>(
+  () => experimentalFlagState('tower')?.enabled === true,
+);
 
 const activationBadges = computed<ActivationBadges>(() => {
   const dynamicWorkflowCounts = countDynamicWorkflowMembers(dynamicWorkflows.value);
@@ -3090,6 +3108,8 @@ const workspaceState = useWorkspaceState(rawState, {
   onExpertTalkPromptAccepted: expertTalk.promptAccepted,
   initialized,
   connectIssue,
+  bootStage,
+  bootRetries,
   selectedDiffPath,
   fileDiffLines,
   fileDiffLoading,
@@ -3197,6 +3217,9 @@ function onMainTurnEnd(sid: string, status: 'idle' | 'aborted', turnWasActive: b
   // WS-event-only — the snapshot path (handleSessionSnapshot) must not cry
   // wolf when opening a historical session.
   workspaceState.finishPromptLocal(sid, { turnWasActive });
+
+  // Skills created mid-session must appear in the slash list without a restart.
+  void modelProvider.loadSkillsForSession(sid);
 
   // For the session on screen, refresh git status (edits the agent just made)
   // and runtime status (model/context usage may have changed this turn).
@@ -3353,6 +3376,8 @@ export function usePythinkerWebClient() {
     clearDangerousBypassAuth,
     initialized,
     connectIssue,
+    bootStage,
+    bootRetries,
     permission,
     thinking,
     planMode,
@@ -3360,6 +3385,8 @@ export function usePythinkerWebClient() {
     sessionPlans,
     dynamicWorkflowMode,
     goalMode,
+    towerMode,
+    towerAvailable,
     queued,
     warnings,
     questions,
@@ -3456,6 +3483,8 @@ export function usePythinkerWebClient() {
     setThinking: modelProvider.setThinking,
     setPlanMode: workspaceState.setPlanMode,
     togglePlanMode: workspaceState.togglePlanMode,
+    setTowerMode: workspaceState.setTowerMode,
+    toggleTowerMode: workspaceState.toggleTowerMode,
     setDynamicWorkflowMode: workspaceState.setDynamicWorkflowMode,
     toggleDynamicWorkflowMode: workspaceState.toggleDynamicWorkflowMode,
     setGoalMode: workspaceState.setGoalMode,

@@ -3,7 +3,7 @@
  * `HttpClient.getSession`. Kept separate from `client.ts` so scenarios can
  * import them directly without dragging the whole `DaemonClient` class.
  */
-import type { Session } from '@pymodel/protocol';
+import type { Session } from '@pymodel/agent-gateway/protocol/session';
 
 import type { HttpClient } from './http.js';
 import type { AnyFrame, WsClient } from './ws.js';

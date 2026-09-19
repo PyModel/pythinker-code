@@ -63,6 +63,9 @@ const props = withDefaults(defineProps<{
   planArmed?: boolean;
   working?: boolean;
   goalMode?: boolean;
+  towerMode?: boolean;
+  /** When false, tower add-menu / slash affordances stay hidden. */
+  towerAvailable?: boolean;
   workflowActive?: boolean;
   goal?: AppGoal | null;
   activationBadges?: ActivationBadges;
@@ -111,6 +114,7 @@ const emit = defineEmits<{
   togglePlan: [];
   toggleWorkflow: [];
   toggleGoal: [];
+  toggleTower: [];
   openBtw: [];
   createGoal: [objective: string];
   controlGoal: [action: 'pause' | 'resume' | 'cancel'];
@@ -308,6 +312,7 @@ const {
   stale: mentionStale,
   update: updateMentionMenu,
   select: selectMentionItem,
+  complete: completeMentionItem,
   close: closeMentionMenu,
   getMentionToken,
 } = useMentionMenu({
@@ -408,6 +413,8 @@ const {
   fileInputRef,
   isDragOver,
   removeAttachment,
+  reorderAttachment,
+  mediaLabel,
   openAttachmentPreview,
   closeAttachmentPreview,
   openFilePicker,
@@ -429,6 +436,58 @@ function clearAttachments(): void {
 
 const mediaAttachments = computed(() => attachments.value.filter((attachment) => attachment.kind !== 'file'));
 const fileAttachments = computed(() => attachments.value.filter((attachment) => attachment.kind === 'file'));
+
+function mentionAttachment(att: Attachment): void {
+  const label = mediaLabel(att);
+  const el = textareaRef.value;
+  const start = el?.selectionStart ?? text.value.length;
+  const end = el?.selectionEnd ?? start;
+  const before = text.value.slice(0, start);
+  const after = text.value.slice(end);
+  const needsLead = before.length > 0 && !/\s$/.test(before);
+  const needsTrail = after.length > 0 && !/^\s/.test(after);
+  const insert = `${needsLead ? ' ' : ''}${label}${needsTrail ? ' ' : ''}`;
+  text.value = `${before}${insert}${after}`;
+  void nextTick(() => {
+    placeComposerCaret(start + insert.length);
+    el?.focus();
+    autosize();
+  });
+}
+
+function reorderMediaStep(att: Attachment, delta: number): void {
+  const list = attachments.value;
+  const fromIndex = list.findIndex((item) => item.localId === att.localId);
+  if (fromIndex < 0) return;
+  reorderAttachment(att.localId, fromIndex + delta);
+}
+
+const draggingMediaId = ref<string | null>(null);
+
+function onMediaDragStart(att: Attachment, event: DragEvent): void {
+  draggingMediaId.value = att.localId;
+  event.dataTransfer?.setData('text/plain', att.localId);
+  if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
+}
+
+function onMediaDragOver(event: DragEvent): void {
+  event.preventDefault();
+  if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+}
+
+function onMediaDrop(target: Attachment, event: DragEvent): void {
+  event.preventDefault();
+  const fromId = event.dataTransfer?.getData('text/plain') || draggingMediaId.value;
+  draggingMediaId.value = null;
+  if (!fromId || fromId === target.localId) return;
+  const toIndex = attachments.value.findIndex((item) => item.localId === target.localId);
+  if (toIndex < 0) return;
+  reorderAttachment(fromId, toIndex);
+}
+
+function onMediaDragEnd(): void {
+  draggingMediaId.value = null;
+}
 const attachmentScrollRef = ref<HTMLElement | null>(null);
 const attachmentMediaRowRef = ref<HTMLElement | null>(null);
 const attachmentsOverflow = ref(false);
@@ -765,7 +824,13 @@ function handleKeydown(e: KeyboardEvent): void {
       mentionActive.value = (mentionActive.value - 1 + Math.max(1, mentionItems.value.length)) % Math.max(1, mentionItems.value.length);
       return;
     }
-    if (e.key === 'Enter' || e.key === 'Tab') {
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      const item = mentionItems.value[mentionActive.value];
+      if (item) completeMentionItem(item);
+      return;
+    }
+    if (e.key === 'Enter') {
       e.preventDefault();
       const item = mentionItems.value[mentionActive.value];
       if (item) selectMentionItem(item);
@@ -1049,10 +1114,12 @@ const thinkingOptions = computed(() => thinkingSegments.value.map((segment) => (
 // Work modes
 const planOn = computed(() => props.planArmed === true || props.planMode === true);
 const workflowOn = computed(() => props.workflowActive === true);
+const towerOn = computed(() => props.towerMode === true);
 const goalStatus = computed(() => props.goal?.status ?? props.activationBadges?.goal?.status ?? null);
 const goalActive = computed(() => goalStatus.value !== null && goalStatus.value !== 'complete');
-const workMode = computed<'goal' | 'plan' | null>(() => {
+const workMode = computed<'goal' | 'plan' | 'tower' | null>(() => {
   if (props.goalMode) return 'goal';
+  if (props.towerMode) return 'tower';
   if (props.planArmed) return 'plan';
   return null;
 });
@@ -1063,7 +1130,20 @@ let workModeResizeObserver: ResizeObserver | null = null;
 
 function dismissWorkMode(): void {
   if (workMode.value === 'goal') emit('toggleGoal');
+  else if (workMode.value === 'tower') emit('toggleTower');
   else if (workMode.value === 'plan') emit('togglePlan');
+}
+
+function workModeIcon(mode: 'goal' | 'plan' | 'tower'): IconName {
+  if (mode === 'goal') return 'target';
+  if (mode === 'tower') return 'git-fork';
+  return 'file-edit';
+}
+
+function workModeLabel(mode: 'goal' | 'plan' | 'tower'): string {
+  if (mode === 'goal') return t('status.goalLabel');
+  if (mode === 'tower') return t('status.towerLabel');
+  return t('status.planLabel');
 }
 
 function measureWorkModePill(): void {
@@ -1150,6 +1230,9 @@ const addMenuRows = computed<AddMenuRow[]>(() => {
       : []),
     { id: 'goal', icon: 'target', nameKey: 'status.goalLabel', descKey: 'composer.addGoalDesc', action: openGoalMode },
     { id: 'plan', icon: 'file-edit', nameKey: 'status.planLabel', descKey: 'composer.addPlanDesc', action: openPlanMode },
+    ...(props.towerAvailable
+      ? [{ id: 'tower', icon: 'git-fork' as const, nameKey: 'status.towerLabel', descKey: 'composer.addTowerDesc', action: openTowerMode }]
+      : []),
     { id: 'workflow', icon: 'sparkles', nameKey: 'status.dynamicWorkflowLabel', descKey: 'composer.addWorkflowDesc', action: openWorkflowMode },
   );
   return rows;
@@ -1281,7 +1364,14 @@ function openGoalMode(): void {
 
 function openPlanMode(): void {
   closeModes();
+  if (towerOn.value) emit('toggleTower');
   if (!planOn.value) togglePlanMode();
+}
+
+function openTowerMode(): void {
+  closeModes();
+  if (planOn.value) emit('togglePlan');
+  if (!towerOn.value) emit('toggleTower');
 }
 
 function openWorkflowMode(): void {
@@ -1677,21 +1767,34 @@ function selectModel(modelId: string): void {
               v-if="mediaAttachments.length > 0"
               ref="attachmentMediaRowRef"
               class="att-row att-row-media"
+              role="list"
+              :aria-label="t('composer.mediaAttachments')"
             >
               <AttachmentChip
                 v-for="att in mediaAttachments"
                 :key="att.localId"
                 :kind="att.kind"
-                :name="att.name"
+                :name="mediaLabel(att)"
                 :url="att.previewUrl"
                 :file-id="att.fileId"
                 :media-type="att.mediaType"
                 :size="att.size"
+                :ordinal="att.mediaOrdinal"
                 :uploading="att.uploading"
                 :error="att.error"
+                mentionable
+                reorderable
+                :dragging="draggingMediaId === att.localId"
                 removable
-                :remove-label="t('composer.removeNamed', { name: att.name })"
+                :mention-label="t('composer.mentionNamed', { name: mediaLabel(att) })"
+                :remove-label="t('composer.removeNamed', { name: mediaLabel(att) })"
                 @activate="onAttachmentActivate(att)"
+                @mention="mentionAttachment(att)"
+                @reorder-step="reorderMediaStep(att, $event)"
+                @drag-start="onMediaDragStart(att, $event)"
+                @drag-over="onMediaDragOver"
+                @drop="onMediaDrop(att, $event)"
+                @drag-end="onMediaDragEnd"
                 @remove="removeAttachment(att.localId)"
               />
             </div>
@@ -1792,8 +1895,8 @@ function selectModel(modelId: string): void {
 
         <div class="input-row">
           <span v-if="workMode" ref="workModePillRef" class="wm-pill">
-            <Icon :name="workMode === 'goal' ? 'target' : 'file-edit'" size="sm" />
-            <span>{{ workMode === 'goal' ? t('status.goalLabel') : t('status.planLabel') }}</span>
+            <Icon :name="workModeIcon(workMode)" size="sm" />
+            <span>{{ workModeLabel(workMode) }}</span>
             <IconButton
               class="wm-x"
               size="sm"

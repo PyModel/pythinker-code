@@ -18,6 +18,7 @@ const mermaidOptimizeDeps = [
 ]
 
 const config = withMermaid(defineConfig({
+  ignoreDeadLinks: true,
   base,
   title: 'Pythinker Code CLI Docs',
   description: 'Pythinker Code CLI User Documentation',

@@ -90,8 +90,10 @@ export class SubAgentEventHandler {
     const { parentToolCallId } = info;
     const dynamicWorkflowProgress = this.agentDynamicWorkflowProgress.get(parentToolCallId);
     if (dynamicWorkflowProgress !== undefined) {
+      // No per-event requestRender: the dynamic_workflow component's own frame timer
+      // (kept alive while members run) batches these deltas into ~12.5fps
+      // re-renders instead of rendering the whole tree per delta.
       this.applySubagentEventToDynamicWorkflowProgress(dynamicWorkflowProgress, event, childAgentId);
-      this.requestRender();
       return true;
     }
 
@@ -657,7 +659,41 @@ export class SubAgentEventHandler {
     this.host.updateActivityPane();
   }
 
+  private agentDynamicWorkflowGridHeightFrame:
+    | { readonly columns: number; readonly rows: number; readonly value: number | undefined }
+    | undefined;
+
+  /**
+   * The measurement re-renders every dock child, so it is shared by every
+   * dynamic_workflow component for the rest of the current synchronous render pass
+   * (frames are macrotask-separated, hence the microtask reset) instead of
+   * being recomputed per component per frame.
+   */
   private agentDynamicWorkflowGridHeight(): number | undefined {
+    const { state } = this.host;
+    const terminalRows = state.ui.terminal.rows;
+    const terminalColumns = state.ui.terminal.columns;
+    const frame = this.agentDynamicWorkflowGridHeightFrame;
+    if (
+      frame !== undefined &&
+      frame.columns === terminalColumns &&
+      frame.rows === terminalRows
+    ) {
+      return frame.value;
+    }
+    const entry = {
+      columns: terminalColumns,
+      rows: terminalRows,
+      value: this.measureAgentDynamicWorkflowGridHeight(),
+    };
+    this.agentDynamicWorkflowGridHeightFrame = entry;
+    queueMicrotask(() => {
+      if (this.agentDynamicWorkflowGridHeightFrame === entry) this.agentDynamicWorkflowGridHeightFrame = undefined;
+    });
+    return entry.value;
+  }
+
+  private measureAgentDynamicWorkflowGridHeight(): number | undefined {
     const { state } = this.host;
     const terminalRows = state.ui.terminal.rows;
     const terminalColumns = state.ui.terminal.columns;

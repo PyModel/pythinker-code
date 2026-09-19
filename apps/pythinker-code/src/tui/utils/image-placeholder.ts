@@ -204,7 +204,7 @@ export function pendingMediaIngestions(
   store: ImageAttachmentStore,
   timeoutMs: number,
 ): Promise<void> | undefined {
-  const mediaIngestions: Promise<void>[] = [];
+  const pendings: Promise<void>[] = [];
   PLACEHOLDER_REGEX.lastIndex = 0;
   let match: RegExpExecArray | null;
   while ((match = PLACEHOLDER_REGEX.exec(text)) !== null) {
@@ -213,13 +213,13 @@ export function pendingMediaIngestions(
     if (idStr === undefined) continue;
     const attachment = store.get(Number.parseInt(idStr, 10));
     if (attachment?.kind === kind && attachment.pending !== undefined) {
-      mediaIngestions.push(attachment.pending);
+      pendings.push(attachment.pending);
     }
   }
-  if (mediaIngestions.length === 0) return undefined;
+  if (pendings.length === 0) return undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
   return Promise.race([
-    Promise.allSettled(mediaIngestions).then(() => undefined),
+    Promise.allSettled(pendings).then(() => undefined),
     new Promise<void>((resolve) => {
       timer = setTimeout(resolve, timeoutMs);
     }),
@@ -704,7 +704,7 @@ function sweepCacheSync(dir: string, maxTotalBytes: number): void {
   }
 }
 
-/** Mirrors agent-core's `originalImageCacheDir` (not re-exported through the SDK). */
+/** Mirrors agent-core-v2's `originalImageCacheDir` (not re-exported through the SDK). */
 function originalImageTempDir(): string {
   return join(tmpdir(), 'pythinker-code-original-images');
 }

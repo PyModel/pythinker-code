@@ -31,6 +31,28 @@ import { defineRoute } from '../middleware/defineRoute';
 import { ErrorCode } from '../protocol/error-codes';
 import type { TranscriptService } from '../services/transcript/transcriptService';
 
+
+const USER_MESSAGES_COLD_CONCURRENCY = 4;
+
+async function mapBoundedOrdered<T, R>(
+  items: readonly T[],
+  concurrency: number,
+  mapper: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = Array.from({ length: items.length });
+  let next = 0;
+  const workers = Array.from({ length: Math.max(1, Math.min(concurrency, items.length)) }, async () => {
+    while (true) {
+      const index = next++;
+      if (index >= items.length) return;
+      results[index] = await mapper(items[index]!, index);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
+
 interface TranscriptRouteHost {
   get(
     path: string,
@@ -341,18 +363,22 @@ export function registerTranscriptRoutes(app: TranscriptRouteHost, deps: Transcr
       if (agent_id === undefined && !agentIds.includes(MAIN_AGENT_ID)) {
         agentIds.unshift(MAIN_AGENT_ID);
       }
-      const agents = [];
-      for (const agentId of agentIds) {
-        const snapshot = await transcriptService.readColdSnapshot(session_id, agentId);
-        if (snapshot === undefined) {
-          sendSessionNotFound(reply, req.id, session_id);
-          return;
-        }
-        const byId = new Map(snapshot.attachments.map((a) => [a.attachmentId, a]));
-        agents.push({
-          agent_id: agentId,
-          ...projectUserMessages(snapshot.items, (id) => byId.get(id)),
-        });
+      const agents = await mapBoundedOrdered(
+        agentIds,
+        USER_MESSAGES_COLD_CONCURRENCY,
+        async (agentId) => {
+          const snapshot = await transcriptService.readColdSnapshot(session_id, agentId);
+          if (snapshot === undefined) return undefined;
+          const byId = new Map(snapshot.attachments.map((a) => [a.attachmentId, a]));
+          return {
+            agent_id: agentId,
+            ...projectUserMessages(snapshot.items, (id) => byId.get(id)),
+          };
+        },
+      );
+      if (agents.some((entry) => entry === undefined)) {
+        sendSessionNotFound(reply, req.id, session_id);
+        return;
       }
       reply.send(okEnvelope({ agents }, req.id));
     },

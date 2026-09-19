@@ -35,6 +35,7 @@ describe('TUI config', () => {
     expect(text).toContain('Client preferences for pythinker-code.');
     expect(text).toContain('theme = "auto"');
     expect(text).toContain('cache_expiry_hint = true');
+    expect(text).toContain('disable_feedback_survey = false');
     expect(text).toContain('command = ""');
     expect(text).toContain('[upgrade]');
     expect(text).toContain('auto_install = true');
@@ -68,6 +69,7 @@ auto_install = false
       notifications: { enabled: false, condition: 'always' },
       upgrade: { autoInstall: false },
       statusLine: { items: null, command: null },
+      markdown: { mermaid: 'final' },
     });
   });
 
@@ -99,6 +101,16 @@ cache_expiry_hint = false
     expect(config.cacheExpiryHint).toBe(false);
   });
 
+  it('defaults disable_feedback_survey to false and parses true', () => {
+    expect(parseTuiConfig('').disableFeedbackSurvey).toBe(false);
+
+    const config = parseTuiConfig(`
+disable_feedback_survey = true
+`);
+
+    expect(config.disableFeedbackSurvey).toBe(true);
+  });
+
   it('normalizes an empty editor command to auto-detect', () => {
     const config = parseTuiConfig(`
 [editor]
@@ -115,6 +127,7 @@ command = "   "
       notifications: { enabled: true, condition: 'unfocused' },
       upgrade: { autoInstall: true },
       statusLine: { items: null, command: null },
+      markdown: { mermaid: 'final' },
     });
   });
 
@@ -164,7 +177,18 @@ command = "   "
       notifications: { enabled: false, condition: 'always' },
       upgrade: { autoInstall: false },
       statusLine: { items: null, command: null },
+      markdown: { mermaid: 'final' },
     });
+  });
+
+  it('round-trips a disable_feedback_survey opt-out', async () => {
+    await saveTuiConfig(
+      { ...DEFAULT_TUI_CONFIG, disableFeedbackSurvey: true },
+      filePath,
+    );
+
+    expect(readFileSync(filePath, 'utf-8')).toContain('disable_feedback_survey = true');
+    expect((await loadTuiConfig(filePath)).disableFeedbackSurvey).toBe(true);
   });
 
   it('escapes special characters in a custom theme name so the TOML round-trips', async () => {
@@ -273,5 +297,58 @@ describe('TUI config status_line round-trip', () => {
     expect(text).toContain('# [status_line]');
     expect(text).toContain('# items =');
     expect(text).toContain('# command =');
+  });
+});
+
+describe('TUI config markdown', () => {
+  it('defaults mermaid to final when the section is omitted', () => {
+    expect(parseTuiConfig(`theme = "dark"`).markdown).toEqual({ mermaid: 'final' });
+  });
+
+  it('parses mermaid = "off"', () => {
+    const config = parseTuiConfig(`
+[markdown]
+mermaid = "off"
+`);
+
+    expect(config.markdown).toEqual({ mermaid: 'off' });
+  });
+
+  it('warns and falls back to final for unknown mermaid values without failing the file', () => {
+    const warnings: string[] = [];
+    for (const value of ['stream', 'streaming']) {
+      warnings.length = 0;
+      const config = parseTuiConfig(
+        `
+theme = "dark"
+
+[markdown]
+mermaid = "${value}"
+`,
+        (message) => warnings.push(message),
+      );
+
+      expect(config.markdown).toEqual({ mermaid: 'final' });
+      expect(config.theme).toBe('dark');
+      expect(warnings).toEqual([`[tui.toml] ignoring unknown markdown.mermaid value: ${value}`]);
+    }
+  });
+
+  it('keeps the [markdown] section a commented guide by default', async () => {
+    await saveTuiConfig(DEFAULT_TUI_CONFIG, filePath);
+
+    const text = readFileSync(filePath, 'utf-8');
+    expect(text).toContain('# [markdown]');
+    expect(text).toContain('# mermaid = "final"');
+    expect(text).not.toContain('\n[markdown]');
+  });
+
+  it('writes a live [markdown] section when mermaid is off and round-trips it', async () => {
+    await saveTuiConfig({ ...DEFAULT_TUI_CONFIG, markdown: { mermaid: 'off' } }, filePath);
+
+    const text = readFileSync(filePath, 'utf-8');
+    expect(text).toContain('\n[markdown]\n');
+    expect(text).toContain('mermaid = "off"');
+    expect((await loadTuiConfig(filePath)).markdown).toEqual({ mermaid: 'off' });
   });
 });

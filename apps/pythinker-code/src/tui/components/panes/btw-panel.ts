@@ -1,12 +1,8 @@
 import type { Component, MarkdownTheme } from '@pymodel/pi-tui';
-import {
-  Markdown,
-  Text,
-  truncateToWidth,
-  visibleWidth,
-} from '@pymodel/pi-tui';
+import { Text, truncateToWidth, visibleWidth } from '@pymodel/pi-tui';
 import chalk from 'chalk';
 
+import { Markdown } from '../markdown/markdown';
 import { THINKING_PREVIEW_LINES } from '../../constant/rendering';
 import { currentTheme } from '../../theme';
 import type { InlineSkillActivation } from '../../types';
@@ -200,8 +196,12 @@ export class BtwPanelComponent implements Component {
     const answer = turn.answer.trim();
     const thinking = turn.thinking.trim();
     if (answer.length > 0) {
+      const theme: any =
+        turn.phase === 'running'
+          ? { ...this.options.markdownTheme, transient: true }
+          : this.options.markdownTheme;
       lines.push(
-        ...new Markdown(answer, 0, 0, this.options.markdownTheme, undefined, createMarkdownOptions()).render(width),
+        ...new Markdown(answer, 0, 0, theme, undefined, createMarkdownOptions()).render(width),
       );
     } else if (thinking.length > 0) {
       const thinkingLines = new Text(chalk.hex(currentTheme.palette.textDim)(thinking), 0, 0).render(

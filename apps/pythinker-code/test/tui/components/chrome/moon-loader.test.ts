@@ -5,6 +5,7 @@ import { MoonLoader } from '#/tui/components/chrome/moon-loader';
 import {
   BRAILLE_SPINNER_FRAMES,
   BRAILLE_SPINNER_INTERVAL_MS,
+  MOON_SPINNER_FRAMES,
   formatThinkingSpinnerLabel,
 } from '#/tui/constant/rendering';
 
@@ -46,8 +47,8 @@ describe('MoonLoader', () => {
     expect(row).toContain('Tip: ctrl+s: steer mid-turn');
   });
 
-  it('uses the shared Braille mark for the waiting state', () => {
-    expect(createLoader().renderInline()).toBe('⣷');
+  it('uses the shared moon mark for the waiting state', () => {
+    expect(createLoader().renderInline()).toBe(MOON_SPINNER_FRAMES[0]);
   });
 
   it('uses the shared Braille mark and shimmer verb labels while allowing retry text to win', () => {
@@ -71,6 +72,6 @@ describe('MoonLoader', () => {
     expect(stripAnsi(loader.renderInline())).not.toContain('thinking');
 
     loader.setVerbLabels(true);
-    expect(stripAnsi(loader.renderInline())).toContain(`${BRAILLE_SPINNER_FRAMES[1]} thinking…`);
+    expect(stripAnsi(loader.renderInline())).toContain(`${BRAILLE_SPINNER_FRAMES[1]} ${formatThinkingSpinnerLabel(0)}`);
   });
 });

@@ -12,12 +12,6 @@ import { pluginManifestSchema } from '../src/contract/global/plugins.js';
 import { mcpServerAuthFlowHandleSchema } from '../src/contract/global/mcpManagement.js';
 import { createSessionOptionsSchema } from '../src/contract/session/lifecycle.js';
 import { promptPayloadSchema } from '../src/contract/agent/schemas.js';
-import {
-  expertTalkBindingSchema,
-  expertTalkPairSchema,
-  expertTalkResultSchema,
-} from '../src/contract/session/expertTalk.js';
-
 type McpTimeoutField = 'startupTimeoutMs' | 'toolTimeoutMs';
 
 const timeoutCases = [
@@ -62,6 +56,32 @@ describe('MCP timeout contract validation', () => {
     });
   });
 
+  it('session creation options preserve the per-server deferred field', () => {
+    const parsed = createSessionOptionsSchema.safeParse({
+      workDir: '/tmp/example',
+      mcpServers: {
+        stdioExample: { transport: 'stdio', command: 'node', deferred: false },
+        httpExample: { transport: 'http', url: 'https://example.com/mcp', deferred: true },
+        sseExample: { transport: 'sse', url: 'https://example.com/sse' },
+      },
+    });
+    expect(parsed.success).toBe(true);
+    expect(parsed.data?.mcpServers?.['stdioExample']).toEqual({
+      transport: 'stdio',
+      command: 'node',
+      deferred: false,
+    });
+    expect(parsed.data?.mcpServers?.['httpExample']).toEqual({
+      transport: 'http',
+      url: 'https://example.com/mcp',
+      deferred: true,
+    });
+    expect(parsed.data?.mcpServers?.['sseExample']).toEqual({
+      transport: 'sse',
+      url: 'https://example.com/sse',
+    });
+  });
+
   it('session creation options reject malformed mcpServers entries', () => {
     const parsed = createSessionOptionsSchema.safeParse({
       workDir: '/tmp/example',
@@ -94,53 +114,7 @@ describe('prompt contract validation', () => {
   });
 });
 
-describe('Expert Talk result contract', () => {
-  it('preserves the answer from an unknown result version', () => {
-    expect(expertTalkResultSchema.parse({
-      version: 'expert_talk_result/v2',
-      answer: 'Fallback answer',
-      future_notes: { evidence: true },
-    })).toEqual({
-      version: 'expert_talk_result/v2',
-      answer: 'Fallback answer',
-    });
-  });
-});
 
-describe('Expert Talk model effort contract', () => {
-  it('preserves optional per-role configured and effective efforts', () => {
-    expect(expertTalkPairSchema.parse({
-      fusionLeadModelId: 'provider/lead',
-      peerModelId: 'provider/peer',
-      fusionLeadThinkingEffort: 'max',
-      peerThinkingEffort: 'low',
-    })).toMatchObject({
-      fusionLeadThinkingEffort: 'max',
-      peerThinkingEffort: 'low',
-    });
-    expect(expertTalkBindingSchema.parse({
-      role: 'fusion_lead',
-      requestedModelId: 'provider/lead',
-      effectiveModelId: 'provider/lead',
-      thinkingEffort: 'max',
-      protocol: 'openai',
-      provider: 'provider',
-      wireModel: 'lead',
-      targetFingerprint: 'target',
-      capabilities: {
-        image_in: false,
-        video_in: false,
-        audio_in: false,
-        thinking: true,
-        tool_use: true,
-        max_context_tokens: 128_000,
-      },
-      maxContextSize: 128_000,
-      routingEnvironmentRevision: 'routing-v1',
-      routeDecisionFingerprint: 'decision-v1',
-    })).toMatchObject({ thinkingEffort: 'max' });
-  });
-});
 
 describe('mcp executor legacy alias', () => {
   it('normalizes the deprecated executor value "kaos" to "pyaos"', () => {

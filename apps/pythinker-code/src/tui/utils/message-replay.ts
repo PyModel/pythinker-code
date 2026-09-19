@@ -163,8 +163,8 @@ export function limitReplayRecordsByTurn(
   maxTurns: number,
 ): readonly AgentReplayRecord[] {
   // Defensive slice — the core already trims the replay when the caller passes
-  // `replayTurnLimit` on resume; the boundary predicate lives in agent-core
-  // (`limitAgentReplayByTurns`) and is re-exported through the SDK.
+  // `replayTurnLimit` on resume; the boundary predicate lives in the SDK
+  // (`limitAgentReplayByTurns`).
   return limitAgentReplayByTurns(records, maxTurns);
 }
 
@@ -193,7 +193,9 @@ export function collectReplayMessageContent(
   for (const part of content) {
     switch (part.type) {
       case 'think':
-        target.thinking.push(part.think);
+        if (part.hidden !== true) {
+          target.thinking.push(part.think);
+        }
         break;
       case 'text':
         target.text.push(part.text);

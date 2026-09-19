@@ -1,6 +1,8 @@
 import { log, type Logger } from '@pymodel/pythinker-code-sdk';
 import { track as trackTelemetry, type TelemetryProperties } from '@pymodel/pythinker-telemetry';
 
+import { INTERACTIVE_UPDATE_CHECK_TIMEOUT_MS } from '#/constant/app';
+
 import { refreshUpdateCache } from '#/cli/update/refresh';
 import { selectUpdateTarget } from '#/cli/update/select';
 import { detectInstallSource } from '#/cli/update/source';
@@ -87,8 +89,22 @@ export async function handleUpgrade(
 
   const source = await deps.detectInstallSource().catch(() => 'unsupported' as const);
   const installCommand = installCommandFor(source, target.version, deps.platform);
-  const needsConfirmation = source !== 'native';
-  if (!canAutoInstall(source, deps.platform) || (!deps.yes && !deps.isInteractive && needsConfirmation)) {
+  if (!canAutoInstall(source, deps.platform)) {
+    trackUpgradeEvent(deps.track, 'upgrade_command_manual_command', {
+      current_version: currentVersion,
+      target_version: target.version,
+      source,
+    });
+    logUpgradeInfo(deps.logger, 'manual upgrade command shown', {
+      currentVersion,
+      targetVersion: target.version,
+      source,
+    });
+    deps.stdout.write(renderManualUpdateMessage(currentVersion, target, source, installCommand));
+    return 0;
+  }
+
+  if (!deps.yes && !deps.isInteractive && source !== 'native') {
     trackUpgradeEvent(deps.track, 'upgrade_command_manual_command', {
       current_version: currentVersion,
       target_version: target.version,
@@ -178,7 +194,9 @@ export async function handleUpgrade(
 
 function createDefaultUpgradeDeps(overrides: Partial<UpgradeDeps>): UpgradeDeps {
   return {
-    refreshUpdateCache: overrides.refreshUpdateCache ?? (() => refreshUpdateCache()),
+    refreshUpdateCache:
+      overrides.refreshUpdateCache ??
+      (() => refreshUpdateCache({ timeoutMs: INTERACTIVE_UPDATE_CHECK_TIMEOUT_MS })),
     detectInstallSource: overrides.detectInstallSource ?? (() => detectInstallSource()),
     installUpdate: overrides.installUpdate ?? installUpdateForeground,
     promptForInstallChoice: overrides.promptForInstallChoice ?? promptForInstallChoice,

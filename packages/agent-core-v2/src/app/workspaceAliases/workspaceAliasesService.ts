@@ -117,11 +117,11 @@ export class WorkspaceAliasesService extends Disposable implements IWorkspaceAli
       const generation = this.invalidationGeneration;
       const workspaces = (await this.store.load())?.workspaces ?? [];
       const snapshot: CatalogSnapshot = {
-        byId: new Map(workspaces.map((workspace) => [workspace.id, workspace] as const)),
+        byId: new Map(workspaces.map((ws) => [ws.id, ws] as const)),
         idsByRootKey: rootKeyIndex(
           workspaces,
-          (workspace) => workspace.root,
-          (workspace) => workspace.id,
+          (ws) => ws.root,
+          (ws) => ws.id,
         ),
       };
       if (generation === this.invalidationGeneration) {
@@ -147,13 +147,9 @@ export class WorkspaceAliasesService extends Disposable implements IWorkspaceAli
     return snapshot;
   }
 
-  private async loadSessionIndex(): Promise<{
-    snapshot: SessionIndexSnapshot;
-    generation: number;
-  }> {
+  private async loadSessionIndex(): Promise<{ snapshot: SessionIndexSnapshot; generation: number }> {
     try {
       const generation = this.invalidationGeneration;
-      const size = await this.storage.size(SESSION_INDEX_SCOPE, SESSION_INDEX_KEY);
       const entries = await readSessionIndexEntries(this.storage);
       const snapshot: SessionIndexSnapshot = {
         idsByRootKey: rootKeyIndex(entries, (entry) => entry.workDir, (entry) =>
@@ -161,7 +157,10 @@ export class WorkspaceAliasesService extends Disposable implements IWorkspaceAli
         ),
       };
       if (generation === this.invalidationGeneration) {
-        this.sessionIndexCache = { snapshot, size };
+        this.sessionIndexCache = {
+          snapshot,
+          size: await this.storage.size(SESSION_INDEX_SCOPE, SESSION_INDEX_KEY),
+        };
       }
       return { snapshot, generation };
     } finally {

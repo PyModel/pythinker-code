@@ -11,18 +11,17 @@ import {
 import { clipboard } from '#/utils/clipboard/clipboard-native';
 import { openUrl } from '#/utils/open-url';
 
-import { FooterComponent } from './components/chrome/footer';
-import { GutterContainer } from './components/chrome/gutter-container';
+import { FooterComponent } from './components/chrome/footer';import { GutterContainer } from './components/chrome/gutter-container';
 import type { MoonLoader, SpinnerStyle } from './components/chrome/moon-loader';
 import { NotifyPanelComponent } from './components/chrome/notify-panel';
 import { TodoPanelComponent } from './components/chrome/todo-panel';
 import type { SessionRow } from './components/dialogs/session-picker';
 import { CustomEditor } from './components/editor/custom-editor';
-import { DEFAULT_TUI_CONFIG } from './config';
+import { DEFAULT_MARKDOWN_CONFIG, DEFAULT_TUI_CONFIG } from './config';
 import { CHROME_GUTTER } from './constant/rendering';
 import type { TasksBrowserState } from './controllers/tasks-browser';
 import { currentTheme, type Theme } from './theme';
-import { setMarkdownRenderLatex } from './utils/markdown-options';
+import { setMarkdownAltScreenActive, setMarkdownMermaidMode, setMarkdownRenderLatex, setMarkdownRenderRequester } from './utils/markdown-options';
 import { createTerminalState, type TerminalState } from './utils/terminal-state';
 import {
   INITIAL_LIVE_PANE,
@@ -48,7 +47,7 @@ export interface TUIState {
   surveyContainer: Container;
   editorContainer: Container;
   /**
-   * Fullscreen mode only: the bottom dock (activity/todo/notify/queue/btw/survey/editor +
+   * Fullscreen mode only: the bottom dock (activity/todo/notify/queue/btw/editor +
    * footer) stacked under the transcript ScrollView. Undefined in regular
    * mode, where all chrome is a direct child of the root container.
    */
@@ -70,7 +69,7 @@ export interface TUIState {
   /** A follow-up session page fetch is in flight. */
   sessionsLoadingMore: boolean;
   sessionsScope: 'cwd' | 'all';
-  activeDialog: 'session-picker' | 'help' | 'trust-prompt' | null;
+  activeDialog: 'session-picker' | 'help' | 'trust-prompt' | 'cache-hint' | null;
   /**
    * True while an editor-replacement panel (help, trust prompt, goal queue
    * manager, …) is mounted in place of the editor. Delayed input restores
@@ -96,12 +95,13 @@ export function createTUIState(options: PythinkerTUIOptions): TUIState {
 
   const terminal = new ProcessTerminal();
   setMarkdownRenderLatex(initialAppState.renderLatex ?? DEFAULT_TUI_CONFIG.renderLatex ?? true);
-  // The docked fullscreen layout is the default. Set PYTHINKER_CODE_TUI_FULL_SCREEN=0
-  // to restore the legacy inline renderer for terminals that need native scrollback.
-  const fullscreen = process.env['PYTHINKER_CODE_TUI_FULL_SCREEN'] !== '0';
+  setMarkdownMermaidMode(initialAppState.markdown?.mermaid ?? DEFAULT_MARKDOWN_CONFIG.mermaid);
+  // Fullscreen is experimental and env-gated for now: PYTHINKER_CODE_TUI_FULL_SCREEN=1.
+  const fullscreen = process.env['PYTHINKER_CODE_TUI_FULL_SCREEN'] === '1';
   const ui =
     fullscreen
       ? new TuiAltScreen(terminal, undefined, undefined, {
+          scrollToEndIndicator: () => 'Jump to bottom (click) ↓',
           // Mouse capture takes over the terminal's native link activation, so
           // route OSC 8 clicks through our own opener.
           openUrl: (url) => {
@@ -110,7 +110,6 @@ export function createTUIState(options: PythinkerTUIOptions): TUIState {
           // Likewise, on Windows the terminal's native right-click paste is
           // intercepted; feed the clipboard to the focused component as a
           // bracketed paste instead (renderer only calls this on win32).
-          jumpToBottomLabel: 'Jump to bottom (click) ↓',
           onRightClickPaste: () => {
             const target = ui.getFocusedComponent();
             if (!target?.handleInput || clipboard?.getText === undefined) return;
@@ -125,6 +124,11 @@ export function createTUIState(options: PythinkerTUIOptions): TUIState {
           },
         })
       : new TuiMainScreen(terminal);
+
+  setMarkdownAltScreenActive(ui instanceof TuiAltScreen);
+  setMarkdownRenderRequester(() => {
+    ui.requestRender(true);
+  });
 
   const transcriptContainer = new GutterContainer(CHROME_GUTTER, CHROME_GUTTER);
   const activityContainer = new GutterContainer(CHROME_GUTTER, CHROME_GUTTER);

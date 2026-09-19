@@ -1,4 +1,4 @@
-import { IConfigService, type Scope } from '@pymodel/agent-core-v2';
+import { IConfigService, ITelemetryService, type Scope } from '@pymodel/agent-core-v2';
 import { FiberState } from '@pymodel/agent-core-v2/_base/di/fiber';
 import { IFeatureManager } from '@pymodel/agent-core-v2/app/feature/featureManager';
 import { IFlagService } from '@pymodel/agent-core-v2/app/flag/flag';
@@ -12,12 +12,10 @@ import { type SessionEventBroadcaster } from '../transport/ws/v1/sessionEventBro
 import type { TranscriptService } from '../services/transcript/transcriptService';
 import { registerApprovalsRoutes } from './approvals';
 import { registerAuthRoute } from './auth';
-import { registerCapabilitiesRoutes } from './capabilities';
 import { registerCodexLoginRoutes } from './codex';
+import { registerCapabilitiesRoutes } from './capabilities';
 import { registerConfigRoutes } from './config';
-import { registerSubagentModelPolicyRoutes } from './subagentModelPolicy';
 import { registerConnectionsRoutes } from './connections';
-import { registerExpertTalkRoutes } from './expertTalk';
 import { registerFileHistoryRoutes } from './fileHistory';
 import { registerFilesRoutes } from './files';
 import { registerFsRoutes } from './fs';
@@ -72,7 +70,7 @@ export interface RegisterApiV1RoutesOptions {
   readonly connectionRegistry: IConnectionRegistry;
   readonly broadcaster: SessionEventBroadcaster;
   readonly transcriptService: TranscriptService;
-  readonly pluginMarketplaceUrl?: string;
+  readonly pluginMarketplaceUrl: () => string;
   readonly pluginMarketplaceIsDefault: boolean;
   readonly remoteControl: RemoteControlRouteOptions;
   readonly dangerousBypassAuth?: boolean;
@@ -102,21 +100,6 @@ export async function registerApiV1Routes(
           await core.accessor.get(IConfigService).ready;
           return core.accessor.get(IFlagService).snapshot();
         },
-        getExperimentalFlagStates: async () => {
-          await core.accessor.get(IConfigService).ready;
-          return core.accessor
-            .get(IFlagService)
-            .explainAll()
-            .map((state) => ({
-              id: state.id,
-              enabled: state.enabled,
-              source: state.source,
-              config_value: state.configValue,
-              default_enabled: state.defaultEnabled,
-              externally_controlled: state.externallyControlled,
-              overridden: state.overridden,
-            }));
-        },
         getFeatures: () =>
           core.accessor
             .get(IFeatureManager)
@@ -129,15 +112,8 @@ export async function registerApiV1Routes(
       });
 
       registerAuthRoute(apiV1 as unknown as Parameters<typeof registerAuthRoute>[0], core);
-      registerCodexLoginRoutes(
-        apiV1 as unknown as Parameters<typeof registerCodexLoginRoutes>[0],
-        core,
-      );
+      registerCodexLoginRoutes(apiV1 as unknown as Parameters<typeof registerCodexLoginRoutes>[0], core);
       registerConfigRoutes(apiV1 as unknown as Parameters<typeof registerConfigRoutes>[0], core);
-      registerSubagentModelPolicyRoutes(
-        apiV1 as unknown as Parameters<typeof registerSubagentModelPolicyRoutes>[0],
-        core,
-      );
       registerModelCatalogRoutes(
         apiV1 as unknown as Parameters<typeof registerModelCatalogRoutes>[0],
         core,
@@ -182,12 +158,7 @@ export async function registerApiV1Routes(
       );
       registerRemoteControlRoutes(
         apiV1 as unknown as Parameters<typeof registerRemoteControlRoutes>[0],
-        opts.remoteControl,
-      );
-      registerExpertTalkRoutes(
-        apiV1 as unknown as Parameters<typeof registerExpertTalkRoutes>[0],
-        core,
-        opts.connectionRegistry,
+        { ...opts.remoteControl, telemetry: core.accessor.get(ITelemetryService) },
       );
       registerWorkspacesRoutes(
         apiV1 as unknown as Parameters<typeof registerWorkspacesRoutes>[0],

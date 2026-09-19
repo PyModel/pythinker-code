@@ -238,6 +238,13 @@ function makeHarness(initialSession: Session) {
     withInteractiveAgent: vi.fn((agentId: string, fn: () => unknown) => {
       return interactiveAgentScope.run(agentId, fn);
     }),
+    auth: {
+      status: vi.fn(),
+      login: vi.fn(),
+      logout: vi.fn(),
+      getManagedUsage: vi.fn(),
+      submitFeedback: vi.fn(async () => ({ kind: 'ok', feedbackId: 3 })),
+    },
   };
 }
 
@@ -975,7 +982,7 @@ describe('PythinkerTUI resume message replay', () => {
             taskId: 'bash-lost0000',
             status: 'lost',
             notificationId: 'task:bash-lost0000:lost',
-          } as unknown as PromptOrigin,
+          },
         }),
       ],
       {
@@ -1108,7 +1115,7 @@ describe('PythinkerTUI resume message replay', () => {
     ).toEqual(['run nightly']);
   });
 
-  it('keeps the previous turn\u2019s final answer visible when a cron turn follows in replay', async () => {
+  it('keeps the previous turn’s final answer visible when a cron turn follows in replay', async () => {
     const cronFire =
       '<cron-fire jobId="job-1" cron="*/5 * * * *" recurring="true" coalescedCount="1" stale="false">\n<prompt>\nrun nightly\n</prompt>\n</cron-fire>';
     const driver = await replayIntoDriver([
@@ -1483,7 +1490,7 @@ describe('replayBackgroundProjection', () => {
       [agentTask({ model: 'k2-cheap', thinkingEffort: 'low' })],
       {
         'k2-cheap': {
-          provider: 'oauth-example',
+          provider: 'openai',
           model: 'kimi-k2-cheap',
           displayName: 'Kimi K2 Cheap',
         },

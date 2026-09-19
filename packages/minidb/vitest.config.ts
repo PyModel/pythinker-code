@@ -2,6 +2,7 @@ import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   test: {
+    exclude: ['**/node_modules/**', '**/dist/**', '**/test/.skip/**'],
     name: 'minidb',
     include: ['test/**/*.test.ts'],
     // Package safety floor: process-spawning e2e's and multi-thousand-op

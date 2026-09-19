@@ -17,7 +17,7 @@ const vulnerableCode = [
   /\.version\s*=\s*["']3\.2\.7["']/,
   /\.version\s*=\s*["']3\.4\.7["']/,
 ];
-const safeCode = [/@license DOMPurify 3\.4\.14\b/, /\.version\s*=\s*["']3\.4\.14["']/];
+const safeCode = [/@license DOMPurify 3\.4\.14\b/, /\.version\s*=\s*["'`]3\.4\.14["'`]/];
 
 function compareVersions(left, right) {
   const parse = (value) => value.split('-')[0].split('.').map((part) => Number.parseInt(part, 10) || 0);

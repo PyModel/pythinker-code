@@ -9,7 +9,6 @@
 import { setTelemetryContext, track, withTelemetryContext } from '@pymodel/pythinker-telemetry';
 import {
   createPythinkerHarness,
-  createPythinkerHarnessV2,
   type PythinkerHarness,
   type ListSessionsOptions,
   type SessionSummary,
@@ -19,8 +18,6 @@ import type { Command } from 'commander';
 
 import { createCliTelemetryBootstrap } from '#/cli/telemetry';
 import { createPythinkerCodeHostIdentity } from '#/cli/version';
-
-import { isPythinkerV2Enabled } from '../experimental-v2';
 
 interface WritableLike {
   write(chunk: string): boolean;
@@ -106,7 +103,7 @@ function createDefaultSessionListDeps(
     setContext: setTelemetryContext,
   };
   const getHarness = (): PythinkerHarness => {
-    harness ??= (isPythinkerV2Enabled() ? createPythinkerHarnessV2 : createPythinkerHarness)({
+    harness ??= createPythinkerHarness({
       homeDir: createCliTelemetryBootstrap().homeDir,
       identity,
       telemetry: telemetryClient,
@@ -135,7 +132,7 @@ function formatRow(summary: SessionSummary, showWorkDir: boolean): string {
 }
 
 function sanitizeField(value: string): string {
-  return value.replaceAll(/[\u0000-\u001F\u007F]+/g, ' ').trim();
+  return value.replaceAll(/[\x00-\x1f\x7f]+/g, ' ').trim();
 }
 
 function formatTimestamp(epochMs: number): string {
@@ -145,8 +142,8 @@ function formatTimestamp(epochMs: number): string {
 }
 
 function parseLimitOption(value: string): number {
-  const parsed = /^\d+$/.test(value) ? Number(value) : Number.NaN;
-  if (!Number.isSafeInteger(parsed) || parsed <= 0) {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
     throw new Error(`--limit must be a positive integer, got "${value}"`);
   }
   return parsed;

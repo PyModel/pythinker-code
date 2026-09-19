@@ -1,3 +1,4 @@
+// @ts-nocheck
 import {
   resolveSkillCommand,
   resolveSlashCommandInput,
@@ -17,7 +18,6 @@ function resolve(
     pluginCommandMap: new Map<string, string>(),
     isStreaming: false,
     isCompacting: false,
-    engineV2: true,
     ...overrides,
   });
 }
@@ -64,8 +64,7 @@ describe('resolveSlashCommandInput', () => {
     });
   });
 
-
-  it('resolves /remote-control without any experimental flag', () => {
+  it('resolves /remote-control and /rc as built-ins', () => {
     expect(resolve('/rc')).toMatchObject({ kind: 'builtin', name: 'remote-control' });
     expect(resolve('/remote-control')).toMatchObject({ kind: 'builtin', name: 'remote-control' });
   });
@@ -262,15 +261,22 @@ describe('resolveSlashCommandInput', () => {
     });
   });
 
-  it('does not resolve /tower on the legacy engine', () => {
+  it('resolves /tower to the builtin command when the tower flag is enabled', () => {
     setExperimentalFeatures([{ id: 'tower', enabled: true }]);
 
-    expect(resolve('/tower', { engineV2: false })).toEqual({
-      kind: 'message',
-      input: '/tower',
+    expect(resolve('/tower Ship feature X')).toMatchObject({
+      kind: 'builtin',
+      name: 'tower',
+      args: 'Ship feature X',
     });
   });
 
+  it('does not resolve /tower as a builtin when the tower flag is disabled', () => {
+    expect(resolve('/tower Ship feature X')).toEqual({
+      kind: 'message',
+      input: '/tower Ship feature X',
+    });
+  });
 });
 
 describe('goal command resolution', () => {

@@ -4,8 +4,8 @@ import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import type { ContextMessage } from '#/agent/contextMemory/types';
-import { IAgentPromptService } from '#/agent/prompt/prompt';
-import type { ContentPart } from '#/kosong/contract/message';
+import { IAgentLoopService, type PromptHandle } from '#/agent/loop/loop';
+import type { ContentPart } from '#human/llm/message';
 import { IAgentTitlePromptSource } from '#/session/sessionTitle/agentTitlePromptSource';
 import { AgentTitlePromptSourceService } from '#/session/sessionTitle/agentTitlePromptSourceService';
 
@@ -33,20 +33,52 @@ function toolMessage(id: string, text: string): ContextMessage {
   return { id, role: 'tool', content: [{ type: 'text', text }], toolCalls: [] };
 }
 
+interface MockQueueState {
+  active?: PromptHandle;
+  pending: {
+    id: string;
+    message: ContextMessage;
+    tracked: true;
+    createdAt: string;
+    userMessageId: string;
+  }[];
+}
+
 describe('AgentTitlePromptSource', () => {
   let disposables: DisposableStore;
   let ix: TestInstantiationService;
   let liveMessages: readonly ContextMessage[];
-  let queue: ReturnType<IAgentPromptService['list']>;
+  let queue: MockQueueState;
 
   beforeEach(() => {
     liveMessages = [];
-    queue = { active: undefined, pending: [], launching: false };
+    queue = { active: undefined, pending: [] };
     disposables = new DisposableStore();
     ix = createServices(disposables, {
       additionalServices: (reg) => {
         reg.definePartialInstance(IAgentContextMemoryService, { get: () => liveMessages });
-        reg.definePartialInstance(IAgentPromptService, { list: () => queue });
+        reg.definePartialInstance(IAgentLoopService, {
+          snapshot: () => ({
+            state: 'idle' as const,
+            activeTurnId: undefined,
+            activePromptId: queue.active?.id,
+            queue: queue.pending.map((item) => ({
+              message: { role: 'user' as const, content: [...item.message.content] },
+              meta: {
+                promptId: item.id,
+                tracked: item.tracked,
+                createdAt: item.createdAt,
+                userMessageId: item.userMessageId,
+              },
+            })),
+            notificationCount: 0,
+            paused: false,
+            hasPendingRequests: queue.pending.length > 0,
+            turn: undefined,
+            activeTraceId: undefined,
+          }),
+          promptHandle: (id: string) => (queue.active?.id === id ? queue.active : undefined),
+        });
         reg.define(IAgentTitlePromptSource, AgentTitlePromptSourceService);
       },
     });
@@ -57,46 +89,45 @@ describe('AgentTitlePromptSource', () => {
   });
 
   it('returns the first three prompts from the live context and queue in order', async () => {
-    liveMessages = [userMessage('one', 'First entry')];
+    liveMessages = [userMessage('one', 'zh')];
     queue = {
       active: undefined,
-      launching: false,
       pending: [
         {
           id: 'two',
           userMessageId: 'two',
           createdAt: '2026-01-01T00:00:00.000Z',
-          state: 'pending',
-          message: userMessage('two', 'Second entry'),
+          tracked: true,
+          message: userMessage('two', 'zh'),
         },
         {
           id: 'three',
           userMessageId: 'three',
           createdAt: '2026-01-01T00:00:01.000Z',
-          state: 'pending',
-          message: userMessage('three', 'Third entry'),
+          tracked: true,
+          message: userMessage('three', 'zh'),
         },
       ],
     };
 
     await expect(ix.get(IAgentTitlePromptSource).firstUserPrompts(3)).resolves.toEqual([
-      'First entry',
-      'Second entry',
-      'Third entry',
+      'zh',
+      'zh',
+      'zh',
     ]);
   });
 
   it('keeps the head user messages of a compacted window, skipping elision and summary', async () => {
     liveMessages = [
-      userMessage('head', 'Opening question'),
+      userMessage('head', 'zh'),
       userMessage('elision', '... omitted ...', { kind: 'injection', variant: 'compaction_elision' }),
-      userMessage('tail', 'Latest follow-up'),
+      userMessage('tail', 'zh'),
       userMessage('summary', ' compaction summary ', { kind: 'compaction_summary' }),
     ];
 
     await expect(ix.get(IAgentTitlePromptSource).firstUserPrompts(3)).resolves.toEqual([
-      'Opening question',
-      'Latest follow-up',
+      'zh',
+      'zh',
     ]);
   });
 
@@ -121,56 +152,57 @@ describe('AgentTitlePromptSource', () => {
   });
 
   it('counts a queued prompt already appended to the context only once', async () => {
-    liveMessages = [userMessage('one', 'Same entry')];
+    liveMessages = [userMessage('one', 'zh')];
     queue = {
       active: {
         id: 'one',
         userMessageId: 'one',
         createdAt: '2026-01-01T00:00:00.000Z',
         state: 'running',
-        message: userMessage('one', 'Same entry'),
+        message: userMessage('one', 'zh'),
+        launched: Promise.resolve(undefined),
+        completion: new Promise(() => {}),
       },
       pending: [],
-      launching: false,
     };
 
-    await expect(ix.get(IAgentTitlePromptSource).firstUserPrompts(3)).resolves.toEqual(['Same entry']);
+    await expect(ix.get(IAgentTitlePromptSource).firstUserPrompts(3)).resolves.toEqual(['zh']);
   });
 
   it('firstTurnExcerpt pairs the opening prompt with the turn’s final assistant text', async () => {
     liveMessages = [
-      userMessage('u1', 'Write me a quicksort'),
-      assistantMessage('a1-think', [{ type: 'think', think: 'Let me think' }]),
-      assistantMessage('a1-text', [{ type: 'text', text: '\u597D\u7684，\u5148\u5199\u4E00\u7248' }]),
+      userMessage('u1', 'zh'),
+      assistantMessage('a1-think', [{ type: 'think', think: 'zh' }]),
+      assistantMessage('a1-text', [{ type: 'text', text: 'zh' }]),
       toolMessage('t1', 'tool output'),
       assistantMessage('a2', [
-        { type: 'text', text: 'This is the final implementation' },
+        { type: 'text', text: 'zh' },
         { type: 'image_url', imageUrl: { url: 'data:image/png;base64,AAAA' } },
       ]),
-      userMessage('u2', 'Add a unit test too'),
-      assistantMessage('a3', [{ type: 'text', text: 'Second-round reply' }]),
+      userMessage('u2', 'zh'),
+      assistantMessage('a3', [{ type: 'text', text: 'zh' }]),
     ];
 
     await expect(ix.get(IAgentTitlePromptSource).firstTurnExcerpt()).resolves.toEqual({
-      user: 'Write me a quicksort',
-      assistant: 'This is the final implementation',
+      user: 'zh',
+      assistant: 'zh',
     });
   });
 
   it('firstTurnExcerpt reports a missing assistant reply until the turn ends', async () => {
-    liveMessages = [userMessage('u1', 'Just-sent question')];
+    liveMessages = [userMessage('u1', 'zh')];
 
     await expect(ix.get(IAgentTitlePromptSource).firstTurnExcerpt()).resolves.toEqual({
-      user: 'Just-sent question',
+      user: 'zh',
       assistant: undefined,
     });
   });
 
   it('digestExcerpt counts a queued prompt already appended to the context only once', async () => {
     liveMessages = [
-      userMessage('one', 'earliest question'),
-      assistantMessage('a1', [{ type: 'text', text: 'first reply' }]),
-      userMessage('two', 'in-progress question'),
+      userMessage('one', 'zh'),
+      assistantMessage('a1', [{ type: 'text', text: 'zh' }]),
+      userMessage('two', 'zh'),
     ];
     queue = {
       active: {
@@ -178,79 +210,80 @@ describe('AgentTitlePromptSource', () => {
         userMessageId: 'two',
         createdAt: '2026-01-01T00:00:01.000Z',
         state: 'running',
-        message: userMessage('two', 'in-progress question'),
+        message: userMessage('two', 'zh'),
+        launched: Promise.resolve(undefined),
+        completion: new Promise(() => {}),
       },
       pending: [],
-      launching: false,
     };
 
     await expect(ix.get(IAgentTitlePromptSource).digestExcerpt()).resolves.toEqual({
       turns: [
-        { user: 'earliest question', assistant: 'first reply' },
-        { user: 'in-progress question', assistant: undefined },
+        { user: 'zh', assistant: 'zh' },
+        { user: 'zh', assistant: undefined },
       ],
     });
   });
 
   it('digestExcerpt pairs every prompt with its own turn’s final assistant text', async () => {
     liveMessages = [
-      userMessage('u1', 'Original goal'),
-      assistantMessage('a1', [{ type: 'text', text: 'First-round reply' }]),
-      userMessage('u2', 'Midway follow-up'),
-      assistantMessage('a2', [{ type: 'text', text: 'Middle reply' }]),
-      userMessage('u3', 'Latest request'),
-      assistantMessage('a3', [{ type: 'think', think: 'Thinking' }]),
-      assistantMessage('a4', [{ type: 'text', text: 'Latest reply body' }]),
+      userMessage('u1', 'zh'),
+      assistantMessage('a1', [{ type: 'text', text: 'zh' }]),
+      userMessage('u2', 'zh'),
+      assistantMessage('a2', [{ type: 'text', text: 'zh' }]),
+      userMessage('u3', 'zh'),
+      assistantMessage('a3', [{ type: 'think', think: 'zh' }]),
+      assistantMessage('a4', [{ type: 'text', text: 'zh' }]),
     ];
 
     await expect(ix.get(IAgentTitlePromptSource).digestExcerpt()).resolves.toEqual({
       turns: [
-        { user: 'Original goal', assistant: 'First-round reply' },
-        { user: 'Midway follow-up', assistant: 'Middle reply' },
-        { user: 'Latest request', assistant: 'Latest reply body' },
+        { user: 'zh', assistant: 'zh' },
+        { user: 'zh', assistant: 'zh' },
+        { user: 'zh', assistant: 'zh' },
       ],
     });
   });
 
   it('digestExcerpt covers every turn, even with a dangling tool-only span', async () => {
     liveMessages = [
-      userMessage('u1', 'original goal'),
-      assistantMessage('a1', [{ type: 'text', text: 'first reply' }]),
-      userMessage('u2', 'second topic'),
-      assistantMessage('a2', [{ type: 'think', think: 'thinking only' }]),
-      userMessage('u3', 'third topic'),
-      assistantMessage('a3', [{ type: 'text', text: 'third reply' }]),
-      userMessage('u4', 'latest topic'),
-      assistantMessage('a4', [{ type: 'text', text: 'latest reply' }]),
+      userMessage('u1', 'zh'),
+      assistantMessage('a1', [{ type: 'text', text: 'zh' }]),
+      userMessage('u2', 'zh'),
+      assistantMessage('a2', [{ type: 'think', think: 'zh' }]),
+      userMessage('u3', 'zh'),
+      assistantMessage('a3', [{ type: 'text', text: 'zh' }]),
+      userMessage('u4', 'zh'),
+      assistantMessage('a4', [{ type: 'text', text: 'zh' }]),
     ];
 
     await expect(ix.get(IAgentTitlePromptSource).digestExcerpt()).resolves.toEqual({
       turns: [
-        { user: 'original goal', assistant: 'first reply' },
-        { user: 'second topic', assistant: undefined },
-        { user: 'third topic', assistant: 'third reply' },
-        { user: 'latest topic', assistant: 'latest reply' },
+        { user: 'zh', assistant: 'zh' },
+        { user: 'zh', assistant: undefined },
+        { user: 'zh', assistant: 'zh' },
+        { user: 'zh', assistant: 'zh' },
       ],
     });
   });
 
   it('digestExcerpt keeps a single-prompt conversation and dangling questions', async () => {
     liveMessages = [
-      userMessage('u1', 'Only question'),
-      assistantMessage('a1', [{ type: 'text', text: 'Only reply' }]),
-      userMessage('u2', 'New question still awaiting a reply'),
+      userMessage('u1', 'zh'),
+      assistantMessage('a1', [{ type: 'text', text: 'zh' }]),
+      userMessage('u2', 'zh'),
     ];
 
     await expect(ix.get(IAgentTitlePromptSource).digestExcerpt()).resolves.toEqual({
       turns: [
-        { user: 'Only question', assistant: 'Only reply' },
-        { user: 'New question still awaiting a reply', assistant: undefined },
+        { user: 'zh', assistant: 'zh' },
+        { user: 'zh', assistant: undefined },
       ],
     });
 
-    liveMessages = [userMessage('u1', 'Only question')];
+    liveMessages = [userMessage('u1', 'zh')];
     await expect(ix.get(IAgentTitlePromptSource).digestExcerpt()).resolves.toEqual({
-      turns: [{ user: 'Only question', assistant: undefined }],
+      turns: [{ user: 'zh', assistant: undefined }],
     });
 
     liveMessages = [];

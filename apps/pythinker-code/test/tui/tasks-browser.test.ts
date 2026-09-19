@@ -82,9 +82,9 @@ function makeProps(overrides: Partial<TasksBrowserProps> = {}): TasksBrowserProp
 
 const CATALOG = {
   'k2-cheap': {
-    provider: 'acme',
-    model: 'acme-fast',
-    displayName: 'Acme Fast',
+    provider: 'openai',
+    model: 'kimi-k2-cheap',
+    displayName: 'Kimi K2 Cheap',
   },
 } as never;
 
@@ -257,7 +257,7 @@ describe('TasksBrowserApp — full-screen rendering', () => {
     const lines = app.render(120).map(strip);
     const rowIndex = lines.findIndex((line) => line.includes('agent-aaaaaaaa'));
     expect(rowIndex).toBeGreaterThanOrEqual(0);
-    expect(lines[rowIndex + 1]).toContain('Acme Fast');
+    expect(lines[rowIndex + 1]).toContain('Kimi K2 Cheap');
     expect(lines[rowIndex + 2]).toContain('bash-bbbbbbbb');
   });
 
@@ -269,7 +269,7 @@ describe('TasksBrowserApp — full-screen rendering', () => {
           kind: 'agent',
           status: 'running',
           agentId: 'agent-1',
-          model: 'acme/large-256k',
+          model: 'pythinker-code/k3-256k',
         }),
       ],
       selectedTaskId: 'agent-aaaaaaaa',
@@ -277,7 +277,7 @@ describe('TasksBrowserApp — full-screen rendering', () => {
     const lines = app.render(120).map(strip);
     const rowIndex = lines.findIndex((line) => line.includes('agent-aaaaaaaa'));
     expect(rowIndex).toBeGreaterThanOrEqual(0);
-    expect(lines[rowIndex + 1]).toContain('acme/large-256k');
+    expect(lines[rowIndex + 1]).toContain('pythinker-code/k3-256k');
   });
 
   it('resolves the Detail pane model through the catalog', () => {
@@ -299,7 +299,7 @@ describe('TasksBrowserApp — full-screen rendering', () => {
         .join('\n'),
     );
     expect(out).toContain('Model:');
-    expect(out).toContain('Acme Fast');
+    expect(out).toContain('Kimi K2 Cheap');
   });
 
   it('keeps agent tasks without a model on a single line', () => {
@@ -342,7 +342,7 @@ describe('TasksBrowserApp — full-screen rendering', () => {
     expect(lines.length).toBe(12);
     const rowIndex = lines.findIndex((line) => line.includes('agent-00000011'));
     expect(rowIndex).toBeGreaterThanOrEqual(0);
-    expect(lines[rowIndex + 1]).toContain('Acme Fast');
+    expect(lines[rowIndex + 1]).toContain('Kimi K2 Cheap');
   });
 
   it('renders tail output in the Preview Output pane', () => {

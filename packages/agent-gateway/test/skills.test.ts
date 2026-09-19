@@ -4,13 +4,14 @@ import { join } from 'node:path';
 
 import {
   IAgentLifecycleService,
+  closeSessionById,
   getLiveSessionById,
 } from '@pymodel/agent-core-v2';
 import {
   activateSkillResultSchema,
   listSkillsResponseSchema,
 } from '../src/protocol/rest-skill';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { type RunningServer, startServer } from '../src/start';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
@@ -30,6 +31,7 @@ interface SkillWire {
   source: string;
   type?: string;
   disable_model_invocation?: boolean;
+  scopes?: string[];
 }
 
 describe('server-v2 /api/v1 skills', () => {
@@ -37,13 +39,13 @@ describe('server-v2 /api/v1 skills', () => {
   let home: string | undefined;
   let base: string;
 
-  beforeEach(async () => {
+  beforeAll(async () => {
     home = await mkdtemp(join(tmpdir(), 'pythinker-server-v2-skills-'));
     server = await startServer({ hostIdentity: TEST_HOST_IDENTITY, host: '127.0.0.1', port: 0, homeDir: home, logLevel: 'silent' });
     base = `http://127.0.0.1:${server.port}`;
   });
 
-  afterEach(async () => {
+  afterAll(async () => {
     if (server !== undefined) {
       await server.close();
       server = undefined;
@@ -167,6 +169,22 @@ describe('server-v2 /api/v1 skills', () => {
       expect(docsSkill).toMatchObject({ source: 'builtin' });
       expect(docsSkill?.description.length).toBeGreaterThan(0);
     });
+
+    it('exposes skill scope restrictions on the wire', async () => {
+      const id = await createSession();
+      const { body } = await getJson<{ skills: SkillWire[] }>(
+        `/api/v1/sessions/${id}/skills`,
+      );
+      expect(body.code).toBe(0);
+      const skills = listSkillsResponseSchema.parse(body.data).skills;
+
+      const customTheme = skills.find((s) => s.name === 'custom-theme');
+      expect(customTheme).toMatchObject({ source: 'builtin', scopes: ['tui'] });
+
+      const updateConfig = skills.find((s) => s.name === 'update-config');
+      expect(updateConfig).toBeDefined();
+      expect(updateConfig).not.toHaveProperty('scopes');
+    });
   });
 
   describe('POST /api/v1/sessions/{sid}/skills/{name}:activate', () => {
@@ -183,6 +201,45 @@ describe('server-v2 /api/v1 skills', () => {
         activated: true,
         skill_name: 'update-config',
       });
+    });
+
+    it('retains rich client metadata and ordered context through a single activation and cold resume', async () => {
+      const id = await createSession();
+      await createMainAgent(id);
+      const metadata = { display_text: 'Example skill · Save button', pythinker_code_composer: { version: 1, doc: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'client-only literal' }] }] }, attachments: [], attachmentOrder: [] } };
+      const result = await postJson(`/api/v1/sessions/${id}/skills/update-config:activate`, { args: 'Example argument', attachments: [{ type: 'text', text: 'Captured page evidence' }, { type: 'text', text: 'Image association' }], metadata });
+      expect(result.body.code).toBe(0);
+      const messages = await getJson<{ items: { role: string; content: { type: string; text?: string }[]; metadata?: { origin?: { clientMetadata?: unknown } } }[] }>(`/api/v1/sessions/${id}/messages`);
+      const input = messages.body.data.items.find((message) => message.role === 'user' && message.content.some((part) => part.text?.includes('User activated the skill')));
+      const modelText = input?.content.map((part) => part.text ?? '').join('\n') ?? '';
+      expect(modelText).toContain('Captured page evidence');
+      expect(modelText.indexOf('Image association')).toBeGreaterThan(modelText.indexOf('Captured page evidence'));
+      expect(input?.metadata?.origin?.clientMetadata).toEqual([metadata]);
+      expect(JSON.stringify(input?.content)).not.toContain('client-only literal');
+      await closeSessionById(server!.core.accessor, id);
+      const transcript = await getJson<{ items: { kind: string; origin?: { payload?: { clientMetadata?: unknown } } }[] }>(`/api/v1/sessions/${id}/transcript?agent_id=main`);
+      expect(transcript.body.data.items.find((item) => item.kind === 'turn')?.origin?.payload?.clientMetadata).toEqual([metadata]);
+      const session = await getJson<{ title: string }>(`/api/v1/sessions/${id}`);
+      expect(session.body.data.title).toBe(metadata.display_text);
+    });
+
+    it('keeps ordered text parts among activation attachments', async () => {
+      const id = await createSession();
+      await createMainAgent(id);
+      const result = await postJson(`/api/v1/sessions/${id}/skills/update-config:activate`, {
+        args: 'Example argument',
+        attachments: [
+          { type: 'text', text: 'First context block' },
+          { type: 'text', text: 'Second context block' },
+        ],
+      });
+      expect(result.body.code).toBe(0);
+      const messages = await getJson<{ items: { role: string; content: { type: string; text?: string }[] }[] }>(`/api/v1/sessions/${id}/messages`);
+      const input = messages.body.data.items.find((message) => message.role === 'user' && message.content.some((part) => part.text?.includes('User activated the skill')));
+      const text = input?.content.map((part) => part.text ?? '').join('\n') ?? '';
+      expect(text).toContain('args="Example argument"');
+      expect(text).toContain('First context block');
+      expect(text.indexOf('Second context block')).toBeGreaterThan(text.indexOf('First context block'));
     });
 
     it('derives the session title from the first skill activation', async () => {
@@ -318,15 +375,17 @@ describe('server-v2 /api/v1 skills', () => {
       const messages = await getJson<{
         items: Array<{ role: string; content: Array<{ type: string; text?: string }> }>;
       }>(`/api/v1/sessions/${id}/messages`);
-      const userMessage = messages.body.data.items.find(
-        (message) =>
-          message.role === 'user' &&
-          message.content.some((part) => part.text?.includes('User activated the skill')),
+      const userMsg = messages.body.data.items.find(
+        (m) =>
+          m.role === 'user' &&
+          m.content.some((part) => part.text?.includes('User activated the skill')),
       );
-      const attachmentText = userMessage?.content[1]?.text ?? '';
-      const attachedPath = /bytes\): (.+) — open it with the Read tool$/.exec(attachmentText)?.[1];
-      expect(attachedPath).toContain('/attachments/');
-      expect(await readFile(attachedPath as string)).toEqual(noteBytes);
+      expect(userMsg).toBeDefined();
+      const notice = userMsg!.content[1];
+      expect(notice).toEqual({
+        type: 'text',
+        text: `Attached file "note.txt" (application/octet-stream, ${noteBytes.length} bytes): ${sourcePath} — open it with the Read tool`,
+      });
 
       const transcript = await getJson<{
         items: Array<{ kind: string; attachmentIds?: string[] }>;
@@ -338,17 +397,16 @@ describe('server-v2 /api/v1 skills', () => {
           source?: unknown;
         }>;
       }>(`/api/v1/sessions/${id}/transcript?agent_id=main`);
-      expect(transcript.body.data.attachments).toHaveLength(1);
-      expect(transcript.body.data.attachments[0]).toMatchObject({
+      const transcriptAttachments = transcript.body.data.attachments;
+      expect(transcriptAttachments).toHaveLength(1);
+      expect(transcriptAttachments[0]).toMatchObject({
         mediaType: 'application/octet-stream',
         name: 'note.txt',
         size: noteBytes.length,
       });
-      expect(transcript.body.data.attachments[0]).not.toHaveProperty('source');
+      expect(transcriptAttachments[0]).not.toHaveProperty('source');
       const turn = transcript.body.data.items.find((item) => item.kind === 'turn');
-      expect(turn?.attachmentIds).toEqual([
-        transcript.body.data.attachments[0]!.attachmentId,
-      ]);
+      expect(turn?.attachmentIds).toEqual([transcriptAttachments[0]!.attachmentId]);
     });
 
     it('rejects a relative attachment path on skill activation (40001)', async () => {
@@ -401,7 +459,7 @@ describe('server-v2 /api/v1 skills', () => {
       expect(body.code).toBe(40415);
 
       const sessionTree = await readdir(join(home as string, 'sessions'), { recursive: true });
-      expect(sessionTree.filter((entry) => entry.includes('attachments'))).toEqual([]);
+      expect(sessionTree.filter((entry) => entry.includes(id) && entry.includes('attachments'))).toEqual([]);
     });
   });
 

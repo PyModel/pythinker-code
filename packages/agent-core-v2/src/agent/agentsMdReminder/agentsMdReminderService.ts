@@ -1,7 +1,6 @@
 import { basename, dirname, isAbsolute, join, normalize } from 'pathe';
 
 import { Disposable } from '#/_base/di/lifecycle';
-import { ILogService } from '#/_base/log/log';
 import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { defineState } from '#/state/state';
@@ -10,7 +9,7 @@ import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import type { AgentsMdReminderShownEvent } from '#/app/telemetry/events';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
-import type { HostFsChange } from '#/os/interface/hostFsWatch';
+import type { WatchChange } from '#human/utils/watch';
 import { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionInstructionsProvider } from '#/session/sessionInstructions/instructionsProvider';
@@ -26,13 +25,12 @@ import {
 } from '#/agent/profile/context';
 import { profileKey } from '#/agent/profile/profileOps';
 import { IAgentStateService } from '#/agent/state/agentState';
-import { AgentReminder, type ReminderRuntime } from '#/features/reminder/reminderAgentRuntime';
+import { IAgentReminderService } from '#/features/reminder/reminderService';
 import type {
   ContextInjectionContext,
   ContextInjectionResult,
 } from '#/features/reminder/types';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import type { ToolDidExecuteContext } from '#/agent/toolExecutor/toolHooks';
 import { IEventDispatcher } from '#/state/eventDispatcher';
@@ -68,11 +66,10 @@ export class AgentAgentsMdReminderService
   private readonly remindQueue = new Set<string>();
   private readonly readRecently = new Set<string>();
   private readonly telemetryFired = new Set<string>();
-  private lastProbe: Omit<AgentsMdReminderShownEvent, 'reminded_count'> | undefined;
 
   constructor(
     @IAgentToolExecutorService toolExecutor: IAgentToolExecutorService,
-    @IAgentLifecycleService private readonly agentLifecycle: IAgentLifecycleService,
+    @IAgentReminderService private readonly reminder: IAgentReminderService,
     @IAgentScopeContext private readonly scopeContext: IAgentScopeContext,
     @IAgentStateService private readonly states: IAgentStateService,
     @ISessionContext private readonly sessionContext: ISessionContext,
@@ -80,7 +77,6 @@ export class AgentAgentsMdReminderService
     @IBootstrapService private readonly bootstrap: IBootstrapService,
     @IBashParserService private readonly bashParser: IBashParserService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
-    @ILogService private readonly log: ILogService,
     @IEventDispatcher private readonly dispatcher: IEventDispatcher,
     @ISessionInstructionsProvider private readonly instructions: ISessionInstructionsProvider,
   ) {
@@ -88,6 +84,11 @@ export class AgentAgentsMdReminderService
     this.states.contributeState(agentsMdReminderKnownKey);
     this.states.contributeState(agentsMdReminderCwdKey);
     this.states.contributeState(agentsMdReminderSeededKey);
+    this._register(
+      this.reminder.register<readonly string[]>(DISCOVERY_REMINDER_VARIANT, (context) =>
+        this.injectReminder(context),
+      ),
+    );
     this._register(
       this.instructions.onDidChange((changes) => {
         this.announceChanged(changes);
@@ -118,16 +119,16 @@ export class AgentAgentsMdReminderService
     this.states.set(agentsMdReminderSeededKey, true);
   }
 
-  private announceChanged(changes: readonly HostFsChange[]): void {
+  private announceChanged(changes: readonly WatchChange[]): void {
     if (!this.states.get(agentsMdReminderSeededKey)) return;
-    const entries = new Map<string, HostFsChange>();
+    const entries = new Map<string, WatchChange>();
     for (const change of changes) {
       const path = normalize(change.path);
       entries.set(path, { ...change, path });
     }
     if (entries.size === 0) return;
     const list = [...entries.values()];
-    this.reminder().notify(changeReminderText(list), {
+    this.reminder.notify(changeReminderText(list), {
       variant: 'agents_md_change',
     });
     this.markKnown(
@@ -160,22 +161,7 @@ export class AgentAgentsMdReminderService
     const covered = context.lastDisclosure ?? [];
     const fresh = queued.filter((path) => !covered.includes(path));
     if (fresh.length === 0) return undefined;
-    this.trackShown(fresh);
     return { content: reminderText(fresh), disclosure: [...covered, ...fresh] };
-  }
-
-  private trackShown(paths: readonly string[]): void {
-    const untracked = paths.filter((path) => !this.telemetryFired.has(path));
-    if (untracked.length === 0 || this.lastProbe === undefined) return;
-    try {
-      this.telemetry.track2('agents_md_reminder_shown', {
-        ...this.lastProbe,
-        reminded_count: untracked.length,
-      });
-    } catch {
-      return;
-    }
-    for (const path of untracked) this.telemetryFired.add(path);
   }
 
   private async ensureSeeded(): Promise<void> {
@@ -212,21 +198,20 @@ export class AgentAgentsMdReminderService
         this.remindQueue.delete(path);
         this.readRecently.add(path);
       }
-      this.ensureProvider();
       if (discovered.length === 0) return;
-      this.lastProbe = {
-        turn_id: ctx.turnId,
-        tool_name: ctx.toolCall.name,
-        trace_id: ctx.trace?.traceId,
-      };
+      const untracked = discovered.filter((path) => !this.telemetryFired.has(path));
+      if (untracked.length > 0) {
+        const properties: AgentsMdReminderShownEvent = {
+          turn_id: ctx.turnId,
+          tool_name: ctx.toolCall.name,
+          reminded_count: untracked.length,
+          trace_id: ctx.trace?.traceId,
+        };
+        this.telemetry.track2('agents_md_reminder_shown', properties);
+        for (const path of untracked) this.telemetryFired.add(path);
+      }
       for (const path of discovered) this.remindQueue.add(path);
-    } catch (error) {
-      this.log.warn('Failed to discover workspace instructions', error);
-    }
-  }
-
-  private reminder(): ReminderRuntime {
-    return this.agentLifecycle.resolve(this.scopeContext.agentContext, AgentReminder);
+    } catch {}
   }
 
   private markKnown(paths: readonly string[]): void {
@@ -245,18 +230,6 @@ export class AgentAgentsMdReminderService
       this.telemetryFired.delete(path);
     }
     this.states.set(agentsMdReminderKnownKey, known);
-  }
-
-  private providerRegistered = false;
-
-  private ensureProvider(): void {
-    if (this.providerRegistered) return;
-    this.providerRegistered = true;
-    this._register(
-      this.reminder().register<readonly string[]>(DISCOVERY_REMINDER_VARIANT, (context) =>
-        this.injectReminder(context),
-      ),
-    );
   }
 
   private targetDirs(ctx: ToolDidExecuteContext): { dirs: string[]; selfKnown: string[] } {
@@ -385,7 +358,7 @@ function reminderText(paths: readonly string[]): string {
   );
 }
 
-function changeReminderText(changes: readonly HostFsChange[]): string {
+function changeReminderText(changes: readonly WatchChange[]): string {
   return (
     'The AGENTS.md instruction file(s) below changed on disk after they were injected into the system prompt:\n' +
     changes

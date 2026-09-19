@@ -24,6 +24,12 @@ import {
   usagePercent,
 } from '#/utils/usage/usage-format';
 
+import {
+  buildExtraUsageSection,
+  buildManagedUsageReportLines,
+  type ManagedUsageReport,
+} from './usage-panel';
+
 interface FieldRow {
   readonly label: string;
   readonly value: string;
@@ -40,6 +46,7 @@ export interface StatusReportOptions {
   readonly permissionMode: PermissionMode;
   readonly planMode: boolean;
   readonly towerMode: boolean;
+  /** Whether the tower experiment is enabled on engine v2 — gates the Tower mode row. */
   readonly towerAvailable: boolean;
   readonly contextUsage: number;
   readonly contextTokens: number;
@@ -47,6 +54,8 @@ export interface StatusReportOptions {
   readonly availableModels: Record<string, ModelAlias>;
   readonly status?: SessionStatus;
   readonly statusError?: string;
+  readonly managedUsage?: ManagedUsageReport;
+  readonly managedUsageError?: string;
 }
 
 type Colorize = (text: string) => string;
@@ -138,6 +147,26 @@ export function buildStatusReportLines(options: StatusReportOptions): string[] {
     );
   } else {
     lines.push(`  ${muted('No context window data available.')}`);
+  }
+
+  const managedSection = buildManagedUsageReportLines({
+    managedUsage: options.managedUsage,
+    managedUsageError: options.managedUsageError,
+  });
+  if (managedSection.length > 0) {
+    lines.push('');
+    lines.push(...managedSection);
+  }
+
+  const extraSection = buildExtraUsageSection(
+    options.managedUsage?.extraUsage,
+    accent,
+    value,
+    muted,
+  );
+  if (extraSection.length > 0) {
+    lines.push('');
+    lines.push(...extraSection);
   }
 
   return lines;
