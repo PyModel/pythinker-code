@@ -6,6 +6,7 @@ import { Disposable } from '#/_base/di/lifecycle';
 import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { ILogService } from '#/_base/log/log';
+import { IFlagService } from '#/app/flag/flag';
 
 import { ErrorCodes, Error2 } from '#/errors';
 import { McpConnectionManager } from '#/mcpCore/connection-manager';
@@ -52,6 +53,7 @@ import {
   type McpServerTestResult,
   type McpServerTestTarget,
 } from './mcpManagement';
+import { MCP_MANAGEMENT_FLAG_ID } from './flag';
 
 const DEFAULT_AUTH_TIMEOUT_MS = 15 * 60_000;
 const AUTH_FLOW_IDLE_TIMEOUT_MS = 15 * 60_000;
@@ -76,15 +78,27 @@ export class McpManagementService extends Disposable implements IMcpManagementSe
     @IHostEnvironment private readonly hostEnvironment: IHostEnvironment,
     @IHostProcessService private readonly hostProcess: IHostProcessService,
     @ILogService private readonly log: ILogService,
+    @IFlagService private readonly flags: IFlagService,
   ) {
     super();
   }
 
+  private assertManagementEnabled(): void {
+    if (!this.flags.enabled(MCP_MANAGEMENT_FLAG_ID)) {
+      throw new Error2(
+        ErrorCodes.REQUEST_INVALID,
+        'MCP management is disabled; enable the mcp-management experimental flag',
+      );
+    }
+  }
+
   async listServers(query: McpRegistryQuery = {}): Promise<readonly McpManagedServer[]> {
+    this.assertManagementEnabled();
     return (await this.registry.list(query)).map(toManagedServer);
   }
 
   async getServer(name: string, query: McpRegistryQuery = {}): Promise<McpManagedServer> {
+    this.assertManagementEnabled();
     return toManagedServer(await this.registry.get(name, query));
   }
 

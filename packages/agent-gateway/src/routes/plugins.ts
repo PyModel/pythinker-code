@@ -124,11 +124,16 @@ export function registerPluginsRoutes(
       operationId: 'listPluginMarketplace',
     },
     async (req, reply) => {
+      const source = opts.marketplaceUrl().trim();
+      if (source.length === 0) {
+        reply.send(okEnvelope({ entries: [] }, req.id));
+        return;
+      }
       const fetchImpl = opts.fetchImpl ?? fetchWithTimeout;
       let read: { raw: string; location: MarketplaceLocation };
       try {
         read = await readPluginMarketplace({
-          source: opts.marketplaceUrl(),
+          source,
           workDir: process.cwd(),
           fetchImpl,
           sourceCheckoutLocation:

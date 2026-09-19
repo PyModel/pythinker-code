@@ -439,14 +439,10 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
     guiStore,
     pluginMarketplaceUrl: (() => {
       const configured = opts.pluginMarketplaceUrl ?? process.env['PYTHINKER_CODE_PLUGIN_MARKETPLACE_URL'];
-      if (configured !== undefined) return () => configured;
-      return () =>
-        'https://code.pythinker.com/pythinker-code/plugins/marketplace.json';
+      if (configured !== undefined && configured.trim() !== '') return () => configured;
+      return () => '';
     })(),
-    pluginMarketplaceIsDefault:
-      opts.pluginMarketplaceUrl === undefined &&
-      (process.env['PYTHINKER_CODE_PLUGIN_MARKETPLACE_URL'] === undefined ||
-        process.env['PYTHINKER_CODE_PLUGIN_MARKETPLACE_FROM_DEV_SERVER'] === '1'),
+    pluginMarketplaceIsDefault: false,
     remoteControl: {
       service: remoteControlManager,
       staticEnableError:

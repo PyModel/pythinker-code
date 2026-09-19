@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vite
 
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices } from '#/_base/di/test';
+import { IFlagService } from '#/app/flag/flag';
 import { ILogService } from '#/_base/log/log';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import {
@@ -154,6 +155,9 @@ describe('McpManagementService', () => {
         });
         reg.definePartialInstance(IWorkspaceInstanceManager, { findContaining, getOrCreate });
         reg.defineInstance(ILogService, stubLog());
+        reg.definePartialInstance(IFlagService, {
+          enabled: () => true,
+        });
         reg.define(IMcpManagementService, McpManagementService);
       },
     });
