@@ -8,15 +8,10 @@
  * provisioning logic out of this module.
  */
 
-export type ModelProtocol = 'pythinker' | 'anthropic' | 'openai' | 'openai_responses';
+export type ModelProtocol = 'pythinker' | 'anthropic';
 
 export function parseModelProtocol(value: unknown): ModelProtocol | undefined {
-  return value === 'pythinker' ||
-    value === 'anthropic' ||
-    value === 'openai' ||
-    value === 'openai_responses'
-    ? value
-    : undefined;
+  return value === 'anthropic' ? 'anthropic' : undefined;
 }
 
 /**

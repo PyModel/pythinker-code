@@ -2,12 +2,10 @@ import * as vscode from "vscode";
 
 import {
   createPythinkerDeviceId,
-  PYTHINKER_CODE_PROVIDER_NAME,
   PYTHINKER_REGION_PROFILES,
   resolvePythinkerRegion,
 } from "@pymodel/pythinker-code-oauth";
 import {
-  PythinkerAuthFacade,
   loadRuntimeConfigSafe,
   resolveConfigPath,
   resolvePythinkerHome,
@@ -38,7 +36,6 @@ export function activateExtensionTelemetry(options: ExtensionTelemetryOptions): 
   });
   const configPath = resolveConfigPath({ homeDir });
   const config = readTelemetryConfig(configPath);
-  const auth = new PythinkerAuthFacade({ homeDir, configPath });
 
   initializeTelemetry({
     homeDir,
@@ -50,7 +47,6 @@ export function activateExtensionTelemetry(options: ExtensionTelemetryOptions): 
     uiMode: "vscode",
     model: config.defaultModel,
     endpoint: () => telemetryEndpoint(homeDir),
-    getAccessToken: async () => (await auth.getCachedAccessToken(PYTHINKER_CODE_PROVIDER_NAME)) ?? null,
     onUnexpectedError: (error) => options.log(`Telemetry dropped a property: ${error.message}`),
   });
 
@@ -79,12 +75,7 @@ function readTelemetryConfig(
 }
 
 function telemetryEndpoint(homeDir: string): string {
-  const oauth = loadRuntimeConfigSafe(resolveConfigPath({ homeDir })).config.providers?.[
-    PYTHINKER_CODE_PROVIDER_NAME
-  ]?.oauth;
   const region = resolvePythinkerRegion({
-    configuredOAuthHost: oauth?.oauthHost,
-    configuredOAuthKey: oauth?.key,
     homeDir,
     readMarker: process.env["PYTHINKER_CODE_REGION_MARKER"] !== "off",
   });

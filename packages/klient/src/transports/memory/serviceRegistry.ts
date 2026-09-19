@@ -15,7 +15,6 @@ import { IProviderDiscoveryService } from '@pymodel/agent-core-v2/app/kosongConf
 import { IProviderService } from '@pymodel/agent-core-v2/llm-adapter/provider/provider';
 import {
   IAuthSummaryService,
-  IOAuthService,
 } from '@pymodel/agent-core-v2/app/auth/auth';
 import { IFlagService } from '@pymodel/agent-core-v2/app/flag/flag';
 import { IPluginService } from '@pymodel/agent-core-v2/app/plugin/plugin';
@@ -55,7 +54,6 @@ export const serviceTokens: Readonly<Record<string, ServiceIdentifier<unknown>>>
   modelResolver: IModelCatalog,
   providerDiscovery: IProviderDiscoveryService,
   providerService: IProviderService,
-  oauthService: IOAuthService,
   authSummaryService: IAuthSummaryService,
   flagService: IFlagService,
   pluginService: IPluginService,

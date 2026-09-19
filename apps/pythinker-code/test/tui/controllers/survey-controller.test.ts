@@ -758,19 +758,19 @@ describe('SurveyController long-context arm', () => {
 });
 
 describe('SurveyController kfc model gate', () => {
-  const MANAGED_BASE_URL = 'https://api.kimi.com/coding/v1';
+  const MANAGED_BASE_URL = 'https://api.example.com/v1/v1';
   const GATEWAY_BASE_URL = 'https://gateway.example.com/coding/v1';
-  const savedBaseUrl = process.env['PYTHINKER_CODE_BASE_URL'];
+  const savedBaseUrl = process.env['CUSTOM_API_BASE_URL'];
 
   beforeEach(() => {
-    delete process.env['PYTHINKER_CODE_BASE_URL'];
+    delete process.env['CUSTOM_API_BASE_URL'];
   });
 
   afterEach(() => {
     if (savedBaseUrl === undefined) {
-      delete process.env['PYTHINKER_CODE_BASE_URL'];
+      delete process.env['CUSTOM_API_BASE_URL'];
     } else {
-      process.env['PYTHINKER_CODE_BASE_URL'] = savedBaseUrl;
+      process.env['CUSTOM_API_BASE_URL'] = savedBaseUrl;
     }
   });
 
@@ -781,14 +781,14 @@ describe('SurveyController kfc model gate', () => {
     harness.state.appState.model = 'main';
     harness.state.appState.availableModels = {
       main: {
-        provider: 'managed:pythinker-code',
+        provider: 'openai',
         model: 'k3',
         maxContextSize: 256_000,
         baseUrl: options.entryBaseUrl,
       },
     };
     harness.state.appState.availableProviders = {
-      'managed:pythinker-code': { type: 'pythinker', baseUrl: options.providerBaseUrl ?? MANAGED_BASE_URL },
+      'openai': { type: 'pythinker', baseUrl: options.providerBaseUrl ?? MANAGED_BASE_URL },
     };
   }
 
@@ -2162,29 +2162,29 @@ describe('SurveyController cloud config refresh', () => {
 });
 
 describe('SurveyController appearance snapshot', () => {
-  const MANAGED_BASE_URL = 'https://api.kimi.com/coding/v1';
+  const MANAGED_BASE_URL = 'https://api.example.com/v1/v1';
   const GATEWAY_BASE_URL = 'https://gateway.example.com/coding/v1';
-  const savedBaseUrl = process.env['PYTHINKER_CODE_BASE_URL'];
+  const savedBaseUrl = process.env['CUSTOM_API_BASE_URL'];
 
   beforeEach(() => {
-    delete process.env['PYTHINKER_CODE_BASE_URL'];
+    delete process.env['CUSTOM_API_BASE_URL'];
   });
 
   afterEach(() => {
     if (savedBaseUrl === undefined) {
-      delete process.env['PYTHINKER_CODE_BASE_URL'];
+      delete process.env['CUSTOM_API_BASE_URL'];
     } else {
-      process.env['PYTHINKER_CODE_BASE_URL'] = savedBaseUrl;
+      process.env['CUSTOM_API_BASE_URL'] = savedBaseUrl;
     }
   });
 
   function useManagedModel(harness: Harness): void {
     harness.state.appState.model = 'main';
     harness.state.appState.availableModels = {
-      main: { provider: 'managed:pythinker-code', model: 'k3', maxContextSize: 256_000 },
+      main: { provider: 'openai', model: 'k3', maxContextSize: 256_000 },
     };
     harness.state.appState.availableProviders = {
-      'managed:pythinker-code': { type: 'pythinker', baseUrl: MANAGED_BASE_URL },
+      'openai': { type: 'pythinker', baseUrl: MANAGED_BASE_URL },
     };
   }
 

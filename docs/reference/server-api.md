@@ -183,17 +183,17 @@ On success, `data` is `{ "ok": true }`.
 
 ### Login and usage
 
-These endpoints drive the managed Pythinker OAuth login lifecycle and expose account-level information. The managed provider is named `managed:pythinker-code`; the optional `provider` parameter on every endpoint below defaults to it.
+These endpoints drive the managed Pythinker OAuth login lifecycle and expose account-level information. The managed provider is named `openai`; the optional `provider` parameter on every endpoint below defaults to it.
 
 | Method and path | Description |
 | --- | --- |
 | `GET /api/v1/auth` | Auth snapshot |
-| `POST /api/v1/oauth/login` | Start the OAuth device-code login flow |
-| `GET /api/v1/oauth/login` | Poll the login flow state |
-| `DELETE /api/v1/oauth/login` | Cancel a pending login flow |
-| `POST /api/v1/oauth/logout` | Log out the managed provider |
-| `GET /api/v1/oauth/usage` | Plan usage and limits |
-| `GET /api/v1/oauth/userinfo` | Account profile |
+| `POST /api/v1/auth/login` | Start the OAuth device-code login flow |
+| `GET /api/v1/auth/login` | Poll the login flow state |
+| `DELETE /api/v1/auth/login` | Cancel a pending login flow |
+| `POST /api/v1/auth/logout` | Log out the managed provider |
+| `GET /api/v1/auth/status` | Plan usage and limits |
+| `GET /api/v1/auth/status` | Account profile |
 | `GET /api/v1/oauth/region` | Resolve the client region (`mainland-cn` / `global`) |
 
 #### `GET /api/v1/auth`
@@ -202,64 +202,64 @@ Auth snapshot: whether the default model resolves to a usable provider configura
 
 On success, `data` carries `models_ready` (boolean), `providers_count` (number of configured providers), and `managed_provider` (`null`, or `{ name, status }` with `status` one of `authenticated` / `expired` / `revoked` / `unauthenticated`). The global default model alias itself is read from `GET /api/v1/config` (`default_model`), not from this endpoint.
 
-#### `POST /api/v1/oauth/login`
+#### `POST /api/v1/auth/login`
 
 Starts an OAuth device-code login flow for the managed provider; starting a new flow aborts any pending flow for the same provider. When the account is already authenticated, no user interaction is needed and the response reports `authenticated` immediately.
 
 | Parameter | In | Type | Description |
 | --- | --- | --- | --- |
-| `provider` | body | string | Managed provider name. Default `managed:pythinker-code` |
+| `provider` | body | string | Managed provider name. Default `openai` |
 | `region` | body | string | `mainland-cn` or `global`; overrides the region resolution described under `GET /api/v1/oauth/region` for this flow |
 
-On success, `data` has one of two shapes. A pending flow — `{ flow_id, provider, status: "pending", verification_uri, verification_uri_complete, user_code, expires_in, interval, expires_at }`: open `verification_uri_complete` (or `verification_uri` and enter `user_code`), then poll `GET /api/v1/oauth/login` every `interval` seconds until the flow resolves or `expires_at` passes (`expires_in` is the same deadline in seconds). The already-authenticated fast path — `{ flow_id, provider, status: "authenticated" }`.
+On success, `data` has one of two shapes. A pending flow — `{ flow_id, provider, status: "pending", verification_uri, verification_uri_complete, user_code, expires_in, interval, expires_at }`: open `verification_uri_complete` (or `verification_uri` and enter `user_code`), then poll `GET /api/v1/auth/login` every `interval` seconds until the flow resolves or `expires_at` passes (`expires_in` is the same deadline in seconds). The already-authenticated fast path — `{ flow_id, provider, status: "authenticated" }`.
 
-#### `GET /api/v1/oauth/login`
+#### `GET /api/v1/auth/login`
 
 Polls the login flow state for a provider. Returns `null` when no flow has been started.
 
 | Parameter | In | Type | Description |
 | --- | --- | --- | --- |
-| `provider` | query | string | Managed provider name. Default `managed:pythinker-code` |
+| `provider` | query | string | Managed provider name. Default `openai` |
 
 On success, `data` is `null` or a flow snapshot: `{ flow_id, provider, status, verification_uri, verification_uri_complete, user_code, expires_in, expires_at, interval }`, where `status` is `pending` / `authenticated` / `denied` / `expired` / `cancelled`. Once the flow leaves `pending`, `resolved_at` records when it reached its terminal state and `error_message` describes a failed flow.
 
-#### `DELETE /api/v1/oauth/login`
+#### `DELETE /api/v1/auth/login`
 
 Cancels the pending login flow for a provider. When no flow is pending, the call is a no-op that reports the last known state.
 
 | Parameter | In | Type | Description |
 | --- | --- | --- | --- |
-| `provider` | query | string | Managed provider name. Default `managed:pythinker-code` |
+| `provider` | query | string | Managed provider name. Default `openai` |
 
 On success, `data` is `{ cancelled, status }`: `cancelled` is `true` only when a `pending` flow was actually aborted, and `status` is the flow state after the call.
 
-#### `POST /api/v1/oauth/logout`
+#### `POST /api/v1/auth/logout`
 
 Logs out the managed provider: discards the stored OAuth credential, aborts any pending login flow, and removes the managed provider from the configuration. OAuth-managed providers reject manual edit and delete (see `PUT` / `DELETE /api/v1/providers/{provider_id}` below), so log out first to remove one.
 
 | Parameter | In | Type | Description |
 | --- | --- | --- | --- |
-| `provider` | body | string | Managed provider name. Default `managed:pythinker-code` |
+| `provider` | body | string | Managed provider name. Default `openai` |
 
 On success, `data` is `{ logged_out: true, provider }`.
 
-#### `GET /api/v1/oauth/usage`
+#### `GET /api/v1/auth/status`
 
 Plan usage and limits of the managed account, fetched live from the account service. An upstream failure does not fail the envelope — it comes back in-band with `kind: "error"`.
 
 | Parameter | In | Type | Description |
 | --- | --- | --- | --- |
-| `provider` | query | string | Managed provider name. Default `managed:pythinker-code` |
+| `provider` | query | string | Managed provider name. Default `openai` |
 
 On success, `data` is `{ kind: "ok", summary, limits, extra_usage }` or `{ kind: "error", message, status? }`, where `status` is the upstream HTTP status when one exists. In the `ok` shape, `summary` (nullable) is the primary quota row and `limits` lists every quota window; a row is `{ name?, window?, used, limit, reset_at? }` with `window` as `{ duration, unit }`, `unit` one of `minute` / `hour` / `day` / `week`. `extra_usage` (nullable) is the pay-as-you-go wallet: `{ balance_cents, total_cents, monthly_charge_limit_enabled, monthly_charge_limit_cents, monthly_used_cents, currency }`.
 
-#### `GET /api/v1/oauth/userinfo`
+#### `GET /api/v1/auth/status`
 
-Profile of the managed account, with the same in-band `kind: "error"` convention as `GET /api/v1/oauth/usage`.
+Profile of the managed account, with the same in-band `kind: "error"` convention as `GET /api/v1/auth/status`.
 
 | Parameter | In | Type | Description |
 | --- | --- | --- | --- |
-| `provider` | query | string | Managed provider name. Default `managed:pythinker-code` |
+| `provider` | query | string | Managed provider name. Default `openai` |
 
 On success, `data` is `{ kind: "ok", userInfo }` or `{ kind: "error", message, status? }`. `userInfo` always carries `userId`, `nickname`, `status`, `region`, `userLevel`, `userLevelName`, `domain`, and `domainName`, and may add `globalId`, `bio`, `avatar`, `username`, `email`, `phone` (`{ countryCode, number }`), `createdTime`, and `lastLoginTime`.
 
@@ -353,7 +353,7 @@ These endpoints manage the two halves of model configuration — the [providers]
 | `PUT /api/v1/providers/{provider_id}` | Replace a provider |
 | `DELETE /api/v1/providers/{provider_id}` | Delete a provider (204) |
 | `POST /api/v1/providers/{provider_id}:refresh` | Refresh one provider's model metadata |
-| `POST /api/v1/providers:{action}` | Collection actions: `refresh` / `refresh_oauth` / `import_catalog` / `import_registry` |
+| `POST /api/v1/providers:{action}` | Collection actions: `refresh` / `refresh_providers` / `import_catalog` / `import_registry` |
 | `GET /api/v1/catalog/providers` | Browse the models.dev directory (server-proxied) |
 | `GET /api/v1/catalog/providers/{catalog_id}` | Read one directory entry |
 
@@ -450,7 +450,7 @@ Replaces a provider in one save: `type`, `base_url`, and the model list are rewr
 On success, `data` is `{ provider }` with the saved provider item.
 
 - `40001`: a renamed alias id would collide with another provider's alias
-- `40003`: provider is OAuth-managed — log out via `POST /api/v1/oauth/logout` instead
+- `40003`: provider is OAuth-managed — log out via `POST /api/v1/auth/logout` instead
 - `40412`: provider not found
 - `40921`: `new_id` is already taken
 
@@ -464,7 +464,7 @@ Deletes a provider and all of its model aliases; the subagent secondary-model po
 
 On success the server answers 204 with no body — the status line itself reports the delete (see [Response envelope](#response-envelope)).
 
-- `40003`: provider is OAuth-managed — log out via `POST /api/v1/oauth/logout` instead
+- `40003`: provider is OAuth-managed — log out via `POST /api/v1/auth/logout` instead
 - `40412`: provider not found
 
 #### `POST /api/v1/providers/{provider_id}:refresh`
@@ -486,7 +486,7 @@ Refreshes model metadata for every provider. The body is optional and ignored.
 
 On success, `data` is the same refresh report as `POST /api/v1/providers/{provider_id}:refresh` (`changed` / `unchanged` / `failed`).
 
-#### `POST /api/v1/providers:refresh_oauth`
+#### `POST /api/v1/providers:refresh_providers`
 
 Same refresh as `POST /api/v1/providers:refresh`, limited to OAuth-backed providers. The body is optional and ignored.
 

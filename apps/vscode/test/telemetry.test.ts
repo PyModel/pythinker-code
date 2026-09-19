@@ -35,7 +35,7 @@ const host = vi.hoisted(() => {
         telemetry: host.state.configTelemetry,
         defaultModel: host.state.configModel,
         providers: {
-          "managed:pythinker-code": { oauth: { key: "oauth/pythinker-code-global", oauthHost: "https://auth.kimi.ai" } },
+          "openai": { oauth: { key: "oauth/pythinker-code-global", oauthHost: "https://auth.kimi.ai" } },
         },
       },
     })),
@@ -68,8 +68,7 @@ vi.mock("@pymodel/pythinker-telemetry", () => ({
 
 vi.mock("@pymodel/pythinker-code-oauth", () => ({
   createPythinkerDeviceId: host.createPythinkerDeviceId,
-  PYTHINKER_CODE_PROVIDER_NAME: "managed:pythinker-code",
-  PYTHINKER_REGION_PROFILES: {
+    PYTHINKER_REGION_PROFILES: {
     "mainland-cn": { telemetryEndpoint: "https://telemetry-logs.example.com/v1/event" },
     global: { telemetryEndpoint: "https://telemetry-logs.example.net/v1/event" },
   },
@@ -77,9 +76,6 @@ vi.mock("@pymodel/pythinker-code-oauth", () => ({
 }));
 
 vi.mock("@pymodel/pythinker-code-sdk", () => ({
-  PythinkerAuthFacade: class {
-    getCachedAccessToken = host.getCachedAccessToken;
-  },
   loadRuntimeConfigSafe: host.loadRuntimeConfigSafe,
   resolveConfigPath: host.resolveConfigPath,
   resolvePythinkerHome: host.resolvePythinkerHome,

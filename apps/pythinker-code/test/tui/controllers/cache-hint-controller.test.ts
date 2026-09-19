@@ -33,8 +33,8 @@ function makeHost(
     activeDialog: null as string | null,
     appState: {
       model: 'k2',
-      availableModels: { k2: { model: 'kimi-k2', provider: 'managed:pythinker-code' } },
-      availableProviders: { 'managed:pythinker-code': { oauth: { key: 'pythinker-code' } } },
+      availableModels: { k2: { model: 'kimi-k2', provider: 'openai' } },
+      availableProviders: { 'openai': { oauth: { key: 'pythinker-code' } } },
       sessionId: 's1',
       streamingPhase: 'idle',
       isCompacting: false,
@@ -124,7 +124,7 @@ describe('CacheHintController scenario 2 (idle submit)', () => {
     peekMock.mockReturnValue(CONFIG);
     const { host } = makeHost({
       appState: {
-        availableProviders: { 'managed:pythinker-code': {} }, // apiKey form: no oauth
+        availableProviders: { 'openai': {} }, // apiKey form: no oauth
       },
     });
     const controller = new CacheHintController(host);
@@ -141,7 +141,7 @@ describe('CacheHintController scenario 2 (idle submit)', () => {
     // never produce a hint.
     const { host } = makeHost({
       appState: {
-        availableProviders: { 'managed:pythinker-code': {} }, // apiKey form: no oauth
+        availableProviders: { 'openai': {} }, // apiKey form: no oauth
       },
     });
     const controller = new CacheHintController(host);

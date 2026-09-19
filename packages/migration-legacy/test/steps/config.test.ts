@@ -33,16 +33,16 @@ type = "openai_legacy"
 base_url = "https://internal.example.com/v1"
 api_key = "EMPTY"
 
-[models."pythinker-code/kimi-for-coding"]
-provider = "managed:pythinker-code"
+[models."openai/gpt-4o"]
+provider = "openai"
 model = "kimi-for-coding"
 max_context_size = 262144
 
-[providers."managed:pythinker-code"]
+[providers."openai"]
 type = "pythinker"
-base_url = "https://api.kimi.com/coding/v1"
+base_url = "https://api.example.com/v1/v1"
 
-[providers."managed:pythinker-code".oauth]
+[providers."openai".oauth]
 storage = "file"
 key = "oauth/pythinker-code"
 `;
@@ -106,26 +106,26 @@ describe('migrateConfigStep', () => {
     expect(cfg).toContain('merge_all_available_skills = false'); // target value kept
     expect(cfg).not.toContain('telemetry'); // v2 has no telemetry section — dropped
     expect(r.droppedKeys).toContain('telemetry');
-    expect(cfg).toContain('pythinker-code/kimi-for-coding'); // migrated model added
+    expect(cfg).toContain('openai/gpt-4o'); // migrated model added
   });
 
   it('reports a provider conflict and keeps the target provider', async () => {
     await writeFile(
       join(src, 'config.toml'),
-      `[providers."managed:pythinker-code"]
+      `[providers."openai"]
 type = "pythinker"
 base_url = "https://source.example/v1"
 `,
     );
     await writeFile(
       join(tgt, 'config.toml'),
-      `[providers."managed:pythinker-code"]
+      `[providers."openai"]
 type = "pythinker"
 base_url = "https://target.example/v1"
 `,
     );
     const r = await migrateConfigStep({ sourceHome: src, targetHome: tgt });
-    expect(r.configConflicts).toContain('providers.managed:pythinker-code');
+    expect(r.configConflicts).toContain('providers.openai');
     const cfg = await readFile(join(tgt, 'config.toml'), 'utf-8');
     expect(cfg).toContain('https://target.example/v1');
     expect(cfg).not.toContain('https://source.example/v1');
@@ -217,17 +217,17 @@ base_url = "https://target.example/v1"
   it('keeps a model missing optional schema fields under the v2 model schema', async () => {
     // v2's ModelRecordSchema treats `max_context_size` as optional, so a model
     // that v1's ModelAliasSchema rejected now validates and migrates.
-    const cfg = `[providers."managed:pythinker-code"]
+    const cfg = `[providers."openai"]
 type = "pythinker"
-base_url = "https://api.kimi.com/coding/v1"
+base_url = "https://api.example.com/v1/v1"
 
 [models."good-model"]
-provider = "managed:pythinker-code"
+provider = "openai"
 model = "kimi-for-coding"
 max_context_size = 262144
 
 [models."bad-model"]
-provider = "managed:pythinker-code"
+provider = "openai"
 model = "kimi-for-coding"
 `;
     await writeFile(join(src, 'config.toml'), cfg);
@@ -267,13 +267,13 @@ model = "kimi-for-coding"
   });
 
   it('drops a model whose provider has no entry anywhere', async () => {
-    const cfg = `[providers."managed:pythinker-code"]
+    const cfg = `[providers."openai"]
 type = "pythinker"
 api_key = "k"
 base_url = "https://api.example/v1"
 
 [models."good"]
-provider = "managed:pythinker-code"
+provider = "openai"
 model = "m"
 max_context_size = 1000
 
@@ -314,7 +314,7 @@ max_context_size = 1000
     await writeFile(
       join(tgt, 'config.toml'),
       `[models."target-only"]
-provider = "managed:pythinker-code"
+provider = "openai"
 model = "m"
 max_context_size = 1000
 `,
@@ -330,12 +330,12 @@ max_context_size = 1000
   it('drops a migrated model whose provider conflicts with a differing target provider', async () => {
     await writeFile(
       join(src, 'config.toml'),
-      `[providers."managed:pythinker-code"]
+      `[providers."openai"]
 type = "pythinker"
 base_url = "https://legacy.example/v1"
 
 [models."conflicted"]
-provider = "managed:pythinker-code"
+provider = "openai"
 model = "m"
 max_context_size = 1000
 `,
@@ -345,13 +345,13 @@ max_context_size = 1000
     // to the wrong backend.
     await writeFile(
       join(tgt, 'config.toml'),
-      `[providers."managed:pythinker-code"]
+      `[providers."openai"]
 type = "pythinker"
 base_url = "https://target.example/v1"
 `,
     );
     const r = await migrateConfigStep({ sourceHome: src, targetHome: tgt });
-    expect(r.configConflicts).toContain('providers.managed:pythinker-code');
+    expect(r.configConflicts).toContain('providers.openai');
     expect(r.droppedModels).toContain('conflicted');
     const cfg = await readFile(join(tgt, 'config.toml'), 'utf-8');
     expect(cfg).not.toContain('conflicted');

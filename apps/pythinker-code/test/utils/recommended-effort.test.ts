@@ -9,7 +9,7 @@ import type { PythinkerConfig, PythinkerConfigPatch, ModelAlias } from '@pymodel
 import { applyRecommendedEffort } from '#/utils/recommended-effort';
 import type { RecommendedEffortConfig } from '#/utils/recommended-effort-config';
 
-const OFFICIAL_COM = 'https://api.kimi.com/coding/v1';
+const OFFICIAL_COM = 'https://api.example.com/v1/v1';
 const OFFICIAL_AI = 'https://api.kimi.ai/coding/v1';
 const GATEWAY = 'https://gateway.example.com/coding/v1';
 
@@ -18,7 +18,7 @@ const CAMPAIGN = { version: 5, recommended_default_effort: 'max' };
 
 function makeModelEntry(overrides: Partial<ModelAlias> = {}): ModelAlias {
   return {
-    provider: 'managed:pythinker-code',
+    provider: 'openai',
     model: 'k3',
     maxContextSize: 256000,
     supportEfforts: ['low', 'medium', 'high', 'max'],
@@ -29,7 +29,7 @@ function makeModelEntry(overrides: Partial<ModelAlias> = {}): ModelAlias {
 function makeConfig(overrides: Partial<PythinkerConfig> = {}): PythinkerConfig {
   return {
     providers: {
-      'managed:pythinker-code': { type: 'pythinker', baseUrl: OFFICIAL_COM },
+      'openai': { type: 'pythinker', baseUrl: OFFICIAL_COM },
     },
     defaultModel: 'main',
     models: { main: makeModelEntry() },
@@ -70,19 +70,19 @@ async function expectNoStateFile(file: string): Promise<void> {
 describe('applyRecommendedEffort', () => {
   let dir: string;
   let stateFile: string;
-  const savedBaseUrl = process.env['PYTHINKER_CODE_BASE_URL'];
+  const savedBaseUrl = process.env['CUSTOM_API_BASE_URL'];
 
   beforeEach(async () => {
     dir = await mkdtemp(join(tmpdir(), 'pythinker-recommended-effort-'));
     stateFile = join(dir, 'recommended-effort-state.json');
-    delete process.env['PYTHINKER_CODE_BASE_URL'];
+    delete process.env['CUSTOM_API_BASE_URL'];
   });
 
   afterEach(async () => {
     if (savedBaseUrl === undefined) {
-      delete process.env['PYTHINKER_CODE_BASE_URL'];
+      delete process.env['CUSTOM_API_BASE_URL'];
     } else {
-      process.env['PYTHINKER_CODE_BASE_URL'] = savedBaseUrl;
+      process.env['CUSTOM_API_BASE_URL'] = savedBaseUrl;
     }
     await rm(dir, { recursive: true, force: true });
   });
@@ -213,7 +213,7 @@ describe('applyRecommendedEffort', () => {
   it('matches the global official endpoint as well', async () => {
     const h = makeHarness(
       makeConfig({
-        providers: { 'managed:pythinker-code': { type: 'pythinker', baseUrl: OFFICIAL_AI } },
+        providers: { 'openai': { type: 'pythinker', baseUrl: OFFICIAL_AI } },
       }),
       { k3: CAMPAIGN },
       stateFile,
@@ -227,7 +227,7 @@ describe('applyRecommendedEffort', () => {
   it('prefers the entry-level base_url over the provider one, both ways', async () => {
     const entryOfficial = makeHarness(
       makeConfig({
-        providers: { 'managed:pythinker-code': { type: 'pythinker', baseUrl: GATEWAY } },
+        providers: { 'openai': { type: 'pythinker', baseUrl: GATEWAY } },
         models: { main: makeModelEntry({ baseUrl: OFFICIAL_COM }) },
       }),
       { k3: CAMPAIGN },
@@ -251,8 +251,8 @@ describe('applyRecommendedEffort', () => {
 
   it('does nothing for self-hosted endpoints', async () => {
     for (const config of [
-      makeConfig({ providers: { 'managed:pythinker-code': { type: 'pythinker', baseUrl: GATEWAY } } }),
-      makeConfig({ providers: { 'managed:pythinker-code': { type: 'pythinker' } } }),
+      makeConfig({ providers: { 'openai': { type: 'pythinker', baseUrl: GATEWAY } } }),
+      makeConfig({ providers: { 'openai': { type: 'pythinker' } } }),
     ]) {
       const h = makeHarness(config, { k3: CAMPAIGN }, stateFile);
 
@@ -264,8 +264,8 @@ describe('applyRecommendedEffort', () => {
     await expectNoStateFile(stateFile);
   });
 
-  it('treats PYTHINKER_CODE_BASE_URL as the sole official benchmark when set', async () => {
-    process.env['PYTHINKER_CODE_BASE_URL'] = GATEWAY;
+  it('treats CUSTOM_API_BASE_URL as the sole official benchmark when set', async () => {
+    process.env['CUSTOM_API_BASE_URL'] = GATEWAY;
     const h = makeHarness(makeConfig(), { k3: CAMPAIGN }, stateFile);
 
     await h.run();

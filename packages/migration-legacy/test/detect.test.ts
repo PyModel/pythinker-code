@@ -46,7 +46,7 @@ describe('detectMigration', () => {
   it('derives OAuth relogin notices from config oauth refs even without credential files', async () => {
     await writeFile(
       join(src, 'config.toml'),
-      '[providers."managed:pythinker-code"]\ntype = "pythinker"\nbase_url = "https://api.example.test/v1"\n\n[providers."managed:pythinker-code".oauth]\nstorage = "keyring"\nkey = "oauth/pythinker-code"\n',
+      '[providers."openai"]\ntype = "pythinker"\nbase_url = "https://api.example.test/v1"\n\n[providers."openai".oauth]\nstorage = "keyring"\nkey = "oauth/pythinker-code"\n',
     );
 
     const plan = await detectMigration({ sourcePath: src });

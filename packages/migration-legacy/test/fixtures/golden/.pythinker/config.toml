@@ -11,7 +11,7 @@ extra_skill_dirs = ["/work/extra-skills"]
 telemetry = true
 
 [models.golden-main]
-provider = "managed:pythinker-code"
+provider = "openai"
 model = "kimi-for-coding"
 max_context_size = 262144
 capabilities = ["thinking", "image_in"]
@@ -21,12 +21,12 @@ provider = "vllm"
 model = "mooncake-v1"
 max_context_size = 131072
 
-[providers."managed:pythinker-code"]
+[providers."openai"]
 type = "pythinker"
 base_url = "https://api.example.test/coding/v1"
 api_key = "sk-golden-managed"
 
-[providers."managed:pythinker-code".oauth]
+[providers."openai".oauth]
 storage = "file"
 key = "oauth/pythinker-code"
 

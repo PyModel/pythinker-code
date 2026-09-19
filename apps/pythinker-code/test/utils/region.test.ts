@@ -13,8 +13,8 @@ let home: string;
 beforeEach(() => {
   home = mkdtempSync(join(tmpdir(), 'pythinker-region-test-'));
   process.env['PYTHINKER_CODE_HOME'] = home;
-  delete process.env['PYTHINKER_CODE_OAUTH_HOST'];
-  delete process.env['PYTHINKER_OAUTH_HOST'];
+  delete process.env['CUSTOM_OAUTH_HOST'];
+  delete process.env['CUSTOM_OAUTH_HOST'];
   delete process.env['PYTHINKER_CODE_REGION_MARKER'];
   refreshPythinkerRegion();
 });
@@ -43,10 +43,10 @@ describe('currentPythinkerRegion', () => {
     writeFileSync(
       join(home, 'config.toml'),
       [
-        '[providers."managed:pythinker-code"]',
+        '[providers."openai"]',
         'type = "pythinker"',
         '',
-        '[providers."managed:pythinker-code".oauth]',
+        '[providers."openai".oauth]',
         'storage = "file"',
         'key = "oauth/pythinker-code-env-0123456789abcdef"',
         'oauthHost = "https://auth.kimi.ai"',

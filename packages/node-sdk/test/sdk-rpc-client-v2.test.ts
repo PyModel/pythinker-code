@@ -14,8 +14,7 @@ import { join } from 'node:path';
 
 import {
   FileTokenStorage,
-  resolvePythinkerCodeOAuthRef,
-  resolvePythinkerTokenStorageName,
+    resolveOAuthTokenStorageName,
 } from '@pymodel/pythinker-code-oauth';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 

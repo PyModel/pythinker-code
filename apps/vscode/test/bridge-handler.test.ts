@@ -522,7 +522,7 @@ describe("Registered working directories", () => {
 
 describe("Webview config saves (thinking effort persistence parity with the TUI)", () => {
   const effortModel = {
-    provider: "managed:pythinker-code",
+    provider: "openai",
     model: "reasoning",
     supportEfforts: ["low", "high", "max"],
     defaultEffort: "high",

@@ -6,7 +6,6 @@ import {
   bootstrap,
   type ITelemetryAppender,
   ITelemetryService,
-  IOAuthToolkit,
   logSeed,
   resolveConfigPath,
   resolveLoggingConfig,
@@ -107,7 +106,7 @@ describe('server telemetry', () => {
       _serviceBrand: undefined,
       getCachedAccessToken: () => new Promise<undefined>(() => {}),
     } as unknown as IOAuthToolkit;
-    const app = await bootCore(undefined, undefined, [[IOAuthToolkit, auth]]);
+    const app = await bootCore(undefined, undefined);
     const telemetry = await initializeServerTelemetry(app, home as string);
     app.accessor.get(ITelemetryService).track2('session_ended', { reason: 'exit' });
 

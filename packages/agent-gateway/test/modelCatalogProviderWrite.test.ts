@@ -70,14 +70,14 @@ const POOL_TOML = [
 const POOL_DANGLING_DEFAULT_TOML = POOL_TOML.replace('default_model = "k2"', 'default_model = "gpt4o"');
 
 const MANAGED_TOML = [
-  '[providers."managed:pythinker-code"]',
+  '[providers."openai"]',
   'type = "pythinker"',
   'api_key = ""',
   'base_url = "https://api.example.test/v1"',
   'oauth = { storage = "file", key = "oauth/pythinker-code" }',
   '',
-  '[models."managed:pythinker-code/kimi-k2"]',
-  'provider = "managed:pythinker-code"',
+  '[models."openai/kimi-k2"]',
+  'provider = "openai"',
   'model = "kimi-k2"',
   'max_context_size = 131072',
   '',
@@ -493,10 +493,10 @@ describe('server-v2 /api/v1 provider write endpoints', () => {
     await boot(MANAGED_TOML);
     const { body } = await deleteJson<unknown>('/api/v1/providers/managed%3Apythinker-code');
     expect(body?.code).toBe(40003);
-    expect(body?.msg).toContain('/oauth/logout');
+    expect(body?.msg).toContain('/auth/logout');
 
     const providers = await getJson<{ items: Array<{ id: string }> }>('/api/v1/providers');
-    expect(providers.body.data.items.map((p) => p.id)).toEqual(['managed:pythinker-code']);
+    expect(providers.body.data.items.map((p) => p.id)).toEqual(['openai']);
   });
 
   it('maps an unknown provider id to 40412 on delete', async () => {
@@ -802,12 +802,12 @@ describe('server-v2 /api/v1 provider write endpoints', () => {
       REPLACE_BODY,
     );
     expect(body.code).toBe(40003);
-    expect(body.msg).toContain('/oauth/logout');
+    expect(body.msg).toContain('/auth/logout');
 
     const providers = await getJson<{ items: Array<{ id: string }> }>('/api/v1/providers');
-    expect(providers.body.data.items.map((p) => p.id)).toEqual(['managed:pythinker-code']);
+    expect(providers.body.data.items.map((p) => p.id)).toEqual(['openai']);
     const models = await getJson<{ items: Array<{ model: string }> }>('/api/v1/models');
-    expect(models.body.data.items.map((m) => m.model)).toEqual(['managed:pythinker-code/kimi-k2']);
+    expect(models.body.data.items.map((m) => m.model)).toEqual(['openai/kimi-k2']);
   });
 
   it('maps an unknown provider id to 40412 on replace', async () => {

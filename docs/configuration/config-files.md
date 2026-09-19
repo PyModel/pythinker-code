@@ -27,13 +27,13 @@ default_plan_mode = false
 merge_all_available_skills = true
 telemetry = true
 
-[providers."managed:pythinker-code"]
+[providers."openai"]
 type = "pythinker"
-base_url = "https://api.kimi.com/coding/v1"
+base_url = "https://api.example.com/v1/v1"
 api_key = ""
 
 [models."pythinker-code/k3"]
-provider = "managed:pythinker-code"
+provider = "openai"
 model = "k3"
 max_context_size = 1048576
 capabilities = [ "thinking", "always_thinking", "image_in", "video_in", "tool_use" ]
@@ -41,14 +41,14 @@ display_name = "K3"
 support_efforts = [ "low", "high", "max" ]
 default_effort = "max"
 
-[models."pythinker-code/kimi-for-coding"]
-provider = "managed:pythinker-code"
+[models."openai/gpt-4o"]
+provider = "openai"
 model = "kimi-for-coding"
 max_context_size = 262144
 capabilities = [ "thinking", "always_thinking", "image_in", "video_in", "tool_use" ]
 
-[models."pythinker-code/kimi-for-coding-highspeed"]
-provider = "managed:pythinker-code"
+[models."openai/gpt-4o-highspeed"]
+provider = "openai"
 model = "kimi-for-coding-highspeed"
 max_context_size = 262144
 capabilities = [ "thinking", "always_thinking", "image_in", "video_in", "tool_use" ]
@@ -67,11 +67,11 @@ max_running_tasks = 4
 keep_alive_on_exit = false
 
 [services.pymodel_search]
-base_url = "https://api.kimi.com/coding/v1/search"
+base_url = "https://api.example.com/v1/v1/search"
 api_key = ""
 
 [services.pymodel_fetch]
-base_url = "https://api.kimi.com/coding/v1/fetch"
+base_url = "https://api.example.com/v1/v1/fetch"
 api_key = ""
 
 [[permission.rules]]
@@ -172,12 +172,12 @@ max_context_size = 1047576
 Use `[models."<alias>".overrides]` for user overrides that must survive provider-model refreshes. Runtime consumers read the effective value: the override when present, otherwise the top-level field.
 
 ```toml
-[models."pythinker-code/kimi-for-coding"]
-provider = "managed:pythinker-code"
+[models."openai/gpt-4o"]
+provider = "openai"
 model = "kimi-for-coding"
 max_context_size = 262144
 
-[models."pythinker-code/kimi-for-coding".overrides]
+[models."openai/gpt-4o".overrides]
 max_context_size = 131072
 display_name = "Pythinker for Coding (custom)"
 ```
@@ -198,7 +198,7 @@ The minimal configuration is one line. A lone `default_model` is a pool with a s
 
 ```toml
 [secondary_model]
-default_model = "pythinker-code/kimi-for-coding-highspeed"
+default_model = "openai/gpt-4o-highspeed"
 ```
 
 | Field | Type | Default | Description |
@@ -224,11 +224,11 @@ A configured pool (an explicit `models` table or a lone `default_model`) enables
 
 ```toml
 [secondary_model]
-default_model = "pythinker-code/kimi-for-coding-highspeed"
+default_model = "openai/gpt-4o-highspeed"
 [secondary_model.models]
 "pythinker-code/k3" = "Pick this for hard problems. Strong at complex reasoning, algorithm design, deep debugging, math, and systematic challenges."
-"pythinker-code/kimi-for-coding-highspeed" = "Fast but priced higher. Good for latency-sensitive tasks: daily refactoring, code explanation, small edits, and summaries."
-"pythinker-code/kimi-for-coding" = "A balanced coding workhorse. Good for most feature development and code-change tasks."
+"openai/gpt-4o-highspeed" = "Fast but priced higher. Good for latency-sensitive tasks: daily refactoring, code explanation, small edits, and summaries."
+"openai/gpt-4o" = "A balanced coding workhorse. Good for most feature development and code-change tasks."
 ```
 
 A spawn resolves the subagent's model in this order:
@@ -248,7 +248,7 @@ To take the choice away from the main agent and run every subagent on one fixed 
 
 ```toml
 [secondary_model]
-default_model = "pythinker-code/kimi-for-coding-highspeed"
+default_model = "openai/gpt-4o-highspeed"
 force = true
 ```
 
@@ -265,7 +265,7 @@ Binding a pool alias lands the subagent on the bound model's default effort. You
 # "pythinker-code/k3" is provisioned by /login (default: high); this registers
 # a max-effort variant of the same model
 [models.k3-max]
-provider = "managed:pythinker-code"
+provider = "openai"
 model = "k3"
 max_context_size = 1048576
 capabilities = [ "thinking", "always_thinking", "image_in", "video_in", "tool_use" ]
@@ -283,7 +283,7 @@ k3-max = "The same model at max thinking effort. Good for the hardest subtasks."
 
 Two prerequisites:
 
-- The underlying model must declare `support_efforts` (under `managed:pythinker-code` only the k3 family currently declares effort levels).
+- The underlying model must declare `support_efforts` (under `openai` only the k3 family currently declares effort levels).
 - The variant is a standalone entry and does not inherit fields from the entry it points at: copy `capabilities`, `support_efforts`, and the other metadata over in full, otherwise `default_effort` has no effect (it must be a member of `support_efforts`).
 
 Note the asymmetry between the main agent and pool-bound subagents: for the main agent, a configured global `[thinking].effort` overrides the variant's `default_effort`; for subagents the variant's `default_effort` wins over the global value, and only `[secondary_model].default_effort` outranks it. Value and fallback rules follow the [`[models]` entry's `default_effort`](#models).

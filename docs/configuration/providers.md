@@ -23,7 +23,7 @@ All providers communicate with models in streaming mode by default. Capabilities
 
 Prefer not to edit TOML by hand? Type `/provider` in the TUI to open the **provider manager**, where you can interactively add or remove providers.
 
-![The /provider provider manager](../../media/provider-manager.jpg)
+![The /provider provider manager](../media/provider-manager.jpg)
 
 The manager displays providers as a list of entries grouped by source. Navigation:
 

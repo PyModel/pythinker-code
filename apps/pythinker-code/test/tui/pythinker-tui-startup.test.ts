@@ -191,7 +191,7 @@ function createResumeState(overrides: { permissionMode?: string; planMode?: bool
 }
 
 function loginRequiredError(): Error & { readonly code: string } {
-  return Object.assign(new Error('OAuth provider "managed:pythinker-code" requires login.'), {
+  return Object.assign(new Error('OAuth provider "openai" requires login.'), {
     code: 'auth.login_required',
   });
 }
@@ -2086,7 +2086,7 @@ describe('PythinkerTUI startup', () => {
       maxContextTokens: 100,
     });
     expect(harness.track).toHaveBeenCalledWith('login', {
-      provider: 'managed:pythinker-code',
+      provider: 'openai',
       method: 'oauth',
       already_logged_in: false,
     });
@@ -2097,7 +2097,7 @@ describe('PythinkerTUI startup', () => {
     const harness = makeHarness(session, {
       auth: {
         status: vi.fn(async () => ({
-          providers: [{ providerName: 'managed:pythinker-code', hasToken: true }],
+          providers: [{ providerName: 'openai', hasToken: true }],
         })),
         login: vi.fn(async () => {}),
         logout: vi.fn(),
@@ -2113,14 +2113,14 @@ describe('PythinkerTUI startup', () => {
     await handleLoginCommand(driver as any);
 
     expect(harness.auth.login).toHaveBeenCalledWith(
-      'managed:pythinker-code',
+      'openai',
       expect.objectContaining({
         signal: expect.any(AbortSignal),
         onDeviceCode: expect.any(Function),
       }),
     );
     expect(harness.track).toHaveBeenCalledWith('login', {
-      provider: 'managed:pythinker-code',
+      provider: 'openai',
       method: 'oauth',
       already_logged_in: true,
     });
@@ -2151,7 +2151,7 @@ describe('PythinkerTUI startup', () => {
       await handleLoginCommand(driver as any);
 
       expect(harness.auth.login).toHaveBeenCalledWith(
-        'managed:pythinker-code',
+        'openai',
         expect.objectContaining({
           signal: expect.any(AbortSignal),
           onDeviceCode: expect.any(Function),
@@ -2160,7 +2160,7 @@ describe('PythinkerTUI startup', () => {
       expect(warn).toHaveBeenCalledWith(
         'login failed',
         expect.objectContaining({
-          providerName: 'managed:pythinker-code',
+          providerName: 'openai',
           alreadyLoggedIn: false,
           sessionId: 'ses-1',
           error: expect.objectContaining({
@@ -2186,17 +2186,17 @@ describe('PythinkerTUI startup', () => {
           : {
               models: {
                 k2: {
-                  provider: 'managed:pythinker-code',
+                  provider: 'openai',
                   model: 'moonshot-v1',
                   maxContextSize: 100,
                 },
               },
-              providers: { 'managed:pythinker-code': { type: 'pythinker' } },
+              providers: { 'openai': { type: 'pythinker' } },
             },
       ),
       auth: {
         status: vi.fn(async () => ({
-          providers: [{ providerName: 'managed:pythinker-code', hasToken: true }],
+          providers: [{ providerName: 'openai', hasToken: true }],
         })),
         login: vi.fn(async () => {}),
         logout,
@@ -2210,10 +2210,10 @@ describe('PythinkerTUI startup', () => {
     await driver.syncRuntimeState(session);
     harness.track.mockClear();
 
-    vi.mocked(promptLogoutProviderSelection).mockResolvedValue('managed:pythinker-code');
+    vi.mocked(promptLogoutProviderSelection).mockResolvedValue('openai');
     await handleLogoutCommand(driver as any);
 
-    expect(harness.auth.logout).toHaveBeenCalledWith('managed:pythinker-code');
+    expect(harness.auth.logout).toHaveBeenCalledWith('openai');
     expect(session.close).not.toHaveBeenCalled();
     expect(driver.state.appState).toMatchObject({
       sessionId: 'ses-1',
@@ -2224,7 +2224,7 @@ describe('PythinkerTUI startup', () => {
       availableModels: {},
       availableProviders: {},
     });
-    expect(harness.track).toHaveBeenCalledWith('logout', { provider: 'managed:pythinker-code' });
+    expect(harness.track).toHaveBeenCalledWith('logout', { provider: 'openai' });
   });
 
   it('clears the config-derived model when logging out without an active session', async () => {
@@ -2239,18 +2239,18 @@ describe('PythinkerTUI startup', () => {
           : {
               models: {
                 k2: {
-                  provider: 'managed:pythinker-code',
+                  provider: 'openai',
                   model: 'moonshot-v1',
                   maxContextSize: 100,
                 },
               },
-              providers: { 'managed:pythinker-code': { type: 'pythinker' } },
+              providers: { 'openai': { type: 'pythinker' } },
               defaultModel: 'k2',
             },
       ),
       auth: {
         status: vi.fn(async () => ({
-          providers: [{ providerName: 'managed:pythinker-code', hasToken: true }],
+          providers: [{ providerName: 'openai', hasToken: true }],
         })),
         login: vi.fn(async () => {}),
         logout,
@@ -2262,7 +2262,7 @@ describe('PythinkerTUI startup', () => {
     await expect(driver.init()).resolves.toBe(false);
     expect(driver.state.appState.model).toBe('k2');
 
-    vi.mocked(promptLogoutProviderSelection).mockResolvedValue('managed:pythinker-code');
+    vi.mocked(promptLogoutProviderSelection).mockResolvedValue('openai');
     await handleLogoutCommand(driver as any);
 
     expect(harness.createSession).not.toHaveBeenCalled();
@@ -2282,17 +2282,17 @@ describe('PythinkerTUI startup', () => {
     const harness = makeHarness(session, {
       getConfig: vi.fn(async () => ({
         models: {
-          k2: { provider: 'managed:pythinker-code', model: 'moonshot-v1', maxContextSize: 100 },
+          k2: { provider: 'openai', model: 'moonshot-v1', maxContextSize: 100 },
         },
         providers: {
-          'managed:pythinker-code': { type: 'pythinker' },
+          'openai': { type: 'pythinker' },
           openai: { type: 'openai', baseUrl: 'https://api.openai.com/v1' },
         },
       })),
       removeProvider,
       auth: {
         status: vi.fn(async () => ({
-          providers: [{ providerName: 'managed:pythinker-code', hasToken: true }],
+          providers: [{ providerName: 'openai', hasToken: true }],
         })),
         login: vi.fn(async () => {}),
         logout: vi.fn(),
@@ -2324,13 +2324,13 @@ describe('PythinkerTUI startup', () => {
     const harness = makeHarness(session, {
       getConfig: vi.fn(async () => ({
         models: {
-          k2: { provider: 'managed:pythinker-code', model: 'moonshot-v1', maxContextSize: 100 },
+          k2: { provider: 'openai', model: 'moonshot-v1', maxContextSize: 100 },
         },
-        providers: { 'managed:pythinker-code': { type: 'pythinker' } },
+        providers: { 'openai': { type: 'pythinker' } },
       })),
       auth: {
         status: vi.fn(async () => ({
-          providers: [{ providerName: 'managed:pythinker-code', hasToken: false }],
+          providers: [{ providerName: 'openai', hasToken: false }],
         })),
         login: vi.fn(async () => {}),
         logout: vi.fn(),
@@ -2341,10 +2341,10 @@ describe('PythinkerTUI startup', () => {
 
     await expect(driver.init()).resolves.toBe(false);
 
-    vi.mocked(promptLogoutProviderSelection).mockResolvedValue('managed:pythinker-code');
+    vi.mocked(promptLogoutProviderSelection).mockResolvedValue('openai');
     await handleLogoutCommand(driver as any);
 
-    expect(harness.auth.logout).toHaveBeenCalledWith('managed:pythinker-code');
+    expect(harness.auth.logout).toHaveBeenCalledWith('openai');
   });
 
   it('starts TUI without replaying when --continue needs OAuth login', async () => {

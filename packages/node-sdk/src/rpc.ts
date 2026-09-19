@@ -81,6 +81,7 @@ export interface SessionPromptRpcInput {
   readonly sessionId: string;
   readonly input: PromptInput;
   readonly promptId?: string;
+  readonly expertTalkArmId?: string;
 }
 
 export interface SessionPromptWithSkillsRpcInput extends SessionPromptRpcInput {

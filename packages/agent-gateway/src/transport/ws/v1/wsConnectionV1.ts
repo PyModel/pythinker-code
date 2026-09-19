@@ -32,6 +32,8 @@ import {
   type TargetSubscription,
 } from './sessionEventBroadcaster';
 
+export const WS_MAX_PAYLOAD_BYTES = 4 << 20;
+
 const DEFAULT_MAX_BUFFER_SIZE = 1000;
 
 const DEFAULT_HEARTBEAT_INTERVAL_MS = 10_000;

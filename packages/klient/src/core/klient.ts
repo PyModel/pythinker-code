@@ -113,12 +113,12 @@ export function createKlientFromChannel(
     session(sessionId: string): SessionHandle {
       const scope: ScopeRef = { sessionId };
       return {
-        ...createSessionFacade(call, sessionId, clientId),
+        ...createSessionFacade(call, sessionId),
         events: makeHub<SessionEventPayloads>(scope, sessionEvents),
         agent(agentId: string): AgentHandle {
           const agentScope: ScopeRef = { sessionId, agentId };
           return {
-            ...createAgentFacade(call, agentScope, clientId),
+            ...createAgentFacade(call, agentScope),
             events: makeHub<AgentEventPayloads>(agentScope, agentEvents),
           };
         },

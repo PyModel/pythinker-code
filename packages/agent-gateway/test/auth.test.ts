@@ -153,11 +153,11 @@ describe('server-v2 GET /api/v1/auth', () => {
   it('surfaces managed_provider.unauthenticated without a cached token', async () => {
     await boot(
       [
-        '[providers."managed:pythinker-code"]',
+        '[providers."openai"]',
         'type = "pythinker"',
         'base_url = "https://example.test/v1"',
         '',
-        '[providers."managed:pythinker-code".oauth]',
+        '[providers."openai".oauth]',
         'storage = "file"',
         'key = "oauth/pythinker-code"',
         '',
@@ -165,7 +165,7 @@ describe('server-v2 GET /api/v1/auth', () => {
     );
     const summary = await getAuth();
     expect(summary.managed_provider).toEqual({
-      name: 'managed:pythinker-code',
+      name: 'openai',
       status: 'unauthenticated',
     });
     expect(summary.models_ready).toBe(false);

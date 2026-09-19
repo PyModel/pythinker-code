@@ -322,7 +322,7 @@ function makeHarness(session = makeSession(), overrides: Record<string, unknown>
     getExperimentalFeatures: vi.fn(async () => []),
     auth: {
       status: vi.fn(async () => ({
-        providers: [{ providerName: 'managed:pythinker-code', hasToken: true }],
+        providers: [{ providerName: 'openai', hasToken: true }],
       })),
       login: vi.fn(),
       logout: vi.fn(),
@@ -1505,7 +1505,7 @@ describe('PythinkerTUI message flow', () => {
   const thinkingModelsConfig = () => ({
     models: {
       k2: {
-        provider: 'managed:pythinker-code',
+        provider: 'openai',
         model: 'kimi-k2',
         maxContextSize: 100,
         capabilities: ['thinking'],
@@ -2233,7 +2233,7 @@ command = "vim"
   it('prints the sign-up page and GitHub Issues links when not signed in', async () => {
     const { driver, harness } = await makeDriver(makeSession());
     harness.auth.status.mockResolvedValueOnce({
-      providers: [{ providerName: 'managed:pythinker-code', hasToken: false }],
+      providers: [{ providerName: 'openai', hasToken: false }],
     });
     const feedbackDriver = driver as unknown as FeedbackDriver;
     vi.mocked(promptFeedbackInput).mockImplementation(async () => ({ value: 'useful feedback' }));
@@ -6347,7 +6347,7 @@ command = "vim"
     const sendQueued = vi.fn();
     driver.state.appState.availableModels = {
       'k2-cheap': {
-        provider: 'managed:pythinker-code',
+        provider: 'openai',
         model: 'kimi-k2-cheap',
         maxContextSize: 100_000,
         displayName: 'Kimi K2 Cheap',
@@ -7547,14 +7547,14 @@ command = "vim"
       getConfig: vi.fn(async () => ({
         models: {
           k2: {
-            provider: 'managed:pythinker-code',
+            provider: 'openai',
             model: 'kimi-k2',
             maxContextSize: 100,
             displayName: 'Kimi K2',
             capabilities: ['thinking'],
           },
           turbo: {
-            provider: 'managed:pythinker-code',
+            provider: 'openai',
             model: 'pythinker-turbo',
             maxContextSize: 100,
             displayName: 'Pythinker Turbo',
@@ -7603,14 +7603,14 @@ command = "vim"
       getConfig: vi.fn(async () => ({
         models: {
           k2: {
-            provider: 'managed:pythinker-code',
+            provider: 'openai',
             model: 'kimi-k2',
             maxContextSize: 100,
             displayName: 'Kimi K2',
             capabilities: ['thinking'],
           },
           turbo: {
-            provider: 'managed:pythinker-code',
+            provider: 'openai',
             model: 'pythinker-turbo',
             maxContextSize: 100,
             displayName: 'Pythinker Turbo',
@@ -7661,7 +7661,7 @@ command = "vim"
       getConfig: vi.fn(async () => ({
         models: {
           k2: {
-            provider: 'managed:pythinker-code',
+            provider: 'openai',
             model: 'kimi-k2',
             maxContextSize: 100,
             capabilities: ['thinking'],
@@ -7669,7 +7669,7 @@ command = "vim"
             defaultEffort: 'ultra',
           },
           turbo: {
-            provider: 'managed:pythinker-code',
+            provider: 'openai',
             model: 'pythinker-turbo',
             maxContextSize: 100,
             capabilities: ['thinking'],
@@ -7708,7 +7708,7 @@ command = "vim"
       getConfig: vi.fn(async () => ({
         models: {
           k2: {
-            provider: 'managed:pythinker-code',
+            provider: 'openai',
             model: 'kimi-k2',
             maxContextSize: 100,
             displayName: 'Kimi K2',
@@ -7756,7 +7756,7 @@ command = "vim"
       getConfig: vi.fn(async () => ({
         models: {
           k2: {
-            provider: 'managed:pythinker-code',
+            provider: 'openai',
             model: 'kimi-k2',
             maxContextSize: 100,
             displayName: 'Kimi K2',
@@ -7806,7 +7806,7 @@ command = "vim"
       getConfig: vi.fn(async () => ({
         models: {
           k2: {
-            provider: 'managed:pythinker-code',
+            provider: 'openai',
             model: 'kimi-k2',
             maxContextSize: 100,
             displayName: 'Kimi K2',
@@ -7815,7 +7815,7 @@ command = "vim"
             defaultEffort: 'high',
           },
           turbo: {
-            provider: 'managed:pythinker-code',
+            provider: 'openai',
             model: 'pythinker-turbo',
             maxContextSize: 100,
             displayName: 'Turbo',
@@ -7866,7 +7866,7 @@ command = "vim"
       getConfig: vi.fn(async () => ({
         models: {
           k2: {
-            provider: 'managed:pythinker-code',
+            provider: 'openai',
             model: 'kimi-k2',
             maxContextSize: 100,
             displayName: 'Kimi K2',
@@ -7949,7 +7949,7 @@ command = "vim"
       getConfig: vi.fn(async () => ({
         models: {
           k2: {
-            provider: 'managed:pythinker-code',
+            provider: 'openai',
             model: 'kimi-k2',
             maxContextSize: 100,
             displayName: 'Old Kimi K2',
@@ -7967,7 +7967,7 @@ command = "vim"
       tui.setAppState({
         availableModels: {
           k2: {
-            provider: 'managed:pythinker-code',
+            provider: 'openai',
             model: 'kimi-k2',
             maxContextSize: 100,
             displayName: 'Fresh Kimi K2',
@@ -7975,7 +7975,7 @@ command = "vim"
           },
         },
       });
-      return { changed: [], unchanged: ['managed:pythinker-code'], failed: [] };
+      return { changed: [], unchanged: ['openai'], failed: [] };
     });
     (
       tui.authFlow as unknown as {
@@ -8001,7 +8001,7 @@ command = "vim"
       getConfig: vi.fn(async () => ({
         models: {
           k2: {
-            provider: 'managed:pythinker-code',
+            provider: 'openai',
             model: 'kimi-k2',
             maxContextSize: 100,
             displayName: 'Kimi K2',
@@ -8043,14 +8043,14 @@ command = "vim"
     const { driver } = await makeDriver();
     const selection = runModelSelector(driver as any, {
       alpha: {
-        provider: 'managed:pythinker-code',
+        provider: 'openai',
         model: 'pythinker-alpha',
         maxContextSize: 100,
         displayName: 'Pythinker Alpha',
         capabilities: ['thinking'],
       },
       turbo: {
-        provider: 'managed:pythinker-code',
+        provider: 'openai',
         model: 'pythinker-turbo',
         maxContextSize: 100,
         displayName: 'Pythinker Turbo',
@@ -8494,14 +8494,14 @@ describe('/model status displayName override', () => {
       getConfig: vi.fn(async () => ({
         models: {
           k2: {
-            provider: 'managed:pythinker-code',
+            provider: 'openai',
             model: 'kimi-k2',
             maxContextSize: 100,
             displayName: 'Kimi K2',
             capabilities: ['thinking'],
           },
           turbo: {
-            provider: 'managed:pythinker-code',
+            provider: 'openai',
             model: 'pythinker-turbo',
             maxContextSize: 100,
             displayName: 'Remote Turbo',

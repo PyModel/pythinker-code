@@ -1,4 +1,4 @@
-import type { SkillSummary } from '@pymodel/agent-core';
+import type { SkillSummary } from '@pymodel/agent-core-v2/features/skill/catalog/types';
 
 export interface SkillSlashCommand {
   readonly name: string;

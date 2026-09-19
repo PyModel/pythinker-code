@@ -62,13 +62,13 @@ describe('resolveModelsDevImport', () => {
       resolveModelsDevImport({
         id: 'kimi-for-coding',
         npm: '@ai-sdk/anthropic',
-        api: 'https://api.kimi.com/coding/v1',
+        api: 'https://api.example.com/v1/v1',
       }),
     ).toEqual({
       kind: 'ok',
       wire: 'anthropic',
       guessed: false,
-      baseUrl: 'https://api.kimi.com/coding',
+      baseUrl: 'https://api.example.com/v1',
     });
     expect(
       resolveModelsDevImport({

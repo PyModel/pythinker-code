@@ -14,8 +14,6 @@ export const OPEN_PLATFORM_MODEL_FIELDS: ReadonlySet<string> = new Set([
   'defaultEffort',
 ]);
 
-export const MANAGED_PYTHINKER_MODEL_FIELDS: ReadonlySet<string> = OPEN_PLATFORM_MODEL_FIELDS;
-
 export const CUSTOM_REGISTRY_MODEL_FIELDS: ReadonlySet<string> = new Set([
   'provider',
   'model',

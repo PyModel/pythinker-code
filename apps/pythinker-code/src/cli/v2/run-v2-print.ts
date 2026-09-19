@@ -30,7 +30,6 @@ import {
   IEventBus,
   IEventDispatcher,
   IHostFileSystem,
-  IOAuthToolkit,
   ISessionIndex,
   ISessionManager,
   ITelemetryService,
@@ -65,7 +64,6 @@ import {
 import {
   createPythinkerDefaultHeaders,
   createPythinkerDeviceId,
-  PYTHINKER_CODE_PROVIDER_NAME,
 } from '@pymodel/pythinker-code-oauth';
 import {
   initializeTelemetry,
@@ -181,8 +179,6 @@ export async function runV2Print(
     },
     [...logSeed(logging)],
   );
-  const auth = app.accessor.get(IOAuthToolkit);
-
   const configService = app.accessor.get(IConfigService);
   await configService.ready;
   // Print-mode config defaults (task timeouts / loop step cap / subagent
@@ -258,8 +254,7 @@ export async function runV2Print(
           appName: CLI_USER_AGENT_PRODUCT,
           uiMode: PROMPT_UI_MODE,
           model: opts.model ?? defaultModel,
-          getAccessToken: async () => (await auth.getCachedAccessToken()) ?? null,
-        }),
+                  }),
       );
       // No `first_launch` on the v1 client: the v2 side already tracks it via
       // `telemetryService.track2` below, so tracking here would double-send.
@@ -271,9 +266,7 @@ export async function runV2Print(
         uiMode: PROMPT_UI_MODE,
         model: opts.model ?? defaultModel,
         endpoint: () => currentPythinkerProfile().telemetryEndpoint,
-        getAccessToken: async () =>
-          (await auth.getCachedAccessToken(PYTHINKER_CODE_PROVIDER_NAME)) ?? null,
-        onUnexpectedError: (error) => console.error('[unexpected]', error),
+                onUnexpectedError: (error) => console.error('[unexpected]', error),
       });
     }
 

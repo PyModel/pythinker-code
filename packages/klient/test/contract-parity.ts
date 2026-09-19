@@ -77,7 +77,6 @@ import type {
 import type { ISessionTitleService } from '@pymodel/agent-core-v2/session/sessionTitle/sessionTitle';
 import type {
   AuthStatus,
-  IOAuthService,
 } from '@pymodel/agent-core-v2/app/auth/auth';
 import type { IBootstrapService } from '@pymodel/agent-core-v2/app/bootstrap/bootstrap';
 import type {
@@ -338,12 +337,7 @@ type AssertWireToEngine<TSchema extends z.ZodType, TEngine> = [z.infer<TSchema>]
   : never;
 
 // Wire shapes, derived from the engine interfaces.
-type OAuthFlowStart = Awaited<ReturnType<IOAuthService['startLogin']>>;
-type OAuthFlowSnapshot = NonNullable<ReturnType<IOAuthService['getFlow']>>;
-type OAuthLoginCancelResponse = Awaited<ReturnType<IOAuthService['cancelLogin']>>;
-type OAuthLogoutResponse = Awaited<ReturnType<IOAuthService['logout']>>;
 type RefreshOAuthProviderModelsResponse = Awaited<
-  ReturnType<IOAuthService['refreshOAuthProviderModels']>
 >;
 /** String-enum value union (`'user' | 'memory'`). */
 type ConfigTargetValues = `${ConfigTarget}`;
@@ -378,13 +372,9 @@ const _capabilityStatus: AssertWire<typeof capabilityStatusSchema, CapabilitySta
 const _providerConfig: AssertWire<typeof providerConfigSchema, ProviderConfig> = true;
 
 // auth.ts
-const _oAuthFlowStart: AssertWire<typeof oAuthFlowStartSchema, OAuthFlowStart> = true;
-const _oAuthFlowSnapshot: AssertWire<typeof oAuthFlowSnapshotSchema, OAuthFlowSnapshot> = true;
 const _oAuthLoginCancelResponse: AssertWire<
   typeof oAuthLoginCancelResponseSchema,
-  OAuthLoginCancelResponse
 > = true;
-const _oAuthLogoutResponse: AssertWire<typeof oAuthLogoutResponseSchema, OAuthLogoutResponse> =
   true;
 const _authStatus: AssertWire<typeof authStatusSchema, AuthStatus> = true;
 const _refreshOAuthProviderModelsResponse: AssertWire<

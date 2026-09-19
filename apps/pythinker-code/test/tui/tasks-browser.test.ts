@@ -82,7 +82,7 @@ function makeProps(overrides: Partial<TasksBrowserProps> = {}): TasksBrowserProp
 
 const CATALOG = {
   'k2-cheap': {
-    provider: 'managed:pythinker-code',
+    provider: 'openai',
     model: 'kimi-k2-cheap',
     displayName: 'Kimi K2 Cheap',
   },

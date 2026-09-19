@@ -17,8 +17,6 @@ export {
   type ValidatePythinkerConfigTomlInput,
 } from '#/config-rpc';
 export { SDKRpcClientBase } from '#/rpc';
-export { PythinkerForCodingProvider } from '#/pythinker-code-model-provider';
-export type { PythinkerForCodingProviderOptions } from '#/pythinker-code-model-provider';
 export { removeProviderFromConfig } from '#/v2/config-mapper';
 
 export {
@@ -118,17 +116,6 @@ export type {
   MediaKind,
 } from '@pymodel/agent-core-v2/agent/media/mediaRef';
 
-export type {
-  PythinkerAuthCompleteFeedbackUploadInput,
-  PythinkerAuthCompleteFeedbackUploadPart,
-  PythinkerAuthCreateFeedbackUploadUrlInput,
-  PythinkerAuthCreateFeedbackUploadUrlOk,
-  PythinkerAuthCreateFeedbackUploadUrlResult,
-  PythinkerAuthFeedbackUploadPart,
-  PythinkerAuthLoginResult,
-  PythinkerAuthLogoutResult,
-  PythinkerAuthSubmitFeedbackInput,
-} from '#/auth';
 
 export * from '#/events';
 export type * from '#/types';

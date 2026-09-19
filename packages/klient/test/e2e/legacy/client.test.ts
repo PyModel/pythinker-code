@@ -430,7 +430,7 @@ describe('DaemonClient session action helpers', () => {
   it('model catalog helpers call the catalog and action-suffix routes', async () => {
     const log = createCaseLogger('client helper: model catalog');
     const calls: FetchCall[] = [];
-    const model = testModel({ model: 'pythinker-code/kimi-for-coding' });
+    const model = testModel({ model: 'openai/gpt-4o' });
     const provider = testProvider({ id: 'pythinker', models: [model.model] });
     const client = new DaemonClient({
       baseUrl: 'http://server.example.test',
@@ -706,7 +706,7 @@ function testMessage(overrides: Partial<Message> = {}): Message {
 function testSessionStatus(): SessionStatusResponse {
   return {
     busy: false,
-    model: 'pythinker-code/kimi-for-coding',
+    model: 'openai/gpt-4o',
     thinking_level: 'off',
     permission: 'manual',
     plan_mode: false,

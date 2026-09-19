@@ -1638,9 +1638,9 @@ describe('SessionEventBroadcaster', () => {
       bc.addGlobalTarget(globalView.target);
 
       const changed = [
-        { provider_id: 'managed:pythinker-code', provider_name: 'Pythinker Code', added: 2, removed: 1 },
+        { provider_id: 'openai', provider_name: 'Pythinker Code', added: 2, removed: 1 },
       ];
-      const failed = [{ provider: 'managed:pythinker-code', reason: 'network disabled' }];
+      const failed = [{ provider: 'openai', reason: 'network disabled' }];
       eventBus.emit({
         type: 'event.model_catalog.changed',
         payload: { changed, unchanged: ['openai-main'], failed },
@@ -1711,7 +1711,7 @@ describe('SessionEventBroadcaster', () => {
       });
 
       const changed = [
-        { provider_id: 'managed:pythinker-code', provider_name: 'Pythinker Code', added: 1, removed: 0 },
+        { provider_id: 'openai', provider_name: 'Pythinker Code', added: 1, removed: 0 },
       ];
       eventBus.emit({
         type: 'event.model_catalog.changed',
@@ -3161,10 +3161,10 @@ describe('sessionEventMessageSchema', () => {
         envelope({
           type: 'event.model_catalog.changed',
           changed: [
-            { provider_id: 'managed:pythinker-code', provider_name: 'Pythinker Code', added: 2, removed: 1 },
+            { provider_id: 'openai', provider_name: 'Pythinker Code', added: 2, removed: 1 },
           ],
           unchanged: ['openai-main'],
-          failed: [{ provider: 'managed:pythinker-code', reason: 'network disabled' }],
+          failed: [{ provider: 'openai', reason: 'network disabled' }],
         }),
       ).success,
     ).toBe(true);
@@ -3205,7 +3205,7 @@ describe('sessionEventMessageSchema', () => {
           type: 'event.model_catalog.changed',
           changed: [],
           unchanged: [],
-          failed: [{ provider: 'managed:pythinker-code', reason: 42 }],
+          failed: [{ provider: 'openai', reason: 42 }],
         }),
       ).success,
     ).toBe(false);

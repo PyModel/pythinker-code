@@ -29,7 +29,7 @@ const FETCH_TIMEOUT_MS = 5000;
     envs); otherwise the active region profile, so a global login's token is
     not sent to the mainland-China deployment. */
 function clientConfigsBaseUrl(): string {
-  return (process.env['PYTHINKER_CODE_BASE_URL'] ?? currentPythinkerProfile().baseUrl).replace(/\/+$/, '');
+  return currentPythinkerProfile().siteBase.replace(/\/+$/, '');
 }
 
 /** Cache entries are partitioned by region so a login switch never serves
@@ -39,7 +39,7 @@ function cacheKeyFor(name: string): string {
 }
 
 export interface ClientConfigFetchOptions {
-  /** Managed OAuth token; sent as Bearer when present. The endpoint is
+  /** Optional bearer token; sent when present. The endpoint is
    *  public, so anonymous fetches work too. */
   readonly accessToken?: string;
   /** Test hook. */

@@ -448,3 +448,14 @@ export interface AddAdditionalDirResult {
 export type ResumedSessionState = Pick<ResumeSessionResult, 'sessionMetadata' | 'agents' | 'warning'>;
 
 export interface ResumedSessionSummary extends SessionSummary, ResumedSessionState { }
+
+export type {
+  ExpertTalkArmV1,
+  ExpertTalkConfigV1,
+  ExpertTalkListRunsOptions,
+  ExpertTalkPairV1,
+  ExpertTalkRunPageV1,
+  ExpertTalkRunV1,
+  ExpertTalkStartResult,
+  ExpertTalkStatusV1,
+} from '@pymodel/agent-core-v2/session/expertTalk/expertTalk';

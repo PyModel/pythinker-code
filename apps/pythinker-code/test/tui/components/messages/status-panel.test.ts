@@ -24,7 +24,7 @@ describe('status panel report lines', () => {
       maxContextTokens: 10000,
       availableModels: {
         k2: {
-          provider: 'managed:pythinker-code',
+          provider: 'openai',
           model: 'kimi-k2',
           maxContextSize: 10000,
           displayName: 'Kimi K2',

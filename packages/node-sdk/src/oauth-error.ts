@@ -33,7 +33,7 @@ export function mapOAuthTokenError(error: unknown, providerName: string): Pythin
   if (error instanceof OAuthConnectionError || error instanceof RetryableRefreshError) {
     return new PythinkerError(
       ErrorCodes.PROVIDER_CONNECTION_ERROR,
-      `OAuth provider "${providerName}" failed to fetch an access token: ${error.message}`,
+      `OAuth provider "${providerName}" failed to fetch an access token: ${error instanceof Error ? error.message : String(error)}`,
       { cause: error },
     );
   }

@@ -1,332 +1,137 @@
+import { join } from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
+
 import {
-  loadRuntimeConfigSafe,
-  readConfigFile,
-  readConfigFileForUpdate,
-  writeConfigFile,
-  type PythinkerConfig,
-  type OAuthRef,
-} from '#/config/index';
-import {
-  applyManagedPythinkerCodeConfig,
-  applyManagedPythinkerCodeLogoutConfig,
-  PYTHINKER_CODE_PROVIDER_NAME,
-  PythinkerOAuthToolkit,
-  pythinkerRegionLoginHosts,
-  resolvePythinkerCodeLoginAuth,
-  resolvePythinkerCodeRuntimeAuth,
-  type AuthManagedUsageResult,
-  type AuthStatus,
-  type BearerTokenProvider,
-  type FetchCompleteFeedbackUploadResult,
-  type FetchFeedbackUploadError,
-  type FetchSubmitFeedbackResult,
-  type PythinkerHostIdentity,
-  type PythinkerOAuthLoginOptions,
-  type PythinkerRegion,
-  type ManagedPythinkerConfigShape,
-  type OAuthRefreshOutcome,
+  FileTokenStorage,
+  refreshKimiOAuthToken,
+  refreshMiniMaxOAuthToken,
+  resolveOAuthTokenStorageName,
+  type TokenInfo,
 } from '@pymodel/pythinker-code-oauth';
 
-import { mapOAuthTokenError } from '#/oauth-error';
+import type { OAuthRef } from '#/config/index';
 
-export interface PythinkerAuthSubmitFeedbackInput {
-  readonly content: string;
-  readonly sessionId: string;
-  readonly version: string;
-  readonly os: string;
-  readonly model: string | null;
-  readonly contact?: string;
-  readonly info?: Record<string, unknown>;
+const REFRESH_BUFFER_SECONDS = 5 * 60;
+
+export interface BearerTokenProvider {
+  getAccessToken(options?: { readonly force?: boolean }): Promise<string>;
 }
 
-export interface PythinkerAuthCreateFeedbackUploadUrlInput {
-  readonly feedbackId: number;
-  readonly filename: string;
-  readonly size: number;
-  readonly sha256: string;
-}
-
-export interface PythinkerAuthCompleteFeedbackUploadPart {
-  readonly partNumber: number;
-  readonly etag: string;
-}
-
-export interface PythinkerAuthCompleteFeedbackUploadInput {
-  readonly uploadId: number;
-  readonly parts: readonly PythinkerAuthCompleteFeedbackUploadPart[];
-}
-
-export interface PythinkerAuthFeedbackUploadPart {
-  readonly partNumber: number;
-  readonly url: string;
-  readonly method: string;
-  readonly size: number;
-}
-
-export interface PythinkerAuthCreateFeedbackUploadUrlOk {
-  readonly kind: 'ok';
-  readonly uploadId: number;
-  readonly parts: readonly PythinkerAuthFeedbackUploadPart[];
-}
-
-export type PythinkerAuthCreateFeedbackUploadUrlResult =
-  | PythinkerAuthCreateFeedbackUploadUrlOk
-  | FetchFeedbackUploadError;
-
-export type PythinkerAuthLoginOptions = Omit<PythinkerOAuthLoginOptions, 'provisionConfig'> & {
-  /**
-   * Explicit region choice from the login UI ('mainland-cn' / 'global'). Maps
-   * to the region profile's OAuth/API hosts — including for 'mainland-cn', so
-   * switching back overrides a persisted global login. Yields to
-   * `PYTHINKER_CODE_OAUTH_HOST` / `PYTHINKER_CODE_BASE_URL` env overrides and to
-   * explicit `oauthHost` / `baseUrl` options.
-   */
-  readonly region?: PythinkerRegion;
-};
-
-export interface PythinkerAuthLoginResult {
-  readonly providerName: string;
-  readonly ok: true;
-  readonly defaultModel: string;
-  readonly defaultThinking: boolean;
-  readonly configPath?: string | undefined;
-}
-
-export interface PythinkerAuthLogoutResult {
-  readonly providerName: string;
-  readonly ok: true;
-}
+export type OAuthTokenProviderResolver = (
+  providerName: string,
+  oauthRef: OAuthRef | undefined,
+) => BearerTokenProvider | undefined;
 
 export interface PythinkerAuthFacadeOptions {
   readonly homeDir: string;
-  readonly configPath: string;
-  readonly identity?: PythinkerHostIdentity | undefined;
-  readonly onConfigUpdated?: ((config: PythinkerConfig) => void) | undefined;
-  readonly onRefresh?: ((outcome: OAuthRefreshOutcome) => void) | undefined;
+  readonly configPath?: string;
+  readonly identity?: unknown;
+  readonly onConfigUpdated?: ((config: unknown) => void) | undefined;
+  readonly onRefresh?: ((outcome: import('@pymodel/pythinker-code-oauth').OAuthRefreshOutcome) => void) | undefined;
 }
 
-type SDKManagedConfig = PythinkerConfig & ManagedPythinkerConfigShape;
-
 export class PythinkerAuthFacade {
-  private readonly toolkit: PythinkerOAuthToolkit<SDKManagedConfig>;
+  private readonly storage: FileTokenStorage;
+  private readonly refreshInflight = new Map<string, Promise<TokenInfo>>();
 
-  constructor(private readonly options: PythinkerAuthFacadeOptions) {
-    this.toolkit = new PythinkerOAuthToolkit<SDKManagedConfig>({
-      homeDir: options.homeDir,
-      identity: options.identity,
-      onRefresh: options.onRefresh,
-      configAdapter: {
-        configPath: options.configPath,
-        // Write-path base read: strict (a salvaged base would drop the user's
-        // broken-but-fixable sections on rewrite) with an actionable message.
-        read: () => readConfigFileForUpdate(options.configPath) as SDKManagedConfig,
-        write: async (config) => {
-          await writeConfigFile(options.configPath, config);
-        },
-        apply: applyManagedPythinkerCodeConfig,
-        remove: applyManagedPythinkerCodeLogoutConfig,
-      },
-    });
+  constructor(options: PythinkerAuthFacadeOptions) {
+    this.storage = new FileTokenStorage(join(options.homeDir, 'credentials'));
   }
 
-  async status(providerName?: string | undefined): Promise<AuthStatus> {
-    return this.toolkit.status(providerName, this.resolveRuntimeManagedAuth(providerName).oauthRef);
+  async getCachedAccessToken(oauthRef: OAuthRef): Promise<string | undefined> {
+    if (oauthRef.storage !== 'file') return undefined;
+    const token = await this.storage.load(resolveOAuthTokenStorageName(oauthRef.key));
+    if (token === undefined || token.accessToken.trim().length === 0) return undefined;
+    if (token.expiresAt <= Math.floor(Date.now() / 1000)) return undefined;
+    return token.accessToken;
   }
 
-  async login(
-    providerName: string | undefined = PYTHINKER_CODE_PROVIDER_NAME,
-    options: PythinkerAuthLoginOptions = {},
-  ): Promise<PythinkerAuthLoginResult> {
-    const { region, ...loginOptions } = options;
-    const regionHosts = region === undefined ? undefined : pythinkerRegionLoginHosts(region);
-    const auth = this.resolveManagedAuth(providerName);
-    const loginAuth = resolvePythinkerCodeLoginAuth({
-      configuredBaseUrl: auth.baseUrl,
-      configuredOAuthRef: auth.oauthRef,
-      requestedBaseUrl: loginOptions.baseUrl ?? regionHosts?.baseUrl,
-      requestedOAuthHost: loginOptions.oauthHost ?? regionHosts?.oauthHost,
-    });
-    const result = await this.toolkit.login(providerName, {
-      ...loginOptions,
-      baseUrl: loginAuth.baseUrl,
-      oauthHost: loginAuth.oauthHost,
-      oauthRef: loginOptions.oauthRef ?? loginAuth.oauthRef,
-      provisionConfig: true,
-    });
-    if (result.provision === undefined) {
-      throw new Error('Pythinker auth login did not provision model config.');
-    }
-    const updated = readConfigFile(this.options.configPath);
-    this.options.onConfigUpdated?.(updated);
-    return {
-      providerName: result.providerName,
-      ok: true,
-      defaultModel: result.provision.defaultModel,
-      defaultThinking: result.provision.defaultThinking,
-      configPath: result.provision.configPath,
-    };
-  }
-
-  async logout(providerName?: string | undefined): Promise<PythinkerAuthLogoutResult> {
-    const result = await this.toolkit.logout(
-      providerName,
-      this.resolveRuntimeManagedAuth(providerName).oauthRef,
-    );
-    const updated = readConfigFile(this.options.configPath);
-    this.options.onConfigUpdated?.(updated);
-    return {
-      providerName: result.providerName,
-      ok: result.ok,
-    };
-  }
-
-  async getManagedUsage(providerName?: string | undefined): Promise<AuthManagedUsageResult> {
-    const auth = this.resolveRuntimeManagedAuth(providerName);
-    return this.toolkit.getManagedUsage(providerName, {
-      oauthRef: auth.oauthRef,
-      baseUrl: auth.baseUrl,
-    });
-  }
-
-  async submitFeedback(
-    input: PythinkerAuthSubmitFeedbackInput,
-    providerName?: string | undefined,
-  ): Promise<FetchSubmitFeedbackResult> {
-    const auth = this.resolveRuntimeManagedAuth(providerName);
-    return this.toolkit.submitFeedback(
-      {
-        session_id: input.sessionId,
-        content: input.content,
-        version: input.version,
-        os: input.os,
-        model: input.model,
-        contact: input.contact,
-        info: input.info,
-      },
-      providerName,
-      {
-        oauthRef: auth.oauthRef,
-        baseUrl: auth.baseUrl,
-      },
-    );
-  }
-
-  async createFeedbackUploadUrl(
-    input: PythinkerAuthCreateFeedbackUploadUrlInput,
-    providerName?: string | undefined,
-  ): Promise<PythinkerAuthCreateFeedbackUploadUrlResult> {
-    const auth = this.resolveRuntimeManagedAuth(providerName);
-    const result = await this.toolkit.createFeedbackUploadUrl(
-      {
-        file_hash: input.sha256,
-        file_name: input.filename,
-        file_size: input.size,
-        feedback_id: input.feedbackId,
-      },
-      providerName,
-      {
-        oauthRef: auth.oauthRef,
-        baseUrl: auth.baseUrl,
-      },
-    );
-    if (result.kind !== 'ok') return result;
-    return {
-      kind: 'ok',
-      uploadId: result.upload_id,
-      parts: result.parts.map((part) => ({
-        partNumber: part.part_number,
-        url: part.url,
-        method: part.method,
-        size: part.size,
-      })),
-    };
-  }
-
-  async completeFeedbackUpload(
-    input: PythinkerAuthCompleteFeedbackUploadInput,
-    providerName?: string | undefined,
-  ): Promise<FetchCompleteFeedbackUploadResult> {
-    const auth = this.resolveRuntimeManagedAuth(providerName);
-    return this.toolkit.completeFeedbackUpload(
-      {
-        upload_id: input.uploadId,
-        parts: input.parts.map((part) => ({ part_number: part.partNumber, etag: part.etag })),
-      },
-      providerName,
-      {
-        oauthRef: auth.oauthRef,
-        baseUrl: auth.baseUrl,
-      },
-    );
-  }
-
-  async getCachedAccessToken(
-    providerName?: string,
-    oauthRef?: OAuthRef | undefined,
-  ): Promise<string | undefined> {
-    return this.toolkit.getCachedAccessToken(
-      providerName,
-      this.runtimeOAuthRef(providerName, oauthRef),
-    );
-  }
-
-  readonly resolveOAuthTokenProvider = (
-    providerName: string,
-    oauthRef?: OAuthRef | undefined,
-  ): BearerTokenProvider => {
-    const provider = this.toolkit.tokenProvider(
-      providerName,
-      this.runtimeOAuthRef(providerName, oauthRef),
-    );
+  readonly resolveOAuthTokenProvider: OAuthTokenProviderResolver = (providerName, oauthRef) => {
+    if (oauthRef === undefined || oauthRef.storage !== 'file') return undefined;
     return {
       getAccessToken: async (options) => {
+        const storageName = resolveOAuthTokenStorageName(oauthRef.key);
+        const token = await this.storage.load(storageName);
+        if (token === undefined || token.accessToken.trim().length === 0) {
+          throw new Error(`login required for provider ${providerName}`);
+        }
+        const nowSeconds = Math.floor(Date.now() / 1000);
+        const force = options?.force === true;
+        if (!force && token.expiresAt - nowSeconds > REFRESH_BUFFER_SECONDS) return token.accessToken;
+        if (token.refreshToken.trim().length === 0 || token.metadata?.['provider'] === undefined) {
+          if (!force && token.expiresAt > nowSeconds) return token.accessToken;
+          throw new Error(`login required for provider ${providerName}`);
+        }
         try {
-          return await provider.getAccessToken(options);
+          return (await this.refreshSingleFlight(storageName, token)).accessToken;
         } catch (error) {
-          // Classify OAuth token failures into the public PythinkerError protocol;
-          // unrecognized errors are rethrown raw (see mapOAuthTokenError).
-          throw mapOAuthTokenError(error, providerName) ?? error;
+          const current = await this.storage.load(storageName);
+          if (
+            !force &&
+            isDeepStrictEqual(current, token) &&
+            token.expiresAt > Math.floor(Date.now() / 1000)
+          ) {
+            return token.accessToken;
+          }
+          throw error;
         }
       },
     };
   };
 
-  private resolveManagedAuth(providerName?: string | undefined): {
-    readonly oauthRef?: OAuthRef | undefined;
-    readonly baseUrl?: string | undefined;
-  } {
-    const name = providerName ?? PYTHINKER_CODE_PROVIDER_NAME;
-    // Read path: token/status resolution must work off a degraded config
-    // instead of failing the session when an unrelated section is broken.
-    // Write paths (the toolkit's configAdapter.read) stay strict.
-    const config = loadRuntimeConfigSafe(this.options.configPath).config;
-    const provider = config.providers[name];
-    return {
-      oauthRef: provider?.oauth,
-      baseUrl: provider?.baseUrl,
-    };
+  private refreshSingleFlight(storageName: string, token: TokenInfo): Promise<TokenInfo> {
+    const existing = this.refreshInflight.get(storageName);
+    if (existing !== undefined) return existing;
+    const refresh = this.refreshToken(token)
+      .then(async (next) => {
+        if (!(await this.storage.saveIfUnchanged(storageName, token, next))) {
+          throw new Error(
+            'OAuth credential changed during refresh. Retry with the current configuration.',
+          );
+        }
+        return next;
+      })
+      .finally(() => {
+        if (this.refreshInflight.get(storageName) === refresh) this.refreshInflight.delete(storageName);
+      });
+    this.refreshInflight.set(storageName, refresh);
+    return refresh;
   }
 
-  private resolveRuntimeManagedAuth(providerName?: string | undefined): {
-    readonly oauthRef: OAuthRef;
-    readonly baseUrl?: string | undefined;
-  } {
-    const auth = this.resolveManagedAuth(providerName);
-    return resolvePythinkerCodeRuntimeAuth({
-      configuredBaseUrl: auth.baseUrl,
-      configuredOAuthRef: auth.oauthRef,
-    });
-  }
-
-  private runtimeOAuthRef(
-    providerName: string | undefined,
-    oauthRef?: OAuthRef | undefined,
-  ): OAuthRef | undefined {
-    if ((providerName ?? PYTHINKER_CODE_PROVIDER_NAME) !== PYTHINKER_CODE_PROVIDER_NAME) return oauthRef;
-    const auth = this.resolveManagedAuth(providerName);
-    return resolvePythinkerCodeRuntimeAuth({
-      configuredBaseUrl: auth.baseUrl,
-      configuredOAuthRef: oauthRef ?? auth.oauthRef,
-    }).oauthRef;
+  private async refreshToken(token: TokenInfo): Promise<TokenInfo> {
+    const provider = token.metadata?.['provider'];
+    if (provider === 'kimi' || provider === 'kimi-coding') {
+      const deviceId = token.metadata?.['device_id'];
+      if (deviceId === undefined || deviceId.trim().length === 0) {
+        throw new Error('Kimi OAuth credential is missing device_id metadata.');
+      }
+      const refreshed = await refreshKimiOAuthToken(token.refreshToken, deviceId);
+      return {
+        accessToken: refreshed.accessToken,
+        refreshToken: refreshed.refreshToken,
+        expiresAt: Math.floor(refreshed.expiresAtMs / 1000),
+        expiresIn: Math.max(1, Math.floor((refreshed.expiresAtMs - Date.now()) / 1000)),
+        scope: refreshed.scope,
+        tokenType: refreshed.tokenType,
+        metadata: token.metadata,
+      };
+    }
+    if (provider === 'minimax' || provider === 'minimax-coding') {
+      const region = token.metadata?.['region'];
+      if (region !== 'global' && region !== 'cn') {
+        throw new Error('MiniMax OAuth credential has invalid region metadata.');
+      }
+      const refreshed = await refreshMiniMaxOAuthToken(region, token.refreshToken);
+      return {
+        accessToken: refreshed.accessToken,
+        refreshToken: refreshed.refreshToken,
+        expiresAt: Math.floor(refreshed.expiresAtMs / 1000),
+        expiresIn: Math.max(1, Math.floor((refreshed.expiresAtMs - Date.now()) / 1000)),
+        scope: refreshed.scope,
+        tokenType: refreshed.tokenType,
+        metadata: token.metadata,
+      };
+    }
+    throw new Error(`OAuth provider "${provider ?? 'unknown'}" does not support token refresh.`);
   }
 }

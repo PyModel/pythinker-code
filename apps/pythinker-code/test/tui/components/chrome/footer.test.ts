@@ -111,7 +111,7 @@ describe('FooterComponent', () => {
 
   it('shows the effort for an effort-capable model', () => {
     const effortModel: ModelAlias = {
-      provider: 'managed:pythinker-code',
+      provider: 'openai',
       model: 'kimi-k2',
       maxContextSize: 262144,
       supportEfforts: ['low', 'high', 'max'],
@@ -129,7 +129,7 @@ describe('FooterComponent', () => {
 
   it('does not show the effort for a legacy boolean model', () => {
     const plainModel: ModelAlias = {
-      provider: 'managed:pythinker-code',
+      provider: 'openai',
       model: 'kimi-k2',
       maxContextSize: 262144,
       capabilities: ['thinking'],
@@ -158,7 +158,7 @@ describe('FooterComponent', () => {
 describe('FooterComponent overrides', () => {
   it('shows the overridden effort list', () => {
     const effortModelWithOverride: ModelAlias = {
-      provider: 'managed:pythinker-code',
+      provider: 'openai',
       model: 'kimi-k2',
       maxContextSize: 262144,
       supportEfforts: ['low', 'high', 'max'],
@@ -183,7 +183,7 @@ describe('FooterComponent displayName override', () => {
       model: 'kimi-k2',
       availableModels: {
         'kimi-k2': {
-          provider: 'managed:pythinker-code',
+          provider: 'openai',
           model: 'kimi-k2',
           maxContextSize: 262144,
           displayName: 'Remote Name',

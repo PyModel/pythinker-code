@@ -503,7 +503,7 @@ describe('MigrationScreenComponent — result phase', () => {
             sourceUnreadable: false,
             deviceIdCopied: false,
             siblingContents: {
-              providers: ['openai', 'managed:pythinker-code'],
+              providers: ['openai', 'openai'],
               models: ['gpt4'],
               hooks: 3,
             },

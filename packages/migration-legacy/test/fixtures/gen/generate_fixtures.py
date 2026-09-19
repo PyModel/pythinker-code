@@ -75,7 +75,7 @@ def build_config() -> Config:
         merge_all_available_skills=True,
         extra_skill_dirs=["/work/extra-skills"],
         providers={
-            "managed:pythinker-code": LLMProvider(
+            "openai": LLMProvider(
                 type="pythinker",
                 base_url="https://api.example.test/coding/v1",
                 api_key="sk-golden-managed",
@@ -100,7 +100,7 @@ def build_config() -> Config:
         },
         models={
             "golden-main": LLMModel(
-                provider="managed:pythinker-code",
+                provider="openai",
                 model="kimi-for-coding",
                 max_context_size=262144,
                 capabilities={"image_in", "thinking"},

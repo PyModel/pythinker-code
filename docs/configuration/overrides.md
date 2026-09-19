@@ -14,7 +14,7 @@ Environment variables fall into three categories by function and cannot be colla
 
 1. **Locating the config file**: `PYTHINKER_CODE_HOME` sets the data root directory, making the config file path `$PYTHINKER_CODE_HOME/config.toml`. This step runs before all other resolution and is not a fallback for individual parameters.
 2. **Runtime switches**: A small set of variables like `PYTHINKER_DISABLE_TELEMETRY` directly shut down the corresponding subsystem. Even if `config.toml` has `telemetry = true`, a truthy value for this variable disables telemetry. The semantics are "additionally disable", not "ordinary override".
-3. **Runtime endpoints and diagnostics**: Variables like `PYTHINKER_CODE_OAUTH_HOST`, `PYTHINKER_CODE_BASE_URL`, and `PYTHINKER_LOG_LEVEL` are read when the OAuth or logging subsystems initialize. For the full list, see [Environment variables](./env-vars.md).
+3. **Runtime endpoints and diagnostics**: Variables like `CUSTOM_OAUTH_HOST`, `CUSTOM_API_BASE_URL`, and `PYTHINKER_LOG_LEVEL` are read when the OAuth or logging subsystems initialize. For the full list, see [Environment variables](./env-vars.md).
 
 ## Priority for ordinary runtime parameters
 

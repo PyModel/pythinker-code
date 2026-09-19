@@ -1490,7 +1490,7 @@ describe('replayBackgroundProjection', () => {
       [agentTask({ model: 'k2-cheap', thinkingEffort: 'low' })],
       {
         'k2-cheap': {
-          provider: 'managed:pythinker-code',
+          provider: 'openai',
           model: 'kimi-k2-cheap',
           displayName: 'Kimi K2 Cheap',
         },

@@ -1,4 +1,4 @@
-import type { ModelAlias } from '@pymodel/agent-core';
+import type { ModelAlias } from '@pymodel/pythinker-code-oauth';
 
 export type ThinkingAvailability = 'toggle' | 'always-on' | 'unsupported';
 

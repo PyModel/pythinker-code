@@ -75,7 +75,8 @@
     "test": "pnpm -w run build:packages && vitest run",
     "e2e": "pnpm -w run build:packages && PYTHINKER_E2E=1 vitest run test/e2e",
     "e2e:real": "pnpm -w run build:packages && PYTHINKER_E2E_REAL=1 vitest run test/e2e/real-llm-smoke.e2e.test.ts",
-    "postinstall": "node scripts/postinstall.mjs"
+    "postinstall": "node scripts/postinstall.mjs",
+    "prepack": "node scripts/check-web-assets.mjs"
   },
   "optionalDependencies": {
     "@mariozechner/clipboard": "^0.3.9",

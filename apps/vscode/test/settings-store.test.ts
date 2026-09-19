@@ -39,16 +39,16 @@ import {
 import { useChatStore } from "../webview-ui/src/stores/chat.store";
 
 const MODELS = [
-  { id: "plain", name: "Plain", provider: "managed:pythinker-code", capabilities: [] },
+  { id: "plain", name: "Plain", provider: "openai", capabilities: [] },
   {
     id: "reasoning",
     name: "Reasoning",
-    provider: "managed:pythinker-code",
+    provider: "openai",
     capabilities: ["thinking"],
     support_efforts: ["low", "high"],
     default_effort: "high",
   },
-  { id: "always", name: "Always", provider: "managed:pythinker-code", capabilities: ["always_thinking"] },
+  { id: "always", name: "Always", provider: "openai", capabilities: ["always_thinking"] },
 ];
 
 beforeEach(() => {
@@ -145,7 +145,7 @@ describe("Webview model settings persistence", () => {
 describe("Webview model metadata", () => {
   it("keeps same-named models in separate provider groups", () => {
     const groups = groupModelsByProvider([
-      { id: "pythinker/shared", name: "Shared", provider: "managed:pythinker-code", capabilities: [] },
+      { id: "pythinker/shared", name: "Shared", provider: "openai", capabilities: [] },
       { id: "proxy/shared", name: "Shared", provider: "company-proxy", capabilities: [] },
     ]);
 
@@ -155,7 +155,7 @@ describe("Webview model metadata", () => {
       models: group.models.map((model) => model.id),
     }))).toEqual([
       { provider: "company-proxy", label: "company-proxy", models: ["proxy/shared"] },
-      { provider: "managed:pythinker-code", label: "Pythinker Code", models: ["pythinker/shared"] },
+      { provider: "openai", label: "Pythinker Code", models: ["pythinker/shared"] },
     ]);
   });
 
@@ -192,7 +192,7 @@ describe("Webview model metadata", () => {
 
   it("requires Pythinker login when the default model uses the managed provider", () => {
     expect(requiresManagedProviderLogin([
-      { id: "pythinker/model", name: "Pythinker", provider: "managed:pythinker-code", capabilities: [] },
+      { id: "pythinker/model", name: "Pythinker", provider: "openai", capabilities: [] },
     ], "pythinker/model", false)).toBe(true);
   });
 });
@@ -401,7 +401,7 @@ describe("Webview thinking effort parity with the TUI", () => {
       {
         id: "reasoning",
         name: "Reasoning",
-        provider: "managed:pythinker-code",
+        provider: "openai",
         capabilities: ["thinking"],
         support_efforts: ["low", "high", "max"],
         default_effort: "low",
@@ -421,7 +421,7 @@ describe("Webview thinking effort parity with the TUI", () => {
       {
         id: "reasoning",
         name: "Reasoning",
-        provider: "managed:pythinker-code",
+        provider: "openai",
         capabilities: ["thinking"],
         support_efforts: ["low", "high"],
       },
@@ -438,7 +438,7 @@ describe("Webview thinking effort parity with the TUI", () => {
     {
       id: "seeded",
       name: "Seeded",
-      provider: "managed:pythinker-code",
+      provider: "openai",
       capabilities: ["thinking"],
       support_efforts: ["low", "medium"],
       default_effort: "medium",
@@ -446,7 +446,7 @@ describe("Webview thinking effort parity with the TUI", () => {
     {
       id: "max-default",
       name: "Max Default",
-      provider: "managed:pythinker-code",
+      provider: "openai",
       capabilities: ["thinking"],
       support_efforts: ["low", "max"],
       default_effort: "max",
@@ -496,7 +496,7 @@ describe("Webview thinking effort parity with the TUI", () => {
       {
         id: "max-default-b",
         name: "Max Default B",
-        provider: "managed:pythinker-code",
+        provider: "openai",
         capabilities: ["thinking"],
         support_efforts: ["low", "max"],
         default_effort: "max",

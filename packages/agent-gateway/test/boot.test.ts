@@ -12,7 +12,6 @@ import {
   IFileSystemStorageService,
   IHostRequestHeaders,
   InMemoryStorageService,
-  IOAuthToolkit,
   ITelemetryService,
   noopTelemetryService,
 } from '@pymodel/agent-core-v2';
@@ -81,7 +80,7 @@ describe('server-v2 boot', () => {
     expect(typeof authBody.data.models_ready).toBe('boolean');
     expect(authBody.data.providers_count).toBeGreaterThanOrEqual(0);
 
-    const oauthPoll = await authedFetch(server, base, '/api/v1/oauth/login');
+    const oauthPoll = await authedFetch(server, base, '/api/v1/auth/login');
     expect(oauthPoll.status).toBe(200);
     const oauthBody = await oauthPoll.json() as { code: number; data: null };
     expect(oauthBody.code).toBe(0);
@@ -221,8 +220,7 @@ describe('server-v2 boot', () => {
       telemetry: true,
       seeds: [
         [IFileSystemStorageService, storage],
-        [IOAuthToolkit, auth],
-      ],
+              ],
     });
     const core = server.core;
     core.accessor.get(ITelemetryService).track2('session_ended', { reason: 'exit' });

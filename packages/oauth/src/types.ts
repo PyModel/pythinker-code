@@ -1,15 +1,3 @@
-/**
- * OAuth type definitions for managed providers.
- *
- * Only Device Code Flow (RFC 8628) is supported, against
- * `https://auth.kimi.com`.
- *
- * Wire format (on disk / server) uses snake_case to match the server
- * contract; in-process types use camelCase per TS convention.
- */
-
-export type OAuthStorageBackend = 'file';
-
 /** A persisted OAuth token bundle. */
 export interface TokenInfo {
   readonly accessToken: string;
@@ -20,46 +8,9 @@ export interface TokenInfo {
   readonly tokenType: string;
   /** Original expires_in from server response (seconds). */
   readonly expiresIn: number;
+  /** Provider-specific refresh metadata. Never contains access/refresh tokens. */
   readonly metadata?: Readonly<Record<string, string>>;
 }
-
-/** RFC 8628 §3.2 device authorization response. */
-export interface DeviceAuthorization {
-  readonly userCode: string;
-  readonly deviceCode: string;
-  readonly verificationUri: string;
-  readonly verificationUriComplete: string;
-  /** Seconds until device_code expires (server-reported). May be null. */
-  readonly expiresIn: number | null;
-  /** Polling interval in seconds. */
-  readonly interval: number;
-}
-
-/** OAuth flow endpoint + client configuration. */
-export interface OAuthFlowConfig {
-  /** Logical provider name for storage (e.g. "pythinker-code"). */
-  readonly name: string;
-  /** Base URL of the OAuth server, no trailing slash. */
-  readonly oauthHost: string;
-  /** Client ID registered with the OAuth provider. */
-  readonly clientId: string;
-}
-
-/** Device identification for `X-Msh-*` headers. */
-export type DeviceHeaders = {
-  readonly 'X-Msh-Platform': string;
-  readonly 'X-Msh-Version': string;
-  readonly 'X-Msh-Device-Name': string;
-  readonly 'X-Msh-Device-Model': string;
-  readonly 'X-Msh-Os-Version': string;
-  readonly 'X-Msh-Device-Id': string;
-};
-
-/** Headers sent with OAuth HTTP requests: the `X-Msh-*` device set, plus a
-    product User-Agent when the caller carries a host identity — the OAuth
-    host needs both to tell client families (platform) and runtime surfaces
-    (UA suffix) apart. */
-export type OAuthRequestHeaders = Record<string, string>;
 
 /** JSON wire format for token persistence (snake_case, Python-compatible). */
 export interface TokenInfoWire {
@@ -72,6 +23,14 @@ export interface TokenInfoWire {
   readonly metadata?: Readonly<Record<string, string>>;
 }
 
+function sanitizeMetadata(value: unknown): Readonly<Record<string, string>> | undefined {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const entries = Object.entries(value as Record<string, unknown>).filter(
+    (entry): entry is [string, string] => typeof entry[1] === 'string',
+  );
+  return entries.length > 0 ? Object.fromEntries(entries) : undefined;
+}
+
 export function tokenToWire(token: TokenInfo): TokenInfoWire {
   return {
     access_token: token.accessToken,
@@ -80,6 +39,7 @@ export function tokenToWire(token: TokenInfo): TokenInfoWire {
     scope: token.scope,
     token_type: token.tokenType,
     expires_in: token.expiresIn,
+    metadata: token.metadata,
   };
 }
 
@@ -91,5 +51,6 @@ export function tokenFromWire(wire: Partial<TokenInfoWire>): TokenInfo {
     scope: wire.scope ?? '',
     tokenType: wire.token_type ?? '',
     expiresIn: typeof wire.expires_in === 'number' ? wire.expires_in : 0,
+    metadata: sanitizeMetadata(wire.metadata),
   };
 }

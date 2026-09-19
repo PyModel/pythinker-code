@@ -158,140 +158,27 @@ export type { OAuthTokenTransactionOptions } from './oauth-token-transaction';
 export { OAuthTokenTransaction } from './oauth-token-transaction';
 
 export {
+  PYTHINKER_REGION_PROFILES,
+  pythinkerCdnContentUrl,
+  pythinkerRegionProfile,
+  pythinkerRegionSchema,
+  resolvePythinkerRegion,
+} from './region';
+export type { PythinkerRegion, PythinkerRegionProfile, ResolvePythinkerRegionOptions } from './region';
+
+export {
   DeviceCodeTimeoutError,
   OAuthConnectionError,
   OAuthError,
   OAuthUnauthorizedError,
   RetryableRefreshError,
 } from './errors';
-export type { DevicePollResult, RefreshOptions } from './oauth';
-export { pollDeviceToken, refreshAccessToken, requestDeviceAuthorization } from './oauth';
-export type { LoginOptions, OAuthManagerOptions, OAuthRefreshOutcome } from './oauth-manager';
-export { OAuthManager, defaultRefreshThreshold, newInstanceId } from './oauth-manager';
-export { PYTHINKER_CODE_FLOW_CONFIG } from './constants';
-export {
-  PYTHINKER_REGION_MARKER_FILENAME,
-  PYTHINKER_REGION_PROFILES,
-  pythinkerCdnContentUrl,
-  pythinkerRegionLoginHosts,
-  pythinkerRegionProfile,
-  pythinkerRegionSchema,
-  resolvePythinkerRegion,
-} from './region';
-export type { PythinkerRegion, PythinkerRegionProfile, ResolvePythinkerRegionOptions } from './region';
-export {
-  applyManagedApiKeyProviderModels,
-  applyManagedPythinkerCodeLogoutConfig,
-  applyManagedPythinkerCodeConfig,
-  clearManagedPythinkerCodeConfig,
-  fetchManagedPythinkerCodeModels,
-  pythinkerCodeEnvBaseUrl,
-  pythinkerCodeEnvOAuthHost,
-  PYTHINKER_CODE_OAUTH_KEY,
-  PYTHINKER_CODE_PLATFORM_ID,
-  PYTHINKER_CODE_PROVIDER_NAME,
-  ManagedPythinkerCodeModelsAuthError,
-  provisionManagedPythinkerCodeConfig,
-  resolvePythinkerCodeLoginAuth,
-  resolvePythinkerCodeOAuthKey,
-  resolvePythinkerCodeOAuthRef,
-  resolvePythinkerCodeRuntimeAuth,
-  toManagedModelAlias,
-} from './managed-pythinker-code';
-export type {
-  FetchManagedPythinkerCodeModelsOptions,
-  ManagedPythinkerCodeApplyResult,
-  ManagedPythinkerCodeCleanupResult,
-  ManagedPythinkerCodeProtocol,
-  ManagedPythinkerEnv,
-  ManagedPythinkerLoginAuth,
-  ManagedPythinkerCodeModelInfo,
-  ManagedPythinkerCodeProvisionResult,
-  ManagedPythinkerConfigAdapter,
-  ManagedPythinkerConfigShape,
-  ManagedPythinkerOAuthRef,
-  ManagedPythinkerOAuthRefInput,
-  ManagedPythinkerRuntimeAuth,
-  ProvisionManagedPythinkerCodeConfigOptions,
-} from './managed-pythinker-code';
-export {
-  fetchManagedUserInfo,
-  pythinkerCodeUserInfoUrl,
-  managedUserInfoPhoneSchema,
-  managedUserInfoResultSchema,
-  managedUserInfoSchema,
-  parseManagedUserInfoPayload,
-} from './managed-userinfo';
-export type {
-  FetchManagedUserInfoError,
-  FetchManagedUserInfoResult,
-  ManagedUserInfo,
-  ManagedUserInfoPhone,
-  ManagedUserInfoResult,
-} from './managed-userinfo';
-export {
-  fetchManagedUsage,
-  formatDuration,
-  isManagedPythinkerCode,
-  isManagedPythinkerCodeBaseUrl,
-  pythinkerCodeBaseUrl,
-  pythinkerCodeUsageUrl,
-  parseManagedUsagePayload,
-} from './managed-usage';
-export type {
-  FetchManagedUsageError,
-  FetchManagedUsageResult,
-  ManagedQuota,
-  ManagedQuotaEntry,
-  ManagedQuotaUsages,
-  BoosterWalletInfo,
-} from './managed-usage';
-export { fetchChatTitle, pythinkerCodeToolsUrl } from './managed-tools';
-export type {
-  FetchChatTitleError,
-  FetchChatTitleOk,
-  FetchChatTitleResult,
-} from './managed-tools';
-export { fetchSubmitFeedback, pythinkerCodeFeedbackUrl } from './managed-feedback';
-export type {
-  FetchSubmitFeedbackError,
-  FetchSubmitFeedbackOk,
-  FetchSubmitFeedbackResult,
-  SubmitFeedbackBody,
-} from './managed-feedback';
-export {
-  fetchCompleteFeedbackUpload,
-  fetchCreateFeedbackUploadUrl,
-  pythinkerCodeFeedbackUploadCompleteUrl,
-  pythinkerCodeFeedbackUploadUrl,
-} from './managed-feedback-upload';
-export type {
-  CompleteFeedbackUploadBody,
-  CreateFeedbackUploadUrlBody,
-  CreateFeedbackUploadUrlResponse,
-  FetchCompleteFeedbackUploadResult,
-  FetchCreateFeedbackUploadUrlResult,
-  FetchFeedbackUploadError,
-} from './managed-feedback-upload';
-export { PythinkerOAuthToolkit, resolvePythinkerTokenStorageName } from './toolkit';
-export type {
-  AuthManagedUserInfoResult,
-  AuthManagedUsageResult,
-  AuthProviderStatus,
-  AuthStatus,
-  BearerTokenProvider,
-  PythinkerOAuthLoginOptions,
-  PythinkerOAuthLoginResult,
-  PythinkerOAuthLogoutResult,
-  PythinkerOAuthTokenRef,
-  PythinkerOAuthToolkitOptions,
-} from './toolkit';
 
-export {
-  managedUsageResultSchema,
-  managedQuotaSchema,
-  managedQuotaEntrySchema,
-  managedQuotaUsagesSchema,
-  boosterWalletInfoSchema,
-  type ManagedUsageResult,
-} from './managed-usage';
+export type BearerTokenProvider = {
+  getAccessToken(options?: { readonly force?: boolean; readonly signal?: AbortSignal }): Promise<string>;
+};
+
+export type OAuthRefreshOutcome =
+  | { readonly kind: 'refreshed' }
+  | { readonly kind: 'cached' }
+  | { readonly kind: 'failed'; readonly error: unknown };

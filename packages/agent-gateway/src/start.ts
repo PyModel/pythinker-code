@@ -10,7 +10,6 @@ import {
   IConfigService,
   IEventService,
   IMcpOAuthService,
-  IOAuthService,
   IProviderDiscoveryService,
   ISessionIndex,
   ISessionIndexMirror,
@@ -28,7 +27,6 @@ import {
 } from '@pymodel/agent-core-v2';
 import {
   createPythinkerDefaultHeaders,
-  pythinkerRegionProfile,
   type PythinkerHostIdentity,
 } from '@pymodel/pythinker-code-oauth';
 import { createAsyncApiDocument } from './protocol/asyncapi';
@@ -443,7 +441,7 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
       const configured = opts.pluginMarketplaceUrl ?? process.env['PYTHINKER_CODE_PLUGIN_MARKETPLACE_URL'];
       if (configured !== undefined) return () => configured;
       return () =>
-        `${pythinkerRegionProfile(core.accessor.get(IOAuthService).getRegion()).cdnBase}/plugins/marketplace.json`;
+        'https://code.pythinker.com/pythinker-code/plugins/marketplace.json';
     })(),
     pluginMarketplaceIsDefault:
       opts.pluginMarketplaceUrl === undefined &&

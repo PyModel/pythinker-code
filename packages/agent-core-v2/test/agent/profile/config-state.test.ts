@@ -73,7 +73,7 @@ describe('ConfigState model capabilities', () => {
         },
       },
       models: {
-        'pythinker-code/kimi-for-coding': {
+        'openai/gpt-4o': {
           provider: 'pythinker',
           model: 'kimi-for-coding',
           maxContextSize: 1_000_000,
@@ -83,10 +83,10 @@ describe('ConfigState model capabilities', () => {
       },
     };
 
-    profile.update({ modelAlias: 'pythinker-code/kimi-for-coding' });
+    profile.update({ modelAlias: 'openai/gpt-4o' });
 
-    expect(profile.getModel()).toBe('pythinker-code/kimi-for-coding');
-    expect(ctx.modelResolver.get('pythinker-code/kimi-for-coding').name).toBe('kimi-for-coding');
+    expect(profile.getModel()).toBe('openai/gpt-4o');
+    expect(ctx.modelResolver.get('openai/gpt-4o').name).toBe('kimi-for-coding');
     expect(profile.getModelCapabilities()).toMatchObject({
       image_in: true,
       video_in: true,
@@ -107,7 +107,7 @@ describe('ConfigState model capabilities', () => {
         },
       },
       models: {
-        'pythinker-code/kimi-for-coding': {
+        'openai/gpt-4o': {
           provider: 'pythinker',
           model: 'kimi-for-coding',
           maxContextSize: 1_000_000,
@@ -115,7 +115,7 @@ describe('ConfigState model capabilities', () => {
         },
       },
     };
-    profile.update({ modelAlias: 'pythinker-code/kimi-for-coding' });
+    profile.update({ modelAlias: 'openai/gpt-4o' });
     const before = ctx.allEvents.filter((entry) => entry.event === 'agent.status.updated').length;
 
     profile.republishStatus();
@@ -123,7 +123,7 @@ describe('ConfigState model capabilities', () => {
     const statuses = ctx.allEvents.filter((entry) => entry.event === 'agent.status.updated');
     expect(statuses).toHaveLength(before + 1);
     expect(statuses.at(-1)?.args).toMatchObject({
-      model: 'pythinker-code/kimi-for-coding',
+      model: 'openai/gpt-4o',
       maxContextTokens: 1_000_000,
     });
   });
@@ -148,7 +148,7 @@ describe('ConfigState model capabilities', () => {
         },
       },
       models: {
-        'pythinker-code/kimi-for-coding': {
+        'openai/gpt-4o': {
           provider: 'pythinker',
           model: 'kimi-for-coding',
           maxContextSize: 1_000_000,
@@ -157,7 +157,7 @@ describe('ConfigState model capabilities', () => {
         },
       },
     };
-    profile.update({ modelAlias: 'pythinker-code/kimi-for-coding' });
+    profile.update({ modelAlias: 'openai/gpt-4o' });
     profile.setThinking('off');
     records.length = 0;
 
@@ -171,7 +171,7 @@ describe('ConfigState model capabilities', () => {
         effort: 'low',
         from: 'off',
         mode: 'agent',
-        model: 'pythinker-code/kimi-for-coding',
+        model: 'openai/gpt-4o',
         protocol: 'openai',
         provider_type: 'pythinker',
       },
@@ -188,7 +188,7 @@ describe('ConfigState model capabilities', () => {
         },
       },
       models: {
-        'pythinker-code/kimi-for-coding': {
+        'openai/gpt-4o': {
           provider: 'pythinker',
           model: 'kimi-for-coding',
           maxContextSize: 1_000_000,
@@ -196,10 +196,10 @@ describe('ConfigState model capabilities', () => {
       },
     };
 
-    profile.update({ modelAlias: 'pythinker-code/kimi-for-coding' });
+    profile.update({ modelAlias: 'openai/gpt-4o' });
 
     expect(ctx.get(ITelemetryService).getContext()).toMatchObject({
-      model: 'pythinker-code/kimi-for-coding',
+      model: 'openai/gpt-4o',
       provider_type: 'pythinker',
       protocol: 'openai',
     });
@@ -223,7 +223,7 @@ describe('ConfigState model capabilities', () => {
         },
       },
       models: {
-        'pythinker-code/kimi-for-coding': {
+        'openai/gpt-4o': {
           provider: 'pythinker',
           model: 'kimi-for-coding',
           maxContextSize: 1_000_000,
@@ -240,7 +240,7 @@ describe('ConfigState model capabilities', () => {
       telemetryServices(recordingTelemetry(resumedRecords)),
       wireRecordPersistenceServices(
         new InMemoryWireRecordPersistence([
-          { type: 'config.update', agentId: 'main', modelAlias: 'pythinker-code/kimi-for-coding' },
+          { type: 'config.update', agentId: 'main', modelAlias: 'openai/gpt-4o' },
         ]),
       ),
     );
@@ -248,7 +248,7 @@ describe('ConfigState model capabilities', () => {
       await resumed.restorePersisted();
 
       expect(resumed.get(ITelemetryService).getContext()).toMatchObject({
-        model: 'pythinker-code/kimi-for-coding',
+        model: 'openai/gpt-4o',
         provider_type: 'pythinker',
         protocol: 'openai',
       });
