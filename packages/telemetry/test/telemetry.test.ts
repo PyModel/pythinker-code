@@ -988,6 +988,25 @@ describe('telemetry bootstrap', () => {
     expect(fetchImpl.mock.calls[0]?.[0]).toBe('https://mock.test/events');
   });
 
+  it('wires onUnexpectedError to property sanitization on the singleton', async () => {
+    const fetchImpl = vi.fn(async () => new Response('', { status: 200 }));
+    vi.stubGlobal('fetch', fetchImpl);
+    const onUnexpectedError = vi.fn();
+
+    initializeTelemetry({
+      homeDir: await tempHome(),
+      deviceId: 'dev',
+      appName: 'pythinker-code-cli',
+      version: '1.2.3',
+      onUnexpectedError,
+    });
+    track('bad_props', { nested: { a: 1 } } as unknown as TelemetryProperties);
+    await shutdownTelemetry();
+
+    expect(onUnexpectedError).toHaveBeenCalledTimes(1);
+    expect(String(onUnexpectedError.mock.calls[0]?.[0])).toContain('"nested"');
+  });
+
   it('reconciles the singleton sink model for subsequently tracked events', async () => {
     const fetchImpl = vi.fn(async () => new Response('', { status: 200 }));
     vi.stubGlobal('fetch', fetchImpl);

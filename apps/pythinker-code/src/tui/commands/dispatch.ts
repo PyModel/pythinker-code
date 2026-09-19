@@ -1,4 +1,5 @@
 import type { Component, Focusable } from '@pymodel/pi-tui';
+import type { DeviceAuthorization } from '@pymodel/pythinker-code-oauth';
 import type { PythinkerHarness, Session } from '@pymodel/pythinker-code-sdk';
 
 import type { ColorToken, ThemeName } from '#/tui/theme';
@@ -8,7 +9,7 @@ import type { AuthFlowController } from '../controllers/auth-flow';
 import type { BtwPanelController } from '../controllers/btw-panel';
 import type { StreamingUIController } from '../controllers/streaming-ui';
 import type { TasksBrowserController } from '../controllers/tasks-browser';
-import { tryHandleHatchCommand } from '../easter-eggs/hatch';
+import { tryHandleDanceCommand } from '../easter-eggs/dance';
 import type { ResolvedTheme } from '../theme/colors';
 import type { TUIState } from '../tui-state';
 import type {
@@ -40,7 +41,7 @@ import {
   showSettingsSelector,
 } from './config';
 import { handleGoalCommand } from './goal';
-import { showMcpServers, showStatusReport, showUsage } from './info';
+import { handleFeedbackCommand, showMcpServers, showStatusReport, showUsage } from './info';
 import { handleAddDirCommand } from './add-dir';
 import { parseSlashInput } from './parse';
 import { handlePluginsCommand } from './plugins';
@@ -66,7 +67,6 @@ import {
   handleTitleCommand,
 } from './session';
 import { handleDynamicWorkflowCommand } from './dynamic_workflow';
-import { handleExpertTalkCommand } from './expert-talk';
 import { handleTowerCommand } from './tower';
 import { handleUndoCommand } from './undo';
 import { handleRemoteControlCommand, handleWebCommand } from './web';
@@ -93,9 +93,8 @@ export {
   showSettingsSelector,
 } from './config';
 export { handleDynamicWorkflowCommand } from './dynamic_workflow';
-export { handleExpertTalkCommand } from './expert-talk';
 export { handleTowerCommand } from './tower';
-export { showMcpServers, showStatusReport, showUsage } from './info';
+export { handleFeedbackCommand, showMcpServers, showStatusReport, showUsage } from './info';
 export { handlePluginsCommand } from './plugins';
 export { handleReloadCommand, handleReloadTuiCommand } from './reload';
 export { handleGoalCommand } from './goal';
@@ -117,8 +116,6 @@ export interface SlashCommandHost {
   state: TUIState;
   session: Session | undefined;
   readonly harness: PythinkerHarness;
-  /** agent-core-v2 engine; enables lazy session creation. */
-  readonly engineV2: boolean;
   cancelInFlight: (() => void) | undefined;
   deferUserMessages: boolean;
 
@@ -168,9 +165,13 @@ export interface SlashCommandHost {
   failSessionRequest(message: string): void;
   sendQueuedMessage(session: Session, item: QueuedMessage): void;
   requestQueuedGoalPromotion?(): void;
+  /** Reset the client-side cache-break baseline after the context was cut
+   *  (/undo): the next step's cache-read drop is expected, not a break. */
+  noteContextCut?(): void;
 
   // UI
   showLoginProgressSpinner(label: string): LoginProgressSpinnerHandle;
+  showLoginAuthorizationPrompt(auth: DeviceAuthorization): LoginProgressSpinnerHandle;
   showProgressSpinner(label: string): LoginProgressSpinnerHandle;
 
   // Theme
@@ -222,20 +223,17 @@ export function dispatchInput(host: SlashCommandHost, text: string): void {
   if (parseSlashInput(text) !== null) {
     // A leading skill command combined with further inline skill tokens
     // (`/skill:a args /skill:b`) is one grouped submission on the v2 engine.
-    if (host.engineV2 && dispatchInlineSkillCombo(host, text)) {
+    if (dispatchInlineSkillCombo(host, text)) {
       return;
     }
     void executeSlashCommand(host, text);
     return;
   }
-  // Inline skill tokens anywhere in a plain prompt (v2 engine only); on the
-  // legacy engine they keep their plain-text meaning.
-  if (host.engineV2) {
-    const activations = extractInlineSkillActivations(text, host.skillCommandMap);
-    if (activations.length > 0) {
-      void host.sendInlineSkillUserInput(text, activations);
-      return;
-    }
+  // Inline skill tokens anywhere in a plain prompt activate the skills.
+  const activations = extractInlineSkillActivations(text, host.skillCommandMap);
+  if (activations.length > 0) {
+    void host.sendInlineSkillUserInput(text, activations);
+    return;
   }
   host.sendNormalUserInput(text);
 }
@@ -264,7 +262,6 @@ function dispatchInlineSkillCombo(host: SlashCommandHost, text: string): boolean
     pluginCommandMap: host.pluginCommandMap,
     isStreaming: false,
     isCompacting: false,
-    engineV2: host.engineV2,
   });
   if (intent.kind !== 'skill' && intent.kind !== 'message') return false;
 
@@ -302,7 +299,6 @@ async function executeSlashCommand(host: SlashCommandHost, input: string): Promi
     pluginCommandMap: host.pluginCommandMap,
     isStreaming: host.state.appState.streamingPhase !== 'idle',
     isCompacting: host.state.appState.isCompacting,
-    engineV2: host.engineV2,
   });
 
   switch (intent.kind) {
@@ -375,10 +371,10 @@ async function executeSlashCommand(host: SlashCommandHost, input: string): Promi
       return;
     }
     case 'message':
-      // Unknown slash command: let /hatch claim it before it falls through to
+      // Unknown slash command: let /dance claim it before it falls through to
       // the model as a normal message. This runs *after* builtin and skill
       // resolution, so a real command or a same-named skill always wins.
-      if (parsedCommand !== null && tryHandleHatchCommand(host, parsedCommand)) {
+      if (parsedCommand !== null && tryHandleDanceCommand(host, parsedCommand)) {
         return;
       }
       host.sendNormalUserInput(intent.input);
@@ -398,16 +394,11 @@ async function executeSlashCommand(host: SlashCommandHost, input: string): Promi
 }
 
 /**
- * Lazy-create the session for a slash command that needs one (v2 engine).
- * v1 keeps the historical "no active session" error; on v2 a missing session
- * means the TUI started session-less, so commands create it on first use.
- * Returns undefined (error already shown) when creation fails.
+ * Lazy-create the session for a slash command that needs one (v2 engine). A
+ * missing session means the TUI started session-less, so commands create it
+ * on first use. Returns undefined (error already shown) when creation fails.
  */
 async function ensureSessionForCommand(host: SlashCommandHost): Promise<Session | undefined> {
-  if (!host.engineV2) {
-    host.showError(LLM_NOT_SET_MESSAGE);
-    return undefined;
-  }
   return host.ensureSession();
 }
 
@@ -422,7 +413,6 @@ const SESSION_REQUIRING_COMMANDS: ReadonlySet<BuiltinSlashCommandName> = new Set
   'init',
   'plan',
   'dynamic_workflow',
-  'discussion',
   'undo',
   'web',
 ]);
@@ -550,6 +540,9 @@ async function handleBuiltInSlashCommand(
     case 'status':
       void showStatusReport(host);
       return;
+    case 'feedback':
+      await handleFeedbackCommand(host);
+      return;
     case 'btw':
       await handleBtwCommand(host, args);
       return;
@@ -570,9 +563,6 @@ async function handleBuiltInSlashCommand(
       return;
     case 'tower':
       await handleTowerCommand(host, args);
-      return;
-    case 'discussion':
-      await handleExpertTalkCommand(host, args);
       return;
     case 'compact':
       await handleCompactCommand(host, args);

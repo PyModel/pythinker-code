@@ -33,7 +33,6 @@ import {
   fsStatRequestSchema,
   fsSuggestRequestSchema,
   fsSuggestResponseSchema,
-  fsWriteRequestSchema,
 } from '@pymodel/agent-core-v2/workspace/workspaceFs/fs';
 import { GitService } from '@pymodel/agent-core-v2/app/git/gitService';
 import type { IHostFileSystem } from '@pymodel/agent-core-v2/os/interface/hostFileSystem';
@@ -61,12 +60,10 @@ import {
   fsRevealRequestSchema,
 } from '../protocol/rest-fs';
 
-export const FS_ACTION_BODY_LIMIT_BYTES = 64 * 1024 * 1024;
-
 interface FsRouteHost {
   post(
     path: string,
-    options: { preHandler: unknown[]; schema?: Record<string, unknown>; bodyLimit?: number },
+    options: { preHandler: unknown[]; schema?: Record<string, unknown> },
     handler: (
       req: { id: string; body: unknown; params: unknown },
       reply: { send(payload: unknown): unknown },
@@ -122,7 +119,6 @@ const FS_ACTIONS = [
   'stat',
   'stat_many',
   'mkdir',
-  'write',
   'search',
   'grep',
   'git_status',
@@ -304,10 +300,9 @@ export function registerFsRoutes(app: FsRouteHost, core: Scope): void {
         [ErrorCode.FS_GREP_TIMEOUT]: {},
         [ErrorCode.FS_GIT_UNAVAILABLE]: {},
         [ErrorCode.FS_ALREADY_EXISTS]: {},
-        [ErrorCode.FS_CONFLICT]: {},
       },
       description:
-        'Filesystem action dispatcher. Supported actions: list, read, list_many, stat, stat_many, mkdir, write, search, grep, git_status, diff, open, open-in, reveal.',
+        'Filesystem action dispatcher. Supported actions: list, read, list_many, stat, stat_many, mkdir, search, grep, git_status, diff, open, open-in, reveal.',
       tags: ['fs'],
       operationId: 'fsAction',
     },
@@ -378,9 +373,6 @@ export function registerFsRoutes(app: FsRouteHost, core: Scope): void {
           case 'mkdir':
             await handleMkdir(runtimeFs.fs, req, reply);
             return;
-          case 'write':
-            await handleWrite(runtimeFs.fs, req, reply);
-            return;
           case 'search':
             await handleSearch(runtimeFs.fs, req, reply);
             return;
@@ -403,8 +395,8 @@ export function registerFsRoutes(app: FsRouteHost, core: Scope): void {
             await handleReveal(runtimeFs.fs, req, reply);
             return;
         }
-      } catch (error) {
-        sendMappedError(reply, req, error);
+      } catch (err) {
+        sendMappedError(reply, req, err);
       } finally {
         runtimeFs?.lease.dispose();
       }
@@ -412,7 +404,7 @@ export function registerFsRoutes(app: FsRouteHost, core: Scope): void {
   );
   app.post(
     fsActionRoute.path,
-    { ...fsActionRoute.options, bodyLimit: FS_ACTION_BODY_LIMIT_BYTES },
+    fsActionRoute.options,
     fsActionRoute.handler as unknown as Parameters<FsRouteHost['post']>[2],
   );
 
@@ -449,8 +441,8 @@ export function registerFsRoutes(app: FsRouteHost, core: Scope): void {
         }
         const data = await runtimeFs.fs.search(searchRequest);
         reply.send(okEnvelope(data, req.id));
-      } catch (error) {
-        sendMappedError(reply, req, error);
+      } catch (err) {
+        sendMappedError(reply, req, err);
       } finally {
         runtimeFs?.lease.dispose();
       }
@@ -494,8 +486,8 @@ export function registerFsRoutes(app: FsRouteHost, core: Scope): void {
         }
         const data = await runtimeFs.fs.suggest(suggestRequest);
         reply.send(okEnvelope(data, req.id));
-      } catch (error) {
-        sendMappedError(reply, req, error);
+      } catch (err) {
+        sendMappedError(reply, req, err);
       } finally {
         runtimeFs?.lease.dispose();
       }
@@ -626,9 +618,9 @@ export function registerFsRoutes(app: FsRouteHost, core: Scope): void {
       try {
         runtimeFs = acquireSessionFs(core, session_id, req.query.runtime_id ?? 'local', ['fs']);
         resolved = await runtimeFs.fs.resolveDownload(relPath);
-      } catch (error) {
+      } catch (err) {
         runtimeFs?.lease.dispose();
-        sendMappedError(reply, req, error);
+        sendMappedError(reply, req, err);
         return;
       }
 
@@ -786,16 +778,6 @@ async function handleMkdir(fs: IWorkspaceFsService, req: Req, reply: Reply): Pro
   reply.send(okEnvelope(data, req.id));
 }
 
-async function handleWrite(fs: IWorkspaceFsService, req: Req, reply: Reply): Promise<void> {
-  const parsed = fsWriteRequestSchema.safeParse(req.body ?? {});
-  if (!parsed.success) {
-    reply.send(buildValidationEnvelope(parsed.error.issues, req.id));
-    return;
-  }
-  const data = await fs.write(parsed.data);
-  reply.send(okEnvelope(data, req.id));
-}
-
 async function handleSearch(fs: IWorkspaceFsService, req: Req, reply: Reply): Promise<void> {
   const parsed = fsSearchRequestSchema.safeParse(req.body ?? {});
   if (!parsed.success) {
@@ -873,15 +855,15 @@ async function handleOpenIn(fs: IWorkspaceFsService, sessionId: string, req: Req
         isDirectory: resolved.isDirectory,
       }),
     );
-  } catch (error) {
+  } catch (err) {
     requestLog(req)?.warn(
-      { session_id: sessionId, app_id: body.app_id, error },
+      { session_id: sessionId, app_id: body.app_id, err },
       'fs open-in launch failed',
     );
     reply.send(
       errEnvelope(
         ErrorCode.INTERNAL_ERROR,
-        `failed to open in ${body.app_id}: ${error instanceof Error ? error.message : String(error)}`,
+        `failed to open in ${body.app_id}: ${err instanceof Error ? err.message : String(err)}`,
         req.id,
       ),
     );
@@ -912,9 +894,6 @@ function sendMappedError(reply: Reply, req: { id: string }, err: unknown): void 
         return;
       case ErrorCodes.FS_TOO_LARGE:
         reply.send(errEnvelope(ErrorCode.FS_TOO_LARGE, err.message, requestId, err.stack));
-        return;
-      case ErrorCodes.FS_CONFLICT:
-        reply.send(errEnvelope(ErrorCode.FS_CONFLICT, err.message, requestId, err.stack));
         return;
       case ErrorCodes.FS_TOO_MANY_RESULTS:
         reply.send(errEnvelope(ErrorCode.FS_TOO_MANY_RESULTS, err.message, requestId, err.stack));
@@ -986,6 +965,6 @@ function buildValidationEnvelope(
 
 function sanitizeFilename(rel: string): string {
   const segs = rel.split('/');
-  const base = segs.at(-1) ?? rel;
-  return base.replaceAll('"', '\\"');
+  const base = segs[segs.length - 1] ?? rel;
+  return base.replace(/"/g, '\\"');
 }

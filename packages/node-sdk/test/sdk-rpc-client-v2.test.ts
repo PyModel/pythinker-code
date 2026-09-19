@@ -1,5 +1,5 @@
 /**
- * Scenario: v2 wiring — the harness talks to the in-process agent-core-v2
+ * Scenario: v2 wiring  the harness talks to the in-process agent-core-v2
  * engine (klient memory transport) instead of the v1 PythinkerCore RPC pair.
  * Responsibilities: v2-client behaviors the v1↔v2 parity gate does not
  * compare (engine telemetry forwarding, host request headers, the Windows
@@ -12,11 +12,16 @@ import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promis
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import {
+  FileTokenStorage,
+  resolvePythinkerCodeOAuthRef,
+  resolvePythinkerTokenStorageName,
+} from '@pymodel/pythinker-code-oauth';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   buildDaemonFileUrl,
-  createPythinkerHarnessV2,
+  createPythinkerHarness,
   ErrorCodes,
   isDaemonFileUrl,
   isPythinkerError,
@@ -24,6 +29,7 @@ import {
   removeProviderFromConfig,
   SDKRpcClientV2,
   toPythinkerErrorPayload,
+  type Event,
   type PythinkerConfig,
 } from '#/index';
 import { foldAgentWireReplay } from '#/v2/resume-replay';
@@ -33,8 +39,15 @@ import {
   Error2,
   getLiveSessionById,
   HostProcessError,
-  AgentTodo,
+  IAgentIdentity,
+  IAgentTodoService,
   IAgentLifecycleService,
+  IAgentProfileService,
+  IAgentToolActivationService,
+  IAgentToolRegistryService,
+  INotifyUserTool,
+  IAtomicDocumentStore,
+  ISessionContext,
   IAgentTowerService,
   IHostRequestHeaders,
   IMcpManagementService,
@@ -43,7 +56,6 @@ import {
   OsProcessErrors,
 } from '@pymodel/agent-core-v2';
 
-import { McpOAuthService } from '../../agent-core/src/mcp/oauth/service';
 import { McpOAuthService as McpOAuthServiceV2 } from '@pymodel/agent-core-v2/mcpCore/oauth/service';
 
 import { TEST_IDENTITY } from './test-identity';
@@ -93,7 +105,7 @@ function stubProcessPlatform(platform: NodeJS.Platform): () => void {
 async function makeHarness(): Promise<{ harness: PythinkerHarness; homeDir: string }> {
   const homeDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-'));
   tempDirs.push(homeDir);
-  return { harness: createPythinkerHarnessV2({ homeDir, identity: TEST_IDENTITY }), homeDir };
+  return { harness: createPythinkerHarness({ homeDir, identity: TEST_IDENTITY }), homeDir };
 }
 
 /** Whether the persisted session directory exists under `<home>/sessions/<bucket>/<id>`. */
@@ -138,13 +150,6 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
     const implicitOAuthUrl = 'https://implicit-oauth.example.test/mcp';
     const authorizedUrl = 'https://authorized.example.test/mcp';
     const requiredUrl = 'https://required.example.test/mcp';
-    const externalOAuth = new McpOAuthService({ pythinkerHomeDir: homeDir });
-    await externalOAuth
-      .getProvider('oauth-authorized', authorizedUrl)
-      .saveTokens({ access_token: 'test-access-token', token_type: 'Bearer' });
-    await externalOAuth
-      .getProvider('sse', implicitOAuthUrl)
-      .saveTokens({ access_token: 'stale-sse-token', token_type: 'Bearer' });
     await writeFile(
       join(homeDir, 'mcp.json'),
       JSON.stringify({
@@ -173,10 +178,19 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
       }),
       'utf-8',
     );
-    const harness = createPythinkerHarnessV2({ homeDir, identity: TEST_IDENTITY });
+    const client = new SDKRpcClientV2({ homeDir, identity: TEST_IDENTITY });
+    const oauth = client.engineAccessor.get(IMcpOAuthService);
 
     try {
-      await expect(harness.listMcpServerAuthStatuses({ verify: false })).resolves.toEqual([
+      await client.engineAccessor.get(IAgentIdentity).resolved();
+      await oauth
+        .getProvider('oauth-authorized', authorizedUrl)
+        .saveTokens({ access_token: 'test-access-token', token_type: 'Bearer' });
+      await oauth
+        .getProvider('sse', implicitOAuthUrl)
+        .saveTokens({ access_token: 'stale-sse-token', token_type: 'Bearer' });
+
+      await expect(client.listGlobalMcpServerAuthStatuses({ verify: false })).resolves.toEqual([
         { name: 'stdio', authStatus: 'not-applicable' },
         { name: 'plain', authStatus: 'not-applicable' },
         { name: 'detected', authStatus: 'not-applicable' },
@@ -187,12 +201,12 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
         { name: 'oauth-authorized', authStatus: 'oauth-authorized' },
       ]);
 
-      await externalOAuth
+      await oauth
         .getProvider('oauth-required', requiredUrl)
         .saveTokens({ access_token: 'new-test-access-token', token_type: 'Bearer' });
-      await externalOAuth.invalidate('oauth-authorized', authorizedUrl, 'tokens');
+      await oauth.invalidate('oauth-authorized', authorizedUrl, 'tokens');
 
-      await expect(harness.listMcpServerAuthStatuses({ verify: false })).resolves.toEqual([
+      await expect(client.listGlobalMcpServerAuthStatuses({ verify: false })).resolves.toEqual([
         { name: 'stdio', authStatus: 'not-applicable' },
         { name: 'plain', authStatus: 'not-applicable' },
         { name: 'detected', authStatus: 'not-applicable' },
@@ -203,7 +217,7 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
         { name: 'oauth-authorized', authStatus: 'oauth-required' },
       ]);
     } finally {
-      await harness.close();
+      await client.close();
     }
   }, 15_000);
 
@@ -223,6 +237,9 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
         return expect.unreachable('expected the call to reject');
       };
       try {
+        // A declared engine code keeps its identity across the restate: the
+        // SDK throws the same class v1 throws, and the payload serializer
+        // accepts the code.
         listSpy.mockRejectedValueOnce(
           new Error2('mcp.oauth_failed', 'OAuth flow timed out', {
             details: { flowId: 'flow-1' },
@@ -240,6 +257,9 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
           message: 'OAuth flow timed out',
         });
 
+        // A code this build's registry does not declare (a newer engine than
+        // the pinned SDK) restates as `internal` instead of minting an
+        // undeclared PythinkerError code the serializer would reject.
         listSpy.mockRejectedValueOnce(new Error2('mcp.future_code' as never, 'from a newer engine'));
         const unknownError = await captureRejection(client.listGlobalMcpServers());
         expect(isPythinkerError(unknownError)).toBe(true);
@@ -263,6 +283,10 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-'));
     tempDirs.push(homeDir);
     const client = new SDKRpcClientV2({ homeDir, identity: TEST_IDENTITY });
+    // Activate the OnDemand OAuth service, then gate its shutdown behind a
+    // manual release: close() alone (no manual service.shutdown()) must
+    // trigger and await that shutdown, so a host removing homeDir right after
+    // close() cannot race in-flight token writes.
     client.engineAccessor.get(IMcpOAuthService);
     let releaseShutdown: () => void = () => undefined;
     const gate = new Promise<void>((resolve) => {
@@ -297,20 +321,25 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-'));
     tempDirs.push(homeDir);
     const client = new SDKRpcClientV2({ homeDir, identity: TEST_IDENTITY });
+    // Nothing touched IMcpOAuthService: close() force-activates the OnDemand
+    // service only to shut it down, and that activate-then-shutdown cycle
+    // must be a clean no-op (the proactive-refresh sweep bows out on the
+    // shutdown flag).
     await expect(client.close()).resolves.toBeUndefined();
   });
 
-  it('seeds the host request headers (User-Agent, no device headers) into the engine', async () => {
+  it('seeds the host request headers (User-Agent + X-Msh-*) into the engine', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-'));
     tempDirs.push(homeDir);
     const client = new SDKRpcClientV2({ homeDir, identity: TEST_IDENTITY });
     try {
-      // Without this seed the providers go out with the SDK's default
-      // User-Agent — the interactive-v2 path's identity bug.
+      // Without this seed the managed vendors go out with the SDK's default
+      // User-Agent and no X-Msh-*  the interactive-v2 path's identity bug.
       const headers = client.engineAccessor.get(IHostRequestHeaders).headers;
       expect(headers['User-Agent']).toBe(`pythinker-code-cli/${TEST_IDENTITY.version}`);
-      expect(headers['X-Msh-Platform']).toBeUndefined();
-      expect(headers['X-Msh-Device-Id']).toBeUndefined();
+      expect(headers['X-Msh-Platform']).toBe('pythinker_code_cli');
+      expect(headers['X-Msh-Version']).toBe(TEST_IDENTITY.version);
+      expect(headers['X-Msh-Device-Id']).toBeTruthy();
     } finally {
       await client.close();
     }
@@ -322,7 +351,7 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
     try {
       const homeDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-'));
       tempDirs.push(homeDir);
-      const harness = createPythinkerHarnessV2({ homeDir, identity: TEST_IDENTITY });
+      const harness = createPythinkerHarness({ homeDir, identity: TEST_IDENTITY });
       try {
         await expect(harness.ensureConfigFile()).rejects.toBeInstanceOf(HostProcessError);
         await expect(harness.ensureConfigFile()).rejects.toMatchObject({
@@ -343,7 +372,7 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
     try {
       const homeDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-'));
       tempDirs.push(homeDir);
-      const harness = createPythinkerHarnessV2({ homeDir, identity: TEST_IDENTITY });
+      const harness = createPythinkerHarness({ homeDir, identity: TEST_IDENTITY });
       try {
         await expect(harness.ensureConfigFile()).resolves.toBeUndefined();
       } finally {
@@ -389,7 +418,7 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
       expect(typeof meta.created_at).toBe('string');
       expect(typeof meta.expires_at).toBe('string');
 
-      // Re-export smoke only — helper behavior is pinned by agent-core-v2's
+      // Re-export smoke only  helper behavior is pinned by agent-core-v2's
       // mediaRef tests.
       expect(isDaemonFileUrl(buildDaemonFileUrl(meta.id))).toBe(true);
       await harness.deleteFile(meta.id);
@@ -399,47 +428,234 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
     }
   });
 
-  it('reports title generation unavailable without emitting metadata', async () => {
+  it('emits one complete metadata event when a generated title is applied', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-'));
     tempDirs.push(homeDir);
     const workDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-work-'));
     tempDirs.push(workDir);
-    const harness = createPythinkerHarnessV2({ homeDir, identity: TEST_IDENTITY });
+    const titleBaseUrl = 'https://api.example.test/coding/v1';
+    const titleOAuthRef = resolvePythinkerCodeOAuthRef({ baseUrl: titleBaseUrl });
+    // Storage names strip the `oauth/` prefix (FileTokenStorage rejects
+    // namespaced keys); the engine resolves the same name when reading.
+    await new FileTokenStorage(join(homeDir, 'credentials')).save(
+      resolvePythinkerTokenStorageName({ oauthKey: titleOAuthRef.key }),
+      {
+        accessToken: 'test-access-token',
+        refreshToken: 'test-refresh-token',
+        expiresAt: Math.floor(Date.now() / 1000) + 3600,
+        scope: '',
+        tokenType: 'Bearer',
+        expiresIn: 3600,
+      },
+    );
+    await writeFile(
+      join(homeDir, 'config.toml'),
+      `
+default_model = "stub"
+
+[experimental]
+auto_session_title = true
+
+[providers.stub]
+type = "openai"
+base_url = "https://model.example.test/v1"
+api_key = "stub"
+
+[models.stub]
+provider = "stub"
+model = "stub"
+max_context_size = 1000
+
+[providers."managed:pythinker-code"]
+type = "pythinker"
+base_url = "${titleBaseUrl}"
+
+[providers."managed:pythinker-code".oauth]
+storage = "file"
+key = "${titleOAuthRef.key}"
+`,
+      'utf-8',
+    );
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+      if (url === 'https://api.example.test/coding/v1/tools') {
+        return new Response(JSON.stringify({ title: 'Generated title' }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    const harness = createPythinkerHarness({ homeDir, identity: TEST_IDENTITY });
 
     try {
       const session = await harness.createSession({ id: 'ses_generated_title_event', workDir });
-      let metadataUpdates = 0;
+      await session.importContext(
+        'Generate a concise title for this session',
+        "session 'source-session'",
+      );
+      await expect(
+        harness.auth.getCachedAccessToken('managed:pythinker-code', {
+          storage: titleOAuthRef.storage,
+          key: titleOAuthRef.key,
+        }),
+      ).resolves.toBe('test-access-token');
+      await expect(session.getContext()).resolves.toMatchObject({
+        history: [
+          expect.objectContaining({
+            role: 'user',
+            origin: { kind: 'user' },
+          }),
+        ],
+      });
+      const events: Event[] = [];
       const unsubscribe = session.onEvent((event) => {
-        if (event.type === 'session.meta.updated') metadataUpdates += 1;
+        if (event.type === 'session.meta.updated' && event.title === 'Generated title') {
+          events.push(event);
+        }
       });
 
-      await expect(
-        harness.generateSessionTitle({ id: session.id, force: true }),
-      ).resolves.toBeUndefined();
+      await expect(harness.generateSessionTitle({ id: session.id })).resolves.toBe(
+        'Generated title',
+      );
       unsubscribe();
-      expect(metadataUpdates).toBe(0);
+
+      expect(events).toEqual([
+        expect.objectContaining({
+          type: 'session.meta.updated',
+          sessionId: session.id,
+          agentId: 'main',
+          title: 'Generated title',
+          patch: { title: 'Generated title', isCustomTitle: false },
+        }),
+      ]);
     } finally {
       await harness.close();
+      fetchSpy.mockRestore();
     }
   });
 
-  it('closes the temporary session when title generation is unavailable', async () => {
+  it('serializes a temporary title-generation close against a public resume', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-'));
     tempDirs.push(homeDir);
     const workDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-work-'));
     tempDirs.push(workDir);
+    const titleBaseUrl = 'https://api.example.test/coding/v1';
+    const titleOAuthRef = resolvePythinkerCodeOAuthRef({ baseUrl: titleBaseUrl });
+    await new FileTokenStorage(join(homeDir, 'credentials')).save(
+      resolvePythinkerTokenStorageName({ oauthKey: titleOAuthRef.key }),
+      {
+        accessToken: 'test-access-token',
+        refreshToken: 'test-refresh-token',
+        expiresAt: Math.floor(Date.now() / 1000) + 3600,
+        scope: '',
+        tokenType: 'Bearer',
+        expiresIn: 3600,
+      },
+    );
+    await writeFile(
+      join(homeDir, 'config.toml'),
+      `
+default_model = "stub"
+
+[experimental]
+auto_session_title = true
+
+[providers.stub]
+type = "openai"
+base_url = "https://model.example.test/v1"
+api_key = "stub"
+
+[models.stub]
+provider = "stub"
+model = "stub"
+max_context_size = 1000
+
+[providers."managed:pythinker-code"]
+type = "pythinker"
+base_url = "${titleBaseUrl}"
+
+[providers."managed:pythinker-code".oauth]
+storage = "file"
+key = "${titleOAuthRef.key}"
+`,
+      'utf-8',
+    );
+    let markFetchStarted!: () => void;
+    let resolveFetch!: (response: Response) => void;
+    const fetchStarted = new Promise<void>((resolve) => {
+      markFetchStarted = resolve;
+    });
+    const fetchResponse = new Promise<Response>((resolve) => {
+      resolveFetch = resolve;
+    });
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+      if (url === 'https://api.example.test/coding/v1/tools') {
+        markFetchStarted();
+        return fetchResponse;
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
     const client = new SDKRpcClientV2({ homeDir, identity: TEST_IDENTITY });
 
     try {
       await client.createSession({ id: 'ses_title_race', workDir });
+      await client.importContext({
+        sessionId: 'ses_title_race',
+        content: 'Generate a concise title for this session',
+        source: "session 'source-session'",
+      });
       await client.closeSession({ sessionId: 'ses_title_race' });
-      await expect(
-        client.generateSessionTitle({ id: 'ses_title_race', force: true }),
-      ).resolves.toBeUndefined();
-      expect(client.engineAccessor.get(ISessionManager).get('ses_title_race')).toBeUndefined();
 
-      const summary = await client.resumeSession({ id: 'ses_title_race' });
+      // The cold session is temporarily resumed for generation; block its
+      // cleanup close inside the will-close hooks so the public resume below
+      // lands while the close is still in flight.
+      const titlePromise = client.generateSessionTitle({ id: 'ses_title_race' });
+      await fetchStarted;
+      const sessionManager = client.engineAccessor.get(ISessionManager);
+      const tempHandle = sessionManager.get('ses_title_race');
+      expect(tempHandle).toBeDefined();
+      let markCloseStarted!: () => void;
+      let openCloseGate!: () => void;
+      const closeStarted = new Promise<void>((resolve) => {
+        markCloseStarted = resolve;
+      });
+      const closeGate = new Promise<void>((resolve) => {
+        openCloseGate = resolve;
+      });
+      sessionManager.onWillCloseSession!((event) => {
+        if (event.sessionId !== 'ses_title_race') return;
+        markCloseStarted();
+        event.waitUntil(closeGate);
+      });
+
+      resolveFetch(
+        new Response(JSON.stringify({ title: 'Generated title' }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      );
+      await closeStarted;
+
+      // The resume must queue behind the in-flight close instead of merging
+      // into the handle that is being torn down.
+      const order: string[] = [];
+      const resumePromise = client.resumeSession({ id: 'ses_title_race' }).then((summary) => {
+        order.push('resumed');
+        return summary;
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(order).toEqual([]);
+
+      openCloseGate();
+      await expect(titlePromise).resolves.toBe('Generated title');
+      const summary = await resumePromise;
       expect(summary.id).toBe('ses_title_race');
+      expect(order).toEqual(['resumed']);
+
+      // The resumed session is a fresh, fully usable scope  not the handle
+      // the temporary path just tore down.
       await client.renameSession({ id: 'ses_title_race', title: 'Resumed title' });
       await expect
         .poll(
@@ -451,6 +667,7 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
         .toBe('Resumed title');
     } finally {
       await client.close();
+      fetchSpy.mockRestore();
     }
   });
 
@@ -463,7 +680,7 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
       const session = await harness.createSession({ id: 'ses_resume_race', workDir });
       // close() flips `isClosed` synchronously; the engine close settles
       // asynchronously. The public resume must not hand back the closing
-      // facade — it queues behind the close and materializes a fresh one.
+      // facade  it queues behind the close and materializes a fresh one.
       const closing = session.close();
       const resumed = await harness.resumeSession({ id: 'ses_resume_race' });
       await closing;
@@ -542,7 +759,7 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
       ]);
 
       // Different options must not be silently dropped onto the first
-      // caller's facade — each gets its own resume.
+      // caller's facade  each gets its own resume.
       expect(plain).not.toBe(withReplay);
     } finally {
       await harness.close();
@@ -556,7 +773,7 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
 
     try {
       const session = await harness.createSession({ id: 'ses_title_kind', workDir });
-      await harness.renameSession({ id: session.id, title: '\u6211\u7684\u6807\u9898' });
+      await harness.renameSession({ id: session.id, title: 'zh' });
 
       // The resumed summary is read off the live metadata document, so it
       // carries the canonical title state; the list path (index projection)
@@ -641,7 +858,7 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
     await writeSkill(join(homeDir, 'skills', 'demo-user-skill'), 'demo-user-skill');
     await writeSkill(join(workDir, '.pythinker-code', 'skills', 'demo-project-skill'), 'demo-project-skill');
     await writeSkill(join(explicitDir, 'demo-explicit-skill'), 'demo-explicit-skill');
-    const harness = createPythinkerHarnessV2({
+    const harness = createPythinkerHarness({
       homeDir,
       identity: TEST_IDENTITY,
       skillDirs: [explicitDir],
@@ -682,7 +899,7 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
     }
   });
 
-  it('persists removeProvider as one atomic cascade and re-points the dangling default to the best ready model', async () => {
+  it('persists removeProvider as one atomic cascade (providers, models, defaults)', async () => {
     const { harness } = await makeHarness();
     try {
       await harness.setConfig({
@@ -704,22 +921,19 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
       expect(next.models?.['a/m1']).toBeDefined();
       expect(next.defaultModel).toBeUndefined();
       expect(next.defaultProvider).toBeUndefined();
-      // A fresh read from disk sees the same providers/models cascade — a
-      // single atomic write, never a halfway-removed intermediate. The
-      // dangling default_model is then re-pointed by the engine to the
-      // highest-ranked ready model ('a/m1' survives provider b's removal);
-      // the default_provider pointer stays cleared.
+      // A fresh read from disk sees the same state  the cascade landed as a
+      // single atomic write, never a halfway-removed intermediate.
       const reread = await harness.getConfig({ reload: true });
       expect(reread.providers['b']).toBeUndefined();
       expect(reread.models?.['b/m1']).toBeUndefined();
-      expect(reread.defaultModel).toBe('a/m1');
+      expect(reread.defaultModel).toBeUndefined();
       expect(reread.defaultProvider).toBeUndefined();
     } finally {
       await harness.close();
     }
   });
 
-  it('preserves secondary_model when removeProvider makes aliases dangle', async () => {
+  it('leaves the secondary_model pool untouched on removeProvider', async () => {
     const { harness } = await makeHarness();
     try {
       await harness.setConfig({
@@ -737,17 +951,22 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
         },
       });
 
-      const preserved = await harness.removeProvider('b');
-      expect(preserved.secondaryModel).toEqual({
+      // Pool entries naming a removed model alias are kept as written; an
+      // unresolvable entry fails pool validation on the next session create.
+      const kept = await harness.removeProvider('b');
+      expect(kept.secondaryModel).toEqual({
         defaultModel: 'a/m1',
         models: { 'a/m1': 'fast', 'b/m1': 'smart' },
       });
 
+      // Even a dangling default leaves the whole section in place on disk.
+      // (`setConfig` merges per domain, so the pool table is still the one
+      // written above; the default now points at the provider being removed.)
       await harness.setConfig({
-        secondaryModel: { defaultModel: 'a/m1', models: { 'a/m1': 'fast' } },
+        secondaryModel: { defaultModel: 'a/m1' },
       });
-      const dangling = await harness.removeProvider('a');
-      expect(dangling.secondaryModel).toEqual({
+      const cleared = await harness.removeProvider('a');
+      expect(cleared.secondaryModel).toEqual({
         defaultModel: 'a/m1',
         models: { 'a/m1': 'fast', 'b/m1': 'smart' },
       });
@@ -826,6 +1045,168 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
     }
   });
 
+  it.each([
+    { enabled: false, panel: true },
+    { enabled: true, panel: false },
+    { enabled: true, panel: true },
+  ])(
+    'gates NotifyUser for all profiles and preserves fork prompts: %j',
+    async ({ enabled, panel }) => {
+      vi.stubEnv('PYTHINKER_CODE_EXPERIMENTAL_FLAG', '0');
+      vi.stubEnv('PYTHINKER_CODE_EXPERIMENTAL_NOTIFY_USER', '');
+      const homeDir = await mkdtemp(join(tmpdir(), 'pythinker-notify-home-'));
+      const workDir = await mkdtemp(join(tmpdir(), 'pythinker-notify-work-'));
+      tempDirs.push(homeDir, workDir);
+      const client = new SDKRpcClientV2({
+        homeDir,
+        identity: TEST_IDENTITY,
+        uiCapabilities: panel ? ['update_panel'] : [],
+      });
+      try {
+        await client.setConfig({
+          providers: {
+            stub: {
+              type: 'openai',
+              baseUrl: 'https://model.example.test/v1',
+              apiKey: 'YOUR_API_KEY',
+            },
+          },
+          models: { stub: { provider: 'stub', model: 'stub', maxContextSize: 32000 } },
+          defaultModel: 'stub',
+          experimental: { notify_user: enabled },
+        });
+        await client.createSession({ id: 'ses_notify', workDir });
+        const session = getLiveSessionById(client.engineAccessor, 'ses_notify')!;
+        const lifecycle = session.accessor.get(IAgentLifecycleService);
+        for (const profile of ['agent', 'coder', 'explore', 'plan']) {
+          const id = profile === 'agent' ? 'main' : `worker-${profile}`;
+          if (lifecycle.get(id) === undefined)
+            await lifecycle.create({ agentId: id, binding: { profile, model: 'stub' } });
+          const agent = lifecycle.handleOf(id)!;
+          await agent.accessor.get(IAgentToolActivationService).activate();
+          const offered = agent.accessor
+            .get(IAgentToolRegistryService)
+            .list()
+            .some((tool) => tool.name === 'NotifyUser');
+          expect(offered).toBe(enabled && panel);
+          if (profile === 'agent') {
+            const delegation = agent.accessor
+              .get(IAgentToolRegistryService)
+              .list()
+              .find((tool) => tool.name === 'Agent');
+            expect(delegation?.description.includes('NotifyUser')).toBe(enabled && panel);
+          }
+          const prompt = agent.accessor.get(IAgentProfileService).getSystemPrompt();
+          expect(prompt.includes('When `NotifyUser` is available')).toBe(enabled && panel);
+          if (offered) {
+            expect(
+              agent.accessor
+                .get(INotifyUserTool)
+                .resolveExecution({ message: 'Checking this subtask.' }),
+            ).toMatchObject({ accesses: [], approvalRule: 'NotifyUser' });
+          }
+        }
+        const main = lifecycle.handleOf('main')!;
+        const originalPrompt = main.accessor.get(IAgentProfileService).getSystemPrompt();
+        const fork = await lifecycle.fork(lifecycle.get('main')!, { agentId: 'fork-worker' });
+        expect(
+          lifecycle.handleOf(fork.agentId)!.accessor.get(IAgentProfileService).getSystemPrompt(),
+        ).toBe(originalPrompt);
+        const originalTools = structuredClone(main.accessor.get(IAgentToolRegistryService).list());
+        for (const [index, nextEnabled] of [!enabled, enabled, !enabled].entries()) {
+          await client.setConfig({ experimental: { notify_user: nextEnabled } });
+          let current = getLiveSessionById(client.engineAccessor, 'ses_notify')!;
+          let currentMain = current.accessor.get(IAgentLifecycleService).handleOf('main')!;
+          expect(currentMain.accessor.get(IAgentProfileService).getSystemPrompt()).toBe(
+            originalPrompt,
+          );
+          expect(currentMain.accessor.get(IAgentToolRegistryService).list()).toEqual(originalTools);
+          if (enabled && panel) {
+            const execution = currentMain.accessor
+              .get(INotifyUserTool)
+              .resolveExecution({ message: 'Still working.' });
+            if (!('execute' in execution)) throw new Error('Expected executable notification');
+            expect(
+              await execution.execute({ signal: new AbortController().signal } as never),
+            ).toEqual({
+              isError: false,
+              output: nextEnabled
+                ? 'Update shown to the user.'
+                : 'Notifications are disabled; the update was not displayed.',
+            });
+          }
+          await current.accessor.get(IAgentLifecycleService).create({
+            agentId: `late-worker-${index}`,
+            binding: { profile: 'coder', model: 'stub' },
+          });
+          const child = current.accessor
+            .get(IAgentLifecycleService)
+            .handleOf(`late-worker-${index}`)!;
+          expect(
+            child.accessor
+              .get(IAgentToolRegistryService)
+              .list()
+              .some((tool) => tool.name === 'NotifyUser'),
+          ).toBe(enabled && panel);
+          expect(
+            child.accessor
+              .get(IAgentProfileService)
+              .getSystemPrompt()
+              .includes('When `NotifyUser` is available'),
+          ).toBe(enabled && panel);
+          await client.reloadSession({ sessionId: 'ses_notify' });
+          current = getLiveSessionById(client.engineAccessor, 'ses_notify')!;
+          currentMain = current.accessor.get(IAgentLifecycleService).handleOf('main')!;
+          expect(currentMain.accessor.get(IAgentToolRegistryService).list()).toEqual(originalTools);
+          expect(currentMain.accessor.get(IAgentProfileService).getSystemPrompt()).toBe(
+            originalPrompt,
+          );
+        }
+        await client.createSession({ id: 'ses_notify_fresh', workDir });
+        await client.setConfig({ experimental: { notify_user: enabled } });
+        await client.getStatus({ sessionId: 'ses_notify_fresh' });
+        const fresh = getLiveSessionById(client.engineAccessor, 'ses_notify_fresh')!
+          .accessor.get(IAgentLifecycleService)
+          .handleOf('main')!;
+        expect(
+          fresh.accessor
+            .get(IAgentToolRegistryService)
+            .list()
+            .some((tool) => tool.name === 'NotifyUser'),
+        ).toBe(!enabled && panel);
+        expect(
+          fresh.accessor
+            .get(IAgentProfileService)
+            .getSystemPrompt()
+            .includes('When `NotifyUser` is available'),
+        ).toBe(!enabled && panel);
+        if (enabled || !panel) {
+          expect(fresh.accessor.get(IAgentProfileService).getSystemPrompt()).not.toContain(
+            'NotifyUser',
+          );
+          expect(
+            JSON.stringify(fresh.accessor.get(IAgentToolRegistryService).list()),
+          ).not.toContain('NotifyUser');
+        }
+        await client.setConfig({ experimental: { notify_user: !enabled } });
+        const legacy = getLiveSessionById(client.engineAccessor, 'ses_notify')!;
+        await legacy.accessor
+          .get(IAtomicDocumentStore)
+          .delete(legacy.accessor.get(ISessionContext).scope('notify'), 'state.json');
+        await client.reloadSession({ sessionId: 'ses_notify' });
+        const migrated = getLiveSessionById(client.engineAccessor, 'ses_notify')!
+          .accessor.get(IAgentLifecycleService)
+          .handleOf('main')!;
+        expect(migrated.accessor.get(IAgentProfileService).getSystemPrompt()).toBe(originalPrompt);
+        expect(migrated.accessor.get(IAgentToolRegistryService).list()).toEqual(originalTools);
+      } finally {
+        await client.close();
+        vi.unstubAllEnvs();
+      }
+    },
+    30_000,
+  );
+
   it('serves getTodos from the live session todo state', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-'));
     tempDirs.push(homeDir);
@@ -839,8 +1220,8 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
       const handle = getLiveSessionById(client.engineAccessor, 'ses_todos');
       expect(handle).toBeDefined();
       const manager = handle!.accessor.get(IAgentLifecycleService);
-      const main = await manager.create({ agentId: 'main' });
-      const todo = manager.resolve(main, AgentTodo);
+      await manager.create({ agentId: 'main' });
+      const todo = manager.handleOf('main')!.accessor.get(IAgentTodoService);
       await todo.replace([
         { title: 'write tests', status: 'in_progress' },
         { title: 'ship it', status: 'pending' },
@@ -863,7 +1244,7 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
     }
   });
 
-  it('serves tower mode through the v2 agent scope', async () => {
+  it('serves setTowerMode and getStatus towerMode through the agent scope tower service', async () => {
     vi.stubEnv('PYTHINKER_CODE_EXPERIMENTAL_TOWER', '1');
     const homeDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-'));
     tempDirs.push(homeDir);
@@ -874,28 +1255,37 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
       await client.createSession({ id: 'ses_tower', workDir });
       expect((await client.getStatus({ sessionId: 'ses_tower' })).towerMode).toBe(false);
 
-      const handle = getLiveSessionById(client.engineAccessor, 'ses_tower');
-      expect(handle).toBeDefined();
-      const main = handle!.accessor.get(IAgentLifecycleService).handleOf('main');
-      expect(main).toBeDefined();
-      const tower = main!.accessor.get(IAgentTowerService);
+      const mainTower = () => {
+        const handle = getLiveSessionById(client.engineAccessor, 'ses_tower');
+        expect(handle).toBeDefined();
+        const agent = handle!.accessor.get(IAgentLifecycleService).handleOf('main');
+        expect(agent).toBeDefined();
+        return agent!.accessor.get(IAgentTowerService);
+      };
 
       await client.setTowerMode({ sessionId: 'ses_tower', enabled: true });
-      expect((await client.getStatus({ sessionId: 'ses_tower' })).towerMode).toBe(tower.isActive);
+      // A refused enter() rejects with a typed reason, so a resolved call
+      // means the engine activated tower mode; the wire mirrors it.
+      expect((await client.getStatus({ sessionId: 'ses_tower' })).towerMode).toBe(
+        mainTower().isActive,
+      );
 
       await client.setTowerMode({ sessionId: 'ses_tower', enabled: false });
       expect((await client.getStatus({ sessionId: 'ses_tower' })).towerMode).toBe(false);
+
       await expect(client.setTowerMode({ sessionId: 'ses_missing', enabled: true }))
-        .rejects.toMatchObject({ code: ErrorCodes.SESSION_NOT_FOUND });
+        .rejects.toMatchObject({
+          code: ErrorCodes.SESSION_NOT_FOUND,
+        });
     } finally {
       vi.unstubAllEnvs();
       await client.close();
     }
   });
 
-  it('rejects tower entry when the feature is unavailable', async () => {
-    vi.stubEnv('PYTHINKER_CODE_EXPERIMENTAL_FLAG', '0');
+  it('rejects setTowerMode when the tower feature is unavailable', async () => {
     vi.stubEnv('PYTHINKER_CODE_EXPERIMENTAL_TOWER', '0');
+    vi.stubEnv('PYTHINKER_CODE_EXPERIMENTAL_FLAG', '0');
     const homeDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-'));
     tempDirs.push(homeDir);
     const workDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-work-'));
@@ -905,17 +1295,21 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
       await client.createSession({ id: 'ses_tower_off', workDir });
 
       await expect(client.setTowerMode({ sessionId: 'ses_tower_off', enabled: true }))
-        .rejects.toMatchObject({ code: 'session.tower_mode_invalid' });
+        .rejects.toMatchObject({
+          code: 'session.tower_mode_invalid',
+          message: expect.stringContaining('the tower experiment is disabled'),
+        });
       expect((await client.getStatus({ sessionId: 'ses_tower_off' })).towerMode).toBe(false);
-      await expect(client.setTowerMode({ sessionId: 'ses_tower_off', enabled: false }))
-        .resolves.toBeUndefined();
+
+      await client.setTowerMode({ sessionId: 'ses_tower_off', enabled: false });
+      expect((await client.getStatus({ sessionId: 'ses_tower_off' })).towerMode).toBe(false);
     } finally {
       vi.unstubAllEnvs();
       await client.close();
     }
   });
 
-  it('exposes Session.setTowerMode on the v2 harness', async () => {
+  it('exposes Session.setTowerMode and getStatus().towerMode on the v2 harness', async () => {
     vi.stubEnv('PYTHINKER_CODE_EXPERIMENTAL_TOWER', '1');
     const { harness } = await makeHarness();
     const workDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-work-'));
@@ -923,10 +1317,13 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
     try {
       const session = await harness.createSession({ workDir });
       expect((await session.getStatus()).towerMode).toBe(false);
+
       await expect(session.setTowerMode(true)).resolves.toBeUndefined();
       expect(typeof (await session.getStatus()).towerMode).toBe('boolean');
+
       await expect(session.setTowerMode(false)).resolves.toBeUndefined();
       expect((await session.getStatus()).towerMode).toBe(false);
+
       await expect(session.setTowerMode('yes' as unknown as boolean)).rejects.toMatchObject({
         code: ErrorCodes.REQUEST_INVALID,
       });
@@ -985,38 +1382,6 @@ describe('SDKRpcClientV2 workspace trust', () => {
     }
   });
 
-  it('degrades the gated-server list to empty on an invalid project mcp.json', async () => {
-    const { harness } = await makeHarness();
-    const workDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-work-'));
-    tempDirs.push(workDir);
-    await writeFile(join(workDir, '.mcp.json'), '{not json', 'utf-8');
-    try {
-      const info = await harness.getWorkspaceTrustInfo(workDir);
-      expect(info).toEqual({ trusted: false, gatedMcpServers: [] });
-    } finally {
-      await harness.close();
-    }
-  });
-
-  it('trustWorkspace flips the state and persists the marker in the pythinker home', async () => {
-    const { harness, homeDir } = await makeHarness();
-    const workDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-work-'));
-    tempDirs.push(workDir);
-    try {
-      await harness.trustWorkspace(workDir);
-      expect(await harness.getWorkspaceTrustInfo(workDir)).toEqual({
-        trusted: true,
-        gatedMcpServers: [],
-      });
-      // The trust marker lives in the pythinker home, never in the checkout.
-      const markers = await readdir(join(homeDir, 'workspace-trust'));
-      expect(markers.length).toBe(1);
-      expect(await readdir(workDir)).not.toContain('workspace-trust');
-    } finally {
-      await harness.close();
-    }
-  });
-
   it('reports project servers that override same-named user entries', async () => {
     const { harness, homeDir } = await makeHarness();
     const workDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-work-'));
@@ -1058,6 +1423,37 @@ describe('SDKRpcClientV2 workspace trust', () => {
     }
   });
 
+  it('degrades the gated-server list to empty on an invalid project mcp.json', async () => {
+    const { harness } = await makeHarness();
+    const workDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-work-'));
+    tempDirs.push(workDir);
+    await writeFile(join(workDir, '.mcp.json'), '{not json', 'utf-8');
+    try {
+      const info = await harness.getWorkspaceTrustInfo(workDir);
+      expect(info).toEqual({ trusted: false, gatedMcpServers: [] });
+    } finally {
+      await harness.close();
+    }
+  });
+
+  it('trustWorkspace flips the state and persists the marker in the pythinker home', async () => {
+    const { harness, homeDir } = await makeHarness();
+    const workDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-work-'));
+    tempDirs.push(workDir);
+    try {
+      await harness.trustWorkspace(workDir);
+      expect(await harness.getWorkspaceTrustInfo(workDir)).toEqual({
+        trusted: true,
+        gatedMcpServers: [],
+      });
+      // The trust marker lives in the pythinker home, never in the checkout.
+      const markers = await readdir(join(homeDir, 'workspace-trust'));
+      expect(markers.length).toBe(1);
+      expect(await readdir(workDir)).not.toContain('workspace-trust');
+    } finally {
+      await harness.close();
+    }
+  });
 });
 
 describe('foldAgentWireReplay', () => {
@@ -1136,7 +1532,7 @@ describe('SDKRpcClientV2 engine telemetry', () => {
     const workDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-tel-work-'));
     tempDirs.push(workDir);
     const records: TelemetryRecord[] = [];
-    const harness = createPythinkerHarnessV2({
+    const harness = createPythinkerHarness({
       homeDir,
       identity: TEST_IDENTITY,
       telemetry: recordingTelemetry(records),
@@ -1158,7 +1554,7 @@ describe('SDKRpcClientV2 engine telemetry', () => {
     tempDirs.push(workDir);
     await writeFile(join(homeDir, 'config.toml'), 'telemetry = false\n', 'utf-8');
     const records: TelemetryRecord[] = [];
-    const harness = createPythinkerHarnessV2({
+    const harness = createPythinkerHarness({
       homeDir,
       identity: TEST_IDENTITY,
       telemetry: recordingTelemetry(records),
@@ -1180,7 +1576,7 @@ describe('SDKRpcClientV2 engine telemetry', () => {
     tempDirs.push(workDir);
     await writeFile(join(homeDir, 'config.toml'), '[experimental]\nsubagent_fork = true\n', 'utf-8');
     const records: TelemetryRecord[] = [];
-    const harness = createPythinkerHarnessV2({
+    const harness = createPythinkerHarness({
       homeDir,
       identity: TEST_IDENTITY,
       telemetry: recordingTelemetry(records),
@@ -1194,6 +1590,7 @@ describe('SDKRpcClientV2 engine telemetry', () => {
       expect(started[0]).toMatchObject({
         sessionId: session.id,
         properties: {
+          client_id: '',
           client_name: 'pythinker-code-cli',
           client_version: '0.0.0-test',
           ui_mode: 'shell',
@@ -1232,7 +1629,7 @@ describe('SDKRpcClientV2 engine telemetry', () => {
       telemetry: recordingTelemetry(records),
     });
     try {
-      // No harness wraps this client, so nothing else emits session_started —
+      // No harness wraps this client, so nothing else emits session_started 
       // the engine's own row must survive forwarding.
       const summary = await client.createSession({ workDir });
       const started = records.filter((record) => record.event === 'session_started');
@@ -1299,7 +1696,7 @@ describe('removeProviderFromConfig', () => {
     expect(next.defaultProvider).toBe('a');
   });
 
-  it('preserves secondary_model pool entries whose model alias was removed', () => {
+  it('leaves secondary_model pool entries alone when their model alias was removed', () => {
     const config = {
       providers: { a: { type: 'openai' }, b: { type: 'openai' } },
       models: {
@@ -1320,7 +1717,7 @@ describe('removeProviderFromConfig', () => {
     });
   });
 
-  it('preserves the secondary_model section when its default model dangles', () => {
+  it('keeps the secondary_model section even when its default model dangles', () => {
     const config = {
       providers: { a: { type: 'openai' }, b: { type: 'openai' } },
       models: {
@@ -1333,13 +1730,20 @@ describe('removeProviderFromConfig', () => {
       },
     } as unknown as PythinkerConfig;
 
-    expect(removeProviderFromConfig(config, 'b').secondaryModel).toEqual(config.secondaryModel);
+    expect(removeProviderFromConfig(config, 'b').secondaryModel).toEqual({
+      defaultModel: 'b/m1',
+      models: { 'a/m1': 'fast', 'b/m1': 'smart' },
+    });
 
+    // The legacy recipe's `model` key is left alone the same way.
     const legacy = {
       ...config,
       secondaryModel: { model: 'b/m1', default_effort: 'low' },
     } as unknown as PythinkerConfig;
-    expect(removeProviderFromConfig(legacy, 'b').secondaryModel).toEqual(legacy.secondaryModel);
+    expect(removeProviderFromConfig(legacy, 'b').secondaryModel).toEqual({
+      model: 'b/m1',
+      default_effort: 'low',
+    });
   });
 
   it('leaves the secondary_model section untouched when nothing dangles', () => {

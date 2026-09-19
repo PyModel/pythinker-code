@@ -1,63 +1,96 @@
-# Use Pythinker Code in a browser
+# Using Pythinker Code in the browser
 
-Pythinker Code includes a local browser UI. It uses the same local sessions, configuration, and credentials as the terminal app.
+Pythinker Code Web is the browser-based graphical interface built into Pythinker Code CLI: run `pythinker web` in a terminal, and you can start sessions, chat, handle approvals, and review file changes in a browser — a friendlier interface, while sessions and data still live entirely on your machine.
 
-## Start the web UI
+![Pythinker Code Web UI](../../media/pythinker-web-ui.jpg)
 
-1. Open a terminal in your project.
-2. Run:
+## Getting started
 
-```sh
-pythinker web
+<div class="step">
+<span class="step-num">1</span> <strong>Install Pythinker Code CLI and log in</strong>
+
+`pythinker web` is a built-in CLI command — it isn't available without the CLI. See [Getting started](./getting-started.md) for installation and login.
+</div>
+
+<div class="step">
+<span class="step-num">2</span> <strong>Run <code>pythinker web</code> in a terminal</strong>
+
+If you're already in the CLI, you can also type `/web` to hand the current session off to the browser.
+</div>
+
+<div class="step">
+<span class="step-num">3</span> <strong>The web UI opens in your default browser once ready</strong>
+
+The startup banner prints the access URL — if the browser doesn't open by itself, copy this URL and open it manually:
+
+```text
+Local:   http://127.0.0.1:58627/#token=...
+Token:   ...
+Stop:    Ctrl+C
 ```
 
-3. Keep the terminal open. The command opens the browser when the server is ready.
+::: warning
+The `#token=` fragment is the access credential — don't share it. Stop the server with `Ctrl+C` in the terminal.
+:::
+</div>
 
-If the browser does not open, copy the local URL printed in the terminal. The URL contains an access token. Do not share it.
+### Common commands
 
-Use `/web` in the terminal UI to open the current session in the browser.
+| Option | Description |
+| --- | --- |
+| `--port <port>` | Bind port; defaults to `58627`, auto-increments when taken |
+| `--host [host]` | Let phones, tablets, or other computers on the same LAN access the web address; you can also specify an IP, e.g. `--host 192.168.1.10` |
+| `--no-open` | Don't open the browser when ready |
+| `--log-level <level>` | Enable server logs at the given level; off by default |
 
-## What the web UI provides
+## Relationship with the CLI
 
-- Start and resume sessions
-- Stream assistant output and tool activity
-- Review approvals and file changes
-- Browse workspace files and open them from **Explorer** in the sidebar
-- Combine two models with automatic **Discussion** openings, reciprocal reviews, and Fusion
-- Use supported slash commands, including `/goal` and `/compact`
-- View the same session data as the terminal UI
+The web UI and the CLI share the same login state, configuration (`config.toml`), and session data.
 
-## Combine models with Discussion
+Note that the web UI supports only a subset of the CLI's slash commands — common ones like `/new`, `/goal`, and `/compact` all work. Everything else usually has a point-and-click equivalent in the UI (the settings page, the model picker, the account menu, the task panel).
 
-Discussion is experimental and requires the v2 engine. Start the web UI with the feature enabled:
+How the two sides compare:
 
-```sh
-PYTHINKER_CODE_EXPERIMENTAL_EXPERT_TALK=1 pythinker web
-```
+<div class="feature-compare-table">
 
-Select **Discussion**, choose different Fusion Lead and Peer Expert models and their thinking efforts, then select **Use for next message**. For that message, both models create read-only openings and review each other. The Fusion Lead then creates one fresh final answer automatically. The normal transcript shows that answer, and the Discussion panel stays expanded when the exchange completes so you can inspect the openings, reviews, comparison notes, attribution, and usage.
+| Feature | CLI | Web | Notes |
+| --- | --- | --- | --- |
+| Streaming chat | ✓ | ✓ | Web renders rich formats incrementally (tables, code highlighting, diffs, tool cards) |
+| Session management | ✓ | ✓ | Web lets you archive less-used sessions away; the archive page sorts them by time and you can restore them anytime; the Open / Done / Workspaces tabs are a Lab experiment (off by default) — enable them on the settings Lab page |
+| Approvals | ✓ | ✓ | Web handles them with clicks in the UI — no commands needed |
+| Background tasks | ✓ | ✓ | Web shows live progress in the task panel |
+| Files and changes | ✓ | ✓ | Web has a changed-files summary card and per-file diffs |
+| Settings | ✓ | ✓ | Web adds a settings UI (providers, account & usage, Lab experiments) |
+| Global search | — | ✓ | Web searches across sessions and workspaces |
+| Mobile layout | — | ✓ | With LAN sharing on (`--host`), it works in phone browsers on the same network |
 
-Open **Settings → Discussion** and turn off **Show reasoning stream** to hide model reasoning without hiding tools, answers, or metrics. The preference applies immediately and remains selected in that browser.
+</div>
 
-The selected pair remains available in the session, but each activation applies to one accepted message. Press `Esc` to cancel an active run. **Take** and **Build from Fusion** remain explicit actions.
+## Security notes
 
-## Server options
+- **Set a parallel credential**: when binding a LAN address, also set the `PYTHINKER_CODE_PASSWORD` environment variable; the server then rate-limits authentication failures automatically.
+- **Don't disable authentication entirely**: `--dangerous-bypass-auth` turns off all authentication — anyone who can reach the port can control your sessions, file system, and shell. Only use it on trusted networks or behind your own authenticating proxy. See the [pythinker command reference](../reference/pythinker-command.md#pythinker-web).
 
-```sh
-pythinker web --no-open
-pythinker web --port 58628
-pythinker web --host
-```
+## FAQ
 
-`--host` listens on all network interfaces. Use it only on a trusted network and keep the token secret. `--dangerous-bypass-auth` removes authentication; do not use it on a shared or untrusted network.
+### The port is already taken
 
-The default address is `http://127.0.0.1:58627`. When that port is busy, Pythinker tries the next port.
+Nothing to do. `pythinker web` automatically retries with the next port (58628, 58629, …) — just use the address printed in the startup banner.
 
-## Stop the server
+### The URL won't open in the browser
 
-Press `Ctrl-C` in the terminal that runs `pythinker web`.
+First check the server is still running in the terminal (it runs in the foreground there). Copy the full URL including the `#token=` part; opening only `http://127.0.0.1:58627` lands on a token input page, where pasting the `Token` value from the banner also works.
+
+### How to recover from an invalid token
+
+Run `pythinker web rotate-token` to generate a new token, then open the new banner URL. All running instances switch to the new token automatically — no restart needed.
+
+### Other devices on the same Wi-Fi can't connect
+
+Make sure you started with `--host` (bare is fine), and use the LAN URL from the banner (like `http://192.168.x.x:58627/#token=...`). If it still fails, check that the machine's firewall allows the port, and that both devices are really on the same network segment — guest Wi-Fi, VPNs, and switching to a 4G/5G hotspot all isolate devices.
 
 ## Next steps
 
-- [pythinker command](../reference/pythinker-command.md#pythinker-web) — all web-server options
-- [Server API](../reference/server-api.md) — REST and WebSocket integration
+- [Server API](../reference/server-api.md) — REST / WebSocket APIs for scripts and third-party integrations (experimental)
+- [pythinker command](../reference/pythinker-command.md#pythinker-web) — all `pythinker web` command-line options
+- [Remote Control](./remote-control.md) — remotely view and take over local sessions from any device over the public internet

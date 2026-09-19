@@ -1,59 +1,33 @@
 import { hostname, platform } from 'node:os';
+import { join } from 'node:path';
 import { request as httpRequest, validateHeaderName, validateHeaderValue } from 'node:http';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { promisify } from 'node:util';
 import { gzip } from 'node:zlib';
 
-import { createPythinkerDeviceId } from '@pymodel/pythinker-code-oauth';
+import {
+  createPythinkerDeviceId,
+  FileTokenStorage,
+  PYTHINKER_CODE_PROVIDER_NAME,
+  resolvePythinkerTokenStorageName,
+} from '@pymodel/pythinker-code-oauth';
 import { WebSocket, type RawData } from 'ws';
 
 import { acquireRemoteControlLock } from './lock';
 
 export const REMOTE_CONTROL_RELAY_ORIGIN = 'https://code-rc.pythinker.com';
 
-export const REMOTE_CONTROL_RELAY_ENV = 'PYTHINKER_CODE_REMOTE_CONTROL_RELAY';
+export const REMOTE_CONTROL_RELAY_URL_ENV = 'PYTHINKER_CODE_REMOTE_CONTROL_RELAY_URL';
 
-export const REMOTE_CONTROL_RELAY_KEY_ENV = 'PYTHINKER_CODE_REMOTE_CONTROL_RELAY_KEY';
-
-/**
- * Resolve the relay to tunnel through. Pythinker ships no relay, so an operator
- * running their own points at it with `--relay-origin` or the env var; the
- * default constant is the last resort.
- */
-export function resolveRelayOrigin(
-  explicit?: string,
+export function resolveRemoteControlRelayOrigin(
   env: Readonly<Record<string, string | undefined>> = process.env,
 ): string {
-  const candidate = explicit?.trim() || env[REMOTE_CONTROL_RELAY_ENV]?.trim() || '';
-  if (candidate.length === 0) return REMOTE_CONTROL_RELAY_ORIGIN;
-  const url = new URL(candidate);
-  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-    throw new Error(`Remote Control relay must be an http(s) URL: ${candidate}`);
-  }
-  return candidate;
-}
-
-/**
- * Resolve the secret the relay itself demands. It is deliberately separate from
- * the local server token, so a relay operator can admit known machines without
- * ever holding a credential that controls one.
- */
-export function resolveRelayKey(
-  explicit?: string,
-  env: Readonly<Record<string, string | undefined>> = process.env,
-): string {
-  const candidate = explicit?.trim() || env[REMOTE_CONTROL_RELAY_KEY_ENV]?.trim() || '';
-  if (candidate.length === 0) {
-    throw new Error(
-      `Remote Control needs a relay key. Pass --relay-key or set ${REMOTE_CONTROL_RELAY_KEY_ENV}.`,
-    );
-  }
-  return candidate;
+  const value = env[REMOTE_CONTROL_RELAY_URL_ENV]?.trim();
+  return value === undefined || value.length === 0 ? REMOTE_CONTROL_RELAY_ORIGIN : value;
 }
 
 const MAX_HTTP_HEADER_BYTES = 64 * 1024;
 const MAX_HTTP_REQUEST_BYTES = 10 * 1024 * 1024;
-const MAX_HTTP_RESPONSE_BYTES = 64 * 1024 * 1024;
 const HTTP_REQUEST_TIMEOUT_MS = 30_000;
 const REGISTER_TIMEOUT_MS = 10_000;
 const MAX_RECONNECT_DELAY_MS = 30_000;
@@ -61,7 +35,6 @@ const RELAY_PING_INTERVAL_MS = 30_000;
 const RELAY_SILENCE_TIMEOUT_MS = 300_000;
 const BLOCKED_REQUEST_HEADERS = new Set([
   'authorization',
-  'content-length',
   'cookie',
   'host',
   'origin',
@@ -125,7 +98,6 @@ export interface RemoteControlOptions {
   readonly localOrigin: string;
   readonly localServerToken: string | (() => string);
   readonly clientVersion: string;
-  readonly relayKey: string;
   readonly relayOrigin?: string;
   readonly stderr?: Pick<NodeJS.WriteStream, 'write'>;
   readonly onStatus?: (status: RemoteControlStatus) => void;
@@ -151,10 +123,10 @@ class RegistrationError extends Error {}
 export function buildRemoteControlUrl(
   deviceId: string,
   sessionId?: string,
-  relayOrigin = REMOTE_CONTROL_RELAY_ORIGIN,
+  relayOrigin = resolveRemoteControlRelayOrigin(),
 ): string {
   const url = new URL(relayOrigin);
-  const relayPath = stripTrailingSlashes(url.pathname);
+  const relayPath = url.pathname.replace(/\/+$/, '');
   const devicePath = `${relayPath}/devices/${encodeURIComponent(deviceId)}`;
   url.pathname =
     sessionId === undefined
@@ -193,17 +165,6 @@ export function parseRawHttpRequest(raw: Buffer): ParsedRawHttpRequest {
     }
     headers.push([name, value]);
   }
-  // `transfer-encoding` is stripped before forwarding, so a chunked body would
-  // reach the local server with its chunk framing as entity data. The relay
-  // sends whole requests, so refuse the framing instead of decoding it.
-  if (
-    headers.some(
-      ([name, value]) =>
-        name.toLowerCase() === 'transfer-encoding' && value.toLowerCase().includes('chunked'),
-    )
-  ) {
-    throw new SyntaxError('chunked HTTP request bodies are not supported');
-  }
   return {
     method: match[1]!,
     path: match[2]!,
@@ -232,34 +193,23 @@ export function filterForwardRequestHeaders(
   return result;
 }
 
-function stripTrailingSlashes(value: string): string {
-  let end = value.length;
-  while (end > 0 && value.codePointAt(end - 1) === 47) end -= 1;
-  return end === value.length ? value : value.slice(0, end);
-}
-
-function findHeadTagEnd(text: string): number {
-  const start = /<head(?=[\s>])/i.exec(text);
-  if (start === null) return -1;
-  const close = text.indexOf('>', start.index + 5);
-  return close === -1 ? -1 : close + 1;
-}
-
 export function rewriteRemoteControlResponse(
   contentType: string,
   body: Buffer,
   publicPrefix: string,
 ): Buffer {
-  const normalizedPrefix = stripTrailingSlashes(publicPrefix);
+  const normalizedPrefix = publicPrefix.replace(/\/+$/, '');
   if (contentType.toLowerCase().includes('text/html')) {
-    const prefixLiteral = scriptStringLiteral(normalizedPrefix);
+    const prefixLiteral = JSON.stringify(normalizedPrefix);
     const injected = `<script>(function(){var p=${prefixLiteral};try{sessionStorage.setItem('pythinker-desktop-server-origin',location.origin+p)}catch(e){}var w=function(f){return function(s,t,u){if(typeof u==='string'&&u.charAt(0)==='/'&&u.indexOf(p)!==0)u=p+u;return f.apply(this,[s,t,u])}};history.pushState=w(history.pushState);history.replaceState=w(history.replaceState)})();</script>`;
     let text = body.toString('utf8');
-    const headEnd = findHeadTagEnd(text);
+    const headMatch = /<head(?:\s[^>]*)?>/i.exec(text);
     text =
-      headEnd === -1
+      headMatch === null
         ? injected + text
-        : text.slice(0, headEnd) + injected + text.slice(headEnd);
+        : text.slice(0, headMatch.index + headMatch[0].length) +
+          injected +
+          text.slice(headMatch.index + headMatch[0].length);
     text = text.replaceAll(/\bsrc="\//g, `src="${normalizedPrefix}/`);
     text = text.replaceAll(/\bhref="\//g, `href="${normalizedPrefix}/`);
     return Buffer.from(text);
@@ -275,19 +225,6 @@ export function rewriteRemoteControlResponse(
     return Buffer.from(text);
   }
   return body;
-}
-
-/**
- * Embed a value in an inline `<script>`. `JSON.stringify` alone is not enough:
- * `</script>` in the value would close the element, and U+2028/U+2029 are line
- * terminators inside a JavaScript string literal.
- */
-function scriptStringLiteral(value: string): string {
-  return JSON.stringify(value)
-    .replaceAll('<', '\\u003c')
-    .replaceAll('>', '\\u003e')
-    .replaceAll('\u2028', '\\u2028')
-    .replaceAll('\u2029', '\\u2029');
 }
 
 function acceptsGzipEncoding(headers: readonly [string, string][]): boolean {
@@ -314,32 +251,35 @@ function isGzipCompressibleType(contentType: string): boolean {
 export async function startRemoteControl(
   options: RemoteControlOptions,
 ): Promise<RemoteControlHandle> {
-  const tokenOption = options.localServerToken;
-  const resolveServerToken: () => string =
-    typeof tokenOption === 'function' ? tokenOption : () => tokenOption;
-  if (resolveServerToken().length === 0) {
+  const localServerToken =
+    typeof options.localServerToken === 'function'
+      ? options.localServerToken
+      : () => options.localServerToken as string;
+  if (localServerToken().length === 0) {
     throw new Error('Remote Control requires local server authentication.');
   }
-  if (options.relayKey.length === 0) {
-    throw new Error(
-      `Remote Control needs a relay key. Pass --relay-key or set ${REMOTE_CONTROL_RELAY_KEY_ENV}.`,
-    );
+  const storage = new FileTokenStorage(join(options.homeDir, 'credentials'));
+  const token = await storage.load(
+    resolvePythinkerTokenStorageName({ providerName: PYTHINKER_CODE_PROVIDER_NAME }),
+  );
+  if (token?.refreshToken === undefined || token.refreshToken.length === 0) {
+    throw new Error('Remote Control requires a Pythinker login. Run `pythinker login` first.');
   }
-  const relayOrigin = options.relayOrigin ?? REMOTE_CONTROL_RELAY_ORIGIN;
+  const relayOrigin = options.relayOrigin ?? resolveRemoteControlRelayOrigin();
   const deviceId = createPythinkerDeviceId(options.homeDir);
   const deviceName = hostname();
   const url = buildRemoteControlUrl(deviceId, undefined, relayOrigin);
   const lock = await acquireRemoteControlLock(options.homeDir, {
-    localOrigin: stripTrailingSlashes(options.localOrigin),
+    localOrigin: options.localOrigin.replace(/\/+$/, ''),
     deviceId,
     url,
   });
   const client = new RemoteControlClient({
     ...options,
-    localServerToken: resolveServerToken,
+    localServerToken,
     relayOrigin,
     deviceId,
-    relayToken: options.relayKey,
+    refreshToken: token.refreshToken,
   });
   try {
     await client.start();
@@ -356,11 +296,8 @@ export async function startRemoteControl(
     url,
     closed,
     close: async () => {
-      try {
-        await client.close();
-      } finally {
-        await closed;
-      }
+      await client.close();
+      await closed;
     },
   };
 }
@@ -371,7 +308,7 @@ class RemoteControlClient {
   private readonly clientVersion: string;
   private readonly relayOrigin: string;
   private readonly deviceId: string;
-  private readonly relayToken: string;
+  private readonly refreshToken: string;
   private readonly stderr: Pick<NodeJS.WriteStream, 'write'>;
   private readonly onStatus: (status: RemoteControlStatus) => void;
   private readonly streams = new Map<string, ActiveStream>();
@@ -392,19 +329,19 @@ class RemoteControlClient {
   private initialReject: ((error: unknown) => void) | undefined;
 
   constructor(
-    options: RemoteControlOptions & {
+    options: Omit<RemoteControlOptions, 'localServerToken'> & {
+      readonly localServerToken: () => string;
       readonly relayOrigin: string;
       readonly deviceId: string;
-      readonly relayToken: string;
-      readonly localServerToken: () => string;
+      readonly refreshToken: string;
     },
   ) {
-    this.localOrigin = stripTrailingSlashes(options.localOrigin);
+    this.localOrigin = options.localOrigin.replace(/\/+$/, '');
     this.localServerToken = options.localServerToken;
     this.clientVersion = options.clientVersion;
     this.relayOrigin = options.relayOrigin;
     this.deviceId = options.deviceId;
-    this.relayToken = options.relayToken;
+    this.refreshToken = options.refreshToken;
     this.stderr = options.stderr ?? process.stderr;
     this.onStatus = options.onStatus ?? (() => {});
     this.pingIntervalMs = options.pingIntervalMs ?? RELAY_PING_INTERVAL_MS;
@@ -416,11 +353,7 @@ class RemoteControlClient {
       this.initialResolve = resolve;
       this.initialReject = reject;
     });
-    // `run()` settles `initial` from inside its loop, but a throw from outside
-    // that loop's try would leave the caller waiting forever.
-    this.runPromise = this.run().catch((error: unknown) => {
-      this.rejectInitial(error instanceof Error ? error : new Error(String(error)));
-    });
+    this.runPromise = this.run();
     await initial;
   }
 
@@ -507,14 +440,6 @@ class RemoteControlClient {
     }
 
     const managementEnd = waitForSocketEnd(management);
-    // The relay may send `open_ws` the moment it acknowledges registration.
-    // `waitForRelayMessage` has just detached its own listener, so buffer
-    // everything that lands before the HTTP tunnel is up and replay it.
-    const earlyManagement: RawData[] = [];
-    const bufferManagement = (data: RawData): void => {
-      earlyManagement.push(data);
-    };
-    management.on('message', bufferManagement);
     const http = await this.connectRelay(
       `/v1/remote/http?device_id=${encodeURIComponent(this.deviceId)}`,
     );
@@ -523,10 +448,8 @@ class RemoteControlClient {
     if (management.readyState !== WebSocket.OPEN) {
       throw new Error('management connection closed');
     }
-    management.off('message', bufferManagement);
     management.on('message', (data) => this.handleManagementMessage(data));
     http.on('message', (data) => this.handleHttpMessage(data));
-    for (const data of earlyManagement) this.handleManagementMessage(data);
     this.reconnectAttempt = 0;
     this.relayOnline = true;
     this.onStatus('relay_connected');
@@ -543,7 +466,7 @@ class RemoteControlClient {
   }
 
   private connectRelay(path: string): Promise<WebSocket> {
-    return connectWebSocket(relayWebSocketUrl(this.relayOrigin, path), this.relayToken);
+    return connectWebSocket(relayWebSocketUrl(this.relayOrigin, path), this.refreshToken);
   }
 
   private watchSocket(socket: WebSocket, label: string): void {
@@ -770,7 +693,7 @@ class RemoteControlClient {
   }
 
   private publicPrefix(): string {
-    const relayPath = stripTrailingSlashes(new URL(this.relayOrigin).pathname);
+    const relayPath = new URL(this.relayOrigin).pathname.replace(/\/+$/, '');
     return `${relayPath}/devices/${encodeURIComponent(this.deviceId)}`;
   }
 
@@ -841,8 +764,8 @@ function connectWebSocketAttempt(
       else reject(error);
     };
     const onOpen = (): void => finish();
-    const onError = (error: Error): void => finish(error);
-    const onClose = (code: number, reason: Buffer): void => {
+    const onError = (error: Error) => finish(error);
+    const onClose = (code: number, reason: Buffer) => {
       finish(new Error(`WebSocket closed during handshake (${code} ${reason.toString()})`));
     };
     socket.once('open', onOpen);
@@ -914,8 +837,6 @@ function requestLocalHttp(
         path: parsed.path,
         headers: [
           ...filterForwardRequestHeaders(parsed.headers, serverToken),
-          'Content-Length',
-          String(parsed.body.length),
           'Host',
           origin.host,
         ],
@@ -923,17 +844,7 @@ function requestLocalHttp(
       },
       (response) => {
         const chunks: Buffer[] = [];
-        let receivedBytes = 0;
-        response.on('data', (chunk: Buffer | string) => {
-          receivedBytes += chunk.length;
-          if (receivedBytes > MAX_HTTP_RESPONSE_BYTES) {
-            response.destroy(
-              new Error(`Remote Control response exceeds ${MAX_HTTP_RESPONSE_BYTES} bytes`),
-            );
-            return;
-          }
-          chunks.push(Buffer.from(chunk));
-        });
+        response.on('data', (chunk: Buffer | string) => chunks.push(Buffer.from(chunk)));
         response.once('error', reject);
         response.once('end', () => {
           void (async (): Promise<Buffer> => {
@@ -955,11 +866,11 @@ function requestLocalHttp(
               let varyCovers = false;
               for (let index = 0; index < headers.length; index += 2) {
                 if (headers[index]!.toLowerCase() !== 'vary') continue;
-                const tokens = new Set(headers[index + 1]!
+                const tokens = headers[index + 1]!
                   .toLowerCase()
                   .split(',')
-                  .map((token) => token.trim()));
-                if (tokens.has('*') || tokens.has('accept-encoding')) varyCovers = true;
+                  .map((token) => token.trim());
+                if (tokens.includes('*') || tokens.includes('accept-encoding')) varyCovers = true;
               }
               if (!varyCovers) headers.push('Vary', 'Accept-Encoding');
             }
@@ -1029,7 +940,7 @@ function bridgeSockets(
   left: WebSocket,
   right: WebSocket,
   onClose: () => void,
-  earlyLeftFrames: [RawData, boolean][],
+  earlyLeftFrames?: [RawData, boolean][],
 ): void {
   let closed = false;
   const closeBoth = (code = 1000, reason = Buffer.alloc(0)): void => {
@@ -1040,9 +951,11 @@ function bridgeSockets(
     if (left.readyState === WebSocket.OPEN) left.close(safeCode, reason);
     if (right.readyState === WebSocket.OPEN) right.close(safeCode, reason);
   };
-  left.removeAllListeners('message');
-  for (const [data, isBinary] of earlyLeftFrames) {
-    if (right.readyState === WebSocket.OPEN) right.send(data, { binary: isBinary });
+  if (earlyLeftFrames !== undefined) {
+    left.removeAllListeners('message');
+    for (const [data, isBinary] of earlyLeftFrames) {
+      if (right.readyState === WebSocket.OPEN) right.send(data, { binary: isBinary });
+    }
   }
   left.on('message', (data, isBinary) => {
     if (right.readyState === WebSocket.OPEN) right.send(data, { binary: isBinary });
@@ -1070,7 +983,7 @@ function isValidCloseCode(code: number): boolean {
 function relayWebSocketUrl(origin: string, path: string): string {
   const url = new URL(origin);
   url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
-  const relayPath = stripTrailingSlashes(url.pathname);
+  const relayPath = url.pathname.replace(/\/+$/, '');
   const [pathname, query] = path.split('?', 2);
   url.pathname = `${relayPath}${pathname}`;
   url.search = query === undefined ? '' : query;

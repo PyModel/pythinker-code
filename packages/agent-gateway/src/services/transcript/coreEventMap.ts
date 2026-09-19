@@ -1,4 +1,3 @@
-import type { AgentActivityUpdated } from '@pymodel/agent-core-v2/agent/activityView/activityView';
 import type { ContextSpliced } from '@pymodel/agent-core-v2/agent/contextMemory/contextEvents';
 import type { HookResult } from '@pymodel/agent-core-v2/features/externalHooks/agent/agentExternalHooksService';
 import type {
@@ -7,13 +6,7 @@ import type {
   CompactionCompleted,
   CompactionStarted,
 } from '@pymodel/agent-core-v2/agent/fullCompaction/compactionOps';
-import {
-  daemonFileRefFromPart,
-  type ContentPart,
-  type ContextUndone,
-  type CronFired,
-  type GoalUpdated,
-} from '@pymodel/agent-core-v2';
+import { daemonFileRefFromPart, type ContentPart, type ContextUndone, type CronFired, type GoalUpdated } from '@pymodel/agent-core-v2';
 import type {
   AssistantDelta,
   ThinkingDelta,
@@ -21,33 +14,38 @@ import type {
   TurnStarted,
   TurnStepCompleted,
   TurnStepInterrupted,
+  TurnStepRetrying,
   TurnStepStarted,
 } from '@pymodel/agent-core-v2/agent/loop/turnEvents';
 import type { TurnEnded, TurnSteer } from '@pymodel/agent-core-v2/agent/loop/turnOps';
+import type { AgentActivitySnapshot } from '@pymodel/agent-core-v2/agent/loop/loop';
 import type { AgentErrorEvent } from '@pymodel/agent-core-v2/agent/mcp/mcpEvents';
 import type { PluginCommandActivated } from '@pymodel/agent-core-v2/agent/pluginCommand/pluginCommand';
 import type { WarningIssued } from '@pymodel/agent-core-v2/agent/profile/profileOps';
-import type { PromptAccepted } from '@pymodel/agent-core-v2/agent/prompt/promptOps';
 import type {
   PromptAborted,
   PromptCompleted,
-  PromptQueued,
   PromptStarted,
   PromptSteered,
   PromptSubmitted,
 } from '@pymodel/agent-core-v2/agent/prompt/promptService';
+import type { PromptAccepted } from '@pymodel/agent-core-v2/agent/prompt/promptOps';
+import type { PromptQueued } from '@pymodel/agent-core-v2/agent/prompt/promptService';
 import type {
   ShellCompleted,
   ShellOutput,
   ShellStarted,
 } from '@pymodel/agent-core-v2/agent/shellCommand/shellCommandService';
 import type { SkillActivated } from '@pymodel/agent-core-v2/features/skill/skillOps';
-import type { TurnStepRetrying } from '@pymodel/agent-core-v2/agent/stepRetry/stepRetryService';
 import type {
   TaskNotified,
   TaskStarted,
   TaskTerminatedNotice,
 } from '@pymodel/agent-core-v2/agent/task/taskOps';
+import type {
+  PermissionApprovalRequested,
+  PermissionApprovalResolved,
+} from '@pymodel/agent-core-v2/agent/toolApproval/toolApprovalService';
 import type {
   ToolCallStarted,
   ToolProgress,
@@ -87,21 +85,20 @@ import {
   type TurnState,
 } from '@pymodel/transcript';
 
-import { toLegacyPhase } from '../legacyStatus/legacyStatus';
-import { projectPromptContentParts } from '../messages/messageProjection';
+import { toLegacyPhase, type LegacyActivityApproval } from '../legacyStatus/legacyStatus';
+import { LegacyActivityTracker, phaseFromDomainEvent } from '../legacyStatus/legacyActivity';
 import { toWireQuestion } from '../../protocol/question-wire';
+import { projectPromptContentParts } from '../messages/messageProjection';
 
 export interface ProjectorInteraction {
   readonly id: string;
   readonly kind: 'approval' | 'question';
   readonly payload: unknown;
-  readonly origin: { readonly agentId?: string; readonly turnId?: number };
   readonly createdAt: number;
 }
 
 type PlanRevisionEvent = { readonly type: 'plan.revision' } & PlanRevision;
 
-type AgentActivityUpdatedEvent = { readonly type: 'agent.activity.updated' } & AgentActivityUpdated;
 type PromptAcceptedEvent = { readonly type: 'prompt.accepted' } & PromptAccepted;
 type PromptQueuedEvent = { readonly type: 'prompt.queued' } & PromptQueued;
 type PromptSubmittedEvent = { readonly type: 'prompt.submitted' } & PromptSubmitted;
@@ -125,6 +122,8 @@ export type ProjectorBusEvent =
   | ({ readonly type: 'tool.progress' } & ToolProgress)
   | ({ readonly type: 'tool.call.started' } & ToolCallStarted)
   | ({ readonly type: 'tool.result' } & ToolResultEvent)
+  | ({ readonly type: 'permission.approval.requested' } & PermissionApprovalRequested)
+  | ({ readonly type: 'permission.approval.resolved' } & PermissionApprovalResolved)
   | ({ readonly type: 'task.started' } & TaskStarted)
   | ({ readonly type: 'task.terminated' } & TaskTerminatedNotice)
   | ({ readonly type: 'task.notified' } & TaskNotified)
@@ -138,7 +137,6 @@ export type ProjectorBusEvent =
   | ({ readonly type: 'subagent.suspended' } & SubagentSuspended)
   | ({ readonly type: 'goal.updated' } & GoalUpdated)
   | ({ readonly type: 'agent.status.updated' } & AgentStatusUpdated)
-  | AgentActivityUpdatedEvent
   | PromptAcceptedEvent
   | PromptQueuedEvent
   | PromptSubmittedEvent
@@ -182,6 +180,8 @@ export interface ProjectorLookups {
   readonly turn?: ProjectorTurnLookup;
   readonly items?: ProjectorItemsLookup;
   readonly resolvePlanRevisionKey?: ProjectorPlanRevisionKey;
+  readonly activitySnapshot?: () => AgentActivitySnapshot;
+  readonly pendingApprovals?: () => readonly LegacyActivityApproval[];
 }
 
 interface OpenTextFrame {
@@ -215,6 +215,7 @@ export class AgentTranscriptProjector {
   private readonly tasks = new Map<string, TranscriptTask>();
   private readonly shellTasks = new Map<string, string>();
   private readonly subagentTaskIds = new Map<string, string>();
+  private activityTracker: LegacyActivityTracker | undefined;
 
   seedSubagentTask(info: {
     readonly taskId: string;
@@ -268,6 +269,24 @@ export class AgentTranscriptProjector {
   ) {}
 
   map(event: ProjectorBusEvent): TranscriptOperation[] {
+    const ops = this.mapEvent(event);
+    const phase = this.phaseFor(event);
+    if (phase === undefined) return ops;
+    return [...ops, { op: 'meta.merge', meta: { agent: { phase } } }];
+  }
+
+  private phaseFor(event: ProjectorBusEvent): ReturnType<typeof toLegacyPhase> {
+    if (this.lookups?.activitySnapshot === undefined || this.lookups.pendingApprovals === undefined) {
+      return undefined;
+    }
+    this.activityTracker ??= new LegacyActivityTracker(
+      this.lookups.activitySnapshot,
+      this.lookups.pendingApprovals,
+    );
+    return phaseFromDomainEvent(this.activityTracker, event);
+  }
+
+  private mapEvent(event: ProjectorBusEvent): TranscriptOperation[] {
     switch (event.type) {
       case 'plan.revision':
         return this.onPlanRevision(event);
@@ -295,6 +314,9 @@ export class AgentTranscriptProjector {
         return this.onToolCallStarted(event);
       case 'tool.result':
         return this.onToolResult(event);
+      case 'permission.approval.requested':
+      case 'permission.approval.resolved':
+        return [];
       case 'task.started':
       case 'task.terminated':
         return this.onTaskLifecycle(event);
@@ -317,8 +339,6 @@ export class AgentTranscriptProjector {
         return this.onGoalUpdated(event);
       case 'agent.status.updated':
         return this.onAgentStatusUpdated(event);
-      case 'agent.activity.updated':
-        return this.onAgentActivityUpdated(event);
       case 'prompt.accepted':
         return this.onPromptAccepted(event);
       case 'prompt.queued':
@@ -565,6 +585,7 @@ export class AgentTranscriptProjector {
     llmServerFirstTokenMs?: number;
     llmServerDecodeMs?: number;
     llmClientConsumeMs?: number;
+    llmClientBlockedMs?: number;
   }): TranscriptOperation[] {
     const ops: TranscriptOperation[] = [];
     this.flushOpenFrames(ops);
@@ -593,6 +614,7 @@ export class AgentTranscriptProjector {
         llmServerFirstTokenMs: event.llmServerFirstTokenMs,
         llmServerDecodeMs: event.llmServerDecodeMs,
         llmClientConsumeMs: event.llmClientConsumeMs,
+        llmClientBlockedMs: event.llmClientBlockedMs,
       },
     };
     ops.push({ op: 'step.upsert', turnId, step: this.currentStep });
@@ -898,12 +920,7 @@ export class AgentTranscriptProjector {
       };
       return [{ op: 'frame.upsert', turnId: turn.turnId, stepId: step.stepId, frame }];
     }
-    if (
-      turn.origin?.kind === 'task' &&
-      (turn.origin.taskId === undefined || turn.origin.taskId === event.sourceId)
-    ) {
-      return [];
-    }
+    if (turn.origin?.kind === 'task' && (turn.origin.taskId === undefined || turn.origin.taskId === event.sourceId)) return [];
     this.pendingTaskNotifications.push({ text, taskId: event.sourceId });
     return [];
   }
@@ -1224,11 +1241,7 @@ export class AgentTranscriptProjector {
     else if (event.dynamicWorkflowMode === false) modes.dynamic_workflow = null;
     if (event.towerMode === true) modes.tower = {};
     else if (event.towerMode === false) modes.tower = null;
-    if (
-      modes.plan !== undefined ||
-      modes.dynamic_workflow !== undefined ||
-      modes.tower !== undefined
-    ) {
+    if (modes.plan !== undefined || modes.dynamic_workflow !== undefined || modes.tower !== undefined) {
       ops.push({ op: 'meta.merge', meta: { modes } });
     }
     const agent: {
@@ -1273,12 +1286,6 @@ export class AgentTranscriptProjector {
       ops.push({ op: 'meta.merge', meta: { agent } });
     }
     return ops;
-  }
-
-  private onAgentActivityUpdated(event: AgentActivityUpdatedEvent): TranscriptOperation[] {
-    const phase = toLegacyPhase(event);
-    if (phase === undefined) return [];
-    return [{ op: 'meta.merge', meta: { agent: { phase } } }];
   }
 
   private onPlanRevision(event: PlanRevisionEvent): TranscriptOperation[] {
@@ -1388,7 +1395,7 @@ export class AgentTranscriptProjector {
   private onPromptStarted(event: PromptStartedEvent): TranscriptOperation[] {
     const prompt = this.upsertPrompt(event.promptId, (prev) => ({
       promptId: event.promptId,
-      status: prev !== undefined && isTerminalPromptStatus(prev.status) ? prev.status : 'running',
+      status: 'running',
       userMessageId: prev?.userMessageId,
       content: prev?.content,
       createdAt: prev?.createdAt ?? new Date().toISOString(),

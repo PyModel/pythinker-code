@@ -26,10 +26,7 @@ export const mcpServerStdioConfigSchema = z.object({
   args: z.array(z.string()).optional(),
   env: stringRecordSchema.optional(),
   cwd: z.string().optional(),
-  executor: z
-    .enum(['local', 'pyaos', 'kaos'])
-    .transform((value) => (value === 'kaos' ? ('pyaos' as const) : value))
-    .optional(),
+  executor: z.enum(['local', 'pyaos']).optional(),
   ...mcpServerCommonFields,
 });
 

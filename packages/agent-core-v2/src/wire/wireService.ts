@@ -6,7 +6,7 @@ import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { IAgentBlobService } from '#/agent/blob/agentBlobService';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
-import type { ContentPart } from '#/kosong/contract/message';
+import type { ContentPart } from '#human/llm/message';
 import {
   type AppendLogTruncation,
   IAppendLogStore,
@@ -257,11 +257,12 @@ export class WireService extends Service implements IWireService {
     }
   }
 
+  async drainPersisted(): Promise<void> {
+    await this.persistQueue;
+  }
+
   async flush(): Promise<void> {
     await this.persistQueue;
-    if (this.pendingRepair !== undefined && this.persistError === undefined) {
-      await this.repairPendingJournal().catch(() => undefined);
-    }
     const persistError = this.persistError;
     this.persistError = undefined;
     if (persistError !== undefined) throw persistError;
@@ -368,8 +369,6 @@ function extractLegacyPlanRevisionKey(path: string, agentId: string): string | u
   ) {
     return undefined;
   }
-  const planId = segments[6];
-  if (planId === '.' || planId === '..') return undefined;
   const key = segments.slice(5).join('/');
   return /^plan\/[^/]+\/v[0-9]+\.md$/.test(key) ? key : undefined;
 }

@@ -1,38 +1,40 @@
 import { join } from 'node:path';
 
-import { Disposable } from '#/_base/di/lifecycle';
+import { Disposable, toDisposable } from '#/_base/di/lifecycle';
 import { ScopeActivation, registerScopedService, type ISessionScopeHandle } from '#/_base/di/scope';
 import { ILogService } from '#/_base/log/log';
-import { activateReminderWhenReady } from '#/features/reminder/internal/reminderActivation';
+import { IAgentReminderService } from '#/features/reminder/reminderService';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
+import { IAgentLoopService, type LoopNotifyHandle } from '#/agent/loop/loop';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentStateService } from '#/agent/state/agentState';
 import { IAgentToolApprovalService } from '#/agent/toolApproval/toolApproval';
+import { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
 import type { AgentTaskInfo } from '#/agent/task/types';
 import { TaskTerminatedNotice } from '#/agent/task/taskOps';
 import { denyToolExecution } from '#/agent/toolExecutor/beforeToolExecuteEvent';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import { AgentStatusUpdated } from '#/agent/usage/usageEvents';
 import { IConfigService } from '#/app/config/config';
-import { IEventBus } from '#/app/event/eventBus';
+import { IEventBus, ISessionEventBus } from '#/app/event/eventBus';
 import { IFeatureManager } from '#/app/feature/featureManager';
-import { IFlagService } from '#/app/flag/flag';
 import { LifecycleScope } from '#/app/scopes';
+import { IFlagService } from '#/app/flag/flag';
 import { ISessionManager } from '#/app/sessionManager/sessionManager';
+import { IEventDispatcher } from '#/state/eventDispatcher';
 import { ISessionActivityView } from '#/session/sessionActivity/sessionActivity';
+import { isWithinDirectory } from '#/tool/path-access';
+import type { ToolFileAccess } from '#/tool/toolContract';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
 import { isUntitled } from '#/session/sessionMetadata/promptMetadata';
 import { SubagentStarted } from '#/session/subagent/mirrorAgentRun';
-import { IEventDispatcher } from '#/state/eventDispatcher';
-import { isWithinDirectory } from '#/tool/path-access';
-import type { ToolFileAccess } from '#/tool/toolContract';
-
 import { TowerModeInjection } from './injection/towerModeInjection';
-import { ISessionExpertTalkService } from '#/session/expertTalk/expertTalk';
 import {
+  BROADCAST_NAME,
+  TOWER_NAME,
   TowerStore,
   WORKTREES_DIR,
   assertLocalBaseBranch,
@@ -51,9 +53,13 @@ import {
   type TowerEnterResult,
 } from './tower';
 import { isTowerFeatureAssembled } from './towerFeature';
-import { TowerModeEnter, TowerModeExit, towerBaseKey, towerKey, towerOwnerKey } from './towerOps';
+import { TowerInboxSent, TowerModeEnter, TowerModeExit, towerBaseKey, towerKey, towerOwnerKey } from './towerOps';
 
 export const TOWER_MODE_TOOLS: readonly string[] = ['TowerInit', ...TOWER_TOOL_NAMES];
+
+export const TOWER_INBOX_WAKE_VARIANT = 'tower_inbox';
+
+const WAKE_SUBJECT_PREVIEW_MAX = 120;
 
 export class AgentTowerService extends Disposable implements IAgentTowerService {
   declare readonly _serviceBrand: undefined;
@@ -62,6 +68,7 @@ export class AgentTowerService extends Disposable implements IAgentTowerService 
     @IEventDispatcher private readonly dispatcher: IEventDispatcher,
     @IAgentStateService private readonly agentState: IAgentStateService,
     @IAgentToolApprovalService private readonly toolApproval: IAgentToolApprovalService,
+    @IAgentToolPolicyService private readonly toolPolicy: IAgentToolPolicyService,
     @IAgentToolExecutorService toolExecutor: IAgentToolExecutorService,
     @IAgentProfileService private readonly profile: IAgentProfileService,
     @IAgentScopeContext private readonly agentCtx: IAgentScopeContext,
@@ -70,11 +77,12 @@ export class AgentTowerService extends Disposable implements IAgentTowerService 
     @ISessionManager private readonly sessions: ISessionManager,
     @IFeatureManager featureManager: IFeatureManager,
     @IConfigService config: IConfigService,
-    @IAgentLifecycleService agentLifecycle: IAgentLifecycleService,
+    @IAgentReminderService reminder: IAgentReminderService,
     @IAgentContextMemoryService context: IAgentContextMemoryService,
     @IEventBus eventBus: IEventBus,
-    @ISessionExpertTalkService private readonly expertTalk: ISessionExpertTalkService,
     @ILogService private readonly log: ILogService,
+    @IAgentLoopService private readonly loop: IAgentLoopService,
+    @ISessionEventBus sessionBus: ISessionEventBus,
   ) {
     super();
     this.agentState.contributeState(towerKey);
@@ -115,11 +123,7 @@ export class AgentTowerService extends Disposable implements IAgentTowerService 
         );
       }),
     );
-    this._register(
-      activateReminderWhenReady(agentLifecycle, this.agentCtx, (reminder) =>
-        new TowerModeInjection(reminder, this, context, this.flags),
-      ),
-    );
+    this._register(new TowerModeInjection(reminder, this, context, this.flags));
     this._register(
       eventBus.subscribe(TaskTerminatedNotice, (event) => {
         if (this.agentCtx.agentId !== 'main') return;
@@ -132,6 +136,18 @@ export class AgentTowerService extends Disposable implements IAgentTowerService 
         void this.clearTowerAgentDeath(event.subagentId);
       }),
     );
+    if (sessionBus !== undefined) {
+      this._register(
+        sessionBus.subscribe(TowerInboxSent, (event) => {
+          this.onTowerInboxSent(event);
+        }),
+      );
+    }
+    this._register(
+      toDisposable(() => {
+        this.wakeDisposed = true;
+      }),
+    );
     this._register(
       toolExecutor.onBeforeExecuteTool((event) => {
         if (this.flags.enabled(TOWER_FLAG_ID)) return;
@@ -139,7 +155,7 @@ export class AgentTowerService extends Disposable implements IAgentTowerService 
         event.veto(
           denyToolExecution(
             this.toolApproval.formatDenyMessage(
-              'The tower experiment is disabled — tower tools are inert. Re-enable the experiment and restart before using the tower protocol.',
+              'The tower experiment is disabled — tower tools are inert. Re-enable the experiment (a restart is required if it was just turned on) before driving the tower protocol.',
             ),
           ),
         );
@@ -153,7 +169,41 @@ export class AgentTowerService extends Disposable implements IAgentTowerService 
         event.veto(
           denyToolExecution(
             this.toolApproval.formatDenyMessage(
-              'TodoList is not available while tower mode is active — mission state lives in TowerPlan, TowerMission, and TowerStatus.',
+              'TodoList is not available while tower mode is active — mission state lives in the tower protocol (TowerPlan/TowerMission/TowerStatus, MISSIONS.md), and todo semantics would serialize the fleet. Spawn every dependency-unblocked mission now, then end your turn: worker completions wake you.',
+            ),
+          ),
+        );
+      }),
+    );
+    this._register(
+      toolExecutor.onBeforeExecuteTool(async (event) => {
+        if (!this.flags.enabled(TOWER_FLAG_ID)) return;
+        if (!this.isActive) return;
+        if (event.toolCall.name !== 'Agent') return;
+        const args = event.args;
+        if (typeof args !== 'object' || args === null) return;
+        const resume = (args as { readonly resume?: unknown }).resume;
+        if (typeof resume !== 'string') return;
+        const resumeId = resume.trim();
+        if (resumeId.length === 0) return;
+        if ((args as { readonly run_in_background?: unknown }).run_in_background === true) return;
+        const backgroundAvailable =
+          this.toolPolicy.isToolActive('TaskList') &&
+          this.toolPolicy.isToolActive('TaskOutput') &&
+          this.toolPolicy.isToolActive('TaskStop');
+        if (!backgroundAvailable) return;
+        const store = new TowerStore(resolveTowerRepoRoot(this.sessionCtx.cwd));
+        const entry = await store
+          .load()
+          .then(
+            (state) => state.roster.agents.find((agent) => agent.agentId === resumeId),
+            () => undefined,
+          );
+        if (entry === undefined) return;
+        event.veto(
+          denyToolExecution(
+            this.toolApproval.formatDenyMessage(
+              `Resuming tower agent "${entry.name}" in the foreground would freeze the tower until it finishes — pass run_in_background=true instead; its completion (and any inbox traffic) will wake you.`,
             ),
           ),
         );
@@ -162,7 +212,8 @@ export class AgentTowerService extends Disposable implements IAgentTowerService 
     this._register(
       toolExecutor.onBeforeExecuteTool(async (event) => {
         if (this.profile.data().profileName !== TOWER_WORKER_PROFILE) return;
-        if (event.toolCall.name !== 'Write' && event.toolCall.name !== 'Edit') return;
+        const toolName = event.toolCall.name;
+        if (toolName !== 'Write' && toolName !== 'Edit') return;
 
         const store = new TowerStore(resolveTowerRepoRoot(this.sessionCtx.cwd));
         const entry = await store
@@ -175,6 +226,7 @@ export class AgentTowerService extends Disposable implements IAgentTowerService 
         const slot = entry?.worktree;
         if (slot === undefined) return;
         const worktree = store.abs(join(WORKTREES_DIR, slot));
+
         const escapes = (event.execution.accesses ?? [])
           .filter(
             (access): access is ToolFileAccess =>
@@ -188,7 +240,7 @@ export class AgentTowerService extends Disposable implements IAgentTowerService 
             this.toolApproval.formatDenyMessage(
               `tower workers may only write inside their own worktree (${worktree}) — denied: ` +
                 `${escapes.map((access) => access.path).join(', ')}. ` +
-                'Use TowerFinding for out-of-scope changes or TowerSend to ask the tower.',
+                'Out-of-scope changes are not yours to make: file them with TowerFinding or ask the tower via TowerSend.',
             ),
           ),
         );
@@ -209,7 +261,6 @@ export class AgentTowerService extends Disposable implements IAgentTowerService 
       }
       return { entered: true };
     }
-    this.expertTalk.prepareControllerActivation();
     const owner = await this.resolveTowerOwner();
     if (owner !== undefined && owner !== this.sessionCtx.sessionId) {
       const ownerHandle = this.sessions.get(owner);
@@ -304,8 +355,15 @@ export class AgentTowerService extends Disposable implements IAgentTowerService 
   exit(): void {
     if (!this.agentState.get(towerKey)) return;
     this.lastPublished = false;
+    this.dropInboxWake();
     void this.dispatcher.dispatch(new TowerModeExit({ agentId: this.agentCtx.agentId }));
     void this.releaseTowerOwnership();
+  }
+
+  private dropInboxWake(): void {
+    this.inboxWakeHandle?.drop();
+    this.inboxWakeHandle = undefined;
+    this.inboxWakeSignals = 0;
   }
 
   private async releaseTowerOwnership(): Promise<void> {
@@ -375,13 +433,79 @@ export class AgentTowerService extends Disposable implements IAgentTowerService 
     );
   }
 
-  private restoreTowerTools(): void {
+  private inboxWakeSignals = 0;
+  private inboxWakeLatest: { readonly from: string; readonly subject: string } | undefined;
+  private inboxWakeScheduled = false;
+  private inboxWakePending = false;
+  private inboxWakeHandle: LoopNotifyHandle | undefined;
+  private wakeDisposed = false;
+
+  private onTowerInboxSent(event: TowerInboxSent): void {
+    if (this.agentCtx.agentId !== 'main') return;
     if (!this.isActive) return;
+    if (event.from === TOWER_NAME) return;
+    if (event.to !== TOWER_NAME && event.to !== BROADCAST_NAME) return;
+    this.inboxWakeSignals += 1;
+    this.inboxWakeLatest = { from: event.from, subject: event.subject };
+    this.scheduleInboxWake();
+  }
+
+  private scheduleInboxWake(): void {
+    if (this.inboxWakeScheduled || this.inboxWakePending) return;
+    this.inboxWakeScheduled = true;
+    queueMicrotask(() => {
+      this.flushInboxWake();
+    });
+  }
+
+  private flushInboxWake(): void {
+    this.inboxWakeScheduled = false;
+    if (this.wakeDisposed || !this.isActive || this.loop === undefined) {
+      this.inboxWakeSignals = 0;
+      return;
+    }
+    const count = this.inboxWakeSignals;
+    const latest = this.inboxWakeLatest;
+    if (count === 0 || latest === undefined) return;
+    this.inboxWakeSignals = 0;
+    this.inboxWakePending = true;
+    const countText = count === 1 ? '1 new tower inbox message' : `${String(count)} new tower inbox messages`;
+    const subject =
+      latest.subject.length > WAKE_SUBJECT_PREVIEW_MAX
+        ? `${latest.subject.slice(0, WAKE_SUBJECT_PREVIEW_MAX)}…`
+        : latest.subject;
+    this.inboxWakeHandle = this.loop.notify({
+      message: {
+        role: 'user',
+        content: [
+          {
+            type: 'text',
+            text: `${countText} — latest from ${latest.from}: "${subject}". Read and route with TowerInbox.`,
+          },
+        ],
+        toolCalls: [],
+        origin: { kind: 'injection', variant: TOWER_INBOX_WAKE_VARIANT },
+      },
+      turnScoped: false,
+      onConsume: () => {
+        this.inboxWakeHandle = undefined;
+        this.inboxWakePending = false;
+        if (this.inboxWakeSignals > 0) this.scheduleInboxWake();
+      },
+      onDrop: () => {
+        this.inboxWakeHandle = undefined;
+        this.inboxWakePending = false;
+      },
+    });
+  }
+
+  private restoreTowerTools(): void {
+    if (!this.flags.enabled(TOWER_FLAG_ID)) return;
+    if (!this.isActive) return;
+    if (this.agentCtx.agentId !== 'main') return;
     for (const name of TOWER_MODE_TOOLS) this.profile.addActiveTool(name);
     this.lastPublished = true;
-    void this.dispatcher.dispatch(
-      new AgentStatusUpdated({ agentId: this.agentCtx.agentId, towerMode: true }),
-    );
+    void this.dispatcher.dispatch(new AgentStatusUpdated({ agentId: this.agentCtx.agentId, towerMode: true }));
   }
 
   private lastPublished: boolean | undefined;
@@ -393,6 +517,7 @@ export class AgentTowerService extends Disposable implements IAgentTowerService 
       return;
     }
     const effective = this.isActive;
+    if (!effective) this.dropInboxWake();
     if (this.lastPublished === effective) return;
     this.lastPublished = effective;
     void this.dispatcher.dispatch(

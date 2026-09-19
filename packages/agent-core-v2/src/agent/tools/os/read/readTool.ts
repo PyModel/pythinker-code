@@ -1,5 +1,8 @@
 import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { IAgentRuntimeService, inspectAgentRuntime } from '#/agent/runtimeBinding/agentRuntime';
+import { ISessionMediaStore } from '#/agent/media/sessionMediaStore';
+import { isDaemonFileUrl } from '#/agent/media/mediaRef';
+import { attachmentFileSource, runtimeFileSource, withAttachmentLocation, type FileReadSource } from '#/agent/tools/fileReadSource';
 import { RuntimeWorkspaceView } from '#/runtime/runtimeWorkspaceView';
 import { unwrapErrorCause } from '#/_base/errors/errors';
 import { ISessionSkillCatalog } from '#/features/skill/session/skillCatalog';
@@ -14,18 +17,9 @@ import {
 import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
 import {
   resolvePathAccessPath,
-  sensitiveTargetError,
   type WorkspaceConfig,
 } from '#/tool/path-access';
 import { MEDIA_SNIFF_BYTES, detectFileType } from '#/agent/media/file-type';
-import { ISessionMediaStore } from '#/agent/media/sessionMediaStore';
-import { isDaemonFileUrl } from '#/agent/media/mediaRef';
-import {
-  attachmentFileSource,
-  runtimeFileSource,
-  withAttachmentLocation,
-  type FileReadSource,
-} from '#/agent/tools/fileReadSource';
 import { toInputJsonSchema } from '#/tool/input-schema';
 import { literalRulePattern, matchesGlobRuleSubject, matchesPathRuleSubject } from '#/tool/rule-match';
 import { makeCarriageReturnsVisible, splitLinesKeepingTerminator, type LineEndingStyle } from '#/_base/text/line-endings';
@@ -83,8 +77,8 @@ function stripTrailingLf(line: string): string {
 }
 
 function splitsSurrogatePair(text: string, offset: number): boolean {
-  const previous = text.charCodeAt(offset - 1); // oxlint-disable-line unicorn/prefer-code-point
-  const next = text.charCodeAt(offset); // oxlint-disable-line unicorn/prefer-code-point
+  const previous = text.charCodeAt(offset - 1);
+  const next = text.charCodeAt(offset);
   return previous >= 0xd800 && previous <= 0xdbff && next >= 0xdc00 && next <= 0xdfff;
 }
 
@@ -184,7 +178,7 @@ export class ReadTool implements IReadTool {
     @ISessionSkillCatalog private readonly skillCatalog: ISessionSkillCatalog,
     @IAgentToolResultTruncationService private readonly resultTruncation: IAgentToolResultTruncationService,
     @IConfigService private readonly config: IConfigService,
-    @ISessionMediaStore private readonly attachmentStore: ISessionMediaStore,
+    @ISessionMediaStore private readonly attachmentStore?: ISessionMediaStore,
   ) {}
 
   private limits(): { defaultMaxChars: number; maxChars: number } {
@@ -234,14 +228,8 @@ export class ReadTool implements IReadTool {
           if (lease.runtime.identity.generation !== inspected.identity.generation) {
             return { isError: true, output: 'Runtime changed before execution. Retry the tool call.' };
           }
-          const denied = await sensitiveTargetError(lease.runtime.fs!, args.path, path);
-          if (denied !== undefined) return { isError: true, output: denied };
           const eventLog = this.resultTruncation.isWireJournalPath(path);
-          const result = await this.execution(
-            runtimeFileSource(lease.runtime.fs!, path),
-            args,
-            eventLog,
-          );
+          const result = await this.execution(runtimeFileSource(lease.runtime.fs!, path), args, eventLog);
           return { ...result, spillExempt: true };
         } finally {
           lease.dispose();

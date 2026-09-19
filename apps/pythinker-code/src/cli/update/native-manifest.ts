@@ -1,24 +1,36 @@
 /**
- * Per-release native artifact manifest (`manifest.json` on the GitHub
- * release of that version).
+ * Per-release native artifact manifest (`/binaries/<version>/manifest.json`).
  *
  * Published alongside the release and consumed by the install scripts; the
  * staged updater reuses the same file so checksums and file names have a
- * single source of truth. Entries point at the per-platform zip archive
- * (`pythinker-code-<target>.zip`) holding the single platform binary; the
- * checksum is the archive's sha256.
+ * single source of truth. Entries point at the bare platform binary
+ * (`pythinker-code-<target>[.exe]`), not an archive; an entry may additionally
+ * carry `zstd` (or the legacy `compressed` field), pointing at the
+ * zstd-compressed variant of that binary.
  */
 
 import { valid } from 'semver';
 import { z } from 'zod';
 
-import { pythinkerCodeReleaseAssetUrl } from '#/constant/app';
+import { pythinkerCodeCdnBinariesBase } from '#/constant/app';
 
 const MANIFEST_FETCH_TIMEOUT_MS = 10_000;
 
 const PlatformEntrySchema = z.object({
   filename: z.string().min(1),
   checksum: z.string().regex(/^[a-f0-9]{64}$/, { error: 'invalid sha256' }),
+  zstd: z
+    .object({
+      file: z.string().min(1),
+      sha256: z.string().regex(/^[a-f0-9]{64}$/, { error: 'invalid sha256' }),
+    })
+    .optional(),
+  compressed: z
+    .object({
+      filename: z.string().min(1),
+      checksum: z.string().regex(/^[a-f0-9]{64}$/, { error: 'invalid sha256' }),
+    })
+    .optional(),
 });
 
 /**
@@ -35,11 +47,11 @@ export type NativeReleaseManifest = z.infer<typeof NativeReleaseManifestSchema>;
 export type NativePlatformEntry = z.infer<typeof PlatformEntrySchema>;
 
 export function nativeManifestUrl(version: string): string {
-  return pythinkerCodeReleaseAssetUrl(version, 'manifest.json');
+  return `${pythinkerCodeCdnBinariesBase()}/${version}/manifest.json`;
 }
 
 export function nativeBinaryUrl(version: string, filename: string): string {
-  return pythinkerCodeReleaseAssetUrl(version, filename);
+  return `${pythinkerCodeCdnBinariesBase()}/${version}/${filename}`;
 }
 
 /**

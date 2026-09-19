@@ -29,11 +29,13 @@ import type {
   TurnStepInterruptedEvent,
   TurnStepRetryingEvent,
   TurnStepStartedEvent,
+  TokenUsage,
   WarningEvent,
 } from '@pymodel/pythinker-code-sdk';
 
 import { MoonLoader } from '../components/chrome/moon-loader';
 import { buildGoalMarker } from '../components/messages/goal-markers';
+import { StatusMessageComponent } from '../components/messages/status-message';
 import {
   DynamicWorkflowModeMarkerComponent,
   type DynamicWorkflowModeMarkerState,
@@ -69,7 +71,8 @@ import {
 import { openUrl } from '#/utils/open-url';
 import { currentTheme } from '#/tui/theme';
 import type { ColorToken } from '#/tui/theme';
-import { computeDecodeTps, formatStepDebugTiming } from '#/utils/usage/debug-timing';
+import { errorReportHintLine } from '../constant/feedback';
+import { formatStepDebugTiming } from '#/utils/usage/debug-timing';
 import { nextTranscriptId } from '../utils/transcript-id';
 import type { BtwPanelController } from './btw-panel';
 import { isPluginMcpToolName, PluginUpdateNotifier } from './plugin-update-notifier';
@@ -106,6 +109,9 @@ export interface SessionEventHost {
   showNotice(title: string, detail?: string): void;
   updateActivityPane(): void;
   track(event: string, props?: Record<string, unknown>): void;
+  recordSessionActivity(): void;
+  noteStepUsage(usage: TokenUsage | undefined): void;
+  noteCompactionFinished(): void;
   mountEditorReplacement(panel: Component & Focusable): void;
   restoreEditor(): void;
   restoreInputText(text: string): void;
@@ -158,8 +164,7 @@ export class SessionEventHandler {
   renderedSkillActivationIds: Set<string> = new Set();
   renderedPluginCommandActivationIds: Set<string> = new Set();
   renderedMcpServerStatusKeys: Map<string, string> = new Map();
-  mcpServerStatusSpinner: MoonLoader | null = null;
-  pendingMcpServerNames: Set<string> = new Set();
+  mcpServerStatusSpinners: Map<string, MoonLoader> = new Map();
   mcpServers: Map<string, McpServerStatusSnapshot> = new Map();
   private goalCompletionAwaitingClear = false;
   private goalCompletionTurnEnded = false;
@@ -313,21 +318,10 @@ export class SessionEventHandler {
   }
 
   stopAllMcpServerStatusSpinners(): void {
-    this.pendingMcpServerNames.clear();
-    this.removeMcpServerStatusSpinner();
-  }
-
-  private removeMcpServerStatusSpinner(): void {
-    const spinner = this.mcpServerStatusSpinner;
-    if (spinner === null) return;
-    spinner.stop();
-    const children = this.host.state.transcriptContainer.children;
-    const index = children.indexOf(spinner);
-    // Structural removal only: the container's ref-checked render cache
-    // detects the child-list change; no tree-wide invalidate needed.
-    if (index >= 0) children.splice(index, 1);
-    this.mcpServerStatusSpinner = null;
-    this.host.state.ui.requestRender();
+    for (const spinner of this.mcpServerStatusSpinners.values()) {
+      spinner.stop();
+    }
+    this.mcpServerStatusSpinners.clear();
   }
 
   // ---------------------------------------------------------------------------
@@ -376,8 +370,6 @@ export class SessionEventHandler {
     this.host.handleTurnEnded?.(event);
     this.host.streamingUI.flushNow();
     this.clearStepRetry();
-    // The last step's decode speed no longer applies once the turn ends.
-    this.host.state.footer.setStreamSpeed(null);
     if (event.reason === 'cancelled') {
       this.markActiveAgentDynamicWorkflowsCancelled();
     }
@@ -397,6 +389,7 @@ export class SessionEventHandler {
     }
     this.host.streamingUI.resetToolUi();
     this.host.streamingUI.finalizeTurn(sendQueued);
+    this.host.recordSessionActivity();
     this.renderPendingModelBlockedFallback();
     this.currentTurnHasAssistantText = false;
     this.goalCompletionTurnEnded = true;
@@ -438,10 +431,8 @@ export class SessionEventHandler {
   private handleStepCompleted(event: TurnStepCompletedEvent): void {
     this.host.streamingUI.flushNow();
     this.clearStepRetry();
+    this.host.noteStepUsage(event.usage);
     this.maybeShowDebugTiming(event);
-    this.host.state.footer.setStreamSpeed(
-      computeDecodeTps(event.usage?.output, event.llmStreamDurationMs),
-    );
 
     if (event.providerFinishReason === 'filtered') {
       this.host.showNotice(
@@ -735,13 +726,14 @@ export class SessionEventHandler {
     if (event.contextUsage !== undefined) {
       patch.contextUsage = event.contextUsage;
     } else if (event.contextTokens !== undefined || event.maxContextTokens !== undefined) {
+      // v2 status events carry contextTokens/maxContextTokens but never
+      // contextUsage. Recompute the ratio from the post-patch token counts so
+      // it cannot go stale and drift from them — the footer and the /usage
+      // panel bar render this ratio while their texts recompute from the
+      // counts, so a stale ratio shows as a bar/percentage mismatch.
       const tokens = patch.contextTokens ?? this.host.state.appState.contextTokens;
       const max = patch.maxContextTokens ?? this.host.state.appState.maxContextTokens;
-      const usage = tokens / max;
-      patch.contextUsage =
-        Number.isFinite(tokens) && tokens >= 0 && Number.isFinite(max) && max > 0 && Number.isFinite(usage)
-          ? usage
-          : 0;
+      patch.contextUsage = max > 0 ? tokens / max : 0;
     }
     if (event.planMode !== undefined) patch.planMode = event.planMode;
     if (event.dynamicWorkflowMode !== undefined) patch.dynamicWorkflowMode = event.dynamicWorkflowMode;
@@ -1000,9 +992,7 @@ export class SessionEventHandler {
     this.host.showError(formatErrorPayload(event));
     const sessionId = this.host.state.appState.sessionId;
     if (sessionId.length > 0) {
-      this.host.showStatus(
-        "If this persists, run `/export-debug-zip` and share the file with us for diagnosis. Please don't share it publicly.",
-      );
+      this.host.showStatus(errorReportHintLine());
     }
   }
 
@@ -1019,11 +1009,12 @@ export class SessionEventHandler {
     this.host.setAppState({ mcpServersSummary: summary || null });
 
     switch (server.status) {
-      case 'connected':
-        // Success is summarized in the welcome banner's MCP line; no
-        // persistent per-server transcript row.
-        this.resolveMcpServerStatus(server.name);
+      case 'connected': {
+        const toolStr = `${server.toolCount} tool${server.toolCount === 1 ? '' : 's'}`;
+        const message = `MCP server "${server.name}" connected · ${toolStr} (${server.transport})`;
+        this.finalizeMcpServerStatusRow(server.name, message, 'success');
         return;
+      }
       case 'failed': {
         const message = `MCP server "${server.name}" failed${server.error !== undefined ? `: ${server.error}` : ''}`;
         this.finalizeMcpServerStatusRow(server.name, message, 'error');
@@ -1056,24 +1047,39 @@ export class SessionEventHandler {
 
   private showMcpServerStatusSpinner(name: string): void {
     const { state } = this.host;
-    this.pendingMcpServerNames.add(name);
-    if (this.mcpServerStatusSpinner !== null) return;
+    const label = `MCP server "${name}" connecting…`;
+    const existing = this.mcpServerStatusSpinners.get(name);
+    if (existing !== undefined) {
+      existing.setLabel(label);
+      return;
+    }
     const tint = (s: string): string => currentTheme.fg('textMuted', s);
-    const spinner = new MoonLoader(state.ui, 'braille', tint, 'Loading MCP servers…');
+    const spinner = new MoonLoader(state.ui, 'braille', tint, label);
     state.transcriptContainer.addChild(spinner);
-    this.mcpServerStatusSpinner = spinner;
+    this.mcpServerStatusSpinners.set(name, spinner);
     state.ui.requestRender();
   }
 
-  /** Mark one server settled; the shared loading line vanishes with the last one. */
-  private resolveMcpServerStatus(name: string): void {
-    this.pendingMcpServerNames.delete(name);
-    if (this.pendingMcpServerNames.size === 0) this.removeMcpServerStatusSpinner();
-  }
-
   private finalizeMcpServerStatusRow(name: string, message: string, color: ColorToken): void {
-    this.resolveMcpServerStatus(name);
-    this.host.showStatus(message, color);
+    const { state } = this.host;
+    const spinner = this.mcpServerStatusSpinners.get(name);
+    if (spinner === undefined) {
+      this.host.showStatus(message, color);
+      return;
+    }
+    spinner.stop();
+    const status = new StatusMessageComponent(message, color);
+    const children = state.transcriptContainer.children;
+    const idx = children.indexOf(spinner);
+    if (idx >= 0) {
+      // In-place replacement is picked up by the container's ref-checked
+      // render cache; a tree-wide invalidate is unnecessary (and costly).
+      children[idx] = status;
+    } else {
+      state.transcriptContainer.addChild(status);
+    }
+    this.mcpServerStatusSpinners.delete(name);
+    state.ui.requestRender();
   }
 
   private handleSkillActivated(event: SkillActivatedEvent): void {
@@ -1130,6 +1136,13 @@ export class SessionEventHandler {
       event.result.tokensAfter,
       event.result.summary,
     );
+    // A completed compaction just refreshed and shrank the cached context —
+    // count it as activity so the next submit isn't judged against the
+    // pre-compaction timestamp, and reset the cache-break baseline (the drop
+    // is expected). Cancellations do neither: the context was not cut.
+    this.host.recordSessionActivity();
+    this.host.noteCompactionFinished();
+    this.host.surveyController.notifyCompactionFinished();
     this.finishCompaction(sendQueued);
   }
 
@@ -1142,7 +1155,6 @@ export class SessionEventHandler {
   }
 
   private finishCompaction(sendQueued: (item: QueuedMessage) => void): void {
-    this.host.surveyController.notifyCompactionFinished();
     const hasActiveTurn = this.host.streamingUI.hasActiveTurn();
     if (!hasActiveTurn) {
       const next = this.host.shiftQueuedMessage();

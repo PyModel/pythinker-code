@@ -1,8 +1,8 @@
 import { join } from 'pathe';
 
 import { IInstantiationService } from '#/_base/di/instantiation';
-import { Disposable, toDisposable, type IDisposable } from '#/_base/di/lifecycle';
-import { type CollectionView } from '#/_base/di/collection';
+import type { InstantiationService } from '#/_base/di/instantiationService';
+import { Disposable } from '#/_base/di/lifecycle';
 import { Emitter } from '#/_base/event';
 import { onUnexpectedError } from '#/_base/errors/unexpectedError';
 import { Error2, ErrorCodes } from '#/errors';
@@ -31,6 +31,13 @@ import {
   makeAgentScopeContext,
 } from '#/agent/scopeContext/scopeContext';
 import { IAgentLoopService } from '#/agent/loop/loop';
+import { TurnEnded } from '#/agent/loop/turnOps';
+import {
+  attachInteractionAgent,
+  cancelInteractionsForTurn,
+  detachInteractionAgent,
+} from '#/agent/interaction/interactionWiring';
+import { interactions } from '#/human/interaction/facade';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { abortError } from '#/_base/utils/abort';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
@@ -46,16 +53,6 @@ import { IAgentStateService } from '#/agent/state/agentState';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { bindTelemetryScope } from '#/app/telemetry/telemetryService';
-import {
-  AgentRuntimeContributionPoint,
-  AgentRuntimeOverrideContributionPoint,
-  type AgentRuntimeContribution,
-  type AgentRuntimeDefinition,
-  type AgentRuntimeDefinitionRecord,
-  type AgentRuntimeSnapshot,
-  getAgentRuntimeDefinitionId,
-  type RuntimeOf,
-} from '#/agent/runtime/agentRuntime';
 import type { AgentContext } from '#/agent/agentContext/agentContext';
 
 import { ManagedAgent } from './managedAgent';
@@ -77,9 +74,6 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
   private readonly roster = new Map<string, ManagedAgent>();
   private readonly creating = new Map<string, Promise<AgentContext>>();
   private nextLifecycleGeneration = 0;
-  private readonly records = new Map<string, AgentRuntimeDefinitionRecord>();
-  private readonly recordGenerations = new Map<string, number>();
-  private readonly contributions = new Map<AgentRuntimeContribution, AgentRuntimeDefinitionRecord>();
   private readonly onDidCreateEmitter = this._register(new Emitter<AgentContext>());
   private readonly onDidCreateScopeEmitter = this._register(new Emitter<AgentScopeCreatedEvent>());
   private readonly onWillCloseEmitter = this._register(new Emitter<AgentContext>());
@@ -105,78 +99,24 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
     @IBootstrapService private readonly bootstrap: IBootstrapService,
     @IConfigService private readonly config: IConfigService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
-    @AgentRuntimeContributionPoint contributionView: CollectionView<AgentRuntimeContribution>,
-    @AgentRuntimeOverrideContributionPoint overrideView: CollectionView<AgentRuntimeContribution>,
+    @ISessionEventBus bus: ISessionEventBus,
   ) {
     super();
-    for (const contribution of contributionView.items) this.registerContribution(contribution, false);
-    for (const contribution of overrideView.items) this.registerContribution(contribution, true);
     this._register(
-      contributionView.onDidChange(({ added, removed }) => {
-        for (const contribution of added) this.registerContribution(contribution, false);
-        for (const contribution of removed) this.withdrawContribution(contribution);
+      bus.subscribe(TurnEnded, (event) => {
+        cancelInteractionsForTurn(event.agentId, this.ctx.sessionId, event.turnId);
       }),
     );
     this._register(
-      overrideView.onDidChange(({ added, removed }) => {
-        for (const contribution of added) this.registerContribution(contribution, true);
-        for (const contribution of removed) this.withdrawContribution(contribution);
+      this.onDidClose((context) => {
+        detachInteractionAgent(context.agentId, this.ctx.sessionId);
       }),
     );
-    this._register(
-      toDisposable(() => {
-        for (const managed of this.roster.values()) {
-          void managed.runtimeSet.close().catch((error: unknown) => onUnexpectedError(error));
-        }
-        this.roster.clear();
-      }),
-    );
-  }
-
-  private registerContribution(contribution: AgentRuntimeContribution, override: boolean): void {
-    if (this.contributions.has(contribution)) return;
-    const definition = contribution.contract;
-    const id = getAgentRuntimeDefinitionId(definition);
-    const generation = (this.recordGenerations.get(id) ?? 0) + 1;
-    this.recordGenerations.set(id, generation);
-    const record: AgentRuntimeDefinitionRecord = {
-      definition,
-      provider: contribution,
-      generation,
-      providerGeneration: generation,
-      active: true,
-    };
-    this.contributions.set(contribution, record);
-    const current = this.records.get(id);
-    if (current !== undefined && !override) return;
-    this.records.set(id, record);
-    for (const managed of this.roster.values()) {
-      if (!managed.closing) managed.runtimeSet.apply(record);
-    }
-  }
-
-  private withdrawContribution(contribution: AgentRuntimeContribution): void {
-    const record = this.contributions.get(contribution);
-    if (record === undefined) return;
-    this.contributions.delete(contribution);
-    record.active = false;
-    const id = getAgentRuntimeDefinitionId(record.definition);
-    if (this.records.get(id) === record) {
-      const fallback = [...this.contributions.values()]
-        .filter((candidate) => candidate.active && getAgentRuntimeDefinitionId(candidate.definition) === id)
-        .toSorted((left, right) => (right.providerGeneration ?? right.generation) - (left.providerGeneration ?? left.generation))[0];
-      if (fallback !== undefined) this.records.set(id, fallback);
-      else this.records.delete(id);
-    }
-    for (const managed of this.roster.values()) {
-      managed.runtimeSet.retireDefinition(record);
-      const fallback = this.records.get(id);
-      if (fallback !== undefined && fallback !== record && !managed.closing) managed.runtimeSet.apply(fallback);
-    }
-  }
-
-  private activeRecords(): readonly AgentRuntimeDefinitionRecord[] {
-    return [...this.records.values()];
+    this._register({
+      dispose: () => {
+        interactions.purgeSession(this.ctx.sessionId);
+      },
+    });
   }
 
   async create(opts: CreateAgentOptions = {}): Promise<AgentContext> {
@@ -219,7 +159,6 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
       agentScope,
       forkedFrom: opts.forkedFrom,
       generation,
-      modelRequester: opts.modelRequester,
     });
     const agent = scopeContext.agentContext;
     const eventBus = this.instantiation.invokeFunction((accessor) =>
@@ -230,6 +169,7 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
     let didCreate = false;
     let finalizerArmed = false;
     let stage = 'scope';
+    let containerRef: InstantiationService | undefined;
     let createdHandle: IAgentScopeHandle | undefined;
     const telemetryBinding = bindTelemetryScope(this.telemetry, {
       agent_id: agentId,
@@ -258,23 +198,23 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
               eventBus?.deactivateAgent(agent);
             }, 'agent-event-bus-deactivate');
             finalizerArmed = true;
-            this.adopt({
-              id: agentId,
-              kind: LifecycleScope.Agent,
-              accessor: {
-                get: (id) => container.invokeFunction((accessor) => accessor.get(id)),
-              },
-              dispose: () => container.disposeAsync(),
-            });
-            managed = this.roster.get(agentId);
+            containerRef = container;
           },
         },
       ) as IAgentScopeHandle;
       createdHandle = handle;
-      managed!.active = true;
+      const container = containerRef!;
+      this.rosterAdopt({
+        id: agentId,
+        kind: LifecycleScope.Agent,
+        accessor: {
+          get: (id) => container.invokeFunction((accessor) => accessor.get(id)),
+        },
+        dispose: () => container.disposeAsync(),
+      });
+      managed = this.roster.get(agentId);
       stage = 'seal';
       await handle.accessor.get(IWireService).seal();
-      managed!.attachDurableRuntimes();
       stage = 'register';
       await this.sessionMetadata.registerAgent(agentId, {
         homedir: agentHomedir,
@@ -291,7 +231,7 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
       this.onDidCreateScopeEmitter.fire({ context: agent, handle });
       stage = 'restore';
       await handle.accessor.get(IEventDispatcher).restore();
-      await managed!.runtimeSet.restore();
+      attachInteractionAgent(agentId, this.ctx.sessionId, handle.accessor.get(IEventDispatcher));
       stage = 'bootstrap';
       await this.bindBootstrap(handle, opts);
       stage = 'toolActivation';
@@ -306,7 +246,6 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
       if (managed !== undefined) {
         managed.closing = true;
         if (this.roster.get(agentId) === managed) this.roster.delete(agentId);
-        await managed.runtimeSet.close().catch(() => undefined);
         managed.killSpace();
         try {
           await managed.handle.dispose();
@@ -319,7 +258,6 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
         }
         telemetryBinding.dispose();
       }
-      if (didCreate) await this.sessionMetadata.unregisterAgent(agentId).catch(() => undefined);
       if (!finalizerArmed) eventBus?.deactivateAgent(agent);
       if (didCreate) this.onDidCloseEmitter.fire(agent);
       throw error;
@@ -404,25 +342,6 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
     return all.filter((context) => context.agentId.startsWith(prefix));
   }
 
-  resolve<Definition extends AgentRuntimeDefinition<any, any>>(
-    agent: AgentContext,
-    definition: Definition,
-  ): RuntimeOf<Definition> {
-    return this.requireManaged(agent).runtimeSet.resolve(definition);
-  }
-
-  restoreRuntimes(agent: AgentContext): Promise<void> {
-    return this.requireManaged(agent).runtimeSet.restore();
-  }
-
-  inspect(agent: AgentContext): AgentRuntimeSnapshot {
-    const managed = this.requireManaged(agent);
-    return {
-      identity: { agentId: agent.agentId, generation: agent.generation },
-      contributions: managed.runtimeSet.inspect(),
-    };
-  }
-
   broadcastPermissionMode(mode: PermissionMode): void {
     for (const managed of this.roster.values()) {
       if (managed.closing || !managed.active) continue;
@@ -441,6 +360,14 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
   }
 
   adopt(handle: IAgentScopeHandle): AgentContext {
+    const agent = this.rosterAdopt(handle);
+    this.onDidCreateEmitter.fire(agent);
+    this.onDidCreateScopeEmitter.fire({ context: agent, handle });
+    attachInteractionAgent(agent.agentId, this.ctx.sessionId, handle.accessor.get(IEventDispatcher));
+    return agent;
+  }
+
+  private rosterAdopt(handle: IAgentScopeHandle): AgentContext {
     const agent = agentContextOf(handle);
     const existing = this.roster.get(agent.agentId);
     if (existing !== undefined) {
@@ -449,116 +376,67 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
         throw new Error(`Agent "${agent.agentId}" is already managed by a different context`);
       }
     }
-    const managed = new ManagedAgent(agent, handle, this.activeRecords());
+    const managed = new ManagedAgent(agent, handle);
+    managed.active = true;
     this.roster.set(agent.agentId, managed);
     return agent;
   }
 
-  attachRuntimes(agent: AgentContext): void {
-    const managed = this.requireManaged(agent);
-    managed.attachDurableRuntimes();
-    if (!managed.active) {
-      managed.active = true;
-      this.onDidCreateEmitter.fire(agent);
-      this.onDidCreateScopeEmitter.fire({ context: agent, handle: managed.handle });
-    }
-  }
-
   async remove(agent: AgentContext): Promise<void> {
     const managed = this.roster.get(agent.agentId);
-    if (managed === undefined || managed.context !== agent) return;
-    if (managed.closePromise !== undefined) return managed.closePromise;
-    if (managed.closing) return;
+    if (managed === undefined || managed.context !== agent || managed.closing) return;
     managed.closing = true;
-    managed.closePromise = this.close(agent, managed);
-    return managed.closePromise;
-  }
-
-  private async close(agent: AgentContext, managed: ManagedAgent): Promise<void> {
-    const failures: unknown[] = [];
-    const phase = async (work: () => Promise<unknown> | void): Promise<void> => {
-      try {
-        await work();
-      } catch (error) {
-        failures.push(error);
-      }
-    };
     this.onWillCloseEmitter.fire(agent);
     const handle = managed.handle;
     await handle.accessor.get(IAgentTaskService).suppressAllTerminalNotifications();
     const loop = handle.accessor.get(IAgentLoopService);
+    const compaction = handle.accessor.get(IAgentFullCompactionService).compacting;
+    const compactionSettled = compaction?.promise.catch(() => undefined) ?? Promise.resolve();
     const reason = abortError('Agent removed');
-    let quiescence: IDisposable | undefined;
-    try {
-      const compaction = handle.accessor.get(IAgentFullCompactionService).compacting;
-      const compactionSettled = compaction?.promise.catch(() => undefined) ?? Promise.resolve();
-      const prompt = handle.accessor.get(IAgentPromptService);
-      await phase(async () => {
-        if (compaction !== null && !compaction.abortController.signal.aborted) {
-          compaction.abortController.abort(reason);
-        }
-        const deadline = Date.now() + REMOVE_PROMPT_QUIESCE_TIMEOUT_MS;
-        for (;;) {
-          const remaining = deadline - Date.now();
-          if (remaining <= 0) break;
-          let drainTimedOut = false;
-          let drainTimer: ReturnType<typeof setTimeout> | undefined;
-          await Promise.race([
-            (async () => {
-              await prompt.drain(reason);
-              for (const turnId of loop.status().pendingTurnIds) {
-                loop.cancel(turnId, reason);
-              }
-              loop.cancel(undefined, reason);
-              await Promise.all([loop.settled(), compactionSettled]);
-            })().finally(() => {
-              if (drainTimer !== undefined) clearTimeout(drainTimer);
-            }),
-            new Promise<void>((resolve) => {
-              drainTimer = setTimeout(() => {
-                drainTimedOut = true;
-                resolve();
-              }, remaining);
-            }),
-          ]);
-          if (drainTimedOut) break;
-          let idle = true;
-          try {
-            const snapshot = prompt.list();
-            idle =
-              !snapshot.launching && snapshot.active === undefined && snapshot.pending.length === 0;
-          } catch {
-            idle = true;
-          }
-          if (idle) {
-            try {
-              const guard = loop.tryAcquireQuiescence();
-              if (guard !== undefined) {
-                quiescence = guard;
-                break;
-              }
-            } catch {
-              break;
-            }
-          }
-          if (Date.now() >= deadline) break;
-          await new Promise((resolve) => {
-            setTimeout(resolve, REMOVE_PROMPT_QUIESCE_POLL_MS);
-          });
-        }
-      });
-      await phase(() => handle.accessor.get(IAgentTaskService).stopAllOnExit('Session closed'));
-      await phase(() => handle.accessor.get(IEventDispatcher).flush());
-      await phase(() => managed.runtimeSet.close());
-      managed.killSpace();
-      await phase(() => handle.dispose());
-    } finally {
-      quiescence?.dispose();
-      if (this.roster.get(agent.agentId) === managed) this.roster.delete(agent.agentId);
-      this.onDidCloseEmitter.fire(agent);
+    const prompt = handle.accessor.get(IAgentPromptService);
+    if (compaction !== null && !compaction.abortController.signal.aborted) {
+      compaction.abortController.abort(reason);
     }
-    if (failures.length === 1) throw failures[0];
-    if (failures.length > 1) throw new AggregateError(failures, `Agent ${agent.agentId} removal failed`);
+    const promptIdleDeadline = Date.now() + REMOVE_PROMPT_QUIESCE_TIMEOUT_MS;
+    let releaseQuiescence: (() => void) | undefined;
+    for (;;) {
+      for (const queueId of loop.status().pendingPromptIds) {
+        loop.cancelQueued(queueId, reason);
+      }
+      loop.cancel(undefined, reason);
+      await Promise.all([loop.settled(), compactionSettled, prompt.drain(reason)]);
+      let idle = true;
+      try {
+        const snapshot = prompt.list();
+        idle =
+          !snapshot.launching && snapshot.active === undefined && snapshot.pending.length === 0;
+      } catch {
+        idle = true;
+      }
+      if (idle) {
+        try {
+          const guard = loop.tryAcquireQuiescence();
+          if (guard !== undefined) {
+            releaseQuiescence = () => guard.dispose();
+            break;
+          }
+        } catch {
+          break;
+        }
+      }
+      if (Date.now() >= promptIdleDeadline) break;
+      await new Promise((resolve) => setTimeout(resolve, REMOVE_PROMPT_QUIESCE_POLL_MS));
+    }
+    try {
+      await handle.accessor.get(IAgentTaskService).stopAllOnExit('Session closed');
+      await handle.accessor.get(IEventDispatcher).flush().catch(onUnexpectedError);
+      managed.killSpace();
+      await handle.dispose();
+    } finally {
+      releaseQuiescence?.();
+    }
+    if (this.roster.get(agent.agentId) === managed) this.roster.delete(agent.agentId);
+    this.onDidCloseEmitter.fire(agent);
   }
 
   private managedFor(agent: AgentContext): ManagedAgent | undefined {

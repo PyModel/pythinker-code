@@ -5,6 +5,7 @@ export type SettingsSelection =
   | 'theme'
   | 'editor'
   | 'permission'
+  | 'survey'
   | 'experiments'
   | 'survey'
   | 'upgrade'
@@ -30,6 +31,11 @@ const SETTINGS_OPTIONS: readonly ChoiceOption[] = [
     value: 'editor',
     label: 'Editor',
     description: 'Set the external editor command.',
+  },
+  {
+    value: 'survey',
+    label: 'Feedback survey',
+    description: 'Turn the occasional session rating prompt on or off.',
   },
   {
     value: 'experiments',
@@ -59,6 +65,7 @@ function isSettingsSelection(value: string): value is SettingsSelection {
     value === 'theme' ||
     value === 'editor' ||
     value === 'permission' ||
+    value === 'survey' ||
     value === 'experiments' ||
     value === 'survey' ||
     value === 'upgrade' ||

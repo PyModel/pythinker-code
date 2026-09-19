@@ -2,7 +2,7 @@ import chalk from 'chalk';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { FooterComponent } from '#/tui/components/chrome/footer';
-import { setRainbowHatch, type RainbowHatchController } from '#/tui/easter-eggs/hatch';
+import { setRainbowDance, type RainbowDanceController } from '#/tui/easter-eggs/dance';
 import { currentTheme, darkColors, lightColors } from '#/tui/theme';
 import type { ModelAlias } from '@pymodel/pythinker-code-sdk';
 import type { AppState } from '#/tui/types';
@@ -17,19 +17,19 @@ function truecolorCodes(text: string): Set<string> {
   return codes;
 }
 
-// Dark hatch colors the footer never uses outside of /hatch.
+// Dark dance colors the footer never uses outside of /dance.
 const RAINBOW_CYAN = '91,192,190';
 const RAINBOW_GREEN = '78,200,126';
 
-function setHatchView(colored: boolean, phase: number): void {
-  const hatch: RainbowHatchController = {
+function setDanceView(colored: boolean, phase: number): void {
+  const dance: RainbowDanceController = {
     colored,
     phase,
     start: () => {},
     stop: () => {},
     dispose: () => {},
   };
-  setRainbowHatch(hatch);
+  setRainbowDance(dance);
 }
 
 const appState: AppState = {
@@ -71,11 +71,11 @@ describe('FooterComponent', () => {
 
   afterEach(() => {
     chalk.level = previousChalkLevel;
-    setRainbowHatch(undefined);
+    setRainbowDance(undefined);
   });
 
   it('paints the model name in rainbow while colored', () => {
-    setHatchView(true, 0);
+    setDanceView(true, 0);
     const footer = new FooterComponent(appState);
 
     const codes = truecolorCodes(footer.render(120).join('\n'));
@@ -86,81 +86,13 @@ describe('FooterComponent', () => {
     expect(codes.has(RAINBOW_GREEN)).toBe(true);
   });
 
-  it('keeps the thinking suffix dim while the model name hatches', () => {
-    const effortModel: ModelAlias = {
-      provider: 'oauth-example',
-      model: 'kimi-k2',
-      maxContextSize: 262144,
-      supportEfforts: ['high'],
-      defaultEffort: 'high',
-    };
-    setHatchView(true, 0);
-    const footer = new FooterComponent({
-      ...appState,
-      thinkingEffort: 'high',
-      availableModels: { 'kimi-k2': effortModel },
-    });
-
-    expect(footer.render(120).join('\n')).toContain(
-      chalk.hex(darkColors.textDim)(' thinking: high'),
-    );
-  });
-
-  it('renders the model name in its normal color when not hatching', () => {
+  it('renders the model name in its normal color when not dancing', () => {
     const footer = new FooterComponent(appState);
 
     const codes = truecolorCodes(footer.render(120).join('\n'));
 
     expect(codes.has(RAINBOW_CYAN)).toBe(false);
     expect(codes.has(RAINBOW_GREEN)).toBe(false);
-  });
-
-  it('uses semantic mode and model colors', () => {
-    const effortModel: ModelAlias = {
-      provider: 'oauth-example',
-      model: 'kimi-k2',
-      maxContextSize: 262144,
-      supportEfforts: ['high'],
-      defaultEffort: 'high',
-    };
-    const footer = new FooterComponent({
-      ...appState,
-      permissionMode: 'yolo',
-      planMode: true,
-      thinkingEffort: 'high',
-      availableModels: { 'kimi-k2': effortModel },
-    });
-    const out = footer.render(120).join('\n');
-
-    expect(out).toContain(chalk.hex(darkColors.modePermission).bold('Ask When Needed'));
-    expect(out).toContain(chalk.hex(darkColors.primary)('kimi-k2'));
-    expect(out).toContain(chalk.hex(darkColors.textDim)(' thinking: high'));
-  });
-
-  it('drops low-priority default slots before core status on narrow terminals', () => {
-    const footer = new FooterComponent({ ...appState, planMode: true });
-    footer.setBackgroundCounts({ bashTasks: 1, agentTasks: 0 });
-
-    const line = footer.render(35)[0] ?? '';
-
-    expect(line).toContain('plan');
-    expect(line).toContain('kimi-k2');
-    expect(line).toContain('/tmp/project');
-    expect(line).not.toContain('task running');
-  });
-
-  it('shows tower mode in the footer', () => {
-    const footer = new FooterComponent({ ...appState, towerMode: true });
-
-    expect(footer.render(120).join('\n')).toContain('tower');
-  });
-
-  it('shows Discussion mode in the footer', () => {
-    const footer = new FooterComponent({ ...appState, expertTalkArmId: 'arm-1' });
-    const rendered = footer.render(120).join('\n');
-
-    expect(rendered).toContain('discussion');
-    expect(rendered).not.toContain('expert-talk');
   });
 
   it('repaints from the active palette on the next render (no setColors needed)', () => {
@@ -179,7 +111,7 @@ describe('FooterComponent', () => {
 
   it('shows the effort for an effort-capable model', () => {
     const effortModel: ModelAlias = {
-      provider: 'oauth-example',
+      provider: 'managed:pythinker-code',
       model: 'kimi-k2',
       maxContextSize: 262144,
       supportEfforts: ['low', 'high', 'max'],
@@ -197,7 +129,7 @@ describe('FooterComponent', () => {
 
   it('does not show the effort for a legacy boolean model', () => {
     const plainModel: ModelAlias = {
-      provider: 'oauth-example',
+      provider: 'managed:pythinker-code',
       model: 'kimi-k2',
       maxContextSize: 262144,
       capabilities: ['thinking'],
@@ -213,12 +145,20 @@ describe('FooterComponent', () => {
     expect(rendered).toContain('thinking');
     expect(rendered).not.toContain('thinking:high');
   });
+
+  it('shows the tower mode chip only when tower mode is on', () => {
+    const on = new FooterComponent({ ...appState, towerMode: true });
+    expect(on.render(120).join('\n')).toContain('tower');
+
+    const off = new FooterComponent(appState);
+    expect(off.render(120).join('\n')).not.toContain('tower');
+  });
 });
 
 describe('FooterComponent overrides', () => {
   it('shows the overridden effort list', () => {
     const effortModelWithOverride: ModelAlias = {
-      provider: 'oauth-example',
+      provider: 'managed:pythinker-code',
       model: 'kimi-k2',
       maxContextSize: 262144,
       supportEfforts: ['low', 'high', 'max'],
@@ -243,7 +183,7 @@ describe('FooterComponent displayName override', () => {
       model: 'kimi-k2',
       availableModels: {
         'kimi-k2': {
-          provider: 'oauth-example',
+          provider: 'managed:pythinker-code',
           model: 'kimi-k2',
           maxContextSize: 262144,
           displayName: 'Remote Name',
@@ -293,33 +233,90 @@ describe('FooterComponent line-2 hints', () => {
   });
 });
 
-
-describe('FooterComponent stream speed', () => {
-  function stripAnsiSpeed(text: string): string {
-    return text.replaceAll(/\[[0-9;]*m/g, '');
+describe('FooterComponent ctrl+o hint', () => {
+  function plain(text: string): string {
+    return text.replaceAll(/\[[0-9;]*m/g, '');
+  }
+  function line1(footer: FooterComponent, width = 160): string {
+    return plain(footer.render(width)[0] ?? '');
   }
 
-  it('hides the speed badge until a step completes', () => {
+  it('shows no hint while there is no tool output to toggle', () => {
     const footer = new FooterComponent(appState);
-
-    expect(stripAnsiSpeed(footer.render(120)[1] ?? '')).not.toContain('t/s');
+    footer.setExpandHintProvider(() => null);
+    expect(line1(footer)).not.toContain('ctrl+o');
+    footer.dispose();
   });
 
-  it('shows the last step decode speed next to the context readout', () => {
+  it('offers expand while collapsed output exists and collapse once it is shown', () => {
     const footer = new FooterComponent(appState);
-    footer.setStreamSpeed(38.44);
+    let hint: 'expand' | 'collapse' | null = 'expand';
+    footer.setExpandHintProvider(() => hint);
+    expect(line1(footer)).toContain('ctrl+o expand');
+    hint = 'collapse';
+    expect(line1(footer)).toContain('ctrl+o collapse');
+    footer.dispose();
+  });
 
-    const line2 = stripAnsiSpeed(footer.render(120)[1] ?? '');
+  it('keeps the hint and drops the rotating tip when only one of them fits', () => {
+    // Same left-hand slots without the tips: measures the space the hint competes for.
+    const noTips = new FooterComponent({
+      ...appState,
+      statusLine: { items: ['mode', 'model', 'cwd'], command: null },
+    });
+    const leftWidth = plain(noTips.render(200)[0] ?? '').trimEnd().length;
+    noTips.dispose();
 
+    const footer = new FooterComponent(appState);
+    footer.setExpandHintProvider(() => 'expand');
+    const narrow = line1(footer, leftWidth + 2 + 'ctrl+o expand'.length);
+    expect(narrow.endsWith('ctrl+o expand')).toBe(true);
+    expect(narrow).not.toContain(' | ');
+    footer.dispose();
+  });
+});
+
+describe('FooterComponent ctrl+o hint with a status_line command', () => {
+  it('moves the hint to line 2 when a command owns line 1', async () => {
+    const footer = new FooterComponent({
+      ...appState,
+      statusLine: { items: null, command: 'printf "my-custom-status"' },
+    });
+    footer.setExpandHintProvider(() => 'expand');
+    footer.render(120);
+    await new Promise((resolve) => setTimeout(resolve, 200));
+
+    const [line1, line2] = footer.render(120).map((line) => line.replaceAll(/\[[0-9;]*m/g, ''));
+    expect(line1).toContain('my-custom-status');
+    expect(line1).not.toContain('ctrl+o');
+    expect(line2).toContain('ctrl+o expand');
     expect(line2).toContain('context:');
-    expect(line2).toContain('· 38.4 t/s');
+    footer.dispose();
   });
+});
 
-  it('clears the speed badge on null', () => {
-    const footer = new FooterComponent(appState);
-    footer.setStreamSpeed(12.5);
-    footer.setStreamSpeed(null);
+describe('FooterComponent ctrl+o hint beside an inline tips slot', () => {
+  function plain(text: string): string {
+    return text.replaceAll(/\[[0-9;]*m/g, '');
+  }
 
-    expect(stripAnsiSpeed(footer.render(120)[1] ?? '')).not.toContain('t/s');
+  it('drops the inline tip when the hint would not fit beside it', () => {
+    const noTips = new FooterComponent({
+      ...appState,
+      statusLine: { items: ['mode', 'model', 'cwd'], command: null },
+    });
+    const leftWidth = plain(noTips.render(200)[0] ?? '').trimEnd().length;
+    noTips.dispose();
+
+    const footer = new FooterComponent({
+      ...appState,
+      statusLine: { items: ['mode', 'tips', 'model', 'cwd'], command: null },
+    });
+    footer.setExpandHintProvider(() => 'expand');
+    const width = leftWidth + 2 + 'ctrl+o expand'.length;
+    const line1 = plain(footer.render(width)[0] ?? '');
+    expect(line1.endsWith('ctrl+o expand')).toBe(true);
+    expect(line1.length).toBeLessThanOrEqual(width);
+    footer.dispose();
   });
 });

@@ -4,9 +4,8 @@ import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
 import { IConfigService } from '#/app/config/config';
-import { IFlagService } from '#/app/flag/flag';
 import { ErrorCodes, Error2, isError2 } from '#/errors';
-import { IModelCatalog, type Model } from '#/kosong/model/catalog';
+import { IModelCatalog, type Model } from '#/llm-adapter/model/catalog';
 import {
   SECONDARY_MODEL_SECTION,
   SUBAGENT_SECTION,
@@ -14,8 +13,7 @@ import {
 import { ISessionSubagentModelsValidationService } from '#/session/subagent/subagentModelsValidation';
 import { SessionSubagentModelsValidationService } from '#/session/subagent/subagentModelsValidationService';
 
-import { StubConfigService } from '../../kosong/stubs';
-import { stubFlag } from '../../app/flag/stubs';
+import { StubConfigService } from '../../stubs';
 
 describe('SessionSubagentModelsValidationService', () => {
   let disposables: DisposableStore;
@@ -89,7 +87,7 @@ describe('SessionSubagentModelsValidationService', () => {
     expect(isError2(error)).toBe(true);
     expect((error as Error2).code).toBe(ErrorCodes.CONFIG_INVALID);
     expect((error as Error2).message).toContain(
-      '[secondary_model].default_model "provider/typo" could not be resolved',
+      '[secondary_model.models] entry "provider/typo" could not be resolved',
     );
   });
 
@@ -121,9 +119,8 @@ describe('SessionSubagentModelsValidationService', () => {
     expect(isError2(error)).toBe(true);
     expect((error as Error2).code).toBe(ErrorCodes.CONFIG_INVALID);
     expect((error as Error2).message).toContain(
-      '[secondary_model].default_model "provider/typo" could not be resolved',
+      '[secondary_model.models] entry "provider/typo" could not be resolved',
     );
-    expect((error as Error2).message).not.toContain('[secondary_model.models]');
   });
 
   it('constructs fine for a valid pool', () => {

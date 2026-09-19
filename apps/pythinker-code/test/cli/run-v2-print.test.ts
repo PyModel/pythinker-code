@@ -4,13 +4,10 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   applyPrintBackgroundPolicy,
   createPrintTurnEndings,
-  delayOrAbort,
   formatTrustGatedMcpWarning,
   PrintSteeredTurnFailedError,
-  settleOrAbort,
   type PrintTurnEnding,
   type PrintTurnEndings,
-  type TrustGatedMcpServer,
 } from '#/cli/v2/run-v2-print';
 
 function ending(
@@ -509,59 +506,17 @@ describe('createPrintTurnEndings', () => {
 
 describe('formatTrustGatedMcpWarning', () => {
   it('singularizes the noun for one skipped server', () => {
-    const text = formatTrustGatedMcpWarning([
-      { name: 'fs', target: 'stdio: node server.js' },
-    ]);
+    const text = formatTrustGatedMcpWarning([{ name: 'fs', target: 'stdio: node server.js' }]);
     expect(text).toContain('skipped 1 project-level MCP server: fs (stdio: node server.js).');
     expect(text).toContain('"Trust this folder"');
   });
 
   it('pluralizes and joins multiple skipped servers', () => {
-    const servers: readonly TrustGatedMcpServer[] = [
-      { name: 'api', target: 'http: https://example.test/mcp' },
-      { name: 'fs', target: 'stdio: node server.js' },
-    ];
-    const text = formatTrustGatedMcpWarning(servers);
-    expect(text).toContain('skipped 2 project-level MCP servers:');
-    expect(text).toContain('api (http: https://example.test/mcp), fs (stdio: node server.js)');
-  });
-
-  it('encodes control characters in untrusted server names and targets', () => {
     const text = formatTrustGatedMcpWarning([
-      { name: 'evil\u001B]0;pwned\u0007', target: 'stdio: node\u001B[6n server.js' },
+      { name: 'api', target: 'http: https://example.com/mcp' },
+      { name: 'fs', target: 'stdio: node server.js' },
     ]);
-    expect(text).toContain('evil\\x1b]0;pwned\\x07');
-    expect(text).toContain('stdio: node\\x1b[6n server.js');
-    expect(text).not.toContain('\u001B');
-    expect(text).not.toContain('\u0007');
-  });
-});
-
-describe('print-mode quiesce abort', () => {
-  it('clears the poll timer when the shutdown signal aborts', async () => {
-    const controller = new AbortController();
-    const started = Date.now();
-    const pending = delayOrAbort(controller.signal, 5_000);
-    controller.abort();
-    await pending;
-    expect(Date.now() - started).toBeLessThan(1_000);
-  });
-
-  it('stops waiting on a hung drain when the shutdown signal aborts', async () => {
-    const controller = new AbortController();
-    const hung = new Promise<void>(() => {});
-    const started = Date.now();
-    const pending = settleOrAbort(controller.signal, hung);
-    controller.abort();
-    await pending;
-    expect(Date.now() - started).toBeLessThan(1_000);
-  });
-
-  it('still waits out a short delay when the signal stays live', async () => {
-    const controller = new AbortController();
-    const started = Date.now();
-    await delayOrAbort(controller.signal, 30);
-    expect(Date.now() - started).toBeGreaterThanOrEqual(20);
-    expect(controller.signal.aborted).toBe(false);
+    expect(text).toContain('skipped 2 project-level MCP servers:');
+    expect(text).toContain('api (http: https://example.com/mcp), fs (stdio: node server.js)');
   });
 });

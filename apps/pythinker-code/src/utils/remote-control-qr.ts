@@ -1,4 +1,4 @@
-import { chmod, mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
 import {
@@ -21,14 +21,10 @@ export async function generateRemoteControlQr(
   url: string,
   dataDir: string,
 ): Promise<{ terminal: string; pngPath: string }> {
-  await mkdir(dataDir, { recursive: true, mode: 0o700 });
-  // `mode` only applies to paths these calls create; tighten an existing dir
-  // or an earlier run's image too.
-  await chmod(dataDir, 0o700);
+  await mkdir(dataDir, { recursive: true });
   const pngPath = resolve(dataDir, 'rc-qrcode.png');
   const png = await QRCode.toBuffer(url, { type: 'png', margin: QR_PNG_MARGIN });
-  await writeFile(pngPath, png, { mode: 0o600 });
-  await chmod(pngPath, 0o600);
+  await writeFile(pngPath, png);
   const terminal = renderInlineImageQr(url, png) ?? renderTerminalQr(url);
   return { terminal, pngPath };
 }

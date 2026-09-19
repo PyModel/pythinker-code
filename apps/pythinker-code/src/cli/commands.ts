@@ -1,4 +1,5 @@
 import { CLI_COMMAND_NAME } from '#/constant/app';
+import { registerMigrateCommand, type MigrateCommandOptions } from '#/migration/index';
 import { Command, InvalidArgumentError, Option } from 'commander';
 
 import type { CLIOptions } from './options';
@@ -6,12 +7,14 @@ import { registerAcpCommand } from './sub/acp';
 import { registerDoctorCommand } from './sub/doctor';
 import { registerExportCommand } from './sub/export';
 import { registerForkCommand } from './sub/fork';
+import { registerLoginCommand } from './sub/login';
 import { registerProviderCommand } from './sub/provider';
 import { registerSessionCommand } from './sub/session';
 import { registerVisCommand } from './sub/vis';
 import { registerWebCommand } from './sub/web';
 
 export type MainCommandHandler = (opts: CLIOptions) => void;
+export type MigrateCommandHandler = (options: MigrateCommandOptions) => void;
 export type PluginNodeRunnerHandler = (entry: string, args: readonly string[]) => void;
 export type UpgradeCommandHandler = (yes: boolean) => void | Promise<void>;
 export type UpdateDownloadHandler = (version: string, manual: boolean) => void;
@@ -19,6 +22,7 @@ export type UpdateDownloadHandler = (version: string, manual: boolean) => void;
 export function createProgram(
   version: string,
   onMain: MainCommandHandler,
+  onMigrate: MigrateCommandHandler,
   onPluginNodeRunner: PluginNodeRunnerHandler = () => {},
   onUpgrade: UpgradeCommandHandler = () => {},
   onUpdateDownload: UpdateDownloadHandler = () => {},
@@ -120,8 +124,10 @@ export function createProgram(
   registerSessionCommand(program);
   registerAcpCommand(program);
   registerWebCommand(program);
+  registerLoginCommand(program);
   registerDoctorCommand(program);
   registerVisCommand(program);
+  registerMigrateCommand(program, onMigrate);
   program
     .command('upgrade')
     .alias('update')
@@ -157,8 +163,6 @@ export function createProgram(
     }
 
     const raw = program.opts<Record<string, unknown>>();
-    const sessionSelectorConflict =
-      raw['session'] !== undefined && raw['resume'] !== undefined;
 
     const rawSession = raw['session'] ?? raw['resume'];
     const sessionValue = rawSession === true ? '' : (rawSession as string | undefined);
@@ -167,7 +171,6 @@ export function createProgram(
 
     const opts: CLIOptions = {
       session: sessionValue,
-      sessionSelectorConflict,
       continue: raw['continue'] === true || raw['C'] === true,
       yolo: yoloValue,
       auto: autoValue,

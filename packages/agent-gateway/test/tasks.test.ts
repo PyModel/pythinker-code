@@ -60,8 +60,8 @@ describe('server-v2 /api/v1/sessions/{sid}/tasks', () => {
       getRequester: () => {
         throw new Error('modelCatalog.getRequester not exercised in this test');
       },
-      inspect: () => {
-        throw new Error('modelCatalog.inspect not exercised in this test');
+      generate: () => {
+        throw new Error('modelCatalog.generate not exercised in this test');
       },
       ping: () => {
         throw new Error('modelCatalog.ping not exercised in this test');

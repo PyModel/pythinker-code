@@ -1,0 +1,7 @@
+{
+  "work_dirs": [
+    { "path": "/proj-a", "pyaos": "local", "last_session_id": null },
+    { "path": "/proj-b", "pyaos": "local", "last_session_id": null },
+    { "path": "/proj-c", "pyaos": "pyaos-foo", "last_session_id": null }
+  ]
+}

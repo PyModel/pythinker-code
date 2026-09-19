@@ -1,47 +1,15 @@
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-
 import { describe, expect, it } from 'vitest';
 
-import { startServer } from '../src/start';
-import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
-import { authHeaders } from './helpers/auth';
 import { sharedAuthHeaders, sharedServer } from './helpers/sharedServer';
 
 describe('server-v2 OpenAPI', () => {
-  async function fetchOpenApi(mcpManagement = false): Promise<Record<string, unknown>> {
-    if (!mcpManagement) {
-      const res = await fetch(`${sharedServer().base}/openapi.json`, {
-        headers: sharedAuthHeaders(),
-      } as never);
-      expect(res.status).toBe(200);
-      expect(res.headers.get('content-type')).toContain('application/json');
-      return (await res.json()) as Record<string, unknown>;
-    }
-
-    const home = await mkdtemp(join(tmpdir(), 'pythinker-server-v2-openapi-'));
-    const server = await startServer({
-      hostIdentity: TEST_HOST_IDENTITY,
-      host: '127.0.0.1',
-      port: 0,
-      homeDir: home,
-      logLevel: 'silent',
-      env: {
-        PYTHINKER_CODE_EXPERIMENTAL_MCP_MANAGEMENT: '1',
-      },
-    });
-    try {
-      const res = await fetch(`http://127.0.0.1:${server.port}/openapi.json`, {
-        headers: authHeaders(server),
-      } as never);
-      expect(res.status).toBe(200);
-      expect(res.headers.get('content-type')).toContain('application/json');
-      return (await res.json()) as Record<string, unknown>;
-    } finally {
-      await server.close();
-      await rm(home, { recursive: true, force: true });
-    }
+  async function fetchOpenApi(): Promise<Record<string, unknown>> {
+    const res = await fetch(`${sharedServer().base}/openapi.json`, {
+      headers: sharedAuthHeaders(),
+    } as never);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toContain('application/json');
+    return (await res.json()) as Record<string, unknown>;
   }
 
   it('returns a valid OpenAPI 3 document', async () => {
@@ -129,7 +97,7 @@ describe('server-v2 OpenAPI', () => {
   });
 
   it('documents MCP OAuth failures for auth completion', async () => {
-    const doc = await fetchOpenApi(true);
+    const doc = await fetchOpenApi();
     const authCompleteOp = operation(doc, '/api/v2/mcp/auth:complete', 'post');
     const responses = asRecord(authCompleteOp['responses']);
     const response = asRecord(responses['200']);
@@ -145,14 +113,6 @@ describe('server-v2 OpenAPI', () => {
         return Array.isArray(values) && values.includes(40929);
       }),
     ).toBe(true);
-  });
-
-  it('omits MCP management paths while the flag is disabled', async () => {
-    const doc = await fetchOpenApi();
-    const paths = asRecord(doc['paths']);
-
-    expect(paths['/api/v2/mcp/servers']).toBeUndefined();
-    expect(paths['/api/v2/mcp/auth:complete']).toBeUndefined();
   });
 });
 

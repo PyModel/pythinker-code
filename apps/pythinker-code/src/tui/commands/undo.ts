@@ -106,6 +106,7 @@ async function undoByCount(host: SlashCommandHost, count: number): Promise<boole
     host.showError(`Failed to undo: ${message}`);
     return false;
   }
+  host.noteContextCut?.();
   await refreshTodoPanel(host);
 
   const children = host.state.transcriptContainer.children;
@@ -552,8 +553,6 @@ function renderWelcome(host: SlashCommandHost): void {
     return;
   }
   host.state.transcriptContainer.addChild(
-    new WelcomeComponent(host.state.appState, () => {
-      host.state.ui.requestRender();
-    }),
+    new WelcomeComponent(host.state.appState),
   );
 }

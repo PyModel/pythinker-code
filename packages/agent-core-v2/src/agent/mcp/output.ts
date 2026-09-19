@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { Readable } from 'node:stream';
 import { isDeepStrictEqual } from 'node:util';
 
-import type { ContentPart } from '#/kosong/contract/message';
+import type { ContentPart } from '#human/llm/message';
 import type { ITelemetryService } from '#/app/telemetry/telemetry';
 import type { ExecutableToolResult } from '#/tool/toolContract';
 import { textExtensionForMime } from '#/_base/utils/fileMeta';
@@ -25,6 +25,7 @@ export interface McpOutputOptions {
   readonly attachmentStore?: ISessionMediaStore;
   readonly originalsDir?: string;
   readonly telemetry?: ITelemetryService;
+  readonly providerType?: string;
 }
 
 export const MCP_MAX_BINARY_PART_BYTES = 10 * 1024 * 1024;
@@ -41,7 +42,7 @@ function droppedBlockNotice(reason: string): ContentPart {
   return { type: 'text', text: `[MCP content dropped: ${reason}]` };
 }
 
-export function convertMCPContentBlock(block: MCPContentBlock): ContentPart {
+export function convertMCPContentBlock(block: MCPContentBlock, providerType?: string): ContentPart {
   if (block.type === 'text' && typeof block.text === 'string') {
     return { type: 'text', text: block.text };
   }
@@ -98,8 +99,11 @@ export function convertMCPContentBlock(block: MCPContentBlock): ContentPart {
   if (block.type === 'resource_link' && typeof block.uri === 'string') {
     const mimeType = block.mimeType ?? 'application/octet-stream';
     if (mimeType.startsWith('image/')) {
-      if (!isModelAcceptedImageMime(mimeType)) {
-        return { type: 'text', text: buildUnsupportedImageNotice(mimeType, block.uri) };
+      if (!isModelAcceptedImageMime(mimeType, providerType)) {
+        return {
+          type: 'text',
+          text: buildUnsupportedImageNotice(mimeType, block.uri, providerType),
+        };
       }
       return { type: 'image_url', imageUrl: { url: block.uri } };
     }
@@ -140,46 +144,36 @@ export async function mcpResultToExecutableOutput(
   };
   for (const block of result.content) {
     options.signal?.throwIfAborted();
-    const part = convertMCPContentBlock(block);
-    if (part.type === 'image_url' && options.attachmentStore !== undefined) {
-      await preserveInlineMedia(part.imageUrl.url);
-    }
+    const part = convertMCPContentBlock(block, options.providerType);
+    if (part.type === 'image_url' && options.attachmentStore !== undefined) await preserveInlineMedia(part.imageUrl.url);
     if (part.type === 'audio_url') await preserveInlineMedia(part.audioUrl.url);
     if (part.type === 'video_url') await preserveInlineMedia(part.videoUrl.url);
-    const gated = gateImageFormatParts([part]);
+    const gated = gateImageFormatParts([part], options.providerType);
     converted.push(...gated);
     if (part.type === 'image_url' && gated[0]?.type === 'text') {
       omittedAttachment = true;
       await preserveInlineMedia(part.imageUrl.url);
     }
-    if (
-      part.type === 'text' &&
-      block.type === 'resource' &&
-      typeof block.resource?.blob === 'string' &&
-      typeof block.resource.text !== 'string'
-    ) {
+    if (part.type === 'text' && block.type === 'resource' &&
+      typeof block.resource?.blob === 'string' && typeof block.resource.text !== 'string') {
       omittedAttachment = true;
-      attachmentNotices.push(
-        await preserveAttachment(
-          block.resource.blob,
-          block.resource.mimeType ?? 'application/octet-stream',
-          options,
-        ),
-      );
+      attachmentNotices.push(await preserveAttachment(
+        block.resource.blob,
+        block.resource.mimeType ?? 'application/octet-stream',
+        options,
+      ));
     }
   }
 
   const wrapped = wrapMediaOnly(converted, qualifiedToolName);
-  const hasStructuredCopy =
-    result.structuredContent !== undefined &&
-    converted.some((part) => {
-      if (part.type !== 'text') return false;
-      try {
-        return isDeepStrictEqual(parseComparableJson(part.text), result.structuredContent);
-      } catch {
-        return false;
-      }
-    });
+  const hasStructuredCopy = result.structuredContent !== undefined && converted.some((part) => {
+    if (part.type !== 'text') return false;
+    try {
+      return isDeepStrictEqual(parseComparableJson(part.text), result.structuredContent);
+    } catch {
+      return false;
+    }
+  });
   const structuredExtras: Record<string, unknown> = {};
   if (result.structuredContent !== undefined && !hasStructuredCopy) {
     structuredExtras['structuredContent'] = result.structuredContent;
@@ -201,17 +195,14 @@ export async function mcpResultToExecutableOutput(
   }
 
   const compressed = await compressImageContentParts(wrapped, {
+    signal: options.signal,
     telemetry: options.telemetry,
     telemetrySource: 'mcp_tool_result',
+    providerType: options.providerType,
     annotate: {
       persistOriginal: async (bytes, mimeType) => {
         if (options.attachmentStore !== undefined) {
-          const saved = await saveAttachment(
-            bytes,
-            mimeType,
-            options.attachmentStore,
-            options.signal,
-          );
+          const saved = await saveAttachment(bytes, mimeType, options.attachmentStore, options.signal);
           attachmentNotices.push(attachmentNotice(saved, mimeType, bytes.length));
           return saved.reference;
         }
@@ -225,8 +216,7 @@ export async function mcpResultToExecutableOutput(
   });
   const capped = await applyBinaryPartCap(compressed.parts, preserveInlineMedia);
   const notices = await attachmentDetails(
-    [...compressed.captions, ...attachmentNotices, ...capped.notices],
-    options,
+    [...compressed.captions, ...attachmentNotices, ...capped.notices], options,
   );
   const parts = [...capped.parts];
   if (notices.content.length > 0) parts.push({ type: 'text', text: notices.content });
@@ -247,19 +237,10 @@ async function attachmentDetails(
   const content = [...new Set(notices)].join('\n');
   if (content.length <= MCP_MAX_INLINE_NOTICES_CHARS) return { content, suffix: content };
   try {
-    if (options.attachmentStore === undefined) {
-      throw new Error('Session attachment storage is unavailable');
-    }
-    const saved = await saveAttachment(
-      Buffer.from(content, 'utf8'),
-      'text/plain',
-      options.attachmentStore,
-      options.signal,
-    );
+    if (options.attachmentStore === undefined) throw new Error('Session attachment storage is unavailable');
+    const saved = await saveAttachment(Buffer.from(content, 'utf8'), 'text/plain', options.attachmentStore, options.signal);
     const pointer = [
-      ...(saved.path === undefined
-        ? []
-        : [`MCP attachment details saved at: ${JSON.stringify(saved.path)}`]),
+      ...(saved.path === undefined ? [] : [`MCP attachment details saved at: ${JSON.stringify(saved.path)}`]),
       `Attachment details reference: ${JSON.stringify(saved.reference)}`,
       `Session-relative attachment details: ${JSON.stringify(saved.relativePath)}`,
       'Pass the attachment details reference to Read to retrieve all original attachment references and compression details in the current session.',
@@ -267,8 +248,7 @@ async function attachmentDetails(
     return { content: pointer, suffix: pointer };
   } catch {
     options.signal?.throwIfAborted();
-    const suffix =
-      'The complete MCP attachment list could not be saved separately. Attachment details are included in the tool output and may be truncated. Do not repeat the MCP call automatically.';
+    const suffix = 'The complete MCP attachment list could not be saved separately. Attachment details are included in the tool output and may be truncated. Do not repeat the MCP call automatically.';
     return { content: `${content}\n${suffix}`, suffix };
   }
 }
@@ -280,9 +260,7 @@ async function preserveAttachment(
 ): Promise<string> {
   options.signal?.throwIfAborted();
   try {
-    if (options.attachmentStore === undefined) {
-      throw new Error('Session attachment storage is unavailable');
-    }
+    if (options.attachmentStore === undefined) throw new Error('Session attachment storage is unavailable');
     const compact = base64.replaceAll(/\s/g, '');
     const bytes = Buffer.from(compact, 'base64');
     const canonical = bytes.toString('base64');
@@ -305,9 +283,7 @@ interface SavedAttachment {
 
 function attachmentNotice(saved: SavedAttachment, mimeType: string, size: number): string {
   return [
-    ...(saved.path === undefined
-      ? []
-      : [`Original attachment saved at: ${JSON.stringify(saved.path)}`]),
+    ...(saved.path === undefined ? [] : [`Original attachment saved at: ${JSON.stringify(saved.path)}`]),
     `Attachment reference: ${JSON.stringify(saved.reference)}`,
     `Session-relative attachment: ${JSON.stringify(saved.relativePath)}`,
     `MIME: ${JSON.stringify(mimeType)}; size: ${String(size)} bytes. Pass the attachment reference to Read or ReadMediaFile in the current session. For other binary formats, Read reports the resolved local path for a converter.`,
@@ -323,14 +299,9 @@ async function saveAttachment(
   signal?.throwIfAborted();
   const mime = mimeType.split(';')[0]!.trim().toLowerCase();
   const hash = createHash('sha256').update(mime).update('\0').update(bytes).digest('hex');
-  const ext =
-    mime === 'application/pdf'
-      ? '.pdf'
-      : mime === 'image/svg+xml'
-        ? bytes[0] === 0x1f && bytes[1] === 0x8b
-          ? '.svgz'
-          : '.svg'
-        : (textExtensionForMime(mime) ?? mediaExtensionForMime(mime) ?? '.bin');
+  const ext = mime === 'application/pdf' ? '.pdf'
+    : mime === 'image/svg+xml' ? (bytes[0] === 0x1f && bytes[1] === 0x8b ? '.svgz' : '.svg')
+      : textExtensionForMime(mime) ?? mediaExtensionForMime(mime) ?? '.bin';
   const fileId = `f_mcp_${hash}`;
   const path = await store.materialize({
     fileId,

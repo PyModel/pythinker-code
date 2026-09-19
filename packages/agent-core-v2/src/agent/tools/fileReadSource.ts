@@ -12,17 +12,9 @@ export interface FileReadSource {
   readLines(): AsyncIterable<string>;
 }
 
-export function withAttachmentLocation(
-  result: ExecutableToolResult,
-  source: FileReadSource,
-): ExecutableToolResult {
-  if (!result.isError || source.localPath === undefined || typeof result.output !== 'string') {
-    return result;
-  }
-  return {
-    ...result,
-    output: `${result.output}\nServer-local attachment path: ${JSON.stringify(source.localPath)}`,
-  };
+export function withAttachmentLocation(result: ExecutableToolResult, source: FileReadSource): ExecutableToolResult {
+  if (!result.isError || source.localPath === undefined || typeof result.output !== 'string') return result;
+  return { ...result, output: `${result.output}\nServer-local attachment path: ${JSON.stringify(source.localPath)}` };
 }
 
 export function runtimeFileSource(fs: IHostFileSystem, path: string): FileReadSource {
@@ -34,18 +26,11 @@ export function runtimeFileSource(fs: IHostFileSystem, path: string): FileReadSo
   };
 }
 
-export async function attachmentFileSource(
-  reference: string,
-  store?: ISessionMediaStore,
-): Promise<FileReadSource> {
+export async function attachmentFileSource(reference: string, store?: ISessionMediaStore): Promise<FileReadSource> {
   const ref = parseDaemonFileUrl(reference);
   const open = async () => {
     const file = ref === undefined ? undefined : await store?.open(ref.fileId);
-    if (file === undefined) {
-      throw new Error(
-        `Attachment ${JSON.stringify(reference)} is not available in the current session.`,
-      );
-    }
+    if (file === undefined) throw new Error(`Attachment ${JSON.stringify(reference)} is not available in the current session.`);
     return file;
   };
   const initial = await open();
@@ -58,13 +43,9 @@ export async function attachmentFileSource(
       const size = Math.min(n ?? file.size, file.size);
       if (size === 0) return new Uint8Array();
       const chunks: Buffer[] = [];
-      for await (const chunk of file.stream({ start: 0, end: size - 1 })) {
-        chunks.push(Buffer.from(chunk));
-      }
+      for await (const chunk of file.stream({ start: 0, end: size - 1 })) chunks.push(Buffer.from(chunk));
       const bytes = Buffer.concat(chunks);
-      if (bytes.length !== size) {
-        throw new Error('Attachment changed or became unavailable while reading.');
-      }
+      if (bytes.length !== size) throw new Error('Attachment changed or became unavailable while reading.');
       return bytes;
     },
     readLines: async function* () {
@@ -75,9 +56,7 @@ export async function attachmentFileSource(
           size += chunk.length;
           yield chunk;
         }
-        if (size !== file.size) {
-          throw new Error('Attachment changed or became unavailable while reading.');
-        }
+        if (size !== file.size) throw new Error('Attachment changed or became unavailable while reading.');
       };
       yield* readUtf8Lines(checkedStream());
     },

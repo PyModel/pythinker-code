@@ -1,8 +1,8 @@
 import { execFileSync, spawnSync } from 'node:child_process';
+import { homedir } from 'node:os';
 
 import {
   createPythinkerHarness,
-  createPythinkerHarnessV2,
   flushDiagnosticLogsSync,
   log,
   type PythinkerHarness,
@@ -18,6 +18,7 @@ import {
 } from '@pymodel/pythinker-telemetry';
 
 import { CLI_SHUTDOWN_TIMEOUT_MS, CLI_UI_MODE, TUI_HOST_UI_CAPABILITIES } from '#/constant/app';
+import { detectPendingMigration, resolveLegacySourceHome, sameLegacyPath } from '#/migration/index';
 import type { TuiConfig } from '#/tui/config';
 import { loadTuiConfig, TuiConfigParseError } from '#/tui/config';
 import { CHROME_GUTTER } from '#/tui/constant/rendering';
@@ -29,15 +30,14 @@ import { restoreTerminalModes } from '#/utils/terminal-restore';
 import { resolveCommandPath } from '#/utils/process/resolve-command';
 
 import type { CLIOptions } from './options';
-import { drainStdio } from './headless-exit';
 import { resolveAgentProfileSelection } from './agent-selection';
-import { isPythinkerV2Enabled } from './experimental-v2';
 import { createCliTelemetryBootstrap, initializeCliTelemetry } from './telemetry';
 import { createPythinkerCodeHostIdentity } from './version';
 
 export async function runShell(
   opts: CLIOptions,
   version: string,
+  runOptions: { readonly migrateOnly?: boolean } = {},
 ): Promise<void> {
   const startedAt = Date.now();
   const configStartedAt = startedAt;
@@ -66,17 +66,23 @@ export async function runShell(
     homeDir: telemetryBootstrap.homeDir,
     identity: createPythinkerCodeHostIdentity(version),
     skillDirs: opts.skillsDirs,
+    // The TUI renders the mid-turn update panel; declaring it here is what
+    // makes the engine offer NotifyUser to this process and to no other host.
     uiCapabilities: TUI_HOST_UI_CAPABILITIES,
     telemetry: telemetryClient,
+    onOAuthRefresh: (outcome) => {
+      if (outcome.success) {
+        track('oauth_refresh', { outcome: 'success' });
+        return;
+      }
+      track('oauth_refresh', {
+        outcome: 'error',
+        reason: outcome.reason,
+      });
+    },
     sessionStartedProperties: { yolo: opts.yolo, auto: opts.auto, plan: opts.plan, afk: false },
   };
-  // The agent-core-v2 route is the default (same engine gate as `pythinker -p`):
-  // the harness is the SDK's v2-backed client, so the whole TUI runs on the
-  // agent-core-v2 engine unless the legacy flag is set.
-  const engineV2 = isPythinkerV2Enabled();
-  const harness = engineV2
-    ? createPythinkerHarnessV2(harnessOptions)
-    : createPythinkerHarness(harnessOptions);
+  const harness = createPythinkerHarness(harnessOptions);
   startupTrace('harness:created');
   log.info('pythinker-code starting', {
     version,
@@ -87,6 +93,28 @@ export async function runShell(
   });
 
   await harness.ensureConfigFile();
+  const legacySource = resolveLegacySourceHome(process.env, homedir(), process.cwd());
+  const sourceIsTarget = sameLegacyPath(legacySource.sourceHome, harness.homeDir);
+  if (sourceIsTarget) {
+    process.stderr.write(
+      `  PYTHINKER_SHARE_DIR (${legacySource.sourceHome}) points at the Pythinker Code home; legacy migration is disabled. Unset it or point it at the pythinker-cli data directory to migrate.\n`,
+    );
+  }
+  const migrationPlan = sourceIsTarget
+    ? null
+    : await detectPendingMigration({
+        sourceHome: legacySource.sourceHome,
+        skillsSourceHome: legacySource.skillsSourceHome,
+        targetHome: harness.homeDir,
+        ignoreMarker: runOptions.migrateOnly,
+      });
+  if (runOptions.migrateOnly === true && migrationPlan === null) {
+    if (!sourceIsTarget) {
+      process.stdout.write(`  Nothing to migrate from ${legacySource.sourceHome}.\n`);
+    }
+    await harness.close();
+    return;
+  }
   const config = await harness.getConfig();
   startupTrace('config:loaded');
   // Config diagnostics (deprecated keys, invalid sections, ...) are surfaced
@@ -104,7 +132,8 @@ export async function runShell(
     version,
     workDir,
     startupNotice: configWarning,
-    engineV2,
+    migrationPlan,
+    migrateOnly: runOptions.migrateOnly,
     telemetryDisabled: config.telemetry === false,
   });
 
@@ -231,7 +260,6 @@ export async function runShell(
       await tui.exitForegroundTask(exitCode);
       return;
     }
-    await drainStdio([process.stdout, process.stderr]);
     process.exit(exitCode);
   };
   try {

@@ -42,7 +42,7 @@
   "dependencies": {
     "@pymodel/agent-core-v2": "workspace:^",
     "@pymodel/pythinker-code-oauth": "workspace:^",
-    "ws": "^8.21.3"
+    "ws": "^8.18.0"
   },
   "devDependencies": {
     "@types/ws": "^8.18.0"

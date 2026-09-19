@@ -28,7 +28,7 @@ import {
 } from '@pymodel/agent-core-v2';
 import { sessionSnapshotResponseSchema } from '../src/protocol/rest-snapshot';
 import { emptySessionUsage } from '../src/protocol/session';
-import { beforeAll, describe, expect, it, afterAll } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { registerSnapshotRoutes } from '../src/routes/snapshot';
 import { type RunningServer, startServer } from '../src/start';
@@ -58,7 +58,7 @@ describe('server-v2 snapshot route enrichment', () => {
         [IAgentContextMemoryService, { get: () => [] }],
         [
           IAgentPromptService,
-          { list: () => ({ active: { id: promptId }, pending: [], launching: false }) },
+          { list: () => ({ active: { id: promptId }, pending: [] }) },
         ],
         [IWireService, { flush: async () => {} }],
         [IAgentScopeContext, { scope: () => 'scope/sess_snapshot' }],

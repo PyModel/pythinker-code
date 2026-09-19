@@ -5,8 +5,8 @@ import { ILogService } from '#/_base/log/log';
 import { IntervalTimer } from '#/_base/utils/timer';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
-import type { SessionIndexDegradedEvent } from '#/app/telemetry/events';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
+import type { SessionIndexDegradedEvent } from '#/app/telemetry/events';
 import { isError2 } from '#/errors';
 import { databaseBaseEnabled } from '#/persistence/configSection';
 import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
@@ -31,6 +31,7 @@ import {
   type SessionListQuery,
   type SessionSummary,
 } from './sessionIndex';
+import { markSessionDirty } from './sessionIndexDirtyJournal';
 import {
   PARENT_INDEX_NAME,
   SESSION_INDEX_MANIFEST,
@@ -167,10 +168,9 @@ export class FileSessionIndex extends Disposable implements ISessionIndex {
               .getCheckpoint(SESSION_INDEX_MANIFEST)
               .catch(() => undefined);
             if (published === undefined) throw error;
-            this.log.warn(
-              'session index startup reconciliation failed; serving the published generation',
-              { error: String(error) },
-            );
+            this.log.warn('session index startup reconciliation failed; serving the published generation', {
+              error: String(error),
+            });
           }
         }
       }
@@ -351,6 +351,11 @@ export class FileSessionIndex extends Disposable implements ISessionIndex {
       },
       () => Promise.resolve(),
     );
+    try {
+      await markSessionDirty(this.storage, this.sessionsScope, id);
+    } catch (error) {
+      this.log.warn('session index dirty mark failed', { error: String(error) });
+    }
   }
 
   private async withReadModel<T>(

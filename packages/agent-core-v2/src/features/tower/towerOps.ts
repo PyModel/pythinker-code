@@ -2,7 +2,7 @@
 import { z } from 'zod';
 
 import { AgentStatusUpdated } from '#/agent/usage/usageEvents';
-import { AgentEvent2 } from '#/app/event/event2';
+import { AgentEvent2, Event2 } from '#/app/event/event2';
 import { defineState } from '#/state/state';
 
 const towerModeEnterSchema = z.object({
@@ -33,6 +33,18 @@ export interface TowerModeExit {
   readonly agentId: string;
 }
 
+export interface TowerInboxSentPayload {
+  readonly from: string;
+  readonly to: string;
+  readonly subject: string;
+}
+
+export class TowerInboxSent extends Event2<TowerInboxSentPayload> {
+  static override readonly type = 'tower.inbox.sent';
+  static override readonly observable = true;
+}
+export interface TowerInboxSent extends TowerInboxSentPayload {}
+
 export const towerKey = defineState('tower', () => false).replayable({
   schema: z.boolean(),
 })
@@ -54,7 +66,7 @@ export const towerOwnerKey = defineState('tower.owner', () => undefined as strin
 
 export const towerBaseKey = defineState('tower.base', (): string | null => null)
   .replayable({
-    schema: z.string().nullable(),
+    schema: z.custom<string | null>(),
   })
   .on(TowerModeEnter, (_s, e) => e.base ?? null)
   .on(TowerModeExit, () => null);

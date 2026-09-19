@@ -20,7 +20,7 @@ describe('title excerpts over the real context memory', () => {
     const context = ctx.get(IAgentContextMemoryService);
     context.append({
       role: 'user',
-      content: [{ type: 'text', text: '\u5E2E\u6211\u90E8\u7F72\u8FD9\u4E2A\u670D\u52A1' }],
+      content: [{ type: 'text', text: 'zh' }],
       toolCalls: [],
       origin: { kind: 'user' },
     });
@@ -28,7 +28,7 @@ describe('title excerpts over the real context memory', () => {
     context.appendLoopEvent({
       type: 'content.part',
       stepUuid: 's1',
-      part: { type: 'text', text: '\u5148\u770B\u4E00\u4E0B\u914D\u7F6E' },
+      part: { type: 'text', text: 'zh' },
     });
     context.appendLoopEvent({
       type: 'tool.call',
@@ -47,25 +47,22 @@ describe('title excerpts over the real context memory', () => {
     context.appendLoopEvent({
       type: 'content.part',
       stepUuid: 's2',
-      part: { type: 'think', think: '\u6536\u5C3E' },
+      part: { type: 'think', think: 'zh' },
     });
     context.appendLoopEvent({
       type: 'content.part',
       stepUuid: 's2',
-      part: { type: 'text', text: '\u90E8\u7F72\u5B8C\u6210，\u670D\u52A1\u5728 8080 \u7AEF\u53E3' },
+      part: { type: 'text', text: 'zhzh 8080 zh' },
     });
     context.appendLoopEvent({ type: 'step.end', uuid: 's2' });
 
     const source = ctx.get(IAgentTitlePromptSource);
     await expect(source.firstTurnExcerpt()).resolves.toEqual({
-      user: '\u5E2E\u6211\u90E8\u7F72\u8FD9\u4E2A\u670D\u52A1',
-      assistant: '\u90E8\u7F72\u5B8C\u6210，\u670D\u52A1\u5728 8080 \u7AEF\u53E3',
+      user: 'zh',
+      assistant: 'zhzh 8080 zh',
     });
     await expect(source.digestExcerpt()).resolves.toEqual({
-      turns: [{
-        user: '\u5E2E\u6211\u90E8\u7F72\u8FD9\u4E2A\u670D\u52A1',
-        assistant: '\u90E8\u7F72\u5B8C\u6210，\u670D\u52A1\u5728 8080 \u7AEF\u53E3',
-      }],
+      turns: [{ user: 'zh', assistant: 'zhzh 8080 zh' }],
     });
   });
 
@@ -73,13 +70,13 @@ describe('title excerpts over the real context memory', () => {
     const context = ctx.get(IAgentContextMemoryService);
     context.append({
       role: 'user',
-      content: [{ type: 'text', text: '\u521A\u53D1\u7684\u95EE\u9898' }],
+      content: [{ type: 'text', text: 'zh' }],
       toolCalls: [],
       origin: { kind: 'user' },
     });
 
     await expect(ctx.get(IAgentTitlePromptSource).firstTurnExcerpt()).resolves.toEqual({
-      user: '\u521A\u53D1\u7684\u95EE\u9898',
+      user: 'zh',
       assistant: undefined,
     });
   });
@@ -91,7 +88,7 @@ describe('title excerpts over the real context memory', () => {
       content: [
         { type: 'text', text: 'User activated the skill "review". Follow the loaded skill instructions.' },
         { type: 'text', text: 'User activated the skill "security". Follow the loaded skill instructions.' },
-        { type: 'text', text: '\u68C0\u67E5\u8FD9\u6B21\u6539\u52A8\u7684\u6B63\u786E\u6027' },
+        { type: 'text', text: 'zh' },
       ],
       toolCalls: [],
       origin: {
@@ -105,9 +102,9 @@ describe('title excerpts over the real context memory', () => {
 
     const source = ctx.get(IAgentTitlePromptSource);
     await expect(source.firstTurnExcerpt()).resolves.toEqual({
-      user: '\u68C0\u67E5\u8FD9\u6B21\u6539\u52A8\u7684\u6B63\u786E\u6027',
+      user: 'zh',
       assistant: undefined,
     });
-    await expect(source.firstUserPrompts(5)).resolves.toEqual(['\u68C0\u67E5\u8FD9\u6B21\u6539\u52A8\u7684\u6B63\u786E\u6027']);
+    await expect(source.firstUserPrompts(5)).resolves.toEqual(['zh']);
   });
 });

@@ -6,7 +6,7 @@ import { IModelCatalog, IWorkspaceInstanceManager } from '@pymodel/agent-core-v2
 import { HostFileSystem } from '@pymodel/agent-core-v2/os/backends/node-local/hostFsService';
 import { FakeRuntime } from '@pymodel/agent-core-v2/runtime/fakeRuntime';
 import { ErrorCode } from '../src/protocol/error-codes';
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { type RunningServer, startServer } from '../src/start';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
@@ -201,7 +201,7 @@ describe('server-v2 /api/v1 fs routes', () => {
     const id = await createSession();
     const body = await postFs<{ items: FsEntryWire[]; truncated: boolean }>(id, 'list', {});
     expect(body.code).toBe(0);
-    const names = body.data.items.map((i) => i.name).toSorted();
+    const names = body.data.items.map((i) => i.name).sort();
     expect(names).toEqual(['a.txt', 'b.txt']);
     expect(body.data.truncated).toBe(false);
   });
@@ -214,59 +214,6 @@ describe('server-v2 /api/v1 fs routes', () => {
 
     const dup = await postFs<null>(id, 'mkdir', { path: 'sub' });
     expect(dup.code).toBe(ErrorCode.FS_ALREADY_EXISTS);
-  });
-
-  it('fs:write creates a file and fs:read returns the saved content', async () => {
-    const id = await createSession();
-    const written = await postFs<{ path: string; size: number; etag: string; created: boolean }>(
-      id,
-      'write',
-      { path: 'note.md', content: '# hello' },
-    );
-    expect(written.code).toBe(0);
-    expect(written.data.created).toBe(true);
-    expect(written.data.path).toBe('note.md');
-
-    const read = await postFs<{ content: string; etag: string }>(id, 'read', { path: 'note.md' });
-    expect(read.code).toBe(0);
-    expect(read.data.content).toBe('# hello');
-    expect(read.data.etag).toBe(written.data.etag);
-
-    const updated = await postFs<{ created: boolean }>(id, 'write', {
-      path: 'note.md',
-      content: '# hello v2',
-      base_etag: written.data.etag,
-    });
-    expect(updated.code).toBe(0);
-    expect(updated.data.created).toBe(false);
-  });
-
-  it('fs:write maps a stale base_etag to FS_CONFLICT', async () => {
-    const id = await createSession();
-    const first = await postFs<{ etag: string }>(id, 'write', { path: 'a.txt', content: 'one' });
-    expect(first.code).toBe(0);
-    await postFs(id, 'write', { path: 'a.txt', content: 'two' });
-
-    const stale = await postFs<null>(id, 'write', {
-      path: 'a.txt',
-      content: 'three',
-      base_etag: first.data.etag,
-    });
-    expect(stale.code).toBe(ErrorCode.FS_CONFLICT);
-  });
-
-  it('fs:write accepts a payload past Fastify\'s 1 MiB default body limit', async () => {
-    const id = await createSession();
-    const content = 'x'.repeat(2 * 1024 * 1024);
-    const res = await postFs<{ size: number }>(id, 'write', { path: 'big.txt', content });
-    expect(res.code).toBe(0);
-    expect(res.data.size).toBe(content.length);
-  });
-
-  it('fs:write rejects paths that escape the workspace', async () => {
-    const id = await createSession();
-    const res = await postFs<null>(id, 'write', { path: '../escape.txt', content: 'x' });
-    expect(res.code).toBe(ErrorCode.FS_PATH_ESCAPES_SESSION);
   });
 
   it('fs:stat_many returns null for missing paths', async () => {
@@ -404,57 +351,6 @@ describe('server-v2 /api/v1 fs routes', () => {
       expect(read.data.content).toBe('through-link');
     } finally {
       await rm(link, { force: true });
-    }
-  });
-
-  it('GET fs/{path}:download streams the file and honors If-None-Match', async () => {
-    await writeFile(join(work!, 'a.txt'), 'download-me');
-    const id = await createSession();
-
-    const res = await fetch(`${base}/api/v1/sessions/${id}/fs/a.txt:download?runtime_id=local`, {
-      headers: authHeaders(server as RunningServer),
-    } as never);
-    expect(res.status).toBe(200);
-    const text = await res.text();
-    expect(text).toBe('download-me');
-    const etag = res.headers.get('etag');
-    expect(etag).toBeTruthy();
-
-    const cached = await fetch(`${base}/api/v1/sessions/${id}/fs/a.txt:download?runtime_id=local`, {
-      headers: authHeaders(server as RunningServer, { 'if-none-match': etag as string }),
-    } as never);
-    expect(cached.status).toBe(304);
-  });
-
-  it('GET fs/{path}:download defaults to the local runtime when runtime_id is omitted', async () => {
-    await writeFile(join(work!, 'b.txt'), 'compat-download');
-    const id = await createSession();
-
-    const res = await fetch(`${base}/api/v1/sessions/${id}/fs/b.txt:download`, {
-      headers: authHeaders(server as RunningServer),
-    } as never);
-    expect(res.status).toBe(200);
-    expect(await res.text()).toBe('compat-download');
-  });
-
-  it('GET fs/{path}:download untracks the stream from the runtime generation after completion', async () => {
-    await writeFile(join(work!, 'c.txt'), 'tracked-download');
-    const id = await createSession();
-    const instance = server!.core.accessor.get(IWorkspaceInstanceManager).findByRoot(work!);
-    expect(instance).toBeDefined();
-    const generations = (instance!.runtimes as unknown as {
-      currentGenerations: Map<string, { resources: Set<unknown> }>;
-    }).currentGenerations;
-    const resources = generations.get('local')!.resources;
-    const baseline = resources.size;
-
-    for (let i = 0; i < 2; i += 1) {
-      const res = await fetch(`${base}/api/v1/sessions/${id}/fs/c.txt:download?runtime_id=local`, {
-        headers: authHeaders(server as RunningServer),
-      } as never);
-      expect(res.status).toBe(200);
-      expect(await res.text()).toBe('tracked-download');
-      await vi.waitFor(() => expect(resources.size).toBe(baseline));
     }
   });
 
@@ -684,13 +580,13 @@ describe('server-v2 /api/v1 fs routes', () => {
     expect(body.code).toBe(0);
     expect(body.data.items.map((i) => i.path)).toContain('kappa.ts');
 
-    const workAliases = new Set([work!, await realpath(work!)]);
-    expect((await listWorkspaces()).some((w) => workAliases.has(w.root))).toBe(false);
+    const workAliases = [work!, await realpath(work!)];
+    expect((await listWorkspaces()).some((w) => workAliases.includes(w.root))).toBe(false);
     expect(
       server!.core.accessor
         .get(IWorkspaceInstanceManager)
         .list()
-        .some((w) => workAliases.has(w.root)),
+        .some((w) => workAliases.includes(w.root)),
     ).toBe(false);
 
     const again = await postRootSuggest<{ items: SuggestItemWire[] }>({
@@ -698,7 +594,7 @@ describe('server-v2 /api/v1 fs routes', () => {
       query: 'kappa',
     });
     expect(again.code).toBe(0);
-    expect((await listWorkspaces()).some((w) => workAliases.has(w.root))).toBe(false);
+    expect((await listWorkspaces()).some((w) => workAliases.includes(w.root))).toBe(false);
   });
 
   it('fs:suggest matches the workspace route for the same single root', async () => {
@@ -720,7 +616,7 @@ describe('server-v2 /api/v1 fs routes', () => {
   });
 
   it('fs:suggest merges candidates across roots with relative paths for the primary root only', async () => {
-    const extra = await mkdtemp(join(tmpdir(), 'fs-suggest-extra-'));
+    const extra = await mkdtemp(join(tmpdir(), 'pythinker-server-v2-fs-extra-'));
     try {
       await writeFile(join(work!, 'shared-name.ts'), '');
       await mkdir(join(extra, 'lib'));
@@ -742,7 +638,7 @@ describe('server-v2 /api/v1 fs routes', () => {
   });
 
   it('fs:suggest lists top-level entries of every root for an empty query', async () => {
-    const extra = await mkdtemp(join(tmpdir(), 'fs-suggest-extra-'));
+    const extra = await mkdtemp(join(tmpdir(), 'pythinker-server-v2-fs-extra-'));
     try {
       await writeFile(join(work!, 'top-work.ts'), '');
       await writeFile(join(extra, 'top-extra.ts'), '');
@@ -784,7 +680,7 @@ describe('server-v2 /api/v1 fs routes', () => {
   });
 
   it('fs:suggest applies the limit to the merged ranking across roots', async () => {
-    const extra = await mkdtemp(join(tmpdir(), 'fs-suggest-extra-'));
+    const extra = await mkdtemp(join(tmpdir(), 'pythinker-server-v2-fs-extra-'));
     try {
       await writeFile(join(work!, 'a1.ts'), '');
       await writeFile(join(extra, 'a2.ts'), '');
@@ -803,7 +699,7 @@ describe('server-v2 /api/v1 fs routes', () => {
   });
 
   it('fs:suggest honors follow_gitignore on each root', async () => {
-    const extra = await mkdtemp(join(tmpdir(), 'fs-suggest-extra-'));
+    const extra = await mkdtemp(join(tmpdir(), 'pythinker-server-v2-fs-extra-'));
     try {
       await writeFile(join(extra, '.gitignore'), 'ignored-extra.ts\n');
       await writeFile(join(extra, 'ignored-extra.ts'), '');

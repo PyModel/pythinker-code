@@ -13,25 +13,35 @@
  * that's already running at `baseUrl` (default `http://127.0.0.1:58627`).
  */
 import type {
-  ApprovalRequest,
-  ApprovalResolveResult,
-  ApprovalResponse,
-  AuthSummary,
-  CloseTerminalResponse,
-  CompactSessionRequest,
-  CompactSessionResponse,
-  CreateTerminalRequest,
-  FileMeta,
-  ForkSessionRequest,
   FsBrowseResponse,
   FsHomeResponse,
-  ListTerminalsResponse,
-  ListModelsResponse,
-  ListPendingApprovalsResponse,
-  ListPendingQuestionsResponse,
-  ListProvidersResponse,
-  Message,
+} from '@pymodel/agent-core-v2/app/hostFolderBrowser/hostFolderBrowser';
+import type { AuthSummary } from '@pymodel/agent-core-v2/app/authLegacy/authLegacy';
+import type { FileMeta } from '@pymodel/agent-core-v2/app/file/fileService';
+import type { UpdateSessionProfileRequest as SessionUpdate } from '@pymodel/agent-core-v2/app/sessionLegacy/sessionProtocol';
+import type {
   ProviderCatalogItem,
+  SetDefaultModelResponse,
+} from '@pymodel/agent-core-v2/llm-adapter/model/catalog';
+import type { Terminal } from '@pymodel/agent-core-v2/os/interface/terminal';
+import type {
+  ApprovalRequest,
+  ApprovalResponse,
+} from '@pymodel/agent-gateway/protocol/approval';
+import type { Message } from '@pymodel/agent-gateway/protocol/message';
+import type {
+  QuestionRequest,
+  QuestionResponse,
+} from '@pymodel/agent-gateway/protocol/question';
+import type {
+  ApprovalResolveResult,
+  ListPendingApprovalsResponse,
+} from '@pymodel/agent-gateway/protocol/rest-approval';
+import type {
+  ListModelsResponse,
+  ListProvidersResponse,
+} from '@pymodel/agent-gateway/protocol/rest-modelCatalog';
+import type {
   PromptAbortResponse,
   PromptListResponse,
   PromptPermissionMode,
@@ -39,23 +49,35 @@ import type {
   PromptSteerResult,
   PromptSubmitResult,
   PromptThinking,
-  QuestionRequest,
+} from '@pymodel/agent-gateway/protocol/rest-prompt';
+import type {
+  ListPendingQuestionsResponse,
   QuestionResolveResult,
-  QuestionResponse,
-  ServerHelloMessage,
+} from '@pymodel/agent-gateway/protocol/rest-question';
+import type {
+  CompactSessionRequest,
+  CompactSessionResponse,
+  ForkSessionRequest,
   SessionAbortResponse,
-  SetDefaultModelResponse,
+  UndoSessionRequest,
+  UndoSessionResponse,
+} from '@pymodel/agent-gateway/protocol/rest-session';
+import type {
+  CloseTerminalResponse,
+  CreateTerminalRequest,
+  ListTerminalsResponse,
+} from '@pymodel/agent-gateway/protocol/rest-terminal';
+import type {
   Session,
   SessionChildCreate,
   SessionCreate,
-  SessionUpdate,
-  Terminal,
-  UndoSessionRequest,
-  UndoSessionResponse,
+} from '@pymodel/agent-gateway/protocol/session';
+import type {
   Workspace,
   WorkspaceCreate,
   WorkspaceUpdate,
-} from '@pymodel/protocol';
+} from '@pymodel/agent-gateway/protocol/workspace';
+import type { ServerHelloMessage } from '@pymodel/agent-gateway/protocol/ws-control';
 import { ulid } from 'ulid';
 import { WebSocket as WsWebSocket } from 'ws';
 

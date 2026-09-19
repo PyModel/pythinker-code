@@ -54,10 +54,5 @@ export async function applyPrintModeConfigDefaults(config: IConfigService): Prom
     'timeoutMs',
     PRINT_SUBAGENT_TIMEOUT_MS_DEFAULT,
   );
-  await fillSectionDefault(
-    config,
-    DYNAMIC_WORKFLOW_SECTION,
-    'timeoutMs',
-    PRINT_DYNAMIC_WORKFLOW_TIMEOUT_MS_DEFAULT,
-  );
+  await fillSectionDefault(config, DYNAMIC_WORKFLOW_SECTION, 'timeoutMs', PRINT_DYNAMIC_WORKFLOW_TIMEOUT_MS_DEFAULT);
 }

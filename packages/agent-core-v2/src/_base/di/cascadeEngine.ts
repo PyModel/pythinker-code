@@ -324,7 +324,7 @@ export class CascadeEngine {
   private _recheckTreeFixpoint(rebuilt: string[], failed: string[]): void {
     const enginesInOrder = [...this._tree.engines]
       .filter((engine) => !engine._disposed)
-      .toSorted((a, b) => a._scope.cascadeDepth - b._scope.cascadeDepth);
+      .sort((a, b) => a._scope.cascadeDepth - b._scope.cascadeDepth);
     for (;;) {
       let progress = false;
       for (const engine of enginesInOrder) {

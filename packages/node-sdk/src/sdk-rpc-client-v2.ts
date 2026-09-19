@@ -5,17 +5,14 @@
  * memory transport, so every call crosses the same contract validation and
  * JSON round-trip as the networked transports.
  *
- * Migration model: the base class still carries the v1 method surface. Any
- * method not yet overridden here falls through to `getRpc()`, which fails
- * loudly with `not_implemented` — migrated methods are the ones overridden
- * below. Once every method is migrated, the v1 `getRpc()` dependency (and
- * the v1 core) goes away entirely.
- *
  * Migrated so far:
  * - `getExperimentalFeatures` → `klient.global.flags.list()`
  * - `listWorkspaceSkills` → not covered by the klient facade, so it goes
  *   through the `engineAccessor` escape hatch (the workspace handler's
  *   `IWorkspaceSkillCatalog`) instead.
+ * - `suggestFiles` → same escape hatch (the workspace handler's
+ *   `IWorkspaceFsService`); the v1 client inherits the base's `undefined`
+ *   (capability absent).
  * - `getConfig` / `setConfig` / `removeProvider` / `getConfigDiagnostics` →
  *   `klient.global.config.*`, with the v1 `PythinkerConfig` shape restored by the
  *   pure mapping layer in `src/v2/config-mapper.ts`.
@@ -38,7 +35,7 @@
  *   per-agent snapshot: the live slices are read from the restored agent
  *   scope (profile / permission / dynamic_workflow services + the klient agent facade),
  *   while `replay` and `toolStore` are folded from each agent's `wire.jsonl`
- *   through the v1 engine's own restore pipeline
+ *   by the engine's `foldWireRecords`
  *   (`src/v2/resume-replay.ts`) — `includeSubagents` and `replayTurnLimit`
  *   included.
  * - `setModel` / `setPermission` / `setPlanMode` / `getPlan` / `clearPlan` /
@@ -58,15 +55,14 @@
  * - `prompt` / `steer` / `runShellCommand` / `cancelShellCommand` → the
  *   `klient.session(id).agent(id)` facade; `activatePluginCommand` →
  *   `IAgentPluginCommandService` through the agent scope; `activateSkill` →
- *   the main agent's `AgentSkill` runtime (the engine settles
+ *   the main agent's `IAgentSkillService` (the engine settles
  *   `{turn_id}` and applies v1's main-only metadata update itself);
  *   `generateAgentsMd` →
  *   `ISessionInitService` through the session scope; `getSessionWarnings` →
  *   rebuilt over the profile's cached AGENTS.md warning plus the engine's
  *   `prepareSystemPromptContext` (no v2 aggregate service exists).
  * - `createGoal` / `getGoal` / `pauseGoal` / `resumeGoal` / `cancelGoal` →
- *   the `AgentGoal` runtime facade resolved through the session's agent
- *   lifecycle service; `getCronTasks` →
+ *   the target agent scope's `IAgentGoalService`; `getCronTasks` →
  *   with the v1 snapshot
  *   shape restored; `listBackgroundTasks` / `getBackgroundTaskOutput` → the
  *   `klient.session(id).agent(id)` facade; `stopBackgroundTask` /
@@ -116,14 +112,15 @@
  *   driven by the same session wiring: v1's push callbacks
  *   (`requestApproval` / `requestQuestion` / `toolCall`) are fed from the v2
  *   interaction kernel's pending set (`onDidChangePending`), and the outcome
- *   is written back through `ISessionApprovalService.decide` /
- *   `ISessionQuestionService.answer|dismiss` / the kernel's `respond`.
+ *   is written back through the kernel's `respond`.
  * - `exportSession` → `ISessionExportService` (app scope, the v2 port of v1's
  *   export) through {@link engineAccessor}; `listSkills` → the session
  *   scope's `ISessionSkillCatalog`; `startBtw` → the session scope's
  *   `ISessionBtwService`; `setDynamicWorkflowMode` / `dynamic_workflow` → the agent scope's
  *   `IAgentDynamicWorkflowService` (the v2 port of v1's `DynamicWorkflowMode`), with `dynamic_workflow()`
- *   recomposed over the `setDynamicWorkflowMode` + `prompt` overrides.
+ *   recomposed over the `setDynamicWorkflowMode` + `prompt` overrides; `setTowerMode` →
+ *   the agent scope's `IAgentTowerService` (v2-only — the base class throws
+ *   `not_implemented`).
  *   `createSessionWithPyaos` / `resumeSessionWithPyaos` deliberately keep the
  *   base class's pyaos-ignoring degradation (the v2 engine has no pyaos
  *   injection point — see the session-lifecycle section header), and
@@ -133,19 +130,6 @@
 import { readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import {
-  ensureConfigFile,
-  ErrorCodes,
-  HookDefSchema,
-  isPythinkerErrorCode,
-  PythinkerError,
-  limitAgentReplayByTurns,
-  noopTelemetryClient,
-  type AgentContextData,
-  type BeginGlobalMcpServerAuthResult,
-  type ExperimentalFeatureState,
-  type PythinkerErrorCode,
-} from '@pymodel/agent-core';
 import { encodeWorkDirKey } from '@pymodel/agent-core-v2/_base/utils/workdir-slug';
 import { McpConnectionManager } from '@pymodel/agent-core-v2/mcpCore/connection-manager';
 import {
@@ -165,14 +149,11 @@ import {
   ensurePythinkerHome,
   ensureMainAgent,
   agentContextOf,
-  applyPromptMetadataUpdate,
-  IAgentActivityView,
-  AgentReminder,
   IAgentContextMemoryService,
-  AgentCron,
-  AgentGoal,
   IAgentConversationUndoService,
+  IAgentCronService,
   IAgentFullCompactionService,
+  IAgentGoalService,
   IAgentPluginService,
   IAgentLifecycleService,
   IAgentLoopService,
@@ -180,14 +161,15 @@ import {
   IAgentPermissionRulesService,
   IAgentPluginCommandService,
   IAgentProfileService,
-  AgentSkill,
+  IAgentReminderService,
+  IAgentSkillService,
   IAgentDynamicWorkflowService,
-  IAgentTowerService,
   IAgentTaskService,
   ISessionTokenCountingService,
   IAgentToolPolicyService,
   IAgentToolRegistryService,
   type HostUiCapability,
+  IAgentTowerService,
   IBootstrapService,
   IConfigService,
   IEventService,
@@ -208,7 +190,7 @@ import {
   ISessionMcpHandle,
   ISessionMetadata,
   ISessionSkillCatalog,
-  AgentTodo,
+  IAgentTodoService,
   ISessionWorkspaceContext,
   ITelemetryService,
   IWorkspaceAliases,
@@ -225,7 +207,6 @@ import {
   logSeed,
   MAIN_AGENT_ID,
   prepareSystemPromptContext,
-  promptMetadataTextFromContentParts,
   PRINT_MAX_TURNS_DEFAULT,
   PRINT_WAIT_CEILING_S_DEFAULT,
   ProfileError,
@@ -252,7 +233,14 @@ import { createKlient } from '@pymodel/klient/memory';
 import { assertPythinkerHostIdentity, createPythinkerDefaultHeaders } from '@pymodel/pythinker-code-oauth';
 
 import { PythinkerAuthFacade } from '#/auth';
+import { ensureConfigFile, HookDefSchema } from '#/config/index';
+import type { AgentContextData } from '#/context';
+import { ErrorCodes, isPythinkerErrorCode, PythinkerError, type PythinkerErrorCode } from '#/errors';
+import type { ExperimentalFeatureState } from '#/flag';
 import { PythinkerHarness } from '#/pythinker-harness';
+import type { BeginGlobalMcpServerAuthResult } from '#/mcp';
+import { limitAgentReplayByTurns } from '#/replay';
+import { noopTelemetryClient } from '#/telemetry';
 import {
   SDKRpcClientBase,
   type ActivatePluginCommandRpcInput,
@@ -270,8 +258,8 @@ import {
   type SetSessionPermissionRpcInput,
   type SetSessionPlanModeRpcInput,
   type SetSessionDynamicWorkflowModeRpcInput,
-  type SetSessionTowerModeRpcInput,
   type SetSessionThinkingRpcInput,
+  type SetSessionTowerModeRpcInput,
   type UpdateSessionMetadataRpcInput,
 } from '#/rpc';
 import type {
@@ -286,13 +274,6 @@ import type {
   ConfigDiagnostics,
   CreateGoalInput,
   CreateSessionOptions,
-  ExpertTalkArmV1,
-  ExpertTalkConfigV1,
-  ExpertTalkRunPageV1,
-  ExpertTalkPairV1,
-  ExpertTalkRunV1,
-  ExpertTalkStartResult,
-  ExpertTalkStatusV1,
   ExportSessionInput,
   ExportSessionResult,
   FileMeta,
@@ -315,6 +296,7 @@ import type {
   McpServerLocator,
   McpStartupMetrics,
   McpTestResult,
+  OAuthRefreshOutcome,
   PluginCommandDef,
   PluginInfo,
   PluginSummary,
@@ -369,7 +351,9 @@ export interface SDKRpcClientV2Options {
    */
   readonly skillDirs?: readonly string[];
   readonly telemetry?: TelemetryClient;
+  readonly onOAuthRefresh?: (outcome: OAuthRefreshOutcome) => void;
   readonly uiMode?: string;
+  /** UI surfaces this host renders; forwarded as `BootstrapInput.args.uiCapabilities`. */
   readonly uiCapabilities?: readonly HostUiCapability[];
 }
 
@@ -451,6 +435,9 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
     this.telemetry = options.telemetry ?? noopTelemetryClient;
     this.auth = new PythinkerAuthFacade({
       homeDir: this.homeDir,
+      configPath: this.configPath,
+      identity: this.identity,
+      onRefresh: options.onOAuthRefresh,
     });
 
     const identity = assertPythinkerHostIdentity(this.identity);
@@ -550,6 +537,10 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
    * section gates engine events the same way the v2 print runner gates them;
    * the host keeps owning the client's lifecycle (flush / shutdown stay with
    * the host, matching the v1 core's arrangement).
+   *
+   * The engine's own `session_started` is forwarded unless
+   * {@link suppressEngineSessionStarted} was called — see its doc for why the
+   * harness-assembled client drops that row.
    */
   private installEngineTelemetry(client: TelemetryClient | undefined): void {
     if (client === undefined) return;
@@ -569,7 +560,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
 
   /**
    * Drop the engine's own `session_started` from telemetry forwarding. Called
-   * by `createPythinkerHarnessV2` at assembly time: the harness emits that event
+   * by `createPythinkerHarness` at assembly time: the harness emits that event
    * for every session it opens (create / resume / reload / fork) with the
    * richer client-attribution schema, so the engine's
    * `{resumed, experimental_flags}` copy would double-count every open.
@@ -610,13 +601,6 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
    */
   get engineAccessor(): ServicesAccessor {
     return this.app.accessor;
-  }
-
-  protected getRpc(): Promise<never> {
-    throw new PythinkerError(
-      ErrorCodes.NOT_IMPLEMENTED,
-      'This SDK method is not wired to agent-core-v2 yet.',
-    );
   }
 
   override async getExperimentalFeatures(): Promise<readonly ExperimentalFeatureState[]> {
@@ -663,10 +647,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
    * directories included, gitignore respected), so in-process hosts match
    * the web client's @ mention results.
    */
-  override async suggestFiles(
-    workDir: string,
-    input: SuggestFilesInput,
-  ): Promise<SuggestFilesResult | undefined> {
+  override async suggestFiles(workDir: string, input: SuggestFilesInput): Promise<SuggestFilesResult | undefined> {
     const parsed = fsSuggestRequestSchema.safeParse({
       query: input.query,
       limit: input.limit ?? 50,
@@ -675,8 +656,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
     });
     if (!parsed.success) {
       const issue = parsed.error.issues[0];
-      const where =
-        issue !== undefined && issue.path.length > 0 ? `${String(issue.path[0])}: ` : '';
+      const where = issue !== undefined && issue.path.length > 0 ? `${String(issue.path[0])}: ` : '';
       throw new PythinkerError(
         ErrorCodes.REQUEST_INVALID,
         `suggestFiles ${where}${issue?.message ?? 'invalid input'}`,
@@ -786,14 +766,16 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
 
   /**
    * v1's removal cascades: the provider entry, every model pointing at it,
-   * and the default pointers when they dangle. User-owned secondary-model
-   * configuration stays unchanged.
-   * The engine's own `kosong.removeProvider` only clears the
-   * default-provider pointer, so the full v1 cascade is computed from the
-   * user-layer values (see `planProviderRemoval`) and persisted as ONE
-   * atomic multi-section replace — the same single-write shape as v1's
-   * `removePythinkerProvider`, so a process exit can never leave the file in a
-   * halfway-cascaded state.
+   * and the default pointers when they dangle. The engine's own
+   * `kosong.removeProvider` only clears the default-provider pointer, so the
+   * full v1 cascade is computed from the user-layer values (see
+   * `planProviderRemoval`) and persisted as ONE atomic multi-section
+   * replace — the same single-write shape as v1's `removePythinkerProvider`, so a
+   * process exit can never leave the file in a halfway-cascaded state. The
+   * `[secondary_model]` section is left alone on purpose: an entry whose
+   * model no longer resolves fails pool validation on the next session
+   * create, surfacing a named error instead of silently rewriting the
+   * user's configuration.
    */
   override async removeProvider(providerId: string): Promise<PythinkerConfig> {
     await this.configReady;
@@ -900,72 +882,6 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
     return this.klient.global.capabilities.install(id);
   }
 
-  async getExpertTalkStatus(input: SessionIdRpcInput): Promise<ExpertTalkStatusV1> {
-    this.requireLiveSession(input.sessionId);
-    return this.klient.session(input.sessionId).expertTalk.get();
-  }
-
-  async configureExpertTalk(input: {
-    readonly sessionId: string;
-    readonly pair: ExpertTalkPairV1;
-    readonly expectedVersion?: string;
-  }): Promise<ExpertTalkConfigV1> {
-    this.requireLiveSession(input.sessionId);
-    return this.klient
-      .session(input.sessionId)
-      .expertTalk.configure(input.pair, input.expectedVersion);
-  }
-
-  async clearExpertTalk(input: {
-    readonly sessionId: string;
-    readonly expectedVersion?: string;
-  }): Promise<ExpertTalkConfigV1> {
-    this.requireLiveSession(input.sessionId);
-    return this.klient.session(input.sessionId).expertTalk.clear(input.expectedVersion);
-  }
-
-  async armExpertTalk(input: {
-    readonly sessionId: string;
-    readonly expectedVersion?: string;
-  }): Promise<ExpertTalkArmV1> {
-    this.requireLiveSession(input.sessionId);
-    return this.klient.session(input.sessionId).expertTalk.arm(input.expectedVersion);
-  }
-
-  async disarmExpertTalk(input: {
-    readonly sessionId: string;
-    readonly armId?: string;
-  }): Promise<void> {
-    this.requireLiveSession(input.sessionId);
-    await this.klient.session(input.sessionId).expertTalk.disarm(input.armId);
-  }
-
-  async listExpertTalkRuns(input: SessionIdRpcInput & {
-    readonly cursor?: string;
-    readonly limit?: number;
-  }): Promise<ExpertTalkRunPageV1> {
-    this.requireLiveSession(input.sessionId);
-    return this.klient.session(input.sessionId).expertTalk.listRuns({
-      cursor: input.cursor,
-      limit: input.limit,
-    });
-  }
-
-  async getExpertTalkRun(input: SessionIdRpcInput & { readonly runId: string }): Promise<ExpertTalkRunV1> {
-    this.requireLiveSession(input.sessionId);
-    return this.klient.session(input.sessionId).expertTalk.getRun(input.runId);
-  }
-
-  async cancelExpertTalkRun(input: SessionIdRpcInput & { readonly runId: string }): Promise<ExpertTalkRunV1> {
-    this.requireLiveSession(input.sessionId);
-    return this.klient.session(input.sessionId).expertTalk.cancel(input.runId);
-  }
-
-  async retryExpertTalkRun(input: SessionIdRpcInput & { readonly runId: string }): Promise<ExpertTalkStartResult> {
-    this.requireLiveSession(input.sessionId);
-    return this.klient.session(input.sessionId).expertTalk.retry(input.runId);
-  }
-
   /**
    * Scope gap: v1 answers from the session's creation-time snapshot of the
    * enabled plugin commands, while the v2 engine only exposes the app-global
@@ -1039,9 +955,9 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
    * cannot deadlock.
    */
   private runSessionAccessAll<T>(sessionIds: readonly string[], work: () => Promise<T>): Promise<T> {
-    const keys = [...new Set(sessionIds)].toSorted();
+    const keys = [...new Set(sessionIds)].sort();
     let chained: () => Promise<T> = work;
-    for (const key of [...keys].toReversed()) {
+    for (const key of [...keys].reverse()) {
       const inner = chained;
       chained = () => this.runSessionAccess(key, inner);
     }
@@ -1085,7 +1001,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
   }
 
   /**
-   * The persisted MCP add guard uses the workspace loader. This read
+   * v1's persist-add project guard ported to the workspace loader. This read
    * deliberately includes the project layer even while the workspace is
    * untrusted: a user-level write must not create a shadow that springs into
    * conflict when the workspace is trusted later.
@@ -1165,7 +1081,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
    * agent scope (profile / permission / dynamic_workflow services and the klient agent
    * facade for context / plan / usage / background tasks), while `replay` and
    * `toolStore` are folded from the agent's `wire.jsonl` by
-   * {@link foldAgentWireReplay} (v2 has no replay builder of its own).
+   * {@link foldAgentWireReplay} over the engine's `foldWireRecords`.
    * `warning` stays undefined — v2's resume has no migration-warning channel.
    */
   private async resumedSessionSummary(
@@ -1467,8 +1383,9 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
   /**
    * v2-only (`ISessionTitleService`, session scope). Like `renameSession`, a
    * closed session is resumed, titled, and closed again so generation does
-   * not leak a live session. `undefined` means no title-generation backend is
-   * available, so the current title is kept.
+   * not leak a live session. `undefined` means generation was unavailable
+   * (no managed OAuth login, no prompt yet, or a custom title is set) — the
+   * current title is kept.
    */
   override async generateSessionTitle(
     input: GenerateSessionTitleInput,
@@ -1500,19 +1417,23 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
     return this.runSessionAccessAll(
       input.forkId === undefined ? [input.id] : [input.id, input.forkId],
       async () => {
-        const program = await programForSession(this.engineAccessor, input.id);
-        if (program === undefined) throw SDKRpcClientV2.sessionNotFound(input.id);
-        const meta = await this.engineAccessor.get(ISessionManager).fork({
-          sourceSessionId: input.id,
-          newSessionId: input.forkId,
-          title: input.title,
-          metadata: input.metadata,
-          turnIndex: input.turnIndex,
-        });
-        const handle = await resumeSessionById(this.engineAccessor, meta.id);
-        if (handle === undefined) throw SDKRpcClientV2.sessionNotFound(meta.id);
-        this.wireSession(handle);
-        return this.resumedSessionSummary(handle);
+        try {
+          const program = await programForSession(this.engineAccessor, input.id);
+          if (program === undefined) throw SDKRpcClientV2.sessionNotFound(input.id);
+          const meta = await this.engineAccessor.get(ISessionManager).fork({
+            sourceSessionId: input.id,
+            newSessionId: input.forkId,
+            title: input.title,
+            metadata: input.metadata,
+            turnIndex: input.turnIndex,
+          });
+          const handle = await resumeSessionById(this.engineAccessor, meta.id);
+          if (handle === undefined) throw SDKRpcClientV2.sessionNotFound(meta.id);
+          this.wireSession(handle);
+          return await this.resumedSessionSummary(handle);
+        } catch (error) {
+          throw restateEngineError(error);
+        }
       },
     );
   }
@@ -1585,7 +1506,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
   /**
    * v1's reload: refuse while a turn runs, re-read config + plugins, close
    * the live session, resume from disk. The v2 busy check reads each live
-   * agent's activity view (turn lane only — background tasks do not block,
+   * agent's loop status (turn lane only — background tasks do not block,
    * matching v1's `hasActiveTurn`). `forcePluginSessionStartReminder` has no
    * v2 channel (the engine owns plugin session-start injection), so reload
    * refreshes the durable guidance snapshot through the Agent service.
@@ -1599,7 +1520,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
         for (const agent of agentLifecycle.list()) {
           const agentHandle = agentLifecycle.handleOf(agent.agentId);
           if (agentHandle === undefined) continue;
-          if (agentHandle.accessor.get(IAgentActivityView).state().turn !== undefined) {
+          if (agentHandle.accessor.get(IAgentLoopService).status().state === 'running') {
             throw new PythinkerError(
               ErrorCodes.TURN_AGENT_BUSY,
               `Session "${sessionId}" cannot be reloaded while a turn is running`,
@@ -1977,9 +1898,9 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
   override async getTodos(input: SessionIdRpcInput): Promise<readonly SessionTodoItem[]> {
     const session = this.requireLiveSession(input.sessionId);
     const agents = session.accessor.get(IAgentLifecycleService);
-    const main = agents.get(MAIN_AGENT_ID);
+    const main = agents.handleOf(MAIN_AGENT_ID);
     if (main === undefined) return [];
-    const todos = agents.resolve(main, AgentTodo).get();
+    const todos = main.accessor.get(IAgentTodoService).get();
     return todos.map((todo) => ({ title: todo.title, status: todo.status }));
   }
 
@@ -2045,30 +1966,9 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
    * where v2 queues it FIFO.
    */
   override async prompt(input: SessionPromptRpcInput): Promise<void> {
-    if (input.expertTalkArmId !== undefined) {
-      const session = this.requireLiveSession(input.sessionId);
-      const content = input.input;
-      await applyPromptMetadataUpdate(
-        {
-          metadata: session.accessor.get(ISessionMetadata),
-          eventService: this.engineAccessor.get(IEventService),
-          sessionId: input.sessionId,
-        },
-        promptMetadataTextFromContentParts(content),
-      );
-      await this.klient.session(input.sessionId).expertTalk.start({
-        armId: input.expertTalkArmId,
-        prompt: expertTalkPromptText(content),
-        promptId: input.promptId,
-        modalities: expertTalkModalities(content),
-        content,
-      });
-      return;
-    }
     const agent = await this.agentFacade(input.sessionId);
     await agent.prompt({
       input: input.input,
-      disabledTools: input.disabledTools,
       promptId: input.promptId,
     });
   }
@@ -2128,7 +2028,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
   }
 
   /**
-   * Through the target agent's `AgentSkill` runtime facade — the direct call
+   * Through the target agent's `IAgentSkillService` — the direct call
    * keeps v1's semantics: validate first (`skill.not_found` /
    * `skill.type_unsupported` reject synchronously), then render the skill
    * prompt and launch a turn with it. The engine updates title/lastPrompt for
@@ -2140,8 +2040,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
   override async activateSkill(input: ActivateSkillRpcInput): Promise<void> {
     const agent = await this.agentScope(input.sessionId);
     await agent.accessor
-      .get(IAgentLifecycleService)
-      .resolve(agentContextOf(agent), AgentSkill)
+      .get(IAgentSkillService)
       .activate({ name: input.name, args: input.args });
   }
 
@@ -2246,7 +2145,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
     } else {
       dynamic_workflow.exit();
     }
-    await agent.accessor.get(IAgentLifecycleService).resolve(agentContextOf(agent), AgentReminder).reconcileWhenIdle('dynamic_workflow_mode');
+    await agent.accessor.get(IAgentReminderService).reconcileWhenIdle('dynamic_workflow_mode');
   }
 
   /** v1's `dynamic_workflow()` composition: enter with the one-shot `task` trigger, then prompt. */
@@ -2255,18 +2154,22 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
     return this.prompt(input);
   }
 
+  /** Through the agent scope (`IAgentTowerService.enter` / `.exit`) — no klient facade exists. */
   override async setTowerMode(input: SetSessionTowerModeRpcInput): Promise<void> {
     const agent = await this.agentScope(input.sessionId);
     const tower = agent.accessor.get(IAgentTowerService);
     if (input.enabled) {
       const result = await tower.enter(input.base);
       if (!result.entered) {
-        throw new V2Error2(V2ErrorCodes.SESSION_TOWER_MODE_INVALID, towerEnterFailureMessage(result));
+        throw new V2Error2(
+          V2ErrorCodes.SESSION_TOWER_MODE_INVALID,
+          towerEnterFailureMessage(result),
+        );
       }
     } else {
       tower.exit();
     }
-    await agent.accessor.get(IAgentLifecycleService).resolve(agentContextOf(agent), AgentReminder).reconcileWhenIdle('tower_mode');
+    await agent.accessor.get(IAgentReminderService).reconcileWhenIdle('tower_mode');
   }
 
   // -----------------------------------------------------------------------
@@ -2283,8 +2186,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
   // -----------------------------------------------------------------------
 
   /**
-   * Through the `AgentGoal` runtime facade resolved from the session's agent
-   * lifecycle service — no klient
+   * Through the target agent scope's `IAgentGoalService` — no klient
    * facade exists for the goal domain. Gap: v2 rejects every goal command on
    * a non-main agent (`goal.unsupported_agent`) where v1 keeps a `GoalMode`
    * on every agent; only reachable through a non-main `interactiveAgentId`
@@ -2292,48 +2194,35 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
    */
   override async createGoal(input: SessionIdRpcInput & CreateGoalInput): Promise<GoalSnapshot> {
     const agent = await this.agentScope(input.sessionId);
-    return this.requireLiveSession(input.sessionId)
-      .accessor.get(IAgentLifecycleService)
-      .resolve(agentContextOf(agent), AgentGoal)
+    return agent.accessor
+      .get(IAgentGoalService)
       .createGoal({ objective: input.objective, replace: input.replace });
   }
 
   override async getGoal(input: SessionIdRpcInput): Promise<GoalToolResult> {
     const agent = await this.agentScope(input.sessionId);
-    return this.requireLiveSession(input.sessionId)
-      .accessor.get(IAgentLifecycleService)
-      .resolve(agentContextOf(agent), AgentGoal)
-      .getGoal();
+    return agent.accessor.get(IAgentGoalService).getGoal();
   }
 
   override async pauseGoal(input: SessionIdRpcInput): Promise<GoalSnapshot> {
     const agent = await this.agentScope(input.sessionId);
-    return this.requireLiveSession(input.sessionId)
-      .accessor.get(IAgentLifecycleService)
-      .resolve(agentContextOf(agent), AgentGoal)
-      .pauseGoal();
+    return agent.accessor.get(IAgentGoalService).pauseGoal();
   }
 
   override async resumeGoal(input: SessionIdRpcInput): Promise<GoalSnapshot> {
     const agent = await this.agentScope(input.sessionId);
-    return this.requireLiveSession(input.sessionId)
-      .accessor.get(IAgentLifecycleService)
-      .resolve(agentContextOf(agent), AgentGoal)
-      .resumeGoal();
+    return agent.accessor.get(IAgentGoalService).resumeGoal();
   }
 
   override async cancelGoal(input: SessionIdRpcInput): Promise<GoalSnapshot> {
     const agent = await this.agentScope(input.sessionId);
-    return this.requireLiveSession(input.sessionId)
-      .accessor.get(IAgentLifecycleService)
-      .resolve(agentContextOf(agent), AgentGoal)
-      .cancelGoal();
+    return agent.accessor.get(IAgentGoalService).cancelGoal();
   }
 
   /**
-   * Through the main agent's `AgentCron` runtime facade — no klient facade
+   * Through the main agent's `IAgentCronService` — no klient facade
    * exists for cron. v1's cron manager is per-agent: the main agent's
-   * manager is what the v2 cron runtime ports (it borrows the main
+   * manager is what the v2 cron service ports (it borrows the main
    * agent to steer fires), and a v1 subagent reports `[]` (`cron` is null) —
    * mirrored here for a non-main `interactiveAgentId`. The v1 snapshot shape
    * is restored field-by-field: `recurring` defaults to true, and the
@@ -2343,10 +2232,10 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
   override async getCronTasks(input: SessionIdRpcInput): Promise<GetCronTasksResult> {
     await this.agentScope(input.sessionId);
     if (this.interactiveAgentId !== MAIN_AGENT_ID) return { tasks: [] };
-    const manager = this.requireLiveSession(input.sessionId).accessor.get(IAgentLifecycleService);
-    const mainContext = manager.get(MAIN_AGENT_ID);
-    if (mainContext === undefined) return { tasks: [] };
-    const cron = manager.resolve(mainContext, AgentCron);
+    const session = this.requireLiveSession(input.sessionId);
+    const main = session.accessor.get(IAgentLifecycleService).handleOf(MAIN_AGENT_ID);
+    if (main === undefined) return { tasks: [] };
+    const cron = main.accessor.get(IAgentCronService);
     return {
       tasks: cron.list().map((task) => ({
         id: task.id,
@@ -2545,7 +2434,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
    * The engine's management plane throws `Error2`; the SDK's public error
    * contract is `PythinkerError` (what `isPythinkerError` branches on, and what the v1
    * client throws for the same failures). Restate so both engines surface
-   * the identical class — see `restateMcpManagementError`.
+   * the identical class — see `restateEngineError`.
    */
   private async mcpManagement<T>(
     call: (management: IMcpManagementService) => Promise<T>,
@@ -2553,7 +2442,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
     try {
       return await call(this.engineAccessor.get(IMcpManagementService));
     } catch (error) {
-      throw restateMcpManagementError(error);
+      throw restateEngineError(error);
     }
   }
 
@@ -2836,32 +2725,8 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
   }
 }
 
-function expertTalkPromptText(parts: SessionPromptRpcInput['input']): string {
-  const text = parts
-    .filter((part): part is Extract<(typeof parts)[number], { type: 'text' }> => part.type === 'text')
-    .map((part) => part.text)
-    .join('\n')
-    .trim();
-  return text.length > 0 ? text : 'Analyze the attached media.';
-}
-
-function expertTalkModalities(
-  parts: SessionPromptRpcInput['input'],
-): readonly ('image' | 'audio' | 'video')[] {
-  const values = parts.flatMap((part) => {
-    if (part.type === 'image_url') return ['image' as const];
-    if (part.type === 'video_url') return ['video' as const];
-    return [];
-  });
-  return [...new Set(values)];
-}
-
-export function createPythinkerHarnessV2(options: PythinkerHarnessOptions): PythinkerHarness {
+export function createPythinkerHarness(options: PythinkerHarnessOptions): PythinkerHarness {
   const rpc = new SDKRpcClientV2(options);
-  // The harness below emits session_started for every session it opens with
-  // the richer client-attribution schema; drop the engine's thinner copy from
-  // forwarding so each open is counted once. Direct SDKRpcClientV2 consumers
-  // keep the engine row.
   rpc.suppressEngineSessionStarted();
   return new PythinkerHarness(rpc, {
     identity: rpc.identity,
@@ -2872,8 +2737,6 @@ export function createPythinkerHarnessV2(options: PythinkerHarnessOptions): Pyth
     telemetry: rpc.telemetry,
     ensureConfigFile: () => rpc.ensureConfigFile(),
     onClose: () => rpc.close(),
-    // v1-core-owned ingestion limits; the v2 engine has no equivalent yet, so
-    // ingestion falls back to env / built-in defaults like daemon-client hosts.
     imageLimits: undefined,
     sessionStartedProperties: options.sessionStartedProperties,
     sessionStartedDynamicProperties: () => ({
@@ -2901,7 +2764,7 @@ function normalizeRequiredWorkDir(operation: string, workDir: string): string {
  * mint a `PythinkerError` that `toPythinkerErrorPayload` cannot serialize (its
  * `PYTHINKER_ERROR_INFO` lookup throws on undeclared codes).
  */
-function restateMcpManagementError(error: unknown): unknown {
+function restateEngineError(error: unknown): unknown {
   if (!isError2(error)) return error;
   const code: PythinkerErrorCode = isPythinkerErrorCode(error.code) ? error.code : ErrorCodes.INTERNAL;
   return new PythinkerError(code, error.message, {

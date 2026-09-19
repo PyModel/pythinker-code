@@ -2,7 +2,7 @@ import {
   applyCustomRegistryEntries,
   fetchCustomRegistry,
   type CustomRegistrySource,
-  type PythinkerConfigShape,
+  type ManagedPythinkerConfigShape,
 } from '@pymodel/pythinker-code-oauth';
 import {
   applyCatalogProvider,
@@ -17,6 +17,7 @@ import {
 
 import { createPythinkerCodeUserAgent } from '#/cli/version';
 import { fetchCatalogOrBuiltIn } from '#/utils/catalog-fetch';
+import { refreshPythinkerRegion } from '#/utils/region';
 import { ChoicePickerComponent } from '../components/dialogs/choice-picker';
 import {
   CustomRegistryImportDialogComponent,
@@ -27,6 +28,7 @@ import {
   type ProviderManagerOptions,
 } from '../components/dialogs/provider-manager';
 import { TabbedModelSelectorComponent } from '../components/dialogs/tabbed-model-selector';
+import { DEFAULT_OAUTH_PROVIDER_NAME } from '../constant/pythinker-tui';
 import { formatErrorMessage } from '../utils/event-payload';
 import { thinkingEffortToConfig } from '../utils/thinking-config';
 import { effectiveModelForHost } from './config';
@@ -85,6 +87,16 @@ async function handleProviderManagerDeleteSource(
 }
 
 async function handleProviderDelete(host: SlashCommandHost, providerId: string): Promise<void> {
+  if (providerId === DEFAULT_OAUTH_PROVIDER_NAME) {
+    await host.harness.auth.logout(DEFAULT_OAUTH_PROVIDER_NAME);
+    // Drop the process-wide region cache with the credential: derived
+    // endpoints (updates, marketplace, site links, telemetry) must fall back
+    // to the marker/default profile, not the logged-out region.
+    refreshPythinkerRegion();
+    await host.authFlow.refreshConfigAfterLogout();
+    return;
+  }
+
   const activeProvider =
     host.state.appState.availableModels[host.state.appState.model]?.provider;
   const config = await host.harness.removeProvider(providerId);
@@ -294,7 +306,7 @@ export async function setDefaultModel(
     effort,
     model === undefined ? undefined : effectiveModelForHost(host, model),
   );
-  if (host.session === undefined && host.engineV2) {
+  if (host.session === undefined) {
     // A first prompt may still be inside lazy creation: wait it out so the
     // pick lands on the new session instead of racing its assembly (same
     // coordination as the /model path).
@@ -348,7 +360,7 @@ async function handleCustomRegistryAddViaDialog(host: SlashCommandHost): Promise
   try {
     const config = await host.harness.getConfig();
     applyCustomRegistryEntries(
-      config as unknown as PythinkerConfigShape,
+      config as unknown as ManagedPythinkerConfigShape,
       entries,
       source,
     );

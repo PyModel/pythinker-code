@@ -123,7 +123,7 @@ export class SessionManager implements ISessionManager {
   }
 
   private lifecycleKeys(...ids: (string | undefined)[]): string[] {
-    return [...new Set(ids.filter((id): id is string => id !== undefined))].toSorted();
+    return [...new Set(ids.filter((id): id is string => id !== undefined))].sort();
   }
 
   withLifecycleSerialization<T>(
@@ -222,7 +222,7 @@ export class SessionManager implements ISessionManager {
   }
 
   dispose(): void {
-    for (const { controller, subscriptions } of [...this.controllerEntries].toReversed()) {
+    for (const { controller, subscriptions } of [...this.controllerEntries].reverse()) {
       subscriptions.dispose();
       controller.dispose();
     }

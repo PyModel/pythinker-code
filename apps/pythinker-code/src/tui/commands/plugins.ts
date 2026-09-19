@@ -10,7 +10,6 @@ import {
 } from '@pymodel/pythinker-code-sdk';
 import { Markdown, Spacer } from '@pymodel/pi-tui';
 
-import { NO_ACTIVE_SESSION_MESSAGE } from '../constant/pythinker-tui';
 import {
   PluginInstallTrustConfirmComponent,
   PluginMcpSelectorComponent,
@@ -32,9 +31,13 @@ import { formatErrorMessage } from '../utils/event-payload';
 import { createMarkdownOptions } from '../utils/markdown-options';
 import {
   formatPluginSourceLabel,
+  isOfficialPluginInstall,
   isOfficialPluginSource,
 } from '../utils/plugin-source-label';
-import { PYTHINKER_CODE_PLUGIN_MARKETPLACE_URL_ENV } from '#/constant/app';
+import {
+  PYTHINKER_CODE_PLUGIN_MARKETPLACE_URL_ENV,
+  QUOTA_CONSUMING_PLUGIN_IDS,
+} from '#/constant/app';
 import {
   loadPluginMarketplace,
   withBuiltInEntries,
@@ -42,6 +45,7 @@ import {
   type PluginMarketplace,
   type PluginMarketplaceEntry,
 } from '#/utils/plugin-marketplace';
+import { openUrl } from '#/utils/open-url';
 import type { SlashCommandHost } from './dispatch';
 
 interface ShowPluginsPickerOptions {
@@ -77,16 +81,12 @@ type PluginApi = Pick<
 >;
 
 /**
- * Resolve the plugin-management API. On the v2 engine plugin state is
- * app-global, so a session-less startup still gets a working `/plugins`
- * through the harness's global facade; on v1 (and once a session exists) the
- * session's own API is used.
+ * Resolve the plugin-management API. Plugin state is app-global, so a
+ * session-less startup still gets a working `/plugins` through the harness's
+ * global facade; once a session exists the session's own API is used.
  */
 async function resolvePluginApi(host: SlashCommandHost): Promise<PluginApi> {
   if (host.session !== undefined) return host.session;
-  if (!host.engineV2) {
-    throw new Error(NO_ACTIVE_SESSION_MESSAGE);
-  }
   return {
     listPlugins: () => host.harness.listPlugins(),
     installPlugin: (source) => host.harness.installPlugin(source),
@@ -210,16 +210,12 @@ export async function handlePluginsCommand(host: SlashCommandHost, rawArgs: stri
  * Resolve the capability API. Like plugin state, capability state is
  * app-global on the v2 engine, so a session-less startup still gets
  * readiness and installs through the harness's global facade; with a live
- * session the session's own API is used (v1 included, where the capability
- * surface then reports itself unavailable).
+ * session the session's own API is used.
  */
 type CapabilityApi = Pick<Session, 'listCapabilities' | 'getCapability' | 'installCapability'>;
 
 async function resolveCapabilityApi(host: SlashCommandHost): Promise<CapabilityApi> {
   if (host.session !== undefined) return host.session;
-  if (!host.engineV2) {
-    throw new Error(NO_ACTIVE_SESSION_MESSAGE);
-  }
   return host.harness;
 }
 
@@ -258,12 +254,10 @@ async function showPluginsPicker(
   }
 
   let capabilities: readonly CapabilityStatus[] = [];
-  if (host.engineV2) {
-    try {
-      capabilities = await (await resolveCapabilityApi(host)).listCapabilities();
-    } catch (error) {
-      log.warn('capability status unavailable', { error });
-    }
+  try {
+    capabilities = await (await resolveCapabilityApi(host)).listCapabilities();
+  } catch (error) {
+    log.warn('capability status unavailable', { error });
   }
 
   const installedIds = new Set(plugins.map((plugin) => plugin.id));
@@ -349,10 +343,9 @@ async function loadMarketplaceCatalog(
   source: string | undefined,
   capabilities: readonly CapabilityStatus[],
 ): Promise<void> {
-  const builtInEntries =
-    host.engineV2 && isDefaultMarketplaceCatalog(source)
-      ? capabilities.map(capabilityMarketplaceEntry)
-      : undefined;
+  const builtInEntries = isDefaultMarketplaceCatalog(source)
+    ? capabilities.map(capabilityMarketplaceEntry)
+    : undefined;
   let marketplace: PluginMarketplace;
   let catalog: PluginMarketplace;
   try {
@@ -478,8 +471,8 @@ const CAPABILITY_POLL_ATTEMPTS = 260; // ~3 minutes of runtime setup budget
 /** Client-injected v2 entries install their runtime and plugin together.
  * Trust keys on the parser-proof `builtIn` flag — the `capability:<id>`
  * source string stays purely diagnostic. */
-function isCapabilityEntry(host: SlashCommandHost, entry: PluginMarketplaceEntry): boolean {
-  return host.engineV2 && entry.builtIn === true;
+function isCapabilityEntry(entry: PluginMarketplaceEntry): boolean {
+  return entry.builtIn === true;
 }
 
 /**
@@ -487,11 +480,8 @@ function isCapabilityEntry(host: SlashCommandHost, entry: PluginMarketplaceEntry
  * is answering membership by running `listCapabilities()`, which fires every
  * entry's detector (seconds of probes) just to print one hint line.
  */
-function isCapabilityPluginId(host: SlashCommandHost, id: string): boolean {
-  return (
-    host.engineV2 &&
-    (id === 'pythinker-cu' || id === 'pythinker-cu-win' || id === 'pythinker-webbridge')
-  );
+function isCapabilityPluginId(id: string): boolean {
+  return id === 'pythinker-cu' || id === 'pythinker-cu-win' || id === 'pythinker-webbridge';
 }
 
 /** Poll a background capability install until it settles (or we run out of budget). */
@@ -712,7 +702,7 @@ async function handlePluginsPanelSelection(
       await showPluginsPicker(host, { initialTab: 'installed' });
       return;
     case 'install':
-      if (isCapabilityEntry(host, selection.entry)) {
+      if (isCapabilityEntry(selection.entry)) {
         await installCapabilityFromPanel(host, panel, selection.entry);
         return;
       }
@@ -732,6 +722,12 @@ async function handlePluginsPanelSelection(
         selection.source,
         isOfficialPluginSource(selection.source),
       );
+      return;
+    case 'open-url':
+      host.restoreEditor();
+      openUrl(selection.url);
+      host.showStatus(`Opening the ${selection.label} page in your browser…`, 'success');
+      host.showStatus(`If it did not open, visit ${selection.url}`);
       return;
   }
 }
@@ -762,7 +758,7 @@ async function handlePluginMcpSelection(
 async function removePlugin(host: SlashCommandHost, id: string): Promise<void> {
   await (await resolvePluginApi(host)).removePlugin(id);
   host.showStatus(`Removed ${id}.`);
-  if (isCapabilityPluginId(host, id)) {
+  if (isCapabilityPluginId(id)) {
     host.showStatus(
       'Note: the runtime binaries were left untouched, but Pythinker Code plugin wiring is disabled for new sessions. Restart Pythinker Code before reinstalling from the Official tab.',
     );
@@ -817,11 +813,12 @@ const WEBBRIDGE_POST_INSTALL_MARKDOWN = [
   '',
   '   - [Chrome Web Store](https://chromewebstore.google.com/detail/pythinker-webbridge/fldmhceldgbpfpkbgopacenieobmligc)',
   '   - [Edge Add-ons](https://microsoftedge.microsoft.com/addons/detail/pythinker-webbridge/bnlffdbcfnanfbknnlaflhlhkocccckg)',
-  '   - [Manual installation guide](https://github.com/PyModel/pythinker-code/blob/main/docs/en/customization/plugins.md)',
+  '   - [Manual installation guide](https://www.code.pythinker.com/docs/pythinker-code-cli/customization/plugins.html#install-the-browser-extension)',
   '',
   '2. Run `/reload` or `/new` to apply it.',
 ].join('\n');
 
+const PLUGIN_QUOTA_NOTE = 'Note: This plugin consumes your quota.';
 
 function showPluginInstallResult(
   host: SlashCommandHost,
@@ -837,6 +834,11 @@ function showPluginInstallResult(
   const action = describeInstallAction(previous, summary);
   host.showStatus(`${action} (${summary.id}).${mcpHint}`);
   host.showStatus(PLUGIN_RELOAD_HINT, 'warning');
+  // Gate on provenance, not just the id: a local/GitHub fork whose manifest
+  // reuses a billed plugin's id is not the official quota-consuming build.
+  if (QUOTA_CONSUMING_PLUGIN_IDS.includes(summary.id) && isOfficialPluginInstall(summary)) {
+    host.showStatus(PLUGIN_QUOTA_NOTE, 'warning');
+  }
 }
 
 function describeInstallAction(

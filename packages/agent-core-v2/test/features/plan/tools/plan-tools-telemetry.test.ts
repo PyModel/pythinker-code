@@ -1,4 +1,4 @@
-import type { ToolCall } from '#/kosong/contract/message';
+import type { ToolCall } from '#human/llm/message';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { IAgentPlanService, PlanData } from '#/features/plan/plan';
@@ -256,10 +256,10 @@ describe('AgentPlanService EnterPlanMode telemetry', () => {
           properties: {
             agent_id: 'main',
             mode: 'plan',
+            model: 'mock-model',
             outcome: 'auto_approved',
             protocol: 'openai',
             provider_type: 'pythinker',
-            model: 'mock-model',
           },
         });
       });

@@ -23,7 +23,7 @@ import {
 } from '@pymodel/pythinker-telemetry';
 
 import { createProgram } from './cli/commands';
-import { drainStdio, finalizeHeadlessRun } from './cli/headless-exit';
+import { finalizeHeadlessRun } from './cli/headless-exit';
 import { startupTrace } from './utils/startup-trace';
 import type { CLIOptions } from './cli/options';
 import { OptionConflictError, validateOptions } from './cli/options';
@@ -39,6 +39,7 @@ import { detectNativeInstall } from './cli/update/source';
 import { maybeRelaunchWithStagedNativeUpdate } from './cli/update/native-swap';
 import { createPythinkerCodeHostIdentity, getVersion } from './cli/version';
 import { CLI_SHUTDOWN_TIMEOUT_MS, CLI_UI_MODE, PROCESS_NAME } from './constant/app';
+import { runHeadlessMigrate, type MigrateCommandOptions } from './migration/index';
 import { cleanupStaleNativeCacheForCurrent } from './native/native-assets';
 import { installMinidbTextBuildWorker } from './native/minidb-worker';
 import { installKapSearchWorker } from './native/search-worker';
@@ -68,7 +69,6 @@ export async function handleMainCommand(
   } catch (error) {
     if (error instanceof OptionConflictError) {
       process.stderr.write(`error: ${error.message}\n`);
-      await drainStdio([process.stderr]);
       process.exit(1);
     }
     throw error;
@@ -81,7 +81,6 @@ export async function handleMainCommand(
   );
   startupTrace('preflight:end');
   if (preflightResult === 'exit') {
-    await drainStdio([process.stdout, process.stderr]);
     process.exit(0);
   }
 
@@ -93,6 +92,26 @@ export async function handleMainCommand(
   startupTrace('runShell:begin');
   await runShell(validated.options, version);
   return { headlessCompleted: false };
+}
+
+/** `pythinker migrate`: launch the migration screen only, then exit. `--run` runs the full migration headlessly with step logs instead. */
+async function handleMigrateCommand(
+  version: string,
+  options: MigrateCommandOptions,
+): Promise<void> {
+  if (options.configOnly && !options.run) {
+    process.stderr.write('error: --config-only requires --run\n');
+    process.exitCode = 2;
+    return;
+  }
+  if (options.run) {
+    // Set the exit code and return normally — an immediate process.exit here
+    // could terminate before buffered step/report output is flushed when the
+    // command is piped or redirected.
+    process.exitCode = await runHeadlessMigrate({ configOnly: options.configOnly });
+    return;
+  }
+  await runShell(MIGRATE_CLI_OPTIONS, version, { migrateOnly: true });
 }
 
 export async function handleUpgradeCommand(version: string, yes: boolean): Promise<void> {
@@ -123,9 +142,23 @@ export async function handleUpgradeCommand(version: string, yes: boolean): Promi
     await shutdownTelemetry({ timeoutMs: CLI_SHUTDOWN_TIMEOUT_MS }).catch(() => {});
     await harness.close().catch(() => {});
   }
-  await drainStdio([process.stdout, process.stderr]);
   process.exit(exitCode);
 }
+
+/** A neutral CLIOptions value — `pythinker migrate` never opens a chat session. */
+const MIGRATE_CLI_OPTIONS: CLIOptions = {
+  session: undefined,
+  continue: false,
+  yolo: false,
+  auto: false,
+  plan: false,
+  model: undefined,
+  outputFormat: undefined,
+  prompt: undefined,
+  skillsDirs: [],
+  agent: undefined,
+  agentFiles: [],
+};
 
 export function main(): void {
   process.title = PROCESS_NAME;
@@ -151,7 +184,7 @@ function bootstrap(): void {
   // Route all outbound fetch through HTTP_PROXY/HTTPS_PROXY (honoring NO_PROXY)
   // before any client is constructed. No-op when no proxy variable is set; an
   // invalid proxy URL is reported and ignored rather than aborting startup.
-  installGlobalProxyDispatcher(process.env);
+  installGlobalProxyDispatcher();
   installNativeModuleHook();
   // Best-effort SEA worker installation. Diagnostics are trace-only and avoid
   // exposing the user's cache path; failure keeps MiniDb's bounded inline mode.
@@ -224,15 +257,21 @@ function bootstrap(): void {
             }),
           );
           process.stderr.write(`See log: ${resolveGlobalLogPath(resolvePythinkerHome())}\n`);
-          await drainStdio([process.stderr]);
           process.exit(1);
         });
+    },
+    (migrateOptions) => {
+      void handleMigrateCommand(version, migrateOptions).catch(async (error: unknown) => {
+        await logStartupFailure('run migration', error);
+        process.stderr.write(formatStartupError(error, { operation: 'run migration' }));
+        process.stderr.write(`See log: ${resolveGlobalLogPath(resolvePythinkerHome())}\n`);
+        process.exit(1);
+      });
     },
     (entry, args) => {
       void runPluginNodeEntry(entry, args).catch(async (error: unknown) => {
         await logStartupFailure('run plugin node entry', error);
         process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
-        await drainStdio([process.stderr]);
         process.exit(1);
       });
     },
@@ -241,7 +280,6 @@ function bootstrap(): void {
         await logStartupFailure('upgrade', error);
         process.stderr.write(formatStartupError(error, { operation: 'upgrade' }));
         process.stderr.write(`See log: ${resolveGlobalLogPath(resolvePythinkerHome())}\n`);
-        await drainStdio([process.stderr]);
         process.exit(1);
       });
     },

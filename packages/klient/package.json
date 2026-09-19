@@ -2,7 +2,7 @@
   "name": "@pymodel/klient",
   "version": "0.1.2",
   "private": true,
-  "description": "Pythinker client SDK — contract-driven facade over agent-core-v2, routable over ipc or in-memory transports.",
+  "description": "Pythinker client SDK \u2014 contract-driven facade over agent-core-v2, routable over ipc or in-memory transports.",
   "license": "MIT",
   "type": "module",
   "imports": {
@@ -47,7 +47,7 @@
     "zod": "catalog:"
   },
   "devDependencies": {
-    "@pymodel/protocol": "workspace:^",
+    "@pymodel/agent-gateway": "workspace:^",
     "@types/ws": "^8.18.0",
     "ulid": "^3.0.1",
     "ws": "^8.21.3"

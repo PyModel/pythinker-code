@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { appendFile, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { appendFile, chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { monitorEventLoopDelay, performance } from 'node:perf_hooks';
@@ -17,7 +17,7 @@ import { MiniDb } from '@pymodel/minidb';
 import { TranscriptStore, type TranscriptOperation } from '@pymodel/transcript';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { SyncSessionInput } from '../../src/search/indexCore';
+import { SearchIndexCore, type SyncSessionInput } from '../../src/search/indexCore';
 import {
   GlobalSearchError,
   GlobalSearchService,
@@ -275,65 +275,65 @@ describe('GlobalSearchService', () => {
   }
 
   it('indexes user and assistant text and finds Chinese and English terms', async () => {
-    const s1 = summary('s1', '\u641C\u7D22\u91CD\u6784\u8BA8\u8BBA', T1);
+    const s1 = summary('s1', 'zh', T1);
     await writeWire(home!, 's1', 'main', [
-      userLine('\u5E2E\u6211\u770B\u770B\u82F9\u679C\u600E\u4E48\u6311', T1),
+      userLine('zh', T1),
       assistantLine('Here is the apple picking guide.', T2),
-      userLine('\u5FFD\u7565\u6211', T3, { kind: 'injection', variant: 'reminder' }),
+      userLine('zh', T3, { kind: 'injection', variant: 'reminder' }),
     ]);
     const service = track(makeService(home!, staticIndex([s1])));
     await service.reindex();
 
-    const cn = await service.search({ query: '\u82F9\u679C' });
+    const cn = await service.search({ query: 'zh' });
     expect(cn.items.length).toBeGreaterThan(0);
     const cnHit = cn.items[0]!;
     expect(cnHit.sessionId).toBe('s1');
     expect(cnHit.workspaceId).toBe(WS);
-    expect(cnHit.sessionTitle).toBe('\u641C\u7D22\u91CD\u6784\u8BA8\u8BBA');
+    expect(cnHit.sessionTitle).toBe('zh');
     expect(cnHit.agentId).toBe('main');
     expect(cnHit.role).toBe('user');
-    expect(cnHit.snippet).toContain('\u82F9\u679C');
+    expect(cnHit.snippet).toContain('zh');
     expect(cnHit.time).toBe(T1);
     expect(cnHit.score).toBeGreaterThan(0);
 
     const en = await service.search({ query: 'apple' });
     expect(en.items.some((h) => h.role === 'assistant')).toBe(true);
 
-    const injected = await service.search({ query: '\u5FFD\u7565\u6211' });
+    const injected = await service.search({ query: 'zh' });
     expect(injected.items).toEqual([]);
   });
 
   it('hits session titles as title docs', async () => {
-    const s1 = summary('s1', '\u5B63\u5EA6\u603B\u7ED3\u62A5\u544A', T1);
-    await writeWire(home!, 's1', 'main', [userLine('\u968F\u4FBF\u8BF4\u70B9\u4EC0\u4E48', T1)]);
+    const s1 = summary('s1', 'zh', T1);
+    await writeWire(home!, 's1', 'main', [userLine('zh', T1)]);
     const service = track(makeService(home!, staticIndex([s1])));
     await service.reindex();
 
-    const page = await service.search({ query: '\u5B63\u5EA6' });
+    const page = await service.search({ query: 'zh' });
     const titleHit = page.items.find((h) => h.role === 'title');
     expect(titleHit).toBeDefined();
     expect(titleHit?.sessionId).toBe('s1');
-    expect(titleHit?.snippet).toContain('\u5B63\u5EA6');
+    expect(titleHit?.snippet).toContain('zh');
   });
 
   it('filters by container (session and agent)', async () => {
     const s1 = summary('s1', 'one', T1);
     const s2 = summary('s2', 'two', T1);
-    await writeWire(home!, 's1', 'main', [userLine('\u82F9\u679C from s1', T1)]);
-    await writeWire(home!, 's2', 'main', [userLine('\u82F9\u679C from s2 main', T1)]);
-    await writeWire(home!, 's2', 'agent-1', [userLine('\u82F9\u679C from s2 subagent', T1)]);
+    await writeWire(home!, 's1', 'main', [userLine('zh from s1', T1)]);
+    await writeWire(home!, 's2', 'main', [userLine('zh from s2 main', T1)]);
+    await writeWire(home!, 's2', 'agent-1', [userLine('zh from s2 subagent', T1)]);
     const service = track(makeService(home!, staticIndex([s1, s2])));
     await service.reindex();
 
-    const all = await service.search({ query: '\u82F9\u679C' });
+    const all = await service.search({ query: 'zh' });
     expect(all.items.length).toBe(3);
 
-    const inS2 = await service.search({ query: '\u82F9\u679C', container: { sessionId: 's2' } });
+    const inS2 = await service.search({ query: 'zh', container: { sessionId: 's2' } });
     expect(inS2.items.length).toBe(2);
     expect(inS2.items.every((h) => h.sessionId === 's2')).toBe(true);
 
     const inSub = await service.search({
-      query: '\u82F9\u679C',
+      query: 'zh',
       container: { sessionId: 's2', agentId: 'agent-1' },
     });
     expect(inSub.items.length).toBe(1);
@@ -343,18 +343,18 @@ describe('GlobalSearchService', () => {
   it('filters by role and time range', async () => {
     const s1 = summary('s1', 'roles', T1);
     await writeWire(home!, 's1', 'main', [
-      userLine('\u82F9\u679C early', T1),
-      assistantLine('\u82F9\u679C middle', T2),
-      userLine('\u82F9\u679C late', T3),
+      userLine('zh early', T1),
+      assistantLine('zh middle', T2),
+      userLine('zh late', T3),
     ]);
     const service = track(makeService(home!, staticIndex([s1])));
     await service.reindex();
 
-    const users = await service.search({ query: '\u82F9\u679C', role: 'user' });
+    const users = await service.search({ query: 'zh', role: 'user' });
     expect(users.items.length).toBe(2);
     expect(users.items.every((h) => h.role === 'user')).toBe(true);
 
-    const ranged = await service.search({ query: '\u82F9\u679C', startTime: T2, endTime: T2 });
+    const ranged = await service.search({ query: 'zh', startTime: T2, endTime: T2 });
     expect(ranged.items.length).toBe(1);
     expect(ranged.items[0]?.time).toBe(T2);
   });
@@ -362,36 +362,36 @@ describe('GlobalSearchService', () => {
   it('sorts by time in both directions', async () => {
     const s1 = summary('s1', 'sort', T1);
     await writeWire(home!, 's1', 'main', [
-      userLine('\u82F9\u679C one', T1),
-      userLine('\u82F9\u679C two', T2),
-      userLine('\u82F9\u679C three', T3),
+      userLine('zh one', T1),
+      userLine('zh two', T2),
+      userLine('zh three', T3),
     ]);
     const service = track(makeService(home!, staticIndex([s1])));
     await service.reindex();
 
-    const desc = await service.search({ query: '\u82F9\u679C', sort: 'time_desc' });
+    const desc = await service.search({ query: 'zh', sort: 'time_desc' });
     expect(desc.items.map((h) => h.time)).toEqual([T3, T2, T1]);
-    const asc = await service.search({ query: '\u82F9\u679C', sort: 'time_asc' });
+    const asc = await service.search({ query: 'zh', sort: 'time_asc' });
     expect(asc.items.map((h) => h.time)).toEqual([T1, T2, T3]);
   });
 
   it('paginates with an opaque cursor and rejects changed conditions', async () => {
     const s1 = summary('s1', 'paging', T1);
     await writeWire(home!, 's1', 'main', [
-      userLine('\u82F9\u679C one', T1),
-      userLine('\u82F9\u679C two', T2),
-      userLine('\u82F9\u679C three', T3),
+      userLine('zh one', T1),
+      userLine('zh two', T2),
+      userLine('zh three', T3),
     ]);
     const service = track(makeService(home!, staticIndex([s1])));
     await service.reindex();
 
-    const page1 = await service.search({ query: '\u82F9\u679C', sort: 'time_asc', pageSize: 2 });
+    const page1 = await service.search({ query: 'zh', sort: 'time_asc', pageSize: 2 });
     expect(page1.items.length).toBe(2);
     expect(page1.hasMore).toBe(true);
     expect(page1.pageToken).toBeDefined();
 
     const page2 = await service.search({
-      query: '\u82F9\u679C',
+      query: 'zh',
       sort: 'time_asc',
       pageSize: 2,
       pageToken: page1.pageToken,
@@ -404,40 +404,16 @@ describe('GlobalSearchService', () => {
     expect(new Set(times).size).toBe(3);
 
     await expect(
-      service.search({ query: '\u9999\u8549', sort: 'time_asc', pageToken: page1.pageToken }),
+      service.search({ query: 'zh', sort: 'time_asc', pageToken: page1.pageToken }),
     ).rejects.toMatchObject({ reason: 'invalid_page_token' });
-    await expect(service.search({ query: '\u82F9\u679C', pageToken: '!!!' })).rejects.toBeInstanceOf(
+    await expect(service.search({ query: 'zh', pageToken: '!!!' })).rejects.toBeInstanceOf(
       GlobalSearchError,
     );
   });
 
-  it('picks up appended wire lines on the next sync pass', async () => {
-    const s1 = summary('s1', 'incremental', T1);
-    const file = await writeWire(home!, 's1', 'main', [userLine('\u82F9\u679C initial', T1)]);
-    const service = track(makeService(home!, staticIndex([s1])));
-    await service.reindex();
-
-    await appendFile(file, `${userLine('\u82F9\u679C appended', T2)}\n`, 'utf8');
-    await settleSync(service);
-    const page = await service.search({ query: '\u82F9\u679C' });
-    expect(page.items.length).toBe(2);
-    expect(page.items.some((h) => h.snippet.includes('appended'))).toBe(true);
-  });
-  it('keeps the index incomplete while a wire record exceeds the pending cap', async () => {
-    const s1 = summary('s1', 'overflow', T1);
-    const file = await writeWire(home!, 's1', 'main', [userLine('\u82F9\u679C head', T1)]);
-    await appendFile(file, `{"kind":"step","pad":"${'x'.repeat(5 * 1024 * 1024)}"`, 'utf8');
-    const service = track(makeService(home!, staticIndex([s1])));
-
-    await service.reindex();
-    const page = await service.search({ query: '\u82F9\u679C' });
-    expect(page.items.length).toBe(1);
-    expect(page.indexState.state).not.toBe('ready');
-  });
-
   it('reports indexState building before the first full sync and ready after', async () => {
     const s1 = summary('s1', 'state', T1);
-    await writeWire(home!, 's1', 'main', [userLine('\u82F9\u679C state', T1)]);
+    await writeWire(home!, 's1', 'main', [userLine('zh state', T1)]);
 
     let release!: () => void;
     const gate = new Promise<void>((resolve) => {
@@ -449,13 +425,13 @@ describe('GlobalSearchService', () => {
     });
     const service = track(makeService(home!, index));
 
-    const building = await service.search({ query: '\u82F9\u679C' });
+    const building = await service.search({ query: 'zh' });
     expect(building.indexState.state).toBe('building');
     expect(building.items).toEqual([]);
 
     release();
     await service.reindex();
-    const ready = await service.search({ query: '\u82F9\u679C' });
+    const ready = await service.search({ query: 'zh' });
     expect(ready.indexState.state).toBe('ready');
     expect(ready.indexState.indexedSessions).toBe(1);
     expect(ready.indexState.totalSessions).toBe(1);
@@ -464,7 +440,7 @@ describe('GlobalSearchService', () => {
 
   it('drops docs of sessions that disappear between syncs', async () => {
     const s1 = summary('s1', 'gone', T1);
-    await writeWire(home!, 's1', 'main', [userLine('\u82F9\u679C ephemeral', T1)]);
+    await writeWire(home!, 's1', 'main', [userLine('zh ephemeral', T1)]);
     const sessions = [s1];
     const service = track(
       makeService(
@@ -473,41 +449,41 @@ describe('GlobalSearchService', () => {
       ),
     );
     await service.reindex();
-    expect((await service.search({ query: '\u82F9\u679C' })).items.length).toBe(1);
+    expect((await service.search({ query: 'zh' })).items.length).toBe(1);
 
     sessions.length = 0;
     await settleSync(service);
-    const page = await service.search({ query: '\u82F9\u679C' });
+    const page = await service.search({ query: 'zh' });
     expect(page.items).toEqual([]);
   });
 
   it('rescans a wire file that shrank between syncs', async () => {
     const s1 = summary('s1', 'shrink', T1);
     const file = await writeWire(home!, 's1', 'main', [
-      userLine('\u82F9\u679C old one', T1),
-      userLine('\u82F9\u679C old two', T2),
-      userLine('\u82F9\u679C old three', T3),
+      userLine('zh old one', T1),
+      userLine('zh old two', T2),
+      userLine('zh old three', T3),
     ]);
     const service = track(makeService(home!, staticIndex([s1])));
     await service.reindex();
-    expect((await service.search({ query: '\u82F9\u679C' })).items.length).toBe(3);
+    expect((await service.search({ query: 'zh' })).items.length).toBe(3);
 
-    await writeFile(file, `${userLine('\u9999\u8549 fresh', T1)}\n`, 'utf8');
+    await writeFile(file, `${userLine('zh fresh', T1)}\n`, 'utf8');
     await settleSync(service);
-    const stale = await service.search({ query: '\u82F9\u679C' });
+    const stale = await service.search({ query: 'zh' });
     expect(stale.items).toEqual([]);
-    const fresh = await service.search({ query: '\u9999\u8549' });
+    const fresh = await service.search({ query: 'zh' });
     expect(fresh.items.length).toBe(1);
     expect(fresh.items[0]?.snippet).toContain('fresh');
   });
 
   it('does not advance the watermark past an incomplete trailing line', async () => {
     const s1 = summary('s1', 'tail', T1);
-    const file = await writeWire(home!, 's1', 'main', [userLine('\u82F9\u679C base', T1)]);
+    const file = await writeWire(home!, 's1', 'main', [userLine('zh base', T1)]);
     const service = track(makeService(home!, staticIndex([s1])));
     await service.reindex();
 
-    await appendFile(file, userLine('\u82F9\u679C partial', T2), 'utf8');
+    await appendFile(file, userLine('zh partial', T2), 'utf8');
     await settleSync(service);
     expect((await service.search({ query: 'partial' })).items).toEqual([]);
 
@@ -518,18 +494,131 @@ describe('GlobalSearchService', () => {
     expect(page.items[0]?.role).toBe('user');
   });
 
+  it('sync rounds account truncation, session-local wire failures, and escalating storage failures', async () => {
+    const s1 = summary('s1', 'budget', T1);
+    const lines = [
+      userLine('zh head', T1),
+      userLine(`zh giant ${'x'.repeat(1_700_000)}`, T2),
+      userLine(`zh tail ${'y'.repeat(400_000)}`, T3),
+    ];
+    const s1Wire = await writeWire(home!, 's1', 'main', lines);
+    const s2 = summary('s2', 'wirefail', T1);
+    const s2Wire = await writeWire(home!, 's2', 'main', [userLine('zh unreachable', T1)]);
+    const core = new SearchIndexCore({
+      indexDir: join(home!, 'search-index'),
+      log: noopLog,
+      bootSalt: 'budget-test',
+    });
+    core.syncRoundBytes = 1 << 20;
+    const input = [syncInput(home!, s1), syncInput(home!, s2)];
+    const messageCount = (id: string): number =>
+      core.db?.query({ key: { prefix: `${id}/` }, project: ['kind'] }).filter((row) => row.value.kind === 'message')
+        .length ?? 0;
+    try {
+      const first = await core.sync(input);
+      expect(first.truncated).toBe(true);
+      expect(first.failures).toBe(0);
+      expect(core.fullSyncDone).toBe(false);
+      expect(messageCount('s1')).toBe(2);
+      expect(messageCount('s2')).toBe(0);
+
+      const second = await core.sync(input);
+      expect(second.truncated).toBe(false);
+      expect(second.failures).toBe(0);
+      expect(core.fullSyncDone).toBe(true);
+      expect(messageCount('s1')).toBe(3);
+      expect(messageCount('s2')).toBe(1);
+
+      core.syncRoundBytes = 64 << 20;
+      if (process.platform !== 'win32') {
+        await core.reindex();
+        await chmod(s2Wire, 0o000);
+        for (let round = 0; round < 4; round++) {
+          const outcome = await core.sync(input);
+          expect(outcome.failures).toBe(1);
+          expect(outcome.truncated).toBe(false);
+          expect(core.fullSyncDone).toBe(false);
+        }
+        const skipped = await core.sync(input);
+        expect(skipped.failures).toBe(0);
+        expect(core.fullSyncDone).toBe(true);
+        expect(messageCount('s2')).toBe(0);
+        expect(messageCount('s1')).toBe(3);
+        await chmod(s2Wire, 0o644);
+      }
+
+      await appendFile(s1Wire, `${userLine('zh extra', T3 + 1)}\n`, 'utf8');
+      (core.db as unknown as { batch: unknown }).batch = () =>
+        Promise.reject(new Error('injected io'));
+      for (let round = 0; round < 4; round++) {
+        await expect(core.sync(input)).rejects.toThrow('injected io');
+      }
+      const rebuilt = await core.sync(input);
+      expect(rebuilt.truncated).toBe(true);
+      expect(rebuilt.failures).toBe(0);
+      const converged = await core.sync(input);
+      expect(converged.truncated).toBe(false);
+      expect(converged.failures).toBe(0);
+      expect(core.fullSyncDone).toBe(true);
+      expect(messageCount('s1')).toBe(4);
+      expect(messageCount('s2')).toBe(1);
+
+      if (process.platform !== 'win32') {
+        await appendFile(s2Wire, `${userLine('zh cooled', T2)}\n`, 'utf8');
+        await chmod(s2Wire, 0o000);
+        for (let round = 0; round < 4; round++) {
+          const outcome = await core.sync(input);
+          expect(outcome.failures).toBe(1);
+        }
+        const skipped = await core.sync(input);
+        expect(skipped.failures).toBe(0);
+        expect(messageCount('s2')).toBe(1);
+
+        await chmod(s2Wire, 0o644);
+        const cooling = await core.sync(input);
+        expect(cooling.failures).toBe(0);
+        expect(messageCount('s2')).toBe(1);
+
+        const changedInput = [syncInput(home!, s1), { ...syncInput(home!, s2), updatedAt: T1 + 1 }];
+        const changed = await core.sync(changedInput);
+        expect(changed.failures).toBe(0);
+        expect(messageCount('s2')).toBe(2);
+
+        await appendFile(s2Wire, `${userLine('zh retried', T3)}\n`, 'utf8');
+        await chmod(s2Wire, 0o000);
+        for (let round = 0; round < 4; round++) {
+          const outcome = await core.sync(changedInput);
+          expect(outcome.failures).toBe(1);
+        }
+        const reskipped = await core.sync(changedInput);
+        expect(reskipped.failures).toBe(0);
+        expect(messageCount('s2')).toBe(2);
+
+        core.syncSkipCooldownMs = 0;
+        await chmod(s2Wire, 0o644);
+        const retried = await core.sync(changedInput);
+        expect(retried.failures).toBe(0);
+        expect(messageCount('s2')).toBe(3);
+      }
+    } finally {
+      await chmod(s2Wire, 0o644).catch(() => {});
+      core.beginClose();
+      await core.close();
+    }
+  });
+
   it('indexes legacy root and v2 agents layouts of one session without key collisions', async () => {
     const s1 = summary('s1', 'dual layout', T1);
-    await writeWire(home!, 's1', 'main', [userLine('\u82F9\u679C from agents', T2)]);
+    await writeWire(home!, 's1', 'main', [userLine('zh from agents', T2)]);
     await writeFile(
       join(home!, 'sessions', WS, 's1', 'wire.jsonl'),
-      `${userLine('\u82F9\u679C from root', T1)}\n`,
+      `${userLine('zh from root', T1)}\n`,
       'utf8',
     );
     const service = track(makeService(home!, staticIndex([s1])));
     await service.reindex();
 
-    const page = await service.search({ query: '\u82F9\u679C', sort: 'time_asc', role: 'user' });
+    const page = await service.search({ query: 'zh', sort: 'time_asc', role: 'user' });
     expect(page.items.length).toBe(2);
     expect(page.items.every((h) => h.agentId === 'main')).toBe(true);
     const snippets = page.items.map((h) => h.snippet);
@@ -539,13 +628,13 @@ describe('GlobalSearchService', () => {
 
   it('rejects a pageToken that decodes to a non-object', async () => {
     const s1 = summary('s1', 'token', T1);
-    await writeWire(home!, 's1', 'main', [userLine('\u82F9\u679C token', T1)]);
+    await writeWire(home!, 's1', 'main', [userLine('zh token', T1)]);
     const service = track(makeService(home!, staticIndex([s1])));
     await service.reindex();
 
     for (const payload of ['null', '42', '"str"', '[1,2]']) {
       const token = Buffer.from(payload).toString('base64url');
-      await expect(service.search({ query: '\u82F9\u679C', pageToken: token })).rejects.toMatchObject({
+      await expect(service.search({ query: 'zh', pageToken: token })).rejects.toMatchObject({
         reason: 'invalid_page_token',
       });
     }
@@ -553,22 +642,22 @@ describe('GlobalSearchService', () => {
 
   it('drops docs of a wire file that disappears while its session remains', async () => {
     const s1 = summary('s1', 'file gone', T1);
-    await writeWire(home!, 's1', 'main', [userLine('\u82F9\u679C main agent', T1)]);
-    const subFile = await writeWire(home!, 's1', 'agent-1', [userLine('\u82F9\u679C sub agent', T2)]);
+    await writeWire(home!, 's1', 'main', [userLine('zh main agent', T1)]);
+    const subFile = await writeWire(home!, 's1', 'agent-1', [userLine('zh sub agent', T2)]);
     const service = track(makeService(home!, staticIndex([s1])));
     await service.reindex();
-    expect((await service.search({ query: '\u82F9\u679C' })).items.length).toBe(2);
+    expect((await service.search({ query: 'zh' })).items.length).toBe(2);
 
     await rm(subFile);
     await settleSync(service);
-    const page = await service.search({ query: '\u82F9\u679C' });
+    const page = await service.search({ query: 'zh' });
     expect(page.items.length).toBe(1);
     expect(page.items[0]?.agentId).toBe('main');
   });
 
   it('runs a second instance read-only and catches up from the WAL', async () => {
     const s1 = summary('s1', 'shared', T1);
-    const file = await writeWire(home!, 's1', 'main', [userLine('\u82F9\u679C base', T1)]);
+    const file = await writeWire(home!, 's1', 'main', [userLine('zh base', T1)]);
     const index = staticIndex([s1]);
 
     const writer = track(makeInlineService(home!, index));
@@ -578,17 +667,17 @@ describe('GlobalSearchService', () => {
     const status = await reader.status();
     expect(status.documents).toBe(2);
 
-    const first = await reader.search({ query: '\u82F9\u679C' });
+    const first = await reader.search({ query: 'zh' });
     expect(first.indexState.state).toBe('readonly');
     expect(first.items.length).toBe(1);
 
-    await appendFile(file, `${userLine('\u82F9\u679C delta', T2)}\n`, 'utf8');
+    await appendFile(file, `${userLine('zh delta', T2)}\n`, 'utf8');
     await settleSync(writer);
-    const stalePage = await reader.search({ query: '\u82F9\u679C' });
+    const stalePage = await reader.search({ query: 'zh' });
     expect(stalePage.items.length).toBe(1);
     expect(stalePage.indexState.stale).toBe(true);
     await refreshNow(reader);
-    const caughtUp = await reader.search({ query: '\u82F9\u679C' });
+    const caughtUp = await reader.search({ query: 'zh' });
     expect(caughtUp.items.length).toBe(2);
     expect(caughtUp.items.some((h) => h.snippet.includes('delta'))).toBe(true);
     expect(caughtUp.indexState.stale).toBeUndefined();
@@ -596,13 +685,13 @@ describe('GlobalSearchService', () => {
     const writerDb = coreOf(writer).db;
     await writerDb?.compact();
     await refreshNow(reader);
-    const afterRotation = await reader.search({ query: '\u82F9\u679C' });
+    const afterRotation = await reader.search({ query: 'zh' });
     expect(afterRotation.items.length).toBe(2);
   });
 
   it('rejects reindex on a read-only instance', { timeout: 30_000 }, async () => {
     const s1 = summary('s1', 'lock', T1);
-    await writeWire(home!, 's1', 'main', [userLine('\u82F9\u679C lock', T1)]);
+    await writeWire(home!, 's1', 'main', [userLine('zh lock', T1)]);
     const index = staticIndex([s1]);
     const writer = track(makeService(home!, index));
     await writer.reindex();
@@ -613,7 +702,7 @@ describe('GlobalSearchService', () => {
 
   it('serves the building page while the index base is rebuilding, real hits after commit', async () => {
     const s1 = summary('s1', 'shared', T1);
-    await writeWire(home!, 's1', 'main', [userLine('\u82F9\u679C base', T1)]);
+    await writeWire(home!, 's1', 'main', [userLine('zh base', T1)]);
     const service = track(makeInlineService(home!, staticIndex([s1])));
     await service.reindex();
 
@@ -621,26 +710,26 @@ describe('GlobalSearchService', () => {
     const original = db.textIndexBuilding.bind(db);
     db.textIndexBuilding = () => true;
     try {
-      const building = await service.search({ query: '\u82F9\u679C' });
+      const building = await service.search({ query: 'zh' });
       expect(building.indexState.state).toBe('building');
       expect(building.indexState.stale).toBe(true);
       expect(building.items).toEqual([]);
       expect(building.pageToken).toBeUndefined();
-      const buildingLiteral = await service.search({ query: '\u82F9\u679C', mode: 'literal' });
+      const buildingLiteral = await service.search({ query: 'zh', mode: 'literal' });
       expect(buildingLiteral.indexState.state).toBe('building');
       expect(buildingLiteral.items).toEqual([]);
     } finally {
       db.textIndexBuilding = original;
     }
 
-    const ready = await service.search({ query: '\u82F9\u679C' });
+    const ready = await service.search({ query: 'zh' });
     expect(ready.items.length).toBe(1);
     expect(ready.indexState.state).toBe('ready');
   });
 
   it('read-only instance serves the building page while its base is rebuilding', async () => {
     const s1 = summary('s1', 'shared', T1);
-    await writeWire(home!, 's1', 'main', [userLine('\u82F9\u679C base', T1)]);
+    await writeWire(home!, 's1', 'main', [userLine('zh base', T1)]);
     const index = staticIndex([s1]);
     const writer = track(makeInlineService(home!, index));
     await writer.reindex();
@@ -651,13 +740,13 @@ describe('GlobalSearchService', () => {
     const original = db.textIndexBuilding.bind(db);
     db.textIndexBuilding = () => true;
     try {
-      const building = await reader.search({ query: '\u82F9\u679C' });
+      const building = await reader.search({ query: 'zh' });
       expect(building.indexState.state).toBe('building');
       expect(building.items).toEqual([]);
     } finally {
       db.textIndexBuilding = original;
     }
-    const ready = await reader.search({ query: '\u82F9\u679C' });
+    const ready = await reader.search({ query: 'zh' });
     expect(ready.items.length).toBe(1);
     expect(ready.indexState.state).toBe('readonly');
   });
@@ -665,17 +754,17 @@ describe('GlobalSearchService', () => {
   it('assigns 0-based turn ordinals to user and assistant hits', async () => {
     const s1 = summary('s1', 'turns', T1);
     await writeWire(home!, 's1', 'main', [
-      userLine('\u82F9\u679C question zero', T1),
-      assistantLine('\u82F9\u679C answer zero', T2),
-      userLine('\u82F9\u679C question one', T3),
-      assistantLine('\u82F9\u679C answer one', T3 + 1000),
+      userLine('zh question zero', T1),
+      assistantLine('zh answer zero', T2),
+      userLine('zh question one', T3),
+      assistantLine('zh answer one', T3 + 1000),
     ]);
     const service = track(makeService(home!, staticIndex([s1])));
     await service.reindex();
 
-    const users = await service.search({ query: '\u82F9\u679C', role: 'user', sort: 'time_asc' });
+    const users = await service.search({ query: 'zh', role: 'user', sort: 'time_asc' });
     expect(users.items.map((h) => h.turn)).toEqual([0, 1]);
-    const assistants = await service.search({ query: '\u82F9\u679C', role: 'assistant', sort: 'time_asc' });
+    const assistants = await service.search({ query: 'zh', role: 'assistant', sort: 'time_asc' });
     expect(assistants.items.map((h) => h.turn)).toEqual([0, 1]);
   });
 
@@ -687,19 +776,19 @@ describe('GlobalSearchService', () => {
         time: T1,
         message: { role: 'user', content: [{ type: 'image', source: { kind: 'url', url: 'x' } }] },
       }),
-      userLine('\u82F9\u679C injected', T1 + 100, { kind: 'injection', variant: 'reminder' }),
-      userLine('\u82F9\u679C continuation', T1 + 200, {
+      userLine('zh injected', T1 + 100, { kind: 'injection', variant: 'reminder' }),
+      userLine('zh continuation', T1 + 200, {
         kind: 'system_trigger',
         name: 'goal_continuation',
       }),
-      userLine('\u82F9\u679C skill noise', T1 + 300, { kind: 'skill_activation', trigger: 'model-tool' }),
-      userLine('\u82F9\u679C typed', T2, { kind: 'user' }),
-      userLine('/commit \u82F9\u679C ship it', T3, { kind: 'skill_activation', trigger: 'user-slash' }),
+      userLine('zh skill noise', T1 + 300, { kind: 'skill_activation', trigger: 'model-tool' }),
+      userLine('zh typed', T2, { kind: 'user' }),
+      userLine('/commit zh ship it', T3, { kind: 'skill_activation', trigger: 'user-slash' }),
     ]);
     const service = track(makeService(home!, staticIndex([s1])));
     await service.reindex();
 
-    const page = await service.search({ query: '\u82F9\u679C', sort: 'time_asc' });
+    const page = await service.search({ query: 'zh', sort: 'time_asc' });
     const bySnippet = (needle: string) =>
       page.items.find((h) => h.snippet.includes(needle) && h.role === 'user');
     expect(bySnippet('injected')).toBeUndefined();
@@ -712,13 +801,13 @@ describe('GlobalSearchService', () => {
   it('attaches assistant content to a fallback turn when no prompt opened one', async () => {
     const s1 = summary('s1', 'fallback', T1);
     await writeWire(home!, 's1', 'main', [
-      assistantLine('\u82F9\u679C orphan answer', T1),
-      userLine('\u82F9\u679C later question', T2),
+      assistantLine('zh orphan answer', T1),
+      userLine('zh later question', T2),
     ]);
     const service = track(makeService(home!, staticIndex([s1])));
     await service.reindex();
 
-    const page = await service.search({ query: '\u82F9\u679C', sort: 'time_asc' });
+    const page = await service.search({ query: 'zh', sort: 'time_asc' });
     expect(page.items.map((h) => [h.role, h.turn])).toEqual([
       ['assistant', 0],
       ['user', 1],
@@ -728,19 +817,19 @@ describe('GlobalSearchService', () => {
   it('keeps the turn counter across incremental sync passes', async () => {
     const s1 = summary('s1', 'resume', T1);
     const file = await writeWire(home!, 's1', 'main', [
-      userLine('\u82F9\u679C first', T1),
-      assistantLine('\u82F9\u679C first reply', T2),
+      userLine('zh first', T1),
+      assistantLine('zh first reply', T2),
     ]);
     const service = track(makeService(home!, staticIndex([s1])));
     await service.reindex();
 
     await appendFile(
       file,
-      `${userLine('\u82F9\u679C second', T3)}\n${assistantLine('\u82F9\u679C second reply', T3 + 1000)}\n`,
+      `${userLine('zh second', T3)}\n${assistantLine('zh second reply', T3 + 1000)}\n`,
       'utf8',
     );
     await settleSync(service);
-    const page = await service.search({ query: '\u82F9\u679C', sort: 'time_asc' });
+    const page = await service.search({ query: 'zh', sort: 'time_asc' });
     expect(page.items.map((h) => [h.role, h.turn])).toEqual([
       ['user', 0],
       ['assistant', 0],
@@ -752,19 +841,19 @@ describe('GlobalSearchService', () => {
   it('restarts the turn counter when a shrunk file is rescanned', async () => {
     const s1 = summary('s1', 'shrink turns', T1);
     const file = await writeWire(home!, 's1', 'main', [
-      userLine('\u82F9\u679C a', T1),
-      userLine('\u82F9\u679C b', T2),
-      userLine('\u82F9\u679C c', T3),
+      userLine('zh a', T1),
+      userLine('zh b', T2),
+      userLine('zh c', T3),
     ]);
     const service = track(makeService(home!, staticIndex([s1])));
     await service.reindex();
     expect(
-      (await service.search({ query: '\u82F9\u679C', sort: 'time_asc' })).items.map((h) => h.turn),
+      (await service.search({ query: 'zh', sort: 'time_asc' })).items.map((h) => h.turn),
     ).toEqual([0, 1, 2]);
 
-    await writeFile(file, `${userLine('\u82F9\u679C only', T1)}\n`, 'utf8');
+    await writeFile(file, `${userLine('zh only', T1)}\n`, 'utf8');
     await settleSync(service);
-    const page = await service.search({ query: '\u82F9\u679C' });
+    const page = await service.search({ query: 'zh' });
     expect(page.items.length).toBe(1);
     expect(page.items[0]?.turn).toBe(0);
   });
@@ -772,17 +861,17 @@ describe('GlobalSearchService', () => {
   it('rewinds the counter on context.undo and renumbers after it', async () => {
     const s1 = summary('s1', 'undo', T1);
     await writeWire(home!, 's1', 'main', [
-      userLine('\u82F9\u679C before', T1),
-      assistantLine('\u82F9\u679C before reply', T2),
-      userLine('\u82F9\u679C undone', T3),
-      assistantLine('\u82F9\u679C undone reply', T3 + 1000),
+      userLine('zh before', T1),
+      assistantLine('zh before reply', T2),
+      userLine('zh undone', T3),
+      assistantLine('zh undone reply', T3 + 1000),
       rawRecord({ type: 'context.undo', time: T3 + 2000, count: 1 }),
-      userLine('\u82F9\u679C redone', T3 + 3000),
+      userLine('zh redone', T3 + 3000),
     ]);
     const service = track(makeService(home!, staticIndex([s1])));
     await service.reindex();
 
-    const page = await service.search({ query: '\u82F9\u679C', sort: 'time_asc' });
+    const page = await service.search({ query: 'zh', sort: 'time_asc' });
     const bySnippet = (needle: string) => page.items.find((h) => h.snippet.includes(needle));
     expect(bySnippet('before')?.turn).toBe(0);
     expect(bySnippet('undone reply')?.turn).toBe(1);
@@ -792,8 +881,8 @@ describe('GlobalSearchService', () => {
   it('keeps numbering monotonic across context.apply_compaction', async () => {
     const s1 = summary('s1', 'compaction', T1);
     await writeWire(home!, 's1', 'main', [
-      userLine('\u82F9\u679C before compaction', T1),
-      assistantLine('\u82F9\u679C old reply', T2),
+      userLine('zh before compaction', T1),
+      assistantLine('zh old reply', T2),
       rawRecord({
         type: 'context.apply_compaction',
         time: T3,
@@ -801,13 +890,13 @@ describe('GlobalSearchService', () => {
         compactedCount: 2,
       }),
       userLine('summary', T3 + 1000, { kind: 'compaction_summary' }),
-      assistantLine('\u82F9\u679C post-compaction reply', T3 + 1500),
-      userLine('\u82F9\u679C after compaction', T3 + 2000),
+      assistantLine('zh post-compaction reply', T3 + 1500),
+      userLine('zh after compaction', T3 + 2000),
     ]);
     const service = track(makeService(home!, staticIndex([s1])));
     await service.reindex();
 
-    const page = await service.search({ query: '\u82F9\u679C', sort: 'time_asc' });
+    const page = await service.search({ query: 'zh', sort: 'time_asc' });
     const bySnippet = (needle: string) => page.items.find((h) => h.snippet.includes(needle));
     expect(bySnippet('before compaction')?.turn).toBe(0);
     expect(bySnippet('old reply')?.turn).toBe(0);
@@ -816,41 +905,41 @@ describe('GlobalSearchService', () => {
   });
 
   it('assigns transcript step ids to assistant hits; user and title hits carry none', async () => {
-    const s1 = summary('s1', '\u82F9\u679C steps', T1);
+    const s1 = summary('s1', 'zh steps', T1);
     await writeWire(home!, 's1', 'main', [
-      userLine('\u82F9\u679C question', T1),
+      userLine('zh question', T1),
       stepBeginLine('u1', 1, T1 + 100),
-      assistantStepLine('\u82F9\u679C first draft', 'u1', T1 + 200),
+      assistantStepLine('zh first draft', 'u1', T1 + 200),
       stepBeginLine('u2', 2, T1 + 300),
       stepBeginLine('u3', 3, T1 + 400),
-      assistantStepLine('\u82F9\u679C second draft', 'u3', T1 + 500),
+      assistantStepLine('zh second draft', 'u3', T1 + 500),
     ]);
     const service = track(makeService(home!, staticIndex([s1])));
     await service.reindex();
 
-    const assistants = await service.search({ query: '\u82F9\u679C', role: 'assistant', sort: 'time_asc' });
+    const assistants = await service.search({ query: 'zh', role: 'assistant', sort: 'time_asc' });
     expect(assistants.items.map((h) => [h.turn, h.stepId])).toEqual([
       [0, 't0.1'],
       [0, 't0.3'],
     ]);
 
-    const users = await service.search({ query: '\u82F9\u679C', role: 'user' });
+    const users = await service.search({ query: 'zh', role: 'user' });
     expect(users.items[0]?.stepId).toBeUndefined();
-    const title = await service.search({ query: '\u82F9\u679C', role: 'title' });
+    const title = await service.search({ query: 'zh', role: 'title' });
     expect(title.items[0]?.stepId).toBeUndefined();
   });
 
   it('omits step ids when no matching step.begin was seen', async () => {
     const s1 = summary('s1', 'orphans', T1);
     await writeWire(home!, 's1', 'main', [
-      userLine('\u82F9\u679C question', T1),
-      assistantStepLine('\u82F9\u679C orphan', 'unknown-uuid', T2),
-      assistantLine('\u82F9\u679C legacy', T3),
+      userLine('zh question', T1),
+      assistantStepLine('zh orphan', 'unknown-uuid', T2),
+      assistantLine('zh legacy', T3),
     ]);
     const service = track(makeService(home!, staticIndex([s1])));
     await service.reindex();
 
-    const page = await service.search({ query: '\u82F9\u679C', role: 'assistant', sort: 'time_asc' });
+    const page = await service.search({ query: 'zh', role: 'assistant', sort: 'time_asc' });
     expect(page.items.map((h) => [h.turn, h.stepId])).toEqual([
       [0, undefined],
       [0, undefined],
@@ -860,63 +949,63 @@ describe('GlobalSearchService', () => {
   it('resets step numbering at turn boundaries and after an undo', async () => {
     const s1 = summary('s1', 'reset', T1);
     await writeWire(home!, 's1', 'main', [
-      userLine('\u82F9\u679C first', T1),
+      userLine('zh first', T1),
       stepBeginLine('u1', 1, T1 + 100),
-      assistantStepLine('\u82F9\u679C reply one', 'u1', T1 + 200),
-      userLine('\u82F9\u679C second', T2),
+      assistantStepLine('zh reply one', 'u1', T1 + 200),
+      userLine('zh second', T2),
       stepBeginLine('u2', 1, T2 + 100),
-      assistantStepLine('\u82F9\u679C reply two', 'u2', T2 + 200),
+      assistantStepLine('zh reply two', 'u2', T2 + 200),
       rawRecord({ type: 'context.undo', time: T2 + 300, count: 1 }),
-      userLine('\u82F9\u679C redone', T3),
+      userLine('zh redone', T3),
       stepBeginLine('u3', 1, T3 + 100),
-      assistantStepLine('\u82F9\u679C redone reply', 'u3', T3 + 200),
+      assistantStepLine('zh redone reply', 'u3', T3 + 200),
     ]);
     const service = track(makeService(home!, staticIndex([s1])));
     await service.reindex();
 
-    const page = await service.search({ query: '\u82F9\u679C', role: 'assistant', sort: 'time_asc' });
+    const page = await service.search({ query: 'zh', role: 'assistant', sort: 'time_asc' });
     expect(page.items.map((h) => h.stepId)).toEqual(['t0.1', 't1.1', 't1.1']);
   });
 
   it('falls back to counting step.begin records when the wire carries no ordinal', async () => {
     const s1 = summary('s1', 'fallback', T1);
     await writeWire(home!, 's1', 'main', [
-      userLine('\u82F9\u679C question', T1),
+      userLine('zh question', T1),
       rawRecord({
         type: 'context.append_loop_event',
         time: T1 + 100,
         event: { type: 'step.begin', uuid: 'u1' },
       }),
-      assistantStepLine('\u82F9\u679C reply', 'u1', T1 + 200),
+      assistantStepLine('zh reply', 'u1', T1 + 200),
     ]);
     const service = track(makeService(home!, staticIndex([s1])));
     await service.reindex();
 
-    const page = await service.search({ query: '\u82F9\u679C', role: 'assistant' });
+    const page = await service.search({ query: 'zh', role: 'assistant' });
     expect(page.items[0]?.stepId).toBe('t0.1');
   });
 
   it('keeps step attribution across incremental sync passes', async () => {
     const s1 = summary('s1', 'resume steps', T1);
     const file = await writeWire(home!, 's1', 'main', [
-      userLine('\u82F9\u679C question', T1),
+      userLine('zh question', T1),
       stepBeginLine('u1', 1, T1 + 100),
     ]);
     const service = track(makeService(home!, staticIndex([s1])));
     await service.reindex();
 
-    await appendFile(file, `${assistantStepLine('\u82F9\u679C reply', 'u1', T2)}\n`, 'utf8');
+    await appendFile(file, `${assistantStepLine('zh reply', 'u1', T2)}\n`, 'utf8');
     await settleSync(service);
-    const page = await service.search({ query: '\u82F9\u679C', role: 'assistant' });
+    const page = await service.search({ query: 'zh', role: 'assistant' });
     expect(page.items.map((h) => [h.turn, h.stepId])).toEqual([[0, 't0.1']]);
   });
 
   it('rescans a wire file whose meta predates step tracking', async () => {
     const s1 = summary('s1', 'legacy meta', T1);
     const file = await writeWire(home!, 's1', 'main', [
-      userLine('\u82F9\u679C question', T1),
+      userLine('zh question', T1),
       stepBeginLine('u1', 1, T1 + 100),
-      assistantStepLine('\u82F9\u679C reply one', 'u1', T1 + 200),
+      assistantStepLine('zh reply one', 'u1', T1 + 200),
     ]);
     const service = track(makeInlineService(home!, staticIndex([s1])));
     await service.reindex();
@@ -930,20 +1019,20 @@ describe('GlobalSearchService', () => {
       await db!.set(row.key, rest);
     }
 
-    await appendFile(file, `${assistantStepLine('\u82F9\u679C reply two', 'u1', T2)}\n`, 'utf8');
+    await appendFile(file, `${assistantStepLine('zh reply two', 'u1', T2)}\n`, 'utf8');
     await settleSync(service);
-    const page = await service.search({ query: '\u82F9\u679C', role: 'assistant', sort: 'time_asc' });
+    const page = await service.search({ query: 'zh', role: 'assistant', sort: 'time_asc' });
     expect(page.items.map((h) => h.stepId)).toEqual(['t0.1', 't0.1']);
   });
 
   describe('literal mode', () => {
     async function literalFixture(): Promise<GlobalSearchService> {
-      const s1 = summary('s1', 'literal \u4F1A\u8BDD', T1);
+      const s1 = summary('s1', 'literal zh', T1);
       await writeWire(home!, 's1', 'main', [
         userLine('modern C++ patterns', T1),
         assistantLine('use foo-bar here', T1 + 100),
         userLine('a foo bar without dash', T1 + 200),
-        userLine('\u68C0\u67E5\u9879 **\u5DF2\u901A\u8FC7** \u5BA1\u6838', T1 + 300),
+        userLine('zh **zh** zh', T1 + 300),
         userLine('inline math $\\frac{a}{b}$ here', T1 + 400),
         userLine('launch 🚀🎉 today', T1 + 500),
         userLine('짧은 한국어 문구 테스트', T1 + 600),
@@ -969,9 +1058,9 @@ describe('GlobalSearchService', () => {
       expect(spaced.items.length).toBe(1);
       expect(spaced.items[0]?.snippet).toContain('without dash');
 
-      const passed = await service.search({ query: '**\u5DF2\u901A\u8FC7**', mode: 'literal' });
+      const passed = await service.search({ query: '**zh**', mode: 'literal' });
       expect(passed.items.length).toBe(1);
-      expect(passed.items[0]?.snippet).toContain('\u5DF2\u901A\u8FC7');
+      expect(passed.items[0]?.snippet).toContain('zh');
 
       const latex = await service.search({ query: '$\\frac{a}{b}$', mode: 'literal' });
       expect(latex.items.length).toBe(1);
@@ -1082,7 +1171,7 @@ describe('GlobalSearchService', () => {
   describe('stage-4 bounded lifecycle', () => {
     it('serves the published generation without waiting for a blocked background sync', async () => {
       const s1 = summary('s1', 'blocked', T1);
-      const file = await writeWire(home!, 's1', 'main', [userLine('\u82F9\u679C base', T1)]);
+      const file = await writeWire(home!, 's1', 'main', [userLine('zh base', T1)]);
       let block = false;
       let release!: () => void;
       const gate = new Promise<void>((resolve) => {
@@ -1094,13 +1183,13 @@ describe('GlobalSearchService', () => {
       });
       const service = track(makeService(home!, index));
       await service.reindex();
-      expect((await service.search({ query: '\u82F9\u679C' })).items.length).toBe(1);
+      expect((await service.search({ query: 'zh' })).items.length).toBe(1);
       await settleSync(service);
 
-      await appendFile(file, `${userLine('\u82F9\u679C delta', T2)}\n`, 'utf8');
+      await appendFile(file, `${userLine('zh delta', T2)}\n`, 'utf8');
       block = true;
       const page = await Promise.race([
-        service.search({ query: '\u82F9\u679C' }),
+        service.search({ query: 'zh' }),
         new Promise<never>((_, reject) =>
           setTimeout(() => reject(new Error('search waited for the blocked sync')), 2_000),
         ),
@@ -1110,13 +1199,13 @@ describe('GlobalSearchService', () => {
 
       release();
       await settleSync(service);
-      const caughtUp = await service.search({ query: '\u82F9\u679C' });
+      const caughtUp = await service.search({ query: 'zh' });
       expect(caughtUp.items.length).toBe(2);
     });
 
     it('scopes one session sync to its own file-meta keys among 10k sessions', async () => {
       const s1 = summary('s1', 'scoped', T1);
-      await writeWire(home!, 's1', 'main', [userLine('\u82F9\u679C scoped', T1)]);
+      await writeWire(home!, 's1', 'main', [userLine('zh scoped', T1)]);
       const service = track(makeInlineService(home!, staticIndex([s1])));
       await service.reindex();
 
@@ -1157,11 +1246,11 @@ describe('GlobalSearchService', () => {
 
     it('migrates legacy hash-only file-meta keys to the session-scoped format', async () => {
       const s1 = summary('s1', 'migration', T1);
-      const main = await writeWire(home!, 's1', 'main', [userLine('\u82F9\u679C main', T1)]);
-      await writeWire(home!, 's1', 'agent-1', [userLine('\u82F9\u679C sub', T2)]);
+      const main = await writeWire(home!, 's1', 'main', [userLine('zh main', T1)]);
+      await writeWire(home!, 's1', 'agent-1', [userLine('zh sub', T2)]);
       const first = track(makeInlineService(home!, staticIndex([s1])));
       await first.reindex();
-      expect((await first.search({ query: '\u82F9\u679C' })).items.length).toBe(2);
+      expect((await first.search({ query: 'zh' })).items.length).toBe(2);
 
       const db = coreOf(first).db!;
       const metas = db.query({ key: { prefix: '\0meta\\file\\' } });
@@ -1191,10 +1280,10 @@ describe('GlobalSearchService', () => {
         expect(row.value['offset']).toBe(legacyOffsets.get(legacyKey));
       }
 
-      expect((await second.search({ query: '\u82F9\u679C' })).items.length).toBe(2);
-      await appendFile(main, `${userLine('\u82F9\u679C resumed', T3)}\n`, 'utf8');
+      expect((await second.search({ query: 'zh' })).items.length).toBe(2);
+      await appendFile(main, `${userLine('zh resumed', T3)}\n`, 'utf8');
       await settleSync(second);
-      const page = await second.search({ query: '\u82F9\u679C' });
+      const page = await second.search({ query: 'zh' });
       expect(page.items.length).toBe(3);
       expect(page.items.some((h) => h.snippet.includes('resumed'))).toBe(true);
     });
@@ -1202,12 +1291,12 @@ describe('GlobalSearchService', () => {
     it('paginates by keyset without duplicates or gaps under concurrent additive writes', async () => {
       const s1 = summary('s1', 'keyset', T1);
       const lines: string[] = [];
-      for (let i = 0; i < 25; i++) lines.push(userLine(`\u82F9\u679C doc ${i}`, T1 + i));
+      for (let i = 0; i < 25; i++) lines.push(userLine(`zh doc ${i}`, T1 + i));
       const file = await writeWire(home!, 's1', 'main', lines);
       const service = track(makeService(home!, staticIndex([s1])));
       await service.reindex();
 
-      const page1 = await service.search({ query: '\u82F9\u679C', sort: 'time_asc', pageSize: 10 });
+      const page1 = await service.search({ query: 'zh', sort: 'time_asc', pageSize: 10 });
       expect(page1.items.length).toBe(10);
       expect(page1.hasMore).toBe(true);
       const decoded = JSON.parse(
@@ -1219,18 +1308,18 @@ describe('GlobalSearchService', () => {
       expect(Array.isArray(decoded['b'])).toBe(true);
 
       const more: string[] = [];
-      for (let i = 25; i < 30; i++) more.push(`${userLine(`\u82F9\u679C doc ${i}`, T1 + i)}\n`);
+      for (let i = 25; i < 30; i++) more.push(`${userLine(`zh doc ${i}`, T1 + i)}\n`);
       await appendFile(file, more.join(''), 'utf8');
       await settleSync(service);
 
       const page2 = await service.search({
-        query: '\u82F9\u679C',
+        query: 'zh',
         sort: 'time_asc',
         pageSize: 10,
         pageToken: page1.pageToken,
       });
       const page3 = await service.search({
-        query: '\u82F9\u679C',
+        query: 'zh',
         sort: 'time_asc',
         pageSize: 10,
         pageToken: page2.pageToken,
@@ -1245,79 +1334,79 @@ describe('GlobalSearchService', () => {
     it('rejects page tokens from an older generation after a rescan or a reindex', async () => {
       const s1 = summary('s1', 'generation', T1);
       const lines: string[] = [];
-      for (let i = 0; i < 30; i++) lines.push(userLine(`\u82F9\u679C doc ${i} padding`, T1 + i));
+      for (let i = 0; i < 30; i++) lines.push(userLine(`zh doc ${i} padding`, T1 + i));
       const file = await writeWire(home!, 's1', 'main', lines);
       const service = track(makeService(home!, staticIndex([s1])));
       await service.reindex();
 
-      const page1 = await service.search({ query: '\u82F9\u679C', sort: 'time_asc', pageSize: 10 });
+      const page1 = await service.search({ query: 'zh', sort: 'time_asc', pageSize: 10 });
       await writeFile(
         file,
-        `${Array.from({ length: 30 }, (_, i) => userLine('\u82F9\u679C x', T1 + i)).join('\n')}\n`,
+        `${Array.from({ length: 30 }, (_, i) => userLine('zh x', T1 + i)).join('\n')}\n`,
         'utf8',
       );
       await settleSync(service);
       await expect(
-        service.search({ query: '\u82F9\u679C', sort: 'time_asc', pageToken: page1.pageToken }),
+        service.search({ query: 'zh', sort: 'time_asc', pageToken: page1.pageToken }),
       ).rejects.toMatchObject({ reason: 'invalid_page_token' });
       await expect(
-        service.search({ query: '\u82F9\u679C', sort: 'time_asc', pageToken: page1.pageToken }),
+        service.search({ query: 'zh', sort: 'time_asc', pageToken: page1.pageToken }),
       ).rejects.toThrow(/older index generation/);
 
-      const page2 = await service.search({ query: '\u82F9\u679C', sort: 'time_asc', pageSize: 10 });
+      const page2 = await service.search({ query: 'zh', sort: 'time_asc', pageSize: 10 });
       await service.reindex();
       await expect(
-        service.search({ query: '\u82F9\u679C', sort: 'time_asc', pageToken: page2.pageToken }),
+        service.search({ query: 'zh', sort: 'time_asc', pageToken: page2.pageToken }),
       ).rejects.toMatchObject({ reason: 'invalid_page_token' });
     });
 
     it('terminates a hot 2-character literal query within the postings budget', async () => {
       const s1 = summary('s1', 'hot bigram', T1);
       const lines: string[] = [];
-      for (let i = 0; i < 400; i++) lines.push(userLine(`\u7684\u6C49 filler ${i} about stuff`, T1 + i));
+      for (let i = 0; i < 400; i++) lines.push(userLine(`zh filler ${i} about stuff`, T1 + i));
       await writeWire(home!, 's1', 'main', lines);
       const service = track(makeService(home!, staticIndex([s1])));
       await service.reindex();
 
-      const full = await service.search({ query: '\u7684\u6C49', mode: 'literal' });
+      const full = await service.search({ query: 'zh', mode: 'literal' });
       expect(full.incomplete).toBeUndefined();
       expect(full.items.length).toBe(20);
 
       service.postingsVisitBudget = 50;
-      const page = await service.search({ query: '\u7684\u6C49', mode: 'literal' });
+      const page = await service.search({ query: 'zh', mode: 'literal' });
       expect(page.incomplete).toBe('postings_budget');
       expect(page.items.length).toBeGreaterThan(0);
-      expect(page.items.every((h) => h.snippet.includes('\u7684\u6C49'))).toBe(true);
+      expect(page.items.every((h) => h.snippet.includes('zh'))).toBe(true);
     });
 
     it('exposes degraded state when a read-only refresh fails, and recovers', async () => {
       const s1 = summary('s1', 'degraded', T1);
-      const file = await writeWire(home!, 's1', 'main', [userLine('\u82F9\u679C base', T1)]);
+      const file = await writeWire(home!, 's1', 'main', [userLine('zh base', T1)]);
       const index = staticIndex([s1]);
       const writer = track(makeInlineService(home!, index));
       await writer.reindex();
       const reader = track(makeInlineService(home!, index));
       await reader.status();
-      expect((await reader.search({ query: '\u82F9\u679C' })).items.length).toBe(1);
+      expect((await reader.search({ query: 'zh' })).items.length).toBe(1);
 
       const original = coreOf(reader).doRefreshReadonly;
       coreOf(reader).doRefreshReadonly = async () => {
         throw new Error('refresh boom');
       };
-      await appendFile(file, `${userLine('\u82F9\u679C delta', T2)}\n`, 'utf8');
+      await appendFile(file, `${userLine('zh delta', T2)}\n`, 'utf8');
       await settleSync(writer);
 
-      const stale = await reader.search({ query: '\u82F9\u679C' });
+      const stale = await reader.search({ query: 'zh' });
       expect(stale.items.length).toBe(1);
       await refreshNow(reader);
-      const degraded = await reader.search({ query: '\u82F9\u679C' });
+      const degraded = await reader.search({ query: 'zh' });
       expect(degraded.indexState.state).toBe('readonly');
       expect(degraded.indexState.degraded).toBe('refresh boom');
       expect(degraded.items.length).toBe(1);
 
       coreOf(reader).doRefreshReadonly = original;
       await refreshNow(reader);
-      const healed = await reader.search({ query: '\u82F9\u679C' });
+      const healed = await reader.search({ query: 'zh' });
       expect(healed.indexState.degraded).toBeUndefined();
       expect(healed.items.length).toBe(2);
     });
@@ -1325,12 +1414,12 @@ describe('GlobalSearchService', () => {
     it('accepts legacy v1 offset tokens and upgrades them to v2 keyset tokens', async () => {
       const s1 = summary('s1', 'legacy token', T1);
       const lines: string[] = [];
-      for (let i = 0; i < 30; i++) lines.push(userLine(`\u82F9\u679C legacy ${i}`, T1 + i));
+      for (let i = 0; i < 30; i++) lines.push(userLine(`zh legacy ${i}`, T1 + i));
       await writeWire(home!, 's1', 'main', lines);
       const service = track(makeService(home!, staticIndex([s1])));
       await service.reindex();
 
-      const page1 = await service.search({ query: '\u82F9\u679C', sort: 'time_asc', pageSize: 10 });
+      const page1 = await service.search({ query: 'zh', sort: 'time_asc', pageSize: 10 });
       const v2 = JSON.parse(
         Buffer.from(page1.pageToken!, 'base64url').toString('utf8'),
       ) as { v: number; f: string };
@@ -1338,7 +1427,7 @@ describe('GlobalSearchService', () => {
 
       const legacyToken = Buffer.from(JSON.stringify({ f: v2.f, s: 10 })).toString('base64url');
       const page2 = await service.search({
-        query: '\u82F9\u679C',
+        query: 'zh',
         sort: 'time_asc',
         pageSize: 10,
         pageToken: legacyToken,
@@ -1353,7 +1442,7 @@ describe('GlobalSearchService', () => {
       expect(upgraded.v).toBe(2);
 
       const page3 = await service.search({
-        query: '\u82F9\u679C',
+        query: 'zh',
         sort: 'time_asc',
         pageSize: 10,
         pageToken: page2.pageToken,
@@ -1368,7 +1457,7 @@ describe('GlobalSearchService', () => {
       const s1 = summary('s1', 'score pages', T1);
       const lines: string[] = [];
       for (let i = 0; i < 30; i++) {
-        lines.push(userLine(`${'\u82F9\u679C '.repeat((i % 5) + 1)}doc ${i}`, T1 + i));
+        lines.push(userLine(`${'zh '.repeat((i % 5) + 1)}doc ${i}`, T1 + i));
       }
       await writeWire(home!, 's1', 'main', lines);
       const service = track(makeService(home!, staticIndex([s1])));
@@ -1379,7 +1468,7 @@ describe('GlobalSearchService', () => {
       let token: string | undefined;
       for (let p = 0; p < 3; p++) {
         const page: Awaited<ReturnType<typeof service.search>> = await service.search({
-          query: '\u82F9\u679C',
+          query: 'zh',
           sort: 'score',
           pageSize: 10,
           pageToken: token,
@@ -1404,10 +1493,10 @@ describe('GlobalSearchService', () => {
 
     it('self-heals a failed open through search traffic', async () => {
       const s1 = summary('s1', 'heal', T1);
-      await writeWire(home!, 's1', 'main', [userLine('\u82F9\u679C heal', T1)]);
+      await writeWire(home!, 's1', 'main', [userLine('zh heal', T1)]);
       const service = track(makeInlineService(home!, staticIndex([s1])));
-
       await settleBackend(service);
+
       const core = coreOf(service);
       const origOpen = core.openSearchDb;
       let failOpen = true;
@@ -1416,36 +1505,36 @@ describe('GlobalSearchService', () => {
         return origOpen.call(core);
       };
 
-      const building = await service.search({ query: '\u82F9\u679C' });
+      const building = await service.search({ query: 'zh' });
       expect(building.indexState.state).toBe('building');
       await internals(service).syncPromise?.catch(() => {});
 
-      await expect(service.search({ query: '\u82F9\u679C' })).rejects.toMatchObject({
+      await expect(service.search({ query: 'zh' })).rejects.toMatchObject({
         reason: 'index_unavailable',
       });
-      await expect(service.search({ query: '\u82F9\u679C' })).rejects.toThrow(/failed to open: open boom/);
+      await expect(service.search({ query: 'zh' })).rejects.toThrow(/failed to open: open boom/);
       await internals(service).syncPromise?.catch(() => {});
 
       failOpen = false;
-      await expect(service.search({ query: '\u82F9\u679C' })).rejects.toMatchObject({
+      await expect(service.search({ query: 'zh' })).rejects.toMatchObject({
         reason: 'index_unavailable',
       });
       await internals(service).syncPromise;
 
-      const page = await service.search({ query: '\u82F9\u679C' });
+      const page = await service.search({ query: 'zh' });
       expect(page.items.length).toBe(1);
       expect(page.indexState.state).toBe('ready');
     });
 
     it('re-serves from the swapped handle when a background refresh lands mid-search', async () => {
       const s1 = summary('s1', 'swap', T1);
-      await writeWire(home!, 's1', 'main', [userLine('\u82F9\u679C base', T1)]);
+      await writeWire(home!, 's1', 'main', [userLine('zh base', T1)]);
       const index = staticIndex([s1]);
       const writer = track(makeInlineService(home!, index));
       await writer.reindex();
       const reader = track(makeInlineService(home!, index));
       await reader.status();
-      expect((await reader.search({ query: '\u82F9\u679C' })).items.length).toBe(1);
+      expect((await reader.search({ query: 'zh' })).items.length).toBe(1);
 
       await coreOf(writer).db!.compact();
 
@@ -1462,7 +1551,7 @@ describe('GlobalSearchService', () => {
         return origFp();
       };
 
-      const searchPromise = reader.search({ query: '\u82F9\u679C' });
+      const searchPromise = reader.search({ query: 'zh' });
       for (let i = 0; i < 1_000 && fpCalls === 0; i++) {
         await new Promise((resolve) => setImmediate(resolve));
       }
@@ -1478,7 +1567,7 @@ describe('GlobalSearchService', () => {
 
     it('rejects over-budget queries: too many terms, oversized literal', async () => {
       const s1 = summary('s1', 'budget', T1);
-      await writeWire(home!, 's1', 'main', [userLine('\u82F9\u679C budget', T1)]);
+      await writeWire(home!, 's1', 'main', [userLine('zh budget', T1)]);
       const service = track(makeService(home!, staticIndex([s1])));
       await service.reindex();
 
@@ -1501,26 +1590,26 @@ describe('GlobalSearchService', () => {
     it('flags deadline and text-budget stops as incomplete instead of truncating silently', async () => {
       const s1 = summary('s1', 'deadline', T1);
       const lines: string[] = [];
-      for (let i = 0; i < 200; i++) lines.push(userLine(`\u82F9\u679C deadline ${i}`, T1 + i));
+      for (let i = 0; i < 200; i++) lines.push(userLine(`zh deadline ${i}`, T1 + i));
       await writeWire(home!, 's1', 'main', lines);
       const service = track(makeService(home!, staticIndex([s1])));
       await service.reindex();
 
       service.queryDeadlineMs = -1;
-      const stopped = await service.search({ query: '\u82F9\u679C' });
+      const stopped = await service.search({ query: 'zh' });
       expect(stopped.incomplete).toBe('deadline');
       expect(stopped.items).toEqual([]);
       service.queryDeadlineMs = 500;
-      const complete = await service.search({ query: '\u82F9\u679C' });
+      const complete = await service.search({ query: 'zh' });
       expect(complete.incomplete).toBeUndefined();
       expect(complete.items.length).toBe(20);
 
       service.queryTextBudgetChars = 50;
-      const textStopped = await service.search({ query: '\u82F9\u679C', mode: 'literal' });
+      const textStopped = await service.search({ query: 'zh', mode: 'literal' });
       expect(textStopped.incomplete).toBe('deadline');
       expect(textStopped.items.length).toBeLessThan(20);
       service.queryTextBudgetChars = 16_000_000;
-      const textComplete = await service.search({ query: '\u82F9\u679C', mode: 'literal' });
+      const textComplete = await service.search({ query: 'zh', mode: 'literal' });
       expect(textComplete.incomplete).toBeUndefined();
     });
   });
@@ -1571,7 +1660,7 @@ describe('GlobalSearchService', () => {
             ordinal: 0,
             state: 'completed',
             origin: { kind: 'user' },
-            prompt: '\u5E2E\u6211\u770B\u770B\u82F9\u679C\u600E\u4E48\u6311',
+            prompt: 'zh',
             startedAt: new Date(T1).toISOString(),
           },
         },
@@ -1591,7 +1680,7 @@ describe('GlobalSearchService', () => {
           op: 'frame.upsert',
           turnId: 't0',
           stepId: 't0.1',
-          frame: { kind: 'thinking', frameId: 't0.1.f1', text: '\u82F9\u679C thinking \u4E0D\u53EF\u89C1' },
+          frame: { kind: 'thinking', frameId: 't0.1.f1', text: 'zh thinking zh' },
         },
         {
           op: 'frame.upsert',
@@ -1613,7 +1702,7 @@ describe('GlobalSearchService', () => {
             kind: 'text',
             frameId: 't0.1.f3',
             role: 'assistant',
-            text: '\u82F9\u679C\u8981\u6311\u7EA2\u5BCC\u58EB。',
+            text: 'zh',
           },
         },
       ]);
@@ -1685,14 +1774,14 @@ describe('GlobalSearchService', () => {
     }
 
     it('serves container-scoped literal queries from the live transcript store', async () => {
-      const s1 = summary('s1', '\u82F9\u679C\u6807\u9898', T1);
+      const s1 = summary('s1', 'zh', T1);
       const stores = new Map([['s1', makeLiveStore('s1')]]);
       const calls: LiveSourceCalls = { whenReady: [], ensureAgentHistory: [] };
       const service = track(makeService(home!, gettableIndex([s1])));
       service.setLiveTranscriptSource(fakeLiveSource(stores, calls));
 
       const page = await service.search({
-        query: '\u82F9\u679C',
+        query: 'zh',
         mode: 'literal',
         container: { sessionId: 's1' },
       });
@@ -1710,12 +1799,12 @@ describe('GlobalSearchService', () => {
       expect(user).toBeDefined();
       expect(user!.sessionId).toBe('s1');
       expect(user!.workspaceId).toBe(WS);
-      expect(user!.sessionTitle).toBe('\u82F9\u679C\u6807\u9898');
+      expect(user!.sessionTitle).toBe('zh');
       expect(user!.agentId).toBe('main');
       expect(user!.turn).toBe(0);
       expect(user!.stepId).toBeUndefined();
       expect(user!.time).toBe(T1);
-      expect(user!.snippet).toContain('\u82F9\u679C');
+      expect(user!.snippet).toContain('zh');
 
       const assistant = page.items.find((h) => h.role === 'assistant');
       expect(assistant).toBeDefined();
@@ -1725,10 +1814,10 @@ describe('GlobalSearchService', () => {
 
       const title = page.items.find((h) => h.role === 'title');
       expect(title).toBeDefined();
-      expect(title!.snippet).toBe('\u82F9\u679C\u6807\u9898');
+      expect(title!.snippet).toBe('zh');
 
       const thinking = await service.search({
-        query: '\u4E0D\u53EF\u89C1',
+        query: 'zh',
         mode: 'literal',
         container: { sessionId: 's1' },
       });
@@ -1736,32 +1825,32 @@ describe('GlobalSearchService', () => {
     });
 
     it('accepts single-character literal queries on the live route', async () => {
-      const s1 = summary('s1', '\u82F9\u679C\u6807\u9898', T1);
+      const s1 = summary('s1', 'zh', T1);
       const service = track(makeService(home!, gettableIndex([s1])));
       service.setLiveTranscriptSource(fakeLiveSource(new Map([['s1', makeLiveStore('s1')]])));
 
       const page = await service.search({
-        query: '\u82F9',
+        query: 'zh',
         mode: 'literal',
         container: { sessionId: 's1' },
       });
       expect(page.source).toBe('live');
       expect(page.items.length).toBe(3);
-      expect(page.items.map((h) => h.role).toSorted()).toEqual(['assistant', 'title', 'user']);
+      expect(page.items.map((h) => h.role).sort()).toEqual(['assistant', 'title', 'user']);
 
-      await expect(service.search({ query: '\u82F9', mode: 'literal' })).rejects.toMatchObject({
+      await expect(service.search({ query: 'zh', mode: 'literal' })).rejects.toMatchObject({
         reason: 'invalid_query',
       });
     });
 
     it('falls back to the index route when no source is wired or the session is not live', async () => {
       const s1 = summary('s1', 'fallback', T1);
-      await writeWire(home!, 's1', 'main', [userLine('\u82F9\u679C from index', T1)]);
+      await writeWire(home!, 's1', 'main', [userLine('zh from index', T1)]);
       const service = track(makeService(home!, gettableIndex([s1])));
       await service.reindex();
 
       const unwired = await service.search({
-        query: '\u82F9\u679C',
+        query: 'zh',
         mode: 'literal',
         container: { sessionId: 's1' },
       });
@@ -1770,7 +1859,7 @@ describe('GlobalSearchService', () => {
 
       service.setLiveTranscriptSource(fakeLiveSource(new Map()));
       const notLive = await service.search({
-        query: '\u82F9\u679C',
+        query: 'zh',
         mode: 'literal',
         container: { sessionId: 's1' },
       });
@@ -1779,15 +1868,15 @@ describe('GlobalSearchService', () => {
     });
 
     it('serves terms queries from the live store and orders hits by tf score', async () => {
-      const s1 = summary('s1', '\u65E0\u5173\u6807\u9898', T1);
+      const s1 = summary('s1', 'zh', T1);
       const store = new TranscriptStore('s1');
       store.ensureAgent('main', { agentId: 'main', type: 'main' });
-      addLiveTurn(store, 'main', { ordinal: 0, startedAt: T1, prompt: '\u82F9\u679C\u600E\u4E48\u6311' });
-      addLiveTurn(store, 'main', { ordinal: 1, startedAt: T2, prompt: '\u82F9\u679C\u82F9\u679C\u90FD\u8981' });
+      addLiveTurn(store, 'main', { ordinal: 0, startedAt: T1, prompt: 'zh' });
+      addLiveTurn(store, 'main', { ordinal: 1, startedAt: T2, prompt: 'zh' });
       const service = track(makeService(home!, gettableIndex([s1])));
       service.setLiveTranscriptSource(fakeLiveSource(new Map([['s1', store]])));
 
-      const page = await service.search({ query: '\u82F9\u679C', container: { sessionId: 's1' } });
+      const page = await service.search({ query: 'zh', container: { sessionId: 's1' } });
       expect(page.source).toBe('live');
       expect(page.items.length).toBe(2);
       expect(page.items[0]!.time).toBe(T2);
@@ -1795,23 +1884,23 @@ describe('GlobalSearchService', () => {
       expect(page.items[0]!.score).toBeGreaterThan(page.items[1]!.score);
       expect(page.items[1]!.score).toBeGreaterThan(0);
 
-      const dup = await service.search({ query: '\u82F9\u679C \u82F9\u679C', container: { sessionId: 's1' } });
+      const dup = await service.search({ query: 'zh zh', container: { sessionId: 's1' } });
       expect(dup.items.map((h) => h.time)).toEqual(page.items.map((h) => h.time));
     });
 
     it('returns matching terms result sets on both routes for equivalent data', async () => {
-      const s1 = summary('s1', '\u65E0\u5173\u6807\u9898', T1);
+      const s1 = summary('s1', 'zh', T1);
       await writeWire(home!, 's1', 'main', [
-        userLine('\u5E2E\u6211\u770B\u770B\u82F9\u679C\u600E\u4E48\u6311', T1),
+        userLine('zh', T1),
         stepBeginLine('u1', 1, T1 + 100),
-        assistantStepLine('\u82F9\u679C\u8981\u6311\u7EA2\u5BCC\u58EB。', 'u1', T2),
+        assistantStepLine('zh', 'u1', T2),
       ]);
       const stores = new Map([['s1', makeLiveStore('s1')]]);
       const service = track(makeService(home!, gettableIndex([s1])));
       await service.reindex();
       service.setLiveTranscriptSource(fakeLiveSource(stores));
 
-      const query = { query: '\u82F9\u679C', container: { sessionId: 's1' } };
+      const query = { query: 'zh', container: { sessionId: 's1' } };
       const live = await service.search(query);
       expect(live.source).toBe('live');
       expect(live.items.length).toBe(2);
@@ -1848,14 +1937,14 @@ describe('GlobalSearchService', () => {
       addLiveTurn(store, 'main', {
         ordinal: 0,
         startedAt: T1,
-        prompt: '\u82F9\u679C user question',
-        steps: [{ stepId: 't0.1', startedAt: T2, texts: ['\u82F9\u679C assistant answer'] }],
+        prompt: 'zh user question',
+        steps: [{ stepId: 't0.1', startedAt: T2, texts: ['zh assistant answer'] }],
       });
-      addLiveTurn(store, 'sub', { ordinal: 0, startedAt: T3, prompt: '\u82F9\u679C subagent prompt' });
+      addLiveTurn(store, 'sub', { ordinal: 0, startedAt: T3, prompt: 'zh subagent prompt' });
       const service = track(makeService(home!, gettableIndex([s1])));
       service.setLiveTranscriptSource(fakeLiveSource(new Map([['s1', store]])));
 
-      const base = { query: '\u82F9\u679C', container: { sessionId: 's1' } };
+      const base = { query: 'zh', container: { sessionId: 's1' } };
       const users = await service.search({ ...base, role: 'user' });
       expect(users.items.length).toBe(2);
       expect(users.items.every((h) => h.role === 'user')).toBe(true);
@@ -1882,21 +1971,21 @@ describe('GlobalSearchService', () => {
     });
 
     it('hits the session title doc on the live route (terms mode)', async () => {
-      const s1 = summary('s1', '\u82F9\u679C\u6807\u9898', T1);
+      const s1 = summary('s1', 'zh', T1);
       const store = new TranscriptStore('s1');
       store.ensureAgent('main', { agentId: 'main', type: 'main' });
-      addLiveTurn(store, 'main', { ordinal: 0, startedAt: T1, prompt: '\u968F\u4FBF\u804A\u804A' });
+      addLiveTurn(store, 'main', { ordinal: 0, startedAt: T1, prompt: 'zh' });
       const service = track(makeService(home!, gettableIndex([s1])));
       service.setLiveTranscriptSource(fakeLiveSource(new Map([['s1', store]])));
 
-      const page = await service.search({ query: '\u82F9\u679C', container: { sessionId: 's1' } });
+      const page = await service.search({ query: 'zh', container: { sessionId: 's1' } });
       expect(page.source).toBe('live');
       expect(page.items.length).toBe(1);
       const hit = page.items[0]!;
       expect(hit.role).toBe('title');
       expect(hit.agentId).toBe('');
       expect(hit.sessionId).toBe('s1');
-      expect(hit.snippet).toBe('\u82F9\u679C\u6807\u9898');
+      expect(hit.snippet).toBe('zh');
     });
 
     it('scopes container.agentId queries to that agent only', async () => {
@@ -1904,14 +1993,14 @@ describe('GlobalSearchService', () => {
       const store = new TranscriptStore('s1');
       store.ensureAgent('main', { agentId: 'main', type: 'main' });
       store.ensureAgent('sub', { agentId: 'sub', type: 'sub' });
-      addLiveTurn(store, 'main', { ordinal: 0, startedAt: T1, prompt: '\u82F9\u679C from main' });
-      addLiveTurn(store, 'sub', { ordinal: 0, startedAt: T2, prompt: '\u82F9\u679C from sub' });
+      addLiveTurn(store, 'main', { ordinal: 0, startedAt: T1, prompt: 'zh from main' });
+      addLiveTurn(store, 'sub', { ordinal: 0, startedAt: T2, prompt: 'zh from sub' });
       const calls: LiveSourceCalls = { whenReady: [], ensureAgentHistory: [] };
       const service = track(makeService(home!, gettableIndex([s1])));
       service.setLiveTranscriptSource(fakeLiveSource(new Map([['s1', store]]), calls));
 
       const page = await service.search({
-        query: '\u82F9\u679C',
+        query: 'zh',
         container: { sessionId: 's1', agentId: 'sub' },
       });
       expect(page.source).toBe('live');
@@ -1929,7 +2018,7 @@ describe('GlobalSearchService', () => {
       const stores = new Map([['s1', new TranscriptStore('s1')]]);
       service.setLiveTranscriptSource(fakeLiveSource(stores, calls));
 
-      const empty = await service.search({ query: '\u82F9\u679C', container: { sessionId: 's1' } });
+      const empty = await service.search({ query: 'zh', container: { sessionId: 's1' } });
       expect(empty.source).toBe('live');
       expect(empty.items).toEqual([]);
       expect(empty.indexState.documents).toBe(0);
@@ -1943,9 +2032,9 @@ describe('GlobalSearchService', () => {
         startedAt: T1,
         steps: [{ stepId: 't0.1', startedAt: T1, texts: ['', '   '] }],
       });
-      addLiveTurn(store, 'main', { ordinal: 1, startedAt: T2, prompt: '\u82F9\u679C survives' });
+      addLiveTurn(store, 'main', { ordinal: 1, startedAt: T2, prompt: 'zh survives' });
       stores.set('s1', store);
-      const page = await service.search({ query: '\u82F9\u679C', container: { sessionId: 's1' } });
+      const page = await service.search({ query: 'zh', container: { sessionId: 's1' } });
       expect(page.items.length).toBe(1);
       expect(page.items[0]!.role).toBe('user');
       expect(page.indexState.documents).toBe(1);
@@ -1953,7 +2042,7 @@ describe('GlobalSearchService', () => {
 
     it('does not fall back to the index when the live route fails', async () => {
       const s1 = summary('s1', 'boom', T1);
-      await writeWire(home!, 's1', 'main', [userLine('\u82F9\u679C from index', T1)]);
+      await writeWire(home!, 's1', 'main', [userLine('zh from index', T1)]);
       const service = track(makeService(home!, gettableIndex([s1])));
       await service.reindex();
 
@@ -1967,7 +2056,7 @@ describe('GlobalSearchService', () => {
       });
 
       await expect(
-        service.search({ query: '\u82F9\u679C', container: { sessionId: 's1' } }),
+        service.search({ query: 'zh', container: { sessionId: 's1' } }),
       ).rejects.toThrow('backfill boom');
     });
 
@@ -1979,13 +2068,13 @@ describe('GlobalSearchService', () => {
         ordinal: 0,
         startedAt: T1,
         state: 'running',
-        prompt: '\u82F9\u679C running prompt',
-        steps: [{ stepId: 't0.1', startedAt: T2, state: 'running', texts: ['\u82F9\u679C partial answer'] }],
+        prompt: 'zh running prompt',
+        steps: [{ stepId: 't0.1', startedAt: T2, state: 'running', texts: ['zh partial answer'] }],
       });
       const service = track(makeService(home!, gettableIndex([s1])));
       service.setLiveTranscriptSource(fakeLiveSource(new Map([['s1', store]])));
 
-      const page = await service.search({ query: '\u82F9\u679C', container: { sessionId: 's1' } });
+      const page = await service.search({ query: 'zh', container: { sessionId: 's1' } });
       expect(page.source).toBe('live');
       expect(page.items.length).toBe(2);
       expect(page.items.some((h) => h.role === 'user' && h.snippet.includes('running'))).toBe(true);
@@ -2009,8 +2098,8 @@ describe('GlobalSearchService', () => {
     it('rejects page tokens across a route flip (the fingerprint covers the source)', async () => {
       const s1 = summary('s1', 'flip', T1);
       await writeWire(home!, 's1', 'main', [
-        userLine('\u82F9\u679C index one', T1),
-        assistantLine('\u82F9\u679C index two', T2),
+        userLine('zh index one', T1),
+        assistantLine('zh index two', T2),
       ]);
       const stores = new Map([['s1', makeLiveStore('s1')]]);
       const service = track(makeService(home!, gettableIndex([s1])));
@@ -2018,7 +2107,7 @@ describe('GlobalSearchService', () => {
       service.setLiveTranscriptSource(fakeLiveSource(stores));
 
       const query = {
-        query: '\u82F9\u679C',
+        query: 'zh',
         mode: 'literal' as const,
         container: { sessionId: 's1' },
         pageSize: 1,
@@ -2042,18 +2131,18 @@ describe('GlobalSearchService', () => {
     });
 
     it('returns identical literal results on both routes for equivalent data', async () => {
-      const s1 = summary('s1', '\u65E0\u5173\u6807\u9898', T1);
+      const s1 = summary('s1', 'zh', T1);
       await writeWire(home!, 's1', 'main', [
-        userLine('\u5E2E\u6211\u770B\u770B\u82F9\u679C\u600E\u4E48\u6311', T1),
+        userLine('zh', T1),
         stepBeginLine('u1', 1, T1 + 100),
-        assistantStepLine('\u82F9\u679C\u8981\u6311\u7EA2\u5BCC\u58EB。', 'u1', T2),
+        assistantStepLine('zh', 'u1', T2),
       ]);
       const stores = new Map([['s1', makeLiveStore('s1')]]);
       const service = track(makeService(home!, gettableIndex([s1])));
       await service.reindex();
       service.setLiveTranscriptSource(fakeLiveSource(stores));
 
-      const query = { query: '\u82F9\u679C', mode: 'literal' as const, container: { sessionId: 's1' } };
+      const query = { query: 'zh', mode: 'literal' as const, container: { sessionId: 's1' } };
       const live = await service.search(query);
       expect(live.source).toBe('live');
 
@@ -2081,7 +2170,7 @@ describe('GlobalSearchService', () => {
   describe('lifecycle drain correctness (plan 13)', () => {
     it('closes the handle when post-open index setup fails, and the next open becomes the writer again (review #19)', async () => {
       const s1 = summary('s1', 'open failure', T1);
-      await writeWire(home!, 's1', 'main', [userLine('\u82F9\u679C recovery', T1)]);
+      await writeWire(home!, 's1', 'main', [userLine('zh recovery', T1)]);
       const service = track(makeInlineService(home!, staticIndex([s1])));
 
       const spy = vi
@@ -2096,12 +2185,12 @@ describe('GlobalSearchService', () => {
       const db = coreOf(service).db;
       expect(db).not.toBeNull();
       expect((db as unknown as { readOnly: boolean }).readOnly).toBe(false);
-      expect((await service.search({ query: '\u82F9\u679C' })).items.length).toBe(1);
+      expect((await service.search({ query: 'zh' })).items.length).toBe(1);
     });
 
     it('dispose drains an in-flight sync before closing the db; the deleteSessionDocs/STATS_KEY windows are gated (review #20)', async () => {
       const s1 = summary('s1', 'drain sync', T1);
-      await writeWire(home!, 's1', 'main', [userLine('\u82F9\u679C drain', T1)]);
+      await writeWire(home!, 's1', 'main', [userLine('zh drain', T1)]);
       const { log, warnings } = recordingLog();
       const sessions = [s1];
       const service = new GlobalSearchService(
@@ -2113,7 +2202,7 @@ describe('GlobalSearchService', () => {
       service.syncDebounceMs = 0;
       track(service);
       await service.reindex();
-      expect((await service.search({ query: '\u82F9\u679C' })).items.length).toBe(1);
+      expect((await service.search({ query: 'zh' })).items.length).toBe(1);
       await settleSync(service);
 
       const db = coreOf(service).db!;
@@ -2148,7 +2237,7 @@ describe('GlobalSearchService', () => {
 
     it('dispose drains an in-flight read-only refresh before closing the db (review #20)', async () => {
       const s1 = summary('s1', 'drain refresh', T1);
-      await writeWire(home!, 's1', 'main', [userLine('\u82F9\u679C refresh', T1)]);
+      await writeWire(home!, 's1', 'main', [userLine('zh refresh', T1)]);
       const writer = track(makeInlineService(home!, staticIndex([s1])));
       await writer.reindex();
 
@@ -2182,7 +2271,7 @@ describe('GlobalSearchService', () => {
     it('drainGlobalSearchDisposals also waits for disposals registered while it was draining (review #21)', async () => {
       const setupBlockedService = async (root: string) => {
         const s1 = summary('s1', 'drain fixpoint', T1);
-        await writeWire(root, 's1', 'main', [userLine('\u82F9\u679C fixpoint', T1)]);
+        await writeWire(root, 's1', 'main', [userLine('zh fixpoint', T1)]);
         const sessions = [s1];
         const service = new GlobalSearchService(
           makeSessionIndex(async () => ({ items: sessions, nextCursor: undefined })),
@@ -2277,10 +2366,10 @@ describe('search worker host (stage 4)', () => {
 
   it('restarts a killed worker, reaps its lock, and keeps serving', { timeout: 30_000 }, async () => {
     const s1 = summary('s1', 'crash', T1);
-    await writeWire(home!, 's1', 'main', [userLine('\u82F9\u679C crash', T1)]);
+    await writeWire(home!, 's1', 'main', [userLine('zh crash', T1)]);
     const service = track(makeService(home!, staticIndex([s1])));
     await service.reindex();
-    expect((await service.search({ query: '\u82F9\u679C' })).items.length).toBe(1);
+    expect((await service.search({ query: 'zh' })).items.length).toBe(1);
 
     const lockRaw = JSON.parse(await readFile(lockPath(), 'utf8')) as { pid: number };
     expect(lockRaw.pid).toBe(process.pid);
@@ -2288,14 +2377,19 @@ describe('search worker host (stage 4)', () => {
     await hostOf(service).killWorkerForTest();
     await waitForGone(lockPath());
 
-    const degraded = await service.search({ query: '\u82F9\u679C' });
+    const degraded = await service.search({ query: 'zh' });
     expect(degraded.items).toEqual([]);
     expect(degraded.indexState.state).toBe('building');
     expect(degraded.indexState.degraded).toContain('worker');
 
-    await new Promise((resolve) => setTimeout(resolve, 700));
+    await vi.waitFor(
+      async () => {
+        expect((await hostOf(service).status()).readOnly).toBe(false);
+      },
+      { timeout: 10_000 },
+    );
     await settleSync(service);
-    const page = await service.search({ query: '\u82F9\u679C' });
+    const page = await service.search({ query: 'zh' });
     expect(page.items.length).toBe(1);
     expect(page.indexState.state).toBe('ready');
   });
@@ -2303,10 +2397,10 @@ describe('search worker host (stage 4)', () => {
   it('reports the lock token at acquire time; a mid-open kill leaves a reapable lock', { timeout: 30_000 }, async () => {
     const summaries: SessionSummary[] = [];
     for (let i = 0; i < 300; i++) {
-      const s = summary(`midopen-${i}`, `midopen \u4F1A\u8BDD ${i}`, T1 + i);
+      const s = summary(`midopen-${i}`, `midopen zh ${i}`, T1 + i);
       summaries.push(s);
       const lines: string[] = [];
-      for (let j = 0; j < 30; j++) lines.push(userLine(`\u4E2D\u9014\u9000\u51FA ${i}-${j} \u68C0\u7D22`, T1 + i * 100 + j));
+      for (let j = 0; j < 30; j++) lines.push(userLine(`zh ${i}-${j} zh`, T1 + i * 100 + j));
       await writeWire(home!, s.id, 'main', lines);
     }
     const inline = track(makeInlineService(home!, staticIndex(summaries)));
@@ -2338,9 +2432,13 @@ describe('search worker host (stage 4)', () => {
     await opening;
     await waitForGone(lockPath());
 
-    await new Promise((resolve) => setTimeout(resolve, 700));
-    const reopened = await host.ensureOpen();
-    expect(reopened.readOnly).toBe(false);
+    await vi.waitFor(
+      async () => {
+        const reopened = await host.ensureOpen();
+        expect(reopened.readOnly).toBe(false);
+      },
+      { timeout: 10_000 },
+    );
   });
 
   it('recovers a read-only open caused by an orphaned same-pid lock', { timeout: 30_000 }, async () => {
@@ -2368,10 +2466,10 @@ describe('search worker host (stage 4)', () => {
   it('beginClose abandons an in-flight worker sync and dispose stays bounded', { timeout: 30_000 }, async () => {
     const summaries: SessionSummary[] = [];
     for (let i = 0; i < 200; i++) {
-      const s = summary(`drain-${i}`, `drain \u4F1A\u8BDD ${i}`, T1 + i);
+      const s = summary(`drain-${i}`, `drain zh ${i}`, T1 + i);
       summaries.push(s);
       const lines: string[] = [];
-      for (let j = 0; j < 30; j++) lines.push(userLine(`\u6392\u7A7A ${i}-${j} \u68C0\u7D22`, T1 + i * 100 + j));
+      for (let j = 0; j < 30; j++) lines.push(userLine(`zh ${i}-${j} zh`, T1 + i * 100 + j));
       await writeWire(home!, s.id, 'main', lines);
     }
     const inputs = summaries.map((s) => syncInput(home!, s));
@@ -2380,7 +2478,14 @@ describe('search worker host (stage 4)', () => {
 
     await host.ensureOpen();
     const sync = host.sync(inputs);
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await vi.waitFor(
+      () => {
+        expect(
+          (host as unknown as { requests: Map<number, unknown> }).requests.size,
+        ).toBeGreaterThan(0);
+      },
+      { timeout: 10_000 },
+    );
     host.beginClose();
     const outcome = await sync;
     expect(outcome.noop).toBe(true);
@@ -2417,9 +2522,13 @@ describe('search worker host (stage 4)', () => {
     await expect(wedged).rejects.toThrow(/timed out/);
 
     gate = false;
-    await new Promise((resolve) => setTimeout(resolve, 700));
-    const status = await host.status();
-    expect(status.readOnly).toBe(false);
+    await vi.waitFor(
+      async () => {
+        const status = await host.status();
+        expect(status.readOnly).toBe(false);
+      },
+      { timeout: 10_000 },
+    );
   });
 
   it('rejects in-flight requests as disposed during a clean close', { timeout: 30_000 }, async () => {
@@ -2448,12 +2557,12 @@ describe('search worker host (stage 4)', () => {
 
   it('reports index_unavailable for searches after dispose', { timeout: 30_000 }, async () => {
     const s1 = summary('s1', 'disposed', T1);
-    await writeWire(home!, 's1', 'main', [userLine('\u82F9\u679C disposed', T1)]);
+    await writeWire(home!, 's1', 'main', [userLine('zh disposed', T1)]);
     const service = track(makeService(home!, staticIndex([s1])));
     await service.reindex();
 
     service.dispose();
-    await expect(service.search({ query: '\u82F9\u679C' })).rejects.toMatchObject({
+    await expect(service.search({ query: 'zh' })).rejects.toMatchObject({
       reason: 'index_unavailable',
       message: 'search service is disposed',
     });
@@ -2463,30 +2572,35 @@ describe('search worker host (stage 4)', () => {
   it('invalidates page tokens across a worker restart (boot salt)', { timeout: 30_000 }, async () => {
     const s1 = summary('s1', 'boot', T1);
     const lines: string[] = [];
-    for (let i = 0; i < 30; i++) lines.push(userLine(`\u82F9\u679C boot ${i}`, T1 + i));
+    for (let i = 0; i < 30; i++) lines.push(userLine(`zh boot ${i}`, T1 + i));
     await writeWire(home!, 's1', 'main', lines);
     const service = track(makeService(home!, staticIndex([s1])));
     await service.reindex();
-    const page1 = await service.search({ query: '\u82F9\u679C', sort: 'time_asc', pageSize: 10 });
+    const page1 = await service.search({ query: 'zh', sort: 'time_asc', pageSize: 10 });
     expect(page1.pageToken).toBeDefined();
 
     await hostOf(service).killWorkerForTest();
-    await new Promise((resolve) => setTimeout(resolve, 700));
+    await vi.waitFor(
+      async () => {
+        expect((await hostOf(service).status()).readOnly).toBe(false);
+      },
+      { timeout: 10_000 },
+    );
     await settleSync(service);
 
     await expect(
-      service.search({ query: '\u82F9\u679C', sort: 'time_asc', pageSize: 10, pageToken: page1.pageToken }),
+      service.search({ query: 'zh', sort: 'time_asc', pageSize: 10, pageToken: page1.pageToken }),
     ).rejects.toMatchObject({ reason: 'invalid_page_token' });
-    const restarted = await service.search({ query: '\u82F9\u679C', sort: 'time_asc', pageSize: 10 });
+    const restarted = await service.search({ query: 'zh', sort: 'time_asc', pageSize: 10 });
     expect(restarted.items.length).toBe(10);
   });
 
   it('rebuilds a corrupt database inside the worker', { timeout: 30_000 }, async () => {
     const s1 = summary('s1', 'corrupt', T1);
-    await writeWire(home!, 's1', 'main', [userLine('\u82F9\u679C corrupt', T1)]);
+    await writeWire(home!, 's1', 'main', [userLine('zh corrupt', T1)]);
     const first = track(makeService(home!, staticIndex([s1])));
     await first.reindex();
-    expect((await first.search({ query: '\u82F9\u679C' })).items.length).toBe(1);
+    expect((await first.search({ query: 'zh' })).items.length).toBe(1);
     first.dispose();
     await drainGlobalSearchDisposals();
 
@@ -2494,28 +2608,28 @@ describe('search worker host (stage 4)', () => {
 
     const second = track(makeService(home!, staticIndex([s1])));
     await settleSync(second);
-    const page = await second.search({ query: '\u82F9\u679C' });
+    const page = await second.search({ query: 'zh' });
     expect(page.items.length).toBe(1);
     expect(page.indexState.state).toBe('ready');
   });
 
   it('runs a second worker read-only and a fresh worker becomes the writer after the writer dies', { timeout: 30_000 }, async () => {
     const s1 = summary('s1', 'election', T1);
-    const file = await writeWire(home!, 's1', 'main', [userLine('\u82F9\u679C election', T1)]);
+    const file = await writeWire(home!, 's1', 'main', [userLine('zh election', T1)]);
     const index = staticIndex([s1]);
 
     const writer = track(makeService(home!, index));
     await writer.reindex();
     const reader = track(makeService(home!, index));
     await reader.status();
-    const ro = await reader.search({ query: '\u82F9\u679C' });
+    const ro = await reader.search({ query: 'zh' });
     expect(ro.indexState.state).toBe('readonly');
     expect(ro.items.length).toBe(1);
 
-    await appendFile(file, `${userLine('\u82F9\u679C delta', T2)}\n`, 'utf8');
+    await appendFile(file, `${userLine('zh delta', T2)}\n`, 'utf8');
     await settleSync(writer);
     await refreshNow(reader);
-    expect((await reader.search({ query: '\u82F9\u679C' })).items.length).toBe(2);
+    expect((await reader.search({ query: 'zh' })).items.length).toBe(2);
 
     await hostOf(writer).killWorkerForTest();
     await waitForGone(lockPath());
@@ -2524,28 +2638,28 @@ describe('search worker host (stage 4)', () => {
 
     const third = track(makeService(home!, index));
     await settleSync(third);
-    const ready = await third.search({ query: '\u82F9\u679C' });
+    const ready = await third.search({ query: 'zh' });
     expect(ready.indexState.state).toBe('ready');
     expect(ready.items.length).toBe(2);
     await third.reindex();
-    expect((await third.search({ query: '\u82F9\u679C' })).items.length).toBe(2);
+    expect((await third.search({ query: 'zh' })).items.length).toBe(2);
   });
 
   it('reader worker reopens when the writer replaces the WAL/snapshot (reindex)', { timeout: 30_000 }, async () => {
     const s1 = summary('s1', 'rotate', T1);
-    const file = await writeWire(home!, 's1', 'main', [userLine('\u82F9\u679C rotate', T1)]);
+    const file = await writeWire(home!, 's1', 'main', [userLine('zh rotate', T1)]);
     const index = staticIndex([s1]);
 
     const writer = track(makeService(home!, index));
     await writer.reindex();
     const reader = track(makeService(home!, index));
     await reader.status();
-    expect((await reader.search({ query: '\u82F9\u679C' })).items.length).toBe(1);
+    expect((await reader.search({ query: 'zh' })).items.length).toBe(1);
 
-    await appendFile(file, `${userLine('\u82F9\u679C rotated', T2)}\n`, 'utf8');
+    await appendFile(file, `${userLine('zh rotated', T2)}\n`, 'utf8');
     await writer.reindex();
     await refreshNow(reader);
-    const page = await reader.search({ query: '\u82F9\u679C' });
+    const page = await reader.search({ query: 'zh' });
     expect(page.indexState.state).toBe('readonly');
     expect(page.items.length).toBe(2);
     expect(page.items.some((h) => h.snippet.includes('rotated'))).toBe(true);
@@ -2617,11 +2731,11 @@ describe('search worker host (stage 4)', () => {
   it('keeps the main thread responsive while the worker opens and syncs a corpus', { timeout: 30_000 }, async () => {
     const summaries: SessionSummary[] = [];
     for (let i = 0; i < 120; i++) {
-      const s = summary(`probe-${i}`, `probe \u4F1A\u8BDD ${i}`, T1 + i);
+      const s = summary(`probe-${i}`, `probe zh ${i}`, T1 + i);
       summaries.push(s);
       const lines: string[] = [];
       for (let j = 0; j < 30; j++) {
-        lines.push(userLine(`\u68C0\u7D22\u8BCD probe ${i}-${j} \u6301\u4E45\u5316`, T1 + i * 100 + j));
+        lines.push(userLine(`zh probe ${i}-${j} zh`, T1 + i * 100 + j));
       }
       await writeWire(home!, s.id, 'main', lines);
     }
@@ -2638,7 +2752,7 @@ describe('search worker host (stage 4)', () => {
     eld.enable();
 
     const service = track(makeService(home!, staticIndex(summaries)));
-    const early = await service.search({ query: '\u68C0\u7D22\u8BCD' });
+    const early = await service.search({ query: 'zh' });
     expect(early.indexState.state).toBe('building');
     await settleSync(service);
 
@@ -2652,7 +2766,7 @@ describe('search worker host (stage 4)', () => {
     expect(p99Ms).toBeLessThan(20);
     expect(maxMs).toBeLessThan(100);
 
-    const page = await service.search({ query: '\u68C0\u7D22\u8BCD' });
+    const page = await service.search({ query: 'zh' });
     expect(page.items.length).toBeGreaterThan(0);
     expect(page.indexState.state).toBe('ready');
   });
@@ -2660,18 +2774,18 @@ describe('search worker host (stage 4)', () => {
   it('keeps the main thread responsive while the worker rebuilds and swaps the generation (reindex)', { timeout: 30_000 }, async () => {
     const summaries: SessionSummary[] = [];
     for (let i = 0; i < 120; i++) {
-      const s = summary(`reindex-${i}`, `reindex \u4F1A\u8BDD ${i}`, T1 + i);
+      const s = summary(`reindex-${i}`, `reindex zh ${i}`, T1 + i);
       summaries.push(s);
       const lines: string[] = [];
       for (let j = 0; j < 30; j++) {
-        lines.push(userLine(`\u68C0\u7D22\u8BCD reindex ${i}-${j} \u6301\u4E45\u5316`, T1 + i * 100 + j));
+        lines.push(userLine(`zh reindex ${i}-${j} zh`, T1 + i * 100 + j));
       }
       await writeWire(home!, s.id, 'main', lines);
     }
 
     const service = track(makeService(home!, staticIndex(summaries)));
     await service.reindex();
-    expect((await service.search({ query: '\u68C0\u7D22\u8BCD' })).indexState.state).toBe('ready');
+    expect((await service.search({ query: 'zh' })).indexState.state).toBe('ready');
 
     const eld = monitorEventLoopDelay({ resolution: 5 });
     const stop = { done: false };
@@ -2696,7 +2810,7 @@ describe('search worker host (stage 4)', () => {
     expect(p99Ms).toBeLessThan(20);
     expect(maxMs).toBeLessThan(100);
 
-    const page = await service.search({ query: '\u68C0\u7D22\u8BCD' });
+    const page = await service.search({ query: 'zh' });
     expect(page.items.length).toBeGreaterThan(0);
     expect(page.indexState.state).toBe('ready');
   });
@@ -2760,8 +2874,8 @@ describe('search lifecycle diagnostics (stage 5)', () => {
   });
 
   it('reports degraded instead of throwing when the open fails (inline)', async () => {
-    const s1 = summary('s1', 'open \u5931\u8D25', T1);
-    await writeWire(home!, 's1', 'main', [userLine('\u82F9\u679C open-failure', T1)]);
+    const s1 = summary('s1', 'open zh', T1);
+    await writeWire(home!, 's1', 'main', [userLine('zh open-failure', T1)]);
     const service = track(makeInlineService(home!, staticIndex([s1])));
     await settleBackend(service);
     const core = coreOf(service) as unknown as { openSearchDb(): Promise<unknown> };
@@ -2770,7 +2884,7 @@ describe('search lifecycle diagnostics (stage 5)', () => {
     };
 
     await settleSync(service).catch(() => {});
-    await expect(service.search({ query: '\u82F9\u679C' })).rejects.toMatchObject({
+    await expect(service.search({ query: 'zh' })).rejects.toMatchObject({
       reason: 'index_unavailable',
     });
     expect(service.lifecycleReport().state).toBe('degraded');
@@ -2781,8 +2895,8 @@ describe('search lifecycle diagnostics (stage 5)', () => {
   });
 
   it('logs the corruption rebuild as its own diagnostic outcome (inline)', { timeout: 30_000 }, async () => {
-    const s1 = summary('s1', 'corrupt \u65E5\u5FD7', T1);
-    await writeWire(home!, 's1', 'main', [userLine('\u82F9\u679C corrupt-log', T1)]);
+    const s1 = summary('s1', 'corrupt zh', T1);
+    await writeWire(home!, 's1', 'main', [userLine('zh corrupt-log', T1)]);
     const first = track(makeInlineService(home!, staticIndex([s1])));
     await first.reindex();
     first.dispose();
@@ -2796,12 +2910,12 @@ describe('search lifecycle diagnostics (stage 5)', () => {
     second.syncDebounceMs = 0;
     await settleSync(second);
     expect(warnings.some((line) => line.includes('corruption detected'))).toBe(true);
-    const page = await second.search({ query: '\u82F9\u679C' });
+    const page = await second.search({ query: 'zh' });
     expect(page.items.length).toBe(1);
     expect(page.indexState.state).toBe('ready');
   });
 
-  it('a failing session index degrades search only — construction, search and status keep answering', async () => {
+  it('a failing session index degrades search only  construction, search and status keep answering', async () => {
     const failing = makeSessionIndex(async () => {
       throw new Error('metadata store down');
     });
@@ -2815,8 +2929,8 @@ describe('search lifecycle diagnostics (stage 5)', () => {
   });
 
   it('a restart attaches the published generation instead of rebuilding (inline)', async () => {
-    const s1 = summary('s1', '\u4EE3\u9645\u590D\u7528', T1);
-    await writeWire(home!, 's1', 'main', [userLine('\u82F9\u679C generation-reuse', T1)]);
+    const s1 = summary('s1', 'zh', T1);
+    await writeWire(home!, 's1', 'main', [userLine('zh generation-reuse', T1)]);
     const first = track(makeInlineService(home!, staticIndex([s1])));
     await first.reindex();
     const firstCore = coreOf(first) as unknown as {
@@ -2828,7 +2942,7 @@ describe('search lifecycle diagnostics (stage 5)', () => {
 
     const second = track(makeInlineService(home!, staticIndex([s1])));
     await settleSync(second);
-    const page = await second.search({ query: '\u82F9\u679C' });
+    const page = await second.search({ query: 'zh' });
     expect(page.items.length).toBe(1);
     const core = coreOf(second) as unknown as {
       db: { lifecycleStatus(): { path: string[] } } | null;
@@ -2839,8 +2953,8 @@ describe('search lifecycle diagnostics (stage 5)', () => {
   });
 
   it('concurrent cold calls open the index exactly once (inline)', async () => {
-    const s1 = summary('s1', '\u5355\u6B21\u6253\u5F00', T1);
-    await writeWire(home!, 's1', 'main', [userLine('\u82F9\u679C single-open', T1)]);
+    const s1 = summary('s1', 'zh', T1);
+    await writeWire(home!, 's1', 'main', [userLine('zh single-open', T1)]);
     const service = track(makeInlineService(home!, staticIndex([s1])));
     await settleBackend(service);
     const core = coreOf(service) as unknown as { openSearchDb(): Promise<unknown> };
@@ -2852,14 +2966,14 @@ describe('search lifecycle diagnostics (stage 5)', () => {
     };
 
     const pages = await Promise.all([
-      service.search({ query: '\u82F9\u679C' }),
-      service.search({ query: '\u82F9\u679C' }),
-      service.search({ query: '\u82F9\u679C' }),
+      service.search({ query: 'zh' }),
+      service.search({ query: 'zh' }),
+      service.search({ query: 'zh' }),
     ]);
     for (const page of pages) expect(page.indexState.state).toBe('building');
     await settleSync(service);
     expect(openCalls).toBe(1);
-    expect((await service.search({ query: '\u82F9\u679C' })).items.length).toBe(1);
+    expect((await service.search({ query: 'zh' })).items.length).toBe(1);
   });
 
   it('concurrent first RPCs spawn exactly one worker', { timeout: 30_000 }, async () => {
@@ -2879,8 +2993,8 @@ describe('search lifecycle diagnostics (stage 5)', () => {
   });
 
   it('reports opening while the worker boots, ready after the sync, degraded after a crash', { timeout: 30_000 }, async () => {
-    const s1 = summary('s1', '\u751F\u547D\u5468\u671F', T1);
-    await writeWire(home!, 's1', 'main', [userLine('\u82F9\u679C lifecycle', T1)]);
+    const s1 = summary('s1', 'zh', T1);
+    await writeWire(home!, 's1', 'main', [userLine('zh lifecycle', T1)]);
     const service = track(makeService(home!, staticIndex([s1])));
     await flush();
     expect(service.lifecycleReport().state).toBe('opening');
@@ -2895,23 +3009,35 @@ describe('search lifecycle diagnostics (stage 5)', () => {
     expect(down.state).toBe('degraded');
     expect(down.detail).toContain('worker');
 
-    await new Promise((resolve) => setTimeout(resolve, 700));
+    await vi.waitFor(
+      async () => {
+        expect((await hostOf(service).status()).readOnly).toBe(false);
+      },
+      { timeout: 10_000 },
+    );
     await settleSync(service);
     expect(service.lifecycleReport().state).toBe('ready');
-    expect((await service.search({ query: '\u82F9\u679C' })).items.length).toBe(1);
+    expect((await service.search({ query: 'zh' })).items.length).toBe(1);
   });
 
   it('does not serve a dead worker generation’s cached lifecycle after a respawn', { timeout: 30_000 }, async () => {
-    const s1 = summary('s1', '\u7F13\u5B58\u5931\u6548', T1);
-    await writeWire(home!, 's1', 'main', [userLine('\u82F9\u679C stale-cache', T1)]);
+    const s1 = summary('s1', 'zh', T1);
+    await writeWire(home!, 's1', 'main', [userLine('zh stale-cache', T1)]);
     const service = track(makeService(home!, staticIndex([s1])));
     await settleSync(service);
     expect(service.lifecycleReport().state).toBe('ready');
 
     await hostOf(service).killWorkerForTest();
-    await new Promise((resolve) => setTimeout(resolve, 700));
-
     const host = hostOf(service);
+    await vi.waitFor(
+      () => {
+        expect(
+          (host as unknown as { nextRetryAfter: number }).nextRetryAfter,
+        ).toBeLessThanOrEqual(Date.now());
+      },
+      { timeout: 10_000 },
+    );
+
     const respawn = syncNow(service);
     respawn.catch(() => {});
     await vi.waitFor(
@@ -2925,12 +3051,12 @@ describe('search lifecycle diagnostics (stage 5)', () => {
     await respawn;
     await settleSync(service);
     expect(service.lifecycleReport().state).toBe('ready');
-    expect((await service.search({ query: '\u82F9\u679C' })).items.length).toBe(1);
+    expect((await service.search({ query: 'zh' })).items.length).toBe(1);
   });
 
   it('a clean dispose releases the search-index lock and the lifecycle settles at stopped', { timeout: 30_000 }, async () => {
-    const s1 = summary('s1', '\u9000\u51FA\u987A\u5E8F', T1);
-    await writeWire(home!, 's1', 'main', [userLine('\u82F9\u679C shutdown', T1)]);
+    const s1 = summary('s1', 'zh', T1);
+    await writeWire(home!, 's1', 'main', [userLine('zh shutdown', T1)]);
     const service = track(makeService(home!, staticIndex([s1])));
     await service.reindex();
     await expect(stat(lockPath())).resolves.toBeDefined();
@@ -2945,7 +3071,7 @@ describe('search lifecycle diagnostics (stage 5)', () => {
 
     const next = track(makeService(home!, staticIndex([s1])));
     await next.reindex();
-    expect((await next.search({ query: '\u82F9\u679C' })).items.length).toBe(1);
+    expect((await next.search({ query: 'zh' })).items.length).toBe(1);
   });
 
   it('a spawn failure never falls back to the inline host and reports degraded', { timeout: 30_000 }, async () => {
@@ -2973,3 +3099,4 @@ describe('search lifecycle diagnostics (stage 5)', () => {
     expect(status.degraded).toContain('worker');
   });
 });
+

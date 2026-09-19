@@ -3,7 +3,7 @@ import { join } from 'pathe';
 import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 
-import type { ContentPart } from '#/kosong/contract/message';
+import type { ContentPart } from '#human/llm/message';
 
 import { Disposable } from '#/_base/di/lifecycle';
 import { ILogService } from '#/_base/log/log';
@@ -24,12 +24,9 @@ import {
 import '#/agent/contextMemory/conversationTime';
 import { IAgentConversationUndoParticipantRegistry } from '#/agent/contextMemory/conversationUndoParticipants';
 import { IEventDispatcher } from '#/state/eventDispatcher';
-import type { ContextMessage, TaskOrigin } from '#/agent/contextMemory/types';
-import { activateReminderWhenReady } from '#/features/reminder/internal/reminderActivation';
-import { AgentReminder } from '#/features/reminder/reminderAgentRuntime';
-import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
-import { IAgentLoopService } from '#/agent/loop/loop';
-import { MessageStepRequest } from '#/agent/loop/stepRequest';
+import type { TaskOrigin } from '#/agent/contextMemory/types';
+import { IAgentReminderService } from '#/features/reminder/reminderService';
+import { IAgentLoopService, type LoopNotifyHandle } from '#/agent/loop/loop';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentStateService } from '#/agent/state/agentState';
 import { ITaskService, type ITaskHandle, TERMINAL_TASK_STATES } from '#/app/task/task';
@@ -60,7 +57,7 @@ import {
   type RegisterAgentTaskOptions,
 } from './task';
 import { resolveAgentTaskConfig } from './configSection';
-import { AgentTaskPersistence, utf8TailPreview } from './persist';
+import { AgentTaskPersistence } from './persist';
 import { taskKey, TaskNotified, TaskStarted, TaskTerminated, TaskWaitDelivered } from './taskOps';
 import { formatTaskList } from '#/agent/tools/task/task-list/taskListTool';
 import '#/agent/tools/task/task-output/taskOutputTool';
@@ -131,7 +128,6 @@ interface ManagedTask {
   foregroundRelease?: ForegroundRelease;
   stopReason?: string;
   terminalNotificationSuppressed?: boolean;
-  stoppedOnExit?: boolean;
   terminalFired: boolean;
   readonly abortController: AbortController;
   foregroundSignalCleanup?: () => void;
@@ -188,24 +184,6 @@ function coerceTimeoutSettlement(
   return settlement;
 }
 
-export class TaskNotificationStepRequest extends MessageStepRequest {
-  constructor(
-    message: ContextMessage,
-    private readonly onWillDeliver?: () => void,
-  ) {
-    super(message, {
-      kind: 'task_notification',
-      mergeable: true,
-      turnScoped: false,
-      admission: 'activeOrNewTurn',
-    });
-  }
-
-  override onWillMaterialize(): void {
-    this.onWillDeliver?.();
-  }
-}
-
 export const taskGhostsKey = defineState<Map<string, AgentTaskInfo>>(
   'task.ghosts',
   () => new Map(),
@@ -229,7 +207,7 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
   private readonly tasks = new Map<string, ManagedTask>();
   private exitSuppressionArmed = false;
   private readonly buildingNotificationKeys = new Set<string>();
-  private readonly pendingNotificationRequests = new Map<string, TaskNotificationStepRequest>();
+  private readonly pendingNotificationRequests = new Map<string, LoopNotifyHandle>();
   private readonly persistence: AgentTaskPersistence;
   private notificationRestoreQueue: Promise<void> = Promise.resolve();
 
@@ -245,7 +223,7 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
     @IEventBus private readonly eventBus: IEventBus,
     @ISessionEventBus private readonly sessionEventBus: ISessionEventBus,
     @IEventDispatcher private readonly dispatcher: IEventDispatcher,
-    @IAgentLifecycleService private readonly agentLifecycle: IAgentLifecycleService,
+    @IAgentReminderService private readonly reminder: IAgentReminderService,
     @IAgentLoopService private readonly loop: IAgentLoopService,
     @IAgentConversationUndoParticipantRegistry
     undoParticipants: IAgentConversationUndoParticipantRegistry,
@@ -298,10 +276,8 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
       }),
     );
     this._register(
-      activateReminderWhenReady(agentLifecycle, this.scopeContext, (reminder) =>
-        reminder.register(ACTIVE_BACKGROUND_TASK_INJECTION_VARIANT, () =>
-          this.activeBackgroundTaskReminder(),
-        ),
+      this.reminder.register(ACTIVE_BACKGROUND_TASK_INJECTION_VARIANT, () =>
+        this.activeBackgroundTaskReminder(),
       ),
     );
   }
@@ -526,7 +502,7 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
   private async reconcileNotificationDeliveryAfterUndo(): Promise<void> {
     const restoredKeys = new Set(this.states.get(taskNotificationDeliveryKey));
     for (const [key, request] of this.pendingNotificationRequests) {
-      if (request.aborted) this.clearPendingNotification(key, request);
+      if (request.dropped) this.clearPendingNotification(key, request);
     }
     this.deliveredNotificationKeys.clear();
     for (const key of restoredKeys) this.deliveredNotificationKeys.add(key);
@@ -593,16 +569,14 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
     if (entry === undefined) return emptyOutputSnapshot();
 
     const available = Buffer.from(entry.outputChunks.join(''), 'utf-8');
-    const preview = utf8TailPreview(
-      available,
-      Math.min(previewLimit, entry.outputSizeBytes),
-    );
+    const previewBytes = Math.min(previewLimit, available.byteLength, entry.outputSizeBytes);
+    const previewOffset = Math.max(0, available.byteLength - previewBytes);
     return {
       outputSizeBytes: entry.outputSizeBytes,
-      previewBytes: preview.bytes,
-      truncated: entry.outputSizeBytes > preview.bytes,
+      previewBytes,
+      truncated: entry.outputSizeBytes > previewBytes,
       fullOutputAvailable: false,
-      preview: preview.text,
+      preview: available.subarray(previewOffset).toString('utf-8'),
     };
   }
 
@@ -635,7 +609,7 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
         notificationId: taskNotificationId(taskId, status),
       };
       const key = notificationKey(origin);
-      this.pendingNotificationRequests.get(key)?.abort();
+      this.pendingNotificationRequests.get(key)?.drop();
       this.markDeliveredNotification(origin);
       keys.push(key);
     }
@@ -809,17 +783,13 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
   async suppressAllTerminalNotifications(): Promise<void> {
     this.exitSuppressionArmed = true;
     for (const [, request] of Array.from(this.pendingNotificationRequests)) {
-      request.abort();
+      request.drop();
     }
   }
 
   async stopAllOnExit(reason: string): Promise<readonly AgentTaskInfo[]> {
     await this.suppressAllTerminalNotifications();
     if (this.keepAliveOnExit()) return [];
-    for (const task of this.list(true)) {
-      const entry = this.tasks.get(task.taskId);
-      if (entry !== undefined) entry.stoppedOnExit = true;
-    }
     return this.stopAll(reason);
   }
 
@@ -1138,30 +1108,21 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
     if (!this.lifecycleActive() || this.isTerminalNotificationSuppressed(info.taskId)) return;
     const key = notificationKey(context.origin);
     if (this.deliveredNotificationKeys.has(key)) return;
-    const request = new TaskNotificationStepRequest(
-      {
+    const handle = this.loop.notify({
+      message: {
         role: 'user',
         content: [...context.content],
         toolCalls: [],
         origin: context.origin,
       },
-      () => this.fireNotificationHook(context.notification),
-    );
-    this.pendingNotificationRequests.set(key, request);
-    try {
-      const receipt = this.loop.enqueue(request);
-      void receipt.assigned
-        .then(({ step }) => step.result)
-        .then(
-          () => {
-            if (request.aborted) this.clearPendingNotification(key, request);
-          },
-          () => this.clearPendingNotification(key, request),
-        );
-    } catch (error) {
-      this.clearPendingNotification(key, request);
-      throw error;
-    }
+      turnScoped: false,
+      onConsume: () => {
+        this.pendingNotificationRequests.delete(key);
+        this.fireNotificationHook(context.notification);
+      },
+      onDrop: () => this.clearPendingNotification(key, handle),
+    });
+    this.pendingNotificationRequests.set(key, handle);
   }
 
   private restoreAgentTaskNotifications(): Promise<void> {
@@ -1196,16 +1157,14 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
     }
     if (tasks.length === 0) return;
     const lines = tasks.map((info) => previousSessionTaskLine(info));
-    this.agentLifecycle
-      .resolve(this.scopeContext.agentContext, AgentReminder)
-      .notify(
-        [
-          'The user exited the application after your last turn, so your background tasks from the previous session lost contact:',
-          ...lines,
-          "Don't assume any of them completed; check current state (they may still be running), then re-run or resume only what you still need.",
-        ].join('\n'),
-        { variant: TASK_RESUME_TERMINATION_VARIANT },
-      );
+    this.reminder.notify(
+      [
+        'The user exited the application after your last turn, so your background tasks from the previous session lost contact:',
+        ...lines,
+        "Don't assume any of them completed; check current state (they may still be running), then re-run or resume only what you still need.",
+      ].join('\n'),
+      { variant: TASK_RESUME_TERMINATION_VARIANT },
+    );
     for (const info of tasks) {
       this.firePreviousSessionLostTaskNotificationHook(info);
       this.persistPreviousSessionReminderMarker(info);
@@ -1366,7 +1325,7 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
     this.deliveredNotificationKeys.add(key);
   }
 
-  private clearPendingNotification(key: string, request: TaskNotificationStepRequest): void {
+  private clearPendingNotification(key: string, request: LoopNotifyHandle): void {
     if (this.pendingNotificationRequests.get(key) !== request) return;
     this.pendingNotificationRequests.delete(key);
     if (!this.deliveredNotificationKeys.has(key) && !this.hasDeliveredNotification(key)) {
@@ -1418,7 +1377,6 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
       endedAt: entry.endedAt,
       stopReason: entry.stopReason,
       terminalNotificationSuppressed: entry.terminalNotificationSuppressed,
-      stoppedOnExit: entry.stoppedOnExit,
       timeoutMs: entry.options.timeoutMs,
     };
     if (entry.toInfoFn) return entry.toInfoFn(base);
@@ -1661,7 +1619,7 @@ function isPreviousSessionTermination(info: AgentTaskInfo): boolean {
   return (
     info.status === 'killed' &&
     info.terminalNotificationSuppressed === true &&
-    (info.stoppedOnExit === true || info.stopReason === SESSION_CLOSED_REASON)
+    info.stopReason === SESSION_CLOSED_REASON
   );
 }
 

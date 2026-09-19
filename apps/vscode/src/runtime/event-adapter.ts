@@ -4,7 +4,6 @@ import type {
   DisplayBlock,
   LegacyWireEvent,
   StatusUpdate,
-  SubagentStatusPayload,
   TokenUsage,
   TurnBegin,
 } from '../../shared/legacy-sdk';
@@ -23,9 +22,6 @@ export interface AdapterTokenUsage {
 export interface SubagentParent {
   readonly parentAgentId: string;
   readonly parentToolCallId: string;
-  readonly subagentName?: string;
-  readonly description?: string;
-  readonly dynamicWorkflowIndex?: number;
 }
 
 export interface EventAdapterState {
@@ -92,36 +88,23 @@ export function adaptSdkEvent(
   const mainAgentId = options.mainAgentId ?? DEFAULT_MAIN_AGENT_ID;
 
   if (sdkEvent.type === 'subagent.spawned') {
-    const parentAgentId = (sdkEvent as any).parentAgentId ?? (sdkEvent as any).callerAgentId ?? sdkEvent.agentId;
-    const parentToolCallId = scopedToolCallId(parentAgentId, sdkEvent.parentToolCallId, mainAgentId);
-    const nextState: EventAdapterState = {
-      ...state,
-      subagentParents: {
-        ...state.subagentParents,
-        [sdkEvent.subagentId]: {
-          parentAgentId,
-          parentToolCallId,
-          subagentName: sdkEvent.subagentName,
-          description: sdkEvent.description,
-          dynamicWorkflowIndex: sdkEvent.dynamicWorkflowIndex,
+    const parentAgentId = sdkEvent.parentAgentId ?? sdkEvent.callerAgentId ?? sdkEvent.agentId;
+    return {
+      state: {
+        ...state,
+        subagentParents: {
+          ...state.subagentParents,
+          [sdkEvent.subagentId]: {
+            parentAgentId,
+            parentToolCallId: scopedToolCallId(
+              parentAgentId,
+              sdkEvent.parentToolCallId,
+              mainAgentId,
+            ),
+          },
         },
       },
     };
-    const statusPayload: SubagentStatusPayload = {
-      parent_tool_call_id: parentToolCallId,
-      agent_id: sdkEvent.subagentId,
-      agent_label: sdkEvent.subagentName,
-      agent_index: sdkEvent.dynamicWorkflowIndex,
-      status: 'spawned',
-    };
-    const routed = routeSubagentEvent(
-      nextState,
-      parentAgentId,
-      { type: 'SubagentStatus', payload: statusPayload },
-      mainAgentId,
-    );
-    if (routed === undefined) return { state: nextState };
-    return { state: nextState, event: withSessionId(routed, sdkEvent.sessionId) };
   }
 
   if (sdkEvent.type === 'turn.started') {
@@ -191,27 +174,15 @@ export function adaptSdkEvent(
 export function toLegacyToolName(name: string): string {
   switch (name) {
     case 'Bash':
-    case 'bash':
-    case 'exec':
       return 'Shell';
     case 'Read':
-    case 'read':
-    case 'read_file':
       return 'ReadFile';
     case 'Write':
-    case 'write':
-    case 'write_file':
       return 'WriteFile';
     case 'Edit':
-    case 'edit':
-    case 'str_replace':
       return 'StrReplaceFile';
     case 'TodoList':
-    case 'todo_list':
       return 'SetTodoList';
-    case 'agent':
-    case 'agent_spawn':
-      return 'Agent';
     default:
       return name;
   }
@@ -337,14 +308,6 @@ function mapLegacyWireEvent(
     }
     case 'agent.status.updated':
       return mapStatusUpdate(state, sdkEvent);
-    case 'subagent.started':
-      return mapSubagentStatus(state, sdkEvent, 'running');
-    case 'subagent.completed':
-      return mapSubagentStatus(state, sdkEvent, 'done');
-    case 'subagent.failed':
-      return mapSubagentStatus(state, sdkEvent, 'failed');
-    case 'subagent.suspended':
-      return mapSubagentStatus(state, sdkEvent, 'suspended');
     case 'compaction.started':
       return {
         state,
@@ -370,8 +333,8 @@ function mapStatusUpdate(
   const contextUsage = contextUsageRatio(sdkEvent);
   if (contextUsage !== undefined) payload.context_usage = contextUsage;
   if (sdkEvent.planMode !== undefined) payload.plan_mode = sdkEvent.planMode;
-  const thinkingLevel = (sdkEvent as any).thinkingLevel ?? (sdkEvent as any).thinkingEffort;
-  if (thinkingLevel !== undefined) payload.thinking_effort = thinkingLevel;
+  if (sdkEvent.model !== undefined) payload.model = sdkEvent.model;
+  if (sdkEvent.thinkingEffort !== undefined) payload.thinking_effort = sdkEvent.thinkingEffort;
 
   const currentTurn = sdkEvent.usage?.currentTurn;
   if (currentTurn === undefined) {
@@ -392,32 +355,6 @@ function mapStatusUpdate(
     },
     event: { type: 'StatusUpdate', payload },
   };
-}
-
-function mapSubagentStatus(
-  state: EventAdapterState,
-  sdkEvent: Extract<
-    Event,
-    { type: 'subagent.started' | 'subagent.completed' | 'subagent.failed' | 'subagent.suspended' }
-  >,
-  status: SubagentStatusPayload['status'],
-): MappedLegacyWireEvent {
-  // subagent.spawned always precedes every other lifecycle event for the same
-  // subagentId, so the parent is always known by the time this runs.
-  const parent = state.subagentParents[sdkEvent.subagentId];
-  if (parent === undefined) return { state };
-
-  const payload: SubagentStatusPayload = {
-    parent_tool_call_id: parent.parentToolCallId,
-    agent_id: sdkEvent.subagentId,
-    agent_label: parent.subagentName,
-    agent_index: parent.dynamicWorkflowIndex,
-    status,
-    error: sdkEvent.type === 'subagent.failed' ? sdkEvent.error : undefined,
-    result_summary: sdkEvent.type === 'subagent.completed' ? sdkEvent.resultSummary : undefined,
-  };
-
-  return { state, event: { type: 'SubagentStatus', payload } };
 }
 
 function contextUsageRatio(
@@ -482,9 +419,6 @@ function routeSubagentEvent(
       type: 'SubagentEvent',
       payload: {
         parent_tool_call_id: parent.parentToolCallId,
-        agent_id: currentAgentId,
-        agent_label: parent.subagentName,
-        agent_index: parent.dynamicWorkflowIndex,
         event: routed,
       },
     };

@@ -11,6 +11,8 @@ function makeHost() {
     setTurnId: vi.fn(),
     flushNow: vi.fn(),
     resetToolUi: vi.fn(),
+    clearNotifyPanel: vi.fn(),
+    markNotifyPanelEnded: vi.fn(),
     setStep: vi.fn(),
     finalizeTurn: vi.fn(),
     getTurnContext: vi.fn(() => ({ turnId: 1, step: 0 })),
@@ -58,6 +60,7 @@ function makeHost() {
     btwPanelController: { routeEvent: vi.fn(() => false) },
     surveyController: { notifyToolCallStarted: vi.fn(), notifyCompactionFinished: vi.fn() },
     tasksBrowserController: {},
+    surveyController: { notifyToolCallStarted: vi.fn() },
   };
   return { host: host as never, streamingUI };
 }

@@ -65,7 +65,6 @@ function fakeFs(
 ): IHostFileSystem {
   const fileMap = new Map<string, string | Buffer>();
   const dirSet = new Set<string>([WORK_DIR]);
-  let clock = 1000;
   const addAncestors = (rel: string): void => {
     const parts = rel.split('/');
     for (let i = 1; i < parts.length; i++) {
@@ -100,17 +99,7 @@ function fakeFs(
     symlinkSet.add(abs);
     addAncestors(rel);
   }
-  const fileMtimes = new Map<string, number>();
   const isDir = (p: string): boolean => p === WORK_DIR || dirSet.has(p);
-  const assertWritablePath = (p: string): void => {
-    if (isDir(p)) {
-      const err = new Error(`EISDIR: ${p}`) as NodeJS.ErrnoException;
-      err.code = 'EISDIR';
-      throw err;
-    }
-    const parent = p.slice(0, p.lastIndexOf('/'));
-    if (parent !== '' && parent !== WORK_DIR && !isDir(parent)) throw enoent(p);
-  };
   const enoent = (p: string): NodeJS.ErrnoException => {
     const err = new Error(`ENOENT: ${p}`) as NodeJS.ErrnoException;
     err.code = 'ENOENT';
@@ -123,7 +112,7 @@ function fakeFs(
         isFile: true,
         isDirectory: false,
         size: Buffer.isBuffer(c) ? c.length : Buffer.byteLength(c),
-        mtimeMs: fileMtimes.get(p) ?? clock,
+        mtimeMs: 1000,
         ino: 1,
       };
     }
@@ -142,11 +131,7 @@ function fakeFs(
       if (c === undefined) throw enoent(p);
       return typeof c === 'string' ? c : c.toString('utf8');
     },
-    writeText: async (p, data) => {
-      assertWritablePath(p);
-      fileMap.set(p, data);
-      fileMtimes.set(p, ++clock);
-    },
+    writeText: async () => {},
     appendText: async () => {},
     readBytes: async (p, n) => {
       const c = fileMap.get(p);
@@ -156,11 +141,7 @@ function fakeFs(
     },
     readLines: async function* (): AsyncGenerator<string> {
     },
-    writeBytes: async (p, data) => {
-      assertWritablePath(p);
-      fileMap.set(p, Buffer.from(data));
-      fileMtimes.set(p, ++clock);
-    },
+    writeBytes: async () => {},
     createExclusive: async () => false,
     lstat: lstatImpl,
     stat: async (p) => {
@@ -1117,17 +1098,17 @@ describe('WorkspaceFsService.suggest', () => {
 
   it('does not treat dot segments of an additional root itself as hidden', async () => {
     const fs = makeSession(
-      { '/x/.config/editor/foo.ts': '' },
+      { '/x/.config/pythinker/foo.ts': '' },
       rgMultiRootHandler({
         '/repo': [],
-        '/x/.config/editor': ['foo.ts'],
+        '/x/.config/pythinker': ['foo.ts'],
       }),
       [],
       defaultGitStub(),
       [],
       undefined,
       {},
-      ['/x/.config/editor'],
+      ['/x/.config/pythinker'],
     );
     const result = await fs.suggest({
       query: 'foo',
@@ -1135,7 +1116,7 @@ describe('WorkspaceFsService.suggest', () => {
       follow_gitignore: true,
       show_hidden: false,
     });
-    expect(result.items.map((i) => i.path)).toEqual(['/x/.config/editor/foo.ts']);
+    expect(result.items.map((i) => i.path)).toEqual(['/x/.config/pythinker/foo.ts']);
   });
 
   it('applies the limit to the merged ranking across roots', async () => {
@@ -1354,7 +1335,7 @@ describe('WorkspaceFsService.list', () => {
       sort: 'name_asc',
       include_git_status: false,
     });
-    const names = result.items.map((i) => i.name).toSorted();
+    const names = result.items.map((i) => i.name).sort();
     expect(names).toEqual(['README.md', 'src']);
     expect(result.items.find((i) => i.name === 'src')?.kind).toBe('directory');
   });
@@ -1370,7 +1351,7 @@ describe('WorkspaceFsService.list', () => {
       sort: 'name_asc',
       include_git_status: false,
     });
-    expect(result.children_by_path?.['src']?.map((i) => i.name).toSorted()).toEqual([
+    expect(result.children_by_path?.['src']?.map((i) => i.name).sort()).toEqual([
       'a.ts',
       'sub',
     ]);
@@ -1418,15 +1399,15 @@ describe('WorkspaceFsService.read', () => {
   });
 
   it('returns base64 for binary content in auto mode', async () => {
-    const fs = makeSession({ 'bin.dat': 'abc\u0000def' }, emptyHandler);
+    const fs = makeSession({ 'bin.dat': 'abc\x00def' }, emptyHandler);
     const result = await fs.read({ path: 'bin.dat', offset: 0, length: 1024, encoding: 'auto' });
     expect(result.encoding).toBe('base64');
     expect(result.is_binary).toBe(true);
-    expect(result.content).toBe(Buffer.from('abc\u0000def').toString('base64'));
+    expect(result.content).toBe(Buffer.from('abc\x00def').toString('base64'));
   });
 
   it('throws fs.is_binary for binary content in utf-8 mode', async () => {
-    const fs = makeSession({ 'bin.dat': 'abc\u0000def' }, emptyHandler);
+    const fs = makeSession({ 'bin.dat': 'abc\x00def' }, emptyHandler);
     await expect(
       fs.read({ path: 'bin.dat', offset: 0, length: 1024, encoding: 'utf-8' }),
     ).rejects.toMatchObject({ code: 'fs.is_binary' });
@@ -1453,10 +1434,10 @@ describe('WorkspaceFsService.read', () => {
   });
 
   it('transcodes BOM-marked UTF-16 content that never looks binary (CJK-only)', async () => {
-    const utf16 = Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from('\u4F60\u597D\u4E16\u754C', 'utf16le')]);
+    const utf16 = Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from('zh', 'utf16le')]);
     const fs = makeSession({ 'notes.txt': utf16 }, emptyHandler);
     const result = await fs.read({ path: 'notes.txt', offset: 0, length: 1024, encoding: 'utf-8' });
-    expect(result.content).toBe('\u4F60\u597D\u4E16\u754C');
+    expect(result.content).toBe('zh');
     expect(result.encoding).toBe('utf-8');
     expect(result.is_binary).toBe(false);
   });
@@ -1479,7 +1460,7 @@ describe('WorkspaceFsService.read', () => {
   });
 
   it('reads UTF-8 Chinese log content as text instead of throwing fs.is_binary', async () => {
-    const log = '2026-08-16 INFO \u542F\u52A8\u5B8C\u6210 ✅\n2026-08-16 INFO \u5904\u7406\u8BF7\u6C42 🚀 \u6210\u529F\n'.repeat(50);
+    const log = '2026-08-16 INFO zh ✅\n2026-08-16 INFO zh 🚀 zh\n'.repeat(50);
     const fs = makeSession({ 'app.log': log }, emptyHandler);
     const result = await fs.read({
       path: 'app.log',
@@ -1495,9 +1476,9 @@ describe('WorkspaceFsService.read', () => {
   });
 
   it('returns utf-8 rather than base64 for UTF-8 Chinese text in auto mode', async () => {
-    const fs = makeSession({ 'app.log': '\u4E2D\u6587\u65E5\u5FD7 ✅\n' }, emptyHandler);
+    const fs = makeSession({ 'app.log': 'zh ✅\n' }, emptyHandler);
     const result = await fs.read({ path: 'app.log', offset: 0, length: 1024, encoding: 'auto' });
-    expect(result.content).toBe('\u4E2D\u6587\u65E5\u5FD7 ✅\n');
+    expect(result.content).toBe('zh ✅\n');
     expect(result.encoding).toBe('utf-8');
     expect(result.is_binary).toBe(false);
   });
@@ -1568,84 +1549,6 @@ describe('WorkspaceFsService.mkdir', () => {
   });
 });
 
-describe('WorkspaceFsService.write', () => {
-  it('creates a new file and reports created=true with a readable round-trip', async () => {
-    const fs = makeSession({ 'src/keep.ts': '' }, emptyHandler);
-    const result = await fs.write({ path: 'src/new.ts', content: 'export {};', encoding: 'utf-8' });
-    expect(result.created).toBe(true);
-    expect(result.path).toBe('src/new.ts');
-    expect(result.size).toBe(Buffer.byteLength('export {};'));
-    const back = await fs.read({ path: 'src/new.ts', offset: 0, length: 1024, encoding: 'utf-8' });
-    expect(back.content).toBe('export {};');
-    expect(back.etag).toBe(result.etag);
-  });
-
-  it('overwrites an existing file, reports created=false, and refreshes the etag', async () => {
-    const fs = makeSession({ 'a.txt': 'one' }, emptyHandler);
-    const before = await fs.read({ path: 'a.txt', offset: 0, length: 1024, encoding: 'utf-8' });
-    const result = await fs.write({ path: 'a.txt', content: 'two', encoding: 'utf-8' });
-    expect(result.created).toBe(false);
-    expect(result.etag).not.toBe(before.etag);
-    const back = await fs.read({ path: 'a.txt', offset: 0, length: 1024, encoding: 'utf-8' });
-    expect(back.content).toBe('two');
-  });
-
-  it('succeeds when base_etag matches the current file', async () => {
-    const fs = makeSession({ 'a.txt': 'one' }, emptyHandler);
-    const before = await fs.read({ path: 'a.txt', offset: 0, length: 1024, encoding: 'utf-8' });
-    const result = await fs.write({ path: 'a.txt', content: 'two', base_etag: before.etag, encoding: 'utf-8' });
-    expect(result.created).toBe(false);
-  });
-
-  it('throws fs.conflict when base_etag is stale', async () => {
-    const fs = makeSession({ 'a.txt': 'one' }, emptyHandler);
-    await fs.write({ path: 'a.txt', content: 'changed by someone else', encoding: 'utf-8' });
-    await expect(fs.write({ path: 'a.txt', content: 'stale write', base_etag: 'bogus-etag', encoding: 'utf-8' }))
-      .rejects.toMatchObject({ code: 'fs.conflict' });
-  });
-
-  it('round-trips base64 payloads byte-exactly', async () => {
-    const fs = makeSession({}, emptyHandler);
-    const bytes = Buffer.from([0, 1, 2, 253, 254, 255]);
-    const result = await fs.write({ path: 'bin.dat', content: bytes.toString('base64'), encoding: 'base64' });
-    expect(result.size).toBe(bytes.byteLength);
-    const back = await fs.read({ path: 'bin.dat', offset: 0, length: 1024, encoding: 'base64' });
-    expect(Buffer.from(back.content, 'base64')).toEqual(bytes);
-  });
-
-  it('throws fs.is_directory when the target is a directory', async () => {
-    const fs = makeSession({ 'src/a.ts': '' }, emptyHandler);
-    await expect(fs.write({ path: 'src', content: 'x', encoding: 'utf-8' })).rejects.toMatchObject({
-      code: 'fs.is_directory',
-    });
-  });
-
-  it('throws fs.too_large when the payload exceeds the write cap', async () => {
-    const fs = makeSession({}, emptyHandler);
-    const big = Buffer.alloc(10 * 1024 * 1024 + 1, 97).toString('utf-8');
-    await expect(fs.write({ path: 'big.txt', content: big, encoding: 'utf-8' })).rejects.toMatchObject({
-      code: 'fs.too_large',
-    });
-  });
-
-  it('throws fs.path_escapes for paths leaving the workspace', async () => {
-    const fs = makeSession({}, emptyHandler);
-    await expect(fs.write({ path: '../outside.txt', content: 'x', encoding: 'utf-8' })).rejects.toMatchObject({
-      code: 'fs.path_escapes',
-    });
-    await expect(fs.write({ path: '/etc/hosts', content: 'x', encoding: 'utf-8' })).rejects.toMatchObject({
-      code: 'fs.path_escapes',
-    });
-  });
-
-  it('throws fs.path_not_found when the parent directory does not exist', async () => {
-    const fs = makeSession({}, emptyHandler);
-    await expect(fs.write({ path: 'missing/dir/f.txt', content: 'x', encoding: 'utf-8' })).rejects.toMatchObject({
-      code: 'fs.path_not_found',
-    });
-  });
-});
-
 describe('WorkspaceFsService.resolvePath', () => {
   it('returns absolute, relative, and isDirectory', async () => {
     const fs = makeSession({ 'src/a.ts': '' }, emptyHandler);
@@ -1667,7 +1570,7 @@ describe('WorkspaceFsService.resolveDownload', () => {
   });
 
   it('resolves a UTF-8 Chinese log as text/plain', async () => {
-    const fs = makeSession({ 'app.log': '\u542F\u52A8\u5B8C\u6210 ✅ \u4E2D\u6587\u65E5\u5FD7\u5185\u5BB9\n'.repeat(20) }, emptyHandler);
+    const fs = makeSession({ 'app.log': 'zh ✅ zh\n'.repeat(20) }, emptyHandler);
     const res = await fs.resolveDownload('app.log');
     expect(res.mime).toBe('text/plain');
   });

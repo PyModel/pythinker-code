@@ -83,25 +83,6 @@ export interface TurnEndedEvent {
   trace_id?: string;
 }
 
-export interface OutputTokenRecoveryEvent {
-  turn_id: number;
-  attempt: number;
-  max_attempts: number;
-}
-
-export interface ModelFallbackEvent {
-  turn_id: number;
-  from_model: string;
-  to_model: string;
-}
-
-export interface BudgetContinuationEvent {
-  turn_id: number;
-  continuation_count: number;
-  tokens_used: number;
-  budget_tokens: number;
-}
-
 export interface PromptCacheProbeEvent {
   source: 'fork';
   turn_id: number;
@@ -273,7 +254,7 @@ export interface BackgroundTaskCompletedEvent {
 }
 
 export interface WaitForCompletedEvent {
-  outcome: 'completed' | 'timed_out' | 'task_not_found' | 'aborted';
+  outcome: 'completed' | 'timed_out' | 'task_not_found' | 'aborted' | 'interrupted';
   timeout_ms: number;
   waited_ms: number;
   has_task_id: boolean;
@@ -361,6 +342,11 @@ export interface ToolCallTurnRepeatEvent {
   trace_id?: string;
 }
 
+export interface ToolCallRepeatHandoffEvent {
+  turn_id?: number;
+  outcome: 'text' | 'vetoed';
+}
+
 export interface AgentsMdReminderShownEvent {
   turn_id: number;
   tool_name: string;
@@ -394,20 +380,7 @@ export interface SubagentCreatedEvent {
   parent_agent_id: string;
   parent_tool_call_id: string;
   model?: string;
-}
-
-export interface SubagentSpawnPlanResolvedEvent {
-  operation: 'spawn' | 'fork';
-  profile_source: 'requested' | 'default' | 'fork-inherit' | 'resume-existing';
-  model_source: 'caller' | 'policy-default' | 'policy-pool' | 'policy-force' | 'fork-inherit' | 'resume-existing';
-  policy_mode: 'inherit' | 'default' | 'pool' | 'force';
-  policy_source: 'config' | 'default';
-  feature_source: 'master-env' | 'env' | 'config' | 'default';
-  routing_env_revision: string;
-  route_decision: string;
-  explicit_profile: boolean;
-  explicit_model: boolean;
-  explicit_thinking: boolean;
+  model_source?: 'forced' | 'primary_override' | 'inherited' | 'secondary_pool';
 }
 
 export interface McpConnectedEvent {
@@ -514,6 +487,23 @@ export interface ExitEvent {
   duration_ms: number;
 }
 
+export interface OauthLoginFinishedEvent {
+  provider: string;
+  status: 'authenticated' | 'cancelled' | 'expired' | 'denied';
+  duration_ms: number;
+}
+
+export interface OauthModelsRefreshFinishedEvent {
+  changed_count: number;
+  unchanged_count: number;
+  failed_count: number;
+}
+
+export interface AuthEnsureReadyFailedEvent {
+  reason: 'provisioning_required' | 'model_not_resolved' | 'token_missing' | 'unexpected';
+  has_model_override: boolean;
+}
+
 export interface ShellCommandFinishedEvent {
   duration_ms: number;
   is_error: boolean;
@@ -565,6 +555,14 @@ export interface SessionIndexMirrorGiveUpEvent {
   consecutive_failures: number;
 }
 
+export interface WorkspaceTrustChangedEvent {
+  trusted: boolean;
+}
+
+export interface WorkspaceTrustReadFailedEvent {
+  error_type: string;
+}
+
 export const telemetryEventDefinitions = {
   wire_plan_revision_migrated: defineAgentTelemetryEvent<WirePlanRevisionMigratedEvent>({
     owner: 'pythinker-code',
@@ -609,43 +607,12 @@ export const telemetryEventDefinitions = {
       reason: 'How the turn ended',
       duration_ms: 'Turn wall-clock time in milliseconds',
       mode: 'Agent mode the turn ran in',
-      error_type: 'Engine error code when the turn failed; absent otherwise',
+      error_type: 'Classified error category when reason is failed',
       provider_type: 'Provider protocol type',
       protocol: 'Request protocol',
       thinking_effort: 'Effective thinking effort the turn ran with',
       trace_id:
         'Trace id of the most recent LLM request in this turn; absent for non-Pythinker protocols',
-    },
-  }),
-  output_token_recovery: defineAgentTelemetryEvent<OutputTokenRecoveryEvent>({
-    owner: 'pythinker-code',
-    comment:
-      'A truncated response (output token limit, no tool calls) is recovered with a resume nudge and the turn continues.',
-    properties: {
-      turn_id: 'Per-agent turn index (main or subagent); pair with agent_id to locate a turn within a session',
-      attempt: 'Recovery attempt index within the turn, starting at 1',
-      max_attempts: 'Configured cap on recovery attempts per turn',
-    },
-  }),
-  model_fallback_triggered: defineAgentTelemetryEvent<ModelFallbackEvent>({
-    owner: 'pythinker-code',
-    comment:
-      'Step retries were exhausted on a persistent retryable provider error and the agent switched to the configured fallback model.',
-    properties: {
-      turn_id: 'Per-agent turn index (main or subagent); pair with agent_id to locate a turn within a session',
-      from_model: 'Model alias that kept failing before the switch',
-      to_model: 'Fallback model alias the agent switched to',
-    },
-  }),
-  budget_continuation: defineAgentTelemetryEvent<BudgetContinuationEvent>({
-    owner: 'pythinker-code',
-    comment:
-      'A naturally-stopping turn is continued toward the configured output-token target with a continuation nudge.',
-    properties: {
-      turn_id: 'Per-agent turn index (main or subagent); pair with agent_id to locate a turn within a session',
-      continuation_count: 'Continuation index within the turn, starting at 1',
-      tokens_used: 'Cumulative output tokens consumed by the turn so far',
-      budget_tokens: 'Configured output-token target for the turn',
     },
   }),
   prompt_cache_probe: defineAgentTelemetryEvent<PromptCacheProbeEvent>({
@@ -994,6 +961,14 @@ export const telemetryEventDefinitions = {
         'Trace id of the LLM request that produced the repeated tool call; absent for non-Pythinker protocols',
     },
   }),
+  tool_call_repeat_handoff: defineAgentTelemetryEvent<ToolCallRepeatHandoffEvent>({
+    owner: 'pythinker-code',
+    comment: 'The text-only handoff step that follows a repeat-breaker force stop finished.',
+    properties: {
+      turn_id: 'Per-agent turn index (main or subagent); pair with agent_id to locate a turn within a session; omitted when no turn is active',
+      outcome: 'Whether the model answered in text or its tool calls were vetoed',
+    },
+  }),
   agents_md_reminder_shown: defineAgentTelemetryEvent<AgentsMdReminderShownEvent>({
     owner: 'pythinker-code',
     comment: 'An AGENTS.md discovery reminder is queued for context injection after a tool call.',
@@ -1042,23 +1017,8 @@ export const telemetryEventDefinitions = {
       parent_agent_id: 'Parent (caller) agent id',
       parent_tool_call_id: "Tool call id of the launching call in the parent agent; '' when not launched from a tool call",
       model: 'Model alias the subagent binds to (secondary-model choice or inherited caller model); omitted when no binding was resolved',
-    },
-  }),
-  subagent_spawn_plan_resolved: defineTelemetryEvent<SubagentSpawnPlanResolvedEvent>({
-    owner: 'pythinker-code',
-    comment: 'The routing resolver produced a spawn plan for a new subagent (no prompt content).',
-    properties: {
-      operation: 'spawn or fork',
-      profile_source: 'Where the profile came from: requested, default, or fork-inherit',
-      model_source: 'Where the model came from: caller, policy-default, policy-pool, policy-force, or fork-inherit',
-      policy_mode: 'Effective subagent model policy mode',
-      policy_source: 'Whether the policy came from config or the default',
-      feature_source: 'Where the secondary-model feature state came from',
-      routing_env_revision: 'Hash of the ambient routing inputs the plan was resolved from',
-      route_decision: 'Hash of the routing environment plus the request intent',
-      explicit_profile: 'Whether the request named a subagent type',
-      explicit_model: 'Whether the request named a model',
-      explicit_thinking: 'Whether the request named a thinking effort',
+      model_source:
+        "How the bound model was chosen: 'forced' = [secondary_model].force, 'primary_override' = explicit \"primary\" request, 'inherited' = caller's own model (no pool or fork), 'secondary_pool' = [secondary_model.models] pool pick; omitted when no binding resolution happened (e.g. resume)",
     },
   }),
   mcp_connected: defineTelemetryEvent<McpConnectedEvent>({
@@ -1189,9 +1149,35 @@ export const telemetryEventDefinitions = {
     comment: 'A CLI run exits.',
     properties: { duration_ms: 'Run wall-clock time in milliseconds' },
   }),
+  oauth_login_finished: defineTelemetryEvent<OauthLoginFinishedEvent>({
+    owner: 'pythinker-code',
+    comment: 'An OAuth login flow reaches a terminal status.',
+    properties: {
+      provider: 'OAuth provider name',
+      status: 'Terminal status of the login flow',
+      duration_ms: 'Login flow wall-clock time in milliseconds',
+    },
+  }),
+  oauth_models_refresh_finished: defineTelemetryEvent<OauthModelsRefreshFinishedEvent>({
+    owner: 'pythinker-code',
+    comment: 'A refresh of the managed OAuth provider model catalog finishes.',
+    properties: {
+      changed_count: 'Number of models added or updated by the refresh',
+      unchanged_count: 'Number of models left unchanged',
+      failed_count: 'Number of models that failed to refresh',
+    },
+  }),
+  auth_ensure_ready_failed: defineTelemetryEvent<AuthEnsureReadyFailedEvent>({
+    owner: 'pythinker-code',
+    comment: 'Auth readiness check fails before a turn can start.',
+    properties: {
+      reason: 'Why auth is not ready',
+      has_model_override: 'Whether a model override is configured',
+    },
+  }),
   shell_command_finished: defineAgentTelemetryEvent<ShellCommandFinishedEvent>({
     owner: 'pythinker-code',
-    comment: 'A shell command execution finishes outside the tool executor.',
+    comment: 'A shell command execution finishes; this path bypasses the tool executor.',
     properties: {
       duration_ms: 'Execution wall-clock time in milliseconds',
       is_error: 'Whether the execution ended with an error',
@@ -1214,7 +1200,7 @@ export const telemetryEventDefinitions = {
   }),
   web_fetch_fallback: defineTelemetryEvent<WebFetchFallbackEvent>({
     owner: 'pythinker-code',
-    comment: 'The managed fetch provider fails and the call falls back to the local fetcher.',
+    comment: 'The managed fetch-url provider fails and the call silently falls back to the local fetcher.',
     properties: {
       error_type: 'Classified error category of the managed fetch failure',
       used_api_key: 'Whether a managed access token was obtained before the failure',
@@ -1222,7 +1208,7 @@ export const telemetryEventDefinitions = {
   }),
   media_resolve_fallback: defineAgentTelemetryEvent<MediaResolveFallbackEvent>({
     owner: 'pythinker-code',
-    comment: 'A media part is degraded or replaced while resolving model input.',
+    comment: 'A media part is silently degraded or replaced while resolving model input.',
     properties: {
       kind: 'Media kind being resolved',
       reason: 'Why the media could not be resolved as-is',
@@ -1231,30 +1217,30 @@ export const telemetryEventDefinitions = {
   }),
   llm_request_projection_fallback: defineAgentTelemetryEvent<LlmRequestProjectionFallbackEvent>({
     owner: 'pythinker-code',
-    comment: 'A rejected LLM request retries with a degraded context projection.',
+    comment: 'A rejected LLM request is retried with a degraded context projection.',
     properties: {
       projection: 'Projection policy the request is degraded to',
       error_type: 'Classified error category of the rejection',
       model: 'Model that rejected the request',
-      turn_id: 'Per-agent turn index',
+      turn_id: 'Per-agent turn index; pair with agent_id to locate a turn within a session',
     },
   }),
   session_index_degraded: defineTelemetryEvent<SessionIndexDegradedEvent>({
     owner: 'pythinker-code',
-    comment: 'The session index degrades to the authoritative directory scan.',
+    comment: 'The session index read model degrades to the authoritative directory scan.',
     properties: {
       reason: 'Why the read model degraded',
-      degraded_count: 'How many times the read model has degraded',
-      error_type: 'Classified error category when an error caused degradation',
+      degraded_count: 'How many times the read model has degraded so far',
+      error_type: 'Classified error category when degradation was caused by an error',
     },
   }),
   session_index_projected: defineTelemetryEvent<SessionIndexProjectedEvent>({
     owner: 'pythinker-code',
-    comment: 'The session index finishes projecting the sessions directory.',
+    comment: 'The session index finishes projecting the sessions directory into the read model.',
     properties: {
       duration_ms: 'Projection wall-clock time in milliseconds',
       session_count: 'Number of sessions projected',
-      generation: 'Read model generation after projection',
+      generation: 'Read model generation after this projection',
     },
   }),
   session_index_mirror_give_up: defineTelemetryEvent<SessionIndexMirrorGiveUpEvent>({
@@ -1262,8 +1248,18 @@ export const telemetryEventDefinitions = {
     comment: 'The session index mirror stops retrying after consecutive write failures.',
     properties: {
       pending_count: 'Number of queued mirror writes left pending',
-      consecutive_failures: 'Number of consecutive failures',
+      consecutive_failures: 'Number of consecutive write failures that triggered the give-up',
     },
+  }),
+  workspace_trust_changed: defineTelemetryEvent<WorkspaceTrustChangedEvent>({
+    owner: 'pythinker-code',
+    comment: 'A workspace is trusted or untrusted.',
+    properties: { trusted: 'Whether the workspace is now trusted' },
+  }),
+  workspace_trust_read_failed: defineTelemetryEvent<WorkspaceTrustReadFailedEvent>({
+    owner: 'pythinker-code',
+    comment: 'Reading the workspace trust record fails and the workspace silently falls back to untrusted.',
+    properties: { error_type: 'Classified error category' },
   }),
 } as const;
 

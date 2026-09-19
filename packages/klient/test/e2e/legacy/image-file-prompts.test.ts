@@ -11,7 +11,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { ErrorCode } from '@pymodel/protocol';
+import { ErrorCode } from '@pymodel/agent-gateway/protocol/error-codes';
 
 import { DaemonClient, EnvelopeError } from '../harness/index.js';
 import { fetchWithReport } from '../harness/report.js';

@@ -2,18 +2,14 @@ import type { ExperimentalFeatureState } from '@pymodel/pythinker-code-sdk';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { SlashCommandHost } from '#/tui/commands';
-import {
-  applyExperimentalFeatureChanges,
-} from '#/tui/commands/config';
+import { applyExperimentalFeatureChanges } from '#/tui/commands/config';
 import {
   isExperimentalFlagEnabled,
   setExperimentalFeatures,
 } from '#/tui/commands/experimental-flags';
 import { darkColors } from '#/tui/theme/colors';
 
-function feature(
-  overrides: Partial<ExperimentalFeatureState> = {},
-): ExperimentalFeatureState {
+function feature(overrides: Partial<ExperimentalFeatureState> = {}): ExperimentalFeatureState {
   return {
     id: 'micro_compaction',
     title: 'Micro compaction',
@@ -23,8 +19,6 @@ function feature(
     defaultEnabled: true,
     enabled: true,
     source: 'default',
-    externallyControlled: false,
-    overridden: false,
     ...overrides,
   };
 }
@@ -44,7 +38,7 @@ function makeHost() {
       getExperimentalFeatures: vi.fn(async () => [
         feature({ enabled: false, source: 'config', configValue: false }),
       ]),
-      reloadSession: vi.fn(async () => ({ ...session, id: 'ses-experiments-reloaded' })),
+      reloadSession: vi.fn(async () => session),
     },
     session,
     refreshSlashCommandAutocomplete: vi.fn(),
@@ -81,12 +75,10 @@ describe('experimental feature command handlers', () => {
   it('persists config overrides, refreshes command flags, closes the panel, and reloads', async () => {
     const host = makeHost();
 
-    await applyExperimentalFeatureChanges(host, [
-      { id: 'micro_compaction', enabled: false },
-    ]);
+    await applyExperimentalFeatureChanges(host, [{ id: 'micro_compaction', enabled: false }]);
 
     expect(host.harness.setConfig).toHaveBeenCalledWith({
-      experimental: { 'micro_compaction': false },
+      experimental: { micro_compaction: false },
     });
     expect(host.harness.getExperimentalFeatures).toHaveBeenCalledOnce();
     expect(isExperimentalFlagEnabled('micro_compaction')).toBe(false);
@@ -95,7 +87,7 @@ describe('experimental feature command handlers', () => {
     expect(host.harness.reloadSession).toHaveBeenCalledWith({ id: host.session.id });
     expect(host.session.reloadSession).not.toHaveBeenCalled();
     expect(host.reloadCurrentSessionView).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 'ses-experiments-reloaded' }),
+      host.session,
       'Experimental features updated. Session reloaded.',
     );
     expect(host.mountEditorReplacement).not.toHaveBeenCalled();
@@ -165,7 +157,7 @@ describe('experimental feature command handlers', () => {
     );
   });
 
-  it('shows a restart notice when the tower flag changes', async () => {
+  it('notices that tower mode needs a restart when the tower flag changes', async () => {
     const host = makeHost();
 
     await applyExperimentalFeatureChanges(host, [{ id: 'tower', enabled: true }]);
@@ -175,12 +167,10 @@ describe('experimental feature command handlers', () => {
     );
   });
 
-  it('does not show the restart notice for other flags', async () => {
+  it('does not show the restart notice for non-tower changes', async () => {
     const host = makeHost();
 
-    await applyExperimentalFeatureChanges(host, [
-      { id: 'micro_compaction', enabled: false },
-    ]);
+    await applyExperimentalFeatureChanges(host, [{ id: 'micro_compaction', enabled: false }]);
 
     expect(host.showNotice).not.toHaveBeenCalled();
   });

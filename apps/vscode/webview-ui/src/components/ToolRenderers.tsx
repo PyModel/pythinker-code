@@ -14,14 +14,12 @@ import {
   IconSquareChevronRight,
 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
-import { getToolLabel, parseArgs } from "@/lib/tool-args";
 import { FileLink, Markdown } from "./Markdown";
 import { DisplayBlocks } from "./DisplayBlocks";
 import { formatContentOutput } from "shared/legacy-sdk";
 import { cleanSystemTags } from "shared/utils";
 import { ThinkingBlock } from "./ThinkingBlock";
-import { WorkflowCard } from "./WorkflowCard";
-import type { UIToolCall, UIStep, UIStepItem, UISubagentStatus, UIWorkflowWarning } from "@/stores/chat.store";
+import type { UIToolCall, UIStep, UIStepItem } from "@/stores/chat.store";
 import type { ToolResult, DisplayBlock, TodoBlock } from "shared/legacy-sdk";
 
 type ToolResultValue = ToolResult["return_value"];
@@ -30,8 +28,17 @@ interface ToolRendererProps {
   call: UIToolCall;
   result?: ToolResultValue;
   subagentSteps?: UIStep[];
-  subagentStatus?: Record<string, UISubagentStatus>;
-  workflowWarning?: UIWorkflowWarning;
+}
+
+function parseArgs(args: string | null): Record<string, unknown> {
+  if (!args) {
+    return {};
+  }
+  try {
+    return JSON.parse(args);
+  } catch {
+    return { raw: args };
+  }
 }
 
 function formatOutput(output: string | object | object[]): string {
@@ -50,7 +57,7 @@ function getRichDisplayBlocks(display?: DisplayBlock[]): DisplayBlock[] {
   if (!display) {
     return [];
   }
-  return display.filter((b) => b.type === "diff" || b.type === "shell");
+  return display.filter((b) => b.type === "diff");
 }
 
 function CodeBlock({ content, maxLines = 10 }: { content: string; maxLines?: number }) {
@@ -61,14 +68,14 @@ function CodeBlock({ content, maxLines = 10 }: { content: string; maxLines?: num
 
   return (
     <div className="relative group/codeblock">
-      <pre className="text-[11px] bg-muted text-foreground rounded px-3 py-2 overflow-x-auto whitespace-pre-wrap break-all">
+      <pre className="text-[11px] bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 rounded px-3 py-2 overflow-x-auto whitespace-pre-wrap break-all">
         {displayContent}
-        {shouldCollapse && !expanded && <span className="text-muted-foreground">{"\n"}…</span>}
+        {shouldCollapse && !expanded && <span className="text-zinc-500">{"\n"}…</span>}
       </pre>
       {shouldCollapse && (
         <button
           onClick={() => setExpanded(!expanded)}
-          className="absolute bottom-1.5 right-1.5 text-[11px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground hover:text-foreground opacity-0 group-hover/codeblock:opacity-100 transition-opacity cursor-pointer"
+          className="absolute bottom-1.5 right-1.5 text-[11px] px-1.5 py-0.5 rounded bg-zinc-200 dark:bg-zinc-700 text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 opacity-0 group-hover/codeblock:opacity-100 transition-opacity cursor-pointer"
         >
           {expanded ? "Less" : `Expand +${lines.length - maxLines}`}
         </button>
@@ -81,12 +88,12 @@ function StatusIndicator({ status }: { status: "pending" | "success" | "error" }
   if (status === "pending") {
     return (
       <span className="relative flex size-2">
-        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-warning opacity-75" />
-        <span className="relative inline-flex rounded-full size-2 bg-warning" />
+        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
+        <span className="relative inline-flex rounded-full size-2 bg-amber-500" />
       </span>
     );
   }
-  return <span className={cn("inline-flex rounded-full size-2", status === "success" ? "bg-success" : "bg-destructive")} />;
+  return <span className={cn("inline-flex rounded-full size-2", status === "success" ? "bg-emerald-500" : "bg-red-500")} />;
 }
 
 function ToolIcon({ name }: { name: string }) {
@@ -124,14 +131,14 @@ function TodoStatusIcon({ status }: { status: string }) {
   if (status === "done") {
     return (
       <div className="size-4 rounded flex items-center justify-center">
-        <IconSquareCheck className="size-3 text-muted-foreground" />
+        <IconSquareCheck className="size-3 text-zinc-600 dark:text-zinc-400" />
       </div>
     );
   }
   if (status === "in_progress") {
-    return <IconSquareChevronRight className="size-4 text-warning" />;
+    return <IconSquareChevronRight className="size-4 text-amber-500" />;
   }
-  return <IconSquare className="size-4 text-muted-foreground/50" />;
+  return <IconSquare className="size-4 text-zinc-300 dark:text-zinc-600" />;
 }
 
 function SetTodoListTool({ result }: ToolRendererProps) {
@@ -217,7 +224,7 @@ function WriteFileTool({ call, result }: ToolRendererProps) {
           {hasRichDisplay ? (
             <DisplayBlocks blocks={richDisplay} maxHeight="max-h-48" />
           ) : (
-            <span className={cn("text-xs", !result.is_error ? "text-success" : "text-destructive")}>{!result.is_error ? "✓ Written" : formatOutput(result.output)}</span>
+            <span className={cn("text-xs", !result.is_error ? "text-emerald-500" : "text-red-500")}>{!result.is_error ? "✓ Written" : formatOutput(result.output)}</span>
           )}
         </IORow>
       )}
@@ -241,7 +248,7 @@ function StrReplaceFileTool({ call, result }: ToolRendererProps) {
           {hasRichDisplay ? (
             <DisplayBlocks blocks={richDisplay} maxHeight="max-h-48" />
           ) : (
-            <span className={cn("text-xs font-medium", !result.is_error ? "text-success" : "text-destructive")}>
+            <span className={cn("text-xs font-medium", !result.is_error ? "text-emerald-600 dark:text-emerald-500" : "text-destructive")}>
               {!result.is_error ? "✓ Replaced successfully" : formatOutput(result.output)}
             </span>
           )}
@@ -292,7 +299,7 @@ function GenericTool({ call, result }: ToolRendererProps) {
           ) : output ? (
             <CodeBlock content={output} />
           ) : (
-            <span className={cn("text-xs", !result.is_error ? "text-success" : "text-destructive")}>{!result.is_error ? "✓ Done" : "✗ Failed"}</span>
+            <span className={cn("text-xs", !result.is_error ? "text-emerald-500" : "text-red-500")}>{!result.is_error ? "✓ Done" : "✗ Failed"}</span>
           )}
         </IORow>
       )}
@@ -300,7 +307,7 @@ function GenericTool({ call, result }: ToolRendererProps) {
   );
 }
 
-export function SubagentStepItemRenderer({ item }: { item: UIStepItem }) {
+function SubagentStepItemRenderer({ item }: { item: UIStepItem }) {
   if (item.type === "thinking") {
     return <ThinkingBlock content={item.content} finished={item.finished} compact />;
   }
@@ -308,7 +315,7 @@ export function SubagentStepItemRenderer({ item }: { item: UIStepItem }) {
     return <Markdown content={item.content} className="text-[0.75rem] leading-relaxed" enableEnrichment={item.finished} />;
   }
   if (item.type === "tool_use") {
-    return <ToolCallCard call={item.call} result={item.result} subagentSteps={item.subagent_steps} subagentStatus={item.subagent_status} workflowWarning={item.workflow_warning} />;
+    return <ToolCallCard call={item.call} result={item.result} subagentSteps={item.subagent_steps} />;
   }
   return null;
 }
@@ -325,10 +332,7 @@ function TaskTool({ call, result, subagentSteps }: ToolRendererProps) {
     if (!hasSubagentSteps) {
       return result ? formatOutput(result.output) : "";
     }
-    const lastStep = subagentSteps.at(-1);
-    if (lastStep === undefined) {
-      return result ? formatOutput(result.output) : "";
-    }
+    const lastStep = subagentSteps[subagentSteps.length - 1];
     const textItems = lastStep.items.filter((i) => i.type === "text");
     if (textItems.length > 0) {
       return textItems.map((i) => (i as { type: "text"; content: string }).content).join("\n");
@@ -340,7 +344,7 @@ function TaskTool({ call, result, subagentSteps }: ToolRendererProps) {
     <div className="divide-y divide-border">
       <div className="py-2">
         <div className="flex items-center gap-2 mb-1.5">
-          <span className="text-[10px] px-1.5 py-0.5 rounded bg-brand/10 text-brand font-medium">{subagentName}</span>
+          <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-600 dark:text-blue-400 font-medium">{subagentName}</span>
           <span className="text-xs font-medium">{description}</span>
         </div>
         {prompt && <div className="text-[10px] text-muted-foreground line-clamp-2">{prompt}</div>}
@@ -378,24 +382,31 @@ function TaskTool({ call, result, subagentSteps }: ToolRendererProps) {
   );
 }
 
-export function ToolCallCard({ call, result, subagentSteps, subagentStatus, workflowWarning }: ToolRendererProps) {
+function getToolLabel(call: UIToolCall): string {
+  const args = parseArgs(call.arguments);
+  switch (call.name) {
+    case "Shell":
+      return (args.command as string) || "command";
+    case "ReadFile":
+      return (args.path as string)?.split("/").pop() || "file";
+    case "WriteFile":
+      return (args.path as string)?.split("/").pop() || "file";
+    case "StrReplaceFile":
+      return (args.path as string)?.split("/").pop() || "file";
+    case "Glob":
+      return (args.pattern as string) || "pattern";
+    case "Task":
+      return (args.description as string) || "subagent task";
+    case "SetTodoList":
+      return "Update Todos";
+    default:
+      return "";
+  }
+}
+
+export function ToolCallCard({ call, result, subagentSteps }: ToolRendererProps) {
   const [expanded, setExpanded] = useState(false);
   const status = !result ? "pending" : !result.is_error ? "success" : "error";
-
-  // DynamicWorkflow batches render as per-agent lanes instead of the generic
-  // escaped-JSON card: its header/progress semantics don't fit the shared shell.
-  if (call.name === "DynamicWorkflow") {
-    return (
-      <WorkflowCard
-        call={call}
-        result={result}
-        subagentSteps={subagentSteps ?? []}
-        subagentStatus={subagentStatus ?? {}}
-        workflowWarning={workflowWarning}
-        renderStepItem={(item) => <SubagentStepItemRenderer item={item} />}
-      />
-    );
-  }
 
   const renderContent = () => {
     const props = { call, result, subagentSteps };
@@ -427,7 +438,7 @@ export function ToolCallCard({ call, result, subagentSteps, subagentStatus, work
         <ToolIcon name={call.name} />
         <span className="text-xs font-medium">{call.name}</span>
         <span className="text-xs text-muted-foreground truncate flex-1 text-left">{getToolLabel(call)}</span>
-        {subagentSteps && subagentSteps.length > 0 && <span className="text-[10px] px-1.5 py-0.5 rounded bg-brand/10 text-brand">{subagentSteps.length} steps</span>}
+        {subagentSteps && subagentSteps.length > 0 && <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-500">{subagentSteps.length} steps</span>}
         <IconChevronDown className={cn("size-3.5 text-muted-foreground transition-transform", expanded && "rotate-180")} />
       </button>
       {expanded && <div className="@container px-3 py-0.5 border-t border-border">{renderContent()}</div>}

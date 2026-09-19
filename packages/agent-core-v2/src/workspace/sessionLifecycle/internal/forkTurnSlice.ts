@@ -1,6 +1,6 @@
 import { Error2, ErrorCodes } from '#/errors';
 import { FILE_HISTORY_RECORD_PREFIX } from '#/features/fileHistory/fileHistoryOps';
-import type { ContentPart } from '#/kosong/contract/message';
+import type { ContentPart } from '#human/llm/message';
 import {
   promptMetadataTextFromContentParts,
   promptMetadataTextFromText,
@@ -43,56 +43,21 @@ export function sliceMainRecordsAtTurn(
 
   const end = turnStarts[turnIndex + 1] ?? records.length;
   const retainedTurnInputs = turnInputIndicesThrough(records, turnIndex);
-  const window = records
+  const retained = records
     .slice(0, end)
     .filter(
       (record, index) =>
-        !isUserVisibleTurnInputRecord(record) || retainedTurnInputs.has(index),
+        !record.type.startsWith(FILE_HISTORY_RECORD_PREFIX) &&
+        (!isUserVisibleTurnInputRecord(record) || retainedTurnInputs.has(index)),
     );
-  const retained = window.filter(
-    (record) => !record.type.startsWith(FILE_HISTORY_RECORD_PREFIX),
-  );
+  const cutoffTimes = retained
+    .map(recordTime)
+    .filter((time): time is number => time !== undefined);
   const lastPrompt = promptMetadataFromTurnRecord(records[start]!);
   return {
     records: retained,
-    cutoffTime: cutoffFrom(window),
+    cutoffTime: cutoffTimes.length === 0 ? undefined : Math.max(...cutoffTimes),
     lastPrompt,
-  };
-}
-
-export function sliceMainRecordsBeforePrompt(
-  records: readonly WireRecord[],
-  sourceSessionId: string,
-  promptId: string,
-): MainTurnSlice {
-  const turnStarts: number[] = [];
-  let activeTurnIndex = -1;
-  for (let index = 0; index < records.length; index += 1) {
-    const record = records[index]!;
-    if (!isUserVisibleTurnRecord(record)) continue;
-    turnStarts.push(index);
-    if (messageId(record) === promptId) activeTurnIndex = turnStarts.length - 1;
-  }
-  if (activeTurnIndex === -1) {
-    throw new Error2(
-      ErrorCodes.REQUEST_INVALID,
-      `Prompt "${promptId}" was not found in session "${sourceSessionId}"`,
-      { details: { promptId } },
-    );
-  }
-  if (activeTurnIndex > 0) {
-    return sliceMainRecordsAtTurn(records, sourceSessionId, activeTurnIndex - 1);
-  }
-  const activeStart = turnStarts[0]!;
-  const window = records
-    .slice(0, activeStart)
-    .filter((record) => !isUserVisibleTurnInputRecord(record));
-  const retained = window.filter(
-    (record) => !record.type.startsWith(FILE_HISTORY_RECORD_PREFIX),
-  );
-  return {
-    records: retained,
-    cutoffTime: cutoffFrom(window),
   };
 }
 
@@ -112,13 +77,6 @@ export function sliceSubagentRecordsAtTime(
   return records.slice(0, end);
 }
 
-function cutoffFrom(records: readonly WireRecord[]): number | undefined {
-  const times = records
-    .map(recordTime)
-    .filter((time): time is number => time !== undefined);
-  return times.length === 0 ? undefined : Math.max(...times);
-}
-
 function isUserVisibleTurnRecord(record: WireRecord): boolean {
   if (record.type !== 'context.append_message') return false;
   const message = asRecord(record['message']);
@@ -136,12 +94,6 @@ function isUserVisibleTurnRecord(record: WireRecord): boolean {
     default:
       return false;
   }
-}
-
-function messageId(record: WireRecord): string | undefined {
-  if (record.type !== 'context.append_message') return undefined;
-  const message = asRecord(record['message']);
-  return typeof message?.['id'] === 'string' ? message['id'] : undefined;
 }
 
 function isUserVisibleTurnInputRecord(record: WireRecord): boolean {

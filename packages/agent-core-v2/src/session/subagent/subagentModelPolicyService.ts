@@ -164,7 +164,7 @@ export class SubagentModelPolicyService implements ISubagentModelPolicyService {
       const currentVersion = subagentPolicyResourceVersion(this.persisted());
       if (currentVersion !== expectedVersion) {
         throw new Error2(
-          ErrorCodes.CONFIG_VERSION_CONFLICT,
+          ErrorCodes.VALIDATION_FAILED,
           'The subagent model policy changed since it was read; reload and retry.',
           { details: { section: SECONDARY_MODEL_SECTION, expectedVersion, currentVersion } },
         );

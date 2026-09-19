@@ -33,21 +33,22 @@ import {
   getMediaFallbackModel,
   getModelThinkingMode,
   groupModelsByProvider,
+  requiresManagedProviderLogin,
   useSettingsStore,
 } from "../webview-ui/src/stores/settings.store";
 import { useChatStore } from "../webview-ui/src/stores/chat.store";
 
 const MODELS = [
-  { id: "plain", name: "Plain", provider: "moonshot-cn", capabilities: [] },
+  { id: "plain", name: "Plain", provider: "managed:pythinker-code", capabilities: [] },
   {
     id: "reasoning",
     name: "Reasoning",
-    provider: "moonshot-cn",
+    provider: "managed:pythinker-code",
     capabilities: ["thinking"],
     support_efforts: ["low", "high"],
     default_effort: "high",
   },
-  { id: "always", name: "Always", provider: "moonshot-cn", capabilities: ["always_thinking"] },
+  { id: "always", name: "Always", provider: "managed:pythinker-code", capabilities: ["always_thinking"] },
 ];
 
 beforeEach(() => {
@@ -144,7 +145,7 @@ describe("Webview model settings persistence", () => {
 describe("Webview model metadata", () => {
   it("keeps same-named models in separate provider groups", () => {
     const groups = groupModelsByProvider([
-      { id: "kimi/shared", name: "Shared", provider: "moonshot-cn", capabilities: [] },
+      { id: "pythinker/shared", name: "Shared", provider: "managed:pythinker-code", capabilities: [] },
       { id: "proxy/shared", name: "Shared", provider: "company-proxy", capabilities: [] },
     ]);
 
@@ -154,7 +155,7 @@ describe("Webview model metadata", () => {
       models: group.models.map((model) => model.id),
     }))).toEqual([
       { provider: "company-proxy", label: "company-proxy", models: ["proxy/shared"] },
-      { provider: "moonshot-cn", label: "moonshot-cn", models: ["kimi/shared"] },
+      { provider: "managed:pythinker-code", label: "Pythinker Code", models: ["pythinker/shared"] },
     ]);
   });
 
@@ -183,85 +184,16 @@ describe("Webview model metadata", () => {
     expect(fallback?.id).toBe("openai/vision");
   });
 
-});
-
-describe("Webview provider-change model refresh", () => {
-  const ADDED = { id: "zen/flash", name: "Flash", provider: "opencode-go", capabilities: [] };
-
-  it("shows models from a newly added provider without moving the current selection", () => {
-    useSettingsStore.getState().initModels(MODELS, "reasoning", true);
-    expect(useSettingsStore.getState().thinkingEffort).toBe("high");
-
-    useSettingsStore.getState().setModels({
-      models: [...MODELS, ADDED],
-      defaultModel: "plain",
-      defaultThinking: false,
-    });
-
-    expect(useSettingsStore.getState()).toMatchObject({
-      models: expect.arrayContaining([expect.objectContaining({ id: "zen/flash" })]),
-      currentModel: "reasoning",
-      thinkingEffort: "high",
-      defaultModel: "plain",
-      modelsLoaded: true,
-    });
+  it("does not require Pythinker login when the default model uses a custom provider", () => {
+    expect(requiresManagedProviderLogin([
+      { id: "local/model", name: "Local", provider: "local", capabilities: [] },
+    ], "local/model", false)).toBe(false);
   });
 
-  it("does not let a save that failed before the refresh restore a dropped model", async () => {
-    // Regression: setModels left settingsSaveRevision untouched, so a rollback
-    // captured against the pre-refresh list could reinstate a model the refresh
-    // had just removed.
-    let rejectSave!: (error: Error) => void;
-    boundary.saveConfig.mockReturnValue(new Promise((_resolve, reject) => {
-      rejectSave = reject;
-    }));
-    useSettingsStore.getState().initModels(MODELS, "plain", false);
-    useSettingsStore.getState().updateModel("reasoning");
-
-    useSettingsStore.getState().setModels({
-      models: [ADDED],
-      defaultModel: ADDED.id,
-      defaultThinking: false,
-    });
-    expect(useSettingsStore.getState().currentModel).toBe(ADDED.id);
-
-    rejectSave(new Error("config.toml is read-only"));
-    await Promise.resolve();
-    await Promise.resolve();
-
-    expect(useSettingsStore.getState().currentModel).toBe(ADDED.id);
-  });
-
-  it("falls back to the default when the current model's provider was removed", () => {
-    useSettingsStore.getState().initModels(MODELS, "reasoning", true);
-
-    useSettingsStore.getState().setModels({
-      models: [MODELS[0]],
-      defaultModel: "plain",
-      defaultThinking: false,
-    });
-
-    expect(useSettingsStore.getState()).toMatchObject({
-      currentModel: "plain",
-      thinkingEffort: "off",
-      modelsLoaded: true,
-    });
-  });
-
-  it("recomputes the effort for the fallback model from the refreshed defaults", () => {
-    useSettingsStore.getState().initModels(MODELS, "plain", false);
-
-    useSettingsStore.getState().setModels({
-      models: [MODELS[1]],
-      defaultModel: "reasoning",
-      defaultThinking: true,
-      defaultThinkingEffort: "low",
-    });
-
-    expect(useSettingsStore.getState()).toMatchObject({
-      currentModel: "reasoning",
-      thinkingEffort: "low",
-    });
+  it("requires Pythinker login when the default model uses the managed provider", () => {
+    expect(requiresManagedProviderLogin([
+      { id: "pythinker/model", name: "Pythinker", provider: "managed:pythinker-code", capabilities: [] },
+    ], "pythinker/model", false)).toBe(true);
   });
 });
 
@@ -270,7 +202,7 @@ describe("Webview MCP update bridge", () => {
     const posted: unknown[] = [];
     let receiveMessage: ((event: { data: unknown }) => void) | undefined;
     vi.stubGlobal("document", {
-      body: { dataset: { webviewid: "mcp-test-view" } },
+      body: { getAttribute: () => "mcp-test-view" },
     });
     vi.stubGlobal("window", {
       addEventListener: (_type: string, listener: (event: { data: unknown }) => void) => {
@@ -366,7 +298,7 @@ describe("Webview thinking mode parity with the TUI", () => {
     expect(getModelThinkingMode({ ...base, capabilities: ["always_thinking"] })).toBe("always");
     expect(getModelThinkingMode({ ...base, capabilities: ["thinking"] })).toBe("switch");
     expect(getModelThinkingMode({ ...base, adaptive_thinking: true })).toBe("switch");
-    expect(getModelThinkingMode({ ...base, name: "Kimi Thinking Pro" })).toBe("none");
+    expect(getModelThinkingMode({ ...base, name: "Pythinker Thinking Pro" })).toBe("none");
     expect(getModelThinkingMode(base)).toBe("none");
   });
 });
@@ -469,7 +401,7 @@ describe("Webview thinking effort parity with the TUI", () => {
       {
         id: "reasoning",
         name: "Reasoning",
-        provider: "acme",
+        provider: "managed:pythinker-code",
         capabilities: ["thinking"],
         support_efforts: ["low", "high", "max"],
         default_effort: "low",
@@ -489,7 +421,7 @@ describe("Webview thinking effort parity with the TUI", () => {
       {
         id: "reasoning",
         name: "Reasoning",
-        provider: "acme",
+        provider: "managed:pythinker-code",
         capabilities: ["thinking"],
         support_efforts: ["low", "high"],
       },
@@ -506,7 +438,7 @@ describe("Webview thinking effort parity with the TUI", () => {
     {
       id: "seeded",
       name: "Seeded",
-      provider: "acme",
+      provider: "managed:pythinker-code",
       capabilities: ["thinking"],
       support_efforts: ["low", "medium"],
       default_effort: "medium",
@@ -514,7 +446,7 @@ describe("Webview thinking effort parity with the TUI", () => {
     {
       id: "max-default",
       name: "Max Default",
-      provider: "acme",
+      provider: "managed:pythinker-code",
       capabilities: ["thinking"],
       support_efforts: ["low", "max"],
       default_effort: "max",
@@ -564,7 +496,7 @@ describe("Webview thinking effort parity with the TUI", () => {
       {
         id: "max-default-b",
         name: "Max Default B",
-        provider: "acme",
+        provider: "managed:pythinker-code",
         capabilities: ["thinking"],
         support_efforts: ["low", "max"],
         default_effort: "max",

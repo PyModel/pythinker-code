@@ -3,11 +3,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import {
-  AgentGoal,
-  agentContextOf,
   ErrorCodes,
-  IAgentActivityView,
+  IAgentGoalService,
   IAgentLifecycleService,
+  IAgentLoopService,
   IAgentPluginCommandService,
   IAgentPromptService,
   IAgentRuntimeBindingService,
@@ -31,7 +30,7 @@ import type {
   WorkspaceInstanceSnapshot,
 } from '@pymodel/agent-core-v2';
 import { FakeRuntime } from '@pymodel/agent-core-v2/runtime/fakeRuntime';
-import { beforeAll, describe, expect, it, afterAll } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { type RunningServer, startServer } from '../src/start';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
@@ -140,7 +139,7 @@ describe('server-v2 /api/v1/debug RPC', () => {
     const manager = session.accessor.get(IAgentLifecycleService);
     const handle = manager.handleOf(agentId);
     if (handle === undefined) throw new Error(`agent ${agentId} not found`);
-    return manager.resolve(agentContextOf(handle), AgentGoal);
+    return handle.accessor.get(IAgentGoalService);
   }
 
   it('describes all channels via GET /api/v1/debug/channels', async () => {
@@ -354,12 +353,12 @@ describe('server-v2 /api/v1/debug RPC', () => {
   it('reads agent activity state', async () => {
     const id = await createSession(home as string);
     await createMainAgent(id);
-    const { body } = await call<{ lifecycle: string }>(
+    const { body } = await call<{ turn?: unknown }>(
       'POST',
-      rpc('agent', IAgentActivityView, 'state', { sid: id, aid: 'main' }),
+      rpc('agent', IAgentLoopService, 'activitySnapshot', { sid: id, aid: 'main' }),
     );
     expect(body.code).toBe(0);
-    expect(body.data.lifecycle).toBe('ready');
+    expect(body.data.turn).toBeUndefined();
   });
 
   it('exposes runtime binding through REST and debug dispatcher contracts', async () => {
@@ -383,7 +382,7 @@ describe('server-v2 /api/v1/debug RPC', () => {
       `/api/v1/sessions/${id}/runtime`,
       { runtime_id: 'missing-runtime' },
     );
-    expect(invalid.body.code).toBe(40422);
+    expect(invalid.body.code).toBe(40420);
 
     const unchanged = await call<{ workspace_id: string; runtime_id: string }>(
       'GET',
@@ -466,28 +465,6 @@ describe('server-v2 /api/v1/debug RPC', () => {
       rpc('session', ISessionMetadata, 'read', { sid: id }),
     );
     expect(metadata.body.data.lastPrompt).toBe('first prompt');
-  });
-
-  it('rejects disabledTools before bind without mutating prompt metadata', async () => {
-    const id = await createSession(home as string);
-    await createMainAgent(id);
-
-    const { body } = await call<null>(
-      'POST',
-      rpc('agent', IAgentPromptService, 'submit', { sid: id, aid: 'main' }),
-      {
-        input: [{ type: 'text', text: 'must not become metadata' }],
-        disabledTools: ['Bash'],
-      },
-    );
-    expect(body.code).toBe(40001);
-
-    const metadata = await call<SessionMetaWire>(
-      'POST',
-      rpc('session', ISessionMetadata, 'read', { sid: id }),
-    );
-    expect(metadata.body.data.title).toBeUndefined();
-    expect(metadata.body.data.lastPrompt).toBeUndefined();
   });
 
   it('derives the session title and lastPrompt from the first prompt', async () => {

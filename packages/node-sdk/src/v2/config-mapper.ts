@@ -99,8 +99,10 @@ export interface ProviderRemovalPlan {
  * cascade through the config facade. Inputs are the USER-layer values
  * (`inspect().userValue`), matching v1's disk-config write base.
  *
- * The user-owned `[secondary_model]` section stays unchanged. Its normal
- * validation reports references to aliases removed with the provider.
+ * The `[secondary_model]` section is deliberately left untouched: it is the
+ * user's own configuration, and an entry whose model no longer resolves
+ * fails pool validation on the next session create with a message naming
+ * the offending alias — a loud error beats a silent rewrite.
  */
 export function planProviderRemoval(input: {
   readonly providers: Record<string, unknown> | undefined;

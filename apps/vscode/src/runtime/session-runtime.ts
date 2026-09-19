@@ -2,7 +2,6 @@ import {
   isPythinkerError,
   type ContentPart as SdkContentPart,
   type Event,
-  type PermissionMode,
   type PromptInput,
   type Session,
   type SessionSummary,
@@ -18,14 +17,18 @@ import {
   type EventAdapterState,
   type TurnTerminalMetadata,
 } from "./event-adapter";
-import { persistPermissionMode } from "./permission-mode";
+import {
+  corePermissionForLegacyApproval,
+  legacyApprovalMetadata,
+  type LegacyApprovalFlags,
+} from "./legacy-approval";
 import { ReverseRpcController } from "./reverse-rpc";
 
 export type RuntimeBroadcast = (event: string, data: unknown, webviewId?: string) => void;
 
 export interface SessionRuntimeOptions {
   readonly session: Session;
-  readonly permissionMode: PermissionMode;
+  readonly legacyApproval: LegacyApprovalFlags;
   readonly broadcast: RuntimeBroadcast;
   readonly captureBaseline: (
     session: Pick<SessionSummary, "id" | "workDir" | "metadata">,
@@ -84,7 +87,7 @@ export class SessionRuntime {
   private exclusiveActionActive = false;
   private readonly terminalKeys = new Set<string>();
   private suppressedError: SuppressedError | undefined;
-  private currentPermissionMode: PermissionMode;
+  private legacyApproval: LegacyApprovalFlags;
   private closed = false;
 
   constructor(options: SessionRuntimeOptions) {
@@ -92,13 +95,13 @@ export class SessionRuntime {
     this.broadcast = options.broadcast;
     this.captureBaseline = options.captureBaseline;
     this.log = options.log;
-    this.currentPermissionMode = options.permissionMode;
+    this.legacyApproval = options.legacyApproval;
     this.reverseRpc = new ReverseRpcController((event) => this.emitStreamEvent(event));
 
     // Forward every approval request to the user. The engine permission mode
-    // already auto-approves what yolo/auto allow internally; anything that
-    // reaches this handler is an exception (sensitive file, plan review, ask
-    // rule) the user must decide on.
+    // (mapped from the legacy flags) already auto-approves what yolo/auto
+    // allow internally; anything that reaches this handler is an exception
+    // (sensitive file, plan review, ask rule) the user must decide on.
     this.session.setApprovalHandler((request) => this.reverseRpc.requestApproval(request));
     this.session.setQuestionHandler((request) => this.reverseRpc.requestQuestion(request));
     this.unsubscribe = this.session.onEvent((event) => this.onSdkEvent(event));
@@ -120,34 +123,19 @@ export class SessionRuntime {
     return this.hasActiveWork || this.exclusiveActionActive;
   }
 
-  get permissionMode(): PermissionMode {
-    return this.currentPermissionMode;
+  get legacyApprovalFlags(): LegacyApprovalFlags {
+    return this.legacyApproval;
   }
 
-  /** Toggles between `mode` and `manual`, and returns the mode now in effect. */
-  async togglePermissionMode(mode: Exclude<PermissionMode, "manual">): Promise<PermissionMode> {
-    const next = this.currentPermissionMode === mode ? "manual" : mode;
-    await this.setPermissionMode(next);
+  async toggleLegacyApproval(kind: keyof LegacyApprovalFlags): Promise<LegacyApprovalFlags> {
+    const next = { ...this.legacyApproval, [kind]: !this.legacyApproval[kind] };
+    await this.applyLegacyApproval(next);
     return next;
   }
 
-  /**
-   * Always reconciles against the engine rather than trusting the cached mode:
-   * a cache that drifted would otherwise report the mode as already set and
-   * never call through.
-   */
-  async setPermissionMode(mode: PermissionMode): Promise<void> {
-    this.ensureOpen();
-    const status = await this.session.getStatus();
-    if (status.permission !== mode) await this.session.setPermission(mode);
-    if (this.currentPermissionMode !== mode) {
-      await persistPermissionMode(this.session, mode);
-      this.currentPermissionMode = mode;
-    }
-    // Tell every attached view at once. `/yolo` is a toggle, so a chat that
-    // cannot see the mode it landed on is how a user turns YOLO off while
-    // trying to turn it on.
-    await Promise.all([...this.webviewIds].map((id) => this.announceStatus(id)));
+  async setLegacyYoloMode(enabled: boolean): Promise<void> {
+    if (this.legacyApproval.yolo === enabled) return;
+    await this.applyLegacyApproval({ ...this.legacyApproval, yolo: enabled });
   }
 
   subscribe(webviewId: string): void {
@@ -173,7 +161,6 @@ export class SessionRuntime {
           thinking_effort: status.thinkingEffort,
           plan_mode: status.planMode,
           context_usage: status.contextUsage,
-          permission: status.permission,
         },
         _sessionId: this.id,
       },
@@ -429,6 +416,25 @@ export class SessionRuntime {
     this.cancelledHostActions.clear();
     await this.session.close();
     this.webviewIds.clear();
+  }
+
+  private async applyLegacyApproval(flags: LegacyApprovalFlags): Promise<void> {
+    this.ensureOpen();
+    const permission = corePermissionForLegacyApproval(flags);
+    const status = await this.session.getStatus();
+    const permissionChanged = status.permission !== permission;
+    if (permissionChanged) await this.session.setPermission(permission);
+    try {
+      await this.session.updateMetadata(legacyApprovalMetadata(flags));
+    } catch (error) {
+      if (permissionChanged) {
+        await this.session.setPermission(status.permission).catch((rollbackError: unknown) => {
+          this.log("Failed to restore session permission after a metadata error", rollbackError);
+        });
+      }
+      throw error;
+    }
+    this.legacyApproval = flags;
   }
 
   private onSdkEvent(event: Event): void {

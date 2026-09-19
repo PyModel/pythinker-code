@@ -1,6 +1,5 @@
 import { Service } from '#/_base/di/service';
-import { activateReminderWhenReady } from '#/features/reminder/internal/reminderActivation';
-import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
+import { IAgentReminderService } from '#/features/reminder/reminderService';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { TurnEnded } from '#/agent/loop/turnOps';
 import { IAgentToolApprovalService } from '#/agent/toolApproval/toolApproval';
@@ -10,7 +9,6 @@ import { IEventBus } from '#/app/event/eventBus';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentStateService } from '#/agent/state/agentState';
 import { IEventDispatcher } from '#/state/eventDispatcher';
-import { ISessionExpertTalkService } from '#/session/expertTalk/expertTalk';
 
 import { DynamicWorkflowInjection } from './injection/dynamicWorkflowInjection';
 import { IAgentDynamicWorkflowService, type DynamicWorkflowModeTrigger } from './dynamic_workflow';
@@ -21,24 +19,21 @@ export class AgentDynamicWorkflowService extends Service implements IAgentDynami
 
   constructor(
     @IEventDispatcher private readonly dispatcher: IEventDispatcher,
-    @IAgentLifecycleService agentLifecycle: IAgentLifecycleService,
+    @IAgentReminderService reminder: IAgentReminderService,
     @IEventBus eventBus: IEventBus,
     @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
     @IAgentToolApprovalService private readonly toolApproval: IAgentToolApprovalService,
     @IAgentToolExecutorService toolExecutor: IAgentToolExecutorService,
     @IAgentScopeContext private readonly agentCtx: IAgentScopeContext,
     @IAgentStateService private readonly agentState: IAgentStateService,
-    @ISessionExpertTalkService private readonly expertTalk: ISessionExpertTalkService,
   ) {
     super();
     this.agentState.contributeState(dynamicWorkflowKey);
     this._register(
-      activateReminderWhenReady(agentLifecycle, this.agentCtx, (reminder) =>
-        new DynamicWorkflowInjection(
-          { getTrigger: () => this.agentState.get(dynamicWorkflowKey) },
-          reminder,
-          this.context,
-        ),
+      new DynamicWorkflowInjection(
+        { getTrigger: () => this.agentState.get(dynamicWorkflowKey) },
+        reminder,
+        this.context,
       ),
     );
     this._register(
@@ -71,7 +66,6 @@ export class AgentDynamicWorkflowService extends Service implements IAgentDynami
 
   enter(trigger: DynamicWorkflowModeTrigger): void {
     if (this.agentState.get(dynamicWorkflowKey) !== null) return;
-    if (this.agentCtx.agentId === 'main') this.expertTalk.prepareControllerActivation();
     void this.dispatcher.dispatch(new DynamicWorkflowModeEnter({ agentId: this.agentCtx.agentId, trigger }));
   }
 

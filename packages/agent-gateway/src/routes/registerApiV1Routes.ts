@@ -9,24 +9,24 @@ import { okEnvelope } from '../envelope';
 import type { MetaFeature } from '../protocol/rest-meta';
 import { type IConnectionRegistry } from '../transport/ws/connectionRegistry';
 import { type SessionEventBroadcaster } from '../transport/ws/v1/sessionEventBroadcaster';
+import type { ProjectionService } from '../services/projection';
 import type { TranscriptService } from '../services/transcript/transcriptService';
 import { registerApprovalsRoutes } from './approvals';
 import { registerAuthRoute } from './auth';
 import { registerCapabilitiesRoutes } from './capabilities';
-import { registerCodexLoginRoutes } from './codex';
 import { registerConfigRoutes } from './config';
-import { registerSubagentModelPolicyRoutes } from './subagentModelPolicy';
 import { registerConnectionsRoutes } from './connections';
-import { registerExpertTalkRoutes } from './expertTalk';
 import { registerFileHistoryRoutes } from './fileHistory';
 import { registerFilesRoutes } from './files';
 import { registerFsRoutes } from './fs';
 import { registerGuiStoreRoutes } from './guiStore';
+import { registerHistoryRoutes } from './history';
 import { registerMessagesRoutes } from './messages';
 import type { IGuiStoreService } from '../services/guiStore/guiStore';
 import { registerDebugRoutes } from '../transport/registerDebugRoutes';
 import { registerMetaRoute } from './meta';
 import { registerModelCatalogRoutes } from './modelCatalog';
+import { registerOAuthRoutes } from './oauth';
 import { registerPluginsRoutes } from './plugins';
 import { registerPromptsRoutes } from './prompts';
 import { registerQuestionsRoutes } from './questions';
@@ -72,7 +72,9 @@ export interface RegisterApiV1RoutesOptions {
   readonly connectionRegistry: IConnectionRegistry;
   readonly broadcaster: SessionEventBroadcaster;
   readonly transcriptService: TranscriptService;
-  readonly pluginMarketplaceUrl?: string;
+  readonly homeDir: string;
+  readonly projectionService: ProjectionService;
+  readonly pluginMarketplaceUrl: () => string;
   readonly pluginMarketplaceIsDefault: boolean;
   readonly remoteControl: RemoteControlRouteOptions;
   readonly dangerousBypassAuth?: boolean;
@@ -102,21 +104,6 @@ export async function registerApiV1Routes(
           await core.accessor.get(IConfigService).ready;
           return core.accessor.get(IFlagService).snapshot();
         },
-        getExperimentalFlagStates: async () => {
-          await core.accessor.get(IConfigService).ready;
-          return core.accessor
-            .get(IFlagService)
-            .explainAll()
-            .map((state) => ({
-              id: state.id,
-              enabled: state.enabled,
-              source: state.source,
-              config_value: state.configValue,
-              default_enabled: state.defaultEnabled,
-              externally_controlled: state.externallyControlled,
-              overridden: state.overridden,
-            }));
-        },
         getFeatures: () =>
           core.accessor
             .get(IFeatureManager)
@@ -129,15 +116,8 @@ export async function registerApiV1Routes(
       });
 
       registerAuthRoute(apiV1 as unknown as Parameters<typeof registerAuthRoute>[0], core);
-      registerCodexLoginRoutes(
-        apiV1 as unknown as Parameters<typeof registerCodexLoginRoutes>[0],
-        core,
-      );
+      registerOAuthRoutes(apiV1 as unknown as Parameters<typeof registerOAuthRoutes>[0], core);
       registerConfigRoutes(apiV1 as unknown as Parameters<typeof registerConfigRoutes>[0], core);
-      registerSubagentModelPolicyRoutes(
-        apiV1 as unknown as Parameters<typeof registerSubagentModelPolicyRoutes>[0],
-        core,
-      );
       registerModelCatalogRoutes(
         apiV1 as unknown as Parameters<typeof registerModelCatalogRoutes>[0],
         core,
@@ -166,6 +146,11 @@ export async function registerApiV1Routes(
         apiV1 as unknown as Parameters<typeof registerMessagesRoutes>[0],
         core,
       );
+      registerHistoryRoutes(apiV1 as unknown as Parameters<typeof registerHistoryRoutes>[0], {
+        core,
+        homeDir: opts.homeDir,
+        projection: opts.projectionService,
+      });
       registerSearchRoutes(apiV1 as unknown as Parameters<typeof registerSearchRoutes>[0], core);
       registerTasksRoutes(apiV1 as unknown as Parameters<typeof registerTasksRoutes>[0], core);
       registerApprovalsRoutes(
@@ -183,11 +168,6 @@ export async function registerApiV1Routes(
       registerRemoteControlRoutes(
         apiV1 as unknown as Parameters<typeof registerRemoteControlRoutes>[0],
         opts.remoteControl,
-      );
-      registerExpertTalkRoutes(
-        apiV1 as unknown as Parameters<typeof registerExpertTalkRoutes>[0],
-        core,
-        opts.connectionRegistry,
       );
       registerWorkspacesRoutes(
         apiV1 as unknown as Parameters<typeof registerWorkspacesRoutes>[0],

@@ -3,45 +3,63 @@
  * unwrap. All paths concatenate `baseUrl + apiPrefix + route`.
  */
 import type {
-  ApprovalResolveResult,
-  ApprovalResponse,
-  AuthSummary,
-  CloseTerminalResponse,
-  CompactSessionRequest,
-  CompactSessionResponse,
-  CreateTerminalRequest,
-  Envelope,
-  FileMeta,
-  ForkSessionRequest,
   FsBrowseResponse,
   FsHomeResponse,
-  ListTerminalsResponse,
-  ListModelsResponse,
-  ListPendingApprovalsResponse,
-  ListPendingQuestionsResponse,
-  ListProvidersResponse,
-  Message,
+} from '@pymodel/agent-core-v2/app/hostFolderBrowser/hostFolderBrowser';
+import type { AuthSummary } from '@pymodel/agent-core-v2/app/authLegacy/authLegacy';
+import type { FileMeta } from '@pymodel/agent-core-v2/app/file/fileService';
+import type { UpdateSessionProfileRequest as SessionUpdate } from '@pymodel/agent-core-v2/app/sessionLegacy/sessionProtocol';
+import type {
   ProviderCatalogItem,
+  SetDefaultModelResponse,
+} from '@pymodel/agent-core-v2/llm-adapter/model/catalog';
+import type { Terminal } from '@pymodel/agent-core-v2/os/interface/terminal';
+import type { ApprovalResponse } from '@pymodel/agent-gateway/protocol/approval';
+import type { Envelope } from '@pymodel/agent-gateway/protocol/envelope';
+import type { Message } from '@pymodel/agent-gateway/protocol/message';
+import type { QuestionResponse } from '@pymodel/agent-gateway/protocol/question';
+import type {
+  ApprovalResolveResult,
+  ListPendingApprovalsResponse,
+} from '@pymodel/agent-gateway/protocol/rest-approval';
+import type {
+  ListModelsResponse,
+  ListProvidersResponse,
+} from '@pymodel/agent-gateway/protocol/rest-modelCatalog';
+import type {
   PromptAbortResponse,
   PromptListResponse,
   PromptSubmission,
   PromptSteerResult,
   PromptSubmitResult,
+} from '@pymodel/agent-gateway/protocol/rest-prompt';
+import type {
+  ListPendingQuestionsResponse,
   QuestionResolveResult,
-  QuestionResponse,
+} from '@pymodel/agent-gateway/protocol/rest-question';
+import type {
+  CompactSessionRequest,
+  CompactSessionResponse,
+  ForkSessionRequest,
   SessionAbortResponse,
-  SetDefaultModelResponse,
+  UndoSessionRequest,
+  UndoSessionResponse,
+} from '@pymodel/agent-gateway/protocol/rest-session';
+import type {
+  CloseTerminalResponse,
+  CreateTerminalRequest,
+  ListTerminalsResponse,
+} from '@pymodel/agent-gateway/protocol/rest-terminal';
+import type {
   Session,
   SessionChildCreate,
   SessionCreate,
-  SessionUpdate,
-  UndoSessionRequest,
-  UndoSessionResponse,
-  Terminal,
+} from '@pymodel/agent-gateway/protocol/session';
+import type {
   Workspace,
   WorkspaceCreate,
   WorkspaceUpdate,
-} from '@pymodel/protocol';
+} from '@pymodel/agent-gateway/protocol/workspace';
 
 import { unwrap } from './envelope.js';
 import { fetchWithReport, recordReportEvent } from './report.js';
