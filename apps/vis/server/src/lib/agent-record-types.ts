@@ -34,6 +34,8 @@ import type {
   FullCompactionBegin,
   FullCompactionCancel,
   FullCompactionComplete,
+  FileHistoryCheckpointed,
+  FileHistoryTracked,
   GoalClear,
   GoalCreate,
   GoalForked,
@@ -160,6 +162,8 @@ export type AgentRecord =
   | WireRecordOf<'cron.delete', CronDeletePayload>
   | WireRecordOf<'dynamic_workflow_mode.enter', DynamicWorkflowModeEnter>
   | WireRecordOf<'dynamic_workflow_mode.exit', DynamicWorkflowModeExit>
+  | WireRecordOf<'file_history.checkpoint', FileHistoryCheckpointed>
+  | WireRecordOf<'file_history.tracked', FileHistoryTracked>
   | WireRecordOf<'forked', GoalForked>
   | WireRecordOf<'full_compaction.begin', FullCompactionBegin>
   | WireRecordOf<'full_compaction.cancel', FullCompactionCancel>
