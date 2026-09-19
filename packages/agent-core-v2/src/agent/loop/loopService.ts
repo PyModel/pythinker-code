@@ -9,6 +9,7 @@ import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { defineState } from '#/state/state';
 import { abortError, isAbortError, isUserCancellation, userCancellationReason } from '#/_base/utils/abort';
 import { toErrorMessage } from '#/_base/errors/errorMessage';
+import { onUnexpectedError } from '#/_base/errors/unexpectedError';
 import { retryErrorFields } from '#/_base/utils/retry';
 import { IAgentLLMRequesterService } from '#/agent/llmRequester/llmRequester';
 import type { LLMRequestTrace } from '#/llm-adapter/contract/request-trace';
@@ -19,7 +20,6 @@ import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { IConfigService } from '#/app/config/config';
 import { AgentErrorEvent } from '#/agent/mcp/mcpEvents';
 import { type FinishReason } from '#human/llm/finish-reason';
-import { UNKNOWN_CAPABILITY } from '#human/llm/capability';
 import { mergeInPlace } from '#/llm-adapter/contract/message';
 import type { ContentPart, UserMessage } from '#human/llm/message';
 import { emptyUsage, type TokenUsage } from '#human/llm/usage';
@@ -74,10 +74,18 @@ import {
 } from './turnEvents';
 import { TurnCancel, TurnEnded, turnKey, TurnPrompt } from './turnOps';
 import {
-  createMachineEngine,
+  attachMachineEngine,
   EMPTY_MACHINE_PROMPT,
+  ENGINE_JOURNAL_DOMAIN,
+  engineJournal,
   historyFromContext,
+  MACHINE_LOOP_MODEL,
+  machineEngineAttachBundle,
+  wireStoreJournal,
+  type CreateMachineEngineOptions,
   type MachineEngine,
+  type MachineEngineAttachBundle,
+  type MachineEngineAttachRef,
   type MachineEngineEvent,
   type MachineTurnOutcome,
 } from './machine';
@@ -91,12 +99,6 @@ export const loopLastRequestTraceIdKey = defineState<string | undefined>(
 export const loopDisposingKey = defineState<boolean>('loop.disposing', () => false);
 
 const MAX_STEP_SIGNAL_LISTENERS = 64;
-
-const MACHINE_LOOP_MODEL = {
-  provider: 'agent-loop',
-  model: 'agent-loop',
-  capability: UNKNOWN_CAPABILITY,
-};
 
 export class AgentLoopService extends Disposable implements IAgentLoopService {
   declare readonly _serviceBrand: undefined;
@@ -152,33 +154,67 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     this.states.set(loopDisposingKey, value);
   }
 
+  private engineOptions(): CreateMachineEngineOptions {
+    return {
+      model: MACHINE_LOOP_MODEL,
+      llmRequester: this.llmRequester,
+      toolExecutor: this.toolExecutor,
+      toolInfos: () => this.toolRegistry.list(),
+      maxAttemptsPerStep: this.config.get<LoopControl>(LOOP_CONTROL_SECTION)?.maxAttemptsPerStep,
+      initialTurnId: this.states.get(turnKey).nextTurnId,
+      journal: wireStoreJournal(this.wire, ENGINE_JOURNAL_DOMAIN),
+      trace: () => this.activeRequestTrace,
+      toolTurnId: () => this.active?.id,
+      steerSignal: () => this.active?.steerController.signal,
+      source: () =>
+        this.active === undefined
+          ? undefined
+          : {
+              type: 'turn',
+              turnId: this.active.id,
+              step: this.active.gatedSteps,
+            },
+      gate: (signal) => this.gate(signal),
+      onTrace: (trace) => {
+        this.activeRequestTrace = trace;
+      },
+      onEvent: (event) => this.projectMachineEvent(event),
+      onToolResult: (toolCallId, result) => this.appendMachineToolResult(toolCallId, result),
+    };
+  }
+
+  buildAttachBundle(): MachineEngineAttachBundle {
+    return machineEngineAttachBundle(this.engineOptions());
+  }
+
+  attachEngine(ref: MachineEngineAttachRef, bundle: MachineEngineAttachBundle): MachineEngine {
+    if (this.engine !== undefined) {
+      throw new BugIndicatingError('Machine engine already attached');
+    }
+    this.engine = attachMachineEngine(ref, bundle, this.engineOptions());
+    if (this.dispatcher.restorePhase === 'new') {
+      const hook = this.dispatcher.hooks.onDidRestore.register('loop.engineRefold', async (_ctx, next) => {
+        hook.dispose();
+        try {
+          if (!this.disposing && this.active === undefined && this.pendingMachineTurn === undefined) {
+            await this.machineEngine().resetJournal(this.freshEngineJournal());
+          }
+        } catch (error) {
+          onUnexpectedError(error);
+        }
+        await next();
+      });
+    }
+    if (this.quiescenceDepth === 0 && !this.disposing) {
+      this.drainPendingToMachine();
+      this.maybeSettle();
+    }
+    return this.engine;
+  }
+
   private machineEngine(): MachineEngine {
     if (this.engine === undefined) {
-      this.engine = createMachineEngine({
-        model: MACHINE_LOOP_MODEL,
-        llmRequester: this.llmRequester,
-        toolExecutor: this.toolExecutor,
-        toolInfos: this.toolRegistry.list(),
-        maxAttemptsPerStep: this.config.get<LoopControl>(LOOP_CONTROL_SECTION)?.maxAttemptsPerStep,
-        initialTurnId: this.states.get(turnKey).nextTurnId,
-        trace: () => this.activeRequestTrace,
-        toolTurnId: () => this.active?.id,
-        steerSignal: () => this.active?.steerController.signal,
-        source: () =>
-          this.active === undefined
-            ? undefined
-            : {
-                type: 'turn',
-                turnId: this.active.id,
-                step: this.active.gatedSteps,
-              },
-        gate: (signal) => this.gate(signal),
-        onTrace: (trace) => {
-          this.activeRequestTrace = trace;
-        },
-        onEvent: (event) => this.projectMachineEvent(event),
-        onToolResult: (toolCallId, result) => this.appendMachineToolResult(toolCallId, result),
-      });
+      throw new BugIndicatingError('Machine engine not attached');
     }
     return this.engine;
   }
@@ -241,7 +277,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
       onDrop: note.onDrop,
     };
     this.nudges.push(nudge);
-    if (this.quiescenceDepth === 0) {
+    if (this.quiescenceDepth === 0 && this.engine !== undefined) {
       nudge.sentToMachine = true;
       this.machineEngine().notify(machineUserMessage(note.message));
     }
@@ -290,6 +326,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
 
   private launchReservation(reservation: TurnReservation): void {
     if (reservation.cancelled || reservation.launched) return;
+    if (this.engine === undefined) return;
     reservation.launched = true;
     this.machineEngine().submit({
       id: reservation.machineQueueId,
@@ -387,7 +424,14 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     if (this.quiescenceDepth === 0) return;
     this.quiescenceDepth -= 1;
     if (this.quiescenceDepth > 0 || this.disposing) return;
-    for (const reservation of this.reservations) {
+    this.drainPendingToMachine();
+    this.maybeSettle();
+  }
+
+  private drainPendingToMachine(): void {
+    if (this.engine === undefined) return;
+    // oxlint-disable-next-line unicorn/no-useless-spread -- launchReservation re-enters synchronously via gate→bindMachineTurn and splices this.reservations mid-iteration
+    for (const reservation of [...this.reservations]) {
       if (!reservation.cancelled) this.launchReservation(reservation);
     }
     for (const nudge of this.nudges.slice(this.nudgeCursor)) {
@@ -396,7 +440,21 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
         this.machineEngine().notify(machineUserMessage(nudge.contextMessage));
       }
     }
-    this.maybeSettle();
+  }
+
+  async resetMachineEngine(): Promise<void> {
+    if (this.disposing) return;
+    if (this.active !== undefined || this.pendingMachineTurn !== undefined) {
+      throw new BugIndicatingError('Machine engine reset requires a quiescent loop');
+    }
+    await this.machineEngine().resetJournal(this.freshEngineJournal());
+  }
+
+  private freshEngineJournal(): ReturnType<typeof engineJournal> {
+    return engineJournal(
+      wireStoreJournal(this.wire, ENGINE_JOURNAL_DOMAIN),
+      this.states.get(turnKey).nextTurnId,
+    );
   }
 
   private cancelActiveTurn(turnId: number | undefined, cancellation: unknown): boolean {

@@ -10,20 +10,25 @@ import { messageAppended, turnEnded } from '#human/agent/events';
 import { agentSlices, type AgentEventStore } from '#human/agent/slices';
 import { credentialsRecovery } from '#human/credentials/credentials';
 import { createEventStoreSync } from '#human/eventStore/eventStore';
-import { memoryJournal } from '#human/eventStore/journal';
+import type { ExternalEvent } from '#human/eventStore/events';
+import { memoryJournal, type SyncStoreJournal } from '#human/eventStore/journal';
 import type { LlmErrorMessage } from '#human/llm/errors';
 import type { FinishInfo } from '#human/llm/finish-reason';
 import type { StreamedMessagePart, UserMessage } from '#human/llm/message';
+import { UNKNOWN_CAPABILITY } from '#human/llm/capability';
 import type { LlmModel } from '#human/llm/model';
 import type { LlmRecovery, LlmRecoveryRecord } from '#human/llm/requester/recovery';
-import type { LlmCredentialProvider } from '#human/llm/requester/requester';
+import type { LlmCredentialProvider, LlmRequestConfig } from '#human/llm/requester/requester';
 import { resolveMaxAttempts } from '#human/llm/requester/retry';
 import type { ToolResult as MachineToolResult, ToolUpdate } from '#human/tool/executor';
+import { createToolMachine } from '#human/tool/machine';
+import type { ToolDefinition } from '#human/tool/tool';
 import type { TokenUsage } from '#human/llm/usage';
-import { createActor, type Subscription } from '#human/xstate2';
+import type { Actor, Subscription } from '#human/xstate2';
 
-import { createMachineRequester, type MachineRequesterGateDecision } from './requester';
-import { createMachineTools, type ToolResultExtras } from './tools';
+import { createMachineRequester, type MachineRequester, type MachineRequesterGateDecision } from './requester';
+import { createMachineTools, type MachineTools, type ToolResultExtras } from './tools';
+import { seededStoreJournal } from './storeJournal';
 
 export type MachineEngineDelta =
   | { readonly kind: 'assistant'; readonly delta: string }
@@ -107,11 +112,12 @@ export interface CreateMachineEngineOptions {
   readonly systemPrompt?: string;
   readonly llmRequester: IAgentLLMRequesterService;
   readonly toolExecutor: IAgentToolExecutorService;
-  readonly toolInfos: readonly ToolInfo[];
+  readonly toolInfos: () => readonly ToolInfo[];
   readonly maxAttemptsPerStep?: number;
   readonly recovery?: LlmRecovery;
   readonly abortTimeoutMs?: number;
   readonly initialTurnId?: number;
+  readonly journal?: SyncStoreJournal;
   readonly trace?: () => LLMRequestTrace | undefined;
   readonly source?: () => AgentLLMRequestSource | undefined;
   readonly toolTurnId?: () => number | undefined;
@@ -164,6 +170,7 @@ export interface MachineEngine {
   cancelQueueItem(id: string): void;
   abort(): void;
   resetHistory(history: readonly HistoryMessage[]): Promise<void>;
+  resetJournal(journal: SyncStoreJournal): Promise<void>;
   stop(): void;
   snapshot(): MachineEngineSnapshot;
   currentStep(): number;
@@ -237,12 +244,28 @@ function createDeltaSplitter(): (part: StreamedMessagePart) => MachineEngineDelt
   };
 }
 
-export function createMachineEngine(options: CreateMachineEngineOptions): MachineEngine {
-  let currentStep = 0;
-  let split = createDeltaSplitter();
-  let pendingFailure: { step: number; error: LlmErrorMessage } | undefined;
-  let lastRetry: MachineEngineRetrySnapshot | undefined;
+export type MachineEngineAttachRef = Pick<
+  Actor<ReturnType<typeof createAgentMachine>>,
+  'on' | 'send' | 'getSnapshot'
+>;
 
+export const MACHINE_LOOP_MODEL: LlmModel = {
+  provider: 'agent-loop',
+  model: 'agent-loop',
+  capability: UNKNOWN_CAPABILITY,
+};
+
+export interface MachineEngineAttachBundle {
+  readonly store: AgentEventStore;
+  readonly turnLogic: ReturnType<typeof createTurnMachine>;
+  readonly toolLogic: ReturnType<typeof createToolMachine>;
+  readonly tools: ToolDefinition[];
+  readonly request: LlmRequestConfig;
+  readonly requester: MachineRequester;
+  readonly machineTools: MachineTools;
+}
+
+export function machineEngineAttachBundle(options: CreateMachineEngineOptions): MachineEngineAttachBundle {
   const publish = (event: MachineEngineEvent): void => {
     options.onEvent?.(event);
   };
@@ -282,56 +305,66 @@ export function createMachineEngine(options: CreateMachineEngineOptions): Machin
     canRecover: (error) => current()?.canRecover?.(error) === true,
     invalidate: () => current()?.invalidate?.(),
   };
-  const journal = memoryJournal();
+  const baseJournal = options.journal;
   const initialTurnId = options.initialTurnId ?? 0;
-  if (initialTurnId > 0) {
-    void journal.append({
-      type: turnEnded.type,
-      kind: 'event',
-      data: turnEnded({ turnId: initialTurnId - 1, outcome: 'done' }),
-    });
-  }
+  const journal = engineJournal(baseJournal, initialTurnId);
   const store: AgentEventStore = createEventStoreSync({ journal, slices: agentSlices });
-  const actor = createActor(
-    createAgentMachine({
-      tools: tools.tools,
-      turnActor: createTurnMachine(requester.requester, {
-        retry: { maxAttemptsPerStep: options.maxAttemptsPerStep },
-        recovery: {
-          propose: (ctx) => credentialsRecovery.propose(ctx) ?? options.recovery?.propose(ctx),
-        },
-      }),
-      abortTimeoutMs: options.abortTimeoutMs,
-    }),
-    {
-      input: {
-        request: { model: options.model, systemPrompt: options.systemPrompt, credentials },
-        store,
+  tools.sync();
+  return {
+    store,
+    turnLogic: createTurnMachine(requester.requester, {
+      retry: { maxAttemptsPerStep: options.maxAttemptsPerStep },
+      recovery: {
+        propose: (ctx) => credentialsRecovery.propose(ctx) ?? options.recovery?.propose(ctx),
       },
-    },
-  );
+    }),
+    toolLogic: createToolMachine(tools.executor),
+    tools: tools.tools,
+    request: { model: options.model, systemPrompt: options.systemPrompt, credentials },
+    requester,
+    machineTools: tools,
+  };
+}
+
+export function attachMachineEngine(
+  ref: MachineEngineAttachRef,
+  bundle: MachineEngineAttachBundle,
+  options: CreateMachineEngineOptions,
+): MachineEngine {
+  let currentStep = 0;
+  let split = createDeltaSplitter();
+  let pendingFailure: { step: number; error: LlmErrorMessage } | undefined;
+  let lastRetry: MachineEngineRetrySnapshot | undefined;
+
+  const publish = (event: MachineEngineEvent): void => {
+    options.onEvent?.(event);
+  };
+  const store = bundle.store;
+  const requester = bundle.requester;
+  const tools = bundle.machineTools;
+  let currentJournal = options.journal;
   const subscriptions: Subscription[] = [
-    actor.on('turn.started', (event) => {
+    ref.on('turn.started', (event) => {
       currentStep = 0;
       split = createDeltaSplitter();
       pendingFailure = undefined;
       lastRetry = undefined;
       publish({ type: 'turnStarted', machineTurnId: event.turnId, queueItemId: event.queueItemId });
     }),
-    actor.on('step.started', (event) => {
+    ref.on('step.started', (event) => {
       currentStep = event.step;
     }),
-    actor.on('llm.sent', (event) => {
+    ref.on('llm.sent', (event) => {
       split = createDeltaSplitter();
       lastRetry = undefined;
       tools.beginBatch();
       publish({ type: 'stepStarted', step: currentStep, recovery: event.recovery });
     }),
-    actor.on('llm.streaming.part', (event) => {
+    ref.on('llm.streaming.part', (event) => {
       const delta = split(event.part);
       if (delta !== undefined) publish({ type: 'delta', delta });
     }),
-    actor.on('llm.retrying', (event) => {
+    ref.on('llm.retrying', (event) => {
       pendingFailure = undefined;
       lastRetry = {
         failedAttempt: event.failedAttempt,
@@ -354,7 +387,7 @@ export function createMachineEngine(options: CreateMachineEngineOptions): Machin
         rawError: requester.lastError(),
       });
     }),
-    actor.on('llm.recovering', (event) => {
+    ref.on('llm.recovering', (event) => {
       pendingFailure = undefined;
       publish({
         type: 'recovering',
@@ -366,7 +399,7 @@ export function createMachineEngine(options: CreateMachineEngineOptions): Machin
         statusCode: event.statusCode,
       });
     }),
-    actor.on('llm.done', (event) => {
+    ref.on('llm.done', (event) => {
       pendingFailure = undefined;
       lastRetry = undefined;
       tools.beginBatch(event.entry.message.toolCalls);
@@ -390,37 +423,37 @@ export function createMachineEngine(options: CreateMachineEngineOptions): Machin
         traceId: finish?.traceId,
       });
     }),
-    actor.on('llm.failed.syntax', (event) => {
+    ref.on('llm.failed.syntax', (event) => {
       pendingFailure = { step: currentStep, error: event.error };
     }),
-    actor.on('llm.failed.remote', (event) => {
+    ref.on('llm.failed.remote', (event) => {
       pendingFailure = { step: currentStep, error: event.error };
     }),
-    actor.on('tool.update', (event) => {
+    ref.on('tool.update', (event) => {
       publish({ type: 'toolUpdate', toolCallId: event.toolCallId, update: event.update });
     }),
-    actor.on('tool.detached', (event) => {
+    ref.on('tool.detached', (event) => {
       publish({ type: 'toolAsync', toolCallId: event.toolCallId, text: event.text });
     }),
-    actor.on('tool.done', (event) => {
+    ref.on('tool.done', (event) => {
       publish({ type: 'toolDone', toolCallId: event.toolCallId, result: event.result });
     }),
-    actor.on('tool.failed', (event) => {
+    ref.on('tool.failed', (event) => {
       publish({ type: 'toolFailed', toolCallId: event.toolCallId, error: event.error });
     }),
-    actor.on('tool.aborted', (event) => {
+    ref.on('tool.aborted', (event) => {
       publish({ type: 'toolAborted', toolCallId: event.toolCallId });
     }),
-    actor.on('turn.reminders_consumed', (event) => {
+    ref.on('turn.reminders_consumed', (event) => {
       publish({ type: 'remindersConsumed', reminders: event.reminders });
     }),
-    actor.on('turn.aborting', () => {
+    ref.on('turn.aborting', () => {
       publish({ type: 'aborting' });
     }),
-    actor.on('turn.done', (event) => {
+    ref.on('turn.done', (event) => {
       publish({ type: 'turnSettled', outcome: 'done', produced: event.messages });
     }),
-    actor.on('turn.failed', (event) => {
+    ref.on('turn.failed', (event) => {
       const failure = pendingFailure;
       if (failure !== undefined) {
         publish({
@@ -437,52 +470,53 @@ export function createMachineEngine(options: CreateMachineEngineOptions): Machin
         produced: event.messages,
       });
     }),
-    actor.on('turn.aborted', (event) => {
+    ref.on('turn.aborted', (event) => {
       publish({ type: 'turnSettled', outcome: 'aborted', produced: event.messages });
     }),
   ];
-  actor.start();
 
   return {
     submit: (input) => {
-      actor.send({ type: 'input.submit', id: input.id, message: input.message });
+      tools.sync();
+      ref.send({ type: 'input.submit', id: input.id, message: input.message });
     },
     steer: (id) => {
-      actor.send({ type: 'input.steer', id });
+      tools.sync();
+      ref.send({ type: 'input.steer', id });
     },
     notify: (message) => {
-      actor.send({ type: 'input.notify', message });
+      tools.sync();
+      ref.send({ type: 'input.notify', message });
     },
     remind: (key, message) => {
-      actor.send({ type: 'input.remind', key, message });
+      tools.sync();
+      ref.send({ type: 'input.remind', key, message });
     },
     cancelQueueItem: (id) => {
-      actor.send({ type: 'input.cancel', id });
+      ref.send({ type: 'input.cancel', id });
     },
     abort: () => {
-      actor.send({ type: 'input.abort' });
+      ref.send({ type: 'input.abort' });
     },
     resetHistory: (history) => {
-      const journal = memoryJournal();
-      for (const message of history) {
-        void journal.append({ type: messageAppended.type, kind: 'event', data: messageAppended({ message }) });
-      }
-      const nextTurnId = (actor.getSnapshot() as unknown as MachineSnapshotLike).context.turnId;
+      const events: ExternalEvent[] = history.map((message) => messageAppended({ message }));
+      const nextTurnId = (ref.getSnapshot() as unknown as MachineSnapshotLike).context.turnId;
       if (nextTurnId > 0) {
-        void journal.append({
-          type: turnEnded.type,
-          kind: 'event',
-          data: turnEnded({ turnId: nextTurnId - 1, outcome: 'done' }),
-        });
+        events.push(turnEnded({ turnId: nextTurnId - 1, outcome: 'done' }));
       }
+      const seed = seedRecords(events);
+      const next = currentJournal === undefined ? seed : seededStoreJournal(currentJournal, seed.readSync());
+      return store.reset(next);
+    },
+    resetJournal: (journal) => {
+      currentJournal = journal;
       return store.reset(journal);
     },
     stop: () => {
       for (const subscription of subscriptions) subscription.unsubscribe();
-      actor.stop();
     },
     snapshot: () => {
-      const snapshot = actor.getSnapshot() as unknown as MachineSnapshotLike;
+      const snapshot = ref.getSnapshot() as unknown as MachineSnapshotLike;
       const value = snapshot.value;
       const turnRef = snapshot.children['turn'];
       let turn: MachineEngineTurnSnapshot | undefined;
@@ -536,4 +570,24 @@ export function createMachineEngine(options: CreateMachineEngineOptions): Machin
       tools.handleProgress(toolCallId, update);
     },
   };
+}
+
+function seedRecords(events: readonly ExternalEvent[]): SyncStoreJournal {
+  const journal = memoryJournal();
+  for (const event of events) {
+    void journal.append({ type: event.type, kind: 'event', data: event });
+  }
+  return journal;
+}
+
+export function engineJournal(base: SyncStoreJournal | undefined, initialTurnId: number): SyncStoreJournal {
+  if (base === undefined) {
+    if (initialTurnId <= 0) return memoryJournal();
+    return seedRecords([turnEnded({ turnId: initialTurnId - 1, outcome: 'done' })]);
+  }
+  if (initialTurnId <= 0 || base.readSync().length > 0) return base;
+  return seededStoreJournal(
+    base,
+    seedRecords([turnEnded({ turnId: initialTurnId - 1, outcome: 'done' })]).readSync(),
+  );
 }

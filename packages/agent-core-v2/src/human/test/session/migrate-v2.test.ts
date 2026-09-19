@@ -13,12 +13,13 @@ import type { LlmRequester } from '#/llm/requester/requester';
 import { createAgentMachine } from '#/agent/machine';
 import type { StateUpdated } from '#/agent/events';
 import type { AgentEventStore, TurnIndexState } from '#/agent/slices';
-import { createTurnMachine, type HistoryMessage } from '#/agent/turn';
+import type { HistoryMessage } from '#/agent/turn';
 import { createSessionMachine, type AgentActorRef } from '#/session/machine';
 import type { SessionStores } from '#/session/stores';
 import { createSlice } from '#/eventStore/slice';
 import { openSessionStore } from '#/persist/open';
 import { migrateV2Session } from '#/persist/v2/migrate';
+import { testScopeFactory } from '#/test/agent/scope-factory';
 
 const MAIN = 'main';
 
@@ -39,15 +40,7 @@ function createEchoRequester(): LlmRequester {
 }
 
 function createTestSession() {
-  const session = createActor(
-    createSessionMachine({
-      agent: createAgentMachine({
-        tools: [],
-        turnActor: createTurnMachine(createEchoRequester()),
-      }),
-    }),
-    { input: { request: { model } } },
-  );
+  const session = createActor(createSessionMachine(), { input: { request: { model } } });
   session.start();
   return session;
 }
@@ -577,7 +570,15 @@ describe('migrateV2Session', () => {
     expect(agentStore.getState().turnIndex.nextTurnId).toBe(1);
 
     const session = createTestSession();
-    session.send({ type: 'agent.create', agentId: MAIN, input: { store: agentStore } });
+    session.send({
+      type: 'agent.create',
+      agentId: MAIN,
+      logic: createAgentMachine({}),
+      input: {
+        request: { model },
+        scopeFactory: testScopeFactory({ store: agentStore, requester: createEchoRequester() }),
+      },
+    });
     submit(session, MAIN, 'again');
     await waitFor(
       agentRef(session, MAIN),

@@ -15,11 +15,12 @@ import type { LlmRequestConfig, LlmRequester, LlmRequestEvent } from '#/llm/requ
 import { connectPlugins, type AgentPluginTarget } from '#/plugin';
 import { createAgentMachine, type AgentEmitted } from '#/agent/machine';
 import { agentSlices, type AgentEventStore } from '#/agent/slices';
-import { createTurnMachine, type HistoryMessage } from '#/agent/turn';
+import type { HistoryMessage } from '#/agent/turn';
 import { createEventStore } from '#/eventStore/eventStore';
 import { journalFromBranch } from '#/eventStore/journal';
 import { MemoryBackend } from '#/store/backend/memory';
 import { TreeStore } from '#/store/store';
+import { testScopeFactory } from '#/test/agent/scope-factory';
 import type { ToolExecuteInput } from '#/tool/executor';
 import { defineTool, type ToolDefinition } from '#/tool/tool';
 import {
@@ -301,13 +302,16 @@ describe('tool select agent flow', () => {
       state,
     );
     const store = await testStore();
-    const actor = createActor(
-      createAgentMachine({
-        tools: [createSelectToolsTool(state), deferred],
-        turnActor: createTurnMachine(requester),
-      }),
-      { input: { request: { model }, store } },
-    );
+    const actor = createActor(createAgentMachine({}), {
+      input: {
+        request: { model },
+        scopeFactory: testScopeFactory({
+          store,
+          requester,
+          tools: [createSelectToolsTool(state), deferred],
+        }),
+      },
+    });
     connectPlugins(actor, [plugin]);
     actor.start();
     actor.send({ type: 'input.submit', message: createUserMessage('weather?') });

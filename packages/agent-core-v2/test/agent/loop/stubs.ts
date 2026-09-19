@@ -1,12 +1,16 @@
 import { toDisposable } from '#/_base/di/lifecycle';
 import { Event } from '#/_base/event';
 import type { IAgentLoopService, LoopErrorHandler, LoopErrorHandlerRegistrationOptions, LoopNotify, LoopNotifyHandle, LoopPromptSubmit, Turn, TurnResult } from '#/agent/loop/loop';
+import type { MachineEngine, MachineEngineAttachBundle } from '#/agent/loop/machine/engine';
+import type { AgentEventStore } from '#human/agent/slices';
 import type { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import type { BeforeToolExecuteEvent, ToolDidExecuteContext, WillExecuteToolEvent } from '#/agent/toolExecutor/toolHooks';
 import { OrderedHookSlot } from '#/hooks';
 import type { ContextMessage } from '#/agent/contextMemory/types';
 import { createHooks } from '#/hooks';
 import type { IWireService } from '#/wire/wire';
+
+import { stubAgentWire } from '../../wire/stubs';
 
 export interface StubLoopOptions { readonly hasActiveTurn?: boolean; readonly currentId?: string | number; readonly pendingTurnResult?: boolean; readonly manualTurnResult?: boolean }
 export type StubTurn = Turn & { readonly id: number };
@@ -35,6 +39,39 @@ function registry(): { handlers: LoopErrorHandler[]; register: IAgentLoopService
     return toDisposable(() => remove(handler.id));
   };
   return { handlers, register };
+}
+function stubAttachStore(): AgentEventStore {
+  return {
+    ref: { tree: 'test', branch: 'main' },
+    getState: () => ({ history: [], queue: [], notifications: [], reminders: [], turnIndex: { nextTurnId: 0 } }),
+    subscribe: () => () => {},
+    dispatch: () => Promise.resolve({ kind: 'entry', seq: 0, ts: 0, type: 'noop', payload: null }),
+    registerSlice: () => Promise.resolve(() => {}),
+    reset: () => Promise.resolve(),
+    flush: () => Promise.resolve(),
+    close: () => Promise.resolve(),
+  } as unknown as AgentEventStore;
+}
+function stubAttachBundle(): MachineEngineAttachBundle {
+  return { store: stubAttachStore(), request: { model: { provider: 'test', model: 'test' } } } as unknown as MachineEngineAttachBundle;
+}
+function stubAttachEngine(): MachineEngine {
+  return {
+    submit: () => {},
+    steer: () => {},
+    notify: () => {},
+    remind: () => {},
+    cancelQueueItem: () => {},
+    abort: () => {},
+    resetHistory: () => Promise.resolve(),
+    resetJournal: () => Promise.resolve(),
+    stop: () => {},
+    snapshot: () => ({ running: false, aborting: false, waitingForBackground: false, queueLength: 0, queueIds: [], notificationCount: 0, reminderCount: 0, backgroundCount: 0 }),
+    currentStep: () => 0,
+    lastFinish: () => undefined,
+    toolExtras: new Map(),
+    handleToolProgress: () => {},
+  };
 }
 export function stubLoopWithHooks(options: StubLoopOptions = {}): StubLoop {
   const hooks = createHooks(['onWillBeginStep', 'onDidFinishStep']) as IAgentLoopService['hooks'];
@@ -90,6 +127,9 @@ export function stubLoopWithHooks(options: StubLoopOptions = {}): StubLoop {
     cancelQueued() { return false; },
     cancelFromUser(turnId) { stub.cancel(turnId); },
     tryAcquireQuiescence: () => toDisposable(() => {}),
+    buildAttachBundle: () => stubAttachBundle(),
+    attachEngine: () => stubAttachEngine(),
+    resetMachineEngine: () => Promise.resolve(),
     hasPendingRequests: hasPending,
     registerLoopErrorHandler: errorHandlers.register,
     settled: () => Promise.resolve(),
@@ -116,5 +156,5 @@ export async function runWillBeginStepHooks(
     signal: new AbortController().signal,
   });
 }
-export function stubWire(): IWireService { return { _serviceBrand: undefined, seal: async () => {}, appendRecord: () => {}, readJournal: async function* () {}, flush: async () => {}, drainPersisted: async () => {}, lineCount: () => 0, lastContextClearLine: () => undefined, journalPath: () => undefined }; }
+export function stubWire(): IWireService { return stubAgentWire(); }
 export function stubToolExecutor(): IAgentToolExecutorService { return { _serviceBrand: undefined, execute: async function* () {}, onBeforeExecuteTool: Event.None as Event<BeforeToolExecuteEvent>, onWillExecuteTool: Event.None as Event<WillExecuteToolEvent>, hooks: { onDidExecuteTool: new OrderedHookSlot<ToolDidExecuteContext>() }, recordDupType: () => {}, registerToolCallGuard: () => ({ dispose() {} }), registerUnavailableToolDescriber: () => ({ dispose() {} }), registerMissingToolDescriber: () => ({ dispose() {} }) }; }

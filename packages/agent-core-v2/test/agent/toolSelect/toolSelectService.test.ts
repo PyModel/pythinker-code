@@ -241,6 +241,16 @@ class FakeLoopService implements IAgentLoopService {
     return toDisposable(() => {});
   }
 
+  buildAttachBundle(): never {
+    throw new Error('unused in this suite');
+  }
+
+  attachEngine(): never {
+    throw new Error('unused in this suite');
+  }
+
+  async resetMachineEngine(): Promise<void> {}
+
   hasPendingRequests(): boolean {
     return false;
   }
