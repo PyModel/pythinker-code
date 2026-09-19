@@ -911,7 +911,7 @@ export async function runUpdatePreflight(
 
     try {
       await installUpdate(source, userVisibleTarget.version, platform);
-      stdout.write(renderInstallSuccessMessage(userVisibleTarget));
+      stdout.write(renderInstallSuccessMessage(userVisibleTarget, source));
       return 'exit';
     } catch (error) {
       stderr.write(
