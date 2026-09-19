@@ -140,6 +140,7 @@ async function createRuntimeRig(extraAliases: readonly string[] = []): Promise<R
 }
 
 async function createPlainHarness(homeDir: string): Promise<PythinkerHarness> {
+  process.env["PYTHINKER_CODE_EXPERIMENTAL_MCP_MANAGEMENT"] = "1";
   const harness = createPythinkerHarness({
     homeDir,
     identity: { productName: "pythinker-code-cli", version: "test", platform: "pythinker_code_cli" },

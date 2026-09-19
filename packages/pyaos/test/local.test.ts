@@ -341,12 +341,11 @@ describe('LocalPyaos', () => {
   });
 
   describe('readText errors parameter (Python compat)', () => {
-    // A file with a valid UTF-8 prefix "zh", an invalid standalone byte 0xff,
-    // and a valid UTF-8 suffix "zh". Under strict decoding this throws.
+    // Valid UTF-8 "中", invalid 0xff, valid UTF-8 "文".
     const invalidBytes = Buffer.concat([
-      Buffer.from([0xe4, 0xb8, 0xad]), 
+      Buffer.from([0xe4, 0xb8, 0xad]),
       Buffer.from([0xff]),
-      Buffer.from([0xe6, 0x96, 0x87]), 
+      Buffer.from([0xe6, 0x96, 0x87]),
     ]);
 
     it('throws on invalid utf-8 with errors="strict" (default)', async () => {
@@ -363,8 +362,8 @@ describe('LocalPyaos', () => {
 
       const content = await pyaos.readText(filePath, { errors: 'replace' });
       expect(content).toContain('\uFFFD');
-      expect(content).toContain('zh');
-      expect(content).toContain('zh');
+      expect(content).toContain('中');
+      expect(content).toContain('文');
     });
 
     it('drops invalid bytes with errors="ignore"', async () => {
@@ -372,7 +371,7 @@ describe('LocalPyaos', () => {
       await pyaos.writeBytes(filePath, invalidBytes);
 
       const content = await pyaos.readText(filePath, { errors: 'ignore' });
-      expect(content).toBe('zh');
+      expect(content).toBe('中文');
       expect(content).not.toContain('\uFFFD');
     });
 

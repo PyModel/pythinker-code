@@ -169,6 +169,9 @@ describe('AgentTaskService', () => {
       append: async () => {},
       list: async () => [],
       delete: async () => {},
+      size: async () => undefined,
+      mtime: async () => undefined,
+      pathFor: () => undefined,
       flush: async () => {},
       close: async () => {},
     });

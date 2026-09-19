@@ -365,7 +365,12 @@ export class MigrationScreenComponent extends Container implements Focusable {
         // hiding the very info we want users to see.
         lines.push(
           chalk.hex(colors.warning)(
-            '  ⚠ config.toml could not be parsed — review config.migrated-from-pythinker-cli.toml',
+            '  ⚠ config.toml could not be parsed',
+          ),
+        );
+        lines.push(
+          chalk.hex(colors.warning)(
+            '     review config.migrated-from-pythinker-cli.toml',
           ),
         );
         const sc = sum.config.siblingContents;
@@ -386,14 +391,24 @@ export class MigrationScreenComponent extends Container implements Focusable {
       if (sum.config.wroteTuiSibling) {
         lines.push(
           chalk.hex(colors.warning)(
-            '  ⚠ tui.toml conflicted — review tui.migrated-from-pythinker-cli.toml',
+            '  ⚠ tui.toml conflicted',
+          ),
+        );
+        lines.push(
+          chalk.hex(colors.warning)(
+            '     review tui.migrated-from-pythinker-cli.toml',
           ),
         );
       }
       if (sum.mcp.wroteSiblingDueToConflict) {
         lines.push(
           chalk.hex(colors.warning)(
-            '  ⚠ mcp.json unreadable — review mcp.migrated-from-pythinker-cli.json',
+            '  ⚠ mcp.json unreadable',
+          ),
+        );
+        lines.push(
+          chalk.hex(colors.warning)(
+            '     review mcp.migrated-from-pythinker-cli.json',
           ),
         );
       }

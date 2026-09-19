@@ -5,6 +5,10 @@ import type { ConfigEffectiveOverlay } from '#/app/config/config';
 import { registerConfigOverlay } from '#/app/config/configOverlayContributions';
 import { CONFIG_INVALID_ERROR_CODE } from '#/kosong/contract/errors';
 import { resolveProviderEndpoint } from '#/kosong/provider/providerDefinition';
+import {
+  PYTHINKER_BASE_URL_ENV,
+  PYTHINKER_DEFAULT_BASE_URL,
+} from '#/kosong/provider/providers/pythinker/pythinker.contrib';
 
 import { ENV_MODEL_PROVIDER_KEY } from './configSection';
 
@@ -152,11 +156,17 @@ export const pythinkerModelEnvOverlay: ConfigEffectiveOverlay = {
     const envProvider = asRecord(providers[ENV_MODEL_PROVIDER_KEY]);
     const providerType =
       typeof envProvider['type'] === 'string' ? envProvider['type'] : 'pythinker';
+    const envMap = envBagOf(getEnv);
+    const resolved = resolveProviderEndpoint(providerType, envMap);
     const providerBaseUrl =
       typeof envProvider['baseUrl'] === 'string' && envProvider['baseUrl'].length > 0
-        ? envProvider['baseUrl']
-        :
-          resolveProviderEndpoint(providerType, envBagOf(getEnv)).baseUrl;
+        ? (envProvider['baseUrl'] as string)
+        : resolved.baseUrl ??
+          (typeof envMap[PYTHINKER_BASE_URL_ENV] === 'string' && envMap[PYTHINKER_BASE_URL_ENV]!.length > 0
+            ? envMap[PYTHINKER_BASE_URL_ENV]
+            : providerType === 'pythinker'
+              ? PYTHINKER_DEFAULT_BASE_URL
+              : undefined);
     const providerPatch: Record<string, unknown> = {};
     if (envProvider['type'] === undefined) providerPatch['type'] = 'pythinker';
     if (providerBaseUrl !== undefined && envProvider['baseUrl'] === undefined) {

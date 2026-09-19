@@ -96,7 +96,7 @@ describe('server-v2 /api/v1/search', () => {
       ].join('\n') + '\n',
       'utf8',
     );
-    await writeFile(join(home, 'sessions', WS, 's1', 'state.json'), JSON.stringify({ title: 'apple quote' }));
+    await writeFile(join(home, 'sessions', WS, 's1', 'state.json'), JSON.stringify({ title: 'zh' }));
     const summaries: SessionSummary[] = [
       {
         id: 's1',

@@ -1316,7 +1316,7 @@ describe('server-v2 /api/v1 prompts', () => {
   }
 
   function attachedPathFrom(notice: string): string {
-    const match = /bytes\): (.+)  open it with the Read tool$/.exec(notice);
+    const match = /bytes\): (.+) (?:—|-) open it with the Read tool$/.exec(notice);
     expect(match).not.toBeNull();
     return match![1]!;
   }

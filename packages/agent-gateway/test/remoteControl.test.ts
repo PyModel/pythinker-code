@@ -40,6 +40,23 @@ interface RemoteControlStatusWire {
 
 const RELAY_KEY = 'relay-key';
 
+async function seedLoginToken(homeDir: string): Promise<void> {
+  const credDir = join(homeDir, 'credentials');
+  await mkdir(credDir, { recursive: true });
+  await writeFile(
+    join(credDir, 'pythinker-code.json'),
+    JSON.stringify({
+      access_token: 'access-token',
+      refresh_token: 'refresh-token',
+      expires_at: Math.floor(Date.now() / 1000) + 3600,
+      scope: 'openid',
+      token_type: 'Bearer',
+      expires_in: 3600,
+    }),
+  );
+}
+
+
 describe('agent-gateway /api/v1/remote-control', () => {
   let home: string | undefined;
   let server: RunningServer | undefined;
@@ -78,8 +95,9 @@ describe('agent-gateway /api/v1/remote-control', () => {
 
   it('starts and stops the tunnel at runtime, dedupes concurrent enables, and tracks relay-initiated shutdown', async () => {
     const relay = await startRegisterAckRelay();
-    vi.stubEnv('PYTHINKER_CODE_REMOTE_CONTROL_RELAY', `http://127.0.0.1:${relay.port}`);
+    vi.stubEnv('PYTHINKER_CODE_REMOTE_CONTROL_RELAY_URL', `http://127.0.0.1:${relay.port}`);
     vi.stubEnv('PYTHINKER_CODE_REMOTE_CONTROL_RELAY_KEY', RELAY_KEY);
+    await seedLoginToken(home as string);
 
     const initial = await authedFetch(server as RunningServer, base, '/api/v1/remote-control');
     const initialBody = (await initial.json()) as Envelope<RemoteControlStatusWire>;
@@ -87,7 +105,7 @@ describe('agent-gateway /api/v1/remote-control', () => {
     expect(initialBody.data.state).toBe('off');
 
     const [first, second] = await Promise.all([postRemoteControl(true), postRemoteControl(true)]);
-    expect(first.code).toBe(0);
+        expect(first.code).toBe(0);
     expect(second.code).toBe(0);
     expect(first.data.state).toBe('on');
     expect(second.data.state).toBe('on');
