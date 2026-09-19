@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { IAgentLLMRequesterService } from '#/agent/llmRequester/llmRequester';
 import { IAgentProfileService } from '#/agent/profile/profile';
-import { IAgentTelemetryContextService } from '#/app/telemetry/agentTelemetryContext';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
 import type { ModelRecord } from '#/kosong/model/model';
 import {
   configServices,
@@ -159,7 +159,16 @@ describe('ConfigState model capabilities', () => {
 
     expect(records).toContainEqual({
       event: 'thinking_toggle',
-      properties: { agent_id: 'main', enabled: true, effort: 'low', from: 'off' },
+      properties: {
+        agent_id: 'main',
+        enabled: true,
+        effort: 'low',
+        from: 'off',
+        mode: 'agent',
+        model: 'example/test-model',
+        protocol: 'openai',
+        provider_type: 'pythinker',
+      },
     });
   });
 
@@ -183,7 +192,7 @@ describe('ConfigState model capabilities', () => {
 
     profile.update({ modelAlias: 'example/test-model' });
 
-    expect(ctx.get(IAgentTelemetryContextService).get()).toMatchObject({
+    expect(ctx.get(ITelemetryService).getContext()).toMatchObject({
       model: 'example/test-model',
       provider_type: 'pythinker',
       protocol: 'openai',
@@ -193,7 +202,7 @@ describe('ConfigState model capabilities', () => {
   it('keeps the alias as ambient model when the bound model does not resolve', () => {
     profile.update({ modelAlias: 'ghost/model' });
 
-    expect(ctx.get(IAgentTelemetryContextService).get()).toMatchObject({
+    expect(ctx.get(ITelemetryService).getContext()).toMatchObject({
       model: 'ghost/model',
     });
   });
@@ -230,7 +239,7 @@ describe('ConfigState model capabilities', () => {
     try {
       await resumed.restorePersisted();
 
-      expect(resumed.get(IAgentTelemetryContextService).get()).toMatchObject({
+      expect(resumed.get(ITelemetryService).getContext()).toMatchObject({
         model: 'example/test-model',
         provider_type: 'pythinker',
         protocol: 'openai',

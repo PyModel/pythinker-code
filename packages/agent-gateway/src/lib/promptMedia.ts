@@ -24,7 +24,6 @@ import {
   type GetResult,
   type IFileService,
   type ISessionMediaStore,
-  type ImageCompressionTelemetry,
   type ITelemetryService,
   type PromptFileAttachment,
 } from '@pymodel/agent-core-v2';
@@ -195,8 +194,6 @@ export async function resolvePromptMediaFiles(
     }
     return attachmentsDir ?? cacheDir;
   };
-  const telemetryFor = (source: string): ImageCompressionTelemetry | undefined =>
-    options.telemetry === undefined ? undefined : { client: options.telemetry, source };
   const attachments: PromptFileAttachment[] = [];
   const content: WireContent = [];
   try {
@@ -235,7 +232,8 @@ export async function resolvePromptMediaFiles(
         }
         const canonicalMime = normalizeImageMime(effectiveMime);
         const compressed = await compressBase64ForModel(part.source.data, canonicalMime, {
-          telemetry: telemetryFor('prompt_inline'),
+          telemetry: options.telemetry,
+          telemetrySource: 'prompt_inline',
         });
         if (compressed.changed) {
           const dir = await resolveOriginalsDir();
@@ -368,7 +366,8 @@ export async function resolvePromptMediaFiles(
           }
           mediaType = normalizeImageMime(mediaType);
           const compressed = await compressImageForModel(data, mediaType, {
-            telemetry: telemetryFor('prompt_file'),
+            telemetry: options.telemetry,
+            telemetrySource: 'prompt_file',
           });
           if (compressed.changed) {
             const originalPath = await persistOriginalImage(data, mediaType, {
@@ -479,7 +478,8 @@ export async function resolvePromptMediaFiles(
         }
         mediaType = normalizeImageMime(mediaType);
         const compressed = await compressImageForModel(data, mediaType, {
-          telemetry: telemetryFor('prompt_file'),
+          telemetry: options.telemetry,
+          telemetrySource: 'prompt_file',
         });
         if (compressed.changed) {
           const dir = await resolveOriginalsDir();

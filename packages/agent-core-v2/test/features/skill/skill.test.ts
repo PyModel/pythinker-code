@@ -117,7 +117,7 @@ describe('SkillRuntime', () => {
           status: () => ({ state: 'idle', activeTurnId: undefined, pendingTurnIds: [], hasPendingRequests: false, activeTraceId: undefined }),
         });
         registerTestAgentWireServices(reg, 'wire/skill-test');
-        reg.definePartialInstance(ITelemetryService, { track: () => {}, track2: () => {} });
+        reg.definePartialInstance(ITelemetryService, { track2: () => {}, withContext: () => null as never, setContext: () => {}, getContext: () => ({}) });
         reg.definePartialInstance(IAgentToolRegistryService, {
           register: () => ({ dispose: () => {} }),
         });
@@ -204,7 +204,7 @@ describe('SkillTool', () => {
           status: () => ({ state: 'idle', activeTurnId: undefined, pendingTurnIds: [], hasPendingRequests: false, activeTraceId: undefined }),
         });
         registerTestAgentWireServices(reg, 'wire/skill-test');
-        reg.definePartialInstance(ITelemetryService, { track: () => {}, track2: () => {} });
+        reg.definePartialInstance(ITelemetryService, { track2: () => {}, withContext: () => null as never, setContext: () => {}, getContext: () => ({}) });
         reg.definePartialInstance(IAgentToolRegistryService, {
           register: () => ({ dispose: () => {} }),
         });

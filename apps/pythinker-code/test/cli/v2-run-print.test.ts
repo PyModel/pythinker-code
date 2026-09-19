@@ -278,7 +278,7 @@ function makeFakeHarness() {
       ITelemetryService,
       (() => {
         const svc = {
-          setAppender: vi.fn(),
+          addAppender: vi.fn(() => ({ dispose: vi.fn() })),
           setContext: vi.fn(),
           track: vi.fn(),
           track2: vi.fn(),
@@ -553,9 +553,9 @@ describe('runV2Print', () => {
     await runV2Print(opts() as never, '1.2.3-test', { stdout, stderr });
 
     const telemetry = appServices.get(ITelemetryService) as {
-      setAppender: ReturnType<typeof vi.fn>;
+      addAppender: ReturnType<typeof vi.fn>;
     };
-    expect(telemetry.setAppender).not.toHaveBeenCalled();
+    expect(telemetry.addAppender).not.toHaveBeenCalled();
     expect(mocks.initializeTelemetry).not.toHaveBeenCalled();
     // The run itself is unaffected: the prompt still renders and cleanup runs.
     expect(stdout.text()).toContain('hello world');
@@ -573,9 +573,9 @@ describe('runV2Print', () => {
     await runV2Print(opts() as never, '1.2.3-test', { stdout, stderr });
 
     const telemetry = appServices.get(ITelemetryService) as {
-      setAppender: ReturnType<typeof vi.fn>;
+      addAppender: ReturnType<typeof vi.fn>;
     };
-    expect(telemetry.setAppender).toHaveBeenCalledTimes(1);
+    expect(telemetry.addAppender).toHaveBeenCalledTimes(1);
     expect(mocks.initializeTelemetry).toHaveBeenCalledTimes(1);
     expect(mocks.initializeTelemetry).toHaveBeenCalledWith({
       homeDir: resolvePythinkerHome(),

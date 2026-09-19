@@ -250,7 +250,7 @@ export async function runV2Print(
     // default client, so its sink must be attached before the run can crash.
     telemetryService = app.accessor.get(ITelemetryService);
     if (telemetryEnabled) {
-      telemetryService.setAppender(
+      telemetryService.addAppender(
         createCloudAppender(app.accessor, {
           deviceId,
           appName: CLI_USER_AGENT_PRODUCT,
@@ -285,8 +285,8 @@ export async function runV2Print(
     };
     flushWires = () => flushSessionWires(resolved.session, resolved.agent);
 
-    telemetryService.setContext({ sessionId: resolved.session.id, model: resolved.telemetryModel });
-    setTelemetryContext({ sessionId: resolved.session.id });
+    telemetryService.setContext({ session_id: resolved.session.id, model: resolved.telemetryModel });
+    setTelemetryContext({ session_id: resolved.session.id });
     setTelemetryModel(resolved.telemetryModel);
     setCrashPhase('runtime');
     if (firstLaunch) {
@@ -318,7 +318,7 @@ export async function runV2Print(
     }
     writeResumeHint(resolved.session.id, outputFormat, stdout, stderr);
 
-    telemetryService.withContext({ sessionId: resolved.session.id }).track2('exit', {
+    telemetryService.withContext({ session_id: resolved.session.id }).track2('exit', {
       duration_ms: Date.now() - startedAt,
     });
   } finally {

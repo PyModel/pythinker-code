@@ -92,7 +92,6 @@ import { IAgentLoopService } from '#/agent/loop/loop';
 import { IAgentPromptService } from '#/agent/prompt/prompt';
 import { IAgentFullCompactionService } from '#/agent/fullCompaction/fullCompaction';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { IAgentTelemetryContextService } from '#/app/telemetry/agentTelemetryContext';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
@@ -103,6 +102,7 @@ import { _clearAgentToolContributionsForTests } from '#/agent/toolRegistry/toolC
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import '#/agent/toolActivation/toolActivationService';
 import { IAgentMediaToolsRegistrar } from '#/agent/media/mediaTools';
+import { ISessionMediaStore } from '#/agent/media/sessionMediaStore';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
 import { FakeRuntime } from '#/runtime/fakeRuntime';
 import { ScopeUnits } from '#/_base/di/fiber';
@@ -417,16 +417,17 @@ describe('AgentLifecycleService', () => {
     ix.stub(ITelemetryService, {
       _serviceBrand: undefined,
       track2: () => {},
-      withContext: () => ({
-        _serviceBrand: undefined,
-        track2: () => {},
-      }) as unknown as ITelemetryService,
+      withContext: function withContext() {
+        return this as unknown as ITelemetryService;
+      },
+      setContext: () => {},
+      getContext: () => ({}),
+      addAppender: () => ({ dispose: () => {} }),
+      removeAppender: () => {},
+      setEnabled: () => {},
+      flush: async () => {},
+      shutdown: async () => {},
     } as unknown as ITelemetryService);
-    ix.stub(IAgentTelemetryContextService, {
-      _serviceBrand: undefined,
-      get: () => ({ mode: 'agent' }),
-      set: () => {},
-    });
     ix.stub(IHostEnvironment, { _serviceBrand: undefined } as IHostEnvironment);
     ix.stub(IHostFileSystem, { _serviceBrand: undefined } as IHostFileSystem);
     ix.stub(IHostClock, { _serviceBrand: undefined } as IHostClock);
@@ -507,6 +508,14 @@ describe('AgentLifecycleService', () => {
       }),
       isBaselineServer: () => true,
     } satisfies ISessionMcpHandle);
+    ix.stub(ISessionMediaStore, {
+      _serviceBrand: undefined,
+      pathFor: () => undefined,
+      resolveDisplayPath: async () => undefined,
+      read: async () => undefined,
+      open: async () => undefined,
+      materialize: async () => undefined,
+    } as unknown as ISessionMediaStore);
     stopAllOnExit = vi.fn(async () => []);
     suppressAllTerminalNotifications = vi.fn(async () => {});
     ix.stub(IAgentTaskService, {
@@ -943,11 +952,11 @@ describe('AgentLifecycleService', () => {
 
     expect(records).toContainEqual({
       event: 'yolo_toggle',
-      properties: { agent_id: 'main', enabled: true },
+      properties: { agent_id: 'main', enabled: true, mode: 'agent' },
     });
     expect(records).toContainEqual({
       event: 'yolo_toggle',
-      properties: { agent_id: sub.agentId, enabled: false },
+      properties: { agent_id: sub.agentId, enabled: false, mode: 'agent' },
     });
   });
 

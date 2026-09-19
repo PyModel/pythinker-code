@@ -296,7 +296,7 @@ export function registerPromptsRoutes(app: PromptRouteHost, core: Scope): void {
           );
         }
 
-        const telemetry = core.accessor.get(ITelemetryService).withContext({ sessionId: session_id });
+        const telemetry = core.accessor.get(ITelemetryService).withContext({ session_id });
         preparedMedia = await resolvePromptMediaFiles(
           resolvedSessionMedia,
           core.accessor.get(IFileService),
