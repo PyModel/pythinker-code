@@ -10,6 +10,19 @@ import { currentTheme, type ColorToken } from '#/tui/theme';
 import type { ColorPalette } from '#/tui/theme/colors';
 import { shimmerText } from '#/tui/utils/shimmer';
 
+
+function isRenderCacheEnabled(): boolean {
+  return true;
+}
+
+type AgentDynamicWorkflowProgressEstimate = {
+  readonly displayTicks: number;
+};
+
+const MAX_FINAL_OUTPUT_LABEL_CHARS = 40;
+const MAX_FINAL_OUTPUT_LABEL_CODE_UNITS = 80;
+
+
 const TEXT_CELL_PREFERRED_WIDTH = 30;
 const CELL_GAP = '  ';
 const FRAME_INTERVAL_MS = 80;
@@ -765,7 +778,7 @@ export class AgentDynamicWorkflowProgressComponent implements Component {
     member: AgentDynamicWorkflowMember,
     snapshot: AgentDynamicWorkflowSnapshot,
     layout: AgentDynamicWorkflowGridLayout,
-    estimate: AgentDynamicWorkflowProgressEstimate | undefined,
+    _estimate: AgentDynamicWorkflowProgressEstimate | undefined,
   ): string {
     const width = layout.cellWidth;
     if (snapshot.phase === 'pending') {
@@ -775,13 +788,14 @@ export class AgentDynamicWorkflowProgressComponent implements Component {
       return renderCancelledUnstartedCell(member, width, this.colors);
     }
     if (!layout.renderText) {
-      return this.renderCompactCell(member, snapshot, layout.barCells, nowMs);
+      return this.renderCompactCell(member, snapshot, layout.barCells, Date.now());
     }
     if (snapshot.phase === 'queued' && snapshot.ticks <= 0) {
       return renderQueuedCell(member, width, this.colors);
     }
 
-    const estimate = this.progressEstimator.estimate({
+    const nowMs = Date.now();
+    const progressEstimate = this.progressEstimator.estimate({
       memberKey: member.id,
       phase: snapshot.phase,
       capacityTicks: layout.barCells * BRAILLE_LEVELS.length,

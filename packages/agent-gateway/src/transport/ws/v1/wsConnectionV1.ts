@@ -33,6 +33,10 @@ import {
 } from './sessionEventBroadcaster';
 
 export const WS_MAX_PAYLOAD_BYTES = 4 << 20;
+export const WS_CLOSE_OVERLOADED = 1013;
+export const WS_CLOSE_POLICY = 1008;
+export const WS_MAX_PENDING_CONTROLS = 32;
+export const WS_MAX_SUBSCRIPTIONS = 64;
 
 const DEFAULT_MAX_BUFFER_SIZE = 1000;
 
@@ -54,6 +58,7 @@ interface InboundFrame {
 }
 
 export interface WsConnectionV1Options {
+  readonly core?: unknown;
   readonly socket: WebSocket;
   readonly broadcaster: SessionEventBroadcaster;
   readonly connectionRegistry: IConnectionRegistry;
@@ -70,6 +75,8 @@ export interface WsConnectionV1Options {
 
 export class WsConnectionV1 implements BroadcastTarget {
   readonly id: string;
+  readonly clientId: string = "";
+  get pendingControlCount(): number { return 0; }
   readonly connectedAt: string;
   readonly remoteAddress: string | null;
   readonly userAgent: string | null;

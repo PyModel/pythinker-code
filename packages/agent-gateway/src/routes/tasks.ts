@@ -323,12 +323,6 @@ function toWireTask(
   if (info.kind === 'agent' && info.thinkingEffort !== undefined) {
     base.thinking_effort = info.thinkingEffort;
   }
-  if (info.kind === 'agent' && info.routing !== undefined) {
-    base.routing = toRoutingWire(info.routing);
-  }
-  if (info.kind === 'agent' && info.currentRoutingEnvironmentRevision !== undefined) {
-    base.current_routing_env_revision = info.currentRoutingEnvironmentRevision;
-  }
   if (info.kind === 'agent' && info.agentId !== undefined) {
     base.agent_id = info.agentId;
   }
@@ -350,14 +344,14 @@ function toWireTask(
 
 export function toRoutingWire(routing: Record<string, unknown>): SubagentRoutingWire {
   return {
-    operation: routing.operation,
-    profile_source: routing.profileSource,
-    model_source: routing.modelSource,
-    policy_mode: routing.policyMode,
-    policy_source: routing.policySource,
-    feature_source: routing.featureSource,
-    routing_env_revision: routing.resolvedFromRoutingEnvironmentRevision,
-    route_decision: routing.routeDecisionFingerprint,
+    operation: routing['operation'] as SubagentRoutingWire['operation'],
+    profile_source: routing['profileSource'] as SubagentRoutingWire['profile_source'],
+    model_source: routing['modelSource'] as SubagentRoutingWire['model_source'],
+    policy_mode: routing['policyMode'] as SubagentRoutingWire['policy_mode'],
+    policy_source: routing['policySource'] as SubagentRoutingWire['policy_source'],
+    feature_source: routing['featureSource'] as SubagentRoutingWire['feature_source'],
+    routing_env_revision: String(routing['resolvedFromRoutingEnvironmentRevision'] ?? ''),
+    route_decision: String(routing['routeDecisionFingerprint'] ?? ''),
   };
 }
 

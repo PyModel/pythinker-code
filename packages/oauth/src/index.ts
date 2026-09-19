@@ -185,12 +185,9 @@ export type OAuthRefreshOutcome =
   | { readonly success: true }
   | { readonly success: false; readonly reason?: string };
 
-export type ManagedPythinkerCodeModelInfo = {
-  readonly id: string;
-  readonly name?: string;
-  readonly displayName?: string;
-};
-export type ManagedPythinkerConfigShape = Record<string, unknown>;
+export type ManagedPythinkerCodeModelInfo = import("./provider-config.js").ProviderModelInfo;
+
+export type ManagedPythinkerConfigShape = import("./provider-config.js").PythinkerConfigShape & Record<string, unknown>;
 export type DeviceAuthorization = {
   readonly verificationUri: string;
   readonly userCode: string;

@@ -89,7 +89,7 @@ export async function handleFeedbackCommand(host: SlashCommandHost): Promise<voi
   };
   try {
     const res = await host.harness.auth.submitFeedback({
-      content: input.value,
+      content: typeof input === "string" ? input : (input as { value: string }).value,
       sessionId: host.state.appState.sessionId,
       version,
       os: `${osType()} ${osRelease()}`,
@@ -115,7 +115,7 @@ export async function handleFeedbackCommand(host: SlashCommandHost): Promise<voi
 
     stopSpinner({ ok: true, label: FEEDBACK_STATUS_SUCCESS });
     host.showStatus(feedbackSessionLine(host.state.appState.sessionId));
-    host.showStatus(feedbackIdLine(res.feedbackId));
+    host.showStatus(feedbackIdLine(Number(res.feedbackId)));
     host.track(FEEDBACK_TELEMETRY_EVENT);
     if (attachmentFailed) {
       host.showStatus(FEEDBACK_STATUS_UPLOAD_FAILED);
@@ -249,5 +249,5 @@ async function loadManagedUsageReport(host: SlashCommandHost): Promise<ManagedUs
   if (res.kind === 'error') {
     return { error: res.message };
   }
-  return { usage: { rows: quotaUsageRows(res.quota), extraUsage: res.quota.extraUsage } };
+  return { usage: { rows: quotaUsageRows((res as { quota: any }).quota), extraUsage: (res as { quota: any }).quota?.extraUsage } };
 }

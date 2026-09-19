@@ -29,8 +29,8 @@ export class SubagentRosterTracker {
           run_in_background: event.runInBackground,
           model: event.model,
           thinking_effort: event.thinkingEffort,
-          routing: (event as { routing?: unknown }).routing === undefined ? undefined : toRoutingWire((event as { routing?: unknown }).routing),
-          current_routing_env_revision: (event as { currentRoutingEnvironmentRevision?: unknown }).currentRoutingEnvironmentRevision,
+          routing: undefined,
+          current_routing_env_revision: undefined,
           created_at: new Date().toISOString(),
         });
         return;

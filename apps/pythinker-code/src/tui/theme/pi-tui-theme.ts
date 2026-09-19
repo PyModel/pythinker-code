@@ -73,3 +73,5 @@ export function createEditorTheme(): EditorTheme {
     },
   };
 }
+
+export type PythinkerMarkdownTheme = Record<string, unknown> & { transient?: boolean };

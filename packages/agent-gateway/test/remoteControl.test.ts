@@ -3,7 +3,16 @@ import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { remoteControlLockPath } from '@pymodel/remote-control';
+import {
+  remoteControlLockPath,
+  RemoteControlAlreadyRunningError,
+  type RemoteControlManager,
+} from '@pymodel/remote-control';
+import { ITelemetryService } from '@pymodel/agent-core-v2';
+import {
+  registerRemoteControlRoutes,
+  type RemoteControlRouteOptions,
+} from '../src/routes/remoteControl';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { WebSocketServer, type RawData, type WebSocket } from 'ws';
 

@@ -102,11 +102,7 @@ describe('server telemetry', () => {
   });
 
   it('returns at the deadline when cloud delivery never settles', async () => {
-    const auth = {
-      _serviceBrand: undefined,
-      getCachedAccessToken: () => new Promise<undefined>(() => {}),
-    } as unknown as IOAuthToolkit;
-    const app = await bootCore(undefined, undefined);
+        const app = await bootCore(undefined, undefined);
     const telemetry = await initializeServerTelemetry(app, home as string);
     app.accessor.get(ITelemetryService).track2('session_ended', { reason: 'exit' });
 

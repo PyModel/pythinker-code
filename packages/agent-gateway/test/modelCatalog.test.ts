@@ -7,7 +7,6 @@ import {
   IModelCatalog,
   IProviderDiscoveryService,
   type IModelCatalog as IModelCatalogType,
-  type as never,
   type IProviderDiscoveryService as IProviderDiscoveryServiceType,
   type ModelCatalogConfig,
   type ScopeSeed,

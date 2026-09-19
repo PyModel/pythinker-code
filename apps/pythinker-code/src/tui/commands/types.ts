@@ -3,6 +3,7 @@ import type { AutocompleteItem, SlashCommand } from '@pymodel/pi-tui';
 export type SlashCommandAvailability = 'always' | 'idle-only';
 
 export interface PythinkerSlashCommand<Name extends string = string> extends SlashCommand {
+  readonly requiresEngineV2?: boolean;
   readonly name: Name;
   readonly aliases: readonly string[];
   readonly description: string;

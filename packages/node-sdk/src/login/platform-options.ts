@@ -118,3 +118,16 @@ export function resolvePlatformOption(
   const catalogValue = `${CATALOG_PLATFORM_VALUE_PREFIX}${lowered}`;
   return options.find((option) => option.value.toLowerCase() === catalogValue);
 }
+
+export function catalogProviderIdFromPlatformValue(value: string): string | undefined {
+  if (value.startsWith(CATALOG_PLATFORM_VALUE_PREFIX)) {
+    return value.slice(CATALOG_PLATFORM_VALUE_PREFIX.length);
+  }
+  return undefined;
+}
+
+export type PlatformSelection = string | {
+  readonly value: string;
+  readonly label?: string;
+  readonly platformId?: string;
+};

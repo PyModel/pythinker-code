@@ -119,3 +119,8 @@ export type {
 
 export * from '#/events';
 export type * from '#/types';
+
+export { coerceEffortForModel, effortLevelsForModel, thinkingAvailability, CANONICAL_EFFORT_ORDER, DEFAULT_SUPPORTED_EFFORTS } from '#/thinking-levels';
+
+export { buildPlatformOptions, isOAuthPlatformId, catalogProviderIdFromPlatformValue } from '#/login/platform-options';
+export type { PlatformOption, PlatformSelection } from '#/login/platform-options';

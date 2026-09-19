@@ -265,6 +265,7 @@ function dispatchInlineSkillCombo(host: SlashCommandHost, text: string): boolean
     pluginCommandMap: host.pluginCommandMap,
     isStreaming: false,
     isCompacting: false,
+    engineV2: host.engineV2 === true,
   });
   if (intent.kind !== 'skill' && intent.kind !== 'message') return false;
 
@@ -302,6 +303,7 @@ async function executeSlashCommand(host: SlashCommandHost, input: string): Promi
     pluginCommandMap: host.pluginCommandMap,
     isStreaming: host.state.appState.streamingPhase !== 'idle',
     isCompacting: host.state.appState.isCompacting,
+    engineV2: host.engineV2 === true,
   });
 
   switch (intent.kind) {
@@ -336,6 +338,7 @@ async function executeSlashCommand(host: SlashCommandHost, input: string): Promi
         const busyReason = slashCommandBusyReason({
           isStreaming: host.state.appState.streamingPhase !== 'idle',
           isCompacting: host.state.appState.isCompacting,
+          engineV2: host.engineV2 === true,
         });
         if (busyReason !== undefined) {
           host.showError(slashBusyMessage(intent.commandName, busyReason));
@@ -363,6 +366,7 @@ async function executeSlashCommand(host: SlashCommandHost, input: string): Promi
         const busyReason = slashCommandBusyReason({
           isStreaming: host.state.appState.streamingPhase !== 'idle',
           isCompacting: host.state.appState.isCompacting,
+          engineV2: host.engineV2 === true,
         });
         if (busyReason !== undefined) {
           host.showError(slashBusyMessage(intent.commandName, busyReason));
@@ -441,6 +445,7 @@ async function handleBuiltInSlashCommand(
     const busyReason = slashCommandBusyReason({
       isStreaming: host.state.appState.streamingPhase !== 'idle',
       isCompacting: host.state.appState.isCompacting,
+      engineV2: host.engineV2 === true,
     });
     if (
       busyReason !== undefined &&
@@ -473,6 +478,7 @@ async function handleBuiltInSlashCommand(
       const busyReason = slashCommandBusyReason({
         isStreaming: host.state.appState.streamingPhase !== 'idle',
         isCompacting: host.state.appState.isCompacting,
+        engineV2: host.engineV2 === true,
       });
       if (busyReason !== undefined) {
         host.showError(slashBusyMessage(name, busyReason));

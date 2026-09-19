@@ -219,17 +219,7 @@ export class FsWatchBridge {
     sw.watchEventSub = undefined;
     sw.watchSub?.dispose();
     sw.watchSub = undefined;
-    const service = (sw.program as { watch?: { subscribe(): { onDidChangeFiles(cb: (event: unknown) => void): { dispose(): void }; dispose(): void } } }).watch;
-    if (service === undefined) {
-      sw.programGeneration = undefined;
-      return;
-    }
     sw.programGeneration = sw.program.snapshot().generation;
-    const sub = service.subscribe();
-    sw.watchSub = sub;
-    sw.watchEventSub = sub.onDidChangeFiles((event) => {
-      this.onWatchEvent(sw, event);
-    });
     this.applyUnion(sw);
   }
 

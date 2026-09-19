@@ -458,4 +458,6 @@ export type {
   ExpertTalkRunV1,
   ExpertTalkStartResult,
   ExpertTalkStatusV1,
+  ExpertTalkStageArtifactV1,
+  ExpertTalkStageProgressV1,
 } from '@pymodel/agent-core-v2/session/expertTalk/expertTalk';

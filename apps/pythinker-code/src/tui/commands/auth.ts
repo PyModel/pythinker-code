@@ -72,7 +72,7 @@ async function handlePythinkerCodeOAuthLogin(
     await host.harness.auth.login(DEVICE_OAUTH_PROVIDER_NAME, {
       signal: controller.signal,
       region,
-      onDeviceCode: (data) => {
+      onDeviceCode: (data: unknown) => {
         spinner = host.showLoginAuthorizationPrompt(data);
       },
     });

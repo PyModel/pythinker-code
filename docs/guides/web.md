@@ -2,7 +2,7 @@
 
 Pythinker Code Web is the browser-based graphical interface built into Pythinker Code CLI: run `pythinker web` in a terminal, and you can start sessions, chat, handle approvals, and review file changes in a browser — a friendlier interface, while sessions and data still live entirely on your machine.
 
-![Pythinker Code Web UI](../../media/pythinker-web-ui.jpg)
+![Pythinker Code Web UI](../media/pythinker-web-ui.jpg)
 
 ## Getting started
 

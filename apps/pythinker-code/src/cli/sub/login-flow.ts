@@ -40,7 +40,7 @@ export async function runLoginFlow(options: { region?: PythinkerRegion } = {}): 
     const result = await harness.auth.login(undefined, {
       signal: controller.signal,
       region,
-      onDeviceCode: (data) => {
+      onDeviceCode: (data: unknown) => {
         const url = data.verificationUriComplete || data.verificationUri;
         // Print the manual fallback before attempting to open the user's
         // browser so headless/browser-opener failures never hide the URL

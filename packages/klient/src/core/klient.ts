@@ -47,7 +47,7 @@ export function createKlientFromChannel(
   options: KlientOptions = {},
 ): Klient {
   const validate = options.validate ?? true;
-  const clientId = globalThis.crypto.randomUUID();
+  const _clientId = globalThis.crypto.randomUUID();
 
   const call: ScopedCaller = async (scope, service, method, args, options) => {
     const procedure = globalContract[service]?.[method];

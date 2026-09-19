@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { monitorEventLoopDelay, performance, type IntervalHistogram } from 'node:perf_hooks';
+import { monitorEventLoopDelay, performance } from 'node:perf_hooks';
 
 import type {
   IBootstrapService,
@@ -190,7 +190,7 @@ describe('baseline: synthetic corpus', () => {
     all.push(...(await writeCorpus(0, 400)));
     await service.reindex();
 
-    const eld: IntervalHistogram = monitorEventLoopDelay();
+    const eld: any = monitorEventLoopDelay();
     eld.enable();
     try {
       const tokens: (string | undefined)[] = [undefined];

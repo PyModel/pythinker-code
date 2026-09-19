@@ -33,6 +33,39 @@ export interface ExpertTalkArmV1 {
   readonly resourceVersion: string;
 }
 
+export interface ExpertTalkBindingV1 {
+  readonly armId: string;
+  readonly pair: ExpertTalkPairV1;
+  readonly role?: ExpertTalkRole;
+  readonly requestedModelId?: string;
+  readonly effectiveModelId?: string;
+  readonly thinkingEffort?: string;
+  readonly protocol?: string;
+  readonly provider?: string;
+  readonly wireModel?: string;
+}
+
+export interface ExpertTalkStageArtifactV1 {
+  readonly stage: string;
+  readonly content?: string;
+  readonly text?: string;
+}
+
+export interface ExpertTalkStageProgressV1 {
+  readonly stage: string;
+  readonly progress?: number;
+}
+
+export interface ExpertTalkRunV1 {
+  readonly runId: string;
+  readonly status: ExpertTalkRunStatus;
+  readonly armId: string;
+  readonly error?: string | { readonly message?: string; readonly retryable?: boolean };
+  readonly bindings?: readonly ExpertTalkBindingV1[];
+  readonly stages?: readonly ExpertTalkStageProgressV1[];
+  readonly artifacts?: readonly ExpertTalkStageArtifactV1[];
+}
+
 export interface ExpertTalkStatusV1 {
   readonly config: ExpertTalkConfigV1;
   readonly enabled?: boolean;
@@ -42,17 +75,11 @@ export interface ExpertTalkStatusV1 {
   readonly runStatus?: ExpertTalkRunStatus;
   readonly activeRun?: ExpertTalkRunV1;
   readonly latestRun?: ExpertTalkRunV1;
+  readonly pairValidation?: { readonly ok?: boolean; readonly message?: string; readonly state?: string; readonly reason?: string };
 }
 
 export interface ExpertTalkStartResult {
   readonly runId: string;
-}
-
-export interface ExpertTalkRunV1 {
-  readonly runId: string;
-  readonly status: ExpertTalkRunStatus;
-  readonly armId: string;
-  readonly error?: string;
 }
 
 export interface ExpertTalkRunPageV1 {
@@ -63,16 +90,6 @@ export interface ExpertTalkRunPageV1 {
 export interface ExpertTalkListRunsOptions {
   readonly cursor?: string;
   readonly limit?: number;
-}
-
-export interface ExpertTalkBindingV1 {
-  readonly armId: string;
-  readonly pair: ExpertTalkPairV1;
-}
-
-export interface ExpertTalkStageArtifactV1 {
-  readonly stage: string;
-  readonly content: string;
 }
 
 export interface ISessionExpertTalkService {

@@ -127,7 +127,7 @@ export class Markdown extends Container {
 
   private ensureStructure(): void {
     const mode = getMarkdownMermaidMode();
-    const transient = (this.theme as PythinkerMarkdownTheme).transient === true;
+    const transient = (this.theme as unknown as PythinkerMarkdownTheme).transient === true;
     if (
       this.structure !== undefined &&
       this.structure.text === this.sourceText &&
