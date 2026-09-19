@@ -286,17 +286,21 @@ describe('AgentTaskService', () => {
     let armOnRead = false;
     let svc!: IAgentTaskService;
     ix.stub(IFileSystemStorageService, {
-      read: async () => {
-        if (armOnRead) await svc.suppressAllTerminalNotifications();
-        return undefined;
-      },
+      read: async () => undefined,
       readStream: async function* () {},
       write: async () => {},
       writeStream: async () => {},
       append: async () => {},
       list: async () => [],
       delete: async () => {},
+      size: async () => {
+        if (armOnRead) await svc.suppressAllTerminalNotifications();
+        return undefined;
+      },
+      mtime: async () => undefined,
+      pathFor: () => undefined,
       flush: async () => {},
+      close: async () => {},
     });
     svc = ix.get(IAgentTaskService);
     const taskId = svc.registerTask(outputtingTask('done\n'));
@@ -1184,6 +1188,9 @@ describe('AgentTaskService', () => {
       },
       list: async () => [],
       delete: async () => {},
+      size: async () => undefined,
+      mtime: async () => undefined,
+      pathFor: () => undefined,
       flush: async () => {},
       close: async () => {},
     });

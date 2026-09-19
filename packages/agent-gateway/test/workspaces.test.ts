@@ -334,7 +334,7 @@ describe('server-v2 /api/v1/workspaces', () => {
   });
 
   it('adds an additional directory and persists it by default (variant 2)', async () => {
-    const root = home as string;
+    const root = await mkdtemp(join(tmpdir(), 'pythinker-server-v2-workspaces-persist-'));
     const extra = join(root, 'extra');
     await mkdir(extra);
     const created = await postJson<WorkspaceWire>('/api/v1/workspaces', { root });
@@ -355,7 +355,7 @@ describe('server-v2 /api/v1/workspaces', () => {
   });
 
   it('adds a relative directory without persisting when persist is false (variant 2)', async () => {
-    const root = home as string;
+    const root = await mkdtemp(join(tmpdir(), 'pythinker-server-v2-workspaces-noper-'));
     const extra = join(root, 'extra-rel');
     await mkdir(extra);
     const created = await postJson<WorkspaceWire>('/api/v1/workspaces', { root });
