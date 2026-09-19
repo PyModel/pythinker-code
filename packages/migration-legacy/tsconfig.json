@@ -1,4 +1,15 @@
 {
   "extends": "../../tsconfig.json",
-  "include": ["src"]
+  "compilerOptions": {
+    "skipLibCheck": true,
+    "noResolve": false
+  },
+  "include": [
+    "src",
+    "src/env.d.ts"
+  ],
+  "exclude": [
+    "test",
+    "dist"
+  ]
 }

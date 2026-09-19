@@ -10,5 +10,10 @@
     "src",
     "test",
     "../agent-core-v2/src/env.d.ts"
+  ],
+  "exclude": [
+    "examples",
+    "dist",
+    "node_modules"
   ]
 }

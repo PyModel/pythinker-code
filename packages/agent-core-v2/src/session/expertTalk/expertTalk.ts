@@ -63,7 +63,14 @@ export interface ExpertTalkRunV1 {
   readonly error?: string | { readonly message?: string; readonly retryable?: boolean };
   readonly bindings?: readonly ExpertTalkBindingV1[];
   readonly stages?: readonly ExpertTalkStageProgressV1[];
-  readonly artifacts?: readonly ExpertTalkStageArtifactV1[];
+  readonly artifacts?: readonly ExpertTalkStageArtifactV1[] | {
+    readonly leadOpening?: ExpertTalkStageArtifactV1;
+    readonly peerOpening?: ExpertTalkStageArtifactV1;
+    readonly leadReview?: ExpertTalkStageArtifactV1;
+    readonly peerReview?: ExpertTalkStageArtifactV1;
+    readonly fusion?: ExpertTalkStageArtifactV1;
+    readonly [key: string]: ExpertTalkStageArtifactV1 | undefined;
+  };
 }
 
 export interface ExpertTalkStatusV1 {
