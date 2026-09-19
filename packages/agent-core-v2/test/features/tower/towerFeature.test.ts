@@ -164,7 +164,7 @@ describe('TowerFeature — config-sourced flag assembly', () => {
   });
   afterEach(() => {
     disposables.dispose();
-    try { rmSync(homeDir, { recursive: true, force: true }); } catch { /* ignore */ }
+    try { rmSync(homeDir, { recursive: true, force: true }); } catch { void 0; }
   });
 
   async function makeRealFlags(preseed?: Record<string, unknown>) {
@@ -233,7 +233,7 @@ describe('tower flag — resolution', () => {
   });
   afterEach(() => {
     disposables.dispose();
-    try { rmSync(homeDir, { recursive: true, force: true }); } catch { /* ignore */ }
+    try { rmSync(homeDir, { recursive: true, force: true }); } catch { void 0; }
   });
 
   function makeFlags(env: Readonly<Record<string, string | undefined>> = {}) {
