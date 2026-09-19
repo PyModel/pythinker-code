@@ -172,7 +172,7 @@ describe('Session.prompt events', () => {
       }
       const results = events.filter((event) => event.type === 'tool.result');
       expect(results).toHaveLength(3);
-      expect(results.every((event) => event.isError !== true)).toBe(true);
+      expect(results.every((event) => (event as { isError?: boolean }).isError !== true)).toBe(true);
       expect(JSON.stringify(results[0])).toContain('Update shown to the user.');
       expect(JSON.stringify(results.slice(1))).toContain(
         'Notifications are disabled; the update was not displayed.',
