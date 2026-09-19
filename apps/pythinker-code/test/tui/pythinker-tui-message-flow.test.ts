@@ -2247,7 +2247,7 @@ command = "vim"
     expect(harness.auth.submitFeedback).not.toHaveBeenCalled();
     const transcript = stripSgr(renderTranscript(driver));
     expect(transcript).toContain("You're not signed in");
-    expect(transcript).toContain('https://www.code.pythinker.com');
+    expect(transcript).toContain('https://www.pythinker.com/code');
     expect(transcript).toContain('https://github.com/PyModel/pythinker-code/issues');
   });
 

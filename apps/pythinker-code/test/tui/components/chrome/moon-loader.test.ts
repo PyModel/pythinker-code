@@ -72,6 +72,6 @@ describe('MoonLoader', () => {
     expect(stripAnsi(loader.renderInline())).not.toContain('thinking');
 
     loader.setVerbLabels(true);
-    expect(stripAnsi(loader.renderInline())).toContain(`${BRAILLE_SPINNER_FRAMES[1]} thinking…`);
+    expect(stripAnsi(loader.renderInline())).toContain(`${BRAILLE_SPINNER_FRAMES[1]} ${formatThinkingSpinnerLabel(0)}`);
   });
 });

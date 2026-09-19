@@ -164,10 +164,7 @@ export const pythinkerModelEnvOverlay: ConfigEffectiveOverlay = {
         : undefined;
     const envBase = trimmed(envMap[PYTHINKER_BASE_URL_ENV]);
     const providerBaseUrl =
-      existingBase ??
-      resolved.baseUrl ??
-      envBase ??
-      (providerType === 'pythinker' ? PYTHINKER_DEFAULT_BASE_URL : undefined);
+      existingBase ?? resolved.baseUrl ?? envBase ?? (envProvider['type'] === undefined ? PYTHINKER_DEFAULT_BASE_URL : undefined);
     const providerPatch: Record<string, unknown> = {};
     if (envProvider['type'] === undefined) providerPatch['type'] = 'pythinker';
     if (providerBaseUrl !== undefined && envProvider['baseUrl'] === undefined) {
