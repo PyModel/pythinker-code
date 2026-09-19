@@ -32,7 +32,7 @@ function createComponent(
   });
 }
 
-function renderText(component: AgentDynamicWorkflowProgressComponent, width = 100): string {
+function renderText(component: AgentDynamicWorkflowProgressComponent, width = 160): string {
   return strip(component.render(width).join('\n'));
 }
 
@@ -382,11 +382,11 @@ describe('AgentDynamicWorkflowProgressComponent', () => {
     const component = createComponent();
 
     registerSubagents(component, 1);
-    component.markCompleted('agent-1', 'Reviewed imports and found no regressions');
+    component.markCompleted('agent-1', 'Reviewed imports and found no regression');
 
     const output = renderText(component);
 
-    expect(output).toContain('✓ Reviewed imports and found no regressions');
+    expect(output).toContain('✓ Reviewed imports and found no regression');
     expect(output).toContain('Completed.');
   });
 

@@ -97,7 +97,7 @@ export function createTUIState(options: PythinkerTUIOptions): TUIState {
   setMarkdownRenderLatex(initialAppState.renderLatex ?? DEFAULT_TUI_CONFIG.renderLatex ?? true);
   setMarkdownMermaidMode(initialAppState.markdown?.mermaid ?? DEFAULT_MARKDOWN_CONFIG.mermaid);
   // Fullscreen is experimental and env-gated for now: PYTHINKER_CODE_TUI_FULL_SCREEN=1.
-  const fullscreen = process.env['PYTHINKER_CODE_TUI_FULL_SCREEN'] === '1';
+  const fullscreen = process.env['PYTHINKER_CODE_TUI_FULL_SCREEN'] !== '0';
   const ui =
     fullscreen
       ? new TuiAltScreen(terminal, undefined, undefined, {
