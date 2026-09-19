@@ -15,6 +15,11 @@ import { camelToSnake } from '@pymodel/agent-core-v2/app/config/toml';
 
 import '@pymodel/agent-core-v2/agent/loop/configSection';
 import '@pymodel/agent-core-v2/agent/task/configSection';
+
+import '@pymodel/agent-core-v2/agent/tools/os/bash/process-task';
+import '@pymodel/agent-core-v2/agent/tools/agent/subagent-task';
+import '@pymodel/agent-core-v2/agent/tools/ask-user-question/question-background-task';
+
 import '@pymodel/agent-core-v2/agent/permissionMode/configSection';
 import '@pymodel/agent-core-v2/app/mcpConfig/configSection';
 import '@pymodel/agent-core-v2/app/auth/configSection';

@@ -6,7 +6,7 @@
   },
   "include": [
     "src",
-    "src/env.d.ts"
+    "../agent-core-v2/src/env.d.ts"
   ],
   "exclude": [
     "test",
