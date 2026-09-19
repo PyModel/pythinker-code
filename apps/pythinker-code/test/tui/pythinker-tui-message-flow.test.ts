@@ -2245,7 +2245,7 @@ command = "vim"
     expect(harness.auth.submitFeedback).not.toHaveBeenCalled();
     const transcript = stripSgr(renderTranscript(driver));
     expect(transcript).toContain("You're not signed in");
-    expect(transcript).toContain('https://www.kimi.com/code');
+    expect(transcript).toContain('https://www.code.pythinker.com');
     expect(transcript).toContain('https://github.com/PyModel/pythinker-code/issues');
   });
 
@@ -6998,13 +6998,13 @@ command = "vim"
         enabledMcpServerCount: 1,
         hasErrors: false,
         source: 'zip-url',
-        originalSource: 'https://code.kimi.com/pythinker-code/plugins/official/pythinker-datasource.zip',
+        originalSource: 'https://code.pythinker.com/pythinker-code/plugins/official/pythinker-datasource.zip',
       })),
     });
     const { driver } = await makeDriver(session);
 
     driver.handleUserInput(
-      '/plugins install https://code.kimi.com/pythinker-code/plugins/official/pythinker-datasource.zip',
+      '/plugins install https://code.pythinker.com/pythinker-code/plugins/official/pythinker-datasource.zip',
     );
 
     await vi.waitFor(() => {
@@ -7083,7 +7083,7 @@ command = "vim"
             tier: 'official',
             displayName: 'Pythinker Datasource',
             description: 'Datasource plugin',
-            source: 'https://code.kimi.com/pythinker-code/plugins/official/pythinker-datasource.zip',
+            source: 'https://code.pythinker.com/pythinker-code/plugins/official/pythinker-datasource.zip',
           },
         ],
       }),
@@ -7107,7 +7107,7 @@ command = "vim"
 
     await vi.waitFor(() => {
       expect(session.installPlugin).toHaveBeenCalledWith(
-        'https://code.kimi.com/pythinker-code/plugins/official/pythinker-datasource.zip',
+        'https://code.pythinker.com/pythinker-code/plugins/official/pythinker-datasource.zip',
       );
     });
     await vi.waitFor(() => {
@@ -7132,7 +7132,7 @@ command = "vim"
             id: 'pythinker-datasource',
             tier: 'official',
             displayName: 'Pythinker Datasource',
-            source: 'https://code.kimi.com/pythinker-code/plugins/official/pythinker-datasource.zip',
+            source: 'https://code.pythinker.com/pythinker-code/plugins/official/pythinker-datasource.zip',
           },
         ],
       }),
@@ -7309,7 +7309,7 @@ command = "vim"
 
       await vi.waitFor(() => {
         expect(session.installPlugin).toHaveBeenCalledWith(
-          'https://code.kimi.com/pythinker-code/plugins/official/pythinker-datasource.zip',
+          'https://code.pythinker.com/pythinker-code/plugins/official/pythinker-datasource.zip',
         );
       });
       expect(globalThis.fetch).toHaveBeenCalledWith(pythinkerCodePluginMarketplaceUrl());

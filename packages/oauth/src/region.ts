@@ -50,16 +50,16 @@ export const PYTHINKER_REGION_PROFILES: Record<PythinkerRegion, PythinkerRegionP
   'mainland-cn': {
     oauthHost: DEFAULT_PYTHINKER_CODE_OAUTH_HOST,
     baseUrl: DEFAULT_PYTHINKER_CODE_BASE_URL,
-    cdnBase: 'https://code.kimi.com/pythinker-code',
-    siteBase: 'https://www.kimi.com',
-    telemetryEndpoint: 'https://telemetry-logs.kimi.com/v1/event',
+    cdnBase: 'https://code.pythinker.com/pythinker-code',
+    siteBase: 'https://www.pythinker.com',
+    telemetryEndpoint: 'https://telemetry-logs.pythinker.com/v1/event',
   },
   global: {
     oauthHost: 'https://auth.kimi.ai',
     baseUrl: 'https://api.kimi.ai/coding/v1',
-    cdnBase: 'https://code.kimi.ai/pythinker-code',
-    siteBase: 'https://www.kimi.ai',
-    telemetryEndpoint: 'https://telemetry-logs.kimi.ai/v1/event',
+    cdnBase: 'https://code.pythinker.com/pythinker-code',
+    siteBase: 'https://www.pythinker.com',
+    telemetryEndpoint: 'https://telemetry-logs.pythinker.com/v1/event',
   },
 };
 
@@ -69,12 +69,12 @@ export function pythinkerRegionProfile(region: PythinkerRegion): PythinkerRegion
 
 /**
  * Content-CDN URL builder (tips banner, WebBridge / Computer-Use binaries).
- * International mirror coverage of cdn.kimi.ai for these payloads is still
+ * International mirror coverage of the content CDN for these payloads is still
  * being confirmed, so both regions currently share the .com host — funnel
  * every content URL through here so flipping later touches one function.
  */
 export function pythinkerCdnContentUrl(path: string): string {
-  return `https://cdn.kimi.com/${path.replace(/^\/+/, '')}`;
+  return `https://cdn.pythinker.com/${path.replace(/^\/+/, '')}`;
 }
 
 /**

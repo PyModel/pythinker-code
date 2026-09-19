@@ -28,7 +28,7 @@ describe('runKimiOAuthFlow', () => {
         return jsonResponse({
           device_code: 'device-123',
           user_code: 'ABCD-EFGH',
-          verification_uri: 'https://kimi.com/code/authorize_device',
+          verification_uri: 'https://code.pythinker.com/authorize_device',
           interval: 1,
         });
       }
@@ -60,7 +60,7 @@ describe('runKimiOAuthFlow', () => {
         return jsonResponse({
           device_code: 'device-123',
           user_code: 'ABCD-EFGH',
-          verification_uri: 'https://kimi.com/code/authorize_device',
+          verification_uri: 'https://code.pythinker.com/authorize_device',
           interval: 1,
         });
       }

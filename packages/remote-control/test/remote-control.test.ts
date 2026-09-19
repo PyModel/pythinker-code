@@ -48,22 +48,22 @@ describe('Remote Control URLs', () => {
   it('builds the public device entry without a local token', () => {
     const url = buildRemoteControlUrl('device/one');
     expect(url).toBe(
-      'https://code-rc.kimi.com/devices/device%2Fone/?rc=1&from=pythinker_code_cli',
+      'https://code-rc.pythinker.com/devices/device%2Fone/?rc=1&from=pythinker_code_cli',
     );
     expect(url).not.toContain('token');
   });
 
   it('builds an encoded session deep link before the query', () => {
     expect(buildRemoteControlUrl('device-1', 'session/a b')).toBe(
-      'https://code-rc.kimi.com/devices/device-1/sessions/session%2Fa%20b?rc=1&from=pythinker_code_cli',
+      'https://code-rc.pythinker.com/devices/device-1/sessions/session%2Fa%20b?rc=1&from=pythinker_code_cli',
     );
   });
 
   it('falls back to the default relay origin when the env is unset or blank', () => {
-    expect(resolveRemoteControlRelayOrigin({})).toBe('https://code-rc.kimi.com');
+    expect(resolveRemoteControlRelayOrigin({})).toBe('https://code-rc.pythinker.com');
     expect(
       resolveRemoteControlRelayOrigin({ PYTHINKER_CODE_REMOTE_CONTROL_RELAY_URL: '  ' }),
-    ).toBe('https://code-rc.kimi.com');
+    ).toBe('https://code-rc.pythinker.com');
   });
 
   it('builds device URLs from the relay origin env override', () => {
@@ -699,7 +699,7 @@ describe('Remote Control single-instance lock', () => {
         nonce: 'stale',
         local_origin: 'http://127.0.0.1:1',
         device_id: 'dead-device',
-        url: 'https://code-rc.kimi.com/devices/dead-device/',
+        url: 'https://code-rc.pythinker.com/devices/dead-device/',
         started_at: 0,
       }),
     );
@@ -767,7 +767,7 @@ describe('Remote Control single-instance lock', () => {
         nonce: 'successor',
         local_origin: 'http://127.0.0.1:58628',
         device_id: 'device-2',
-        url: 'https://code-rc.kimi.com/devices/device-2/',
+        url: 'https://code-rc.pythinker.com/devices/device-2/',
         started_at: Date.now(),
       }),
     );

@@ -6,11 +6,11 @@ import { ChoicePickerComponent, type ChoiceOption } from './choice-picker';
 
 const PYTHINKER_CODE_MAINLAND_CN_OPTION: ChoiceOption = {
   value: 'pythinker-code',
-  label: 'Pythinker Code (kimi.com/code)',
+  label: 'Pythinker Code (code.pythinker.com)',
 };
 const PYTHINKER_CODE_GLOBAL_OPTION: ChoiceOption = {
   value: PYTHINKER_CODE_GLOBAL_PLATFORM_VALUE,
-  label: 'Pythinker Code (kimi.ai/code)',
+  label: 'Pythinker Code (code.pythinker.com)',
 };
 
 function platformOptions(): readonly ChoiceOption[] {

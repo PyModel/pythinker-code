@@ -28,7 +28,7 @@ function makePluginSummary(overrides: Partial<PluginSummary> = {}): PluginSummar
     commandCount: 0,
     hasErrors: false,
     source: 'zip-url',
-    originalSource: 'https://code.kimi.com/pythinker-code/plugins/official/pythinker-datasource.zip',
+    originalSource: 'https://code.pythinker.com/pythinker-code/plugins/official/pythinker-datasource.zip',
     ...overrides,
   };
 }
@@ -41,7 +41,7 @@ function makeMarketplaceEntry(
   return {
     id,
     displayName,
-    source: `https://code.kimi.com/pythinker-code/plugins/official/${id}.zip`,
+    source: `https://code.pythinker.com/pythinker-code/plugins/official/${id}.zip`,
     tier: 'official',
     version,
   };

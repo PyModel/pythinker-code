@@ -48,8 +48,8 @@ export function formatRemoteControlOutput(options: RemoteControlOutputOptions): 
   const status = (text: string): string => chalk.hex(darkColors.success)(text);
   const link = (url: string): string =>
     supportsHyperlinks() ? toTerminalHyperlink(accent(url), url) : accent(url);
-  const docs = toTerminalHyperlink('docs', 'https://kimi.com/code/docs/remote-control');
-  const feedback = toTerminalHyperlink('feedback', 'https://kimi.com/code/feedback');
+  const docs = toTerminalHyperlink('docs', 'https://code.pythinker.com/docs/remote-control');
+  const feedback = toTerminalHyperlink('feedback', 'https://code.pythinker.com/feedback');
   const [localBase, localFrag] = splitTokenFragment(
     buildOpenableUrl(options.localOrigin, options.localServerToken),
   );

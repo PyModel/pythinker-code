@@ -29,6 +29,7 @@ type CreatePythinkerDeviceId = typeof createPythinkerDeviceIdFn;
 
 const mocks = vi.hoisted(() => ({
   pythinkerHarnessConstructor: vi.fn(),
+  pythinkerHarnessV2Constructor: vi.fn(),
   harnessEnsureConfigFile: vi.fn(),
   harnessGetConfig: vi.fn(async () => ({
     providers: {},
@@ -75,6 +76,10 @@ vi.mock('@pymodel/pythinker-code-sdk', async (importOriginal) => {
       mocks.pythinkerHarnessConstructor(...args);
       return createFakeHarness(args[0] as { readonly homeDir?: string } | undefined);
     },
+    createPythinkerHarnessV2: (...args: unknown[]) => {
+      mocks.pythinkerHarnessV2Constructor(...args);
+      return createFakeHarness(args[0] as { readonly homeDir?: string } | undefined);
+    },
   };
 });
 
@@ -85,7 +90,6 @@ vi.mock('@pymodel/pythinker-code-oauth', async () => {
   return {
     ...actual,
     createPythinkerDeviceId: mocks.createPythinkerDeviceId,
-    PYTHINKER_CODE_PROVIDER_NAME: 'pythinker-code',
   };
 });
 
@@ -98,9 +102,10 @@ vi.mock('@pymodel/pythinker-telemetry', () => ({
 }));
 
 beforeEach(() => {
-  // Pin region to cn: the telemetry endpoint assertion must not follow the
-  // dev machine's own login/marker state.
-  vi.stubEnv('PYTHINKER_CODE_OAUTH_HOST', 'https://auth.kimi.com');
+  // Pin the legacy engine so the default-deps cases keep exercising the legacy
+  // SDK harness this suite asserts on; the routing cases below re-stub it.
+  vi.stubEnv('PYTHINKER_CODE_LEGACY_FLAG', '1');
+  vi.stubEnv('PYTHINKER_CODE_REGION_MARKER', 'off');
   refreshPythinkerRegion();
   tmp = mkdtempSync(join(tmpdir(), 'pythinker-export-'));
 });
@@ -425,14 +430,13 @@ describe('pythinker export', () => {
       model: 'k2',
       sessionId: undefined,
       endpoint: expect.any(Function),
-      getAccessToken: expect.any(Function),
       onUnexpectedError: expect.any(Function),
     });
     // The endpoint resolver defers to the active region profile at flush time.
     const telemetryOptions = mocks.initializeTelemetry.mock.calls[0]![0] as {
       endpoint: () => string;
     };
-    expect(telemetryOptions.endpoint()).toBe('https://telemetry-logs.kimi.com/v1/event');
+    expect(telemetryOptions.endpoint()).toBe('https://telemetry-logs.pythinker.com/v1/event');
     expect(mocks.initializeTelemetry.mock.invocationCallOrder[0]).toBeLessThan(
       mocks.harnessExportSession.mock.invocationCallOrder[0]!,
     );
@@ -534,10 +538,11 @@ describe('pythinker export', () => {
     );
   });
 
-  it('builds the harness through the SDK factory', async () => {
+  it('builds the v2 harness by default', async () => {
+    vi.stubEnv('PYTHINKER_CODE_LEGACY_FLAG', '');
     const program = new Command('pythinker');
-    const output = join(tmp, 'engine.zip');
-    mocks.harnessExportSession.mockResolvedValue(makeResult('ses_engine', output));
+    const output = join(tmp, 'v2-engine.zip');
+    mocks.harnessExportSession.mockResolvedValue(makeResult('ses_v2_engine', output));
 
     registerExportCommand(program, {
       cwd: () => tmp,
@@ -552,13 +557,44 @@ describe('pythinker export', () => {
       }) as ExportDeps['exit'],
     });
 
-    await program.parseAsync(['node', 'pythinker', 'export', 'ses_engine', '--output', output], {
+    await program.parseAsync(['node', 'pythinker', 'export', 'ses_v2_engine', '--output', output], {
+      from: 'node',
+    });
+
+    expect(mocks.pythinkerHarnessV2Constructor).toHaveBeenCalledTimes(1);
+    expect(mocks.pythinkerHarnessConstructor).not.toHaveBeenCalled();
+    expect(mocks.harnessExportSession).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'ses_v2_engine', outputPath: output }),
+    );
+  });
+
+  it('builds the legacy harness when the legacy flag is truthy', async () => {
+    vi.stubEnv('PYTHINKER_CODE_LEGACY_FLAG', '1');
+    const program = new Command('pythinker');
+    const output = join(tmp, 'legacy-engine.zip');
+    mocks.harnessExportSession.mockResolvedValue(makeResult('ses_legacy_engine', output));
+
+    registerExportCommand(program, {
+      cwd: () => tmp,
+      stdout: {
+        write: () => true,
+      },
+      stderr: {
+        write: () => true,
+      },
+      exit: ((code: number) => {
+        throw new ExitCalled(code);
+      }) as ExportDeps['exit'],
+    });
+
+    await program.parseAsync(['node', 'pythinker', 'export', 'ses_legacy_engine', '--output', output], {
       from: 'node',
     });
 
     expect(mocks.pythinkerHarnessConstructor).toHaveBeenCalledTimes(1);
+    expect(mocks.pythinkerHarnessV2Constructor).not.toHaveBeenCalled();
     expect(mocks.harnessExportSession).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 'ses_engine', outputPath: output }),
+      expect.objectContaining({ id: 'ses_legacy_engine', outputPath: output }),
     );
   });
 });

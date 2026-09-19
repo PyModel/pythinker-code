@@ -15,7 +15,7 @@ import { WebSocket, type RawData } from 'ws';
 
 import { acquireRemoteControlLock } from './lock';
 
-export const REMOTE_CONTROL_RELAY_ORIGIN = 'https://code-rc.kimi.com';
+export const REMOTE_CONTROL_RELAY_ORIGIN = 'https://code-rc.pythinker.com';
 
 export const REMOTE_CONTROL_RELAY_URL_ENV = 'PYTHINKER_CODE_REMOTE_CONTROL_RELAY_URL';
 

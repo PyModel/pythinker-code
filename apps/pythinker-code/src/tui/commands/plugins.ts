@@ -813,7 +813,7 @@ const WEBBRIDGE_POST_INSTALL_MARKDOWN = [
   '',
   '   - [Chrome Web Store](https://chromewebstore.google.com/detail/pythinker-webbridge/fldmhceldgbpfpkbgopacenieobmligc)',
   '   - [Edge Add-ons](https://microsoftedge.microsoft.com/addons/detail/pythinker-webbridge/bnlffdbcfnanfbknnlaflhlhkocccckg)',
-  '   - [Manual installation guide](https://www.kimi.com/code/docs/pythinker-code-cli/customization/plugins.html#install-the-browser-extension)',
+  '   - [Manual installation guide](https://www.code.pythinker.com/docs/pythinker-code-cli/customization/plugins.html#install-the-browser-extension)',
   '',
   '2. Run `/reload` or `/new` to apply it.',
 ].join('\n');

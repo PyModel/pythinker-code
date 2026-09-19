@@ -10,8 +10,8 @@ export type PluginTrustLabel = 'official' | 'curated' | 'third-party';
 // per-region marketplace CDN (cdnBase), cdn.pythinker.* the content CDN. Both
 // families are trusted regardless of the current region — a zip served by
 // either deployment is still an official build.
-const CODE_CDN_HOSTS = new Set(['code.kimi.com', 'code.kimi.ai']);
-const CONTENT_CDN_HOSTS = new Set(['cdn.kimi.com', 'cdn.kimi.ai']);
+const CODE_CDN_HOSTS = new Set(['code.pythinker.com', 'code.pythinker.com']);
+const CONTENT_CDN_HOSTS = new Set(['cdn.pythinker.com', 'cdn.pythinker.com']);
 
 /**
  * Human-readable provenance label for a plugin, suitable for inline display

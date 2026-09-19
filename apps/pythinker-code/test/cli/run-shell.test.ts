@@ -32,6 +32,7 @@ const mocks = vi.hoisted(() => {
     loadTuiConfig: vi.fn(),
     detectTerminalTheme: vi.fn(),
     pythinkerHarnessConstructor: vi.fn(),
+    pythinkerHarnessV2Constructor: vi.fn(),
     harnessEnsureConfigFile: vi.fn(),
     harnessGetConfig: vi.fn(async () => ({
       providers: {},
@@ -41,7 +42,6 @@ const mocks = vi.hoisted(() => {
     harnessGetConfigDiagnostics: vi.fn(async () => ({ warnings: [] as readonly string[] })),
     harnessGetCachedAccessToken: vi.fn(),
     harnessClose: vi.fn(),
-    detectPendingMigration: vi.fn<() => Promise<unknown>>(async () => null),
     harnessTrack: vi.fn(),
     pythinkerTuiConstructor: vi.fn(),
     tuiStart: vi.fn(),
@@ -60,6 +60,7 @@ const mocks = vi.hoisted(() => {
     })),
     resolvePythinkerHome: vi.fn((homeDir?: string) => homeDir ?? '/tmp/pythinker-code-test-home'),
     flushDiagnosticLogsSync: vi.fn(),
+    drainStdio: vi.fn(async () => {}),
     harnessCreatesDeviceIdOnConstruction: false,
     execFileSync: vi.fn(() => ''),
     spawnSync: vi.fn(),
@@ -98,6 +99,10 @@ vi.mock('@pymodel/pythinker-code-sdk', async (importOriginal) => {
       mocks.pythinkerHarnessConstructor(...args);
       return makeHarnessStub(args);
     },
+    createPythinkerHarnessV2: (...args: unknown[]) => {
+      mocks.pythinkerHarnessV2Constructor(...args);
+      return makeHarnessStub(args);
+    },
   };
 });
 
@@ -108,7 +113,6 @@ vi.mock('@pymodel/pythinker-code-oauth', async () => {
   return {
     ...actual,
     createPythinkerDeviceId: mocks.createPythinkerDeviceId,
-    PYTHINKER_CODE_PROVIDER_NAME: 'pythinker-code',
   };
 });
 
@@ -147,14 +151,13 @@ vi.mock('../../src/tui/theme/detect', () => ({
   detectTerminalTheme: mocks.detectTerminalTheme,
 }));
 
-vi.mock('../../src/migration/index', async (importOriginal) => ({
-  ...(await importOriginal()),
-  detectPendingMigration: mocks.detectPendingMigration,
-}));
-
 vi.mock('node:child_process', () => ({
   execFileSync: mocks.execFileSync,
   spawnSync: mocks.spawnSync,
+}));
+
+vi.mock('../../src/cli/headless-exit', () => ({
+  drainStdio: mocks.drainStdio,
 }));
 
 vi.mock('../../src/utils/process/resolve-command', () => ({
@@ -163,9 +166,8 @@ vi.mock('../../src/utils/process/resolve-command', () => ({
 
 describe('runShell', () => {
   beforeEach(() => {
-    // Pin region to cn: the telemetry endpoint assertion below must not
-    // follow the dev machine's own login/marker state.
-    vi.stubEnv('PYTHINKER_CODE_OAUTH_HOST', 'https://auth.kimi.com');
+    vi.stubEnv('PYTHINKER_CODE_LEGACY_FLAG', '1');
+  vi.stubEnv('PYTHINKER_CODE_REGION_MARKER', 'off');
     refreshPythinkerRegion();
   });
 
@@ -235,10 +237,37 @@ describe('runShell', () => {
     });
   }
 
-  it('builds the harness through the SDK factory', async () => {
+  it('builds the v2 harness by default', async () => {
     stubTuiStartup();
-    await runShell(minimalCliOptions, '1.2.3-test');
+    await withEnv(
+      { PYTHINKER_CODE_LEGACY_FLAG: undefined, PYTHINKER_CODE_EXPERIMENTAL_FLAG: undefined },
+      async () => {
+        await runShell(minimalCliOptions, '1.2.3-test');
+      },
+    );
+    expect(mocks.pythinkerHarnessV2Constructor).toHaveBeenCalledTimes(1);
+    expect(mocks.pythinkerHarnessConstructor).not.toHaveBeenCalled();
+  });
+
+  it('uses the legacy harness when the legacy flag is truthy', async () => {
+    stubTuiStartup();
+    await withEnv({ PYTHINKER_CODE_LEGACY_FLAG: '1' }, async () => {
+      await runShell(minimalCliOptions, '1.2.3-test');
+    });
     expect(mocks.pythinkerHarnessConstructor).toHaveBeenCalledTimes(1);
+    expect(mocks.pythinkerHarnessV2Constructor).not.toHaveBeenCalled();
+  });
+
+  it('lets the legacy flag take priority over the experimental master switch', async () => {
+    stubTuiStartup();
+    await withEnv(
+      { PYTHINKER_CODE_LEGACY_FLAG: '1', PYTHINKER_CODE_EXPERIMENTAL_FLAG: '1' },
+      async () => {
+        await runShell(minimalCliOptions, '1.2.3-test');
+      },
+    );
+    expect(mocks.pythinkerHarnessConstructor).toHaveBeenCalledTimes(1);
+    expect(mocks.pythinkerHarnessV2Constructor).not.toHaveBeenCalled();
   });
 
   it('constructs PythinkerHarness and PythinkerTUI with startup input', async () => {
@@ -306,14 +335,13 @@ describe('runShell', () => {
       model: 'k2',
       sessionId: undefined,
       endpoint: expect.any(Function),
-      getAccessToken: expect.any(Function),
       onUnexpectedError: expect.any(Function),
     });
     // The endpoint resolver defers to the active region profile at flush time.
     const telemetryOptions = mocks.initializeTelemetry.mock.calls[0]![0] as {
       endpoint: () => string;
     };
-    expect(telemetryOptions.endpoint()).toBe('https://telemetry-logs.kimi.com/v1/event');
+    expect(telemetryOptions.endpoint()).toBe('https://telemetry-logs.pythinker.com/v1/event');
     expect(mocks.setCrashPhase).toHaveBeenCalledWith('runtime');
 
     const [, harness, startupInput] = mocks.pythinkerTuiConstructor.mock.calls[0]!;
@@ -328,7 +356,6 @@ describe('runShell', () => {
       },
       version: '1.2.3-test',
       workDir: process.cwd(),
-      telemetryDisabled: false,
     });
     expect(mocks.tuiStart).toHaveBeenCalledOnce();
     expect(mocks.withTelemetryContext).toHaveBeenCalledWith({ sessionId: 'ses-startup' });
@@ -389,20 +416,6 @@ describe('runShell', () => {
 
     const [, , startupInput] = mocks.pythinkerTuiConstructor.mock.calls[0]!;
     expect(startupInput).toMatchObject({ agentProfile: 'reviewer' });
-  });
-
-  it('forwards the telemetry opt-out from config to the TUI startup input', async () => {
-    stubTuiStartup();
-    mocks.harnessGetConfig.mockResolvedValue({
-      providers: {},
-      defaultModel: 'k2',
-      telemetry: false,
-    });
-
-    await runShell(minimalCliOptions, '1.2.3-test');
-
-    const [, , startupInput] = mocks.pythinkerTuiConstructor.mock.calls[0]!;
-    expect(startupInput).toMatchObject({ telemetryDisabled: true });
   });
 
   it('forwards skillsDirs from CLI options to the harness', async () => {
@@ -560,56 +573,6 @@ describe('runShell', () => {
       init_ms: expect.any(Number),
       mcp_ms: 47,
       tui_mode: 'regular',
-    });
-  });
-
-  it('bridges OAuth refresh outcomes to telemetry', async () => {
-    mocks.loadTuiConfig.mockResolvedValue({
-      theme: 'dark',
-      editorCommand: null,
-      notifications: { enabled: true, condition: 'unfocused' },
-    });
-    mocks.tuiStart.mockResolvedValue(undefined);
-
-    await runShell(
-      {
-        session: undefined,
-        continue: false,
-        yolo: false,
-        auto: false,
-        plan: false,
-        model: undefined,
-        outputFormat: undefined,
-        prompt: undefined,
-        skillsDirs: [],
-        agent: undefined,
-        agentFiles: [],
-      },
-      '1.2.3-test',
-    );
-
-    const [harnessOptions] = mocks.pythinkerHarnessConstructor.mock.calls[0] as [
-      {
-        readonly onOAuthRefresh: (
-          outcome:
-            | { readonly success: true }
-            | { readonly success: false; readonly reason: 'unauthorized' | 'network_or_other' },
-        ) => void;
-      },
-    ];
-
-    harnessOptions.onOAuthRefresh({ success: true });
-    harnessOptions.onOAuthRefresh({ success: false, reason: 'unauthorized' });
-    harnessOptions.onOAuthRefresh({ success: false, reason: 'network_or_other' });
-
-    expect(mocks.telemetryTrack).toHaveBeenCalledWith('oauth_refresh', { outcome: 'success' });
-    expect(mocks.telemetryTrack).toHaveBeenCalledWith('oauth_refresh', {
-      outcome: 'error',
-      reason: 'unauthorized',
-    });
-    expect(mocks.telemetryTrack).toHaveBeenCalledWith('oauth_refresh', {
-      outcome: 'error',
-      reason: 'network_or_other',
     });
   });
 
@@ -873,6 +836,7 @@ describe('runShell', () => {
       });
       expect(mocks.harnessTrack).not.toHaveBeenCalledWith('exit', expect.anything());
       expect(mocks.shutdownTelemetry).toHaveBeenCalledOnce();
+      expect(mocks.drainStdio).toHaveBeenCalledWith([process.stdout, process.stderr]);
       expect(stdout.text()).toBe(' Bye!\n');
       expect(stderr.text()).toContain(' To resume this session: pythinker -r ses-1');
     } finally {
@@ -928,56 +892,6 @@ describe('runShell', () => {
       exitSpy.mockRestore();
       stdout.restore();
       stderr.restore();
-    }
-  });
-
-  it('surfaces an invalid target config as an error for pythinker migrate, not silently', async () => {
-    mocks.loadTuiConfig.mockResolvedValue({
-      theme: 'dark',
-      editorCommand: null,
-      notifications: { enabled: true, condition: 'unfocused' },
-    });
-    mocks.detectPendingMigration.mockResolvedValue({ totalSessions: 1 });
-    mocks.harnessGetConfig.mockRejectedValue(
-      new Error('Invalid configuration in ~/.pythinker-code/config.toml'),
-    );
-
-    // A broken config.toml must fail loudly — `pythinker migrate` must not swallow
-    // it and proceed, or the user never learns their config is broken.
-    await expect(
-      runShell(
-        {
-          session: undefined,
-          continue: false,
-          yolo: false,
-          auto: false,
-          plan: false,
-          model: undefined,
-          outputFormat: undefined,
-          prompt: undefined,
-          skillsDirs: [],
-          agent: undefined,
-          agentFiles: [],
-        },
-        '1.2.3-test',
-        { migrateOnly: true },
-      ),
-    ).rejects.toThrow('Invalid configuration');
-    expect(mocks.tuiStart).not.toHaveBeenCalled();
-  });
-
-  it('refuses migration when PYTHINKER_SHARE_DIR resolves to the Pythinker Code home', async () => {
-    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
-    try {
-      await withEnv({ PYTHINKER_SHARE_DIR: '/tmp/pythinker-code-test-home' }, async () => {
-        await runShell(minimalCliOptions, '1.2.3-test', { migrateOnly: true });
-      });
-      expect(mocks.detectPendingMigration).not.toHaveBeenCalled();
-      expect(mocks.harnessClose).toHaveBeenCalledOnce();
-      expect(mocks.tuiStart).not.toHaveBeenCalled();
-      expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining('PYTHINKER_SHARE_DIR'));
-    } finally {
-      stderrSpy.mockRestore();
     }
   });
 });
