@@ -1626,12 +1626,12 @@ describe('SurveyController interaction', () => {
     const harness = createHarness({ terminalWidth: () => 18, terminalHeight: () => height });
     await harness.flush();
     harness.clock.mono += 600_000;
-    height = 13;
+    height = 14;
     harness.runTurns(5);
     harness.elapse(2000);
     expect(harness.container.children).toHaveLength(0);
 
-    height = 14;
+    height = 15;
     harness.runTurns(1);
     harness.elapse(2000);
     expect(harness.container.children).not.toHaveLength(0);

@@ -8,6 +8,8 @@ import {
   formatRemoteControlOutput,
   formatRemoteControlStatus,
   inspectRemoteControlLock,
+  resolveRelayKey,
+  resolveRelayOrigin,
   startRemoteControl,
   type RemoteControlStatus,
 } from '#/cli/sub/web/remote-control';
@@ -51,10 +53,19 @@ export async function handleRemoteControlCommand(host: SlashCommandHost): Promis
     return;
   }
 
+  let relayKey: string;
+  try {
+    relayKey = resolveRelayKey();
+  } catch (error) {
+    host.showError(formatErrorMessage(error));
+    return;
+  }
+
   host.setExitForegroundTask(async () => {
     const options = parseServerOptions({});
     let remoteControl: Awaited<ReturnType<typeof startRemoteControl>> | undefined;
     try {
+      const relayOrigin = resolveRelayOrigin();
       await startServerForeground(options, {
         onReady: async (origin) => {
           const dataDir = getDataDir();
@@ -70,11 +81,13 @@ export async function handleRemoteControlCommand(host: SlashCommandHost): Promis
           remoteControl = await startRemoteControl({
             homeDir: dataDir,
             localOrigin: origin,
-            localServerToken: token,
+            localServerToken: () => tryResolveServerToken(dataDir) ?? '',
             clientVersion: `pythinker-code/${getVersion()}`,
+            relayKey,
+            relayOrigin,
             onStatus,
           });
-          const url = buildRemoteControlUrl(remoteControl.deviceId, session?.id);
+          const url = buildRemoteControlUrl(remoteControl.deviceId, session?.id, relayOrigin);
           const qrCode = await generateRemoteControlQr(url, dataDir);
           process.stdout.write(
             formatRemoteControlOutput({
@@ -121,7 +134,7 @@ function startNewServerAfterExit(host: SlashCommandHost, sessionId: string): voi
           // gate.
           const token = tryResolveServerToken(getDataDir());
           const url = webSessionUrl(origin, sessionId, token);
-          process.stdout.write(formatReadyBanner(origin, options.host, { token }));
+          process.stdout.write(formatReadyBanner(origin, options.host, { token, useTuiLogo: true }));
           process.stdout.write(`\n  ${sessionLine(url)}\n`);
           void openUrl(url);
         },

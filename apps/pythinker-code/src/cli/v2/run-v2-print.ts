@@ -266,6 +266,7 @@ export async function runV2Print(
         uiMode: PROMPT_UI_MODE,
         model: opts.model ?? defaultModel,
         endpoint: () => currentPythinkerProfile().telemetryEndpoint,
+                getAccessToken: async () => null,
                 onUnexpectedError: (error) => console.error('[unexpected]', error),
       });
     }

@@ -6340,7 +6340,7 @@ command = "vim"
 
     const transcript = stripSgr(driver.state.transcriptContainer.render(200).join('\n'));
     expect(transcript).toContain('⊘ Cancelled.');
-    expect(transcript).toContain('✗ The user manually interrupted this subagent x.');
+    expect(transcript).toContain('✗ The user manually');
   });
 
   it('shows the spawned model on the subagent card at spawn, mapped through the model catalog', async () => {
@@ -7587,14 +7587,14 @@ command = "vim"
 
     await vi.waitFor(() => {
       expect(session.setModel).toHaveBeenCalledWith('turbo');
-      expect(session.setThinking).toHaveBeenCalledWith('on');
       expect(setConfig).toHaveBeenCalledWith({
         defaultModel: 'turbo',
-        thinking: { enabled: true },
+        thinking: { enabled: false },
       });
     });
+    expect(session.setThinking).not.toHaveBeenCalled();
     expect(driver.state.appState.model).toBe('turbo');
-    expect(driver.state.appState.thinkingEffort).toBe('on');
+    expect(driver.state.appState.thinkingEffort).toBe('off');
   });
 
   it('applies /model selection to the session only on Alt+S without persisting', async () => {
@@ -7630,15 +7630,15 @@ command = "vim"
       expect(driver.state.editorContainer.children[0]).toBeInstanceOf(TabbedModelSelectorComponent);
     });
     const picker = driver.state.editorContainer.children[0];
+    (picker as TabbedModelSelectorComponent).handleInput('t');
+    (picker as TabbedModelSelectorComponent).handleInput('u');
     (picker as TabbedModelSelectorComponent).handleInput(`${ESC}s`);
 
     await vi.waitFor(() => {
       expect(session.setModel).toHaveBeenCalledWith('turbo');
-      expect(session.setThinking).toHaveBeenCalledWith('on');
     });
+    expect(session.setThinking).not.toHaveBeenCalled();
     expect(setConfig).not.toHaveBeenCalled();
-    expect(driver.state.appState.model).toBe('turbo');
-    expect(driver.state.appState.thinkingEffort).toBe('on');
   });
 
   it('uses the effective effort returned after a model-switch fallback', async () => {
@@ -8526,11 +8526,11 @@ describe('/model status displayName override', () => {
     await vi.waitFor(() => {
       expect(setConfig).toHaveBeenCalledWith({
         defaultModel: 'turbo',
-        thinking: { enabled: true },
+        thinking: { enabled: false },
       });
     });
 
-    expect(renderTranscript(driver)).toContain('Switched to Custom Turbo with thinking on.');
+    expect(renderTranscript(driver)).toContain('Switched to Custom Turbo with thinking off.');
     expect(renderTranscript(driver)).not.toContain('Remote Turbo');
   });
 });

@@ -83,8 +83,17 @@ function createLoginUi(
 
 export async function handleLoginCommand(host: SlashCommandHost): Promise<void> {
   const selection = await promptPlatformSelection(host);
-  if (selection === undefined) return;
-  const { platformId } = selection;
+  if (selection === undefined || selection === null) return;
+  const platformId =
+    typeof selection === 'string'
+      ? selection
+      : (selection as { readonly platformId?: string }).platformId;
+  if (platformId === undefined || platformId === null || platformId === '') return;
+  const catalog =
+    typeof selection === 'string'
+      ? {}
+      : ((selection as { readonly catalog?: Record<string, unknown> }).catalog ?? {});
+  const normalized = { platformId, catalog };
 
   if (platformId === 'pythinker-code' || platformId === PYTHINKER_CODE_GLOBAL_PLATFORM_VALUE) {
     const region: PythinkerRegion = platformId === PYTHINKER_CODE_GLOBAL_PLATFORM_VALUE ? 'global' : 'mainland-cn';
@@ -92,7 +101,7 @@ export async function handleLoginCommand(host: SlashCommandHost): Promise<void> 
     return;
   }
 
-  await runLogin(createLoginUi(host, selection));
+  await runLogin(createLoginUi(host, normalized));
 }
 
 async function handlePythinkerCodeOAuthLogin(

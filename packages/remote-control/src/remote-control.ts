@@ -17,13 +17,44 @@ import { acquireRemoteControlLock } from './lock';
 
 export const REMOTE_CONTROL_RELAY_ORIGIN = 'https://code-rc.pythinker.com';
 
+export const REMOTE_CONTROL_RELAY_ENV = 'PYTHINKER_CODE_REMOTE_CONTROL_RELAY';
 export const REMOTE_CONTROL_RELAY_URL_ENV = 'PYTHINKER_CODE_REMOTE_CONTROL_RELAY_URL';
+export const REMOTE_CONTROL_RELAY_KEY_ENV = 'PYTHINKER_CODE_REMOTE_CONTROL_RELAY_KEY';
+
+export function resolveRelayOrigin(
+  explicit?: string,
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): string {
+  const candidate =
+    explicit?.trim() ||
+    env[REMOTE_CONTROL_RELAY_ENV]?.trim() ||
+    env[REMOTE_CONTROL_RELAY_URL_ENV]?.trim() ||
+    '';
+  if (candidate.length === 0) return REMOTE_CONTROL_RELAY_ORIGIN;
+  const url = new URL(candidate);
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    throw new Error(`Remote Control relay must be an http(s) URL: ${candidate}`);
+  }
+  return candidate;
+}
 
 export function resolveRemoteControlRelayOrigin(
   env: Readonly<Record<string, string | undefined>> = process.env,
 ): string {
-  const value = env[REMOTE_CONTROL_RELAY_URL_ENV]?.trim();
-  return value === undefined || value.length === 0 ? REMOTE_CONTROL_RELAY_ORIGIN : value;
+  return resolveRelayOrigin(undefined, env);
+}
+
+export function resolveRelayKey(
+  explicit?: string,
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): string {
+  const candidate = explicit?.trim() || env[REMOTE_CONTROL_RELAY_KEY_ENV]?.trim() || '';
+  if (candidate.length === 0) {
+    throw new Error(
+      `Remote Control needs a relay key. Pass --relay-key or set ${REMOTE_CONTROL_RELAY_KEY_ENV}.`,
+    );
+  }
+  return candidate;
 }
 
 const MAX_HTTP_HEADER_BYTES = 64 * 1024;
@@ -98,6 +129,7 @@ export interface RemoteControlOptions {
   readonly localOrigin: string;
   readonly localServerToken: string | (() => string);
   readonly clientVersion: string;
+  readonly relayKey: string;
   readonly relayOrigin?: string;
   readonly stderr?: Pick<NodeJS.WriteStream, 'write'>;
   readonly onStatus?: (status: RemoteControlStatus) => void;
@@ -253,13 +285,13 @@ function rewrittenResponseETag(body: Buffer): string {
 }
 
 function requestMatchesETag(headers: readonly [string, string][], etag: string): boolean {
-  const candidates = [etag, etag.replace(/^W\//, '')];
+  const candidates = new Set([etag, etag.replace(/^W\//, '')]);
   for (const [name, value] of headers) {
     if (name.toLowerCase() !== 'if-none-match') continue;
     for (const token of value.split(',')) {
       const candidate = token.trim();
       if (candidate === '*') return true;
-      if (candidates.includes(candidate)) return true;
+      if (candidates.has(candidate)) return true;
     }
   }
   return false;
@@ -274,6 +306,11 @@ export async function startRemoteControl(
       : () => options.localServerToken as string;
   if (localServerToken().length === 0) {
     throw new Error('Remote Control requires local server authentication.');
+  }
+  if (options.relayKey.length === 0) {
+    throw new Error(
+      `Remote Control needs a relay key. Pass --relay-key or set ${REMOTE_CONTROL_RELAY_KEY_ENV}.`,
+    );
   }
   const storage = new FileTokenStorage(join(options.homeDir, 'credentials'));
   const token = await storage.load(resolveOAuthTokenStorageName('oauth/pythinker-code'));
@@ -295,6 +332,7 @@ export async function startRemoteControl(
     relayOrigin,
     deviceId,
     refreshToken: token.refreshToken,
+    relayToken: options.relayKey,
   });
   try {
     await client.start();
@@ -324,6 +362,7 @@ class RemoteControlClient {
   private readonly relayOrigin: string;
   private readonly deviceId: string;
   private readonly refreshToken: string;
+  private readonly relayToken: string;
   private readonly stderr: Pick<NodeJS.WriteStream, 'write'>;
   private readonly onStatus: (status: RemoteControlStatus) => void;
   private readonly streams = new Map<string, ActiveStream>();
@@ -349,6 +388,7 @@ class RemoteControlClient {
       readonly relayOrigin: string;
       readonly deviceId: string;
       readonly refreshToken: string;
+      readonly relayToken: string;
     },
   ) {
     this.localOrigin = options.localOrigin.replace(/\/+$/, '');
@@ -357,6 +397,7 @@ class RemoteControlClient {
     this.relayOrigin = options.relayOrigin;
     this.deviceId = options.deviceId;
     this.refreshToken = options.refreshToken;
+    this.relayToken = options.relayToken;
     this.stderr = options.stderr ?? process.stderr;
     this.onStatus = options.onStatus ?? (() => {});
     this.pingIntervalMs = options.pingIntervalMs ?? RELAY_PING_INTERVAL_MS;
@@ -481,7 +522,7 @@ class RemoteControlClient {
   }
 
   private connectRelay(path: string): Promise<WebSocket> {
-    return connectWebSocket(relayWebSocketUrl(this.relayOrigin, path), this.refreshToken);
+    return connectWebSocket(relayWebSocketUrl(this.relayOrigin, path), this.relayToken);
   }
 
   private watchSocket(socket: WebSocket, label: string): void {
@@ -898,11 +939,11 @@ function requestLocalHttp(
               let varyCovers = false;
               for (let index = 0; index < headers.length; index += 2) {
                 if (headers[index]!.toLowerCase() !== 'vary') continue;
-                const tokens = headers[index + 1]!
+                const tokens = new Set(headers[index + 1]!
                   .toLowerCase()
                   .split(',')
-                  .map((token) => token.trim());
-                if (tokens.includes('*') || tokens.includes('accept-encoding')) varyCovers = true;
+                  .map((token) => token.trim()));
+                if (tokens.has('*') || tokens.has('accept-encoding')) varyCovers = true;
               }
               if (!varyCovers) headers.push('Vary', 'Accept-Encoding');
             }

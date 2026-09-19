@@ -1450,7 +1450,7 @@ describe('server-v2 /api/v1 prompts', () => {
       expect(content[0]).toEqual({ type: 'text', text: 'read this' });
       expect(content[1]).toEqual({
         type: 'text',
-        text: `Attached file "notes.txt" (application/octet-stream, ${bytes.length} bytes): ${sourcePath}  open it with the Read tool`,
+        text: `Attached file "notes.txt" (application/octet-stream, ${bytes.length} bytes): ${sourcePath} — open it with the Read tool`,
       });
 
       const session = getLiveSessionById(server!.core.accessor, id);

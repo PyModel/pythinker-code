@@ -1226,7 +1226,7 @@ describe('ReadTool', () => {
   });
 
   it('fits complete lines and status within the default character budget', async () => {
-    const line = 'zh'.repeat(2_000);
+    const line = '\u6587'.repeat(2_000);
     const tool = toolWithContent(Array.from({ length: 80 }, () => line).join('\n'));
     const result = await execute(tool, { path: '/tmp/characters.txt' });
     const output = toolContentString(result);

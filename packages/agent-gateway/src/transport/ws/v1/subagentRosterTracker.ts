@@ -1,5 +1,6 @@
 import type { Event } from './events';
 import type { SnapshotSubagent } from '../../../protocol/rest-snapshot';
+import { toRoutingWire } from '../../../routes/tasks';
 const MAIN_AGENT_ID = 'main';
 
 export class SubagentRosterTracker {
@@ -27,8 +28,14 @@ export class SubagentRosterTracker {
           run_in_background: event.runInBackground,
           model: event.model,
           thinking_effort: event.thinkingEffort,
-          routing: undefined,
-          current_routing_env_revision: undefined,
+          routing: (() => {
+            const spawned = event as typeof event & {
+              readonly routing?: Record<string, unknown>;
+              readonly currentRoutingEnvironmentRevision?: string;
+            };
+            return spawned.routing === undefined ? undefined : toRoutingWire(spawned.routing);
+          })(),
+          current_routing_env_revision: (event as { readonly currentRoutingEnvironmentRevision?: string }).currentRoutingEnvironmentRevision,
           created_at: new Date().toISOString(),
         });
         return;

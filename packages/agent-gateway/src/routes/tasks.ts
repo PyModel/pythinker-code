@@ -323,6 +323,18 @@ function toWireTask(
   if (info.kind === 'agent' && info.thinkingEffort !== undefined) {
     base.thinking_effort = info.thinkingEffort;
   }
+  if (info.kind === 'agent') {
+    const agentInfo = info as typeof info & {
+      readonly routing?: Record<string, unknown>;
+      readonly currentRoutingEnvironmentRevision?: string;
+    };
+    if (agentInfo.routing !== undefined) {
+      base.routing = toRoutingWire(agentInfo.routing);
+    }
+    if (agentInfo.currentRoutingEnvironmentRevision !== undefined) {
+      base.current_routing_env_revision = agentInfo.currentRoutingEnvironmentRevision;
+    }
+  }
   if (info.kind === 'agent' && info.agentId !== undefined) {
     base.agent_id = info.agentId;
   }

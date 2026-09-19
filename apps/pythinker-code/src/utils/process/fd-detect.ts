@@ -44,14 +44,7 @@ export function detectFdPath(): string | null {
 }
 
 export async function ensureFdPath(): Promise<string | null> {
-  const existing = detectFdPath();
-  if (existing !== null) return existing;
-
-  try {
-    return await downloadFd();
-  } catch {
-    return null;
-  }
+  return detectFdPath();
 }
 
 function detectSystemFdPath(): string | null {
@@ -102,7 +95,7 @@ export function getFdAssetName(plat = platform(), architecture = arch()): string
   return null;
 }
 
-async function downloadFd(): Promise<string | null> {
+export async function downloadFd(): Promise<string | null> {
   const assetName = getFdAssetName();
   if (assetName === null) return null;
   const expectedSha256 = FD_ARCHIVE_SHA256[assetName];

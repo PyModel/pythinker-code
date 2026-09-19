@@ -15,6 +15,7 @@ import {
 } from '@pymodel/pythinker-telemetry';
 import {
   createPythinkerHarness,
+  createPythinkerHarnessV2,
   type ExportSessionInput,
   type ExportSessionResult,
   type PythinkerHarness,
@@ -29,6 +30,8 @@ import { createCliTelemetryBootstrap, initializeCliTelemetry } from '#/cli/telem
 import { detectInstallSource } from '#/cli/update/source';
 import { createPythinkerCodeHostIdentity } from '#/cli/version';
 import { detectShellEnvironment } from '#/utils/process/shell-env';
+
+import { isPythinkerV2Enabled } from '../experimental-v2';
 
 interface WritableLike {
   write(chunk: string): boolean;
@@ -152,7 +155,7 @@ function createDefaultExportDeps(overrides: Partial<ExportDeps> = {}): ExportDep
   };
   const getHarness = (): PythinkerHarness => {
     const currentTelemetryBootstrap = getTelemetryBootstrap();
-    harness ??= createPythinkerHarness({
+    harness ??= (isPythinkerV2Enabled() ? createPythinkerHarnessV2 : createPythinkerHarness)({
       homeDir: currentTelemetryBootstrap.homeDir,
       identity,
       telemetry: telemetryClient,

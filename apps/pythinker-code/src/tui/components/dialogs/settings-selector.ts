@@ -8,7 +8,6 @@ export type SettingsSelection =
   | 'permission'
   | 'survey'
   | 'experiments'
-  | 'survey'
   | 'upgrade'
   | 'usage';
 
@@ -41,17 +40,12 @@ const SETTINGS_OPTIONS: readonly ChoiceOption[] = [
   {
     value: 'survey',
     label: 'Feedback survey',
-    description: 'Turn the occasional session rating prompt on or off.',
+    description: 'Show or hide the occasional session rating prompt.',
   },
   {
     value: 'experiments',
     label: 'Experiments',
     description: 'Turn experimental features on or off.',
-  },
-  {
-    value: 'survey',
-    label: 'Feedback survey',
-    description: 'Show or hide the occasional session rating prompt.',
   },
   {
     value: 'upgrade',
@@ -74,7 +68,6 @@ function isSettingsSelection(value: string): value is SettingsSelection {
     value === 'permission' ||
     value === 'survey' ||
     value === 'experiments' ||
-    value === 'survey' ||
     value === 'upgrade' ||
     value === 'usage'
   );

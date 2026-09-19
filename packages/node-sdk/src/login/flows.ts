@@ -52,12 +52,20 @@ import type { LoginProgressSpinnerHandle, LoginUi } from './types';
 
 export async function runLogin(ui: LoginUi): Promise<boolean> {
   const selection = await ui.promptPlatformSelection();
-  if (selection === undefined) return false;
-  const { platformId, catalog } = selection;
+  if (selection === undefined || selection === null) return false;
+  const platformId =
+    typeof selection === 'string'
+      ? selection
+      : (selection as { readonly platformId?: string }).platformId;
+  if (platformId === undefined || platformId === null || platformId === '') return false;
+  const catalog =
+    typeof selection === 'string'
+      ? ({} as Record<string, unknown>)
+      : ((selection as { readonly catalog?: Record<string, unknown> }).catalog ?? {});
 
   const catalogProviderId = catalogProviderIdFromPlatformValue(platformId);
   if (catalogProviderId !== undefined) {
-    return connectCatalogProvider(ui, catalogProviderId, catalog[catalogProviderId]);
+    return connectCatalogProvider(ui, catalogProviderId, catalog[catalogProviderId] as never);
   }
   if (platformId === OPENAI_CODEX_OAUTH_PLATFORM_ID) {
     return handleOpenAICodexOAuthLogin(ui);

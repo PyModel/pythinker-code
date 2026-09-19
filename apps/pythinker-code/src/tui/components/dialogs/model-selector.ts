@@ -196,9 +196,6 @@ export class ModelSelectorComponent extends Container implements Focusable {
   private draftFor(choice: ModelChoice): string {
     const override = this.thinkingOverrides.get(choice.alias);
     if (override !== undefined) return override;
-    if (choice.alias !== this.opts.currentValue) {
-      return defaultThinkingEffortFor(choice.model);
-    }
     return coerceEffortForModel(choice.model as any, this.opts.currentThinkingEffort);
   }
 

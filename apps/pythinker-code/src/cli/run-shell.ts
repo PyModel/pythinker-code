@@ -1,3 +1,4 @@
+import { drainStdio } from './headless-exit';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { homedir } from 'node:os';
 
@@ -267,6 +268,7 @@ export async function runShell(
       await tui.exitForegroundTask(exitCode);
       return;
     }
+    await drainStdio([process.stdout, process.stderr]);
     process.exit(exitCode);
   };
   try {

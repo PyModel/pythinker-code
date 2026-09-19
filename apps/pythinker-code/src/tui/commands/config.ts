@@ -293,6 +293,7 @@ function showEditorPicker(host: SlashCommandHost): void {
 }
 
 async function refreshModelsForPicker(host: SlashCommandHost): Promise<void> {
+  if (typeof host.authFlow.refreshOAuthProviderModels !== 'function') return;
   try {
     const result = await withTimeout(
       host.authFlow.refreshOAuthProviderModels(),
