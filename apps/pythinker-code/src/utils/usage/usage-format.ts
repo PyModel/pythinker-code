@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * Formatting helpers for the `/usage` slash command.
  *

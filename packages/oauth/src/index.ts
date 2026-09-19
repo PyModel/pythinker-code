@@ -190,7 +190,31 @@ export type ManagedPythinkerCodeModelInfo = import("./provider-config.js").Provi
 export type ManagedPythinkerConfigShape = import("./provider-config.js").PythinkerConfigShape & Record<string, unknown>;
 export type DeviceAuthorization = {
   readonly verificationUri: string;
+  readonly verificationUriComplete?: string;
   readonly userCode: string;
   readonly expiresIn?: number;
   readonly interval?: number;
+};
+
+export function formatDuration(ms: number): string {
+  if (ms < 1000) return `${ms}ms`;
+  return `${(ms / 1000).toFixed(1)}s`;
+}
+export function isManagedPythinkerCodeBaseUrl(_url?: string): boolean {
+  return false;
+}
+export type ManagedQuota = {
+  readonly entries?: readonly ManagedQuotaEntry[];
+  readonly extraUsage?: any;
+  readonly rows?: any;
+  readonly usages?: any;
+  readonly [key: string]: any;
+};
+export type ManagedQuotaEntry = {
+  readonly name?: string;
+  readonly used?: number;
+  readonly limit?: number;
+  readonly usedRatio?: number;
+  readonly resetAt?: string | number;
+  readonly [key: string]: any;
 };

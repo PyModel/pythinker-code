@@ -51,7 +51,7 @@ export interface ResolveSlashCommandInput {
   readonly pluginCommandMap: ReadonlyMap<string, string>;
   readonly isStreaming: boolean;
   readonly isCompacting: boolean;
-  readonly engineV2: boolean;
+  readonly engineV2?: boolean;
 }
 
 export function resolveSlashCommandInput(options: ResolveSlashCommandInput): SlashCommandIntent {
@@ -132,7 +132,7 @@ export function resolveSkillCommand(
 }
 
 export function slashCommandBusyReason(
-  options: Pick<ResolveSlashCommandInput, 'isStreaming' | 'isCompacting'>,
+  options: Partial<ResolveSlashCommandInput>,
 ): SlashCommandBusyReason | undefined {
   if (options.isStreaming) return 'streaming';
   if (options.isCompacting) return 'compacting';

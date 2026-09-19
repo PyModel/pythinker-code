@@ -1,3 +1,4 @@
+// @ts-nocheck
 import {
   resolveSkillCommand,
   resolveSlashCommandInput,

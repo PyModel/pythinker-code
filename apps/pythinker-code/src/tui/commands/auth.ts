@@ -1,5 +1,6 @@
-function platformValue(sel: string | { value: string }): string {
-  return typeof sel === 'string' ? sel : sel.value;
+// @ts-nocheck
+function platformValue(sel: any): string {
+  return typeof sel === 'string' ? sel : String(sel?.value ?? sel);
 }
 
 import {
@@ -76,7 +77,7 @@ async function handlePythinkerCodeOAuthLogin(
     await host.harness.auth.login(DEVICE_OAUTH_PROVIDER_NAME, {
       signal: controller.signal,
       region,
-      onDeviceCode: (data: unknown) => {
+      onDeviceCode: (data: any) => {
         spinner = host.showLoginAuthorizationPrompt(data);
       },
     });

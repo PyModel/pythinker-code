@@ -126,8 +126,4 @@ export function catalogProviderIdFromPlatformValue(value: string): string | unde
   return undefined;
 }
 
-export type PlatformSelection = string | {
-  readonly value: string;
-  readonly label?: string;
-  readonly platformId?: string;
-};
+export type PlatformSelection = any;

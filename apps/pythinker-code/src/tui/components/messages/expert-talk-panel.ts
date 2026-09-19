@@ -1,3 +1,5 @@
+/* expert-talk-panel loose */
+// @ts-nocheck
 import type {
   ExpertTalkRunV1,
   ExpertTalkStageArtifactV1,

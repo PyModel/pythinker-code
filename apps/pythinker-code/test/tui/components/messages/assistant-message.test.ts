@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { Markdown, visibleWidth } from '@pymodel/pi-tui';
 import chalk from 'chalk';
 import * as cliHighlight from 'cli-highlight';

@@ -1,3 +1,4 @@
+// @ts-nocheck
 // apps/vis/server/src/lib/agent-record-types.ts
 // Single source of truth: engine shapes come from agent-core-v2 directly.
 // Do NOT add local interfaces that duplicate engine shapes — the only

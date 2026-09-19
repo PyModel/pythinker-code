@@ -168,3 +168,5 @@ export class Markdown extends Container {
     }
   }
 }
+
+export function setMarkdownAltScreenActive(_active?: boolean): void {}

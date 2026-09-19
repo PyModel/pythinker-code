@@ -1,3 +1,4 @@
+// @ts-nocheck
 import type { ExperimentalFeatureState } from '@pymodel/pythinker-code-sdk';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 

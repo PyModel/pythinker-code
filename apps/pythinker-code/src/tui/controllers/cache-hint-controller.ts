@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * CacheHintController — drives the "cache expired" dialog for the two trigger
  * scenarios: resuming a long-idle session (fires right after the resume

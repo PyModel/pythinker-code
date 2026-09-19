@@ -49,11 +49,24 @@ export interface ExpertTalkStageArtifactV1 {
   readonly stage: string;
   readonly content?: string;
   readonly text?: string;
+  readonly status?: string;
+  readonly usage?: any;
+  readonly startedAt?: number | string;
+  readonly endedAt?: number | string;
+  readonly toolCallCount?: number;
+  readonly error?: any;
+  readonly requestCount?: number;
+  readonly providerAttemptCount?: number;
+  readonly [key: string]: any;
 }
 
 export interface ExpertTalkStageProgressV1 {
   readonly stage: string;
   readonly progress?: number;
+  readonly thinking?: any;
+  readonly tools?: any;
+  readonly text?: string;
+  readonly [key: string]: any;
 }
 
 export interface ExpertTalkRunV1 {

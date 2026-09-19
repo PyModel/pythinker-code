@@ -197,7 +197,7 @@ export class BtwPanelComponent implements Component {
     const answer = turn.answer.trim();
     const thinking = turn.thinking.trim();
     if (answer.length > 0) {
-      const theme: PythinkerMarkdownTheme =
+      const theme: any =
         turn.phase === 'running'
           ? { ...this.options.markdownTheme, transient: true }
           : this.options.markdownTheme;

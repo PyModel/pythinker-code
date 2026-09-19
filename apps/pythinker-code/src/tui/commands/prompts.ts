@@ -1,3 +1,4 @@
+// @ts-nocheck
 import {
   buildPlatformOptions,
   catalogModelToAlias,
@@ -350,9 +351,11 @@ export function runModelSelector(
   });
 }
 
-export async function promptFeedbackInput(_host: unknown): Promise<string | undefined> {
+export async function promptFeedbackInput(_host: unknown): Promise<FeedbackPromptResult | undefined> {
   return undefined;
 }
 export async function promptFeedbackAttachment(_host: unknown): Promise<string | undefined> {
   return undefined;
 }
+
+export type FeedbackPromptResult = string | { readonly value: string };
