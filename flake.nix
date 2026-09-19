@@ -72,6 +72,7 @@
         ./packages/minidb
         ./packages/node-sdk
         ./packages/oauth
+        ./packages/protocol
         ./packages/pi-tui
         ./packages/remote-control
         ./packages/telemetry
@@ -98,6 +99,7 @@
         "@pymodel/minidb"
         "@pymodel/pythinker-code-sdk"
         "@pymodel/pythinker-code-oauth"
+        "@pymodel/protocol"
         "@pymodel/klient"
         "@pymodel/pi-tui"
         "@pymodel/remote-control"
@@ -106,7 +108,8 @@
         "@pymodel/tree-sitter-bash"
         "@pymodel/pythinker-code"
         "@pymodel/pythinker-web"
-        "pythinker-code"
+        "@pymodel/pythinker-desktop"
+        "pythinker"
         "@pymodel/pythinker-inspect"
         "@pymodel/vis"
         "@pymodel/vis-server"
@@ -162,7 +165,7 @@
               inherit (finalAttrs) pname version src pnpmWorkspaces;
               inherit pnpm;
               fetcherVersion = 3;
-              hash = "sha256-lXsl/o8x/9wYgrOz1TyT2oRGfI3KFBGPUQimtN0jPnA=";
+              hash = "sha256-SJ/JwaoqQ8cMLAyojjRH6NYUkABDU5sI8OxLEpyRRSI=";
             };
 
             nativeBuildInputs = [
