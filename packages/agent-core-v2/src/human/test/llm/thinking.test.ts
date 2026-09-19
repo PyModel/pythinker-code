@@ -659,9 +659,9 @@ describe('openai requester thinking', () => {
         ]),
       ),
     ).resolves.toEqual([
-      { type: 'think', think: 'zh9' },
-      { type: 'think', think: 'zh11', detailsIndex: 0, hidden: true },
-      { type: 'think', think: '', encrypted: 'cipher', detailsIndex: 1 },
+      { type: 'think', think: 'zh9' , reasoningKey: 'reasoning_content'},
+      { type: 'think', think: 'zh11', detailsIndex: 0, hidden: true, reasoningKey: 'reasoning_details' },
+      { type: 'think', think: '', encrypted: 'cipher', detailsIndex: 1, reasoningKey: 'reasoning_details' },
       { type: 'text', text: 'ok' },
     ]);
     await expect(
@@ -680,9 +680,9 @@ describe('openai requester thinking', () => {
         ]),
       ),
     ).resolves.toEqual([
-      { type: 'think', think: 'zh6zh4' },
-      { type: 'think', think: 'zh10zh8', detailsIndex: 0, hidden: true },
-      { type: 'think', think: '', encrypted: 'cipher', detailsIndex: 1 },
+      { type: 'think', think: 'zh6zh4' , reasoningKey: 'reasoning_content'},
+      { type: 'think', think: 'zh10zh8', detailsIndex: 0, hidden: true, reasoningKey: 'reasoning_details' },
+      { type: 'think', think: '', encrypted: 'cipher', detailsIndex: 1, reasoningKey: 'reasoning_details' },
       { type: 'text', text: 'ok' },
     ]);
     await expect(
@@ -698,8 +698,8 @@ describe('openai requester thinking', () => {
         ]),
       ),
     ).resolves.toEqual([
-      { type: 'think', think: 'zh11', detailsIndex: 0 },
-      { type: 'think', think: '', encrypted: 'cipher', detailsIndex: 1 },
+      { type: 'think', think: 'zh11', detailsIndex: 0, reasoningKey: 'reasoning_details' },
+      { type: 'think', think: '', encrypted: 'cipher', detailsIndex: 1, reasoningKey: 'reasoning_details' },
       { type: 'text', text: 'ok' },
     ]);
   });
