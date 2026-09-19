@@ -21,8 +21,8 @@ type AgentDynamicWorkflowProgressEstimate = {
   readonly displayTicks: number;
 };
 
-const MAX_FINAL_OUTPUT_LABEL_CHARS = 80;
-const MAX_FINAL_OUTPUT_LABEL_CODE_UNITS = 160;
+const MAX_FINAL_OUTPUT_LABEL_CHARS = 40;
+const MAX_FINAL_OUTPUT_LABEL_CODE_UNITS = 80;
 
 
 const TEXT_CELL_PREFERRED_WIDTH = 30;
@@ -1758,8 +1758,7 @@ function renderCellLabel(
 
 function runningCellLabelText(member: AgentDynamicWorkflowMember, latestLine: string): string {
   const itemText = collapseWhitespace(member.itemText);
-  const line = latestLine ?? '';
-  const text = line.length > 0 ? line : itemText;
+  const text = latestLine.length > 0 ? latestLine : itemText;
   return text.length > 0 ? text : PHASE_LABELS.running;
 }
 

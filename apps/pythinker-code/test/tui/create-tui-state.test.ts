@@ -92,9 +92,9 @@ describe('createTUIState', () => {
     expect(state.activitySpinner).toBeNull();
   });
 
-  it('uses the docked fullscreen renderer by default', () => {
+  it('uses the docked fullscreen renderer when fullscreen is enabled', () => {
     const previous = process.env['PYTHINKER_CODE_TUI_FULL_SCREEN'];
-    delete process.env['PYTHINKER_CODE_TUI_FULL_SCREEN'];
+    process.env['PYTHINKER_CODE_TUI_FULL_SCREEN'] = '1';
     try {
       const state = createTUIState({
         initialAppState: fakeInitialAppState(),

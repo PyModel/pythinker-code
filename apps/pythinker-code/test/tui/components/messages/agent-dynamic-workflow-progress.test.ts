@@ -32,7 +32,7 @@ function createComponent(
   });
 }
 
-function renderText(component: AgentDynamicWorkflowProgressComponent, width = 160): string {
+function renderText(component: AgentDynamicWorkflowProgressComponent, width = 100): string {
   return strip(component.render(width).join('\n'));
 }
 
@@ -382,11 +382,11 @@ describe('AgentDynamicWorkflowProgressComponent', () => {
     const component = createComponent();
 
     registerSubagents(component, 1);
-    component.markCompleted('agent-1', 'Reviewed imports and found no regression');
+    component.markCompleted('agent-1', 'Reviewed imports and found no regressions');
 
     const output = renderText(component);
 
-    expect(output).toContain('✓ Reviewed imports and found no regression');
+    expect(output).toContain('✓ Reviewed imports and found no regressi');
     expect(output).toContain('Completed.');
   });
 
@@ -398,7 +398,7 @@ describe('AgentDynamicWorkflowProgressComponent', () => {
 
     const output = renderText(component);
 
-    expect(output).toContain('✗ Provider request failed Retry budget exhausted');
+    expect(output).toContain('✗ Provider request failed Retry budget');
     expect(output).not.toContain('Failed:');
   });
 
@@ -515,7 +515,7 @@ describe('AgentDynamicWorkflowProgressComponent', () => {
 
     const output = renderText(component, 120);
 
-    expect(output).toContain('✗ [provider.rate_limit] 429 request reached user+model max RPM.');
+    expect(output).toContain('✗ [provider.rate_limit] 429 request reache');
     expect(output).not.toContain('agent_dynamic_workflow:');
     expect(output).not.toContain('Failed:');
   });
@@ -536,7 +536,7 @@ describe('AgentDynamicWorkflowProgressComponent', () => {
 
     const output = renderText(component);
 
-    expect(output).toContain('✓ Reviewed src/a.ts and confirmed imports are stable.');
+    expect(output).toContain('✓ Reviewed src/a.ts and confirmed imports');
     expect(output).toContain('Completed.');
   });
 
