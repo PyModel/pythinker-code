@@ -29,7 +29,11 @@ const FETCH_TIMEOUT_MS = 5000;
     envs); otherwise the active region profile, so a global login's token is
     not sent to the mainland-China deployment. */
 function clientConfigsBaseUrl(): string {
-  return currentPythinkerProfile().siteBase.replace(/\/+$/, '');
+  const override = process.env['CUSTOM_API_BASE_URL']?.trim();
+  if (override !== undefined && override.length > 0) {
+    return override.replace(/\/+$/, '');
+  }
+  return currentPythinkerProfile().apiBase.replace(/\/+$/, '');
 }
 
 /** Cache entries are partitioned by region so a login switch never serves

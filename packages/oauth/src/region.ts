@@ -11,6 +11,7 @@ export const pythinkerRegionSchema = z.enum(['mainland-cn', 'global']);
 export interface PythinkerRegionProfile {
   readonly cdnBase: string;
   readonly siteBase: string;
+  readonly apiBase: string;
   readonly telemetryEndpoint: string;
 }
 
@@ -18,11 +19,13 @@ export const PYTHINKER_REGION_PROFILES: Record<PythinkerRegion, PythinkerRegionP
   'mainland-cn': {
     cdnBase: 'https://code.pythinker.com/pythinker-code',
     siteBase: 'https://www.pythinker.com',
+    apiBase: 'https://api.kimi.com/coding/v1',
     telemetryEndpoint: 'https://telemetry-logs.pythinker.com/v1/event',
   },
   global: {
     cdnBase: 'https://code.pythinker.com/pythinker-code',
     siteBase: 'https://www.pythinker.com',
+    apiBase: 'https://api.kimi.ai/coding/v1',
     telemetryEndpoint: 'https://telemetry-logs.pythinker.com/v1/event',
   },
 };
@@ -58,8 +61,9 @@ export function resolvePythinkerRegion(options: ResolvePythinkerRegionOptions = 
   const host = (env['PYTHINKER_CODE_REGION'] ?? '').trim().toLowerCase();
   if (host === 'mainland-cn' || host === 'global') return host;
 
-  if (options.configuredOAuthHost !== undefined) {
-    const normalized = options.configuredOAuthHost.toLowerCase();
+  const oauthHost = options.configuredOAuthHost ?? env['CUSTOM_OAUTH_HOST'];
+  if (oauthHost !== undefined) {
+    const normalized = oauthHost.toLowerCase();
     if (normalized.includes('.ai') || normalized.includes('global')) return 'global';
     if (normalized.includes('.com') || normalized.includes('cn')) return 'mainland-cn';
   }
