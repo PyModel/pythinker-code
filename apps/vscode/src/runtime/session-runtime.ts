@@ -138,6 +138,37 @@ export class SessionRuntime {
     await this.applyLegacyApproval({ ...this.legacyApproval, yolo: enabled });
   }
 
+  get permissionMode(): "manual" | "auto" | "yolo" {
+    if (this.legacyApproval.yolo) return "yolo";
+    if (this.legacyApproval.afk) return "auto";
+    return "manual";
+  }
+
+  async setPermissionMode(mode: "manual" | "auto" | "yolo"): Promise<void> {
+    // YOLO and AFK are independent legacy flags; only clear both for manual.
+    if (mode === "manual") {
+      await this.applyLegacyApproval({ yolo: false, afk: false });
+    } else if (mode === "yolo") {
+      await this.applyLegacyApproval({ ...this.legacyApproval, yolo: true });
+    } else {
+      await this.applyLegacyApproval({ ...this.legacyApproval, afk: true });
+    }
+    if (typeof (this.session as { setPermission?: (m: string) => Promise<void> }).setPermission === "function") {
+      await (this.session as { setPermission: (m: string) => Promise<void> }).setPermission(mode);
+    }
+  }
+
+  async togglePermissionMode(mode: "auto" | "yolo"): Promise<"manual" | "auto" | "yolo"> {
+    if (mode === "yolo") {
+      const enabled = !this.legacyApproval.yolo;
+      await this.applyLegacyApproval({ ...this.legacyApproval, yolo: enabled });
+    } else {
+      const enabled = !this.legacyApproval.afk;
+      await this.applyLegacyApproval({ ...this.legacyApproval, afk: enabled });
+    }
+    return this.permissionMode;
+  }
+
   subscribe(webviewId: string): void {
     this.ensureOpen();
     this.webviewIds.add(webviewId);
@@ -396,7 +427,7 @@ export class SessionRuntime {
   async close(): Promise<void> {
     if (this.closed) return;
     this.closed = true;
-    this.pendingHostCompaction?.reject(new Error("Session closed during context compaction."));
+    this.pendingHostCompaction?.resolve("cancelled");
     this.pendingHostCompaction = undefined;
     this.reverseRpc.cancelAll("Session closed");
     this.unsubscribe();

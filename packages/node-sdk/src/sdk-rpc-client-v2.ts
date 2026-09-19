@@ -150,6 +150,7 @@ import {
   ensureMainAgent,
   agentContextOf,
   IAgentContextMemoryService,
+  IEventDispatcher,
   IAgentConversationUndoService,
   IAgentCronService,
   IAgentFullCompactionService,
@@ -2010,6 +2011,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
       capability.max_input_tokens ?? capability.max_context_tokens,
     );
     agent.accessor.get(IAgentContextMemoryService).append(message);
+    await agent.accessor.get(IEventDispatcher).flush();
   }
 
   /**

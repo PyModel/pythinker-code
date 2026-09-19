@@ -358,7 +358,7 @@ async function runSlash(
   raw: string,
   ctx = {} as HandlerContext,
 ): Promise<boolean> {
-  const command = parseHostSlashCommand(raw);
+  const command = await parseHostSlashCommand(raw);
   if (command === undefined) throw new Error(`Expected host slash command: ${raw}`);
   return runHostSlashCommand(runtime, command, ctx);
 }
@@ -1283,10 +1283,16 @@ describe("VS Code Pythinker harness integration (shares one in-process SDK home)
     const runtime = await openRuntimeSession(rig);
     await runtime.session.importContext("Enough prior context to compact.", "file 'prior.md'");
 
-    const command = runSlash(runtime, "/compact keep decisions");
-    expect(runtime.isBusy).toBe(true);
-
-    await expect(command).resolves.toBe(true);
+    let sawBusy = false;
+    const poll = setInterval(() => {
+      if (runtime.isBusy) sawBusy = true;
+    }, 0);
+    try {
+      await expect(runSlash(runtime, "/compact keep decisions")).resolves.toBe(true);
+    } finally {
+      clearInterval(poll);
+    }
+    expect(sawBusy).toBe(true);
     expect(runtime.isBusy).toBe(false);
     expect(streamEvents(rig.broadcasts)).toContainEqual({
       type: "CompactionEnd",
