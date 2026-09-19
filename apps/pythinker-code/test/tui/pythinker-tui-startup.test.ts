@@ -2279,7 +2279,14 @@ describe('PythinkerTUI startup', () => {
 
   it('keeps the active session when logging out a different provider', async () => {
     const session = makeSession();
-    const removeProvider = vi.fn(async () => {});
+    const removeProvider = vi.fn(async () => ({
+      models: {
+        k2: { provider: 'openai', model: 'moonshot-v1', maxContextSize: 100 },
+      },
+      providers: {
+        openai: { type: 'openai', baseUrl: 'https://api.openai.com/v1' },
+      },
+    }));
     const harness = makeHarness(session, {
       getConfig: vi.fn(async () => ({
         models: {
@@ -2287,12 +2294,13 @@ describe('PythinkerTUI startup', () => {
         },
         providers: {
           openai: { type: 'openai', baseUrl: 'https://api.openai.com/v1' },
+          deepseek: { type: 'openai', baseUrl: 'https://api.deepseek.com' },
         },
       })),
       removeProvider,
       auth: {
         status: vi.fn(async () => ({
-          providers: [{ providerName: 'openai', hasToken: true }],
+          providers: [{ providerName: 'openai', hasToken: false }],
         })),
         login: vi.fn(async () => {}),
         logout: vi.fn(),
@@ -2306,17 +2314,17 @@ describe('PythinkerTUI startup', () => {
     await driver.syncRuntimeState(session);
     harness.track.mockClear();
 
-    vi.mocked(promptLogoutProviderSelection).mockResolvedValue('openai');
+    vi.mocked(promptLogoutProviderSelection).mockResolvedValue('deepseek');
     await handleLogoutCommand(driver as any);
 
-    expect(removeProvider).toHaveBeenCalledWith('openai');
+    expect(removeProvider).toHaveBeenCalledWith('deepseek');
     expect(harness.auth.logout).not.toHaveBeenCalled();
     expect(session.close).not.toHaveBeenCalled();
     expect(driver.state.appState).toMatchObject({
       sessionId: 'ses-1',
       model: 'k2',
     });
-    expect(harness.track).toHaveBeenCalledWith('logout', { provider: 'openai' });
+    expect(harness.track).toHaveBeenCalledWith('logout', { provider: 'deepseek' });
   });
 
   it('can log out a stale managed entry even after the OAuth token is gone', async () => {

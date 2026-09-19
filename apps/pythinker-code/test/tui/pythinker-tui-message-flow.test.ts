@@ -7575,8 +7575,8 @@ command = "vim"
     });
     const picker = driver.state.editorContainer.children[0];
     const pickerOutput = stripSgr((picker as TabbedModelSelectorComponent).render(120).join('\n'));
-    expect(pickerOutput).toMatch(/Kimi K2\s+Pythinker Code ← current/);
-    expect(pickerOutput).toMatch(/❯ Pythinker Turbo\s+Pythinker Code/);
+    expect(pickerOutput).toMatch(/Kimi K2\s+openai ← current/);
+    expect(pickerOutput).toMatch(/❯ Pythinker Turbo\s+openai/);
     (picker as TabbedModelSelectorComponent).handleInput('t');
     (picker as TabbedModelSelectorComponent).handleInput('u');
     const filteredOutput = stripSgr((picker as TabbedModelSelectorComponent).render(120).join('\n'));

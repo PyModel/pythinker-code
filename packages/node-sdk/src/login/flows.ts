@@ -287,6 +287,9 @@ async function handleOpenAICodexOAuthLogin(ui: LoginUi): Promise<boolean> {
     ui.track('login', { provider: OPENAI_CODEX_PROVIDER_ID, method: 'oauth' });
     ui.showStatus(`Setup complete: OpenAI Codex · ${selectedModel.id}`);
     return true;
+  } catch (error) {
+    if (controller.signal.aborted) return false;
+    throw error;
   } finally {
     if (ui.cancelInFlight === cancelLogin) ui.cancelInFlight = undefined;
   }

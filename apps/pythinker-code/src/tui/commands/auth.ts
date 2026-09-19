@@ -1,17 +1,10 @@
 // @ts-nocheck
 import {
-  applyOpenPlatformConfig,
-  fetchOpenPlatformModels,
-  filterModelsByPrefix,
-  getOpenPlatformById,
   OAuthAccessDeniedError,
-  OpenPlatformApiError,
+  OPENAI_CODEX_PROVIDER_ID,
   type PythinkerRegion,
-  type ManagedPythinkerCodeModelInfo,
-  type ManagedPythinkerConfigShape,
-  type OpenPlatformDefinition,
 } from '@pymodel/pythinker-code-oauth';
-import { log } from '@pymodel/pythinker-code-sdk';
+import { log, runLogin, type LoginUi } from '@pymodel/pythinker-code-sdk';
 
 import type { ChoiceOption } from '../components/dialogs/choice-picker';
 import { PRODUCT_NAME } from '../constant/pythinker-tui';
@@ -25,9 +18,12 @@ import type { LoginProgressSpinnerHandle } from '../types';
 import {
   promptApiKey,
   promptLogoutProviderSelection,
+  promptModelSelectionForCatalog,
+  promptModelSelectionForCodex,
   promptModelSelectionForOpenPlatform,
   promptPlatformSelection,
 } from './prompts';
+import { openUrl } from '#/utils/open-url';
 import type { SlashCommandHost } from './dispatch';
 
 const DEVICE_OAUTH_PROVIDER_NAME = 'openai';
@@ -36,9 +32,59 @@ const DEVICE_OAUTH_PROVIDER_NAME = 'openai';
 // Auth: login / logout
 // ---------------------------------------------------------------------------
 
+function createLoginUi(
+  host: SlashCommandHost,
+  selection: { readonly platformId: string; readonly catalog: Record<string, unknown> },
+): LoginUi {
+  return {
+    harness: host.harness as LoginUi['harness'],
+    get cancelInFlight() {
+      return host.cancelInFlight;
+    },
+    set cancelInFlight(value) {
+      host.cancelInFlight = value;
+    },
+    openBrowser: (url) => openUrl(url),
+    showStatus: (message) => {
+      host.showStatus(message);
+    },
+    showError: (message) => {
+      host.showError(message);
+    },
+    showLoginProgressSpinner: (label) => host.showLoginProgressSpinner(label),
+    promptPlatformSelection: async () => selection as never,
+    promptApiKey: (platformName, subtitleLines, options) =>
+      promptApiKey(host, platformName, subtitleLines, {
+        title: options?.title,
+        mask: options?.secret !== false,
+        emptyHint: options?.emptyMessage,
+      }),
+    promptModelSelectionForOpenPlatform: async (models, platform) => {
+      if (platform.id === OPENAI_CODEX_PROVIDER_ID) {
+        const picked = await promptModelSelectionForCodex(host, models as never);
+        if (picked === undefined) return undefined;
+        return { model: picked.model, effort: picked.thinking };
+      }
+      const picked = await promptModelSelectionForOpenPlatform(host, models as never, platform as never);
+      if (picked === undefined) return undefined;
+      return { model: picked.model, effort: picked.thinking };
+    },
+    promptModelSelectionForCatalog: async (providerId, models) => {
+      const picked = await promptModelSelectionForCatalog(host, providerId, models);
+      if (picked === undefined) return undefined;
+      return { model: picked.model, effort: picked.thinking };
+    },
+    refreshConfigAfterLogin: () => host.authFlow.refreshConfigAfterLogin(),
+    track: (event, properties) => {
+      host.track(event, properties);
+    },
+  };
+}
+
 export async function handleLoginCommand(host: SlashCommandHost): Promise<void> {
-  const platformId = await promptPlatformSelection(host);
-  if (platformId === undefined) return;
+  const selection = await promptPlatformSelection(host);
+  if (selection === undefined) return;
+  const { platformId } = selection;
 
   if (platformId === 'pythinker-code' || platformId === PYTHINKER_CODE_GLOBAL_PLATFORM_VALUE) {
     const region: PythinkerRegion = platformId === PYTHINKER_CODE_GLOBAL_PLATFORM_VALUE ? 'global' : 'mainland-cn';
@@ -46,9 +92,7 @@ export async function handleLoginCommand(host: SlashCommandHost): Promise<void> 
     return;
   }
 
-  const platform = getOpenPlatformById(platformId);
-  if (platform === undefined) return;
-  await handleOpenPlatformLogin(host, platform);
+  await runLogin(createLoginUi(host, selection));
 }
 
 async function handlePythinkerCodeOAuthLogin(
@@ -123,85 +167,6 @@ async function handlePythinkerCodeOAuthLogin(
   }
 }
 
-async function handleOpenPlatformLogin(
-  host: SlashCommandHost,
-  platform: OpenPlatformDefinition,
-): Promise<void> {
-  const consoleHost = platform.consoleUrl?.replace(/^https?:\/\//, '') ?? '';
-  const platformName = consoleHost.length > 0 ? `Kimi Platform (${consoleHost})` : 'Kimi Platform';
-  const subtitleLines = [
-    `${'base_url'.padEnd(12)}${platform.baseUrl}`,
-    `${'saved to'.padEnd(12)}~/.pythinker-code/config.toml`,
-  ];
-  const apiKey = await promptApiKey(host, platformName, subtitleLines);
-  if (apiKey === undefined) return;
-
-  const controller = new AbortController();
-  const cancelLogin = (): void => {
-    controller.abort();
-  };
-  host.cancelInFlight = cancelLogin;
-
-  let models: ManagedPythinkerCodeModelInfo[];
-  try {
-    models = await fetchOpenPlatformModels(platform, apiKey, fetch, controller.signal);
-    models = filterModelsByPrefix(models, platform);
-  } catch (error) {
-    if (controller.signal.aborted) return;
-    const msg = formatErrorMessage(error);
-    host.showError(`Failed to verify API key: ${msg}`);
-    if (
-      error instanceof OpenPlatformApiError &&
-      error.status === 401
-    ) {
-      host.showStatus(
-        'Hint: If your API key was obtained from Pythinker Code, please select "Pythinker Code" instead.',
-      );
-    }
-    return;
-  } finally {
-    if (host.cancelInFlight === cancelLogin) {
-      host.cancelInFlight = undefined;
-    }
-  }
-
-  if (models.length === 0) {
-    host.showError('No models available for this platform.');
-    return;
-  }
-
-  const selection = await promptModelSelectionForOpenPlatform(host, models, platform);
-  if (selection === undefined) return;
-
-  const existingConfig = await host.harness.getConfig();
-  if (existingConfig.providers[platform.id] !== undefined) {
-    await host.harness.removeProvider(platform.id);
-  }
-
-  const config = await host.harness.getConfig();
-  applyOpenPlatformConfig(config as ManagedPythinkerConfigShape, {
-    platform,
-    models,
-    selectedModel: selection.model,
-    thinking: selection.thinking !== 'off',
-    effort:
-      selection.thinking !== 'off' && selection.thinking !== 'on'
-        ? selection.thinking
-        : undefined,
-    apiKey,
-  });
-
-  await host.harness.setConfig({
-    providers: config.providers,
-    models: config.models,
-    defaultModel: config.defaultModel,
-    thinking: config.thinking,
-  });
-
-  await host.authFlow.refreshConfigAfterLogin();
-  host.track('login', { provider: platform.id, method: 'api_key' });
-  host.showStatus(`Setup complete: ${platform.name} · ${selection.model.id}`);
-}
 
 export async function handleLogoutCommand(host: SlashCommandHost): Promise<void> {
   const oauthStatus = await host.harness.auth.status(DEVICE_OAUTH_PROVIDER_NAME);
