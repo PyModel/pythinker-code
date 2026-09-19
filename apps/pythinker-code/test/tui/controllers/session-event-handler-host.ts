@@ -10,7 +10,11 @@ type HostOverrides = {
   [key: string]: unknown;
 };
 
-export function makeSessionEventHandlerHost(overrides: HostOverrides = {}) {
+export function makeSessionEventHandlerHost(overrides: HostOverrides = {}): {
+  readonly host: never;
+  readonly streamingUI: never;
+  readonly surveyController: never;
+} {
   const streamingUI = {
     setTurnId: vi.fn(),
     flushNow: vi.fn(),
@@ -89,5 +93,5 @@ export function makeSessionEventHandlerHost(overrides: HostOverrides = {}) {
     ...rest,
   };
 
-  return { host: host as never, streamingUI, surveyController };
+  return { host: host as never, streamingUI: streamingUI as never, surveyController: surveyController as never };
 }

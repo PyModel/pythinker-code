@@ -763,7 +763,7 @@ describe('SurveyController kfc model gate', () => {
   const savedBaseUrl = process.env['CUSTOM_API_BASE_URL'];
 
   beforeEach(() => {
-    delete process.env['CUSTOM_API_BASE_URL'];
+    process.env['CUSTOM_API_BASE_URL'] = MANAGED_BASE_URL;
   });
 
   afterEach(() => {
@@ -2167,7 +2167,7 @@ describe('SurveyController appearance snapshot', () => {
   const savedBaseUrl = process.env['CUSTOM_API_BASE_URL'];
 
   beforeEach(() => {
-    delete process.env['CUSTOM_API_BASE_URL'];
+    process.env['CUSTOM_API_BASE_URL'] = MANAGED_BASE_URL;
   });
 
   afterEach(() => {
