@@ -760,7 +760,7 @@ export class AgentDynamicWorkflowProgressComponent implements Component {
       layout.renderText,
       layout.cellWidth,
       layout.barCells,
-      estimate === undefined ? member.ticks : (_estimate?.displayTicks ?? 0),
+      estimate === undefined ? member.ticks : (estimate?.displayTicks ?? 0),
       Math.min(snapshot.phaseElapsedMs, COMPLETE_FILL_MS),
     ];
     const cached = member.cellCache;
@@ -779,7 +779,7 @@ export class AgentDynamicWorkflowProgressComponent implements Component {
     member: AgentDynamicWorkflowMember,
     snapshot: AgentDynamicWorkflowSnapshot,
     layout: AgentDynamicWorkflowGridLayout,
-    _estimate: AgentDynamicWorkflowProgressEstimate | undefined,
+    estimate: AgentDynamicWorkflowProgressEstimate | undefined,
   ): string {
     const width = layout.cellWidth;
     if (snapshot.phase === 'pending') {
@@ -796,7 +796,7 @@ export class AgentDynamicWorkflowProgressComponent implements Component {
     }
 
     const nowMs = Date.now();
-    const progressEstimate = this.progressEstimator.estimate({
+    const progressEstimate = estimate ?? this.progressEstimator.estimate({
       memberKey: member.id,
       phase: snapshot.phase,
       capacityTicks: layout.barCells * BRAILLE_LEVELS.length,
