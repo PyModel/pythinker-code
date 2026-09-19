@@ -104,6 +104,21 @@ export async function handleUpgrade(
     return 0;
   }
 
+  if (!deps.yes && !deps.isInteractive && source !== 'native') {
+    trackUpgradeEvent(deps.track, 'upgrade_command_manual_command', {
+      current_version: currentVersion,
+      target_version: target.version,
+      source,
+    });
+    logUpgradeInfo(deps.logger, 'manual upgrade command shown', {
+      currentVersion,
+      targetVersion: target.version,
+      source,
+    });
+    deps.stdout.write(renderManualUpdateMessage(currentVersion, target, source, installCommand));
+    return 0;
+  }
+
   if (!deps.yes && deps.isInteractive) {
     trackUpgradeEvent(deps.track, 'upgrade_command_prompted', {
       current_version: currentVersion,
