@@ -241,9 +241,10 @@ export {
 export type {
   FetchManagedUsageError,
   FetchManagedUsageResult,
-  ParsedManagedUsage,
-  UsageRow,
-  UsageWindow,
+  ManagedQuota,
+  ManagedQuotaEntry,
+  ManagedQuotaUsages,
+  BoosterWalletInfo,
 } from './managed-usage';
 export { fetchChatTitle, pythinkerCodeToolsUrl } from './managed-tools';
 export type {
@@ -285,3 +286,12 @@ export type {
   PythinkerOAuthTokenRef,
   PythinkerOAuthToolkitOptions,
 } from './toolkit';
+
+export {
+  managedUsageResultSchema,
+  managedQuotaSchema,
+  managedQuotaEntrySchema,
+  managedQuotaUsagesSchema,
+  boosterWalletInfoSchema,
+  type ManagedUsageResult,
+} from './managed-usage';

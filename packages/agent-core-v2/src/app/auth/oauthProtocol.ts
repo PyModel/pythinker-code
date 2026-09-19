@@ -94,19 +94,6 @@ export type RefreshOAuthProviderModelsResponse = z.infer<
 export {
   managedUserInfoResultSchema,
   type ManagedUserInfoResult,
+  managedUsageResultSchema,
+  type ManagedUsageResult,
 } from '@pymodel/pythinker-code-oauth';
-
-export const managedUsageResultSchema = z.discriminatedUnion('kind', [
-  z.object({
-    kind: z.literal('ok'),
-    summary: z.unknown().optional(),
-    limits: z.unknown().optional(),
-    extraUsage: z.unknown().optional(),
-    quota: z.unknown().optional(),
-  }),
-  z.object({
-    kind: z.literal('error'),
-    message: z.string(),
-  }),
-]);
-export type ManagedUsageResult = z.infer<typeof managedUsageResultSchema>;
