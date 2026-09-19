@@ -86,12 +86,12 @@
     "@pymodel/acp-server": "workspace:^",
     "@pymodel/agent-core-v2": "workspace:^",
     "@pymodel/agent-gateway": "workspace:^",
-    "@pymodel/pythinker-code-oauth": "workspace:^",
-    "@pymodel/pythinker-code-sdk": "workspace:^",
-    "@pymodel/pythinker-telemetry": "workspace:^",
     "@pymodel/migration-legacy": "workspace:^",
     "@pymodel/minidb": "workspace:^",
     "@pymodel/pi-tui": "workspace:^",
+    "@pymodel/pythinker-code-oauth": "workspace:^",
+    "@pymodel/pythinker-code-sdk": "workspace:^",
+    "@pymodel/pythinker-telemetry": "workspace:^",
     "@pymodel/remote-control": "workspace:^",
     "@pymodel/vis-server": "workspace:^",
     "@pymodel/vis-web": "workspace:*",
@@ -108,15 +108,15 @@
     "postject": "1.0.0-alpha.6",
     "semver": "^7.7.4",
     "smol-toml": "^1.6.1",
-    "tsx": "^4.21.0",
+    "tsx": "^4.23.5",
     "yazl": "^3.3.1",
-    "zod": "^4.3.6"
+    "zod": "catalog:"
   },
   "engines": {
     "node": ">=22.19.0"
   },
   "dependencies": {
     "qrcode": "^1.5.4",
-    "ws": "^8.18.0"
+    "ws": "^8.21.3"
   }
 }

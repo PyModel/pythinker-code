@@ -136,7 +136,7 @@ importers:
         specifier: ^1.5.4
         version: 1.5.4
       ws:
-        specifier: ^8.18.0
+        specifier: ^8.21.3
         version: 8.21.3
     devDependencies:
       '@pymodel/acp-server':
@@ -215,14 +215,14 @@ importers:
         specifier: '>=1.7.1'
         version: 1.8.0
       tsx:
-        specifier: ^4.21.0
-        version: 4.21.0
+        specifier: ^4.23.5
+        version: 4.23.13
       yazl:
         specifier: ^3.3.1
         version: 3.3.1
       zod:
-        specifier: ^4.3.6
-        version: 4.3.6
+        specifier: 'catalog:'
+        version: 4.4.3
     optionalDependencies:
       '@mariozechner/clipboard':
         specifier: ^0.3.9
@@ -642,6 +642,8 @@ importers:
         specifier: workspace:^
         version: link:../klient
 
+  packages/agent-core: {}
+
   packages/agent-core-v2:
     dependencies:
       '@antfu/utils':
@@ -775,8 +777,8 @@ importers:
         specifier: ^28.0.0
         version: 28.0.0
       tsx:
-        specifier: ^4.21.0
-        version: 4.21.0
+        specifier: ^4.23.5
+        version: 4.23.13
 
   packages/agent-gateway:
     dependencies:
@@ -820,7 +822,7 @@ importers:
         specifier: ^3.0.1
         version: 3.0.2
       ws:
-        specifier: ^8.18.0
+        specifier: ^8.21.3
         version: 8.21.3
       zod:
         specifier: 'catalog:'
@@ -836,8 +838,8 @@ importers:
         specifier: ^8.18.0
         version: 8.18.1
       tsx:
-        specifier: ^4.21.0
-        version: 4.21.0
+        specifier: ^4.23.5
+        version: 4.23.13
 
   packages/klient:
     dependencies:
@@ -865,19 +867,19 @@ importers:
     dependencies:
       '@anthropic-ai/sdk':
         specifier: ^0.95.2
-        version: 0.95.2(zod@4.3.6)
+        version: 0.95.2(zod@4.4.3)
       '@google/genai':
         specifier: ^1.49.0
-        version: 1.49.0(@modelcontextprotocol/sdk@1.29.0(zod@4.3.6))
+        version: 1.49.0(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))
       openai:
         specifier: ^6.34.0
-        version: 6.34.0(ws@8.21.3)(zod@4.3.6)
+        version: 6.34.0(ws@8.21.3)(zod@4.4.3)
       zod:
-        specifier: ^4.3.6
-        version: 4.3.6
+        specifier: 'catalog:'
+        version: 4.4.3
       zod-to-json-schema:
         specifier: ^3.25.2
-        version: 3.25.2(zod@4.3.6)
+        version: 3.25.2(zod@4.4.3)
     devDependencies:
       ajv:
         specifier: ^8.18.0
@@ -895,8 +897,8 @@ importers:
         specifier: '>=1.7.1'
         version: 1.8.0
       zod:
-        specifier: ^4.3.6
-        version: 4.3.6
+        specifier: 'catalog:'
+        version: 4.4.3
     devDependencies:
       '@pymodel/transcript':
         specifier: workspace:^
@@ -920,8 +922,8 @@ importers:
         specifier: ^3.3.1
         version: 3.3.1
       zod:
-        specifier: ^4.3.6
-        version: 4.3.6
+        specifier: 'catalog:'
+        version: 4.4.3
     devDependencies:
       '@pymodel/agent-core-v2':
         specifier: workspace:^
@@ -983,8 +985,8 @@ importers:
         specifier: ^3.0.1
         version: 3.0.2
       zod:
-        specifier: ^4.3.6
-        version: 4.3.6
+        specifier: 'catalog:'
+        version: 4.4.3
 
   packages/pyaos:
     dependencies:
@@ -1008,7 +1010,7 @@ importers:
         specifier: workspace:^
         version: link:../oauth
       ws:
-        specifier: ^8.18.0
+        specifier: ^8.21.3
         version: 8.21.3
     devDependencies:
       '@types/ws':
@@ -6409,9 +6411,6 @@ packages:
     resolution: {integrity: sha512-kVCxPF3vQM/N0B1PmoqVUqgHP+EeVjmZSQn+1oCRPxd2P21P2F19lIgbR3HBosbB1PUhOAoctJnfEn2GbN2eZA==}
     engines: {node: '>=18'}
 
-  get-tsconfig@4.13.7:
-    resolution: {integrity: sha512-7tN6rFgBlMgpBML5j8typ92BKFi2sFQvIdpAqLA2beia5avZDrMs0FLZiM5etShWq5irVyGcGMEA1jcDaK7A/Q==}
-
   get-tsconfig@5.0.0-beta.5:
     resolution: {integrity: sha512-/6gFNr0N04nob252sTQxyFLi3eKFRqIg1I87YcqAMT1i6SQrSF6KujUEQrtrjMV0H/eejTCltLdDSTEMzHbnsQ==}
     engines: {node: '>=20.20.0'}
@@ -9518,11 +9517,6 @@ packages:
   tslib@2.8.1:
     resolution: {integrity: sha512-oJFu94HQb+KVduSUQL7wnpmqnfmLsOA/nAh6b6EH0wCEoK0/mPeXU6c3wKDV83MkOuHPRHtSXKKU99IBazS/2w==}
 
-  tsx@4.21.0:
-    resolution: {integrity: sha512-5C1sg4USs1lfG0GFb2RLXsdpXqBSEhAaA/0kPL01wxzpMqLILNxIxIOKiILz+cdg/pLnOUxFYOR5yhHU666wbw==}
-    engines: {node: '>=18.0.0'}
-    hasBin: true
-
   tsx@4.23.13:
     resolution: {integrity: sha512-BL5MGkRln6aDYhb0xbQlEAGw743BaZYWdbWtdJOBriYJboKgUUYCadFp2/FpBBZquBC/ezNBn7wMMPx7FDZUDw==}
     engines: {node: '>=18.0.0'}
@@ -10193,9 +10187,6 @@ packages:
   zod@3.25.76:
     resolution: {integrity: sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ==}
 
-  zod@4.3.6:
-    resolution: {integrity: sha512-rftlrkhHZOcjDwkGlnUtZZkvaPHCsDATp4pGpuOOMDaTdDDXF91wuVDJoWoPsKX/3YPQ5fHuF3STjcYyKr+Qhg==}
-
   zod@4.4.3:
     resolution: {integrity: sha512-ytENFjIJFl2UwYglde2jchW2Hwm4GJFLDiSXWdTrJQBIN9Fcyp7n4DhxJEiWNAJMV1/BqWfW/kkg71UDcHJyTQ==}
 
@@ -10353,13 +10344,6 @@ snapshots:
       tinyexec: 1.1.2
 
   '@antfu/utils@9.3.0': {}
-
-  '@anthropic-ai/sdk@0.95.2(zod@4.3.6)':
-    dependencies:
-      json-schema-to-ts: 3.1.1
-      standardwebhooks: 1.0.0
-    optionalDependencies:
-      zod: 4.3.6
 
   '@anthropic-ai/sdk@0.95.2(zod@4.4.3)':
     dependencies:
@@ -11406,19 +11390,6 @@ snapshots:
 
   '@fontsource-variable/jetbrains-mono@5.3.0': {}
 
-  '@google/genai@1.49.0(@modelcontextprotocol/sdk@1.29.0(zod@4.3.6))':
-    dependencies:
-      google-auth-library: 10.6.2
-      p-retry: 4.6.2
-      protobufjs: 7.6.5
-      ws: 8.21.3
-    optionalDependencies:
-      '@modelcontextprotocol/sdk': 1.29.0(zod@4.3.6)
-    transitivePeerDependencies:
-      - bufferutil
-      - supports-color
-      - utf-8-validate
-
   '@google/genai@1.49.0(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))':
     dependencies:
       google-auth-library: 10.6.2
@@ -11950,29 +11921,6 @@ snapshots:
       zod-to-json-schema: 3.25.2(zod@3.25.76)
     transitivePeerDependencies:
       - supports-color
-
-  '@modelcontextprotocol/sdk@1.29.0(zod@4.3.6)':
-    dependencies:
-      '@hono/node-server': 1.19.17(hono@4.13.8)
-      ajv: 8.18.0
-      ajv-formats: 3.0.1(ajv@8.18.0)
-      content-type: 1.0.5
-      cors: 2.8.6
-      cross-spawn: 7.0.6
-      eventsource: 3.0.7
-      eventsource-parser: 3.0.6
-      express: 5.2.1
-      express-rate-limit: 8.3.2(express@5.2.1)
-      hono: 4.13.8
-      jose: 6.2.2
-      json-schema-typed: 8.0.2
-      pkce-challenge: 5.0.1
-      raw-body: 3.0.2
-      zod: 4.3.6
-      zod-to-json-schema: 3.25.2(zod@4.3.6)
-    transitivePeerDependencies:
-      - supports-color
-    optional: true
 
   '@modelcontextprotocol/sdk@1.29.0(zod@4.4.3)':
     dependencies:
@@ -16181,10 +16129,6 @@ snapshots:
       '@sec-ant/readable-stream': 0.4.1
       is-stream: 4.0.1
 
-  get-tsconfig@4.13.7:
-    dependencies:
-      resolve-pkg-maps: 1.0.0
-
   get-tsconfig@5.0.0-beta.5:
     dependencies:
       resolve-pkg-maps: 1.0.0
@@ -18064,11 +18008,6 @@ snapshots:
       is-docker: 2.2.1
       is-wsl: 2.2.0
 
-  openai@6.34.0(ws@8.21.3)(zod@4.3.6):
-    optionalDependencies:
-      ws: 8.21.3
-      zod: 4.3.6
-
   openai@6.34.0(ws@8.21.3)(zod@4.4.3):
     optionalDependencies:
       ws: 8.21.3
@@ -19924,13 +19863,6 @@ snapshots:
 
   tslib@2.8.1: {}
 
-  tsx@4.21.0:
-    dependencies:
-      esbuild: 0.28.2
-      get-tsconfig: 4.13.7
-    optionalDependencies:
-      fsevents: 2.3.3
-
   tsx@4.23.13:
     dependencies:
       esbuild: 0.28.2
@@ -20660,17 +20592,11 @@ snapshots:
     dependencies:
       zod: 3.25.76
 
-  zod-to-json-schema@3.25.2(zod@4.3.6):
-    dependencies:
-      zod: 4.3.6
-
   zod-to-json-schema@3.25.2(zod@4.4.3):
     dependencies:
       zod: 4.4.3
 
   zod@3.25.76: {}
-
-  zod@4.3.6: {}
 
   zod@4.4.3: {}
 

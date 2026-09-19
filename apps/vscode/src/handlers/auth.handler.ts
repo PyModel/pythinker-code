@@ -54,3 +54,23 @@ export const authHandlers: Record<string, Handler<any, any>> = {
     }
   },
 };
+
+
+export async function performLogout(
+  harness: { auth: { logout: () => Promise<unknown> } },
+  logError: (message: string, error?: unknown) => void,
+): Promise<LoginResult> {
+  try {
+    await harness.auth.logout();
+    await updateLoginContext(harness as never);
+    return { success: true };
+  } catch (error) {
+    logError("Pythinker logout failed", error);
+    try {
+      await updateLoginContext(harness as never);
+    } catch (statusError) {
+      logError("Unable to refresh login status after a failed logout", statusError);
+    }
+    return { success: false, error: error instanceof Error ? error.message : String(error) };
+  }
+}

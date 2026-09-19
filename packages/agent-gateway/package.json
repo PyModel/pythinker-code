@@ -2,7 +2,7 @@
   "name": "@pymodel/agent-gateway",
   "version": "0.2.3",
   "private": true,
-  "description": "Pythinker Code server backed by the DI × Scope agent engine (agent-core-v2)",
+  "description": "Pythinker Code server backed by the DI \u00d7 Scope agent engine (agent-core-v2)",
   "type": "module",
   "exports": {
     ".": {
@@ -33,8 +33,8 @@
     "@fastify/multipart": "^10.0.0",
     "@fastify/swagger": "^9.7.0",
     "@pymodel/agent-core-v2": "workspace:^",
-    "@pymodel/pythinker-code-oauth": "workspace:^",
     "@pymodel/minidb": "workspace:*",
+    "@pymodel/pythinker-code-oauth": "workspace:^",
     "@pymodel/remote-control": "workspace:^",
     "@pymodel/transcript": "workspace:^",
     "bcryptjs": "^2.4.3",
@@ -43,13 +43,13 @@
     "semver": "^7.7.4",
     "smol-toml": "^1.6.1",
     "ulid": "^3.0.1",
-    "ws": "^8.18.0",
+    "ws": "^8.21.3",
     "zod": "catalog:"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
     "@types/semver": "^7.7.0",
     "@types/ws": "^8.18.0",
-    "tsx": "^4.21.0"
+    "tsx": "^4.23.5"
   }
 }

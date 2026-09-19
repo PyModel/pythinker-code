@@ -7,7 +7,6 @@ const container = document.querySelector("#root");
 
 const queryClient = new QueryClient();
 
-const queryClient = new QueryClient();
 
 if (container) {
   createRoot(container).render(

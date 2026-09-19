@@ -4,7 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Header } from "./components/Header";
 import { ChatArea } from "./components/ChatArea";
 import { InputArea } from "./components/inputarea/InputArea";
-import { MCPServersModal } from "./components/MCPServersModal";
+import { MCPServersModal } from "./components/confighub/MCPServersSection";
 import { WorkDirModal } from "./components/WorkDirModal";
 import { ConfigErrorScreen } from "./components/ConfigErrorScreen";
 import { LoginScreen } from "./components/LoginScreen";

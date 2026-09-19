@@ -56,14 +56,14 @@
     "@antfu/utils": "^9.3.0",
     "smol-toml": "^1.6.1",
     "yazl": "^3.3.1",
-    "zod": "^4.3.6"
+    "zod": "catalog:"
   },
   "devDependencies": {
     "@pymodel/agent-core-v2": "workspace:^",
-    "@pymodel/pyaos": "workspace:^",
-    "@pymodel/pythinker-code-oauth": "workspace:^",
     "@pymodel/klient": "workspace:^",
     "@pymodel/kosong": "workspace:^",
+    "@pymodel/pyaos": "workspace:^",
+    "@pymodel/pythinker-code-oauth": "workspace:^",
     "@types/yazl": "^2.4.6",
     "jimp": "^1.6.1"
   }

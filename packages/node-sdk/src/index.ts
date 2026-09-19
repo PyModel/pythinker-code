@@ -124,3 +124,8 @@ export { coerceEffortForModel, effortLevelsForModel, thinkingAvailability, CANON
 
 export { buildPlatformOptions, isOAuthPlatformId, catalogProviderIdFromPlatformValue } from '#/login/platform-options';
 export type { PlatformOption, PlatformSelection } from '#/login/platform-options';
+
+export { buildSkillSlashCommands, isUserActivatableSkill } from '#/skill-commands';
+export type { SkillSlashCommand, SkillSlashCommands } from '#/skill-commands';
+
+export { CatalogProviderError, importCatalogProvider } from '#/catalog';

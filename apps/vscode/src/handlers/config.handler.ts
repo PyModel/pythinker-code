@@ -89,7 +89,7 @@ const getModels: Handler<void, WebviewPythinkerConfig> = async (_, ctx) => {
   return toWebviewConfig(config);
 };
 
-const getSlashCommands: Handler<void, SlashCommandInfo[]> = async (_, ctx) => {
+export const getSlashCommands: Handler<void, SlashCommandInfo[]> = async (_, ctx) => {
   if (!ctx.workDir) return SLASH_COMMANDS;
   try {
     const skills = await ctx.harness.listWorkspaceSkills(ctx.workDir);
