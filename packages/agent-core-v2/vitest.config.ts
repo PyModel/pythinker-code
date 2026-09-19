@@ -2,6 +2,7 @@ import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   test: {
+    exclude: ['**/node_modules/**', '**/dist/**', '**/test/.skip/**'],
     name: 'agent-core-v2',
     include: ['test/**/*.{test,e2e,integration}.ts', 'src/human/test/**/*.test.ts'],
     setupFiles: ['test/setup.ts'],

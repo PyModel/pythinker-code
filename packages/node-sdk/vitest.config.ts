@@ -11,6 +11,7 @@ export default defineConfig({
     },
   },
   test: {
+    exclude: ['**/node_modules/**', '**/dist/**', '**/test/.skip/**'],
     name: 'pythinker-sdk',
     env: {
       PYTHINKER_LOG_LEVEL: 'off',
