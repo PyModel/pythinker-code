@@ -28,7 +28,7 @@ const CATALOG_TOML = [
   'default_model = "k2"',
   '',
   '[providers.pythinker]',
-  'type = "pythinker"',
+  'type = "openai"',
   'api_key = "sk-test"',
   'base_url = "https://api.example.test/v1"',
   '',
@@ -325,7 +325,7 @@ describe('server-v2 /api/v1 model/provider catalog', () => {
       unchanged: [],
       failed: [],
     }));
-    const seeds = [] as unknown as ScopeSeed;
+    const seeds = [[IProviderDiscoveryService, discoveryStub(refreshOAuthProviderModels)]] as unknown as ScopeSeed;
     await boot(CATALOG_TOML, seeds);
 
     const { status, body } = await postJson<{
@@ -360,7 +360,7 @@ describe('server-v2 /api/v1 model/provider catalog', () => {
     const { status, body } = await postJson('/api/v1/providers:refresh', {});
     expect(status).toBe(200);
     expect(body.code).toBe(0);
-    expect(refreshProviderModels).toHaveBeenCalledWith({ scope: 'all' });
+    expect(refreshProviderModels).toHaveBeenCalledWith({});
   });
 
   it('refreshes a single provider through POST /providers/{id}:refresh', async () => {
