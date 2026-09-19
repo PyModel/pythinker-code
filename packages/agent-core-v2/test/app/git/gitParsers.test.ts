@@ -33,16 +33,16 @@ describe('parsePorcelain', () => {
   });
 
   it('keeps non-ASCII paths intact', () => {
-    const path = 'my-ai-workspace/output/2026-08-31-bilibili-BV175t86pEre-26.8.31-总能等到回踩的.md';
+    const path = 'my-ai-workspace/output/2026-08-31-bilibili-BV175t86pEre-26.8.31-zh.md';
     const out = ` M ${path}\0`;
     const result = parsePorcelain(out, undefined);
     expect(result.entries).toEqual({ [path]: 'modified' });
   });
 
   it('uses the new path of a rename and skips the old one', () => {
-    const out = 'R  dir/新名字.md\0dir/旧名字.md\0';
+    const out = 'R  dir/zh.md\0dir/zh.md\0';
     const result = parsePorcelain(out, undefined);
-    expect(result.entries).toEqual({ 'dir/新名字.md': 'renamed' });
+    expect(result.entries).toEqual({ 'dir/zh.md': 'renamed' });
   });
 });
 

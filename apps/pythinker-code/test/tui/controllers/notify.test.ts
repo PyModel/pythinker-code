@@ -608,9 +608,9 @@ describe('NotifyController', () => {
     h.emit('tool.call.started', {
       toolCallId: 'a1',
       name: 'Agent',
-      args: { description: '调研 example 项目', subagent_type: 'explore', prompt: '…' },
+      args: { description: 'zh example zh', subagent_type: 'explore', prompt: '' },
     });
-    expect(h.texts()).toEqual(['▸ Delegated to explore: **调研 example 项目**']);
+    expect(h.texts()).toEqual(['▸ Delegated to explore: **zh example zh**']);
     expect(h.notifyPanelContainer.children).toEqual([h.notifyPanel]);
 
     h.emit('tool.call.started', {
@@ -619,7 +619,7 @@ describe('NotifyController', () => {
       args: { items: [{ prompt: 'x' }, { prompt: 'y' }, { prompt: 'z' }] },
     });
     expect(h.texts()).toEqual([
-      '▸ Delegated to explore: **调研 example 项目**',
+      '▸ Delegated to explore: **zh example zh**',
       '▸ Delegated to a dynamic_workflow of 3 subagents',
     ]);
   });
@@ -649,7 +649,7 @@ describe('NotifyController', () => {
     h.emit('tool.call.started', {
       toolCallId: 'a1',
       name: 'Agent',
-      args: { description: 'keep me', subagent_type: 'explore', prompt: '…' },
+      args: { description: 'keep me', subagent_type: 'explore', prompt: '' },
     });
     h.emit('tool.call.started', {
       toolCallId: 'a2',
@@ -659,7 +659,7 @@ describe('NotifyController', () => {
     h.emit('tool.call.started', {
       toolCallId: 'a3',
       name: 'Agent',
-      args: { description: 'interrupted', prompt: '…' },
+      args: { description: 'interrupted', prompt: '' },
     });
     expect(h.texts()).toHaveLength(3);
 
@@ -682,7 +682,7 @@ describe('NotifyController', () => {
     h.emit('tool.call.started', {
       toolCallId: 'a1',
       name: 'Agent',
-      args: { description: 'doomed launch', prompt: '…' },
+      args: { description: 'doomed launch', prompt: '' },
     });
     expect(h.controller.toggleFocus()).toBe(true);
 
@@ -699,7 +699,7 @@ describe('NotifyController', () => {
     h.emit('tool.call.started', {
       toolCallId: 'a1',
       name: 'Agent',
-      args: { description: 'keep me', subagent_type: 'explore', prompt: '…' },
+      args: { description: 'keep me', subagent_type: 'explore', prompt: '' },
     });
     h.emit('subagent.spawned', { subagentId: 'agent-9', subagentName: 'coder' });
 

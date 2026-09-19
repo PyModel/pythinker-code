@@ -64,13 +64,13 @@ export function InputArea({ onAuthAction }: InputAreaProps) {
   const isProcessing = hasProcessingMedia();
   const thinkingMode = getCurrentThinkingMode();
   // A switch from a non-empty conversation resends the accumulated context,
-  // losing the prompt cache — surface the cost note in the switcher dropdowns.
+  // losing the prompt cache  surface the cost note in the switcher dropdowns.
   const hasConversationHistory = messages.some((message) => message.role === "user");
 
   const [showPlanModeConfirm, setShowPlanModeConfirm] = useState(false);
 
   const handleTogglePlanMode = () => {
-    // Turning OFF during streaming needs confirmation — user may want next turn, not current
+    // Turning OFF during streaming needs confirmation  user may want next turn, not current
     if (planMode && isStreaming) {
       setShowPlanModeConfirm(true);
       return;
@@ -122,7 +122,7 @@ export function InputArea({ onAuthAction }: InputAreaProps) {
       return;
     }
 
-    // 只在输入框为空时恢复
+    // Restore only when the input is empty
     if (text.trim()) {
       return;
     }
@@ -372,7 +372,7 @@ export function InputArea({ onAuthAction }: InputAreaProps) {
             onKeyDown={handleKeyDown}
             onSelect={handleSelect}
             onPaste={handlePaste}
-            placeholder={isStreaming ? "Add a follow-up…" : "Ask Pythinker Code… (/ commands · @ files · Alt+K code)"}
+            placeholder={isStreaming ? "Add a follow-up" : "Ask Pythinker Code (/ commands · @ files · Alt+K code)"}
             className={cn(
               "w-full min-h-12 max-h-35 px-2.5 py-1.5 text-xs leading-relaxed",
               "bg-transparent resize-none outline-none border-none overflow-y-auto",
@@ -396,7 +396,7 @@ export function InputArea({ onAuthAction }: InputAreaProps) {
                             suffix carries a higher shrink factor so space
                             pressure truncates it before the model name, and
                             below 520px it drops out entirely (still shown in
-                            the tooltip and the dropdown) — a narrow sidebar
+                            the tooltip and the dropdown)  a narrow sidebar
                             has no room for both. */}
                         <span className="flex min-w-0 items-center text-xs">
                           <span className="truncate">{currentModelConfig?.name ?? "No models available"}</span>

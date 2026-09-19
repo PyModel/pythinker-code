@@ -60,18 +60,18 @@ describe('config.toml writeback preservation', () => {
 
   it('preserves comments, blank lines and untouched domains byte-for-byte on set()', async () => {
     const seed = [
-      '# 顶部注释：全局设置',
-      'default_model = "kimi-k2"   # 行尾注释',
+      '# zhzh',
+      'default_model = "kimi-k2"   # zh',
       '',
-      '# 图片配置区块',
+      '# zh',
       '[image]',
       'max_edge_px = 1500',
       '',
-      '# 自定义区域',
+      '# zh',
       '[custom]',
       'notes = """',
-      '第一行',
-      '[not_a_header] 这一行以左括号开头',
+      'zh',
+      '[not_a_header] zh',
       '"""',
       'keep_me = "yes"',
       '',
@@ -83,12 +83,12 @@ describe('config.toml writeback preservation', () => {
     const text = await readText();
     expect(
       text.startsWith(
-        '# 顶部注释：全局设置\ndefault_model = "kimi-k2"   # 行尾注释\n\n# 图片配置区块\n',
+        '# zhzh\ndefault_model = "kimi-k2"   # zh\n\n# zh\n',
       ),
     ).toBe(true);
     expect(
       text.endsWith(
-        '\n# 自定义区域\n[custom]\nnotes = """\n第一行\n[not_a_header] 这一行以左括号开头\n"""\nkeep_me = "yes"\n',
+        '\n# zh\n[custom]\nnotes = """\nzh\n[not_a_header] zh\n"""\nkeep_me = "yes"\n',
       ),
     ).toBe(true);
     const parsed = parseToml(text) as Record<string, unknown>;
@@ -116,7 +116,7 @@ describe('config.toml writeback preservation', () => {
   });
 
   it('appends a new domain at the end with a single trailing newline', async () => {
-    const seed = '# 只有图片\n[image]\nmax_edge_px = 1500\n';
+    const seed = '# zh\n[image]\nmax_edge_px = 1500\n';
     const { config, disposables, readText } = await setup(seed);
 
     await config.set(THINKING_SECTION, { effort: 'high' });
@@ -134,15 +134,15 @@ describe('config.toml writeback preservation', () => {
 
   it('removes a deleted domain region while keeping neighboring trivia', async () => {
     const seed = [
-      '# 头部注释',
+      '# zh',
       '[thinking]',
       'effort = "high"',
       '',
-      '# 图片注释',
+      '# zh',
       '[image]',
       'max_edge_px = 1500',
       '',
-      '# 尾部注释',
+      '# zh',
       '[custom]',
       'keep_me = "yes"',
       '',
@@ -154,9 +154,9 @@ describe('config.toml writeback preservation', () => {
     const text = await readText();
     expect(text.includes('[image]')).toBe(false);
     expect(text.includes('max_edge_px')).toBe(false);
-    expect(text.includes('# 头部注释\n[thinking]\neffort = "high"\n')).toBe(true);
-    expect(text.includes('# 图片注释')).toBe(true);
-    expect(text.includes('# 尾部注释\n[custom]\nkeep_me = "yes"\n')).toBe(true);
+    expect(text.includes('# zh\n[thinking]\neffort = "high"\n')).toBe(true);
+    expect(text.includes('# zh')).toBe(true);
+    expect(text.includes('# zh\n[custom]\nkeep_me = "yes"\n')).toBe(true);
     const parsed = parseToml(text) as Record<string, unknown>;
     expect(parsed['image']).toBeUndefined();
     expect(section(parsed, 'thinking')['effort']).toBe('high');
@@ -165,13 +165,13 @@ describe('config.toml writeback preservation', () => {
   });
 
   it('preserves CRLF line endings in untouched regions', async () => {
-    const seed = '# 注释\r\ndefault_model = "kimi-k2"\r\n\r\n[image]\r\nmax_edge_px = 1500\r\n';
+    const seed = '# zh\r\ndefault_model = "kimi-k2"\r\n\r\n[image]\r\nmax_edge_px = 1500\r\n';
     const { config, disposables, readText } = await setup(seed);
 
     await config.set(IMAGE_SECTION, { maxEdgePx: 3000 });
 
     const text = await readText();
-    expect(text.startsWith('# 注释\r\ndefault_model = "kimi-k2"\r\n\r\n')).toBe(true);
+    expect(text.startsWith('# zh\r\ndefault_model = "kimi-k2"\r\n\r\n')).toBe(true);
     const parsed = parseToml(text) as Record<string, unknown>;
     expect(section(parsed, 'image')['max_edge_px']).toBe(3000);
 

@@ -1081,8 +1081,8 @@ describe('SessionEventBroadcaster', () => {
       payload: {
         agentId: 'main',
         sessionId: 's1',
-        title: '测试',
-        patch: { title: '测试', isCustomTitle: false, lastPrompt: '测试' },
+        title: 'zh',
+        patch: { title: 'zh', isCustomTitle: false, lastPrompt: 'zh' },
       },
     });
 
@@ -1096,8 +1096,8 @@ describe('SessionEventBroadcaster', () => {
         type: 'session.meta.updated',
         agentId: 'main',
         sessionId: 's1',
-        title: '测试',
-        patch: { title: '测试', lastPrompt: '测试' },
+        title: 'zh',
+        patch: { title: 'zh', lastPrompt: 'zh' },
       },
     });
     expect(s1View.envelopes[0]!.session_id).not.toBe('__global__');
@@ -2193,8 +2193,8 @@ describe('SessionEventBroadcaster', () => {
       payload: {
         agentId: 'main',
         sessionId: 's1',
-        title: '测试',
-        patch: { title: '测试' },
+        title: 'zh',
+        patch: { title: 'zh' },
       },
     });
 
@@ -2848,7 +2848,7 @@ describe('SessionEventBroadcaster', () => {
       expect(types).not.toContain('turn.started');
     });
 
-    it('suppresses per agent — agents outside the spec keep their session_events', async () => {
+    it('suppresses per agent  agents outside the spec keep their session_events', async () => {
       const lc = new FakeLifecycle();
       const main = lc.addAgent('main');
       const sub = lc.addAgent('agent-0');

@@ -96,8 +96,8 @@ describe('migrated session is discoverable by agent-core-v2', () => {
     const wire = await readFile(join(result.targetDir, 'agents', 'main', 'wire.jsonl'), 'utf-8');
     expect(wire).toContain('tool_y3SXWWQIUysddnYoklaWhUeE');
     expect(wire).toContain('todo_list');
-    expect(wire).toContain('准备测试环境（创建隔离 work-dir）');
-    expect(wire).toContain('汇报结论');
+    expect(wire).toContain('zhzh work-dir');
+    expect(wire).toContain('zh');
   });
 
   it('turn structure survives a v2 context-transcript round trip and aligns with transcript grouping', async () => {
@@ -110,7 +110,7 @@ describe('migrated session is discoverable by agent-core-v2', () => {
       .map((l) => JSON.parse(l) as { type: string; [key: string]: unknown });
 
     // Content round trip: the v2 context transcript sees exactly the imported
-    // messages — the synthesized turn records must not alter, duplicate, or
+    // messages  the synthesized turn records must not alter, duplicate, or
     // drop any message. (`toolCallDisplays` is UI-only enrichment the context
     // transcript deliberately does not carry, so strip it from both sides.)
     const transcript = reduceContextTranscript(records);

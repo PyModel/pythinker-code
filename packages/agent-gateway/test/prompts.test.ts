@@ -635,7 +635,7 @@ describe('server-v2 /api/v1 prompts', () => {
     const id = await createSession(home as string);
     await createMainAgent(id);
 
-    const prompts = ['先搭一个 Vite 项目', '加上路由', '现在配一下 ESLint'];
+    const prompts = ['zh Vite zh', 'zh', 'zh ESLint'];
     for (const text of prompts) {
       const submitted = await call<PromptItemWire>('POST', `/api/v1/sessions/${id}/prompts`, {
         content: [{ type: 'text', text }],
@@ -1179,7 +1179,7 @@ describe('server-v2 /api/v1 prompts', () => {
   }
 
   function attachedPathFrom(notice: string): string {
-    const match = /bytes\): (.+) — open it with the Read tool$/.exec(notice);
+    const match = /bytes\): (.+)  open it with the Read tool$/.exec(notice);
     expect(match).not.toBeNull();
     return match![1]!;
   }
@@ -1313,7 +1313,7 @@ describe('server-v2 /api/v1 prompts', () => {
       expect(content[0]).toEqual({ type: 'text', text: 'read this' });
       expect(content[1]).toEqual({
         type: 'text',
-        text: `Attached file "notes.txt" (application/octet-stream, ${bytes.length} bytes): ${sourcePath} — open it with the Read tool`,
+        text: `Attached file "notes.txt" (application/octet-stream, ${bytes.length} bytes): ${sourcePath}  open it with the Read tool`,
       });
 
       const session = getLiveSessionById(server!.core.accessor, id);

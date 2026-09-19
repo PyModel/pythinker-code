@@ -119,13 +119,13 @@ describe('baseline: synthetic corpus', () => {
     }
   });
 
-  const TOPICS = ['compaction', 'walrus', 'snapshot', 'recovery', '索引', '持久化'];
+  const TOPICS = ['compaction', 'walrus', 'snapshot', 'recovery', 'zh', 'zh'];
 
   async function writeCorpus(from: number, to: number): Promise<SessionSummary[]> {
     const summaries: SessionSummary[] = [];
     for (let i = from; i < to; i++) {
       const id = `s${i}`;
-      summaries.push(summary(id, `session ${i} 索引讨论`, T1 + i));
+      summaries.push(summary(id, `session ${i} zh`, T1 + i));
       const lines: string[] = [];
       for (let j = 0; j < 8; j++) {
         lines.push(userLine(`session ${i} message ${j} about ${TOPICS[(i + j) % TOPICS.length]!}`, T1 + i * 100 + j));

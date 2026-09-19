@@ -75,7 +75,7 @@ describe('server-v2 /api/v1/search', () => {
           time: 1_700_000_000_000,
           message: {
             role: 'user',
-            content: [{ type: 'text', text: '帮我查一下苹果的价格' }],
+            content: [{ type: 'text', text: 'zh' }],
             origin: { kind: 'user' },
           },
         }),
@@ -90,7 +90,7 @@ describe('server-v2 /api/v1/search', () => {
           event: {
             type: 'content.part',
             stepUuid: 'u1',
-            part: { type: 'text', text: '苹果现价每斤九块九。' },
+            part: { type: 'text', text: 'zh' },
           },
         }),
       ].join('\n') + '\n',
@@ -100,7 +100,7 @@ describe('server-v2 /api/v1/search', () => {
       {
         id: 's1',
         workspaceId: WS,
-        title: '苹果询价',
+        title: 'zh',
         createdAt: 1_700_000_000_000,
         updatedAt: 1_700_000_000_000,
         archived: false,
@@ -140,7 +140,7 @@ describe('server-v2 /api/v1/search', () => {
   it('searches across sessions and returns the wire-shaped page', { timeout: 20_000 }, async () => {
     let body: Envelope<SearchPageWire> | undefined;
     for (let attempt = 0; attempt < 100; attempt++) {
-      body = await postSearch({ query: '苹果' });
+      body = await postSearch({ query: 'zh' });
       expect(body.code).toBe(0);
       if (body.data.items.length > 0) break;
       await new Promise((resolve) => setTimeout(resolve, 100));
@@ -152,9 +152,9 @@ describe('server-v2 /api/v1/search', () => {
     expect(hit).toBeDefined();
     expect(hit!.session_id).toBe('s1');
     expect(hit!.workspace_id).toBe(WS);
-    expect(hit!.session_title).toBe('苹果询价');
+    expect(hit!.session_title).toBe('zh');
     expect(hit!.agent_id).toBe('main');
-    expect(hit!.snippet).toContain('苹果');
+    expect(hit!.snippet).toContain('zh');
     expect(hit!.step_id).toBeUndefined();
     const assistant = body!.data.items.find((h) => h.role === 'assistant');
     expect(assistant).toBeDefined();
@@ -170,21 +170,21 @@ describe('server-v2 /api/v1/search', () => {
     const emptyQuery = await postSearch({ query: '' });
     expect(emptyQuery.code).toBe(40001);
 
-    const oversizedPage = await postSearch({ query: '苹果', page_size: 51 });
+    const oversizedPage = await postSearch({ query: 'zh', page_size: 51 });
     expect(oversizedPage.code).toBe(40001);
 
-    const badSort = await postSearch({ query: '苹果', sort: 'newest' });
+    const badSort = await postSearch({ query: 'zh', sort: 'newest' });
     expect(badSort.code).toBe(40001);
 
-    const badMode = await postSearch({ query: '苹果', mode: 'exact' });
+    const badMode = await postSearch({ query: 'zh', mode: 'exact' });
     expect(badMode.code).toBe(40001);
 
-    const shortLiteral = await postSearch({ query: '苹', mode: 'literal' });
+    const shortLiteral = await postSearch({ query: 'zh', mode: 'literal' });
     expect(shortLiteral.code).toBe(40001);
     expect(shortLiteral.msg).toContain('at least 2 characters');
 
     const nullToken = await postSearch({
-      query: '苹果',
+      query: 'zh',
       page_token: Buffer.from('null').toString('base64url'),
     });
     expect(nullToken.code).toBe(40001);
@@ -193,7 +193,7 @@ describe('server-v2 /api/v1/search', () => {
   it('serves literal mode through the wire', { timeout: 20_000 }, async () => {
     let body: Envelope<SearchPageWire> | undefined;
     for (let attempt = 0; attempt < 100; attempt++) {
-      body = await postSearch({ query: '的价格', mode: 'literal' });
+      body = await postSearch({ query: 'zh', mode: 'literal' });
       expect(body.code).toBe(0);
       if (body.data.items.length > 0) break;
       await new Promise((resolve) => setTimeout(resolve, 100));
@@ -201,7 +201,7 @@ describe('server-v2 /api/v1/search', () => {
     expect(body).toBeDefined();
     const hit = body!.data.items.find((h) => h.role === 'user');
     expect(hit).toBeDefined();
-    expect(hit!.snippet).toContain('的价格');
+    expect(hit!.snippet).toContain('zh');
     expect(hit!.score).toBe(0);
     expect(body!.data.items.some((h) => h.role === 'assistant')).toBe(false);
     expect(body!.data.incomplete).toBeUndefined();

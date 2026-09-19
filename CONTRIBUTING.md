@@ -1,7 +1,5 @@
 # Contributing to pythinker-code
 
-[中文版](CONTRIBUTING.zh-CN.md)
-
 Thanks for taking the time to contribute! This project moves quickly, and thoughtful contributions from the community are what keep it sharp. The guide below walks you through how we work so your PR has the best chance of landing smoothly.
 
 ## Before You Start
@@ -60,12 +58,12 @@ All commits and PR titles must follow [Conventional Commits](https://www.convent
 
 | Type     | Use for                                     | Example                                   |
 |----------|---------------------------------------------|-------------------------------------------|
-| feat     | A new feature                               | feat(agent-core-v2): add tool dedup       |
+| feat     | A new feature                               | feat(agent-core): add tool dedup          |
 | fix      | A bug fix                                   | fix(tui): correct status bar alignment    |
 | docs     | Documentation only                          | docs: clarify install instructions        |
 | chore    | Tooling / housekeeping                      | chore: bump dependencies                  |
 | refactor | Internal refactor without behavior change   | refactor(kosong): extract retry helper    |
-| test     | Adding or improving tests                   | test(agent-core-v2): cover skill resolver |
+| test     | Adding or improving tests                   | test(agent-core): cover skill resolver    |
 | ci       | CI / build pipeline changes                 | ci: cache pnpm store                      |
 | build    | Build system / artifact changes             | build(native): add win32-arm64 target     |
 | perf     | Performance improvement                     | perf(session): batch event flushes        |

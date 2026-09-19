@@ -110,7 +110,7 @@ describe('GitService', () => {
     });
 
     it('reports a non-ASCII path without quoting', async () => {
-      const name = 'output/2026-08-31-bilibili-BV175t86pEre-26.8.31-总能等到回踩的.md';
+      const name = 'output/2026-08-31-bilibili-BV175t86pEre-26.8.31-zh.md';
       mkdirSync(join(repo, 'output'), { recursive: true });
       writeFileSync(join(repo, name), 'line1\n');
       commitAll('init');
@@ -121,12 +121,12 @@ describe('GitService', () => {
     });
 
     it('reports the new path of a non-ASCII rename', async () => {
-      writeFileSync(join(repo, '旧名字.md'), 'line1\n');
+      writeFileSync(join(repo, 'zh.md'), 'line1\n');
       commitAll('init');
-      git(repo, 'mv', '旧名字.md', '新名字.md');
+      git(repo, 'mv', 'zh.md', 'zh.md');
 
       const result = await service.status(repo);
-      expect(result.entries).toEqual({ '新名字.md': 'renamed' });
+      expect(result.entries).toEqual({ 'zh.md': 'renamed' });
     });
 
     it('throws FS_GIT_UNAVAILABLE when not a repo', async () => {

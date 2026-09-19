@@ -30,7 +30,7 @@ function ThinkingIndicator() {
   return (
     <div className="flex items-center gap-2 mt-1 text-blue-500/80 py-1">
       <IconLoader3 className="size-3.5 animate-spin" />
-      <span className="text-[11px] font-medium tracking-wide">Processing…</span>
+      <span className="text-[11px] font-medium tracking-wide">Processing</span>
     </div>
   );
 }
@@ -220,7 +220,7 @@ function UserMessage({ message }: { message: ChatMessageType }) {
     <div className="px-3 pt-3 pb-1 flex justify-end">
       <div className={cn("max-w-[85%] px-3.5 py-1.5 rounded-2xl rounded-br-md", "bg-zinc-100 dark:bg-zinc-800", "text-foreground")}>
         {displayContent && (
-          // FIX: removed whitespace-pre-wrap — it conflicted with ReactMarkdown's
+          // FIX: removed whitespace-pre-wrap  it conflicted with ReactMarkdown's
           // block-level elements (<p>, <ol>, <li>), doubling vertical spacing.
           // ReactMarkdown already handles paragraph breaks from \n\n.
           <div className="text-xs leading-relaxed wrap-break-word">
@@ -301,7 +301,7 @@ function AssistantMessage({ message, turnIndex, isStreaming }: { message: ChatMe
               )}
             </div>
 
-            {/* 内嵌错误显示 */}
+            {/* Inline error display */}
             {isShowingInlineError && message.inlineError && (
               <div className="@[420px]:pl-5">
                 <InlineError error={message.inlineError} />

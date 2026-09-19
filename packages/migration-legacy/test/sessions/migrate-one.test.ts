@@ -87,7 +87,7 @@ describe('migrateOneSession (tiny-hello-world fixture)', () => {
       'ses_tiny-uuid',
     );
     // Simulate a prior run killed after the dir + wire.jsonl were written but
-    // before state.json — exactly the debris a hard crash leaves, since a
+    // before state.json  exactly the debris a hard crash leaves, since a
     // crash bypasses the in-process cleanup. Without state.json this is not a
     // real pythinker-code session, so it must be re-migrated, not reported as a
     // permanent conflict that strands the session forever.
@@ -132,7 +132,7 @@ describe('migrateOneSession (tiny-hello-world fixture)', () => {
   it('stamps written artifacts with the original wire_mtime', async () => {
     // tiny-hello-world/state.json has `wire_mtime: 1772616338.93`.
     // `SessionStore.list()` ranks sessions by filesystem mtime, so the
-    // migrated artifacts must carry the original timestamp — not write-time.
+    // migrated artifacts must carry the original timestamp  not write-time.
     const expectedMs = Math.floor(1772616338.93 * 1000);
     const result = await migrateOneSession({
       source: { uuid: 'tiny-uuid', sessionDir: join(FIXTURES, 'tiny-hello-world'), contextPath: join(join(FIXTURES, 'tiny-hello-world'), 'context.jsonl') },
@@ -154,8 +154,8 @@ describe('migrateOneSession (tiny-hello-world fixture)', () => {
 
   it('falls back to the wire.jsonl mtime when wire_mtime is absent', async () => {
     // A state.json without `wire_mtime` must stamp the migrated artifacts from
-    // the SAME signal detection ranks recency by — the source wire.jsonl mtime
-    // — so post-migration list ordering matches the detected order.
+    // the SAME signal detection ranks recency by  the source wire.jsonl mtime
+    //  so post-migration list ordering matches the detected order.
     const srcDir = join(targetHome, 'src-no-wiremtime');
     await mkdir(srcDir, { recursive: true });
     const fixtureContext = await readFile(
@@ -181,7 +181,7 @@ describe('migrateOneSession (tiny-hello-world fixture)', () => {
     expect(Math.abs(wireStat.mtimeMs - wireTime.getTime())).toBeLessThan(1000);
   });
 
-  it('reports outcome "empty" — not "failed" — when the context has no messages', async () => {
+  it('reports outcome "empty"  not "failed"  when the context has no messages', async () => {
     // A context.jsonl with only markers (e.g. a session the user cleared in
     // pythinker-cli) carries no migratable conversation. That is an empty session,
     // not a migration failure.
@@ -364,8 +364,8 @@ describe('migrateOneSession todo list migration', () => {
       join(srcDir, 'state.json'),
       JSON.stringify({
         todos: [
-          { title: '创建 f1.txt', status: 'done' },
-          { title: '创建 f2.txt', status: 'pending' },
+          { title: 'zh f1.txt', status: 'done' },
+          { title: 'zh f2.txt', status: 'pending' },
         ],
       }),
     );
@@ -386,8 +386,8 @@ describe('migrateOneSession todo list migration', () => {
       agentId: 'main',
       key: 'todo',
       value: [
-        { title: '创建 f1.txt', status: 'done' },
-        { title: '创建 f2.txt', status: 'pending' },
+        { title: 'zh f1.txt', status: 'done' },
+        { title: 'zh f2.txt', status: 'pending' },
       ],
     });
     const state = JSON.parse(await readFile(join(targetDir, 'state.json'), 'utf-8'));
@@ -414,7 +414,7 @@ describe('migrateOneSession subagent migration', () => {
       join(srcDir, 'wire.jsonl'),
       [
         '{"type":"metadata","protocol_version":"1.10"}',
-        '{"timestamp":1,"message":{"type":"SubagentEvent","payload":{"parent_tool_call_id":"tool_X","agent_id":"sub1","subagent_type":"coder","event":{"type":"TurnBegin","payload":{"user_input":"计算 123 乘以 456"}}}}}',
+        '{"timestamp":1,"message":{"type":"SubagentEvent","payload":{"parent_tool_call_id":"tool_X","agent_id":"sub1","subagent_type":"coder","event":{"type":"TurnBegin","payload":{"user_input":"zh 123 zh 456"}}}}}',
       ].join('\n') + '\n',
     );
     await writeFile(
@@ -432,7 +432,7 @@ describe('migrateOneSession subagent migration', () => {
     await writeFile(
       join(srcDir, 'subagents', 'sub1', 'context.jsonl'),
       [
-        '{"role":"user","content":"计算 123 乘以 456"}',
+        '{"role":"user","content":"zh 123 zh 456"}',
         '{"role":"assistant","content":[{"type":"text","text":"56088"}]}',
       ].join('\n') + '\n',
     );

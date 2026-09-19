@@ -1,5 +1,5 @@
 /**
- * Scenario: v2 wiring — the harness talks to the in-process agent-core-v2
+ * Scenario: v2 wiring  the harness talks to the in-process agent-core-v2
  * engine (klient memory transport) instead of the v1 PythinkerCore RPC pair.
  * Responsibilities: v2-client behaviors the v1↔v2 parity gate does not
  * compare (engine telemetry forwarding, host request headers, the Windows
@@ -334,7 +334,7 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
     const client = new SDKRpcClientV2({ homeDir, identity: TEST_IDENTITY });
     try {
       // Without this seed the managed vendors go out with the SDK's default
-      // User-Agent and no X-Msh-* — the interactive-v2 path's identity bug.
+      // User-Agent and no X-Msh-*  the interactive-v2 path's identity bug.
       const headers = client.engineAccessor.get(IHostRequestHeaders).headers;
       expect(headers['User-Agent']).toBe(`pythinker-code-cli/${TEST_IDENTITY.version}`);
       expect(headers['X-Msh-Platform']).toBe('pythinker_code_cli');
@@ -418,7 +418,7 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
       expect(typeof meta.created_at).toBe('string');
       expect(typeof meta.expires_at).toBe('string');
 
-      // Re-export smoke only — helper behavior is pinned by agent-core-v2's
+      // Re-export smoke only  helper behavior is pinned by agent-core-v2's
       // mediaRef tests.
       expect(isDaemonFileUrl(buildDaemonFileUrl(meta.id))).toBe(true);
       await harness.deleteFile(meta.id);
@@ -654,7 +654,7 @@ key = "${titleOAuthRef.key}"
       expect(summary.id).toBe('ses_title_race');
       expect(order).toEqual(['resumed']);
 
-      // The resumed session is a fresh, fully usable scope — not the handle
+      // The resumed session is a fresh, fully usable scope  not the handle
       // the temporary path just tore down.
       await client.renameSession({ id: 'ses_title_race', title: 'Resumed title' });
       await expect
@@ -680,7 +680,7 @@ key = "${titleOAuthRef.key}"
       const session = await harness.createSession({ id: 'ses_resume_race', workDir });
       // close() flips `isClosed` synchronously; the engine close settles
       // asynchronously. The public resume must not hand back the closing
-      // facade — it queues behind the close and materializes a fresh one.
+      // facade  it queues behind the close and materializes a fresh one.
       const closing = session.close();
       const resumed = await harness.resumeSession({ id: 'ses_resume_race' });
       await closing;
@@ -759,7 +759,7 @@ key = "${titleOAuthRef.key}"
       ]);
 
       // Different options must not be silently dropped onto the first
-      // caller's facade — each gets its own resume.
+      // caller's facade  each gets its own resume.
       expect(plain).not.toBe(withReplay);
     } finally {
       await harness.close();
@@ -773,7 +773,7 @@ key = "${titleOAuthRef.key}"
 
     try {
       const session = await harness.createSession({ id: 'ses_title_kind', workDir });
-      await harness.renameSession({ id: session.id, title: '我的标题' });
+      await harness.renameSession({ id: session.id, title: 'zh' });
 
       // The resumed summary is read off the live metadata document, so it
       // carries the canonical title state; the list path (index projection)
@@ -921,7 +921,7 @@ key = "${titleOAuthRef.key}"
       expect(next.models?.['a/m1']).toBeDefined();
       expect(next.defaultModel).toBeUndefined();
       expect(next.defaultProvider).toBeUndefined();
-      // A fresh read from disk sees the same state — the cascade landed as a
+      // A fresh read from disk sees the same state  the cascade landed as a
       // single atomic write, never a halfway-removed intermediate.
       const reread = await harness.getConfig({ reload: true });
       expect(reread.providers['b']).toBeUndefined();
@@ -1629,7 +1629,7 @@ describe('SDKRpcClientV2 engine telemetry', () => {
       telemetry: recordingTelemetry(records),
     });
     try {
-      // No harness wraps this client, so nothing else emits session_started —
+      // No harness wraps this client, so nothing else emits session_started 
       // the engine's own row must survive forwarding.
       const summary = await client.createSession({ workDir });
       const started = records.filter((record) => record.event === 'session_started');

@@ -1434,10 +1434,10 @@ describe('WorkspaceFsService.read', () => {
   });
 
   it('transcodes BOM-marked UTF-16 content that never looks binary (CJK-only)', async () => {
-    const utf16 = Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from('你好世界', 'utf16le')]);
+    const utf16 = Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from('zh', 'utf16le')]);
     const fs = makeSession({ 'notes.txt': utf16 }, emptyHandler);
     const result = await fs.read({ path: 'notes.txt', offset: 0, length: 1024, encoding: 'utf-8' });
-    expect(result.content).toBe('你好世界');
+    expect(result.content).toBe('zh');
     expect(result.encoding).toBe('utf-8');
     expect(result.is_binary).toBe(false);
   });
@@ -1460,7 +1460,7 @@ describe('WorkspaceFsService.read', () => {
   });
 
   it('reads UTF-8 Chinese log content as text instead of throwing fs.is_binary', async () => {
-    const log = '2026-08-16 INFO 启动完成 ✅\n2026-08-16 INFO 处理请求 🚀 成功\n'.repeat(50);
+    const log = '2026-08-16 INFO zh ✅\n2026-08-16 INFO zh 🚀 zh\n'.repeat(50);
     const fs = makeSession({ 'app.log': log }, emptyHandler);
     const result = await fs.read({
       path: 'app.log',
@@ -1476,9 +1476,9 @@ describe('WorkspaceFsService.read', () => {
   });
 
   it('returns utf-8 rather than base64 for UTF-8 Chinese text in auto mode', async () => {
-    const fs = makeSession({ 'app.log': '中文日志 ✅\n' }, emptyHandler);
+    const fs = makeSession({ 'app.log': 'zh ✅\n' }, emptyHandler);
     const result = await fs.read({ path: 'app.log', offset: 0, length: 1024, encoding: 'auto' });
-    expect(result.content).toBe('中文日志 ✅\n');
+    expect(result.content).toBe('zh ✅\n');
     expect(result.encoding).toBe('utf-8');
     expect(result.is_binary).toBe(false);
   });
@@ -1570,7 +1570,7 @@ describe('WorkspaceFsService.resolveDownload', () => {
   });
 
   it('resolves a UTF-8 Chinese log as text/plain', async () => {
-    const fs = makeSession({ 'app.log': '启动完成 ✅ 中文日志内容\n'.repeat(20) }, emptyHandler);
+    const fs = makeSession({ 'app.log': 'zh ✅ zh\n'.repeat(20) }, emptyHandler);
     const res = await fs.resolveDownload('app.log');
     expect(res.mime).toBe('text/plain');
   });

@@ -42,7 +42,7 @@ describe('LocalPyaos', () => {
 
     it('should return the home directory', () => {
       // Python test_local_pyaos.py pins `str(gethome()) == str(Path.home())`;
-      // asserting length > 0 alone was too weak — a stub returning any
+      // asserting length > 0 alone was too weak  a stub returning any
       // non-empty string would pass.
       const home = pyaos.gethome();
       expect(home).toBe(toPosix(homedir()));
@@ -84,7 +84,7 @@ describe('LocalPyaos', () => {
       const filePath = join(nested, 'file.txt');
       await pyaos.writeText(filePath, 'hello');
 
-      // Use backslashes — they should be treated as forward slashes.
+      // Use backslashes  they should be treated as forward slashes.
       const backslashPath = filePath.replaceAll('/', '\\');
       const statResult = await pyaos.stat(backslashPath);
       expect(statResult.stSize).toBe(Buffer.byteLength('hello', 'utf-8'));
@@ -341,12 +341,12 @@ describe('LocalPyaos', () => {
   });
 
   describe('readText errors parameter (Python compat)', () => {
-    // A file with a valid UTF-8 prefix "中", an invalid standalone byte 0xff,
-    // and a valid UTF-8 suffix "文". Under strict decoding this throws.
+    // A file with a valid UTF-8 prefix "zh", an invalid standalone byte 0xff,
+    // and a valid UTF-8 suffix "zh". Under strict decoding this throws.
     const invalidBytes = Buffer.concat([
-      Buffer.from([0xe4, 0xb8, 0xad]), // 中
+      Buffer.from([0xe4, 0xb8, 0xad]), 
       Buffer.from([0xff]),
-      Buffer.from([0xe6, 0x96, 0x87]), // 文
+      Buffer.from([0xe6, 0x96, 0x87]), 
     ]);
 
     it('throws on invalid utf-8 with errors="strict" (default)', async () => {
@@ -363,8 +363,8 @@ describe('LocalPyaos', () => {
 
       const content = await pyaos.readText(filePath, { errors: 'replace' });
       expect(content).toContain('\uFFFD');
-      expect(content).toContain('中');
-      expect(content).toContain('文');
+      expect(content).toContain('zh');
+      expect(content).toContain('zh');
     });
 
     it('drops invalid bytes with errors="ignore"', async () => {
@@ -372,7 +372,7 @@ describe('LocalPyaos', () => {
       await pyaos.writeBytes(filePath, invalidBytes);
 
       const content = await pyaos.readText(filePath, { errors: 'ignore' });
-      expect(content).toBe('中文');
+      expect(content).toBe('zh');
       expect(content).not.toContain('\uFFFD');
     });
 
@@ -541,12 +541,12 @@ describe('LocalPyaos', () => {
   //
   // These tests use real filesystem symlinks. Note: macOS/Linux apply
   // SYMLOOP_MAX (~40 components) at the kernel level, so an unfixed
-  // walker doesn't hang forever — it yields a bounded-but-large number
+  // walker doesn't hang forever  it yields a bounded-but-large number
   // of cyclic paths (observed ~16 for a self-loop) before ELOOP. The
   // assertions here are therefore tight (single-digit expected counts)
   // so they distinguish "OS-ELOOP bailout" (buggy) from "app-level
   // cycle detection" (fixed). HARD_STOP is a final safety belt in case
-  // a future kernel allows deeper symlink chains — tests shouldn't hang.
+  // a future kernel allows deeper symlink chains  tests shouldn't hang.
   describe('glob symlink cycle safety', () => {
     const HARD_STOP = 1000;
 
@@ -640,7 +640,7 @@ describe('LocalPyaos', () => {
       expect(matches.some((p) => p.endsWith('real.txt'))).toBe(true);
     });
 
-    it('T-C5 regression — non-symlink tree results are unchanged', async () => {
+    it('T-C5 regression  non-symlink tree results are unchanged', async () => {
       // Plain, non-symlink trees should not be filtered by cycle tracking.
       await pyaos.mkdir(join(tempDir, 'a', 'b', 'c'), { parents: true });
       await pyaos.writeText(join(tempDir, 'r1.txt'), '');
@@ -659,7 +659,7 @@ describe('LocalPyaos', () => {
     it('T-C6 two non-cyclic symlinks to same target both traverse (path-local visited)', async () => {
       const { symlink, writeFile, mkdir } = await import('node:fs/promises');
       // root/a → target, root/b → target. Both are legitimate (not
-      // cycles) — the user deliberately aliased the target twice.
+      // cycles)  the user deliberately aliased the target twice.
       const root = join(tempDir, 'root-aliases');
       const target = join(tempDir, 'aliased-target');
       await mkdir(root);
@@ -869,7 +869,7 @@ describe('LocalPyaos instance isolation', () => {
       await pyaosA.writeText('marker.txt', 'A');
       await pyaosB.writeText('marker.txt', 'B');
 
-      // Read back via each pyaos — each should get its own version.
+      // Read back via each pyaos  each should get its own version.
       expect(await pyaosA.readText('marker.txt')).toBe('A');
       expect(await pyaosB.readText('marker.txt')).toBe('B');
 
@@ -923,7 +923,7 @@ describe('LocalProcess.kill safety', () => {
     const proc = await pyaos.exec('node', '-e', 'process.exit(0)');
     await proc.wait();
 
-    // Calling kill after exit should not throw — ESRCH is ignored.
+    // Calling kill after exit should not throw  ESRCH is ignored.
     await expect(proc.kill('SIGTERM')).resolves.toBeUndefined();
   });
 
@@ -962,7 +962,7 @@ describe('LocalProcess.kill safety', () => {
         const grandchildPid = Number.parseInt((await readFile(pidPath, 'utf-8')).trim(), 10);
         expect(Number.isNaN(grandchildPid)).toBe(false);
 
-        // Kill parent — on Windows this currently leaks the grandchild
+        // Kill parent  on Windows this currently leaks the grandchild
         // unless `taskkill /T /F` (or equivalent) is used.
         await proc.kill('SIGTERM');
         await proc.wait();
@@ -973,7 +973,7 @@ describe('LocalProcess.kill safety', () => {
             try {
               process.kill(grandchildPid, 0); // "is it still alive?"
             } catch {
-              return true; // ESRCH — grandchild gone
+              return true; // ESRCH  grandchild gone
             }
             await new Promise((r) => setTimeout(r, 50));
           }
@@ -1001,7 +1001,7 @@ describe('LocalProcess.kill safety', () => {
       const tmp = await realpath(await mkdtemp(join(tmpdir(), 'pyaos-killtree-posix-')));
       try {
         const pidFile = join(tmp, 'grandchild.pid');
-        // `exec('bash', '-c', …)` spawns bash as the direct child; the
+        // `exec('bash', '-c', )` spawns bash as the direct child; the
         // embedded node chain spawns a long-running grandchild under it.
         // The grandchild writes its pid so we can poll liveness.
         const script = `

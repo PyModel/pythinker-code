@@ -380,8 +380,8 @@ describe('openai requester thinking', () => {
         messages: [
           createUserMessage('hi'),
           createAssistantMessage([
-            { type: 'think', think: '第一段续', detailsIndex: 0 },
-            { type: 'think', think: '第二段', detailsIndex: 1 },
+            { type: 'think', think: 'zh', detailsIndex: 0 },
+            { type: 'think', think: 'zh', detailsIndex: 1 },
             { type: 'think', think: '', encrypted: 'cipher', detailsIndex: 2 },
             { type: 'text', text: 'ok' },
           ]),
@@ -391,11 +391,11 @@ describe('openai requester thinking', () => {
     );
     const markedAssistant = bodyMessages(marked.body())[1]!;
     expect(markedAssistant['reasoning_details']).toEqual([
-      { type: 'summary', summary: '第一段续' },
-      { type: 'summary', summary: '第二段' },
+      { type: 'summary', summary: 'zh' },
+      { type: 'summary', summary: 'zh' },
       { type: 'encrypted', encrypted: 'cipher' },
     ]);
-    expect(markedAssistant['reasoning_content']).toBe('第一段续第二段');
+    expect(markedAssistant['reasoning_content']).toBe('zh');
   });
 
   it('echoes an empty reasoning_content on think-less assistant messages only when keeping all', async () => {
@@ -549,13 +549,13 @@ describe('openai requester thinking', () => {
       collect(
         chatCompletionChunks([
           {
-            reasoning_content: '第一段',
-            reasoning_details: [{ index: 0, type: 'summary', summary: '第一段' }],
+            reasoning_content: 'zh',
+            reasoning_details: [{ index: 0, type: 'summary', summary: 'zh' }],
           },
           {
             reasoning_details: [
-              { index: 0, summary: '续' },
-              { index: 1, type: 'summary', summary: '第二段' },
+              { index: 0, summary: 'zh' },
+              { index: 1, type: 'summary', summary: 'zh' },
             ],
           },
           { reasoning_details: [{ index: 2, type: 'encrypted', encrypted: 'cipher' }] },
@@ -563,8 +563,8 @@ describe('openai requester thinking', () => {
         ]),
       ),
     ).resolves.toEqual([
-      { type: 'think', think: '第一段续', detailsIndex: 0 },
-      { type: 'think', think: '第二段', detailsIndex: 1 },
+      { type: 'think', think: 'zh', detailsIndex: 0 },
+      { type: 'think', think: 'zh', detailsIndex: 1 },
       { type: 'think', think: '', encrypted: 'cipher', detailsIndex: 2 },
       { type: 'text', text: 'ok' },
     ]);

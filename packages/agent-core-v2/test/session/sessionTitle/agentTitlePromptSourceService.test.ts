@@ -57,7 +57,7 @@ describe('AgentTitlePromptSource', () => {
   });
 
   it('returns the first three prompts from the live context and queue in order', async () => {
-    liveMessages = [userMessage('one', '第一条')];
+    liveMessages = [userMessage('one', 'zh')];
     queue = {
       active: undefined,
       launching: false,
@@ -67,36 +67,36 @@ describe('AgentTitlePromptSource', () => {
           userMessageId: 'two',
           createdAt: '2026-01-01T00:00:00.000Z',
           state: 'pending',
-          message: userMessage('two', '第二条'),
+          message: userMessage('two', 'zh'),
         },
         {
           id: 'three',
           userMessageId: 'three',
           createdAt: '2026-01-01T00:00:01.000Z',
           state: 'pending',
-          message: userMessage('three', '第三条'),
+          message: userMessage('three', 'zh'),
         },
       ],
     };
 
     await expect(ix.get(IAgentTitlePromptSource).firstUserPrompts(3)).resolves.toEqual([
-      '第一条',
-      '第二条',
-      '第三条',
+      'zh',
+      'zh',
+      'zh',
     ]);
   });
 
   it('keeps the head user messages of a compacted window, skipping elision and summary', async () => {
     liveMessages = [
-      userMessage('head', '开场提问'),
+      userMessage('head', 'zh'),
       userMessage('elision', '... omitted ...', { kind: 'injection', variant: 'compaction_elision' }),
-      userMessage('tail', '最近的追问'),
+      userMessage('tail', 'zh'),
       userMessage('summary', ' compaction summary ', { kind: 'compaction_summary' }),
     ];
 
     await expect(ix.get(IAgentTitlePromptSource).firstUserPrompts(3)).resolves.toEqual([
-      '开场提问',
-      '最近的追问',
+      'zh',
+      'zh',
     ]);
   });
 
@@ -121,7 +121,7 @@ describe('AgentTitlePromptSource', () => {
   });
 
   it('counts a queued prompt already appended to the context only once', async () => {
-    liveMessages = [userMessage('one', '同一条')];
+    liveMessages = [userMessage('one', 'zh')];
     queue = {
       launching: false,
       active: {
@@ -129,48 +129,48 @@ describe('AgentTitlePromptSource', () => {
         userMessageId: 'one',
         createdAt: '2026-01-01T00:00:00.000Z',
         state: 'running',
-        message: userMessage('one', '同一条'),
+        message: userMessage('one', 'zh'),
       },
       pending: [],
     };
 
-    await expect(ix.get(IAgentTitlePromptSource).firstUserPrompts(3)).resolves.toEqual(['同一条']);
+    await expect(ix.get(IAgentTitlePromptSource).firstUserPrompts(3)).resolves.toEqual(['zh']);
   });
 
   it('firstTurnExcerpt pairs the opening prompt with the turn’s final assistant text', async () => {
     liveMessages = [
-      userMessage('u1', '帮我写一个快排'),
-      assistantMessage('a1-think', [{ type: 'think', think: '让我想想' }]),
-      assistantMessage('a1-text', [{ type: 'text', text: '好的，先写一版' }]),
+      userMessage('u1', 'zh'),
+      assistantMessage('a1-think', [{ type: 'think', think: 'zh' }]),
+      assistantMessage('a1-text', [{ type: 'text', text: 'zhzh' }]),
       toolMessage('t1', 'tool output'),
       assistantMessage('a2', [
-        { type: 'text', text: '这是最终版实现' },
+        { type: 'text', text: 'zh' },
         { type: 'image_url', imageUrl: { url: 'data:image/png;base64,AAAA' } },
       ]),
-      userMessage('u2', '再加个单测'),
-      assistantMessage('a3', [{ type: 'text', text: '第二轮的回复' }]),
+      userMessage('u2', 'zh'),
+      assistantMessage('a3', [{ type: 'text', text: 'zh' }]),
     ];
 
     await expect(ix.get(IAgentTitlePromptSource).firstTurnExcerpt()).resolves.toEqual({
-      user: '帮我写一个快排',
-      assistant: '这是最终版实现',
+      user: 'zh',
+      assistant: 'zh',
     });
   });
 
   it('firstTurnExcerpt reports a missing assistant reply until the turn ends', async () => {
-    liveMessages = [userMessage('u1', '刚发的问题')];
+    liveMessages = [userMessage('u1', 'zh')];
 
     await expect(ix.get(IAgentTitlePromptSource).firstTurnExcerpt()).resolves.toEqual({
-      user: '刚发的问题',
+      user: 'zh',
       assistant: undefined,
     });
   });
 
   it('digestExcerpt counts a queued prompt already appended to the context only once', async () => {
     liveMessages = [
-      userMessage('one', '最早的问题'),
-      assistantMessage('a1', [{ type: 'text', text: '第一轮回答' }]),
-      userMessage('two', '进行中的问题'),
+      userMessage('one', 'zh'),
+      assistantMessage('a1', [{ type: 'text', text: 'zh' }]),
+      userMessage('two', 'zh'),
     ];
     queue = {
       launching: false,
@@ -179,78 +179,78 @@ describe('AgentTitlePromptSource', () => {
         userMessageId: 'two',
         createdAt: '2026-01-01T00:00:01.000Z',
         state: 'running',
-        message: userMessage('two', '进行中的问题'),
+        message: userMessage('two', 'zh'),
       },
       pending: [],
     };
 
     await expect(ix.get(IAgentTitlePromptSource).digestExcerpt()).resolves.toEqual({
       turns: [
-        { user: '最早的问题', assistant: '第一轮回答' },
-        { user: '进行中的问题', assistant: undefined },
+        { user: 'zh', assistant: 'zh' },
+        { user: 'zh', assistant: undefined },
       ],
     });
   });
 
   it('digestExcerpt pairs every prompt with its own turn’s final assistant text', async () => {
     liveMessages = [
-      userMessage('u1', '最初的目标'),
-      assistantMessage('a1', [{ type: 'text', text: '第一轮回答' }]),
-      userMessage('u2', '中途追问'),
-      assistantMessage('a2', [{ type: 'text', text: '中间回答' }]),
-      userMessage('u3', '最近的要求'),
-      assistantMessage('a3', [{ type: 'think', think: '思考中' }]),
-      assistantMessage('a4', [{ type: 'text', text: '最新正文' }]),
+      userMessage('u1', 'zh'),
+      assistantMessage('a1', [{ type: 'text', text: 'zh' }]),
+      userMessage('u2', 'zh'),
+      assistantMessage('a2', [{ type: 'text', text: 'zh' }]),
+      userMessage('u3', 'zh'),
+      assistantMessage('a3', [{ type: 'think', think: 'zh' }]),
+      assistantMessage('a4', [{ type: 'text', text: 'zh' }]),
     ];
 
     await expect(ix.get(IAgentTitlePromptSource).digestExcerpt()).resolves.toEqual({
       turns: [
-        { user: '最初的目标', assistant: '第一轮回答' },
-        { user: '中途追问', assistant: '中间回答' },
-        { user: '最近的要求', assistant: '最新正文' },
+        { user: 'zh', assistant: 'zh' },
+        { user: 'zh', assistant: 'zh' },
+        { user: 'zh', assistant: 'zh' },
       ],
     });
   });
 
   it('digestExcerpt covers every turn, even with a dangling tool-only span', async () => {
     liveMessages = [
-      userMessage('u1', '最初的目标'),
-      assistantMessage('a1', [{ type: 'text', text: '第一轮回答' }]),
-      userMessage('u2', '第二个话题'),
-      assistantMessage('a2', [{ type: 'think', think: '只在思考' }]),
-      userMessage('u3', '第三个话题'),
-      assistantMessage('a3', [{ type: 'text', text: '第三轮回答' }]),
-      userMessage('u4', '最新的话题'),
-      assistantMessage('a4', [{ type: 'text', text: '最新回答' }]),
+      userMessage('u1', 'zh'),
+      assistantMessage('a1', [{ type: 'text', text: 'zh' }]),
+      userMessage('u2', 'zh'),
+      assistantMessage('a2', [{ type: 'think', think: 'zh' }]),
+      userMessage('u3', 'zh'),
+      assistantMessage('a3', [{ type: 'text', text: 'zh' }]),
+      userMessage('u4', 'zh'),
+      assistantMessage('a4', [{ type: 'text', text: 'zh' }]),
     ];
 
     await expect(ix.get(IAgentTitlePromptSource).digestExcerpt()).resolves.toEqual({
       turns: [
-        { user: '最初的目标', assistant: '第一轮回答' },
-        { user: '第二个话题', assistant: undefined },
-        { user: '第三个话题', assistant: '第三轮回答' },
-        { user: '最新的话题', assistant: '最新回答' },
+        { user: 'zh', assistant: 'zh' },
+        { user: 'zh', assistant: undefined },
+        { user: 'zh', assistant: 'zh' },
+        { user: 'zh', assistant: 'zh' },
       ],
     });
   });
 
   it('digestExcerpt keeps a single-prompt conversation and dangling questions', async () => {
     liveMessages = [
-      userMessage('u1', '唯一的问题'),
-      assistantMessage('a1', [{ type: 'text', text: '唯一的回答' }]),
-      userMessage('u2', '还没得到回复的新问题'),
+      userMessage('u1', 'zh'),
+      assistantMessage('a1', [{ type: 'text', text: 'zh' }]),
+      userMessage('u2', 'zh'),
     ];
 
     await expect(ix.get(IAgentTitlePromptSource).digestExcerpt()).resolves.toEqual({
       turns: [
-        { user: '唯一的问题', assistant: '唯一的回答' },
-        { user: '还没得到回复的新问题', assistant: undefined },
+        { user: 'zh', assistant: 'zh' },
+        { user: 'zh', assistant: undefined },
       ],
     });
 
-    liveMessages = [userMessage('u1', '唯一的问题')];
+    liveMessages = [userMessage('u1', 'zh')];
     await expect(ix.get(IAgentTitlePromptSource).digestExcerpt()).resolves.toEqual({
-      turns: [{ user: '唯一的问题', assistant: undefined }],
+      turns: [{ user: 'zh', assistant: undefined }],
     });
 
     liveMessages = [];

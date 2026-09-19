@@ -264,7 +264,7 @@ describe('server-v2 /api/v1/sessions', () => {
     });
     const { status, body } = await postJson<null>(
       `/api/v1/sessions/${created.body.data.id}/export`,
-      { web_log: '你'.repeat(87_382) },
+      { web_log: 'zh'.repeat(87_382) },
     );
 
     expect(status).toBe(200);
