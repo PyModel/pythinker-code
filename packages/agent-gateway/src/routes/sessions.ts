@@ -555,7 +555,7 @@ export function registerSessionsRoutes(
         [ErrorCode.SESSION_NOT_FOUND]: {},
         [ErrorCode.SESSION_TITLE_UNAVAILABLE]: {},
       },
-      description: 'Generate the session title via the managed chat_title tool',
+      description: 'Generate the session title from conversation prompts',
       tags: ['sessions'],
     },
     async (req, reply) => {
@@ -575,7 +575,7 @@ export function registerSessionsRoutes(
           reply.send(
             errEnvelope(
               ErrorCode.SESSION_TITLE_UNAVAILABLE,
-              'session title generation is unavailable (no managed OAuth login, no prompt yet, or the backend request failed)',
+              'session title generation is unavailable (no title backend, no prompt yet, or an existing title without force)',
               req.id,
             ),
           );

@@ -39,7 +39,9 @@ export class PythinkerFiles {
     }
     const filename = input.filename ?? guessFilename(input.mimeType);
     const bytes = input.data instanceof Uint8Array ? input.data : new Uint8Array(input.data);
-    const blob = new Blob([bytes], { type: input.mimeType });
+    const copy = new Uint8Array(bytes.byteLength);
+    copy.set(bytes);
+    const blob = new Blob([copy], { type: input.mimeType });
     const file = new File([blob], filename, { type: input.mimeType });
 
     const client = this._createClient();

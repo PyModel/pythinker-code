@@ -5,7 +5,9 @@ export interface MediaStore extends MediaSource {
 }
 
 async function sha256BytesHex(bytes: Uint8Array): Promise<string> {
-  const digest = await globalThis.crypto.subtle.digest('SHA-256', bytes);
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  const digest = await globalThis.crypto.subtle.digest('SHA-256', copy);
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 

@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { IConfigService } from '@pymodel/agent-core-v2';
-import { authSummarySchema, type AuthSummary } from '@pymodel/agent-core-v2/app/authLegacy/authLegacy';
+import { authSummarySchema, type AuthSummary } from '@pymodel/agent-core-v2/app/auth/authStatus';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { type RunningServer, startServer } from '../src/start';

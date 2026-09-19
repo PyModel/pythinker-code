@@ -1204,7 +1204,7 @@ export interface PythinkerWebApi {
   compactSession(sessionId: string, instruction?: string): Promise<void>;
   undoSession(sessionId: string, count?: number): Promise<void>;
   forkSession(sessionId: string, input?: { title?: string }): Promise<AppSession>;
-  /** Generate a session title via the daemon's managed title tool (v2 engine) — POST /sessions/{id}/title/generate. Throws SESSION_TITLE_UNAVAILABLE when generation isn't possible. */
+  /** Generate a session title — POST /sessions/{id}/title/generate. Throws SESSION_TITLE_UNAVAILABLE when generation isn't possible. */
   generateSessionTitle(sessionId: string, input?: { force?: boolean; source?: 'user_prompts' | 'first_turn' | 'digest' }): Promise<{ title: string }>;
   /** Create a child session under a parent — POST /sessions/{id}/children. */
   createChildSession(sessionId: string, input?: { title?: string }): Promise<AppSession>;

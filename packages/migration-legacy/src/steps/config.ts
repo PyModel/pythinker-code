@@ -22,7 +22,6 @@ import '@pymodel/agent-core-v2/app/flag/flag';
 import '@pymodel/agent-core-v2/features/skill/catalog/configSection';
 
 import '@pymodel/agent-core-v2/session/subagent/flag';
-import '@pymodel/agent-core-v2/session/sessionTitle/flag';
 import '@pymodel/agent-core-v2/features/tower/flag';
 import '@pymodel/agent-core-v2/agent/toolSelect/flag';
 import '@pymodel/agent-core-v2/agent/tools/task/task-wait/flag';
