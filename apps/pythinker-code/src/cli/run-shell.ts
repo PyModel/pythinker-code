@@ -3,6 +3,7 @@ import { homedir } from 'node:os';
 
 import {
   createPythinkerHarness,
+  createPythinkerHarnessV2,
   flushDiagnosticLogsSync,
   log,
   type PythinkerHarness,
@@ -83,7 +84,12 @@ export async function runShell(
     },
     sessionStartedProperties: { yolo: opts.yolo, auto: opts.auto, plan: opts.plan, afk: false },
   };
-  const harness = createPythinkerHarness(harnessOptions);
+  const useLegacy =
+    process.env['PYTHINKER_CODE_LEGACY_FLAG'] === '1' ||
+    process.env['PYTHINKER_CODE_LEGACY_FLAG'] === 'true';
+  const harness = useLegacy
+    ? createPythinkerHarness(harnessOptions)
+    : createPythinkerHarnessV2(harnessOptions);
   startupTrace('harness:created');
   log.info('pythinker-code starting', {
     version,

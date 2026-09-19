@@ -221,7 +221,13 @@ export function renderManualUpdateMessage(
   );
 }
 
-export function renderInstallSuccessMessage(target: UpdateTarget): string {
+export function renderInstallSuccessMessage(
+  target: UpdateTarget,
+  source?: string,
+): string {
+  if (source === 'native') {
+    return `Pythinker Code ${target.version} is staged; it applies the next time you start the CLI.\n`;
+  }
   return `Updated ${NPM_PACKAGE_NAME} to ${target.version}. Restart the CLI to use the new version.\n`;
 }
 
