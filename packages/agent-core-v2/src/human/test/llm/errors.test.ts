@@ -294,7 +294,7 @@ describe('requester error conversion', () => {
     const requester = createOpenAIRequester({
       connection: pythinkerConnection,
       trait: pythinkerOpenAITrait,
-      convertError: classifyPythinkerQuotaError,
+      classifyError: classifyPythinkerQuotaError,
       clientFactory: failingOpenAIClient(
         new RawOpenAISDKAPIError(
           429,

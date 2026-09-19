@@ -33,7 +33,7 @@ const messages: readonly Message[] = [createUserMessage('hi')];
 const pythinkerOpenAI = {
   connection: pythinkerConnection,
   trait: pythinkerOpenAITrait,
-  convertError: classifyPythinkerQuotaError,
+  classifyError: classifyPythinkerQuotaError,
 } as const;
 
 function modelWith(meta: ModelThinkingMetadata): LlmModel {

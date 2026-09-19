@@ -10,7 +10,7 @@ import type { ProviderMediaContribution, VideoUploadInput } from '#human/llm/med
 import { createMessageAccumulator, type VideoURLPart } from '#human/llm/message';
 import type { LlmModel } from '#human/llm/model';
 import type { ProtocolName } from '#human/llm/protocol/base';
-import { applyCredential, resolveModelCredentials } from '#human/credentials/credentials';
+import { applyCredential } from '#human/credentials/credentials';
 import {
   type ExtraParams,
   type LlmRequestConfig,
@@ -107,7 +107,8 @@ export class ModelRequesterImpl implements ModelRequester {
       );
     }
     const video = typeof input === 'string' ? readVideoFile(input) : input;
-    const model = await resolveModelCredentials(resolved.model, this.model.credentials);
+    const credential = await this.model.credentialProvider?.resolve();
+    const model = applyCredential(resolved.model, credential);
     return uploader(video, { model, signal: options?.signal });
   }
 
@@ -157,7 +158,7 @@ export class ModelRequesterImpl implements ModelRequester {
       usedContextTokens: params?.usedContextTokens,
     };
 
-    const credential = await this.model.credentials?.resolve();
+    const credential = await this.model.credentialProvider?.resolve();
     await requester.generate(
       { ...config, model: applyCredential(resolved.model, credential) },
       content,

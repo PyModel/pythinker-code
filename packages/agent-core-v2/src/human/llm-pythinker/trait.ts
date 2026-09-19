@@ -69,7 +69,7 @@ export const pythinkerOpenAITrait: OpenAITrait = {
 
   toolMessageConversion: 'keep_parts',
 
-  cacheKey: (key) => ({ prompt_cache_key: key }),
+  encodeCacheKey: (key) => ({ prompt_cache_key: key }),
 
   thinking: (thinking) => {
     const config: PythinkerThinkingConfig =
@@ -87,7 +87,7 @@ export const pythinkerOpenAITrait: OpenAITrait = {
     };
   },
 
-  maxCompletionTokens: (maxCompletionTokens) => ({
+  encodeMaxCompletionTokens: (maxCompletionTokens) => ({
     max_completion_tokens: maxCompletionTokens,
   }),
 

@@ -1,4 +1,4 @@
-import { oauthCredentials } from "#/credentials/credentials";
+import { createOAuthCredentialProvider } from "#/credentials/credentials";
 import type { LlmCredentialProvider } from "#/llm/requester/requester";
 
 export interface AccessTokenProvider {
@@ -6,5 +6,5 @@ export interface AccessTokenProvider {
 }
 
 export function pythinkerOAuthCredentialProvider(tokens: AccessTokenProvider): LlmCredentialProvider {
-  return oauthCredentials((options) => tokens.getAccessToken(options));
+  return createOAuthCredentialProvider((options) => tokens.getAccessToken(options));
 }

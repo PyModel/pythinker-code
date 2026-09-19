@@ -2217,8 +2217,8 @@ describe('aborted step tool execution', () => {
     const requester: IAgentLLMRequesterService = {
       _serviceBrand: undefined,
       prepareTurnConfig: () => ({ thinkingEffort: 'off' }),
-      currentCredentials: rejectingCredentials,
-      credentialsForTurn: rejectingCredentials,
+      currentCredentialProvider: rejectingCredentials,
+      credentialProviderForTurn: rejectingCredentials,
       async request() {
         throw new Error('request must not run');
       },
@@ -2297,8 +2297,8 @@ function createTimingRequester(): IAgentLLMRequesterService {
   const requester: IAgentLLMRequesterService = {
     _serviceBrand: undefined,
     prepareTurnConfig: () => ({ thinkingEffort: 'off' }),
-    currentCredentials: () => undefined,
-    credentialsForTurn: () => undefined,
+    currentCredentialProvider: () => undefined,
+    credentialProviderForTurn: () => undefined,
     async request(_overrides, onPart = () => {}) {
       await onPart({ type: 'text', text: 'answer' });
       return {

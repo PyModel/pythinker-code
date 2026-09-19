@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
-import { pythinkerOAuthCredentialProvider } from '#/credentials/pythinker-oauth';
+import { createPythinkerOAuthCredentialProvider } from '#/credentials/pythinker-oauth';
 
-describe('pythinkerOAuthCredentialProvider', () => {
+describe('createPythinkerOAuthCredentialProvider', () => {
   function createTokens() {
     const calls: (boolean | undefined)[] = [];
     return {
@@ -18,7 +18,7 @@ describe('pythinkerOAuthCredentialProvider', () => {
 
   it('resolves the access token from the token provider', async () => {
     const { calls, tokens } = createTokens();
-    const provider = pythinkerOAuthCredentialProvider(tokens);
+    const provider = createPythinkerOAuthCredentialProvider(tokens);
 
     await expect(provider.resolve()).resolves.toEqual({ apiKey: 'access-token' });
     expect(calls).toEqual([undefined]);

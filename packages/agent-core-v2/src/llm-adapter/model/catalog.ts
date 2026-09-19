@@ -38,7 +38,7 @@ export interface Model {
   readonly providerType?: string;
   readonly providerName: string;
 
-  readonly credentials?: LlmCredentialProvider;
+  readonly credentialProvider?: LlmCredentialProvider;
   readonly providerOptions?: ProtocolProviderOptions;
 }
 
