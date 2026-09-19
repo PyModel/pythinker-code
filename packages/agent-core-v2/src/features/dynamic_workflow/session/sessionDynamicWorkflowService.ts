@@ -97,10 +97,12 @@ export class SessionDynamicWorkflowService implements ISessionDynamicWorkflowSer
     };
     const maxConcurrency = resolveDynamicWorkflowMaxConcurrency();
     const promise = new AgentRunBatch(launcher, linkedTasks, { maxConcurrency }).run();
-    void promise.finally(() => {
-      for (const unlink of unlinks) unlink();
-      if (this.inFlight.get(callerAgentId) === controller) this.inFlight.delete(callerAgentId);
-    });
+    void promise
+      .finally(() => {
+        for (const unlink of unlinks) unlink();
+        if (this.inFlight.get(callerAgentId) === controller) this.inFlight.delete(callerAgentId);
+      })
+      .catch(() => {});
     return promise;
   }
 
