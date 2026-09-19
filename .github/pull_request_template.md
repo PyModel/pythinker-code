@@ -1,7 +1,6 @@
 <!--
 Thank you for your contribution to Pythinker Code!
 External PRs are accepted for approved bug fixes only: link an issue that a maintainer has approved (an `/approve` comment). External feature PRs are not accepted.
-外部 PR 仅接受获批准的 bug 修复：请链接维护者已批准（`/approve` 评论）的 issue；不接受外部 feature PR。
 
 See https://github.com/PyModel/pythinker-code/blob/main/CONTRIBUTING.md for more.
 -->
