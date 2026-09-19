@@ -8,8 +8,7 @@ import { gunzipSync } from 'node:zlib';
 
 import {
   FileTokenStorage,
-  PYTHINKER_CODE_PROVIDER_NAME,
-  resolvePythinkerTokenStorageName,
+  resolveOAuthTokenStorageName,
   type TokenInfo,
 } from '@pymodel/pythinker-code-oauth';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -140,7 +139,7 @@ describe('Remote Control tunnel', () => {
     const homeDir = mkdtempSync(join(tmpdir(), 'pythinker-rc-nak-'));
     cleanups.push(() => rmSync(homeDir, { recursive: true, force: true }));
     await new FileTokenStorage(join(homeDir, 'credentials')).save(
-      resolvePythinkerTokenStorageName({ providerName: PYTHINKER_CODE_PROVIDER_NAME }),
+      resolveOAuthTokenStorageName('oauth/pythinker-code'),
       TOKEN,
     );
     const managementServer = new WebSocketServer({ noServer: true });
@@ -268,11 +267,12 @@ describe('Remote Control tunnel', () => {
     const homeDir = mkdtempSync(join(tmpdir(), 'pythinker-rc-'));
     cleanups.push(() => rmSync(homeDir, { recursive: true, force: true }));
     await new FileTokenStorage(join(homeDir, 'credentials')).save(
-      resolvePythinkerTokenStorageName({ providerName: PYTHINKER_CODE_PROVIDER_NAME }),
+      resolveOAuthTokenStorageName('oauth/pythinker-code'),
       TOKEN,
     );
 
     let localHttpRequest: IncomingMessage | undefined;
+    let localHttpBodyBytes = 0;
     let localWsRequest: IncomingMessage | undefined;
     const localWsServer = new WebSocketServer({ noServer: true });
     const assetJs = `const boot = "/assets/boot.js";\n${'const chunk = "/assets/chunk.js";\n'.repeat(120)}`;
@@ -307,13 +307,20 @@ describe('Remote Control tunnel', () => {
         response.end(assetText);
         return;
       }
-      response.writeHead(200, {
-        'Content-Type': 'text/html',
-        'Cache-Control': 'public, max-age=31536000, immutable',
-        Connection: 'X-Remove',
-        'X-Remove': 'gone',
+      let bodyBytes = 0;
+      request.on('data', (chunk: Buffer) => {
+        bodyBytes += chunk.length;
       });
-      response.end('<html><head></head><script src="/boot.js"></script></html>');
+      request.on('end', () => {
+        localHttpBodyBytes = bodyBytes;
+        response.writeHead(200, {
+          'Content-Type': 'text/html',
+          'Cache-Control': 'public, max-age=31536000, immutable',
+          Connection: 'X-Remove',
+          'X-Remove': 'gone',
+        });
+        response.end('<html><head></head><script src="/boot.js"></script></html>');
+      });
     });
     localServer.on('upgrade', (request, socket, head) => {
       localWsRequest = request;
@@ -546,6 +553,25 @@ describe('Remote Control tunnel', () => {
     expect(rangeHead).toContain('Content-Range: bytes 0-2047/4096');
     expect(rangeHead).not.toContain('Content-Encoding');
     expect(rangeResponse.subarray(rangeSeparator + 4).toString()).toBe(assetText);
+
+    const largeBody = Buffer.alloc(4 * 1024 * 1024 + 512 * 1024, 0x61);
+    const largeRequest = Buffer.concat([
+      Buffer.from(`POST /upload HTTP/1.1\r\nHost: relay.test\r\nContent-Length: ${largeBody.length}\r\n\r\n`),
+      largeBody,
+    ]);
+    const largeResponsePromise = nextJsonMessage(httpConnections[0]!);
+    httpConnections[0]!.send(
+      JSON.stringify({
+        request_id: 'request-8',
+        type: 'request',
+        is_last: true,
+        body_base64: largeRequest.toString('base64'),
+      }),
+    );
+    const largeResponseMessage = await largeResponsePromise;
+    const largeResponse = Buffer.from(largeResponseMessage['body_base64'] as string, 'base64').toString();
+    expect(largeResponse).toContain('HTTP/1.1 200 OK');
+    expect(localHttpBodyBytes).toBe(largeBody.length);
 
     managementConnections[0]!.send(
       JSON.stringify({
@@ -785,7 +811,7 @@ async function createRemoteControlHome(refreshToken: string): Promise<string> {
   const homeDir = mkdtempSync(join(tmpdir(), 'pythinker-rc-auth-'));
   cleanups.push(() => rmSync(homeDir, { recursive: true, force: true }));
   await new FileTokenStorage(join(homeDir, 'credentials')).save(
-    resolvePythinkerTokenStorageName({ providerName: PYTHINKER_CODE_PROVIDER_NAME }),
+    resolveOAuthTokenStorageName('oauth/pythinker-code'),
     {
       ...TOKEN,
       refreshToken,
