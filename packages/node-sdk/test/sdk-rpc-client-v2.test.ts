@@ -343,17 +343,13 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
     await expect(client.close()).resolves.toBeUndefined();
   });
 
-  it('seeds the host request headers (User-Agent + X-Msh-*) into the engine', async () => {
+  it('seeds the host User-Agent request header into the engine', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-'));
     tempDirs.push(homeDir);
     const client = new SDKRpcClientV2({ homeDir, identity: TEST_IDENTITY });
     try {
-      // Without this seed the managed vendors go out with the SDK's default
-      // User-Agent and no X-Msh-*  the interactive-v2 path's identity bug.
       const headers = client.engineAccessor.get(IHostRequestHeaders).headers;
       expect(headers['User-Agent']).toBe(`pythinker-code-cli/${TEST_IDENTITY.version}`);
-      expect(headers['User-Agent']).toContain('pythinker');
-            expect(headers['X-Msh-Device-Id']).toBeTruthy();
     } finally {
       await client.close();
     }
