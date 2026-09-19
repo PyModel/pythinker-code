@@ -196,9 +196,19 @@ export type DeviceAuthorization = {
   readonly interval?: number;
 };
 
-export function formatDuration(ms: number): string {
-  if (ms < 1000) return `${ms}ms`;
-  return `${(ms / 1000).toFixed(1)}s`;
+export function formatDuration(totalSeconds: number): string {
+  if (!Number.isFinite(totalSeconds) || totalSeconds <= 0) return '0s';
+  const seconds = Math.floor(totalSeconds);
+  const days = Math.floor(seconds / 86_400);
+  const hours = Math.floor((seconds % 86_400) / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const secs = seconds % 60;
+  const parts: string[] = [];
+  if (days) parts.push(`${String(days)}d`);
+  if (hours) parts.push(`${String(hours)}h`);
+  if (minutes) parts.push(`${String(minutes)}m`);
+  if (secs && parts.length === 0) parts.push(`${String(secs)}s`);
+  return parts.length > 0 ? parts.join(' ') : '0s';
 }
 export function isManagedPythinkerCodeBaseUrl(baseUrl?: string): boolean {
   if (baseUrl === undefined || baseUrl.length === 0) return false;
