@@ -123,10 +123,10 @@ describe('GitService', () => {
     it('reports the new path of a non-ASCII rename', async () => {
       writeFileSync(join(repo, 'zh.md'), 'line1\n');
       commitAll('init');
-      git(repo, 'mv', 'zh.md', 'zh.md');
+      git(repo, 'mv', 'zh.md', 'zh-renamed.md');
 
       const result = await service.status(repo);
-      expect(result.entries).toEqual({ 'zh.md': 'renamed' });
+      expect(result.entries).toEqual({ 'zh-renamed.md': 'renamed' });
     });
 
     it('throws FS_GIT_UNAVAILABLE when not a repo', async () => {

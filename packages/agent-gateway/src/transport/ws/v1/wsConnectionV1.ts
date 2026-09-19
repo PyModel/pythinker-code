@@ -75,8 +75,11 @@ export interface WsConnectionV1Options {
 
 export class WsConnectionV1 implements BroadcastTarget {
   readonly id: string;
-  readonly clientId: string = "";
-  get pendingControlCount(): number { return 0; }
+  clientId = "";
+  private pendingControls = 0;
+  get pendingControlCount(): number {
+    return this.pendingControls;
+  }
   readonly connectedAt: string;
   readonly remoteAddress: string | null;
   readonly userAgent: string | null;
@@ -145,7 +148,7 @@ export class WsConnectionV1 implements BroadcastTarget {
   }
 
   get subscriptionSessionIds(): readonly string[] {
-    return Array.from(this.subscriptions.keys()).sort();
+    return Array.from(this.subscriptions.keys()).toSorted();
   }
 
   send(envelope: EventEnvelope, delivery: BroadcastDelivery = 'subscription'): void {
@@ -188,8 +191,21 @@ export class WsConnectionV1 implements BroadcastTarget {
   }
 
   private enqueueControl(task: () => Promise<void>): void {
-    this.controlQueue = this.controlQueue.then(task).catch(() => {
-    });
+    if (this.closed) return;
+    if (this.pendingControls >= WS_MAX_PENDING_CONTROLS) {
+      this.close(WS_CLOSE_OVERLOADED, 'control queue overflow');
+      return;
+    }
+    this.pendingControls += 1;
+    this.controlQueue = this.controlQueue
+      .then(async () => {
+        if (this.closed) return;
+        await task();
+      })
+      .catch(() => {})
+      .finally(() => {
+        this.pendingControls = Math.max(0, this.pendingControls - 1);
+      });
   }
 
   private onHeartbeat(): void {
@@ -200,11 +216,26 @@ export class WsConnectionV1 implements BroadcastTarget {
     this.sendImmediateFrame(buildPing(ulid()));
   }
 
+  private rejectIfAtSubscriptionLimit(requestedNew: number): boolean {
+    if (requestedNew <= 0) return false;
+    if (this.subscriptions.size < WS_MAX_SUBSCRIPTIONS) return false;
+    this.close(WS_CLOSE_POLICY, 'subscription limit exceeded');
+    return true;
+  }
+
+  private tryAcceptNewSubscription(): boolean {
+    return this.subscriptions.size < WS_MAX_SUBSCRIPTIONS;
+  }
+
   private async onClientHello(frame: InboundFrame): Promise<void> {
     if (!(await this.authorize(frame))) return;
     this.gotClientHello = true;
 
     const payload = frame.payload ?? {};
+    const rawClientId = payload['client_id'];
+    if (typeof rawClientId === 'string') {
+      this.clientId = rawClientId.trim();
+    }
     const subscriptions = asStringArray(payload['subscriptions']);
     const cursors = payload['cursors'] as Record<string, SessionCursor> | undefined;
     const agentFilter = parseAgentFilter(payload['agent_filter']);
@@ -215,7 +246,10 @@ export class WsConnectionV1 implements BroadcastTarget {
     const resyncRequired: string[] = [];
     const serverCursors: Record<string, { seq: number; epoch?: string }> = {};
 
+    const helloNew = subscriptions.filter((sid) => !this.subscriptions.has(sid));
+    if (this.rejectIfAtSubscriptionLimit(helloNew.length)) return;
     for (const sid of subscriptions) {
+      if (!this.subscriptions.has(sid) && !this.tryAcceptNewSubscription()) break;
       await this.attachSession(
         sid,
         cursors?.[sid],
@@ -246,7 +280,10 @@ export class WsConnectionV1 implements BroadcastTarget {
     const resyncRequired: string[] = [];
     const serverCursors: Record<string, { seq: number; epoch?: string }> = {};
 
+    const subNew = sessionIds.filter((sid) => !this.subscriptions.has(sid));
+    if (this.rejectIfAtSubscriptionLimit(subNew.length)) return;
     for (const sid of sessionIds) {
+      if (!this.subscriptions.has(sid) && !this.tryAcceptNewSubscription()) break;
       await this.attachSession(
         sid,
         cursors?.[sid],
@@ -279,6 +316,9 @@ export class WsConnectionV1 implements BroadcastTarget {
     const notFound: string[] = [];
     const resyncRequired: string[] = [];
     const serverCursors: Record<string, { seq: number; epoch?: string }> = {};
+
+    if (!this.subscriptions.has(sid) && this.rejectIfAtSubscriptionLimit(1)) return;
+    if (!this.subscriptions.has(sid) && !this.tryAcceptNewSubscription()) return;
 
     await this.attachSession(
       sid,
@@ -366,6 +406,10 @@ export class WsConnectionV1 implements BroadcastTarget {
       else resyncRequired.push(sid);
       return;
     }
+    if (this.closed) {
+      this.broadcaster.unsubscribe(sid, this);
+      return;
+    }
     this.subscriptions.set(sid, { agentFilter: filter, transcriptGrades });
     accepted.push(sid);
     if (cursor !== undefined) {
@@ -418,6 +462,11 @@ export class WsConnectionV1 implements BroadcastTarget {
   private sendSubscribedFrame(msg: unknown): void {
     if (this.closed) return;
     this.outbound.push(msg);
+    if (this.outbound.length > this.maxBufferSize) {
+      this.outbound = [];
+      this.close(WS_CLOSE_OVERLOADED, 'outbound buffer overflow');
+      return;
+    }
     if (this.outbound.length >= this.maxBatchSize) {
       this.flush();
       return;
@@ -472,6 +521,12 @@ export class WsConnectionV1 implements BroadcastTarget {
     const now = Date.now();
     if (this.backpressureSince === undefined) this.backpressureSince = now;
     if (now - this.backpressureSince >= DEFAULT_BACKPRESSURE_MAX_DELAY_MS) {
+      // Hard bound: socket buffer stuck far past the high-water mark.
+      if (this.socket.bufferedAmount > this.highWaterMarkBytes * 8) {
+        this.outbound = [];
+        this.close(WS_CLOSE_OVERLOADED, 'slow consumer');
+        return;
+      }
       this.flush(true);
       return;
     }
@@ -485,7 +540,11 @@ export class WsConnectionV1 implements BroadcastTarget {
 
   close(code = 1000, reason?: string): void {
     if (this.closed) return;
-    this.flush(true);
+    if (reason === 'outbound buffer overflow' || reason === 'slow consumer' || reason === 'control queue overflow') {
+      this.outbound = [];
+    } else {
+      this.flush(true);
+    }
     try {
       this.socket.close(code, reason);
     } catch {
@@ -500,7 +559,9 @@ export class WsConnectionV1 implements BroadcastTarget {
     if (this.heartbeatTimer !== undefined) clearInterval(this.heartbeatTimer);
     this.outbound = [];
     this.broadcaster.removeGlobalTarget(this);
-    for (const sid of this.subscriptions.keys()) this.broadcaster.unsubscribe(sid, this);
+    const sessionIds = Array.from(this.subscriptions.keys());
+    this.subscriptions.clear();
+    for (const sid of sessionIds) this.broadcaster.unsubscribe(sid, this);
   }
 }
 

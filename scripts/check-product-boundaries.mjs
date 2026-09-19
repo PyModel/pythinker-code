@@ -23,8 +23,6 @@ for (const file of removedPaths) {
 
 const allowedLegacyEnvAssertions = new Set([
   'packages/agent-core/test/rpc/plugins-rpc.test.ts',
-  // Optional override for recommended-effort official base URL matching.
-  'packages/oauth/src/index.ts',
 ]);
 
 // The hosted-provider removal banned the Kimi For Coding upstream endpoint
@@ -33,8 +31,6 @@ const allowedLegacyEnvAssertions = new Set([
 // upstream, so the file is exempted while every other surface stays banned.
 const allowedKimiOAuthEndpoint = new Set([
   'packages/oauth/src/kimi-oauth.ts',
-  // Recommended-effort eligibility matches the same official coding hosts.
-  'packages/oauth/src/index.ts',
 ]);
 
 const forbidden = [

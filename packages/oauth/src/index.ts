@@ -205,16 +205,9 @@ export function isManagedPythinkerCodeBaseUrl(baseUrl?: string): boolean {
   try {
     const candidate = normalizeBaseUrl(baseUrl);
     if (candidate === undefined) return false;
-    const custom = process.env['CUSTOM_API_BASE_URL'] ?? process.env['PYTHINKER_CODE_BASE_URL'];
-    if (custom !== undefined && custom.length > 0) {
-      return normalizeBaseUrl(custom) === candidate;
-    }
-    const managed = [
-      'https://api.kimi.com/coding/v1',
-      'https://api.kimi.ai/coding/v1',
-      'https://api.example.com/v1/v1',
-    ];
-    return managed.some((url) => normalizeBaseUrl(url) === candidate);
+    const custom = process.env['CUSTOM_API_BASE_URL'];
+    if (custom === undefined || custom.length === 0) return false;
+    return normalizeBaseUrl(custom) === candidate;
   } catch {
     return false;
   }

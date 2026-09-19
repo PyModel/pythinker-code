@@ -101,6 +101,7 @@ export function createTUIState(options: PythinkerTUIOptions): TUIState {
   const ui =
     fullscreen
       ? new TuiAltScreen(terminal, undefined, undefined, {
+          scrollToEndIndicator: () => 'Jump to bottom (click) ↓',
           // Mouse capture takes over the terminal's native link activation, so
           // route OSC 8 clicks through our own opener.
           openUrl: (url) => {

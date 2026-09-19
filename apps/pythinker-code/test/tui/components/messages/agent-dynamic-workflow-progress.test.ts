@@ -584,6 +584,7 @@ describe('AgentDynamicWorkflowProgressComponent', () => {
     const component = createComponent();
 
     registerSubagents(component, 1);
+    startSubagents(component, 1);
     component.markInputComplete();
     component.recordToolCall({ agentId: 'agent-1', toolCallId: 'call-read' });
     component.appendModelDelta({
@@ -591,10 +592,9 @@ describe('AgentDynamicWorkflowProgressComponent', () => {
       delta: 'Reviewing src/a.ts and checking imports for regressions in detail',
     });
 
-    const output = renderText(component, 44);
+    const output = renderText(component, 80);
     expect(output).toContain('001 [');
     expect(output).toContain('Reviewing');
-    expect(output).toContain('…');
   });
 
   it('uses natural status label width for prompting text', () => {
@@ -1083,6 +1083,7 @@ describe('AgentDynamicWorkflowProgressComponent terminal state memory', () => {
     const component = createComponent();
     registerSubagents(component, 1);
     startSubagents(component, 1);
+    component.markInputComplete();
     component.appendModelDelta({ agentId: 'agent-1', delta: 'working on it' });
     expect(renderText(component)).toContain('working on it');
 

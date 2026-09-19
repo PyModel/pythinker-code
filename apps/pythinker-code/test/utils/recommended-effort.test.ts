@@ -75,7 +75,8 @@ describe('applyRecommendedEffort', () => {
   beforeEach(async () => {
     dir = await mkdtemp(join(tmpdir(), 'pythinker-recommended-effort-'));
     stateFile = join(dir, 'recommended-effort-state.json');
-    delete process.env['CUSTOM_API_BASE_URL'];
+    // Official-host matching is only via CUSTOM_API_BASE_URL after hosted strip.
+    process.env['CUSTOM_API_BASE_URL'] = OFFICIAL_COM;
   });
 
   afterEach(async () => {
@@ -211,6 +212,7 @@ describe('applyRecommendedEffort', () => {
   });
 
   it('matches the global official endpoint as well', async () => {
+    process.env['CUSTOM_API_BASE_URL'] = OFFICIAL_AI;
     const h = makeHarness(
       makeConfig({
         providers: { 'openai': { type: 'pythinker', baseUrl: OFFICIAL_AI } },
@@ -250,6 +252,7 @@ describe('applyRecommendedEffort', () => {
   });
 
   it('does nothing for self-hosted endpoints', async () => {
+    // Keep CUSTOM_API_BASE_URL on OFFICIAL_COM so GATEWAY / missing base are non-official.
     for (const config of [
       makeConfig({ providers: { 'openai': { type: 'pythinker', baseUrl: GATEWAY } } }),
       makeConfig({ providers: { 'openai': { type: 'pythinker' } } }),

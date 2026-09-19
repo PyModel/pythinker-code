@@ -1,5 +1,6 @@
 // @ts-nocheck
-import { Markdown, visibleWidth } from '@pymodel/pi-tui';
+import { visibleWidth } from '@pymodel/pi-tui';
+import { Markdown } from '#/tui/components/markdown/markdown';
 import chalk from 'chalk';
 import * as cliHighlight from 'cli-highlight';
 import { describe, expect, it, vi } from 'vitest';
@@ -8,7 +9,7 @@ import { AssistantMessageComponent } from '#/tui/components/messages/assistant-m
 import { STATUS_BULLET } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
 import { createMarkdownTheme } from '#/tui/theme/pi-tui-theme';
-import { setMarkdownRenderLatex } from '#/tui/utils/markdown-options';
+import { setMarkdownAltScreenActive, setMarkdownRenderLatex } from '#/tui/utils/markdown-options';
 
 import { captureProcessWrite } from '../../../helpers/process';
 

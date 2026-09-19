@@ -7,13 +7,14 @@ import {
   type AgentDynamicWorkflowProgressEstimatorPhase,
 } from '#/tui/components/messages/agent-dynamic-workflow-progress-estimator';
 import { FAILURE_MARK, SUCCESS_MARK } from '#/tui/constant/symbols';
+import { isRenderCacheEnabled as isGlobalRenderCacheEnabled } from '#/tui/utils/render-cache';
 import { currentTheme, type ColorToken } from '#/tui/theme';
 import type { ColorPalette } from '#/tui/theme/colors';
 import { shimmerText } from '#/tui/utils/shimmer';
 
 
 function isRenderCacheEnabled(): boolean {
-  return true;
+  return isGlobalRenderCacheEnabled();
 }
 
 type AgentDynamicWorkflowProgressEstimate = {
@@ -1738,7 +1739,7 @@ function renderCellLabel(
   const latestLine = latestNonEmptyLine(snapshot.latestModelText);
   if (snapshot.phase === 'running') {
     return truncateToWidth(
-      shimmerWorkflowLabel(runningCellLabelText(member)),
+      shimmerWorkflowLabel(runningCellLabelText(member, latestLine)),
       width,
       shimmerWorkflowLabel('…'),
     );
