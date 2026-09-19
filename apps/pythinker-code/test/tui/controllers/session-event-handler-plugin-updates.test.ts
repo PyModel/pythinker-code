@@ -3,67 +3,10 @@ import { describe, expect, it, vi } from 'vitest';
 
 import type { PluginUpdateNotifier } from '#/tui/controllers/plugin-update-notifier';
 import { SessionEventHandler } from '#/tui/controllers/session-event-handler';
+import { makeSessionEventHandlerHost } from './session-event-handler-host';
 import { getBuiltInPalette } from '#/tui/theme';
 
 const DATASOURCE_TOOL = 'mcp__plugin-example-data_data__call_data_source_tool';
-
-function makeHost() {
-  const streamingUI = {
-    setTurnId: vi.fn(),
-    flushNow: vi.fn(),
-    resetToolUi: vi.fn(),
-    clearNotifyPanel: vi.fn(),
-    markNotifyPanelEnded: vi.fn(),
-    setStep: vi.fn(),
-    finalizeTurn: vi.fn(),
-    getTurnContext: vi.fn(() => ({ turnId: 1, step: 0 })),
-    registerToolCall: vi.fn(),
-    completeToolResult: vi.fn(),
-    setTodoList: vi.fn(),
-  };
-  const host = {
-    state: {
-      footer: { setStreamSpeed: vi.fn() },
-      appState: {
-        sessionId: 's1',
-        streamingPhase: 'waiting',
-        model: 'pythinker-model',
-        permissionMode: 'auto',
-      },
-      queuedMessages: [],
-      queuedMessageDispatchPending: false,
-      theme: { palette: getBuiltInPalette('dark') },
-      toolOutputExpanded: false,
-      todoPanel: { getTodos: vi.fn(() => []) },
-      transcriptContainer: { addChild: vi.fn() },
-      ui: { requestRender: vi.fn() },
-    },
-    session: {},
-    aborted: false,
-    sessionEventUnsubscribe: undefined,
-    streamingUI,
-    requireSession: vi.fn(() => ({})),
-    setAppState: vi.fn(),
-    patchLivePane: vi.fn(),
-    resetLivePane: vi.fn(),
-    showError: vi.fn(),
-    showStatus: vi.fn(),
-    showNotice: vi.fn(),
-    updateActivityPane: vi.fn(),
-    track: vi.fn(),
-    mountEditorReplacement: vi.fn(),
-    restoreEditor: vi.fn(),
-    restoreInputText: vi.fn(),
-    appendTranscriptEntry: vi.fn(),
-    sendNormalUserInput: vi.fn(),
-    sendQueuedMessage: vi.fn(),
-    shiftQueuedMessage: vi.fn(),
-    btwPanelController: { routeEvent: vi.fn(() => false) },
-    surveyController: { notifyToolCallStarted: vi.fn(), notifyCompactionFinished: vi.fn() },
-    tasksBrowserController: {},
-  };
-  return { host: host as never, streamingUI };
-}
 
 function makeNotifier() {
   return {
@@ -125,7 +68,7 @@ const sendQueued = (): void => {};
 
 describe('SessionEventHandler plugin update notices', () => {
   it('reports plugin MCP usage only when the turn ends', () => {
-    const { host, streamingUI } = makeHost();
+    const { host, streamingUI } = makeSessionEventHandlerHost();
     const notifier = makeNotifier();
     streamingUI.completeToolResult.mockReturnValue({ name: DATASOURCE_TOOL, args: {} });
     const handler = new SessionEventHandler(host, notifier as unknown as PluginUpdateNotifier);
@@ -141,7 +84,7 @@ describe('SessionEventHandler plugin update notices', () => {
   });
 
   it('skips the notice for a cancelled turn and clears the buffer', () => {
-    const { host, streamingUI } = makeHost();
+    const { host, streamingUI } = makeSessionEventHandlerHost();
     const notifier = makeNotifier();
     streamingUI.completeToolResult.mockReturnValue({ name: DATASOURCE_TOOL, args: {} });
     const handler = new SessionEventHandler(host, notifier as unknown as PluginUpdateNotifier);
@@ -157,7 +100,7 @@ describe('SessionEventHandler plugin update notices', () => {
   });
 
   it('ignores non-plugin tools', () => {
-    const { host, streamingUI } = makeHost();
+    const { host, streamingUI } = makeSessionEventHandlerHost();
     const notifier = makeNotifier();
     streamingUI.completeToolResult.mockReturnValue({ name: 'Bash', args: {} });
     const handler = new SessionEventHandler(host, notifier as unknown as PluginUpdateNotifier);
@@ -169,7 +112,7 @@ describe('SessionEventHandler plugin update notices', () => {
   });
 
   it('reports a finished plugin command turn', () => {
-    const { host } = makeHost();
+    const { host } = makeSessionEventHandlerHost();
     const notifier = makeNotifier();
     const handler = new SessionEventHandler(host, notifier as unknown as PluginUpdateNotifier);
 
@@ -180,7 +123,7 @@ describe('SessionEventHandler plugin update notices', () => {
   });
 
   it('skips a cancelled plugin command turn', () => {
-    const { host } = makeHost();
+    const { host } = makeSessionEventHandlerHost();
     const notifier = makeNotifier();
     const handler = new SessionEventHandler(host, notifier as unknown as PluginUpdateNotifier);
 
