@@ -15,7 +15,7 @@ import {
 
 import type { PermissionOption, RequestPermissionResponse } from '@agentclientprotocol/sdk';
 import type { SessionApprovalRequest } from '@pymodel/agent-core-v2';
-import type { ToolInputDisplay } from '@pymodel/protocol';
+import type { ToolInputDisplay } from '@pymodel/agent-core-v2/tool/toolInputDisplay';
 
 function selected(optionId: string): RequestPermissionResponse {
   return { outcome: { outcome: 'selected', optionId } };

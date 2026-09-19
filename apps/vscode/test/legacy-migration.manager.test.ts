@@ -275,7 +275,7 @@ describe("legacy migration manager (discovery and migration coordination)", () =
     await mkdir(rig.sourceHome, { recursive: true });
     await writeFile(
       join(rig.sourceHome, "pythinker.json"),
-      JSON.stringify({ work_dirs: [{ path: workDir, kaos: "local" }] }),
+      JSON.stringify({ work_dirs: [{ path: workDir, pyaos: "local" }] }),
     );
     const bucket = join(
       rig.sourceHome,
@@ -387,14 +387,24 @@ describe("legacy migration manager (discovery and migration coordination)", () =
 
     expect(discovery.prompt).toBeNull();
     expect(discovery.notices.oauthLoginsRequiringRelogin).toEqual([
-      { sourceHome: rig.sourceHome, name: "pythinker-code.json" },
+      { sourceHome: rig.sourceHome, name: "pythinker-code" },
     ]);
   });
 
   it("reports legacy MCP OAuth state as requiring reauthorization", async () => {
     const rig = await createRig();
+    await mkdir(rig.sourceHome, { recursive: true });
+    await writeFile(
+      join(rig.sourceHome, "mcp.json"),
+      JSON.stringify({
+        mcpServers: {
+          "example-server": { url: "https://example.test/mcp", auth: "oauth" },
+          plain: { command: "npx" },
+        },
+      }),
+    );
     await mkdir(join(rig.sourceHome, "mcp-oauth"), { recursive: true });
-    await writeFile(join(rig.sourceHome, "mcp-oauth", "example-server"), "{}");
+    await writeFile(join(rig.sourceHome, "mcp-oauth", "mangled-store-entry"), "{}");
 
     const discovery = await rig.manager.discover();
 
@@ -441,6 +451,7 @@ async function createRig(options: RigOptions = {}): Promise<{
     defaultSourceHome: sourceHome,
     workspaceRoot: options.workspaceRoot === undefined ? workspaceRoot : options.workspaceRoot,
     legacyEnvironmentVariables: options.legacyEnvironmentVariables,
+    plansSourceDir: join(root, "plans"),
   });
   return { root, sourceHome, targetHome, workspaceRoot, manager };
 }
@@ -465,7 +476,7 @@ async function writeCorruptLegacySession(
   await mkdir(sourceHome, { recursive: true });
   await writeFile(
     join(sourceHome, "pythinker.json"),
-    JSON.stringify({ work_dirs: [{ path: workDir, kaos: "local" }] }),
+    JSON.stringify({ work_dirs: [{ path: workDir, pyaos: "local" }] }),
   );
   const bucket = createHash("md5").update(workDir).digest("hex");
   const sessionDir = join(sourceHome, "sessions", bucket, "corrupt-session");

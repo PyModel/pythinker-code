@@ -2,6 +2,7 @@ import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStor
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
 
 import { CHILD_SESSION_KIND, CHILD_SESSION_KIND_KEY, type SessionSummary } from './sessionIndex';
+import { SESSION_INDEX_DIRTY_DIR, listDirtyMarks } from './sessionIndexDirtyJournal';
 
 const META_SCOPE = 'session-meta';
 const META_KEY = 'state.json';
@@ -32,9 +33,6 @@ export function recoverCwd(meta: Record<string, unknown>): string | undefined {
   return undefined;
 }
 
-/** The single construction path for summaries — field order is fixed so a
- *  stored summary deep-compares equal to a fresh projection of the same
- *  metadata document. */
 export function buildSessionSummary(fields: {
   id: string;
   workspaceId: string;
@@ -75,9 +73,6 @@ export function summaryMatchesChildOf(
   );
 }
 
-/** Deep-enough equality for reconciliation: the projection-relevant fields,
- *  with `custom` compared structurally (both sides are JSON-round-tripped
- *  values built by `buildSessionSummary`, so key order is stable). */
 export function summaryEquals(a: SessionSummary, b: SessionSummary): boolean {
   return (
     a.id === b.id &&
@@ -99,7 +94,7 @@ export async function listWorkspaceIds(
   sessionsScope: string,
 ): Promise<readonly string[]> {
   try {
-    return await storage.list(sessionsScope);
+    return (await storage.list(sessionsScope)).filter((entry) => entry !== SESSION_INDEX_DIRTY_DIR);
   } catch {
     return [];
   }
@@ -157,8 +152,6 @@ async function readMeta(
   }
 }
 
-/** Bounded-concurrency map: resolves every item through `fn`, dropping
- *  `undefined` results, with at most `concurrency` calls in flight. */
 export async function mapBounded<T, R>(
   items: readonly T[],
   concurrency: number,
@@ -175,4 +168,24 @@ export async function mapBounded<T, R>(
   });
   await Promise.all(workers);
   return out;
+}
+
+export interface SessionsFreshness {
+  readonly dirtyMarkCount: number;
+  readonly sessionCount: number;
+}
+
+export async function scanSessionsFreshness(
+  storage: IFileSystemStorageService,
+  sessionsScope: string,
+): Promise<SessionsFreshness> {
+  const [marks, workspaceIds] = await Promise.all([
+    listDirtyMarks(storage, sessionsScope),
+    listWorkspaceIds(storage, sessionsScope),
+  ]);
+  let sessionCount = 0;
+  for (const workspaceId of workspaceIds) {
+    sessionCount += (await listSessionIds(storage, sessionsScope, workspaceId)).length;
+  }
+  return { dirtyMarkCount: marks.length, sessionCount };
 }

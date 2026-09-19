@@ -42,13 +42,13 @@ import type {
   SessionHandle,
   SkillSummary,
 } from '@pymodel/klient';
+import type { ToolResultEvent } from '@pymodel/agent-core-v2/events';
 import type {
   ToolCallDeltaEvent,
   ToolCallStartedEvent,
-  ToolInputDisplay,
   ToolProgressEvent,
-  ToolResultEvent,
-} from '@pymodel/protocol';
+} from '@pymodel/agent-core-v2/agent/toolExecutor/toolExecutorEvents';
+import type { ToolInputDisplay } from '@pymodel/agent-core-v2/tool/toolInputDisplay';
 
 import type { AcpClient } from './acp-client';
 import type { AcpTerminalCreatedEvent, IAcpConnection } from './acp-fs';
@@ -552,8 +552,8 @@ export class AcpSession {
   }
 
   /**
-   * Activate a skill through the engine (`IAgentSkillService.activate` behind
-   * the klient facade): the engine renders the skill prompt (content + args)
+   * Activate a skill through the engine (the agent's `IAgentSkillService`
+   * behind the klient facade): the engine renders the skill prompt (content + args)
    * and drives it as a normal turn, so the turn events stream and settle
    * exactly like a plain prompt. Empty args go over as `undefined`, matching
    * the other consumers.
@@ -987,7 +987,7 @@ export class AcpSession {
     if (turnId === undefined) {
       // The launch round-trip has not returned the turn id yet. The engine's
       // cancel payload makes turnId optional — an empty call cancels whatever
-      // turn is active (the same contract kap-server's cancel route relies
+      // turn is active (the same contract agent-gateway's cancel route relies
       // on) — and concurrent prompts are rejected, so the active turn can only
       // be this driver's. Flag the driver too: when the id lands, the launch
       // handler re-issues a precisely-addressed cancel, and a no-launch

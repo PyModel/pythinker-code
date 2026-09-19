@@ -15,15 +15,15 @@
  */
 import { afterEach, describe, expect, it } from 'vitest';
 
-import {
-  ErrorCode,
-  type FileMeta,
-  type Message,
-  type ModelCatalogItem,
-  type ProviderCatalogItem,
-  type Session,
-  type SessionStatusResponse,
-} from '@pymodel/protocol';
+import type { FileMeta } from '@pymodel/agent-core-v2/app/file/fileService';
+import type {
+  ModelCatalogItem,
+  ProviderCatalogItem,
+} from '@pymodel/agent-core-v2/llm-adapter/model/catalog';
+import { ErrorCode } from '@pymodel/agent-gateway/protocol/error-codes';
+import type { Message } from '@pymodel/agent-gateway/protocol/message';
+import type { SessionStatusResponse } from '@pymodel/agent-gateway/protocol/rest-session';
+import type { Session } from '@pymodel/agent-gateway/protocol/session';
 
 import { DaemonClient, EnvelopeError } from '../harness/index.js';
 import { fetchWithReport } from '../harness/report.js';
@@ -90,7 +90,7 @@ describeLive('DaemonClient (live server required)', () => {
     log('connect request', { url: `${BASE_URL.replace(/^http/, 'ws')}/api/v1/ws` });
     const hello = await client.connect();
     log('server hello', hello);
-    // heartbeat_ms is optional — kap-server omits it (no server heartbeat).
+    // heartbeat_ms is optional — agent-gateway omits it (no server heartbeat).
     expect(hello.heartbeat_ms === undefined || hello.heartbeat_ms > 0).toBe(true);
     expect(typeof hello.ws_connection_id).toBe('string');
     await client.close();
@@ -437,9 +437,8 @@ describe('DaemonClient session action helpers', () => {
       fetchImpl: recordingFetchSequence(
         [
           okEnvelope({
-            ready: true,
+            models_ready: true,
             providers_count: 1,
-            default_model: model.model,
             managed_provider: null,
           }),
           okEnvelope({ items: [model] }),
@@ -451,7 +450,7 @@ describe('DaemonClient session action helpers', () => {
       ),
     });
 
-    await expect(client.getAuth()).resolves.toMatchObject({ default_model: model.model });
+    await expect(client.getAuth()).resolves.toMatchObject({ models_ready: true });
     await expect(client.listModels()).resolves.toEqual({ items: [model] });
     await expect(client.setDefaultModel(model.model)).resolves.toEqual({
       default_model: model.model,

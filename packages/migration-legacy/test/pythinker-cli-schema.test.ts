@@ -5,17 +5,17 @@ describe('OldPythinkerJsonSchema', () => {
   it('parses a real-shape pythinker.json', () => {
     const input = {
       work_dirs: [
-        { path: '/Users/x/proj', kaos: 'local', last_session_id: 'abc' },
-        { path: '/Users/x/other', kaos: 'local', last_session_id: null },
+        { path: '/Users/x/proj', pyaos: 'local', last_session_id: 'abc' },
+        { path: '/Users/x/other', pyaos: 'local', last_session_id: null },
       ],
     };
     const parsed = OldPythinkerJsonSchema.parse(input);
     expect(parsed.work_dirs).toHaveLength(2);
-    expect(parsed.work_dirs[0]!.kaos).toBe('local');
+    expect(parsed.work_dirs[0]!.pyaos).toBe('local');
   });
 
   it('accepts missing last_session_id', () => {
-    const input = { work_dirs: [{ path: '/x', kaos: 'local' }] };
+    const input = { work_dirs: [{ path: '/x', pyaos: 'local' }] };
     expect(() => OldPythinkerJsonSchema.parse(input)).not.toThrow();
   });
 });

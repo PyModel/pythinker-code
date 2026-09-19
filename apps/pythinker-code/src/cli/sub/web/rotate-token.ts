@@ -6,7 +6,7 @@
  * auth check, so rotation takes effect without a restart.
  */
 
-import { getLiveServerInstance, rotateServerToken } from '@pymodel/kap-server';
+import { getLiveServerInstance, rotateServerToken } from '@pymodel/agent-gateway';
 import chalk from 'chalk';
 import type { Command } from 'commander';
 

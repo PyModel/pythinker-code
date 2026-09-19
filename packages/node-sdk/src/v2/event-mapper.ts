@@ -6,7 +6,7 @@
  * through `Agent.emitEvent` (the run-v2-print runner renders them untranslated
  * for the same reason). What the bus does not carry is the
  * `sessionId` / `agentId` stamping: the bus is per-agent, so the engine-side
- * consumer knows both (kap-server's broadcaster stamps them the same way).
+ * consumer knows both (agent-gateway's broadcaster stamps them the same way).
  * This module restores the stamping and reconciles the two streams' type
  * sets: v2-only types are dropped (the v1 `Event` union is closed), the task
  * lifecycle pair is renamed back to the legacy spelling, and the one
@@ -14,37 +14,37 @@
  * `IEventService` (`session.meta.updated`) is unwrapped from its
  * `{type, payload}` envelope.
  */
-import type { Event } from '@pymodel/agent-core';
+import type { Event } from '@pymodel/agent-core-v2/events';
 import type { Event2 } from '@pymodel/agent-core-v2';
 
 /**
  * DomainEvent types the v1 SDK event stream never carries:
- * - v2-internal facts with no v1 protocol counterpart: `agent.activity.updated`
- *   (kap-server folds it into the `agent.status.updated` phase slice at the WS
- *   edge), `context.spliced`, `task.notified`, `plan.revision`, and the
- *   `permission.approval.*` pair (v1 surfaces approvals through the
- *   `requestApproval` callback, never as events).
+ * - v2-internal facts with no v1 protocol counterpart: `context.spliced`,
+ *   `task.notified`, `plan.revision`, and the `permission.approval.*` pair
+ *   (v1 surfaces approvals through the `requestApproval` callback, never as
+ *   events).
  * - `prompt.*`: the v2 prompt service publishes them on the agent bus, but in
  *   v1 they are synthesized by the daemon services layer onto the global
  *   `IEventService` — the in-process SDK client never sees them.
  */
 const DROPPED_DOMAIN_EVENT_TYPES: ReadonlySet<string> = new Set([
-  'agent.activity.updated',
   'context.spliced',
   'task.notified',
   'plan.revision',
   'permission.approval.requested',
   'permission.approval.resolved',
+  'prompt.accepted',
   'prompt.submitted',
   'prompt.completed',
   'prompt.aborted',
+  'prompt.started',
   'prompt.steered',
 ]);
 
 /**
  * Type renames needed to reproduce the v1 stream: the v1 core emits task
  * lifecycle facts under the legacy `background.task.*` spelling where v2 uses
- * `task.*`. The payloads are field-identical ports (kap-server fans out both
+ * `task.*`. The payloads are field-identical ports (agent-gateway fans out both
  * spellings; the v1 SDK client only ever saw the legacy one).
  */
 const RENAMED_DOMAIN_EVENT_TYPES: Readonly<Record<string, string>> = {

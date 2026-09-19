@@ -13,10 +13,12 @@ export const PYTHINKER_CODE_PROVIDER_NAME = 'managed:pythinker-code';
 export const PYTHINKER_CODE_OAUTH_KEY = 'oauth/pythinker-code';
 const PYTHINKER_CODE_SCOPED_OAUTH_KEY_PREFIX = 'oauth/pythinker-code-env-';
 
-export type ManagedPythinkerCodeProtocol = 'pythinker' | 'anthropic';
+export type ManagedPythinkerCodeProtocol = 'pythinker' | 'anthropic' | 'openai_responses';
 
 export function parseModelProtocol(value: unknown): ManagedPythinkerCodeProtocol | undefined {
-  return value === 'anthropic' ? 'anthropic' : undefined;
+  if (value === 'anthropic') return 'anthropic';
+  if (value === 'response') return 'openai_responses';
+  return undefined;
 }
 
 /**

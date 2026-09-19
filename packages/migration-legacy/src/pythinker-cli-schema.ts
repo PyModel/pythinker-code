@@ -3,7 +3,7 @@ import { z } from 'zod';
 // Mirrors pythinker-cli's `Metadata` pydantic model (metadata.py:43–49).
 export const OldWorkDirMetaSchema = z.object({
   path: z.string(),
-  kaos: z.string().default('local'),
+  pyaos: z.string().default('local'),
   last_session_id: z.string().nullable().optional(),
 });
 
@@ -40,6 +40,22 @@ export const OldSessionStateSchema = z
   })
   .passthrough();
 
+// Mirrors pythinker-cli's pre-state.json `metadata.json` (merged into SessionState
+// by load_session_state, session_state.py:50–96).
+export const OldSessionMetadataSchema = z
+  .object({
+    session_id: z.string().optional(),
+    title: z.string().nullable().optional(),
+    title_generated: z.boolean().optional(),
+    title_generate_attempts: z.number().optional(),
+    wire_mtime: z.number().nullable().optional(),
+    archived: z.boolean().optional(),
+    archived_at: z.number().nullable().optional(),
+    auto_archive_exempt: z.boolean().optional(),
+  })
+  .passthrough();
+
 export type OldPythinkerJson = z.infer<typeof OldPythinkerJsonSchema>;
 export type OldWorkDirMeta = z.infer<typeof OldWorkDirMetaSchema>;
 export type OldSessionState = z.infer<typeof OldSessionStateSchema>;
+export type OldSessionMetadata = z.infer<typeof OldSessionMetadataSchema>;

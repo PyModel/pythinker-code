@@ -6,6 +6,140 @@ outline: 2
 
 This page documents the changes in each Pythinker Code CLI release.
 
+## 0.42.0 (2026-09-09)
+
+### Features
+
+- Remote Control is now always on; the experimental `PYTHINKER_CODE_EXPERIMENTAL_REMOTE_CONTROL` flag has been removed. See [Remote Control](https://code.pythinker.com/pythinker-code/guides/remote-control.html) for details.
+- web: Support permanently deleting sessions from the session row context menu, with a confirmation prompt.
+- Add read-only tools to the `/btw` side agent.
+- web: Preview images and videos in a reorderable media rail in the composer, mention them in the text on demand, and keep the previews after queueing and sending.
+- Accept HEIC, HEIF, and BMP images in prompt attachments and `ReadMediaFile` when the model is served by Pythinker.
+
+### Polish
+
+- Collapse finished tool calls in the transcript to a header plus one marked outcome row: short output is shown whole, hidden output is counted (`N more lines`, `+N more`) and revealed by `Ctrl-O`, which the footer advertises while it is available.
+- Upgrade the default thinking effort to the recommended level for eligible users.
+- The subagent model pool (`[secondary_model]`) is now always on; the experimental secondary-model flag and the `PYTHINKER_CODE_EXPERIMENTAL_SECONDARY_MODEL` opt-out have been removed.
+- Add configurable character limits and resumable long-line file reads without repeated output truncation; see [`read`](https://code.pythinker.com/pythinker-code/configuration/config-files.html#read) for details.
+- The minidb session-index read model and global search worker are now always on; the experimental flags have been replaced by the `[database]` config section and the `PYTHINKER_CODE_PERSISTENCE_MINIDB_READMODEL` / `PYTHINKER_CODE_SEARCH_WORKER` env vars; see [`database`](https://code.pythinker.com/pythinker-code/configuration/config-files.html#database) for details.
+
+### Bug Fixes
+
+- Fix several known issues and make various refinements. See the [changelog on GitHub](https://github.com/PyModel/pythinker-code/blob/main/apps/pythinker-code/CHANGELOG.md) for more technical entries.
+
+## 0.41.0 (2026-09-04)
+
+### Features
+
+- web: Add tower multi-agent collaboration mode (experimental), enabled via the `/tower` command or the composer plus menu; `/tower` supports specifying a base branch (e.g. `/tower add-new-feature`).
+- web: Add selection annotation — select text in messages, file previews, the diff and per-turn changes panels, or the terminal to add a comment or quote it into the chat.
+- CLI: Add a session rating prompt that invites you to rate the session at appropriate times above the input box.
+
+### Polish
+
+- Auto permission mode no longer blocks dangerous commands and commands that cannot be statically analyzed.
+- Remind the model of its context budget before automatic compaction, and after compaction point it at the session's event log for exact details.
+- web: Rename the three permission modes to Always Ask / Ask When Needed / Never Ask and update their descriptions; switching to Ask When Needed or Never Ask permission mode now warns that files may be modified or deleted directly in that mode.
+- web: Esc no longer closes the right detail panel.
+- web: Restyle Bash commands in the right-side panel in terminal style.
+- Deliver background question answers to the agent directly instead of via a saved output file.
+- Subagent final messages under 200 characters are no longer bounced back for expansion.
+
+### Bug Fixes
+
+- Fix print mode (`pythinker -p`) losing session records when the run exits on an error or a termination signal.
+- Fix print mode (`pythinker -p`) ignoring the `PYTHINKER_DISABLE_TELEMETRY` environment variable.
+- Tower mode (experimental): fix tower mode never starting when enabled through `[experimental] tower = true` in config.toml instead of the environment variable, and make `/tower` work in directories that are not git repositories; enablement errors now name the actual blocker.
+- Fix background questions being cancelled as soon as the agent finishes its turn.
+- Fix resuming a subagent by its agent id after the session is reopened in a new process; the resumed subagent follows the current permission mode and is matched by its own profile in permission rules.
+- web: Fix per-turn file change previews showing added/removed lines that never existed and inaccurate line counts when the same file is edited multiple times in one turn; change cards now show only exact line statistics.
+- web: Fix the default thinking effort in settings not being settable to the highest level (Max).
+- Fix several known issues and make various refinements. See the [changelog on GitHub](https://github.com/PyModel/pythinker-code/blob/main/apps/pythinker-code/CHANGELOG.md) for more technical entries.
+
+## 0.40.1 (2026-09-02)
+
+### Bug Fixes
+
+- Fix the condition for showing the pythinker-cli migration prompt.
+
+## 0.40.0 (2026-09-02)
+
+### Features
+
+- web: Add a Plugins panel to Settings for browsing the plugin marketplace and installing, enabling, disabling, and removing plugins.
+- web: Support activating multiple skills from a single message.
+- Add the `pythinker session list` command to list sessions from the command line.
+- Tower mode (experimental, `PYTHINKER_CODE_EXPERIMENTAL_TOWER=1`): the agent no longer enters tower mode on its own — turn it on with `/tower on` or `/tower <base-branch>`.
+- The subagent model setting (`[secondary_model]`) graduates from experimental to stable.
+- Block dangerous shell commands such as shutdown, reboot, or rm -rf in Auto mode, and always ask before running them in Manual and YOLO modes; disable the guard with `[permission] dangerous_command_guard = false` or `PYTHINKER_CODE_DANGEROUS_COMMAND_GUARD=false`.
+
+### Polish
+
+- Preserve comments, key order, and formatting in config.toml when configuration values are updated.
+- Remove the workspace restriction on the Bash tool's cwd parameter.
+- Default the workspace trust prompt selection to "Trust this folder" instead of "Don't trust".
+- The `pythinker acp` subcommand no longer honors `PYTHINKER_CODE_LEGACY_FLAG`; it always runs on the default agent engine.
+- web: Add a code wrap toggle to the diff panel and streamline its header.
+
+### Bug Fixes
+
+- Honor explicit `[experimental]` config entries over the `PYTHINKER_CODE_EXPERIMENTAL_FLAG` master switch, so a flag set to `false` in config.toml stays off; per-feature `PYTHINKER_CODE_EXPERIMENTAL_<NAME>` variables still override both.
+- Fix several known issues and make various refinements. See the [changelog on GitHub](https://github.com/PyModel/pythinker-code/blob/main/apps/pythinker-code/CHANGELOG.md) for more technical entries.
+
+## 0.39.1 (2026-08-28)
+
+### Bug Fixes
+
+- web: Fix switching the permission mode in one session changing it for every session; the permission mode is now scoped per session.
+- web: Fix signed-in users without a usable model being wrongly asked to sign in (and getting stuck there on web); the send gate now offers picking or configuring a model instead.
+- web: Fix the first IME (or keyboard) character being silently swallowed after clicking the composer placeholder.
+- web: Fix attachments in a newly created session still showing as uploading after the upload has finished.
+- Fix several known issues and make various refinements. See the [changelog on GitHub](https://github.com/PyModel/pythinker-code/blob/main/apps/pythinker-code/CHANGELOG.md) for more technical entries.
+
+## 0.39.0 (2026-08-27)
+
+### Features
+
+- Add Remote Control as an experimental feature for accessing a local web session remotely. Enable it with `PYTHINKER_CODE_EXPERIMENTAL_REMOTE_CONTROL=1`, then run `pythinker rc`, `pythinker web --remote-control`, or `/remote-control` to start it.
+- Add experimental tower mode for multi-agent orchestration; set `PYTHINKER_CODE_EXPERIMENTAL_TOWER=1`, then run `/tower on` and `/tower <objective>` to start.
+- Add an optional `fork` parameter to subagent and dynamic_workflow tools that starts the subagent with a snapshot of the calling agent's conversation history; set `PYTHINKER_CODE_EXPERIMENTAL_SUBAGENT_FORK=1` or `subagent_fork = true` under `[experimental]` in config.toml to enable it.
+- web: Allow moving a running foreground Bash command or subagent to the background via the "Move to background" button on the running card.
+- web: Add a flat/by-workspace tab to the mobile session list.
+- Add the Tencent CloudBase plugin to the curated marketplace.
+- Add a dedicated `[dynamic_workflow] timeout_ms` config option (or the `PYTHINKER_CODE_DYNAMIC_WORKFLOW_TIMEOUT_MS` env var) for AgentDynamicWorkflow subagent timeouts, which no longer follow `[subagent] timeout_ms`.
+
+### Polish
+
+- web: Revamp the right sidebar as a multi-tab panel.
+- web: Improve composer interaction, including the presentation of file, folder, and media attachments.
+- web: Improve mobile UI styling.
+
+### Bug Fixes
+
+- Fix file tools and shell working directories failing to resolve Git Bash paths such as /c/Users or /tmp on Windows.
+- Fix several known issues and make various refinements. See the [changelog on GitHub](https://github.com/PyModel/pythinker-code/blob/main/apps/pythinker-code/CHANGELOG.md) for more technical entries.
+
+## 0.38.0 (2026-08-20)
+
+### Features
+
+- Support two OAuth login methods — kimi.ai and kimi.com.
+- Add the WaitFor tool: the agent can now wait for a background task to finish within the current turn instead of ending the turn and being re-invoked.
+- Add 13 data sources to the official Pythinker Datasource plugin — Chinese government data (NDA/NBS) and standards (GB/HB/DB/TT), eight international organization datasets (WHO, FAO, UNSD, ECB, Eurostat, UNICEF, OECD, FRED), Xinhua Finance, and Caixin. Update the plugin from the Official tab in /plugins.
+- web: Add a Pin action to the chat header more-menu.
+
+### Polish
+
+- Edit and Write now require reading an existing file before modifying it.
+<!-- - Sub-agents no longer spawn their own sub-agents by default; custom agent profiles can still allow it explicitly. -->
+- Collapse long `!` shell command output instead of flooding the transcript. Press ctrl+o to expand or collapse it together with tool output.
+
+### Bug Fixes
+
+- Fix config.toml entries being lost when the file had a syntax error or was edited outside the app.
+- Fix several known issues and make various refinements. See the [changelog on GitHub](https://github.com/PyModel/pythinker-code/blob/main/apps/pythinker-code/CHANGELOG.md) for more technical entries.
+
 ## 0.37.2 (2026-08-19)
 
 ### Polish
@@ -1412,7 +1546,7 @@ This page documents the changes in each Pythinker Code CLI release.
 ### Refactors
 
 - Introduce `ModelProvider` interface and `SingleModelProvider` to decouple `Agent` from `ProviderManager`.
-- Split `RuntimeConfig` into `Kaos` and `ToolServices` and update all references accordingly.
+- Split `RuntimeConfig` into `Pyaos` and `ToolServices` and update all references accordingly.
 - Slim the LLM diagnostic logs with fewer, more compact fields.
 - Relocate shared tool service typing to the tool support layer.
 

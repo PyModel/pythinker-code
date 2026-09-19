@@ -2,8 +2,7 @@
   "$schema": "https://developer.microsoft.com/json-schemas/api-extractor/v7/api-extractor.schema.json",
   "mainEntryPointFilePath": "<projectFolder>/.tmp-api-extractor/dts/node-sdk/src/index.d.ts",
   "bundledPackages": [
-    "@pymodel/agent-core",
-    "@pymodel/kaos",
+    "@pymodel/pyaos",
     "@pymodel/pythinker-code-oauth",
     "@pymodel/kosong"
   ],

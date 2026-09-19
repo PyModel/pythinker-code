@@ -1,4 +1,4 @@
-import type { GoalSnapshot } from '#/agent/goal/types';
+import type { GoalSnapshot } from '#/features/goal/types';
 
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 
@@ -17,12 +17,12 @@ export interface SessionWireFields {
   readonly custom?: Record<string, unknown>;
 }
 
-export interface ISessionLegacyService {
+export interface ISessionStatusService {
   readonly _serviceBrand: undefined;
 
   status(sessionId: string): Promise<SessionStatusResponse>;
   goal(sessionId: string): Promise<GoalSnapshot | null>;
 }
 
-export const ISessionLegacyService: ServiceIdentifier<ISessionLegacyService> =
-  createDecorator<ISessionLegacyService>('sessionLegacyService');
+export const ISessionStatusService: ServiceIdentifier<ISessionStatusService> =
+  createDecorator<ISessionStatusService>('sessionStatusService');

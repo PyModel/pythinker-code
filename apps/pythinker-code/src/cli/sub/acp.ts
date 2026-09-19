@@ -1,48 +1,33 @@
 /**
- * `pythinker acp` sub-command routing and legacy implementation.
+ * `pythinker acp` sub-command.
  *
- * By default the command delegates to the agent-core-v2 ACP server. A truthy
- * `PYTHINKER_CODE_LEGACY_FLAG` uses the SDK harness and `@pymodel/acp-adapter`
- * implementation below instead.
+ * Starts the Agent Client Protocol (ACP) server backed directly by the
+ * DI × Scope agent engine (`agent-core-v2`) over stdio, so ACP-compatible
+ * clients can drive a pythinker-code session.
  *
  * Wire-up:
- *  - A {@link PythinkerHarness} is constructed with the pythinker-code host identity
- *    and a dedicated `uiMode: 'acp'` so downstream telemetry can
- *    distinguish ACP sessions from the TUI.
- *  - {@link runAcpServer} owns the JSON-RPC stdio bridge and redirects
- *    rogue `console.*` traffic to stderr.
- *  - `--login` pivots into the device-code login flow instead of
- *    starting the server. This is the entry point ACP clients hit
- *    via the first-class `AuthMethodTerminal` path when they re-invoke
- *    the agent binary with the advertised `args:['--login']` appended.
- *  - On stream close or unhandled error the process exits with the
- *    appropriate code.
+ *  - `--login` pivots into the shared device-code login flow (the entry point
+ *    ACP clients hit via the first-class `AuthMethodTerminal` path, re-invoking
+ *    the agent binary with the advertised `args:['--login']`).
+ *  - `PYTHINKER_CODE_HOME` (if set) is forwarded into `authMethods[0].env` so the
+ *    login subprocess writes its token under the same data root the server
+ *    reads from, and `process.argv[1]` is advertised as the legacy
+ *    `_meta['terminal-auth'].command` fallback.
+ *
+ * `@pymodel/acp-server` (and its `agent-core-v2` engine) is loaded via a
+ * lazy dynamic import so parsing the CLI does not initialize the ACP engine —
+ * mirroring the `pythinker server run` v2 routing in `#/cli/sub/server/run.ts`.
  */
 
 import type { Command } from 'commander';
 
-import {
-  ACP_BUILTIN_SLASH_COMMANDS,
-  runAcpServer,
-  type AvailableCommand,
-  type SlashCommandsSnapshot,
-} from '@pymodel/acp-adapter';
-import { createPythinkerHarness, type Session, type SkillSummary } from '@pymodel/pythinker-code-sdk';
-
+import { getVersion } from '#/cli/version';
 import { PYTHINKER_CODE_HOME_ENV } from '#/constant/app';
-import { createPythinkerCodeHostIdentity, getVersion } from '#/cli/version';
-import { buildSkillSlashCommands } from '#/tui/commands/skills';
+import { getDataDir } from '#/utils/paths';
 
-import { isLegacyEnabled } from '../experimental-v2';
-import { registerNativeAcpCommand } from './acp-native';
-import { runLoginFlow } from './login-flow';
+import { parseRegionFlag, runLoginFlow } from './login-flow';
 
 export function registerAcpCommand(parent: Command): void {
-  if (!isLegacyEnabled()) {
-    registerNativeAcpCommand(parent);
-    return;
-  }
-
   parent
     .command('acp')
     .description('Run pythinker-code as an Agent Client Protocol (ACP) server over stdio.')
@@ -51,82 +36,39 @@ export function registerAcpCommand(parent: Command): void {
       'Run the device-code login flow then exit (entry point for ACP terminal-auth).',
       false,
     )
-    .action(async (opts: { login?: boolean }) => {
+    .option('--region <region>', 'Login region used together with --login: "mainland-cn" (kimi.com) or "global" (kimi.ai).')
+    .action(async (opts: { login?: boolean; region?: string }) => {
       if (opts.login === true) {
-        await runLoginFlow();
+        await runLoginFlow({
+          region: opts.region === undefined ? undefined : parseRegionFlag(opts.region),
+        });
         return;
       }
-      const identity = createPythinkerCodeHostIdentity();
-      const harness = createPythinkerHarness({
-        identity,
-        uiMode: 'acp',
-      });
       // Forward `PYTHINKER_CODE_HOME` (if set) into `authMethods[0].env` so the
-      // `pythinker login` subprocess clients spawn for terminal-auth writes its
-      // token under the same data root the ACP server reads from. Used for
-      // sandboxed test setups (Zed's `agent_servers.*.env.PYTHINKER_CODE_HOME =
-      // /tmp/...`). Production runs leave the env unset and the field stays
-      // empty.
+      // login subprocess clients spawn for terminal-auth writes its token
+      // under the same data root the ACP server reads from.
       const sandboxHome = process.env[PYTHINKER_CODE_HOME_ENV];
       const terminalAuthEnv =
         sandboxHome !== undefined && sandboxHome.length > 0
           ? { [PYTHINKER_CODE_HOME_ENV]: sandboxHome }
           : undefined;
       // Legacy `_meta.terminal-auth` fallback for clients that don't yet
-      // honor the first-class `type:'terminal'` (Zed without the
-      // AcpBetaFeatureFlag, current JetBrains plugin, etc.). `command` is
-      // the absolute path to this very binary (`process.argv[1]`) so the
-      // client can spawn it with `args:['login']` for the top-level
-      // `pythinker login` subcommand — matches pythinker-cli `acp/server.py:77-96`.
+      // honor the first-class `type:'terminal'`. `command` is the absolute
+      // path to this very binary so the client can spawn it for login.
       const legacyCommand = process.argv[1];
-      const builtinCommands: AvailableCommand[] = (ACP_BUILTIN_SLASH_COMMANDS as readonly AvailableCommand[]).map((cmd) => ({
-        name: cmd.name,
-        description: cmd.description,
-        input: cmd.input,
-      }));
-      // Skills are session-scoped (per-cwd config), so we defer the
-      // listSkills() call until the adapter hands us the just-created
-      // Session — mirrors opencode's per-directory snapshot. A
-      // listSkills() failure degrades to builtins-only so a broken
-      // skill source never blanks the palette.
-      const resolveSlashCommands = async (
-        session: Session,
-      ): Promise<SlashCommandsSnapshot> => {
-        let skills: readonly SkillSummary[] = [];
-        try {
-          skills = await session.listSkills();
-        } catch {
-          skills = [];
-        }
-        // `buildSkillSlashCommands` already returns both views — the
-        // palette entries (advertised via `available_commands_update`)
-        // and the `commandName → skillName` map the adapter uses to
-        // intercept `/skill:<name>` inputs and route them to
-        // `Session.activateSkill`. Passing both through keeps the two
-        // surfaces in lockstep (palette ↔ interceptable set) without
-        // a second `listSkills()` round trip.
-        const built = buildSkillSlashCommands(skills);
-        const skillCommands = built.commands.map((cmd) => ({
-          name: cmd.name,
-          description: cmd.description,
-        }));
-        return {
-          commands: [...builtinCommands, ...skillCommands],
-          skillCommandMap: built.commandMap,
-        };
-      };
       try {
-        await runAcpServer(harness, {
+        const { runAcpServer } = await import('@pymodel/acp-server');
+        await runAcpServer({
+          homeDir: getDataDir(),
           agentInfo: { name: 'Pythinker Code CLI', version: getVersion() },
-          slashCommands: resolveSlashCommands,
           ...(terminalAuthEnv ? { terminalAuthEnv } : {}),
           ...(legacyCommand !== undefined && legacyCommand.length > 0
             ? { terminalAuthLegacyCommand: legacyCommand }
             : {}),
         });
         process.exit(0);
-      } catch (err) {
-        process.stderr.write(`acp server: fatal error: ${String(err)}\n`);
+      } catch (error) {
+        process.stderr.write(`acp server: fatal error: ${String(error)}\n`);
         process.exit(1);
       }
     });

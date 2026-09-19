@@ -1,4 +1,4 @@
-import type { ToolInputDisplay } from '@pymodel/agent-core';
+import type { ToolInputDisplay } from '@pymodel/agent-core-v2/tool/toolInputDisplay';
 
 /**
  * Recover the UI display attached to a legacy top-level ToolResult.

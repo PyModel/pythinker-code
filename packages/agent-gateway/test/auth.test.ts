@@ -1,0 +1,173 @@
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import { IConfigService } from '@pymodel/agent-core-v2';
+import { authSummarySchema, type AuthSummary } from '@pymodel/agent-core-v2/app/authLegacy/authLegacy';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+
+import { type RunningServer, startServer } from '../src/start';
+import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
+import { authedFetch } from './helpers/auth';
+
+interface Envelope<T> {
+  code: number;
+  msg: string;
+  data: T;
+  request_id: string;
+}
+
+describe('server-v2 GET /api/v1/auth', () => {
+  let server: RunningServer | undefined;
+  let home: string | undefined;
+  let base: string;
+
+  beforeAll(async () => {
+    home = await mkdtemp(join(tmpdir(), 'pythinker-server-v2-auth-'));
+    server = await startServer({
+      hostIdentity: TEST_HOST_IDENTITY,
+      host: '127.0.0.1',
+      port: 0,
+      homeDir: home,
+      logLevel: 'silent',
+    });
+    base = `http://127.0.0.1:${server.port}`;
+  });
+
+  afterAll(async () => {
+    if (server !== undefined) {
+      await server.close();
+      server = undefined;
+    }
+    if (home !== undefined) {
+      await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 } as never);
+      home = undefined;
+    }
+  });
+
+  async function boot(toml?: string): Promise<void> {
+    await writeFile(join(home as string, 'config.toml'), toml ?? '', 'utf-8');
+    await (server as RunningServer).core.accessor.get(IConfigService).reload();
+  }
+
+  async function getAuth(): Promise<AuthSummary> {
+    const res = await authedFetch(server as RunningServer, base, '/api/v1/auth');
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Envelope<AuthSummary>;
+    expect(body.code).toBe(0);
+    return authSummarySchema.parse(body.data);
+  }
+
+  it('returns models_ready=false with an empty snapshot on empty config', async () => {
+    await boot();
+    expect(await getAuth()).toEqual({
+      models_ready: false,
+      providers_count: 0,
+      managed_provider: null,
+    });
+  });
+
+  it('returns models_ready=true when the default model resolves to a configured provider', async () => {
+    await boot(
+      [
+        'default_model = "x"',
+        '',
+        '[providers.x]',
+        'type = "pythinker"',
+        'api_key = "sk-test"',
+        '',
+        '[models.x]',
+        'provider = "x"',
+        'model = "x"',
+        'max_context_size = 1000',
+        '',
+      ].join('\n'),
+    );
+    expect(await getAuth()).toEqual({
+      models_ready: true,
+      providers_count: 1,
+      managed_provider: null,
+    });
+  });
+
+  it('returns models_ready=false when a provider exists but default_model is missing', async () => {
+    await boot(
+      [
+        '[providers.x]',
+        'type = "pythinker"',
+        'api_key = "sk-test"',
+        '',
+        '[models.x]',
+        'provider = "x"',
+        'model = "x"',
+        'max_context_size = 1000',
+        '',
+      ].join('\n'),
+    );
+    const summary = await getAuth();
+    expect(summary.models_ready).toBe(false);
+    expect(summary.providers_count).toBe(1);
+    expect(summary.managed_provider).toBeNull();
+  });
+
+  it('returns models_ready=false when the default model dangles', async () => {
+    await boot(
+      [
+        'default_model = "gone"',
+        '',
+        '[providers.x]',
+        'type = "pythinker"',
+        'api_key = "sk-test"',
+        '',
+        '[models.x]',
+        'provider = "x"',
+        'model = "x"',
+        'max_context_size = 1000',
+        '',
+      ].join('\n'),
+    );
+    const summary = await getAuth();
+    expect(summary.models_ready).toBe(false);
+    expect(summary.providers_count).toBe(1);
+  });
+
+  it('returns models_ready=true for a providerless flat default model', async () => {
+    await boot(
+      [
+        'default_model = "flat"',
+        '',
+        '[models.flat]',
+        'base_url = "https://example.test/v1"',
+        'model = "x"',
+        'protocol = "openai"',
+        'max_context_size = 1000',
+        'api_key = "sk-test"',
+        '',
+      ].join('\n'),
+    );
+    const summary = await getAuth();
+    expect(summary.models_ready).toBe(true);
+    expect(summary.providers_count).toBe(0);
+  });
+
+  it('surfaces managed_provider.unauthenticated without a cached token', async () => {
+    await boot(
+      [
+        '[providers."managed:pythinker-code"]',
+        'type = "pythinker"',
+        'base_url = "https://example.test/v1"',
+        '',
+        '[providers."managed:pythinker-code".oauth]',
+        'storage = "file"',
+        'key = "oauth/pythinker-code"',
+        '',
+      ].join('\n'),
+    );
+    const summary = await getAuth();
+    expect(summary.managed_provider).toEqual({
+      name: 'managed:pythinker-code',
+      status: 'unauthenticated',
+    });
+    expect(summary.models_ready).toBe(false);
+  });
+});

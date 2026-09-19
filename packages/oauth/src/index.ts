@@ -1,6 +1,7 @@
 export {
   DeviceCodeExpiredError,
   DeviceCodeTimeoutError,
+  OAuthAccessDeniedError,
   OAuthConnectionError,
   OAuthError,
   OAuthUnauthorizedError,
@@ -41,6 +42,17 @@ export {
 export type { PythinkerHostIdentity, PythinkerIdentityOptions } from './identity';
 
 export { PYTHINKER_CODE_FLOW_CONFIG } from './constants';
+
+export {
+  PYTHINKER_REGION_MARKER_FILENAME,
+  PYTHINKER_REGION_PROFILES,
+  pythinkerCdnContentUrl,
+  pythinkerRegionLoginHosts,
+  pythinkerRegionProfile,
+  pythinkerRegionSchema,
+  resolvePythinkerRegion,
+} from './region';
+export type { PythinkerRegion, PythinkerRegionProfile, ResolvePythinkerRegionOptions } from './region';
 
 export {
   applyManagedApiKeyProviderModels,

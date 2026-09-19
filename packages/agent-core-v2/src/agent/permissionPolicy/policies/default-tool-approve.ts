@@ -20,6 +20,7 @@ const DEFAULT_APPROVE_TOOLS = new Set([
   'Agent',
   'AgentDynamicWorkflow',
   'AskUserQuestion',
+  'NotifyUser',
   'Skill',
   'EnterPlanMode',
   'ExitPlanMode',

@@ -172,7 +172,7 @@ describe('WriteTool', () => {
     expect(result.output).toContain('Wrote 5 bytes');
   });
 
-  it('expands leading tilde paths using the kaos home directory', async () => {
+  it('expands leading tilde paths using the pyaos home directory', async () => {
     const fakes = createWriteFs();
     const environment = createTestEnv('/home/test');
     const backend = Object.assign(

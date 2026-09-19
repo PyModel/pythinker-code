@@ -60,18 +60,19 @@ import type { AddressInfo } from 'node:net';
 import { bootstrap, logSeed, resolveLoggingConfig } from '@pymodel/agent-core-v2';
 import { IConfigService } from '@pymodel/agent-core-v2/app/config/config';
 import { renderLoadableToolsAnnouncement } from '@pymodel/agent-core-v2/agent/toolSelect/dynamicTools';
-import { UNKNOWN_CAPABILITY } from '@pymodel/agent-core-v2/kosong/contract/capability';
-import type { Message } from '@pymodel/agent-core-v2/kosong/contract/message';
-import type { Tool } from '@pymodel/agent-core-v2/kosong/contract/tool';
-import type { AuthProvider, Model } from '@pymodel/agent-core-v2/kosong/model/catalog';
-import { IModelCatalog } from '@pymodel/agent-core-v2/kosong/model/catalog';
+import { UNKNOWN_CAPABILITY } from '@pymodel/agent-core-v2/llm-adapter/contract/capability';
+import type { Message } from '@pymodel/agent-core-v2/llm-adapter/contract/message';
+import type { ToolDescription as Tool } from '@pymodel/agent-core-v2/human/llm/message';
+import { staticCredentials } from '@pymodel/agent-core-v2/human/credentials/credentials';
+import type { Model } from '@pymodel/agent-core-v2/llm-adapter/model/catalog';
+import { IModelCatalog } from '@pymodel/agent-core-v2/llm-adapter/model/catalog';
 import type {
   ModelRequestInput,
   ModelRequester,
-} from '@pymodel/agent-core-v2/kosong/model/modelRequester';
-import { ModelRequesterImpl } from '@pymodel/agent-core-v2/kosong/model/modelRequesterImpl';
-import { IProtocolAdapterRegistry } from '@pymodel/agent-core-v2/kosong/protocol/protocol';
-import { ProtocolAdapterRegistry } from '@pymodel/agent-core-v2/kosong/provider/protocolAdapterRegistry';
+} from '@pymodel/agent-core-v2/llm-adapter/model/model-requester';
+import { ModelRequesterImpl } from '@pymodel/agent-core-v2/llm-adapter/model/model-requester-impl';
+import { IProtocolAdapterRegistry } from '@pymodel/agent-core-v2/llm-adapter/protocol/protocol';
+import { ProtocolAdapterRegistry } from '@pymodel/agent-core-v2/llm-adapter/protocol/protocolAdapterRegistry';
 
 function assert(cond: boolean, message: string): asserts cond {
   if (!cond) throw new Error(`assertion failed: ${message}`);
@@ -281,10 +282,6 @@ async function probeWireEncoding(): Promise<void> {
   const port = (server.address() as AddressInfo).port;
 
   const registry = new ProtocolAdapterRegistry();
-  const staticKey: AuthProvider = {
-    canRefresh: false,
-    getAuth: () => Promise.resolve({ apiKey: 'sk-probe' }),
-  };
   const makeRequester = (providerType?: string): ModelRequester => {
     const model: Model = {
       id: 'probe',
@@ -298,7 +295,7 @@ async function probeWireEncoding(): Promise<void> {
       alwaysThinking: false,
       providerType,
       providerName: providerType ?? 'probe',
-      authProvider: staticKey,
+      credentials: staticCredentials('sk-probe'),
     };
     return new ModelRequesterImpl(model, registry);
   };

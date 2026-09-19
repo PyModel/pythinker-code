@@ -21,8 +21,7 @@ export default defineConfig({
   alias: {
     '@pymodel/pythinker-code-sdk': resolve(root, '../../packages/node-sdk/src/index.ts'),
     '@pymodel/migration-legacy': resolve(root, '../../packages/migration-legacy/src/index.ts'),
-    '@pymodel/agent-core': resolve(root, '../../packages/agent-core/src/index.ts'),
-    '@pymodel/kaos': resolve(root, '../../packages/kaos/src/index.ts'),
+    '@pymodel/pyaos': resolve(root, '../../packages/pyaos/src/index.ts'),
     '@pymodel/pythinker-code-oauth': resolve(root, '../../packages/oauth/src/index.ts'),
     '@pymodel/kosong': resolve(root, '../../packages/kosong/src/index.ts'),
   },
@@ -39,7 +38,7 @@ export default defineConfig({
   },
   deps: {
     onlyBundle: false,
-    alwaysBundle: [/^@pymodel\//, 'zod'],
+    alwaysBundle: [/^@pymodel\//, 'immer', 'zod'],
     neverBundle: ['vscode'],
   },
   outputOptions: {

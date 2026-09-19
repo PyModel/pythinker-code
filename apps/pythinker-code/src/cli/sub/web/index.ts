@@ -24,4 +24,11 @@ export function registerWebCommand(program: Command): void {
   );
   registerRotateTokenCommand(web);
   registerDeprecatedServerCommand(program);
+  buildWebCommand(
+    program
+      .command('rc')
+      .alias('remote')
+      .description('Run the local Pythinker server and open the web UI through Remote Control.'),
+    { forceRemoteControl: true },
+  );
 }

@@ -28,15 +28,18 @@ describe('pythinkerCodeBaseUrl', () => {
 });
 
 describe('isManagedPythinkerCodeBaseUrl', () => {
-  it('matches the default managed endpoint, with or without a trailing slash', () => {
+  it('matches both official managed endpoints, with or without a trailing slash', () => {
     expect(isManagedPythinkerCodeBaseUrl('https://api.kimi.com/coding/v1')).toBe(true);
     expect(isManagedPythinkerCodeBaseUrl('https://api.kimi.com/coding/v1/')).toBe(true);
+    expect(isManagedPythinkerCodeBaseUrl('https://api.kimi.ai/coding/v1')).toBe(true);
+    expect(isManagedPythinkerCodeBaseUrl('https://api.kimi.ai/coding/v1/')).toBe(true);
   });
 
-  it('matches against the PYTHINKER_CODE_BASE_URL override', () => {
+  it('matches against the PYTHINKER_CODE_BASE_URL override as the sole benchmark', () => {
     vi.stubEnv('PYTHINKER_CODE_BASE_URL', 'https://gw.example.com/coding/v1/');
     expect(isManagedPythinkerCodeBaseUrl('https://gw.example.com/coding/v1')).toBe(true);
     expect(isManagedPythinkerCodeBaseUrl('https://api.kimi.com/coding/v1')).toBe(false);
+    expect(isManagedPythinkerCodeBaseUrl('https://api.kimi.ai/coding/v1')).toBe(false);
   });
 
   it('is case-insensitive on the origin but strict on the path', () => {

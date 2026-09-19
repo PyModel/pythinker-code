@@ -4,23 +4,24 @@
  * The server always runs in the current process, attached to the terminal,
  * and shuts down cleanly on SIGINT/SIGTERM. `--no-open` skips the browser.
  * Multiple instances can share the home directory: each registers itself in
- * the instance registry and takes the next free port (see kap-server's
+ * the instance registry and takes the next free port (see agent-gateway's
  * `startServer`).
  */
 
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { createServerLogger, startServer, type ServerLogger } from '@pymodel/kap-server';
+import { createServerLogger, startServer, type ServerLogger } from '@pymodel/agent-gateway';
 import { shutdownTelemetry, track } from '@pymodel/pythinker-telemetry';
 import chalk from 'chalk';
-import { type Command } from 'commander';
+import { type Command, Option } from 'commander';
 
 import { CLI_SHUTDOWN_TIMEOUT_MS, WEB_USER_AGENT_SUFFIX } from '#/constant/app';
 import { getNativeWebAssetsDir } from '#/native/web-assets';
 import { darkColors } from '#/tui/theme/colors';
 import { openUrl as defaultOpenUrl } from '#/utils/open-url';
 import { getDataDir } from '#/utils/paths';
+import { generateRemoteControlQr } from '#/utils/remote-control-qr';
 
 import { initializeServerTelemetry } from '../../telemetry';
 import {
@@ -30,11 +31,20 @@ import {
 } from '../../version';
 import {
   accessUrlLines,
+  browserOpenOrigin,
   buildOpenableUrl,
   isLoopbackHost,
   splitTokenFragment,
 } from './access-urls';
 import { type NetworkAddress } from './networks';
+import {
+  formatRemoteControlOutput,
+  formatRemoteControlStatus,
+  startRemoteControl,
+  type RemoteControlHandle,
+  type RemoteControlOptions,
+  type RemoteControlStatus,
+} from './remote-control';
 import {
   DEFAULT_FOREGROUND_LOG_LEVEL,
   DEFAULT_LAN_HOST,
@@ -50,7 +60,7 @@ import {
 const WEB_ASSETS_DIR = 'dist-web';
 
 /**
- * Minimal surface `runServerInProcess` needs from the server. kap-server's
+ * Minimal surface `runServerInProcess` needs from the server. agent-gateway's
  * `RunningServer` is adapted to it (it returns `{ host, port, close }`
  * instead of `{ address, logger, close }`).
  */
@@ -62,11 +72,13 @@ interface RoutedServer {
 
 export interface WebCliOptions extends ServerCliOptions {
   open?: boolean;
+  remoteControl?: boolean;
 }
 
 export interface StartForegroundHooks {
   /** Fires once the server is listening, before the foreground runner blocks. */
-  onReady?: (origin: string) => void;
+  onReady?: (origin: string) => void | Promise<void>;
+  onShutdown?: (reason: string) => void | Promise<void>;
 }
 
 export interface WebCommandDeps {
@@ -75,6 +87,7 @@ export interface WebCommandDeps {
     options: ParsedServerOptions,
     hooks?: StartForegroundHooks,
   ) => Promise<never>;
+  startRemoteControl?: (options: RemoteControlOptions) => Promise<RemoteControlHandle>;
   openUrl(url: string): void;
   /**
    * Best-effort read of the server's persistent bearer token. When it returns
@@ -105,8 +118,12 @@ export function buildWebUrl(origin: string, token: string): string {
 }
 
 /** Build the `web` command, mounting the runner action on `cmd` itself. */
-export function buildWebCommand(cmd: Command): Command {
-  return cmd
+export function buildWebCommand(
+  cmd: Command,
+  opts: { forceRemoteControl?: boolean } = {},
+): Command {
+  const forceRemoteControl = opts.forceRemoteControl === true;
+  const withServerOptions = cmd
     .option(
       '--port <port>',
       `Bind port (default ${DEFAULT_SERVER_PORT})`,
@@ -131,11 +148,6 @@ export function buildWebCommand(cmd: Command): Command {
       false,
     )
     .option(
-      '--allow-remote-terminals',
-      'On a non-loopback bind, keep the PTY /api/v1/terminals/* routes enabled (default: disabled → 404). Remote shell is high risk.',
-      false,
-    )
-    .option(
       '--dangerous-bypass-auth',
       'Disable bearer-token auth on every REST and WebSocket route, and advertise it via /api/v1/meta so the web UI connects without a token. Only use on a trusted network or behind your own authenticating proxy.',
       false,
@@ -152,11 +164,22 @@ export function buildWebCommand(cmd: Command): Command {
     .option(
       '--web-title <title>',
       'Set a custom browser tab title for this web UI instance (default: "<workspace dir> | Pythinker Code").',
-    )
+    );
+  if (!forceRemoteControl) {
+    withServerOptions.addOption(
+      new Option(
+        '--rc, --remote-control',
+        'Expose the web UI through Pythinker Remote Control.',
+      ).default(false),
+    );
+  }
+  return withServerOptions
     .option('--no-open', 'Do not open the web UI in the default browser.', true)
     .action(async (opts: WebCliOptions) => {
       try {
-        await handleWebCommand(opts);
+        await handleWebCommand(
+          forceRemoteControl ? { ...opts, remoteControl: true } : opts,
+        );
       } catch (error) {
         process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
         process.exit(1);
@@ -169,9 +192,16 @@ export async function handleWebCommand(
   deps: WebCommandDeps = DEFAULT_WEB_COMMAND_DEPS,
 ): Promise<void> {
   const parsed = parseServerOptions(opts);
+  if (opts.remoteControl === true && parsed.dangerousBypassAuth) {
+    throw new Error('--remote-control cannot be combined with --dangerous-bypass-auth.');
+  }
+  if (opts.remoteControl === true && !isLoopbackHost(parsed.host)) {
+    throw new Error('--remote-control requires a loopback host.');
+  }
   const run = deps.startServerForeground ?? startServerForeground;
+  let remoteControl: RemoteControlHandle | undefined;
   await run(parsed, {
-    onReady: (origin) => {
+    onReady: async (origin) => {
       // Resolve the persistent token only once the server is up: a fresh
       // server writes `server.token` on first boot, so reading it beforehand
       // would miss first-time starts and the browser would hit the auth gate.
@@ -180,6 +210,40 @@ export async function handleWebCommand(
       // token line when unavailable. When auth is bypassed, the token is
       // meaningless and is intentionally NOT shown or carried in the URL.
       const token = parsed.dangerousBypassAuth ? undefined : deps.resolveToken?.();
+      if (opts.remoteControl === true) {
+        if (token === undefined) throw new Error('Unable to read the local server token.');
+        const dataDir = getDataDir();
+        let outputReady = false;
+        const pendingStatuses: string[] = [];
+        const onStatus = (status: RemoteControlStatus): void => {
+          const line = formatRemoteControlStatus(status);
+          if (outputReady) deps.stdout.write(line);
+          else pendingStatuses.push(line);
+        };
+        remoteControl = await (deps.startRemoteControl ?? startRemoteControl)({
+          homeDir: dataDir,
+          localOrigin: origin,
+          localServerToken: token,
+          clientVersion: `pythinker-code/${getVersion()}`,
+          stderr: deps.stderr,
+          onStatus,
+        });
+        const qrCode = await generateRemoteControlQr(remoteControl.url, dataDir);
+        deps.stdout.write(
+          formatRemoteControlOutput({
+            url: remoteControl.url,
+            localOrigin: origin,
+            localServerToken: token,
+            deviceName: remoteControl.deviceName,
+            qrCode: qrCode.terminal,
+            pngPath: qrCode.pngPath,
+          }),
+        );
+        outputReady = true;
+        for (const line of pendingStatuses) deps.stdout.write(line);
+        if (opts.open === true) deps.openUrl(remoteControl.url);
+        return;
+      }
       deps.stdout.write(
         parsed.logLevel === DEFAULT_FOREGROUND_LOG_LEVEL
           ? formatReadyBanner(origin, parsed.host, {
@@ -190,8 +254,12 @@ export async function handleWebCommand(
           : formatReadyLine(origin, token, parsed.dangerousBypassAuth),
       );
       if (opts.open === true) {
-        deps.openUrl(token !== undefined ? buildWebUrl(origin, token) : origin);
+        const openOrigin = browserOpenOrigin(origin);
+        deps.openUrl(token !== undefined ? buildWebUrl(openOrigin, token) : openOrigin);
       }
+    },
+    onShutdown: async () => {
+      await remoteControl?.close();
     },
   });
 }
@@ -230,7 +298,7 @@ export async function startServerForeground(
   options: ParsedServerOptions,
   hooks: StartForegroundHooks = {},
 ): Promise<never> {
-  return runServerInProcess(options, hooks.onReady);
+  return runServerInProcess(options, hooks);
 }
 
 /**
@@ -239,11 +307,11 @@ export async function startServerForeground(
  */
 async function runServerInProcess(
   options: ParsedServerOptions,
-  onReady?: (origin: string) => void,
+  hooks: StartForegroundHooks,
 ): Promise<never> {
   const version = getVersion();
   // Registers the telemetry provider for `track` / `shutdownTelemetry`; the
-  // client itself is not passed into kap-server.
+  // client itself is not passed into agent-gateway.
   initializeServerTelemetry({ version });
 
   let running: RoutedServer | undefined;
@@ -253,6 +321,14 @@ async function runServerInProcess(
     if (stopping) return;
     stopping = true;
     running?.logger.info({ reason }, 'server shutting down');
+    try {
+      await hooks.onShutdown?.(reason);
+    } catch (error) {
+      running?.logger.error(
+        { err: error instanceof Error ? error : new Error(String(error)) },
+        'foreground shutdown hook error',
+      );
+    }
     try {
       await running?.close();
       await shutdownTelemetry({ timeoutMs: CLI_SHUTDOWN_TIMEOUT_MS });
@@ -265,7 +341,7 @@ async function runServerInProcess(
     process.exit(0);
   }
 
-  // kap-server (the DI × Scope engine server) is the only server flavor. Its
+  // agent-gateway (the DI × Scope engine server) is the only server flavor. Its
   // `startServer` returns `{ host, port, close }` rather than `{ address,
   // logger, close }`, so adapt it to the `RoutedServer` surface the rest of
   // this runner consumes.
@@ -280,7 +356,7 @@ async function runServerInProcess(
     host: options.host,
     port: options.port,
     // Report the CLI's product version as `server_version` (/meta, web UI)
-    // rather than kap-server's private package version.
+    // rather than agent-gateway's private package version.
     serverVersion: version,
     // The CLI's host identity: feeds the engine's bootstrap client identity
     // and the derived outbound headers (User-Agent + X-Msh-*), so web-UI
@@ -296,7 +372,6 @@ async function runServerInProcess(
     debugEndpoints: options.debugEndpoints,
     insecureNoTls: options.insecureNoTls,
     allowRemoteShutdown: options.allowRemoteShutdown,
-    allowRemoteTerminals: options.allowRemoteTerminals,
     allowedHosts: options.allowedHosts,
     disableAuth: options.dangerousBypassAuth,
     webTitle: options.webTitle,
@@ -324,7 +399,17 @@ async function runServerInProcess(
 
   running.logger.info({ address: running.address }, 'server ready');
 
-  onReady?.(running.address);
+  try {
+    await hooks.onReady?.(running.address);
+  } catch (error) {
+    try {
+      await hooks.onShutdown?.('startup_failed');
+    } finally {
+      await running.close();
+      await shutdownTelemetry({ timeoutMs: CLI_SHUTDOWN_TIMEOUT_MS });
+    }
+    throw error;
+  }
 
   return new Promise<never>(() => {
     // Keeps the event loop alive; the process ends via shutdown()/process.exit.
@@ -332,11 +417,11 @@ async function runServerInProcess(
 }
 
 /**
- * Resolve the web assets directory passed to kap-server. In dev mode
- * (`PYTHINKER_CODE_DEV_SERVER=1`, set by the repo's `dev:server` / `dev:kap-server*`
+ * Resolve the web assets directory passed to agent-gateway. In dev mode
+ * (`PYTHINKER_CODE_DEV_SERVER=1`, set by the repo's `dev:server` / `dev:agent-gateway*`
  * scripts) a missing `dist-web` build is tolerated: the server starts API-only
  * and the web UI is expected to come from a Vite dev server (the web UI source lives in the code-app repo).
- * Outside dev mode the directory is always returned and kap-server keeps
+ * Outside dev mode the directory is always returned and agent-gateway keeps
  * failing fast when the assets are missing.
  */
 export function serverWebAssetsDir(
@@ -383,7 +468,7 @@ export function formatReadyBanner(
     return frag === '' ? url(base) : url(base) + dim(frag);
   };
 
-  const port = Number(new URL(origin).port);
+  const port = Number(origin.slice(origin.lastIndexOf(':') + 1));
   // Borderless header: the Pythinker sprite (the little mascot with eyes) sits next
   // to the title, keeping the brand without the enclosing box.
   const logo = ['▐█▛█▛█▌', '▐█████▌'] as const;

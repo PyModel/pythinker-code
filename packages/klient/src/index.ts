@@ -7,6 +7,7 @@
  */
 
 export type {
+  CallOptions,
   EventSourceRef,
   IDisposable,
   KlientChannel,
@@ -34,6 +35,7 @@ export type {
   GlobalFlagsFacade,
   GlobalHostFsFacade,
   GlobalKosongFacade,
+  GlobalMcpFacade,
   GlobalPluginsFacade,
   GlobalSessionsFacade,
   GlobalWorkspacesFacade,
@@ -108,7 +110,7 @@ export type {
   ConfigDiagnostic,
   ConfigInspectValue,
 } from '@pymodel/agent-core-v2/app/config/config';
-export type { ProviderConfig } from '@pymodel/agent-core-v2/kosong/provider/provider';
+export type { ProviderConfig } from '@pymodel/agent-core-v2/llm-adapter/provider/provider';
 export type { AuthStatus } from '@pymodel/agent-core-v2/app/auth/auth';
 export type { ExperimentalFeatureState } from '@pymodel/agent-core-v2/app/flag/flag';
 export type {
@@ -131,15 +133,26 @@ export type {
 export type {
   ApprovalRequest,
   ApprovalResponse,
-} from '@pymodel/agent-core-v2/session/approval/approval';
+} from '@pymodel/agent-core-v2/agent/interaction/approval';
 export type {
   QuestionRequest,
   QuestionResult,
-} from '@pymodel/agent-core-v2/session/question/question';
+} from '@pymodel/agent-core-v2/agent/interaction/question';
 export type {
   Interaction,
   InteractionKind,
-} from '@pymodel/agent-core-v2/session/interaction/interaction';
-export type { SkillSummary } from '@pymodel/agent-core-v2/app/skillCatalog/types';
-export type { ContentPart } from '@pymodel/agent-core-v2/kosong/contract/message';
+} from '@pymodel/agent-core-v2/human/interaction/interaction';
+export type { SkillSummary } from '@pymodel/agent-core-v2/features/skill/catalog/types';
+export type {
+  GlobalMcpServerConfig,
+  McpManagedServer,
+  McpServerAuthBeginResult,
+  McpServerAuthState,
+  McpServerAuthStatus,
+  McpServerInspection,
+  McpServerLocator,
+  McpServerTestResult,
+  McpServerTestTarget,
+} from '@pymodel/agent-core-v2/app/mcpManagement/mcpManagement';
+export type { ContentPart } from '@pymodel/agent-core-v2/human/llm/message';
 export type { PermissionMode } from '@pymodel/agent-core-v2/agent/permissionPolicy/types';

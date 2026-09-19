@@ -2,9 +2,8 @@ export { PythinkerHarness } from '#/pythinker-harness';
 export type { PythinkerHarnessRuntimeOptions } from '#/pythinker-harness';
 export { Session } from '#/session';
 export { PythinkerAuthFacade } from '#/auth';
-export { createPythinkerHarness, SDKRpcClient, type SDKRpcClientOptions } from '#/sdk-rpc-client';
 export {
-  createPythinkerHarnessV2,
+  createPythinkerHarness,
   SDKRpcClientV2,
   type SDKRpcClientV2Options,
 } from '#/sdk-rpc-client-v2';
@@ -55,53 +54,30 @@ export {
   fromPythinkerErrorPayload,
   isPythinkerError,
   toPythinkerErrorPayload,
-} from '@pymodel/agent-core';
+} from '#/errors';
 
-// Diagnostic logging — public surface only.
-// RootLogger / getRootLogger / LoggingConfig stay inside agent-core.
 export {
   flushDiagnosticLogs,
   flushDiagnosticLogsSync,
   log,
   redact,
   resolveGlobalLogPath,
-  resolvePythinkerHome,
-} from '@pymodel/agent-core';
-export type { LogContext, LogLevel, LogPayload, Logger } from '@pymodel/agent-core';
+} from '#/logging/index';
+export { resolvePythinkerHome } from '@pymodel/agent-core-v2';
+export type { LogContext, LogLevel, LogPayload, Logger } from '#/logging/index';
 
-// Host-side config helpers — safe config reader + config path resolution, used
-// by hosts (e.g. the CLI's server telemetry bootstrap) that need to inspect
-// config without spinning up a full PythinkerCore.
-export { effectiveModelAlias, loadRuntimeConfigSafe, resolveConfigPath } from '@pymodel/agent-core';
-export { limitAgentReplayByTurns } from '@pymodel/agent-core';
-export { parseAgentFileText, resolveAgentPath } from '@pymodel/agent-core';
-// The synthesized `[models]` alias a `[secondary_model]` recipe with patch
-// fields materializes at runtime — hosts filter it out of model pickers.
-export { SECONDARY_DERIVED_MODEL_ALIAS } from '@pymodel/agent-core';
-// Reserved key of the v2 engine's subagent model pool: it always binds the
-// caller's own model, so hosts must not offer a user alias named `primary`
-// as the subagent default model.
+export { effectiveModelAlias, loadRuntimeConfigSafe } from '#/config/index';
+export { resolveConfigPath } from '@pymodel/agent-core-v2';
+export { limitAgentReplayByTurns } from '#/replay';
+export { parseAgentFileText, resolveAgentPath } from '@pymodel/agent-core-v2';
+export { SECONDARY_DERIVED_MODEL_ALIAS } from '#/config/index';
 export { PRIMARY_SUBAGENT_MODEL_CHOICE } from '@pymodel/agent-core-v2/session/subagent/configSection';
-// Pool cascade for writes that rebuild the `[models]` table: hosts staging a
-// provider overwrite (remove-then-re-add) use it to restore the still-valid
-// pool entries against the final alias set.
-export { cascadeSubagentModelPool } from '@pymodel/agent-core-v2/session/subagent/configSection';
 
-// Process-wide HTTP proxy bootstrap — installed once at CLI startup so all
-// outbound fetch honors HTTP_PROXY / HTTPS_PROXY / NO_PROXY.
-export { installGlobalProxyDispatcher } from '@pymodel/agent-core';
+export { installGlobalProxyDispatcher } from '#/proxy';
 
-// Image compression — ingestion sites (e.g. the CLI's clipboard paste, the ACP
-// adapter) shrink oversized images while constructing the content part, before
-// it enters a prompt. Best effort: returns the original on any failure.
-// Compression is never silent: buildImageCompressionCaption renders the note
-// placed next to a compressed image, and persistOriginalImage keeps the
-// pre-compression bytes readable (ReadMediaFile + region) for detail.
 export {
   buildImageCompressionCaption,
   buildUnsupportedImageNotice,
-  compressImageForModel,
-  compressBase64ForModel,
   gateImageFormatParts,
   isModelAcceptedImageMime,
   normalizeImageMime,
@@ -110,18 +86,16 @@ export {
   sessionMediaOriginalsDir,
   IMAGE_BYTE_BUDGET,
   MAX_IMAGE_EDGE_PX,
-} from '@pymodel/agent-core';
-export { ImageLimits } from '@pymodel/agent-core';
+} from '@pymodel/agent-core-v2';
+export { compressBase64ForModel, compressImageForModel, ImageLimits } from '#/image';
 export type {
   CompressImageOptions,
   CompressImageResult,
   CompressBase64Result,
   ImageCompressionCaptionInput,
   ImageCompressionTelemetry,
-} from '@pymodel/agent-core';
+} from '#/image';
 
-// Experimental feature flags — types only. Resolved values come from
-// `PythinkerHarness.getExperimentalFeatures()` over RPC, not from a re-exported runtime value.
 export type {
   ExperimentalFeatureState,
   ExperimentalFlagMap,
@@ -130,14 +104,8 @@ export type {
   FlagDefinitionInput,
   FlagId,
   FlagSurface,
-} from '@pymodel/agent-core';
+} from '#/flag';
 
-// Daemon file references (agent-core-v2) — pure helpers for the internal
-// `pythinker-file://` media URLs and the model-facing `<image|video|file>` path
-// tags. A daemon-ref media part is self-contained (kind from the part type,
-// file id from the url) — there is no tag+ref pairing to fold.
-// Hosts must not import agent-core-v2 directly; `FileMeta` and
-// `UploadFileOptions` ride the `export type * from '#/types'` below.
 export {
   buildDaemonFileUrl,
   buildMediaPathTag,

@@ -1,12 +1,13 @@
 import { readFile, readdir, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import { OldPythinkerJsonSchema, OldSessionStateSchema } from '../pythinker-cli-schema.js';
+import { OldPythinkerJsonSchema } from '../pythinker-cli-schema.js';
 import { ensureSessionIndexEntry } from '../session-index.js';
 import { sourcePythinkerJson, sourceSessionsDir } from '../paths.js';
 import type { SessionsSummary } from '../types.js';
-import { classifySessionDir } from './classify.js';
+import { classifyLegacySession } from './classify.js';
 import { migrateOneSession } from './migrate-one.js';
+import { listBucketSessions, readMergedSessionState, type LegacySessionRef } from './source.js';
 import { oldMd5BucketName } from './workdir-bucket.js';
 
 export interface SessionsStepInput {
@@ -18,12 +19,11 @@ export interface SessionsStepInput {
 
 interface WorkdirMeta {
   readonly path: string;
-  readonly kaos: string;
+  readonly pyaos: string;
 }
 
 interface SessionCandidate {
-  readonly sourceSessionDir: string;
-  readonly oldSessionUuid: string;
+  readonly source: LegacySessionRef;
   readonly workdirPath: string;
   readonly wireMtime: number;
 }
@@ -36,11 +36,11 @@ export async function migrateSessionsStep(
   const workdirs = await loadWorkdirs(input.sourceHome);
   const md5ToWorkdir = new Map<string, WorkdirMeta>();
   for (const wd of workdirs) {
-    md5ToWorkdir.set(oldMd5BucketName(wd.path), { path: wd.path, kaos: wd.kaos });
+    md5ToWorkdir.set(oldMd5BucketName(wd.path), { path: wd.path, pyaos: wd.pyaos });
   }
 
   let bucketsScanned = 0;
-  let bucketsSkippedNonlocalKaos = 0;
+  let bucketsSkippedNonlocalPyaos = 0;
   let bucketsSkippedNoWorkdirFound = 0;
   let sessionsSkippedPlaceholder = 0;
   let sessionsSkippedEmpty = 0;
@@ -71,8 +71,8 @@ export async function migrateSessionsStep(
     bucketsScanned++;
     const bucketPath = join(sessionsDir, bucketName);
     const workdir = resolveBucket(bucketName, md5ToWorkdir);
-    if (workdir.kind === 'nonlocal-kaos') {
-      bucketsSkippedNonlocalKaos++;
+    if (workdir.kind === 'nonlocal-pyaos') {
+      bucketsSkippedNonlocalPyaos++;
       continue;
     }
     if (workdir.kind === 'no-workdir-found') {
@@ -84,9 +84,9 @@ export async function migrateSessionsStep(
       continue;
     }
     // workdir.kind === 'local'
-    let sessionUuids: string[];
+    let refs: LegacySessionRef[];
     try {
-      sessionUuids = await readdir(bucketPath);
+      refs = await listBucketSessions(bucketPath);
     } catch (error) {
       sessionsFailed.push({
         sourcePath: bucketPath,
@@ -94,9 +94,8 @@ export async function migrateSessionsStep(
       });
       continue;
     }
-    for (const uuid of sessionUuids) {
-      const sessionDir = join(bucketPath, uuid);
-      const cls = await classifySessionDir(sessionDir);
+    for (const ref of refs) {
+      const cls = await classifyLegacySession(ref);
       if (cls === 'placeholder') {
         sessionsSkippedPlaceholder++;
         continue;
@@ -107,15 +106,14 @@ export async function migrateSessionsStep(
       }
       if (cls === 'malformed') {
         sessionsFailed.push({
-          sourcePath: sessionDir,
+          sourcePath: sessionReportPath(ref, bucketPath),
           reason: unreadableSessionReason(),
         });
         continue;
       }
-      const wireMtime = await readWireMtime(sessionDir);
+      const wireMtime = await readWireMtime(ref);
       candidates.push({
-        sourceSessionDir: sessionDir,
-        oldSessionUuid: uuid,
+        source: ref,
         workdirPath: workdir.path,
         wireMtime,
       });
@@ -131,8 +129,7 @@ export async function migrateSessionsStep(
   let processedCount = 0;
   for (const c of candidates) {
     const result = await migrateOneSession({
-      sourceSessionDir: c.sourceSessionDir,
-      oldSessionUuid: c.oldSessionUuid,
+      source: c.source,
       workdirPath: c.workdirPath,
       targetHome: input.targetHome,
     });
@@ -144,7 +141,7 @@ export async function migrateSessionsStep(
         // this session survived a deleted target dir, re-migrating it must not
         // append a second line for the same id.
         await ensureSessionIndexEntry(input.targetHome, {
-          sessionId: `ses_${c.oldSessionUuid}`,
+          sessionId: `ses_${c.source.uuid}`,
           sessionDir: result.targetDir,
           workDir: c.workdirPath,
         });
@@ -154,7 +151,7 @@ export async function migrateSessionsStep(
         // without it the session is unopenable. Record it as failed so the run
         // summary is honest; one bad index write must not abort the batch.
         sessionsFailed.push({
-          sourcePath: c.sourceSessionDir,
+          sourcePath: sessionReportPath(c.source, ''),
           reason: `session migrated but index append failed: ${String(error)}`,
         });
       }
@@ -165,7 +162,7 @@ export async function migrateSessionsStep(
       // self-heals an index that is missing this session.
       try {
         await ensureSessionIndexEntry(input.targetHome, {
-          sessionId: `ses_${c.oldSessionUuid}`,
+          sessionId: `ses_${c.source.uuid}`,
           sessionDir: result.targetDir,
           workDir: c.workdirPath,
         });
@@ -174,24 +171,24 @@ export async function migrateSessionsStep(
         // The index entry is genuinely missing and could not be added — the
         // session stays unreachable by id, so record it as failed.
         sessionsFailed.push({
-          sourcePath: c.sourceSessionDir,
+          sourcePath: sessionReportPath(c.source, ''),
           reason: `session already migrated but index entry could not be ensured: ${String(error)}`,
         });
       }
     } else if (result.outcome === 'conflict') {
       sessionsConflicts.push({
-        sourcePath: c.sourceSessionDir,
+        sourcePath: sessionReportPath(c.source, ''),
         targetPath: result.targetDir,
       });
     } else if (result.outcome === 'empty') {
       // No migratable conversation (empty or user-cleared session). Counted
-      // as skipped, not failed — `classifySessionDir` usually catches these
+      // as skipped, not failed — `classifyLegacySession` usually catches these
       // before they become candidates, but a translator/classifier edge can
       // still land one here.
       sessionsSkippedEmpty++;
     } else {
       sessionsFailed.push({
-        sourcePath: c.sourceSessionDir,
+        sourcePath: sessionReportPath(c.source, ''),
         reason: result.reason,
       });
     }
@@ -200,7 +197,7 @@ export async function migrateSessionsStep(
   return {
     scope: 'all',
     bucketsScanned,
-    bucketsSkippedNonlocalKaos,
+    bucketsSkippedNonlocalPyaos,
     bucketsSkippedNoWorkdirFound,
     sessionsAttempted: candidates.length,
     sessionsMigrated: migrated,
@@ -215,7 +212,7 @@ export async function migrateSessionsStep(
 
 type BucketResolution =
   | { readonly kind: 'local'; readonly path: string }
-  | { readonly kind: 'nonlocal-kaos' }
+  | { readonly kind: 'nonlocal-pyaos' }
   | { readonly kind: 'no-workdir-found' };
 
 function resolveBucket(
@@ -228,16 +225,16 @@ function resolveBucket(
     if (meta === undefined) {
       return { kind: 'no-workdir-found' };
     }
-    if (meta.kaos !== 'local') {
-      return { kind: 'nonlocal-kaos' };
+    if (meta.pyaos !== 'local') {
+      return { kind: 'nonlocal-pyaos' };
     }
     return { kind: 'local', path: meta.path };
   }
-  // Non-local pattern: `<kaos>_<md5>`. Use the last `_` so kaos names that
+  // Non-local pattern: `<pyaos>_<md5>`. Use the last `_` so pyaos names that
   // contain underscores still resolve.
   const idx = bucketName.lastIndexOf('_');
   if (idx > 0 && MD5_HEX_RE.test(bucketName.slice(idx + 1))) {
-    return { kind: 'nonlocal-kaos' };
+    return { kind: 'nonlocal-pyaos' };
   }
   return { kind: 'no-workdir-found' };
 }
@@ -246,35 +243,43 @@ async function loadWorkdirs(sourceHome: string): Promise<WorkdirMeta[]> {
   try {
     const text = await readFile(sourcePythinkerJson(sourceHome), 'utf-8');
     const parsed = OldPythinkerJsonSchema.parse(JSON.parse(text));
-    return parsed.work_dirs.map((w) => ({ path: w.path, kaos: w.kaos }));
+    return parsed.work_dirs.map((w) => ({ path: w.path, pyaos: w.pyaos }));
   } catch {
     return [];
   }
 }
 
-async function readWireMtime(sessionDir: string): Promise<number> {
-  try {
-    const text = await readFile(join(sessionDir, 'state.json'), 'utf-8');
-    const parsed = OldSessionStateSchema.parse(JSON.parse(text));
-    if (parsed.wire_mtime !== null && parsed.wire_mtime !== undefined) {
-      return parsed.wire_mtime * 1000;
+async function readWireMtime(ref: LegacySessionRef): Promise<number> {
+  const state = await readMergedSessionState(ref.sessionDir);
+  if (state.wire_mtime !== null && state.wire_mtime !== undefined) {
+    return state.wire_mtime * 1000;
+  }
+  if (ref.sessionDir !== undefined) {
+    try {
+      return (await stat(join(ref.sessionDir, 'wire.jsonl'))).mtimeMs;
+    } catch {
+      // fall through to the context payload's mtime
     }
-  } catch {
-    // fall through to wire.jsonl mtime
   }
-  try {
-    const st = await stat(join(sessionDir, 'wire.jsonl'));
-    return st.mtimeMs;
-  } catch {
-    return 0;
+  if (ref.contextPath !== undefined) {
+    try {
+      return (await stat(ref.contextPath)).mtimeMs;
+    } catch {
+      // fall through
+    }
   }
+  return 0;
+}
+
+function sessionReportPath(ref: LegacySessionRef, fallback: string): string {
+  return ref.sessionDir ?? ref.flatContextFile ?? join(fallback, ref.uuid);
 }
 
 function emptySummary(): SessionsSummary {
   return {
     scope: 'all',
     bucketsScanned: 0,
-    bucketsSkippedNonlocalKaos: 0,
+    bucketsSkippedNonlocalPyaos: 0,
     bucketsSkippedNoWorkdirFound: 0,
     sessionsAttempted: 0,
     sessionsMigrated: 0,
@@ -292,7 +297,7 @@ function unknownWorkdirReason(): string {
 }
 
 function unreadableSessionReason(): string {
-  return 'Legacy session could not be inspected because context.jsonl is missing or unreadable.';
+  return 'Legacy session could not be inspected because its context is missing or unreadable.';
 }
 
 function isMissingError(error: unknown): boolean {

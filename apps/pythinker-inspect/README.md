@@ -1,12 +1,12 @@
 # pythinker-inspect
 
-Web inspector for the kap-server `/api/v1/debug` RPC surface — a read/trigger
+Web inspector for the agent-gateway `/api/v1/debug` RPC surface — a read/trigger
 window into a running Pythinker Code engine (workspaces, sessions, agents, and the
 scoped DI registry).
 
 ## Run
 
-1. Start a kap-server with the debug surface mounted (repo dev scripts do this
+1. Start a agent-gateway with the debug surface mounted (repo dev scripts do this
    for you): `pnpm dev:v1` / `pnpm dev:v2` from the repo root pass
    `--debug-endpoints` on a loopback bind; the surface inherits the global
    bearer auth.
@@ -28,9 +28,8 @@ there is no fallback data source.
 - **Search** — cross-session full-text search over `POST /api/v1/search`
   (cursor-paged; exact-match maps to the API's `literal` mode; a `live`/`index`
   badge shows which server route served the results).
-- **Model Catalog** — every provider with its models; expanding one opens the
-  model inspector (config layers + resolved runtime view with per-value
-  provenance).
+- **Model Catalog** — every provider with its models and the default marker,
+  with per-model ping and session creation actions.
 - **App / Workspace Services** — the full Service reflection over the App
   scope, and over each Workspace scope (picked via the directory browser;
   workspace handlers materialize on demand).

@@ -9,21 +9,22 @@ import { toInputJsonSchema } from '#/tool/input-schema';
 import { IConfigService } from '#/app/config/config';
 import { IFlagService } from '#/app/flag/flag';
 import { ISessionDynamicWorkflowService, type SessionDynamicWorkflowTask } from '#/features/dynamic_workflow/session/sessionDynamicWorkflow';
-import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
 import { IAgentProfileService } from '#/agent/profile/profile';
-import {
-  rootDelegationExtras,
-  subagentAllowlistFor,
-  subagentTypeNotAllowedMessage,
-  withoutDelegatingTargets,
-} from '#/app/agentProfileCatalog/profile-shared';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentDynamicWorkflowService } from '#/features/dynamic_workflow/agent/dynamic_workflow';
+import { resolveDynamicWorkflowTimeoutMs } from '#/features/dynamic_workflow/configSection';
+import { ISessionSubagentService } from '#/session/subagent/subagent';
 import {
-  buildSubagentModelDescriptions,
+  FORK_EXPERIMENTAL_UNAVAILABLE,
+  FORK_WITH_RESUME_UNAVAILABLE,
+  forkIncompatibility,
+  type SubagentSpawnPlan,
+} from '#/session/subagent/spawn';
+import { SUBAGENT_FORK_FLAG_ID } from '#/session/subagent/flag';
+import {
+  buildSubagentModelSummary,
   exposesSubagentModelChoice,
-  resolveSubagentBinding,
-  resolveSubagentTimeoutMs,
+  stripSubagentForkParameter,
   stripSubagentModelParameter,
 } from '#/session/subagent/configSection';
 import {
@@ -34,6 +35,7 @@ import {
   type AgentDynamicWorkflowToolInput,
 } from './agent-dynamic_workflow';
 import AGENT_DYNAMIC_WORKFLOW_DESCRIPTION from './agent-dynamic_workflow.md?raw';
+import AGENT_DYNAMIC_WORKFLOW_FORK_DESCRIPTION from './agent-dynamic-workflow-fork.md?raw';
 
 const DEFAULT_SUBAGENT_TYPE = 'coder';
 
@@ -63,6 +65,7 @@ interface DynamicWorkflowRunResult {
   readonly status: 'completed' | 'failed' | 'aborted';
   readonly state?: 'started' | 'not_started';
   readonly result?: string;
+  readonly stopReason?: string;
   readonly error?: string;
 }
 
@@ -71,9 +74,12 @@ export class AgentDynamicWorkflowTool implements IAgentDynamicWorkflowTool {
   readonly name = 'AgentDynamicWorkflow' as const;
 
   get parameters(): Record<string, unknown> {
-    return exposesSubagentModelChoice(this.config, this.flags)
+    const parameters = exposesSubagentModelChoice(this.config)
       ? AGENT_DYNAMIC_WORKFLOW_PARAMETERS
       : AGENT_DYNAMIC_WORKFLOW_PARAMETERS_NO_MODEL;
+    return this.flags.enabled(SUBAGENT_FORK_FLAG_ID)
+      ? parameters
+      : stripSubagentForkParameter(parameters);
   }
 
   private readonly callerAgentId: string;
@@ -84,21 +90,19 @@ export class AgentDynamicWorkflowTool implements IAgentDynamicWorkflowTool {
     @IAgentDynamicWorkflowService private readonly dynamicWorkflowMode: IAgentDynamicWorkflowService,
     @IConfigService private readonly config: IConfigService,
     @IFlagService private readonly flags: IFlagService,
-    @ISessionAgentProfileCatalog private readonly catalog: ISessionAgentProfileCatalog,
+    @ISessionSubagentService private readonly subagents: ISessionSubagentService,
     @IAgentProfileService private readonly profile: IAgentProfileService,
   ) {
     this.callerAgentId = scopeContext.agentId;
   }
 
   get description(): string {
-    const modelLines = buildSubagentModelDescriptions(
-      this.config,
-      this.flags,
-      this.profile.data().modelAlias,
-    );
-    return modelLines === undefined
-      ? AGENT_DYNAMIC_WORKFLOW_DESCRIPTION
-      : `${AGENT_DYNAMIC_WORKFLOW_DESCRIPTION}\n\n${modelLines}`;
+    let description = AGENT_DYNAMIC_WORKFLOW_DESCRIPTION;
+    if (this.flags.enabled(SUBAGENT_FORK_FLAG_ID)) {
+      description += `\n\n${AGENT_DYNAMIC_WORKFLOW_FORK_DESCRIPTION}`;
+    }
+    const modelLines = buildSubagentModelSummary(this.config);
+    return modelLines === undefined ? description : `${description}\n\n${modelLines}`;
   }
 
   resolveExecution(args: AgentDynamicWorkflowToolInput): ToolExecution {
@@ -139,43 +143,33 @@ export class AgentDynamicWorkflowTool implements IAgentDynamicWorkflowTool {
     signal: AbortSignal,
     toolCallId: string,
   ): Promise<string> {
-    const profileName = normalizeOptionalString(args.subagent_type) ?? DEFAULT_SUBAGENT_TYPE;
-    let binding: { model: string; thinking?: string } | undefined;
-    if ((args.items?.length ?? 0) > 0) {
-      await this.catalog.ready;
-      const own = this.profile.data();
-      const extras =
-        this.callerAgentId === 'main'
-          ? rootDelegationExtras(this.catalog, own, this.catalog.list())
-          : undefined;
-      let allowlist = subagentAllowlistFor(this.catalog, own, extras);
-      if (allowlist !== undefined && own.subagents === undefined) {
-        allowlist = withoutDelegatingTargets(this.catalog, allowlist);
-      }
-      if (allowlist !== undefined && !allowlist.includes(profileName)) {
-        throw new Error2(
-          ErrorCodes.AGENT_TYPE_NOT_ALLOWED,
-          subagentTypeNotAllowedMessage(profileName, allowlist),
-          { details: { profileName, allowlist } },
-        );
-      }
-      const targetProfile = this.catalog.get(profileName);
-      if (targetProfile === undefined) {
-        throw new Error2(ErrorCodes.PROFILE_UNKNOWN, `Unknown agent type: "${profileName}"`, {
-          details: { profileName },
-        });
-      }
-      if (own.modelAlias !== undefined) {
-        const resolved = resolveSubagentBinding(
-          this.config,
-          this.flags,
-          { modelAlias: own.modelAlias, thinkingLevel: own.thinkingLevel },
-          args.model,
-        );
-        binding = { model: resolved.model, thinking: resolved.thinking };
-      }
+    const fork = args.fork === true;
+    if (fork && !this.flags.enabled(SUBAGENT_FORK_FLAG_ID)) {
+      throw new Error2(ErrorCodes.VALIDATION_FAILED, FORK_EXPERIMENTAL_UNAVAILABLE);
     }
-    const timeoutMs = resolveSubagentTimeoutMs(this.config);
+    if (fork && Object.keys(args.resume_agent_ids ?? {}).length > 0) {
+      throw new Error2(ErrorCodes.VALIDATION_FAILED, FORK_WITH_RESUME_UNAVAILABLE);
+    }
+    let plan: SubagentSpawnPlan | undefined;
+    if ((args.items?.length ?? 0) > 0) {
+      if (fork) {
+        const incompatible = forkIncompatibility(
+          { subagent_type: args.subagent_type, model: args.model },
+          this.profile.data(),
+        );
+        if (incompatible !== undefined) {
+          throw new Error2(ErrorCodes.VALIDATION_FAILED, incompatible);
+        }
+      }
+      plan = await this.subagents.planSpawn({
+        callerAgentId: this.callerAgentId,
+        profileName: args.subagent_type,
+        model: args.model,
+        fork,
+      });
+    }
+    const profileName = plan?.profileName ?? DEFAULT_SUBAGENT_TYPE;
+    const timeoutMs = resolveDynamicWorkflowTimeoutMs(this.config);
     const specs = await createAgentDynamicWorkflowSpecs(args, (agentId) =>
       this.dynamicWorkflowService.getDynamicWorkflowItem({ callerAgentId: this.callerAgentId, agentId }),
     );
@@ -203,7 +197,7 @@ export class AgentDynamicWorkflowTool implements IAgentDynamicWorkflowTool {
       return {
         ...common,
         kind: 'spawn' as const,
-        binding,
+        plan: plan!,
       };
     });
     const results = await this.dynamicWorkflowService.run({
@@ -211,7 +205,7 @@ export class AgentDynamicWorkflowTool implements IAgentDynamicWorkflowTool {
       tasks,
     });
     return renderDynamicWorkflowResults(
-      results.map(({ task, ...result }) => ({ spec: task.data as AgentDynamicWorkflowSpec, ...result })),
+      results.map(({ task, ...result }) => ({ spec: task.data, ...result })),
     );
   }
 }
@@ -304,7 +298,7 @@ function renderDynamicWorkflowResults(results: readonly DynamicWorkflowRunResult
   const failed = results.filter((result) => result.status === 'failed').length;
   const aborted = results.filter((result) => result.status === 'aborted').length;
   const shouldRenderResumeHint =
-    results.some((result) => result.status !== 'completed') &&
+    results.some((result) => result.status !== 'completed' || result.stopReason !== undefined) &&
     results.some((result) => result.agentId !== undefined);
   const lines = [
     '<agent_dynamic_workflow_result>',
@@ -322,9 +316,11 @@ function renderDynamicWorkflowResults(results: readonly DynamicWorkflowRunResult
     const mode = result.spec.kind === 'resume' ? ' mode="resume"' : '';
     const item = result.spec.item === undefined ? '' : ` item="${escapeXmlAttribute(result.spec.item)}"`;
     const state = result.state === undefined ? '' : ` state="${result.state}"`;
+    const stopReason =
+      result.stopReason === undefined ? '' : ` stop_reason="${escapeXmlAttribute(result.stopReason)}"`;
     const body = result.status === 'completed' ? (result.result ?? '') : (result.error ?? 'unknown error');
     lines.push(
-      `<subagent${mode}${agentId}${item}${state} outcome="${result.status}">${body}</subagent>`,
+      `<subagent${mode}${agentId}${item}${state} outcome="${result.status}"${stopReason}>${body}</subagent>`,
     );
   }
 

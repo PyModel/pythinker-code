@@ -1,4 +1,4 @@
-import { ErrorCodes, PythinkerError } from '@pymodel/agent-core';
+import { ErrorCodes, PythinkerError } from '#/errors';
 import {
   OAuthConnectionError,
   OAuthUnauthorizedError,

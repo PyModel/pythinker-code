@@ -22,7 +22,7 @@ export function logsRoute(home: string = PYTHINKER_CODE_HOME): Hono {
     // The global diagnostic log is a single shared file. In an exported bundle
     // it is captured under the session dir (logs/global/pythinker-code.log); for a
     // live local session it lives at <PYTHINKER_CODE_HOME>/logs/pythinker-code.log
-    // (agent-core's resolveGlobalLogPath), NOT under the session dir.
+    // (the engine's global log path), NOT under the session dir.
     const globalLog = detail.imported
       ? join(detail.sessionDir, ...GLOBAL_LOG_REL)
       : join(home, ...HOME_GLOBAL_LOG_REL);

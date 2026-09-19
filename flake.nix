@@ -62,12 +62,10 @@
       # pnpmConfigHook (dependencies for that workspace won't be fetched).
       # -------------------------------------------------------------------
       workspacePaths = [
-        ./packages/acp-adapter
         ./packages/acp-server
-        ./packages/agent-core
         ./packages/agent-core-v2
-        ./packages/kap-server
-        ./packages/kaos
+        ./packages/agent-gateway
+        ./packages/pyaos
         ./packages/klient
         ./packages/kosong
         ./packages/migration-legacy
@@ -75,7 +73,7 @@
         ./packages/node-sdk
         ./packages/oauth
         ./packages/pi-tui
-        ./packages/protocol
+        ./packages/remote-control
         ./packages/telemetry
         ./packages/transcript
         ./packages/tree-sitter-bash
@@ -89,12 +87,10 @@
       ];
 
       workspaceNames = [
-        "@pymodel/acp-adapter"
         "@pymodel/acp-server"
-        "@pymodel/agent-core"
         "@pymodel/agent-core-v2"
-        "@pymodel/kap-server"
-        "@pymodel/kaos"
+        "@pymodel/agent-gateway"
+        "@pymodel/pyaos"
         "@pymodel/kosong"
         "@pymodel/migration-legacy"
         "@pymodel/minidb"
@@ -102,7 +98,7 @@
         "@pymodel/pythinker-code-oauth"
         "@pymodel/klient"
         "@pymodel/pi-tui"
-        "@pymodel/protocol"
+        "@pymodel/remote-control"
         "@pymodel/pythinker-telemetry"
         "@pymodel/transcript"
         "@pymodel/tree-sitter-bash"
@@ -162,7 +158,7 @@
               inherit (finalAttrs) pname version src pnpmWorkspaces;
               inherit pnpm;
               fetcherVersion = 3;
-              hash = "sha256-P450+LKDYkRyk7OZ2mSOX0/RwtbivwR5ZksN8FM6+TU=";
+              hash = "sha256-rKG18o/SNptyamq3LKveIEN/1LA0myX0JK/o6+yQ5Js=";
             };
 
             nativeBuildInputs = [

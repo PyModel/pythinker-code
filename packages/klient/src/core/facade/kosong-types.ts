@@ -5,10 +5,13 @@
  * `providerService`/`modelService` wire formats.
  */
 
-import type { Message, StreamedMessagePart } from '@pymodel/agent-core-v2/kosong/contract/message';
-import type { Tool } from '@pymodel/agent-core-v2/kosong/contract/tool';
-import type { TokenUsage } from '@pymodel/agent-core-v2/kosong/contract/usage';
-import type { ResponseFormat } from '@pymodel/agent-core-v2/kosong/contract/provider';
+import type { Message } from '@pymodel/agent-core-v2/llm-adapter/contract/message';
+import type {
+  StreamedMessagePart,
+  ToolDescription as Tool,
+} from '@pymodel/agent-core-v2/human/llm/message';
+import type { TokenUsage } from '@pymodel/agent-core-v2/human/llm/usage';
+import type { ResponseFormat } from '@pymodel/agent-core-v2/human/llm/response-format';
 
 // ---------------------------------------------------------------------------
 // Provider auth

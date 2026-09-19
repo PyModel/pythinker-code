@@ -9,8 +9,8 @@
 import { z } from 'zod';
 
 import type { ConfigChangedEvent } from '@pymodel/agent-core-v2/app/config/config';
-import type { ModelsChangedEvent } from '@pymodel/agent-core-v2/kosong/model/model';
-import type { ProvidersChangedEvent } from '@pymodel/agent-core-v2/kosong/provider/provider';
+import type { ModelsChangedEvent } from '@pymodel/agent-core-v2/llm-adapter/model/model';
+import type { ProvidersChangedEvent } from '@pymodel/agent-core-v2/llm-adapter/provider/provider';
 import type { ReloadSummary } from '@pymodel/agent-core-v2/app/plugin/types';
 import type { IOAuthService } from '@pymodel/agent-core-v2/app/auth/auth';
 

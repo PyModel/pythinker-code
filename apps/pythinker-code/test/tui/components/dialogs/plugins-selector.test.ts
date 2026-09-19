@@ -195,6 +195,33 @@ describe('plugins selector dialogs', () => {
     })).toBe('third-party');
   });
 
+  it('trusts the .ai Pythinker plugin hosts with the same path rules', () => {
+    const labelFor = (originalSource: string) =>
+      pluginTrustLabel({
+        id: 'demo',
+        displayName: 'Demo',
+        enabled: true,
+        state: 'ok',
+        skillCount: 0,
+        mcpServerCount: 0,
+        enabledMcpServerCount: 0,
+        hookCount: 0,
+        commandCount: 0,
+        hasErrors: false,
+        source: 'zip-url',
+        originalSource,
+      });
+    // code.kimi.ai mirrors the cdnBase rules; cdn.kimi.ai the content-CDN ones.
+    expect(labelFor('https://code.kimi.ai/pythinker-code/plugins/official/pythinker-datasource.zip')).toBe('official');
+    expect(labelFor('https://code.kimi.ai/pythinker-code/plugins/curated/superpowers.zip')).toBe('curated');
+    expect(labelFor('https://cdn.kimi.ai/pythinker-computer-use/latest/pythinker-cu-plugin.zip')).toBe('official');
+    expect(labelFor('https://cdn.kimi.ai/pythinker-computer-use-windows/latest/pythinker-cu-win-plugin.zip')).toBe('official');
+    // Non-plugin paths on the .ai hosts, and lookalike hosts, stay third-party.
+    expect(labelFor('https://code.kimi.ai/demo.zip')).toBe('third-party');
+    expect(labelFor('https://cdn.kimi.ai/unrelated/plugin.zip')).toBe('third-party');
+    expect(labelFor('https://code.kimi.ai.example.test/pythinker-code/plugins/official/x.zip')).toBe('third-party');
+  });
+
   it('recognizes installed plugins by official provenance', () => {
     const base = {
       id: 'pythinker-datasource',
@@ -213,6 +240,11 @@ describe('plugins selector dialogs', () => {
       ...base,
       source: 'zip-url',
       originalSource: 'https://code.kimi.com/pythinker-code/plugins/official/pythinker-datasource.zip',
+    })).toBe(true);
+    expect(isOfficialPluginInstall({
+      ...base,
+      source: 'zip-url',
+      originalSource: 'https://code.kimi.ai/pythinker-code/plugins/official/pythinker-datasource.zip',
     })).toBe(true);
     expect(isOfficialPluginInstall({
       ...base,
@@ -272,6 +304,16 @@ describe('plugins selector dialogs', () => {
         'https://cdn.kimi.com/pythinker-computer-use-windows/latest/pythinker-cu-win-plugin.zip',
       ),
     ).toBe(true);
+    // The .ai region family follows the same path rules.
+    expect(isOfficialPluginSource('https://code.kimi.ai/pythinker-code/plugins/official/pythinker-datasource.zip')).toBe(true);
+    expect(isOfficialPluginSource('https://cdn.kimi.ai/pythinker-computer-use/latest/pythinker-cu-plugin.zip')).toBe(true);
+    expect(
+      isOfficialPluginSource(
+        'https://cdn.kimi.ai/pythinker-computer-use-windows/latest/pythinker-cu-win-plugin.zip',
+      ),
+    ).toBe(true);
+    expect(isOfficialPluginSource('https://code.kimi.ai/pythinker-code/plugins/curated/superpowers.zip')).toBe(false);
+    expect(isOfficialPluginSource('https://cdn.kimi.ai/unrelated/plugin.zip')).toBe(false);
     // Curated and other Pythinker CDN paths are not "official" for the install gate.
     expect(isOfficialPluginSource('https://code.kimi.com/pythinker-code/plugins/curated/superpowers.zip')).toBe(false);
     expect(isOfficialPluginSource('https://code.kimi.com/pythinker-code/plugins/foo.zip')).toBe(false);

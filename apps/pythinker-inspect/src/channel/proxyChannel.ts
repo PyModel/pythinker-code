@@ -1,6 +1,6 @@
 /**
  * `ProxyChannel` — an `IChannel` bound to one Service, routing `call`s to
- * kap-server's `/api/v1/debug` HTTP surface. Every call `POST`s the method
+ * agent-gateway's `/api/v1/debug` HTTP surface. Every call `POST`s the method
  * name to the Service base URL with the complete argument array as the JSON
  * body, then unwraps the project envelope: a non-zero `code` throws
  * `RPCError`, otherwise `data` is returned. Non-function members answer as

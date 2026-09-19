@@ -29,6 +29,7 @@ const appState: AppState = {
   planMode: false,
   inputMode: 'prompt',
   dynamicWorkflowMode: false,
+  towerMode: false,
   theme: 'dark',
   editorCommand: null,
   notifications: { enabled: true, condition: 'unfocused' },

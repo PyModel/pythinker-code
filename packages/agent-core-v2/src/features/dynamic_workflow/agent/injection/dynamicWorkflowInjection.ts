@@ -1,9 +1,9 @@
 import { Disposable } from '#/_base/di/lifecycle';
-import {
-  IAgentContextInjectorService,
-  type ContextInjectionContext,
-  type ContextInjectionResult,
-} from '#/agent/contextInjector/contextInjector';
+import type { IAgentReminderService } from '#/features/reminder/reminderService';
+import type {
+  ContextInjectionContext,
+  ContextInjectionResult,
+} from '#/features/reminder/types';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 
 import DYNAMIC_WORKFLOW_MODE_ENTER_REMINDER from '../enter-reminder.md?raw';
@@ -25,7 +25,7 @@ export interface DynamicWorkflowInjectionOptions {
 export class DynamicWorkflowInjection extends Disposable {
   constructor(
     private readonly options: DynamicWorkflowInjectionOptions,
-    @IAgentContextInjectorService injector: IAgentContextInjectorService,
+    injector: IAgentReminderService,
     @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
   ) {
     super();

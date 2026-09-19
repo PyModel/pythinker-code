@@ -12,6 +12,8 @@ Write the objective after `/goal`:
 
 Pythinker Code saves the objective, sends it as the next user message, and starts goal mode. After each turn, it checks whether the goal is complete, blocked, paused, or still active.
 
+Objectives are capped at 4000 characters; a longer objective is rejected with a warning, and the typed text is kept in the input box for editing.
+
 Goals work best when the objective names the finish line and the evidence that proves it:
 
 ```sh
@@ -103,6 +105,8 @@ A goal can stop in three ways:
 - **blocked**: Pythinker Code needs input, cannot complete the goal as stated, or reached a budget limit. When the agent blocks a goal, it writes a short message explaining why.
 
 Write stop conditions into the objective. `/goal` does not have a separate stop-limit flag.
+
+Time budgets count only while the goal is active and its session is open. Closing the session saves the elapsed time and pauses the goal. After reopening the session, use `/goal resume` to continue with the remaining budget; time spent closed or paused does not count.
 
 ## Manage goals in the web UI
 

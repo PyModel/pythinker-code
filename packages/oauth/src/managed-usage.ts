@@ -27,6 +27,7 @@ import { isRecord } from './utils';
 const MANAGED_PREFIX = 'managed:';
 const PYTHINKER_CODE_PLATFORM_ID = 'pythinker-code';
 export const DEFAULT_PYTHINKER_CODE_BASE_URL = 'https://api.kimi.com/coding/v1';
+export const GLOBAL_PYTHINKER_CODE_BASE_URL = 'https://api.kimi.ai/coding/v1';
 
 export function isManagedPythinkerCode(providerKey?: string | null): boolean {
   if (!providerKey) return false;
@@ -47,17 +48,25 @@ export function pythinkerCodeUsageUrl(): string {
 }
 
 /**
- * Strict match against the managed Pythinker Code endpoint: both URLs are parsed
+ * Strict match against the managed Pythinker Code endpoints: both URLs are parsed
  * and compared by lowercase origin + pathname without trailing slashes.
  * Anything that fails to parse — or differs in host or path, e.g. a proxy,
  * gateway, or self-hosted mirror — is NOT the managed endpoint and must not
  * be auto-refreshed, because its `/models` schema cannot be trusted.
+ *
+ * The managed set is the `PYTHINKER_CODE_BASE_URL` override when set (the env
+ * keeps full control); otherwise both official deployments (.com and .ai).
  */
 export function isManagedPythinkerCodeBaseUrl(baseUrl: string | undefined): boolean {
   if (baseUrl === undefined) return false;
-  const managed = parseNormalizedUrl(pythinkerCodeBaseUrl());
   const candidate = parseNormalizedUrl(baseUrl);
-  return managed !== undefined && candidate !== undefined && managed === candidate;
+  if (candidate === undefined) return false;
+  const envOverride = process.env['PYTHINKER_CODE_BASE_URL'];
+  const managed =
+    envOverride !== undefined
+      ? [envOverride]
+      : [DEFAULT_PYTHINKER_CODE_BASE_URL, GLOBAL_PYTHINKER_CODE_BASE_URL];
+  return managed.some((url) => parseNormalizedUrl(url) === candidate);
 }
 
 function parseNormalizedUrl(value: string): string | undefined {

@@ -1,12 +1,4 @@
 import {
-  ErrorCodes,
-  PythinkerError,
-  resolvePythinkerHome,
-  type Logger,
-  type ModelProvider,
-  type ResolvedRuntimeProvider,
-} from '@pymodel/agent-core';
-import {
   createPythinkerDefaultHeaders,
   PYTHINKER_CODE_FLOW_CONFIG,
   PYTHINKER_CODE_PROVIDER_NAME,
@@ -22,7 +14,11 @@ import type {
   ProviderRequestAuth,
 } from '@pymodel/kosong';
 import { APIStatusError, UNKNOWN_CAPABILITY } from '@pymodel/kosong';
+import { resolvePythinkerHome } from '@pymodel/agent-core-v2';
 
+import { ErrorCodes, PythinkerError } from '#/errors';
+import type { Logger } from '#/logging/index';
+import type { ModelProvider, ResolvedRuntimeProvider } from '#/model-provider';
 import { mapOAuthTokenError } from '#/oauth-error';
 
 export interface PythinkerForCodingProviderOptions extends PythinkerHostIdentity {

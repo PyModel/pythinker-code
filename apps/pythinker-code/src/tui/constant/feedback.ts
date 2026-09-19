@@ -13,7 +13,7 @@ export {
   FEEDBACK_ISSUE_URL,
   FEEDBACK_TELEMETRY_EVENT,
   FEEDBACK_VERSION_PREFIX,
-  PYTHINKER_CODE_SIGNUP_URL,
+  pythinkerCodeSignupUrl,
 } from '#/constant/app';
 
 export const FEEDBACK_STATUS_SUBMITTING = 'Submitting feedback…';

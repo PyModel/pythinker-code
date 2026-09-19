@@ -16,8 +16,7 @@
  * every Service.
  */
 
-import { IAgentActivityView } from '@pymodel/agent-core-v2/agent/activityView/activityView';
-import { IAgentGoalService } from '@pymodel/agent-core-v2/agent/goal/goal';
+import { IAgentLoopService } from '@pymodel/agent-core-v2/agent/loop/loop';
 import { IAgentMcpService } from '@pymodel/agent-core-v2/agent/mcp/mcp';
 import { IAgentPermissionModeService } from '@pymodel/agent-core-v2/agent/permissionMode/permissionMode';
 import { IAgentPermissionRulesService } from '@pymodel/agent-core-v2/agent/permissionRules/permissionRules';
@@ -25,16 +24,11 @@ import { IAgentPlanService } from '@pymodel/agent-core-v2/features/plan/plan';
 import { IAgentProfileService } from '@pymodel/agent-core-v2/agent/profile/profile';
 import { IAgentDynamicWorkflowService } from '@pymodel/agent-core-v2/features/dynamic_workflow/agent/dynamic_workflow';
 import { IAgentTaskService } from '@pymodel/agent-core-v2/agent/task/task';
-import { IAgentTokenCountingService } from '@pymodel/agent-core-v2/agent/tokenCounting/tokenCounting';
 import { IAgentToolRegistryService } from '@pymodel/agent-core-v2/agent/toolRegistry/toolRegistry';
-import { IAgentUsageService } from '@pymodel/agent-core-v2/agent/usage/usage';
 import { IAuthSummaryService } from '@pymodel/agent-core-v2/app/auth/auth';
 import { IConfigService } from '@pymodel/agent-core-v2/app/config/config';
 import { IFlagService } from '@pymodel/agent-core-v2/app/flag/flag';
-import { IProviderService } from '@pymodel/agent-core-v2/kosong/provider/provider';
-import { ISessionApprovalService } from '@pymodel/agent-core-v2/session/approval/approval';
-import { ISessionInteractionService } from '@pymodel/agent-core-v2/session/interaction/interaction';
-import { ISessionQuestionService } from '@pymodel/agent-core-v2/session/question/question';
+import { IProviderService } from '@pymodel/agent-core-v2/llm-adapter/provider/provider';
 import { ISessionInitService } from '@pymodel/agent-core-v2/features/sessionInit/sessionInit';
 import { ISessionMetadata } from '@pymodel/agent-core-v2/session/sessionMetadata/sessionMetadata';
 import { ISessionWorkspaceContext } from '@pymodel/agent-core-v2/session/workspaceContext/workspaceContext';
@@ -115,24 +109,6 @@ export const SESSION_PANELS: readonly ServicePanelDef[] = [
     ],
   },
   {
-    id: String(ISessionApprovalService),
-    label: 'SessionApprovalService',
-    scope: 'session',
-    fetch: (svc) => call(svc, 'listPending'),
-  },
-  {
-    id: String(ISessionQuestionService),
-    label: 'SessionQuestionService',
-    scope: 'session',
-    fetch: (svc) => call(svc, 'listPending'),
-  },
-  {
-    id: String(ISessionInteractionService),
-    label: 'SessionInteractionService',
-    scope: 'session',
-    fetch: (svc) => call(svc, 'listPending'),
-  },
-  {
     id: String(ISessionWorkspaceContext),
     label: 'SessionWorkspaceContext',
     scope: 'session',
@@ -151,10 +127,10 @@ export const SESSION_PANELS: readonly ServicePanelDef[] = [
 
 export const AGENT_PANELS: readonly ServicePanelDef[] = [
   {
-    id: String(IAgentActivityView),
-    label: 'AgentActivityView',
+    id: String(IAgentLoopService),
+    label: 'AgentLoopService',
     scope: 'agent',
-    fetch: (svc) => call(svc, 'state'),
+    fetch: (svc) => call(svc, 'activitySnapshot'),
   },
   {
     id: String(IAgentProfileService),
@@ -168,20 +144,7 @@ export const AGENT_PANELS: readonly ServicePanelDef[] = [
     }),
     actions: [
       { label: 'Set model', input: 'Model id', run: (svc, model) => call(svc, 'setModel', model) },
-      { label: 'Refresh system prompt', run: (svc) => call(svc, 'refreshSystemPrompt') },
     ],
-  },
-  {
-    id: String(IAgentUsageService),
-    label: 'AgentUsageService',
-    scope: 'agent',
-    fetch: (svc) => call(svc, 'status'),
-  },
-  {
-    id: String(IAgentTokenCountingService),
-    label: 'AgentTokenCountingService',
-    scope: 'agent',
-    fetch: (svc) => call(svc, 'get'),
   },
   {
     id: String(IAgentPermissionModeService),
@@ -208,17 +171,6 @@ export const AGENT_PANELS: readonly ServicePanelDef[] = [
       { label: 'enter', run: (svc) => call(svc, 'enter') },
       { label: 'cancel', run: (svc) => call(svc, 'cancel') },
       { label: 'clear', run: (svc) => call(svc, 'clear') },
-    ],
-  },
-  {
-    id: String(IAgentGoalService),
-    label: 'AgentGoalService',
-    scope: 'agent',
-    fetch: (svc) => call(svc, 'getGoal'),
-    actions: [
-      { label: 'pause', run: (svc) => call(svc, 'pauseGoal', {}) },
-      { label: 'resume', run: (svc) => call(svc, 'resumeGoal', {}) },
-      { label: 'cancel', danger: true, run: (svc) => call(svc, 'cancelGoal', {}) },
     ],
   },
   {

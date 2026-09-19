@@ -275,6 +275,28 @@ describe('pythinker-webbridge entry', () => {
     expect(reports.some(([step]) => step === 'skill')).toBe(true);
   });
 
+  it('installs the plugin zip from the global CDN when the region is global', async () => {
+    const plugins = fakePlugins([]);
+    const host = fakeHostProcess();
+    const { fetchImpl } = fakeFetch({
+      statusSequence: [{ running: true, version: 'v1.11.3', extension_connected: true }],
+    });
+    const entry = createPythinkerWebbridgeEntry(
+      makeCtx({
+        plugins: plugins.service,
+        hostProcess: host.service,
+        fetchImpl,
+        resolveRegion: () => 'global',
+      }),
+    );
+
+    await entry.install(() => {});
+
+    expect(plugins.installs).toEqual([
+      'https://code.kimi.ai/pythinker-code/plugins/official/pythinker-webbridge.zip',
+    ]);
+  });
+
   it('never starts the daemon when one is already running (coexistence)', async () => {
     const plugins = fakePlugins([]);
     const host = fakeHostProcess();

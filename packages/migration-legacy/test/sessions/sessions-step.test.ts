@@ -28,13 +28,13 @@ afterEach(async () => {
 });
 
 describe('migrateSessionsStep (multi-workdir fixture)', () => {
-  it('migrates real local sessions, skips placeholders/empty, skips non-local kaos', async () => {
+  it('migrates real local sessions, skips placeholders/empty, skips non-local pyaos', async () => {
     const report = await migrateSessionsStep({
       sourceHome: FIXTURE_PYTHINKER,
       targetHome,
     });
     expect(report.bucketsScanned).toBe(3);
-    expect(report.bucketsSkippedNonlocalKaos).toBe(1);
+    expect(report.bucketsSkippedNonlocalPyaos).toBe(1);
     expect(report.bucketsSkippedNoWorkdirFound).toBe(0);
     expect(report.sessionsMigrated).toBe(2); // a1, a2
     expect(report.sessionsSkippedPlaceholder).toBe(1);
@@ -119,7 +119,7 @@ describe('migrateSessionsStep (multi-workdir fixture)', () => {
       const workdir = '/Users/me/corrupt-proj';
       await writeFile(
         join(src, 'pythinker.json'),
-        JSON.stringify({ work_dirs: [{ path: workdir, kaos: 'local' }] }),
+        JSON.stringify({ work_dirs: [{ path: workdir, pyaos: 'local' }] }),
       );
       const bucket = join(src, 'sessions', oldMd5BucketName(workdir));
       await mkdir(join(bucket, 'corrupt-uuid'), { recursive: true });
@@ -150,7 +150,7 @@ describe('migrateSessionsStep (multi-workdir fixture)', () => {
       const workdir = '/Users/me/empty-proj';
       await writeFile(
         join(src, 'pythinker.json'),
-        JSON.stringify({ work_dirs: [{ path: workdir, kaos: 'local' }] }),
+        JSON.stringify({ work_dirs: [{ path: workdir, pyaos: 'local' }] }),
       );
       const bucket = join(src, 'sessions', oldMd5BucketName(workdir));
       await mkdir(join(bucket, 'real-uuid'), { recursive: true });
@@ -183,7 +183,7 @@ describe('migrateSessionsStep (multi-workdir fixture)', () => {
       const workdir = '/Users/me/missing-context-project';
       await writeFile(
         join(src, 'pythinker.json'),
-        JSON.stringify({ work_dirs: [{ path: workdir, kaos: 'local' }] }),
+        JSON.stringify({ work_dirs: [{ path: workdir, pyaos: 'local' }] }),
       );
       const sessionDir = join(src, 'sessions', oldMd5BucketName(workdir), 'missing-context');
       await mkdir(sessionDir, { recursive: true });
@@ -194,10 +194,68 @@ describe('migrateSessionsStep (multi-workdir fixture)', () => {
       expect(report.sessionsFailed).toEqual([
         {
           sourcePath: sessionDir,
-          reason: expect.stringMatching(/context\.jsonl.*missing.*unreadable/i),
+          reason: expect.stringMatching(/context.*missing.*unreadable/i),
         },
       ]);
       expect(report.sessionsSkippedMalformed).toBe(0);
+    } finally {
+      await rm(src, { recursive: true, force: true });
+    }
+  });
+
+  it('migrates historical flat <uuid>.jsonl sessions end-to-end', async () => {
+    const src = await mkdtemp(join(tmpdir(), 'flat-sessions-src-'));
+    try {
+      const workdir = '/Users/me/flat-project';
+      const bucket = join(src, 'sessions', oldMd5BucketName(workdir));
+      await mkdir(bucket, { recursive: true });
+      await writeFile(
+        join(src, 'pythinker.json'),
+        JSON.stringify({ work_dirs: [{ path: workdir, pyaos: 'local' }] }),
+      );
+      await writeFile(
+        join(bucket, 'flat-1.jsonl'),
+        '{"role":"user","content":"session one"}\n',
+      );
+      await writeFile(
+        join(bucket, 'flat-2.jsonl'),
+        '{"role":"user","content":"session two"}\n',
+      );
+
+      const report = await migrateSessionsStep({ sourceHome: src, targetHome });
+
+      expect(report.sessionsMigrated).toBe(2);
+      expect(report.sessionsFailed).toEqual([]);
+      const index = await readFile(targetSessionIndex(targetHome), 'utf-8');
+      expect(index).toContain('ses_flat-1');
+      expect(index).toContain('ses_flat-2');
+    } finally {
+      await rm(src, { recursive: true, force: true });
+    }
+  });
+
+  it('migrates a title-only session found by the bucket scan', async () => {
+    const src = await mkdtemp(join(tmpdir(), 'title-only-src-'));
+    try {
+      const workdir = '/Users/me/title-project';
+      const sessionDir = join(src, 'sessions', oldMd5BucketName(workdir), 'titled-1');
+      await mkdir(sessionDir, { recursive: true });
+      await writeFile(
+        join(src, 'pythinker.json'),
+        JSON.stringify({ work_dirs: [{ path: workdir, pyaos: 'local' }] }),
+      );
+      await writeFile(join(sessionDir, 'context.jsonl'), '');
+      await writeFile(
+        join(sessionDir, 'state.json'),
+        JSON.stringify({ custom_title: 'Named but empty' }),
+      );
+
+      const report = await migrateSessionsStep({ sourceHome: src, targetHome });
+
+      expect(report.sessionsMigrated).toBe(1);
+      expect(report.sessionsSkippedEmpty).toBe(0);
+      const index = await readFile(targetSessionIndex(targetHome), 'utf-8');
+      expect(index).toContain('ses_titled-1');
     } finally {
       await rm(src, { recursive: true, force: true });
     }
@@ -209,7 +267,7 @@ describe('migrateSessionsStep (multi-workdir fixture)', () => {
       const workdir = '/Users/me/unreadable-context-project';
       await writeFile(
         join(src, 'pythinker.json'),
-        JSON.stringify({ work_dirs: [{ path: workdir, kaos: 'local' }] }),
+        JSON.stringify({ work_dirs: [{ path: workdir, pyaos: 'local' }] }),
       );
       const sessionDir = join(src, 'sessions', oldMd5BucketName(workdir), 'bad-context');
       await mkdir(join(sessionDir, 'context.jsonl'), { recursive: true });
@@ -219,7 +277,7 @@ describe('migrateSessionsStep (multi-workdir fixture)', () => {
       expect(report.sessionsFailed).toEqual([
         {
           sourcePath: sessionDir,
-          reason: expect.stringMatching(/context\.jsonl.*unreadable/i),
+          reason: expect.stringMatching(/context.*unreadable/i),
         },
       ]);
     } finally {
@@ -253,7 +311,7 @@ describe('migrateSessionsStep (multi-workdir fixture)', () => {
       const workdir = '/Users/me/unreadable-bucket-project';
       await writeFile(
         join(src, 'pythinker.json'),
-        JSON.stringify({ work_dirs: [{ path: workdir, kaos: 'local' }] }),
+        JSON.stringify({ work_dirs: [{ path: workdir, pyaos: 'local' }] }),
       );
       const bucket = join(src, 'sessions', oldMd5BucketName(workdir));
       await mkdir(join(src, 'sessions'), { recursive: true });

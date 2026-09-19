@@ -1,5 +1,7 @@
 import { homedir } from 'node:os';
 
+import { PYTHINKER_CODE_PROVIDER_NAME, resolvePythinkerRegion } from '@pymodel/pythinker-code-oauth';
+
 import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Disposable } from '#/_base/di/lifecycle';
@@ -8,6 +10,7 @@ import { ILogService } from '#/_base/log/log';
 import { Error2 } from '#/errors';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IPluginService } from '#/app/plugin/plugin';
+import { IProviderService } from '#/llm-adapter/provider/provider';
 import { IHostProcessService } from '#/os/interface/hostProcess';
 
 import { ICapabilityService } from './capability';
@@ -49,6 +52,7 @@ export class CapabilityService extends Disposable implements ICapabilityService 
     @IPluginService plugins: IPluginService,
     @IHostProcessService hostProcess: IHostProcessService,
     @ILogService private readonly log: ILogService,
+    @IProviderService providers: IProviderService,
     entriesOverride?: readonly CapabilityEntry[],
   ) {
     super();
@@ -62,6 +66,17 @@ export class CapabilityService extends Disposable implements ICapabilityService 
         userHomeDir: homedir(),
         plugins,
         hostProcess,
+        resolveRegion: () => {
+          const oauth = providers.get(PYTHINKER_CODE_PROVIDER_NAME)?.oauth;
+          return resolvePythinkerRegion({
+            configuredOAuthHost: oauth?.oauthHost,
+            configuredOAuthKey: oauth?.key,
+            readMarker:
+              (bootstrap.getEnv('PYTHINKER_CODE_REGION_MARKER') ??
+                process.env['PYTHINKER_CODE_REGION_MARKER']) !== 'off',
+            homeDir: bootstrap.homeDir,
+          });
+        },
       };
       this.entries = new Map<CapabilityId, CapabilityEntry>([
         ['pythinker-cu', createPythinkerCuEntry(ctx)],

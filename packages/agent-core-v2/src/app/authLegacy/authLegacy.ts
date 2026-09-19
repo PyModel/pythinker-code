@@ -17,18 +17,17 @@ export const managedProviderSummarySchema = z.object({
 export type ManagedProviderSummary = z.infer<typeof managedProviderSummarySchema>;
 
 export const authSummarySchema = z.object({
-  ready: z.boolean(),
+  models_ready: z.boolean(),
   providers_count: z.number().int().nonnegative(),
-  default_model: z.string().nullable(),
   managed_provider: managedProviderSummarySchema.nullable(),
 });
 export type AuthSummary = z.infer<typeof authSummarySchema>;
 
-export interface IAuthLegacyService {
+export interface IAuthStatusService {
   readonly _serviceBrand: undefined;
 
   get(): Promise<AuthSummary>;
 }
 
-export const IAuthLegacyService: ServiceIdentifier<IAuthLegacyService> =
-  createDecorator<IAuthLegacyService>('authLegacyService');
+export const IAuthStatusService: ServiceIdentifier<IAuthStatusService> =
+  createDecorator<IAuthStatusService>('authStatusService');

@@ -1,10 +1,7 @@
-import {
-  ErrorCodes,
-  PythinkerError,
-  type AgentContextData,
-  type PythinkerErrorCode,
-  type DynamicWorkflowModeTrigger,
-} from '@pymodel/agent-core';
+import type { DynamicWorkflowModeTrigger } from '@pymodel/agent-core-v2/features/dynamic_workflow/agent/dynamic_workflow';
+
+import type { AgentContextData } from '#/context';
+import { ErrorCodes, PythinkerError, type PythinkerErrorCode } from '#/errors';
 
 import { type ApprovalHandler, type Event, type QuestionHandler } from '#/events';
 import type { SDKRpcClientBase } from '#/rpc';
@@ -339,6 +336,23 @@ export class Session {
     } else {
       await this.rpc.setDynamicWorkflowMode({ sessionId: this.id, enabled: false });
     }
+  }
+
+  async setTowerMode(enabled: boolean, base?: string): Promise<void> {
+    this.ensureOpen();
+    if (typeof enabled !== 'boolean') {
+      throw new PythinkerError(
+        ErrorCodes.REQUEST_INVALID,
+        'Session tower mode must be a boolean',
+      );
+    }
+    if (base !== undefined && typeof base !== 'string') {
+      throw new PythinkerError(
+        ErrorCodes.REQUEST_INVALID,
+        'Session tower mode base must be a string',
+      );
+    }
+    await this.rpc.setTowerMode({ sessionId: this.id, enabled, base });
   }
 
   async getPlan(): Promise<SessionPlan> {

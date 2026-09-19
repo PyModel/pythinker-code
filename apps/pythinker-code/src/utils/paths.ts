@@ -21,6 +21,8 @@ import {
   PYTHINKER_CODE_NATIVE_STAGED_STATE_FILE_NAME,
   PYTHINKER_CODE_NATIVE_STAGING_DIR_NAME,
   PYTHINKER_CODE_PLUGIN_UPDATE_NOTICE_STATE_FILE_NAME,
+  PYTHINKER_CODE_RECOMMENDED_EFFORT_STATE_FILE_NAME,
+  PYTHINKER_CODE_SURVEY_STATE_FILE_NAME,
   PYTHINKER_CODE_UPDATE_INSTALL_LOCK_FILE_NAME,
   PYTHINKER_CODE_UPDATE_INSTALL_STATE_FILE_NAME,
   PYTHINKER_CODE_UPDATE_DIR_NAME,
@@ -124,6 +126,14 @@ export function getNativeStagedStateFile(exePath: string): string {
  */
 export function getBannerStateFile(): string {
   return join(getCacheDir(), PYTHINKER_CODE_BANNER_DIR_NAME, PYTHINKER_CODE_BANNER_STATE_FILE_NAME);
+}
+
+export function getSurveyStateFile(): string {
+  return join(getDataDir(), PYTHINKER_CODE_SURVEY_STATE_FILE_NAME);
+}
+
+export function getRecommendedEffortStateFile(): string {
+  return join(getDataDir(), PYTHINKER_CODE_RECOMMENDED_EFFORT_STATE_FILE_NAME);
 }
 
 /**

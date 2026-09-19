@@ -1,0 +1,333 @@
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+
+import { encodeWorkDirKey } from '@pymodel/agent-core-v2/_base/utils/workdir-slug';
+
+import { type RunningServer, startServer } from '../src/start';
+import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
+import { authHeaders } from './helpers/auth';
+
+interface Envelope<T> {
+  code: number;
+  msg: string;
+  data: T;
+  request_id: string;
+  details?: { path: string; message: string }[];
+}
+
+interface WorkspaceWire {
+  id: string;
+  root: string;
+  name: string;
+  created_at: string;
+  last_opened_at: string;
+  session_count: number;
+}
+
+interface ListWire {
+  items: WorkspaceWire[];
+}
+
+interface AddDirWire {
+  project_root: string;
+  config_path: string;
+  additional_dirs: string[];
+  persisted: boolean;
+}
+
+describe('server-v2 /api/v1/workspaces', () => {
+  let server: RunningServer | undefined;
+  let home: string | undefined;
+  let base: string;
+
+  beforeAll(async () => {
+    home = await mkdtemp(join(tmpdir(), 'pythinker-server-v2-workspaces-'));
+    server = await startServer({
+      hostIdentity: TEST_HOST_IDENTITY,
+      host: '127.0.0.1',
+      port: 0,
+      homeDir: home,
+      logLevel: 'silent',
+    });
+    base = `http://127.0.0.1:${server.port}`;
+  });
+
+  afterAll(async () => {
+    if (server !== undefined) {
+      await server.close();
+      server = undefined;
+    }
+    if (home !== undefined) {
+      await rm(home, { recursive: true, force: true });
+      home = undefined;
+    }
+  });
+
+  async function postJson<T>(
+    path: string,
+    body?: unknown,
+  ): Promise<{ status: number; body: Envelope<T> }> {
+    const hasBody = body !== undefined;
+    const res = await fetch(`${base}${path}`, {
+      method: 'POST',
+      headers: authHeaders(
+        server as RunningServer,
+        hasBody ? { 'content-type': 'application/json' } : {},
+      ),
+      body: hasBody ? JSON.stringify(body) : undefined,
+    } as never);
+    return { status: res.status, body: (await res.json()) as Envelope<T> };
+  }
+
+  async function patchJson<T>(
+    path: string,
+    body?: unknown,
+  ): Promise<{ status: number; body: Envelope<T> }> {
+    const res = await fetch(`${base}${path}`, {
+      method: 'PATCH',
+      headers: authHeaders(server as RunningServer, { 'content-type': 'application/json' }),
+      body: JSON.stringify(body ?? {}),
+    } as never);
+    return { status: res.status, body: (await res.json()) as Envelope<T> };
+  }
+
+  async function deleteJson<T>(path: string): Promise<{ status: number; body: Envelope<T> }> {
+    const res = await fetch(`${base}${path}`, {
+      method: 'DELETE',
+      headers: authHeaders(server as RunningServer),
+    } as never);
+    return { status: res.status, body: (await res.json()) as Envelope<T> };
+  }
+
+  async function getJson<T>(path: string): Promise<{ status: number; body: Envelope<T> }> {
+    const res = await fetch(`${base}${path}`, {
+      headers: authHeaders(server as RunningServer),
+    } as never);
+    return { status: res.status, body: (await res.json()) as Envelope<T> };
+  }
+
+  it('creates a workspace with the full wire shape', async () => {
+    const root = home as string;
+    const { status, body } = await postJson<WorkspaceWire>('/api/v1/workspaces', {
+      root,
+      name: 'proj',
+    });
+    expect(status).toBe(200);
+    expect(body.code).toBe(0);
+    expect(body.data.root).toBe(root);
+    expect(body.data.name).toBe('proj');
+    expect(body.data.id).toMatch(/^wd_[a-z0-9._-]+_[0-9a-f]{12}$/);
+    expect(typeof body.data.session_count).toBe('number');
+    expect(Number.isNaN(Date.parse(body.data.created_at))).toBe(false);
+    expect(Number.isNaN(Date.parse(body.data.last_opened_at))).toBe(false);
+  });
+
+  it('derives the default name from the root when name is omitted', async () => {
+    const root = home as string;
+    const { body } = await postJson<WorkspaceWire>('/api/v1/workspaces', { root });
+    expect(body.code).toBe(0);
+    expect(body.data.name.length).toBeGreaterThan(0);
+  });
+
+  it('is idempotent on root (createOrTouch)', async () => {
+    const root = home as string;
+    const first = await postJson<WorkspaceWire>('/api/v1/workspaces', { root });
+    const second = await postJson<WorkspaceWire>('/api/v1/workspaces', { root });
+    expect(first.body.data.id).toBe(second.body.data.id);
+  });
+
+  it('rejects a relative root (40001)', async () => {
+    const { body } = await postJson<null>('/api/v1/workspaces', { root: 'relative/path' });
+    expect(body.code).toBe(40001);
+    expect(body.details?.[0]?.path).toBe('root');
+  });
+
+  it('rejects a nonexistent root (40409)', async () => {
+    const missing = join(home as string, 'does-not-exist');
+    const { body } = await postJson<null>('/api/v1/workspaces', { root: missing });
+    expect(body.code).toBe(40409);
+  });
+
+  it('lists registered workspaces', async () => {
+    const root = home as string;
+    const created = await postJson<WorkspaceWire>('/api/v1/workspaces', { root });
+    const { body } = await getJson<ListWire>('/api/v1/workspaces');
+    expect(body.code).toBe(0);
+    expect(body.data.items.some((w) => w.id === created.body.data.id)).toBe(true);
+  });
+
+  it('renames a workspace via PATCH', async () => {
+    const root = home as string;
+    const created = await postJson<WorkspaceWire>('/api/v1/workspaces', { root });
+    const id = created.body.data.id;
+
+    const updated = await patchJson<WorkspaceWire>(`/api/v1/workspaces/${id}`, { name: 'renamed' });
+    expect(updated.body.code).toBe(0);
+    expect(updated.body.data.name).toBe('renamed');
+    expect(updated.body.data.id).toBe(id);
+  });
+
+  it('returns 40410 when patching an unknown workspace', async () => {
+    const { body } = await patchJson<null>('/api/v1/workspaces/wd_missing_000000000000', {
+      name: 'nope',
+    });
+    expect(body.code).toBe(40410);
+  });
+
+  it('deletes a workspace and 40410 on a second delete', async () => {
+    const root = home as string;
+    const created = await postJson<WorkspaceWire>('/api/v1/workspaces', { root });
+    const id = created.body.data.id;
+
+    const deleted = await deleteJson<{ deleted: boolean }>(`/api/v1/workspaces/${id}`);
+    expect(deleted.body.code).toBe(0);
+    expect(deleted.body.data).toEqual({ deleted: true });
+
+    const again = await deleteJson<null>(`/api/v1/workspaces/${id}`);
+    expect(again.body.code).toBe(40410);
+  });
+
+  it('reflects session_count for sessions created in the workspace', async () => {
+    const root = home as string;
+    const created = await postJson<WorkspaceWire>('/api/v1/workspaces', { root });
+    expect(created.body.data.session_count).toBe(0);
+
+    const session = await postJson<{ id: string }>('/api/v1/sessions', { metadata: { cwd: root } });
+    expect(session.body.code).toBe(0);
+
+    const { body } = await getJson<ListWire>('/api/v1/workspaces');
+    const ws = body.data.items.find((w) => w.id === created.body.data.id);
+    expect(ws?.session_count).toBe(1);
+  });
+
+  it('sums session_count across legacy split buckets of one root', async () => {
+    const typedRoot = 'C:\\Users\\Foo\\Proj';
+    const lowerRoot = 'c:\\users\\foo\\proj';
+    const typedId = encodeWorkDirKey(typedRoot);
+    const lowerId = encodeWorkDirKey(lowerRoot);
+    await writeFile(
+      join(home as string, 'workspaces.json'),
+      JSON.stringify({
+        version: 1,
+        workspaces: {
+          [typedId]: {
+            root: typedRoot,
+            name: 'proj',
+            created_at: '2024-01-01T00:00:00.000Z',
+            last_opened_at: '2024-01-01T00:00:00.000Z',
+          },
+          [lowerId]: {
+            root: lowerRoot,
+            name: 'proj',
+            created_at: '2024-01-01T00:00:00.000Z',
+            last_opened_at: '2024-01-01T00:00:00.000Z',
+          },
+        },
+      }),
+      'utf8',
+    );
+    const seedBucket = async (
+      wsId: string,
+      sid: string,
+      meta: Record<string, unknown>,
+    ): Promise<void> => {
+      const dir = join(home as string, 'sessions', wsId, sid);
+      await mkdir(dir, { recursive: true });
+      await writeFile(
+        join(dir, 'state.json'),
+        JSON.stringify({ version: 2, cwd: typedRoot, createdAt: 1, updatedAt: 1, ...meta }),
+        'utf8',
+      );
+    };
+    await seedBucket(typedId, 's-typed', {});
+    await seedBucket(lowerId, 's-lower', { archived: true, updatedAt: 2 });
+
+    await vi.waitFor(async () => {
+      const { body } = await getJson<ListWire>('/api/v1/workspaces');
+      expect(body.code).toBe(0);
+      const unions = body.data.items.filter((w) => [typedId, lowerId].includes(w.id));
+      expect(unions).toHaveLength(1);
+      expect(unions[0]?.session_count).toBe(2);
+    });
+  });
+
+  it('adds an additional directory and persists it by default', async () => {
+    const root = home as string;
+    const extra = join(root, 'extra');
+    await mkdir(extra);
+    const created = await postJson<WorkspaceWire>('/api/v1/workspaces', { root });
+    const id = created.body.data.id;
+
+    const { status, body } = await postJson<AddDirWire>(`/api/v1/workspaces/${id}/add-dir`, {
+      path: extra,
+    });
+    expect(status).toBe(200);
+    expect(body.code).toBe(0);
+    expect(body.data.persisted).toBe(true);
+    expect(body.data.additional_dirs).toContain(extra);
+    expect(body.data.project_root).toBe(root);
+    expect(body.data.config_path).toBe(join(root, '.pythinker-code', 'local.toml'));
+    const toml = await readFile(body.data.config_path, 'utf8');
+    expect(toml).toContain('additional_dir');
+    expect(toml).toContain(extra);
+  });
+
+  it('adds a relative directory without persisting when persist is false', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pythinker-server-v2-workspaces-rel-'));
+    const extra = join(root, 'extra-rel');
+    await mkdir(extra);
+    const created = await postJson<WorkspaceWire>('/api/v1/workspaces', { root });
+    const id = created.body.data.id;
+
+    const { body } = await postJson<AddDirWire>(`/api/v1/workspaces/${id}/add-dir`, {
+      path: 'extra-rel',
+      persist: false,
+    });
+    expect(body.code).toBe(0);
+    expect(body.data.persisted).toBe(false);
+    expect(body.data.additional_dirs).toContain(extra);
+    await expect(readFile(body.data.config_path, 'utf8')).rejects.toThrow();
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it('returns 40410 when adding a directory to an unknown workspace', async () => {
+    const { body } = await postJson<null>('/api/v1/workspaces/wd_missing_000000000000/add-dir', {
+      path: '/tmp',
+    });
+    expect(body.code).toBe(40410);
+  });
+
+  it('returns 40409 when the added path does not exist', async () => {
+    const root = home as string;
+    const created = await postJson<WorkspaceWire>('/api/v1/workspaces', { root });
+    const id = created.body.data.id;
+
+    const { body } = await postJson<null>(`/api/v1/workspaces/${id}/add-dir`, {
+      path: join(root, 'does-not-exist'),
+    });
+    expect(body.code).toBe(40409);
+  });
+
+  it('returns 40409 when the added path is a file', async () => {
+    const root = home as string;
+    const file = join(root, 'a-file.txt');
+    await writeFile(file, 'x', 'utf8');
+    const created = await postJson<WorkspaceWire>('/api/v1/workspaces', { root });
+    const id = created.body.data.id;
+
+    const { body } = await postJson<null>(`/api/v1/workspaces/${id}/add-dir`, { path: file });
+    expect(body.code).toBe(40409);
+  });
+
+  it('returns 40001 when path is missing', async () => {
+    const root = home as string;
+    const created = await postJson<WorkspaceWire>('/api/v1/workspaces', { root });
+    const id = created.body.data.id;
+
+    const { body } = await postJson<null>(`/api/v1/workspaces/${id}/add-dir`, {});
+    expect(body.code).toBe(40001);
+  });
+});

@@ -1,6 +1,6 @@
 {
   "name": "@pymodel/pythinker-code-sdk",
-  "version": "0.19.0",
+  "version": "0.20.0",
   "private": true,
   "description": "TypeScript SDK for the Pythinker Code Agent",
   "license": "MIT",
@@ -59,9 +59,8 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
-    "@pymodel/agent-core": "workspace:^",
     "@pymodel/agent-core-v2": "workspace:^",
-    "@pymodel/kaos": "workspace:^",
+    "@pymodel/pyaos": "workspace:^",
     "@pymodel/pythinker-code-oauth": "workspace:^",
     "@pymodel/klient": "workspace:^",
     "@pymodel/kosong": "workspace:^",

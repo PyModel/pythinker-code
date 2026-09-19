@@ -7,7 +7,16 @@ export interface MigrationPlan {
   readonly hasConfig: boolean;
   readonly hasMcp: boolean;
   readonly hasUserHistory: boolean;
-  readonly oauthCredentials: readonly string[]; // basenames found under credentials/
+  readonly hasSkills: boolean;
+  readonly skillsSourceHome?: string;
+  /** Legacy `~/.pythinker/plans/` (share-dir independent) holds plan files to copy. */
+  readonly hasPlans: boolean;
+  /**
+   * OAuth login names that will require a fresh `/login` after migration,
+   * derived from config semantics (providers carrying an `oauth` ref) unioned
+   * with basenames found under credentials/.
+   */
+  readonly oauthCredentials: readonly string[];
   readonly workdirs: readonly WorkDirEntry[];
   readonly detectedPlugins: readonly string[];
   readonly detectedMcpOauthServers: readonly string[];
@@ -26,7 +35,7 @@ export interface SessionMigrationFailure {
 
 /**
  * One workdir bucket (`~/.pythinker/sessions/<md5>/`) with reverse-looked-up
- * path from `~/.pythinker/pythinker.json`. Buckets with kaos != 'local' or no
+ * path from `~/.pythinker/pythinker.json`. Buckets with pyaos != 'local' or no
  * workdir found are excluded from this list (they appear in counters).
  */
 export interface WorkDirEntry {
@@ -88,6 +97,9 @@ export interface MigrationSummary {
     readonly migratedHooks: number;
     /** Count of pythinker-cli hook entries dropped because pythinker-code's schema rejects them. */
     readonly droppedHooks: number;
+    readonly sourceUnreadable: boolean;
+    /** Legacy `device_id` was copied because the target had none of its own. */
+    readonly deviceIdCopied: boolean;
     /**
      * When `wroteSiblingDueToConflict` is true, what landed in
      * `config.migrated-from-pythinker-cli.toml` instead of the live `config.toml`.
@@ -107,16 +119,18 @@ export interface MigrationSummary {
     readonly droppedServers: readonly string[];
     /** Target `mcp.json` was unparseable; merged servers went to a sibling. */
     readonly wroteSiblingDueToConflict: boolean;
+    readonly sourceUnreadable: boolean;
   };
   readonly userHistory: { readonly copied: number; readonly skippedExisting: number };
   readonly skills: { readonly copied: number; readonly skippedExisting: number };
+  readonly plans: { readonly copied: number; readonly skippedExisting: number };
   readonly sessions: SessionsSummary;
 }
 
 export interface SessionsSummary {
   readonly scope: 'all' | 'config-only';
   readonly bucketsScanned: number;
-  readonly bucketsSkippedNonlocalKaos: number;
+  readonly bucketsSkippedNonlocalPyaos: number;
   readonly bucketsSkippedNoWorkdirFound: number;
   readonly sessionsAttempted: number;
   readonly sessionsMigrated: number;
@@ -132,7 +146,8 @@ export interface SessionsSummary {
 export interface MigrationNotices {
   readonly mcpOauthServersRequiringReauth: readonly string[];
   /**
-   * Basenames of pythinker-cli OAuth logins (`~/.pythinker/credentials/<name>.json`)
+   * Names of pythinker-cli OAuth logins requiring re-login, derived from the legacy
+   * config's `oauth` provider refs plus any `~/.pythinker/credentials/<name>.json`
    * found at detection time. OAuth credentials are deliberately NOT migrated:
    * refresh tokens rotate server-side, so a copied credential breaks login for
    * whichever install refreshes second. The user must run `/login` in
@@ -142,4 +157,9 @@ export interface MigrationNotices {
   readonly detectedPlugins: readonly string[];
   readonly configConflictNotice: string | null;
   readonly tuiConflictNotice: string | null;
+  /**
+   * Tells the user that legacy plan files were copied as plain files (no
+   * plan-mode wiring) and where to find them. Null when nothing was copied.
+   */
+  readonly plansCopiedNotice: string | null;
 }

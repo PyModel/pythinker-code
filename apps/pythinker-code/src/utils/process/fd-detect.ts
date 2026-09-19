@@ -15,12 +15,11 @@ import { join } from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 
-import { PYTHINKER_CODE_CDN_BASE } from '#/constant/app';
+import { pythinkerCodeCdnBase } from '#/constant/app';
 import { getBinDir } from '#/utils/paths';
 import { resolveCommandPath } from '#/utils/process/resolve-command';
 
 const CANDIDATES = ['fd', 'fdfind'];
-const FD_BASE_URL = `${PYTHINKER_CODE_CDN_BASE}/fd`;
 const DOWNLOAD_TIMEOUT_MS = 120_000;
 
 const FD_ARCHIVE_SHA256: Record<string, string> = {
@@ -121,7 +120,7 @@ async function downloadFd(): Promise<string | null> {
   const archivePath = join(extractDir, assetName);
 
   try {
-    const downloadUrl = `${FD_BASE_URL}/${assetName}`;
+    const downloadUrl = `${pythinkerCodeCdnBase()}/fd/${assetName}`;
     await downloadFile(downloadUrl, archivePath);
     verifyArchive(archivePath, expectedSha256);
     extractArchive(archivePath, extractDir, assetName);

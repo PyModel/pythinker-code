@@ -1,7 +1,7 @@
 /**
  * Klient-level session-scope events — the public, typed, namespaced event
  * surface of one session. Mirrors the pattern of `../global/events.ts`;
- * stream names match the kap-server session event map (`interactions`,
+ * stream names match the agent-gateway session event map (`interactions`,
  * `interactions:resolved`).
  */
 
@@ -10,7 +10,7 @@ import { z } from 'zod';
 import type {
   Interaction,
   InteractionResolution,
-} from '@pymodel/agent-core-v2/session/interaction/interaction';
+} from '@pymodel/agent-core-v2/human/interaction/interaction';
 import type { SessionMetadataChangedEvent } from '@pymodel/agent-core-v2/session/sessionMetadata/sessionMetadata';
 
 import type { EventRegistration } from '../types.js';

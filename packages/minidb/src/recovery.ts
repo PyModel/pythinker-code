@@ -251,7 +251,7 @@ export interface GenerationAnchors {
 
 /** Thrown when recovery kept detecting snapshot/WAL generation switches
  *  across every bounded retry — the writer is rotating files faster than a
- *  consistent pair can be scanned. Callers with a refresh loop (kap-server's
+ *  consistent pair can be scanned. Callers with a refresh loop (agent-gateway's
  *  readonly degrade path, the cluster shard reader) treat it as transient. */
 export class RecoveryGenerationChurnError extends Error {
   readonly code = 'RECOVERY_GENERATION_CHURN';

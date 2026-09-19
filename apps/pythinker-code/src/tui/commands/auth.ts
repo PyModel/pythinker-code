@@ -3,7 +3,9 @@ import {
   fetchOpenPlatformModels,
   filterModelsByPrefix,
   getOpenPlatformById,
+  OAuthAccessDeniedError,
   OpenPlatformApiError,
+  type PythinkerRegion,
   type ManagedPythinkerCodeModelInfo,
   type ManagedPythinkerConfigShape,
   type OpenPlatformDefinition,
@@ -13,6 +15,10 @@ import { log } from '@pymodel/pythinker-code-sdk';
 import type { ChoiceOption } from '../components/dialogs/choice-picker';
 import { DEFAULT_OAUTH_PROVIDER_NAME, PRODUCT_NAME } from '../constant/pythinker-tui';
 import { formatErrorMessage } from '../utils/event-payload';
+import {
+  PYTHINKER_CODE_GLOBAL_PLATFORM_VALUE,
+  refreshPythinkerRegion,
+} from '#/utils/region';
 import type { LoginProgressSpinnerHandle } from '../types';
 import {
   promptApiKey,
@@ -30,8 +36,9 @@ export async function handleLoginCommand(host: SlashCommandHost): Promise<void> 
   const platformId = await promptPlatformSelection(host);
   if (platformId === undefined) return;
 
-  if (platformId === 'pythinker-code') {
-    await handlePythinkerCodeOAuthLogin(host);
+  if (platformId === 'pythinker-code' || platformId === PYTHINKER_CODE_GLOBAL_PLATFORM_VALUE) {
+    const region: PythinkerRegion = platformId === PYTHINKER_CODE_GLOBAL_PLATFORM_VALUE ? 'global' : 'mainland-cn';
+    await handlePythinkerCodeOAuthLogin(host, region);
     return;
   }
 
@@ -40,7 +47,10 @@ export async function handleLoginCommand(host: SlashCommandHost): Promise<void> 
   await handleOpenPlatformLogin(host, platform);
 }
 
-async function handlePythinkerCodeOAuthLogin(host: SlashCommandHost): Promise<void> {
+async function handlePythinkerCodeOAuthLogin(
+  host: SlashCommandHost,
+  region: PythinkerRegion,
+): Promise<void> {
   const status = await host.harness.auth.status(DEFAULT_OAUTH_PROVIDER_NAME);
   const alreadyLoggedIn = status.providers.some(
     (provider) => provider.providerName === DEFAULT_OAUTH_PROVIDER_NAME && provider.hasToken,
@@ -53,12 +63,17 @@ async function handlePythinkerCodeOAuthLogin(host: SlashCommandHost): Promise<vo
   };
   host.cancelInFlight = cancelLogin;
   try {
+    // The facade maps region → profile hosts (env overrides keep priority);
+    // 'mainland-cn' is passed explicitly too so switching back overrides a
+    // persisted global login.
     await host.harness.auth.login(DEFAULT_OAUTH_PROVIDER_NAME, {
       signal: controller.signal,
+      region,
       onDeviceCode: (data) => {
         spinner = host.showLoginAuthorizationPrompt(data);
       },
     });
+    refreshPythinkerRegion();
     spinner?.stop({ ok: true, label: 'Logged in.' });
     spinner = undefined;
     try {
@@ -78,19 +93,24 @@ async function handlePythinkerCodeOAuthLogin(host: SlashCommandHost): Promise<vo
     }
   } catch (error) {
     const cancelled = controller.signal.aborted;
+    const denied = error instanceof OAuthAccessDeniedError;
     spinner?.stop({
       ok: false,
-      label: cancelled ? 'Login cancelled.' : 'Login failed.',
+      label: cancelled || denied ? 'Login cancelled.' : 'Login failed.',
     });
     spinner = undefined;
     if (cancelled) return;
+    const message = formatErrorMessage(error);
+    if (denied) {
+      host.showError(`Login cancelled: ${message}`);
+      return;
+    }
     log.warn('login failed', {
       providerName: DEFAULT_OAUTH_PROVIDER_NAME,
       alreadyLoggedIn,
       sessionId: host.session?.id,
       error,
     });
-    const message = formatErrorMessage(error);
     host.showError(`Login failed: ${message}`);
   } finally {
     if (host.cancelInFlight === cancelLogin) {
@@ -227,7 +247,6 @@ export async function handleLogoutCommand(host: SlashCommandHost): Promise<void>
 
   if (target === currentProvider) {
     await host.authFlow.refreshConfigAfterLogout();
-    await host.authFlow.clearActiveSessionAfterLogout();
   } else {
     const updated = await host.harness.getConfig({ reload: true });
     host.setAppState({
@@ -235,6 +254,7 @@ export async function handleLogoutCommand(host: SlashCommandHost): Promise<void>
       availableProviders: updated.providers ?? {},
     });
   }
+  refreshPythinkerRegion();
 
   host.track('logout', { provider: target });
   const label = target === DEFAULT_OAUTH_PROVIDER_NAME ? PRODUCT_NAME : target;

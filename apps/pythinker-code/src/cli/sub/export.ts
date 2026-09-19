@@ -15,7 +15,6 @@ import {
 } from '@pymodel/pythinker-telemetry';
 import {
   createPythinkerHarness,
-  createPythinkerHarnessV2,
   type ExportSessionInput,
   type ExportSessionResult,
   type PythinkerHarness,
@@ -30,8 +29,6 @@ import { createCliTelemetryBootstrap, initializeCliTelemetry } from '#/cli/telem
 import { detectInstallSource } from '#/cli/update/source';
 import { createPythinkerCodeHostIdentity } from '#/cli/version';
 import { detectShellEnvironment } from '#/utils/process/shell-env';
-
-import { isPythinkerV2Enabled } from '../experimental-v2';
 
 interface WritableLike {
   write(chunk: string): boolean;
@@ -155,9 +152,7 @@ function createDefaultExportDeps(overrides: Partial<ExportDeps> = {}): ExportDep
   };
   const getHarness = (): PythinkerHarness => {
     const currentTelemetryBootstrap = getTelemetryBootstrap();
-    // Same engine gate as `pythinker -p` / the TUI: the SDK's v2-backed harness by
-    // default, the legacy agent-core harness when PYTHINKER_CODE_LEGACY_FLAG is set.
-    harness ??= (isPythinkerV2Enabled() ? createPythinkerHarnessV2 : createPythinkerHarness)({
+    harness ??= createPythinkerHarness({
       homeDir: currentTelemetryBootstrap.homeDir,
       identity,
       telemetry: telemetryClient,
