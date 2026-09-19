@@ -463,7 +463,7 @@ describe('DaemonClient session action helpers', () => {
     expect(calls.map((call) => [call.init.method, call.url])).toEqual([
       ['GET', 'http://server.example.test/api/v1/auth'],
       ['GET', 'http://server.example.test/api/v1/models'],
-      ['POST', 'http://server.example.test/api/v1/models/pythinker-code%2Fkimi-for-coding:set_default'],
+      ['POST', 'http://server.example.test/api/v1/models/openai%2Fgpt-4o:set_default'],
       ['GET', 'http://server.example.test/api/v1/providers'],
       ['GET', 'http://server.example.test/api/v1/providers/pythinker'],
     ]);

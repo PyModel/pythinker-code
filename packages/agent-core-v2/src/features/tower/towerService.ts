@@ -117,7 +117,7 @@ export class AgentTowerService extends Disposable implements IAgentTowerService 
       eventBus.subscribe(AgentStatusUpdated, () => {
         if (this.agentCtx.agentId !== 'main') return;
         if (!this.isActive) return;
-        const active = this.profile.getActiveToolNames();
+        const active = this.profile.getActiveToolNames?.() ?? undefined;
         if (active === undefined) return;
         if (TOWER_MODE_TOOLS.every((name) => active.includes(name))) return;
         for (const name of TOWER_MODE_TOOLS) this.profile.addActiveTool(name);

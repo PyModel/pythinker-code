@@ -1497,6 +1497,7 @@ describe('AgentTowerService', () => {
     } as unknown as IAgentContextMemoryService);
     const restoredAdded: string[] = [];
     ix2.stub(IAgentProfileService, {
+      getActiveToolNames: () => undefined,
       data: () => ({ profileName: undefined }),
       addActiveTool: (name: string) => {
         restoredAdded.push(name);
@@ -1598,6 +1599,7 @@ describe('AgentTowerService', () => {
     } as unknown as IAgentContextMemoryService);
     const restoredAdded: string[] = [];
     ix2.stub(IAgentProfileService, {
+      getActiveToolNames: () => undefined,
       data: () => ({ profileName: undefined }),
       addActiveTool: (name: string) => {
         restoredAdded.push(name);
@@ -1664,6 +1666,7 @@ describe('AgentTowerService', () => {
     } as unknown as IAgentContextMemoryService);
     const restoredAdded: string[] = [];
     ix2.stub(IAgentProfileService, {
+      getActiveToolNames: () => undefined,
       data: () => ({ profileName: undefined }),
       addActiveTool: (name: string) => {
         restoredAdded.push(name);
@@ -1743,6 +1746,7 @@ describe('AgentTowerService', () => {
       } as unknown as IAgentContextMemoryService);
       const restoredAdded: string[] = [];
       ix2.stub(IAgentProfileService, {
+      getActiveToolNames: () => undefined,
         data: () => ({ profileName: undefined }),
         addActiveTool: (name: string) => {
           restoredAdded.push(name);
@@ -1853,6 +1857,7 @@ describe('AgentTowerService', () => {
       } as unknown as IAgentContextMemoryService);
       const restoredAdded: string[] = [];
       ix2.stub(IAgentProfileService, {
+      getActiveToolNames: () => undefined,
         data: () => ({ profileName: undefined }),
         addActiveTool: (name: string) => {
           restoredAdded.push(name);
@@ -1945,6 +1950,7 @@ describe('AgentTowerService', () => {
       } as unknown as IAgentContextMemoryService);
       const restoredAdded: string[] = [];
       ix2.stub(IAgentProfileService, {
+      getActiveToolNames: () => undefined,
         data: () => ({ profileName: undefined }),
         addActiveTool: (name: string) => {
           restoredAdded.push(name);
@@ -2037,6 +2043,7 @@ describe('AgentTowerService', () => {
       } as unknown as IAgentContextMemoryService);
       const restoredAdded: string[] = [];
       ix2.stub(IAgentProfileService, {
+      getActiveToolNames: () => undefined,
         data: () => ({ profileName: undefined }),
         addActiveTool: (name: string) => {
           restoredAdded.push(name);
@@ -2117,6 +2124,7 @@ describe('AgentTowerService', () => {
     } as unknown as IAgentContextMemoryService);
     const restoredAdded: string[] = [];
     ix2.stub(IAgentProfileService, {
+      getActiveToolNames: () => undefined,
       data: () => ({ profileName: undefined }),
       addActiveTool: (name: string) => {
         restoredAdded.push(name);
@@ -2190,6 +2198,7 @@ describe('AgentTowerService', () => {
     } as unknown as IAgentContextMemoryService);
     const restoredAdded: string[] = [];
     ix2.stub(IAgentProfileService, {
+      getActiveToolNames: () => undefined,
       data: () => ({ profileName: undefined }),
       addActiveTool: (name: string) => {
         restoredAdded.push(name);
@@ -2244,6 +2253,7 @@ describe('AgentTowerService', () => {
     } as unknown as IAgentContextMemoryService);
     const restoredAdded: string[] = [];
     ix2.stub(IAgentProfileService, {
+      getActiveToolNames: () => undefined,
       data: () => ({ profileName: undefined }),
       addActiveTool: (name: string) => {
         restoredAdded.push(name);
@@ -2300,6 +2310,7 @@ describe('AgentTowerService', () => {
       worktree = join(repo, '.tower/worktrees/wt-1');
 
       ix.stub(IAgentProfileService, {
+      getActiveToolNames: () => undefined,
         data: () => ({ profileName: 'tower-worker' }),
       } as unknown as IAgentProfileService);
       ix.stub(
@@ -2367,6 +2378,7 @@ describe('AgentTowerService', () => {
 
     it('abstains when the agent is not a tower worker', async () => {
       ix.stub(IAgentProfileService, {
+      getActiveToolNames: () => undefined,
         data: () => ({ profileName: 'coder' }),
       } as unknown as IAgentProfileService);
       ix.get(IAgentTowerService);

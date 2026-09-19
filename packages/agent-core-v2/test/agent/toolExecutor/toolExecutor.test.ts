@@ -9,6 +9,15 @@ import type { ToolCall } from '#human/llm/message';
 import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+vi.mock('#/os/backends/node-local/tools/rgLocator', () => ({
+  ensureRgPath: vi.fn(async (): Promise<{ path: string; source: string }> => ({
+    path: 'rg',
+    source: 'system-path',
+  })),
+  rgUnavailableMessage: (cause: unknown) =>
+    `rg unavailable: ${cause instanceof Error ? cause.message : String(cause)}`,
+}));
+
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices, TestInstantiationService } from '#/_base/di/test';
@@ -1250,6 +1259,18 @@ describe('truncation pipeline', () => {
       `file-${String(index).padStart(3, '0')}-${'x'.repeat(100)}.ts`,
     );
     await Promise.all(expected.map((name) => writeFile(join(homeDir, name), '')));
+    const stdout = expected.map((name) => `./${name}`).join('\n') + '\n';
+    vi.spyOn(globProcess, 'spawn').mockImplementation(async () => ({
+      _serviceBrand: undefined,
+      pid: 123,
+      exitCode: 0,
+      stdin: new PassThrough(),
+      stdout: Readable.from([stdout]),
+      stderr: Readable.from([]),
+      wait: async () => 0,
+      kill: async () => {},
+      dispose: () => {},
+    }));
 
     const [result] = await execute([toolCall('glob_all', 'Glob', { pattern: '*.ts', head_limit: 0 })]);
 
