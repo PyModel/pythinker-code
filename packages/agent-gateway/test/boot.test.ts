@@ -80,7 +80,6 @@ describe('server-v2 boot', () => {
     expect(typeof authBody.data.models_ready).toBe('boolean');
     expect(authBody.data.providers_count).toBeGreaterThanOrEqual(0);
 
-    // Managed oauth login surface is not exposed on this product build.
     const oauthPoll = await authedFetch(server, base, '/api/v1/auth/login');
     expect([200, 404]).toContain(oauthPoll.status);
   });
