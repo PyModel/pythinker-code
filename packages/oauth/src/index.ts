@@ -200,8 +200,33 @@ export function formatDuration(ms: number): string {
   if (ms < 1000) return `${ms}ms`;
   return `${(ms / 1000).toFixed(1)}s`;
 }
-export function isManagedPythinkerCodeBaseUrl(_url?: string): boolean {
-  return false;
+export function isManagedPythinkerCodeBaseUrl(baseUrl?: string): boolean {
+  if (baseUrl === undefined || baseUrl.length === 0) return false;
+  try {
+    const candidate = normalizeBaseUrl(baseUrl);
+    if (candidate === undefined) return false;
+    const custom = process.env['CUSTOM_API_BASE_URL'] ?? process.env['PYTHINKER_CODE_BASE_URL'];
+    if (custom !== undefined && custom.length > 0) {
+      return normalizeBaseUrl(custom) === candidate;
+    }
+    const managed = [
+      'https://api.kimi.com/coding/v1',
+      'https://api.kimi.ai/coding/v1',
+      'https://api.example.com/v1/v1',
+    ];
+    return managed.some((url) => normalizeBaseUrl(url) === candidate);
+  } catch {
+    return false;
+  }
+}
+
+function normalizeBaseUrl(value: string): string | undefined {
+  try {
+    const url = new URL(value);
+    return `${url.origin.toLowerCase()}${url.pathname.replace(/\/+$/, '')}`;
+  } catch {
+    return undefined;
+  }
 }
 export type ManagedQuota = {
   readonly entries?: readonly ManagedQuotaEntry[];
