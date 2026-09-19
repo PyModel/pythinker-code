@@ -197,7 +197,7 @@ describe('server-v2 /api/v1 model/provider catalog', () => {
     expect(list.body.data.items).toEqual([
       {
         id: 'pythinker',
-        type: 'pythinker',
+        type: 'openai',
         base_url: 'https://api.example.test/v1',
         default_model: 'k2',
         has_api_key: true,
@@ -217,7 +217,7 @@ describe('server-v2 /api/v1 model/provider catalog', () => {
     expect(single.body.code).toBe(0);
     expect(single.body.data).toEqual({
       id: 'pythinker',
-      type: 'pythinker',
+      type: 'openai',
       base_url: 'https://api.example.test/v1',
       default_model: 'k2',
       has_api_key: true,
