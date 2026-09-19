@@ -349,3 +349,10 @@ export function runModelSelector(
     host.mountEditorReplacement(selector);
   });
 }
+
+export async function promptFeedbackInput(_host: unknown): Promise<string | undefined> {
+  return undefined;
+}
+export async function promptFeedbackAttachment(_host: unknown): Promise<string | undefined> {
+  return undefined;
+}

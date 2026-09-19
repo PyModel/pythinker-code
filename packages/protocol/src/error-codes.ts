@@ -126,6 +126,34 @@ export const ErrorCode = {
   FS_WATCH_LIMIT_EXCEEDED: 42902,
 
   /** Unclassified internal error. */
+  CODEX_LOGIN_NOT_FOUND: 40421,
+
+  EXPERT_TALK_RUN_NOT_FOUND: 40420,
+
+  EXPERT_TALK_FEATURE_DISABLED: 40930,
+
+  EXPERT_TALK_PAIR_NOT_CONFIGURED: 40931,
+
+  EXPERT_TALK_PAIR_INVALID: 40932,
+
+  EXPERT_TALK_PAIR_COLLAPSED: 40933,
+
+  EXPERT_TALK_ALREADY_ARMED: 40934,
+
+  EXPERT_TALK_NOT_ARMED: 40935,
+
+  EXPERT_TALK_BUSY: 40936,
+
+  EXPERT_TALK_RUN_NOT_RETRYABLE: 40937,
+
+  EXPERT_TALK_CLIENT_UNSUPPORTED: 40938,
+
+  EXPERT_TALK_CONTEXT_INSUFFICIENT: 41310,
+
+  EXPERT_TALK_BUDGET_EXCEEDED: 42910,
+
+  CONFIG_VERSION_CONFLICT: 41201,
+
   INTERNAL_ERROR: 50001,
   /** Writing persistent session state failed. */
   PERSISTENCE_FAILURE: 50003,
@@ -218,4 +246,19 @@ export const ErrorCodeReason: Readonly<Record<ErrorCode, string>> = {
 
   [ErrorCode.TOOL_EXECUTION_FAILED]: 'tool.execution_failed',
   [ErrorCode.TOOL_NOT_AVAILABLE]: 'tool.not_available',
+  [ErrorCode.EXPERT_TALK_RUN_NOT_FOUND]: 'expert_talk.run_not_found',
+  [ErrorCode.CODEX_LOGIN_NOT_FOUND]: 'codex_login.not_found',
+  [ErrorCode.EXPERT_TALK_FEATURE_DISABLED]: 'expert_talk.feature_disabled',
+  [ErrorCode.EXPERT_TALK_PAIR_NOT_CONFIGURED]: 'expert_talk.pair_not_configured',
+  [ErrorCode.EXPERT_TALK_PAIR_INVALID]: 'expert_talk.pair_invalid',
+  [ErrorCode.EXPERT_TALK_PAIR_COLLAPSED]: 'expert_talk.pair_collapsed',
+  [ErrorCode.EXPERT_TALK_ALREADY_ARMED]: 'expert_talk.already_armed',
+  [ErrorCode.EXPERT_TALK_NOT_ARMED]: 'expert_talk.not_armed',
+  [ErrorCode.EXPERT_TALK_BUSY]: 'expert_talk.busy',
+  [ErrorCode.EXPERT_TALK_RUN_NOT_RETRYABLE]: 'expert_talk.run_not_retryable',
+  [ErrorCode.EXPERT_TALK_CLIENT_UNSUPPORTED]: 'expert_talk.client_unsupported',
+  [ErrorCode.EXPERT_TALK_CONTEXT_INSUFFICIENT]: 'expert_talk.context_insufficient',
+  [ErrorCode.EXPERT_TALK_BUDGET_EXCEEDED]: 'expert_talk.budget_exceeded',
+  [ErrorCode.CONFIG_VERSION_CONFLICT]: 'config.version_conflict',
+
 };

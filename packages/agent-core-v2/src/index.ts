@@ -581,6 +581,7 @@ export * from '#/agent/tools/web-search/web-search';
 import '#/agent/tools/web-search/webSearchTool';
 export * from '#/app/auth/auth';
 export * from '#/app/codexLogin/codexLogin';
+export * from '#/app/codexLogin/codexLoginProtocol';
 export * from '#/app/auth/authStatus';
 export * from '#/app/auth/authStatusService';
 export * from '#/app/auth/authService';
@@ -761,3 +762,5 @@ export type { AgentToolContributionOptions } from '#/agent/toolRegistry/toolCont
 export * from '#/agent/userTool/userTool';
 export * from '#/agent/userTool/userToolOps';
 export * from '#/agent/userTool/userToolService';
+
+export * from '#/session/expertTalk/expertTalk';

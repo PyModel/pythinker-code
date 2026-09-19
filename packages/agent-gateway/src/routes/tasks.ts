@@ -4,7 +4,6 @@ import {
   getLiveSessionById,
   type AgentTaskInfo,
   type Scope,
-  type SubagentBindingProvenance,
 } from '@pymodel/agent-core-v2';
 import { ErrorCode } from '../protocol/error-codes';
 import {
@@ -349,7 +348,7 @@ function toWireTask(
   return base;
 }
 
-export function toRoutingWire(routing: SubagentBindingProvenance): SubagentRoutingWire {
+export function toRoutingWire(routing: Record<string, unknown>): SubagentRoutingWire {
   return {
     operation: routing.operation,
     profile_source: routing.profileSource,

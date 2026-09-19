@@ -179,6 +179,21 @@ export type BearerTokenProvider = {
 };
 
 export type OAuthRefreshOutcome =
-  | { readonly kind: 'refreshed' }
-  | { readonly kind: 'cached' }
-  | { readonly kind: 'failed'; readonly error: unknown };
+  | { readonly kind: 'refreshed'; readonly success?: true }
+  | { readonly kind: 'cached'; readonly success?: true }
+  | { readonly kind: 'failed'; readonly success?: false; readonly error?: unknown; readonly reason?: string }
+  | { readonly success: true }
+  | { readonly success: false; readonly reason?: string };
+
+export type ManagedPythinkerCodeModelInfo = {
+  readonly id: string;
+  readonly name?: string;
+  readonly displayName?: string;
+};
+export type ManagedPythinkerConfigShape = Record<string, unknown>;
+export type DeviceAuthorization = {
+  readonly verificationUri: string;
+  readonly userCode: string;
+  readonly expiresIn?: number;
+  readonly interval?: number;
+};

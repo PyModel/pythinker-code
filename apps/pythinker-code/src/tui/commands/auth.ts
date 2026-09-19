@@ -13,7 +13,8 @@ import {
 import { log } from '@pymodel/pythinker-code-sdk';
 
 import type { ChoiceOption } from '../components/dialogs/choice-picker';
-import { DEFAULT_OAUTH_PROVIDER_NAME, PRODUCT_NAME } from '../constant/pythinker-tui';
+import { PRODUCT_NAME } from '../constant/pythinker-tui';
+
 import { formatErrorMessage } from '../utils/event-payload';
 import {
   PYTHINKER_CODE_GLOBAL_PLATFORM_VALUE,
@@ -27,6 +28,8 @@ import {
   promptPlatformSelection,
 } from './prompts';
 import type { SlashCommandHost } from './dispatch';
+
+const DEVICE_OAUTH_PROVIDER_NAME = 'openai';
 
 // ---------------------------------------------------------------------------
 // Auth: login / logout
@@ -51,9 +54,9 @@ async function handlePythinkerCodeOAuthLogin(
   host: SlashCommandHost,
   region: PythinkerRegion,
 ): Promise<void> {
-  const status = await host.harness.auth.status(DEFAULT_OAUTH_PROVIDER_NAME);
+  const status = await host.harness.auth.status(DEVICE_OAUTH_PROVIDER_NAME);
   const alreadyLoggedIn = status.providers.some(
-    (provider) => provider.providerName === DEFAULT_OAUTH_PROVIDER_NAME && provider.hasToken,
+    (provider) => provider.providerName === DEVICE_OAUTH_PROVIDER_NAME && provider.hasToken,
   );
 
   let spinner: LoginProgressSpinnerHandle | undefined;
@@ -66,7 +69,7 @@ async function handlePythinkerCodeOAuthLogin(
     // The facade maps region → profile hosts (env overrides keep priority);
     // 'mainland-cn' is passed explicitly too so switching back overrides a
     // persisted global login.
-    await host.harness.auth.login(DEFAULT_OAUTH_PROVIDER_NAME, {
+    await host.harness.auth.login(DEVICE_OAUTH_PROVIDER_NAME, {
       signal: controller.signal,
       region,
       onDeviceCode: (data) => {
@@ -84,7 +87,7 @@ async function handlePythinkerCodeOAuthLogin(
       return;
     }
     host.track('login', {
-      provider: DEFAULT_OAUTH_PROVIDER_NAME,
+      provider: DEVICE_OAUTH_PROVIDER_NAME,
       method: 'oauth',
       already_logged_in: alreadyLoggedIn,
     });
@@ -106,7 +109,7 @@ async function handlePythinkerCodeOAuthLogin(
       return;
     }
     log.warn('login failed', {
-      providerName: DEFAULT_OAUTH_PROVIDER_NAME,
+      providerName: DEVICE_OAUTH_PROVIDER_NAME,
       alreadyLoggedIn,
       sessionId: host.session?.id,
       error,
@@ -200,21 +203,21 @@ async function handleOpenPlatformLogin(
 }
 
 export async function handleLogoutCommand(host: SlashCommandHost): Promise<void> {
-  const oauthStatus = await host.harness.auth.status(DEFAULT_OAUTH_PROVIDER_NAME);
+  const oauthStatus = await host.harness.auth.status(DEVICE_OAUTH_PROVIDER_NAME);
   const hasOAuthToken = oauthStatus.providers.some(
-    (p) => p.providerName === DEFAULT_OAUTH_PROVIDER_NAME && p.hasToken,
+    (p) => p.providerName === DEVICE_OAUTH_PROVIDER_NAME && p.hasToken,
   );
   const config = await host.harness.getConfig();
   const hasManagedRemnant =
-    hasOAuthToken || config.providers[DEFAULT_OAUTH_PROVIDER_NAME] !== undefined;
+    hasOAuthToken || config.providers[DEVICE_OAUTH_PROVIDER_NAME] !== undefined;
   const apiKeyProviderIds = Object.keys(config.providers ?? {})
-    .filter((id) => id !== DEFAULT_OAUTH_PROVIDER_NAME)
+    .filter((id) => id !== DEVICE_OAUTH_PROVIDER_NAME)
     .toSorted();
 
   const options: ChoiceOption[] = [];
   if (hasManagedRemnant) {
     options.push({
-      value: DEFAULT_OAUTH_PROVIDER_NAME,
+      value: DEVICE_OAUTH_PROVIDER_NAME,
       label: PRODUCT_NAME,
       description: 'OAuth login',
     });
@@ -239,8 +242,8 @@ export async function handleLogoutCommand(host: SlashCommandHost): Promise<void>
   const target = await promptLogoutProviderSelection(host, options, currentProvider);
   if (target === undefined) return;
 
-  if (target === DEFAULT_OAUTH_PROVIDER_NAME) {
-    await host.harness.auth.logout(DEFAULT_OAUTH_PROVIDER_NAME);
+  if (target === DEVICE_OAUTH_PROVIDER_NAME) {
+    await host.harness.auth.logout(DEVICE_OAUTH_PROVIDER_NAME);
   } else {
     await host.harness.removeProvider(target);
   }
@@ -257,6 +260,6 @@ export async function handleLogoutCommand(host: SlashCommandHost): Promise<void>
   refreshPythinkerRegion();
 
   host.track('logout', { provider: target });
-  const label = target === DEFAULT_OAUTH_PROVIDER_NAME ? PRODUCT_NAME : target;
+  const label = target === DEVICE_OAUTH_PROVIDER_NAME ? PRODUCT_NAME : target;
   host.showStatus(`Logged out from ${label}.`);
 }

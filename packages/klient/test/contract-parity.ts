@@ -337,8 +337,6 @@ type AssertWireToEngine<TSchema extends z.ZodType, TEngine> = [z.infer<TSchema>]
   : never;
 
 // Wire shapes, derived from the engine interfaces.
-type RefreshOAuthProviderModelsResponse = Awaited<
->;
 /** String-enum value union (`'user' | 'memory'`). */
 type ConfigTargetValues = `${ConfigTarget}`;
 
@@ -372,15 +370,7 @@ const _capabilityStatus: AssertWire<typeof capabilityStatusSchema, CapabilitySta
 const _providerConfig: AssertWire<typeof providerConfigSchema, ProviderConfig> = true;
 
 // auth.ts
-const _oAuthLoginCancelResponse: AssertWire<
-  typeof oAuthLoginCancelResponseSchema,
-> = true;
-  true;
 const _authStatus: AssertWire<typeof authStatusSchema, AuthStatus> = true;
-const _refreshOAuthProviderModelsResponse: AssertWire<
-  typeof refreshOAuthProviderModelsResponseSchema,
-  RefreshOAuthProviderModelsResponse
-> = true;
 
 // flags.ts
 const _experimentalFeatureState: AssertWire<

@@ -204,12 +204,7 @@ describe('server-v2 boot', () => {
       if (scope === 'telemetry') throw new Error('telemetry storage unavailable');
       await write(scope, key, data, options);
     });
-    const auth = {
-      _serviceBrand: undefined,
-      getCachedAccessToken: async () => {
-        throw new Error('telemetry auth unavailable');
-      },
-    } as unknown as IOAuthToolkit;
+    const auth = {};
 
     server = await startServer({
       hostIdentity: TEST_HOST_IDENTITY,

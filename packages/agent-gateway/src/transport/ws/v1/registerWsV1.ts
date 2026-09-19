@@ -32,7 +32,6 @@ export function registerWsV1(core: Scope, opts: RegisterWsV1Options): WebSocketS
 
   wss.on('connection', (socket, req) => {
     const conn = new WsConnectionV1({
-      core,
       socket,
       broadcaster,
       connectionRegistry: registry,

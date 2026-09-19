@@ -26,6 +26,8 @@ export interface BannerState {
 }
 
 export interface AppState {
+  readonly expertTalkArmId?: string;
+  readonly expertTalkRunId?: string;
   model: string;
   workDir: string;
   additionalDirs: readonly string[];

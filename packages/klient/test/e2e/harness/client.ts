@@ -16,7 +16,7 @@ import type {
   FsBrowseResponse,
   FsHomeResponse,
 } from '@pymodel/agent-core-v2/app/hostFolderBrowser/hostFolderBrowser';
-import type { AuthSummary } from '@pymodel/agent-core-v2/app/authLegacy/authLegacy';
+import type { AuthStatus } from '@pymodel/agent-core-v2/app/auth/auth';
 import type { FileMeta } from '@pymodel/agent-core-v2/app/file/fileService';
 import type { UpdateSessionProfileRequest as SessionUpdate } from '@pymodel/agent-core-v2/app/sessionLegacy/sessionProtocol';
 import type {
@@ -212,7 +212,7 @@ export class DaemonClient {
   }
 
   // ── Probes + model catalog ─────────────────────────────────────────────
-  getAuth(): Promise<AuthSummary> {
+  getAuth(): Promise<AuthStatus> {
     return this.http.getAuth();
   }
   listModels(): Promise<ListModelsResponse> {

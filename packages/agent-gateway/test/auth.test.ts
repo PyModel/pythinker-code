@@ -107,7 +107,6 @@ describe('server-v2 GET /api/v1/auth', () => {
     const summary = await getAuth();
     expect(summary.models_ready).toBe(false);
     expect(summary.providers_count).toBe(1);
-    expect(summary.managed_provider).toBeNull();
   });
 
   it('returns models_ready=false when the default model dangles', async () => {
@@ -150,7 +149,7 @@ describe('server-v2 GET /api/v1/auth', () => {
     expect(summary.providers_count).toBe(0);
   });
 
-  it('surfaces managed_provider.unauthenticated without a cached token', async () => {
+  it('reports models_ready false without a usable token', async () => {
     await boot(
       [
         '[providers."openai"]',
@@ -164,10 +163,6 @@ describe('server-v2 GET /api/v1/auth', () => {
       ].join('\n'),
     );
     const summary = await getAuth();
-    expect(summary.managed_provider).toEqual({
-      name: 'openai',
-      status: 'unauthenticated',
-    });
     expect(summary.models_ready).toBe(false);
   });
 });

@@ -6,7 +6,7 @@ import type {
   FsBrowseResponse,
   FsHomeResponse,
 } from '@pymodel/agent-core-v2/app/hostFolderBrowser/hostFolderBrowser';
-import type { AuthSummary } from '@pymodel/agent-core-v2/app/authLegacy/authLegacy';
+import type { AuthStatus } from '@pymodel/agent-core-v2/app/auth/auth';
 import type { FileMeta } from '@pymodel/agent-core-v2/app/file/fileService';
 import type { UpdateSessionProfileRequest as SessionUpdate } from '@pymodel/agent-core-v2/app/sessionLegacy/sessionProtocol';
 import type {
@@ -192,8 +192,8 @@ export class HttpClient {
   }
 
   // ── Probes + model catalog ─────────────────────────────────────────────
-  getAuth(): Promise<AuthSummary> {
-    return this.request<AuthSummary>('GET', '/auth', undefined);
+  getAuth(): Promise<AuthStatus> {
+    return this.request<AuthStatus>('GET', '/auth', undefined);
   }
   listModels(): Promise<ListModelsResponse> {
     return this.request('GET', '/models', undefined);

@@ -71,13 +71,14 @@ export async function runShell(
     uiCapabilities: TUI_HOST_UI_CAPABILITIES,
     telemetry: telemetryClient,
     onOAuthRefresh: (outcome) => {
-      if (outcome.success) {
+      const success = 'success' in outcome ? outcome.success !== false : outcome.kind !== 'failed';
+      if (success) {
         track('oauth_refresh', { outcome: 'success' });
         return;
       }
       track('oauth_refresh', {
         outcome: 'error',
-        reason: outcome.reason,
+        reason: 'reason' in outcome ? outcome.reason : 'kind' in outcome ? outcome.kind : 'error',
       });
     },
     sessionStartedProperties: { yolo: opts.yolo, auto: opts.auto, plan: opts.plan, afk: false },

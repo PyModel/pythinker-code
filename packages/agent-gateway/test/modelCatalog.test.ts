@@ -7,11 +7,12 @@ import {
   IModelCatalog,
   IProviderDiscoveryService,
   type IModelCatalog as IModelCatalogType,
+  type as never,
   type IProviderDiscoveryService as IProviderDiscoveryServiceType,
   type ModelCatalogConfig,
   type ScopeSeed,
 } from '@pymodel/agent-core-v2';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { type RunningServer, startServer } from '../src/start';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
@@ -57,19 +58,39 @@ const CATALOG_TOML = [
 
 describe('server-v2 /api/v1 model/provider catalog', () => {
   let server: RunningServer | undefined;
+  let active: RunningServer | undefined;
+  const alts: RunningServer[] = [];
   let home: string | undefined;
   let base: string;
 
-  beforeEach(async () => {
+  beforeAll(async () => {
     home = await mkdtemp(join(tmpdir(), 'pythinker-server-v2-model-catalog-'));
     process.env['PYTHINKER_CODE_MODEL_CATALOG_REFRESH_ON_START'] = '0';
     process.env['PYTHINKER_CODE_MODEL_CATALOG_REFRESH_INTERVAL_MS'] = '0';
+    server = await startServer({
+      hostIdentity: TEST_HOST_IDENTITY,
+      host: '127.0.0.1',
+      port: 0,
+      homeDir: home,
+      logLevel: 'silent',
+    });
+    active = server;
+    base = `http://127.0.0.1:${server.port}`;
   });
 
   afterEach(async () => {
+    for (const alt of alts.splice(0)) {
+      await alt.close();
+    }
+    active = server;
+    base = `http://127.0.0.1:${(server as RunningServer).port}`;
+  });
+
+  afterAll(async () => {
     if (server !== undefined) {
       await server.close();
       server = undefined;
+      active = undefined;
     }
     if (home !== undefined) {
       await rm(home, { recursive: true, force: true });
@@ -83,20 +104,27 @@ describe('server-v2 /api/v1 model/provider catalog', () => {
     if (toml !== undefined) {
       await writeFile(join(home as string, 'config.toml'), toml, 'utf-8');
     }
-    server = await startServer({
-      hostIdentity: TEST_HOST_IDENTITY,
-      host: '127.0.0.1',
-      port: 0,
-      homeDir: home,
-      logLevel: 'silent',
-      seeds,
-    });
-    base = `http://127.0.0.1:${server.port}`;
+    if (seeds !== undefined) {
+      const alt = await startServer({
+        hostIdentity: TEST_HOST_IDENTITY,
+        host: '127.0.0.1',
+        port: 0,
+        homeDir: home,
+        logLevel: 'silent',
+        seeds,
+      });
+      alts.push(alt);
+      active = alt;
+    } else {
+      await (server as RunningServer).core.accessor.get(IConfigService).reload();
+      active = server;
+    }
+    base = `http://127.0.0.1:${(active as RunningServer).port}`;
   }
 
   async function getJson<T>(path: string): Promise<{ status: number; body: Envelope<T> }> {
     const res = await fetch(`${base}${path}`, {
-      headers: authHeaders(server as RunningServer),
+      headers: authHeaders(active as RunningServer),
     } as never);
     return { status: res.status, body: (await res.json()) as Envelope<T> };
   }
@@ -108,7 +136,7 @@ describe('server-v2 /api/v1 model/provider catalog', () => {
     const res = await fetch(`${base}${path}`, {
       method: 'POST',
       headers: authHeaders(
-        server as RunningServer,
+        active as RunningServer,
         body === undefined ? {} : { 'content-type': 'application/json' },
       ),
       body: body === undefined ? undefined : JSON.stringify(body),
@@ -204,7 +232,7 @@ describe('server-v2 /api/v1 model/provider catalog', () => {
     expect(noKey.body.data).not.toHaveProperty('api_key');
   });
 
-  it('sets the global default model and reflects it in /auth', async () => {
+  it('sets the global default model and reflects it in /config', async () => {
     await boot(CATALOG_TOML);
     const { body } = await postJson<unknown>('/api/v1/models/turbo:set_default', {});
     expect(body.code).toBe(0);
@@ -218,9 +246,9 @@ describe('server-v2 /api/v1 model/provider catalog', () => {
       },
     });
 
-    const auth = await getJson<{ default_model: string | null }>('/api/v1/auth');
-    expect(auth.body.code).toBe(0);
-    expect(auth.body.data.default_model).toBe('turbo');
+    const config = await getJson<{ default_model: string | null }>('/api/v1/config');
+    expect(config.body.code).toBe(0);
+    expect(config.body.data.default_model).toBe('turbo');
   });
 
   it('maps unknown provider and model ids to catalog not-found codes', async () => {
@@ -230,6 +258,18 @@ describe('server-v2 /api/v1 model/provider catalog', () => {
 
     const model = await postJson<unknown>('/api/v1/models/missing:set_default', {});
     expect(model.body.code).toBe(40413);
+  });
+
+  it('returns an empty refresh result through the catalog route', async () => {
+    await boot(CATALOG_TOML);
+    const { status, body } = await postJson<{
+      changed: unknown[];
+      unchanged: unknown[];
+      failed: unknown[];
+    }>('/api/v1/providers:refresh', {});
+    expect(status).toBe(200);
+    expect(body.code).toBe(0);
+    expect(body.data).toEqual({ changed: [], unchanged: [], failed: [] });
   });
 
   it('returns an empty refresh result through the providers:refresh route', async () => {
@@ -253,7 +293,7 @@ describe('server-v2 /api/v1 model/provider catalog', () => {
       getRequester: () => {
         throw new Error('unused');
       },
-      inspect: () => {
+      generate: () => {
         throw new Error('unused');
       },
       ping: async () => {
@@ -277,10 +317,40 @@ describe('server-v2 /api/v1 model/provider catalog', () => {
     return { _serviceBrand: undefined, refreshProviderModels };
   }
 
+  
+  it('refreshes OAuth provider models through POST /providers:refresh', async () => {
+    const refreshOAuthProviderModels = vi.fn(async () => ({
+      changed: [
+        { provider_id: 'openai', provider_name: 'Pythinker Code', added: 1, removed: 0 },
+      ],
+      unchanged: [],
+      failed: [],
+    }));
+    const seeds = [] as unknown as ScopeSeed;
+    await boot(CATALOG_TOML, seeds);
+
+    const { status, body } = await postJson<{
+      changed: unknown[];
+      unchanged: unknown[];
+      failed: unknown[];
+    }>('/api/v1/providers:refresh', {});
+
+    expect(status).toBe(200);
+    expect(body.code).toBe(0);
+    expect(body.data).toEqual({
+      changed: [
+        { provider_id: 'openai', provider_name: 'Pythinker Code', added: 1, removed: 0 },
+      ],
+      unchanged: [],
+      failed: [],
+    });
+    expect(refreshOAuthProviderModels).toHaveBeenCalledTimes(1);
+  });
+
   it('refreshes all provider models through POST /providers:refresh', async () => {
     const refreshProviderModels = vi.fn(async () => ({
       changed: [
-        { provider_id: 'dynamic-provider', provider_name: 'Dynamic Provider', added: 2, removed: 1 },
+        { provider_id: 'openai', provider_name: 'Pythinker Code', added: 2, removed: 1 },
       ],
       unchanged: ['moonshot-cn'],
       failed: [],
@@ -291,7 +361,7 @@ describe('server-v2 /api/v1 model/provider catalog', () => {
     const { status, body } = await postJson('/api/v1/providers:refresh', {});
     expect(status).toBe(200);
     expect(body.code).toBe(0);
-    expect(refreshProviderModels).toHaveBeenCalledWith();
+    expect(refreshProviderModels).toHaveBeenCalledWith({ scope: 'all' });
   });
 
   it('refreshes a single provider through POST /providers/{id}:refresh', async () => {
@@ -303,10 +373,10 @@ describe('server-v2 /api/v1 model/provider catalog', () => {
     const seeds = [[IProviderDiscoveryService, discoveryStub(refreshProviderModels)]] as unknown as ScopeSeed;
     await boot(CATALOG_TOML, seeds);
 
-    const { status, body } = await postJson('/api/v1/providers/oauth-example:refresh', {});
+    const { status, body } = await postJson('/api/v1/providers/managed%3Apythinker-code:refresh', {});
     expect(status).toBe(200);
     expect(body.code).toBe(0);
-    expect(refreshProviderModels).toHaveBeenCalledWith({ providerId: 'oauth-example' });
+    expect(refreshProviderModels).toHaveBeenCalledWith({ providerId: 'openai' });
   });
 
   it('rejects unsupported provider actions with 40001', async () => {

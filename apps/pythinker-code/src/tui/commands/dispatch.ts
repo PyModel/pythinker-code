@@ -115,6 +115,7 @@ export { handleRemoteControlCommand, handleWebCommand } from './web';
 // ---------------------------------------------------------------------------
 
 export interface SlashCommandHost {
+  readonly engineV2?: boolean;
   state: TUIState;
   session: Session | undefined;
   readonly harness: PythinkerHarness;

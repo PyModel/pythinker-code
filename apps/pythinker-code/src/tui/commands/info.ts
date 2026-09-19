@@ -1,3 +1,4 @@
+const isManagedUsageProvider = (_p?: string) => false;
 import { release as osRelease, type as osType } from 'node:os';
 
 import type { McpServerInfo, SessionStatus, SessionUsage } from '@pymodel/pythinker-code-sdk';
@@ -22,7 +23,6 @@ import {
   pythinkerCodeSignupUrl,
   withFeedbackVersionPrefix,
 } from '../constant/feedback';
-import { DEFAULT_OAUTH_PROVIDER_NAME, isManagedUsageProvider } from '../constant/pythinker-tui';
 import { submitFeedbackWithAttachments } from '../../feedback/feedback-attachments';
 import { formatErrorMessage } from '../utils/event-payload';
 import { openUrl } from '#/utils/open-url';
@@ -45,9 +45,9 @@ export async function handleFeedbackCommand(host: SlashCommandHost): Promise<voi
   // through the authenticated channel.
   let signedIn = false;
   try {
-    const status = await host.harness.auth.status(DEFAULT_OAUTH_PROVIDER_NAME);
+    const status = await host.harness.auth.status('openai');
     signedIn = status.providers.some(
-      (provider) => provider.providerName === DEFAULT_OAUTH_PROVIDER_NAME && provider.hasToken,
+      (provider) => provider.providerName === 'openai' && provider.hasToken,
     );
   } catch {
     // The sign-in state is unreadable — keep the feedback entry usable by

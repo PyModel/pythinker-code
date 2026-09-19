@@ -219,10 +219,8 @@ export class FsWatchBridge {
     sw.watchEventSub = undefined;
     sw.watchSub?.dispose();
     sw.watchSub = undefined;
-    let service;
-    try {
-      service = sw.program.watch;
-    } catch {
+    const service = (sw.program as { watch?: { subscribe(): { onDidChangeFiles(cb: (event: unknown) => void): { dispose(): void }; dispose(): void } } }).watch;
+    if (service === undefined) {
       sw.programGeneration = undefined;
       return;
     }

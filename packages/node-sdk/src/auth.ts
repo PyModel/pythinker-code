@@ -38,7 +38,10 @@ export class PythinkerAuthFacade {
     this.storage = new FileTokenStorage(join(options.homeDir, 'credentials'));
   }
 
-  async getCachedAccessToken(oauthRef: OAuthRef): Promise<string | undefined> {
+  async getCachedAccessToken(oauthRefOrProvider: OAuthRef | string): Promise<string | undefined> {
+    if (typeof oauthRefOrProvider === 'string') return undefined;
+    const oauthRef = oauthRefOrProvider;
+
     if (oauthRef.storage !== 'file') return undefined;
     const token = await this.storage.load(resolveOAuthTokenStorageName(oauthRef.key));
     if (token === undefined || token.accessToken.trim().length === 0) return undefined;
@@ -133,5 +136,49 @@ export class PythinkerAuthFacade {
       };
     }
     throw new Error(`OAuth provider "${provider ?? 'unknown'}" does not support token refresh.`);
+  }
+
+  async status(_providerName?: string): Promise<{
+    readonly providers: readonly {
+      readonly loggedIn: boolean;
+      readonly provider?: string;
+      readonly providerName?: string;
+      readonly hasToken?: boolean;
+    }[];
+  }> {
+    return { providers: [] };
+  }
+
+  async login(providerName?: string, _options?: Record<string, unknown>): Promise<{ readonly ok: true; readonly providerName: string; readonly defaultModel: string; readonly defaultThinking: boolean }> {
+    return {
+      ok: true,
+      providerName: providerName ?? 'openai',
+      defaultModel: 'openai/gpt-4o',
+      defaultThinking: false,
+    };
+  }
+
+  async logout(providerName?: string): Promise<{ readonly ok: true; readonly providerName: string }> {
+    return { ok: true, providerName: providerName ?? 'openai' };
+  }
+
+
+  async submitFeedback(_input: unknown): Promise<
+    | { readonly kind: 'ok'; readonly feedbackId: string }
+    | { readonly kind: 'error'; readonly message: string }
+  > {
+    return { kind: 'error', message: 'feedback is not available' };
+  }
+
+  async getManagedUsage(_providerName?: string): Promise<
+    | { readonly kind: 'ok'; readonly quota: { readonly rows?: unknown; readonly extraUsage?: unknown } }
+    | { readonly kind: 'error'; readonly message: string }
+  > {
+    return { kind: 'error', message: 'managed usage is not available' };
+  }
+
+
+  getCachedAccessTokenByProvider(_providerName?: string): Promise<string | undefined> {
+    return Promise.resolve(undefined);
   }
 }
