@@ -178,7 +178,7 @@ export interface MachineEngine {
   notify(entry: UserEntry): void;
   remind(key: string, entry: SystemEntry | UserEntry): void;
   cancelQueueItem(id: string): void;
-  abort(): void;
+  abort(reason?: unknown): void;
   pause(): void;
   resume(): void;
   resetHistory(history: readonly HistoryMessage[]): Promise<void>;
@@ -521,8 +521,8 @@ export function attachMachineEngine(
     cancelQueueItem: (id) => {
       ref.send({ type: 'input.cancel', id });
     },
-    abort: () => {
-      ref.send({ type: 'input.abort' });
+    abort: (reason) => {
+      ref.send({ type: 'input.abort', reason });
     },
     pause: () => {
       ref.send({ type: 'input.pause' });

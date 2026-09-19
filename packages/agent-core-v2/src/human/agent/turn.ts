@@ -706,8 +706,8 @@ export function createTurnMachine(
           'turn.abort': {
             target: 'aborted',
             actions: [
-              ({ context }) => {
-                context.llmScope.abort();
+              ({ context, event }) => {
+                context.llmScope.abort((event as { reason?: unknown }).reason);
               },
               'salvageAborted',
             ],

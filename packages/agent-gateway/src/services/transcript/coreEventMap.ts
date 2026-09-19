@@ -54,6 +54,7 @@ import type { AgentStatusUpdated } from '@pymodel/agent-core-v2/agent/usage/usag
 import type { PlanRevision } from '@pymodel/agent-core-v2/features/plan/planOps';
 import type { SubagentSuspended } from '@pymodel/agent-core-v2/features/dynamic_workflow/session/sessionDynamicWorkflowService';
 import type {
+  SubagentCancelled,
   SubagentCompleted,
   SubagentFailed,
   SubagentSpawned,
@@ -133,6 +134,7 @@ export type ProjectorBusEvent =
   | ({ readonly type: 'subagent.started' } & SubagentStarted)
   | ({ readonly type: 'subagent.completed' } & SubagentCompleted)
   | ({ readonly type: 'subagent.failed' } & SubagentFailed)
+  | ({ readonly type: 'subagent.cancelled' } & SubagentCancelled)
   | ({ readonly type: 'subagent.suspended' } & SubagentSuspended)
   | ({ readonly type: 'goal.updated' } & GoalUpdated)
   | ({ readonly type: 'agent.status.updated' } & AgentStatusUpdated)
@@ -331,6 +333,7 @@ export class AgentTranscriptProjector {
       case 'subagent.started':
       case 'subagent.completed':
       case 'subagent.failed':
+      case 'subagent.cancelled':
       case 'subagent.suspended':
         return this.onSubagentRun(event);
       case 'goal.updated':
@@ -1119,7 +1122,7 @@ export class AgentTranscriptProjector {
   }
 
   private onSubagentRun(event: {
-    type: 'subagent.started' | 'subagent.completed' | 'subagent.failed' | 'subagent.suspended';
+    type: 'subagent.started' | 'subagent.completed' | 'subagent.failed' | 'subagent.cancelled' | 'subagent.suspended';
     subagentId: string;
     resultSummary?: string;
     usage?: StepUsage;
@@ -1135,7 +1138,9 @@ export class AgentTranscriptProjector {
         ? 'completed'
         : event.type === 'subagent.failed'
           ? 'failed'
-          : 'running';
+          : event.type === 'subagent.cancelled'
+            ? 'killed'
+            : 'running';
     const taskKey = this.subagentTaskIds.get(event.subagentId) ?? event.subagentId;
     const task = this.upsertTask(taskKey, (prev) => ({
       taskId: taskKey,
@@ -1147,7 +1152,9 @@ export class AgentTranscriptProjector {
       outputTail: prev?.outputTail ?? '',
       startedAt: prev?.startedAt ?? nowIso(),
       endedAt:
-        event.type === 'subagent.completed' || event.type === 'subagent.failed'
+        event.type === 'subagent.completed' ||
+        event.type === 'subagent.failed' ||
+        event.type === 'subagent.cancelled'
           ? nowIso()
           : prev?.endedAt,
       resultSummary: event.resultSummary ?? prev?.resultSummary,
@@ -1169,7 +1176,9 @@ export class AgentTranscriptProjector {
         outputTail: prev?.outputTail ?? '',
         startedAt: prev?.startedAt ?? nowIso(),
         endedAt:
-          event.type === 'subagent.completed' || event.type === 'subagent.failed'
+          event.type === 'subagent.completed' ||
+          event.type === 'subagent.failed' ||
+          event.type === 'subagent.cancelled'
             ? nowIso()
             : prev?.endedAt,
         resultSummary: event.resultSummary ?? prev?.resultSummary,

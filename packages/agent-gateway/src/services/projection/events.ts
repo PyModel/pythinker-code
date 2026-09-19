@@ -53,6 +53,7 @@ import type { AgentStatusUpdated } from '@pymodel/agent-core-v2/agent/usage/usag
 import type { PlanRevision } from '@pymodel/agent-core-v2/features/plan/planOps';
 import type { SubagentSuspended } from '@pymodel/agent-core-v2/features/dynamic_workflow/session/sessionDynamicWorkflowService';
 import type {
+  SubagentCancelled,
   SubagentCompleted,
   SubagentFailed,
   SubagentSpawned,
@@ -83,6 +84,7 @@ export type ProjectionBusEvent =
   | ({ readonly type: 'subagent.started' } & SubagentStarted)
   | ({ readonly type: 'subagent.completed' } & SubagentCompleted)
   | ({ readonly type: 'subagent.failed' } & SubagentFailed)
+  | ({ readonly type: 'subagent.cancelled' } & SubagentCancelled)
   | ({ readonly type: 'subagent.suspended' } & SubagentSuspended)
   | ({ readonly type: 'goal.updated' } & GoalUpdated)
   | ({ readonly type: 'agent.status.updated' } & AgentStatusUpdated)

@@ -76,6 +76,7 @@ export type {
   SubagentStartedEvent,
   SubagentCompletedEvent,
   SubagentFailedEvent,
+  SubagentCancelledEvent,
 } from '@pymodel/agent-core-v2/session/subagent/mirrorAgentRun';
 export type { SubagentSuspendedEvent } from '@pymodel/agent-core-v2/features/dynamic_workflow/session/sessionDynamicWorkflowService';
 
