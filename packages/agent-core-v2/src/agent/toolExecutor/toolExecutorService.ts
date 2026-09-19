@@ -236,7 +236,7 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
           candidates.push(
             nextTimed.then(
               (result): ToolExecutionStreamEvent => ({ type: 'timed', result }),
-              (reason): ToolExecutionStreamEvent => ({ type: 'timedRejected', reason }),
+              (error): ToolExecutionStreamEvent => ({ type: 'timedRejected', error }),
             ),
           );
         }
@@ -266,7 +266,7 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
             options,
           ).then(
             (value): SettledToolExecutionResult => ({ status: 'fulfilled', value }),
-            (reason): SettledToolExecutionResult => ({ status: 'rejected', reason }),
+            (error): SettledToolExecutionResult => ({ status: 'rejected', error }),
           );
           finalizations.add(finalization);
           nextTimed = timedResults.next();
@@ -302,7 +302,7 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
     );
 
     this.dispatchToolResult(call, finalized, options);
-    this.trackToolCall(call, finalized, timedResult.durationMs, options);
+    this.trackToolCall(call, finalized, timedResult.durationMs, timedResult.outcome, options);
 
     return {
       toolCallId: call.toolCall.id,
@@ -315,9 +315,10 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
     call: PreflightedToolCall,
     result: ToolResult,
     durationMs: number,
+    executionOutcome: ToolExecutionOutcome,
     options: ToolExecutorExecuteOptions,
   ): void {
-    const outcome = toolTelemetryOutcome(result);
+    const outcome = toolTelemetryOutcome(result, executionOutcome);
     const toolCallId = call.toolCall.id;
     const dupType = this.toolCallDupTypes.get(toolCallId) ?? 'normal';
     this.toolCallDupTypes.delete(toolCallId);
@@ -468,13 +469,21 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
         accesses: task.accesses,
         start: async () => {
           const startedAt = Date.now();
+          const execution = task.execute(signal);
           return {
-            result: task.execute(signal).then(({ result, outcome }) => ({
+            result: execution.then(({ result, outcome }) => ({
               index,
               result,
               outcome,
               durationMs: Math.max(0, Date.now() - startedAt),
             })),
+            effectsSettled: (async () => {
+              try {
+                const run = await execution;
+                if (run.effectsSettled !== undefined) await run.effectsSettled;
+              } catch {
+              }
+            })(),
           };
         },
       });
@@ -483,7 +492,7 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
         index,
         pendingResult.then(
           (value): SettledTimedToolResult => ({ status: 'fulfilled', value }),
-          (reason): SettledTimedToolResult => ({ status: 'rejected', index, reason }),
+          (error): SettledTimedToolResult => ({ status: 'rejected', index, error }),
         ),
       );
     }
@@ -534,6 +543,15 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
         },
       });
       rawResult = await raceWithAbortGrace(executePromise, signal, call.toolName);
+      const abortedByGrace =
+        signal.aborted &&
+        typeof rawResult === 'object' &&
+        rawResult !== null &&
+        (rawResult as { isError?: boolean }).isError === true;
+      return {
+        result: this.normalizeAndMergeResult(rawResult, call.toolName, execution),
+        outcome: abortedByGrace ? 'aborted' : 'executed',
+      };
     } catch (error) {
       const aborted = isAbortError(error) || signal.aborted;
       const output = aborted
@@ -541,14 +559,9 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
         : `Tool "${call.toolName}" failed: ${errorMessage(error)}`;
       return {
         result: makeErrorToolResult(call, call.args, output).result,
-        outcome: 'executed',
+        outcome: aborted ? 'aborted' : 'executed',
       };
     }
-
-    return {
-      result: this.normalizeAndMergeResult(rawResult, call.toolName, execution),
-      outcome: 'executed',
-    };
   }
 
   private normalizeAndMergeResult(
@@ -908,14 +921,13 @@ function normalizeToolResult(result: ExecutableToolResult): ToolResult {
   return base;
 }
 
-function toolTelemetryOutcome(result: ToolResult): 'success' | 'error' | 'cancelled' {
+function toolTelemetryOutcome(
+  result: ToolResult,
+  executionOutcome: ToolExecutionOutcome,
+): 'success' | 'error' | 'cancelled' {
+  if (executionOutcome === 'aborted' || executionOutcome === 'cancelled') return 'cancelled';
   if (result.isError !== true) return 'success';
-  const text = toolOutputText(result.output).toLowerCase();
-  return text.includes('aborted') ||
-    text.includes('cancelled') ||
-    text.includes('manually interrupted')
-    ? 'cancelled'
-    : 'error';
+  return 'error';
 }
 
 function toolTelemetryErrorType(outcome: 'success' | 'error' | 'cancelled'): 'cancelled' | 'error' {
@@ -923,13 +935,6 @@ function toolTelemetryErrorType(outcome: 'success' | 'error' | 'cancelled'): 'ca
   return 'error';
 }
 
-function toolOutputText(output: ToolResult['output']): string {
-  if (typeof output === 'string') return output;
-  return output
-    .filter((part): part is Extract<ContentPart, { type: 'text' }> => part.type === 'text')
-    .map((part) => part.text)
-    .join('');
-}
 
 function isMediaContentPart(part: ContentPart): boolean {
   return part.type === 'image_url' || part.type === 'audio_url' || part.type === 'video_url';

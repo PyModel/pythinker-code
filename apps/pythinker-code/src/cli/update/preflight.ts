@@ -4,7 +4,6 @@ import { log, type Logger } from '@pymodel/pythinker-code-sdk';
 import type { TelemetryProperties } from '@pymodel/pythinker-telemetry';
 
 import {
-  pythinkerCodeOfficialInstallUrl,
   nativeInstallCommandUnix,
   nativeInstallCommandWin,
 } from '#/constant/app';
@@ -186,10 +185,7 @@ function resolveInstallSpawn(
 
 // Built per call: the official-installer URL follows the current region.
 function thirdPartySourceNote(): string {
-  return (
-    '\nNote: Third-party sources may lag behind the official release.\n' +
-    `For the latest updates, use the official installer: ${pythinkerCodeOfficialInstallUrl()}\n`
-  );
+  return '\nNote: Third-party sources may lag behind the official release.\n';
 }
 
 export function renderManualUpdateMessage(
