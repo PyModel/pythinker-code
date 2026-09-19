@@ -20,6 +20,7 @@ export class ModelService extends Disposable implements IModelService {
 
   private models: Readonly<Record<string, ModelRecord>> = {};
   private defaultModel: string | undefined;
+  private lastUsedModel: string | undefined;
   private hydrated = false;
   private resolveReady!: () => void;
   readonly ready: Promise<void> = new Promise<void>((resolve) => {
@@ -36,6 +37,11 @@ export class ModelService extends Disposable implements IModelService {
   );
   readonly onDidChangeDefaultModel: Event<DefaultModelChangedEvent & IWaitUntil> =
     this._onDidChangeDefaultModel.event;
+  private readonly _onDidChangeLastUsedModel = this._register(
+    new AsyncEmitter<DefaultModelChangedEvent & IWaitUntil>(),
+  );
+  readonly onDidChangeLastUsedModel: Event<DefaultModelChangedEvent & IWaitUntil> =
+    this._onDidChangeLastUsedModel.event;
 
   get(id: string): ModelRecord | undefined {
     return this.models[id];
@@ -49,9 +55,18 @@ export class ModelService extends Disposable implements IModelService {
     return this.defaultModel;
   }
 
-  loadAll(models: ModelsSection, defaultModel: string | undefined): void {
+  getLastUsedModel(): string | undefined {
+    return this.lastUsedModel;
+  }
+
+  loadAll(
+    models: ModelsSection,
+    defaultModel: string | undefined,
+    lastUsedModel?: string | undefined,
+  ): void {
     void this.applyRecords(models);
     void this.applyDefaultModel(defaultModel);
+    void this.applyLastUsedModel(lastUsedModel);
     if (!this.hydrated) {
       this.hydrated = true;
       this.resolveReady();
@@ -81,6 +96,11 @@ export class ModelService extends Disposable implements IModelService {
     await this.applyDefaultModel(id);
   }
 
+  async setLastUsedModel(id: string | undefined): Promise<void> {
+    await this.ready;
+    await this.applyLastUsedModel(id);
+  }
+
   private async applyRecords(next: Readonly<Record<string, ModelRecord>>): Promise<void> {
     const diff = diffRecords(this.models, next);
     if (isEmptyDiff(diff)) return;
@@ -92,6 +112,12 @@ export class ModelService extends Disposable implements IModelService {
     if (this.defaultModel === id) return;
     this.defaultModel = id;
     await this._onDidChangeDefaultModel.fireAsync({ id }, NO_ABORT);
+  }
+
+  private async applyLastUsedModel(id: string | undefined): Promise<void> {
+    if (this.lastUsedModel === id) return;
+    this.lastUsedModel = id;
+    await this._onDidChangeLastUsedModel.fireAsync({ id }, NO_ABORT);
   }
 }
 

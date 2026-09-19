@@ -319,7 +319,7 @@ describe("Webview RPC boundary (validates requests before host dispatch)", () =>
     ] as never);
 
     const result = await bridge.handle(
-      { id: "rpc-1", method: Methods.GetPythinkerSessions },
+      { id: "rpc-1", method: Methods.GetSessions },
       "view-1",
     );
 
@@ -349,7 +349,7 @@ describe("Webview RPC boundary (validates requests before host dispatch)", () =>
     const result = await bridge.handle(
       {
         id: "rpc-1",
-        method: Methods.ForkPythinkerSession,
+        method: Methods.ForkSession,
         params: { sessionId: "session-1", turnIndex: 0 },
       },
       "view-1",
@@ -382,7 +382,7 @@ describe("Webview RPC boundary (validates requests before host dispatch)", () =>
     const result = await bridge.handle(
       {
         id: "rpc-1",
-        method: Methods.ForkPythinkerSession,
+        method: Methods.ForkSession,
         params: { sessionId: "session-1", turnIndex: 0 },
       },
       "view-1",
@@ -407,7 +407,7 @@ describe("Webview RPC boundary (validates requests before host dispatch)", () =>
     const result = await bridge.handle(
       {
         id: "rpc-1",
-        method: Methods.ForkPythinkerSession,
+        method: Methods.ForkSession,
         params: { sessionId: "session-1", turnIndex: 0 },
       },
       "view-1",
@@ -441,8 +441,8 @@ describe("Webview RPC boundary (validates requests before host dispatch)", () =>
     const result = await bridge.handle(
       {
         id: "rpc-1",
-        method: Methods.LoadPythinkerSessionHistory,
-        params: { pythinkerSessionId: "session-1" },
+        method: Methods.LoadSessionHistory,
+        params: { sessionId: "session-1" },
       },
       "view-1",
     );
@@ -467,8 +467,8 @@ describe("Webview RPC boundary (validates requests before host dispatch)", () =>
     const failed = await bridge.handle(
       {
         id: "rpc-1",
-        method: Methods.LoadPythinkerSessionHistory,
-        params: { pythinkerSessionId: "session-1" },
+        method: Methods.LoadSessionHistory,
+        params: { sessionId: "session-1" },
       },
       "view-1",
     );

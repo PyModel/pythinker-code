@@ -102,15 +102,10 @@ export class KosongConfigService extends Disposable implements IKosongConfigServ
         );
         break;
       case MODELS_SECTION:
-        const models = this.models as {
-          loadAll: (section: ModelsSection, defaultModel: string | undefined, lastUsed?: string | undefined) => void;
-          getDefaultModel: () => string | undefined;
-          getLastUsedModel?: () => string | undefined;
-        };
-        models.loadAll(
+        this.models.loadAll(
           (e.value as ModelsSection | undefined) ?? {},
-          models.getDefaultModel(),
-          models.getLastUsedModel?.(),
+          this.models.getDefaultModel(),
+          this.models.getLastUsedModel(),
         );
         break;
       case DEFAULT_PROVIDER_SECTION:

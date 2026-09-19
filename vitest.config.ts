@@ -1,13 +1,18 @@
 import { defineConfig } from 'vitest/config';
 
+import { vscodeProjects } from './apps/vscode/vitest.projects';
+
 export default defineConfig({
   test: {
     projects: [
       'packages/*',
       '!packages/minidb',
       'apps/pythinker-code',
+      'apps/desktop',
+      'apps/pythinker-web',
       'apps/vis/server',
       'apps/vis/web',
+      ...vscodeProjects,
     ],
     coverage: {
       provider: 'v8',

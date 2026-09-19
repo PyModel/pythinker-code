@@ -364,15 +364,16 @@ async function runSlash(
 }
 
 describe("VS Code Pythinker harness integration (shares one in-process SDK home)", () => {
-  it("only intercepts released slash commands and user-invoked skills", () => {
-    expect(parseHostSlashCommand("/plan on")).toEqual({ name: "plan", args: "on", raw: "/plan on" });
-    expect(parseHostSlashCommand(" /skill:review carefully ")).toEqual({
+  it("only intercepts released slash commands and user-invoked skills", async () => {
+    expect(await parseHostSlashCommand("/plan on")).toEqual({ name: "plan", args: "on", raw: "/plan on" });
+    expect(await parseHostSlashCommand(" /skill:review carefully ")).toEqual({
       name: "skill:review",
       args: "carefully",
       raw: "/skill:review carefully",
+      skillName: "review",
     });
-    expect(parseHostSlashCommand("/not-a-host-command")).toBeUndefined();
-    expect(parseHostSlashCommand([{ type: "text", text: "/clear" }])).toBeUndefined();
+    expect(await parseHostSlashCommand("/not-a-host-command")).toBeUndefined();
+    expect(await parseHostSlashCommand([{ type: "text", text: "/clear" }])).toBeUndefined();
   });
 
   it("combines the released slash commands with user-activatable workspace skills", async () => {

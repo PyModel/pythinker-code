@@ -123,8 +123,6 @@ describe("extension telemetry composition root", () => {
       model: "kimi-k2",
     });
     expect(options["endpoint"]).toBeTypeOf("function");
-    expect(options["getAccessToken"]).toBeTypeOf("function");
-    await expect((options["getAccessToken"] as () => Promise<string | null>)()).resolves.toBe("token-1");
     expect(host.shouldEnableTelemetry).toHaveBeenCalledWith({ enabled: true });
   });
 
@@ -144,9 +142,8 @@ describe("extension telemetry composition root", () => {
     expect(endpoint()).toBe("https://telemetry-logs.example.net/v1/event");
     expect(host.resolvePythinkerRegion).toHaveBeenCalledWith(
       expect.objectContaining({
-        configuredOAuthHost: "https://auth.kimi.ai",
-        configuredOAuthKey: "oauth/pythinker-code-global",
         homeDir: "/pythinker-home",
+        readMarker: true,
       }),
     );
   });
