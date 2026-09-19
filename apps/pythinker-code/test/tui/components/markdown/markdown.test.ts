@@ -5,8 +5,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { Markdown } from '#/tui/components/markdown/markdown';
 import { darkColors, lightColors } from '#/tui/theme/colors';
+import { currentTheme } from '#/tui/theme';
 import { createMarkdownTheme } from '#/tui/theme/pi-tui-theme';
-import { currentTheme } from '#/tui/theme/theme';
 import {
   setMarkdownAltScreenActive,
   setMarkdownMermaidMode,
@@ -352,7 +352,11 @@ describe('Markdown mermaid copy source', () => {
     const line = lastLine(makeCopyable());
 
     expect(strip(line)).toContain('[Copy Source]');
-    expect(line).toContain('38;2;91;192;190');
+    const accent = currentTheme.color('accent').replace('#', '');
+    const r = Number.parseInt(accent.slice(0, 2), 16);
+    const g = Number.parseInt(accent.slice(2, 4), 16);
+    const b = Number.parseInt(accent.slice(4, 6), 16);
+    expect(line).toContain(`38;2;${r};${g};${b}`);
     expect(line).not.toContain('48;2;');
     expect(line).not.toContain('[1m');
   });
