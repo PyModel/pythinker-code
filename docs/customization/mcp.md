@@ -62,6 +62,7 @@ Optional fields:
 | `headers` | `Record<string, string>` | HTTP, SSE | Static request headers appended to every request |
 | `bearerTokenEnvVar` | `string` | HTTP, SSE | Name of an environment variable that contains a bearer token |
 | `enabled` | `boolean` | All | Set to `false` to disable this server |
+| `deferred` | `boolean` | All | Experimental: set to `true` to let the model load this server's tools on demand. Defaults to `false` (always exposed inline). Prerequisites and behavior: [Loading tools on demand](#loading-tools-on-demand) |
 | `startupTimeoutMs` | `number` | All | Connection timeout from `1` to `2147483647` milliseconds; default `30000` |
 | `toolTimeoutMs` | `number` | All | Timeout from `1` to `2147483647` milliseconds for a single tool call |
 | `enabledTools` | `string[]` | All | Tool allowlist |
