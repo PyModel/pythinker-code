@@ -34,6 +34,8 @@
 //   cron.add                           (none)                                                src/features/cron/cronOps.ts
 //   cron.cursor                        (none)                                                src/features/cron/cronOps.ts
 //   cron.delete                        (none)                                                src/features/cron/cronOps.ts
+//   dynamic_workflow_mode.enter        dynamic_workflow                                      src/features/dynamic_workflow/dynamicWorkflowOps.ts
+//   dynamic_workflow_mode.exit         contextMemory, dynamic_workflow                       src/features/dynamic_workflow/dynamicWorkflowOps.ts
 //   file_history.checkpoint            fileHistory                                           src/features/fileHistory/fileHistoryOps.ts
 //   file_history.tracked               fileHistory                                           src/features/fileHistory/fileHistoryOps.ts
 //   forked                             (none)                                                src/features/goal/goalOps.ts
@@ -61,8 +63,6 @@
 //   prompt.completed                   (none)                                                src/agent/prompt/promptEvents.ts
 //   prompt.steered                     (none)                                                src/agent/prompt/promptEvents.ts
 //   runtime.set_binding                runtimeBinding                                        src/agent/runtimeBinding/runtimeBindingOps.ts
-//   dynamic_workflow_mode.enter                   dynamic_workflow                                                 src/features/dynamic_workflow/dynamicWorkflowOps.ts
-//   dynamic_workflow_mode.exit                    contextMemory, dynamic_workflow                                  src/features/dynamic_workflow/dynamicWorkflowOps.ts
 //   task.started                       task                                                  src/agent/task/taskOps.ts
 //   task.terminated                    task                                                  src/agent/task/taskOps.ts
 //   task.waitDelivered                 task.notificationDelivery                             src/agent/task/taskOps.ts
@@ -202,6 +202,26 @@ interface CronCursorPayload {
 interface CronDeletePayload {
   _name: 'cron.delete';
   ids: string[];
+}
+
+/**
+ * states: dynamic_workflow
+ * owner: src/features/dynamic_workflow/dynamicWorkflowOps.ts
+ */
+interface DynamicWorkflowModeEnterPayload {
+  _name: 'dynamic_workflow_mode.enter';
+  agentId: string;
+  /** DynamicWorkflowModeTrigger */
+  trigger: 'manual' | 'task' | 'tool';
+}
+
+/**
+ * states: contextMemory, dynamic_workflow · blobs: contextMemory
+ * owner: src/features/dynamic_workflow/dynamicWorkflowOps.ts
+ */
+interface DynamicWorkflowModeExitPayload {
+  _name: 'dynamic_workflow_mode.exit';
+  agentId: string;
 }
 
 /**
@@ -571,26 +591,6 @@ interface RuntimeSetBindingPayload {
 }
 
 /**
- * states: dynamic_workflow
- * owner: src/features/dynamic_workflow/dynamicWorkflowOps.ts
- */
-interface DynamicWorkflowModeEnterPayload {
-  _name: 'dynamic_workflow_mode.enter';
-  agentId: string;
-  /** DynamicWorkflowModeTrigger */
-  trigger: 'manual' | 'task' | 'tool';
-}
-
-/**
- * states: contextMemory, dynamic_workflow · blobs: contextMemory
- * owner: src/features/dynamic_workflow/dynamicWorkflowOps.ts
- */
-interface DynamicWorkflowModeExitPayload {
-  _name: 'dynamic_workflow_mode.exit';
-  agentId: string;
-}
-
-/**
  * states: task
  * owner: src/agent/task/taskOps.ts
  */
@@ -898,6 +898,8 @@ interface WirePayloadMap {
   "cron.add": CronAddPayload;
   "cron.cursor": CronCursorPayload;
   "cron.delete": CronDeletePayload;
+  "dynamic_workflow_mode.enter": DynamicWorkflowModeEnterPayload;
+  "dynamic_workflow_mode.exit": DynamicWorkflowModeExitPayload;
   "file_history.checkpoint": FileHistoryCheckpointPayload;
   "file_history.tracked": FileHistoryTrackedPayload;
   "forked": ForkedPayload;
@@ -925,8 +927,6 @@ interface WirePayloadMap {
   "prompt.completed": PromptCompletedPayload;
   "prompt.steered": PromptSteeredPayload;
   "runtime.set_binding": RuntimeSetBindingPayload;
-  "dynamic_workflow_mode.enter": DynamicWorkflowModeEnterPayload;
-  "dynamic_workflow_mode.exit": DynamicWorkflowModeExitPayload;
   "task.started": TaskStartedPayload;
   "task.terminated": TaskTerminatedPayload;
   "task.waitDelivered": TaskWaitDeliveredPayload;
