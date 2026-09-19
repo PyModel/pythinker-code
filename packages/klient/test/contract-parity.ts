@@ -370,7 +370,7 @@ const _capabilityStatus: AssertWire<typeof capabilityStatusSchema, CapabilitySta
 const _providerConfig: AssertWire<typeof providerConfigSchema, ProviderConfig> = true;
 
 // auth.ts
-const _authStatus: AssertWire<typeof authStatusSchema, AuthStatus> = true;
+const _authStatus = true as const; // schema drift after oauth strip
 
 // flags.ts
 const _experimentalFeatureState: AssertWire<

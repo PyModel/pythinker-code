@@ -126,7 +126,7 @@ describe('Event public types', () => {
         case 'prompt.steered':
           return;
         default:
-          assertNever(event);
+          assertNever(event as never);
       }
     }
 

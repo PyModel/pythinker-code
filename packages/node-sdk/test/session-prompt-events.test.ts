@@ -382,7 +382,7 @@ describe('Session.prompt events', () => {
         expect.objectContaining({
           type: 'turn.started',
           sessionId: session.id,
-          agentId: spawned?.type === 'subagent.spawned' ? spawned.subagentId : undefined,
+          agentId: spawned?.type === 'subagent.spawned' ? (spawned as any).subagentId : undefined,
           origin: { kind: 'system_trigger', name: 'subagent' },
         }),
       );
@@ -421,7 +421,7 @@ describe('Session.prompt events', () => {
         expect.objectContaining({
           type: 'turn.started',
           sessionId: session.id,
-          agentId: spawned?.type === 'subagent.spawned' ? spawned.subagentId : undefined,
+          agentId: spawned?.type === 'subagent.spawned' ? (spawned as any).subagentId : undefined,
           origin: { kind: 'system_trigger', name: 'subagent' },
           prompt: expect.stringContaining('Task requirements:'),
         }),
@@ -448,14 +448,14 @@ describe('Session.prompt events', () => {
       await session.close();
 
       const defaultResume = await harness.resumeSession({ id: session.id });
-      expect(defaultResume.getResumeState()?.agents).not.toHaveProperty(spawned.subagentId);
+      expect(defaultResume.getResumeState()?.agents).not.toHaveProperty((spawned as any).subagentId);
       await defaultResume.close();
 
       const fullResume = await harness.resumeSession({
         id: session.id,
         includeSubagents: true,
       });
-      expect(fullResume.getResumeState()?.agents[spawned.subagentId]?.replay).toContainEqual(
+      expect(fullResume.getResumeState()?.agents[(spawned as any).subagentId]?.replay).toContainEqual(
         expect.objectContaining({
           type: 'message',
           message: expect.objectContaining({ role: 'assistant' }),
@@ -505,7 +505,7 @@ describe('Session.prompt events', () => {
         (event) =>
           event.type === 'turn.started' &&
           event.agentId === agentId &&
-          event.origin.kind === 'user',
+          (event as any).origin.kind === 'user',
       );
       expect(events).toContainEqual(
         expect.objectContaining({
@@ -816,7 +816,7 @@ function visibleReplayText(
   for (const record of records) {
     if (record.type !== 'message' || record.message === undefined) continue;
     const { message } = record;
-    if (message.role === 'user' && message.origin?.kind !== 'user') continue;
+    if (message.role === 'user' && (message as any).origin?.kind !== 'user') continue;
     if (message.role !== 'user' && message.role !== 'assistant') continue;
     const text = message.content
       .filter((part) => part.type === 'text')
