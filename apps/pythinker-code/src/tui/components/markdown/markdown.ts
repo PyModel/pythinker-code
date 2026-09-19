@@ -169,4 +169,4 @@ export class Markdown extends Container {
   }
 }
 
-export { setMarkdownAltScreenActive, setMarkdownMermaidMode, setMarkdownRenderLatex, setMarkdownRenderRequester } from '../../utils/markdown-options';
+export { setMarkdownAltScreenActive, setMarkdownMermaidMode, setMarkdownRenderLatex, setMarkdownRenderRequester } from '#/tui/utils/markdown-options';
