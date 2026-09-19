@@ -104,14 +104,8 @@ export function replaceUserAgentProduct(userAgent: string, product: string): str
  * includes only the product User-Agent.
  */
 export function createPythinkerDefaultHeaders(options: PythinkerIdentityOptions): Record<string, string> {
-  const deviceId =
-    options.deviceId ??
-    (options.homeDir !== undefined ? createPythinkerDeviceId(options.homeDir) : undefined);
   return {
     'User-Agent': createPythinkerUserAgent(options),
-    'X-Msh-Platform': options.platform,
-    'X-Msh-Version': options.version,
-    ...(deviceId !== undefined ? { 'X-Msh-Device-Id': deviceId } : {}),
   };
 }
 
