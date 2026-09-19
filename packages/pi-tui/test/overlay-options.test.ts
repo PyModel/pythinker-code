@@ -110,7 +110,7 @@ describe("TUI overlay options", () => {
 			const terminal = new VirtualTerminal(80, 24);
 			const tui: TUI = new TuiMainScreen(terminal);
 			// Wide chars (each takes 2 columns) at the edge of declared width
-			const wideCharLine = "\u4E2D\u6587\u65E5\u672C\u8A9E한글テスト\u6F22\u5B57"; // Mix of CJK chars
+			const wideCharLine = "\u4e2d\u6587\u65e5\u672c\u8a9e한글テスト\u6f22\u5b57"; // Mix of CJK chars
 			const overlay = new StaticOverlay([wideCharLine]);
 
 			tui.addChild(new EmptyContent());

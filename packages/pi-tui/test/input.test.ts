@@ -1,7 +1,7 @@
 import assert from "node:assert";
 import { describe, it } from "node:test";
 import { Input } from "../src/components/input.ts";
-import { visibleWidth } from "../src/utils.ts";
+import { stripTerminalSequences, visibleWidth } from "../src/utils.ts";
 
 describe("Input component", () => {
 	it("submits value including backslash on Enter", () => {
@@ -35,12 +35,29 @@ describe("Input component", () => {
 	});
 
 	describe("render", () => {
+		it("supports a custom prompt and styled placeholder", () => {
+			const input = new Input({
+				prompt: "",
+				placeholder: "Find transcript",
+				placeholderStyle: (text) => `\x1b[2m${text}\x1b[22m`,
+			});
+			input.focused = true;
+
+			const [empty] = input.render(20);
+			assert.ok(empty?.includes("\x1b[2m"));
+			assert.strictEqual(stripTerminalSequences(empty ?? "").trimEnd(), "Find transcript");
+
+			input.handleInput("n");
+			const [populated] = input.render(20);
+			assert.strictEqual(stripTerminalSequences(populated ?? "").trimEnd(), "n");
+		});
+
 		it("does not overflow with wide CJK and fullwidth text", () => {
 			const width = 93;
 			const cases = [
 				"가나다라마바사아자차카타파하 한글 텍스트가 터미널 너비를 초과하면 크래시가 발생합니다 이것은 재현용 테스트입니다",
-				"これはテスト\u6587\u7AE0です。\u65E5\u672C\u8A9Eのテキストが\u6B63しく\u8868\u793Aされるかどうかを\u78BA\u8A8Dするためのサンプルテキストです。あいうえお",
-				"\u8FD9\u662F\u4E00\u6BB5\u6D4B\u8BD5\u6587\u672C，\u7528\u4E8E\u9A8C\u8BC1\u4E2D\u6587\u5B57\u7B26\u5728\u7EC8\u7AEF\u4E2D\u7684\u663E\u793A\u5BBD\u5EA6\u662F\u5426\u88AB\u6B63\u786E\u8BA1\u7B97，\u5982\u679C\u4E0D\u6B63\u786E\u5C31\u4F1A\u5BFC\u81F4\u7528\u6237\u754C\u9762\u5D29\u6E83\u7684\u95EE\u9898",
+				"これはテスト\u6587\u7ae0です。\u65e5\u672c\u8a9eのテキストが\u6b63しく\u8868\u793aされるかどうかを\u78ba\u8a8dするためのサンプルテキストです。あいうえお",
+				"\u8fd9\u662f\u4e00\u6bb5\u6d4b\u8bd5\u6587\u672c，\u7528\u4e8e\u9a8c\u8bc1\u4e2d\u6587\u5b57\u7b26\u5728\u7ec8\u7aef\u4e2d\u7684\u663e\u793a\u5bbd\u5ea6\u662f\u5426\u88ab\u6b63\u786e\u8ba1\u7b97，\u5982\u679c\u4e0d\u6b63\u786e\u5c31\u4f1a\u5bfc\u81f4\u7528\u6237\u754c\u9762\u5d29\u6e83\u7684\u95ee\u9898",
 				"ＡＢＣＤＥＦＧＨＩＪＫＬＭＮＯＰＱＲＳＴＵＶＷＸＹＺ０１２３４５６７８９ａｂｃｄｅｆｇｈｉｊｋｌｍ",
 			];
 			const cursorPositions = [
@@ -117,20 +134,20 @@ describe("Input component", () => {
 		it("Ctrl+W handles Unicode word boundaries", () => {
 			const input = new Input();
 
-			// "\u4F60\u597D\u4E16\u754C。\u4F60\u597D，\u4E16\u754C" segments as: \u4F60\u597D|\u4E16\u754C|。|\u4F60\u597D|，|\u4E16\u754C
-			input.setValue("\u4F60\u597D\u4E16\u754C。\u4F60\u597D，\u4E16\u754C");
+			// "CJK。CJK，CJK" segments as: CJK|CJK|。|CJK|，|CJK
+			input.setValue("\u4f60\u597d\u4e16\u754c。\u4f60\u597d，\u4e16\u754c");
 			input.handleInput("\x05"); // Ctrl+E
-			input.handleInput("\x17"); // Ctrl+W - deletes "\u4E16\u754C"
-			assert.strictEqual(input.getValue(), "\u4F60\u597D\u4E16\u754C。\u4F60\u597D，");
+			input.handleInput("\x17"); // Ctrl+W - deletes "\u4e16\u754c"
+			assert.strictEqual(input.getValue(), "\u4f60\u597d\u4e16\u754c。\u4f60\u597d，");
 			input.handleInput("\x17"); // Ctrl+W - deletes "，"
-			assert.strictEqual(input.getValue(), "\u4F60\u597D\u4E16\u754C。\u4F60\u597D");
-			input.handleInput("\x17"); // Ctrl+W - deletes "\u4F60\u597D"
-			assert.strictEqual(input.getValue(), "\u4F60\u597D\u4E16\u754C。");
+			assert.strictEqual(input.getValue(), "\u4f60\u597d\u4e16\u754c。\u4f60\u597d");
+			input.handleInput("\x17"); // Ctrl+W - deletes "\u4f60\u597d"
+			assert.strictEqual(input.getValue(), "\u4f60\u597d\u4e16\u754c。");
 			input.handleInput("\x17"); // Ctrl+W - deletes "。"
-			assert.strictEqual(input.getValue(), "\u4F60\u597D\u4E16\u754C");
-			input.handleInput("\x17"); // Ctrl+W - deletes "\u4E16\u754C"
-			assert.strictEqual(input.getValue(), "\u4F60\u597D");
-			input.handleInput("\x17"); // Ctrl+W - deletes "\u4F60\u597D"
+			assert.strictEqual(input.getValue(), "\u4f60\u597d\u4e16\u754c");
+			input.handleInput("\x17"); // Ctrl+W - deletes "\u4e16\u754c"
+			assert.strictEqual(input.getValue(), "\u4f60\u597d");
+			input.handleInput("\x17"); // Ctrl+W - deletes "\u4f60\u597d"
 			assert.strictEqual(input.getValue(), "");
 		});
 
@@ -363,20 +380,20 @@ describe("Input component", () => {
 		it("Alt+D handles Unicode word boundaries", () => {
 			const input = new Input();
 
-			// "\u4F60\u597D\u4E16\u754C。\u4F60\u597D，\u4E16\u754C" segments as: \u4F60\u597D|\u4E16\u754C|。|\u4F60\u597D|，|\u4E16\u754C
-			input.setValue("\u4F60\u597D\u4E16\u754C。\u4F60\u597D，\u4E16\u754C");
+			// "CJK。CJK，CJK" segments as: CJK|CJK|。|CJK|，|CJK
+			input.setValue("\u4f60\u597d\u4e16\u754c。\u4f60\u597d，\u4e16\u754c");
 			input.handleInput("\x01"); // Ctrl+A
-			input.handleInput("\x1bd"); // Alt+D - deletes "\u4F60\u597D"
-			assert.strictEqual(input.getValue(), "\u4E16\u754C。\u4F60\u597D，\u4E16\u754C");
-			input.handleInput("\x1bd"); // Alt+D - deletes "\u4E16\u754C"
-			assert.strictEqual(input.getValue(), "。\u4F60\u597D，\u4E16\u754C");
+			input.handleInput("\x1bd"); // Alt+D - deletes "\u4f60\u597d"
+			assert.strictEqual(input.getValue(), "\u4e16\u754c。\u4f60\u597d，\u4e16\u754c");
+			input.handleInput("\x1bd"); // Alt+D - deletes "\u4e16\u754c"
+			assert.strictEqual(input.getValue(), "。\u4f60\u597d，\u4e16\u754c");
 			input.handleInput("\x1bd"); // Alt+D - deletes "。"
-			assert.strictEqual(input.getValue(), "\u4F60\u597D，\u4E16\u754C");
-			input.handleInput("\x1bd"); // Alt+D - deletes "\u4F60\u597D"
-			assert.strictEqual(input.getValue(), "，\u4E16\u754C");
+			assert.strictEqual(input.getValue(), "\u4f60\u597d，\u4e16\u754c");
+			input.handleInput("\x1bd"); // Alt+D - deletes "\u4f60\u597d"
+			assert.strictEqual(input.getValue(), "，\u4e16\u754c");
 			input.handleInput("\x1bd"); // Alt+D - deletes "，"
-			assert.strictEqual(input.getValue(), "\u4E16\u754C");
-			input.handleInput("\x1bd"); // Alt+D - deletes "\u4E16\u754C"
+			assert.strictEqual(input.getValue(), "\u4e16\u754c");
+			input.handleInput("\x1bd"); // Alt+D - deletes "\u4e16\u754c"
 			assert.strictEqual(input.getValue(), "");
 		});
 
