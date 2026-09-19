@@ -87,7 +87,7 @@ describe('SessionSubagentModelsValidationService', () => {
     expect(isError2(error)).toBe(true);
     expect((error as Error2).code).toBe(ErrorCodes.CONFIG_INVALID);
     expect((error as Error2).message).toContain(
-      '[secondary_model].default_model "provider/typo" could not be resolved',
+      '[secondary_model.models] entry "provider/typo" could not be resolved',
     );
   });
 
@@ -119,9 +119,8 @@ describe('SessionSubagentModelsValidationService', () => {
     expect(isError2(error)).toBe(true);
     expect((error as Error2).code).toBe(ErrorCodes.CONFIG_INVALID);
     expect((error as Error2).message).toContain(
-      '[secondary_model].default_model "provider/typo" could not be resolved',
+      '[secondary_model.models] entry "provider/typo" could not be resolved',
     );
-    expect((error as Error2).message).not.toContain('[secondary_model.models]');
   });
 
   it('constructs fine for a valid pool', () => {

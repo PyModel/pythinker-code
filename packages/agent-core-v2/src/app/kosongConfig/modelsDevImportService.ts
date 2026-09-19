@@ -4,19 +4,19 @@ import {
   removeCustomRegistryProvider,
   type CustomRegistryProviderEntry,
   type CustomRegistrySource,
-  type ManagedPythinkerConfigShape,
+  type PythinkerConfigShape,
 } from '@pymodel/pythinker-code-oauth';
 import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Error2 } from '#/_base/errors/errors';
 import { IAgentIdentity } from '#/app/agentIdentity/agentIdentity';
 import { IConfigService } from '#/app/config/config';
-import { IModelCatalog } from '#/llm-adapter/model/catalog';
-import { type ModelsSection } from '#/llm-adapter/model/model';
-import { type ProviderConfig, type ProvidersSection } from '#/llm-adapter/provider/provider';
+import { IModelCatalog } from '#/kosong/model/catalog';
+import { IModelService, modelRecordProviderId, type ModelsSection } from '#/kosong/model/model';
+import { type ProviderConfig, type ProvidersSection } from '#/kosong/provider/provider';
 import { modelsDevProviderModels, resolveModelsDevImport } from './modelsDev';
 
-import { DEFAULT_MODEL_SECTION, MODELS_SECTION, PROVIDERS_SECTION } from './configSection';
+import { MODELS_SECTION, PROVIDERS_SECTION } from './configSection';
 import { ModelsDevImportErrors } from './errors';
 import { IKosongConfigService } from './kosongConfig';
 import {
@@ -30,6 +30,7 @@ import {
 } from './modelsDevImport';
 import {
   getModelsDevCatalog,
+  MODELS_DEV_URL,
   modelsDevEntry,
   modelsDevModelToRecord,
   toModelsDevProviderItem,
@@ -48,6 +49,7 @@ export class ModelsDevImportService implements IModelsDevImportService {
     @IConfigService private readonly config: IConfigService,
     @IKosongConfigService private readonly kosongConfig: IKosongConfigService,
     @IModelCatalog private readonly modelCatalog: IModelCatalog,
+    @IModelService private readonly models: IModelService,
     @IAgentIdentity private readonly identity: IAgentIdentity,
   ) {}
 
@@ -145,21 +147,16 @@ export class ModelsDevImportService implements IModelsDevImportService {
     const config = await this.readyConfig();
     const providers = config.inspect<ProvidersSection>(PROVIDERS_SECTION).userValue ?? {};
     const existing = providers[targetId];
-    if (existing?.oauth !== undefined) {
-      throw new Error2(
-        codes.PROVIDER_OAUTH_MANAGED,
-        `provider ${targetId} is managed by OAuth login; use POST /oauth/logout instead`,
-      );
-    }
-
     const provider: ProviderConfig = { type: resolution.wire };
     provider.baseUrl = resolution.baseUrl;
     provider.apiKey = options.apiKey ?? existing?.apiKey;
-    await config.replace(PROVIDERS_SECTION, { ...providers, [targetId]: provider });
-
+    provider.source = { kind: 'modelsDev', url: MODELS_DEV_URL };
     const records = config.inspect<ModelsSection>(MODELS_SECTION).userValue ?? {};
+    const nextProviders = { ...providers, [targetId]: provider };
+    await config.replace(PROVIDERS_SECTION, nextProviders);
+
     const withoutTarget = Object.fromEntries(
-      Object.entries(records).filter(([, record]) => record.provider !== targetId),
+      Object.entries(records).filter(([, record]) => modelRecordProviderId(record) !== targetId),
     );
     await config.replace(MODELS_SECTION, withoutTarget);
     const nextModels = { ...withoutTarget };
@@ -168,11 +165,7 @@ export class ModelsDevImportService implements IModelsDevImportService {
     }
     await config.replace(MODELS_SECTION, nextModels);
 
-    const firstModel = models[0];
-    if (firstModel !== undefined) {
-      await seedDefaultModelWhenUnset(config, `${targetId}/${firstModel.id}`);
-    }
-
+    await this.models.settled;
     const imported = await this.modelCatalog.getProvider(targetId);
     return { provider: imported, modelsImported: models.length };
   }
@@ -183,6 +176,7 @@ export class ModelsDevImportService implements IModelsDevImportService {
     const { url } = options;
     const config = await this.readyConfig();
     const providers = config.inspect<ProvidersSection>(PROVIDERS_SECTION).userValue ?? {};
+    const models = config.inspect<ModelsSection>(MODELS_SECTION).userValue ?? {};
     const source: CustomRegistrySource = {
       kind: 'apiJson',
       url,
@@ -196,10 +190,10 @@ export class ModelsDevImportService implements IModelsDevImportService {
         userAgent: await this.outboundUserAgent(),
         signal: AbortSignal.timeout(UPSTREAM_FETCH_TIMEOUT_MS),
       });
-    } catch (err) {
+    } catch (error) {
       throw new Error2(
         codes.REGISTRY_IMPORT_INVALID,
-        `custom registry at ${url} cannot be imported: ${truncateUpstreamMessage(err)}`,
+        `custom registry at ${url} cannot be imported: ${truncateUpstreamMessage(error)}`,
       );
     }
     if (Object.keys(entries).length === 0) {
@@ -209,21 +203,10 @@ export class ModelsDevImportService implements IModelsDevImportService {
       );
     }
 
-    for (const entry of Object.values(entries)) {
-      if (providers[entry.id]?.oauth !== undefined) {
-        throw new Error2(
-          codes.PROVIDER_OAUTH_MANAGED,
-          `provider ${entry.id} is managed by OAuth login; use POST /oauth/logout instead`,
-        );
-      }
-    }
-
     const removed = {
       providers: { ...providers },
-      models: {
-        ...config.inspect<ModelsSection>(MODELS_SECTION).userValue,
-      },
-    } as ManagedPythinkerConfigShape;
+      models: { ...models },
+    } as PythinkerConfigShape;
     const surviving = new Set(Object.values(entries).map((entry) => entry.id));
     for (const [providerId, provider] of Object.entries(removed.providers)) {
       if (surviving.has(providerId)) continue;
@@ -249,19 +232,14 @@ export class ModelsDevImportService implements IModelsDevImportService {
     const applied = {
       providers: removed.providers,
       models: removed.models,
-    } as ManagedPythinkerConfigShape;
+    } as PythinkerConfigShape;
     for (const entry of Object.values(entries)) {
       applyCustomRegistryProvider(applied, entry, source);
     }
     await config.replace(PROVIDERS_SECTION, applied.providers as ProvidersSection);
     await config.replace(MODELS_SECTION, (applied.models ?? {}) as ModelsSection);
 
-    const firstEntry = Object.values(entries)[0];
-    const firstModelKey = firstEntry === undefined ? undefined : Object.keys(firstEntry.models)[0];
-    if (firstEntry !== undefined && firstModelKey !== undefined) {
-      await seedDefaultModelWhenUnset(config, `${firstEntry.id}/${firstModelKey}`);
-    }
-
+    await this.models.settled;
     const imported = [];
     for (const entry of Object.values(entries)) {
       imported.push(await this.modelCatalog.getProvider(entry.id));
@@ -272,12 +250,6 @@ export class ModelsDevImportService implements IModelsDevImportService {
     );
     return { providers: imported, modelsImported };
   }
-}
-
-async function seedDefaultModelWhenUnset(config: IConfigService, alias: string): Promise<void> {
-  const current = config.inspect<string>(DEFAULT_MODEL_SECTION).userValue;
-  if (current !== undefined && current.trim() !== '') return;
-  await config.replace(DEFAULT_MODEL_SECTION, alias);
 }
 
 function registryKeyFromExisting(

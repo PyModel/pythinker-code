@@ -578,8 +578,6 @@ export * from '#/app/auth/configSection';
 export * from '#/app/auth/webSearch/webSearch';
 export * from '#/app/auth/webSearch/webSearchService';
 export * from '#/app/auth/webSearch/providers/pymodel-web-search';
-export * from '#/app/authLegacy/authLegacy';
-export * from '#/app/authLegacy/authStatusService';
 export * from '#/app/file/fileService';
 export * from '#/app/file/fileServiceImpl';
 export {

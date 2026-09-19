@@ -5,9 +5,9 @@ import { Error2 } from '#/_base/errors/errors';
 
 import { IOAuthTokenService } from '#/app/auth/auth';
 import { AuthErrors } from '#/app/auth/errors';
-import { nonEmpty } from '#/llm-adapter/model/model-auth';
-import { IModelOAuthTokens } from '#/llm-adapter/model/model-oauth';
-import type { OAuthRef } from '#/llm-adapter/provider/provider';
+import { nonEmpty } from '#/kosong/model/modelAuth';
+import { IModelOAuthTokens } from '#/kosong/model/modelOAuth';
+import type { OAuthRef } from '#/kosong/provider/provider';
 
 export class ModelOAuthTokenAdapter implements IModelOAuthTokens {
   declare readonly _serviceBrand: undefined;

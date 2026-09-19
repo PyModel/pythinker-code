@@ -1,15 +1,14 @@
-import { PYTHINKER_CODE_PROVIDER_NAME } from '@pymodel/pythinker-code-oauth';
 
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Service } from '#/_base/di/service';
 import { AsyncEmitter, Emitter, type Event } from '#/_base/event';
-import type { HookDef } from '#/features/externalHooks/internal/types';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { LifecycleScope } from '#/app/scopes';
 import { ISkillDiscovery } from '#/features/skill/catalog/skillDiscovery';
 import type { SkillRoot } from '#/features/skill/catalog/types';
 import { BugIndicatingError, Error2, PluginErrors } from '#/errors';
-import { IProviderService } from '#/llm-adapter/provider/provider';
+import { IProviderService } from '#/kosong/provider/provider';
+import type { HookDef } from '#/features/externalHooks/internal/types';
 import type { McpServerConfig } from '#/mcpCore/config-schema';
 
 import { PluginManager } from './manager';
@@ -36,9 +35,6 @@ import type {
   ReloadSummary,
 } from './types';
 
-const PYTHINKER_CODE_BASE_URL_ENV = 'PYTHINKER_CODE_BASE_URL';
-const PYTHINKER_CODE_OAUTH_HOST_ENV = 'PYTHINKER_CODE_OAUTH_HOST';
-const PYTHINKER_OAUTH_HOST_ENV = 'PYTHINKER_OAUTH_HOST';
 const NO_ABORT = new AbortController().signal;
 
 interface PluginReloadNotification {
@@ -55,8 +51,6 @@ export class PluginService extends Service implements IPluginService {
   declare readonly _serviceBrand: undefined;
 
   private readonly homeDir: string;
-  private readonly envBaseUrl: string | undefined;
-  private readonly envOAuthHost: string | undefined;
   private readonly manager: PluginManager;
   private initialLoadPromise: Promise<void> | undefined;
   private snapshotLoaded = false;
@@ -75,9 +69,6 @@ export class PluginService extends Service implements IPluginService {
   ) {
     super();
     this.homeDir = bootstrap.homeDir;
-    this.envBaseUrl = bootstrap.getEnv(PYTHINKER_CODE_BASE_URL_ENV);
-    this.envOAuthHost =
-      bootstrap.getEnv(PYTHINKER_CODE_OAUTH_HOST_ENV) ?? bootstrap.getEnv(PYTHINKER_OAUTH_HOST_ENV);
     this.manager = new PluginManager({
       pythinkerHomeDir: this.homeDir,
       discoverSkills: (roots) => discovery.discover(roots),
@@ -215,25 +206,11 @@ export class PluginService extends Service implements IPluginService {
   }
 
   enabledMcpServers(): Promise<Record<string, McpServerConfig>> {
-    return this.runConsumptionRead({}, async () => {
-      const pluginServers = this.manager.enabledMcpServers();
-      if (!Object.values(pluginServers).some((server) => server.transport === 'stdio')) {
-        return pluginServers;
-      }
-      const managedEnv = await this.managedPythinkerCodeEnvForPlugins();
-      return withManagedPythinkerPluginEnv(pluginServers, managedEnv);
-    });
+    return this.runConsumptionRead({}, async () => this.manager.enabledMcpServers());
   }
 
   mcpServerEntries(): Promise<readonly PluginMcpServerEntry[]> {
-    return this.runManagementRead(async () => {
-      const entries = this.manager.mcpServerEntries();
-      if (!entries.some((entry) => entry.config.transport === 'stdio')) {
-        return entries;
-      }
-      const managedEnv = await this.managedPythinkerCodeEnvForPlugins();
-      return withManagedPythinkerPluginEnvOnEntries(entries, managedEnv);
-    });
+    return this.runManagementRead(async () => this.manager.mcpServerEntries());
   }
 
   enabledHooks(): Promise<readonly HookDef[]> {
@@ -305,44 +282,6 @@ export class PluginService extends Service implements IPluginService {
     );
   }
 
-  private async managedPythinkerCodeEnvForPlugins(): Promise<Record<string, string>> {
-    await this.providers.ready;
-    const provider = this.providers.get(PYTHINKER_CODE_PROVIDER_NAME);
-    const envBaseUrl = this.envBaseUrl;
-    const envOAuthHost = this.envOAuthHost;
-    const hasEnvOverride = envBaseUrl !== undefined || envOAuthHost !== undefined;
-    const baseUrl = envBaseUrl !== undefined ? envBaseUrl.replace(/\/+$/, '') : provider?.baseUrl;
-    const oauthHost = hasEnvOverride ? envOAuthHost : provider?.oauth?.oauthHost;
-    const env: Record<string, string> = {};
-    if (baseUrl !== undefined) env[PYTHINKER_CODE_BASE_URL_ENV] = baseUrl;
-    if (oauthHost !== undefined) env[PYTHINKER_CODE_OAUTH_HOST_ENV] = oauthHost;
-    return env;
-  }
-}
-
-function withManagedPythinkerPluginEnv(
-  pluginServers: Record<string, McpServerConfig>,
-  managedEnv: Record<string, string>,
-): Record<string, McpServerConfig> {
-  if (Object.keys(managedEnv).length === 0) return pluginServers;
-  const out: Record<string, McpServerConfig> = {};
-  for (const [name, server] of Object.entries(pluginServers)) {
-    out[name] =
-      server.transport === 'stdio' ? { ...server, env: { ...server.env, ...managedEnv } } : server;
-  }
-  return out;
-}
-
-function withManagedPythinkerPluginEnvOnEntries(
-  entries: readonly PluginMcpServerEntry[],
-  managedEnv: Record<string, string>,
-): readonly PluginMcpServerEntry[] {
-  if (Object.keys(managedEnv).length === 0) return entries;
-  return entries.map((entry) =>
-    entry.config.transport === 'stdio'
-      ? { ...entry, config: { ...entry.config, env: { ...entry.config.env, ...managedEnv } } }
-      : entry,
-  );
 }
 
 registerScopedService(

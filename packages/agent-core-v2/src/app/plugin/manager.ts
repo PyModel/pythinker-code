@@ -26,7 +26,6 @@ import {
   type PluginInfo,
   type PluginMcpServerEntry,
   type PluginMcpServerInfo,
-  type PluginAgentRoot,
   type PluginRecord,
   type PluginSource,
   type PluginSummary,

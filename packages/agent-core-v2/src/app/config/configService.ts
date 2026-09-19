@@ -460,6 +460,19 @@ export class ConfigService extends Disposable implements IConfigService {
     });
   }
 
+  previewReplaceSections(sections: Readonly<Record<string, unknown>>): ResolvedConfig {
+    const staged: ResolvedConfig = { ...this.getAll() };
+    for (const domain of Object.keys(sections)) {
+      const value = sections[domain];
+      if (value === undefined || value === null) {
+        delete staged[domain];
+      } else {
+        staged[domain] = this.registry.validate(domain, value);
+      }
+    }
+    return staged;
+  }
+
   async replaceSections(
     sections: Readonly<Record<string, unknown>>,
     target: ConfigTarget = ConfigTarget.User,

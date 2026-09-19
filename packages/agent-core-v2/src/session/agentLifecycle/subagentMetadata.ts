@@ -34,14 +34,6 @@ export function labelsFromAgentMeta(
   return Object.keys(labels).length > 0 ? labels : undefined;
 }
 
-export function withSubagentProfile(
-  labels: Readonly<Record<string, string>> | undefined,
-  profileName: string | undefined,
-): Readonly<Record<string, string>> | undefined {
-  if (profileName === undefined || profileName.length === 0) return labels;
-  return { ...labels, profileName };
-}
-
 export function isSubagentMeta(meta: AgentMeta | undefined): boolean {
   if (meta === undefined) return false;
   if (subagentParentAgentId(meta) !== undefined) return true;

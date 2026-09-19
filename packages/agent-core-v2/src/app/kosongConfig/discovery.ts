@@ -35,13 +35,7 @@ export class ModelCatalogChanged extends Event2<{
 export interface ModelCatalogChanged {
   readonly payload: RefreshProviderModelsResponse;
 }
-
-export interface ModelCatalogChangedEvent {
-  readonly type: 'event.model_catalog.changed';
-  readonly changed: readonly ProviderRefreshChange[];
-  readonly unchanged: readonly string[];
-  readonly failed: readonly ProviderRefreshFailure[];
-}
+export type ModelCatalogChangedEvent = ModelCatalogChanged;
 
 export interface RefreshProviderModelsOptions {
   readonly providerId?: string;

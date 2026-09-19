@@ -50,10 +50,6 @@ export interface ModelRecord {
 
 export type ModelsSection = Record<string, ModelRecord>;
 
-export function modelRecordProviderId(record: ModelRecord): string | undefined {
-  return record.providerId ?? record.provider;
-}
-
 export interface ModelsChangedEvent {
   readonly added: readonly string[];
   readonly removed: readonly string[];
@@ -68,20 +64,16 @@ export interface IModelService {
   readonly _serviceBrand: undefined;
 
   readonly ready: Promise<void>;
-  readonly settled: Promise<void>;
   readonly onDidChangeModels: Event<ModelsChangedEvent & IWaitUntil>;
   readonly onDidChangeDefaultModel: Event<DefaultModelChangedEvent & IWaitUntil>;
-  readonly onDidChangeLastUsedModel: Event<DefaultModelChangedEvent & IWaitUntil>;
   get(id: string): ModelRecord | undefined;
   list(): Readonly<Record<string, ModelRecord>>;
   getDefaultModel(): string | undefined;
-  getLastUsedModel(): string | undefined;
   set(id: string, model: ModelRecord): Promise<void>;
   delete(id: string): Promise<void>;
-  loadAll(models: ModelsSection, defaultModel: string | undefined, lastUsedModel: string | undefined): void;
+  loadAll(models: ModelsSection, defaultModel: string | undefined): void;
   replaceAll(models: ModelsSection): Promise<void>;
   setDefaultModel(id: string | undefined): Promise<void>;
-  setLastUsedModel(id: string | undefined): Promise<void>;
 }
 
 export const IModelService: ServiceIdentifier<IModelService> =

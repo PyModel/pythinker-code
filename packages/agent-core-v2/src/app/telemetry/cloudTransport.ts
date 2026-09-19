@@ -1,11 +1,5 @@
 import { randomBytes } from 'node:crypto';
 
-import {
-  PYTHINKER_REGION_PROFILES,
-  pythinkerRegionProfile,
-  resolvePythinkerRegion,
-} from '@pymodel/pythinker-code-oauth';
-
 import { isAbortError } from '#/_base/utils/abort';
 import type { IFileSystemStorageService } from '#/persistence/interface/storage';
 
@@ -37,8 +31,6 @@ export interface CloudTransportOptions {
   readonly storage: IFileSystemStorageService;
   readonly deviceId: string;
   readonly endpoint?: string;
-  readonly homeDir?: string;
-  readonly readMarker?: boolean;
   readonly getAccessToken?: () => string | null | Promise<string | null>;
   readonly fetchImpl?: typeof fetch;
   readonly retryBackoffsMs?: readonly number[];
@@ -47,7 +39,7 @@ export interface CloudTransportOptions {
   readonly now?: () => number;
 }
 
-export const TELEMETRY_ENDPOINT = PYTHINKER_REGION_PROFILES['mainland-cn'].telemetryEndpoint;
+export const TELEMETRY_ENDPOINT = 'https://telemetry-logs.pythinker.com/v1/event';
 export const SERVER_EVENT_PREFIX = 'pfc_';
 export const USER_ID_PREFIX = 'pfc_device_id_';
 export const DISK_EVENT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
@@ -60,12 +52,6 @@ const JSONL_SUFFIX = '.jsonl';
 
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
-
-function defaultTelemetryEndpoint(homeDir?: string, readMarker = true): string {
-  return pythinkerRegionProfile(
-    resolvePythinkerRegion({ readMarker, homeDir }),
-  ).telemetryEndpoint;
-}
 
 export class CloudTransport {
   private readonly storage: IFileSystemStorageService;
@@ -81,12 +67,7 @@ export class CloudTransport {
   constructor(options: CloudTransportOptions) {
     this.storage = options.storage;
     this.deviceId = options.deviceId;
-    this.endpoint =
-      options.endpoint ??
-      defaultTelemetryEndpoint(
-        options.homeDir,
-        options.readMarker ?? process.env['PYTHINKER_CODE_REGION_MARKER'] !== 'off',
-      );
+    this.endpoint = options.endpoint ?? TELEMETRY_ENDPOINT;
     this.getAccessToken = options.getAccessToken ?? null;
     this.fetchImpl = options.fetchImpl ?? globalThis.fetch.bind(globalThis);
     this.retryBackoffsMs = options.retryBackoffsMs ?? RETRY_BACKOFFS_MS;
