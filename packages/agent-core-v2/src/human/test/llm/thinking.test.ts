@@ -450,7 +450,7 @@ describe('openai requester thinking', () => {
       { type: 'summary', summary: 'zh11' },
       { type: 'encrypted', encrypted: 'cipher' },
     ]);
-    expect(continued['reasoning_content']).toBe('zh1');
+    expect(continued['reasoning_content']).toBe('zh6zh4');
     expect(continued['content']).toBe('ok');
   });
 
