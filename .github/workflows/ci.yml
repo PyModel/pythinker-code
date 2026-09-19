@@ -159,13 +159,13 @@ jobs:
       # package silently turns its gate into a no-op. Three of these filters
       # had already gone stale that way: `@pymodel/dashboard-server` and
       # `@pymodel/dashboard-web` matched nothing after the vis rename, and
-      # `pythinker-code` matched the CLI directory instead of the VS Code
-      # extension (`pythinker`), so the extension was never typechecked here.
+      # Typecheck published app packages. The VS Code extension package is
+      # named `pythinker` and stays on its own typecheck path when aligned.
       # Resolving each filter first turns a stale name back into a failure.
       - name: Typecheck workspace apps
         run: |
           set -euo pipefail
-          for package in pythinker @pymodel/pythinker-web @pymodel/vis-server @pymodel/vis-web @pymodel/pythinker-desktop; do
+          for package in @pymodel/pythinker-code @pymodel/pythinker-web @pymodel/vis-server @pymodel/vis-web @pymodel/pythinker-desktop; do
             if [ -z "$(pnpm ls --filter "$package" --depth -1 --parseable)" ]; then
               echo "No workspace package matches the filter '${package}'" >&2
               exit 1

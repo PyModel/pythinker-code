@@ -129,3 +129,8 @@ export { buildSkillSlashCommands, isUserActivatableSkill } from '#/skill-command
 export type { SkillSlashCommand, SkillSlashCommands } from '#/skill-commands';
 
 export { CatalogProviderError, importCatalogProvider } from '#/catalog';
+
+
+export { runLogin } from '#/login/flows';
+export { createPythinkerHarness as createPythinkerHarnessV2 } from '#/sdk-rpc-client-v2';
+export { formatErrorMessage } from '#/error-format';
