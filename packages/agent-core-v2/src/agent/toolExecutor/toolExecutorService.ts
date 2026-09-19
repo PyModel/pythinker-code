@@ -53,6 +53,7 @@ import {
 } from './toolExecutor';
 import { ToolCallStarted, ToolProgress, ToolResultEvent } from './toolExecutorEvents';
 import { ToolScheduler } from './toolScheduler';
+import type { OutstandingEffect } from './toolScheduler';
 
 const ABORT_GRACE_MS = 2_000;
 const TOOL_OUTPUT_EMPTY = 'Tool output is empty.';
@@ -71,6 +72,7 @@ export interface ToolExecutionTask {
 export interface ToolExecutionRunResult {
   readonly result: ToolResult;
   readonly outcome: ToolExecutionOutcome;
+  readonly effectsSettled?: Promise<unknown>;
 }
 
 interface TimedToolResult {
@@ -123,6 +125,7 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
   private missingToolDescriber: MissingToolDescriber | undefined;
   private unavailableToolDescriber: UnavailableToolDescriber | undefined;
   private toolCallGuard: ToolCallGuard | undefined;
+  private readonly outstandingEffects: OutstandingEffect[] = [];
 
   recordDupType(toolCallId: string, dupType: ToolCallDupType): void {
     this.toolCallDupTypes.set(toolCallId, dupType);
@@ -302,7 +305,7 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
     );
 
     this.dispatchToolResult(call, finalized, options);
-    this.trackToolCall(call, finalized, timedResult.durationMs, timedResult.outcome, options);
+    this.trackToolCall(call, finalized, timedResult.durationMs, options, timedResult.outcome);
 
     return {
       toolCallId: call.toolCall.id,
@@ -315,8 +318,8 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
     call: PreflightedToolCall,
     result: ToolResult,
     durationMs: number,
-    executionOutcome: ToolExecutionOutcome,
     options: ToolExecutorExecuteOptions,
+    executionOutcome: ToolExecutionOutcome,
   ): void {
     const outcome = toolTelemetryOutcome(result, executionOutcome);
     const toolCallId = call.toolCall.id;
@@ -455,11 +458,21 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
     };
   }
 
+
+  private trackOutstandingEffect(accesses: ToolAccesses, settled: Promise<unknown>): void {
+    const effect: OutstandingEffect = { accesses, settled };
+    this.outstandingEffects.push(effect);
+    void settled.finally(() => {
+      const index = this.outstandingEffects.indexOf(effect);
+      if (index >= 0) this.outstandingEffects.splice(index, 1);
+    });
+  }
+
   private async *executeBatch(
     tasks: ToolExecutionTask[],
     signal: AbortSignal,
   ): AsyncIterable<TimedToolResult> {
-    const scheduler = new ToolScheduler<TimedToolResult>();
+    const scheduler = new ToolScheduler<TimedToolResult>(this.outstandingEffects);
     const allResults: Array<Promise<TimedToolResult>> = [];
     const pendingResults = new Map<number, Promise<SettledTimedToolResult>>();
 
@@ -470,6 +483,13 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
         start: async () => {
           const startedAt = Date.now();
           const execution = task.execute(signal);
+          const effectsSettled = execution.then(
+            async (run) => {
+              if (run.effectsSettled !== undefined) await run.effectsSettled;
+            },
+            () => undefined,
+          );
+          this.trackOutstandingEffect(task.accesses, effectsSettled);
           return {
             result: execution.then(({ result, outcome }) => ({
               index,
@@ -477,13 +497,7 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
               outcome,
               durationMs: Math.max(0, Date.now() - startedAt),
             })),
-            effectsSettled: (async () => {
-              try {
-                const run = await execution;
-                if (run.effectsSettled !== undefined) await run.effectsSettled;
-              } catch {
-              }
-            })(),
+            effectsSettled,
           };
         },
       });
@@ -542,15 +556,15 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
           this.dispatchToolProgress(call, update, options);
         },
       });
+      const effectsSettled = executePromise.then(
+        () => undefined,
+        () => undefined,
+      );
       rawResult = await raceWithAbortGrace(executePromise, signal, call.toolName);
-      const abortedByGrace =
-        signal.aborted &&
-        typeof rawResult === 'object' &&
-        rawResult !== null &&
-        (rawResult as { isError?: boolean }).isError === true;
       return {
         result: this.normalizeAndMergeResult(rawResult, call.toolName, execution),
-        outcome: abortedByGrace ? 'aborted' : 'executed',
+        outcome: 'executed',
+        effectsSettled,
       };
     } catch (error) {
       const aborted = isAbortError(error) || signal.aborted;
@@ -559,7 +573,7 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
         : `Tool "${call.toolName}" failed: ${errorMessage(error)}`;
       return {
         result: makeErrorToolResult(call, call.args, output).result,
-        outcome: aborted ? 'aborted' : 'executed',
+        outcome: 'executed',
       };
     }
   }
@@ -925,8 +939,16 @@ function toolTelemetryOutcome(
   result: ToolResult,
   executionOutcome: ToolExecutionOutcome,
 ): 'success' | 'error' | 'cancelled' {
-  if (executionOutcome === 'aborted' || executionOutcome === 'cancelled') return 'cancelled';
+  if (executionOutcome === 'aborted') return 'cancelled';
   if (result.isError !== true) return 'success';
+  const text = toolOutputText(result.output);
+  if (
+    text.startsWith('Tool "') &&
+    (text.includes('" was aborted') || text.includes('manually interrupted'))
+  ) {
+    return 'cancelled';
+  }
+  if (text.includes('aborted during onDidExecuteTool hook')) return 'cancelled';
   return 'error';
 }
 
@@ -935,6 +957,13 @@ function toolTelemetryErrorType(outcome: 'success' | 'error' | 'cancelled'): 'ca
   return 'error';
 }
 
+function toolOutputText(output: ToolResult['output']): string {
+  if (typeof output === 'string') return output;
+  return output
+    .filter((part): part is Extract<ContentPart, { type: 'text' }> => part.type === 'text')
+    .map((part) => part.text)
+    .join('');
+}
 
 function isMediaContentPart(part: ContentPart): boolean {
   return part.type === 'image_url' || part.type === 'audio_url' || part.type === 'video_url';
