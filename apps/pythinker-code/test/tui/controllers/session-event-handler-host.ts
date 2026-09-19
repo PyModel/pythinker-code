@@ -2,20 +2,15 @@ import { vi } from 'vitest';
 
 import { getBuiltInPalette } from '#/tui/theme';
 
-export function makeSessionEventHandlerHost(overrides: Record<string, unknown> = {}) {
-  const streamingUIOverride =
-    overrides.streamingUI !== undefined && typeof overrides.streamingUI === 'object'
-      ? (overrides.streamingUI as Record<string, unknown>)
-      : undefined;
-  const surveyOverride =
-    overrides.surveyController !== undefined && typeof overrides.surveyController === 'object'
-      ? (overrides.surveyController as Record<string, unknown>)
-      : undefined;
-  const stateOverride =
-    overrides.state !== undefined && typeof overrides.state === 'object'
-      ? (overrides.state as Record<string, unknown>)
-      : undefined;
+type HostOverrides = {
+  streamingUI?: Record<string, unknown>;
+  surveyController?: Record<string, unknown>;
+  state?: Record<string, unknown>;
+  session?: unknown;
+  [key: string]: unknown;
+};
 
+export function makeSessionEventHandlerHost(overrides: HostOverrides = {}) {
   const streamingUI = {
     setTurnId: vi.fn(),
     flushNow: vi.fn(),
@@ -28,7 +23,7 @@ export function makeSessionEventHandlerHost(overrides: Record<string, unknown> =
     registerToolCall: vi.fn(),
     completeToolResult: vi.fn(),
     setTodoList: vi.fn(),
-    ...streamingUIOverride,
+    ...overrides.streamingUI,
   };
 
   const surveyController = {
@@ -36,7 +31,7 @@ export function makeSessionEventHandlerHost(overrides: Record<string, unknown> =
     notifyToolCallEnded: vi.fn(),
     notifyCompactionFinished: vi.fn(),
     notifySubagentSpawned: vi.fn(),
-    ...surveyOverride,
+    ...overrides.surveyController,
   };
 
   const rest = { ...overrides };
@@ -60,7 +55,7 @@ export function makeSessionEventHandlerHost(overrides: Record<string, unknown> =
       todoPanel: { getTodos: vi.fn(() => []) },
       transcriptContainer: { addChild: vi.fn() },
       ui: { requestRender: vi.fn() },
-      ...stateOverride,
+      ...overrides.state,
     },
     session: overrides.session ?? {},
     aborted: false,
